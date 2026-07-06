@@ -1,0 +1,359 @@
+// VestiCRM — Schema multi-tenant para CRM de moda
+// Dev: SQLite. Produção: trocar provider para "postgresql" (schema é compatível).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Empresa (tenant). Toda entidade de negócio referencia companyId — nenhuma
+// consulta do app pode cruzar empresas (ver src/lib/scope.ts).
+// ---------------------------------------------------------------------------
+model Company {
+  id        String   @id @default(cuid())
+  name      String
+  slug      String   @unique
+  plan      String   @default("pro")
+  createdAt DateTime @default(now())
+
+  users         User[]
+  customers     Customer[]
+  tags          Tag[]
+  interests     Interest[]
+  pipelines     Pipeline[]
+  opportunities Opportunity[]
+  conversations Conversation[]
+  templates     MessageTemplate[]
+  tasks         Task[]
+  sales         Sale[]
+  campaigns     Campaign[]
+}
+
+// SUPERADMIN enxerga todas as empresas; demais papéis ficam restritos à sua.
+enum Role {
+  SUPERADMIN
+  ADMIN
+  MANAGER
+  SELLER
+  SUPPORT
+}
+
+model User {
+  id           String  @id @default(cuid())
+  companyId    String
+  company      Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  name         String
+  email        String  @unique
+  passwordHash String
+  role         Role    @default(SELLER)
+  active       Boolean @default(true)
+  color        String  @default("#6366f1")
+  createdAt    DateTime @default(now())
+
+  customers     Customer[]     @relation("CustomerOwner")
+  opportunities Opportunity[]  @relation("OppOwner")
+  conversations Conversation[] @relation("ConvAssignee")
+  tasks         Task[]         @relation("TaskAssignee")
+  sales         Sale[]         @relation("SaleSeller")
+  messages      Message[]
+
+  @@index([companyId])
+}
+
+enum CustomerType {
+  VAREJO
+  ATACADO
+  REVENDEDORA
+  LOJISTA
+  BOUTIQUE
+  SACOLEIRA
+}
+
+enum Origin {
+  INSTAGRAM
+  WHATSAPP
+  INDICACAO
+  TRAFEGO_PAGO
+  LOJA_FISICA
+  EVENTO
+  SITE
+}
+
+model Customer {
+  id             String       @id @default(cuid())
+  companyId      String
+  company        Company      @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  name           String
+  phone          String
+  city           String?
+  state          String?
+  type           CustomerType @default(VAREJO)
+  origin         Origin       @default(WHATSAPP)
+  notes          String?
+  preferredSize  String?
+  preferredColors String?
+  lastPurchaseAt DateTime?
+  nextContactAt  DateTime?
+  lastContactAt  DateTime?
+  ownerId        String?
+  owner          User?        @relation("CustomerOwner", fields: [ownerId], references: [id], onDelete: SetNull)
+  createdAt      DateTime     @default(now())
+
+  tags          CustomerTag[]
+  interests     CustomerInterest[]
+  opportunities Opportunity[]
+  conversations Conversation[]
+  tasks         Task[]
+  sales         Sale[]
+
+  @@index([companyId])
+  @@index([companyId, ownerId])
+}
+
+model Tag {
+  id        String  @id @default(cuid())
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  name      String
+  color     String  @default("#8b5cf6")
+
+  customers CustomerTag[]
+
+  @@unique([companyId, name])
+}
+
+model CustomerTag {
+  customerId String
+  tagId      String
+  customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  tag        Tag      @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([customerId, tagId])
+}
+
+// Produtos/categorias de interesse (vestidos, moda fitness, atacado...)
+model Interest {
+  id        String  @id @default(cuid())
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  name      String
+
+  customers CustomerInterest[]
+
+  @@unique([companyId, name])
+}
+
+model CustomerInterest {
+  customerId String
+  interestId String
+  customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  interest   Interest @relation(fields: [interestId], references: [id], onDelete: Cascade)
+
+  @@id([customerId, interestId])
+}
+
+model Pipeline {
+  id        String  @id @default(cuid())
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  name      String  @default("Funil de vendas")
+
+  stages Stage[]
+
+  @@index([companyId])
+}
+
+model Stage {
+  id         String   @id @default(cuid())
+  pipelineId String
+  pipeline   Pipeline @relation(fields: [pipelineId], references: [id], onDelete: Cascade)
+  name       String
+  order      Int
+  color      String   @default("#6366f1")
+  isWon      Boolean  @default(false)
+  isLost     Boolean  @default(false)
+
+  opportunities Opportunity[]
+
+  @@index([pipelineId])
+}
+
+enum OppStatus {
+  OPEN
+  WON
+  LOST
+}
+
+model Opportunity {
+  id                String    @id @default(cuid())
+  companyId         String
+  company           Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  customerId        String
+  customer          Customer  @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  stageId           String
+  stage             Stage     @relation(fields: [stageId], references: [id])
+  title             String
+  value             Float     @default(0)
+  status            OppStatus @default(OPEN)
+  lostReason        String?
+  ownerId           String?
+  owner             User?     @relation("OppOwner", fields: [ownerId], references: [id], onDelete: SetNull)
+  lastInteractionAt DateTime  @default(now())
+  createdAt         DateTime  @default(now())
+  closedAt          DateTime?
+
+  tasks Task[]
+  sales Sale[]
+
+  @@index([companyId, status])
+  @@index([stageId])
+}
+
+enum ConversationStatus {
+  OPEN
+  WAITING_CLIENT
+  WAITING_PAYMENT
+  CLOSED
+}
+
+model Conversation {
+  id            String             @id @default(cuid())
+  companyId     String
+  company       Company            @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  customerId    String
+  customer      Customer           @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  assigneeId    String?
+  assignee      User?              @relation("ConvAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
+  status        ConversationStatus @default(OPEN)
+  unreadCount   Int                @default(0)
+  lastMessageAt DateTime           @default(now())
+  createdAt     DateTime           @default(now())
+
+  messages Message[]
+
+  @@index([companyId, status])
+}
+
+enum MessageDirection {
+  IN
+  OUT
+}
+
+// NOTE = nota interna (visível só para a equipe, nunca enviada ao cliente)
+enum MessageKind {
+  TEXT
+  NOTE
+}
+
+model Message {
+  id             String           @id @default(cuid())
+  conversationId String
+  conversation   Conversation     @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  direction      MessageDirection @default(OUT)
+  kind           MessageKind      @default(TEXT)
+  body           String
+  authorId       String?
+  author         User?            @relation(fields: [authorId], references: [id], onDelete: SetNull)
+  createdAt      DateTime         @default(now())
+
+  @@index([conversationId, createdAt])
+}
+
+model MessageTemplate {
+  id        String  @id @default(cuid())
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  title     String
+  body      String
+
+  @@index([companyId])
+}
+
+enum TaskType {
+  LIGAR
+  ENVIAR_CATALOGO
+  COBRAR_PAGAMENTO
+  POS_VENDA
+  REATIVAR
+  ENVIAR_NOVIDADES
+  CONFIRMAR_ENTREGA
+  FOLLOW_UP
+  OUTRO
+}
+
+enum TaskPriority {
+  BAIXA
+  MEDIA
+  ALTA
+}
+
+enum TaskStatus {
+  PENDENTE
+  CONCLUIDA
+  CANCELADA
+}
+
+model Task {
+  id            String       @id @default(cuid())
+  companyId     String
+  company       Company      @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  customerId    String?
+  customer      Customer?    @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  opportunityId String?
+  opportunity   Opportunity? @relation(fields: [opportunityId], references: [id], onDelete: SetNull)
+  title         String
+  type          TaskType     @default(FOLLOW_UP)
+  dueAt         DateTime
+  priority      TaskPriority @default(MEDIA)
+  status        TaskStatus   @default(PENDENTE)
+  assigneeId    String?
+  assignee      User?        @relation("TaskAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
+  autoRule      String?      // preenchido quando a tarefa foi criada por automação
+  createdAt     DateTime     @default(now())
+
+  @@index([companyId, status, dueAt])
+}
+
+model Sale {
+  id            String       @id @default(cuid())
+  companyId     String
+  company       Company      @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  customerId    String
+  customer      Customer     @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  opportunityId String?
+  opportunity   Opportunity? @relation(fields: [opportunityId], references: [id], onDelete: SetNull)
+  sellerId      String?
+  seller        User?        @relation("SaleSeller", fields: [sellerId], references: [id], onDelete: SetNull)
+  total         Float
+  category      String?
+  description   String?
+  createdAt     DateTime     @default(now())
+
+  @@index([companyId, createdAt])
+}
+
+enum CampaignStatus {
+  RASCUNHO
+  ATIVA
+  CONCLUIDA
+}
+
+// Campanhas de reativação: filtro salvo como JSON (dias sem compra, tipo,
+// cidade, ticket mínimo, interesse...) + mensagem a disparar.
+model Campaign {
+  id         String         @id @default(cuid())
+  companyId  String
+  company    Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  name       String
+  filterJson String         @default("{}")
+  message    String
+  status     CampaignStatus @default(RASCUNHO)
+  createdAt  DateTime       @default(now())
+
+  @@index([companyId])
+}

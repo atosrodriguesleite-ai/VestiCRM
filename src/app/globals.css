@@ -1,0 +1,68 @@
+@import "tailwindcss";
+
+@theme {
+  --color-brand-50: #f5f3ff;
+  --color-brand-100: #ede9fe;
+  --color-brand-200: #ddd6fe;
+  --color-brand-300: #c4b5fd;
+  --color-brand-400: #a78bfa;
+  --color-brand-500: #8b5cf6;
+  --color-brand-600: #7c3aed;
+  --color-brand-700: #6d28d9;
+  --color-brand-800: #5b21b6;
+  --color-brand-900: #4c1d95;
+
+  --color-canvas: #f7f6fb;
+  --color-ink: #1a1523;
+
+  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+
+  --shadow-card: 0 1px 2px rgb(26 21 35 / 0.04), 0 4px 16px rgb(26 21 35 / 0.05);
+  --shadow-pop: 0 4px 12px rgb(26 21 35 / 0.08), 0 12px 32px rgb(26 21 35 / 0.1);
+
+  --animate-fade-up: fade-up 0.35s ease both;
+  --animate-fade-in: fade-in 0.25s ease both;
+}
+
+@keyframes fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+html {
+  -webkit-font-smoothing: antialiased;
+}
+
+body {
+  background: var(--color-canvas);
+  color: var(--color-ink);
+}
+
+/* barra de rolagem discreta nas colunas do funil e no chat */
+.thin-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: #d4d0dd transparent;
+}
+.thin-scroll::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+.thin-scroll::-webkit-scrollbar-thumb {
+  background: #d4d0dd;
+  border-radius: 3px;
+}

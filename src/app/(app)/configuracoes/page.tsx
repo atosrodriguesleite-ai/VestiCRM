@@ -1,0 +1,122 @@
+import {
+  MessageCircle,
+  Package,
+  ShoppingCart,
+  Store,
+  AtSign,
+  Megaphone,
+  CreditCard,
+  Mail,
+  ShieldCheck,
+  Building2,
+} from "lucide-react";
+import { requireUser } from "@/lib/auth";
+import { db } from "@/lib/db";
+import { roleLabel } from "@/lib/format";
+import { Card, PageHeader, Badge } from "@/components/ui";
+import { TemplateManager } from "./template-manager";
+
+export const dynamic = "force-dynamic";
+
+const INTEGRATIONS = [
+  {
+    name: "WhatsApp Cloud API",
+    desc: "Conecte o número oficial da loja para enviar e receber mensagens reais.",
+    icon: MessageCircle,
+    color: "#10b981",
+  },
+  { name: "Bling", desc: "Sincronize pedidos, estoque e notas fiscais.", icon: Package, color: "#0ea5e9" },
+  { name: "Nuvemshop", desc: "Importe pedidos e clientes da sua loja virtual.", icon: ShoppingCart, color: "#2563eb" },
+  { name: "Shopify", desc: "Conecte sua loja Shopify ao funil de vendas.", icon: Store, color: "#059669" },
+  { name: "Instagram", desc: "Receba directs e comentários dentro do CRM.", icon: AtSign, color: "#ec4899" },
+  { name: "Meta Ads", desc: "Leads dos anúncios entram direto no funil.", icon: Megaphone, color: "#7c3aed" },
+  { name: "Gateway de pagamento", desc: "Gere links de pagamento na conversa.", icon: CreditCard, color: "#f59e0b" },
+  { name: "E-mail marketing", desc: "Sincronize segmentos com sua ferramenta de e-mail.", icon: Mail, color: "#64748b" },
+];
+
+export default async function SettingsPage() {
+  const user = await requireUser();
+  const [company, templates] = await Promise.all([
+    db.company.findUnique({ where: { id: user.companyId } }),
+    db.messageTemplate.findMany({
+      where: { companyId: user.companyId },
+      orderBy: { title: "asc" },
+    }),
+  ]);
+
+  return (
+    <div className="max-w-5xl mx-auto">
+      <PageHeader
+        title="Configurações"
+        subtitle="Dados da loja, modelos de mensagem e integrações."
+      />
+
+      <Card className="p-5 mb-6">
+        <h2 className="font-semibold flex items-center gap-2 mb-3">
+          <Building2 className="size-4 text-brand-600" />
+          Sua loja
+        </h2>
+        <div className="grid sm:grid-cols-3 gap-4 text-sm">
+          <div>
+            <p className="text-xs text-gray-400 mb-0.5">Nome</p>
+            <p className="font-medium">{company?.name}</p>
+          </div>
+          <div>
+            <p className="text-xs text-gray-400 mb-0.5">Plano</p>
+            <p className="font-medium capitalize">{company?.plan}</p>
+          </div>
+          <div>
+            <p className="text-xs text-gray-400 mb-0.5">Seu papel</p>
+            <p className="font-medium">{roleLabel[user.role]}</p>
+          </div>
+        </div>
+        <div className="flex items-start gap-2 mt-4 pt-4 border-t border-gray-50 text-xs text-gray-500">
+          <ShieldCheck className="size-4 text-emerald-600 shrink-0" />
+          <p>
+            Ambiente multi-empresa: todos os dados (clientes, conversas, vendas
+            e relatórios) são isolados por loja. Nenhuma outra empresa acessa
+            suas informações.
+          </p>
+        </div>
+      </Card>
+
+      <h2 className="font-semibold mb-3">Modelos de mensagem</h2>
+      <TemplateManager
+        initial={templates.map((t) => ({
+          id: t.id,
+          title: t.title,
+          body: t.body,
+        }))}
+      />
+
+      <h2 className="font-semibold mt-8 mb-3">Integrações</h2>
+      <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
+        {INTEGRATIONS.map((i) => {
+          const Icon = i.icon;
+          return (
+            <Card key={i.name} className="p-4">
+              <div
+                className="size-9 rounded-xl flex items-center justify-center mb-3"
+                style={{ backgroundColor: `${i.color}1a` }}
+              >
+                <Icon className="size-4.5" style={{ color: i.color }} />
+              </div>
+              <p className="text-sm font-semibold mb-1 flex items-center gap-2">
+                {i.name}
+              </p>
+              <p className="text-xs text-gray-500 leading-relaxed mb-3">
+                {i.desc}
+              </p>
+              <Badge color="#94a3b8">Em breve</Badge>
+            </Card>
+          );
+        })}
+      </div>
+      <p className="text-xs text-gray-400 mt-3">
+        A arquitetura já está preparada: o envio de WhatsApp usa uma camada de
+        integração (<code className="bg-gray-100 rounded px-1">src/lib/whatsapp.ts</code>)
+        que hoje roda em modo simulado e aceita a API oficial sem mudar nenhuma tela.
+      </p>
+    </div>
+  );
+}
