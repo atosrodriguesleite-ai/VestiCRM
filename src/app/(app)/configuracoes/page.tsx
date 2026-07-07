@@ -15,6 +15,8 @@ import { db } from "@/lib/db";
 import { roleLabel } from "@/lib/format";
 import { Card, PageHeader, Badge } from "@/components/ui";
 import { TemplateManager } from "./template-manager";
+import { CatalogSettings } from "./catalog-settings";
+import { isAdmin } from "@/lib/scope";
 
 export const dynamic = "force-dynamic";
 
@@ -79,6 +81,24 @@ export default async function SettingsPage() {
           </p>
         </div>
       </Card>
+
+      {company && (
+        <>
+          <h2 className="font-semibold mb-3">Catálogo público</h2>
+          <div className="mb-6">
+            <CatalogSettings
+              slug={company.slug}
+              canEdit={isAdmin(user)}
+              initial={{
+                name: company.name,
+                tagline: company.tagline ?? "",
+                whatsapp: company.whatsapp ?? "",
+                minOrder: company.minOrder,
+              }}
+            />
+          </div>
+        </>
+      )}
 
       <h2 className="font-semibold mb-3">Modelos de mensagem</h2>
       <TemplateManager

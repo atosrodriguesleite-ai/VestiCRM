@@ -19,6 +19,9 @@ model Company {
   name      String
   slug      String   @unique
   plan      String   @default("pro")
+  whatsapp  String? // número exibido no catálogo público (wa.me)
+  tagline   String? // frase de apresentação do catálogo público
+  minOrder  Int     @default(0) // pedido mínimo (peças) no catálogo público; 0 = sem mínimo
   createdAt DateTime @default(now())
 
   users         User[]

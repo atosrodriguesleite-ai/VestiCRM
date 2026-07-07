@@ -1,3 +1,4 @@
+import { ExternalLink } from "lucide-react";
 import { requireUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { PageHeader } from "@/components/ui";
@@ -8,6 +9,9 @@ export const dynamic = "force-dynamic";
 export default async function ProductsPage() {
   const user = await requireUser();
 
+  const company = await db.company.findUnique({
+    where: { id: user.companyId },
+  });
   const products = await db.product.findMany({
     where: { companyId: user.companyId },
     include: {
@@ -59,6 +63,19 @@ export default async function ProductsPage() {
       <PageHeader
         title="Produtos"
         subtitle={`${items.length} produto${items.length === 1 ? "" : "s"} no catálogo da loja.`}
+        action={
+          company && (
+            <a
+              href={`/catalogo/${company.slug}`}
+              target="_blank"
+              className="flex items-center gap-1.5 rounded-xl border border-brand-200 bg-brand-50 hover:bg-brand-100 text-brand-700 text-sm font-medium px-4 py-2.5 transition"
+            >
+              <ExternalLink className="size-4" />
+              <span className="hidden sm:inline">Catálogo do cliente</span>
+              <span className="sm:hidden">Catálogo</span>
+            </a>
+          )
+        }
       />
       <ProductsView
         initial={items}

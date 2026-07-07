@@ -6,7 +6,7 @@ import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Package, Plus, Search, X } from "lucide-react";
 import { brl } from "@/lib/format";
-import { Card, Badge, EmptyState } from "@/components/ui";
+import { Card, EmptyState } from "@/components/ui";
 
 export type ProductItem = {
   id: string;
@@ -241,6 +241,7 @@ export function ProductsView({
   );
 }
 
+/** Editor completo do produto: a loja altera foto, textos, preços e estoque. */
 function ProductDetailModal({
   product,
   onClose,
@@ -251,6 +252,53 @@ function ProductDetailModal({
   onChanged: () => void;
 }) {
   const [busy, setBusy] = useState(false);
+  const [form, setForm] = useState({
+    name: product.name,
+    category: product.category,
+    brand: product.brand ?? "",
+    collection: product.collection ?? "",
+    description: product.description ?? "",
+    costPrice: String(product.costPrice).replace(".", ","),
+    wholesalePrice: String(product.wholesalePrice).replace(".", ","),
+    retailPrice: String(product.retailPrice).replace(".", ","),
+    minQuantity: String(product.minQuantity),
+    tags: product.tags ?? "",
+  });
+  const [image, setImage] = useState(product.images[0] ?? PLACEHOLDER_IMAGES[0]);
+  const [stocks, setStocks] = useState<Record<string, string>>(
+    Object.fromEntries(product.variants.map((v) => [v.id, String(v.stock)]))
+  );
+
+  const num = (v: string) => parseFloat(v.replace(",", ".")) || 0;
+  const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
+    setForm((f) => ({ ...f, [k]: e.target.value }));
+
+  async function save() {
+    setBusy(true);
+    await fetch(`/api/products/${product.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: form.name,
+        category: form.category,
+        brand: form.brand || null,
+        collection: form.collection || null,
+        description: form.description || null,
+        costPrice: num(form.costPrice),
+        wholesalePrice: num(form.wholesalePrice),
+        retailPrice: num(form.retailPrice),
+        minQuantity: parseInt(form.minQuantity) || 1,
+        tags: form.tags || null,
+        imageUrl: image,
+        variantStocks: Object.entries(stocks).map(([id, stock]) => ({
+          id,
+          stock: parseInt(stock) || 0,
+        })),
+      }),
+    });
+    setBusy(false);
+    onChanged();
+  }
 
   async function toggleActive() {
     setBusy(true);
@@ -263,106 +311,164 @@ function ProductDetailModal({
     onChanged();
   }
 
+  const input =
+    "w-full rounded-xl border border-gray-200 px-3 py-2 text-sm outline-none focus:border-brand-400 transition";
+  const label = "block text-xs font-medium text-gray-500 mb-1";
+
   return (
     <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center">
       <div className="absolute inset-0 bg-black/30 animate-fade-in" onClick={onClose} />
-      <div className="relative bg-white rounded-t-2xl md:rounded-2xl shadow-pop w-full md:max-w-2xl max-h-[92dvh] overflow-y-auto thin-scroll animate-fade-up">
-        <div className="grid md:grid-cols-2">
-          <div className="aspect-square bg-gray-50">
-            {product.images[0] && (
-              <img
-                src={product.images[0]}
-                alt={product.name}
-                className="w-full h-full object-cover md:rounded-l-2xl"
-              />
-            )}
-          </div>
-          <div className="p-5">
-            <div className="flex items-start justify-between gap-2">
-              <div>
-                <h3 className="font-semibold text-lg leading-tight">
-                  {product.name}
-                </h3>
-                <p className="text-xs text-gray-400 mt-0.5">
-                  {product.sku} · {product.category}
-                  {product.brand ? ` · ${product.brand}` : ""}
-                </p>
-              </div>
-              <button onClick={onClose} className="text-gray-400 p-1 shrink-0">
-                <X className="size-5" />
-              </button>
-            </div>
-
-            {product.description && (
-              <p className="text-sm text-gray-500 mt-3">{product.description}</p>
-            )}
-
-            <div className="grid grid-cols-3 gap-2 mt-4 text-center">
-              <div className="rounded-xl bg-gray-50 py-2">
-                <p className="text-[10px] text-gray-400">Custo</p>
-                <p className="text-sm font-semibold">{brl(product.costPrice)}</p>
-              </div>
-              <div className="rounded-xl bg-gray-50 py-2">
-                <p className="text-[10px] text-gray-400">Atacado</p>
-                <p className="text-sm font-semibold">{brl(product.wholesalePrice)}</p>
-              </div>
-              <div className="rounded-xl bg-brand-50 py-2">
-                <p className="text-[10px] text-brand-600">Varejo</p>
-                <p className="text-sm font-semibold text-brand-700">
-                  {brl(product.retailPrice)}
-                </p>
-              </div>
-            </div>
-
-            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mt-4 mb-2">
-              Grade e estoque
+      <div className="relative bg-white rounded-t-2xl md:rounded-2xl shadow-pop w-full md:max-w-3xl max-h-[92dvh] overflow-y-auto thin-scroll animate-fade-up p-6">
+        <div className="flex items-start justify-between gap-2 mb-4">
+          <div>
+            <h3 className="font-semibold text-lg leading-tight">
+              Editar produto
+            </h3>
+            <p className="text-xs text-gray-400 mt-0.5">
+              {product.sku} · alterações aparecem na hora no catálogo público
             </p>
-            <div className="flex flex-wrap gap-1.5">
-              {product.variants.map((v) => (
-                <span
-                  key={v.id}
-                  className={`text-[11px] rounded-lg px-2 py-1 font-medium ${
-                    v.stock > 0
-                      ? "bg-gray-100 text-gray-700"
-                      : "bg-rose-50 text-rose-500 line-through"
-                  }`}
-                >
-                  {v.color} {v.size} · {v.stock}
-                </span>
-              ))}
+          </div>
+          <button onClick={onClose} className="text-gray-400 p-1 shrink-0">
+            <X className="size-5" />
+          </button>
+        </div>
+
+        <div className="grid md:grid-cols-2 gap-5">
+          <div className="space-y-3">
+            <div>
+              <label className={label}>Nome</label>
+              <input value={form.name} onChange={set("name")} className={input} />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className={label}>Categoria</label>
+                <input value={form.category} onChange={set("category")} className={input} />
+              </div>
+              <div>
+                <label className={label}>Marca</label>
+                <input value={form.brand} onChange={set("brand")} className={input} />
+              </div>
+            </div>
+            <div>
+              <label className={label}>Coleção</label>
+              <input value={form.collection} onChange={set("collection")} className={input} />
+            </div>
+            <div>
+              <label className={label}>Descrição (aparece no catálogo)</label>
+              <textarea
+                value={form.description}
+                onChange={set("description")}
+                rows={3}
+                className={input}
+                placeholder="Ex.: Poliamida premium • Zero transparência • Toque macio"
+              />
+            </div>
+            <div className="grid grid-cols-3 gap-3">
+              <div>
+                <label className={label}>Custo</label>
+                <input value={form.costPrice} onChange={set("costPrice")} className={input} inputMode="decimal" />
+              </div>
+              <div>
+                <label className={label}>Atacado</label>
+                <input value={form.wholesalePrice} onChange={set("wholesalePrice")} className={input} inputMode="decimal" />
+              </div>
+              <div>
+                <label className={label}>Varejo</label>
+                <input value={form.retailPrice} onChange={set("retailPrice")} className={input} inputMode="decimal" />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className={label}>Qtd mínima atacado</label>
+                <input value={form.minQuantity} onChange={set("minQuantity")} className={input} inputMode="numeric" />
+              </div>
+              <div>
+                <label className={label}>Tags</label>
+                <input value={form.tags} onChange={set("tags")} className={input} placeholder="lançamento, festa" />
+              </div>
+            </div>
+          </div>
+
+          <div className="space-y-3">
+            <div>
+              <label className={label}>Foto principal</label>
+              <div className="flex gap-3">
+                <img
+                  src={image}
+                  alt=""
+                  className="size-24 rounded-xl object-cover border border-gray-100 shrink-0"
+                />
+                <div className="grid grid-cols-4 gap-1.5 flex-1">
+                  {PLACEHOLDER_IMAGES.map((url) => (
+                    <button
+                      key={url}
+                      type="button"
+                      onClick={() => setImage(url)}
+                      className={`aspect-square rounded-lg overflow-hidden border-2 transition ${
+                        image === url ? "border-brand-500" : "border-transparent"
+                      }`}
+                    >
+                      <img src={url} alt="" className="w-full h-full object-cover" />
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <input
+                value={image}
+                onChange={(e) => setImage(e.target.value)}
+                className={`${input} mt-2`}
+                placeholder="ou cole a URL de uma foto sua"
+              />
             </div>
 
-            {product.collection && (
-              <div className="mt-3">
-                <Badge color="#7c3aed">Coleção {product.collection}</Badge>
-              </div>
-            )}
-            {product.tags && (
-              <div className="flex flex-wrap gap-1 mt-2">
-                {product.tags.split(",").map((t) => (
-                  <Badge key={t} color="#64748b">
-                    {t.trim()}
-                  </Badge>
+            <div>
+              <label className={label}>Estoque por variação (cor · tamanho)</label>
+              <div className="max-h-56 overflow-y-auto thin-scroll rounded-xl border border-gray-100 divide-y divide-gray-50">
+                {product.variants.map((v) => (
+                  <div key={v.id} className="flex items-center gap-2 px-3 py-1.5">
+                    <span className="text-xs font-medium flex-1">
+                      {v.color} · {v.size}
+                    </span>
+                    <input
+                      value={stocks[v.id]}
+                      onChange={(e) =>
+                        setStocks((s) => ({
+                          ...s,
+                          [v.id]: e.target.value.replace(/\D/g, ""),
+                        }))
+                      }
+                      inputMode="numeric"
+                      className="w-16 rounded-lg border border-gray-200 px-2 py-1 text-xs text-right outline-none focus:border-brand-400"
+                    />
+                  </div>
                 ))}
               </div>
-            )}
-
-            <button
-              onClick={toggleActive}
-              disabled={busy}
-              className={`mt-5 w-full rounded-xl text-sm font-medium py-2.5 transition disabled:opacity-60 ${
-                product.active
-                  ? "border border-gray-200 text-gray-500 hover:border-rose-300 hover:text-rose-600"
-                  : "bg-emerald-600 hover:bg-emerald-700 text-white"
-              }`}
-            >
-              {busy
-                ? "Salvando..."
-                : product.active
-                  ? "Desativar produto"
-                  : "Reativar produto"}
-            </button>
+              <p className="text-[10px] text-gray-400 mt-1">
+                Ajustes de estoque ficam registrados no histórico de movimentações.
+              </p>
+            </div>
           </div>
+        </div>
+
+        <div className="flex gap-2 mt-6">
+          <button
+            onClick={toggleActive}
+            disabled={busy}
+            className={`rounded-xl text-sm font-medium px-4 py-2.5 transition disabled:opacity-60 ${
+              product.active
+                ? "border border-gray-200 text-gray-500 hover:border-rose-300 hover:text-rose-600"
+                : "bg-emerald-600 hover:bg-emerald-700 text-white"
+            }`}
+          >
+            {product.active ? "Desativar" : "Reativar"}
+          </button>
+          <button
+            onClick={save}
+            disabled={busy}
+            className="flex-1 rounded-xl bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium py-2.5 transition disabled:opacity-60"
+          >
+            {busy ? "Salvando..." : "Salvar alterações"}
+          </button>
         </div>
       </div>
     </div>
