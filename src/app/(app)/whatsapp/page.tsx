@@ -35,6 +35,7 @@ export default async function WhatsAppPage() {
       name: c.customer.name,
       phone: c.customer.phone,
       city: c.customer.city,
+      wholesale: c.customer.type !== "VAREJO",
       tags: c.customer.tags.map((t) => ({
         name: t.tag.name,
         color: t.tag.color,

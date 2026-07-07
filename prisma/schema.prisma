@@ -32,6 +32,9 @@ model Company {
   tasks         Task[]
   sales         Sale[]
   campaigns     Campaign[]
+  products      Product[]
+  orders        Order[]
+  inventoryMovs InventoryMovement[]
 }
 
 // SUPERADMIN enxerga todas as empresas; demais papéis ficam restritos à sua.
@@ -61,6 +64,8 @@ model User {
   tasks         Task[]         @relation("TaskAssignee")
   sales         Sale[]         @relation("SaleSeller")
   messages      Message[]
+  orders        Order[]        @relation("OrderSeller")
+  orderEvents   OrderEvent[]
 
   @@index([companyId])
 }
@@ -110,6 +115,7 @@ model Customer {
   conversations Conversation[]
   tasks         Task[]
   sales         Sale[]
+  orders        Order[]
 
   @@index([companyId])
   @@index([companyId, ownerId])
@@ -235,6 +241,7 @@ model Conversation {
   createdAt     DateTime           @default(now())
 
   messages Message[]
+  orders   Order[]
 
   @@index([companyId, status])
 }
@@ -356,4 +363,202 @@ model Campaign {
   createdAt  DateTime       @default(now())
 
   @@index([companyId])
+}
+
+// ---------------------------------------------------------------------------
+// Catálogo de produtos + Pedidos
+// ---------------------------------------------------------------------------
+
+model Product {
+  id             String   @id @default(cuid())
+  companyId      String
+  company        Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  name           String
+  sku            String
+  category       String
+  brand          String?
+  collection     String?
+  description    String?
+  videoUrl       String?
+  costPrice      Float    @default(0)
+  wholesalePrice Float    @default(0) // preço atacado
+  retailPrice    Float    @default(0) // preço varejo
+  minQuantity    Int      @default(1) // qtd mínima (atacado)
+  active         Boolean  @default(true)
+  tags           String? // separadas por vírgula
+  createdAt      DateTime @default(now())
+
+  variants ProductVariant[]
+  images   ProductImage[]
+  items    OrderItem[]
+
+  @@unique([companyId, sku])
+  @@index([companyId, active])
+  @@index([companyId, category])
+}
+
+// Grade: cada combinação cor × tamanho com estoque próprio
+model ProductVariant {
+  id        String  @id @default(cuid())
+  productId String
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  color     String
+  size      String
+  stock     Int     @default(0)
+
+  items     OrderItem[]
+  movements InventoryMovement[]
+
+  @@unique([productId, color, size])
+  @@index([productId])
+}
+
+model ProductImage {
+  id        String  @id @default(cuid())
+  productId String
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  url       String
+  order     Int     @default(0)
+
+  @@index([productId])
+}
+
+enum OrderStatus {
+  ORCAMENTO
+  AGUARDANDO_PAGAMENTO
+  PAGO
+  EM_PRODUCAO
+  SEPARACAO
+  ENVIADO
+  ENTREGUE
+  CANCELADO
+}
+
+model Order {
+  id             String       @id @default(cuid())
+  companyId      String
+  company        Company      @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  number         Int // sequencial por empresa
+  customerId     String
+  customer       Customer     @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  sellerId       String?
+  seller         User?        @relation("OrderSeller", fields: [sellerId], references: [id], onDelete: SetNull)
+  conversationId String?
+  conversation   Conversation? @relation(fields: [conversationId], references: [id], onDelete: SetNull)
+  status         OrderStatus  @default(ORCAMENTO)
+  subtotal       Float        @default(0)
+  discount       Float        @default(0)
+  shippingFee    Float        @default(0)
+  total          Float        @default(0)
+  notes          String?
+  createdAt      DateTime     @default(now())
+
+  items    OrderItem[]
+  payments Payment[]
+  shipping Shipping?
+  events   OrderEvent[]
+
+  @@unique([companyId, number])
+  @@index([companyId, status])
+  @@index([companyId, createdAt])
+}
+
+model OrderItem {
+  id        String          @id @default(cuid())
+  orderId   String
+  order     Order           @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  productId String?
+  product   Product?        @relation(fields: [productId], references: [id], onDelete: SetNull)
+  variantId String?
+  variant   ProductVariant? @relation(fields: [variantId], references: [id], onDelete: SetNull)
+  // snapshot no momento da venda (produto pode mudar depois)
+  name      String
+  sku       String?
+  imageUrl  String?
+  color     String?
+  size      String?
+  quantity  Int
+  unitPrice Float
+  total     Float
+
+  @@index([orderId])
+}
+
+enum PaymentMethod {
+  PIX
+  CARTAO
+  BOLETO
+  DINHEIRO
+  OUTRO
+}
+
+enum PaymentStatus {
+  PENDENTE
+  CONFIRMADO
+  ESTORNADO
+}
+
+model Payment {
+  id        String        @id @default(cuid())
+  orderId   String
+  order     Order         @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  method    PaymentMethod @default(PIX)
+  status    PaymentStatus @default(PENDENTE)
+  amount    Float
+  pixKey    String? // chave usada no BR Code do orçamento
+  paidAt    DateTime?
+  createdAt DateTime      @default(now())
+
+  @@index([orderId])
+}
+
+model Shipping {
+  id           String    @id @default(cuid())
+  orderId      String    @unique
+  order        Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  method       String? // transportadora, motoboy, correios, retirada...
+  trackingCode String?
+  address      String?
+  city         String?
+  state        String?
+  zip          String?
+  cost         Float     @default(0)
+  shippedAt    DateTime?
+  deliveredAt  DateTime?
+}
+
+// Timeline do pedido: criação, mudanças de status, pagamento, envio...
+model OrderEvent {
+  id          String   @id @default(cuid())
+  orderId     String
+  order       Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  type        String // CRIADO, STATUS, PAGAMENTO, ENVIO, NOTA
+  description String
+  userId      String?
+  user        User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  createdAt   DateTime @default(now())
+
+  @@index([orderId, createdAt])
+}
+
+enum MovementType {
+  ENTRADA
+  SAIDA
+  AJUSTE
+}
+
+model InventoryMovement {
+  id        String         @id @default(cuid())
+  companyId String
+  company   Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  variantId String
+  variant   ProductVariant @relation(fields: [variantId], references: [id], onDelete: Cascade)
+  orderId   String?
+  type      MovementType
+  quantity  Int // sempre positivo; o tipo dá a direção
+  reason    String?
+  createdAt DateTime       @default(now())
+
+  @@index([companyId, createdAt])
+  @@index([variantId])
 }

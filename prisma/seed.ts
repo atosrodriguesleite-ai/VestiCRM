@@ -30,6 +30,15 @@ const daysAhead = (n: number, h = 10) => {
 async function main() {
   console.log("Limpando banco...");
   await db.$transaction([
+    db.inventoryMovement.deleteMany(),
+    db.orderEvent.deleteMany(),
+    db.payment.deleteMany(),
+    db.shipping.deleteMany(),
+    db.orderItem.deleteMany(),
+    db.order.deleteMany(),
+    db.productImage.deleteMany(),
+    db.productVariant.deleteMany(),
+    db.product.deleteMany(),
     db.message.deleteMany(),
     db.conversation.deleteMany(),
     db.task.deleteMany(),
@@ -178,7 +187,7 @@ async function main() {
     { name: "Atacadão da Moda BH", phone: "5531978880020", city: "Belo Horizonte", state: "MG", type: "ATACADO", origin: "INDICACAO", owner: "renata", lastPurchase: 5, lastContact: 1, nextContact: 7, tags: ["Atacado", "Ticket alto", "VIP"], interests: ["Atacado", "Promoções"], createdDaysAgo: 600, notes: "Maior cliente atacado. Pedido mínimo R$ 5.000." },
   ];
 
-  const customers: { id: string; name: string }[] = [];
+  const customers: { id: string; name: string; city: string | null; state: string | null }[] = [];
   for (const c of customersData) {
     const created = await db.customer.create({
       data: {
@@ -491,6 +500,190 @@ async function main() {
       status: "CONCLUIDA",
     },
   });
+
+  // ---- Catálogo de produtos ----
+  type P = {
+    name: string; sku: string; category: string; collection?: string;
+    description?: string; cost: number; wholesale: number; retail: number;
+    minQty?: number; image: string; colors: string[]; sizes: string[];
+    stock: number; tags?: string;
+  };
+  const productsData: P[] = [
+    { name: "Vestido Midi Aurora", sku: "VES-001", category: "Vestidos", collection: "Primavera", description: "Vestido midi em viscose com amarração na cintura.", cost: 62, wholesale: 89, retail: 149.9, minQty: 5, image: "/products/vestido-rosa.svg", colors: ["Rosa", "Nude"], sizes: ["P", "M", "G"], stock: 12, tags: "lançamento,festa" },
+    { name: "Vestido Vinho Elegance", sku: "VES-002", category: "Vestidos", collection: "Inverno", description: "Vestido em crepe com fenda discreta.", cost: 74, wholesale: 105, retail: 189.9, minQty: 5, image: "/products/vestido-vinho.svg", colors: ["Vinho", "Preto"], sizes: ["P", "M", "G", "GG"], stock: 8, tags: "festa" },
+    { name: "Blusa Tricô Nuvem", sku: "BLU-010", category: "Blusas", collection: "Inverno", description: "Tricô macio de toque acolchoado.", cost: 38, wholesale: 55, retail: 99.9, minQty: 6, image: "/products/blusa-tricot.svg", colors: ["Amarelo", "Off-white"], sizes: ["P", "M", "G"], stock: 15 },
+    { name: "Calça Wide Leg Jeans", sku: "CAL-005", category: "Calças", description: "Jeans premium de cintura alta.", cost: 68, wholesale: 92, retail: 169.9, minQty: 4, image: "/products/calca-jeans.svg", colors: ["Azul"], sizes: ["36", "38", "40", "42"], stock: 10, tags: "básico" },
+    { name: "Conjunto Fitness Power", sku: "FIT-020", category: "Moda fitness", collection: "Verão", description: "Top + legging com compressão leve.", cost: 45, wholesale: 66, retail: 119.9, minQty: 6, image: "/products/conjunto-fitness.svg", colors: ["Verde", "Preto"], sizes: ["P", "M", "G"], stock: 20, tags: "fitness" },
+    { name: "Conjunto Linho Toscana", sku: "CON-008", category: "Conjuntos", collection: "Verão", description: "Blazer + short em linho misto.", cost: 88, wholesale: 125, retail: 219.9, minQty: 4, image: "/products/conjunto-linho.svg", colors: ["Lilás", "Bege"], sizes: ["P", "M", "G"], stock: 6, tags: "lançamento" },
+    { name: "Saia Midi Plissada", sku: "SAI-003", category: "Saias", description: "Plissado fluido com cós elástico.", cost: 42, wholesale: 59, retail: 109.9, minQty: 6, image: "/products/saia-midi.svg", colors: ["Laranja", "Preto"], sizes: ["Único"], stock: 14 },
+    { name: "Cropped Básico Comfy", sku: "CRO-015", category: "Blusas", description: "Algodão penteado, modelagem justa.", cost: 18, wholesale: 27, retail: 49.9, minQty: 10, image: "/products/cropped-basico.svg", colors: ["Azul", "Branco", "Preto"], sizes: ["P", "M", "G"], stock: 30, tags: "básico" },
+  ];
+
+  const productBySku = new Map<string, { id: string; variants: { id: string; color: string; size: string }[] }>();
+  for (const p of productsData) {
+    const created = await db.product.create({
+      data: {
+        companyId: company.id,
+        name: p.name,
+        sku: p.sku,
+        category: p.category,
+        brand: "Bella Moda",
+        collection: p.collection,
+        description: p.description,
+        costPrice: p.cost,
+        wholesalePrice: p.wholesale,
+        retailPrice: p.retail,
+        minQuantity: p.minQty ?? 1,
+        tags: p.tags,
+        images: { create: [{ url: p.image, order: 0 }] },
+        variants: {
+          create: p.colors.flatMap((color) =>
+            p.sizes.map((size) => ({ color, size, stock: p.stock }))
+          ),
+        },
+      },
+      include: { variants: true },
+    });
+    productBySku.set(p.sku, {
+      id: created.id,
+      variants: created.variants.map((v) => ({ id: v.id, color: v.color, size: v.size })),
+    });
+    await db.inventoryMovement.createMany({
+      data: created.variants.map((v) => ({
+        companyId: company.id,
+        variantId: v.id,
+        type: "ENTRADA" as const,
+        quantity: v.stock,
+        reason: "Estoque inicial",
+      })),
+    });
+  }
+
+  // produto da segunda empresa (isolamento)
+  await db.product.create({
+    data: {
+      companyId: company2.id, name: "Camiseta Urban", sku: "URB-001",
+      category: "Camisetas", retailPrice: 39.9,
+      variants: { create: [{ color: "Preto", size: "M", stock: 50 }] },
+    },
+  });
+
+  // ---- Pedidos ----
+  type OItem = { sku: string; color: string; size: string; qty: number; price: number };
+  type Ord = {
+    customer: string; seller: string; days: number;
+    status: "ORCAMENTO" | "AGUARDANDO_PAGAMENTO" | "PAGO" | "EM_PRODUCAO" | "SEPARACAO" | "ENVIADO" | "ENTREGUE" | "CANCELADO";
+    items: OItem[]; discount?: number; shippingFee?: number; notes?: string;
+    payMethod?: "PIX" | "CARTAO" | "BOLETO"; paid?: boolean;
+  };
+  const ordersData: Ord[] = [
+    { customer: "Mariana Castro", seller: "julia", days: 0, status: "ORCAMENTO", payMethod: "PIX",
+      items: [{ sku: "VES-001", color: "Rosa", size: "M", qty: 1, price: 149.9 }, { sku: "SAI-003", color: "Laranja", size: "Único", qty: 1, price: 109.9 }],
+      notes: "Cliente pediu para reservar até sexta." },
+    { customer: "Loja Estilo Mix", seller: "renata", days: 1, status: "AGUARDANDO_PAGAMENTO", payMethod: "BOLETO",
+      items: [{ sku: "VES-001", color: "Nude", size: "P", qty: 6, price: 89 }, { sku: "CRO-015", color: "Branco", size: "M", qty: 10, price: 27 }, { sku: "CAL-005", color: "Azul", size: "40", qty: 4, price: 92 }],
+      discount: 50, shippingFee: 45, notes: "Grade mensal — frete negociado." },
+    { customer: "Camila Rodrigues", seller: "renata", days: 3, status: "PAGO", payMethod: "PIX", paid: true,
+      items: [{ sku: "FIT-020", color: "Verde", size: "M", qty: 6, price: 66 }, { sku: "CRO-015", color: "Preto", size: "P", qty: 6, price: 27 }] },
+    { customer: "Juliana Pires", seller: "julia", days: 5, status: "ENVIADO", payMethod: "CARTAO", paid: true,
+      items: [{ sku: "VES-002", color: "Vinho", size: "P", qty: 1, price: 189.9 }], shippingFee: 22 },
+    { customer: "Atacadão da Moda BH", seller: "renata", days: 8, status: "ENTREGUE", payMethod: "PIX", paid: true,
+      items: [{ sku: "CON-008", color: "Lilás", size: "M", qty: 4, price: 125 }, { sku: "BLU-010", color: "Amarelo", size: "G", qty: 6, price: 55 }, { sku: "FIT-020", color: "Preto", size: "G", qty: 8, price: 66 }],
+      discount: 80 },
+    { customer: "Patrícia Nunes", seller: "julia", days: 12, status: "CANCELADO", payMethod: "PIX",
+      items: [{ sku: "BLU-010", color: "Off-white", size: "M", qty: 2, price: 99.9 }], notes: "Cliente desistiu — preço." },
+  ];
+
+  let orderSeq = 0;
+  for (const o of ordersData) {
+    orderSeq += 1;
+    const lines = o.items.map((i) => {
+      const prod = productBySku.get(i.sku)!;
+      const variant = prod.variants.find((v) => v.color === i.color && v.size === i.size)!;
+      const pd = productsData.find((p) => p.sku === i.sku)!;
+      return { ...i, productId: prod.id, variantId: variant.id, name: pd.name, image: pd.image, total: i.qty * i.price };
+    });
+    const subtotal = lines.reduce((s, l) => s + l.total, 0);
+    const discount = o.discount ?? 0;
+    const shippingFee = o.shippingFee ?? 0;
+    const total = subtotal - discount + shippingFee;
+    const createdAt = daysAgo(o.days, 11);
+
+    const order = await db.order.create({
+      data: {
+        companyId: company.id,
+        number: orderSeq,
+        customerId: cust(o.customer).id,
+        sellerId: ownerId(o.seller),
+        status: o.status,
+        subtotal, discount, shippingFee, total,
+        notes: o.notes,
+        createdAt,
+        items: {
+          create: lines.map((l) => ({
+            productId: l.productId,
+            variantId: l.variantId,
+            name: l.name,
+            sku: l.sku,
+            imageUrl: l.image,
+            color: l.color,
+            size: l.size,
+            quantity: l.qty,
+            unitPrice: l.price,
+            total: l.total,
+          })),
+        },
+        payments: {
+          create: {
+            method: o.payMethod ?? "PIX",
+            amount: total,
+            status: o.paid ? "CONFIRMADO" : "PENDENTE",
+            paidAt: o.paid ? daysAgo(Math.max(o.days - 1, 0), 15) : null,
+            createdAt,
+          },
+        },
+        shipping: {
+          create: {
+            cost: shippingFee,
+            city: cust(o.customer).city,
+            state: cust(o.customer).state,
+            method: shippingFee > 0 ? "Transportadora" : "Retirada/Combinar",
+            shippedAt: ["ENVIADO", "ENTREGUE"].includes(o.status) ? daysAgo(Math.max(o.days - 2, 0)) : null,
+            deliveredAt: o.status === "ENTREGUE" ? daysAgo(Math.max(o.days - 4, 0)) : null,
+            trackingCode: ["ENVIADO", "ENTREGUE"].includes(o.status) ? `BR${900000 + orderSeq * 137}BM` : null,
+          },
+        },
+        events: {
+          create: [
+            { type: "CRIADO", description: `Pedido criado por ${o.seller === "julia" ? "Júlia Ferreira" : "Renata Alves"}`, userId: ownerId(o.seller), createdAt },
+            ...(o.status !== "ORCAMENTO"
+              ? [{ type: "STATUS", description: `Status alterado para "${o.status === "AGUARDANDO_PAGAMENTO" ? "Aguardando pagamento" : o.status.charAt(0) + o.status.slice(1).toLowerCase()}"`, userId: ownerId(o.seller), createdAt: daysAgo(Math.max(o.days - 1, 0), 13) }]
+              : []),
+          ],
+        },
+      },
+    });
+
+    // baixa de estoque para pedidos não cancelados
+    if (o.status !== "CANCELADO") {
+      for (const l of lines) {
+        await db.productVariant.update({
+          where: { id: l.variantId },
+          data: { stock: { decrement: l.qty } },
+        });
+      }
+      await db.inventoryMovement.createMany({
+        data: lines.map((l) => ({
+          companyId: company.id,
+          variantId: l.variantId,
+          orderId: order.id,
+          type: "SAIDA" as const,
+          quantity: l.qty,
+          reason: `Pedido #${String(orderSeq).padStart(4, "0")}`,
+        })),
+      });
+    }
+  }
 
   console.log("Seed concluído!");
   console.log("Logins (senha demo1234): ana@bellamoda.com.br (admin), carla@ (gerente), julia@/renata@ (vendedoras)");

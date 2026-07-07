@@ -11,7 +11,10 @@ import {
   Search,
   MessageCircle,
   Info,
+  ShoppingBag,
 } from "lucide-react";
+import { OrderComposer } from "@/components/order-composer";
+import { orderNumber } from "@/lib/orders";
 import {
   formatPhone,
   timeShort,
@@ -39,6 +42,7 @@ export type InboxConversation = {
     name: string;
     phone: string;
     city: string | null;
+    wholesale: boolean;
     tags: { name: string; color: string }[];
   };
   assignee: { id: string; name: string; color: string } | null;
@@ -71,6 +75,7 @@ export function Inbox({
   const [draft, setDraft] = useState("");
   const [noteMode, setNoteMode] = useState(false);
   const [showTemplates, setShowTemplates] = useState(false);
+  const [showOrder, setShowOrder] = useState(false);
   const [sending, setSending] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
 
@@ -454,6 +459,13 @@ export function Inbox({
                 >
                   <StickyNote className="size-4.5" />
                 </button>
+                <button
+                  onClick={() => setShowOrder(true)}
+                  className="p-2 text-gray-400 hover:text-brand-600 transition shrink-0"
+                  title="Adicionar produto ao pedido"
+                >
+                  <ShoppingBag className="size-4.5" />
+                </button>
                 <textarea
                   value={draft}
                   onChange={(e) => setDraft(e.target.value)}
@@ -507,6 +519,46 @@ export function Inbox({
                 </select>
               </div>
             </div>
+            {showOrder && (
+              <OrderComposer
+                customerId={selected.customer.id}
+                customerName={selected.customer.name}
+                wholesaleCustomer={selected.customer.wholesale}
+                conversationId={selected.id}
+                onClose={() => setShowOrder(false)}
+                onCreated={(order) => {
+                  setShowOrder(false);
+                  const body = `🛍️ Pedido ${orderNumber(order.number)} criado — total R$ ${order.total.toFixed(2).replace(".", ",")}`;
+                  const nowIso = new Date().toISOString();
+                  setConvs((prev) =>
+                    prev.map((c) =>
+                      c.id === selected.id
+                        ? {
+                            ...c,
+                            lastMessageAt: nowIso,
+                            messages: [
+                              ...c.messages,
+                              {
+                                id: `local-${order.id}`,
+                                direction: "OUT",
+                                kind: "NOTE",
+                                body,
+                                authorName: currentUserName,
+                                createdAt: nowIso,
+                              },
+                            ],
+                          }
+                        : c
+                    )
+                  );
+                  setDraft(
+                    `Seu pedido ${orderNumber(order.number)} ficou em R$ ${order.total
+                      .toFixed(2)
+                      .replace(".", ",")} 💜 Te enviei o orçamento em PDF, qualquer ajuste me avisa!`
+                  );
+                }}
+              />
+            )}
           </>
         )}
       </div>

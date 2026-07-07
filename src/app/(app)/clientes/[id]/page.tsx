@@ -34,6 +34,11 @@ import {
   PriorityDot,
   EmptyState,
 } from "@/components/ui";
+import {
+  orderNumber,
+  orderStatusLabel,
+  orderStatusColor,
+} from "@/lib/orders";
 
 export const dynamic = "force-dynamic";
 
@@ -52,6 +57,10 @@ export default async function CustomerDetailPage({
       tags: { include: { tag: true } },
       interests: { include: { interest: true } },
       sales: { orderBy: { createdAt: "desc" }, include: { seller: true } },
+      orders: {
+        orderBy: { createdAt: "desc" },
+        include: { _count: { select: { items: true } } },
+      },
       opportunities: {
         orderBy: { createdAt: "desc" },
         include: { stage: true },
@@ -216,6 +225,42 @@ export default async function CustomerDetailPage({
                   </div>
                   <span className="text-sm font-semibold tabular-nums shrink-0">
                     {brl(o.value)}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </Card>
+
+        {/* Pedidos (catálogo) */}
+        <Card className="p-5">
+          <h2 className="font-semibold flex items-center gap-2 mb-3">
+            <ShoppingBag className="size-4 text-brand-600" />
+            Pedidos
+          </h2>
+          {customer.orders.length === 0 ? (
+            <EmptyState title="Nenhum pedido registrado" />
+          ) : (
+            <ul className="divide-y divide-gray-50">
+              {customer.orders.map((o) => (
+                <li key={o.id} className="py-2.5 flex items-center gap-3">
+                  <Link
+                    href={`/pedidos/${o.id}`}
+                    className="text-sm font-semibold text-brand-700 hover:text-brand-800 tabular-nums shrink-0"
+                  >
+                    {orderNumber(o.number)}
+                  </Link>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-xs text-gray-400">
+                      {dateFull(o.createdAt)} · {o._count.items}{" "}
+                      {o._count.items === 1 ? "item" : "itens"}
+                    </p>
+                  </div>
+                  <Badge color={orderStatusColor[o.status]}>
+                    {orderStatusLabel[o.status]}
+                  </Badge>
+                  <span className="text-sm font-semibold tabular-nums shrink-0">
+                    {brl(o.total)}
                   </span>
                 </li>
               ))}

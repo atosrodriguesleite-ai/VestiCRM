@@ -18,6 +18,8 @@ import {
   LogOut,
   Menu,
   X,
+  Package,
+  ShoppingBag,
 } from "lucide-react";
 import { Avatar } from "./ui";
 
@@ -25,6 +27,8 @@ const NAV = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/funil", label: "Funil de vendas", icon: KanbanSquare },
   { href: "/whatsapp", label: "WhatsApp", icon: MessageCircle },
+  { href: "/pedidos", label: "Pedidos", icon: ShoppingBag },
+  { href: "/produtos", label: "Produtos", icon: Package },
   { href: "/clientes", label: "Clientes", icon: Users },
   { href: "/tarefas", label: "Tarefas", icon: CheckSquare },
   { href: "/automacoes", label: "Automações", icon: Zap },

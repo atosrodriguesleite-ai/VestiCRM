@@ -11,6 +11,10 @@ import {
   Shirt,
   Zap,
   ChevronRight,
+  ShoppingBag,
+  Repeat,
+  Package,
+  Gem,
 } from "lucide-react";
 import { requireUser } from "@/lib/auth";
 import { db } from "@/lib/db";
@@ -35,10 +39,13 @@ export default async function DashboardPage() {
   const now = new Date();
   const days30 = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
   const days7 = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+  const startOfDay = new Date(now);
+  startOfDay.setHours(0, 0, 0, 0);
 
   const saleScope = canSeeAll(user)
     ? { companyId: user.companyId }
     : { companyId: user.companyId, sellerId: user.id };
+  const orderScope = { ...saleScope, status: { not: "CANCELADO" as const } };
 
   const [
     sales30,
@@ -103,6 +110,58 @@ export default async function DashboardPage() {
     }),
     computeAutomations(user),
   ]);
+
+  // --- Pedidos (módulo catálogo) ---
+  const [ordersToday, ordersWeek, ordersMonth, topItems, topBuyers] =
+    await Promise.all([
+      db.order.aggregate({
+        where: { ...orderScope, createdAt: { gte: startOfDay } },
+        _count: true,
+        _sum: { total: true },
+      }),
+      db.order.aggregate({
+        where: { ...orderScope, createdAt: { gte: days7 } },
+        _count: true,
+        _sum: { total: true },
+      }),
+      db.order.aggregate({
+        where: { ...orderScope, createdAt: { gte: days30 } },
+        _count: true,
+        _sum: { total: true },
+      }),
+      db.orderItem.groupBy({
+        by: ["name"],
+        where: { order: orderScope },
+        _sum: { quantity: true },
+        orderBy: { _sum: { quantity: "desc" } },
+        take: 6,
+      }),
+      db.order.groupBy({
+        by: ["customerId"],
+        where: orderScope,
+        _sum: { total: true },
+        _count: true,
+        orderBy: { _sum: { total: "desc" } },
+        take: 5,
+      }),
+    ]);
+  const buyerNames = await db.customer.findMany({
+    where: { id: { in: topBuyers.map((b) => b.customerId) } },
+    select: { id: true, name: true },
+  });
+  const buyerName = new Map(buyerNames.map((b) => [b.id, b.name]));
+  const avgOrder = ordersMonth._count
+    ? (ordersMonth._sum.total ?? 0) / ordersMonth._count
+    : 0;
+  // taxa de recompra: clientes com 2+ pedidos entre quem já pediu
+  const buyersAll = await db.order.groupBy({
+    by: ["customerId"],
+    where: orderScope,
+    _count: true,
+  });
+  const repurchaseRate = buyersAll.length
+    ? (buyersAll.filter((b) => b._count >= 2).length / buyersAll.length) * 100
+    : 0;
 
   const revenue30 = sales30.reduce((s, v) => s + v.total, 0);
   const ticket = sales30.length ? revenue30 / sales30.length : 0;
@@ -210,6 +269,88 @@ export default async function DashboardPage() {
           tone={overdue > 0 ? "bad" : "good"}
         />
       </div>
+
+      {/* Pedidos (catálogo) */}
+      <div className="flex items-center justify-between mb-3">
+        <h2 className="font-semibold flex items-center gap-2 text-sm text-gray-600">
+          <ShoppingBag className="size-4 text-brand-600" />
+          Pedidos
+        </h2>
+        <Link
+          href="/pedidos"
+          className="text-xs font-medium text-brand-600 hover:text-brand-700"
+        >
+          Ver pedidos
+        </Link>
+      </div>
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4 mb-6">
+        <StatTile
+          label="Pedidos hoje"
+          value={String(ordersToday._count)}
+          hint={brl(ordersToday._sum.total ?? 0)}
+          icon={<ShoppingBag />}
+        />
+        <StatTile
+          label="Pedidos na semana"
+          value={String(ordersWeek._count)}
+          hint={brl(ordersWeek._sum.total ?? 0)}
+          icon={<ShoppingBag />}
+        />
+        <StatTile
+          label="Pedidos no mês"
+          value={String(ordersMonth._count)}
+          hint={`valor médio ${brl(avgOrder)}`}
+          icon={<ShoppingBag />}
+        />
+        <StatTile
+          label="Taxa de recompra"
+          value={`${repurchaseRate.toFixed(0)}%`}
+          hint="clientes com 2+ pedidos"
+          icon={<Repeat />}
+          tone={repurchaseRate >= 30 ? "good" : "warn"}
+        />
+      </div>
+
+      {(topItems.length > 0 || topBuyers.length > 0) && (
+        <div className="grid lg:grid-cols-2 gap-4 md:gap-6 mb-6">
+          <Card className="p-5">
+            <h2 className="font-semibold flex items-center gap-2 mb-4">
+              <Package className="size-4 text-brand-600" />
+              Produtos mais vendidos
+            </h2>
+            {topItems.length === 0 ? (
+              <EmptyState title="Nenhum pedido ainda" />
+            ) : (
+              <BarList
+                data={topItems.map((i) => ({
+                  label: i.name,
+                  value: i._sum.quantity ?? 0,
+                }))}
+                formatValue={(v) => `${v} un.`}
+              />
+            )}
+          </Card>
+          <Card className="p-5">
+            <h2 className="font-semibold flex items-center gap-2 mb-4">
+              <Gem className="size-4 text-emerald-600" />
+              Clientes que mais compram
+            </h2>
+            {topBuyers.length === 0 ? (
+              <EmptyState title="Nenhum pedido ainda" />
+            ) : (
+              <BarList
+                color="#10b981"
+                data={topBuyers.map((b) => ({
+                  label: buyerName.get(b.customerId) ?? "Cliente",
+                  value: b._sum.total ?? 0,
+                  sub: `${b._count} pedido${b._count === 1 ? "" : "s"}`,
+                }))}
+                formatValue={brl}
+              />
+            )}
+          </Card>
+        </div>
+      )}
 
       <div className="grid lg:grid-cols-3 gap-4 md:gap-6">
         {/* Próximos follow-ups */}

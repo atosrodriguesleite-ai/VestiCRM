@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="400" height="400" viewBox="0 0 400 400">
+<defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+<stop offset="0%" stop-color="#bfdbfe"/><stop offset="100%" stop-color="#1d4ed8"/></linearGradient></defs>
+<rect width="400" height="400" fill="url(#g)"/>
+<g fill="none" stroke="#ffffff" stroke-opacity="0.85" stroke-width="10" stroke-linecap="round" stroke-linejoin="round">
+<path d="M140 110 L110 150 L140 175 L140 300 L260 300 L260 175 L290 150 L260 110 L230 110 Q200 140 170 110 Z"/>
+</g>
+<text x="200" y="365" font-family="Helvetica,Arial" font-size="26" font-weight="bold" fill="#ffffff" fill-opacity="0.9" text-anchor="middle">Calça</text>
+</svg>

@@ -115,7 +115,10 @@ export default async function SettingsPage() {
       <p className="text-xs text-gray-400 mt-3">
         A arquitetura já está preparada: o envio de WhatsApp usa uma camada de
         integração (<code className="bg-gray-100 rounded px-1">src/lib/whatsapp.ts</code>)
-        que hoje roda em modo simulado e aceita a API oficial sem mudar nenhuma tela.
+        que hoje roda em modo simulado e aceita a API oficial sem mudar nenhuma
+        tela. Da mesma forma, Bling, Nuvemshop e Shopify já têm contratos de
+        sincronização de catálogo, estoque e pedidos definidos em{" "}
+        <code className="bg-gray-100 rounded px-1">src/lib/integrations/catalog.ts</code>.
       </p>
     </div>
   );

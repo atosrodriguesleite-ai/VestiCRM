@@ -4,6 +4,19 @@ CRM SaaS para lojas de roupas, confecções, atacados, boutiques e revendedoras 
 
 ## Funcionalidades
 
+### Catálogo + Pedidos
+
+- **Produtos** — catálogo por empresa com SKU, categoria, marca, coleção, descrição, fotos, vídeo, grade cor × tamanho com estoque por variação, preço de custo/atacado/varejo, quantidade mínima, tags e status. Filtros por categoria, cor, tamanho, coleção, marca, preço e estoque.
+- **Pedido direto da conversa** — botão de sacola no chat do WhatsApp abre o catálogo em um modal: busca, escolhe cor/tamanho/quantidade e monta o carrinho sem sair da conversa. Preço de atacado é aplicado automaticamente para clientes atacado ou ao atingir a quantidade mínima.
+- **Carrinho lateral** — foto, variação, quantidade, subtotal, desconto, frete, observações e forma de pagamento; fecha como orçamento ou pedido.
+- **Pedidos** — numeração sequencial por loja e fluxo Orçamento → Aguardando pagamento → Pago → Em produção → Separação → Enviado → Entregue (ou Cancelado), com timeline de eventos, pagamento, rastreio e devolução automática de estoque no cancelamento. Marcar como Pago registra a venda no CRM e atualiza a última compra do cliente.
+- **Timeline integrada** — o pedido aparece na conversa (nota automática), na ficha do cliente e no dashboard (pedidos do dia/semana/mês, valor médio, produtos mais vendidos, clientes que mais compram e taxa de recompra).
+- **Orçamento em PDF** — gerado com pdf-lib: logo tipográfica da loja, itens, totais e bloco PIX com payload BR Code (copia e cola) pronto para virar QR quando a loja configurar a chave (`src/lib/pix.ts`).
+- **Estoque** — toda entrada/saída vira um `InventoryMovement` auditável; criar pedido reserva estoque, cancelar devolve.
+- **Integrações futuras** — contratos `CatalogSyncProvider` para Bling, Nuvemshop e Shopify em `src/lib/integrations/catalog.ts` (interfaces prontas, sem implementação).
+
+### CRM
+
 - **Dashboard** — vendas, ticket médio, taxa de conversão, funil aberto, clientes esfriando, follow-ups atrasados, ranking de vendedores e produtos mais procurados.
 - **Funil de vendas visual** — kanban com cards arrastáveis (Novo lead → Primeiro contato → Interesse → Catálogo enviado → Negociação → Pagamento pendente → Fechado → Pós-venda → Perdido). Mover para "Pedido fechado" registra a venda automaticamente; mover para "Perdido" pede o motivo.
 - **Central de WhatsApp** — caixa de entrada com filtros por status (aberta, aguardando cliente, aguardando pagamento, finalizada), histórico completo, modelos de mensagem com variáveis (`{{nome}}`, `{{vendedora}}`), notas internas, transferência entre vendedores e registro automático no perfil do cliente. Roda em **modo simulado** com camada de integração pronta para a WhatsApp Cloud API (`src/lib/whatsapp.ts`).
@@ -23,6 +36,7 @@ cp .env.example .env        # ajuste AUTH_SECRET em produção
 npx prisma db push          # cria o SQLite local
 npm run db:seed             # dados de demonstração
 npm run dev                 # http://localhost:3000
+npm test                    # testes unitários (vitest)
 ```
 
 ### Logins de demonstração (senha `demo1234`)
@@ -49,11 +63,15 @@ src/
 │   ├── scope.ts         # regras de visibilidade multi-tenant + papéis
 │   ├── automations.ts   # motor de sugestões comerciais
 │   ├── segments.ts      # segmentação de campanhas
-│   └── whatsapp.ts      # camada de integração (simulado ↔ Cloud API)
+│   ├── orders.ts        # totais/preços/status de pedidos (testado)
+│   ├── pix.ts           # payload PIX BR Code + CRC16 (testado)
+│   ├── whatsapp.ts      # camada de integração (simulado ↔ Cloud API)
+│   ├── integrations/    # contratos Bling/Nuvemshop/Shopify
+│   └── __tests__/       # testes unitários (vitest)
 └── middleware.ts        # proteção de rotas
 prisma/
-├── schema.prisma        # 18 modelos multi-tenant
-└── seed.ts              # loja demo completa
+├── schema.prisma        # 27 modelos multi-tenant (CRM + catálogo/pedidos)
+└── seed.ts              # loja demo completa (clientes, produtos e pedidos)
 ```
 
 - **Banco**: SQLite em desenvolvimento; para produção troque o `provider` do datasource para `postgresql` — o schema é compatível.
