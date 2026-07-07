@@ -137,12 +137,31 @@ export default async function SettingsPage() {
         </>
       )}
 
+      {isAdmin(user) && (
+        <a
+          href="/configuracoes/comunicacao"
+          className="flex items-center gap-3 rounded-2xl border border-brand-200 bg-brand-50 px-4 py-3 mb-6 hover:bg-brand-100 transition"
+        >
+          <MessageCircle className="size-5 text-brand-600 shrink-0" />
+          <div className="flex-1">
+            <p className="text-sm font-semibold text-brand-800">
+              Comunicação — credenciais dos canais
+            </p>
+            <p className="text-xs text-brand-700/70">
+              Meta / WhatsApp Cloud API, Instagram, Facebook, Telegram e SMTP.
+              Criptografado e auditado.
+            </p>
+          </div>
+        </a>
+      )}
+
       <h2 className="font-semibold mb-3">Modelos de mensagem</h2>
       <TemplateManager
         initial={templates.map((t) => ({
           id: t.id,
           title: t.title,
           body: t.body,
+          category: t.category,
         }))}
       />
 

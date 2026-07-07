@@ -5,6 +5,9 @@ import type {
   TaskType,
   TaskPriority,
   Role,
+  TemplateCategory,
+  MessageStatus,
+  Channel,
 } from "@prisma/client";
 
 export const brl = (v: number) =>
@@ -81,6 +84,9 @@ export const originLabel: Record<Origin, string> = {
   GOOGLE: "Google",
   EVENTO: "Evento",
   MANUAL: "Cadastro Manual",
+  TELEGRAM: "Telegram",
+  EMAIL: "E-mail",
+  SMS: "SMS",
 };
 
 export const conversationStatusLabel: Record<ConversationStatus, string> = {
@@ -106,6 +112,37 @@ export const priorityLabel: Record<TaskPriority, string> = {
   BAIXA: "Baixa",
   MEDIA: "Média",
   ALTA: "Alta",
+};
+
+export const templateCategoryLabel: Record<TemplateCategory, string> = {
+  PRIMEIRO_ATENDIMENTO: "Primeiro atendimento",
+  CATALOGO: "Catálogo",
+  COBRANCA: "Cobrança",
+  POS_VENDA: "Pós-venda",
+  RECOMPRA: "Recompra",
+  PROMOCAO: "Promoção",
+  CLIENTE_FRIO: "Cliente frio",
+  ANIVERSARIO: "Aniversário",
+  OUTRO: "Outros",
+};
+
+export const messageStatusLabel: Record<MessageStatus, string> = {
+  ENVIANDO: "Enviando",
+  ENVIADA: "Enviada",
+  ENTREGUE: "Entregue",
+  LIDA: "Lida",
+  FALHOU: "Falhou",
+  REENVIADA: "Reenviada",
+  RECEBIDA: "Recebida",
+};
+
+export const channelLabel: Record<Channel, string> = {
+  WHATSAPP: "WhatsApp",
+  INSTAGRAM: "Instagram",
+  FACEBOOK: "Facebook",
+  TELEGRAM: "Telegram",
+  EMAIL: "E-mail",
+  SMS: "SMS",
 };
 
 export const roleLabel: Record<Role, string> = {

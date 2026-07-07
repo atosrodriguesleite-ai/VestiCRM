@@ -7,6 +7,7 @@ const schema = z.object({
   status: z
     .enum(["OPEN", "WAITING_CLIENT", "WAITING_PAYMENT", "CLOSED"])
     .optional(),
+  priority: z.enum(["BAIXA", "NORMAL", "ALTA"]).optional(),
   assigneeId: z.string().nullable().optional(),
   markRead: z.boolean().optional(),
 });
@@ -32,6 +33,7 @@ export async function PATCH(
 
     const data: Record<string, unknown> = {};
     if (parsed.data.status) data.status = parsed.data.status;
+    if (parsed.data.priority) data.priority = parsed.data.priority;
     if (parsed.data.markRead) data.unreadCount = 0;
     if (parsed.data.assigneeId !== undefined) {
       if (parsed.data.assigneeId) {

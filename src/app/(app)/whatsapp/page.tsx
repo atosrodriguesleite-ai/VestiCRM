@@ -18,7 +18,10 @@ export default async function WhatsAppPage() {
       },
       orderBy: { lastMessageAt: "desc" },
     }),
-    db.messageTemplate.findMany({ where: { companyId: user.companyId } }),
+    db.messageTemplate.findMany({
+      where: { companyId: user.companyId },
+      orderBy: [{ category: "asc" }, { title: "asc" }],
+    }),
     db.user.findMany({
       where: { companyId: user.companyId, active: true },
       select: { id: true, name: true, color: true },
@@ -27,9 +30,14 @@ export default async function WhatsAppPage() {
 
   const data: InboxConversation[] = conversations.map((c) => ({
     id: c.id,
+    channel: c.channel,
     status: c.status,
+    priority: c.priority,
     unreadCount: c.unreadCount,
     lastMessageAt: c.lastMessageAt.toISOString(),
+    createdAt: c.createdAt.toISOString(),
+    lastInboundAt: c.lastInboundAt?.toISOString() ?? null,
+    lastOutboundAt: c.lastOutboundAt?.toISOString() ?? null,
     customer: {
       id: c.customer.id,
       name: c.customer.name,
@@ -48,6 +56,11 @@ export default async function WhatsAppPage() {
       id: m.id,
       direction: m.direction,
       kind: m.kind,
+      mediaType: m.mediaType,
+      mediaUrl: m.mediaUrl,
+      fileName: m.fileName,
+      status: m.status,
+      error: m.error,
       body: m.body,
       authorName: m.author?.name ?? null,
       createdAt: m.createdAt.toISOString(),
@@ -57,7 +70,12 @@ export default async function WhatsAppPage() {
   return (
     <Inbox
       conversations={data}
-      templates={templates.map((t) => ({ id: t.id, title: t.title, body: t.body }))}
+      templates={templates.map((t) => ({
+        id: t.id,
+        title: t.title,
+        body: t.body,
+        category: t.category,
+      }))}
       team={team}
       currentUserName={user.name}
     />

@@ -6,6 +6,12 @@ import { requireUser, AuthError } from "@/lib/auth";
 const schema = z.object({
   title: z.string().min(1),
   body: z.string().min(1),
+  category: z
+    .enum([
+      "PRIMEIRO_ATENDIMENTO", "CATALOGO", "COBRANCA", "POS_VENDA",
+      "RECOMPRA", "PROMOCAO", "CLIENTE_FRIO", "ANIVERSARIO", "OUTRO",
+    ])
+    .default("OUTRO"),
 });
 
 export async function POST(req: NextRequest) {

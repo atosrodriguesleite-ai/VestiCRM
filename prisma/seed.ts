@@ -30,6 +30,9 @@ const daysAhead = (n: number, h = 10) => {
 async function main() {
   console.log("Limpando banco...");
   await db.$transaction([
+    db.commEvent.deleteMany(),
+    db.commAudit.deleteMany(),
+    db.commSettings.deleteMany(),
     db.customerEvent.deleteMany(),
     db.originRule.deleteMany(),
     db.inventoryMovement.deleteMany(),
@@ -422,23 +425,37 @@ async function main() {
   for (const conv of convsData) {
     const msgs = conv.messages;
     const last = msgs[msgs.length - 1];
+    const lastIn = [...msgs].reverse().find((m) => m.dir === "IN");
+    const lastOut = [...msgs].reverse().find((m) => m.dir === "OUT" && m.kind !== "NOTE");
     const created = await db.conversation.create({
       data: {
         companyId: company.id,
         customerId: cust(conv.customer).id,
         assigneeId: ownerId(conv.assignee),
+        channel: "WHATSAPP",
         status: conv.status,
+        priority: conv.unread && conv.unread > 0 ? "ALTA" : "NORMAL",
         unreadCount: conv.unread ?? 0,
         lastMessageAt: new Date(Date.now() - last.minsAgo * 60000),
+        lastInboundAt: lastIn ? new Date(Date.now() - lastIn.minsAgo * 60000) : null,
+        lastOutboundAt: lastOut ? new Date(Date.now() - lastOut.minsAgo * 60000) : null,
       },
     });
     for (const m of msgs) {
       await db.message.create({
         data: {
           conversationId: created.id,
+          channel: "WHATSAPP",
           direction: m.dir,
           kind: m.kind ?? "TEXT",
           body: m.body,
+          status:
+            m.dir === "IN"
+              ? "RECEBIDA"
+              : m.kind === "NOTE"
+                ? "ENVIADA"
+                : "LIDA",
+          externalId: m.dir === "OUT" && m.kind !== "NOTE" ? `wamid.seed.${Math.random().toString(36).slice(2, 10)}` : null,
           authorId: m.author ? ownerId(m.author) : null,
           createdAt: new Date(Date.now() - m.minsAgo * 60000),
         },
@@ -446,18 +463,51 @@ async function main() {
     }
   }
 
-  // ---- Modelos de mensagem ----
-  const templates: [string, string][] = [
-    ["Boas-vindas", "Oi, {{nome}}! 😊 Seja bem-vinda à Bella Moda! Sou a {{vendedora}} e vou te atender. Me conta o que você procura?"],
-    ["Envio de catálogo", "{{nome}}, acabei de te enviar nosso catálogo novinho 💌 Dá uma olhada e me diz quais peças você amou!"],
-    ["Cobrança gentil", "Oi {{nome}}! Passando para lembrar do seu pedido que está reservado 💜 Consegue fazer o pagamento hoje? Qualquer dificuldade me avisa!"],
-    ["Pós-venda", "{{nome}}, suas peças chegaram direitinho? Quero saber se amou! Qualquer ajuste estamos à disposição 🥰"],
-    ["Reativação", "Oi {{nome}}, sentimos sua falta por aqui! 🌸 Chegaram novidades lindas que têm tudo a ver com você. Posso te mandar?"],
-    ["Lançamento", "{{nome}}, a nova coleção CHEGOU! 🎉 Separei as peças com a sua cara antes de divulgar para todo mundo. Quer ver em primeira mão?"],
+  // eventos da Communication Engine (para o monitor)
+  const commEventsData = [
+    { direction: "IN", type: "message.received", status: "OK", payload: { phone: "5511998761001", preview: "E tem na cor nude também?" }, durationMs: 38, minsAgo: 40 },
+    { direction: "OUT", type: "message.sent", status: "OK", payload: { provider: "Mock (simulado)", to: "5531997762002", preview: "Bom dia! Segue a tabela atacado..." }, response: { externalId: "mock.whatsapp.seed1" }, durationMs: 112, minsAgo: 60 * 3 },
+    { direction: "IN", type: "status.update", status: "OK", payload: { externalId: "mock.whatsapp.seed1", status: "LIDA" }, durationMs: 9, minsAgo: 60 * 2 },
+    { direction: "OUT", type: "message.sent", status: "ERRO", payload: { provider: "Mock (simulado)", to: "5511979990019", preview: "Segue o link de pagamento" }, error: "Falha simulada pelo Mock Provider", durationMs: 205, minsAgo: 60 * 5 },
+    { direction: "IN", type: "webhook.error", status: "ERRO", payload: { raw: "{ payload inválido…" }, error: "Assinatura X-Hub-Signature-256 inválida (simulado)", durationMs: 4, attempts: 3, minsAgo: 60 * 8 },
   ];
-  for (const [title, body] of templates) {
+  for (const e of commEventsData) {
+    await db.commEvent.create({
+      data: {
+        companyId: company.id,
+        channel: "WHATSAPP",
+        direction: e.direction,
+        type: e.type,
+        status: e.status,
+        payload: JSON.stringify(e.payload),
+        response: "response" in e && e.response ? JSON.stringify(e.response) : null,
+        error: "error" in e ? (e.error as string) : null,
+        durationMs: e.durationMs,
+        attempts: "attempts" in e ? (e.attempts as number) : 1,
+        createdAt: new Date(Date.now() - e.minsAgo * 60000),
+      },
+    });
+  }
+
+  // ---- Modelos de mensagem (por categoria) ----
+  const templates: [string, string, string][] = [
+    ["Boas-vindas", "Oi, {{nome}}! 😊 Seja bem-vinda à Bella Moda! Sou a {{vendedora}} e vou te atender. Me conta o que você procura?", "PRIMEIRO_ATENDIMENTO"],
+    ["Envio de catálogo", "{{nome}}, acabei de te enviar nosso catálogo novinho 💌 Dá uma olhada e me diz quais peças você amou!", "CATALOGO"],
+    ["Cobrança gentil", "Oi {{nome}}! Passando para lembrar do seu pedido que está reservado 💜 Consegue fazer o pagamento hoje? Qualquer dificuldade me avisa!", "COBRANCA"],
+    ["Pós-venda", "{{nome}}, suas peças chegaram direitinho? Quero saber se amou! Qualquer ajuste estamos à disposição 🥰", "POS_VENDA"],
+    ["Sugestão de recompra", "{{nome}}, faz um tempinho que você levou peças lindas com a gente! Chegou reposição e novidades — quer que eu separe algo no seu tamanho? 💜", "RECOMPRA"],
+    ["Reativação", "Oi {{nome}}, sentimos sua falta por aqui! 🌸 Chegaram novidades lindas que têm tudo a ver com você. Posso te mandar?", "CLIENTE_FRIO"],
+    ["Lançamento", "{{nome}}, a nova coleção CHEGOU! 🎉 Separei as peças com a sua cara antes de divulgar para todo mundo. Quer ver em primeira mão?", "PROMOCAO"],
+    ["Feliz aniversário", "{{nome}}, feliz aniversário! 🎂💜 Para comemorar, você ganhou 15% OFF em qualquer peça esta semana. Aproveita, é só sua!", "ANIVERSARIO"],
+  ];
+  for (const [title, body, category] of templates) {
     await db.messageTemplate.create({
-      data: { companyId: company.id, title, body },
+      data: {
+        companyId: company.id,
+        title,
+        body,
+        category: category as "OUTRO",
+      },
     });
   }
 

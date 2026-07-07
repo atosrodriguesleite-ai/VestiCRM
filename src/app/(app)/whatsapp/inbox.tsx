@@ -1,5 +1,7 @@
 "use client";
 
+/* eslint-disable @next/next/no-img-element */
+
 import { useMemo, useRef, useState, useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -12,6 +14,16 @@ import {
   MessageCircle,
   Info,
   ShoppingBag,
+  Paperclip,
+  Image as ImageIcon,
+  Mic,
+  File,
+  Check,
+  CheckCheck,
+  Clock,
+  AlertTriangle,
+  RotateCcw,
+  Flag,
 } from "lucide-react";
 import { OrderComposer } from "@/components/order-composer";
 import { orderNumber } from "@/lib/orders";
@@ -20,6 +32,8 @@ import {
   timeShort,
   dateShort,
   conversationStatusLabel,
+  templateCategoryLabel,
+  relativeDays,
 } from "@/lib/format";
 import { Avatar, Badge, ConvStatusPill, EmptyState } from "@/components/ui";
 
@@ -27,6 +41,11 @@ export type InboxMessage = {
   id: string;
   direction: "IN" | "OUT";
   kind: "TEXT" | "NOTE";
+  mediaType: "TEXT" | "IMAGE" | "AUDIO" | "DOCUMENT" | "VIDEO" | "TEMPLATE";
+  mediaUrl: string | null;
+  fileName: string | null;
+  status: string;
+  error: string | null;
   body: string;
   authorName: string | null;
   createdAt: string;
@@ -34,9 +53,14 @@ export type InboxMessage = {
 
 export type InboxConversation = {
   id: string;
+  channel: string;
   status: "OPEN" | "WAITING_CLIENT" | "WAITING_PAYMENT" | "CLOSED";
+  priority: "BAIXA" | "NORMAL" | "ALTA";
   unreadCount: number;
   lastMessageAt: string;
+  createdAt: string;
+  lastInboundAt: string | null;
+  lastOutboundAt: string | null;
   customer: {
     id: string;
     name: string;
@@ -56,6 +80,78 @@ const STATUS_OPTIONS = [
   "CLOSED",
 ] as const;
 
+/** hh/dias desde a data — "2h", "3d" */
+function ago(iso: string): string {
+  const mins = Math.floor((Date.now() - new Date(iso).getTime()) / 60000);
+  if (mins < 60) return `${Math.max(mins, 0)}min`;
+  if (mins < 60 * 24) return `${Math.floor(mins / 60)}h`;
+  return `${Math.floor(mins / (60 * 24))}d`;
+}
+
+function StatusTicks({ m }: { m: InboxMessage }) {
+  if (m.direction !== "OUT" || m.kind === "NOTE") return null;
+  switch (m.status) {
+    case "ENVIANDO":
+      return <Clock className="size-3 inline" aria-label="Enviando" />;
+    case "ENVIADA":
+    case "REENVIADA":
+      return <Check className="size-3 inline" aria-label="Enviada" />;
+    case "ENTREGUE":
+      return <CheckCheck className="size-3 inline" aria-label="Entregue" />;
+    case "LIDA":
+      return (
+        <CheckCheck
+          className="size-3 inline text-sky-300"
+          aria-label="Lida"
+        />
+      );
+    case "FALHOU":
+      return (
+        <AlertTriangle
+          className="size-3 inline text-amber-300"
+          aria-label="Falhou"
+        />
+      );
+    default:
+      return null;
+  }
+}
+
+function MediaContent({ m }: { m: InboxMessage }) {
+  if (m.mediaType === "IMAGE" && m.mediaUrl) {
+    return (
+      <img
+        src={m.mediaUrl}
+        alt="Imagem"
+        className="rounded-xl max-w-full w-52 mb-1"
+      />
+    );
+  }
+  if (m.mediaType === "AUDIO") {
+    return (
+      <span className="flex items-center gap-2 py-1">
+        <span className="size-8 rounded-full bg-white/20 flex items-center justify-center shrink-0">
+          <Mic className="size-4" />
+        </span>
+        <span className="flex-1 h-1.5 rounded-full bg-white/25 min-w-28">
+          <span className="block h-full w-1/3 rounded-full bg-white/70" />
+        </span>
+      </span>
+    );
+  }
+  if (m.mediaType === "DOCUMENT") {
+    return (
+      <span className="flex items-center gap-2 rounded-xl bg-black/10 px-3 py-2 mb-1">
+        <File className="size-4 shrink-0" />
+        <span className="text-xs font-medium truncate">
+          {m.fileName ?? "documento"}
+        </span>
+      </span>
+    );
+  }
+  return null;
+}
+
 export function Inbox({
   conversations,
   templates,
@@ -63,7 +159,7 @@ export function Inbox({
   currentUserName,
 }: {
   conversations: InboxConversation[];
-  templates: { id: string; title: string; body: string }[];
+  templates: { id: string; title: string; body: string; category: string }[];
   team: { id: string; name: string; color: string }[];
   currentUserName: string;
 }) {
@@ -75,6 +171,7 @@ export function Inbox({
   const [draft, setDraft] = useState("");
   const [noteMode, setNoteMode] = useState(false);
   const [showTemplates, setShowTemplates] = useState(false);
+  const [showAttach, setShowAttach] = useState(false);
   const [showOrder, setShowOrder] = useState(false);
   const [sending, setSending] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -111,48 +208,106 @@ export function Inbox({
     });
   }
 
-  async function sendMessage() {
-    if (!selected || !draft.trim() || sending) return;
+  function appendMessage(convId: string, msg: InboxMessage) {
+    setConvs((prev) =>
+      prev.map((c) =>
+        c.id === convId
+          ? {
+              ...c,
+              lastMessageAt: msg.createdAt,
+              messages: [...c.messages, msg],
+            }
+          : c
+      )
+    );
+  }
+
+  async function sendPayload(payload: Record<string, unknown>) {
+    if (!selected || sending) return;
     setSending(true);
-    const body = draft.trim();
-    const kind = noteMode ? "NOTE" : "TEXT";
     const res = await fetch(`/api/conversations/${selected.id}/messages`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ body, kind }),
+      body: JSON.stringify(payload),
     });
     setSending(false);
     if (res.ok) {
       const msg = await res.json();
-      setConvs((prev) =>
-        prev.map((c) =>
-          c.id === selected.id
-            ? {
-                ...c,
-                lastMessageAt: msg.createdAt,
-                messages: [
-                  ...c.messages,
-                  {
-                    id: msg.id,
-                    direction: "OUT",
-                    kind,
-                    body,
-                    authorName: currentUserName,
-                    createdAt: msg.createdAt,
-                  },
-                ],
-              }
-            : c
-        )
-      );
+      appendMessage(selected.id, {
+        id: msg.id,
+        direction: "OUT",
+        kind: msg.kind,
+        mediaType: msg.mediaType,
+        mediaUrl: msg.mediaUrl,
+        fileName: msg.fileName,
+        status: msg.status,
+        error: msg.error,
+        body: msg.body,
+        authorName: currentUserName,
+        createdAt: msg.createdAt,
+      });
+      return true;
+    }
+    return false;
+  }
+
+  async function sendMessage() {
+    if (!draft.trim()) return;
+    const ok = await sendPayload({
+      body: draft.trim(),
+      kind: noteMode ? "NOTE" : "TEXT",
+    });
+    if (ok) {
       setDraft("");
       setNoteMode(false);
     }
   }
 
+  async function sendAttachment(kind: "IMAGE" | "AUDIO" | "DOCUMENT") {
+    setShowAttach(false);
+    const payloads = {
+      IMAGE: {
+        body: "📷 Foto do catálogo",
+        mediaType: "IMAGE",
+        mediaUrl: "/products/conjunto-linho.svg",
+      },
+      AUDIO: { body: "🎤 Áudio (0:08)", mediaType: "AUDIO" },
+      DOCUMENT: {
+        body: "📎 Tabela de medidas",
+        mediaType: "DOCUMENT",
+        fileName: "tabela-medidas.pdf",
+      },
+    } as const;
+    await sendPayload({ ...payloads[kind], kind: "TEXT" });
+  }
+
+  async function resend(messageId: string) {
+    if (!selected) return;
+    const res = await fetch(`/api/messages/${messageId}/resend`, {
+      method: "POST",
+    });
+    if (res.ok) {
+      const updated = await res.json();
+      setConvs((prev) =>
+        prev.map((c) =>
+          c.id === selected.id
+            ? {
+                ...c,
+                messages: c.messages.map((m) =>
+                  m.id === messageId
+                    ? { ...m, status: updated.status, error: updated.error }
+                    : m
+                ),
+              }
+            : c
+        )
+      );
+    }
+  }
+
   async function updateConv(
     id: string,
-    patch: { status?: string; assigneeId?: string }
+    patch: { status?: string; assigneeId?: string; priority?: string }
   ) {
     const res = await fetch(`/api/conversations/${id}`, {
       method: "PATCH",
@@ -166,6 +321,8 @@ export function Inbox({
           const next = { ...c };
           if (patch.status)
             next.status = patch.status as InboxConversation["status"];
+          if (patch.priority)
+            next.priority = patch.priority as InboxConversation["priority"];
           if (patch.assigneeId) {
             const member = team.find((t) => t.id === patch.assigneeId);
             next.assignee = member ?? null;
@@ -187,6 +344,16 @@ export function Inbox({
     );
     setShowTemplates(false);
   };
+
+  const templatesByCategory = useMemo(() => {
+    const map = new Map<string, typeof templates>();
+    for (const t of templates) {
+      const list = map.get(t.category) ?? [];
+      list.push(t);
+      map.set(t.category, list);
+    }
+    return map;
+  }, [templates]);
 
   return (
     <div className="max-w-7xl mx-auto h-[calc(100dvh-160px)] md:h-[calc(100dvh-120px)] flex rounded-2xl overflow-hidden border border-gray-100 bg-white shadow-card">
@@ -246,7 +413,10 @@ export function Inbox({
                 <Avatar name={c.customer.name} color="#7c3aed" />
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center justify-between gap-2">
-                    <p className="text-sm font-semibold truncate">
+                    <p className="text-sm font-semibold truncate flex items-center gap-1.5">
+                      {c.priority === "ALTA" && (
+                        <Flag className="size-3 text-rose-500 shrink-0" />
+                      )}
                       {c.customer.name}
                     </p>
                     <span className="text-[10px] text-gray-400 shrink-0">
@@ -311,18 +481,41 @@ export function Inbox({
                 >
                   {selected.customer.name}
                 </Link>
-                <p className="text-xs text-gray-400 truncate">
-                  {formatPhone(selected.customer.phone)}
-                  {selected.customer.city ? ` · ${selected.customer.city}` : ""}
+                <p className="text-[11px] text-gray-400 truncate">
+                  {formatPhone(selected.customer.phone)} · aberta{" "}
+                  {relativeDays(selected.createdAt)}
+                  {selected.lastInboundAt &&
+                  (!selected.lastOutboundAt ||
+                    selected.lastInboundAt > selected.lastOutboundAt)
+                    ? ` · cliente aguarda há ${ago(selected.lastInboundAt)}`
+                    : selected.lastOutboundAt
+                      ? ` · aguardando cliente há ${ago(selected.lastOutboundAt)}`
+                      : ""}
                 </p>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1.5">
+                <select
+                  value={selected.priority}
+                  onChange={(e) =>
+                    updateConv(selected.id, { priority: e.target.value })
+                  }
+                  className={`text-xs rounded-lg border px-1.5 py-1.5 bg-white outline-none ${
+                    selected.priority === "ALTA"
+                      ? "border-rose-300 text-rose-600"
+                      : "border-gray-200"
+                  }`}
+                  title="Prioridade"
+                >
+                  <option value="BAIXA">Baixa</option>
+                  <option value="NORMAL">Normal</option>
+                  <option value="ALTA">🔥 Alta</option>
+                </select>
                 <select
                   value={selected.status}
                   onChange={(e) =>
                     updateConv(selected.id, { status: e.target.value })
                   }
-                  className="text-xs rounded-lg border border-gray-200 px-2 py-1.5 bg-white outline-none"
+                  className="text-xs rounded-lg border border-gray-200 px-1.5 py-1.5 bg-white outline-none max-w-32"
                   title="Status da conversa"
                 >
                   {STATUS_OPTIONS.map((s) => (
@@ -336,7 +529,7 @@ export function Inbox({
                   onChange={(e) =>
                     updateConv(selected.id, { assigneeId: e.target.value })
                   }
-                  className="hidden sm:block text-xs rounded-lg border border-gray-200 px-2 py-1.5 bg-white outline-none max-w-28"
+                  className="hidden sm:block text-xs rounded-lg border border-gray-200 px-1.5 py-1.5 bg-white outline-none max-w-24"
                   title="Transferir atendimento"
                 >
                   <option value="" disabled>
@@ -373,7 +566,7 @@ export function Inbox({
                           <StickyNote className="size-3" />
                           Nota interna · {m.authorName ?? "equipe"}
                         </p>
-                        {m.body}
+                        <span className="whitespace-pre-wrap">{m.body}</span>
                       </div>
                     </div>
                   );
@@ -391,14 +584,32 @@ export function Inbox({
                           : "bg-white text-ink rounded-bl-md"
                       }`}
                     >
-                      <p className="whitespace-pre-wrap break-words">{m.body}</p>
+                      <MediaContent m={m} />
+                      {(m.mediaType === "TEXT" || m.mediaType === "TEMPLATE") && (
+                        <p className="whitespace-pre-wrap break-words">{m.body}</p>
+                      )}
+                      {m.status === "FALHOU" && (
+                        <div className="flex items-center gap-2 mt-1.5 rounded-lg bg-black/15 px-2 py-1">
+                          <span className="text-[10px] flex-1">
+                            {m.error ?? "Falha no envio"}
+                          </span>
+                          <button
+                            onClick={() => resend(m.id)}
+                            className="flex items-center gap-1 text-[10px] font-semibold underline underline-offset-2"
+                          >
+                            <RotateCcw className="size-3" />
+                            Reenviar
+                          </button>
+                        </div>
+                      )}
                       <p
-                        className={`text-[10px] mt-1 text-right ${mine ? "text-white/60" : "text-gray-300"}`}
+                        className={`text-[10px] mt-1 text-right flex items-center gap-1 justify-end ${mine ? "text-white/60" : "text-gray-300"}`}
                       >
                         {mine && m.authorName
                           ? `${m.authorName.split(" ")[0]} · `
                           : ""}
                         {timeShort(m.createdAt)}
+                        <StatusTicks m={m} />
                       </p>
                     </div>
                   </div>
@@ -410,43 +621,88 @@ export function Inbox({
             {/* aviso modo simulado */}
             <div className="px-4 py-1.5 bg-sky-50 border-t border-sky-100 flex items-center gap-2 text-[11px] text-sky-700 shrink-0">
               <Info className="size-3.5 shrink-0" />
-              Modo simulado: mensagens ficam registradas no CRM. Conecte a API
-              oficial do WhatsApp em Configurações.
+              Communication Engine em modo simulado (Mock Provider). Ative a
+              Cloud API em Configurações → Comunicação.
             </div>
 
             {/* composer */}
             <div className="p-3 border-t border-gray-100 shrink-0 relative">
               {showTemplates && (
-                <div className="absolute bottom-full left-3 right-3 mb-1 bg-white rounded-xl border border-gray-100 shadow-pop max-h-64 overflow-y-auto thin-scroll z-10">
-                  {templates.map((t) => (
-                    <button
-                      key={t.id}
-                      onClick={() => applyTemplate(t.body)}
-                      className="w-full text-left px-4 py-2.5 hover:bg-brand-50 transition border-b border-gray-50 last:border-0"
-                    >
-                      <p className="text-xs font-semibold text-brand-700">
-                        {t.title}
+                <div className="absolute bottom-full left-3 right-3 mb-1 bg-white rounded-xl border border-gray-100 shadow-pop max-h-72 overflow-y-auto thin-scroll z-10">
+                  {[...templatesByCategory.entries()].map(([cat, list]) => (
+                    <div key={cat}>
+                      <p className="px-4 pt-2.5 pb-1 text-[10px] font-bold uppercase tracking-wide text-gray-400 bg-gray-50/60">
+                        {templateCategoryLabel[cat as keyof typeof templateCategoryLabel] ?? cat}
                       </p>
-                      <p className="text-xs text-gray-500 line-clamp-2">
-                        {t.body}
-                      </p>
-                    </button>
+                      {list.map((t) => (
+                        <button
+                          key={t.id}
+                          onClick={() => applyTemplate(t.body)}
+                          className="w-full text-left px-4 py-2.5 hover:bg-brand-50 transition border-b border-gray-50 last:border-0"
+                        >
+                          <p className="text-xs font-semibold text-brand-700">
+                            {t.title}
+                          </p>
+                          <p className="text-xs text-gray-500 line-clamp-2">
+                            {t.body}
+                          </p>
+                        </button>
+                      ))}
+                    </div>
                   ))}
                 </div>
               )}
+              {showAttach && (
+                <div className="absolute bottom-full left-3 mb-1 bg-white rounded-xl border border-gray-100 shadow-pop z-10 p-1.5 flex gap-1.5">
+                  <button
+                    onClick={() => sendAttachment("IMAGE")}
+                    className="flex flex-col items-center gap-1 rounded-xl px-3 py-2 hover:bg-brand-50 transition"
+                  >
+                    <ImageIcon className="size-5 text-brand-600" />
+                    <span className="text-[10px] font-medium">Imagem</span>
+                  </button>
+                  <button
+                    onClick={() => sendAttachment("AUDIO")}
+                    className="flex flex-col items-center gap-1 rounded-xl px-3 py-2 hover:bg-brand-50 transition"
+                  >
+                    <Mic className="size-5 text-emerald-600" />
+                    <span className="text-[10px] font-medium">Áudio</span>
+                  </button>
+                  <button
+                    onClick={() => sendAttachment("DOCUMENT")}
+                    className="flex flex-col items-center gap-1 rounded-xl px-3 py-2 hover:bg-brand-50 transition"
+                  >
+                    <File className="size-5 text-sky-600" />
+                    <span className="text-[10px] font-medium">Documento</span>
+                  </button>
+                </div>
+              )}
               <div
-                className={`flex items-end gap-2 rounded-2xl border px-2 py-1.5 transition ${
+                className={`flex items-end gap-1.5 rounded-2xl border px-2 py-1.5 transition ${
                   noteMode
                     ? "border-amber-300 bg-amber-50"
                     : "border-gray-200 bg-white"
                 }`}
               >
                 <button
-                  onClick={() => setShowTemplates((v) => !v)}
+                  onClick={() => {
+                    setShowTemplates((v) => !v);
+                    setShowAttach(false);
+                  }}
                   className="p-2 text-gray-400 hover:text-brand-600 transition shrink-0"
                   title="Modelos de mensagem"
                 >
                   <FileText className="size-4.5" />
+                </button>
+                <button
+                  onClick={() => {
+                    setShowAttach((v) => !v);
+                    setShowTemplates(false);
+                  }}
+                  className="p-2 text-gray-400 hover:text-brand-600 transition shrink-0"
+                  title="Anexar (simulado)"
+                >
+                  <Paperclip className="size-4.5" />
                 </button>
                 <button
                   onClick={() => setNoteMode((v) => !v)}
@@ -519,6 +775,7 @@ export function Inbox({
                 </select>
               </div>
             </div>
+
             {showOrder && (
               <OrderComposer
                 customerId={selected.customer.id}
@@ -530,27 +787,19 @@ export function Inbox({
                   setShowOrder(false);
                   const body = `🛍️ Pedido ${orderNumber(order.number)} criado — total R$ ${order.total.toFixed(2).replace(".", ",")}`;
                   const nowIso = new Date().toISOString();
-                  setConvs((prev) =>
-                    prev.map((c) =>
-                      c.id === selected.id
-                        ? {
-                            ...c,
-                            lastMessageAt: nowIso,
-                            messages: [
-                              ...c.messages,
-                              {
-                                id: `local-${order.id}`,
-                                direction: "OUT",
-                                kind: "NOTE",
-                                body,
-                                authorName: currentUserName,
-                                createdAt: nowIso,
-                              },
-                            ],
-                          }
-                        : c
-                    )
-                  );
+                  appendMessage(selected.id, {
+                    id: `local-${order.id}`,
+                    direction: "OUT",
+                    kind: "NOTE",
+                    mediaType: "TEXT",
+                    mediaUrl: null,
+                    fileName: null,
+                    status: "ENVIADA",
+                    error: null,
+                    body,
+                    authorName: currentUserName,
+                    createdAt: nowIso,
+                  });
                   setDraft(
                     `Seu pedido ${orderNumber(order.number)} ficou em R$ ${order.total
                       .toFixed(2)

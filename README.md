@@ -4,6 +4,16 @@ CRM SaaS para lojas de roupas, confecções, atacados, boutiques e revendedoras 
 
 ## Funcionalidades
 
+### Communication Engine (camada omnichannel)
+
+- **Camada única de comunicação** (`src/lib/comm/`) — nenhuma tela fala com provedor: envio, recebimento, anexos, status, recibos e logs passam pela engine. Trocar Mock ↔ Cloud API é uma configuração; nenhuma tela muda.
+- **Providers plugáveis** — Mock (funcional, simulado), WhatsApp Cloud API (estrutura pronta, incl. verificação de webhook `hub.challenge` da Meta), Instagram Direct, Facebook Messenger, Telegram, E-mail (SMTP) e SMS (interfaces).
+- **Mensagens ricas** — texto, imagem, áudio, documento, vídeo, template, reação e resposta; ID externo (`wamid`); status Enviando → Enviada → Entregue → Lida (ticks no chat), Falhou com erro + botão Reenviar.
+- **Conversas** — canal, prioridade (baixa/normal/alta), tempo aberto, tempo aguardando cliente e aguardando vendedor.
+- **Templates por categoria** — primeiro atendimento, catálogo, cobrança, pós-venda, recompra, promoção, cliente frio, aniversário.
+- **Central de Comunicação** (`/comunicacao`) — monitor de filas, falhas, latência e webhooks com log completo (payload, resposta, tentativas) + **simulador** de todos os cenários (mensagem/imagem/áudio/documento recebidos, envio, erro, recibos de entrega/leitura, webhook com erro).
+- **Credenciais seguras** (Configurações → Comunicação) — Meta App ID/Secret, Business Manager, Phone Number ID, Verify Token, Access Token, Webhook Secret, Instagram, Facebook, Telegram e SMTP. Valores sensíveis criptografados em repouso (AES-256-GCM), sempre mascarados na API, com **auditoria** de quem alterou o quê.
+
 ### Central Inteligente de Entrada de Leads (omnichannel)
 
 - **Lead Intake Engine** (`src/lib/intake.ts`) — camada única por onde TODA entrada passa (nenhum canal cria clientes diretamente): deduplica por telefone, cria/reaproveita cliente e conversa, gera oportunidade na etapa configurada, cria tarefa de primeiro atendimento dentro do SLA e registra tudo na timeline.

@@ -134,6 +134,9 @@ enum Origin {
   GOOGLE
   EVENTO
   MANUAL
+  TELEGRAM
+  EMAIL
+  SMS
 }
 
 model Customer {
@@ -276,18 +279,38 @@ enum ConversationStatus {
   CLOSED
 }
 
+// Canal de comunicação (Communication Engine)
+enum Channel {
+  WHATSAPP
+  INSTAGRAM
+  FACEBOOK
+  TELEGRAM
+  EMAIL
+  SMS
+}
+
+enum ConversationPriority {
+  BAIXA
+  NORMAL
+  ALTA
+}
+
 model Conversation {
-  id            String             @id @default(cuid())
-  companyId     String
-  company       Company            @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  customerId    String
-  customer      Customer           @relation(fields: [customerId], references: [id], onDelete: Cascade)
-  assigneeId    String?
-  assignee      User?              @relation("ConvAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
-  status        ConversationStatus @default(OPEN)
-  unreadCount   Int                @default(0)
-  lastMessageAt DateTime           @default(now())
-  createdAt     DateTime           @default(now())
+  id             String               @id @default(cuid())
+  companyId      String
+  company        Company              @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  customerId     String
+  customer       Customer             @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  assigneeId     String?
+  assignee       User?                @relation("ConvAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
+  channel        Channel              @default(WHATSAPP)
+  status         ConversationStatus   @default(OPEN)
+  priority       ConversationPriority @default(NORMAL)
+  unreadCount    Int                  @default(0)
+  lastMessageAt  DateTime             @default(now())
+  lastInboundAt  DateTime? // última msg do cliente → tempo aguardando vendedor
+  lastOutboundAt DateTime? // última msg da loja → tempo aguardando cliente
+  createdAt      DateTime             @default(now())
 
   messages Message[]
   orders   Order[]
@@ -306,28 +329,131 @@ enum MessageKind {
   NOTE
 }
 
+enum MessageMedia {
+  TEXT
+  IMAGE
+  AUDIO
+  DOCUMENT
+  VIDEO
+  TEMPLATE
+}
+
+// Ciclo de vida da entrega (Cloud API: sent → delivered → read)
+enum MessageStatus {
+  ENVIANDO
+  ENVIADA
+  ENTREGUE
+  LIDA
+  FALHOU
+  REENVIADA
+  RECEBIDA
+}
+
 model Message {
   id             String           @id @default(cuid())
   conversationId String
   conversation   Conversation     @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  externalId     String? // id da mensagem no provedor (wamid...)
+  channel        Channel          @default(WHATSAPP)
   direction      MessageDirection @default(OUT)
   kind           MessageKind      @default(TEXT)
+  mediaType      MessageMedia     @default(TEXT)
   body           String
+  mediaUrl       String?
+  fileName       String?
+  reaction       String? // emoji de reação
+  replyToId      String? // resposta a outra mensagem
+  replyTo        Message?         @relation("MessageReply", fields: [replyToId], references: [id], onDelete: SetNull)
+  replies        Message[]        @relation("MessageReply")
+  status         MessageStatus    @default(ENVIADA)
+  error          String?
   authorId       String?
   author         User?            @relation(fields: [authorId], references: [id], onDelete: SetNull)
   createdAt      DateTime         @default(now())
 
   @@index([conversationId, createdAt])
+  @@index([externalId])
+}
+
+enum TemplateCategory {
+  PRIMEIRO_ATENDIMENTO
+  CATALOGO
+  COBRANCA
+  POS_VENDA
+  RECOMPRA
+  PROMOCAO
+  CLIENTE_FRIO
+  ANIVERSARIO
+  OUTRO
 }
 
 model MessageTemplate {
-  id        String  @id @default(cuid())
+  id        String           @id @default(cuid())
   companyId String
-  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  company   Company          @relation(fields: [companyId], references: [id], onDelete: Cascade)
   title     String
   body      String
+  category  TemplateCategory @default(OUTRO)
 
   @@index([companyId])
+}
+
+// ---------------------------------------------------------------------------
+// Communication Engine — eventos, credenciais e auditoria
+// ---------------------------------------------------------------------------
+
+// Log de todo tráfego da engine: webhooks recebidos, envios, erros, latência
+model CommEvent {
+  id         String   @id @default(cuid())
+  companyId  String?
+  channel    Channel  @default(WHATSAPP)
+  direction  String // IN | OUT
+  type       String // message.received | message.sent | status.update | webhook.error ...
+  status     String // OK | ERRO
+  payload    String? // JSON do que chegou/saiu
+  response   String? // JSON da resposta do provedor
+  error      String?
+  durationMs Int      @default(0)
+  attempts   Int      @default(1)
+  createdAt  DateTime @default(now())
+
+  @@index([companyId, createdAt])
+  @@index([type])
+}
+
+// Credenciais por empresa — valores sensíveis criptografados (AES-256-GCM)
+model CommSettings {
+  id                 String   @id @default(cuid())
+  companyId          String   @unique
+  activeProvider     String   @default("MOCK") // MOCK | CLOUD_API
+  metaAppId          String?
+  metaAppSecret      String? // criptografado
+  businessManagerId  String?
+  phoneNumberId      String?
+  verifyToken        String? // criptografado
+  accessToken        String? // criptografado
+  webhookSecret      String? // criptografado
+  instagramAccountId String?
+  facebookPageId     String?
+  telegramBotToken   String? // criptografado
+  smtpHost           String?
+  smtpPort           Int?
+  smtpUser           String?
+  smtpPassword       String? // criptografado
+  updatedAt          DateTime @updatedAt
+}
+
+// Auditoria: quem alterou credenciais e quais campos (nunca os valores)
+model CommAudit {
+  id        String   @id @default(cuid())
+  companyId String
+  userId    String?
+  userName  String
+  action    String // ex.: "Atualizou credenciais"
+  fields    String // nomes dos campos alterados, separados por vírgula
+  createdAt DateTime @default(now())
+
+  @@index([companyId, createdAt])
 }
 
 enum TaskType {

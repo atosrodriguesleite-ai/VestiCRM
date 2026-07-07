@@ -1,14 +1,23 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { db } from "@/lib/db";
 import { requireUser, AuthError } from "@/lib/auth";
-import { whatsapp } from "@/lib/whatsapp";
+import { sendMessage } from "@/lib/comm/engine";
 
 const schema = z.object({
   body: z.string().min(1),
   kind: z.enum(["TEXT", "NOTE"]).default("TEXT"),
+  mediaType: z
+    .enum(["TEXT", "IMAGE", "AUDIO", "DOCUMENT", "VIDEO", "TEMPLATE"])
+    .default("TEXT"),
+  mediaUrl: z.string().optional(),
+  fileName: z.string().optional(),
+  replyToId: z.string().optional(),
 });
 
+/**
+ * Envio de mensagem — passa SEMPRE pela Communication Engine.
+ * A tela não conhece o provedor: Mock hoje, Cloud API amanhã, mesma rota.
+ */
 export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -21,53 +30,24 @@ export async function POST(
       return NextResponse.json({ error: "Dados inválidos" }, { status: 400 });
     }
 
-    const conv = await db.conversation.findFirst({
-      where: { id, companyId: user.companyId },
-      include: { customer: true },
+    const message = await sendMessage({
+      conversationId: id,
+      companyId: user.companyId,
+      body: parsed.data.body,
+      kind: parsed.data.kind,
+      mediaType: parsed.data.mediaType,
+      mediaUrl: parsed.data.mediaUrl,
+      fileName: parsed.data.fileName,
+      replyToId: parsed.data.replyToId,
+      authorId: user.id,
     });
-    if (!conv) {
-      return NextResponse.json({ error: "Não encontrada" }, { status: 404 });
-    }
-
-    // NOTE = nota interna, nunca sai do CRM; TEXT passa pelo provider
-    if (parsed.data.kind === "TEXT") {
-      const result = await whatsapp.send({
-        phone: conv.customer.phone,
-        body: parsed.data.body,
-      });
-      if (!result.ok) {
-        return NextResponse.json(
-          { error: `Falha no envio: ${result.error}` },
-          { status: 502 }
-        );
-      }
-    }
-
-    const message = await db.message.create({
-      data: {
-        conversationId: conv.id,
-        direction: "OUT",
-        kind: parsed.data.kind,
-        body: parsed.data.body,
-        authorId: user.id,
-      },
-    });
-
-    await db.conversation.update({
-      where: { id: conv.id },
-      data: { lastMessageAt: new Date(), unreadCount: 0 },
-    });
-    if (parsed.data.kind === "TEXT") {
-      await db.customer.update({
-        where: { id: conv.customerId },
-        data: { lastContactAt: new Date() },
-      });
-    }
 
     return NextResponse.json(message, { status: 201 });
   } catch (e) {
     if (e instanceof AuthError)
       return NextResponse.json({ error: "Não autenticado" }, { status: 401 });
+    if (e instanceof Error && e.message === "Conversa não encontrada")
+      return NextResponse.json({ error: e.message }, { status: 404 });
     throw e;
   }
 }
