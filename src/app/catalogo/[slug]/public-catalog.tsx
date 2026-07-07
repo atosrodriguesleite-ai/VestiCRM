@@ -78,12 +78,14 @@ const BagIcon = ({ className = "" }: { className?: string }) => (
 );
 
 export function PublicCatalog({
+  storeSlug,
   storeName,
   tagline,
   whatsapp,
   minOrder,
   products,
 }: {
+  storeSlug: string;
   storeName: string;
   tagline: string | null;
   whatsapp: string | null;
@@ -232,6 +234,25 @@ export function PublicCatalog({
       if (client.fone) msg += `Telefone: ${client.fone}\n`;
     }
     msg += "\n_Valores sujeitos a confirmação._";
+
+    // Lead Intake Engine: o pedido também entra no CRM da loja como
+    // lead/interação (origem Catálogo Público) — nenhum contato se perde.
+    if (client.fone.replace(/\D/g, "").length >= 8) {
+      fetch("/api/intake/catalogo", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          company: storeSlug,
+          phone: client.fone,
+          name: client.nome || client.loja || undefined,
+          message: msg,
+          title: `Pedido do catálogo — ${totalPieces} peças`,
+          value: totalValue,
+        }),
+        keepalive: true,
+      }).catch(() => {});
+    }
+
     const url = `https://wa.me/${whatsapp.replace(/\D/g, "")}?text=${encodeURIComponent(msg)}`;
     window.open(url, "_blank") ?? (window.location.href = url);
   }

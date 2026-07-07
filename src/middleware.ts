@@ -5,8 +5,15 @@ const secret = new TextEncoder().encode(
   process.env.AUTH_SECRET ?? "vesticrm-dev-secret"
 );
 
-// /catalogo/[slug] é a vitrine pública que a loja compartilha com clientes
-const PUBLIC_PATHS = ["/login", "/api/auth/login", "/catalogo"];
+// /catalogo é a vitrine pública; /api/intake e /api/whatsapp/webhook são os
+// webhooks de entrada de leads (protegidos por INTAKE_SECRET quando definido)
+const PUBLIC_PATHS = [
+  "/login",
+  "/api/auth/login",
+  "/catalogo",
+  "/api/intake",
+  "/api/whatsapp/webhook",
+];
 
 export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;

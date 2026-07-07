@@ -4,6 +4,17 @@ CRM SaaS para lojas de roupas, confecções, atacados, boutiques e revendedoras 
 
 ## Funcionalidades
 
+### Central Inteligente de Entrada de Leads (omnichannel)
+
+- **Lead Intake Engine** (`src/lib/intake.ts`) — camada única por onde TODA entrada passa (nenhum canal cria clientes diretamente): deduplica por telefone, cria/reaproveita cliente e conversa, gera oportunidade na etapa configurada, cria tarefa de primeiro atendimento dentro do SLA e registra tudo na timeline.
+- **14 origens rastreadas** — WhatsApp, Catálogo Público, Instagram, Facebook, Site, Nuvemshop, Bling, Marketplace, Indicação, Loja física, Tráfego pago, Google, Evento e Cadastro Manual.
+- **Webhooks prontos** — `POST /api/whatsapp/webhook` (mensagens recebidas) e `POST /api/intake/{canal}` (instagram, facebook, site, nuvemshop, bling, marketplace, google, catalogo). Proteja com `INTAKE_SECRET` (header `x-intake-token`).
+- **Distribuição automática** — rodízio entre vendedores (round robin) ou vendedor fixo, configurável por loja.
+- **Configuração por origem** — cada origem pode iniciar em uma etapa diferente do funil; política de nova oportunidade (sempre / só sem negociação aberta / nunca); SLA do 1º atendimento em minutos.
+- **Timeline do cliente** — "Lead criado via WhatsApp", "Nova interação via Site"... visível na ficha do cliente.
+- **Relatórios por canal** — leads por origem, conversão por origem, ticket médio e valor vendido por canal, melhor canal, tempo médio até a 1ª resposta e até a venda.
+- O pedido enviado no catálogo público também entra no CRM automaticamente (origem Catálogo Público).
+
 ### Catálogo + Pedidos
 
 - **Produtos** — catálogo por empresa com SKU, categoria, marca, coleção, descrição, fotos, vídeo, grade cor × tamanho com estoque por variação, preço de custo/atacado/varejo, quantidade mínima, tags e status. Filtros por categoria, cor, tamanho, coleção, marca, preço e estoque.

@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { requireUser, AuthError } from "@/lib/auth";
+import { intakeLead } from "@/lib/intake";
+import type { Origin } from "@prisma/client";
 
 const schema = z.object({
   name: z.string().min(1),
@@ -11,15 +13,14 @@ const schema = z.object({
   type: z
     .enum(["VAREJO", "ATACADO", "REVENDEDORA", "LOJISTA", "BOUTIQUE", "SACOLEIRA"])
     .default("VAREJO"),
-  origin: z
-    .enum(["INSTAGRAM", "WHATSAPP", "INDICACAO", "TRAFEGO_PAGO", "LOJA_FISICA", "EVENTO", "SITE"])
-    .default("WHATSAPP"),
+  origin: z.string().default("MANUAL"),
   notes: z.string().optional(),
   preferredSize: z.string().optional(),
   preferredColors: z.string().optional(),
   interestIds: z.array(z.string()).optional(),
 });
 
+/** Cadastro manual — passa pelo Lead Intake Engine como todos os canais. */
 export async function POST(req: NextRequest) {
   try {
     const user = await requireUser();
@@ -27,34 +28,45 @@ export async function POST(req: NextRequest) {
     if (!parsed.success) {
       return NextResponse.json({ error: "Dados inválidos" }, { status: 400 });
     }
-    const { interestIds, ...data } = parsed.data;
+    const { interestIds, type, notes, preferredSize, preferredColors, origin, ...core } =
+      parsed.data;
 
-    const customer = await db.customer.create({
+    const validOrigins = Object.keys(
+      (await import("@/lib/format")).originLabel
+    );
+    const resolvedOrigin = (
+      validOrigins.includes(origin) ? origin : "MANUAL"
+    ) as Origin;
+
+    const result = await intakeLead(user.companyId, {
+      phone: core.phone,
+      name: core.name,
+      city: core.city,
+      state: core.state,
+      origin: resolvedOrigin,
+      ownerId: user.id, // quem cadastrou fica responsável
+    });
+
+    // campos complementares do formulário (perfil de moda)
+    const customer = await db.customer.update({
+      where: { id: result.customer.id },
       data: {
-        ...data,
-        companyId: user.companyId,
-        ownerId: user.id,
+        type,
+        notes: notes ?? undefined,
+        preferredSize: preferredSize ?? undefined,
+        preferredColors: preferredColors ?? undefined,
         interests: interestIds?.length
-          ? { create: interestIds.map((id) => ({ interestId: id })) }
+          ? {
+              deleteMany: {},
+              create: interestIds.map((id) => ({ interestId: id })),
+            }
           : undefined,
       },
     });
 
-    // automação: cliente novo → tarefa de primeiro contato
-    await db.task.create({
-      data: {
-        companyId: user.companyId,
-        customerId: customer.id,
-        title: `Primeiro contato com ${customer.name}`,
-        type: "LIGAR",
-        dueAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
-        priority: "ALTA",
-        assigneeId: user.id,
-        autoRule: `primeiro-contato:${customer.id}`,
-      },
+    return NextResponse.json(customer, {
+      status: result.isNewLead ? 201 : 200,
     });
-
-    return NextResponse.json(customer, { status: 201 });
   } catch (e) {
     if (e instanceof AuthError)
       return NextResponse.json({ error: "Não autenticado" }, { status: 401 });

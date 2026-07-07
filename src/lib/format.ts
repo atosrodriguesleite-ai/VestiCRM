@@ -67,13 +67,20 @@ export const customerTypeLabel: Record<CustomerType, string> = {
 };
 
 export const originLabel: Record<Origin, string> = {
-  INSTAGRAM: "Instagram",
   WHATSAPP: "WhatsApp",
-  INDICACAO: "Indicação",
-  TRAFEGO_PAGO: "Tráfego pago",
-  LOJA_FISICA: "Loja física",
-  EVENTO: "Evento",
+  CATALOGO_PUBLICO: "Catálogo Público",
+  INSTAGRAM: "Instagram",
+  FACEBOOK: "Facebook",
   SITE: "Site",
+  NUVEMSHOP: "Nuvemshop",
+  BLING: "Bling",
+  MARKETPLACE: "Marketplace",
+  INDICACAO: "Indicação",
+  LOJA_FISICA: "Loja física",
+  TRAFEGO_PAGO: "Tráfego pago",
+  GOOGLE: "Google",
+  EVENTO: "Evento",
+  MANUAL: "Cadastro Manual",
 };
 
 export const conversationStatusLabel: Record<ConversationStatus, string> = {

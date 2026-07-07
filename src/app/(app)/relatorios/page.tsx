@@ -23,7 +23,7 @@ export default async function ReportsPage() {
   const now = new Date();
   const days90 = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
 
-  const [sales, sellers, stages, opps, customers, interests, pendingTasks] =
+  const [sales, sellers, stages, opps, customers, interests, pendingTasks, conversations] =
     await Promise.all([
       db.sale.findMany({
         where: { companyId: user.companyId, createdAt: { gte: days90 } },
@@ -47,7 +47,76 @@ export default async function ReportsPage() {
       db.task.count({
         where: { companyId: user.companyId, status: "PENDENTE" },
       }),
+      db.conversation.findMany({
+        where: { companyId: user.companyId },
+        include: {
+          messages: { orderBy: { createdAt: "asc" }, select: { direction: true, createdAt: true } },
+        },
+      }),
     ]);
+
+  // ---- Canais de aquisição (Lead Intake Engine) ----
+  const customersFull = await db.customer.findMany({
+    where: { companyId: user.companyId },
+    include: { sales: { select: { total: true, createdAt: true } } },
+  });
+  type ChannelStat = {
+    origin: string;
+    leads: number;
+    buyers: number;
+    revenue: number;
+    daysToSale: number[];
+  };
+  const channelMap = new Map<string, ChannelStat>();
+  for (const c of customersFull) {
+    const key = originLabel[c.origin];
+    const stat =
+      channelMap.get(key) ??
+      { origin: key, leads: 0, buyers: 0, revenue: 0, daysToSale: [] };
+    stat.leads += 1;
+    if (c.sales.length > 0) {
+      stat.buyers += 1;
+      stat.revenue += c.sales.reduce((s, v) => s + v.total, 0);
+      const firstSale = c.sales.reduce(
+        (min, s) => (s.createdAt < min ? s.createdAt : min),
+        c.sales[0].createdAt
+      );
+      stat.daysToSale.push(
+        Math.max(0, (firstSale.getTime() - c.createdAt.getTime()) / (24 * 60 * 60 * 1000))
+      );
+    }
+    channelMap.set(key, stat);
+  }
+  const channels = [...channelMap.values()].sort((a, b) => b.revenue - a.revenue);
+  const bestChannel = channels[0];
+  const avgDaysToSale = (() => {
+    const all = channels.flatMap((c) => c.daysToSale);
+    return all.length ? all.reduce((a, b) => a + b, 0) / all.length : 0;
+  })();
+
+  // tempo médio até a primeira resposta (1ª msg OUT depois da 1ª IN)
+  const responseTimes: number[] = [];
+  for (const conv of conversations) {
+    const firstIn = conv.messages.find((m) => m.direction === "IN");
+    if (!firstIn) continue;
+    const firstOut = conv.messages.find(
+      (m) => m.direction === "OUT" && m.createdAt > firstIn.createdAt
+    );
+    if (firstOut) {
+      responseTimes.push(
+        (firstOut.createdAt.getTime() - firstIn.createdAt.getTime()) / 60000
+      );
+    }
+  }
+  const avgResponseMin = responseTimes.length
+    ? responseTimes.reduce((a, b) => a + b, 0) / responseTimes.length
+    : 0;
+  const fmtDuration = (min: number) =>
+    min >= 60 * 24
+      ? `${(min / (60 * 24)).toFixed(1)} dias`
+      : min >= 60
+        ? `${(min / 60).toFixed(1)} h`
+        : `${Math.round(min)} min`;
 
   // vendas por semana (últimas 12)
   const weeks: { label: string; total: number }[] = [];
@@ -172,6 +241,75 @@ export default async function ReportsPage() {
           icon={<Users />}
           tone={pendingTasks > 10 ? "warn" : "default"}
         />
+      </div>
+
+      {/* Canais de aquisição */}
+      <h2 className="font-semibold mb-3 text-sm text-gray-600">
+        Canais de aquisição
+      </h2>
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4 mb-4">
+        <StatTile
+          label="Melhor canal"
+          value={bestChannel?.origin ?? "—"}
+          hint={bestChannel ? `${brl(bestChannel.revenue)} vendidos` : undefined}
+          tone="good"
+        />
+        <StatTile
+          label="1ª resposta (média)"
+          value={fmtDuration(avgResponseMin)}
+          hint={`${conversations.length} conversas analisadas`}
+        />
+        <StatTile
+          label="Tempo até a venda"
+          value={`${avgDaysToSale.toFixed(0)} dias`}
+          hint="do lead à 1ª compra"
+        />
+        <StatTile
+          label="Canais ativos"
+          value={String(channels.length)}
+          hint="origens com leads"
+        />
+      </div>
+      <div className="grid lg:grid-cols-3 gap-4 md:gap-6 mb-6">
+        <Card className="p-5">
+          <h2 className="font-semibold mb-4">Leads por origem</h2>
+          <BarList
+            data={channels
+              .slice()
+              .sort((a, b) => b.leads - a.leads)
+              .map((c) => ({ label: c.origin, value: c.leads }))}
+            formatValue={(v) => `${v}`}
+          />
+        </Card>
+        <Card className="p-5">
+          <h2 className="font-semibold mb-4">Valor vendido por canal</h2>
+          <BarList
+            color="#10b981"
+            data={channels
+              .filter((c) => c.revenue > 0)
+              .map((c) => ({
+                label: c.origin,
+                value: c.revenue,
+                sub: `ticket médio ${brl(c.buyers ? c.revenue / c.buyers : 0)}`,
+              }))}
+            formatValue={brl}
+          />
+        </Card>
+        <Card className="p-5">
+          <h2 className="font-semibold mb-4">Conversão por origem</h2>
+          <BarList
+            color="#0ea5e9"
+            data={channels
+              .slice()
+              .sort((a, b) => b.buyers / b.leads - a.buyers / a.leads)
+              .map((c) => ({
+                label: c.origin,
+                value: Math.round((c.buyers / c.leads) * 100),
+                sub: `${c.buyers} de ${c.leads} leads compraram`,
+              }))}
+            formatValue={(v) => `${v}%`}
+          />
+        </Card>
       </div>
 
       <div className="grid lg:grid-cols-2 gap-4 md:gap-6">

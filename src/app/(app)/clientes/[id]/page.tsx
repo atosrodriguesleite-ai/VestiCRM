@@ -10,6 +10,7 @@ import {
   MapPin,
   StickyNote,
   Target,
+  History,
 } from "lucide-react";
 import { requireUser } from "@/lib/auth";
 import { db } from "@/lib/db";
@@ -77,6 +78,7 @@ export default async function CustomerDetailPage({
         orderBy: { dueAt: "asc" },
         include: { assignee: true },
       },
+      events: { orderBy: { createdAt: "desc" }, take: 20 },
     },
   });
 
@@ -341,6 +343,41 @@ export default async function CustomerDetailPage({
                   >
                     Abrir no atendimento →
                   </Link>
+                </li>
+              ))}
+            </ul>
+          )}
+        </Card>
+
+        {/* Linha do tempo (Lead Intake Engine) */}
+        <Card className="p-5">
+          <h2 className="font-semibold flex items-center gap-2 mb-3">
+            <History className="size-4 text-brand-600" />
+            Linha do tempo
+          </h2>
+          {customer.events.length === 0 ? (
+            <EmptyState title="Nenhum evento registrado" />
+          ) : (
+            <ul className="space-y-3">
+              {customer.events.map((e) => (
+                <li key={e.id} className="flex gap-2.5">
+                  <span
+                    className={`size-2 rounded-full mt-1.5 shrink-0 ${
+                      e.type === "LEAD_CRIADO"
+                        ? "bg-brand-500"
+                        : e.type === "OPORTUNIDADE"
+                          ? "bg-amber-400"
+                          : "bg-gray-300"
+                    }`}
+                  />
+                  <div className="min-w-0">
+                    <p className="text-xs text-gray-600 leading-snug">
+                      {e.description}
+                    </p>
+                    <p className="text-[10px] text-gray-400">
+                      {dateFull(e.createdAt)}
+                    </p>
+                  </div>
                 </li>
               ))}
             </ul>

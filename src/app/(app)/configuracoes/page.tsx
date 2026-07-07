@@ -16,7 +16,9 @@ import { roleLabel } from "@/lib/format";
 import { Card, PageHeader, Badge } from "@/components/ui";
 import { TemplateManager } from "./template-manager";
 import { CatalogSettings } from "./catalog-settings";
+import { IntakeSettings } from "./intake-settings";
 import { isAdmin } from "@/lib/scope";
+import type { Origin } from "@prisma/client";
 
 export const dynamic = "force-dynamic";
 
@@ -38,13 +40,28 @@ const INTEGRATIONS = [
 
 export default async function SettingsPage() {
   const user = await requireUser();
-  const [company, templates] = await Promise.all([
+  const [company, templates, sellers, stages, originRules] = await Promise.all([
     db.company.findUnique({ where: { id: user.companyId } }),
     db.messageTemplate.findMany({
       where: { companyId: user.companyId },
       orderBy: { title: "asc" },
     }),
+    db.user.findMany({
+      where: { companyId: user.companyId, active: true, role: { not: "SUPERADMIN" } },
+      select: { id: true, name: true },
+      orderBy: { name: "asc" },
+    }),
+    db.stage.findMany({
+      where: { pipeline: { companyId: user.companyId } },
+      orderBy: { order: "asc" },
+      select: { id: true, name: true },
+    }),
+    db.originRule.findMany({ where: { companyId: user.companyId } }),
   ]);
+
+  const rulesByOrigin = Object.fromEntries(
+    originRules.map((r) => [r.origin, r.stageId])
+  ) as Partial<Record<Origin, string | null>>;
 
   return (
     <div className="max-w-5xl mx-auto">
@@ -94,6 +111,26 @@ export default async function SettingsPage() {
                 tagline: company.tagline ?? "",
                 whatsapp: company.whatsapp ?? "",
                 minOrder: company.minOrder,
+              }}
+            />
+          </div>
+        </>
+      )}
+
+      {company && (
+        <>
+          <h2 className="font-semibold mb-3">Entrada de leads (omnichannel)</h2>
+          <div className="mb-6">
+            <IntakeSettings
+              canEdit={isAdmin(user)}
+              sellers={sellers}
+              stages={stages}
+              initial={{
+                distribution: company.intakeDistribution,
+                defaultUserId: company.intakeDefaultUserId,
+                slaMinutes: company.intakeSlaMinutes,
+                oppPolicy: company.intakeOppPolicy,
+                rules: rulesByOrigin,
               }}
             />
           </div>

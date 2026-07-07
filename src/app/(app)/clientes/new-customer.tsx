@@ -117,7 +117,7 @@ export function NewCustomerButton({
                 </div>
                 <div>
                   <label className={label}>Origem</label>
-                  <select name="origin" className={`${input} bg-white`}>
+                  <select name="origin" defaultValue="MANUAL" className={`${input} bg-white`}>
                     {Object.entries(originLabel).map(([k, v]) => (
                       <option key={k} value={k}>
                         {v}

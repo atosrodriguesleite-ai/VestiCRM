@@ -30,6 +30,8 @@ const daysAhead = (n: number, h = 10) => {
 async function main() {
   console.log("Limpando banco...");
   await db.$transaction([
+    db.customerEvent.deleteMany(),
+    db.originRule.deleteMany(),
     db.inventoryMovement.deleteMany(),
     db.orderEvent.deleteMany(),
     db.payment.deleteMany(),
@@ -156,7 +158,7 @@ async function main() {
   type C = {
     name: string; phone: string; city: string; state: string;
     type: "VAREJO" | "ATACADO" | "REVENDEDORA" | "LOJISTA" | "BOUTIQUE" | "SACOLEIRA";
-    origin: "INSTAGRAM" | "WHATSAPP" | "INDICACAO" | "TRAFEGO_PAGO" | "LOJA_FISICA" | "EVENTO" | "SITE";
+    origin: "WHATSAPP" | "CATALOGO_PUBLICO" | "INSTAGRAM" | "FACEBOOK" | "SITE" | "NUVEMSHOP" | "BLING" | "MARKETPLACE" | "INDICACAO" | "LOJA_FISICA" | "TRAFEGO_PAGO" | "GOOGLE" | "EVENTO" | "MANUAL";
     owner: string; size?: string; colors?: string; notes?: string;
     lastPurchase?: number; lastContact?: number; nextContact?: number;
     tags?: string[]; interests?: string[]; createdDaysAgo?: number;
@@ -177,13 +179,13 @@ async function main() {
     { name: "Sandra Regina", phone: "5562988880010", city: "Goiânia", state: "GO", type: "REVENDEDORA", origin: "WHATSAPP", owner: "renata", size: "Variado", lastPurchase: 28, lastContact: 5, nextContact: 2, tags: ["Recorrente"], interests: ["Moda fitness", "Atacado"], createdDaysAgo: 310 },
     { name: "Beatriz Almeida", phone: "5511987770011", city: "Santo André", state: "SP", type: "VAREJO", origin: "INSTAGRAM", owner: "julia", size: "GG", colors: "Preto", lastContact: 1, interests: ["Blusas", "Promoções"], createdDaysAgo: 6 },
     { name: "Magazine Dona Flor", phone: "5585986660012", city: "Fortaleza", state: "CE", type: "LOJISTA", origin: "EVENTO", owner: "renata", lastPurchase: 50, lastContact: 15, tags: ["Atacado", "Ticket alto"], interests: ["Atacado", "Conjuntos"], createdDaysAgo: 420 },
-    { name: "Tainá Barbosa", phone: "5511985550013", city: "São Paulo", state: "SP", type: "VAREJO", origin: "TRAFEGO_PAGO", owner: "julia", size: "M", colors: "Branco, Bege", lastContact: 2, nextContact: 0, interests: ["Moda casual"], createdDaysAgo: 12 },
+    { name: "Tainá Barbosa", phone: "5511985550013", city: "São Paulo", state: "SP", type: "VAREJO", origin: "GOOGLE", owner: "julia", size: "M", colors: "Branco, Bege", lastContact: 2, nextContact: 0, interests: ["Moda casual"], createdDaysAgo: 12 },
     { name: "Rosana Freitas", phone: "5527984440014", city: "Vitória", state: "ES", type: "SACOLEIRA", origin: "INDICACAO", owner: "renata", lastPurchase: 70, lastContact: 30, tags: ["Inativa"], interests: ["Promoções", "Atacado"], createdDaysAgo: 380 },
     { name: "Larissa Mendes", phone: "5511983330015", city: "São Bernardo", state: "SP", type: "VAREJO", origin: "INSTAGRAM", owner: "julia", size: "P", colors: "Lilás", lastContact: 0, nextContact: 1, interests: ["Vestidos", "Lançamentos"], createdDaysAgo: 2 },
     { name: "Cláudia Torres", phone: "5547982220016", city: "Blumenau", state: "SC", type: "BOUTIQUE", origin: "SITE", owner: "renata", lastPurchase: 22, lastContact: 4, nextContact: 5, tags: ["Atacado"], interests: ["Atacado", "Vestidos", "Lançamentos"], createdDaysAgo: 200 },
-    { name: "Elaine Cardoso", phone: "5511981110017", city: "Mogi das Cruzes", state: "SP", type: "VAREJO", origin: "LOJA_FISICA", owner: "julia", size: "G", lastPurchase: 40, lastContact: 18, interests: ["Blusas", "Calças"], createdDaysAgo: 160 },
+    { name: "Elaine Cardoso", phone: "5511981110017", city: "Mogi das Cruzes", state: "SP", type: "VAREJO", origin: "MANUAL", owner: "julia", size: "G", lastPurchase: 40, lastContact: 18, interests: ["Blusas", "Calças"], createdDaysAgo: 160 },
     { name: "Débora Santana", phone: "5571980000018", city: "Salvador", state: "BA", type: "REVENDEDORA", origin: "WHATSAPP", owner: "renata", lastPurchase: 15, lastContact: 3, nextContact: 4, tags: ["Recorrente"], interests: ["Moda fitness", "Conjuntos"], createdDaysAgo: 230 },
-    { name: "Isabela Rocha", phone: "5511979990019", city: "São Paulo", state: "SP", type: "VAREJO", origin: "INSTAGRAM", owner: "julia", size: "M", colors: "Vinho", lastContact: 8, interests: ["Vestidos"], createdDaysAgo: 45 },
+    { name: "Isabela Rocha", phone: "5511979990019", city: "São Paulo", state: "SP", type: "VAREJO", origin: "CATALOGO_PUBLICO", owner: "julia", size: "M", colors: "Vinho", lastContact: 8, interests: ["Vestidos"], createdDaysAgo: 45 },
     { name: "Atacadão da Moda BH", phone: "5531978880020", city: "Belo Horizonte", state: "MG", type: "ATACADO", origin: "INDICACAO", owner: "renata", lastPurchase: 5, lastContact: 1, nextContact: 7, tags: ["Atacado", "Ticket alto", "VIP"], interests: ["Atacado", "Promoções"], createdDaysAgo: 600, notes: "Maior cliente atacado. Pedido mínimo R$ 5.000." },
   ];
 
@@ -217,6 +219,30 @@ async function main() {
     customers.push(created);
   }
   const cust = (name: string) => customers.find((c) => c.name === name)!;
+
+  // timeline de entrada (Lead Intake Engine) para cada cliente
+  const originLabels: Record<string, string> = {
+    WHATSAPP: "WhatsApp", CATALOGO_PUBLICO: "Catálogo Público", INSTAGRAM: "Instagram",
+    FACEBOOK: "Facebook", SITE: "Site", NUVEMSHOP: "Nuvemshop", BLING: "Bling",
+    MARKETPLACE: "Marketplace", INDICACAO: "Indicação", LOJA_FISICA: "Loja física",
+    TRAFEGO_PAGO: "Tráfego pago", GOOGLE: "Google", EVENTO: "Evento", MANUAL: "Cadastro Manual",
+  };
+  for (let i = 0; i < customers.length; i++) {
+    const src = customersData[i];
+    await db.customerEvent.create({
+      data: {
+        companyId: company.id,
+        customerId: customers[i].id,
+        type: "LEAD_CRIADO",
+        channel: src.origin,
+        description:
+          src.origin === "MANUAL"
+            ? "Lead criado manualmente"
+            : `Lead criado via ${originLabels[src.origin]}`,
+        createdAt: daysAgo(src.createdDaysAgo ?? 30),
+      },
+    });
+  }
 
   // clientes da segunda empresa (prova do isolamento)
   await db.customer.create({

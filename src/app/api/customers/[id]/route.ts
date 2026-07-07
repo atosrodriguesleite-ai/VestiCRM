@@ -12,7 +12,11 @@ const schema = z.object({
     .enum(["VAREJO", "ATACADO", "REVENDEDORA", "LOJISTA", "BOUTIQUE", "SACOLEIRA"])
     .optional(),
   origin: z
-    .enum(["INSTAGRAM", "WHATSAPP", "INDICACAO", "TRAFEGO_PAGO", "LOJA_FISICA", "EVENTO", "SITE"])
+    .enum([
+      "WHATSAPP", "CATALOGO_PUBLICO", "INSTAGRAM", "FACEBOOK", "SITE",
+      "NUVEMSHOP", "BLING", "MARKETPLACE", "INDICACAO", "LOJA_FISICA",
+      "TRAFEGO_PAGO", "GOOGLE", "EVENTO", "MANUAL",
+    ])
     .optional(),
   notes: z.string().nullable().optional(),
   preferredSize: z.string().nullable().optional(),

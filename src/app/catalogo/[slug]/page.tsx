@@ -62,6 +62,7 @@ export default async function PublicCatalogPage({
 
   return (
     <PublicCatalog
+      storeSlug={company.slug}
       storeName={company.name}
       tagline={company.tagline}
       whatsapp={company.whatsapp}

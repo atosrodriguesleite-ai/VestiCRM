@@ -24,6 +24,13 @@ model Company {
   minOrder  Int     @default(0) // pedido mínimo (peças) no catálogo público; 0 = sem mínimo
   createdAt DateTime @default(now())
 
+  // Lead Intake Engine — configuração de entrada de leads
+  intakeDistribution  String  @default("ROUND_ROBIN") // ROUND_ROBIN | FIXED
+  intakeDefaultUserId String? // vendedor fixo (quando FIXED)
+  intakeLastUserId    String? // ponteiro do rodízio
+  intakeSlaMinutes    Int     @default(60) // prazo do primeiro atendimento
+  intakeOppPolicy     String  @default("SE_NAO_HOUVER_ABERTA") // SEMPRE | SE_NAO_HOUVER_ABERTA | NUNCA
+
   users         User[]
   customers     Customer[]
   tags          Tag[]
@@ -38,6 +45,36 @@ model Company {
   products      Product[]
   orders        Order[]
   inventoryMovs InventoryMovement[]
+  customerEvents CustomerEvent[]
+  originRules    OriginRule[]
+}
+
+// Timeline do cliente: "Lead criado via WhatsApp", "Nova interação via Site"...
+model CustomerEvent {
+  id          String   @id @default(cuid())
+  companyId   String
+  company     Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  customerId  String
+  customer    Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  type        String // LEAD_CRIADO | NOVA_INTERACAO | OPORTUNIDADE | PEDIDO | OUTRO
+  channel     Origin?
+  description String
+  createdAt   DateTime @default(now())
+
+  @@index([customerId, createdAt])
+  @@index([companyId, createdAt])
+}
+
+// Em qual etapa do funil cada origem entra (sem regra = primeira etapa)
+model OriginRule {
+  id        String  @id @default(cuid())
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  origin    Origin
+  stageId   String?
+  stage     Stage?  @relation(fields: [stageId], references: [id], onDelete: SetNull)
+
+  @@unique([companyId, origin])
 }
 
 // SUPERADMIN enxerga todas as empresas; demais papéis ficam restritos à sua.
@@ -83,13 +120,20 @@ enum CustomerType {
 }
 
 enum Origin {
-  INSTAGRAM
   WHATSAPP
-  INDICACAO
-  TRAFEGO_PAGO
-  LOJA_FISICA
-  EVENTO
+  CATALOGO_PUBLICO
+  INSTAGRAM
+  FACEBOOK
   SITE
+  NUVEMSHOP
+  BLING
+  MARKETPLACE
+  INDICACAO
+  LOJA_FISICA
+  TRAFEGO_PAGO
+  GOOGLE
+  EVENTO
+  MANUAL
 }
 
 model Customer {
@@ -119,6 +163,7 @@ model Customer {
   tasks         Task[]
   sales         Sale[]
   orders        Order[]
+  events        CustomerEvent[]
 
   @@index([companyId])
   @@index([companyId, ownerId])
@@ -188,6 +233,7 @@ model Stage {
   isLost     Boolean  @default(false)
 
   opportunities Opportunity[]
+  originRules   OriginRule[]
 
   @@index([pipelineId])
 }
