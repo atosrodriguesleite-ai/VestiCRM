@@ -1,0 +1,86 @@
+import { NextRequest, NextResponse } from "next/server";
+import { requireUser, AuthError } from "@/lib/auth";
+import { isManagerUp } from "@/lib/scope";
+import {
+  periodFromDays,
+  channelRanking,
+  sellerRanking,
+  campaignRanking,
+  productStats,
+  categoryStats,
+  colorStats,
+  sizeStats,
+} from "@/lib/tracking/insights";
+
+/**
+ * Exportação CSV (abre no Excel; para PDF use imprimir → salvar como PDF).
+ * ?relatorio=canais|vendedores|campanhas|produtos|categorias|cores|tamanhos
+ */
+export async function GET(req: NextRequest) {
+  try {
+    const user = await requireUser();
+    if (!isManagerUp(user)) {
+      return NextResponse.json({ error: "Sem permissão" }, { status: 403 });
+    }
+    const tipo = req.nextUrl.searchParams.get("relatorio") ?? "canais";
+    const days = Number(req.nextUrl.searchParams.get("dias") ?? 30);
+    const period = periodFromDays([1, 7, 30, 90, 365].includes(days) ? days : 30);
+    const c = user.companyId;
+
+    let headers: string[] = [];
+    let rows: (string | number | null)[][] = [];
+
+    switch (tipo) {
+      case "canais": {
+        const data = await channelRanking(c, period);
+        headers = ["Canal", "Acessos", "Pedidos", "Conversão %", "Faturamento"];
+        rows = data.map((r) => [r.channel, r.sessions, r.orders, r.conversion, r.revenue]);
+        break;
+      }
+      case "vendedores": {
+        const data = await sellerRanking(c, period);
+        headers = ["Vendedor", "Cliques", "Pedidos", "Conversão %", "Vendas", "Faturamento", "Ticket médio", "Dias até venda"];
+        rows = data.map((r) => [r.name, r.clicks, r.orders, r.conversion, r.salesCount, r.revenue, r.avgTicket, r.avgDaysToSale]);
+        break;
+      }
+      case "campanhas": {
+        const data = await campaignRanking(c, period);
+        headers = ["Campanha", "Ref", "Canal", "Responsável", "Cliques", "Pedidos", "Conversão %", "Faturamento", "Meta", "% da meta"];
+        rows = data.map((r) => [r.name, r.slug, r.channel, r.ownerName, r.clicks, r.orders, r.conversion, r.revenue, r.goal, r.roi]);
+        break;
+      }
+      case "produtos":
+      case "categorias":
+      case "cores":
+      case "tamanhos": {
+        const fn = { produtos: productStats, categorias: categoryStats, cores: colorStats, tamanhos: sizeStats }[tipo]!;
+        const data = await fn(c, period);
+        headers = [tipo === "produtos" ? "Produto" : tipo === "categorias" ? "Categoria" : tipo === "cores" ? "Cor" : "Tamanho",
+          "Visualizações", "Adicionados", "Removidos", "Vendidos", "Faturamento", "Conversão %", "Abandono %"];
+        rows = data
+          .sort((a, b) => b.revenue - a.revenue || b.views - a.views)
+          .map((r) => [r.key, r.views, r.adds, r.removes, r.sold, r.revenue, r.conversion, r.abandonRate]);
+        break;
+      }
+      default:
+        return NextResponse.json({ error: "Relatório desconhecido" }, { status: 400 });
+    }
+
+    const esc = (v: string | number | null) =>
+      v === null ? "" : /[";\n]/.test(String(v)) ? `"${String(v).replace(/"/g, '""')}"` : String(v);
+    const csv =
+      "﻿" + // BOM para acentos no Excel
+      [headers, ...rows].map((r) => r.map(esc).join(";")).join("\n");
+
+    return new NextResponse(csv, {
+      headers: {
+        "Content-Type": "text/csv; charset=utf-8",
+        "Content-Disposition": `attachment; filename="inteligencia-${tipo}-${days}d.csv"`,
+      },
+    });
+  } catch (e) {
+    if (e instanceof AuthError)
+      return NextResponse.json({ error: "Não autenticado" }, { status: 401 });
+    throw e;
+  }
+}

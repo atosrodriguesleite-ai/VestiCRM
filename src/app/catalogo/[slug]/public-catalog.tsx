@@ -22,6 +22,11 @@ import {
   Lora,
 } from "next/font/google";
 import { mixHex, readableOn } from "@/lib/color";
+import {
+  CatalogTracker,
+  getConsent,
+  setConsent,
+} from "@/lib/tracking/client";
 
 const montserrat = Montserrat({ subsets: ["latin"], weight: ["400", "500", "600", "700", "800"] });
 const inter = Inter({ subsets: ["latin"], weight: ["400", "500", "600", "700", "800"] });
@@ -115,6 +120,7 @@ export function PublicCatalog({
   products,
   identity,
   customColors,
+  tracking,
 }: {
   storeSlug: string;
   storeName: string;
@@ -124,6 +130,7 @@ export function PublicCatalog({
   products: CatalogProduct[];
   identity: CatalogIdentity;
   customColors: { name: string; hex: string }[];
+  tracking: Record<string, string | null>;
 }) {
   // Tema 100% personalizável pelo lojista: 3 cores base + derivadas
   const T = {
@@ -178,11 +185,49 @@ export function PublicCatalog({
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const sectionRefs = useRef<Record<string, HTMLElement | null>>({});
 
+  // ---- Tracking Engine (Inteligência Comercial) ----
+  const trackerRef = useRef<CatalogTracker | null>(null);
+  const [showConsent, setShowConsent] = useState(false);
+  const orderSentRef = useRef(false);
+  const cartRef = useRef({ pieces: 0, value: 0 });
+  const t = (e: Parameters<CatalogTracker["track"]>[0]) =>
+    trackerRef.current?.track(e);
+
+  useEffect(() => {
+    trackerRef.current = new CatalogTracker(storeSlug);
+    const consent = getConsent();
+    if (consent === "granted") {
+      trackerRef.current.start(tracking.ref, tracking);
+    } else if (consent === null) {
+      setShowConsent(true);
+    }
+    const onHide = () => {
+      if (cartRef.current.pieces > 0 && !orderSentRef.current) {
+        trackerRef.current?.track({
+          type: "order_abandoned",
+          value: cartRef.current.value,
+          qty: cartRef.current.pieces,
+        });
+        trackerRef.current?.flush(true);
+      }
+    };
+    window.addEventListener("pagehide", onHide);
+    return () => {
+      window.removeEventListener("pagehide", onHide);
+      trackerRef.current?.stop();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const totalPieces = Object.values(cart).reduce((a, s) => a + sum(s), 0);
   const totalValue = Object.entries(cart).reduce((acc, [key, sizes]) => {
     const card = allCards.find((c) => c.key === key);
     return card ? acc + sum(sizes) * card.product.retailPrice : acc;
   }, 0);
+
+  useEffect(() => {
+    cartRef.current = { pieces: totalPieces, value: totalValue };
+  }, [totalPieces, totalValue]);
 
   const catPieces = (cat: string) =>
     (cardsByCategory.get(cat) ?? []).reduce(
@@ -197,7 +242,15 @@ export function PublicCatalog({
         for (const en of entries) {
           if (en.isIntersecting) {
             const idx = Number((en.target as HTMLElement).dataset.step);
-            setActiveCat(idx);
+            setActiveCat((prev) => {
+              if (prev !== idx && categories[idx]) {
+                trackerRef.current?.track({
+                  type: "category_view",
+                  category: categories[idx],
+                });
+              }
+              return idx;
+            });
           }
         }
       },
@@ -210,6 +263,14 @@ export function PublicCatalog({
   }, [categories]);
 
   function openSheet(card: CardItem) {
+    t({
+      type: "product_view",
+      productId: card.product.id,
+      productName: card.product.name,
+      category: card.product.category,
+      color: card.color,
+    });
+    t({ type: "color_select", color: card.color, productId: card.product.id });
     const existing = cart[card.key] ?? {};
     const d: Record<string, number> = {};
     for (const s of card.sizes) d[s.size] = existing[s.size] ?? 0;
@@ -222,10 +283,12 @@ export function PublicCatalog({
     document.body.style.overflow = "";
   }
   function openBag() {
+    t({ type: "cart_open", value: totalValue, qty: totalPieces });
     setBagOpen(true);
     document.body.style.overflow = "hidden";
   }
   function closeBag() {
+    t({ type: "cart_close", value: totalValue, qty: totalPieces });
     setBagOpen(false);
     document.body.style.overflow = "";
   }
@@ -241,6 +304,20 @@ export function PublicCatalog({
     for (const [size, qty] of Object.entries(draft)) {
       if (qty > 0) clean[size] = qty;
     }
+    const price = sheet.product.retailPrice;
+    const prevQty = cart[sheet.key] ? sum(cart[sheet.key]) : 0;
+    const newQty = sum(clean);
+    const newTotal = totalValue - prevQty * price + newQty * price;
+    t({
+      type: newQty >= prevQty ? "cart_add" : "cart_remove",
+      productId: sheet.product.id,
+      productName: sheet.product.name,
+      category: sheet.product.category,
+      color: sheet.color,
+      size: Object.keys(clean).join(","),
+      qty: Math.abs(newQty - prevQty) || newQty,
+      value: newTotal,
+    });
     setCart((prev) => {
       const next = { ...prev };
       if (Object.keys(clean).length) next[sheet.key] = clean;
@@ -253,6 +330,7 @@ export function PublicCatalog({
 
   function sendOrder() {
     if (!whatsapp) return;
+    t({ type: "checkout_start", value: totalValue, qty: totalPieces });
     if (minOrder > 0 && totalPieces < minOrder) {
       const falta = minOrder - totalPieces;
       showToast(`Faltam ${falta} ${falta === 1 ? "peça" : "peças"} para o mínimo de ${minOrder}`);
@@ -281,6 +359,14 @@ export function PublicCatalog({
       if (client.fone) msg += `Telefone: ${client.fone}\n`;
     }
     msg += "\n_Valores sujeitos a confirmação._";
+
+    // Tracking Engine: conversão + unificação do visitante anônimo
+    orderSentRef.current = true;
+    t({ type: "order_submitted", value: totalValue, qty: totalPieces });
+    trackerRef.current?.flush(true);
+    if (client.fone.replace(/\D/g, "").length >= 8) {
+      trackerRef.current?.identify(client.fone);
+    }
 
     // Lead Intake Engine: o pedido também entra no CRM da loja como
     // lead/interação (origem Catálogo Público) — nenhum contato se perde.
@@ -550,6 +636,42 @@ export function PublicCatalog({
         </div>
       </div>
 
+      {/* CONSENTIMENTO (LGPD) — cookies/rastreamento opcionais */}
+      {showConsent && (
+        <div
+          className="fixed inset-x-3 z-[90] rounded-2xl p-3.5 flex flex-col sm:flex-row sm:items-center gap-2.5"
+          style={{ bottom: 88, background: T.dark, color: "#fff", boxShadow: "0 8px 30px rgba(0,0,0,.35)" }}
+        >
+          <p className="text-[12px] leading-snug flex-1 m-0 opacity-90">
+            Usamos dados de navegação para melhorar sua experiência e ajudar a
+            loja a te atender melhor. Você aceita? (LGPD — nenhum dado pessoal
+            é coletado sem o seu consentimento)
+          </p>
+          <div className="flex gap-2 shrink-0">
+            <button
+              onClick={() => {
+                setConsent("denied");
+                setShowConsent(false);
+              }}
+              className="rounded-xl px-3.5 py-2 text-xs font-semibold border border-white/30"
+            >
+              Recusar
+            </button>
+            <button
+              onClick={() => {
+                setConsent("granted");
+                setShowConsent(false);
+                trackerRef.current?.start(tracking.ref, tracking);
+              }}
+              className="rounded-xl px-4 py-2 text-xs font-bold"
+              style={{ background: T.secondary, color: T.primary }}
+            >
+              Aceitar
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* TOAST */}
       <div
         className="fixed left-1/2 z-[80] flex items-center gap-2 rounded-[30px] px-5 py-3 text-[13px] font-semibold whitespace-nowrap transition-all duration-200 pointer-events-none"
@@ -605,6 +727,9 @@ export function PublicCatalog({
             <div className="overflow-y-auto p-[18px]">
               {sheet.product.images[0] && (
                 <img
+                  onClick={() =>
+                    t({ type: "image_zoom", productId: sheet.product.id, productName: sheet.product.name })
+                  }
                   src={sheet.product.images[0]}
                   alt={sheet.product.name}
                   className="w-full rounded-[14px] border object-contain"
@@ -657,9 +782,10 @@ export function PublicCatalog({
                     <div className="flex items-center gap-0.5 rounded-[10px] p-[3px]" style={{ background: T.soft }}>
                       <button
                         disabled={!available}
-                        onClick={() =>
-                          setDraft((d) => ({ ...d, [size]: Math.max(0, (d[size] ?? 0) - 1) }))
-                        }
+                        onClick={() => {
+                          t({ type: "qty_change", size, qty: Math.max(0, (draft[size] ?? 0) - 1), productId: sheet.product.id });
+                          setDraft((d) => ({ ...d, [size]: Math.max(0, (d[size] ?? 0) - 1) }));
+                        }}
                         className="size-[38px] rounded-lg text-xl font-semibold flex items-center justify-center bg-white border"
                         style={{ borderColor: T.line, color: T.primary }}
                       >
@@ -670,7 +796,15 @@ export function PublicCatalog({
                       </span>
                       <button
                         disabled={!available}
-                        onClick={() => setDraft((d) => ({ ...d, [size]: (d[size] ?? 0) + 1 }))}
+                        onClick={() => {
+                          t({
+                            type: (draft[size] ?? 0) === 0 ? "size_select" : "qty_change",
+                            size,
+                            qty: (draft[size] ?? 0) + 1,
+                            productId: sheet.product.id,
+                          });
+                          setDraft((d) => ({ ...d, [size]: (d[size] ?? 0) + 1 }));
+                        }}
                         className="size-[38px] rounded-lg text-xl font-semibold flex items-center justify-center bg-white border"
                         style={{ borderColor: T.line, color: T.primary }}
                       >
@@ -789,13 +923,22 @@ export function PublicCatalog({
                                 {fmt(q * c.product.retailPrice)}
                               </span>
                               <button
-                                onClick={() =>
+                                onClick={() => {
+                                  t({
+                                    type: "cart_remove",
+                                    productId: c.product.id,
+                                    productName: c.product.name,
+                                    category: c.product.category,
+                                    color: c.color,
+                                    qty: q,
+                                    value: totalValue - q * c.product.retailPrice,
+                                  });
                                   setCart((prev) => {
                                     const next = { ...prev };
                                     delete next[c.key];
                                     return next;
-                                  })
-                                }
+                                  });
+                                }}
                                 className="text-xs font-bold underline underline-offset-2"
                                 style={{ color: T.primary }}
                               >

@@ -21,6 +21,7 @@ import {
   Package,
   ShoppingBag,
   Radio,
+  Brain,
 } from "lucide-react";
 import { Avatar } from "./ui";
 
@@ -35,6 +36,7 @@ const NAV = [
   { href: "/automacoes", label: "Automações", icon: Zap },
   { href: "/campanhas", label: "Campanhas", icon: Megaphone },
   { href: "/relatorios", label: "Relatórios", icon: BarChart3 },
+  { href: "/inteligencia", label: "Inteligência", icon: Brain, managerOnly: true },
   { href: "/comunicacao", label: "Comunicação", icon: Radio, managerOnly: true },
   { href: "/equipe", label: "Equipe", icon: UserCog, managerOnly: true },
   { href: "/configuracoes", label: "Configurações", icon: Settings },

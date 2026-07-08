@@ -25,10 +25,13 @@ export async function generateMetadata({
 
 export default async function PublicCatalogPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ slug: string }>;
+  searchParams: Promise<Record<string, string | undefined>>;
 }) {
   const { slug } = await params;
+  const sp = await searchParams;
   const company = await db.company.findUnique({ where: { slug } });
   if (!company) notFound();
 
@@ -82,6 +85,14 @@ export default async function PublicCatalogPage({
         font: company.catalogFont,
       }}
       customColors={customColors}
+      tracking={{
+        ref: sp.ref ?? null,
+        utm_source: sp.utm_source ?? null,
+        utm_medium: sp.utm_medium ?? null,
+        utm_campaign: sp.utm_campaign ?? null,
+        utm_term: sp.utm_term ?? null,
+        utm_content: sp.utm_content ?? null,
+      }}
     />
   );
 }

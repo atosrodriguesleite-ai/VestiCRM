@@ -11,8 +11,10 @@ const PUBLIC_PATHS = [
   "/login",
   "/api/auth/login",
   "/catalogo",
+  "/c/", // links curtos de vendedores/campanhas
   "/api/intake",
   "/api/whatsapp/webhook",
+  "/api/track", // Tracking Engine (Inteligência Comercial)
 ];
 
 export async function middleware(req: NextRequest) {

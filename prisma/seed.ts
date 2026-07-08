@@ -30,6 +30,10 @@ const daysAhead = (n: number, h = 10) => {
 async function main() {
   console.log("Limpando banco...");
   await db.$transaction([
+    db.trackEvent.deleteMany(),
+    db.trackSession.deleteMany(),
+    db.visitor.deleteMany(),
+    db.trackCampaign.deleteMany(),
     db.commEvent.deleteMany(),
     db.commAudit.deleteMany(),
     db.commSettings.deleteMany(),
@@ -783,6 +787,164 @@ async function main() {
         })),
       });
     }
+  }
+
+  // ---- Inteligência Comercial: campanhas + sessões de navegação ----
+  const campaignsSeed: [string, string, string, string, number][] = [
+    ["Campanha Verão", "campanha-verao", "instagram", "julia", 8000],
+    ["Stories Lançamento", "stories-lancamento", "instagram", "renata", 5000],
+    ["QR da Vitrine", "qr-vitrine", "loja-fisica", "", 3000],
+    ["Google Meu Negócio", "gmb", "google-meu-negocio", "", 0],
+  ];
+  const campaignBySlug = new Map<string, string>();
+  for (const [name, cslug, channel, owner, goal] of campaignsSeed) {
+    const created = await db.trackCampaign.create({
+      data: {
+        companyId: company.id,
+        name,
+        slug: cslug,
+        channel,
+        ownerId: owner ? ownerId(owner) : null,
+        goal,
+      },
+    });
+    campaignBySlug.set(cslug, created.id);
+  }
+
+  // catálogo de produtos p/ eventos realistas
+  const catalogForTracking = productsData.map((p) => ({
+    id: productBySku.get(p.sku)!.id,
+    name: p.name,
+    category: p.category,
+    colors: p.colors,
+    sizes: p.sizes,
+    price: p.retail,
+  }));
+  const pick = <X,>(arr: X[]) => arr[Math.floor(Math.random() * arr.length)];
+  const devices = ["mobile", "mobile", "mobile", "desktop", "tablet"];
+  const oses = ["Android", "iOS", "Windows", "macOS"];
+  const browsers = ["Chrome", "Safari", "Instagram", "Firefox"];
+  const channelPool: [string, string | null, string | null][] = [
+    ["instagram", "julia", "campanha-verao"],
+    ["instagram", "renata", "stories-lancamento"],
+    ["whatsapp", "julia", null],
+    ["whatsapp", "renata", null],
+    ["google", null, null],
+    ["google-meu-negocio", null, "gmb"],
+    ["loja-fisica", null, "qr-vitrine"],
+    ["direto", null, null],
+    ["indicacao", null, null],
+    ["facebook", "julia", null],
+  ];
+
+  // gera ~90 sessões espalhadas nos últimos 30 dias
+  const trackedCustomers = customers.slice(0, 12);
+  for (let i = 0; i < 90; i++) {
+    const [channel, sellerKey, campSlug] = pick(channelPool);
+    const started = daysAgo(Math.floor(Math.random() * 30), 8 + Math.floor(Math.random() * 13));
+    const linkedCustomer = Math.random() < 0.45 ? pick(trackedCustomers) : null;
+
+    // visitante (anônimo ou já ligado a cliente)
+    const visitor = await db.visitor.create({
+      data: {
+        companyId: company.id,
+        customerId: linkedCustomer?.id ?? null,
+        firstSeenAt: started,
+        lastSeenAt: started,
+        visits: 1 + Math.floor(Math.random() * 3),
+      },
+    });
+
+    const productsSeen = 1 + Math.floor(Math.random() * 4);
+    const willAddCart = Math.random() < 0.5;
+    const willConvert = willAddCart && Math.random() < 0.5;
+    const events: {
+      type: string; productId?: string; productName?: string; category?: string;
+      color?: string; size?: string; qty?: number; value?: number; at: Date;
+    }[] = [];
+    let clock = started.getTime();
+    const step = (min: number) => { clock += min * 60000; return new Date(clock); };
+    events.push({ type: "page_view", at: step(0) });
+
+    let cartValue = 0;
+    const seenCats = new Set<string>();
+    for (let v = 0; v < productsSeen; v++) {
+      const prod = pick(catalogForTracking);
+      if (!seenCats.has(prod.category)) {
+        seenCats.add(prod.category);
+        events.push({ type: "category_view", category: prod.category, at: step(0.5) });
+      }
+      const color = pick(prod.colors);
+      const size = pick(prod.sizes);
+      events.push({ type: "product_view", productId: prod.id, productName: prod.name, category: prod.category, color, at: step(0.8) });
+      events.push({ type: "color_select", productId: prod.id, color, at: step(0.3) });
+      if (Math.random() < 0.4) events.push({ type: "image_zoom", productId: prod.id, productName: prod.name, at: step(0.2) });
+      if (willAddCart && v === 0) {
+        events.push({ type: "size_select", productId: prod.id, size, at: step(0.3) });
+        cartValue += prod.price;
+        events.push({ type: "cart_add", productId: prod.id, productName: prod.name, category: prod.category, color, size, qty: 1, value: cartValue, at: step(0.4) });
+      }
+    }
+    // às vezes remove uma peça
+    if (willAddCart && Math.random() < 0.3) {
+      const prod = pick(catalogForTracking);
+      events.push({ type: "cart_remove", productId: prod.id, productName: prod.name, color: pick(prod.colors), qty: 1, value: Math.max(0, cartValue), at: step(1) });
+    }
+    if (willAddCart) {
+      events.push({ type: "cart_open", value: cartValue, qty: 1, at: step(0.5) });
+      if (willConvert) {
+        events.push({ type: "checkout_start", value: cartValue, qty: 1, at: step(0.8) });
+        events.push({ type: "order_submitted", value: cartValue, qty: 1, at: step(0.5) });
+      } else {
+        events.push({ type: "order_abandoned", value: cartValue, qty: 1, at: step(1.5) });
+      }
+    }
+    const lastAt = new Date(clock);
+
+    const session = await db.trackSession.create({
+      data: {
+        companyId: company.id,
+        visitorId: visitor.id,
+        customerId: linkedCustomer?.id ?? null,
+        ref: campSlug ?? (sellerKey ?? null),
+        channel,
+        sellerId: sellerKey ? ownerId(sellerKey) : null,
+        campaignId: campSlug ? campaignBySlug.get(campSlug) ?? null : null,
+        utmSource: channel === "instagram" ? "instagram" : channel === "google" ? "google" : null,
+        utmMedium: campSlug ? "cpc" : null,
+        utmCampaign: campSlug ?? null,
+        device: pick(devices),
+        os: pick(oses),
+        browser: pick(browsers),
+        city: pick(["São Paulo", "Belo Horizonte", "Rio de Janeiro", "Curitiba", "Goiânia"]),
+        state: pick(["SP", "MG", "RJ", "PR", "GO"]),
+        country: "BR",
+        ipMasked: `${180 + Math.floor(Math.random() * 20)}.${Math.floor(Math.random() * 255)}.${Math.floor(Math.random() * 255)}.0`,
+        startedAt: started,
+        lastEventAt: lastAt,
+        pages: 1 + seenCats.size,
+        productsViewed: productsSeen,
+        cartAdds: willAddCart ? 1 : 0,
+        cartRemoves: 0,
+        cartValue,
+        converted: willConvert,
+      },
+    });
+    await db.trackEvent.createMany({
+      data: events.map((e) => ({
+        companyId: company.id,
+        sessionId: session.id,
+        type: e.type,
+        productId: e.productId,
+        productName: e.productName,
+        category: e.category,
+        color: e.color,
+        size: e.size,
+        qty: e.qty,
+        value: e.value,
+        createdAt: e.at,
+      })),
+    });
   }
 
   console.log("Seed concluído!");

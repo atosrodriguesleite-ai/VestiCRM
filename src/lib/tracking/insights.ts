@@ -1,0 +1,492 @@
+import { db } from "../db";
+
+/**
+ * API de leitura da Tracking Engine.
+ * TODOS os relatórios da Inteligência Comercial consomem estas funções
+ * (ou GET /api/intelligence, que as expõe) — nenhuma tela consulta o
+ * banco de tracking diretamente.
+ */
+
+export type Period = { from: Date; to: Date };
+
+export function periodFromDays(days: number): Period {
+  return {
+    from: new Date(Date.now() - days * 24 * 60 * 60 * 1000),
+    to: new Date(),
+  };
+}
+
+export function previousPeriod(p: Period): Period {
+  const len = p.to.getTime() - p.from.getTime();
+  return { from: new Date(p.from.getTime() - len), to: p.from };
+}
+
+const r2 = (v: number) => Math.round(v * 100) / 100;
+const pct = (num: number, den: number) => (den > 0 ? (num / den) * 100 : 0);
+
+async function loadSessions(companyId: string, p: Period) {
+  return db.trackSession.findMany({
+    where: { companyId, startedAt: { gte: p.from, lte: p.to } },
+  });
+}
+
+async function loadEvents(companyId: string, p: Period) {
+  return db.trackEvent.findMany({
+    where: { companyId, createdAt: { gte: p.from, lte: p.to } },
+  });
+}
+
+// ---- Visão geral ------------------------------------------------------------
+
+export async function overview(companyId: string, p: Period) {
+  const [sessions, sales, newCustomers] = await Promise.all([
+    loadSessions(companyId, p),
+    db.sale.findMany({
+      where: { companyId, createdAt: { gte: p.from, lte: p.to } },
+    }),
+    db.customer.count({
+      where: { companyId, createdAt: { gte: p.from, lte: p.to } },
+    }),
+  ]);
+
+  const visitors = new Set(sessions.map((s) => s.visitorId));
+  const identified = new Set(
+    sessions.filter((s) => s.customerId).map((s) => s.customerId)
+  );
+  const durations = sessions
+    .map((s) => (s.lastEventAt.getTime() - s.startedAt.getTime()) / 1000)
+    .filter((d) => d >= 0);
+  const converted = sessions.filter((s) => s.converted);
+  const abandoned = sessions.filter((s) => !s.converted && s.cartAdds > 0);
+  const revenue = sales.reduce((a, s) => a + s.total, 0);
+  const buyers = await db.sale.groupBy({
+    by: ["customerId"],
+    where: { companyId, createdAt: { gte: p.from, lte: p.to } },
+    _count: true,
+  });
+
+  return {
+    sessions: sessions.length,
+    visitors: visitors.size,
+    uniqueVisitors: visitors.size,
+    identifiedCustomers: identified.size,
+    avgSessionSeconds: durations.length
+      ? Math.round(durations.reduce((a, b) => a + b, 0) / durations.length)
+      : 0,
+    ordersFromCatalog: converted.length,
+    conversionRate: r2(pct(converted.length, sessions.length)),
+    abandonedCarts: abandoned.length,
+    abandonedValue: r2(abandoned.reduce((a, s) => a + s.cartValue, 0)),
+    revenue: r2(revenue),
+    salesCount: sales.length,
+    avgTicket: sales.length ? r2(revenue / sales.length) : 0,
+    newCustomers,
+    returningBuyers: buyers.filter((b) => b._count >= 2).length,
+  };
+}
+
+// ---- Funil comercial --------------------------------------------------------
+
+export async function funnel(companyId: string, p: Period) {
+  const [sessions, events, leads, sales, rebuyers] = await Promise.all([
+    loadSessions(companyId, p),
+    loadEvents(companyId, p),
+    db.customer.count({
+      where: { companyId, createdAt: { gte: p.from, lte: p.to } },
+    }),
+    db.sale.groupBy({
+      by: ["customerId"],
+      where: { companyId, createdAt: { gte: p.from, lte: p.to } },
+      _count: true,
+    }),
+    db.sale.groupBy({
+      by: ["customerId"],
+      where: { companyId, createdAt: { gte: p.from, lte: p.to } },
+      _count: true,
+      having: { customerId: { _count: { gte: 2 } } },
+    }),
+  ]);
+  const withProduct = new Set(
+    events.filter((e) => e.type === "product_view").map((e) => e.sessionId)
+  );
+  const withAdd = new Set(
+    events.filter((e) => e.type === "cart_add").map((e) => e.sessionId)
+  );
+  const withCart = new Set(
+    events.filter((e) => e.type === "cart_open").map((e) => e.sessionId)
+  );
+  return [
+    { label: "Visitas", value: sessions.length },
+    { label: "Viram produtos", value: withProduct.size },
+    { label: "Adicionaram à sacola", value: withAdd.size },
+    { label: "Abriram o carrinho", value: withCart.size },
+    { label: "Enviaram pedido", value: sessions.filter((s) => s.converted).length },
+    { label: "Entraram no CRM (leads)", value: leads },
+    { label: "Compraram", value: sales.length },
+    { label: "Recompraram", value: rebuyers.length },
+  ];
+}
+
+// ---- Rankings ---------------------------------------------------------------
+
+export async function channelRanking(companyId: string, p: Period) {
+  const sessions = await loadSessions(companyId, p);
+  const map = new Map<
+    string,
+    { channel: string; sessions: number; orders: number; revenue: number }
+  >();
+  for (const s of sessions) {
+    const row =
+      map.get(s.channel) ??
+      { channel: s.channel, sessions: 0, orders: 0, revenue: 0 };
+    row.sessions += 1;
+    if (s.converted) {
+      row.orders += 1;
+      row.revenue += s.cartValue;
+    }
+    map.set(s.channel, row);
+  }
+  return [...map.values()]
+    .map((r) => ({ ...r, revenue: r2(r.revenue), conversion: r2(pct(r.orders, r.sessions)) }))
+    .sort((a, b) => b.revenue - a.revenue || b.sessions - a.sessions);
+}
+
+export async function sellerRanking(companyId: string, p: Period) {
+  const [sessions, sellers, sales, customers] = await Promise.all([
+    loadSessions(companyId, p),
+    db.user.findMany({ where: { companyId, active: true } }),
+    db.sale.findMany({
+      where: { companyId, createdAt: { gte: p.from, lte: p.to } },
+    }),
+    db.customer.findMany({
+      where: { companyId },
+      include: { sales: { orderBy: { createdAt: "asc" }, take: 1 } },
+    }),
+  ]);
+  return sellers
+    .map((u) => {
+      const clicks = sessions.filter((s) => s.sellerId === u.id);
+      const orders = clicks.filter((s) => s.converted);
+      const mySales = sales.filter((s) => s.sellerId === u.id);
+      const revenue = mySales.reduce((a, s) => a + s.total, 0);
+      const daysToSale = customers
+        .filter((c) => c.ownerId === u.id && c.sales[0])
+        .map(
+          (c) =>
+            (c.sales[0].createdAt.getTime() - c.createdAt.getTime()) /
+            (24 * 60 * 60 * 1000)
+        );
+      return {
+        id: u.id,
+        name: u.name,
+        color: u.color,
+        clicks: clicks.length,
+        orders: orders.length,
+        conversion: r2(pct(orders.length, clicks.length)),
+        salesCount: mySales.length,
+        revenue: r2(revenue),
+        avgTicket: mySales.length ? r2(revenue / mySales.length) : 0,
+        avgDaysToSale: daysToSale.length
+          ? r2(daysToSale.reduce((a, b) => a + b, 0) / daysToSale.length)
+          : null,
+      };
+    })
+    .filter((r) => r.clicks > 0 || r.revenue > 0)
+    .sort((a, b) => b.revenue - a.revenue);
+}
+
+export async function campaignRanking(companyId: string, p: Period) {
+  const [campaigns, sessions, users] = await Promise.all([
+    db.trackCampaign.findMany({ where: { companyId } }),
+    loadSessions(companyId, p),
+    db.user.findMany({ where: { companyId } }),
+  ]);
+  return campaigns
+    .map((c) => {
+      const mine = sessions.filter((s) => s.campaignId === c.id);
+      const orders = mine.filter((s) => s.converted);
+      const revenue = orders.reduce((a, s) => a + s.cartValue, 0);
+      return {
+        id: c.id,
+        name: c.name,
+        slug: c.slug,
+        channel: c.channel,
+        active: c.active,
+        ownerName: users.find((u) => u.id === c.ownerId)?.name ?? null,
+        goal: c.goal,
+        clicks: mine.length,
+        orders: orders.length,
+        conversion: r2(pct(orders.length, mine.length)),
+        revenue: r2(revenue),
+        roi: c.goal > 0 ? r2(pct(revenue, c.goal)) : null, // % da meta
+      };
+    })
+    .sort((a, b) => b.revenue - a.revenue || b.clicks - a.clicks);
+}
+
+// ---- Produtos / categorias / cores / tamanhos --------------------------------
+
+type Dim = "productName" | "category" | "color" | "size";
+
+async function dimensionStats(companyId: string, p: Period, dim: Dim) {
+  const events = await loadEvents(companyId, p);
+  const orderItems = await db.orderItem.findMany({
+    where: {
+      order: { companyId, createdAt: { gte: p.from, lte: p.to }, status: { not: "CANCELADO" } },
+    },
+  });
+  const map = new Map<
+    string,
+    { key: string; views: number; adds: number; removes: number; sold: number; revenue: number }
+  >();
+  const bump = (
+    key: string | null | undefined,
+    field: "views" | "adds" | "removes" | "sold",
+    n = 1,
+    revenue = 0
+  ) => {
+    if (!key) return;
+    const row =
+      map.get(key) ?? { key, views: 0, adds: 0, removes: 0, sold: 0, revenue: 0 };
+    row[field] += n;
+    row.revenue += revenue;
+    map.set(key, row);
+  };
+  for (const e of events) {
+    const key = e[dim];
+    if (e.type === "product_view" || e.type === "category_view" || e.type === "color_select" || e.type === "size_select") {
+      if (
+        (dim === "productName" && e.type === "product_view") ||
+        (dim === "category" && (e.type === "category_view" || e.type === "product_view")) ||
+        (dim === "color" && (e.type === "color_select" || e.type === "product_view")) ||
+        (dim === "size" && e.type === "size_select")
+      ) {
+        bump(key, "views");
+      }
+    }
+    if (e.type === "cart_add") bump(key, "adds", e.qty ?? 1);
+    if (e.type === "cart_remove") bump(key, "removes", e.qty ?? 1);
+  }
+  for (const item of orderItems) {
+    const key =
+      dim === "productName"
+        ? item.name
+        : dim === "category"
+          ? null // categoria não está no snapshot do item
+          : dim === "color"
+            ? item.color
+            : item.size;
+    bump(key, "sold", item.quantity, item.total);
+  }
+  // categorias vendidas via produto → categoria atual
+  if (dim === "category") {
+    const products = await db.product.findMany({
+      where: { companyId },
+      select: { name: true, category: true },
+    });
+    const catByName = new Map(products.map((pr) => [pr.name, pr.category]));
+    for (const item of orderItems) {
+      bump(catByName.get(item.name), "sold", item.quantity, item.total);
+    }
+  }
+  return [...map.values()].map((row) => ({
+    ...row,
+    revenue: r2(row.revenue),
+    conversion: r2(pct(row.sold, Math.max(row.views, 1))),
+    abandonRate: r2(pct(row.removes, Math.max(row.adds, 1))),
+  }));
+}
+
+export const productStats = (c: string, p: Period) => dimensionStats(c, p, "productName");
+export const categoryStats = (c: string, p: Period) => dimensionStats(c, p, "category");
+export const colorStats = (c: string, p: Period) => dimensionStats(c, p, "color");
+export const sizeStats = (c: string, p: Period) => dimensionStats(c, p, "size");
+
+// ---- Heatmaps (dia da semana × hora) -----------------------------------------
+
+export async function heatmaps(companyId: string, p: Period) {
+  const [sessions, sales] = await Promise.all([
+    loadSessions(companyId, p),
+    db.sale.findMany({
+      where: { companyId, createdAt: { gte: p.from, lte: p.to } },
+    }),
+  ]);
+  const grid = () => Array.from({ length: 7 }, () => Array(24).fill(0) as number[]);
+  const access = grid();
+  const orders = grid();
+  const revenue = grid();
+  for (const s of sessions) {
+    access[s.startedAt.getDay()][s.startedAt.getHours()] += 1;
+    if (s.converted) orders[s.startedAt.getDay()][s.startedAt.getHours()] += 1;
+  }
+  for (const s of sales) {
+    revenue[s.createdAt.getDay()][s.createdAt.getHours()] += s.total;
+  }
+  const conversion = grid();
+  for (let d = 0; d < 7; d++) {
+    for (let h = 0; h < 24; h++) {
+      conversion[d][h] = r2(pct(orders[d][h], Math.max(access[d][h], 1)));
+    }
+  }
+  return { access, orders, revenue, conversion };
+}
+
+// ---- Recuperação comercial + alertas -----------------------------------------
+
+export async function recovery(companyId: string, p: Period) {
+  const sessions = await db.trackSession.findMany({
+    where: { companyId, startedAt: { gte: p.from } },
+    include: { visitor: true },
+    orderBy: { startedAt: "desc" },
+  });
+  const customers = await db.customer.findMany({ where: { companyId } });
+  const byId = new Map(customers.map((c) => [c.id, c]));
+  const out: {
+    kind: string;
+    title: string;
+    detail: string;
+    customerId?: string;
+    value?: number;
+  }[] = [];
+
+  const seen = new Set<string>();
+  for (const s of sessions) {
+    if (!s.converted && s.cartAdds > 0 && s.cartValue > 0 && !seen.has(`ab:${s.visitorId}`)) {
+      seen.add(`ab:${s.visitorId}`);
+      const name = s.customerId ? byId.get(s.customerId)?.name : null;
+      out.push({
+        kind: "carrinho-abandonado",
+        title: `${name ?? "Visitante"} abandonou ${fmtBrl(s.cartValue)} na sacola`,
+        detail: `Sessão de ${s.startedAt.toLocaleDateString("pt-BR")} via ${s.channel}. Recupere com uma mensagem.`,
+        customerId: s.customerId ?? undefined,
+        value: s.cartValue,
+      });
+    }
+    if (
+      !s.converted && s.productsViewed >= 3 && s.cartAdds === 0 &&
+      !seen.has(`quase:${s.visitorId}`)
+    ) {
+      seen.add(`quase:${s.visitorId}`);
+      const name = s.customerId ? byId.get(s.customerId)?.name : null;
+      out.push({
+        kind: "quase-comprando",
+        title: `${name ?? "Visitante"} viu ${s.productsViewed} produtos e não decidiu`,
+        detail: `Cliente quente navegando via ${s.channel}. Um empurrãozinho fecha a venda.`,
+        customerId: s.customerId ?? undefined,
+      });
+    }
+  }
+
+  // cliente voltou após 30+ dias
+  const visitors = await db.visitor.findMany({
+    where: { companyId, customerId: { not: null }, lastSeenAt: { gte: p.from } },
+  });
+  for (const v of visitors) {
+    const gap = (v.lastSeenAt.getTime() - v.firstSeenAt.getTime()) / (24 * 60 * 60 * 1000);
+    if (v.visits >= 2 && gap >= 30) {
+      const c = byId.get(v.customerId!);
+      if (c) {
+        out.push({
+          kind: "cliente-voltou",
+          title: `${c.name} voltou ao catálogo depois de um tempo`,
+          detail: `${v.visits} visitas no total. Ótimo momento para retomar a conversa.`,
+          customerId: c.id,
+        });
+      }
+    }
+  }
+  return out.slice(0, 12);
+}
+
+const fmtBrl = (v: number) =>
+  "R$ " + v.toFixed(2).replace(".", ",").replace(/\B(?=(\d{3})+(?!\d))/g, ".");
+
+export async function alerts(companyId: string, p: Period) {
+  const out: string[] = [];
+  const [sessions, prodStats, colStats] = await Promise.all([
+    db.trackSession.findMany({
+      where: { companyId, startedAt: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) } },
+      include: { visitor: true },
+    }),
+    productStats(companyId, p),
+    colorStats(companyId, p),
+  ]);
+  const customers = await db.customer.findMany({ where: { companyId } });
+  const byId = new Map(customers.map((c) => [c.id, c]));
+
+  // visitas repetidas hoje
+  const visitsToday = new Map<string, number>();
+  for (const s of sessions) {
+    visitsToday.set(s.visitorId, (visitsToday.get(s.visitorId) ?? 0) + 1);
+  }
+  for (const [visitorId, n] of visitsToday) {
+    if (n >= 3) {
+      const s = sessions.find((x) => x.visitorId === visitorId);
+      const name = s?.customerId ? byId.get(s.customerId)?.name : "Um visitante";
+      out.push(`${name ?? "Um visitante"} visitou o catálogo ${n} vezes hoje.`);
+    }
+  }
+  // carrinho alto hoje
+  for (const s of sessions) {
+    if (s.cartValue >= 800) {
+      const name = s.customerId ? byId.get(s.customerId)?.name : "Um visitante";
+      out.push(`${name ?? "Um visitante"} adicionou ${fmtBrl(s.cartValue)} ao carrinho.`);
+    }
+  }
+  // muito visto, pouco vendido
+  for (const pr of prodStats) {
+    if (pr.views >= 8 && pr.sold === 0) {
+      out.push(`"${pr.key}" está sendo muito visualizado (${pr.views}×) e ainda não vendeu. Revise preço ou foto.`);
+    }
+  }
+  // cor convertendo bem
+  for (const c of colStats) {
+    if (c.views >= 5 && c.conversion >= 30) {
+      out.push(`Cor ${c.key} está convertendo ${c.conversion.toFixed(0)}%. Considere reforçar o estoque.`);
+    }
+  }
+  return [...new Set(out)].slice(0, 8);
+}
+
+// ---- Jornada de um cliente ----------------------------------------------------
+
+export async function customerJourney(companyId: string, customerId: string) {
+  const visitor = await db.visitor.findFirst({
+    where: { companyId, customerId },
+  });
+  if (!visitor) return null;
+  const sessions = await db.trackSession.findMany({
+    where: { visitorId: visitor.id },
+    orderBy: { startedAt: "desc" },
+    include: { events: { orderBy: { createdAt: "asc" } } },
+  });
+  const all = sessions.flatMap((s) => s.events);
+  const count = (t: string) => all.filter((e) => e.type === t).length;
+  return {
+    firstVisit: visitor.firstSeenAt,
+    lastVisit: visitor.lastSeenAt,
+    visits: visitor.visits,
+    productsViewed: count("product_view"),
+    favorites: count("favorite"),
+    added: count("cart_add"),
+    removed: count("cart_remove"),
+    abandonedCarts: sessions.filter((s) => !s.converted && s.cartAdds > 0).length,
+    ordersSubmitted: sessions.filter((s) => s.converted).length,
+    channels: [...new Set(sessions.map((s) => s.channel))],
+    lastSession: sessions[0]
+      ? {
+          startedAt: sessions[0].startedAt,
+          channel: sessions[0].channel,
+          steps: sessions[0].events.slice(0, 30).map((e) => ({
+            type: e.type,
+            productName: e.productName,
+            category: e.category,
+            color: e.color,
+            size: e.size,
+            value: e.value,
+            at: e.createdAt,
+          })),
+        }
+      : null,
+  };
+}

@@ -11,7 +11,36 @@ import {
   StickyNote,
   Target,
   History,
+  Brain,
 } from "lucide-react";
+
+/** Rótulo curto para um passo da jornada de navegação. */
+function journeyStepLabel(step: {
+  type: string;
+  productName?: string | null;
+  category?: string | null;
+  color?: string | null;
+  size?: string | null;
+}): string {
+  const p = step.productName;
+  switch (step.type) {
+    case "page_view": return "Abriu o catálogo";
+    case "category_view": return `Viu ${step.category ?? "categoria"}`;
+    case "product_view": return `Viu ${p ?? "produto"}`;
+    case "image_zoom": return `Ampliou ${p ?? "foto"}`;
+    case "color_select": return `Cor ${step.color}`;
+    case "size_select": return `Tam. ${step.size}`;
+    case "qty_change": return "Ajustou qtd";
+    case "cart_add": return `+ ${p ?? "peça"}`;
+    case "cart_remove": return `− ${p ?? "peça"}`;
+    case "cart_open": return "Abriu sacola";
+    case "cart_close": return "Fechou sacola";
+    case "checkout_start": return "Iniciou pedido";
+    case "order_submitted": return "Enviou pedido ✓";
+    case "order_abandoned": return "Abandonou";
+    default: return step.type;
+  }
+}
 import { requireUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { ownedScope } from "@/lib/scope";
@@ -40,6 +69,7 @@ import {
   orderStatusLabel,
   orderStatusColor,
 } from "@/lib/orders";
+import { customerJourney } from "@/lib/tracking/insights";
 
 export const dynamic = "force-dynamic";
 
@@ -86,6 +116,9 @@ export default async function CustomerDetailPage({
 
   const totalSpent = customer.sales.reduce((s, v) => s + v.total, 0);
   const ticket = customer.sales.length ? totalSpent / customer.sales.length : 0;
+
+  // Jornada de navegação (Tracking Engine / Inteligência Comercial)
+  const journey = await customerJourney(user.companyId, customer.id);
 
   return (
     <div className="max-w-5xl mx-auto">
@@ -383,6 +416,51 @@ export default async function CustomerDetailPage({
             </ul>
           )}
         </Card>
+
+        {/* Jornada de navegação (Inteligência Comercial) */}
+        {journey && (
+          <Card className="p-5 md:col-span-2">
+            <h2 className="font-semibold flex items-center gap-2 mb-3">
+              <Brain className="size-4 text-brand-600" />
+              Jornada no catálogo
+            </h2>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
+              {[
+                ["Visitas", String(journey.visits)],
+                ["Produtos vistos", String(journey.productsViewed)],
+                ["Adicionados", String(journey.added)],
+                ["Carrinhos largados", String(journey.abandonedCarts)],
+              ].map(([label, value]) => (
+                <div key={label} className="rounded-xl bg-gray-50 px-3 py-2 text-center">
+                  <p className="text-lg font-semibold tabular-nums">{value}</p>
+                  <p className="text-[10px] text-gray-400">{label}</p>
+                </div>
+              ))}
+            </div>
+            <p className="text-xs text-gray-400 mb-3">
+              Primeira visita {dateFull(journey.firstVisit)} · última{" "}
+              {dateFull(journey.lastVisit)}
+              {journey.channels.length > 0 && ` · via ${journey.channels.join(", ")}`}
+            </p>
+            {journey.lastSession && journey.lastSession.steps.length > 0 && (
+              <>
+                <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wide mb-2">
+                  Última sessão — passo a passo
+                </p>
+                <div className="flex flex-wrap items-center gap-1.5">
+                  {journey.lastSession.steps.map((step, i) => (
+                    <span key={i} className="flex items-center gap-1.5">
+                      {i > 0 && <span className="text-gray-300">→</span>}
+                      <span className="text-[11px] rounded-lg bg-brand-50 text-brand-700 px-2 py-1 font-medium">
+                        {journeyStepLabel(step)}
+                      </span>
+                    </span>
+                  ))}
+                </div>
+              </>
+            )}
+          </Card>
+        )}
 
         {/* Tarefas */}
         <Card className="p-5">

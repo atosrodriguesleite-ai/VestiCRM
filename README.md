@@ -4,6 +4,20 @@ CRM SaaS para lojas de roupas, confecções, atacados, boutiques e revendedoras 
 
 ## Funcionalidades
 
+### Inteligência Comercial (Tracking Engine)
+
+- **Tracking Engine** (`src/lib/tracking/`) — camada única de eventos: nenhuma tela grava tracking direto; o catálogo envia lotes para `/api/track` (sendBeacon/keepalive, sempre em background — nunca atrasa o carregamento) e todos os relatórios leem via `insights.ts` / `GET /api/intelligence`.
+- **Links inteligentes + QR Codes** — `vesticrm.com/c/{loja}?ref=julia` (vendedor), `?ref=campanha-verao` (campanha), `?ref=qr-vitrine` (loja física). Cada link vira QR Code (SVG para baixar/imprimir) e cada clique registra canal, campanha, vendedor, device/OS/navegador, cidade/UF, referer, UTM completa e IP mascarado.
+- **Jornada completa** — sessão liga toda a navegação: entrou → viu categoria → viu produto → escolheu cor/tamanho → adicionou → removeu → abriu sacola → enviou pedido → virou lead → comprou. Visitante **anônimo** é criado na hora e **unificado** ao cliente quando informa o telefone.
+- **Dashboard estilo analytics** (`/inteligencia`) — visitantes, sessões, tempo médio, conversão, faturamento, ticket, novos/recorrentes, carrinhos abandonados, com comparativo vs. período anterior (▲▼).
+- **Funil comercial** — Visitas → Viram produtos → Adicionaram → Carrinho → Pedido → CRM → Compra → Recompra.
+- **Rankings** — canais (Instagram, Google, GMB, Facebook, WhatsApp, QR, direto, indicação, loja física, marketplace, campanhas), vendedores (cliques/pedidos/conversão/faturamento/ticket/tempo até venda) e campanhas (cliques/pedidos/ROI vs. meta).
+- **Produtos, categorias, cores e tamanhos** — mais vistos, mais vendidos, mais adicionados/removidos, conversão e abandono.
+- **Heatmaps** dia × hora (acessos e vendas) e **comparativos** de período (hoje/7/30/90 dias/1 ano).
+- **Recuperação comercial** — detecta automaticamente carrinho abandonado, cliente quase comprando e cliente que voltou, com link direto para a ficha. **Alertas inteligentes** ("X foi muito visto e pouco vendido", "Cor Y converte 42%").
+- **Exportação CSV** (Excel) por relatório; **LGPD** com banner de consentimento, IP mascarado e isolamento total por empresa.
+- **Estrutura preparada** (sem integrar): Meta Pixel, GA4, Google/TikTok Ads e GTM (`destinations.ts`) e **replay de sessão** (`replay.ts` + campo `replayId`).
+
 ### Communication Engine (camada omnichannel)
 
 - **Camada única de comunicação** (`src/lib/comm/`) — nenhuma tela fala com provedor: envio, recebimento, anexos, status, recibos e logs passam pela engine. Trocar Mock ↔ Cloud API é uma configuração; nenhuma tela muda.

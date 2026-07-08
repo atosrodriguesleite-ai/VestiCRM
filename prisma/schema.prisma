@@ -474,6 +474,103 @@ model CommSettings {
   updatedAt          DateTime @updatedAt
 }
 
+// ---------------------------------------------------------------------------
+// Tracking Engine — Inteligência Comercial
+// ---------------------------------------------------------------------------
+
+// Visitante do catálogo (anônimo até informar o telefone; depois unificado)
+model Visitor {
+  id          String    @id @default(cuid())
+  companyId   String
+  customerId  String? // preenchido no identify (unifica a navegação)
+  firstSeenAt DateTime  @default(now())
+  lastSeenAt  DateTime  @default(now())
+  visits      Int       @default(1)
+
+  sessions TrackSession[]
+
+  @@index([companyId, customerId])
+}
+
+// Sessão de navegação no catálogo (uma visita)
+model TrackSession {
+  id          String   @id @default(cuid())
+  companyId   String
+  visitorId   String
+  visitor     Visitor  @relation(fields: [visitorId], references: [id], onDelete: Cascade)
+  customerId  String? // denormalizado após identify
+  ref         String? // ?ref=joao / campanha-verao / qr-vitrine
+  channel     String  @default("direto") // instagram|google|facebook|whatsapp|qr|indicacao|site|direto|...
+  sellerId    String? // vendedor dono do link
+  campaignId  String? // campanha dona do link
+  utmSource   String?
+  utmMedium   String?
+  utmCampaign String?
+  utmTerm     String?
+  utmContent  String?
+  referer     String?
+  device      String? // mobile|desktop|tablet
+  os          String?
+  browser     String?
+  city        String?
+  state       String?
+  country     String?
+  ipMasked    String? // LGPD: último octeto zerado
+  replayId    String? // estrutura pronta p/ replay de sessão (futuro)
+  startedAt   DateTime @default(now())
+  lastEventAt DateTime @default(now())
+  pages       Int      @default(0)
+  productsViewed Int   @default(0)
+  cartAdds    Int      @default(0)
+  cartRemoves Int      @default(0)
+  cartValue   Float    @default(0)
+  converted   Boolean  @default(false) // enviou pedido
+
+  events TrackEvent[]
+
+  @@index([companyId, startedAt])
+  @@index([companyId, sellerId])
+  @@index([companyId, campaignId])
+  @@index([visitorId])
+}
+
+// Evento da jornada — SEMPRE gravado via Tracking Engine
+model TrackEvent {
+  id          String       @id @default(cuid())
+  companyId   String
+  sessionId   String
+  session     TrackSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  type        String // page_view|category_view|product_view|image_zoom|color_select|size_select|qty_change|cart_add|cart_remove|cart_open|cart_close|checkout_start|order_submitted|order_abandoned|heartbeat
+  productId   String?
+  productName String?
+  category    String?
+  color       String?
+  size        String?
+  qty         Int?
+  value       Float?
+  meta        String? // JSON extra
+  createdAt   DateTime     @default(now())
+
+  @@index([companyId, type, createdAt])
+  @@index([sessionId])
+}
+
+// Campanhas/links inteligentes (cada um gera link + QR Code)
+model TrackCampaign {
+  id        String   @id @default(cuid())
+  companyId String
+  name      String
+  slug      String // valor do ?ref=
+  channel   String  @default("campanha") // instagram|qr|google|...
+  ownerId   String? // responsável
+  goal      Float   @default(0) // meta de faturamento
+  active    Boolean @default(true)
+  createdAt DateTime @default(now())
+
+  @@unique([companyId, slug])
+  @@index([companyId])
+}
+
 // Auditoria: quem alterou credenciais e quais campos (nunca os valores)
 model CommAudit {
   id        String   @id @default(cuid())
