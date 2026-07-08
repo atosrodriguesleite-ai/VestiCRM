@@ -70,7 +70,7 @@ export default async function OrderDetailPage({
               {order.seller ? ` · Vendedor(a): ${order.seller.name}` : ""}
             </p>
             <div className="flex items-center gap-2 mt-3">
-              <Avatar name={order.customer.name} color="#7c3aed" size="sm" />
+              <Avatar name={order.customer.name} color="#2563eb" size="sm" />
               <Link
                 href={`/clientes/${order.customerId}`}
                 className="text-sm font-medium hover:text-brand-600"

@@ -1,40 +1,64 @@
 @import "tailwindcss";
 
-@theme {
-  --color-brand-50: #f5f3ff;
-  --color-brand-100: #ede9fe;
-  --color-brand-200: #ddd6fe;
-  --color-brand-300: #c4b5fd;
-  --color-brand-400: #a78bfa;
-  --color-brand-500: #8b5cf6;
-  --color-brand-600: #7c3aed;
-  --color-brand-700: #6d28d9;
-  --color-brand-800: #5b21b6;
-  --color-brand-900: #4c1d95;
+/* ============================================================
+   VestiCRM — Design System
+   Identidade: azul petróleo · azul · cinzas slate · premium/clean
+   ============================================================ */
 
-  --color-canvas: #f7f6fb;
-  --color-ink: #1a1523;
+@theme {
+  /* Marca (azul) — brand-600 é a ação primária */
+  --color-brand-50: #eff6ff;
+  --color-brand-100: #dbeafe;
+  --color-brand-200: #bfdbfe;
+  --color-brand-300: #93c5fd;
+  --color-brand-400: #60a5fa;
+  --color-brand-500: #3b82f6;
+  --color-brand-600: #2563eb;
+  --color-brand-700: #1d4ed8;
+  --color-brand-800: #1e40af;
+  --color-brand-900: #1e3a5f; /* azul petróleo */
+
+  /* Superfícies neutras (slate) */
+  --color-canvas: #f8fafc; /* fundo do app */
+  --color-surface: #ffffff; /* cards */
+  --color-ink: #1e293b; /* texto forte */
+  --color-sidebar: #0f172a; /* sidebar escura */
+  --color-sidebar-hover: #1e293b;
+
+  /* Semânticas */
+  --color-success: #10b981;
+  --color-warning: #f59e0b;
+  --color-danger: #ef4444;
 
   --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
 
-  --shadow-card: 0 1px 2px rgb(26 21 35 / 0.04), 0 4px 16px rgb(26 21 35 / 0.05);
-  --shadow-pop: 0 4px 12px rgb(26 21 35 / 0.08), 0 12px 32px rgb(26 21 35 / 0.1);
+  /* Raio padrão do sistema */
+  --radius-xl2: 1rem;
 
-  --animate-fade-up: fade-up 0.35s ease both;
+  /* Sombras premium (slate-tinted, muito sutis) */
+  --shadow-xs: 0 1px 2px 0 rgb(15 23 42 / 0.04);
+  --shadow-card: 0 1px 2px 0 rgb(15 23 42 / 0.04),
+    0 4px 12px -2px rgb(15 23 42 / 0.05);
+  --shadow-pop: 0 4px 16px -4px rgb(15 23 42 / 0.1),
+    0 16px 40px -12px rgb(15 23 42 / 0.16);
+  --shadow-focus: 0 0 0 4px rgb(37 99 235 / 0.12);
+
+  --animate-fade-up: fade-up 0.4s cubic-bezier(0.16, 1, 0.3, 1) both;
   --animate-fade-in: fade-in 0.25s ease both;
+  --animate-scale-in: scale-in 0.18s cubic-bezier(0.16, 1, 0.3, 1) both;
+  --animate-shimmer: shimmer 1.4s ease infinite;
 }
 
 @keyframes fade-up {
   from {
     opacity: 0;
-    transform: translateY(6px);
+    transform: translateY(8px);
   }
   to {
     opacity: 1;
     transform: translateY(0);
   }
 }
-
 @keyframes fade-in {
   from {
     opacity: 0;
@@ -43,26 +67,87 @@
     opacity: 1;
   }
 }
+@keyframes scale-in {
+  from {
+    opacity: 0;
+    transform: scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+@keyframes shimmer {
+  0% {
+    background-position: -400px 0;
+  }
+  100% {
+    background-position: 400px 0;
+  }
+}
 
 html {
   -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
 }
 
 body {
   background: var(--color-canvas);
   color: var(--color-ink);
+  font-feature-settings: "cv11", "ss01";
 }
 
-/* barra de rolagem discreta nas colunas do funil e no chat */
+/* Foco acessível consistente em todo o sistema */
+*:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-focus);
+  border-radius: 0.5rem;
+}
+
+/* Tipografia com melhor hierarquia (títulos mais apertados) */
+h1,
+h2,
+h3 {
+  letter-spacing: -0.015em;
+}
+
+/* Barra de rolagem discreta (slate) */
 .thin-scroll {
   scrollbar-width: thin;
-  scrollbar-color: #d4d0dd transparent;
+  scrollbar-color: #cbd5e1 transparent;
 }
 .thin-scroll::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 7px;
+  height: 7px;
 }
 .thin-scroll::-webkit-scrollbar-thumb {
-  background: #d4d0dd;
-  border-radius: 3px;
+  background: #cbd5e1;
+  border-radius: 4px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+.thin-scroll::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+  background-clip: padding-box;
+}
+
+/* Skeleton shimmer reutilizável */
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    #eef2f7 25%,
+    #f8fafc 37%,
+    #eef2f7 63%
+  );
+  background-size: 800px 100%;
+  animation: var(--animate-shimmer);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
 }

@@ -21,7 +21,7 @@ export type TeamMember = {
 };
 
 const roleColor: Record<string, string> = {
-  ADMIN: "#7c3aed",
+  ADMIN: "#2563eb",
   MANAGER: "#0ea5e9",
   SELLER: "#f59e0b",
   SUPPORT: "#10b981",

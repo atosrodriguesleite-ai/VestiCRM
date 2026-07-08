@@ -20,7 +20,7 @@ export type CampaignItem = {
 const statusColor: Record<CampaignItem["status"], string> = {
   RASCUNHO: "#64748b",
   ATIVA: "#059669",
-  CONCLUIDA: "#7c3aed",
+  CONCLUIDA: "#2563eb",
 };
 const statusLabel: Record<CampaignItem["status"], string> = {
   RASCUNHO: "Rascunho",

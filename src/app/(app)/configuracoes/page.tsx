@@ -33,7 +33,7 @@ const INTEGRATIONS = [
   { name: "Nuvemshop", desc: "Importe pedidos e clientes da sua loja virtual.", icon: ShoppingCart, color: "#2563eb" },
   { name: "Shopify", desc: "Conecte sua loja Shopify ao funil de vendas.", icon: Store, color: "#059669" },
   { name: "Instagram", desc: "Receba directs e comentários dentro do CRM.", icon: AtSign, color: "#ec4899" },
-  { name: "Meta Ads", desc: "Leads dos anúncios entram direto no funil.", icon: Megaphone, color: "#7c3aed" },
+  { name: "Meta Ads", desc: "Leads dos anúncios entram direto no funil.", icon: Megaphone, color: "#2563eb" },
   { name: "Gateway de pagamento", desc: "Gere links de pagamento na conversa.", icon: CreditCard, color: "#f59e0b" },
   { name: "E-mail marketing", desc: "Sincronize segmentos com sua ferramenta de e-mail.", icon: Mail, color: "#64748b" },
 ];

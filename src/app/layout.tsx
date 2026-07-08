@@ -8,15 +8,15 @@ const geistSans = Geist({
 });
 
 export const metadata: Metadata = {
-  title: "VestiCRM — CRM para lojas de moda",
+  title: "VestiCRM — A plataforma comercial para lojas de moda",
   description:
-    "CRM completo para lojas de roupas: vendas pelo WhatsApp, funil visual, follow-up e recompra.",
+    "A plataforma comercial para lojas de moda: vendas pelo WhatsApp, catálogo, pedidos, funil e inteligência comercial.",
 };
 
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
-  themeColor: "#7c3aed",
+  themeColor: "#0f172a",
 };
 
 export default function RootLayout({

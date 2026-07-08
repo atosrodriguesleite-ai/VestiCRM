@@ -1,16 +1,16 @@
 /**
  * Gráficos leves renderizados no servidor (sem lib externa).
- * Cores seguem rampa ordinal violeta validada (CVD-safe):
- * #a78bfa → #8b5cf6 → #7c3aed → #5b21b6 → #3b1a78
+ * Rampa ordinal azul (single-hue, light→dark, contraste OK na superfície):
+ * #60a5fa → #3b82f6 → #2563eb → #1d4ed8 → #1e3a5f
  * Barras têm rótulo direto (valor visível) — nunca só cor.
  */
 
 export const ORDINAL_RAMP = [
-  "#a78bfa",
-  "#8b5cf6",
-  "#7c3aed",
-  "#5b21b6",
-  "#3b1a78",
+  "#60a5fa",
+  "#3b82f6",
+  "#2563eb",
+  "#1d4ed8",
+  "#1e3a5f",
 ];
 
 export function StatTile({
@@ -33,26 +33,42 @@ export function StatTile({
         ? "text-amber-600"
         : tone === "bad"
           ? "text-rose-600"
-          : "text-ink";
+          : "text-slate-900";
+  const iconTone =
+    tone === "good"
+      ? "bg-emerald-50 text-emerald-500"
+      : tone === "warn"
+        ? "bg-amber-50 text-amber-500"
+        : tone === "bad"
+          ? "bg-rose-50 text-rose-500"
+          : "bg-brand-50 text-brand-500";
   return (
-    <div className="bg-white rounded-2xl border border-gray-100 shadow-card p-4 md:p-5 animate-fade-up">
-      <div className="flex items-center justify-between gap-2 mb-2">
-        <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">
+    <div className="group bg-white rounded-2xl border border-slate-200/70 shadow-card p-5 transition duration-200 hover:shadow-pop hover:-translate-y-0.5">
+      <div className="flex items-center justify-between gap-2 mb-3">
+        <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">
           {label}
         </p>
-        {icon && <span className="text-gray-300 [&>svg]:size-4">{icon}</span>}
+        {icon && (
+          <span
+            className={`size-8 rounded-lg flex items-center justify-center transition group-hover:scale-105 [&>svg]:size-4 ${iconTone}`}
+          >
+            {icon}
+          </span>
+        )}
       </div>
-      <p className={`text-xl md:text-2xl font-semibold tracking-tight ${toneCls}`}>
+      <p
+        className={`text-[26px] leading-none font-semibold tracking-tight ${toneCls}`}
+      >
         {value}
       </p>
-      {hint && <p className="text-xs text-gray-400 mt-1">{hint}</p>}
+      {hint && <p className="text-xs text-slate-400 mt-2">{hint}</p>}
     </div>
   );
 }
 
 export function BarList({
   data,
-  color = "#7c3aed",
+  color = "#2563eb",
   formatValue = (v) => String(v),
 }: {
   data: { label: string; value: number; sub?: string }[];
@@ -65,12 +81,12 @@ export function BarList({
       {data.map((d) => (
         <div key={d.label}>
           <div className="flex items-baseline justify-between gap-2 text-sm mb-1">
-            <span className="font-medium truncate">{d.label}</span>
-            <span className="text-gray-600 tabular-nums shrink-0">
+            <span className="font-medium truncate text-slate-700">{d.label}</span>
+            <span className="text-slate-500 font-medium tabular-nums shrink-0">
               {formatValue(d.value)}
             </span>
           </div>
-          <div className="h-2 rounded-full bg-gray-100 overflow-hidden">
+          <div className="h-2 rounded-full bg-slate-100 overflow-hidden">
             <div
               className="h-full rounded-full transition-all"
               style={{
@@ -79,7 +95,7 @@ export function BarList({
               }}
             />
           </div>
-          {d.sub && <p className="text-[11px] text-gray-400 mt-0.5">{d.sub}</p>}
+          {d.sub && <p className="text-[11px] text-slate-400 mt-1">{d.sub}</p>}
         </div>
       ))}
     </div>
@@ -105,19 +121,19 @@ export function FunnelBars({
           ];
         return (
           <div key={d.label} className="flex items-center gap-3">
-            <span className="w-40 md:w-48 text-xs text-gray-600 truncate shrink-0">
+            <span className="w-40 md:w-48 text-xs text-slate-600 truncate shrink-0">
               {d.label}
             </span>
             <div className="flex-1 h-6 flex items-center">
               <div
-                className="h-6 rounded-md min-w-1"
+                className="h-6 rounded-lg min-w-1 transition-all"
                 style={{
                   width: `${(d.value / max) * 100}%`,
                   backgroundColor: color,
                 }}
                 title={`${d.label}: ${d.value}`}
               />
-              <span className="ml-2 text-xs font-medium tabular-nums text-gray-700">
+              <span className="ml-2 text-xs font-semibold tabular-nums text-slate-700">
                 {d.value}
               </span>
             </div>
@@ -164,8 +180,8 @@ export function AreaChart({
     >
       <defs>
         <linearGradient id="areaFill" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="#7c3aed" stopOpacity="0.25" />
-          <stop offset="100%" stopColor="#7c3aed" stopOpacity="0.02" />
+          <stop offset="0%" stopColor="#2563eb" stopOpacity="0.22" />
+          <stop offset="100%" stopColor="#2563eb" stopOpacity="0.02" />
         </linearGradient>
       </defs>
       {[0.25, 0.5, 0.75].map((f) => (
@@ -175,7 +191,7 @@ export function AreaChart({
           x2={w - pad.right}
           y1={pad.top + ih * f}
           y2={pad.top + ih * f}
-          stroke="#f1f0f5"
+          stroke="#eef2f7"
           strokeWidth="1"
         />
       ))}
@@ -183,8 +199,8 @@ export function AreaChart({
       <path
         d={line}
         fill="none"
-        stroke="#7c3aed"
-        strokeWidth="2"
+        stroke="#2563eb"
+        strokeWidth="2.25"
         strokeLinejoin="round"
         strokeLinecap="round"
       />
@@ -197,7 +213,7 @@ export function AreaChart({
             cx={x}
             cy={y}
             r={i === maxIdx ? 4 : 3}
-            fill="#7c3aed"
+            fill="#2563eb"
             stroke="#fff"
             strokeWidth="2"
           />
@@ -209,7 +225,7 @@ export function AreaChart({
           x={Math.min(Math.max(xy[maxIdx][0], 30), w - 40)}
           y={Math.max(xy[maxIdx][1] - 10, 12)}
           textAnchor="middle"
-          className="fill-gray-600"
+          className="fill-slate-600"
           fontSize="11"
           fontWeight="600"
         >
@@ -224,7 +240,7 @@ export function AreaChart({
             y={h - 6}
             textAnchor="middle"
             fontSize="10"
-            className="fill-gray-400"
+            className="fill-slate-400"
           >
             {l}
           </text>

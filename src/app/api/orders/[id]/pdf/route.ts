@@ -5,10 +5,11 @@ import { requireUser, AuthError } from "@/lib/auth";
 import { orderNumber, orderStatusLabel } from "@/lib/orders";
 import { buildPixPayload } from "@/lib/pix";
 
-const VIOLET = rgb(0.486, 0.227, 0.929);
-const INK = rgb(0.102, 0.082, 0.137);
-const GRAY = rgb(0.45, 0.44, 0.5);
-const LIGHT = rgb(0.955, 0.95, 0.97);
+const BRAND = rgb(0.145, 0.388, 0.922); // #2563EB
+const DEEP = rgb(0.118, 0.227, 0.373); // #1E3A5F petróleo
+const INK = rgb(0.118, 0.161, 0.235); // slate-800
+const GRAY = rgb(0.392, 0.455, 0.545); // slate-500
+const LIGHT = rgb(0.945, 0.961, 0.976); // slate-100
 
 const money = (v: number) =>
   `R$ ${v.toFixed(2).replace(".", ",").replace(/\B(?=(\d{3})+(?!\d))/g, ".")}`;
@@ -45,14 +46,14 @@ export async function GET(
     let y = height - 60;
 
     // Cabeçalho com "logo" (marca tipográfica no padrão do app)
-    page.drawRectangle({ x: M, y: y - 6, width: 26, height: 26, color: VIOLET });
+    page.drawRectangle({ x: M, y: y - 6, width: 26, height: 26, color: DEEP });
     page.drawText("V", { x: M + 8, y, size: 16, font: bold, color: rgb(1, 1, 1) });
     page.drawText(order.company.name, { x: M + 36, y: y + 2, size: 16, font: bold, color: INK });
     page.drawText("VestiCRM", { x: M + 36, y: y - 10, size: 8, font, color: GRAY });
 
     const title = `ORÇAMENTO ${orderNumber(order.number)}`;
     const tw = bold.widthOfTextAtSize(title, 13);
-    page.drawText(title, { x: width - M - tw, y: y + 2, size: 13, font: bold, color: VIOLET });
+    page.drawText(title, { x: width - M - tw, y: y + 2, size: 13, font: bold, color: BRAND });
     const dateStr = order.createdAt.toLocaleDateString("pt-BR");
     const dw = font.widthOfTextAtSize(dateStr, 9);
     page.drawText(dateStr, { x: width - M - dw, y: y - 10, size: 9, font, color: GRAY });
@@ -123,10 +124,10 @@ export async function GET(
       const lw = f.widthOfTextAtSize(label, size);
       const vw = f.widthOfTextAtSize(value, size);
       page.drawText(label, {
-        x: cols.unit - lw - 8, y, size, font: f, color: strong ? VIOLET : GRAY,
+        x: cols.unit - lw - 8, y, size, font: f, color: strong ? BRAND : GRAY,
       });
       page.drawText(value, {
-        x: cols.total - vw, y, size, font: f, color: strong ? VIOLET : INK,
+        x: cols.total - vw, y, size, font: f, color: strong ? BRAND : INK,
       });
       y -= strong ? 22 : 16;
     }
@@ -145,14 +146,14 @@ export async function GET(
     const boxH = 96;
     page.drawRectangle({
       x: M, y: y - boxH + 14, width: width - 2 * M, height: boxH,
-      color: rgb(0.972, 0.965, 0.995),
+      color: rgb(0.937, 0.965, 1),
     });
     page.drawRectangle({
       x: M + 14, y: y - boxH + 26, width: 72, height: 72,
-      borderColor: VIOLET, borderWidth: 1.2,
+      borderColor: BRAND, borderWidth: 1.2,
     });
-    page.drawText("QR PIX", { x: M + 32, y: y - boxH + 58, size: 9, font: bold, color: VIOLET });
-    page.drawText("PAGUE COM PIX", { x: M + 100, y: y - 8, size: 9, font: bold, color: VIOLET });
+    page.drawText("QR PIX", { x: M + 32, y: y - boxH + 58, size: 9, font: bold, color: BRAND });
+    page.drawText("PAGUE COM PIX", { x: M + 100, y: y - 8, size: 9, font: bold, color: BRAND });
     const pending = order.payments.find((p) => p.status === "PENDENTE");
     const pixPayload = buildPixPayload({
       pixKey: pending?.pixKey ?? "configure-sua-chave@sualoja.com.br",
