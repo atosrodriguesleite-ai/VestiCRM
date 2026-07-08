@@ -32,7 +32,7 @@ import {
 } from "./icons";
 
 /** Número comercial de vendas. */
-const SALES_WHATSAPP = "5533998618915";
+const SALES_WHATSAPP = "5533999172019";
 const WA_MESSAGE =
   "Olá! Gostaria de conhecer o VestiCRM e solicitar uma demonstração.";
 const WA_LINK = `https://wa.me/${SALES_WHATSAPP}?text=${encodeURIComponent(WA_MESSAGE)}`;
