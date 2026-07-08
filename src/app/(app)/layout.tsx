@@ -24,6 +24,7 @@ export default async function AppLayout({
         roleLabel: roleLabel[user.role],
         color: user.color,
         companyName: company?.name ?? "",
+        impersonating: Boolean(user.impersonatedBy),
       }}
     >
       {children}

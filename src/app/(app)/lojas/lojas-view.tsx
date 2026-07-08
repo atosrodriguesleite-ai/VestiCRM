@@ -12,6 +12,7 @@ import {
   RefreshCw,
   X,
   KeyRound,
+  LogIn,
 } from "lucide-react";
 import { Button, Card, Field, inputCls, EmptyState, Badge } from "@/components/ui";
 
@@ -422,8 +423,30 @@ function CopyButton({ text, label }: { text: string; label: string }) {
 /* ---------------------------------------------------- card de loja */
 
 function LojaCard({ loja }: { loja: Loja }) {
+  const router = useRouter();
+  const [accessing, setAccessing] = useState(false);
+
+  async function access() {
+    setAccessing(true);
+    try {
+      const res = await fetch("/api/impersonate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ companyId: loja.id }),
+      });
+      if (!res.ok) {
+        setAccessing(false);
+        return;
+      }
+      router.push("/dashboard");
+      router.refresh();
+    } catch {
+      setAccessing(false);
+    }
+  }
+
   return (
-    <Card className="p-4" interactive>
+    <Card className="p-4">
       <div className="flex items-start justify-between gap-3">
         <div className="flex items-center gap-3 min-w-0">
           <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-slate-900 text-white">
@@ -456,6 +479,16 @@ function LojaCard({ loja }: { loja: Loja }) {
         <span><b className="text-slate-700 tabular-nums">{loja.customers}</b> clientes</span>
         <span><b className="text-slate-700 tabular-nums">{loja.orders}</b> pedidos</span>
       </div>
+
+      <Button
+        onClick={access}
+        disabled={accessing}
+        size="sm"
+        className="mt-4 w-full"
+      >
+        <LogIn className="size-4" />
+        {accessing ? "Entrando…" : "Acessar loja"}
+      </Button>
     </Card>
   );
 }

@@ -15,10 +15,19 @@ export type SessionUser = {
   email: string;
   role: Role;
   color: string;
+  /** Quando o Super Admin está acessando uma loja, guarda o id dele. */
+  impersonatedBy?: string;
 };
 
-export async function createSession(userId: string) {
-  const token = await new SignJWT({ sub: userId })
+/**
+ * Cria a sessão do usuário. Quando `impersonatorId` é informado, a sessão
+ * representa o usuário `userId` (ex.: admin da loja), mas registra de forma
+ * assinada quem é o Super Admin por trás — permitindo voltar depois.
+ */
+export async function createSession(userId: string, impersonatorId?: string) {
+  const token = await new SignJWT(
+    impersonatorId ? { sub: userId, imp: impersonatorId } : { sub: userId }
+  )
     .setProtectedHeader({ alg: "HS256" })
     .setIssuedAt()
     .setExpirationTime("7d")
@@ -55,6 +64,8 @@ export async function getSessionUser(): Promise<SessionUser | null> {
       email: user.email,
       role: user.role,
       color: user.color,
+      impersonatedBy:
+        typeof payload.imp === "string" ? payload.imp : undefined,
     };
   } catch {
     return null;

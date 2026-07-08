@@ -22,6 +22,8 @@ import {
   Radio,
   Brain,
   Store,
+  ArrowLeft,
+  Eye,
   PanelLeftClose,
   PanelLeft,
 } from "lucide-react";
@@ -62,6 +64,7 @@ type ShellUser = {
   roleLabel: string;
   color: string;
   companyName: string;
+  impersonating?: boolean;
 };
 
 export function AppShell({
@@ -96,6 +99,14 @@ export function AppShell({
   async function logout() {
     await fetch("/api/auth/logout", { method: "POST" });
     router.push("/login");
+    router.refresh();
+  }
+
+  const [exiting, setExiting] = useState(false);
+  async function exitImpersonation() {
+    setExiting(true);
+    await fetch("/api/impersonate/exit", { method: "POST" });
+    router.push("/lojas");
     router.refresh();
   }
 
@@ -227,6 +238,27 @@ export function AppShell({
       )}
 
       <div className="flex-1 flex flex-col min-w-0">
+        {/* Faixa de acesso à loja (impersonação pelo Super Admin) */}
+        {user.impersonating && (
+          <div className="sticky top-0 z-50 flex items-center justify-between gap-3 bg-amber-400 px-4 py-2.5 text-amber-950 shadow-sm">
+            <div className="flex items-center gap-2 min-w-0">
+              <Eye className="size-4 shrink-0" />
+              <p className="text-[13px] font-medium truncate">
+                Você está acessando a loja{" "}
+                <b className="font-semibold">{user.companyName}</b> como Super Admin.
+              </p>
+            </div>
+            <button
+              onClick={exitImpersonation}
+              disabled={exiting}
+              className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-amber-950 px-3 py-1.5 text-[12.5px] font-semibold text-amber-50 transition hover:bg-amber-900 disabled:opacity-60"
+            >
+              <ArrowLeft className="size-3.5" />
+              {exiting ? "Voltando…" : "Voltar ao Super Admin"}
+            </button>
+          </div>
+        )}
+
         {/* Header mobile */}
         <header className="md:hidden sticky top-0 z-40 bg-white/80 backdrop-blur-xl border-b border-slate-200/70 flex items-center justify-between px-4 h-14">
           <button
