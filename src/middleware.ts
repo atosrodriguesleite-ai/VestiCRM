@@ -13,12 +13,18 @@ const PUBLIC_PATHS = [
   "/catalogo",
   "/c/", // links curtos de vendedores/campanhas
   "/api/intake",
+  "/api/demo", // formulário de demonstração da landing page
   "/api/whatsapp/webhook",
   "/api/track", // Tracking Engine (Inteligência Comercial)
 ];
 
 export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
+
+  // Landing page oficial é pública (raiz do site)
+  if (pathname === "/") {
+    return NextResponse.next();
+  }
 
   if (
     PUBLIC_PATHS.some((p) => pathname.startsWith(p)) ||
@@ -45,12 +51,6 @@ export async function middleware(req: NextRequest) {
     }
     const url = req.nextUrl.clone();
     url.pathname = "/login";
-    return NextResponse.redirect(url);
-  }
-
-  if (pathname === "/") {
-    const url = req.nextUrl.clone();
-    url.pathname = "/dashboard";
     return NextResponse.redirect(url);
   }
 

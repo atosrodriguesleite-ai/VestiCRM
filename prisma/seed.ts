@@ -104,16 +104,146 @@ async function main() {
   ]);
   await db.user.create({
     data: {
-      companyId: company.id, name: "Super Admin", email: "super@vesticrm.com.br",
-      passwordHash: hash, role: "SUPERADMIN", color: "#ef4444",
-    },
-  });
-  await db.user.create({
-    data: {
       companyId: company2.id, name: "Marcos Dias", email: "marcos@urbanstyle.com.br",
       passwordHash: hash, role: "ADMIN", color: "#334155",
     },
   });
+
+  // ---- Empresa-plataforma VestiCRM (tenant comercial do Super Admin) ----
+  // É onde caem os leads da Landing Page (origem "Site"). O Super Admin
+  // opera aqui e enxerga o pipeline "Leads do Site".
+  const platform = await db.company.create({
+    data: {
+      name: "VestiCRM",
+      slug: "vesticrm",
+      tagline: "A plataforma comercial para lojas de moda.",
+    },
+  });
+  const superAdmin = await db.user.create({
+    data: {
+      companyId: platform.id, name: "Super Admin", email: "super@vesticrm.com.br",
+      passwordHash: hash, role: "SUPERADMIN", color: "#2563eb",
+    },
+  });
+  const salesPipeline = await db.pipeline.create({
+    data: { companyId: platform.id, name: "Leads do Site" },
+  });
+  const salesStageDefs: [string, string, boolean, boolean][] = [
+    ["Novo Lead", "#3b82f6", false, false],
+    ["Contato realizado", "#60a5fa", false, false],
+    ["Demonstração agendada", "#818cf8", false, false],
+    ["Demonstração realizada", "#a78bfa", false, false],
+    ["Negociação", "#f59e0b", false, false],
+    ["Implantação", "#14b8a6", false, false],
+    ["Cliente", "#10b981", true, false],
+    ["Perdido", "#ef4444", false, true],
+  ];
+  const salesStages: { id: string; name: string }[] = [];
+  for (let i = 0; i < salesStageDefs.length; i++) {
+    const [name, color, isWon, isLost] = salesStageDefs[i];
+    salesStages.push(
+      await db.stage.create({
+        data: { pipelineId: salesPipeline.id, name, order: i, color, isWon, isLost },
+      })
+    );
+  }
+  const salesStage = (n: string) => salesStages.find((s) => s.name === n)!;
+
+  // Leads de exemplo da Landing Page (para o pipeline não nascer vazio)
+  type DemoLead = {
+    name: string; company: string; phone: string; city: string; state: string;
+    stage: string; sellers: string; physical: boolean; ecommerce: boolean;
+    system: string; message: string; daysAgo: number;
+  };
+  const demoLeads: DemoLead[] = [
+    { name: "Aline Prado", company: "Loja Aline Prado Moda", phone: "5511970001001", city: "São Paulo", state: "SP", stage: "Novo Lead", sellers: "2 a 3", physical: true, ecommerce: false, system: "Planilha", message: "Quero organizar as vendas do WhatsApp da loja.", daysAgo: 0 },
+    { name: "Rafael Gomes", company: "RG Multimarcas", phone: "5531970002002", city: "Belo Horizonte", state: "MG", stage: "Contato realizado", sellers: "4 a 6", physical: true, ecommerce: true, system: "Bling", message: "Somos atacado e queremos catálogo com grade.", daysAgo: 2 },
+    { name: "Tatiane Melo", company: "Boutique Tati", phone: "5541970003003", city: "Curitiba", state: "PR", stage: "Demonstração agendada", sellers: "1 (só eu)", physical: false, ecommerce: true, system: "Nuvemshop", message: "Vendo só pelo Instagram e preciso de funil.", daysAgo: 4 },
+    { name: "Marina Duarte", company: "MD Fitness Wear", phone: "5511970004004", city: "Campinas", state: "SP", stage: "Negociação", sellers: "7 a 10", physical: true, ecommerce: true, system: "Outro CRM", message: "Time grande, precisamos distribuir os leads.", daysAgo: 8 },
+    { name: "Beto Andrade", company: "Andrade Jeans", phone: "5585970005005", city: "Fortaleza", state: "CE", stage: "Perdido", sellers: "2 a 3", physical: true, ecommerce: false, system: "Nenhum", message: "Achei que era só e-commerce.", daysAgo: 20 },
+  ];
+  for (const l of demoLeads) {
+    const resumo = [
+      `🖥️ Solicitação de demonstração — ${l.company}`,
+      `Responsável: ${l.name}`,
+      `Local: ${l.city}/${l.state}`,
+      `Vendedores: ${l.sellers}`,
+      `Loja física: ${l.physical ? "sim" : "não"} · E-commerce: ${l.ecommerce ? "sim" : "não"}`,
+      `Sistema atual: ${l.system}`,
+      `Mensagem: ${l.message}`,
+    ].join("\n");
+    const st = salesStage(l.stage);
+    const leadCustomer = await db.customer.create({
+      data: {
+        companyId: platform.id,
+        name: `${l.name} · ${l.company}`,
+        phone: l.phone,
+        city: l.city,
+        state: l.state,
+        origin: "SITE",
+        ownerId: superAdmin.id,
+        notes: resumo,
+        lastContactAt: daysAgo(l.daysAgo),
+        createdAt: daysAgo(l.daysAgo),
+      },
+    });
+    await db.customerEvent.create({
+      data: {
+        companyId: platform.id,
+        customerId: leadCustomer.id,
+        type: "LEAD_CRIADO",
+        channel: "SITE",
+        description: "Lead solicitou demonstração pela Landing Page.",
+        createdAt: daysAgo(l.daysAgo),
+      },
+    });
+    const conv = await db.conversation.create({
+      data: {
+        companyId: platform.id,
+        customerId: leadCustomer.id,
+        assigneeId: superAdmin.id,
+        status: st.name === "Perdido" ? "CLOSED" : "OPEN",
+        lastMessageAt: daysAgo(l.daysAgo),
+        lastInboundAt: daysAgo(l.daysAgo),
+      },
+    });
+    await db.message.create({
+      data: {
+        conversationId: conv.id,
+        direction: "IN",
+        body: resumo,
+        status: "RECEBIDA",
+        createdAt: daysAgo(l.daysAgo),
+      },
+    });
+    await db.opportunity.create({
+      data: {
+        companyId: platform.id,
+        customerId: leadCustomer.id,
+        stageId: st.id,
+        title: `Demonstração — ${l.company}`,
+        value: 0,
+        status: st.name === "Cliente" ? "WON" : st.name === "Perdido" ? "LOST" : "OPEN",
+        ownerId: superAdmin.id,
+        lastInteractionAt: daysAgo(l.daysAgo),
+        createdAt: daysAgo(l.daysAgo),
+      },
+    });
+    if (l.stage === "Novo Lead") {
+      await db.task.create({
+        data: {
+          companyId: platform.id,
+          customerId: leadCustomer.id,
+          title: `Entrar em contato — ${l.company}`,
+          type: "LIGAR",
+          priority: "ALTA",
+          dueAt: daysAhead(0, 16),
+          assigneeId: superAdmin.id,
+          autoRule: `intake:${leadCustomer.id}`,
+        },
+      });
+    }
+  }
 
   const tagNames: [string, string][] = [
     ["VIP", "#7c3aed"], ["Atacado", "#0ea5e9"], ["Recorrente", "#10b981"],
@@ -949,6 +1079,7 @@ async function main() {
 
   console.log("Seed concluído!");
   console.log("Logins (senha demo1234): ana@bellamoda.com.br (admin), carla@ (gerente), julia@/renata@ (vendedoras)");
+  console.log("Super Admin (Leads do Site): super@vesticrm.com.br");
 }
 
 main()
