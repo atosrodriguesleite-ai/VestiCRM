@@ -45,6 +45,11 @@ export function isAdmin(user: SessionUser) {
   return user.role === "ADMIN" || user.role === "SUPERADMIN";
 }
 
+/** Apenas o Super Admin da plataforma (provisiona/gerencia lojas). */
+export function isSuperAdmin(user: SessionUser) {
+  return user.role === "SUPERADMIN";
+}
+
 export function isManagerUp(user: SessionUser) {
   return (
     user.role === "ADMIN" ||

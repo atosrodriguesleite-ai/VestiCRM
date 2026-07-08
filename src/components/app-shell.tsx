@@ -21,6 +21,7 @@ import {
   ShoppingBag,
   Radio,
   Brain,
+  Store,
   PanelLeftClose,
   PanelLeft,
 } from "lucide-react";
@@ -42,6 +43,7 @@ const NAV = [
   { href: "/comunicacao", label: "Comunicação", icon: Radio, group: "Sistema", managerOnly: true },
   { href: "/equipe", label: "Equipe", icon: UserCog, group: "Sistema", managerOnly: true },
   { href: "/configuracoes", label: "Configurações", icon: Settings, group: "Sistema" },
+  { href: "/lojas", label: "Lojas", icon: Store, group: "Plataforma", superOnly: true },
 ];
 
 const MOBILE_NAV = [
@@ -52,7 +54,7 @@ const MOBILE_NAV = [
   { href: "/clientes", label: "Clientes", icon: Users },
 ];
 
-const GROUPS = ["Comercial", "Catálogo", "Relacionamento", "Análise", "Sistema"];
+const GROUPS = ["Comercial", "Catálogo", "Relacionamento", "Análise", "Sistema", "Plataforma"];
 
 type ShellUser = {
   name: string;
@@ -84,9 +86,12 @@ export function AppShell({
     });
   }
 
-  const items = NAV.filter(
-    (i) => !i.managerOnly || ["ADMIN", "MANAGER", "SUPERADMIN"].includes(user.role)
-  );
+  const items = NAV.filter((i) => {
+    if ("superOnly" in i && i.superOnly) return user.role === "SUPERADMIN";
+    if ("managerOnly" in i && i.managerOnly)
+      return ["ADMIN", "MANAGER", "SUPERADMIN"].includes(user.role);
+    return true;
+  });
 
   async function logout() {
     await fetch("/api/auth/logout", { method: "POST" });
