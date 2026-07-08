@@ -8,6 +8,7 @@ import { Package, Palette, Plus, Search, Trash2, Upload, X } from "lucide-react"
 import { brl } from "@/lib/format";
 import { Card, EmptyState } from "@/components/ui";
 import { fileToDataUrl } from "@/lib/upload";
+import { ImportCatalog } from "./import-catalog";
 
 type LibraryColor = { name: string; hex: string };
 
@@ -147,14 +148,17 @@ export function ProductsView({
           />
           Com estoque
         </label>
-        <button
-          onClick={() => setShowNew(true)}
-          className="ml-auto flex items-center gap-1.5 rounded-xl bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium px-4 py-2 transition"
-        >
-          <Plus className="size-4" />
-          <span className="hidden sm:inline">Novo produto</span>
-          <span className="sm:hidden">Novo</span>
-        </button>
+        <div className="ml-auto flex items-center gap-2">
+          <ImportCatalog />
+          <button
+            onClick={() => setShowNew(true)}
+            className="flex items-center gap-1.5 rounded-xl bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium px-4 py-2 transition"
+          >
+            <Plus className="size-4" />
+            <span className="hidden sm:inline">Novo produto</span>
+            <span className="sm:hidden">Novo</span>
+          </button>
+        </div>
       </div>
 
       {filtered.length === 0 ? (

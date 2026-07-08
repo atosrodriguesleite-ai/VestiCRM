@@ -1,0 +1,80 @@
+{
+  "store": {
+    "tagline": "Moda com atitude",
+    "whatsapp": "(31) 98888-7777",
+    "catalogPrimary": "#1E3A5F",
+    "catalogSecondary": "#93C5FD",
+    "catalogFont": "poppins"
+  },
+  "palette": [
+    {
+      "name": "Preto",
+      "hex": "#211E1D"
+    },
+    {
+      "name": "Branco",
+      "hex": "#FAF6EF"
+    },
+    {
+      "name": "Verde militar",
+      "hex": "#3E5230"
+    }
+  ],
+  "defaults": {
+    "stock": 8,
+    "sizes": [
+      "P",
+      "M",
+      "G",
+      "GG"
+    ],
+    "minQuantity": 1
+  },
+  "products": [
+    {
+      "name": "Regata Assimétrica",
+      "category": "Blusas",
+      "collection": "Verão",
+      "description": "Regata de malha canelada com barra assimétrica.",
+      "retailPrice": 79.9,
+      "wholesalePrice": 49.9,
+      "tags": "lançamento",
+      "colors": [
+        "Preto",
+        "Branco"
+      ],
+      "sizes": [
+        "P",
+        "M",
+        "G",
+        "GG"
+      ],
+      "stock": 10,
+      "images": [
+        "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI0MDAiIGhlaWdodD0iNTAwIj48cmVjdCB3aWR0aD0iNDAwIiBoZWlnaHQ9IjUwMCIgZmlsbD0iIzIxMUUxRCIvPjx0ZXh0IHg9IjIwMCIgeT0iMjYwIiBmb250LXNpemU9IjI4IiBmaWxsPSJ3aGl0ZSIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZm9udC1mYW1pbHk9InNhbnMtc2VyaWYiPlZlc3RpQ1JNPC90ZXh0Pjwvc3ZnPg==",
+        "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI0MDAiIGhlaWdodD0iNTAwIj48cmVjdCB3aWR0aD0iNDAwIiBoZWlnaHQ9IjUwMCIgZmlsbD0iI0ZBRjZFRiIvPjx0ZXh0IHg9IjIwMCIgeT0iMjYwIiBmb250LXNpemU9IjI4IiBmaWxsPSJ3aGl0ZSIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZm9udC1mYW1pbHk9InNhbnMtc2VyaWYiPlZlc3RpQ1JNPC90ZXh0Pjwvc3ZnPg=="
+      ]
+    },
+    {
+      "name": "Calça Cargo Verde",
+      "category": "Calças",
+      "retailPrice": 159.9,
+      "colors": [
+        "Verde militar"
+      ],
+      "sizes": [
+        "36",
+        "38",
+        "40",
+        "42"
+      ],
+      "stockByVariant": {
+        "Verde militar/36": 2,
+        "Verde militar/38": 5
+      },
+      "images": [
+        "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI0MDAiIGhlaWdodD0iNTAwIj48cmVjdCB3aWR0aD0iNDAwIiBoZWlnaHQ9IjUwMCIgZmlsbD0iIzNFNTIzMCIvPjx0ZXh0IHg9IjIwMCIgeT0iMjYwIiBmb250LXNpemU9IjI4IiBmaWxsPSJ3aGl0ZSIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZm9udC1mYW1pbHk9InNhbnMtc2VyaWYiPlZlc3RpQ1JNPC90ZXh0Pjwvc3ZnPg=="
+      ]
+    }
+  ]
+}
