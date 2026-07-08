@@ -74,15 +74,18 @@ function Kpi({ label, value, hint, delta, icon }: {
   label: string; value: string; hint?: string; delta?: React.ReactNode; icon?: React.ReactNode;
 }) {
   return (
-    <div className="bg-white rounded-2xl border border-gray-100 shadow-card p-4">
-      <div className="flex items-center justify-between mb-1.5">
-        <p className="text-[11px] font-medium text-gray-500 uppercase tracking-wide">{label}</p>
-        <span className="text-gray-300 [&>svg]:size-4">{icon}</span>
+    <div className="min-w-0 bg-white rounded-2xl border border-slate-200/70 shadow-card p-4">
+      <div className="flex items-start justify-between gap-2 mb-1.5">
+        <p className="text-[10px] md:text-[11px] font-semibold text-slate-400 uppercase tracking-wider leading-tight">{label}</p>
+        <span className="text-slate-300 shrink-0 [&>svg]:size-4">{icon}</span>
       </div>
-      <p className="text-xl font-semibold tracking-tight flex items-baseline gap-2">
-        {value} {delta}
+      <p className="flex items-baseline gap-1.5 flex-wrap">
+        <span className="text-lg sm:text-xl font-semibold tracking-tight tabular-nums text-slate-900 truncate max-w-full">
+          {value}
+        </span>
+        {delta}
       </p>
-      {hint && <p className="text-[11px] text-gray-400 mt-0.5">{hint}</p>}
+      {hint && <p className="text-[11px] text-slate-400 mt-0.5 leading-snug">{hint}</p>}
     </div>
   );
 }
@@ -187,7 +190,7 @@ export default async function IntelligencePage({
         title="Inteligência Comercial"
         subtitle="O cérebro comercial da loja: de onde vêm as vendas, o que chama atenção e quem está quase comprando."
         action={
-          <div className="flex gap-1.5">
+          <div className="flex flex-wrap gap-1.5">
             {PERIODS.map((p) => (
               <Link
                 key={p.d}

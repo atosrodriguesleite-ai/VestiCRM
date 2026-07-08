@@ -43,25 +43,29 @@ export function StatTile({
           ? "bg-rose-50 text-rose-500"
           : "bg-brand-50 text-brand-500";
   return (
-    <div className="group bg-white rounded-2xl border border-slate-200/70 shadow-card p-5 transition duration-200 hover:shadow-pop hover:-translate-y-0.5">
-      <div className="flex items-center justify-between gap-2 mb-3">
-        <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">
+    <div className="group min-w-0 bg-white rounded-2xl border border-slate-200/70 shadow-card p-4 md:p-5 transition duration-200 hover:shadow-pop hover:-translate-y-0.5">
+      <div className="flex items-start justify-between gap-2 mb-2.5 md:mb-3">
+        <p className="text-[10px] md:text-[11px] font-semibold text-slate-400 uppercase tracking-wider leading-tight">
           {label}
         </p>
         {icon && (
           <span
-            className={`size-8 rounded-lg flex items-center justify-center transition group-hover:scale-105 [&>svg]:size-4 ${iconTone}`}
+            className={`size-7 md:size-8 shrink-0 rounded-lg flex items-center justify-center transition group-hover:scale-105 [&>svg]:size-3.5 md:[&>svg]:size-4 ${iconTone}`}
           >
             {icon}
           </span>
         )}
       </div>
       <p
-        className={`text-[26px] leading-none font-semibold tracking-tight ${toneCls}`}
+        className={`text-lg sm:text-2xl md:text-[26px] leading-none font-semibold tracking-tight tabular-nums truncate ${toneCls}`}
       >
         {value}
       </p>
-      {hint && <p className="text-xs text-slate-400 mt-2">{hint}</p>}
+      {hint && (
+        <p className="text-[11px] md:text-xs text-slate-400 mt-1.5 md:mt-2 leading-snug">
+          {hint}
+        </p>
+      )}
     </div>
   );
 }
