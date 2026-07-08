@@ -24,6 +24,13 @@ model Company {
   minOrder  Int     @default(0) // pedido mínimo (peças) no catálogo público; 0 = sem mínimo
   createdAt DateTime @default(now())
 
+  // Identidade visual do catálogo público (100% personalizável pelo lojista)
+  logoUrl          String? // logo da marca (URL ou data-URL enviada pelo lojista)
+  catalogPrimary   String  @default("#4B3621") // cor principal (topbar, botões)
+  catalogSecondary String  @default("#E7DCCC") // cor de apoio (chips, destaques)
+  catalogBg        String  @default("#FFFFFF") // fundo
+  catalogFont      String  @default("montserrat") // montserrat | inter | poppins | playfair | lora
+
   // Lead Intake Engine — configuração de entrada de leads
   intakeDistribution  String  @default("ROUND_ROBIN") // ROUND_ROBIN | FIXED
   intakeDefaultUserId String? // vendedor fixo (quando FIXED)
@@ -47,6 +54,30 @@ model Company {
   inventoryMovs InventoryMovement[]
   customerEvents CustomerEvent[]
   originRules    OriginRule[]
+  catalogColors  CompanyColor[]
+  catalogSizes   CompanySize[]
+}
+
+// Biblioteca de cores do lojista: ele cria a tonalidade e dá o nome
+model CompanyColor {
+  id        String  @id @default(cuid())
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  name      String
+  hex       String  @default("#C9BEB0")
+
+  @@unique([companyId, name])
+}
+
+// Tamanhos do lojista (P, M, G, GG, 36, 38, Único... o que fizer sentido)
+model CompanySize {
+  id        String  @id @default(cuid())
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  name      String
+  order     Int     @default(0)
+
+  @@unique([companyId, name])
 }
 
 // Timeline do cliente: "Lead criado via WhatsApp", "Nova interação via Site"...

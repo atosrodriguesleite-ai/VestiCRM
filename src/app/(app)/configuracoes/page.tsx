@@ -137,6 +137,21 @@ export default async function SettingsPage() {
         </>
       )}
 
+      <a
+        href="/configuracoes/catalogo"
+        className="flex items-center gap-3 rounded-2xl border border-brand-200 bg-brand-50 px-4 py-3 mb-3 hover:bg-brand-100 transition"
+      >
+        <Store className="size-5 text-brand-600 shrink-0" />
+        <div className="flex-1">
+          <p className="text-sm font-semibold text-brand-800">
+            Personalizar catálogo — identidade visual da sua marca
+          </p>
+          <p className="text-xs text-brand-700/70">
+            Logo, paleta de cores, tipografia, suas cores e seus tamanhos.
+          </p>
+        </div>
+      </a>
+
       {isAdmin(user) && (
         <a
           href="/configuracoes/comunicacao"

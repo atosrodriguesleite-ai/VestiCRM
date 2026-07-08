@@ -25,6 +25,14 @@ CRM SaaS para lojas de roupas, confecções, atacados, boutiques e revendedoras 
 - **Relatórios por canal** — leads por origem, conversão por origem, ticket médio e valor vendido por canal, melhor canal, tempo médio até a 1ª resposta e até a venda.
 - O pedido enviado no catálogo público também entra no CRM automaticamente (origem Catálogo Público).
 
+### Catálogo 100% personalizável pelo lojista
+
+- **Identidade visual** (Configurações → Personalizar catálogo): upload do logo da marca, paleta de 3 cores editáveis (com presets Terra/Noir/Rosé/Oliva/Oceano/Lavanda), tipografia (Montserrat, Inter, Poppins, Playfair Display ou Lora) e prévia ao vivo — tudo refletindo na hora no catálogo público.
+- **Cores próprias**: o lojista cria a tonalidade (color picker) e dá o nome ("Rosa Millennial") — vira swatch nos produtos e opção da grade.
+- **Tamanhos próprios**: P/M/G/GG, numeração ou o que fizer sentido para a loja.
+- **Controle total dos produtos**: adicionar, editar e **remover** produtos; foto por **upload do computador/celular** (redimensionada no navegador); grade gerenciável (adicionar/remover combinações cor × tamanho); estoque por variação com ajustes auditados; ativar/desativar.
+- **Esgotado automático**: quando todas as variações de uma cor zeram, a foto fica **acinzentada com o selo "Indisponível"** no catálogo.
+
 ### Catálogo + Pedidos
 
 - **Produtos** — catálogo por empresa com SKU, categoria, marca, coleção, descrição, fotos, vídeo, grade cor × tamanho com estoque por variação, preço de custo/atacado/varejo, quantidade mínima, tags e status. Filtros por categoria, cor, tamanho, coleção, marca, preço e estoque.

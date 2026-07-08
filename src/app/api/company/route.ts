@@ -4,11 +4,21 @@ import { db } from "@/lib/db";
 import { requireUser, AuthError } from "@/lib/auth";
 import { isAdmin } from "@/lib/scope";
 
+const hexColor = z.string().regex(/^#[0-9a-fA-F]{6}$/, "Cor inválida");
+
 const schema = z.object({
   name: z.string().min(1).optional(),
   tagline: z.string().nullable().optional(),
   whatsapp: z.string().nullable().optional(),
   minOrder: z.number().int().nonnegative().optional(),
+  // identidade visual do catálogo
+  logoUrl: z.string().nullable().optional(),
+  catalogPrimary: hexColor.optional(),
+  catalogSecondary: hexColor.optional(),
+  catalogBg: hexColor.optional(),
+  catalogFont: z
+    .enum(["montserrat", "inter", "poppins", "playfair", "lora"])
+    .optional(),
 });
 
 /** Configurações da loja (admin): nome, frase e WhatsApp do catálogo público. */
@@ -35,6 +45,11 @@ export async function PATCH(req: NextRequest) {
       tagline: updated.tagline,
       whatsapp: updated.whatsapp,
       minOrder: updated.minOrder,
+      logoUrl: updated.logoUrl,
+      catalogPrimary: updated.catalogPrimary,
+      catalogSecondary: updated.catalogSecondary,
+      catalogBg: updated.catalogBg,
+      catalogFont: updated.catalogFont,
     });
   } catch (e) {
     if (e instanceof AuthError)

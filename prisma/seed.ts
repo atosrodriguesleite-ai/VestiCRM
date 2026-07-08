@@ -577,6 +577,30 @@ async function main() {
     },
   });
 
+  // ---- Bibliotecas do catálogo personalizável (cores e tamanhos da loja) ----
+  const paletteData: [string, string][] = [
+    ["Preto", "#211E1D"], ["Branco", "#FAF6EF"], ["Off-white", "#F5F0E4"],
+    ["Vinho", "#6E2536"], ["Rosa", "#E8A0BF"], ["Nude", "#D9B99B"],
+    ["Terracota", "#BC5836"], ["Verde", "#3E7A5E"], ["Amarelo", "#E5B93C"],
+    ["Azul", "#3B5F8A"], ["Lilás", "#B49BD6"], ["Bege", "#D8C9A8"],
+    ["Laranja", "#D97435"],
+  ];
+  await db.companyColor.createMany({
+    data: paletteData.map(([name, hex]) => ({
+      companyId: company.id,
+      name,
+      hex,
+    })),
+  });
+  const sizeNames = ["P", "M", "G", "GG", "36", "38", "40", "42", "Único"];
+  await db.companySize.createMany({
+    data: sizeNames.map((name, i) => ({
+      companyId: company.id,
+      name,
+      order: i,
+    })),
+  });
+
   // ---- Catálogo de produtos ----
   type P = {
     name: string; sku: string; category: string; collection?: string;

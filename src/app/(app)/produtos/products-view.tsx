@@ -2,11 +2,14 @@
 
 /* eslint-disable @next/next/no-img-element */
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Package, Plus, Search, X } from "lucide-react";
+import { Package, Palette, Plus, Search, Trash2, Upload, X } from "lucide-react";
 import { brl } from "@/lib/format";
 import { Card, EmptyState } from "@/components/ui";
+import { fileToDataUrl } from "@/lib/upload";
+
+type LibraryColor = { name: string; hex: string };
 
 export type ProductItem = {
   id: string;
@@ -37,6 +40,8 @@ export function ProductsView({
   brands,
   colors,
   sizes,
+  libraryColors,
+  librarySizes,
 }: {
   initial: ProductItem[];
   categories: string[];
@@ -44,6 +49,8 @@ export function ProductsView({
   brands: string[];
   colors: string[];
   sizes: string[];
+  libraryColors: LibraryColor[];
+  librarySizes: string[];
 }) {
   const router = useRouter();
   const [q, setQ] = useState("");
@@ -221,6 +228,8 @@ export function ProductsView({
       {detail && (
         <ProductDetailModal
           product={detail}
+          libraryColors={libraryColors}
+          librarySizes={librarySizes}
           onClose={() => setDetail(null)}
           onChanged={() => {
             setDetail(null);
@@ -230,6 +239,8 @@ export function ProductsView({
       )}
       {showNew && (
         <NewProductModal
+          libraryColors={libraryColors}
+          librarySizes={librarySizes}
           onClose={() => setShowNew(false)}
           onCreated={() => {
             setShowNew(false);
@@ -241,17 +252,31 @@ export function ProductsView({
   );
 }
 
-/** Editor completo do produto: a loja altera foto, textos, preços e estoque. */
+/** Editor completo do produto: foto (upload), textos, preços, grade e estoque. */
 function ProductDetailModal({
   product,
+  libraryColors,
+  librarySizes,
   onClose,
   onChanged,
 }: {
   product: ProductItem;
+  libraryColors: LibraryColor[];
+  librarySizes: string[];
   onClose: () => void;
   onChanged: () => void;
 }) {
   const [busy, setBusy] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [removedIds, setRemovedIds] = useState<string[]>([]);
+  const [newVariant, setNewVariant] = useState({
+    color: libraryColors[0]?.name ?? "",
+    size: librarySizes[0] ?? "",
+    stock: "5",
+  });
+  const [pendingAdds, setPendingAdds] = useState<
+    { color: string; size: string; stock: number }[]
+  >([]);
   const [form, setForm] = useState({
     name: product.name,
     category: product.category,
@@ -290,10 +315,11 @@ function ProductDetailModal({
         minQuantity: parseInt(form.minQuantity) || 1,
         tags: form.tags || null,
         imageUrl: image,
-        variantStocks: Object.entries(stocks).map(([id, stock]) => ({
-          id,
-          stock: parseInt(stock) || 0,
-        })),
+        variantStocks: Object.entries(stocks)
+          .filter(([id]) => !removedIds.includes(id))
+          .map(([id, stock]) => ({ id, stock: parseInt(stock) || 0 })),
+        addVariants: pendingAdds,
+        removeVariantIds: removedIds,
       }),
     });
     setBusy(false);
@@ -309,6 +335,44 @@ function ProductDetailModal({
     });
     setBusy(false);
     onChanged();
+  }
+
+  async function removeProduct() {
+    if (
+      !window.confirm(
+        `Remover "${product.name}" do catálogo? Os pedidos antigos ficam preservados.`
+      )
+    )
+      return;
+    setBusy(true);
+    await fetch(`/api/products/${product.id}`, { method: "DELETE" });
+    setBusy(false);
+    onChanged();
+  }
+
+  async function uploadPhoto(file: File) {
+    const dataUrl = await fileToDataUrl(file);
+    setImage(dataUrl);
+  }
+
+  function addPendingVariant() {
+    if (!newVariant.color || !newVariant.size) return;
+    const exists =
+      product.variants.some(
+        (v) => v.color === newVariant.color && v.size === newVariant.size
+      ) ||
+      pendingAdds.some(
+        (v) => v.color === newVariant.color && v.size === newVariant.size
+      );
+    if (exists) return;
+    setPendingAdds((prev) => [
+      ...prev,
+      {
+        color: newVariant.color,
+        size: newVariant.size,
+        stock: parseInt(newVariant.stock) || 0,
+      },
+    ]);
   }
 
   const input =
@@ -391,72 +455,178 @@ function ProductDetailModal({
 
           <div className="space-y-3">
             <div>
-              <label className={label}>Foto principal</label>
+              <label className={label}>Foto do produto</label>
               <div className="flex gap-3">
                 <img
                   src={image}
                   alt=""
                   className="size-24 rounded-xl object-cover border border-gray-100 shrink-0"
                 />
-                <div className="grid grid-cols-4 gap-1.5 flex-1">
-                  {PLACEHOLDER_IMAGES.map((url) => (
-                    <button
-                      key={url}
-                      type="button"
-                      onClick={() => setImage(url)}
-                      className={`aspect-square rounded-lg overflow-hidden border-2 transition ${
-                        image === url ? "border-brand-500" : "border-transparent"
-                      }`}
-                    >
-                      <img src={url} alt="" className="w-full h-full object-cover" />
-                    </button>
-                  ))}
+                <div className="flex-1 space-y-1.5">
+                  <input
+                    ref={fileRef}
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={(e) => {
+                      const f = e.target.files?.[0];
+                      if (f) uploadPhoto(f);
+                    }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => fileRef.current?.click()}
+                    className="w-full flex items-center justify-center gap-1.5 rounded-xl border border-brand-200 bg-brand-50 hover:bg-brand-100 text-brand-700 text-xs font-medium py-2 transition"
+                  >
+                    <Upload className="size-3.5" />
+                    Enviar foto do computador/celular
+                  </button>
+                  <div className="grid grid-cols-4 gap-1.5">
+                    {PLACEHOLDER_IMAGES.map((url) => (
+                      <button
+                        key={url}
+                        type="button"
+                        onClick={() => setImage(url)}
+                        className={`aspect-square rounded-lg overflow-hidden border-2 transition ${
+                          image === url ? "border-brand-500" : "border-transparent"
+                        }`}
+                      >
+                        <img src={url} alt="" className="w-full h-full object-cover" />
+                      </button>
+                    ))}
+                  </div>
                 </div>
               </div>
-              <input
-                value={image}
-                onChange={(e) => setImage(e.target.value)}
-                className={`${input} mt-2`}
-                placeholder="ou cole a URL de uma foto sua"
-              />
             </div>
 
             <div>
-              <label className={label}>Estoque por variação (cor · tamanho)</label>
-              <div className="max-h-56 overflow-y-auto thin-scroll rounded-xl border border-gray-100 divide-y divide-gray-50">
-                {product.variants.map((v) => (
-                  <div key={v.id} className="flex items-center gap-2 px-3 py-1.5">
+              <label className={label}>Grade e estoque (cor · tamanho)</label>
+              <div className="max-h-44 overflow-y-auto thin-scroll rounded-xl border border-gray-100 divide-y divide-gray-50">
+                {product.variants
+                  .filter((v) => !removedIds.includes(v.id))
+                  .map((v) => (
+                    <div key={v.id} className="flex items-center gap-2 px-3 py-1.5">
+                      <span className="text-xs font-medium flex-1">
+                        {v.color} · {v.size}
+                      </span>
+                      <input
+                        value={stocks[v.id]}
+                        onChange={(e) =>
+                          setStocks((s) => ({
+                            ...s,
+                            [v.id]: e.target.value.replace(/\D/g, ""),
+                          }))
+                        }
+                        inputMode="numeric"
+                        className="w-14 rounded-lg border border-gray-200 px-2 py-1 text-xs text-right outline-none focus:border-brand-400"
+                      />
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setRemovedIds((prev) => [...prev, v.id])
+                        }
+                        className="text-gray-300 hover:text-rose-500 transition p-0.5"
+                        title="Remover variação"
+                      >
+                        <Trash2 className="size-3.5" />
+                      </button>
+                    </div>
+                  ))}
+                {pendingAdds.map((v, i) => (
+                  <div
+                    key={`new-${i}`}
+                    className="flex items-center gap-2 px-3 py-1.5 bg-emerald-50/60"
+                  >
                     <span className="text-xs font-medium flex-1">
-                      {v.color} · {v.size}
+                      {v.color} · {v.size}{" "}
+                      <span className="text-emerald-600">(nova)</span>
                     </span>
-                    <input
-                      value={stocks[v.id]}
-                      onChange={(e) =>
-                        setStocks((s) => ({
-                          ...s,
-                          [v.id]: e.target.value.replace(/\D/g, ""),
-                        }))
+                    <span className="text-xs tabular-nums">{v.stock}</span>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setPendingAdds((prev) => prev.filter((_, j) => j !== i))
                       }
-                      inputMode="numeric"
-                      className="w-16 rounded-lg border border-gray-200 px-2 py-1 text-xs text-right outline-none focus:border-brand-400"
-                    />
+                      className="text-gray-300 hover:text-rose-500 p-0.5"
+                    >
+                      <X className="size-3.5" />
+                    </button>
                   </div>
                 ))}
               </div>
+              <div className="flex gap-1.5 mt-2">
+                <select
+                  value={newVariant.color}
+                  onChange={(e) =>
+                    setNewVariant((v) => ({ ...v, color: e.target.value }))
+                  }
+                  className="flex-1 rounded-lg border border-gray-200 px-2 py-1.5 text-xs bg-white outline-none"
+                >
+                  {libraryColors.map((c) => (
+                    <option key={c.name} value={c.name}>
+                      {c.name}
+                    </option>
+                  ))}
+                </select>
+                <select
+                  value={newVariant.size}
+                  onChange={(e) =>
+                    setNewVariant((v) => ({ ...v, size: e.target.value }))
+                  }
+                  className="w-20 rounded-lg border border-gray-200 px-2 py-1.5 text-xs bg-white outline-none"
+                >
+                  {librarySizes.map((s) => (
+                    <option key={s} value={s}>
+                      {s}
+                    </option>
+                  ))}
+                </select>
+                <input
+                  value={newVariant.stock}
+                  onChange={(e) =>
+                    setNewVariant((v) => ({
+                      ...v,
+                      stock: e.target.value.replace(/\D/g, ""),
+                    }))
+                  }
+                  inputMode="numeric"
+                  className="w-14 rounded-lg border border-gray-200 px-2 py-1.5 text-xs text-right outline-none"
+                />
+                <button
+                  type="button"
+                  onClick={addPendingVariant}
+                  className="rounded-lg bg-brand-600 hover:bg-brand-700 text-white px-2.5 transition"
+                  title="Adicionar variação"
+                >
+                  <Plus className="size-3.5" />
+                </button>
+              </div>
               <p className="text-[10px] text-gray-400 mt-1">
-                Ajustes de estoque ficam registrados no histórico de movimentações.
+                Cores e tamanhos vêm da sua biblioteca em{" "}
+                <a href="/configuracoes/catalogo" className="text-brand-600 underline">
+                  Personalizar catálogo
+                </a>
+                . Ajustes de estoque ficam no histórico de movimentações.
               </p>
             </div>
           </div>
         </div>
 
-        <div className="flex gap-2 mt-6">
+        <div className="flex flex-wrap gap-2 mt-6">
+          <button
+            onClick={removeProduct}
+            disabled={busy}
+            className="rounded-xl border border-gray-200 text-gray-400 hover:border-rose-300 hover:text-rose-600 text-sm font-medium px-3 py-2.5 transition disabled:opacity-60"
+            title="Remover produto"
+          >
+            <Trash2 className="size-4" />
+          </button>
           <button
             onClick={toggleActive}
             disabled={busy}
             className={`rounded-xl text-sm font-medium px-4 py-2.5 transition disabled:opacity-60 ${
               product.active
-                ? "border border-gray-200 text-gray-500 hover:border-rose-300 hover:text-rose-600"
+                ? "border border-gray-200 text-gray-500 hover:border-amber-300 hover:text-amber-600"
                 : "bg-emerald-600 hover:bg-emerald-700 text-white"
             }`}
           >
@@ -487,32 +657,44 @@ const PLACEHOLDER_IMAGES = [
 ];
 
 function NewProductModal({
+  libraryColors,
+  librarySizes,
   onClose,
   onCreated,
 }: {
+  libraryColors: LibraryColor[];
+  librarySizes: string[];
   onClose: () => void;
   onCreated: () => void;
 }) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [image, setImage] = useState(PLACEHOLDER_IMAGES[0]);
-  const [colorsInput, setColorsInput] = useState("Rosa");
-  const [sizesInput, setSizesInput] = useState("P, M, G");
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [selColors, setSelColors] = useState<string[]>(
+    libraryColors[0] ? [libraryColors[0].name] : []
+  );
+  const [selSizes, setSelSizes] = useState<string[]>(librarySizes.slice(0, 3));
   const [stockPerVariant, setStockPerVariant] = useState("5");
+
+  const toggle = (list: string[], set: (v: string[]) => void, item: string) =>
+    set(list.includes(item) ? list.filter((i) => i !== item) : [...list, item]);
 
   async function submit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
+    if (selColors.length === 0 || selSizes.length === 0) {
+      setError("Selecione ao menos uma cor e um tamanho.");
+      return;
+    }
     setSaving(true);
     setError("");
     const fd = new FormData(e.currentTarget);
     const num = (name: string) =>
       parseFloat(String(fd.get(name) ?? "0").replace(",", ".")) || 0;
 
-    const colors = colorsInput.split(",").map((c) => c.trim()).filter(Boolean);
-    const sizes = sizesInput.split(",").map((s) => s.trim()).filter(Boolean);
     const stock = parseInt(stockPerVariant) || 0;
-    const variants = colors.flatMap((color) =>
-      sizes.map((size) => ({ color, size, stock }))
+    const variants = selColors.flatMap((color) =>
+      selSizes.map((size) => ({ color, size, stock }))
     );
 
     const res = await fetch("/api/products", {
@@ -622,53 +804,99 @@ function NewProductModal({
             </div>
             <div>
               <label className={label}>Cores (grade) *</label>
-              <input
-                value={colorsInput}
-                onChange={(e) => setColorsInput(e.target.value)}
-                className={input}
-                placeholder="Rosa, Preto"
-              />
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className={label}>Tamanhos *</label>
-                <input
-                  value={sizesInput}
-                  onChange={(e) => setSizesInput(e.target.value)}
-                  className={input}
-                  placeholder="P, M, G"
-                />
-              </div>
-              <div>
-                <label className={label}>Estoque por variação</label>
-                <input
-                  value={stockPerVariant}
-                  onChange={(e) => setStockPerVariant(e.target.value.replace(/\D/g, ""))}
-                  className={input}
-                  inputMode="numeric"
-                />
+              <div className="flex flex-wrap gap-1.5">
+                {libraryColors.map((c) => (
+                  <button
+                    key={c.name}
+                    type="button"
+                    onClick={() => toggle(selColors, setSelColors, c.name)}
+                    className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-xs font-medium transition border ${
+                      selColors.includes(c.name)
+                        ? "bg-brand-600 text-white border-brand-600"
+                        : "bg-white text-gray-600 border-gray-200 hover:border-brand-300"
+                    }`}
+                  >
+                    <span
+                      className="size-3 rounded-full border border-black/10"
+                      style={{ background: c.hex }}
+                    />
+                    {c.name}
+                  </button>
+                ))}
+                <a
+                  href="/configuracoes/catalogo"
+                  className="flex items-center gap-1 px-2.5 py-1.5 rounded-full text-xs font-medium text-brand-600 border border-dashed border-brand-300 hover:bg-brand-50 transition"
+                >
+                  <Palette className="size-3" />
+                  criar cor
+                </a>
               </div>
             </div>
             <div>
-              <label className={label}>Foto</label>
-              <div className="grid grid-cols-4 gap-2">
-                {PLACEHOLDER_IMAGES.map((url) => (
+              <label className={label}>Tamanhos *</label>
+              <div className="flex flex-wrap gap-1.5">
+                {librarySizes.map((s) => (
                   <button
-                    key={url}
+                    key={s}
                     type="button"
-                    onClick={() => setImage(url)}
-                    className={`aspect-square rounded-xl overflow-hidden border-2 transition ${
-                      image === url ? "border-brand-500" : "border-transparent"
+                    onClick={() => toggle(selSizes, setSelSizes, s)}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition border ${
+                      selSizes.includes(s)
+                        ? "bg-brand-600 text-white border-brand-600"
+                        : "bg-white text-gray-600 border-gray-200 hover:border-brand-300"
                     }`}
                   >
-                    <img src={url} alt="" className="w-full h-full object-cover" />
+                    {s}
                   </button>
                 ))}
               </div>
-              <p className="text-[10px] text-gray-400 mt-1">
-                Upload de fotos reais chega com o armazenamento de arquivos; o
-                modelo já suporta múltiplas imagens por URL.
-              </p>
+            </div>
+            <div>
+              <label className={label}>Estoque por variação</label>
+              <input
+                value={stockPerVariant}
+                onChange={(e) => setStockPerVariant(e.target.value.replace(/\D/g, ""))}
+                className={input}
+                inputMode="numeric"
+              />
+            </div>
+            <div>
+              <label className={label}>Foto</label>
+              <input
+                ref={fileRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={async (e) => {
+                  const f = e.target.files?.[0];
+                  if (f) setImage(await fileToDataUrl(f));
+                }}
+              />
+              <button
+                type="button"
+                onClick={() => fileRef.current?.click()}
+                className="w-full flex items-center justify-center gap-1.5 rounded-xl border border-brand-200 bg-brand-50 hover:bg-brand-100 text-brand-700 text-xs font-medium py-2 mb-2 transition"
+              >
+                <Upload className="size-3.5" />
+                Enviar foto do computador/celular
+              </button>
+              <div className="grid grid-cols-5 gap-1.5">
+                {[image.startsWith("data:") ? image : null, ...PLACEHOLDER_IMAGES]
+                  .filter(Boolean)
+                  .slice(0, 5)
+                  .map((url) => (
+                    <button
+                      key={url as string}
+                      type="button"
+                      onClick={() => setImage(url as string)}
+                      className={`aspect-square rounded-xl overflow-hidden border-2 transition ${
+                        image === url ? "border-brand-500" : "border-transparent"
+                      }`}
+                    >
+                      <img src={url as string} alt="" className="w-full h-full object-cover" />
+                    </button>
+                  ))}
+              </div>
             </div>
           </div>
         </div>

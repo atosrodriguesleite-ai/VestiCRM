@@ -9,9 +9,17 @@ export const dynamic = "force-dynamic";
 export default async function ProductsPage() {
   const user = await requireUser();
 
-  const company = await db.company.findUnique({
-    where: { id: user.companyId },
-  });
+  const [company, libraryColors, librarySizes] = await Promise.all([
+    db.company.findUnique({ where: { id: user.companyId } }),
+    db.companyColor.findMany({
+      where: { companyId: user.companyId },
+      orderBy: { name: "asc" },
+    }),
+    db.companySize.findMany({
+      where: { companyId: user.companyId },
+      orderBy: { order: "asc" },
+    }),
+  ]);
   const products = await db.product.findMany({
     where: { companyId: user.companyId },
     include: {
@@ -84,6 +92,8 @@ export default async function ProductsPage() {
         brands={brands}
         colors={colors}
         sizes={sizes}
+        libraryColors={libraryColors.map((c) => ({ name: c.name, hex: c.hex }))}
+        librarySizes={librarySizes.map((s) => s.name)}
       />
     </div>
   );

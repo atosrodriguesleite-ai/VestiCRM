@@ -32,14 +32,20 @@ export default async function PublicCatalogPage({
   const company = await db.company.findUnique({ where: { slug } });
   if (!company) notFound();
 
-  const products = await db.product.findMany({
-    where: { companyId: company.id, active: true },
-    include: {
-      images: { orderBy: { order: "asc" } },
-      variants: { orderBy: [{ color: "asc" }, { size: "asc" }] },
-    },
-    orderBy: [{ collection: "desc" }, { name: "asc" }],
-  });
+  const [products, customColors] = await Promise.all([
+    db.product.findMany({
+      where: { companyId: company.id, active: true },
+      include: {
+        images: { orderBy: { order: "asc" } },
+        variants: { orderBy: [{ color: "asc" }, { size: "asc" }] },
+      },
+      orderBy: [{ collection: "desc" }, { name: "asc" }],
+    }),
+    db.companyColor.findMany({
+      where: { companyId: company.id },
+      select: { name: true, hex: true },
+    }),
+  ]);
 
   const items: CatalogProduct[] = products.map((p) => ({
     id: p.id,
@@ -68,6 +74,14 @@ export default async function PublicCatalogPage({
       whatsapp={company.whatsapp}
       minOrder={company.minOrder}
       products={items}
+      identity={{
+        logoUrl: company.logoUrl,
+        primary: company.catalogPrimary,
+        secondary: company.catalogSecondary,
+        bg: company.catalogBg,
+        font: company.catalogFont,
+      }}
+      customColors={customColors}
     />
   );
 }

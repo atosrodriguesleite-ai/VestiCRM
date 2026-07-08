@@ -14,12 +14,36 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Montserrat } from "next/font/google";
+import {
+  Montserrat,
+  Inter,
+  Poppins,
+  Playfair_Display,
+  Lora,
+} from "next/font/google";
+import { mixHex, readableOn } from "@/lib/color";
 
-const montserrat = Montserrat({
-  subsets: ["latin"],
-  weight: ["400", "500", "600", "700", "800"],
-});
+const montserrat = Montserrat({ subsets: ["latin"], weight: ["400", "500", "600", "700", "800"] });
+const inter = Inter({ subsets: ["latin"], weight: ["400", "500", "600", "700", "800"] });
+const poppins = Poppins({ subsets: ["latin"], weight: ["400", "500", "600", "700", "800"] });
+const playfair = Playfair_Display({ subsets: ["latin"], weight: ["400", "500", "600", "700", "800"] });
+const lora = Lora({ subsets: ["latin"], weight: ["400", "500", "600", "700"] });
+
+const FONT_CLASS: Record<string, string> = {
+  montserrat: montserrat.className,
+  inter: inter.className,
+  poppins: poppins.className,
+  playfair: playfair.className,
+  lora: lora.className,
+};
+
+export type CatalogIdentity = {
+  logoUrl: string | null;
+  primary: string;
+  secondary: string;
+  bg: string;
+  font: string;
+};
 
 export type CatalogProduct = {
   id: string;
@@ -44,8 +68,13 @@ const COLOR_HEX: Record<string, string> = {
   amarelo: "#E5B93C", lilás: "#B49BD6", lilas: "#B49BD6", bege: "#D8C9A8",
   laranja: "#D97435", vermelho: "#B33939", cinza: "#8C8C8C", marrom: "#4B3621",
 };
-const swatch = (color: string) =>
-  COLOR_HEX[color.toLowerCase()] ?? "#C9BEB0";
+function makeSwatch(custom: { name: string; hex: string }[]) {
+  const map = new Map(custom.map((c) => [c.name.toLowerCase(), c.hex]));
+  return (color: string) =>
+    map.get(color.toLowerCase()) ??
+    COLOR_HEX[color.toLowerCase()] ??
+    "#C9BEB0";
+}
 
 const fmt = (n: number) =>
   "R$ " + n.toFixed(2).replace(".", ",").replace(/\B(?=(\d{3})+(?!\d))/g, ".");
@@ -84,6 +113,8 @@ export function PublicCatalog({
   whatsapp,
   minOrder,
   products,
+  identity,
+  customColors,
 }: {
   storeSlug: string;
   storeName: string;
@@ -91,7 +122,23 @@ export function PublicCatalog({
   whatsapp: string | null;
   minOrder: number;
   products: CatalogProduct[];
+  identity: CatalogIdentity;
+  customColors: { name: string; hex: string }[];
 }) {
+  // Tema 100% personalizável pelo lojista: 3 cores base + derivadas
+  const T = {
+    primary: identity.primary,
+    secondary: identity.secondary,
+    bg: identity.bg,
+    ink: readableOn(identity.bg),
+    line: mixHex(identity.secondary, identity.primary, 0.06),
+    soft: mixHex(identity.secondary, identity.bg, 0.55),
+    muted: mixHex(identity.primary, identity.bg, 0.38),
+    dark: mixHex(identity.primary, "#000000", 0.45),
+  };
+  const swatch = makeSwatch(customColors);
+  const fontClass = FONT_CLASS[identity.font] ?? FONT_CLASS.montserrat;
+
   const categories = useMemo(
     () => [...new Set(products.map((p) => p.category))],
     [products]
@@ -261,31 +308,39 @@ export function PublicCatalog({
 
   return (
     <div
-      className={montserrat.className}
-      style={{ background: "#fff", color: "#000", minHeight: "100dvh", paddingBottom: 92 }}
+      className={fontClass}
+      style={{ background: T.bg, color: T.ink, minHeight: "100dvh", paddingBottom: 92 }}
     >
       {/* TOPBAR */}
-      <header className="sticky top-0 z-40" style={{ background: "#4B3621" }}>
+      <header className="sticky top-0 z-40" style={{ background: T.primary }}>
         <div className="max-w-[680px] mx-auto px-[18px] py-3.5 flex items-center justify-between gap-3">
           <div className="leading-none min-w-0">
-            <p
-              className="font-extrabold text-[23px] lowercase truncate"
-              style={{ color: "#E7DCCC", letterSpacing: ".02em" }}
-            >
-              {storeName}
-            </p>
+            {identity.logoUrl ? (
+              <img
+                src={identity.logoUrl}
+                alt={storeName}
+                className="h-9 max-w-44 object-contain"
+              />
+            ) : (
+              <p
+                className="font-extrabold text-[23px] lowercase truncate"
+                style={{ color: T.secondary, letterSpacing: ".02em" }}
+              >
+                {storeName}
+              </p>
+            )}
           </div>
           <button
             onClick={openBag}
             aria-label="Abrir pedido"
             className="relative flex items-center justify-center size-[46px] rounded-full shrink-0 active:scale-95 transition"
-            style={{ background: "#E7DCCC", color: "#4B3621" }}
+            style={{ background: T.secondary, color: T.primary }}
           >
             <BagIcon className="size-5" />
             {totalPieces > 0 && (
               <span
                 className="absolute -top-1 -right-1 min-w-5 h-5 px-1 rounded-full text-[11px] font-bold flex items-center justify-center"
-                style={{ background: "#000", color: "#E7DCCC", border: "2px solid #4B3621" }}
+                style={{ background: T.dark, color: T.secondary, border: `2px solid ${T.primary}` }}
               >
                 {totalPieces}
               </span>
@@ -297,9 +352,9 @@ export function PublicCatalog({
       {/* INTRO */}
       <section className="max-w-[680px] mx-auto px-[18px] pt-6 pb-4">
         <h1 className="font-extrabold text-[26px] leading-[1.15] uppercase m-0 mb-2" style={{ letterSpacing: "-.01em" }}>
-          Catálogo <em className="not-italic" style={{ color: "#4B3621" }}>{storeName}</em>
+          Catálogo <em className="not-italic" style={{ color: T.primary }}>{storeName}</em>
         </h1>
-        <p className="m-0 text-sm font-medium leading-relaxed max-w-[46ch]" style={{ color: "#6F6357" }}>
+        <p className="m-0 text-sm font-medium leading-relaxed max-w-[46ch]" style={{ color: T.muted }}>
           {tagline ??
             "Selecione os modelos desejados, adicione ao carrinho e finalize seu pedido pelo WhatsApp."}
         </p>
@@ -308,7 +363,7 @@ export function PublicCatalog({
       {/* BARRA DE MODELOS */}
       <nav
         className="sticky z-30 border-b"
-        style={{ top: 74, background: "#fff", borderColor: "#E4D9C8", boxShadow: "0 6px 12px -10px rgba(0,0,0,.3)" }}
+        style={{ top: 74, background: T.bg, borderColor: T.line, boxShadow: "0 6px 12px -10px rgba(0,0,0,.3)" }}
       >
         <div className="max-w-[680px] mx-auto flex gap-2 overflow-x-auto px-[18px] py-[11px]" style={{ scrollbarWidth: "none" }}>
           {categories.map((cat, i) => {
@@ -323,15 +378,15 @@ export function PublicCatalog({
                 className="flex items-center gap-2 shrink-0 rounded-full px-[15px] py-[9px] text-[13px] font-semibold whitespace-nowrap transition border"
                 style={
                   active
-                    ? { background: "#4B3621", color: "#E7DCCC", borderColor: "#4B3621" }
-                    : { background: "#fff", color: "#4B3621", borderColor: "#E4D9C8" }
+                    ? { background: T.primary, color: T.secondary, borderColor: T.primary }
+                    : { background: T.bg, color: T.primary, borderColor: T.line }
                 }
               >
                 {cat}
                 {has && (
                   <span
                     className="size-[7px] rounded-full"
-                    style={{ background: active ? "#E7DCCC" : "#4B3621" }}
+                    style={{ background: active ? T.secondary : T.primary }}
                   />
                 )}
               </button>
@@ -360,17 +415,17 @@ export function PublicCatalog({
                   <h2 className="font-extrabold text-[23px] uppercase m-0" style={{ letterSpacing: "-.01em" }}>
                     {cat}
                   </h2>
-                  <span className="text-xs font-bold whitespace-nowrap" style={{ color: "#6F6357" }}>
+                  <span className="text-xs font-bold whitespace-nowrap" style={{ color: T.muted }}>
                     {cards.length} {cards.length === 1 ? "opção" : "opções"}
                   </span>
                 </div>
                 {firstDesc && (
-                  <p className="m-0 text-[13px] font-medium leading-normal" style={{ color: "#6F6357" }}>
+                  <p className="m-0 text-[13px] font-medium leading-normal" style={{ color: T.muted }}>
                     {firstDesc}
                   </p>
                 )}
               </div>
-              <div className="max-w-[680px] mx-auto mt-3.5" style={{ borderTop: "1.5px dashed #E4D9C8" }} />
+              <div className="max-w-[680px] mx-auto mt-3.5" style={{ borderTop: `1.5px dashed ${T.line}` }} />
 
               <div className="max-w-[680px] mx-auto grid grid-cols-2 gap-3.5 px-3.5 pt-4 pb-2">
                 {cards.map((card) => {
@@ -380,28 +435,40 @@ export function PublicCatalog({
                     <button
                       key={card.key}
                       onClick={() => openSheet(card)}
-                      className="relative text-left rounded-[14px] overflow-hidden flex flex-col active:scale-[0.985] transition border bg-white"
-                      style={{ borderColor: "#E4D9C8" }}
+                      className="relative text-left rounded-[14px] overflow-hidden flex flex-col active:scale-[0.985] transition border"
+                      style={{ borderColor: T.line, background: T.bg }}
                     >
                       {inCart > 0 && (
                         <span
                           className="absolute top-2 right-2 z-10 min-w-[22px] h-[22px] px-1.5 rounded-xl text-[11px] font-bold flex items-center justify-center"
-                          style={{ background: "#4B3621", color: "#E7DCCC", boxShadow: "0 1px 4px rgba(0,0,0,.25)" }}
+                          style={{ background: T.primary, color: T.secondary, boxShadow: "0 1px 4px rgba(0,0,0,.25)" }}
                         >
                           {inCart}
                         </span>
                       )}
-                      <div className="w-full overflow-hidden" style={{ aspectRatio: "3/4", background: "#ECE6DE" }}>
+                      <div className="w-full overflow-hidden relative" style={{ aspectRatio: "3/4", background: T.soft }}>
                         {card.product.images[0] && (
                           <img
                             src={card.product.images[0]}
                             alt={`${card.product.name} ${card.color}`}
                             className="w-full h-full object-cover"
+                            style={
+                              soldOut
+                                ? { filter: "grayscale(1) opacity(.6)" }
+                                : undefined
+                            }
                           />
+                        )}
+                        {soldOut && (
+                          <span className="absolute inset-0 flex items-center justify-center">
+                            <span className="rounded-full bg-gray-800/80 text-white text-[11px] font-bold px-3.5 py-1.5 uppercase tracking-wide">
+                              Indisponível
+                            </span>
+                          </span>
                         )}
                       </div>
                       <div className="px-3 pt-[11px] pb-[13px]">
-                        <p className="text-[10px] uppercase font-semibold m-0" style={{ color: "#6F6357", letterSpacing: ".12em" }}>
+                        <p className="text-[10px] uppercase font-semibold m-0" style={{ color: T.muted, letterSpacing: ".12em" }}>
                           {card.product.name}
                         </p>
                         <p className="text-[15px] font-bold my-1 flex items-center gap-[7px] leading-tight">
@@ -411,15 +478,15 @@ export function PublicCatalog({
                           />
                           {card.color}
                         </p>
-                        <p className="text-[15px] font-bold m-0" style={{ color: "#4B3621" }}>
+                        <p className="text-[15px] font-bold m-0" style={{ color: T.primary }}>
                           {fmt(card.product.retailPrice)}{" "}
-                          <small className="text-[11px] font-medium" style={{ color: "#6F6357" }}>
+                          <small className="text-[11px] font-medium" style={{ color: T.muted }}>
                             / peça
                           </small>
                         </p>
                         {soldOut && (
                           <p className="text-[11px] font-semibold mt-1 m-0" style={{ color: "#B33939" }}>
-                            Esgotado — consulte
+                            Indisponível — consulte reposição
                           </p>
                         )}
                       </div>
@@ -433,11 +500,19 @@ export function PublicCatalog({
       </main>
 
       {/* RODAPÉ */}
-      <footer style={{ background: "#4B3621", color: "#E7DCCC" }}>
+      <footer style={{ background: T.primary, color: T.secondary }}>
         <div className="max-w-[680px] mx-auto px-5 pt-[30px] pb-[34px] text-center">
-          <p className="font-extrabold text-[22px] lowercase m-0 mb-3.5" style={{ letterSpacing: ".02em" }}>
-            {storeName}
-          </p>
+          {identity.logoUrl ? (
+            <img
+              src={identity.logoUrl}
+              alt={storeName}
+              className="h-10 max-w-48 object-contain mx-auto mb-3.5"
+            />
+          ) : (
+            <p className="font-extrabold text-[22px] lowercase m-0 mb-3.5" style={{ letterSpacing: ".02em" }}>
+              {storeName}
+            </p>
+          )}
           {whatsapp && (
             <p className="text-[13px] font-medium opacity-90 m-0 mb-1 flex items-center justify-center gap-[7px]">
               <WaIcon className="size-[15px]" />
@@ -453,20 +528,20 @@ export function PublicCatalog({
       {/* BARRA FIXA */}
       <div
         className="fixed inset-x-0 bottom-0 z-20 border-t"
-        style={{ background: "#fff", borderColor: "#E4D9C8", padding: "12px 18px calc(12px + env(safe-area-inset-bottom,0))" }}
+        style={{ background: T.bg, borderColor: T.line, padding: "12px 18px calc(12px + env(safe-area-inset-bottom,0))" }}
       >
         <div className="max-w-[680px] mx-auto">
           <button
             onClick={totalPieces > 0 ? sendOrder : openBag}
             className="w-full flex items-center justify-center gap-[9px] rounded-[14px] p-4 text-[15px] font-bold active:scale-[0.985] transition"
-            style={{ background: "#4B3621", color: "#E7DCCC", letterSpacing: ".01em" }}
+            style={{ background: T.primary, color: T.secondary, letterSpacing: ".01em" }}
           >
             <WaIcon className="size-[19px]" />
             Enviar pedido pelo WhatsApp
             {totalPieces > 0 && (
               <span
                 className="inline-flex items-center justify-center min-w-[22px] h-[22px] px-[7px] rounded-xl text-xs font-extrabold ml-[3px]"
-                style={{ background: "#E7DCCC", color: "#4B3621" }}
+                style={{ background: T.secondary, color: T.primary }}
               >
                 {totalPieces}
               </span>
@@ -480,8 +555,8 @@ export function PublicCatalog({
         className="fixed left-1/2 z-[80] flex items-center gap-2 rounded-[30px] px-5 py-3 text-[13px] font-semibold whitespace-nowrap transition-all duration-200 pointer-events-none"
         style={{
           bottom: 108,
-          background: "#4B3621",
-          color: "#E7DCCC",
+          background: T.primary,
+          color: T.secondary,
           opacity: toast ? 1 : 0,
           transform: `translateX(-50%) translateY(${toast ? 0 : 20}px)`,
         }}
@@ -504,7 +579,7 @@ export function PublicCatalog({
         aria-modal="true"
         className="fixed inset-x-0 bottom-0 z-[60] mx-auto flex flex-col max-w-[680px] transition-transform duration-300"
         style={{
-          background: "#fff",
+          background: T.bg,
           borderRadius: "22px 22px 0 0",
           maxHeight: "88dvh",
           boxShadow: "0 -10px 40px rgba(0,0,0,.22)",
@@ -513,16 +588,16 @@ export function PublicCatalog({
       >
         {sheet && (
           <>
-            <div className="w-[38px] h-1 rounded mx-auto mt-2.5" style={{ background: "#E4D9C8" }} />
-            <div className="flex items-center justify-between px-[18px] pt-2 pb-3 border-b" style={{ borderColor: "#E4D9C8" }}>
-              <h3 className="font-extrabold text-lg uppercase m-0" style={{ color: "#4B3621" }}>
+            <div className="w-[38px] h-1 rounded mx-auto mt-2.5" style={{ background: T.line }} />
+            <div className="flex items-center justify-between px-[18px] pt-2 pb-3 border-b" style={{ borderColor: T.line }}>
+              <h3 className="font-extrabold text-lg uppercase m-0" style={{ color: T.primary }}>
                 {sheet.product.name}
               </h3>
               <button
                 onClick={closeSheet}
                 aria-label="Fechar"
                 className="size-10 rounded-full flex items-center justify-center text-xl shrink-0"
-                style={{ background: "#E7DCCC", color: "#4B3621", border: "1.5px solid #E4D9C8" }}
+                style={{ background: T.secondary, color: T.primary, border: `1.5px solid ${T.line}` }}
               >
                 ✕
               </button>
@@ -533,35 +608,35 @@ export function PublicCatalog({
                   src={sheet.product.images[0]}
                   alt={sheet.product.name}
                   className="w-full rounded-[14px] border object-contain"
-                  style={{ aspectRatio: "2/3", maxHeight: "50dvh", background: "#F2F2F0", borderColor: "#E4D9C8" }}
+                  style={{ aspectRatio: "2/3", maxHeight: "50dvh", background: T.soft, borderColor: T.line }}
                 />
               )}
-              <p className="text-[10px] uppercase font-semibold mt-4 mb-0" style={{ color: "#6F6357", letterSpacing: ".14em" }}>
+              <p className="text-[10px] uppercase font-semibold mt-4 mb-0" style={{ color: T.muted, letterSpacing: ".14em" }}>
                 {sheet.product.sku} · {sheet.product.category}
               </p>
               <p className="font-extrabold text-[21px] uppercase mt-1 mb-2.5">{sheet.product.name}</p>
               <span
                 className="inline-flex items-center gap-2 rounded-[30px] px-3.5 py-[7px] text-[13px] font-bold"
-                style={{ background: "#F3EDE3", border: "1px solid #E4D9C8", color: "#4B3621" }}
+                style={{ background: T.soft, border: `1px solid ${T.line}`, color: T.primary }}
               >
                 <span className="size-[15px] rounded-full" style={{ background: swatch(sheet.color), border: "1px solid rgba(0,0,0,.2)" }} />
                 Cor: {sheet.color}
               </span>
               {sheet.product.description && (
-                <p className="text-sm font-medium leading-relaxed mt-3.5 mb-1" style={{ color: "#6F6357" }}>
+                <p className="text-sm font-medium leading-relaxed mt-3.5 mb-1" style={{ color: T.muted }}>
                   {sheet.product.description}
                 </p>
               )}
-              <p className="text-xl font-extrabold my-3.5" style={{ color: "#4B3621" }}>
+              <p className="text-xl font-extrabold my-3.5" style={{ color: T.primary }}>
                 {fmt(sheet.product.retailPrice)}{" "}
-                <small className="text-xs font-medium" style={{ color: "#6F6357" }}>/ peça</small>
+                <small className="text-xs font-medium" style={{ color: T.muted }}>/ peça</small>
               </p>
               {sheet.product.wholesalePrice > 0 && sheet.product.minQuantity > 1 && (
-                <p className="text-xs font-semibold -mt-2 mb-3.5" style={{ color: "#6F6357" }}>
+                <p className="text-xs font-semibold -mt-2 mb-3.5" style={{ color: T.muted }}>
                   💼 Atacado: {fmt(sheet.product.wholesalePrice)} / peça a partir de {sheet.product.minQuantity} unidades
                 </p>
               )}
-              <p className="text-[11px] uppercase font-bold mb-2.5" style={{ color: "#6F6357", letterSpacing: ".14em" }}>
+              <p className="text-[11px] uppercase font-bold mb-2.5" style={{ color: T.muted, letterSpacing: ".14em" }}>
                 Tamanhos · quantidade
               </p>
               <div className="flex flex-col gap-[9px]">
@@ -569,7 +644,7 @@ export function PublicCatalog({
                   <div
                     key={size}
                     className="flex items-center justify-between rounded-xl border py-[9px] pl-3.5 pr-2.5"
-                    style={{ borderColor: "#E4D9C8", opacity: available ? 1 : 0.45 }}
+                    style={{ borderColor: T.line, opacity: available ? 1 : 0.45 }}
                   >
                     <span className="font-bold text-[15px] min-w-[46px]">
                       {size}
@@ -579,14 +654,14 @@ export function PublicCatalog({
                         </small>
                       )}
                     </span>
-                    <div className="flex items-center gap-0.5 rounded-[10px] p-[3px]" style={{ background: "#F3EDE3" }}>
+                    <div className="flex items-center gap-0.5 rounded-[10px] p-[3px]" style={{ background: T.soft }}>
                       <button
                         disabled={!available}
                         onClick={() =>
                           setDraft((d) => ({ ...d, [size]: Math.max(0, (d[size] ?? 0) - 1) }))
                         }
                         className="size-[38px] rounded-lg text-xl font-semibold flex items-center justify-center bg-white border"
-                        style={{ borderColor: "#E4D9C8", color: "#4B3621" }}
+                        style={{ borderColor: T.line, color: T.primary }}
                       >
                         −
                       </button>
@@ -597,7 +672,7 @@ export function PublicCatalog({
                         disabled={!available}
                         onClick={() => setDraft((d) => ({ ...d, [size]: (d[size] ?? 0) + 1 }))}
                         className="size-[38px] rounded-lg text-xl font-semibold flex items-center justify-center bg-white border"
-                        style={{ borderColor: "#E4D9C8", color: "#4B3621" }}
+                        style={{ borderColor: T.line, color: T.primary }}
                       >
                         +
                       </button>
@@ -608,13 +683,13 @@ export function PublicCatalog({
             </div>
             <div
               className="border-t px-[18px] pt-3.5"
-              style={{ borderColor: "#E4D9C8", paddingBottom: "calc(16px + env(safe-area-inset-bottom,0))" }}
+              style={{ borderColor: T.line, paddingBottom: "calc(16px + env(safe-area-inset-bottom,0))" }}
             >
               <button
                 onClick={addToBag}
                 disabled={sum(draft) === 0}
                 className="w-full rounded-[14px] p-4 text-[15px] font-bold active:scale-[0.985] transition disabled:opacity-40"
-                style={{ background: "#4B3621", color: "#E7DCCC" }}
+                style={{ background: T.primary, color: T.secondary }}
               >
                 {sum(draft) === 0
                   ? "Selecione os tamanhos"
@@ -640,30 +715,30 @@ export function PublicCatalog({
         aria-modal="true"
         className="fixed inset-x-0 bottom-0 z-[60] mx-auto flex flex-col max-w-[680px] transition-transform duration-300"
         style={{
-          background: "#fff",
+          background: T.bg,
           borderRadius: "22px 22px 0 0",
           maxHeight: "88dvh",
           boxShadow: "0 -10px 40px rgba(0,0,0,.22)",
           transform: bagOpen ? "translateY(0)" : "translateY(100%)",
         }}
       >
-        <div className="w-[38px] h-1 rounded mx-auto mt-2.5" style={{ background: "#E4D9C8" }} />
-        <div className="flex items-center justify-between px-[18px] pt-2 pb-3 border-b" style={{ borderColor: "#E4D9C8" }}>
-          <h3 className="font-extrabold text-lg uppercase m-0" style={{ color: "#4B3621" }}>
+        <div className="w-[38px] h-1 rounded mx-auto mt-2.5" style={{ background: T.line }} />
+        <div className="flex items-center justify-between px-[18px] pt-2 pb-3 border-b" style={{ borderColor: T.line }}>
+          <h3 className="font-extrabold text-lg uppercase m-0" style={{ color: T.primary }}>
             Seu pedido
           </h3>
           <button
             onClick={closeBag}
             aria-label="Fechar"
             className="size-10 rounded-full flex items-center justify-center text-xl shrink-0"
-            style={{ background: "#E7DCCC", color: "#4B3621", border: "1.5px solid #E4D9C8" }}
+            style={{ background: T.secondary, color: T.primary, border: `1.5px solid ${T.line}` }}
           >
             ✕
           </button>
         </div>
         <div className="overflow-y-auto p-[18px]">
           {totalPieces === 0 ? (
-            <p className="text-center text-sm font-medium py-10" style={{ color: "#6F6357" }}>
+            <p className="text-center text-sm font-medium py-10" style={{ color: T.muted }}>
               Seu pedido está vazio.
               <br />
               Toque em uma peça para começar.
@@ -675,7 +750,7 @@ export function PublicCatalog({
                 if (!items.length) return null;
                 return (
                   <div key={cat}>
-                    <p className="text-[11px] uppercase font-extrabold mt-3.5 mb-0.5" style={{ color: "#4B3621", letterSpacing: ".12em" }}>
+                    <p className="text-[11px] uppercase font-extrabold mt-3.5 mb-0.5" style={{ color: T.primary, letterSpacing: ".12em" }}>
                       {cat}
                     </p>
                     {items.map((c) => {
@@ -685,14 +760,14 @@ export function PublicCatalog({
                         <div
                           key={c.key}
                           className="flex gap-3 py-[13px]"
-                          style={{ borderBottom: "1px dashed #E4D9C8" }}
+                          style={{ borderBottom: `1px dashed ${T.line}` }}
                         >
                           {c.product.images[0] && (
                             <img
                               src={c.product.images[0]}
                               alt=""
                               className="w-[58px] h-[74px] object-cover rounded-[10px] border shrink-0"
-                              style={{ borderColor: "#E4D9C8", background: "#ECE6DE" }}
+                              style={{ borderColor: T.line, background: T.soft }}
                             />
                           )}
                           <div className="flex-1 min-w-0">
@@ -705,12 +780,12 @@ export function PublicCatalog({
                                 <span key={t}>
                                   {i > 0 && " · "}
                                   {t}
-                                  <span className="font-medium" style={{ color: "#6F6357" }}> ×{n}</span>
+                                  <span className="font-medium" style={{ color: T.muted }}> ×{n}</span>
                                 </span>
                               ))}
                             </p>
                             <div className="flex justify-between items-center mt-[7px]">
-                              <span className="font-bold text-sm" style={{ color: "#4B3621" }}>
+                              <span className="font-bold text-sm" style={{ color: T.primary }}>
                                 {fmt(q * c.product.retailPrice)}
                               </span>
                               <button
@@ -722,7 +797,7 @@ export function PublicCatalog({
                                   })
                                 }
                                 className="text-xs font-bold underline underline-offset-2"
-                                style={{ color: "#4B3621" }}
+                                style={{ color: T.primary }}
                               >
                                 remover
                               </button>
@@ -735,8 +810,8 @@ export function PublicCatalog({
                 );
               })}
 
-              <div className="mt-4 pt-3.5" style={{ borderTop: "1.5px solid #4B3621" }}>
-                <div className="flex justify-between text-sm mb-1.5 font-medium" style={{ color: "#6F6357" }}>
+              <div className="mt-4 pt-3.5" style={{ borderTop: `1.5px solid ${T.primary}` }}>
+                <div className="flex justify-between text-sm mb-1.5 font-medium" style={{ color: T.muted }}>
                   <span>Total de peças</span>
                   <span>{totalPieces}</span>
                 </div>
@@ -746,8 +821,8 @@ export function PublicCatalog({
                 </div>
               </div>
 
-              <div className="rounded-[14px] p-[15px] mt-[18px]" style={{ background: "#F3EDE3" }}>
-                <p className="text-[11px] uppercase font-bold mb-3 m-0" style={{ color: "#4B3621", letterSpacing: ".1em" }}>
+              <div className="rounded-[14px] p-[15px] mt-[18px]" style={{ background: T.soft }}>
+                <p className="text-[11px] uppercase font-bold mb-3 m-0" style={{ color: T.primary, letterSpacing: ".1em" }}>
                   Seus dados
                 </p>
                 {(
@@ -758,7 +833,7 @@ export function PublicCatalog({
                   ] as const
                 ).map(([key, label, ph]) => (
                   <div key={key} className="mb-[11px]">
-                    <label className="block text-[11px] uppercase font-bold mb-1.5" style={{ color: "#4B3621", letterSpacing: ".08em" }}>
+                    <label className="block text-[11px] uppercase font-bold mb-1.5" style={{ color: T.primary, letterSpacing: ".08em" }}>
                       {label}
                     </label>
                     <input
@@ -766,7 +841,7 @@ export function PublicCatalog({
                       onChange={(e) => setClient((c) => ({ ...c, [key]: e.target.value }))}
                       placeholder={ph}
                       className="w-full rounded-xl border px-3.5 py-[13px] text-[15px] bg-white outline-none"
-                      style={{ borderColor: "#E4D9C8" }}
+                      style={{ borderColor: T.line }}
                     />
                   </div>
                 ))}
@@ -777,28 +852,28 @@ export function PublicCatalog({
         {totalPieces > 0 && (
           <div
             className="border-t px-[18px] pt-3.5"
-            style={{ borderColor: "#E4D9C8", background: "#fff", paddingBottom: "calc(16px + env(safe-area-inset-bottom,0))" }}
+            style={{ borderColor: T.line, background: T.bg, paddingBottom: "calc(16px + env(safe-area-inset-bottom,0))" }}
           >
             {minOrder > 0 && (
               <div className="mb-[13px]">
                 <p
                   className="flex items-center gap-2 text-[13.5px] font-bold mb-[9px] m-0"
-                  style={{ color: minBlocked ? "#4B3621" : "#1F7A4D" }}
+                  style={{ color: minBlocked ? T.primary : "#1F7A4D" }}
                 >
                   {minBlocked
                     ? `Faltam ${minOrder - totalPieces} ${minOrder - totalPieces === 1 ? "peça" : "peças"} para fechar seu pedido`
                     : "Tudo certo! Pedido pronto para enviar"}
                 </p>
-                <div className="h-2 rounded-md overflow-hidden" style={{ background: "#F3EDE3" }}>
+                <div className="h-2 rounded-md overflow-hidden" style={{ background: T.soft }}>
                   <span
                     className="block h-full rounded-md transition-all duration-300"
                     style={{
                       width: `${Math.min(100, Math.round((totalPieces / minOrder) * 100))}%`,
-                      background: minBlocked ? "#4B3621" : "#1F7A4D",
+                      background: minBlocked ? T.primary : "#1F7A4D",
                     }}
                   />
                 </div>
-                <p className="text-[11px] font-semibold mt-[7px] m-0" style={{ color: "#6F6357" }}>
+                <p className="text-[11px] font-semibold mt-[7px] m-0" style={{ color: T.muted }}>
                   {totalPieces} de {minOrder} peças · pedido mínimo
                 </p>
               </div>
@@ -807,7 +882,7 @@ export function PublicCatalog({
               onClick={sendOrder}
               disabled={minBlocked}
               className="w-full flex items-center justify-center gap-[9px] rounded-[14px] p-4 text-[15px] font-bold active:scale-[0.985] transition disabled:opacity-40"
-              style={{ background: "#4B3621", color: "#E7DCCC" }}
+              style={{ background: T.primary, color: T.secondary }}
             >
               <WaIcon className="size-[19px]" />
               Enviar pedido no WhatsApp
