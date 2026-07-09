@@ -139,23 +139,9 @@ export async function POST(req: NextRequest) {
         include: { items: true },
       });
 
-      // reserva estoque: baixa nas variantes + movimento de saída
-      for (const i of input.items) {
-        await tx.productVariant.update({
-          where: { id: i.variantId },
-          data: { stock: { decrement: i.quantity } },
-        });
-      }
-      await tx.inventoryMovement.createMany({
-        data: input.items.map((i) => ({
-          companyId: user.companyId,
-          variantId: i.variantId,
-          orderId: created.id,
-          type: "SAIDA" as const,
-          quantity: i.quantity,
-          reason: `Pedido ${orderNumber(created.number)}`,
-        })),
-      });
+      // O estoque NÃO baixa na criação: a baixa acontece só quando o pedido
+      // é marcado como PAGO (ver PATCH em /api/orders/[id]). A verificação de
+      // estoque acima é apenas um alerta no momento do cadastro.
 
       return created;
     });

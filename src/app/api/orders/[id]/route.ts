@@ -42,10 +42,48 @@ export async function PATCH(
       return NextResponse.json({ error: "Não encontrado" }, { status: 404 });
     }
 
+    const newStatus = parsed.data.status;
+    // Estados em que o pedido está pago → o estoque deve estar baixado.
+    const PAID_STATUSES = new Set([
+      "PAGO",
+      "EM_PRODUCAO",
+      "SEPARACAO",
+      "ENVIADO",
+      "ENTREGUE",
+    ]);
+    const willChangeStatus = !!newStatus && newStatus !== order.status;
+    const needDeduct =
+      willChangeStatus && PAID_STATUSES.has(newStatus!) && !order.stockDeducted;
+    const needReturn =
+      willChangeStatus && !PAID_STATUSES.has(newStatus!) && order.stockDeducted;
+
+    // Antes de escrever: se o pedido vai baixar estoque agora (virou pago),
+    // confere disponibilidade e bloqueia se faltar.
+    if (needDeduct) {
+      const variantIds = order.items
+        .map((i) => i.variantId)
+        .filter((v): v is string => !!v);
+      const variants = await db.productVariant.findMany({
+        where: { id: { in: variantIds } },
+      });
+      const stockById = new Map(variants.map((v) => [v.id, v.stock]));
+      for (const item of order.items) {
+        if (!item.variantId) continue;
+        const avail = stockById.get(item.variantId) ?? 0;
+        if (avail < item.quantity) {
+          return NextResponse.json(
+            {
+              error: `Estoque insuficiente de ${item.name} (${item.color} ${item.size}): restam ${avail}`,
+            },
+            { status: 409 }
+          );
+        }
+      }
+    }
+
     const data: Record<string, unknown> = {};
     if (parsed.data.notes !== undefined) data.notes = parsed.data.notes;
 
-    const newStatus = parsed.data.status;
     if (newStatus && newStatus !== order.status) {
       data.status = newStatus;
 
@@ -97,8 +135,29 @@ export async function PATCH(
         });
       }
 
-      // cancelamento → devolve o estoque reservado
-      if (newStatus === "CANCELADO" && order.status !== "CANCELADO") {
+      // ---- Estoque: baixa quando vira pago; devolve ao cancelar/estornar ----
+      if (needDeduct) {
+        for (const item of order.items) {
+          if (!item.variantId) continue;
+          await db.productVariant.update({
+            where: { id: item.variantId },
+            data: { stock: { decrement: item.quantity } },
+          });
+        }
+        await db.inventoryMovement.createMany({
+          data: order.items
+            .filter((i) => i.variantId)
+            .map((i) => ({
+              companyId: user.companyId,
+              variantId: i.variantId!,
+              orderId: order.id,
+              type: "SAIDA" as const,
+              quantity: i.quantity,
+              reason: `Baixa por pagamento — pedido ${orderNumber(order.number)}`,
+            })),
+        });
+        data.stockDeducted = true;
+      } else if (needReturn) {
         for (const item of order.items) {
           if (!item.variantId) continue;
           await db.productVariant.update({
@@ -115,9 +174,13 @@ export async function PATCH(
               orderId: order.id,
               type: "ENTRADA" as const,
               quantity: i.quantity,
-              reason: `Cancelamento do pedido ${orderNumber(order.number)}`,
+              reason:
+                newStatus === "CANCELADO"
+                  ? `Cancelamento do pedido ${orderNumber(order.number)}`
+                  : `Estorno de estoque — pedido ${orderNumber(order.number)}`,
             })),
         });
+        data.stockDeducted = false;
       }
     }
 

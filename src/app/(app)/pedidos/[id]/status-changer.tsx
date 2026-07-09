@@ -26,7 +26,9 @@ export function StatusChanger({
     if (busy || status === current) return;
     if (
       status === "CANCELADO" &&
-      !window.confirm("Cancelar o pedido? O estoque reservado será devolvido.")
+      !window.confirm(
+        "Cancelar o pedido? Se ele já estava pago, o estoque volta para o catálogo."
+      )
     )
       return;
     setBusy(true);

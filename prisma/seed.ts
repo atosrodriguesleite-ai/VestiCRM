@@ -837,6 +837,14 @@ async function main() {
       items: [{ sku: "BLU-010", color: "Off-white", size: "M", qty: 2, price: 99.9 }], notes: "Cliente desistiu — preço." },
   ];
 
+  // Estados "pagos": nesses, o estoque já foi baixado.
+  const PAID_ORDER_STATUSES = [
+    "PAGO",
+    "EM_PRODUCAO",
+    "SEPARACAO",
+    "ENVIADO",
+    "ENTREGUE",
+  ];
   let orderSeq = 0;
   for (const o of ordersData) {
     orderSeq += 1;
@@ -859,6 +867,7 @@ async function main() {
         customerId: cust(o.customer).id,
         sellerId: ownerId(o.seller),
         status: o.status,
+        stockDeducted: PAID_ORDER_STATUSES.includes(o.status),
         subtotal, discount, shippingFee, total,
         notes: o.notes,
         createdAt,
@@ -907,8 +916,8 @@ async function main() {
       },
     });
 
-    // baixa de estoque para pedidos não cancelados
-    if (o.status !== "CANCELADO") {
+    // baixa de estoque só para pedidos PAGOS (novo modelo)
+    if (PAID_ORDER_STATUSES.includes(o.status)) {
       for (const l of lines) {
         await db.productVariant.update({
           where: { id: l.variantId },
@@ -922,7 +931,7 @@ async function main() {
           orderId: order.id,
           type: "SAIDA" as const,
           quantity: l.qty,
-          reason: `Pedido #${String(orderSeq).padStart(4, "0")}`,
+          reason: `Baixa por pagamento — pedido #${String(orderSeq).padStart(4, "0")}`,
         })),
       });
     }

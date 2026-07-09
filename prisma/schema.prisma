@@ -756,6 +756,7 @@ model Order {
   shippingFee    Float        @default(0)
   total          Float        @default(0)
   notes          String?
+  stockDeducted  Boolean      @default(false) // estoque só baixa quando o pedido é pago
   createdAt      DateTime     @default(now())
 
   items    OrderItem[]
