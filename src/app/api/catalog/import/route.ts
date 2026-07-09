@@ -9,6 +9,11 @@ import { parseCatalog, importCatalog } from "@/lib/catalog-import";
  * Funciona também com o Super Admin acessando a loja ("Acessar loja"), pois o
  * escopo segue o companyId da sessão. Requer admin/gerente.
  */
+
+// Catálogos com muitas fotos podem levar alguns segundos: eleva o limite de
+// execução na Vercel (o padrão gratuito é 10s).
+export const maxDuration = 60;
+
 export async function POST(req: NextRequest) {
   try {
     const user = await requireUser();
