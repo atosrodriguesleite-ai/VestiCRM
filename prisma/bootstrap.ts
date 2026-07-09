@@ -50,7 +50,7 @@ async function main() {
       data: {
         name: "AtacadoPro",
         slug: PLATFORM_SLUG,
-        tagline: "A plataforma comercial para lojas de moda.",
+        tagline: "O jeito profissional de vender no atacado.",
       },
     });
     console.log("[bootstrap] Empresa-plataforma criada.");

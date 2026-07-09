@@ -125,7 +125,7 @@ async function main() {
     data: {
       name: "AtacadoPro",
       slug: "vesticrm",
-      tagline: "A plataforma comercial para lojas de moda.",
+      tagline: "O jeito profissional de vender no atacado.",
     },
   });
   const superAdmin = await db.user.create({
