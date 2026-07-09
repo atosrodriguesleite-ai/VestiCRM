@@ -7,11 +7,14 @@
     "build": "next build --turbopack",
     "start": "next start",
     "lint": "eslint",
+    "postinstall": "prisma generate",
     "db:migrate": "prisma migrate dev",
     "db:deploy": "prisma migrate deploy",
     "db:push": "prisma db push",
     "db:seed": "tsx prisma/seed.ts",
+    "db:bootstrap": "tsx prisma/bootstrap.ts",
     "db:studio": "prisma studio",
+    "vercel-build": "prisma migrate deploy && tsx prisma/bootstrap.ts && next build",
     "test": "vitest run"
   },
   "dependencies": {
