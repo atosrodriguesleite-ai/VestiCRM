@@ -1,22 +1,22 @@
 import type { Metadata, Viewport } from "next";
-import { Geist } from "next/font/google";
+import { Inter } from "next/font/google";
 import "./globals.css";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
+const inter = Inter({
+  variable: "--font-inter",
   subsets: ["latin"],
 });
 
 export const metadata: Metadata = {
-  title: "VestiCRM — A plataforma comercial para lojas de moda",
+  title: "AtacadoPro — O jeito profissional de vender no atacado",
   description:
-    "A plataforma comercial para lojas de moda: vendas pelo WhatsApp, catálogo, pedidos, funil e inteligência comercial.",
+    "AtacadoPro transforma o WhatsApp em uma máquina de receber pedidos organizados: catálogo profissional, pedidos, funil e gestão inteligente.",
 };
 
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
-  themeColor: "#0f172a",
+  themeColor: "#0e0142",
 };
 
 export default function RootLayout({
@@ -24,7 +24,7 @@ export default function RootLayout({
 }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="pt-BR">
-      <body className={`${geistSans.variable} font-sans antialiased`}>
+      <body className={`${inter.variable} font-sans antialiased`}>
         {children}
       </body>
     </html>

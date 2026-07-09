@@ -1,4 +1,4 @@
-# Estado do projeto — VestiCRM (resumo para continuidade)
+# Estado do projeto — AtacadoPro (resumo para continuidade)
 
 > Leia este arquivo ao iniciar uma nova sessão para retomar o contexto.
 > Toda a conversa é em **português (Brasil)** e o interlocutor é o **operador
@@ -6,7 +6,7 @@
 > clique quando for mexer em serviços externos (Vercel/Neon).
 
 ## O que é
-**VestiCRM** — SaaS de CRM para **lojas de moda** que vendem pelo WhatsApp:
+**AtacadoPro** — SaaS de CRM para **lojas de moda** que vendem pelo WhatsApp:
 atendimento omnichannel, catálogo personalizável, pedidos, funil e
 inteligência comercial. Multi-tenant (cada loja isolada por `companyId`).
 

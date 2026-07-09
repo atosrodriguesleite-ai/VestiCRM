@@ -1,6 +1,6 @@
 import type { MetadataRoute } from "next";
 
-const SITE_URL = "https://www.vesticrm.com.br";
+const SITE_URL = "https://www.atacadopro.com.br";
 
 /** robots.txt — a área logada (app) e as APIs não são indexadas. */
 export default function robots(): MetadataRoute.Robots {

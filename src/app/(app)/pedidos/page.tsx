@@ -107,7 +107,7 @@ export default async function OrdersPage({
                   <span className="text-sm font-bold text-brand-700 tabular-nums shrink-0 w-14">
                     {orderNumber(o.number)}
                   </span>
-                  <Avatar name={o.customer.name} color={o.seller?.color ?? "#2563eb"} />
+                  <Avatar name={o.customer.name} color={o.seller?.color ?? "#6d28ff"} />
                   <div className="min-w-0 flex-1">
                     <p className="text-sm font-semibold truncate">
                       {o.customer.name}

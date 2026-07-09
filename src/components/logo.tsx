@@ -1,41 +1,40 @@
 /**
- * Identidade visual do VestiCRM.
- * Marca: monograma "V" em duas tonalidades de azul sobre gradiente
- * petróleo→azul, remetendo a um cabide/caimento. Usada em login,
- * sidebar, header, favicon e catálogo.
+ * Identidade visual do AtacadoPro.
+ * Marca: monograma "AP" — o "A" (Atacado) em roxo escuro e o "P" (Pro) em
+ * roxo vibrante, formas angulares que remetem a movimento e evolução.
+ * Usada em login, sidebar, header, favicon e catálogo.
  */
 
 export function LogoMark({
   className = "size-8",
   rounded = "rounded-[10px]",
+  onDark = false,
 }: {
   className?: string;
   rounded?: string;
+  onDark?: boolean;
 }) {
-  const id = "vesti-grad";
+  const aColor = onDark ? "#FFFFFF" : "#0E0142"; // A — roxo escuro (ou branco no negativo)
+  const pColor = "#6D28FF"; // P — roxo vibrante
   return (
     <span className={`inline-flex ${className} ${rounded} overflow-hidden`}>
-      <svg viewBox="0 0 32 32" className="size-full" aria-hidden="true">
-        <defs>
-          <linearGradient id={id} x1="0" y1="0" x2="1" y2="1">
-            <stop offset="0" stopColor="#1E3A5F" />
-            <stop offset="1" stopColor="#2563EB" />
-          </linearGradient>
-        </defs>
-        <rect width="32" height="32" fill={`url(#${id})`} />
+      <svg
+        viewBox="0 0 100 100"
+        className="size-full"
+        fill="none"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        aria-hidden="true"
+      >
+        {/* A — duas pernas (peça angular) */}
+        <path d="M50 17 L21 83" stroke={aColor} strokeWidth="15" />
+        <path d="M50 17 L64 49" stroke={aColor} strokeWidth="15" />
+        {/* P — haste + bojo em seta para a frente */}
+        <path d="M43 52 L32 83" stroke={pColor} strokeWidth="15" />
         <path
-          d="M8.5 9.5 L16 22.5"
-          fill="none"
-          stroke="#FFFFFF"
-          strokeWidth="2.6"
-          strokeLinecap="round"
-        />
-        <path
-          d="M16 22.5 L23.5 9.5"
-          fill="none"
-          stroke="#93C5FD"
-          strokeWidth="2.6"
-          strokeLinecap="round"
+          d="M42 51 L69 51 L82 65 L69 79 L50 79"
+          stroke={pColor}
+          strokeWidth="15"
         />
       </svg>
     </span>
@@ -59,12 +58,12 @@ export function Logo({
     size === "lg" ? "text-xl" : size === "sm" ? "text-[15px]" : "text-[17px]";
   return (
     <div className={`flex items-center gap-2.5 ${className}`}>
-      <LogoMark className={mark} />
+      <LogoMark className={mark} rounded="rounded-none" onDark={onDark} />
       <div className="leading-tight">
         <p
-          className={`font-semibold tracking-tight ${text} ${onDark ? "text-white" : "text-ink"}`}
+          className={`font-bold tracking-tight ${text} ${onDark ? "text-white" : "text-ink"}`}
         >
-          Vesti<span className={onDark ? "text-brand-300" : "text-brand-600"}>CRM</span>
+          Atacado<span className={onDark ? "text-brand-300" : "text-brand-600"}>Pro</span>
         </p>
         {subtitle && (
           <p

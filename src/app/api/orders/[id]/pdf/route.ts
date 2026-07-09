@@ -5,8 +5,8 @@ import { requireUser, AuthError } from "@/lib/auth";
 import { orderNumber, orderStatusLabel } from "@/lib/orders";
 import { buildPixPayload } from "@/lib/pix";
 
-const BRAND = rgb(0.145, 0.388, 0.922); // #2563EB
-const DEEP = rgb(0.118, 0.227, 0.373); // #1E3A5F petróleo
+const BRAND = rgb(0.427, 0.157, 1.0); // #6D28FF roxo vibrante
+const DEEP = rgb(0.055, 0.004, 0.259); // #0E0142 roxo escuro
 const INK = rgb(0.118, 0.161, 0.235); // slate-800
 const GRAY = rgb(0.392, 0.455, 0.545); // slate-500
 const LIGHT = rgb(0.945, 0.961, 0.976); // slate-100
@@ -47,9 +47,10 @@ export async function GET(
 
     // Cabeçalho com "logo" (marca tipográfica no padrão do app)
     page.drawRectangle({ x: M, y: y - 6, width: 26, height: 26, color: DEEP });
-    page.drawText("V", { x: M + 8, y, size: 16, font: bold, color: rgb(1, 1, 1) });
+    page.drawText("A", { x: M + 4, y, size: 15, font: bold, color: rgb(1, 1, 1) });
+    page.drawText("P", { x: M + 13, y, size: 15, font: bold, color: BRAND });
     page.drawText(order.company.name, { x: M + 36, y: y + 2, size: 16, font: bold, color: INK });
-    page.drawText("VestiCRM", { x: M + 36, y: y - 10, size: 8, font, color: GRAY });
+    page.drawText("AtacadoPro", { x: M + 36, y: y - 10, size: 8, font, color: GRAY });
 
     const title = `ORÇAMENTO ${orderNumber(order.number)}`;
     const tw = bold.widthOfTextAtSize(title, 13);
@@ -146,7 +147,7 @@ export async function GET(
     const boxH = 96;
     page.drawRectangle({
       x: M, y: y - boxH + 14, width: width - 2 * M, height: boxH,
-      color: rgb(0.937, 0.965, 1),
+      color: rgb(0.957, 0.945, 1),
     });
     page.drawRectangle({
       x: M + 14, y: y - boxH + 26, width: 72, height: 72,
@@ -176,7 +177,7 @@ export async function GET(
 
     // Rodapé
     page.drawText(
-      `Orçamento gerado em ${new Date().toLocaleDateString("pt-BR")} · ${order.company.name} · via VestiCRM`,
+      `Orçamento gerado em ${new Date().toLocaleDateString("pt-BR")} · ${order.company.name} · via AtacadoPro`,
       { x: M, y: 40, size: 8, font, color: GRAY }
     );
 

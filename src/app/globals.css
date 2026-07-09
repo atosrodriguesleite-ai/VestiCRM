@@ -1,36 +1,37 @@
 @import "tailwindcss";
 
 /* ============================================================
-   VestiCRM — Design System
-   Identidade: azul petróleo · azul · cinzas slate · premium/clean
+   AtacadoPro — Design System
+   Identidade: roxo vibrante · roxo escuro · cinzas · profissional
    ============================================================ */
 
 @theme {
-  /* Marca (azul) — brand-600 é a ação primária */
-  --color-brand-50: #eff6ff;
-  --color-brand-100: #dbeafe;
-  --color-brand-200: #bfdbfe;
-  --color-brand-300: #93c5fd;
-  --color-brand-400: #60a5fa;
-  --color-brand-500: #3b82f6;
-  --color-brand-600: #2563eb;
-  --color-brand-700: #1d4ed8;
-  --color-brand-800: #1e40af;
-  --color-brand-900: #1e3a5f; /* azul petróleo */
+  /* Marca (roxo) — brand-600 é a ação primária (Roxo Vibrante #6D28FF) */
+  --color-brand-50: #f4f1ff;
+  --color-brand-100: #ebe4ff;
+  --color-brand-200: #d9ccff;
+  --color-brand-300: #bfa6ff;
+  --color-brand-400: #9d74ff;
+  --color-brand-500: #8148f9;
+  --color-brand-600: #6d28ff; /* Roxo Vibrante — ação primária */
+  --color-brand-700: #5a17e0;
+  --color-brand-800: #430f9c;
+  --color-brand-900: #0e0142; /* Roxo Escuro */
 
-  /* Superfícies neutras (slate) */
-  --color-canvas: #f8fafc; /* fundo do app */
+  /* Superfícies neutras */
+  --color-canvas: #f6f6fb; /* fundo do app */
   --color-surface: #ffffff; /* cards */
-  --color-ink: #1e293b; /* texto forte */
-  --color-sidebar: #0f172a; /* sidebar escura */
-  --color-sidebar-hover: #1e293b;
+  --color-ink: #1f2937; /* texto forte (Grafite) */
+  --color-sidebar: #0e0142; /* sidebar (Roxo Escuro) */
+  --color-sidebar-hover: #1c0a5a;
 
-  /* Semânticas */
-  --color-success: #10b981;
+  /* Semânticas (manual da marca) */
+  --color-success: #16a34a;
   --color-warning: #f59e0b;
   --color-danger: #ef4444;
+  --color-info: #6366f1;
 
-  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
 
   /* Raio padrão do sistema */
   --radius-xl2: 1rem;
@@ -41,7 +42,7 @@
     0 4px 12px -2px rgb(15 23 42 / 0.05);
   --shadow-pop: 0 4px 16px -4px rgb(15 23 42 / 0.1),
     0 16px 40px -12px rgb(15 23 42 / 0.16);
-  --shadow-focus: 0 0 0 4px rgb(37 99 235 / 0.12);
+  --shadow-focus: 0 0 0 4px rgb(109 40 255 / 0.14);
 
   --animate-fade-up: fade-up 0.4s cubic-bezier(0.16, 1, 0.3, 1) both;
   --animate-fade-in: fade-in 0.25s ease both;

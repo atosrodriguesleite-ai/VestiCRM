@@ -1,11 +1,11 @@
 import { db } from "./db";
 
 /**
- * Empresa-plataforma do VestiCRM — o "tenant" comercial do Super Admin,
+ * Empresa-plataforma do AtacadoPro — o "tenant" comercial do Super Admin,
  * onde caem os leads da Landing Page (Site Oficial). Reaproveita todo o
  * CRM (funil, clientes, tarefas, timeline) como pipeline "Leads do Site".
  *
- * Pipeline de vendas do VestiCRM (diferente do funil de moda das lojas):
+ * Pipeline de vendas do AtacadoPro (diferente do funil de moda das lojas):
  * Novo Lead → Contato realizado → Demonstração agendada → Demonstração
  * realizada → Negociação → Implantação → Cliente (ganho) / Perdido.
  */
@@ -13,8 +13,8 @@ import { db } from "./db";
 export const PLATFORM_SLUG = "vesticrm";
 
 const SALES_STAGES: [string, string, boolean, boolean][] = [
-  ["Novo Lead", "#3b82f6", false, false],
-  ["Contato realizado", "#60a5fa", false, false],
+  ["Novo Lead", "#8148f9", false, false],
+  ["Contato realizado", "#9d74ff", false, false],
   ["Demonstração agendada", "#818cf8", false, false],
   ["Demonstração realizada", "#a78bfa", false, false],
   ["Negociação", "#f59e0b", false, false],
@@ -31,9 +31,9 @@ export async function ensurePlatformCompany(): Promise<string> {
   if (!company) {
     company = await db.company.create({
       data: {
-        name: "VestiCRM",
+        name: "AtacadoPro",
         slug: PLATFORM_SLUG,
-        tagline: "A plataforma comercial para lojas de moda.",
+        tagline: "O jeito profissional de vender no atacado.",
       },
     });
   }

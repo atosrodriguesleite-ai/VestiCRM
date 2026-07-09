@@ -133,7 +133,7 @@ export default async function CustomerDetailPage({
       {/* Cabeçalho */}
       <Card className="p-5 md:p-6 mb-4">
         <div className="flex flex-col sm:flex-row sm:items-start gap-4">
-          <Avatar name={customer.name} color={customer.owner?.color ?? "#2563eb"} size="lg" />
+          <Avatar name={customer.name} color={customer.owner?.color ?? "#6d28ff"} size="lg" />
           <div className="flex-1 min-w-0">
             <h1 className="text-xl font-semibold tracking-tight">
               {customer.name}
@@ -210,7 +210,7 @@ export default async function CustomerDetailPage({
             <p className="text-xs text-gray-400 mb-1.5">Produtos de interesse</p>
             <div className="flex flex-wrap gap-1.5">
               {customer.interests.map((i) => (
-                <Badge key={i.interestId} color="#2563eb">
+                <Badge key={i.interestId} color="#6d28ff">
                   {i.interest.name}
                 </Badge>
               ))}

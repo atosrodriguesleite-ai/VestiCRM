@@ -19,7 +19,7 @@ function resolveSecret(name: "AUTH_SECRET" | "CRED_SECRET", fallbackEnv?: string
   if (value && value.length >= 16) return value;
   if (process.env.NODE_ENV === "production" && !isBuildPhase) {
     throw new Error(
-      `[VestiCRM] ${name} não definido (ou muito curto) em produção. ` +
+      `[AtacadoPro] ${name} não definido (ou muito curto) em produção. ` +
         `Configure um segredo forte de pelo menos 16 caracteres na variável de ambiente ${name}.`
     );
   }

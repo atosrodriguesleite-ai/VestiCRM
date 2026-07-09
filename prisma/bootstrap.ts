@@ -48,7 +48,7 @@ async function main() {
   if (!company) {
     company = await db.company.create({
       data: {
-        name: "VestiCRM",
+        name: "AtacadoPro",
         slug: PLATFORM_SLUG,
         tagline: "A plataforma comercial para lojas de moda.",
       },

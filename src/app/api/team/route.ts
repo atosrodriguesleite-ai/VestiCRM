@@ -5,7 +5,7 @@ import { db } from "@/lib/db";
 import { requireUser, AuthError } from "@/lib/auth";
 import { isAdmin } from "@/lib/scope";
 
-const COLORS = ["#2563eb", "#0ea5e9", "#f59e0b", "#10b981", "#ec4899", "#f43f5e"];
+const COLORS = ["#6d28ff", "#0ea5e9", "#f59e0b", "#10b981", "#ec4899", "#f43f5e"];
 
 const schema = z.object({
   name: z.string().min(1),

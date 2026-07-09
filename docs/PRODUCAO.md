@@ -1,4 +1,4 @@
-# Colocar o VestiCRM em produção
+# Colocar o AtacadoPro em produção
 
 Guia enxuto para publicar o sistema com segurança e continuar evoluindo sem
 impactar os clientes.

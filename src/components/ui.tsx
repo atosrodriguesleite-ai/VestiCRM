@@ -1,7 +1,7 @@
 import { initials } from "@/lib/format";
 
 /* ============================================================
-   VestiCRM Design System — componentes base reutilizáveis.
+   AtacadoPro Design System — componentes base reutilizáveis.
    Um único padrão para toda a aplicação.
    ============================================================ */
 
@@ -130,7 +130,7 @@ export function Field({
 
 export function Badge({
   children,
-  color = "#2563eb",
+  color = "#6d28ff",
   soft = true,
 }: {
   children: React.ReactNode;
@@ -156,7 +156,7 @@ export function Badge({
 
 export function Avatar({
   name,
-  color = "#2563eb",
+  color = "#6d28ff",
   size = "md",
 }: {
   name: string;

@@ -4,7 +4,7 @@ import { db } from "@/lib/db";
 /**
  * Favicon (ícone da aba) do catálogo público — personalizado por loja.
  * Usa o logo da loja quando houver; senão, a inicial do nome sobre a cor da
- * marca. Assim a aba nunca mostra o ícone do VestiCRM, e sim a identidade da
+ * marca. Assim a aba nunca mostra o ícone do AtacadoPro, e sim a identidade da
  * loja. Este arquivo (icon) sobrescreve o /icon.svg global nesta rota.
  */
 export const dynamic = "force-dynamic";
@@ -39,7 +39,7 @@ export default async function Icon({
   }
 
   const initial = (company?.name?.trim()?.[0] ?? "?").toUpperCase();
-  const bg = company?.catalogPrimary ?? "#1E3A5F";
+  const bg = company?.catalogPrimary ?? "#0e0142";
   return new ImageResponse(
     (
       <div

@@ -41,7 +41,7 @@ export default async function AutomationsPage() {
     <div className="max-w-5xl mx-auto">
       <PageHeader
         title="Automação comercial"
-        subtitle="O VestiCRM vigia sua carteira e sugere a próxima ação. Aplique com um clique para virar tarefa."
+        subtitle="O AtacadoPro vigia sua carteira e sugere a próxima ação. Aplique com um clique para virar tarefa."
       />
 
       <SuggestionList initial={suggestions} />

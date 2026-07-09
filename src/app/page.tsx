@@ -1,30 +1,30 @@
 import type { Metadata } from "next";
 import { Landing } from "@/components/landing/landing";
 
-const SITE_URL = "https://www.vesticrm.com.br";
-const TITLE = "VestiCRM — A plataforma comercial para lojas de moda";
+const SITE_URL = "https://www.atacadopro.com.br";
+const TITLE = "AtacadoPro — O jeito profissional de vender no atacado";
 const DESCRIPTION =
-  "CRM para lojas de roupa que vendem pelo WhatsApp: atendimento omnichannel, catálogo personalizável, pedidos, funil de vendas e inteligência comercial. Solicite uma demonstração gratuita.";
+  "AtacadoPro transforma o WhatsApp em uma máquina de receber pedidos organizados: catálogo profissional, pedidos, funil de vendas e gestão inteligente para atacadistas. Solicite uma demonstração gratuita.";
 
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
   title: TITLE,
   description: DESCRIPTION,
   keywords: [
-    "CRM para lojas de roupa",
-    "CRM moda",
-    "vender pelo WhatsApp",
-    "catálogo digital para loja",
+    "plataforma para atacadistas",
+    "vender no atacado pelo WhatsApp",
+    "catálogo de atacado",
+    "pedidos no atacado",
     "funil de vendas",
-    "sistema para loja de roupa",
-    "gestão de vendas moda",
+    "sistema para atacado",
+    "gestão de vendas atacado",
   ],
   alternates: { canonical: "/" },
   openGraph: {
     type: "website",
     locale: "pt_BR",
     url: SITE_URL,
-    siteName: "VestiCRM",
+    siteName: "AtacadoPro",
     title: TITLE,
     description: DESCRIPTION,
     images: [
@@ -32,7 +32,7 @@ export const metadata: Metadata = {
         url: "/shots/dashboard.png",
         width: 1600,
         height: 1000,
-        alt: "Painel do VestiCRM — a plataforma comercial para lojas de moda",
+        alt: "Painel do AtacadoPro — o jeito profissional de vender no atacado",
       },
     ],
   },
@@ -55,14 +55,14 @@ const jsonLd = {
     {
       "@type": "Organization",
       "@id": `${SITE_URL}/#organization`,
-      name: "VestiCRM",
+      name: "AtacadoPro",
       url: SITE_URL,
-      slogan: "A plataforma comercial para lojas de moda.",
+      slogan: "O jeito profissional de vender no atacado.",
       description: DESCRIPTION,
     },
     {
       "@type": "SoftwareApplication",
-      name: "VestiCRM",
+      name: "AtacadoPro",
       applicationCategory: "BusinessApplication",
       operatingSystem: "Web",
       url: SITE_URL,
@@ -81,7 +81,7 @@ const jsonLd = {
       mainEntity: [
         {
           "@type": "Question",
-          name: "Preciso pagar para testar o VestiCRM?",
+          name: "Preciso pagar para testar o AtacadoPro?",
           acceptedAnswer: {
             "@type": "Answer",
             text: "Não. O primeiro passo é sempre uma demonstração gratuita e sem compromisso, com um especialista mostrando a plataforma ao vivo.",

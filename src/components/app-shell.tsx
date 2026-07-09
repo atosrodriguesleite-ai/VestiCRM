@@ -194,7 +194,7 @@ export function AppShell({
           className={`flex items-center h-16 shrink-0 ${collapsed ? "justify-center px-2" : "justify-between px-4"}`}
         >
           {collapsed ? (
-            <LogoMark className="size-9" />
+            <LogoMark className="size-9" onDark />
           ) : (
             <Logo subtitle={user.companyName} onDark size="md" />
           )}

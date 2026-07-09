@@ -2,7 +2,7 @@ import bcrypt from "bcryptjs";
 import { db } from "./db";
 
 /**
- * Provisionamento de uma NOVA loja (tenant) no VestiCRM.
+ * Provisionamento de uma NOVA loja (tenant) no AtacadoPro.
  *
  * Cria, de forma atômica e NÃO destrutiva, tudo que uma loja precisa para já
  * começar a operar:
@@ -123,7 +123,7 @@ export async function provisionCompany(
         email,
         passwordHash,
         role: "ADMIN",
-        color: "#2563eb",
+        color: "#6d28ff",
       },
     });
 

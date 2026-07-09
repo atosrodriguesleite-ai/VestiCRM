@@ -626,7 +626,7 @@ export function PublicCatalog({
             </p>
           )}
           <p className="text-[11px] opacity-60 mt-4 m-0 font-medium">
-            © {new Date().getFullYear()} {storeName} · catálogo por VestiCRM
+            © {new Date().getFullYear()} {storeName} · catálogo por AtacadoPro
           </p>
         </div>
       </footer>

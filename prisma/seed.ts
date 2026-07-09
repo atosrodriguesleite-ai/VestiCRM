@@ -118,12 +118,12 @@ async function main() {
     },
   });
 
-  // ---- Empresa-plataforma VestiCRM (tenant comercial do Super Admin) ----
+  // ---- Empresa-plataforma AtacadoPro (tenant comercial do Super Admin) ----
   // É onde caem os leads da Landing Page (origem "Site"). O Super Admin
   // opera aqui e enxerga o pipeline "Leads do Site".
   const platform = await db.company.create({
     data: {
-      name: "VestiCRM",
+      name: "AtacadoPro",
       slug: "vesticrm",
       tagline: "A plataforma comercial para lojas de moda.",
     },

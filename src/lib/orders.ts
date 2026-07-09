@@ -15,9 +15,9 @@ export const orderStatusColor: Record<OrderStatus, string> = {
   ORCAMENTO: "#64748b",
   AGUARDANDO_PAGAMENTO: "#d97706",
   PAGO: "#059669",
-  EM_PRODUCAO: "#2563eb",
+  EM_PRODUCAO: "#6d28ff",
   SEPARACAO: "#0ea5e9",
-  ENVIADO: "#2563eb",
+  ENVIADO: "#6d28ff",
   ENTREGUE: "#10b981",
   CANCELADO: "#e11d48",
 };

@@ -1,4 +1,4 @@
-# VestiCRM
+# AtacadoPro
 
 CRM SaaS para lojas de roupas, confecções, atacados, boutiques e revendedoras — com foco em **vendas pelo WhatsApp**, organização comercial e aumento de recompra.
 

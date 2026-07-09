@@ -34,7 +34,7 @@ import {
 /** Número comercial de vendas. */
 const SALES_WHATSAPP = "5533999172019";
 const WA_MESSAGE =
-  "Olá! Gostaria de conhecer o VestiCRM e solicitar uma demonstração.";
+  "Olá! Gostaria de conhecer o AtacadoPro e solicitar uma demonstração.";
 const WA_LINK = `https://wa.me/${SALES_WHATSAPP}?text=${encodeURIComponent(WA_MESSAGE)}`;
 
 const NAV = [
@@ -97,7 +97,7 @@ function Header({ onDemo }: { onDemo: () => void }) {
       }`}
     >
       <div className="mx-auto flex h-16 max-w-6xl items-center justify-between gap-4 px-4 sm:px-6">
-        <a href="#top" className="shrink-0" aria-label="VestiCRM — início">
+        <a href="#top" className="shrink-0" aria-label="AtacadoPro — início">
           <Logo size="md" />
         </a>
 
@@ -200,24 +200,25 @@ function Hero({ onDemo }: { onDemo: () => void }) {
       <div className="mx-auto max-w-6xl px-4 pb-16 pt-14 sm:px-6 sm:pb-24 sm:pt-20 lg:pt-24">
         <div className="mx-auto max-w-3xl text-center">
           <Reveal>
-            <span className="inline-flex items-center gap-2 rounded-full border border-brand-100 bg-brand-50 px-3.5 py-1.5 text-[13px] font-medium text-brand-700">
+            <span className="inline-flex items-center gap-2 rounded-full border border-brand-100 bg-brand-50 px-3.5 py-1.5 text-[13px] font-semibold uppercase tracking-wide text-brand-700">
               <IconSparkles className="size-4" />
-              A plataforma comercial para lojas de moda
+              Plataforma para atacadistas
             </span>
           </Reveal>
-          <Reveal delay={80} as="h1">
-            <h1 className="mt-6 text-balance text-4xl font-semibold leading-[1.08] tracking-tight text-slate-900 sm:text-5xl lg:text-6xl">
-              Transforme conversas do WhatsApp em{" "}
-              <span className="bg-gradient-to-r from-brand-900 via-brand-600 to-brand-500 bg-clip-text text-transparent">
-                vendas organizadas
-              </span>
+          <Reveal delay={80}>
+            <h1 className="mt-6 text-balance text-4xl font-bold leading-[1.08] tracking-tight text-slate-900 sm:text-5xl lg:text-6xl">
+              Transforme seu WhatsApp em uma{" "}
+              <span className="bg-gradient-to-r from-brand-700 via-brand-600 to-brand-500 bg-clip-text text-transparent">
+                máquina de pedidos
+              </span>{" "}
+              no atacado.
             </h1>
           </Reveal>
           <Reveal delay={160}>
             <p className="mx-auto mt-5 max-w-2xl text-pretty text-lg leading-relaxed text-slate-500">
-              Catálogo, pedidos, funil de vendas e inteligência comercial em um só
-              lugar — pensado para o jeito que lojas de roupa realmente vendem.
-              Implantação personalizada, com um time ao seu lado.
+              Catálogo profissional, pedidos, funil de vendas e gestão inteligente
+              em um só lugar — para você receber pedidos organizados e vender mais
+              no atacado. Implantação personalizada, com um time ao seu lado.
             </p>
           </Reveal>
           <Reveal delay={240}>
@@ -258,7 +259,7 @@ function Hero({ onDemo }: { onDemo: () => void }) {
         <Reveal delay={200} className="mt-14 sm:mt-16">
           <div className="relative mx-auto max-w-5xl">
             <div className="pointer-events-none absolute -inset-x-8 -top-6 bottom-0 -z-10 rounded-[2rem] bg-gradient-to-b from-brand-200/40 to-transparent blur-2xl" />
-            <BrowserFrame src="/shots/dashboard.png" alt="Painel do VestiCRM com KPIs de vendas, funil e tarefas do dia" />
+            <BrowserFrame src="/shots/dashboard.png" alt="Painel do AtacadoPro com KPIs de vendas, funil e tarefas do dia" />
 
             {/* cards flutuantes */}
             <div className="absolute -left-3 top-16 hidden animate-[fade-up_0.6s_ease_both] sm:block lg:-left-10">
@@ -292,7 +293,7 @@ function BrowserFrame({ src, alt }: { src: string; alt: string }) {
         <span className="size-3 rounded-full bg-amber-300" />
         <span className="size-3 rounded-full bg-emerald-300" />
         <span className="ml-3 hidden truncate rounded-md bg-white px-3 py-1 text-xs text-slate-400 ring-1 ring-slate-200 sm:inline-block">
-          app.vesticrm.com.br/dashboard
+          app.atacadopro.com.br/dashboard
         </span>
       </div>
       {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -356,7 +357,7 @@ function SectionHead({
           {eyebrow}
         </span>
       </Reveal>
-      <Reveal delay={60} as="h2">
+      <Reveal delay={60}>
         <h2 className="mt-3 text-3xl font-semibold tracking-tight text-slate-900 sm:text-4xl">
           {title}
         </h2>
@@ -376,7 +377,7 @@ function Pain() {
   const items = [
     "Pedidos anotados no caderno, no bloco de notas e em três conversas diferentes",
     "Cliente que sumiu e ninguém lembrou de chamar de volta",
-    "Vendedora que esquece a numeração, a cor ou a última compra da cliente",
+    "Representante que esquece o preço de tabela, o pedido mínimo ou a última compra do cliente",
     "Fim do mês sem saber quanto vendeu, quem vendeu e o que ficou parado",
   ];
   return (
@@ -392,7 +393,7 @@ function Pain() {
               A dor de vender moda hoje
             </span>
           </Reveal>
-          <Reveal delay={60} as="h2">
+          <Reveal delay={60}>
             <h2 className="mt-3 text-3xl font-semibold tracking-tight text-white sm:text-4xl">
               Vender é o que você faz melhor. O caos por trás disso,{" "}
               <span className="text-brand-300">não deveria ser seu problema.</span>
@@ -428,7 +429,7 @@ function Turn() {
     {
       icon: <IconUsers className="size-6" />,
       title: "Vai pra pessoa certa",
-      desc: "Distribuição automática entre vendedoras, com tarefa e prazo de resposta.",
+      desc: "Distribuição automática entre representantes, com tarefa e prazo de resposta.",
     },
     {
       icon: <IconFunnel className="size-6" />,
@@ -447,7 +448,7 @@ function Turn() {
         <SectionHead
           eyebrow="A virada"
           title="Do primeiro “oi” à venda registrada"
-          desc="O VestiCRM organiza o caminho inteiro da sua venda — sem planilha, sem caderno, sem perder ninguém no meio."
+          desc="O AtacadoPro organiza o caminho inteiro da sua venda — sem planilha, sem caderno, sem perder ninguém no meio."
         />
         <div className="relative mt-14">
           {/* linha conectora desktop */}
@@ -512,7 +513,7 @@ function Modules() {
     {
       icon: <IconUsers />,
       title: "Equipe e metas",
-      desc: "Cada vendedora com sua carteira, suas metas e seu desempenho medido de verdade.",
+      desc: "Cada representante com sua carteira, suas metas e seu desempenho medido de verdade.",
     },
   ];
   return (
@@ -563,7 +564,7 @@ function Catalog({ onDemo }: { onDemo: () => void }) {
               Catálogo personalizado
             </span>
           </Reveal>
-          <Reveal delay={60} as="h2">
+          <Reveal delay={60}>
             <h2 className="mt-3 text-3xl font-semibold tracking-tight text-slate-900 sm:text-4xl">
               Uma vitrine digital com a cara da sua loja
             </h2>
@@ -606,7 +607,7 @@ function Catalog({ onDemo }: { onDemo: () => void }) {
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 src="/shots/catalogo.png"
-                alt="Catálogo digital personalizável do VestiCRM com produtos, grade de tamanhos e cores"
+                alt="Catálogo digital personalizável do AtacadoPro com produtos, grade de tamanhos e cores"
                 loading="lazy"
                 className="block w-full"
                 width={1200}
@@ -638,7 +639,7 @@ function Intelligence() {
     {
       icon: <IconTarget className="size-5" />,
       title: "Metas e ranking",
-      desc: "Acompanhe metas por vendedora e o ranking do time em tempo real.",
+      desc: "Acompanhe metas por representante e o ranking do time em tempo real.",
     },
     {
       icon: <IconBolt className="size-5" />,
@@ -672,14 +673,14 @@ function Intelligence() {
               Inteligência comercial
             </span>
           </Reveal>
-          <Reveal delay={60} as="h2">
+          <Reveal delay={60}>
             <h2 className="mt-3 text-3xl font-semibold tracking-tight sm:text-4xl">
               Pare de vender no escuro
             </h2>
           </Reveal>
           <Reveal delay={120}>
             <p className="mt-4 text-lg leading-relaxed text-brand-100/80">
-              O VestiCRM transforma cada atendimento em dado e cada dado em decisão.
+              O AtacadoPro transforma cada atendimento em dado e cada dado em decisão.
               Você enxerga a operação inteira e sabe exatamente o próximo passo.
             </p>
           </Reveal>
@@ -708,7 +709,7 @@ function Intelligence() {
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 src="/shots/inteligencia.png"
-                alt="Painel de Inteligência Comercial do VestiCRM com metas, rankings e curva de produtos"
+                alt="Painel de Inteligência Comercial do AtacadoPro com metas, rankings e curva de produtos"
                 loading="lazy"
                 className="block w-full"
                 width={1600}
@@ -728,23 +729,23 @@ function Audience() {
   const who = [
     {
       icon: <IconStore />,
-      title: "Lojas de roupa",
-      desc: "Moda feminina, masculina, infantil, plus size, praia, fitness — a operação inteira num lugar.",
+      title: "Atacadistas e distribuidores",
+      desc: "Confecções, importados, cosméticos, calçados — a operação inteira num lugar só.",
     },
     {
       icon: <IconWhatsApp className="size-6" />,
       title: "Quem vende no WhatsApp",
-      desc: "Se a maior parte da sua venda acontece no chat, o VestiCRM foi feito para você.",
+      desc: "Se a maior parte dos seus pedidos acontece no chat, o AtacadoPro foi feito para você.",
     },
     {
       icon: <IconTruck />,
-      title: "Atacado e multimarcas",
-      desc: "Grades grandes, pedidos por peça e clientes que compram para revender.",
+      title: "Fábricas e multimarcas",
+      desc: "Grades grandes, pedido mínimo, pedidos por peça e clientes que compram para revender.",
     },
     {
       icon: <IconUsers />,
-      title: "Equipes de vendedoras",
-      desc: "Distribua leads, acompanhe metas e mantenha o time no mesmo padrão.",
+      title: "Equipes de representantes",
+      desc: "Distribua leads, acompanhe metas e mantenha o time de vendas no mesmo padrão.",
     },
   ];
   return (
@@ -752,7 +753,7 @@ function Audience() {
       <div className="mx-auto max-w-6xl px-4 sm:px-6">
         <SectionHead
           eyebrow="Para quem é"
-          title="Feito para o varejo de moda que vende no relacionamento"
+          title="Feito para o atacado que vende no relacionamento"
         />
         <div className="mt-14 grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
           {who.map((w, i) => (
@@ -788,7 +789,7 @@ function How() {
     {
       icon: <IconCalendar className="size-6" />,
       title: "Conversamos sobre a sua loja",
-      desc: "Um especialista entende a sua operação e mostra o VestiCRM na prática, ao vivo.",
+      desc: "Um especialista entende a sua operação e mostra o AtacadoPro na prática, ao vivo.",
     },
     {
       icon: <IconRocket className="size-6" />,
@@ -876,14 +877,14 @@ function Implantation() {
                   Implantação personalizada
                 </span>
               </Reveal>
-              <Reveal delay={60} as="h2">
+              <Reveal delay={60}>
                 <h2 className="mt-3 text-3xl font-semibold tracking-tight text-slate-900 sm:text-4xl">
                   Você não entra sozinho. Entra com um time do seu lado.
                 </h2>
               </Reveal>
               <Reveal delay={120}>
                 <p className="mt-4 text-lg leading-relaxed text-slate-500">
-                  O VestiCRM não é um autoatendimento. Cada loja é implantada de forma
+                  O AtacadoPro não é um autoatendimento. Cada loja é implantada de forma
                   personalizada, com acompanhamento humano em cada etapa — para a
                   ferramenta se encaixar no jeito que você já vende.
                 </p>
@@ -917,10 +918,10 @@ function Implantation() {
 
 function Shots() {
   const shots = [
-    { src: "/shots/funil.png", label: "Funil de vendas", alt: "Funil de vendas do VestiCRM com etapas e oportunidades" },
-    { src: "/shots/chat.png", label: "Atendimento", alt: "Central de atendimento omnichannel do VestiCRM" },
-    { src: "/shots/pedidos.png", label: "Pedidos", alt: "Tela de pedidos e vendas do VestiCRM" },
-    { src: "/shots/produtos.png", label: "Produtos", alt: "Cadastro de produtos e catálogo do VestiCRM" },
+    { src: "/shots/funil.png", label: "Funil de vendas", alt: "Funil de vendas do AtacadoPro com etapas e oportunidades" },
+    { src: "/shots/chat.png", label: "Atendimento", alt: "Central de atendimento omnichannel do AtacadoPro" },
+    { src: "/shots/pedidos.png", label: "Pedidos", alt: "Tela de pedidos e vendas do AtacadoPro" },
+    { src: "/shots/produtos.png", label: "Produtos", alt: "Cadastro de produtos e catálogo do AtacadoPro" },
   ];
   return (
     <section className="bg-slate-50/70 py-20 sm:py-28">
@@ -976,7 +977,7 @@ function MidCTA({ onDemo }: { onDemo: () => void }) {
             </div>
             <div className="relative">
               <h2 className="mx-auto max-w-2xl text-2xl font-semibold tracking-tight text-white sm:text-3xl">
-                Quer ver o VestiCRM funcionando com a realidade da sua loja?
+                Quer ver o AtacadoPro funcionando com a realidade da sua loja?
               </h2>
               <p className="mx-auto mt-3 max-w-xl text-brand-50/90">
                 Agende uma demonstração gratuita. A gente mostra tudo ao vivo e tira
@@ -1015,15 +1016,15 @@ function Faq() {
     },
     {
       q: "O catálogo fica com a cara da minha loja?",
-      a: "Totalmente. Você personaliza logo, cores, tipografia e organização. A sua cliente vê a identidade da sua marca — não a do VestiCRM.",
+      a: "Totalmente. Você personaliza logo, cores, tipografia e organização. A sua cliente vê a identidade da sua marca — não a do AtacadoPro.",
     },
     {
       q: "Funciona no celular?",
-      a: "Sim. O VestiCRM foi desenhado para funcionar como um aplicativo no celular e no computador, para você e sua equipe venderem de onde estiverem.",
+      a: "Sim. O AtacadoPro foi desenhado para funcionar como um aplicativo no celular e no computador, para você e sua equipe venderem de onde estiverem.",
     },
     {
       q: "Serve para a minha loja?",
-      a: "Se você vende moda e boa parte das suas vendas passa pelo WhatsApp, Instagram, catálogo ou loja física, o VestiCRM foi feito para você — de loja individual a operações com várias vendedoras.",
+      a: "Se você vende no atacado e boa parte dos seus pedidos passa pelo WhatsApp, Instagram ou catálogo, o AtacadoPro foi feito para você — do atacadista individual a operações com várias equipes de vendas.",
     },
   ];
   const [open, setOpen] = useState<number | null>(0);
@@ -1090,16 +1091,16 @@ function FinalCTA({ onDemo }: { onDemo: () => void }) {
       </div>
       <div className="relative mx-auto max-w-3xl px-4 text-center sm:px-6">
         <Reveal>
-          <LogoMark className="mx-auto size-14" rounded="rounded-2xl" />
+          <LogoMark className="mx-auto size-14" rounded="rounded-2xl" onDark />
         </Reveal>
-        <Reveal delay={80} as="h2">
+        <Reveal delay={80}>
           <h2 className="mt-7 text-balance text-3xl font-semibold tracking-tight text-white sm:text-5xl">
             Organize suas vendas. Cresça com clareza.
           </h2>
         </Reveal>
         <Reveal delay={140}>
           <p className="mx-auto mt-5 max-w-xl text-lg text-slate-300">
-            Dê à sua loja de moda a plataforma comercial que ela merece. Comece com
+            Dê ao seu atacado a plataforma profissional que ele merece. Comece com
             uma demonstração — o resto, a gente constrói junto com você.
           </p>
         </Reveal>
@@ -1138,7 +1139,7 @@ function Footer({ onDemo }: { onDemo: () => void }) {
           <div>
             <Logo size="md" onDark />
             <p className="mt-4 max-w-xs text-sm leading-relaxed text-slate-400">
-              A plataforma comercial para lojas de moda. Do primeiro contato no
+              O jeito profissional de vender no atacado. Do primeiro contato no
               WhatsApp à venda registrada — organizado, com a sua marca.
             </p>
             <a
@@ -1178,8 +1179,8 @@ function Footer({ onDemo }: { onDemo: () => void }) {
           </div>
         </div>
         <div className="mt-12 flex flex-col items-start justify-between gap-3 border-t border-slate-800 pt-6 text-xs text-slate-500 sm:flex-row sm:items-center">
-          <p>© {new Date().getFullYear()} VestiCRM. Todos os direitos reservados.</p>
-          <p>Feito para o varejo de moda brasileiro.</p>
+          <p>© {new Date().getFullYear()} AtacadoPro. Todos os direitos reservados.</p>
+          <p>Feito para o atacado brasileiro.</p>
         </div>
       </div>
     </footer>
@@ -1202,7 +1203,7 @@ function WhatsAppFloat() {
       href={WA_LINK}
       target="_blank"
       rel="noopener noreferrer"
-      aria-label="Falar no WhatsApp com o time VestiCRM"
+      aria-label="Falar no WhatsApp com o time AtacadoPro"
       className={`fixed bottom-5 right-5 z-[60] flex items-center gap-3 rounded-full bg-[#25D366] py-3.5 pl-3.5 pr-4 text-white shadow-[0_10px_30px_-6px_rgba(37,211,102,0.6)] transition-all duration-300 hover:brightness-105 sm:bottom-6 sm:right-6 ${
         show ? "translate-y-0 opacity-100" : "pointer-events-none translate-y-6 opacity-0"
       }`}

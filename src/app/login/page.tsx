@@ -50,7 +50,7 @@ export default function LoginPage() {
         <div className="relative space-y-10 max-w-md">
           <div>
             <h1 className="text-[40px] leading-[1.1] font-semibold tracking-tight">
-              A plataforma comercial para lojas de moda.
+              O jeito profissional de vender no atacado.
             </h1>
             <p className="text-slate-400 mt-4 text-lg">
               Do primeiro clique no catálogo à recompra — tudo em um só lugar.
@@ -75,7 +75,7 @@ export default function LoginPage() {
         </div>
 
         <p className="relative text-sm text-slate-500">
-          © {new Date().getFullYear()} VestiCRM · A plataforma comercial para
+          © {new Date().getFullYear()} AtacadoPro · A plataforma comercial para
           lojas de moda
         </p>
       </div>

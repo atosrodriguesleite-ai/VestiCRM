@@ -380,7 +380,7 @@ export function DemoModal({
                 required
               />
               <span className="text-[12.5px] leading-relaxed text-slate-500">
-                Autorizo o contato do time VestiCRM e o tratamento dos meus dados
+                Autorizo o contato do time AtacadoPro e o tratamento dos meus dados
                 para agendar a demonstração, conforme a{" "}
                 <span className="text-slate-700 font-medium">LGPD</span>. Seus dados
                 não são compartilhados com terceiros.
