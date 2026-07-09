@@ -22,8 +22,8 @@
   --color-canvas: #f6f6fb; /* fundo do app */
   --color-surface: #ffffff; /* cards */
   --color-ink: #1f2937; /* texto forte (Grafite) */
-  --color-sidebar: #0e0142; /* sidebar (Roxo Escuro) */
-  --color-sidebar-hover: #1c0a5a;
+  --color-sidebar: #1a0b4e; /* sidebar (roxo profundo) */
+  --color-sidebar-hover: #2a1668;
 
   /* Semânticas (manual da marca) */
   --color-success: #16a34a;
