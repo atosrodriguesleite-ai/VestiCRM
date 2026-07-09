@@ -4,19 +4,18 @@ import {
   createHash,
   randomBytes,
 } from "crypto";
+import { CRED_SECRET } from "./env";
 
 /**
  * Criptografia de credenciais em repouso (AES-256-GCM).
  * Formato armazenado: enc:v1:<base64(iv | authTag | ciphertext)>
- * A chave deriva de CRED_SECRET (ou AUTH_SECRET) — defina em produção.
+ * A chave deriva de CRED_SECRET (ou AUTH_SECRET) — obrigatório em produção.
  */
 
 const PREFIX = "enc:v1:";
 
 function key(): Buffer {
-  const secret =
-    process.env.CRED_SECRET ?? process.env.AUTH_SECRET ?? "vesticrm-dev-secret";
-  return createHash("sha256").update(secret).digest();
+  return createHash("sha256").update(CRED_SECRET).digest();
 }
 
 export function encryptSecret(plain: string): string {

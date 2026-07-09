@@ -73,14 +73,19 @@ CRM SaaS para lojas de roupas, confecções, atacados, boutiques e revendedoras 
 
 ## Rodando o projeto
 
+Requer um **PostgreSQL**. Em ambiente efêmero/local, `bash scripts/dev-postgres.sh`
+sobe um Postgres pronto e imprime o `DATABASE_URL`.
+
 ```bash
 npm install
-cp .env.example .env        # ajuste AUTH_SECRET em produção
-npx prisma db push          # cria o SQLite local
-npm run db:seed             # dados de demonstração
+cp .env.example .env        # defina DATABASE_URL (Postgres) e AUTH_SECRET
+npm run db:deploy           # aplica as migrações (prisma migrate deploy)
+npm run db:seed             # dados de demonstração (NÃO usar em produção)
 npm run dev                 # http://localhost:3000
 npm test                    # testes unitários (vitest)
 ```
+
+Para produção, veja **[docs/PRODUCAO.md](docs/PRODUCAO.md)**.
 
 ### Logins de demonstração (senha `demo1234`)
 
@@ -117,6 +122,6 @@ prisma/
 └── seed.ts              # loja demo completa (clientes, produtos e pedidos)
 ```
 
-- **Banco**: SQLite em desenvolvimento; para produção troque o `provider` do datasource para `postgresql` — o schema é compatível.
+- **Banco**: PostgreSQL (dev e produção), com schema versionado por `prisma migrate`.
 - **Integrações futuras** (WhatsApp API, Bling, Nuvemshop, Shopify, Instagram, Meta Ads, pagamento, e-mail): a interface `WhatsAppProvider` mostra o padrão — o app fala com abstrações, nunca com o fornecedor direto.
 - **Responsivo**: sidebar no desktop, menu drawer + bottom nav no celular; a central de WhatsApp vira lista → conversa em tela cheia no mobile.

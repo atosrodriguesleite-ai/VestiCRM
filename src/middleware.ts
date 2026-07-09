@@ -1,9 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { jwtVerify } from "jose";
+import { AUTH_SECRET } from "./lib/env";
 
-const secret = new TextEncoder().encode(
-  process.env.AUTH_SECRET ?? "vesticrm-dev-secret"
-);
+const secret = new TextEncoder().encode(AUTH_SECRET);
 
 // /catalogo é a vitrine pública; /api/intake e /api/whatsapp/webhook são os
 // webhooks de entrada de leads (protegidos por INTAKE_SECRET quando definido)

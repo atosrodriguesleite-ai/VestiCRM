@@ -1,12 +1,12 @@
 // VestiCRM — Schema multi-tenant para CRM de moda
-// Dev: SQLite. Produção: trocar provider para "postgresql" (schema é compatível).
+// Banco: PostgreSQL (dev e produção). Evolução do schema via `prisma migrate`.
 
 generator client {
   provider = "prisma-client-js"
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 

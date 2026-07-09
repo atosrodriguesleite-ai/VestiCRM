@@ -1,12 +1,11 @@
 import { cookies } from "next/headers";
 import { SignJWT, jwtVerify } from "jose";
 import { db } from "./db";
+import { AUTH_SECRET } from "./env";
 import type { Role } from "@prisma/client";
 
 const COOKIE = "vesticrm_session";
-const secret = new TextEncoder().encode(
-  process.env.AUTH_SECRET ?? "vesticrm-dev-secret"
-);
+const secret = new TextEncoder().encode(AUTH_SECRET);
 
 export type SessionUser = {
   id: string;

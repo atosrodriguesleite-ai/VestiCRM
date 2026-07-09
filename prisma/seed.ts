@@ -28,6 +28,15 @@ const daysAhead = (n: number, h = 10) => {
 };
 
 async function main() {
+  // Trava de segurança: o seed é DESTRUTIVO (apaga tudo). Nunca deve rodar
+  // num banco de produção com dados de clientes reais.
+  if (process.env.NODE_ENV === "production" && process.env.ALLOW_PROD_SEED !== "true") {
+    throw new Error(
+      "Seed bloqueado: NODE_ENV=production. Este seed apaga TODO o banco. " +
+        "Se realmente for intencional (banco vazio), defina ALLOW_PROD_SEED=true."
+    );
+  }
+
   console.log("Limpando banco...");
   await db.$transaction([
     db.trackEvent.deleteMany(),
