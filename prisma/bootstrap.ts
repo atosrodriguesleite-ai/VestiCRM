@@ -54,6 +54,13 @@ async function main() {
       },
     });
     console.log("[bootstrap] Empresa-plataforma criada.");
+  } else if (company.name !== "AtacadoPro") {
+    // Rebrand: garante o nome novo na empresa-plataforma existente
+    company = await db.company.update({
+      where: { id: company.id },
+      data: { name: "AtacadoPro", tagline: "O jeito profissional de vender no atacado." },
+    });
+    console.log("[bootstrap] Empresa-plataforma renomeada para AtacadoPro.");
   }
 
   // Pipeline de vendas "Leads do Site"
