@@ -76,6 +76,8 @@ export default async function PublicCatalogPage({
       tagline={company.tagline}
       whatsapp={company.whatsapp}
       minOrder={company.minOrder}
+      minOrderMode={company.minOrderMode as "NONE" | "PECAS" | "VALOR"}
+      minOrderValue={company.minOrderValue}
       products={items}
       identity={{
         logoUrl: company.logoUrl,

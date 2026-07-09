@@ -12,7 +12,14 @@ export function CatalogSettings({
   canEdit,
 }: {
   slug: string;
-  initial: { name: string; tagline: string; whatsapp: string; minOrder: number };
+  initial: {
+    name: string;
+    tagline: string;
+    whatsapp: string;
+    minOrder: number;
+    minOrderMode: "NONE" | "PECAS" | "VALOR";
+    minOrderValue: number;
+  };
   canEdit: boolean;
 }) {
   const router = useRouter();
@@ -20,7 +27,9 @@ export function CatalogSettings({
     name: initial.name,
     tagline: initial.tagline,
     whatsapp: initial.whatsapp,
+    minOrderMode: initial.minOrderMode,
     minOrder: String(initial.minOrder),
+    minOrderValue: initial.minOrderValue ? String(initial.minOrderValue) : "",
   });
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -39,7 +48,12 @@ export function CatalogSettings({
         name: form.name,
         tagline: form.tagline || null,
         whatsapp: form.whatsapp || null,
-        minOrder: parseInt(form.minOrder) || 0,
+        minOrderMode: form.minOrderMode,
+        minOrder: form.minOrderMode === "PECAS" ? parseInt(form.minOrder) || 0 : 0,
+        minOrderValue:
+          form.minOrderMode === "VALOR"
+            ? parseFloat(form.minOrderValue.replace(",", ".")) || 0
+            : 0,
       }),
     });
     setSaving(false);
@@ -115,17 +129,74 @@ export function CatalogSettings({
             placeholder="Selecione os modelos e finalize pelo WhatsApp."
           />
         </div>
-        <div>
-          <label className={label}>Pedido mínimo (peças, 0 = sem mínimo)</label>
-          <input
-            disabled={!canEdit}
-            value={form.minOrder}
-            onChange={(e) =>
-              setForm((f) => ({ ...f, minOrder: e.target.value.replace(/\D/g, "") }))
-            }
-            className={input}
-            inputMode="numeric"
-          />
+        <div className="sm:col-span-2">
+          <label className={label}>Pedido mínimo para enviar no WhatsApp</label>
+          <div className="grid grid-cols-3 gap-2">
+            {(
+              [
+                ["NONE", "Sem trava"],
+                ["PECAS", "Por peças"],
+                ["VALOR", "Por valor"],
+              ] as const
+            ).map(([mode, txt]) => (
+              <button
+                key={mode}
+                type="button"
+                disabled={!canEdit}
+                onClick={() => setForm((f) => ({ ...f, minOrderMode: mode }))}
+                className={`rounded-xl border px-3 py-2.5 text-sm font-medium transition disabled:opacity-60 ${
+                  form.minOrderMode === mode
+                    ? "border-brand-500 bg-brand-50 text-brand-700 ring-2 ring-brand-500/15"
+                    : "border-gray-200 bg-white text-gray-500 hover:border-gray-300"
+                }`}
+              >
+                {txt}
+              </button>
+            ))}
+          </div>
+
+          {form.minOrderMode === "PECAS" && (
+            <div className="mt-3">
+              <label className="block text-xs text-gray-500 mb-1.5">
+                Quantidade mínima de peças
+              </label>
+              <input
+                disabled={!canEdit}
+                value={form.minOrder}
+                onChange={(e) =>
+                  setForm((f) => ({ ...f, minOrder: e.target.value.replace(/\D/g, "") }))
+                }
+                className={input}
+                inputMode="numeric"
+                placeholder="Ex.: 10"
+              />
+            </div>
+          )}
+          {form.minOrderMode === "VALOR" && (
+            <div className="mt-3">
+              <label className="block text-xs text-gray-500 mb-1.5">
+                Valor mínimo do pedido (R$)
+              </label>
+              <input
+                disabled={!canEdit}
+                value={form.minOrderValue}
+                onChange={(e) =>
+                  setForm((f) => ({
+                    ...f,
+                    minOrderValue: e.target.value.replace(/[^\d.,]/g, ""),
+                  }))
+                }
+                className={input}
+                inputMode="decimal"
+                placeholder="Ex.: 200,00"
+              />
+            </div>
+          )}
+          {form.minOrderMode === "NONE" && (
+            <p className="mt-2 text-xs text-gray-400">
+              O cliente pode enviar o pedido com qualquer quantidade ou valor.
+            </p>
+          )}
         </div>
       </div>
 

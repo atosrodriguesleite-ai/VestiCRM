@@ -21,7 +21,9 @@ model Company {
   plan      String   @default("pro")
   whatsapp  String? // número exibido no catálogo público (wa.me)
   tagline   String? // frase de apresentação do catálogo público
-  minOrder  Int     @default(0) // pedido mínimo (peças) no catálogo público; 0 = sem mínimo
+  minOrder      Int    @default(0) // pedido mínimo em PEÇAS (quando minOrderMode = PECAS)
+  minOrderMode  String @default("NONE") // trava do catálogo: NONE | PECAS | VALOR
+  minOrderValue Float  @default(0) // pedido mínimo em R$ (quando minOrderMode = VALOR)
   createdAt DateTime @default(now())
 
   // Identidade visual do catálogo público (100% personalizável pelo lojista)

@@ -11,6 +11,8 @@ const schema = z.object({
   tagline: z.string().nullable().optional(),
   whatsapp: z.string().nullable().optional(),
   minOrder: z.number().int().nonnegative().optional(),
+  minOrderMode: z.enum(["NONE", "PECAS", "VALOR"]).optional(),
+  minOrderValue: z.number().nonnegative().optional(),
   // identidade visual do catálogo
   logoUrl: z.string().nullable().optional(),
   catalogPrimary: hexColor.optional(),
@@ -45,6 +47,8 @@ export async function PATCH(req: NextRequest) {
       tagline: updated.tagline,
       whatsapp: updated.whatsapp,
       minOrder: updated.minOrder,
+      minOrderMode: updated.minOrderMode,
+      minOrderValue: updated.minOrderValue,
       logoUrl: updated.logoUrl,
       catalogPrimary: updated.catalogPrimary,
       catalogSecondary: updated.catalogSecondary,

@@ -111,6 +111,8 @@ export default async function SettingsPage() {
                 tagline: company.tagline ?? "",
                 whatsapp: company.whatsapp ?? "",
                 minOrder: company.minOrder,
+                minOrderMode: company.minOrderMode as "NONE" | "PECAS" | "VALOR",
+                minOrderValue: company.minOrderValue,
               }}
             />
           </div>

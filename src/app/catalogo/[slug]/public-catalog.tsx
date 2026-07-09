@@ -117,6 +117,8 @@ export function PublicCatalog({
   tagline,
   whatsapp,
   minOrder,
+  minOrderMode,
+  minOrderValue,
   products,
   identity,
   customColors,
@@ -127,6 +129,8 @@ export function PublicCatalog({
   tagline: string | null;
   whatsapp: string | null;
   minOrder: number;
+  minOrderMode: "NONE" | "PECAS" | "VALOR";
+  minOrderValue: number;
   products: CatalogProduct[];
   identity: CatalogIdentity;
   customColors: { name: string; hex: string }[];
@@ -331,9 +335,13 @@ export function PublicCatalog({
   function sendOrder() {
     if (!whatsapp) return;
     t({ type: "checkout_start", value: totalValue, qty: totalPieces });
-    if (minOrder > 0 && totalPieces < minOrder) {
+    if (minOrderMode === "PECAS" && totalPieces < minOrder) {
       const falta = minOrder - totalPieces;
       showToast(`Faltam ${falta} ${falta === 1 ? "peça" : "peças"} para o mínimo de ${minOrder}`);
+      return;
+    }
+    if (minOrderMode === "VALOR" && totalValue < minOrderValue) {
+      showToast(`Faltam ${fmt(minOrderValue - totalValue)} para o pedido mínimo de ${fmt(minOrderValue)}`);
       return;
     }
     let msg = `*Novo pedido — ${storeName}*\n\n`;
@@ -390,7 +398,19 @@ export function PublicCatalog({
     window.open(url, "_blank") ?? (window.location.href = url);
   }
 
-  const minBlocked = minOrder > 0 && totalPieces < minOrder;
+  const minActive = minOrderMode === "PECAS" || minOrderMode === "VALOR";
+  const minTarget = minOrderMode === "VALOR" ? minOrderValue : minOrder;
+  const minCurrent = minOrderMode === "VALOR" ? totalValue : totalPieces;
+  const minBlocked = minActive && minCurrent < minTarget;
+  const minProgress = minTarget > 0 ? Math.min(100, Math.round((minCurrent / minTarget) * 100)) : 0;
+  const minRemainingLabel =
+    minOrderMode === "VALOR"
+      ? `Faltam ${fmt(minTarget - minCurrent)} para fechar seu pedido`
+      : `Faltam ${minTarget - minCurrent} ${minTarget - minCurrent === 1 ? "peça" : "peças"} para fechar seu pedido`;
+  const minStatusLabel =
+    minOrderMode === "VALOR"
+      ? `${fmt(minCurrent)} de ${fmt(minTarget)} · pedido mínimo`
+      : `${minCurrent} de ${minTarget} peças · pedido mínimo`;
 
   return (
     <div
@@ -997,27 +1017,25 @@ export function PublicCatalog({
             className="border-t px-[18px] pt-3.5"
             style={{ borderColor: T.line, background: T.bg, paddingBottom: "calc(16px + env(safe-area-inset-bottom,0))" }}
           >
-            {minOrder > 0 && (
+            {minActive && minTarget > 0 && (
               <div className="mb-[13px]">
                 <p
                   className="flex items-center gap-2 text-[13.5px] font-bold mb-[9px] m-0"
                   style={{ color: minBlocked ? T.primary : "#1F7A4D" }}
                 >
-                  {minBlocked
-                    ? `Faltam ${minOrder - totalPieces} ${minOrder - totalPieces === 1 ? "peça" : "peças"} para fechar seu pedido`
-                    : "Tudo certo! Pedido pronto para enviar"}
+                  {minBlocked ? minRemainingLabel : "Tudo certo! Pedido pronto para enviar"}
                 </p>
                 <div className="h-2 rounded-md overflow-hidden" style={{ background: T.soft }}>
                   <span
                     className="block h-full rounded-md transition-all duration-300"
                     style={{
-                      width: `${Math.min(100, Math.round((totalPieces / minOrder) * 100))}%`,
+                      width: `${minProgress}%`,
                       background: minBlocked ? T.primary : "#1F7A4D",
                     }}
                   />
                 </div>
                 <p className="text-[11px] font-semibold mt-[7px] m-0" style={{ color: T.muted }}>
-                  {totalPieces} de {minOrder} peças · pedido mínimo
+                  {minStatusLabel}
                 </p>
               </div>
             )}
