@@ -10,15 +10,16 @@ import {
 } from "lucide-react";
 import { requireUser } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { brl, dateFull, dateShort, timeShort, formatPhone } from "@/lib/format";
+import { brl, dateFull, dateShort, timeShort } from "@/lib/format";
 import {
   orderStatusLabel,
   orderStatusColor,
   orderNumber,
   paymentMethodLabel,
 } from "@/lib/orders";
-import { Card, Avatar, Badge } from "@/components/ui";
+import { Card, Badge } from "@/components/ui";
 import { StatusChanger } from "./status-changer";
+import { CustomerEditor } from "./customer-editor";
 
 export const dynamic = "force-dynamic";
 
@@ -69,18 +70,11 @@ export default async function OrderDetailPage({
               Criado em {dateFull(order.createdAt)} às {timeShort(order.createdAt)}
               {order.seller ? ` · Vendedor(a): ${order.seller.name}` : ""}
             </p>
-            <div className="flex items-center gap-2 mt-3">
-              <Avatar name={order.customer.name} color="#6d28ff" size="sm" />
-              <Link
-                href={`/clientes/${order.customerId}`}
-                className="text-sm font-medium hover:text-brand-600"
-              >
-                {order.customer.name}
-              </Link>
-              <span className="text-xs text-gray-400">
-                {formatPhone(order.customer.phone)}
-              </span>
-            </div>
+            <CustomerEditor
+              customerId={order.customerId}
+              name={order.customer.name}
+              phone={order.customer.phone}
+            />
           </div>
           <div className="flex flex-col gap-2 shrink-0">
             <a
