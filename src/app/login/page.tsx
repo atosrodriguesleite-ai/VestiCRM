@@ -22,11 +22,11 @@ export default function LoginPage() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ email, password }),
     });
+    const data = await res.json().catch(() => ({}));
     if (res.ok) {
-      router.push("/dashboard");
+      router.push(data.role === "SUPERADMIN" ? "/lojas" : "/dashboard");
       router.refresh();
     } else {
-      const data = await res.json().catch(() => ({}));
       setError(data.error ?? "E-mail ou senha inválidos");
       setLoading(false);
     }

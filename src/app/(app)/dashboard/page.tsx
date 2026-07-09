@@ -16,9 +16,10 @@ import {
   Package,
   Gem,
 } from "lucide-react";
+import { redirect } from "next/navigation";
 import { requireUser } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { ownedScope, taskScope, canSeeAll } from "@/lib/scope";
+import { ownedScope, taskScope, canSeeAll, isSuperAdmin } from "@/lib/scope";
 import { computeAutomations } from "@/lib/automations";
 import {
   brl,
@@ -35,6 +36,9 @@ export const dynamic = "force-dynamic";
 
 export default async function DashboardPage() {
   const user = await requireUser();
+  // Super Admin (fora do modo "Acessar loja") gerencia a plataforma, não uma
+  // loja: seu ponto de partida é a gestão de clientes (Lojas).
+  if (isSuperAdmin(user) && !user.impersonatedBy) redirect("/lojas");
   const scope = ownedScope(user);
   const now = new Date();
   const days30 = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);

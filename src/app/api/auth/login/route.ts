@@ -35,5 +35,5 @@ export async function POST(req: NextRequest) {
   }
 
   await createSession(user.id);
-  return NextResponse.json({ ok: true });
+  return NextResponse.json({ ok: true, role: user.role });
 }
