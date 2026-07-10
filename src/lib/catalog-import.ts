@@ -29,6 +29,9 @@ const storeSchema = z
     catalogSecondary: z.string().regex(HEX).optional(),
     catalogBg: z.string().regex(HEX).optional(),
     catalogFont: z.enum(FONTS).optional(),
+    minOrderMode: z.enum(["NONE", "PECAS", "VALOR"]).optional(),
+    minOrder: z.number().int().nonnegative().optional(),
+    minOrderValue: z.number().nonnegative().optional(),
   })
   .optional();
 
@@ -138,6 +141,9 @@ export async function importCatalog(
             catalogSecondary: data.store.catalogSecondary ?? undefined,
             catalogBg: data.store.catalogBg ?? undefined,
             catalogFont: data.store.catalogFont ?? undefined,
+            minOrderMode: data.store.minOrderMode ?? undefined,
+            minOrder: data.store.minOrder ?? undefined,
+            minOrderValue: data.store.minOrderValue ?? undefined,
           },
         });
         summary.storeUpdated = true;
