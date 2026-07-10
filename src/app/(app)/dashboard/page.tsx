@@ -35,8 +35,13 @@ import { StatTile, BarList } from "@/components/charts";
 
 export const dynamic = "force-dynamic";
 
-export default async function DashboardPage() {
+export default async function DashboardPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ de?: string; ate?: string }>;
+}) {
   const user = await requireUser();
+  const { de, ate } = await searchParams;
   // Super Admin (fora do modo "Acessar loja") gerencia a plataforma, não uma
   // loja: seu ponto de partida é a gestão de clientes (Lojas).
   if (isSuperAdmin(user) && !user.impersonatedBy) redirect("/lojas");
@@ -44,6 +49,20 @@ export default async function DashboardPage() {
   const now = new Date();
   const days30 = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
   const days7 = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+  // Período analítico do dashboard (filtro De/Até). Padrão: últimos 30 dias.
+  const SP_OFFSET = 3 * 60 * 60 * 1000; // São Paulo é UTC-3
+  const spStart = (d?: string) => {
+    const t = d ? Date.parse(`${d}T00:00:00Z`) : NaN;
+    return Number.isNaN(t) ? null : new Date(t + SP_OFFSET);
+  };
+  const spEnd = (d?: string) => {
+    const t = d ? Date.parse(`${d}T23:59:59.999Z`) : NaN;
+    return Number.isNaN(t) ? null : new Date(t + SP_OFFSET);
+  };
+  const from = spStart(de) ?? days30;
+  const to = spEnd(ate) ?? now;
+  const inPeriod = { gte: from, lte: to };
+  const customPeriod = !!(spStart(de) || spEnd(ate));
   // meia-noite no fuso de São Paulo (UTC-3): o servidor roda em UTC e o
   // setHours local começaria o "hoje" 3h mais cedo
   const spMidnight = new Date(now.getTime() - 3 * 60 * 60 * 1000);
@@ -76,11 +95,11 @@ export default async function DashboardPage() {
   ] = await Promise.all([
     // Faturamento = pedidos PAGOS (fonte única da verdade, igual à tela Pedidos)
     db.order.findMany({
-      where: { ...orderScope, createdAt: { gte: days30 } },
+      where: { ...orderScope, createdAt: inPeriod },
       select: { total: true, sellerId: true },
     }),
     db.customer.count({ where: scope }),
-    db.customer.count({ where: { ...scope, createdAt: { gte: days30 } } }),
+    db.customer.count({ where: { ...scope, createdAt: inPeriod } }),
     db.opportunity.findMany({ where: { ...scope, status: "OPEN" } }),
     db.opportunity.count({
       where: {
@@ -90,16 +109,16 @@ export default async function DashboardPage() {
       },
     }),
     db.opportunity.count({
-      where: { ...scope, status: "LOST", closedAt: { gte: days30 } },
+      where: { ...scope, status: "LOST", closedAt: inPeriod },
     }),
     db.opportunity.count({
-      where: { ...scope, status: "WON", closedAt: { gte: days30 } },
+      where: { ...scope, status: "WON", closedAt: inPeriod },
     }),
     db.opportunity.count({
       where: {
         ...scope,
         status: { in: ["WON", "LOST"] },
-        closedAt: { gte: days30 },
+        closedAt: inPeriod,
       },
     }),
     db.customer.findMany({
@@ -141,20 +160,20 @@ export default async function DashboardPage() {
         _sum: { total: true },
       }),
       db.order.aggregate({
-        where: { ...orderScope, createdAt: { gte: days30 } },
+        where: { ...orderScope, createdAt: inPeriod },
         _count: true,
         _sum: { total: true },
       }),
       db.orderItem.groupBy({
         by: ["name"],
-        where: { order: orderScope },
+        where: { order: { ...orderScope, createdAt: inPeriod } },
         _sum: { quantity: true },
         orderBy: { _sum: { quantity: "desc" } },
         take: 6,
       }),
       db.order.groupBy({
         by: ["customerId"],
-        where: orderScope,
+        where: { ...orderScope, createdAt: inPeriod },
         _sum: { total: true },
         _count: true,
         orderBy: { _sum: { total: "desc" } },
@@ -183,13 +202,16 @@ export default async function DashboardPage() {
   const ticket = sales30.length ? revenue30 / sales30.length : 0;
   // Conversão = pedidos que viraram pagamento ÷ pedidos gerados (30d)
   const [ordersGenerated30, ordersPaid30] = await Promise.all([
-    db.order.count({ where: { ...orderAnyScope, createdAt: { gte: days30 } } }),
-    db.order.count({ where: { ...orderScope, createdAt: { gte: days30 } } }),
+    db.order.count({ where: { ...orderAnyScope, createdAt: inPeriod } }),
+    db.order.count({ where: { ...orderScope, createdAt: inPeriod } }),
   ]);
   const conversion = ordersGenerated30
     ? (ordersPaid30 / ordersGenerated30) * 100
     : 0;
   const pipelineValue = openOpps.reduce((s, o) => s + o.value, 0);
+  const periodLabel = customPeriod
+    ? `${dateShort(from)} a ${dateShort(to)}`
+    : "últimos 30 dias";
 
   // ranking por vendedor (30 dias) — só gerente/admin vê o time todo
   const allSales30 = canSeeAll(user)
@@ -198,7 +220,7 @@ export default async function DashboardPage() {
         where: {
           companyId: user.companyId,
           status: { in: PAID_ORDER_STATUSES },
-          createdAt: { gte: days30 },
+          createdAt: inPeriod,
         },
         select: { total: true, sellerId: true },
       });
@@ -225,7 +247,27 @@ export default async function DashboardPage() {
     <div className="max-w-7xl mx-auto">
       <PageHeader
         title={`Olá, ${user.name.split(" ")[0]} 👋`}
-        subtitle="Visão geral do comercial nos últimos 30 dias."
+        subtitle={`Visão geral do comercial — ${periodLabel}.`}
+        action={
+          <form className="flex items-end gap-2" method="GET">
+            <div>
+              <label className="block text-[11px] font-semibold text-gray-500 mb-1">De</label>
+              <input type="date" name="de" defaultValue={de ?? ""} className="rounded-xl border border-gray-200 px-3 py-2 text-sm bg-white" />
+            </div>
+            <div>
+              <label className="block text-[11px] font-semibold text-gray-500 mb-1">Até</label>
+              <input type="date" name="ate" defaultValue={ate ?? ""} className="rounded-xl border border-gray-200 px-3 py-2 text-sm bg-white" />
+            </div>
+            <button className="rounded-xl bg-gray-900 hover:bg-gray-700 text-white text-sm font-medium px-4 py-2.5 transition">
+              Filtrar
+            </button>
+            {customPeriod && (
+              <Link href="/dashboard" className="text-xs font-medium text-gray-400 hover:text-gray-600 px-2 py-2.5">
+                Limpar
+              </Link>
+            )}
+          </form>
+        }
       />
 
       {suggestions.length > 0 && (
@@ -248,9 +290,9 @@ export default async function DashboardPage() {
       {/* KPIs */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4 mb-6">
         <StatTile
-          label="Vendas (30d)"
+          label={customPeriod ? "Vendas (período)" : "Vendas (30d)"}
           value={brl(revenue30)}
-          hint={`${sales30.length} pedidos`}
+          hint={`${sales30.length} pedidos${customPeriod ? " no período" : ""}`}
           icon={<Wallet />}
         />
         <StatTile
@@ -274,11 +316,11 @@ export default async function DashboardPage() {
         <StatTile
           label="Clientes"
           value={String(totalCustomers)}
-          hint={`+${newLeads30} novos leads em 30d`}
+          hint={`+${newLeads30} novos leads${customPeriod ? " no período" : " em 30d"}`}
           icon={<Users />}
         />
         <StatTile
-          label="Vendas perdidas (30d)"
+          label={customPeriod ? "Vendas perdidas (período)" : "Vendas perdidas (30d)"}
           value={String(lostOpps30)}
           icon={<AlertTriangle />}
           tone={lostOpps30 > 3 ? "bad" : "default"}
