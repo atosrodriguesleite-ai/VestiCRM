@@ -344,6 +344,14 @@ export function PublicCatalog({
       showToast(`Faltam ${fmt(minOrderValue - totalValue)} para o pedido mínimo de ${fmt(minOrderValue)}`);
       return;
     }
+    // Nome e telefone são obrigatórios: o telefone é a identificação do
+    // cliente (puxa o cadastro existente na base da loja, se houver).
+    const foneDigits = client.fone.replace(/\D/g, "");
+    if (!client.nome.trim() || foneDigits.length < 10) {
+      openBag();
+      showToast("Preencha seu nome e telefone (com DDD) para enviar o pedido");
+      return;
+    }
     let msg = `*Novo pedido — ${storeName}*\n\n`;
     for (const cat of categories) {
       const items = (cardsByCategory.get(cat) ?? []).filter((c) => cart[c.key]);
@@ -482,7 +490,7 @@ export function PublicCatalog({
         className="sticky z-30 border-b"
         style={{ top: 74, background: T.bg, borderColor: T.line, boxShadow: "0 6px 12px -10px rgba(0,0,0,.3)" }}
       >
-        <div className="max-w-[680px] mx-auto flex gap-2 overflow-x-auto px-[18px] py-[11px]" style={{ scrollbarWidth: "none" }}>
+        <div className="max-w-[680px] mx-auto flex gap-2 overflow-x-auto md:flex-wrap md:overflow-x-visible px-[18px] py-[11px]" style={{ scrollbarWidth: "none" }}>
           {categories.map((cat, i) => {
             const active = activeCat === i;
             const has = catPieces(cat) > 0;
@@ -1011,9 +1019,9 @@ export function PublicCatalog({
                 </p>
                 {(
                   [
-                    ["loja", "Loja", "Nome da loja"],
-                    ["nome", "Nome", "Seu nome"],
-                    ["fone", "Telefone", "(00) 00000-0000"],
+                    ["nome", "Nome *", "Seu nome"],
+                    ["fone", "Telefone *", "(00) 00000-0000"],
+                    ["loja", "Loja", "Nome da loja (opcional)"],
                   ] as const
                 ).map(([key, label, ph]) => (
                   <div key={key} className="mb-[11px]">
