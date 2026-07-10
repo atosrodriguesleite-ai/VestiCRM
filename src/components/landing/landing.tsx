@@ -97,7 +97,7 @@ function Header({ onDemo }: { onDemo: () => void }) {
       }`}
     >
       <div className="mx-auto flex h-16 max-w-6xl items-center justify-between gap-4 px-4 sm:px-6">
-        <a href="#top" className="shrink-0" aria-label="AtacadoPro — início">
+        <a href="#top" className="shrink-0" aria-label="AtacadoPro, início">
           <Logo size="md" />
         </a>
 
@@ -217,7 +217,7 @@ function Hero({ onDemo }: { onDemo: () => void }) {
           <Reveal delay={160}>
             <p className="mx-auto mt-5 max-w-2xl text-pretty text-lg leading-relaxed text-slate-500">
               Catálogo profissional, pedidos, funil de vendas e gestão inteligente
-              em um só lugar — para você receber pedidos organizados e vender mais
+              em um só lugar, para você receber pedidos organizados e vender mais
               no atacado. Implantação personalizada, com um time ao seu lado.
             </p>
           </Reveal>
@@ -424,7 +424,7 @@ function Turn() {
     {
       icon: <IconWhatsApp className="size-6" />,
       title: "Chegou uma cliente",
-      desc: "WhatsApp, Instagram, catálogo ou loja física — tudo entra num lugar só.",
+      desc: "WhatsApp, Instagram, catálogo ou loja física: tudo entra num lugar só.",
     },
     {
       icon: <IconUsers className="size-6" />,
@@ -448,7 +448,7 @@ function Turn() {
         <SectionHead
           eyebrow="A virada"
           title="Do primeiro “oi” à venda registrada"
-          desc="O AtacadoPro organiza o caminho inteiro da sua venda — sem planilha, sem caderno, sem perder ninguém no meio."
+          desc="O AtacadoPro organiza o caminho inteiro da sua venda: sem planilha, sem caderno, sem perder ninguém no meio."
         />
         <div className="relative mt-14">
           {/* linha conectora desktop */}
@@ -522,7 +522,7 @@ function Modules() {
         <SectionHead
           eyebrow="Módulos principais"
           title="Tudo que a sua loja precisa, integrado"
-          desc="Módulos que conversam entre si. O que entra no atendimento vira funil, vira pedido e vira número — sem retrabalho."
+          desc="Módulos que conversam entre si. O que entra no atendimento vira funil, vira pedido e vira número, sem retrabalho."
         />
         <div className="mt-14 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
           {mods.map((m, i) => (
@@ -550,7 +550,7 @@ function Modules() {
 
 function Catalog({ onDemo }: { onDemo: () => void }) {
   const feats = [
-    "Sua logo, suas cores e sua tipografia — a vitrine com a identidade da loja",
+    "Sua logo, suas cores e sua tipografia: a vitrine com a identidade da loja",
     "Grade completa: tamanhos, cores e variações com estoque em tempo real",
     "Produto esgotado aparece como indisponível, sem frustrar a cliente",
     "Link único para enviar no WhatsApp, no story ou na bio do Instagram",
@@ -571,7 +571,7 @@ function Catalog({ onDemo }: { onDemo: () => void }) {
           </Reveal>
           <Reveal delay={120}>
             <p className="mt-4 text-lg leading-relaxed text-slate-500">
-              Cada lojista personaliza o próprio catálogo — logo, paleta de cores,
+              Cada lojista personaliza o próprio catálogo: logo, paleta de cores,
               tipografia e organização. Sua cliente vê a sua marca, não a nossa.
             </p>
           </Reveal>
@@ -730,7 +730,7 @@ function Audience() {
     {
       icon: <IconStore />,
       title: "Atacadistas e distribuidores",
-      desc: "Confecções, importados, cosméticos, calçados — a operação inteira num lugar só.",
+      desc: "Confecções, importados, cosméticos, calçados: a operação inteira num lugar só.",
     },
     {
       icon: <IconWhatsApp className="size-6" />,
@@ -794,7 +794,7 @@ function How() {
     {
       icon: <IconRocket className="size-6" />,
       title: "Implantamos com você",
-      desc: "Configuramos catálogo, funil e equipe junto do seu time — do jeito da sua loja.",
+      desc: "Configuramos catálogo, funil e equipe junto do seu time, do jeito da sua loja.",
     },
     {
       icon: <IconChart className="size-6" />,
@@ -862,7 +862,7 @@ function Implantation() {
     {
       icon: <IconShield className="size-5" />,
       title: "Suporte humano contínuo",
-      desc: "Um time por perto de verdade — não é um robô respondendo ticket.",
+      desc: "Um time por perto de verdade, não é um robô respondendo ticket.",
     },
   ];
   return (
@@ -885,7 +885,7 @@ function Implantation() {
               <Reveal delay={120}>
                 <p className="mt-4 text-lg leading-relaxed text-slate-500">
                   O AtacadoPro não é um autoatendimento. Cada loja é implantada de forma
-                  personalizada, com acompanhamento humano em cada etapa — para a
+                  personalizada, com acompanhamento humano em cada etapa, para a
                   ferramenta se encaixar no jeito que você já vende.
                 </p>
               </Reveal>
@@ -921,7 +921,7 @@ function Shots() {
     { src: "/shots/funil.png", label: "Funil de vendas", alt: "Funil de vendas do AtacadoPro com etapas e oportunidades" },
     { src: "/shots/chat.png", label: "Atendimento", alt: "Central de atendimento omnichannel do AtacadoPro" },
     { src: "/shots/pedidos.png", label: "Pedidos", alt: "Tela de pedidos e vendas do AtacadoPro" },
-    { src: "/shots/produtos.png", label: "Produtos", alt: "Cadastro de produtos e catálogo do AtacadoPro" },
+    { src: "/shots/produtos.webp", label: "Produtos", alt: "Cadastro de produtos e catálogo do AtacadoPro" },
   ];
   return (
     <section className="bg-slate-50/70 py-20 sm:py-28">
@@ -1016,7 +1016,7 @@ function Faq() {
     },
     {
       q: "O catálogo fica com a cara da minha loja?",
-      a: "Totalmente. Você personaliza logo, cores, tipografia e organização. A sua cliente vê a identidade da sua marca — não a do AtacadoPro.",
+      a: "Totalmente. Você personaliza logo, cores, tipografia e organização. A sua cliente vê a identidade da sua marca, não a do AtacadoPro.",
     },
     {
       q: "Funciona no celular?",
@@ -1024,7 +1024,7 @@ function Faq() {
     },
     {
       q: "Serve para a minha loja?",
-      a: "Se você vende no atacado e boa parte dos seus pedidos passa pelo WhatsApp, Instagram ou catálogo, o AtacadoPro foi feito para você — do atacadista individual a operações com várias equipes de vendas.",
+      a: "Se você vende no atacado e boa parte dos seus pedidos passa pelo WhatsApp, Instagram ou catálogo, o AtacadoPro foi feito para você: do atacadista individual a operações com várias equipes de vendas.",
     },
   ];
   const [open, setOpen] = useState<number | null>(0);
@@ -1101,7 +1101,7 @@ function FinalCTA({ onDemo }: { onDemo: () => void }) {
         <Reveal delay={140}>
           <p className="mx-auto mt-5 max-w-xl text-lg text-slate-300">
             Dê ao seu atacado a plataforma profissional que ele merece. Comece com
-            uma demonstração — o resto, a gente constrói junto com você.
+            uma demonstração. O resto, a gente constrói junto com você.
           </p>
         </Reveal>
         <Reveal delay={220}>
@@ -1140,7 +1140,7 @@ function Footer({ onDemo }: { onDemo: () => void }) {
             <Logo size="md" onDark />
             <p className="mt-4 max-w-xs text-sm leading-relaxed text-slate-400">
               O jeito profissional de vender no atacado. Do primeiro contato no
-              WhatsApp à venda registrada — organizado, com a sua marca.
+              WhatsApp à venda registrada, organizado e com a sua marca.
             </p>
             <a
               href={WA_LINK}
