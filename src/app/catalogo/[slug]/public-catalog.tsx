@@ -637,8 +637,18 @@ export function PublicCatalog({
             </p>
           )}
           <p className="text-[11px] opacity-60 mt-4 m-0 font-medium">
-            © {new Date().getFullYear()} {storeName} · catálogo por AtacadoPro
+            © {new Date().getFullYear()} {storeName}
           </p>
+          {/* Powered by: cada catálogo divulga a plataforma — quem clicar cai
+              na landing e vira lead, marcado com a loja de origem (utm) */}
+          <a
+            href={`/?utm_source=catalogo&utm_medium=powered-by&utm_campaign=${encodeURIComponent(storeSlug)}`}
+            target="_blank"
+            rel="noopener"
+            className="inline-block text-[11px] font-semibold mt-1.5 opacity-75 hover:opacity-100 underline underline-offset-2 transition"
+          >
+            ⚡ Feito com AtacadoPro — crie o catálogo da sua marca
+          </a>
         </div>
       </footer>
 

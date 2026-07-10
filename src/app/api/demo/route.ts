@@ -24,6 +24,7 @@ const schema = z.object({
   hasEcommerce: z.boolean().optional(),
   currentSystem: z.string().optional(),
   message: z.string().optional(),
+  ref: z.string().max(300).optional(), // origem/utm (ex.: catálogo de uma loja)
   consent: z.literal(true),
 });
 
@@ -51,6 +52,7 @@ export async function POST(req: NextRequest) {
     `Loja física: ${d.hasPhysical ? "sim" : "não"} · E-commerce: ${d.hasEcommerce ? "sim" : "não"}`,
     d.currentSystem ? `Sistema atual: ${d.currentSystem}` : null,
     d.message ? `Mensagem: ${d.message}` : null,
+    d.ref ? `Veio de: ${d.ref}` : null,
   ]
     .filter(Boolean)
     .join("\n");

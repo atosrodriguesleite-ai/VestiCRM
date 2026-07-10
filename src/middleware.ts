@@ -36,7 +36,8 @@ export async function middleware(req: NextRequest) {
     (host === CATALOG_DOMAIN || host === `www.${CATALOG_DOMAIN}`)
   ) {
     if (pathname === "/") {
-      return NextResponse.redirect(MAIN_SITE_URL);
+      // preserva ?utm_... (ex.: link "Feito com AtacadoPro" dos catálogos)
+      return NextResponse.redirect(MAIN_SITE_URL + req.nextUrl.search);
     }
     // /toque-leve → /catalogo/toque-leve (URL do navegador fica curta).
     // APIs, assets e links curtos /c/ passam direto.

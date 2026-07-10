@@ -130,10 +130,21 @@ export function DemoModal({
     if (!valid || status === "sending") return;
     setStatus("sending");
     try {
+      // Atribuição: se o visitante chegou por um link marcado (ex.: rodapé
+      // "Feito com AtacadoPro" de um catálogo), registra a origem no lead.
+      const utm = new URLSearchParams(window.location.search);
+      const ref =
+        [
+          utm.get("utm_source"),
+          utm.get("utm_medium"),
+          utm.get("utm_campaign"),
+        ]
+          .filter(Boolean)
+          .join(" / ") || undefined;
       const res = await fetch("/api/demo", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...form, consent: true }),
+        body: JSON.stringify({ ...form, consent: true, ref }),
       });
       if (!res.ok) throw new Error();
       setStatus("done");
