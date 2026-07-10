@@ -20,6 +20,7 @@ const patchSchema = z.object({
   notes: z.string().nullable().optional(),
   trackingCode: z.string().nullable().optional(),
   shippingMethod: z.string().nullable().optional(),
+  sellerId: z.string().nullable().optional(), // vendedor responsável pela venda
 });
 
 export async function PATCH(
@@ -83,6 +84,17 @@ export async function PATCH(
 
     const data: Record<string, unknown> = {};
     if (parsed.data.notes !== undefined) data.notes = parsed.data.notes;
+    if (parsed.data.sellerId !== undefined) {
+      if (parsed.data.sellerId) {
+        const seller = await db.user.findFirst({
+          where: { id: parsed.data.sellerId, companyId: user.companyId },
+        });
+        if (!seller) {
+          return NextResponse.json({ error: "Vendedor inválido" }, { status: 404 });
+        }
+      }
+      data.sellerId = parsed.data.sellerId;
+    }
 
     if (newStatus && newStatus !== order.status) {
       data.status = newStatus;

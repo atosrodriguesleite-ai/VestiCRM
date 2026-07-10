@@ -45,6 +45,12 @@ export default async function OrderDetailPage({
   });
   if (!order) notFound();
 
+  const sellers = await db.user.findMany({
+    where: { companyId: user.companyId, active: true },
+    select: { id: true, name: true },
+    orderBy: { name: "asc" },
+  });
+
   return (
     <div className="max-w-5xl mx-auto">
       <Link
@@ -72,8 +78,22 @@ export default async function OrderDetailPage({
             </p>
             <CustomerEditor
               customerId={order.customerId}
-              name={order.customer.name}
-              phone={order.customer.phone}
+              orderId={order.id}
+              customer={{
+                name: order.customer.name,
+                phone: order.customer.phone,
+                email: order.customer.email,
+                document: order.customer.document,
+                zip: order.customer.zip,
+                street: order.customer.street,
+                streetNumber: order.customer.streetNumber,
+                district: order.customer.district,
+                city: order.customer.city,
+                state: order.customer.state,
+                origin: order.customer.origin,
+              }}
+              sellerId={order.sellerId}
+              sellers={sellers}
             />
           </div>
           <div className="flex flex-col gap-2 shrink-0">

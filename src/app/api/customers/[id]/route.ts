@@ -6,6 +6,12 @@ import { requireUser, AuthError } from "@/lib/auth";
 const schema = z.object({
   name: z.string().min(1).optional(),
   phone: z.string().min(8).optional(),
+  email: z.string().email().nullable().optional().or(z.literal("").transform(() => null)),
+  document: z.string().max(20).nullable().optional(), // CPF/CNPJ
+  zip: z.string().max(10).nullable().optional(),
+  street: z.string().max(120).nullable().optional(),
+  streetNumber: z.string().max(20).nullable().optional(),
+  district: z.string().max(80).nullable().optional(),
   city: z.string().nullable().optional(),
   state: z.string().nullable().optional(),
   type: z

@@ -178,6 +178,12 @@ model Customer {
   company        Company      @relation(fields: [companyId], references: [id], onDelete: Cascade)
   name           String
   phone          String
+  email          String?
+  document       String? // CPF ou CNPJ
+  zip            String? // CEP
+  street         String?
+  streetNumber   String?
+  district       String? // bairro
   city           String?
   state          String?
   type           CustomerType @default(VAREJO)
