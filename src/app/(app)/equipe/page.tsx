@@ -34,6 +34,7 @@ export default async function TeamPage() {
       id: m.id,
       name: m.name,
       email: m.email,
+      username: m.username,
       role: m.role,
       color: m.color,
       active: m.active,

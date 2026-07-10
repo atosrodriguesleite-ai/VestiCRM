@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
+import bcrypt from "bcryptjs";
 import { db } from "@/lib/db";
 import { requireUser, AuthError } from "@/lib/auth";
 import { isAdmin } from "@/lib/scope";
@@ -7,6 +8,7 @@ import { isAdmin } from "@/lib/scope";
 const schema = z.object({
   active: z.boolean().optional(),
   role: z.enum(["ADMIN", "MANAGER", "SELLER", "SUPPORT"]).optional(),
+  password: z.string().min(6).optional(), // redefinição de senha pelo admin
 });
 
 export async function PATCH(
@@ -42,7 +44,13 @@ export async function PATCH(
 
     const updated = await db.user.update({
       where: { id },
-      data: parsed.data,
+      data: {
+        ...(parsed.data.active !== undefined ? { active: parsed.data.active } : {}),
+        ...(parsed.data.role ? { role: parsed.data.role } : {}),
+        ...(parsed.data.password
+          ? { passwordHash: await bcrypt.hash(parsed.data.password, 10) }
+          : {}),
+      },
     });
     return NextResponse.json({ id: updated.id, active: updated.active });
   } catch (e) {

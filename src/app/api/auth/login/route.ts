@@ -5,7 +5,7 @@ import { db } from "@/lib/db";
 import { createSession } from "@/lib/auth";
 
 const schema = z.object({
-  email: z.string().email(),
+  email: z.string().min(1), // e-mail OU nome de usuário
   password: z.string().min(1),
 });
 
@@ -17,7 +17,9 @@ export async function POST(req: NextRequest) {
   }
 
   const user = await db.user.findUnique({
-    where: { email: parsed.data.email.toLowerCase() },
+    where: parsed.data.email.includes("@")
+      ? { email: parsed.data.email.trim().toLowerCase() }
+      : { username: parsed.data.email.trim().toLowerCase() },
   });
   if (!user || !user.active) {
     return NextResponse.json(

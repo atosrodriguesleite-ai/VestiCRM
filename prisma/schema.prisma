@@ -125,6 +125,7 @@ model User {
   company      Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
   name         String
   email        String  @unique
+  username     String? @unique // login alternativo sem e-mail (ex.: "maria")
   passwordHash String
   role         Role    @default(SELLER)
   active       Boolean @default(true)

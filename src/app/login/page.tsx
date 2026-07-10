@@ -102,15 +102,15 @@ export default function LoginPage() {
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1.5">
-                E-mail
+                E-mail ou usuário
               </label>
               <input
-                type="email"
+                type="text"
                 required
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 className={input}
-                placeholder="voce@sualoja.com.br"
+                placeholder="voce@sualoja.com.br ou maria"
               />
             </div>
             <div>

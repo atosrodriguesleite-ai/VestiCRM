@@ -10,6 +10,7 @@ export type TeamMember = {
   id: string;
   name: string;
   email: string;
+  username: string | null;
   role: string;
   color: string;
   active: boolean;
@@ -39,6 +40,18 @@ export function TeamView({
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
 
+  async function resetPassword(m: TeamMember) {
+    const nova = window.prompt(`Nova senha para ${m.name} (mín. 6 caracteres):`);
+    if (!nova) return;
+    if (nova.length < 6) return window.alert("A senha precisa de pelo menos 6 caracteres.");
+    const res = await fetch(`/api/team/${m.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ password: nova }),
+    });
+    window.alert(res.ok ? "Senha redefinida. Informe ao usuário." : "Não foi possível redefinir.");
+  }
+
   async function toggleActive(m: TeamMember) {
     const res = await fetch(`/api/team/${m.id}`, {
       method: "PATCH",
@@ -58,7 +71,7 @@ export function TeamView({
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         name: fd.get("name"),
-        email: fd.get("email"),
+        login: fd.get("login"),
         password: fd.get("password"),
         role: fd.get("role"),
       }),
@@ -109,7 +122,9 @@ export function TeamView({
                     </span>
                   )}
                 </p>
-                <p className="text-xs text-gray-400 truncate">{m.email}</p>
+                <p className="text-xs text-gray-400 truncate">
+                  {m.username ?? m.email}
+                </p>
                 <div className="flex gap-1.5 mt-1.5">
                   <Badge color={roleColor[m.role] ?? "#64748b"}>
                     {roleLabel[m.role as keyof typeof roleLabel]}
@@ -118,16 +133,24 @@ export function TeamView({
                 </div>
               </div>
               {canManage && !m.isMe && (
-                <button
-                  onClick={() => toggleActive(m)}
-                  className={`text-xs font-medium rounded-lg px-2.5 py-1.5 transition ${
-                    m.active
-                      ? "text-rose-600 hover:bg-rose-50"
-                      : "text-emerald-600 hover:bg-emerald-50"
-                  }`}
-                >
-                  {m.active ? "Desativar" : "Reativar"}
-                </button>
+                <div className="flex flex-col items-end gap-1">
+                  <button
+                    onClick={() => toggleActive(m)}
+                    className={`text-xs font-medium rounded-lg px-2.5 py-1.5 transition ${
+                      m.active
+                        ? "text-rose-600 hover:bg-rose-50"
+                        : "text-emerald-600 hover:bg-emerald-50"
+                    }`}
+                  >
+                    {m.active ? "Desativar" : "Reativar"}
+                  </button>
+                  <button
+                    onClick={() => resetPassword(m)}
+                    className="text-xs font-medium text-gray-400 hover:text-brand-600 rounded-lg px-2.5 py-1 transition"
+                  >
+                    Redefinir senha
+                  </button>
+                </div>
               )}
             </div>
             <div className="grid grid-cols-4 gap-2 mt-4 pt-4 border-t border-gray-50 text-center">
@@ -167,12 +190,13 @@ export function TeamView({
             Permissões por papel
           </p>
           <p>
-            <strong>Administrador</strong>: acesso total à loja ·{" "}
-            <strong>Gerente</strong>: vê toda a equipe e relatórios ·{" "}
-            <strong>Vendedor(a)</strong>: vê apenas os próprios clientes e
-            atendimentos · <strong>Atendimento</strong>: central de WhatsApp e
-            tarefas. Cada loja acessa somente os próprios dados
-            (multi-empresa pronto para SaaS).
+            <strong>Administrador</strong>: visão geral + gerencia equipe,
+            produtos e configurações · <strong>Gerente</strong>: visão geral
+            (dashboard da loja, relatórios e inteligência) ·{" "}
+            <strong>Vendedor(a)</strong>: vê apenas os próprios clientes,
+            pedidos e números — sem relatórios da loja ·{" "}
+            <strong>Atendimento</strong>: central de WhatsApp e tarefas.
+            Cada loja acessa somente os próprios dados.
           </p>
         </div>
       </Card>
@@ -203,8 +227,16 @@ export function TeamView({
                 <input name="name" required className={input} />
               </div>
               <div>
-                <label className={label}>E-mail *</label>
-                <input name="email" type="email" required className={input} />
+                <label className={label}>Login de acesso *</label>
+                <input
+                  name="login"
+                  required
+                  className={input}
+                  placeholder="ex.: maria  (ou um e-mail)"
+                />
+                <p className="text-[11px] text-gray-400 mt-1">
+                  Pode ser um nome simples (sem e-mail) — é com ele que a pessoa entra no sistema.
+                </p>
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
@@ -220,9 +252,9 @@ export function TeamView({
                 <div>
                   <label className={label}>Papel</label>
                   <select name="role" defaultValue="SELLER" className={`${input} bg-white`}>
-                    <option value="ADMIN">Administrador</option>
-                    <option value="MANAGER">Gerente</option>
-                    <option value="SELLER">Vendedor(a)</option>
+                    <option value="SELLER">Vendedor(a) — só o que é dele</option>
+                    <option value="MANAGER">Gerente — visão geral</option>
+                    <option value="ADMIN">Administrador — total</option>
                     <option value="SUPPORT">Atendimento</option>
                   </select>
                 </div>

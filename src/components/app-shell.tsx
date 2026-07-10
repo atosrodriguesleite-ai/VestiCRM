@@ -40,7 +40,7 @@ const NAV = [
   { href: "/clientes", label: "Clientes", icon: Users, group: "Relacionamento" },
   { href: "/automacoes", label: "Automações", icon: Zap, group: "Relacionamento" },
   { href: "/campanhas", label: "Campanhas", icon: Megaphone, group: "Relacionamento" },
-  { href: "/relatorios", label: "Relatórios", icon: BarChart3, group: "Análise" },
+  { href: "/relatorios", label: "Relatórios", icon: BarChart3, group: "Análise", managerOnly: true },
   { href: "/inteligencia", label: "Inteligência", icon: Brain, group: "Análise", managerOnly: true },
   { href: "/comunicacao", label: "Comunicação", icon: Radio, group: "Sistema", managerOnly: true },
   { href: "/equipe", label: "Equipe", icon: UserCog, group: "Sistema", managerOnly: true },

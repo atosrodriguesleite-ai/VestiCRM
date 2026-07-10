@@ -8,9 +8,10 @@ import {
   Moon,
   Shirt,
 } from "lucide-react";
+import { redirect } from "next/navigation";
 import { requireUser } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { ownedScope } from "@/lib/scope";
+import { ownedScope, isManagerUp } from "@/lib/scope";
 import { brl, dateShort, originLabel } from "@/lib/format";
 import { Card, PageHeader, EmptyState } from "@/components/ui";
 import { AreaChart, BarList, FunnelBars, StatTile } from "@/components/charts";
@@ -19,6 +20,8 @@ export const dynamic = "force-dynamic";
 
 export default async function ReportsPage() {
   const user = await requireUser();
+  // Relatórios são visão geral da loja: vendedor comum não acessa
+  if (!isManagerUp(user)) redirect("/dashboard");
   const scope = ownedScope(user);
   const now = new Date();
   const days90 = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
