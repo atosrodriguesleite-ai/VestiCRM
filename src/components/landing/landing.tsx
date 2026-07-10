@@ -606,12 +606,12 @@ function Catalog({ onDemo }: { onDemo: () => void }) {
             <div className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-pop ring-1 ring-slate-900/5">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
-                src="/shots/catalogo.png"
-                alt="Catálogo digital personalizável do AtacadoPro com produtos, grade de tamanhos e cores"
+                src="/shots/catalogo.webp"
+                alt="Catálogo digital real feito no AtacadoPro: fotos dos produtos, cores, preços e pedido pelo WhatsApp"
                 loading="lazy"
                 className="block w-full"
-                width={1200}
-                height={1500}
+                width={780}
+                height={1688}
               />
             </div>
             <div className="absolute -bottom-5 -left-4 hidden rounded-2xl border border-slate-100 bg-white/90 px-4 py-3 shadow-pop backdrop-blur sm:flex sm:items-center sm:gap-3">
