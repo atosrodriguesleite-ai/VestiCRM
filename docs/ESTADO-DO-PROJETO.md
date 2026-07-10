@@ -16,6 +16,15 @@ inteligência comercial. Multi-tenant (cada loja isolada por `companyId`).
 - Tailwind v4 · JWT (jose) · vitest (52 testes)
 - Branch de desenvolvimento: **`claude/modacrm-clothing-crm-cxa9gf`**
 
+## Domínios (produção)
+- **www.atacadopro.com** → landing page + sistema (login, painel).
+- **catalago.net/nome-da-loja** → catálogo público da loja (link curto).
+- **catalago.net/nome-da-loja/vendedor** → link inteligente do vendedor/campanha
+  (rastreável; a URL fica minimalista e a atribuição é nos bastidores).
+- **catalago.net** (raiz) → redireciona para a landing.
+- Vars na Vercel: `CATALOG_DOMAIN=catalago.net`, `MAIN_SITE_URL=https://www.atacadopro.com`.
+- DNS no HostGator (A `@`→216.198.79.1 + CNAME `www`→cname.vercel-dns.com).
+
 ## Já está NO AR (produção)
 - **Hospedagem:** Vercel (deploy automático a cada push na branch).
 - **Banco:** Neon (PostgreSQL, região São Paulo).
