@@ -192,6 +192,21 @@ export async function PATCH(
     const needReturn =
       willChangeStatus && !PAID_STATUSES.has(newStatus!) && order.stockDeducted;
 
+    // Regra: um pedido só pode virar PAGO com um vendedor atribuído.
+    if (needDeduct) {
+      const effectiveSeller =
+        parsed.data.sellerId !== undefined ? parsed.data.sellerId : order.sellerId;
+      if (!effectiveSeller) {
+        return NextResponse.json(
+          {
+            error:
+              "Atribua um vendedor ao pedido antes de marcá-lo como pago (em \"Editar dados\").",
+          },
+          { status: 409 }
+        );
+      }
+    }
+
     // Antes de escrever: se o pedido vai baixar estoque agora (virou pago),
     // confere disponibilidade e bloqueia se faltar.
     if (needDeduct) {
