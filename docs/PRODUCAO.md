@@ -20,6 +20,8 @@ DATABASE_URL="postgresql://user:senha@host/vesticrm?sslmode=require"
 | `DATABASE_URL`  | ✅          | String do Postgres de produção.                        |
 | `AUTH_SECRET`   | ✅          | Segredo das sessões. Gere: `openssl rand -base64 32`.  |
 | `CRED_SECRET`   | opcional    | Criptografa credenciais de integração; usa AUTH se ausente. |
+| `CATALOG_DOMAIN` | opcional   | Domínio dedicado aos catálogos (ex.: `pedidosatacado.com.br`). Nesse host, `/toque-leve` abre o catálogo da loja. Adicione o domínio também na Vercel. |
+| `MAIN_SITE_URL` | opcional    | Para onde redirecionar a raiz do domínio de catálogos (padrão: URL da Vercel). |
 
 Em produção, a aplicação **recusa iniciar** sem `AUTH_SECRET` forte (≥16
 caracteres) — proteção contra subir com segredo público.
