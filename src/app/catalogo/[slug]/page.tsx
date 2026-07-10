@@ -79,6 +79,7 @@ export default async function PublicCatalogPage({
       minOrderMode={company.minOrderMode as "NONE" | "PECAS" | "VALOR"}
       minOrderValue={company.minOrderValue}
       products={items}
+      logoSize={company.catalogLogoSize as "normal" | "grande"}
       identity={{
         logoUrl: company.logoUrl,
         primary: company.catalogPrimary,

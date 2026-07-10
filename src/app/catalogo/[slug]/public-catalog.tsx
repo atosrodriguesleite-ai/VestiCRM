@@ -121,6 +121,7 @@ export function PublicCatalog({
   minOrderValue,
   products,
   identity,
+  logoSize = "normal",
   customColors,
   tracking,
 }: {
@@ -133,6 +134,7 @@ export function PublicCatalog({
   minOrderValue: number;
   products: CatalogProduct[];
   identity: CatalogIdentity;
+  logoSize?: "normal" | "grande";
   customColors: { name: string; hex: string }[];
   tracking: Record<string, string | null>;
 }) {
@@ -438,40 +440,67 @@ export function PublicCatalog({
     >
       {/* TOPBAR */}
       <header className="sticky top-0 z-40" style={{ background: T.primary }}>
-        <div className="max-w-[680px] mx-auto px-[18px] py-3.5 flex items-center justify-between gap-3">
-          <div className="leading-none min-w-0">
-            {identity.logoUrl ? (
-              <img
-                src={identity.logoUrl}
-                alt={storeName}
-                className="h-9 max-w-44 object-contain"
-              />
-            ) : (
-              <p
-                className="font-extrabold text-[23px] lowercase truncate"
-                style={{ color: T.secondary, letterSpacing: ".02em" }}
-              >
-                {storeName}
-              </p>
-            )}
+        {logoSize === "grande" && identity.logoUrl ? (
+          // Logo grande centralizado, preenchendo quase toda a área superior
+          <div className="max-w-[680px] mx-auto relative px-[18px] py-5 flex items-center justify-center">
+            <img
+              src={identity.logoUrl}
+              alt={storeName}
+              className="h-24 sm:h-28 max-w-[86%] object-contain"
+            />
+            <button
+              onClick={openBag}
+              aria-label="Abrir pedido"
+              className="absolute right-[18px] top-1/2 -translate-y-1/2 flex items-center justify-center size-[46px] rounded-full shrink-0 active:scale-95 transition"
+              style={{ background: T.secondary, color: T.primary }}
+            >
+              <BagIcon className="size-5" />
+              {totalPieces > 0 && (
+                <span
+                  className="absolute -top-1 -right-1 min-w-5 h-5 px-1 rounded-full text-[11px] font-bold flex items-center justify-center"
+                  style={{ background: T.dark, color: T.secondary, border: `2px solid ${T.primary}` }}
+                >
+                  {totalPieces}
+                </span>
+              )}
+            </button>
           </div>
-          <button
-            onClick={openBag}
-            aria-label="Abrir pedido"
-            className="relative flex items-center justify-center size-[46px] rounded-full shrink-0 active:scale-95 transition"
-            style={{ background: T.secondary, color: T.primary }}
-          >
-            <BagIcon className="size-5" />
-            {totalPieces > 0 && (
-              <span
-                className="absolute -top-1 -right-1 min-w-5 h-5 px-1 rounded-full text-[11px] font-bold flex items-center justify-center"
-                style={{ background: T.dark, color: T.secondary, border: `2px solid ${T.primary}` }}
-              >
-                {totalPieces}
-              </span>
-            )}
-          </button>
-        </div>
+        ) : (
+          <div className="max-w-[680px] mx-auto px-[18px] py-3.5 flex items-center justify-between gap-3">
+            <div className="leading-none min-w-0">
+              {identity.logoUrl ? (
+                <img
+                  src={identity.logoUrl}
+                  alt={storeName}
+                  className="h-9 max-w-44 object-contain"
+                />
+              ) : (
+                <p
+                  className="font-extrabold text-[23px] lowercase truncate"
+                  style={{ color: T.secondary, letterSpacing: ".02em" }}
+                >
+                  {storeName}
+                </p>
+              )}
+            </div>
+            <button
+              onClick={openBag}
+              aria-label="Abrir pedido"
+              className="relative flex items-center justify-center size-[46px] rounded-full shrink-0 active:scale-95 transition"
+              style={{ background: T.secondary, color: T.primary }}
+            >
+              <BagIcon className="size-5" />
+              {totalPieces > 0 && (
+                <span
+                  className="absolute -top-1 -right-1 min-w-5 h-5 px-1 rounded-full text-[11px] font-bold flex items-center justify-center"
+                  style={{ background: T.dark, color: T.secondary, border: `2px solid ${T.primary}` }}
+                >
+                  {totalPieces}
+                </span>
+              )}
+            </button>
+          </div>
+        )}
       </header>
 
       {/* INTRO */}
@@ -488,7 +517,7 @@ export function PublicCatalog({
       {/* BARRA DE MODELOS */}
       <nav
         className="sticky z-30 border-b"
-        style={{ top: 74, background: T.bg, borderColor: T.line, boxShadow: "0 6px 12px -10px rgba(0,0,0,.3)" }}
+        style={{ top: logoSize === "grande" ? 130 : 74, background: T.bg, borderColor: T.line, boxShadow: "0 6px 12px -10px rgba(0,0,0,.3)" }}
       >
         <div className="max-w-[680px] mx-auto flex gap-2 overflow-x-auto md:flex-wrap md:overflow-x-visible px-[18px] py-[11px]" style={{ scrollbarWidth: "none" }}>
           {categories.map((cat, i) => {

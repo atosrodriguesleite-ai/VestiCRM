@@ -14,6 +14,7 @@ const schema = z.object({
   minOrderMode: z.enum(["NONE", "PECAS", "VALOR"]).optional(),
   minOrderValue: z.number().nonnegative().optional(),
   commissionBase: z.enum(["SUBTOTAL", "TOTAL"]).optional(),
+  catalogLogoSize: z.enum(["normal", "grande"]).optional(),
   // identidade visual do catálogo
   logoUrl: z.string().nullable().optional(),
   catalogPrimary: hexColor.optional(),
@@ -55,6 +56,7 @@ export async function PATCH(req: NextRequest) {
       catalogSecondary: updated.catalogSecondary,
       catalogBg: updated.catalogBg,
       catalogFont: updated.catalogFont,
+      catalogLogoSize: updated.catalogLogoSize,
     });
   } catch (e) {
     if (e instanceof AuthError)

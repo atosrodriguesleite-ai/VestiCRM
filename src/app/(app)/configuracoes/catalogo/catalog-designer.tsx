@@ -53,6 +53,7 @@ export function CatalogDesigner({
     catalogSecondary: string;
     catalogBg: string;
     catalogFont: string;
+    catalogLogoSize: string;
   };
   colors: ColorItem[];
   sizes: SizeItem[];
@@ -64,6 +65,7 @@ export function CatalogDesigner({
   const [secondary, setSecondary] = useState(initial.catalogSecondary);
   const [bg, setBg] = useState(initial.catalogBg);
   const [font, setFont] = useState(initial.catalogFont);
+  const [logoSize, setLogoSize] = useState(initial.catalogLogoSize);
   const [colors, setColors] = useState(initialColors);
   const [sizes, setSizes] = useState(initialSizes);
   const [newColor, setNewColor] = useState({ name: "", hex: "#c94f7c" });
@@ -72,7 +74,7 @@ export function CatalogDesigner({
   const [saved, setSaved] = useState(false);
 
   async function uploadLogo(file: File) {
-    const dataUrl = await fileToDataUrl(file, 360, 0.9);
+    const dataUrl = await fileToDataUrl(file, 1000, 0.92);
     setLogo(dataUrl);
   }
 
@@ -87,6 +89,7 @@ export function CatalogDesigner({
         catalogSecondary: secondary,
         catalogBg: bg,
         catalogFont: font,
+        catalogLogoSize: logoSize,
       }),
     });
     setSaving(false);
@@ -265,6 +268,22 @@ export function CatalogDesigner({
             </div>
 
             {/* Tipografia */}
+            <div>
+              <p className="text-sm font-medium mb-2">Logo no topo do catálogo</p>
+              <div className="grid grid-cols-2 gap-2">
+                {([["normal","Padrão (canto)"],["grande","Grande centralizado"]] as const).map(([k,txt]) => (
+                  <label key={k} className={`rounded-xl border px-3 py-2.5 text-sm text-center cursor-pointer transition ${logoSize===k ? "border-brand-400 bg-brand-50 font-medium" : "border-gray-200 hover:border-gray-300"}`}>
+                    <input type="radio" name="logoSize" disabled={!canEdit} checked={logoSize===k} onChange={() => setLogoSize(k)} className="sr-only" />
+                    {txt}
+                  </label>
+                ))}
+              </div>
+              <p className="text-[11px] text-gray-400 mt-1.5">
+                Grande: o logo preenche o topo, centralizado. Envie um logo em
+                boa resolução (ideal ~1000×300 px, PNG com fundo transparente).
+              </p>
+            </div>
+
             <div>
               <p className="text-sm font-medium mb-2 flex items-center gap-1.5">
                 <Type className="size-3.5 text-gray-400" />

@@ -46,6 +46,7 @@ export default async function CatalogCustomizePage() {
           catalogSecondary: company.catalogSecondary,
           catalogBg: company.catalogBg,
           catalogFont: company.catalogFont,
+          catalogLogoSize: company.catalogLogoSize,
         }}
         colors={colors.map((c) => ({ id: c.id, name: c.name, hex: c.hex }))}
         sizes={sizes.map((s) => ({ id: s.id, name: s.name }))}
