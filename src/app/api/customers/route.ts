@@ -8,6 +8,7 @@ import type { Origin } from "@prisma/client";
 const schema = z.object({
   name: z.string().min(1),
   phone: z.string().min(8),
+  document: z.string().max(20).optional(), // CPF/CNPJ
   city: z.string().optional(),
   state: z.string().optional(),
   type: z
@@ -28,7 +29,7 @@ export async function POST(req: NextRequest) {
     if (!parsed.success) {
       return NextResponse.json({ error: "Dados inválidos" }, { status: 400 });
     }
-    const { interestIds, type, notes, preferredSize, preferredColors, origin, ...core } =
+    const { interestIds, type, notes, preferredSize, preferredColors, origin, document, ...core } =
       parsed.data;
 
     const validOrigins = Object.keys(
@@ -52,6 +53,7 @@ export async function POST(req: NextRequest) {
       where: { id: result.customer.id },
       data: {
         type,
+        document: document ?? undefined,
         notes: notes ?? undefined,
         preferredSize: preferredSize ?? undefined,
         preferredColors: preferredColors ?? undefined,
@@ -67,6 +69,36 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(customer, {
       status: result.isNewLead ? 201 : 200,
     });
+  } catch (e) {
+    if (e instanceof AuthError)
+      return NextResponse.json({ error: "Não autenticado" }, { status: 401 });
+    throw e;
+  }
+}
+
+/** Busca de clientes da loja (para vincular a pedidos etc.). */
+export async function GET(req: NextRequest) {
+  try {
+    const user = await requireUser();
+    const q = req.nextUrl.searchParams.get("q")?.trim() ?? "";
+    const customers = await db.customer.findMany({
+      where: {
+        companyId: user.companyId,
+        ...(q
+          ? {
+              OR: [
+                { name: { contains: q, mode: "insensitive" } },
+                { phone: { contains: q.replace(/\D/g, "") || q } },
+                { document: { contains: q } },
+              ],
+            }
+          : {}),
+      },
+      select: { id: true, name: true, phone: true, city: true, state: true },
+      orderBy: { lastContactAt: { sort: "desc", nulls: "last" } },
+      take: 15,
+    });
+    return NextResponse.json(customers);
   } catch (e) {
     if (e instanceof AuthError)
       return NextResponse.json({ error: "Não autenticado" }, { status: 401 });

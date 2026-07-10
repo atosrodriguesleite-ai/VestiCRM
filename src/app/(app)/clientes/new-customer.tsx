@@ -25,6 +25,7 @@ export function NewCustomerButton({
       body: JSON.stringify({
         name: fd.get("name"),
         phone: String(fd.get("phone")).replace(/\D/g, ""),
+        document: fd.get("document") || undefined,
         city: fd.get("city") || undefined,
         state: fd.get("state") || undefined,
         type: fd.get("type"),
@@ -92,6 +93,14 @@ export function NewCustomerButton({
                   className={input}
                   placeholder="(11) 99876-5432"
                   inputMode="tel"
+                />
+              </div>
+              <div>
+                <label className={label}>CPF / CNPJ</label>
+                <input
+                  name="document"
+                  className={input}
+                  placeholder="000.000.000-00 (opcional)"
                 />
               </div>
               <div className="grid grid-cols-3 gap-3">

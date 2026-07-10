@@ -9,7 +9,7 @@
  * origem do cliente.
  */
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Pencil } from "lucide-react";
@@ -63,6 +63,39 @@ export function CustomerEditor({
   });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const [query, setQuery] = useState("");
+  const [results, setResults] = useState<
+    { id: string; name: string; phone: string; city: string | null; state: string | null }[]
+  >([]);
+
+  // Busca de clientes já cadastrados (para vincular sem redigitar)
+  useEffect(() => {
+    if (!open || query.trim().length < 2) {
+      setResults([]);
+      return;
+    }
+    const t = setTimeout(async () => {
+      const res = await fetch(`/api/customers?q=${encodeURIComponent(query.trim())}`);
+      if (res.ok) setResults(await res.json());
+    }, 300);
+    return () => clearTimeout(t);
+  }, [query, open]);
+
+  async function linkCustomer(id: string) {
+    setSaving(true);
+    setError("");
+    const res = await fetch(`/api/orders/${orderId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ customerId: id }),
+    });
+    setSaving(false);
+    if (!res.ok) return setError("Não foi possível vincular o cliente.");
+    setOpen(false);
+    setQuery("");
+    setResults([]);
+    router.refresh();
+  }
 
   const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
     setForm((f) => ({ ...f, [k]: e.target.value }));
@@ -168,8 +201,39 @@ export function CustomerEditor({
 
   return (
     <div className="mt-3 rounded-xl border border-gray-200 bg-gray-50/60 p-4 max-w-2xl">
+      <p className="text-xs font-semibold text-gray-600 mb-2">
+        Vincular um cliente já cadastrado
+      </p>
+      <div className="relative mb-4">
+        <input
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Buscar por nome, telefone ou CPF/CNPJ…"
+          className={input}
+        />
+        {results.length > 0 && (
+          <div className="absolute z-10 mt-1 w-full rounded-xl border border-gray-200 bg-white shadow-pop max-h-56 overflow-y-auto">
+            {results.map((c) => (
+              <button
+                key={c.id}
+                type="button"
+                disabled={saving}
+                onClick={() => linkCustomer(c.id)}
+                className="w-full text-left px-3 py-2 hover:bg-brand-50 transition"
+              >
+                <span className="block text-sm font-medium">{c.name}</span>
+                <span className="block text-xs text-gray-400">
+                  {[formatPhone(c.phone), [c.city, c.state].filter(Boolean).join("/")]
+                    .filter(Boolean)
+                    .join(" · ")}
+                </span>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
       <p className="text-xs font-semibold text-gray-600 mb-3">
-        Dados do cliente e da venda
+        Ou preencha os dados manualmente
       </p>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div>

@@ -21,6 +21,7 @@ const patchSchema = z.object({
   trackingCode: z.string().nullable().optional(),
   shippingMethod: z.string().nullable().optional(),
   sellerId: z.string().nullable().optional(), // vendedor responsável pela venda
+  customerId: z.string().optional(), // vincula o pedido a um cliente já cadastrado
 });
 
 export async function PATCH(
@@ -94,6 +95,23 @@ export async function PATCH(
         }
       }
       data.sellerId = parsed.data.sellerId;
+    }
+    if (parsed.data.customerId && parsed.data.customerId !== order.customerId) {
+      const customer = await db.customer.findFirst({
+        where: { id: parsed.data.customerId, companyId: user.companyId },
+      });
+      if (!customer) {
+        return NextResponse.json({ error: "Cliente inválido" }, { status: 404 });
+      }
+      data.customerId = customer.id;
+      await db.orderEvent.create({
+        data: {
+          orderId: order.id,
+          type: "NOTA",
+          description: `Pedido vinculado ao cliente ${customer.name} por ${user.name}`,
+          userId: user.id,
+        },
+      });
     }
 
     if (newStatus && newStatus !== order.status) {
