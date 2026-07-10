@@ -3,6 +3,14 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import { requireUser, AuthError } from "@/lib/auth";
 import { orderStatusLabel, orderNumber, PAID_ORDER_STATUSES } from "@/lib/orders";
+import { computeOrderTotals } from "@/lib/orders";
+
+const itemSchema = z.object({
+  productId: z.string().min(1),
+  variantId: z.string().min(1),
+  quantity: z.number().int().positive(),
+  unitPrice: z.number().nonnegative(),
+});
 
 const patchSchema = z.object({
   status: z
@@ -25,6 +33,9 @@ const patchSchema = z.object({
   paymentMethod: z
     .enum(["PIX", "CARTAO", "BOLETO", "CHEQUE", "DINHEIRO", "OUTRO"])
     .optional(), // forma de pagamento
+  items: z.array(itemSchema).min(1).optional(), // edição dos itens (antes de pagar)
+  discount: z.number().nonnegative().optional(),
+  shippingFee: z.number().nonnegative().optional(),
 });
 
 export async function PATCH(
@@ -45,6 +56,79 @@ export async function PATCH(
     });
     if (!order) {
       return NextResponse.json({ error: "Não encontrado" }, { status: 404 });
+    }
+
+    // ---- Edição dos itens (só antes do pagamento) ----
+    if (parsed.data.items) {
+      if (order.stockDeducted) {
+        return NextResponse.json(
+          { error: "Não é possível editar os itens de um pedido já pago. Cancele ou volte o status para editar." },
+          { status: 409 }
+        );
+      }
+      const variantIds = parsed.data.items.map((i) => i.variantId);
+      const variants = await db.productVariant.findMany({
+        where: { id: { in: variantIds }, product: { companyId: user.companyId } },
+        include: { product: { include: { images: { orderBy: { order: "asc" }, take: 1 } } } },
+      });
+      const variantById = new Map(variants.map((v) => [v.id, v]));
+      for (const item of parsed.data.items) {
+        const v = variantById.get(item.variantId);
+        if (!v || v.productId !== item.productId) {
+          return NextResponse.json({ error: "Produto inválido no pedido" }, { status: 404 });
+        }
+      }
+      const discount = parsed.data.discount ?? order.discount;
+      const shippingFee = parsed.data.shippingFee ?? order.shippingFee;
+      const totals = computeOrderTotals(parsed.data.items, discount, shippingFee);
+      await db.$transaction(async (tx) => {
+        await tx.orderItem.deleteMany({ where: { orderId: order.id } });
+        await tx.orderItem.createMany({
+          data: parsed.data.items!.map((i) => {
+            const v = variantById.get(i.variantId)!;
+            return {
+              orderId: order.id,
+              productId: v.productId,
+              variantId: v.id,
+              name: v.product.name,
+              sku: v.product.sku,
+              imageUrl: v.product.images[0]?.url ?? null,
+              color: v.color,
+              size: v.size,
+              quantity: i.quantity,
+              unitPrice: i.unitPrice,
+              total: i.quantity * i.unitPrice,
+            };
+          }),
+        });
+        await tx.order.update({
+          where: { id: order.id },
+          data: {
+            subtotal: totals.subtotal,
+            discount: totals.discount,
+            shippingFee: totals.shippingFee,
+            total: totals.total,
+          },
+        });
+        // atualiza o valor do pagamento pendente
+        await tx.payment.updateMany({
+          where: { orderId: order.id, status: "PENDENTE" },
+          data: { amount: totals.total },
+        });
+        await tx.orderEvent.create({
+          data: {
+            orderId: order.id,
+            type: "NOTA",
+            description: `Itens do pedido editados por ${user.name} — novo total R$ ${totals.total.toFixed(2)}`,
+            userId: user.id,
+          },
+        });
+      });
+      // se veio SÓ a edição de itens, responde aqui
+      if (!parsed.data.status && !parsed.data.notes && parsed.data.sellerId === undefined && !parsed.data.customerId && !parsed.data.paymentMethod && parsed.data.trackingCode === undefined && parsed.data.shippingMethod === undefined) {
+        const updated = await db.order.findUnique({ where: { id: order.id } });
+        return NextResponse.json(updated);
+      }
     }
 
     const newStatus = parsed.data.status;

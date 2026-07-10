@@ -19,6 +19,7 @@ import {
 import { Card, Badge } from "@/components/ui";
 import { StatusChanger } from "./status-changer";
 import { CustomerEditor } from "./customer-editor";
+import { ItemsEditor } from "./items-editor";
 import { PaymentMethodChanger } from "./payment-method";
 
 export const dynamic = "force-dynamic";
@@ -37,7 +38,7 @@ export default async function OrderDetailPage({
       customer: true,
       seller: true,
       conversation: true,
-      items: true,
+      items: { include: { variant: { select: { stock: true } } } },
       payments: { orderBy: { createdAt: "asc" } },
       shipping: true,
       events: { orderBy: { createdAt: "desc" }, include: { user: true } },
@@ -125,7 +126,25 @@ export default async function OrderDetailPage({
       <div className="grid md:grid-cols-3 gap-4">
         {/* Itens */}
         <Card className="p-5 md:col-span-2">
-          <h2 className="font-semibold mb-4">Itens do pedido</h2>
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="font-semibold">Itens do pedido</h2>
+            {!order.stockDeducted && order.status !== "CANCELADO" && (
+              <ItemsEditor
+                orderId={order.id}
+                discount={order.discount}
+                shippingFee={order.shippingFee}
+                initialItems={order.items.map((i) => ({
+                  productId: i.productId ?? "",
+                  variantId: i.variantId ?? "",
+                  name: i.name,
+                  variant: [i.color, i.size].filter(Boolean).join(" · "),
+                  stock: i.variant?.stock ?? 0,
+                  quantity: i.quantity,
+                  unitPrice: i.unitPrice,
+                }))}
+              />
+            )}
+          </div>
           <ul className="divide-y divide-gray-50">
             {order.items.map((item) => (
               <li key={item.id} className="py-3 flex items-center gap-3">

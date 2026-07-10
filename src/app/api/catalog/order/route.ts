@@ -150,6 +150,37 @@ export async function POST(req: NextRequest) {
       },
     });
     customerId = anon.id;
+
+    // Cria a oportunidade no Funil mesmo sem telefone — todo pedido do
+    // catálogo deve aparecer no funil de vendas para acompanhamento.
+    const stage =
+      (
+        await db.originRule.findUnique({
+          where: {
+            companyId_origin: {
+              companyId: company.id,
+              origin: "CATALOGO_PUBLICO",
+            },
+          },
+          include: { stage: true },
+        })
+      )?.stage ??
+      (await db.stage.findFirst({
+        where: { pipeline: { companyId: company.id } },
+        orderBy: { order: "asc" },
+      }));
+    if (stage) {
+      await db.opportunity.create({
+        data: {
+          companyId: company.id,
+          customerId: anon.id,
+          stageId: stage.id,
+          title: `Pedido do catálogo — ${totalPieces} ${totalPieces === 1 ? "peça" : "peças"}`,
+          value: subtotal,
+          status: stage.isWon ? "WON" : stage.isLost ? "LOST" : "OPEN",
+        },
+      });
+    }
   }
 
   const noteLines = [
