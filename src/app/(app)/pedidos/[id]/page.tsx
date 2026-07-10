@@ -103,7 +103,7 @@ export default async function OrderDetailPage({
               className="flex items-center justify-center gap-1.5 rounded-xl bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium px-4 py-2.5 transition"
             >
               <FileText className="size-4" />
-              Orçamento em PDF
+              Romaneio em PDF
             </a>
             {order.conversationId && (
               <Link

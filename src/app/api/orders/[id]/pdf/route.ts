@@ -1,12 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
-import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
+import { PDFDocument, StandardFonts, rgb, type RGB } from "pdf-lib";
 import { db } from "@/lib/db";
 import { requireUser, AuthError } from "@/lib/auth";
 import { orderNumber, orderStatusLabel } from "@/lib/orders";
-import { buildPixPayload } from "@/lib/pix";
 
-const BRAND = rgb(0.427, 0.157, 1.0); // #6D28FF roxo vibrante
-const DEEP = rgb(0.055, 0.004, 0.259); // #0E0142 roxo escuro
+/**
+ * Romaneio do pedido em PDF (A4) — uso interno da loja (expedição).
+ *
+ * • Identidade visual da LOJA (logo + cor do catálogo), não da plataforma.
+ * • Ficha completa do cliente (telefone, CPF/CNPJ, e-mail, endereço).
+ * • Caixinha de conferência ao lado de cada peça, para marcar na separação.
+ * • Sem bloco de pagamento: cobrança não é papel da expedição.
+ */
+
 const INK = rgb(0.118, 0.161, 0.235); // slate-800
 const GRAY = rgb(0.392, 0.455, 0.545); // slate-500
 const LIGHT = rgb(0.945, 0.961, 0.976); // slate-100
@@ -14,7 +20,13 @@ const LIGHT = rgb(0.945, 0.961, 0.976); // slate-100
 const money = (v: number) =>
   `R$ ${v.toFixed(2).replace(".", ",").replace(/\B(?=(\d{3})+(?!\d))/g, ".")}`;
 
-/** Orçamento profissional em PDF (A4). */
+function hexToRgb(hex: string | null | undefined, fallback: RGB): RGB {
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex?.trim() ?? "");
+  if (!m) return fallback;
+  const n = parseInt(m[1], 16);
+  return rgb(((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255);
+}
+
 export async function GET(
   _req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -30,59 +42,107 @@ export async function GET(
         seller: true,
         items: true,
         company: true,
-        payments: true,
       },
     });
     if (!order) {
       return NextResponse.json({ error: "Não encontrado" }, { status: 404 });
     }
 
+    const ACCENT = hexToRgb(order.company.catalogPrimary, rgb(0.055, 0.004, 0.259));
+
     const pdf = await PDFDocument.create();
-    const page = pdf.addPage([595.28, 841.89]); // A4
     const font = await pdf.embedFont(StandardFonts.Helvetica);
     const bold = await pdf.embedFont(StandardFonts.HelveticaBold);
-    const { width, height } = page.getSize();
+
+    // logo da loja, quando for imagem embutida (data URI)
+    let logo: Awaited<ReturnType<typeof pdf.embedPng>> | null = null;
+    const logoUrl = order.company.logoUrl ?? "";
+    try {
+      if (logoUrl.startsWith("data:image/png")) {
+        logo = await pdf.embedPng(Buffer.from(logoUrl.split(",")[1], "base64"));
+      } else if (
+        logoUrl.startsWith("data:image/jpeg") ||
+        logoUrl.startsWith("data:image/jpg")
+      ) {
+        logo = await pdf.embedJpg(Buffer.from(logoUrl.split(",")[1], "base64"));
+      }
+    } catch {
+      logo = null;
+    }
+
+    const A4: [number, number] = [595.28, 841.89];
     const M = 48;
+    let page = pdf.addPage(A4);
+    const { width, height } = page.getSize();
     let y = height - 60;
 
-    // Cabeçalho com "logo" (marca tipográfica no padrão do app)
-    page.drawRectangle({ x: M, y: y - 6, width: 26, height: 26, color: DEEP });
-    page.drawText("A", { x: M + 4, y, size: 15, font: bold, color: rgb(1, 1, 1) });
-    page.drawText("P", { x: M + 13, y, size: 15, font: bold, color: BRAND });
-    page.drawText(order.company.name, { x: M + 36, y: y + 2, size: 16, font: bold, color: INK });
-    page.drawText("AtacadoPro", { x: M + 36, y: y - 10, size: 8, font, color: GRAY });
+    const newPageIfNeeded = (needed: number) => {
+      if (y - needed < 70) {
+        page = pdf.addPage(A4);
+        y = height - 60;
+      }
+    };
 
-    const title = `ORÇAMENTO ${orderNumber(order.number)}`;
+    // ---- Cabeçalho: identidade da LOJA ----
+    if (logo) {
+      const dim = logo.scaleToFit(30, 30);
+      page.drawImage(logo, { x: M, y: y - 8, width: dim.width, height: dim.height });
+    } else {
+      page.drawRectangle({ x: M, y: y - 6, width: 26, height: 26, color: ACCENT });
+      page.drawText(order.company.name.charAt(0).toUpperCase(), {
+        x: M + 8, y, size: 15, font: bold, color: rgb(1, 1, 1),
+      });
+    }
+    page.drawText(order.company.name, { x: M + 36, y: y + 2, size: 16, font: bold, color: INK });
+    if (order.company.tagline) {
+      page.drawText(order.company.tagline.slice(0, 60), { x: M + 36, y: y - 10, size: 8, font, color: GRAY });
+    }
+
+    const title = `PEDIDO ${orderNumber(order.number)}`;
     const tw = bold.widthOfTextAtSize(title, 13);
-    page.drawText(title, { x: width - M - tw, y: y + 2, size: 13, font: bold, color: BRAND });
+    page.drawText(title, { x: width - M - tw, y: y + 2, size: 13, font: bold, color: ACCENT });
     const dateStr = order.createdAt.toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo" });
-    const dw = font.widthOfTextAtSize(dateStr, 9);
-    page.drawText(dateStr, { x: width - M - dw, y: y - 10, size: 9, font, color: GRAY });
+    const sub = `${dateStr} · ${orderStatusLabel[order.status]}`;
+    const dw = font.widthOfTextAtSize(sub, 9);
+    page.drawText(sub, { x: width - M - dw, y: y - 10, size: 9, font, color: GRAY });
 
     y -= 46;
     page.drawLine({ start: { x: M, y }, end: { x: width - M, y }, thickness: 1, color: LIGHT });
     y -= 24;
 
-    // Cliente e vendedor
+    // ---- Cliente (ficha completa) e vendedor ----
+    const c = order.customer;
     page.drawText("CLIENTE", { x: M, y, size: 8, font: bold, color: GRAY });
-    page.drawText("VENDEDOR(A)", { x: width / 2, y, size: 8, font: bold, color: GRAY });
+    page.drawText("VENDEDOR(A)", { x: width / 2 + 40, y, size: 8, font: bold, color: GRAY });
     y -= 14;
-    page.drawText(order.customer.name, { x: M, y, size: 11, font: bold, color: INK });
-    page.drawText(order.seller?.name ?? "—", { x: width / 2, y, size: 11, font, color: INK });
+    page.drawText(c.name.slice(0, 40), { x: M, y, size: 11, font: bold, color: INK });
+    page.drawText(order.seller?.name ?? "—", { x: width / 2 + 40, y, size: 10, font, color: INK });
     y -= 13;
-    const place = [order.customer.city, order.customer.state].filter(Boolean).join("/");
-    page.drawText(
-      `${order.customer.phone}${place ? `  ·  ${place}` : ""}`,
-      { x: M, y, size: 9, font, color: GRAY }
-    );
-    page.drawText(`Status: ${orderStatusLabel[order.status]}`, {
-      x: width / 2, y, size: 9, font, color: GRAY,
-    });
 
-    // Tabela de itens
-    y -= 32;
+    const lines: string[] = [];
+    const contato = [
+      c.phone ? `Tel: ${c.phone}` : null,
+      c.document ? `CPF/CNPJ: ${c.document}` : null,
+    ].filter(Boolean).join("  ·  ");
+    if (contato) lines.push(contato);
+    if (c.email) lines.push(`E-mail: ${c.email}`);
+    const rua = [ [c.street, c.streetNumber].filter(Boolean).join(", "), c.district ]
+      .filter(Boolean).join(" - ");
+    const cidade = [ [c.city, c.state].filter(Boolean).join("/"), c.zip ? `CEP ${c.zip}` : null ]
+      .filter(Boolean).join("  ·  ");
+    if (rua) lines.push(rua);
+    if (cidade) lines.push(cidade);
+    if (!lines.length) lines.push("Sem dados de contato — preencher no sistema");
+    for (const line of lines) {
+      page.drawText(line.slice(0, 80), { x: M, y, size: 9, font, color: GRAY });
+      y -= 12;
+    }
+
+    // ---- Tabela de itens com caixa de conferência ----
+    y -= 18;
     page.drawRectangle({ x: M, y: y - 6, width: width - 2 * M, height: 22, color: LIGHT });
-    const cols = { item: M + 10, qty: 350, unit: 420, total: width - M - 10 };
+    const cols = { check: M + 10, item: M + 46, qty: 360, unit: 420, total: width - M - 10 };
+    page.drawText("CONF.", { x: cols.check - 2, y, size: 8, font: bold, color: GRAY });
     page.drawText("PRODUTO", { x: cols.item, y, size: 8, font: bold, color: GRAY });
     page.drawText("QTD", { x: cols.qty, y, size: 8, font: bold, color: GRAY });
     page.drawText("UNIT.", { x: cols.unit, y, size: 8, font: bold, color: GRAY });
@@ -91,7 +151,13 @@ export async function GET(
     y -= 26;
 
     for (const item of order.items) {
-      page.drawText(item.name.slice(0, 46), { x: cols.item, y, size: 10, font: bold, color: INK });
+      newPageIfNeeded(34);
+      // caixinha de conferência
+      page.drawRectangle({
+        x: cols.check, y: y - 3, width: 12, height: 12,
+        borderColor: GRAY, borderWidth: 1,
+      });
+      page.drawText(item.name.slice(0, 42), { x: cols.item, y, size: 10, font: bold, color: INK });
       const varTxt = [item.color, item.size].filter(Boolean).join(" · ");
       if (varTxt) {
         page.drawText(varTxt + (item.sku ? `  ·  ${item.sku}` : ""), {
@@ -107,10 +173,12 @@ export async function GET(
       page.drawLine({ start: { x: M, y: y + 8 }, end: { x: width - M, y: y + 8 }, thickness: 0.5, color: LIGHT });
     }
 
-    // Totais
+    // ---- Totais ----
+    newPageIfNeeded(110);
     y -= 8;
+    const totalPieces = order.items.reduce((a, i) => a + i.quantity, 0);
     const totals: [string, string, boolean][] = [
-      ["Subtotal", money(order.subtotal), false],
+      [`Peças (${totalPieces})`, money(order.subtotal), false],
       ...(order.discount > 0
         ? ([["Desconto", `- ${money(order.discount)}`, false]] as [string, string, boolean][])
         : []),
@@ -125,67 +193,52 @@ export async function GET(
       const lw = f.widthOfTextAtSize(label, size);
       const vw = f.widthOfTextAtSize(value, size);
       page.drawText(label, {
-        x: cols.unit - lw - 8, y, size, font: f, color: strong ? BRAND : GRAY,
+        x: cols.unit - lw - 8, y, size, font: f, color: strong ? ACCENT : GRAY,
       });
       page.drawText(value, {
-        x: cols.total - vw, y, size, font: f, color: strong ? BRAND : INK,
+        x: cols.total - vw, y, size, font: f, color: strong ? ACCENT : INK,
       });
       y -= strong ? 22 : 16;
     }
 
-    // Observações
+    // ---- Observações ----
     if (order.notes) {
+      newPageIfNeeded(60);
       y -= 8;
       page.drawText("OBSERVAÇÕES", { x: M, y, size: 8, font: bold, color: GRAY });
       y -= 13;
-      page.drawText(order.notes.slice(0, 110), { x: M, y, size: 9, font, color: INK });
-      y -= 10;
+      for (const line of order.notes.split("\n").slice(0, 4)) {
+        page.drawText(line.slice(0, 110), { x: M, y, size: 9, font, color: INK });
+        y -= 12;
+      }
     }
 
-    // Bloco PIX (estrutura pronta: QR real quando a loja configurar a chave)
+    // ---- Bloco de conferência final ----
+    newPageIfNeeded(80);
     y -= 24;
-    const boxH = 96;
-    page.drawRectangle({
-      x: M, y: y - boxH + 14, width: width - 2 * M, height: boxH,
-      color: rgb(0.957, 0.945, 1),
+    page.drawLine({ start: { x: M, y }, end: { x: width - M, y }, thickness: 1, color: LIGHT });
+    y -= 22;
+    page.drawText("Conferido por: ______________________________", {
+      x: M, y, size: 10, font, color: INK,
     });
-    page.drawRectangle({
-      x: M + 14, y: y - boxH + 26, width: 72, height: 72,
-      borderColor: BRAND, borderWidth: 1.2,
+    page.drawText("Data: ____/____/______", {
+      x: width / 2 + 40, y, size: 10, font, color: INK,
     });
-    page.drawText("QR PIX", { x: M + 32, y: y - boxH + 58, size: 9, font: bold, color: BRAND });
-    page.drawText("PAGUE COM PIX", { x: M + 100, y: y - 8, size: 9, font: bold, color: BRAND });
-    const pending = order.payments.find((p) => p.status === "PENDENTE");
-    const pixPayload = buildPixPayload({
-      pixKey: pending?.pixKey ?? "configure-sua-chave@sualoja.com.br",
-      merchantName: order.company.name,
-      merchantCity: order.customer.city ?? "BRASIL",
-      amount: order.total,
-      txid: `PED${String(order.number).padStart(4, "0")}`,
-    });
-    page.drawText(`Valor: ${money(order.total)}`, {
-      x: M + 100, y: y - 24, size: 10, font, color: INK,
-    });
-    page.drawText("Copia e cola:", { x: M + 100, y: y - 40, size: 8, font: bold, color: GRAY });
-    // payload quebrado em linhas
-    const chunk = 78;
-    for (let i = 0; i < Math.min(pixPayload.length, chunk * 3); i += chunk) {
-      page.drawText(pixPayload.slice(i, i + chunk), {
-        x: M + 100, y: y - 52 - (i / chunk) * 10, size: 6.5, font, color: GRAY,
-      });
-    }
 
-    // Rodapé
-    page.drawText(
-      `Orçamento gerado em ${new Date().toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo" })} · ${order.company.name} · via AtacadoPro`,
-      { x: M, y: 40, size: 8, font, color: GRAY }
-    );
+    // Rodapé em todas as páginas
+    const pages = pdf.getPages();
+    pages.forEach((pg, i) => {
+      pg.drawText(
+        `Romaneio do pedido ${orderNumber(order.number)} · ${order.company.name}${pages.length > 1 ? ` · pág. ${i + 1}/${pages.length}` : ""}`,
+        { x: M, y: 40, size: 8, font, color: GRAY }
+      );
+    });
 
     const bytes = await pdf.save();
     return new NextResponse(Buffer.from(bytes), {
       headers: {
         "Content-Type": "application/pdf",
-        "Content-Disposition": `inline; filename="orcamento-${orderNumber(order.number).replace("#", "")}.pdf"`,
+        "Content-Disposition": `inline; filename="pedido-${orderNumber(order.number).replace("#", "")}.pdf"`,
       },
     });
   } catch (e) {
