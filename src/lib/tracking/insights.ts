@@ -292,7 +292,9 @@ async function dimensionStats(companyId: string, p: Period, dim: Dim) {
   return [...map.values()].map((row) => ({
     ...row,
     revenue: r2(row.revenue),
-    conversion: r2(pct(row.sold, Math.max(row.views, 1))),
+    // conversão de funil (viu → colocou na sacola), limitada a 100%.
+    // Antes usava peças vendidas/visualizações, o que passava de 100%.
+    conversion: r2(Math.min(100, pct(row.adds, Math.max(row.views, 1)))),
     abandonRate: r2(pct(row.removes, Math.max(row.adds, 1))),
   }));
 }

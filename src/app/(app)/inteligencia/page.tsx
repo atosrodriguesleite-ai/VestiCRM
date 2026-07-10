@@ -37,6 +37,7 @@ import {
 import { Card, PageHeader, Avatar, Badge, EmptyState } from "@/components/ui";
 import { FunnelBars } from "@/components/charts";
 import { LinksManager } from "./links-manager";
+import { InfoTip } from "@/components/info-tip";
 import { RecoveryList } from "./recovery-list";
 
 export const dynamic = "force-dynamic";
@@ -70,13 +71,16 @@ function Delta({ now, before, invert = false }: { now: number; before: number; i
   );
 }
 
-function Kpi({ label, value, hint, delta, icon }: {
-  label: string; value: string; hint?: string; delta?: React.ReactNode; icon?: React.ReactNode;
+function Kpi({ label, value, hint, delta, icon, info }: {
+  label: string; value: string; hint?: string; delta?: React.ReactNode; icon?: React.ReactNode; info?: string;
 }) {
   return (
     <div className="min-w-0 bg-white rounded-2xl border border-slate-200/70 shadow-card p-4">
       <div className="flex items-start justify-between gap-2 mb-1.5">
-        <p className="text-[10px] md:text-[11px] font-semibold text-slate-400 uppercase tracking-wider leading-tight">{label}</p>
+        <p className="text-[10px] md:text-[11px] font-semibold text-slate-400 uppercase tracking-wider leading-tight flex items-center gap-1">
+          {label}
+          {info && <InfoTip text={info} />}
+        </p>
         <span className="text-slate-300 shrink-0 [&>svg]:size-4">{icon}</span>
       </div>
       <p className="flex items-baseline gap-1.5 flex-wrap">
@@ -227,18 +231,18 @@ export default async function IntelligencePage({
 
       {/* KPIs vs período anterior */}
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-6">
-        <Kpi label="Visitantes" value={String(now.visitors)} delta={<Delta now={now.visitors} before={before.visitors} />} icon={<Users />} />
-        <Kpi label="Sessões" value={String(now.sessions)} delta={<Delta now={now.sessions} before={before.sessions} />} icon={<Eye />} />
-        <Kpi label="Tempo médio" value={`${Math.floor(now.avgSessionSeconds / 60)}m${String(now.avgSessionSeconds % 60).padStart(2, "0")}s`} icon={<Timer />} />
-        <Kpi label="Conversão" value={`${now.conversionRate.toFixed(1)}%`} delta={<Delta now={now.conversionRate} before={before.conversionRate} />} icon={<Percent />} />
-        <Kpi label="Pedidos (catálogo)" value={String(now.ordersFromCatalog)} delta={<Delta now={now.ordersFromCatalog} before={before.ordersFromCatalog} />} icon={<ShoppingBag />} />
-        <Kpi label="Faturamento" value={brl(now.revenue)} delta={<Delta now={now.revenue} before={before.revenue} />} icon={<Wallet />} />
-        <Kpi label="Ticket médio" value={brl(now.avgTicket)} delta={<Delta now={now.avgTicket} before={before.avgTicket} />} />
-        <Kpi label="Clientes novos" value={String(now.newCustomers)} delta={<Delta now={now.newCustomers} before={before.newCustomers} />} />
-        <Kpi label="Recorrentes" value={String(now.returningBuyers)} icon={<Repeat />} />
-        <Kpi label="Carrinhos abandonados" value={String(now.abandonedCarts)} hint={`${brl(now.abandonedValue)} parados`} delta={<Delta now={now.abandonedCarts} before={before.abandonedCarts} invert />} icon={<AlertTriangle />} />
-        <Kpi label="Tempo de sessão total" value={`${Math.round((now.avgSessionSeconds * now.sessions) / 60)} min`} hint="navegação somada" />
-        <Kpi label="Identificados" value={String(now.identifiedCustomers)} hint="visitantes que viraram clientes" />
+        <Kpi label="Visitantes" value={String(now.visitors)} delta={<Delta now={now.visitors} before={before.visitors} />} icon={<Users />} info="Pessoas diferentes que abriram o catálogo no período (contadas uma vez, mesmo que voltem)." />
+        <Kpi label="Sessões" value={String(now.sessions)} delta={<Delta now={now.sessions} before={before.sessions} />} icon={<Eye />} info="Quantidade de visitas ao catálogo. A mesma pessoa pode gerar várias sessões se acessar em momentos diferentes." />
+        <Kpi label="Tempo médio" value={`${Math.floor(now.avgSessionSeconds / 60)}m${String(now.avgSessionSeconds % 60).padStart(2, "0")}s`} icon={<Timer />} info="Tempo médio que cada visita durou no catálogo (soma do tempo de todas as sessões ÷ nº de sessões)." />
+        <Kpi label="Conversão" value={`${now.conversionRate.toFixed(1)}%`} delta={<Delta now={now.conversionRate} before={before.conversionRate} />} icon={<Percent />} info="De cada 100 visitas, quantas enviaram um pedido pelo catálogo. Fórmula: pedidos ÷ sessões × 100." />
+        <Kpi label="Pedidos (catálogo)" value={String(now.ordersFromCatalog)} delta={<Delta now={now.ordersFromCatalog} before={before.ordersFromCatalog} />} icon={<ShoppingBag />} info="Pedidos enviados pelo catálogo no período (visitantes que tocaram em Enviar pedido)." />
+        <Kpi label="Faturamento" value={brl(now.revenue)} delta={<Delta now={now.revenue} before={before.revenue} />} icon={<Wallet />} info="Valor somado dos pedidos vindos do catálogo no período (é o valor da sacola no envio)." />
+        <Kpi label="Ticket médio" value={brl(now.avgTicket)} delta={<Delta now={now.avgTicket} before={before.avgTicket} />} info="Valor médio por pedido do catálogo: faturamento ÷ nº de pedidos." />
+        <Kpi label="Clientes novos" value={String(now.newCustomers)} delta={<Delta now={now.newCustomers} before={before.newCustomers} />} info="Clientes cadastrados pela primeira vez no período (primeiro contato com a loja)." />
+        <Kpi label="Recorrentes" value={String(now.returningBuyers)} icon={<Repeat />} info="Clientes que compraram mais de uma vez (fidelizados)." />
+        <Kpi label="Carrinhos abandonados" value={String(now.abandonedCarts)} hint={`${brl(now.abandonedValue)} parados`} delta={<Delta now={now.abandonedCarts} before={before.abandonedCarts} invert />} icon={<AlertTriangle />} info="Visitas que colocaram itens na sacola mas NÃO enviaram o pedido. 'Parados' = valor somado dessas sacolas." />
+        <Kpi label="Tempo de sessão total" value={`${Math.round((now.avgSessionSeconds * now.sessions) / 60)} min`} hint="navegação somada" info="Soma do tempo de navegação de todas as sessões no período." />
+        <Kpi label="Identificados" value={String(now.identifiedCustomers)} hint="visitantes que viraram clientes" info="Visitantes anônimos que informaram o telefone (viraram clientes na base da loja)." />
       </div>
 
       <div className="grid lg:grid-cols-2 gap-4 md:gap-6 mb-6">
