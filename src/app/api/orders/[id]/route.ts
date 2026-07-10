@@ -139,6 +139,7 @@ export async function PATCH(
             companyId: user.companyId,
             customerId: order.customerId,
             sellerId: order.sellerId,
+            orderId: order.id,
             total: order.total,
             description: `Pedido ${orderNumber(order.number)}`,
             category: "Pedido",
@@ -226,6 +227,8 @@ export async function PATCH(
           where: { orderId: order.id, status: "CONFIRMADO" },
           data: { status: newStatus === "CANCELADO" ? "ESTORNADO" : "PENDENTE" },
         });
+        // a VENDA sai do faturamento: cancelou/estornou, não é mais venda
+        await db.sale.deleteMany({ where: { orderId: order.id } });
       }
     }
 

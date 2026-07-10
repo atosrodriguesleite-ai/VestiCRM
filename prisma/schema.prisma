@@ -647,6 +647,8 @@ model Sale {
   opportunity   Opportunity? @relation(fields: [opportunityId], references: [id], onDelete: SetNull)
   sellerId      String?
   seller        User?        @relation("SaleSeller", fields: [sellerId], references: [id], onDelete: SetNull)
+  orderId       String? // pedido de origem — cancelou o pedido, a venda sai junto
+  order         Order?       @relation(fields: [orderId], references: [id], onDelete: SetNull)
   total         Float
   category      String?
   description   String?
@@ -769,6 +771,7 @@ model Order {
   payments Payment[]
   shipping Shipping?
   events   OrderEvent[]
+  sales    Sale[]
 
   @@unique([companyId, number])
   @@index([companyId, status])
