@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { requireUser, AuthError } from "@/lib/auth";
-import { orderStatusLabel, orderNumber } from "@/lib/orders";
+import { orderStatusLabel, orderNumber, PAID_ORDER_STATUSES } from "@/lib/orders";
 
 const patchSchema = z.object({
   status: z
@@ -49,13 +49,7 @@ export async function PATCH(
 
     const newStatus = parsed.data.status;
     // Estados em que o pedido está pago → o estoque deve estar baixado.
-    const PAID_STATUSES = new Set([
-      "PAGO",
-      "EM_PRODUCAO",
-      "SEPARACAO",
-      "ENVIADO",
-      "ENTREGUE",
-    ]);
+    const PAID_STATUSES = new Set<string>(PAID_ORDER_STATUSES);
     const willChangeStatus = !!newStatus && newStatus !== order.status;
     const needDeduct =
       willChangeStatus && PAID_STATUSES.has(newStatus!) && !order.stockDeducted;

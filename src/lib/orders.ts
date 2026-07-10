@@ -22,6 +22,19 @@ export const orderStatusColor: Record<OrderStatus, string> = {
   CANCELADO: "#e11d48",
 };
 
+/**
+ * Regra de faturamento do produto: SÓ EXISTE VENDA SE HOUVE PAGAMENTO.
+ * Estados avançados (produção, separação, envio, entrega) implicam pago.
+ * Toda métrica de faturamento/venda/conversão deve filtrar por estes status.
+ */
+export const PAID_ORDER_STATUSES: OrderStatus[] = [
+  "PAGO",
+  "EM_PRODUCAO",
+  "SEPARACAO",
+  "ENVIADO",
+  "ENTREGUE",
+];
+
 export const ORDER_STATUS_FLOW: OrderStatus[] = [
   "ORCAMENTO",
   "AGUARDANDO_PAGAMENTO",

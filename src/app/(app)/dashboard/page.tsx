@@ -29,6 +29,7 @@ import {
   taskTypeLabel,
   relativeDays,
 } from "@/lib/format";
+import { PAID_ORDER_STATUSES } from "@/lib/orders";
 import { Card, PageHeader, Avatar, PriorityDot, EmptyState } from "@/components/ui";
 import { StatTile, BarList } from "@/components/charts";
 
@@ -52,7 +53,11 @@ export default async function DashboardPage() {
   const saleScope = canSeeAll(user)
     ? { companyId: user.companyId }
     : { companyId: user.companyId, sellerId: user.id };
-  const orderScope = { ...saleScope, status: { not: "CANCELADO" as const } };
+  // Faturamento/venda = pedido PAGO (ou além). Pedido gerado sem pagamento
+  // não conta como venda — regra central do produto.
+  const orderScope = { ...saleScope, status: { in: PAID_ORDER_STATUSES } };
+  // pedidos gerados (qualquer status) — denominador da conversão em pagamento
+  const orderAnyScope = saleScope;
 
   const [
     sales30,
@@ -172,7 +177,14 @@ export default async function DashboardPage() {
 
   const revenue30 = sales30.reduce((s, v) => s + v.total, 0);
   const ticket = sales30.length ? revenue30 / sales30.length : 0;
-  const conversion = closedOpps30 ? (wonOpps30 / closedOpps30) * 100 : 0;
+  // Conversão = pedidos que viraram pagamento ÷ pedidos gerados (30d)
+  const [ordersGenerated30, ordersPaid30] = await Promise.all([
+    db.order.count({ where: { ...orderAnyScope, createdAt: { gte: days30 } } }),
+    db.order.count({ where: { ...orderScope, createdAt: { gte: days30 } } }),
+  ]);
+  const conversion = ordersGenerated30
+    ? (ordersPaid30 / ordersGenerated30) * 100
+    : 0;
   const pipelineValue = openOpps.reduce((s, o) => s + o.value, 0);
 
   // ranking por vendedor (30 dias) — só gerente/admin vê o time todo
@@ -240,7 +252,7 @@ export default async function DashboardPage() {
         <StatTile
           label="Taxa de conversão"
           value={`${conversion.toFixed(0)}%`}
-          hint={`${wonOpps30} ganhas · ${lostOpps30} perdidas`}
+          hint={`${ordersPaid30} pagos · ${ordersGenerated30 - ordersPaid30} sem pagamento`}
           icon={<Percent />}
           tone={conversion >= 50 ? "good" : "warn"}
         />
@@ -292,19 +304,19 @@ export default async function DashboardPage() {
       </div>
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4 mb-6">
         <StatTile
-          label="Pedidos hoje"
+          label="Pedidos pagos hoje"
           value={String(ordersToday._count)}
           hint={brl(ordersToday._sum.total ?? 0)}
           icon={<ShoppingBag />}
         />
         <StatTile
-          label="Pedidos na semana"
+          label="Pagos na semana"
           value={String(ordersWeek._count)}
           hint={brl(ordersWeek._sum.total ?? 0)}
           icon={<ShoppingBag />}
         />
         <StatTile
-          label="Pedidos no mês"
+          label="Pagos no mês"
           value={String(ordersMonth._count)}
           hint={`valor médio ${brl(avgOrder)}`}
           icon={<ShoppingBag />}
