@@ -45,6 +45,11 @@ inteligência comercial. Multi-tenant (cada loja isolada por `companyId`).
   defaults.stock › 0). `maxDuration=60` na rota (arquivos grandes com fotos).
 
 ## Onde parei / próximos passos
+- **WhatsApp 100% dentro do sistema (adiado, decidido em 10/07/2026):**
+  integrar a **WhatsApp Cloud API oficial** — a fundação já existe
+  (Conversas, Lead Intake com rodízio/SLA, `/api/whatsapp/webhook`, modo
+  simulado). Plano: piloto com o número do operador antes de liberar às lojas.
+
 - **Em andamento:** subir a **primeira loja real (Toque Leve)**. O catálogo já
   foi convertido do HTML original para o formato de importação (20 produtos =
   4 modelos × 5 cores, P/M/G/GG, estoque 5, 41 fotos embutidas). O operador vai
