@@ -27,6 +27,7 @@ export type IntakePayload = {
   value?: number;
   ownerId?: string; // força o responsável (ex.: cadastro manual pelo vendedor)
   skipTask?: boolean;
+  skipOpportunity?: boolean; // quando a oportunidade será criada manualmente em seguida
 };
 
 export type IntakeResult = {
@@ -202,7 +203,8 @@ export async function intakeLead(
     where: { companyId, customerId: customer.id, status: "OPEN" },
   });
   const shouldCreateOpp =
-    policy === "SEMPRE" || (policy === "SE_NAO_HOUVER_ABERTA" && !hasOpen);
+    !payload.skipOpportunity &&
+    (policy === "SEMPRE" || (policy === "SE_NAO_HOUVER_ABERTA" && !hasOpen));
   if (shouldCreateOpp) {
     const stage = await resolveStage(companyId, payload.origin);
     if (stage) {

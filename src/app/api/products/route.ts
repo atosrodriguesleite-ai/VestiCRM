@@ -46,7 +46,10 @@ export async function GET(req: NextRequest) {
     const where: Prisma.ProductWhereInput = { companyId: user.companyId };
     if (onlyActive) where.active = true;
     if (q) {
-      where.OR = [{ name: { contains: q } }, { sku: { contains: q } }];
+      where.OR = [
+        { name: { contains: q, mode: "insensitive" } },
+        { sku: { contains: q, mode: "insensitive" } },
+      ];
     }
     if (category) where.category = category;
     if (collection) where.collection = collection;

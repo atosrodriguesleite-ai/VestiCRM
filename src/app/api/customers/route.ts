@@ -19,6 +19,7 @@ const schema = z.object({
   preferredSize: z.string().optional(),
   preferredColors: z.string().optional(),
   interestIds: z.array(z.string()).optional(),
+  skipOpportunity: z.boolean().optional(), // fluxos que criam a oportunidade/pedido na sequência
 });
 
 /** Cadastro manual — passa pelo Lead Intake Engine como todos os canais. */
@@ -29,7 +30,7 @@ export async function POST(req: NextRequest) {
     if (!parsed.success) {
       return NextResponse.json({ error: "Dados inválidos" }, { status: 400 });
     }
-    const { interestIds, type, notes, preferredSize, preferredColors, origin, document, ...core } =
+    const { interestIds, type, notes, preferredSize, preferredColors, origin, document, skipOpportunity, ...core } =
       parsed.data;
 
     const validOrigins = Object.keys(
@@ -46,6 +47,7 @@ export async function POST(req: NextRequest) {
       state: core.state,
       origin: resolvedOrigin,
       ownerId: user.id, // quem cadastrou fica responsável
+      skipOpportunity,
     });
 
     // campos complementares do formulário (perfil de moda)

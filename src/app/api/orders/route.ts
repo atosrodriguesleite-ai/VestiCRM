@@ -18,7 +18,7 @@ const createSchema = z.object({
   discount: z.number().nonnegative().default(0),
   shippingFee: z.number().nonnegative().default(0),
   notes: z.string().optional(),
-  paymentMethod: z.enum(["PIX", "CARTAO", "BOLETO", "DINHEIRO", "OUTRO"]).default("PIX"),
+  paymentMethod: z.enum(["PIX", "CARTAO", "BOLETO", "CHEQUE", "DINHEIRO", "OUTRO"]).default("PIX"),
   status: z.enum(["ORCAMENTO", "AGUARDANDO_PAGAMENTO"]).default("ORCAMENTO"),
 });
 

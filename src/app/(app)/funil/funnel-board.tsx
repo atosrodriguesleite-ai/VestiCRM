@@ -249,15 +249,46 @@ function NewOpportunityModal({
   const [value, setValue] = useState("");
   const [stageId, setStageId] = useState(stages[0]?.id ?? "");
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  // lead que ainda não é cliente (chegou pelo WhatsApp, indicação...):
+  // cadastra na hora, sem sair do funil
+  const [newCustomer, setNewCustomer] = useState(customers.length === 0);
+  const [newName, setNewName] = useState("");
+  const [newPhone, setNewPhone] = useState("");
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
+    setError("");
     setSaving(true);
+    let cid = customerId;
+    if (newCustomer) {
+      if (!newName.trim() || newPhone.replace(/\D/g, "").length < 10) {
+        setSaving(false);
+        setError("Informe nome e WhatsApp com DDD do novo lead.");
+        return;
+      }
+      const rc = await fetch("/api/customers", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: newName.trim(),
+          phone: newPhone.replace(/\D/g, ""),
+          origin: "WHATSAPP",
+          skipOpportunity: true, // a oportunidade é criada logo abaixo, manual
+        }),
+      });
+      if (!rc.ok) {
+        setSaving(false);
+        setError("Não foi possível cadastrar o lead.");
+        return;
+      }
+      cid = (await rc.json()).id;
+    }
     const res = await fetch("/api/opportunities", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        customerId,
+        customerId: cid,
         title,
         value: parseFloat(value.replace(",", ".")) || 0,
         stageId,
@@ -265,6 +296,7 @@ function NewOpportunityModal({
     });
     setSaving(false);
     if (res.ok) onCreated();
+    else setError("Não foi possível criar a oportunidade.");
   }
 
   return (
@@ -282,18 +314,45 @@ function NewOpportunityModal({
         </div>
         <div className="space-y-4">
           <div>
-            <label className="block text-sm font-medium mb-1.5">Cliente</label>
-            <select
-              value={customerId}
-              onChange={(e) => setCustomerId(e.target.value)}
-              className="w-full rounded-xl border border-gray-200 px-3 py-2.5 text-sm bg-white outline-none focus:border-brand-400"
-            >
-              {customers.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
-                </option>
-              ))}
-            </select>
+            <div className="flex items-center justify-between">
+              <label className="block text-sm font-medium mb-1.5">Cliente</label>
+              <button
+                type="button"
+                onClick={() => setNewCustomer((v) => !v)}
+                className="text-xs font-medium text-brand-600 hover:text-brand-700"
+              >
+                {newCustomer ? "Escolher cliente existente" : "+ Lead novo (nome e WhatsApp)"}
+              </button>
+            </div>
+            {newCustomer ? (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <input
+                  value={newName}
+                  onChange={(e) => setNewName(e.target.value)}
+                  placeholder="Nome do lead *"
+                  className="w-full rounded-xl border border-gray-200 px-3 py-2.5 text-sm outline-none focus:border-brand-400"
+                />
+                <input
+                  value={newPhone}
+                  onChange={(e) => setNewPhone(e.target.value)}
+                  placeholder="WhatsApp com DDD *"
+                  inputMode="tel"
+                  className="w-full rounded-xl border border-gray-200 px-3 py-2.5 text-sm outline-none focus:border-brand-400"
+                />
+              </div>
+            ) : (
+              <select
+                value={customerId}
+                onChange={(e) => setCustomerId(e.target.value)}
+                className="w-full rounded-xl border border-gray-200 px-3 py-2.5 text-sm bg-white outline-none focus:border-brand-400"
+              >
+                {customers.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                  </option>
+                ))}
+              </select>
+            )}
           </div>
           <div>
             <label className="block text-sm font-medium mb-1.5">
@@ -335,8 +394,13 @@ function NewOpportunityModal({
               </select>
             </div>
           </div>
+          {error && (
+            <p className="text-xs font-medium text-rose-600 bg-rose-50 border border-rose-100 rounded-lg px-3 py-2">
+              {error}
+            </p>
+          )}
           <button
-            disabled={saving || !customerId}
+            disabled={saving || (!newCustomer && !customerId)}
             className="w-full rounded-xl bg-brand-600 hover:bg-brand-700 text-white font-medium py-2.5 text-sm transition disabled:opacity-60"
           >
             {saving ? "Criando..." : "Criar oportunidade"}
