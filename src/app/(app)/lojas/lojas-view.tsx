@@ -42,7 +42,7 @@ function genPassword() {
   return out;
 }
 
-export function LojasView({ initial }: { initial: Loja[] }) {
+export function LojasView({ initial, catalogDomain }: { initial: Loja[]; catalogDomain: string | null }) {
   const router = useRouter();
   const [lojas, setLojas] = useState<Loja[]>(initial);
   const [showForm, setShowForm] = useState(initial.length === 0);
@@ -57,7 +57,7 @@ export function LojasView({ initial }: { initial: Loja[] }) {
 
   return (
     <div className="space-y-6">
-      {created && <CredentialsPanel cred={created} onClose={() => setCreated(null)} />}
+      {created && <CredentialsPanel cred={created} catalogDomain={catalogDomain} onClose={() => setCreated(null)} />}
 
       {!showForm && (
         <div className="flex justify-end">
@@ -94,7 +94,7 @@ export function LojasView({ initial }: { initial: Loja[] }) {
         ) : (
           <div className="grid gap-3 sm:grid-cols-2">
             {lojas.map((l) => (
-              <LojaCard key={l.id} loja={l} />
+              <LojaCard key={l.id} loja={l} catalogDomain={catalogDomain} />
             ))}
           </div>
         )}
@@ -307,9 +307,11 @@ function NewLojaForm({
 
 function CredentialsPanel({
   cred,
+  catalogDomain,
   onClose,
 }: {
   cred: Created;
+  catalogDomain: string | null;
   onClose: () => void;
 }) {
   const loginUrl =
@@ -355,7 +357,7 @@ Senha: ${cred.adminPassword}`;
           mono
           icon={<KeyRound className="size-3.5" />}
         />
-        <CredItem label="Catálogo público" value={`/catalogo/${cred.slug}`} mono />
+        <CredItem label="Catálogo público" value={catalogDomain ? `${catalogDomain}/${cred.slug}` : `/catalogo/${cred.slug}`} mono />
       </div>
 
       <div className="mt-4 flex flex-wrap gap-2">
@@ -422,7 +424,7 @@ function CopyButton({ text, label }: { text: string; label: string }) {
 
 /* ---------------------------------------------------- card de loja */
 
-function LojaCard({ loja }: { loja: Loja }) {
+function LojaCard({ loja, catalogDomain }: { loja: Loja; catalogDomain: string | null }) {
   const router = useRouter();
   const [accessing, setAccessing] = useState(false);
 
@@ -454,11 +456,11 @@ function LojaCard({ loja }: { loja: Loja }) {
           </span>
           <div className="min-w-0">
             <p className="truncate font-semibold text-slate-900">{loja.name}</p>
-            <p className="truncate text-xs text-slate-400">/{loja.slug}</p>
+            <p className="truncate text-xs text-slate-400">{catalogDomain ? `${catalogDomain}/${loja.slug}` : `/${loja.slug}`}</p>
           </div>
         </div>
         <a
-          href={`/catalogo/${loja.slug}`}
+          href={catalogDomain ? `https://${catalogDomain}/${loja.slug}` : `/catalogo/${loja.slug}`}
           target="_blank"
           rel="noreferrer"
           title="Ver catálogo público"

@@ -16,6 +16,7 @@ import { roleLabel } from "@/lib/format";
 import { Card, PageHeader, Badge } from "@/components/ui";
 import { TemplateManager } from "./template-manager";
 import { CatalogSettings } from "./catalog-settings";
+import { catalogDomain } from "@/lib/catalog-url";
 import { IntakeSettings } from "./intake-settings";
 import { isAdmin } from "@/lib/scope";
 import type { Origin } from "@prisma/client";
@@ -105,6 +106,7 @@ export default async function SettingsPage() {
           <div className="mb-6">
             <CatalogSettings
               slug={company.slug}
+              catalogDomain={catalogDomain()}
               canEdit={isAdmin(user)}
               initial={{
                 name: company.name,

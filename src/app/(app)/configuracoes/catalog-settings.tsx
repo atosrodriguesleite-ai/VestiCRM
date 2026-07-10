@@ -8,10 +8,12 @@ import { Card } from "@/components/ui";
 /** Personalização do catálogo público (nome, frase, WhatsApp, mínimo). */
 export function CatalogSettings({
   slug,
+  catalogDomain,
   initial,
   canEdit,
 }: {
   slug: string;
+  catalogDomain: string | null;
   initial: {
     name: string;
     tagline: string;
@@ -35,9 +37,13 @@ export function CatalogSettings({
   const [saved, setSaved] = useState(false);
   const [copied, setCopied] = useState(false);
 
-  const url = typeof window !== "undefined"
-    ? `${window.location.origin}/catalogo/${slug}`
-    : `/catalogo/${slug}`;
+  // Link público: usa o domínio de catálogos quando configurado (ex.:
+  // catalago.net/toque-leve); senão, o endereço atual /catalogo/slug.
+  const url = catalogDomain
+    ? `https://${catalogDomain}/${slug}`
+    : typeof window !== "undefined"
+      ? `${window.location.origin}/catalogo/${slug}`
+      : `/catalogo/${slug}`;
 
   async function save() {
     setSaving(true);
@@ -88,7 +94,7 @@ export function CatalogSettings({
             {copied ? "Copiado!" : "Copiar link"}
           </button>
           <a
-            href={`/catalogo/${slug}`}
+            href={url}
             target="_blank"
             className="flex items-center gap-1.5 rounded-xl bg-brand-600 hover:bg-brand-700 text-white text-xs font-medium px-3 py-2 transition"
           >

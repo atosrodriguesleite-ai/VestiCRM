@@ -3,6 +3,7 @@ import { requireUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { PageHeader } from "@/components/ui";
 import { ProductsView, type ProductItem } from "./products-view";
+import { catalogUrl } from "@/lib/catalog-url";
 
 export const dynamic = "force-dynamic";
 
@@ -74,7 +75,7 @@ export default async function ProductsPage() {
         action={
           company && (
             <a
-              href={`/catalogo/${company.slug}`}
+              href={catalogUrl(company.slug)}
               target="_blank"
               className="flex items-center gap-1.5 rounded-xl border border-brand-200 bg-brand-50 hover:bg-brand-100 text-brand-700 text-sm font-medium px-4 py-2.5 transition"
             >
