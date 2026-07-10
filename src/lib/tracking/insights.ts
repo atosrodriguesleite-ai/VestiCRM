@@ -315,12 +315,15 @@ export async function heatmaps(companyId: string, p: Period) {
   const access = grid();
   const orders = grid();
   const revenue = grid();
+  // dia/hora no fuso de São Paulo (UTC-3, sem horário de verão): em UTC o
+  // heatmap sairia deslocado 3h e viraria o dia à meia-noite errada
+  const sp = (d: Date) => new Date(d.getTime() - 3 * 60 * 60 * 1000);
   for (const s of sessions) {
-    access[s.startedAt.getDay()][s.startedAt.getHours()] += 1;
-    if (s.converted) orders[s.startedAt.getDay()][s.startedAt.getHours()] += 1;
+    access[sp(s.startedAt).getUTCDay()][sp(s.startedAt).getUTCHours()] += 1;
+    if (s.converted) orders[sp(s.startedAt).getUTCDay()][sp(s.startedAt).getUTCHours()] += 1;
   }
   for (const s of sales) {
-    revenue[s.createdAt.getDay()][s.createdAt.getHours()] += s.total;
+    revenue[sp(s.createdAt).getUTCDay()][sp(s.createdAt).getUTCHours()] += s.total;
   }
   const conversion = grid();
   for (let d = 0; d < 7; d++) {
@@ -357,7 +360,7 @@ export async function recovery(companyId: string, p: Period) {
       out.push({
         kind: "carrinho-abandonado",
         title: `${name ?? "Visitante"} abandonou ${fmtBrl(s.cartValue)} na sacola`,
-        detail: `Sessão de ${s.startedAt.toLocaleDateString("pt-BR")} via ${s.channel}. Recupere com uma mensagem.`,
+        detail: `Sessão de ${s.startedAt.toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo" })} via ${s.channel}. Recupere com uma mensagem.`,
         customerId: s.customerId ?? undefined,
         value: s.cartValue,
       });

@@ -55,7 +55,7 @@ export async function GET(
     const title = `ORÇAMENTO ${orderNumber(order.number)}`;
     const tw = bold.widthOfTextAtSize(title, 13);
     page.drawText(title, { x: width - M - tw, y: y + 2, size: 13, font: bold, color: BRAND });
-    const dateStr = order.createdAt.toLocaleDateString("pt-BR");
+    const dateStr = order.createdAt.toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo" });
     const dw = font.widthOfTextAtSize(dateStr, 9);
     page.drawText(dateStr, { x: width - M - dw, y: y - 10, size: 9, font, color: GRAY });
 
@@ -177,7 +177,7 @@ export async function GET(
 
     // Rodapé
     page.drawText(
-      `Orçamento gerado em ${new Date().toLocaleDateString("pt-BR")} · ${order.company.name} · via AtacadoPro`,
+      `Orçamento gerado em ${new Date().toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo" })} · ${order.company.name} · via AtacadoPro`,
       { x: M, y: 40, size: 8, font, color: GRAY }
     );
 

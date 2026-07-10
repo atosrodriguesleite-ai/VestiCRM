@@ -43,8 +43,11 @@ export default async function DashboardPage() {
   const now = new Date();
   const days30 = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
   const days7 = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-  const startOfDay = new Date(now);
-  startOfDay.setHours(0, 0, 0, 0);
+  // meia-noite no fuso de São Paulo (UTC-3): o servidor roda em UTC e o
+  // setHours local começaria o "hoje" 3h mais cedo
+  const spMidnight = new Date(now.getTime() - 3 * 60 * 60 * 1000);
+  spMidnight.setUTCHours(0, 0, 0, 0);
+  const startOfDay = new Date(spMidnight.getTime() + 3 * 60 * 60 * 1000);
 
   const saleScope = canSeeAll(user)
     ? { companyId: user.companyId }

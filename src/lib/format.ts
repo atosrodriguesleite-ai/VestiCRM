@@ -17,20 +17,30 @@ export const brl = (v: number) =>
     maximumFractionDigits: v % 1 === 0 ? 0 : 2,
   });
 
+// Fuso oficial do produto: horário de São Paulo/Brasília. O servidor
+// (Vercel) roda em UTC — sem fixar o fuso, as horas saem 3h à frente.
+export const TIMEZONE = "America/Sao_Paulo";
+
 export const dateShort = (d: Date | string) =>
-  new Date(d).toLocaleDateString("pt-BR", { day: "2-digit", month: "short" });
+  new Date(d).toLocaleDateString("pt-BR", {
+    day: "2-digit",
+    month: "short",
+    timeZone: TIMEZONE,
+  });
 
 export const dateFull = (d: Date | string) =>
   new Date(d).toLocaleDateString("pt-BR", {
     day: "2-digit",
     month: "2-digit",
     year: "numeric",
+    timeZone: TIMEZONE,
   });
 
 export const timeShort = (d: Date | string) =>
   new Date(d).toLocaleTimeString("pt-BR", {
     hour: "2-digit",
     minute: "2-digit",
+    timeZone: TIMEZONE,
   });
 
 export function relativeDays(d: Date | string): string {

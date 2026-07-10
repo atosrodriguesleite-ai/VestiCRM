@@ -257,7 +257,7 @@ function NewTaskModal({
   const input =
     "w-full rounded-xl border border-gray-200 px-3 py-2.5 text-sm outline-none focus:border-brand-400 transition";
   const label = "block text-sm font-medium mb-1.5";
-  const today = new Date().toISOString().slice(0, 10);
+  const today = new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString().slice(0, 10); // data de hoje em São Paulo (UTC-3)
 
   return (
     <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center">
