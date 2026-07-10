@@ -37,6 +37,7 @@ export const paymentMethodLabel: Record<PaymentMethod, string> = {
   PIX: "PIX",
   CARTAO: "Cartão",
   BOLETO: "Boleto",
+  CHEQUE: "Cheque",
   DINHEIRO: "Dinheiro",
   OUTRO: "Outro",
 };

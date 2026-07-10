@@ -800,6 +800,7 @@ enum PaymentMethod {
   PIX
   CARTAO
   BOLETO
+  CHEQUE
   DINHEIRO
   OUTRO
 }

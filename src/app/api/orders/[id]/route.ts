@@ -22,6 +22,9 @@ const patchSchema = z.object({
   shippingMethod: z.string().nullable().optional(),
   sellerId: z.string().nullable().optional(), // vendedor responsável pela venda
   customerId: z.string().optional(), // vincula o pedido a um cliente já cadastrado
+  paymentMethod: z
+    .enum(["PIX", "CARTAO", "BOLETO", "CHEQUE", "DINHEIRO", "OUTRO"])
+    .optional(), // forma de pagamento
 });
 
 export async function PATCH(
@@ -126,8 +129,10 @@ export async function PATCH(
         },
       });
 
-      // pagamento confirmado → quita o pagamento e registra venda no CRM
-      if (newStatus === "PAGO" && order.status !== "PAGO") {
+      // Pular etapas segue a lógica completa: entrar em qualquer etapa paga
+      // (Pago, Em produção, Separação, Enviado, Entregue) vindo de uma etapa
+      // não paga confirma o pagamento e registra a venda no CRM.
+      if (PAID_STATUSES.has(newStatus) && !PAID_STATUSES.has(order.status)) {
         const pending = order.payments.find((p) => p.status === "PENDENTE");
         if (pending) {
           await db.payment.update({
@@ -151,17 +156,28 @@ export async function PATCH(
         });
       }
 
-      // envio
-      if (newStatus === "ENVIADO") {
-        await db.shipping.update({
+      // Envio: Enviado marca a saída; Entregue implica que todo o processo
+      // de envio foi executado (marca saída e entrega de uma vez).
+      if (newStatus === "ENVIADO" || newStatus === "ENTREGUE") {
+        const now = new Date();
+        const shipData = {
+          shippedAt: now,
+          ...(newStatus === "ENTREGUE" ? { deliveredAt: now } : {}),
+        };
+        await db.shipping.upsert({
           where: { orderId: order.id },
-          data: { shippedAt: new Date() },
+          update: {
+            ...(newStatus === "ENTREGUE" ? { deliveredAt: now } : {}),
+            shippedAt: now,
+          },
+          create: { orderId: order.id, cost: order.shippingFee, ...shipData },
         });
       }
-      if (newStatus === "ENTREGUE") {
-        await db.shipping.update({
+      // Voltar para antes do envio (ou cancelar) limpa as marcas de entrega
+      if (["ORCAMENTO", "AGUARDANDO_PAGAMENTO", "PAGO", "EM_PRODUCAO", "SEPARACAO", "CANCELADO"].includes(newStatus)) {
+        await db.shipping.updateMany({
           where: { orderId: order.id },
-          data: { deliveredAt: new Date() },
+          data: { shippedAt: null, deliveredAt: null },
         });
       }
 
@@ -211,7 +227,19 @@ export async function PATCH(
             })),
         });
         data.stockDeducted = false;
+        // pagamento confirmado é estornado junto (cancelamento/estorno)
+        await db.payment.updateMany({
+          where: { orderId: order.id, status: "CONFIRMADO" },
+          data: { status: newStatus === "CANCELADO" ? "ESTORNADO" : "PENDENTE" },
+        });
       }
+    }
+
+    if (parsed.data.paymentMethod) {
+      await db.payment.updateMany({
+        where: { orderId: order.id },
+        data: { method: parsed.data.paymentMethod },
+      });
     }
 
     if (

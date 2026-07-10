@@ -15,11 +15,11 @@ import {
   orderStatusLabel,
   orderStatusColor,
   orderNumber,
-  paymentMethodLabel,
 } from "@/lib/orders";
 import { Card, Badge } from "@/components/ui";
 import { StatusChanger } from "./status-changer";
 import { CustomerEditor } from "./customer-editor";
+import { PaymentMethodChanger } from "./payment-method";
 
 export const dynamic = "force-dynamic";
 
@@ -194,11 +194,9 @@ export default async function OrderDetailPage({
               Pagamento
             </h2>
             {order.payments.map((p) => (
-              <div key={p.id} className="text-sm space-y-1">
-                <div className="flex justify-between">
-                  <span className="text-gray-500">
-                    {paymentMethodLabel[p.method]}
-                  </span>
+              <div key={p.id} className="text-sm space-y-1.5">
+                <div className="flex justify-between items-center gap-2">
+                  <PaymentMethodChanger orderId={order.id} current={p.method} />
                   <span className="font-semibold tabular-nums">
                     {brl(p.amount)}
                   </span>
@@ -227,6 +225,21 @@ export default async function OrderDetailPage({
             <h2 className="font-semibold flex items-center gap-2 mb-3">
               <Truck className="size-4 text-brand-600" />
               Entrega
+              <Badge
+                color={
+                  order.status === "ENTREGUE" || order.shipping?.deliveredAt
+                    ? "#059669"
+                    : order.status === "CANCELADO"
+                      ? "#94a3b8"
+                      : "#d97706"
+                }
+              >
+                {order.status === "ENTREGUE" || order.shipping?.deliveredAt
+                  ? "Concluída"
+                  : order.status === "CANCELADO"
+                    ? "Cancelada"
+                    : "Pendente"}
+              </Badge>
             </h2>
             <div className="text-sm space-y-1 text-gray-500">
               <p>
