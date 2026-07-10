@@ -403,6 +403,7 @@ export default async function IntelligencePage({
       <h2 className="font-semibold mt-8 mb-3">Links inteligentes e QR Codes</h2>
       <LinksManager
         slug={company?.slug ?? ""}
+        catalogDomain={process.env.CATALOG_DOMAIN?.trim() ?? null}
         team={team}
         campaigns={campanhas.map((r) => ({
           id: r.id, name: r.name, slug: r.slug, channel: r.channel,

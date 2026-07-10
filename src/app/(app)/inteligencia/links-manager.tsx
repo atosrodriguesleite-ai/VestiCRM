@@ -40,10 +40,12 @@ function baseUrl() {
 
 export function LinksManager({
   slug,
+  catalogDomain,
   team,
   campaigns,
 }: {
   slug: string;
+  catalogDomain: string | null;
   team: { id: string; name: string }[];
   campaigns: Campaign[];
 }) {
@@ -52,7 +54,15 @@ export function LinksManager({
   const [qrFor, setQrFor] = useState<{ url: string; label: string } | null>(null);
   const [copied, setCopied] = useState("");
 
-  const linkFor = (ref: string) => `${baseUrl()}/c/${slug}?ref=${ref}`;
+  // Link minimalista quando há domínio de catálogos configurado:
+  //   catalago.net/toque-leve/nivia
+  // Sem o domínio (ex.: dev/preview), usa o link curto /c/ compatível.
+  const linkFor = (ref: string) =>
+    catalogDomain
+      ? `https://${catalogDomain}/${slug}/${ref}`
+      : `${baseUrl()}/c/${slug}?ref=${ref}`;
+  const shortLabelFor = (ref: string) =>
+    catalogDomain ? `${catalogDomain}/${slug}/${ref}` : `/c/${slug}?ref=${ref}`;
   const copy = (url: string) => {
     navigator.clipboard.writeText(url);
     setCopied(url);
@@ -83,7 +93,7 @@ export function LinksManager({
               >
                 <div className="min-w-0 flex-1">
                   <p className="text-sm font-medium truncate">{u.name.split(" ")[0]}</p>
-                  <p className="text-[10px] text-gray-400 font-mono truncate">/c/{slug}?ref={ref}</p>
+                  <p className="text-[10px] text-gray-400 font-mono truncate">{shortLabelFor(ref)}</p>
                 </div>
                 <button
                   onClick={() => copy(url)}
@@ -154,7 +164,7 @@ export function LinksManager({
                       {c.name}
                       {!c.active && <Badge color="#94a3b8">inativa</Badge>}
                     </p>
-                    <p className="text-[10px] text-gray-400 font-mono truncate">/c/{slug}?ref={c.slug}</p>
+                    <p className="text-[10px] text-gray-400 font-mono truncate">{shortLabelFor(c.slug)}</p>
                   </div>
                   <div className="text-right shrink-0 hidden sm:block">
                     <p className="text-xs font-semibold tabular-nums">{c.clicks} cliques · {c.orders} pedidos</p>

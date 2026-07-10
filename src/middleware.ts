@@ -39,8 +39,11 @@ export async function middleware(req: NextRequest) {
       // preserva ?utm_... (ex.: link "Feito com AtacadoPro" dos catálogos)
       return NextResponse.redirect(MAIN_SITE_URL + req.nextUrl.search);
     }
-    // /toque-leve → /catalogo/toque-leve (URL do navegador fica curta).
-    // APIs, assets e links curtos /c/ passam direto.
+    // Links curtos e limpos no domínio de catálogos:
+    //   catalago.net/toque-leve            → catálogo da loja
+    //   catalago.net/toque-leve/nivia      → catálogo com ?ref=nivia (vendedor
+    //     ou campanha) — o endereço fica minimalista e a atribuição acontece
+    //     nos bastidores. APIs, assets e /c/ (compat) passam direto.
     if (
       !pathname.startsWith("/api") &&
       !pathname.startsWith("/catalogo") &&
@@ -48,9 +51,15 @@ export async function middleware(req: NextRequest) {
       !pathname.startsWith("/_next") &&
       !pathname.includes(".")
     ) {
-      const url = req.nextUrl.clone();
-      url.pathname = `/catalogo${pathname}`;
-      return NextResponse.rewrite(url);
+      const segs = pathname.split("/").filter(Boolean);
+      if (segs.length === 1 || segs.length === 2) {
+        const url = req.nextUrl.clone();
+        url.pathname = `/catalogo/${segs[0]}`;
+        if (segs[1] && !url.searchParams.get("ref")) {
+          url.searchParams.set("ref", segs[1]);
+        }
+        return NextResponse.rewrite(url);
+      }
     }
   }
 
