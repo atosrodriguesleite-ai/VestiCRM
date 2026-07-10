@@ -58,11 +58,11 @@ export async function PATCH(
       return NextResponse.json({ error: "Não encontrado" }, { status: 404 });
     }
 
-    // ---- Edição dos itens (só antes do pagamento) ----
+    // ---- Edição dos itens (permitida a qualquer momento, exceto cancelado) ----
     if (parsed.data.items) {
-      if (order.stockDeducted) {
+      if (order.status === "CANCELADO") {
         return NextResponse.json(
-          { error: "Não é possível editar os itens de um pedido já pago. Cancele ou volte o status para editar." },
+          { error: "Pedido cancelado não pode ser editado. Reabra mudando o status antes." },
           { status: 409 }
         );
       }
@@ -78,6 +78,33 @@ export async function PATCH(
           return NextResponse.json({ error: "Produto inválido no pedido" }, { status: 404 });
         }
       }
+
+      // Se o pedido já baixou estoque (está pago/em produção...), reconcilia:
+      // devolve o que saiu e baixa o que entrou, comparando itens antigos × novos.
+      const deltas = new Map<string, number>(); // variantId → variação (novo - antigo)
+      if (order.stockDeducted) {
+        for (const old of order.items) {
+          if (old.variantId) deltas.set(old.variantId, (deltas.get(old.variantId) ?? 0) - old.quantity);
+        }
+        for (const it of parsed.data.items) {
+          deltas.set(it.variantId, (deltas.get(it.variantId) ?? 0) + it.quantity);
+        }
+        // valida disponibilidade para os itens que vão baixar MAIS estoque
+        for (const [variantId, delta] of deltas) {
+          if (delta > 0) {
+            const v = variantById.get(variantId);
+            const avail = v?.stock ?? 0;
+            if (avail < delta) {
+              const label = v ? `${v.product.name} (${v.color} ${v.size})` : "item";
+              return NextResponse.json(
+                { error: `Estoque insuficiente de ${label}: faltam ${delta - avail}. Ajuste a quantidade.` },
+                { status: 409 }
+              );
+            }
+          }
+        }
+      }
+
       const discount = parsed.data.discount ?? order.discount;
       const shippingFee = parsed.data.shippingFee ?? order.shippingFee;
       const totals = computeOrderTotals(parsed.data.items, discount, shippingFee);
@@ -110,9 +137,34 @@ export async function PATCH(
             total: totals.total,
           },
         });
-        // atualiza o valor do pagamento pendente
+        // ajuste de estoque (só quando o pedido já estava com baixa)
+        if (order.stockDeducted) {
+          for (const [variantId, delta] of deltas) {
+            if (delta === 0) continue;
+            await tx.productVariant.update({
+              where: { id: variantId },
+              data: { stock: { decrement: delta } }, // delta>0 baixa; delta<0 devolve
+            });
+            await tx.inventoryMovement.create({
+              data: {
+                companyId: user.companyId,
+                variantId,
+                orderId: order.id,
+                type: delta > 0 ? "SAIDA" : "ENTRADA",
+                quantity: Math.abs(delta),
+                reason: `Edição do pedido ${orderNumber(order.number)}`,
+              },
+            });
+          }
+          // faturamento acompanha o novo total (venda já registrada)
+          await tx.sale.updateMany({
+            where: { orderId: order.id },
+            data: { total: totals.total },
+          });
+        }
+        // valor do pagamento acompanha o novo total (pendente ou confirmado)
         await tx.payment.updateMany({
-          where: { orderId: order.id, status: "PENDENTE" },
+          where: { orderId: order.id },
           data: { amount: totals.total },
         });
         await tx.orderEvent.create({

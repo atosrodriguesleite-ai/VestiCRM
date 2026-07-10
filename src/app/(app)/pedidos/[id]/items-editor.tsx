@@ -1,9 +1,9 @@
 "use client";
 
 /**
- * Edição dos itens de um pedido ainda NÃO pago — ajustar quantidades,
- * remover ou adicionar produtos. Útil quando falta estoque de um item:
- * o vendedor corrige o pedido em vez de pedir para o cliente refazer.
+ * Edição dos itens do pedido — ajustar quantidades, remover ou adicionar
+ * produtos a qualquer momento (exceto pedido cancelado). Em pedido já pago,
+ * o estoque e o faturamento são acertados automaticamente no servidor.
  */
 
 import { useEffect, useState } from "react";
@@ -36,11 +36,13 @@ export function ItemsEditor({
   initialItems,
   discount,
   shippingFee,
+  alreadyPaid = false,
 }: {
   orderId: string;
   initialItems: Line[];
   discount: number;
   shippingFee: number;
+  alreadyPaid?: boolean;
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -129,6 +131,14 @@ export function ItemsEditor({
           <h3 className="font-semibold text-lg">Editar itens do pedido</h3>
           <button onClick={() => setOpen(false)} className="text-gray-400 p-1"><X className="size-5" /></button>
         </div>
+
+        {alreadyPaid && (
+          <p className="mb-4 text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2">
+            Este pedido já foi pago. Ao salvar, o <strong>estoque é ajustado
+            automaticamente</strong> (devolve o que sair, baixa o que entrar) e o
+            faturamento acompanha o novo total.
+          </p>
+        )}
 
         {/* buscar/adicionar */}
         <div className="relative mb-4">

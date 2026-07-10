@@ -128,11 +128,12 @@ export default async function OrderDetailPage({
         <Card className="p-5 md:col-span-2">
           <div className="flex items-center justify-between mb-4">
             <h2 className="font-semibold">Itens do pedido</h2>
-            {!order.stockDeducted && order.status !== "CANCELADO" && (
+            {order.status !== "CANCELADO" && (
               <ItemsEditor
                 orderId={order.id}
                 discount={order.discount}
                 shippingFee={order.shippingFee}
+                alreadyPaid={order.stockDeducted}
                 initialItems={order.items.map((i) => ({
                   productId: i.productId ?? "",
                   variantId: i.variantId ?? "",
