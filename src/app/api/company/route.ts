@@ -13,6 +13,7 @@ const schema = z.object({
   minOrder: z.number().int().nonnegative().optional(),
   minOrderMode: z.enum(["NONE", "PECAS", "VALOR"]).optional(),
   minOrderValue: z.number().nonnegative().optional(),
+  commissionBase: z.enum(["SUBTOTAL", "TOTAL"]).optional(),
   // identidade visual do catálogo
   logoUrl: z.string().nullable().optional(),
   catalogPrimary: hexColor.optional(),

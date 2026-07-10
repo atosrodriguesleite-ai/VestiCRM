@@ -24,6 +24,7 @@ model Company {
   minOrder      Int    @default(0) // pedido mínimo em PEÇAS (quando minOrderMode = PECAS)
   minOrderMode  String @default("NONE") // trava do catálogo: NONE | PECAS | VALOR
   minOrderValue Float  @default(0) // pedido mínimo em R$ (quando minOrderMode = VALOR)
+  commissionBase String @default("SUBTOTAL") // base da comissão: SUBTOTAL (produtos) | TOTAL (com frete)
   createdAt DateTime @default(now())
 
   // Identidade visual do catálogo público (100% personalizável pelo lojista)
@@ -130,6 +131,7 @@ model User {
   role         Role    @default(SELLER)
   active       Boolean @default(true)
   color        String  @default("#6366f1")
+  commissionRate Float @default(0) // % de comissão sobre as vendas do vendedor
   createdAt    DateTime @default(now())
 
   customers     Customer[]     @relation("CustomerOwner")
