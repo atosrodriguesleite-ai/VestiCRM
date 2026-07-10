@@ -74,7 +74,11 @@ export default async function DashboardPage() {
     interests,
     suggestions,
   ] = await Promise.all([
-    db.sale.findMany({ where: { ...saleScope, createdAt: { gte: days30 } } }),
+    // Faturamento = pedidos PAGOS (fonte única da verdade, igual à tela Pedidos)
+    db.order.findMany({
+      where: { ...orderScope, createdAt: { gte: days30 } },
+      select: { total: true, sellerId: true },
+    }),
     db.customer.count({ where: scope }),
     db.customer.count({ where: { ...scope, createdAt: { gte: days30 } } }),
     db.opportunity.findMany({ where: { ...scope, status: "OPEN" } }),
@@ -190,8 +194,13 @@ export default async function DashboardPage() {
   // ranking por vendedor (30 dias) — só gerente/admin vê o time todo
   const allSales30 = canSeeAll(user)
     ? sales30
-    : await db.sale.findMany({
-        where: { companyId: user.companyId, createdAt: { gte: days30 } },
+    : await db.order.findMany({
+        where: {
+          companyId: user.companyId,
+          status: { in: PAID_ORDER_STATUSES },
+          createdAt: { gte: days30 },
+        },
+        select: { total: true, sellerId: true },
       });
   const ranking = sellers
     .map((s) => ({

@@ -467,19 +467,8 @@ async function main() {
     { customer: "Juliana Pires", seller: "julia", total: 380, category: "Lançamentos", days: 55 },
     { customer: "Atacadão da Moda BH", seller: "renata", total: 9500, category: "Atacado", days: 80 },
   ];
-  for (const s of salesData) {
-    await db.sale.create({
-      data: {
-        companyId: company.id,
-        customerId: cust(s.customer).id,
-        sellerId: ownerId(s.seller),
-        total: s.total,
-        category: s.category,
-        description: s.desc,
-        createdAt: daysAgo(s.days),
-      },
-    });
-  }
+  // (as vendas históricas viram pedidos ENTREGUES de verdade mais abaixo,
+  // depois que os produtos existem — assim Sale reflete só pedidos pagos)
 
   // ---- Conversas de WhatsApp ----
   type M = { dir: "IN" | "OUT"; body: string; kind?: "TEXT" | "NOTE"; minsAgo: number; author?: string };
@@ -934,7 +923,64 @@ async function main() {
           reason: `Baixa por pagamento — pedido #${String(orderSeq).padStart(4, "0")}`,
         })),
       });
+      // venda registrada no pagamento (igual à produção: Sale = pedido pago)
+      await db.sale.create({
+        data: {
+          companyId: company.id,
+          customerId: cust(o.customer).id,
+          sellerId: ownerId(o.seller),
+          orderId: order.id,
+          total,
+          category: "Pedido",
+          description: `Pedido #${String(orderSeq).padStart(4, "0")}`,
+          createdAt,
+        },
+      });
     }
+  }
+
+  // ---- Histórico de 90 dias (relatórios): cada venda antiga é um pedido
+  // ENTREGUE real, com sua venda registrada. Estoque não é decrementado
+  // (o estoque exibido já é o atual, pós-histórico). ----
+  const prodByCategory = (cat: string) =>
+    productsData.find((p) => p.category === cat) ?? productsData[0];
+  for (const s of salesData) {
+    orderSeq += 1;
+    const pd = prodByCategory(s.category);
+    const prod = productBySku.get(pd.sku)!;
+    const variant = prod.variants[0];
+    const qty = Math.max(1, Math.min(Math.round(s.total / pd.wholesale), 12));
+    const total = s.total;
+    const unitPrice = Math.round((total / qty) * 100) / 100;
+    const createdAt = daysAgo(s.days, 10);
+    const order = await db.order.create({
+      data: {
+        companyId: company.id,
+        number: orderSeq,
+        customerId: cust(s.customer).id,
+        sellerId: ownerId(s.seller),
+        status: "ENTREGUE",
+        stockDeducted: true,
+        subtotal: total, discount: 0, shippingFee: 0, total,
+        createdAt,
+        items: { create: [{ productId: prod.id, variantId: variant.id, name: pd.name, sku: pd.sku, imageUrl: pd.image, color: variant.color, size: variant.size, quantity: qty, unitPrice, total }] },
+        payments: { create: { method: "PIX", amount: total, status: "CONFIRMADO", paidAt: createdAt, createdAt } },
+        shipping: { create: { cost: 0, city: cust(s.customer).city, state: cust(s.customer).state, method: "Transportadora", shippedAt: daysAgo(s.days), deliveredAt: daysAgo(Math.max(s.days - 2, 0)) } },
+        events: { create: [{ type: "CRIADO", description: "Pedido (histórico)", userId: ownerId(s.seller), createdAt }] },
+      },
+    });
+    await db.sale.create({
+      data: {
+        companyId: company.id,
+        customerId: cust(s.customer).id,
+        sellerId: ownerId(s.seller),
+        orderId: order.id,
+        total,
+        category: s.category,
+        description: `Pedido #${String(orderSeq).padStart(4, "0")}`,
+        createdAt,
+      },
+    });
   }
 
   // ---- Inteligência Comercial: campanhas + sessões de navegação ----

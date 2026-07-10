@@ -51,23 +51,10 @@ export async function PATCH(
       data.status = stage.isWon ? "WON" : stage.isLost ? "LOST" : "OPEN";
       data.closedAt = stage.isWon || stage.isLost ? new Date() : null;
 
-      // pedido fechado → registra venda + atualiza última compra do cliente
-      if (stage.isWon && opp.status !== "WON") {
-        await db.sale.create({
-          data: {
-            companyId: user.companyId,
-            customerId: opp.customerId,
-            opportunityId: opp.id,
-            sellerId: opp.ownerId,
-            total: opp.value,
-            description: opp.title,
-          },
-        });
-        await db.customer.update({
-          where: { id: opp.customerId },
-          data: { lastPurchaseAt: new Date() },
-        });
-      }
+      // Ganhar a oportunidade no funil NÃO gera faturamento: venda só existe
+      // com pagamento (pedido pago). Isso evita contar o mesmo dinheiro duas
+      // vezes (o pedido do catálogo já cria pedido + oportunidade). A "última
+      // compra" também é atualizada apenas quando o pedido é pago.
     }
 
     const updated = await db.opportunity.update({ where: { id }, data });
