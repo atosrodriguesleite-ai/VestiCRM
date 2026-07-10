@@ -293,7 +293,7 @@ function BrowserFrame({ src, alt }: { src: string; alt: string }) {
         <span className="size-3 rounded-full bg-amber-300" />
         <span className="size-3 rounded-full bg-emerald-300" />
         <span className="ml-3 hidden truncate rounded-md bg-white px-3 py-1 text-xs text-slate-400 ring-1 ring-slate-200 sm:inline-block">
-          app.atacadopro.com.br/dashboard
+          app.atacadopro.com/dashboard
         </span>
       </div>
       {/* eslint-disable-next-line @next/next/no-img-element */}

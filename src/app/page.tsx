@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { Landing } from "@/components/landing/landing";
 
-const SITE_URL = "https://www.atacadopro.com.br";
+const SITE_URL = "https://www.atacadopro.com";
 const TITLE = "AtacadoPro — O jeito profissional de vender no atacado";
 const DESCRIPTION =
   "AtacadoPro transforma o WhatsApp em uma máquina de receber pedidos organizados: catálogo profissional, pedidos, funil de vendas e gestão inteligente para atacadistas. Solicite uma demonstração gratuita.";

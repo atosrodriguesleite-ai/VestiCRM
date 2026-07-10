@@ -25,7 +25,7 @@ const PUBLIC_PATHS = [
 const CATALOG_DOMAIN = process.env.CATALOG_DOMAIN?.trim().toLowerCase();
 // Para onde mandar quem acessa a raiz do domínio de catálogos
 const MAIN_SITE_URL =
-  process.env.MAIN_SITE_URL?.trim() || "https://vesti-crm.vercel.app";
+  process.env.MAIN_SITE_URL?.trim() || "https://www.atacadopro.com";
 
 export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
