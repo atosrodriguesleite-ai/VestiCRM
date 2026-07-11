@@ -113,6 +113,7 @@ export async function POST(req: NextRequest) {
   let conversationId: string | null = null;
   let customerCity: string | null = null;
   let customerState: string | null = null;
+  let opportunityId: string | null = null;
 
   if (hasPhone) {
     // Com telefone: entra pelo Lead Intake Engine (deduplica, cria
@@ -129,6 +130,10 @@ export async function POST(req: NextRequest) {
     conversationId = result.conversation?.id ?? null;
     customerCity = result.customer.city;
     customerState = result.customer.state;
+    // Só vincula a oportunidade que ACABOU de ser criada para este pedido;
+    // se o intake reaproveitou uma já aberta, não a ligamos (não é "deste
+    // pedido" e não deve ser apagada junto).
+    opportunityId = result.opportunity?.id ?? null;
   } else {
     // Sem dados: cria um cliente próprio do pedido para o vendedor
     // completar manualmente na tela do pedido.
@@ -170,7 +175,7 @@ export async function POST(req: NextRequest) {
         orderBy: { order: "asc" },
       }));
     if (stage) {
-      await db.opportunity.create({
+      const opp = await db.opportunity.create({
         data: {
           companyId: company.id,
           customerId: anon.id,
@@ -180,6 +185,7 @@ export async function POST(req: NextRequest) {
           status: stage.isWon ? "WON" : stage.isLost ? "LOST" : "OPEN",
         },
       });
+      opportunityId = opp.id;
     }
   }
 
@@ -202,6 +208,7 @@ export async function POST(req: NextRequest) {
         number: (last?.number ?? 0) + 1,
         customerId,
         conversationId,
+        opportunityId,
         status: "AGUARDANDO_PAGAMENTO",
         subtotal,
         total: subtotal,

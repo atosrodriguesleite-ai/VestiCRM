@@ -1,6 +1,6 @@
 import { requireUser } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { ownedScope } from "@/lib/scope";
+import { ownedScope, isManagerUp } from "@/lib/scope";
 import { PageHeader } from "@/components/ui";
 import { FunnelBoard, type BoardStage } from "./funnel-board";
 
@@ -110,7 +110,7 @@ export default async function FunnelPage({
           </form>
         }
       />
-      <FunnelBoard initialStages={stages} customers={customers} />
+      <FunnelBoard initialStages={stages} customers={customers} canDelete={isManagerUp(user)} />
     </div>
   );
 }

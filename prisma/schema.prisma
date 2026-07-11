@@ -310,6 +310,7 @@ model Opportunity {
 
   tasks Task[]
   sales Sale[]
+  order Order? // pedido gerado junto com esta oportunidade (catálogo)
 
   @@index([companyId, status])
   @@index([stageId])
@@ -762,6 +763,10 @@ model Order {
   seller         User?        @relation("OrderSeller", fields: [sellerId], references: [id], onDelete: SetNull)
   conversationId String?
   conversation   Conversation? @relation(fields: [conversationId], references: [id], onDelete: SetNull)
+  // Oportunidade do funil criada junto com este pedido (catálogo). Vínculo
+  // 1-para-1: excluir o pedido apaga essa oportunidade e vice-versa.
+  opportunityId  String?      @unique
+  opportunity    Opportunity? @relation(fields: [opportunityId], references: [id], onDelete: SetNull)
   status         OrderStatus  @default(ORCAMENTO)
   subtotal       Float        @default(0)
   discount       Float        @default(0)

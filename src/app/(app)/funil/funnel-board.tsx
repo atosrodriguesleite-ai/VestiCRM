@@ -3,7 +3,7 @@
 import { useState, useRef } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { MessageCircle, Clock, Plus, X } from "lucide-react";
+import { MessageCircle, Clock, Plus, X, Trash2 } from "lucide-react";
 import { brl, relativeDays, dateShort, formatPhone } from "@/lib/format";
 import { Avatar, Badge } from "@/components/ui";
 
@@ -34,9 +34,11 @@ export type BoardStage = {
 export function FunnelBoard({
   initialStages,
   customers,
+  canDelete,
 }: {
   initialStages: BoardStage[];
   customers: { id: string; name: string }[];
+  canDelete: boolean;
 }) {
   const router = useRouter();
   const [stages, setStages] = useState(initialStages);
@@ -82,6 +84,33 @@ export function FunnelBoard({
       body: JSON.stringify({ stageId: toStageId, lostReason }),
     });
     if (!res.ok) router.refresh();
+  }
+
+  async function deleteCard(cardId: string, stageId: string) {
+    if (
+      !window.confirm(
+        "Excluir esta oportunidade do funil?\n\n" +
+          "Se houver um pedido criado junto com ela (pelo catálogo), esse " +
+          "pedido também será apagado e o estoque/faturamento voltam ao " +
+          "normal. Isso NÃO pode ser desfeito."
+      )
+    )
+      return;
+    // otimista: some da UI na hora
+    setStages((prev) =>
+      prev.map((s) =>
+        s.id === stageId
+          ? { ...s, cards: s.cards.filter((c) => c.id !== cardId) }
+          : s
+      )
+    );
+    const res = await fetch(`/api/opportunities/${cardId}`, { method: "DELETE" });
+    if (!res.ok) {
+      alert("Não foi possível excluir. Tente de novo.");
+      router.refresh();
+    } else {
+      router.refresh();
+    }
   }
 
   return (
@@ -183,6 +212,16 @@ export function FunnelBoard({
                         {formatPhone(card.phone)}
                       </span>
                       <div className="flex items-center gap-1.5">
+                        {canDelete && (
+                          <button
+                            type="button"
+                            onClick={() => deleteCard(card.id, stage.id)}
+                            title="Excluir oportunidade"
+                            className="text-gray-300 hover:text-rose-500 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition p-0.5"
+                          >
+                            <Trash2 className="size-3.5" />
+                          </button>
+                        )}
                         <span className="text-[10px] text-gray-300">
                           {relativeDays(card.lastInteractionAt)}
                         </span>

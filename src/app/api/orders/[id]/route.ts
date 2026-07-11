@@ -3,6 +3,7 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import { requireUser, AuthError } from "@/lib/auth";
 import { isManagerUp } from "@/lib/scope";
+import { reverseAndDeleteOrder } from "@/lib/order-actions";
 import { orderStatusLabel, orderNumber, PAID_ORDER_STATUSES } from "@/lib/orders";
 import { computeOrderTotals } from "@/lib/orders";
 
@@ -456,22 +457,15 @@ export async function DELETE(
     }
 
     await db.$transaction(async (tx) => {
-      // 1) Estoque baixado (pedido pago) volta inteiro para o catálogo.
-      if (order.stockDeducted) {
-        for (const item of order.items) {
-          if (!item.variantId) continue;
-          await tx.productVariant.update({
-            where: { id: item.variantId },
-            data: { stock: { increment: item.quantity } },
-          });
-        }
+      const oppId = order.opportunityId;
+      // Desfaz o pedido (estoque + faturamento) e o apaga.
+      await reverseAndDeleteOrder(tx, order);
+      // A oportunidade criada junto com este pedido sai do funil também.
+      if (oppId) {
+        await tx.opportunity.deleteMany({
+          where: { id: oppId, companyId: user.companyId },
+        });
       }
-      // 2) A venda sai do faturamento.
-      await tx.sale.deleteMany({ where: { orderId: order.id } });
-      // 3) O histórico de estoque do pedido some (fica como se nunca existiu).
-      await tx.inventoryMovement.deleteMany({ where: { orderId: order.id } });
-      // 4) O pedido é apagado; itens/pagamentos/envio/eventos caem por cascata.
-      await tx.order.delete({ where: { id: order.id } });
     });
 
     return NextResponse.json({ ok: true });

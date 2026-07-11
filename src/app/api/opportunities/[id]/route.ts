@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { requireUser, AuthError } from "@/lib/auth";
+import { isManagerUp } from "@/lib/scope";
+import { reverseAndDeleteOrder } from "@/lib/order-actions";
 
 const patchSchema = z.object({
   stageId: z.string().optional(),
@@ -59,6 +61,50 @@ export async function PATCH(
 
     const updated = await db.opportunity.update({ where: { id }, data });
     return NextResponse.json(updated);
+  } catch (e) {
+    if (e instanceof AuthError)
+      return NextResponse.json({ error: "Não autenticado" }, { status: 401 });
+    throw e;
+  }
+}
+
+/**
+ * Excluir uma oportunidade do funil — usado para limpar testes.
+ * Se houver um pedido criado junto com ela (catálogo), esse pedido também
+ * é apagado, desfazendo todo o efeito (estoque + faturamento). Permitido
+ * apenas para dono/admin/gerente.
+ */
+export async function DELETE(
+  _req: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const user = await requireUser();
+    if (!isManagerUp(user)) {
+      return NextResponse.json(
+        { error: "Você não tem permissão para excluir oportunidades." },
+        { status: 403 }
+      );
+    }
+    const { id } = await params;
+    const opp = await db.opportunity.findFirst({
+      where: { id, companyId: user.companyId },
+      include: { order: { include: { items: true } } },
+    });
+    if (!opp) {
+      return NextResponse.json({ error: "Não encontrada" }, { status: 404 });
+    }
+
+    await db.$transaction(async (tx) => {
+      // Pedido gerado junto (catálogo) é desfeito e apagado primeiro.
+      if (opp.order) {
+        await reverseAndDeleteOrder(tx, opp.order);
+      }
+      // A oportunidade sai do funil; tarefas/vendas ficam sem vínculo (SetNull).
+      await tx.opportunity.delete({ where: { id: opp.id } });
+    });
+
+    return NextResponse.json({ ok: true });
   } catch (e) {
     if (e instanceof AuthError)
       return NextResponse.json({ error: "Não autenticado" }, { status: 401 });
