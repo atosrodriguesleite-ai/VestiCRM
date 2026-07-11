@@ -32,6 +32,7 @@ import {
 import { PAID_ORDER_STATUSES } from "@/lib/orders";
 import { Card, PageHeader, Avatar, PriorityDot, EmptyState } from "@/components/ui";
 import { StatTile, BarList } from "@/components/charts";
+import { InfoTip } from "@/components/info-tip";
 
 export const dynamic = "force-dynamic";
 
@@ -294,11 +295,13 @@ export default async function DashboardPage({
           value={brl(revenue30)}
           hint={`${sales30.length} pedidos${customPeriod ? " no período" : ""}`}
           icon={<Wallet />}
+          info="Soma do valor de todos os pedidos PAGOS no período. Pedido gerado sem pagamento não entra aqui."
         />
         <StatTile
           label="Ticket médio"
           value={brl(ticket)}
           icon={<TrendingUp />}
+          info="Valor médio por pedido pago: total vendido ÷ número de pedidos pagos no período."
         />
         <StatTile
           label="Taxa de conversão"
@@ -306,24 +309,28 @@ export default async function DashboardPage({
           hint={`${ordersPaid30} pagos · ${ordersGenerated30 - ordersPaid30} sem pagamento`}
           icon={<Percent />}
           tone={conversion >= 50 ? "good" : "warn"}
+          info="De cada pedido criado, quantos foram pagos. Cálculo: pedidos pagos ÷ total de pedidos gerados no período."
         />
         <StatTile
           label="Funil aberto"
           value={brl(pipelineValue)}
           hint={`${openOpps.length} oportunidades · ${negotiatingOpps} em fechamento`}
           icon={<Target />}
+          info="Soma do valor das oportunidades ainda abertas no funil. É potencial de venda, não é faturamento."
         />
         <StatTile
           label="Clientes"
           value={String(totalCustomers)}
           hint={`+${newLeads30} novos leads${customPeriod ? " no período" : " em 30d"}`}
           icon={<Users />}
+          info="Total de clientes cadastrados na loja. O rodapé mostra quantos entraram no período."
         />
         <StatTile
           label={customPeriod ? "Vendas perdidas (período)" : "Vendas perdidas (30d)"}
           value={String(lostOpps30)}
           icon={<AlertTriangle />}
           tone={lostOpps30 > 3 ? "bad" : "default"}
+          info="Oportunidades movidas para uma etapa de perda no funil dentro do período."
         />
         <StatTile
           label="Sem contato há 7+ dias"
@@ -331,12 +338,14 @@ export default async function DashboardPage({
           hint="clientes esfriando"
           icon={<CalendarClock />}
           tone={noContactCustomers.length > 0 ? "warn" : "good"}
+          info="Clientes sem nenhum contato registrado nos últimos 7 dias (ou que nunca foram contatados)."
         />
         <StatTile
           label="Follow-ups atrasados"
           value={String(overdue)}
           icon={<AlertTriangle />}
           tone={overdue > 0 ? "bad" : "good"}
+          info="Tarefas de acompanhamento cuja data de vencimento já passou e continuam pendentes."
         />
       </div>
 
@@ -359,18 +368,21 @@ export default async function DashboardPage({
           value={String(ordersToday._count)}
           hint={brl(ordersToday._sum.total ?? 0)}
           icon={<ShoppingBag />}
+          info="Quantidade e valor dos pedidos pagos hoje (desde a meia-noite, horário de São Paulo)."
         />
         <StatTile
           label="Pagos na semana"
           value={String(ordersWeek._count)}
           hint={brl(ordersWeek._sum.total ?? 0)}
           icon={<ShoppingBag />}
+          info="Pedidos pagos nos últimos 7 dias, com o valor somado."
         />
         <StatTile
           label="Pagos no mês"
           value={String(ordersMonth._count)}
           hint={`valor médio ${brl(avgOrder)}`}
           icon={<ShoppingBag />}
+          info="Pedidos pagos no período (padrão: últimos 30 dias). O rodapé mostra o valor médio por pedido."
         />
         <StatTile
           label="Taxa de recompra"
@@ -378,6 +390,7 @@ export default async function DashboardPage({
           hint="clientes com 2+ pedidos"
           icon={<Repeat />}
           tone={repurchaseRate >= 30 ? "good" : "warn"}
+          info="De todos os clientes que já compraram, quantos fizeram 2 pedidos pagos ou mais."
         />
       </div>
 
@@ -387,6 +400,7 @@ export default async function DashboardPage({
             <h2 className="font-semibold flex items-center gap-2 mb-4">
               <Package className="size-4 text-brand-600" />
               Produtos mais vendidos
+              <InfoTip text="Peças mais vendidas em pedidos PAGOS no período, somando a quantidade de cada modelo. Pedido cancelado ou sem pagamento não conta." />
             </h2>
             {topItems.length === 0 ? (
               <EmptyState title="Nenhum pedido ainda" />
@@ -404,6 +418,7 @@ export default async function DashboardPage({
             <h2 className="font-semibold flex items-center gap-2 mb-4">
               <Gem className="size-4 text-emerald-600" />
               Clientes que mais compram
+              <InfoTip text="Clientes que mais gastaram em pedidos PAGOS no período. Mostra o total gasto e quantos pedidos cada um fez." />
             </h2>
             {topBuyers.length === 0 ? (
               <EmptyState title="Nenhum pedido ainda" />
@@ -477,6 +492,7 @@ export default async function DashboardPage({
           <h2 className="font-semibold flex items-center gap-2 mb-4">
             <Trophy className="size-4 text-amber-500" />
             Ranking de vendedores
+            <InfoTip text="Vendedores ordenados pelo valor em pedidos PAGOS no período, com a quantidade de vendas de cada um. Baseado no vendedor atribuído ao pedido." />
           </h2>
           {ranking.length === 0 ? (
             <EmptyState title="Sem vendas no período" />

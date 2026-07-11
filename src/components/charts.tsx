@@ -13,18 +13,22 @@ export const ORDINAL_RAMP = [
   "#0e0142",
 ];
 
+import { InfoTip } from "./info-tip";
+
 export function StatTile({
   label,
   value,
   hint,
   icon,
   tone = "default",
+  info,
 }: {
   label: string;
   value: string;
   hint?: string;
   icon?: React.ReactNode;
   tone?: "default" | "good" | "warn" | "bad";
+  info?: string;
 }) {
   const toneCls =
     tone === "good"
@@ -45,8 +49,9 @@ export function StatTile({
   return (
     <div className="group min-w-0 bg-white rounded-2xl border border-slate-200/70 shadow-card p-4 md:p-5 transition duration-200 hover:shadow-pop hover:-translate-y-0.5">
       <div className="flex items-start justify-between gap-2 mb-2.5 md:mb-3">
-        <p className="text-[10px] md:text-[11px] font-semibold text-slate-400 uppercase tracking-wider leading-tight">
+        <p className="text-[10px] md:text-[11px] font-semibold text-slate-400 uppercase tracking-wider leading-tight flex items-center gap-1">
           {label}
+          {info && <InfoTip text={info} />}
         </p>
         {icon && (
           <span

@@ -3,7 +3,7 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import { requireUser, AuthError } from "@/lib/auth";
 import { isManagerUp } from "@/lib/scope";
-import { reverseAndDeleteOrder } from "@/lib/order-actions";
+import { reverseAndDeleteOrder, cleanupOrphanCatalogCustomer } from "@/lib/order-actions";
 
 const patchSchema = z.object({
   stageId: z.string().optional(),
@@ -96,12 +96,19 @@ export async function DELETE(
     }
 
     await db.$transaction(async (tx) => {
-      // Pedido gerado junto (catálogo) é desfeito e apagado primeiro.
+      // Pedido gerado junto (catálogo) é desfeito e apagado primeiro. Isso pode
+      // apagar o cliente do catálogo em cascata — e, com ele, esta própria
+      // oportunidade — por isso usamos deleteMany logo abaixo (não erra se já
+      // tiver sumido).
       if (opp.order) {
         await reverseAndDeleteOrder(tx, opp.order);
+      } else {
+        // Sem pedido ligado: o cliente do catálogo pode ficar órfão. Limpa se
+        // não tiver mais nenhum pedido.
+        await cleanupOrphanCatalogCustomer(tx, user.companyId, opp.customerId);
       }
       // A oportunidade sai do funil; tarefas/vendas ficam sem vínculo (SetNull).
-      await tx.opportunity.delete({ where: { id: opp.id } });
+      await tx.opportunity.deleteMany({ where: { id: opp.id } });
     });
 
     return NextResponse.json({ ok: true });
