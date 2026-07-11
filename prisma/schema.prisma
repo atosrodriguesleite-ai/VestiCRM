@@ -688,6 +688,18 @@ enum CampaignStatus {
   CONCLUIDA
 }
 
+// Disparo de campanha: marca quais clientes já receberam a mensagem
+// (o envio é pelo WhatsApp do vendedor; aqui fica o controle do progresso).
+model CampaignSend {
+  id         String   @id @default(cuid())
+  campaignId String
+  campaign   Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  customerId String
+  sentAt     DateTime @default(now())
+
+  @@unique([campaignId, customerId])
+}
+
 // Campanhas de reativação: filtro salvo como JSON (dias sem compra, tipo,
 // cidade, ticket mínimo, interesse...) + mensagem a disparar.
 model Campaign {
@@ -699,6 +711,8 @@ model Campaign {
   message    String
   status     CampaignStatus @default(RASCUNHO)
   createdAt  DateTime       @default(now())
+
+  sends CampaignSend[]
 
   @@index([companyId])
 }

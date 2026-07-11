@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Megaphone, Plus, Users, X } from "lucide-react";
+import { Megaphone, Plus, Users, X, Send, Check, MessageCircle } from "lucide-react";
 import type { SegmentFilter } from "@/lib/segments";
 import { customerTypeLabel, brl, formatPhone } from "@/lib/format";
 import { Card, Badge, EmptyState } from "@/components/ui";
@@ -51,6 +51,7 @@ export function CampaignsView({
 }) {
   const router = useRouter();
   const [showNew, setShowNew] = useState(false);
+  const [sending, setSending] = useState<CampaignItem | null>(null);
 
   return (
     <>
@@ -98,21 +99,42 @@ export function CampaignsView({
                     &ldquo;{c.message}&rdquo;
                   </p>
                 </div>
-                <div className="shrink-0 text-center bg-brand-50 rounded-xl px-4 py-3">
-                  <p className="flex items-center gap-1 justify-center text-brand-700">
-                    <Users className="size-4" />
-                    <span className="text-xl font-semibold tabular-nums">
-                      {c.reach}
-                    </span>
-                  </p>
-                  <p className="text-[11px] text-brand-600">
-                    cliente{c.reach === 1 ? "" : "s"} no alvo
-                  </p>
+                <div className="shrink-0 flex sm:flex-col items-center gap-2">
+                  <div className="text-center bg-brand-50 rounded-xl px-4 py-3">
+                    <p className="flex items-center gap-1 justify-center text-brand-700">
+                      <Users className="size-4" />
+                      <span className="text-xl font-semibold tabular-nums">
+                        {c.reach}
+                      </span>
+                    </p>
+                    <p className="text-[11px] text-brand-600">
+                      cliente{c.reach === 1 ? "" : "s"} no alvo
+                    </p>
+                  </div>
+                  {c.status !== "CONCLUIDA" && c.reach > 0 && (
+                    <button
+                      onClick={() => setSending(c)}
+                      className="inline-flex items-center gap-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold px-3 py-2 transition"
+                    >
+                      <Send className="size-3.5" />
+                      Disparar
+                    </button>
+                  )}
                 </div>
               </div>
             </Card>
           ))}
         </div>
+      )}
+
+      {sending && (
+        <SendCampaignModal
+          campaign={sending}
+          onClose={() => {
+            setSending(null);
+            router.refresh();
+          }}
+        />
       )}
 
       {showNew && (
@@ -402,6 +424,147 @@ function NewCampaignModal({
               </button>
             </div>
           </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ============================================================
+   Disparo da campanha: lista o público-alvo, abre o WhatsApp com a
+   mensagem personalizada ({{nome}} → primeiro nome) e marca quem já
+   recebeu. Quando todos recebem, a campanha vira Concluída sozinha.
+   ============================================================ */
+
+type AudienceRow = { id: string; name: string; phone: string; sent: boolean };
+
+function SendCampaignModal({
+  campaign,
+  onClose,
+}: {
+  campaign: CampaignItem;
+  onClose: () => void;
+}) {
+  const [rows, setRows] = useState<AudienceRow[]>([]);
+  const [message, setMessage] = useState(campaign.message);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    (async () => {
+      const res = await fetch(`/api/campaigns/${campaign.id}/audience`);
+      if (res.ok) {
+        const data = await res.json();
+        setRows(data.customers);
+        setMessage(data.message);
+      }
+      setLoading(false);
+    })();
+  }, [campaign.id]);
+
+  const personalize = (name: string) =>
+    message.replace(/\{\{\s*nome\s*\}\}/gi, name.split(" ")[0]);
+
+  const waLink = (r: AudienceRow) => {
+    let digits = r.phone.replace(/\D/g, "");
+    if (digits.length >= 10 && digits.length <= 11) digits = "55" + digits;
+    return `https://wa.me/${digits}?text=${encodeURIComponent(personalize(r.name))}`;
+  };
+
+  async function markSent(r: AudienceRow) {
+    setRows((prev) =>
+      prev.map((x) => (x.id === r.id ? { ...x, sent: true } : x))
+    );
+    await fetch(`/api/campaigns/${campaign.id}/audience`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ customerId: r.id }),
+    });
+  }
+
+  const sent = rows.filter((r) => r.sent).length;
+  const pending = rows.filter((r) => !r.sent);
+  const done = rows.length > 0 && sent === rows.length;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center">
+      <div className="absolute inset-0 bg-black/30 animate-fade-in" onClick={onClose} />
+      <div className="relative bg-white rounded-t-2xl md:rounded-2xl shadow-pop w-full md:max-w-lg p-6 animate-fade-up max-h-[92dvh] flex flex-col">
+        <div className="flex items-center justify-between mb-1">
+          <h3 className="font-semibold text-lg">{campaign.name}</h3>
+          <button onClick={onClose} className="text-gray-400 p-1">
+            <X className="size-5" />
+          </button>
+        </div>
+        <p className="text-xs text-gray-400 mb-3">
+          Toque no botão verde: o WhatsApp abre com a mensagem pronta (com o
+          nome da pessoa) e o cliente fica marcado como enviado.
+        </p>
+
+        {/* progresso */}
+        <div className="mb-4">
+          <div className="flex items-baseline justify-between text-xs mb-1">
+            <span className={`font-semibold ${done ? "text-emerald-600" : "text-gray-600"}`}>
+              {done ? "🎉 Campanha concluída!" : `${sent} de ${rows.length} enviados`}
+            </span>
+            <span className="text-gray-400 tabular-nums">
+              {rows.length ? Math.round((sent / rows.length) * 100) : 0}%
+            </span>
+          </div>
+          <div className="h-2 rounded-full bg-gray-100 overflow-hidden">
+            <div
+              className="h-full rounded-full bg-emerald-500 transition-all"
+              style={{ width: `${rows.length ? (sent / rows.length) * 100 : 0}%` }}
+            />
+          </div>
+        </div>
+
+        <div className="flex-1 overflow-y-auto thin-scroll -mx-2 px-2">
+          {loading ? (
+            <p className="text-sm text-gray-400 text-center py-8">Carregando…</p>
+          ) : rows.length === 0 ? (
+            <p className="text-sm text-gray-400 text-center py-8">
+              Nenhum cliente no alvo desta campanha.
+            </p>
+          ) : (
+            <ul className="divide-y divide-gray-50">
+              {[...pending, ...rows.filter((r) => r.sent)].map((r) => {
+                const noPhone = r.phone.replace(/\D/g, "").length < 10;
+                return (
+                  <li key={r.id} className="py-2.5 flex items-center gap-3">
+                    <div className="min-w-0 flex-1">
+                      <p className={`text-sm font-medium truncate ${r.sent ? "text-gray-400 line-through" : ""}`}>
+                        {r.name}
+                      </p>
+                      <p className="text-xs text-gray-400">
+                        {noPhone ? "sem telefone cadastrado" : formatPhone(r.phone)}
+                      </p>
+                    </div>
+                    {r.sent ? (
+                      <span className="inline-flex items-center gap-1 text-xs font-medium text-emerald-600">
+                        <Check className="size-3.5" /> enviado
+                      </span>
+                    ) : (
+                      <a
+                        href={noPhone ? undefined : waLink(r)}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        onClick={() => !noPhone && markSent(r)}
+                        aria-disabled={noPhone}
+                        className={`inline-flex items-center gap-1.5 rounded-xl text-xs font-semibold px-3 py-2 transition ${
+                          noPhone
+                            ? "bg-gray-100 text-gray-300 cursor-not-allowed"
+                            : "bg-emerald-600 hover:bg-emerald-700 text-white"
+                        }`}
+                      >
+                        <MessageCircle className="size-3.5" />
+                        Enviar
+                      </a>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+          )}
         </div>
       </div>
     </div>
