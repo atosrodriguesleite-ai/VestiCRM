@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
+import { imageSrc } from "@/lib/img";
 import { intakeLead, normalizePhone } from "@/lib/intake";
 
 /**
@@ -92,7 +93,7 @@ export async function POST(req: NextRequest) {
       variantId: variant.id,
       name: product.name,
       sku: product.sku,
-      imageUrl: product.images[0]?.url ?? null,
+      imageUrl: product.images[0] ? imageSrc(product.images[0]) : null,
       color: variant.color,
       size: variant.size,
       quantity: item.quantity,

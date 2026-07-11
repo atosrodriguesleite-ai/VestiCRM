@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
 import { db } from "@/lib/db";
+import { imageSrc } from "@/lib/img";
 import { PublicCatalog, type CatalogProduct } from "./public-catalog";
 
 export const dynamic = "force-dynamic";
@@ -61,7 +62,7 @@ export default async function PublicCatalogPage({
     wholesalePrice: p.wholesalePrice,
     minQuantity: p.minQuantity,
     tags: p.tags,
-    images: p.images.map((i) => i.url),
+    images: p.images.map(imageSrc),
     variants: p.variants.map((v) => ({
       color: v.color,
       size: v.size,

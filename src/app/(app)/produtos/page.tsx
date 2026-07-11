@@ -1,6 +1,7 @@
 import { ExternalLink } from "lucide-react";
 import { requireUser } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { imageSrc } from "@/lib/img";
 import { PageHeader } from "@/components/ui";
 import { ProductsView, type ProductItem } from "./products-view";
 import { catalogUrl } from "@/lib/catalog-url";
@@ -44,7 +45,7 @@ export default async function ProductsPage() {
     minQuantity: p.minQuantity,
     active: p.active,
     tags: p.tags,
-    images: p.images.map((i) => i.url),
+    images: p.images.map(imageSrc),
     variants: p.variants.map((v) => ({
       id: v.id,
       color: v.color,

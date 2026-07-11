@@ -56,19 +56,16 @@ export async function PATCH(
     const { imageUrl, variantStocks, addVariants, removeVariantIds, ...data } =
       parsed.data;
 
-    // troca da foto principal
+    // troca da foto principal — apaga e recria para nascer com id NOVO:
+    // /api/img/<id> usa cache imutável, então foto nova precisa de URL nova
     if (imageUrl) {
       const first = product.images[0];
       if (first) {
-        await db.productImage.update({
-          where: { id: first.id },
-          data: { url: imageUrl },
-        });
-      } else {
-        await db.productImage.create({
-          data: { productId: product.id, url: imageUrl, order: 0 },
-        });
+        await db.productImage.delete({ where: { id: first.id } });
       }
+      await db.productImage.create({
+        data: { productId: product.id, url: imageUrl, order: 0 },
+      });
     }
 
     // ajuste de estoque por variação → gera movimento auditável

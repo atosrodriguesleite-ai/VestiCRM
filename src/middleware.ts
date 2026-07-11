@@ -16,6 +16,7 @@ const PUBLIC_PATHS = [
   "/api/whatsapp/webhook",
   "/api/track", // Tracking Engine (Inteligência Comercial)
   "/api/catalog/order", // pedido enviado pelo catálogo público
+  "/api/img", // fotos de produto (catálogo público carrega daqui)
 ];
 
 // Domínio dedicado aos catálogos (ex.: "pedidosatacado.com.br").

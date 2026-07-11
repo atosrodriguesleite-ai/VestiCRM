@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
+import { imageSrc } from "@/lib/img";
 import { requireUser, AuthError } from "@/lib/auth";
 import type { Prisma } from "@prisma/client";
 
@@ -74,7 +75,13 @@ export async function GET(req: NextRequest) {
       orderBy: { name: "asc" },
       take: 60,
     });
-    return NextResponse.json(products);
+    // fotos data-URL viram /api/img/<id> — resposta leve para o navegador
+    return NextResponse.json(
+      products.map((p) => ({
+        ...p,
+        images: p.images.map((i) => ({ ...i, url: imageSrc(i) })),
+      }))
+    );
   } catch (e) {
     if (e instanceof AuthError)
       return NextResponse.json({ error: "Não autenticado" }, { status: 401 });

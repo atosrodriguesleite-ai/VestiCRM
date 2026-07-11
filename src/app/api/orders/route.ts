@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
+import { imageSrc } from "@/lib/img";
 import { requireUser, AuthError } from "@/lib/auth";
 import { computeOrderTotals, orderNumber } from "@/lib/orders";
 
@@ -105,7 +106,7 @@ export async function POST(req: NextRequest) {
                 variantId: v.id,
                 name: v.product.name,
                 sku: v.product.sku,
-                imageUrl: v.product.images[0]?.url ?? null,
+                imageUrl: v.product.images[0] ? imageSrc(v.product.images[0]) : null,
                 color: v.color,
                 size: v.size,
                 quantity: i.quantity,
