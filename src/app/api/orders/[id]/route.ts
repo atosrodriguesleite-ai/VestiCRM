@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { requireUser, AuthError } from "@/lib/auth";
+import { isManagerUp } from "@/lib/scope";
 import { orderStatusLabel, orderNumber, PAID_ORDER_STATUSES } from "@/lib/orders";
 import { computeOrderTotals } from "@/lib/orders";
 
@@ -417,6 +418,63 @@ export async function PATCH(
 
     const updated = await db.order.update({ where: { id }, data });
     return NextResponse.json(updated);
+  } catch (e) {
+    if (e instanceof AuthError)
+      return NextResponse.json({ error: "Não autenticado" }, { status: 401 });
+    throw e;
+  }
+}
+
+/**
+ * Excluir um pedido de vez — usado para limpar testes.
+ * Desfaz TODO o efeito do pedido, como se ele nunca tivesse existido:
+ *  1. devolve o estoque ao catálogo (se estava baixado);
+ *  2. remove a venda do faturamento;
+ *  3. apaga o histórico de estoque ligado a ele;
+ *  4. apaga o pedido (itens, pagamentos, envio e eventos caem por cascata).
+ * Permitido apenas para dono/admin/gerente — vendedor comum não exclui.
+ */
+export async function DELETE(
+  _req: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const user = await requireUser();
+    if (!isManagerUp(user)) {
+      return NextResponse.json(
+        { error: "Você não tem permissão para excluir pedidos." },
+        { status: 403 }
+      );
+    }
+    const { id } = await params;
+    const order = await db.order.findFirst({
+      where: { id, companyId: user.companyId },
+      include: { items: true },
+    });
+    if (!order) {
+      return NextResponse.json({ error: "Não encontrado" }, { status: 404 });
+    }
+
+    await db.$transaction(async (tx) => {
+      // 1) Estoque baixado (pedido pago) volta inteiro para o catálogo.
+      if (order.stockDeducted) {
+        for (const item of order.items) {
+          if (!item.variantId) continue;
+          await tx.productVariant.update({
+            where: { id: item.variantId },
+            data: { stock: { increment: item.quantity } },
+          });
+        }
+      }
+      // 2) A venda sai do faturamento.
+      await tx.sale.deleteMany({ where: { orderId: order.id } });
+      // 3) O histórico de estoque do pedido some (fica como se nunca existiu).
+      await tx.inventoryMovement.deleteMany({ where: { orderId: order.id } });
+      // 4) O pedido é apagado; itens/pagamentos/envio/eventos caem por cascata.
+      await tx.order.delete({ where: { id: order.id } });
+    });
+
+    return NextResponse.json({ ok: true });
   } catch (e) {
     if (e instanceof AuthError)
       return NextResponse.json({ error: "Não autenticado" }, { status: 401 });

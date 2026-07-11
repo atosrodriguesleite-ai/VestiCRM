@@ -9,6 +9,7 @@ import {
   History,
 } from "lucide-react";
 import { requireUser } from "@/lib/auth";
+import { isManagerUp } from "@/lib/scope";
 import { db } from "@/lib/db";
 import { brl, dateFull, dateShort, timeShort } from "@/lib/format";
 import {
@@ -21,6 +22,7 @@ import { StatusChanger } from "./status-changer";
 import { CustomerEditor } from "./customer-editor";
 import { ItemsEditor } from "./items-editor";
 import { PaymentMethodChanger } from "./payment-method";
+import { DeleteOrder } from "./delete-order";
 
 export const dynamic = "force-dynamic";
 
@@ -114,6 +116,9 @@ export default async function OrderDetailPage({
                 <MessageCircle className="size-4 text-emerald-500" />
                 Ver conversa
               </Link>
+            )}
+            {isManagerUp(user) && (
+              <DeleteOrder orderId={order.id} number={orderNumber(order.number)} />
             )}
           </div>
         </div>
