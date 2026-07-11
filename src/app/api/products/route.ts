@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
-import { imageSrc } from "@/lib/img";
+import { imageHref } from "@/lib/img";
 import { requireUser, AuthError } from "@/lib/auth";
 import type { Prisma } from "@prisma/client";
 
@@ -70,7 +70,7 @@ export async function GET(req: NextRequest) {
       where,
       include: {
         variants: { orderBy: [{ color: "asc" }, { size: "asc" }] },
-        images: { orderBy: { order: "asc" } },
+        images: { orderBy: { order: "asc" }, select: { id: true, order: true } },
       },
       orderBy: { name: "asc" },
       take: 60,
@@ -79,7 +79,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json(
       products.map((p) => ({
         ...p,
-        images: p.images.map((i) => ({ ...i, url: imageSrc(i) })),
+        images: p.images.map((i) => ({ ...i, url: imageHref(i.id) })),
       }))
     );
   } catch (e) {

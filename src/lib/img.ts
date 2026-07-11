@@ -8,3 +8,13 @@
 export function imageSrc(img: { id: string; url: string }): string {
   return img.url.startsWith("data:") ? `/api/img/${img.id}` : img.url;
 }
+
+/**
+ * Versão para listagens grandes: monta o endereço SÓ com o id, sem nunca
+ * carregar o base64 do banco (a rota /api/img redireciona sozinha quando
+ * a foto for um link externo). Com 1.000+ produtos, isso evita ler
+ * centenas de MB do banco a cada visita ao catálogo.
+ */
+export function imageHref(id: string): string {
+  return `/api/img/${id}`;
+}

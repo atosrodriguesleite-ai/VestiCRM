@@ -39,8 +39,11 @@ export async function GET(
     headers: {
       "Content-Type": mime || "image/jpeg",
       "Content-Length": String(body.byteLength),
-      // foto de produto não muda (editar = nova imagem/id): cache imutável
-      "Cache-Control": "public, max-age=31536000, immutable",
+      // foto de produto não muda (editar = nova imagem/id): cache imutável.
+      // s-maxage faz a CDN da Vercel guardar a foto — o banco só é
+      // consultado UMA vez por foto, não uma vez por visitante.
+      "Cache-Control":
+        "public, max-age=31536000, s-maxage=31536000, immutable",
     },
   });
 }

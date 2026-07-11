@@ -663,6 +663,8 @@ export function PublicCatalog({
                           <img
                             src={card.product.images[0]}
                             alt={`${card.product.name} ${card.color}`}
+                            loading="lazy"
+                            decoding="async"
                             className="w-full h-full object-cover"
                             style={
                               soldOut
@@ -1036,6 +1038,8 @@ export function PublicCatalog({
                             <img
                               src={c.product.images[0]}
                               alt=""
+                              loading="lazy"
+                              decoding="async"
                               className="w-[58px] h-[74px] object-cover rounded-[10px] border shrink-0"
                               style={{ borderColor: T.line, background: T.soft }}
                             />

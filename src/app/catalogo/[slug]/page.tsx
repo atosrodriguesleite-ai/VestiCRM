@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
 import { db } from "@/lib/db";
-import { imageSrc } from "@/lib/img";
+import { imageHref } from "@/lib/img";
 import { PublicCatalog, type CatalogProduct } from "./public-catalog";
 
 export const dynamic = "force-dynamic";
@@ -40,7 +40,7 @@ export default async function PublicCatalogPage({
     db.product.findMany({
       where: { companyId: company.id, active: true },
       include: {
-        images: { orderBy: { order: "asc" } },
+        images: { orderBy: { order: "asc" }, select: { id: true } },
         variants: { orderBy: [{ color: "asc" }, { size: "asc" }] },
       },
       orderBy: [{ collection: "desc" }, { name: "asc" }],
@@ -62,7 +62,7 @@ export default async function PublicCatalogPage({
     wholesalePrice: p.wholesalePrice,
     minQuantity: p.minQuantity,
     tags: p.tags,
-    images: p.images.map(imageSrc),
+    images: p.images.map((i) => imageHref(i.id)),
     variants: p.variants.map((v) => ({
       color: v.color,
       size: v.size,
