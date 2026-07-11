@@ -130,7 +130,7 @@ export function Field({
 
 export function Badge({
   children,
-  color = "#6d28ff",
+  color = "#c4622d",
   soft = true,
 }: {
   children: React.ReactNode;
@@ -156,7 +156,7 @@ export function Badge({
 
 export function Avatar({
   name,
-  color = "#6d28ff",
+  color = "#c4622d",
   size = "md",
 }: {
   name: string;

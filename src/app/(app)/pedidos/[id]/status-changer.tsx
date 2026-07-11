@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Check } from "lucide-react";
 import {
@@ -12,9 +12,9 @@ import type { OrderStatus } from "@prisma/client";
 
 /**
  * Trilha de status clicável — muda o status do pedido com um toque.
- * Pode pular direto para qualquer etapa: o sistema executa a lógica
- * completa (confirma pagamento, baixa estoque, marca envio/entrega).
- * Se algo impedir (ex.: estoque insuficiente), o motivo aparece aqui.
+ * Otimista: a trilha atualiza NA HORA do clique; o servidor confirma em
+ * seguida. Se algo impedir (ex.: sem vendedor, sem estoque), o status
+ * volta ao anterior e o motivo aparece em vermelho.
  */
 export function StatusChanger({
   orderId,
@@ -24,12 +24,16 @@ export function StatusChanger({
   current: OrderStatus;
 }) {
   const router = useRouter();
-  const [busy, setBusy] = useState<OrderStatus | null>(null);
+  // estado otimista: reflete o clique imediatamente e re-sincroniza quando
+  // o servidor devolve a página atualizada
+  const [shown, setShown] = useState<OrderStatus>(current);
+  useEffect(() => setShown(current), [current]);
+  const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const currentIdx = ORDER_STATUS_FLOW.indexOf(current);
+  const currentIdx = ORDER_STATUS_FLOW.indexOf(shown);
 
   async function setStatus(status: OrderStatus) {
-    if (busy || status === current) return;
+    if (busy || status === shown) return;
     if (
       status === "CANCELADO" &&
       !window.confirm(
@@ -37,15 +41,18 @@ export function StatusChanger({
       )
     )
       return;
-    setBusy(status);
+    const previous = shown;
+    setShown(status); // resposta visual imediata
+    setBusy(true);
     setError("");
     const res = await fetch(`/api/orders/${orderId}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ status }),
     });
-    setBusy(null);
+    setBusy(false);
     if (!res.ok) {
+      setShown(previous); // volta ao que era e mostra o motivo
       const data = await res.json().catch(() => null);
       setError(data?.error ?? "Não foi possível mudar o status. Tente de novo.");
       return;
@@ -53,19 +60,19 @@ export function StatusChanger({
     router.refresh();
   }
 
-  const cancelled = current === "CANCELADO";
+  const cancelled = shown === "CANCELADO";
 
   return (
     <div>
       <div className="flex gap-1.5 overflow-x-auto thin-scroll pb-1">
         {ORDER_STATUS_FLOW.map((s, i) => {
-          const active = s === current;
+          const active = s === shown;
           const done = !cancelled && i < currentIdx && s !== "CANCELADO";
           return (
             <button
               key={s}
               onClick={() => setStatus(s)}
-              disabled={!!busy}
+              disabled={busy}
               className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-medium whitespace-nowrap transition disabled:opacity-60 ${
                 active
                   ? "text-white"
@@ -78,7 +85,7 @@ export function StatusChanger({
               style={active ? { backgroundColor: orderStatusColor[s] } : undefined}
             >
               {done && <Check className="size-3" />}
-              {busy === s ? "Salvando…" : orderStatusLabel[s]}
+              {orderStatusLabel[s]}
             </button>
           );
         })}

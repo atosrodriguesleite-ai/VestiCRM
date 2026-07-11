@@ -31,10 +31,10 @@ const INTEGRATIONS = [
     color: "#10b981",
   },
   { name: "Bling", desc: "Sincronize pedidos, estoque e notas fiscais.", icon: Package, color: "#0ea5e9" },
-  { name: "Nuvemshop", desc: "Importe pedidos e clientes da sua loja virtual.", icon: ShoppingCart, color: "#6d28ff" },
+  { name: "Nuvemshop", desc: "Importe pedidos e clientes da sua loja virtual.", icon: ShoppingCart, color: "#c4622d" },
   { name: "Shopify", desc: "Conecte sua loja Shopify ao funil de vendas.", icon: Store, color: "#059669" },
   { name: "Instagram", desc: "Receba directs e comentários dentro do CRM.", icon: AtSign, color: "#ec4899" },
-  { name: "Meta Ads", desc: "Leads dos anúncios entram direto no funil.", icon: Megaphone, color: "#6d28ff" },
+  { name: "Meta Ads", desc: "Leads dos anúncios entram direto no funil.", icon: Megaphone, color: "#c4622d" },
   { name: "Gateway de pagamento", desc: "Gere links de pagamento na conversa.", icon: CreditCard, color: "#f59e0b" },
   { name: "E-mail marketing", desc: "Sincronize segmentos com sua ferramenta de e-mail.", icon: Mail, color: "#64748b" },
 ];

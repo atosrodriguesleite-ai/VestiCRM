@@ -17,7 +17,7 @@ const STYLE: Record<string, { color: string; icon: React.ReactNode; label: strin
   "carrinho-abandonado": { color: "#e11d48", icon: <ShoppingCart className="size-4" />, label: "Carrinho abandonado" },
   "quase-comprando": { color: "#d97706", icon: <Flame className="size-4" />, label: "Quase comprando" },
   "cliente-voltou": { color: "#059669", icon: <UserCheck className="size-4" />, label: "Cliente voltou" },
-  "cliente-recorrente": { color: "#6d28ff", icon: <RotateCcw className="size-4" />, label: "Recorrente" },
+  "cliente-recorrente": { color: "#c4622d", icon: <RotateCcw className="size-4" />, label: "Recorrente" },
 };
 
 export function RecoveryList({ items }: { items: Item[] }) {

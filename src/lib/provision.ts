@@ -20,7 +20,7 @@ const DEFAULT_STAGES: [string, string, boolean, boolean][] = [
   ["Novo lead", "#94a3b8", false, false],
   ["Primeiro contato", "#38bdf8", false, false],
   ["Interesse identificado", "#818cf8", false, false],
-  ["Catálogo enviado", "#a78bfa", false, false],
+  ["Catálogo enviado", "#dbba8b", false, false],
   ["Pedido em negociação", "#f59e0b", false, false],
   ["Pagamento pendente", "#fb923c", false, false],
   ["Pedido fechado", "#10b981", true, false],
@@ -123,7 +123,7 @@ export async function provisionCompany(
         email,
         passwordHash,
         role: "ADMIN",
-        color: "#6d28ff",
+        color: "#c4622d",
       },
     });
 

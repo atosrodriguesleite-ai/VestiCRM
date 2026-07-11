@@ -13,10 +13,10 @@ import { db } from "./db";
 export const PLATFORM_SLUG = "vesticrm";
 
 const SALES_STAGES: [string, string, boolean, boolean][] = [
-  ["Novo Lead", "#8148f9", false, false],
-  ["Contato realizado", "#9d74ff", false, false],
+  ["Novo Lead", "#cb7239", false, false],
+  ["Contato realizado", "#c99b5f", false, false],
   ["Demonstração agendada", "#818cf8", false, false],
-  ["Demonstração realizada", "#a78bfa", false, false],
+  ["Demonstração realizada", "#dbba8b", false, false],
   ["Negociação", "#f59e0b", false, false],
   ["Implantação", "#14b8a6", false, false],
   ["Cliente", "#10b981", true, false],

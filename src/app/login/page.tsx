@@ -38,7 +38,7 @@ export default function LoginPage() {
   return (
     <div className="min-h-dvh flex bg-canvas">
       {/* Painel institucional (desktop) */}
-      <div className="hidden lg:flex flex-col justify-between w-[48%] relative overflow-hidden bg-sidebar text-white p-12">
+      <div className="hidden lg:flex flex-col justify-between w-[48%] relative overflow-hidden bg-sidebar text-creme p-12">
         {/* brilho decorativo */}
         <div className="absolute -top-32 -right-24 size-96 rounded-full bg-brand-600/30 blur-3xl" />
         <div className="absolute bottom-0 -left-24 size-80 rounded-full bg-brand-500/20 blur-3xl" />
@@ -52,7 +52,7 @@ export default function LoginPage() {
             <h1 className="text-[40px] leading-[1.1] font-semibold tracking-tight">
               O jeito profissional de vender no atacado.
             </h1>
-            <p className="text-slate-400 mt-4 text-lg">
+            <p className="text-creme/60 mt-4 text-lg">
               Do primeiro clique no catálogo à recompra — tudo em um só lugar.
             </p>
           </div>
@@ -64,9 +64,9 @@ export default function LoginPage() {
                 [BarChart3, "Inteligência comercial de cada venda e canal"],
               ] as const
             ).map(([Icon, text]) => (
-              <li key={text} className="flex items-center gap-3 text-slate-300">
-                <span className="size-9 rounded-xl bg-white/5 ring-1 ring-white/10 flex items-center justify-center shrink-0">
-                  <Icon className="size-[18px] text-brand-300" />
+              <li key={text} className="flex items-center gap-3 text-creme/80">
+                <span className="size-9 rounded-xl bg-creme/5 ring-1 ring-creme/10 flex items-center justify-center shrink-0">
+                  <Icon className="size-[18px] text-ocre" />
                 </span>
                 {text}
               </li>
@@ -74,7 +74,7 @@ export default function LoginPage() {
           </ul>
         </div>
 
-        <p className="relative text-sm text-slate-500">
+        <p className="relative text-sm text-creme/40">
           © {new Date().getFullYear()} AtacadoPro · A plataforma comercial para
           lojas de moda
         </p>
@@ -85,9 +85,9 @@ export default function LoginPage() {
         <div className="w-full max-w-sm animate-fade-up">
           <div className="lg:hidden flex justify-center mb-10">
             <div className="flex flex-col items-center gap-3">
-              <LogoMark className="size-12" rounded="rounded-2xl" />
+              <LogoMark className="size-12" />
               <span className="text-xl font-semibold tracking-tight">
-                Vesti<span className="text-brand-600">CRM</span>
+                Atacado<span className="text-cobre">Pro</span>
               </span>
             </div>
           </div>

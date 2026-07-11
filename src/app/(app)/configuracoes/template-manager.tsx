@@ -10,7 +10,7 @@ type Template = { id: string; title: string; body: string; category: string };
 
 const CATEGORY_COLORS: Record<string, string> = {
   PRIMEIRO_ATENDIMENTO: "#0ea5e9",
-  CATALOGO: "#6d28ff",
+  CATALOGO: "#c4622d",
   COBRANCA: "#f59e0b",
   POS_VENDA: "#10b981",
   RECOMPRA: "#14b8a6",

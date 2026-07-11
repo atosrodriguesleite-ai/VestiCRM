@@ -1,35 +1,27 @@
 /* eslint-disable @next/next/no-img-element */
 /**
- * Identidade visual do AtacadoPro.
- * Marca oficial (arquivo em /public/brand/mark.png): monograma "AP" — o "A"
- * (Atacado) em roxo escuro e o "P" (Pro) em roxo vibrante.
- * Em fundos escuros, o símbolo vai sobre um chip branco arredondado para o
- * "A" escuro não sumir.
- * Usada em login, sidebar, header, favicon e catálogo.
+ * Identidade visual do AtacadoPro — Manual da Marca V1.
+ * Monograma "AP": em fundo claro usa a versão espresso+cobre
+ * (/brand/mark.png); em fundo escuro usa a versão creme+cobre
+ * (/brand/mark-dark.png), sem chip — o logo já foi feito para escuro.
+ * O nome escreve-se sempre AtacadoPro, com "Pro" em cobre.
  */
 
 export function LogoMark({
   className = "size-8",
-  rounded = "rounded-[10px]",
   onDark = false,
 }: {
   className?: string;
   rounded?: string;
   onDark?: boolean;
 }) {
-  if (onDark) {
-    return (
-      <span
-        className={`inline-flex items-center justify-center ${className} ${rounded} bg-white`}
-        aria-hidden="true"
-      >
-        <img src="/brand/mark.png" alt="" className="size-[74%] object-contain" />
-      </span>
-    );
-  }
   return (
     <span className={`inline-flex items-center justify-center ${className}`} aria-hidden="true">
-      <img src="/brand/mark.png" alt="" className="size-full object-contain" />
+      <img
+        src={onDark ? "/brand/mark-dark.png" : "/brand/mark.png"}
+        alt=""
+        className="size-full object-contain"
+      />
     </span>
   );
 }
@@ -51,16 +43,16 @@ export function Logo({
     size === "lg" ? "text-xl" : size === "sm" ? "text-[15px]" : "text-[17px]";
   return (
     <div className={`flex items-center gap-2.5 ${className}`}>
-      <LogoMark className={mark} rounded="rounded-[8px]" onDark={onDark} />
+      <LogoMark className={mark} onDark={onDark} />
       <div className="leading-tight">
         <p
-          className={`font-bold tracking-tight ${text} ${onDark ? "text-white" : "text-ink"}`}
+          className={`font-bold tracking-tight ${text} ${onDark ? "text-creme" : "text-ink"}`}
         >
-          Atacado<span className={onDark ? "text-brand-300" : "text-brand-600"}>Pro</span>
+          Atacado<span className="text-cobre">Pro</span>
         </p>
         {subtitle && (
           <p
-            className={`text-[11px] truncate max-w-40 ${onDark ? "text-slate-400" : "text-slate-400"}`}
+            className={`text-[11px] truncate max-w-40 ${onDark ? "text-creme/50" : "text-slate-400"}`}
           >
             {subtitle}
           </p>

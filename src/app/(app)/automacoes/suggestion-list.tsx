@@ -59,7 +59,7 @@ export function SuggestionList({
             >
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2 mb-1">
-                  <Badge color="#6d28ff">{s.rule}</Badge>
+                  <Badge color="#c4622d">{s.rule}</Badge>
                   <Badge
                     color={
                       s.priority === "ALTA"

@@ -50,7 +50,7 @@ export function Landing() {
   const openDemo = () => setDemoOpen(true);
 
   return (
-    <div className="min-h-screen bg-white text-slate-800 antialiased selection:bg-brand-200/60">
+    <div className="min-h-screen bg-[#fdfaf5] text-[#1d1710] antialiased selection:bg-brand-200/60">
       <Header onDemo={openDemo} />
       <main>
         <Hero onDemo={openDemo} />
@@ -92,7 +92,7 @@ function Header({ onDemo }: { onDemo: () => void }) {
     <header
       className={`sticky top-0 z-50 transition-all duration-300 ${
         scrolled
-          ? "border-b border-slate-200/70 bg-white/80 backdrop-blur-xl shadow-[0_1px_0_0_rgba(15,23,42,0.04)]"
+          ? "border-b border-slate-200/70 bg-[#fdfaf5]/80 backdrop-blur-xl shadow-[0_1px_0_0_rgba(15,23,42,0.04)]"
           : "border-b border-transparent bg-transparent"
       }`}
     >
@@ -139,7 +139,7 @@ function Header({ onDemo }: { onDemo: () => void }) {
 
       {/* menu mobile */}
       {menu && (
-        <div className="border-t border-slate-100 bg-white/95 backdrop-blur-xl md:hidden">
+        <div className="border-t border-slate-100 bg-[#fdfaf5]/95 backdrop-blur-xl md:hidden">
           <nav className="mx-auto max-w-6xl px-4 py-3">
             {NAV.map((n) => (
               <a
@@ -182,14 +182,14 @@ function Hero({ onDemo }: { onDemo: () => void }) {
     <section id="top" className="relative overflow-hidden">
       {/* fundo: gradiente petróleo + malha + brilhos */}
       <div className="pointer-events-none absolute inset-0 -z-10">
-        <div className="absolute inset-0 bg-gradient-to-b from-slate-50 via-white to-white" />
+        <div className="absolute inset-0 bg-gradient-to-b from-[#f6efe5] via-[#fdfaf5] to-[#fdfaf5]" />
         <div className="absolute -top-40 left-1/2 h-[520px] w-[820px] -translate-x-1/2 rounded-full bg-gradient-to-tr from-brand-200/50 via-brand-100/40 to-transparent blur-3xl" />
         <div className="absolute -right-24 top-24 h-72 w-72 rounded-full bg-brand-300/30 blur-3xl" />
         <div
           className="absolute inset-0 opacity-[0.4]"
           style={{
             backgroundImage:
-              "linear-gradient(to right, rgba(15,23,42,0.035) 1px, transparent 1px), linear-gradient(to bottom, rgba(15,23,42,0.035) 1px, transparent 1px)",
+              "linear-gradient(to right, rgba(58,42,30,0.05) 1px, transparent 1px), linear-gradient(to bottom, rgba(58,42,30,0.05) 1px, transparent 1px)",
             backgroundSize: "48px 48px",
             maskImage:
               "radial-gradient(ellipse 70% 60% at 50% 30%, black, transparent)",
@@ -208,7 +208,7 @@ function Hero({ onDemo }: { onDemo: () => void }) {
           <Reveal delay={80}>
             <h1 className="mt-6 text-balance text-4xl font-bold leading-[1.08] tracking-tight text-slate-900 sm:text-5xl lg:text-6xl">
               Transforme seu WhatsApp em uma{" "}
-              <span className="bg-gradient-to-r from-brand-700 via-brand-600 to-brand-500 bg-clip-text text-transparent">
+              <span className="text-cobre">
                 máquina de pedidos
               </span>{" "}
               no atacado.
@@ -225,7 +225,7 @@ function Hero({ onDemo }: { onDemo: () => void }) {
             <div className="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row">
               <button
                 onClick={onDemo}
-                className="group inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-brand-600 px-7 py-4 text-base font-semibold text-white shadow-[0_8px_24px_-8px_rgba(37,99,235,0.6)] transition hover:bg-brand-700 hover:shadow-[0_12px_32px_-8px_rgba(37,99,235,0.65)] sm:w-auto"
+                className="group inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-brand-600 px-7 py-4 text-base font-semibold text-white shadow-[0_8px_24px_-8px_rgba(196,98,45,0.55)] transition hover:bg-brand-700 hover:shadow-[0_12px_32px_-8px_rgba(196,98,45,0.6)] sm:w-auto"
               >
                 Solicitar demonstração
                 <IconArrow className="size-5 transition-transform group-hover:translate-x-0.5" />
@@ -353,7 +353,7 @@ function SectionHead({
   return (
     <div className={`max-w-2xl ${center ? "mx-auto text-center" : ""}`}>
       <Reveal>
-        <span className="text-[13px] font-semibold uppercase tracking-wider text-brand-600">
+        <span className="font-mono text-[12px] font-semibold uppercase tracking-[0.12em] text-cobre">
           {eyebrow}
         </span>
       </Reveal>
@@ -381,7 +381,7 @@ function Pain() {
     "Fim do mês sem saber quanto vendeu, quem vendeu e o que ficou parado",
   ];
   return (
-    <section className="relative bg-slate-950 py-20 sm:py-28">
+    <section className="relative bg-espresso py-20 sm:py-28">
       <div className="pointer-events-none absolute inset-0 -z-0 opacity-60">
         <div className="absolute left-0 top-0 h-64 w-64 rounded-full bg-brand-800/40 blur-3xl" />
         <div className="absolute bottom-0 right-0 h-72 w-72 rounded-full bg-brand-900/50 blur-3xl" />
@@ -389,7 +389,7 @@ function Pain() {
       <div className="relative mx-auto max-w-6xl px-4 sm:px-6">
         <div className="max-w-2xl">
           <Reveal>
-            <span className="text-[13px] font-semibold uppercase tracking-wider text-brand-300">
+            <span className="font-mono text-[12px] font-semibold uppercase tracking-[0.12em] text-ocre">
               A dor de vender moda hoje
             </span>
           </Reveal>
@@ -407,7 +407,7 @@ function Pain() {
                 <span className="mt-0.5 grid size-8 shrink-0 place-items-center rounded-full bg-rose-500/15 text-rose-300 ring-1 ring-rose-400/20">
                   <IconClose className="size-4" />
                 </span>
-                <p className="text-[15px] leading-relaxed text-slate-300">{t}</p>
+                <p className="text-[15px] leading-relaxed text-creme/80">{t}</p>
               </div>
             </Reveal>
           ))}
@@ -458,7 +458,7 @@ function Turn() {
               <Reveal key={s.title} delay={i * 100}>
                 <div className="relative flex h-full flex-col rounded-2xl border border-slate-200/70 bg-white p-6 shadow-card transition hover:-translate-y-1 hover:shadow-pop">
                   <div className="mb-4 flex items-center justify-between">
-                    <span className="grid size-12 place-items-center rounded-2xl bg-gradient-to-br from-brand-500 to-brand-700 text-white shadow-[0_8px_20px_-8px_rgba(37,99,235,0.7)]">
+                    <span className="grid size-12 place-items-center rounded-2xl bg-cobre text-creme shadow-[0_8px_20px_-8px_rgba(196,98,45,0.55)]">
                       {s.icon}
                     </span>
                     <span className="text-4xl font-bold text-slate-100">
@@ -517,7 +517,7 @@ function Modules() {
     },
   ];
   return (
-    <section id="modulos" className="scroll-mt-20 bg-slate-50/70 py-20 sm:py-28">
+    <section id="modulos" className="scroll-mt-20 bg-[#f3ebdf]/60 py-20 sm:py-28">
       <div className="mx-auto max-w-6xl px-4 sm:px-6">
         <SectionHead
           eyebrow="Módulos principais"
@@ -528,7 +528,7 @@ function Modules() {
           {mods.map((m, i) => (
             <Reveal key={m.title} delay={(i % 3) * 90}>
               <div className="group h-full rounded-2xl border border-slate-200/70 bg-white p-6 shadow-card transition duration-200 hover:-translate-y-1 hover:border-brand-200 hover:shadow-pop">
-                <span className="grid size-12 place-items-center rounded-2xl bg-brand-50 text-brand-600 ring-1 ring-brand-100 transition group-hover:bg-brand-600 group-hover:text-white [&>svg]:size-6">
+                <span className="grid size-12 place-items-center rounded-2xl bg-brand-50 text-brand-600 ring-1 ring-brand-100 transition group-hover:bg-brand-600 group-hover:text-creme [&>svg]:size-6">
                   {m.icon}
                 </span>
                 <h3 className="mt-5 text-lg font-semibold text-slate-900">
@@ -560,7 +560,7 @@ function Catalog({ onDemo }: { onDemo: () => void }) {
       <div className="mx-auto grid max-w-6xl items-center gap-12 px-4 sm:px-6 lg:grid-cols-2 lg:gap-16">
         <div>
           <Reveal>
-            <span className="text-[13px] font-semibold uppercase tracking-wider text-brand-600">
+            <span className="font-mono text-[12px] font-semibold uppercase tracking-[0.12em] text-cobre">
               Catálogo personalizado
             </span>
           </Reveal>
@@ -669,7 +669,7 @@ function Intelligence() {
       <div className="relative mx-auto grid max-w-6xl items-center gap-12 px-4 sm:px-6 lg:grid-cols-2 lg:gap-16">
         <div>
           <Reveal>
-            <span className="text-[13px] font-semibold uppercase tracking-wider text-brand-300">
+            <span className="font-mono text-[12px] font-semibold uppercase tracking-[0.12em] text-ocre">
               Inteligência comercial
             </span>
           </Reveal>
@@ -805,7 +805,7 @@ function How() {
   return (
     <section
       id="como-funciona"
-      className="scroll-mt-20 bg-slate-50/70 py-20 sm:py-28"
+      className="scroll-mt-20 bg-[#f3ebdf]/60 py-20 sm:py-28"
     >
       <div className="mx-auto max-w-6xl px-4 sm:px-6">
         <SectionHead
@@ -821,7 +821,7 @@ function How() {
                   <span className="grid size-11 place-items-center rounded-2xl bg-brand-600 text-white">
                     {s.icon}
                   </span>
-                  <span className="text-[13px] font-semibold uppercase tracking-wider text-brand-400">
+                  <span className="text-[13px] font-semibold uppercase tracking-wider text-ocre">
                     Passo {i + 1}
                   </span>
                 </div>
@@ -873,7 +873,7 @@ function Implantation() {
           <div className="relative grid gap-12 lg:grid-cols-2 lg:gap-16">
             <div>
               <Reveal>
-                <span className="text-[13px] font-semibold uppercase tracking-wider text-brand-600">
+                <span className="font-mono text-[12px] font-semibold uppercase tracking-[0.12em] text-cobre">
                   Implantação personalizada
                 </span>
               </Reveal>
@@ -924,7 +924,7 @@ function Shots() {
     { src: "/shots/produtos.webp", label: "Produtos", alt: "Cadastro de produtos e catálogo do AtacadoPro" },
   ];
   return (
-    <section className="bg-slate-50/70 py-20 sm:py-28">
+    <section className="bg-[#f3ebdf]/60 py-20 sm:py-28">
       <div className="mx-auto max-w-6xl px-4 sm:px-6">
         <SectionHead
           eyebrow="Por dentro da plataforma"
@@ -970,7 +970,7 @@ function MidCTA({ onDemo }: { onDemo: () => void }) {
     <section className="py-16 sm:py-20">
       <div className="mx-auto max-w-6xl px-4 sm:px-6">
         <Reveal>
-          <div className="relative overflow-hidden rounded-3xl bg-gradient-to-r from-brand-700 via-brand-600 to-brand-500 px-6 py-12 text-center shadow-[0_24px_60px_-20px_rgba(37,99,235,0.6)] sm:px-12 sm:py-14">
+          <div className="relative overflow-hidden rounded-3xl bg-espresso px-6 py-12 text-center shadow-[0_24px_60px_-20px_rgba(22,16,11,0.6)] sm:px-12 sm:py-14">
             <div className="pointer-events-none absolute inset-0 opacity-40">
               <div className="absolute -left-10 top-0 h-40 w-40 rounded-full bg-white/20 blur-3xl" />
               <div className="absolute -right-10 bottom-0 h-48 w-48 rounded-full bg-brand-900/40 blur-3xl" />
@@ -979,13 +979,13 @@ function MidCTA({ onDemo }: { onDemo: () => void }) {
               <h2 className="mx-auto max-w-2xl text-2xl font-semibold tracking-tight text-white sm:text-3xl">
                 Quer ver o AtacadoPro funcionando com a realidade da sua loja?
               </h2>
-              <p className="mx-auto mt-3 max-w-xl text-brand-50/90">
+              <p className="mx-auto mt-3 max-w-xl text-creme/75">
                 Agende uma demonstração gratuita. A gente mostra tudo ao vivo e tira
                 todas as suas dúvidas.
               </p>
               <button
                 onClick={onDemo}
-                className="mt-7 inline-flex items-center gap-2 rounded-2xl bg-white px-7 py-4 text-base font-semibold text-brand-700 shadow-lg transition hover:bg-brand-50"
+                className="mt-7 inline-flex items-center gap-2 rounded-2xl bg-cobre px-7 py-4 text-base font-semibold text-creme shadow-lg transition hover:bg-brand-500"
               >
                 Solicitar demonstração
                 <IconArrow className="size-5" />
@@ -1075,14 +1075,14 @@ function Faq() {
 
 function FinalCTA({ onDemo }: { onDemo: () => void }) {
   return (
-    <section className="relative overflow-hidden bg-slate-950 py-24 sm:py-32">
+    <section className="relative overflow-hidden bg-espresso py-24 sm:py-32">
       <div className="pointer-events-none absolute inset-0">
         <div className="absolute left-1/2 top-0 h-96 w-[900px] -translate-x-1/2 rounded-full bg-brand-600/25 blur-3xl" />
         <div
           className="absolute inset-0 opacity-[0.25]"
           style={{
             backgroundImage:
-              "linear-gradient(to right, rgba(255,255,255,0.06) 1px, transparent 1px), linear-gradient(to bottom, rgba(255,255,255,0.06) 1px, transparent 1px)",
+              "linear-gradient(to right, rgba(242,232,220,0.06) 1px, transparent 1px), linear-gradient(to bottom, rgba(242,232,220,0.06) 1px, transparent 1px)",
             backgroundSize: "56px 56px",
             maskImage:
               "radial-gradient(ellipse 60% 60% at 50% 40%, black, transparent)",
@@ -1099,7 +1099,7 @@ function FinalCTA({ onDemo }: { onDemo: () => void }) {
           </h2>
         </Reveal>
         <Reveal delay={140}>
-          <p className="mx-auto mt-5 max-w-xl text-lg text-slate-300">
+          <p className="mx-auto mt-5 max-w-xl text-lg text-creme/75">
             Dê ao seu atacado a plataforma profissional que ele merece. Comece com
             uma demonstração. O resto, a gente constrói junto com você.
           </p>
@@ -1108,7 +1108,7 @@ function FinalCTA({ onDemo }: { onDemo: () => void }) {
           <div className="mt-9 flex flex-col items-center justify-center gap-3 sm:flex-row">
             <button
               onClick={onDemo}
-              className="group inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-brand-600 px-8 py-4 text-base font-semibold text-white shadow-[0_10px_30px_-8px_rgba(37,99,235,0.7)] transition hover:bg-brand-500 sm:w-auto"
+              className="group inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-brand-600 px-8 py-4 text-base font-semibold text-white shadow-[0_10px_30px_-8px_rgba(196,98,45,0.6)] transition hover:bg-brand-500 sm:w-auto"
             >
               Solicitar demonstração
               <IconArrow className="size-5 transition-transform group-hover:translate-x-0.5" />
@@ -1133,12 +1133,12 @@ function FinalCTA({ onDemo }: { onDemo: () => void }) {
 
 function Footer({ onDemo }: { onDemo: () => void }) {
   return (
-    <footer className="border-t border-slate-800 bg-slate-950 text-slate-400">
+    <footer className="border-t border-creme/10 bg-espresso text-creme/60">
       <div className="mx-auto max-w-6xl px-4 py-14 sm:px-6">
         <div className="grid gap-10 md:grid-cols-[1.4fr_1fr_1fr]">
           <div>
             <Logo size="md" onDark />
-            <p className="mt-4 max-w-xs text-sm leading-relaxed text-slate-400">
+            <p className="mt-4 max-w-xs text-sm leading-relaxed text-creme/60">
               O jeito profissional de vender no atacado. Do primeiro contato no
               WhatsApp à venda registrada, organizado e com a sua marca.
             </p>
@@ -1153,32 +1153,32 @@ function Footer({ onDemo }: { onDemo: () => void }) {
             </a>
           </div>
           <div>
-            <p className="text-[13px] font-semibold uppercase tracking-wider text-slate-500">
+            <p className="text-[13px] font-semibold uppercase tracking-wider text-creme/40">
               Plataforma
             </p>
             <ul className="mt-4 space-y-3 text-sm">
-              <li><a href="#modulos" className="transition hover:text-white">Módulos</a></li>
-              <li><a href="#catalogo" className="transition hover:text-white">Catálogo</a></li>
-              <li><a href="#inteligencia" className="transition hover:text-white">Inteligência comercial</a></li>
-              <li><a href="#como-funciona" className="transition hover:text-white">Como funciona</a></li>
+              <li><a href="#modulos" className="transition hover:text-creme">Módulos</a></li>
+              <li><a href="#catalogo" className="transition hover:text-creme">Catálogo</a></li>
+              <li><a href="#inteligencia" className="transition hover:text-creme">Inteligência comercial</a></li>
+              <li><a href="#como-funciona" className="transition hover:text-creme">Como funciona</a></li>
             </ul>
           </div>
           <div>
-            <p className="text-[13px] font-semibold uppercase tracking-wider text-slate-500">
+            <p className="text-[13px] font-semibold uppercase tracking-wider text-creme/40">
               Comece
             </p>
             <ul className="mt-4 space-y-3 text-sm">
               <li>
-                <button onClick={onDemo} className="transition hover:text-white">
+                <button onClick={onDemo} className="transition hover:text-creme">
                   Solicitar demonstração
                 </button>
               </li>
-              <li><a href="#faq" className="transition hover:text-white">Perguntas frequentes</a></li>
-              <li><Link href="/login" className="transition hover:text-white">Entrar na plataforma</Link></li>
+              <li><a href="#faq" className="transition hover:text-creme">Perguntas frequentes</a></li>
+              <li><Link href="/login" className="transition hover:text-creme">Entrar na plataforma</Link></li>
             </ul>
           </div>
         </div>
-        <div className="mt-12 flex flex-col items-start justify-between gap-3 border-t border-slate-800 pt-6 text-xs text-slate-500 sm:flex-row sm:items-center">
+        <div className="mt-12 flex flex-col items-start justify-between gap-3 border-t border-creme/10 pt-6 text-xs text-creme/40 sm:flex-row sm:items-center">
           <p>© {new Date().getFullYear()} AtacadoPro. Todos os direitos reservados.</p>
           <p>Feito para o atacado brasileiro.</p>
         </div>

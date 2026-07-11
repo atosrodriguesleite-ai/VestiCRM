@@ -157,7 +157,7 @@ export function CustomerEditor({
     return (
       <div className="mt-3">
         <div className="flex items-center gap-2 flex-wrap">
-          <Avatar name={customer.name} color="#6d28ff" size="sm" />
+          <Avatar name={customer.name} color="#c4622d" size="sm" />
           <Link
             href={`/clientes/${customerId}`}
             className="text-sm font-medium hover:text-brand-600"

@@ -79,6 +79,8 @@ export default async function DashboardPage({
   // pedidos gerados (qualquer status) — denominador da conversão em pagamento
   const orderAnyScope = saleScope;
 
+  // Todas as consultas independentes vão juntas ao banco (uma rodada só) —
+  // é o que deixa o dashboard rápido de abrir.
   const [
     sales30,
     totalCustomers,
@@ -93,6 +95,13 @@ export default async function DashboardPage({
     sellers,
     interests,
     suggestions,
+    ordersToday,
+    ordersWeek,
+    ordersMonth,
+    topItems,
+    topBuyers,
+    buyersAll,
+    ordersGenerated30,
   ] = await Promise.all([
     // Faturamento = pedidos PAGOS (fonte única da verdade, igual à tela Pedidos)
     db.order.findMany({
@@ -145,42 +154,46 @@ export default async function DashboardPage({
       include: { _count: { select: { customers: true } } },
     }),
     computeAutomations(user),
+    // --- Pedidos (módulo catálogo) ---
+    db.order.aggregate({
+      where: { ...orderScope, createdAt: { gte: startOfDay } },
+      _count: true,
+      _sum: { total: true },
+    }),
+    db.order.aggregate({
+      where: { ...orderScope, createdAt: { gte: days7 } },
+      _count: true,
+      _sum: { total: true },
+    }),
+    db.order.aggregate({
+      where: { ...orderScope, createdAt: inPeriod },
+      _count: true,
+      _sum: { total: true },
+    }),
+    db.orderItem.groupBy({
+      by: ["name"],
+      where: { order: { ...orderScope, createdAt: inPeriod } },
+      _sum: { quantity: true },
+      orderBy: { _sum: { quantity: "desc" } },
+      take: 6,
+    }),
+    db.order.groupBy({
+      by: ["customerId"],
+      where: { ...orderScope, createdAt: inPeriod },
+      _sum: { total: true },
+      _count: true,
+      orderBy: { _sum: { total: "desc" } },
+      take: 5,
+    }),
+    // taxa de recompra: clientes com 2+ pedidos entre quem já pediu
+    db.order.groupBy({
+      by: ["customerId"],
+      where: orderScope,
+      _count: true,
+    }),
+    db.order.count({ where: { ...orderAnyScope, createdAt: inPeriod } }),
   ]);
 
-  // --- Pedidos (módulo catálogo) ---
-  const [ordersToday, ordersWeek, ordersMonth, topItems, topBuyers] =
-    await Promise.all([
-      db.order.aggregate({
-        where: { ...orderScope, createdAt: { gte: startOfDay } },
-        _count: true,
-        _sum: { total: true },
-      }),
-      db.order.aggregate({
-        where: { ...orderScope, createdAt: { gte: days7 } },
-        _count: true,
-        _sum: { total: true },
-      }),
-      db.order.aggregate({
-        where: { ...orderScope, createdAt: inPeriod },
-        _count: true,
-        _sum: { total: true },
-      }),
-      db.orderItem.groupBy({
-        by: ["name"],
-        where: { order: { ...orderScope, createdAt: inPeriod } },
-        _sum: { quantity: true },
-        orderBy: { _sum: { quantity: "desc" } },
-        take: 6,
-      }),
-      db.order.groupBy({
-        by: ["customerId"],
-        where: { ...orderScope, createdAt: inPeriod },
-        _sum: { total: true },
-        _count: true,
-        orderBy: { _sum: { total: "desc" } },
-        take: 5,
-      }),
-    ]);
   const buyerNames = await db.customer.findMany({
     where: { id: { in: topBuyers.map((b) => b.customerId) } },
     select: { id: true, name: true },
@@ -189,23 +202,14 @@ export default async function DashboardPage({
   const avgOrder = ordersMonth._count
     ? (ordersMonth._sum.total ?? 0) / ordersMonth._count
     : 0;
-  // taxa de recompra: clientes com 2+ pedidos entre quem já pediu
-  const buyersAll = await db.order.groupBy({
-    by: ["customerId"],
-    where: orderScope,
-    _count: true,
-  });
   const repurchaseRate = buyersAll.length
     ? (buyersAll.filter((b) => b._count >= 2).length / buyersAll.length) * 100
     : 0;
 
   const revenue30 = sales30.reduce((s, v) => s + v.total, 0);
   const ticket = sales30.length ? revenue30 / sales30.length : 0;
-  // Conversão = pedidos que viraram pagamento ÷ pedidos gerados (30d)
-  const [ordersGenerated30, ordersPaid30] = await Promise.all([
-    db.order.count({ where: { ...orderAnyScope, createdAt: inPeriod } }),
-    db.order.count({ where: { ...orderScope, createdAt: inPeriod } }),
-  ]);
+  // Conversão = pedidos que viraram pagamento ÷ pedidos gerados no período
+  const ordersPaid30 = ordersMonth._count;
   const conversion = ordersGenerated30
     ? (ordersPaid30 / ordersGenerated30) * 100
     : 0;

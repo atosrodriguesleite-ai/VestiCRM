@@ -104,7 +104,7 @@ export default async function CustomersPage({
             <Link key={c.id} href={`/clientes/${c.id}`}>
               <Card className="p-4 hover:shadow-pop transition h-full">
                 <div className="flex items-start gap-3">
-                  <Avatar name={c.name} color={c.owner?.color ?? "#6d28ff"} />
+                  <Avatar name={c.name} color={c.owner?.color ?? "#c4622d"} />
                   <div className="min-w-0 flex-1">
                     <p className="font-semibold text-sm truncate">{c.name}</p>
                     <p className="text-xs text-gray-400 truncate">

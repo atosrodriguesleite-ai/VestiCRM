@@ -1,11 +1,14 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { paymentMethodLabel } from "@/lib/orders";
 import type { PaymentMethod } from "@prisma/client";
 
-/** Troca da forma de pagamento direto no card Pagamento. */
+/**
+ * Troca da forma de pagamento direto no card Pagamento.
+ * Otimista: o valor muda na hora; o servidor confirma em seguida.
+ */
 export function PaymentMethodChanger({
   orderId,
   current,
@@ -14,25 +17,25 @@ export function PaymentMethodChanger({
   current: PaymentMethod;
 }) {
   const router = useRouter();
-  const [saving, setSaving] = useState(false);
+  const [shown, setShown] = useState<string>(current);
+  useEffect(() => setShown(current), [current]);
 
   async function change(method: string) {
-    if (saving || method === current) return;
-    setSaving(true);
-    await fetch(`/api/orders/${orderId}`, {
+    if (method === shown) return;
+    setShown(method); // resposta visual imediata
+    const res = await fetch(`/api/orders/${orderId}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ paymentMethod: method }),
     });
-    setSaving(false);
-    router.refresh();
+    if (!res.ok) setShown(current);
+    else router.refresh();
   }
 
   return (
     <select
-      value={current}
+      value={shown}
       onChange={(e) => change(e.target.value)}
-      disabled={saving}
       className="rounded-lg border border-gray-200 px-2 py-1 text-xs text-gray-600 bg-white focus:outline-none focus:ring-2 focus:ring-brand-300 disabled:opacity-60"
     >
       {Object.entries(paymentMethodLabel).map(([value, text]) => (

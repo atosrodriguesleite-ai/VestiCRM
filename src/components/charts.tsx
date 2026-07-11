@@ -1,16 +1,16 @@
 /**
  * Gráficos leves renderizados no servidor (sem lib externa).
- * Rampa ordinal azul (single-hue, light→dark, contraste OK na superfície):
- * #9d74ff → #8148f9 → #6d28ff → #5a17e0 → #0e0142
+ * Rampa ordinal quente (manual da marca, light→dark):
+ * ocre claro → ocre → cobre → cobre escuro → espresso
  * Barras têm rótulo direto (valor visível) — nunca só cor.
  */
 
 export const ORDINAL_RAMP = [
-  "#9d74ff",
-  "#8148f9",
-  "#6d28ff",
-  "#5a17e0",
-  "#0e0142",
+  "#dbba8b",
+  "#c99b5f",
+  "#c4622d",
+  "#8a4420",
+  "#3a2a1e",
 ];
 
 import { InfoTip } from "./info-tip";
@@ -77,7 +77,7 @@ export function StatTile({
 
 export function BarList({
   data,
-  color = "#6d28ff",
+  color = "#c4622d",
   formatValue = (v) => String(v),
 }: {
   data: { label: string; value: number; sub?: string }[];
@@ -189,8 +189,8 @@ export function AreaChart({
     >
       <defs>
         <linearGradient id="areaFill" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="#6d28ff" stopOpacity="0.22" />
-          <stop offset="100%" stopColor="#6d28ff" stopOpacity="0.02" />
+          <stop offset="0%" stopColor="#c4622d" stopOpacity="0.22" />
+          <stop offset="100%" stopColor="#c4622d" stopOpacity="0.02" />
         </linearGradient>
       </defs>
       {[0.25, 0.5, 0.75].map((f) => (
@@ -208,7 +208,7 @@ export function AreaChart({
       <path
         d={line}
         fill="none"
-        stroke="#6d28ff"
+        stroke="#c4622d"
         strokeWidth="2.25"
         strokeLinejoin="round"
         strokeLinecap="round"
@@ -222,7 +222,7 @@ export function AreaChart({
             cx={x}
             cy={y}
             r={i === maxIdx ? 4 : 3}
-            fill="#6d28ff"
+            fill="#c4622d"
             stroke="#fff"
             strokeWidth="2"
           />

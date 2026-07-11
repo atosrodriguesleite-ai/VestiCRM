@@ -120,7 +120,7 @@ export function AppShell({
         return (
           <div key={group}>
             {showLabels && (
-              <p className="px-3 mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+              <p className="px-3 mb-1.5 text-[10px] font-mono font-semibold uppercase tracking-[0.14em] text-ocre/70">
                 {group}
               </p>
             )}
@@ -136,15 +136,15 @@ export function AppShell({
                     title={!showLabels ? item.label : undefined}
                     className={`group relative flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition duration-150 ${
                       active
-                        ? "bg-brand-600/15 text-white"
-                        : "text-slate-400 hover:bg-white/5 hover:text-white"
+                        ? "bg-cobre/20 text-creme"
+                        : "text-creme/50 hover:bg-creme/5 hover:text-creme"
                     } ${!showLabels ? "justify-center" : ""}`}
                   >
                     {active && (
-                      <span className="absolute left-0 top-1/2 -translate-y-1/2 h-5 w-1 rounded-r-full bg-brand-400" />
+                      <span className="absolute left-0 top-1/2 -translate-y-1/2 h-5 w-1 rounded-r-full bg-cobre" />
                     )}
                     <Icon
-                      className={`size-[18px] shrink-0 transition ${active ? "text-brand-300" : "text-slate-500 group-hover:text-slate-200"}`}
+                      className={`size-[18px] shrink-0 transition ${active ? "text-ocre" : "text-creme/40 group-hover:text-creme/80"}`}
                     />
                     {showLabels && item.label}
                   </Link>
@@ -158,7 +158,7 @@ export function AppShell({
   );
 
   const userBlock = (showLabels = true) => (
-    <div className="border-t border-white/5 p-3">
+    <div className="border-t border-creme/10 p-3">
       <div
         className={`flex items-center gap-3 rounded-xl px-2 py-1.5 ${!showLabels ? "justify-center" : ""}`}
       >
@@ -166,15 +166,15 @@ export function AppShell({
         {showLabels && (
           <>
             <div className="min-w-0 flex-1">
-              <p className="text-sm font-medium text-white truncate">
+              <p className="text-sm font-medium text-creme truncate">
                 {user.name}
               </p>
-              <p className="text-xs text-slate-500 truncate">{user.roleLabel}</p>
+              <p className="text-xs text-creme/40 truncate">{user.roleLabel}</p>
             </div>
             <button
               onClick={logout}
               title="Sair"
-              className="text-slate-500 hover:text-rose-400 transition p-1.5 rounded-lg hover:bg-white/5"
+              className="text-creme/40 hover:text-rose-400 transition p-1.5 rounded-lg hover:bg-creme/5"
             >
               <LogOut className="size-4" />
             </button>
@@ -220,7 +220,7 @@ export function AppShell({
       {drawerOpen && (
         <div className="fixed inset-0 z-50 md:hidden">
           <div
-            className="absolute inset-0 bg-slate-900/50 backdrop-blur-sm animate-fade-in"
+            className="absolute inset-0 bg-espresso/60 backdrop-blur-sm animate-fade-in"
             onClick={() => setDrawerOpen(false)}
           />
           <aside className="absolute left-0 top-0 h-full w-72 bg-sidebar flex flex-col animate-fade-in shadow-pop">
@@ -228,7 +228,7 @@ export function AppShell({
               <Logo onDark size="md" />
               <button
                 onClick={() => setDrawerOpen(false)}
-                className="p-2 text-slate-400 hover:text-white transition"
+                className="p-2 text-creme/50 hover:text-creme transition"
               >
                 <X className="size-5" />
               </button>
@@ -262,7 +262,7 @@ export function AppShell({
         )}
 
         {/* Header mobile */}
-        <header className="md:hidden sticky top-0 z-40 bg-white/80 backdrop-blur-xl border-b border-slate-200/70 flex items-center justify-between px-4 h-14">
+        <header className="md:hidden sticky top-0 z-40 bg-surface/80 backdrop-blur-xl border-b border-brand-900/10 flex items-center justify-between px-4 h-14">
           <button
             onClick={() => setDrawerOpen(true)}
             className="p-2 -ml-2 text-slate-600"
@@ -279,7 +279,7 @@ export function AppShell({
         </main>
 
         {/* Bottom nav mobile */}
-        <nav className="md:hidden fixed bottom-0 inset-x-0 z-40 bg-white/90 backdrop-blur-xl border-t border-slate-200/70 flex items-stretch justify-around pb-[env(safe-area-inset-bottom)]">
+        <nav className="md:hidden fixed bottom-0 inset-x-0 z-40 bg-surface/90 backdrop-blur-xl border-t border-brand-900/10 flex items-stretch justify-around pb-[env(safe-area-inset-bottom)]">
           {MOBILE_NAV.map((item) => {
             const active = pathname.startsWith(item.href);
             const Icon = item.icon;

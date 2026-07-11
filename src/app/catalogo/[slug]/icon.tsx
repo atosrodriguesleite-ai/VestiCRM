@@ -39,7 +39,7 @@ export default async function Icon({
   }
 
   const initial = (company?.name?.trim()?.[0] ?? "?").toUpperCase();
-  const bg = company?.catalogPrimary ?? "#0e0142";
+  const bg = company?.catalogPrimary ?? "#16100b";
   return new ImageResponse(
     (
       <div
