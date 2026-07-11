@@ -77,7 +77,7 @@ function Kpi({ label, value, hint, delta, icon, info }: {
   return (
     <div className="min-w-0 bg-white rounded-2xl border border-slate-200/70 shadow-card p-4">
       <div className="flex items-start justify-between gap-2 mb-1.5">
-        <p className="text-[10px] md:text-[11px] font-semibold text-slate-400 uppercase tracking-wider leading-tight flex items-center gap-1">
+        <p className="font-mono text-[10px] md:text-[11px] font-semibold text-slate-400 uppercase tracking-[0.1em] leading-tight flex items-center gap-1">
           {label}
           {info && <InfoTip text={info} />}
         </p>
