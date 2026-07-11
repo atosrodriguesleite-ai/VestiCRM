@@ -176,6 +176,23 @@ enum Origin {
   SMS
 }
 
+// Afiliado da PLATAFORMA (painel do Super Admin): divulga o AtacadoPro com
+// um link próprio (?utm_campaign=<slug>) e cada lead que entrar por ele fica
+// atribuído aqui — assim dá para saber a quem pagar comissão. O valor do
+// acordo fica em notes (negociado caso a caso).
+model Affiliate {
+  id        String   @id @default(cuid())
+  name      String
+  slug      String   @unique // código usado no link de divulgação
+  phone     String?
+  pixKey    String? // chave PIX para pagamento da comissão
+  notes     String? // acordo combinado (implantação/recorrente)
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  customers Customer[]
+}
+
 model Customer {
   id             String       @id @default(cuid())
   companyId      String
@@ -200,6 +217,9 @@ model Customer {
   lastContactAt  DateTime?
   ownerId        String?
   owner          User?        @relation("CustomerOwner", fields: [ownerId], references: [id], onDelete: SetNull)
+  // afiliado que trouxe este lead (só usado na empresa-plataforma)
+  affiliateId    String?
+  affiliate      Affiliate?   @relation(fields: [affiliateId], references: [id], onDelete: SetNull)
   createdAt      DateTime     @default(now())
 
   tags          CustomerTag[]

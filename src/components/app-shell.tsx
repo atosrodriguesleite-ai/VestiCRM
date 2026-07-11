@@ -27,6 +27,7 @@ import {
   Eye,
   PanelLeftClose,
   PanelLeft,
+  Handshake,
 } from "lucide-react";
 import { Avatar } from "./ui";
 import { Logo, LogoMark } from "./logo";
@@ -48,6 +49,7 @@ const NAV = [
   { href: "/equipe", label: "Equipe", icon: UserCog, group: "Sistema", managerOnly: true },
   { href: "/configuracoes", label: "Configurações", icon: Settings, group: "Sistema" },
   { href: "/lojas", label: "Lojas", icon: Store, group: "Plataforma", superOnly: true },
+  { href: "/afiliados", label: "Afiliados", icon: Handshake, group: "Plataforma", superOnly: true },
 ];
 
 const MOBILE_NAV = [

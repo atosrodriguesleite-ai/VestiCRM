@@ -87,5 +87,36 @@ export async function POST(req: NextRequest) {
     data: { title: `Entrar em contato — ${d.company}` },
   });
 
+  // Atribuição de afiliado: o link de divulgação leva ?utm_campaign=<código>
+  // (o formulário junta os utm em d.ref). Se alguma parte do ref bater com o
+  // código de um afiliado ativo, o lead fica atribuído a ele — é assim que
+  // o Super Admin sabe a quem pagar comissão.
+  if (d.ref) {
+    const parts = d.ref
+      .split(/[/·,]/)
+      .map((p) => p.trim().toLowerCase())
+      .filter(Boolean);
+    if (parts.length) {
+      const affiliate = await db.affiliate.findFirst({
+        where: { active: true, slug: { in: parts } },
+      });
+      if (affiliate) {
+        await db.customer.update({
+          where: { id: result.customer.id },
+          data: { affiliateId: affiliate.id },
+        });
+        await db.customerEvent.create({
+          data: {
+            companyId,
+            customerId: result.customer.id,
+            type: "OUTRO",
+            channel: "SITE",
+            description: `Lead trazido pelo afiliado ${affiliate.name} (link "${affiliate.slug}").`,
+          },
+        });
+      }
+    }
+  }
+
   return NextResponse.json({ ok: true }, { status: 201 });
 }
