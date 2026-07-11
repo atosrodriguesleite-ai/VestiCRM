@@ -24,6 +24,13 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // A tarefa vence HOJE (fim do dia em São Paulo): quem aplica a sugestão
+    // quer agir agora — assim ela aparece na aba "Hoje", não em "Próximas".
+    const SP_OFFSET = 3 * 60 * 60 * 1000; // São Paulo é UTC-3
+    const spNow = new Date(Date.now() - SP_OFFSET);
+    spNow.setUTCHours(23, 59, 0, 0);
+    const endOfDaySP = new Date(spNow.getTime() + SP_OFFSET);
+
     const task = await db.task.create({
       data: {
         companyId: user.companyId,
@@ -32,7 +39,7 @@ export async function POST(req: NextRequest) {
         title: suggestion.title,
         type: suggestion.taskType,
         priority: suggestion.priority,
-        dueAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+        dueAt: endOfDaySP,
         assigneeId: user.id,
         autoRule: suggestion.key,
       },

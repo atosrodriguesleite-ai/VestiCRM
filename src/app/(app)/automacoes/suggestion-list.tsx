@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { CheckCircle2, Zap } from "lucide-react";
 import type { AutomationSuggestion } from "@/lib/automations";
 import { Card, Badge, EmptyState } from "@/components/ui";
@@ -11,6 +12,7 @@ export function SuggestionList({
 }: {
   initial: AutomationSuggestion[];
 }) {
+  const router = useRouter();
   const [suggestions, setSuggestions] = useState(initial);
   const [applying, setApplying] = useState<string | null>(null);
   const [appliedCount, setAppliedCount] = useState(0);
@@ -26,6 +28,9 @@ export function SuggestionList({
     if (res.ok) {
       setSuggestions((prev) => prev.filter((s) => s.key !== key));
       setAppliedCount((c) => c + 1);
+      // invalida o cache de navegação: a aba Tarefas mostra a tarefa nova
+      // na hora (sem isso, ela podia aparecer só ~30s depois)
+      router.refresh();
     }
   }
 
