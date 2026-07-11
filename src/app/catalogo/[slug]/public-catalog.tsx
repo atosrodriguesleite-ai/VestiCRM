@@ -190,6 +190,8 @@ export function PublicCatalog({
   const [client, setClient] = useState({ loja: "", nome: "", fone: "" });
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const sectionRefs = useRef<Record<string, HTMLElement | null>>({});
+  const catNavRef = useRef<HTMLDivElement | null>(null);
+  const [catArrows, setCatArrows] = useState({ left: false, right: false });
 
   // ---- Tracking Engine (Inteligência Comercial) ----
   const trackerRef = useRef<CatalogTracker | null>(null);
@@ -267,6 +269,24 @@ export function PublicCatalog({
     );
     return () => observer.disconnect();
   }, [categories]);
+
+  /* setas ‹ › da barra de categorias — só aparecem quando há o que rolar */
+  const syncCatArrows = () => {
+    const el = catNavRef.current;
+    if (!el) return;
+    const max = el.scrollWidth - el.clientWidth;
+    setCatArrows({ left: el.scrollLeft > 4, right: el.scrollLeft < max - 4 });
+  };
+  useEffect(() => {
+    syncCatArrows();
+    window.addEventListener("resize", syncCatArrows);
+    return () => window.removeEventListener("resize", syncCatArrows);
+  }, [categories]);
+  const scrollCats = (dir: 1 | -1) => {
+    const el = catNavRef.current;
+    if (!el) return;
+    el.scrollBy({ left: dir * Math.max(el.clientWidth * 0.75, 200), behavior: "smooth" });
+  };
 
   function openSheet(card: CardItem) {
     t({
@@ -519,33 +539,71 @@ export function PublicCatalog({
         className="sticky z-30 border-b"
         style={{ top: logoSize === "grande" ? 130 : 74, background: T.bg, borderColor: T.line, boxShadow: "0 6px 12px -10px rgba(0,0,0,.3)" }}
       >
-        <div className="max-w-[680px] mx-auto flex gap-2 overflow-x-auto md:flex-wrap md:overflow-x-visible px-[18px] py-[11px]" style={{ scrollbarWidth: "none" }}>
-          {categories.map((cat, i) => {
-            const active = activeCat === i;
-            const has = catPieces(cat) > 0;
-            return (
-              <button
-                key={cat}
-                onClick={() =>
-                  sectionRefs.current[cat]?.scrollIntoView({ behavior: "smooth", block: "start" })
-                }
-                className="flex items-center gap-2 shrink-0 rounded-full px-[15px] py-[9px] text-[13px] font-semibold whitespace-nowrap transition border"
-                style={
-                  active
-                    ? { background: T.primary, color: T.secondary, borderColor: T.primary }
-                    : { background: T.bg, color: T.primary, borderColor: T.line }
-                }
-              >
-                {cat}
-                {has && (
-                  <span
-                    className="size-[7px] rounded-full"
-                    style={{ background: active ? T.secondary : T.primary }}
-                  />
-                )}
-              </button>
-            );
-          })}
+        <div className="relative max-w-[680px] mx-auto">
+          {/* seta esquerda */}
+          {catArrows.left && (
+            <button
+              type="button"
+              aria-label="Categorias anteriores"
+              onClick={() => scrollCats(-1)}
+              className="hidden md:flex items-center justify-center absolute left-1 top-1/2 -translate-y-1/2 z-10 size-7 rounded-full shadow-sm border transition"
+              style={{ background: T.bg, color: T.primary, borderColor: T.line }}
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="m15 18-6-6 6-6" /></svg>
+            </button>
+          )}
+          {/* fade nas bordas para indicar continuação */}
+          {catArrows.left && (
+            <span className="hidden md:block pointer-events-none absolute left-0 top-0 bottom-0 w-10 z-[5]" style={{ background: `linear-gradient(90deg, ${T.bg}, transparent)` }} />
+          )}
+          {catArrows.right && (
+            <span className="hidden md:block pointer-events-none absolute right-0 top-0 bottom-0 w-10 z-[5]" style={{ background: `linear-gradient(270deg, ${T.bg}, transparent)` }} />
+          )}
+          <div
+            ref={catNavRef}
+            onScroll={syncCatArrows}
+            className="flex gap-2 overflow-x-auto px-[18px] py-[11px]"
+            style={{ scrollbarWidth: "none" }}
+          >
+            {categories.map((cat, i) => {
+              const active = activeCat === i;
+              const has = catPieces(cat) > 0;
+              return (
+                <button
+                  key={cat}
+                  onClick={() =>
+                    sectionRefs.current[cat]?.scrollIntoView({ behavior: "smooth", block: "start" })
+                  }
+                  className="flex items-center gap-2 shrink-0 rounded-full px-[15px] py-[9px] text-[13px] font-semibold whitespace-nowrap transition border"
+                  style={
+                    active
+                      ? { background: T.primary, color: T.secondary, borderColor: T.primary }
+                      : { background: T.bg, color: T.primary, borderColor: T.line }
+                  }
+                >
+                  {cat}
+                  {has && (
+                    <span
+                      className="size-[7px] rounded-full"
+                      style={{ background: active ? T.secondary : T.primary }}
+                    />
+                  )}
+                </button>
+              );
+            })}
+          </div>
+          {/* seta direita */}
+          {catArrows.right && (
+            <button
+              type="button"
+              aria-label="Próximas categorias"
+              onClick={() => scrollCats(1)}
+              className="hidden md:flex items-center justify-center absolute right-1 top-1/2 -translate-y-1/2 z-10 size-7 rounded-full shadow-sm border transition"
+              style={{ background: T.bg, color: T.primary, borderColor: T.line }}
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="m9 18 6-6-6-6" /></svg>
+            </button>
+          )}
         </div>
       </nav>
 
