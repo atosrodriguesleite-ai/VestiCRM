@@ -10,6 +10,7 @@ const schema = z.object({
   role: z.enum(["ADMIN", "MANAGER", "SELLER", "SUPPORT"]).optional(),
   password: z.string().min(6).optional(), // redefinição de senha pelo admin
   commissionRate: z.number().min(0).max(100).optional(), // % de comissão
+  monthlyGoal: z.number().min(0).optional(), // meta de vendas do mês (R$)
 });
 
 export async function PATCH(
@@ -50,6 +51,9 @@ export async function PATCH(
         ...(parsed.data.role ? { role: parsed.data.role } : {}),
         ...(parsed.data.password
           ? { passwordHash: await bcrypt.hash(parsed.data.password, 10) }
+          : {}),
+        ...(parsed.data.monthlyGoal !== undefined
+          ? { monthlyGoal: parsed.data.monthlyGoal }
           : {}),
         ...(parsed.data.commissionRate !== undefined
           ? { commissionRate: parsed.data.commissionRate }

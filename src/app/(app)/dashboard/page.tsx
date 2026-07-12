@@ -69,6 +69,10 @@ export default async function DashboardPage({
   const spMidnight = new Date(now.getTime() - 3 * 60 * 60 * 1000);
   spMidnight.setUTCHours(0, 0, 0, 0);
   const startOfDay = new Date(spMidnight.getTime() + 3 * 60 * 60 * 1000);
+  const spMonth = new Date(now.getTime() - 3 * 60 * 60 * 1000);
+  spMonth.setUTCDate(1);
+  spMonth.setUTCHours(0, 0, 0, 0);
+  const startOfMonth = new Date(spMonth.getTime() + 3 * 60 * 60 * 1000);
 
   const saleScope = canSeeAll(user)
     ? { companyId: user.companyId }
@@ -102,6 +106,8 @@ export default async function DashboardPage({
     topBuyers,
     buyersAll,
     ordersGenerated30,
+    monthOrders,
+    companyCfg,
   ] = await Promise.all([
     // Faturamento = pedidos PAGOS (fonte única da verdade, igual à tela Pedidos)
     db.order.findMany({
@@ -192,6 +198,20 @@ export default async function DashboardPage({
       _count: true,
     }),
     db.order.count({ where: { ...orderAnyScope, createdAt: inPeriod } }),
+    // metas: vendas pagas do MÊS CORRENTE (fuso SP), por vendedor
+    db.order.findMany({
+      where: {
+        companyId: user.companyId,
+        status: { in: PAID_ORDER_STATUSES },
+        createdAt: { gte: startOfMonth },
+      },
+      select: { total: true, sellerId: true },
+    }),
+    // alerta de estoque: variações no limite configurado pela loja
+    db.company.findUniqueOrThrow({
+      where: { id: user.companyId },
+      select: { lowStockThreshold: true },
+    }),
   ]);
 
   const buyerNames = await db.customer.findMany({
@@ -247,6 +267,22 @@ export default async function DashboardPage({
     .slice(0, 6);
 
   const overdue = nextTasks.filter((t) => t.dueAt < now).length;
+
+  // metas: vendido no mês por vendedor + meta própria (quando vendedor)
+  const soldBySeller = new Map<string, number>();
+  for (const o of monthOrders) {
+    if (o.sellerId) soldBySeller.set(o.sellerId, (soldBySeller.get(o.sellerId) ?? 0) + o.total);
+  }
+  const me = sellers.find((s) => s.id === user.id);
+  const myGoal = me?.monthlyGoal ?? 0;
+  const mySold = soldBySeller.get(user.id) ?? 0;
+
+  const lowStockCount = await db.productVariant.count({
+    where: {
+      product: { companyId: user.companyId, active: true },
+      stock: { lte: companyCfg.lowStockThreshold },
+    },
+  });
 
   return (
     <div className="max-w-7xl mx-auto">
@@ -351,6 +387,16 @@ export default async function DashboardPage({
           tone={overdue > 0 ? "bad" : "good"}
           info="Tarefas de acompanhamento cuja data de vencimento já passou e continuam pendentes."
         />
+        {myGoal > 0 && (
+          <StatTile
+            label="Minha meta do mês"
+            value={`${Math.round((mySold / myGoal) * 100)}%`}
+            hint={`${brl(mySold)} de ${brl(myGoal)}`}
+            icon={<Target />}
+            tone={mySold >= myGoal ? "good" : "default"}
+            info="Quanto das suas vendas pagas do mês corrente já cobre a meta definida em Equipe."
+          />
+        )}
       </div>
 
       {/* Pedidos (catálogo) */}
@@ -395,6 +441,14 @@ export default async function DashboardPage({
           icon={<Repeat />}
           tone={repurchaseRate >= 30 ? "good" : "warn"}
           info="De todos os clientes que já compraram, quantos fizeram 2 pedidos pagos ou mais."
+        />
+        <StatTile
+          label="Estoque baixo"
+          value={String(lowStockCount)}
+          hint={`variações com ≤ ${companyCfg.lowStockThreshold} peças`}
+          icon={<Package />}
+          tone={lowStockCount > 0 ? "warn" : "good"}
+          info="Variações (cor/tamanho) de produtos ativos com estoque no limite definido pela loja. Veja a lista e ajuste o limite na tela Produtos."
         />
       </div>
 
@@ -513,6 +567,19 @@ export default async function DashboardPage({
                       {r.seller.name}
                     </p>
                     <p className="text-xs text-gray-400">{r.count} vendas</p>
+                    {r.seller.monthlyGoal > 0 && (
+                      <div className="mt-1 flex items-center gap-1.5">
+                        <div className="h-1.5 flex-1 rounded-full bg-gray-100 overflow-hidden">
+                          <div
+                            className={`h-full rounded-full ${(soldBySeller.get(r.seller.id) ?? 0) >= r.seller.monthlyGoal ? "bg-emerald-500" : "bg-brand-500"}`}
+                            style={{ width: `${Math.min(100, ((soldBySeller.get(r.seller.id) ?? 0) / r.seller.monthlyGoal) * 100)}%` }}
+                          />
+                        </div>
+                        <span className="text-[10px] text-gray-400 tabular-nums shrink-0">
+                          {Math.round(((soldBySeller.get(r.seller.id) ?? 0) / r.seller.monthlyGoal) * 100)}% da meta
+                        </span>
+                      </div>
+                    )}
                   </div>
                   <span className="text-sm font-semibold tabular-nums">
                     {brl(r.total)}

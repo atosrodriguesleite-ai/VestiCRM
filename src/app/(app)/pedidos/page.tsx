@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ShoppingBag } from "lucide-react";
+import { ShoppingBag, Download } from "lucide-react";
 import { requireUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { canSeeAll } from "@/lib/scope";
@@ -85,7 +85,19 @@ export default async function OrdersPage({
       <PageHeader
         title="Pedidos"
         subtitle="Todos os pedidos e orçamentos da loja, do carrinho à entrega."
-        action={<NewOrderButton />}
+        action={
+          <div className="flex items-center gap-2">
+            <a
+              href="/api/export/pedidos"
+              download
+              className="inline-flex items-center gap-1.5 rounded-xl border border-gray-200 hover:border-brand-300 text-gray-600 text-sm font-medium px-3.5 py-2.5 transition"
+            >
+              <Download className="size-4" />
+              CSV
+            </a>
+            <NewOrderButton />
+          </div>
+        }
       />
 
       {/* Filtro de período (fuso de São Paulo) */}

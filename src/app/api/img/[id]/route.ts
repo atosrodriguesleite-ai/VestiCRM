@@ -21,9 +21,12 @@ export async function GET(
     return NextResponse.json({ error: "Não encontrada" }, { status: 404 });
   }
 
-  // URL externa (http...): apenas redireciona
+  // Não é base64 (http... ou caminho interno /products/x.svg): redireciona.
+  // Caminho relativo vira absoluto com base na própria requisição.
   if (!img.url.startsWith("data:")) {
-    return NextResponse.redirect(img.url);
+    return NextResponse.redirect(new URL(img.url, _req.url), {
+      headers: { "Cache-Control": "public, max-age=86400" },
+    });
   }
 
   const m = img.url.match(/^data:([^;,]+)(;base64)?,([\s\S]*)$/);

@@ -18,6 +18,7 @@ export type TeamMember = {
   conversations: number;
   pendingTasks: number;
   sales30: number;
+  monthlyGoal: number;
   isMe: boolean;
 };
 
@@ -39,6 +40,17 @@ export function TeamView({
   const [showNew, setShowNew] = useState(false);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
+
+  async function saveGoal(m: TeamMember, value: string) {
+    const goal = parseFloat(value.replace(/\./g, "").replace(",", ".")) || 0;
+    if (goal === m.monthlyGoal) return;
+    await fetch(`/api/team/${m.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ monthlyGoal: goal }),
+    });
+    router.refresh();
+  }
 
   async function resetPassword(m: TeamMember) {
     const nova = window.prompt(`Nova senha para ${m.name} (mín. 6 caracteres):`);
@@ -178,6 +190,44 @@ export function TeamView({
                 </p>
                 <p className="text-[10px] text-gray-400">vendas 30d</p>
               </div>
+            </div>
+            {/* meta mensal: barra de progresso + edição pelo admin */}
+            <div className="mt-3 pt-3 border-t border-gray-50">
+              <div className="flex items-center justify-between gap-2 mb-1">
+                <p className="text-[10px] font-mono font-semibold uppercase tracking-[0.1em] text-gray-400">
+                  Meta do mês
+                </p>
+                {canManage ? (
+                  <span className="flex items-center gap-1 text-xs text-gray-500">
+                    R$
+                    <input
+                      defaultValue={m.monthlyGoal ? m.monthlyGoal.toLocaleString("pt-BR") : ""}
+                      onBlur={(e) => saveGoal(m, e.target.value)}
+                      placeholder="sem meta"
+                      inputMode="decimal"
+                      className="w-24 rounded-lg border border-gray-200 px-2 py-1 text-xs text-right bg-white focus:outline-none focus:ring-2 focus:ring-brand-300"
+                    />
+                  </span>
+                ) : (
+                  <span className="text-xs text-gray-500">
+                    {m.monthlyGoal ? brl(m.monthlyGoal) : "sem meta"}
+                  </span>
+                )}
+              </div>
+              {m.monthlyGoal > 0 && (
+                <>
+                  <div className="h-2 rounded-full bg-gray-100 overflow-hidden">
+                    <div
+                      className={`h-full rounded-full transition-all ${m.sales30 >= m.monthlyGoal ? "bg-emerald-500" : "bg-brand-500"}`}
+                      style={{ width: `${Math.min(100, (m.sales30 / m.monthlyGoal) * 100)}%` }}
+                    />
+                  </div>
+                  <p className="text-[10px] text-gray-400 mt-1">
+                    {brl(m.sales30)} de {brl(m.monthlyGoal)} ·{" "}
+                    {Math.round((m.sales30 / m.monthlyGoal) * 100)}%
+                  </p>
+                </>
+              )}
             </div>
           </Card>
         ))}

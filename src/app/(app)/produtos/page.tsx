@@ -1,10 +1,12 @@
-import { ExternalLink } from "lucide-react";
+import { ExternalLink, QrCode } from "lucide-react";
 import { requireUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { imageHref } from "@/lib/img";
 import { PageHeader } from "@/components/ui";
 import { ProductsView, type ProductItem } from "./products-view";
 import { catalogUrl } from "@/lib/catalog-url";
+import { isManagerUp } from "@/lib/scope";
+import { StockMonitor, type LowStockRow } from "./stock-monitor";
 
 export const dynamic = "force-dynamic";
 
@@ -68,6 +70,17 @@ export default async function ProductsPage() {
     ...new Set(products.flatMap((p) => p.variants.map((v) => v.size))),
   ];
 
+  // monitor de estoque: variações de produtos ativos no limite da loja
+  const threshold = company?.lowStockThreshold ?? 5;
+  const lowStock: LowStockRow[] = products
+    .filter((p) => p.active)
+    .flatMap((p) =>
+      p.variants
+        .filter((v) => v.stock <= threshold)
+        .map((v) => ({ product: p.name, color: v.color, size: v.size, stock: v.stock }))
+    )
+    .sort((a, b) => a.stock - b.stock);
+
   return (
     <div className="max-w-7xl mx-auto">
       <PageHeader
@@ -75,18 +88,34 @@ export default async function ProductsPage() {
         subtitle={`${items.length} produto${items.length === 1 ? "" : "s"} no catálogo da loja.`}
         action={
           company && (
-            <a
-              href={catalogUrl(company.slug)}
-              target="_blank"
-              className="flex items-center gap-1.5 rounded-xl border border-brand-200 bg-brand-50 hover:bg-brand-100 text-brand-700 text-sm font-medium px-4 py-2.5 transition"
-            >
-              <ExternalLink className="size-4" />
-              <span className="hidden sm:inline">Catálogo do cliente</span>
-              <span className="sm:hidden">Catálogo</span>
-            </a>
+            <div className="flex items-center gap-2">
+              <a
+                href={`/api/qrcode?url=${encodeURIComponent(
+                  catalogUrl(company.slug).startsWith("http")
+                    ? catalogUrl(company.slug)
+                    : `https://www.atacadopro.com${catalogUrl(company.slug)}`
+                )}`}
+                download={`qr-catalogo-${company.slug}.svg`}
+                title="Baixar QR Code do catálogo (imprimir na sacola, vitrine...)"
+                className="flex items-center gap-1.5 rounded-xl border border-gray-200 hover:border-brand-300 text-gray-600 text-sm font-medium px-3.5 py-2.5 transition"
+              >
+                <QrCode className="size-4" />
+                <span className="hidden sm:inline">QR Code</span>
+              </a>
+              <a
+                href={catalogUrl(company.slug)}
+                target="_blank"
+                className="flex items-center gap-1.5 rounded-xl border border-brand-200 bg-brand-50 hover:bg-brand-100 text-brand-700 text-sm font-medium px-4 py-2.5 transition"
+              >
+                <ExternalLink className="size-4" />
+                <span className="hidden sm:inline">Catálogo do cliente</span>
+                <span className="sm:hidden">Catálogo</span>
+              </a>
+            </div>
           )
         }
       />
+      <StockMonitor rows={lowStock} threshold={threshold} canManage={isManagerUp(user)} />
       <ProductsView
         initial={items}
         categories={categories}

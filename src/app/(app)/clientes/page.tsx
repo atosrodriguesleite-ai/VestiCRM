@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Search } from "lucide-react";
+import { Search, Download } from "lucide-react";
 import { requireUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { ownedScope } from "@/lib/scope";
@@ -49,7 +49,19 @@ export default async function CustomersPage({
       <PageHeader
         title="Clientes"
         subtitle={`${customers.length} cliente${customers.length === 1 ? "" : "s"} na sua carteira.`}
-        action={<NewCustomerButton interests={interests} />}
+        action={
+          <div className="flex items-center gap-2">
+            <a
+              href="/api/export/clientes"
+              download
+              className="inline-flex items-center gap-1.5 rounded-xl border border-gray-200 hover:border-brand-300 text-gray-600 text-sm font-medium px-3.5 py-2.5 transition"
+            >
+              <Download className="size-4" />
+              CSV
+            </a>
+            <NewCustomerButton interests={interests} />
+          </div>
+        }
       />
 
       {/* busca e filtros */}

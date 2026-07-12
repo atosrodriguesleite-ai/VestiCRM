@@ -42,6 +42,7 @@ export default async function TeamPage() {
       conversations: m._count.conversations,
       pendingTasks: m._count.tasks,
       sales30: m.sales.reduce((s, v) => s + v.total, 0),
+      monthlyGoal: m.monthlyGoal,
       isMe: m.id === user.id,
     }));
 
