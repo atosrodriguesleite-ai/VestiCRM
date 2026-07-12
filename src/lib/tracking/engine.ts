@@ -183,7 +183,10 @@ export async function startSession(input: StartSessionInput) {
   // link rastreado: ?c=<customerId> identifica o visitante na entrada
   if (input.customerId) {
     const customer = await db.customer.findFirst({
-      where: { id: input.customerId, companyId: input.companyId },
+      where: {
+        companyId: input.companyId,
+        OR: [{ linkCode: input.customerId }, { id: input.customerId }],
+      },
       select: { id: true },
     });
     if (customer && visitor.customerId !== customer.id) {

@@ -219,6 +219,8 @@ model Customer {
   lastContactAt  DateTime?
   ownerId        String?
   owner          User?        @relation("CustomerOwner", fields: [ownerId], references: [id], onDelete: SetNull)
+  // código curto do link rastreado do catálogo (catalago.net/loja/vend/CODIGO)
+  linkCode       String?      @unique @default(dbgenerated("substr(md5((random())::text || (clock_timestamp())::text), 1, 7)"))
   // afiliado que trouxe este lead (só usado na empresa-plataforma)
   affiliateId    String?
   affiliate      Affiliate?   @relation(fields: [affiliateId], references: [id], onDelete: SetNull)

@@ -36,3 +36,20 @@ export function trackedLinkParts(user: { role: string; name: string }, slug: str
       : null;
   return { base: catalogUrl(slug), sellerRef };
 }
+
+/**
+ * Link rastreado BONITO: código curto no caminho, sem ?c= comprido.
+ *   catalago.net/loja/julia/a3f9c2b   (com vendedor)
+ *   catalago.net/loja/a3f9c2b         (sem vendedor)
+ * Sem domínio dedicado (dev), cai em query string no caminho interno.
+ */
+export function trackedCatalogLink(
+  base: string,
+  sellerRef: string | null,
+  code: string
+): string {
+  if (base.startsWith("http")) {
+    return sellerRef ? `${base}/${sellerRef}/${code}` : `${base}/${code}`;
+  }
+  return sellerRef ? `${base}?ref=${sellerRef}&c=${code}` : `${base}?c=${code}`;
+}

@@ -41,10 +41,12 @@ export async function middleware(req: NextRequest) {
       return NextResponse.redirect(MAIN_SITE_URL + req.nextUrl.search);
     }
     // Links curtos e limpos no domínio de catálogos:
-    //   catalago.net/toque-leve            → catálogo da loja
-    //   catalago.net/toque-leve/nivia      → catálogo com ?ref=nivia (vendedor
-    //     ou campanha) — o endereço fica minimalista e a atribuição acontece
-    //     nos bastidores. APIs, assets e /c/ (compat) passam direto.
+    //   catalago.net/toque-leve               → catálogo da loja
+    //   catalago.net/toque-leve/nivia         → ?ref=nivia (vendedor/campanha)
+    //   catalago.net/toque-leve/nivia/a3f9c2b → ?ref=nivia&c=a3f9c2b (cliente
+    //     rastreado — código curto amigável, nada de ?c= comprido na URL).
+    //   Um segmento sozinho também tenta como cliente (?c) — o servidor
+    //     resolve o que for (vendedor/campanha/cliente) e ignora o resto.
     if (
       !pathname.startsWith("/api") &&
       !pathname.startsWith("/catalogo") &&
@@ -53,11 +55,15 @@ export async function middleware(req: NextRequest) {
       !pathname.includes(".")
     ) {
       const segs = pathname.split("/").filter(Boolean);
-      if (segs.length === 1 || segs.length === 2) {
+      if (segs.length >= 1 && segs.length <= 3) {
         const url = req.nextUrl.clone();
         url.pathname = `/catalogo/${segs[0]}`;
         if (segs[1] && !url.searchParams.get("ref")) {
           url.searchParams.set("ref", segs[1]);
+        }
+        const code = segs[2] ?? segs[1];
+        if (code && !url.searchParams.get("c")) {
+          url.searchParams.set("c", code);
         }
         return NextResponse.rewrite(url);
       }

@@ -11,6 +11,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Link2, X, Check, Copy, MessageCircle } from "lucide-react";
+import { trackedCatalogLink } from "@/lib/catalog-url";
 
 export function QuickLeadLink({
   base,
@@ -28,12 +29,7 @@ export function QuickLeadLink({
   const [result, setResult] = useState<{ link: string; phone: string } | null>(null);
   const [copied, setCopied] = useState(false);
 
-  const linkFor = (customerId: string) =>
-    sellerRef
-      ? base.startsWith("http")
-        ? `${base}/${sellerRef}?c=${customerId}`
-        : `${base}?ref=${sellerRef}&c=${customerId}`
-      : `${base}?c=${customerId}`;
+  const linkFor = (code: string) => trackedCatalogLink(base, sellerRef, code);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -55,7 +51,7 @@ export function QuickLeadLink({
       return;
     }
     const customer = await res.json();
-    const link = linkFor(customer.id);
+    const link = linkFor(customer.linkCode ?? customer.id);
     await navigator.clipboard.writeText(link).catch(() => {});
     setResult({ link, phone: digits });
     router.refresh();

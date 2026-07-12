@@ -116,7 +116,10 @@ export async function POST(req: NextRequest) {
   // Cliente do link rastreado (?c=): quem recebeu o link da vendedora
   const linkCustomer = input.c
     ? await db.customer.findFirst({
-        where: { id: input.c, companyId: company.id },
+        where: {
+          companyId: company.id,
+          OR: [{ linkCode: input.c }, { id: input.c }],
+        },
         select: { id: true, city: true, state: true },
       })
     : null;

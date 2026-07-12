@@ -70,7 +70,7 @@ import {
   orderStatusColor,
 } from "@/lib/orders";
 import { customerJourney } from "@/lib/tracking/insights";
-import { catalogUrl } from "@/lib/catalog-url";
+import { catalogUrl, trackedCatalogLink } from "@/lib/catalog-url";
 import { CatalogLinkButton } from "./catalog-link-button";
 
 export const dynamic = "force-dynamic";
@@ -133,13 +133,11 @@ export default async function CustomerDetailPage({
           .split(/\s+/)[0]
       : null;
   const base = catalogUrl(companyRow?.slug ?? "");
-  // com domínio dedicado o vendedor vai no caminho (catalago.net/loja/julia);
-  // sem domínio (dev), vai como ?ref= no caminho interno
-  const trackedCatalogUrl = sellerRef
-    ? base.startsWith("http")
-      ? `${base}/${sellerRef}?c=${customer.id}`
-      : `${base}?ref=${sellerRef}&c=${customer.id}`
-    : `${base}?c=${customer.id}`;
+  const trackedCatalogUrl = trackedCatalogLink(
+    base,
+    sellerRef,
+    customer.linkCode ?? customer.id
+  );
 
   const totalSpent = customer.sales.reduce((s, v) => s + v.total, 0);
   const ticket = customer.sales.length ? totalSpent / customer.sales.length : 0;
