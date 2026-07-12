@@ -1,35 +1,50 @@
 import { NextRequest, NextResponse } from "next/server";
-import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
+import { PDFDocument, StandardFonts, rgb, type PDFPage, type PDFFont } from "pdf-lib";
 import { db } from "@/lib/db";
 import { requireUser, AuthError } from "@/lib/auth";
 
 /**
  * Catálogo de REVENDA em PDF — o lojista/sacoleira encaminha ao cliente da
- * ponta. Grade limpa e NEUTRA (preto/branco/cinza, sem cor de marca) com as
- * fotos e modelos que ele comprou. Pode levar o NOME DA LOJA dele. Preço
- * opcional por regra (nunca item a item):
- *   ?preco=nao                        → sem preço
- *   ?preco=margem&markup=100          → valor pago × (1 + 100%)
- *   ?preco=margem&markup=100&round=1  → o mesmo, arredondado para ,90
+ * ponta. Estética editorial e NEUTRA (preto/branco/cinza, sem cor de marca),
+ * no capricho dos catálogos do sistema. Pode levar o nome da loja do lojista.
+ * Preço opcional por regra (nunca item a item):
+ *   ?preco=nao
+ *   ?preco=margem&markup=100
+ *   ?preco=margem&markup=100&round=1   (arredonda para ,90)
  * Preferências (margem, arredondar, nome da loja) ficam salvas na ficha do
- * lojista para os próximos PDFs. No rodapé, um convite discreto ao AtacadoPro.
+ * lojista. Rodapé com convite discreto ao AtacadoPro.
  */
 
-const BLACK = rgb(0.08, 0.08, 0.08);
-const GRAY = rgb(0.42, 0.42, 0.42);
+const BLACK = rgb(0.07, 0.07, 0.07);
+const GRAY = rgb(0.4, 0.4, 0.4);
 const SOFT = rgb(0.62, 0.62, 0.62);
-const LINE = rgb(0.85, 0.85, 0.85);
-const CARDBG = rgb(0.98, 0.98, 0.98);
+const HAIR = rgb(0.8, 0.8, 0.8);
+const PHOTOBG = rgb(0.99, 0.99, 0.99);
 
 const money = (v: number) =>
   `R$ ${v.toFixed(2).replace(".", ",").replace(/\B(?=(\d{3})+(?!\d))/g, ".")}`;
 
-/** Arredondamento psicológico: termina sempre em ,90 (ex.: 70 → 69,90; 65 → 64,90). */
+/** Preço psicológico terminando em ,90 (ex.: 70 → 69,90; 65 → 64,90). */
 const charm = (v: number) => Math.max(0, Math.round(v) - 0.1);
 
 const MAIN_SITE = (
   process.env.MAIN_SITE_URL?.trim() || "https://www.atacadopro.com"
-).replace(/^https?:\/\//, "");
+).replace(/^https?:\/\//, "").replace(/\/$/, "");
+
+/** Fontes padrao do pdf-lib usam WinAnsi: troca o que ela nao codifica
+ *  (em-dash, aspas curvas, espaco fino, emoji...) para nao quebrar. */
+const MAP: Record<string, string> = {
+  "\u2014": "-", "\u2013": "-", "\u2011": "-", "\u2022": "-", "\u2026": "...",
+  "\u201c": '"', "\u201d": '"', "\u2018": "'", "\u2019": "'",
+  "\u2009": " ", "\u00a0": " ", "\u200b": "",
+};
+const safe = (s: string) =>
+  [...s]
+    .map((ch) => (MAP[ch] !== undefined ? MAP[ch] : ch.codePointAt(0)! <= 0xff ? ch : ""))
+    .join("");
+
+/** Espaça letras (visual editorial) — pdf-lib não tem letter-spacing. */
+const spaced = (s: string) => safe(s).toUpperCase().split("").join(" ");
 
 export async function GET(
   req: NextRequest,
@@ -51,10 +66,9 @@ export async function GET(
     const priceMode = sp.get("preco") ?? "nao";
     const markup = Math.max(0, parseFloat(sp.get("markup") ?? "0") || 0);
     const round = sp.get("round") === "1";
-    const storeName = (sp.get("loja") ?? "").trim().slice(0, 60);
+    const storeName = (sp.get("loja") ?? "").trim().slice(0, 40);
     const showPrice = priceMode === "margem";
 
-    // guarda as preferências na ficha do lojista (lembradas no próximo PDF)
     await db.customer.update({
       where: { id: order.customerId },
       data: {
@@ -68,7 +82,6 @@ export async function GET(
       return round ? charm(v) : v;
     };
 
-    // uma "peça" por produto; pega a primeira foto real para embutir
     const byProduct = new Map<
       string,
       { name: string; paid: number; productId: string | null }
@@ -96,79 +109,87 @@ export async function GET(
     const bold = await pdf.embedFont(StandardFonts.HelveticaBold);
 
     const A4: [number, number] = [595.28, 841.89];
-    const M = 40;
+    const M = 48;
     const COLS = 2;
-    const GAP = 20;
-    let page = pdf.addPage(A4);
-    const { width, height } = page.getSize();
+    const GAP = 30;
+    const width = A4[0];
+    const height = A4[1];
     const cardW = (width - M * 2 - GAP * (COLS - 1)) / COLS;
-    const imgAreaH = cardW * 1.28;
-    const cardH = imgAreaH + 42;
-    const HEADER_BOTTOM = height - 92;
-    const FOOTER_TOP = 54;
+    const imgH = cardW * 1.1;
+    const capH = 40; // legenda (nome + preço) abaixo da foto
+    const cardH = imgH + capH;
+    const HEADER_BOTTOM = height - 122;
+    const FOOTER_Y = 46;
 
-    // rodapé (marketing discreto do AtacadoPro) em todas as páginas
-    const drawFooter = () => {
-      page.drawLine({
-        start: { x: M, y: FOOTER_TOP + 14 },
-        end: { x: width - M, y: FOOTER_TOP + 14 },
-        thickness: 0.5,
-        color: LINE,
-      });
-      const l1 = "Catálogo criado com AtacadoPro";
-      const l2 = `Quer o seu catálogo profissional? ${MAIN_SITE}`;
-      const w1 = font.widthOfTextAtSize(l1, 8);
-      const w2 = bold.widthOfTextAtSize(l2, 8);
-      page.drawText(l1, { x: (width - w1) / 2, y: FOOTER_TOP, size: 8, font, color: SOFT });
-      page.drawText(l2, { x: (width - w2) / 2, y: FOOTER_TOP - 11, size: 8, font: bold, color: GRAY });
+    const center = (
+      page: PDFPage,
+      text: string,
+      cx: number,
+      y: number,
+      size: number,
+      f: PDFFont,
+      color = BLACK
+    ) => {
+      const t = safe(text);
+      const w = f.widthOfTextAtSize(t, size);
+      page.drawText(t, { x: cx - w / 2, y, size, font: f, color });
     };
 
-    const drawHeader = () => {
-      if (storeName) {
-        page.drawText(storeName, { x: M, y: height - 52, size: 22, font: bold, color: BLACK });
-        page.drawText("CATÁLOGO DE NOVIDADES", {
-          x: M, y: height - 68, size: 9, font, color: GRAY,
-        });
-      } else {
-        page.drawText("Catálogo", { x: M, y: height - 52, size: 22, font: bold, color: BLACK });
-        page.drawText("Peças selecionadas — garanta a sua!", {
-          x: M, y: height - 68, size: 10, font, color: GRAY,
-        });
-      }
+    const drawHeader = (page: PDFPage) => {
+      const cx = width / 2;
+      center(page, spaced(storeName ? "Novidades" : "Catálogo"), cx, height - 60, 8.5, font, SOFT);
+      center(page, storeName || "Catálogo", cx, height - 88, storeName ? 24 : 24, bold, BLACK);
+      // filete curto e centralizado
       page.drawLine({
-        start: { x: M, y: HEADER_BOTTOM },
-        end: { x: width - M, y: HEADER_BOTTOM },
+        start: { x: cx - 26, y: height - 104 },
+        end: { x: cx + 26, y: height - 104 },
         thickness: 1,
-        color: LINE,
+        color: BLACK,
       });
     };
 
-    drawHeader();
-    drawFooter();
+    const drawFooter = (page: PDFPage) => {
+      const cx = width / 2;
+      page.drawLine({
+        start: { x: M, y: FOOTER_Y + 16 },
+        end: { x: width - M, y: FOOTER_Y + 16 },
+        thickness: 0.5,
+        color: HAIR,
+      });
+      const label = spaced("Catálogo Profissional");
+      const wl = font.widthOfTextAtSize(label, 7.5);
+      const site = MAIN_SITE;
+      const ws = bold.widthOfTextAtSize(site, 8);
+      const dot = "   ·   ";
+      const wd = font.widthOfTextAtSize(dot, 8);
+      const totalW = wl + wd + ws;
+      let x = cx - totalW / 2;
+      page.drawText(label, { x, y: FOOTER_Y, size: 7.5, font, color: SOFT });
+      x += wl;
+      page.drawText(dot, { x, y: FOOTER_Y, size: 8, font, color: HAIR });
+      x += wd;
+      page.drawText(site, { x, y: FOOTER_Y, size: 8, font: bold, color: GRAY });
+    };
+
+    let page = pdf.addPage(A4);
+    drawHeader(page);
+    drawFooter(page);
 
     let col = 0;
-    let y = HEADER_BOTTOM - GAP - cardH;
+    let y = HEADER_BOTTOM - cardH;
 
     for (const item of byProduct.values()) {
-      if (y < FOOTER_TOP + 26) {
+      if (y < FOOTER_Y + 30) {
         page = pdf.addPage(A4);
-        drawFooter();
+        drawFooter(page);
         y = height - M - cardH;
         col = 0;
       }
       const x = M + col * (cardW + GAP);
 
-      page.drawRectangle({
-        x, y, width: cardW, height: cardH,
-        borderColor: LINE, borderWidth: 1, color: CARDBG,
-      });
+      // fundo suave da foto (sem moldura pesada — visual editorial)
+      page.drawRectangle({ x, y: y + capH, width: cardW, height: imgH, color: PHOTOBG });
 
-      // foto: ocupa o topo do card, contida e centralizada (nunca vaza)
-      const pad = 6;
-      const areaX = x + pad;
-      const areaBottom = y + 38;
-      const areaW = cardW - pad * 2;
-      const areaH = cardH - 38 - pad;
       const url = item.productId ? firstImage.get(item.productId) : null;
       let embedded = null;
       if (url && url.startsWith("data:")) {
@@ -182,27 +203,28 @@ export async function GET(
         }
       }
       if (embedded) {
-        const fit = embedded.scaleToFit(areaW, areaH);
+        const fit = embedded.scaleToFit(cardW, imgH);
         page.drawImage(embedded, {
-          x: areaX + (areaW - fit.width) / 2,
-          y: areaBottom + (areaH - fit.height) / 2,
+          x: x + (cardW - fit.width) / 2,
+          y: y + capH + (imgH - fit.height) / 2,
           width: fit.width,
           height: fit.height,
         });
       } else {
-        page.drawText("sem foto", {
-          x: areaX + areaW / 2 - 18, y: areaBottom + areaH / 2,
-          size: 9, font, color: SOFT,
-        });
+        center(page, "sem foto", x + cardW / 2, y + capH + imgH / 2, 9, font, SOFT);
       }
 
-      page.drawText(item.name.slice(0, 34), {
-        x: x + 8, y: y + 20, size: 10, font: bold, color: BLACK,
-      });
+      // legenda centralizada: nome + preço
+      const cx = x + cardW / 2;
+      const fullName = safe(item.name);
+      let name = fullName;
+      while (bold.widthOfTextAtSize(name, 10.5) > cardW - 6 && name.length > 4) {
+        name = name.slice(0, -1);
+      }
+      if (name !== fullName) name = name.slice(0, -1) + "...";
+      center(page, name, cx, y + capH - 16, 10.5, bold, BLACK);
       if (showPrice) {
-        page.drawText(money(price(item.paid)), {
-          x: x + 8, y: y + 7, size: 11, font: bold, color: BLACK,
-        });
+        center(page, money(price(item.paid)), cx, y + capH - 31, 11.5, bold, BLACK);
       }
 
       col++;
