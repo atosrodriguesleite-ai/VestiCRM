@@ -70,6 +70,8 @@ import {
   orderStatusColor,
 } from "@/lib/orders";
 import { customerJourney } from "@/lib/tracking/insights";
+import { catalogUrl } from "@/lib/catalog-url";
+import { CatalogLinkButton } from "./catalog-link-button";
 
 export const dynamic = "force-dynamic";
 
@@ -113,6 +115,31 @@ export default async function CustomerDetailPage({
   });
 
   if (!customer) notFound();
+
+  // Link rastreado do catálogo para este cliente: quem abrir já entra
+  // identificado (?c). Se quem copiou atende clientes (vendedor/gerente),
+  // o link leva também a atribuição (?ref = primeiro nome) e o pedido
+  // chega com o vendedor preenchido.
+  const companyRow = await db.company.findUnique({
+    where: { id: user.companyId },
+    select: { slug: true },
+  });
+  const sellerRef =
+    user.role === "SELLER" || user.role === "MANAGER"
+      ? user.name
+          .toLowerCase()
+          .normalize("NFD")
+          .replace(/[\u0300-\u036f]/g, "")
+          .split(/\s+/)[0]
+      : null;
+  const base = catalogUrl(companyRow?.slug ?? "");
+  // com domínio dedicado o vendedor vai no caminho (catalago.net/loja/julia);
+  // sem domínio (dev), vai como ?ref= no caminho interno
+  const trackedCatalogUrl = sellerRef
+    ? base.startsWith("http")
+      ? `${base}/${sellerRef}?c=${customer.id}`
+      : `${base}?ref=${sellerRef}&c=${customer.id}`
+    : `${base}?c=${customer.id}`;
 
   const totalSpent = customer.sales.reduce((s, v) => s + v.total, 0);
   const ticket = customer.sales.length ? totalSpent / customer.sales.length : 0;
@@ -168,6 +195,9 @@ export default async function CustomerDetailPage({
             <p className="text-xs text-gray-400 mt-1">
               {customer.sales.length} compras · ticket {brl(ticket)}
             </p>
+            <div className="mt-3">
+              <CatalogLinkButton url={trackedCatalogUrl} />
+            </div>
           </div>
         </div>
 

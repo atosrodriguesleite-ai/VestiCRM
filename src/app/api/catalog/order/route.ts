@@ -3,6 +3,7 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import { imageSrc } from "@/lib/img";
 import { intakeLead, normalizePhone } from "@/lib/intake";
+import { resolveRef } from "@/lib/tracking/engine";
 
 /**
  * Pedido vindo do catálogo público — POST /api/catalog/order
@@ -40,6 +41,8 @@ const schema = z.object({
     })
     .optional(),
   message: z.string().max(10000).optional(), // texto enviado no WhatsApp
+  ref: z.string().max(120).optional(), // link do vendedor/campanha (?ref=)
+  c: z.string().max(60).optional(), // link rastreado por cliente (?c=)
 });
 
 export async function POST(req: NextRequest) {
@@ -104,6 +107,20 @@ export async function POST(req: NextRequest) {
   const subtotal = lines.reduce((a, l) => a + l.total, 0);
   const totalPieces = lines.reduce((a, l) => a + l.quantity, 0);
 
+  // Vendedor do link inteligente (?ref=julia): o pedido já chega atribuído —
+  // conta para a comissão e libera marcar como pago sem passo manual.
+  let linkSellerId: string | null = null;
+  if (input.ref) {
+    linkSellerId = (await resolveRef(company.id, input.ref)).sellerId;
+  }
+  // Cliente do link rastreado (?c=): quem recebeu o link da vendedora
+  const linkCustomer = input.c
+    ? await db.customer.findFirst({
+        where: { id: input.c, companyId: company.id },
+        select: { id: true, city: true, state: true },
+      })
+    : null;
+
   // ---- Cliente ----
   const rawPhone = input.customer?.phone ?? "";
   const hasPhone = rawPhone.replace(/\D/g, "").length >= 8;
@@ -135,6 +152,41 @@ export async function POST(req: NextRequest) {
     // se o intake reaproveitou uma já aberta, não a ligamos (não é "deste
     // pedido" e não deve ser apagada junto).
     opportunityId = result.opportunity?.id ?? null;
+  } else if (linkCustomer) {
+    // Link rastreado sem telefone digitado: o pedido é do cliente do link.
+    customerId = linkCustomer.id;
+    customerCity = linkCustomer.city;
+    customerState = linkCustomer.state;
+    // pedido do catálogo também vira card no funil
+    const stage =
+      (
+        await db.originRule.findUnique({
+          where: {
+            companyId_origin: {
+              companyId: company.id,
+              origin: "CATALOGO_PUBLICO",
+            },
+          },
+          include: { stage: true },
+        })
+      )?.stage ??
+      (await db.stage.findFirst({
+        where: { pipeline: { companyId: company.id } },
+        orderBy: { order: "asc" },
+      }));
+    if (stage) {
+      const opp = await db.opportunity.create({
+        data: {
+          companyId: company.id,
+          customerId: linkCustomer.id,
+          stageId: stage.id,
+          title: `Pedido do catálogo — ${totalPieces} ${totalPieces === 1 ? "peça" : "peças"}`,
+          value: subtotal,
+          status: stage.isWon ? "WON" : stage.isLost ? "LOST" : "OPEN",
+        },
+      });
+      opportunityId = opp.id;
+    }
   } else {
     // Sem dados: cria um cliente próprio do pedido para o vendedor
     // completar manualmente na tela do pedido.
@@ -210,6 +262,7 @@ export async function POST(req: NextRequest) {
         customerId,
         conversationId,
         opportunityId,
+        sellerId: linkSellerId,
         status: "AGUARDANDO_PAGAMENTO",
         subtotal,
         total: subtotal,

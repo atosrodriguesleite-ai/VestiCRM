@@ -108,12 +108,45 @@ export function parseUserAgent(ua: string | null | undefined): {
   return { device, os, browser };
 }
 
+/** Resolve um ref (?ref=julia / campanha) em vendedor e/ou campanha. */
+export async function resolveRef(companyId: string, refRaw: string) {
+  const ref = refRaw.trim().toLowerCase();
+  let sellerId: string | null = null;
+  let campaignId: string | null = null;
+  let campaignChannel: string | null = null;
+  const campaign = await db.trackCampaign.findFirst({
+    where: { companyId, slug: ref, active: true },
+  });
+  if (campaign) {
+    campaignId = campaign.id;
+    campaignChannel = campaign.channel;
+    sellerId = campaign.ownerId;
+  } else {
+    const users = await db.user.findMany({
+      where: { companyId, active: true },
+    });
+    const bySlug = users.find(
+      (u) =>
+        u.name
+          .toLowerCase()
+          .normalize("NFD")
+          .replace(/[\u0300-\u036f]/g, "")
+          .split(/\s+/)[0] === ref
+    );
+    if (bySlug) sellerId = bySlug.id;
+  }
+  return { sellerId, campaignId, campaignChannel };
+}
+
 // ---- Sessões ---------------------------------------------------------------
 
 export type StartSessionInput = {
   companyId: string;
   visitorId?: string | null;
   ref?: string | null;
+  /** Link rastreado por cliente (?c=<customerId>): identifica quem abriu
+      desde o primeiro segundo, antes de preencher qualquer dado. */
+  customerId?: string | null;
   utm?: {
     source?: string | null;
     medium?: string | null;
@@ -147,33 +180,34 @@ export async function startSession(input: StartSessionInput) {
     });
   }
 
+  // link rastreado: ?c=<customerId> identifica o visitante na entrada
+  if (input.customerId) {
+    const customer = await db.customer.findFirst({
+      where: { id: input.customerId, companyId: input.companyId },
+      select: { id: true },
+    });
+    if (customer && visitor.customerId !== customer.id) {
+      visitor = await db.visitor.update({
+        where: { id: visitor.id },
+        data: { customerId: customer.id },
+      });
+      await db.trackSession.updateMany({
+        where: { visitorId: visitor.id },
+        data: { customerId: customer.id },
+      });
+    }
+  }
+
   // resolve o ref → vendedor ou campanha
   const ref = input.ref?.trim().toLowerCase() || null;
   let sellerId: string | null = null;
   let campaignId: string | null = null;
   let campaignChannel: string | null = null;
   if (ref) {
-    const campaign = await db.trackCampaign.findFirst({
-      where: { companyId: input.companyId, slug: ref, active: true },
-    });
-    if (campaign) {
-      campaignId = campaign.id;
-      campaignChannel = campaign.channel;
-      sellerId = campaign.ownerId;
-    } else {
-      const users = await db.user.findMany({
-        where: { companyId: input.companyId, active: true },
-      });
-      const bySlug = users.find(
-        (u) =>
-          u.name
-            .toLowerCase()
-            .normalize("NFD")
-            .replace(/[\u0300-\u036f]/g, "")
-            .split(/\s+/)[0] === ref
-      );
-      if (bySlug) sellerId = bySlug.id;
-    }
+    const resolved = await resolveRef(input.companyId, ref);
+    sellerId = resolved.sellerId;
+    campaignId = resolved.campaignId;
+    campaignChannel = resolved.campaignChannel;
   }
 
   const { device, os, browser } = parseUserAgent(input.userAgent);

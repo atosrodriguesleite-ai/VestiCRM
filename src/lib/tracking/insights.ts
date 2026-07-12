@@ -351,6 +351,8 @@ export async function recovery(companyId: string, p: Period) {
     title: string;
     detail: string;
     customerId?: string;
+    customerPhone?: string;
+    items?: string[];
     value?: number;
   }[] = [];
 
@@ -358,12 +360,30 @@ export async function recovery(companyId: string, p: Period) {
   for (const s of sessions) {
     if (!s.converted && s.cartAdds > 0 && s.cartValue > 0 && !seen.has(`ab:${s.visitorId}`)) {
       seen.add(`ab:${s.visitorId}`);
-      const name = s.customerId ? byId.get(s.customerId)?.name : null;
+      const customer = s.customerId ? byId.get(s.customerId) : null;
+      const name = customer?.name ?? null;
+      // reconstrói a sacola abandonada pelos eventos (produto/cor/tam/qtd)
+      const evs = await db.trackEvent.findMany({
+        where: { sessionId: s.id, type: { in: ["cart_add", "cart_remove"] } },
+        orderBy: { createdAt: "asc" },
+      });
+      const bag = new Map<string, number>();
+      for (const e of evs) {
+        const key = [e.productName, e.color, e.size].filter(Boolean).join(" · ");
+        if (!key) continue;
+        const q = e.qty ?? 1;
+        bag.set(key, (bag.get(key) ?? 0) + (e.type === "cart_add" ? q : -q));
+      }
+      const items = [...bag.entries()]
+        .filter(([, q]) => q > 0)
+        .map(([k, q]) => `${q}× ${k}`);
       out.push({
         kind: "carrinho-abandonado",
         title: `${name ?? "Visitante"} abandonou ${fmtBrl(s.cartValue)} na sacola`,
         detail: `Sessão de ${s.startedAt.toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo" })} via ${s.channel}. Recupere com uma mensagem.`,
         customerId: s.customerId ?? undefined,
+        customerPhone: customer?.phone || undefined,
+        items: items.length ? items : undefined,
         value: s.cartValue,
       });
     }

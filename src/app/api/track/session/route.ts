@@ -7,6 +7,7 @@ const schema = z.object({
   company: z.string().min(1),
   visitorId: z.string().nullable().optional(),
   ref: z.string().nullable().optional(),
+  c: z.string().nullable().optional(), // link rastreado por cliente
   utm: z
     .object({
       source: z.string().nullable().optional(),
@@ -36,6 +37,7 @@ export async function POST(req: NextRequest) {
     companyId: company.id,
     visitorId: parsed.data.visitorId,
     ref: parsed.data.ref,
+    customerId: parsed.data.c,
     utm: parsed.data.utm,
     referer: parsed.data.referer,
     userAgent: req.headers.get("user-agent"),

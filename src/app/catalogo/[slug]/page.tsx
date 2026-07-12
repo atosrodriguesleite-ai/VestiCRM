@@ -91,6 +91,7 @@ export default async function PublicCatalogPage({
       customColors={customColors}
       tracking={{
         ref: sp.ref ?? null,
+        c: sp.c ?? null,
         utm_source: sp.utm_source ?? null,
         utm_medium: sp.utm_medium ?? null,
         utm_campaign: sp.utm_campaign ?? null,

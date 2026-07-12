@@ -61,6 +61,7 @@ export class CatalogTracker {
           company: this.companySlug,
           visitorId: localStorage.getItem(VISITOR_KEY),
           ref,
+          c: utm.c ?? null,
           utm: {
             source: utm.utm_source,
             medium: utm.utm_medium,

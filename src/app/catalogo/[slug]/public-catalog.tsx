@@ -431,6 +431,9 @@ export function PublicCatalog({
           store: client.loja || undefined,
         },
         message: msg,
+        // atribuição do link rastreado: vendedor (?ref) e cliente (?c)
+        ref: tracking.ref || undefined,
+        c: tracking.c || undefined,
       }),
       keepalive: true,
     }).catch(() => {});
@@ -1122,6 +1125,13 @@ export function PublicCatalog({
                     <input
                       value={client[key]}
                       onChange={(e) => setClient((c) => ({ ...c, [key]: e.target.value }))}
+                      onBlur={() => {
+                        // digitou o telefone e parou? já identifica — se
+                        // abandonar agora, sabemos quem é para recuperar
+                        if (key === "fone" && client.fone.replace(/\D/g, "").length >= 10) {
+                          trackerRef.current?.identify(client.fone);
+                        }
+                      }}
                       placeholder={ph}
                       className="w-full rounded-xl border px-3.5 py-[13px] text-[15px] bg-white outline-none"
                       style={{ borderColor: T.line }}
