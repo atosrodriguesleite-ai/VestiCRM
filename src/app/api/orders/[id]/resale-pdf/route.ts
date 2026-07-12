@@ -1,5 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
-import { PDFDocument, StandardFonts, rgb, type PDFPage, type PDFFont } from "pdf-lib";
+import {
+  PDFDocument,
+  StandardFonts,
+  rgb,
+  pushGraphicsState,
+  popGraphicsState,
+  moveTo,
+  lineTo,
+  closePath,
+  clip,
+  endPath,
+  type PDFPage,
+  type PDFFont,
+} from "pdf-lib";
 import { db } from "@/lib/db";
 import { requireUser, AuthError } from "@/lib/auth";
 
@@ -191,8 +204,10 @@ export async function GET(
       }
       const x = M + col * (cardW + GAP);
 
-      // fundo suave da foto (sem moldura pesada — visual editorial)
-      page.drawRectangle({ x, y: y + capH, width: cardW, height: imgH, color: PHOTOBG });
+      // fundo neutro (só aparece quando não há foto)
+      const boxX = x;
+      const boxY = y + capH;
+      page.drawRectangle({ x: boxX, y: boxY, width: cardW, height: imgH, color: PHOTOBG });
 
       const url = item.productId ? firstImage.get(item.productId) : null;
       let embedded = null;
@@ -207,15 +222,30 @@ export async function GET(
         }
       }
       if (embedded) {
-        const fit = embedded.scaleToFit(cardW, imgH);
-        page.drawImage(embedded, {
-          x: x + (cardW - fit.width) / 2,
-          y: y + capH + (imgH - fit.height) / 2,
-          width: fit.width,
-          height: fit.height,
-        });
+        // "cover": a foto PREENCHE 100% do quadro (sem sobrar borda de fundo).
+        // O excedente é recortado nas bordas; leve viés ao topo para nunca
+        // cortar a cabeça da modelo (mantém rosto/tronco, corta pés/sobra).
+        const scale = Math.max(cardW / embedded.width, imgH / embedded.height);
+        const w = embedded.width * scale;
+        const h = embedded.height * scale;
+        const overflowV = h - imgH; // sobra vertical (quando a foto é mais alta)
+        const ix = boxX + (cardW - w) / 2; // centralizado na horizontal
+        const iy = boxY - overflowV * 0.68; // topo preservado, corta mais embaixo
+        // recorta ao quadro para a foto não invadir a legenda nem o card vizinho
+        page.pushOperators(
+          pushGraphicsState(),
+          moveTo(boxX, boxY),
+          lineTo(boxX + cardW, boxY),
+          lineTo(boxX + cardW, boxY + imgH),
+          lineTo(boxX, boxY + imgH),
+          closePath(),
+          clip(),
+          endPath()
+        );
+        page.drawImage(embedded, { x: ix, y: iy, width: w, height: h });
+        page.pushOperators(popGraphicsState());
       } else {
-        center(page, "sem foto", x + cardW / 2, y + capH + imgH / 2, 9, font, SOFT);
+        center(page, "sem foto", boxX + cardW / 2, boxY + imgH / 2, 9, font, SOFT);
       }
 
       // legenda centralizada: nome + preço
