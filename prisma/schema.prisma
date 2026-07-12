@@ -214,6 +214,9 @@ model Customer {
   notes          String?
   preferredSize  String?
   preferredColors String?
+  // margem de revenda deste lojista (%) — usada no catálogo de revenda (PDF).
+  // guardada uma vez; todo PDF futuro dele já sai precificado sozinho.
+  resaleMarkup   Float        @default(0)
   lastPurchaseAt DateTime?
   nextContactAt  DateTime?
   lastContactAt  DateTime?

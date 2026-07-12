@@ -16,6 +16,7 @@ import {
   orderStatusLabel,
   orderStatusColor,
   orderNumber,
+  PAID_ORDER_STATUSES,
 } from "@/lib/orders";
 import { Card, Badge } from "@/components/ui";
 import { StatusChanger } from "./status-changer";
@@ -23,6 +24,7 @@ import { CustomerEditor } from "./customer-editor";
 import { ItemsEditor } from "./items-editor";
 import { PaymentMethodChanger } from "./payment-method";
 import { DeleteOrder } from "./delete-order";
+import { ResaleCatalog } from "./resale-catalog";
 
 export const dynamic = "force-dynamic";
 
@@ -108,6 +110,13 @@ export default async function OrderDetailPage({
               <FileText className="size-4" />
               Romaneio em PDF
             </a>
+            {(PAID_ORDER_STATUSES as readonly string[]).includes(order.status) && (
+              <ResaleCatalog
+                orderId={order.id}
+                customerName={order.customer.name}
+                savedMarkup={order.customer.resaleMarkup}
+              />
+            )}
             {order.conversationId && (
               <Link
                 href="/whatsapp"

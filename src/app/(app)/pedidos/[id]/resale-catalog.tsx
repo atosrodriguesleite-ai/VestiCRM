@@ -1,0 +1,137 @@
+"use client";
+
+/**
+ * Catálogo de revenda (PDF): o lojista/sacoleira encaminha ao cliente da
+ * ponta. Fotos e modelos do pedido, sem a marca do atacado. Preço opcional —
+ * a margem fica guardada na ficha do lojista para os próximos PDFs.
+ */
+
+import { useState } from "react";
+import { Images, X } from "lucide-react";
+
+export function ResaleCatalog({
+  orderId,
+  customerName,
+  savedMarkup,
+}: {
+  orderId: string;
+  customerName: string;
+  savedMarkup: number;
+}) {
+  const [open, setOpen] = useState(false);
+  const [withPrice, setWithPrice] = useState(savedMarkup > 0);
+  const [markup, setMarkup] = useState(savedMarkup ? String(savedMarkup) : "100");
+
+  const href = () => {
+    const m = Math.max(0, parseFloat(markup.replace(",", ".")) || 0);
+    return withPrice
+      ? `/api/orders/${orderId}/resale-pdf?preco=margem&markup=${m}`
+      : `/api/orders/${orderId}/resale-pdf?preco=nao`;
+  };
+
+  return (
+    <>
+      <button
+        onClick={() => setOpen(true)}
+        className="flex items-center justify-center gap-1.5 rounded-xl border border-gray-200 hover:border-brand-300 text-gray-600 text-sm font-medium px-4 py-2.5 transition"
+        title="Gera um PDF com as fotos para o cliente revender na ponta"
+      >
+        <Images className="size-4 text-brand-500" />
+        Catálogo de revenda
+      </button>
+
+      {open && (
+        <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center">
+          <div className="absolute inset-0 bg-black/30 animate-fade-in" onClick={() => setOpen(false)} />
+          <div className="relative bg-white rounded-t-2xl md:rounded-2xl shadow-pop w-full md:max-w-sm p-6 animate-fade-up">
+            <div className="flex items-center justify-between mb-1">
+              <h3 className="font-semibold text-lg">Catálogo de revenda</h3>
+              <button onClick={() => setOpen(false)} className="text-gray-400 p-1">
+                <X className="size-5" />
+              </button>
+            </div>
+            <p className="text-xs text-gray-400 mb-4">
+              PDF com as fotos das peças deste pedido, sem a sua marca, para{" "}
+              <b>{customerName.split(" ")[0]}</b> revender ao cliente final.
+            </p>
+
+            <div className="space-y-2 mb-4">
+              <label
+                className={`flex items-start gap-3 rounded-xl border p-3 cursor-pointer transition ${
+                  !withPrice ? "border-brand-400 bg-brand-50/50" : "border-gray-200"
+                }`}
+              >
+                <input
+                  type="radio"
+                  checked={!withPrice}
+                  onChange={() => setWithPrice(false)}
+                  className="mt-0.5 accent-brand-600"
+                />
+                <span className="text-sm">
+                  <b>Sem preço</b>
+                  <span className="block text-xs text-gray-400">
+                    O revendedor combina o valor na conversa dele.
+                  </span>
+                </span>
+              </label>
+
+              <label
+                className={`flex items-start gap-3 rounded-xl border p-3 cursor-pointer transition ${
+                  withPrice ? "border-brand-400 bg-brand-50/50" : "border-gray-200"
+                }`}
+              >
+                <input
+                  type="radio"
+                  checked={withPrice}
+                  onChange={() => setWithPrice(true)}
+                  className="mt-0.5 accent-brand-600"
+                />
+                <span className="text-sm flex-1">
+                  <b>Com o preço de venda dele</b>
+                  <span className="block text-xs text-gray-400">
+                    Aplica a margem sobre o que ele pagou — em todas as peças.
+                  </span>
+                  {withPrice && (
+                    <span className="mt-2 flex items-center gap-2">
+                      <span className="text-xs text-gray-500">Margem de</span>
+                      <input
+                        value={markup}
+                        onChange={(e) => setMarkup(e.target.value)}
+                        inputMode="decimal"
+                        className="w-16 rounded-lg border border-gray-200 px-2 py-1 text-sm text-center focus:outline-none focus:ring-2 focus:ring-brand-300"
+                      />
+                      <span className="text-xs text-gray-500">
+                        % {markup && `(pagou R$ 34 → sai ${brlPreview(markup)})`}
+                      </span>
+                    </span>
+                  )}
+                </span>
+              </label>
+            </div>
+
+            <a
+              href={href()}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={() => setTimeout(() => setOpen(false), 300)}
+              className="flex items-center justify-center gap-1.5 rounded-xl bg-brand-600 hover:bg-brand-700 text-white font-medium py-2.5 text-sm transition"
+            >
+              <Images className="size-4" />
+              Gerar PDF
+            </a>
+            <p className="text-[11px] text-gray-400 text-center mt-2">
+              A margem fica salva para os próximos catálogos deste cliente.
+            </p>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
+/** Prévia rápida: 34 reais com a margem digitada. */
+function brlPreview(markup: string): string {
+  const m = Math.max(0, parseFloat(markup.replace(",", ".")) || 0);
+  const v = 34 * (1 + m / 100);
+  return `R$ ${v.toFixed(2).replace(".", ",")}`;
+}
