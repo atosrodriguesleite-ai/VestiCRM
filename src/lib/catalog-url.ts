@@ -23,3 +23,16 @@ export function catalogLabel(slug: string, domain?: string | null): string {
   const dom = domain !== undefined ? domain : catalogDomain();
   return dom ? `${dom}/${slug}` : `/catalogo/${slug}`;
 }
+
+/** Base + ref de vendedor para links rastreados (?c=) — uso nas telas. */
+export function trackedLinkParts(user: { role: string; name: string }, slug: string) {
+  const sellerRef =
+    user.role === "SELLER" || user.role === "MANAGER"
+      ? user.name
+          .toLowerCase()
+          .normalize("NFD")
+          .replace(/[\u0300-\u036f]/g, "")
+          .split(/\s+/)[0]
+      : null;
+  return { base: catalogUrl(slug), sellerRef };
+}

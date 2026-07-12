@@ -11,6 +11,8 @@ import {
 } from "@/lib/format";
 import { Card, PageHeader, Avatar, Badge, EmptyState } from "@/components/ui";
 import { NewCustomerButton } from "./new-customer";
+import { QuickLeadLink } from "@/components/quick-lead-link";
+import { trackedLinkParts } from "@/lib/catalog-url";
 import type { CustomerType, Prisma } from "@prisma/client";
 
 export const dynamic = "force-dynamic";
@@ -31,7 +33,7 @@ export default async function CustomersPage({
   if (tipo && TYPES.includes(tipo as CustomerType))
     where.type = tipo as CustomerType;
 
-  const [customers, interests] = await Promise.all([
+  const [customers, interests, companyRow] = await Promise.all([
     db.customer.findMany({
       where,
       include: {
@@ -42,6 +44,7 @@ export default async function CustomersPage({
       orderBy: { createdAt: "desc" },
     }),
     db.interest.findMany({ where: { companyId: user.companyId } }),
+    db.company.findUnique({ where: { id: user.companyId }, select: { slug: true } }),
   ]);
 
   return (
@@ -51,6 +54,7 @@ export default async function CustomersPage({
         subtitle={`${customers.length} cliente${customers.length === 1 ? "" : "s"} na sua carteira.`}
         action={
           <div className="flex items-center gap-2">
+            <QuickLeadLink {...trackedLinkParts(user, companyRow?.slug ?? "")} />
             <a
               href="/api/export/clientes"
               download

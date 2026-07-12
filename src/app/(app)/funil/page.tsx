@@ -3,6 +3,8 @@ import { db } from "@/lib/db";
 import { ownedScope, isManagerUp } from "@/lib/scope";
 import { PageHeader } from "@/components/ui";
 import { FunnelBoard, type BoardStage } from "./funnel-board";
+import { QuickLeadLink } from "@/components/quick-lead-link";
+import { trackedLinkParts } from "@/lib/catalog-url";
 
 export const dynamic = "force-dynamic";
 
@@ -15,6 +17,10 @@ export default async function FunnelPage({
 }) {
   const user = await requireUser();
   const scope = ownedScope(user);
+  const funnelCompany = await db.company.findUnique({
+    where: { id: user.companyId },
+    select: { slug: true },
+  });
   const { de, ate } = await searchParams;
   const from = de && !Number.isNaN(Date.parse(`${de}T00:00:00Z`))
     ? new Date(Date.parse(`${de}T00:00:00Z`) + SP_OFFSET)
@@ -95,6 +101,8 @@ export default async function FunnelPage({
         title="Funil de vendas"
         subtitle="Arraste os cards entre as etapas para atualizar a negociação."
         action={
+          <div className="flex items-end gap-2 flex-wrap">
+            <QuickLeadLink {...trackedLinkParts(user, funnelCompany?.slug ?? "")} />
           <form className="flex items-end gap-2" method="GET">
             <div>
               <label className="block text-[11px] font-semibold text-gray-500 mb-1">De</label>
@@ -108,6 +116,7 @@ export default async function FunnelPage({
               Filtrar
             </button>
           </form>
+          </div>
         }
       />
       <FunnelBoard initialStages={stages} customers={customers} canDelete={isManagerUp(user)} />
