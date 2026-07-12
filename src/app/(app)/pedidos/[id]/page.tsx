@@ -115,6 +115,8 @@ export default async function OrderDetailPage({
                 orderId={order.id}
                 customerName={order.customer.name}
                 savedMarkup={order.customer.resaleMarkup}
+                savedRound={order.customer.resaleRound}
+                savedStoreName={order.customer.resaleStoreName}
               />
             )}
             {order.conversationId && (
