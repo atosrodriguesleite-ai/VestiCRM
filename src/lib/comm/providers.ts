@@ -48,24 +48,62 @@ export class CloudApiProvider implements CommProvider {
           "Cloud API sem credenciais. Preencha Phone Number ID e Access Token em Configurações → Comunicação.",
       };
     }
-    // Estrutura pronta — descomentavel quando as credenciais oficiais chegarem:
-    //
-    // const body = payload.mediaUrl
-    //   ? { messaging_product: "whatsapp", to: payload.to,
-    //       type: payload.mediaType?.toLowerCase(),
-    //       [payload.mediaType!.toLowerCase()]: { link: payload.mediaUrl } }
-    //   : { messaging_product: "whatsapp", to: payload.to,
-    //       type: "text", text: { body: payload.text ?? "" } };
-    // const res = await fetch(
-    //   `https://graph.facebook.com/v21.0/${this.creds.phoneNumberId}/messages`,
-    //   { method: "POST",
-    //     headers: { Authorization: `Bearer ${this.creds.accessToken}`,
-    //                "Content-Type": "application/json" },
-    //     body: JSON.stringify(body) });
-    // if (!res.ok) return { ok: false, error: await res.text() };
-    // const data = await res.json();
-    // return { ok: true, externalId: data.messages?.[0]?.id };
-    return { ok: false, error: "Cloud API ainda não ativada (aguardando credenciais)." };
+    // Envio oficial pela Meta Cloud API (texto, mídia por link ou template)
+    const to = payload.to.replace(/\D/g, "");
+    let body: Record<string, unknown>;
+    if (payload.templateName) {
+      body = {
+        messaging_product: "whatsapp",
+        to,
+        type: "template",
+        template: { name: payload.templateName, language: { code: "pt_BR" } },
+      };
+    } else if (payload.mediaUrl && payload.mediaType && payload.mediaType !== "TEXT") {
+      const kind = payload.mediaType.toLowerCase(); // image|audio|video|document
+      body = {
+        messaging_product: "whatsapp",
+        to,
+        type: kind,
+        [kind]: {
+          link: payload.mediaUrl,
+          ...(payload.text ? { caption: payload.text } : {}),
+          ...(payload.fileName && kind === "document" ? { filename: payload.fileName } : {}),
+        },
+      };
+    } else {
+      body = {
+        messaging_product: "whatsapp",
+        to,
+        type: "text",
+        text: { body: payload.text ?? "", preview_url: true },
+      };
+    }
+
+    try {
+      const res = await fetch(
+        `https://graph.facebook.com/v21.0/${this.creds.phoneNumberId}/messages`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${this.creds.accessToken}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(body),
+        }
+      );
+      const data = await res.json().catch(() => null);
+      if (!res.ok) {
+        const detail =
+          (data as { error?: { message?: string } } | null)?.error?.message ??
+          `HTTP ${res.status}`;
+        return { ok: false, error: `Meta recusou o envio: ${detail}` };
+      }
+      const externalId = (data as { messages?: { id: string }[] })?.messages?.[0]?.id;
+      if (!externalId) return { ok: false, error: "Meta não devolveu o id da mensagem." };
+      return { ok: true, externalId };
+    } catch (e) {
+      return { ok: false, error: `Falha de rede ao falar com a Meta: ${String(e)}` };
+    }
   }
 }
 
