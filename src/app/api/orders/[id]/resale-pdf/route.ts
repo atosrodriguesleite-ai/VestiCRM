@@ -19,7 +19,9 @@ const BLACK = rgb(0.07, 0.07, 0.07);
 const GRAY = rgb(0.4, 0.4, 0.4);
 const SOFT = rgb(0.62, 0.62, 0.62);
 const HAIR = rgb(0.8, 0.8, 0.8);
-const PHOTOBG = rgb(0.99, 0.99, 0.99);
+const PHOTOBG = rgb(0.965, 0.965, 0.965);
+const CREME = rgb(0.96, 0.94, 0.9);
+const CREME_DIM = rgb(0.72, 0.69, 0.64);
 
 const money = (v: number) =>
   `R$ ${v.toFixed(2).replace(".", ",").replace(/\B(?=(\d{3})+(?!\d))/g, ".")}`;
@@ -109,17 +111,19 @@ export async function GET(
     const bold = await pdf.embedFont(StandardFonts.HelveticaBold);
 
     const A4: [number, number] = [595.28, 841.89];
-    const M = 48;
+    const M = 44;
     const COLS = 2;
-    const GAP = 30;
+    const GAP = 26;
     const width = A4[0];
     const height = A4[1];
+    const HEADER_H = 96; // faixa preta do topo
+    const FOOTER_H = 40; // faixa preta do rodapé
     const cardW = (width - M * 2 - GAP * (COLS - 1)) / COLS;
-    const imgH = cardW * 1.1;
+    const imgH = cardW * 1.12; // fotos maiores, mantendo 4 por página
     const capH = 40; // legenda (nome + preço) abaixo da foto
     const cardH = imgH + capH;
-    const HEADER_BOTTOM = height - 122;
-    const FOOTER_Y = 46;
+    const CONTENT_TOP = height - HEADER_H - 22;
+    const CONTENT_BOTTOM = FOOTER_H + 20;
 
     const center = (
       page: PDFPage,
@@ -137,26 +141,25 @@ export async function GET(
 
     const drawHeader = (page: PDFPage) => {
       const cx = width / 2;
-      center(page, spaced(storeName ? "Novidades" : "Catálogo"), cx, height - 60, 8.5, font, SOFT);
-      center(page, storeName || "Catálogo", cx, height - 88, storeName ? 24 : 24, bold, BLACK);
-      // filete curto e centralizado
+      // faixa preta cheia no topo
+      page.drawRectangle({ x: 0, y: height - HEADER_H, width, height: HEADER_H, color: BLACK });
+      center(page, spaced(storeName ? "Novidades" : "Catálogo"), cx, height - 40, 8, font, CREME_DIM);
+      center(page, storeName || "Catálogo", cx, height - 68, 23, bold, CREME);
+      // filete curto creme sob o nome
       page.drawLine({
-        start: { x: cx - 26, y: height - 104 },
-        end: { x: cx + 26, y: height - 104 },
+        start: { x: cx - 22, y: height - 80 },
+        end: { x: cx + 22, y: height - 80 },
         thickness: 1,
-        color: BLACK,
+        color: CREME_DIM,
       });
     };
 
     const drawFooter = (page: PDFPage) => {
       const cx = width / 2;
-      page.drawLine({
-        start: { x: M, y: FOOTER_Y + 16 },
-        end: { x: width - M, y: FOOTER_Y + 16 },
-        thickness: 0.5,
-        color: HAIR,
-      });
+      // faixa preta cheia no rodapé
+      page.drawRectangle({ x: 0, y: 0, width, height: FOOTER_H, color: BLACK });
       const label = spaced("Catálogo Profissional");
+      const ty = FOOTER_H / 2 - 3;
       const wl = font.widthOfTextAtSize(label, 7.5);
       const site = MAIN_SITE;
       const ws = bold.widthOfTextAtSize(site, 8);
@@ -164,11 +167,11 @@ export async function GET(
       const wd = font.widthOfTextAtSize(dot, 8);
       const totalW = wl + wd + ws;
       let x = cx - totalW / 2;
-      page.drawText(label, { x, y: FOOTER_Y, size: 7.5, font, color: SOFT });
+      page.drawText(label, { x, y: ty, size: 7.5, font, color: CREME_DIM });
       x += wl;
-      page.drawText(dot, { x, y: FOOTER_Y, size: 8, font, color: HAIR });
+      page.drawText(dot, { x, y: ty, size: 8, font, color: CREME_DIM });
       x += wd;
-      page.drawText(site, { x, y: FOOTER_Y, size: 8, font: bold, color: GRAY });
+      page.drawText(site, { x, y: ty, size: 8, font: bold, color: CREME });
     };
 
     let page = pdf.addPage(A4);
@@ -176,13 +179,14 @@ export async function GET(
     drawFooter(page);
 
     let col = 0;
-    let y = HEADER_BOTTOM - cardH;
+    let y = CONTENT_TOP - cardH;
 
     for (const item of byProduct.values()) {
-      if (y < FOOTER_Y + 30) {
+      if (y < CONTENT_BOTTOM) {
         page = pdf.addPage(A4);
+        drawHeader(page);
         drawFooter(page);
-        y = height - M - cardH;
+        y = CONTENT_TOP - cardH;
         col = 0;
       }
       const x = M + col * (cardW + GAP);
