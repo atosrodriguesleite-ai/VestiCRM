@@ -560,11 +560,11 @@ export function PublicCatalog({
       </header>
 
       {/* INTRO */}
-      <section className="max-w-[680px] mx-auto px-[18px] pt-3.5 pb-2">
-        <h1 className="font-extrabold text-[22px] leading-[1.1] uppercase m-0 mb-1" style={{ letterSpacing: "-.01em" }}>
+      <section className="max-w-[680px] mx-auto px-[18px] pt-2 pb-1">
+        <h1 className="font-extrabold text-[18px] leading-[1.05] uppercase m-0 mb-0.5" style={{ letterSpacing: "-.01em" }}>
           Catálogo <em className="not-italic" style={{ color: T.primary }}>{storeName}</em>
         </h1>
-        <p className="m-0 text-[13px] font-medium leading-snug max-w-[46ch]" style={{ color: T.muted }}>
+        <p className="m-0 text-[12px] font-medium leading-tight max-w-[46ch]" style={{ color: T.muted }}>
           {tagline ??
             "Selecione os modelos desejados, adicione ao carrinho e finalize seu pedido pelo WhatsApp."}
         </p>
@@ -605,7 +605,7 @@ export function PublicCatalog({
           <div
             ref={catNavRef}
             onScroll={syncCatArrows}
-            className="flex gap-2 overflow-x-auto px-[18px] py-[7px]"
+            className="flex gap-2 overflow-x-auto px-[18px] py-[5px]"
             style={{ scrollbarWidth: "none" }}
           >
             {categories.map((cat, i) => {
@@ -668,9 +668,9 @@ export function PublicCatalog({
                   logoSize === "grande" ? "var(--cat-sticky, 200px)" : 140,
               }}
             >
-              <div className="max-w-[680px] mx-auto px-[18px] pt-[14px]">
-                <div className="flex items-baseline justify-between gap-2.5 mb-1.5">
-                  <h2 className="font-extrabold text-[21px] uppercase m-0" style={{ letterSpacing: "-.01em" }}>
+              <div className="max-w-[680px] mx-auto px-[18px] pt-[10px]">
+                <div className="flex items-baseline justify-between gap-2.5 mb-1">
+                  <h2 className="font-extrabold text-[20px] uppercase m-0" style={{ letterSpacing: "-.01em" }}>
                     {cat}
                   </h2>
                   <span className="text-xs font-bold whitespace-nowrap" style={{ color: T.muted }}>
