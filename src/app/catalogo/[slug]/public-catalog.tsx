@@ -464,17 +464,20 @@ export function PublicCatalog({
       {/* TOPBAR */}
       <header className="sticky top-0 z-40" style={{ background: T.primary }}>
         {logoSize === "grande" && identity.logoUrl ? (
-          // Logo grande centralizado, preenchendo quase toda a área superior
-          <div className="max-w-[680px] mx-auto relative px-[18px] py-5 flex items-center justify-center">
+          // Logo grande centralizado, preenchendo quase toda a área do cabeçalho.
+          // Layout em flex com espaçador à esquerda (= largura da sacola) para o
+          // logo centralizar sem NUNCA sobrepor o botão da sacola.
+          <div className="max-w-[680px] mx-auto px-[18px] py-4 flex items-center gap-3">
+            <span className="w-[46px] shrink-0" aria-hidden />
             <img
               src={identity.logoUrl}
               alt={storeName}
-              className="h-24 sm:h-28 max-w-[86%] object-contain"
+              className="flex-1 min-w-0 h-36 sm:h-44 object-contain"
             />
             <button
               onClick={openBag}
               aria-label="Abrir pedido"
-              className="absolute right-[18px] top-1/2 -translate-y-1/2 flex items-center justify-center size-[46px] rounded-full shrink-0 active:scale-95 transition"
+              className="relative flex items-center justify-center size-[46px] rounded-full shrink-0 active:scale-95 transition"
               style={{ background: T.secondary, color: T.primary }}
             >
               <BagIcon className="size-5" />
@@ -539,8 +542,10 @@ export function PublicCatalog({
 
       {/* BARRA DE MODELOS */}
       <nav
-        className="sticky z-30 border-b"
-        style={{ top: logoSize === "grande" ? 130 : 74, background: T.bg, borderColor: T.line, boxShadow: "0 6px 12px -10px rgba(0,0,0,.3)" }}
+        className={`sticky z-30 border-b ${
+          logoSize === "grande" ? "top-[176px] sm:top-[208px]" : "top-[74px]"
+        }`}
+        style={{ background: T.bg, borderColor: T.line, boxShadow: "0 6px 12px -10px rgba(0,0,0,.3)" }}
       >
         <div className="relative max-w-[680px] mx-auto">
           {/* seta esquerda */}
@@ -623,7 +628,7 @@ export function PublicCatalog({
                 sectionRefs.current[cat] = el;
               }}
               className="pb-2.5"
-              style={{ scrollMarginTop: 140 }}
+              style={{ scrollMarginTop: logoSize === "grande" ? 258 : 140 }}
             >
               <div className="max-w-[680px] mx-auto px-[18px] pt-[22px]">
                 <div className="flex items-baseline justify-between gap-2.5 mb-2">

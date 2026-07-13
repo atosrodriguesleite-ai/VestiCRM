@@ -211,9 +211,11 @@ export function CatalogDesigner({
               </div>
               <p className="mt-2 text-[11px] leading-relaxed text-gray-400">
                 <b className="text-gray-500">Tamanho ideal:</b> imagem na
-                horizontal de <b>1000 × 300 px</b> (aprox.), em <b>PNG com fundo
+                horizontal de <b>1600 × 500 px</b> (aprox.), em <b>PNG com fundo
                 transparente</b>. No modo <b>&ldquo;Grande centralizado&rdquo;</b>{" "}
-                a logo ocupa todo o cabeçalho — quanto maior e mais nítida, melhor.
+                a logo aparece grande, preenchendo quase todo o cabeçalho — use
+                uma arte horizontal, com pouca margem em volta, e quanto maior e
+                mais nítida, melhor.
               </p>
             </div>
 
