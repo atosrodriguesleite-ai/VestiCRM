@@ -481,12 +481,18 @@ export default async function CustomerDetailPage({
         </Card>
 
         {/* Comportamento no catálogo (Inteligência Comercial) */}
-        {journey && (
-          <Card className="p-5 md:col-span-2">
-            <h2 className="font-semibold flex items-center gap-2 mb-3">
-              <Brain className="size-4 text-brand-600" />
-              Comportamento no catálogo
-            </h2>
+        <Card className="p-5 md:col-span-2">
+          <h2 className="font-semibold flex items-center gap-2 mb-3">
+            <Brain className="size-4 text-brand-600" />
+            Comportamento no catálogo
+          </h2>
+          {!journey || journey.visits === 0 ? (
+            <EmptyState
+              title="Sem navegação registrada ainda"
+              hint="Assim que este cliente abrir o catálogo pelo link rastreado, tudo que ele fizer — peças que viu, colocou ou tirou da sacola, tempo no catálogo — aparece aqui automaticamente."
+            />
+          ) : (
+            <>
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mb-4">
               {[
                 ["Visitas", String(journey.visits)],
@@ -623,8 +629,9 @@ export default async function CustomerDetailPage({
                 </div>
               </div>
             )}
-          </Card>
-        )}
+            </>
+          )}
+        </Card>
 
         {/* Tarefas */}
         <Card className="p-5">
