@@ -487,6 +487,43 @@ export async function customerJourney(companyId: string, customerId: string) {
   });
   const all = sessions.flatMap((s) => s.events);
   const count = (t: string) => all.filter((e) => e.type === t).length;
+
+  // duração de cada sessão (últim. evento − início), em segundos
+  const sessionSeconds = (s: (typeof sessions)[number]) =>
+    Math.max(0, Math.round((s.lastEventAt.getTime() - s.startedAt.getTime()) / 1000));
+  const totalSeconds = sessions.reduce((a, s) => a + sessionSeconds(s), 0);
+
+  // peças que colocou / tirou da sacola (agregadas por produto · cor · tam)
+  const addBag = new Map<string, number>();
+  const remBag = new Map<string, number>();
+  for (const e of all) {
+    const key = [e.productName, e.color, e.size].filter(Boolean).join(" · ");
+    if (!key) continue;
+    if (e.type === "cart_add") addBag.set(key, (addBag.get(key) ?? 0) + (e.qty ?? 1));
+    if (e.type === "cart_remove") remBag.set(key, (remBag.get(key) ?? 0) + (e.qty ?? 1));
+  }
+  const addedItems = [...addBag.entries()].map(([label, qty]) => ({ label, qty }));
+  const removedItems = [...remBag.entries()].map(([label, qty]) => ({ label, qty }));
+
+  // produtos que abriu (distintos), do mais visto ao menos
+  const viewBag = new Map<string, number>();
+  for (const e of all) {
+    if (e.type === "product_view" && e.productName) {
+      viewBag.set(e.productName, (viewBag.get(e.productName) ?? 0) + 1);
+    }
+  }
+  const viewedProducts = [...viewBag.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .map(([name, times]) => ({ name, times }));
+
+  const stepOf = (e: (typeof all)[number]) => ({
+    type: e.type,
+    productName: e.productName,
+    category: e.category,
+    color: e.color,
+    size: e.size,
+  });
+
   return {
     firstVisit: visitor.firstSeenAt,
     lastVisit: visitor.lastSeenAt,
@@ -495,9 +532,23 @@ export async function customerJourney(companyId: string, customerId: string) {
     favorites: count("favorite"),
     added: count("cart_add"),
     removed: count("cart_remove"),
+    totalSeconds,
     abandonedCarts: sessions.filter((s) => !s.converted && s.cartAdds > 0).length,
     ordersSubmitted: sessions.filter((s) => s.converted).length,
     channels: [...new Set(sessions.map((s) => s.channel))],
+    addedItems,
+    removedItems,
+    viewedProducts,
+    // todas as visitas (passo a passo), da mais recente à mais antiga
+    sessions: sessions.slice(0, 10).map((s) => ({
+      startedAt: s.startedAt,
+      channel: s.channel,
+      device: s.device,
+      seconds: sessionSeconds(s),
+      converted: s.converted,
+      cartValue: s.cartValue,
+      steps: s.events.slice(0, 40).map(stepOf),
+    })),
     lastSession: sessions[0]
       ? {
           startedAt: sessions[0].startedAt,

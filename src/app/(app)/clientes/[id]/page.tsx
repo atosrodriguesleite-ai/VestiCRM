@@ -41,6 +41,23 @@ function journeyStepLabel(step: {
     default: return step.type;
   }
 }
+
+/** Duração amigável: "3m 20s", "45s", "1h 05m". */
+function fmtDuration(sec: number): string {
+  if (sec <= 0) return "—";
+  const h = Math.floor(sec / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  const s = sec % 60;
+  if (h > 0) return `${h}h ${String(m).padStart(2, "0")}m`;
+  if (m > 0) return `${m}m ${String(s).padStart(2, "0")}s`;
+  return `${s}s`;
+}
+
+const deviceLabel: Record<string, string> = {
+  mobile: "Celular",
+  desktop: "Computador",
+  tablet: "Tablet",
+};
 import { requireUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { ownedScope } from "@/lib/scope";
@@ -445,47 +462,148 @@ export default async function CustomerDetailPage({
           )}
         </Card>
 
-        {/* Jornada de navegação (Inteligência Comercial) */}
+        {/* Comportamento no catálogo (Inteligência Comercial) */}
         {journey && (
           <Card className="p-5 md:col-span-2">
             <h2 className="font-semibold flex items-center gap-2 mb-3">
               <Brain className="size-4 text-brand-600" />
-              Jornada no catálogo
+              Comportamento no catálogo
             </h2>
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mb-4">
               {[
                 ["Visitas", String(journey.visits)],
+                ["Tempo total", fmtDuration(journey.totalSeconds)],
                 ["Produtos vistos", String(journey.productsViewed)],
-                ["Adicionados", String(journey.added)],
+                ["Colocou na sacola", String(journey.added)],
+                ["Tirou da sacola", String(journey.removed)],
                 ["Carrinhos largados", String(journey.abandonedCarts)],
               ].map(([label, value]) => (
                 <div key={label} className="rounded-xl bg-gray-50 px-3 py-2 text-center">
                   <p className="text-lg font-semibold tabular-nums">{value}</p>
-                  <p className="text-[10px] text-gray-400">{label}</p>
+                  <p className="text-[10px] text-gray-400 leading-tight">{label}</p>
                 </div>
               ))}
             </div>
-            <p className="text-xs text-gray-400 mb-3">
+            <p className="text-xs text-gray-400 mb-4">
               Primeira visita {dateFull(journey.firstVisit)} · última{" "}
               {dateFull(journey.lastVisit)}
               {journey.channels.length > 0 && ` · via ${journey.channels.join(", ")}`}
             </p>
-            {journey.lastSession && journey.lastSession.steps.length > 0 && (
-              <>
+
+            <div className="grid sm:grid-cols-2 gap-4 mb-4">
+              {/* Colocou na sacola */}
+              {journey.addedItems.length > 0 && (
+                <div className="rounded-xl border border-emerald-100 bg-emerald-50/50 p-3">
+                  <p className="text-[11px] font-semibold text-emerald-700 uppercase tracking-wide mb-2">
+                    Colocou na sacola
+                  </p>
+                  <ul className="space-y-1">
+                    {journey.addedItems.map((it) => (
+                      <li key={it.label} className="text-xs text-gray-700 flex items-center gap-1.5">
+                        <span className="text-emerald-500 font-semibold shrink-0">
+                          {it.qty}×
+                        </span>
+                        <span className="truncate">{it.label}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {/* Tirou da sacola */}
+              {journey.removedItems.length > 0 && (
+                <div className="rounded-xl border border-rose-100 bg-rose-50/40 p-3">
+                  <p className="text-[11px] font-semibold text-rose-600 uppercase tracking-wide mb-2">
+                    Tirou da sacola
+                  </p>
+                  <ul className="space-y-1">
+                    {journey.removedItems.map((it) => (
+                      <li key={it.label} className="text-xs text-gray-700 flex items-center gap-1.5">
+                        <span className="text-rose-500 font-semibold shrink-0">
+                          {it.qty}×
+                        </span>
+                        <span className="truncate">{it.label}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+
+            {/* Produtos que abriu */}
+            {journey.viewedProducts.length > 0 && (
+              <div className="mb-4">
                 <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wide mb-2">
-                  Última sessão — passo a passo
+                  Produtos que abriu
                 </p>
-                <div className="flex flex-wrap items-center gap-1.5">
-                  {journey.lastSession.steps.map((step, i) => (
-                    <span key={i} className="flex items-center gap-1.5">
-                      {i > 0 && <span className="text-gray-300">→</span>}
-                      <span className="text-[11px] rounded-lg bg-brand-50 text-brand-700 px-2 py-1 font-medium">
-                        {journeyStepLabel(step)}
-                      </span>
+                <div className="flex flex-wrap gap-1.5">
+                  {journey.viewedProducts.map((p) => (
+                    <span
+                      key={p.name}
+                      className="text-[11px] rounded-lg bg-gray-100 text-gray-600 px-2 py-1 font-medium"
+                    >
+                      {p.name}
+                      {p.times > 1 && (
+                        <span className="text-gray-400"> ·{p.times}×</span>
+                      )}
                     </span>
                   ))}
                 </div>
-              </>
+              </div>
+            )}
+
+            {/* Cada visita, passo a passo */}
+            {journey.sessions.length > 0 && (
+              <div>
+                <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wide mb-2">
+                  Cada visita, passo a passo
+                </p>
+                <div className="space-y-3">
+                  {journey.sessions.map((s, si) => (
+                    <div key={si} className="rounded-xl border border-gray-100 p-3">
+                      <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 mb-2 text-[11px] text-gray-500">
+                        <span className="font-semibold text-gray-700">
+                          {dateFull(s.startedAt)} {timeShort(s.startedAt)}
+                        </span>
+                        <span className="text-gray-300">·</span>
+                        <span>{fmtDuration(s.seconds)} no catálogo</span>
+                        <span className="text-gray-300">·</span>
+                        <span>{s.channel}</span>
+                        {s.device && (
+                          <>
+                            <span className="text-gray-300">·</span>
+                            <span>{deviceLabel[s.device] ?? s.device}</span>
+                          </>
+                        )}
+                        {s.converted ? (
+                          <Badge color="#059669">Enviou pedido</Badge>
+                        ) : s.cartValue > 0 ? (
+                          <Badge color="#d97706">Deixou {brl(s.cartValue)} na sacola</Badge>
+                        ) : null}
+                      </div>
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        {s.steps.map((step, i) => (
+                          <span key={i} className="flex items-center gap-1.5">
+                            {i > 0 && <span className="text-gray-300">→</span>}
+                            <span
+                              className={`text-[11px] rounded-lg px-2 py-1 font-medium ${
+                                step.type === "cart_add"
+                                  ? "bg-emerald-50 text-emerald-700"
+                                  : step.type === "cart_remove"
+                                    ? "bg-rose-50 text-rose-600"
+                                    : step.type === "order_submitted"
+                                      ? "bg-emerald-600 text-white"
+                                      : "bg-brand-50 text-brand-700"
+                              }`}
+                            >
+                              {journeyStepLabel(step)}
+                            </span>
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
             )}
           </Card>
         )}
