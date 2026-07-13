@@ -3,8 +3,17 @@
 import { useState, useRef } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { MessageCircle, Clock, Plus, X, Trash2 } from "lucide-react";
+import {
+  MessageCircle,
+  Clock,
+  Plus,
+  X,
+  Trash2,
+  ShoppingCart,
+  ShoppingBag,
+} from "lucide-react";
 import { brl, relativeDays, dateShort, formatPhone } from "@/lib/format";
+import { orderNumber, orderStatusLabel } from "@/lib/orders";
 import { Avatar, Badge } from "@/components/ui";
 
 export type BoardCard = {
@@ -20,7 +29,28 @@ export type BoardCard = {
   tags: { name: string; color: string }[];
   nextTask: { title: string; dueAt: string } | null;
   lostReason: string | null;
+  order: {
+    id: string;
+    number: number;
+    status: string;
+    total: number;
+    items: { name: string; variant: string; quantity: number; unitPrice: number }[];
+  } | null;
+  cart: { value: number; items: string[] } | null;
 };
+
+/** Link de recuperação no WhatsApp (mensagem pronta com as peças da sacola). */
+function recoverHref(card: BoardCard): string | null {
+  const digits = card.phone.replace(/\D/g, "");
+  if (digits.length < 10) return null;
+  const num = digits.length <= 11 ? "55" + digits : digits;
+  const first = card.customerName.split(" ")[0];
+  const pieces = card.cart?.items.length
+    ? ` Vi que você separou ${card.cart.items.join(", ")}.`
+    : "";
+  const msg = `Oi ${first}!${pieces} Quer que eu finalize seu pedido? Qualquer dúvida sobre tamanho ou cor, me chama! 💛`;
+  return `https://wa.me/${num}?text=${encodeURIComponent(msg)}`;
+}
 
 export type BoardStage = {
   id: string;
@@ -44,6 +74,7 @@ export function FunnelBoard({
   const [stages, setStages] = useState(initialStages);
   const [dragOver, setDragOver] = useState<string | null>(null);
   const [showNew, setShowNew] = useState(false);
+  const [detail, setDetail] = useState<BoardCard | null>(null);
   const dragCard = useRef<{ cardId: string; fromStage: string } | null>(null);
 
   async function moveCard(cardId: string, fromStageId: string, toStageId: string) {
@@ -184,6 +215,47 @@ export function FunnelBoard({
                       {card.title}
                     </p>
 
+                    {/* Pedido enviado ou sacola do cliente — abre o detalhe */}
+                    {card.order ? (
+                      <button
+                        type="button"
+                        onClick={() => setDetail(card)}
+                        className="mt-2 w-full flex items-center gap-1.5 rounded-lg bg-emerald-50 border border-emerald-100 text-emerald-700 text-[11px] font-medium px-2 py-1.5 hover:bg-emerald-100 transition"
+                      >
+                        <ShoppingBag className="size-3.5 shrink-0" />
+                        <span className="truncate">
+                          Pedido {orderNumber(card.order.number)} · {brl(card.order.total)}
+                        </span>
+                      </button>
+                    ) : card.cart ? (
+                      <div className="mt-2 space-y-1.5">
+                        <button
+                          type="button"
+                          onClick={() => setDetail(card)}
+                          className="w-full flex items-center gap-1.5 rounded-lg bg-amber-50 border border-amber-100 text-amber-700 text-[11px] font-medium px-2 py-1.5 hover:bg-amber-100 transition"
+                        >
+                          <ShoppingCart className="size-3.5 shrink-0" />
+                          <span className="truncate">
+                            {card.cart.items.length > 0
+                              ? `${card.cart.items.length} ${card.cart.items.length === 1 ? "item" : "itens"} na sacola`
+                              : "Sacola"}{" "}
+                            · {brl(card.cart.value)}
+                          </span>
+                        </button>
+                        {recoverHref(card) && (
+                          <a
+                            href={recoverHref(card)!}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="w-full flex items-center justify-center gap-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-semibold px-2 py-1.5 transition"
+                          >
+                            <MessageCircle className="size-3.5" />
+                            Recuperar no WhatsApp
+                          </a>
+                        )}
+                      </div>
+                    ) : null}
+
                     {card.tags.length > 0 && (
                       <div className="flex flex-wrap gap-1 mt-2">
                         {card.tags.slice(0, 3).map((t) => (
@@ -268,7 +340,124 @@ export function FunnelBoard({
           }}
         />
       )}
+
+      {detail && (
+        <CardDetailModal card={detail} onClose={() => setDetail(null)} />
+      )}
     </>
+  );
+}
+
+function CardDetailModal({
+  card,
+  onClose,
+}: {
+  card: BoardCard;
+  onClose: () => void;
+}) {
+  const wa = recoverHref(card);
+  return (
+    <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center">
+      <div className="absolute inset-0 bg-black/30 animate-fade-in" onClick={onClose} />
+      <div className="relative bg-white rounded-t-2xl md:rounded-2xl shadow-pop w-full md:max-w-md p-6 animate-fade-up max-h-[88dvh] overflow-y-auto thin-scroll">
+        <div className="flex items-start justify-between gap-2 mb-1">
+          <div className="min-w-0">
+            <h3 className="font-semibold text-lg truncate">{card.customerName}</h3>
+            <p className="text-xs text-gray-400">{formatPhone(card.phone)}</p>
+          </div>
+          <button onClick={onClose} className="text-gray-400 p-1 shrink-0">
+            <X className="size-5" />
+          </button>
+        </div>
+
+        {card.order ? (
+          <div className="mt-4">
+            <div className="flex items-center gap-2 mb-3">
+              <span className="flex items-center gap-1.5 text-sm font-semibold text-emerald-700">
+                <ShoppingBag className="size-4" />
+                Pedido {orderNumber(card.order.number)}
+              </span>
+              <Badge color="#059669">
+                {orderStatusLabel[card.order.status as keyof typeof orderStatusLabel] ??
+                  card.order.status}
+              </Badge>
+            </div>
+            <ul className="divide-y divide-gray-50">
+              {card.order.items.map((it, i) => (
+                <li key={i} className="py-2 flex items-center gap-2">
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-medium truncate">{it.name}</p>
+                    {it.variant && (
+                      <p className="text-xs text-gray-400">{it.variant}</p>
+                    )}
+                  </div>
+                  <span className="text-xs text-gray-500 tabular-nums shrink-0">
+                    {it.quantity} × {brl(it.unitPrice)}
+                  </span>
+                </li>
+              ))}
+            </ul>
+            <div className="mt-3 pt-3 border-t border-gray-100 flex justify-between font-semibold">
+              <span>Total</span>
+              <span className="tabular-nums text-brand-700">{brl(card.order.total)}</span>
+            </div>
+            <Link
+              href={`/pedidos/${card.order.id}`}
+              className="mt-4 block text-center text-sm font-medium text-brand-600 hover:text-brand-700"
+            >
+              Abrir pedido completo →
+            </Link>
+          </div>
+        ) : card.cart ? (
+          <div className="mt-4">
+            <div className="flex items-center gap-2 mb-1">
+              <span className="flex items-center gap-1.5 text-sm font-semibold text-amber-700">
+                <ShoppingCart className="size-4" />
+                Sacola do cliente
+              </span>
+              <span className="text-sm font-semibold text-gray-500 tabular-nums">
+                {brl(card.cart.value)}
+              </span>
+            </div>
+            <p className="text-xs text-gray-400 mb-3">
+              Peças que o cliente colocou na sacola no catálogo e ainda não finalizou.
+            </p>
+            {card.cart.items.length > 0 ? (
+              <ul className="space-y-1.5">
+                {card.cart.items.map((it) => (
+                  <li key={it} className="text-sm text-gray-700 flex items-center gap-2">
+                    <span className="size-1.5 rounded-full bg-amber-400 shrink-0" />
+                    {it}
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="text-sm text-gray-400">
+                Sacola de {brl(card.cart.value)} (itens não detalhados nesta sessão).
+              </p>
+            )}
+            {wa && (
+              <a
+                href={wa}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="mt-4 w-full flex items-center justify-center gap-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-medium py-2.5 text-sm transition"
+              >
+                <MessageCircle className="size-4" />
+                Recuperar no WhatsApp
+              </a>
+            )}
+          </div>
+        ) : null}
+
+        <Link
+          href={`/clientes/${card.customerId}`}
+          className="mt-4 block text-center text-xs font-medium text-gray-400 hover:text-brand-600"
+        >
+          Ver ficha do cliente
+        </Link>
+      </div>
+    </div>
   );
 }
 

@@ -66,6 +66,58 @@ export default async function FunnelPage({
     select: { id: true, name: true },
   });
 
+  // ---- Pedido enviado (por oportunidade) e carrinho abandonado (por cliente) ----
+  // para abrir no card do funil: o que o cliente colocou na sacola ou já pediu.
+  const oppIds = opps.map((o) => o.id);
+  const customerIds = [...new Set(opps.map((o) => o.customerId))];
+
+  const linkedOrders = await db.order.findMany({
+    where: { companyId: user.companyId, opportunityId: { in: oppIds } },
+    include: { items: true },
+  });
+  const orderByOpp = new Map(linkedOrders.map((o) => [o.opportunityId!, o]));
+
+  // sessão mais recente NÃO convertida com itens na sacola, por cliente
+  const cartSessions = await db.trackSession.findMany({
+    where: {
+      companyId: user.companyId,
+      customerId: { in: customerIds },
+      converted: false,
+      cartValue: { gt: 0 },
+    },
+    orderBy: { startedAt: "desc" },
+  });
+  const latestCartByCustomer = new Map<string, (typeof cartSessions)[number]>();
+  for (const s of cartSessions) {
+    if (s.customerId && !latestCartByCustomer.has(s.customerId)) {
+      latestCartByCustomer.set(s.customerId, s);
+    }
+  }
+  const cartEvents = await db.trackEvent.findMany({
+    where: {
+      sessionId: { in: [...latestCartByCustomer.values()].map((s) => s.id) },
+      type: { in: ["cart_add", "cart_remove"] },
+    },
+    orderBy: { createdAt: "asc" },
+  });
+  // reconstrói a sacola de cada sessão (produto · cor · tam × qtd)
+  const bagBySession = new Map<string, Map<string, number>>();
+  for (const e of cartEvents) {
+    const key = [e.productName, e.color, e.size].filter(Boolean).join(" · ");
+    if (!key) continue;
+    const bag = bagBySession.get(e.sessionId) ?? new Map<string, number>();
+    bag.set(key, (bag.get(key) ?? 0) + (e.qty ?? 1) * (e.type === "cart_add" ? 1 : -1));
+    bagBySession.set(e.sessionId, bag);
+  }
+  const cartByCustomer = new Map<string, { value: number; items: string[] }>();
+  for (const [cid, s] of latestCartByCustomer) {
+    const bag = bagBySession.get(s.id);
+    const items = bag
+      ? [...bag.entries()].filter(([, q]) => q > 0).map(([k, q]) => `${q}× ${k}`)
+      : [];
+    cartByCustomer.set(cid, { value: s.cartValue, items });
+  }
+
   const stages: BoardStage[] = pipeline.stages.map((s) => ({
     id: s.id,
     name: s.name,
@@ -74,25 +126,44 @@ export default async function FunnelPage({
     isLost: s.isLost,
     cards: opps
       .filter((o) => o.stageId === s.id)
-      .map((o) => ({
-        id: o.id,
-        title: o.title,
-        value: o.value,
-        customerId: o.customerId,
-        customerName: o.customer.name,
-        phone: o.customer.phone,
-        lastInteractionAt: o.lastInteractionAt.toISOString(),
-        ownerName: o.owner?.name ?? null,
-        ownerColor: o.owner?.color ?? "#94a3b8",
-        tags: o.customer.tags.map((t) => ({
-          name: t.tag.name,
-          color: t.tag.color,
-        })),
-        nextTask: o.tasks[0]
-          ? { title: o.tasks[0].title, dueAt: o.tasks[0].dueAt.toISOString() }
-          : null,
-        lostReason: o.lostReason,
-      })),
+      .map((o) => {
+        const ord = orderByOpp.get(o.id);
+        const cart = ord ? null : cartByCustomer.get(o.customerId) ?? null;
+        return {
+          id: o.id,
+          title: o.title,
+          value: o.value,
+          customerId: o.customerId,
+          customerName: o.customer.name,
+          phone: o.customer.phone,
+          lastInteractionAt: o.lastInteractionAt.toISOString(),
+          ownerName: o.owner?.name ?? null,
+          ownerColor: o.owner?.color ?? "#94a3b8",
+          tags: o.customer.tags.map((t) => ({
+            name: t.tag.name,
+            color: t.tag.color,
+          })),
+          nextTask: o.tasks[0]
+            ? { title: o.tasks[0].title, dueAt: o.tasks[0].dueAt.toISOString() }
+            : null,
+          lostReason: o.lostReason,
+          order: ord
+            ? {
+                id: ord.id,
+                number: ord.number,
+                status: ord.status,
+                total: ord.total,
+                items: ord.items.map((it) => ({
+                  name: it.name,
+                  variant: [it.color, it.size].filter(Boolean).join(" · "),
+                  quantity: it.quantity,
+                  unitPrice: it.unitPrice,
+                })),
+              }
+            : null,
+          cart: cart && (cart.items.length > 0 || cart.value > 0) ? cart : null,
+        };
+      }),
   }));
 
   return (
