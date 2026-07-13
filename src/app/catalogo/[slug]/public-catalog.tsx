@@ -192,6 +192,12 @@ export function PublicCatalog({
   const sectionRefs = useRef<Record<string, HTMLElement | null>>({});
   const catNavRef = useRef<HTMLDivElement | null>(null);
   const [catArrows, setCatArrows] = useState({ left: false, right: false });
+  // mede a altura real do cabeçalho (varia conforme o logo) para que a barra
+  // de categorias grude logo abaixo e o scroll das seções fique correto —
+  // assim o cabeçalho pode "abraçar" o logo, com altura mínima.
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  const headerRef = useRef<HTMLElement | null>(null);
+  const catNavBarRef = useRef<HTMLElement | null>(null);
 
   // ---- Tracking Engine (Inteligência Comercial) ----
   const trackerRef = useRef<CatalogTracker | null>(null);
@@ -282,6 +288,27 @@ export function PublicCatalog({
     window.addEventListener("resize", syncCatArrows);
     return () => window.removeEventListener("resize", syncCatArrows);
   }, [categories]);
+
+  // altura do cabeçalho + barra de categorias → CSS vars (para sticky/scroll)
+  useEffect(() => {
+    const root = rootRef.current;
+    if (!root) return;
+    const update = () => {
+      const hh = headerRef.current?.offsetHeight ?? 0;
+      const nh = catNavBarRef.current?.offsetHeight ?? 0;
+      root.style.setProperty("--cat-hdr", `${hh}px`);
+      root.style.setProperty("--cat-sticky", `${hh + nh}px`);
+    };
+    update();
+    const ro = new ResizeObserver(update);
+    if (headerRef.current) ro.observe(headerRef.current);
+    if (catNavBarRef.current) ro.observe(catNavBarRef.current);
+    window.addEventListener("resize", update);
+    return () => {
+      ro.disconnect();
+      window.removeEventListener("resize", update);
+    };
+  }, [logoSize, identity.logoUrl]);
   const scrollCats = (dir: 1 | -1) => {
     const el = catNavRef.current;
     if (!el) return;
@@ -458,21 +485,24 @@ export function PublicCatalog({
 
   return (
     <div
+      ref={rootRef}
       className={fontClass}
       style={{ background: T.bg, color: T.ink, minHeight: "100dvh", paddingBottom: 92 }}
     >
       {/* TOPBAR */}
-      <header className="sticky top-0 z-40" style={{ background: T.primary }}>
+      <header ref={headerRef} className="sticky top-0 z-40" style={{ background: T.primary }}>
         {logoSize === "grande" && identity.logoUrl ? (
-          // Logo grande centralizado, preenchendo quase toda a área do cabeçalho.
+          // Logo grande centralizado. O cabeçalho "abraça" o logo (altura mínima):
+          // o logo ocupa a largura e a altura acompanha, sem sobra de fundo.
           // Layout em flex com espaçador à esquerda (= largura da sacola) para o
           // logo centralizar sem NUNCA sobrepor o botão da sacola.
-          <div className="max-w-[680px] mx-auto px-[18px] py-4 flex items-center gap-3">
+          <div className="max-w-[680px] mx-auto px-[18px] py-3 flex items-center gap-3">
             <span className="w-[46px] shrink-0" aria-hidden />
             <img
               src={identity.logoUrl}
               alt={storeName}
-              className="flex-1 min-w-0 h-44 sm:h-56 object-contain"
+              className="flex-1 min-w-0 object-contain"
+              style={{ maxHeight: 160 }}
             />
             <button
               onClick={openBag}
@@ -542,10 +572,15 @@ export function PublicCatalog({
 
       {/* BARRA DE MODELOS */}
       <nav
-        className={`sticky z-30 border-b ${
-          logoSize === "grande" ? "top-[208px] sm:top-[256px]" : "top-[74px]"
-        }`}
-        style={{ background: T.bg, borderColor: T.line, boxShadow: "0 6px 12px -10px rgba(0,0,0,.3)" }}
+        ref={catNavBarRef}
+        className="sticky z-30 border-b"
+        style={{
+          // gruda logo abaixo do cabeçalho, cuja altura é medida em runtime
+          top: logoSize === "grande" ? "var(--cat-hdr, 140px)" : 74,
+          background: T.bg,
+          borderColor: T.line,
+          boxShadow: "0 6px 12px -10px rgba(0,0,0,.3)",
+        }}
       >
         <div className="relative max-w-[680px] mx-auto">
           {/* seta esquerda */}
@@ -628,7 +663,10 @@ export function PublicCatalog({
                 sectionRefs.current[cat] = el;
               }}
               className="pb-2.5"
-              style={{ scrollMarginTop: logoSize === "grande" ? 306 : 140 }}
+              style={{
+                scrollMarginTop:
+                  logoSize === "grande" ? "var(--cat-sticky, 200px)" : 140,
+              }}
             >
               <div className="max-w-[680px] mx-auto px-[18px] pt-[22px]">
                 <div className="flex items-baseline justify-between gap-2.5 mb-2">
