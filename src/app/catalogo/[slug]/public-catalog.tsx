@@ -559,15 +559,38 @@ export function PublicCatalog({
         )}
       </header>
 
-      {/* INTRO */}
-      <section className="max-w-[680px] mx-auto px-[18px] pt-2 pb-1">
-        <h1 className="font-extrabold text-[18px] leading-[1.05] uppercase m-0 mb-0.5" style={{ letterSpacing: "-.01em" }}>
-          Catálogo <em className="not-italic" style={{ color: T.primary }}>{storeName}</em>
-        </h1>
-        <p className="m-0 text-[12px] font-medium leading-tight max-w-[46ch]" style={{ color: T.muted }}>
-          {tagline ??
-            "Selecione os modelos desejados, adicione ao carrinho e finalize seu pedido pelo WhatsApp."}
-        </p>
+      {/* COMO FUNCIONA — passo a passo visual (orienta o cliente final) */}
+      <section className="max-w-[680px] mx-auto px-[18px] pt-2.5 pb-2">
+        <div className="flex items-center gap-2 sm:gap-3">
+          {[
+            { n: 1, label: "Escolha as peças" },
+            { n: 2, label: "Monte a sacola" },
+            { n: 3, label: "Envie no WhatsApp" },
+          ].map((s) => (
+            <div key={s.n} className="flex items-center gap-2 flex-1 min-w-0">
+              <span
+                className="shrink-0 size-[22px] rounded-full flex items-center justify-center text-[12px] font-bold"
+                style={{ background: T.primary, color: T.secondary }}
+              >
+                {s.n}
+              </span>
+              <span
+                className="text-[12px] sm:text-[13px] font-semibold leading-[1.1]"
+                style={{ color: T.primary }}
+              >
+                {s.label}
+              </span>
+            </div>
+          ))}
+        </div>
+        {tagline && (
+          <p
+            className="mt-1.5 text-[11px] font-medium leading-tight"
+            style={{ color: T.muted }}
+          >
+            {tagline}
+          </p>
+        )}
       </section>
 
       {/* BARRA DE MODELOS */}
