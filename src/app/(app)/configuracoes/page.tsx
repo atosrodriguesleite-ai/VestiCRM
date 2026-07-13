@@ -18,6 +18,7 @@ import { TemplateManager } from "./template-manager";
 import { CatalogSettings } from "./catalog-settings";
 import { catalogDomain } from "@/lib/catalog-url";
 import { IntakeSettings } from "./intake-settings";
+import { InstallAppCard } from "./install-app";
 import { isAdmin } from "@/lib/scope";
 import type { Origin } from "@prisma/client";
 
@@ -70,6 +71,8 @@ export default async function SettingsPage() {
         title="Configurações"
         subtitle="Dados da loja, modelos de mensagem e integrações."
       />
+
+      <InstallAppCard />
 
       <Card className="p-5 mb-6">
         <h2 className="font-semibold flex items-center gap-2 mb-3">

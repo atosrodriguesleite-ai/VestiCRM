@@ -18,6 +18,14 @@ export const metadata: Metadata = {
   title: "AtacadoPro — O jeito profissional de vender no atacado",
   description:
     "AtacadoPro transforma o WhatsApp em uma máquina de receber pedidos organizados: catálogo profissional, pedidos, funil e gestão inteligente.",
+  applicationName: "AtacadoPro",
+  // PWA: iOS abre em tela cheia quando adicionado à tela de início
+  appleWebApp: {
+    capable: true,
+    title: "AtacadoPro",
+    statusBarStyle: "black-translucent",
+  },
+  formatDetection: { telephone: false },
 };
 
 export const viewport: Viewport = {
