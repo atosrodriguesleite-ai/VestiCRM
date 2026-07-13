@@ -405,7 +405,7 @@ function ProductDetailModal({
               Editar produto
             </h3>
             <p className="text-xs text-gray-400 mt-0.5">
-              {product.sku} · alterações aparecem na hora no catálogo público
+              {product.sku} · alterações aparecem na hora no catálogo geral
             </p>
           </div>
           <button onClick={onClose} className="text-gray-400 p-1 shrink-0">

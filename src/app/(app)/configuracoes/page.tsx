@@ -102,7 +102,7 @@ export default async function SettingsPage() {
 
       {company && (
         <>
-          <h2 className="font-semibold mb-3">Catálogo público</h2>
+          <h2 className="font-semibold mb-3">Catálogo geral</h2>
           <div className="mb-6">
             <CatalogSettings
               slug={company.slug}

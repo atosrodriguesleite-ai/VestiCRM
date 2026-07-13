@@ -35,7 +35,7 @@ export default async function CatalogCustomizePage() {
       </Link>
       <PageHeader
         title="Personalizar catálogo"
-        subtitle="Identidade visual, cores da grade e tamanhos — tudo do jeito da sua marca, refletindo na hora no catálogo público."
+        subtitle="Identidade visual, cores da grade e tamanhos — tudo do jeito da sua marca, refletindo na hora no catálogo geral."
       />
       <CatalogDesigner
         slug={company.slug}

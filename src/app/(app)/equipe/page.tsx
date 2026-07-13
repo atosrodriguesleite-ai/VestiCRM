@@ -37,6 +37,7 @@ export default async function TeamPage() {
       username: m.username,
       role: m.role,
       color: m.color,
+      avatarUrl: m.avatarUrl,
       active: m.active,
       customers: m._count.customers,
       conversations: m._count.conversations,

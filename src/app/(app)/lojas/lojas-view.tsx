@@ -216,7 +216,7 @@ function NewLojaForm({
               />
             </Field>
           </div>
-          <Field label="Slogan (opcional)" hint="Aparece no catálogo público.">
+          <Field label="Slogan (opcional)" hint="Aparece no catálogo geral.">
             <input
               className={inputCls}
               value={tagline}
@@ -224,7 +224,7 @@ function NewLojaForm({
               placeholder="Moda que veste sua história"
             />
           </Field>
-          <Field label="WhatsApp da loja (opcional)" hint="Número do catálogo público.">
+          <Field label="WhatsApp da loja (opcional)" hint="Número do catálogo geral.">
             <input
               className={inputCls}
               value={whatsapp}
@@ -357,7 +357,7 @@ Senha: ${cred.adminPassword}`;
           mono
           icon={<KeyRound className="size-3.5" />}
         />
-        <CredItem label="Catálogo público" value={catalogDomain ? `${catalogDomain}/${cred.slug}` : `/catalogo/${cred.slug}`} mono />
+        <CredItem label="Catálogo geral" value={catalogDomain ? `${catalogDomain}/${cred.slug}` : `/catalogo/${cred.slug}`} mono />
       </div>
 
       <div className="mt-4 flex flex-wrap gap-2">
@@ -463,7 +463,7 @@ function LojaCard({ loja, catalogDomain }: { loja: Loja; catalogDomain: string |
           href={catalogDomain ? `https://${catalogDomain}/${loja.slug}` : `/catalogo/${loja.slug}`}
           target="_blank"
           rel="noreferrer"
-          title="Ver catálogo público"
+          title="Ver catálogo geral"
           className="shrink-0 grid size-8 place-items-center rounded-lg text-slate-400 hover:bg-slate-100 hover:text-brand-600"
         >
           <ExternalLink className="size-4" />

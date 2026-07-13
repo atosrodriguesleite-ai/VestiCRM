@@ -368,7 +368,7 @@ async function main() {
 
   // timeline de entrada (Lead Intake Engine) para cada cliente
   const originLabels: Record<string, string> = {
-    WHATSAPP: "WhatsApp", CATALOGO_PUBLICO: "Catálogo Público", INSTAGRAM: "Instagram",
+    WHATSAPP: "WhatsApp", CATALOGO_PUBLICO: "Catálogo geral", INSTAGRAM: "Instagram",
     FACEBOOK: "Facebook", SITE: "Site", NUVEMSHOP: "Nuvemshop", BLING: "Bling",
     MARKETPLACE: "Marketplace", INDICACAO: "Indicação", LOJA_FISICA: "Loja física",
     TRAFEGO_PAGO: "Tráfego pago", GOOGLE: "Google", EVENTO: "Evento", MANUAL: "Cadastro Manual",

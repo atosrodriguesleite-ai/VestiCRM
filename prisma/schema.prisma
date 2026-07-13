@@ -133,6 +133,7 @@ model User {
   role         Role    @default(SELLER)
   active       Boolean @default(true)
   color        String  @default("#6366f1")
+  avatarUrl    String? // foto do usuário (data-URL) — opcional; sem foto usa iniciais
   commissionRate Float @default(0) // % de comissão sobre as vendas do vendedor
   monthlyGoal    Float @default(0) // meta de vendas do mês (R$) — 0 = sem meta
   createdAt    DateTime @default(now())

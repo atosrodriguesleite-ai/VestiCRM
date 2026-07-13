@@ -158,10 +158,12 @@ export function Avatar({
   name,
   color = "#c4622d",
   size = "md",
+  src,
 }: {
   name: string;
   color?: string;
   size?: "sm" | "md" | "lg";
+  src?: string | null;
 }) {
   const cls =
     size === "sm"
@@ -169,6 +171,17 @@ export function Avatar({
       : size === "lg"
         ? "size-12 text-base"
         : "size-8 text-xs";
+  if (src) {
+    return (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img
+        src={src}
+        alt={name}
+        title={name}
+        className={`${cls} rounded-full object-cover shrink-0 ring-2 ring-white bg-gray-100`}
+      />
+    );
+  }
   return (
     <span
       className={`${cls} rounded-full inline-flex items-center justify-center font-semibold text-white shrink-0 ring-2 ring-white`}

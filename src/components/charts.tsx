@@ -62,7 +62,7 @@ export function StatTile({
         )}
       </div>
       <p
-        className={`text-lg sm:text-2xl md:text-[26px] leading-none font-semibold tracking-tight tabular-nums truncate ${toneCls}`}
+        className={`text-lg sm:text-2xl md:text-[26px] leading-[1.15] pb-0.5 font-semibold tracking-tight tabular-nums truncate ${toneCls}`}
       >
         {value}
       </p>

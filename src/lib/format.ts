@@ -81,7 +81,7 @@ export const customerTypeLabel: Record<CustomerType, string> = {
 
 export const originLabel: Record<Origin, string> = {
   WHATSAPP: "WhatsApp",
-  CATALOGO_PUBLICO: "Catálogo Público",
+  CATALOGO_PUBLICO: "Catálogo geral",
   INSTAGRAM: "Instagram",
   FACEBOOK: "Facebook",
   SITE: "Site",

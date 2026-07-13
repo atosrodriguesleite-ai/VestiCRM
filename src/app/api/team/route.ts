@@ -13,6 +13,7 @@ const schema = z.object({
   login: z.string().min(3).max(60),
   password: z.string().min(6),
   role: z.enum(["ADMIN", "MANAGER", "SELLER", "SUPPORT"]),
+  avatarUrl: z.string().max(700_000).optional(), // foto opcional (data-URL)
 });
 
 export async function POST(req: NextRequest) {
@@ -68,6 +69,7 @@ export async function POST(req: NextRequest) {
         passwordHash: await bcrypt.hash(parsed.data.password, 10),
         role: parsed.data.role,
         color: COLORS[Math.floor(Math.random() * COLORS.length)],
+        avatarUrl: parsed.data.avatarUrl || null,
       },
     });
     return NextResponse.json(

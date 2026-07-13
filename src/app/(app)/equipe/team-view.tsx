@@ -1,9 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Plus, X, ShieldCheck } from "lucide-react";
+import { Plus, X, ShieldCheck, Camera } from "lucide-react";
 import { brl, roleLabel } from "@/lib/format";
+import { fileToDataUrl } from "@/lib/upload";
 import { Card, Avatar, Badge } from "@/components/ui";
 
 export type TeamMember = {
@@ -13,6 +14,7 @@ export type TeamMember = {
   username: string | null;
   role: string;
   color: string;
+  avatarUrl: string | null;
   active: boolean;
   customers: number;
   conversations: number;
@@ -40,6 +42,42 @@ export function TeamView({
   const [showNew, setShowNew] = useState(false);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
+  // foto do novo usuário (opcional) — data-URL já redimensionada
+  const [newPhoto, setNewPhoto] = useState<string | null>(null);
+  const newPhotoRef = useRef<HTMLInputElement>(null);
+  const [photoBusy, setPhotoBusy] = useState<string | null>(null);
+
+  // troca a foto de um usuário já cadastrado (abre o seletor de arquivo)
+  function pickPhoto(m: TeamMember) {
+    const inp = document.createElement("input");
+    inp.type = "file";
+    inp.accept = "image/*";
+    inp.onchange = async () => {
+      const f = inp.files?.[0];
+      if (!f) return;
+      setPhotoBusy(m.id);
+      const dataUrl = await fileToDataUrl(f, 256, 0.85);
+      await fetch(`/api/team/${m.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ avatarUrl: dataUrl }),
+      });
+      setPhotoBusy(null);
+      router.refresh();
+    };
+    inp.click();
+  }
+
+  async function removePhoto(m: TeamMember) {
+    setPhotoBusy(m.id);
+    await fetch(`/api/team/${m.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ avatarUrl: null }),
+    });
+    setPhotoBusy(null);
+    router.refresh();
+  }
 
   async function saveGoal(m: TeamMember, value: string) {
     const goal = parseFloat(value.replace(/\./g, "").replace(",", ".")) || 0;
@@ -86,11 +124,13 @@ export function TeamView({
         login: fd.get("login"),
         password: fd.get("password"),
         role: fd.get("role"),
+        ...(newPhoto ? { avatarUrl: newPhoto } : {}),
       }),
     });
     setSaving(false);
     if (res.ok) {
       setShowNew(false);
+      setNewPhoto(null);
       router.refresh();
     } else {
       const data = await res.json().catch(() => ({}));
@@ -123,7 +163,34 @@ export function TeamView({
             className={`p-5 ${!m.active ? "opacity-60" : ""}`}
           >
             <div className="flex items-start gap-3">
-              <Avatar name={m.name} color={m.color} size="lg" />
+              {canManage ? (
+                <div className="shrink-0 flex flex-col items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={() => pickPhoto(m)}
+                    disabled={photoBusy === m.id}
+                    title="Trocar foto"
+                    className="group relative rounded-full disabled:opacity-60"
+                  >
+                    <Avatar name={m.name} color={m.color} src={m.avatarUrl} size="lg" />
+                    <span className="absolute inset-0 rounded-full bg-black/45 opacity-0 group-hover:opacity-100 transition flex items-center justify-center">
+                      <Camera className="size-4 text-white" />
+                    </span>
+                  </button>
+                  {m.avatarUrl && (
+                    <button
+                      type="button"
+                      onClick={() => removePhoto(m)}
+                      disabled={photoBusy === m.id}
+                      className="text-[10px] text-gray-400 hover:text-rose-500"
+                    >
+                      remover
+                    </button>
+                  )}
+                </div>
+              ) : (
+                <Avatar name={m.name} color={m.color} src={m.avatarUrl} size="lg" />
+              )}
               <div className="min-w-0 flex-1">
                 <p className="font-semibold truncate">
                   {m.name}
@@ -272,6 +339,42 @@ export function TeamView({
               </button>
             </div>
             <div className="space-y-4">
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => newPhotoRef.current?.click()}
+                  className="group relative rounded-full shrink-0"
+                  title="Adicionar foto"
+                >
+                  <Avatar name="?" src={newPhoto} size="lg" color="#c99b5f" />
+                  <span className="absolute inset-0 rounded-full bg-black/45 opacity-0 group-hover:opacity-100 transition flex items-center justify-center">
+                    <Camera className="size-4 text-white" />
+                  </span>
+                </button>
+                <input
+                  ref={newPhotoRef}
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={async (e) => {
+                    const f = e.target.files?.[0];
+                    if (f) setNewPhoto(await fileToDataUrl(f, 256, 0.85));
+                  }}
+                />
+                <div className="text-xs text-gray-500">
+                  <p className="font-medium text-gray-700">Foto (opcional)</p>
+                  <p>Clique no círculo para escolher. Sem foto, usamos as iniciais.</p>
+                  {newPhoto && (
+                    <button
+                      type="button"
+                      onClick={() => setNewPhoto(null)}
+                      className="text-[11px] text-gray-400 hover:text-rose-500 mt-0.5"
+                    >
+                      remover
+                    </button>
+                  )}
+                </div>
+              </div>
               <div>
                 <label className={label}>Nome *</label>
                 <input name="name" required className={input} />

@@ -11,6 +11,8 @@ const schema = z.object({
   password: z.string().min(6).optional(), // redefinição de senha pelo admin
   commissionRate: z.number().min(0).max(100).optional(), // % de comissão
   monthlyGoal: z.number().min(0).optional(), // meta de vendas do mês (R$)
+  // foto: string (data-URL) para definir/trocar, ou null para remover
+  avatarUrl: z.string().max(700_000).nullable().optional(),
 });
 
 export async function PATCH(
@@ -57,6 +59,9 @@ export async function PATCH(
           : {}),
         ...(parsed.data.commissionRate !== undefined
           ? { commissionRate: parsed.data.commissionRate }
+          : {}),
+        ...(parsed.data.avatarUrl !== undefined
+          ? { avatarUrl: parsed.data.avatarUrl || null }
           : {}),
       },
     });

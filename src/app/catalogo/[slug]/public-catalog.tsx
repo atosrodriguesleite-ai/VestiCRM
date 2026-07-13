@@ -873,8 +873,14 @@ export function PublicCatalog({
                   }
                   src={sheet.product.images[0]}
                   alt={sheet.product.name}
-                  className="w-full rounded-[14px] border object-contain"
-                  style={{ aspectRatio: "2/3", maxHeight: "50dvh", background: T.soft, borderColor: T.line }}
+                  className="w-full rounded-[14px] border object-cover"
+                  style={{
+                    aspectRatio: "2/3",
+                    maxHeight: "62dvh",
+                    objectPosition: "center 28%",
+                    background: T.soft,
+                    borderColor: T.line,
+                  }}
                 />
               )}
               <p className="text-[10px] uppercase font-semibold mt-4 mb-0" style={{ color: T.muted, letterSpacing: ".14em" }}>
