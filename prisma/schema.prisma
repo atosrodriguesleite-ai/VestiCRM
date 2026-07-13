@@ -930,3 +930,19 @@ model InventoryMovement {
   @@index([companyId, createdAt])
   @@index([variantId])
 }
+
+// Inscrição de notificação push (Web Push) — o celular do lojista recebe um
+// aviso quando um pedido vira PAGO. Uma por dispositivo/navegador.
+model PushSubscription {
+  id        String   @id @default(cuid())
+  companyId String
+  userId    String
+  endpoint  String   @unique
+  p256dh    String
+  auth      String
+  userAgent String?
+  createdAt DateTime @default(now())
+
+  @@index([companyId])
+  @@index([userId])
+}

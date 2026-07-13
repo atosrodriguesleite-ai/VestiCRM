@@ -5,6 +5,7 @@ import { imageSrc } from "@/lib/img";
 import { requireUser, AuthError } from "@/lib/auth";
 import { isManagerUp } from "@/lib/scope";
 import { reverseAndDeleteOrder } from "@/lib/order-actions";
+import { notifySalePaid } from "@/lib/push";
 import { orderStatusLabel, orderNumber, PAID_ORDER_STATUSES } from "@/lib/orders";
 import { computeOrderTotals } from "@/lib/orders";
 
@@ -419,6 +420,22 @@ export async function PATCH(
     }
 
     const updated = await db.order.update({ where: { id }, data });
+
+    // 💰 Notificação de venda: dispara quando o pedido ACABOU de virar pago.
+    // Fire-and-forget: nunca atrasa nem quebra a resposta do pedido.
+    if (needDeduct) {
+      const customer = await db.customer.findUnique({
+        where: { id: order.customerId },
+        select: { name: true },
+      });
+      notifySalePaid(user.companyId, {
+        id: order.id,
+        number: order.number,
+        total: updated.total,
+        customerName: customer?.name ?? "Cliente",
+      }).catch(() => {});
+    }
+
     return NextResponse.json(updated);
   } catch (e) {
     if (e instanceof AuthError)

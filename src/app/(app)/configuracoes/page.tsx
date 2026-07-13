@@ -19,6 +19,7 @@ import { CatalogSettings } from "./catalog-settings";
 import { catalogDomain } from "@/lib/catalog-url";
 import { IntakeSettings } from "./intake-settings";
 import { InstallAppCard } from "./install-app";
+import { SaleNotifications } from "./sale-notifications";
 import { isAdmin } from "@/lib/scope";
 import type { Origin } from "@prisma/client";
 
@@ -73,6 +74,7 @@ export default async function SettingsPage() {
       />
 
       <InstallAppCard />
+      <SaleNotifications />
 
       <Card className="p-5 mb-6">
         <h2 className="font-semibold flex items-center gap-2 mb-3">
