@@ -711,7 +711,7 @@ export function PublicCatalog({
                             alt={`${card.product.name} ${card.color}`}
                             loading="lazy"
                             decoding="async"
-                            className="w-full h-full object-cover"
+                            className="w-full h-full object-cover object-top"
                             style={
                               soldOut
                                 ? { filter: "grayscale(1) opacity(.6)" }
@@ -918,9 +918,12 @@ export function PublicCatalog({
                   alt={sheet.product.name}
                   className="w-full rounded-[14px] border object-cover"
                   style={{
-                    aspectRatio: "2/3",
-                    maxHeight: "62dvh",
-                    objectPosition: "center 28%",
+                    // proporção 3:4 (padrão do catálogo) e corte ancorado no
+                    // TOPO: preenche o quadro sem NUNCA cortar a cabeça (a sobra
+                    // sai por baixo). Fotos no padrão 3:4 não têm corte algum.
+                    aspectRatio: "3/4",
+                    maxHeight: "72dvh",
+                    objectPosition: "center top",
                     background: T.soft,
                     borderColor: T.line,
                   }}
