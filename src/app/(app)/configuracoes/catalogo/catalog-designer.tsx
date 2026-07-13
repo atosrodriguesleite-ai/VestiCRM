@@ -12,10 +12,11 @@ import {
   Trash2,
   Type,
   Upload,
+  Wand2,
   X,
 } from "lucide-react";
 import { Card } from "@/components/ui";
-import { fileToDataUrl } from "@/lib/upload";
+import { fileToDataUrl, removeBackground } from "@/lib/upload";
 import { readableOn } from "@/lib/color";
 
 type ColorItem = { id: string; name: string; hex: string };
@@ -61,6 +62,10 @@ export function CatalogDesigner({
   const router = useRouter();
   const fileRef = useRef<HTMLInputElement>(null);
   const [logo, setLogo] = useState(initial.logoUrl);
+  // guarda o logo original enviado, para conseguir desfazer a remoção de fundo
+  const [logoOriginal, setLogoOriginal] = useState<string | null>(initial.logoUrl);
+  const [bgRemoved, setBgRemoved] = useState(false);
+  const [logoBusy, setLogoBusy] = useState(false);
   const [primary, setPrimary] = useState(initial.catalogPrimary);
   const [secondary, setSecondary] = useState(initial.catalogSecondary);
   const [bg, setBg] = useState(initial.catalogBg);
@@ -74,8 +79,29 @@ export function CatalogDesigner({
   const [saved, setSaved] = useState(false);
 
   async function uploadLogo(file: File) {
-    const dataUrl = await fileToDataUrl(file, 1000, 0.92);
+    // PNG preserva transparência de quem já sobe o logo sem fundo
+    const dataUrl = await fileToDataUrl(file, 1000, 0.95);
     setLogo(dataUrl);
+    setLogoOriginal(dataUrl);
+    setBgRemoved(false);
+  }
+
+  async function toggleBackground() {
+    if (!logo && !logoOriginal) return;
+    setLogoBusy(true);
+    try {
+      if (bgRemoved) {
+        // desfazer: volta o logo original (com fundo)
+        setLogo(logoOriginal);
+        setBgRemoved(false);
+      } else {
+        const clean = await removeBackground(logoOriginal ?? logo!);
+        setLogo(clean);
+        setBgRemoved(true);
+      }
+    } finally {
+      setLogoBusy(false);
+    }
   }
 
   async function saveIdentity() {
@@ -170,12 +196,14 @@ export function CatalogDesigner({
             <div>
               <p className="text-sm font-medium mb-2">Logo da marca</p>
               <div className="flex items-center gap-3">
+                {/* prévia grande sobre a cor do cabeçalho: mostra como o logo
+                    fica de verdade no topo do catálogo (ideal: fundo removido) */}
                 <div
-                  className="h-16 min-w-16 px-3 rounded-xl flex items-center justify-center border border-gray-100"
+                  className="h-24 w-40 shrink-0 px-3 rounded-xl flex items-center justify-center border border-gray-100 overflow-hidden"
                   style={{ background: primary }}
                 >
                   {logo ? (
-                    <img src={logo} alt="Logo" className="max-h-12 max-w-40 object-contain" />
+                    <img src={logo} alt="Logo" className="max-h-20 max-w-full object-contain" />
                   ) : (
                     <span className="text-sm font-bold" style={{ color: secondary }}>
                       {slug.split("-")[0]}
@@ -192,30 +220,55 @@ export function CatalogDesigner({
                     if (f) uploadLogo(f);
                   }}
                 />
-                <button
-                  disabled={!canEdit}
-                  onClick={() => fileRef.current?.click()}
-                  className="flex items-center gap-1.5 rounded-xl border border-gray-200 hover:border-brand-300 text-gray-600 text-xs font-medium px-3 py-2 transition disabled:opacity-50"
-                >
-                  <Upload className="size-3.5" />
-                  Enviar logo
-                </button>
-                {logo && canEdit && (
+                <div className="flex flex-col gap-1.5">
                   <button
-                    onClick={() => setLogo(null)}
-                    className="text-xs text-gray-400 hover:text-rose-500"
+                    disabled={!canEdit}
+                    onClick={() => fileRef.current?.click()}
+                    className="flex items-center gap-1.5 rounded-xl border border-gray-200 hover:border-brand-300 text-gray-600 text-xs font-medium px-3 py-2 transition disabled:opacity-50"
                   >
-                    Remover
+                    <Upload className="size-3.5" />
+                    Enviar logo
                   </button>
-                )}
+                  {logo && canEdit && (
+                    <button
+                      disabled={logoBusy}
+                      onClick={toggleBackground}
+                      className={`flex items-center gap-1.5 rounded-xl border text-xs font-medium px-3 py-2 transition disabled:opacity-50 ${
+                        bgRemoved
+                          ? "border-brand-300 bg-brand-50 text-brand-700"
+                          : "border-gray-200 hover:border-brand-300 text-gray-600"
+                      }`}
+                    >
+                      <Wand2 className="size-3.5" />
+                      {logoBusy
+                        ? "Processando..."
+                        : bgRemoved
+                          ? "Fundo removido — desfazer"
+                          : "Remover fundo"}
+                    </button>
+                  )}
+                  {logo && canEdit && (
+                    <button
+                      onClick={() => {
+                        setLogo(null);
+                        setLogoOriginal(null);
+                        setBgRemoved(false);
+                      }}
+                      className="text-xs text-gray-400 hover:text-rose-500 text-left px-1"
+                    >
+                      Remover logo
+                    </button>
+                  )}
+                </div>
               </div>
               <p className="mt-2 text-[11px] leading-relaxed text-gray-400">
                 <b className="text-gray-500">Tamanho ideal:</b> imagem na
-                horizontal de <b>1600 × 500 px</b> (aprox.), em <b>PNG com fundo
-                transparente</b>. No modo <b>&ldquo;Grande centralizado&rdquo;</b>{" "}
-                a logo aparece grande, preenchendo quase todo o cabeçalho — use
-                uma arte horizontal, com pouca margem em volta, e quanto maior e
-                mais nítida, melhor.
+                horizontal de <b>1600 × 500 px</b> (aprox.). No modo{" "}
+                <b>&ldquo;Grande centralizado&rdquo;</b> a logo aparece bem grande,
+                como a fachada do catálogo. Se o seu arquivo tiver fundo (aquela
+                caixa branca ou preta em volta), clique em{" "}
+                <b>&ldquo;Remover fundo&rdquo;</b> — a logo fica transparente e se
+                funde ao cabeçalho. A prévia ao lado já mostra como vai ficar no topo.
               </p>
             </div>
 

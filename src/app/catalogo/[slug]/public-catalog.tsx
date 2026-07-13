@@ -472,7 +472,7 @@ export function PublicCatalog({
             <img
               src={identity.logoUrl}
               alt={storeName}
-              className="flex-1 min-w-0 h-36 sm:h-44 object-contain"
+              className="flex-1 min-w-0 h-44 sm:h-56 object-contain"
             />
             <button
               onClick={openBag}
@@ -543,7 +543,7 @@ export function PublicCatalog({
       {/* BARRA DE MODELOS */}
       <nav
         className={`sticky z-30 border-b ${
-          logoSize === "grande" ? "top-[176px] sm:top-[208px]" : "top-[74px]"
+          logoSize === "grande" ? "top-[208px] sm:top-[256px]" : "top-[74px]"
         }`}
         style={{ background: T.bg, borderColor: T.line, boxShadow: "0 6px 12px -10px rgba(0,0,0,.3)" }}
       >
@@ -628,7 +628,7 @@ export function PublicCatalog({
                 sectionRefs.current[cat] = el;
               }}
               className="pb-2.5"
-              style={{ scrollMarginTop: logoSize === "grande" ? 258 : 140 }}
+              style={{ scrollMarginTop: logoSize === "grande" ? 306 : 140 }}
             >
               <div className="max-w-[680px] mx-auto px-[18px] pt-[22px]">
                 <div className="flex items-baseline justify-between gap-2.5 mb-2">
