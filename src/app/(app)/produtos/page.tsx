@@ -70,16 +70,20 @@ export default async function ProductsPage() {
     ...new Set(products.flatMap((p) => p.variants.map((v) => v.size))),
   ];
 
-  // monitor de estoque: variações de produtos ativos no limite da loja
+  // monitor de estoque: todas as variações de produtos ativos. O filtro pelo
+  // limite acontece no cliente (ao vivo), pra atualizar na hora que o dono
+  // muda o número — sem recarregar a página.
   const threshold = company?.lowStockThreshold ?? 5;
-  const lowStock: LowStockRow[] = products
+  const activeVariations: LowStockRow[] = products
     .filter((p) => p.active)
     .flatMap((p) =>
-      p.variants
-        .filter((v) => v.stock <= threshold)
-        .map((v) => ({ product: p.name, color: v.color, size: v.size, stock: v.stock }))
-    )
-    .sort((a, b) => a.stock - b.stock);
+      p.variants.map((v) => ({
+        product: p.name,
+        color: v.color,
+        size: v.size,
+        stock: v.stock,
+      }))
+    );
 
   return (
     <div className="max-w-7xl mx-auto">
@@ -115,7 +119,11 @@ export default async function ProductsPage() {
           )
         }
       />
-      <StockMonitor rows={lowStock} threshold={threshold} canManage={isManagerUp(user)} />
+      <StockMonitor
+        variations={activeVariations}
+        threshold={threshold}
+        canManage={isManagerUp(user)}
+      />
       <ProductsView
         initial={items}
         categories={categories}

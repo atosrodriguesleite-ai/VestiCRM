@@ -3,11 +3,11 @@
 /**
  * Monitor de estoque baixo: lista as variações (cor/tamanho) de produtos
  * ativos que chegaram ao limite definido pela loja. O dono ajusta o limite
- * aqui mesmo — salvo na hora e refletido no card do Dashboard.
+ * aqui mesmo — a lista recalcula AO VIVO enquanto ele digita (sem recarregar
+ * a página) e o novo limite é salvo em segundo plano (reflete no Dashboard).
  */
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { useMemo, useRef, useState } from "react";
 import { AlertTriangle, ChevronDown } from "lucide-react";
 
 export type LowStockRow = {
@@ -18,29 +18,38 @@ export type LowStockRow = {
 };
 
 export function StockMonitor({
-  rows,
-  threshold,
+  variations,
+  threshold: initialThreshold,
   canManage,
 }: {
-  rows: LowStockRow[];
+  variations: LowStockRow[];
   threshold: number;
   canManage: boolean;
 }) {
-  const router = useRouter();
   const [open, setOpen] = useState(false);
-  const [saving, setSaving] = useState(false);
+  const [raw, setRaw] = useState(String(initialThreshold));
+  const savedRef = useRef(initialThreshold);
 
-  async function saveThreshold(value: string) {
-    const n = Math.max(0, parseInt(value) || 0);
-    if (n === threshold) return;
-    setSaving(true);
-    await fetch("/api/company", {
+  const threshold = Math.max(0, parseInt(raw) || 0);
+
+  // filtro ao vivo: recalcula na hora que o número muda
+  const rows = useMemo(
+    () =>
+      variations
+        .filter((v) => v.stock <= threshold)
+        .sort((a, b) => a.stock - b.stock),
+    [variations, threshold]
+  );
+
+  // persiste o limite em segundo plano (sem travar a digitação)
+  function persist(value: number) {
+    if (value === savedRef.current) return;
+    savedRef.current = value;
+    fetch("/api/company", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ lowStockThreshold: n }),
-    });
-    setSaving(false);
-    router.refresh();
+      body: JSON.stringify({ lowStockThreshold: value }),
+    }).catch(() => {});
   }
 
   return (
@@ -79,11 +88,11 @@ export function StockMonitor({
           Avisar quando restar
           {canManage ? (
             <input
-              defaultValue={threshold}
-              onBlur={(e) => saveThreshold(e.target.value)}
-              disabled={saving}
+              value={raw}
+              onChange={(e) => setRaw(e.target.value)}
+              onBlur={() => persist(threshold)}
               inputMode="numeric"
-              className="w-14 rounded-lg border border-gray-200 px-2 py-1 text-xs text-center bg-white focus:outline-none focus:ring-2 focus:ring-brand-300 disabled:opacity-60"
+              className="w-14 rounded-lg border border-gray-200 px-2 py-1 text-xs text-center bg-white focus:outline-none focus:ring-2 focus:ring-brand-300"
             />
           ) : (
             <b>{threshold}</b>
