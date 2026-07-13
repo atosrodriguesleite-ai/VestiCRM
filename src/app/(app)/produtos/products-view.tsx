@@ -234,6 +234,9 @@ export function ProductsView({
           product={detail}
           libraryColors={libraryColors}
           librarySizes={librarySizes}
+          categories={categories}
+          collections={collections}
+          brands={brands}
           onClose={() => setDetail(null)}
           onChanged={() => {
             setDetail(null);
@@ -245,6 +248,9 @@ export function ProductsView({
         <NewProductModal
           libraryColors={libraryColors}
           librarySizes={librarySizes}
+          categories={categories}
+          collections={collections}
+          brands={brands}
           onClose={() => setShowNew(false)}
           onCreated={() => {
             setShowNew(false);
@@ -261,12 +267,18 @@ function ProductDetailModal({
   product,
   libraryColors,
   librarySizes,
+  categories,
+  collections,
+  brands,
   onClose,
   onChanged,
 }: {
   product: ProductItem;
   libraryColors: LibraryColor[];
   librarySizes: string[];
+  categories: string[];
+  collections: string[];
+  brands: string[];
   onClose: () => void;
   onChanged: () => void;
 }) {
@@ -410,17 +422,50 @@ function ProductDetailModal({
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className={label}>Categoria</label>
-                <input value={form.category} onChange={set("category")} className={input} />
+                <input
+                  value={form.category}
+                  onChange={set("category")}
+                  list="cat-list"
+                  placeholder="Escolha ou crie"
+                  className={input}
+                />
               </div>
               <div>
                 <label className={label}>Marca</label>
-                <input value={form.brand} onChange={set("brand")} className={input} />
+                <input
+                  value={form.brand}
+                  onChange={set("brand")}
+                  list="brand-list"
+                  placeholder="Escolha ou crie"
+                  className={input}
+                />
               </div>
             </div>
             <div>
               <label className={label}>Coleção</label>
-              <input value={form.collection} onChange={set("collection")} className={input} />
+              <input
+                value={form.collection}
+                onChange={set("collection")}
+                list="collection-list"
+                placeholder="Escolha ou crie"
+                className={input}
+              />
             </div>
+            <datalist id="cat-list">
+              {categories.map((c) => (
+                <option key={c} value={c} />
+              ))}
+            </datalist>
+            <datalist id="brand-list">
+              {brands.map((b) => (
+                <option key={b} value={b} />
+              ))}
+            </datalist>
+            <datalist id="collection-list">
+              {collections.map((c) => (
+                <option key={c} value={c} />
+              ))}
+            </datalist>
             <div>
               <label className={label}>Descrição (aparece no catálogo)</label>
               <textarea
@@ -663,11 +708,17 @@ const PLACEHOLDER_IMAGES = [
 function NewProductModal({
   libraryColors,
   librarySizes,
+  categories,
+  collections,
+  brands,
   onClose,
   onCreated,
 }: {
   libraryColors: LibraryColor[];
   librarySizes: string[];
+  categories: string[];
+  collections: string[];
+  brands: string[];
   onClose: () => void;
   onCreated: () => void;
 }) {
@@ -760,19 +811,50 @@ function NewProductModal({
               </div>
               <div>
                 <label className={label}>Categoria *</label>
-                <input name="category" required className={input} placeholder="Vestidos" />
+                <input
+                  name="category"
+                  required
+                  list="new-cat-list"
+                  className={input}
+                  placeholder="Escolha ou crie"
+                />
               </div>
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className={label}>Marca</label>
-                <input name="brand" className={input} placeholder="Bella Moda" />
+                <input
+                  name="brand"
+                  list="new-brand-list"
+                  className={input}
+                  placeholder="Escolha ou crie"
+                />
               </div>
               <div>
                 <label className={label}>Coleção</label>
-                <input name="collection" className={input} placeholder="Verão 2027" />
+                <input
+                  name="collection"
+                  list="new-collection-list"
+                  className={input}
+                  placeholder="Escolha ou crie"
+                />
               </div>
             </div>
+            <datalist id="new-cat-list">
+              {categories.map((c) => (
+                <option key={c} value={c} />
+              ))}
+            </datalist>
+            <datalist id="new-brand-list">
+              {brands.map((b) => (
+                <option key={b} value={b} />
+              ))}
+            </datalist>
+            <datalist id="new-collection-list">
+              {collections.map((c) => (
+                <option key={c} value={c} />
+              ))}
+            </datalist>
             <div>
               <label className={label}>Descrição</label>
               <textarea name="description" rows={2} className={input} />
