@@ -118,6 +118,43 @@ export default async function FunnelPage({
     cartByCustomer.set(cid, { value: s.cartValue, items });
   }
 
+  // resumo do comportamento no catálogo por cliente (agregados da sessão —
+  // barato, sem varrer eventos): visitas, tempo, vistos, adicionados, removidos
+  const behaviorSessions = await db.trackSession.findMany({
+    where: { companyId: user.companyId, customerId: { in: customerIds } },
+    select: {
+      customerId: true,
+      startedAt: true,
+      lastEventAt: true,
+      productsViewed: true,
+      cartAdds: true,
+      cartRemoves: true,
+    },
+  });
+  type Behavior = {
+    visits: number;
+    seconds: number;
+    productsViewed: number;
+    added: number;
+    removed: number;
+  };
+  const behaviorByCustomer = new Map<string, Behavior>();
+  for (const s of behaviorSessions) {
+    if (!s.customerId) continue;
+    const b: Behavior =
+      behaviorByCustomer.get(s.customerId) ??
+      { visits: 0, seconds: 0, productsViewed: 0, added: 0, removed: 0 };
+    b.visits += 1;
+    b.seconds += Math.max(
+      0,
+      Math.round((s.lastEventAt.getTime() - s.startedAt.getTime()) / 1000)
+    );
+    b.productsViewed += s.productsViewed;
+    b.added += s.cartAdds;
+    b.removed += s.cartRemoves;
+    behaviorByCustomer.set(s.customerId, b);
+  }
+
   const stages: BoardStage[] = pipeline.stages.map((s) => ({
     id: s.id,
     name: s.name,
@@ -129,6 +166,7 @@ export default async function FunnelPage({
       .map((o) => {
         const ord = orderByOpp.get(o.id);
         const cart = ord ? null : cartByCustomer.get(o.customerId) ?? null;
+        const bhv = behaviorByCustomer.get(o.customerId);
         return {
           id: o.id,
           title: o.title,
@@ -162,6 +200,7 @@ export default async function FunnelPage({
               }
             : null,
           cart: cart && (cart.items.length > 0 || cart.value > 0) ? cart : null,
+          behavior: bhv && bhv.visits > 0 ? bhv : null,
         };
       }),
   }));

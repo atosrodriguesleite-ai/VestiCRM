@@ -159,6 +159,13 @@ export default async function CustomerDetailPage({
   const totalSpent = customer.sales.reduce((s, v) => s + v.total, 0);
   const ticket = customer.sales.length ? totalSpent / customer.sales.length : 0;
 
+  // link para chamar o cliente direto no WhatsApp
+  const waDigits = customer.phone.replace(/\D/g, "");
+  const waHref =
+    waDigits.length >= 10
+      ? `https://wa.me/${waDigits.length <= 11 ? "55" + waDigits : waDigits}`
+      : null;
+
   // Jornada de navegação (Tracking Engine / Inteligência Comercial)
   const journey = await customerJourney(user.companyId, customer.id);
 
@@ -210,7 +217,18 @@ export default async function CustomerDetailPage({
             <p className="text-xs text-gray-400 mt-1">
               {customer.sales.length} compras · ticket {brl(ticket)}
             </p>
-            <div className="mt-3">
+            <div className="mt-3 flex flex-col gap-2 sm:items-end">
+              {waHref && (
+                <a
+                  href={waHref}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium px-4 py-2.5 transition"
+                >
+                  <MessageCircle className="size-4" />
+                  Chamar no WhatsApp
+                </a>
+              )}
               <CatalogLinkButton url={trackedCatalogUrl} />
             </div>
           </div>

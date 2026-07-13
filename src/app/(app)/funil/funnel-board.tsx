@@ -37,7 +37,32 @@ export type BoardCard = {
     items: { name: string; variant: string; quantity: number; unitPrice: number }[];
   } | null;
   cart: { value: number; items: string[] } | null;
+  behavior: {
+    visits: number;
+    seconds: number;
+    productsViewed: number;
+    added: number;
+    removed: number;
+  } | null;
 };
+
+/** Duração amigável: "3m 20s", "45s". */
+function fmtDuration(sec: number): string {
+  if (sec <= 0) return "—";
+  const h = Math.floor(sec / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  const s = sec % 60;
+  if (h > 0) return `${h}h ${String(m).padStart(2, "0")}m`;
+  if (m > 0) return `${m}m ${String(s).padStart(2, "0")}s`;
+  return `${s}s`;
+}
+
+/** Link simples para chamar o cliente no WhatsApp. */
+function waHref(phone: string): string | null {
+  const digits = phone.replace(/\D/g, "");
+  if (digits.length < 10) return null;
+  return `https://wa.me/${digits.length <= 11 ? "55" + digits : digits}`;
+}
 
 /** Link de recuperação no WhatsApp (mensagem pronta com as peças da sacola). */
 function recoverHref(card: BoardCard): string | null {
@@ -450,12 +475,49 @@ function CardDetailModal({
           </div>
         ) : null}
 
-        <Link
-          href={`/clientes/${card.customerId}`}
-          className="mt-4 block text-center text-xs font-medium text-gray-400 hover:text-brand-600"
-        >
-          Ver ficha do cliente
-        </Link>
+        {/* Resumo do comportamento no catálogo */}
+        {card.behavior && (
+          <div className="mt-4 pt-4 border-t border-gray-100">
+            <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wide mb-2">
+              Comportamento no catálogo
+            </p>
+            <div className="grid grid-cols-3 gap-2 text-center">
+              {[
+                ["Visitas", String(card.behavior.visits)],
+                ["Tempo", fmtDuration(card.behavior.seconds)],
+                ["Produtos vistos", String(card.behavior.productsViewed)],
+                ["Adicionou", String(card.behavior.added)],
+                ["Removeu", String(card.behavior.removed)],
+              ].map(([label, value]) => (
+                <div key={label} className="rounded-lg bg-gray-50 px-2 py-1.5">
+                  <p className="text-sm font-semibold tabular-nums">{value}</p>
+                  <p className="text-[10px] text-gray-400 leading-tight">{label}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Ações: chamar no WhatsApp + comportamento completo */}
+        <div className="mt-4 flex flex-col gap-2">
+          {waHref(card.phone) && !card.cart && (
+            <a
+              href={waHref(card.phone)!}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="w-full flex items-center justify-center gap-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-medium py-2.5 text-sm transition"
+            >
+              <MessageCircle className="size-4" />
+              Chamar no WhatsApp
+            </a>
+          )}
+          <Link
+            href={`/clientes/${card.customerId}`}
+            className="block text-center text-xs font-medium text-gray-400 hover:text-brand-600"
+          >
+            Ver ficha e comportamento completo
+          </Link>
+        </div>
       </div>
     </div>
   );
