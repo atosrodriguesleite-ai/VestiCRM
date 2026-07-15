@@ -7,6 +7,7 @@ import { ProductsView, type ProductItem } from "./products-view";
 import { catalogUrl } from "@/lib/catalog-url";
 import { isManagerUp } from "@/lib/scope";
 import { StockMonitor, type LowStockRow } from "./stock-monitor";
+import { PhotoDoctor } from "./photo-doctor";
 
 export const dynamic = "force-dynamic";
 
@@ -93,6 +94,7 @@ export default async function ProductsPage() {
         action={
           company && (
             <div className="flex items-center gap-2">
+              {isManagerUp(user) && <PhotoDoctor />}
               <a
                 href={`/api/qrcode?url=${encodeURIComponent(
                   catalogUrl(company.slug).startsWith("http")
