@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createHash } from "crypto";
 import { db } from "@/lib/db";
 import { requireUser, AuthError } from "@/lib/auth";
-import { isSuperAdmin } from "@/lib/scope";
+import { isSuperAdmin, isManagerUp } from "@/lib/scope";
 
 const DB_FP = createHash("sha256")
   .update(process.env.DATABASE_URL ?? "")
@@ -162,6 +162,42 @@ export async function GET(req: NextRequest) {
     const fails = rows.filter((r) => !r.ok);
     const okCount = rows.length - fails.length;
 
+    // ----------------------------------------------------------------
+    // MODO CONSERTAR (?consertar=1): regenera cada foto que falhou na
+    // entrega com um código NOVO e limpo (o defeito clássico é id com
+    // caractere invisível vindo de importação — o navegador descarta o
+    // caractere no caminho e o servidor não acha a foto). Recria a linha
+    // com id automático, apaga a antiga e TESTA a entrega do novo id.
+    // ----------------------------------------------------------------
+    const fixMode = req.nextUrl.searchParams.get("consertar") === "1";
+    const fixed: { product: string; newId: string; delivered: boolean }[] = [];
+    if (fixMode && isManagerUp(user)) {
+      for (const f of fails) {
+        try {
+          const old = await db.productImage.findUnique({ where: { id: f.id } });
+          if (!old) continue;
+          const nu = await db.productImage.create({
+            data: { productId: old.productId, url: old.url, order: old.order },
+            select: { id: true },
+          });
+          await db.productImage.delete({ where: { id: f.id } });
+          const t = await fetch(`${origin}/api/img/${nu.id}`, {
+            redirect: "follow",
+            signal: AbortSignal.timeout(20000),
+          });
+          const tb = Buffer.from(await t.arrayBuffer());
+          const tt = t.headers.get("content-type")?.split(";")[0] ?? "";
+          fixed.push({
+            product: f.product,
+            newId: nu.id,
+            delivered: t.ok && tt.startsWith("image/") && tb.byteLength > 100,
+          });
+        } catch {
+          fixed.push({ product: f.product, newId: "(falhou)", delivered: false });
+        }
+      }
+    }
+
     // VEREDITO automático: compara a identidade de quem respondeu os erros
     // com a deste diagnóstico — aponta a causa sem depender de leitura manual.
     const parsed = fails.filter((f) => f.body);
@@ -222,7 +258,24 @@ ${
 <tr><th></th><th>Produto</th><th>Status</th><th>Cache CDN</th><th>Furando o cache</th><th>Resposta recebida</th><th>id</th></tr>
 ${failRows}
 </table>
-<p style="font-size:12px;color:#6b6257">Se "Furando o cache" mostra ✓ 200, o erro estava GUARDADO na CDN — a correção ?v=2 publicada junto com esta página resolve o catálogo.</p>`
+<p style="font-size:12px;color:#6b6257">Se "Furando o cache" mostra ✓ 200, o erro estava GUARDADO na CDN — a correção ?v=2 publicada junto com esta página resolve o catálogo.</p>
+${
+  fixMode
+    ? `<h2 style="font-size:15px">3) Conserto executado</h2>
+<table border="1" cellpadding="6" cellspacing="0" style="border-collapse:collapse;background:#fff;font-size:13px">
+<tr><th>Produto</th><th>Novo código</th><th>Entrega testada</th></tr>
+${fixed
+  .map(
+    (x) =>
+      `<tr><td>${x.product}</td><td style="font-family:monospace;font-size:11px">${x.newId}</td><td style="font-weight:700;color:${x.delivered ? "#059669" : "#dc2626"}">${x.delivered ? "✓ ENTREGUE" : "✗ falhou"}</td></tr>`
+  )
+  .join("")}
+</table>
+<p style="font-size:13px"><b>${fixed.filter((x) => x.delivered).length}</b> de <b>${fixed.length}</b> fotos regeneradas e entregues. Recarregue o catálogo para conferir.</p>`
+    : fails.length > 0
+      ? `<p style="font-size:14px;background:#fff;border:2px dashed #c4622d;border-radius:10px;padding:10px">Para <b>consertar automaticamente</b> as ${fails.length} fotos (regenerar com código novo e testar a entrega), abra:<br><b style="font-family:monospace">/api/diagnostico-fotos?slug=${company.slug}&consertar=1</b></p>`
+      : ""
+}`
 }
 <p style="color:#8a8177;font-size:12px;margin-top:16px">Gerado em ${new Date().toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" })} · ${rows.length} fotos testadas · loja ${company.slug}</p>
 </body></html>`;
