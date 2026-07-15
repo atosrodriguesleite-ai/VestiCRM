@@ -46,11 +46,42 @@ export async function GET(req: NextRequest) {
       orderBy: { id: "asc" },
       take: 300,
     });
+    const dbIds = new Set(images.map((i) => i.id));
 
     // origem pública desta própria implantação (mesmo caminho do navegador)
     const proto = req.headers.get("x-forwarded-proto") ?? "https";
     const host = req.headers.get("host") ?? "";
     const origin = `${proto}://${host}`;
+
+    // -----------------------------------------------------------------
+    // FANTASMAS: compara os códigos de foto que a PÁGINA PÚBLICA entrega
+    // com os que existem no banco — nos dois domínios (principal e o de
+    // catálogos). Código na página que não existe no banco = página velha
+    // sendo servida (cache/CDN/implantação antiga) e foto quebrada na tela.
+    // -----------------------------------------------------------------
+    const extractIds = (html: string) =>
+      [...html.matchAll(/\/api\/img\/([a-z0-9]+)/gi)].map((m) => m[1]);
+    async function pageProbe(url: string) {
+      try {
+        const res = await fetch(url, {
+          redirect: "follow",
+          signal: AbortSignal.timeout(20000),
+          headers: { Accept: "text/html" },
+          cache: "no-store",
+        });
+        const html = await res.text();
+        const ids = [...new Set(extractIds(html))];
+        const ghosts = ids.filter((i) => !dbIds.has(i));
+        return { url, status: res.status, ids: ids.length, ghosts };
+      } catch (e) {
+        return { url, status: 0, ids: 0, ghosts: [] as string[], err: String(e).slice(0, 120) };
+      }
+    }
+    const probes = [await pageProbe(`${origin}/catalogo/${company.slug}`)];
+    const catDomain = process.env.CATALOG_DOMAIN?.trim();
+    if (catDomain) {
+      probes.push(await pageProbe(`https://${catDomain}/${company.slug}`));
+    }
 
     const rows: Row[] = [];
     const CONC = 6;
@@ -100,10 +131,25 @@ export async function GET(req: NextRequest) {
       )
       .join("");
 
+    const probeHtml = probes
+      .map((p) => {
+        const okP = p.status === 200 && p.ghosts.length === 0;
+        return `<li style="margin-bottom:6px"><b>${p.url}</b> — status ${p.status || "erro"}, ${p.ids} fotos na página, <b style="color:${okP ? "#059669" : "#dc2626"}">${p.ghosts.length} código(s) fantasma</b>${
+          p.ghosts.length
+            ? `<br><span style="font-family:monospace;font-size:11px">${p.ghosts.slice(0, 8).join(" · ")}${p.ghosts.length > 8 ? " …" : ""}</span>`
+            : ""
+        }</li>`;
+      })
+      .join("");
+
     const html = `<!doctype html><html lang="pt-BR"><meta charset="utf-8">
 <title>Diagnóstico de fotos — ${company.name}</title>
 <body style="font-family:system-ui,sans-serif;background:#f6efe5;color:#1d1710;padding:24px;max-width:960px;margin:0 auto">
 <h1 style="font-size:20px">Diagnóstico de fotos — ${company.name}</h1>
+<h2 style="font-size:15px">1) Página pública × banco (códigos fantasma)</h2>
+<p style="font-size:13px;color:#6b6257">Código "fantasma" = a página entrega uma foto que não existe mais no banco (página velha em cache ou implantação antiga) — é exatamente o que quebra na tela.</p>
+<ul style="font-size:13px">${probeHtml}</ul>
+<h2 style="font-size:15px">2) Entrega das ${rows.length} fotos do banco</h2>
 <p><b>${okCount}</b> de <b>${rows.length}</b> fotos entregues com sucesso pelo caminho público (${origin}).</p>
 ${
   fails.length === 0
