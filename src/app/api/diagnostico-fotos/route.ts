@@ -23,6 +23,8 @@ type Row = {
   kb: number;
   ok: boolean;
   note: string;
+  cdn: string; // x-vercel-cache + age (a prova do cache envenenado)
+  retry: string; // status ao furar o cache com ?v=<agora>
 };
 
 export async function GET(req: NextRequest) {
@@ -96,6 +98,8 @@ export async function GET(req: NextRequest) {
             kb: 0,
             ok: false,
             note: "",
+            cdn: "",
+            retry: "",
           };
           try {
             const res = await fetch(`${origin}/api/img/${img.id}`, {
@@ -107,10 +111,32 @@ export async function GET(req: NextRequest) {
             row.status = res.status;
             row.type = res.headers.get("content-type")?.split(";")[0] ?? "";
             row.kb = Math.round(buf.byteLength / 1024);
+            row.cdn = [
+              res.headers.get("x-vercel-cache") ?? "",
+              res.headers.get("age") ? `age ${res.headers.get("age")}s` : "",
+            ]
+              .filter(Boolean)
+              .join(" · ");
             row.ok =
               res.ok && row.type.startsWith("image/") && buf.byteLength > 100;
             if (!row.ok) {
               row.note = buf.slice(0, 160).toString("utf-8").replace(/</g, "‹");
+              // fura o cache: se com URL "nova" a foto vier 200, está provado
+              // que o erro estava GUARDADO na CDN, não no servidor/banco.
+              const res2 = await fetch(
+                `${origin}/api/img/${img.id}?v=diag${Date.now()}`,
+                {
+                  redirect: "follow",
+                  signal: AbortSignal.timeout(20000),
+                  headers: { Accept: "image/*,*/*;q=0.8" },
+                }
+              );
+              const buf2 = Buffer.from(await res2.arrayBuffer());
+              const t2 = res2.headers.get("content-type")?.split(";")[0] ?? "";
+              row.retry =
+                res2.ok && t2.startsWith("image/") && buf2.byteLength > 100
+                  ? `✓ 200 (${Math.round(buf2.byteLength / 1024)} KB)`
+                  : `✗ ${res2.status}`;
             }
           } catch (e) {
             row.status = "erro";
@@ -127,7 +153,7 @@ export async function GET(req: NextRequest) {
     const failRows = fails
       .map(
         (r) =>
-          `<tr><td>✗</td><td>${r.product}</td><td>${r.status}</td><td>${r.type || "—"}</td><td>${r.kb} KB</td><td style="max-width:420px;word-break:break-all">${r.note}</td><td style="font-family:monospace;font-size:11px">${r.id}</td></tr>`
+          `<tr><td>✗</td><td>${r.product}</td><td>${r.status}</td><td>${r.cdn || "—"}</td><td><b>${r.retry || "—"}</b></td><td style="max-width:280px;word-break:break-all">${r.note}</td><td style="font-family:monospace;font-size:11px">${r.id}</td></tr>`
       )
       .join("");
 
@@ -156,9 +182,10 @@ ${
     ? `<p style="color:#059669;font-weight:600">Todas as fotos foram entregues perfeitamente por este servidor. Se o catálogo ainda mostra foto quebrada, o problema está entre a CDN e o aparelho (me mande o print desta página mesmo assim).</p>`
     : `<p style="color:#b45309;font-weight:600">${fails.length} foto(s) FALHARAM na entrega — detalhes abaixo (mande o print desta tabela):</p>
 <table border="1" cellpadding="6" cellspacing="0" style="border-collapse:collapse;background:#fff;font-size:13px">
-<tr><th></th><th>Produto</th><th>Status</th><th>Tipo</th><th>Tamanho</th><th>Resposta recebida</th><th>id</th></tr>
+<tr><th></th><th>Produto</th><th>Status</th><th>Cache CDN</th><th>Furando o cache</th><th>Resposta recebida</th><th>id</th></tr>
 ${failRows}
-</table>`
+</table>
+<p style="font-size:12px;color:#6b6257">Se "Furando o cache" mostra ✓ 200, o erro estava GUARDADO na CDN — a correção ?v=2 publicada junto com esta página resolve o catálogo.</p>`
 }
 <p style="color:#8a8177;font-size:12px;margin-top:16px">Gerado em ${new Date().toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" })} · ${rows.length} fotos testadas · loja ${company.slug}</p>
 </body></html>`;

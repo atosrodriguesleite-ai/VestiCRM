@@ -37,7 +37,10 @@ function serveBuffer(body: Buffer, mime: string): NextResponse {
 async function serveDataUrl(id: string, dataUrl: string): Promise<NextResponse> {
   const decoded = dataUrlToBuffer(dataUrl);
   if (!decoded) {
-    return NextResponse.json({ error: "Imagem inválida" }, { status: 415 });
+    return NextResponse.json(
+      { error: "Imagem inválida" },
+      { status: 415, headers: { "Cache-Control": "no-store" } }
+    );
   }
   let buf: Buffer = decoded.buf;
   let mime = decoded.mime;
@@ -70,7 +73,12 @@ export async function GET(
     select: { url: true },
   });
   if (!img) {
-    return NextResponse.json({ error: "Não encontrada" }, { status: 404 });
+    // no-store: um "não encontrada" NUNCA pode ficar guardado na CDN — foi
+    // isso que envenenou fotos do catálogo (erro antigo preso na borda).
+    return NextResponse.json(
+      { error: "Não encontrada" },
+      { status: 404, headers: { "Cache-Control": "no-store" } }
+    );
   }
 
   if (img.url.startsWith("data:")) {

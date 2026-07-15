@@ -5,8 +5,15 @@
  * Em vez disso, cada foto vira um endereço leve (/api/img/<id>) servido
  * pela rota de imagens com cache forte no navegador e na CDN.
  */
+/**
+ * Versão do cache das fotos. Incrementar invalida TODO o cache de CDN dos
+ * catálogos de uma vez (a CDN trata a query como parte da chave) — usado
+ * para escapar de respostas de erro envenenadas guardadas na borda.
+ */
+const IMG_V = "2";
+
 export function imageSrc(img: { id: string; url: string }): string {
-  return img.url.startsWith("data:") ? `/api/img/${img.id}` : img.url;
+  return img.url.startsWith("data:") ? `/api/img/${img.id}?v=${IMG_V}` : img.url;
 }
 
 /**
@@ -16,5 +23,5 @@ export function imageSrc(img: { id: string; url: string }): string {
  * centenas de MB do banco a cada visita ao catálogo.
  */
 export function imageHref(id: string): string {
-  return `/api/img/${id}`;
+  return `/api/img/${id}?v=${IMG_V}`;
 }
