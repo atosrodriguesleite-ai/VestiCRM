@@ -136,8 +136,11 @@ export async function importCatalog(
 
   return db.$transaction(
     async (tx) => {
-      // Identidade visual da loja (opcional)
-      if (data.store) {
+      // Identidade visual da loja: só na IMPLANTAÇÃO (loja ainda sem
+      // produtos). Reimportar um arquivo antigo numa loja em operação não
+      // pode sobrescrever logo/cores que o lojista personalizou.
+      const productCount = await tx.product.count({ where: { companyId } });
+      if (data.store && productCount === 0) {
         await tx.company.update({
           where: { id: companyId },
           data: {
@@ -227,7 +230,9 @@ export async function importCatalog(
 
         let productId: string;
         if (existing) {
-          await tx.product.update({ where: { id: existing.id }, data: scalar });
+          // Produto JÁ EXISTE: modo aditivo — NADA do que o lojista editou é
+          // sobrescrito (nome, preços, descrição, ativo...). A importação só
+          // completa o que falta: fotos ausentes e variações novas.
           productId = existing.id;
           summary.productsUpdated++;
           // imagens: só adiciona se o produto ainda não tinha

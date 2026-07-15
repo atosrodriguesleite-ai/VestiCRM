@@ -29,11 +29,19 @@ const daysAhead = (n: number, h = 10) => {
 
 async function main() {
   // Trava de segurança: o seed é DESTRUTIVO (apaga tudo). Nunca deve rodar
-  // num banco de produção com dados de clientes reais.
-  if (process.env.NODE_ENV === "production" && process.env.ALLOW_PROD_SEED !== "true") {
+  // num banco de produção com dados de clientes reais. Bloqueia por DOIS
+  // critérios independentes: ambiente de produção OU banco que não seja
+  // local (rodar local apontando para o banco remoto é o erro mais fácil).
+  const dbUrl = process.env.DATABASE_URL ?? "";
+  const isLocalDb = /@(localhost|127\.0\.0\.1)[:/]/.test(dbUrl);
+  if (
+    (process.env.NODE_ENV === "production" || !isLocalDb) &&
+    process.env.ALLOW_PROD_SEED !== "true"
+  ) {
     throw new Error(
-      "Seed bloqueado: NODE_ENV=production. Este seed apaga TODO o banco. " +
-        "Se realmente for intencional (banco vazio), defina ALLOW_PROD_SEED=true."
+      "Seed bloqueado: este seed APAGA TODO o banco e o DATABASE_URL não é " +
+        "local (ou NODE_ENV=production). Se for realmente intencional (banco " +
+        "vazio de testes), defina ALLOW_PROD_SEED=true."
     );
   }
 
