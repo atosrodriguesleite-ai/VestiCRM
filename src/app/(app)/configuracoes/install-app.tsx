@@ -82,22 +82,37 @@ export function InstallAppCard() {
               Instalar app
             </button>
           ) : isIOS ? (
-            <ol className="text-sm text-gray-600 space-y-1.5">
-              <li className="flex items-center gap-2">
-                <span className="shrink-0 size-5 rounded-full bg-gray-100 text-[11px] font-bold flex items-center justify-center">
-                  1
-                </span>
-                Toque em <b>Compartilhar</b>
-                <Share className="size-4 text-brand-600" /> (Safari ou Chrome)
-              </li>
-              <li className="flex items-center gap-2">
-                <span className="shrink-0 size-5 rounded-full bg-gray-100 text-[11px] font-bold flex items-center justify-center">
-                  2
-                </span>
-                Escolha <b>Adicionar à Tela de Início</b>
-                <PlusSquare className="size-4 text-brand-600" />
-              </li>
-            </ol>
+            <div className="space-y-2.5">
+              {typeof navigator !== "undefined" && "share" in navigator && (
+                <button
+                  onClick={() =>
+                    navigator
+                      .share({ title: "AtacadoPro", url: window.location.origin })
+                      .catch(() => {})
+                  }
+                  className="inline-flex items-center gap-1.5 rounded-xl bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium px-4 py-2.5 transition"
+                >
+                  <Share className="size-4" />
+                  Abrir o menu Compartilhar
+                </button>
+              )}
+              <ol className="text-sm text-gray-600 space-y-1.5">
+                <li className="flex items-center gap-2">
+                  <span className="shrink-0 size-5 rounded-full bg-gray-100 text-[11px] font-bold flex items-center justify-center">
+                    1
+                  </span>
+                  Toque no botão acima (ou no
+                  <Share className="size-4 text-brand-600" /> do navegador)
+                </li>
+                <li className="flex items-center gap-2">
+                  <span className="shrink-0 size-5 rounded-full bg-gray-100 text-[11px] font-bold flex items-center justify-center">
+                    2
+                  </span>
+                  Role a lista e toque em <b>Adicionar à Tela de Início</b>
+                  <PlusSquare className="size-4 text-brand-600" />
+                </li>
+              </ol>
+            </div>
           ) : (
             <div className="text-sm text-gray-600">
               <p className="mb-1">
