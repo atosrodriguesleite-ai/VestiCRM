@@ -7,7 +7,16 @@
  */
 
 import { useEffect, useState } from "react";
-import { Smartphone, Share, PlusSquare, CheckCircle2, Download } from "lucide-react";
+import {
+  Smartphone,
+  Share,
+  PlusSquare,
+  CheckCircle2,
+  Download,
+  ArrowUp,
+  ArrowDown,
+  X,
+} from "lucide-react";
 import { Card } from "@/components/ui";
 
 type InstallPromptEvent = Event & {
@@ -19,6 +28,10 @@ export function InstallAppCard() {
   const [deferred, setDeferred] = useState<InstallPromptEvent | null>(null);
   const [installed, setInstalled] = useState(false);
   const [isIOS, setIsIOS] = useState(false);
+  // Chrome no iPhone: o Compartilhar fica NA BARRA DE ENDEREÇO (topo);
+  // Safari: fica na barra de baixo. O guia aponta para o lugar certo.
+  const [isCriOS, setIsCriOS] = useState(false);
+  const [showGuide, setShowGuide] = useState(false);
 
   useEffect(() => {
     if (
@@ -30,6 +43,7 @@ export function InstallAppCard() {
     }
     const ua = window.navigator.userAgent.toLowerCase();
     setIsIOS(/iphone|ipad|ipod/.test(ua));
+    setIsCriOS(/crios/.test(ua));
 
     const onPrompt = (e: Event) => {
       e.preventDefault();
@@ -82,7 +96,14 @@ export function InstallAppCard() {
               Instalar app
             </button>
           ) : isIOS ? (
-            <div className="space-y-2">
+            <div className="space-y-2.5">
+              <button
+                onClick={() => setShowGuide(true)}
+                className="inline-flex items-center gap-1.5 rounded-xl bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium px-4 py-2.5 transition"
+              >
+                <Share className="size-4" />
+                Me mostrar onde tocar
+              </button>
               {/* IMPORTANTE: precisa ser o Compartilhar DO NAVEGADOR (barra de
                   endereço). A folha aberta por botão da página não traz a
                   opção "Adicionar à Tela de Início" no iOS. */}
@@ -127,6 +148,61 @@ export function InstallAppCard() {
             </div>
           )}
         </>
+      )}
+
+      {/* GUIA VISUAL (iPhone): escurece a tela e aponta a seta para o botão
+          Compartilhar do navegador — Chrome (barra de endereço, topo) ou
+          Safari (barra inferior). */}
+      {showGuide && (
+        <div
+          className="fixed inset-0 z-[80] bg-black/75 flex flex-col items-center justify-center p-6"
+          onClick={() => setShowGuide(false)}
+        >
+          {isCriOS ? (
+            <div className="absolute top-2 right-4 flex flex-col items-center text-white animate-bounce">
+              <ArrowUp className="size-10" />
+              <p className="text-sm font-bold mt-1 text-center leading-tight">
+                Toque no <br />
+                Compartilhar ⬆️ aqui
+              </p>
+            </div>
+          ) : (
+            <div className="absolute bottom-6 inset-x-0 flex flex-col items-center text-white">
+              <p className="text-sm font-bold mb-1 text-center leading-tight">
+                Toque no Compartilhar ⬆️ aqui embaixo
+              </p>
+              <ArrowDown className="size-10 animate-bounce" />
+            </div>
+          )}
+
+          <div
+            className="bg-white rounded-2xl p-5 max-w-xs text-center shadow-pop"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <p className="font-semibold text-sm mb-2">
+              1. Toque no botão <b>Compartilhar</b>{" "}
+              <Share className="inline size-4 text-brand-600 -mt-0.5" /> do{" "}
+              {isCriOS ? "Chrome (em cima, na barra do endereço)" : "Safari (embaixo)"}
+            </p>
+            <p className="font-semibold text-sm mb-3">
+              2. <b>Role a lista até o fim</b> e toque em{" "}
+              <span className="whitespace-nowrap">
+                <b>Adicionar à Tela de Início</b>{" "}
+                <PlusSquare className="inline size-4 text-brand-600 -mt-0.5" />
+              </span>
+            </p>
+            <p className="text-[11px] text-gray-400 mb-3">
+              Se não aparecer, toque em &ldquo;Editar Ações&rdquo; no fim da lista.
+            </p>
+            <button
+              onClick={() => setShowGuide(false)}
+              className="inline-flex items-center gap-1.5 rounded-xl bg-brand-600 text-white text-sm font-medium px-4 py-2"
+            >
+              <X className="size-4" />
+              Fechar
+            </button>
+          </div>
+        </div>
       )}
     </Card>
   );
