@@ -82,36 +82,38 @@ export function InstallAppCard() {
               Instalar app
             </button>
           ) : isIOS ? (
-            <div className="space-y-2.5">
-              {typeof navigator !== "undefined" && "share" in navigator && (
-                <button
-                  onClick={() =>
-                    navigator
-                      .share({ title: "AtacadoPro", url: window.location.origin })
-                      .catch(() => {})
-                  }
-                  className="inline-flex items-center gap-1.5 rounded-xl bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium px-4 py-2.5 transition"
-                >
-                  <Share className="size-4" />
-                  Abrir o menu Compartilhar
-                </button>
-              )}
+            <div className="space-y-2">
+              {/* IMPORTANTE: precisa ser o Compartilhar DO NAVEGADOR (barra de
+                  endereço). A folha aberta por botão da página não traz a
+                  opção "Adicionar à Tela de Início" no iOS. */}
               <ol className="text-sm text-gray-600 space-y-1.5">
-                <li className="flex items-center gap-2">
-                  <span className="shrink-0 size-5 rounded-full bg-gray-100 text-[11px] font-bold flex items-center justify-center">
+                <li className="flex items-start gap-2">
+                  <span className="shrink-0 size-5 rounded-full bg-gray-100 text-[11px] font-bold flex items-center justify-center mt-0.5">
                     1
                   </span>
-                  Toque no botão acima (ou no
-                  <Share className="size-4 text-brand-600" /> do navegador)
+                  <span>
+                    Toque no <b>Compartilhar</b>
+                    <Share className="inline size-4 text-brand-600 mx-1 -mt-0.5" />
+                    <b>do navegador</b> — o quadradinho com a setinha na barra do
+                    endereço (Safari ou Chrome)
+                  </span>
                 </li>
-                <li className="flex items-center gap-2">
-                  <span className="shrink-0 size-5 rounded-full bg-gray-100 text-[11px] font-bold flex items-center justify-center">
+                <li className="flex items-start gap-2">
+                  <span className="shrink-0 size-5 rounded-full bg-gray-100 text-[11px] font-bold flex items-center justify-center mt-0.5">
                     2
                   </span>
-                  Role a lista e toque em <b>Adicionar à Tela de Início</b>
-                  <PlusSquare className="size-4 text-brand-600" />
+                  <span>
+                    <b>Role a lista até o fim</b> e toque em{" "}
+                    <b>Adicionar à Tela de Início</b>
+                    <PlusSquare className="inline size-4 text-brand-600 ml-1 -mt-0.5" />
+                  </span>
                 </li>
               </ol>
+              <p className="text-[11px] text-gray-400 leading-snug">
+                Não apareceu? Toque em &ldquo;Editar Ações&rdquo; no fim da lista e
+                ative &ldquo;Adicionar à Tela de Início&rdquo; — ou abra este
+                endereço no Safari e repita.
+              </p>
             </div>
           ) : (
             <div className="text-sm text-gray-600">
