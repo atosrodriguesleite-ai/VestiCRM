@@ -79,6 +79,9 @@ export function ImportCatalog() {
   const [error, setError] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
   const [result, setResult] = useState<Summary | null>(null);
+  // modo seguro: só completa fotos que faltam (não cria produto, não altera
+  // preço nem estoque) — ideal para reimportar um arquivo antigo
+  const [photosOnly, setPhotosOnly] = useState(false);
 
   function reset() {
     setPreview(null);
@@ -119,11 +122,14 @@ export function ImportCatalog() {
     setImporting(true);
     setError(null);
     try {
-      const res = await fetch("/api/catalog/import", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(preview.raw),
-      });
+      const res = await fetch(
+        `/api/catalog/import${photosOnly ? "?modo=fotos" : ""}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(preview.raw),
+        }
+      );
       const data = await res.json();
       if (!res.ok) {
         setError(data.error ?? "Falha ao importar o catálogo.");
@@ -257,6 +263,22 @@ export function ImportCatalog() {
                     </div>
                   )}
 
+                  {/* modo seguro para reimportar arquivo antigo */}
+                  <label className="flex items-start gap-2.5 rounded-xl border border-emerald-100 bg-emerald-50/50 p-3 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={photosOnly}
+                      onChange={(e) => setPhotosOnly(e.target.checked)}
+                      className="mt-0.5 accent-emerald-600"
+                    />
+                    <span className="text-xs text-emerald-900">
+                      <b>Só completar fotos que faltam</b> — não cria produto,
+                      não altera preço, estoque nem variações. Use para
+                      restaurar fotos a partir de um arquivo antigo, sem
+                      nenhum risco para o que a loja já organizou.
+                    </span>
+                  </label>
+
                   {error && (
                     <p className="rounded-xl bg-rose-50 border border-rose-100 px-4 py-2.5 text-sm text-rose-700">
                       {error}
@@ -268,7 +290,11 @@ export function ImportCatalog() {
                     disabled={!preview || importing}
                     className="w-full inline-flex items-center justify-center gap-2 rounded-xl bg-brand-600 px-5 py-3 text-sm font-semibold text-white hover:bg-brand-700 disabled:opacity-50 disabled:pointer-events-none"
                   >
-                    {importing ? "Importando…" : "Importar produtos"}
+                    {importing
+                      ? "Importando…"
+                      : photosOnly
+                        ? "Completar fotos"
+                        : "Importar produtos"}
                   </button>
                   <p className="text-center text-[11px] text-slate-400">
                     Os produtos entram editáveis: a loja controla estoque, inativa

@@ -30,7 +30,11 @@ export async function POST(req: NextRequest) {
     }
 
     const data = parseCatalog(raw);
-    const summary = await importCatalog(user.companyId, data);
+    // ?modo=fotos: só completa fotos que faltam — não cria produto, não
+    // altera preço/estoque/variações (seguro para reimportar arquivo antigo)
+    const mode =
+      req.nextUrl.searchParams.get("modo") === "fotos" ? "fotos" : "completo";
+    const summary = await importCatalog(user.companyId, data, mode);
     return NextResponse.json({ ok: true, summary }, { status: 201 });
   } catch (e) {
     if (e instanceof AuthError)

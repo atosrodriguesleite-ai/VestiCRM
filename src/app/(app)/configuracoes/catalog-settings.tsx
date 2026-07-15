@@ -33,9 +33,11 @@ export function CatalogSettings({
     minOrder: String(initial.minOrder),
     minOrderValue: initial.minOrderValue ? String(initial.minOrderValue) : "",
   });
+  const [slugForm, setSlugForm] = useState(slug);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [error, setError] = useState("");
 
   // Link público: usa o domínio de catálogos quando configurado (ex.:
   // catalago.net/toque-leve); senão, o endereço atual /catalogo/slug.
@@ -47,11 +49,24 @@ export function CatalogSettings({
 
   async function save() {
     setSaving(true);
+    setError("");
+    const slugChanged = slugForm.trim() !== slug;
+    if (
+      slugChanged &&
+      !window.confirm(
+        "Mudar o endereço do catálogo faz os LINKS ANTIGOS pararem de funcionar (mensagens já enviadas, QR codes impressos). Continuar?"
+      )
+    ) {
+      setSaving(false);
+      setSlugForm(slug);
+      return;
+    }
     const res = await fetch("/api/company", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         name: form.name,
+        ...(slugChanged ? { slug: slugForm.trim() } : {}),
         tagline: form.tagline || null,
         whatsapp: form.whatsapp || null,
         minOrderMode: form.minOrderMode,
@@ -64,9 +79,14 @@ export function CatalogSettings({
     });
     setSaving(false);
     if (res.ok) {
+      const data = await res.json().catch(() => null);
+      if (data?.slug) setSlugForm(data.slug);
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
       router.refresh();
+    } else {
+      const data = await res.json().catch(() => ({}));
+      setError(data.error ?? "Não foi possível salvar.");
     }
   }
 
@@ -113,6 +133,25 @@ export function CatalogSettings({
             onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
             className={input}
           />
+        </div>
+        <div>
+          <label className={label}>Endereço do catálogo</label>
+          <div className="flex items-center gap-1.5">
+            <span className="text-xs text-gray-400 shrink-0">
+              {catalogDomain ?? "/catalogo"}/
+            </span>
+            <input
+              disabled={!canEdit}
+              value={slugForm}
+              onChange={(e) => setSlugForm(e.target.value)}
+              className={input}
+              placeholder="minha-loja"
+            />
+          </div>
+          <p className="mt-1 text-[11px] text-gray-400 leading-snug">
+            Mudou o nome da loja? Ajuste aqui também. Atenção: links já
+            enviados e QR codes impressos param de funcionar.
+          </p>
         </div>
         <div>
           <label className={label}>WhatsApp de pedidos (DDI+DDD)</label>
@@ -207,13 +246,18 @@ export function CatalogSettings({
       </div>
 
       {canEdit && (
-        <button
-          onClick={save}
-          disabled={saving}
-          className="mt-4 rounded-xl bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium px-5 py-2.5 transition disabled:opacity-60"
-        >
-          {saving ? "Salvando..." : saved ? "Salvo ✓" : "Salvar catálogo"}
-        </button>
+        <div className="mt-4 flex items-center gap-3">
+          <button
+            onClick={save}
+            disabled={saving}
+            className="rounded-xl bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium px-5 py-2.5 transition disabled:opacity-60"
+          >
+            {saving ? "Salvando..." : saved ? "Salvo ✓" : "Salvar catálogo"}
+          </button>
+          {error && (
+            <span className="text-xs font-medium text-rose-600">{error}</span>
+          )}
+        </div>
       )}
     </Card>
   );

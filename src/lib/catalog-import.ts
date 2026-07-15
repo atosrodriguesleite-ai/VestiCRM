@@ -95,8 +95,17 @@ export function parseCatalog(raw: unknown): CatalogFile {
 
 export async function importCatalog(
   companyId: string,
-  data: CatalogFile
+  data: CatalogFile,
+  /**
+   * "completo": implantação (cria/atualiza produtos e variações — estoque de
+   *   variações JÁ EXISTENTES nunca é alterado; só variações novas entram
+   *   com o estoque do arquivo).
+   * "fotos": APENAS completa fotos de produtos existentes que estejam sem
+   *   nenhuma foto — não cria produto, não toca preço, estoque ou variações.
+   */
+  mode: "completo" | "fotos" = "completo"
 ): Promise<ImportSummary> {
+  if (mode === "fotos") return importPhotosOnly(companyId, data);
   const summary: ImportSummary = {
     productsCreated: 0,
     productsUpdated: 0,
@@ -244,16 +253,21 @@ export async function importCatalog(
           summary.images += p.images?.length ?? 0;
         }
 
-        // Variações (upsert por cor × tamanho) + movimento de estoque inicial
+        // Variações: cria as que faltam com o estoque do arquivo. Variações
+        // JÁ EXISTENTES nunca têm o estoque alterado — reimportar um catálogo
+        // não pode desfazer o estoque que a loja organizou no sistema.
         for (const color of colors) {
           for (const size of sizes) {
-            const stock = resolveStock(color, size);
-            const v = await tx.productVariant.upsert({
+            const existingVariant = await tx.productVariant.findUnique({
               where: { productId_color_size: { productId, color, size } },
-              create: { productId, color, size, stock },
-              update: { stock },
+              select: { id: true },
             });
             summary.variants++;
+            if (existingVariant) continue;
+            const stock = resolveStock(color, size);
+            const v = await tx.productVariant.create({
+              data: { productId, color, size, stock },
+            });
             if (stock > 0) {
               await tx.inventoryMovement.create({
                 data: {
@@ -273,4 +287,57 @@ export async function importCatalog(
     },
     { timeout: 120000, maxWait: 20000 }
   );
+}
+
+/**
+ * Modo "fotos": completa APENAS fotos de produtos existentes que estejam sem
+ * nenhuma foto (casa por SKU — mesmo cálculo da importação — com reserva por
+ * nome). Não cria produto, não altera preço, estoque, variações nem loja.
+ * Seguro para rodar quantas vezes quiser.
+ */
+async function importPhotosOnly(
+  companyId: string,
+  data: CatalogFile
+): Promise<ImportSummary> {
+  const summary: ImportSummary = {
+    productsCreated: 0,
+    productsUpdated: 0,
+    variants: 0,
+    images: 0,
+    colorsAdded: 0,
+    sizesAdded: 0,
+    storeUpdated: false,
+  };
+  const usedSkus = new Set<string>();
+  for (const p of data.products) {
+    let sku = (p.sku ?? "").trim();
+    if (!sku) sku = slugify(p.name).toUpperCase().replace(/-/g, "").slice(0, 10) || "PROD";
+    const base = sku;
+    let n = 1;
+    while (usedSkus.has(sku)) {
+      n++;
+      sku = `${base}-${n}`;
+    }
+    usedSkus.add(sku);
+    if (!p.images?.length) continue;
+
+    const bySku = await db.product.findFirst({
+      where: { companyId, sku },
+      include: { images: { select: { id: true } } },
+    });
+    const existing =
+      bySku ??
+      (await db.product.findFirst({
+        where: { companyId, name: p.name },
+        include: { images: { select: { id: true } } },
+      }));
+    if (!existing || existing.images.length > 0) continue;
+
+    await db.productImage.createMany({
+      data: p.images.map((url, i) => ({ productId: existing.id, url, order: i })),
+    });
+    summary.images += p.images.length;
+    summary.productsUpdated++;
+  }
+  return summary;
 }

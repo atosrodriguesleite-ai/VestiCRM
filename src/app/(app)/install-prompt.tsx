@@ -34,7 +34,7 @@ export function InstallPrompt() {
     const ua = navigator.userAgent.toLowerCase();
     const mobile = /android|iphone|ipad|ipod/.test(ua);
     if (!mobile) return; // convite é só para celular
-    const ios = /iphone|ipad|ipod/.test(ua) && !/crios|fxios/.test(ua);
+    const ios = /iphone|ipad|ipod/.test(ua);
     setIsIOS(ios);
 
     const onPrompt = (e: Event) => {

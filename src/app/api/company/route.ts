@@ -8,6 +8,9 @@ const hexColor = z.string().regex(/^#[0-9a-fA-F]{6}$/, "Cor inválida");
 
 const schema = z.object({
   name: z.string().min(1).optional(),
+  // endereço do catálogo (catalago.net/<slug>) — muda junto com um rebatismo
+  // da loja; links antigos (e QR codes impressos) deixam de funcionar
+  slug: z.string().min(3).max(40).optional(),
   tagline: z.string().nullable().optional(),
   whatsapp: z.string().nullable().optional(),
   minOrder: z.number().int().nonnegative().optional(),
@@ -40,6 +43,35 @@ export async function PATCH(req: NextRequest) {
     const data = { ...parsed.data };
     if (data.whatsapp) data.whatsapp = data.whatsapp.replace(/\D/g, "");
 
+    if (data.slug !== undefined) {
+      const clean = data.slug
+        .toLowerCase()
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-+|-+$/g, "");
+      if (clean.length < 3) {
+        return NextResponse.json(
+          { error: "Endereço muito curto: use ao menos 3 letras/números." },
+          { status: 400 }
+        );
+      }
+      if (clean === "vesticrm" || clean === "api" || clean === "catalogo") {
+        return NextResponse.json({ error: "Endereço reservado." }, { status: 400 });
+      }
+      const taken = await db.company.findFirst({
+        where: { slug: clean, id: { not: user.companyId } },
+        select: { id: true },
+      });
+      if (taken) {
+        return NextResponse.json(
+          { error: "Este endereço já está em uso por outra loja." },
+          { status: 409 }
+        );
+      }
+      data.slug = clean;
+    }
+
     const updated = await db.company.update({
       where: { id: user.companyId },
       data,
@@ -47,6 +79,7 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({
       id: updated.id,
       name: updated.name,
+      slug: updated.slug,
       tagline: updated.tagline,
       whatsapp: updated.whatsapp,
       minOrder: updated.minOrder,

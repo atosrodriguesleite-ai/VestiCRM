@@ -29,7 +29,7 @@ export function InstallAppCard() {
       setInstalled(true);
     }
     const ua = window.navigator.userAgent.toLowerCase();
-    setIsIOS(/iphone|ipad|ipod/.test(ua) && !/crios|fxios/.test(ua));
+    setIsIOS(/iphone|ipad|ipod/.test(ua));
 
     const onPrompt = (e: Event) => {
       e.preventDefault();
@@ -88,7 +88,7 @@ export function InstallAppCard() {
                   1
                 </span>
                 Toque em <b>Compartilhar</b>
-                <Share className="size-4 text-brand-600" /> na barra do Safari
+                <Share className="size-4 text-brand-600" /> (Safari ou Chrome)
               </li>
               <li className="flex items-center gap-2">
                 <span className="shrink-0 size-5 rounded-full bg-gray-100 text-[11px] font-bold flex items-center justify-center">
