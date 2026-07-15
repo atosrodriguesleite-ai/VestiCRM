@@ -32,6 +32,7 @@ type Row = {
   note: string;
   cdn: string; // x-vercel-cache + age (a prova do cache envenenado)
   retry: string; // status ao furar o cache com ?v=<agora>
+  body?: { id?: string; n?: number; db?: string; dep?: string }; // eco do 404
 };
 
 export async function GET(req: NextRequest) {
@@ -129,6 +130,9 @@ export async function GET(req: NextRequest) {
               res.ok && row.type.startsWith("image/") && buf.byteLength > 100;
             if (!row.ok) {
               row.note = buf.slice(0, 160).toString("utf-8").replace(/</g, "‹");
+              try {
+                row.body = JSON.parse(buf.toString("utf-8"));
+              } catch {}
               // fura o cache: se com URL "nova" a foto vier 200, está provado
               // que o erro estava GUARDADO na CDN, não no servidor/banco.
               const res2 = await fetch(
@@ -157,6 +161,29 @@ export async function GET(req: NextRequest) {
 
     const fails = rows.filter((r) => !r.ok);
     const okCount = rows.length - fails.length;
+
+    // VEREDITO automático: compara a identidade de quem respondeu os erros
+    // com a deste diagnóstico — aponta a causa sem depender de leitura manual.
+    const parsed = fails.filter((f) => f.body);
+    const depDiff = parsed.filter((f) => f.body!.dep && f.body!.dep !== DEPLOY);
+    const dbDiff = parsed.filter((f) => f.body!.db && f.body!.db !== DB_FP);
+    const idDiff = parsed.filter((f) => f.body!.id && f.body!.id !== f.id);
+    const nOne = parsed.filter((f) => f.body!.n === 1);
+    let verdict = "";
+    if (fails.length === 0) verdict = "";
+    else if (parsed.length === 0)
+      verdict =
+        "Os erros ainda não trazem identificação (implantação antiga respondendo — aguarde o deploy e rode de novo).";
+    else if (dbDiff.length > 0)
+      verdict = `🎯 VEREDITO: quem serve as fotos usa OUTRO BANCO (db ${dbDiff[0].body!.db} ≠ ${DB_FP}) em ${dbDiff.length} falha(s) — há duas configurações de banco em uso.`;
+    else if (depDiff.length > 0)
+      verdict = `🎯 VEREDITO: uma implantação ANTIGA está respondendo (código ${depDiff[0].body!.dep} ≠ ${DEPLOY}) em ${depDiff.length} falha(s).`;
+    else if (idDiff.length > 0)
+      verdict = `🎯 VEREDITO: o id chega ALTERADO na rota (${idDiff.length} caso(s)) — problema de roteamento/encoding.`;
+    else if (nOne.length > 0)
+      verdict = `🎯 VEREDITO: a foto EXISTE no banco de quem respondeu (n=1) mas a consulta individual falhou — bug de driver/conexão (${nOne.length} caso(s)).`;
+    else
+      verdict = `⚠️ Mesmo código (${DEPLOY}), mesmo banco (${DB_FP}), id íntegro e n=0: a linha não existe no banco de quem respondeu, embora a listagem a veja. Mande este print.`;
 
     const failRows = fails
       .map(
@@ -189,7 +216,8 @@ export async function GET(req: NextRequest) {
 ${
   fails.length === 0
     ? `<p style="color:#059669;font-weight:600">Todas as fotos foram entregues perfeitamente por este servidor. Se o catálogo ainda mostra foto quebrada, o problema está entre a CDN e o aparelho (me mande o print desta página mesmo assim).</p>`
-    : `<p style="color:#b45309;font-weight:600">${fails.length} foto(s) FALHARAM na entrega — detalhes abaixo (mande o print desta tabela):</p>
+    : `${verdict ? `<p style="font-size:15px;font-weight:700;background:#fff;border:2px solid #c4622d;border-radius:10px;padding:10px">${verdict}</p>` : ""}
+<p style="color:#b45309;font-weight:600">${fails.length} foto(s) FALHARAM na entrega — detalhes abaixo (mande o print desta tabela):</p>
 <table border="1" cellpadding="6" cellspacing="0" style="border-collapse:collapse;background:#fff;font-size:13px">
 <tr><th></th><th>Produto</th><th>Status</th><th>Cache CDN</th><th>Furando o cache</th><th>Resposta recebida</th><th>id</th></tr>
 ${failRows}
