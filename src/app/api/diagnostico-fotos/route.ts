@@ -1,7 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
+import { createHash } from "crypto";
 import { db } from "@/lib/db";
 import { requireUser, AuthError } from "@/lib/auth";
 import { isSuperAdmin } from "@/lib/scope";
+
+const DB_FP = createHash("sha256")
+  .update(process.env.DATABASE_URL ?? "")
+  .digest("hex")
+  .slice(0, 8);
+const DEPLOY = process.env.VERCEL_GIT_COMMIT_SHA?.slice(0, 7) ?? "local";
 
 /**
  * Diagnóstico de fotos DE PONTA A PONTA — o servidor de produção testa cada
@@ -114,6 +121,7 @@ export async function GET(req: NextRequest) {
             row.cdn = [
               res.headers.get("x-vercel-cache") ?? "",
               res.headers.get("age") ? `age ${res.headers.get("age")}s` : "",
+              res.headers.get("x-vercel-id")?.split("::")[0] ?? "",
             ]
               .filter(Boolean)
               .join(" · ");
@@ -172,6 +180,7 @@ export async function GET(req: NextRequest) {
 <title>Diagnóstico de fotos — ${company.name}</title>
 <body style="font-family:system-ui,sans-serif;background:#f6efe5;color:#1d1710;padding:24px;max-width:960px;margin:0 auto">
 <h1 style="font-size:20px">Diagnóstico de fotos — ${company.name}</h1>
+<p style="font-family:monospace;font-size:12px;background:#fff;border:1px solid #e5ded2;border-radius:8px;padding:8px">Este diagnóstico roda em: código <b>${DEPLOY}</b> · banco <b>${DB_FP}</b><br>Compare com os campos "dep" e "db" dentro das respostas de erro da tabela — se forem diferentes, há duas implantações/bancos respondendo.</p>
 <h2 style="font-size:15px">1) Página pública × banco (códigos fantasma)</h2>
 <p style="font-size:13px;color:#6b6257">Código "fantasma" = a página entrega uma foto que não existe mais no banco (página velha em cache ou implantação antiga) — é exatamente o que quebra na tela.</p>
 <ul style="font-size:13px">${probeHtml}</ul>

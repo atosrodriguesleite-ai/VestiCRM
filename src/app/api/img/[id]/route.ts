@@ -1,6 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
+import { createHash } from "crypto";
 import { db } from "@/lib/db";
 import { shrinkImage, dataUrlToBuffer, bufferToDataUrl } from "@/lib/img-server";
+
+/** Identificação do ambiente (para diagnóstico): banco e versão do código. */
+const DB_FP = createHash("sha256")
+  .update(process.env.DATABASE_URL ?? "")
+  .digest("hex")
+  .slice(0, 8);
+const DEPLOY = process.env.VERCEL_GIT_COMMIT_SHA?.slice(0, 7) ?? "local";
 
 /**
  * Serve a foto de um produto como imagem de verdade.
@@ -73,10 +81,15 @@ export async function GET(
     select: { url: true },
   });
   if (!img) {
-    // no-store: um "não encontrada" NUNCA pode ficar guardado na CDN — foi
-    // isso que envenenou fotos do catálogo (erro antigo preso na borda).
+    // no-store: um "não encontrada" NUNCA pode ficar guardado na CDN.
+    // O corpo identifica o ambiente (id recebido, contagem no banco,
+    // impressão digital do banco e versão do código) para o diagnóstico
+    // expor divergência entre quem lista as fotos e quem as serve.
+    const n = await db.productImage
+      .count({ where: { id } })
+      .catch(() => -1);
     return NextResponse.json(
-      { error: "Não encontrada" },
+      { error: "Não encontrada", id, len: id.length, n, db: DB_FP, dep: DEPLOY },
       { status: 404, headers: { "Cache-Control": "no-store" } }
     );
   }
