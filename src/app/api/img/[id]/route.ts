@@ -98,6 +98,29 @@ export async function GET(
     return serveDataUrl(id, img.url);
   }
 
+  // ATALHO INTERNO (/api/img/<outroId>): herança de importação que gravou a
+  // REFERÊNCIA de outra foto em vez do arquivo. Redirecionar quebrava quando
+  // o alvo tinha sido apagado (404 em cadeia). Resolve aqui: alvo vivo →
+  // serve e cola a foto nesta linha (vira independente); alvo morto → 404
+  // limpo (sem redirect fantasma).
+  const ref = img.url.match(/^\/api\/img\/([a-z0-9]+)/i);
+  if (ref) {
+    const target = await db.productImage.findUnique({
+      where: { id: ref[1] },
+      select: { url: true },
+    });
+    if (target?.url.startsWith("data:")) {
+      db.productImage
+        .update({ where: { id }, data: { url: target.url } })
+        .catch(() => {});
+      return serveDataUrl(id, target.url);
+    }
+    return NextResponse.json(
+      { error: "Não encontrada", ref: ref[1], db: DB_FP, dep: DEPLOY },
+      { status: 404, headers: { "Cache-Control": "no-store" } }
+    );
+  }
+
   // Link externo (http/https): busca no servidor, grava como data-URL
   // (self-healing — na próxima vez já sai do banco) e entrega o binário.
   if (/^https?:\/\//i.test(img.url)) {

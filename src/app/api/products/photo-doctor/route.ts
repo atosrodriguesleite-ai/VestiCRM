@@ -54,6 +54,7 @@ export async function POST() {
     const externas: { id: string; url: string; product: string }[] = [];
     const pesadas: { id: string; url: string; product: string }[] = [];
     const dataUrls: { id: string; url: string; product: string }[] = [];
+    const ponteiros: { id: string; url: string; product: string }[] = [];
 
     // validação leve, sem regex no arquivo inteiro (foto de 15 MB estoura a
     // pilha do regex): confere o cabeçalho e se há conteúdo suficiente.
@@ -75,6 +76,9 @@ export async function POST() {
         }
       } else if (/^https?:\/\//i.test(img.url)) {
         externas.push({ id: img.id, url: img.url, product: img.product.name });
+      } else if (/^\/api\/img\//i.test(img.url)) {
+        // ATALHO para outra foto (herança de importação) — precisa resolver
+        ponteiros.push({ id: img.id, url: img.url, product: img.product.name });
       } else {
         internas++; // caminho interno (/products/x.svg) — sempre funciona
       }
@@ -84,6 +88,30 @@ export async function POST() {
     const falharam: string[] = [];
     const otimizadas: string[] = [];
     const corrompidas: string[] = [];
+
+    // 0a) resolve ATALHOS (/api/img/<outroId>): alvo vivo → cola a foto real
+    // nesta linha; alvo morto (foto apagada em reimportação) → remove a linha
+    // e lista o produto para re-upload. Era o ponto cego que quebrava o
+    // catálogo com "404 em cadeia" enquanto tudo parecia são.
+    for (const img of ponteiros) {
+      const refId = img.url.match(/^\/api\/img\/([a-z0-9]+)/i)?.[1];
+      const target = refId
+        ? await db.productImage.findUnique({
+            where: { id: refId },
+            select: { url: true },
+          })
+        : null;
+      if (target?.url.startsWith("data:")) {
+        await db.productImage.update({
+          where: { id: img.id },
+          data: { url: target.url },
+        });
+        consertadas.push(img.product);
+      } else {
+        await db.productImage.delete({ where: { id: img.id } }).catch(() => {});
+        falharam.push(img.product); // foto perdida — precisa re-upload
+      }
+    }
 
     // 0) decodifica DE VERDADE cada foto salva: arquivo com cabeçalho de
     // imagem mas conteúdo podre (erro/HTML gravado na importação) passa na
