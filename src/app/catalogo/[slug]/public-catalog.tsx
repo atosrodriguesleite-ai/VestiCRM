@@ -362,21 +362,17 @@ export function PublicCatalog({
     for (const s of card.sizes) d[s.size] = existing[s.size] ?? 0;
     setDraft(d);
     setSheet(card);
-    document.body.style.overflow = "hidden";
   }
   function closeSheet() {
     setSheet(null);
-    document.body.style.overflow = "";
   }
   function openBag() {
     t({ type: "cart_open", value: totalValue, qty: totalPieces });
     setBagOpen(true);
-    document.body.style.overflow = "hidden";
   }
   function closeBag() {
     t({ type: "cart_close", value: totalValue, qty: totalPieces });
     setBagOpen(false);
-    document.body.style.overflow = "";
   }
   function showToast(msg: string) {
     setToast(msg);
