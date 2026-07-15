@@ -34,6 +34,10 @@ export async function POST() {
     if (!isManagerUp(user)) {
       return NextResponse.json({ error: "Sem permissão" }, { status: 403 });
     }
+    const company = await db.company.findUnique({
+      where: { id: user.companyId },
+      select: { name: true },
+    });
 
     const images = await db.productImage.findMany({
       where: { product: { companyId: user.companyId } },
@@ -157,6 +161,7 @@ export async function POST() {
 
     const uniq = (l: string[]) => [...new Set(l)];
     return NextResponse.json({
+      loja: company?.name ?? "",
       total: images.length,
       salvasNoBanco: ok,
       internas,

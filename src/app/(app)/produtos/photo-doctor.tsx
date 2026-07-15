@@ -12,6 +12,7 @@ import { useRouter } from "next/navigation";
 import { ImageOff, Loader2, X, CheckCircle2, AlertTriangle } from "lucide-react";
 
 type Report = {
+  loja: string;
   total: number;
   salvasNoBanco: number;
   internas: number;
@@ -93,12 +94,17 @@ export function PhotoDoctor() {
         <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center">
           <div className="absolute inset-0 bg-black/30 animate-fade-in" onClick={() => setReport(null)} />
           <div className="relative bg-white rounded-t-2xl md:rounded-2xl shadow-pop w-full md:max-w-md p-6 animate-fade-up max-h-[85dvh] overflow-y-auto thin-scroll">
-            <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center justify-between mb-1">
               <h3 className="font-semibold text-lg">Relatório das fotos</h3>
               <button onClick={() => setReport(null)} className="text-gray-400 p-1">
                 <X className="size-5" />
               </button>
             </div>
+            {report.loja && (
+              <p className="text-xs text-gray-400 mb-3">
+                Loja verificada: <b className="text-gray-600">{report.loja}</b>
+              </p>
+            )}
 
             <ul className="text-sm space-y-2">
               <li className="flex items-center gap-2 text-gray-600">
