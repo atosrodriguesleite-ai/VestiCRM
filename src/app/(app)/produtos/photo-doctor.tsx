@@ -17,9 +17,12 @@ type Report = {
   internas: number;
   consertadasAgora: number;
   consertadasProdutos: string[];
+  otimizadasAgora: number;
+  otimizadasProdutos: string[];
   falharam: string[];
   invalidas: string[];
   externasRestantes: number;
+  pesadasRestantes: number;
 };
 
 export function PhotoDoctor() {
@@ -46,10 +49,14 @@ export function PhotoDoctor() {
               consertadasProdutos: [
                 ...new Set([...acc.consertadasProdutos, ...r.consertadasProdutos]),
               ],
+              otimizadasAgora: acc.otimizadasAgora + r.otimizadasAgora,
+              otimizadasProdutos: [
+                ...new Set([...acc.otimizadasProdutos, ...r.otimizadasProdutos]),
+              ],
               falharam: [...new Set([...acc.falharam, ...r.falharam])],
             }
           : r;
-        if (r.externasRestantes === 0) break;
+        if (r.externasRestantes === 0 && r.pesadasRestantes === 0) break;
       }
       setReport(acc);
       router.refresh();
@@ -105,6 +112,24 @@ export function PhotoDoctor() {
                       <span className="block text-xs text-gray-400 mt-0.5">
                         {report.consertadasProdutos.slice(0, 6).join(", ")}
                         {report.consertadasProdutos.length > 6 ? "…" : ""}
+                      </span>
+                    )}
+                  </span>
+                </li>
+              )}
+              {report.otimizadasAgora > 0 && (
+                <li className="flex items-start gap-2 text-gray-600">
+                  <CheckCircle2 className="size-4 text-emerald-500 shrink-0 mt-0.5" />
+                  <span>
+                    <b>{report.otimizadasAgora}</b> foto
+                    {report.otimizadasAgora === 1 ? "" : "s"} pesada
+                    {report.otimizadasAgora === 1 ? "" : "s"} (original de câmera){" "}
+                    {report.otimizadasAgora === 1 ? "foi comprimida" : "foram comprimidas"}{" "}
+                    — eram elas que quebravam no catálogo
+                    {report.otimizadasProdutos.length > 0 && (
+                      <span className="block text-xs text-gray-400 mt-0.5">
+                        {report.otimizadasProdutos.slice(0, 6).join(", ")}
+                        {report.otimizadasProdutos.length > 6 ? "…" : ""}
                       </span>
                     )}
                   </span>

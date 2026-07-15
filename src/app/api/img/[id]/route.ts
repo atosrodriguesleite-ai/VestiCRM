@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
+import { shrinkImage, dataUrlToBuffer, bufferToDataUrl } from "@/lib/img-server";
 
 /**
  * Serve a foto de um produto como imagem de verdade.
@@ -15,18 +16,12 @@ import { db } from "@/lib/db";
  */
 
 const MAX_EXTERNAL_BYTES = 8 * 1024 * 1024; // 8 MB por foto
+// Acima disso a resposta corre risco de estourar o limite do serverless
+// (~4,5 MB) e a foto quebra no catálogo: comprime antes de entregar.
+const SAFE_RESPONSE_BYTES = 3 * 1024 * 1024;
 
-function serveDataUrl(dataUrl: string): NextResponse {
-  const m = dataUrl.match(/^data:([^;,]+)(;base64)?,([\s\S]*)$/);
-  if (!m) {
-    return NextResponse.json({ error: "Imagem inválida" }, { status: 415 });
-  }
-  const [, mime, isB64, data] = m;
-  const body = isB64
-    ? Buffer.from(data, "base64")
-    : Buffer.from(decodeURIComponent(data), "utf-8");
-
-  return new NextResponse(body, {
+function serveBuffer(body: Buffer, mime: string): NextResponse {
+  return new NextResponse(new Uint8Array(body), {
     headers: {
       "Content-Type": mime || "image/jpeg",
       "Content-Length": String(body.byteLength),
@@ -37,6 +32,32 @@ function serveDataUrl(dataUrl: string): NextResponse {
         "public, max-age=31536000, s-maxage=31536000, immutable",
     },
   });
+}
+
+async function serveDataUrl(id: string, dataUrl: string): Promise<NextResponse> {
+  const decoded = dataUrlToBuffer(dataUrl);
+  if (!decoded) {
+    return NextResponse.json({ error: "Imagem inválida" }, { status: 415 });
+  }
+  let buf: Buffer = decoded.buf;
+  let mime = decoded.mime;
+
+  // Foto pesada demais para a resposta do serverless: comprime agora e grava
+  // a versão leve no banco (self-healing) — o catálogo nunca mais quebra.
+  if (buf.byteLength > SAFE_RESPONSE_BYTES) {
+    try {
+      const small = await shrinkImage(buf);
+      buf = small.buf;
+      mime = small.mime;
+      db.productImage
+        .update({ where: { id }, data: { url: bufferToDataUrl(buf, mime) } })
+        .catch(() => {});
+    } catch {
+      // compressão falhou: serve o original (pode falhar no limite, mas
+      // não há alternativa melhor aqui)
+    }
+  }
+  return serveBuffer(buf, mime);
 }
 
 export async function GET(
@@ -53,7 +74,7 @@ export async function GET(
   }
 
   if (img.url.startsWith("data:")) {
-    return serveDataUrl(img.url);
+    return serveDataUrl(id, img.url);
   }
 
   // Link externo (http/https): busca no servidor, grava como data-URL
@@ -70,23 +91,23 @@ export async function GET(
         redirect: "follow",
         signal: AbortSignal.timeout(15000),
       });
-      const mime = res.headers.get("content-type")?.split(";")[0] ?? "";
+      let mime = res.headers.get("content-type")?.split(";")[0] ?? "";
       if (res.ok && mime.startsWith("image/")) {
-        const buf = Buffer.from(await res.arrayBuffer());
+        let buf: Buffer = Buffer.from(await res.arrayBuffer());
         if (buf.byteLength > 0 && buf.byteLength <= MAX_EXTERNAL_BYTES) {
-          const dataUrl = `data:${mime};base64,${buf.toString("base64")}`;
+          // originais de câmera/site vêm pesados: comprime antes de guardar
+          if (buf.byteLength > SAFE_RESPONSE_BYTES) {
+            try {
+              const small = await shrinkImage(buf);
+              buf = small.buf;
+              mime = small.mime;
+            } catch {}
+          }
           // grava sem bloquear a resposta; se falhar, tenta de novo depois
           db.productImage
-            .update({ where: { id }, data: { url: dataUrl } })
+            .update({ where: { id }, data: { url: bufferToDataUrl(buf, mime) } })
             .catch(() => {});
-          return new NextResponse(buf, {
-            headers: {
-              "Content-Type": mime,
-              "Content-Length": String(buf.byteLength),
-              "Cache-Control":
-                "public, max-age=31536000, s-maxage=31536000, immutable",
-            },
-          });
+          return serveBuffer(buf, mime);
         }
       }
     } catch {
