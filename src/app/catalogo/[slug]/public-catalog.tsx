@@ -312,6 +312,36 @@ export function PublicCatalog({
       window.removeEventListener("resize", update);
     };
   }, [logoSize, identity.logoUrl]);
+
+  // Sacola/ficha aberta: TRAVA a rolagem da página de fundo. Sem isso, o
+  // teclado do iOS "empurra" a página inteira e o catálogo vaza por trás da
+  // folha — bagunça visual na hora de fechar a compra.
+  useEffect(() => {
+    const anyOpen = bagOpen || !!sheet;
+    if (!anyOpen) return;
+    const y = window.scrollY;
+    const b = document.body.style;
+    const prev = {
+      position: b.position,
+      top: b.top,
+      left: b.left,
+      right: b.right,
+      overflow: b.overflow,
+    };
+    b.position = "fixed";
+    b.top = `-${y}px`;
+    b.left = "0";
+    b.right = "0";
+    b.overflow = "hidden";
+    return () => {
+      b.position = prev.position;
+      b.top = prev.top;
+      b.left = prev.left;
+      b.right = prev.right;
+      b.overflow = prev.overflow;
+      window.scrollTo(0, y);
+    };
+  }, [bagOpen, sheet]);
   const scrollCats = (dir: 1 | -1) => {
     const el = catNavRef.current;
     if (!el) return;
@@ -1210,8 +1240,17 @@ export function PublicCatalog({
                           trackerRef.current?.identify(client.fone);
                         }
                       }}
+                      onFocus={(e) => {
+                        // teclado aberto: centraliza o campo dentro da folha
+                        const el = e.currentTarget;
+                        setTimeout(
+                          () => el.scrollIntoView({ block: "center", behavior: "smooth" }),
+                          300
+                        );
+                      }}
                       placeholder={ph}
-                      className="w-full rounded-xl border px-3.5 py-[13px] text-[15px] bg-white outline-none"
+                      // 16px: fonte menor faz o iOS dar zoom automático no foco
+                      className="w-full rounded-xl border px-3.5 py-[13px] text-[16px] bg-white outline-none"
                       style={{ borderColor: T.line }}
                     />
                   </div>
