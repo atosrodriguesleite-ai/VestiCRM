@@ -471,8 +471,41 @@ function LojaCard({ loja, catalogDomain }: { loja: Loja; catalogDomain: string |
       </div>
 
       {loja.admin && (
-        <p className="mt-3 truncate text-[13px] text-slate-500">
-          <span className="text-slate-400">Admin:</span> {loja.admin.email}
+        <p className="mt-3 flex items-center gap-2 text-[13px] text-slate-500">
+          <span className="truncate">
+            <span className="text-slate-400">Admin:</span> {loja.admin.email}
+          </span>
+          <button
+            type="button"
+            onClick={async () => {
+              const login = window.prompt(
+                `Novo login de acesso do admin da ${loja.name}\n(e-mail ou usuário simples, ex.: maria):`,
+                loja.admin?.email ?? ""
+              );
+              if (!login?.trim()) return;
+              const password =
+                window.prompt(
+                  "Nova senha (opcional — deixe em branco para manter a atual):"
+                ) || undefined;
+              const res = await fetch("/api/companies/admin-login", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ companyId: loja.id, login: login.trim(), password }),
+              });
+              const data = await res.json().catch(() => ({}));
+              if (res.ok) {
+                window.alert(
+                  `Login atualizado: ${data.login}${data.passwordChanged ? " (senha alterada)" : ""}\nInforme o lojista.`
+                );
+                router.refresh();
+              } else {
+                window.alert(data.error ?? "Não foi possível alterar o login.");
+              }
+            }}
+            className="shrink-0 text-[11px] font-medium text-brand-600 hover:text-brand-700 underline underline-offset-2"
+          >
+            Trocar login
+          </button>
         </p>
       )}
 

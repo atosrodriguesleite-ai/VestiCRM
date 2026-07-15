@@ -102,6 +102,17 @@ export function TeamView({
     window.alert(res.ok ? "Senha redefinida. Informe ao usuário." : "Não foi possível redefinir.");
   }
 
+  async function changeRole(m: TeamMember, role: string) {
+    if (role === m.role) return;
+    const res = await fetch(`/api/team/${m.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ role }),
+    });
+    if (res.ok) router.refresh();
+    else window.alert("Não foi possível alterar o papel.");
+  }
+
   async function toggleActive(m: TeamMember) {
     const res = await fetch(`/api/team/${m.id}`, {
       method: "PATCH",
@@ -204,10 +215,25 @@ export function TeamView({
                 <p className="text-xs text-gray-400 truncate">
                   {m.username ?? m.email}
                 </p>
-                <div className="flex gap-1.5 mt-1.5">
-                  <Badge color={roleColor[m.role] ?? "#64748b"}>
-                    {roleLabel[m.role as keyof typeof roleLabel]}
-                  </Badge>
+                <div className="flex items-center gap-1.5 mt-1.5">
+                  {canManage && !m.isMe ? (
+                    // o dono/admin muda o papel direto aqui
+                    <select
+                      value={m.role}
+                      onChange={(e) => changeRole(m, e.target.value)}
+                      className="rounded-lg border border-gray-200 bg-white px-2 py-1 text-xs font-medium text-gray-700 focus:outline-none focus:ring-2 focus:ring-brand-300 cursor-pointer"
+                      style={{ color: roleColor[m.role] ?? "#64748b" }}
+                    >
+                      <option value="SELLER">Vendedor(a)</option>
+                      <option value="MANAGER">Gerente</option>
+                      <option value="ADMIN">Administrador</option>
+                      <option value="SUPPORT">Atendimento</option>
+                    </select>
+                  ) : (
+                    <Badge color={roleColor[m.role] ?? "#64748b"}>
+                      {roleLabel[m.role as keyof typeof roleLabel]}
+                    </Badge>
+                  )}
                   {!m.active && <Badge color="#94a3b8">Desativado</Badge>}
                 </div>
               </div>

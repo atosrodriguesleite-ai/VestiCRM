@@ -290,12 +290,25 @@ export function ImportCatalog() {
                     disabled={!preview || importing}
                     className="w-full inline-flex items-center justify-center gap-2 rounded-xl bg-brand-600 px-5 py-3 text-sm font-semibold text-white hover:bg-brand-700 disabled:opacity-50 disabled:pointer-events-none"
                   >
+                    {importing && (
+                      <span className="size-4 rounded-full border-2 border-white/40 border-t-white animate-spin" />
+                    )}
                     {importing
-                      ? "Importando…"
+                      ? "Enviando… não feche esta janela"
                       : photosOnly
                         ? "Completar fotos"
                         : "Importar produtos"}
                   </button>
+                  {importing && (
+                    <p className="text-center text-[11px] text-slate-400">
+                      Arquivos com muitas fotos levam até 1 minuto.
+                    </p>
+                  )}
+                  {!preview && (
+                    <p className="text-center text-[11px] text-amber-600">
+                      Escolha o arquivo .json acima para liberar o botão.
+                    </p>
+                  )}
                   <p className="text-center text-[11px] text-slate-400">
                     Os produtos entram editáveis: a loja controla estoque, inativa
                     esgotados e adiciona novos normalmente.
