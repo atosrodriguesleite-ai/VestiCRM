@@ -125,6 +125,9 @@
 html {
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
+  /* Toque duplo NÃO dá zoom (cliques rápidos em +/− são comuns no catálogo);
+     o zoom de pinça continua funcionando normalmente. */
+  touch-action: manipulation;
 }
 
 body {
