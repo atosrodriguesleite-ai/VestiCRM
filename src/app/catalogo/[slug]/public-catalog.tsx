@@ -22,6 +22,7 @@ import {
   Lora,
 } from "next/font/google";
 import { mixHex, readableOn } from "@/lib/color";
+import { compareSizes } from "@/lib/sizes";
 import {
   CatalogTracker,
   getConsent,
@@ -167,9 +168,11 @@ export function PublicCatalog({
           key: `${p.id}|${color}`,
           product: p,
           color,
+          // tamanhos sempre do menor para o maior (P, M, G, GG / 36, 38, 40)
           sizes: p.variants
             .filter((v) => v.color === color)
-            .map((v) => ({ size: v.size, available: v.available })),
+            .map((v) => ({ size: v.size, available: v.available }))
+            .sort((a, b) => compareSizes(a.size, b.size)),
         });
       }
     }
