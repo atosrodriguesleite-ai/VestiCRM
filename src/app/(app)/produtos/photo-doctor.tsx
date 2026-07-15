@@ -19,6 +19,8 @@ type Report = {
   consertadasProdutos: string[];
   otimizadasAgora: number;
   otimizadasProdutos: string[];
+  corrompidasRemovidas: number;
+  corrompidasProdutos: string[];
   falharam: string[];
   invalidas: string[];
   externasRestantes: number;
@@ -52,6 +54,10 @@ export function PhotoDoctor() {
               otimizadasAgora: acc.otimizadasAgora + r.otimizadasAgora,
               otimizadasProdutos: [
                 ...new Set([...acc.otimizadasProdutos, ...r.otimizadasProdutos]),
+              ],
+              corrompidasRemovidas: acc.corrompidasRemovidas + r.corrompidasRemovidas,
+              corrompidasProdutos: [
+                ...new Set([...acc.corrompidasProdutos, ...r.corrompidasProdutos]),
               ],
               falharam: [...new Set([...acc.falharam, ...r.falharam])],
             }
@@ -135,6 +141,22 @@ export function PhotoDoctor() {
                   </span>
                 </li>
               )}
+              {report.corrompidasRemovidas > 0 && (
+                <li className="flex items-start gap-2 text-amber-700">
+                  <AlertTriangle className="size-4 text-amber-500 shrink-0 mt-0.5" />
+                  <span>
+                    <b>{report.corrompidasRemovidas}</b> foto
+                    {report.corrompidasRemovidas === 1 ? "" : "s"} corrompida
+                    {report.corrompidasRemovidas === 1 ? "" : "s"} (arquivo veio
+                    quebrado da importação) {report.corrompidasRemovidas === 1 ? "foi removida" : "foram removidas"} — eram elas que
+                    apareciam quebradas no catálogo. Envie a foto de novo nestes
+                    produtos:
+                    <span className="block text-xs mt-1 leading-relaxed">
+                      {report.corrompidasProdutos.join(" · ")}
+                    </span>
+                  </span>
+                </li>
+              )}
               {report.falharam.length > 0 && (
                 <li className="flex items-start gap-2 text-amber-700">
                   <AlertTriangle className="size-4 text-amber-500 shrink-0 mt-0.5" />
@@ -156,11 +178,13 @@ export function PhotoDoctor() {
                   </span>
                 </li>
               )}
-              {report.falharam.length === 0 && report.invalidas.length === 0 && (
-                <li className="text-emerald-700 text-sm font-medium">
-                  Nenhuma foto quebrada — catálogo 100%. 🎉
-                </li>
-              )}
+              {report.falharam.length === 0 &&
+                report.invalidas.length === 0 &&
+                report.corrompidasRemovidas === 0 && (
+                  <li className="text-emerald-700 text-sm font-medium">
+                    Nenhuma foto quebrada — catálogo 100%. 🎉
+                  </li>
+                )}
             </ul>
           </div>
         </div>

@@ -6,6 +6,7 @@ import {
   shrinkImage,
   dataUrlToBuffer,
   bufferToDataUrl,
+  isRealImage,
   HEAVY_BYTES,
 } from "@/lib/img-server";
 
@@ -44,11 +45,11 @@ export async function POST() {
       orderBy: { id: "asc" },
     });
 
-    let ok = 0;
     let internas = 0;
     const invalidas: string[] = [];
     const externas: { id: string; url: string; product: string }[] = [];
     const pesadas: { id: string; url: string; product: string }[] = [];
+    const dataUrls: { id: string; url: string; product: string }[] = [];
 
     // validação leve, sem regex no arquivo inteiro (foto de 15 MB estoura a
     // pilha do regex): confere o cabeçalho e se há conteúdo suficiente.
@@ -66,7 +67,7 @@ export async function POST() {
         } else if (img.url.length > HEAVY_CHARS) {
           pesadas.push({ id: img.id, url: img.url, product: img.product.name });
         } else {
-          ok++;
+          dataUrls.push({ id: img.id, url: img.url, product: img.product.name });
         }
       } else if (/^https?:\/\//i.test(img.url)) {
         externas.push({ id: img.id, url: img.url, product: img.product.name });
@@ -78,6 +79,24 @@ export async function POST() {
     const consertadas: string[] = [];
     const falharam: string[] = [];
     const otimizadas: string[] = [];
+    const corrompidas: string[] = [];
+
+    // 0) decodifica DE VERDADE cada foto salva: arquivo com cabeçalho de
+    // imagem mas conteúdo podre (erro/HTML gravado na importação) passa na
+    // validação de formato, mas quebra no navegador. O que não abrir é lixo:
+    // remove (o produto fica sem foto quebrada) e lista para re-upload.
+    const VERIFY_MAX = 300;
+    let ok = 0;
+    for (const img of dataUrls.slice(0, VERIFY_MAX)) {
+      const decoded = dataUrlToBuffer(img.url);
+      if (decoded && (await isRealImage(decoded.buf))) {
+        ok++;
+      } else {
+        await db.productImage.delete({ where: { id: img.id } }).catch(() => {});
+        corrompidas.push(img.product);
+      }
+    }
+    ok += Math.max(0, dataUrls.length - VERIFY_MAX); // não verificadas nesta rodada
 
     // 1) internaliza um lote de externas
     const loteExt = externas.slice(0, BATCH_EXTERNAS);
@@ -130,7 +149,9 @@ export async function POST() {
         });
         otimizadas.push(img.product);
       } catch {
-        invalidas.push(img.product);
+        // pesada que nem decodifica é lixo: remove e lista para re-upload
+        await db.productImage.delete({ where: { id: img.id } }).catch(() => {});
+        corrompidas.push(img.product);
       }
     }
 
@@ -143,10 +164,13 @@ export async function POST() {
       consertadasProdutos: uniq(consertadas),
       otimizadasAgora: otimizadas.length,
       otimizadasProdutos: uniq(otimizadas),
+      corrompidasRemovidas: corrompidas.length,
+      corrompidasProdutos: uniq(corrompidas),
       falharam: uniq(falharam),
       invalidas: uniq(invalidas),
       externasRestantes: Math.max(0, externas.length - loteExt.length),
       pesadasRestantes: Math.max(0, pesadas.length - BATCH_PESADAS),
+      verificarRestantes: Math.max(0, dataUrls.length - VERIFY_MAX),
     });
   } catch (e) {
     if (e instanceof AuthError)

@@ -37,3 +37,18 @@ export function dataUrlToBuffer(
 export function bufferToDataUrl(buf: Buffer, mime: string): string {
   return `data:${mime};base64,${buf.toString("base64")}`;
 }
+
+/**
+ * Verifica se o binário é uma imagem de verdade (decodificável).
+ * Importações antigas podem ter gravado erro/HTML do site de origem com
+ * cabeçalho de imagem — passa na validação de formato mas quebra no
+ * navegador. O sharp lê só o cabeçalho: rápido e definitivo.
+ */
+export async function isRealImage(buf: Buffer): Promise<boolean> {
+  try {
+    const meta = await sharp(buf).metadata();
+    return Boolean(meta.format && (meta.width ?? 0) > 0 && (meta.height ?? 0) > 0);
+  } catch {
+    return false;
+  }
+}
