@@ -106,7 +106,11 @@ const WaIcon = ({ className = "" }: { className?: string }) => (
 /**
  * Carrossel de fotos da ficha do produto: desliza pro lado (gesto no celular,
  * setas no computador), com contador e bolinhas. Uma foto só = imagem simples.
- * Corte 3:4 ancorado no topo — preenche o quadro sem nunca cortar a cabeça.
+ * Na FICHA a peça aparece INTEIRA (object-contain num quadro 3:4): a grade usa
+ * o corte que preenche, mas quem abriu quer ver a peça completa — sobras de
+ * proporção viram faixas na cor de fundo do tema. O quadro é 3:4 de verdade
+ * também no computador: a largura acompanha o teto de altura (72dvh) para o
+ * quadro nunca "achatar" e cortar a foto.
  */
 function PhotoCarousel({
   images,
@@ -126,10 +130,11 @@ function PhotoCarousel({
   const trackRef = useRef<HTMLDivElement>(null);
   const [idx, setIdx] = useState(0);
 
+  // 72dvh de altura máxima ⇒ largura máxima = 72dvh × 3/4 (quadro 3:4 íntegro)
+  const frameW = "min(100%, calc(72dvh * 3 / 4))";
   const imgStyle: React.CSSProperties = {
     aspectRatio: "3/4",
-    maxHeight: "72dvh",
-    objectPosition: "center top",
+    objectFit: "contain",
     background: soft,
   };
 
@@ -139,8 +144,8 @@ function PhotoCarousel({
         onClick={onView}
         src={images[0]}
         alt={alt}
-        className="w-full rounded-[14px] border object-cover"
-        style={{ ...imgStyle, borderColor: line }}
+        className="block mx-auto w-full rounded-[14px] border"
+        style={{ ...imgStyle, maxWidth: frameW, borderColor: line }}
       />
     );
   }
@@ -153,7 +158,7 @@ function PhotoCarousel({
   };
 
   return (
-    <div className="relative">
+    <div className="relative mx-auto" style={{ maxWidth: frameW }}>
       <div
         ref={trackRef}
         onScroll={() => {
@@ -175,7 +180,7 @@ function PhotoCarousel({
             src={src}
             alt={`${alt} — foto ${i + 1}`}
             loading={i === 0 ? "eager" : "lazy"}
-            className="w-full shrink-0 snap-center object-cover"
+            className="w-full shrink-0 snap-center"
             style={imgStyle}
           />
         ))}
