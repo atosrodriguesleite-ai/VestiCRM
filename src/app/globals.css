@@ -177,6 +177,15 @@ h3 {
   background-clip: padding-box;
 }
 
+/* Sem barra de rolagem (carrossel de fotos: desliza pelo gesto) */
+.no-scrollbar {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
 /* Skeleton shimmer reutilizável (tons creme) */
 .skeleton {
   background: linear-gradient(

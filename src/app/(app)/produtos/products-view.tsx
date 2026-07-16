@@ -4,7 +4,7 @@
 
 import { useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Package, Palette, Plus, Search, Trash2, Upload, X } from "lucide-react";
+import { Package, Palette, Plus, Search, Star, Trash2, Upload, X } from "lucide-react";
 import { brl } from "@/lib/format";
 import { Card, EmptyState } from "@/components/ui";
 import { fileToDataUrl } from "@/lib/upload";
@@ -26,7 +26,8 @@ export type ProductItem = {
   minQuantity: number;
   active: boolean;
   tags: string | null;
-  images: string[];
+  // fotos em ordem — a primeira é a CAPA (aparece na grade e no catálogo)
+  images: { id: string; url: string }[];
   variants: { id: string; color: string; size: string; stock: number }[];
 };
 
@@ -182,7 +183,7 @@ export function ProductsView({
                 <div className="aspect-square bg-gray-50 relative overflow-hidden">
                   {p.images[0] ? (
                     <img
-                      src={p.images[0]}
+                      src={p.images[0].url}
                       alt={p.name}
                       className="w-full h-full object-cover group-hover:scale-[1.03] transition"
                     />
@@ -199,6 +200,11 @@ export function ProductsView({
                   {stock === 0 && p.active && (
                     <span className="absolute top-2 left-2 bg-rose-600/90 text-white text-[10px] font-medium rounded-full px-2 py-0.5">
                       Sem estoque
+                    </span>
+                  )}
+                  {p.images.length > 1 && (
+                    <span className="absolute bottom-2 right-2 bg-black/55 text-white text-[10px] font-medium rounded-full px-2 py-0.5">
+                      {p.images.length} fotos
                     </span>
                   )}
                 </div>
@@ -283,7 +289,6 @@ function ProductDetailModal({
   onChanged: () => void;
 }) {
   const [busy, setBusy] = useState(false);
-  const fileRef = useRef<HTMLInputElement>(null);
   const [removedIds, setRemovedIds] = useState<string[]>([]);
   const [newVariant, setNewVariant] = useState({
     color: libraryColors[0]?.name ?? "",
@@ -305,7 +310,10 @@ function ProductDetailModal({
     minQuantity: String(product.minQuantity),
     tags: product.tags ?? "",
   });
-  const [image, setImage] = useState(product.images[0] ?? PLACEHOLDER_IMAGES[0]);
+  // galeria em ordem — a posição 0 é a capa; a lista final vai inteira no save
+  const [photos, setPhotos] = useState<{ id?: string; url: string }[]>(
+    product.images
+  );
   const [stocks, setStocks] = useState<Record<string, string>>(
     Object.fromEntries(product.variants.map((v) => [v.id, String(v.stock)]))
   );
@@ -330,7 +338,7 @@ function ProductDetailModal({
         retailPrice: num(form.retailPrice),
         minQuantity: parseInt(form.minQuantity) || 1,
         tags: form.tags || null,
-        imageUrl: image,
+        images: photos.map((ph) => (ph.id ? { id: ph.id } : { url: ph.url })),
         variantStocks: Object.entries(stocks)
           .filter(([id]) => !removedIds.includes(id))
           .map(([id, stock]) => ({ id, stock: parseInt(stock) || 0 })),
@@ -364,11 +372,6 @@ function ProductDetailModal({
     await fetch(`/api/products/${product.id}`, { method: "DELETE" });
     setBusy(false);
     onChanged();
-  }
-
-  async function uploadPhoto(file: File) {
-    const dataUrl = await fileToDataUrl(file);
-    setImage(dataUrl);
   }
 
   function addPendingVariant() {
@@ -504,48 +507,8 @@ function ProductDetailModal({
 
           <div className="space-y-3">
             <div>
-              <label className={label}>Foto do produto</label>
-              <div className="flex gap-3">
-                <img
-                  src={image}
-                  alt=""
-                  className="size-24 rounded-xl object-cover border border-gray-100 shrink-0"
-                />
-                <div className="flex-1 space-y-1.5">
-                  <input
-                    ref={fileRef}
-                    type="file"
-                    accept="image/*"
-                    className="hidden"
-                    onChange={(e) => {
-                      const f = e.target.files?.[0];
-                      if (f) uploadPhoto(f);
-                    }}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => fileRef.current?.click()}
-                    className="w-full flex items-center justify-center gap-1.5 rounded-xl border border-brand-200 bg-brand-50 hover:bg-brand-100 text-brand-700 text-xs font-medium py-2 transition"
-                  >
-                    <Upload className="size-3.5" />
-                    Enviar foto do computador/celular
-                  </button>
-                  <div className="grid grid-cols-4 gap-1.5">
-                    {PLACEHOLDER_IMAGES.map((url) => (
-                      <button
-                        key={url}
-                        type="button"
-                        onClick={() => setImage(url)}
-                        className={`aspect-square rounded-lg overflow-hidden border-2 transition ${
-                          image === url ? "border-brand-500" : "border-transparent"
-                        }`}
-                      >
-                        <img src={url} alt="" className="w-full h-full object-cover" />
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              </div>
+              <label className={label}>Fotos do produto</label>
+              <PhotoManager photos={photos} onChange={setPhotos} />
             </div>
 
             <div>
@@ -694,6 +657,101 @@ function ProductDetailModal({
   );
 }
 
+/**
+ * Galeria de fotos do produto: sobe VÁRIAS de uma vez, remove uma a uma e
+ * escolhe a capa (estrela → vira a primeira). A posição 0 é sempre a capa —
+ * é ela que aparece na grade, no catálogo e na sacola.
+ */
+function PhotoManager({
+  photos,
+  onChange,
+  max = 10,
+}: {
+  photos: { id?: string; url: string }[];
+  onChange: (p: { id?: string; url: string }[]) => void;
+  max?: number;
+}) {
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  async function add(files: FileList | null) {
+    if (!files?.length) return;
+    const room = Math.max(0, max - photos.length);
+    const list = [...photos];
+    for (const f of Array.from(files).slice(0, room)) {
+      list.push({ url: await fileToDataUrl(f) });
+    }
+    onChange(list);
+  }
+
+  return (
+    <div>
+      <input
+        ref={fileRef}
+        type="file"
+        accept="image/*"
+        multiple
+        className="hidden"
+        onChange={(e) => {
+          add(e.target.files);
+          e.target.value = "";
+        }}
+      />
+      <div className="grid grid-cols-4 gap-2">
+        {photos.map((ph, i) => (
+          <div
+            key={ph.id ?? `nova-${i}-${ph.url.length}`}
+            className="relative aspect-[3/4] rounded-xl overflow-hidden border border-gray-100 bg-gray-50"
+          >
+            <img src={ph.url} alt="" className="w-full h-full object-cover" />
+            {i === 0 ? (
+              <span className="absolute top-1 left-1 bg-brand-600 text-white text-[9px] font-bold rounded-full px-1.5 py-0.5">
+                CAPA
+              </span>
+            ) : (
+              <button
+                type="button"
+                title="Tornar esta a foto de capa"
+                onClick={() =>
+                  onChange([ph, ...photos.filter((_, j) => j !== i)])
+                }
+                className="absolute top-1 left-1 size-6 rounded-full bg-white/90 flex items-center justify-center text-amber-500 shadow hover:bg-white transition"
+              >
+                <Star className="size-3.5" />
+              </button>
+            )}
+            <button
+              type="button"
+              title="Remover foto"
+              onClick={() => onChange(photos.filter((_, j) => j !== i))}
+              className="absolute top-1 right-1 size-6 rounded-full bg-white/90 flex items-center justify-center text-gray-500 hover:text-rose-600 shadow transition"
+            >
+              <X className="size-3.5" />
+            </button>
+          </div>
+        ))}
+        {photos.length < max && (
+          <button
+            type="button"
+            onClick={() => fileRef.current?.click()}
+            className="aspect-[3/4] rounded-xl border-2 border-dashed border-brand-200 hover:bg-brand-50 flex flex-col items-center justify-center gap-1 text-brand-600 transition"
+          >
+            <Upload className="size-4" />
+            <span className="text-[10px] font-medium leading-tight text-center px-1">
+              Adicionar fotos
+            </span>
+          </button>
+        )}
+      </div>
+      <p className="text-[10px] text-gray-400 mt-1.5 leading-snug">
+        Até {max} fotos. A <b>capa</b> aparece na grade e no catálogo — toque na{" "}
+        <Star className="inline size-3 text-amber-500 -mt-0.5" /> pra trocar. No
+        catálogo, o cliente desliza pro lado pra ver todas. Ideal: 3:4
+        (1200×1600px).
+      </p>
+    </div>
+  );
+}
+
 const PLACEHOLDER_IMAGES = [
   "/products/vestido-rosa.svg",
   "/products/vestido-vinho.svg",
@@ -724,8 +782,7 @@ function NewProductModal({
 }) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
-  const [image, setImage] = useState(PLACEHOLDER_IMAGES[0]);
-  const fileRef = useRef<HTMLInputElement>(null);
+  const [photos, setPhotos] = useState<{ id?: string; url: string }[]>([]);
   const [selColors, setSelColors] = useState<string[]>(
     libraryColors[0] ? [libraryColors[0].name] : []
   );
@@ -768,7 +825,9 @@ function NewProductModal({
         retailPrice: num("retailPrice"),
         minQuantity: parseInt(String(fd.get("minQuantity"))) || 1,
         tags: fd.get("tags") || undefined,
-        images: [image],
+        images: photos.length
+          ? photos.map((p) => p.url)
+          : [PLACEHOLDER_IMAGES[0]],
         variants,
       }),
     });
@@ -947,42 +1006,14 @@ function NewProductModal({
               />
             </div>
             <div>
-              <label className={label}>Foto</label>
-              <input
-                ref={fileRef}
-                type="file"
-                accept="image/*"
-                className="hidden"
-                onChange={async (e) => {
-                  const f = e.target.files?.[0];
-                  if (f) setImage(await fileToDataUrl(f));
-                }}
-              />
-              <button
-                type="button"
-                onClick={() => fileRef.current?.click()}
-                className="w-full flex items-center justify-center gap-1.5 rounded-xl border border-brand-200 bg-brand-50 hover:bg-brand-100 text-brand-700 text-xs font-medium py-2 mb-2 transition"
-              >
-                <Upload className="size-3.5" />
-                Enviar foto do computador/celular
-              </button>
-              <div className="grid grid-cols-5 gap-1.5">
-                {[image.startsWith("data:") ? image : null, ...PLACEHOLDER_IMAGES]
-                  .filter(Boolean)
-                  .slice(0, 5)
-                  .map((url) => (
-                    <button
-                      key={url as string}
-                      type="button"
-                      onClick={() => setImage(url as string)}
-                      className={`aspect-square rounded-xl overflow-hidden border-2 transition ${
-                        image === url ? "border-brand-500" : "border-transparent"
-                      }`}
-                    >
-                      <img src={url as string} alt="" className="w-full h-full object-cover" />
-                    </button>
-                  ))}
-              </div>
+              <label className={label}>Fotos</label>
+              <PhotoManager photos={photos} onChange={setPhotos} />
+              {photos.length === 0 && (
+                <p className="text-[10px] text-gray-400 mt-1">
+                  Sem foto? Tudo bem — o produto nasce com uma ilustração
+                  provisória e você troca depois.
+                </p>
+              )}
             </div>
           </div>
         </div>

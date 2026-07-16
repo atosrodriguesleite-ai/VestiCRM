@@ -103,6 +103,132 @@ const WaIcon = ({ className = "" }: { className?: string }) => (
   </svg>
 );
 
+/**
+ * Carrossel de fotos da ficha do produto: desliza pro lado (gesto no celular,
+ * setas no computador), com contador e bolinhas. Uma foto só = imagem simples.
+ * Corte 3:4 ancorado no topo — preenche o quadro sem nunca cortar a cabeça.
+ */
+function PhotoCarousel({
+  images,
+  alt,
+  soft,
+  line,
+  primary,
+  onView,
+}: {
+  images: string[];
+  alt: string;
+  soft: string;
+  line: string;
+  primary: string;
+  onView: () => void;
+}) {
+  const trackRef = useRef<HTMLDivElement>(null);
+  const [idx, setIdx] = useState(0);
+
+  const imgStyle: React.CSSProperties = {
+    aspectRatio: "3/4",
+    maxHeight: "72dvh",
+    objectPosition: "center top",
+    background: soft,
+  };
+
+  if (images.length <= 1) {
+    return (
+      <img
+        onClick={onView}
+        src={images[0]}
+        alt={alt}
+        className="w-full rounded-[14px] border object-cover"
+        style={{ ...imgStyle, borderColor: line }}
+      />
+    );
+  }
+
+  const go = (i: number) => {
+    const el = trackRef.current;
+    if (!el) return;
+    const clamped = Math.min(images.length - 1, Math.max(0, i));
+    el.scrollTo({ left: clamped * el.clientWidth, behavior: "smooth" });
+  };
+
+  return (
+    <div className="relative">
+      <div
+        ref={trackRef}
+        onScroll={() => {
+          const el = trackRef.current;
+          if (!el) return;
+          const i = Math.min(
+            images.length - 1,
+            Math.max(0, Math.round(el.scrollLeft / el.clientWidth))
+          );
+          if (i !== idx) setIdx(i);
+        }}
+        className="flex overflow-x-auto snap-x snap-mandatory no-scrollbar rounded-[14px] border"
+        style={{ borderColor: line, background: soft }}
+      >
+        {images.map((src, i) => (
+          <img
+            key={`${i}-${src.slice(-24)}`}
+            onClick={onView}
+            src={src}
+            alt={`${alt} — foto ${i + 1}`}
+            loading={i === 0 ? "eager" : "lazy"}
+            className="w-full shrink-0 snap-center object-cover"
+            style={imgStyle}
+          />
+        ))}
+      </div>
+
+      {/* setas — só no computador; no celular o gesto de deslizar resolve */}
+      <button
+        type="button"
+        aria-label="Foto anterior"
+        onClick={() => go(idx - 1)}
+        className="hidden sm:flex absolute left-2.5 top-1/2 -translate-y-1/2 size-9 rounded-full items-center justify-center text-xl font-bold bg-white/90 shadow-md transition"
+        style={{ color: primary, opacity: idx === 0 ? 0 : 1, pointerEvents: idx === 0 ? "none" : "auto" }}
+      >
+        ‹
+      </button>
+      <button
+        type="button"
+        aria-label="Próxima foto"
+        onClick={() => go(idx + 1)}
+        className="hidden sm:flex absolute right-2.5 top-1/2 -translate-y-1/2 size-9 rounded-full items-center justify-center text-xl font-bold bg-white/90 shadow-md transition"
+        style={{
+          color: primary,
+          opacity: idx === images.length - 1 ? 0 : 1,
+          pointerEvents: idx === images.length - 1 ? "none" : "auto",
+        }}
+      >
+        ›
+      </button>
+
+      <span className="absolute top-2.5 right-2.5 rounded-full bg-black/50 text-white text-[11px] font-semibold px-2 py-0.5 tabular-nums">
+        {idx + 1}/{images.length}
+      </span>
+
+      <div className="absolute bottom-2.5 inset-x-0 flex justify-center gap-1.5">
+        {images.map((_, i) => (
+          <button
+            key={i}
+            type="button"
+            aria-label={`Ir para a foto ${i + 1}`}
+            onClick={() => go(i)}
+            className="size-2 rounded-full transition"
+            style={{
+              background: i === idx ? "#fff" : "rgba(255,255,255,.55)",
+              boxShadow: "0 0 4px rgba(0,0,0,.45)",
+              transform: i === idx ? "scale(1.25)" : "scale(1)",
+            }}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
 const BagIcon = ({ className = "" }: { className?: string }) => (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
     strokeLinecap="round" strokeLinejoin="round" className={className}>
@@ -962,23 +1088,16 @@ export function PublicCatalog({
             </div>
             <div className="overflow-y-auto p-[18px]">
               {sheet.product.images[0] && (
-                <img
-                  onClick={() =>
+                <PhotoCarousel
+                  key={sheet.key}
+                  images={sheet.product.images}
+                  alt={sheet.product.name}
+                  soft={T.soft}
+                  line={T.line}
+                  primary={T.primary}
+                  onView={() =>
                     t({ type: "image_zoom", productId: sheet.product.id, productName: sheet.product.name })
                   }
-                  src={sheet.product.images[0]}
-                  alt={sheet.product.name}
-                  className="w-full rounded-[14px] border object-cover"
-                  style={{
-                    // proporção 3:4 (padrão do catálogo) e corte ancorado no
-                    // TOPO: preenche o quadro sem NUNCA cortar a cabeça (a sobra
-                    // sai por baixo). Fotos no padrão 3:4 não têm corte algum.
-                    aspectRatio: "3/4",
-                    maxHeight: "72dvh",
-                    objectPosition: "center top",
-                    background: T.soft,
-                    borderColor: T.line,
-                  }}
                 />
               )}
               <p className="text-[10px] uppercase font-semibold mt-4 mb-0" style={{ color: T.muted, letterSpacing: ".14em" }}>

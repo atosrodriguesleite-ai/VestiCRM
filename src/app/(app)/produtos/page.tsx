@@ -49,7 +49,7 @@ export default async function ProductsPage() {
     minQuantity: p.minQuantity,
     active: p.active,
     tags: p.tags,
-    images: p.images.map((i) => imageHref(i.id)),
+    images: p.images.map((i) => ({ id: i.id, url: imageHref(i.id) })),
     variants: p.variants.map((v) => ({
       id: v.id,
       color: v.color,

@@ -16,7 +16,17 @@ const patchSchema = z.object({
   minQuantity: z.number().int().positive().optional(),
   tags: z.string().nullable().optional(),
   active: z.boolean().optional(),
-  imageUrl: z.string().min(1).optional(), // troca a foto principal
+  imageUrl: z.string().min(1).optional(), // legado: troca a foto única
+  // galeria completa em ordem (a primeira é a CAPA): itens com `id` são fotos
+  // que já existem (mantidas), itens com `url` são fotos novas (data-URL)
+  images: z
+    .array(
+      z
+        .object({ id: z.string().optional(), url: z.string().optional() })
+        .refine((e) => e.id || e.url)
+    )
+    .max(10)
+    .optional(),
   variantStocks: z
     .array(z.object({ id: z.string().min(1), stock: z.number().int().nonnegative() }))
     .optional(),
@@ -53,12 +63,40 @@ export async function PATCH(
       return NextResponse.json({ error: "Não encontrado" }, { status: 404 });
     }
 
-    const { imageUrl, variantStocks, addVariants, removeVariantIds, ...data } =
-      parsed.data;
+    const {
+      imageUrl,
+      images: imageList,
+      variantStocks,
+      addVariants,
+      removeVariantIds,
+      ...data
+    } = parsed.data;
 
-    // troca da foto principal — apaga e recria para nascer com id NOVO:
-    // /api/img/<id> usa cache imutável, então foto nova precisa de URL nova
-    if (imageUrl) {
+    // galeria completa: a lista enviada É o estado final, na ordem final
+    // (posição 0 = capa). Fotos existentes chegam por id e só têm a ordem
+    // atualizada — o conteúdo não muda, então o cache imutável de
+    // /api/img/<id> continua válido. Fotos fora da lista são removidas.
+    if (imageList) {
+      const keepIds = imageList.flatMap((e) => (e.id ? [e.id] : []));
+      await db.productImage.deleteMany({
+        where: { productId: product.id, id: { notIn: keepIds } },
+      });
+      for (let i = 0; i < imageList.length; i++) {
+        const e = imageList[i];
+        if (e.id) {
+          await db.productImage.updateMany({
+            where: { id: e.id, productId: product.id },
+            data: { order: i },
+          });
+        } else if (e.url) {
+          await db.productImage.create({
+            data: { productId: product.id, url: e.url, order: i },
+          });
+        }
+      }
+    } else if (imageUrl) {
+      // legado: troca da foto principal — apaga e recria para nascer com id
+      // NOVO (/api/img/<id> usa cache imutável; foto nova pede URL nova)
       const first = product.images[0];
       if (first) {
         await db.productImage.delete({ where: { id: first.id } });
