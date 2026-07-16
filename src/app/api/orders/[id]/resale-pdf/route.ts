@@ -13,6 +13,7 @@ import {
   type PDFPage,
   type PDFFont,
 } from "pdf-lib";
+import sharp from "sharp";
 import { db } from "@/lib/db";
 import { requireUser, AuthError } from "@/lib/auth";
 
@@ -27,6 +28,9 @@ import { requireUser, AuthError } from "@/lib/auth";
  * Preferências (margem, arredondar, nome da loja) ficam salvas na ficha do
  * lojista. Rodapé com convite discreto ao AtacadoPro.
  */
+
+// pedidos grandes: converter fotos (WebP → JPEG) leva alguns segundos
+export const maxDuration = 60;
 
 const BLACK = rgb(0.07, 0.07, 0.07);
 const GRAY = rgb(0.4, 0.4, 0.4);
@@ -110,14 +114,23 @@ export async function GET(
     const productIds = [...byProduct.values()]
       .map((p) => p.productId)
       .filter((v): v is string => !!v);
-    const imgs = await db.productImage.findMany({
+    // só a CAPA de cada produto entra no PDF: primeiro descobre qual é (sem
+    // puxar base64), depois busca o conteúdo apenas dessas
+    const imgRows = await db.productImage.findMany({
       where: { productId: { in: productIds } },
+      select: { id: true, productId: true, order: true },
       orderBy: { order: "asc" },
     });
-    const firstImage = new Map<string, string>();
-    for (const img of imgs) {
-      if (!firstImage.has(img.productId)) firstImage.set(img.productId, img.url);
+    const coverId = new Map<string, string>();
+    for (const img of imgRows) {
+      if (!coverId.has(img.productId)) coverId.set(img.productId, img.id);
     }
+    const covers = await db.productImage.findMany({
+      where: { id: { in: [...coverId.values()] } },
+      select: { productId: true, url: true },
+    });
+    const firstImage = new Map<string, string>();
+    for (const img of covers) firstImage.set(img.productId, img.url);
 
     const pdf = await PDFDocument.create();
     const font = await pdf.embedFont(StandardFonts.Helvetica);
@@ -209,14 +222,38 @@ export async function GET(
       const boxY = y + capH;
       page.drawRectangle({ x: boxX, y: boxY, width: cardW, height: imgH, color: PHOTOBG });
 
-      const url = item.productId ? firstImage.get(item.productId) : null;
+      let url = item.productId ? (firstImage.get(item.productId) ?? null) : null;
+      // atalho /api/img/<id> (legado): resolve para a foto real
+      if (url && !url.startsWith("data:")) {
+        const ref = url.match(/^\/api\/img\/([a-z0-9]+)/i);
+        const target = ref
+          ? await db.productImage.findUnique({
+              where: { id: ref[1] },
+              select: { url: true },
+            })
+          : null;
+        url = target?.url.startsWith("data:") ? target.url : null;
+      }
       let embedded = null;
-      if (url && url.startsWith("data:")) {
+      if (url) {
         try {
-          const bytes = Buffer.from(url.split(",")[1], "base64");
-          embedded = url.startsWith("data:image/png")
-            ? await pdf.embedPng(bytes)
-            : await pdf.embedJpg(bytes);
+          let bytes = Buffer.from(url.split(",")[1], "base64");
+          const isPng = url.startsWith("data:image/png");
+          const isJpg = /^data:image\/jpe?g/.test(url);
+          if (!isPng && !isJpg) {
+            // PDF só embute JPEG/PNG; WebP e afins são convertidos na hora
+            // (era isto que deixava produtos "sem foto" no catálogo impresso)
+            bytes = await sharp(bytes).rotate().jpeg({ quality: 85 }).toBuffer();
+          }
+          try {
+            embedded = isPng
+              ? await pdf.embedPng(bytes)
+              : await pdf.embedJpg(bytes);
+          } catch {
+            // último recurso: normaliza qualquer arquivo problemático em JPEG
+            const jpg = await sharp(bytes).rotate().jpeg({ quality: 85 }).toBuffer();
+            embedded = await pdf.embedJpg(jpg);
+          }
         } catch {
           embedded = null;
         }
