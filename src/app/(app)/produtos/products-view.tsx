@@ -185,7 +185,8 @@ export function ProductsView({
                     <img
                       src={p.images[0].url}
                       alt={p.name}
-                      className="w-full h-full object-cover group-hover:scale-[1.03] transition"
+                      // corte ancorado no TOPO: nunca corta a cabeça da modelo
+                      className="w-full h-full object-cover object-top group-hover:scale-[1.03] transition"
                     />
                   ) : (
                     <div className="w-full h-full flex items-center justify-center text-gray-200">
@@ -702,7 +703,7 @@ function PhotoManager({
             key={ph.id ?? `nova-${i}-${ph.url.length}`}
             className="relative aspect-[3/4] rounded-xl overflow-hidden border border-gray-100 bg-gray-50"
           >
-            <img src={ph.url} alt="" className="w-full h-full object-cover" />
+            <img src={ph.url} alt="" className="w-full h-full object-cover object-top" />
             {i === 0 ? (
               <span className="absolute top-1 left-1 bg-brand-600 text-white text-[9px] font-bold rounded-full px-1.5 py-0.5">
                 CAPA
