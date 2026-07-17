@@ -19,6 +19,8 @@ const schema = z.object({
   commissionBase: z.enum(["SUBTOTAL", "TOTAL"]).optional(),
   lowStockThreshold: z.number().int().min(0).max(10000).optional(),
   catalogLogoSize: z.enum(["normal", "grande"]).optional(),
+  // ordem das categorias no catálogo (lista de nomes, na ordem desejada)
+  categoryOrder: z.array(z.string().min(1).max(60)).max(200).optional(),
   // identidade visual do catálogo
   logoUrl: z.string().nullable().optional(),
   catalogPrimary: hexColor.optional(),
@@ -40,7 +42,7 @@ export async function PATCH(req: NextRequest) {
     if (!parsed.success) {
       return NextResponse.json({ error: "Dados inválidos" }, { status: 400 });
     }
-    const data = { ...parsed.data };
+    const { categoryOrder, ...data } = parsed.data;
     if (data.whatsapp) data.whatsapp = data.whatsapp.replace(/\D/g, "");
 
     if (data.slug !== undefined) {
@@ -74,7 +76,12 @@ export async function PATCH(req: NextRequest) {
 
     const updated = await db.company.update({
       where: { id: user.companyId },
-      data,
+      data: {
+        ...data,
+        ...(categoryOrder !== undefined
+          ? { categoryOrder: JSON.stringify(categoryOrder) }
+          : {}),
+      },
     });
     return NextResponse.json({
       id: updated.id,

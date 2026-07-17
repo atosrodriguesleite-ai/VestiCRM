@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import type { Metadata } from "next";
 import { db } from "@/lib/db";
 import { imageHref } from "@/lib/img";
+import { parseCategoryOrder } from "@/lib/categories";
 import { PublicCatalog, type CatalogProduct } from "./public-catalog";
 
 export const dynamic = "force-dynamic";
@@ -80,6 +81,7 @@ export default async function PublicCatalogPage({
       minOrderMode={company.minOrderMode as "NONE" | "PECAS" | "VALOR"}
       minOrderValue={company.minOrderValue}
       products={items}
+      categoryOrder={parseCategoryOrder(company.categoryOrder)}
       logoSize={company.catalogLogoSize as "normal" | "grande"}
       identity={{
         logoUrl: company.logoUrl,

@@ -35,6 +35,7 @@ model Company {
   catalogBg        String  @default("#FFFFFF") // fundo
   catalogFont      String  @default("montserrat") // montserrat | inter | poppins | playfair | lora
   catalogLogoSize  String  @default("normal") // normal | grande (logo grande centralizado no topo)
+  categoryOrder    String  @default("") // ordem das categorias no catálogo (JSON array); vazio = ordem natural
 
   // Lead Intake Engine — configuração de entrada de leads
   intakeDistribution  String  @default("ROUND_ROBIN") // ROUND_ROBIN | FIXED

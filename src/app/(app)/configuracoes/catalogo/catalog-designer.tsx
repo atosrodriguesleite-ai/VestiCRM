@@ -5,7 +5,10 @@
 import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
+  ChevronDown,
+  ChevronUp,
   ExternalLink,
+  ListOrdered,
   Palette,
   Plus,
   Ruler,
@@ -45,6 +48,7 @@ export function CatalogDesigner({
   initial,
   colors: initialColors,
   sizes: initialSizes,
+  categories: initialCategories,
 }: {
   slug: string;
   canEdit: boolean;
@@ -58,6 +62,7 @@ export function CatalogDesigner({
   };
   colors: ColorItem[];
   sizes: SizeItem[];
+  categories: string[];
 }) {
   const router = useRouter();
   const fileRef = useRef<HTMLInputElement>(null);
@@ -77,6 +82,31 @@ export function CatalogDesigner({
   const [newSize, setNewSize] = useState("");
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  // ordem das categorias no catálogo — salva sozinha a cada movimento
+  const [cats, setCats] = useState(initialCategories);
+  const [catState, setCatState] = useState<"idle" | "saving" | "saved" | "erro">("idle");
+
+  async function persistCats(next: string[]) {
+    setCatState("saving");
+    const res = await fetch("/api/company", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ categoryOrder: next }),
+    });
+    setCatState(res.ok ? "saved" : "erro");
+    if (res.ok) setTimeout(() => setCatState("idle"), 1800);
+  }
+
+  function moveCat(i: number, dir: -1 | 1) {
+    setCats((prev) => {
+      const j = i + dir;
+      if (j < 0 || j >= prev.length) return prev;
+      const next = [...prev];
+      [next[i], next[j]] = [next[j], next[i]];
+      void persistCats(next);
+      return next;
+    });
+  }
 
   async function uploadLogo(file: File) {
     // PNG preserva transparência de quem já sobe o logo sem fundo
@@ -568,6 +598,63 @@ export function CatalogDesigner({
               <Plus className="size-4" />
               Adicionar
             </button>
+          </div>
+        )}
+      </Card>
+
+      {/* Ordem das categorias no catálogo */}
+      <Card className="p-5">
+        <div className="flex items-center justify-between mb-1">
+          <h2 className="font-semibold flex items-center gap-2">
+            <ListOrdered className="size-4 text-brand-600" />
+            Ordem das categorias no catálogo
+          </h2>
+          <span className="text-xs font-medium">
+            {catState === "saving" && <span className="text-gray-400">Salvando…</span>}
+            {catState === "saved" && <span className="text-emerald-600">Salvo ✓</span>}
+            {catState === "erro" && <span className="text-rose-600">Não salvou — tente de novo</span>}
+          </span>
+        </div>
+        <p className="text-xs text-gray-500 mb-4">
+          Use as setas para escolher o que aparece primeiro — o menu e as seções
+          do catálogo seguem esta ordem. Categorias criadas depois entram no fim.
+        </p>
+        {cats.length === 0 ? (
+          <p className="text-xs text-gray-400">
+            Cadastre produtos para as categorias aparecerem aqui.
+          </p>
+        ) : (
+          <div className="max-w-md divide-y divide-gray-50 rounded-xl border border-gray-100">
+            {cats.map((cat, i) => (
+              <div key={cat} className="flex items-center gap-2 px-3 py-2">
+                <span className="size-6 shrink-0 rounded-full bg-brand-50 text-brand-700 text-[11px] font-bold flex items-center justify-center">
+                  {i + 1}
+                </span>
+                <span className="flex-1 text-sm font-medium truncate">{cat}</span>
+                {canEdit && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => moveCat(i, -1)}
+                      disabled={i === 0}
+                      title="Subir"
+                      className="size-8 rounded-lg border border-gray-200 flex items-center justify-center text-gray-500 hover:border-brand-300 hover:text-brand-700 transition disabled:opacity-30"
+                    >
+                      <ChevronUp className="size-4" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => moveCat(i, 1)}
+                      disabled={i === cats.length - 1}
+                      title="Descer"
+                      className="size-8 rounded-lg border border-gray-200 flex items-center justify-center text-gray-500 hover:border-brand-300 hover:text-brand-700 transition disabled:opacity-30"
+                    >
+                      <ChevronDown className="size-4" />
+                    </button>
+                  </>
+                )}
+              </div>
+            ))}
           </div>
         )}
       </Card>

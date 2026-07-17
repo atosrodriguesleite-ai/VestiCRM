@@ -23,6 +23,7 @@ import {
 } from "next/font/google";
 import { mixHex, readableOn } from "@/lib/color";
 import { compareSizes } from "@/lib/sizes";
+import { sortCategories } from "@/lib/categories";
 import {
   CatalogTracker,
   getConsent,
@@ -252,6 +253,7 @@ export function PublicCatalog({
   minOrderMode,
   minOrderValue,
   products,
+  categoryOrder = [],
   identity,
   logoSize = "normal",
   customColors,
@@ -265,6 +267,7 @@ export function PublicCatalog({
   minOrderMode: "NONE" | "PECAS" | "VALOR";
   minOrderValue: number;
   products: CatalogProduct[];
+  categoryOrder?: string[];
   identity: CatalogIdentity;
   logoSize?: "normal" | "grande";
   customColors: { name: string; hex: string }[];
@@ -284,9 +287,11 @@ export function PublicCatalog({
   const swatch = makeSwatch(customColors);
   const fontClass = FONT_CLASS[identity.font] ?? FONT_CLASS.montserrat;
 
+  // a ordem das categorias (menu e seções) é escolhida pelo lojista em
+  // Personalizar catálogo; as que ficarem fora da lista vão para o fim
   const categories = useMemo(
-    () => [...new Set(products.map((p) => p.category))],
-    [products]
+    () => sortCategories([...new Set(products.map((p) => p.category))], categoryOrder),
+    [products, categoryOrder]
   );
 
   const cardsByCategory = useMemo(() => {

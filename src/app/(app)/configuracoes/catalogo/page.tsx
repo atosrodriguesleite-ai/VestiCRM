@@ -3,6 +3,7 @@ import { ArrowLeft } from "lucide-react";
 import { requireUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { isAdmin } from "@/lib/scope";
+import { parseCategoryOrder, sortCategories } from "@/lib/categories";
 import { PageHeader } from "@/components/ui";
 import { CatalogDesigner } from "./catalog-designer";
 
@@ -11,7 +12,7 @@ export const dynamic = "force-dynamic";
 export default async function CatalogCustomizePage() {
   const user = await requireUser();
 
-  const [company, colors, sizes] = await Promise.all([
+  const [company, colors, sizes, catRows] = await Promise.all([
     db.company.findUnique({ where: { id: user.companyId } }),
     db.companyColor.findMany({
       where: { companyId: user.companyId },
@@ -21,8 +22,19 @@ export default async function CatalogCustomizePage() {
       where: { companyId: user.companyId },
       orderBy: { order: "asc" },
     }),
+    // mesma consulta do catálogo público, para a lista refletir a ordem real
+    db.product.findMany({
+      where: { companyId: user.companyId, active: true },
+      select: { category: true },
+      orderBy: [{ collection: "desc" }, { name: "asc" }],
+    }),
   ]);
   if (!company) return null;
+
+  const categories = sortCategories(
+    [...new Set(catRows.map((r) => r.category))],
+    parseCategoryOrder(company.categoryOrder)
+  );
 
   return (
     <div className="max-w-5xl mx-auto">
@@ -50,6 +62,7 @@ export default async function CatalogCustomizePage() {
         }}
         colors={colors.map((c) => ({ id: c.id, name: c.name, hex: c.hex }))}
         sizes={sizes.map((s) => ({ id: s.id, name: s.name }))}
+        categories={categories}
       />
     </div>
   );
