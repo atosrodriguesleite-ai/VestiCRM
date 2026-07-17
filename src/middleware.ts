@@ -14,6 +14,7 @@ const PUBLIC_PATHS = [
   "/api/intake",
   "/api/demo", // formulário de demonstração da landing page
   "/api/whatsapp/webhook",
+  "/api/whatsapp/evolution/webhook", // eventos do servidor Evolution (token na URL)
   "/api/track", // Tracking Engine (Inteligência Comercial)
   "/api/catalog/order", // pedido enviado pelo catálogo público
   "/api/img", // fotos de produto (catálogo público carrega daqui)

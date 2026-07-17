@@ -28,6 +28,18 @@ export default async function LojasPage() {
     },
   });
 
+  // comprovantes do termo do WhatsApp sem API + estado da conexão por loja
+  const [consents, connections] = await Promise.all([
+    db.whatsappConsent.findMany({ orderBy: { acceptedAt: "desc" } }),
+    db.commSettings.findMany({
+      select: { companyId: true, evolutionStatus: true, evolutionPhone: true },
+    }),
+  ]);
+  const consentByCompany = new Map(
+    [...consents].reverse().map((c) => [c.companyId, c]) // o mais antigo = 1º aceite
+  );
+  const connByCompany = new Map(connections.map((c) => [c.companyId, c]));
+
   const lojas: Loja[] = companies.map((c) => ({
     id: c.id,
     name: c.name,
@@ -37,6 +49,20 @@ export default async function LojasPage() {
     users: c._count.users,
     customers: c._count.customers,
     orders: c._count.orders,
+    waConsent: (() => {
+      const w = consentByCompany.get(c.id);
+      return w
+        ? {
+            userName: w.userName,
+            userEmail: w.userEmail,
+            acceptedAt: w.acceptedAt.toISOString(),
+            ip: w.ip,
+            termVersion: w.termVersion,
+          }
+        : null;
+    })(),
+    waStatus: connByCompany.get(c.id)?.evolutionStatus ?? "DESCONECTADO",
+    waPhone: connByCompany.get(c.id)?.evolutionPhone ?? null,
   }));
 
   // Resumo da operação comercial da plataforma (leads do site)

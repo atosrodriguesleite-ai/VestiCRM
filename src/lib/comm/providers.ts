@@ -1,5 +1,6 @@
 import type { Channel } from "@prisma/client";
 import type { CommProvider, OutboundPayload, SendResult, ProviderCredentials } from "./types";
+import { evolutionEnv, evoSendText } from "./evolution";
 
 /**
  * Providers da Communication Engine.
@@ -107,6 +108,54 @@ export class CloudApiProvider implements CommProvider {
   }
 }
 
+/**
+ * WhatsApp SEM API oficial — envia pelo número conectado via servidor
+ * Evolution (instância própria da loja). Mídia ainda não é suportada neste
+ * modo: mensagens de mídia caem com erro claro em vez de sumirem.
+ */
+export class EvolutionProvider implements CommProvider {
+  readonly name = "WhatsApp (sem API oficial)";
+  readonly channel: Channel = "WHATSAPP";
+  readonly configured: boolean;
+
+  constructor(private instance: string | null | undefined) {
+    this.configured = Boolean(instance && evolutionEnv().configured);
+  }
+
+  async send(payload: OutboundPayload): Promise<SendResult> {
+    if (!this.configured) {
+      return {
+        ok: false,
+        error:
+          "WhatsApp não conectado. Vá em Comunicação e conecte o número da loja pelo QR Code.",
+      };
+    }
+    if (payload.mediaType && payload.mediaType !== "TEXT") {
+      return {
+        ok: false,
+        error: "Envio de mídia ainda não é suportado na conexão sem API oficial — envie como texto.",
+      };
+    }
+    const res = await evoSendText(
+      this.instance!,
+      payload.to.replace(/\D/g, ""),
+      payload.text ?? ""
+    );
+    if (!res.ok) {
+      return {
+        ok: false,
+        error:
+          res.status === 0
+            ? "Servidor de conexão do WhatsApp fora do ar — tente novamente em instantes."
+            : `O WhatsApp recusou o envio (HTTP ${res.status}). Verifique se o número segue conectado em Comunicação.`,
+      };
+    }
+    const externalId =
+      res.data?.key?.id ?? `evo.${Date.now()}.${Math.random().toString(36).slice(2, 8)}`;
+    return { ok: true, externalId };
+  }
+}
+
 class StructureOnlyProvider implements CommProvider {
   readonly configured: boolean;
   constructor(
@@ -157,9 +206,10 @@ export function resolveProvider(
   creds: ProviderCredentials
 ): CommProvider {
   if (channel === "WHATSAPP") {
-    return activeProvider === "CLOUD_API"
-      ? new CloudApiProvider(creds)
-      : new MockProvider("WHATSAPP");
+    if (activeProvider === "CLOUD_API") return new CloudApiProvider(creds);
+    if (activeProvider === "EVOLUTION")
+      return new EvolutionProvider(creds.evolutionInstance);
+    return new MockProvider("WHATSAPP");
   }
   switch (channel) {
     case "INSTAGRAM":

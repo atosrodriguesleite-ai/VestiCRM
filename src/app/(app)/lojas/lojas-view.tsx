@@ -25,6 +25,16 @@ export type Loja = {
   users: number;
   customers: number;
   orders: number;
+  // WhatsApp sem API: comprovante do aceite do termo + estado da conexão
+  waConsent: {
+    userName: string;
+    userEmail: string;
+    acceptedAt: string;
+    ip: string;
+    termVersion: string;
+  } | null;
+  waStatus: string;
+  waPhone: string | null;
 };
 
 type Created = {
@@ -160,6 +170,9 @@ function NewLojaForm({
           users: 1,
           customers: 0,
           orders: 0,
+          waConsent: null,
+          waStatus: "DESCONECTADO",
+          waPhone: null,
         },
         {
           companyName: companyName.trim(),
@@ -514,6 +527,34 @@ function LojaCard({ loja, catalogDomain }: { loja: Loja; catalogDomain: string |
         <span><b className="text-slate-700 tabular-nums">{loja.customers}</b> clientes</span>
         <span><b className="text-slate-700 tabular-nums">{loja.orders}</b> pedidos</span>
       </div>
+
+      {/* comprovante do termo do WhatsApp sem API (registro permanente) */}
+      <p
+        className="mt-2 text-[11px] leading-snug text-slate-400"
+        title={
+          loja.waConsent
+            ? `IP ${loja.waConsent.ip} · termo v${loja.waConsent.termVersion} · ${loja.waConsent.userEmail}`
+            : undefined
+        }
+      >
+        WhatsApp sem API:{" "}
+        {loja.waConsent ? (
+          <>
+            <span className={loja.waStatus === "CONECTADO" ? "text-emerald-600 font-semibold" : "text-slate-500"}>
+              {loja.waStatus === "CONECTADO"
+                ? `conectado${loja.waPhone ? ` (${loja.waPhone})` : ""}`
+                : "desconectado"}
+            </span>{" "}
+            · termo aceito por {loja.waConsent.userName} em{" "}
+            {new Date(loja.waConsent.acceptedAt).toLocaleString("pt-BR", {
+              day: "2-digit", month: "2-digit", year: "2-digit",
+              hour: "2-digit", minute: "2-digit",
+            })}
+          </>
+        ) : (
+          "termo não aceito"
+        )}
+      </p>
 
       <Button
         onClick={access}

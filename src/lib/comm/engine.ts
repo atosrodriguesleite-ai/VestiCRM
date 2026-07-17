@@ -2,6 +2,7 @@ import { db } from "../db";
 import { decryptSecret } from "../crypto";
 import { intakeLead } from "../intake";
 import { resolveProvider } from "./providers";
+import { checkSendAllowance } from "./evolution";
 import type { ProviderCredentials } from "./types";
 import type {
   Channel,
@@ -43,6 +44,7 @@ async function loadCredentials(companyId: string): Promise<{
       smtpPort: s.smtpPort,
       smtpUser: s.smtpUser,
       smtpPassword: dec(s.smtpPassword),
+      evolutionInstance: s.evolutionInstance,
     },
   };
 }
@@ -120,6 +122,19 @@ export async function sendMessage(input: SendMessageInput): Promise<Message> {
     const started = Date.now();
     const { activeProvider, creds } = await loadCredentials(input.companyId);
     const provider = resolveProvider(conv.channel, activeProvider, creds);
+
+    // conexão sem API oficial: trava anti-banimento (espaçamento + teto/dia)
+    // vale para TODO envio — caixa de entrada, automações e campanhas
+    if (conv.channel === "WHATSAPP" && activeProvider === "EVOLUTION") {
+      const allowance = await checkSendAllowance(input.companyId);
+      if (!allowance.ok) {
+        return db.message.update({
+          where: { id: message.id },
+          data: { status: "FALHOU", error: allowance.error },
+        });
+      }
+    }
+
     const result = await provider.send({
       to: conv.customer.phone,
       text: input.mediaType && input.mediaType !== "TEXT" ? undefined : input.body,

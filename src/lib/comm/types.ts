@@ -44,4 +44,6 @@ export type ProviderCredentials = {
   smtpPort?: number | null;
   smtpUser?: string | null;
   smtpPassword?: string | null;
+  // WhatsApp sem API oficial (Evolution)
+  evolutionInstance?: string | null;
 };

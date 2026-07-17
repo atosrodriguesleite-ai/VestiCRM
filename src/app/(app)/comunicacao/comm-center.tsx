@@ -123,7 +123,12 @@ export function CommCenter({
           </h2>
           <div className="flex items-center gap-2">
             <Badge color={stats.provider === "MOCK" ? "#64748b" : "#059669"}>
-              Provider ativo: {stats.provider === "MOCK" ? "Mock (simulado)" : "Cloud API"}
+              Provider ativo:{" "}
+              {stats.provider === "MOCK"
+                ? "Mock (simulado)"
+                : stats.provider === "EVOLUTION"
+                  ? "WhatsApp sem API oficial"
+                  : "Cloud API"}
             </Badge>
             <Link
               href="/configuracoes/comunicacao"

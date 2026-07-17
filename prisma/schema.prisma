@@ -62,6 +62,7 @@ model Company {
   originRules    OriginRule[]
   catalogColors  CompanyColor[]
   catalogSizes   CompanySize[]
+  waConsents     WhatsappConsent[]
 }
 
 // Biblioteca de cores do lojista: ele cria a tonalidade e dá o nome
@@ -499,7 +500,7 @@ model CommEvent {
 model CommSettings {
   id                 String   @id @default(cuid())
   companyId          String   @unique
-  activeProvider     String   @default("MOCK") // MOCK | CLOUD_API
+  activeProvider     String   @default("MOCK") // MOCK | CLOUD_API | EVOLUTION
   metaAppId          String?
   metaAppSecret      String? // criptografado
   businessManagerId  String?
@@ -515,6 +516,35 @@ model CommSettings {
   smtpUser           String?
   smtpPassword       String? // criptografado
   updatedAt          DateTime @updatedAt
+
+  // WhatsApp SEM API oficial (conexão estilo WhatsApp Web via Evolution)
+  evolutionInstance     String? // nome da instância no servidor Evolution
+  evolutionWebhookToken String? @unique // identifica/autentica o webhook desta loja
+  evolutionStatus       String  @default("DESCONECTADO") // DESCONECTADO | AGUARDANDO_QR | CONECTADO
+  evolutionPhone        String? // número conectado (informativo)
+  // trava de segurança anti-banimento: espaçamento mínimo + teto diário
+  waLastSentAt          DateTime?
+  waSentDate            String? // dia (yyyy-mm-dd) do contador abaixo
+  waSentToday           Int     @default(0)
+}
+
+/// Aceite do termo de uso do WhatsApp sem API oficial — prova de que o
+/// lojista foi informado dos riscos ANTES de conectar. Nunca é apagado.
+model WhatsappConsent {
+  id          String   @id @default(cuid())
+  companyId   String
+  company     Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  userId      String
+  userName    String
+  userEmail   String
+  userRole    String
+  termVersion String
+  termSha     String // hash do texto exibido (prova da versão lida)
+  ip          String
+  userAgent   String
+  acceptedAt  DateTime @default(now())
+
+  @@index([companyId])
 }
 
 // ---------------------------------------------------------------------------

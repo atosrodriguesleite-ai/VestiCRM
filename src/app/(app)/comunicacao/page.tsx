@@ -2,8 +2,10 @@ import { redirect } from "next/navigation";
 import { requireUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { isManagerUp } from "@/lib/scope";
+import { isAdmin } from "@/lib/scope";
 import { PageHeader } from "@/components/ui";
 import { CommCenter, type CommEventItem } from "./comm-center";
+import { WhatsappConnect } from "./whatsapp-connect";
 
 export const dynamic = "force-dynamic";
 
@@ -69,6 +71,7 @@ export default async function CommunicationPage() {
         title="Central de Comunicação"
         subtitle="Monitor da Communication Engine: filas, webhooks, falhas e latência de todos os canais."
       />
+      {isAdmin(user) && <WhatsappConnect canEdit={isAdmin(user)} />}
       <CommCenter
         events={items}
         stats={{
