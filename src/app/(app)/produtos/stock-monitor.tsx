@@ -8,7 +8,7 @@
  */
 
 import { useMemo, useRef, useState } from "react";
-import { AlertTriangle, ChevronDown } from "lucide-react";
+import { AlertTriangle, ChevronDown, Scissors, ShoppingBag } from "lucide-react";
 
 export type LowStockRow = {
   product: string;
@@ -40,6 +40,27 @@ export function StockMonitor({
         .sort((a, b) => a.stock - b.stock),
     [variations, threshold]
   );
+
+  // prioridades de reposição: soma quantas peças FALTAM (limite − estoque)
+  // por COR (direção de compra de tecido) e por MODELO (direção de corte).
+  // Quem tem mais peça faltando vem primeiro; empate decide por nº de variações.
+  const rank = useMemo(() => {
+    const somar = (key: (r: LowStockRow) => string) => {
+      const map = new Map<string, { gap: number; vars: number; zerado: number }>();
+      for (const r of rows) {
+        const k = key(r);
+        const cur = map.get(k) ?? { gap: 0, vars: 0, zerado: 0 };
+        cur.gap += Math.max(0, threshold - r.stock);
+        cur.vars += 1;
+        if (r.stock === 0) cur.zerado += 1;
+        map.set(k, cur);
+      }
+      return [...map.entries()]
+        .map(([name, v]) => ({ name, ...v }))
+        .sort((a, b) => b.gap - a.gap || b.vars - a.vars);
+    };
+    return { cores: somar((r) => r.color), modelos: somar((r) => r.product) };
+  }, [rows, threshold]);
 
   // persiste o limite em segundo plano (sem travar a digitação)
   function persist(value: number) {
@@ -102,6 +123,21 @@ export function StockMonitor({
       </div>
       {open && rows.length > 0 && (
         <div className="px-4 pb-3">
+          {/* Direção de reposição: o que comprar (cor) e o que cortar (modelo) */}
+          <div className="grid md:grid-cols-2 gap-3 mb-3">
+            <PriorityList
+              icon={<ShoppingBag className="size-3.5" />}
+              title="Prioridade de compra — cores"
+              hint="tecido/pano: comece pela cor que mais falta"
+              items={rank.cores}
+            />
+            <PriorityList
+              icon={<Scissors className="size-3.5" />}
+              title="Prioridade de corte — modelos"
+              hint="produção: comece pelo modelo que mais falta"
+              items={rank.modelos}
+            />
+          </div>
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-1.5">
             {rows.map((r, i) => (
               <div
@@ -120,6 +156,63 @@ export function StockMonitor({
             ))}
           </div>
         </div>
+      )}
+    </div>
+  );
+}
+
+/** Lista numerada de prioridades (1º = onde mais falta peça). */
+function PriorityList({
+  icon,
+  title,
+  hint,
+  items,
+}: {
+  icon: React.ReactNode;
+  title: string;
+  hint: string;
+  items: { name: string; gap: number; vars: number; zerado: number }[];
+}) {
+  const [showAll, setShowAll] = useState(false);
+  const visible = showAll ? items : items.slice(0, 5);
+  return (
+    <div className="rounded-xl bg-white border border-amber-100 p-3">
+      <p className="flex items-center gap-1.5 text-xs font-bold text-amber-800 uppercase tracking-wide">
+        {icon}
+        {title}
+      </p>
+      <p className="text-[10px] text-gray-400 mb-2">{hint}</p>
+      <ol className="space-y-1">
+        {visible.map((it, i) => (
+          <li key={it.name} className="flex items-center gap-2 text-xs">
+            <span
+              className={`size-5 shrink-0 rounded-full text-[10px] font-bold flex items-center justify-center ${
+                i === 0
+                  ? "bg-rose-600 text-white"
+                  : i === 1
+                    ? "bg-amber-500 text-white"
+                    : "bg-amber-100 text-amber-800"
+              }`}
+            >
+              {i + 1}
+            </span>
+            <span className="font-semibold truncate flex-1">{it.name}</span>
+            <span className="text-gray-500 tabular-nums shrink-0">
+              faltam <b className="text-gray-800">{it.gap}</b> pç
+              {it.zerado > 0 && (
+                <span className="text-rose-600"> · {it.zerado} esgotada{it.zerado === 1 ? "" : "s"}</span>
+              )}
+            </span>
+          </li>
+        ))}
+      </ol>
+      {items.length > 5 && (
+        <button
+          onClick={() => setShowAll((v) => !v)}
+          className="text-[11px] font-medium text-amber-700 hover:text-amber-900 mt-2 transition"
+        >
+          {showAll ? "Mostrar menos" : `Ver todas (${items.length})`}
+        </button>
       )}
     </div>
   );
