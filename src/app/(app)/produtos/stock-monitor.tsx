@@ -44,6 +44,16 @@ export function StockMonitor({
   // prioridades de reposição: soma quantas peças FALTAM (limite − estoque)
   // por COR (direção de compra de tecido) e por MODELO (direção de corte).
   // Quem tem mais peça faltando vem primeiro; empate decide por nº de variações.
+  //
+  // MODELO agrupa as cores do mesmo corte: em lojas onde cada cor é um
+  // produto ("Baby Look — Branco", "Baby Look — Preto"), o sufixo da cor é
+  // removido e tudo soma no modelo base ("Baby Look") — quem corta, corta
+  // várias cores juntas; a cor importa na compra do tecido, não no corte.
+  const modelName = (r: LowStockRow) => {
+    const esc = r.color.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    return r.product.replace(new RegExp(`\\s*[—–-]\\s*${esc}\\s*$`, "i"), "").trim() || r.product;
+  };
+
   const rank = useMemo(() => {
     const somar = (key: (r: LowStockRow) => string) => {
       const map = new Map<string, { gap: number; vars: number; zerado: number }>();
@@ -59,7 +69,8 @@ export function StockMonitor({
         .map(([name, v]) => ({ name, ...v }))
         .sort((a, b) => b.gap - a.gap || b.vars - a.vars);
     };
-    return { cores: somar((r) => r.color), modelos: somar((r) => r.product) };
+    return { cores: somar((r) => r.color), modelos: somar(modelName) };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rows, threshold]);
 
   // persiste o limite em segundo plano (sem travar a digitação)
@@ -198,7 +209,15 @@ function PriorityList({
             </span>
             <span className="font-semibold truncate flex-1">{it.name}</span>
             <span className="text-gray-500 tabular-nums shrink-0">
-              faltam <b className="text-gray-800">{it.gap}</b> pç
+              {it.gap > 0 ? (
+                <>
+                  faltam <b className="text-gray-800">{it.gap}</b> pç
+                </>
+              ) : (
+                <>
+                  <b className="text-gray-800">{it.vars}</b> no limite
+                </>
+              )}
               {it.zerado > 0 && (
                 <span className="text-rose-600"> · {it.zerado} esgotada{it.zerado === 1 ? "" : "s"}</span>
               )}
