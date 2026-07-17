@@ -8,7 +8,7 @@
  */
 
 import { useMemo, useRef, useState } from "react";
-import { AlertTriangle, ChevronDown, Scissors, ShoppingBag } from "lucide-react";
+import { AlertTriangle, ChevronDown, PackagePlus, ShoppingBag } from "lucide-react";
 
 export type LowStockRow = {
   product: string;
@@ -139,13 +139,13 @@ export function StockMonitor({
             <PriorityList
               icon={<ShoppingBag className="size-3.5" />}
               title="Prioridade de compra — cores"
-              hint="tecido/pano: comece pela cor que mais falta"
+              hint="compras: comece pela cor que mais falta"
               items={rank.cores}
             />
             <PriorityList
-              icon={<Scissors className="size-3.5" />}
-              title="Prioridade de corte — modelos"
-              hint="produção: comece pelo modelo que mais falta"
+              icon={<PackagePlus className="size-3.5" />}
+              title="Prioridade de reposição — modelos"
+              hint="comece pelo modelo que mais falta no estoque"
               items={rank.modelos}
             />
           </div>
