@@ -79,6 +79,27 @@ export const customerTypeLabel: Record<CustomerType, string> = {
   SACOLEIRA: "Sacoleira",
 };
 
+/** Cor da etiqueta de cada canal de origem (identificação num relance). */
+export const originColor: Record<Origin, string> = {
+  WHATSAPP: "#1FA855",
+  CATALOGO_PUBLICO: "#C4622D",
+  INSTAGRAM: "#D6367F",
+  FACEBOOK: "#1877F2",
+  SITE: "#475569",
+  NUVEMSHOP: "#0891B2",
+  BLING: "#059669",
+  MARKETPLACE: "#D97706",
+  INDICACAO: "#0D9488",
+  LOJA_FISICA: "#B45309",
+  TRAFEGO_PAGO: "#7C3AED",
+  GOOGLE: "#4285F4",
+  EVENTO: "#8B5CF6",
+  MANUAL: "#64748B",
+  TELEGRAM: "#0EA5E9",
+  EMAIL: "#64748B",
+  SMS: "#64748B",
+};
+
 export const originLabel: Record<Origin, string> = {
   WHATSAPP: "WhatsApp",
   CATALOGO_PUBLICO: "Catálogo geral",

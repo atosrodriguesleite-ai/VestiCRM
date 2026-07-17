@@ -6,6 +6,7 @@ import { ownedScope } from "@/lib/scope";
 import {
   customerTypeLabel,
   originLabel,
+  originColor,
   formatPhone,
   relativeDays,
 } from "@/lib/format";
@@ -131,7 +132,7 @@ export default async function CustomersPage({
                 </div>
                 <div className="flex flex-wrap gap-1 mt-3">
                   <Badge color="#0ea5e9">{customerTypeLabel[c.type]}</Badge>
-                  <Badge color="#64748b">{originLabel[c.origin]}</Badge>
+                  <Badge color={originColor[c.origin]}>{originLabel[c.origin]}</Badge>
                   {c.tags.slice(0, 2).map((t) => (
                     <Badge key={t.tagId} color={t.tag.color}>
                       {t.tag.name}

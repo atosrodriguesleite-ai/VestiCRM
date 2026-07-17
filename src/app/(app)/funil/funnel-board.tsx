@@ -12,9 +12,10 @@ import {
   ShoppingCart,
   ShoppingBag,
 } from "lucide-react";
-import { brl, relativeDays, dateShort, formatPhone } from "@/lib/format";
+import { brl, relativeDays, dateShort, formatPhone, originLabel, originColor } from "@/lib/format";
 import { orderNumber, orderStatusLabel } from "@/lib/orders";
 import { Avatar, Badge } from "@/components/ui";
+import type { Origin } from "@prisma/client";
 
 export type BoardCard = {
   id: string;
@@ -22,6 +23,7 @@ export type BoardCard = {
   value: number;
   customerId: string;
   customerName: string;
+  origin: Origin;
   phone: string;
   lastInteractionAt: string;
   ownerName: string | null;
@@ -281,15 +283,17 @@ export function FunnelBoard({
                       </div>
                     ) : null}
 
-                    {card.tags.length > 0 && (
-                      <div className="flex flex-wrap gap-1 mt-2">
-                        {card.tags.slice(0, 3).map((t) => (
-                          <Badge key={t.name} color={t.color}>
-                            {t.name}
-                          </Badge>
-                        ))}
-                      </div>
-                    )}
+                    {/* etiqueta do canal de origem sempre visível + tags */}
+                    <div className="flex flex-wrap gap-1 mt-2">
+                      <Badge color={originColor[card.origin]}>
+                        {originLabel[card.origin]}
+                      </Badge>
+                      {card.tags.slice(0, 3).map((t) => (
+                        <Badge key={t.name} color={t.color}>
+                          {t.name}
+                        </Badge>
+                      ))}
+                    </div>
 
                     {card.nextTask && (
                       <p className="flex items-center gap-1.5 text-[11px] text-amber-600 mt-2 truncate">
@@ -388,7 +392,12 @@ function CardDetailModal({
         <div className="flex items-start justify-between gap-2 mb-1">
           <div className="min-w-0">
             <h3 className="font-semibold text-lg truncate">{card.customerName}</h3>
-            <p className="text-xs text-gray-400">{formatPhone(card.phone)}</p>
+            <p className="text-xs text-gray-400">
+              {formatPhone(card.phone)} ·{" "}
+              <span style={{ color: originColor[card.origin] }} className="font-semibold">
+                {originLabel[card.origin]}
+              </span>
+            </p>
           </div>
           <button onClick={onClose} className="text-gray-400 p-1 shrink-0">
             <X className="size-5" />

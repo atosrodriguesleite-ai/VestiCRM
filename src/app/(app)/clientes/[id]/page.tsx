@@ -60,7 +60,8 @@ const deviceLabel: Record<string, string> = {
 };
 import { requireUser } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { ownedScope } from "@/lib/scope";
+import { ownedScope, isManagerUp } from "@/lib/scope";
+import { OwnerSelect } from "./owner-select";
 import {
   brl,
   dateFull,
@@ -132,6 +133,15 @@ export default async function CustomerDetailPage({
   });
 
   if (!customer) notFound();
+
+  // equipe ativa para a troca manual de responsável (gerente/admin)
+  const team = isManagerUp(user)
+    ? await db.user.findMany({
+        where: { companyId: user.companyId, active: true, role: { not: "SUPERADMIN" } },
+        select: { id: true, name: true },
+        orderBy: { name: "asc" },
+      })
+    : [];
 
   // Link rastreado do catálogo para este cliente: quem abrir já entra
   // identificado (?c). Se quem copiou atende clientes (vendedor/gerente),
@@ -288,11 +298,19 @@ export default async function CustomerDetailPage({
           </div>
         )}
 
-        <p className="text-xs text-gray-400 mt-4">
+        <p className="text-xs text-gray-400 mt-4 flex items-center gap-1.5 flex-wrap">
           Vendedor responsável:{" "}
-          <span className="font-medium text-gray-600">
-            {customer.owner?.name ?? "sem responsável"}
-          </span>{" "}
+          {isManagerUp(user) ? (
+            <OwnerSelect
+              customerId={customer.id}
+              ownerId={customer.ownerId}
+              sellers={team.map((t) => ({ id: t.id, name: t.name }))}
+            />
+          ) : (
+            <span className="font-medium text-gray-600">
+              {customer.owner?.name ?? "sem responsável"}
+            </span>
+          )}{" "}
           · Cliente desde {dateFull(customer.createdAt)}
         </p>
       </Card>

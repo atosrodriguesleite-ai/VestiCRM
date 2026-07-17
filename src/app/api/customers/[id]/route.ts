@@ -65,6 +65,22 @@ export async function PATCH(
         }
       }
       data.ownerId = ownerId;
+      // troca de responsável fica registrada na linha do tempo
+      if (ownerId !== customer.ownerId) {
+        const nome = ownerId
+          ? (await db.user.findUnique({ where: { id: ownerId } }))?.name
+          : null;
+        await db.customerEvent.create({
+          data: {
+            companyId: user.companyId,
+            customerId: customer.id,
+            type: "OUTRO",
+            description: nome
+              ? `Responsável alterado para ${nome} (por ${user.name})`
+              : `Responsável removido (por ${user.name})`,
+          },
+        });
+      }
     }
 
     const updated = await db.customer.update({ where: { id }, data });

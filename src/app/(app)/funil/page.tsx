@@ -173,6 +173,7 @@ export default async function FunnelPage({
           value: o.value,
           customerId: o.customerId,
           customerName: o.customer.name,
+          origin: o.customer.origin,
           phone: o.customer.phone,
           lastInteractionAt: o.lastInteractionAt.toISOString(),
           ownerName: o.owner?.name ?? null,
