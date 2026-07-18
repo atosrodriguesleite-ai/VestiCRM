@@ -3,13 +3,6 @@ import {
   PDFDocument,
   StandardFonts,
   rgb,
-  pushGraphicsState,
-  popGraphicsState,
-  moveTo,
-  lineTo,
-  closePath,
-  clip,
-  endPath,
   type PDFPage,
   type PDFFont,
 } from "pdf-lib";
@@ -259,28 +252,15 @@ export async function GET(
         }
       }
       if (embedded) {
-        // "cover": a foto PREENCHE 100% do quadro (sem sobrar borda de fundo).
-        // O excedente é recortado nas bordas; leve viés ao topo para nunca
-        // cortar a cabeça da modelo (mantém rosto/tronco, corta pés/sobra).
-        const scale = Math.max(cardW / embedded.width, imgH / embedded.height);
+        // "contain": a foto aparece INTEIRA no quadro — nunca corta a cabeça
+        // da modelo nem a peça. O que sobrar do quadro fica com o fundo
+        // neutro claro (mesma regra do catálogo online).
+        const scale = Math.min(cardW / embedded.width, imgH / embedded.height);
         const w = embedded.width * scale;
         const h = embedded.height * scale;
-        const overflowV = h - imgH; // sobra vertical (quando a foto é mais alta)
-        const ix = boxX + (cardW - w) / 2; // centralizado na horizontal
-        const iy = boxY - overflowV * 0.68; // topo preservado, corta mais embaixo
-        // recorta ao quadro para a foto não invadir a legenda nem o card vizinho
-        page.pushOperators(
-          pushGraphicsState(),
-          moveTo(boxX, boxY),
-          lineTo(boxX + cardW, boxY),
-          lineTo(boxX + cardW, boxY + imgH),
-          lineTo(boxX, boxY + imgH),
-          closePath(),
-          clip(),
-          endPath()
-        );
+        const ix = boxX + (cardW - w) / 2; // centralizada no quadro
+        const iy = boxY + (imgH - h) / 2;
         page.drawImage(embedded, { x: ix, y: iy, width: w, height: h });
-        page.pushOperators(popGraphicsState());
       } else {
         center(page, "sem foto", boxX + cardW / 2, boxY + imgH / 2, 9, font, SOFT);
       }
