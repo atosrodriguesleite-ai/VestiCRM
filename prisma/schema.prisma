@@ -1247,3 +1247,74 @@ model ProductionSettings {
   occurrenceTypes String @default("[\"Furo\",\"Mancha\",\"Defeito\",\"Falta de largura\",\"Rasgo\",\"Borda ruim\",\"Torção\",\"Outro\"]")
   costItems       String @default("[]") // custos extras padrão [{name, value}] por peça
 }
+
+/// Facção de costura (oficina externa) — nome, contato e preço por peça.
+/// O enviado × devolvido de cada lote alimenta o ranking de facções.
+model SewingFaction {
+  id            String   @id @default(cuid())
+  companyId     String
+  name          String
+  contact       String?
+  pricePerPiece Float    @default(0) // R$ por peça costurada
+  active        Boolean  @default(true)
+  createdAt     DateTime @default(now())
+
+  batches SewingBatch[]
+
+  @@index([companyId])
+}
+
+/// Lote de costura (romaneio): peças saem do estoque de costura pra costura
+/// interna ou pra facção, com etiqueta e conferência de volta. Voltas podem
+/// ser parciais; ao fechar, o que não voltou fica na conta da facção.
+model SewingBatch {
+  id          String    @id @default(cuid())
+  companyId   String
+  code        Int // L-000001
+  kind        String    @default("COSTURA") // COSTURA | CONSERTO
+  destination String    @default("INTERNA") // INTERNA | FACCAO
+  factionId   String?
+  status      String    @default("ENVIADO") // ENVIADO | PARCIAL | FECHADO
+  sentAt      DateTime  @default(now())
+  closedAt    DateTime?
+  notes       String?
+
+  faction SewingFaction?    @relation(fields: [factionId], references: [id])
+  items   SewingBatchItem[]
+
+  @@unique([companyId, code])
+  @@index([companyId, status])
+}
+
+/// Item do lote: um SKU com a quantidade enviada e as voltas acumuladas.
+/// faltantes = enviadas − boas − defeito (apuradas no fechamento).
+model SewingBatchItem {
+  id          String  @id @default(cuid())
+  batchId     String
+  productName String
+  color       String?
+  size        String?
+  sent        Int // peças enviadas
+  good        Int     @default(0) // voltaram boas (já lançadas no estoque)
+  defect      Int     @default(0) // voltaram com defeito
+
+  batch SewingBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
+
+  @@index([batchId])
+}
+
+/// Peças com defeito de costura: descartar, guardar ou mandar consertar.
+model DefectItem {
+  id          String   @id @default(cuid())
+  companyId   String
+  batchId     String? // lote de origem
+  productName String
+  color       String?
+  size        String?
+  pieces      Int
+  status      String   @default("AGUARDANDO") // AGUARDANDO | DESCARTADA | EM_CONSERTO | RESOLVIDA
+  notes       String?
+  createdAt   DateTime @default(now())
+
+  @@index([companyId, status])
+}

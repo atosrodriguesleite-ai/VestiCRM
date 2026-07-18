@@ -2,11 +2,12 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Scissors, Shirt, Layers, BarChart3, Settings2 } from "lucide-react";
+import { Scissors, Shirt, Package, Layers, BarChart3, Settings2 } from "lucide-react";
 
 const ABAS = [
   { href: "/producao/cortes", label: "Cortes", icon: Scissors },
   { href: "/producao/costura", label: "Costura", icon: Shirt },
+  { href: "/producao/lotes", label: "Lotes", icon: Package },
   { href: "/producao/sobras", label: "Sobras", icon: Layers },
   { href: "/producao/dashboard", label: "Dashboard", icon: BarChart3 },
   { href: "/producao/configuracoes", label: "Configurações", icon: Settings2 },

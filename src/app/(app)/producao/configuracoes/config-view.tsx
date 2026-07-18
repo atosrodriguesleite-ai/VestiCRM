@@ -42,18 +42,113 @@ export type TecidoRow = {
 const inputCls =
   "w-full rounded-xl border border-gray-200 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-200";
 
+export type FaccaoConfigRow = {
+  id: string;
+  name: string;
+  contact: string | null;
+  pricePerPiece: number;
+  active: boolean;
+};
+
 export function ProducaoConfigView({
   tecidos,
   ajustes,
+  faccoes,
 }: {
   tecidos: TecidoRow[];
   ajustes: Ajustes;
+  faccoes: FaccaoConfigRow[];
 }) {
   return (
     <div className="space-y-6">
       <Tecidos tecidos={tecidos} />
+      <Faccoes faccoes={faccoes} />
       <Listas ajustes={ajustes} />
     </div>
+  );
+}
+
+/* ------------------------------------------------------------- facções */
+
+function Faccoes({ faccoes }: { faccoes: FaccaoConfigRow[] }) {
+  const router = useRouter();
+  const [f, setF] = useState({ name: "", contact: "", price: "" });
+  const [salvando, setSalvando] = useState(false);
+  const [erro, setErro] = useState("");
+
+  async function criar() {
+    setSalvando(true);
+    setErro("");
+    const res = await fetch("/api/producao/faccoes", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: f.name.trim(),
+        contact: f.contact.trim() || null,
+        pricePerPiece: parseFloat(f.price.replace(",", ".")) || 0,
+      }),
+    });
+    setSalvando(false);
+    if (res.ok) {
+      setF({ name: "", contact: "", price: "" });
+      router.refresh();
+    } else {
+      const d = await res.json().catch(() => ({}));
+      setErro(d.error ?? "Não foi possível salvar.");
+    }
+  }
+
+  async function alterna(fx: FaccaoConfigRow) {
+    await fetch(`/api/producao/faccoes/${fx.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ active: !fx.active }),
+    });
+    router.refresh();
+  }
+
+  return (
+    <Card className="p-5">
+      <h2 className="font-semibold mb-1">Facções de costura</h2>
+      <p className="text-xs text-gray-400 mb-3">
+        Oficinas externas que recebem lotes. O enviado × devolvido de cada uma
+        alimenta o ranking no Dashboard.
+      </p>
+      {faccoes.length > 0 && (
+        <ul className="space-y-1.5 mb-3">
+          {faccoes.map((fx) => (
+            <li key={fx.id} className="flex items-center justify-between gap-2 text-sm text-gray-700 flex-wrap">
+              <span className={fx.active ? "" : "opacity-40 line-through"}>
+                <b>{fx.name}</b>
+                {fx.contact && <span className="text-gray-400 text-xs"> · {fx.contact}</span>}
+                {fx.pricePerPiece > 0 && (
+                  <span className="text-xs text-brand-700"> · R$ {fx.pricePerPiece.toFixed(2).replace(".", ",")}/peça</span>
+                )}
+              </span>
+              <button
+                onClick={() => alterna(fx)}
+                className="text-[11px] text-gray-400 underline underline-offset-2 hover:text-gray-600"
+              >
+                {fx.active ? "desativar" : "reativar"}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      <div className="grid grid-cols-1 sm:grid-cols-[1fr_1fr_110px_auto] gap-2">
+        <input value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} placeholder="Nome da facção" className={inputCls} />
+        <input value={f.contact} onChange={(e) => setF({ ...f, contact: e.target.value })} placeholder="Contato (opcional)" className={inputCls} />
+        <input value={f.price} onChange={(e) => setF({ ...f, price: e.target.value })} inputMode="decimal" placeholder="R$/peça" className={inputCls} />
+        <button
+          onClick={criar}
+          disabled={salvando || !f.name.trim()}
+          className="rounded-xl bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium px-4 py-2.5 transition disabled:opacity-50"
+        >
+          {salvando ? <Loader2 className="size-4 animate-spin inline" /> : "Adicionar"}
+        </button>
+      </div>
+      {erro && <p className="text-sm text-rose-600 mt-2">{erro}</p>}
+    </Card>
   );
 }
 

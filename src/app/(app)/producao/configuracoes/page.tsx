@@ -7,13 +7,17 @@ export const dynamic = "force-dynamic";
 
 export default async function ProducaoConfigPage() {
   const user = await requireUser();
-  const [fabrics, settings] = await Promise.all([
+  const [fabrics, settings, faccoes] = await Promise.all([
     db.fabric.findMany({
       where: { companyId: user.companyId },
       include: { rolls: { orderBy: { arrivedAt: "desc" } } },
       orderBy: { name: "asc" },
     }),
     db.productionSettings.findUnique({ where: { companyId: user.companyId } }),
+    db.sewingFaction.findMany({
+      where: { companyId: user.companyId },
+      orderBy: { name: "asc" },
+    }),
   ]);
 
   const parse = <T,>(s: string | undefined, fallback: T): T => {
@@ -60,7 +64,17 @@ export default async function ProducaoConfigPage() {
         title="Configurações da Produção"
         subtitle="Tecidos, rolos, mesas, operadores, ocorrências e custos — tudo cadastrável, nada fixo."
       />
-      <ProducaoConfigView tecidos={tecidos} ajustes={ajustes} />
+      <ProducaoConfigView
+        tecidos={tecidos}
+        ajustes={ajustes}
+        faccoes={faccoes.map((f) => ({
+          id: f.id,
+          name: f.name,
+          contact: f.contact,
+          pricePerPiece: f.pricePerPiece,
+          active: f.active,
+        }))}
+      />
     </div>
   );
 }

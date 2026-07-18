@@ -16,14 +16,39 @@ const fmtR$ = (n: number) =>
 export default async function ProducaoDashboard() {
   const user = await requireUser();
 
-  const [cortes, sobras] = await Promise.all([
+  const [cortes, sobras, batches] = await Promise.all([
     db.cutTicket.findMany({
       where: { companyId: user.companyId },
       include: { rolls: { include: { roll: { include: { fabric: true } } } } },
       orderBy: { code: "asc" },
     }),
     db.fabricScrap.findMany({ where: { companyId: user.companyId } }),
+    db.sewingBatch.findMany({
+      where: { companyId: user.companyId, destination: "FACCAO" },
+      include: { items: true, faction: true },
+    }),
   ]);
+
+  // ranking de facções: enviado × devolvido × defeito × prazo
+  const porFaccao = new Map<
+    string,
+    { enviadas: number; boas: number; defeito: number; faltantes: number; dias: number[]; preco: number }
+  >();
+  for (const b of batches) {
+    const nome = b.faction?.name ?? "—";
+    const f =
+      porFaccao.get(nome) ??
+      { enviadas: 0, boas: 0, defeito: 0, faltantes: 0, dias: [], preco: b.faction?.pricePerPiece ?? 0 };
+    for (const i of b.items) {
+      f.enviadas += i.sent;
+      f.boas += i.good;
+      f.defeito += i.defect;
+      if (b.status === "FECHADO") f.faltantes += i.sent - i.good - i.defect;
+    }
+    if (b.closedAt) f.dias.push((b.closedAt.getTime() - b.sentAt.getTime()) / 86_400_000);
+    porFaccao.set(nome, f);
+  }
+  const faccoes = [...porFaccao.entries()].sort((a, b) => b[1].enviadas - a[1].enviadas);
 
   const fechados = cortes.filter((c) => c.status === "FECHADO");
   const kgCortados = cortes.reduce((a, c) => a + c.usedKg, 0);
@@ -178,6 +203,60 @@ export default async function ProducaoDashboard() {
                 </div>
               );
             })}
+          </div>
+        </Card>
+      )}
+
+      {faccoes.length > 0 && (
+        <Card className="p-5 mb-6">
+          <h2 className="font-semibold text-sm mb-3">Ranking de facções</h2>
+          <div className="overflow-x-auto thin-scroll">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left text-[11px] uppercase tracking-wide text-gray-400">
+                  <th className="py-1.5 pr-3">Facção</th>
+                  <th className="py-1.5 pr-3">Enviadas</th>
+                  <th className="py-1.5 pr-3">Devolvidas boas</th>
+                  <th className="py-1.5 pr-3">Defeito</th>
+                  <th className="py-1.5 pr-3">Faltantes</th>
+                  <th className="py-1.5 pr-3">Prazo médio</th>
+                  <th className="py-1.5">Custo estimado</th>
+                </tr>
+              </thead>
+              <tbody>
+                {faccoes.map(([nome, f]) => {
+                  const pctBoas = f.enviadas > 0 ? (f.boas / f.enviadas) * 100 : 0;
+                  const prazo =
+                    f.dias.length > 0
+                      ? f.dias.reduce((a, d) => a + d, 0) / f.dias.length
+                      : null;
+                  return (
+                    <tr key={nome} className="border-t border-gray-50">
+                      <td className="py-2 pr-3 font-medium text-gray-700">{nome}</td>
+                      <td className="py-2 pr-3 tabular-nums">{f.enviadas}</td>
+                      <td className="py-2 pr-3">
+                        <b className="text-emerald-700 tabular-nums">{f.boas}</b>{" "}
+                        <span className="text-[11px] text-gray-400">({pctBoas.toFixed(1)}%)</span>
+                      </td>
+                      <td className="py-2 pr-3 tabular-nums text-amber-700">{f.defeito}</td>
+                      <td className="py-2 pr-3">
+                        {f.faltantes > 0 ? (
+                          <b className="text-rose-600 tabular-nums">{f.faltantes}</b>
+                        ) : (
+                          <span className="text-gray-300">0</span>
+                        )}
+                      </td>
+                      <td className="py-2 pr-3 text-gray-500">
+                        {prazo != null ? `${prazo.toFixed(1)} dia(s)` : "—"}
+                      </td>
+                      <td className="py-2 text-gray-500">
+                        {f.preco > 0 ? fmtR$(f.boas * f.preco) : "—"}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
           </div>
         </Card>
       )}
