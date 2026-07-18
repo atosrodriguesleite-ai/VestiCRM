@@ -195,7 +195,6 @@ export async function GET(
 
     let page = pdf.addPage(A4);
     drawHeader(page);
-    drawFooter(page);
 
     let col = 0;
     let y = CONTENT_TOP - cardH;
@@ -204,7 +203,6 @@ export async function GET(
       if (y < CONTENT_BOTTOM) {
         page = pdf.addPage(A4);
         drawHeader(page);
-        drawFooter(page);
         y = CONTENT_TOP - cardH;
         col = 0;
       }
@@ -284,6 +282,9 @@ export async function GET(
         y -= cardH + GAP;
       }
     }
+
+    // marca da plataforma discreta: só no rodapé da ÚLTIMA página
+    drawFooter(page);
 
     const bytes = await pdf.save();
     return new NextResponse(Buffer.from(bytes), {
