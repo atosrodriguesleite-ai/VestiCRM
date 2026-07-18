@@ -332,6 +332,58 @@ export function PublicCatalog({
   const [bagOpen, setBagOpen] = useState(false);
   const [toast, setToast] = useState("");
   const [client, setClient] = useState({ loja: "", nome: "", fone: "" });
+
+  // ---- Sacola persistente: sobrevive a sair do catálogo e voltar ----------
+  // Guardada NO APARELHO do cliente (localStorage), separada por loja e por
+  // campanha (preços diferem). Expira em 7 dias; itens que saíram do catálogo
+  // são descartados na volta. Os dados do cliente também voltam preenchidos.
+  const storeKey = `ap-sacola:${storeSlug}${promo ? `:${promo.slug}` : ""}`;
+  const clientKey = `ap-cliente:${storeSlug}`;
+  const cartLoadedRef = useRef(false);
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(storeKey);
+      if (raw) {
+        const saved = JSON.parse(raw) as { at?: number; cart?: Cart };
+        const fresh = saved.at && Date.now() - saved.at < 7 * 24 * 60 * 60 * 1000;
+        if (fresh && saved.cart) {
+          const validKeys = new Set(allCards.map((c) => c.key));
+          const restored: Cart = {};
+          for (const [key, sizes] of Object.entries(saved.cart)) {
+            if (!validKeys.has(key)) continue;
+            const clean = Object.fromEntries(
+              Object.entries(sizes).filter(
+                ([, q]) => Number.isInteger(q) && (q as number) > 0
+              )
+            );
+            if (Object.keys(clean).length) restored[key] = clean as Record<string, number>;
+          }
+          if (Object.keys(restored).length) setCart(restored);
+        }
+      }
+      const rawClient = localStorage.getItem(clientKey);
+      if (rawClient) {
+        const c = JSON.parse(rawClient) as { loja?: string; nome?: string; fone?: string };
+        setClient({ loja: c.loja ?? "", nome: c.nome ?? "", fone: c.fone ?? "" });
+      }
+    } catch {}
+    cartLoadedRef.current = true;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  useEffect(() => {
+    if (!cartLoadedRef.current) return;
+    try {
+      if (Object.keys(cart).length === 0) localStorage.removeItem(storeKey);
+      else localStorage.setItem(storeKey, JSON.stringify({ at: Date.now(), cart }));
+    } catch {}
+  }, [cart, storeKey]);
+  useEffect(() => {
+    if (!cartLoadedRef.current) return;
+    try {
+      if (client.loja || client.nome || client.fone)
+        localStorage.setItem(clientKey, JSON.stringify(client));
+    } catch {}
+  }, [client, clientKey]);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const sectionRefs = useRef<Record<string, HTMLElement | null>>({});
   const catNavRef = useRef<HTMLDivElement | null>(null);
@@ -596,6 +648,12 @@ export function PublicCatalog({
       if (client.fone) msg += `Telefone: ${client.fone}\n`;
     }
     msg += "\n_Valores sujeitos a confirmação._";
+
+    // pedido enviado: limpa a sacola salva no aparelho (uma visita futura
+    // começa limpa; a sacola na tela permanece até a página fechar)
+    try {
+      localStorage.removeItem(storeKey);
+    } catch {}
 
     // Tracking Engine: conversão + unificação do visitante anônimo
     orderSentRef.current = true;
