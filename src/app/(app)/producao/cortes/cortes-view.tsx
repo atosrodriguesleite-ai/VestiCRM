@@ -38,6 +38,16 @@ export type RollOption = {
   pricePerKg: number;
 };
 
+export type ScrapOption = {
+  id: string;
+  fabricName: string;
+  color: string | null;
+  weightKg: number;
+  estimatedM: number | null;
+  value: number;
+  geometry: string | null;
+};
+
 export type CorteRow = {
   id: string;
   code: number;
@@ -123,10 +133,14 @@ const inputCls =
 export function CortesView({
   cortes,
   rolls,
+  sobras,
+  faccaoMedia,
   settings,
 }: {
   cortes: CorteRow[];
   rolls: RollOption[];
+  sobras: ScrapOption[];
+  faccaoMedia: number | null;
   settings: ProdSettings;
 }) {
   const [novo, setNovo] = useState(false);
@@ -204,10 +218,10 @@ export function CortesView({
       )}
 
       {novo && (
-        <NovoCorteModal rolls={rolls} settings={settings} onClose={() => setNovo(false)} />
+        <NovoCorteModal rolls={rolls} sobras={sobras} settings={settings} onClose={() => setNovo(false)} />
       )}
       {aberto && (
-        <CorteModal corte={aberto} settings={settings} onClose={() => setAberto(null)} />
+        <CorteModal corte={aberto} settings={settings} faccaoMedia={faccaoMedia} onClose={() => setAberto(null)} />
       )}
     </div>
   );
@@ -217,13 +231,16 @@ export function CortesView({
 
 function NovoCorteModal({
   rolls,
+  sobras,
   settings,
   onClose,
 }: {
   rolls: RollOption[];
+  sobras: ScrapOption[];
   settings: ProdSettings;
   onClose: () => void;
 }) {
+  const [sobrasSel, setSobrasSel] = useState<string[]>([]);
   const router = useRouter();
   const [linhasRolo, setLinhasRolo] = useState<{ rollId: string; kg: string }[]>([
     { rollId: rolls[0]?.id ?? "", kg: "" },
@@ -245,12 +262,17 @@ function NovoCorteModal({
   const rolosValidos = linhasRolo
     .map((l) => ({ roll: rolls.find((r) => r.id === l.rollId), kg: parseFloat(l.kg.replace(",", ".")) }))
     .filter((x): x is { roll: RollOption; kg: number } => Boolean(x.roll) && x.kg > 0);
-  const kgTotal = rolosValidos.reduce((a, x) => a + x.kg, 0);
-  const metros = rolosValidos.reduce((a, x) => a + x.kg * x.roll.yieldMPerKg, 0);
+  const sobrasEscolhidas = sobras.filter((x) => sobrasSel.includes(x.id));
+  const kgTotal =
+    rolosValidos.reduce((a, x) => a + x.kg, 0) +
+    sobrasEscolhidas.reduce((a, x) => a + x.weightKg, 0);
+  const metros =
+    rolosValidos.reduce((a, x) => a + x.kg * x.roll.yieldMPerKg, 0) +
+    sobrasEscolhidas.reduce((a, x) => a + (x.estimatedM ?? 0), 0);
   const folhas = metros > 0 && mesaNum > 0 ? Math.floor(metros / mesaNum) : 0;
 
   async function salvar() {
-    if (rolosValidos.length === 0) return;
+    if (rolosValidos.length === 0 && sobrasEscolhidas.length === 0) return;
     setSalvando(true);
     setErro("");
     const res = await fetch("/api/producao/cortes", {
@@ -258,6 +280,7 @@ function NovoCorteModal({
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         rolos: rolosValidos.map((x) => ({ rollId: x.roll.id, kg: x.kg })),
+        sobras: sobrasSel.map((id) => ({ scrapId: id })),
         tableName: mesa || null,
         tableLengthM: mesaNum > 0 ? mesaNum : null,
         operator: operador || null,
@@ -330,6 +353,36 @@ function NovoCorteModal({
             <p className="text-[11px] text-amber-700">
               Nenhum rolo com saldo — cadastre em Configurações.
             </p>
+          )}
+          {sobras.length > 0 && (
+            <div className="mt-2 rounded-xl border border-emerald-100 bg-emerald-50/40 p-2.5">
+              <p className="text-[11px] font-bold text-emerald-800 mb-1">
+                ♻️ Reaproveitar sobra (entra inteira, custo herdado do rolo)
+              </p>
+              <div className="space-y-1 max-h-32 overflow-y-auto thin-scroll">
+                {sobras.map((sb) => (
+                  <label key={sb.id} className="flex items-center gap-2 text-xs text-emerald-900">
+                    <input
+                      type="checkbox"
+                      checked={sobrasSel.includes(sb.id)}
+                      onChange={(e) =>
+                        setSobrasSel(
+                          e.target.checked
+                            ? [...sobrasSel, sb.id]
+                            : sobrasSel.filter((x) => x !== sb.id)
+                        )
+                      }
+                    />
+                    <span className="min-w-0 truncate">
+                      {sb.fabricName}
+                      {sb.color && ` · ${sb.color}`} — {sb.weightKg.toLocaleString("pt-BR")} kg
+                      {sb.geometry && ` · ${sb.geometry.toLowerCase()}`}
+                      <span className="text-emerald-600"> · R$ {sb.value.toFixed(2).replace(".", ",")}</span>
+                    </span>
+                  </label>
+                ))}
+              </div>
+            </div>
           )}
         </div>
 
@@ -433,7 +486,7 @@ function NovoCorteModal({
 
         <button
           onClick={salvar}
-          disabled={salvando || rolosValidos.length === 0}
+          disabled={salvando || (rolosValidos.length === 0 && sobrasEscolhidas.length === 0)}
           className="w-full inline-flex items-center justify-center gap-1.5 rounded-xl bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium px-4 py-3 transition disabled:opacity-50"
         >
           {salvando ? <Loader2 className="size-4 animate-spin" /> : <Scissors className="size-4" />}
@@ -449,10 +502,12 @@ function NovoCorteModal({
 function CorteModal({
   corte: c,
   settings,
+  faccaoMedia,
   onClose,
 }: {
   corte: CorteRow;
   settings: ProdSettings;
+  faccaoMedia: number | null;
   onClose: () => void;
 }) {
   const router = useRouter();
@@ -612,7 +667,7 @@ function CorteModal({
                 </p>
               )}
             </div>
-            <Custos corte={c} busy={busy} onSave={(items) => acao({ action: "custos", items }, "Custos salvos")} />
+            <Custos corte={c} faccaoMedia={faccaoMedia} busy={busy} onSave={(items) => acao({ action: "custos", items }, "Custos salvos")} />
           </>
         )}
 
@@ -841,10 +896,12 @@ function FormFechar({
 
 function Custos({
   corte: c,
+  faccaoMedia,
   busy,
   onSave,
 }: {
   corte: CorteRow;
+  faccaoMedia: number | null;
   busy: boolean;
   onSave: (items: { name: string; value: number }[]) => void;
 }) {
@@ -905,10 +962,30 @@ function Custos({
                 {m.color ? ` · ${m.color}` : ""}
                 {m.size ? ` · ${m.size}` : ""} · {m.pieces} un. ({m.pieceWeightG} g)
               </span>
-              <b>{fmtR$(((m.pieceWeightG ?? 0) / 1000) * kgUtilDe(m.color) + extras)}/peça</b>
+              <b>{fmtR$(((m.pieceWeightG ?? 0) / 1000) * kgUtilDe(m.color) + extras + (faccaoMedia ?? 0))}/peça</b>
             </p>
           ))}
         </div>
+      )}
+      {/* separação pedida: custo SÓ TECIDO × custo COMPLETO */}
+      <div className="grid grid-cols-2 gap-2 mb-2">
+        <div className="rounded-xl bg-gray-50 p-2.5 text-center">
+          <p className="text-[10px] uppercase tracking-wide text-gray-400">Só tecido</p>
+          <p className="text-base font-bold text-gray-800">{fmtR$(tecidoPorPeca)}<span className="text-[10px] font-normal text-gray-400">/peça</span></p>
+        </div>
+        <div className="rounded-xl bg-brand-50 p-2.5 text-center">
+          <p className="text-[10px] uppercase tracking-wide text-brand-400">Completo</p>
+          <p className="text-base font-bold text-brand-700">
+            {fmtR$(tecidoPorPeca + extras + (faccaoMedia ?? 0))}
+            <span className="text-[10px] font-normal text-brand-400">/peça</span>
+          </p>
+        </div>
+      </div>
+      {faccaoMedia != null && (
+        <p className="text-[10.5px] text-gray-400 mb-2 leading-snug">
+          O completo inclui <b>costura de facção: {fmtR$(faccaoMedia)}/peça</b> —
+          média real dos seus lotes fechados (automático).
+        </p>
       )}
       <div className="text-sm text-gray-700 space-y-1">
         <p>
@@ -928,7 +1005,7 @@ function Custos({
         ))}
         <p className="pt-1 border-t border-gray-100">
           Custo industrial:{" "}
-          <b className="text-base text-brand-700">{fmtR$(tecidoPorPeca + extras)}</b>/peça
+          <b className="text-base text-brand-700">{fmtR$(tecidoPorPeca + extras + (faccaoMedia ?? 0))}</b>/peça
         </p>
       </div>
       <div className="flex gap-2 mt-2">

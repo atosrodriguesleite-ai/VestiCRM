@@ -13,6 +13,12 @@ export default async function SobrasPage() {
     orderBy: { createdAt: "desc" },
     take: 500,
   });
+  // genealogia: sobra consumida aponta pro corte que a reaproveitou
+  const destinos = await db.cutTicket.findMany({
+    where: { id: { in: sobras.map((s) => s.usedInCutId).filter((v): v is string => Boolean(v)) } },
+    select: { id: true, code: true },
+  });
+  const codePorCorte = new Map(destinos.map((d) => [d.id, d.code]));
 
   const rows: SobraRow[] = sobras.map((s) => ({
     id: s.id,
@@ -27,6 +33,7 @@ export default async function SobrasPage() {
     quality: s.quality,
     status: s.status,
     corteCode: s.cut?.code ?? null,
+    usadaNoCorte: s.usedInCutId ? codePorCorte.get(s.usedInCutId) ?? null : null,
     notes: s.notes,
     createdAt: s.createdAt.toISOString(),
   }));

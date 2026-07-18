@@ -116,8 +116,17 @@ export async function PATCH(
     }
     const a = parsed.data;
 
+    // sobras consumidas como matéria-prima deste corte (genealogia)
+    const sobrasUsadas = await db.fabricScrap.findMany({
+      where: { usedInCutId: cut.id },
+    });
     const dom = roloDominante(cut.rolls);
-    const cores = [...new Set(cut.rolls.map((r) => r.roll.color))];
+    const cores = [
+      ...new Set([
+        ...cut.rolls.map((r) => r.roll.color),
+        ...sobrasUsadas.map((s) => s.color).filter((c): c is string => Boolean(c)),
+      ]),
+    ];
     // contexto do corte pro motor de previsão (tecido dominante; cor só
     // quando o corte inteiro é de uma cor)
     const ctx = {
@@ -130,6 +139,7 @@ export async function PATCH(
       gradeInfo: cut.gradeInfo,
       tableName: cut.tableName,
       operator: cut.operator,
+      geometry: sobrasUsadas[0]?.geometry ?? null,
     };
     // enfesto proporcional: usa a proporção do peso pedido sobre o planejado
     const enfestoDe = (kg: number) =>
@@ -354,9 +364,16 @@ async function fechaCorte(
     sheets: number | null;
   }
 ) {
+  // rolos + sobras consumidas (a sobra herda o custo do rolo original)
+  const sobrasDoCorte = await db.fabricScrap.findMany({
+    where: { usedInCutId: cut.id },
+    select: { value: true },
+  });
   const fabricCost =
     Math.round(
-      cut.rolls.reduce((a, r) => a + r.plannedKg * r.roll.pricePerKg, 0) * 100
+      (cut.rolls.reduce((a, r) => a + r.plannedKg * r.roll.pricePerKg, 0) +
+        sobrasDoCorte.reduce((a, s) => a + s.value, 0)) *
+        100
     ) / 100;
 
   let extras: ItemCusto[] = [];
@@ -513,13 +530,17 @@ export async function DELETE(
       );
     }
     await db.$transaction(async (tx) => {
-      // devolve o peso reservado a CADA rolo
+      // devolve o peso reservado a CADA rolo e libera as sobras usadas
       for (const r of cut.rolls) {
         await tx.fabricRoll.update({
           where: { id: r.rollId },
           data: { remainingKg: { increment: r.plannedKg } },
         });
       }
+      await tx.fabricScrap.updateMany({
+        where: { usedInCutId: cut.id },
+        data: { status: "DISPONIVEL", usedInCutId: null },
+      });
       await tx.cutTicket.delete({ where: { id: cut.id } });
     });
     return NextResponse.json({ ok: true });

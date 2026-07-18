@@ -18,8 +18,11 @@ const schema = z.object({
         kg: z.number().positive().max(10000),
       })
     )
-    .min(1)
-    .max(15),
+    .max(15)
+    .default([]),
+  // sobras usadas como matéria-prima (consumidas inteiras — genealogia:
+  // rolo → corte → sobra → corte novo, com custo herdado do rolo original)
+  sobras: z.array(z.object({ scrapId: z.string().min(1) })).max(15).default([]),
   date: z.string().optional(),
   operator: z.string().max(80).nullable().optional(),
   tableName: z.string().max(80).nullable().optional(),
@@ -38,6 +41,12 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Dados inválidos" }, { status: 400 });
     }
     const d = parsed.data;
+    if (d.rolos.length === 0 && d.sobras.length === 0) {
+      return NextResponse.json(
+        { error: "Escolha ao menos um rolo ou uma sobra" },
+        { status: 400 }
+      );
+    }
 
     // não aceita o mesmo rolo repetido na lista
     const ids = d.rolos.map((r) => r.rollId);
@@ -68,9 +77,34 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    const plannedKg = Math.round(d.rolos.reduce((a, r) => a + r.kg, 0) * 1000) / 1000;
+    // sobras: só disponíveis; entram inteiras (o custo herda o rolo original)
+    const scrapIds = [...new Set(d.sobras.map((s) => s.scrapId))];
+    const scraps = await db.fabricScrap.findMany({
+      where: { id: { in: scrapIds }, companyId: user.companyId },
+    });
+    if (scraps.length !== scrapIds.length) {
+      return NextResponse.json({ error: "Sobra não encontrada" }, { status: 404 });
+    }
+    const indisponivel = scraps.find((s) => s.status !== "DISPONIVEL" && s.status !== "RESERVADA");
+    if (indisponivel) {
+      return NextResponse.json(
+        { error: `A sobra de ${indisponivel.fabricName} não está mais disponível` },
+        { status: 409 }
+      );
+    }
+
+    const kgSobras = scraps.reduce((a, s) => a + s.weightKg, 0);
+    const plannedKg =
+      Math.round((d.rolos.reduce((a, r) => a + r.kg, 0) + kgSobras) * 1000) / 1000;
     const enfesto = calcularEnfestoRolos(
-      d.rolos.map((r) => ({ kg: r.kg, yieldMPerKg: byId.get(r.rollId)!.fabric.yieldMPerKg })),
+      [
+        ...d.rolos.map((r) => ({ kg: r.kg, yieldMPerKg: byId.get(r.rollId)!.fabric.yieldMPerKg })),
+        // sobra: usa os metros estimados dela (yield implícito)
+        ...scraps.map((s) => ({
+          kg: s.weightKg,
+          yieldMPerKg: s.estimatedM && s.weightKg > 0 ? s.estimatedM / s.weightKg : 0,
+        })),
+      ],
       d.tableLengthM
     );
 
@@ -87,7 +121,7 @@ export async function POST(req: NextRequest) {
           data: { remainingKg: { decrement: r.kg } },
         });
       }
-      return tx.cutTicket.create({
+      const novo = await tx.cutTicket.create({
         data: {
           companyId: user.companyId,
           code: (last?.code ?? 0) + 1,
@@ -102,11 +136,20 @@ export async function POST(req: NextRequest) {
           lengthM: enfesto.lengthM,
           sheets: enfesto.sheets,
           notes: d.notes ?? null,
+          sourceScrapId: scrapIds[0] ?? null, // genealogia: sobra → corte novo
           rolls: {
             create: d.rolos.map((r) => ({ rollId: r.rollId, plannedKg: r.kg })),
           },
         },
       });
+      // sobras consumidas apontam pro corte novo (genealogia rastreável)
+      if (scrapIds.length) {
+        await tx.fabricScrap.updateMany({
+          where: { id: { in: scrapIds } },
+          data: { status: "CONSUMIDA", usedInCutId: novo.id },
+        });
+      }
+      return novo;
     });
 
     return NextResponse.json(cut, { status: 201 });

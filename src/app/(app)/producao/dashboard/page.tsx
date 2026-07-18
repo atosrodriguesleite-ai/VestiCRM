@@ -1,6 +1,7 @@
 import { requireUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { PageHeader, Card } from "@/components/ui";
+import { SimuladorCompra } from "./simulador";
 
 export const dynamic = "force-dynamic";
 
@@ -13,21 +14,58 @@ const fmtR$ = (n: number) =>
  * produção, eficiência (previsto × real, erro médio caindo), sobras (R$
  * parado + economia do reaproveitamento) e custos por peça/tecido.
  */
-export default async function ProducaoDashboard() {
+export default async function ProducaoDashboard({
+  searchParams,
+}: {
+  searchParams: Promise<{ de?: string; ate?: string }>;
+}) {
   const user = await requireUser();
+  const { de, ate } = await searchParams;
+  // período opcional (De/Até) — padrão: histórico completo
+  const desde = de ? new Date(`${de}T00:00:00`) : null;
+  const fim = ate ? new Date(`${ate}T23:59:59`) : null;
+  const periodo = {
+    ...(desde ? { gte: desde } : {}),
+    ...(fim ? { lte: fim } : {}),
+  };
+  const temPeriodo = Boolean(desde || fim);
 
-  const [cortes, sobras, batches] = await Promise.all([
+  const [cortes, sobras, batches, tecidosList] = await Promise.all([
     db.cutTicket.findMany({
-      where: { companyId: user.companyId },
+      where: { companyId: user.companyId, ...(temPeriodo ? { date: periodo } : {}) },
       include: { rolls: { include: { roll: { include: { fabric: true } } } } },
       orderBy: { code: "asc" },
     }),
-    db.fabricScrap.findMany({ where: { companyId: user.companyId } }),
+    db.fabricScrap.findMany({
+      where: { companyId: user.companyId, ...(temPeriodo ? { createdAt: periodo } : {}) },
+    }),
     db.sewingBatch.findMany({
-      where: { companyId: user.companyId, destination: "FACCAO" },
+      where: {
+        companyId: user.companyId,
+        destination: "FACCAO",
+        ...(temPeriodo ? { sentAt: periodo } : {}),
+      },
       include: { items: true, faction: true },
     }),
+    db.fabric.findMany({
+      where: { companyId: user.companyId, active: true },
+      select: { id: true, name: true },
+      orderBy: { name: "asc" },
+    }),
   ]);
+
+  // custo médio real da facção no período (peças boas × preço/peça)
+  let boasFac = 0;
+  let custoFac = 0;
+  for (const b of batches) {
+    const preco = b.faction?.pricePerPiece ?? 0;
+    if (preco <= 0 || b.status !== "FECHADO") continue;
+    for (const i of b.items) {
+      boasFac += i.good;
+      custoFac += i.good * preco;
+    }
+  }
+  const faccaoMedia = boasFac > 0 ? custoFac / boasFac : null;
 
   // ranking de facções: enviado × devolvido × defeito × prazo
   const porFaccao = new Map<
@@ -88,6 +126,10 @@ export default async function ProducaoDashboard() {
 
   // custo médio por peça (cortes fechados com custo)
   const comCusto = fechados.filter((c) => c.costPerPiece != null && (c.piecesTotal ?? 0) > 0);
+  const custoTecidoMedio =
+    fechados.length > 0 && pecas > 0
+      ? fechados.reduce((a, c) => a + c.fabricCost, 0) / Math.max(pecas, 1)
+      : null;
   const custoMedio =
     comCusto.length > 0
       ? comCusto.reduce((a, c) => a + c.costPerPiece! * c.piecesTotal!, 0) /
@@ -125,6 +167,28 @@ export default async function ProducaoDashboard() {
         subtitle="Cada corte fechado alimenta o motor — acompanhe a precisão subindo."
       />
 
+      {/* período: simples — dois campos e pronto */}
+      <form className="flex items-end gap-2 flex-wrap mb-5">
+        <label className="block text-xs font-medium text-gray-500">
+          De
+          <input type="date" name="de" defaultValue={de ?? ""} className="block mt-1 rounded-xl border border-gray-200 px-3 py-2 text-sm" />
+        </label>
+        <label className="block text-xs font-medium text-gray-500">
+          Até
+          <input type="date" name="ate" defaultValue={ate ?? ""} className="block mt-1 rounded-xl border border-gray-200 px-3 py-2 text-sm" />
+        </label>
+        <button className="rounded-xl border border-gray-200 hover:border-brand-300 text-gray-600 text-sm font-medium px-4 py-2 transition">
+          Aplicar
+        </button>
+        {temPeriodo && (
+          <a href="/producao/dashboard" className="text-xs text-gray-400 underline underline-offset-2 pb-2.5">
+            limpar (ver tudo)
+          </a>
+        )}
+      </form>
+
+      <SimuladorCompra tecidos={tecidosList} />
+
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
         <Stat titulo="Quilos cortados" valor={fmtKg(kgCortados)} sub={`${cortes.length} corte(s)`} />
         <Stat titulo="Peças produzidas" valor={String(pecas)} sub={`${fechados.length} corte(s) fechados`} />
@@ -151,9 +215,22 @@ export default async function ProducaoDashboard() {
           tom="emerald"
         />
         <Stat
-          titulo="Custo médio por peça"
-          valor={custoMedio != null ? fmtR$(custoMedio) : "—"}
-          sub={custoMedio != null ? "tecido + custos extras" : "feche cortes com custos"}
+          titulo="Custo SÓ TECIDO por peça"
+          valor={custoTecidoMedio != null ? fmtR$(custoTecidoMedio) : "—"}
+          sub="apenas o pano, sem extras"
+        />
+        <Stat
+          titulo="Custo COMPLETO por peça"
+          valor={
+            custoMedio != null
+              ? fmtR$(custoMedio + (faccaoMedia ?? 0))
+              : "—"
+          }
+          sub={
+            faccaoMedia != null
+              ? `tecido + extras + facção real (${fmtR$(faccaoMedia)})`
+              : "tecido + custos extras"
+          }
         />
         <Stat
           titulo="Precisão do motor"

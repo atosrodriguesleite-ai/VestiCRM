@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic";
 export default async function CortesPage() {
   const user = await requireUser();
 
-  const [cortes, rolls, settings] = await Promise.all([
+  const [cortes, rolls, settings, sobrasDisp, sobrasUsadas, lotesFaccao] = await Promise.all([
     db.cutTicket.findMany({
       where: { companyId: user.companyId },
       include: {
@@ -26,7 +26,39 @@ export default async function CortesPage() {
       orderBy: { arrivedAt: "desc" },
     }),
     db.productionSettings.findUnique({ where: { companyId: user.companyId } }),
+    db.fabricScrap.findMany({
+      where: { companyId: user.companyId, status: "DISPONIVEL", weightKg: { gt: 0 } },
+      orderBy: { createdAt: "desc" },
+      take: 100,
+    }),
+    db.fabricScrap.findMany({
+      where: { companyId: user.companyId, usedInCutId: { not: null } },
+    }),
+    db.sewingBatch.findMany({
+      where: { companyId: user.companyId, destination: "FACCAO", status: "FECHADO" },
+      include: { items: true, faction: true },
+    }),
   ]);
+
+  // custo médio REAL da facção (peças boas × preço/peça dos lotes fechados)
+  let boasFaccao = 0;
+  let custoFaccao = 0;
+  for (const b of lotesFaccao) {
+    const preco = b.faction?.pricePerPiece ?? 0;
+    if (preco <= 0) continue;
+    for (const i of b.items) {
+      boasFaccao += i.good;
+      custoFaccao += i.good * preco;
+    }
+  }
+  const faccaoMedia = boasFaccao > 0 ? custoFaccao / boasFaccao : null;
+
+  const sobrasPorCorte = new Map<string, typeof sobrasUsadas>();
+  for (const s of sobrasUsadas) {
+    const arr = sobrasPorCorte.get(s.usedInCutId!) ?? [];
+    arr.push(s);
+    sobrasPorCorte.set(s.usedInCutId!, arr);
+  }
 
   const parse = <T,>(s: string | undefined, fallback: T): T => {
     try {
@@ -79,12 +111,21 @@ export default async function CortesPage() {
       fabricName: tecidos.join(" + ") || "—",
       fabricColor:
         cores.length <= 2 ? cores.join(", ") || "—" : `${cores.slice(0, 2).join(", ")} +${cores.length - 2}`,
-      rolos: c.rolls.map((r) => ({
-        fabricName: r.roll.fabric.name,
-        color: r.roll.color,
-        kg: r.plannedKg,
-        pricePerKg: r.roll.pricePerKg,
-      })),
+      rolos: [
+        ...c.rolls.map((r) => ({
+          fabricName: r.roll.fabric.name,
+          color: r.roll.color,
+          kg: r.plannedKg,
+          pricePerKg: r.roll.pricePerKg,
+        })),
+        // sobras consumidas entram como material (custo herdado do rolo)
+        ...(sobrasPorCorte.get(c.id) ?? []).map((s) => ({
+          fabricName: `${s.fabricName} (sobra)`,
+          color: s.color ?? "—",
+          kg: s.weightKg,
+          pricePerKg: s.weightKg > 0 ? s.value / s.weightKg : 0,
+        })),
+      ],
       occurrences: c.occurrences.map((o) => ({
         id: o.id,
         type: o.type,
@@ -121,7 +162,21 @@ export default async function CortesPage() {
         title="Cortes"
         subtitle="Cada corte pode ter vários rolos (cores) e vários modelos — e cada corte fechado ensina o motor de projeção."
       />
-      <CortesView cortes={rows} rolls={rollOptions} settings={prodSettings} />
+      <CortesView
+        cortes={rows}
+        rolls={rollOptions}
+        sobras={sobrasDisp.map((s) => ({
+          id: s.id,
+          fabricName: s.fabricName,
+          color: s.color,
+          weightKg: s.weightKg,
+          estimatedM: s.estimatedM,
+          value: s.value,
+          geometry: s.geometry,
+        }))}
+        faccaoMedia={faccaoMedia}
+        settings={prodSettings}
+      />
     </div>
   );
 }

@@ -24,6 +24,7 @@ export type SobraRow = {
   quality: string | null;
   status: string;
   corteCode: number | null;
+  usadaNoCorte: number | null;
   notes: string | null;
   createdAt: string;
 };
@@ -113,6 +114,11 @@ export function SobrasView({ sobras }: { sobras: SobraRow[] }) {
                     {s.corteCode != null && (
                       <span className="text-[11px] text-gray-400 font-mono font-normal">
                         {"  "}corte #{String(s.corteCode).padStart(6, "0")}
+                      </span>
+                    )}
+                    {s.usadaNoCorte != null && (
+                      <span className="text-[11px] text-emerald-600 font-mono font-normal">
+                        {"  "}♻️ → corte #{String(s.usadaNoCorte).padStart(6, "0")}
                       </span>
                     )}
                   </p>
