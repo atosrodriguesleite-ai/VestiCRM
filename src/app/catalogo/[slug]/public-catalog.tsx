@@ -728,13 +728,14 @@ export function PublicCatalog({
           // o logo ocupa a largura e a altura acompanha, sem sobra de fundo.
           // Layout em flex com espaçador à esquerda (= largura da sacola) para o
           // logo centralizar sem NUNCA sobrepor o botão da sacola.
-          <div className="max-w-[680px] lg:max-w-[1200px] mx-auto px-[18px] py-3 flex items-center gap-3">
+          <div className="max-w-[680px] lg:max-w-[1200px] mx-auto px-[18px] py-3 lg:py-2.5 flex items-center gap-3">
             <span className="w-[46px] shrink-0" aria-hidden />
+            {/* celular: logo grande (160px). Computador: cabeçalho compacto
+                (96px) — em tela larga o logo alto empurrava tudo pra baixo. */}
             <img
               src={identity.logoUrl}
               alt={storeName}
-              className="flex-1 min-w-0 object-contain"
-              style={{ maxHeight: 160 }}
+              className="flex-1 min-w-0 object-contain max-h-[160px] lg:max-h-[96px]"
             />
             <button
               onClick={openBag}
@@ -806,15 +807,27 @@ export function PublicCatalog({
         </div>
       )}
 
-      {/* COMO FUNCIONA — passo a passo visual (orienta o cliente final) */}
+      {/* COMO FUNCIONA — passo a passo visual (orienta o cliente final).
+          Celular: 3 passos dividindo a largura (como sempre foi).
+          Computador: linha compacta e centralizada com setas (1 › 2 › 3) —
+          esticar os passos na tela larga deixava buracos sem sentido. */}
       <section className="max-w-[680px] lg:max-w-[1200px] mx-auto px-[18px] pt-2.5 pb-2">
-        <div className="flex items-center gap-2 sm:gap-3">
+        <div className="flex items-center gap-2 sm:gap-3 lg:justify-center lg:gap-3.5">
           {[
             { n: 1, label: "Escolha as peças" },
             { n: 2, label: "Monte a sacola" },
             { n: 3, label: "Envie no WhatsApp" },
           ].map((s) => (
-            <div key={s.n} className="flex items-center gap-2 flex-1 min-w-0">
+            <div key={s.n} className="flex items-center gap-2 flex-1 lg:flex-none min-w-0">
+              {s.n > 1 && (
+                <span
+                  className="hidden lg:inline text-sm font-bold mr-1.5"
+                  style={{ color: T.muted }}
+                  aria-hidden
+                >
+                  ›
+                </span>
+              )}
               <span
                 className="shrink-0 size-[22px] rounded-full flex items-center justify-center text-[12px] font-bold"
                 style={{ background: T.primary, color: T.secondary }}
@@ -832,7 +845,7 @@ export function PublicCatalog({
         </div>
         {tagline && (
           <p
-            className="mt-1.5 text-[11px] font-medium leading-tight"
+            className="mt-1.5 text-[11px] font-medium leading-tight lg:text-center"
             style={{ color: T.muted }}
           >
             {tagline}
@@ -1074,12 +1087,12 @@ export function PublicCatalog({
         </div>
       </footer>
 
-      {/* BARRA FIXA */}
+      {/* BARRA FIXA — celular/tablet: barra cheia no rodapé (como sempre) */}
       <div
-        className="fixed inset-x-0 bottom-0 z-20 border-t"
+        className="lg:hidden fixed inset-x-0 bottom-0 z-20 border-t"
         style={{ background: T.bg, borderColor: T.line, padding: "12px 18px calc(12px + env(safe-area-inset-bottom,0))" }}
       >
-        <div className="max-w-[680px] lg:max-w-[1200px] mx-auto">
+        <div className="max-w-[680px] mx-auto">
           <button
             onClick={totalPieces > 0 ? sendOrder : openBag}
             className="w-full flex items-center justify-center gap-[9px] rounded-[14px] p-4 text-[15px] font-bold active:scale-[0.985] transition"
@@ -1097,6 +1110,27 @@ export function PublicCatalog({
             )}
           </button>
         </div>
+      </div>
+
+      {/* COMPUTADOR: botão flutuante discreto no canto — não cobre o catálogo;
+          fica levemente translúcido e ganha destaque ao passar o mouse */}
+      <div className="hidden lg:block fixed right-6 bottom-6 z-20">
+        <button
+          onClick={totalPieces > 0 ? sendOrder : openBag}
+          className="flex items-center gap-2.5 rounded-full pl-4 pr-5 py-3.5 text-[14px] font-bold shadow-xl opacity-75 hover:opacity-100 hover:scale-[1.04] active:scale-[0.98] transition-all"
+          style={{ background: T.primary, color: T.secondary, letterSpacing: ".01em" }}
+        >
+          <WaIcon className="size-5" />
+          Enviar pedido
+          {totalPieces > 0 && (
+            <span
+              className="inline-flex items-center justify-center min-w-[22px] h-[22px] px-[7px] rounded-xl text-xs font-extrabold"
+              style={{ background: T.secondary, color: T.primary }}
+            >
+              {totalPieces}
+            </span>
+          )}
+        </button>
       </div>
 
       {/* CONSENTIMENTO (LGPD) — cookies/rastreamento opcionais */}
