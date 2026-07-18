@@ -6,11 +6,26 @@
  * Conectar = autorizar o app na Nuvemshop (2 cliques por lá).
  */
 
-import { useCallback, useEffect, useState } from "react";
-import { CheckCircle2, Loader2, Power, RefreshCw, ShoppingCart } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  CheckCircle2,
+  FlaskConical,
+  Loader2,
+  Power,
+  RefreshCw,
+  ShoppingCart,
+  Upload,
+} from "lucide-react";
 import { Card } from "@/components/ui";
 
 type Pendencia = { produtoNs: string; cor: string; tamanho: string; sku: string | null };
+type Simulacao = {
+  produtosNs: number;
+  variacoesNs: number;
+  casariam: number;
+  criariam: string[];
+  pendencias: Pendencia[];
+};
 type Estado = {
   serverConfigured: boolean;
   connected: boolean;
@@ -142,28 +157,145 @@ export function NuvemshopConnect() {
         </div>
       )}
       {estado.connected && (estado.report?.pendencias?.length ?? 0) > 0 && (
-        <div className="mt-2 rounded-xl border border-amber-200 bg-amber-50/70 p-3">
-          <p className="text-xs font-bold text-amber-800 mb-1.5">
-            ⚠️ Variações da Nuvemshop que o sistema NÃO conseguiu casar sozinho:
+        <ListaPendencias
+          pendencias={estado.report!.pendencias!}
+          titulo="⚠️ Variações da Nuvemshop que o sistema NÃO conseguiu casar sozinho:"
+          rodape="Como resolver: em Produtos, use o botão SKUs (ou abra a peça) e preencha o SKU da variação com o SKU mostrado acima — ou deixe os nomes de cor/tamanho iguais nos dois lados. Depois toque em Sincronizar agora."
+        />
+      )}
+
+      <SimuladorPreConexao />
+    </Card>
+  );
+}
+
+function ListaPendencias({
+  pendencias,
+  titulo,
+  rodape,
+}: {
+  pendencias: Pendencia[];
+  titulo: string;
+  rodape: string;
+}) {
+  return (
+    <div className="mt-2 rounded-xl border border-amber-200 bg-amber-50/70 p-3">
+      <p className="text-xs font-bold text-amber-800 mb-1.5">{titulo}</p>
+      <ul className="space-y-1 max-h-40 overflow-y-auto thin-scroll">
+        {pendencias.map((p, i) => (
+          <li key={i} className="text-xs text-amber-900">
+            • <b>{p.produtoNs}</b> — {p.cor} · {p.tamanho}
+            {p.sku && (
+              <span className="text-amber-700"> (SKU na Nuvemshop: <b>{p.sku}</b>)</span>
+            )}
+          </li>
+        ))}
+      </ul>
+      <p className="text-[11px] text-amber-700 mt-2 leading-snug">{rodape}</p>
+    </div>
+  );
+}
+
+/**
+ * Teste ANTES de conectar: o lojista exporta a planilha de produtos da
+ * Nuvemshop e sobe aqui — o sistema mostra o que casaria, o que entraria
+ * novo e as pendências, sem criar nem alterar nada.
+ */
+function SimuladorPreConexao() {
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [rodando, setRodando] = useState(false);
+  const [erro, setErro] = useState("");
+  const [sim, setSim] = useState<Simulacao | null>(null);
+
+  async function processar(file: File) {
+    setRodando(true);
+    setErro("");
+    setSim(null);
+    try {
+      const csv = await file.text();
+      const res = await fetch("/api/nuvemshop/simular", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ csv }),
+      });
+      const d = await res.json().catch(() => ({}));
+      if (res.ok) setSim(d as Simulacao);
+      else setErro(d.error ?? "Não foi possível simular.");
+    } catch {
+      setErro("Não foi possível ler o arquivo.");
+    }
+    setRodando(false);
+    if (fileRef.current) fileRef.current.value = "";
+  }
+
+  return (
+    <div className="mt-4 rounded-xl border border-dashed border-gray-300 p-3.5">
+      <p className="text-xs font-bold text-gray-700 flex items-center gap-1.5 mb-1">
+        <FlaskConical className="size-3.5 text-brand-600" />
+        Teste antes de conectar (simulação)
+      </p>
+      <p className="text-xs text-gray-500 mb-2.5 leading-snug">
+        Na Nuvemshop, vá em <b>Produtos → Exportar</b> e baixe a planilha
+        (CSV). Suba o arquivo aqui pra ver o que vai casar com o seu catálogo,
+        o que entraria novo e o que ficaria pendente — <b>nada é criado nem
+        alterado</b>, é só uma prévia.
+      </p>
+      <input
+        ref={fileRef}
+        type="file"
+        accept=".csv,text/csv"
+        className="hidden"
+        onChange={(e) => {
+          const f = e.target.files?.[0];
+          if (f) processar(f);
+        }}
+      />
+      <button
+        onClick={() => fileRef.current?.click()}
+        disabled={rodando}
+        className="inline-flex items-center gap-1.5 rounded-xl border border-gray-200 hover:border-brand-300 text-gray-600 text-xs font-medium px-3 py-2 transition disabled:opacity-50"
+      >
+        {rodando ? (
+          <Loader2 className="size-3.5 animate-spin" />
+        ) : (
+          <Upload className="size-3.5" />
+        )}
+        Enviar planilha da Nuvemshop
+      </button>
+      {erro && (
+        <p className="text-xs text-rose-600 bg-rose-50 rounded-lg px-3 py-2 mt-2">{erro}</p>
+      )}
+      {sim && (
+        <div className="mt-3">
+          <p className="text-xs text-gray-600">
+            Planilha lida: <b>{sim.produtosNs}</b> produto(s) ·{" "}
+            <b>{sim.variacoesNs}</b> variação(ões). Resultado:{" "}
+            <b className="text-emerald-700">{sim.casariam} variações casariam</b> ·{" "}
+            {sim.criariam.length} produto(s) entrariam novos ·{" "}
+            <b className={sim.pendencias.length ? "text-amber-700" : "text-emerald-700"}>
+              {sim.pendencias.length} pendência(s)
+            </b>
           </p>
-          <ul className="space-y-1 max-h-40 overflow-y-auto thin-scroll">
-            {estado.report!.pendencias!.map((p, i) => (
-              <li key={i} className="text-xs text-amber-900">
-                • <b>{p.produtoNs}</b> — {p.cor} · {p.tamanho}
-                {p.sku && (
-                  <span className="text-amber-700"> (SKU na Nuvemshop: <b>{p.sku}</b>)</span>
-                )}
-              </li>
-            ))}
-          </ul>
-          <p className="text-[11px] text-amber-700 mt-2 leading-snug">
-            Como resolver: em <b>Produtos</b>, abra a peça correspondente e
-            preencha o <b>SKU da variação</b> (campo novo na grade) com o SKU
-            mostrado acima — ou deixe os nomes de cor/tamanho iguais nos dois
-            lados. Depois toque em <b>Sincronizar agora</b>.
-          </p>
+          {sim.criariam.length > 0 && (
+            <p className="text-[11px] text-gray-500 mt-1.5 leading-snug">
+              Entrariam como produtos novos:{" "}
+              {sim.criariam.slice(0, 12).join(", ")}
+              {sim.criariam.length > 12 && ` e mais ${sim.criariam.length - 12}…`}
+            </p>
+          )}
+          {sim.pendencias.length > 0 ? (
+            <ListaPendencias
+              pendencias={sim.pendencias}
+              titulo="⚠️ Variações que NÃO casariam sozinhas:"
+              rodape="Como resolver antes de conectar: em Produtos, use o botão SKUs pra preencher o SKU de cada variação com o SKU mostrado acima — ou deixe os nomes de cor/tamanho iguais nos dois lados. Depois rode a simulação de novo pra conferir."
+            />
+          ) : (
+            <p className="text-xs text-emerald-700 bg-emerald-50 rounded-lg px-3 py-2 mt-2">
+              ✅ Tudo casaria certinho — pode conectar sem medo.
+            </p>
+          )}
         </div>
       )}
-    </Card>
+    </div>
   );
 }

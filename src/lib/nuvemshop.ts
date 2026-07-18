@@ -197,11 +197,11 @@ function corETamanho(p: NsProduct, v: NsVariant): { color: string; size: string 
 }
 
 // normalização pra comparar nomes/SKUs sem pegadinha de acento/caixa
-const norm = (s: string | null | undefined) =>
+export const norm = (s: string | null | undefined) =>
   (s ?? "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").trim();
 // "Baby Look — Branco" → base "Baby Look" (padrão produto-por-cor)
-const baseNome = (name: string) => name.replace(/\s+[—–-]\s+.+$/, "").trim();
-const corDoNome = (name: string) => {
+export const baseNome = (name: string) => name.replace(/\s+[—–-]\s+.+$/, "").trim();
+export const corDoNome = (name: string) => {
   const m = name.match(/\s+[—–-]\s+(.+)$/);
   return m ? m[1].trim() : null;
 };

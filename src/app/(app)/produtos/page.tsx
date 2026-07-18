@@ -9,6 +9,7 @@ import { isManagerUp } from "@/lib/scope";
 import { StockMonitor, type LowStockRow } from "./stock-monitor";
 import { PhotoDoctor } from "./photo-doctor";
 import { ExportCatalog } from "./export-catalog";
+import { SkuManager } from "./sku-manager";
 
 export const dynamic = "force-dynamic";
 
@@ -96,6 +97,7 @@ export default async function ProductsPage() {
         action={
           company && (
             <div className="flex items-center gap-2">
+              {isManagerUp(user) && <SkuManager />}
               {isManagerUp(user) && <ExportCatalog />}
               {isManagerUp(user) && <PhotoDoctor />}
               <a
