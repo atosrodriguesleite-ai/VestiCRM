@@ -40,6 +40,7 @@ export function TeamView({
 }) {
   const router = useRouter();
   const [showNew, setShowNew] = useState(false);
+  const [transferFrom, setTransferFrom] = useState<TeamMember | null>(null);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   // foto do novo usuário (opcional) — data-URL já redimensionada
@@ -255,6 +256,13 @@ export function TeamView({
                   >
                     Redefinir senha
                   </button>
+                  <button
+                    onClick={() => setTransferFrom(m)}
+                    className="text-xs font-medium text-gray-400 hover:text-brand-600 rounded-lg px-2.5 py-1 transition"
+                    title="Passar clientes, negociações, tarefas e conversas em aberto para outro vendedor"
+                  >
+                    Transferir carteira
+                  </button>
                 </div>
               )}
             </div>
@@ -343,6 +351,18 @@ export function TeamView({
           </p>
         </div>
       </Card>
+
+      {transferFrom && (
+        <TransferModal
+          from={transferFrom}
+          members={members}
+          onClose={() => setTransferFrom(null)}
+          onDone={() => {
+            setTransferFrom(null);
+            router.refresh();
+          }}
+        />
+      )}
 
       {showNew && (
         <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center">
@@ -454,5 +474,117 @@ export function TeamView({
         </div>
       )}
     </>
+  );
+}
+
+/**
+ * Transferir carteira: passa clientes, negociações abertas, tarefas pendentes
+ * e conversas do membro para outro vendedor — ou redistribui no rodízio.
+ * Histórico (vendas, comissões, pedidos) fica com quem fez.
+ */
+function TransferModal({
+  from,
+  members,
+  onClose,
+  onDone,
+}: {
+  from: TeamMember;
+  members: TeamMember[];
+  onClose: () => void;
+  onDone: () => void;
+}) {
+  const [dest, setDest] = useState<string>("");
+  const [busy, setBusy] = useState(false);
+  const [erro, setErro] = useState("");
+  const [resultado, setResultado] = useState<string | null>(null);
+
+  const destinos = members.filter(
+    (m) => m.id !== from.id && m.active && m.role !== "SUPERADMIN"
+  );
+
+  async function transferir() {
+    setBusy(true);
+    setErro("");
+    const res = await fetch(`/api/team/${from.id}/transfer`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ toUserId: dest || null }),
+    });
+    const d = await res.json().catch(() => ({}));
+    setBusy(false);
+    if (res.ok) {
+      setResultado(
+        `Transferido: ${d.clientes} cliente${d.clientes === 1 ? "" : "s"}, ` +
+          `${d.negociacoes} negociação(ões) aberta(s), ${d.tarefas} tarefa(s) pendente(s) ` +
+          `e ${d.conversas} conversa(s)` +
+          (dest ? "." : ` — redistribuídos entre ${d.destinos} vendedor(es) ativo(s).`)
+      );
+    } else setErro(d.error ?? "Não foi possível transferir.");
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center">
+      <div className="absolute inset-0 bg-black/30 animate-fade-in" onClick={onClose} />
+      <div className="relative bg-white rounded-t-2xl md:rounded-2xl shadow-pop w-full md:max-w-md p-6 animate-fade-up">
+        <h3 className="font-semibold text-lg mb-1">Transferir carteira</h3>
+        <p className="text-sm text-gray-500 mb-4">
+          Tudo que está <b>em aberto</b> no nome de <b>{from.name}</b> (clientes,
+          negociações, tarefas e conversas) muda de responsável. O histórico de
+          vendas e comissões fica com {from.name.split(" ")[0]}.
+        </p>
+
+        {resultado ? (
+          <>
+            <p className="text-sm text-emerald-700 bg-emerald-50 rounded-xl px-3 py-2.5 mb-4">
+              ✅ {resultado}
+            </p>
+            <button
+              onClick={onDone}
+              className="w-full rounded-xl bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium py-2.5 transition"
+            >
+              Concluir
+            </button>
+          </>
+        ) : (
+          <>
+            <label className="block text-xs font-medium text-gray-500 mb-1">
+              Para quem vai a carteira?
+            </label>
+            <select
+              value={dest}
+              onChange={(e) => setDest(e.target.value)}
+              className="w-full rounded-xl border border-gray-200 px-3 py-2.5 text-sm bg-white outline-none focus:border-brand-400 mb-4"
+            >
+              <option value="">
+                Redistribuir entre os vendedores ativos (rodízio)
+              </option>
+              {destinos.map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.name}
+                </option>
+              ))}
+            </select>
+            {erro && (
+              <p className="text-sm text-rose-600 bg-rose-50 rounded-lg px-3 py-2 mb-3">{erro}</p>
+            )}
+            <div className="flex gap-2">
+              <button
+                onClick={onClose}
+                className="flex-1 rounded-xl border border-gray-200 text-gray-500 text-sm font-medium py-2.5 transition"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={transferir}
+                disabled={busy}
+                className="flex-1 rounded-xl bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium py-2.5 transition disabled:opacity-60"
+              >
+                {busy ? "Transferindo…" : "Transferir agora"}
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
   );
 }
