@@ -1,0 +1,93 @@
+# Backup diário VERIFICADO do banco de produção (Neon).
+#
+# Todo dia às 3h (horário de Brasília) o GitHub:
+#   1. baixa uma cópia completa do banco (pg_dump)
+#   2. RESTAURA a cópia num banco de teste descartável
+#   3. confere se os dados estão lá (empresas, produtos, pedidos > 0)
+#   4. só então guarda a cópia por 30 dias (aba Actions → artifacts)
+# Se QUALQUER etapa falhar, o GitHub manda e-mail pro dono do repositório.
+#
+# Requisito (uma vez só): criar o secret DATABASE_URL_PRODUCAO em
+# Settings → Secrets and variables → Actions, com a URL do Neon.
+#
+# Pra RESTAURAR num desastre:
+#   1. baixe o artifact do último backup verde (aba Actions)
+#   2. crie um banco novo no Neon
+#   3. rode: pg_restore --no-owner --no-privileges -d "<URL_DO_BANCO_NOVO>" backup.dump
+#   4. aponte a DATABASE_URL da Vercel pro banco novo e faça redeploy
+
+name: Backup do banco (verificado)
+
+on:
+  schedule:
+    - cron: "0 6 * * *" # 06:00 UTC = 03:00 Brasília
+  workflow_dispatch: {} # botão "Run workflow" pra testar na hora
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    # banco descartável só pra provar que a cópia restaura
+    services:
+      verificacao:
+        image: postgres:17
+        env:
+          POSTGRES_USER: verify
+          POSTGRES_PASSWORD: verify
+          POSTGRES_DB: verify
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U verify"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - name: Instalar cliente PostgreSQL 17 (compatível com o Neon)
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-common
+          sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
+          sudo apt-get install -y -qq postgresql-client-17
+
+      - name: 1) Baixar cópia completa do banco de produção
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL_PRODUCAO }}
+        run: |
+          if [ -z "$DATABASE_URL" ]; then
+            echo "::error::Secret DATABASE_URL_PRODUCAO não configurado (Settings → Secrets and variables → Actions)"
+            exit 1
+          fi
+          pg_dump "$DATABASE_URL" -Fc --no-owner --no-privileges -f backup.dump
+          ls -lh backup.dump
+
+      - name: 2) Restaurar a cópia num banco de teste
+        run: |
+          pg_restore --no-owner --no-privileges \
+            -d "postgresql://verify:verify@localhost:5432/verify" backup.dump
+
+      - name: 3) Conferir integridade dos dados restaurados
+        run: |
+          check () {
+            n=$(psql "postgresql://verify:verify@localhost:5432/verify" -t -A -c "SELECT count(*) FROM \"$1\"")
+            echo "$1: $n registro(s)"
+            if [ "$n" -lt "$2" ]; then
+              echo "::error::Backup suspeito: tabela $1 com só $n registro(s) (mínimo esperado: $2)"
+              exit 1
+            fi
+          }
+          check Company 1
+          check User 1
+          check Product 1
+          check Customer 1
+          check Order 0
+
+      - name: 4) Guardar a cópia verificada (30 dias)
+        uses: actions/upload-artifact@v4
+        with:
+          name: backup-execucao-${{ github.run_number }}
+          path: backup.dump
+          retention-days: 30
+          compression-level: 0
