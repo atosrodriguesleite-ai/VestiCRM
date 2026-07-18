@@ -1145,16 +1145,38 @@ model CutTicket {
 /// O peso unitário da peça permite o método da balança: pesa-se a produção
 /// pronta e o aproveitamento/desperdício saem por subtração.
 model CutItem {
-  id           String @id @default(cuid())
+  id           String  @id @default(cuid())
   cutId        String
-  stage        String @default("PRIMEIRA") // PRIMEIRA | RESTO (parte do corte)
-  name         String // modelo/SKU (ex.: "Blusa Tule — P")
+  stage        String  @default("PRIMEIRA") // PRIMEIRA | RESTO (parte do corte)
+  name         String // modelo (ex.: "Blusa Tule")
+  size         String? // tamanho cortado (P, M, G...)
   pieces       Int // quantidade produzida
   pieceWeightG Float? // peso unitário da peça (gramas) — opcional
 
   cut CutTicket @relation(fields: [cutId], references: [id], onDelete: Cascade)
 
   @@index([cutId])
+}
+
+/// Estoque de COSTURA — a estação entre o corte e a peça pronta.
+/// Corte não é peça produzida: o cortado entra aqui (visível pra vendas e
+/// adm: "não tem no estoque, mas está cortada"); quando a peça é montada e
+/// conferida, o lançamento dá ENTRADA no estoque real (AtacadoPro →
+/// Nuvemshop automático) e baixa daqui.
+model SewingItem {
+  id          String   @id @default(cuid())
+  companyId   String
+  cutId       String? // corte de origem
+  cutCode     Int? // nº do corte (sobrevive se o corte sumir)
+  productName String // modelo cortado
+  color       String? // cor do tecido
+  size        String? // tamanho
+  cutPieces   Int // peças cortadas (entraram na costura)
+  donePieces  Int      @default(0) // já montadas/conferidas/lançadas
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([companyId])
 }
 
 /// Ocorrência durante o enfesto (furo, mancha, rasgo...) — NÃO é perda

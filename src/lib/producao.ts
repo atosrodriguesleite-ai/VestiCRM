@@ -168,9 +168,10 @@ const round2 = (n: number) => Math.round(n * 100) / 100;
 
 // ---- 4. Método da balança (aproveitamento por pesagem das peças) -----------
 
-/** Um modelo produzido no corte: nome, quantidade e peso unitário (g). */
+/** Um modelo produzido no corte: nome, tamanho, quantidade e peso unitário. */
 export type ItemProduzido = {
   name: string;
+  size?: string | null;
   pieces: number;
   pieceWeightG?: number | null;
 };

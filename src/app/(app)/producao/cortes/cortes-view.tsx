@@ -70,20 +70,21 @@ export type CorteRow = {
   yieldMPerKg: number;
   occurrences: { id: string; type: string; description: string | null; lostKg: number }[];
   sobras: number;
-  items: { name: string; pieces: number; pieceWeightG: number | null; stage: string }[];
+  items: { name: string; size: string | null; pieces: number; pieceWeightG: number | null; stage: string }[];
   piecesWeightKg: number | null;
   utilizationPct: number | null;
   wasteKg: number | null;
 };
 
 /** Linha do formulário: um modelo/SKU produzido, com peso unitário opcional. */
-type LinhaModelo = { name: string; pieces: string; pieceWeightG: string };
+type LinhaModelo = { name: string; size: string; pieces: string; pieceWeightG: string };
 
 const linhasParaItems = (linhas: LinhaModelo[]) =>
   linhas
     .filter((l) => l.name.trim() && parseInt(l.pieces, 10) >= 0)
     .map((l) => ({
       name: l.name.trim(),
+      size: l.size.trim() || null,
       pieces: parseInt(l.pieces, 10) || 0,
       pieceWeightG: parseFloat(l.pieceWeightG.replace(",", ".")) > 0
         ? parseFloat(l.pieceWeightG.replace(",", "."))
@@ -614,18 +615,25 @@ function EditorModelos({
 }) {
   return (
     <div className="space-y-1.5">
-      <div className="grid grid-cols-[1fr_72px_84px_28px] gap-1.5 text-[10.5px] uppercase tracking-wide text-gray-400 px-0.5">
-        <span>Modelo / SKU</span>
+      <div className="grid grid-cols-[1fr_52px_58px_66px_24px] gap-1.5 text-[10.5px] uppercase tracking-wide text-gray-400 px-0.5">
+        <span>Modelo</span>
+        <span>Tam</span>
         <span>Qtd</span>
-        <span>Peça (g)</span>
+        <span>Peça g</span>
         <span />
       </div>
       {linhas.map((l, i) => (
-        <div key={i} className="grid grid-cols-[1fr_72px_84px_28px] gap-1.5">
+        <div key={i} className="grid grid-cols-[1fr_52px_58px_66px_24px] gap-1.5">
           <input
             value={l.name}
             onChange={(e) => setLinhas(linhas.map((x, k) => (k === i ? { ...x, name: e.target.value } : x)))}
             placeholder="Blusa Tule"
+            className={inputCls}
+          />
+          <input
+            value={l.size}
+            onChange={(e) => setLinhas(linhas.map((x, k) => (k === i ? { ...x, size: e.target.value } : x)))}
+            placeholder="P"
             className={inputCls}
           />
           <input
@@ -653,11 +661,15 @@ function EditorModelos({
         </div>
       ))}
       <button
-        onClick={() => setLinhas([...linhas, { name: "", pieces: "", pieceWeightG: "" }])}
+        onClick={() => setLinhas([...linhas, { name: "", size: "", pieces: "", pieceWeightG: "" }])}
         className="text-xs text-brand-600 font-medium underline underline-offset-2"
       >
-        + outro modelo neste corte
+        + outro modelo/tamanho neste corte
       </button>
+      <p className="text-[10.5px] text-gray-400 leading-snug">
+        As peças cortadas entram no <b>Estoque de Costura</b> — só viram
+        estoque de venda quando forem montadas e lançadas na aba Costura.
+      </p>
     </div>
   );
 }
@@ -696,7 +708,7 @@ function FormProducao({
 }) {
   const [kg, setKg] = useState(String(plannedKg).replace(".", ","));
   const [linhas, setLinhas] = useState<LinhaModelo[]>([
-    { name: modeloSugerido ?? "", pieces: "", pieceWeightG: "" },
+    { name: modeloSugerido ?? "", size: "", pieces: "", pieceWeightG: "" },
   ]);
   const kgNum = parseFloat(kg.replace(",", "."));
   const items = linhasParaItems(linhas);
@@ -742,7 +754,7 @@ function FormFechar({
   onSubmit: (items: { name: string; pieces: number; pieceWeightG: number | null }[]) => void;
 }) {
   const [linhas, setLinhas] = useState<LinhaModelo[]>([
-    { name: modeloSugerido ?? "", pieces: "", pieceWeightG: "" },
+    { name: modeloSugerido ?? "", size: "", pieces: "", pieceWeightG: "" },
   ]);
   const items = linhasParaItems(linhas);
   return (
@@ -798,7 +810,7 @@ function Custos({
           {modelos.map((m, i) => (
             <p key={i} className="flex items-center justify-between text-xs text-gray-600">
               <span>
-                {m.name} · {m.pieces} un. ({m.pieceWeightG} g)
+                {m.name}{m.size ? ` · ${m.size}` : ""} · {m.pieces} un. ({m.pieceWeightG} g)
               </span>
               <b>{fmtR$(((m.pieceWeightG ?? 0) / 1000) * (custoKgUtil ?? 0) + extras)}/peça</b>
             </p>

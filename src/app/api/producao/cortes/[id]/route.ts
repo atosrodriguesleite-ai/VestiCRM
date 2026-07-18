@@ -28,6 +28,7 @@ import {
 // unitário (método da balança — o desperdício sai por subtração)
 const itemProduzidoSchema = z.object({
   name: z.string().min(1).max(120),
+  size: z.string().max(30).nullable().optional(),
   pieces: z.number().int().nonnegative().max(1000000),
   pieceWeightG: z.number().positive().max(100000).nullable().optional(),
 });
@@ -145,10 +146,13 @@ export async function PATCH(
             cutId: cut.id,
             stage: "PRIMEIRA",
             name: i.name,
+            size: i.size ?? null,
             pieces: i.pieces,
             pieceWeightG: i.pieceWeightG ?? null,
           })),
         });
+        // corte NÃO é peça pronta: o cortado entra no ESTOQUE DE COSTURA
+        await entraNaCostura(user.companyId, cut, itens);
       }
       // método da balança: desperdício por subtração (peças pesadas ×
       // peso cortado); sem pesagem completa, vale a apara pesada na mão
@@ -233,10 +237,12 @@ export async function PATCH(
             cutId: cut.id,
             stage: "RESTO",
             name: i.name,
+            size: i.size ?? null,
             pieces: i.pieces,
             pieceWeightG: i.pieceWeightG ?? null,
           })),
         });
+        await entraNaCostura(user.companyId, cut, itensResto);
       }
       // método da balança também no restante
       const pesagemResto = resumoPesagem(itensResto, restKg);
@@ -387,6 +393,29 @@ async function fechaCorte(
       errorPieces:
         cut.predictedTotal != null ? dados.piecesTotal - cut.predictedTotal : null,
     },
+  });
+}
+
+/** Peças cortadas entram no ESTOQUE DE COSTURA (modelo · cor do tecido ·
+ *  tamanho). Vendas e adm enxergam o que está cortado aguardando montagem;
+ *  o lançamento pra estoque real acontece depois, na aba Costura. */
+async function entraNaCostura(
+  companyId: string,
+  cut: { id: string; code: number; roll: { color: string } | null },
+  itens: ItemProduzido[]
+) {
+  const validos = itens.filter((i) => i.pieces > 0);
+  if (validos.length === 0) return;
+  await db.sewingItem.createMany({
+    data: validos.map((i) => ({
+      companyId,
+      cutId: cut.id,
+      cutCode: cut.code,
+      productName: i.name,
+      color: cut.roll?.color ?? null,
+      size: i.size ?? null,
+      cutPieces: i.pieces,
+    })),
   });
 }
 

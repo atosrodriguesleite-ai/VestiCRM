@@ -84,6 +84,7 @@ export default async function CortesPage() {
     sobras: c.scraps.length,
     items: c.items.map((i) => ({
       name: i.name,
+      size: i.size,
       pieces: i.pieces,
       pieceWeightG: i.pieceWeightG,
       stage: i.stage,
