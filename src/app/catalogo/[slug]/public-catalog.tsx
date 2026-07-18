@@ -728,7 +728,7 @@ export function PublicCatalog({
           // o logo ocupa a largura e a altura acompanha, sem sobra de fundo.
           // Layout em flex com espaçador à esquerda (= largura da sacola) para o
           // logo centralizar sem NUNCA sobrepor o botão da sacola.
-          <div className="max-w-[680px] mx-auto px-[18px] py-3 flex items-center gap-3">
+          <div className="max-w-[680px] lg:max-w-[1200px] mx-auto px-[18px] py-3 flex items-center gap-3">
             <span className="w-[46px] shrink-0" aria-hidden />
             <img
               src={identity.logoUrl}
@@ -754,7 +754,7 @@ export function PublicCatalog({
             </button>
           </div>
         ) : (
-          <div className="max-w-[680px] mx-auto px-[18px] py-3.5 flex items-center justify-between gap-3">
+          <div className="max-w-[680px] lg:max-w-[1200px] mx-auto px-[18px] py-3.5 flex items-center justify-between gap-3">
             <div className="leading-none min-w-0">
               {identity.logoUrl ? (
                 <img
@@ -807,7 +807,7 @@ export function PublicCatalog({
       )}
 
       {/* COMO FUNCIONA — passo a passo visual (orienta o cliente final) */}
-      <section className="max-w-[680px] mx-auto px-[18px] pt-2.5 pb-2">
+      <section className="max-w-[680px] lg:max-w-[1200px] mx-auto px-[18px] pt-2.5 pb-2">
         <div className="flex items-center gap-2 sm:gap-3">
           {[
             { n: 1, label: "Escolha as peças" },
@@ -852,7 +852,7 @@ export function PublicCatalog({
           boxShadow: "0 6px 12px -10px rgba(0,0,0,.3)",
         }}
       >
-        <div className="relative max-w-[680px] mx-auto">
+        <div className="relative max-w-[680px] lg:max-w-[1200px] mx-auto">
           {/* seta esquerda */}
           {catArrows.left && (
             <button
@@ -938,7 +938,7 @@ export function PublicCatalog({
                   logoSize === "grande" ? "var(--cat-sticky, 200px)" : 140,
               }}
             >
-              <div className="max-w-[680px] mx-auto px-[18px] pt-[10px]">
+              <div className="max-w-[680px] lg:max-w-[1200px] mx-auto px-[18px] pt-[10px]">
                 <div className="flex items-baseline justify-between gap-2.5 mb-1">
                   <h2 className="font-extrabold text-[20px] uppercase m-0" style={{ letterSpacing: "-.01em" }}>
                     {cat}
@@ -953,9 +953,9 @@ export function PublicCatalog({
                   </p>
                 )}
               </div>
-              <div className="max-w-[680px] mx-auto mt-3.5" style={{ borderTop: `1.5px dashed ${T.line}` }} />
+              <div className="max-w-[680px] lg:max-w-[1200px] mx-auto mt-3.5" style={{ borderTop: `1.5px dashed ${T.line}` }} />
 
-              <div className="max-w-[680px] mx-auto grid grid-cols-2 gap-3.5 px-3.5 pt-4 pb-2">
+              <div className="max-w-[680px] lg:max-w-[1200px] mx-auto grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3.5 px-3.5 pt-4 pb-2">
                 {cards.map((card) => {
                   const inCart = cart[card.key] ? sum(cart[card.key]) : 0;
                   const soldOut = card.sizes.every((s) => !s.available);
@@ -1040,7 +1040,7 @@ export function PublicCatalog({
 
       {/* RODAPÉ */}
       <footer style={{ background: T.primary, color: T.secondary }}>
-        <div className="max-w-[680px] mx-auto px-5 pt-[30px] pb-[34px] text-center">
+        <div className="max-w-[680px] lg:max-w-[1200px] mx-auto px-5 pt-[30px] pb-[34px] text-center">
           {identity.logoUrl ? (
             <img
               src={identity.logoUrl}
@@ -1079,7 +1079,7 @@ export function PublicCatalog({
         className="fixed inset-x-0 bottom-0 z-20 border-t"
         style={{ background: T.bg, borderColor: T.line, padding: "12px 18px calc(12px + env(safe-area-inset-bottom,0))" }}
       >
-        <div className="max-w-[680px] mx-auto">
+        <div className="max-w-[680px] lg:max-w-[1200px] mx-auto">
           <button
             onClick={totalPieces > 0 ? sendOrder : openBag}
             className="w-full flex items-center justify-center gap-[9px] rounded-[14px] p-4 text-[15px] font-bold active:scale-[0.985] transition"
