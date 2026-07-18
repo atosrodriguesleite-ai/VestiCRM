@@ -28,7 +28,13 @@ const patchSchema = z.object({
     .max(10)
     .optional(),
   variantStocks: z
-    .array(z.object({ id: z.string().min(1), stock: z.number().int().nonnegative() }))
+    .array(
+      z.object({
+        id: z.string().min(1),
+        stock: z.number().int().nonnegative(),
+        sku: z.string().max(60).nullable().optional(),
+      })
+    )
     .optional(),
   // gestão da grade: adicionar novas combinações cor × tamanho e remover
   addVariants: z
@@ -110,7 +116,15 @@ export async function PATCH(
     if (variantStocks?.length) {
       for (const vs of variantStocks) {
         const variant = product.variants.find((v) => v.id === vs.id);
-        if (!variant || variant.stock === vs.stock) continue;
+        if (!variant) continue;
+        // SKU da variação (vínculo com a loja online) — atualiza se mudou
+        if (vs.sku !== undefined && (vs.sku ?? null) !== variant.sku) {
+          await db.productVariant.update({
+            where: { id: variant.id },
+            data: { sku: vs.sku },
+          });
+        }
+        if (variant.stock === vs.stock) continue;
         await db.productVariant.update({
           where: { id: variant.id },
           data: { stock: vs.stock },

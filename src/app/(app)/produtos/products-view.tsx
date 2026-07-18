@@ -28,7 +28,7 @@ export type ProductItem = {
   tags: string | null;
   // fotos em ordem — a primeira é a CAPA (aparece na grade e no catálogo)
   images: { id: string; url: string }[];
-  variants: { id: string; color: string; size: string; stock: number }[];
+  variants: { id: string; color: string; size: string; stock: number; sku: string | null }[];
 };
 
 export function totalStock(p: ProductItem) {
@@ -318,6 +318,10 @@ function ProductDetailModal({
   const [stocks, setStocks] = useState<Record<string, string>>(
     Object.fromEntries(product.variants.map((v) => [v.id, String(v.stock)]))
   );
+  // SKU por variação: chave de vínculo com a loja online (Nuvemshop)
+  const [vskus, setVskus] = useState<Record<string, string>>(
+    Object.fromEntries(product.variants.map((v) => [v.id, v.sku ?? ""]))
+  );
 
   const num = (v: string) => parseFloat(v.replace(",", ".")) || 0;
   const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
@@ -342,7 +346,11 @@ function ProductDetailModal({
         images: photos.map((ph) => (ph.id ? { id: ph.id } : { url: ph.url })),
         variantStocks: Object.entries(stocks)
           .filter(([id]) => !removedIds.includes(id))
-          .map(([id, stock]) => ({ id, stock: parseInt(stock) || 0 })),
+          .map(([id, stock]) => ({
+            id,
+            stock: parseInt(stock) || 0,
+            sku: (vskus[id] ?? "").trim() || null,
+          })),
         addVariants: pendingAdds,
         removeVariantIds: removedIds,
       }),
@@ -519,9 +527,18 @@ function ProductDetailModal({
                   .filter((v) => !removedIds.includes(v.id))
                   .map((v) => (
                     <div key={v.id} className="flex items-center gap-2 px-3 py-1.5">
-                      <span className="text-xs font-medium flex-1">
+                      <span className="text-xs font-medium flex-1 min-w-0 truncate">
                         {v.color} · {v.size}
                       </span>
+                      <input
+                        value={vskus[v.id] ?? ""}
+                        onChange={(e) =>
+                          setVskus((s) => ({ ...s, [v.id]: e.target.value }))
+                        }
+                        placeholder="SKU"
+                        title="SKU da variação — usado pra vincular com a loja online (Nuvemshop)"
+                        className="w-24 rounded-lg border border-gray-200 px-2 py-1 text-[11px] outline-none focus:border-brand-400"
+                      />
                       <input
                         value={stocks[v.id]}
                         onChange={(e) =>

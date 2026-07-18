@@ -55,6 +55,7 @@ export default async function ProductsPage() {
       color: v.color,
       size: v.size,
       stock: v.stock,
+      sku: v.sku,
     })),
   }));
 

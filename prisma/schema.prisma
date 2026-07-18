@@ -544,6 +544,7 @@ model NuvemshopConnection {
   status           String    @default("CONECTADO") // CONECTADO | ERRO | DESCONECTADO
   lastProductSync  DateTime?
   lastCheckoutSync DateTime?
+  lastSyncReport   String    @default("{}") // resumo + pendências de vínculo (JSON)
   createdAt        DateTime  @default(now())
 }
 
@@ -843,13 +844,15 @@ model Product {
 
 // Grade: cada combinação cor × tamanho com estoque próprio
 model ProductVariant {
-  id          String  @id @default(cuid())
-  productId   String
-  product     Product @relation(fields: [productId], references: [id], onDelete: Cascade)
-  nuvemshopId String? // id da variação na Nuvemshop
-  color       String
-  size        String
-  stock       Int     @default(0)
+  id                 String  @id @default(cuid())
+  productId          String
+  product            Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  nuvemshopId        String? // id da variação na Nuvemshop
+  nuvemshopProductId String? // id do PRODUTO na Nuvemshop (modo produto-por-cor)
+  sku                String? // SKU da variação — chave universal de vínculo com a loja online
+  color              String
+  size               String
+  stock              Int     @default(0)
 
   items     OrderItem[]
   movements InventoryMovement[]

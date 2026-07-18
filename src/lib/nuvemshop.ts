@@ -196,8 +196,188 @@ function corETamanho(p: NsProduct, v: NsVariant): { color: string; size: string 
   return { color, size };
 }
 
-/** Cria/atualiza UM produto vindo da Nuvemshop (idempotente). */
-export async function upsertProduct(companyId: string, p: NsProduct) {
+// normalização pra comparar nomes/SKUs sem pegadinha de acento/caixa
+const norm = (s: string | null | undefined) =>
+  (s ?? "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").trim();
+// "Baby Look — Branco" → base "Baby Look" (padrão produto-por-cor)
+const baseNome = (name: string) => name.replace(/\s+[—–-]\s+.+$/, "").trim();
+const corDoNome = (name: string) => {
+  const m = name.match(/\s+[—–-]\s+(.+)$/);
+  return m ? m[1].trim() : null;
+};
+
+export type SyncPendencia = {
+  produtoNs: string;
+  cor: string;
+  tamanho: string;
+  sku: string | null;
+};
+export type SyncReport = {
+  casadas: number;
+  criadas: number;
+  pendencias: SyncPendencia[];
+};
+
+/**
+ * Cria/atualiza UM produto vindo da Nuvemshop (idempotente), casando em
+ * CAMADAS — funciona com qualquer estrutura de catálogo:
+ *   1. variação já vinculada (id da Nuvemshop)
+ *   2. SKU DA VARIAÇÃO igual nos dois lados (chave universal)
+ *   3. nome: mesmo produto ("Baby Look" ↔ "Baby Look") ou família
+ *      produto-por-cor ("Baby Look" ↔ "Baby Look — Branco"), com a
+ *      variação achada por cor+tamanho (sem diferença de acento/caixa)
+ *   4. nada casou e a loja não tem nada parecido → produto novo espelhado
+ * O que casar parcialmente NÃO cria duplicata: as variações órfãs entram no
+ * relatório de pendências para o lojista resolver (preenchendo o SKU da
+ * variação em Produtos).
+ */
+export async function upsertProduct(
+  companyId: string,
+  p: NsProduct,
+  report?: SyncReport
+) {
+  const nsId = String(p.id);
+  const nsName = texto(p.name).trim() || `Produto ${nsId}`;
+  const variants = p.variants ?? [];
+
+  // pools de candidatos locais
+  const [linkedVariants, skuVariants, allProducts] = await Promise.all([
+    db.productVariant.findMany({
+      where: {
+        product: { companyId },
+        OR: [
+          { nuvemshopId: { in: variants.map((v) => String(v.id)) } },
+          { nuvemshopProductId: nsId },
+        ],
+      },
+      include: { product: true },
+    }),
+    db.productVariant.findMany({
+      where: { product: { companyId }, sku: { not: null } },
+      include: { product: true },
+    }),
+    db.product.findMany({
+      where: { companyId },
+      select: { id: true, name: true, sku: true, nuvemshopId: true },
+    }),
+  ]);
+  const skuMap = new Map(skuVariants.map((v) => [norm(v.sku), v]));
+  const familia = allProducts.filter(
+    (x) => norm(baseNome(x.name)) === norm(nsName) || norm(x.name) === norm(nsName)
+  );
+  const um2um =
+    allProducts.find((x) => x.nuvemshopId === nsId) ??
+    (familia.length === 1 && norm(familia[0].name) === norm(nsName) ? familia[0] : null);
+
+  // nada local parecido E nada vinculado ⇒ produto genuinamente novo: espelha
+  const temCandidato =
+    linkedVariants.length > 0 ||
+    um2um !== null ||
+    familia.length > 0 ||
+    variants.some((v) => v.sku && skuMap.has(norm(v.sku)));
+  if (!temCandidato) {
+    const criado = await criarProdutoEspelhado(companyId, p);
+    if (report) report.criadas++;
+    return criado;
+  }
+
+  // resolve variação por variação
+  const familiaFull = await db.product.findMany({
+    where: { id: { in: familia.map((f) => f.id) } },
+    include: { variants: true },
+  });
+  const linkedByNsVar = new Map(linkedVariants.map((v) => [v.nuvemshopId, v]));
+
+  for (const v of variants) {
+    const vId = String(v.id);
+    const { color, size } = corETamanho(p, v);
+    const stock = Math.max(0, v.stock ?? 0);
+    const preco = num(v.price);
+
+    let alvo =
+      linkedByNsVar.get(vId) ??
+      (v.sku ? skuMap.get(norm(v.sku)) : undefined) ??
+      null;
+
+    if (!alvo) {
+      // família: produto "Base — Cor" (ou o próprio 1↔1) + variação cor/tam
+      for (const fp of familiaFull) {
+        const corSufixo = corDoNome(fp.name);
+        const casaProduto = corSufixo
+          ? norm(corSufixo) === norm(color)
+          : norm(fp.name) === norm(nsName);
+        if (!casaProduto) continue;
+        const cand = fp.variants.find(
+          (x) =>
+            norm(x.color) === norm(color) && norm(x.size) === norm(size)
+        );
+        if (cand) {
+          alvo = { ...cand, product: fp } as (typeof skuVariants)[number];
+          break;
+        }
+      }
+    }
+
+    if (alvo) {
+      await db.productVariant.update({
+        where: { id: alvo.id },
+        data: {
+          nuvemshopId: vId,
+          nuvemshopProductId: nsId,
+          stock,
+          ...(v.sku && !alvo.sku ? { sku: v.sku } : {}),
+        },
+      });
+      // preço de varejo acompanha a loja online (o de atacado fica intacto)
+      if (preco > 0 && alvo.product.retailPrice !== preco) {
+        await db.product.update({
+          where: { id: alvo.product.id },
+          data: { retailPrice: preco },
+        });
+      }
+      if (report) report.casadas++;
+    } else if (report) {
+      report.pendencias.push({
+        produtoNs: nsName,
+        cor: color,
+        tamanho: size,
+        sku: v.sku ?? null,
+      });
+    }
+  }
+
+  // modo 1↔1: mantém também os dados do produto sincronizados
+  if (um2um) {
+    await db.product.update({
+      where: { id: um2um.id },
+      data: {
+        nuvemshopId: nsId,
+        active: p.published !== false,
+        ...(texto(p.description)
+          ? {
+              description: texto(p.description)
+                .replace(/<[^>]+>/g, " ")
+                .replace(/\s+/g, " ")
+                .trim(),
+            }
+          : {}),
+      },
+    });
+    const fotoCount = await db.productImage.count({ where: { productId: um2um.id } });
+    if (fotoCount === 0 && p.images?.length) {
+      await db.productImage.createMany({
+        data: [...p.images]
+          .sort((a, b) => (a.position ?? 0) - (b.position ?? 0))
+          .slice(0, 10)
+          .map((img, i) => ({ productId: um2um.id, url: img.src, order: i })),
+      });
+    }
+  }
+  return null;
+}
+
+/** Espelho novo: produto que só existe na Nuvemshop entra completo. */
+async function criarProdutoEspelhado(companyId: string, p: NsProduct) {
   const nsId = String(p.id);
   const name = texto(p.name).trim() || `Produto ${nsId}`;
   const category = texto(p.categories?.[0]?.name).trim() || "Loja online";
@@ -207,38 +387,21 @@ export async function upsertProduct(companyId: string, p: NsProduct) {
   const skuBase = (variants.find((v) => v.sku)?.sku ?? "").trim();
   const sku = skuBase || `NS-${nsId}`;
 
-  const existing = await db.product.findFirst({
-    where: { companyId, OR: [{ nuvemshopId: nsId }, { sku }] },
+  const product = await db.product.create({
+    data: {
+      companyId,
+      nuvemshopId: nsId,
+      name,
+      sku,
+      category,
+      description,
+      retailPrice: retail,
+      wholesalePrice: 0,
+      minQuantity: 1,
+      active: p.published !== false,
+    },
     include: { variants: true },
   });
-
-  const product = existing
-    ? await db.product.update({
-        where: { id: existing.id },
-        data: {
-          nuvemshopId: nsId,
-          name,
-          category: existing.nuvemshopId ? category : existing.category,
-          description: description ?? existing.description,
-          retailPrice: retail || existing.retailPrice,
-          active: p.published !== false,
-        },
-        include: { variants: true },
-      })
-    : await db.product.create({
-        data: {
-          companyId,
-          nuvemshopId: nsId,
-          name,
-          sku,
-          category,
-          description,
-          retailPrice: retail,
-          wholesalePrice: 0,
-          minQuantity: 1,
-        },
-        include: { variants: true },
-      });
 
   // fotos: só completa quando o produto ainda não tem (nunca sobrescreve)
   const fotoCount = await db.productImage.count({ where: { productId: product.id } });
@@ -256,43 +419,52 @@ export async function upsertProduct(companyId: string, p: NsProduct) {
     const vId = String(v.id);
     const { color, size } = corETamanho(p, v);
     const stock = Math.max(0, v.stock ?? 0);
-    const match =
-      product.variants.find((x) => x.nuvemshopId === vId) ??
-      product.variants.find((x) => x.color === color && x.size === size);
-    if (match) {
-      await db.productVariant.update({
-        where: { id: match.id },
-        data: { nuvemshopId: vId, color, size, stock },
-      });
-    } else {
-      await db.productVariant.create({
-        data: { productId: product.id, nuvemshopId: vId, color, size, stock },
-      });
-    }
+    await db.productVariant.create({
+      data: {
+        productId: product.id,
+        nuvemshopId: vId,
+        nuvemshopProductId: nsId,
+        sku: v.sku ?? null,
+        color,
+        size,
+        stock,
+      },
+    });
   }
   return product;
 }
 
-/** Importação/sincronização completa de produtos (paginada). */
+/** Importação/sincronização completa de produtos (paginada), com relatório
+ *  de vínculo: o que casou, o que entrou novo e as PENDÊNCIAS que precisam
+ *  de ajuste manual (SKU da variação ou nome de cor/tamanho). */
 export async function syncProducts(companyId: string) {
   const conn = await loadConn(companyId);
-  if (!conn) return { ok: false as const, produtos: 0 };
+  if (!conn) return { ok: false as const, produtos: 0, report: null };
+  const report: SyncReport = { casadas: 0, criadas: 0, pendencias: [] };
   let page = 1;
   let total = 0;
   for (; page <= 50; page++) {
     const res = await api<NsProduct[]>(conn, "GET", `/products?per_page=50&page=${page}`);
     if (!res.ok || !res.data?.length) break;
     for (const p of res.data) {
-      await upsertProduct(companyId, p);
+      await upsertProduct(companyId, p, report);
       total++;
     }
     if (res.data.length < 50) break;
   }
   await db.nuvemshopConnection.update({
     where: { companyId },
-    data: { lastProductSync: new Date() },
+    data: {
+      lastProductSync: new Date(),
+      lastSyncReport: JSON.stringify({
+        at: new Date().toISOString(),
+        casadas: report.casadas,
+        criadas: report.criadas,
+        pendencias: report.pendencias.slice(0, 100),
+      }),
+    },
   });
-  return { ok: true as const, produtos: total };
+  return { ok: true as const, produtos: total, report };
 }
 
 // ---- Vendas ----------------------------------------------------------------
@@ -307,8 +479,15 @@ type NsOrder = {
   contact_name?: string;
   contact_phone?: string;
   contact_email?: string;
-  customer?: { name?: string; email?: string; phone?: string };
-  shipping_address?: { city?: string; province?: string };
+  customer?: { name?: string; email?: string; phone?: string; identification?: string };
+  shipping_address?: {
+    zipcode?: string;
+    address?: string;
+    number?: string;
+    locality?: string;
+    city?: string;
+    province?: string;
+  };
   products?: {
     product_id: number | string;
     variant_id: number | string;
@@ -349,23 +528,36 @@ export async function ingestPaidOrder(companyId: string, nsOrderId: string) {
       skipOpportunity: true,
     });
     customerId = lead.customer.id;
-    if (email && !lead.customer.email) {
-      await db.customer.update({ where: { id: customerId }, data: { email } });
-    }
   } else {
     const c = await db.customer.create({
       data: {
         companyId,
         name: nome,
         phone: `ns-${nsId}`,
-        email,
         origin: "NUVEMSHOP",
-        city: o.shipping_address?.city,
-        state: o.shipping_address?.province,
       },
     });
     customerId = c.id;
   }
+  // ficha completa: e-mail, CPF/CNPJ e endereço inteiro (sem apagar o que já
+  // estiver preenchido na ficha)
+  const atual = await db.customer.findUnique({ where: { id: customerId } });
+  const end = o.shipping_address ?? {};
+  await db.customer.update({
+    where: { id: customerId },
+    data: {
+      ...(email && !atual?.email ? { email } : {}),
+      ...(o.customer?.identification && !atual?.document
+        ? { document: o.customer.identification }
+        : {}),
+      ...(end.zipcode && !atual?.zip ? { zip: end.zipcode } : {}),
+      ...(end.address && !atual?.street ? { street: end.address } : {}),
+      ...(end.number && !atual?.streetNumber ? { streetNumber: end.number } : {}),
+      ...(end.locality && !atual?.district ? { district: end.locality } : {}),
+      ...(end.city && !atual?.city ? { city: end.city } : {}),
+      ...(end.province && !atual?.state ? { state: end.province } : {}),
+    },
+  });
 
   // itens ligados às variações espelhadas (vínculo por id da Nuvemshop)
   const lines: {
@@ -600,7 +792,10 @@ export async function pushStockToNuvemshop(companyId: string, variantIds: string
     include: { product: true },
   });
   for (const v of variants) {
-    await api(conn, "PUT", `/products/${v.product.nuvemshopId}/variants/${v.nuvemshopId}`, {
+    // modo produto-por-cor guarda o id do produto NS na própria variação
+    const nsProductId = v.nuvemshopProductId ?? v.product.nuvemshopId;
+    if (!nsProductId) continue;
+    await api(conn, "PUT", `/products/${nsProductId}/variants/${v.nuvemshopId}`, {
       stock: v.stock,
     });
   }

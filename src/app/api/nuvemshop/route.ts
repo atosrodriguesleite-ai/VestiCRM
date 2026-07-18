@@ -32,6 +32,13 @@ export async function GET() {
       lastCheckoutSync: conn?.lastCheckoutSync ?? null,
       produtos,
       vendas,
+      report: (() => {
+        try {
+          return JSON.parse(conn?.lastSyncReport ?? "{}");
+        } catch {
+          return {};
+        }
+      })(),
     });
   } catch (e) {
     if (e instanceof AuthError)

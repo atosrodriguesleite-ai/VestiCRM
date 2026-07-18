@@ -10,6 +10,7 @@ import { useCallback, useEffect, useState } from "react";
 import { CheckCircle2, Loader2, Power, RefreshCw, ShoppingCart } from "lucide-react";
 import { Card } from "@/components/ui";
 
+type Pendencia = { produtoNs: string; cor: string; tamanho: string; sku: string | null };
 type Estado = {
   serverConfigured: boolean;
   connected: boolean;
@@ -18,6 +19,7 @@ type Estado = {
   lastCheckoutSync: string | null;
   produtos: number;
   vendas: number;
+  report?: { at?: string; casadas?: number; criadas?: number; pendencias?: Pendencia[] };
 };
 
 export function NuvemshopConnect() {
@@ -126,6 +128,41 @@ export function NuvemshopConnect() {
       )}
       {msg && (
         <p className="text-sm text-brand-700 bg-brand-50 rounded-lg px-3 py-2 mt-3">{msg}</p>
+      )}
+
+      {/* Relatório de vínculo: o que casou e o que precisa de ajuste manual */}
+      {estado.connected && estado.report?.at !== undefined && (
+        <div className="mt-3 text-xs text-gray-500">
+          Última conferência:{" "}
+          <b className="text-emerald-700">{estado.report.casadas ?? 0} variações casadas</b> ·{" "}
+          {estado.report.criadas ?? 0} produto(s) novo(s) espelhado(s) ·{" "}
+          <b className={estado.report.pendencias?.length ? "text-amber-700" : "text-emerald-700"}>
+            {estado.report.pendencias?.length ?? 0} pendência(s)
+          </b>
+        </div>
+      )}
+      {estado.connected && (estado.report?.pendencias?.length ?? 0) > 0 && (
+        <div className="mt-2 rounded-xl border border-amber-200 bg-amber-50/70 p-3">
+          <p className="text-xs font-bold text-amber-800 mb-1.5">
+            ⚠️ Variações da Nuvemshop que o sistema NÃO conseguiu casar sozinho:
+          </p>
+          <ul className="space-y-1 max-h-40 overflow-y-auto thin-scroll">
+            {estado.report!.pendencias!.map((p, i) => (
+              <li key={i} className="text-xs text-amber-900">
+                • <b>{p.produtoNs}</b> — {p.cor} · {p.tamanho}
+                {p.sku && (
+                  <span className="text-amber-700"> (SKU na Nuvemshop: <b>{p.sku}</b>)</span>
+                )}
+              </li>
+            ))}
+          </ul>
+          <p className="text-[11px] text-amber-700 mt-2 leading-snug">
+            Como resolver: em <b>Produtos</b>, abra a peça correspondente e
+            preencha o <b>SKU da variação</b> (campo novo na grade) com o SKU
+            mostrado acima — ou deixe os nomes de cor/tamanho iguais nos dois
+            lados. Depois toque em <b>Sincronizar agora</b>.
+          </p>
+        </div>
       )}
     </Card>
   );
