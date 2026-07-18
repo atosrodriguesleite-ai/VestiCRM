@@ -6,6 +6,7 @@ import { requireUser, AuthError } from "@/lib/auth";
 import { isManagerUp } from "@/lib/scope";
 import { reverseAndDeleteOrder } from "@/lib/order-actions";
 import { notifySalePaid } from "@/lib/push";
+import { pushStockToNuvemshop } from "@/lib/nuvemshop";
 import { orderStatusLabel, orderNumber, PAID_ORDER_STATUSES } from "@/lib/orders";
 import { computeOrderTotals } from "@/lib/orders";
 
@@ -384,6 +385,15 @@ export async function PATCH(
         });
         // a VENDA sai do faturamento: cancelou/estornou, não é mais venda
         await db.sale.deleteMany({ where: { orderId: order.id } });
+      }
+
+      // Loja integrada à Nuvemshop: a baixa/devolução feita AQUI é devolvida
+      // pra lá (ela é a dona do estoque) — uma venda, uma baixa, sem divergir
+      if (needDeduct || needReturn) {
+        const variantIds = order.items
+          .map((i) => i.variantId)
+          .filter((v): v is string => !!v);
+        pushStockToNuvemshop(user.companyId, variantIds).catch(() => {});
       }
     }
 

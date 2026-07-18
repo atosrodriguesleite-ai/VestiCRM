@@ -15,6 +15,8 @@ const PUBLIC_PATHS = [
   "/api/demo", // formulário de demonstração da landing page
   "/api/whatsapp/webhook",
   "/api/whatsapp/evolution/webhook", // eventos do servidor Evolution (token na URL)
+  "/api/nuvemshop/webhook", // eventos da Nuvemshop (assinatura HMAC)
+  "/api/nuvemshop/callback", // retorno do OAuth (estado assinado)
   "/api/track", // Tracking Engine (Inteligência Comercial)
   "/api/catalog/order", // pedido enviado pelo catálogo público
   "/api/img", // fotos de produto (catálogo público carrega daqui)

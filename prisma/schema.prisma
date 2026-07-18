@@ -15,18 +15,18 @@ datasource db {
 // consulta do app pode cruzar empresas (ver src/lib/scope.ts).
 // ---------------------------------------------------------------------------
 model Company {
-  id        String   @id @default(cuid())
-  name      String
-  slug      String   @unique
-  plan      String   @default("pro")
-  whatsapp  String? // número exibido no catálogo público (wa.me)
-  tagline   String? // frase de apresentação do catálogo público
-  minOrder      Int    @default(0) // pedido mínimo em PEÇAS (quando minOrderMode = PECAS)
-  minOrderMode  String @default("NONE") // trava do catálogo: NONE | PECAS | VALOR
-  minOrderValue Float  @default(0) // pedido mínimo em R$ (quando minOrderMode = VALOR)
-  commissionBase String @default("SUBTOTAL") // base da comissão: SUBTOTAL (produtos) | TOTAL (com frete)
-  lowStockThreshold Int @default(5) // alerta de estoque: avisa quando a variação chega a X peças
-  createdAt DateTime @default(now())
+  id                String   @id @default(cuid())
+  name              String
+  slug              String   @unique
+  plan              String   @default("pro")
+  whatsapp          String? // número exibido no catálogo público (wa.me)
+  tagline           String? // frase de apresentação do catálogo público
+  minOrder          Int      @default(0) // pedido mínimo em PEÇAS (quando minOrderMode = PECAS)
+  minOrderMode      String   @default("NONE") // trava do catálogo: NONE | PECAS | VALOR
+  minOrderValue     Float    @default(0) // pedido mínimo em R$ (quando minOrderMode = VALOR)
+  commissionBase    String   @default("SUBTOTAL") // base da comissão: SUBTOTAL (produtos) | TOTAL (com frete)
+  lowStockThreshold Int      @default(5) // alerta de estoque: avisa quando a variação chega a X peças
+  createdAt         DateTime @default(now())
 
   // Identidade visual do catálogo público (100% personalizável pelo lojista)
   logoUrl          String? // logo da marca (URL ou data-URL enviada pelo lojista)
@@ -44,25 +44,26 @@ model Company {
   intakeSlaMinutes    Int     @default(60) // prazo do primeiro atendimento
   intakeOppPolicy     String  @default("SE_NAO_HOUVER_ABERTA") // SEMPRE | SE_NAO_HOUVER_ABERTA | NUNCA
 
-  users         User[]
-  customers     Customer[]
-  tags          Tag[]
-  interests     Interest[]
-  pipelines     Pipeline[]
-  opportunities Opportunity[]
-  conversations Conversation[]
-  templates     MessageTemplate[]
-  tasks         Task[]
-  sales         Sale[]
-  campaigns     Campaign[]
-  products      Product[]
-  orders        Order[]
-  inventoryMovs InventoryMovement[]
+  users          User[]
+  customers      Customer[]
+  tags           Tag[]
+  interests      Interest[]
+  pipelines      Pipeline[]
+  opportunities  Opportunity[]
+  conversations  Conversation[]
+  templates      MessageTemplate[]
+  tasks          Task[]
+  sales          Sale[]
+  campaigns      Campaign[]
+  products       Product[]
+  orders         Order[]
+  inventoryMovs  InventoryMovement[]
   customerEvents CustomerEvent[]
   originRules    OriginRule[]
   catalogColors  CompanyColor[]
   catalogSizes   CompanySize[]
   waConsents     WhatsappConsent[]
+  nuvemshop      NuvemshopConnection?
   promoCatalogs  PromoCatalog[]
 }
 
@@ -126,20 +127,20 @@ enum Role {
 }
 
 model User {
-  id           String  @id @default(cuid())
-  companyId    String
-  company      Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  name         String
-  email        String  @unique
-  username     String? @unique // login alternativo sem e-mail (ex.: "maria")
-  passwordHash String
-  role         Role    @default(SELLER)
-  active       Boolean @default(true)
-  color        String  @default("#6366f1")
-  avatarUrl    String? // foto do usuário (data-URL) — opcional; sem foto usa iniciais
-  commissionRate Float @default(0) // % de comissão sobre as vendas do vendedor
-  monthlyGoal    Float @default(0) // meta de vendas do mês (R$) — 0 = sem meta
-  createdAt    DateTime @default(now())
+  id             String   @id @default(cuid())
+  companyId      String
+  company        Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  name           String
+  email          String   @unique
+  username       String?  @unique // login alternativo sem e-mail (ex.: "maria")
+  passwordHash   String
+  role           Role     @default(SELLER)
+  active         Boolean  @default(true)
+  color          String   @default("#6366f1")
+  avatarUrl      String? // foto do usuário (data-URL) — opcional; sem foto usa iniciais
+  commissionRate Float    @default(0) // % de comissão sobre as vendas do vendedor
+  monthlyGoal    Float    @default(0) // meta de vendas do mês (R$) — 0 = sem meta
+  createdAt      DateTime @default(now())
 
   customers     Customer[]     @relation("CustomerOwner")
   opportunities Opportunity[]  @relation("OppOwner")
@@ -200,39 +201,39 @@ model Affiliate {
 }
 
 model Customer {
-  id             String       @id @default(cuid())
-  companyId      String
-  company        Company      @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  name           String
-  phone          String
-  email          String?
-  document       String? // CPF ou CNPJ
-  zip            String? // CEP
-  street         String?
-  streetNumber   String?
-  district       String? // bairro
-  city           String?
-  state          String?
-  type           CustomerType @default(VAREJO)
-  origin         Origin       @default(WHATSAPP)
-  notes          String?
-  preferredSize  String?
+  id              String       @id @default(cuid())
+  companyId       String
+  company         Company      @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  name            String
+  phone           String
+  email           String?
+  document        String? // CPF ou CNPJ
+  zip             String? // CEP
+  street          String?
+  streetNumber    String?
+  district        String? // bairro
+  city            String?
+  state           String?
+  type            CustomerType @default(VAREJO)
+  origin          Origin       @default(WHATSAPP)
+  notes           String?
+  preferredSize   String?
   preferredColors String?
   // catálogo de revenda (PDF) — preferências lembradas por lojista:
-  resaleMarkup    Float       @default(0)   // margem de revenda (%)
-  resaleRound     Boolean     @default(false) // arredondar preço para ,90
-  resaleStoreName String?                    // nome da loja impresso no catálogo
-  lastPurchaseAt DateTime?
-  nextContactAt  DateTime?
-  lastContactAt  DateTime?
-  ownerId        String?
-  owner          User?        @relation("CustomerOwner", fields: [ownerId], references: [id], onDelete: SetNull)
+  resaleMarkup    Float        @default(0) // margem de revenda (%)
+  resaleRound     Boolean      @default(false) // arredondar preço para ,90
+  resaleStoreName String? // nome da loja impresso no catálogo
+  lastPurchaseAt  DateTime?
+  nextContactAt   DateTime?
+  lastContactAt   DateTime?
+  ownerId         String?
+  owner           User?        @relation("CustomerOwner", fields: [ownerId], references: [id], onDelete: SetNull)
   // código curto do link rastreado do catálogo (catalago.net/loja/vend/CODIGO)
-  linkCode       String?      @unique @default(dbgenerated("substr(md5((random())::text || (clock_timestamp())::text), 1, 7)"))
+  linkCode        String?      @unique @default(dbgenerated("substr(md5((random())::text || (clock_timestamp())::text), 1, 7)"))
   // afiliado que trouxe este lead (só usado na empresa-plataforma)
-  affiliateId    String?
-  affiliate      Affiliate?   @relation(fields: [affiliateId], references: [id], onDelete: SetNull)
-  createdAt      DateTime     @default(now())
+  affiliateId     String?
+  affiliate       Affiliate?   @relation(fields: [affiliateId], references: [id], onDelete: SetNull)
+  createdAt       DateTime     @default(now())
 
   tags          CustomerTag[]
   interests     CustomerInterest[]
@@ -323,27 +324,29 @@ enum OppStatus {
 }
 
 model Opportunity {
-  id                String    @id @default(cuid())
-  companyId         String
-  company           Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  customerId        String
-  customer          Customer  @relation(fields: [customerId], references: [id], onDelete: Cascade)
-  stageId           String
-  stage             Stage     @relation(fields: [stageId], references: [id])
-  title             String
-  value             Float     @default(0)
-  status            OppStatus @default(OPEN)
-  lostReason        String?
-  ownerId           String?
-  owner             User?     @relation("OppOwner", fields: [ownerId], references: [id], onDelete: SetNull)
-  lastInteractionAt DateTime  @default(now())
-  createdAt         DateTime  @default(now())
-  closedAt          DateTime?
+  id                  String    @id @default(cuid())
+  nuvemshopCheckoutId String? // carrinho abandonado da Nuvemshop (não duplica)
+  companyId           String
+  company             Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  customerId          String
+  customer            Customer  @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  stageId             String
+  stage               Stage     @relation(fields: [stageId], references: [id])
+  title               String
+  value               Float     @default(0)
+  status              OppStatus @default(OPEN)
+  lostReason          String?
+  ownerId             String?
+  owner               User?     @relation("OppOwner", fields: [ownerId], references: [id], onDelete: SetNull)
+  lastInteractionAt   DateTime  @default(now())
+  createdAt           DateTime  @default(now())
+  closedAt            DateTime?
 
   tasks Task[]
   sales Sale[]
   order Order? // pedido gerado junto com esta oportunidade (catálogo)
 
+  @@unique([companyId, nuvemshopCheckoutId])
   @@index([companyId, status])
   @@index([stageId])
 }
@@ -520,13 +523,28 @@ model CommSettings {
 
   // WhatsApp SEM API oficial (conexão estilo WhatsApp Web via Evolution)
   evolutionInstance     String? // nome da instância no servidor Evolution
-  evolutionWebhookToken String? @unique // identifica/autentica o webhook desta loja
-  evolutionStatus       String  @default("DESCONECTADO") // DESCONECTADO | AGUARDANDO_QR | CONECTADO
+  evolutionWebhookToken String?   @unique // identifica/autentica o webhook desta loja
+  evolutionStatus       String    @default("DESCONECTADO") // DESCONECTADO | AGUARDANDO_QR | CONECTADO
   evolutionPhone        String? // número conectado (informativo)
   // trava de segurança anti-banimento: espaçamento mínimo + teto diário
   waLastSentAt          DateTime?
   waSentDate            String? // dia (yyyy-mm-dd) do contador abaixo
-  waSentToday           Int     @default(0)
+  waSentToday           Int       @default(0)
+}
+
+/// Conexão da loja com a Nuvemshop (loja online). A Nuvemshop é a DONA do
+/// estoque e dos produtos; o AtacadoPro espelha e devolve vendas do catálogo.
+model NuvemshopConnection {
+  id               String    @id @default(cuid())
+  companyId        String    @unique
+  company          Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  storeId          String    @unique // id da loja na Nuvemshop
+  accessToken      String // criptografado
+  storeUrl         String?
+  status           String    @default("CONECTADO") // CONECTADO | ERRO | DESCONECTADO
+  lastProductSync  DateTime?
+  lastCheckoutSync DateTime?
+  createdAt        DateTime  @default(now())
 }
 
 /// Aceite do termo de uso do WhatsApp sem API oficial — prova de que o
@@ -554,12 +572,12 @@ model WhatsappConsent {
 
 // Visitante do catálogo (anônimo até informar o telefone; depois unificado)
 model Visitor {
-  id          String    @id @default(cuid())
+  id          String   @id @default(cuid())
   companyId   String
   customerId  String? // preenchido no identify (unifica a navegação)
-  firstSeenAt DateTime  @default(now())
-  lastSeenAt  DateTime  @default(now())
-  visits      Int       @default(1)
+  firstSeenAt DateTime @default(now())
+  lastSeenAt  DateTime @default(now())
+  visits      Int      @default(1)
 
   sessions TrackSession[]
 
@@ -568,37 +586,37 @@ model Visitor {
 
 // Sessão de navegação no catálogo (uma visita)
 model TrackSession {
-  id          String   @id @default(cuid())
-  companyId   String
-  visitorId   String
-  visitor     Visitor  @relation(fields: [visitorId], references: [id], onDelete: Cascade)
-  customerId  String? // denormalizado após identify
-  ref         String? // ?ref=joao / campanha-verao / qr-vitrine
-  channel     String  @default("direto") // instagram|google|facebook|whatsapp|qr|indicacao|site|direto|...
-  sellerId    String? // vendedor dono do link
-  campaignId  String? // campanha dona do link
-  utmSource   String?
-  utmMedium   String?
-  utmCampaign String?
-  utmTerm     String?
-  utmContent  String?
-  referer     String?
-  device      String? // mobile|desktop|tablet
-  os          String?
-  browser     String?
-  city        String?
-  state       String?
-  country     String?
-  ipMasked    String? // LGPD: último octeto zerado
-  replayId    String? // estrutura pronta p/ replay de sessão (futuro)
-  startedAt   DateTime @default(now())
-  lastEventAt DateTime @default(now())
-  pages       Int      @default(0)
-  productsViewed Int   @default(0)
-  cartAdds    Int      @default(0)
-  cartRemoves Int      @default(0)
-  cartValue   Float    @default(0)
-  converted   Boolean  @default(false) // enviou pedido
+  id             String   @id @default(cuid())
+  companyId      String
+  visitorId      String
+  visitor        Visitor  @relation(fields: [visitorId], references: [id], onDelete: Cascade)
+  customerId     String? // denormalizado após identify
+  ref            String? // ?ref=joao / campanha-verao / qr-vitrine
+  channel        String   @default("direto") // instagram|google|facebook|whatsapp|qr|indicacao|site|direto|...
+  sellerId       String? // vendedor dono do link
+  campaignId     String? // campanha dona do link
+  utmSource      String?
+  utmMedium      String?
+  utmCampaign    String?
+  utmTerm        String?
+  utmContent     String?
+  referer        String?
+  device         String? // mobile|desktop|tablet
+  os             String?
+  browser        String?
+  city           String?
+  state          String?
+  country        String?
+  ipMasked       String? // LGPD: último octeto zerado
+  replayId       String? // estrutura pronta p/ replay de sessão (futuro)
+  startedAt      DateTime @default(now())
+  lastEventAt    DateTime @default(now())
+  pages          Int      @default(0)
+  productsViewed Int      @default(0)
+  cartAdds       Int      @default(0)
+  cartRemoves    Int      @default(0)
+  cartValue      Float    @default(0)
+  converted      Boolean  @default(false) // enviou pedido
 
   events TrackEvent[]
 
@@ -635,10 +653,10 @@ model TrackCampaign {
   companyId String
   name      String
   slug      String // valor do ?ref=
-  channel   String  @default("campanha") // instagram|qr|google|...
+  channel   String   @default("campanha") // instagram|qr|google|...
   ownerId   String? // responsável
-  goal      Float   @default(0) // meta de faturamento
-  active    Boolean @default(true)
+  goal      Float    @default(0) // meta de faturamento
+  active    Boolean  @default(true)
   createdAt DateTime @default(now())
 
   @@unique([companyId, slug])
@@ -697,7 +715,7 @@ model Task {
   status        TaskStatus   @default(PENDENTE)
   assigneeId    String?
   assignee      User?        @relation("TaskAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
-  autoRule      String?      // preenchido quando a tarefa foi criada por automação
+  autoRule      String? // preenchido quando a tarefa foi criada por automação
   createdAt     DateTime     @default(now())
 
   @@index([companyId, status, dueAt])
@@ -809,6 +827,7 @@ model Product {
   minQuantity    Int      @default(1) // qtd mínima (atacado)
   active         Boolean  @default(true)
   tags           String? // separadas por vírgula
+  nuvemshopId    String? // id do produto na Nuvemshop (loja integrada)
   createdAt      DateTime @default(now())
 
   variants ProductVariant[]
@@ -817,18 +836,20 @@ model Product {
   promoIn  PromoCatalogProduct[]
 
   @@unique([companyId, sku])
+  @@unique([companyId, nuvemshopId])
   @@index([companyId, active])
   @@index([companyId, category])
 }
 
 // Grade: cada combinação cor × tamanho com estoque próprio
 model ProductVariant {
-  id        String  @id @default(cuid())
-  productId String
-  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
-  color     String
-  size      String
-  stock     Int     @default(0)
+  id          String  @id @default(cuid())
+  productId   String
+  product     Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  nuvemshopId String? // id da variação na Nuvemshop
+  color       String
+  size        String
+  stock       Int     @default(0)
 
   items     OrderItem[]
   movements InventoryMovement[]
@@ -859,28 +880,30 @@ enum OrderStatus {
 }
 
 model Order {
-  id             String       @id @default(cuid())
+  id             String        @id @default(cuid())
   companyId      String
-  company        Company      @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  company        Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
   number         Int // sequencial por empresa
   customerId     String
-  customer       Customer     @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  customer       Customer      @relation(fields: [customerId], references: [id], onDelete: Cascade)
   sellerId       String?
-  seller         User?        @relation("OrderSeller", fields: [sellerId], references: [id], onDelete: SetNull)
+  seller         User?         @relation("OrderSeller", fields: [sellerId], references: [id], onDelete: SetNull)
   conversationId String?
   conversation   Conversation? @relation(fields: [conversationId], references: [id], onDelete: SetNull)
   // Oportunidade do funil criada junto com este pedido (catálogo). Vínculo
   // 1-para-1: excluir o pedido apaga essa oportunidade e vice-versa.
-  opportunityId  String?      @unique
-  opportunity    Opportunity? @relation(fields: [opportunityId], references: [id], onDelete: SetNull)
-  status         OrderStatus  @default(ORCAMENTO)
-  subtotal       Float        @default(0)
-  discount       Float        @default(0)
-  shippingFee    Float        @default(0)
-  total          Float        @default(0)
+  opportunityId  String?       @unique
+  opportunity    Opportunity?  @relation(fields: [opportunityId], references: [id], onDelete: SetNull)
+  status         OrderStatus   @default(ORCAMENTO)
+  subtotal       Float         @default(0)
+  discount       Float         @default(0)
+  shippingFee    Float         @default(0)
+  total          Float         @default(0)
   notes          String?
-  stockDeducted  Boolean      @default(false) // estoque só baixa quando o pedido é pago
-  createdAt      DateTime     @default(now())
+  stockDeducted  Boolean       @default(false) // estoque só baixa quando o pedido é pago
+  source         String        @default("CATALOGO") // CATALOGO | NUVEMSHOP | MANUAL
+  nuvemshopId    String? // id do pedido na Nuvemshop (nunca importa duplicado)
+  createdAt      DateTime      @default(now())
 
   items    OrderItem[]
   payments Payment[]
@@ -889,6 +912,7 @@ model Order {
   sales    Sale[]
 
   @@unique([companyId, number])
+  @@unique([companyId, nuvemshopId])
   @@index([companyId, status])
   @@index([companyId, createdAt])
 }

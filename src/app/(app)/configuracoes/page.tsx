@@ -1,7 +1,6 @@
 import {
   MessageCircle,
   Package,
-  ShoppingCart,
   Store,
   AtSign,
   Megaphone,
@@ -20,6 +19,7 @@ import { catalogDomain } from "@/lib/catalog-url";
 import { IntakeSettings } from "./intake-settings";
 import { InstallAppCard } from "./install-app";
 import { SaleNotifications } from "./sale-notifications";
+import { NuvemshopConnect } from "./nuvemshop-connect";
 import { isAdmin } from "@/lib/scope";
 import type { Origin } from "@prisma/client";
 
@@ -33,7 +33,6 @@ const INTEGRATIONS = [
     color: "#10b981",
   },
   { name: "Bling", desc: "Sincronize pedidos, estoque e notas fiscais.", icon: Package, color: "#0ea5e9" },
-  { name: "Nuvemshop", desc: "Importe pedidos e clientes da sua loja virtual.", icon: ShoppingCart, color: "#c4622d" },
   { name: "Shopify", desc: "Conecte sua loja Shopify ao funil de vendas.", icon: Store, color: "#059669" },
   { name: "Instagram", desc: "Receba directs e comentários dentro do CRM.", icon: AtSign, color: "#ec4899" },
   { name: "Meta Ads", desc: "Leads dos anúncios entram direto no funil.", icon: Megaphone, color: "#c4622d" },
@@ -75,6 +74,7 @@ export default async function SettingsPage() {
 
       <InstallAppCard />
       <SaleNotifications />
+      {isAdmin(user) && <NuvemshopConnect />}
 
       <Card className="p-5 mb-6">
         <h2 className="font-semibold flex items-center gap-2 mb-3">

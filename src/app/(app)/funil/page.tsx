@@ -1,4 +1,5 @@
 import { requireUser } from "@/lib/auth";
+import { maybeSyncNuvemshop } from "@/lib/nuvemshop";
 import { db } from "@/lib/db";
 import { ownedScope, isManagerUp } from "@/lib/scope";
 import { PageHeader } from "@/components/ui";
@@ -16,6 +17,8 @@ export default async function FunnelPage({
   searchParams: Promise<{ de?: string; ate?: string }>;
 }) {
   const user = await requireUser();
+  // loja integrada: busca carrinhos abandonados da Nuvemshop em 2º plano
+  maybeSyncNuvemshop(user.companyId);
   const scope = ownedScope(user);
   const funnelCompany = await db.company.findUnique({
     where: { id: user.companyId },

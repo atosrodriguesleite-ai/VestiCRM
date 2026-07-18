@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { redirect } from "next/navigation";
 import { requireUser } from "@/lib/auth";
+import { maybeSyncNuvemshop } from "@/lib/nuvemshop";
 import { db } from "@/lib/db";
 import { ownedScope, taskScope, canSeeAll, isSuperAdmin } from "@/lib/scope";
 import { computeAutomations } from "@/lib/automations";
@@ -42,6 +43,8 @@ export default async function DashboardPage({
   searchParams: Promise<{ de?: string; ate?: string }>;
 }) {
   const user = await requireUser();
+  // loja integrada: busca carrinhos abandonados da Nuvemshop em 2º plano
+  maybeSyncNuvemshop(user.companyId);
   const { de, ate } = await searchParams;
   // Super Admin (fora do modo "Acessar loja") gerencia a plataforma, não uma
   // loja: seu ponto de partida é a gestão de clientes (Lojas).

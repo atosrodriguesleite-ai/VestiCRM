@@ -184,6 +184,9 @@ export default async function OrdersPage({
                       {o.seller?.name ?? "—"}
                     </p>
                   </div>
+                  {o.source === "NUVEMSHOP" && (
+                    <Badge color="#0891B2">Nuvemshop</Badge>
+                  )}
                   <Badge color={orderStatusColor[o.status]}>
                     {orderStatusLabel[o.status]}
                   </Badge>

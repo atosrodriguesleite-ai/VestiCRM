@@ -18,6 +18,7 @@ import { requireUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { isManagerUp } from "@/lib/scope";
 import { brl } from "@/lib/format";
+import { PAID_ORDER_STATUSES } from "@/lib/orders";
 import {
   periodFromDays,
   previousPeriod,
@@ -172,6 +173,33 @@ export default async function IntelligencePage({
   const prev = previousPeriod(period);
   const c = user.companyId;
 
+  // Vendas por ORIGEM (pedidos pagos no período): separa o resultado do
+  // catálogo/WhatsApp, da loja online (Nuvemshop) e dos pedidos manuais
+  const porOrigemRaw = await db.order.groupBy({
+    by: ["source"],
+    where: {
+      companyId: c,
+      status: { in: PAID_ORDER_STATUSES },
+      createdAt: { gte: period.from, lte: period.to },
+    },
+    _sum: { total: true },
+    _count: true,
+  });
+  const ORIGEM_LABEL: Record<string, string> = {
+    CATALOGO: "Catálogo + WhatsApp",
+    NUVEMSHOP: "Loja online (Nuvemshop)",
+    MANUAL: "Manual",
+  };
+  const porOrigem = porOrigemRaw
+    .map((r) => ({
+      origem: ORIGEM_LABEL[r.source] ?? r.source,
+      pedidos: r._count,
+      total: r._sum.total ?? 0,
+      isNuvemshop: r.source === "NUVEMSHOP",
+    }))
+    .sort((a, b) => b.total - a.total);
+  const totalOrigens = porOrigem.reduce((a, r) => a + r.total, 0);
+
   const [now, before, funil, canais, vendedores, campanhas, produtos, categorias, cores, tamanhos, mapas, recuperacao, avisos, company, team] =
     await Promise.all([
       overview(c, period), overview(c, prev), funnel(c, period),
@@ -254,6 +282,43 @@ export default async function IntelligencePage({
           </h2>
           <FunnelBars data={funil} />
         </Card>
+
+        {/* Vendas por origem: catálogo × loja online × manual */}
+        {porOrigem.length > 0 && (
+          <Card className="p-5">
+            <h2 className="font-semibold mb-1">Vendas por origem</h2>
+            <p className="text-xs text-gray-400 mb-4">
+              Pedidos pagos no período, separados por onde a venda nasceu.
+            </p>
+            <div className="space-y-3">
+              {porOrigem.map((r) => (
+                <div key={r.origem}>
+                  <div className="flex items-baseline justify-between gap-2 mb-1">
+                    <span className={`text-sm font-semibold ${r.isNuvemshop ? "text-cyan-700" : ""}`}>
+                      {r.origem}
+                    </span>
+                    <span className="text-sm tabular-nums">
+                      <b>{brl(r.total)}</b>{" "}
+                      <span className="text-xs text-gray-400">
+                        · {r.pedidos} pedido{r.pedidos === 1 ? "" : "s"} ·{" "}
+                        {totalOrigens > 0 ? Math.round((r.total / totalOrigens) * 100) : 0}%
+                      </span>
+                    </span>
+                  </div>
+                  <div className="h-2 rounded-full bg-gray-100 overflow-hidden">
+                    <span
+                      className="block h-full rounded-full"
+                      style={{
+                        width: `${totalOrigens > 0 ? Math.max(2, (r.total / totalOrigens) * 100) : 0}%`,
+                        background: r.isNuvemshop ? "#0891B2" : "#C4622D",
+                      }}
+                    />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </Card>
+        )}
 
         {/* Ranking de canais */}
         <Card className="p-5">
