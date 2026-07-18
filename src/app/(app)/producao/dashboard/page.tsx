@@ -123,7 +123,12 @@ export default async function ProducaoDashboard() {
           sub="quanto menor, mais o motor aprendeu"
           tom="sky"
         />
-        <Stat titulo="Perdas definitivas" valor={fmtKg(kgPerdas)} sub={`${perdas.length} registro(s)`} tom="rose" />
+        <Stat
+          titulo="Descartes e perdas"
+          valor={fmtKg(kgPerdas)}
+          sub={`${perdas.length} registro(s) · aparas + perdas definitivas`}
+          tom="rose"
+        />
       </div>
 
       {tecidos.length > 0 && (

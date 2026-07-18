@@ -27,10 +27,14 @@ const acaoSchema = z.discriminatedUnion("action", [
     action: z.literal("producao"),
     usedKg: z.number().positive().max(10000),
     pieces: z.number().int().nonnegative().max(1000000),
+    // aparas descartadas na mesa (kg) — já estão DENTRO do peso cortado;
+    // aqui só ganham registro pro indicador de desperdício do dashboard
+    wasteKg: z.number().nonnegative().max(10000).optional(),
   }),
   z.object({
     action: z.literal("fechar"),
     pieces: z.number().int().nonnegative().max(1000000),
+    wasteKg: z.number().nonnegative().max(10000).optional(),
   }),
   z.object({
     action: z.literal("ocorrencia"),
@@ -113,6 +117,11 @@ export async function PATCH(
         tableLengthM: cut.tableLengthM,
       });
       const restante = Math.round((cut.plannedKg - a.usedKg) * 1000) / 1000;
+      // aparas jogadas fora: registro de descarte (não mexe em nenhuma conta —
+      // a taxa peças/kg já embute esse desperdício por medir o peso bruto)
+      if (a.wasteKg && a.wasteKg > 0) {
+        await registraAparas(user.companyId, cut, a.wasteKg);
+      }
 
       if (restante > 0.01) {
         // PARCIAL: projeta o restante — histórico da loja + taxa deste corte
@@ -163,6 +172,9 @@ export async function PATCH(
           { error: "Registre primeiro a produção da parte cortada" },
           { status: 409 }
         );
+      }
+      if (a.wasteKg && a.wasteKg > 0) {
+        await registraAparas(user.companyId, cut, a.wasteKg);
       }
       const total = (cut.piecesFirst ?? 0) + a.pieces;
       const fechado = await fechaCorte(user.companyId, cut.id, {
@@ -287,6 +299,25 @@ async function fechaCorte(
       errorPieces:
         cut.predictedTotal != null ? dados.piecesTotal - cut.predictedTotal : null,
     },
+  });
+}
+
+/** Aparas jogadas fora na mesa: entram DIRETO como descarte (retalhos
+ *  minúsculos, sem reaproveitamento) — alimentam o indicador de desperdício
+ *  do dashboard sem mexer nas contas de rendimento. */
+async function registraAparas(
+  companyId: string,
+  cut: Parameters<typeof criaSobra>[1],
+  wasteKg: number
+) {
+  const sobra = await criaSobra(companyId, cut, wasteKg, {
+    geometry: "RETALHOS",
+    quality: "RUIM",
+    notes: "Aparas do corte (descartadas na mesa)",
+  });
+  return db.fabricScrap.update({
+    where: { id: sobra.id },
+    data: { status: "DESCARTADA" },
   });
 }
 

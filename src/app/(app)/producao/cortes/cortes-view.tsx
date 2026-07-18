@@ -471,7 +471,15 @@ function CorteModal({
         </div>
 
         {/* etapa: registrar produção */}
-        {c.status === "ABERTO" && <FormProducao plannedKg={c.plannedKg} busy={busy} onSubmit={(usedKg, pieces) => acao({ action: "producao", usedKg, pieces })} />}
+        {c.status === "ABERTO" && (
+          <FormProducao
+            plannedKg={c.plannedKg}
+            busy={busy}
+            onSubmit={(usedKg, pieces, wasteKg) =>
+              acao({ action: "producao", usedKg, pieces, ...(wasteKg ? { wasteKg } : {}) })
+            }
+          />
+        )}
 
         {/* etapa: parcial com projeção */}
         {c.status === "PARCIAL" && (
@@ -504,7 +512,12 @@ function CorteModal({
                 <p className="text-xs text-sky-700 mt-1">Sem base pra projetar ainda.</p>
               )}
             </div>
-            <FormFechar busy={busy} onSubmit={(pieces) => acao({ action: "fechar", pieces })} />
+            <FormFechar
+              busy={busy}
+              onSubmit={(pieces, wasteKg) =>
+                acao({ action: "fechar", pieces, ...(wasteKg ? { wasteKg } : {}) })
+              }
+            />
           </>
         )}
 
@@ -560,12 +573,14 @@ function FormProducao({
 }: {
   plannedKg: number;
   busy: boolean;
-  onSubmit: (usedKg: number, pieces: number) => void;
+  onSubmit: (usedKg: number, pieces: number, wasteKg: number) => void;
 }) {
   const [kg, setKg] = useState(String(plannedKg).replace(".", ","));
   const [pecas, setPecas] = useState("");
+  const [aparas, setAparas] = useState("");
   const kgNum = parseFloat(kg.replace(",", "."));
   const pecasNum = parseInt(pecas, 10);
+  const aparasNum = parseFloat(aparas.replace(",", ".")) || 0;
   const parcial = kgNum > 0 && kgNum < plannedKg - 0.01;
   return (
     <div className="rounded-xl border border-gray-200 p-3.5">
@@ -580,13 +595,27 @@ function FormProducao({
           <input value={pecas} onChange={(e) => setPecas(e.target.value)} inputMode="numeric" className={inputCls + " mt-1"} />
         </label>
       </div>
+      <p className="text-[10.5px] text-gray-400 mt-1.5 leading-snug">
+        Peso cortado = o que saiu do rolo pra mesa, COM as aparas jogadas fora.
+        Se guardou uma ponta, pese-a e desconte (ela vira o restante do corte).
+      </p>
+      <label className="block text-xs font-medium text-gray-600 mt-2">
+        Aparas jogadas fora (kg) — opcional
+        <input
+          value={aparas}
+          onChange={(e) => setAparas(e.target.value)}
+          inputMode="decimal"
+          placeholder="Retalhos minúsculos, sem aproveitamento"
+          className={inputCls + " mt-1"}
+        />
+      </label>
       {parcial && (
         <p className="text-[11px] text-sky-700 mt-2">
           Corte parcial: sobram {(plannedKg - kgNum).toFixed(2).replace(".", ",")} kg — o motor vai projetar o restante.
         </p>
       )}
       <button
-        onClick={() => onSubmit(kgNum, pecasNum)}
+        onClick={() => onSubmit(kgNum, pecasNum, aparasNum)}
         disabled={busy || !(kgNum > 0) || !(pecasNum >= 0)}
         className="mt-3 w-full rounded-xl bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium py-2.5 transition disabled:opacity-50"
       >
@@ -596,18 +625,32 @@ function FormProducao({
   );
 }
 
-function FormFechar({ busy, onSubmit }: { busy: boolean; onSubmit: (pieces: number) => void }) {
+function FormFechar({
+  busy,
+  onSubmit,
+}: {
+  busy: boolean;
+  onSubmit: (pieces: number, wasteKg: number) => void;
+}) {
   const [pecas, setPecas] = useState("");
+  const [aparas, setAparas] = useState("");
   const n = parseInt(pecas, 10);
+  const aparasNum = parseFloat(aparas.replace(",", ".")) || 0;
   return (
     <div className="rounded-xl border border-gray-200 p-3.5">
       <p className="text-xs font-bold text-gray-700 mb-2">Usou o restante? Feche o corte</p>
-      <label className="block text-xs font-medium text-gray-600">
-        Peças produzidas com o restante
-        <input value={pecas} onChange={(e) => setPecas(e.target.value)} inputMode="numeric" className={inputCls + " mt-1"} />
-      </label>
+      <div className="grid grid-cols-2 gap-3">
+        <label className="block text-xs font-medium text-gray-600">
+          Peças produzidas com o restante
+          <input value={pecas} onChange={(e) => setPecas(e.target.value)} inputMode="numeric" className={inputCls + " mt-1"} />
+        </label>
+        <label className="block text-xs font-medium text-gray-600">
+          Aparas jogadas fora (kg)
+          <input value={aparas} onChange={(e) => setAparas(e.target.value)} inputMode="decimal" placeholder="opcional" className={inputCls + " mt-1"} />
+        </label>
+      </div>
       <button
-        onClick={() => onSubmit(n)}
+        onClick={() => onSubmit(n, aparasNum)}
         disabled={busy || !(n >= 0)}
         className="mt-3 w-full rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium py-2.5 transition disabled:opacity-50"
       >
