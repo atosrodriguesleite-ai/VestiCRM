@@ -728,14 +728,14 @@ export function PublicCatalog({
           // o logo ocupa a largura e a altura acompanha, sem sobra de fundo.
           // Layout em flex com espaçador à esquerda (= largura da sacola) para o
           // logo centralizar sem NUNCA sobrepor o botão da sacola.
-          <div className="max-w-[680px] lg:max-w-[1200px] mx-auto px-[18px] py-3 lg:py-2.5 flex items-center gap-3">
+          <div className="max-w-[680px] lg:max-w-[1200px] mx-auto px-[18px] py-2 lg:py-2.5 flex items-center gap-3">
             <span className="w-[46px] shrink-0" aria-hidden />
-            {/* celular: logo grande (160px). Computador: cabeçalho compacto
-                (96px) — em tela larga o logo alto empurrava tudo pra baixo. */}
+            {/* cabeçalho compacto: o logo fica em destaque sem roubar espaço
+                das peças (celular 88px, computador 96px) */}
             <img
               src={identity.logoUrl}
               alt={storeName}
-              className="flex-1 min-w-0 object-contain max-h-[160px] lg:max-h-[96px]"
+              className="flex-1 min-w-0 object-contain max-h-[88px] lg:max-h-[96px]"
             />
             <button
               onClick={openBag}
