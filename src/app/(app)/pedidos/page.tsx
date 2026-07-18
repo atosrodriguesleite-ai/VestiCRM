@@ -30,10 +30,12 @@ export const dynamic = "force-dynamic";
 export default async function OrdersPage({
   searchParams,
 }: {
-  searchParams: Promise<{ status?: string; de?: string; ate?: string }>;
+  searchParams: Promise<{ status?: string; de?: string; ate?: string; canal?: string }>;
 }) {
   const user = await requireUser();
-  const { status, de, ate } = await searchParams;
+  const { status, de, ate, canal: canalRaw } = await searchParams;
+  // canal da venda: nuvemshop | atacadopro (catálogo/WhatsApp/manual) | todos
+  const canal = canalRaw === "nuvemshop" || canalRaw === "atacadopro" ? canalRaw : null;
 
   const from = de ? spDayStart(de) : null;
   const to = ate ? spDayEnd(ate) : null;
@@ -47,7 +49,9 @@ export default async function OrdersPage({
   if (from || to) {
     where.createdAt = { ...(from ? { gte: from } : {}), ...(to ? { lte: to } : {}) };
   }
-  const dateQS = `${de ? `&de=${de}` : ""}${ate ? `&ate=${ate}` : ""}`;
+  if (canal === "nuvemshop") where.source = "NUVEMSHOP";
+  if (canal === "atacadopro") where.source = { not: "NUVEMSHOP" };
+  const dateQS = `${de ? `&de=${de}` : ""}${ate ? `&ate=${ate}` : ""}${canal ? `&canal=${canal}` : ""}`;
 
   const [orders, counts] = await Promise.all([
     db.order.findMany({
@@ -80,6 +84,28 @@ export default async function OrdersPage({
   );
   const totalCount = counts.reduce((s, c) => s + c._count, 0);
 
+  const bySource = await db.order.groupBy({
+    by: ["source"],
+    where: {
+      ...(canSeeAll(user)
+        ? { companyId: user.companyId }
+        : { companyId: user.companyId, sellerId: user.id }),
+      ...(from || to
+        ? { createdAt: { ...(from ? { gte: from } : {}), ...(to ? { lte: to } : {}) } }
+        : {}),
+    },
+    _count: true,
+  });
+  const nsCount = bySource.find((r) => r.source === "NUVEMSHOP")?._count ?? 0;
+  const apCount = bySource.filter((r) => r.source !== "NUVEMSHOP").reduce((a, r) => a + r._count, 0);
+  const canalHref = (c: string | null) =>
+    `/pedidos?${[
+      status ? `status=${status}` : "",
+      de ? `de=${de}` : "",
+      ate ? `ate=${ate}` : "",
+      c ? `canal=${c}` : "",
+    ].filter(Boolean).join("&")}`.replace(/\?$/, "");
+
   return (
     <div className="max-w-6xl mx-auto">
       <PageHeader
@@ -103,6 +129,7 @@ export default async function OrdersPage({
       {/* Filtro de período (fuso de São Paulo) */}
       <form className="flex flex-wrap items-end gap-2 mb-4" method="GET">
         {status && <input type="hidden" name="status" value={status} />}
+        {canal && <input type="hidden" name="canal" value={canal} />}
         <div>
           <label className="block text-[11px] font-semibold text-gray-500 mb-1">De</label>
           <input type="date" name="de" defaultValue={de ?? ""} className="rounded-xl border border-gray-200 px-3 py-2 text-sm bg-white" />
@@ -120,6 +147,29 @@ export default async function OrdersPage({
           </Link>
         )}
       </form>
+
+      {/* Canal da venda: tudo, só AtacadoPro (catálogo/WhatsApp/manual) ou só Nuvemshop */}
+      <div className="flex gap-1.5 mb-3">
+        {[
+          { c: null, label: `Todos os canais (${apCount + nsCount})` },
+          { c: "atacadopro", label: `AtacadoPro (${apCount})` },
+          { c: "nuvemshop", label: `Nuvemshop (${nsCount})` },
+        ].map((o) => (
+          <Link
+            key={o.label}
+            href={canalHref(o.c)}
+            className={`px-3 py-2 rounded-xl text-xs font-semibold whitespace-nowrap transition ${
+              canal === o.c
+                ? o.c === "nuvemshop"
+                  ? "bg-cyan-700 text-white"
+                  : "bg-gray-900 text-white"
+                : "bg-white border border-gray-200 text-gray-500 hover:border-brand-300"
+            }`}
+          >
+            {o.label}
+          </Link>
+        ))}
+      </div>
 
       <div className="flex gap-1.5 mb-4 overflow-x-auto thin-scroll pb-1">
         <Link
@@ -184,8 +234,10 @@ export default async function OrdersPage({
                       {o.seller?.name ?? "—"}
                     </p>
                   </div>
-                  {o.source === "NUVEMSHOP" && (
+                  {o.source === "NUVEMSHOP" ? (
                     <Badge color="#0891B2">Nuvemshop</Badge>
+                  ) : (
+                    <Badge color="#C4622D">AtacadoPro</Badge>
                   )}
                   <Badge color={orderStatusColor[o.status]}>
                     {orderStatusLabel[o.status]}
