@@ -9,7 +9,7 @@
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { CheckCircle2, Loader2, Shirt } from "lucide-react";
+import { CheckCircle2, Loader2, PackagePlus, Shirt, X } from "lucide-react";
 import { Card, EmptyState } from "@/components/ui";
 
 export type CosturaRow = {
@@ -110,25 +110,39 @@ export function CosturaView({ itens }: { itens: CosturaRow[] }) {
     }
   }
 
+  const [saldoAberto, setSaldoAberto] = useState(false);
+
   return (
     <div>
-      <div className="flex items-center gap-1.5 mb-4">
-        {(["PENDENTES", "CONCLUIDAS"] as const).map((t) => (
-          <button
-            key={t}
-            onClick={() => setAba(t)}
-            className={`rounded-full px-3.5 py-1.5 text-xs font-medium border transition ${
-              aba === t
-                ? "bg-brand-600 border-brand-600 text-white"
-                : "bg-white border-gray-200 text-gray-500 hover:border-brand-300"
-            }`}
-          >
-            {t === "PENDENTES"
-              ? `Aguardando montagem (${pendentes.length})`
-              : `Concluídos (${concluidas.length})`}
-          </button>
-        ))}
+      <div className="flex items-center justify-between gap-2 flex-wrap mb-4">
+        <div className="flex items-center gap-1.5">
+          {(["PENDENTES", "CONCLUIDAS"] as const).map((t) => (
+            <button
+              key={t}
+              onClick={() => setAba(t)}
+              className={`rounded-full px-3.5 py-1.5 text-xs font-medium border transition ${
+                aba === t
+                  ? "bg-brand-600 border-brand-600 text-white"
+                  : "bg-white border-gray-200 text-gray-500 hover:border-brand-300"
+              }`}
+            >
+              {t === "PENDENTES"
+                ? `Aguardando montagem (${pendentes.length})`
+                : `Concluídos (${concluidas.length})`}
+            </button>
+          ))}
+        </div>
+        <button
+          onClick={() => setSaldoAberto(true)}
+          className="inline-flex items-center gap-1.5 rounded-xl border border-gray-200 hover:border-brand-300 text-gray-600 text-xs font-medium px-3 py-2 transition"
+          title="Peças cortadas antes do sistema existir"
+        >
+          <PackagePlus className="size-3.5" />
+          Adicionar saldo antigo
+        </button>
       </div>
+
+      {saldoAberto && <SaldoAntigoModal onClose={() => setSaldoAberto(false)} />}
 
       {lista.length === 0 ? (
         <Card>
@@ -166,7 +180,7 @@ export function CosturaView({ itens }: { itens: CosturaRow[] }) {
                     {g.lotes
                       .map(
                         (l) =>
-                          `${l.cutCode != null ? `corte #${String(l.cutCode).padStart(6, "0")}` : "corte"} ×${l.restantes}`
+                          `${l.cutCode != null ? `corte #${String(l.cutCode).padStart(6, "0")}` : "saldo antigo"} ×${l.restantes}`
                       )
                       .join(" · ")}
                   </span>
@@ -208,6 +222,115 @@ export function CosturaView({ itens }: { itens: CosturaRow[] }) {
           ))}
         </div>
       )}
+    </div>
+  );
+}
+
+/**
+ * Saldo antigo: implantação em fábrica que já roda — as peças cortadas
+ * ANTES do sistema entram aqui e seguem o fluxo normal da costura.
+ */
+function SaldoAntigoModal({ onClose }: { onClose: () => void }) {
+  const router = useRouter();
+  const [f, setF] = useState({ productName: "", color: "", size: "", pieces: "" });
+  const [salvando, setSalvando] = useState(false);
+  const [msg, setMsg] = useState("");
+  const [adicionados, setAdicionados] = useState<string[]>([]);
+
+  const n = parseInt(f.pieces, 10);
+  const ok = f.productName.trim() && n > 0;
+
+  async function salvar() {
+    setSalvando(true);
+    setMsg("");
+    const res = await fetch("/api/producao/costura", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        productName: f.productName.trim(),
+        color: f.color.trim() || null,
+        size: f.size.trim() || null,
+        pieces: n,
+      }),
+    });
+    setSalvando(false);
+    if (res.ok) {
+      setAdicionados((a) => [
+        ...a,
+        `${f.productName.trim()}${f.color ? ` · ${f.color.trim()}` : ""}${f.size ? ` · ${f.size.trim()}` : ""} ×${n}`,
+      ]);
+      // mantém modelo/cor pra facilitar o lançamento em série (só troca tam/qtd)
+      setF((x) => ({ ...x, size: "", pieces: "" }));
+      router.refresh();
+    } else {
+      const d = await res.json().catch(() => ({}));
+      setMsg(d.error ?? "Não foi possível salvar.");
+    }
+  }
+
+  const cls =
+    "w-full rounded-xl border border-gray-200 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-200";
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center">
+      <div className="absolute inset-0 bg-black/30 animate-fade-in" onClick={onClose} />
+      <div className="relative bg-white rounded-t-2xl md:rounded-2xl shadow-pop w-full md:max-w-md max-h-[92dvh] flex flex-col">
+        <div className="flex items-center justify-between p-5 pb-3 border-b border-gray-100">
+          <h3 className="font-semibold text-lg flex items-center gap-2">
+            <PackagePlus className="size-5 text-brand-600" />
+            Saldo antigo da costura
+          </h3>
+          <button onClick={onClose} className="text-gray-400 p-1">
+            <X className="size-5" />
+          </button>
+        </div>
+        <div className="flex-1 overflow-y-auto thin-scroll p-5 pt-4 space-y-3">
+          <p className="text-xs text-gray-500 leading-snug">
+            Peças que já estavam cortadas <b>antes do sistema</b>: entram no
+            estoque de costura sem corte de origem e seguem o fluxo normal —
+            quando forem montadas e conferidas, é só lançar.
+          </p>
+          <label className="block text-xs font-medium text-gray-600">
+            Modelo
+            <input value={f.productName} onChange={(e) => setF({ ...f, productName: e.target.value })} placeholder="Baby Look" className={cls + " mt-1"} />
+          </label>
+          <div className="grid grid-cols-3 gap-2">
+            <label className="block text-xs font-medium text-gray-600">
+              Cor
+              <input value={f.color} onChange={(e) => setF({ ...f, color: e.target.value })} placeholder="Branco" className={cls + " mt-1"} />
+            </label>
+            <label className="block text-xs font-medium text-gray-600">
+              Tamanho
+              <input value={f.size} onChange={(e) => setF({ ...f, size: e.target.value })} placeholder="P" className={cls + " mt-1"} />
+            </label>
+            <label className="block text-xs font-medium text-gray-600">
+              Quantidade
+              <input value={f.pieces} onChange={(e) => setF({ ...f, pieces: e.target.value })} inputMode="numeric" placeholder="30" className={cls + " mt-1"} />
+            </label>
+          </div>
+          {adicionados.length > 0 && (
+            <div className="rounded-xl bg-emerald-50 border border-emerald-100 p-2.5">
+              <p className="text-[11px] font-bold text-emerald-800 mb-1">Adicionados agora:</p>
+              <ul className="text-xs text-emerald-900 space-y-0.5">
+                {adicionados.map((a, i) => (
+                  <li key={i}>✓ {a}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {msg && <p className="text-sm text-rose-600 bg-rose-50 rounded-lg px-3 py-2">{msg}</p>}
+          <button
+            onClick={salvar}
+            disabled={salvando || !ok}
+            className="w-full rounded-xl bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium py-2.5 transition disabled:opacity-50"
+          >
+            {salvando ? <Loader2 className="size-4 animate-spin inline" /> : "Adicionar à costura"}
+          </button>
+          <p className="text-[10.5px] text-gray-400 text-center">
+            O formulário continua aberto pra você lançar vários tamanhos em sequência.
+          </p>
+        </div>
+      </div>
     </div>
   );
 }
