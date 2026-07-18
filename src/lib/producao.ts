@@ -166,6 +166,69 @@ export function custoPorPeca(input: {
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
+// ---- 4. Método da balança (aproveitamento por pesagem das peças) -----------
+
+/** Um modelo produzido no corte: nome, quantidade e peso unitário (g). */
+export type ItemProduzido = {
+  name: string;
+  pieces: number;
+  pieceWeightG?: number | null;
+};
+
+/**
+ * Aproveitamento por SUBTRAÇÃO — o jeito real de fábrica: ninguém pesa
+ * farelo de tecido no meio do corte. Pesa-se a produção pronta por SKU;
+ * o que não virou peça é desperdício.
+ *   15 kg cortados, 50 blusas × 200 g = 10 kg em peças
+ *   → aproveitamento 66,7% · desperdício 5 kg
+ * Só calcula quando TODOS os modelos têm peso unitário informado.
+ */
+export function resumoPesagem(
+  items: ItemProduzido[],
+  usedKg: number
+): { pesoPecasKg: number; utilizationPct: number; wasteKg: number } | null {
+  if (!(usedKg > 0) || items.length === 0) return null;
+  if (items.some((i) => !(i.pieceWeightG && i.pieceWeightG > 0))) return null;
+  const pesoPecasKg = items.reduce(
+    (a, i) => a + (i.pieces * (i.pieceWeightG ?? 0)) / 1000,
+    0
+  );
+  return {
+    pesoPecasKg: round2(pesoPecasKg),
+    utilizationPct: round2((pesoPecasKg / usedKg) * 100),
+    wasteKg: round2(Math.max(0, usedKg - pesoPecasKg)),
+  };
+}
+
+/**
+ * Custo do tecido por MODELO: o kg pago vira outro kg quando existe
+ * desperdício. Custo efetivo por kg ÚTIL = custo total ÷ kg que viraram
+ * peça; cada modelo paga proporcional ao seu peso.
+ *   R$ 1.500 de tecido ÷ 10 kg úteis = R$ 150/kg útil
+ *   → blusa de 200 g custa R$ 30 de tecido
+ */
+export function custoPorModelo(
+  items: ItemProduzido[],
+  fabricCost: number,
+  extrasPorPeca: number
+): { name: string; pieces: number; tecidoPorPeca: number; totalPorPeca: number }[] | null {
+  const pesoTotal = items.reduce(
+    (a, i) => a + (i.pieces * (i.pieceWeightG ?? 0)) / 1000,
+    0
+  );
+  if (!(pesoTotal > 0)) return null;
+  const custoKgUtil = fabricCost / pesoTotal;
+  return items.map((i) => {
+    const tecido = ((i.pieceWeightG ?? 0) / 1000) * custoKgUtil;
+    return {
+      name: i.name,
+      pieces: i.pieces,
+      tecidoPorPeca: round2(tecido),
+      totalPorPeca: round2(tecido + extrasPorPeca),
+    };
+  });
+}
+
 // ---- Helpers de leitura (usados por páginas e APIs) ------------------------
 
 export type CorteFechadoParaHistorico = {

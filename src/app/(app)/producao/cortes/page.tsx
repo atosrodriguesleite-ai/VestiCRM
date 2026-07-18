@@ -15,6 +15,7 @@ export default async function CortesPage() {
         roll: { include: { fabric: true } },
         occurrences: { orderBy: { createdAt: "asc" } },
         scraps: { select: { id: true } },
+        items: { orderBy: { id: "asc" } },
       },
       orderBy: { code: "desc" },
       take: 200,
@@ -81,6 +82,15 @@ export default async function CortesPage() {
       lostKg: o.lostKg,
     })),
     sobras: c.scraps.length,
+    items: c.items.map((i) => ({
+      name: i.name,
+      pieces: i.pieces,
+      pieceWeightG: i.pieceWeightG,
+      stage: i.stage,
+    })),
+    piecesWeightKg: c.piecesWeightKg,
+    utilizationPct: c.utilizationPct,
+    wasteKg: c.wasteKg,
   }));
 
   const rollOptions: RollOption[] = rolls.map((r) => ({

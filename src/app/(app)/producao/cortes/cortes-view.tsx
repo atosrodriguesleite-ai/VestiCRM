@@ -70,7 +70,38 @@ export type CorteRow = {
   yieldMPerKg: number;
   occurrences: { id: string; type: string; description: string | null; lostKg: number }[];
   sobras: number;
+  items: { name: string; pieces: number; pieceWeightG: number | null; stage: string }[];
+  piecesWeightKg: number | null;
+  utilizationPct: number | null;
+  wasteKg: number | null;
 };
+
+/** Linha do formulário: um modelo/SKU produzido, com peso unitário opcional. */
+type LinhaModelo = { name: string; pieces: string; pieceWeightG: string };
+
+const linhasParaItems = (linhas: LinhaModelo[]) =>
+  linhas
+    .filter((l) => l.name.trim() && parseInt(l.pieces, 10) >= 0)
+    .map((l) => ({
+      name: l.name.trim(),
+      pieces: parseInt(l.pieces, 10) || 0,
+      pieceWeightG: parseFloat(l.pieceWeightG.replace(",", ".")) > 0
+        ? parseFloat(l.pieceWeightG.replace(",", "."))
+        : null,
+    }));
+
+/** Totais ao vivo do método da balança (espelha resumoPesagem do servidor). */
+function pesagemAoVivo(linhas: LinhaModelo[], kg: number) {
+  const items = linhasParaItems(linhas);
+  if (!(kg > 0) || items.length === 0) return null;
+  if (items.some((i) => !i.pieceWeightG)) return null;
+  const pesoPecas = items.reduce((a, i) => a + (i.pieces * i.pieceWeightG!) / 1000, 0);
+  return {
+    pesoPecas: Math.round(pesoPecas * 100) / 100,
+    pct: Math.round((pesoPecas / kg) * 1000) / 10,
+    lixo: Math.round(Math.max(0, kg - pesoPecas) * 100) / 100,
+  };
+}
 
 const fmtCode = (n: number) => `#${String(n).padStart(6, "0")}`;
 const fmtKg = (n: number) => `${n.toLocaleString("pt-BR", { maximumFractionDigits: 2 })} kg`;
@@ -474,10 +505,9 @@ function CorteModal({
         {c.status === "ABERTO" && (
           <FormProducao
             plannedKg={c.plannedKg}
+            modeloSugerido={c.productName}
             busy={busy}
-            onSubmit={(usedKg, pieces, wasteKg) =>
-              acao({ action: "producao", usedKg, pieces, ...(wasteKg ? { wasteKg } : {}) })
-            }
+            onSubmit={(usedKg, items) => acao({ action: "producao", usedKg, items })}
           />
         )}
 
@@ -513,10 +543,10 @@ function CorteModal({
               )}
             </div>
             <FormFechar
+              restKg={Math.max(0, c.plannedKg - c.usedKg)}
+              modeloSugerido={c.productName}
               busy={busy}
-              onSubmit={(pieces, wasteKg) =>
-                acao({ action: "fechar", pieces, ...(wasteKg ? { wasteKg } : {}) })
-              }
+              onSubmit={(items) => acao({ action: "fechar", items })}
             />
           </>
         )}
@@ -539,6 +569,14 @@ function CorteModal({
                   </span>
                 )}
               </div>
+              {c.utilizationPct != null && (
+                <p className="mt-1.5 text-xs">
+                  ⚖️ Método da balança: <b>{(c.piecesWeightKg ?? 0).toLocaleString("pt-BR")} kg</b> viraram
+                  peça de {c.usedKg.toLocaleString("pt-BR")} kg cortados —
+                  aproveitamento <b>{c.utilizationPct.toLocaleString("pt-BR")}%</b> ·
+                  desperdício <b>{(c.wasteKg ?? 0).toLocaleString("pt-BR")} kg</b>
+                </p>
+              )}
             </div>
             <Custos corte={c} busy={busy} onSave={(items) => acao({ action: "custos", items }, "Custos salvos")} />
           </>
@@ -566,58 +604,125 @@ function CorteModal({
   );
 }
 
+/** Editor das linhas de modelo: SKU + quantidade + peso da peça (balança). */
+function EditorModelos({
+  linhas,
+  setLinhas,
+}: {
+  linhas: LinhaModelo[];
+  setLinhas: (l: LinhaModelo[]) => void;
+}) {
+  return (
+    <div className="space-y-1.5">
+      <div className="grid grid-cols-[1fr_72px_84px_28px] gap-1.5 text-[10.5px] uppercase tracking-wide text-gray-400 px-0.5">
+        <span>Modelo / SKU</span>
+        <span>Qtd</span>
+        <span>Peça (g)</span>
+        <span />
+      </div>
+      {linhas.map((l, i) => (
+        <div key={i} className="grid grid-cols-[1fr_72px_84px_28px] gap-1.5">
+          <input
+            value={l.name}
+            onChange={(e) => setLinhas(linhas.map((x, k) => (k === i ? { ...x, name: e.target.value } : x)))}
+            placeholder="Blusa Tule"
+            className={inputCls}
+          />
+          <input
+            value={l.pieces}
+            onChange={(e) => setLinhas(linhas.map((x, k) => (k === i ? { ...x, pieces: e.target.value } : x)))}
+            inputMode="numeric"
+            placeholder="50"
+            className={inputCls}
+          />
+          <input
+            value={l.pieceWeightG}
+            onChange={(e) => setLinhas(linhas.map((x, k) => (k === i ? { ...x, pieceWeightG: e.target.value } : x)))}
+            inputMode="decimal"
+            placeholder="200"
+            className={inputCls}
+          />
+          <button
+            onClick={() => setLinhas(linhas.filter((_, k) => k !== i))}
+            disabled={linhas.length === 1}
+            className="text-gray-300 hover:text-rose-500 disabled:opacity-30"
+            title="Remover modelo"
+          >
+            <X className="size-4 mx-auto" />
+          </button>
+        </div>
+      ))}
+      <button
+        onClick={() => setLinhas([...linhas, { name: "", pieces: "", pieceWeightG: "" }])}
+        className="text-xs text-brand-600 font-medium underline underline-offset-2"
+      >
+        + outro modelo neste corte
+      </button>
+    </div>
+  );
+}
+
+/** Caixa de totais do método da balança (aparece quando tudo está pesado). */
+function ResumoBalanca({ linhas, kg }: { linhas: LinhaModelo[]; kg: number }) {
+  const r = pesagemAoVivo(linhas, kg);
+  if (!r) {
+    return (
+      <p className="text-[10.5px] text-gray-400 leading-snug">
+        Preencha o peso da peça (g) em todos os modelos pra apurar o
+        aproveitamento — o desperdício sai por subtração, sem pesar retalho.
+      </p>
+    );
+  }
+  return (
+    <div className="rounded-xl bg-emerald-50 border border-emerald-100 p-2.5 text-xs text-emerald-900">
+      ⚖️ Peças pesadas: <b>{r.pesoPecas.toLocaleString("pt-BR")} kg</b> de{" "}
+      {kg.toLocaleString("pt-BR")} kg cortados → aproveitamento{" "}
+      <b>{r.pct.toLocaleString("pt-BR")}%</b> · desperdício{" "}
+      <b>{r.lixo.toLocaleString("pt-BR")} kg</b> (vira descarte no painel)
+    </div>
+  );
+}
+
 function FormProducao({
   plannedKg,
+  modeloSugerido,
   busy,
   onSubmit,
 }: {
   plannedKg: number;
+  modeloSugerido: string | null;
   busy: boolean;
-  onSubmit: (usedKg: number, pieces: number, wasteKg: number) => void;
+  onSubmit: (usedKg: number, items: { name: string; pieces: number; pieceWeightG: number | null }[]) => void;
 }) {
   const [kg, setKg] = useState(String(plannedKg).replace(".", ","));
-  const [pecas, setPecas] = useState("");
-  const [aparas, setAparas] = useState("");
+  const [linhas, setLinhas] = useState<LinhaModelo[]>([
+    { name: modeloSugerido ?? "", pieces: "", pieceWeightG: "" },
+  ]);
   const kgNum = parseFloat(kg.replace(",", "."));
-  const pecasNum = parseInt(pecas, 10);
-  const aparasNum = parseFloat(aparas.replace(",", ".")) || 0;
+  const items = linhasParaItems(linhas);
   const parcial = kgNum > 0 && kgNum < plannedKg - 0.01;
   return (
-    <div className="rounded-xl border border-gray-200 p-3.5">
-      <p className="text-xs font-bold text-gray-700 mb-2">Registrar produção</p>
-      <div className="grid grid-cols-2 gap-3">
-        <label className="block text-xs font-medium text-gray-600">
-          Peso cortado (kg)
-          <input value={kg} onChange={(e) => setKg(e.target.value)} inputMode="decimal" className={inputCls + " mt-1"} />
-        </label>
-        <label className="block text-xs font-medium text-gray-600">
-          Peças produzidas
-          <input value={pecas} onChange={(e) => setPecas(e.target.value)} inputMode="numeric" className={inputCls + " mt-1"} />
-        </label>
-      </div>
-      <p className="text-[10.5px] text-gray-400 mt-1.5 leading-snug">
-        Peso cortado = o que saiu do rolo pra mesa, COM as aparas jogadas fora.
-        Se guardou uma ponta, pese-a e desconte (ela vira o restante do corte).
-      </p>
-      <label className="block text-xs font-medium text-gray-600 mt-2">
-        Aparas jogadas fora (kg) — opcional
-        <input
-          value={aparas}
-          onChange={(e) => setAparas(e.target.value)}
-          inputMode="decimal"
-          placeholder="Retalhos minúsculos, sem aproveitamento"
-          className={inputCls + " mt-1"}
-        />
+    <div className="rounded-xl border border-gray-200 p-3.5 space-y-2.5">
+      <p className="text-xs font-bold text-gray-700">Registrar produção</p>
+      <label className="block text-xs font-medium text-gray-600">
+        Peso cortado (kg)
+        <input value={kg} onChange={(e) => setKg(e.target.value)} inputMode="decimal" className={inputCls + " mt-1"} />
       </label>
+      <p className="text-[10.5px] text-gray-400 leading-snug -mt-1">
+        Peso cortado = o que saiu do rolo pra mesa, COM as aparas. Se guardou
+        uma ponta, pese-a e desconte (ela vira o restante do corte).
+      </p>
+      <EditorModelos linhas={linhas} setLinhas={setLinhas} />
+      <ResumoBalanca linhas={linhas} kg={kgNum} />
       {parcial && (
-        <p className="text-[11px] text-sky-700 mt-2">
+        <p className="text-[11px] text-sky-700">
           Corte parcial: sobram {(plannedKg - kgNum).toFixed(2).replace(".", ",")} kg — o motor vai projetar o restante.
         </p>
       )}
       <button
-        onClick={() => onSubmit(kgNum, pecasNum, aparasNum)}
-        disabled={busy || !(kgNum > 0) || !(pecasNum >= 0)}
-        className="mt-3 w-full rounded-xl bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium py-2.5 transition disabled:opacity-50"
+        onClick={() => onSubmit(kgNum, items)}
+        disabled={busy || !(kgNum > 0) || items.length === 0}
+        className="w-full rounded-xl bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium py-2.5 transition disabled:opacity-50"
       >
         {parcial ? "Registrar produção parcial" : "Registrar e fechar corte"}
       </button>
@@ -626,33 +731,31 @@ function FormProducao({
 }
 
 function FormFechar({
+  restKg,
+  modeloSugerido,
   busy,
   onSubmit,
 }: {
+  restKg: number;
+  modeloSugerido: string | null;
   busy: boolean;
-  onSubmit: (pieces: number, wasteKg: number) => void;
+  onSubmit: (items: { name: string; pieces: number; pieceWeightG: number | null }[]) => void;
 }) {
-  const [pecas, setPecas] = useState("");
-  const [aparas, setAparas] = useState("");
-  const n = parseInt(pecas, 10);
-  const aparasNum = parseFloat(aparas.replace(",", ".")) || 0;
+  const [linhas, setLinhas] = useState<LinhaModelo[]>([
+    { name: modeloSugerido ?? "", pieces: "", pieceWeightG: "" },
+  ]);
+  const items = linhasParaItems(linhas);
   return (
-    <div className="rounded-xl border border-gray-200 p-3.5">
-      <p className="text-xs font-bold text-gray-700 mb-2">Usou o restante? Feche o corte</p>
-      <div className="grid grid-cols-2 gap-3">
-        <label className="block text-xs font-medium text-gray-600">
-          Peças produzidas com o restante
-          <input value={pecas} onChange={(e) => setPecas(e.target.value)} inputMode="numeric" className={inputCls + " mt-1"} />
-        </label>
-        <label className="block text-xs font-medium text-gray-600">
-          Aparas jogadas fora (kg)
-          <input value={aparas} onChange={(e) => setAparas(e.target.value)} inputMode="decimal" placeholder="opcional" className={inputCls + " mt-1"} />
-        </label>
-      </div>
+    <div className="rounded-xl border border-gray-200 p-3.5 space-y-2.5">
+      <p className="text-xs font-bold text-gray-700">
+        Usou o restante ({restKg.toFixed(2).replace(".", ",")} kg)? Feche o corte
+      </p>
+      <EditorModelos linhas={linhas} setLinhas={setLinhas} />
+      <ResumoBalanca linhas={linhas} kg={restKg} />
       <button
-        onClick={() => onSubmit(n, aparasNum)}
-        disabled={busy || !(n >= 0)}
-        className="mt-3 w-full rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium py-2.5 transition disabled:opacity-50"
+        onClick={() => onSubmit(items)}
+        disabled={busy || items.length === 0}
+        className="w-full rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium py-2.5 transition disabled:opacity-50"
       >
         Fechar corte (compara previsto × real)
       </button>
@@ -674,13 +777,38 @@ function Custos({
   const [valor, setValor] = useState("");
   const tecidoPorPeca = c.piecesTotal ? c.fabricCost / c.piecesTotal : 0;
   const extras = items.reduce((a, i) => a + i.value, 0);
+  // custo por MODELO: o kg útil custa mais que o kg pago (desperdício);
+  // cada modelo paga proporcional ao próprio peso
+  const custoKgUtil =
+    c.piecesWeightKg && c.piecesWeightKg > 0 ? c.fabricCost / c.piecesWeightKg : null;
+  const modelos = custoKgUtil
+    ? c.items.filter((i) => i.pieceWeightG && i.pieceWeightG > 0)
+    : [];
   return (
     <div className="rounded-xl border border-gray-200 p-3.5">
       <p className="text-xs font-bold text-gray-700 mb-2">Custo por peça</p>
+      {custoKgUtil != null && (
+        <p className="text-xs text-gray-600 mb-1.5 rounded-lg bg-gray-50 px-2.5 py-1.5">
+          Kg pago: <b>{fmtR$(c.fabricCost / Math.max(c.usedKg, 0.001))}</b> → kg ÚTIL
+          (descontado o desperdício): <b className="text-brand-700">{fmtR$(custoKgUtil)}</b>
+        </p>
+      )}
+      {modelos.length > 0 && (
+        <div className="mb-2 space-y-0.5">
+          {modelos.map((m, i) => (
+            <p key={i} className="flex items-center justify-between text-xs text-gray-600">
+              <span>
+                {m.name} · {m.pieces} un. ({m.pieceWeightG} g)
+              </span>
+              <b>{fmtR$(((m.pieceWeightG ?? 0) / 1000) * (custoKgUtil ?? 0) + extras)}/peça</b>
+            </p>
+          ))}
+        </div>
+      )}
       <div className="text-sm text-gray-700 space-y-1">
         <p>
           Tecido: {fmtR$(c.fabricCost)} ÷ {c.piecesTotal} peças ={" "}
-          <b>{fmtR$(tecidoPorPeca)}</b>/peça
+          <b>{fmtR$(tecidoPorPeca)}</b>/peça (média)
         </p>
         {items.map((i, idx) => (
           <p key={idx} className="flex items-center justify-between text-xs text-gray-600">

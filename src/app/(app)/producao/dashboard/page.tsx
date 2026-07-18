@@ -53,6 +53,14 @@ export default async function ProducaoDashboard() {
         100
       : null;
 
+  // aproveitamento médio (método da balança): kg que viraram peça ÷ kg cortados
+  const comPesagem = fechados.filter((c) => c.piecesWeightKg != null && c.usedKg > 0);
+  const kgPesados = comPesagem.reduce((a, c) => a + c.usedKg, 0);
+  const aproveitamentoMedio =
+    kgPesados > 0
+      ? (comPesagem.reduce((a, c) => a + (c.piecesWeightKg ?? 0), 0) / kgPesados) * 100
+      : null;
+
   // custo médio por peça (cortes fechados com custo)
   const comCusto = fechados.filter((c) => c.costPerPiece != null && (c.piecesTotal ?? 0) > 0);
   const custoMedio =
@@ -100,6 +108,16 @@ export default async function ProducaoDashboard() {
           titulo="Economia por reaproveitamento"
           valor={fmtR$(economia)}
           sub={`${reaproveitadas.length} sobra(s) consumida(s)`}
+          tom="emerald"
+        />
+        <Stat
+          titulo="Aproveitamento médio"
+          valor={aproveitamentoMedio != null ? `${aproveitamentoMedio.toFixed(1)}%` : "—"}
+          sub={
+            aproveitamentoMedio != null
+              ? "kg que viraram peça (método da balança)"
+              : "pese as peças por modelo pra apurar"
+          }
           tom="emerald"
         />
         <Stat

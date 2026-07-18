@@ -3,6 +3,8 @@ import {
   calcularEnfesto,
   preverPecas,
   custoPorPeca,
+  resumoPesagem,
+  custoPorModelo,
   type Experiencia,
 } from "../producao";
 
@@ -118,5 +120,72 @@ describe("custoPorPeca", () => {
 
   it("sem peças produzidas não divide por zero", () => {
     expect(custoPorPeca({ fabricCost: 100, pieces: 0, extras: [] })).toBeNull();
+  });
+});
+
+describe("resumoPesagem (método da balança — aproveitamento por subtração)", () => {
+  it("cenário do Atos: 15 kg cortados, 50 blusas de 200 g → 66,7% e 5 kg de lixo", () => {
+    const r = resumoPesagem([{ name: "Blusa", pieces: 50, pieceWeightG: 200 }], 15)!;
+    expect(r.pesoPecasKg).toBe(10);
+    expect(r.utilizationPct).toBe(66.67);
+    expect(r.wasteKg).toBe(5);
+  });
+
+  it("vários modelos no mesmo corte somam os pesos", () => {
+    const r = resumoPesagem(
+      [
+        { name: "Blusa", pieces: 30, pieceWeightG: 200 }, // 6 kg
+        { name: "Cropped", pieces: 20, pieceWeightG: 150 }, // 3 kg
+      ],
+      12
+    )!;
+    expect(r.pesoPecasKg).toBe(9);
+    expect(r.utilizationPct).toBe(75);
+    expect(r.wasteKg).toBe(3);
+  });
+
+  it("modelo sem peso unitário → não calcula (nada de número inventado)", () => {
+    expect(
+      resumoPesagem(
+        [
+          { name: "Blusa", pieces: 50, pieceWeightG: 200 },
+          { name: "Cropped", pieces: 10 },
+        ],
+        15
+      )
+    ).toBeNull();
+  });
+
+  it("pesagem acima do cortado não gera desperdício negativo", () => {
+    const r = resumoPesagem([{ name: "X", pieces: 100, pieceWeightG: 200 }], 15)!;
+    expect(r.wasteKg).toBe(0);
+  });
+});
+
+describe("custoPorModelo (custo do kg útil)", () => {
+  it("R$ 1.500 de tecido ÷ 10 kg úteis = R$ 150/kg → blusa de 200 g custa R$ 30", () => {
+    const modelos = custoPorModelo(
+      [{ name: "Blusa", pieces: 50, pieceWeightG: 200 }],
+      1500,
+      3.5
+    )!;
+    expect(modelos[0].tecidoPorPeca).toBe(30);
+    expect(modelos[0].totalPorPeca).toBe(33.5);
+  });
+
+  it("cada modelo paga proporcional ao próprio peso", () => {
+    const modelos = custoPorModelo(
+      [
+        { name: "Blusa", pieces: 30, pieceWeightG: 200 },
+        { name: "Cropped", pieces: 20, pieceWeightG: 150 },
+      ],
+      900, // ÷ 9 kg úteis = R$ 100/kg útil
+      0
+    )!;
+    expect(modelos[0].tecidoPorPeca).toBe(20); // 0,2 kg × 100
+    expect(modelos[1].tecidoPorPeca).toBe(15); // 0,15 kg × 100
+    // a soma fecha com o custo total do tecido
+    const soma = modelos.reduce((a, m) => a + m.tecidoPorPeca * m.pieces, 0);
+    expect(soma).toBe(900);
   });
 });

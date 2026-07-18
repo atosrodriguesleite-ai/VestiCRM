@@ -1118,6 +1118,12 @@ model CutTicket {
   piecesTotal    Int? // produção real final
   errorPieces    Float? // real − previsto (alimenta o aprendizado)
 
+  // Aproveitamento por pesagem das peças (método da balança): peso em peças
+  // ÷ peso cortado. O desperdício sai por SUBTRAÇÃO — ninguém pesa farelo.
+  piecesWeightKg Float? // Σ (quantidade × peso unitário) dos modelos pesados
+  utilizationPct Float? // % do tecido que virou peça
+  wasteKg        Float? // desperdício apurado (cortado − peças)
+
   fabricCost   Float     @default(0) // custo do tecido usado (R$)
   costItems    String    @default("[]") // custos extras [{name, value}] por peça
   costPerPiece Float? // custo industrial final por peça
@@ -1129,9 +1135,26 @@ model CutTicket {
   roll        FabricRoll?     @relation(fields: [rollId], references: [id])
   occurrences CutOccurrence[]
   scraps      FabricScrap[]
+  items       CutItem[]
 
   @@unique([companyId, code])
   @@index([companyId, status])
+}
+
+/// Modelo produzido dentro de um corte (um corte pode sair com vários SKUs).
+/// O peso unitário da peça permite o método da balança: pesa-se a produção
+/// pronta e o aproveitamento/desperdício saem por subtração.
+model CutItem {
+  id           String @id @default(cuid())
+  cutId        String
+  stage        String @default("PRIMEIRA") // PRIMEIRA | RESTO (parte do corte)
+  name         String // modelo/SKU (ex.: "Blusa Tule — P")
+  pieces       Int // quantidade produzida
+  pieceWeightG Float? // peso unitário da peça (gramas) — opcional
+
+  cut CutTicket @relation(fields: [cutId], references: [id], onDelete: Cascade)
+
+  @@index([cutId])
 }
 
 /// Ocorrência durante o enfesto (furo, mancha, rasgo...) — NÃO é perda

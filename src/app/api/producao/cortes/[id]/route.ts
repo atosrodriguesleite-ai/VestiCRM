@@ -7,7 +7,9 @@ import {
   preverPecas,
   custoPorPeca,
   experienciasDe,
+  resumoPesagem,
   type ItemCusto,
+  type ItemProduzido,
 } from "@/lib/producao";
 
 /**
@@ -22,18 +24,27 @@ import {
  *  • editar    → dados gerais
  */
 
+// um corte pode produzir VÁRIOS modelos: cada um com quantidade e peso
+// unitário (método da balança — o desperdício sai por subtração)
+const itemProduzidoSchema = z.object({
+  name: z.string().min(1).max(120),
+  pieces: z.number().int().nonnegative().max(1000000),
+  pieceWeightG: z.number().positive().max(100000).nullable().optional(),
+});
+
 const acaoSchema = z.discriminatedUnion("action", [
   z.object({
     action: z.literal("producao"),
     usedKg: z.number().positive().max(10000),
-    pieces: z.number().int().nonnegative().max(1000000),
-    // aparas descartadas na mesa (kg) — já estão DENTRO do peso cortado;
-    // aqui só ganham registro pro indicador de desperdício do dashboard
+    pieces: z.number().int().nonnegative().max(1000000).optional(),
+    items: z.array(itemProduzidoSchema).max(40).optional(),
+    // aparas pesadas na mão (kg) — usado só quando NÃO há pesagem por modelo
     wasteKg: z.number().nonnegative().max(10000).optional(),
   }),
   z.object({
     action: z.literal("fechar"),
-    pieces: z.number().int().nonnegative().max(1000000),
+    pieces: z.number().int().nonnegative().max(1000000).optional(),
+    items: z.array(itemProduzidoSchema).max(40).optional(),
     wasteKg: z.number().nonnegative().max(10000).optional(),
   }),
   z.object({
@@ -111,15 +122,40 @@ export async function PATCH(
           { status: 409 }
         );
       }
+      const itens = a.items ?? [];
+      const totalPecas = itens.length
+        ? itens.reduce((s, i) => s + i.pieces, 0)
+        : (a.pieces ?? -1);
+      if (totalPecas < 0) {
+        return NextResponse.json(
+          { error: "Informe as peças produzidas (total ou por modelo)" },
+          { status: 400 }
+        );
+      }
       const enfesto = calcularEnfesto({
         usedKg: a.usedKg,
         yieldMPerKg: cut.roll?.fabric.yieldMPerKg ?? 0,
         tableLengthM: cut.tableLengthM,
       });
       const restante = Math.round((cut.plannedKg - a.usedKg) * 1000) / 1000;
-      // aparas jogadas fora: registro de descarte (não mexe em nenhuma conta —
-      // a taxa peças/kg já embute esse desperdício por medir o peso bruto)
-      if (a.wasteKg && a.wasteKg > 0) {
+      // modelos produzidos desta etapa
+      if (itens.length) {
+        await db.cutItem.createMany({
+          data: itens.map((i) => ({
+            cutId: cut.id,
+            stage: "PRIMEIRA",
+            name: i.name,
+            pieces: i.pieces,
+            pieceWeightG: i.pieceWeightG ?? null,
+          })),
+        });
+      }
+      // método da balança: desperdício por subtração (peças pesadas ×
+      // peso cortado); sem pesagem completa, vale a apara pesada na mão
+      const pesagem = resumoPesagem(itens, a.usedKg);
+      if (pesagem && pesagem.wasteKg > 0.005) {
+        await registraDesperdicio(user.companyId, cut, pesagem.wasteKg);
+      } else if (!pesagem && a.wasteKg && a.wasteKg > 0) {
         await registraAparas(user.companyId, cut, a.wasteKg);
       }
 
@@ -135,20 +171,27 @@ export async function PATCH(
           experienciasDe(fechados),
           ctx,
           restante,
-          a.pieces > 0 && a.usedKg > 0 ? a.pieces / a.usedKg : null
+          totalPecas > 0 && a.usedKg > 0 ? totalPecas / a.usedKg : null
         );
         const updated = await db.cutTicket.update({
           where: { id: cut.id },
           data: {
             status: "PARCIAL",
             usedKg: a.usedKg,
-            piecesFirst: a.pieces,
+            piecesFirst: totalPecas,
             lengthM: enfesto.lengthM,
             sheets: enfesto.sheets,
-            predictedTotal: proj ? a.pieces + proj.pecas : null,
-            predictedMin: proj ? a.pieces + proj.min : null,
-            predictedMax: proj ? a.pieces + proj.max : null,
+            predictedTotal: proj ? totalPecas + proj.pecas : null,
+            predictedMin: proj ? totalPecas + proj.min : null,
+            predictedMax: proj ? totalPecas + proj.max : null,
             predictedBasis: proj?.base ?? 0,
+            ...(pesagem
+              ? {
+                  piecesWeightKg: pesagem.pesoPecasKg,
+                  utilizationPct: pesagem.utilizationPct,
+                  wasteKg: pesagem.wasteKg,
+                }
+              : {}),
           },
         });
         return NextResponse.json(updated);
@@ -157,9 +200,9 @@ export async function PATCH(
       // usou tudo: fecha direto
       const fechado = await fechaCorte(user.companyId, cut.id, {
         usedKg: cut.plannedKg,
-        piecesFirst: a.pieces,
+        piecesFirst: totalPecas,
         piecesRest: null,
-        piecesTotal: a.pieces,
+        piecesTotal: totalPecas,
         lengthM: enfesto.lengthM,
         sheets: enfesto.sheets,
       });
@@ -173,14 +216,40 @@ export async function PATCH(
           { status: 409 }
         );
       }
-      if (a.wasteKg && a.wasteKg > 0) {
+      const itensResto = a.items ?? [];
+      const pecasResto = itensResto.length
+        ? itensResto.reduce((s, i) => s + i.pieces, 0)
+        : (a.pieces ?? -1);
+      if (pecasResto < 0) {
+        return NextResponse.json(
+          { error: "Informe as peças produzidas com o restante" },
+          { status: 400 }
+        );
+      }
+      const restKg = Math.round((cut.plannedKg - cut.usedKg) * 1000) / 1000;
+      if (itensResto.length) {
+        await db.cutItem.createMany({
+          data: itensResto.map((i) => ({
+            cutId: cut.id,
+            stage: "RESTO",
+            name: i.name,
+            pieces: i.pieces,
+            pieceWeightG: i.pieceWeightG ?? null,
+          })),
+        });
+      }
+      // método da balança também no restante
+      const pesagemResto = resumoPesagem(itensResto, restKg);
+      if (pesagemResto && pesagemResto.wasteKg > 0.005) {
+        await registraDesperdicio(user.companyId, cut, pesagemResto.wasteKg);
+      } else if (!pesagemResto && a.wasteKg && a.wasteKg > 0) {
         await registraAparas(user.companyId, cut, a.wasteKg);
       }
-      const total = (cut.piecesFirst ?? 0) + a.pieces;
+      const total = (cut.piecesFirst ?? 0) + pecasResto;
       const fechado = await fechaCorte(user.companyId, cut.id, {
         usedKg: cut.plannedKg,
         piecesFirst: cut.piecesFirst,
-        piecesRest: a.pieces,
+        piecesRest: pecasResto,
         piecesTotal: total,
         lengthM: calcularEnfesto({
           usedKg: cut.plannedKg,
@@ -281,6 +350,18 @@ async function fechaCorte(
   }
   const custo = custoPorPeca({ fabricCost, pieces: dados.piecesTotal, extras });
 
+  // método da balança no corte inteiro: se TODOS os modelos têm peso
+  // unitário, o aproveitamento final sai da soma das duas etapas
+  const itensTodos = await db.cutItem.findMany({ where: { cutId } });
+  const pesagemTotal = resumoPesagem(
+    itensTodos.map((i) => ({
+      name: i.name,
+      pieces: i.pieces,
+      pieceWeightG: i.pieceWeightG,
+    })),
+    dados.usedKg
+  );
+
   return db.cutTicket.update({
     where: { id: cutId },
     data: {
@@ -295,10 +376,35 @@ async function fechaCorte(
       fabricCost,
       costItems: JSON.stringify(extras),
       costPerPiece: custo?.total ?? null,
+      ...(pesagemTotal
+        ? {
+            piecesWeightKg: pesagemTotal.pesoPecasKg,
+            utilizationPct: pesagemTotal.utilizationPct,
+            wasteKg: pesagemTotal.wasteKg,
+          }
+        : {}),
       // erro = real − previsto (só quando houve projeção): treino do motor
       errorPieces:
         cut.predictedTotal != null ? dados.piecesTotal - cut.predictedTotal : null,
     },
+  });
+}
+
+/** Desperdício apurado pelo método da balança (subtração) — entra direto
+ *  como descarte no indicador do dashboard. */
+async function registraDesperdicio(
+  companyId: string,
+  cut: Parameters<typeof criaSobra>[1],
+  wasteKg: number
+) {
+  const sobra = await criaSobra(companyId, cut, wasteKg, {
+    geometry: "RETALHOS",
+    quality: "RUIM",
+    notes: "Desperdício apurado por pesagem das peças (método da balança)",
+  });
+  return db.fabricScrap.update({
+    where: { id: sobra.id },
+    data: { status: "DESCARTADA" },
   });
 }
 
