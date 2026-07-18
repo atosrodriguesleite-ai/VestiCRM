@@ -61,6 +61,8 @@ export type CatalogProduct = {
   description: string | null;
   retailPrice: number;
   wholesalePrice: number;
+  // catálogo de campanha: preço cheio original (aparece riscado)
+  originalRetailPrice?: number | null;
   minQuantity: number;
   tags: string | null;
   images: string[];
@@ -254,6 +256,7 @@ export function PublicCatalog({
   minOrderValue,
   products,
   categoryOrder = [],
+  promo = null,
   identity,
   logoSize = "normal",
   customColors,
@@ -268,6 +271,8 @@ export function PublicCatalog({
   minOrderValue: number;
   products: CatalogProduct[];
   categoryOrder?: string[];
+  // catálogo de campanha: nome + % de desconto (preços já vêm com desconto)
+  promo?: { name: string; slug: string; discount: number } | null;
   identity: CatalogIdentity;
   logoSize?: "normal" | "grande";
   customColors: { name: string; hex: string }[];
@@ -566,7 +571,9 @@ export function PublicCatalog({
       showToast("Preencha seu nome e telefone (com DDD) para enviar o pedido");
       return;
     }
-    let msg = `*Novo pedido — ${storeName}*\n\n`;
+    let msg = `*Novo pedido — ${storeName}*\n`;
+    if (promo) msg += `_Campanha: ${promo.name} (${promo.discount}% OFF)_\n`;
+    msg += `\n`;
     for (const cat of categories) {
       const items = (cardsByCategory.get(cat) ?? []).filter((c) => cart[c.key]);
       if (!items.length) continue;
@@ -626,6 +633,8 @@ export function PublicCatalog({
         // atribuição do link rastreado: vendedor (?ref) e cliente (?c)
         ref: tracking.ref || undefined,
         c: tracking.c || undefined,
+        // campanha: o servidor recalcula os preços com o desconto dela
+        promo: promo?.slug || undefined,
       }),
       keepalive: true,
     }).catch(() => {});
@@ -723,6 +732,21 @@ export function PublicCatalog({
           </div>
         )}
       </header>
+
+      {/* FAIXA DA CAMPANHA — desconto já aplicado nos preços */}
+      {promo && (
+        <div
+          className="text-center px-[18px] py-2"
+          style={{ background: T.primary, color: T.secondary }}
+        >
+          <p className="text-[13px] font-extrabold uppercase tracking-wide m-0">
+            🏷 {promo.name} — {promo.discount}% OFF
+          </p>
+          <p className="text-[10.5px] font-medium m-0 opacity-80">
+            desconto já aplicado em todos os preços deste catálogo
+          </p>
+        </div>
+      )}
 
       {/* COMO FUNCIONA — passo a passo visual (orienta o cliente final) */}
       <section className="max-w-[680px] mx-auto px-[18px] pt-2.5 pb-2">
@@ -927,7 +951,16 @@ export function PublicCatalog({
                           {card.color}
                         </p>
                         <p className="text-[15px] font-bold m-0" style={{ color: T.primary }}>
-                          {fmt(card.product.retailPrice)}{" "}
+                          {promo && card.product.originalRetailPrice ? (
+                            <>
+                              <s className="text-[12px] font-medium mr-1.5" style={{ color: T.muted }}>
+                                {fmt(card.product.originalRetailPrice)}
+                              </s>
+                              {fmt(card.product.retailPrice)}
+                            </>
+                          ) : (
+                            fmt(card.product.retailPrice)
+                          )}{" "}
                           <small className="text-[11px] font-medium" style={{ color: T.muted }}>
                             / peça
                           </small>
@@ -1127,7 +1160,22 @@ export function PublicCatalog({
                 </p>
               )}
               <p className="text-xl font-extrabold my-3.5" style={{ color: T.primary }}>
-                {fmt(sheet.product.retailPrice)}{" "}
+                {promo && sheet.product.originalRetailPrice ? (
+                  <>
+                    <s className="text-sm font-medium mr-2" style={{ color: T.muted }}>
+                      {fmt(sheet.product.originalRetailPrice)}
+                    </s>
+                    {fmt(sheet.product.retailPrice)}{" "}
+                    <span
+                      className="align-middle ml-1 rounded-full px-2 py-0.5 text-[11px] font-bold"
+                      style={{ background: T.primary, color: T.secondary }}
+                    >
+                      -{promo.discount}%
+                    </span>
+                  </>
+                ) : (
+                  fmt(sheet.product.retailPrice)
+                )}{" "}
                 <small className="text-xs font-medium" style={{ color: T.muted }}>/ peça</small>
               </p>
               {sheet.product.wholesalePrice > 0 && sheet.product.minQuantity > 1 && (

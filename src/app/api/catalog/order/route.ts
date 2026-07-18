@@ -43,6 +43,7 @@ const schema = z.object({
   message: z.string().max(10000).optional(), // texto enviado no WhatsApp
   ref: z.string().max(120).optional(), // link do vendedor/campanha (?ref=)
   c: z.string().max(60).optional(), // link rastreado por cliente (?c=)
+  promo: z.string().max(60).optional(), // catálogo de campanha (desconto)
 });
 
 export async function POST(req: NextRequest) {
@@ -58,6 +59,23 @@ export async function POST(req: NextRequest) {
   if (!company) {
     return NextResponse.json({ error: "Loja não encontrada" }, { status: 404 });
   }
+
+  // Catálogo de CAMPANHA: o desconto é da loja e recalculado AQUI — só vale
+  // se a campanha existe, está ativa e o produto faz parte dela
+  const promo = input.promo
+    ? await db.promoCatalog.findUnique({
+        where: { companyId_slug: { companyId: company.id, slug: input.promo } },
+        include: { products: { select: { productId: true } } },
+      })
+    : null;
+  const promoActive = promo?.active ? promo : null;
+  const promoProductIds = new Set(
+    promoActive?.products.map((p) => p.productId) ?? []
+  );
+  const promoPrice = (productId: string, price: number) =>
+    promoActive && promoProductIds.has(productId)
+      ? Math.round(price * (1 - promoActive.discount / 100) * 100) / 100
+      : price;
 
   // Resolve as variações (produto ativo + cor + tamanho) dentro da loja
   const productIds = [...new Set(input.items.map((i) => i.productId))];
@@ -100,8 +118,9 @@ export async function POST(req: NextRequest) {
       color: variant.color,
       size: variant.size,
       quantity: item.quantity,
-      unitPrice: product.retailPrice, // preço vigente no catálogo
-      total: item.quantity * product.retailPrice,
+      // preço vigente no catálogo (com o desconto da campanha, se houver)
+      unitPrice: promoPrice(product.id, product.retailPrice),
+      total: item.quantity * promoPrice(product.id, product.retailPrice),
     });
   }
   const subtotal = lines.reduce((a, l) => a + l.total, 0);

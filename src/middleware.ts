@@ -56,6 +56,12 @@ export async function middleware(req: NextRequest) {
       !pathname.includes(".")
     ) {
       const segs = pathname.split("/").filter(Boolean);
+      // catálogo de CAMPANHA: catalago.net/<loja>/c/<campanha>
+      if (segs.length === 3 && segs[1] === "c") {
+        const url = req.nextUrl.clone();
+        url.pathname = `/catalogo/${segs[0]}/c/${segs[2]}`;
+        return NextResponse.rewrite(url);
+      }
       if (segs.length >= 1 && segs.length <= 3) {
         const url = req.nextUrl.clone();
         url.pathname = `/catalogo/${segs[0]}`;

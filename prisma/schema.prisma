@@ -63,6 +63,7 @@ model Company {
   catalogColors  CompanyColor[]
   catalogSizes   CompanySize[]
   waConsents     WhatsappConsent[]
+  promoCatalogs  PromoCatalog[]
 }
 
 // Biblioteca de cores do lojista: ele cria a tonalidade e dá o nome
@@ -757,6 +758,36 @@ model Campaign {
   @@index([companyId])
 }
 
+// Catálogo de CAMPANHA: uma vitrine à parte com produtos selecionados e um
+// desconto próprio (%). O catálogo geral continua intacto; a campanha tem
+// link/QR próprios (catalago.net/<loja>/c/<campanha>) e o desconto é
+// recalculado no servidor na hora do pedido (nunca confiamos no navegador).
+model PromoCatalog {
+  id        String   @id @default(cuid())
+  companyId String
+  company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  name      String
+  slug      String
+  discount  Int // % de desconto sobre os preços do catálogo geral
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  products PromoCatalogProduct[]
+
+  @@unique([companyId, slug])
+  @@index([companyId])
+}
+
+model PromoCatalogProduct {
+  id        String       @id @default(cuid())
+  promoId   String
+  promo     PromoCatalog @relation(fields: [promoId], references: [id], onDelete: Cascade)
+  productId String
+  product   Product      @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([promoId, productId])
+}
+
 // ---------------------------------------------------------------------------
 // Catálogo de produtos + Pedidos
 // ---------------------------------------------------------------------------
@@ -783,6 +814,7 @@ model Product {
   variants ProductVariant[]
   images   ProductImage[]
   items    OrderItem[]
+  promoIn  PromoCatalogProduct[]
 
   @@unique([companyId, sku])
   @@index([companyId, active])
