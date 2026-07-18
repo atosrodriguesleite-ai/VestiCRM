@@ -135,14 +135,14 @@ export async function GET(
     const GAP = 26;
     const width = A4[0];
     const height = A4[1];
-    const HEADER_H = 96; // faixa preta do topo
+    const HEADER_H = 62; // faixa preta do topo, compacta: o foco são as peças
     const FOOTER_H = 40; // faixa preta do rodapé
     const cardW = (width - M * 2 - GAP * (COLS - 1)) / COLS;
-    const imgH = cardW * 1.12; // fotos maiores, mantendo 4 por página
+    const imgH = cardW * 1.22; // fotos maiores (espaço ganho do cabeçalho)
     const capH = 40; // legenda (nome + preço) abaixo da foto
     const cardH = imgH + capH;
-    const CONTENT_TOP = height - HEADER_H - 22;
-    const CONTENT_BOTTOM = FOOTER_H + 20;
+    const CONTENT_TOP = height - HEADER_H - 14;
+    const CONTENT_BOTTOM = FOOTER_H + 18;
 
     const center = (
       page: PDFPage,
@@ -162,12 +162,12 @@ export async function GET(
       const cx = width / 2;
       // faixa preta cheia no topo
       page.drawRectangle({ x: 0, y: height - HEADER_H, width, height: HEADER_H, color: BLACK });
-      center(page, spaced(storeName ? "Novidades" : "Catálogo"), cx, height - 40, 8, font, CREME_DIM);
-      center(page, storeName || "Catálogo", cx, height - 68, 23, bold, CREME);
+      center(page, spaced(storeName ? "Novidades" : "Catálogo"), cx, height - 22, 6.5, font, CREME_DIM);
+      center(page, storeName || "Catálogo", cx, height - 44, 17, bold, CREME);
       // filete curto creme sob o nome
       page.drawLine({
-        start: { x: cx - 22, y: height - 80 },
-        end: { x: cx + 22, y: height - 80 },
+        start: { x: cx - 18, y: height - 52 },
+        end: { x: cx + 18, y: height - 52 },
         thickness: 1,
         color: CREME_DIM,
       });
