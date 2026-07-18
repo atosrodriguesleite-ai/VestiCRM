@@ -135,10 +135,10 @@ export function CosturaView({ itens }: { itens: CosturaRow[] }) {
         <button
           onClick={() => setSaldoAberto(true)}
           className="inline-flex items-center gap-1.5 rounded-xl border border-gray-200 hover:border-brand-300 text-gray-600 text-xs font-medium px-3 py-2 transition"
-          title="Peças cortadas antes do sistema existir"
+          title="Lote que não veio de um corte registrado (implantação, facção, corte sem registro...)"
         >
           <PackagePlus className="size-3.5" />
-          Adicionar saldo antigo
+          Lançar lote avulso
         </button>
       </div>
 
@@ -180,7 +180,7 @@ export function CosturaView({ itens }: { itens: CosturaRow[] }) {
                     {g.lotes
                       .map(
                         (l) =>
-                          `${l.cutCode != null ? `corte #${String(l.cutCode).padStart(6, "0")}` : "saldo antigo"} ×${l.restantes}`
+                          `${l.cutCode != null ? `corte #${String(l.cutCode).padStart(6, "0")}` : "lote avulso"} ×${l.restantes}`
                       )
                       .join(" · ")}
                   </span>
@@ -227,8 +227,8 @@ export function CosturaView({ itens }: { itens: CosturaRow[] }) {
 }
 
 /**
- * Saldo antigo: implantação em fábrica que já roda — as peças cortadas
- * ANTES do sistema entram aqui e seguem o fluxo normal da costura.
+ * Lote avulso: peças que não vieram de um corte registrado (implantação,
+ * facção, corte sem registro) entram aqui e seguem o fluxo normal.
  */
 function SaldoAntigoModal({ onClose }: { onClose: () => void }) {
   const router = useRouter();
@@ -278,7 +278,7 @@ function SaldoAntigoModal({ onClose }: { onClose: () => void }) {
         <div className="flex items-center justify-between p-5 pb-3 border-b border-gray-100">
           <h3 className="font-semibold text-lg flex items-center gap-2">
             <PackagePlus className="size-5 text-brand-600" />
-            Saldo antigo da costura
+            Lote avulso na costura
           </h3>
           <button onClick={onClose} className="text-gray-400 p-1">
             <X className="size-5" />
@@ -286,9 +286,10 @@ function SaldoAntigoModal({ onClose }: { onClose: () => void }) {
         </div>
         <div className="flex-1 overflow-y-auto thin-scroll p-5 pt-4 space-y-3">
           <p className="text-xs text-gray-500 leading-snug">
-            Peças que já estavam cortadas <b>antes do sistema</b>: entram no
-            estoque de costura sem corte de origem e seguem o fluxo normal —
-            quando forem montadas e conferidas, é só lançar.
+            Lote que <b>não veio de um corte registrado</b> — implantação, peças
+            de facção/terceirizada ou corte feito sem registro. Entra no
+            estoque de costura e segue o fluxo normal: montou e conferiu, é
+            só lançar.
           </p>
           <label className="block text-xs font-medium text-gray-600">
             Modelo
@@ -324,7 +325,7 @@ function SaldoAntigoModal({ onClose }: { onClose: () => void }) {
             disabled={salvando || !ok}
             className="w-full rounded-xl bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium py-2.5 transition disabled:opacity-50"
           >
-            {salvando ? <Loader2 className="size-4 animate-spin inline" /> : "Adicionar à costura"}
+            {salvando ? <Loader2 className="size-4 animate-spin inline" /> : "Lançar na costura"}
           </button>
           <p className="text-[10.5px] text-gray-400 text-center">
             O formulário continua aberto pra você lançar vários tamanhos em sequência.
