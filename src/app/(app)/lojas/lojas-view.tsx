@@ -35,6 +35,7 @@ export type Loja = {
   } | null;
   waStatus: string;
   waPhone: string | null;
+  productionEnabled: boolean;
 };
 
 type Created = {
@@ -173,6 +174,7 @@ function NewLojaForm({
           waConsent: null,
           waStatus: "DESCONECTADO",
           waPhone: null,
+          productionEnabled: false,
         },
         {
           companyName: companyName.trim(),
@@ -440,6 +442,23 @@ function CopyButton({ text, label }: { text: string; label: string }) {
 function LojaCard({ loja, catalogDomain }: { loja: Loja; catalogDomain: string | null }) {
   const router = useRouter();
   const [accessing, setAccessing] = useState(false);
+  const [producao, setProducao] = useState(loja.productionEnabled);
+  const [togglingProd, setTogglingProd] = useState(false);
+
+  // módulo Produção (pago à parte): o Super Admin liga/desliga por loja
+  async function toggleProducao() {
+    setTogglingProd(true);
+    const res = await fetch("/api/companies/production", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ companyId: loja.id, enabled: !producao }),
+    });
+    setTogglingProd(false);
+    if (res.ok) {
+      setProducao(!producao);
+      router.refresh();
+    }
+  }
 
   async function access() {
     setAccessing(true);
@@ -555,6 +574,28 @@ function LojaCard({ loja, catalogDomain }: { loja: Loja; catalogDomain: string |
           "termo não aceito"
         )}
       </p>
+
+      {/* módulo Produção (pago à parte) */}
+      <div className="mt-2 flex items-center justify-between gap-2 text-[11px]">
+        <span className="text-slate-400">
+          Módulo Produção:{" "}
+          <b className={producao ? "text-emerald-600" : "text-slate-500"}>
+            {producao ? "ativado" : "desativado"}
+          </b>
+        </span>
+        <button
+          type="button"
+          onClick={toggleProducao}
+          disabled={togglingProd}
+          className={`rounded-full px-2.5 py-1 font-semibold border transition disabled:opacity-50 ${
+            producao
+              ? "border-slate-200 text-slate-500 hover:border-rose-300 hover:text-rose-600"
+              : "border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
+          }`}
+        >
+          {togglingProd ? "..." : producao ? "Desativar" : "Ativar Produção"}
+        </button>
+      </div>
 
       <Button
         onClick={access}

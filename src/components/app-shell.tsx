@@ -28,6 +28,7 @@ import {
   PanelLeftClose,
   PanelLeft,
   Handshake,
+  Scissors,
 } from "lucide-react";
 import { Avatar } from "./ui";
 import { Logo, LogoMark } from "./logo";
@@ -39,6 +40,7 @@ const NAV = [
   { href: "/tarefas", label: "Tarefas", icon: CheckSquare, group: "Comercial" },
   { href: "/pedidos", label: "Pedidos", icon: ShoppingBag, group: "Catálogo" },
   { href: "/produtos", label: "Produtos", icon: Package, group: "Catálogo" },
+  { href: "/producao", label: "Produção", icon: Scissors, group: "Catálogo", productionOnly: true },
   { href: "/clientes", label: "Clientes", icon: Users, group: "Relacionamento" },
   { href: "/automacoes", label: "Automações", icon: Zap, group: "Relacionamento" },
   { href: "/campanhas", label: "Campanhas", icon: Megaphone, group: "Relacionamento" },
@@ -69,6 +71,8 @@ type ShellUser = {
   color: string;
   companyName: string;
   impersonating?: boolean;
+  // módulo Produção (pago à parte): sem a chave, o menu nem aparece
+  productionEnabled?: boolean;
 };
 
 export function AppShell({
@@ -95,6 +99,7 @@ export function AppShell({
 
   const items = NAV.filter((i) => {
     if ("superOnly" in i && i.superOnly) return user.role === "SUPERADMIN";
+    if ("productionOnly" in i && i.productionOnly) return Boolean(user.productionEnabled);
     if ("managerOnly" in i && i.managerOnly)
       return ["ADMIN", "MANAGER", "SUPERADMIN"].includes(user.role);
     return true;

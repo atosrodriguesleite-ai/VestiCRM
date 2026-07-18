@@ -26,6 +26,7 @@ model Company {
   minOrderValue     Float    @default(0) // pedido mínimo em R$ (quando minOrderMode = VALOR)
   commissionBase    String   @default("SUBTOTAL") // base da comissão: SUBTOTAL (produtos) | TOTAL (com frete)
   lowStockThreshold Int      @default(5) // alerta de estoque: avisa quando a variação chega a X peças
+  productionEnabled Boolean  @default(false) // módulo Produção (pago à parte; super admin ativa por loja)
   createdAt         DateTime @default(now())
 
   // Identidade visual do catálogo público (100% personalizável pelo lojista)
@@ -65,6 +66,9 @@ model Company {
   waConsents     WhatsappConsent[]
   nuvemshop      NuvemshopConnection?
   promoCatalogs  PromoCatalog[]
+  fabrics        Fabric[]
+  cutTickets     CutTicket[]
+  fabricScraps   FabricScrap[]
 }
 
 // Biblioteca de cores do lojista: ele cria a tonalidade e dá o nome
@@ -1035,4 +1039,150 @@ model PushSubscription {
 
   @@index([companyId])
   @@index([userId])
+}
+
+// ============================================================================
+// MÓDULO PRODUÇÃO (pago à parte) — inteligência de rendimento têxtil.
+// Cada corte fechado vira "experiência" do motor de previsão: nada de regra
+// fixa, tudo aprendido do histórico da própria confecção.
+// ============================================================================
+
+/// Tecido (o "modelo" do material — os rolos são as unidades físicas dele)
+model Fabric {
+  id          String   @id @default(cuid())
+  companyId   String
+  name        String
+  code        String? // código interno
+  type        String? // malha, plano, tule...
+  supplier    String? // fornecedor
+  grammage    Int? // gramatura (g/m²)
+  composition String? // ex.: 90% poliamida 10% elastano
+  widthM      Float // largura útil em metros
+  yieldMPerKg Float // rendimento: metros por kg
+  notes       String?
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+
+  company Company      @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  rolls   FabricRoll[]
+
+  @@index([companyId])
+}
+
+/// Rolo/lote físico de um tecido — rastreado individualmente (o rendimento
+/// REAL medido nos cortes é comparado ao prometido na ficha do tecido)
+model FabricRoll {
+  id          String   @id @default(cuid())
+  fabricId    String
+  color       String
+  lotCode     String? // lote do fornecedor
+  weightKg    Float // peso original
+  remainingKg Float // quanto ainda não foi cortado
+  pricePerKg  Float // valor pago por kg
+  arrivedAt   DateTime @default(now())
+  notes       String?
+
+  fabric Fabric      @relation(fields: [fabricId], references: [id], onDelete: Cascade)
+  cuts   CutTicket[]
+
+  @@index([fabricId])
+}
+
+/// Corte — código sequencial por loja. Ciclo: ABERTO → (PARCIAL com projeção)
+/// → FECHADO com previsto × real × erro (o erro treina o motor).
+model CutTicket {
+  id            String   @id @default(cuid())
+  companyId     String
+  code          Int // Corte #000001
+  status        String   @default("ABERTO") // ABERTO | PARCIAL | FECHADO
+  date          DateTime @default(now())
+  operator      String?
+  tableName     String? // mesa utilizada
+  tableLengthM  Float? // comprimento da mesa
+  rollId        String? // rolo usado como matéria-prima…
+  sourceScrapId String? // …ou uma sobra reaproveitada
+  plannedKg     Float // peso destinado ao corte
+  usedKg        Float    @default(0) // peso efetivamente cortado até agora
+  planName      String? // plano de corte
+  productName   String? // modelo produzido
+  gradeInfo     String? // grade de tamanhos (ex.: "P2 M2 G2 GG1")
+  lengthM       Float? // metros de tecido calculados
+  sheets        Int? // folhas completas na mesa
+
+  piecesFirst    Int? // produção real da parte já cortada
+  predictedTotal Float? // PROJEÇÃO do total (parte cortada + restante)
+  predictedMin   Float?
+  predictedMax   Float?
+  predictedBasis Int    @default(0) // em quantos cortes parecidos se baseou
+  piecesRest     Int? // produção do restante (no fechamento)
+  piecesTotal    Int? // produção real final
+  errorPieces    Float? // real − previsto (alimenta o aprendizado)
+
+  fabricCost   Float     @default(0) // custo do tecido usado (R$)
+  costItems    String    @default("[]") // custos extras [{name, value}] por peça
+  costPerPiece Float? // custo industrial final por peça
+  notes        String?
+  finalizedAt  DateTime?
+  createdAt    DateTime  @default(now())
+
+  company     Company         @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  roll        FabricRoll?     @relation(fields: [rollId], references: [id])
+  occurrences CutOccurrence[]
+  scraps      FabricScrap[]
+
+  @@unique([companyId, code])
+  @@index([companyId, status])
+}
+
+/// Ocorrência durante o enfesto (furo, mancha, rasgo...) — NÃO é perda
+/// automática: o material vira uma sobra reaproveitável.
+model CutOccurrence {
+  id          String   @id @default(cuid())
+  cutId       String
+  type        String
+  description String?
+  lostKg      Float    @default(0)
+  lostM       Float    @default(0)
+  photoUrl    String?
+  createdAt   DateTime @default(now())
+
+  cut CutTicket @relation(fields: [cutId], references: [id], onDelete: Cascade)
+
+  @@index([cutId])
+}
+
+/// Sobra de tecido — nasce de ocorrências e pontas de corte; pode ser
+/// reaproveitada em cortes futuros. A geometria importa tanto quanto o peso.
+model FabricScrap {
+  id          String   @id @default(cuid())
+  companyId   String
+  cutId       String? // corte de origem
+  fabricName  String
+  color       String?
+  grammage    Int?
+  widthM      Float?
+  weightKg    Float
+  estimatedM  Float? // comprimento estimado
+  value       Float    @default(0) // valor financeiro parado (R$)
+  geometry    String? // FAIXA | RETANGULO | IRREGULAR | RETALHOS
+  quality     String? // BOA | REGULAR | RUIM
+  status      String   @default("DISPONIVEL") // DISPONIVEL | RESERVADA | CONSUMIDA | DESCARTADA | PERDA
+  usedInCutId String? // corte que consumiu a sobra
+  notes       String?
+  createdAt   DateTime @default(now())
+
+  company Company    @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  cut     CutTicket? @relation(fields: [cutId], references: [id])
+
+  @@index([companyId, status])
+}
+
+/// Configurações da Produção — tudo cadastrável, nada fixo no código.
+model ProductionSettings {
+  id              String @id @default(cuid())
+  companyId       String @unique
+  tables          String @default("[]") // mesas [{name, lengthM}]
+  operators       String @default("[]") // ["Maria", "João"...]
+  occurrenceTypes String @default("[\"Furo\",\"Mancha\",\"Defeito\",\"Falta de largura\",\"Rasgo\",\"Borda ruim\",\"Torção\",\"Outro\"]")
+  costItems       String @default("[]") // custos extras padrão [{name, value}] por peça
 }

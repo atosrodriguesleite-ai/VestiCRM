@@ -63,6 +63,7 @@ export default async function LojasPage() {
     })(),
     waStatus: connByCompany.get(c.id)?.evolutionStatus ?? "DESCONECTADO",
     waPhone: connByCompany.get(c.id)?.evolutionPhone ?? null,
+    productionEnabled: c.productionEnabled,
   }));
 
   // Resumo da operação comercial da plataforma (leads do site)

@@ -26,6 +26,7 @@ export default async function AppLayout({
         color: user.color,
         companyName: company?.name ?? "",
         impersonating: Boolean(user.impersonatedBy),
+        productionEnabled: company?.productionEnabled ?? false,
       }}
     >
       {children}
