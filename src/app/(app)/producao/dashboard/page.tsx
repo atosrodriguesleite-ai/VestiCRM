@@ -19,7 +19,7 @@ export default async function ProducaoDashboard() {
   const [cortes, sobras] = await Promise.all([
     db.cutTicket.findMany({
       where: { companyId: user.companyId },
-      include: { roll: { include: { fabric: true } } },
+      include: { rolls: { include: { roll: { include: { fabric: true } } } } },
       orderBy: { code: "asc" },
     }),
     db.fabricScrap.findMany({ where: { companyId: user.companyId } }),
@@ -69,18 +69,23 @@ export default async function ProducaoDashboard() {
         comCusto.reduce((a, c) => a + c.piecesTotal!, 0)
       : null;
 
-  // rendimento por tecido (peças/kg medidas)
+  // rendimento por tecido: corte multi-rolo rateia peças/custo pela fatia
+  // de peso de cada tecido dentro do corte
   const porTecido = new Map<string, { kg: number; pecas: number; custo: number; custoPecas: number }>();
   for (const c of fechados) {
-    const nome = c.roll?.fabric.name ?? "—";
-    const t = porTecido.get(nome) ?? { kg: 0, pecas: 0, custo: 0, custoPecas: 0 };
-    t.kg += c.usedKg;
-    t.pecas += c.piecesTotal ?? 0;
-    if (c.costPerPiece != null && c.piecesTotal) {
-      t.custo += c.costPerPiece * c.piecesTotal;
-      t.custoPecas += c.piecesTotal;
+    const totalKgRolos = c.rolls.reduce((a, r) => a + r.plannedKg, 0);
+    for (const r of c.rolls) {
+      const fatia = totalKgRolos > 0 ? r.plannedKg / totalKgRolos : 0;
+      const nome = r.roll.fabric.name;
+      const t = porTecido.get(nome) ?? { kg: 0, pecas: 0, custo: 0, custoPecas: 0 };
+      t.kg += c.usedKg * fatia;
+      t.pecas += (c.piecesTotal ?? 0) * fatia;
+      if (c.costPerPiece != null && c.piecesTotal) {
+        t.custo += c.costPerPiece * c.piecesTotal * fatia;
+        t.custoPecas += c.piecesTotal * fatia;
+      }
+      porTecido.set(nome, t);
     }
-    porTecido.set(nome, t);
   }
   const tecidos = [...porTecido.entries()].sort((a, b) => b[1].pecas - a[1].pecas);
   const maxRend = Math.max(...tecidos.map(([, t]) => (t.kg > 0 ? t.pecas / t.kg : 0)), 0.001);
@@ -197,7 +202,8 @@ export default async function ProducaoDashboard() {
                   <tr key={c.id} className="border-t border-gray-50">
                     <td className="py-2 pr-3 font-mono text-xs">#{String(c.code).padStart(6, "0")}</td>
                     <td className="py-2 pr-3 text-gray-600 truncate max-w-[160px]">
-                      {c.roll?.fabric.name ?? "—"} · {c.roll?.color ?? ""}
+                      {[...new Set(c.rolls.map((r) => r.roll.fabric.name))].join(" + ") || "—"} ·{" "}
+                      {[...new Set(c.rolls.map((r) => r.roll.color))].slice(0, 3).join(", ")}
                     </td>
                     <td className="py-2 pr-3 text-gray-500">{fmtKg(c.usedKg)}</td>
                     <td className="py-2 pr-3">

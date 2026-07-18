@@ -1082,10 +1082,26 @@ model FabricRoll {
   arrivedAt   DateTime @default(now())
   notes       String?
 
-  fabric Fabric      @relation(fields: [fabricId], references: [id], onDelete: Cascade)
-  cuts   CutTicket[]
+  fabric   Fabric    @relation(fields: [fabricId], references: [id], onDelete: Cascade)
+  cutRolls CutRoll[]
 
   @@index([fabricId])
+}
+
+/// Rolo usado dentro de um corte — o corte SEMPRE pode ter vários rolos
+/// (várias cores enfestadas juntas), cada um com seu peso destinado.
+/// A peça de cada cor paga o rolo da própria cor: custo por cor exato.
+model CutRoll {
+  id        String @id @default(cuid())
+  cutId     String
+  rollId    String
+  plannedKg Float // peso deste rolo destinado ao corte
+
+  cut  CutTicket  @relation(fields: [cutId], references: [id], onDelete: Cascade)
+  roll FabricRoll @relation(fields: [rollId], references: [id])
+
+  @@index([cutId])
+  @@index([rollId])
 }
 
 /// Corte — código sequencial por loja. Ciclo: ABERTO → (PARCIAL com projeção)
@@ -1099,9 +1115,8 @@ model CutTicket {
   operator      String?
   tableName     String? // mesa utilizada
   tableLengthM  Float? // comprimento da mesa
-  rollId        String? // rolo usado como matéria-prima…
-  sourceScrapId String? // …ou uma sobra reaproveitada
-  plannedKg     Float // peso destinado ao corte
+  sourceScrapId String? // sobra reaproveitada como matéria-prima (opcional)
+  plannedKg     Float // peso TOTAL destinado ao corte (soma dos rolos)
   usedKg        Float    @default(0) // peso efetivamente cortado até agora
   planName      String? // plano de corte
   productName   String? // modelo produzido
@@ -1132,7 +1147,7 @@ model CutTicket {
   createdAt    DateTime  @default(now())
 
   company     Company         @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  roll        FabricRoll?     @relation(fields: [rollId], references: [id])
+  rolls       CutRoll[] // rolos/cores usados no corte
   occurrences CutOccurrence[]
   scraps      FabricScrap[]
   items       CutItem[]
@@ -1149,6 +1164,7 @@ model CutItem {
   cutId        String
   stage        String  @default("PRIMEIRA") // PRIMEIRA | RESTO (parte do corte)
   name         String // modelo (ex.: "Blusa Tule")
+  color        String? // cor da peça (casa com a cor do rolo usado)
   size         String? // tamanho cortado (P, M, G...)
   pieces       Int // quantidade produzida
   pieceWeightG Float? // peso unitário da peça (gramas) — opcional

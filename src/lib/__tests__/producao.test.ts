@@ -1,10 +1,12 @@
 import { describe, it, expect } from "vitest";
 import {
   calcularEnfesto,
+  calcularEnfestoRolos,
   preverPecas,
   custoPorPeca,
   resumoPesagem,
   custoPorModelo,
+  custoPorCor,
   type Experiencia,
 } from "../producao";
 
@@ -159,6 +161,70 @@ describe("resumoPesagem (método da balança — aproveitamento por subtração)
   it("pesagem acima do cortado não gera desperdício negativo", () => {
     const r = resumoPesagem([{ name: "X", pieces: 100, pieceWeightG: 200 }], 15)!;
     expect(r.wasteKg).toBe(0);
+  });
+});
+
+describe("calcularEnfestoRolos (corte multi-rolo)", () => {
+  it("soma os metros de cada rolo pelo rendimento do próprio tecido", () => {
+    const r = calcularEnfestoRolos(
+      [
+        { kg: 8, yieldMPerKg: 2.6 }, // 20,8 m
+        { kg: 6, yieldMPerKg: 2.6 }, // 15,6 m
+        { kg: 4, yieldMPerKg: 3.0 }, // 12 m (outro tecido)
+      ],
+      5
+    );
+    expect(r.lengthM).toBe(48.4);
+    expect(r.sheets).toBe(9);
+  });
+});
+
+describe("custoPorCor (a peça de cada cor paga o rolo da própria cor)", () => {
+  it("Vinho mais caro por kg → peça Vinho carrega o custo de verdade", () => {
+    const modelos = custoPorCor(
+      [
+        { color: "Terracota", kg: 8, pricePerKg: 100 }, // R$ 800
+        { color: "Vinho", kg: 6, pricePerKg: 150 }, // R$ 900
+      ],
+      [
+        { name: "Baby Look", color: "Terracota", size: "P", pieces: 32, pieceWeightG: 200 }, // 6,4 kg úteis
+        { name: "Baby Look", color: "Vinho", size: "P", pieces: 24, pieceWeightG: 200 }, // 4,8 kg úteis
+      ],
+      0
+    )!;
+    // Terracota: 800/6,4 = 125/kg útil → 0,2 kg = R$ 25
+    expect(modelos[0].tecidoPorPeca).toBe(25);
+    // Vinho: 900/4,8 = 187,50/kg útil → 0,2 kg = R$ 37,50
+    expect(modelos[1].tecidoPorPeca).toBe(37.5);
+    // a soma fecha com o tecido total (1700)
+    const soma = modelos.reduce((a, m) => a + m.tecidoPorPeca * m.pieces, 0);
+    expect(Math.round(soma)).toBe(1700);
+  });
+
+  it("cor sem peso ou cor sem rolo → null (vale o rateio global)", () => {
+    expect(
+      custoPorCor(
+        [{ color: "Preto", kg: 5, pricePerKg: 100 }],
+        [{ name: "X", color: "Preto", size: "P", pieces: 10 }],
+        0
+      )
+    ).toBeNull();
+    expect(
+      custoPorCor(
+        [{ color: "Preto", kg: 5, pricePerKg: 100 }],
+        [{ name: "X", color: "Rosa", size: "P", pieces: 10, pieceWeightG: 200 }],
+        0
+      )
+    ).toBeNull();
+  });
+
+  it("acentos e caixa não atrapalham o casamento da cor", () => {
+    const modelos = custoPorCor(
+      [{ color: "PÊSSEGO", kg: 2, pricePerKg: 100 }],
+      [{ name: "X", color: "pessego", size: "M", pieces: 10, pieceWeightG: 100 }],
+      0
+    )!;
+    expect(modelos[0].tecidoPorPeca).toBe(20); // 200 ÷ 1 kg útil × 0,1
   });
 });
 

@@ -33,6 +33,21 @@ export function calcularEnfesto(input: {
   return { lengthM, sheets, leftoverM };
 }
 
+/** Enfesto com VÁRIOS rolos (cores enfestadas juntas): soma os metros de
+ *  cada rolo pelo rendimento do próprio tecido. */
+export function calcularEnfestoRolos(
+  rolos: { kg: number; yieldMPerKg: number }[],
+  tableLengthM?: number | null
+): Enfesto {
+  const lengthM = round2(
+    rolos.reduce((a, r) => a + Math.max(0, r.kg) * Math.max(0, r.yieldMPerKg), 0)
+  );
+  const mesa = tableLengthM ?? 0;
+  const sheets = mesa > 0 ? Math.floor(lengthM / mesa) : 0;
+  const leftoverM = mesa > 0 ? round2(lengthM - sheets * mesa) : 0;
+  return { lengthM, sheets, leftoverM };
+}
+
 // ---- 2. Previsão por similaridade ------------------------------------------
 
 /** Uma "experiência": corte FECHADO com rendimento real medido. */
@@ -168,9 +183,10 @@ const round2 = (n: number) => Math.round(n * 100) / 100;
 
 // ---- 4. Método da balança (aproveitamento por pesagem das peças) -----------
 
-/** Um modelo produzido no corte: nome, tamanho, quantidade e peso unitário. */
+/** Um modelo produzido no corte: nome, cor, tamanho, quantidade e peso. */
 export type ItemProduzido = {
   name: string;
+  color?: string | null;
   size?: string | null;
   pieces: number;
   pieceWeightG?: number | null;
@@ -199,6 +215,64 @@ export function resumoPesagem(
     utilizationPct: round2((pesoPecasKg / usedKg) * 100),
     wasteKg: round2(Math.max(0, usedKg - pesoPecasKg)),
   };
+}
+
+/**
+ * Custo por COR exato (corte multi-rolo): a peça de cada cor paga o rolo da
+ * própria cor — se o Vinho custou mais caro por kg, a peça Vinho carrega
+ * esse custo de verdade.
+ *   custo kg útil da cor = (kg do rolo da cor × preço) ÷ kg que viraram
+ *   peça naquela cor; peça = peso unitário × custo kg útil da cor.
+ * Exige TODOS os pesos unitários e cores casando com os rolos; sem isso,
+ * devolve null e vale o rateio global (custoPorModelo).
+ */
+export function custoPorCor(
+  rolos: { color: string; kg: number; pricePerKg: number }[],
+  items: ItemProduzido[],
+  extrasPorPeca: number
+):
+  | {
+      name: string;
+      color: string | null;
+      size: string | null;
+      pieces: number;
+      tecidoPorPeca: number;
+      totalPorPeca: number;
+    }[]
+  | null {
+  if (items.length === 0 || rolos.length === 0) return null;
+  if (items.some((i) => !(i.pieceWeightG && i.pieceWeightG > 0) || !i.color)) return null;
+
+  const nrm = (s: string | null | undefined) =>
+    (s ?? "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").trim();
+
+  // custo do tecido e peso útil POR COR
+  const custoTecidoCor = new Map<string, number>();
+  for (const r of rolos) {
+    const k = nrm(r.color);
+    custoTecidoCor.set(k, (custoTecidoCor.get(k) ?? 0) + r.kg * r.pricePerKg);
+  }
+  const pesoUtilCor = new Map<string, number>();
+  for (const i of items) {
+    const k = nrm(i.color);
+    if (!custoTecidoCor.has(k)) return null; // cor da peça sem rolo: não força
+    pesoUtilCor.set(k, (pesoUtilCor.get(k) ?? 0) + (i.pieces * i.pieceWeightG!) / 1000);
+  }
+
+  return items.map((i) => {
+    const k = nrm(i.color);
+    const pesoUtil = pesoUtilCor.get(k) ?? 0;
+    const custoKgUtil = pesoUtil > 0 ? (custoTecidoCor.get(k) ?? 0) / pesoUtil : 0;
+    const tecido = ((i.pieceWeightG ?? 0) / 1000) * custoKgUtil;
+    return {
+      name: i.name,
+      color: i.color ?? null,
+      size: i.size ?? null,
+      pieces: i.pieces,
+      tecidoPorPeca: round2(tecido),
+      totalPorPeca: round2(tecido + extrasPorPeca),
+    };
+  });
 }
 
 /**
@@ -240,32 +314,47 @@ export type CorteFechadoParaHistorico = {
   gradeInfo: string | null;
   tableName: string | null;
   operator: string | null;
-  roll: {
-    color: string;
-    fabric: {
-      id: string;
-      type: string | null;
-      supplier: string | null;
-      grammage: number | null;
+  rolls: {
+    plannedKg: number;
+    roll: {
+      color: string;
+      fabric: {
+        id: string;
+        type: string | null;
+        supplier: string | null;
+        grammage: number | null;
+      };
     };
-  } | null;
+  }[];
 };
+
+/** O rolo "dominante" de um corte multi-rolo: o de maior peso destina o
+ *  contexto (tecido/fornecedor) da experiência. Cor só conta quando o corte
+ *  inteiro foi de uma cor só. */
+export function roloDominante<T extends { plannedKg: number }>(rolls: T[]): T | null {
+  if (rolls.length === 0) return null;
+  return rolls.reduce((a, b) => (b.plannedKg > a.plannedKg ? b : a));
+}
 
 /** Converte cortes fechados do banco em experiências do motor. */
 export function experienciasDe(cortes: CorteFechadoParaHistorico[]): Experiencia[] {
   return cortes
     .filter((c) => c.piecesTotal && c.piecesTotal > 0 && c.usedKg > 0)
-    .map((c) => ({
-      piecesPerKg: c.piecesTotal! / c.usedKg,
-      fabricId: c.roll?.fabric.id ?? null,
-      fabricType: c.roll?.fabric.type ?? null,
-      supplier: c.roll?.fabric.supplier ?? null,
-      grammage: c.roll?.fabric.grammage ?? null,
-      color: c.roll?.color ?? null,
-      productName: c.productName,
-      gradeInfo: c.gradeInfo,
-      tableName: c.tableName,
-      operator: c.operator,
-      date: c.finalizedAt,
-    }));
+    .map((c) => {
+      const dom = roloDominante(c.rolls);
+      const cores = [...new Set(c.rolls.map((r) => r.roll.color))];
+      return {
+        piecesPerKg: c.piecesTotal! / c.usedKg,
+        fabricId: dom?.roll.fabric.id ?? null,
+        fabricType: dom?.roll.fabric.type ?? null,
+        supplier: dom?.roll.fabric.supplier ?? null,
+        grammage: dom?.roll.fabric.grammage ?? null,
+        color: cores.length === 1 ? cores[0] : null,
+        productName: c.productName,
+        gradeInfo: c.gradeInfo,
+        tableName: c.tableName,
+        operator: c.operator,
+        date: c.finalizedAt,
+      };
+    });
 }

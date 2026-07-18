@@ -12,7 +12,7 @@ export default async function CortesPage() {
     db.cutTicket.findMany({
       where: { companyId: user.companyId },
       include: {
-        roll: { include: { fabric: true } },
+        rolls: { include: { roll: { include: { fabric: true } } } },
         occurrences: { orderBy: { createdAt: "asc" } },
         scraps: { select: { id: true } },
         items: { orderBy: { id: "asc" } },
@@ -45,54 +45,66 @@ export default async function CortesPage() {
     costItems: parse(settings?.costItems, []),
   };
 
-  const rows: CorteRow[] = cortes.map((c) => ({
-    id: c.id,
-    code: c.code,
-    status: c.status,
-    date: c.date.toISOString(),
-    operator: c.operator,
-    tableName: c.tableName,
-    tableLengthM: c.tableLengthM,
-    plannedKg: c.plannedKg,
-    usedKg: c.usedKg,
-    planName: c.planName,
-    productName: c.productName,
-    gradeInfo: c.gradeInfo,
-    lengthM: c.lengthM,
-    sheets: c.sheets,
-    piecesFirst: c.piecesFirst,
-    predictedTotal: c.predictedTotal,
-    predictedMin: c.predictedMin,
-    predictedMax: c.predictedMax,
-    predictedBasis: c.predictedBasis,
-    piecesRest: c.piecesRest,
-    piecesTotal: c.piecesTotal,
-    errorPieces: c.errorPieces,
-    fabricCost: c.fabricCost,
-    costItems: parse(c.costItems, []),
-    costPerPiece: c.costPerPiece,
-    notes: c.notes,
-    fabricName: c.roll?.fabric.name ?? "—",
-    fabricColor: c.roll?.color ?? "—",
-    yieldMPerKg: c.roll?.fabric.yieldMPerKg ?? 0,
-    occurrences: c.occurrences.map((o) => ({
-      id: o.id,
-      type: o.type,
-      description: o.description,
-      lostKg: o.lostKg,
-    })),
-    sobras: c.scraps.length,
-    items: c.items.map((i) => ({
-      name: i.name,
-      size: i.size,
-      pieces: i.pieces,
-      pieceWeightG: i.pieceWeightG,
-      stage: i.stage,
-    })),
-    piecesWeightKg: c.piecesWeightKg,
-    utilizationPct: c.utilizationPct,
-    wasteKg: c.wasteKg,
-  }));
+  const rows: CorteRow[] = cortes.map((c) => {
+    const tecidos = [...new Set(c.rolls.map((r) => r.roll.fabric.name))];
+    const cores = [...new Set(c.rolls.map((r) => r.roll.color))];
+    return {
+      id: c.id,
+      code: c.code,
+      status: c.status,
+      date: c.date.toISOString(),
+      operator: c.operator,
+      tableName: c.tableName,
+      tableLengthM: c.tableLengthM,
+      plannedKg: c.plannedKg,
+      usedKg: c.usedKg,
+      planName: c.planName,
+      productName: c.productName,
+      gradeInfo: c.gradeInfo,
+      lengthM: c.lengthM,
+      sheets: c.sheets,
+      piecesFirst: c.piecesFirst,
+      predictedTotal: c.predictedTotal,
+      predictedMin: c.predictedMin,
+      predictedMax: c.predictedMax,
+      predictedBasis: c.predictedBasis,
+      piecesRest: c.piecesRest,
+      piecesTotal: c.piecesTotal,
+      errorPieces: c.errorPieces,
+      fabricCost: c.fabricCost,
+      costItems: parse(c.costItems, []),
+      costPerPiece: c.costPerPiece,
+      notes: c.notes,
+      // rótulos do card: "Poliamida Premium" · "Terracota, Vinho +1"
+      fabricName: tecidos.join(" + ") || "—",
+      fabricColor:
+        cores.length <= 2 ? cores.join(", ") || "—" : `${cores.slice(0, 2).join(", ")} +${cores.length - 2}`,
+      rolos: c.rolls.map((r) => ({
+        fabricName: r.roll.fabric.name,
+        color: r.roll.color,
+        kg: r.plannedKg,
+        pricePerKg: r.roll.pricePerKg,
+      })),
+      occurrences: c.occurrences.map((o) => ({
+        id: o.id,
+        type: o.type,
+        description: o.description,
+        lostKg: o.lostKg,
+      })),
+      sobras: c.scraps.length,
+      items: c.items.map((i) => ({
+        name: i.name,
+        color: i.color,
+        size: i.size,
+        pieces: i.pieces,
+        pieceWeightG: i.pieceWeightG,
+        stage: i.stage,
+      })),
+      piecesWeightKg: c.piecesWeightKg,
+      utilizationPct: c.utilizationPct,
+      wasteKg: c.wasteKg,
+    };
+  });
 
   const rollOptions: RollOption[] = rolls.map((r) => ({
     id: r.id,
@@ -107,7 +119,7 @@ export default async function CortesPage() {
     <div>
       <PageHeader
         title="Cortes"
-        subtitle="Cada corte fechado ensina o motor de projeção — as previsões ficam mais precisas a cada registro."
+        subtitle="Cada corte pode ter vários rolos (cores) e vários modelos — e cada corte fechado ensina o motor de projeção."
       />
       <CortesView cortes={rows} rolls={rollOptions} settings={prodSettings} />
     </div>

@@ -67,23 +67,24 @@ export type CorteRow = {
   notes: string | null;
   fabricName: string;
   fabricColor: string;
-  yieldMPerKg: number;
+  rolos: { fabricName: string; color: string; kg: number; pricePerKg: number }[];
   occurrences: { id: string; type: string; description: string | null; lostKg: number }[];
   sobras: number;
-  items: { name: string; size: string | null; pieces: number; pieceWeightG: number | null; stage: string }[];
+  items: { name: string; color: string | null; size: string | null; pieces: number; pieceWeightG: number | null; stage: string }[];
   piecesWeightKg: number | null;
   utilizationPct: number | null;
   wasteKg: number | null;
 };
 
 /** Linha do formulário: um modelo/SKU produzido, com peso unitário opcional. */
-type LinhaModelo = { name: string; size: string; pieces: string; pieceWeightG: string };
+type LinhaModelo = { name: string; color: string; size: string; pieces: string; pieceWeightG: string };
 
 const linhasParaItems = (linhas: LinhaModelo[]) =>
   linhas
     .filter((l) => l.name.trim() && parseInt(l.pieces, 10) >= 0)
     .map((l) => ({
       name: l.name.trim(),
+      color: l.color.trim() || null,
       size: l.size.trim() || null,
       pieces: parseInt(l.pieces, 10) || 0,
       pieceWeightG: parseFloat(l.pieceWeightG.replace(",", ".")) > 0
@@ -224,8 +225,9 @@ function NovoCorteModal({
   onClose: () => void;
 }) {
   const router = useRouter();
-  const [rollId, setRollId] = useState(rolls[0]?.id ?? "");
-  const [kg, setKg] = useState("");
+  const [linhasRolo, setLinhasRolo] = useState<{ rollId: string; kg: string }[]>([
+    { rollId: rolls[0]?.id ?? "", kg: "" },
+  ]);
   const [mesa, setMesa] = useState(settings.tables[0]?.name ?? "");
   const [mesaM, setMesaM] = useState(
     settings.tables[0] ? String(settings.tables[0].lengthM) : ""
@@ -238,23 +240,24 @@ function NovoCorteModal({
   const [erro, setErro] = useState("");
   const [salvando, setSalvando] = useState(false);
 
-  const roll = rolls.find((r) => r.id === rollId);
-  const kgNum = parseFloat(kg.replace(",", "."));
   const mesaNum = parseFloat(mesaM.replace(",", "."));
-  // enfesto ao vivo enquanto digita — o operador confere na hora
-  const metros = roll && kgNum > 0 ? kgNum * roll.yieldMPerKg : 0;
+  // enfesto ao vivo: soma os metros de cada rolo pelo rendimento do tecido
+  const rolosValidos = linhasRolo
+    .map((l) => ({ roll: rolls.find((r) => r.id === l.rollId), kg: parseFloat(l.kg.replace(",", ".")) }))
+    .filter((x): x is { roll: RollOption; kg: number } => Boolean(x.roll) && x.kg > 0);
+  const kgTotal = rolosValidos.reduce((a, x) => a + x.kg, 0);
+  const metros = rolosValidos.reduce((a, x) => a + x.kg * x.roll.yieldMPerKg, 0);
   const folhas = metros > 0 && mesaNum > 0 ? Math.floor(metros / mesaNum) : 0;
 
   async function salvar() {
-    if (!roll || !(kgNum > 0)) return;
+    if (rolosValidos.length === 0) return;
     setSalvando(true);
     setErro("");
     const res = await fetch("/api/producao/cortes", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        rollId,
-        plannedKg: kgNum,
+        rolos: rolosValidos.map((x) => ({ rollId: x.roll.id, kg: x.kg })),
         tableName: mesa || null,
         tableLengthM: mesaNum > 0 ? mesaNum : null,
         operator: operador || null,
@@ -277,37 +280,60 @@ function NovoCorteModal({
   return (
     <Modal titulo="Novo corte" onClose={onClose}>
       <div className="space-y-3">
-        <label className="block text-xs font-medium text-gray-600">
-          Rolo de tecido
-          <select
-            value={rollId}
-            onChange={(e) => setRollId(e.target.value)}
-            className={inputCls + " mt-1"}
-          >
-            {rolls.map((r) => (
-              <option key={r.id} value={r.id}>
-                {r.fabricName} — {r.color} · {r.remainingKg.toFixed(2).replace(".", ",")} kg disponíveis
-              </option>
+        <div>
+          <p className="block text-xs font-medium text-gray-600 mb-1">
+            Rolos do corte (cores enfestadas juntas)
+          </p>
+          <div className="space-y-1.5">
+            {linhasRolo.map((l, i) => (
+              <div key={i} className="grid grid-cols-[1fr_76px_24px] gap-1.5">
+                <select
+                  value={l.rollId}
+                  onChange={(e) =>
+                    setLinhasRolo(linhasRolo.map((x, k) => (k === i ? { ...x, rollId: e.target.value } : x)))
+                  }
+                  className={inputCls}
+                >
+                  {rolls.map((r) => (
+                    <option key={r.id} value={r.id}>
+                      {r.fabricName} — {r.color} · {r.remainingKg.toFixed(2).replace(".", ",")} kg disp.
+                    </option>
+                  ))}
+                </select>
+                <input
+                  value={l.kg}
+                  onChange={(e) =>
+                    setLinhasRolo(linhasRolo.map((x, k) => (k === i ? { ...x, kg: e.target.value } : x)))
+                  }
+                  inputMode="decimal"
+                  placeholder="kg"
+                  className={inputCls}
+                />
+                <button
+                  onClick={() => setLinhasRolo(linhasRolo.filter((_, k) => k !== i))}
+                  disabled={linhasRolo.length === 1}
+                  className="text-gray-300 hover:text-rose-500 disabled:opacity-30"
+                  title="Remover rolo"
+                >
+                  <X className="size-4 mx-auto" />
+                </button>
+              </div>
             ))}
-          </select>
+          </div>
+          <button
+            onClick={() => setLinhasRolo([...linhasRolo, { rollId: rolls[0]?.id ?? "", kg: "" }])}
+            className="mt-1.5 text-xs text-brand-600 font-medium underline underline-offset-2"
+          >
+            + outra cor/rolo neste corte
+          </button>
           {rolls.length === 0 && (
-            <span className="text-[11px] text-amber-700">
+            <p className="text-[11px] text-amber-700">
               Nenhum rolo com saldo — cadastre em Configurações.
-            </span>
+            </p>
           )}
-        </label>
+        </div>
 
         <div className="grid grid-cols-2 gap-3">
-          <label className="block text-xs font-medium text-gray-600">
-            Peso destinado (kg)
-            <input
-              value={kg}
-              onChange={(e) => setKg(e.target.value)}
-              inputMode="decimal"
-              placeholder="13"
-              className={inputCls + " mt-1"}
-            />
-          </label>
           <label className="block text-xs font-medium text-gray-600">
             Operador
             <input
@@ -391,9 +417,9 @@ function NovoCorteModal({
           />
         </label>
 
-        {roll && kgNum > 0 && (
+        {kgTotal > 0 && (
           <div className="rounded-xl bg-brand-50 border border-brand-100 p-3 text-sm text-brand-800">
-            <b>{fmtKg(kgNum)}</b> × {roll.yieldMPerKg.toLocaleString("pt-BR")} m/kg ={" "}
+            <b>{fmtKg(kgTotal)}</b> em {rolosValidos.length} rolo{rolosValidos.length === 1 ? "" : "s"} ={" "}
             <b>{fmtM(metros)}</b>
             {mesaNum > 0 && (
               <>
@@ -407,7 +433,7 @@ function NovoCorteModal({
 
         <button
           onClick={salvar}
-          disabled={salvando || !roll || !(kgNum > 0)}
+          disabled={salvando || rolosValidos.length === 0}
           className="w-full inline-flex items-center justify-center gap-1.5 rounded-xl bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium px-4 py-3 transition disabled:opacity-50"
         >
           {salvando ? <Loader2 className="size-4 animate-spin" /> : <Scissors className="size-4" />}
@@ -481,7 +507,12 @@ function CorteModal({
       <div className="space-y-4">
         {/* ficha */}
         <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-sm">
-          <Info k="Tecido" v={`${c.fabricName} · ${c.fabricColor}`} />
+          <Info
+            k={c.rolos.length > 1 ? "Rolos" : "Tecido"}
+            v={c.rolos
+              .map((r) => `${r.fabricName} ${r.color} (${r.kg.toLocaleString("pt-BR")} kg)`)
+              .join(" · ") || `${c.fabricName} · ${c.fabricColor}`}
+          />
           <Info k="Data" v={new Date(c.date).toLocaleDateString("pt-BR")} />
           <Info k="Peso destinado" v={fmtKg(c.plannedKg)} />
           <Info k="Operador" v={c.operator ?? "—"} />
@@ -507,6 +538,7 @@ function CorteModal({
           <FormProducao
             plannedKg={c.plannedKg}
             modeloSugerido={c.productName}
+            cores={[...new Set(c.rolos.map((r) => r.color))]}
             busy={busy}
             onSubmit={(usedKg, items) => acao({ action: "producao", usedKg, items })}
           />
@@ -546,6 +578,7 @@ function CorteModal({
             <FormFechar
               restKg={Math.max(0, c.plannedKg - c.usedKg)}
               modeloSugerido={c.productName}
+              cores={[...new Set(c.rolos.map((r) => r.color))]}
               busy={busy}
               onSubmit={(items) => acao({ action: "fechar", items })}
             />
@@ -584,9 +617,19 @@ function CorteModal({
         )}
 
         {/* ocorrências + sobra manual (enquanto não fechado) */}
-        <Ocorrencias corte={c} settings={settings} busy={busy} onAdd={(o) => acao({ action: "ocorrencia", ...o })} />
+        <Ocorrencias
+          corte={c}
+          settings={settings}
+          cores={[...new Set(c.rolos.map((r) => r.color))]}
+          busy={busy}
+          onAdd={(o) => acao({ action: "ocorrencia", ...o })}
+        />
         {c.status !== "FECHADO" && (
-          <SobraManual busy={busy} onAdd={(s) => acao({ action: "sobra", ...s })} />
+          <SobraManual
+            cores={[...new Set(c.rolos.map((r) => r.color))]}
+            busy={busy}
+            onAdd={(s) => acao({ action: "sobra", ...s })}
+          />
         )}
 
         {msg && <p className="text-sm text-rose-600 bg-rose-50 rounded-lg px-3 py-2">{msg}</p>}
@@ -605,29 +648,44 @@ function CorteModal({
   );
 }
 
-/** Editor das linhas de modelo: SKU + quantidade + peso da peça (balança). */
+/** Editor das linhas de modelo: SKU + cor + tamanho + qtd + peso (balança). */
 function EditorModelos({
   linhas,
   setLinhas,
+  cores,
 }: {
   linhas: LinhaModelo[];
   setLinhas: (l: LinhaModelo[]) => void;
+  cores: string[]; // cores dos rolos do corte (sugestões)
 }) {
   return (
     <div className="space-y-1.5">
-      <div className="grid grid-cols-[1fr_52px_58px_66px_24px] gap-1.5 text-[10.5px] uppercase tracking-wide text-gray-400 px-0.5">
+      <div className="grid grid-cols-[1fr_70px_44px_50px_58px_22px] gap-1 text-[10.5px] uppercase tracking-wide text-gray-400 px-0.5">
         <span>Modelo</span>
+        <span>Cor</span>
         <span>Tam</span>
         <span>Qtd</span>
         <span>Peça g</span>
         <span />
       </div>
+      <datalist id="cores-corte">
+        {cores.map((c) => (
+          <option key={c} value={c} />
+        ))}
+      </datalist>
       {linhas.map((l, i) => (
-        <div key={i} className="grid grid-cols-[1fr_52px_58px_66px_24px] gap-1.5">
+        <div key={i} className="grid grid-cols-[1fr_70px_44px_50px_58px_22px] gap-1">
           <input
             value={l.name}
             onChange={(e) => setLinhas(linhas.map((x, k) => (k === i ? { ...x, name: e.target.value } : x)))}
             placeholder="Blusa Tule"
+            className={inputCls}
+          />
+          <input
+            value={l.color}
+            onChange={(e) => setLinhas(linhas.map((x, k) => (k === i ? { ...x, color: e.target.value } : x)))}
+            list="cores-corte"
+            placeholder={cores[0] ?? "Cor"}
             className={inputCls}
           />
           <input
@@ -661,10 +719,12 @@ function EditorModelos({
         </div>
       ))}
       <button
-        onClick={() => setLinhas([...linhas, { name: "", size: "", pieces: "", pieceWeightG: "" }])}
+        onClick={() =>
+          setLinhas([...linhas, { name: "", color: cores.length === 1 ? cores[0] : "", size: "", pieces: "", pieceWeightG: "" }])
+        }
         className="text-xs text-brand-600 font-medium underline underline-offset-2"
       >
-        + outro modelo/tamanho neste corte
+        + outro modelo/cor/tamanho neste corte
       </button>
       <p className="text-[10.5px] text-gray-400 leading-snug">
         As peças cortadas entram no <b>Estoque de Costura</b> — só viram
@@ -698,17 +758,19 @@ function ResumoBalanca({ linhas, kg }: { linhas: LinhaModelo[]; kg: number }) {
 function FormProducao({
   plannedKg,
   modeloSugerido,
+  cores,
   busy,
   onSubmit,
 }: {
   plannedKg: number;
   modeloSugerido: string | null;
+  cores: string[];
   busy: boolean;
-  onSubmit: (usedKg: number, items: { name: string; pieces: number; pieceWeightG: number | null }[]) => void;
+  onSubmit: (usedKg: number, items: { name: string; color: string | null; pieces: number; pieceWeightG: number | null }[]) => void;
 }) {
   const [kg, setKg] = useState(String(plannedKg).replace(".", ","));
   const [linhas, setLinhas] = useState<LinhaModelo[]>([
-    { name: modeloSugerido ?? "", size: "", pieces: "", pieceWeightG: "" },
+    { name: modeloSugerido ?? "", color: cores.length === 1 ? cores[0] : "", size: "", pieces: "", pieceWeightG: "" },
   ]);
   const kgNum = parseFloat(kg.replace(",", "."));
   const items = linhasParaItems(linhas);
@@ -724,7 +786,7 @@ function FormProducao({
         Peso cortado = o que saiu do rolo pra mesa, COM as aparas. Se guardou
         uma ponta, pese-a e desconte (ela vira o restante do corte).
       </p>
-      <EditorModelos linhas={linhas} setLinhas={setLinhas} />
+      <EditorModelos linhas={linhas} setLinhas={setLinhas} cores={cores} />
       <ResumoBalanca linhas={linhas} kg={kgNum} />
       {parcial && (
         <p className="text-[11px] text-sky-700">
@@ -745,16 +807,18 @@ function FormProducao({
 function FormFechar({
   restKg,
   modeloSugerido,
+  cores,
   busy,
   onSubmit,
 }: {
   restKg: number;
   modeloSugerido: string | null;
+  cores: string[];
   busy: boolean;
-  onSubmit: (items: { name: string; pieces: number; pieceWeightG: number | null }[]) => void;
+  onSubmit: (items: { name: string; color: string | null; pieces: number; pieceWeightG: number | null }[]) => void;
 }) {
   const [linhas, setLinhas] = useState<LinhaModelo[]>([
-    { name: modeloSugerido ?? "", size: "", pieces: "", pieceWeightG: "" },
+    { name: modeloSugerido ?? "", color: cores.length === 1 ? cores[0] : "", size: "", pieces: "", pieceWeightG: "" },
   ]);
   const items = linhasParaItems(linhas);
   return (
@@ -762,7 +826,7 @@ function FormFechar({
       <p className="text-xs font-bold text-gray-700">
         Usou o restante ({restKg.toFixed(2).replace(".", ",")} kg)? Feche o corte
       </p>
-      <EditorModelos linhas={linhas} setLinhas={setLinhas} />
+      <EditorModelos linhas={linhas} setLinhas={setLinhas} cores={cores} />
       <ResumoBalanca linhas={linhas} kg={restKg} />
       <button
         onClick={() => onSubmit(items)}
@@ -789,20 +853,47 @@ function Custos({
   const [valor, setValor] = useState("");
   const tecidoPorPeca = c.piecesTotal ? c.fabricCost / c.piecesTotal : 0;
   const extras = items.reduce((a, i) => a + i.value, 0);
-  // custo por MODELO: o kg útil custa mais que o kg pago (desperdício);
-  // cada modelo paga proporcional ao próprio peso
-  const custoKgUtil =
+  const nrm = (s: string | null | undefined) =>
+    (s ?? "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").trim();
+  // custo por COR exato: a peça de cada cor paga o rolo da própria cor.
+  // Sem cores casando ou sem pesos, vale o rateio global pelo kg útil.
+  const custoTecidoCor = new Map<string, number>();
+  for (const r of c.rolos) {
+    const k = nrm(r.color);
+    custoTecidoCor.set(k, (custoTecidoCor.get(k) ?? 0) + r.kg * r.pricePerKg);
+  }
+  const pesoUtilCor = new Map<string, number>();
+  const todosPesados = c.items.length > 0 && c.items.every((i) => i.pieceWeightG && i.pieceWeightG > 0);
+  const coresCasam = todosPesados && c.items.every((i) => i.color && custoTecidoCor.has(nrm(i.color)));
+  if (coresCasam) {
+    for (const i of c.items) {
+      const k = nrm(i.color);
+      pesoUtilCor.set(k, (pesoUtilCor.get(k) ?? 0) + (i.pieces * (i.pieceWeightG ?? 0)) / 1000);
+    }
+  }
+  const custoKgUtilGlobal =
     c.piecesWeightKg && c.piecesWeightKg > 0 ? c.fabricCost / c.piecesWeightKg : null;
-  const modelos = custoKgUtil
-    ? c.items.filter((i) => i.pieceWeightG && i.pieceWeightG > 0)
-    : [];
+  const kgUtilDe = (color: string | null) => {
+    if (coresCasam) {
+      const k = nrm(color);
+      const peso = pesoUtilCor.get(k) ?? 0;
+      return peso > 0 ? (custoTecidoCor.get(k) ?? 0) / peso : 0;
+    }
+    return custoKgUtilGlobal ?? 0;
+  };
+  const modelos = todosPesados ? c.items : [];
   return (
     <div className="rounded-xl border border-gray-200 p-3.5">
       <p className="text-xs font-bold text-gray-700 mb-2">Custo por peça</p>
-      {custoKgUtil != null && (
+      {custoKgUtilGlobal != null && (
         <p className="text-xs text-gray-600 mb-1.5 rounded-lg bg-gray-50 px-2.5 py-1.5">
           Kg pago: <b>{fmtR$(c.fabricCost / Math.max(c.usedKg, 0.001))}</b> → kg ÚTIL
-          (descontado o desperdício): <b className="text-brand-700">{fmtR$(custoKgUtil)}</b>
+          (descontado o desperdício): <b className="text-brand-700">{fmtR$(custoKgUtilGlobal)}</b>
+          {coresCasam && c.rolos.length > 1 && (
+            <span className="block text-[10.5px] text-gray-400">
+              custo calculado por cor: cada peça paga o rolo da própria cor
+            </span>
+          )}
         </p>
       )}
       {modelos.length > 0 && (
@@ -810,9 +901,11 @@ function Custos({
           {modelos.map((m, i) => (
             <p key={i} className="flex items-center justify-between text-xs text-gray-600">
               <span>
-                {m.name}{m.size ? ` · ${m.size}` : ""} · {m.pieces} un. ({m.pieceWeightG} g)
+                {m.name}
+                {m.color ? ` · ${m.color}` : ""}
+                {m.size ? ` · ${m.size}` : ""} · {m.pieces} un. ({m.pieceWeightG} g)
               </span>
-              <b>{fmtR$(((m.pieceWeightG ?? 0) / 1000) * (custoKgUtil ?? 0) + extras)}/peça</b>
+              <b>{fmtR$(((m.pieceWeightG ?? 0) / 1000) * kgUtilDe(m.color) + extras)}/peça</b>
             </p>
           ))}
         </div>
@@ -868,17 +961,20 @@ function Custos({
 function Ocorrencias({
   corte: c,
   settings,
+  cores,
   busy,
   onAdd,
 }: {
   corte: CorteRow;
   settings: ProdSettings;
   busy: boolean;
-  onAdd: (o: { type: string; description: string | null; lostKg: number }) => void;
+  cores: string[];
+  onAdd: (o: { type: string; description: string | null; lostKg: number; color: string | null }) => void;
 }) {
   const [tipo, setTipo] = useState(settings.occurrenceTypes[0] ?? "Furo");
   const [desc, setDesc] = useState("");
   const [kg, setKg] = useState("");
+  const [cor, setCor] = useState(cores.length === 1 ? cores[0] : "");
   const [form, setForm] = useState(false);
   return (
     <div className="rounded-xl border border-amber-100 bg-amber-50/40 p-3.5">
@@ -914,9 +1010,17 @@ function Ocorrencias({
             </select>
             <input value={kg} onChange={(e) => setKg(e.target.value)} inputMode="decimal" placeholder="Peso perdido (kg)" className={inputCls} />
           </div>
+          {cores.length > 1 && (
+            <select value={cor} onChange={(e) => setCor(e.target.value)} className={inputCls}>
+              <option value="">De qual cor/rolo?</option>
+              {cores.map((c2) => (
+                <option key={c2}>{c2}</option>
+              ))}
+            </select>
+          )}
           <input value={desc} onChange={(e) => setDesc(e.target.value)} placeholder="Descrição (opcional)" className={inputCls} />
           <button
-            onClick={() => onAdd({ type: tipo, description: desc || null, lostKg: parseFloat(kg.replace(",", ".")) || 0 })}
+            onClick={() => onAdd({ type: tipo, description: desc || null, lostKg: parseFloat(kg.replace(",", ".")) || 0, color: cor || null })}
             disabled={busy}
             className="w-full rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-sm font-medium py-2 transition disabled:opacity-50"
           >
@@ -932,14 +1036,17 @@ function Ocorrencias({
 }
 
 function SobraManual({
+  cores,
   busy,
   onAdd,
 }: {
   busy: boolean;
-  onAdd: (s: { weightKg: number; geometry: string | null }) => void;
+  cores: string[];
+  onAdd: (s: { weightKg: number; geometry: string | null; color: string | null }) => void;
 }) {
   const [kg, setKg] = useState("");
   const [geo, setGeo] = useState("FAIXA");
+  const [cor, setCor] = useState(cores.length === 1 ? cores[0] : "");
   const n = parseFloat(kg.replace(",", "."));
   return (
     <div className="rounded-xl border border-gray-200 p-3.5">
@@ -953,8 +1060,16 @@ function SobraManual({
           <option value="RETALHOS">Retalhos pequenos</option>
         </select>
       </div>
+      {cores.length > 1 && (
+        <select value={cor} onChange={(e) => setCor(e.target.value)} className={inputCls + " mt-2"}>
+          <option value="">De qual cor/rolo?</option>
+          {cores.map((c2) => (
+            <option key={c2}>{c2}</option>
+          ))}
+        </select>
+      )}
       <button
-        onClick={() => onAdd({ weightKg: n, geometry: geo })}
+        onClick={() => onAdd({ weightKg: n, geometry: geo, color: cor || null })}
         disabled={busy || !(n > 0)}
         className="mt-2 w-full rounded-xl border border-gray-200 hover:border-brand-300 text-gray-600 text-sm font-medium py-2 transition disabled:opacity-50"
       >
