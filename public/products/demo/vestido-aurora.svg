@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="600" height="800" viewBox="0 0 600 800">
+<defs>
+<linearGradient id="bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fbf6ed"/><stop offset="1" stop-color="#eee1cc"/></linearGradient>
+<linearGradient id="c" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f4c3d6"/><stop offset="1" stop-color="#e8a0bf"/></linearGradient>
+<linearGradient id="cd" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#e8a0bf"/><stop offset="1" stop-color="#c97fa2"/></linearGradient>
+</defs>
+<rect width="600" height="800" fill="url(#bg)"/>
+<ellipse cx="300" cy="706" rx="175" ry="24" fill="#3a2a1e" opacity="0.10"/>
+
+<path d="M212 368 C198 470 184 565 180 645 C230 668 370 668 420 645 C416 565 402 470 388 368 Z" fill="url(#cd)"/>
+<path d="M243 182 C265 168 335 168 357 182 L376 252 C376 302 368 342 384 368 L216 368 C232 342 224 302 224 252 Z" fill="url(#c)"/>
+<path d="M243 182 C214 192 198 224 193 262 C207 273 228 275 240 268 L249 214 Z" fill="url(#c)"/>
+<path d="M357 182 C386 192 402 224 407 262 C393 273 372 275 360 268 L351 214 Z" fill="url(#c)"/>
+<path d="M264 176 C286 204 314 204 336 176" fill="none" stroke="#00000028" stroke-width="6" stroke-linecap="round"/>
+<rect x="214" y="352" width="172" height="24" rx="12" fill="#00000022"/>
+<path d="M300 376 C282 408 272 438 278 462 M300 376 C318 408 328 438 322 462" stroke="#00000030" stroke-width="8" fill="none" stroke-linecap="round"/>
+<path d="M250 390 C244 478 238 566 234 632 M300 390 L300 640 M350 390 C356 478 362 566 366 632" stroke="#00000015" stroke-width="6" fill="none"/>
+<path d="M263 205 C258 262 254 318 252 348" stroke="#ffffff66" stroke-width="10" fill="none" stroke-linecap="round"/>
+
+<text x="300" y="766" font-family="Georgia,serif" font-size="22" letter-spacing="6" fill="#8a4420" fill-opacity="0.75" text-anchor="middle">BELLA MODA</text>
+</svg>
