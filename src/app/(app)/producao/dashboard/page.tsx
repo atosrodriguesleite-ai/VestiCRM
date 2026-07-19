@@ -1,6 +1,8 @@
 import { requireUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { PageHeader, Card } from "@/components/ui";
+import { PeriodChips } from "@/components/charts";
+import { StatCard } from "@/components/dash";
 import { SimuladorCompra } from "./simulador";
 
 export const dynamic = "force-dynamic";
@@ -160,6 +162,25 @@ export default async function ProducaoDashboard({
   // linha do tempo: últimos 12 fechados, previsto × real
   const timeline = fechados.slice(-12);
 
+  // sparklines dos cartões: produção por dia na janela escolhida
+  // (sem período selecionado, mostra os últimos 30 dias)
+  const DAY = 86_400_000;
+  const fimJanela = fim ?? new Date();
+  const inicioJanela = desde ?? new Date(fimJanela.getTime() - 29 * DAY);
+  const diaDe = (d: Date) => Math.floor(d.getTime() / DAY);
+  const primeiroDia = diaDe(inicioJanela);
+  const nDias = Math.min(Math.max(diaDe(fimJanela) - primeiroDia + 1, 1), 400);
+  const serieKg = new Array<number>(nDias).fill(0);
+  const seriePecas = new Array<number>(nDias).fill(0);
+  for (const c of cortes) {
+    const i = diaDe(c.date) - primeiroDia;
+    if (i >= 0 && i < nDias) {
+      serieKg[i] += c.usedKg;
+      if (c.status === "FECHADO") seriePecas[i] += c.piecesTotal ?? 0;
+    }
+  }
+  const notaSparkline = temPeriodo ? "" : " · gráfico: últimos 30 dias";
+
   return (
     <div>
       <PageHeader
@@ -167,7 +188,10 @@ export default async function ProducaoDashboard({
         subtitle="Cada corte fechado alimenta o motor — acompanhe a precisão subindo."
       />
 
-      {/* período: simples — dois campos e pronto */}
+      {/* período: atalhos + dois campos e pronto */}
+      <div className="mb-3">
+        <PeriodChips pathname="/producao/dashboard" de={de} ate={ate} allLabel="Tudo" />
+      </div>
       <form className="flex items-end gap-2 flex-wrap mb-5">
         <label className="block text-xs font-medium text-gray-500">
           De
@@ -190,69 +214,86 @@ export default async function ProducaoDashboard({
       <SimuladorCompra tecidos={tecidosList} />
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
-        <Stat titulo="Quilos cortados" valor={fmtKg(kgCortados)} sub={`${cortes.length} corte(s)`} />
-        <Stat titulo="Peças produzidas" valor={String(pecas)} sub={`${fechados.length} corte(s) fechados`} />
-        <Stat
-          titulo="Sobras disponíveis"
-          valor={fmtKg(kgSobras)}
-          sub={`${fmtR$(valorSobras)} parados`}
-          tom="amber"
+        <StatCard
+          label="Quilos cortados"
+          value={kgCortados}
+          format="kg"
+          series={serieKg}
+          hint={`${cortes.length} corte(s)${notaSparkline}`}
         />
-        <Stat
-          titulo="Economia por reaproveitamento"
-          valor={fmtR$(economia)}
-          sub={`${reaproveitadas.length} sobra(s) consumida(s)`}
-          tom="emerald"
+        <StatCard
+          label="Peças produzidas"
+          value={pecas}
+          series={seriePecas}
+          hint={`${fechados.length} corte(s) fechados${notaSparkline}`}
         />
-        <Stat
-          titulo="Aproveitamento médio"
-          valor={aproveitamentoMedio != null ? `${aproveitamentoMedio.toFixed(1)}%` : "—"}
-          sub={
+        <StatCard
+          label="Sobras disponíveis"
+          value={kgSobras}
+          format="kg"
+          hint={`${fmtR$(valorSobras)} parados`}
+          tone="warn"
+        />
+        <StatCard
+          label="Economia por reaproveitamento"
+          value={economia}
+          format="brl"
+          hint={`${reaproveitadas.length} sobra(s) consumida(s)`}
+          tone="good"
+        />
+        <StatCard
+          label="Aproveitamento médio"
+          value={aproveitamentoMedio}
+          format="pct"
+          decimals={1}
+          hint={
             aproveitamentoMedio != null
               ? "kg que viraram peça (método da balança)"
               : "pese as peças por modelo pra apurar"
           }
-          tom="emerald"
+          tone="good"
         />
-        <Stat
-          titulo="Custo SÓ TECIDO por peça"
-          valor={custoTecidoMedio != null ? fmtR$(custoTecidoMedio) : "—"}
-          sub="apenas o pano, sem extras"
+        <StatCard
+          label="Custo SÓ TECIDO por peça"
+          value={custoTecidoMedio}
+          format="brl"
+          hint="apenas o pano, sem extras"
         />
-        <Stat
-          titulo="Custo COMPLETO por peça"
-          valor={
-            custoMedio != null
-              ? fmtR$(custoMedio + (faccaoMedia ?? 0))
-              : "—"
-          }
-          sub={
+        <StatCard
+          label="Custo COMPLETO por peça"
+          value={custoMedio != null ? custoMedio + (faccaoMedia ?? 0) : null}
+          format="brl"
+          hint={
             faccaoMedia != null
               ? `tecido + extras + facção real (${fmtR$(faccaoMedia)})`
               : "tecido + custos extras"
           }
         />
-        <Stat
-          titulo="Precisão do motor"
-          valor={acertoPct != null ? `${acertoPct.toFixed(1)}%` : "—"}
-          sub={
+        <StatCard
+          label="Precisão do motor"
+          value={acertoPct}
+          format="pct"
+          decimals={1}
+          hint={
             comProjecao.length > 0
               ? `${comProjecao.length} projeção(ões) conferidas`
               : "ainda sem projeções fechadas"
           }
-          tom="sky"
         />
-        <Stat
-          titulo="Erro médio"
-          valor={erroMedio != null ? `${erroMedio.toFixed(1)} peça(s)` : "—"}
-          sub="quanto menor, mais o motor aprendeu"
-          tom="sky"
+        <StatCard
+          label="Erro médio"
+          value={erroMedio}
+          format="num"
+          decimals={1}
+          suffix=" peça(s)"
+          hint="quanto menor, mais o motor aprendeu"
         />
-        <Stat
-          titulo="Descartes e perdas"
-          valor={fmtKg(kgPerdas)}
-          sub={`${perdas.length} registro(s) · aparas + perdas definitivas`}
-          tom="rose"
+        <StatCard
+          label="Descartes e perdas"
+          value={kgPerdas}
+          format="kg"
+          hint={`${perdas.length} registro(s) · aparas + perdas definitivas`}
+          tone="bad"
         />
       </div>
 
@@ -390,32 +431,5 @@ export default async function ProducaoDashboard({
         </Card>
       )}
     </div>
-  );
-}
-
-function Stat({
-  titulo,
-  valor,
-  sub,
-  tom = "brand",
-}: {
-  titulo: string;
-  valor: string;
-  sub?: string;
-  tom?: "brand" | "amber" | "emerald" | "sky" | "rose";
-}) {
-  const cor = {
-    brand: "text-brand-700",
-    amber: "text-amber-700",
-    emerald: "text-emerald-700",
-    sky: "text-sky-700",
-    rose: "text-rose-600",
-  }[tom];
-  return (
-    <Card className="p-4">
-      <p className="text-[11px] uppercase tracking-wide text-gray-400 font-medium">{titulo}</p>
-      <p className={`text-xl font-bold mt-0.5 ${cor}`}>{valor}</p>
-      {sub && <p className="text-[11px] text-gray-400 mt-0.5">{sub}</p>}
-    </Card>
   );
 }

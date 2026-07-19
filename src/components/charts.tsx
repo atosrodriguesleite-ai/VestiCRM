@@ -13,6 +13,7 @@ export const ORDINAL_RAMP = [
   "#3a2a1e",
 ];
 
+import Link from "next/link";
 import { InfoTip } from "./info-tip";
 
 export function StatTile({
@@ -256,5 +257,267 @@ export function AreaChart({
         ) : null
       )}
     </svg>
+  );
+}
+
+/**
+ * Área comparativa: período atual (linha cheia cobre) sobre o período
+ * anterior (linha tracejada ocre claro). As duas séries têm o mesmo
+ * comprimento — dia 1 do período atual alinha com dia 1 do anterior.
+ */
+export function AreaCompare({
+  points,
+  prevPoints,
+  labels,
+  formatValue = (v) => String(v),
+  height = 200,
+}: {
+  points: number[];
+  prevPoints: number[];
+  labels: string[];
+  formatValue?: (v: number) => string;
+  height?: number;
+}) {
+  const w = 600;
+  const h = height;
+  const pad = { top: 16, right: 8, bottom: 24, left: 8 };
+  const max = Math.max(...points, ...prevPoints, 1);
+  const iw = w - pad.left - pad.right;
+  const ih = h - pad.top - pad.bottom;
+  const n = points.length;
+  const step = n > 1 ? iw / (n - 1) : iw;
+  const toXY = (serie: number[]) =>
+    serie.map((v, i) => [pad.left + i * step, pad.top + ih - (v / max) * ih]);
+  const path = (serie: number[]) =>
+    toXY(serie)
+      .map(([x, y], i) => `${i === 0 ? "M" : "L"}${x.toFixed(1)},${y.toFixed(1)}`)
+      .join(" ");
+  const xy = toXY(points);
+  const line = path(points);
+  const area = `${line} L${(pad.left + (n - 1) * step).toFixed(1)},${pad.top + ih} L${pad.left},${pad.top + ih} Z`;
+  const maxIdx = points.indexOf(Math.max(...points));
+
+  return (
+    <svg
+      viewBox={`0 0 ${w} ${h}`}
+      className="w-full h-auto"
+      role="img"
+      aria-label="Comparativo com o período anterior"
+    >
+      <defs>
+        <linearGradient id="areaCompareFill" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="#c4622d" stopOpacity="0.22" />
+          <stop offset="100%" stopColor="#c4622d" stopOpacity="0.02" />
+        </linearGradient>
+      </defs>
+      {[0.25, 0.5, 0.75].map((f) => (
+        <line
+          key={f}
+          x1={pad.left}
+          x2={w - pad.right}
+          y1={pad.top + ih * f}
+          y2={pad.top + ih * f}
+          stroke="#eef2f7"
+          strokeWidth="1"
+        />
+      ))}
+      {/* período anterior: tracejado, sem preenchimento (referência) */}
+      {prevPoints.length > 1 && (
+        <path
+          d={path(prevPoints)}
+          fill="none"
+          stroke="#dbba8b"
+          strokeWidth="1.75"
+          strokeDasharray="5 4"
+          strokeLinejoin="round"
+          strokeLinecap="round"
+        />
+      )}
+      <path d={area} fill="url(#areaCompareFill)" />
+      <path
+        d={line}
+        fill="none"
+        stroke="#c4622d"
+        strokeWidth="2.25"
+        strokeLinejoin="round"
+        strokeLinecap="round"
+      />
+      {xy.map(([x, y], i) => (
+        <g key={i}>
+          <circle cx={x} cy={y} r="8" fill="transparent">
+            <title>{`${labels[i]}: ${formatValue(points[i])}${prevPoints[i] != null ? ` · anterior: ${formatValue(prevPoints[i])}` : ""}`}</title>
+          </circle>
+          <circle
+            cx={x}
+            cy={y}
+            r={i === maxIdx ? 4 : 2.5}
+            fill="#c4622d"
+            stroke="#fff"
+            strokeWidth="2"
+          />
+        </g>
+      ))}
+      {points[maxIdx] > 0 && (
+        <text
+          x={Math.min(Math.max(xy[maxIdx][0], 30), w - 40)}
+          y={Math.max(xy[maxIdx][1] - 10, 12)}
+          textAnchor="middle"
+          className="fill-slate-600"
+          fontSize="11"
+          fontWeight="600"
+        >
+          {formatValue(points[maxIdx])}
+        </text>
+      )}
+      {labels.map((l, i) =>
+        i % Math.ceil(labels.length / 6) === 0 ? (
+          <text
+            key={i}
+            x={xy[i][0]}
+            y={h - 6}
+            textAnchor="middle"
+            fontSize="10"
+            className="fill-slate-400"
+          >
+            {l}
+          </text>
+        ) : null
+      )}
+    </svg>
+  );
+}
+
+/**
+ * Donut de composição (ex.: status dos pedidos). Cada fatia SEMPRE aparece
+ * na legenda com nome + quantidade + % — nunca só cor.
+ */
+export function Donut({
+  data,
+  centerValue,
+  centerLabel,
+  formatValue = (v) => String(v),
+}: {
+  data: { label: string; value: number; color: string }[];
+  centerValue: string;
+  centerLabel: string;
+  formatValue?: (v: number) => string;
+}) {
+  const itens = data.filter((d) => d.value > 0);
+  const total = itens.reduce((a, d) => a + d.value, 0);
+  if (total === 0) return null;
+  const r = 15.915; // raio que dá circunferência 100 (facilita o dasharray em %)
+  let acc = 0;
+  return (
+    <div className="flex items-center gap-5 flex-wrap">
+      <div className="relative size-36 shrink-0">
+        <svg viewBox="0 0 42 42" className="size-36 -rotate-90" role="img" aria-label={centerLabel}>
+          {itens.map((d) => {
+            const frac = (d.value / total) * 100;
+            const seg = (
+              <circle
+                key={d.label}
+                cx="21"
+                cy="21"
+                r={r}
+                fill="transparent"
+                stroke={d.color}
+                strokeWidth="5.5"
+                strokeDasharray={`${Math.max(frac - 1.2, 0.4)} ${100 - Math.max(frac - 1.2, 0.4)}`}
+                strokeDashoffset={-acc}
+                strokeLinecap="round"
+              >
+                <title>{`${d.label}: ${formatValue(d.value)}`}</title>
+              </circle>
+            );
+            acc += frac;
+            return seg;
+          })}
+        </svg>
+        <div className="absolute inset-0 flex flex-col items-center justify-center text-center">
+          <p className="text-xl font-bold tabular-nums text-slate-800 leading-none">{centerValue}</p>
+          <p className="text-[10px] text-slate-400 mt-1 leading-tight max-w-[80px]">{centerLabel}</p>
+        </div>
+      </div>
+      <ul className="flex-1 min-w-[180px] space-y-1.5">
+        {itens.map((d) => (
+          <li key={d.label} className="flex items-center gap-2 text-xs">
+            <span
+              className="size-2.5 rounded-full shrink-0"
+              style={{ backgroundColor: d.color }}
+              aria-hidden="true"
+            />
+            <span className="text-slate-600 truncate flex-1">{d.label}</span>
+            <span className="font-semibold tabular-nums text-slate-700">{formatValue(d.value)}</span>
+            <span className="text-slate-400 tabular-nums w-10 text-right">
+              {((d.value / total) * 100).toFixed(0)}%
+            </span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+/**
+ * Atalhos de período (Hoje · 7 dias · 30 dias · Este mês · Mês passado):
+ * links que preenchem ?de=&ate= no fuso de São Paulo. `allLabel` adiciona
+ * um chip "sem filtro" (usado na Produção, cujo padrão é o histórico todo);
+ * sem `allLabel`, o chip "30 dias" vira o padrão (link limpo).
+ */
+export function PeriodChips({
+  pathname,
+  de,
+  ate,
+  allLabel,
+}: {
+  pathname: string;
+  de?: string;
+  ate?: string;
+  allLabel?: string;
+}) {
+  const SP_OFFSET = 3 * 60 * 60 * 1000;
+  const DAY = 86_400_000;
+  const agora = new Date(Date.now() - SP_OFFSET); // getters UTC = calendário SP
+  const iso = (d: Date) => d.toISOString().slice(0, 10);
+  const hoje = iso(agora);
+  const atras = (dias: number) => iso(new Date(agora.getTime() - dias * DAY));
+  const inicioMes = iso(new Date(Date.UTC(agora.getUTCFullYear(), agora.getUTCMonth(), 1)));
+  const inicioMesPassado = iso(
+    new Date(Date.UTC(agora.getUTCFullYear(), agora.getUTCMonth() - 1, 1))
+  );
+  const fimMesPassado = iso(new Date(Date.UTC(agora.getUTCFullYear(), agora.getUTCMonth(), 0)));
+
+  const chips: { label: string; de?: string; ate?: string; padrao?: boolean }[] = [
+    ...(allLabel ? [{ label: allLabel, padrao: true }] : []),
+    { label: "Hoje", de: hoje, ate: hoje },
+    { label: "7 dias", de: atras(6), ate: hoje },
+    { label: "30 dias", de: atras(29), ate: hoje, padrao: !allLabel },
+    { label: "Este mês", de: inicioMes, ate: hoje },
+    { label: "Mês passado", de: inicioMesPassado, ate: fimMesPassado },
+  ];
+
+  return (
+    <div className="flex items-center gap-1.5 flex-wrap">
+      {chips.map((c) => {
+        const ativo =
+          (Boolean(c.padrao) && !de && !ate) ||
+          (Boolean(c.de) && c.de === de && c.ate === ate);
+        const href =
+          c.padrao || !c.de ? pathname : `${pathname}?de=${c.de}&ate=${c.ate}`;
+        return (
+          <Link
+            key={c.label}
+            href={href}
+            className={`rounded-full px-3 py-1.5 text-xs font-medium border transition ${
+              ativo
+                ? "bg-brand-600 border-brand-600 text-white shadow-sm"
+                : "bg-white border-gray-200 text-gray-500 hover:border-brand-300 hover:text-brand-700"
+            }`}
+          >
+            {c.label}
+          </Link>
+        );
+      })}
+    </div>
   );
 }

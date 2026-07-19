@@ -30,9 +30,15 @@ import {
   taskTypeLabel,
   relativeDays,
 } from "@/lib/format";
-import { PAID_ORDER_STATUSES } from "@/lib/orders";
+import {
+  PAID_ORDER_STATUSES,
+  ORDER_STATUS_FLOW,
+  orderStatusLabel,
+  orderStatusColor,
+} from "@/lib/orders";
 import { Card, PageHeader, Avatar, PriorityDot, EmptyState } from "@/components/ui";
-import { StatTile, BarList } from "@/components/charts";
+import { BarList, AreaCompare, Donut, PeriodChips } from "@/components/charts";
+import { StatCard } from "@/components/dash";
 import { InfoTip } from "@/components/info-tip";
 
 export const dynamic = "force-dynamic";
@@ -67,6 +73,12 @@ export default async function DashboardPage({
   const to = spEnd(ate) ?? now;
   const inPeriod = { gte: from, lte: to };
   const customPeriod = !!(spStart(de) || spEnd(ate));
+  // Período ANTERIOR com a mesma duração, imediatamente antes do atual —
+  // base das setinhas de variação (% vs período anterior) nos cartões.
+  const durMs = Math.max(to.getTime() - from.getTime(), 1);
+  const prevTo = new Date(from.getTime() - 1);
+  const prevFrom = new Date(from.getTime() - durMs);
+  const inPrev = { gte: prevFrom, lte: prevTo };
   // meia-noite no fuso de São Paulo (UTC-3): o servidor roda em UTC e o
   // setHours local começaria o "hoje" 3h mais cedo
   const spMidnight = new Date(now.getTime() - 3 * 60 * 60 * 1000);
@@ -111,11 +123,15 @@ export default async function DashboardPage({
     ordersGenerated30,
     monthOrders,
     companyCfg,
+    prevSales,
+    prevLeads,
+    prevOrdersGenerated,
+    statusCounts,
   ] = await Promise.all([
     // Faturamento = pedidos PAGOS (fonte única da verdade, igual à tela Pedidos)
     db.order.findMany({
       where: { ...orderScope, createdAt: inPeriod },
-      select: { total: true, sellerId: true },
+      select: { total: true, sellerId: true, createdAt: true },
     }),
     db.customer.count({ where: scope }),
     db.customer.count({ where: { ...scope, createdAt: inPeriod } }),
@@ -215,6 +231,19 @@ export default async function DashboardPage({
       where: { id: user.companyId },
       select: { lowStockThreshold: true },
     }),
+    // --- comparativo: mesmas métricas no período ANTERIOR ---
+    db.order.findMany({
+      where: { ...orderScope, createdAt: inPrev },
+      select: { total: true, createdAt: true },
+    }),
+    db.customer.count({ where: { ...scope, createdAt: inPrev } }),
+    db.order.count({ where: { ...orderAnyScope, createdAt: inPrev } }),
+    // donut: composição dos pedidos do período por status (qualquer status)
+    db.order.groupBy({
+      by: ["status"],
+      where: { ...orderAnyScope, createdAt: inPeriod },
+      _count: true,
+    }),
   ]);
 
   const buyerNames = await db.customer.findMany({
@@ -240,6 +269,67 @@ export default async function DashboardPage({
   const periodLabel = customPeriod
     ? `${dateShort(from)} a ${dateShort(to)}`
     : "últimos 30 dias";
+
+  // --- séries diárias (fuso SP) + variação % vs período anterior ---
+  const DAY = 86_400_000;
+  const dayIdx = (d: Date) => Math.floor((d.getTime() - SP_OFFSET) / DAY);
+  const firstIdx = dayIdx(from);
+  const nDias = Math.min(Math.max(dayIdx(to) - firstIdx + 1, 1), 400);
+  const serieFat = new Array<number>(nDias).fill(0);
+  const seriePed = new Array<number>(nDias).fill(0);
+  for (const v of sales30) {
+    const i = dayIdx(v.createdAt) - firstIdx;
+    if (i >= 0 && i < nDias) {
+      serieFat[i] += v.total;
+      seriePed[i] += 1;
+    }
+  }
+  const prevFirstIdx = dayIdx(prevFrom);
+  const seriePrev = new Array<number>(nDias).fill(0);
+  for (const v of prevSales) {
+    const i = dayIdx(v.createdAt) - prevFirstIdx;
+    if (i >= 0 && i < nDias) seriePrev[i] += v.total;
+  }
+  let labelsDias = Array.from({ length: nDias }, (_, i) => {
+    const d = new Date((firstIdx + i) * DAY);
+    return `${String(d.getUTCDate()).padStart(2, "0")}/${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
+  });
+  // período muito longo: agrupa por semana pro gráfico não virar serrote
+  const porSemana = (arr: number[]) => {
+    const out: number[] = [];
+    for (let i = 0; i < arr.length; i += 7)
+      out.push(arr.slice(i, i + 7).reduce((a, b) => a + b, 0));
+    return out;
+  };
+  let chartFat = serieFat;
+  let chartPrev = seriePrev;
+  if (nDias > 92) {
+    chartFat = porSemana(serieFat);
+    chartPrev = porSemana(seriePrev);
+    labelsDias = labelsDias.filter((_, i) => i % 7 === 0);
+  }
+
+  const pctDelta = (cur: number, prev: number) =>
+    prev > 0 ? ((cur - prev) / prev) * 100 : null;
+  const prevRevenue = prevSales.reduce((s, v) => s + v.total, 0);
+  const prevTicket = prevSales.length ? prevRevenue / prevSales.length : 0;
+  const prevConversion = prevOrdersGenerated
+    ? (prevSales.length / prevOrdersGenerated) * 100
+    : 0;
+  const deltaVendas = pctDelta(revenue30, prevRevenue);
+  const deltaTicket = pctDelta(ticket, prevTicket);
+  const deltaConv = pctDelta(conversion, prevConversion);
+  const deltaPedidos = pctDelta(sales30.length, prevSales.length);
+  const deltaLeads = pctDelta(newLeads30, prevLeads);
+
+  // donut de status: na ordem do fluxo do pedido, com as cores oficiais
+  const statusCount = new Map(statusCounts.map((s) => [s.status, s._count]));
+  const donutStatus = ORDER_STATUS_FLOW.map((st) => ({
+    label: orderStatusLabel[st],
+    value: statusCount.get(st) ?? 0,
+    color: orderStatusColor[st],
+  }));
+  const totalPedidosPeriodo = statusCounts.reduce((a, s) => a + s._count, 0);
 
   // ranking por vendedor (30 dias) — só gerente/admin vê o time todo
   const allSales30 = canSeeAll(user)
@@ -314,6 +404,10 @@ export default async function DashboardPage({
         }
       />
 
+      <div className="mb-5 -mt-1">
+        <PeriodChips pathname="/dashboard" de={de} ate={ate} />
+      </div>
+
       {suggestions.length > 0 && (
         <Link
           href="/automacoes"
@@ -333,67 +427,78 @@ export default async function DashboardPage({
 
       {/* KPIs */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4 mb-6">
-        <StatTile
+        <StatCard
           label={customPeriod ? "Vendas (período)" : "Vendas (30d)"}
-          value={brl(revenue30)}
+          value={revenue30}
+          format="brl"
+          delta={deltaVendas}
+          series={chartFat}
           hint={`${sales30.length} pedidos${customPeriod ? " no período" : ""}`}
           icon={<Wallet />}
-          info="Soma do valor de todos os pedidos PAGOS no período. Pedido gerado sem pagamento não entra aqui."
+          info="Soma do valor de todos os pedidos PAGOS no período. Pedido gerado sem pagamento não entra aqui. A setinha compara com o período anterior de mesma duração."
         />
-        <StatTile
+        <StatCard
           label="Ticket médio"
-          value={brl(ticket)}
+          value={ticket}
+          format="brl"
+          delta={deltaTicket}
           icon={<TrendingUp />}
-          info="Valor médio por pedido pago: total vendido ÷ número de pedidos pagos no período."
+          info="Valor médio por pedido pago: total vendido ÷ número de pedidos pagos no período. A setinha compara com o período anterior."
         />
-        <StatTile
+        <StatCard
           label="Taxa de conversão"
-          value={`${conversion.toFixed(0)}%`}
+          value={conversion}
+          format="pct"
+          delta={deltaConv}
           hint={`${ordersPaid30} pagos · ${ordersGenerated30 - ordersPaid30} sem pagamento`}
           icon={<Percent />}
           tone={conversion >= 50 ? "good" : "warn"}
           info="De cada pedido criado, quantos foram pagos. Cálculo: pedidos pagos ÷ total de pedidos gerados no período."
         />
-        <StatTile
+        <StatCard
           label="Funil aberto"
-          value={brl(pipelineValue)}
+          value={pipelineValue}
+          format="brl"
           hint={`${openOpps.length} oportunidades · ${negotiatingOpps} em fechamento`}
           icon={<Target />}
           info="Soma do valor das oportunidades ainda abertas no funil. É potencial de venda, não é faturamento."
         />
-        <StatTile
+        <StatCard
           label="Clientes"
-          value={String(totalCustomers)}
+          value={totalCustomers}
           hint={`+${newLeads30} novos leads${customPeriod ? " no período" : " em 30d"}`}
+          delta={deltaLeads}
+          deltaHint="novos leads vs. período anterior"
           icon={<Users />}
-          info="Total de clientes cadastrados na loja. O rodapé mostra quantos entraram no período."
+          info="Total de clientes cadastrados na loja. O rodapé mostra quantos entraram no período — é essa entrada de leads que a setinha compara com o período anterior."
         />
-        <StatTile
+        <StatCard
           label={customPeriod ? "Vendas perdidas (período)" : "Vendas perdidas (30d)"}
-          value={String(lostOpps30)}
+          value={lostOpps30}
           icon={<AlertTriangle />}
           tone={lostOpps30 > 3 ? "bad" : "default"}
           info="Oportunidades movidas para uma etapa de perda no funil dentro do período."
         />
-        <StatTile
+        <StatCard
           label="Sem contato há 7+ dias"
-          value={String(noContactCustomers.length)}
+          value={noContactCustomers.length}
           hint="clientes esfriando"
           icon={<CalendarClock />}
           tone={noContactCustomers.length > 0 ? "warn" : "good"}
           info="Clientes sem nenhum contato registrado nos últimos 7 dias (ou que nunca foram contatados)."
         />
-        <StatTile
+        <StatCard
           label="Follow-ups atrasados"
-          value={String(overdue)}
+          value={overdue}
           icon={<AlertTriangle />}
           tone={overdue > 0 ? "bad" : "good"}
           info="Tarefas de acompanhamento cuja data de vencimento já passou e continuam pendentes."
         />
         {myGoal > 0 && (
-          <StatTile
+          <StatCard
             label="Minha meta do mês"
-            value={`${Math.round((mySold / myGoal) * 100)}%`}
+            value={Math.round((mySold / myGoal) * 100)}
+            format="pct"
             hint={`${brl(mySold)} de ${brl(myGoal)}`}
             icon={<Target />}
             tone={mySold >= myGoal ? "good" : "default"}
@@ -401,6 +506,51 @@ export default async function DashboardPage({
           />
         )}
       </div>
+
+      {/* Faturamento diário × período anterior + composição por status */}
+      {(sales30.length > 0 || prevSales.length > 0) && (
+        <div className="grid lg:grid-cols-3 gap-4 md:gap-6 mb-6">
+          <Card className="p-5 lg:col-span-2">
+            <div className="flex items-center justify-between gap-2 flex-wrap mb-2">
+              <h2 className="font-semibold flex items-center gap-2 text-sm">
+                <TrendingUp className="size-4 text-brand-600" />
+                Faturamento no período
+                <InfoTip text="Valor dos pedidos pagos por dia. A linha tracejada clara é o período anterior de mesma duração — dia 1 alinha com dia 1." />
+              </h2>
+              <div className="flex items-center gap-3 text-[11px] text-slate-400">
+                <span className="flex items-center gap-1.5">
+                  <span className="inline-block w-4 border-t-2 border-brand-600 rounded" />
+                  período atual
+                </span>
+                <span className="flex items-center gap-1.5">
+                  <span className="inline-block w-4 border-t-2 border-dashed border-[#dbba8b] rounded" />
+                  anterior
+                </span>
+              </div>
+            </div>
+            <AreaCompare
+              points={chartFat}
+              prevPoints={chartPrev}
+              labels={labelsDias}
+              formatValue={brl}
+            />
+          </Card>
+          {totalPedidosPeriodo > 0 && (
+            <Card className="p-5">
+              <h2 className="font-semibold flex items-center gap-2 text-sm mb-4">
+                <ShoppingBag className="size-4 text-brand-600" />
+                Status dos pedidos
+                <InfoTip text="Todos os pedidos criados no período, separados por status atual. Ajuda a ver quantos estão parados aguardando pagamento ou em produção." />
+              </h2>
+              <Donut
+                data={donutStatus}
+                centerValue={String(totalPedidosPeriodo)}
+                centerLabel="pedidos no período"
+              />
+            </Card>
+          )}
+        </div>
+      )}
 
       {/* Pedidos (catálogo) */}
       <div className="flex items-center justify-between mb-3">
@@ -416,38 +566,41 @@ export default async function DashboardPage({
         </Link>
       </div>
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4 mb-6">
-        <StatTile
+        <StatCard
           label="Pedidos pagos hoje"
-          value={String(ordersToday._count)}
+          value={ordersToday._count}
           hint={brl(ordersToday._sum.total ?? 0)}
           icon={<ShoppingBag />}
           info="Quantidade e valor dos pedidos pagos hoje (desde a meia-noite, horário de São Paulo)."
         />
-        <StatTile
+        <StatCard
           label="Pagos na semana"
-          value={String(ordersWeek._count)}
+          value={ordersWeek._count}
           hint={brl(ordersWeek._sum.total ?? 0)}
           icon={<ShoppingBag />}
           info="Pedidos pagos nos últimos 7 dias, com o valor somado."
         />
-        <StatTile
-          label="Pagos no mês"
-          value={String(ordersMonth._count)}
+        <StatCard
+          label={customPeriod ? "Pagos no período" : "Pagos no mês"}
+          value={ordersMonth._count}
+          delta={deltaPedidos}
+          series={seriePed.length > 92 ? porSemana(seriePed) : seriePed}
           hint={`valor médio ${brl(avgOrder)}`}
           icon={<ShoppingBag />}
-          info="Pedidos pagos no período (padrão: últimos 30 dias). O rodapé mostra o valor médio por pedido."
+          info="Pedidos pagos no período (padrão: últimos 30 dias). O rodapé mostra o valor médio por pedido; a setinha compara com o período anterior."
         />
-        <StatTile
+        <StatCard
           label="Taxa de recompra"
-          value={`${repurchaseRate.toFixed(0)}%`}
+          value={repurchaseRate}
+          format="pct"
           hint="clientes com 2+ pedidos"
           icon={<Repeat />}
           tone={repurchaseRate >= 30 ? "good" : "warn"}
           info="De todos os clientes que já compraram, quantos fizeram 2 pedidos pagos ou mais."
         />
-        <StatTile
+        <StatCard
           label="Estoque baixo"
-          value={String(lowStockCount)}
+          value={lowStockCount}
           hint={`variações com ≤ ${companyCfg.lowStockThreshold} peças`}
           icon={<Package />}
           tone={lowStockCount > 0 ? "warn" : "good"}
