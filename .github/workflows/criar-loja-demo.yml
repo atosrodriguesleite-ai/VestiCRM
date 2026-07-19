@@ -1,0 +1,40 @@
+# Cria (ou RECRIA do zero) a loja de demonstração "Bella Moda" no banco de
+# produção — para apresentar o AtacadoPro a clientes.
+#
+# É ADITIVO E SEGURO: o script só mexe na empresa demo (slug bella-moda-demo);
+# nenhuma loja real é tocada. Pode rodar sempre que quiser "renovar" a demo
+# (as datas dos pedidos são relativas a hoje, então rodar de novo deixa os
+# gráficos frescos).
+#
+# Como usar: aba Actions → "Criar loja demo" → Run workflow.
+# Requisito: secret DATABASE_URL_PRODUCAO (o mesmo do backup).
+
+name: Criar loja demo
+
+on:
+  workflow_dispatch: {}
+
+jobs:
+  seed-demo:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Instalar dependências
+        run: npm ci
+
+      - name: Criar/recriar a loja demo (só ela — nada mais é tocado)
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL_PRODUCAO }}
+        run: |
+          if [ -z "$DATABASE_URL" ]; then
+            echo "::error::Secret DATABASE_URL_PRODUCAO não configurado (Settings → Secrets and variables → Actions)"
+            exit 1
+          fi
+          npx tsx scripts/seed-demo.ts
