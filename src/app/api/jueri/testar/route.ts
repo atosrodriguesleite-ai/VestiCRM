@@ -104,6 +104,19 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({
       conexao: { httpStatus: status.status, autenticou },
+      // diagnóstico por consulta: mostra o HTTP de cada endpoint pra
+      // identificar na hora um ID de cliente errado
+      diagnostico: {
+        status: status.status,
+        tipoPreco: tipoPreco.status,
+        categorias: categorias.status,
+        listaProdutos: lista.status,
+        detalheProduto: detalhe?.status ?? null,
+        avisoJueri:
+          (tipoPreco.body as { message?: string } | null)?.message ??
+          (lista.body as { message?: string } | null)?.message ??
+          null,
+      },
       tiposPreco: tipoPreco.body ?? tipoPreco.status,
       categorias: Array.isArray(categorias.body)
         ? categorias.body
