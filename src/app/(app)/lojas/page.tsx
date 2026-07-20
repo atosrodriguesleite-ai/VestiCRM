@@ -6,6 +6,7 @@ import { isSuperAdmin } from "@/lib/scope";
 import { PLATFORM_SLUG } from "@/lib/platform";
 import { PageHeader } from "@/components/ui";
 import { LojasView, type Loja } from "./lojas-view";
+import { JueriTeste } from "./jueri-teste";
 import { catalogDomain } from "@/lib/catalog-url";
 
 export const dynamic = "force-dynamic";
@@ -110,6 +111,7 @@ export default async function LojasPage() {
         </Link>
       </div>
 
+      <JueriTeste />
       <LojasView initial={lojas} catalogDomain={catalogDomain()} />
     </div>
   );
