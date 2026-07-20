@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { requireUser, AuthError } from "@/lib/auth";
-import { isAdmin } from "@/lib/scope";
+import { isAdmin, isSupport } from "@/lib/scope";
 
 const hexColor = z.string().regex(/^#[0-9a-fA-F]{6}$/, "Cor inválida");
 
@@ -35,12 +35,15 @@ const schema = z.object({
 export async function PATCH(req: NextRequest) {
   try {
     const user = await requireUser();
-    if (!isAdmin(user)) {
-      return NextResponse.json({ error: "Sem permissão" }, { status: 403 });
-    }
     const parsed = schema.safeParse(await req.json());
     if (!parsed.success) {
       return NextResponse.json({ error: "Dados inválidos" }, { status: 400 });
+    }
+    // Suporte organiza o catálogo: pode alterar SÓ a ordem das categorias.
+    // Qualquer outro campo da loja (nome, logo, WhatsApp...) segue admin.
+    const soOrdem = Object.keys(parsed.data).every((k) => k === "categoryOrder");
+    if (!isAdmin(user) && !(isSupport(user) && soOrdem)) {
+      return NextResponse.json({ error: "Sem permissão" }, { status: 403 });
     }
     const { categoryOrder, ...data } = parsed.data;
     if (data.whatsapp) data.whatsapp = data.whatsapp.replace(/\D/g, "");

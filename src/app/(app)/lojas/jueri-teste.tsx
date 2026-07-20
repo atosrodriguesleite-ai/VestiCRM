@@ -117,7 +117,7 @@ export function JueriTeste() {
                 <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2">
                   As consultas de dados não retornaram (tipos de preço: HTTP {r.diagnostico.tipoPreco} · produtos: HTTP {r.diagnostico.listaProdutos}
                   {r.diagnostico.avisoJueri ? ` · aviso da Jueri: "${r.diagnostico.avisoJueri}"` : ""}).
-                  Provável ID do cliente errado — peça à cliente o "ID do cliente sistema" que aparece em Configurações → API e teste com ele.
+                  Provável ID do cliente errado — peça à cliente o &quot;ID do cliente sistema&quot; que aparece em Configurações → API e teste com ele.
                 </p>
               )}
               <p>

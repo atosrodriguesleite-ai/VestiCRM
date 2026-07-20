@@ -2,7 +2,7 @@ import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import { requireUser } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { isAdmin } from "@/lib/scope";
+import { isAdmin, isSupport } from "@/lib/scope";
 import { parseCategoryOrder, sortCategories } from "@/lib/categories";
 import { PageHeader } from "@/components/ui";
 import { CatalogDesigner } from "./catalog-designer";
@@ -51,7 +51,8 @@ export default async function CatalogCustomizePage() {
       />
       <CatalogDesigner
         slug={company.slug}
-        canEdit={isAdmin(user)}
+        canEdit={isAdmin(user) || isSupport(user)}
+        canEditIdentity={isAdmin(user)}
         initial={{
           logoUrl: company.logoUrl,
           catalogPrimary: company.catalogPrimary,

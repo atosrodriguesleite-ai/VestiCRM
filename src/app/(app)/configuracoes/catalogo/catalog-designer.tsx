@@ -45,6 +45,7 @@ const PRESETS: { name: string; colors: [string, string, string] }[] = [
 export function CatalogDesigner({
   slug,
   canEdit,
+  canEditIdentity,
   initial,
   colors: initialColors,
   sizes: initialSizes,
@@ -52,6 +53,8 @@ export function CatalogDesigner({
 }: {
   slug: string;
   canEdit: boolean;
+  // identidade visual (logo/cores/fonte) — só admin
+  canEditIdentity: boolean;
   initial: {
     logoUrl: string | null;
     catalogPrimary: string;
@@ -252,14 +255,14 @@ export function CatalogDesigner({
                 />
                 <div className="flex flex-col gap-1.5">
                   <button
-                    disabled={!canEdit}
+                    disabled={!canEditIdentity}
                     onClick={() => fileRef.current?.click()}
                     className="flex items-center gap-1.5 rounded-xl border border-gray-200 hover:border-brand-300 text-gray-600 text-xs font-medium px-3 py-2 transition disabled:opacity-50"
                   >
                     <Upload className="size-3.5" />
                     Enviar logo
                   </button>
-                  {logo && canEdit && (
+                  {logo && canEditIdentity && (
                     <button
                       disabled={logoBusy}
                       onClick={toggleBackground}
@@ -277,7 +280,7 @@ export function CatalogDesigner({
                           : "Remover fundo"}
                     </button>
                   )}
-                  {logo && canEdit && (
+                  {logo && canEditIdentity && (
                     <button
                       onClick={() => {
                         setLogo(null);
@@ -324,7 +327,7 @@ export function CatalogDesigner({
                       </span>
                       <input
                         type="color"
-                        disabled={!canEdit}
+                        disabled={!canEditIdentity}
                         value={value}
                         onChange={(e) => set(e.target.value)}
                         className="size-6 rounded cursor-pointer bg-transparent border-0 p-0"
@@ -337,7 +340,7 @@ export function CatalogDesigner({
                 {PRESETS.map((p) => (
                   <button
                     key={p.name}
-                    disabled={!canEdit}
+                    disabled={!canEditIdentity}
                     onClick={() => {
                       setPrimary(p.colors[0]);
                       setSecondary(p.colors[1]);
@@ -364,7 +367,7 @@ export function CatalogDesigner({
               <div className="grid grid-cols-2 gap-2">
                 {([["normal","Padrão (canto)"],["grande","Grande centralizado"]] as const).map(([k,txt]) => (
                   <label key={k} className={`rounded-xl border px-3 py-2.5 text-sm text-center cursor-pointer transition ${logoSize===k ? "border-brand-400 bg-brand-50 font-medium" : "border-gray-200 hover:border-gray-300"}`}>
-                    <input type="radio" name="logoSize" disabled={!canEdit} checked={logoSize===k} onChange={() => setLogoSize(k)} className="sr-only" />
+                    <input type="radio" name="logoSize" disabled={!canEditIdentity} checked={logoSize===k} onChange={() => setLogoSize(k)} className="sr-only" />
                     {txt}
                   </label>
                 ))}
@@ -393,7 +396,7 @@ export function CatalogDesigner({
                     <input
                       type="radio"
                       name="font"
-                      disabled={!canEdit}
+                      disabled={!canEditIdentity}
                       checked={font === f.key}
                       onChange={() => setFont(f.key)}
                       className="accent-brand-600"
@@ -404,7 +407,7 @@ export function CatalogDesigner({
               </div>
             </div>
 
-            {canEdit && (
+            {canEditIdentity && (
               <button
                 onClick={saveIdentity}
                 disabled={saving}
