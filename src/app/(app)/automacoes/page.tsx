@@ -1,3 +1,4 @@
+import { redirect } from "next/navigation";
 import { Zap } from "lucide-react";
 import { requireUser } from "@/lib/auth";
 import { computeAutomations } from "@/lib/automations";
@@ -35,6 +36,8 @@ const RULES = [
 
 export default async function AutomationsPage() {
   const user = await requireUser();
+  // perfil Suporte é operacional: telas comerciais ficam fora do papel dele
+  if (user.role === "SUPPORT") redirect("/pedidos");
   const suggestions = await computeAutomations(user);
 
   return (

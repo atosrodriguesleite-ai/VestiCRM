@@ -19,6 +19,8 @@ export default async function ProducaoLayout({
     select: { productionEnabled: true },
   });
   if (!company?.productionEnabled) redirect("/dashboard");
+  // Suporte não opera a fábrica
+  if (user.role === "SUPPORT") redirect("/pedidos");
 
   return (
     <div className="max-w-7xl mx-auto">

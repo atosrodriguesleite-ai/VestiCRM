@@ -1,3 +1,4 @@
+import { redirect } from "next/navigation";
 import {
   MessageCircle,
   Package,
@@ -42,6 +43,8 @@ const INTEGRATIONS = [
 
 export default async function SettingsPage() {
   const user = await requireUser();
+  // perfil Suporte é operacional: telas comerciais ficam fora do papel dele
+  if (user.role === "SUPPORT") redirect("/pedidos");
   const [company, templates, sellers, stages, originRules] = await Promise.all([
     db.company.findUnique({ where: { id: user.companyId } }),
     db.messageTemplate.findMany({

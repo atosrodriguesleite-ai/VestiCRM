@@ -24,7 +24,10 @@ export default function LoginPage() {
     });
     const data = await res.json().catch(() => ({}));
     if (res.ok) {
-      router.push(data.role === "SUPERADMIN" ? "/lojas" : "/dashboard");
+      // Suporte cai direto na gestão de pedidos — o dashboard não é dele
+      router.push(
+        data.role === "SUPERADMIN" ? "/lojas" : data.role === "SUPPORT" ? "/pedidos" : "/dashboard"
+      );
       router.refresh();
     } else {
       setError(data.error ?? "E-mail ou senha inválidos");

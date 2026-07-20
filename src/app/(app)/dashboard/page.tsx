@@ -55,6 +55,8 @@ export default async function DashboardPage({
   // Super Admin (fora do modo "Acessar loja") gerencia a plataforma, não uma
   // loja: seu ponto de partida é a gestão de clientes (Lojas).
   if (isSuperAdmin(user) && !user.impersonatedBy) redirect("/lojas");
+  // Suporte trabalha em Pedidos — dashboard comercial não é dele
+  if (user.role === "SUPPORT") redirect("/pedidos");
   const scope = ownedScope(user);
   const now = new Date();
   const days30 = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);

@@ -7,6 +7,10 @@ import type { SessionUser } from "./auth";
  * - ADMIN / MANAGER / SUPPORT: tudo dentro da própria empresa.
  * - SELLER: apenas os próprios clientes/negócios/atendimentos.
  *
+ * SUPPORT (perfil "Suporte") vê TODOS os pedidos/clientes/conversas, mas é
+ * operacional: não cancela pedido, não dá desconto, não mexe no catálogo
+ * nem nas telas comerciais (dashboard/funil/automações/campanhas).
+ *
  * Toda consulta DEVE partir destes filtros — é o que garante o isolamento
  * multi-tenant: nenhuma loja enxerga dados de outra.
  */
@@ -48,6 +52,11 @@ export function isAdmin(user: SessionUser) {
 /** Apenas o Super Admin da plataforma (provisiona/gerencia lojas). */
 export function isSuperAdmin(user: SessionUser) {
   return user.role === "SUPERADMIN";
+}
+
+/** Perfil Suporte — gestão de pedidos e atendimento, sem poderes comerciais. */
+export function isSupport(user: SessionUser) {
+  return user.role === "SUPPORT";
 }
 
 export function isManagerUp(user: SessionUser) {

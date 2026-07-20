@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
+import { isSupport } from "@/lib/scope";
 import { requireUser, AuthError } from "@/lib/auth";
 
 const patchSchema = z.object({
@@ -55,6 +56,12 @@ export async function PATCH(
 ) {
   try {
     const user = await requireUser();
+    if (isSupport(user)) {
+      return NextResponse.json(
+        { error: "Alterar produtos é permitido só para gerente ou admin." },
+        { status: 403 }
+      );
+    }
     const { id } = await params;
     const parsed = patchSchema.safeParse(await req.json());
     if (!parsed.success) {
@@ -200,6 +207,12 @@ export async function DELETE(
 ) {
   try {
     const user = await requireUser();
+    if (isSupport(user)) {
+      return NextResponse.json(
+        { error: "Alterar produtos é permitido só para gerente ou admin." },
+        { status: 403 }
+      );
+    }
     const { id } = await params;
     const product = await db.product.findFirst({
       where: { id, companyId: user.companyId },

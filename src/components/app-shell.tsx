@@ -33,23 +33,25 @@ import {
 import { Avatar } from "./ui";
 import { Logo, LogoMark } from "./logo";
 
+// supportHidden: o perfil Suporte é operacional (gestão de pedidos +
+// atendimento) — telas comerciais e de configuração ficam fora do menu dele.
 const NAV = [
-  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard, group: "Comercial" },
-  { href: "/funil", label: "Funil de vendas", icon: KanbanSquare, group: "Comercial" },
+  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard, group: "Comercial", supportHidden: true },
+  { href: "/funil", label: "Funil de vendas", icon: KanbanSquare, group: "Comercial", supportHidden: true },
   { href: "/whatsapp", label: "WhatsApp", icon: MessageCircle, group: "Comercial" },
   { href: "/tarefas", label: "Tarefas", icon: CheckSquare, group: "Comercial" },
   { href: "/pedidos", label: "Pedidos", icon: ShoppingBag, group: "Catálogo" },
   { href: "/produtos", label: "Produtos", icon: Package, group: "Catálogo" },
-  { href: "/producao", label: "Produção", icon: Scissors, group: "Catálogo", productionOnly: true },
+  { href: "/producao", label: "Produção", icon: Scissors, group: "Catálogo", productionOnly: true, supportHidden: true },
   { href: "/clientes", label: "Clientes", icon: Users, group: "Relacionamento" },
-  { href: "/automacoes", label: "Automações", icon: Zap, group: "Relacionamento" },
-  { href: "/campanhas", label: "Campanhas", icon: Megaphone, group: "Relacionamento" },
+  { href: "/automacoes", label: "Automações", icon: Zap, group: "Relacionamento", supportHidden: true },
+  { href: "/campanhas", label: "Campanhas", icon: Megaphone, group: "Relacionamento", supportHidden: true },
   { href: "/relatorios", label: "Relatórios", icon: BarChart3, group: "Análise", managerOnly: true },
   { href: "/inteligencia", label: "Inteligência", icon: Brain, group: "Análise", managerOnly: true },
   { href: "/comissoes", label: "Comissões", icon: Percent, group: "Análise", managerOnly: true },
   { href: "/comunicacao", label: "Comunicação", icon: Radio, group: "Sistema", managerOnly: true },
   { href: "/equipe", label: "Equipe", icon: UserCog, group: "Sistema", managerOnly: true },
-  { href: "/configuracoes", label: "Configurações", icon: Settings, group: "Sistema" },
+  { href: "/configuracoes", label: "Configurações", icon: Settings, group: "Sistema", supportHidden: true },
   { href: "/lojas", label: "Lojas", icon: Store, group: "Plataforma", superOnly: true },
   { href: "/afiliados", label: "Afiliados", icon: Handshake, group: "Plataforma", superOnly: true },
 ];
@@ -60,6 +62,15 @@ const MOBILE_NAV = [
   { href: "/whatsapp", label: "Chat", icon: MessageCircle },
   { href: "/pedidos", label: "Pedidos", icon: ShoppingBag },
   { href: "/clientes", label: "Clientes", icon: Users },
+];
+
+// atalhos do celular pro Suporte: o dia dele começa nos pedidos
+const MOBILE_NAV_SUPPORT = [
+  { href: "/pedidos", label: "Pedidos", icon: ShoppingBag },
+  { href: "/whatsapp", label: "Chat", icon: MessageCircle },
+  { href: "/clientes", label: "Clientes", icon: Users },
+  { href: "/tarefas", label: "Tarefas", icon: CheckSquare },
+  { href: "/produtos", label: "Produtos", icon: Package },
 ];
 
 const GROUPS = ["Comercial", "Catálogo", "Relacionamento", "Análise", "Sistema", "Plataforma"];
@@ -98,12 +109,14 @@ export function AppShell({
   }
 
   const items = NAV.filter((i) => {
+    if (user.role === "SUPPORT" && "supportHidden" in i && i.supportHidden) return false;
     if ("superOnly" in i && i.superOnly) return user.role === "SUPERADMIN";
     if ("productionOnly" in i && i.productionOnly) return Boolean(user.productionEnabled);
     if ("managerOnly" in i && i.managerOnly)
       return ["ADMIN", "MANAGER", "SUPERADMIN"].includes(user.role);
     return true;
   });
+  const mobileItems = user.role === "SUPPORT" ? MOBILE_NAV_SUPPORT : MOBILE_NAV;
 
   async function logout() {
     await fetch("/api/auth/logout", { method: "POST" });
@@ -287,7 +300,7 @@ export function AppShell({
 
         {/* Bottom nav mobile */}
         <nav className="md:hidden fixed bottom-0 inset-x-0 z-40 bg-surface/90 backdrop-blur-xl border-t border-brand-900/10 flex items-stretch justify-around pb-[env(safe-area-inset-bottom)]">
-          {MOBILE_NAV.map((item) => {
+          {mobileItems.map((item) => {
             const active = pathname.startsWith(item.href);
             const Icon = item.icon;
             return (

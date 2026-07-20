@@ -228,7 +228,7 @@ export function TeamView({
                       <option value="SELLER">Vendedor(a)</option>
                       <option value="MANAGER">Gerente</option>
                       <option value="ADMIN">Administrador</option>
-                      <option value="SUPPORT">Atendimento</option>
+                      <option value="SUPPORT">Suporte</option>
                     </select>
                   ) : (
                     <Badge color={roleColor[m.role] ?? "#64748b"}>
@@ -454,7 +454,7 @@ export function TeamView({
                     <option value="SELLER">Vendedor(a) — só o que é dele</option>
                     <option value="MANAGER">Gerente — visão geral</option>
                     <option value="ADMIN">Administrador — total</option>
-                    <option value="SUPPORT">Atendimento</option>
+                    <option value="SUPPORT">Suporte</option>
                   </select>
                 </div>
               </div>

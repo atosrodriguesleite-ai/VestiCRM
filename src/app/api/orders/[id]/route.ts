@@ -3,7 +3,7 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import { imageSrc } from "@/lib/img";
 import { requireUser, AuthError } from "@/lib/auth";
-import { isManagerUp } from "@/lib/scope";
+import { isManagerUp, isSupport } from "@/lib/scope";
 import { reverseAndDeleteOrder } from "@/lib/order-actions";
 import { notifySalePaid } from "@/lib/push";
 import { pushStockToNuvemshop } from "@/lib/nuvemshop";
@@ -61,6 +61,23 @@ export async function PATCH(
     });
     if (!order) {
       return NextResponse.json({ error: "Não encontrado" }, { status: 404 });
+    }
+
+    // Perfil Suporte: gerencia o pedido (status, rastreio, pagamento), mas
+    // cancelamento e desconto são decisões comerciais — gerente pra cima.
+    if (isSupport(user)) {
+      if (parsed.data.status === "CANCELADO" && order.status !== "CANCELADO") {
+        return NextResponse.json(
+          { error: "Cancelar pedido é permitido só para gerente ou admin." },
+          { status: 403 }
+        );
+      }
+      if (parsed.data.discount !== undefined && parsed.data.discount !== order.discount) {
+        return NextResponse.json(
+          { error: "Alterar desconto é permitido só para gerente ou admin." },
+          { status: 403 }
+        );
+      }
     }
 
     // ---- Edição dos itens (permitida a qualquer momento, exceto cancelado) ----

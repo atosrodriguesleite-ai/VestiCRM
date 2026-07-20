@@ -97,6 +97,13 @@ async function main() {
       },
     }),
   ]);
+  // perfil Suporte: gestão de pedidos e atendimento (sem telas comerciais)
+  await db.user.create({
+    data: {
+      companyId: company.id, name: "Paula Mendes", email: `paula${DEMO_DOMAIN}`,
+      passwordHash: hash, role: "SUPPORT", color: "#0ea5e9",
+    },
+  });
   const ownerId = (k: string) => ({ julia: julia.id, renata: renata.id, ana: ana.id })[k]!;
   const sellerName = (id: string) =>
     id === julia.id ? "Júlia Ferreira" : id === renata.id ? "Renata Alves" : "Ana Souza";

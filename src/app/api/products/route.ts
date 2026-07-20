@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { imageHref } from "@/lib/img";
+import { isSupport } from "@/lib/scope";
 import { requireUser, AuthError } from "@/lib/auth";
 import type { Prisma } from "@prisma/client";
 
@@ -92,6 +93,13 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   try {
     const user = await requireUser();
+    // Suporte consulta o catálogo, mas não altera produtos
+    if (isSupport(user)) {
+      return NextResponse.json(
+        { error: "Alterar produtos é permitido só para gerente ou admin." },
+        { status: 403 }
+      );
+    }
     const parsed = createSchema.safeParse(await req.json());
     if (!parsed.success) {
       return NextResponse.json({ error: "Dados inválidos" }, { status: 400 });

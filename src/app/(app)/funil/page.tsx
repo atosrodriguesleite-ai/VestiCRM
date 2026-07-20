@@ -1,3 +1,4 @@
+import { redirect } from "next/navigation";
 import { requireUser } from "@/lib/auth";
 import { maybeSyncNuvemshop } from "@/lib/nuvemshop";
 import { db } from "@/lib/db";
@@ -17,6 +18,8 @@ export default async function FunnelPage({
   searchParams: Promise<{ de?: string; ate?: string }>;
 }) {
   const user = await requireUser();
+  // perfil Suporte é operacional: telas comerciais ficam fora do papel dele
+  if (user.role === "SUPPORT") redirect("/pedidos");
   // loja integrada: busca carrinhos abandonados da Nuvemshop em 2º plano
   maybeSyncNuvemshop(user.companyId);
   const scope = ownedScope(user);

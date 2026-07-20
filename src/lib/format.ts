@@ -181,5 +181,5 @@ export const roleLabel: Record<Role, string> = {
   ADMIN: "Administrador",
   MANAGER: "Gerente",
   SELLER: "Vendedor(a)",
-  SUPPORT: "Atendimento",
+  SUPPORT: "Suporte",
 };

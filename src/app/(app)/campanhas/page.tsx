@@ -1,3 +1,4 @@
+import { redirect } from "next/navigation";
 import { requireUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { evaluateSegment, type SegmentFilter } from "@/lib/segments";
@@ -11,6 +12,8 @@ export const dynamic = "force-dynamic";
 
 export default async function CampaignsPage() {
   const user = await requireUser();
+  // perfil Suporte é operacional: telas comerciais ficam fora do papel dele
+  if (user.role === "SUPPORT") redirect("/pedidos");
 
   const [campaigns, tags, interests, promos, promoProducts, company] =
     await Promise.all([
