@@ -31,7 +31,7 @@ jobs:
     # banco descartável só pra provar que a cópia restaura
     services:
       verificacao:
-        image: postgres:17
+        image: postgres:18
         env:
           POSTGRES_USER: verify
           POSTGRES_PASSWORD: verify
@@ -45,12 +45,15 @@ jobs:
           --health-retries 10
 
     steps:
-      - name: Instalar cliente PostgreSQL 17 (compatível com o Neon)
+      - name: Instalar cliente PostgreSQL 18 (compatível com o Neon)
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq postgresql-common
           sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
-          sudo apt-get install -y -qq postgresql-client-17
+          sudo apt-get install -y -qq postgresql-client-18
+          # o Neon roda Postgres 18: usa o binário 18 explicitamente, pois o
+          # runner tem versões antigas no PATH que recusam servidor mais novo
+          echo "/usr/lib/postgresql/18/bin" >> "$GITHUB_PATH"
 
       - name: 1) Baixar cópia completa do banco de produção
         env:
@@ -60,18 +63,18 @@ jobs:
             echo "::error::Secret DATABASE_URL_PRODUCAO não configurado (Settings → Secrets and variables → Actions)"
             exit 1
           fi
-          pg_dump "$DATABASE_URL" -Fc --no-owner --no-privileges -f backup.dump
+          /usr/lib/postgresql/18/bin/pg_dump "$DATABASE_URL" -Fc --no-owner --no-privileges -f backup.dump
           ls -lh backup.dump
 
       - name: 2) Restaurar a cópia num banco de teste
         run: |
-          pg_restore --no-owner --no-privileges \
+          /usr/lib/postgresql/18/bin/pg_restore --no-owner --no-privileges \
             -d "postgresql://verify:verify@localhost:5432/verify" backup.dump
 
       - name: 3) Conferir integridade dos dados restaurados
         run: |
           check () {
-            n=$(psql "postgresql://verify:verify@localhost:5432/verify" -t -A -c "SELECT count(*) FROM \"$1\"")
+            n=$(/usr/lib/postgresql/18/bin/psql "postgresql://verify:verify@localhost:5432/verify" -t -A -c "SELECT count(*) FROM \"$1\"")
             echo "$1: $n registro(s)"
             if [ "$n" -lt "$2" ]; then
               echo "::error::Backup suspeito: tabela $1 com só $n registro(s) (mínimo esperado: $2)"
