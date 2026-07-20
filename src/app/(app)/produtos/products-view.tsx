@@ -329,7 +329,7 @@ function ProductDetailModal({
 
   async function save() {
     setBusy(true);
-    await fetch(`/api/products/${product.id}`, {
+    const res = await fetch(`/api/products/${product.id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -356,17 +356,28 @@ function ProductDetailModal({
       }),
     });
     setBusy(false);
+    if (!res.ok) {
+      // sem silêncio: se a API recusou (ex.: permissão), a pessoa fica sabendo
+      const data = await res.json().catch(() => null);
+      alert(data?.error ?? "Não foi possível salvar. Tente novamente.");
+      return;
+    }
     onChanged();
   }
 
   async function toggleActive() {
     setBusy(true);
-    await fetch(`/api/products/${product.id}`, {
+    const res = await fetch(`/api/products/${product.id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ active: !product.active }),
     });
     setBusy(false);
+    if (!res.ok) {
+      const data = await res.json().catch(() => null);
+      alert(data?.error ?? "Não foi possível salvar. Tente novamente.");
+      return;
+    }
     onChanged();
   }
 
@@ -378,8 +389,13 @@ function ProductDetailModal({
     )
       return;
     setBusy(true);
-    await fetch(`/api/products/${product.id}`, { method: "DELETE" });
+    const res = await fetch(`/api/products/${product.id}`, { method: "DELETE" });
     setBusy(false);
+    if (!res.ok) {
+      const data = await res.json().catch(() => null);
+      alert(data?.error ?? "Não foi possível excluir. Tente novamente.");
+      return;
+    }
     onChanged();
   }
 

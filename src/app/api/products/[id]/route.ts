@@ -56,12 +56,6 @@ export async function PATCH(
 ) {
   try {
     const user = await requireUser();
-    if (isSupport(user)) {
-      return NextResponse.json(
-        { error: "Alterar produtos é permitido só para gerente ou admin." },
-        { status: 403 }
-      );
-    }
     const { id } = await params;
     const parsed = patchSchema.safeParse(await req.json());
     if (!parsed.success) {
@@ -207,9 +201,10 @@ export async function DELETE(
 ) {
   try {
     const user = await requireUser();
+    // Suporte edita produtos e estoque; EXCLUIR segue só gerente/admin
     if (isSupport(user)) {
       return NextResponse.json(
-        { error: "Alterar produtos é permitido só para gerente ou admin." },
+        { error: "Excluir produtos é permitido só para gerente ou admin." },
         { status: 403 }
       );
     }

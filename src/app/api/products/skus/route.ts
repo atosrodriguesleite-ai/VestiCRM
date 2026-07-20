@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { requireUser, AuthError } from "@/lib/auth";
-import { isManagerUp } from "@/lib/scope";
+import { isManagerUp, isSupport } from "@/lib/scope";
 
 /**
  * Tabela de SKUs: preencher o SKU de TODOS os produtos e de cada variação
@@ -13,7 +13,7 @@ import { isManagerUp } from "@/lib/scope";
 export async function GET() {
   try {
     const user = await requireUser();
-    if (!isManagerUp(user)) {
+    if (!isManagerUp(user) && !isSupport(user)) {
       return NextResponse.json({ error: "Sem permissão" }, { status: 403 });
     }
     const products = await db.product.findMany({
@@ -52,7 +52,7 @@ const postSchema = z.object({
 export async function POST(req: NextRequest) {
   try {
     const user = await requireUser();
-    if (!isManagerUp(user)) {
+    if (!isManagerUp(user) && !isSupport(user)) {
       return NextResponse.json({ error: "Sem permissão" }, { status: 403 });
     }
     const parsed = postSchema.safeParse(await req.json());

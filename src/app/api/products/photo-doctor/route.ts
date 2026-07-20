@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { requireUser, AuthError } from "@/lib/auth";
-import { isManagerUp } from "@/lib/scope";
+import { isManagerUp, isSupport } from "@/lib/scope";
 import {
   shrinkImage,
   dataUrlToBuffer,
@@ -31,7 +31,7 @@ const HEAVY_CHARS = Math.floor((HEAVY_BYTES * 4) / 3);
 export async function POST() {
   try {
     const user = await requireUser();
-    if (!isManagerUp(user)) {
+    if (!isManagerUp(user) && !isSupport(user)) {
       return NextResponse.json({ error: "Sem permissão" }, { status: 403 });
     }
     const company = await db.company.findUnique({
