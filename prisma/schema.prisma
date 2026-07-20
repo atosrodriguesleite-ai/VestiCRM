@@ -65,6 +65,7 @@ model Company {
   catalogSizes   CompanySize[]
   waConsents     WhatsappConsent[]
   nuvemshop      NuvemshopConnection?
+  jueri          JueriConnection?
   promoCatalogs  PromoCatalog[]
   fabrics        Fabric[]
   cutTickets     CutTicket[]
@@ -553,6 +554,19 @@ model NuvemshopConnection {
   createdAt        DateTime  @default(now())
 }
 
+/// Conexão da loja com o sistema Jueri (ERP de semijoias/consignação).
+/// Importa o catálogo via API: SKU, preços de varejo e atacado, estoque,
+/// cor (com hexadecimal) e fotos. Token gerado pela cliente no Jueri.
+model JueriConnection {
+  id             String    @id @default(cuid())
+  companyId      String    @unique
+  company        Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  clienteSistema String // ID do cliente no sistema Jueri
+  token          String // Bearer token de integração
+  lastSyncAt     DateTime?
+  createdAt      DateTime  @default(now())
+}
+
 /// Aceite do termo de uso do WhatsApp sem API oficial — prova de que o
 /// lojista foi informado dos riscos ANTES de conectar. Nunca é apagado.
 model WhatsappConsent {
@@ -834,6 +848,7 @@ model Product {
   active         Boolean  @default(true)
   tags           String? // separadas por vírgula
   nuvemshopId    String? // id do produto na Nuvemshop (loja integrada)
+  jueriId        String? // id do produto no Jueri (integração)
   createdAt      DateTime @default(now())
 
   variants ProductVariant[]
@@ -843,6 +858,7 @@ model Product {
 
   @@unique([companyId, sku])
   @@unique([companyId, nuvemshopId])
+  @@unique([companyId, jueriId])
   @@index([companyId, active])
   @@index([companyId, category])
 }

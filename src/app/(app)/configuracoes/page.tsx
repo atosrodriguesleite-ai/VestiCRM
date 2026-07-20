@@ -21,6 +21,7 @@ import { IntakeSettings } from "./intake-settings";
 import { InstallAppCard } from "./install-app";
 import { SaleNotifications } from "./sale-notifications";
 import { NuvemshopConnect } from "./nuvemshop-connect";
+import { JueriConnect } from "./jueri-connect";
 import { isAdmin } from "@/lib/scope";
 import type { Origin } from "@prisma/client";
 
@@ -78,6 +79,7 @@ export default async function SettingsPage() {
       <InstallAppCard />
       <SaleNotifications />
       {isAdmin(user) && <NuvemshopConnect />}
+      {isAdmin(user) && <JueriConnect />}
 
       <Card className="p-5 mb-6">
         <h2 className="font-semibold flex items-center gap-2 mb-3">
