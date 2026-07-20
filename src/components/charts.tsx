@@ -201,7 +201,7 @@ export function AreaChart({
           x2={w - pad.right}
           y1={pad.top + ih * f}
           y2={pad.top + ih * f}
-          stroke="#eef2f7"
+          className="stroke-gray-100"
           strokeWidth="1"
         />
       ))}
@@ -224,7 +224,7 @@ export function AreaChart({
             cy={y}
             r={i === maxIdx ? 4 : 3}
             fill="#c4622d"
-            stroke="#fff"
+            className="stroke-white"
             strokeWidth="2"
           />
         </g>
@@ -317,7 +317,7 @@ export function AreaCompare({
           x2={w - pad.right}
           y1={pad.top + ih * f}
           y2={pad.top + ih * f}
-          stroke="#eef2f7"
+          className="stroke-gray-100"
           strokeWidth="1"
         />
       ))}
@@ -352,7 +352,7 @@ export function AreaCompare({
             cy={y}
             r={i === maxIdx ? 4 : 2.5}
             fill="#c4622d"
-            stroke="#fff"
+            className="stroke-white"
             strokeWidth="2"
           />
         </g>

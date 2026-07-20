@@ -13,24 +13,30 @@ export default async function AppLayout({
   const user = await getSessionUser();
   if (!user) redirect("/login");
 
-  const company = await db.company.findUnique({
-    where: { id: user.companyId },
-  });
+  const [company, dbUser] = await Promise.all([
+    db.company.findUnique({ where: { id: user.companyId } }),
+    // preferência de tema é individual e vem do banco (vale em qualquer aparelho)
+    db.user.findUnique({ where: { id: user.id }, select: { prefersDark: true } }),
+  ]);
+  const dark = dbUser?.prefersDark ?? false;
 
   return (
-    <AppShell
-      user={{
-        name: user.name,
-        role: user.role,
-        roleLabel: roleLabel[user.role],
-        color: user.color,
-        companyName: company?.name ?? "",
-        impersonating: Boolean(user.impersonatedBy),
-        productionEnabled: company?.productionEnabled ?? false,
-      }}
-    >
-      {children}
-      <InstallPrompt />
-    </AppShell>
+    <div className={dark ? "theme-dark min-h-dvh" : undefined}>
+      <AppShell
+        user={{
+          name: user.name,
+          role: user.role,
+          roleLabel: roleLabel[user.role],
+          color: user.color,
+          companyName: company?.name ?? "",
+          impersonating: Boolean(user.impersonatedBy),
+          productionEnabled: company?.productionEnabled ?? false,
+          prefersDark: dark,
+        }}
+      >
+        {children}
+        <InstallPrompt />
+      </AppShell>
+    </div>
   );
 }

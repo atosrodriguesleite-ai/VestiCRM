@@ -27,6 +27,8 @@ import {
   Eye,
   PanelLeftClose,
   PanelLeft,
+  Moon,
+  Sun,
   Handshake,
   Scissors,
 } from "lucide-react";
@@ -84,6 +86,8 @@ type ShellUser = {
   impersonating?: boolean;
   // módulo Produção (pago à parte): sem a chave, o menu nem aparece
   productionEnabled?: boolean;
+  // modo escuro — preferência individual do usuário
+  prefersDark?: boolean;
 };
 
 export function AppShell({
@@ -117,6 +121,22 @@ export function AppShell({
     return true;
   });
   const mobileItems = user.role === "SUPPORT" ? MOBILE_NAV_SUPPORT : MOBILE_NAV;
+
+  // tema claro/escuro: troca otimista + salva no perfil do usuário
+  const [dark, setDark] = useState(Boolean(user.prefersDark));
+  const [savingTheme, setSavingTheme] = useState(false);
+  async function toggleTheme() {
+    const next = !dark;
+    setDark(next);
+    setSavingTheme(true);
+    await fetch("/api/me/theme", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ dark: next }),
+    });
+    setSavingTheme(false);
+    router.refresh();
+  }
 
   async function logout() {
     await fetch("/api/auth/logout", { method: "POST" });
@@ -191,6 +211,14 @@ export function AppShell({
               </p>
               <p className="text-xs text-creme/40 truncate">{user.roleLabel}</p>
             </div>
+            <button
+              onClick={toggleTheme}
+              disabled={savingTheme}
+              title={dark ? "Mudar para o modo claro" : "Mudar para o modo escuro"}
+              className="text-creme/40 hover:text-ocre transition p-1.5 rounded-lg hover:bg-creme/5 disabled:opacity-50"
+            >
+              {dark ? <Sun className="size-4" /> : <Moon className="size-4" />}
+            </button>
             <button
               onClick={logout}
               title="Sair"

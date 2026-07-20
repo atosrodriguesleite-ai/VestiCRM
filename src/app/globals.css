@@ -122,6 +122,104 @@
   }
 }
 
+/* ============================================================
+   MODO ESCURO — "outono dark" do manual (espresso · creme · cobre).
+   Escolha INDIVIDUAL de cada usuário (User.prefersDark): o layout do app
+   aplica .theme-dark no wrapper e TODAS as variáveis trocam de uma vez —
+   as telas continuam escritas com as mesmas classes de sempre.
+   Regra de ouro preservada: o cobre segue sendo só o acento.
+   ============================================================ */
+.theme-dark {
+  color-scheme: dark;
+
+  /* superfícies */
+  --color-canvas: #1a140d; /* fundo do app (espresso suave) */
+  --color-white: #241c13; /* cards ("branco" vira superfície quente) */
+  --color-surface: #241c13;
+  --color-ink: #f2e8dc; /* texto forte = creme */
+  --color-sidebar: #120d08; /* sidebar um tom abaixo do canvas */
+  --color-sidebar-hover: #2b2117;
+
+  /* neutros quentes INVERTIDOS (50 escuro ⇄ 900 claro) */
+  --color-slate-50: #211a12;
+  --color-slate-100: #2b2217;
+  --color-slate-200: #3b2f21;
+  --color-slate-300: #50412e;
+  --color-slate-400: #8d7d67;
+  --color-slate-500: #a4947e;
+  --color-slate-600: #c3b39b;
+  --color-slate-700: #d7c9b1;
+  --color-slate-800: #e7dbc6;
+  --color-slate-900: #f2e8dc;
+  --color-slate-950: #faf5ec;
+  --color-gray-50: #211a12;
+  --color-gray-100: #2b2217;
+  --color-gray-200: #3b2f21;
+  --color-gray-300: #50412e;
+  --color-gray-400: #8d7d67;
+  --color-gray-500: #a4947e;
+  --color-gray-600: #c3b39b;
+  --color-gray-700: #d7c9b1;
+  --color-gray-800: #e7dbc6;
+  --color-gray-900: #f2e8dc;
+  --color-gray-950: #faf5ec;
+
+  /* cobre: tintas claras viram fundos escuros acobreados; ação continua igual */
+  --color-brand-50: #2c1e12;
+  --color-brand-100: #3b2715;
+  --color-brand-200: #58371c;
+  --color-brand-900: #f5e7da; /* "cacau" em texto vira creme rosado */
+
+  /* acentos semânticos: fundos 50/100 e bordas 200 escuros; textos 600/700 claros */
+  --color-emerald-50: #10281c;
+  --color-emerald-100: #153524;
+  --color-emerald-200: #1e4d34;
+  --color-emerald-600: #34d399;
+  --color-emerald-700: #6ee7b7;
+  --color-amber-50: #2d2108;
+  --color-amber-100: #3c2c0b;
+  --color-amber-200: #574112;
+  --color-amber-600: #fbbf24;
+  --color-amber-700: #fcd34d;
+  --color-rose-50: #331119;
+  --color-rose-100: #441722;
+  --color-rose-200: #5f1f2f;
+  --color-rose-600: #fb7185;
+  --color-rose-700: #fda4af;
+  --color-sky-50: #0e2233;
+  --color-sky-100: #123046;
+  --color-sky-200: #1a4664;
+  --color-sky-600: #38bdf8;
+  --color-sky-700: #7dd3fc;
+
+  /* sombras mais profundas no escuro */
+  --shadow-xs: 0 1px 2px 0 rgb(0 0 0 / 0.3);
+  --shadow-card: 0 1px 2px 0 rgb(0 0 0 / 0.25), 0 4px 12px -2px rgb(0 0 0 / 0.35);
+  --shadow-pop: 0 4px 16px -4px rgb(0 0 0 / 0.45), 0 16px 40px -12px rgb(0 0 0 / 0.6);
+  --shadow-focus: 0 0 0 4px rgb(196 98 45 / 0.32);
+
+  background: var(--color-canvas);
+  color: var(--color-ink);
+}
+
+/* Exceções do escuro: "white" como TEXTO/contorno em botões e avatares
+   precisa continuar claro (é contraste sobre cobre/cores), mesmo com o
+   bg-white dos cards virando superfície escura. */
+.theme-dark :is(.text-white, .hover\:text-white:hover) {
+  color: #fdf8f2;
+}
+/* Botão "preto" (bg-gray-900) vira creme no escuro — o texto acompanha */
+.theme-dark :is(.bg-gray-900, .bg-gray-950).text-white {
+  color: #1d1710;
+}
+.theme-dark .ring-white {
+  --tw-ring-color: #241c13;
+}
+/* Tintas do cobre usadas como TEXTO sobre fundos acobreados escuros */
+.theme-dark :is(.text-brand-700, .text-brand-800) {
+  color: #e7a877;
+}
+
 html {
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;

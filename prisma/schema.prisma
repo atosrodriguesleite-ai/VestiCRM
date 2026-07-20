@@ -144,6 +144,7 @@ model User {
   avatarUrl      String? // foto do usuário (data-URL) — opcional; sem foto usa iniciais
   commissionRate Float    @default(0) // % de comissão sobre as vendas do vendedor
   monthlyGoal    Float    @default(0) // meta de vendas do mês (R$) — 0 = sem meta
+  prefersDark    Boolean  @default(false) // modo escuro — escolha individual de cada usuário
   createdAt      DateTime @default(now())
 
   customers     Customer[]     @relation("CustomerOwner")
