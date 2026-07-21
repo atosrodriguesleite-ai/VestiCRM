@@ -32,6 +32,9 @@ export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
   themeColor: "#16100B",
+  // teclado do celular ENCOLHE a área da página (em vez de cobri-la),
+  // para que botões no rodapé de janelas/formulários não fiquem escondidos
+  interactiveWidget: "resizes-content",
 };
 
 export default function RootLayout({

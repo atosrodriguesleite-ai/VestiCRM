@@ -86,7 +86,7 @@ export function QuickLeadLink({
       {open && (
         <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center">
           <div className="absolute inset-0 bg-black/30 animate-fade-in" onClick={reset} />
-          <div className="relative bg-white rounded-t-2xl md:rounded-2xl shadow-pop w-full md:max-w-sm p-6 animate-fade-up">
+          <div className="relative bg-white rounded-t-2xl md:rounded-2xl shadow-pop w-full md:max-w-sm p-6 pb-[max(1.5rem,env(safe-area-inset-bottom))] max-h-[90dvh] overflow-y-auto animate-fade-up">
             <div className="flex items-center justify-between mb-1">
               <h3 className="font-semibold text-lg">
                 {result ? "Link pronto! 🎉" : "Novo lead + link"}
