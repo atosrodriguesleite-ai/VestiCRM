@@ -2,6 +2,76 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { requireUser, AuthError } from "@/lib/auth";
+import { PAID_ORDER_STATUSES } from "@/lib/orders";
+
+/** Ficha do contato para o painel lateral do atendimento. */
+export async function GET(
+  _req: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const user = await requireUser();
+    const { id } = await params;
+    const customer = await db.customer.findFirst({
+      where: { id, companyId: user.companyId },
+      include: {
+        owner: { select: { name: true } },
+        tags: { include: { tag: true } },
+        interests: { include: { interest: true } },
+        orders: {
+          orderBy: { createdAt: "desc" },
+          take: 6,
+          select: { id: true, number: true, total: true, status: true, createdAt: true },
+        },
+      },
+    });
+    if (!customer) {
+      return NextResponse.json({ error: "Não encontrado" }, { status: 404 });
+    }
+    const paid = customer.orders.filter((o) =>
+      PAID_ORDER_STATUSES.includes(o.status)
+    );
+    // total gasto e nº de pedidos pagos considerando TODO o histórico
+    const agg = await db.order.aggregate({
+      where: { customerId: id, status: { in: PAID_ORDER_STATUSES } },
+      _sum: { total: true },
+      _count: { _all: true },
+    });
+
+    return NextResponse.json({
+      id: customer.id,
+      name: customer.name,
+      phone: customer.phone,
+      email: customer.email,
+      city: customer.city,
+      state: customer.state,
+      type: customer.type,
+      origin: customer.origin,
+      notes: customer.notes,
+      preferredSize: customer.preferredSize,
+      preferredColors: customer.preferredColors,
+      ownerName: customer.owner?.name ?? null,
+      lastPurchaseAt: customer.lastPurchaseAt?.toISOString() ?? null,
+      createdAt: customer.createdAt.toISOString(),
+      totalSpent: agg._sum.total ?? 0,
+      paidOrders: agg._count._all,
+      tags: customer.tags.map((t) => ({ name: t.tag.name, color: t.tag.color })),
+      interests: customer.interests.map((i) => i.interest.name),
+      orders: customer.orders.map((o) => ({
+        id: o.id,
+        number: o.number,
+        total: o.total,
+        status: o.status,
+        paid: paid.some((p) => p.id === o.id),
+        createdAt: o.createdAt.toISOString(),
+      })),
+    });
+  } catch (e) {
+    if (e instanceof AuthError)
+      return NextResponse.json({ error: "Não autenticado" }, { status: 401 });
+    throw e;
+  }
+}
 
 const schema = z.object({
   name: z.string().min(1).optional(),

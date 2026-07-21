@@ -2,7 +2,7 @@
 
 /* eslint-disable @next/next/no-img-element */
 
-import { useMemo, useRef, useState, useEffect } from "react";
+import { useMemo, useRef, useState, useEffect, type ChangeEvent } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
@@ -32,8 +32,11 @@ import {
   Plus,
   X,
   AtSign,
+  Info,
+  Zap,
 } from "lucide-react";
 import { OrderComposer } from "@/components/order-composer";
+import { ContactPanel } from "./contact-panel";
 import { orderNumber } from "@/lib/orders";
 import {
   formatPhone,
@@ -219,9 +222,13 @@ export function Inbox({
   const [showAttach, setShowAttach] = useState(false);
   const [showOrder, setShowOrder] = useState(false);
   const [showTransfer, setShowTransfer] = useState(false);
+  const [showContact, setShowContact] = useState(false);
+  const [slash, setSlash] = useState<{ query: string; at: number } | null>(null);
   const [sending, setSending] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const taRef = useRef<HTMLTextAreaElement>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+  const fileKindRef = useRef<"IMAGE" | "DOCUMENT">("IMAGE");
 
   const selected = convs.find((c) => c.id === selectedId) ?? null;
 
@@ -284,6 +291,7 @@ export function Inbox({
     setShowTransfer(false);
     setShowTagPicker(false);
     setMention(null);
+    setSlash(null);
     setConvs((prev) =>
       prev.map((c) => (c.id === id ? { ...c, unreadCount: 0 } : c))
     );
@@ -360,6 +368,7 @@ export function Inbox({
       setDraft("");
       setNoteMode(false);
       setMention(null);
+      setSlash(null);
     }
   }
 
@@ -504,17 +513,26 @@ export function Inbox({
     }
   }
 
-  // ---- Menção @vendedor nas notas internas ----
+  // ---- Menção @vendedor (notas) e resposta rápida "/" (mensagens) ----
   function onDraftChange(value: string, caret: number) {
     setDraft(value);
-    if (!noteMode) {
-      setMention(null);
-      return;
-    }
     const before = value.slice(0, caret);
-    const m = before.match(/@([\p{L} ]{0,20})$/u);
-    if (m) setMention({ query: m[1].toLowerCase(), at: caret - m[0].length });
-    else setMention(null);
+    // menção só no modo nota
+    if (noteMode) {
+      const m = before.match(/@([\p{L} ]{0,20})$/u);
+      setMention(m ? { query: m[1].toLowerCase(), at: caret - m[0].length } : null);
+    } else {
+      setMention(null);
+    }
+    // resposta rápida: "/" no começo da linha (mensagem normal)
+    if (!noteMode) {
+      const s = before.match(/(?:^|\s)\/([\p{L}\d ]{0,24})$/u);
+      setSlash(
+        s ? { query: s[1].toLowerCase().trim(), at: caret - s[1].length - 1 } : null
+      );
+    } else {
+      setSlash(null);
+    }
   }
 
   function insertMention(name: string) {
@@ -532,6 +550,62 @@ export function Inbox({
       .filter((t) => t.id !== currentUserId && t.name.toLowerCase().includes(mention.query))
       .slice(0, 5);
   }, [mention, team, currentUserId]);
+
+  const resolveTemplate = (body: string) =>
+    body
+      .replaceAll("{{nome}}", selected?.customer.name.split(" ")[0] ?? "")
+      .replaceAll("{{vendedora}}", currentUserName.split(" ")[0]);
+
+  const slashMatches = useMemo(() => {
+    if (!slash) return [];
+    const q = slash.query;
+    return templates
+      .filter((t) => !q || t.title.toLowerCase().includes(q) || t.body.toLowerCase().includes(q))
+      .slice(0, 6);
+  }, [slash, templates]);
+
+  function applyQuickReply(body: string) {
+    const caret = taRef.current?.selectionStart ?? draft.length;
+    const start = slash?.at ?? caret;
+    const next = draft.slice(0, start) + resolveTemplate(body) + draft.slice(caret);
+    setDraft(next);
+    setSlash(null);
+    taRef.current?.focus();
+  }
+
+  // ---- Envio de mídia real (imagem/documento) ----
+  function pickFile(kind: "IMAGE" | "DOCUMENT") {
+    setShowAttach(false);
+    fileKindRef.current = kind;
+    if (fileRef.current) {
+      fileRef.current.accept = kind === "IMAGE" ? "image/*" : "*/*";
+      fileRef.current.value = "";
+      fileRef.current.click();
+    }
+  }
+
+  async function onFileChosen(e: ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file || !selected) return;
+    if (file.size > 4 * 1024 * 1024) {
+      alert("Arquivo muito grande (máximo 4 MB).");
+      return;
+    }
+    const kind = fileKindRef.current;
+    const dataUrl: string = await new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result as string);
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+    await sendPayload({
+      kind: "TEXT",
+      mediaType: kind,
+      mediaUrl: dataUrl,
+      fileName: file.name,
+      body: kind === "IMAGE" ? "📷 Imagem" : `📎 ${file.name}`,
+    });
+  }
 
   const applyTemplate = (body: string) => {
     const name = selected?.customer.name.split(" ")[0] ?? "";
@@ -828,6 +902,17 @@ export function Inbox({
                 >
                   <ArrowRightLeft className="size-4" />
                 </button>
+                <button
+                  onClick={() => setShowContact((v) => !v)}
+                  className={`p-2 rounded-xl border transition ${
+                    showContact
+                      ? "border-brand-300 text-brand-600 bg-brand-50"
+                      : "border-gray-200 text-gray-500 hover:text-brand-600"
+                  }`}
+                  title="Ficha do contato"
+                >
+                  <Info className="size-4" />
+                </button>
               </div>
             </div>
 
@@ -1083,26 +1168,48 @@ export function Inbox({
               {showAttach && (
                 <div className="absolute bottom-full left-3 mb-1 bg-white rounded-xl border border-gray-100 shadow-pop z-10 p-1.5 flex gap-1.5">
                   <button
-                    onClick={() => sendAttachment("IMAGE")}
+                    onClick={() => pickFile("IMAGE")}
                     className="flex flex-col items-center gap-1 rounded-xl px-3 py-2 hover:bg-brand-50 transition"
                   >
                     <ImageIcon className="size-5 text-brand-600" />
                     <span className="text-[10px] font-medium">Imagem</span>
                   </button>
                   <button
-                    onClick={() => sendAttachment("AUDIO")}
-                    className="flex flex-col items-center gap-1 rounded-xl px-3 py-2 hover:bg-brand-50 transition"
-                  >
-                    <Mic className="size-5 text-emerald-600" />
-                    <span className="text-[10px] font-medium">Áudio</span>
-                  </button>
-                  <button
-                    onClick={() => sendAttachment("DOCUMENT")}
+                    onClick={() => pickFile("DOCUMENT")}
                     className="flex flex-col items-center gap-1 rounded-xl px-3 py-2 hover:bg-brand-50 transition"
                   >
                     <File className="size-5 text-sky-600" />
                     <span className="text-[10px] font-medium">Documento</span>
                   </button>
+                  <button
+                    onClick={() => sendAttachment("AUDIO")}
+                    className="flex flex-col items-center gap-1 rounded-xl px-3 py-2 hover:bg-brand-50 transition"
+                    title="Áudio (demonstração)"
+                  >
+                    <Mic className="size-5 text-emerald-600" />
+                    <span className="text-[10px] font-medium">Áudio</span>
+                  </button>
+                </div>
+              )}
+
+              {/* respostas rápidas: "/" para inserir um modelo de mensagem */}
+              {!noteMode && slash && slashMatches.length > 0 && (
+                <div className="absolute bottom-full left-3 right-3 mb-1 bg-white rounded-xl border border-gray-100 shadow-pop z-20 max-h-72 overflow-y-auto thin-scroll">
+                  <p className="px-4 pt-2.5 pb-1 text-[10px] font-bold uppercase tracking-wide text-gray-400 flex items-center gap-1 bg-gray-50/60">
+                    <Zap className="size-3" /> Respostas rápidas
+                  </p>
+                  {slashMatches.map((t) => (
+                    <button
+                      key={t.id}
+                      onClick={() => applyQuickReply(t.body)}
+                      className="w-full text-left px-4 py-2.5 hover:bg-brand-50 transition border-b border-gray-50 last:border-0"
+                    >
+                      <p className="text-xs font-semibold text-brand-700">{t.title}</p>
+                      <p className="text-xs text-gray-500 line-clamp-2">
+                        {resolveTemplate(t.body)}
+                      </p>
+                    </button>
+                  ))}
                 </div>
               )}
               {/* menção @ nas notas internas */}
@@ -1173,15 +1280,22 @@ export function Inbox({
                   value={draft}
                   onChange={(e) => onDraftChange(e.target.value, e.target.selectionStart)}
                   onKeyDown={(e) => {
-                    if (e.key === "Escape" && mention) {
+                    if (e.key === "Escape" && (mention || slash)) {
                       setMention(null);
+                      setSlash(null);
                       return;
                     }
                     if (e.key === "Enter" && !e.shiftKey) {
-                      // com a lista de menção aberta, Enter escolhe o 1º nome
+                      // lista de menção aberta → Enter escolhe o 1º nome
                       if (noteMode && mention && mentionMatches.length > 0) {
                         e.preventDefault();
                         insertMention(mentionMatches[0].name.split(" ")[0]);
+                        return;
+                      }
+                      // resposta rápida aberta → Enter insere o 1º modelo
+                      if (!noteMode && slash && slashMatches.length > 0) {
+                        e.preventDefault();
+                        applyQuickReply(slashMatches[0].body);
                         return;
                       }
                       e.preventDefault();
@@ -1192,7 +1306,7 @@ export function Inbox({
                   placeholder={
                     noteMode
                       ? "Nota interna... use @ para marcar alguém"
-                      : "Escrever mensagem... (Enter envia)"
+                      : "Escrever mensagem... (/ para respostas rápidas)"
                   }
                   className="flex-1 resize-none bg-transparent text-sm outline-none py-2 max-h-32"
                 />
@@ -1250,6 +1364,26 @@ export function Inbox({
           </>
         )}
       </div>
+
+      {/* Painel do contato (lateral no computador, tela cheia no celular).
+          No celular fica entre o cabeçalho e o menu de baixo, para o botão
+          de fechar não ficar escondido atrás da barra do topo. */}
+      {selected && showContact && (
+        <div className="fixed inset-x-0 top-14 bottom-16 z-30 bg-white flex flex-col md:static md:inset-auto md:top-auto md:bottom-auto md:z-auto md:w-80 md:shrink-0 md:border-l md:border-gray-100">
+          <ContactPanel
+            customerId={selected.customer.id}
+            onClose={() => setShowContact(false)}
+          />
+        </div>
+      )}
+
+      {/* seletor de arquivo (envio de mídia real) */}
+      <input
+        ref={fileRef}
+        type="file"
+        className="hidden"
+        onChange={onFileChosen}
+      />
     </div>
   );
 }
