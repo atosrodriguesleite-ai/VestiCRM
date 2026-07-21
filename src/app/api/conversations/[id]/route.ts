@@ -9,6 +9,7 @@ const schema = z.object({
     .optional(),
   priority: z.enum(["BAIXA", "NORMAL", "ALTA"]).optional(),
   assigneeId: z.string().nullable().optional(),
+  setorId: z.string().nullable().optional(), // setor do chamado (transferência)
   markRead: z.boolean().optional(),
 });
 
@@ -49,6 +50,15 @@ export async function PATCH(
         }
       }
       data.assigneeId = parsed.data.assigneeId;
+    }
+    if (parsed.data.setorId !== undefined) {
+      if (parsed.data.setorId) {
+        const setor = await db.setor.findFirst({
+          where: { id: parsed.data.setorId, companyId: user.companyId },
+        });
+        if (!setor) return NextResponse.json({ error: "Setor inválido" }, { status: 404 });
+      }
+      data.setorId = parsed.data.setorId;
     }
 
     const updated = await db.conversation.update({ where: { id }, data });

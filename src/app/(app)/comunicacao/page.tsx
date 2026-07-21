@@ -6,6 +6,7 @@ import { isAdmin } from "@/lib/scope";
 import { PageHeader } from "@/components/ui";
 import { CommCenter, type CommEventItem } from "./comm-center";
 import { WhatsappConnect } from "./whatsapp-connect";
+import { SetoresManager } from "./setores-manager";
 
 export const dynamic = "force-dynamic";
 
@@ -72,6 +73,7 @@ export default async function CommunicationPage() {
         subtitle="Monitor da Communication Engine: filas, webhooks, falhas e latência de todos os canais."
       />
       {isAdmin(user) && <WhatsappConnect canEdit={isAdmin(user)} />}
+      <SetoresManager />
       <CommCenter
         events={items}
         stats={{

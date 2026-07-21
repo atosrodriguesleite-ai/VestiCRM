@@ -271,9 +271,19 @@ export async function receiveMessage(
         },
       });
     }
+    // Central de Atendimento: chamado novo entra no setor padrão do número
+    // (só quando ainda não tem setor — não muda o setor de um chamado em curso).
+    let setorPatch = {};
+    if (!result.conversation.setorId) {
+      const comm = await db.commSettings.findUnique({
+        where: { companyId },
+        select: { defaultSetorId: true },
+      });
+      if (comm?.defaultSetorId) setorPatch = { setorId: comm.defaultSetorId };
+    }
     await db.conversation.update({
       where: { id: result.conversation.id },
-      data: { channel: input.channel, lastInboundAt: new Date() },
+      data: { channel: input.channel, lastInboundAt: new Date(), ...setorPatch },
     });
   }
 

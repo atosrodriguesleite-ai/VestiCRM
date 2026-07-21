@@ -111,6 +111,19 @@ async function main() {
       passwordHash: hash, role: "SUPPORT", color: "#0ea5e9",
     },
   });
+  // ---- Central de Atendimento: setores + setor padrão do número ----
+  const setorVendas = await db.setor.create({
+    data: { companyId: company.id, name: "Vendas", color: "#10b981", order: 0, users: { connect: [{ id: julia.id }, { id: renata.id }] } },
+  });
+  await db.setor.create({
+    data: { companyId: company.id, name: "Financeiro", color: "#f59e0b", order: 1, users: { connect: [{ id: ana.id }] } },
+  });
+  await db.commSettings.upsert({
+    where: { companyId: company.id },
+    update: { defaultSetorId: setorVendas.id },
+    create: { companyId: company.id, defaultSetorId: setorVendas.id },
+  });
+
   const ownerId = (k: string) => ({ julia: julia.id, renata: renata.id, ana: ana.id })[k]!;
   const sellerName = (id: string) =>
     id === julia.id ? "Júlia Ferreira" : id === renata.id ? "Renata Alves" : "Ana Souza";
