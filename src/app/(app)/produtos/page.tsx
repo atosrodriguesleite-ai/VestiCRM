@@ -5,11 +5,13 @@ import { imageHref } from "@/lib/img";
 import { PageHeader } from "@/components/ui";
 import { ProductsView, type ProductItem } from "./products-view";
 import { catalogUrl } from "@/lib/catalog-url";
-import { isManagerUp } from "@/lib/scope";
+import { isManagerUp, isSupport } from "@/lib/scope";
+import { parseCategoryOrder } from "@/lib/categories";
 import { StockMonitor, type LowStockRow } from "./stock-monitor";
 import { PhotoDoctor } from "./photo-doctor";
 import { ExportCatalog } from "./export-catalog";
 import { SkuManager } from "./sku-manager";
+import { CategoryManager } from "./category-manager";
 
 export const dynamic = "force-dynamic";
 
@@ -60,7 +62,13 @@ export default async function ProductsPage() {
     })),
   }));
 
-  const categories = [...new Set(products.map((p) => p.category))].sort();
+  // categorias = as usadas em produtos + as criadas à mão (mesmo sem produto)
+  const categories = [
+    ...new Set([
+      ...products.map((p) => p.category),
+      ...parseCategoryOrder(company?.extraCategories),
+    ]),
+  ].sort();
   const collections = [
     ...new Set(products.map((p) => p.collection).filter(Boolean) as string[]),
   ].sort();
@@ -97,6 +105,7 @@ export default async function ProductsPage() {
         action={
           company && (
             <div className="flex items-center gap-2">
+              {(isManagerUp(user) || isSupport(user)) && <CategoryManager />}
               {isManagerUp(user) && <SkuManager />}
               {isManagerUp(user) && <ExportCatalog />}
               {isManagerUp(user) && <PhotoDoctor />}

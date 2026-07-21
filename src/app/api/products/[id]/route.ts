@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
-import { isSupport } from "@/lib/scope";
 import { requireUser, AuthError } from "@/lib/auth";
 
 const patchSchema = z.object({
@@ -201,13 +200,6 @@ export async function DELETE(
 ) {
   try {
     const user = await requireUser();
-    // Suporte edita produtos e estoque; EXCLUIR segue só gerente/admin
-    if (isSupport(user)) {
-      return NextResponse.json(
-        { error: "Excluir produtos é permitido só para gerente ou admin." },
-        { status: 403 }
-      );
-    }
     const { id } = await params;
     const product = await db.product.findFirst({
       where: { id, companyId: user.companyId },

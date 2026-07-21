@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ShoppingBag, Download } from "lucide-react";
+import { ShoppingBag, Download, Search, X } from "lucide-react";
 import { requireUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { canSeeAll } from "@/lib/scope";
@@ -30,12 +30,16 @@ export const dynamic = "force-dynamic";
 export default async function OrdersPage({
   searchParams,
 }: {
-  searchParams: Promise<{ status?: string; de?: string; ate?: string; canal?: string }>;
+  searchParams: Promise<{ status?: string; de?: string; ate?: string; canal?: string; q?: string }>;
 }) {
   const user = await requireUser();
-  const { status, de, ate, canal: canalRaw } = await searchParams;
+  const { status, de, ate, canal: canalRaw, q: qRaw } = await searchParams;
   // canal da venda: nuvemshop | atacadopro (catálogo/WhatsApp/manual) | todos
   const canal = canalRaw === "nuvemshop" || canalRaw === "atacadopro" ? canalRaw : null;
+  // busca pelo código do pedido (nº) — só os dígitos importam (#0042, 42, "42")
+  const q = (qRaw ?? "").trim();
+  const buscaNumero = q ? Number(q.replace(/\D/g, "")) : NaN;
+  const buscando = q.length > 0;
 
   const from = de ? spDayStart(de) : null;
   const to = ate ? spDayEnd(ate) : null;
@@ -43,7 +47,11 @@ export default async function OrdersPage({
   const where: Prisma.OrderWhereInput = canSeeAll(user)
     ? { companyId: user.companyId }
     : { companyId: user.companyId, sellerId: user.id };
-  if (status && ORDER_STATUS_FLOW.includes(status as OrderStatus)) {
+  // busca por código: encontra o pedido em qualquer status/período
+  if (buscando) {
+    where.number = Number.isFinite(buscaNumero) && buscaNumero > 0 ? buscaNumero : -1;
+  }
+  if (!buscando && status && ORDER_STATUS_FLOW.includes(status as OrderStatus)) {
     where.status = status as OrderStatus;
   }
   if (from || to) {
@@ -126,7 +134,41 @@ export default async function OrdersPage({
         }
       />
 
+      {/* Busca pelo código do pedido — disponível para todos os usuários */}
+      <form method="GET" className="mb-4">
+        <div className="relative">
+          <Search className="size-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
+          <input
+            name="q"
+            defaultValue={q}
+            inputMode="numeric"
+            placeholder="Buscar pelo código do pedido (ex.: 42 ou #0042)"
+            className="w-full rounded-xl border border-gray-200 bg-white pl-9 pr-24 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-200"
+          />
+          <button className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-xs font-semibold px-3 py-1.5 transition">
+            Buscar
+          </button>
+        </div>
+      </form>
+
+      {buscando && (
+        <div className="mb-4 flex items-center justify-between gap-3 rounded-xl border border-brand-100 bg-brand-50/60 px-4 py-2.5">
+          <p className="text-sm text-slate-600">
+            {orders.length > 0 ? (
+              <>Resultado para o código <b className="text-slate-800">{q.startsWith("#") ? q : `#${q.replace(/\D/g, "")}`}</b></>
+            ) : (
+              <>Nenhum pedido com o código <b className="text-slate-800">{q}</b>.</>
+            )}
+          </p>
+          <Link href="/pedidos" className="inline-flex items-center gap-1 text-xs font-medium text-brand-600 hover:text-brand-700">
+            <X className="size-3.5" /> Limpar busca
+          </Link>
+        </div>
+      )}
+
       {/* Filtro de período (fuso de São Paulo) */}
+      {!buscando && (
+      <>
       <form className="flex flex-wrap items-end gap-2 mb-4" method="GET">
         {status && <input type="hidden" name="status" value={status} />}
         {canal && <input type="hidden" name="canal" value={canal} />}
@@ -197,13 +239,15 @@ export default async function OrdersPage({
           </Link>
         ))}
       </div>
+      </>
+      )}
 
       {orders.length === 0 ? (
         <Card>
           <EmptyState
             icon={<ShoppingBag />}
-            title="Nenhum pedido aqui"
-            hint="Monte um pedido direto da conversa do WhatsApp com o botão de sacola."
+            title={buscando ? "Nenhum pedido com esse código" : "Nenhum pedido aqui"}
+            hint={buscando ? "Confira o número do pedido e tente de novo." : "Monte um pedido direto da conversa do WhatsApp com o botão de sacola."}
           />
         </Card>
       ) : (
