@@ -33,6 +33,7 @@ import {
   AtSign,
   Info,
   Zap,
+  Link2,
 } from "lucide-react";
 import { OrderComposer } from "@/components/order-composer";
 import { ContactPanel } from "./contact-panel";
@@ -77,6 +78,7 @@ export type InboxConversation = {
     phone: string;
     city: string | null;
     wholesale: boolean;
+    catalogLink: string;
     tags: { id: string; name: string; color: string }[];
   };
   assignee: { id: string; name: string; color: string } | null;
@@ -568,6 +570,21 @@ export function Inbox({
     const start = slash?.at ?? caret;
     const next = draft.slice(0, start) + resolveTemplate(body) + draft.slice(caret);
     setDraft(next);
+    setSlash(null);
+    taRef.current?.focus();
+  }
+
+  // ---- Link rastreável do catálogo do cliente ----
+  // Insere na mensagem o link personalizado que rastreia o comportamento
+  // DESTE cliente no catálogo (leva o ref do vendedor logado).
+  function inserirLinkCatalogo() {
+    if (!selected) return;
+    const nome = selected.customer.name.split(" ")[0];
+    const link = selected.customer.catalogLink;
+    const msg = draft.trim()
+      ? `${draft.trim()}\n${link}`
+      : `Oi ${nome}! 💜 Montei um catálogo pra você dar uma olhada com calma:\n${link}`;
+    setDraft(msg);
     setSlash(null);
     taRef.current?.focus();
   }
@@ -1292,6 +1309,13 @@ export function Inbox({
                   title="Nota interna (não é enviada ao cliente)"
                 >
                   <StickyNote className="size-4.5" />
+                </button>
+                <button
+                  onClick={inserirLinkCatalogo}
+                  className="p-2 text-gray-400 hover:text-brand-600 transition shrink-0"
+                  title="Enviar link do catálogo (rastreia este cliente)"
+                >
+                  <Link2 className="size-4.5" />
                 </button>
                 <button
                   onClick={() => setShowOrder(true)}

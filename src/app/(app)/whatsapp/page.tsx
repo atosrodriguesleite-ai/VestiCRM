@@ -1,6 +1,7 @@
 import { requireUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { conversationScope } from "@/lib/scope";
+import { catalogUrl, trackedCatalogLink, trackedLinkParts } from "@/lib/catalog-url";
 import { Inbox, type InboxConversation } from "./inbox";
 
 export const dynamic = "force-dynamic";
@@ -8,7 +9,7 @@ export const dynamic = "force-dynamic";
 export default async function WhatsAppPage() {
   const user = await requireUser();
 
-  const [conversations, templates, team, setores, tags] = await Promise.all([
+  const [conversations, templates, team, setores, tags, company] = await Promise.all([
     db.conversation.findMany({
       where: conversationScope(user),
       include: {
@@ -37,7 +38,18 @@ export default async function WhatsAppPage() {
       orderBy: { name: "asc" },
       select: { id: true, name: true, color: true },
     }),
+    db.company.findUnique({
+      where: { id: user.companyId },
+      select: { slug: true },
+    }),
   ]);
+
+  // link rastreável do catálogo por cliente (leva o ref do vendedor logado):
+  // catalago.net/loja/julia/<codigo> → sabe o comportamento do cliente no catálogo
+  const { sellerRef } = trackedLinkParts(user, company?.slug ?? "");
+  const catalogBase = catalogUrl(company?.slug ?? "");
+  const linkForCustomer = (linkCode: string | null, id: string) =>
+    trackedCatalogLink(catalogBase, sellerRef, linkCode ?? id);
 
   const data: InboxConversation[] = conversations.map((c) => ({
     id: c.id,
@@ -55,6 +67,7 @@ export default async function WhatsAppPage() {
       phone: c.customer.phone,
       city: c.customer.city,
       wholesale: c.customer.type !== "VAREJO",
+      catalogLink: linkForCustomer(c.customer.linkCode, c.customer.id),
       tags: c.customer.tags.map((t) => ({
         id: t.tag.id,
         name: t.tag.name,
