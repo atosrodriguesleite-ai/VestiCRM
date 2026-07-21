@@ -272,9 +272,9 @@ function SaldoAntigoModal({ onClose }: { onClose: () => void }) {
     "w-full rounded-xl border border-gray-200 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-200";
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center">
+    <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center pb-[var(--kb,0px)]">
       <div className="absolute inset-0 bg-black/30 animate-fade-in" onClick={onClose} />
-      <div className="relative bg-white rounded-t-2xl md:rounded-2xl shadow-pop w-full md:max-w-md max-h-[92dvh] flex flex-col">
+      <div className="relative bg-white rounded-t-2xl md:rounded-2xl shadow-pop w-full md:max-w-md max-h-[calc(100dvh_-_var(--kb,0px)_-_1.5rem)] flex flex-col">
         <div className="flex items-center justify-between p-5 pb-3 border-b border-gray-100">
           <h3 className="font-semibold text-lg flex items-center gap-2">
             <PackagePlus className="size-5 text-brand-600" />

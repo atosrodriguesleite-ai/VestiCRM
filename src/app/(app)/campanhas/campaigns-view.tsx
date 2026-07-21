@@ -202,9 +202,9 @@ function NewCampaignModal({
   const label = "block text-sm font-medium mb-1.5";
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center">
+    <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center pb-[var(--kb,0px)]">
       <div className="absolute inset-0 bg-black/30 animate-fade-in" onClick={onClose} />
-      <div className="relative bg-white rounded-t-2xl md:rounded-2xl shadow-pop w-full md:max-w-2xl max-h-[92dvh] overflow-y-auto thin-scroll p-6 animate-fade-up">
+      <div className="relative bg-white rounded-t-2xl md:rounded-2xl shadow-pop w-full md:max-w-2xl max-h-[calc(100dvh_-_var(--kb,0px)_-_1.5rem)] overflow-y-auto thin-scroll p-6 animate-fade-up">
         <div className="flex items-center justify-between mb-5">
           <h3 className="font-semibold text-lg">Nova campanha</h3>
           <button type="button" onClick={onClose} className="text-gray-400 p-1">
@@ -486,9 +486,9 @@ function SendCampaignModal({
   const done = rows.length > 0 && sent === rows.length;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center">
+    <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center pb-[var(--kb,0px)]">
       <div className="absolute inset-0 bg-black/30 animate-fade-in" onClick={onClose} />
-      <div className="relative bg-white rounded-t-2xl md:rounded-2xl shadow-pop w-full md:max-w-lg p-6 animate-fade-up max-h-[92dvh] flex flex-col">
+      <div className="relative bg-white rounded-t-2xl md:rounded-2xl shadow-pop w-full md:max-w-lg p-6 animate-fade-up max-h-[calc(100dvh_-_var(--kb,0px)_-_1.5rem)] flex flex-col">
         <div className="flex items-center justify-between mb-1">
           <h3 className="font-semibold text-lg">{campaign.name}</h3>
           <button onClick={onClose} className="text-gray-400 p-1">

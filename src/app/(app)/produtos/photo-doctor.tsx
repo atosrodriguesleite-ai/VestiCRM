@@ -91,7 +91,7 @@ export function PhotoDoctor() {
       )}
 
       {report && (
-        <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center">
+        <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center pb-[var(--kb,0px)]">
           <div className="absolute inset-0 bg-black/30 animate-fade-in" onClick={() => setReport(null)} />
           <div className="relative bg-white rounded-t-2xl md:rounded-2xl shadow-pop w-full md:max-w-md p-6 animate-fade-up max-h-[85dvh] overflow-y-auto thin-scroll">
             <div className="flex items-center justify-between mb-1">

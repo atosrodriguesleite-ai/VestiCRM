@@ -164,7 +164,7 @@ export function DemoModal({
 
   return (
     <div
-      className="fixed inset-0 z-[70] flex items-end justify-center sm:items-center sm:p-4"
+      className="fixed inset-0 z-[70] flex items-end justify-center sm:items-center sm:p-4 pb-[var(--kb,0px)]"
       role="dialog"
       aria-modal="true"
       aria-labelledby="demo-title"
@@ -179,7 +179,7 @@ export function DemoModal({
       <div
         ref={dialogRef}
         tabIndex={-1}
-        className="relative w-full sm:max-w-xl max-h-[92vh] overflow-y-auto thin-scroll rounded-t-3xl sm:rounded-3xl bg-white shadow-pop animate-scale-in outline-none"
+        className="relative w-full sm:max-w-xl max-h-[calc(100dvh_-_var(--kb,0px)_-_1.5rem)] overflow-y-auto thin-scroll rounded-t-3xl sm:rounded-3xl bg-white shadow-pop animate-scale-in outline-none"
       >
         {/* header */}
         <div className="sticky top-0 z-10 flex items-center justify-between gap-3 border-b border-slate-100 bg-white/90 backdrop-blur px-5 sm:px-7 py-4">

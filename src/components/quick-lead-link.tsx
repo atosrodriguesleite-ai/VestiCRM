@@ -8,7 +8,7 @@
  * identificado no catálogo desde o primeiro toque.
  */
 
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Link2, X, Check, Copy, MessageCircle } from "lucide-react";
 import { trackedCatalogLink } from "@/lib/catalog-url";
@@ -28,29 +28,6 @@ export function QuickLeadLink({
   const [error, setError] = useState("");
   const [result, setResult] = useState<{ link: string; phone: string } | null>(null);
   const [copied, setCopied] = useState(false);
-  const wrapRef = useRef<HTMLDivElement>(null);
-  const panelRef = useRef<HTMLDivElement>(null);
-
-  // iPhone/Safari não encolhem a página quando o teclado abre (ignoram o
-  // interactiveWidget). Então medimos o teclado pela Visual Viewport e
-  // empurramos a janela pra cima dele, garantindo que o botão apareça.
-  useEffect(() => {
-    if (!open) return;
-    const vv = window.visualViewport;
-    if (!vv) return;
-    const update = () => {
-      const kb = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
-      if (wrapRef.current) wrapRef.current.style.paddingBottom = `${kb}px`;
-      if (panelRef.current) panelRef.current.style.maxHeight = `${vv.height - 16}px`;
-    };
-    update();
-    vv.addEventListener("resize", update);
-    vv.addEventListener("scroll", update);
-    return () => {
-      vv.removeEventListener("resize", update);
-      vv.removeEventListener("scroll", update);
-    };
-  }, [open]);
 
   const linkFor = (code: string) => trackedCatalogLink(base, sellerRef, code);
 
@@ -107,9 +84,9 @@ export function QuickLeadLink({
       </button>
 
       {open && (
-        <div ref={wrapRef} className="fixed inset-0 z-50 flex items-end md:items-center justify-center">
+        <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center pb-[var(--kb,0px)]">
           <div className="absolute inset-0 bg-black/30 animate-fade-in" onClick={reset} />
-          <div ref={panelRef} className="relative bg-white rounded-t-2xl md:rounded-2xl shadow-pop w-full md:max-w-sm p-6 pb-[max(1.5rem,env(safe-area-inset-bottom))] max-h-[90dvh] overflow-y-auto animate-fade-up">
+          <div className="relative bg-white rounded-t-2xl md:rounded-2xl shadow-pop w-full md:max-w-sm p-6 pb-[max(1.5rem,env(safe-area-inset-bottom))] max-h-[calc(100dvh_-_var(--kb,0px)_-_1.5rem)] overflow-y-auto animate-fade-up">
             <div className="flex items-center justify-between mb-1">
               <h3 className="font-semibold text-lg">
                 {result ? "Link pronto! 🎉" : "Novo lead + link"}

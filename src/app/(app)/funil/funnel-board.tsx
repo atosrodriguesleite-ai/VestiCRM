@@ -386,9 +386,9 @@ function CardDetailModal({
 }) {
   const wa = recoverHref(card);
   return (
-    <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center">
+    <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center pb-[var(--kb,0px)]">
       <div className="absolute inset-0 bg-black/30 animate-fade-in" onClick={onClose} />
-      <div className="relative bg-white rounded-t-2xl md:rounded-2xl shadow-pop w-full md:max-w-md p-6 animate-fade-up max-h-[88dvh] overflow-y-auto thin-scroll">
+      <div className="relative bg-white rounded-t-2xl md:rounded-2xl shadow-pop w-full md:max-w-md p-6 animate-fade-up max-h-[calc(100dvh_-_var(--kb,0px)_-_1.5rem)] overflow-y-auto thin-scroll">
         <div className="flex items-start justify-between gap-2 mb-1">
           <div className="min-w-0">
             <h3 className="font-semibold text-lg truncate">{card.customerName}</h3>
@@ -599,7 +599,7 @@ function NewOpportunityModal({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center">
+    <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center pb-[var(--kb,0px)]">
       <div className="absolute inset-0 bg-black/30 animate-fade-in" onClick={onClose} />
       <form
         onSubmit={submit}

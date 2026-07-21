@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Archivo, Spline_Sans_Mono } from "next/font/google";
 import "./globals.css";
+import { KeyboardInset } from "@/components/keyboard-inset";
 
 // Tipografia do manual da marca: Archivo é a voz (títulos e corpo);
 // Spline Sans Mono entra apenas em rótulos, dados e legendas.
@@ -43,6 +44,7 @@ export default function RootLayout({
   return (
     <html lang="pt-BR">
       <body className={`${archivo.variable} ${splineMono.variable} font-sans antialiased`}>
+        <KeyboardInset />
         {children}
       </body>
     </html>

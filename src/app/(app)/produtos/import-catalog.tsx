@@ -156,13 +156,13 @@ export function ImportCatalog() {
       </button>
 
       {open && (
-        <div className="fixed inset-0 z-[70] flex items-end sm:items-center justify-center sm:p-4">
+        <div className="fixed inset-0 z-[70] flex items-end sm:items-center justify-center sm:p-4 pb-[var(--kb,0px)]">
           <button
             aria-label="Fechar"
             onClick={close}
             className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm animate-fade-in"
           />
-          <div className="relative w-full sm:max-w-lg max-h-[92vh] overflow-y-auto thin-scroll rounded-t-3xl sm:rounded-3xl bg-white shadow-pop animate-scale-in">
+          <div className="relative w-full sm:max-w-lg max-h-[calc(100dvh_-_var(--kb,0px)_-_1.5rem)] overflow-y-auto thin-scroll rounded-t-3xl sm:rounded-3xl bg-white shadow-pop animate-scale-in">
             <div className="sticky top-0 z-10 flex items-center justify-between gap-3 border-b border-slate-100 bg-white/90 backdrop-blur px-5 sm:px-6 py-4">
               <div className="flex items-center gap-3">
                 <span className="grid size-9 place-items-center rounded-xl bg-brand-50 text-brand-600 ring-1 ring-brand-100">

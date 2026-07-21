@@ -260,11 +260,11 @@ function NewTaskModal({
   const today = new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString().slice(0, 10); // data de hoje em São Paulo (UTC-3)
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center">
+    <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center pb-[var(--kb,0px)]">
       <div className="absolute inset-0 bg-black/30 animate-fade-in" onClick={onClose} />
       <form
         onSubmit={submit}
-        className="relative bg-white rounded-t-2xl md:rounded-2xl shadow-pop w-full md:max-w-md max-h-[92dvh] overflow-y-auto thin-scroll p-6 animate-fade-up"
+        className="relative bg-white rounded-t-2xl md:rounded-2xl shadow-pop w-full md:max-w-md max-h-[calc(100dvh_-_var(--kb,0px)_-_1.5rem)] overflow-y-auto thin-scroll p-6 animate-fade-up"
       >
         <div className="flex items-center justify-between mb-5">
           <h3 className="font-semibold text-lg">Nova tarefa</h3>

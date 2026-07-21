@@ -1200,7 +1200,8 @@ export function PublicCatalog({
         style={{
           background: T.bg,
           borderRadius: "22px 22px 0 0",
-          maxHeight: "88dvh",
+          maxHeight: "calc(88dvh - var(--kb, 0px))",
+          bottom: "var(--kb, 0px)", // sobe acima do teclado no celular
           boxShadow: "0 -10px 40px rgba(0,0,0,.22)",
           transform: sheet ? "translateY(0)" : "translateY(100%)",
         }}
@@ -1365,7 +1366,8 @@ export function PublicCatalog({
         style={{
           background: T.bg,
           borderRadius: "22px 22px 0 0",
-          maxHeight: "88dvh",
+          maxHeight: "calc(88dvh - var(--kb, 0px))",
+          bottom: "var(--kb, 0px)", // sobe acima do teclado no celular
           boxShadow: "0 -10px 40px rgba(0,0,0,.22)",
           transform: bagOpen ? "translateY(0)" : "translateY(100%)",
         }}
