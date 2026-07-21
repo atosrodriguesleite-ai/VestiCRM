@@ -13,8 +13,14 @@ import {
   X,
   KeyRound,
   LogIn,
+  Clock,
+  Pencil,
+  Ban,
+  PlayCircle,
+  Gift,
 } from "lucide-react";
 import { Button, Card, Field, inputCls, EmptyState, Badge } from "@/components/ui";
+import { billingStatus, formatCompetencia, type BillingStatus } from "@/lib/billing";
 
 export type Loja = {
   id: string;
@@ -36,7 +42,56 @@ export type Loja = {
   waStatus: string;
   waPhone: string | null;
   productionEnabled: boolean;
+  suspended: boolean;
+  billing: {
+    kind: string;
+    implementationFee: number;
+    implementationPaid: boolean;
+    implementationPaidAt: string | null;
+    monthlyFee: number;
+    dueDay: number;
+    paidThrough: string | null;
+    notes: string | null;
+  } | null;
+  lastActiveAt: string | null;
+  lastActiveName: string | null;
+  active7: number;
 };
+
+const brl = (n: number) =>
+  n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+
+/** "há 4 meses" / "hoje" / "há 3 dias" a partir de uma data. */
+function desde(iso: string): string {
+  const dias = Math.floor((Date.now() - new Date(iso).getTime()) / 86_400_000);
+  if (dias <= 0) return "hoje";
+  if (dias === 1) return "ontem";
+  if (dias < 30) return `há ${dias} dias`;
+  const meses = Math.floor(dias / 30);
+  if (meses === 1) return "há 1 mês";
+  if (meses < 12) return `há ${meses} meses`;
+  const anos = Math.floor(meses / 12);
+  return anos === 1 ? "há 1 ano" : `há ${anos} anos`;
+}
+
+const statusChip: Record<BillingStatus["tone"], string> = {
+  green: "bg-emerald-50 text-emerald-700 border-emerald-200",
+  amber: "bg-amber-50 text-amber-700 border-amber-200",
+  red: "bg-rose-50 text-rose-700 border-rose-200",
+  slate: "bg-slate-100 text-slate-600 border-slate-200",
+  brand: "bg-brand-50 text-brand-700 border-brand-200",
+};
+
+function statusDe(l: Loja): BillingStatus {
+  if (!l.billing)
+    return { code: "TESTE", label: "Sem cobrança", tone: "slate", monthsBehind: 0 };
+  return billingStatus({
+    kind: l.billing.kind,
+    monthlyFee: l.billing.monthlyFee,
+    dueDay: l.billing.dueDay,
+    paidThrough: l.billing.paidThrough ? new Date(l.billing.paidThrough) : null,
+  });
+}
 
 type Created = {
   companyName: string;
@@ -53,7 +108,15 @@ function genPassword() {
   return out;
 }
 
-export function LojasView({ initial, catalogDomain }: { initial: Loja[]; catalogDomain: string | null }) {
+export function LojasView({
+  initial,
+  catalogDomain,
+  recebidoMes,
+}: {
+  initial: Loja[];
+  catalogDomain: string | null;
+  recebidoMes: number;
+}) {
   const router = useRouter();
   const [lojas, setLojas] = useState<Loja[]>(initial);
   const [showForm, setShowForm] = useState(initial.length === 0);
@@ -68,6 +131,8 @@ export function LojasView({ initial, catalogDomain }: { initial: Loja[]; catalog
 
   return (
     <div className="space-y-6">
+      {lojas.length > 0 && <ResumoCobranca lojas={lojas} recebidoMes={recebidoMes} />}
+
       {created && <CredentialsPanel cred={created} catalogDomain={catalogDomain} onClose={() => setCreated(null)} />}
 
       {!showForm && (
@@ -110,6 +175,42 @@ export function LojasView({ initial, catalogDomain }: { initial: Loja[]; catalog
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+/* ---------------------------------------------------- resumo de cobrança (topo) */
+
+function ResumoCobranca({ lojas, recebidoMes }: { lojas: Loja[]; recebidoMes: number }) {
+  // MRR = recorrência somada das lojas pagantes e ativas (não suspensas)
+  const mrr = lojas.reduce(
+    (a, l) =>
+      l.billing?.kind === "PAGANTE" && !l.suspended ? a + l.billing.monthlyFee : a,
+    0
+  );
+  const atrasadas = lojas.filter((l) => statusDe(l).code === "ATRASADO").length;
+  // paradas = sem nenhum acesso registrado há mais de 7 dias (risco de churn)
+  const seteDias = Date.now() - 7 * 86_400_000;
+  const paradas = lojas.filter(
+    (l) => !l.lastActiveAt || new Date(l.lastActiveAt).getTime() < seteDias
+  ).length;
+
+  const cards: { label: string; value: string; tone: string; hint?: string }[] = [
+    { label: "Recorrência / mês", value: brl(mrr), tone: "text-emerald-700", hint: "lojas pagantes ativas" },
+    { label: "Recebido no mês", value: brl(recebidoMes), tone: "text-brand-600", hint: "pagamentos registrados" },
+    { label: "Lojas em atraso", value: String(atrasadas), tone: atrasadas ? "text-rose-600" : "text-slate-900", hint: "vencidas sem baixa" },
+    { label: "Lojas paradas", value: String(paradas), tone: paradas ? "text-amber-600" : "text-slate-900", hint: "sem acesso há 7+ dias" },
+  ];
+
+  return (
+    <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+      {cards.map((c) => (
+        <div key={c.label} className="rounded-2xl border border-slate-200/70 bg-white p-4 shadow-card">
+          <p className="text-[11px] font-medium uppercase tracking-wide text-slate-400">{c.label}</p>
+          <p className={`mt-1 text-2xl font-semibold tabular-nums ${c.tone}`}>{c.value}</p>
+          {c.hint && <p className="text-[11px] text-slate-400 mt-0.5">{c.hint}</p>}
+        </div>
+      ))}
     </div>
   );
 }
@@ -175,6 +276,11 @@ function NewLojaForm({
           waStatus: "DESCONECTADO",
           waPhone: null,
           productionEnabled: false,
+          suspended: false,
+          billing: null,
+          lastActiveAt: null,
+          lastActiveName: null,
+          active7: 0,
         },
         {
           companyName: companyName.trim(),
@@ -437,6 +543,245 @@ function CopyButton({ text, label }: { text: string; label: string }) {
   );
 }
 
+/* ---------------------------------------------------- bloco de cobrança + uso */
+
+function BillingBlock({ loja }: { loja: Loja }) {
+  const router = useRouter();
+  const [editing, setEditing] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const st = statusDe(loja);
+  const b = loja.billing;
+
+  async function pay(kind: "RECORRENCIA" | "IMPLEMENTACAO") {
+    setBusy(true);
+    const res = await fetch("/api/companies/billing/pay", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ companyId: loja.id, kind }),
+    });
+    const data = await res.json().catch(() => ({}));
+    setBusy(false);
+    if (res.ok) {
+      if (data.message) window.alert(data.message);
+      router.refresh();
+    } else {
+      window.alert(data.error ?? "Não foi possível registrar o pagamento.");
+    }
+  }
+
+  async function toggleSuspend() {
+    const acao = loja.suspended ? "reativar" : "suspender";
+    if (!window.confirm(`Deseja ${acao} o acesso da loja "${loja.name}"?`)) return;
+    setBusy(true);
+    const res = await fetch("/api/companies/suspend", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ companyId: loja.id, suspended: !loja.suspended }),
+    });
+    setBusy(false);
+    if (res.ok) router.refresh();
+    else window.alert("Não foi possível alterar o acesso da loja.");
+  }
+
+  if (editing) {
+    return (
+      <div className="mt-3 border-t border-slate-100 pt-3">
+        <BillingEditor loja={loja} onClose={() => setEditing(false)} />
+      </div>
+    );
+  }
+
+  const pagante = b?.kind === "PAGANTE";
+  const cortesia = b?.kind === "CORTESIA";
+
+  return (
+    <div className="mt-3 border-t border-slate-100 pt-3">
+      {/* etiqueta de status + tempo de cliente */}
+      <div className="flex items-center justify-between gap-2">
+        <span
+          className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-semibold ${statusChip[st.tone]}`}
+        >
+          {cortesia && <Gift className="size-3" />}
+          {st.label}
+        </span>
+        <span className="text-[11px] text-slate-400">
+          cliente {desde(loja.createdAt)}
+        </span>
+      </div>
+
+      {/* valores */}
+      {b ? (
+        <div className="mt-2 space-y-1.5 text-[13px] text-slate-600">
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+            <span className="text-slate-400">💵 Implementação:</span>
+            <b className="text-slate-700">{b.implementationFee > 0 ? brl(b.implementationFee) : "—"}</b>
+            {b.implementationFee > 0 &&
+              (b.implementationPaid ? (
+                <span className="text-emerald-600 font-medium">✓ pago</span>
+              ) : (
+                <button
+                  onClick={() => pay("IMPLEMENTACAO")}
+                  disabled={busy}
+                  className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-700 hover:bg-emerald-100 disabled:opacity-50"
+                >
+                  Marcar pago
+                </button>
+              ))}
+          </div>
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+            <span className="text-slate-400">🔁 Recorrência:</span>
+            <b className="text-slate-700">
+              {b.monthlyFee > 0 ? `${brl(b.monthlyFee)}/mês` : "—"}
+            </b>
+            {pagante && b.monthlyFee > 0 && (
+              <span className="text-slate-400">
+                · vence dia {b.dueDay} · pago até {formatCompetencia(b.paidThrough ? new Date(b.paidThrough) : null)}
+              </span>
+            )}
+          </div>
+          {b.notes && (
+            <div className="text-[12px] text-slate-500">📝 {b.notes}</div>
+          )}
+        </div>
+      ) : (
+        <p className="mt-2 text-[13px] text-slate-400">Cobrança ainda não configurada.</p>
+      )}
+
+      {/* último acesso (uso real) */}
+      <p className="mt-2 flex items-center gap-1.5 text-[12px] text-slate-500">
+        <Clock className="size-3.5 text-slate-400" />
+        {loja.lastActiveAt ? (
+          <>
+            Último acesso: <b className="text-slate-700">{desde(loja.lastActiveAt)}</b>
+            {loja.lastActiveName ? ` (${loja.lastActiveName})` : ""}
+            {loja.active7 > 0 && (
+              <span className="text-slate-400"> · {loja.active7} nos últimos 7 dias</span>
+            )}
+          </>
+        ) : (
+          <span className="text-amber-600">nunca acessou</span>
+        )}
+      </p>
+
+      {/* ações */}
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        {pagante && b && b.monthlyFee > 0 && (
+          <Button size="sm" onClick={() => pay("RECORRENCIA")} disabled={busy}>
+            Registrar pagamento do mês
+          </Button>
+        )}
+        <button
+          type="button"
+          onClick={() => setEditing(true)}
+          className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-600 hover:border-brand-200 hover:text-brand-600"
+        >
+          <Pencil className="size-3.5" />
+          {b ? "Editar cobrança" : "Configurar cobrança"}
+        </button>
+        <button
+          type="button"
+          onClick={toggleSuspend}
+          disabled={busy}
+          className={`inline-flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-medium disabled:opacity-50 ${
+            loja.suspended
+              ? "border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
+              : "border-slate-200 text-slate-500 hover:border-rose-300 hover:text-rose-600"
+          }`}
+        >
+          {loja.suspended ? <PlayCircle className="size-3.5" /> : <Ban className="size-3.5" />}
+          {loja.suspended ? "Reativar" : "Suspender"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function BillingEditor({ loja, onClose }: { loja: Loja; onClose: () => void }) {
+  const router = useRouter();
+  const b = loja.billing;
+  const [kind, setKind] = useState(b?.kind ?? "TESTE");
+  const [implementationFee, setImpl] = useState(String(b?.implementationFee ?? 0));
+  const [monthlyFee, setMonthly] = useState(String(b?.monthlyFee ?? 0));
+  const [dueDay, setDueDay] = useState(String(b?.dueDay ?? 10));
+  const [notes, setNotes] = useState(b?.notes ?? "");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const num = (s: string) => Number(s.replace(",", ".")) || 0;
+
+  async function save() {
+    setSaving(true);
+    setError(null);
+    const res = await fetch("/api/companies/billing", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        companyId: loja.id,
+        kind,
+        implementationFee: num(implementationFee),
+        monthlyFee: num(monthlyFee),
+        dueDay: Number(dueDay) || 10,
+        notes,
+      }),
+    });
+    const data = await res.json().catch(() => ({}));
+    setSaving(false);
+    if (res.ok) {
+      onClose();
+      router.refresh();
+    } else {
+      setError(data.error ?? "Não foi possível salvar.");
+    }
+  }
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <p className="text-[13px] font-semibold text-slate-700">Cobrança da loja</p>
+        <button onClick={onClose} className="text-slate-400 hover:text-slate-700" aria-label="Fechar">
+          <X className="size-4" />
+        </button>
+      </div>
+
+      <div>
+        <Field label="Situação">
+          <select className={inputCls} value={kind} onChange={(e) => setKind(e.target.value)}>
+            <option value="TESTE">Em teste (avaliação)</option>
+            <option value="PAGANTE">Pagante</option>
+            <option value="CORTESIA">Acesso vitalício (cortesia)</option>
+          </select>
+        </Field>
+      </div>
+
+      <div className="grid grid-cols-2 gap-3">
+        <Field label="Implementação (R$)">
+          <input className={inputCls} value={implementationFee} onChange={(e) => setImpl(e.target.value)} inputMode="decimal" />
+        </Field>
+        <Field label="Recorrência (R$/mês)">
+          <input className={inputCls} value={monthlyFee} onChange={(e) => setMonthly(e.target.value)} inputMode="decimal" />
+        </Field>
+      </div>
+
+      <div className="grid grid-cols-2 gap-3">
+        <Field label="Dia do vencimento" hint="1 a 28">
+          <input className={inputCls} value={dueDay} onChange={(e) => setDueDay(e.target.value)} inputMode="numeric" />
+        </Field>
+      </div>
+
+      <Field label="Acordo (observação)">
+        <input className={inputCls} value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Ex.: implantação em 2x, desconto combinado…" />
+      </Field>
+
+      {error && <p className="text-xs text-rose-600">{error}</p>}
+
+      <div className="flex justify-end gap-2">
+        <Button variant="secondary" size="sm" onClick={onClose}>Cancelar</Button>
+        <Button size="sm" onClick={save} disabled={saving}>{saving ? "Salvando…" : "Salvar"}</Button>
+      </div>
+    </div>
+  );
+}
+
 /* ---------------------------------------------------- card de loja */
 
 function LojaCard({ loja, catalogDomain }: { loja: Loja; catalogDomain: string | null }) {
@@ -480,7 +825,13 @@ function LojaCard({ loja, catalogDomain }: { loja: Loja; catalogDomain: string |
   }
 
   return (
-    <Card className="p-4">
+    <Card className={`p-4 ${loja.suspended ? "ring-1 ring-rose-200" : ""}`}>
+      {loja.suspended && (
+        <div className="mb-3 flex items-center gap-2 rounded-lg bg-rose-50 border border-rose-200 px-3 py-2 text-[12px] font-medium text-rose-700">
+          <Ban className="size-3.5" />
+          Loja suspensa — o acesso dos usuários está bloqueado.
+        </div>
+      )}
       <div className="flex items-start justify-between gap-3">
         <div className="flex items-center gap-3 min-w-0">
           <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-slate-900 text-white">
@@ -546,6 +897,8 @@ function LojaCard({ loja, catalogDomain }: { loja: Loja; catalogDomain: string |
         <span><b className="text-slate-700 tabular-nums">{loja.customers}</b> clientes</span>
         <span><b className="text-slate-700 tabular-nums">{loja.orders}</b> pedidos</span>
       </div>
+
+      <BillingBlock loja={loja} />
 
       {/* comprovante do termo do WhatsApp sem API (registro permanente) */}
       <p

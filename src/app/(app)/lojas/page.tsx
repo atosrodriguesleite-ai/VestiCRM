@@ -8,6 +8,7 @@ import { PageHeader } from "@/components/ui";
 import { LojasView, type Loja } from "./lojas-view";
 import { JueriTeste } from "./jueri-teste";
 import { catalogDomain } from "@/lib/catalog-url";
+import { spNow } from "@/lib/billing";
 
 export const dynamic = "force-dynamic";
 
@@ -20,6 +21,7 @@ export default async function LojasPage() {
     orderBy: { createdAt: "desc" },
     include: {
       _count: { select: { users: true, customers: true, orders: true } },
+      billing: true,
       users: {
         where: { role: "ADMIN" },
         orderBy: { createdAt: "asc" },
@@ -28,6 +30,37 @@ export default async function LojasPage() {
       },
     },
   });
+
+  // Uso: último acesso real por loja + quem foi + quantos entraram nos 7 dias.
+  const usuarios = await db.user.findMany({
+    where: { company: { slug: { not: PLATFORM_SLUG } } },
+    select: { companyId: true, name: true, lastActiveAt: true },
+  });
+  const seteDias = Date.now() - 7 * 24 * 60 * 60 * 1000;
+  const usoByCompany = new Map<
+    string,
+    { at: Date | null; name: string | null; ativos7: number }
+  >();
+  for (const u of usuarios) {
+    const cur = usoByCompany.get(u.companyId) ?? { at: null, name: null, ativos7: 0 };
+    if (u.lastActiveAt) {
+      if (!cur.at || u.lastActiveAt > cur.at) {
+        cur.at = u.lastActiveAt;
+        cur.name = u.name;
+      }
+      if (u.lastActiveAt.getTime() >= seteDias) cur.ativos7 += 1;
+    }
+    usoByCompany.set(u.companyId, cur);
+  }
+
+  // Recebido no mês atual (fuso de São Paulo) — soma dos pagamentos registrados.
+  const sp = spNow();
+  const inicioMes = new Date(Date.UTC(sp.y, sp.m - 1, 1, 3, 0, 0));
+  const recebido = await db.billingPayment.aggregate({
+    _sum: { amount: true },
+    where: { paidAt: { gte: inicioMes } },
+  });
+  const recebidoMes = recebido._sum.amount ?? 0;
 
   // comprovantes do termo do WhatsApp sem API + estado da conexão por loja
   const [consents, connections] = await Promise.all([
@@ -65,6 +98,22 @@ export default async function LojasPage() {
     waStatus: connByCompany.get(c.id)?.evolutionStatus ?? "DESCONECTADO",
     waPhone: connByCompany.get(c.id)?.evolutionPhone ?? null,
     productionEnabled: c.productionEnabled,
+    suspended: c.suspended,
+    billing: c.billing
+      ? {
+          kind: c.billing.kind,
+          implementationFee: c.billing.implementationFee,
+          implementationPaid: c.billing.implementationPaid,
+          implementationPaidAt: c.billing.implementationPaidAt?.toISOString() ?? null,
+          monthlyFee: c.billing.monthlyFee,
+          dueDay: c.billing.dueDay,
+          paidThrough: c.billing.paidThrough?.toISOString() ?? null,
+          notes: c.billing.notes,
+        }
+      : null,
+    lastActiveAt: usoByCompany.get(c.id)?.at?.toISOString() ?? null,
+    lastActiveName: usoByCompany.get(c.id)?.name ?? null,
+    active7: usoByCompany.get(c.id)?.ativos7 ?? 0,
   }));
 
   // Resumo da operação comercial da plataforma (leads do site)
@@ -112,7 +161,7 @@ export default async function LojasPage() {
       </div>
 
       <JueriTeste />
-      <LojasView initial={lojas} catalogDomain={catalogDomain()} />
+      <LojasView initial={lojas} catalogDomain={catalogDomain()} recebidoMes={recebidoMes} />
     </div>
   );
 }

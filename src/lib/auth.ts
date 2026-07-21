@@ -54,8 +54,38 @@ export async function getSessionUser(): Promise<SessionUser | null> {
     const { payload } = await jwtVerify(token, secret);
     const user = await db.user.findUnique({
       where: { id: payload.sub as string },
+      include: { company: { select: { suspended: true } } },
     });
     if (!user || !user.active) return null;
+
+    const impersonatedBy =
+      typeof payload.imp === "string" ? payload.imp : undefined;
+
+    // Loja suspensa (ex.: inadimplência): bloqueia o acesso dos usuários dela.
+    // O Super Admin nunca é bloqueado e continua podendo acessar a loja para
+    // dar suporte (impersonação), inclusive para reativar depois.
+    if (
+      user.company.suspended &&
+      user.role !== "SUPERADMIN" &&
+      !impersonatedBy
+    ) {
+      return null;
+    }
+
+    // Registra o último acesso REAL (a cada ~10 min, para não escrever à toa).
+    // Não conta quando o Super Admin está acessando a loja (impersonação),
+    // senão o painel mostraria a loja como "ativa" sem o cliente ter entrado.
+    if (!impersonatedBy) {
+      const stale =
+        !user.lastActiveAt ||
+        Date.now() - user.lastActiveAt.getTime() > 10 * 60 * 1000;
+      if (stale) {
+        await db.user
+          .update({ where: { id: user.id }, data: { lastActiveAt: new Date() } })
+          .catch(() => {});
+      }
+    }
+
     return {
       id: user.id,
       companyId: user.companyId,
@@ -63,8 +93,7 @@ export async function getSessionUser(): Promise<SessionUser | null> {
       email: user.email,
       role: user.role,
       color: user.color,
-      impersonatedBy:
-        typeof payload.imp === "string" ? payload.imp : undefined,
+      impersonatedBy,
     };
   } catch {
     return null;

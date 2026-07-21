@@ -27,6 +27,7 @@ model Company {
   commissionBase    String   @default("SUBTOTAL") // base da comissão: SUBTOTAL (produtos) | TOTAL (com frete)
   lowStockThreshold Int      @default(5) // alerta de estoque: avisa quando a variação chega a X peças
   productionEnabled Boolean  @default(false) // módulo Produção (pago à parte; super admin ativa por loja)
+  suspended         Boolean  @default(false) // acesso bloqueado pelo super admin (ex.: inadimplência)
   createdAt         DateTime @default(now())
 
   // Identidade visual do catálogo público (100% personalizável pelo lojista)
@@ -66,6 +67,7 @@ model Company {
   waConsents     WhatsappConsent[]
   nuvemshop      NuvemshopConnection?
   jueri          JueriConnection?
+  billing        CompanyBilling?
   promoCatalogs  PromoCatalog[]
   fabrics        Fabric[]
   cutTickets     CutTicket[]
@@ -146,6 +148,7 @@ model User {
   commissionRate Float    @default(0) // % de comissão sobre as vendas do vendedor
   monthlyGoal    Float    @default(0) // meta de vendas do mês (R$) — 0 = sem meta
   prefersDark    Boolean  @default(false) // modo escuro — escolha individual de cada usuário
+  lastActiveAt   DateTime? // último acesso real ao sistema (não conta impersonação do super admin)
   createdAt      DateTime @default(now())
 
   customers     Customer[]     @relation("CustomerOwner")
@@ -565,6 +568,46 @@ model JueriConnection {
   token          String // Bearer token de integração
   lastSyncAt     DateTime?
   createdAt      DateTime  @default(now())
+}
+
+/// Cobrança da loja (visível só para o Super Admin). Cada cliente tem os
+/// SEUS valores — não há preço fixo. Cobra-se implementação (uma vez) e
+/// recorrência (mensal). `kind` define a etiqueta: TESTE, PAGANTE ou
+/// CORTESIA (acesso vitalício grátis, que pode virar pago quando quiser).
+/// `paidThrough` guarda a competência (mês) paga até — dia 1 do mês pago.
+model CompanyBilling {
+  id                   String    @id @default(cuid())
+  companyId            String    @unique
+  company              Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  kind                 String    @default("TESTE") // TESTE | PAGANTE | CORTESIA
+  implementationFee    Float     @default(0) // valor de implementação (uma vez)
+  implementationPaid   Boolean   @default(false)
+  implementationPaidAt DateTime?
+  monthlyFee           Float     @default(0) // valor da recorrência mensal
+  dueDay               Int       @default(10) // dia do vencimento (1..28)
+  paidThrough          DateTime? // recorrência paga ATÉ este mês (dia 1 da competência)
+  notes                String? // acordo combinado (parcelas, descontos, observações)
+  updatedAt            DateTime  @updatedAt
+  createdAt            DateTime  @default(now())
+
+  payments BillingPayment[]
+}
+
+/// Histórico de pagamentos registrados manualmente pelo Super Admin. Alimenta
+/// o "recebido no mês" e a prova de quando cada mês foi pago. Nunca apagado.
+model BillingPayment {
+  id          String         @id @default(cuid())
+  billingId   String
+  billing     CompanyBilling @relation(fields: [billingId], references: [id], onDelete: Cascade)
+  companyId   String // denormalizado para somar por período com facilidade
+  kind        String // IMPLEMENTACAO | RECORRENCIA
+  amount      Float
+  competencia DateTime? // mês de referência (recorrência) — dia 1 da competência
+  paidAt      DateTime       @default(now())
+  note        String?
+  createdAt   DateTime       @default(now())
+
+  @@index([companyId, paidAt])
 }
 
 /// Aceite do termo de uso do WhatsApp sem API oficial — prova de que o
