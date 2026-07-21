@@ -78,6 +78,7 @@ model Company {
   bioPage        BioPage?
   shippingMethods ShippingMethod[]
   setores        Setor[]
+  notifications  Notification[]
 }
 
 // Meios de envio cadastrados pela loja (Correios ou Transportadora): Sedex,
@@ -184,7 +185,28 @@ model User {
   orders        Order[]        @relation("OrderSeller")
   orderEvents   OrderEvent[]
   setores       Setor[]        @relation("SetorUsers") // atendimento: setores do vendedor
+  notifications Notification[] @relation("UserNotifications")
 
+  @@index([companyId])
+}
+
+// Notificação interna (sino do topo): menção em nota interna, chamado
+// atribuído/transferido para você, etc. É só do CRM — nunca vai ao cliente.
+model Notification {
+  id        String   @id @default(cuid())
+  companyId String
+  company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  userId    String // destinatário
+  user      User     @relation("UserNotifications", fields: [userId], references: [id], onDelete: Cascade)
+  type      String // MENTION | ASSIGN
+  title     String
+  body      String   @default("")
+  convId    String? // conversa relacionada (para abrir ao clicar)
+  actorName String? // quem gerou (nome do vendedor)
+  read      Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([userId, read])
   @@index([companyId])
 }
 

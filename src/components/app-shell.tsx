@@ -35,6 +35,7 @@ import {
 } from "lucide-react";
 import { Avatar } from "./ui";
 import { Logo, LogoMark } from "./logo";
+import { NotificationBell } from "./notification-bell";
 
 // supportHidden: o perfil Suporte é operacional (gestão de pedidos +
 // atendimento) — telas comerciais e de configuração ficam fora do menu dele.
@@ -216,6 +217,7 @@ export function AppShell({
               </p>
               <p className="text-xs text-creme/40 truncate">{user.roleLabel}</p>
             </div>
+            <NotificationBell dark />
             <button
               onClick={toggleTheme}
               disabled={savingTheme}
@@ -324,7 +326,10 @@ export function AppShell({
             <Menu className="size-5" />
           </button>
           <Logo size="sm" />
-          <Avatar name={user.name} color={user.color} size="sm" />
+          <div className="flex items-center gap-1">
+            <NotificationBell />
+            <Avatar name={user.name} color={user.color} size="sm" />
+          </div>
         </header>
 
         <main className="flex-1 p-4 md:p-8 pb-24 md:pb-8 animate-fade-in">

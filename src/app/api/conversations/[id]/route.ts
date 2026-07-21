@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { requireUser, AuthError } from "@/lib/auth";
+import { notifyAssignment } from "@/lib/notify";
 
 const schema = z.object({
   status: z
@@ -27,6 +28,7 @@ export async function PATCH(
 
     const conv = await db.conversation.findFirst({
       where: { id, companyId: user.companyId },
+      include: { customer: { select: { name: true } } },
     });
     if (!conv) {
       return NextResponse.json({ error: "Não encontrada" }, { status: 404 });
@@ -62,6 +64,24 @@ export async function PATCH(
     }
 
     const updated = await db.conversation.update({ where: { id }, data });
+
+    // avisa (sino) quem recebeu o chamado — só quando OUTRA pessoa transferiu
+    // e é uma atribuição nova (não notifica reabrir/assumir o próprio).
+    if (
+      parsed.data.assigneeId &&
+      parsed.data.assigneeId !== conv.assigneeId &&
+      parsed.data.assigneeId !== user.id
+    ) {
+      await notifyAssignment({
+        companyId: user.companyId,
+        convId: id,
+        assigneeId: parsed.data.assigneeId,
+        actorId: user.id,
+        actorName: user.name,
+        customerName: conv.customer.name,
+      });
+    }
+
     return NextResponse.json(updated);
   } catch (e) {
     if (e instanceof AuthError)

@@ -3,6 +3,7 @@ import { decryptSecret } from "../crypto";
 import { intakeLead } from "../intake";
 import { resolveProvider } from "./providers";
 import { paceProactiveSend, WA_JANELA_HORAS } from "./evolution";
+import { notifyMentions } from "../notify";
 import type { ProviderCredentials } from "./types";
 import type {
   Channel,
@@ -117,6 +118,18 @@ export async function sendMessage(input: SendMessageInput): Promise<Message> {
       authorId: input.authorId,
     },
   });
+
+  // nota interna: avisa (sino) quem foi mencionado com @ na nota
+  if (isNote && input.authorName) {
+    await notifyMentions({
+      companyId: input.companyId,
+      convId: conv.id,
+      authorId: input.authorId,
+      authorName: input.authorName,
+      customerName: conv.customer.name,
+      note: input.body,
+    });
+  }
 
   if (!isNote) {
     const started = Date.now();

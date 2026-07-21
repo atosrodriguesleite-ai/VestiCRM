@@ -40,6 +40,7 @@ export async function POST(
       fileName: parsed.data.fileName,
       replyToId: parsed.data.replyToId,
       authorId: user.id,
+      authorName: user.name,
     });
 
     return NextResponse.json(message, { status: 201 });

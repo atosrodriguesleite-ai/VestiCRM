@@ -4,7 +4,7 @@
 
 import { useMemo, useRef, useState, useEffect } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   Send,
   StickyNote,
@@ -28,6 +28,10 @@ import {
   CheckCircle2,
   Users,
   ArrowRightLeft,
+  Tag as TagIcon,
+  Plus,
+  X,
+  AtSign,
 } from "lucide-react";
 import { OrderComposer } from "@/components/order-composer";
 import { orderNumber } from "@/lib/orders";
@@ -39,7 +43,7 @@ import {
   templateCategoryLabel,
   relativeDays,
 } from "@/lib/format";
-import { Avatar, Badge, EmptyState } from "@/components/ui";
+import { Avatar, EmptyState } from "@/components/ui";
 
 export type InboxMessage = {
   id: string;
@@ -71,7 +75,7 @@ export type InboxConversation = {
     phone: string;
     city: string | null;
     wholesale: boolean;
-    tags: { name: string; color: string }[];
+    tags: { id: string; name: string; color: string }[];
   };
   assignee: { id: string; name: string; color: string } | null;
   setor: { id: string; name: string; color: string } | null;
@@ -180,11 +184,14 @@ function SetorPill({
   );
 }
 
+type Tag = { id: string; name: string; color: string };
+
 export function Inbox({
   conversations,
   templates,
   team,
   setores,
+  allTags,
   currentUserId,
   currentUserName,
 }: {
@@ -192,6 +199,7 @@ export function Inbox({
   templates: { id: string; title: string; body: string; category: string }[];
   team: { id: string; name: string; color: string }[];
   setores: { id: string; name: string; color: string }[];
+  allTags: Tag[];
   currentUserId: string;
   currentUserName: string;
 }) {
@@ -200,14 +208,20 @@ export function Inbox({
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [tab, setTab] = useState<Tab>("fila");
   const [search, setSearch] = useState("");
+  const [tagFilter, setTagFilter] = useState<string | null>(null);
+  const [tags, setTags] = useState<Tag[]>(allTags);
+  const [showTagPicker, setShowTagPicker] = useState(false);
+  const [newTagName, setNewTagName] = useState("");
   const [draft, setDraft] = useState("");
   const [noteMode, setNoteMode] = useState(false);
+  const [mention, setMention] = useState<{ query: string; at: number } | null>(null);
   const [showTemplates, setShowTemplates] = useState(false);
   const [showAttach, setShowAttach] = useState(false);
   const [showOrder, setShowOrder] = useState(false);
   const [showTransfer, setShowTransfer] = useState(false);
   const [sending, setSending] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const taRef = useRef<HTMLTextAreaElement>(null);
 
   const selected = convs.find((c) => c.id === selectedId) ?? null;
 
@@ -226,6 +240,7 @@ export function Inbox({
     const q = search.trim().toLowerCase();
     const list = convs.filter((c) => {
       if (bucketOf(c) !== tab) return false;
+      if (tagFilter && !c.customer.tags.some((t) => t.id === tagFilter)) return false;
       if (
         q &&
         !c.customer.name.toLowerCase().includes(q) &&
@@ -246,15 +261,29 @@ export function Inbox({
         new Date(b.lastMessageAt).getTime() - new Date(a.lastMessageAt).getTime()
       );
     });
-  }, [convs, tab, search]);
+  }, [convs, tab, search, tagFilter]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "instant" as ScrollBehavior });
   }, [selectedId, selected?.messages.length]);
 
+  // abre direto a conversa vinda do sino de notificações (?conv=...)
+  const searchParams = useSearchParams();
+  useEffect(() => {
+    const cid = searchParams.get("conv");
+    if (cid && convs.some((c) => c.id === cid)) {
+      setSelectedId(cid);
+      const c = convs.find((x) => x.id === cid);
+      if (c) setTab(c.status === "CLOSED" ? "contatos" : c.assignee ? "chats" : "fila");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
+
   function selectConv(id: string) {
     setSelectedId(id);
     setShowTransfer(false);
+    setShowTagPicker(false);
+    setMention(null);
     setConvs((prev) =>
       prev.map((c) => (c.id === id ? { ...c, unreadCount: 0 } : c))
     );
@@ -330,6 +359,7 @@ export function Inbox({
     if (ok) {
       setDraft("");
       setNoteMode(false);
+      setMention(null);
     }
   }
 
@@ -434,6 +464,75 @@ export function Inbox({
     setTab("fila");
   };
 
+  // ---- Etiquetas (tags) do contato ----
+  async function toggleTag(tag: Tag) {
+    if (!selected) return;
+    const has = selected.customer.tags.some((t) => t.id === tag.id);
+    const nextTags = has
+      ? selected.customer.tags.filter((t) => t.id !== tag.id)
+      : [...selected.customer.tags, tag];
+    // aplica em TODAS as conversas do mesmo cliente (a etiqueta é do contato)
+    setConvs((prev) =>
+      prev.map((c) =>
+        c.customer.id === selected.customer.id
+          ? { ...c, customer: { ...c.customer, tags: nextTags } }
+          : c
+      )
+    );
+    await fetch(`/api/customers/${selected.customer.id}/tags`, {
+      method: has ? "DELETE" : "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ tagId: tag.id }),
+    });
+  }
+
+  async function createTag() {
+    const name = newTagName.trim();
+    if (!name || !selected) return;
+    const palette = ["#8b5cf6", "#ec4899", "#f59e0b", "#10b981", "#0ea5e9", "#ef4444"];
+    const color = palette[tags.length % palette.length];
+    const res = await fetch("/api/tags", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name, color }),
+    });
+    if (res.ok) {
+      const tag: Tag = await res.json();
+      setTags((prev) => (prev.some((t) => t.id === tag.id) ? prev : [...prev, tag]));
+      setNewTagName("");
+      if (!selected.customer.tags.some((t) => t.id === tag.id)) toggleTag(tag);
+    }
+  }
+
+  // ---- Menção @vendedor nas notas internas ----
+  function onDraftChange(value: string, caret: number) {
+    setDraft(value);
+    if (!noteMode) {
+      setMention(null);
+      return;
+    }
+    const before = value.slice(0, caret);
+    const m = before.match(/@([\p{L} ]{0,20})$/u);
+    if (m) setMention({ query: m[1].toLowerCase(), at: caret - m[0].length });
+    else setMention(null);
+  }
+
+  function insertMention(name: string) {
+    const caret = taRef.current?.selectionStart ?? draft.length;
+    const start = mention?.at ?? caret;
+    const next = draft.slice(0, start) + `@${name} ` + draft.slice(caret);
+    setDraft(next);
+    setMention(null);
+    taRef.current?.focus();
+  }
+
+  const mentionMatches = useMemo(() => {
+    if (!mention) return [];
+    return team
+      .filter((t) => t.id !== currentUserId && t.name.toLowerCase().includes(mention.query))
+      .slice(0, 5);
+  }, [mention, team, currentUserId]);
+
   const applyTemplate = (body: string) => {
     const name = selected?.customer.name.split(" ")[0] ?? "";
     setDraft(
@@ -518,6 +617,40 @@ export function Inbox({
               );
             })}
           </div>
+
+          {/* filtro por etiqueta (tag) */}
+          {tags.length > 0 && (
+            <div className="flex gap-1.5 overflow-x-auto thin-scroll mt-2 pb-0.5">
+              {tagFilter && (
+                <button
+                  onClick={() => setTagFilter(null)}
+                  className="shrink-0 inline-flex items-center gap-1 rounded-full bg-gray-100 text-gray-500 text-[11px] font-semibold px-2 py-1 hover:bg-gray-200"
+                >
+                  <X className="size-3" /> limpar
+                </button>
+              )}
+              {tags.map((t) => {
+                const on = tagFilter === t.id;
+                return (
+                  <button
+                    key={t.id}
+                    onClick={() => setTagFilter(on ? null : t.id)}
+                    className="shrink-0 inline-flex items-center gap-1 rounded-full px-2 py-1 text-[11px] font-semibold transition"
+                    style={{
+                      backgroundColor: on ? t.color : `${t.color}1a`,
+                      color: on ? "#fff" : t.color,
+                    }}
+                  >
+                    <span
+                      className="size-1.5 rounded-full"
+                      style={{ backgroundColor: on ? "#fff" : t.color }}
+                    />
+                    {t.name}
+                  </button>
+                );
+              })}
+            </div>
+          )}
         </div>
 
         <div className="flex-1 overflow-y-auto thin-scroll">
@@ -774,16 +907,79 @@ export function Inbox({
               </div>
             )}
 
-            {/* tags do cliente */}
-            {selected.customer.tags.length > 0 && (
-              <div className="flex gap-1.5 px-4 py-2 border-b border-gray-50 overflow-x-auto thin-scroll shrink-0">
-                {selected.customer.tags.map((t) => (
-                  <Badge key={t.name} color={t.color}>
-                    {t.name}
-                  </Badge>
-                ))}
-              </div>
-            )}
+            {/* etiquetas (tags) do contato — clicáveis para remover, + para adicionar */}
+            <div className="relative flex items-center gap-1.5 px-4 py-2 border-b border-gray-50 overflow-x-auto thin-scroll shrink-0">
+              <TagIcon className="size-3.5 text-gray-300 shrink-0" />
+              {selected.customer.tags.map((t) => (
+                <button
+                  key={t.id}
+                  onClick={() => toggleTag(t)}
+                  className="group shrink-0 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold"
+                  style={{ backgroundColor: `${t.color}1a`, color: t.color }}
+                  title="Remover etiqueta"
+                >
+                  {t.name}
+                  <X className="size-2.5 opacity-50 group-hover:opacity-100" />
+                </button>
+              ))}
+              <button
+                onClick={() => setShowTagPicker((v) => !v)}
+                className={`shrink-0 inline-flex items-center gap-0.5 rounded-full border border-dashed px-2 py-0.5 text-[11px] font-semibold transition ${
+                  showTagPicker
+                    ? "border-brand-400 text-brand-600 bg-brand-50"
+                    : "border-gray-300 text-gray-400 hover:text-brand-600 hover:border-brand-300"
+                }`}
+              >
+                <Plus className="size-3" /> etiqueta
+              </button>
+
+              {showTagPicker && (
+                <div className="absolute top-full left-4 mt-1 w-60 bg-white rounded-xl border border-gray-100 shadow-pop z-20 p-2">
+                  <div className="max-h-44 overflow-y-auto thin-scroll space-y-0.5">
+                    {tags.length === 0 && (
+                      <p className="text-[11px] text-gray-400 px-1 py-1.5">
+                        Nenhuma etiqueta ainda. Crie a primeira abaixo. 👇
+                      </p>
+                    )}
+                    {tags.map((t) => {
+                      const on = selected.customer.tags.some((x) => x.id === t.id);
+                      return (
+                        <button
+                          key={t.id}
+                          onClick={() => toggleTag(t)}
+                          className="w-full flex items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs hover:bg-gray-50"
+                        >
+                          <span className="size-2.5 rounded-full shrink-0" style={{ backgroundColor: t.color }} />
+                          <span className="flex-1 truncate">{t.name}</span>
+                          {on && <CheckCircle2 className="size-3.5 text-emerald-500 shrink-0" />}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <div className="flex items-center gap-1.5 border-t border-gray-100 mt-1.5 pt-1.5">
+                    <input
+                      value={newTagName}
+                      onChange={(e) => setNewTagName(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          createTag();
+                        }
+                      }}
+                      placeholder="Nova etiqueta..."
+                      className="flex-1 min-w-0 rounded-lg bg-gray-50 border border-transparent focus:border-brand-300 focus:bg-white px-2 py-1.5 text-xs outline-none"
+                    />
+                    <button
+                      onClick={createTag}
+                      disabled={!newTagName.trim()}
+                      className="shrink-0 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-xs font-semibold px-2.5 py-1.5 disabled:opacity-40"
+                    >
+                      Criar
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
 
             {/* mensagens */}
             <div className="flex-1 overflow-y-auto thin-scroll px-4 py-4 space-y-2 bg-[#f4f1f8]">
@@ -909,6 +1105,24 @@ export function Inbox({
                   </button>
                 </div>
               )}
+              {/* menção @ nas notas internas */}
+              {noteMode && mention && mentionMatches.length > 0 && (
+                <div className="absolute bottom-full left-3 mb-1 w-56 bg-white rounded-xl border border-gray-100 shadow-pop z-20 p-1">
+                  <p className="px-2.5 pt-1 pb-1.5 text-[10px] font-bold uppercase tracking-wide text-gray-400 flex items-center gap-1">
+                    <AtSign className="size-3" /> Marcar alguém
+                  </p>
+                  {mentionMatches.map((u) => (
+                    <button
+                      key={u.id}
+                      onClick={() => insertMention(u.name.split(" ")[0])}
+                      className="w-full flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-sm hover:bg-amber-50 transition"
+                    >
+                      <span className="size-2 rounded-full shrink-0" style={{ backgroundColor: u.color }} />
+                      <span className="truncate">{u.name}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
               <div
                 className={`flex items-end gap-1.5 rounded-2xl border px-2 py-1.5 transition ${
                   noteMode
@@ -955,10 +1169,21 @@ export function Inbox({
                   <ShoppingBag className="size-4.5" />
                 </button>
                 <textarea
+                  ref={taRef}
                   value={draft}
-                  onChange={(e) => setDraft(e.target.value)}
+                  onChange={(e) => onDraftChange(e.target.value, e.target.selectionStart)}
                   onKeyDown={(e) => {
+                    if (e.key === "Escape" && mention) {
+                      setMention(null);
+                      return;
+                    }
                     if (e.key === "Enter" && !e.shiftKey) {
+                      // com a lista de menção aberta, Enter escolhe o 1º nome
+                      if (noteMode && mention && mentionMatches.length > 0) {
+                        e.preventDefault();
+                        insertMention(mentionMatches[0].name.split(" ")[0]);
+                        return;
+                      }
                       e.preventDefault();
                       sendMessage();
                     }
@@ -966,7 +1191,7 @@ export function Inbox({
                   rows={1}
                   placeholder={
                     noteMode
-                      ? "Escrever nota interna..."
+                      ? "Nota interna... use @ para marcar alguém"
                       : "Escrever mensagem... (Enter envia)"
                   }
                   className="flex-1 resize-none bg-transparent text-sm outline-none py-2 max-h-32"
