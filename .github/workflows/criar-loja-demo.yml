@@ -37,4 +37,8 @@ jobs:
             echo "::error::Secret DATABASE_URL_PRODUCAO não configurado (Settings → Secrets and variables → Actions)"
             exit 1
           fi
+          # aplica quaisquer migrações pendentes (ex.: tabelas da Bio) antes de
+          # semear — assim a demo funciona mesmo que o deploy ainda não tenha
+          # rodado. É idempotente e só aplica o que falta; não apaga dados.
+          npx prisma migrate deploy
           npx tsx scripts/seed-demo.ts

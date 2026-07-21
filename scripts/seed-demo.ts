@@ -73,7 +73,14 @@ async function main() {
       name: "Bella Moda",
       slug: DEMO_SLUG,
       tagline: "Moda feminina no atacado e varejo — loja de demonstração",
+      whatsapp: "5511914327650",
       productionEnabled: true,
+      marketingEnabled: true,
+      // identidade visual (rosé) — deixa o catálogo e a Bio com a cara da marca
+      catalogPrimary: "#9D2449",
+      catalogSecondary: "#F6D8E0",
+      catalogBg: "#FFF9FB",
+      catalogFont: "poppins",
     },
   });
   const hash = await bcrypt.hash(SENHA, 10);
@@ -1028,6 +1035,50 @@ async function main() {
       })),
     });
   }
+
+  // ================= MÓDULO MARKETING =================
+  // Campanhas de AQUISIÇÃO — de onde vieram os clientes que compram. O
+  // faturamento por campanha vem sozinho: cada pedido pago herda a campanha
+  // de origem do cliente (atribuição first-touch).
+  const mkCampaign = (name: string, channel: string, utmKey: string, dias: number) =>
+    db.marketingCampaign.create({
+      data: { companyId: company.id, name, channel, utmKey, active: true, createdAt: daysAgo(dias) },
+    });
+  const cInsta = await mkCampaign("Inverno no Instagram", "INSTAGRAM", "inverno-insta", 40);
+  const cWpp = await mkCampaign("Frete Grátis no WhatsApp", "WHATSAPP", "frete-gratis-wpp", 35);
+  const cGoogle = await mkCampaign("Google — Atacado Moda", "GOOGLE", "google-atacado", 30);
+  const cMeta = await mkCampaign("Conjuntos — Meta Ads", "FACEBOOK", "conjuntos-meta", 25);
+
+  const atribuir = async (nome: string, campId: string) =>
+    db.customer.update({ where: { id: cust(nome).id }, data: { campaignId: campId } });
+  for (const n of ["Mariana Castro", "Vanessa Martins", "Beatriz Almeida", "Larissa Mendes"]) await atribuir(n, cInsta.id);
+  for (const n of ["Fernanda Oliveira", "Camila Rodrigues", "Sandra Regina", "Débora Santana"]) await atribuir(n, cWpp.id);
+  for (const n of ["Tainá Barbosa", "Isabela Rocha"]) await atribuir(n, cGoogle.id);
+  for (const n of ["Boutique Charme", "Cláudia Torres", "Magazine Dona Flor"]) await atribuir(n, cMeta.id);
+
+  // ---- Gestor de Bio (página de links do Instagram, publicada) ----
+  const bio = await db.bioPage.create({
+    data: {
+      companyId: company.id,
+      slug: DEMO_SLUG,
+      published: true,
+      headline: "Bella Moda",
+      tagline: "Moda feminina no atacado 💗 novidades toda semana · envio pra todo Brasil",
+      views: 1284,
+    },
+  });
+  const bioLink = (
+    title: string, subtitle: string | null,
+    type: "CATALOGO" | "WHATSAPP" | "SITE" | "EXTERNO",
+    url: string | null, order: number, clicks: number
+  ) =>
+    db.bioLink.create({
+      data: { bioPageId: bio.id, companyId: company.id, title, subtitle, type, url, order, clicks },
+    });
+  await bioLink("Ver catálogo completo", "Novidades toda semana ✨", "CATALOGO", null, 0, 642);
+  await bioLink("Falar com uma vendedora", "Tira dúvidas e faz seu pedido", "WHATSAPP", null, 1, 388);
+  await bioLink("Nossa loja online", "Compre no varejo com entrega", "SITE", "https://bellamoda.com.br", 2, 121);
+  await bioLink("Instagram @bellamoda", "Bastidores e lançamentos", "EXTERNO", "https://instagram.com/bellamoda", 3, 96);
 
   console.log("");
   console.log("✅ Loja de demonstração criada!");
