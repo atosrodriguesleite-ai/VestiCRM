@@ -9,7 +9,7 @@ import {
   History,
 } from "lucide-react";
 import { requireUser } from "@/lib/auth";
-import { isManagerUp } from "@/lib/scope";
+import { isManagerUp, isSupport } from "@/lib/scope";
 import { db } from "@/lib/db";
 import { brl, dateFull, dateShort, timeShort } from "@/lib/format";
 import {
@@ -23,6 +23,7 @@ import { StatusChanger } from "./status-changer";
 import { CustomerEditor } from "./customer-editor";
 import { ItemsEditor } from "./items-editor";
 import { PaymentMethodChanger } from "./payment-method";
+import { ShippingMethodChanger } from "./shipping-method";
 import { DeleteOrder } from "./delete-order";
 import { ResaleCatalog } from "./resale-catalog";
 
@@ -283,7 +284,17 @@ export default async function OrderDetailPage({
                   .filter(Boolean)
                   .join("/") || "Endereço a definir"}
               </p>
-              {order.shipping?.method && <p>Via {order.shipping.method}</p>}
+              {/* meio de envio: seletor da lista cadastrada pela loja */}
+              <div className="flex items-center justify-between gap-2 pt-0.5">
+                <span className="text-xs font-medium text-gray-400 shrink-0">Meio de envio</span>
+                <div className="min-w-0 max-w-[62%]">
+                  <ShippingMethodChanger
+                    orderId={order.id}
+                    current={order.shipping?.method ?? null}
+                    canManage={isManagerUp(user) || isSupport(user)}
+                  />
+                </div>
+              </div>
               {order.shipping?.trackingCode && (
                 <p className="font-mono text-xs bg-gray-50 rounded-lg px-2 py-1">
                   {order.shipping.trackingCode}

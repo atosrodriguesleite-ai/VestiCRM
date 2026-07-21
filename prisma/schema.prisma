@@ -76,6 +76,25 @@ model Company {
   fabricScraps   FabricScrap[]
   marketingCampaigns MarketingCampaign[]
   bioPage        BioPage?
+  shippingMethods ShippingMethod[]
+}
+
+// Meios de envio cadastrados pela loja (Correios ou Transportadora): Sedex,
+// Pac, Loggi, Jadlog... Aparecem no seletor de envio de cada pedido, do mesmo
+// jeito que a forma de pagamento. Gerência liberada para admin/gerente e para
+// o perfil Suporte.
+model ShippingMethod {
+  id        String   @id @default(cuid())
+  companyId String
+  company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  name      String
+  kind      String   @default("TRANSPORTADORA") // CORREIOS | TRANSPORTADORA
+  active    Boolean  @default(true)
+  order     Int      @default(0)
+  createdAt DateTime @default(now())
+
+  @@unique([companyId, name])
+  @@index([companyId, active])
 }
 
 // Biblioteca de cores do lojista: ele cria a tonalidade e dá o nome

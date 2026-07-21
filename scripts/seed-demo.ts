@@ -148,6 +148,16 @@ async function main() {
     data: sizeNames.map((name, i) => ({ companyId: company.id, name, order: i })),
   });
 
+  // meios de envio (Correios / Transportadora) que a loja usa nos pedidos
+  await db.shippingMethod.createMany({
+    data: [
+      { companyId: company.id, name: "Sedex", kind: "CORREIOS", order: 0 },
+      { companyId: company.id, name: "Pac", kind: "CORREIOS", order: 1 },
+      { companyId: company.id, name: "Loggi", kind: "TRANSPORTADORA", order: 2 },
+      { companyId: company.id, name: "Jadlog", kind: "TRANSPORTADORA", order: 3 },
+    ],
+  });
+
   // ---- funil ----
   const pipeline = await db.pipeline.create({
     data: { companyId: company.id, name: "Funil de vendas" },

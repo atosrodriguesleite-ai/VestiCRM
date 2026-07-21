@@ -432,16 +432,19 @@ export async function PATCH(
       parsed.data.trackingCode !== undefined ||
       parsed.data.shippingMethod !== undefined
     ) {
-      await db.shipping.update({
+      const shipData = {
+        ...(parsed.data.trackingCode !== undefined
+          ? { trackingCode: parsed.data.trackingCode }
+          : {}),
+        ...(parsed.data.shippingMethod !== undefined
+          ? { method: parsed.data.shippingMethod }
+          : {}),
+      };
+      // upsert: cria a linha de envio se ainda não existir (pedido novo/manual)
+      await db.shipping.upsert({
         where: { orderId: order.id },
-        data: {
-          ...(parsed.data.trackingCode !== undefined
-            ? { trackingCode: parsed.data.trackingCode }
-            : {}),
-          ...(parsed.data.shippingMethod !== undefined
-            ? { method: parsed.data.shippingMethod }
-            : {}),
-        },
+        update: shipData,
+        create: { orderId: order.id, cost: order.shippingFee, ...shipData },
       });
       await db.orderEvent.create({
         data: {
