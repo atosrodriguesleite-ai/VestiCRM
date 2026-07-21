@@ -234,7 +234,7 @@ export default async function MarketingPage({
       {canais.length > 0 && (
         <div>
           <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400">Canal</p>
-          <div className="flex gap-2 overflow-x-auto pb-1">
+          <div className="flex flex-wrap gap-2 pb-1">
             <Link href={canalHref(null)} className={chipCls(!canalParam)}>
               Geral
             </Link>
@@ -299,7 +299,35 @@ export default async function MarketingPage({
       {(porCampanha.length > 0 || leadsSemCamp > 0 || fatSemCamp > 0) && (
         <Card className="p-5">
           <h3 className="text-sm font-semibold text-slate-700 mb-4">Resultado por campanha</h3>
-          <div className="overflow-x-auto">
+
+          {/* celular: cada campanha vira um cartão (cabe na tela) */}
+          <div className="md:hidden space-y-2">
+            {porCampanha.map((c) => (
+              <div key={c.id} className="rounded-xl border border-slate-100 px-3 py-2.5">
+                <div className="mb-1.5 flex items-center justify-between gap-2">
+                  <span className="min-w-0 truncate text-sm font-medium text-slate-800">{c.name}</span>
+                  <span className="shrink-0 text-sm font-semibold tabular-nums text-slate-800">{brl(c.fat)}</span>
+                </div>
+                <div className="flex flex-wrap gap-x-4 gap-y-0.5 text-xs text-slate-500">
+                  <span>Leads <b className="text-slate-700">{c.leads}</b></span>
+                  <span>Compraram <b className="text-slate-700">{c.clientes}</b></span>
+                  <span>Conv. <b className="text-slate-700">{c.conversao != null ? `${c.conversao}%` : "—"}</b></span>
+                </div>
+              </div>
+            ))}
+            {(leadsSemCamp > 0 || fatSemCamp > 0) && (
+              <div className="rounded-xl border border-slate-100 bg-slate-50/60 px-3 py-2.5">
+                <div className="mb-1.5 flex items-center justify-between gap-2">
+                  <span className="min-w-0 truncate text-sm italic text-slate-400">Sem campanha (não identificado)</span>
+                  <span className="shrink-0 text-sm font-semibold tabular-nums text-slate-500">{brl(fatSemCamp)}</span>
+                </div>
+                <div className="text-xs text-slate-400">Leads <b className="text-slate-500">{leadsSemCamp}</b></div>
+              </div>
+            )}
+          </div>
+
+          {/* computador: tabela (inalterada) */}
+          <div className="hidden md:block overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="text-left text-[11px] font-semibold uppercase tracking-wide text-slate-400 border-b border-slate-100">

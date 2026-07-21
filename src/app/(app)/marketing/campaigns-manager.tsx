@@ -145,7 +145,7 @@ export function CampaignsManager({ initial }: { initial: Campanha[] }) {
             />
           </Card>
         ) : (
-          <div className="grid gap-3">
+          <div className="grid grid-cols-1 gap-3">
             {initial.map((c) => (
               <Card key={c.id} className={`p-4 ${c.active ? "" : "opacity-60"}`}>
                 <div className="flex items-center justify-between gap-3">

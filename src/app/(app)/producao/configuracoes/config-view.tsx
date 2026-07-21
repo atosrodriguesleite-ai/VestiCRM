@@ -40,7 +40,7 @@ export type TecidoRow = {
 };
 
 const inputCls =
-  "w-full rounded-xl border border-gray-200 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-200";
+  "w-full min-w-0 rounded-xl border border-gray-200 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-200";
 
 export type FaccaoConfigRow = {
   id: string;

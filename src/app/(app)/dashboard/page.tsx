@@ -385,16 +385,16 @@ export default async function DashboardPage({
         title={`Olá, ${user.name.split(" ")[0]} 👋`}
         subtitle={`Visão geral do comercial — ${periodLabel}.`}
         action={
-          <form className="flex items-end gap-2" method="GET">
-            <div>
+          <form className="flex flex-wrap items-end gap-2" method="GET">
+            <div className="flex-1 min-w-0 sm:flex-none">
               <label className="block text-[11px] font-semibold text-gray-500 mb-1">De</label>
-              <input type="date" name="de" defaultValue={de ?? ""} className="rounded-xl border border-gray-200 px-3 py-2 text-sm bg-white" />
+              <input type="date" name="de" defaultValue={de ?? ""} className="w-full sm:w-auto rounded-xl border border-gray-200 px-3 py-2 text-sm bg-white" />
             </div>
-            <div>
+            <div className="flex-1 min-w-0 sm:flex-none">
               <label className="block text-[11px] font-semibold text-gray-500 mb-1">Até</label>
-              <input type="date" name="ate" defaultValue={ate ?? ""} className="rounded-xl border border-gray-200 px-3 py-2 text-sm bg-white" />
+              <input type="date" name="ate" defaultValue={ate ?? ""} className="w-full sm:w-auto rounded-xl border border-gray-200 px-3 py-2 text-sm bg-white" />
             </div>
-            <button className="rounded-xl bg-gray-900 hover:bg-gray-700 text-white text-sm font-medium px-4 py-2.5 transition">
+            <button className="shrink-0 rounded-xl bg-gray-900 hover:bg-gray-700 text-white text-sm font-medium px-4 py-2.5 transition">
               Filtrar
             </button>
             {customPeriod && (
@@ -511,7 +511,7 @@ export default async function DashboardPage({
 
       {/* Faturamento diário × período anterior + composição por status */}
       {(sales30.length > 0 || prevSales.length > 0) && (
-        <div className="grid lg:grid-cols-3 gap-4 md:gap-6 mb-6">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 md:gap-6 mb-6">
           <Card className="p-5 lg:col-span-2">
             <div className="flex items-center justify-between gap-2 flex-wrap mb-2">
               <h2 className="font-semibold flex items-center gap-2 text-sm">
@@ -611,7 +611,7 @@ export default async function DashboardPage({
       </div>
 
       {(topItems.length > 0 || topBuyers.length > 0) && (
-        <div className="grid lg:grid-cols-2 gap-4 md:gap-6 mb-6">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-6 mb-6">
           <Card className="p-5">
             <h2 className="font-semibold flex items-center gap-2 mb-4">
               <Package className="size-4 text-brand-600" />
@@ -653,7 +653,7 @@ export default async function DashboardPage({
         </div>
       )}
 
-      <div className="grid lg:grid-cols-3 gap-4 md:gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 md:gap-6">
         {/* Próximos follow-ups */}
         <Card className="p-5 lg:col-span-2">
           <div className="flex items-center justify-between mb-4">

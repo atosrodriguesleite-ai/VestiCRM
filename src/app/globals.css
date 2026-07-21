@@ -235,6 +235,18 @@ html {
   touch-action: manipulation;
 }
 
+/* CELULAR: campos com fonte < 16px fazem o iOS dar ZOOM automático ao tocar
+   (a tela "descentraliza"). Forçando 16px no celular, o toque num campo NÃO
+   aproxima nem desloca a tela. No computador nada muda (só abaixo de 768px).
+   A pinça continua funcionando; isto afeta só o foco automático em campos. */
+@media (max-width: 767px) {
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
+}
+
 body {
   background: var(--color-canvas);
   color: var(--color-ink);

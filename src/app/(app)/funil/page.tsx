@@ -220,16 +220,16 @@ export default async function FunnelPage({
         action={
           <div className="flex items-end gap-2 flex-wrap">
             <QuickLeadLink {...trackedLinkParts(user, funnelCompany?.slug ?? "")} />
-          <form className="flex items-end gap-2" method="GET">
-            <div>
+          <form className="flex flex-1 flex-wrap items-end gap-2 sm:flex-none" method="GET">
+            <div className="flex-1 min-w-0 sm:flex-none">
               <label className="block text-[11px] font-semibold text-gray-500 mb-1">De</label>
-              <input type="date" name="de" defaultValue={de ?? ""} className="rounded-xl border border-gray-200 px-3 py-2 text-sm bg-white" />
+              <input type="date" name="de" defaultValue={de ?? ""} className="w-full sm:w-auto rounded-xl border border-gray-200 px-3 py-2 text-sm bg-white" />
             </div>
-            <div>
+            <div className="flex-1 min-w-0 sm:flex-none">
               <label className="block text-[11px] font-semibold text-gray-500 mb-1">Até</label>
-              <input type="date" name="ate" defaultValue={ate ?? ""} className="rounded-xl border border-gray-200 px-3 py-2 text-sm bg-white" />
+              <input type="date" name="ate" defaultValue={ate ?? ""} className="w-full sm:w-auto rounded-xl border border-gray-200 px-3 py-2 text-sm bg-white" />
             </div>
-            <button className="rounded-xl bg-gray-900 hover:bg-gray-700 text-white text-sm font-medium px-4 py-2.5 transition">
+            <button className="shrink-0 rounded-xl bg-gray-900 hover:bg-gray-700 text-white text-sm font-medium px-4 py-2.5 transition">
               Filtrar
             </button>
           </form>

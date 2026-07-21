@@ -169,7 +169,7 @@ export function TeamView({
         </div>
       )}
 
-      <div className="grid sm:grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         {members.map((m) => (
           <Card
             key={m.id}

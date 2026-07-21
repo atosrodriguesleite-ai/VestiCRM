@@ -104,7 +104,7 @@ export default async function ProductsPage() {
         subtitle={`${items.length} produto${items.length === 1 ? "" : "s"} no catálogo da loja.`}
         action={
           company && (
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2 sm:justify-end">
               {(isManagerUp(user) || isSupport(user)) && <CategoryManager />}
               {isManagerUp(user) && <SkuManager />}
               {isManagerUp(user) && <ExportCatalog />}

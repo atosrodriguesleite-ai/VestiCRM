@@ -116,12 +116,12 @@ export function CommCenter({
       </div>
 
       <Card className="p-5 mb-6">
-        <div className="flex items-center justify-between gap-2 mb-1">
+        <div className="flex flex-wrap items-center justify-between gap-2 mb-1">
           <h2 className="font-semibold flex items-center gap-2">
             <FlaskConical className="size-4 text-brand-600" />
             Simulador
           </h2>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2 min-w-0">
             <Badge color={stats.provider === "MOCK" ? "#64748b" : "#059669"}>
               Provider ativo:{" "}
               {stats.provider === "MOCK"

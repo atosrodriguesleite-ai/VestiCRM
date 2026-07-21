@@ -191,7 +191,7 @@ export default async function OrdersPage({
       </form>
 
       {/* Canal da venda: tudo, só AtacadoPro (catálogo/WhatsApp/manual) ou só Nuvemshop */}
-      <div className="flex gap-1.5 mb-3">
+      <div className="flex flex-wrap gap-1.5 mb-3">
         {[
           { c: null, label: `Todos os canais (${apCount + nsCount})` },
           { c: "atacadopro", label: `AtacadoPro (${apCount})` },
@@ -213,7 +213,7 @@ export default async function OrdersPage({
         ))}
       </div>
 
-      <div className="flex gap-1.5 mb-4 overflow-x-auto thin-scroll pb-1">
+      <div className="flex flex-wrap gap-1.5 mb-4 pb-1">
         <Link
           href={`/pedidos${dateQS ? `?${dateQS.slice(1)}` : ""}`}
           className={`px-3 py-2 rounded-xl text-xs font-medium whitespace-nowrap transition ${
@@ -255,8 +255,8 @@ export default async function OrdersPage({
           {orders.map((o) => (
             <Link key={o.id} href={`/pedidos/${o.id}`} className="block">
               <Card className="p-4 hover:shadow-pop transition">
-                <div className="flex items-center gap-3">
-                  <span className="text-sm font-bold text-brand-700 tabular-nums shrink-0 w-14">
+                <div className="flex items-center gap-2.5 sm:gap-3">
+                  <span className="text-sm font-bold text-brand-700 tabular-nums shrink-0 w-11 sm:w-14">
                     {orderNumber(o.number)}
                   </span>
                   <Avatar name={o.customer.name} color={o.seller?.color ?? "#c4622d"} />
@@ -269,6 +269,17 @@ export default async function OrdersPage({
                       {o._count.items === 1 ? "item" : "itens"} ·{" "}
                       {o.items.map((i) => i.name).join(", ")}
                     </p>
+                    {/* celular: selos numa 2ª linha, dentro da coluna (cabe na tela) */}
+                    <div className="sm:hidden mt-1.5 flex items-center gap-1.5 flex-wrap">
+                      {o.source === "NUVEMSHOP" ? (
+                        <Badge color="#0891B2">Nuvemshop</Badge>
+                      ) : (
+                        <Badge color="#C4622D">AtacadoPro</Badge>
+                      )}
+                      <Badge color={orderStatusColor[o.status]}>
+                        {orderStatusLabel[o.status]}
+                      </Badge>
+                    </div>
                   </div>
                   <div className="hidden sm:block text-right shrink-0">
                     <p className="text-xs text-gray-400">
@@ -278,15 +289,18 @@ export default async function OrdersPage({
                       {o.seller?.name ?? "—"}
                     </p>
                   </div>
-                  {o.source === "NUVEMSHOP" ? (
-                    <Badge color="#0891B2">Nuvemshop</Badge>
-                  ) : (
-                    <Badge color="#C4622D">AtacadoPro</Badge>
-                  )}
-                  <Badge color={orderStatusColor[o.status]}>
-                    {orderStatusLabel[o.status]}
-                  </Badge>
-                  <span className="text-sm font-semibold tabular-nums shrink-0 w-24 text-right">
+                  {/* selos no computador (inalterado) */}
+                  <div className="hidden sm:flex items-center gap-2 shrink-0">
+                    {o.source === "NUVEMSHOP" ? (
+                      <Badge color="#0891B2">Nuvemshop</Badge>
+                    ) : (
+                      <Badge color="#C4622D">AtacadoPro</Badge>
+                    )}
+                    <Badge color={orderStatusColor[o.status]}>
+                      {orderStatusLabel[o.status]}
+                    </Badge>
+                  </div>
+                  <span className="text-sm font-semibold tabular-nums shrink-0 w-20 sm:w-24 text-right whitespace-nowrap">
                     {brl(o.total)}
                   </span>
                 </div>
