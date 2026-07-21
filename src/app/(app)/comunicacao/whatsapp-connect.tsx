@@ -25,7 +25,7 @@ type Estado = {
   termo: { texto: string; versao: string } | null;
   status: "DESCONECTADO" | "AGUARDANDO_QR" | "CONECTADO";
   phone: string | null;
-  limites: { gapSegundos: number; tetoDiario: number; enviadosHoje: number };
+  limites: { janelaHoras: number; ritmoMinSeg: number; ritmoMaxSeg: number; enviadosHoje: number };
 };
 
 export function WhatsappConnect({ canEdit }: { canEdit: boolean }) {
@@ -176,9 +176,10 @@ export function WhatsappConnect({ canEdit }: { canEdit: boolean }) {
       ) : estado.status === "CONECTADO" ? (
         <div className="flex items-center justify-between gap-3 flex-wrap">
           <p className="text-xs text-gray-500">
-            Enviadas hoje: <b>{estado.limites.enviadosHoje}</b> de{" "}
-            {estado.limites.tetoDiario} (limite de segurança) · espaçamento de{" "}
-            {estado.limites.gapSegundos}s entre envios · termo aceito por{" "}
+            Enviadas hoje: <b>{estado.limites.enviadosHoje}</b> · resposta a
+            quem te chamou sai na hora; envio proativo sai com ritmo humano de{" "}
+            {estado.limites.ritmoMinSeg}–{estado.limites.ritmoMaxSeg}s (protege
+            o número, sem travar o atendimento) · termo aceito por{" "}
             {estado.consent.userName}
           </p>
           {canEdit && (

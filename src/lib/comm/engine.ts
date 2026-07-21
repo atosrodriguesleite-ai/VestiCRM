@@ -2,7 +2,7 @@ import { db } from "../db";
 import { decryptSecret } from "../crypto";
 import { intakeLead } from "../intake";
 import { resolveProvider } from "./providers";
-import { checkSendAllowance } from "./evolution";
+import { paceProactiveSend, WA_JANELA_HORAS } from "./evolution";
 import type { ProviderCredentials } from "./types";
 import type {
   Channel,
@@ -123,16 +123,14 @@ export async function sendMessage(input: SendMessageInput): Promise<Message> {
     const { activeProvider, creds } = await loadCredentials(input.companyId);
     const provider = resolveProvider(conv.channel, activeProvider, creds);
 
-    // conexão sem API oficial: trava anti-banimento (espaçamento + teto/dia)
-    // vale para TODO envio — caixa de entrada, automações e campanhas
+    // conexão sem API oficial: proteção anti-bloqueio SEM travar o vendedor.
+    // Resposta a quem te chamou (janela de 24h) sai na hora; envio proativo/
+    // frio recebe um ritmo humano (intervalo variável) antes de sair.
     if (conv.channel === "WHATSAPP" && activeProvider === "EVOLUTION") {
-      const allowance = await checkSendAllowance(input.companyId);
-      if (!allowance.ok) {
-        return db.message.update({
-          where: { id: message.id },
-          data: { status: "FALHOU", error: allowance.error },
-        });
-      }
+      const janelaMs = WA_JANELA_HORAS * 60 * 60 * 1000;
+      const dentroDaJanela =
+        conv.lastInboundAt && Date.now() - conv.lastInboundAt.getTime() < janelaMs;
+      if (!dentroDaJanela) await paceProactiveSend(input.companyId);
     }
 
     const result = await provider.send({

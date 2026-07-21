@@ -8,8 +8,9 @@ import {
   jidToPhone,
   TERMO_WA_TEXTO,
   TERMO_WA_VERSAO,
-  WA_GAP_SEGUNDOS,
-  WA_TETO_DIARIO,
+  WA_JANELA_HORAS,
+  WA_GAP_MIN_SEG,
+  WA_GAP_MAX_SEG,
 } from "@/lib/comm/evolution";
 
 /** Estado da conexão do WhatsApp sem API oficial (para a tela Comunicação). */
@@ -69,8 +70,9 @@ export async function GET() {
       phone,
       activeProvider: settings?.activeProvider ?? "MOCK",
       limites: {
-        gapSegundos: WA_GAP_SEGUNDOS,
-        tetoDiario: WA_TETO_DIARIO,
+        janelaHoras: WA_JANELA_HORAS,
+        ritmoMinSeg: WA_GAP_MIN_SEG,
+        ritmoMaxSeg: WA_GAP_MAX_SEG,
         enviadosHoje: settings?.waSentDate === hoje ? settings.waSentToday : 0,
       },
     });

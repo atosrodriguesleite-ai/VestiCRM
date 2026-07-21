@@ -9,9 +9,10 @@ import { db } from "../db";
  * Segurança em camadas:
  *  1. Termo de aceite obrigatório ANTES do QR (registro permanente em
  *     WhatsappConsent: quem, quando, IP, versão do texto).
- *  2. Trava anti-banimento no envio: espaçamento mínimo entre mensagens e
- *     teto diário por loja (checkSendAllowance) — vale para TODO envio via
- *     engine (caixa de entrada, automações, campanhas).
+ *  2. Proteção anti-banimento SEM travar o vendedor (janela de atendimento):
+ *     resposta a quem chamou (24h) sai na hora; só o envio proativo/frio
+ *     recebe um ritmo humano com intervalo variável (paceProactiveSend).
+ *     Não há teto de mensagens — venda consultiva precisa de volume.
  *  3. Webhook autenticado por token único por loja (rota /webhook/[token]).
  *
  * O modo com API oficial (Meta Cloud API) continua existindo ao lado — a
@@ -60,45 +61,41 @@ export const TERMO_WA_SHA = crypto
   .digest("hex")
   .slice(0, 16);
 
-// ---- Limites anti-banimento ------------------------------------------------
+// ---- Ritmo de envio anti-bloqueio -----------------------------------------
+// Filosofia: RESPOSTA a quem te chamou (janela de 24h) sai NA HORA — é o grosso
+// do atendimento e é baixo risco. Só o envio PROATIVO/frio (primeiro contato,
+// disparo) recebe um "ritmo humano" (intervalo variável) pra o número não
+// parecer robô. NÃO há teto fixo de mensagens: venda consultiva precisa de
+// volume. Isso protege o número sem travar o vendedor.
 
-export const WA_GAP_SEGUNDOS = 5; // espaçamento mínimo entre envios da loja
-export const WA_TETO_DIARIO = 300; // envios/dia por loja (conexão não oficial)
+export const WA_JANELA_HORAS = 24; // janela de atendimento (o cliente falou primeiro)
+export const WA_GAP_MIN_SEG = 4; // ritmo humano dos envios proativos — mínimo
+export const WA_GAP_MAX_SEG = 9; // ritmo humano dos envios proativos — máximo
 
 /**
- * Verifica e consome a "licença de envio" da loja (só para EVOLUTION).
- * Devolve ok=false com mensagem amigável quando o limite seguraria o envio.
+ * Aplica o "ritmo humano" a um envio PROATIVO (frio): espera um intervalo
+ * VARIÁVEL desde o último envio da loja e registra o horário. Espera no
+ * servidor (não devolve erro), então nunca "trava" o vendedor com um aviso.
+ * Respostas dentro da janela de atendimento NÃO chamam esta função (saem já).
  */
-export async function checkSendAllowance(
-  companyId: string
-): Promise<{ ok: true } | { ok: false; error: string }> {
+export async function paceProactiveSend(companyId: string): Promise<void> {
   const s = await db.commSettings.findUnique({ where: { companyId } });
-  if (!s) return { ok: true };
-
+  if (!s) return;
+  const gapMs =
+    (WA_GAP_MIN_SEG + Math.random() * (WA_GAP_MAX_SEG - WA_GAP_MIN_SEG)) * 1000;
+  if (s.waLastSentAt) {
+    const desde = Date.now() - s.waLastSentAt.getTime();
+    if (desde < gapMs) await new Promise((r) => setTimeout(r, gapMs - desde));
+  }
   const hoje = new Date().toISOString().slice(0, 10);
-  const enviadosHoje = s.waSentDate === hoje ? s.waSentToday : 0;
-
-  if (enviadosHoje >= WA_TETO_DIARIO) {
-    return {
-      ok: false,
-      error: `Limite diário de segurança atingido (${WA_TETO_DIARIO} envios). O contador zera à meia-noite — o limite protege seu número contra bloqueio.`,
-    };
-  }
-  if (s.waLastSentAt && Date.now() - s.waLastSentAt.getTime() < WA_GAP_SEGUNDOS * 1000) {
-    const falta = Math.ceil(
-      (WA_GAP_SEGUNDOS * 1000 - (Date.now() - s.waLastSentAt.getTime())) / 1000
-    );
-    return {
-      ok: false,
-      error: `Aguarde ${falta}s entre envios — o espaçamento protege seu número contra bloqueio.`,
-    };
-  }
-
   await db.commSettings.update({
     where: { companyId },
-    data: { waLastSentAt: new Date(), waSentDate: hoje, waSentToday: enviadosHoje + 1 },
+    data: {
+      waLastSentAt: new Date(),
+      waSentDate: hoje,
+      waSentToday: (s.waSentDate === hoje ? s.waSentToday : 0) + 1, // contador só informativo
+    },
   });
-  return { ok: true };
 }
 
 // ---- Cliente do servidor Evolution ----------------------------------------
