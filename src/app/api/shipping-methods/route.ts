@@ -2,13 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { requireUser, AuthError } from "@/lib/auth";
-import { isManagerUp, isSupport } from "@/lib/scope";
 
 /**
  * Meios de envio da loja (Correios / Transportadora): Sedex, Pac, Loggi,
  * Jadlog... Alimentam o seletor de envio de cada pedido.
- * GET: lista (qualquer usuário — vendedor precisa pra escolher no pedido).
- * POST: cadastra (admin/gerente ou Suporte).
+ * GET: lista. POST: cadastra. Liberado para QUALQUER usuário da loja
+ * (todos podem escolher e cadastrar meios de envio nos pedidos).
  */
 
 const KINDS = ["CORREIOS", "TRANSPORTADORA"] as const;
@@ -36,9 +35,6 @@ const schema = z.object({
 export async function POST(req: NextRequest) {
   try {
     const user = await requireUser();
-    if (!(isManagerUp(user) || isSupport(user))) {
-      return NextResponse.json({ error: "Sem permissão" }, { status: 403 });
-    }
     const parsed = schema.safeParse(await req.json().catch(() => null));
     if (!parsed.success) return NextResponse.json({ error: "Informe o nome do meio de envio." }, { status: 400 });
     const name = parsed.data.name.trim();

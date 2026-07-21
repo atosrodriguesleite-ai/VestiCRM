@@ -9,7 +9,7 @@ import {
   History,
 } from "lucide-react";
 import { requireUser } from "@/lib/auth";
-import { isManagerUp, isSupport } from "@/lib/scope";
+import { isManagerUp } from "@/lib/scope";
 import { db } from "@/lib/db";
 import { brl, dateFull, dateShort, timeShort } from "@/lib/format";
 import {
@@ -291,7 +291,7 @@ export default async function OrderDetailPage({
                   <ShippingMethodChanger
                     orderId={order.id}
                     current={order.shipping?.method ?? null}
-                    canManage={isManagerUp(user) || isSupport(user)}
+                    canManage
                   />
                 </div>
               </div>
