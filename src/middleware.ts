@@ -10,6 +10,8 @@ const PUBLIC_PATHS = [
   "/login",
   "/api/auth/login",
   "/catalogo",
+  "/bio/", // Gestor de Bio: página pública de links da loja
+  "/api/bio/", // redirecionador de cliques da bio (conta o clique)
   "/c/", // links curtos de vendedores/campanhas
   "/api/intake",
   "/api/demo", // formulário de demonstração da landing page

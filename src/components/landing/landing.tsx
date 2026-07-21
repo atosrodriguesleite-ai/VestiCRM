@@ -49,6 +49,14 @@ export function Landing() {
   const [demoOpen, setDemoOpen] = useState(false);
   const openDemo = () => setDemoOpen(true);
 
+  // Chegou por um link que pede o formulário (ex.: rodapé "feito por
+  // atacadopro.com" das bios das lojas): abre a demonstração direto.
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get("demo") === "1") {
+      setDemoOpen(true);
+    }
+  }, []);
+
   return (
     <div className="min-h-screen bg-[#fdfaf5] text-[#1d1710] antialiased selection:bg-brand-200/60">
       <Header onDemo={openDemo} />

@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { Users, Wallet, Receipt, Repeat, Target } from "lucide-react";
+import { Users, Wallet, Receipt, Repeat, Target, Link2, ChevronRight } from "lucide-react";
 import { requireUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { isManagerUp } from "@/lib/scope";
@@ -212,6 +212,21 @@ export default async function MarketingPage({
         title="Marketing"
         subtitle="De onde vêm seus clientes que compram — por canal e por campanha. Os números crescem conforme os vendedores marcam a campanha de cada lead."
       />
+
+      {/* atalho para o Gestor de Bio (página de links do Instagram) */}
+      <Link
+        href="/marketing/bio"
+        className="group flex items-center gap-3 rounded-2xl border border-brand-200 bg-gradient-to-r from-brand-50 to-white p-4 transition hover:border-brand-300 hover:shadow-card"
+      >
+        <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-brand-600 text-white">
+          <Link2 className="size-5" />
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="block text-sm font-semibold text-slate-800">Gestor de Bio</span>
+          <span className="block text-xs text-slate-500">Monte a sua página de links do Instagram, com a cara da sua loja.</span>
+        </span>
+        <ChevronRight className="size-5 shrink-0 text-brand-400 transition group-hover:translate-x-0.5" />
+      </Link>
 
       <PeriodChips pathname="/marketing" de={de} ate={ate} />
 

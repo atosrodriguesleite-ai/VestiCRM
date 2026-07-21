@@ -68,10 +68,22 @@ export async function POST(req: NextRequest) {
     ownerId: ownerId ?? undefined,
   });
 
+  // Canal de aquisição "Bio": o rodapé "feito por atacadopro.com" das bios das
+  // lojas leva o visitante até aqui com ?utm_source=bio&utm_campaign=<slug>.
+  // Marca o lead para o Super Admin acompanhar esse canal separadamente.
+  let landingSource: string | null = null;
+  if (d.ref) {
+    const parts = d.ref.split(/[/·,]/).map((p) => p.trim().toLowerCase()).filter(Boolean);
+    if (parts.includes("bio")) {
+      const slug = parts[parts.indexOf("bio") + 1] ?? "";
+      landingSource = slug ? `bio:${slug}` : "bio";
+    }
+  }
+
   // enriquece: notas do cliente, timeline e renomeia a tarefa automática
   await db.customer.update({
     where: { id: result.customer.id },
-    data: { notes: resumo },
+    data: { notes: resumo, ...(landingSource ? { landingSource } : {}) },
   });
   await db.customerEvent.create({
     data: {

@@ -131,6 +131,22 @@ export default async function LojasPage() {
       ])
     : [0, 0];
 
+  // Canal de aquisição "Bio": leads que chegaram pelo rodapé "feito por
+  // atacadopro.com" das bios das lojas (landingSource = "bio:<slug>").
+  const bioLeads = platform
+    ? await db.customer.findMany({
+        where: { companyId: platform.id, landingSource: { startsWith: "bio" } },
+        orderBy: { createdAt: "desc" },
+        take: 8,
+        select: { id: true, name: true, phone: true, landingSource: true, createdAt: true },
+      })
+    : [];
+  const bioLeadsTotal = platform
+    ? await db.customer.count({
+        where: { companyId: platform.id, landingSource: { startsWith: "bio" } },
+      })
+    : 0;
+
   return (
     <div className="max-w-5xl mx-auto">
       <PageHeader
@@ -160,6 +176,44 @@ export default async function LojasPage() {
           <p className="text-[11px] text-slate-400 mt-0.5">ver todos →</p>
         </Link>
       </div>
+
+      {/* Canal de aquisição: leads vindos das bios (Gestor de Bio das lojas) */}
+      {bioLeadsTotal > 0 && (
+        <div className="mb-6 rounded-2xl border border-slate-200/70 bg-white p-5 shadow-card">
+          <div className="mb-3 flex items-center justify-between">
+            <div>
+              <h2 className="flex items-center gap-2 font-semibold text-slate-800">
+                <span className="grid size-7 place-items-center rounded-lg bg-brand-50 text-brand-600">🔗</span>
+                Leads via Bio
+              </h2>
+              <p className="text-xs text-slate-500">
+                Vieram do rodapé “feito por atacadopro.com” das bios das lojas.
+              </p>
+            </div>
+            <span className="rounded-full bg-brand-50 px-3 py-1 text-sm font-bold tabular-nums text-brand-700">
+              {bioLeadsTotal}
+            </span>
+          </div>
+          <div className="divide-y divide-slate-50">
+            {bioLeads.map((l) => {
+              const origem = l.landingSource?.startsWith("bio:") ? l.landingSource.slice(4) : null;
+              return (
+                <div key={l.id} className="flex items-center gap-2 py-2 text-sm">
+                  <span className="min-w-0 flex-1 truncate font-medium text-slate-700">{l.name}</span>
+                  {origem && (
+                    <span className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-500">
+                      bio: {origem}
+                    </span>
+                  )}
+                  <span className="shrink-0 text-[11px] text-slate-400 tabular-nums">
+                    {l.createdAt.toLocaleDateString("pt-BR")}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       <JueriTeste />
       <LojasView initial={lojas} catalogDomain={catalogDomain()} recebidoMes={recebidoMes} />

@@ -74,6 +74,7 @@ model Company {
   cutTickets     CutTicket[]
   fabricScraps   FabricScrap[]
   marketingCampaigns MarketingCampaign[]
+  bioPage        BioPage?
 }
 
 // Biblioteca de cores do lojista: ele cria a tonalidade e dá o nome
@@ -247,6 +248,9 @@ model Customer {
   // campanha de aquisição (módulo Marketing): de qual campanha este lead veio
   campaignId      String?
   campaign        MarketingCampaign? @relation(fields: [campaignId], references: [id], onDelete: SetNull)
+  // canal de aquisição da PLATAFORMA (só na empresa-plataforma): "bio:<slug>"
+  // quando o lead chegou pelo rodapé "feito por atacadopro.com" de uma bio.
+  landingSource   String?
   createdAt       DateTime     @default(now())
 
   tags          CustomerTag[]
@@ -862,6 +866,53 @@ model MarketingCampaign {
 
   @@unique([companyId, utmKey])
   @@index([companyId, active])
+}
+
+// Gestor de Bio (módulo Marketing) — a "página de links" do Instagram da loja,
+// tipo Linktree só que com a identidade visual do catálogo. Uma por loja.
+// Endereço público: /bio/<slug>. O rodapé "feito por atacadopro.com" leva o
+// visitante ao formulário de leads da plataforma (canal de aquisição da bio).
+model BioPage {
+  id        String   @id @default(cuid())
+  companyId String   @unique
+  company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  slug      String   @unique // endereço público /bio/<slug> (nasce = slug da loja)
+  published Boolean  @default(false)
+  headline  String? // título grande (default = nome da loja)
+  tagline   String? // subtítulo curto (default = tagline do catálogo)
+  avatarUrl String? // foto/logo redonda no topo (default = logo do catálogo)
+  views     Int      @default(0) // visitas na página pública
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  links BioLink[]
+
+  @@index([companyId])
+}
+
+enum BioLinkType {
+  CATALOGO // catálogo público da loja
+  WHATSAPP // abre a conversa no WhatsApp da loja
+  SITE // site/e-commerce próprio da loja
+  EXTERNO // qualquer link (Instagram, Shopee, promoção...)
+}
+
+model BioLink {
+  id        String      @id @default(cuid())
+  bioPageId String
+  bioPage   BioPage     @relation(fields: [bioPageId], references: [id], onDelete: Cascade)
+  companyId String // denormalizado para escopo/consultas
+  title     String
+  subtitle  String? // linha de apoio opcional
+  type      BioLinkType @default(EXTERNO)
+  url       String? // destino (SITE/EXTERNO); vazio usa o padrão do tipo
+  imageUrl  String? // miniatura do botão (data-URL)
+  order     Int         @default(0)
+  active    Boolean     @default(true)
+  clicks    Int         @default(0) // cliques rastreados (via /api/bio/go/<id>)
+  createdAt DateTime    @default(now())
+
+  @@index([bioPageId, order])
 }
 
 // Catálogo de CAMPANHA: uma vitrine à parte com produtos selecionados e um
