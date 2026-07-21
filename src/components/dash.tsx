@@ -133,6 +133,33 @@ export function StatCard({
   series?: number[];
 }) {
   const display = useContagem(value ?? 0);
+
+  // UX: o número NUNCA corta. Ele ocupa a largura toda do card e, só quando
+  // for grande demais para caber, encolhe a fonte na medida certa (nunca some
+  // e nunca vira "R$ 3.00…"). Vale em computador e celular.
+  const boxRef = useRef<HTMLDivElement>(null);
+  const valRef = useRef<HTMLParagraphElement>(null);
+  const [fit, setFit] = useState(1);
+  const measureRef = useRef<() => void>(() => {});
+  useEffect(() => {
+    const v = valRef.current;
+    const box = boxRef.current;
+    if (!v || !box) return;
+    const measure = () => {
+      const natural = v.scrollWidth; // largura real do texto (transform não afeta)
+      const avail = box.clientWidth;
+      setFit(natural > avail && avail > 0 ? Math.max(avail / natural, 0.45) : 1);
+    };
+    measureRef.current = measure;
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(box);
+    return () => ro.disconnect();
+  }, []);
+  useEffect(() => {
+    measureRef.current();
+  }, [display, format, decimals, suffix]);
+
   const toneCls =
     tone === "good"
       ? "text-emerald-600"
@@ -166,16 +193,21 @@ export function StatCard({
           </span>
         )}
       </div>
-      <div className="flex items-baseline gap-2 flex-wrap">
+      {/* número: largura total do card + auto-encolhe pra caber (nunca corta) */}
+      <div ref={boxRef} className="overflow-hidden">
         <p
-          className={`text-lg sm:text-2xl md:text-[26px] leading-[1.15] pb-0.5 font-semibold tracking-tight tabular-nums truncate ${toneCls}`}
+          ref={valRef}
+          style={fit < 1 ? { transform: `scale(${fit})`, transformOrigin: "left center" } : undefined}
+          className={`inline-block whitespace-nowrap text-lg sm:text-2xl md:text-[26px] leading-[1.15] pb-0.5 font-semibold tracking-tight tabular-nums ${toneCls}`}
         >
           {value == null ? "—" : exibe(display, format, decimals, suffix)}
         </p>
-        {temDelta && (
+      </div>
+      {temDelta && (
+        <div className="mt-1">
           <span
             title={deltaHint}
-            className={`shrink-0 inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[11px] font-bold tabular-nums ${
+            className={`inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[11px] font-bold tabular-nums ${
               sobe ? "bg-emerald-50 text-emerald-600" : "bg-rose-50 text-rose-600"
             }`}
           >
@@ -188,8 +220,8 @@ export function StatCard({
             %
             <span className="sr-only">{sobe ? "acima" : "abaixo"} do período anterior</span>
           </span>
-        )}
-      </div>
+        </div>
+      )}
       {hint && (
         <p className="text-[11px] md:text-xs text-slate-400 mt-1.5 md:mt-2 leading-snug">{hint}</p>
       )}
