@@ -8,7 +8,6 @@ import { useRouter, useSearchParams } from "next/navigation";
 import {
   Send,
   StickyNote,
-  FileText,
   ArrowLeft,
   Search,
   MessageCircle,
@@ -1142,6 +1141,22 @@ export function Inbox({
             <div className="p-3 border-t border-gray-100 shrink-0 relative">
               {showTemplates && (
                 <div className="absolute bottom-full left-3 right-3 mb-1 bg-white rounded-xl border border-gray-100 shadow-pop max-h-72 overflow-y-auto thin-scroll z-10">
+                  <div className="sticky top-0 flex items-center justify-between gap-2 px-4 py-2 bg-white border-b border-gray-100">
+                    <p className="text-[10px] font-bold uppercase tracking-wide text-gray-400 flex items-center gap-1">
+                      <Zap className="size-3" /> Respostas rápidas
+                    </p>
+                    <Link
+                      href="/configuracoes"
+                      className="text-[11px] font-semibold text-brand-600 hover:underline flex items-center gap-1"
+                    >
+                      <Plus className="size-3" /> criar / gerenciar
+                    </Link>
+                  </div>
+                  {templates.length === 0 && (
+                    <p className="px-4 py-4 text-xs text-gray-400">
+                      Nenhuma resposta rápida ainda. Crie em Configurações → Modelos de mensagem.
+                    </p>
+                  )}
                   {[...templatesByCategory.entries()].map(([cat, list]) => (
                     <div key={cat}>
                       <p className="px-4 pt-2.5 pb-1 text-[10px] font-bold uppercase tracking-wide text-gray-400 bg-gray-50/60">
@@ -1195,9 +1210,17 @@ export function Inbox({
               {/* respostas rápidas: "/" para inserir um modelo de mensagem */}
               {!noteMode && slash && slashMatches.length > 0 && (
                 <div className="absolute bottom-full left-3 right-3 mb-1 bg-white rounded-xl border border-gray-100 shadow-pop z-20 max-h-72 overflow-y-auto thin-scroll">
-                  <p className="px-4 pt-2.5 pb-1 text-[10px] font-bold uppercase tracking-wide text-gray-400 flex items-center gap-1 bg-gray-50/60">
-                    <Zap className="size-3" /> Respostas rápidas
-                  </p>
+                  <div className="sticky top-0 flex items-center justify-between gap-2 px-4 py-2 bg-white border-b border-gray-100">
+                    <p className="text-[10px] font-bold uppercase tracking-wide text-gray-400 flex items-center gap-1">
+                      <Zap className="size-3" /> Respostas rápidas
+                    </p>
+                    <Link
+                      href="/configuracoes"
+                      className="text-[11px] font-semibold text-brand-600 hover:underline flex items-center gap-1"
+                    >
+                      <Plus className="size-3" /> criar / gerenciar
+                    </Link>
+                  </div>
                   {slashMatches.map((t) => (
                     <button
                       key={t.id}
@@ -1242,10 +1265,12 @@ export function Inbox({
                     setShowTemplates((v) => !v);
                     setShowAttach(false);
                   }}
-                  className="p-2 text-gray-400 hover:text-brand-600 transition shrink-0"
-                  title="Modelos de mensagem"
+                  className={`p-2 transition shrink-0 ${
+                    showTemplates ? "text-brand-600" : "text-gray-400 hover:text-brand-600"
+                  }`}
+                  title="Respostas rápidas"
                 >
-                  <FileText className="size-4.5" />
+                  <Zap className="size-4.5" />
                 </button>
                 <button
                   onClick={() => {

@@ -15,6 +15,7 @@ import { db } from "@/lib/db";
 import { roleLabel } from "@/lib/format";
 import { Card, PageHeader, Badge } from "@/components/ui";
 import { TemplateManager } from "./template-manager";
+import { TagManager } from "./tag-manager";
 import { CatalogSettings } from "./catalog-settings";
 import { catalogDomain } from "@/lib/catalog-url";
 import { IntakeSettings } from "./intake-settings";
@@ -46,11 +47,16 @@ export default async function SettingsPage() {
   const user = await requireUser();
   // perfil Suporte é operacional: telas comerciais ficam fora do papel dele
   if (user.role === "SUPPORT") redirect("/pedidos");
-  const [company, templates, sellers, stages, originRules] = await Promise.all([
+  const [company, templates, tags, sellers, stages, originRules] = await Promise.all([
     db.company.findUnique({ where: { id: user.companyId } }),
     db.messageTemplate.findMany({
       where: { companyId: user.companyId },
       orderBy: { title: "asc" },
+    }),
+    db.tag.findMany({
+      where: { companyId: user.companyId },
+      orderBy: { name: "asc" },
+      select: { id: true, name: true, color: true },
     }),
     db.user.findMany({
       where: { companyId: user.companyId, active: true, role: { not: "SUPERADMIN" } },
@@ -184,7 +190,12 @@ export default async function SettingsPage() {
         </a>
       )}
 
-      <h2 className="font-semibold mb-3">Modelos de mensagem</h2>
+      <h2 className="font-semibold mb-1">Respostas rápidas (modelos de mensagem)</h2>
+      <p className="text-sm text-gray-500 mb-3">
+        Mensagens prontas que aparecem no atendimento do WhatsApp (pelo atalho “/” ou pelo
+        botão ⚡). Use <code className="text-xs">{"{{nome}}"}</code> e{" "}
+        <code className="text-xs">{"{{vendedora}}"}</code> para personalizar.
+      </p>
       <TemplateManager
         initial={templates.map((t) => ({
           id: t.id,
@@ -193,6 +204,13 @@ export default async function SettingsPage() {
           category: t.category,
         }))}
       />
+
+      <h2 className="font-semibold mt-8 mb-1">Etiquetas dos contatos</h2>
+      <p className="text-sm text-gray-500 mb-3">
+        Marcadores coloridos para organizar os clientes no atendimento (VIP, Atacado,
+        Inadimplente…). Também dá para criar uma etiqueta na hora, dentro da conversa.
+      </p>
+      <TagManager initial={tags} />
 
       <h2 className="font-semibold mt-8 mb-3">Integrações</h2>
       <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
