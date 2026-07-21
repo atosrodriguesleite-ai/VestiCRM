@@ -175,11 +175,16 @@ export async function intakeLead(
     orderBy: { lastMessageAt: "desc" },
   });
   if (!conversation && (payload.message || isNewLead)) {
+    // Central de Atendimento (modelo Digisac): o chamado NÃO nasce com dono —
+    // entra na FILA do setor (assigneeId null) para um vendedor "assumir".
+    // O dono do CLIENTE (customer.ownerId) continua existindo para o CRM;
+    // quem atende ESTA conversa é decidido na fila. Se o próprio vendedor
+    // criou o lead manualmente (payload.ownerId), já assume o atendimento.
     conversation = await db.conversation.create({
       data: {
         companyId,
         customerId: customer.id,
-        assigneeId: customer.ownerId,
+        assigneeId: payload.ownerId ?? null,
         status: "OPEN",
       },
     });

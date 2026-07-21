@@ -126,6 +126,27 @@ async function main() {
     },
   });
 
+  // ---- Setores de atendimento (Central de Atendimento, estilo Digisac) ----
+  // O número da loja é um só para todos; o chamado cai na FILA do setor e
+  // um vendedor "assume". Vendas atende clientes; Financeiro cuida de PIX/nota.
+  const setorVendas = await db.setor.create({
+    data: {
+      companyId: company.id, name: "Vendas", color: "#c4622d", order: 0,
+      users: { connect: [{ id: julia.id }, { id: renata.id }, { id: carla.id }] },
+    },
+  });
+  const setorFinanceiro = await db.setor.create({
+    data: {
+      companyId: company.id, name: "Financeiro", color: "#0ea5e9", order: 1,
+      users: { connect: [{ id: ana.id }] },
+    },
+  });
+  await db.commSettings.upsert({
+    where: { companyId: company.id },
+    create: { companyId: company.id, defaultSetorId: setorVendas.id },
+    update: { defaultSetorId: setorVendas.id },
+  });
+
   // ---- Empresa-plataforma AtacadoPro (tenant comercial do Super Admin) ----
   // É onde caem os leads da Landing Page (origem "Site"). O Super Admin
   // opera aqui e enxerga o pipeline "Leads do Site".
@@ -484,6 +505,8 @@ async function main() {
     customer: string; assignee: string;
     status: "OPEN" | "WAITING_CLIENT" | "WAITING_PAYMENT" | "CLOSED";
     unread?: number; messages: M[];
+    setor?: "vendas" | "financeiro"; // setor do chamado (padrão: vendas)
+    fila?: boolean; // true = ainda sem responsável (aguardando alguém assumir)
   };
   const convsData: Conv[] = [
     {
@@ -507,6 +530,7 @@ async function main() {
     },
     {
       customer: "Camila Rodrigues", assignee: "renata", status: "WAITING_PAYMENT",
+      setor: "financeiro",
       messages: [
         { dir: "OUT", body: "Camila, seu pedido de 30 peças ficou em R$ 1.680. Segue o PIX 👇", minsAgo: 60 * 24 * 2, author: "renata" },
         { dir: "OUT", body: "pix@bellamoda.com.br — qualquer coisa me chama!", minsAgo: 60 * 24 * 2, author: "renata" },
@@ -529,8 +553,16 @@ async function main() {
     },
     {
       customer: "Larissa Mendes", assignee: "julia", status: "OPEN", unread: 1,
+      fila: true, // lead novinho na fila, ninguém assumiu ainda
       messages: [
         { dir: "IN", body: "Oii, vi vocês no Instagram! Vocês têm vestido de festa tam P?", minsAgo: 60 * 5 },
+      ],
+    },
+    {
+      customer: "Beatriz Almeida", assignee: "julia", status: "OPEN", unread: 1,
+      fila: true, // aguardando alguém assumir
+      messages: [
+        { dir: "IN", body: "Boa tarde! Vocês vendem no atacado a partir de quantas peças?", minsAgo: 18 },
       ],
     },
     {
@@ -571,7 +603,9 @@ async function main() {
       data: {
         companyId: company.id,
         customerId: cust(conv.customer).id,
-        assigneeId: ownerId(conv.assignee),
+        // fila = chamado ainda sem responsável (aguardando alguém assumir)
+        assigneeId: conv.fila ? null : ownerId(conv.assignee),
+        setorId: conv.setor === "financeiro" ? setorFinanceiro.id : setorVendas.id,
         channel: "WHATSAPP",
         status: conv.status,
         priority: conv.unread && conv.unread > 0 ? "ALTA" : "NORMAL",

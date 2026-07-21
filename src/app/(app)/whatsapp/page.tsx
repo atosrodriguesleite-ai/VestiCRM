@@ -8,12 +8,13 @@ export const dynamic = "force-dynamic";
 export default async function WhatsAppPage() {
   const user = await requireUser();
 
-  const [conversations, templates, team] = await Promise.all([
+  const [conversations, templates, team, setores] = await Promise.all([
     db.conversation.findMany({
       where: conversationScope(user),
       include: {
         customer: { include: { tags: { include: { tag: true } } } },
         assignee: true,
+        setor: true,
         messages: { orderBy: { createdAt: "asc" }, include: { author: true } },
       },
       orderBy: { lastMessageAt: "desc" },
@@ -24,6 +25,11 @@ export default async function WhatsAppPage() {
     }),
     db.user.findMany({
       where: { companyId: user.companyId, active: true },
+      select: { id: true, name: true, color: true },
+    }),
+    db.setor.findMany({
+      where: { companyId: user.companyId },
+      orderBy: [{ order: "asc" }, { name: "asc" }],
       select: { id: true, name: true, color: true },
     }),
   ]);
@@ -52,6 +58,9 @@ export default async function WhatsAppPage() {
     assignee: c.assignee
       ? { id: c.assignee.id, name: c.assignee.name, color: c.assignee.color }
       : null,
+    setor: c.setor
+      ? { id: c.setor.id, name: c.setor.name, color: c.setor.color }
+      : null,
     messages: c.messages.map((m) => ({
       id: m.id,
       direction: m.direction,
@@ -77,6 +86,8 @@ export default async function WhatsAppPage() {
         category: t.category,
       }))}
       team={team}
+      setores={setores}
+      currentUserId={user.id}
       currentUserName={user.name}
     />
   );

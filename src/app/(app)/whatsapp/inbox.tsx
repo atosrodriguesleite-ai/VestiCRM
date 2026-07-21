@@ -12,7 +12,6 @@ import {
   ArrowLeft,
   Search,
   MessageCircle,
-  Info,
   ShoppingBag,
   Paperclip,
   Image as ImageIcon,
@@ -24,6 +23,11 @@ import {
   AlertTriangle,
   RotateCcw,
   Flag,
+  Inbox as InboxIcon,
+  Hand,
+  CheckCircle2,
+  Users,
+  ArrowRightLeft,
 } from "lucide-react";
 import { OrderComposer } from "@/components/order-composer";
 import { orderNumber } from "@/lib/orders";
@@ -35,7 +39,7 @@ import {
   templateCategoryLabel,
   relativeDays,
 } from "@/lib/format";
-import { Avatar, Badge, ConvStatusPill, EmptyState } from "@/components/ui";
+import { Avatar, Badge, EmptyState } from "@/components/ui";
 
 export type InboxMessage = {
   id: string;
@@ -70,8 +74,11 @@ export type InboxConversation = {
     tags: { name: string; color: string }[];
   };
   assignee: { id: string; name: string; color: string } | null;
+  setor: { id: string; name: string; color: string } | null;
   messages: InboxMessage[];
 };
+
+type Tab = "chats" | "fila" | "contatos";
 
 const STATUS_OPTIONS = [
   "OPEN",
@@ -152,45 +159,94 @@ function MediaContent({ m }: { m: InboxMessage }) {
   return null;
 }
 
+/** Pastilha pequena com o setor (cor + nome). */
+function SetorPill({
+  setor,
+}: {
+  setor: { name: string; color: string } | null;
+}) {
+  if (!setor) return null;
+  return (
+    <span
+      className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold"
+      style={{ backgroundColor: `${setor.color}1a`, color: setor.color }}
+    >
+      <span
+        className="size-1.5 rounded-full"
+        style={{ backgroundColor: setor.color }}
+      />
+      {setor.name}
+    </span>
+  );
+}
+
 export function Inbox({
   conversations,
   templates,
   team,
+  setores,
+  currentUserId,
   currentUserName,
 }: {
   conversations: InboxConversation[];
   templates: { id: string; title: string; body: string; category: string }[];
   team: { id: string; name: string; color: string }[];
+  setores: { id: string; name: string; color: string }[];
+  currentUserId: string;
   currentUserName: string;
 }) {
   const router = useRouter();
   const [convs, setConvs] = useState(conversations);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [filter, setFilter] = useState<string>("ALL");
+  const [tab, setTab] = useState<Tab>("fila");
   const [search, setSearch] = useState("");
   const [draft, setDraft] = useState("");
   const [noteMode, setNoteMode] = useState(false);
   const [showTemplates, setShowTemplates] = useState(false);
   const [showAttach, setShowAttach] = useState(false);
   const [showOrder, setShowOrder] = useState(false);
+  const [showTransfer, setShowTransfer] = useState(false);
   const [sending, setSending] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
 
   const selected = convs.find((c) => c.id === selectedId) ?? null;
 
-  const filtered = useMemo(
-    () =>
-      convs.filter((c) => {
-        if (filter !== "ALL" && c.status !== filter) return false;
-        if (
-          search &&
-          !c.customer.name.toLowerCase().includes(search.toLowerCase())
-        )
-          return false;
-        return true;
-      }),
-    [convs, filter, search]
-  );
+  // fila = sem responsável e não encerrada; chats = em atendimento (com
+  // responsável, não encerrada); contatos = histórico (encerradas).
+  const bucketOf = (c: InboxConversation): Tab =>
+    c.status === "CLOSED" ? "contatos" : c.assignee ? "chats" : "fila";
+
+  const counts = useMemo(() => {
+    const acc = { chats: 0, fila: 0, contatos: 0 };
+    for (const c of convs) acc[bucketOf(c)]++;
+    return acc;
+  }, [convs]);
+
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    const list = convs.filter((c) => {
+      if (bucketOf(c) !== tab) return false;
+      if (
+        q &&
+        !c.customer.name.toLowerCase().includes(q) &&
+        !c.customer.phone.includes(q.replace(/\D/g, ""))
+      )
+        return false;
+      return true;
+    });
+    // Fila: mais antigo primeiro (quem espera há mais tempo no topo).
+    // Chats/Contatos: atividade mais recente primeiro.
+    return list.sort((a, b) => {
+      if (tab === "fila") {
+        const at = new Date(a.lastInboundAt ?? a.createdAt).getTime();
+        const bt = new Date(b.lastInboundAt ?? b.createdAt).getTime();
+        return at - bt;
+      }
+      return (
+        new Date(b.lastMessageAt).getTime() - new Date(a.lastMessageAt).getTime()
+      );
+    });
+  }, [convs, tab, search]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "instant" as ScrollBehavior });
@@ -198,6 +254,7 @@ export function Inbox({
 
   function selectConv(id: string) {
     setSelectedId(id);
+    setShowTransfer(false);
     setConvs((prev) =>
       prev.map((c) => (c.id === id ? { ...c, unreadCount: 0 } : c))
     );
@@ -222,9 +279,22 @@ export function Inbox({
     );
   }
 
+  function patchLocal(id: string, patch: Partial<InboxConversation>) {
+    setConvs((prev) =>
+      prev.map((c) => (c.id === id ? { ...c, ...patch } : c))
+    );
+  }
+
   async function sendPayload(payload: Record<string, unknown>) {
-    if (!selected || sending) return;
+    if (!selected || sending) return false;
     setSending(true);
+    // enviar mensagem em conversa da fila = assumir o atendimento
+    if (!selected.assignee) {
+      patchLocal(selected.id, {
+        assignee: { id: currentUserId, name: currentUserName, color: "#c4622d" },
+      });
+      await updateConv(selected.id, { assigneeId: currentUserId }, true);
+    }
     const res = await fetch(`/api/conversations/${selected.id}/messages`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -305,35 +375,64 @@ export function Inbox({
     }
   }
 
+  /**
+   * Atualiza a conversa no servidor + estado local. `silent` evita refazer o
+   * estado local quando o chamador já o ajustou (ex.: assumir ao enviar).
+   */
   async function updateConv(
     id: string,
-    patch: { status?: string; assigneeId?: string; priority?: string }
+    patch: {
+      status?: string;
+      assigneeId?: string | null;
+      setorId?: string | null;
+      priority?: string;
+    },
+    silent = false
   ) {
     const res = await fetch(`/api/conversations/${id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(patch),
     });
-    if (res.ok) {
-      setConvs((prev) =>
-        prev.map((c) => {
-          if (c.id !== id) return c;
-          const next = { ...c };
-          if (patch.status)
-            next.status = patch.status as InboxConversation["status"];
-          if (patch.priority)
-            next.priority = patch.priority as InboxConversation["priority"];
-          if (patch.assigneeId) {
-            const member = team.find((t) => t.id === patch.assigneeId);
-            next.assignee = member ?? null;
-          }
-          return next;
-        })
-      );
-    } else {
+    if (!res.ok) {
       router.refresh();
+      return;
     }
+    if (silent) return;
+    const local: Partial<InboxConversation> = {};
+    if (patch.status) local.status = patch.status as InboxConversation["status"];
+    if (patch.priority)
+      local.priority = patch.priority as InboxConversation["priority"];
+    if (patch.assigneeId !== undefined)
+      local.assignee = patch.assigneeId
+        ? team.find((t) => t.id === patch.assigneeId) ?? null
+        : null;
+    if (patch.setorId !== undefined)
+      local.setor = patch.setorId
+        ? setores.find((s) => s.id === patch.setorId) ?? null
+        : null;
+    patchLocal(id, local);
   }
+
+  // Ações da Central de Atendimento (modelo Digisac)
+  const assumir = (id: string) => {
+    patchLocal(id, {
+      assignee: { id: currentUserId, name: currentUserName, color: "#c4622d" },
+      status: "OPEN",
+    });
+    updateConv(id, { assigneeId: currentUserId, status: "OPEN" }, true);
+    setTab("chats");
+  };
+  const encerrar = (id: string) => {
+    if (!window.confirm("Encerrar este atendimento? Ele vai para o histórico e, se o cliente escrever de novo, volta para a fila.")) return;
+    patchLocal(id, { status: "CLOSED" });
+    updateConv(id, { status: "CLOSED" }, true);
+  };
+  const reabrir = (id: string) => {
+    patchLocal(id, { status: "OPEN", assignee: null });
+    updateConv(id, { status: "OPEN", assigneeId: null }, true);
+    setTab("fila");
+  };
 
   const applyTemplate = (body: string) => {
     const name = selected?.customer.name.split(" ")[0] ?? "";
@@ -355,6 +454,14 @@ export function Inbox({
     return map;
   }, [templates]);
 
+  const TABS: { key: Tab; label: string; icon: typeof InboxIcon; count: number }[] = [
+    { key: "chats", label: "Chats", icon: MessageCircle, count: counts.chats },
+    { key: "fila", label: "Fila", icon: InboxIcon, count: counts.fila },
+    { key: "contatos", label: "Contatos", icon: Users, count: counts.contatos },
+  ];
+
+  const isMine = selected?.assignee?.id === currentUserId;
+
   return (
     <div className="max-w-7xl mx-auto h-[calc(100dvh-160px)] md:h-[calc(100dvh-120px)] flex rounded-2xl overflow-hidden border border-gray-100 bg-white shadow-card">
       {/* Lista de conversas */}
@@ -368,40 +475,74 @@ export function Inbox({
             <MessageCircle className="size-5 text-emerald-500" />
             Atendimento
           </h1>
-          <div className="relative mb-2">
+          <div className="relative mb-2.5">
             <Search className="size-4 text-gray-300 absolute left-3 top-1/2 -translate-y-1/2" />
             <input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Buscar cliente..."
+              placeholder="Buscar por nome ou telefone..."
               className="w-full rounded-xl bg-gray-50 border border-transparent focus:border-brand-300 focus:bg-white pl-9 pr-3 py-2 text-sm outline-none transition"
             />
           </div>
-          <div className="flex gap-1.5 overflow-x-auto thin-scroll pb-1">
-            {["ALL", ...STATUS_OPTIONS].map((s) => (
-              <button
-                key={s}
-                onClick={() => setFilter(s)}
-                className={`px-2.5 py-1 rounded-full text-[11px] font-medium whitespace-nowrap transition ${
-                  filter === s
-                    ? "bg-brand-600 text-white"
-                    : "bg-gray-100 text-gray-500 hover:bg-gray-200"
-                }`}
-              >
-                {s === "ALL"
-                  ? "Todas"
-                  : conversationStatusLabel[s as keyof typeof conversationStatusLabel]}
-              </button>
-            ))}
+          {/* Abas Chats / Fila / Contatos */}
+          <div className="flex gap-1 bg-gray-100 rounded-xl p-1">
+            {TABS.map((t) => {
+              const Icon = t.icon;
+              const active = tab === t.key;
+              return (
+                <button
+                  key={t.key}
+                  onClick={() => setTab(t.key)}
+                  className={`flex-1 flex items-center justify-center gap-1.5 rounded-lg px-1.5 py-1.5 text-xs font-semibold transition ${
+                    active
+                      ? "bg-white text-brand-700 shadow-sm"
+                      : "text-gray-500 hover:text-gray-700"
+                  }`}
+                >
+                  <Icon className="size-3.5" />
+                  {t.label}
+                  {t.count > 0 && (
+                    <span
+                      className={`min-w-4 px-1 rounded-full text-[10px] font-bold ${
+                        t.key === "fila" && t.count > 0
+                          ? "bg-amber-500 text-white"
+                          : active
+                            ? "bg-brand-100 text-brand-700"
+                            : "bg-gray-200 text-gray-500"
+                      }`}
+                    >
+                      {t.count}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
           </div>
         </div>
 
         <div className="flex-1 overflow-y-auto thin-scroll">
           {filtered.length === 0 && (
-            <EmptyState title="Nenhuma conversa" hint="Ajuste os filtros ou aguarde novas mensagens." />
+            <EmptyState
+              title={
+                tab === "fila"
+                  ? "Fila vazia 🎉"
+                  : tab === "chats"
+                    ? "Nenhum atendimento em curso"
+                    : "Nenhum contato no histórico"
+              }
+              hint={
+                tab === "fila"
+                  ? "Quando um cliente chamar, o chamado aparece aqui para alguém assumir."
+                  : tab === "chats"
+                    ? "Assuma um chamado na aba Fila para começar a atender."
+                    : "Atendimentos encerrados ficam guardados aqui."
+              }
+            />
           )}
           {filtered.map((c) => {
             const last = c.messages[c.messages.length - 1];
+            const waiting =
+              tab === "fila" && (c.lastInboundAt ?? c.createdAt);
             return (
               <button
                 key={c.id}
@@ -428,16 +569,22 @@ export function Inbox({
                       ? (last.kind === "NOTE" ? "📝 " : "") + last.body
                       : "Sem mensagens"}
                   </p>
-                  <div className="flex items-center gap-1.5 mt-1.5">
-                    <ConvStatusPill
-                      status={c.status}
-                      label={conversationStatusLabel[c.status]}
-                    />
-                    {c.assignee && (
-                      <span className="text-[10px] text-gray-400 truncate">
+                  <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
+                    <SetorPill setor={c.setor} />
+                    {waiting ? (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 text-amber-700 text-[10px] font-semibold px-1.5 py-0.5">
+                        <Clock className="size-2.5" />
+                        aguarda {ago(waiting as string)}
+                      </span>
+                    ) : c.assignee ? (
+                      <span className="inline-flex items-center gap-1 text-[10px] text-gray-400">
+                        <span
+                          className="size-1.5 rounded-full"
+                          style={{ backgroundColor: c.assignee.color }}
+                        />
                         {c.assignee.name.split(" ")[0]}
                       </span>
-                    )}
+                    ) : null}
                   </div>
                 </div>
                 {c.unreadCount > 0 && (
@@ -482,67 +629,150 @@ export function Inbox({
                   {selected.customer.name}
                 </Link>
                 <p className="text-[11px] text-gray-400 truncate">
-                  {formatPhone(selected.customer.phone)} · aberta{" "}
-                  {relativeDays(selected.createdAt)}
+                  {formatPhone(selected.customer.phone)}
                   {selected.lastInboundAt &&
                   (!selected.lastOutboundAt ||
                     selected.lastInboundAt > selected.lastOutboundAt)
                     ? ` · cliente aguarda há ${ago(selected.lastInboundAt)}`
                     : selected.lastOutboundAt
                       ? ` · aguardando cliente há ${ago(selected.lastOutboundAt)}`
-                      : ""}
+                      : ` · aberta ${relativeDays(selected.createdAt)}`}
                 </p>
+                <div className="flex items-center gap-1.5 mt-1">
+                  <SetorPill setor={selected.setor} />
+                  {selected.assignee ? (
+                    <span className="inline-flex items-center gap-1 text-[10px] text-gray-500">
+                      <span
+                        className="size-1.5 rounded-full"
+                        style={{ backgroundColor: selected.assignee.color }}
+                      />
+                      {isMine ? "Você" : selected.assignee.name.split(" ")[0]}
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 text-amber-700 text-[10px] font-semibold px-1.5 py-0.5">
+                      <InboxIcon className="size-2.5" />
+                      na fila
+                    </span>
+                  )}
+                </div>
               </div>
-              <div className="flex items-center gap-1.5">
-                <select
-                  value={selected.priority}
-                  onChange={(e) =>
-                    updateConv(selected.id, { priority: e.target.value })
-                  }
-                  className={`text-xs rounded-lg border px-1.5 py-1.5 bg-white outline-none ${
-                    selected.priority === "ALTA"
-                      ? "border-rose-300 text-rose-600"
-                      : "border-gray-200"
+
+              {/* ação principal: assumir / encerrar / reabrir */}
+              <div className="flex items-center gap-1.5 shrink-0">
+                {selected.status === "CLOSED" ? (
+                  <button
+                    onClick={() => reabrir(selected.id)}
+                    className="inline-flex items-center gap-1.5 rounded-xl bg-brand-600 hover:bg-brand-700 text-white text-xs font-semibold px-3 py-2 transition"
+                  >
+                    <RotateCcw className="size-3.5" />
+                    Reabrir
+                  </button>
+                ) : !selected.assignee ? (
+                  <button
+                    onClick={() => assumir(selected.id)}
+                    className="inline-flex items-center gap-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold px-3 py-2 transition"
+                  >
+                    <Hand className="size-3.5" />
+                    Assumir
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => encerrar(selected.id)}
+                    className="inline-flex items-center gap-1.5 rounded-xl border border-gray-200 hover:border-emerald-300 hover:text-emerald-700 text-gray-600 text-xs font-semibold px-3 py-2 transition"
+                  >
+                    <CheckCircle2 className="size-3.5" />
+                    Encerrar
+                  </button>
+                )}
+                <button
+                  onClick={() => setShowTransfer((v) => !v)}
+                  className={`p-2 rounded-xl border transition ${
+                    showTransfer
+                      ? "border-brand-300 text-brand-600 bg-brand-50"
+                      : "border-gray-200 text-gray-500 hover:text-brand-600"
                   }`}
-                  title="Prioridade"
+                  title="Transferir / mudar status"
                 >
-                  <option value="BAIXA">Baixa</option>
-                  <option value="NORMAL">Normal</option>
-                  <option value="ALTA">🔥 Alta</option>
-                </select>
-                <select
-                  value={selected.status}
-                  onChange={(e) =>
-                    updateConv(selected.id, { status: e.target.value })
-                  }
-                  className="text-xs rounded-lg border border-gray-200 px-1.5 py-1.5 bg-white outline-none max-w-32"
-                  title="Status da conversa"
-                >
-                  {STATUS_OPTIONS.map((s) => (
-                    <option key={s} value={s}>
-                      {conversationStatusLabel[s]}
-                    </option>
-                  ))}
-                </select>
-                <select
-                  value={selected.assignee?.id ?? ""}
-                  onChange={(e) =>
-                    updateConv(selected.id, { assigneeId: e.target.value })
-                  }
-                  className="hidden sm:block text-xs rounded-lg border border-gray-200 px-1.5 py-1.5 bg-white outline-none max-w-24"
-                  title="Transferir atendimento"
-                >
-                  <option value="" disabled>
-                    Transferir
-                  </option>
-                  {team.map((t) => (
-                    <option key={t.id} value={t.id}>
-                      {t.name}
-                    </option>
-                  ))}
-                </select>
+                  <ArrowRightLeft className="size-4" />
+                </button>
               </div>
             </div>
+
+            {/* painel de transferência (setor, atendente, status, prioridade) */}
+            {showTransfer && (
+              <div className="px-4 py-3 border-b border-gray-100 bg-gray-50/70 grid grid-cols-2 gap-2 shrink-0">
+                <label className="text-[11px] font-semibold text-gray-500 flex flex-col gap-1">
+                  Setor
+                  <select
+                    value={selected.setor?.id ?? ""}
+                    onChange={(e) =>
+                      updateConv(selected.id, { setorId: e.target.value || null })
+                    }
+                    className="text-xs rounded-lg border border-gray-200 px-2 py-2 bg-white outline-none font-normal"
+                  >
+                    <option value="">Sem setor</option>
+                    {setores.map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="text-[11px] font-semibold text-gray-500 flex flex-col gap-1">
+                  Atendente
+                  <select
+                    value={selected.assignee?.id ?? ""}
+                    onChange={(e) =>
+                      updateConv(selected.id, {
+                        assigneeId: e.target.value || null,
+                      })
+                    }
+                    className="text-xs rounded-lg border border-gray-200 px-2 py-2 bg-white outline-none font-normal"
+                  >
+                    <option value="">Ninguém (fila)</option>
+                    {team.map((t) => (
+                      <option key={t.id} value={t.id}>
+                        {t.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="text-[11px] font-semibold text-gray-500 flex flex-col gap-1">
+                  Status
+                  <select
+                    value={selected.status}
+                    onChange={(e) =>
+                      updateConv(selected.id, { status: e.target.value })
+                    }
+                    className="text-xs rounded-lg border border-gray-200 px-2 py-2 bg-white outline-none font-normal"
+                  >
+                    {STATUS_OPTIONS.map((s) => (
+                      <option key={s} value={s}>
+                        {conversationStatusLabel[s]}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="text-[11px] font-semibold text-gray-500 flex flex-col gap-1">
+                  Prioridade
+                  <select
+                    value={selected.priority}
+                    onChange={(e) =>
+                      updateConv(selected.id, { priority: e.target.value })
+                    }
+                    className={`text-xs rounded-lg border px-2 py-2 bg-white outline-none font-normal ${
+                      selected.priority === "ALTA"
+                        ? "border-rose-300 text-rose-600"
+                        : "border-gray-200"
+                    }`}
+                  >
+                    <option value="BAIXA">Baixa</option>
+                    <option value="NORMAL">Normal</option>
+                    <option value="ALTA">🔥 Alta</option>
+                  </select>
+                </label>
+              </div>
+            )}
 
             {/* tags do cliente */}
             {selected.customer.tags.length > 0 && (
@@ -618,12 +848,14 @@ export function Inbox({
               <div ref={bottomRef} />
             </div>
 
-            {/* aviso modo simulado */}
-            <div className="px-4 py-1.5 bg-sky-50 border-t border-sky-100 flex items-center gap-2 text-[11px] text-sky-700 shrink-0">
-              <Info className="size-3.5 shrink-0" />
-              Communication Engine em modo simulado (Mock Provider). Ative a
-              Cloud API em Configurações → Comunicação.
-            </div>
+            {/* aviso: conversa na fila */}
+            {!selected.assignee && selected.status !== "CLOSED" && (
+              <div className="px-4 py-1.5 bg-amber-50 border-t border-amber-100 flex items-center gap-2 text-[11px] text-amber-800 shrink-0">
+                <InboxIcon className="size-3.5 shrink-0" />
+                Este chamado está na fila. Ao responder, você assume o
+                atendimento automaticamente.
+              </div>
+            )}
 
             {/* composer */}
             <div className="p-3 border-t border-gray-100 shrink-0 relative">
@@ -755,24 +987,6 @@ export function Inbox({
                     <Send className="size-4" />
                   )}
                 </button>
-              </div>
-              <div className="sm:hidden mt-2">
-                <select
-                  value={selected.assignee?.id ?? ""}
-                  onChange={(e) =>
-                    updateConv(selected.id, { assigneeId: e.target.value })
-                  }
-                  className="w-full text-xs rounded-lg border border-gray-200 px-2 py-2 bg-white outline-none"
-                >
-                  <option value="" disabled>
-                    Transferir atendimento
-                  </option>
-                  {team.map((t) => (
-                    <option key={t.id} value={t.id}>
-                      Transferir para {t.name}
-                    </option>
-                  ))}
-                </select>
               </div>
             </div>
 

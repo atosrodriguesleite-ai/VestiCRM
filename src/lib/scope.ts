@@ -31,11 +31,19 @@ export function ownedScope(user: SessionUser) {
     : { companyId: user.companyId, ownerId: user.id };
 }
 
-/** Filtro para conversas (assigneeId). */
+/**
+ * Filtro para conversas (Central de Atendimento).
+ * Vendedor enxerga os atendimentos DELE + toda a FILA (conversas sem
+ * responsável) — é o modelo de fila compartilhada: um número da loja para
+ * todos os vendedores, quem estiver livre "assume" da fila.
+ */
 export function conversationScope(user: SessionUser) {
   return canSeeAll(user)
     ? { companyId: user.companyId }
-    : { companyId: user.companyId, assigneeId: user.id };
+    : {
+        companyId: user.companyId,
+        OR: [{ assigneeId: user.id }, { assigneeId: null }],
+      };
 }
 
 /** Filtro para tarefas (assigneeId). */
