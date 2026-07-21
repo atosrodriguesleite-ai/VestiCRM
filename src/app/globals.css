@@ -232,6 +232,9 @@ body {
   background: var(--color-canvas);
   color: var(--color-ink);
   font-feature-settings: "cv11", "ss01";
+  /* Nada pode empurrar a página para os lados no celular: sem rolagem
+     horizontal acidental (e janelas fixas nunca "vazam" além da tela). */
+  overflow-x: hidden;
 }
 
 /* Foco acessível consistente em todo o sistema */

@@ -88,12 +88,14 @@ export function QuickLeadLink({
         <Portal>
         <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center pb-[var(--kb,0px)]">
           <div className="absolute inset-0 bg-black/30 animate-fade-in" onClick={reset} />
-          <div className="relative bg-white rounded-t-2xl md:rounded-2xl shadow-pop w-full md:max-w-sm p-6 pb-[max(1.5rem,env(safe-area-inset-bottom))] max-h-[calc(100dvh_-_var(--kb,0px)_-_1.5rem)] overflow-y-auto animate-fade-up">
+          <div className="relative bg-white rounded-t-2xl md:rounded-2xl shadow-pop w-full md:max-w-sm max-w-[100vw] overflow-x-hidden pt-3 px-5 sm:px-6 pb-[max(1.25rem,env(safe-area-inset-bottom))] max-h-[calc(100dvh_-_var(--kb,0px)_-_1.5rem)] overflow-y-auto animate-fade-up">
+            {/* puxador do bottom sheet (só no celular) */}
+            <div className="md:hidden mx-auto mb-3 h-1.5 w-10 rounded-full bg-slate-200" />
             <div className="flex items-center justify-between mb-1">
               <h3 className="font-semibold text-lg">
                 {result ? "Link pronto! 🎉" : "Novo lead + link"}
               </h3>
-              <button onClick={reset} className="text-gray-400 p-1">
+              <button onClick={reset} className="-mr-1 grid size-8 place-items-center rounded-lg text-gray-400 hover:bg-gray-100">
                 <X className="size-5" />
               </button>
             </div>
@@ -139,25 +141,25 @@ export function QuickLeadLink({
                 <div className="rounded-xl bg-gray-50 border border-gray-100 px-3 py-2.5 text-xs font-mono break-all text-gray-600">
                   {result.link}
                 </div>
-                <div className="grid grid-cols-2 gap-2">
+                <div className="grid grid-cols-[auto_1fr] gap-2">
                   <button
                     onClick={async () => {
                       await navigator.clipboard.writeText(result.link);
                       setCopied(true);
                       setTimeout(() => setCopied(false), 1500);
                     }}
-                    className="inline-flex items-center justify-center gap-1.5 rounded-xl border border-gray-200 hover:border-brand-300 text-gray-600 text-sm font-medium py-2.5 transition"
+                    className="inline-flex items-center justify-center gap-1.5 rounded-xl border border-gray-200 hover:border-brand-300 text-gray-600 text-sm font-medium px-4 py-2.5 transition"
                   >
-                    {copied ? <Check className="size-4 text-emerald-500" /> : <Copy className="size-4" />}
-                    {copied ? "Copiado!" : "Copiar link"}
+                    {copied ? <Check className="size-4 shrink-0 text-emerald-500" /> : <Copy className="size-4 shrink-0" />}
+                    {copied ? "Copiado!" : "Copiar"}
                   </button>
                   <a
                     href={waHref}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium py-2.5 transition"
+                    className="inline-flex min-w-0 items-center justify-center gap-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold px-4 py-2.5 transition"
                   >
-                    <MessageCircle className="size-4" />
+                    <MessageCircle className="size-4 shrink-0" />
                     Enviar no WhatsApp
                   </a>
                 </div>
