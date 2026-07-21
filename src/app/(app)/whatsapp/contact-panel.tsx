@@ -195,26 +195,48 @@ export function ContactPanel({
               <p className="text-xs text-slate-400">Nenhum pedido ainda.</p>
             ) : (
               <div className="space-y-1.5">
-                {ficha.orders.map((o) => (
-                  <Link
-                    key={o.id}
-                    href={`/pedidos/${o.id}`}
-                    className="flex items-center justify-between gap-2 rounded-lg border border-slate-100 px-3 py-2 hover:border-brand-200 hover:bg-brand-50/40 transition"
-                  >
-                    <span className="min-w-0">
-                      <span className="text-sm font-medium text-slate-700">
-                        {orderNumber(o.number)}
+                {ficha.orders.map((o) => {
+                  const cancelled = o.status === "CANCELADO";
+                  return (
+                    <Link
+                      key={o.id}
+                      href={`/pedidos/${o.id}`}
+                      className={`flex items-center justify-between gap-2 rounded-lg border px-3 py-2 transition ${
+                        cancelled
+                          ? "border-slate-100 bg-slate-50/60 hover:border-slate-200"
+                          : "border-slate-100 hover:border-brand-200 hover:bg-brand-50/40"
+                      }`}
+                    >
+                      <span className="min-w-0">
+                        <span className="flex items-center gap-1.5">
+                          <span
+                            className={`text-sm font-medium ${
+                              cancelled ? "text-slate-400" : "text-slate-700"
+                            }`}
+                          >
+                            {orderNumber(o.number)}
+                          </span>
+                          {cancelled && (
+                            <span className="rounded-full bg-rose-50 text-rose-600 text-[10px] font-bold px-1.5 py-0.5">
+                              Cancelado
+                            </span>
+                          )}
+                        </span>
+                        <span className="block text-[11px] text-slate-400">
+                          {dateShort(o.createdAt)}
+                          {o.paid ? " · pago" : ""}
+                        </span>
                       </span>
-                      <span className="block text-[11px] text-slate-400">
-                        {dateShort(o.createdAt)}
-                        {o.paid ? " · pago" : ""}
+                      <span
+                        className={`text-sm font-semibold tabular-nums shrink-0 ${
+                          cancelled ? "text-slate-400 line-through" : "text-slate-800"
+                        }`}
+                      >
+                        {brl(o.total)}
                       </span>
-                    </span>
-                    <span className="text-sm font-semibold tabular-nums text-slate-800 shrink-0">
-                      {brl(o.total)}
-                    </span>
-                  </Link>
-                ))}
+                    </Link>
+                  );
+                })}
               </div>
             )}
           </div>
