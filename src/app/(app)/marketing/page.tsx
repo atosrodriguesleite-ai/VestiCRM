@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { Users, Wallet, Receipt, Repeat, Target } from "lucide-react";
 import { requireUser } from "@/lib/auth";
@@ -31,7 +32,7 @@ const pct = (part: number, whole: number) => (whole > 0 ? Math.round((part / who
 export default async function MarketingPage({
   searchParams,
 }: {
-  searchParams: Promise<{ de?: string; ate?: string }>;
+  searchParams: Promise<{ de?: string; ate?: string; canal?: string }>;
 }) {
   const user = await requireUser();
   if (!isManagerUp(user)) redirect("/dashboard");
@@ -42,8 +43,10 @@ export default async function MarketingPage({
   });
   if (!company?.marketingEnabled) redirect("/dashboard");
 
-  const { de, ate } = await searchParams;
+  const { de, ate, canal } = await searchParams;
   const companyId = user.companyId;
+  // filtro por canal: só aceita uma origem válida (senão, visão Geral)
+  const canalParam = canal && canal in originLabel ? canal : null;
   const now = new Date();
   const SP_OFFSET = 3 * 60 * 60 * 1000; // São Paulo é UTC-3
   const spStart = (d?: string) => {
@@ -60,51 +63,65 @@ export default async function MarketingPage({
   const durMs = Math.max(to.getTime() - from.getTime(), 1);
   const inPrev = { gte: new Date(from.getTime() - durMs), lte: new Date(from.getTime() - 1) };
 
-  const [leads, prevLeadsCount, paidOrders, prevFat, campaignRows, buyerCounts] = await Promise.all([
+  // buscamos TUDO do período (sem filtrar por canal) — o filtro por canal é
+  // aplicado depois, em memória, para os cartões e o ranking. Assim os
+  // gráficos "por canal" sempre mostram a comparação completa (visão Geral).
+  const [leadsAll, prevLeadsAll, ordersAll, prevOrdersAll, campaignRows, buyerCounts] = await Promise.all([
     db.customer.findMany({ where: { companyId, createdAt: inPeriod }, select: { origin: true, campaignId: true } }),
-    db.customer.count({ where: { companyId, createdAt: inPrev } }),
+    db.customer.findMany({ where: { companyId, createdAt: inPrev }, select: { origin: true } }),
     db.order.findMany({
       where: { companyId, status: { in: PAID_ORDER_STATUSES }, createdAt: inPeriod },
       select: { total: true, customerId: true, customer: { select: { origin: true, campaignId: true } } },
     }),
-    db.order.aggregate({
-      _sum: { total: true },
+    db.order.findMany({
       where: { companyId, status: { in: PAID_ORDER_STATUSES }, createdAt: inPrev },
+      select: { total: true, customer: { select: { origin: true } } },
     }),
     db.marketingCampaign.findMany({
       where: { companyId },
       orderBy: [{ active: "desc" }, { createdAt: "desc" }],
       select: { id: true, name: true, channel: true, utmKey: true, active: true, _count: { select: { customers: true } } },
     }),
-    db.order.groupBy({ by: ["customerId"], where: { companyId, status: { in: PAID_ORDER_STATUSES } }, _count: { _all: true } }),
+    db.order.groupBy({
+      by: ["customerId"],
+      where: {
+        companyId,
+        status: { in: PAID_ORDER_STATUSES },
+        ...(canalParam ? { customer: { origin: canalParam as never } } : {}),
+      },
+      _count: { _all: true },
+    }),
   ]);
 
   const campById = new Map(campaignRows.map((c) => [c.id, c]));
 
-  // ---- agregação por CANAL (origin) ----
+  // ---- canais presentes (para os chips de filtro) ----
+  const canaisSet = new Set<string>();
+  for (const l of leadsAll) canaisSet.add(l.origin);
+  for (const o of ordersAll) canaisSet.add(o.customer.origin);
+
+  // ---- gráficos "por canal" (SEMPRE a visão geral/comparação) ----
   const canalLeads = new Map<string, number>();
-  for (const l of leads) canalLeads.set(l.origin, (canalLeads.get(l.origin) ?? 0) + 1);
-  const canalFat = new Map<string, { fat: number; pedidos: number }>();
-  for (const o of paidOrders) {
-    const k = o.customer.origin;
-    const cur = canalFat.get(k) ?? { fat: 0, pedidos: 0 };
-    cur.fat += o.total;
-    cur.pedidos += 1;
-    canalFat.set(k, cur);
-  }
-  const canaisSet = new Set<string>([...canalLeads.keys(), ...canalFat.keys()]);
+  for (const l of leadsAll) canalLeads.set(l.origin, (canalLeads.get(l.origin) ?? 0) + 1);
+  const canalFat = new Map<string, number>();
+  for (const o of ordersAll) canalFat.set(o.customer.origin, (canalFat.get(o.customer.origin) ?? 0) + o.total);
   const canais = [...canaisSet]
     .map((o) => ({
       origin: o,
       label: originLabel[o as keyof typeof originLabel] ?? o,
       color: originColor(o),
       leads: canalLeads.get(o) ?? 0,
-      fat: canalFat.get(o)?.fat ?? 0,
-      pedidos: canalFat.get(o)?.pedidos ?? 0,
+      fat: canalFat.get(o) ?? 0,
     }))
     .sort((a, b) => b.fat - a.fat || b.leads - a.leads);
 
-  // ---- agregação por CAMPANHA ----
+  // ---- aplica o filtro de canal (Geral = tudo) ----
+  const leads = canalParam ? leadsAll.filter((l) => l.origin === canalParam) : leadsAll;
+  const paidOrders = canalParam ? ordersAll.filter((o) => o.customer.origin === canalParam) : ordersAll;
+  const prevLeadsList = canalParam ? prevLeadsAll.filter((l) => l.origin === canalParam) : prevLeadsAll;
+  const prevOrdersList = canalParam ? prevOrdersAll.filter((o) => o.customer.origin === canalParam) : prevOrdersAll;
+
+  // ---- agregação por CAMPANHA (respeita o filtro de canal) ----
   const campLeads = new Map<string, number>();
   let leadsSemCamp = 0;
   for (const l of leads) {
@@ -145,19 +162,22 @@ export default async function MarketingPage({
     })
     .sort((a, b) => b.fat - a.fat || b.leads - a.leads);
 
-  // ---- números do topo ----
+  // ---- números do topo (já filtrados pelo canal, quando houver) ----
   const totalLeads = leads.length;
   const totalFat = paidOrders.reduce((s, o) => s + o.total, 0);
   const ticket = paidOrders.length > 0 ? totalFat / paidOrders.length : 0;
-  const prevLeads = prevLeadsCount;
-  const prevRevenue = prevFat._sum.total ?? 0;
+  const prevLeads = prevLeadsList.length;
+  const prevRevenue = prevOrdersList.reduce((s, o) => s + o.total, 0);
   const pctDelta = (a: number, b: number) => (b > 0 ? Math.round(((a - b) / b) * 100) : a > 0 ? 100 : null);
   const totalBuyers = buyerCounts.length;
   const repeatBuyers = buyerCounts.filter((b) => b._count._all >= 2).length;
   const recompra = totalBuyers > 0 ? Math.round((repeatBuyers / totalBuyers) * 100) : 0;
 
+  // gráficos por canal usam a visão total (leadsAll), não o filtro
+  const totalLeadsAll = leadsAll.length;
   const donutData = canais.filter((c) => c.fat > 0).slice(0, 6).map((c) => ({ label: c.label, value: c.fat, color: c.color }));
-  const leadsBar = canais.filter((c) => c.leads > 0).slice(0, 6).map((c) => ({ label: c.label, value: c.leads, sub: `${pct(c.leads, totalLeads)}%` }));
+  const leadsBar = canais.filter((c) => c.leads > 0).slice(0, 6).map((c) => ({ label: c.label, value: c.leads, sub: `${pct(c.leads, totalLeadsAll)}%` }));
+  const canalLabel = canalParam ? (originLabel[canalParam as keyof typeof originLabel] ?? canalParam) : null;
 
   const campanhas: Campanha[] = campaignRows.map((c) => ({
     id: c.id,
@@ -170,6 +190,22 @@ export default async function MarketingPage({
 
   const semDados = totalLeads === 0 && totalFat === 0;
 
+  // link do chip de canal preservando o período (de/ate)
+  const canalHref = (origin: string | null) => {
+    const p = new URLSearchParams();
+    if (de) p.set("de", de);
+    if (ate) p.set("ate", ate);
+    if (origin) p.set("canal", origin);
+    const s = p.toString();
+    return `/marketing${s ? `?${s}` : ""}`;
+  };
+  const chipCls = (on: boolean) =>
+    `shrink-0 rounded-full border px-3 py-1.5 text-xs font-semibold transition ${
+      on
+        ? "border-brand-600 bg-brand-600 text-white"
+        : "border-slate-200 bg-white text-slate-600 hover:border-brand-300"
+    }`;
+
   return (
     <div className="max-w-5xl mx-auto space-y-6">
       <PageHeader
@@ -178,6 +214,32 @@ export default async function MarketingPage({
       />
 
       <PeriodChips pathname="/marketing" de={de} ate={ate} />
+
+      {/* filtro por canal — Geral (tudo) ou um canal específico */}
+      {canais.length > 0 && (
+        <div>
+          <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400">Canal</p>
+          <div className="flex gap-2 overflow-x-auto pb-1">
+            <Link href={canalHref(null)} className={chipCls(!canalParam)}>
+              Geral
+            </Link>
+            {canais.map((c) => (
+              <Link key={c.origin} href={canalHref(c.origin)} className={chipCls(canalParam === c.origin)}>
+                {c.label}
+              </Link>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {canalLabel && (
+        <p className="-mt-2 text-[13px] text-slate-500">
+          Mostrando o canal <b className="text-slate-800">{canalLabel}</b>.{" "}
+          <Link href={canalHref(null)} className="text-brand-600 hover:underline">
+            Ver geral
+          </Link>
+        </p>
+      )}
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <StatCard label="Leads no período" value={totalLeads} format="int" icon={<Users />} delta={pctDelta(totalLeads, prevLeads)} />
@@ -194,7 +256,7 @@ export default async function MarketingPage({
             hint="Assim que entrarem leads (com a campanha marcada no “Lead + link”) e pedidos pagos, os resultados por canal e campanha aparecem aqui."
           />
         </Card>
-      ) : (
+      ) : !canalParam ? (
         <div className="grid gap-4 lg:grid-cols-2">
           {/* faturamento por canal */}
           <Card className="p-5">
@@ -216,7 +278,7 @@ export default async function MarketingPage({
             )}
           </Card>
         </div>
-      )}
+      ) : null}
 
       {/* ranking por campanha */}
       {(porCampanha.length > 0 || leadsSemCamp > 0 || fatSemCamp > 0) && (
