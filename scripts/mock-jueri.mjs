@@ -62,7 +62,24 @@ createServer((req, res) => {
   const detalhe = resto.match(/^\/produto\/(\d+)$/);
   if (detalhe) {
     const p = produtos.find((x) => String(x.id) === detalhe[1]);
-    return p ? json(200, p) : json(404, { message: "Not found" });
+    if (!p) return json(404, { message: "Not found" });
+    // PUT: altera o produto (usado pela sincronia de volta do estoque).
+    // Exige descricao, tipo_preco e quantidade — como a Jueri real.
+    if (req.method === "PUT") {
+      let raw = "";
+      req.on("data", (c) => (raw += c));
+      req.on("end", () => {
+        let b = {};
+        try { b = JSON.parse(raw || "{}"); } catch {}
+        if (b.descricao == null || b.tipo_preco == null || b.quantidade == null) {
+          return json(422, { message: "descricao, tipo_preco e quantidade são obrigatórios" });
+        }
+        p.quantidade = Number(b.quantidade); // só o estoque muda de fato
+        return json(200, p);
+      });
+      return;
+    }
+    return json(200, p);
   }
   json(404, { message: "rota desconhecida " + resto });
 }).listen(4033, "127.0.0.1", () => console.log("mock Jueri em http://127.0.0.1:4033"));

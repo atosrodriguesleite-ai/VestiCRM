@@ -7,6 +7,7 @@ import { isManagerUp, isSupport } from "@/lib/scope";
 import { reverseAndDeleteOrder } from "@/lib/order-actions";
 import { notifySalePaid } from "@/lib/push";
 import { pushStockToNuvemshop } from "@/lib/nuvemshop";
+import { pushStockToJueri } from "@/lib/jueri";
 import { orderStatusLabel, orderNumber, PAID_ORDER_STATUSES } from "@/lib/orders";
 import { computeOrderTotals } from "@/lib/orders";
 
@@ -404,13 +405,19 @@ export async function PATCH(
         await db.sale.deleteMany({ where: { orderId: order.id } });
       }
 
-      // Loja integrada à Nuvemshop: a baixa/devolução feita AQUI é devolvida
-      // pra lá (ela é a dona do estoque) — uma venda, uma baixa, sem divergir
+      // Integrações: a baixa/devolução feita AQUI é refletida na ORIGEM do
+      // estoque — uma venda, uma baixa, sem divergir entre os sistemas.
       if (needDeduct || needReturn) {
         const variantIds = order.items
           .map((i) => i.variantId)
           .filter((v): v is string => !!v);
         pushStockToNuvemshop(user.companyId, variantIds).catch(() => {});
+        // Jueri: delta EXATO por variação (venda = baixa, cancelamento = volta)
+        const sinal = needReturn ? 1 : -1;
+        const changes = order.items
+          .filter((i) => i.variantId)
+          .map((i) => ({ variantId: i.variantId!, delta: sinal * i.quantity }));
+        pushStockToJueri(user.companyId, changes).catch(() => {});
       }
     }
 

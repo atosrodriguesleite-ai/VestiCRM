@@ -28,6 +28,26 @@ export async function jueriGet(token: string, path: string) {
   return { status: res.status, body };
 }
 
+export async function jueriPut(token: string, path: string, data: unknown) {
+  const res = await fetch(`${JUERI_BASE}${path}`, {
+    method: "PUT",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      Accept: "application/json",
+      "Content-Type": "application/json",
+    },
+    cache: "no-store",
+    body: JSON.stringify(data),
+  });
+  let body: unknown = null;
+  try {
+    body = await res.json();
+  } catch {
+    /* sem JSON */
+  }
+  return { status: res.status, body };
+}
+
 export type JueriProduto = {
   id: number | string;
   descricao?: string;
@@ -86,4 +106,51 @@ export function montarSku(p: JueriProduto): string {
   const cb = (p.codigo_barras ?? "").toString().trim();
   if (cb) return cb;
   return `JUERI-${p.id}`;
+}
+
+/**
+ * Sincronia de volta (Opção A): a venda no AtacadoPro baixa o estoque na
+ * Jueri (e o cancelamento devolve). `changes` traz o delta EXATO por
+ * variação (−qtde vendida / +qtde devolvida) — nunca sobrescreve o número,
+ * pra não atropelar vendas feitas direto na Jueri.
+ *
+ * Escrita conservadora: lê o produto, reenvia descrição e preços SEM alterar
+ * (a API exige esses campos no PUT) e só troca a `quantidade`. Se a Jueri
+ * recusar ou não responder, ignora em silêncio — nunca corrompe o dado dela.
+ * Roda em 2º plano; erros não travam a venda no AtacadoPro.
+ */
+export async function pushStockToJueri(
+  companyId: string,
+  changes: { variantId: string; delta: number }[]
+) {
+  if (changes.length === 0) return;
+  // import tardio: mantém este módulo utilizável sem puxar o Prisma à toa
+  const { db } = await import("./db");
+  const conn = await db.jueriConnection.findUnique({ where: { companyId } });
+  if (!conn) return;
+
+  const deltaByVariant = new Map(changes.map((c) => [c.variantId, c.delta]));
+  const variants = await db.productVariant.findMany({
+    where: {
+      id: { in: changes.map((c) => c.variantId) },
+      product: { companyId, jueriId: { not: null } },
+    },
+    include: { product: { select: { jueriId: true } } },
+  });
+
+  for (const v of variants) {
+    const delta = deltaByVariant.get(v.id) ?? 0;
+    if (delta === 0 || !v.product.jueriId) continue;
+    const rota = `/${conn.clienteSistema}/produto/${v.product.jueriId}`;
+    const atual = await jueriGet(conn.token, rota);
+    const prod = atual.body as JueriProduto | null;
+    if (atual.status !== 200 || !prod) continue; // não conseguiu ler: não arrisca
+
+    const novo = Math.max(0, Math.round((Number(prod.quantidade) || 0) + delta));
+    await jueriPut(conn.token, rota, {
+      descricao: prod.descricao,
+      tipo_preco: prod.tipo_preco,
+      quantidade: novo,
+    });
+  }
 }
