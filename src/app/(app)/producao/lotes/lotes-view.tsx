@@ -8,6 +8,7 @@
  */
 
 import { useState } from "react";
+import { Portal } from "@/components/portal";
 import { useRouter } from "next/navigation";
 import { CheckCircle2, Loader2, Package, Printer, Plus, X } from "lucide-react";
 import { Card, EmptyState } from "@/components/ui";
@@ -561,7 +562,7 @@ function ModalBase({
   onClose: () => void;
 }) {
   return (
-    <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center pb-[var(--kb,0px)]">
+    <Portal><div className="fixed inset-0 z-50 flex items-end md:items-center justify-center pb-[var(--kb,0px)]">
       <div className="absolute inset-0 bg-black/30 animate-fade-in" onClick={onClose} />
       <div className="relative bg-white rounded-t-2xl md:rounded-2xl shadow-pop w-full md:max-w-lg max-h-[calc(100dvh_-_var(--kb,0px)_-_1.5rem)] md:max-h-[85dvh] flex flex-col">
         <div className="flex items-center justify-between gap-2 p-5 pb-3 border-b border-gray-100">
@@ -575,6 +576,6 @@ function ModalBase({
         </div>
         <div className="flex-1 overflow-y-auto thin-scroll p-5 pt-4">{children}</div>
       </div>
-    </div>
+    </div></Portal>
   );
 }

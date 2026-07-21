@@ -3,6 +3,7 @@
 /* eslint-disable @next/next/no-img-element */
 
 import { useEffect, useMemo, useState } from "react";
+import { Portal } from "@/components/portal";
 import {
   Minus,
   Package,
@@ -357,7 +358,7 @@ export function OrderComposer({
   );
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center pb-[var(--kb,0px)]">
+    <Portal><div className="fixed inset-0 z-50 flex items-end md:items-center justify-center pb-[var(--kb,0px)]">
       <div className="absolute inset-0 bg-black/40 animate-fade-in" onClick={onClose} />
       <div className="relative bg-white rounded-t-2xl md:rounded-2xl shadow-pop w-full md:max-w-4xl h-[calc(100dvh_-_var(--kb,0px))] md:h-[80dvh] flex flex-col md:flex-row overflow-hidden animate-fade-up">
         {/* busca + resultados */}
@@ -466,7 +467,7 @@ export function OrderComposer({
           />
         )}
       </div>
-    </div>
+    </div></Portal>
   );
 }
 

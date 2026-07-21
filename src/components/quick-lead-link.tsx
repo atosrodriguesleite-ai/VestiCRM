@@ -12,6 +12,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Link2, X, Check, Copy, MessageCircle } from "lucide-react";
 import { trackedCatalogLink } from "@/lib/catalog-url";
+import { Portal } from "@/components/portal";
 
 export function QuickLeadLink({
   base,
@@ -84,6 +85,7 @@ export function QuickLeadLink({
       </button>
 
       {open && (
+        <Portal>
         <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center pb-[var(--kb,0px)]">
           <div className="absolute inset-0 bg-black/30 animate-fade-in" onClick={reset} />
           <div className="relative bg-white rounded-t-2xl md:rounded-2xl shadow-pop w-full md:max-w-sm p-6 pb-[max(1.5rem,env(safe-area-inset-bottom))] max-h-[calc(100dvh_-_var(--kb,0px)_-_1.5rem)] overflow-y-auto animate-fade-up">
@@ -163,6 +165,7 @@ export function QuickLeadLink({
             )}
           </div>
         </div>
+        </Portal>
       )}
     </>
   );

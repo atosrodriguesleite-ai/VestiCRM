@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { Portal } from "@/components/portal";
 import { useRouter } from "next/navigation";
 import { Plus, X } from "lucide-react";
 import { customerTypeLabel, originLabel } from "@/lib/format";
@@ -60,7 +61,7 @@ export function NewCustomerButton({
       </button>
 
       {open && (
-        <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center pb-[var(--kb,0px)]">
+        <Portal><div className="fixed inset-0 z-50 flex items-end md:items-center justify-center pb-[var(--kb,0px)]">
           <div
             className="absolute inset-0 bg-black/30 animate-fade-in"
             onClick={() => setOpen(false)}
@@ -197,7 +198,7 @@ export function NewCustomerButton({
               </p>
             </div>
           </form>
-        </div>
+        </div></Portal>
       )}
     </>
   );

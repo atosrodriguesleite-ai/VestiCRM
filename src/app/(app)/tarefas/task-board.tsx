@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { Portal } from "@/components/portal";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Check, Plus, X, Zap } from "lucide-react";
@@ -260,7 +261,7 @@ function NewTaskModal({
   const today = new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString().slice(0, 10); // data de hoje em São Paulo (UTC-3)
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center pb-[var(--kb,0px)]">
+    <Portal><div className="fixed inset-0 z-50 flex items-end md:items-center justify-center pb-[var(--kb,0px)]">
       <div className="absolute inset-0 bg-black/30 animate-fade-in" onClick={onClose} />
       <form
         onSubmit={submit}
@@ -344,6 +345,6 @@ function NewTaskModal({
           </button>
         </div>
       </form>
-    </div>
+    </div></Portal>
   );
 }

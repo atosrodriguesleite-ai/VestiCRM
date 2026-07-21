@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
+import { Portal } from "@/components/portal";
 import { useRouter } from "next/navigation";
 import { Plus, X, ShieldCheck, Camera } from "lucide-react";
 import { brl, roleLabel } from "@/lib/format";
@@ -365,7 +366,7 @@ export function TeamView({
       )}
 
       {showNew && (
-        <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center pb-[var(--kb,0px)]">
+        <Portal><div className="fixed inset-0 z-50 flex items-end md:items-center justify-center pb-[var(--kb,0px)]">
           <div
             className="absolute inset-0 bg-black/30 animate-fade-in"
             onClick={() => setShowNew(false)}
@@ -471,7 +472,7 @@ export function TeamView({
               </button>
             </div>
           </form>
-        </div>
+        </div></Portal>
       )}
     </>
   );
@@ -523,7 +524,7 @@ function TransferModal({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center pb-[var(--kb,0px)]">
+    <Portal><div className="fixed inset-0 z-50 flex items-end md:items-center justify-center pb-[var(--kb,0px)]">
       <div className="absolute inset-0 bg-black/30 animate-fade-in" onClick={onClose} />
       <div className="relative bg-white rounded-t-2xl md:rounded-2xl shadow-pop w-full md:max-w-md p-6 animate-fade-up">
         <h3 className="font-semibold text-lg mb-1">Transferir carteira</h3>
@@ -585,6 +586,6 @@ function TransferModal({
           </>
         )}
       </div>
-    </div>
+    </div></Portal>
   );
 }

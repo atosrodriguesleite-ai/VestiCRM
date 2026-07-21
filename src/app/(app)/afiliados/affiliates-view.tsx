@@ -7,6 +7,7 @@
  */
 
 import { useState } from "react";
+import { Portal } from "@/components/portal";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Copy, Check, Plus, X, Pencil, Users, Trophy, Link2 } from "lucide-react";
@@ -261,7 +262,7 @@ function AffiliateModal({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center pb-[var(--kb,0px)]">
+    <Portal><div className="fixed inset-0 z-50 flex items-end md:items-center justify-center pb-[var(--kb,0px)]">
       <div className="absolute inset-0 bg-black/30 animate-fade-in" onClick={onClose} />
       <form
         onSubmit={submit}
@@ -333,6 +334,6 @@ function AffiliateModal({
           </button>
         </div>
       </form>
-    </div>
+    </div></Portal>
   );
 }

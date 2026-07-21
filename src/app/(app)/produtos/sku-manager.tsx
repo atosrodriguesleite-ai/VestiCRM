@@ -7,6 +7,7 @@
  */
 
 import { useEffect, useMemo, useState } from "react";
+import { Portal } from "@/components/portal";
 import { useRouter } from "next/navigation";
 import { Barcode, CheckCircle2, Loader2, Search, X } from "lucide-react";
 
@@ -111,7 +112,7 @@ export function SkuManager() {
       </button>
 
       {open && (
-        <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center pb-[var(--kb,0px)]">
+        <Portal><div className="fixed inset-0 z-50 flex items-end md:items-center justify-center pb-[var(--kb,0px)]">
           <div className="absolute inset-0 bg-black/30 animate-fade-in" onClick={fechar} />
           <div className="relative bg-white rounded-t-2xl md:rounded-2xl shadow-pop w-full md:max-w-3xl animate-fade-up max-h-[calc(100dvh_-_var(--kb,0px)_-_1.5rem)] md:max-h-[85dvh] flex flex-col">
             <div className="p-5 pb-3 border-b border-gray-100">
@@ -228,7 +229,7 @@ export function SkuManager() {
               </button>
             </div>
           </div>
-        </div>
+        </div></Portal>
       )}
     </>
   );

@@ -3,6 +3,7 @@
 /* eslint-disable @next/next/no-img-element */
 
 import { useState } from "react";
+import { Portal } from "@/components/portal";
 import { useRouter } from "next/navigation";
 import { Check, Copy, Plus, QrCode, Store, X } from "lucide-react";
 import { brl } from "@/lib/format";
@@ -185,7 +186,7 @@ export function LinksManager({
 
       {/* Modal QR */}
       {qrFor && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+        <Portal><div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-black/40 animate-fade-in" onClick={() => setQrFor(null)} />
           <div className="relative bg-white rounded-2xl shadow-pop p-6 w-full max-w-xs text-center animate-fade-up">
             <button onClick={() => setQrFor(null)} className="absolute top-3 right-3 text-gray-400 p-1">
@@ -214,7 +215,7 @@ export function LinksManager({
               </a>
             </div>
           </div>
-        </div>
+        </div></Portal>
       )}
 
       {showNew && (
@@ -278,7 +279,7 @@ function NewCampaignModal({
   const label = "block text-sm font-medium mb-1.5";
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center pb-[var(--kb,0px)]">
+    <Portal><div className="fixed inset-0 z-50 flex items-end md:items-center justify-center pb-[var(--kb,0px)]">
       <div className="absolute inset-0 bg-black/30 animate-fade-in" onClick={onClose} />
       <div className="relative bg-white rounded-t-2xl md:rounded-2xl shadow-pop w-full md:max-w-md p-6 animate-fade-up">
         <div className="flex items-center justify-between mb-5">
@@ -328,6 +329,6 @@ function NewCampaignModal({
           </button>
         </div>
       </div>
-    </div>
+    </div></Portal>
   );
 }

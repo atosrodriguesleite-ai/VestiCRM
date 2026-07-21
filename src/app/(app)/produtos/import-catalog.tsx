@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
+import { Portal } from "@/components/portal";
 import { useRouter } from "next/navigation";
 import { FileUp, X, Check, FileJson, AlertTriangle } from "lucide-react";
 
@@ -156,7 +157,7 @@ export function ImportCatalog() {
       </button>
 
       {open && (
-        <div className="fixed inset-0 z-[70] flex items-end sm:items-center justify-center sm:p-4 pb-[var(--kb,0px)]">
+        <Portal><div className="fixed inset-0 z-[70] flex items-end sm:items-center justify-center sm:p-4 pb-[var(--kb,0px)]">
           <button
             aria-label="Fechar"
             onClick={close}
@@ -317,7 +318,7 @@ export function ImportCatalog() {
               )}
             </div>
           </div>
-        </div>
+        </div></Portal>
       )}
     </>
   );

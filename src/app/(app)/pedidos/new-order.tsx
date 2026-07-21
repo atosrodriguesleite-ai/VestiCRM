@@ -8,6 +8,7 @@
  */
 
 import { useEffect, useState } from "react";
+import { Portal } from "@/components/portal";
 import { useRouter } from "next/navigation";
 import { Plus, X, Trash2, Search } from "lucide-react";
 import { brl, formatPhone } from "@/lib/format";
@@ -192,7 +193,7 @@ export function NewOrderButton() {
       </button>
 
       {open && (
-        <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center pb-[var(--kb,0px)]">
+        <Portal><div className="fixed inset-0 z-50 flex items-end md:items-center justify-center pb-[var(--kb,0px)]">
           <div className="absolute inset-0 bg-black/30 animate-fade-in" onClick={() => setOpen(false)} />
           <div className="relative bg-white rounded-t-2xl md:rounded-2xl shadow-pop w-full md:max-w-2xl max-h-[calc(100dvh_-_var(--kb,0px)_-_1.5rem)] overflow-y-auto thin-scroll p-6 animate-fade-up">
             <div className="flex items-center justify-between mb-5">
@@ -428,7 +429,7 @@ export function NewOrderButton() {
               </button>
             </div>
           </div>
-        </div>
+        </div></Portal>
       )}
     </>
   );

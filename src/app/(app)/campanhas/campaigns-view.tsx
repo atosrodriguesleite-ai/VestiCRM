@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { Portal } from "@/components/portal";
 import { useRouter } from "next/navigation";
 import { Megaphone, Plus, Users, X, Send, Check, MessageCircle } from "lucide-react";
 import type { SegmentFilter } from "@/lib/segments";
@@ -202,7 +203,7 @@ function NewCampaignModal({
   const label = "block text-sm font-medium mb-1.5";
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center pb-[var(--kb,0px)]">
+    <Portal><div className="fixed inset-0 z-50 flex items-end md:items-center justify-center pb-[var(--kb,0px)]">
       <div className="absolute inset-0 bg-black/30 animate-fade-in" onClick={onClose} />
       <div className="relative bg-white rounded-t-2xl md:rounded-2xl shadow-pop w-full md:max-w-2xl max-h-[calc(100dvh_-_var(--kb,0px)_-_1.5rem)] overflow-y-auto thin-scroll p-6 animate-fade-up">
         <div className="flex items-center justify-between mb-5">
@@ -426,7 +427,7 @@ function NewCampaignModal({
           </div>
         </div>
       </div>
-    </div>
+    </div></Portal>
   );
 }
 
@@ -486,7 +487,7 @@ function SendCampaignModal({
   const done = rows.length > 0 && sent === rows.length;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center pb-[var(--kb,0px)]">
+    <Portal><div className="fixed inset-0 z-50 flex items-end md:items-center justify-center pb-[var(--kb,0px)]">
       <div className="absolute inset-0 bg-black/30 animate-fade-in" onClick={onClose} />
       <div className="relative bg-white rounded-t-2xl md:rounded-2xl shadow-pop w-full md:max-w-lg p-6 animate-fade-up max-h-[calc(100dvh_-_var(--kb,0px)_-_1.5rem)] flex flex-col">
         <div className="flex items-center justify-between mb-1">
@@ -567,6 +568,6 @@ function SendCampaignModal({
           )}
         </div>
       </div>
-    </div>
+    </div></Portal>
   );
 }
