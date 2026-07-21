@@ -34,6 +34,7 @@ import {
   Info,
   Zap,
   Link2,
+  Download,
 } from "lucide-react";
 import { OrderComposer } from "@/components/order-composer";
 import { ContactPanel } from "./contact-panel";
@@ -660,10 +661,20 @@ export function Inbox({
         }`}
       >
         <div className="p-4 pb-2 shrink-0">
-          <h1 className="font-semibold text-lg mb-3 flex items-center gap-2">
-            <MessageCircle className="size-5 text-emerald-500" />
-            Atendimento
-          </h1>
+          <div className="flex items-center justify-between gap-2 mb-3">
+            <h1 className="font-semibold text-lg flex items-center gap-2">
+              <MessageCircle className="size-5 text-emerald-500" />
+              Atendimento
+            </h1>
+            <a
+              href="/api/export/conversas"
+              className="inline-flex items-center gap-1 rounded-lg border border-gray-200 text-gray-500 hover:text-brand-600 hover:border-brand-300 text-[11px] font-semibold px-2 py-1.5 transition shrink-0"
+              title="Baixar backup das conversas (planilha) — cópia de segurança no seu computador"
+            >
+              <Download className="size-3.5" />
+              Backup
+            </a>
+          </div>
           <div className="relative mb-2.5">
             <Search className="size-4 text-gray-300 absolute left-3 top-1/2 -translate-y-1/2" />
             <input
