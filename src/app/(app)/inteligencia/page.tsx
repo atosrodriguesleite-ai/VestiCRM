@@ -97,28 +97,61 @@ function Kpi({ label, value, hint, delta, icon, info }: {
 
 function RankTable({ headers, rows }: { headers: string[]; rows: (string | React.ReactNode)[][] }) {
   return (
-    <div className="overflow-x-auto thin-scroll">
-      <table className="w-full text-sm">
-        <thead>
-          <tr className="text-left text-[10px] uppercase tracking-wide text-gray-400 border-b border-gray-100">
-            {headers.map((h, i) => (
-              <th key={h} className={`py-2 pr-3 font-semibold ${i > 0 ? "text-right" : ""}`}>{h}</th>
-            ))}
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-gray-50">
-          {rows.map((r, i) => (
-            <tr key={i}>
-              {r.map((cell, j) => (
-                <td key={j} className={`py-2 pr-3 ${j > 0 ? "text-right tabular-nums text-gray-600" : "font-medium"}`}>
-                  {cell}
-                </td>
+    <>
+      {/* Computador: tabela (inalterada) */}
+      <div className="hidden md:block overflow-x-auto thin-scroll">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="text-left text-[10px] uppercase tracking-wide text-gray-400 border-b border-gray-100">
+              {headers.map((h, i) => (
+                <th key={h} className={`py-2 pr-3 font-semibold ${i > 0 ? "text-right" : ""}`}>{h}</th>
               ))}
             </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+          </thead>
+          <tbody className="divide-y divide-gray-50">
+            {rows.map((r, i) => (
+              <tr key={i}>
+                {r.map((cell, j) => (
+                  <td key={j} className={`py-2 pr-3 ${j > 0 ? "text-right tabular-nums text-gray-600" : "font-medium"}`}>
+                    {cell}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Celular: cada linha vira um cartão — cabe na tela, sem rolar pro lado */}
+      <div className="md:hidden space-y-1.5">
+        {rows.length === 0 ? (
+          <p className="text-xs text-gray-400 py-2">Sem dados no período.</p>
+        ) : (
+          rows.map((r, i) => (
+            <div key={i} className="rounded-xl border border-gray-100 px-3 py-2.5">
+              {r.length <= 2 ? (
+                <div className="flex items-center justify-between gap-2">
+                  <span className="min-w-0 text-sm font-medium text-gray-800">{r[0]}</span>
+                  {r[1] != null && <span className="shrink-0 text-sm tabular-nums text-gray-600">{r[1]}</span>}
+                </div>
+              ) : (
+                <>
+                  <div className="mb-1.5 text-sm font-medium text-gray-800">{r[0]}</div>
+                  <div className="flex flex-wrap gap-x-4 gap-y-1">
+                    {r.slice(1).map((cell, j) => (
+                      <div key={j} className="text-xs">
+                        <span className="text-gray-400">{headers[j + 1]} </span>
+                        <span className="font-semibold tabular-nums text-gray-700">{cell}</span>
+                      </div>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
+          ))
+        )}
+      </div>
+    </>
   );
 }
 
@@ -129,16 +162,18 @@ function Heatmap({ grid, title, format }: { grid: number[][]; title: string; for
   return (
     <div>
       <p className="text-xs font-semibold text-gray-500 mb-2">{title}</p>
-      <div className="overflow-x-auto thin-scroll">
-        <div className="min-w-[540px]">
+      {/* no celular as células encolhem para caber (sem rolagem lateral);
+          no computador mantém o tamanho confortável com rolagem se precisar */}
+      <div className="md:overflow-x-auto thin-scroll">
+        <div className="md:min-w-[540px]">
           {grid.map((row, d) => (
-            <div key={d} className="flex items-center gap-[3px] mb-[3px]">
-              <span className="w-8 text-[9px] text-gray-400 shrink-0">{DAY_LABELS[d]}</span>
+            <div key={d} className="flex items-center gap-[2px] md:gap-[3px] mb-[2px] md:mb-[3px]">
+              <span className="w-6 md:w-8 text-[9px] text-gray-400 shrink-0">{DAY_LABELS[d]}</span>
               {row.map((v, h) => (
                 <div
                   key={h}
                   title={`${DAY_LABELS[d]} ${h}h — ${format ? format(v) : v}`}
-                  className="flex-1 h-4 rounded-[3px] min-w-[14px]"
+                  className="flex-1 h-4 rounded-[2px] md:rounded-[3px] min-w-0 md:min-w-[14px]"
                   style={{
                     background: v === 0 ? "#f3f1f7" : `rgba(124, 58, 237, ${0.15 + 0.85 * (v / max)})`,
                   }}
@@ -146,9 +181,9 @@ function Heatmap({ grid, title, format }: { grid: number[][]; title: string; for
               ))}
             </div>
           ))}
-          <div className="flex gap-[3px] ml-8 mt-1">
+          <div className="flex gap-[2px] md:gap-[3px] ml-6 md:ml-8 mt-1">
             {Array.from({ length: 24 }, (_, h) => (
-              <span key={h} className="flex-1 min-w-[14px] text-[8px] text-gray-300 text-center">
+              <span key={h} className="flex-1 min-w-0 md:min-w-[14px] text-[8px] text-gray-300 text-center">
                 {h % 6 === 0 ? `${h}h` : ""}
               </span>
             ))}

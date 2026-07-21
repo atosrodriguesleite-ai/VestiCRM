@@ -223,8 +223,15 @@
 html {
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
-  /* Toque duplo NÃO dá zoom (cliques rápidos em +/− são comuns no catálogo);
-     o zoom de pinça continua funcionando normalmente. */
+}
+
+/* Toque duplo NÃO dá zoom nem desfoca (cliques rápidos em +/− são comuns no
+   catálogo). Precisa valer para TODOS os elementos: touch-action não é
+   herdado, então o alvo do toque (botão, célula, cartão…) precisa da regra.
+   A pinça (zoom de dois dedos) continua funcionando normalmente. Componentes
+   que precisam de outro gesto (arrastar) definem seu próprio touch-action com
+   especificidade maior e continuam funcionando. */
+* {
   touch-action: manipulation;
 }
 
