@@ -26,6 +26,7 @@ export type IntakePayload = {
   opportunityTitle?: string;
   value?: number;
   ownerId?: string; // força o responsável (ex.: cadastro manual pelo vendedor)
+  campaignId?: string; // campanha de aquisição (módulo Marketing) — atribuição
   skipTask?: boolean;
   skipOpportunity?: boolean; // quando a oportunidade será criada manualmente em seguida
 };
@@ -122,6 +123,10 @@ export async function intakeLead(
       data: {
         lastContactAt: new Date(),
         ...(payload.name && !existing.name ? { name: payload.name } : {}),
+        // atribuição "primeiro contato": só grava a campanha se ainda não há
+        ...(payload.campaignId && !existing.campaignId
+          ? { campaignId: payload.campaignId }
+          : {}),
       },
     });
     await db.customerEvent.create({
@@ -145,6 +150,7 @@ export async function intakeLead(
         city: payload.city,
         state: payload.state,
         origin: payload.origin,
+        campaignId: payload.campaignId ?? null,
         ownerId,
         lastContactAt: payload.message ? new Date() : null,
       },

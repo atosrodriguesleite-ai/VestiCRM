@@ -8,11 +8,13 @@
  * identificado no catálogo desde o primeiro toque.
  */
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Link2, X, Check, Copy, MessageCircle } from "lucide-react";
 import { trackedCatalogLink } from "@/lib/catalog-url";
 import { Portal } from "@/components/portal";
+
+type Campanha = { id: string; name: string; channel: string };
 
 export function QuickLeadLink({
   base,
@@ -29,6 +31,17 @@ export function QuickLeadLink({
   const [error, setError] = useState("");
   const [result, setResult] = useState<{ link: string; phone: string } | null>(null);
   const [copied, setCopied] = useState(false);
+  // módulo Marketing: campanhas ativas para o vendedor atribuir a origem
+  const [campaigns, setCampaigns] = useState<Campanha[]>([]);
+  const [campaignId, setCampaignId] = useState("");
+
+  useEffect(() => {
+    if (!open) return;
+    fetch("/api/marketing/campaigns")
+      .then((r) => r.json())
+      .then((d) => setCampaigns(Array.isArray(d.campaigns) ? d.campaigns : []))
+      .catch(() => setCampaigns([]));
+  }, [open]);
 
   const linkFor = (code: string) => trackedCatalogLink(base, sellerRef, code);
 
@@ -44,7 +57,12 @@ export function QuickLeadLink({
     const res = await fetch("/api/customers", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: name.trim(), phone: digits, origin: "WHATSAPP" }),
+      body: JSON.stringify({
+        name: name.trim(),
+        phone: digits,
+        origin: "WHATSAPP",
+        ...(campaignId ? { campaignId } : {}),
+      }),
     });
     setSaving(false);
     if (!res.ok) {
@@ -63,6 +81,7 @@ export function QuickLeadLink({
     setResult(null);
     setName("");
     setPhone("");
+    setCampaignId("");
     setError("");
   }
 
@@ -120,6 +139,27 @@ export function QuickLeadLink({
                   inputMode="tel"
                   className="w-full rounded-xl border border-gray-200 px-3 py-2.5 text-sm outline-none focus:border-brand-400"
                 />
+                {/* módulo Marketing: de qual campanha esse lead veio (olhe o
+                    cartão do anúncio no topo da conversa do WhatsApp) */}
+                {campaigns.length > 0 && (
+                  <div>
+                    <label className="block text-[11px] font-medium text-gray-400 mb-1">
+                      Veio de campanha? (opcional)
+                    </label>
+                    <select
+                      value={campaignId}
+                      onChange={(e) => setCampaignId(e.target.value)}
+                      className="w-full rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-sm outline-none focus:border-brand-400"
+                    >
+                      <option value="">Não sei / orgânico</option>
+                      {campaigns.map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
                 {error && (
                   <p className="text-xs font-medium text-rose-600 bg-rose-50 border border-rose-100 rounded-lg px-3 py-2">
                     {error}

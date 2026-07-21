@@ -31,6 +31,7 @@ import {
   Sun,
   Handshake,
   Scissors,
+  Target,
 } from "lucide-react";
 import { Avatar } from "./ui";
 import { Logo, LogoMark } from "./logo";
@@ -48,6 +49,7 @@ const NAV = [
   { href: "/clientes", label: "Clientes", icon: Users, group: "Relacionamento" },
   { href: "/automacoes", label: "Automações", icon: Zap, group: "Relacionamento", supportHidden: true },
   { href: "/campanhas", label: "Campanhas", icon: Megaphone, group: "Relacionamento", supportHidden: true },
+  { href: "/marketing", label: "Marketing", icon: Target, group: "Análise", managerOnly: true, marketingOnly: true },
   { href: "/relatorios", label: "Relatórios", icon: BarChart3, group: "Análise", managerOnly: true },
   { href: "/inteligencia", label: "Inteligência", icon: Brain, group: "Análise", managerOnly: true },
   { href: "/comissoes", label: "Comissões", icon: Percent, group: "Análise", managerOnly: true },
@@ -86,6 +88,8 @@ type ShellUser = {
   impersonating?: boolean;
   // módulo Produção (pago à parte): sem a chave, o menu nem aparece
   productionEnabled?: boolean;
+  // módulo Marketing (pago à parte): idem
+  marketingEnabled?: boolean;
   // modo escuro — preferência individual do usuário
   prefersDark?: boolean;
 };
@@ -116,6 +120,7 @@ export function AppShell({
     if (user.role === "SUPPORT" && "supportHidden" in i && i.supportHidden) return false;
     if ("superOnly" in i && i.superOnly) return user.role === "SUPERADMIN";
     if ("productionOnly" in i && i.productionOnly) return Boolean(user.productionEnabled);
+    if ("marketingOnly" in i && i.marketingOnly && !user.marketingEnabled) return false;
     if ("managerOnly" in i && i.managerOnly)
       return ["ADMIN", "MANAGER", "SUPERADMIN"].includes(user.role);
     return true;

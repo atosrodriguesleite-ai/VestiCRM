@@ -42,6 +42,7 @@ export type Loja = {
   waStatus: string;
   waPhone: string | null;
   productionEnabled: boolean;
+  marketingEnabled: boolean;
   suspended: boolean;
   billing: {
     kind: string;
@@ -276,6 +277,7 @@ function NewLojaForm({
           waStatus: "DESCONECTADO",
           waPhone: null,
           productionEnabled: false,
+          marketingEnabled: false,
           suspended: false,
           billing: null,
           lastActiveAt: null,
@@ -789,6 +791,8 @@ function LojaCard({ loja, catalogDomain }: { loja: Loja; catalogDomain: string |
   const [accessing, setAccessing] = useState(false);
   const [producao, setProducao] = useState(loja.productionEnabled);
   const [togglingProd, setTogglingProd] = useState(false);
+  const [marketing, setMarketing] = useState(loja.marketingEnabled);
+  const [togglingMkt, setTogglingMkt] = useState(false);
 
   // módulo Produção (pago à parte): o Super Admin liga/desliga por loja
   async function toggleProducao() {
@@ -801,6 +805,21 @@ function LojaCard({ loja, catalogDomain }: { loja: Loja; catalogDomain: string |
     setTogglingProd(false);
     if (res.ok) {
       setProducao(!producao);
+      router.refresh();
+    }
+  }
+
+  // módulo Marketing (pago à parte): idem
+  async function toggleMarketing() {
+    setTogglingMkt(true);
+    const res = await fetch("/api/companies/marketing", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ companyId: loja.id, enabled: !marketing }),
+    });
+    setTogglingMkt(false);
+    if (res.ok) {
+      setMarketing(!marketing);
       router.refresh();
     }
   }
@@ -947,6 +966,28 @@ function LojaCard({ loja, catalogDomain }: { loja: Loja; catalogDomain: string |
           }`}
         >
           {togglingProd ? "..." : producao ? "Desativar" : "Ativar Produção"}
+        </button>
+      </div>
+
+      {/* módulo Marketing (pago à parte) */}
+      <div className="mt-2 flex items-center justify-between gap-2 text-[11px]">
+        <span className="text-slate-400">
+          Módulo Marketing:{" "}
+          <b className={marketing ? "text-emerald-600" : "text-slate-500"}>
+            {marketing ? "ativado" : "desativado"}
+          </b>
+        </span>
+        <button
+          type="button"
+          onClick={toggleMarketing}
+          disabled={togglingMkt}
+          className={`rounded-full px-2.5 py-1 font-semibold border transition disabled:opacity-50 ${
+            marketing
+              ? "border-slate-200 text-slate-500 hover:border-rose-300 hover:text-rose-600"
+              : "border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
+          }`}
+        >
+          {togglingMkt ? "..." : marketing ? "Desativar" : "Ativar Marketing"}
         </button>
       </div>
 

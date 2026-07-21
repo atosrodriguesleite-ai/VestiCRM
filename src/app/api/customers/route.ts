@@ -19,6 +19,7 @@ const schema = z.object({
   preferredSize: z.string().optional(),
   preferredColors: z.string().optional(),
   interestIds: z.array(z.string()).optional(),
+  campaignId: z.string().optional(), // campanha de aquisição (módulo Marketing)
   skipOpportunity: z.boolean().optional(), // fluxos que criam a oportunidade/pedido na sequência
 });
 
@@ -30,7 +31,7 @@ export async function POST(req: NextRequest) {
     if (!parsed.success) {
       return NextResponse.json({ error: "Dados inválidos" }, { status: 400 });
     }
-    const { interestIds, type, notes, preferredSize, preferredColors, origin, document, skipOpportunity, ...core } =
+    const { interestIds, type, notes, preferredSize, preferredColors, origin, document, campaignId, skipOpportunity, ...core } =
       parsed.data;
 
     const validOrigins = Object.keys(
@@ -40,12 +41,23 @@ export async function POST(req: NextRequest) {
       validOrigins.includes(origin) ? origin : "MANUAL"
     ) as Origin;
 
+    // campanha precisa ser da própria loja (segurança multi-tenant)
+    const validCampaignId = campaignId
+      ? (
+          await db.marketingCampaign.findFirst({
+            where: { id: campaignId, companyId: user.companyId },
+            select: { id: true },
+          })
+        )?.id
+      : undefined;
+
     const result = await intakeLead(user.companyId, {
       phone: core.phone,
       name: core.name,
       city: core.city,
       state: core.state,
       origin: resolvedOrigin,
+      campaignId: validCampaignId,
       ownerId: user.id, // quem cadastrou fica responsável
       skipOpportunity,
     });

@@ -27,6 +27,7 @@ model Company {
   commissionBase    String   @default("SUBTOTAL") // base da comissão: SUBTOTAL (produtos) | TOTAL (com frete)
   lowStockThreshold Int      @default(5) // alerta de estoque: avisa quando a variação chega a X peças
   productionEnabled Boolean  @default(false) // módulo Produção (pago à parte; super admin ativa por loja)
+  marketingEnabled  Boolean  @default(false) // módulo Marketing (pago à parte; super admin ativa por loja)
   suspended         Boolean  @default(false) // acesso bloqueado pelo super admin (ex.: inadimplência)
   createdAt         DateTime @default(now())
 
@@ -72,6 +73,7 @@ model Company {
   fabrics        Fabric[]
   cutTickets     CutTicket[]
   fabricScraps   FabricScrap[]
+  marketingCampaigns MarketingCampaign[]
 }
 
 // Biblioteca de cores do lojista: ele cria a tonalidade e dá o nome
@@ -242,6 +244,9 @@ model Customer {
   // afiliado que trouxe este lead (só usado na empresa-plataforma)
   affiliateId     String?
   affiliate       Affiliate?   @relation(fields: [affiliateId], references: [id], onDelete: SetNull)
+  // campanha de aquisição (módulo Marketing): de qual campanha este lead veio
+  campaignId      String?
+  campaign        MarketingCampaign? @relation(fields: [campaignId], references: [id], onDelete: SetNull)
   createdAt       DateTime     @default(now())
 
   tags          CustomerTag[]
@@ -837,6 +842,26 @@ model Campaign {
   sends CampaignSend[]
 
   @@index([companyId])
+}
+
+// Campanha de AQUISIÇÃO (módulo Marketing) — de onde os leads vêm, para
+// medir canal/campanha do tráfego pago e orgânico. Diferente de `Campaign`
+// (reativação por mensagem). `utmKey` é a etiqueta usada nos links
+// rastreados (?utm_campaign=inverno) para casar a origem automaticamente.
+model MarketingCampaign {
+  id        String   @id @default(cuid())
+  companyId String
+  company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  name      String
+  channel   String   @default("INSTAGRAM") // INSTAGRAM | FACEBOOK | GOOGLE | WHATSAPP | TIKTOK | OUTRO
+  utmKey    String // slug curto para casar com ?utm_campaign= dos links
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  customers Customer[]
+
+  @@unique([companyId, utmKey])
+  @@index([companyId, active])
 }
 
 // Catálogo de CAMPANHA: uma vitrine à parte com produtos selecionados e um

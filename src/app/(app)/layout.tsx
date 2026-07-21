@@ -31,6 +31,7 @@ export default async function AppLayout({
           companyName: company?.name ?? "",
           impersonating: Boolean(user.impersonatedBy),
           productionEnabled: company?.productionEnabled ?? false,
+          marketingEnabled: company?.marketingEnabled ?? false,
           prefersDark: dark,
         }}
       >
