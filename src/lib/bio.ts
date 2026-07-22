@@ -5,8 +5,65 @@
  */
 
 import { catalogUrl } from "./catalog-url";
+import { readableOn } from "./color";
 
 export type BioLinkKind = "CATALOGO" | "WHATSAPP" | "SITE" | "EXTERNO";
+
+/** Temas prontos (paletas) da bio — um clique aplica fundo + botão + texto. */
+export const BIO_THEMES: {
+  key: string;
+  label: string;
+  bgColor: string;
+  buttonColor: string;
+  buttonTextColor: string;
+}[] = [
+  { key: "terracota", label: "Terracota", bgColor: "#c4622d", buttonColor: "#ffffff", buttonTextColor: "#3f2a1c" },
+  { key: "rose", label: "Rosé", bgColor: "#e8618c", buttonColor: "#ffffff", buttonTextColor: "#7a2947" },
+  { key: "noite", label: "Preto & Ouro", bgColor: "#1c1917", buttonColor: "#f5d68a", buttonTextColor: "#3a2e12" },
+  { key: "oliva", label: "Verde Oliva", bgColor: "#4d5b3a", buttonColor: "#f4f1e8", buttonTextColor: "#2f3a22" },
+  { key: "oceano", label: "Oceano", bgColor: "#1e5f8c", buttonColor: "#ffffff", buttonTextColor: "#123a56" },
+  { key: "lavanda", label: "Lavanda", bgColor: "#7c6cc4", buttonColor: "#ffffff", buttonTextColor: "#3f356b" },
+  { key: "nude", label: "Nude", bgColor: "#c9a98a", buttonColor: "#fffaf4", buttonTextColor: "#5c4632" },
+  { key: "vinho", label: "Vinho", bgColor: "#7a2140", buttonColor: "#f6dfe6", buttonTextColor: "#4a1226" },
+  { key: "menta", label: "Menta", bgColor: "#2f9e8f", buttonColor: "#ffffff", buttonTextColor: "#1c5a52" },
+  { key: "carvao", label: "Carvão", bgColor: "#2b2b31", buttonColor: "#3a3a44", buttonTextColor: "#f2f2f5" },
+];
+
+/** Galeria de imagens prontas para os botões (public/bio-icons/*.svg). */
+export const BIO_BUTTON_ICONS: { key: string; label: string; url: string }[] = [
+  { key: "catalogo", label: "Catálogo", url: "/bio-icons/catalogo.svg" },
+  { key: "promocao", label: "Promoção", url: "/bio-icons/promocao.svg" },
+  { key: "novidades", label: "Novidades", url: "/bio-icons/novidades.svg" },
+  { key: "whatsapp", label: "WhatsApp", url: "/bio-icons/whatsapp.svg" },
+  { key: "instagram", label: "Instagram", url: "/bio-icons/instagram.svg" },
+  { key: "moda", label: "Moda", url: "/bio-icons/moda.svg" },
+  { key: "destaque", label: "Destaque", url: "/bio-icons/destaque.svg" },
+  { key: "atacado", label: "Atacado", url: "/bio-icons/atacado.svg" },
+  { key: "frete", label: "Frete", url: "/bio-icons/frete.svg" },
+  { key: "pix", label: "PIX", url: "/bio-icons/pix.svg" },
+  { key: "presente", label: "Presente", url: "/bio-icons/presente.svg" },
+  { key: "amei", label: "Amei", url: "/bio-icons/amei.svg" },
+  { key: "localizacao", label: "Local", url: "/bio-icons/localizacao.svg" },
+  { key: "agenda", label: "Agenda", url: "/bio-icons/agenda.svg" },
+];
+
+export const BIO_FONTS = ["montserrat", "inter", "poppins", "playfair", "lora"] as const;
+export const BIO_SHAPES = ["rounded", "pill", "square"] as const;
+
+/** Cores finais da bio: usa o tema próprio da página ou herda do catálogo. */
+export function bioColors(
+  page: {
+    bgColor?: string | null;
+    buttonColor?: string | null;
+    buttonTextColor?: string | null;
+  },
+  catalog: { primary: string; secondary: string }
+) {
+  const bg = page.bgColor || catalog.primary;
+  const button = page.buttonColor || "#ffffff";
+  const buttonText = page.buttonTextColor || readableOn(button);
+  return { bg, button, buttonText };
+}
 
 export const BIO_LINK_KINDS: {
   key: BioLinkKind;

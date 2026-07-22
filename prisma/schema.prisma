@@ -948,6 +948,12 @@ model BioPage {
   headline  String? // título grande (default = nome da loja)
   tagline   String? // subtítulo curto (default = tagline do catálogo)
   avatarUrl String? // foto/logo redonda no topo (default = logo do catálogo)
+  // personalização visual própria da bio (null = herda do catálogo da loja)
+  bgColor         String? // cor de fundo (base do gradiente)
+  buttonColor     String? // cor dos botões
+  buttonTextColor String? // cor do texto/ícone dos botões
+  font            String? // fonte da bio (montserrat|inter|poppins|playfair|lora)
+  buttonShape     String  @default("rounded") // rounded | pill | square
   views     Int      @default(0) // visitas na página pública
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

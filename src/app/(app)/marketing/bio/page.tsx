@@ -56,6 +56,11 @@ export default async function BioPageEditor() {
             headline: page.headline,
             tagline: page.tagline,
             avatarUrl: page.avatarUrl,
+            bgColor: page.bgColor,
+            buttonColor: page.buttonColor,
+            buttonTextColor: page.buttonTextColor,
+            font: page.font,
+            buttonShape: page.buttonShape,
             views: page.views,
           },
           links: links.map((l) => ({

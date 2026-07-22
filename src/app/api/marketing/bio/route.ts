@@ -66,6 +66,11 @@ export async function GET() {
         headline: page.headline,
         tagline: page.tagline,
         avatarUrl: page.avatarUrl,
+        bgColor: page.bgColor,
+        buttonColor: page.buttonColor,
+        buttonTextColor: page.buttonTextColor,
+        font: page.font,
+        buttonShape: page.buttonShape,
         views: page.views,
       },
       links: links.map((l) => ({
@@ -92,11 +97,21 @@ export async function GET() {
   }
 }
 
+const hex = z
+  .string()
+  .regex(/^#[0-9a-fA-F]{6}$/)
+  .nullable()
+  .optional();
 const schema = z.object({
   published: z.boolean().optional(),
   headline: z.string().max(80).nullable().optional(),
   tagline: z.string().max(160).nullable().optional(),
   avatarUrl: z.string().max(2_000_000).nullable().optional(),
+  bgColor: hex,
+  buttonColor: hex,
+  buttonTextColor: hex,
+  font: z.enum(["montserrat", "inter", "poppins", "playfair", "lora"]).nullable().optional(),
+  buttonShape: z.enum(["rounded", "pill", "square"]).optional(),
 });
 
 export async function PATCH(req: NextRequest) {
@@ -114,6 +129,11 @@ export async function PATCH(req: NextRequest) {
         ...(d.headline !== undefined ? { headline: d.headline?.trim() || null } : {}),
         ...(d.tagline !== undefined ? { tagline: d.tagline?.trim() || null } : {}),
         ...(d.avatarUrl !== undefined ? { avatarUrl: d.avatarUrl || null } : {}),
+        ...(d.bgColor !== undefined ? { bgColor: d.bgColor } : {}),
+        ...(d.buttonColor !== undefined ? { buttonColor: d.buttonColor } : {}),
+        ...(d.buttonTextColor !== undefined ? { buttonTextColor: d.buttonTextColor } : {}),
+        ...(d.font !== undefined ? { font: d.font } : {}),
+        ...(d.buttonShape !== undefined ? { buttonShape: d.buttonShape } : {}),
       },
     });
     return NextResponse.json({
@@ -124,6 +144,11 @@ export async function PATCH(req: NextRequest) {
         headline: updated.headline,
         tagline: updated.tagline,
         avatarUrl: updated.avatarUrl,
+        bgColor: updated.bgColor,
+        buttonColor: updated.buttonColor,
+        buttonTextColor: updated.buttonTextColor,
+        font: updated.font,
+        buttonShape: updated.buttonShape,
         views: updated.views,
       },
     });

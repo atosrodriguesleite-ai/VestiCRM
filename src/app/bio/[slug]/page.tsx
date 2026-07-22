@@ -16,7 +16,14 @@ import {
 } from "lucide-react";
 import { db } from "@/lib/db";
 import { mixHex, readableOn } from "@/lib/color";
+import { bioColors } from "@/lib/bio";
 import { platformUrl } from "@/lib/site";
+
+const SHAPE_CLASS: Record<string, string> = {
+  rounded: "rounded-2xl",
+  pill: "rounded-full",
+  square: "rounded-lg",
+};
 
 /**
  * Bio pública (Gestor de Bio — módulo Marketing). A "página de links" que a
@@ -101,17 +108,22 @@ export default async function BioPublicPage({
   db.bioPage.update({ where: { id: page.id }, data: { views: { increment: 1 } } }).catch(() => {});
 
   const c = page.company;
-  const fontClass = FONT_CLASS[c.catalogFont] ?? FONT_CLASS.montserrat;
-  const primary = c.catalogPrimary || "#4B3621";
-  const secondary = c.catalogSecondary || "#E7DCCC";
+  // usa a fonte/cores próprias da bio; se não tiver, herda do catálogo da loja
+  const fontClass = FONT_CLASS[page.font ?? c.catalogFont] ?? FONT_CLASS.montserrat;
+  const colors = bioColors(page, {
+    primary: c.catalogPrimary || "#4B3621",
+    secondary: c.catalogSecondary || "#E7DCCC",
+  });
 
-  // fundo rico derivado da cor principal (clareia no topo, escurece embaixo)
-  const top = mixHex(primary, "#ffffff", 0.18);
-  const bottom = mixHex(primary, "#000000", 0.28);
-  const onPrimary = readableOn(primary);
-  const cardBg = "#ffffff";
-  const onCard = readableOn(cardBg);
-  const iconChip = mixHex(secondary, "#ffffff", 0.15);
+  // fundo rico derivado da cor de fundo (clareia no topo, escurece embaixo)
+  const bg = colors.bg;
+  const top = mixHex(bg, "#ffffff", 0.18);
+  const bottom = mixHex(bg, "#000000", 0.28);
+  const onPrimary = readableOn(bg);
+  const cardBg = colors.button;
+  const onCard = colors.buttonText;
+  const iconChip = mixHex(colors.button, colors.buttonText, 0.12);
+  const btnClass = SHAPE_CLASS[page.buttonShape] ?? "rounded-2xl";
 
   const avatar = page.avatarUrl || c.logoUrl;
   const headline = page.headline || c.name;
@@ -122,7 +134,7 @@ export default async function BioPublicPage({
   return (
     <div
       className={`${fontClass} min-h-[100dvh] w-full`}
-      style={{ background: `linear-gradient(165deg, ${top} 0%, ${primary} 45%, ${bottom} 100%)` }}
+      style={{ background: `linear-gradient(165deg, ${top} 0%, ${bg} 45%, ${bottom} 100%)` }}
     >
       <div className="mx-auto flex min-h-[100dvh] w-full max-w-[560px] flex-col items-center px-5 pt-14 pb-10">
         {/* topo: avatar + nome + tagline */}
@@ -133,12 +145,12 @@ export default async function BioPublicPage({
               src={avatar}
               alt={headline}
               className="size-24 rounded-full object-cover shadow-lg ring-4"
-              style={{ background: cardBg, borderColor: secondary, ["--tw-ring-color" as string]: "rgba(255,255,255,.35)" }}
+              style={{ background: "#fff", borderColor: cardBg, ["--tw-ring-color" as string]: "rgba(255,255,255,.35)" }}
             />
           ) : (
             <div
               className="grid size-24 place-items-center rounded-full text-3xl font-extrabold shadow-lg ring-4"
-              style={{ background: secondary, color: primary, ["--tw-ring-color" as string]: "rgba(255,255,255,.35)" }}
+              style={{ background: cardBg, color: onCard, ["--tw-ring-color" as string]: "rgba(255,255,255,.35)" }}
             >
               {headline.slice(0, 1).toUpperCase()}
             </div>
@@ -172,7 +184,7 @@ export default async function BioPublicPage({
                   href={`/api/bio/go/${l.id}`}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="group flex items-center gap-3 rounded-2xl px-3 py-3 shadow-md transition duration-200 hover:-translate-y-0.5 hover:shadow-xl active:translate-y-0"
+                  className={`group flex items-center gap-3 ${btnClass} px-3 py-3 shadow-md transition duration-200 hover:-translate-y-0.5 hover:shadow-xl active:translate-y-0`}
                   style={{ background: cardBg, color: onCard }}
                 >
                   {/* miniatura ou ícone do tipo */}
@@ -182,7 +194,7 @@ export default async function BioPublicPage({
                   ) : (
                     <span
                       className="grid size-11 shrink-0 place-items-center rounded-xl"
-                      style={{ background: isWa ? "#25D366" : iconChip, color: isWa ? "#ffffff" : primary }}
+                      style={{ background: isWa ? "#25D366" : iconChip, color: isWa ? "#ffffff" : onCard }}
                     >
                       <Icon className="size-5" />
                     </span>

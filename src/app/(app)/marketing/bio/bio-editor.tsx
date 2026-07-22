@@ -32,7 +32,33 @@ import { Card } from "@/components/ui";
 import { Portal } from "@/components/portal";
 import { fileToDataUrl } from "@/lib/upload";
 import { mixHex, readableOn } from "@/lib/color";
-import { BIO_LINK_KINDS, type BioLinkKind } from "@/lib/bio";
+import {
+  BIO_LINK_KINDS,
+  BIO_THEMES,
+  BIO_BUTTON_ICONS,
+  BIO_FONTS,
+  BIO_SHAPES,
+  bioColors,
+  type BioLinkKind,
+} from "@/lib/bio";
+
+const FONT_LABEL: Record<string, string> = {
+  montserrat: "Montserrat",
+  inter: "Inter",
+  poppins: "Poppins",
+  playfair: "Playfair",
+  lora: "Lora",
+};
+const SHAPE_LABEL: Record<string, string> = {
+  rounded: "Arredondado",
+  pill: "Pílula",
+  square: "Reto",
+};
+const shapeClass: Record<string, string> = {
+  rounded: "rounded-2xl",
+  pill: "rounded-full",
+  square: "rounded-lg",
+};
 
 type Link = {
   id: string;
@@ -50,6 +76,11 @@ type PageState = {
   headline: string | null;
   tagline: string | null;
   avatarUrl: string | null;
+  bgColor: string | null;
+  buttonColor: string | null;
+  buttonTextColor: string | null;
+  font: string | null;
+  buttonShape: string;
   views: number;
 };
 type Identity = {
@@ -80,7 +111,22 @@ export function BioEditor({
 
   const publicUrl = `${publicBase}/${page.slug}`;
 
-  async function patchPage(data: Partial<Pick<PageState, "published" | "headline" | "tagline" | "avatarUrl">>) {
+  async function patchPage(
+    data: Partial<
+      Pick<
+        PageState,
+        | "published"
+        | "headline"
+        | "tagline"
+        | "avatarUrl"
+        | "bgColor"
+        | "buttonColor"
+        | "buttonTextColor"
+        | "font"
+        | "buttonShape"
+      >
+    >
+  ) {
     setPage((p) => ({ ...p, ...data }));
     await fetch("/api/marketing/bio", {
       method: "PATCH",
@@ -186,6 +232,9 @@ export function BioEditor({
         {/* Aparência */}
         <Appearance page={page} identity={identity} onSave={patchPage} />
 
+        {/* Cores e estilo */}
+        <ColorsStyle page={page} identity={identity} onSave={patchPage} />
+
         {/* Botões */}
         <Card className="p-5">
           <div className="mb-4 flex items-center justify-between">
@@ -262,7 +311,15 @@ export function BioEditor({
       {/* Prévia ao vivo */}
       <div className="lg:sticky lg:top-6 h-fit">
         <p className="mb-2 text-center text-[11px] font-semibold uppercase tracking-wide text-slate-400">Prévia</p>
-        <BioPreview identity={identity} avatar={avatar} headline={headline} tagline={tagline} slug={page.slug} links={links.filter((l) => l.active)} />
+        <BioPreview
+          avatar={avatar}
+          headline={headline}
+          tagline={tagline}
+          slug={page.slug}
+          links={links.filter((l) => l.active)}
+          colors={bioColors(page, { primary: identity.primary, secondary: identity.secondary })}
+          shape={page.buttonShape}
+        />
       </div>
 
       {editing && (
@@ -546,6 +603,20 @@ function LinkEditor({
                   </button>
                 )}
               </div>
+              {/* galeria de imagens prontas — pra quem não quer subir foto própria */}
+              <p className="mt-3 mb-1.5 text-[11px] font-medium text-slate-400">Ou escolha uma da galeria:</p>
+              <div className="grid grid-cols-7 gap-1.5">
+                {BIO_BUTTON_ICONS.map((ic) => (
+                  <button
+                    key={ic.key}
+                    onClick={() => setImage(ic.url)}
+                    title={ic.label}
+                    className={`overflow-hidden rounded-lg border-2 transition ${image === ic.url ? "border-brand-500 ring-2 ring-brand-200" : "border-transparent hover:border-slate-200"}`}
+                  >
+                    <img src={ic.url} alt={ic.label} className="size-full" />
+                  </button>
+                ))}
+              </div>
             </div>
 
             {error && <p className="rounded-lg bg-rose-50 px-3 py-2 text-xs font-medium text-rose-600">{error}</p>}
@@ -566,75 +637,205 @@ function LinkEditor({
 
 /* ---------- Prévia (espelha a bio pública) ---------- */
 function BioPreview({
-  identity,
   avatar,
   headline,
   tagline,
   slug,
   links,
+  colors,
+  shape,
 }: {
-  identity: Identity;
   avatar: string | null;
   headline: string;
   tagline: string | null;
   slug: string;
   links: Link[];
+  colors: { bg: string; button: string; buttonText: string };
+  shape: string;
 }) {
-  const primary = identity.primary || "#4B3621";
-  const secondary = identity.secondary || "#E7DCCC";
-  const top = mixHex(primary, "#ffffff", 0.18);
-  const bottom = mixHex(primary, "#000000", 0.28);
-  const onPrimary = readableOn(primary);
-  const iconChip = mixHex(secondary, "#ffffff", 0.15);
+  const bg = colors.bg || "#4B3621";
+  const top = mixHex(bg, "#ffffff", 0.18);
+  const bottom = mixHex(bg, "#000000", 0.28);
+  const onBg = readableOn(bg);
+  const btnClass = shapeClass[shape] ?? "rounded-2xl";
+  const chip = mixHex(colors.button, colors.buttonText, 0.12);
 
   return (
     <div className="overflow-hidden rounded-[2rem] border-[6px] border-slate-800 shadow-pop">
       <div
         className="flex min-h-[560px] flex-col items-center px-4 pt-8 pb-5"
-        style={{ background: `linear-gradient(165deg, ${top} 0%, ${primary} 45%, ${bottom} 100%)` }}
+        style={{ background: `linear-gradient(165deg, ${top} 0%, ${bg} 45%, ${bottom} 100%)` }}
       >
         {avatar ? (
           <img src={avatar} alt="" className="size-16 rounded-full object-cover shadow-lg ring-2 ring-white/40" style={{ background: "#fff" }} />
         ) : (
-          <div className="grid size-16 place-items-center rounded-full text-2xl font-extrabold shadow-lg ring-2 ring-white/40" style={{ background: secondary, color: primary }}>
+          <div className="grid size-16 place-items-center rounded-full text-2xl font-extrabold shadow-lg ring-2 ring-white/40" style={{ background: colors.button, color: colors.buttonText }}>
             {headline.slice(0, 1).toUpperCase()}
           </div>
         )}
-        <p className="mt-3 text-center text-base font-extrabold" style={{ color: onPrimary }}>{headline}</p>
-        <p className="text-center text-[11px] font-medium opacity-80" style={{ color: onPrimary }}>@{slug}</p>
-        {tagline && <p className="mt-1.5 text-center text-[11px] leading-snug opacity-90" style={{ color: onPrimary }}>{tagline}</p>}
+        <p className="mt-3 text-center text-base font-extrabold" style={{ color: onBg }}>{headline}</p>
+        <p className="text-center text-[11px] font-medium opacity-80" style={{ color: onBg }}>@{slug}</p>
+        {tagline && <p className="mt-1.5 text-center text-[11px] leading-snug opacity-90" style={{ color: onBg }}>{tagline}</p>}
 
         <div className="mt-5 flex w-full flex-col gap-2.5">
           {links.length === 0 ? (
-            <p className="text-center text-[11px] opacity-70" style={{ color: onPrimary }}>Seus botões aparecem aqui ✨</p>
+            <p className="text-center text-[11px] opacity-70" style={{ color: onBg }}>Seus botões aparecem aqui ✨</p>
           ) : (
             links.map((l) => {
               const Icon = TYPE_ICON[l.type] ?? Link2;
               const isWa = l.type === "WHATSAPP";
               return (
-                <div key={l.id} className="flex items-center gap-2.5 rounded-2xl bg-white px-2.5 py-2.5 shadow-md">
+                <div key={l.id} className={`flex items-center gap-2.5 ${btnClass} px-2.5 py-2.5 shadow-md`} style={{ background: colors.button, color: colors.buttonText }}>
                   {l.imageUrl ? (
                     <img src={l.imageUrl} alt="" className="size-9 shrink-0 rounded-lg object-cover" />
                   ) : (
-                    <span className="grid size-9 shrink-0 place-items-center rounded-lg" style={{ background: isWa ? "#25D366" : iconChip, color: isWa ? "#fff" : primary }}>
+                    <span className="grid size-9 shrink-0 place-items-center rounded-lg" style={{ background: isWa ? "#25D366" : chip, color: isWa ? "#fff" : colors.buttonText }}>
                       <Icon className="size-4" />
                     </span>
                   )}
                   <span className="min-w-0 flex-1">
-                    <span className="block truncate text-xs font-semibold text-slate-800">{l.title}</span>
-                    {l.subtitle && <span className="block truncate text-[10px] text-slate-400">{l.subtitle}</span>}
+                    <span className="block truncate text-xs font-semibold">{l.title}</span>
+                    {l.subtitle && <span className="block truncate text-[10px] opacity-60">{l.subtitle}</span>}
                   </span>
-                  <ChevronRight className="size-3.5 shrink-0 text-slate-300" />
+                  <ChevronRight className="size-3.5 shrink-0 opacity-40" />
                 </div>
               );
             })
           )}
         </div>
 
-        <p className="mt-auto pt-6 text-center text-[10px] opacity-70" style={{ color: onPrimary }}>
+        <p className="mt-auto pt-6 text-center text-[10px] opacity-70" style={{ color: onBg }}>
           feito por <b>atacadopro.com</b>
         </p>
       </div>
     </div>
+  );
+}
+
+/* ---------- Cores e estilo (temas, cores próprias, fonte, formato) ---------- */
+function ColorsStyle({
+  page,
+  identity,
+  onSave,
+}: {
+  page: PageState;
+  identity: Identity;
+  onSave: (
+    d: Partial<
+      Pick<PageState, "bgColor" | "buttonColor" | "buttonTextColor" | "font" | "buttonShape">
+    >
+  ) => Promise<void>;
+}) {
+  const colors = bioColors(page, { primary: identity.primary, secondary: identity.secondary });
+  const activeTheme = BIO_THEMES.find(
+    (t) => t.bgColor === page.bgColor && t.buttonColor === page.buttonColor && t.buttonTextColor === page.buttonTextColor
+  );
+
+  const ColorField = ({
+    label,
+    value,
+    fallback,
+    onChange,
+    canClear,
+  }: {
+    label: string;
+    value: string | null;
+    fallback: string;
+    onChange: (v: string | null) => void;
+    canClear?: boolean;
+  }) => (
+    <div className="flex items-center gap-2">
+      <label className="relative size-9 shrink-0 cursor-pointer overflow-hidden rounded-lg border border-slate-200" style={{ background: value ?? fallback }}>
+        <input
+          type="color"
+          value={value ?? fallback}
+          onChange={(e) => onChange(e.target.value)}
+          className="absolute inset-0 cursor-pointer opacity-0"
+        />
+      </label>
+      <div className="min-w-0 flex-1">
+        <p className="text-xs font-medium text-slate-600">{label}</p>
+        <p className="text-[10px] text-slate-400">{(value ?? fallback).toUpperCase()}{!value && " (do catálogo)"}</p>
+      </div>
+      {canClear && value && (
+        <button onClick={() => onChange(null)} className="text-[10px] text-slate-400 hover:text-rose-500">
+          limpar
+        </button>
+      )}
+    </div>
+  );
+
+  return (
+    <Card className="p-5">
+      <h2 className="mb-1 font-semibold text-slate-800">Cores e estilo</h2>
+      <p className="mb-4 text-xs text-slate-500">Escolha um tema pronto ou personalize cada cor. A prévia atualiza na hora.</p>
+
+      {/* temas prontos */}
+      <div className="mb-5 flex flex-wrap gap-2">
+        {BIO_THEMES.map((t) => {
+          const on = activeTheme?.key === t.key;
+          return (
+            <button
+              key={t.key}
+              onClick={() => onSave({ bgColor: t.bgColor, buttonColor: t.buttonColor, buttonTextColor: t.buttonTextColor })}
+              className={`flex items-center gap-1.5 rounded-full border py-1 pl-1 pr-2.5 text-xs font-medium transition ${on ? "border-brand-400 ring-2 ring-brand-100" : "border-slate-200 hover:border-slate-300"}`}
+              title={t.label}
+            >
+              <span className="flex -space-x-1">
+                <span className="size-4 rounded-full ring-1 ring-white" style={{ background: t.bgColor }} />
+                <span className="size-4 rounded-full ring-1 ring-white" style={{ background: t.buttonColor }} />
+              </span>
+              {t.label}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* cores próprias */}
+      <div className="grid gap-3 sm:grid-cols-3">
+        <ColorField label="Fundo" value={page.bgColor} fallback={colors.bg} onChange={(v) => onSave({ bgColor: v })} canClear />
+        <ColorField label="Botão" value={page.buttonColor} fallback={colors.button} onChange={(v) => onSave({ buttonColor: v })} canClear />
+        <ColorField label="Texto do botão" value={page.buttonTextColor} fallback={colors.buttonText} onChange={(v) => onSave({ buttonTextColor: v })} canClear />
+      </div>
+
+      {/* fonte + formato dos botões */}
+      <div className="mt-5 grid gap-4 sm:grid-cols-2">
+        <div>
+          <p className="mb-1.5 text-[11px] font-medium text-slate-400">Fonte</p>
+          <div className="flex flex-wrap gap-1.5">
+            {BIO_FONTS.map((f) => {
+              const on = (page.font ?? identity.font) === f;
+              return (
+                <button
+                  key={f}
+                  onClick={() => onSave({ font: f })}
+                  className={`rounded-lg border px-2.5 py-1.5 text-xs transition ${on ? "border-brand-400 bg-brand-50 font-medium text-brand-700" : "border-slate-200 text-slate-600 hover:border-slate-300"}`}
+                >
+                  {FONT_LABEL[f]}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+        <div>
+          <p className="mb-1.5 text-[11px] font-medium text-slate-400">Formato dos botões</p>
+          <div className="flex flex-wrap gap-1.5">
+            {BIO_SHAPES.map((s) => {
+              const on = page.buttonShape === s;
+              return (
+                <button
+                  key={s}
+                  onClick={() => onSave({ buttonShape: s })}
+                  className={`flex items-center gap-1.5 border px-2.5 py-1.5 text-xs transition ${shapeClass[s]} ${on ? "border-brand-400 bg-brand-50 font-medium text-brand-700" : "border-slate-200 text-slate-600 hover:border-slate-300"}`}
+                >
+                  <span className={`size-3 border border-current ${shapeClass[s]}`} />
+                  {SHAPE_LABEL[s]}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+    </Card>
   );
 }
