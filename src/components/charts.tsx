@@ -405,6 +405,10 @@ export function Donut({
   const itens = data.filter((d) => d.value > 0);
   const total = itens.reduce((a, d) => a + d.value, 0);
   if (total === 0) return null;
+  // valor do centro se adapta ao tamanho (ex.: "R$ 51.602,30") pra não estourar o furo
+  const vlen = centerValue.length;
+  const valueSize =
+    vlen <= 6 ? "text-xl" : vlen <= 8 ? "text-lg" : vlen <= 11 ? "text-base" : vlen <= 13 ? "text-sm" : "text-xs";
   const r = 15.915; // raio que dá circunferência 100 (facilita o dasharray em %)
   let acc = 0;
   return (
@@ -433,8 +437,8 @@ export function Donut({
             return seg;
           })}
         </svg>
-        <div className="absolute inset-0 flex flex-col items-center justify-center text-center">
-          <p className="text-xl font-bold tabular-nums text-slate-800 leading-none">{centerValue}</p>
+        <div className="absolute inset-0 flex flex-col items-center justify-center px-3 text-center">
+          <p className={`${valueSize} font-bold tabular-nums text-slate-800 leading-none whitespace-nowrap`}>{centerValue}</p>
           <p className="text-[10px] text-slate-400 mt-1 leading-tight max-w-[80px]">{centerLabel}</p>
         </div>
       </div>
