@@ -39,7 +39,9 @@ export default async function PublicCatalogPage({
 
   const [products, customColors] = await Promise.all([
     db.product.findMany({
-      where: { companyId: company.id, active: true },
+      // vitrine pública: só produtos COM foto (item sem foto fica oculto até
+      // ganhar imagem — aparece sozinho assim que uma foto for adicionada)
+      where: { companyId: company.id, active: true, images: { some: {} } },
       include: {
         images: { orderBy: { order: "asc" }, select: { id: true } },
         variants: { orderBy: [{ color: "asc" }, { size: "asc" }] },

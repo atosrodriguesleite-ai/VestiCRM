@@ -216,7 +216,13 @@ export function ProductsView({
                       Inativo
                     </span>
                   )}
-                  {stock === 0 && p.active && (
+                  {/* sem foto: fica OCULTO no catálogo público até ganhar imagem */}
+                  {p.active && p.images.length === 0 && (
+                    <span className="absolute top-2 left-2 bg-amber-500/90 text-white text-[10px] font-medium rounded-full px-2 py-0.5">
+                      Sem foto · oculto
+                    </span>
+                  )}
+                  {stock === 0 && p.active && p.images.length > 0 && (
                     <span className="absolute top-2 left-2 bg-rose-600/90 text-white text-[10px] font-medium rounded-full px-2 py-0.5">
                       Sem estoque
                     </span>
