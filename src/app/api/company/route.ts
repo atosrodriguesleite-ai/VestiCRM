@@ -19,6 +19,8 @@ const schema = z.object({
   commissionBase: z.enum(["SUBTOTAL", "TOTAL"]).optional(),
   lowStockThreshold: z.number().int().min(0).max(10000).optional(),
   catalogLogoSize: z.enum(["normal", "grande"]).optional(),
+  // esconder do catálogo os produtos sem estoque (indisponíveis)
+  catalogHideOutOfStock: z.boolean().optional(),
   // ordem das categorias no catálogo (lista de nomes, na ordem desejada)
   categoryOrder: z.array(z.string().min(1).max(60)).max(200).optional(),
   // identidade visual do catálogo
@@ -101,6 +103,7 @@ export async function PATCH(req: NextRequest) {
       catalogBg: updated.catalogBg,
       catalogFont: updated.catalogFont,
       catalogLogoSize: updated.catalogLogoSize,
+      catalogHideOutOfStock: updated.catalogHideOutOfStock,
     });
   } catch (e) {
     if (e instanceof AuthError)

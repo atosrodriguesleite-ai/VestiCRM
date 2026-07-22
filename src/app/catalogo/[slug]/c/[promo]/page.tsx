@@ -59,8 +59,15 @@ export default async function PromoCatalogPage({
 
   const [products, customColors] = await Promise.all([
     db.product.findMany({
-      // vitrine da campanha: também só com foto (item sem foto fica oculto)
-      where: { companyId: company.id, active: true, id: { in: selected }, images: { some: {} } },
+      // vitrine da campanha: também só com foto (item sem foto fica oculto);
+      // e esconde os sem estoque quando a loja ativa essa opção
+      where: {
+        companyId: company.id,
+        active: true,
+        id: { in: selected },
+        images: { some: {} },
+        ...(company.catalogHideOutOfStock ? { variants: { some: { stock: { gt: 0 } } } } : {}),
+      },
       include: {
         images: { orderBy: { order: "asc" }, select: { id: true } },
         variants: { orderBy: [{ color: "asc" }, { size: "asc" }] },

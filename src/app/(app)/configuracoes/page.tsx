@@ -131,6 +131,7 @@ export default async function SettingsPage() {
                 minOrder: company.minOrder,
                 minOrderMode: company.minOrderMode as "NONE" | "PECAS" | "VALOR",
                 minOrderValue: company.minOrderValue,
+                catalogHideOutOfStock: company.catalogHideOutOfStock,
               }}
             />
           </div>

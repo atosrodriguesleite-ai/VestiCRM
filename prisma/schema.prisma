@@ -38,6 +38,7 @@ model Company {
   catalogBg        String  @default("#FFFFFF") // fundo
   catalogFont      String  @default("montserrat") // montserrat | inter | poppins | playfair | lora
   catalogLogoSize  String  @default("normal") // normal | grande (logo grande centralizado no topo)
+  catalogHideOutOfStock Boolean @default(false) // esconder do catálogo os produtos sem estoque (indisponíveis)
   categoryOrder    String  @default("") // ordem das categorias no catálogo (JSON array); vazio = ordem natural
   extraCategories  String  @default("") // categorias criadas à mão (JSON array), inclusive sem produtos ainda
 
