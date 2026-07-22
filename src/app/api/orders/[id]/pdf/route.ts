@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { PDFDocument, StandardFonts, rgb, type RGB } from "pdf-lib";
 import { db } from "@/lib/db";
 import { requireUser, AuthError } from "@/lib/auth";
-import { orderNumber, orderStatusLabel } from "@/lib/orders";
+import { orderNumber, orderStatusLabel, paymentMethodLabel } from "@/lib/orders";
 
 /**
  * Romaneio do pedido em PDF (A4) — uso interno da loja (expedição).
@@ -10,7 +10,7 @@ import { orderNumber, orderStatusLabel } from "@/lib/orders";
  * • Identidade visual da LOJA (logo + cor do catálogo), não da plataforma.
  * • Ficha completa do cliente (telefone, CPF/CNPJ, e-mail, endereço).
  * • Caixinha de conferência ao lado de cada peça, para marcar na separação.
- * • Sem bloco de pagamento: cobrança não é papel da expedição.
+ * • Forma de pagamento e forma de envio (com rastreio), para a expedição.
  */
 
 const INK = rgb(0.118, 0.161, 0.235); // slate-800
@@ -42,6 +42,8 @@ export async function GET(
         seller: true,
         items: true,
         company: true,
+        payments: { orderBy: { createdAt: "asc" } },
+        shipping: true,
       },
     });
     if (!order) {
@@ -199,6 +201,28 @@ export async function GET(
         x: cols.total - vw, y, size, font: f, color: strong ? ACCENT : INK,
       });
       y -= strong ? 22 : 16;
+    }
+
+    // ---- Forma de pagamento e forma de envio ----
+    newPageIfNeeded(56);
+    y -= 12;
+    page.drawLine({ start: { x: M, y: y + 8 }, end: { x: width - M, y: y + 8 }, thickness: 0.5, color: LIGHT });
+    y -= 8;
+    const col2 = width / 2 + 40;
+    const pagamento = order.payments.length
+      ? [...new Set(order.payments.map((p) => paymentMethodLabel[p.method]))].join(", ")
+      : "A definir";
+    const envio = order.shipping?.method?.trim() || "A definir";
+    const rastreio = order.shipping?.trackingCode?.trim();
+    page.drawText("FORMA DE PAGAMENTO", { x: M, y, size: 8, font: bold, color: GRAY });
+    page.drawText("FORMA DE ENVIO", { x: col2, y, size: 8, font: bold, color: GRAY });
+    y -= 14;
+    page.drawText(pagamento.slice(0, 40), { x: M, y, size: 11, font: bold, color: INK });
+    page.drawText(envio.slice(0, 40), { x: col2, y, size: 11, font: bold, color: INK });
+    y -= 13;
+    if (rastreio) {
+      page.drawText(`Rastreio: ${rastreio}`.slice(0, 50), { x: col2, y, size: 9, font, color: GRAY });
+      y -= 12;
     }
 
     // ---- Observações ----
