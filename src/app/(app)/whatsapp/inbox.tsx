@@ -225,6 +225,7 @@ export function Inbox({
   const [showOrder, setShowOrder] = useState(false);
   const [showTransfer, setShowTransfer] = useState(false);
   const [showContact, setShowContact] = useState(false);
+  const [showBackup, setShowBackup] = useState(false);
   const [slash, setSlash] = useState<{ query: string; at: number } | null>(null);
   const [sending, setSending] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -666,14 +667,40 @@ export function Inbox({
               <MessageCircle className="size-5 text-emerald-500" />
               Atendimento
             </h1>
-            <a
-              href="/api/export/conversas"
-              className="inline-flex items-center gap-1 rounded-lg border border-gray-200 text-gray-500 hover:text-brand-600 hover:border-brand-300 text-[11px] font-semibold px-2 py-1.5 transition shrink-0"
-              title="Baixar backup das conversas (planilha) — cópia de segurança no seu computador"
-            >
-              <Download className="size-3.5" />
-              Backup
-            </a>
+            <div className="relative shrink-0">
+              <button
+                onClick={() => setShowBackup((v) => !v)}
+                className={`inline-flex items-center gap-1 rounded-lg border text-[11px] font-semibold px-2 py-1.5 transition ${
+                  showBackup
+                    ? "border-brand-300 text-brand-600 bg-brand-50"
+                    : "border-gray-200 text-gray-500 hover:text-brand-600 hover:border-brand-300"
+                }`}
+                title="Baixar cópia de segurança no seu computador"
+              >
+                <Download className="size-3.5" />
+                Backup
+              </button>
+              {showBackup && (
+                <div className="absolute right-0 top-full mt-1 w-52 bg-white rounded-xl border border-gray-100 shadow-pop z-20 p-1">
+                  <a
+                    href="/api/export/conversas"
+                    onClick={() => setShowBackup(false)}
+                    className="flex items-center gap-2 rounded-lg px-3 py-2 text-xs hover:bg-brand-50 transition"
+                  >
+                    <MessageCircle className="size-3.5 text-emerald-500 shrink-0" />
+                    <span>Conversas <span className="text-gray-400">(planilha)</span></span>
+                  </a>
+                  <a
+                    href="/api/export/clientes"
+                    onClick={() => setShowBackup(false)}
+                    className="flex items-center gap-2 rounded-lg px-3 py-2 text-xs hover:bg-brand-50 transition"
+                  >
+                    <Users className="size-3.5 text-brand-500 shrink-0" />
+                    <span>Contatos <span className="text-gray-400">(planilha)</span></span>
+                  </a>
+                </div>
+              )}
+            </div>
           </div>
           <div className="relative mb-2.5">
             <Search className="size-4 text-gray-300 absolute left-3 top-1/2 -translate-y-1/2" />
