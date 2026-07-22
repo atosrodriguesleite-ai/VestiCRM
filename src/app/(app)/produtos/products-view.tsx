@@ -64,6 +64,7 @@ export function ProductsView({
   const [size, setSize] = useState("");
   const [maxPrice, setMaxPrice] = useState("");
   const [onlyStock, setOnlyStock] = useState(false);
+  const [onlyNoPhoto, setOnlyNoPhoto] = useState(false);
   const [showNew, setShowNew] = useState(false);
   const [detail, setDetail] = useState<ProductItem | null>(null);
 
@@ -83,10 +84,14 @@ export function ProductsView({
         if (size && !p.variants.some((v) => v.size === size)) return false;
         if (maxPrice && p.retailPrice > Number(maxPrice)) return false;
         if (onlyStock && totalStock(p) === 0) return false;
+        if (onlyNoPhoto && p.images.length > 0) return false;
         return true;
       }),
-    [initial, q, category, collection, brand, color, size, maxPrice, onlyStock]
+    [initial, q, category, collection, brand, color, size, maxPrice, onlyStock, onlyNoPhoto]
   );
+
+  // quantos itens estão sem foto (ajuda a priorizar depois da importação)
+  const noPhotoCount = useMemo(() => initial.filter((p) => p.images.length === 0).length, [initial]);
 
   const select =
     "rounded-xl border border-gray-200 bg-white px-2.5 py-2 text-xs outline-none focus:border-brand-400 transition";
@@ -150,6 +155,18 @@ export function ProductsView({
           />
           Com estoque
         </label>
+        {noPhotoCount > 0 && (
+          <label className="flex items-center gap-1.5 text-xs text-gray-600 cursor-pointer" title="Mostrar só os produtos que ainda não têm foto">
+            <input
+              type="checkbox"
+              checked={onlyNoPhoto}
+              onChange={(e) => setOnlyNoPhoto(e.target.checked)}
+              className="size-3.5 accent-brand-600"
+            />
+            Sem foto
+            <span className="rounded-full bg-amber-100 text-amber-700 text-[10px] font-semibold px-1.5 py-0.5">{noPhotoCount}</span>
+          </label>
+        )}
         <div className="ml-auto flex items-center gap-2">
           <ImportCatalog />
           <button
