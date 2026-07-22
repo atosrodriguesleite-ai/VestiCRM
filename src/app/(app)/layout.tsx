@@ -15,8 +15,8 @@ export default async function AppLayout({
 
   const [company, dbUser] = await Promise.all([
     db.company.findUnique({ where: { id: user.companyId } }),
-    // preferência de tema é individual e vem do banco (vale em qualquer aparelho)
-    db.user.findUnique({ where: { id: user.id }, select: { prefersDark: true } }),
+    // preferência de tema e foto são individuais e vêm do banco (valem em qualquer aparelho)
+    db.user.findUnique({ where: { id: user.id }, select: { prefersDark: true, avatarUrl: true } }),
   ]);
   const dark = dbUser?.prefersDark ?? false;
 
@@ -29,6 +29,7 @@ export default async function AppLayout({
           roleLabel: roleLabel[user.role],
           color: user.color,
           companyName: company?.name ?? "",
+          avatarUrl: dbUser?.avatarUrl ?? null,
           impersonating: Boolean(user.impersonatedBy),
           productionEnabled: company?.productionEnabled ?? false,
           marketingEnabled: company?.marketingEnabled ?? false,

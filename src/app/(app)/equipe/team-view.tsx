@@ -411,6 +411,7 @@ export function TeamView({
                 <div className="text-xs text-gray-500">
                   <p className="font-medium text-gray-700">Foto (opcional)</p>
                   <p>Clique no círculo para escolher. Sem foto, usamos as iniciais.</p>
+                  <p className="mt-0.5">📐 Ideal: <b>400 × 400 px</b> (quadrada).</p>
                   {newPhoto && (
                     <button
                       type="button"

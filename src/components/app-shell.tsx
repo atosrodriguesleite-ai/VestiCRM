@@ -32,10 +32,12 @@ import {
   Handshake,
   Scissors,
   Target,
+  Camera,
 } from "lucide-react";
 import { Avatar } from "./ui";
 import { Logo, LogoMark } from "./logo";
 import { NotificationBell } from "./notification-bell";
+import { fileToDataUrl } from "@/lib/upload";
 
 // supportHidden: o perfil Suporte é operacional (gestão de pedidos +
 // atendimento) — telas comerciais e de configuração ficam fora do menu dele.
@@ -86,6 +88,7 @@ type ShellUser = {
   roleLabel: string;
   color: string;
   companyName: string;
+  avatarUrl?: string | null;
   impersonating?: boolean;
   // módulo Produção (pago à parte): sem a chave, o menu nem aparece
   productionEnabled?: boolean;
@@ -142,6 +145,26 @@ export function AppShell({
     });
     setSavingTheme(false);
     router.refresh();
+  }
+
+  // foto do próprio usuário: cada pessoa envia/remove a sua (troca otimista)
+  const [avatar, setAvatar] = useState<string | null>(user.avatarUrl ?? null);
+  const [savingAvatar, setSavingAvatar] = useState(false);
+  async function saveAvatar(dataUrl: string | null) {
+    setAvatar(dataUrl);
+    setSavingAvatar(true);
+    await fetch("/api/me/avatar", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ avatarUrl: dataUrl }),
+    });
+    setSavingAvatar(false);
+    router.refresh();
+  }
+  async function onPickAvatar(e: React.ChangeEvent<HTMLInputElement>) {
+    const f = e.target.files?.[0];
+    e.target.value = "";
+    if (f) await saveAvatar(await fileToDataUrl(f, 256, 0.85));
   }
 
   async function logout() {
@@ -208,7 +231,17 @@ export function AppShell({
       <div
         className={`flex items-center gap-3 rounded-xl px-2 py-1.5 ${!showLabels ? "justify-center" : ""}`}
       >
-        <Avatar name={user.name} color={user.color} />
+        {/* foto própria: clique para enviar/trocar (cada usuário a sua) */}
+        <label
+          className="group/av relative shrink-0 cursor-pointer"
+          title={savingAvatar ? "Salvando foto…" : "Enviar / trocar sua foto"}
+        >
+          <input type="file" accept="image/*" className="hidden" onChange={onPickAvatar} />
+          <Avatar name={user.name} color={user.color} src={avatar} />
+          <span className="absolute -bottom-0.5 -right-0.5 grid size-4 place-items-center rounded-full bg-cobre text-white ring-2 ring-sidebar transition group-hover/av:bg-ocre">
+            <Camera className="size-2.5" />
+          </span>
+        </label>
         {showLabels && (
           <>
             <div className="min-w-0 flex-1">
@@ -328,7 +361,7 @@ export function AppShell({
           <Logo size="sm" />
           <div className="flex items-center gap-1">
             <NotificationBell />
-            <Avatar name={user.name} color={user.color} size="sm" />
+            <Avatar name={user.name} color={user.color} src={avatar} size="sm" />
           </div>
         </header>
 
