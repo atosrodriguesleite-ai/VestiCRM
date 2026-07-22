@@ -1309,12 +1309,14 @@ export function Inbox({
                 </div>
               )}
               <div
-                className={`flex items-end gap-1.5 rounded-2xl border px-2 py-1.5 transition ${
+                className={`flex flex-col sm:flex-row sm:items-end gap-1.5 rounded-2xl border px-2 py-1.5 transition ${
                   noteMode
                     ? "border-amber-300 bg-amber-50"
                     : "border-gray-200 bg-white"
                 }`}
               >
+                {/* no celular a barra de ícones vai para baixo do campo de texto */}
+                <div className="flex items-center gap-0.5 order-2 sm:order-none shrink-0">
                 <button
                   onClick={() => {
                     setShowTemplates((v) => !v);
@@ -1362,6 +1364,8 @@ export function Inbox({
                 >
                   <ShoppingBag className="size-4.5" />
                 </button>
+                </div>
+                <div className="flex items-end gap-1.5 order-1 sm:order-none sm:flex-1 min-w-0">
                 <textarea
                   ref={taRef}
                   value={draft}
@@ -1413,6 +1417,7 @@ export function Inbox({
                     <Send className="size-4" />
                   )}
                 </button>
+                </div>
               </div>
             </div>
 
