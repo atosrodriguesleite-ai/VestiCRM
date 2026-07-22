@@ -1460,6 +1460,16 @@ export function Inbox({
           <ContactPanel
             customerId={selected.customer.id}
             onClose={() => setShowContact(false)}
+            onRenamed={(name) => {
+              const cid = selected.customer.id;
+              setConvs((prev) =>
+                prev.map((c) =>
+                  c.customer.id === cid
+                    ? { ...c, customer: { ...c.customer, name } }
+                    : c
+                )
+              );
+            }}
           />
         </div>
       )}

@@ -13,6 +13,8 @@ import {
   User as UserIcon,
   StickyNote,
   ExternalLink,
+  Pencil,
+  Check,
 } from "lucide-react";
 import { brl, formatPhone, customerTypeLabel, originLabel, dateShort } from "@/lib/format";
 import { orderNumber } from "@/lib/orders";
@@ -50,14 +52,18 @@ type Ficha = {
 export function ContactPanel({
   customerId,
   onClose,
+  onRenamed,
 }: {
   customerId: string;
   onClose: () => void;
+  onRenamed?: (name: string) => void;
 }) {
   const [ficha, setFicha] = useState<Ficha | null>(null);
   const [notes, setNotes] = useState("");
   const [savingNotes, setSavingNotes] = useState(false);
   const [dirty, setDirty] = useState(false);
+  const [editingName, setEditingName] = useState(false);
+  const [nameDraft, setNameDraft] = useState("");
 
   useEffect(() => {
     let alive = true;
@@ -87,6 +93,19 @@ export function ContactPanel({
     setDirty(false);
   }
 
+  async function saveName() {
+    const novo = nameDraft.trim();
+    setEditingName(false);
+    if (!ficha || !novo || novo === ficha.name) return;
+    setFicha({ ...ficha, name: novo });
+    onRenamed?.(novo);
+    await fetch(`/api/customers/${customerId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: novo }),
+    });
+  }
+
   const Row = ({ icon, children }: { icon: React.ReactNode; children: React.ReactNode }) => (
     <div className="flex items-start gap-2 text-sm text-slate-600">
       <span className="mt-0.5 text-slate-300 shrink-0">{icon}</span>
@@ -111,13 +130,54 @@ export function ContactPanel({
         <div className="flex-1 overflow-y-auto thin-scroll p-4 space-y-5">
           {/* identidade */}
           <div>
-            <Link
-              href={`/clientes/${ficha.id}`}
-              className="text-base font-semibold text-slate-800 hover:text-brand-600 inline-flex items-center gap-1"
-            >
-              {ficha.name}
-              <ExternalLink className="size-3.5 text-slate-300" />
-            </Link>
+            {editingName ? (
+              <div className="flex items-center gap-1.5">
+                <input
+                  autoFocus
+                  value={nameDraft}
+                  onChange={(e) => setNameDraft(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") saveName();
+                    if (e.key === "Escape") setEditingName(false);
+                  }}
+                  placeholder="Nome do cliente"
+                  className="flex-1 min-w-0 rounded-lg border border-brand-300 px-2 py-1 text-base font-semibold outline-none"
+                />
+                <button
+                  onClick={saveName}
+                  className="rounded-lg bg-brand-600 hover:bg-brand-700 text-white p-1.5 shrink-0"
+                  title="Salvar nome"
+                >
+                  <Check className="size-4" />
+                </button>
+              </div>
+            ) : (
+              <div className="flex items-center gap-1.5">
+                <span className="text-base font-semibold text-slate-800 truncate">
+                  {ficha.name}
+                </span>
+                <button
+                  onClick={() => {
+                    setNameDraft(ficha.name);
+                    setEditingName(true);
+                  }}
+                  className="shrink-0 text-slate-300 hover:text-brand-600 transition"
+                  title="Editar o nome do contato"
+                >
+                  <Pencil className="size-3.5" />
+                </button>
+                <Link
+                  href={`/clientes/${ficha.id}`}
+                  className="shrink-0 text-slate-300 hover:text-brand-600 transition"
+                  title="Abrir ficha completa"
+                >
+                  <ExternalLink className="size-3.5" />
+                </Link>
+              </div>
+            )}
+            <p className="text-[11px] text-slate-400 mt-0.5">
+              📞 O cliente é sempre encontrado pelo telefone, mesmo sem nome salvo.
+            </p>
             <div className="mt-2 space-y-1.5">
               <Row icon={<Phone className="size-3.5" />}>{formatPhone(ficha.phone)}</Row>
               {ficha.email && <Row icon={<Mail className="size-3.5" />}>{ficha.email}</Row>}
