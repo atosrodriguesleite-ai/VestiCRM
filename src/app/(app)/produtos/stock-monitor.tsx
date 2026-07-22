@@ -21,11 +21,14 @@ export function StockMonitor({
   variations,
   threshold: initialThreshold,
   canManage,
+  canToggleHide,
   hideOutOfStock,
 }: {
   variations: LowStockRow[];
   threshold: number;
   canManage: boolean;
+  // chavinha "esconder sem estoque" é liberada a todos os perfis (suporte/vendedor)
+  canToggleHide: boolean;
   hideOutOfStock: boolean;
 }) {
   const [open, setOpen] = useState(false);
@@ -151,7 +154,7 @@ export function StockMonitor({
           Esconder do catálogo os produtos <b>sem estoque</b>
           <span className="text-gray-400"> — voltam sozinhos quando o estoque é reposto.</span>
         </span>
-        {canManage ? (
+        {canToggleHide ? (
           <button
             type="button"
             onClick={() => saveHideOOS(!hideOOS)}

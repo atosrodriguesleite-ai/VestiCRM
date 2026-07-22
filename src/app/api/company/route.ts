@@ -42,9 +42,13 @@ export async function PATCH(req: NextRequest) {
       return NextResponse.json({ error: "Dados inválidos" }, { status: 400 });
     }
     // Suporte organiza o catálogo: pode alterar SÓ a ordem das categorias.
-    // Qualquer outro campo da loja (nome, logo, WhatsApp...) segue admin.
-    const soOrdem = Object.keys(parsed.data).every((k) => k === "categoryOrder");
-    if (!isAdmin(user) && !(isSupport(user) && soOrdem)) {
+    // A chavinha "esconder sem estoque" é liberada para todos os perfis
+    // (inclusive suporte e vendedor). Qualquer outro campo da loja (nome,
+    // logo, WhatsApp...) segue admin.
+    const chaves = Object.keys(parsed.data);
+    const soOrdem = chaves.every((k) => k === "categoryOrder");
+    const soVitrineEstoque = chaves.length > 0 && chaves.every((k) => k === "catalogHideOutOfStock");
+    if (!isAdmin(user) && !(isSupport(user) && soOrdem) && !soVitrineEstoque) {
       return NextResponse.json({ error: "Sem permissão" }, { status: 403 });
     }
     const { categoryOrder, ...data } = parsed.data;

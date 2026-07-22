@@ -139,6 +139,7 @@ export default async function ProductsPage() {
         variations={activeVariations}
         threshold={threshold}
         canManage={isManagerUp(user)}
+        canToggleHide
         hideOutOfStock={company?.catalogHideOutOfStock ?? false}
       />
       <ProductsView

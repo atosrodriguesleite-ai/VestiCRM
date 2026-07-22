@@ -46,6 +46,16 @@ export function conversationScope(user: SessionUser) {
       };
 }
 
+/**
+ * Filtro da área de Pedidos. Por decisão do lojista, TODOS os perfis
+ * (inclusive o vendedor) enxergam os pedidos da loja — a visibilidade de
+ * pedidos é liberada; o isolamento entre lojas (companyId) continua.
+ * Ações destrutivas (excluir/cancelar) seguem as regras de cada perfil.
+ */
+export function orderScope(user: SessionUser) {
+  return { companyId: user.companyId };
+}
+
 /** Filtro para tarefas (assigneeId). */
 export function taskScope(user: SessionUser) {
   return canSeeAll(user)

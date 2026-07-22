@@ -2,7 +2,7 @@ import Link from "next/link";
 import { ShoppingBag, Download, Search, X } from "lucide-react";
 import { requireUser } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { canSeeAll } from "@/lib/scope";
+import { orderScope } from "@/lib/scope";
 import { brl, dateShort, timeShort } from "@/lib/format";
 import {
   orderStatusLabel,
@@ -44,9 +44,7 @@ export default async function OrdersPage({
   const from = de ? spDayStart(de) : null;
   const to = ate ? spDayEnd(ate) : null;
 
-  const where: Prisma.OrderWhereInput = canSeeAll(user)
-    ? { companyId: user.companyId }
-    : { companyId: user.companyId, sellerId: user.id };
+  const where: Prisma.OrderWhereInput = orderScope(user);
   // busca por código: encontra o pedido em qualquer status/período
   if (buscando) {
     where.number = Number.isFinite(buscaNumero) && buscaNumero > 0 ? buscaNumero : -1;
@@ -76,9 +74,7 @@ export default async function OrdersPage({
     db.order.groupBy({
       by: ["status"],
       where: {
-        ...(canSeeAll(user)
-          ? { companyId: user.companyId }
-          : { companyId: user.companyId, sellerId: user.id }),
+        ...orderScope(user),
         ...(from || to
           ? { createdAt: { ...(from ? { gte: from } : {}), ...(to ? { lte: to } : {}) } }
           : {}),
@@ -95,9 +91,7 @@ export default async function OrdersPage({
   const bySource = await db.order.groupBy({
     by: ["source"],
     where: {
-      ...(canSeeAll(user)
-        ? { companyId: user.companyId }
-        : { companyId: user.companyId, sellerId: user.id }),
+      ...orderScope(user),
       ...(from || to
         ? { createdAt: { ...(from ? { gte: from } : {}), ...(to ? { lte: to } : {}) } }
         : {}),
