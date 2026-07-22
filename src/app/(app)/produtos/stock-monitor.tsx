@@ -21,14 +21,26 @@ export function StockMonitor({
   variations,
   threshold: initialThreshold,
   canManage,
+  hideOutOfStock,
 }: {
   variations: LowStockRow[];
   threshold: number;
   canManage: boolean;
+  hideOutOfStock: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [raw, setRaw] = useState(String(initialThreshold));
   const savedRef = useRef(initialThreshold);
+  // chavinha: esconder do catálogo público os produtos sem estoque
+  const [hideOOS, setHideOOS] = useState(hideOutOfStock);
+  function saveHideOOS(next: boolean) {
+    setHideOOS(next);
+    fetch("/api/company", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ catalogHideOutOfStock: next }),
+    }).catch(() => {});
+  }
 
   const threshold = Math.max(0, parseInt(raw) || 0);
 
@@ -132,6 +144,27 @@ export function StockMonitor({
           peça{threshold === 1 ? "" : "s"} ou menos
         </label>
       </div>
+
+      {/* chavinha: esconder do catálogo os produtos sem estoque (indisponíveis) */}
+      <div className="flex items-center justify-between gap-3 border-t border-white/60 px-4 py-2.5">
+        <span className="text-xs text-gray-600 min-w-0">
+          Esconder do catálogo os produtos <b>sem estoque</b>
+          <span className="text-gray-400"> — voltam sozinhos quando o estoque é reposto.</span>
+        </span>
+        {canManage ? (
+          <button
+            type="button"
+            onClick={() => saveHideOOS(!hideOOS)}
+            className={`relative h-6 w-11 shrink-0 rounded-full transition ${hideOOS ? "bg-emerald-500" : "bg-gray-300"}`}
+            title={hideOOS ? "Escondendo os sem estoque" : "Mostrando todos no catálogo"}
+          >
+            <span className={`absolute top-0.5 size-5 rounded-full bg-white shadow transition-all ${hideOOS ? "left-[1.375rem]" : "left-0.5"}`} />
+          </button>
+        ) : (
+          <span className="text-xs font-medium text-gray-500 shrink-0">{hideOOS ? "Ligado" : "Desligado"}</span>
+        )}
+      </div>
+
       {open && rows.length > 0 && (
         <div className="px-4 pb-3">
           {/* Direção de reposição: o que comprar (cor) e o que cortar (modelo) */}

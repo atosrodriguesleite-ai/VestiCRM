@@ -21,7 +21,6 @@ export function CatalogSettings({
     minOrder: number;
     minOrderMode: "NONE" | "PECAS" | "VALOR";
     minOrderValue: number;
-    catalogHideOutOfStock: boolean;
   };
   canEdit: boolean;
 }) {
@@ -33,7 +32,6 @@ export function CatalogSettings({
     minOrderMode: initial.minOrderMode,
     minOrder: String(initial.minOrder),
     minOrderValue: initial.minOrderValue ? String(initial.minOrderValue) : "",
-    hideOutOfStock: initial.catalogHideOutOfStock,
   });
   const [slugForm, setSlugForm] = useState(slug);
   const [saving, setSaving] = useState(false);
@@ -77,7 +75,6 @@ export function CatalogSettings({
           form.minOrderMode === "VALOR"
             ? parseFloat(form.minOrderValue.replace(",", ".")) || 0
             : 0,
-        catalogHideOutOfStock: form.hideOutOfStock,
       }),
     });
     setSaving(false);
@@ -245,28 +242,6 @@ export function CatalogSettings({
               O cliente pode enviar o pedido com qualquer quantidade ou valor.
             </p>
           )}
-        </div>
-
-        {/* chavinha: esconder do catálogo os produtos sem estoque */}
-        <div className="sm:col-span-2">
-          <div className="flex items-start justify-between gap-3 rounded-xl border border-gray-200 p-3.5">
-            <div className="min-w-0">
-              <p className="text-sm font-medium text-gray-700">Esconder produtos sem estoque</p>
-              <p className="mt-0.5 text-xs text-gray-500">
-                Quando ligado, os itens indisponíveis (sem estoque) somem do catálogo
-                e voltam sozinhos assim que o estoque é reposto.
-              </p>
-            </div>
-            <button
-              type="button"
-              disabled={!canEdit}
-              onClick={() => setForm((f) => ({ ...f, hideOutOfStock: !f.hideOutOfStock }))}
-              className={`relative h-7 w-12 shrink-0 rounded-full transition disabled:opacity-60 ${form.hideOutOfStock ? "bg-emerald-500" : "bg-gray-300"}`}
-              title={form.hideOutOfStock ? "Escondendo os sem estoque" : "Mostrando todos"}
-            >
-              <span className={`absolute top-1 size-5 rounded-full bg-white shadow transition-all ${form.hideOutOfStock ? "left-6" : "left-1"}`} />
-            </button>
-          </div>
         </div>
       </div>
 
