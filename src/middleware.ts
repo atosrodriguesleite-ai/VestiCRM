@@ -22,6 +22,7 @@ const PUBLIC_PATHS = [
   "/api/track", // Tracking Engine (Inteligência Comercial)
   "/api/catalog/order", // pedido enviado pelo catálogo público
   "/api/img", // fotos de produto (catálogo público carrega daqui)
+  "/api/cron/", // tarefas agendadas do Vercel (protegidas por CRON_SECRET)
 ];
 
 // Domínio dedicado aos catálogos (ex.: "pedidosatacado.com.br").
