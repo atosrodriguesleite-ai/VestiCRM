@@ -650,6 +650,7 @@ function Appearance({
       {/* foto de capa (banner no topo) */}
       <div className="mb-4">
         <label className="mb-1.5 block text-[11px] font-medium text-slate-400">Foto de capa (opcional)</label>
+        <p className="mb-1.5 text-[11px] text-slate-400">📐 Tamanho ideal: <b>1200 × 400 px</b> (deitada / paisagem).</p>
         <input
           ref={coverRef}
           type="file"
@@ -699,6 +700,7 @@ function Appearance({
           <button onClick={() => fileRef.current?.click()} className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 px-3 py-2 text-xs font-medium text-slate-600 transition hover:border-brand-300">
             <Upload className="size-3.5" /> Enviar foto
           </button>
+          <p className="text-[11px] text-slate-400">📐 Ideal: <b>400 × 400 px</b> (quadrada).</p>
           <div className="flex gap-2 text-[11px]">
             {identity.logoUrl && (
               <button onClick={() => setAvatar(identity.logoUrl)} className="text-brand-600 hover:underline">
@@ -943,9 +945,11 @@ function LinkEditor({
               {isBanner ? (
                 <p className="mt-2 rounded-lg bg-brand-50 px-3 py-2 text-[11px] text-brand-700">
                   💡 Suba uma arte no formato paisagem (deitada), feita no Canva ou pela sua equipe. Ela ocupa o botão inteiro.
+                  <br />📐 Tamanho ideal: <b>1080 × 1080 px</b> (quadrada) ou <b>1200 × 628 px</b> (deitada).
                 </p>
               ) : (
                 <>
+                  <p className="mt-2 text-[11px] text-slate-400">📐 Ideal: <b>400 × 400 px</b> (quadrada).</p>
                   {/* galeria de imagens prontas — pra quem não quer subir foto própria */}
                   <p className="mt-3 mb-1.5 text-[11px] font-medium text-slate-400">Ou escolha uma da galeria:</p>
                   <div className="grid grid-cols-7 gap-1.5">
