@@ -654,7 +654,7 @@ export function Inbox({
   const isMine = selected?.assignee?.id === currentUserId;
 
   return (
-    <div className="max-w-7xl mx-auto h-[calc(100dvh-160px)] md:h-[calc(100dvh-120px)] flex rounded-2xl overflow-hidden border border-gray-100 bg-white shadow-card">
+    <div className="max-w-7xl flex overflow-hidden bg-white -mx-4 -mt-4 -mb-24 h-[calc(100dvh-120px)] rounded-none border-0 shadow-none md:mx-auto md:mt-0 md:mb-0 md:h-[calc(100dvh-120px)] md:rounded-2xl md:border md:border-gray-100 md:shadow-card">
       {/* Lista de conversas */}
       <div
         className={`w-full md:w-[340px] md:border-r border-gray-100 flex-col shrink-0 ${
