@@ -18,6 +18,7 @@ const PUBLIC_PATHS = [
   "/api/whatsapp/webhook",
   "/api/whatsapp/evolution/webhook", // eventos do servidor Evolution (token na URL)
   "/api/nuvemshop/webhook", // eventos da Nuvemshop (assinatura HMAC)
+  "/api/nuvemshop/lgpd", // webhooks obrigatórios da LGPD (privacidade)
   "/api/nuvemshop/callback", // retorno do OAuth (estado assinado)
   "/api/track", // Tracking Engine (Inteligência Comercial)
   "/api/catalog/order", // pedido enviado pelo catálogo público
