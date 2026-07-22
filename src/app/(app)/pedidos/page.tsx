@@ -6,12 +6,12 @@ import { orderScope } from "@/lib/scope";
 import { brl, dateShort, timeShort } from "@/lib/format";
 import {
   orderStatusLabel,
-  orderStatusColor,
   orderNumber,
   ORDER_STATUS_FLOW,
 } from "@/lib/orders";
 import { Card, PageHeader, Avatar, Badge, EmptyState } from "@/components/ui";
 import { NewOrderButton } from "./new-order";
+import { RowStatusMenu } from "./row-status-menu";
 import type { OrderStatus, Prisma } from "@prisma/client";
 
 // converte YYYY-MM-DD (fuso de São Paulo, UTC-3) em Date UTC
@@ -270,9 +270,7 @@ export default async function OrdersPage({
                       ) : (
                         <Badge color="#C4622D">AtacadoPro</Badge>
                       )}
-                      <Badge color={orderStatusColor[o.status]}>
-                        {orderStatusLabel[o.status]}
-                      </Badge>
+                      <RowStatusMenu orderId={o.id} current={o.status} />
                     </div>
                   </div>
                   <div className="hidden sm:block text-right shrink-0">
@@ -290,9 +288,7 @@ export default async function OrdersPage({
                     ) : (
                       <Badge color="#C4622D">AtacadoPro</Badge>
                     )}
-                    <Badge color={orderStatusColor[o.status]}>
-                      {orderStatusLabel[o.status]}
-                    </Badge>
+                    <RowStatusMenu orderId={o.id} current={o.status} />
                   </div>
                   <span className="text-sm font-semibold tabular-nums shrink-0 w-20 sm:w-24 text-right whitespace-nowrap">
                     {brl(o.total)}
