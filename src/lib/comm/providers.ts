@@ -1,6 +1,6 @@
 import type { Channel } from "@prisma/client";
 import type { CommProvider, OutboundPayload, SendResult, ProviderCredentials } from "./types";
-import { evolutionEnv, evoSendText } from "./evolution";
+import { evolutionEnv, evoSendText, evoSendMedia, evoSendAudio } from "./evolution";
 
 /**
  * Providers da Communication Engine.
@@ -130,17 +130,26 @@ export class EvolutionProvider implements CommProvider {
           "WhatsApp não conectado. Vá em Comunicação e conecte o número da loja pelo QR Code.",
       };
     }
-    if (payload.mediaType && payload.mediaType !== "TEXT") {
-      return {
-        ok: false,
-        error: "Envio de mídia ainda não é suportado na conexão sem API oficial — envie como texto.",
-      };
+    const number = payload.to.replace(/\D/g, "");
+    const mt = payload.mediaType;
+    let res;
+    if (mt && mt !== "TEXT" && mt !== "TEMPLATE" && payload.mediaUrl) {
+      if (mt === "AUDIO") {
+        res = await evoSendAudio(this.instance!, number, payload.mediaUrl);
+      } else {
+        const kind = mt === "IMAGE" ? "image" : mt === "VIDEO" ? "video" : "document";
+        res = await evoSendMedia(
+          this.instance!,
+          number,
+          kind,
+          payload.mediaUrl,
+          payload.fileName,
+          payload.text
+        );
+      }
+    } else {
+      res = await evoSendText(this.instance!, number, payload.text ?? "");
     }
-    const res = await evoSendText(
-      this.instance!,
-      payload.to.replace(/\D/g, ""),
-      payload.text ?? ""
-    );
     if (!res.ok) {
       return {
         ok: false,

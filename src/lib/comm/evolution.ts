@@ -169,6 +169,46 @@ export async function evoSendText(instance: string, number: string, text: string
   });
 }
 
+/**
+ * Envia mídia (imagem/vídeo/documento) pelo número conectado. Aceita data URL
+ * (base64) — o comum aqui — ou uma URL http pública. Extrai o mimetype/base64.
+ */
+export async function evoSendMedia(
+  instance: string,
+  number: string,
+  kind: "image" | "video" | "document",
+  dataUrlOrLink: string,
+  fileName?: string,
+  caption?: string
+) {
+  const m = dataUrlOrLink.match(/^data:([^;]+);base64,([\s\S]*)$/);
+  const mimetype = m?.[1];
+  const media = m ? m[2] : dataUrlOrLink; // base64 puro ou link http
+  return evo<{ key?: { id?: string } }>("POST", `/message/sendMedia/${instance}`, {
+    number,
+    mediatype: kind,
+    ...(mimetype ? { mimetype } : {}),
+    ...(fileName ? { fileName } : {}),
+    ...(caption ? { caption } : {}),
+    media,
+  });
+}
+
+/** Envia áudio de voz (PTT) pelo número conectado (data URL base64 ou link). */
+export async function evoSendAudio(
+  instance: string,
+  number: string,
+  dataUrlOrLink: string
+) {
+  const m = dataUrlOrLink.match(/^data:[^;]+;base64,([\s\S]*)$/);
+  const audio = m ? m[1] : dataUrlOrLink;
+  return evo<{ key?: { id?: string } }>(
+    "POST",
+    `/message/sendWhatsAppAudio/${instance}`,
+    { number, audio }
+  );
+}
+
 /** Desconecta e remove a instância (o número volta a ser só do celular). */
 export async function evoLogout(instance: string) {
   await evo("DELETE", `/instance/logout/${instance}`);

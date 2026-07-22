@@ -35,6 +35,8 @@ import {
   Zap,
   Link2,
   Download,
+  Film,
+  Trash2,
 } from "lucide-react";
 import { OrderComposer } from "@/components/order-composer";
 import { ContactPanel } from "./contact-panel";
@@ -143,8 +145,20 @@ function MediaContent({ m }: { m: InboxMessage }) {
       />
     );
   }
-  if (m.mediaType === "AUDIO") {
+  if (m.mediaType === "VIDEO" && m.mediaUrl) {
     return (
+      <video
+        src={m.mediaUrl}
+        controls
+        className="rounded-xl max-w-full w-56 mb-1 bg-black/20"
+      />
+    );
+  }
+  if (m.mediaType === "AUDIO") {
+    // áudio real toca no player; sem URL (histórico antigo) mostra a onda
+    return m.mediaUrl ? (
+      <audio src={m.mediaUrl} controls className="my-1 w-56 max-w-full" />
+    ) : (
       <span className="flex items-center gap-2 py-1">
         <span className="size-8 rounded-full bg-white/20 flex items-center justify-center shrink-0">
           <Mic className="size-4" />
@@ -156,13 +170,20 @@ function MediaContent({ m }: { m: InboxMessage }) {
     );
   }
   if (m.mediaType === "DOCUMENT") {
-    return (
+    const inner = (
       <span className="flex items-center gap-2 rounded-xl bg-black/10 px-3 py-2 mb-1">
         <File className="size-4 shrink-0" />
         <span className="text-xs font-medium truncate">
           {m.fileName ?? "documento"}
         </span>
       </span>
+    );
+    return m.mediaUrl ? (
+      <a href={m.mediaUrl} download={m.fileName ?? "arquivo"} className="block">
+        {inner}
+      </a>
+    ) : (
+      inner
     );
   }
   return null;
@@ -231,7 +252,14 @@ export function Inbox({
   const bottomRef = useRef<HTMLDivElement>(null);
   const taRef = useRef<HTMLTextAreaElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
-  const fileKindRef = useRef<"IMAGE" | "DOCUMENT">("IMAGE");
+  const fileKindRef = useRef<"IMAGE" | "VIDEO" | "DOCUMENT">("IMAGE");
+  // gravação de áudio (voz)
+  const [recording, setRecording] = useState(false);
+  const [recSecs, setRecSecs] = useState(0);
+  const recRef = useRef<MediaRecorder | null>(null);
+  const recChunksRef = useRef<Blob[]>([]);
+  const recTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const recCancelRef = useRef(false);
 
   const selected = convs.find((c) => c.id === selectedId) ?? null;
 
@@ -373,24 +401,6 @@ export function Inbox({
       setMention(null);
       setSlash(null);
     }
-  }
-
-  async function sendAttachment(kind: "IMAGE" | "AUDIO" | "DOCUMENT") {
-    setShowAttach(false);
-    const payloads = {
-      IMAGE: {
-        body: "📷 Foto do catálogo",
-        mediaType: "IMAGE",
-        mediaUrl: "/products/conjunto-linho.svg",
-      },
-      AUDIO: { body: "🎤 Áudio (0:08)", mediaType: "AUDIO" },
-      DOCUMENT: {
-        body: "📎 Tabela de medidas",
-        mediaType: "DOCUMENT",
-        fileName: "tabela-medidas.pdf",
-      },
-    } as const;
-    await sendPayload({ ...payloads[kind], kind: "TEXT" });
   }
 
   async function resend(messageId: string) {
@@ -591,38 +601,91 @@ export function Inbox({
     taRef.current?.focus();
   }
 
-  // ---- Envio de mídia real (imagem/documento) ----
-  function pickFile(kind: "IMAGE" | "DOCUMENT") {
+  // ---- Envio de mídia real (imagem/vídeo/documento) ----
+  function pickFile(kind: "IMAGE" | "VIDEO" | "DOCUMENT") {
     setShowAttach(false);
     fileKindRef.current = kind;
     if (fileRef.current) {
-      fileRef.current.accept = kind === "IMAGE" ? "image/*" : "*/*";
+      fileRef.current.accept =
+        kind === "IMAGE" ? "image/*" : kind === "VIDEO" ? "video/*" : "*/*";
       fileRef.current.value = "";
       fileRef.current.click();
     }
   }
 
-  async function onFileChosen(e: ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (!file || !selected) return;
-    if (file.size > 4 * 1024 * 1024) {
-      alert("Arquivo muito grande (máximo 4 MB).");
-      return;
-    }
-    const kind = fileKindRef.current;
-    const dataUrl: string = await new Promise((resolve, reject) => {
+  const blobToDataUrl = (b: Blob): Promise<string> =>
+    new Promise((resolve, reject) => {
       const reader = new FileReader();
       reader.onload = () => resolve(reader.result as string);
       reader.onerror = reject;
-      reader.readAsDataURL(file);
+      reader.readAsDataURL(b);
     });
+
+  async function onFileChosen(e: ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file || !selected) return;
+    const kind = fileKindRef.current;
+    // vídeo pode ser bem maior; imagem/arquivo mantemos leve
+    const limitMb = kind === "VIDEO" ? 16 : 5;
+    if (file.size > limitMb * 1024 * 1024) {
+      alert(`Arquivo muito grande (máximo ${limitMb} MB).`);
+      return;
+    }
+    const dataUrl = await blobToDataUrl(file);
     await sendPayload({
       kind: "TEXT",
       mediaType: kind,
       mediaUrl: dataUrl,
       fileName: file.name,
-      body: kind === "IMAGE" ? "📷 Imagem" : `📎 ${file.name}`,
+      body:
+        kind === "IMAGE" ? "📷 Imagem" : kind === "VIDEO" ? "🎬 Vídeo" : `📎 ${file.name}`,
     });
+  }
+
+  // ---- Gravação de áudio (voz) ----
+  async function startRecording() {
+    if (!selected) return;
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      recChunksRef.current = [];
+      recCancelRef.current = false;
+      const rec = new MediaRecorder(stream);
+      rec.ondataavailable = (ev) => {
+        if (ev.data.size > 0) recChunksRef.current.push(ev.data);
+      };
+      rec.onstop = async () => {
+        stream.getTracks().forEach((t) => t.stop());
+        if (recTimerRef.current) clearInterval(recTimerRef.current);
+        setRecording(false);
+        setRecSecs(0);
+        if (recCancelRef.current || recChunksRef.current.length === 0) return;
+        const blob = new Blob(recChunksRef.current, {
+          type: recChunksRef.current[0]?.type || "audio/webm",
+        });
+        if (blob.size > 8 * 1024 * 1024) {
+          alert("Áudio muito longo (máximo ~8 MB).");
+          return;
+        }
+        const dataUrl = await blobToDataUrl(blob);
+        await sendPayload({
+          kind: "TEXT",
+          mediaType: "AUDIO",
+          mediaUrl: dataUrl,
+          body: "🎤 Áudio",
+        });
+      };
+      recRef.current = rec;
+      rec.start();
+      setRecording(true);
+      setRecSecs(0);
+      recTimerRef.current = setInterval(() => setRecSecs((s) => s + 1), 1000);
+    } catch {
+      alert("Não consegui acessar o microfone. Verifique a permissão do navegador.");
+    }
+  }
+  function stopRecording(cancel: boolean) {
+    recCancelRef.current = cancel;
+    recRef.current?.stop();
   }
 
   const applyTemplate = (body: string) => {
@@ -1245,19 +1308,18 @@ export function Inbox({
                     <span className="text-[10px] font-medium">Imagem</span>
                   </button>
                   <button
+                    onClick={() => pickFile("VIDEO")}
+                    className="flex flex-col items-center gap-1 rounded-xl px-3 py-2 hover:bg-brand-50 transition"
+                  >
+                    <Film className="size-5 text-rose-500" />
+                    <span className="text-[10px] font-medium">Vídeo</span>
+                  </button>
+                  <button
                     onClick={() => pickFile("DOCUMENT")}
                     className="flex flex-col items-center gap-1 rounded-xl px-3 py-2 hover:bg-brand-50 transition"
                   >
                     <File className="size-5 text-sky-600" />
                     <span className="text-[10px] font-medium">Documento</span>
-                  </button>
-                  <button
-                    onClick={() => sendAttachment("AUDIO")}
-                    className="flex flex-col items-center gap-1 rounded-xl px-3 py-2 hover:bg-brand-50 transition"
-                    title="Áudio (demonstração)"
-                  >
-                    <Mic className="size-5 text-emerald-600" />
-                    <span className="text-[10px] font-medium">Áudio</span>
                   </button>
                 </div>
               )}
@@ -1335,9 +1397,17 @@ export function Inbox({
                     setShowTemplates(false);
                   }}
                   className="p-2 text-gray-400 hover:text-brand-600 transition shrink-0"
-                  title="Anexar (simulado)"
+                  title="Anexar foto, vídeo ou arquivo"
                 >
                   <Paperclip className="size-4.5" />
+                </button>
+                <button
+                  onClick={startRecording}
+                  disabled={recording}
+                  className="p-2 text-gray-400 hover:text-emerald-600 transition shrink-0 disabled:opacity-40"
+                  title="Gravar áudio"
+                >
+                  <Mic className="size-4.5" />
                 </button>
                 <button
                   onClick={() => setNoteMode((v) => !v)}
@@ -1366,6 +1436,30 @@ export function Inbox({
                 </button>
                 </div>
                 <div className="flex items-end gap-1.5 order-1 sm:order-none sm:flex-1 min-w-0">
+                {recording ? (
+                  <div className="flex-1 flex items-center gap-2 py-1.5">
+                    <span className="size-2.5 rounded-full bg-rose-500 animate-pulse shrink-0" />
+                    <span className="text-sm font-medium text-rose-600 tabular-nums">
+                      Gravando… {Math.floor(recSecs / 60)}:{String(recSecs % 60).padStart(2, "0")}
+                    </span>
+                    <span className="flex-1" />
+                    <button
+                      onClick={() => stopRecording(true)}
+                      className="p-2 rounded-xl text-gray-400 hover:text-rose-600 transition shrink-0"
+                      title="Cancelar"
+                    >
+                      <Trash2 className="size-4.5" />
+                    </button>
+                    <button
+                      onClick={() => stopRecording(false)}
+                      className="p-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white transition shrink-0"
+                      title="Enviar áudio"
+                    >
+                      <Send className="size-4" />
+                    </button>
+                  </div>
+                ) : (
+                <>
                 <textarea
                   ref={taRef}
                   value={draft}
@@ -1417,6 +1511,8 @@ export function Inbox({
                     <Send className="size-4" />
                   )}
                 </button>
+                </>
+                )}
                 </div>
               </div>
             </div>
