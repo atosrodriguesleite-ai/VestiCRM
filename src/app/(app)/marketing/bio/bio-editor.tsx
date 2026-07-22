@@ -67,6 +67,7 @@ type Link = {
   type: BioLinkKind;
   url: string | null;
   imageUrl: string | null;
+  layout: string;
   active: boolean;
   clicks: number;
 };
@@ -76,6 +77,7 @@ type PageState = {
   headline: string | null;
   tagline: string | null;
   avatarUrl: string | null;
+  coverUrl: string | null;
   bgColor: string | null;
   buttonColor: string | null;
   buttonTextColor: string | null;
@@ -108,6 +110,7 @@ export function BioEditor({
   const [links, setLinks] = useState<Link[]>(initial.links);
   const [editing, setEditing] = useState<Link | "new" | null>(null);
   const [copied, setCopied] = useState(false);
+  const [dragIndex, setDragIndex] = useState<number | null>(null);
 
   const publicUrl = `${publicBase}/${page.slug}`;
 
@@ -119,6 +122,7 @@ export function BioEditor({
         | "headline"
         | "tagline"
         | "avatarUrl"
+        | "coverUrl"
         | "bgColor"
         | "buttonColor"
         | "buttonTextColor"
@@ -142,6 +146,24 @@ export function BioEditor({
     [next[i], next[j]] = [next[j], next[i]];
     setLinks(next);
     // persiste a nova posição dos dois botões afetados
+    await Promise.all(
+      next.map((l, idx) =>
+        fetch(`/api/marketing/bio/links/${l.id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ order: idx }),
+        })
+      )
+    );
+  }
+
+  // arrastar e soltar: reordena e persiste a nova posição de todos os botões
+  async function reorder(from: number, to: number) {
+    if (from === to || to < 0 || to >= links.length) return;
+    const next = [...links];
+    const [item] = next.splice(from, 1);
+    next.splice(to, 0, item);
+    setLinks(next);
     await Promise.all(
       next.map((l, idx) =>
         fetch(`/api/marketing/bio/links/${l.id}`, {
@@ -240,7 +262,7 @@ export function BioEditor({
           <div className="mb-4 flex items-center justify-between">
             <div>
               <h2 className="font-semibold text-slate-800">Botões</h2>
-              <p className="text-xs text-slate-500 mt-0.5">Arraste com as setas para ordenar. O de cima aparece primeiro.</p>
+              <p className="text-xs text-slate-500 mt-0.5">Arraste os botões para ordenar (ou use as setas no celular). O de cima aparece primeiro.</p>
             </div>
             <button
               onClick={() => setEditing("new")}
@@ -259,22 +281,31 @@ export function BioEditor({
               {links.map((l, i) => {
                 const Icon = TYPE_ICON[l.type] ?? Link2;
                 const kind = BIO_LINK_KINDS.find((k) => k.key === l.type);
+                const isBanner = l.layout === "banner";
                 return (
                   <div
                     key={l.id}
-                    className={`flex items-center gap-2.5 rounded-xl border p-2.5 transition ${l.active ? "border-slate-200 bg-white" : "border-slate-100 bg-slate-50 opacity-60"}`}
+                    draggable
+                    onDragStart={() => setDragIndex(i)}
+                    onDragOver={(e) => e.preventDefault()}
+                    onDrop={() => {
+                      if (dragIndex !== null) reorder(dragIndex, i);
+                      setDragIndex(null);
+                    }}
+                    onDragEnd={() => setDragIndex(null)}
+                    className={`flex items-center gap-2.5 rounded-xl border p-2.5 transition ${l.active ? "border-slate-200 bg-white" : "border-slate-100 bg-slate-50 opacity-60"} ${dragIndex === i ? "opacity-40 ring-2 ring-brand-200" : ""}`}
                   >
-                    <div className="flex flex-col">
+                    <div className="flex flex-col items-center">
                       <button onClick={() => move(i, -1)} disabled={i === 0} className="text-slate-300 hover:text-brand-600 disabled:opacity-30" title="Subir">
                         <ChevronUp className="size-4" />
                       </button>
-                      <GripVertical className="size-4 text-slate-200" />
+                      <GripVertical className="size-4 cursor-grab text-slate-300 active:cursor-grabbing" />
                       <button onClick={() => move(i, 1)} disabled={i === links.length - 1} className="text-slate-300 hover:text-brand-600 disabled:opacity-30" title="Descer">
                         <ChevronDown className="size-4" />
                       </button>
                     </div>
                     {l.imageUrl ? (
-                      <img src={l.imageUrl} alt="" className="size-10 shrink-0 rounded-lg object-cover" />
+                      <img src={l.imageUrl} alt="" className={`shrink-0 rounded-lg object-cover ${isBanner ? "h-10 w-16" : "size-10"}`} />
                     ) : (
                       <span className="grid size-10 shrink-0 place-items-center rounded-lg bg-brand-50 text-brand-500">
                         <Icon className="size-5" />
@@ -283,7 +314,7 @@ export function BioEditor({
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-sm font-semibold text-slate-800">{l.title}</p>
                       <p className="truncate text-[11px] text-slate-400">
-                        {kind?.label}
+                        {isBanner ? "🖼️ Banner" : kind?.label}
                         {l.clicks > 0 && <span className="ml-1.5 text-slate-500">· {l.clicks} clique{l.clicks === 1 ? "" : "s"}</span>}
                       </p>
                     </div>
@@ -313,6 +344,7 @@ export function BioEditor({
         <p className="mb-2 text-center text-[11px] font-semibold uppercase tracking-wide text-slate-400">Prévia</p>
         <BioPreview
           avatar={avatar}
+          cover={page.coverUrl}
           headline={headline}
           tagline={tagline}
           slug={page.slug}
@@ -342,18 +374,20 @@ function Appearance({
 }: {
   page: PageState;
   identity: Identity;
-  onSave: (d: Partial<Pick<PageState, "headline" | "tagline" | "avatarUrl">>) => Promise<void>;
+  onSave: (d: Partial<Pick<PageState, "headline" | "tagline" | "avatarUrl" | "coverUrl">>) => Promise<void>;
 }) {
   const fileRef = useRef<HTMLInputElement>(null);
+  const coverRef = useRef<HTMLInputElement>(null);
   const [headline, setHeadline] = useState(page.headline ?? "");
   const [tagline, setTagline] = useState(page.tagline ?? "");
   const [avatar, setAvatar] = useState(page.avatarUrl);
+  const [cover, setCover] = useState(page.coverUrl);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
 
   async function save() {
     setSaving(true);
-    await onSave({ headline: headline.trim() || null, tagline: tagline.trim() || null, avatarUrl: avatar });
+    await onSave({ headline: headline.trim() || null, tagline: tagline.trim() || null, avatarUrl: avatar, coverUrl: cover });
     setSaving(false);
     setSaved(true);
     setTimeout(() => setSaved(false), 1800);
@@ -362,6 +396,35 @@ function Appearance({
   return (
     <Card className="p-5">
       <h2 className="mb-4 font-semibold text-slate-800">Aparência</h2>
+
+      {/* foto de capa (banner no topo) */}
+      <div className="mb-4">
+        <label className="mb-1.5 block text-[11px] font-medium text-slate-400">Foto de capa (opcional)</label>
+        <input
+          ref={coverRef}
+          type="file"
+          accept="image/*"
+          className="hidden"
+          onChange={async (e) => {
+            const f = e.target.files?.[0];
+            if (f) setCover(await fileToDataUrl(f, 1200, 0.82));
+          }}
+        />
+        {cover ? (
+          <div className="relative overflow-hidden rounded-xl">
+            <img src={cover} alt="" className="h-28 w-full object-cover" />
+            <div className="absolute inset-x-0 bottom-0 flex justify-end gap-2 bg-gradient-to-t from-black/50 to-transparent p-2">
+              <button onClick={() => coverRef.current?.click()} className="rounded-lg bg-white/90 px-2 py-1 text-[11px] font-medium text-slate-700 hover:bg-white">Trocar</button>
+              <button onClick={() => setCover(null)} className="rounded-lg bg-white/90 px-2 py-1 text-[11px] font-medium text-rose-600 hover:bg-white">Remover</button>
+            </div>
+          </div>
+        ) : (
+          <button onClick={() => coverRef.current?.click()} className="flex h-24 w-full items-center justify-center gap-2 rounded-xl border border-dashed border-slate-300 text-xs font-medium text-slate-400 transition hover:border-brand-300 hover:text-brand-600">
+            <Upload className="size-4" /> Enviar foto de capa
+          </button>
+        )}
+      </div>
+
       <div className="flex items-center gap-4">
         <div className="grid size-16 shrink-0 place-items-center overflow-hidden rounded-full border border-slate-100" style={{ background: identity.secondary }}>
           {avatar ? (
@@ -454,8 +517,10 @@ function LinkEditor({
   const [subtitle, setSubtitle] = useState(link?.subtitle ?? "");
   const [url, setUrl] = useState(link?.url ?? "");
   const [image, setImage] = useState(link?.imageUrl ?? null);
+  const [layout, setLayout] = useState<string>(link?.layout ?? "normal");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const isBanner = layout === "banner";
 
   const kind = BIO_LINK_KINDS.find((k) => k.key === type)!;
   const suggestedTitle: Record<BioLinkKind, string> = {
@@ -477,13 +542,13 @@ function LinkEditor({
     }
     setSaving(true);
     setError("");
-    const body = JSON.stringify({ title: t, subtitle: subtitle.trim() || null, type, url: url.trim() || null, imageUrl: image });
+    const body = JSON.stringify({ title: t, subtitle: subtitle.trim() || null, type, url: url.trim() || null, imageUrl: image, layout });
     const res = isNew
       ? await fetch("/api/marketing/bio/links", { method: "POST", headers: { "Content-Type": "application/json" }, body })
       : await fetch(`/api/marketing/bio/links/${link!.id}`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ title: t, subtitle: subtitle.trim() || null, url: url.trim() || null, imageUrl: image }),
+          body: JSON.stringify({ title: t, subtitle: subtitle.trim() || null, url: url.trim() || null, imageUrl: image, layout }),
         });
     setSaving(false);
     if (!res.ok) {
@@ -532,6 +597,25 @@ function LinkEditor({
           </div>
           <p className="mt-1.5 text-[11px] text-slate-400">{kind.hint}</p>
 
+          {/* formato do botão: normal (ícone+texto) ou banner (imagem larga) */}
+          <label className="mt-3 mb-1 block text-[11px] font-medium text-slate-400">Formato</label>
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              onClick={() => setLayout("normal")}
+              className={`rounded-xl border px-3 py-2 text-left text-sm transition ${!isBanner ? "border-brand-400 bg-brand-50" : "border-slate-200 hover:border-slate-300"}`}
+            >
+              <span className="block font-medium text-slate-700">Normal</span>
+              <span className="block text-[10px] text-slate-400">Ícone + texto</span>
+            </button>
+            <button
+              onClick={() => setLayout("banner")}
+              className={`rounded-xl border px-3 py-2 text-left text-sm transition ${isBanner ? "border-brand-400 bg-brand-50" : "border-slate-200 hover:border-slate-300"}`}
+            >
+              <span className="block font-medium text-slate-700">Banner 🖼️</span>
+              <span className="block text-[10px] text-slate-400">Imagem grande</span>
+            </button>
+          </div>
+
           <div className="mt-3 space-y-3">
             <div>
               <label className="mb-1 block text-[11px] font-medium text-slate-400">Nome do botão</label>
@@ -573,14 +657,16 @@ function LinkEditor({
               </p>
             )}
 
-            {/* imagem do botão */}
+            {/* imagem do botão / banner */}
             <div>
-              <label className="mb-1 block text-[11px] font-medium text-slate-400">Imagem do botão (opcional)</label>
+              <label className="mb-1 block text-[11px] font-medium text-slate-400">
+                {isBanner ? "Imagem do banner" : "Imagem do botão (opcional)"}
+              </label>
               <div className="flex items-center gap-3">
                 {image ? (
-                  <img src={image} alt="" className="size-12 rounded-xl object-cover" />
+                  <img src={image} alt="" className={`rounded-xl object-cover ${isBanner ? "h-12 w-24" : "size-12"}`} />
                 ) : (
-                  <span className="grid size-12 place-items-center rounded-xl bg-brand-50 text-brand-400">
+                  <span className={`grid place-items-center rounded-xl bg-brand-50 text-brand-400 ${isBanner ? "h-12 w-24" : "size-12"}`}>
                     <Icon className="size-5" />
                   </span>
                 )}
@@ -591,7 +677,7 @@ function LinkEditor({
                   className="hidden"
                   onChange={async (e) => {
                     const f = e.target.files?.[0];
-                    if (f) setImage(await fileToDataUrl(f, 400, 0.85));
+                    if (f) setImage(await fileToDataUrl(f, isBanner ? 1200 : 400, 0.85));
                   }}
                 />
                 <button onClick={() => fileRef.current?.click()} className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 px-3 py-2 text-xs font-medium text-slate-600 transition hover:border-brand-300">
@@ -603,20 +689,28 @@ function LinkEditor({
                   </button>
                 )}
               </div>
-              {/* galeria de imagens prontas — pra quem não quer subir foto própria */}
-              <p className="mt-3 mb-1.5 text-[11px] font-medium text-slate-400">Ou escolha uma da galeria:</p>
-              <div className="grid grid-cols-7 gap-1.5">
-                {BIO_BUTTON_ICONS.map((ic) => (
-                  <button
-                    key={ic.key}
-                    onClick={() => setImage(ic.url)}
-                    title={ic.label}
-                    className={`overflow-hidden rounded-lg border-2 transition ${image === ic.url ? "border-brand-500 ring-2 ring-brand-200" : "border-transparent hover:border-slate-200"}`}
-                  >
-                    <img src={ic.url} alt={ic.label} className="size-full" />
-                  </button>
-                ))}
-              </div>
+              {isBanner ? (
+                <p className="mt-2 rounded-lg bg-brand-50 px-3 py-2 text-[11px] text-brand-700">
+                  💡 Suba uma arte no formato paisagem (deitada), feita no Canva ou pela sua equipe. Ela ocupa o botão inteiro.
+                </p>
+              ) : (
+                <>
+                  {/* galeria de imagens prontas — pra quem não quer subir foto própria */}
+                  <p className="mt-3 mb-1.5 text-[11px] font-medium text-slate-400">Ou escolha uma da galeria:</p>
+                  <div className="grid grid-cols-7 gap-1.5">
+                    {BIO_BUTTON_ICONS.map((ic) => (
+                      <button
+                        key={ic.key}
+                        onClick={() => setImage(ic.url)}
+                        title={ic.label}
+                        className={`overflow-hidden rounded-lg border-2 transition ${image === ic.url ? "border-brand-500 ring-2 ring-brand-200" : "border-transparent hover:border-slate-200"}`}
+                      >
+                        <img src={ic.url} alt={ic.label} className="size-full" />
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
             </div>
 
             {error && <p className="rounded-lg bg-rose-50 px-3 py-2 text-xs font-medium text-rose-600">{error}</p>}
@@ -638,6 +732,7 @@ function LinkEditor({
 /* ---------- Prévia (espelha a bio pública) ---------- */
 function BioPreview({
   avatar,
+  cover,
   headline,
   tagline,
   slug,
@@ -646,6 +741,7 @@ function BioPreview({
   shape,
 }: {
   avatar: string | null;
+  cover: string | null;
   headline: string;
   tagline: string | null;
   slug: string;
@@ -663,27 +759,39 @@ function BioPreview({
   return (
     <div className="overflow-hidden rounded-[2rem] border-[6px] border-slate-800 shadow-pop">
       <div
-        className="flex min-h-[560px] flex-col items-center px-4 pt-8 pb-5"
+        className="flex min-h-[560px] flex-col items-center pb-5"
         style={{ background: `linear-gradient(165deg, ${top} 0%, ${bg} 45%, ${bottom} 100%)` }}
       >
-        {avatar ? (
-          <img src={avatar} alt="" className="size-16 rounded-full object-cover shadow-lg ring-2 ring-white/40" style={{ background: "#fff" }} />
-        ) : (
-          <div className="grid size-16 place-items-center rounded-full text-2xl font-extrabold shadow-lg ring-2 ring-white/40" style={{ background: colors.button, color: colors.buttonText }}>
-            {headline.slice(0, 1).toUpperCase()}
-          </div>
-        )}
-        <p className="mt-3 text-center text-base font-extrabold" style={{ color: onBg }}>{headline}</p>
-        <p className="text-center text-[11px] font-medium opacity-80" style={{ color: onBg }}>@{slug}</p>
-        {tagline && <p className="mt-1.5 text-center text-[11px] leading-snug opacity-90" style={{ color: onBg }}>{tagline}</p>}
+        {/* capa opcional no topo */}
+        {cover && <img src={cover} alt="" className="h-28 w-full object-cover" />}
+        <div className={`flex w-full flex-col items-center px-4 ${cover ? "-mt-8 pt-0" : "pt-8"}`}>
+          {avatar ? (
+            <img src={avatar} alt="" className="size-16 rounded-full object-cover shadow-lg ring-2 ring-white/60" style={{ background: "#fff" }} />
+          ) : (
+            <div className="grid size-16 place-items-center rounded-full text-2xl font-extrabold shadow-lg ring-2 ring-white/60" style={{ background: colors.button, color: colors.buttonText }}>
+              {headline.slice(0, 1).toUpperCase()}
+            </div>
+          )}
+          <p className="mt-3 text-center text-base font-extrabold" style={{ color: onBg }}>{headline}</p>
+          <p className="text-center text-[11px] font-medium opacity-80" style={{ color: onBg }}>@{slug}</p>
+          {tagline && <p className="mt-1.5 text-center text-[11px] leading-snug opacity-90" style={{ color: onBg }}>{tagline}</p>}
+        </div>
 
-        <div className="mt-5 flex w-full flex-col gap-2.5">
+        <div className="mt-5 flex w-full flex-col gap-2.5 px-4">
           {links.length === 0 ? (
             <p className="text-center text-[11px] opacity-70" style={{ color: onBg }}>Seus botões aparecem aqui ✨</p>
           ) : (
             links.map((l) => {
               const Icon = TYPE_ICON[l.type] ?? Link2;
               const isWa = l.type === "WHATSAPP";
+              // botão em banner: imagem larga, título sobreposto (se houver)
+              if (l.layout === "banner" && l.imageUrl) {
+                return (
+                  <div key={l.id} className="overflow-hidden rounded-2xl shadow-md">
+                    <img src={l.imageUrl} alt="" className="w-full object-cover" />
+                  </div>
+                );
+              }
               return (
                 <div key={l.id} className={`flex items-center gap-2.5 ${btnClass} px-2.5 py-2.5 shadow-md`} style={{ background: colors.button, color: colors.buttonText }}>
                   {l.imageUrl ? (

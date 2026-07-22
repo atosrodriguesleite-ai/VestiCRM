@@ -23,7 +23,8 @@ const schema = z.object({
   subtitle: z.string().max(80).nullable().optional(),
   type: z.enum(["CATALOGO", "WHATSAPP", "SITE", "EXTERNO"]),
   url: z.string().max(500).nullable().optional(),
-  imageUrl: z.string().max(2_000_000).nullable().optional(),
+  imageUrl: z.string().max(3_000_000).nullable().optional(),
+  layout: z.enum(["normal", "banner"]).optional(),
 });
 
 export async function POST(req: NextRequest) {
@@ -54,6 +55,7 @@ export async function POST(req: NextRequest) {
         type: d.type,
         url: d.type === "SITE" || d.type === "EXTERNO" ? normalizeUrl(d.url ?? null) : null,
         imageUrl: d.imageUrl || null,
+        layout: d.layout ?? "normal",
         order: (last?.order ?? -1) + 1,
       },
     });

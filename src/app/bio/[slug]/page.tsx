@@ -136,7 +136,12 @@ export default async function BioPublicPage({
       className={`${fontClass} min-h-[100dvh] w-full`}
       style={{ background: `linear-gradient(165deg, ${top} 0%, ${bg} 45%, ${bottom} 100%)` }}
     >
-      <div className="mx-auto flex min-h-[100dvh] w-full max-w-[560px] flex-col items-center px-5 pt-14 pb-10">
+      {/* foto de capa (banner no topo, largura toda) */}
+      {page.coverUrl && (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={page.coverUrl} alt="" className="mx-auto h-44 w-full max-w-[560px] object-cover sm:h-56" />
+      )}
+      <div className={`mx-auto flex min-h-[100dvh] w-full max-w-[560px] flex-col items-center px-5 pb-10 ${page.coverUrl ? "-mt-14 pt-0" : "pt-14"}`}>
         {/* topo: avatar + nome + tagline */}
         <div className="flex flex-col items-center text-center">
           {avatar ? (
@@ -178,6 +183,21 @@ export default async function BioPublicPage({
             page.links.map((l) => {
               const Icon = TYPE_ICON[l.type as keyof typeof TYPE_ICON] ?? Link2;
               const isWa = l.type === "WHATSAPP";
+              // botão em BANNER: imagem larga clicável, título sobreposto (se houver)
+              if (l.layout === "banner" && l.imageUrl) {
+                return (
+                  <a
+                    key={l.id}
+                    href={`/api/bio/go/${l.id}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="group relative block overflow-hidden rounded-2xl shadow-md transition duration-200 hover:-translate-y-0.5 hover:shadow-xl active:translate-y-0"
+                  >
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={l.imageUrl} alt={l.title} className="w-full object-cover" />
+                  </a>
+                );
+              }
               return (
                 <a
                   key={l.id}

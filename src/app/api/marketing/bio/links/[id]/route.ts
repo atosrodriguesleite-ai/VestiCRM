@@ -26,7 +26,8 @@ const schema = z.object({
   title: z.string().min(1).max(60).optional(),
   subtitle: z.string().max(80).nullable().optional(),
   url: z.string().max(500).nullable().optional(),
-  imageUrl: z.string().max(2_000_000).nullable().optional(),
+  imageUrl: z.string().max(3_000_000).nullable().optional(),
+  layout: z.enum(["normal", "banner"]).optional(),
   active: z.boolean().optional(),
   order: z.number().int().min(0).optional(),
 });
@@ -47,6 +48,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
         ...(d.subtitle !== undefined ? { subtitle: d.subtitle?.trim() || null } : {}),
         ...(d.url !== undefined && isUrlType ? { url: normalizeUrl(d.url) } : {}),
         ...(d.imageUrl !== undefined ? { imageUrl: d.imageUrl || null } : {}),
+        ...(d.layout !== undefined ? { layout: d.layout } : {}),
         ...(d.active !== undefined ? { active: d.active } : {}),
         ...(d.order !== undefined ? { order: d.order } : {}),
       },

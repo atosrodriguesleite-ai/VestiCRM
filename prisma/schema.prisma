@@ -948,6 +948,7 @@ model BioPage {
   headline  String? // título grande (default = nome da loja)
   tagline   String? // subtítulo curto (default = tagline do catálogo)
   avatarUrl String? // foto/logo redonda no topo (default = logo do catálogo)
+  coverUrl  String? // foto de capa (banner no topo, atrás do nome)
   // personalização visual própria da bio (null = herda do catálogo da loja)
   bgColor         String? // cor de fundo (base do gradiente)
   buttonColor     String? // cor dos botões
@@ -979,7 +980,8 @@ model BioLink {
   subtitle  String? // linha de apoio opcional
   type      BioLinkType @default(EXTERNO)
   url       String? // destino (SITE/EXTERNO); vazio usa o padrão do tipo
-  imageUrl  String? // miniatura do botão (data-URL)
+  imageUrl  String? // miniatura (layout normal) ou banner (layout banner)
+  layout    String      @default("normal") // normal (ícone+texto) | banner (imagem larga)
   order     Int         @default(0)
   active    Boolean     @default(true)
   clicks    Int         @default(0) // cliques rastreados (via /api/bio/go/<id>)
