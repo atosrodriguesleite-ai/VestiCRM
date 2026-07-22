@@ -955,6 +955,14 @@ model BioPage {
   buttonTextColor String? // cor do texto/ícone dos botões
   font            String? // fonte da bio (montserrat|inter|poppins|playfair|lora)
   buttonShape     String  @default("rounded") // rounded | pill | square
+  // redes sociais (fileira de ícones) — só o @ / usuário, sem link completo
+  instagram String?
+  tiktok    String?
+  youtube   String?
+  facebook  String?
+  // remarketing: pixel da bio (a loja persegue com anúncio quem visitou)
+  metaPixelId String?
+  gaId        String? // Google Analytics (G-XXXX)
   views     Int      @default(0) // visitas na página pública
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -982,6 +990,7 @@ model BioLink {
   url       String? // destino (SITE/EXTERNO); vazio usa o padrão do tipo
   imageUrl  String? // miniatura (layout normal) ou banner (layout banner)
   layout    String      @default("normal") // normal (ícone+texto) | banner (imagem larga)
+  featured  Boolean     @default(false) // botão em destaque (brilho + selo)
   order     Int         @default(0)
   active    Boolean     @default(true)
   clicks    Int         @default(0) // cliques rastreados (via /api/bio/go/<id>)

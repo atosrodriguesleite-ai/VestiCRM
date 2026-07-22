@@ -25,6 +25,7 @@ const schema = z.object({
   url: z.string().max(500).nullable().optional(),
   imageUrl: z.string().max(3_000_000).nullable().optional(),
   layout: z.enum(["normal", "banner"]).optional(),
+  featured: z.boolean().optional(),
 });
 
 export async function POST(req: NextRequest) {
@@ -56,6 +57,7 @@ export async function POST(req: NextRequest) {
         url: d.type === "SITE" || d.type === "EXTERNO" ? normalizeUrl(d.url ?? null) : null,
         imageUrl: d.imageUrl || null,
         layout: d.layout ?? "normal",
+        featured: d.featured ?? false,
         order: (last?.order ?? -1) + 1,
       },
     });

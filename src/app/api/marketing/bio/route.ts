@@ -72,6 +72,12 @@ export async function GET() {
         buttonTextColor: page.buttonTextColor,
         font: page.font,
         buttonShape: page.buttonShape,
+        instagram: page.instagram,
+        tiktok: page.tiktok,
+        youtube: page.youtube,
+        facebook: page.facebook,
+        metaPixelId: page.metaPixelId,
+        gaId: page.gaId,
         views: page.views,
       },
       links: links.map((l) => ({
@@ -82,6 +88,7 @@ export async function GET() {
         url: l.url,
         imageUrl: l.imageUrl,
         layout: l.layout,
+        featured: l.featured,
         active: l.active,
         clicks: l.clicks,
         order: l.order,
@@ -115,7 +122,15 @@ const schema = z.object({
   buttonTextColor: hex,
   font: z.enum(["montserrat", "inter", "poppins", "playfair", "lora"]).nullable().optional(),
   buttonShape: z.enum(["rounded", "pill", "square"]).optional(),
+  instagram: z.string().max(120).nullable().optional(),
+  tiktok: z.string().max(120).nullable().optional(),
+  youtube: z.string().max(200).nullable().optional(),
+  facebook: z.string().max(200).nullable().optional(),
+  metaPixelId: z.string().max(40).nullable().optional(),
+  gaId: z.string().max(40).nullable().optional(),
 });
+const clean = (v: string | null | undefined) =>
+  v === undefined ? undefined : v?.trim() || null;
 
 export async function PATCH(req: NextRequest) {
   try {
@@ -138,6 +153,12 @@ export async function PATCH(req: NextRequest) {
         ...(d.buttonTextColor !== undefined ? { buttonTextColor: d.buttonTextColor } : {}),
         ...(d.font !== undefined ? { font: d.font } : {}),
         ...(d.buttonShape !== undefined ? { buttonShape: d.buttonShape } : {}),
+        ...(d.instagram !== undefined ? { instagram: clean(d.instagram) } : {}),
+        ...(d.tiktok !== undefined ? { tiktok: clean(d.tiktok) } : {}),
+        ...(d.youtube !== undefined ? { youtube: clean(d.youtube) } : {}),
+        ...(d.facebook !== undefined ? { facebook: clean(d.facebook) } : {}),
+        ...(d.metaPixelId !== undefined ? { metaPixelId: clean(d.metaPixelId) } : {}),
+        ...(d.gaId !== undefined ? { gaId: clean(d.gaId) } : {}),
       },
     });
     return NextResponse.json({
@@ -154,6 +175,12 @@ export async function PATCH(req: NextRequest) {
         buttonTextColor: updated.buttonTextColor,
         font: updated.font,
         buttonShape: updated.buttonShape,
+        instagram: updated.instagram,
+        tiktok: updated.tiktok,
+        youtube: updated.youtube,
+        facebook: updated.facebook,
+        metaPixelId: updated.metaPixelId,
+        gaId: updated.gaId,
         views: updated.views,
       },
     });

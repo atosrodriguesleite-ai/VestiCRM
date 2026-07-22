@@ -8,7 +8,7 @@
  * celular — tudo com a identidade visual do catálogo da loja.
  */
 
-import { useRef, useState } from "react";
+import { useRef, useState, type ReactNode } from "react";
 import {
   ChevronDown,
   ChevronRight,
@@ -27,9 +27,13 @@ import {
   Trash2,
   Upload,
   X,
+  QrCode,
+  BarChart3,
+  Star,
 } from "lucide-react";
 import { Card } from "@/components/ui";
 import { Portal } from "@/components/portal";
+import { InstagramIcon, TiktokIcon, YoutubeIcon, FacebookIcon } from "@/components/social-icons";
 import { fileToDataUrl } from "@/lib/upload";
 import { mixHex, readableOn } from "@/lib/color";
 import {
@@ -68,6 +72,7 @@ type Link = {
   url: string | null;
   imageUrl: string | null;
   layout: string;
+  featured: boolean;
   active: boolean;
   clicks: number;
 };
@@ -83,6 +88,12 @@ type PageState = {
   buttonTextColor: string | null;
   font: string | null;
   buttonShape: string;
+  instagram: string | null;
+  tiktok: string | null;
+  youtube: string | null;
+  facebook: string | null;
+  metaPixelId: string | null;
+  gaId: string | null;
   views: number;
 };
 type Identity = {
@@ -111,8 +122,15 @@ export function BioEditor({
   const [editing, setEditing] = useState<Link | "new" | null>(null);
   const [copied, setCopied] = useState(false);
   const [dragIndex, setDragIndex] = useState<number | null>(null);
+  const [showQr, setShowQr] = useState(false);
+  const [showInsights, setShowInsights] = useState(false);
 
   const publicUrl = `${publicBase}/${page.slug}`;
+
+  // insights: cliques totais, taxa de clique e ranking de botões
+  const totalClicks = links.reduce((s, l) => s + l.clicks, 0);
+  const ctr = page.views > 0 ? Math.round((totalClicks / page.views) * 100) : 0;
+  const topLinks = [...links].filter((l) => l.clicks > 0).sort((a, b) => b.clicks - a.clicks).slice(0, 4);
 
   async function patchPage(
     data: Partial<
@@ -128,6 +146,12 @@ export function BioEditor({
         | "buttonTextColor"
         | "font"
         | "buttonShape"
+        | "instagram"
+        | "tiktok"
+        | "youtube"
+        | "facebook"
+        | "metaPixelId"
+        | "gaId"
       >
     >
   ) {
@@ -246,9 +270,55 @@ export function BioEditor({
               Abrir
             </a>
           </div>
-          <p className="mt-2 flex items-center gap-1.5 text-[11px] text-slate-400">
-            <Eye className="size-3.5" /> {page.views} {page.views === 1 ? "visita" : "visitas"} na página
-          </p>
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <button
+              onClick={() => setShowQr(true)}
+              className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 px-3 py-2 text-xs font-medium text-slate-600 transition hover:border-brand-300"
+            >
+              <QrCode className="size-4" /> QR Code
+            </button>
+            <button
+              onClick={() => setShowInsights((v) => !v)}
+              className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 px-3 py-2 text-xs font-medium text-slate-600 transition hover:border-brand-300"
+            >
+              <BarChart3 className="size-4" /> {showInsights ? "Ocultar" : "Ver"} resultados
+            </button>
+            <span className="ml-auto flex items-center gap-1.5 text-[11px] text-slate-400">
+              <Eye className="size-3.5" /> {page.views} {page.views === 1 ? "visita" : "visitas"}
+            </span>
+          </div>
+
+          {showInsights && (
+            <div className="mt-3 border-t border-slate-100 pt-3">
+              <div className="grid grid-cols-3 gap-2">
+                <div className="rounded-xl bg-slate-50 p-3 text-center">
+                  <p className="text-lg font-bold text-slate-800">{page.views}</p>
+                  <p className="text-[10px] uppercase tracking-wide text-slate-400">Visitas</p>
+                </div>
+                <div className="rounded-xl bg-slate-50 p-3 text-center">
+                  <p className="text-lg font-bold text-slate-800">{totalClicks}</p>
+                  <p className="text-[10px] uppercase tracking-wide text-slate-400">Cliques</p>
+                </div>
+                <div className="rounded-xl bg-slate-50 p-3 text-center">
+                  <p className="text-lg font-bold text-slate-800">{ctr}%</p>
+                  <p className="text-[10px] uppercase tracking-wide text-slate-400">Taxa clique</p>
+                </div>
+              </div>
+              {topLinks.length > 0 && (
+                <div className="mt-3">
+                  <p className="mb-1.5 text-[11px] font-semibold text-slate-500">Botões que mais clicam</p>
+                  <div className="space-y-1">
+                    {topLinks.map((l) => (
+                      <div key={l.id} className="flex items-center justify-between gap-2 text-xs">
+                        <span className="min-w-0 truncate text-slate-600">{l.title}</span>
+                        <span className="shrink-0 font-semibold text-slate-800">{l.clicks} clique{l.clicks === 1 ? "" : "s"}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
         </Card>
 
         {/* Aparência */}
@@ -256,6 +326,9 @@ export function BioEditor({
 
         {/* Cores e estilo */}
         <ColorsStyle page={page} identity={identity} onSave={patchPage} />
+
+        {/* Redes sociais */}
+        <SocialLinks page={page} onSave={patchPage} />
 
         {/* Botões */}
         <Card className="p-5">
@@ -312,9 +385,13 @@ export function BioEditor({
                       </span>
                     )}
                     <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-semibold text-slate-800">{l.title}</p>
+                      <p className="flex items-center gap-1 truncate text-sm font-semibold text-slate-800">
+                        {l.featured && <Star className="size-3.5 shrink-0 text-amber-400" fill="currentColor" />}
+                        <span className="truncate">{l.title}</span>
+                      </p>
                       <p className="truncate text-[11px] text-slate-400">
                         {isBanner ? "🖼️ Banner" : kind?.label}
+                        {l.featured && <span className="ml-1.5 text-amber-500">· destaque</span>}
                         {l.clicks > 0 && <span className="ml-1.5 text-slate-500">· {l.clicks} clique{l.clicks === 1 ? "" : "s"}</span>}
                       </p>
                     </div>
@@ -337,6 +414,9 @@ export function BioEditor({
             </div>
           )}
         </Card>
+
+        {/* Remarketing (pixel) */}
+        <Advanced page={page} onSave={patchPage} />
       </div>
 
       {/* Prévia ao vivo */}
@@ -362,7 +442,177 @@ export function BioEditor({
           onSaved={onSaved}
         />
       )}
+
+      {showQr && <QrModal url={publicUrl} onClose={() => setShowQr(false)} />}
     </div>
+  );
+}
+
+/* ---------- QR Code do link da bio (modal) ---------- */
+function QrModal({ url, onClose }: { url: string; onClose: () => void }) {
+  const src = `/api/qrcode?url=${encodeURIComponent(url)}`;
+  return (
+    <Portal>
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+        <div className="absolute inset-0 bg-black/40 animate-fade-in" onClick={onClose} />
+        <div className="relative w-full max-w-xs rounded-2xl bg-white p-6 text-center shadow-pop animate-fade-up">
+          <button onClick={onClose} className="absolute right-3 top-3 grid size-8 place-items-center rounded-lg text-gray-400 hover:bg-gray-100">
+            <X className="size-5" />
+          </button>
+          <h3 className="mb-1 text-lg font-semibold text-slate-800">QR Code da bio</h3>
+          <p className="mb-4 text-xs text-slate-500">Coloque em cartões, sacolas, vitrine ou stories. Quem apontar a câmera abre a sua bio.</p>
+          <div className="mx-auto w-52 overflow-hidden rounded-xl border border-slate-100 p-2">
+            <img src={src} alt="QR Code da bio" className="w-full" />
+          </div>
+          <p className="mt-3 truncate text-[11px] text-slate-400">{url}</p>
+          <a
+            href={src}
+            download="qrcode-bio.svg"
+            className="mt-4 inline-flex w-full items-center justify-center gap-1.5 rounded-xl bg-brand-600 py-2.5 text-sm font-semibold text-white transition hover:bg-brand-700"
+          >
+            <Upload className="size-4 rotate-180" /> Baixar QR Code
+          </a>
+        </div>
+      </div>
+    </Portal>
+  );
+}
+
+/* ---------- Redes sociais (ícones no topo da bio) ---------- */
+function SocialLinks({
+  page,
+  onSave,
+}: {
+  page: PageState;
+  onSave: (d: Partial<Pick<PageState, "instagram" | "tiktok" | "youtube" | "facebook">>) => Promise<void>;
+}) {
+  const [instagram, setInstagram] = useState(page.instagram ?? "");
+  const [tiktok, setTiktok] = useState(page.tiktok ?? "");
+  const [youtube, setYoutube] = useState(page.youtube ?? "");
+  const [facebook, setFacebook] = useState(page.facebook ?? "");
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+
+  async function save() {
+    setSaving(true);
+    await onSave({
+      instagram: instagram.trim() || null,
+      tiktok: tiktok.trim() || null,
+      youtube: youtube.trim() || null,
+      facebook: facebook.trim() || null,
+    });
+    setSaving(false);
+    setSaved(true);
+    setTimeout(() => setSaved(false), 1800);
+  }
+
+  const rows: { icon: (p: { className?: string }) => ReactNode; label: string; value: string; set: (v: string) => void; placeholder: string }[] = [
+    { icon: InstagramIcon, label: "Instagram", value: instagram, set: setInstagram, placeholder: "@sualoja" },
+    { icon: TiktokIcon, label: "TikTok", value: tiktok, set: setTiktok, placeholder: "@sualoja" },
+    { icon: YoutubeIcon, label: "YouTube", value: youtube, set: setYoutube, placeholder: "@seucanal ou link" },
+    { icon: FacebookIcon, label: "Facebook", value: facebook, set: setFacebook, placeholder: "sualoja ou link" },
+  ];
+
+  return (
+    <Card className="p-5">
+      <h2 className="mb-1 font-semibold text-slate-800">Redes sociais</h2>
+      <p className="mb-4 text-xs text-slate-500">Aparecem como ícones no topo da bio. Deixe em branco para esconder.</p>
+      <div className="space-y-2.5">
+        {rows.map((r) => {
+          const RIcon = r.icon;
+          return (
+            <div key={r.label} className="flex items-center gap-2.5">
+              <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-slate-100 text-slate-500">
+                <RIcon className="size-4.5" />
+              </span>
+              <input
+                value={r.value}
+                onChange={(e) => r.set(e.target.value)}
+                placeholder={r.placeholder}
+                aria-label={r.label}
+                className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-brand-400"
+              />
+            </div>
+          );
+        })}
+      </div>
+      <button
+        onClick={save}
+        disabled={saving}
+        className="mt-4 rounded-xl bg-brand-600 px-5 py-2.5 text-sm font-medium text-white transition hover:bg-brand-700 disabled:opacity-60"
+      >
+        {saving ? "Salvando..." : saved ? "Salvo ✓" : "Salvar redes"}
+      </button>
+    </Card>
+  );
+}
+
+/* ---------- Remarketing (pixel Meta / Google) ---------- */
+function Advanced({
+  page,
+  onSave,
+}: {
+  page: PageState;
+  onSave: (d: Partial<Pick<PageState, "metaPixelId" | "gaId">>) => Promise<void>;
+}) {
+  const [open, setOpen] = useState(false);
+  const [metaPixelId, setMetaPixelId] = useState(page.metaPixelId ?? "");
+  const [gaId, setGaId] = useState(page.gaId ?? "");
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+
+  async function save() {
+    setSaving(true);
+    await onSave({ metaPixelId: metaPixelId.trim() || null, gaId: gaId.trim() || null });
+    setSaving(false);
+    setSaved(true);
+    setTimeout(() => setSaved(false), 1800);
+  }
+
+  return (
+    <Card className="p-5">
+      <button onClick={() => setOpen((v) => !v)} className="flex w-full items-center justify-between gap-3 text-left">
+        <div>
+          <h2 className="font-semibold text-slate-800">Remarketing (avançado)</h2>
+          <p className="mt-0.5 text-xs text-slate-500">Opcional. Reimpacte no Instagram/Facebook quem visitou a sua bio.</p>
+        </div>
+        {open ? <ChevronUp className="size-5 shrink-0 text-slate-400" /> : <ChevronDown className="size-5 shrink-0 text-slate-400" />}
+      </button>
+
+      {open && (
+        <div className="mt-4 space-y-3">
+          <div>
+            <label className="mb-1 block text-[11px] font-medium text-slate-400">Pixel da Meta (Facebook/Instagram)</label>
+            <input
+              value={metaPixelId}
+              onChange={(e) => setMetaPixelId(e.target.value)}
+              placeholder="Ex.: 1234567890123456"
+              inputMode="numeric"
+              className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-brand-400"
+            />
+          </div>
+          <div>
+            <label className="mb-1 block text-[11px] font-medium text-slate-400">Google Analytics (opcional)</label>
+            <input
+              value={gaId}
+              onChange={(e) => setGaId(e.target.value)}
+              placeholder="Ex.: G-XXXXXXXXXX"
+              className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-brand-400"
+            />
+          </div>
+          <p className="rounded-lg bg-slate-50 px-3 py-2 text-[11px] text-slate-500">
+            💡 Cole aqui o ID do seu Pixel (do Gerenciador de Anúncios da Meta). Com ele, você pode criar anúncios para quem já clicou na sua bio.
+          </p>
+          <button
+            onClick={save}
+            disabled={saving}
+            className="rounded-xl bg-brand-600 px-5 py-2.5 text-sm font-medium text-white transition hover:bg-brand-700 disabled:opacity-60"
+          >
+            {saving ? "Salvando..." : saved ? "Salvo ✓" : "Salvar"}
+          </button>
+        </div>
+      )}
+    </Card>
   );
 }
 
@@ -518,6 +768,7 @@ function LinkEditor({
   const [url, setUrl] = useState(link?.url ?? "");
   const [image, setImage] = useState(link?.imageUrl ?? null);
   const [layout, setLayout] = useState<string>(link?.layout ?? "normal");
+  const [featured, setFeatured] = useState(link?.featured ?? false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const isBanner = layout === "banner";
@@ -542,13 +793,13 @@ function LinkEditor({
     }
     setSaving(true);
     setError("");
-    const body = JSON.stringify({ title: t, subtitle: subtitle.trim() || null, type, url: url.trim() || null, imageUrl: image, layout });
+    const body = JSON.stringify({ title: t, subtitle: subtitle.trim() || null, type, url: url.trim() || null, imageUrl: image, layout, featured });
     const res = isNew
       ? await fetch("/api/marketing/bio/links", { method: "POST", headers: { "Content-Type": "application/json" }, body })
       : await fetch(`/api/marketing/bio/links/${link!.id}`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ title: t, subtitle: subtitle.trim() || null, url: url.trim() || null, imageUrl: image, layout }),
+          body: JSON.stringify({ title: t, subtitle: subtitle.trim() || null, url: url.trim() || null, imageUrl: image, layout, featured }),
         });
     setSaving(false);
     if (!res.ok) {
@@ -713,6 +964,23 @@ function LinkEditor({
               )}
             </div>
 
+            {/* botão em destaque: ganha um brilho especial na página */}
+            <button
+              onClick={() => setFeatured((v) => !v)}
+              className={`flex w-full items-center gap-3 rounded-xl border px-3 py-2.5 text-left transition ${featured ? "border-amber-300 bg-amber-50" : "border-slate-200 hover:border-slate-300"}`}
+            >
+              <span className={`grid size-9 shrink-0 place-items-center rounded-lg ${featured ? "bg-amber-400 text-white" : "bg-slate-100 text-slate-400"}`}>
+                <Star className="size-5" fill={featured ? "currentColor" : "none"} />
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block text-sm font-medium text-slate-700">Botão em destaque</span>
+                <span className="block text-[11px] text-slate-400">Ganha um brilho especial pra chamar mais atenção.</span>
+              </span>
+              <span className={`relative h-6 w-10 shrink-0 rounded-full transition ${featured ? "bg-amber-400" : "bg-slate-300"}`}>
+                <span className={`absolute top-0.5 size-5 rounded-full bg-white shadow transition-all ${featured ? "left-[1.125rem]" : "left-0.5"}`} />
+              </span>
+            </button>
+
             {error && <p className="rounded-lg bg-rose-50 px-3 py-2 text-xs font-medium text-rose-600">{error}</p>}
 
             <button
@@ -787,13 +1055,15 @@ function BioPreview({
               // botão em banner: imagem larga, título sobreposto (se houver)
               if (l.layout === "banner" && l.imageUrl) {
                 return (
-                  <div key={l.id} className="overflow-hidden rounded-2xl shadow-md">
+                  <div key={l.id} className={`relative overflow-hidden rounded-2xl shadow-md ${l.featured ? "ring-2 ring-white ring-offset-2" : ""}`} style={l.featured ? { ["--tw-ring-offset-color" as string]: bg } : undefined}>
+                    {l.featured && <span className="absolute right-1.5 top-1.5 z-10 rounded-full bg-white/90 px-1.5 py-0.5 text-[8px] font-bold text-slate-800">✨</span>}
                     <img src={l.imageUrl} alt="" className="w-full object-cover" />
                   </div>
                 );
               }
               return (
-                <div key={l.id} className={`flex items-center gap-2.5 ${btnClass} px-2.5 py-2.5 shadow-md`} style={{ background: colors.button, color: colors.buttonText }}>
+                <div key={l.id} className={`relative flex items-center gap-2.5 ${btnClass} px-2.5 py-2.5 shadow-md ${l.featured ? "ring-2 ring-white ring-offset-2" : ""}`} style={{ background: colors.button, color: colors.buttonText, ...(l.featured ? { ["--tw-ring-offset-color" as string]: bg } : {}) }}>
+                  {l.featured && <span className="absolute -right-1 -top-1 text-xs">✨</span>}
                   {l.imageUrl ? (
                     <img src={l.imageUrl} alt="" className="size-9 shrink-0 rounded-lg object-cover" />
                   ) : (

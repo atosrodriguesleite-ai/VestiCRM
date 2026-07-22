@@ -7,6 +7,7 @@ import {
   Playfair_Display,
   Lora,
 } from "next/font/google";
+import Script from "next/script";
 import {
   ShoppingBag,
   MessageCircle,
@@ -16,8 +17,16 @@ import {
 } from "lucide-react";
 import { db } from "@/lib/db";
 import { mixHex, readableOn } from "@/lib/color";
-import { bioColors } from "@/lib/bio";
+import { bioColors, socialLinks } from "@/lib/bio";
 import { platformUrl } from "@/lib/site";
+import { InstagramIcon, TiktokIcon, YoutubeIcon, FacebookIcon } from "@/components/social-icons";
+
+const SOCIAL_ICON = {
+  instagram: InstagramIcon,
+  tiktok: TiktokIcon,
+  youtube: YoutubeIcon,
+  facebook: FacebookIcon,
+} as const;
 
 const SHAPE_CLASS: Record<string, string> = {
   rounded: "rounded-2xl",
@@ -128,6 +137,7 @@ export default async function BioPublicPage({
   const avatar = page.avatarUrl || c.logoUrl;
   const headline = page.headline || c.name;
   const tagline = page.tagline || c.tagline;
+  const socials = socialLinks(page);
   const platform = platformUrl();
   const footerHref = `${platform}/?utm_source=bio&utm_campaign=${encodeURIComponent(page.slug)}&demo=1`;
 
@@ -166,6 +176,26 @@ export default async function BioPublicPage({
           <p className="mt-0.5 text-sm font-medium opacity-80" style={{ color: onPrimary }}>
             @{c.slug}
           </p>
+          {socials.length > 0 && (
+            <div className="mt-3 flex items-center gap-2.5">
+              {socials.map((s) => {
+                const SIcon = SOCIAL_ICON[s.key];
+                return (
+                  <a
+                    key={s.key}
+                    href={s.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="grid size-9 place-items-center rounded-full transition hover:scale-110"
+                    style={{ background: cardBg, color: onCard }}
+                    aria-label={s.key}
+                  >
+                    <SIcon className="size-4.5" />
+                  </a>
+                );
+              })}
+            </div>
+          )}
           {tagline && (
             <p className="mt-2 max-w-xs text-sm leading-snug opacity-90" style={{ color: onPrimary }}>
               {tagline}
@@ -191,8 +221,14 @@ export default async function BioPublicPage({
                     href={`/api/bio/go/${l.id}`}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="group relative block overflow-hidden rounded-2xl shadow-md transition duration-200 hover:-translate-y-0.5 hover:shadow-xl active:translate-y-0"
+                    className={`group relative block overflow-hidden rounded-2xl shadow-md transition duration-200 hover:-translate-y-0.5 hover:shadow-xl active:translate-y-0 ${l.featured ? "ring-2 ring-offset-2" : ""}`}
+                    style={l.featured ? { ["--tw-ring-color" as string]: "#ffffff", ["--tw-ring-offset-color" as string]: bg } : undefined}
                   >
+                    {l.featured && (
+                      <span className="absolute right-2 top-2 z-10 rounded-full bg-white/90 px-2 py-0.5 text-[10px] font-bold text-slate-800 shadow">
+                        ✨ Destaque
+                      </span>
+                    )}
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img src={l.imageUrl} alt={l.title} className="w-full object-cover" />
                   </a>
@@ -204,9 +240,12 @@ export default async function BioPublicPage({
                   href={`/api/bio/go/${l.id}`}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className={`group flex items-center gap-3 ${btnClass} px-3 py-3 shadow-md transition duration-200 hover:-translate-y-0.5 hover:shadow-xl active:translate-y-0`}
-                  style={{ background: cardBg, color: onCard }}
+                  className={`group relative flex items-center gap-3 ${btnClass} px-3 py-3 shadow-md transition duration-200 hover:-translate-y-0.5 hover:shadow-xl active:translate-y-0 ${l.featured ? "ring-2 ring-offset-2" : ""}`}
+                  style={{ background: cardBg, color: onCard, ...(l.featured ? { ["--tw-ring-color" as string]: "#ffffff", ["--tw-ring-offset-color" as string]: bg } : {}) }}
                 >
+                  {l.featured && (
+                    <span className="absolute -right-1 -top-1 text-sm">✨</span>
+                  )}
                   {/* miniatura ou ícone do tipo */}
                   {l.imageUrl ? (
                     // eslint-disable-next-line @next/next/no-img-element
@@ -243,6 +282,21 @@ export default async function BioPublicPage({
           feito por <b>atacadopro.com</b>
         </a>
       </div>
+
+      {/* Pixel de remarketing da loja (Meta / Google) — só se configurado */}
+      {page.metaPixelId && (
+        <Script id="bio-meta-pixel" strategy="afterInteractive">
+          {`!function(f,b,e,v,n,t,s){if(f.fbq)return;n=f.fbq=function(){n.callMethod?n.callMethod.apply(n,arguments):n.queue.push(arguments)};if(!f._fbq)f._fbq=n;n.push=n;n.loaded=!0;n.version='2.0';n.queue=[];t=b.createElement(e);t.async=!0;t.src=v;s=b.getElementsByTagName(e)[0];s.parentNode.insertBefore(t,s)}(window,document,'script','https://connect.facebook.net/en_US/fbevents.js');fbq('init','${page.metaPixelId}');fbq('track','PageView');`}
+        </Script>
+      )}
+      {page.gaId && (
+        <>
+          <Script src={`https://www.googletagmanager.com/gtag/js?id=${page.gaId}`} strategy="afterInteractive" />
+          <Script id="bio-ga" strategy="afterInteractive">
+            {`window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments)}gtag('js',new Date());gtag('config','${page.gaId}');`}
+          </Script>
+        </>
+      )}
     </div>
   );
 }

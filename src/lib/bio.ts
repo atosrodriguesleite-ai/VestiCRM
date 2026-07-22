@@ -50,6 +50,24 @@ export const BIO_BUTTON_ICONS: { key: string; label: string; url: string }[] = [
 export const BIO_FONTS = ["montserrat", "inter", "poppins", "playfair", "lora"] as const;
 export const BIO_SHAPES = ["rounded", "pill", "square"] as const;
 
+/** Monta os links das redes sociais a partir dos @/usuários salvos. */
+export function socialLinks(p: {
+  instagram?: string | null;
+  tiktok?: string | null;
+  youtube?: string | null;
+  facebook?: string | null;
+}): { key: "instagram" | "tiktok" | "youtube" | "facebook"; url: string }[] {
+  const h = (v: string) => v.replace(/^@+/, "").trim();
+  const out: { key: "instagram" | "tiktok" | "youtube" | "facebook"; url: string }[] = [];
+  if (p.instagram?.trim()) out.push({ key: "instagram", url: `https://instagram.com/${h(p.instagram)}` });
+  if (p.tiktok?.trim()) out.push({ key: "tiktok", url: `https://tiktok.com/@${h(p.tiktok)}` });
+  if (p.youtube?.trim())
+    out.push({ key: "youtube", url: normalizeUrl(/^https?:/i.test(p.youtube) ? p.youtube : `youtube.com/@${h(p.youtube)}`)! });
+  if (p.facebook?.trim())
+    out.push({ key: "facebook", url: normalizeUrl(/^https?:/i.test(p.facebook) ? p.facebook : `facebook.com/${h(p.facebook)}`)! });
+  return out;
+}
+
 /** Cores finais da bio: usa o tema próprio da página ou herda do catálogo. */
 export function bioColors(
   page: {
