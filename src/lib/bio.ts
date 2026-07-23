@@ -113,6 +113,18 @@ export function waLink(whatsapp: string | null | undefined, text?: string): stri
   return `https://wa.me/${full}${q}`;
 }
 
+/**
+ * Carimba a origem "bio" no link (utm) — respeitando âncora (#) e query já
+ * existente. Assim o rastreio do catálogo (e o Google Analytics do site da
+ * loja) sabe que a visita veio da bio do Instagram.
+ */
+function comUtmBio(url: string, slug: string): string {
+  const [base, frag] = url.split("#");
+  const sep = base.includes("?") ? "&" : "?";
+  const withUtm = `${base}${sep}utm_source=bio&utm_medium=link&utm_campaign=${encodeURIComponent(slug)}`;
+  return frag ? `${withUtm}#${frag}` : withUtm;
+}
+
 /** Destino final de um botão da bio, conforme o tipo e o contexto da loja. */
 export function resolveBioTarget(
   link: { type: BioLinkKind; url: string | null },
@@ -120,11 +132,17 @@ export function resolveBioTarget(
 ): string | null {
   switch (link.type) {
     case "CATALOGO":
-      return catalogUrl(ctx.slug);
+      // carimba a origem: a visita/sacola/pedido no catálogo fica atribuída à bio
+      return comUtmBio(catalogUrl(ctx.slug), ctx.slug);
     case "WHATSAPP":
       return waLink(ctx.whatsapp, "Oi! Vim pela bio do Instagram 😊");
-    case "SITE":
+    case "SITE": {
+      // site próprio: carimba utm pro Google Analytics da loja também medir a bio
+      const u = normalizeUrl(link.url);
+      return u ? comUtmBio(u, ctx.slug) : null;
+    }
     case "EXTERNO":
+      // links diversos (grupo de WhatsApp, etc.) vão intactos
       return normalizeUrl(link.url);
     default:
       return null;
