@@ -28,6 +28,7 @@ model Company {
   lowStockThreshold Int      @default(5) // alerta de estoque: avisa quando a variação chega a X peças
   productionEnabled Boolean  @default(false) // módulo Produção (pago à parte; super admin ativa por loja)
   marketingEnabled  Boolean  @default(false) // módulo Marketing (pago à parte; super admin ativa por loja)
+  mediaLibraryEnabled Boolean @default(false) // Biblioteca de imagens (super admin ativa por loja)
   suspended         Boolean  @default(false) // acesso bloqueado pelo super admin (ex.: inadimplência)
   createdAt         DateTime @default(now())
 
@@ -62,6 +63,7 @@ model Company {
   campaigns      Campaign[]
   products       Product[]
   orders         Order[]
+  mediaAssets    MediaAsset[]
   inventoryMovs  InventoryMovement[]
   customerEvents CustomerEvent[]
   originRules    OriginRule[]
@@ -1095,6 +1097,21 @@ model ProductImage {
   order     Int     @default(0)
 
   @@index([productId])
+}
+
+// Biblioteca de imagens da loja: fotos guardadas soltas (não presas a um
+// produto). Serve pra reaproveitar imagens, guardar uma foto antes de excluir
+// um produto, etc. `url` guarda a foto como data-URL (base64), igual às fotos
+// de produto. Recurso pago/gated (Company.mediaLibraryEnabled).
+model MediaAsset {
+  id        String   @id @default(cuid())
+  companyId String
+  company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  name      String? // nome amigável dado pela lojista (opcional)
+  url       String // data-URL (base64) ou link externo
+  createdAt DateTime @default(now())
+
+  @@index([companyId, createdAt])
 }
 
 enum OrderStatus {

@@ -33,6 +33,7 @@ import {
   Scissors,
   Target,
   Camera,
+  Images,
 } from "lucide-react";
 import { Avatar } from "./ui";
 import { Logo, LogoMark } from "./logo";
@@ -48,6 +49,7 @@ const NAV = [
   { href: "/tarefas", label: "Tarefas", icon: CheckSquare, group: "Comercial" },
   { href: "/pedidos", label: "Pedidos", icon: ShoppingBag, group: "Catálogo" },
   { href: "/produtos", label: "Produtos", icon: Package, group: "Catálogo" },
+  { href: "/biblioteca", label: "Biblioteca de imagens", icon: Images, group: "Catálogo", mediaLibraryOnly: true, supportHidden: true },
   { href: "/producao", label: "Produção", icon: Scissors, group: "Catálogo", productionOnly: true, supportHidden: true },
   { href: "/clientes", label: "Clientes", icon: Users, group: "Relacionamento" },
   { href: "/automacoes", label: "Automações", icon: Zap, group: "Relacionamento", supportHidden: true },
@@ -94,6 +96,8 @@ type ShellUser = {
   productionEnabled?: boolean;
   // módulo Marketing (pago à parte): idem
   marketingEnabled?: boolean;
+  // Biblioteca de imagens (gated): sem a chave, o menu nem aparece
+  mediaLibraryEnabled?: boolean;
   // modo escuro — preferência individual do usuário
   prefersDark?: boolean;
 };
@@ -125,6 +129,7 @@ export function AppShell({
     if ("superOnly" in i && i.superOnly) return user.role === "SUPERADMIN";
     if ("productionOnly" in i && i.productionOnly) return Boolean(user.productionEnabled);
     if ("marketingOnly" in i && i.marketingOnly && !user.marketingEnabled) return false;
+    if ("mediaLibraryOnly" in i && i.mediaLibraryOnly) return Boolean(user.mediaLibraryEnabled);
     if ("managerOnly" in i && i.managerOnly)
       return ["ADMIN", "MANAGER", "SUPERADMIN"].includes(user.role);
     return true;

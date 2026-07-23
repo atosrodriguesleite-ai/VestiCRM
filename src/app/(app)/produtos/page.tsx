@@ -151,6 +151,7 @@ export default async function ProductsPage() {
         sizes={sizes}
         libraryColors={libraryColors.map((c) => ({ name: c.name, hex: c.hex }))}
         librarySizes={librarySizes.map((s) => s.name)}
+        mediaLibrary={company?.mediaLibraryEnabled ?? false}
       />
     </div>
   );

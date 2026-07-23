@@ -2,10 +2,10 @@
 
 /* eslint-disable @next/next/no-img-element */
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Portal } from "@/components/portal";
 import { useRouter } from "next/navigation";
-import { History, Loader2, Package, Palette, Plus, Search, Star, Trash2, Upload, X } from "lucide-react";
+import { History, Images, Loader2, Package, Palette, Plus, Search, Star, Trash2, Upload, X } from "lucide-react";
 import { brl } from "@/lib/format";
 import { Card, EmptyState } from "@/components/ui";
 import { fileToDataUrl } from "@/lib/upload";
@@ -60,6 +60,7 @@ export function ProductsView({
   sizes,
   libraryColors,
   librarySizes,
+  mediaLibrary = false,
 }: {
   initial: ProductItem[];
   categories: string[];
@@ -69,6 +70,7 @@ export function ProductsView({
   sizes: string[];
   libraryColors: LibraryColor[];
   librarySizes: string[];
+  mediaLibrary?: boolean;
 }) {
   const router = useRouter();
   const [q, setQ] = useState("");
@@ -299,6 +301,7 @@ export function ProductsView({
           categories={categories}
           collections={collections}
           brands={brands}
+          mediaLibrary={mediaLibrary}
           onClose={() => setDetail(null)}
           onChanged={() => {
             setDetail(null);
@@ -313,6 +316,7 @@ export function ProductsView({
           categories={categories}
           collections={collections}
           brands={brands}
+          mediaLibrary={mediaLibrary}
           onClose={() => setShowNew(false)}
           onCreated={() => {
             setShowNew(false);
@@ -332,6 +336,7 @@ function ProductDetailModal({
   categories,
   collections,
   brands,
+  mediaLibrary = false,
   onClose,
   onChanged,
 }: {
@@ -341,6 +346,7 @@ function ProductDetailModal({
   categories: string[];
   collections: string[];
   brands: string[];
+  mediaLibrary?: boolean;
   onClose: () => void;
   onChanged: () => void;
 }) {
@@ -606,7 +612,7 @@ function ProductDetailModal({
           <div className="space-y-3">
             <div>
               <label className={label}>Fotos do produto</label>
-              <PhotoManager photos={photos} onChange={setPhotos} />
+              <PhotoManager photos={photos} onChange={setPhotos} mediaLibrary={mediaLibrary} />
             </div>
 
             <div>
@@ -831,12 +837,15 @@ function PhotoManager({
   photos,
   onChange,
   max = 10,
+  mediaLibrary = false,
 }: {
   photos: { id?: string; url: string }[];
   onChange: (p: { id?: string; url: string }[]) => void;
   max?: number;
+  mediaLibrary?: boolean;
 }) {
   const fileRef = useRef<HTMLInputElement>(null);
+  const [pickerOpen, setPickerOpen] = useState(false);
 
   async function add(files: FileList | null) {
     if (!files?.length) return;
@@ -846,6 +855,11 @@ function PhotoManager({
       list.push({ url: await fileToDataUrl(f) });
     }
     onChange(list);
+  }
+
+  function addFromLibrary(dataUrl: string) {
+    if (photos.length >= max) return;
+    onChange([...photos, { url: dataUrl }]);
   }
 
   return (
@@ -906,7 +920,28 @@ function PhotoManager({
             </span>
           </button>
         )}
+        {mediaLibrary && photos.length < max && (
+          <button
+            type="button"
+            onClick={() => setPickerOpen(true)}
+            className="aspect-[3/4] rounded-xl border-2 border-dashed border-gray-200 hover:bg-gray-50 flex flex-col items-center justify-center gap-1 text-gray-500 transition"
+          >
+            <Images className="size-4" />
+            <span className="text-[10px] font-medium leading-tight text-center px-1">
+              Da biblioteca
+            </span>
+          </button>
+        )}
       </div>
+      {pickerOpen && (
+        <LibraryPicker
+          onClose={() => setPickerOpen(false)}
+          onPick={(dataUrl) => {
+            addFromLibrary(dataUrl);
+            setPickerOpen(false);
+          }}
+        />
+      )}
       <p className="text-[10px] text-gray-400 mt-1.5 leading-snug">
         Até {max} fotos. A <b>capa</b> aparece na grade e no catálogo — toque na{" "}
         <Star className="inline size-3 text-amber-500 -mt-0.5" /> pra trocar. No
@@ -914,6 +949,106 @@ function PhotoManager({
         (1200×1600px).
       </p>
     </div>
+  );
+}
+
+/** Seletor da Biblioteca de imagens: escolhe uma foto guardada e devolve
+ *  como data-URL, pronta pra entrar como foto nova do produto. */
+function LibraryPicker({
+  onClose,
+  onPick,
+}: {
+  onClose: () => void;
+  onPick: (dataUrl: string) => void;
+}) {
+  const [assets, setAssets] = useState<{ id: string; name: string | null }[] | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [pegando, setPegando] = useState<string | null>(null);
+
+  useEffect(() => {
+    (async () => {
+      const res = await fetch("/api/media");
+      const d = await res.json().catch(() => ({}));
+      setAssets(res.ok ? d.assets ?? [] : []);
+      setLoading(false);
+    })();
+  }, []);
+
+  async function escolher(id: string) {
+    setPegando(id);
+    try {
+      const res = await fetch(`/api/media/${id}/raw`);
+      const blob = await res.blob();
+      const dataUrl: string = await new Promise((resolve, reject) => {
+        const r = new FileReader();
+        r.onloadend = () => resolve(r.result as string);
+        r.onerror = reject;
+        r.readAsDataURL(blob);
+      });
+      onPick(dataUrl);
+    } catch {
+      setPegando(null);
+    }
+  }
+
+  return (
+    <Portal>
+      <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">
+        <div className="absolute inset-0 bg-black/40 animate-fade-in" onClick={onClose} />
+        <div className="relative bg-white rounded-2xl shadow-xl w-full max-w-2xl max-h-[80vh] flex flex-col animate-fade-in">
+          <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
+            <h3 className="text-sm font-bold text-ink flex items-center gap-1.5">
+              <Images className="size-4 text-brand-600" />
+              Biblioteca de imagens
+            </h3>
+            <button onClick={onClose} className="p-1 text-gray-400 hover:text-gray-600">
+              <X className="size-4" />
+            </button>
+          </div>
+          <div className="p-4 overflow-y-auto thin-scroll">
+            {loading ? (
+              <p className="flex items-center gap-1.5 text-sm text-gray-400 py-8 justify-center">
+                <Loader2 className="size-4 animate-spin" /> Carregando…
+              </p>
+            ) : !assets || assets.length === 0 ? (
+              <p className="text-sm text-gray-400 text-center py-8">
+                Nenhuma imagem na biblioteca ainda. Suba fotos em{" "}
+                <a href="/biblioteca" className="text-brand-600 underline">
+                  Biblioteca de imagens
+                </a>
+                .
+              </p>
+            ) : (
+              <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
+                {assets.map((a) => (
+                  <button
+                    key={a.id}
+                    type="button"
+                    onClick={() => escolher(a.id)}
+                    disabled={!!pegando}
+                    className="relative aspect-square rounded-xl overflow-hidden border border-gray-100 hover:ring-2 hover:ring-brand-400 transition disabled:opacity-60"
+                    title={a.name ?? "Escolher"}
+                  >
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={`/api/media/${a.id}/raw`}
+                      alt={a.name ?? ""}
+                      className="w-full h-full object-cover bg-gray-50"
+                      loading="lazy"
+                    />
+                    {pegando === a.id && (
+                      <span className="absolute inset-0 flex items-center justify-center bg-white/60">
+                        <Loader2 className="size-4 animate-spin text-brand-600" />
+                      </span>
+                    )}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    </Portal>
   );
 }
 
@@ -934,6 +1069,7 @@ function NewProductModal({
   categories,
   collections,
   brands,
+  mediaLibrary = false,
   onClose,
   onCreated,
 }: {
@@ -942,6 +1078,7 @@ function NewProductModal({
   categories: string[];
   collections: string[];
   brands: string[];
+  mediaLibrary?: boolean;
   onClose: () => void;
   onCreated: () => void;
 }) {
@@ -1172,7 +1309,7 @@ function NewProductModal({
             </div>
             <div>
               <label className={label}>Fotos</label>
-              <PhotoManager photos={photos} onChange={setPhotos} />
+              <PhotoManager photos={photos} onChange={setPhotos} mediaLibrary={mediaLibrary} />
               {photos.length === 0 && (
                 <p className="text-[10px] text-gray-400 mt-1">
                   Sem foto? Tudo bem — o produto nasce com uma ilustração

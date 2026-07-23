@@ -99,6 +99,7 @@ export default async function LojasPage() {
     waPhone: connByCompany.get(c.id)?.evolutionPhone ?? null,
     productionEnabled: c.productionEnabled,
     marketingEnabled: c.marketingEnabled,
+    mediaLibraryEnabled: c.mediaLibraryEnabled,
     suspended: c.suspended,
     billing: c.billing
       ? {

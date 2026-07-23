@@ -43,6 +43,7 @@ export type Loja = {
   waPhone: string | null;
   productionEnabled: boolean;
   marketingEnabled: boolean;
+  mediaLibraryEnabled: boolean;
   suspended: boolean;
   billing: {
     kind: string;
@@ -278,6 +279,7 @@ function NewLojaForm({
           waPhone: null,
           productionEnabled: false,
           marketingEnabled: false,
+          mediaLibraryEnabled: false,
           suspended: false,
           billing: null,
           lastActiveAt: null,
@@ -793,6 +795,8 @@ function LojaCard({ loja, catalogDomain }: { loja: Loja; catalogDomain: string |
   const [togglingProd, setTogglingProd] = useState(false);
   const [marketing, setMarketing] = useState(loja.marketingEnabled);
   const [togglingMkt, setTogglingMkt] = useState(false);
+  const [biblioteca, setBiblioteca] = useState(loja.mediaLibraryEnabled);
+  const [togglingBib, setTogglingBib] = useState(false);
 
   // módulo Produção (pago à parte): o Super Admin liga/desliga por loja
   async function toggleProducao() {
@@ -820,6 +824,21 @@ function LojaCard({ loja, catalogDomain }: { loja: Loja; catalogDomain: string |
     setTogglingMkt(false);
     if (res.ok) {
       setMarketing(!marketing);
+      router.refresh();
+    }
+  }
+
+  // Biblioteca de imagens (gated): idem
+  async function toggleBiblioteca() {
+    setTogglingBib(true);
+    const res = await fetch("/api/companies/media-library", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ companyId: loja.id, enabled: !biblioteca }),
+    });
+    setTogglingBib(false);
+    if (res.ok) {
+      setBiblioteca(!biblioteca);
       router.refresh();
     }
   }
@@ -988,6 +1007,28 @@ function LojaCard({ loja, catalogDomain }: { loja: Loja; catalogDomain: string |
           }`}
         >
           {togglingMkt ? "..." : marketing ? "Desativar" : "Ativar Marketing"}
+        </button>
+      </div>
+
+      {/* Biblioteca de imagens (gated) */}
+      <div className="mt-2 flex items-center justify-between gap-2 text-[11px]">
+        <span className="text-slate-400">
+          Biblioteca de imagens:{" "}
+          <b className={biblioteca ? "text-emerald-600" : "text-slate-500"}>
+            {biblioteca ? "ativada" : "desativada"}
+          </b>
+        </span>
+        <button
+          type="button"
+          onClick={toggleBiblioteca}
+          disabled={togglingBib}
+          className={`rounded-full px-2.5 py-1 font-semibold border transition disabled:opacity-50 ${
+            biblioteca
+              ? "border-slate-200 text-slate-500 hover:border-rose-300 hover:text-rose-600"
+              : "border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
+          }`}
+        >
+          {togglingBib ? "..." : biblioteca ? "Desativar" : "Ativar Biblioteca"}
         </button>
       </div>
 
