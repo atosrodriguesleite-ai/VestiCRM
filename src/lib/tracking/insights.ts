@@ -1,4 +1,5 @@
 import { db } from "../db";
+import { PAID_ORDER_STATUSES } from "../orders";
 
 /**
  * API de leitura da Tracking Engine.
@@ -232,7 +233,8 @@ async function dimensionStats(companyId: string, p: Period, dim: Dim) {
   const events = await loadEvents(companyId, p);
   const orderItems = await db.orderItem.findMany({
     where: {
-      order: { companyId, createdAt: { gte: p.from, lte: p.to }, status: { not: "CANCELADO" } },
+      // conta só VENDA DE VERDADE (paga): fora orçamento, aguardando e cancelado
+      order: { companyId, createdAt: { gte: p.from, lte: p.to }, status: { in: PAID_ORDER_STATUSES } },
     },
   });
   const map = new Map<
