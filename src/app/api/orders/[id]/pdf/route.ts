@@ -221,7 +221,7 @@ export async function GET(
     // ---- Tabela de itens com caixa de conferência ----
     y -= 18;
     page.drawRectangle({ x: M, y: y - 6, width: width - 2 * M, height: 22, color: LIGHT });
-    const cols = { check: M + 10, photo: M + 30, item: M + 66, qty: 360, unit: 420, total: width - M - 10 };
+    const cols = { check: M + 10, photo: M + 28, item: M + 80, qty: 360, unit: 420, total: width - M - 10 };
     page.drawText("CONF.", { x: cols.check - 2, y, size: 8, font: bold, color: GRAY });
     page.drawText("PRODUTO", { x: cols.item, y, size: 8, font: bold, color: GRAY });
     page.drawText("QTD", { x: cols.qty, y, size: 8, font: bold, color: GRAY });
@@ -230,7 +230,8 @@ export async function GET(
     page.drawText("TOTAL", { x: cols.total - th, y, size: 8, font: bold, color: GRAY });
     y -= 26;
 
-    const ROW = 34; // altura da linha: cabe a miniatura de 26px
+    const PH = 42; // tamanho da miniatura
+    const ROW = 52; // altura da linha: cabe a miniatura maior
     for (const item of order.items) {
       newPageIfNeeded(ROW + 4);
       // caixinha de conferência
@@ -240,18 +241,19 @@ export async function GET(
       });
       // miniatura da peça (quando o produto tem foto)
       const foto = item.productId ? fotoByProduct.get(item.productId) : null;
+      const photoBottom = y - (PH - 12); // topo da foto ~12pt acima da linha do nome
       if (foto) {
-        const d = foto.scaleToFit(26, 26);
+        const d = foto.scaleToFit(PH, PH);
         page.drawImage(foto, {
-          x: cols.photo + (26 - d.width) / 2,
-          y: y - 16 + (26 - d.height) / 2,
+          x: cols.photo + (PH - d.width) / 2,
+          y: photoBottom + (PH - d.height) / 2,
           width: d.width,
           height: d.height,
         });
       } else {
         // moldura leve no lugar da foto, pra manter o alinhamento
         page.drawRectangle({
-          x: cols.photo, y: y - 16, width: 26, height: 26,
+          x: cols.photo, y: photoBottom, width: PH, height: PH,
           borderColor: LIGHT, borderWidth: 1,
         });
       }
