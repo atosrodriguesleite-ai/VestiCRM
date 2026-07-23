@@ -1,4 +1,5 @@
 import { notFound } from "next/navigation";
+import { headers } from "next/headers";
 import type { Metadata } from "next";
 import {
   Montserrat,
@@ -113,8 +114,21 @@ export default async function BioPublicPage({
   const page = await load(slug);
   if (!page) notFound();
 
-  // conta a visita (não bloqueia a renderização)
-  db.bioPage.update({ where: { id: page.id }, data: { views: { increment: 1 } } }).catch(() => {});
+  // conta a visita — mas SÓ de gente de verdade. Robôs e as prévias de link
+  // (WhatsApp, Instagram, Facebook, Google) buscam a página e inflariam as
+  // visitas, bagunçando a taxa de clique. Filtra pelo user-agent. E aguarda a
+  // gravação (fire-and-forget se perde no serverless depois da resposta).
+  const ua = (await headers()).get("user-agent") ?? "";
+  const ehRobo =
+    !ua ||
+    /bot|crawler|spider|crawl|slurp|facebookexternalhit|whatsapp|telegram|discord|embedly|preview|monitor|lighthouse|headless|bingpreview|pinterest|linkedinbot|skypeuripreview|vkshare|redditbot|applebot/i.test(
+      ua
+    );
+  if (!ehRobo) {
+    await db.bioPage
+      .update({ where: { id: page.id }, data: { views: { increment: 1 } } })
+      .catch(() => {});
+  }
 
   const c = page.company;
   // usa a fonte/cores próprias da bio; se não tiver, herda do catálogo da loja
