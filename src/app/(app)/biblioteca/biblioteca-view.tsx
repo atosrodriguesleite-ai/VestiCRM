@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { Images, Upload, Download, Trash2, Loader2 } from "lucide-react";
+import { Images, Upload, Download, Trash2, Loader2, X } from "lucide-react";
 import { fileToDataUrl } from "@/lib/upload";
 
 type Asset = { id: string; name: string | null; createdAt: string };
@@ -10,6 +10,7 @@ export function BibliotecaView({ initial }: { initial: Asset[] }) {
   const [assets, setAssets] = useState<Asset[]>(initial);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
+  const [preview, setPreview] = useState<Asset | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   async function onFiles(files: FileList | null) {
@@ -103,13 +104,21 @@ export function BibliotecaView({ initial }: { initial: Asset[] }) {
               className="group relative rounded-xl overflow-hidden border border-gray-100 bg-white"
             >
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={`/api/media/${a.id}/raw`}
-                alt={a.name ?? "Imagem"}
-                className="w-full aspect-square object-cover bg-gray-50"
-                loading="lazy"
-              />
-              <div className="absolute inset-x-0 bottom-0 flex items-center justify-between gap-1 bg-gradient-to-t from-black/60 to-transparent p-1.5 opacity-0 group-hover:opacity-100 transition">
+              <button
+                type="button"
+                onClick={() => setPreview(a)}
+                title="Ver imagem completa"
+                className="block w-full"
+              >
+                <img
+                  src={`/api/media/${a.id}/raw`}
+                  alt={a.name ?? "Imagem"}
+                  className="w-full aspect-square object-cover bg-gray-50 cursor-zoom-in"
+                  loading="lazy"
+                />
+              </button>
+              <div className="absolute inset-x-0 bottom-0 flex items-center justify-between gap-1 bg-gradient-to-t from-black/60 to-transparent p-1.5 opacity-0 group-hover:opacity-100 transition pointer-events-none">
+                <div className="pointer-events-auto flex items-center justify-between gap-1 w-full">
                 <a
                   href={`/api/media/${a.id}/raw?download=1`}
                   download
@@ -125,12 +134,44 @@ export function BibliotecaView({ initial }: { initial: Asset[] }) {
                 >
                   <Trash2 className="size-3.5" />
                 </button>
+                </div>
               </div>
               {a.name && (
                 <p className="text-[10px] text-gray-500 truncate px-1.5 py-1">{a.name}</p>
               )}
             </div>
           ))}
+        </div>
+      )}
+
+      {preview && (
+        <div
+          className="fixed inset-0 z-[80] flex items-center justify-center p-4 bg-black/80 animate-fade-in"
+          onClick={() => setPreview(null)}
+        >
+          <button
+            onClick={() => setPreview(null)}
+            className="absolute top-4 right-4 rounded-full bg-white/10 hover:bg-white/20 text-white p-2 transition"
+            title="Fechar"
+          >
+            <X className="size-5" />
+          </button>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={`/api/media/${preview.id}/raw`}
+            alt={preview.name ?? "Imagem"}
+            className="max-w-full max-h-[85vh] object-contain rounded-lg shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          />
+          <a
+            href={`/api/media/${preview.id}/raw?download=1`}
+            download
+            onClick={(e) => e.stopPropagation()}
+            className="absolute bottom-5 left-1/2 -translate-x-1/2 inline-flex items-center gap-2 rounded-xl bg-white/90 hover:bg-white text-gray-800 text-sm font-semibold px-4 py-2 transition"
+          >
+            <Download className="size-4" />
+            Baixar
+          </a>
         </div>
       )}
     </div>
