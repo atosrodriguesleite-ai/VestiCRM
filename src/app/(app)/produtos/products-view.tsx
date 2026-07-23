@@ -5,13 +5,22 @@
 import { useMemo, useRef, useState } from "react";
 import { Portal } from "@/components/portal";
 import { useRouter } from "next/navigation";
-import { Package, Palette, Plus, Search, Star, Trash2, Upload, X } from "lucide-react";
+import { History, Loader2, Package, Palette, Plus, Search, Star, Trash2, Upload, X } from "lucide-react";
 import { brl } from "@/lib/format";
 import { Card, EmptyState } from "@/components/ui";
 import { fileToDataUrl } from "@/lib/upload";
 import { ImportCatalog } from "./import-catalog";
 
 type LibraryColor = { name: string; hex: string };
+
+type StockMov = {
+  id: string;
+  variacao: string;
+  type: "ENTRADA" | "SAIDA" | "AJUSTE";
+  quantity: number;
+  reason: string;
+  createdAt: string;
+};
 
 export type ProductItem = {
   id: string;
@@ -368,6 +377,24 @@ function ProductDetailModal({
   const [vskus, setVskus] = useState<Record<string, string>>(
     Object.fromEntries(product.variants.map((v) => [v.id, v.sku ?? ""]))
   );
+  // histórico de estoque desta peça (carrega sob demanda)
+  const [hist, setHist] = useState<StockMov[] | null>(null);
+  const [histBusy, setHistBusy] = useState(false);
+  const [histAberto, setHistAberto] = useState(false);
+
+  async function verHistorico() {
+    if (histAberto) {
+      setHistAberto(false);
+      return;
+    }
+    setHistAberto(true);
+    if (hist) return; // já carregado
+    setHistBusy(true);
+    const res = await fetch(`/api/products/${product.id}/movements`);
+    const d = await res.json().catch(() => ({}));
+    setHistBusy(false);
+    if (res.ok) setHist(d.movimentos ?? []);
+  }
 
   const num = (v: string) => parseFloat(v.replace(",", ".")) || 0;
   const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
@@ -700,6 +727,64 @@ function ProductDetailModal({
                 </a>
                 . Ajustes de estoque ficam no histórico de movimentações.
               </p>
+
+              <button
+                type="button"
+                onClick={verHistorico}
+                className="mt-2.5 inline-flex items-center gap-1.5 text-xs font-medium text-gray-500 hover:text-brand-600 transition"
+              >
+                <History className="size-3.5" />
+                {histAberto ? "Ocultar histórico de estoque" : "Ver histórico de estoque"}
+              </button>
+
+              {histAberto && (
+                <div className="mt-2 rounded-xl border border-gray-100 bg-gray-50/60 p-2.5">
+                  {histBusy ? (
+                    <p className="flex items-center gap-1.5 text-xs text-gray-400 px-1 py-2">
+                      <Loader2 className="size-3.5 animate-spin" /> Carregando…
+                    </p>
+                  ) : !hist || hist.length === 0 ? (
+                    <p className="text-xs text-gray-400 px-1 py-2">
+                      Nenhuma movimentação registrada nesta peça ainda.
+                    </p>
+                  ) : (
+                    <ul className="max-h-52 overflow-y-auto thin-scroll divide-y divide-gray-100">
+                      {hist.map((m) => {
+                        const sinal = m.type === "SAIDA" ? "−" : m.type === "ENTRADA" ? "+" : "±";
+                        const cor =
+                          m.type === "SAIDA"
+                            ? "text-rose-600"
+                            : m.type === "ENTRADA"
+                            ? "text-emerald-600"
+                            : "text-amber-600";
+                        return (
+                          <li key={m.id} className="flex items-start gap-2 py-1.5 px-1">
+                            <span className={`text-xs font-bold tabular-nums shrink-0 ${cor}`}>
+                              {sinal}
+                              {m.quantity}
+                            </span>
+                            <span className="text-[11px] text-gray-600 flex-1 min-w-0 leading-snug">
+                              <b className="text-gray-800">{m.variacao}</b> — {m.reason || "—"}
+                            </span>
+                            <span className="text-[10px] text-gray-400 shrink-0 tabular-nums">
+                              {new Date(m.createdAt).toLocaleDateString("pt-BR", {
+                                day: "2-digit",
+                                month: "2-digit",
+                                hour: "2-digit",
+                                minute: "2-digit",
+                              })}
+                            </span>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  )}
+                  <p className="text-[10px] text-gray-400 mt-1.5 px-1 leading-snug">
+                    Cada linha mostra o que mexeu no estoque: ajuste manual, venda,
+                    reserva de orçamento ou sincronização da loja online (Nuvemshop/Jueri).
+                  </p>
+                </div>
+              )}
             </div>
           </div>
         </div>
