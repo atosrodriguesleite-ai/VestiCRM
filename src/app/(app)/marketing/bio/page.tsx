@@ -57,6 +57,7 @@ export default async function BioPageEditor() {
             tagline: page.tagline,
             avatarUrl: page.avatarUrl,
             coverUrl: page.coverUrl,
+            hideCover: page.hideCover,
             bgColor: page.bgColor,
             buttonColor: page.buttonColor,
             buttonTextColor: page.buttonTextColor,

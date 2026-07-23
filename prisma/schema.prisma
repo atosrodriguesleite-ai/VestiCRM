@@ -954,6 +954,7 @@ model BioPage {
   tagline   String? // subtítulo curto (default = tagline do catálogo)
   avatarUrl String? // foto/logo redonda no topo (default = logo do catálogo)
   coverUrl  String? // foto de capa (banner no topo, atrás do nome)
+  hideCover Boolean @default(false) // esconder o banner de capa (bio mais compacta)
   // personalização visual própria da bio (null = herda do catálogo da loja)
   bgColor         String? // cor de fundo (base do gradiente)
   buttonColor     String? // cor dos botões

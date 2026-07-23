@@ -83,6 +83,7 @@ type PageState = {
   tagline: string | null;
   avatarUrl: string | null;
   coverUrl: string | null;
+  hideCover: boolean;
   bgColor: string | null;
   buttonColor: string | null;
   buttonTextColor: string | null;
@@ -141,6 +142,7 @@ export function BioEditor({
         | "tagline"
         | "avatarUrl"
         | "coverUrl"
+        | "hideCover"
         | "bgColor"
         | "buttonColor"
         | "buttonTextColor"
@@ -424,7 +426,7 @@ export function BioEditor({
         <p className="mb-2 text-center text-[11px] font-semibold uppercase tracking-wide text-slate-400">Prévia</p>
         <BioPreview
           avatar={avatar}
-          cover={page.coverUrl}
+          cover={page.hideCover ? null : page.coverUrl}
           headline={headline}
           tagline={tagline}
           slug={page.slug}
@@ -624,7 +626,7 @@ function Appearance({
 }: {
   page: PageState;
   identity: Identity;
-  onSave: (d: Partial<Pick<PageState, "headline" | "tagline" | "avatarUrl" | "coverUrl">>) => Promise<void>;
+  onSave: (d: Partial<Pick<PageState, "headline" | "tagline" | "avatarUrl" | "coverUrl" | "hideCover">>) => Promise<void>;
 }) {
   const fileRef = useRef<HTMLInputElement>(null);
   const coverRef = useRef<HTMLInputElement>(null);
@@ -674,6 +676,21 @@ function Appearance({
             <Upload className="size-4" /> Enviar foto de capa
           </button>
         )}
+
+        {/* liga/desliga do banner do cabeçalho — bio mais compacta sem ele */}
+        <label className="mt-2.5 flex cursor-pointer items-center justify-between gap-3 rounded-xl bg-slate-50 px-3 py-2.5">
+          <span className="min-w-0">
+            <span className="block text-xs font-medium text-slate-700">Mostrar banner do cabeçalho</span>
+            <span className="block text-[11px] text-slate-400">Desligue pra uma bio mais enxuta — cabe mais botão sem rolar.</span>
+          </span>
+          <input
+            type="checkbox"
+            checked={!page.hideCover}
+            onChange={(e) => onSave({ hideCover: !e.target.checked })}
+            className="peer sr-only"
+          />
+          <span className="relative h-5 w-9 shrink-0 rounded-full bg-slate-300 transition peer-checked:bg-emerald-500 after:absolute after:left-0.5 after:top-0.5 after:size-4 after:rounded-full after:bg-white after:transition peer-checked:after:translate-x-4" />
+        </label>
       </div>
 
       <div className="flex items-center gap-4">

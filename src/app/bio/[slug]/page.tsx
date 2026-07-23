@@ -148,6 +148,7 @@ export default async function BioPublicPage({
   const iconChip = mixHex(colors.button, colors.buttonText, 0.12);
   const btnClass = SHAPE_CLASS[page.buttonShape] ?? "rounded-2xl";
 
+  const showCover = !!page.coverUrl && !page.hideCover;
   const avatar = page.avatarUrl || c.logoUrl;
   const headline = page.headline || c.name;
   const tagline = page.tagline || c.tagline;
@@ -160,12 +161,12 @@ export default async function BioPublicPage({
       className={`${fontClass} min-h-[100dvh] w-full`}
       style={{ background: `linear-gradient(165deg, ${top} 0%, ${bg} 45%, ${bottom} 100%)` }}
     >
-      {/* foto de capa (banner no topo, largura toda) */}
-      {page.coverUrl && (
+      {/* foto de capa (banner no topo) — pode ser escondida pra bio compacta */}
+      {showCover && (
         // eslint-disable-next-line @next/next/no-img-element
-        <img src={page.coverUrl} alt="" className="mx-auto h-32 w-full max-w-[560px] object-cover sm:h-40" />
+        <img src={page.coverUrl!} alt="" className="mx-auto h-32 w-full max-w-[560px] object-cover sm:h-40" />
       )}
-      <div className={`mx-auto flex min-h-[100dvh] w-full max-w-[560px] flex-col items-center px-5 pb-6 ${page.coverUrl ? "-mt-12 pt-0" : "pt-10"}`}>
+      <div className={`mx-auto flex min-h-[100dvh] w-full max-w-[560px] flex-col items-center px-5 pb-6 ${showCover ? "-mt-12 pt-0" : "pt-10"}`}>
         {/* topo: avatar + nome + tagline */}
         <div className="flex flex-col items-center text-center">
           {avatar ? (
