@@ -4,6 +4,8 @@ import { db } from "@/lib/db";
 import { imageSrc } from "@/lib/img";
 import { requireUser, AuthError } from "@/lib/auth";
 import { computeOrderTotals, orderNumber } from "@/lib/orders";
+import { pushStockToNuvemshop } from "@/lib/nuvemshop";
+import { pushStockToJueri } from "@/lib/jueri";
 
 const itemSchema = z.object({
   productId: z.string().min(1),
@@ -140,12 +142,46 @@ export async function POST(req: NextRequest) {
         include: { items: true },
       });
 
-      // O estoque NÃO baixa na criação: a baixa acontece só quando o pedido
-      // é marcado como PAGO (ver PATCH em /api/orders/[id]). A verificação de
-      // estoque acima é apenas um alerta no momento do cadastro.
+      // RESERVA: o pedido do vendedor (orçamento/aguardando) já SEGURA o estoque
+      // na criação — assim dois vendedores não vendem a mesma peça. A peça só
+      // volta se o pedido for cancelado (ou pela expiração de 48h da reserva).
+      // Registra o movimento pra ficar auditável/reversível.
+      for (const it of input.items) {
+        await tx.productVariant.update({
+          where: { id: it.variantId },
+          data: { stock: { decrement: it.quantity } },
+        });
+      }
+      await tx.inventoryMovement.createMany({
+        data: created.items
+          .filter((i) => i.variantId)
+          .map((i) => ({
+            companyId: user.companyId,
+            variantId: i.variantId!,
+            orderId: created.id,
+            type: "SAIDA" as const,
+            quantity: i.quantity,
+            reason: `Reserva — pedido ${orderNumber(created.number)}`,
+          })),
+      });
+      await tx.order.update({ where: { id: created.id }, data: { stockDeducted: true } });
 
       return created;
     });
+
+    // Integrações: a reserva feita AQUI é refletida na ORIGEM do estoque
+    // (Nuvemshop/Jueri) — a peça reservada some do estoque dos outros canais
+    // no mesmo instante, então ninguém vende a mesma peça em dois lugares.
+    const reservedVariantIds = order.items
+      .map((i) => i.variantId)
+      .filter((v): v is string => !!v);
+    if (reservedVariantIds.length > 0) {
+      pushStockToNuvemshop(user.companyId, reservedVariantIds).catch(() => {});
+      const changes = order.items
+        .filter((i) => i.variantId)
+        .map((i) => ({ variantId: i.variantId!, delta: -i.quantity }));
+      pushStockToJueri(user.companyId, changes).catch(() => {});
+    }
 
     // registra o pedido no histórico da conversa (timeline do WhatsApp)
     if (input.conversationId) {

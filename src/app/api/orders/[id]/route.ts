@@ -8,8 +8,13 @@ import { reverseAndDeleteOrder } from "@/lib/order-actions";
 import { notifySalePaid } from "@/lib/push";
 import { pushStockToNuvemshop } from "@/lib/nuvemshop";
 import { pushStockToJueri } from "@/lib/jueri";
-import { orderStatusLabel, orderNumber, PAID_ORDER_STATUSES } from "@/lib/orders";
+import { orderStatusLabel, orderNumber, PAID_ORDER_STATUSES, ORDER_STATUS_FLOW } from "@/lib/orders";
 import { computeOrderTotals } from "@/lib/orders";
+
+// Estoque fica RESERVADO em qualquer etapa que não seja Cancelado (o orçamento
+// já reserva). Só o cancelamento devolve. O faturamento (venda) continua sendo
+// contado só a partir de Pago (PAID_ORDER_STATUSES) — reserva não é venda.
+const HELD_STATUSES = new Set<string>(ORDER_STATUS_FLOW.filter((s) => s !== "CANCELADO"));
 
 const itemSchema = z.object({
   productId: z.string().min(1),
@@ -207,16 +212,22 @@ export async function PATCH(
     }
 
     const newStatus = parsed.data.status;
-    // Estados em que o pedido está pago → o estoque deve estar baixado.
     const PAID_STATUSES = new Set<string>(PAID_ORDER_STATUSES);
     const willChangeStatus = !!newStatus && newStatus !== order.status;
-    const needDeduct =
-      willChangeStatus && PAID_STATUSES.has(newStatus!) && !order.stockDeducted;
-    const needReturn =
-      willChangeStatus && !PAID_STATUSES.has(newStatus!) && order.stockDeducted;
+    // ESTOQUE (reserva/hold): segura ao entrar numa etapa não cancelada;
+    // devolve só ao cancelar. Assim o orçamento já reserva a peça.
+    const needStockDeduct =
+      willChangeStatus && HELD_STATUSES.has(newStatus!) && !order.stockDeducted;
+    const needStockReturn =
+      willChangeStatus && !HELD_STATUSES.has(newStatus!) && order.stockDeducted;
+    // FATURAMENTO (venda): entra/sai de etapa paga — independente do estoque.
+    const enteringPaid =
+      willChangeStatus && PAID_STATUSES.has(newStatus!) && !PAID_STATUSES.has(order.status);
+    const leavingPaid =
+      willChangeStatus && !PAID_STATUSES.has(newStatus!) && PAID_STATUSES.has(order.status);
 
     // Regra: um pedido só pode virar PAGO com um vendedor atribuído.
-    if (needDeduct) {
+    if (enteringPaid) {
       const effectiveSeller =
         parsed.data.sellerId !== undefined ? parsed.data.sellerId : order.sellerId;
       if (!effectiveSeller) {
@@ -230,9 +241,9 @@ export async function PATCH(
       }
     }
 
-    // Antes de escrever: se o pedido vai baixar estoque agora (virou pago),
+    // Antes de escrever: se o pedido vai segurar estoque agora (reserva/baixa),
     // confere disponibilidade e bloqueia se faltar.
-    if (needDeduct) {
+    if (needStockDeduct) {
       const variantIds = order.items
         .map((i) => i.variantId)
         .filter((v): v is string => !!v);
@@ -300,7 +311,7 @@ export async function PATCH(
       // Pular etapas segue a lógica completa: entrar em qualquer etapa paga
       // (Pago, Em produção, Separação, Enviado, Entregue) vindo de uma etapa
       // não paga confirma o pagamento e registra a venda no CRM.
-      if (PAID_STATUSES.has(newStatus) && !PAID_STATUSES.has(order.status)) {
+      if (enteringPaid) {
         const pending = order.payments.find((p) => p.status === "PENDENTE");
         if (pending) {
           await db.payment.update({
@@ -350,8 +361,8 @@ export async function PATCH(
         });
       }
 
-      // ---- Estoque: baixa quando vira pago; devolve ao cancelar/estornar ----
-      if (needDeduct) {
+      // ---- Estoque: SEGURA (reserva no orçamento / baixa no pago); devolve ao cancelar ----
+      if (needStockDeduct) {
         for (const item of order.items) {
           if (!item.variantId) continue;
           await db.productVariant.update({
@@ -359,6 +370,10 @@ export async function PATCH(
             data: { stock: { decrement: item.quantity } },
           });
         }
+        // razão conforme o momento: reserva (orçamento/aguardando) ou baixa (pago)
+        const motivo = enteringPaid
+          ? `Baixa por pagamento — pedido ${orderNumber(order.number)}`
+          : `Reserva — pedido ${orderNumber(order.number)}`;
         await db.inventoryMovement.createMany({
           data: order.items
             .filter((i) => i.variantId)
@@ -368,11 +383,11 @@ export async function PATCH(
               orderId: order.id,
               type: "SAIDA" as const,
               quantity: i.quantity,
-              reason: `Baixa por pagamento — pedido ${orderNumber(order.number)}`,
+              reason: motivo,
             })),
         });
         data.stockDeducted = true;
-      } else if (needReturn) {
+      } else if (needStockReturn) {
         for (const item of order.items) {
           if (!item.variantId) continue;
           await db.productVariant.update({
@@ -389,31 +404,31 @@ export async function PATCH(
               orderId: order.id,
               type: "ENTRADA" as const,
               quantity: i.quantity,
-              reason:
-                newStatus === "CANCELADO"
-                  ? `Cancelamento do pedido ${orderNumber(order.number)}`
-                  : `Estorno de estoque — pedido ${orderNumber(order.number)}`,
+              reason: `Cancelamento do pedido ${orderNumber(order.number)}`,
             })),
         });
         data.stockDeducted = false;
-        // pagamento confirmado é estornado junto (cancelamento/estorno)
+      }
+
+      // FATURAMENTO: sair de uma etapa paga (cancelou/voltou p/ orçamento) estorna
+      // o pagamento e tira a venda do faturamento — independente do estoque.
+      if (leavingPaid) {
         await db.payment.updateMany({
           where: { orderId: order.id, status: "CONFIRMADO" },
           data: { status: newStatus === "CANCELADO" ? "ESTORNADO" : "PENDENTE" },
         });
-        // a VENDA sai do faturamento: cancelou/estornou, não é mais venda
         await db.sale.deleteMany({ where: { orderId: order.id } });
       }
 
       // Integrações: a baixa/devolução feita AQUI é refletida na ORIGEM do
       // estoque — uma venda, uma baixa, sem divergir entre os sistemas.
-      if (needDeduct || needReturn) {
+      if (needStockDeduct || needStockReturn) {
         const variantIds = order.items
           .map((i) => i.variantId)
           .filter((v): v is string => !!v);
         pushStockToNuvemshop(user.companyId, variantIds).catch(() => {});
-        // Jueri: delta EXATO por variação (venda = baixa, cancelamento = volta)
-        const sinal = needReturn ? 1 : -1;
+        // Jueri: delta EXATO por variação (reserva/baixa = −, cancelamento = +)
+        const sinal = needStockReturn ? 1 : -1;
         const changes = order.items
           .filter((i) => i.variantId)
           .map((i) => ({ variantId: i.variantId!, delta: sinal * i.quantity }));
@@ -460,7 +475,7 @@ export async function PATCH(
 
     // 💰 Notificação de venda: dispara quando o pedido ACABOU de virar pago.
     // Fire-and-forget: nunca atrasa nem quebra a resposta do pedido.
-    if (needDeduct) {
+    if (enteringPaid) {
       const customer = await db.customer.findUnique({
         where: { id: order.customerId },
         select: { name: true },
