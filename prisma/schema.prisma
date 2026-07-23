@@ -1005,6 +1005,29 @@ model BioLink {
   @@index([bioPageId, order])
 }
 
+// Eventos com DATA (pra filtrar métricas por período). Os contadores acumulados
+// (BioPage.views, BioLink.clicks) continuam pro total geral; estes registram
+// cada visita/clique com carimbo de data pra montar relatório por período.
+model BioView {
+  id        String   @id @default(cuid())
+  bioPageId String
+  companyId String
+  createdAt DateTime @default(now())
+
+  @@index([bioPageId, createdAt])
+}
+
+model BioClick {
+  id        String   @id @default(cuid())
+  bioLinkId String
+  bioPageId String
+  companyId String
+  createdAt DateTime @default(now())
+
+  @@index([bioPageId, createdAt])
+  @@index([bioLinkId, createdAt])
+}
+
 // Catálogo de CAMPANHA: uma vitrine à parte com produtos selecionados e um
 // desconto próprio (%). O catálogo geral continua intacto; a campanha tem
 // link/QR próprios (catalago.net/<loja>/c/<campanha>) e o desconto é

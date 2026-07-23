@@ -8,7 +8,7 @@
  * celular — tudo com a identidade visual do catálogo da loja.
  */
 
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   ChevronDown,
   ChevronRight,
@@ -33,6 +33,7 @@ import {
   Info,
   ShoppingCart,
   Users,
+  Loader2,
 } from "lucide-react";
 import { Card } from "@/components/ui";
 import { brl } from "@/lib/format";
@@ -184,6 +185,49 @@ export function BioEditor({
   const totalClicks = links.reduce((s, l) => s + l.clicks, 0);
   const ctr = page.views > 0 ? Math.round((totalClicks / page.views) * 100) : 0;
   const topLinks = [...links].filter((l) => l.clicks > 0).sort((a, b) => b.clicks - a.clicks).slice(0, 4);
+
+  // Relatório por período. "Tudo" (period=0) usa os totais acumulados já
+  // carregados; períodos (1/7/30 dias) buscam os eventos com data na API.
+  const allData = useMemo(
+    () => ({
+      visitas: page.views,
+      cliques: totalClicks,
+      ctr,
+      topLinks: topLinks.map((l) => ({ id: l.id, title: l.title, clicks: l.clicks })),
+      journey,
+    }),
+    [page.views, totalClicks, ctr, topLinks, journey]
+  );
+  const [period, setPeriod] = useState(0); // 0=tudo · 1=hoje · 7 · 30
+  const [report, setReport] = useState(allData);
+  const [loadingReport, setLoadingReport] = useState(false);
+
+  useEffect(() => {
+    if (period === 0) {
+      setReport(allData);
+      return;
+    }
+    let alive = true;
+    setLoadingReport(true);
+    fetch(`/api/marketing/bio/report?days=${period}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (alive && d) setReport(d);
+      })
+      .finally(() => {
+        if (alive) setLoadingReport(false);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [period, allData]);
+
+  const PERIODS: { v: number; label: string }[] = [
+    { v: 0, label: "Tudo" },
+    { v: 1, label: "Hoje" },
+    { v: 7, label: "7 dias" },
+    { v: 30, label: "30 dias" },
+  ];
 
   async function patchPage(
     data: Partial<
@@ -344,21 +388,44 @@ export function BioEditor({
 
           {showInsights && (
             <div className="mt-3 border-t border-slate-100 pt-3">
+              {/* filtro de período */}
+              <div className="mb-3 flex flex-wrap items-center gap-1.5">
+                {PERIODS.map((p) => (
+                  <button
+                    key={p.v}
+                    onClick={() => setPeriod(p.v)}
+                    className={`rounded-full border px-2.5 py-1 text-[11px] font-medium transition ${
+                      period === p.v
+                        ? "border-brand-400 bg-brand-50 text-brand-700"
+                        : "border-slate-200 text-slate-500 hover:border-slate-300"
+                    }`}
+                  >
+                    {p.label}
+                  </button>
+                ))}
+                {loadingReport && <Loader2 className="size-3.5 animate-spin text-slate-300" />}
+                {period !== 0 && (
+                  <span className="ml-auto text-[10px] text-slate-400">
+                    período conta desde 23/07/2026
+                  </span>
+                )}
+              </div>
+
               {/* Bloco 1 — a bio (a página de links) */}
               <p className="mb-1.5 text-[11px] font-semibold text-slate-500">📱 A sua bio</p>
               <div className="grid grid-cols-3 gap-2">
                 <StatCard
-                  value={page.views}
+                  value={report.visitas}
                   label="Visitas"
                   hint="Quantas vezes a sua bio foi aberta por pessoas reais. Robôs e as prévias de link (WhatsApp, Instagram) NÃO são contados. Cada abertura da página = 1 visita; navegar nos botões não conta de novo."
                 />
                 <StatCard
-                  value={totalClicks}
+                  value={report.cliques}
                   label="Cliques"
                   hint="Soma dos cliques em TODOS os botões da bio (WhatsApp, catálogo, site, etc.). Cada toque num botão conta 1 clique."
                 />
                 <StatCard
-                  value={`${ctr}%`}
+                  value={`${report.ctr}%`}
                   label="Taxa de clique"
                   hint="Dos que abriram a bio, quantos % clicaram em algum botão. Conta: cliques ÷ visitas × 100. Ex.: 10 visitas e 3 cliques = 30%. Quanto maior, mais a sua bio converte atenção em ação."
                 />
@@ -370,19 +437,19 @@ export function BioEditor({
                 <StatCard
                   accent
                   icon={<ShoppingCart className="size-4" />}
-                  value={journey.catalogVisits}
+                  value={report.journey.catalogVisits}
                   label="Foram ao catálogo"
                   hint="Quantas visitas no seu catálogo vieram do botão da bio. Contamos pela etiqueta de origem (utm_source=bio) que o botão 'Ver catálogo' carimba — mesmo que a pessoa não deixe contato."
                 />
                 <StatCard
                   accent
-                  value={journey.bags}
+                  value={report.journey.bags}
                   label="Montaram sacola"
                   hint="Dessas visitas vindas da bio, quantas chegaram a colocar peças na sacola no catálogo (mesmo sem finalizar). Conta as sessões com sacola (valor maior que zero)."
                 />
                 <StatCard
                   accent
-                  value={brl(journey.bagsValue)}
+                  value={brl(report.journey.bagsValue)}
                   label="Valor em sacolas"
                   hint="Soma do valor de todas as sacolas montadas por quem veio da bio. É o potencial de venda que a bio levou pro catálogo (ainda não é venda fechada)."
                 />
@@ -391,23 +458,23 @@ export function BioEditor({
               <div className="mt-2">
                 <StatCard
                   icon={<Users className="size-4" />}
-                  value={journey.customers}
+                  value={report.journey.customers}
                   label="Clientes que chegaram pela bio"
                   hint="Clientes já identificados (com nome/contato) cuja origem registrada foi a bio — por exemplo, carrinho abandonado da loja online marcado como 'bio', ou quem preencheu um formulário vindo do link da bio."
                 />
               </div>
 
               {/* ranking de botões */}
-              {topLinks.length > 0 && (
+              {report.topLinks.length > 0 && (
                 <div className="mt-4">
                   <p className="mb-1.5 flex items-center gap-1 text-[11px] font-semibold text-slate-500">
                     Botões que mais clicam
-                    <span title="Ranking dos botões pelo total de cliques, do maior pro menor.">
+                    <span title="Ranking dos botões pelo total de cliques no período, do maior pro menor.">
                       <Info className="size-3 text-slate-300" />
                     </span>
                   </p>
                   <div className="space-y-1">
-                    {topLinks.map((l) => (
+                    {report.topLinks.map((l) => (
                       <div key={l.id} className="flex items-center justify-between gap-2 text-xs">
                         <span className="min-w-0 truncate text-slate-600">{l.title}</span>
                         <span className="shrink-0 font-semibold text-slate-800">{l.clicks} clique{l.clicks === 1 ? "" : "s"}</span>

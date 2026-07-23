@@ -125,9 +125,12 @@ export default async function BioPublicPage({
       ua
     );
   if (!ehRobo) {
-    await db.bioPage
-      .update({ where: { id: page.id }, data: { views: { increment: 1 } } })
-      .catch(() => {});
+    await Promise.all([
+      // total acumulado (all-time)
+      db.bioPage.update({ where: { id: page.id }, data: { views: { increment: 1 } } }),
+      // evento com data (pra filtrar por período no relatório)
+      db.bioView.create({ data: { bioPageId: page.id, companyId: page.companyId } }),
+    ]).catch(() => {});
   }
 
   const c = page.company;

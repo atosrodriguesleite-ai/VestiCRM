@@ -34,8 +34,13 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     { slug: link.bioPage.company.slug, whatsapp: link.bioPage.company.whatsapp }
   );
 
-  // conta o clique (não bloqueia o redirecionamento se falhar)
-  await db.bioLink.update({ where: { id }, data: { clicks: { increment: 1 } } }).catch(() => {});
+  // conta o clique: total acumulado + evento com data (relatório por período)
+  await Promise.all([
+    db.bioLink.update({ where: { id }, data: { clicks: { increment: 1 } } }),
+    db.bioClick.create({
+      data: { bioLinkId: link.id, bioPageId: link.bioPageId, companyId: link.companyId },
+    }),
+  ]).catch(() => {});
 
   return NextResponse.redirect(target ? new URL(target, req.url) : home);
 }
