@@ -80,7 +80,8 @@ const schema = z.object({
   document: z.string().max(20).nullable().optional(), // CPF/CNPJ
   zip: z.string().max(10).nullable().optional(),
   street: z.string().max(120).nullable().optional(),
-  streetNumber: z.string().max(20).nullable().optional(),
+  // "Número" costuma vir com complemento (apto, bloco, loja) — cabe folgado
+  streetNumber: z.string().max(80).nullable().optional(),
   district: z.string().max(80).nullable().optional(),
   city: z.string().nullable().optional(),
   state: z.string().nullable().optional(),
@@ -110,7 +111,28 @@ export async function PATCH(
     const { id } = await params;
     const parsed = schema.safeParse(await req.json());
     if (!parsed.success) {
-      return NextResponse.json({ error: "Dados inválidos" }, { status: 400 });
+      // mensagem que diz QUAL campo travou (antes só dizia "Dados inválidos"
+      // e ninguém sabia onde estava o problema)
+      const rotulos: Record<string, string> = {
+        name: "Nome", phone: "Telefone", email: "E-mail", document: "CPF/CNPJ",
+        zip: "CEP", street: "Rua", streetNumber: "Número", district: "Bairro",
+        city: "Cidade", state: "Estado", notes: "Observações",
+      };
+      const issue = parsed.error.issues[0];
+      const campo = rotulos[String(issue?.path[0])] ?? "";
+      const max = issue?.code === "too_big" ? (issue as { maximum?: number }).maximum : undefined;
+      const detalhe =
+        issue?.code === "too_big"
+          ? `está muito longo${max ? ` (máximo ${max} caracteres)` : ""}`
+          : issue?.code === "too_small"
+          ? "está faltando ou muito curto"
+          : issue?.code === "invalid_format"
+          ? "está num formato inválido"
+          : "está inválido";
+      return NextResponse.json(
+        { error: campo ? `O campo "${campo}" ${detalhe}.` : "Dados inválidos" },
+        { status: 400 }
+      );
     }
 
     const customer = await db.customer.findFirst({
