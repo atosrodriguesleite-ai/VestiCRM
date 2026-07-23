@@ -224,11 +224,13 @@ export function FunnelBoard({
                     onDragStart={() => {
                       dragCard.current = { cardId: card.id, fromStage: stage.id };
                     }}
-                    className="bg-white rounded-xl border border-gray-100 shadow-card p-3 cursor-grab active:cursor-grabbing hover:shadow-pop transition group animate-fade-in"
+                    onClick={() => setDetail(card)}
+                    className="bg-white rounded-xl border border-gray-100 shadow-card p-3 cursor-pointer active:cursor-grabbing hover:shadow-pop hover:border-brand-200 transition group animate-fade-in"
                   >
                     <div className="flex items-start justify-between gap-2">
                       <Link
                         href={`/clientes/${card.customerId}`}
+                        onClick={(e) => e.stopPropagation()}
                         className="text-sm font-semibold leading-tight hover:text-brand-600 transition"
                       >
                         {card.customerName}
@@ -275,6 +277,7 @@ export function FunnelBoard({
                             href={recoverHref(card)!}
                             target="_blank"
                             rel="noopener noreferrer"
+                            onClick={(e) => e.stopPropagation()}
                             className="w-full flex items-center justify-center gap-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-semibold px-2 py-1.5 transition"
                           >
                             <MessageCircle className="size-3.5" />
@@ -309,15 +312,32 @@ export function FunnelBoard({
                     )}
 
                     <div className="flex items-center justify-between mt-2.5 pt-2 border-t border-gray-50">
-                      <span className="flex items-center gap-1 text-[11px] text-gray-400">
-                        <MessageCircle className="size-3" />
-                        {formatPhone(card.phone)}
-                      </span>
+                      {waHref(card.phone) ? (
+                        <a
+                          href={waHref(card.phone)!}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          onClick={(e) => e.stopPropagation()}
+                          title="Abrir conversa no WhatsApp"
+                          className="flex items-center gap-1 text-[11px] text-emerald-600 hover:text-emerald-700 font-medium transition"
+                        >
+                          <MessageCircle className="size-3" />
+                          {formatPhone(card.phone)}
+                        </a>
+                      ) : (
+                        <span className="flex items-center gap-1 text-[11px] text-gray-400">
+                          <MessageCircle className="size-3" />
+                          {formatPhone(card.phone)}
+                        </span>
+                      )}
                       <div className="flex items-center gap-1.5">
                         {canDelete && (
                           <button
                             type="button"
-                            onClick={() => deleteCard(card.id, stage.id)}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              deleteCard(card.id, stage.id);
+                            }}
                             title="Excluir oportunidade"
                             className="text-gray-300 hover:text-rose-500 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition p-0.5"
                           >
