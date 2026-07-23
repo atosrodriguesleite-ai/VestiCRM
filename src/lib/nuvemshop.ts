@@ -290,6 +290,29 @@ export async function upsertProduct(
 
   const linkedByNsVar = new Map(linkedVariants.map((v) => [v.nuvemshopId, v]));
 
+  // Produto local que este produto da Nuvemshop representa — já identificado
+  // por vínculo (nuvemshopId) ou por SKU de alguma variação. Serve pra
+  // ADICIONAR variações novas (cor/tamanho novo, com SKU) no produto certo,
+  // SOZINHO — assim a lojista fica independente: cria a variação na Nuvemshop
+  // e ela aparece aqui, sem virar pendência. Seguro porque o produto já está
+  // 100% identificado (nunca cria PRODUTO por conta própria, só variação).
+  const targetProductId =
+    um2um?.id ??
+    linkedVariants[0]?.productId ??
+    variants
+      .map((v) => (v.sku ? skuMap.get(norm(v.sku)) : undefined))
+      .find((x): x is NonNullable<typeof x> => !!x)?.productId ??
+    null;
+  const targetVariants = targetProductId
+    ? await db.productVariant.findMany({
+        where: { productId: targetProductId },
+        include: { product: true },
+      })
+    : [];
+  const targetByCorTam = new Map(
+    targetVariants.map((x) => [`${norm(x.color)}|${norm(x.size)}`, x])
+  );
+
   for (const v of variants) {
     const vId = String(v.id);
     const { color, size } = corETamanho(p, v);
@@ -297,10 +320,46 @@ export async function upsertProduct(
     const preco = num(v.price);
 
     // só casa por vínculo anterior OU por SKU (nunca por nome/cor)
-    const alvo =
+    let alvo =
       linkedByNsVar.get(vId) ??
       (v.sku ? skuMap.get(norm(v.sku)) : undefined) ??
       null;
+
+    // Variação NOVA (com SKU) num produto JÁ vinculado: entra sozinha no
+    // produto certo. Se a cor+tamanho já existir nele, vincula; senão, cria.
+    if (!alvo && v.sku && targetProductId) {
+      const existente = targetByCorTam.get(`${norm(color)}|${norm(size)}`);
+      if (existente) {
+        alvo = existente;
+      } else {
+        const nova = await db.productVariant.create({
+          data: {
+            productId: targetProductId,
+            color,
+            size,
+            stock,
+            sku: v.sku,
+            nuvemshopId: vId,
+            nuvemshopProductId: nsId,
+          },
+          include: { product: true },
+        });
+        if (stock > 0) {
+          await db.inventoryMovement.create({
+            data: {
+              companyId,
+              variantId: nova.id,
+              type: "ENTRADA",
+              quantity: stock,
+              reason: "Nova variação (Nuvemshop)",
+            },
+          });
+        }
+        targetByCorTam.set(`${norm(color)}|${norm(size)}`, nova);
+        if (report) report.casadas++;
+        continue;
+      }
+    }
 
     if (!alvo) {
       if (report) {

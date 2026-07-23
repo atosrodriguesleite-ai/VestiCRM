@@ -205,9 +205,11 @@ export async function simularVinculo(
       continue;
     }
 
-    // Produto será VINCULADO por SKU: cada variação casa só pelo próprio SKU.
+    // Produto será VINCULADO por SKU. Cada variação COM SKU entra sozinha:
+    // ou casa pelo próprio SKU, ou (sendo variação nova) é adicionada ao
+    // produto já identificado. Só variação SEM SKU vira pendência.
     for (const v of p.variants) {
-      if (v.sku && skuMap.has(norm(v.sku))) report.casariam++;
+      if ((v.sku ?? "").trim()) report.casariam++;
       else
         report.pendencias.push({
           produtoNs: p.name,
