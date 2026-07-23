@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { syncJueriCompany } from "@/lib/jueri-sync";
+import { releaseExpiredReservations } from "@/lib/reservations";
 
 /**
  * Sincronização automática da Jueri — roda 2x por dia (agendada no Vercel,
@@ -45,5 +46,20 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  return NextResponse.json({ ranAt: new Date().toISOString(), lojas: conns.length, results });
+  // Aproveita o cron diário pra soltar as reservas de estoque vencidas (>48h).
+  // Fica aqui (e não num cron próprio) pra não estourar o limite de cron jobs
+  // do plano da Vercel — que já barrou deploy quando tinha um cron a mais.
+  let reservas: Awaited<ReturnType<typeof releaseExpiredReservations>> | null = null;
+  try {
+    reservas = await releaseExpiredReservations();
+  } catch {
+    // uma falha aqui não pode derrubar o resultado do sync
+  }
+
+  return NextResponse.json({
+    ranAt: new Date().toISOString(),
+    lojas: conns.length,
+    results,
+    reservas,
+  });
 }
