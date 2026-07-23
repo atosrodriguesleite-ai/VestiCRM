@@ -166,7 +166,7 @@ export default async function BioPublicPage({
         // eslint-disable-next-line @next/next/no-img-element
         <img src={page.coverUrl!} alt="" className="mx-auto h-32 w-full max-w-[560px] object-cover sm:h-40" />
       )}
-      <div className={`mx-auto flex min-h-[100dvh] w-full max-w-[560px] flex-col items-center px-5 pb-6 ${showCover ? "-mt-12 pt-0" : "pt-10"}`}>
+      <div className={`mx-auto flex min-h-[100dvh] w-full max-w-[560px] flex-col items-center px-5 pb-6 ${showCover ? "-mt-11 pt-0" : "pt-6"}`}>
         {/* topo: avatar + nome + tagline */}
         <div className="flex flex-col items-center text-center">
           {avatar ? (
@@ -174,22 +174,22 @@ export default async function BioPublicPage({
             <img
               src={avatar}
               alt={headline}
-              className="size-20 rounded-full object-cover shadow-lg ring-2"
+              className="size-16 rounded-full object-cover shadow-lg ring-2"
               style={{ background: "#fff", borderColor: cardBg, ["--tw-ring-color" as string]: "rgba(255,255,255,.35)" }}
             />
           ) : (
             <div
-              className="grid size-20 place-items-center rounded-full text-3xl font-extrabold shadow-lg ring-2"
+              className="grid size-16 place-items-center rounded-full text-2xl font-extrabold shadow-lg ring-2"
               style={{ background: cardBg, color: onCard, ["--tw-ring-color" as string]: "rgba(255,255,255,.35)" }}
             >
               {headline.slice(0, 1).toUpperCase()}
             </div>
           )}
-          <h1 className="mt-3 text-[22px] font-extrabold tracking-tight" style={{ color: onPrimary }}>
+          <h1 className="mt-2.5 text-[20px] font-extrabold tracking-tight" style={{ color: onPrimary }}>
             {headline}
           </h1>
           {socials.length > 0 && (
-            <div className="mt-2.5 flex items-center gap-2.5">
+            <div className="mt-2 flex items-center gap-2.5">
               {socials.map((s) => {
                 const SIcon = SOCIAL_ICON[s.key];
                 return (
@@ -198,25 +198,25 @@ export default async function BioPublicPage({
                     href={s.url}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="grid size-9 place-items-center rounded-full transition hover:scale-110"
+                    className="grid size-8 place-items-center rounded-full transition hover:scale-110"
                     style={{ background: cardBg, color: onCard }}
                     aria-label={s.key}
                   >
-                    <SIcon className="size-4.5" />
+                    <SIcon className="size-4" />
                   </a>
                 );
               })}
             </div>
           )}
           {tagline && (
-            <p className="mt-2 max-w-xs text-sm leading-snug opacity-90" style={{ color: onPrimary }}>
+            <p className="mt-1.5 max-w-xs text-sm leading-snug opacity-90" style={{ color: onPrimary }}>
               {tagline}
             </p>
           )}
         </div>
 
         {/* botões */}
-        <div className="mt-5 flex w-full flex-col gap-2.5">
+        <div className="mt-4 flex w-full flex-col gap-2.5">
           {page.links.length === 0 ? (
             <p className="text-center text-sm opacity-80" style={{ color: onPrimary }}>
               Em breve, novos links por aqui. ✨
