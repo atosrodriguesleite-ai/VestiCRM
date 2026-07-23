@@ -418,6 +418,7 @@ model Opportunity {
   stageId             String
   stage               Stage     @relation(fields: [stageId], references: [id])
   title               String
+  details             String? // lista completa de itens (ex.: sacola/carrinho abandonado), uma por linha
   value               Float     @default(0)
   status              OppStatus @default(OPEN)
   lostReason          String?

@@ -751,16 +751,31 @@ export async function syncAbandonedCheckouts(companyId: string) {
         companyId_nuvemshopCheckoutId: { companyId, nuvemshopCheckoutId: checkoutId },
       },
     });
-    if (jaTem) continue;
+
+    const itensArr = (c.products ?? []).map(
+      (p) => `${texto(p.name)} ×${Math.round(num(p.quantity)) || 1}`
+    );
+    const itens = itensArr.slice(0, 6).join(", "); // resumo curto pro título
+    const detalhes = itensArr.join("\n") || null; // lista COMPLETA (uma por linha)
+    const valor = num(c.total);
+
+    // já existe: completa a lista de itens e o valor (backfill dos antigos que
+    // vieram sem os produtos) e segue — sem duplicar a oportunidade.
+    if (jaTem) {
+      await db.opportunity.update({
+        where: { id: jaTem.id },
+        data: {
+          details: detalhes,
+          value: valor,
+          title: `🛒 Carrinho abandonado (loja online)${itens ? ` — ${itens}` : ""}`,
+        },
+      });
+      continue;
+    }
+
     const fone = c.contact_phone ?? "";
     const email = c.contact_email ?? undefined;
     if (fone.replace(/\D/g, "").length < 8 && !email) continue; // sem contato, sem resgate
-
-    const itens = (c.products ?? [])
-      .map((p) => `${texto(p.name)} ×${Math.round(num(p.quantity)) || 1}`)
-      .slice(0, 6)
-      .join(", ");
-    const valor = num(c.total);
 
     let customerId: string;
     if (fone.replace(/\D/g, "").length >= 8) {
@@ -807,6 +822,7 @@ export async function syncAbandonedCheckouts(companyId: string) {
         stageId: stage.id,
         nuvemshopCheckoutId: checkoutId,
         title: `🛒 Carrinho abandonado (loja online)${itens ? ` — ${itens}` : ""}`,
+        details: detalhes,
         value: valor,
         ownerId: customer?.ownerId ?? null,
         status: "OPEN",

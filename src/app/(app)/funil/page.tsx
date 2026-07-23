@@ -171,7 +171,15 @@ export default async function FunnelPage({
       .filter((o) => o.stageId === s.id)
       .map((o) => {
         const ord = orderByOpp.get(o.id);
-        const cart = ord ? null : cartByCustomer.get(o.customerId) ?? null;
+        // sacola: tracking do catálogo OU, quando não há, a lista de itens
+        // guardada na oportunidade (ex.: carrinho abandonado da Nuvemshop)
+        const cart =
+          ord
+            ? null
+            : cartByCustomer.get(o.customerId) ??
+              (o.details
+                ? { value: o.value, items: o.details.split("\n").filter(Boolean) }
+                : null);
         const bhv = behaviorByCustomer.get(o.customerId);
         return {
           id: o.id,

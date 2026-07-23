@@ -327,17 +327,30 @@ export default async function CustomerDetailPage({
           ) : (
             <ul className="divide-y divide-gray-50">
               {customer.opportunities.map((o) => (
-                <li key={o.id} className="py-2.5 flex items-center gap-3">
+                <li key={o.id} className="py-2.5 flex items-start gap-3">
                   <span
-                    className="size-2.5 rounded-full shrink-0"
+                    className="size-2.5 rounded-full shrink-0 mt-1"
                     style={{ backgroundColor: o.stage.color }}
                   />
                   <div className="min-w-0 flex-1">
-                    <p className="text-sm font-medium truncate">{o.title}</p>
+                    <p className="text-sm font-medium">{o.title}</p>
                     <p className="text-xs text-gray-400">
                       {o.stage.name}
                       {o.lostReason ? ` · ${o.lostReason}` : ""}
                     </p>
+                    {o.details && (
+                      <ul className="mt-1.5 space-y-0.5">
+                        {o.details.split("\n").filter(Boolean).map((it, i) => (
+                          <li
+                            key={i}
+                            className="text-xs text-gray-600 flex items-center gap-1.5"
+                          >
+                            <span className="size-1 rounded-full bg-amber-400 shrink-0" />
+                            {it}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
                   </div>
                   <span className="text-sm font-semibold tabular-nums shrink-0">
                     {brl(o.value)}
