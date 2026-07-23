@@ -13,6 +13,7 @@ import {
   Loader2,
   Power,
   RefreshCw,
+  RotateCcw,
   ShoppingCart,
   Upload,
 } from "lucide-react";
@@ -77,6 +78,26 @@ export function NuvemshopConnect() {
     carregar();
   }
 
+  async function desfazer() {
+    if (
+      !window.confirm(
+        "Desfazer a importação da Nuvemshop?\n\nIsto REMOVE os produtos que vieram da Nuvemshop e desfaz as ligações. Os produtos que você cadastrou à mão continuam intactos. Use para reimportar do jeito certo (com os SKUs alinhados)."
+      )
+    )
+      return;
+    setBusy(true);
+    setMsg("");
+    const res = await fetch("/api/nuvemshop/undo", { method: "POST" });
+    const d = await res.json().catch(() => ({}));
+    setBusy(false);
+    if (res.ok) {
+      setMsg(
+        `Importação desfeita: ${d.removidos} produto(s) da Nuvemshop removido(s). Agora alinhe os SKUs na Nuvemshop e importe de novo (simule antes).`
+      );
+      carregar();
+    } else setMsg(d.error ?? "Não foi possível desfazer.");
+  }
+
   if (!estado) return null;
 
   return (
@@ -129,6 +150,15 @@ export function NuvemshopConnect() {
             >
               {busy ? <Loader2 className="size-3.5 animate-spin" /> : <RefreshCw className="size-3.5" />}
               Sincronizar agora
+            </button>
+            <button
+              onClick={desfazer}
+              disabled={busy}
+              title="Remove os produtos que vieram da Nuvemshop e desfaz as ligações (seus produtos próprios ficam)"
+              className="inline-flex items-center gap-1.5 rounded-xl border border-amber-200 hover:border-amber-400 text-amber-700 text-xs font-medium px-3 py-2 transition disabled:opacity-50"
+            >
+              <RotateCcw className="size-3.5" />
+              Desfazer importação
             </button>
             <button
               onClick={desconectar}
