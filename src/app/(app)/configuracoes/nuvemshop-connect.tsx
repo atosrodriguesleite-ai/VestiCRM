@@ -11,13 +11,16 @@ import {
   CheckCircle2,
   FlaskConical,
   Loader2,
+  History,
   Power,
   RefreshCw,
   RotateCcw,
   ShoppingCart,
   Upload,
+  X,
 } from "lucide-react";
 import { Card } from "@/components/ui";
+import { Portal } from "@/components/portal";
 
 type Pendencia = { produtoNs: string; cor: string; tamanho: string; sku: string | null };
 type Simulacao = {
@@ -38,10 +41,14 @@ type Estado = {
   report?: { at?: string; casadas?: number; criadas?: number; pendencias?: Pendencia[] };
 };
 
+type RestoreRow = { variantId: string; product: string; color: string; size: string; current: number; proposed: number };
+
 export function NuvemshopConnect() {
   const [estado, setEstado] = useState<Estado | null>(null);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
+  const [restore, setRestore] = useState<{ rows: RestoreRow[]; incertas: number } | null>(null);
+  const [restoreBusy, setRestoreBusy] = useState(false);
 
   const carregar = useCallback(async () => {
     const res = await fetch("/api/nuvemshop");
@@ -98,6 +105,28 @@ export function NuvemshopConnect() {
     } else setMsg(d.error ?? "Não foi possível desfazer.");
   }
 
+  async function abrirRestore() {
+    setRestoreBusy(true);
+    setMsg("");
+    const res = await fetch("/api/nuvemshop/restore-stock");
+    const d = await res.json().catch(() => null);
+    setRestoreBusy(false);
+    if (res.ok && d) setRestore(d);
+    else setMsg(d?.error ?? "Não foi possível calcular a restauração.");
+  }
+
+  async function aplicarRestore() {
+    setRestoreBusy(true);
+    const res = await fetch("/api/nuvemshop/restore-stock", { method: "POST" });
+    const d = await res.json().catch(() => ({}));
+    setRestoreBusy(false);
+    setRestore(null);
+    if (res.ok) {
+      setMsg(`Estoque restaurado: ${d.alterados} variação(ões) voltaram ao valor de antes da importação.`);
+      carregar();
+    } else setMsg(d.error ?? "Não foi possível restaurar.");
+  }
+
   if (!estado) return null;
 
   return (
@@ -152,6 +181,15 @@ export function NuvemshopConnect() {
               Sincronizar agora
             </button>
             <button
+              onClick={abrirRestore}
+              disabled={busy || restoreBusy}
+              title="Recupera o estoque de antes da importação, a partir do histórico (mostra uma prévia antes)"
+              className="inline-flex items-center gap-1.5 rounded-xl border border-brand-200 hover:border-brand-400 text-brand-700 text-xs font-medium px-3 py-2 transition disabled:opacity-50"
+            >
+              {restoreBusy ? <Loader2 className="size-3.5 animate-spin" /> : <History className="size-3.5" />}
+              Restaurar estoque
+            </button>
+            <button
               onClick={desfazer}
               disabled={busy}
               title="Remove os produtos que vieram da Nuvemshop e desfaz as ligações (seus produtos próprios ficam)"
@@ -195,6 +233,83 @@ export function NuvemshopConnect() {
       )}
 
       <SimuladorPreConexao />
+
+      {restore && (
+        <Portal>
+          <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center pb-[var(--kb,0px)]">
+            <div className="absolute inset-0 bg-black/30 animate-fade-in" onClick={() => setRestore(null)} />
+            <div className="relative flex max-h-[calc(100dvh_-_2rem)] w-full max-w-lg flex-col rounded-t-2xl bg-white shadow-pop animate-fade-up md:rounded-2xl">
+              <div className="flex items-center justify-between border-b border-gray-100 p-5 pb-3">
+                <h3 className="flex items-center gap-2 text-lg font-semibold">
+                  <History className="size-5 text-brand-600" />
+                  Restaurar estoque
+                </h3>
+                <button onClick={() => setRestore(null)} className="p-1 text-gray-400 hover:text-gray-600">
+                  <X className="size-5" />
+                </button>
+              </div>
+              <div className="thin-scroll flex-1 overflow-y-auto p-5 pt-3">
+                <p className="mb-3 text-sm text-gray-600">
+                  Estes são os valores de <b>antes da importação</b>, recuperados do histórico.
+                  Confira e confirme — só é aplicado quando você clicar em confirmar.
+                </p>
+                {restore.rows.length === 0 ? (
+                  <p className="rounded-xl bg-emerald-50 border border-emerald-100 text-emerald-700 text-sm p-3">
+                    Nada a restaurar: o estoque já está igual ao histórico. 👍
+                  </p>
+                ) : (
+                  <div className="overflow-hidden rounded-xl border border-gray-100">
+                    <table className="w-full text-sm">
+                      <thead className="bg-gray-50 text-[11px] uppercase text-gray-400">
+                        <tr>
+                          <th className="px-3 py-2 text-left font-semibold">Produto</th>
+                          <th className="px-2 py-2 text-right font-semibold">Atual</th>
+                          <th className="px-2 py-2 text-right font-semibold">Restaurar</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-50">
+                        {restore.rows.map((r) => (
+                          <tr key={r.variantId}>
+                            <td className="px-3 py-2">
+                              <span className="font-medium text-gray-800">{r.product}</span>
+                              <span className="text-gray-400"> · {[r.color, r.size].filter(Boolean).join(" ")}</span>
+                            </td>
+                            <td className="px-2 py-2 text-right tabular-nums text-rose-600">{r.current}</td>
+                            <td className="px-2 py-2 text-right font-semibold tabular-nums text-emerald-700">{r.proposed}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+                {restore.incertas > 0 && (
+                  <p className="mt-3 rounded-lg bg-amber-50 border border-amber-100 text-amber-700 text-xs p-2.5">
+                    ⚠️ {restore.incertas} variação(ões) não puderam ser calculadas pelo histórico — essas você ajusta à mão em Produtos.
+                  </p>
+                )}
+              </div>
+              <div className="flex items-center justify-end gap-2 border-t border-gray-100 p-4">
+                <button
+                  onClick={() => setRestore(null)}
+                  className="rounded-xl border border-gray-200 text-gray-600 text-sm font-medium px-4 py-2 transition hover:border-gray-300"
+                >
+                  Cancelar
+                </button>
+                {restore.rows.length > 0 && (
+                  <button
+                    onClick={aplicarRestore}
+                    disabled={restoreBusy}
+                    className="inline-flex items-center gap-1.5 rounded-xl bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium px-5 py-2 transition disabled:opacity-60"
+                  >
+                    {restoreBusy ? <Loader2 className="size-4 animate-spin" /> : <History className="size-4" />}
+                    Confirmar restauração ({restore.rows.length})
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        </Portal>
+      )}
     </Card>
   );
 }

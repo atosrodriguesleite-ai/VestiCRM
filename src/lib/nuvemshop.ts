@@ -262,30 +262,32 @@ export async function upsertProduct(
     }),
   ]);
   const skuMap = new Map(skuVariants.map((v) => [norm(v.sku), v]));
-  const familia = allProducts.filter(
-    (x) => norm(baseNome(x.name)) === norm(nsName) || norm(x.name) === norm(nsName)
-  );
-  const um2um =
-    allProducts.find((x) => x.nuvemshopId === nsId) ??
-    (familia.length === 1 && norm(familia[0].name) === norm(nsName) ? familia[0] : null);
+  // vínculo 1↔1 apenas quando JÁ existe ligação explícita (nuvemshopId)
+  const um2um = allProducts.find((x) => x.nuvemshopId === nsId) ?? null;
 
-  // nada local parecido E nada vinculado ⇒ produto genuinamente novo: espelha
-  const temCandidato =
-    linkedVariants.length > 0 ||
-    um2um !== null ||
-    familia.length > 0 ||
-    variants.some((v) => v.sku && skuMap.has(norm(v.sku)));
+  // REGRA DE SEGURANÇA: só integra por SKU (ou vínculo já existente). Nunca
+  // casa por nome — foi o que duplicava e sobrescrevia estoque errado. Uma
+  // variação SEM SKU nunca cria nem altera nada: vira pendência.
+  const temMatchSku = variants.some((v) => v.sku && skuMap.has(norm(v.sku)));
+  const temAlgumSku = variants.some((v) => (v.sku ?? "").trim());
+  const temCandidato = linkedVariants.length > 0 || um2um !== null || temMatchSku;
+
   if (!temCandidato) {
-    const criado = await criarProdutoEspelhado(companyId, p);
-    if (report) report.criadas++;
-    return criado;
+    // produto genuinamente novo: só espelha se tiver SKU; senão fica pendente
+    if (temAlgumSku) {
+      const criado = await criarProdutoEspelhado(companyId, p);
+      if (report) report.criadas++;
+      return criado;
+    }
+    if (report) {
+      for (const v of variants) {
+        const { color, size } = corETamanho(p, v);
+        report.pendencias.push({ produtoNs: nsName, cor: color, tamanho: size, sku: v.sku ?? null });
+      }
+    }
+    return null;
   }
 
-  // resolve variação por variação
-  const familiaFull = await db.product.findMany({
-    where: { id: { in: familia.map((f) => f.id) } },
-    include: { variants: true },
-  });
   const linkedByNsVar = new Map(linkedVariants.map((v) => [v.nuvemshopId, v]));
 
   for (const v of variants) {
@@ -294,56 +296,49 @@ export async function upsertProduct(
     const stock = Math.max(0, v.stock ?? 0);
     const preco = num(v.price);
 
-    let alvo =
+    // só casa por vínculo anterior OU por SKU (nunca por nome/cor)
+    const alvo =
       linkedByNsVar.get(vId) ??
       (v.sku ? skuMap.get(norm(v.sku)) : undefined) ??
       null;
 
     if (!alvo) {
-      // família: produto "Base — Cor" (ou o próprio 1↔1) + variação cor/tam
-      for (const fp of familiaFull) {
-        const corSufixo = corDoNome(fp.name);
-        const casaProduto = corSufixo
-          ? norm(corSufixo) === norm(color)
-          : norm(fp.name) === norm(nsName);
-        if (!casaProduto) continue;
-        const cand = fp.variants.find(
-          (x) =>
-            norm(x.color) === norm(color) && norm(x.size) === norm(size)
-        );
-        if (cand) {
-          alvo = { ...cand, product: fp } as (typeof skuVariants)[number];
-          break;
-        }
+      if (report) {
+        report.pendencias.push({ produtoNs: nsName, cor: color, tamanho: size, sku: v.sku ?? null });
       }
+      continue;
     }
 
-    if (alvo) {
-      await db.productVariant.update({
-        where: { id: alvo.id },
+    const antes = alvo.stock;
+    await db.productVariant.update({
+      where: { id: alvo.id },
+      data: {
+        nuvemshopId: vId,
+        nuvemshopProductId: nsId,
+        stock,
+        ...(v.sku && !alvo.sku ? { sku: v.sku } : {}),
+      },
+    });
+    // registra o movimento — auditável e reversível (nunca sobrescreve sem rastro)
+    if (antes !== stock) {
+      await db.inventoryMovement.create({
         data: {
-          nuvemshopId: vId,
-          nuvemshopProductId: nsId,
-          stock,
-          ...(v.sku && !alvo.sku ? { sku: v.sku } : {}),
+          companyId,
+          variantId: alvo.id,
+          type: "AJUSTE",
+          quantity: Math.abs(stock - antes),
+          reason: `Sincronização Nuvemshop (${antes} → ${stock})`,
         },
       });
-      // preço de varejo acompanha a loja online (o de atacado fica intacto)
-      if (preco > 0 && alvo.product.retailPrice !== preco) {
-        await db.product.update({
-          where: { id: alvo.product.id },
-          data: { retailPrice: preco },
-        });
-      }
-      if (report) report.casadas++;
-    } else if (report) {
-      report.pendencias.push({
-        produtoNs: nsName,
-        cor: color,
-        tamanho: size,
-        sku: v.sku ?? null,
+    }
+    // preço de varejo acompanha a loja online (o de atacado fica intacto)
+    if (preco > 0 && alvo.product.retailPrice !== preco) {
+      await db.product.update({
+        where: { id: alvo.product.id },
+        data: { retailPrice: preco },
       });
     }
+    if (report) report.casadas++;
   }
 
   // modo 1↔1: mantém também os dados do produto sincronizados
@@ -414,12 +409,13 @@ async function criarProdutoEspelhado(companyId: string, p: NsProduct) {
     });
   }
 
-  // grade: variações por id da Nuvemshop (estoque dela é a verdade)
+  // grade: SÓ as variações COM SKU (sem SKU não integra); estoque da loja é a verdade
   for (const v of variants) {
+    if (!(v.sku ?? "").trim()) continue;
     const vId = String(v.id);
     const { color, size } = corETamanho(p, v);
     const stock = Math.max(0, v.stock ?? 0);
-    await db.productVariant.create({
+    const created = await db.productVariant.create({
       data: {
         productId: product.id,
         nuvemshopId: vId,
@@ -430,6 +426,18 @@ async function criarProdutoEspelhado(companyId: string, p: NsProduct) {
         stock,
       },
     });
+    // registra a entrada no histórico (auditável)
+    if (stock > 0) {
+      await db.inventoryMovement.create({
+        data: {
+          companyId,
+          variantId: created.id,
+          type: "ENTRADA",
+          quantity: stock,
+          reason: "Importação Nuvemshop",
+        },
+      });
+    }
   }
   return product;
 }
