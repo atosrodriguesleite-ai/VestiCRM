@@ -36,6 +36,12 @@ export function totalStock(p: ProductItem) {
   return p.variants.reduce((s, v) => s + v.stock, 0);
 }
 
+/** Produto "sem SKU": o código do produto está vazio OU alguma variação sem SKU. */
+export function missingSku(p: ProductItem) {
+  if (!p.sku?.trim()) return true;
+  return p.variants.some((v) => !v.sku?.trim());
+}
+
 export function ProductsView({
   initial,
   categories,
@@ -65,6 +71,7 @@ export function ProductsView({
   const [maxPrice, setMaxPrice] = useState("");
   const [onlyStock, setOnlyStock] = useState(false);
   const [onlyNoPhoto, setOnlyNoPhoto] = useState(false);
+  const [onlyNoSku, setOnlyNoSku] = useState(false);
   const [showNew, setShowNew] = useState(false);
   const [detail, setDetail] = useState<ProductItem | null>(null);
 
@@ -85,13 +92,16 @@ export function ProductsView({
         if (maxPrice && p.retailPrice > Number(maxPrice)) return false;
         if (onlyStock && totalStock(p) === 0) return false;
         if (onlyNoPhoto && p.images.length > 0) return false;
+        if (onlyNoSku && !missingSku(p)) return false;
         return true;
       }),
-    [initial, q, category, collection, brand, color, size, maxPrice, onlyStock, onlyNoPhoto]
+    [initial, q, category, collection, brand, color, size, maxPrice, onlyStock, onlyNoPhoto, onlyNoSku]
   );
 
   // quantos itens estão sem foto (ajuda a priorizar depois da importação)
   const noPhotoCount = useMemo(() => initial.filter((p) => p.images.length === 0).length, [initial]);
+  // sem SKU: o produto OU alguma variação sem código (essencial p/ casar integrações)
+  const noSkuCount = useMemo(() => initial.filter(missingSku).length, [initial]);
 
   const select =
     "rounded-xl border border-gray-200 bg-white px-2.5 py-2 text-xs outline-none focus:border-brand-400 transition";
@@ -165,6 +175,18 @@ export function ProductsView({
             />
             Sem foto
             <span className="rounded-full bg-amber-100 text-amber-700 text-[10px] font-semibold px-1.5 py-0.5">{noPhotoCount}</span>
+          </label>
+        )}
+        {noSkuCount > 0 && (
+          <label className="flex items-center gap-1.5 text-xs text-gray-600 cursor-pointer" title="Produtos em que o próprio produto ou alguma variação está sem SKU (código)">
+            <input
+              type="checkbox"
+              checked={onlyNoSku}
+              onChange={(e) => setOnlyNoSku(e.target.checked)}
+              className="size-3.5 accent-brand-600"
+            />
+            Sem SKU
+            <span className="rounded-full bg-rose-100 text-rose-700 text-[10px] font-semibold px-1.5 py-0.5">{noSkuCount}</span>
           </label>
         )}
         <div className="ml-auto flex items-center gap-2">
