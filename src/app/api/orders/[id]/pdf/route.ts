@@ -72,6 +72,62 @@ export async function GET(
       logo = null;
     }
 
+    // ---- Fotos das peças (miniatura no romaneio) ----
+    // Uma foto por produto (a capa). Embutimos uma vez só e reaproveitamos
+    // em todos os itens do mesmo produto. Se a foto não for PNG/JPG (ex: webp)
+    // ou falhar, o item sai sem miniatura — nunca derruba o romaneio.
+    const productIds = [
+      ...new Set(order.items.map((i) => i.productId).filter((x): x is string => !!x)),
+    ];
+    const imgs = productIds.length
+      ? await db.productImage.findMany({
+          where: { productId: { in: productIds } },
+          orderBy: { order: "asc" },
+          select: { productId: true, url: true },
+        })
+      : [];
+    const urlByProduct = new Map<string, string>();
+    for (const im of imgs) {
+      if (!urlByProduct.has(im.productId)) urlByProduct.set(im.productId, im.url);
+    }
+
+    type Embedded = Awaited<ReturnType<typeof pdf.embedPng>>;
+    async function embedFoto(url: string): Promise<Embedded | null> {
+      try {
+        let bytes: Buffer | null = null;
+        let kind: "png" | "jpg" | null = null;
+        if (url.startsWith("data:")) {
+          const comma = url.indexOf(",");
+          const head = url.slice(0, comma);
+          const b64 = url.slice(comma + 1);
+          if (!b64) return null;
+          bytes = Buffer.from(b64, "base64");
+          kind = /image\/png/i.test(head) ? "png" : /image\/jpe?g/i.test(head) ? "jpg" : null;
+        } else if (/^https?:\/\//i.test(url)) {
+          const res = await fetch(url);
+          if (!res.ok) return null;
+          const ct = res.headers.get("content-type") ?? "";
+          bytes = Buffer.from(await res.arrayBuffer());
+          kind =
+            /png/i.test(ct) || /\.png(\?|$)/i.test(url)
+              ? "png"
+              : /jpe?g/i.test(ct) || /\.jpe?g(\?|$)/i.test(url)
+              ? "jpg"
+              : null;
+        }
+        if (!bytes || !kind) return null;
+        return kind === "png" ? await pdf.embedPng(bytes) : await pdf.embedJpg(bytes);
+      } catch {
+        return null;
+      }
+    }
+
+    const fotoByProduct = new Map<string, Embedded>();
+    for (const [pid, url] of urlByProduct) {
+      const emb = await embedFoto(url);
+      if (emb) fotoByProduct.set(pid, emb);
+    }
+
     const A4: [number, number] = [595.28, 841.89];
     const M = 48;
     let page = pdf.addPage(A4);
@@ -162,7 +218,7 @@ export async function GET(
     // ---- Tabela de itens com caixa de conferência ----
     y -= 18;
     page.drawRectangle({ x: M, y: y - 6, width: width - 2 * M, height: 22, color: LIGHT });
-    const cols = { check: M + 10, item: M + 46, qty: 360, unit: 420, total: width - M - 10 };
+    const cols = { check: M + 10, photo: M + 30, item: M + 66, qty: 360, unit: 420, total: width - M - 10 };
     page.drawText("CONF.", { x: cols.check - 2, y, size: 8, font: bold, color: GRAY });
     page.drawText("PRODUTO", { x: cols.item, y, size: 8, font: bold, color: GRAY });
     page.drawText("QTD", { x: cols.qty, y, size: 8, font: bold, color: GRAY });
@@ -171,14 +227,32 @@ export async function GET(
     page.drawText("TOTAL", { x: cols.total - th, y, size: 8, font: bold, color: GRAY });
     y -= 26;
 
+    const ROW = 34; // altura da linha: cabe a miniatura de 26px
     for (const item of order.items) {
-      newPageIfNeeded(34);
+      newPageIfNeeded(ROW + 4);
       // caixinha de conferência
       page.drawRectangle({
         x: cols.check, y: y - 3, width: 12, height: 12,
         borderColor: GRAY, borderWidth: 1,
       });
-      page.drawText(item.name.slice(0, 42), { x: cols.item, y, size: 10, font: bold, color: INK });
+      // miniatura da peça (quando o produto tem foto)
+      const foto = item.productId ? fotoByProduct.get(item.productId) : null;
+      if (foto) {
+        const d = foto.scaleToFit(26, 26);
+        page.drawImage(foto, {
+          x: cols.photo + (26 - d.width) / 2,
+          y: y - 16 + (26 - d.height) / 2,
+          width: d.width,
+          height: d.height,
+        });
+      } else {
+        // moldura leve no lugar da foto, pra manter o alinhamento
+        page.drawRectangle({
+          x: cols.photo, y: y - 16, width: 26, height: 26,
+          borderColor: LIGHT, borderWidth: 1,
+        });
+      }
+      page.drawText(item.name.slice(0, 38), { x: cols.item, y, size: 10, font: bold, color: INK });
       const varTxt = [item.color, item.size].filter(Boolean).join(" · ");
       if (varTxt) {
         page.drawText(varTxt + (item.sku ? `  ·  ${item.sku}` : ""), {
@@ -190,7 +264,7 @@ export async function GET(
       const totalTxt = money(item.total);
       const w = bold.widthOfTextAtSize(totalTxt, 10);
       page.drawText(totalTxt, { x: cols.total - w, y, size: 10, font: bold, color: INK });
-      y -= varTxt ? 30 : 22;
+      y -= ROW;
       page.drawLine({ start: { x: M, y: y + 8 }, end: { x: width - M, y: y + 8 }, thickness: 0.5, color: LIGHT });
     }
 
