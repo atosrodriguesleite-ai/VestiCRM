@@ -41,6 +41,28 @@ export default async function BioPageEditor() {
     orderBy: [{ order: "asc" }, { createdAt: "asc" }],
   });
 
+  // Jornada: o que a bio levou pro catálogo (rastreio marca utm_source=bio no
+  // botão "Ver catálogo"). Somamos visitas, sacolas e clientes atribuídos à bio.
+  const [catalogVisits, bags, bagsAgg, bioCustomers] = await Promise.all([
+    db.trackSession.count({ where: { companyId: user.companyId, utmSource: "bio" } }),
+    db.trackSession.count({
+      where: { companyId: user.companyId, utmSource: "bio", cartValue: { gt: 0 } },
+    }),
+    db.trackSession.aggregate({
+      where: { companyId: user.companyId, utmSource: "bio", cartValue: { gt: 0 } },
+      _sum: { cartValue: true },
+    }),
+    db.customer.count({
+      where: { companyId: user.companyId, landingSource: { startsWith: "bio" } },
+    }),
+  ]);
+  const journey = {
+    catalogVisits,
+    bags,
+    bagsValue: bagsAgg._sum.cartValue ?? 0,
+    customers: bioCustomers,
+  };
+
   return (
     <div className="max-w-5xl mx-auto">
       <PageHeader
@@ -93,6 +115,7 @@ export default async function BioPageEditor() {
             bg: company.catalogBg,
             font: company.catalogFont,
           },
+          journey,
         }}
       />
     </div>

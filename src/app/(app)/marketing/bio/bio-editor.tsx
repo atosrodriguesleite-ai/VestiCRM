@@ -30,8 +30,12 @@ import {
   QrCode,
   BarChart3,
   Star,
+  Info,
+  ShoppingCart,
+  Users,
 } from "lucide-react";
 import { Card } from "@/components/ui";
+import { brl } from "@/lib/format";
 import { Portal } from "@/components/portal";
 import { InstagramIcon, TiktokIcon, YoutubeIcon, FacebookIcon } from "@/components/social-icons";
 import { fileToDataUrl } from "@/lib/upload";
@@ -110,14 +114,62 @@ type Identity = {
 
 const TYPE_ICON = { CATALOGO: ShoppingBag, WHATSAPP: MessageCircle, SITE: Globe, EXTERNO: Link2 } as const;
 
+type Journey = {
+  catalogVisits: number; // sessões no catálogo vindas da bio (utm_source=bio)
+  bags: number; // dessas sessões, quantas montaram sacola (cartValue > 0)
+  bagsValue: number; // soma do valor das sacolas montadas vindas da bio
+  customers: number; // clientes já identificados com origem "bio"
+};
+
+/** Cartão de métrica com um "ⓘ" que explica o que o número significa e como
+ *  é somado — some/aparece ao tocar. Toda métrica do relatório usa este. */
+function StatCard({
+  value,
+  label,
+  hint,
+  accent,
+  icon,
+}: {
+  value: string | number;
+  label: string;
+  hint: string;
+  accent?: boolean;
+  icon?: ReactNode;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className={`relative rounded-xl p-3 ${accent ? "bg-brand-50" : "bg-slate-50"}`}>
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="absolute right-1.5 top-1.5 text-slate-300 transition hover:text-slate-500"
+        aria-label={`O que é ${label}?`}
+        title="O que significa?"
+      >
+        <Info className="size-3.5" />
+      </button>
+      <div className="text-center">
+        {icon && <div className="mb-1 flex justify-center text-slate-400">{icon}</div>}
+        <p className={`text-lg font-bold ${accent ? "text-brand-700" : "text-slate-800"}`}>{value}</p>
+        <p className="text-[10px] uppercase tracking-wide text-slate-400">{label}</p>
+      </div>
+      {open && (
+        <p className="mt-2 rounded-lg bg-white/90 p-2 text-left text-[10px] leading-snug text-slate-500 shadow-sm ring-1 ring-slate-100">
+          {hint}
+        </p>
+      )}
+    </div>
+  );
+}
+
 export function BioEditor({
   initial,
   publicBase,
 }: {
-  initial: { page: PageState; links: Link[]; identity: Identity };
+  initial: { page: PageState; links: Link[]; identity: Identity; journey: Journey };
   publicBase: string;
 }) {
-  const { identity } = initial;
+  const { identity, journey } = initial;
   const [page, setPage] = useState<PageState>(initial.page);
   const [links, setLinks] = useState<Link[]>(initial.links);
   const [editing, setEditing] = useState<Link | "new" | null>(null);
@@ -292,23 +344,68 @@ export function BioEditor({
 
           {showInsights && (
             <div className="mt-3 border-t border-slate-100 pt-3">
+              {/* Bloco 1 — a bio (a página de links) */}
+              <p className="mb-1.5 text-[11px] font-semibold text-slate-500">📱 A sua bio</p>
               <div className="grid grid-cols-3 gap-2">
-                <div className="rounded-xl bg-slate-50 p-3 text-center">
-                  <p className="text-lg font-bold text-slate-800">{page.views}</p>
-                  <p className="text-[10px] uppercase tracking-wide text-slate-400">Visitas</p>
-                </div>
-                <div className="rounded-xl bg-slate-50 p-3 text-center">
-                  <p className="text-lg font-bold text-slate-800">{totalClicks}</p>
-                  <p className="text-[10px] uppercase tracking-wide text-slate-400">Cliques</p>
-                </div>
-                <div className="rounded-xl bg-slate-50 p-3 text-center">
-                  <p className="text-lg font-bold text-slate-800">{ctr}%</p>
-                  <p className="text-[10px] uppercase tracking-wide text-slate-400">Taxa clique</p>
-                </div>
+                <StatCard
+                  value={page.views}
+                  label="Visitas"
+                  hint="Quantas vezes a sua bio foi aberta por pessoas reais. Robôs e as prévias de link (WhatsApp, Instagram) NÃO são contados. Cada abertura da página = 1 visita; navegar nos botões não conta de novo."
+                />
+                <StatCard
+                  value={totalClicks}
+                  label="Cliques"
+                  hint="Soma dos cliques em TODOS os botões da bio (WhatsApp, catálogo, site, etc.). Cada toque num botão conta 1 clique."
+                />
+                <StatCard
+                  value={`${ctr}%`}
+                  label="Taxa de clique"
+                  hint="Dos que abriram a bio, quantos % clicaram em algum botão. Conta: cliques ÷ visitas × 100. Ex.: 10 visitas e 3 cliques = 30%. Quanto maior, mais a sua bio converte atenção em ação."
+                />
               </div>
+
+              {/* Bloco 2 — a jornada: o que a bio levou pro catálogo */}
+              <p className="mb-1.5 mt-4 text-[11px] font-semibold text-slate-500">🛒 O que a bio levou pro catálogo</p>
+              <div className="grid grid-cols-3 gap-2">
+                <StatCard
+                  accent
+                  icon={<ShoppingCart className="size-4" />}
+                  value={journey.catalogVisits}
+                  label="Foram ao catálogo"
+                  hint="Quantas visitas no seu catálogo vieram do botão da bio. Contamos pela etiqueta de origem (utm_source=bio) que o botão 'Ver catálogo' carimba — mesmo que a pessoa não deixe contato."
+                />
+                <StatCard
+                  accent
+                  value={journey.bags}
+                  label="Montaram sacola"
+                  hint="Dessas visitas vindas da bio, quantas chegaram a colocar peças na sacola no catálogo (mesmo sem finalizar). Conta as sessões com sacola (valor maior que zero)."
+                />
+                <StatCard
+                  accent
+                  value={brl(journey.bagsValue)}
+                  label="Valor em sacolas"
+                  hint="Soma do valor de todas as sacolas montadas por quem veio da bio. É o potencial de venda que a bio levou pro catálogo (ainda não é venda fechada)."
+                />
+              </div>
+
+              <div className="mt-2">
+                <StatCard
+                  icon={<Users className="size-4" />}
+                  value={journey.customers}
+                  label="Clientes que chegaram pela bio"
+                  hint="Clientes já identificados (com nome/contato) cuja origem registrada foi a bio — por exemplo, carrinho abandonado da loja online marcado como 'bio', ou quem preencheu um formulário vindo do link da bio."
+                />
+              </div>
+
+              {/* ranking de botões */}
               {topLinks.length > 0 && (
-                <div className="mt-3">
-                  <p className="mb-1.5 text-[11px] font-semibold text-slate-500">Botões que mais clicam</p>
+                <div className="mt-4">
+                  <p className="mb-1.5 flex items-center gap-1 text-[11px] font-semibold text-slate-500">
+                    Botões que mais clicam
+                    <span title="Ranking dos botões pelo total de cliques, do maior pro menor.">
+                      <Info className="size-3 text-slate-300" />
+                    </span>
+                  </p>
                   <div className="space-y-1">
                     {topLinks.map((l) => (
                       <div key={l.id} className="flex items-center justify-between gap-2 text-xs">
@@ -319,6 +416,10 @@ export function BioEditor({
                   </div>
                 </div>
               )}
+
+              <p className="mt-4 rounded-lg bg-amber-50 p-2.5 text-[10px] leading-snug text-amber-800">
+                💡 <b>WhatsApp</b>: o clique é contado acima; quando a pessoa envia, a mensagem já vem escrita &quot;Vim pela bio&quot;. <b>Site externo</b> (loja própria/Nuvemshop): a compra acontece fora do sistema, então não entra aqui — só o clique é contado.
+              </p>
             </div>
           )}
         </Card>
