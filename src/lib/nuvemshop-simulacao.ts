@@ -1,12 +1,13 @@
 import { db } from "./db";
-import { norm, baseNome, corDoNome, type SyncPendencia } from "./nuvemshop";
+import { norm, type SyncPendencia } from "./nuvemshop";
 
 /**
  * Relatório PRÉ-CONEXÃO: o lojista exporta a planilha de produtos da
  * Nuvemshop (Produtos → Exportar → CSV) e sobe aqui ANTES de conectar.
- * A simulação roda exatamente as mesmas regras de casamento da sincronização
- * real — SKU da variação, família de nome ("Modelo — Cor"), cor+tamanho —
- * mas em modo leitura: nada é criado nem alterado no sistema.
+ * A simulação roda EXATAMENTE a mesma regra de casamento da sincronização
+ * real — só casa por SKU da variação; sem SKU nada integra — mas em modo
+ * leitura: nada é criado nem alterado no sistema. Assim a prévia nunca
+ * engana: o que ela mostra é o que a importação de verdade vai fazer.
  */
 
 export type ProdutoPlanilha = {
@@ -179,35 +180,34 @@ export async function simularVinculo(
 
   for (const p of nsProducts) {
     report.variacoesNs += p.variants.length;
-    const familia = locais.filter(
-      (x) => norm(baseNome(x.name)) === norm(p.name) || norm(x.name) === norm(p.name)
-    );
-    const temCandidato =
-      familia.length > 0 || p.variants.some((v) => v.sku && skuMap.has(norm(v.sku)));
-    if (!temCandidato) {
-      report.criariam.push(p.name);
-      continue;
-    }
-    for (const v of p.variants) {
-      let casou = Boolean(v.sku && skuMap.has(norm(v.sku)));
-      if (!casou) {
-        for (const fp of familia) {
-          const corSufixo = corDoNome(fp.name);
-          const casaProduto = corSufixo
-            ? norm(corSufixo) === norm(v.color)
-            : norm(fp.name) === norm(p.name);
-          if (!casaProduto) continue;
-          if (
-            fp.variants.some(
-              (x) => norm(x.color) === norm(v.color) && norm(x.size) === norm(v.size)
-            )
-          ) {
-            casou = true;
-            break;
+
+    // REGRA ÚNICA (igual ao import real): só casa por SKU. Sem SKU não integra.
+    const temMatchSku = p.variants.some((v) => v.sku && skuMap.has(norm(v.sku)));
+    const temAlgumSku = p.variants.some((v) => (v.sku ?? "").trim());
+
+    if (!temMatchSku) {
+      // Nenhum SKU casa com o catálogo → produto NOVO (espelhado). Mas só
+      // entra se tiver ao menos um SKU; e dentro dele, variação sem SKU não
+      // integra — vira pendência (idêntico ao criarProdutoEspelhado real).
+      if (temAlgumSku) {
+        report.criariam.push(p.name);
+        for (const v of p.variants) {
+          if (!(v.sku ?? "").trim()) {
+            report.pendencias.push({ produtoNs: p.name, cor: v.color, tamanho: v.size, sku: null });
           }
         }
+      } else {
+        // sem SKU nenhum: nada casa e nada é criado → tudo pendência
+        for (const v of p.variants) {
+          report.pendencias.push({ produtoNs: p.name, cor: v.color, tamanho: v.size, sku: null });
+        }
       }
-      if (casou) report.casariam++;
+      continue;
+    }
+
+    // Produto será VINCULADO por SKU: cada variação casa só pelo próprio SKU.
+    for (const v of p.variants) {
+      if (v.sku && skuMap.has(norm(v.sku))) report.casariam++;
       else
         report.pendencias.push({
           produtoNs: p.name,

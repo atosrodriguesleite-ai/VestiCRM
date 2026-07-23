@@ -432,7 +432,7 @@ function SimuladorPreConexao() {
             <ListaPendencias
               pendencias={sim.pendencias}
               titulo="⚠️ Variações que NÃO casariam sozinhas:"
-              rodape="Como resolver antes de conectar: em Produtos, use o botão SKUs pra preencher o SKU de cada variação com o SKU mostrado acima — ou deixe os nomes de cor/tamanho iguais nos dois lados. Depois rode a simulação de novo pra conferir."
+              rodape="Como resolver antes de importar: a integração casa SÓ por SKU. Em Produtos, use o botão SKUs pra preencher, em cada variação da sua loja, o mesmo SKU que aparece na Nuvemshop (mostrado acima). Variação sem SKU não é importada. Depois rode a simulação de novo pra conferir."
             />
           ) : (
             <p className="text-xs text-emerald-700 bg-emerald-50 rounded-lg px-3 py-2 mt-2">
