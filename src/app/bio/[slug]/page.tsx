@@ -283,15 +283,22 @@ export default async function BioPublicPage({
           )}
         </div>
 
-        {/* rodapé: leva ao formulário de leads da plataforma */}
+        {/* rodapé: leva ao formulário de leads da plataforma (canal de aquisição) */}
         <a
           href={footerHref}
           target="_blank"
           rel="noopener noreferrer"
-          className="mt-auto pt-6 text-center text-[11px] font-medium opacity-60 transition hover:opacity-100"
+          className="mt-auto flex flex-col items-center gap-1 pt-7 transition hover:opacity-100"
           style={{ color: onPrimary }}
         >
-          feito por <b>atacadopro.com</b>
+          <span className="text-[11px] font-medium opacity-70">feito com</span>
+          <span
+            className="inline-flex items-center gap-1.5 rounded-full px-4 py-1.5 text-sm font-extrabold tracking-tight shadow-sm"
+            style={{ background: cardBg, color: onCard }}
+          >
+            atacadopro.com
+          </span>
+          <span className="text-[10px] opacity-60">crie a sua bio grátis →</span>
         </a>
       </div>
 

@@ -13,7 +13,7 @@ import { ensurePlatformCompany, platformOwnerId } from "@/lib/platform";
 
 const schema = z.object({
   name: z.string().min(1),
-  company: z.string().min(1),
+  company: z.string().optional(),
   phone: z.string().min(8),
   email: z.string().email().optional().or(z.literal("")),
   city: z.string().optional(),
@@ -43,28 +43,27 @@ export async function POST(req: NextRequest) {
 
   // resumo estruturado da solicitação → vira 1ª mensagem da conversa + notas
   const resumo = [
-    `🖥️ Solicitação de demonstração — ${d.company}`,
+    `🖥️ Solicitação de demonstração`,
     `Responsável: ${d.name}`,
+    d.company ? `Loja: ${d.company}` : null,
     d.email ? `E-mail: ${d.email}` : null,
-    d.city || d.state ? `Local: ${[d.city, d.state].filter(Boolean).join("/")}` : null,
     d.instagram ? `Instagram: ${d.instagram}` : null,
-    d.sellers ? `Vendedores: ${d.sellers}` : null,
-    `Loja física: ${d.hasPhysical ? "sim" : "não"} · E-commerce: ${d.hasEcommerce ? "sim" : "não"}`,
     d.currentSystem ? `Sistema atual: ${d.currentSystem}` : null,
-    d.message ? `Mensagem: ${d.message}` : null,
     d.ref ? `Veio de: ${d.ref}` : null,
   ]
     .filter(Boolean)
     .join("\n");
 
+  const rotulo = d.company || d.instagram || d.name;
+
   const result = await intakeLead(companyId, {
     phone: d.phone,
-    name: `${d.name} · ${d.company}`,
+    name: d.company ? `${d.name} · ${d.company}` : d.name,
     origin: "SITE",
     message: resumo,
     city: d.city,
     state: d.state,
-    opportunityTitle: `Demonstração — ${d.company}`,
+    opportunityTitle: `Demonstração — ${rotulo}`,
     ownerId: ownerId ?? undefined,
   });
 
@@ -96,7 +95,7 @@ export async function POST(req: NextRequest) {
   });
   await db.task.updateMany({
     where: { companyId, autoRule: `intake:${result.customer.id}` },
-    data: { title: `Entrar em contato — ${d.company}` },
+    data: { title: `Entrar em contato — ${rotulo}` },
   });
 
   // Atribuição de afiliado: o link de divulgação leva ?utm_campaign=<código>

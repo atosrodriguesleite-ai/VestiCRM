@@ -11,81 +11,27 @@ import { IconCheck, IconClose, IconShield } from "./icons";
  * no Super Admin via /api/demo → Lead Intake Engine (origem "Site").
  */
 
-const UFS = [
-  "AC","AL","AP","AM","BA","CE","DF","ES","GO","MA","MT","MS","MG","PA","PB",
-  "PR","PE","PI","RJ","RN","RS","RO","RR","SC","SP","SE","TO",
-];
-
-const SELLERS = ["1 (só eu)", "2 a 3", "4 a 6", "7 a 10", "Mais de 10"];
-
 type FormState = {
   name: string;
-  company: string;
   phone: string;
   email: string;
-  city: string;
-  state: string;
   instagram: string;
-  sellers: string;
-  hasPhysical: boolean;
-  hasEcommerce: boolean;
   currentSystem: string;
-  message: string;
   consent: boolean;
 };
 
 const EMPTY: FormState = {
   name: "",
-  company: "",
   phone: "",
   email: "",
-  city: "",
-  state: "",
   instagram: "",
-  sellers: "",
-  hasPhysical: false,
-  hasEcommerce: false,
   currentSystem: "",
-  message: "",
   consent: false,
 };
 
 const fieldCls =
   "w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 outline-none transition focus:border-brand-400 focus:ring-4 focus:ring-brand-500/10";
 const labelCls = "block text-[13px] font-medium text-slate-700 mb-1.5";
-
-function YesNo({
-  value,
-  onChange,
-  name,
-}: {
-  value: boolean;
-  onChange: (v: boolean) => void;
-  name: string;
-}) {
-  return (
-    <div className="flex gap-2" role="group" aria-label={name}>
-      {[
-        { v: true, t: "Sim" },
-        { v: false, t: "Não" },
-      ].map((o) => (
-        <button
-          key={o.t}
-          type="button"
-          onClick={() => onChange(o.v)}
-          aria-pressed={value === o.v}
-          className={`flex-1 rounded-xl border px-3 py-2.5 text-sm font-medium transition ${
-            value === o.v
-              ? "border-brand-500 bg-brand-50 text-brand-700 ring-2 ring-brand-500/15"
-              : "border-slate-200 bg-white text-slate-500 hover:border-slate-300"
-          }`}
-        >
-          {o.t}
-        </button>
-      ))}
-    </div>
-  );
-}
 
 export function DemoModal({
   open,
@@ -121,7 +67,6 @@ export function DemoModal({
 
   const valid =
     form.name.trim() &&
-    form.company.trim() &&
     form.phone.replace(/\D/g, "").length >= 10 &&
     form.consent;
 
@@ -238,19 +183,6 @@ export function DemoModal({
                 />
               </div>
               <div>
-                <label className={labelCls} htmlFor="f-company">
-                  Empresa / Loja <span className="text-brand-500">*</span>
-                </label>
-                <input
-                  id="f-company"
-                  className={fieldCls}
-                  value={form.company}
-                  onChange={(e) => set("company", e.target.value)}
-                  placeholder="Nome da sua loja"
-                  required
-                />
-              </div>
-              <div>
                 <label className={labelCls} htmlFor="f-phone">
                   WhatsApp <span className="text-brand-500">*</span>
                 </label>
@@ -278,36 +210,6 @@ export function DemoModal({
                 />
               </div>
               <div>
-                <label className={labelCls} htmlFor="f-city">
-                  Cidade
-                </label>
-                <input
-                  id="f-city"
-                  className={fieldCls}
-                  value={form.city}
-                  onChange={(e) => set("city", e.target.value)}
-                  placeholder="Cidade"
-                />
-              </div>
-              <div>
-                <label className={labelCls} htmlFor="f-state">
-                  Estado
-                </label>
-                <select
-                  id="f-state"
-                  className={fieldCls}
-                  value={form.state}
-                  onChange={(e) => set("state", e.target.value)}
-                >
-                  <option value="">UF</option>
-                  {UFS.map((uf) => (
-                    <option key={uf} value={uf}>
-                      {uf}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div>
                 <label className={labelCls} htmlFor="f-insta">
                   Instagram da loja
                 </label>
@@ -317,40 +219,6 @@ export function DemoModal({
                   value={form.instagram}
                   onChange={(e) => set("instagram", e.target.value)}
                   placeholder="@sualoja"
-                />
-              </div>
-              <div>
-                <label className={labelCls} htmlFor="f-sellers">
-                  Quantidade de vendedores
-                </label>
-                <select
-                  id="f-sellers"
-                  className={fieldCls}
-                  value={form.sellers}
-                  onChange={(e) => set("sellers", e.target.value)}
-                >
-                  <option value="">Selecione</option>
-                  {SELLERS.map((s) => (
-                    <option key={s} value={s}>
-                      {s}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <span className={labelCls}>Possui loja física?</span>
-                <YesNo
-                  name="Possui loja física?"
-                  value={form.hasPhysical}
-                  onChange={(v) => set("hasPhysical", v)}
-                />
-              </div>
-              <div>
-                <span className={labelCls}>Possui e-commerce?</span>
-                <YesNo
-                  name="Possui e-commerce?"
-                  value={form.hasEcommerce}
-                  onChange={(v) => set("hasEcommerce", v)}
                 />
               </div>
             </div>
@@ -365,20 +233,6 @@ export function DemoModal({
                 value={form.currentSystem}
                 onChange={(e) => set("currentSystem", e.target.value)}
                 placeholder="Planilha, outro CRM, ERP, nenhum…"
-              />
-            </div>
-
-            <div>
-              <label className={labelCls} htmlFor="f-msg">
-                Mensagem
-              </label>
-              <textarea
-                id="f-msg"
-                rows={3}
-                className={`${fieldCls} resize-none`}
-                value={form.message}
-                onChange={(e) => set("message", e.target.value)}
-                placeholder="Conte um pouco sobre sua operação e o que procura."
               />
             </div>
 
