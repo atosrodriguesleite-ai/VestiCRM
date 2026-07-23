@@ -171,7 +171,7 @@ export function NuvemshopConnect() {
             {estado.lastCheckoutSync &&
               ` · carrinhos conferidos ${new Date(estado.lastCheckoutSync).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}`}
           </p>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <button
               onClick={sincronizar}
               disabled={busy}
