@@ -283,20 +283,17 @@ export default async function BioPublicPage({
           )}
         </div>
 
-        {/* rodapé: leva ao formulário de leads da plataforma (canal de aquisição) */}
+        {/* rodapé: mesmo formato do catálogo (⚡ feito com…) — leva ao
+            formulário de leads da plataforma (canal de aquisição) */}
         <a
           href={footerHref}
           target="_blank"
           rel="noopener noreferrer"
-          className="mt-auto flex flex-col items-center gap-1 pt-7 transition hover:opacity-100"
+          className="mt-8 flex flex-col items-center gap-0.5 text-center transition"
           style={{ color: onPrimary }}
         >
-          <span className="text-[11px] font-medium opacity-70">feito com</span>
-          <span
-            className="inline-flex items-center gap-1.5 rounded-full px-4 py-1.5 text-sm font-extrabold tracking-tight shadow-sm"
-            style={{ background: cardBg, color: onCard }}
-          >
-            atacadopro.com
+          <span className="text-sm font-semibold underline underline-offset-2 opacity-85 transition hover:opacity-100">
+            ⚡ feito com atacadopro.com
           </span>
           <span className="text-[10px] opacity-60">conheça o AtacadoPro →</span>
         </a>
