@@ -8,7 +8,7 @@
  * celular — tudo com a identidade visual do catálogo da loja.
  */
 
-import { useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
   ChevronDown,
   ChevronRight,
@@ -1045,7 +1045,6 @@ function BioPreview({
             </div>
           )}
           <p className="mt-3 text-center text-base font-extrabold" style={{ color: onBg }}>{headline}</p>
-          <p className="text-center text-[11px] font-medium opacity-80" style={{ color: onBg }}>@{slug}</p>
           {tagline && <p className="mt-1.5 text-center text-[11px] leading-snug opacity-90" style={{ color: onBg }}>{tagline}</p>}
         </div>
 
@@ -1094,6 +1093,69 @@ function BioPreview({
   );
 }
 
+/* Campo de cor: escolhe pela paletinha (toque no quadrado) OU digita/cola o
+ * código da cor (hex). Assim a lojista cria QUALQUER cor que quiser. */
+function BioColorField({
+  label,
+  value,
+  fallback,
+  onChange,
+  canClear,
+}: {
+  label: string;
+  value: string | null;
+  fallback: string;
+  onChange: (v: string | null) => void;
+  canClear?: boolean;
+}) {
+  const atual = (value ?? fallback).toUpperCase();
+  const [texto, setTexto] = useState(atual);
+  // acompanha mudanças vindas de fora (tema pronto, limpar, etc.)
+  useEffect(() => setTexto(atual), [atual]);
+
+  function digitar(v: string) {
+    setTexto(v);
+    const h = v.trim().replace(/^#?/, "#");
+    if (/^#[0-9a-fA-F]{6}$/.test(h)) onChange(h.toUpperCase());
+  }
+
+  return (
+    <div className="flex items-center gap-2">
+      <label
+        className="relative size-9 shrink-0 cursor-pointer overflow-hidden rounded-lg border border-slate-200"
+        style={{ background: value ?? fallback }}
+        title="Escolher cor"
+      >
+        <input
+          type="color"
+          value={value ?? fallback}
+          onChange={(e) => onChange(e.target.value.toUpperCase())}
+          className="absolute inset-0 cursor-pointer opacity-0"
+        />
+      </label>
+      <div className="min-w-0 flex-1">
+        <p className="text-xs font-medium text-slate-600">{label}</p>
+        <input
+          type="text"
+          value={texto}
+          onChange={(e) => digitar(e.target.value)}
+          onBlur={() => setTexto(atual)}
+          placeholder="#RRGGBB"
+          maxLength={7}
+          spellCheck={false}
+          className="w-full max-w-[92px] rounded-md border border-slate-200 px-1.5 py-0.5 font-mono text-[11px] uppercase tracking-tight text-slate-600 outline-none focus:border-brand-400"
+        />
+        {!value && <p className="text-[9px] text-slate-400">cor do catálogo</p>}
+      </div>
+      {canClear && value && (
+        <button onClick={() => onChange(null)} className="text-[10px] text-slate-400 hover:text-rose-500">
+          limpar
+        </button>
+      )}
+    </div>
+  );
+}
+
 /* ---------- Cores e estilo (temas, cores próprias, fonte, formato) ---------- */
 function ColorsStyle({
   page,
@@ -1113,44 +1175,10 @@ function ColorsStyle({
     (t) => t.bgColor === page.bgColor && t.buttonColor === page.buttonColor && t.buttonTextColor === page.buttonTextColor
   );
 
-  const ColorField = ({
-    label,
-    value,
-    fallback,
-    onChange,
-    canClear,
-  }: {
-    label: string;
-    value: string | null;
-    fallback: string;
-    onChange: (v: string | null) => void;
-    canClear?: boolean;
-  }) => (
-    <div className="flex items-center gap-2">
-      <label className="relative size-9 shrink-0 cursor-pointer overflow-hidden rounded-lg border border-slate-200" style={{ background: value ?? fallback }}>
-        <input
-          type="color"
-          value={value ?? fallback}
-          onChange={(e) => onChange(e.target.value)}
-          className="absolute inset-0 cursor-pointer opacity-0"
-        />
-      </label>
-      <div className="min-w-0 flex-1">
-        <p className="text-xs font-medium text-slate-600">{label}</p>
-        <p className="text-[10px] text-slate-400">{(value ?? fallback).toUpperCase()}{!value && " (do catálogo)"}</p>
-      </div>
-      {canClear && value && (
-        <button onClick={() => onChange(null)} className="text-[10px] text-slate-400 hover:text-rose-500">
-          limpar
-        </button>
-      )}
-    </div>
-  );
-
   return (
     <Card className="p-5">
       <h2 className="mb-1 font-semibold text-slate-800">Cores e estilo</h2>
-      <p className="mb-4 text-xs text-slate-500">Escolha um tema pronto ou personalize cada cor. A prévia atualiza na hora.</p>
+      <p className="mb-4 text-xs text-slate-500">Escolha um tema pronto ou crie a sua cor: toque no quadradinho pra abrir a paleta, ou digite/cole o código da cor (ex.: #4B3621). A prévia atualiza na hora.</p>
 
       {/* temas prontos */}
       <div className="mb-5 flex flex-wrap gap-2">
@@ -1175,9 +1203,9 @@ function ColorsStyle({
 
       {/* cores próprias */}
       <div className="grid gap-3 sm:grid-cols-3">
-        <ColorField label="Fundo" value={page.bgColor} fallback={colors.bg} onChange={(v) => onSave({ bgColor: v })} canClear />
-        <ColorField label="Botão" value={page.buttonColor} fallback={colors.button} onChange={(v) => onSave({ buttonColor: v })} canClear />
-        <ColorField label="Texto do botão" value={page.buttonTextColor} fallback={colors.buttonText} onChange={(v) => onSave({ buttonTextColor: v })} canClear />
+        <BioColorField label="Fundo" value={page.bgColor} fallback={colors.bg} onChange={(v) => onSave({ bgColor: v })} canClear />
+        <BioColorField label="Botão" value={page.buttonColor} fallback={colors.button} onChange={(v) => onSave({ buttonColor: v })} canClear />
+        <BioColorField label="Texto do botão" value={page.buttonTextColor} fallback={colors.buttonText} onChange={(v) => onSave({ buttonTextColor: v })} canClear />
       </div>
 
       {/* fonte + formato dos botões */}

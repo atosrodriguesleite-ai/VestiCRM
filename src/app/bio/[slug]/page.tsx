@@ -173,9 +173,6 @@ export default async function BioPublicPage({
           <h1 className="mt-4 text-[22px] font-extrabold tracking-tight" style={{ color: onPrimary }}>
             {headline}
           </h1>
-          <p className="mt-0.5 text-sm font-medium opacity-80" style={{ color: onPrimary }}>
-            @{c.slug}
-          </p>
           {socials.length > 0 && (
             <div className="mt-3 flex items-center gap-2.5">
               {socials.map((s) => {
