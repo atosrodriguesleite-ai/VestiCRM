@@ -24,6 +24,7 @@ type CustomerData = {
   zip: string | null;
   street: string | null;
   streetNumber: string | null;
+  complement: string | null;
   district: string | null;
   city: string | null;
   state: string | null;
@@ -55,6 +56,7 @@ export function CustomerEditor({
     zip: customer.zip ?? "",
     street: customer.street ?? "",
     streetNumber: customer.streetNumber ?? "",
+    complement: customer.complement ?? "",
     district: customer.district ?? "",
     city: customer.city ?? "",
     state: customer.state ?? "",
@@ -115,6 +117,7 @@ export function CustomerEditor({
       zip: form.zip.trim() || null,
       street: form.street.trim() || null,
       streetNumber: form.streetNumber.trim() || null,
+      complement: form.complement.trim() || null,
       district: form.district.trim() || null,
       city: form.city.trim() || null,
       state: form.state.trim() || null,
@@ -147,7 +150,10 @@ export function CustomerEditor({
 
   if (!open) {
     const addr = [
-      [customer.street, customer.streetNumber].filter(Boolean).join(", "),
+      [
+        [customer.street, customer.streetNumber].filter(Boolean).join(", "),
+        customer.complement,
+      ].filter(Boolean).join(" - "),
       customer.district,
       [customer.city, customer.state].filter(Boolean).join("/"),
       customer.zip ? `CEP ${customer.zip}` : null,
@@ -263,6 +269,10 @@ export function CustomerEditor({
         <div>
           <span className={label}>Número</span>
           <input value={form.streetNumber} onChange={set("streetNumber")} placeholder="123" className={input} />
+        </div>
+        <div>
+          <span className={label}>Complemento</span>
+          <input value={form.complement} onChange={set("complement")} placeholder="Apto, bloco, loja, sala…" className={input} />
         </div>
         <div>
           <span className={label}>Bairro</span>

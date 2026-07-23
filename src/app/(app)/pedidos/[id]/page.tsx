@@ -93,6 +93,7 @@ export default async function OrderDetailPage({
                 zip: order.customer.zip,
                 street: order.customer.street,
                 streetNumber: order.customer.streetNumber,
+                complement: order.customer.complement,
                 district: order.customer.district,
                 city: order.customer.city,
                 state: order.customer.state,

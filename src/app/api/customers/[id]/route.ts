@@ -82,6 +82,7 @@ const schema = z.object({
   street: z.string().max(120).nullable().optional(),
   // "Número" costuma vir com complemento (apto, bloco, loja) — cabe folgado
   streetNumber: z.string().max(80).nullable().optional(),
+  complement: z.string().max(120).nullable().optional(),
   district: z.string().max(80).nullable().optional(),
   city: z.string().nullable().optional(),
   state: z.string().nullable().optional(),
@@ -115,7 +116,7 @@ export async function PATCH(
       // e ninguém sabia onde estava o problema)
       const rotulos: Record<string, string> = {
         name: "Nome", phone: "Telefone", email: "E-mail", document: "CPF/CNPJ",
-        zip: "CEP", street: "Rua", streetNumber: "Número", district: "Bairro",
+        zip: "CEP", street: "Rua", streetNumber: "Número", complement: "Complemento", district: "Bairro",
         city: "Cidade", state: "Estado", notes: "Observações",
       };
       const issue = parsed.error.issues[0];

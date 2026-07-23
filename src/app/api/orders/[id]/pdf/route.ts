@@ -184,8 +184,11 @@ export async function GET(
     ].filter(Boolean).join("  ·  ");
     if (contato) lines.push(contato);
     if (c.email) lines.push(`E-mail: ${c.email}`);
-    const rua = [ [c.street, c.streetNumber].filter(Boolean).join(", "), c.district ]
-      .filter(Boolean).join(" - ");
+    const rua = [
+      [c.street, c.streetNumber].filter(Boolean).join(", "),
+      c.complement,
+      c.district,
+    ].filter(Boolean).join(" - ");
     const cidade = [ [c.city, c.state].filter(Boolean).join("/"), c.zip ? `CEP ${c.zip}` : null ]
       .filter(Boolean).join("  ·  ");
     if (rua) lines.push(rua);

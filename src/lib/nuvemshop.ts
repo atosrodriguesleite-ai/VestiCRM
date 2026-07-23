@@ -492,6 +492,7 @@ type NsOrder = {
     zipcode?: string;
     address?: string;
     number?: string;
+    floor?: string; // complemento (apto, bloco…)
     locality?: string;
     city?: string;
     province?: string;
@@ -561,6 +562,7 @@ export async function ingestPaidOrder(companyId: string, nsOrderId: string) {
       ...(end.zipcode && !atual?.zip ? { zip: end.zipcode } : {}),
       ...(end.address && !atual?.street ? { street: end.address } : {}),
       ...(end.number && !atual?.streetNumber ? { streetNumber: end.number } : {}),
+      ...(end.floor && !atual?.complement ? { complement: end.floor } : {}),
       ...(end.locality && !atual?.district ? { district: end.locality } : {}),
       ...(end.city && !atual?.city ? { city: end.city } : {}),
       ...(end.province && !atual?.state ? { state: end.province } : {}),

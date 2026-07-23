@@ -41,7 +41,10 @@ export async function GET() {
       originLabel[c.origin] ?? c.origin,
       c.city ?? "",
       c.state ?? "",
-      [c.street, c.streetNumber].filter(Boolean).join(", "),
+      [
+        [c.street, c.streetNumber].filter(Boolean).join(", "),
+        c.complement,
+      ].filter(Boolean).join(" - "),
       c.district ?? "",
       c.zip ?? "",
       c.owner?.name ?? "",
