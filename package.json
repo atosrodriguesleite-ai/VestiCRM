@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev --turbopack",
-    "build": "next build --turbopack",
+    "build": "node scripts/check-vercel-crons.mjs && next build --turbopack",
     "start": "next start",
     "lint": "eslint",
     "postinstall": "prisma generate",
@@ -14,7 +14,7 @@
     "db:seed": "tsx prisma/seed.ts",
     "db:bootstrap": "tsx prisma/bootstrap.ts",
     "db:studio": "prisma studio",
-    "vercel-build": "prisma migrate deploy && tsx prisma/bootstrap.ts && next build",
+    "vercel-build": "node scripts/check-vercel-crons.mjs && prisma migrate deploy && tsx prisma/bootstrap.ts && next build",
     "test": "vitest run"
   },
   "dependencies": {
