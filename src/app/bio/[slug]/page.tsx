@@ -298,7 +298,7 @@ export default async function BioPublicPage({
           >
             atacadopro.com
           </span>
-          <span className="text-[10px] opacity-60">crie a sua bio grátis →</span>
+          <span className="text-[10px] opacity-60">conheça o AtacadoPro →</span>
         </a>
       </div>
 
