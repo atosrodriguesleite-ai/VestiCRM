@@ -151,12 +151,17 @@ export class EvolutionProvider implements CommProvider {
       res = await evoSendText(this.instance!, number, payload.text ?? "");
     }
     if (!res.ok) {
+      // devolve o motivo que o servidor deu (encurtado) — sem ele, todo erro
+      // vira um "HTTP 4xx" genérico impossível de diagnosticar
+      const motivo = res.data
+        ? ` Detalhe: ${JSON.stringify(res.data).slice(0, 160)}`
+        : "";
       return {
         ok: false,
         error:
           res.status === 0
             ? "Servidor de conexão do WhatsApp fora do ar — tente novamente em instantes."
-            : `O WhatsApp recusou o envio (HTTP ${res.status}). Verifique se o número segue conectado em Comunicação.`,
+            : `O WhatsApp recusou o envio (HTTP ${res.status}).${motivo}`,
       };
     }
     const externalId =

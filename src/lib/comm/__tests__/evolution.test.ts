@@ -1,5 +1,23 @@
 import { describe, expect, it } from "vitest";
-import { jidToPhone, TERMO_WA_SHA, TERMO_WA_TEXTO } from "../evolution";
+import { jidToPhone, splitDataUrl, TERMO_WA_SHA, TERMO_WA_TEXTO } from "../evolution";
+
+describe("splitDataUrl", () => {
+  it("separa mime e base64 de uma data URL simples", () => {
+    expect(splitDataUrl("data:image/jpeg;base64,AAAA")).toEqual({
+      mimetype: "image/jpeg",
+      base64: "AAAA",
+    });
+  });
+  it("tolera mime com parâmetros (áudio do navegador tem ;codecs=)", () => {
+    expect(splitDataUrl("data:audio/webm;codecs=opus;base64,BBBB")).toEqual({
+      mimetype: "audio/webm",
+      base64: "BBBB",
+    });
+  });
+  it("devolve null para links http (não é data URL)", () => {
+    expect(splitDataUrl("https://exemplo.com/a.mp3")).toBeNull();
+  });
+});
 
 describe("jidToPhone", () => {
   it("extrai o telefone de um JID de contato", () => {

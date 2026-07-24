@@ -173,6 +173,19 @@ export async function evoSendText(instance: string, number: string, text: string
  * Envia mídia (imagem/vídeo/documento) pelo número conectado. Aceita data URL
  * (base64) — o comum aqui — ou uma URL http pública. Extrai o mimetype/base64.
  */
+/**
+ * Separa uma data URL em mime + base64. O mime do navegador pode vir com
+ * parâmetros ("audio/webm;codecs=opus"), então o corte é no ";base64," — não
+ * no primeiro ";" (isso mandava o arquivo malformado e o WhatsApp recusava).
+ */
+export function splitDataUrl(
+  v: string
+): { mimetype: string | null; base64: string } | null {
+  const m = v.match(/^data:([^,]*?);base64,([\s\S]*)$/);
+  if (!m) return null;
+  return { mimetype: m[1] ? m[1].split(";")[0] : null, base64: m[2] };
+}
+
 export async function evoSendMedia(
   instance: string,
   number: string,
@@ -181,9 +194,9 @@ export async function evoSendMedia(
   fileName?: string,
   caption?: string
 ) {
-  const m = dataUrlOrLink.match(/^data:([^;]+);base64,([\s\S]*)$/);
-  const mimetype = m?.[1];
-  const media = m ? m[2] : dataUrlOrLink; // base64 puro ou link http
+  const parts = splitDataUrl(dataUrlOrLink);
+  const mimetype = parts?.mimetype ?? undefined;
+  const media = parts ? parts.base64 : dataUrlOrLink; // base64 puro ou link http
   return evo<{ key?: { id?: string } }>("POST", `/message/sendMedia/${instance}`, {
     number,
     mediatype: kind,
@@ -204,8 +217,7 @@ export async function evoSendAudio(
   number: string,
   dataUrlOrLink: string
 ) {
-  const m = dataUrlOrLink.match(/^data:[^;]+;base64,([\s\S]*)$/);
-  const audio = m ? m[1] : dataUrlOrLink;
+  const audio = splitDataUrl(dataUrlOrLink)?.base64 ?? dataUrlOrLink;
   return evo<{ key?: { id?: string } }>(
     "POST",
     `/message/sendWhatsAppAudio/${instance}`,
