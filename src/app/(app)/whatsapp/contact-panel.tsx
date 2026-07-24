@@ -15,6 +15,7 @@ import {
   ExternalLink,
   Pencil,
   Check,
+  ChevronsUpDown,
 } from "lucide-react";
 import { brl, formatPhone, customerTypeLabel, originLabel, dateShort } from "@/lib/format";
 import { orderNumber } from "@/lib/orders";
@@ -192,36 +193,41 @@ export function ContactPanel({
                 </Row>
               )}
             </div>
-            <div className="mt-2 flex flex-wrap gap-1.5">
+            <div className="mt-2 flex flex-wrap items-center gap-1.5">
               {/* tipo do cliente: contato criado automaticamente entra como
-                  Varejo — aqui dá para corrigir sem sair do atendimento */}
+                  Varejo — aqui dá para corrigir sem sair do atendimento.
+                  appearance-none deixa o seletor compacto e do tamanho do chip
+                  (o nativo do celular "inchava" a caixa). */}
               <label
-                className="rounded-full bg-slate-100 text-slate-600 text-[11px] font-medium px-2 py-0.5 inline-flex items-center gap-0.5 cursor-pointer"
-                title="Tipo do cliente — clique para alterar"
+                className="inline-flex items-center gap-0.5 h-6 rounded-full bg-slate-100 text-slate-600 text-[11px] font-medium pl-2 pr-1 cursor-pointer"
+                title="Tipo do cliente — toque para alterar"
               >
                 Tipo:
-                <select
-                  value={ficha.type}
-                  onChange={async (e) => {
-                    const type = e.target.value;
-                    setFicha({ ...ficha, type });
-                    await fetch(`/api/customers/${customerId}`, {
-                      method: "PATCH",
-                      headers: { "Content-Type": "application/json" },
-                      body: JSON.stringify({ type }),
-                    });
-                  }}
-                  className="bg-transparent outline-none text-[11px] font-semibold cursor-pointer"
-                >
-                  {Object.entries(customerTypeLabel).map(([k, v]) => (
-                    <option key={k} value={k}>
-                      {v}
-                    </option>
-                  ))}
-                </select>
+                <span className="relative inline-flex items-center">
+                  <select
+                    value={ficha.type}
+                    onChange={async (e) => {
+                      const type = e.target.value;
+                      setFicha({ ...ficha, type });
+                      await fetch(`/api/customers/${customerId}`, {
+                        method: "PATCH",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ type }),
+                      });
+                    }}
+                    className="appearance-none bg-transparent outline-none text-[11px] font-semibold cursor-pointer pr-4"
+                  >
+                    {Object.entries(customerTypeLabel).map(([k, v]) => (
+                      <option key={k} value={k}>
+                        {v}
+                      </option>
+                    ))}
+                  </select>
+                  <ChevronsUpDown className="size-3 absolute right-0.5 pointer-events-none text-slate-400" />
+                </span>
               </label>
               <span
-                className="rounded-full bg-slate-100 text-slate-600 text-[11px] font-medium px-2 py-0.5"
+                className="inline-flex items-center h-6 rounded-full bg-slate-100 text-slate-600 text-[11px] font-medium px-2"
                 title="Por onde este cliente chegou (origem do cadastro)"
               >
                 Origem:{" "}
