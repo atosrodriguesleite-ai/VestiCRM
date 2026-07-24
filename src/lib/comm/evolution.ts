@@ -166,12 +166,14 @@ export async function evoCreateInstance(instance: string, webhookToken: string) 
  * um evento novo sem precisar reconectar). Best-effort — falha em silêncio.
  */
 export async function evoSetWebhook(instance: string, webhookToken: string) {
+  // mesmo formato de campos que a criação da instância aceita nesta versão
+  // do servidor (byEvents/base64, dentro do wrapper "webhook")
   return evo("POST", `/webhook/set/${instance}`, {
     webhook: {
       enabled: true,
       url: webhookUrl(webhookToken),
-      webhookByEvents: false,
-      webhookBase64: false,
+      byEvents: false,
+      base64: false,
       events: [...WEBHOOK_EVENTS],
     },
   });

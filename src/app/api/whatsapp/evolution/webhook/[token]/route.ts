@@ -240,14 +240,31 @@ export async function POST(
         | { id?: string; keyId?: string; key?: { id?: string } }
         | { id?: string; keyId?: string; key?: { id?: string } }[];
       const list = Array.isArray(raw) ? raw : [raw];
+      let matched = 0;
       for (const d of list) {
         const msgId = d?.key?.id ?? d?.id ?? d?.keyId;
         if (!msgId) continue;
-        await db.message.updateMany({
+        const r = await db.message.updateMany({
           where: { externalId: msgId, conversation: { companyId } },
           data: { revoked: true, revokedBy: "CUSTOMER" },
         });
+        matched += r.count;
       }
+      // diagnóstico (aparece na Central de Comunicação): confirma que o evento
+      // chegou e se casou com alguma mensagem
+      await db.commEvent
+        .create({
+          data: {
+            companyId,
+            channel: "WHATSAPP",
+            direction: "IN",
+            type: "wa.cliente.apagou",
+            status: matched > 0 ? "OK" : "ERRO",
+            payload: JSON.stringify(body.data).slice(0, 500),
+            response: JSON.stringify({ marcadas: matched }),
+          },
+        })
+        .catch(() => {});
     }
 
     if (event === "messages.update") {

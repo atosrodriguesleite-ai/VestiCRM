@@ -330,6 +330,24 @@ export function Inbox({
     return () => window.removeEventListener("resize", measure);
   }, []);
 
+  // popovers do compositor (respostas rápidas, anexar, nova resposta, msg do
+  // catálogo) fecham ao clicar em qualquer área fora deles
+  const composerRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const aberto = showTemplates || showAttach || showNewTpl || showCatMsgEdit;
+    if (!aberto) return;
+    function onDown(e: MouseEvent) {
+      if (composerRef.current && !composerRef.current.contains(e.target as Node)) {
+        setShowTemplates(false);
+        setShowAttach(false);
+        setShowNewTpl(false);
+        setShowCatMsgEdit(false);
+      }
+    }
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
+  }, [showTemplates, showAttach, showNewTpl, showCatMsgEdit]);
+
   // menu de etiquetas fecha ao clicar em qualquer lugar fora dele
   const tagPickerRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -1844,7 +1862,7 @@ export function Inbox({
             )}
 
             {/* composer */}
-            <div className="p-3 border-t border-gray-100 shrink-0 relative">
+            <div ref={composerRef} className="p-3 border-t border-gray-100 shrink-0 relative">
               {showTemplates && (
                 <div className="absolute bottom-full left-3 right-3 mb-1 bg-white rounded-xl border border-gray-100 shadow-pop max-h-72 overflow-y-auto thin-scroll z-10">
                   <div className="sticky top-0 flex items-center justify-between gap-2 px-4 py-2 bg-white border-b border-gray-100">
