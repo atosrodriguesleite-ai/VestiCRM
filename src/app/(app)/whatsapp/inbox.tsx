@@ -263,6 +263,21 @@ export function Inbox({
 
   const selected = convs.find((c) => c.id === selectedId) ?? null;
 
+  // tela ocupa 100% do espaço útil: mede onde ela começa (pode ter a faixa
+  // amarela de Super Admin em cima) e estica até o rodapé da janela
+  const shellRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = shellRef.current;
+    if (!el) return;
+    const measure = () => {
+      const top = el.getBoundingClientRect().top + (window.scrollY || 0);
+      el.style.setProperty("--inbox-top", `${Math.max(0, Math.round(top))}px`);
+    };
+    measure();
+    window.addEventListener("resize", measure);
+    return () => window.removeEventListener("resize", measure);
+  }, []);
+
   // menu de etiquetas fecha ao clicar em qualquer lugar fora dele
   const tagPickerRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -805,7 +820,10 @@ export function Inbox({
   const isMine = selected?.assignee?.id === currentUserId;
 
   return (
-    <div className="w-full flex overflow-hidden bg-white -mx-4 -mt-4 -mb-24 h-[calc(100dvh-120px-var(--kb,0px))] rounded-none border-0 shadow-none md:mx-0 md:mt-0 md:mb-0 md:h-[calc(100dvh-120px)] md:rounded-2xl md:border md:border-gray-100 md:shadow-card">
+    <div
+      ref={shellRef}
+      className="w-full flex overflow-hidden bg-white -mx-4 -mt-4 -mb-24 h-[calc(100dvh-120px-var(--kb,0px))] rounded-none border-0 shadow-none md:-mx-8 md:-mt-8 md:-mb-8 md:h-[calc(100dvh-var(--inbox-top,0px))]"
+    >
       {/* Lista de conversas */}
       <div
         className={`w-full md:w-[340px] md:border-r border-gray-100 flex-col shrink-0 ${
