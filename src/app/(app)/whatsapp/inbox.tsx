@@ -337,6 +337,17 @@ export function Inbox({
     return acc;
   }, [convs]);
 
+  // próximo chamado da fila (quem espera há mais tempo) — atalho da tela vazia
+  const proximoFila = useMemo(() => {
+    return convs
+      .filter((c) => bucketOf(c) === "fila")
+      .sort(
+        (a, b) =>
+          new Date(a.lastInboundAt ?? a.createdAt).getTime() -
+          new Date(b.lastInboundAt ?? b.createdAt).getTime()
+      )[0];
+  }, [convs]);
+
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     const list = convs.filter((c) => {
@@ -418,7 +429,22 @@ export function Inbox({
             freshById.delete(p.id);
             // preserva mensagem recém-enviada que o servidor ainda não devolveu
             const ids = new Set(f.messages.map((m) => m.id));
-            const extra = p.messages.filter((m) => !ids.has(m.id));
+            const extra = p.messages.filter((m) => {
+              if (ids.has(m.id)) return false;
+              // bolha otimista (ainda "temp-") já confirmada pelo servidor:
+              // se o sync trouxe a mesma mensagem (sentido+texto), descarta a temp
+              if (
+                m.id.startsWith("temp-") &&
+                f.messages.some(
+                  (fm) =>
+                    fm.direction === m.direction &&
+                    fm.kind === m.kind &&
+                    fm.body === m.body
+                )
+              )
+                return false;
+              return true;
+            });
             return {
               ...f,
               messages: extra.length
@@ -492,58 +518,132 @@ export function Inbox({
     );
   }
 
+  /**
+   * Envio OTIMISTA: a bolha aparece na conversa NA HORA (com relógio ⏱️) e o
+   * envio real acontece em segundo plano — quando o servidor confirma, a bolha
+   * vira ✓ (ou ⚠️ se falhar). Assim a tela nunca "trava" esperando o WhatsApp.
+   */
   async function sendPayload(payload: Record<string, unknown>) {
-    if (!selected || sending) return false;
-    setSending(true);
-    // enviar mensagem em conversa da fila = assumir o atendimento
+    if (!selected) return false;
+    const convId = selected.id;
+    const tempId = `temp-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+
+    // 1) mostra a bolha imediatamente (status ENVIANDO)
+    appendMessage(convId, {
+      id: tempId,
+      direction: "OUT",
+      kind: (payload.kind as InboxMessage["kind"]) ?? "TEXT",
+      mediaType: (payload.mediaType as InboxMessage["mediaType"]) ?? "TEXT",
+      mediaUrl: (payload.mediaUrl as string) ?? null,
+      fileName: (payload.fileName as string) ?? null,
+      status: "ENVIANDO",
+      error: null,
+      body: (payload.body as string) ?? "",
+      authorName: currentUserName,
+      createdAt: new Date().toISOString(),
+    });
+
+    // enviar mensagem em conversa da fila = assumir o atendimento (visual já)
     if (!selected.assignee) {
-      patchLocal(selected.id, {
+      patchLocal(convId, {
         assignee: { id: currentUserId, name: currentUserName, color: "#c4622d" },
       });
-      await updateConv(selected.id, { assigneeId: currentUserId }, true);
+      updateConv(convId, { assigneeId: currentUserId }, true);
     }
-    const res = await fetch(`/api/conversations/${selected.id}/messages`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-    setSending(false);
-    if (res.ok) {
-      const msg = await res.json();
-      appendMessage(selected.id, {
-        id: msg.id,
-        direction: "OUT",
-        kind: msg.kind,
-        mediaType: msg.mediaType,
-        mediaUrl: msg.mediaUrl,
-        fileName: msg.fileName,
-        status: msg.status,
-        error: msg.error,
-        body: msg.body,
-        authorName: currentUserName,
-        createdAt: msg.createdAt,
+
+    // troca a bolha temporária pela real (ou marca falha), sem duplicar
+    const reconciliar = (real: InboxMessage | null, falhou: boolean) =>
+      setConvs((prev) =>
+        prev.map((c) => {
+          if (c.id !== convId) return c;
+          const messages = c.messages
+            .map((m) =>
+              m.id === tempId
+                ? real ??
+                  { ...m, status: "FALHOU", error: "Não foi possível enviar. Toque em Reenviar." }
+                : m
+            )
+            // se o sync já trouxe a real, remove qualquer duplicata por id
+            .filter(
+              (m, i, arr) => arr.findIndex((x) => x.id === m.id) === i
+            );
+          return { ...c, messages, ...(falhou ? {} : {}) };
+        })
+      );
+
+    try {
+      const res = await fetch(`/api/conversations/${convId}/messages`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
       });
-      return true;
+      if (res.ok) {
+        const msg = await res.json();
+        reconciliar(
+          {
+            id: msg.id,
+            direction: "OUT",
+            kind: msg.kind,
+            mediaType: msg.mediaType,
+            mediaUrl: msg.mediaUrl,
+            fileName: msg.fileName,
+            status: msg.status,
+            error: msg.error,
+            body: msg.body,
+            authorName: currentUserName,
+            createdAt: msg.createdAt,
+          },
+          false
+        );
+        return true;
+      }
+      reconciliar(null, true);
+      return false;
+    } catch {
+      reconciliar(null, true);
+      return false;
     }
-    return false;
   }
 
-  async function sendMessage() {
-    if (!draft.trim()) return;
-    const ok = await sendPayload({
-      body: draft.trim(),
-      kind: noteMode ? "NOTE" : "TEXT",
-    });
-    if (ok) {
-      setDraft("");
-      setNoteMode(false);
-      setMention(null);
-      setSlash(null);
-    }
+  function sendMessage() {
+    const body = draft.trim();
+    if (!body) return;
+    const kind = noteMode ? "NOTE" : "TEXT";
+    // limpa o campo NA HORA — sensação de instantâneo, sem esperar o servidor
+    setDraft("");
+    setNoteMode(false);
+    setMention(null);
+    setSlash(null);
+    void sendPayload({ body, kind });
   }
 
   async function resend(messageId: string) {
     if (!selected) return;
+    // bolha otimista que nem chegou ao servidor (falha de rede): remove a
+    // bolha falha e reenvia do zero, em vez de chamar o resend por id
+    if (messageId.startsWith("temp-")) {
+      const m = selected.messages.find((x) => x.id === messageId);
+      if (!m) return;
+      setConvs((prev) =>
+        prev.map((c) =>
+          c.id === selected.id
+            ? { ...c, messages: c.messages.filter((x) => x.id !== messageId) }
+            : c
+        )
+      );
+      void sendPayload({
+        body: m.body,
+        kind: m.kind,
+        ...(m.mediaType !== "TEXT"
+          ? {
+              mediaType: m.mediaType,
+              mediaUrl: m.mediaUrl ?? undefined,
+              fileName: m.fileName ?? undefined,
+            }
+          : {}),
+      });
+      return;
+    }
     const res = await fetch(`/api/messages/${messageId}/resend`, {
       method: "POST",
     });
@@ -1086,12 +1186,94 @@ export function Inbox({
         className={`flex-1 flex-col min-w-0 ${selected ? "flex" : "hidden md:flex"}`}
       >
         {!selected ? (
-          <div className="flex-1 flex items-center justify-center">
-            <EmptyState
-              icon={<MessageCircle />}
-              title="Selecione uma conversa"
-              hint="O histórico completo do cliente fica registrado aqui e no perfil dele."
-            />
+          <div className="flex-1 flex items-center justify-center p-6 overflow-y-auto thin-scroll bg-gradient-to-b from-white to-brand-50/40">
+            <div className="w-full max-w-md text-center">
+              <div className="mx-auto size-16 rounded-2xl bg-brand-100 text-brand-600 flex items-center justify-center mb-4 shadow-sm">
+                <MessageCircle className="size-8" />
+              </div>
+              <h2 className="text-lg font-bold text-ink">
+                Olá, {currentUserName.split(" ")[0]}! 👋
+              </h2>
+              <p className="text-sm text-gray-500 mt-1 mb-5">
+                Escolha uma conversa à esquerda para atender. Veja como está o
+                atendimento agora:
+              </p>
+
+              {/* resumo do atendimento (clicável) */}
+              <div className="grid grid-cols-3 gap-2 mb-5">
+                <button
+                  onClick={() => setTab("fila")}
+                  className="rounded-xl border border-amber-100 bg-amber-50/70 p-3 text-center hover:border-amber-300 transition"
+                >
+                  <p className="text-2xl font-extrabold text-amber-600 leading-none">
+                    {counts.fila}
+                  </p>
+                  <p className="text-[11px] font-semibold text-amber-700/80 mt-1 flex items-center justify-center gap-1">
+                    <InboxIcon className="size-3" /> Na fila
+                  </p>
+                </button>
+                <button
+                  onClick={() => setTab("chats")}
+                  className="rounded-xl border border-emerald-100 bg-emerald-50/70 p-3 text-center hover:border-emerald-300 transition"
+                >
+                  <p className="text-2xl font-extrabold text-emerald-600 leading-none">
+                    {counts.chats}
+                  </p>
+                  <p className="text-[11px] font-semibold text-emerald-700/80 mt-1 flex items-center justify-center gap-1">
+                    <MessageCircle className="size-3" /> Em conversa
+                  </p>
+                </button>
+                <button
+                  onClick={() => setTab("contatos")}
+                  className="rounded-xl border border-gray-100 bg-gray-50 p-3 text-center hover:border-gray-300 transition"
+                >
+                  <p className="text-2xl font-extrabold text-gray-500 leading-none">
+                    {counts.contatos}
+                  </p>
+                  <p className="text-[11px] font-semibold text-gray-500 mt-1 flex items-center justify-center gap-1">
+                    <Users className="size-3" /> Contatos
+                  </p>
+                </button>
+              </div>
+
+              {proximoFila ? (
+                <button
+                  onClick={() => {
+                    setTab("fila");
+                    selectConv(proximoFila.id);
+                  }}
+                  className="inline-flex items-center gap-2 rounded-xl bg-brand-600 hover:bg-brand-700 text-white text-sm font-semibold px-5 py-2.5 transition shadow-sm"
+                >
+                  <Hand className="size-4" />
+                  Atender próximo da fila
+                </button>
+              ) : (
+                <p className="inline-flex items-center gap-1.5 rounded-xl bg-emerald-50 text-emerald-700 text-sm font-medium px-4 py-2">
+                  <CheckCircle2 className="size-4" />
+                  Fila zerada — tudo em dia! 🎉
+                </p>
+              )}
+
+              {/* dicas rápidas */}
+              <div className="mt-6 text-left space-y-2">
+                <p className="text-[11px] font-bold uppercase tracking-wide text-gray-400 px-1">
+                  Dicas
+                </p>
+                {[
+                  { icon: <Zap className="size-3.5 text-brand-500" />, t: "Digite / no campo de mensagem para usar respostas rápidas." },
+                  { icon: <Link2 className="size-3.5 text-brand-500" />, t: "Envie o link do catálogo já rastreado por cliente." },
+                  { icon: <StickyNote className="size-3.5 text-amber-500" />, t: "Deixe notas internas (o cliente não vê) e marque colegas com @." },
+                ].map((d, i) => (
+                  <div
+                    key={i}
+                    className="flex items-start gap-2 rounded-lg bg-white border border-gray-100 px-3 py-2 text-xs text-gray-600"
+                  >
+                    <span className="mt-0.5 shrink-0">{d.icon}</span>
+                    {d.t}
+                  </div>
+                ))}
+              </div>
+            </div>
           </div>
         ) : (
           <>
