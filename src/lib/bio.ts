@@ -135,7 +135,7 @@ export function resolveBioTarget(
       // carimba a origem: a visita/sacola/pedido no catálogo fica atribuída à bio
       return comUtmBio(catalogUrl(ctx.slug), ctx.slug);
     case "WHATSAPP":
-      return waLink(ctx.whatsapp, "Oi! Vim pela bio do Instagram 😊");
+      return waLink(ctx.whatsapp, "Oi! Vim pela bio do Instagram");
     case "SITE": {
       // site próprio: carimba utm pro Google Analytics da loja também medir a bio
       const u = normalizeUrl(link.url);
