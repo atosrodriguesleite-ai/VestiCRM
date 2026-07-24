@@ -627,6 +627,8 @@ model CommSettings {
   defaultSetorId        String?
   // mensagem do botão "enviar link do catálogo" ({nome} e {link} são trocados)
   catalogLinkMsg        String?
+  // mensagem de confirmação ao montar um pedido ({nome}/{pedido}/{total})
+  orderMsg              String?
   // trava de segurança anti-banimento: espaçamento mínimo + teto diário
   waLastSentAt          DateTime?
   waSentDate            String? // dia (yyyy-mm-dd) do contador abaixo

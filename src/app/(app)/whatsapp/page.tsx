@@ -30,7 +30,7 @@ export default async function WhatsAppPage() {
     }),
     db.commSettings.findUnique({
       where: { companyId: user.companyId },
-      select: { catalogLinkMsg: true },
+      select: { catalogLinkMsg: true, orderMsg: true },
     }),
   ]);
 
@@ -49,6 +49,7 @@ export default async function WhatsAppPage() {
       currentUserId={user.id}
       currentUserName={user.name}
       catalogMsg={comm?.catalogLinkMsg ?? null}
+      orderMsg={comm?.orderMsg ?? null}
       canEditCatalogMsg={true}
     />
   );

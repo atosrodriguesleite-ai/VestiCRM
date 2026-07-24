@@ -223,6 +223,10 @@ type Tag = { id: string; name: string; color: string };
 const CATALOG_MSG_PADRAO =
   "Oi {nome}! 💜 Montei um catálogo pra você dar uma olhada com calma:\n{link}";
 
+/** Mensagem padrão de confirmação ao montar um pedido ({nome}/{pedido}/{total}). */
+const ORDER_MSG_PADRAO =
+  "Prontinho {nome}! 💜 Montei seu pedido {pedido} — total {total}. Te enviei o orçamento em PDF, qualquer ajuste é só me falar!";
+
 export function Inbox({
   conversations,
   templates: templatesProp,
@@ -232,6 +236,7 @@ export function Inbox({
   currentUserId,
   currentUserName,
   catalogMsg,
+  orderMsg,
   canEditCatalogMsg,
 }: {
   conversations: InboxConversation[];
@@ -242,6 +247,7 @@ export function Inbox({
   currentUserId: string;
   currentUserName: string;
   catalogMsg: string | null;
+  orderMsg: string | null;
   canEditCatalogMsg: boolean;
 }) {
   const router = useRouter();
@@ -275,10 +281,12 @@ export function Inbox({
   const lpTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [editingMsgId, setEditingMsgId] = useState<string | null>(null);
   const [editMsgDraft, setEditMsgDraft] = useState("");
-  // mensagem personalizável do link do catálogo (por loja)
+  // mensagens automáticas personalizáveis (link do catálogo + confirmação de pedido)
   const [catMsg, setCatMsg] = useState<string | null>(catalogMsg);
+  const [ordMsg, setOrdMsg] = useState<string | null>(orderMsg);
   const [showCatMsgEdit, setShowCatMsgEdit] = useState(false);
   const [catMsgDraft, setCatMsgDraft] = useState("");
+  const [ordMsgDraft, setOrdMsgDraft] = useState("");
   const [savingCatMsg, setSavingCatMsg] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const taRef = useRef<HTMLTextAreaElement>(null);
@@ -302,16 +310,17 @@ export function Inbox({
     ta.style.height = `${Math.min(ta.scrollHeight, 192)}px`;
   }, [draft, noteMode, selectedId]);
 
-  async function salvarCatMsg(valor: string | null) {
+  async function salvarCatMsg(catalogVal: string | null, orderVal: string | null) {
     setSavingCatMsg(true);
     const res = await fetch("/api/comm/catalog-msg", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ catalogLinkMsg: valor }),
+      body: JSON.stringify({ catalogLinkMsg: catalogVal, orderMsg: orderVal }),
     });
     setSavingCatMsg(false);
     if (res.ok) {
-      setCatMsg(valor);
+      setCatMsg(catalogVal);
+      setOrdMsg(orderVal);
       setShowCatMsgEdit(false);
     }
   }
@@ -1995,27 +2004,47 @@ export function Inbox({
                   ))}
                 </div>
               )}
-              {/* editor da mensagem do link do catálogo (por loja) */}
+              {/* editor das mensagens automáticas (catálogo + pedido) */}
               {showCatMsgEdit && (
-                <div className="absolute bottom-full left-3 right-3 sm:right-auto sm:w-96 mb-1 bg-white rounded-xl border border-gray-100 shadow-pop z-20 p-3">
+                <div className="absolute bottom-full left-3 right-3 sm:right-auto sm:w-[26rem] mb-1 bg-white rounded-xl border border-gray-100 shadow-pop z-20 p-3 max-h-[70vh] overflow-y-auto thin-scroll">
+                  <p className="text-[11px] font-bold text-gray-500 mb-2">
+                    Mensagens automáticas
+                  </p>
+
                   <p className="text-[10px] font-bold uppercase tracking-wide text-gray-400 flex items-center gap-1 mb-1.5">
-                    <Link2 className="size-3" /> Mensagem do link do catálogo
+                    <Link2 className="size-3" /> Link do catálogo
                   </p>
                   <textarea
                     value={catMsgDraft}
                     onChange={(e) => setCatMsgDraft(e.target.value)}
-                    rows={4}
+                    rows={3}
                     maxLength={500}
                     className="w-full resize-none rounded-lg bg-gray-50 border border-transparent focus:border-brand-300 focus:bg-white px-2.5 py-2 text-xs outline-none"
                   />
                   <p className="text-[10px] text-gray-400 mt-1 leading-snug">
-                    Use <b>{"{nome}"}</b> para o primeiro nome do cliente e{" "}
-                    <b>{"{link}"}</b> para o link do catálogo (se não usar, o
-                    link entra no final sozinho).
+                    <b>{"{nome}"}</b> = nome do cliente · <b>{"{link}"}</b> = link
+                    do catálogo (se não usar, o link entra no final sozinho).
                   </p>
-                  <div className="flex items-center justify-between gap-2 mt-2">
+
+                  <p className="text-[10px] font-bold uppercase tracking-wide text-gray-400 flex items-center gap-1 mb-1.5 mt-3">
+                    <ShoppingBag className="size-3" /> Confirmação de pedido
+                  </p>
+                  <textarea
+                    value={ordMsgDraft}
+                    onChange={(e) => setOrdMsgDraft(e.target.value)}
+                    rows={3}
+                    maxLength={500}
+                    className="w-full resize-none rounded-lg bg-gray-50 border border-transparent focus:border-brand-300 focus:bg-white px-2.5 py-2 text-xs outline-none"
+                  />
+                  <p className="text-[10px] text-gray-400 mt-1 leading-snug">
+                    <b>{"{nome}"}</b> = cliente · <b>{"{pedido}"}</b> = nº do
+                    pedido · <b>{"{total}"}</b> = valor total. O PDF do orçamento
+                    é enviado automaticamente junto.
+                  </p>
+
+                  <div className="flex items-center justify-between gap-2 mt-3">
                     <button
-                      onClick={() => salvarCatMsg(null)}
+                      onClick={() => salvarCatMsg(null, null)}
                       disabled={savingCatMsg}
                       className="text-[11px] text-gray-400 hover:text-gray-600 underline underline-offset-2 disabled:opacity-50"
                     >
@@ -2029,7 +2058,12 @@ export function Inbox({
                         Cancelar
                       </button>
                       <button
-                        onClick={() => salvarCatMsg(catMsgDraft.trim() || null)}
+                        onClick={() =>
+                          salvarCatMsg(
+                            catMsgDraft.trim() || null,
+                            ordMsgDraft.trim() || null
+                          )
+                        }
                         disabled={savingCatMsg}
                         className="rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-xs font-semibold px-3.5 py-1.5 transition disabled:opacity-50"
                       >
@@ -2118,6 +2152,7 @@ export function Inbox({
                   <button
                     onClick={() => {
                       setCatMsgDraft(catMsg ?? CATALOG_MSG_PADRAO);
+                      setOrdMsgDraft(ordMsg ?? ORDER_MSG_PADRAO);
                       setShowCatMsgEdit((v) => !v);
                       setShowTemplates(false);
                       setShowAttach(false);
@@ -2125,7 +2160,7 @@ export function Inbox({
                     className={`p-1 -ml-1.5 transition shrink-0 ${
                       showCatMsgEdit ? "text-brand-600" : "text-gray-300 hover:text-brand-600"
                     }`}
-                    title="Personalizar a mensagem do link do catálogo"
+                    title="Personalizar as mensagens automáticas (catálogo e pedido)"
                   >
                     <Pencil className="size-3" />
                   </button>
@@ -2227,10 +2262,12 @@ export function Inbox({
                 wholesaleCustomer={selected.customer.wholesale}
                 conversationId={selected.id}
                 onClose={() => setShowOrder(false)}
-                onCreated={(order) => {
+                onCreated={async (order) => {
                   setShowOrder(false);
-                  const body = `🛍️ Pedido ${orderNumber(order.number)} criado — total R$ ${order.total.toFixed(2).replace(".", ",")}`;
-                  const nowIso = new Date().toISOString();
+                  const pedido = orderNumber(order.number);
+                  const total = `R$ ${order.total.toFixed(2).replace(".", ",")}`;
+                  const nome = selected.customer.name.split(" ")[0];
+                  // registro interno (nota) de que o pedido foi criado
                   appendMessage(selected.id, {
                     id: `local-${order.id}`,
                     direction: "OUT",
@@ -2240,20 +2277,38 @@ export function Inbox({
                     fileName: null,
                     status: "ENVIADA",
                     error: null,
-                    body,
+                    body: `🛍️ Pedido ${pedido} criado — total ${total}`,
                     authorName: currentUserName,
-                    createdAt: nowIso,
+                    createdAt: new Date().toISOString(),
                     deliveredAt: null,
                     readAt: null,
                     editedAt: null,
                     revoked: false,
                     revokedBy: null,
                   });
+                  // mensagem de confirmação (personalizável) já pronta no campo
                   setDraft(
-                    `Seu pedido ${orderNumber(order.number)} ficou em R$ ${order.total
-                      .toFixed(2)
-                      .replace(".", ",")} 💜 Te enviei o orçamento em PDF, qualquer ajuste me avisa!`
+                    (ordMsg?.trim() || ORDER_MSG_PADRAO)
+                      .replaceAll("{nome}", nome)
+                      .replaceAll("{pedido}", pedido)
+                      .replaceAll("{total}", total)
                   );
+                  // ENVIA o PDF do orçamento de verdade (documento no WhatsApp)
+                  try {
+                    const pdfRes = await fetch(`/api/orders/${order.id}/pdf`);
+                    if (pdfRes.ok) {
+                      const dataUrl = await blobToDataUrl(await pdfRes.blob());
+                      await sendPayload({
+                        kind: "TEXT",
+                        mediaType: "DOCUMENT",
+                        mediaUrl: dataUrl,
+                        fileName: `orcamento-${pedido}.pdf`,
+                        body: `📄 Orçamento ${pedido}`,
+                      });
+                    }
+                  } catch {
+                    // se falhar o PDF, a mensagem de texto ainda fica no campo
+                  }
                 }}
               />
             )}
