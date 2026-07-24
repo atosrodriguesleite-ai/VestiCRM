@@ -225,7 +225,7 @@ const CATALOG_MSG_PADRAO =
 
 export function Inbox({
   conversations,
-  templates,
+  templates: templatesProp,
   team,
   setores,
   allTags,
@@ -264,6 +264,12 @@ export function Inbox({
   const [showBackup, setShowBackup] = useState(false);
   const [slash, setSlash] = useState<{ query: string; at: number } | null>(null);
   const [sending, setSending] = useState(false);
+  // respostas rápidas (qualquer um da equipe cria pela própria tela)
+  const [templates, setTemplates] = useState(templatesProp);
+  const [showNewTpl, setShowNewTpl] = useState(false);
+  const [newTplTitle, setNewTplTitle] = useState("");
+  const [newTplBody, setNewTplBody] = useState("");
+  const [savingTpl, setSavingTpl] = useState(false);
   // editar / apagar mensagem enviada
   const [msgMenuId, setMsgMenuId] = useState<string | null>(null);
   const [editingMsgId, setEditingMsgId] = useState<string | null>(null);
@@ -903,6 +909,32 @@ export function Inbox({
     setDraft(next);
     setSlash(null);
     taRef.current?.focus();
+  }
+
+  // cria uma resposta rápida direto da tela (qualquer vendedor/suporte pode)
+  async function criarTemplate() {
+    const title = newTplTitle.trim();
+    const body = newTplBody.trim();
+    if (!title || !body) return;
+    setSavingTpl(true);
+    const res = await fetch("/api/templates", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title, body, category: "OUTRO" }),
+    });
+    setSavingTpl(false);
+    if (res.ok) {
+      const created = await res.json();
+      setTemplates((prev) => [
+        ...prev,
+        { id: created.id, title: created.title, body: created.body, category: created.category },
+      ]);
+      setNewTplTitle("");
+      setNewTplBody("");
+      setShowNewTpl(false);
+    } else {
+      alert((await res.json().catch(() => ({}))).error ?? "Não foi possível criar.");
+    }
   }
 
   // ---- Link rastreável do catálogo do cliente ----
@@ -1819,16 +1851,52 @@ export function Inbox({
                     <p className="text-[10px] font-bold uppercase tracking-wide text-gray-400 flex items-center gap-1">
                       <Zap className="size-3" /> Respostas rápidas
                     </p>
-                    <Link
-                      href="/configuracoes"
+                    <button
+                      onClick={() => setShowNewTpl((v) => !v)}
                       className="text-[11px] font-semibold text-brand-600 hover:underline flex items-center gap-1"
                     >
-                      <Plus className="size-3" /> criar / gerenciar
-                    </Link>
+                      <Plus className="size-3" /> nova resposta
+                    </button>
                   </div>
-                  {templates.length === 0 && (
+
+                  {/* criar resposta rápida na hora (qualquer um da equipe) */}
+                  {showNewTpl && (
+                    <div className="px-4 py-3 border-b border-gray-100 bg-brand-50/40 space-y-2">
+                      <input
+                        value={newTplTitle}
+                        onChange={(e) => setNewTplTitle(e.target.value)}
+                        placeholder="Atalho (ex: boas-vindas)"
+                        className="w-full rounded-lg bg-white border border-gray-200 focus:border-brand-300 px-2.5 py-1.5 text-xs outline-none"
+                      />
+                      <textarea
+                        value={newTplBody}
+                        onChange={(e) => setNewTplBody(e.target.value)}
+                        rows={2}
+                        placeholder="Mensagem... use {{nome}} p/ o nome do cliente e {{vendedora}} p/ o seu"
+                        className="w-full resize-none rounded-lg bg-white border border-gray-200 focus:border-brand-300 px-2.5 py-1.5 text-xs outline-none"
+                      />
+                      <div className="flex items-center justify-end gap-1.5">
+                        <button
+                          onClick={() => setShowNewTpl(false)}
+                          className="rounded-lg border border-gray-200 text-gray-500 text-[11px] font-medium px-3 py-1.5 hover:bg-gray-50"
+                        >
+                          Cancelar
+                        </button>
+                        <button
+                          onClick={criarTemplate}
+                          disabled={savingTpl || !newTplTitle.trim() || !newTplBody.trim()}
+                          className="rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-[11px] font-semibold px-3.5 py-1.5 disabled:opacity-50"
+                        >
+                          {savingTpl ? "Salvando…" : "Salvar"}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {templates.length === 0 && !showNewTpl && (
                     <p className="px-4 py-4 text-xs text-gray-400">
-                      Nenhuma resposta rápida ainda. Crie em Configurações → Modelos de mensagem.
+                      Nenhuma resposta rápida ainda. Toque em{" "}
+                      <b className="text-brand-600">+ nova resposta</b> para criar a primeira. 👆
                     </p>
                   )}
                   {[...templatesByCategory.entries()].map(([cat, list]) => (
@@ -1887,12 +1955,16 @@ export function Inbox({
                     <p className="text-[10px] font-bold uppercase tracking-wide text-gray-400 flex items-center gap-1">
                       <Zap className="size-3" /> Respostas rápidas
                     </p>
-                    <Link
-                      href="/configuracoes"
+                    <button
+                      onClick={() => {
+                        setSlash(null);
+                        setShowTemplates(true);
+                        setShowNewTpl(true);
+                      }}
                       className="text-[11px] font-semibold text-brand-600 hover:underline flex items-center gap-1"
                     >
-                      <Plus className="size-3" /> criar / gerenciar
-                    </Link>
+                      <Plus className="size-3" /> nova resposta
+                    </button>
                   </div>
                   {slashMatches.map((t) => (
                     <button
