@@ -309,6 +309,15 @@ export async function evoEditMessage(
   });
 }
 
+/**
+ * Lê as mensagens que o servidor já tem guardadas da instância (o WhatsApp
+ * sincroniza um lote recente ao conectar — igual ao WhatsApp Web). Usado para
+ * importar o histórico recente sem pedir sincronização "a mais" (baixo risco).
+ */
+export async function evoFindMessages(instance: string) {
+  return evo<unknown>("POST", `/chat/findMessages/${instance}`, { where: {} });
+}
+
 /** Extrai o telefone (dígitos) de um JID "5511999999999@s.whatsapp.net". */
 export function jidToPhone(jid: string): string | null {
   const m = jid.match(/^(\d{8,15})@s\.whatsapp\.net$/);

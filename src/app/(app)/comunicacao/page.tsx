@@ -8,6 +8,7 @@ import { CommCenter, type CommEventItem } from "./comm-center";
 import { WhatsappConnect } from "./whatsapp-connect";
 import { SetoresManager } from "./setores-manager";
 import { MergeDuplicates } from "./merge-duplicates";
+import { ImportHistory } from "./import-history";
 
 export const dynamic = "force-dynamic";
 
@@ -74,6 +75,9 @@ export default async function CommunicationPage() {
         subtitle="Monitor da Communication Engine: filas, webhooks, falhas e latência de todos os canais."
       />
       {isAdmin(user) && <WhatsappConnect canEdit={isAdmin(user)} />}
+      {isAdmin(user) && (
+        <ImportHistory connected={settings?.evolutionStatus === "CONECTADO"} />
+      )}
       {isAdmin(user) && <MergeDuplicates />}
       <SetoresManager />
       <CommCenter
