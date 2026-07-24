@@ -193,13 +193,33 @@ export function ContactPanel({
               )}
             </div>
             <div className="mt-2 flex flex-wrap gap-1.5">
-              <span
-                className="rounded-full bg-slate-100 text-slate-600 text-[11px] font-medium px-2 py-0.5"
-                title="Tipo do cliente (Varejo, Atacado...) — edite na ficha do cliente"
+              {/* tipo do cliente: contato criado automaticamente entra como
+                  Varejo — aqui dá para corrigir sem sair do atendimento */}
+              <label
+                className="rounded-full bg-slate-100 text-slate-600 text-[11px] font-medium px-2 py-0.5 inline-flex items-center gap-0.5 cursor-pointer"
+                title="Tipo do cliente — clique para alterar"
               >
-                Tipo:{" "}
-                {customerTypeLabel[ficha.type as keyof typeof customerTypeLabel] ?? ficha.type}
-              </span>
+                Tipo:
+                <select
+                  value={ficha.type}
+                  onChange={async (e) => {
+                    const type = e.target.value;
+                    setFicha({ ...ficha, type });
+                    await fetch(`/api/customers/${customerId}`, {
+                      method: "PATCH",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ type }),
+                    });
+                  }}
+                  className="bg-transparent outline-none text-[11px] font-semibold cursor-pointer"
+                >
+                  {Object.entries(customerTypeLabel).map(([k, v]) => (
+                    <option key={k} value={k}>
+                      {v}
+                    </option>
+                  ))}
+                </select>
+              </label>
               <span
                 className="rounded-full bg-slate-100 text-slate-600 text-[11px] font-medium px-2 py-0.5"
                 title="Por onde este cliente chegou (origem do cadastro)"

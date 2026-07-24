@@ -263,6 +263,18 @@ export function Inbox({
 
   const selected = convs.find((c) => c.id === selectedId) ?? null;
 
+  // menu de etiquetas fecha ao clicar em qualquer lugar fora dele
+  const tagPickerRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!showTagPicker) return;
+    function onDown(e: MouseEvent) {
+      if (tagPickerRef.current && !tagPickerRef.current.contains(e.target as Node))
+        setShowTagPicker(false);
+    }
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
+  }, [showTagPicker]);
+
   // fila = sem responsável e não encerrada; chats = em atendimento (com
   // responsável, não encerrada); contatos = histórico (encerradas).
   const bucketOf = (c: InboxConversation): Tab =>
@@ -1209,7 +1221,7 @@ export function Inbox({
             {/* etiquetas (tags) do contato — clicáveis para remover, + para adicionar.
                 O menu suspenso fica FORA da faixa com rolagem horizontal para não
                 ser cortado por ela (flutua por cima da conversa). */}
-            <div className="relative border-b border-gray-50 shrink-0">
+            <div ref={tagPickerRef} className="relative border-b border-gray-50 shrink-0">
               <div className="flex items-center gap-1.5 px-4 py-2 overflow-x-auto thin-scroll">
                 <TagIcon className="size-3.5 text-gray-300 shrink-0" />
                 {selected.customer.tags.map((t) => (
