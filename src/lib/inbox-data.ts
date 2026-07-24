@@ -81,6 +81,11 @@ export async function loadInboxConversations(
       body: m.body,
       authorName: m.author?.name ?? null,
       createdAt: m.createdAt.toISOString(),
+      deliveredAt: m.deliveredAt?.toISOString() ?? null,
+      readAt: m.readAt?.toISOString() ?? null,
+      editedAt: m.editedAt?.toISOString() ?? null,
+      revoked: m.revoked,
+      revokedBy: m.revokedBy,
     })),
   }));
 }

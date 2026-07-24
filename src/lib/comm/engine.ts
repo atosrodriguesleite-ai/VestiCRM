@@ -2,7 +2,13 @@ import { db } from "../db";
 import { decryptSecret } from "../crypto";
 import { intakeLead } from "../intake";
 import { resolveProvider } from "./providers";
-import { paceProactiveSend, WA_JANELA_HORAS } from "./evolution";
+import {
+  paceProactiveSend,
+  WA_JANELA_HORAS,
+  evoDeleteForEveryone,
+  evoEditMessage,
+  phoneToJid,
+} from "./evolution";
 import { notifyMentions } from "../notify";
 import type { ProviderCredentials } from "./types";
 import type {
@@ -239,6 +245,93 @@ export async function resendMessage(
   });
 }
 
+/**
+ * Apaga a mensagem "para todos" (some do WhatsApp do cliente). Mantém a
+ * mensagem no CRM marcada como apagada — o histórico interno não se perde.
+ */
+export async function revokeMessage(
+  companyId: string,
+  messageId: string
+): Promise<Message> {
+  const message = await db.message.findFirst({
+    where: { id: messageId, conversation: { companyId } },
+    include: { conversation: { include: { customer: true } } },
+  });
+  if (!message) throw new Error("Mensagem não encontrada");
+  if (message.direction !== "OUT" || message.kind === "NOTE")
+    throw new Error("Só dá para apagar para o cliente as mensagens que a loja enviou.");
+
+  const s = await db.commSettings.findUnique({ where: { companyId } });
+  if (s?.activeProvider === "EVOLUTION" && s.evolutionInstance && message.externalId) {
+    const res = await evoDeleteForEveryone(s.evolutionInstance, {
+      id: message.externalId,
+      remoteJid: phoneToJid(message.conversation.customer.phone),
+      fromMe: true,
+    });
+    if (!res.ok)
+      throw new Error(
+        "O WhatsApp não deixou apagar — o prazo para apagar para todos (cerca de 2 dias) pode ter passado."
+      );
+  }
+
+  const updated = await db.message.update({
+    where: { id: message.id },
+    data: { revoked: true, revokedBy: "STORE" },
+  });
+  await db.conversation.update({
+    where: { id: message.conversationId },
+    data: { updatedAt: new Date() },
+  });
+  return updated;
+}
+
+/**
+ * Edita o texto de uma mensagem enviada. O WhatsApp só permite editar até
+ * ~15 minutos depois do envio (regra da Meta).
+ */
+export async function editMessageText(
+  companyId: string,
+  messageId: string,
+  text: string
+): Promise<Message> {
+  const message = await db.message.findFirst({
+    where: { id: messageId, conversation: { companyId } },
+    include: { conversation: { include: { customer: true } } },
+  });
+  if (!message) throw new Error("Mensagem não encontrada");
+  if (message.direction !== "OUT" || message.kind === "NOTE" || message.mediaType !== "TEXT")
+    throw new Error("Só dá para editar mensagens de texto enviadas pela loja.");
+
+  const s = await db.commSettings.findUnique({ where: { companyId } });
+  if (s?.activeProvider === "EVOLUTION" && s.evolutionInstance && message.externalId) {
+    const number = message.conversation.customer.phone.replace(/\D/g, "");
+    const res = await evoEditMessage(
+      s.evolutionInstance,
+      number,
+      {
+        id: message.externalId,
+        remoteJid: phoneToJid(message.conversation.customer.phone),
+        fromMe: true,
+      },
+      text
+    );
+    if (!res.ok)
+      throw new Error(
+        "O WhatsApp não deixou editar — o prazo de 15 minutos pode ter passado."
+      );
+  }
+
+  const updated = await db.message.update({
+    where: { id: message.id },
+    data: { body: text, editedAt: new Date() },
+  });
+  await db.conversation.update({
+    where: { id: message.conversationId },
+    data: { updatedAt: new Date() },
+  });
+  return updated;
+}
+
 export type ReceiveMessageInput = {
   channel: Channel;
   phone: string;
@@ -336,9 +429,17 @@ export async function updateDeliveryStatus(
     error: message ? error : "Mensagem não encontrada para o externalId",
   });
   if (!message) return null;
+  // grava o HORÁRIO do recibo: entregue e visto (não retrocede um status)
+  const agora = new Date();
+  const receiptData: Record<string, unknown> = { status, ...(error ? { error } : {}) };
+  if (status === "ENTREGUE" && !message.deliveredAt) receiptData.deliveredAt = agora;
+  if (status === "LIDA") {
+    receiptData.readAt = message.readAt ?? agora;
+    if (!message.deliveredAt) receiptData.deliveredAt = agora; // visto implica entregue
+  }
   const updated = await db.message.update({
     where: { id: message.id },
-    data: { status, ...(error ? { error } : {}) },
+    data: receiptData,
   });
   // marca a conversa como alterada → o sync incremental da inbox atualiza os ✓✓
   await db.conversation.update({

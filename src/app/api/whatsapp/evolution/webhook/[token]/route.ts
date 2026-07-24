@@ -33,6 +33,12 @@ type EvoMessage = {
     documentMessage?: { fileName?: string; mimetype?: string };
     audioMessage?: { mimetype?: string };
     stickerMessage?: { mimetype?: string };
+    // apagar "para todos" chega como protocolMessage tipo REVOKE
+    protocolMessage?: { type?: string; key?: { id?: string } };
+    // texto editado chega como editedMessage
+    editedMessage?: {
+      message?: { conversation?: string; extendedTextMessage?: { text?: string } };
+    };
   };
   status?: string;
 };
@@ -138,8 +144,33 @@ export async function POST(
       for (const m of list) {
         const jid = m.key?.remoteJid ?? "";
         const phone = jidToPhone(jid); // grupos/status ficam de fora
+        if (!phone) continue;
+
+        // o cliente apagou uma mensagem (REVOKE): marca a mensagem alvo como
+        // "apagada pelo cliente" mas MANTÉM o conteúdo (a loja ainda lê)
+        const proto = m.message?.protocolMessage;
+        if (proto?.type === "REVOKE" && proto.key?.id) {
+          await db.message.updateMany({
+            where: { externalId: proto.key.id, conversation: { companyId } },
+            data: { revoked: true, revokedBy: "CUSTOMER" },
+          });
+          continue;
+        }
+
+        // o cliente editou uma mensagem: atualiza o texto e marca "editada"
+        const edited = m.message?.editedMessage?.message;
+        const editedText =
+          edited?.conversation ?? edited?.extendedTextMessage?.text ?? null;
+        if (editedText && m.key?.id) {
+          await db.message.updateMany({
+            where: { externalId: m.key.id, conversation: { companyId } },
+            data: { body: editedText, editedAt: new Date() },
+          });
+          continue;
+        }
+
         const { text, mediaType, mimeFallback, fileName } = extractText(m);
-        if (!phone || !text) continue;
+        if (!text) continue;
 
         // foto/áudio/vídeo/arquivo: baixa o conteúdo para exibir na conversa
         const mediaUrl =

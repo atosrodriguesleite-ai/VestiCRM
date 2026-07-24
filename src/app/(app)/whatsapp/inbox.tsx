@@ -38,6 +38,7 @@ import {
   Film,
   Trash2,
   Pencil,
+  MoreVertical,
 } from "lucide-react";
 import { OrderComposer } from "@/components/order-composer";
 import { ContactPanel } from "./contact-panel";
@@ -64,6 +65,11 @@ export type InboxMessage = {
   body: string;
   authorName: string | null;
   createdAt: string;
+  deliveredAt: string | null;
+  readAt: string | null;
+  editedAt: string | null;
+  revoked: boolean;
+  revokedBy: string | null;
 };
 
 export type InboxConversation = {
@@ -258,6 +264,10 @@ export function Inbox({
   const [showBackup, setShowBackup] = useState(false);
   const [slash, setSlash] = useState<{ query: string; at: number } | null>(null);
   const [sending, setSending] = useState(false);
+  // editar / apagar mensagem enviada
+  const [msgMenuId, setMsgMenuId] = useState<string | null>(null);
+  const [editingMsgId, setEditingMsgId] = useState<string | null>(null);
+  const [editMsgDraft, setEditMsgDraft] = useState("");
   // mensagem personalizável do link do catálogo (por loja)
   const [catMsg, setCatMsg] = useState<string | null>(catalogMsg);
   const [showCatMsgEdit, setShowCatMsgEdit] = useState(false);
@@ -541,6 +551,11 @@ export function Inbox({
       body: (payload.body as string) ?? "",
       authorName: currentUserName,
       createdAt: new Date().toISOString(),
+      deliveredAt: null,
+      readAt: null,
+      editedAt: null,
+      revoked: false,
+      revokedBy: null,
     });
 
     // enviar mensagem em conversa da fila = assumir o atendimento (visual já)
@@ -592,6 +607,11 @@ export function Inbox({
             body: msg.body,
             authorName: currentUserName,
             createdAt: msg.createdAt,
+            deliveredAt: msg.deliveredAt ?? null,
+            readAt: msg.readAt ?? null,
+            editedAt: msg.editedAt ?? null,
+            revoked: msg.revoked ?? false,
+            revokedBy: msg.revokedBy ?? null,
           },
           false
         );
@@ -615,6 +635,66 @@ export function Inbox({
     setMention(null);
     setSlash(null);
     void sendPayload({ body, kind });
+  }
+
+  async function apagarParaTodos(messageId: string) {
+    if (!selected) return;
+    if (
+      !window.confirm(
+        "Apagar esta mensagem para o cliente? Ela some do WhatsApp dele. Aqui no sistema ela fica registrada como apagada (você ainda vê o que era)."
+      )
+    )
+      return;
+    setMsgMenuId(null);
+    const convId = selected.id;
+    const res = await fetch(`/api/messages/${messageId}`, { method: "DELETE" });
+    if (res.ok) {
+      setConvs((prev) =>
+        prev.map((c) =>
+          c.id === convId
+            ? {
+                ...c,
+                messages: c.messages.map((m) =>
+                  m.id === messageId ? { ...m, revoked: true, revokedBy: "STORE" } : m
+                ),
+              }
+            : c
+        )
+      );
+    } else {
+      alert((await res.json().catch(() => ({}))).error ?? "Não foi possível apagar.");
+    }
+  }
+
+  async function salvarEdicao(messageId: string) {
+    if (!selected) return;
+    const body = editMsgDraft.trim();
+    if (!body) return;
+    const convId = selected.id;
+    const res = await fetch(`/api/messages/${messageId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ body }),
+    });
+    if (res.ok) {
+      setConvs((prev) =>
+        prev.map((c) =>
+          c.id === convId
+            ? {
+                ...c,
+                messages: c.messages.map((m) =>
+                  m.id === messageId
+                    ? { ...m, body, editedAt: new Date().toISOString() }
+                    : m
+                ),
+              }
+            : c
+        )
+      );
+      setEditingMsgId(null);
+    } else {
+      alert((await res.json().catch(() => ({}))).error ?? "Não foi possível editar.");
+    }
   }
 
   async function resend(messageId: string) {
@@ -1557,22 +1637,132 @@ export function Inbox({
                   );
                 }
                 const mine = m.direction === "OUT";
+                const isTemp = m.id.startsWith("temp-");
+                const editando = editingMsgId === m.id;
+                // recibo curto e detalhado (horário de entregue/visto)
+                const reciboCurto = m.readAt
+                  ? `Visto ${timeShort(m.readAt)}`
+                  : m.deliveredAt
+                    ? `Entregue ${timeShort(m.deliveredAt)}`
+                    : "";
+                const reciboTitle = [
+                  `Enviada ${timeShort(m.createdAt)}`,
+                  m.deliveredAt ? `Entregue ${timeShort(m.deliveredAt)}` : null,
+                  m.readAt ? `Vista ${timeShort(m.readAt)}` : null,
+                ]
+                  .filter(Boolean)
+                  .join("  ·  ");
+                // pode editar/apagar: mensagem da loja, de verdade, ainda não apagada
+                const podeApagar = mine && !m.revoked && !isTemp && m.status !== "FALHOU";
+                const podeEditar =
+                  podeApagar && (m.mediaType === "TEXT" || m.mediaType === "TEMPLATE");
                 return (
                   <div
                     key={m.id}
-                    className={`flex ${mine ? "justify-end" : "justify-start"}`}
+                    className={`group flex ${mine ? "justify-end" : "justify-start"}`}
                   >
+                    {/* menu ⋯ (aparece no hover) à esquerda da bolha da loja */}
+                    {mine && (podeEditar || podeApagar) && !editando && (
+                      <div className="relative self-center mr-1">
+                        <button
+                          onClick={() =>
+                            setMsgMenuId((v) => (v === m.id ? null : m.id))
+                          }
+                          className="p-1 rounded-full text-gray-300 opacity-0 group-hover:opacity-100 hover:text-gray-500 hover:bg-gray-100 transition"
+                          title="Opções da mensagem"
+                        >
+                          <MoreVertical className="size-4" />
+                        </button>
+                        {msgMenuId === m.id && (
+                          <>
+                          <div
+                            className="fixed inset-0 z-10"
+                            onClick={() => setMsgMenuId(null)}
+                          />
+                          <div className="absolute right-0 top-full z-20 mt-1 w-44 rounded-xl border border-gray-100 bg-white shadow-pop p-1">
+                            {podeEditar && (
+                              <button
+                                onClick={() => {
+                                  setEditingMsgId(m.id);
+                                  setEditMsgDraft(m.body);
+                                  setMsgMenuId(null);
+                                }}
+                                className="w-full flex items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs text-gray-600 hover:bg-gray-50"
+                              >
+                                <Pencil className="size-3.5" /> Editar mensagem
+                              </button>
+                            )}
+                            <button
+                              onClick={() => apagarParaTodos(m.id)}
+                              className="w-full flex items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs text-rose-600 hover:bg-rose-50"
+                            >
+                              <Trash2 className="size-3.5" /> Apagar para o cliente
+                            </button>
+                          </div>
+                          </>
+                        )}
+                      </div>
+                    )}
                     <div
                       className={`max-w-[80%] rounded-2xl px-3.5 py-2 text-sm shadow-sm ${
                         mine
                           ? "bg-brand-600 text-white rounded-br-md"
                           : "bg-white text-ink rounded-bl-md"
-                      }`}
+                      } ${m.revoked ? "opacity-90" : ""}`}
                     >
-                      <MediaContent m={m} />
-                      {(m.mediaType === "TEXT" || m.mediaType === "TEMPLATE") && (
-                        <p className="whitespace-pre-wrap break-words">{m.body}</p>
+                      {/* aviso de mensagem apagada (mantém o texto legível) */}
+                      {m.revoked && (
+                        <p
+                          className={`flex items-center gap-1 text-[11px] font-semibold mb-1 ${
+                            mine ? "text-white/80" : "text-rose-500"
+                          }`}
+                        >
+                          <Trash2 className="size-3" />
+                          {m.revokedBy === "CUSTOMER"
+                            ? "Cliente apagou esta mensagem"
+                            : "Você apagou para o cliente"}
+                        </p>
                       )}
+
+                      {editando ? (
+                        <div className="flex flex-col gap-1.5 min-w-[220px]">
+                          <textarea
+                            autoFocus
+                            value={editMsgDraft}
+                            onChange={(e) => setEditMsgDraft(e.target.value)}
+                            rows={2}
+                            className="resize-none rounded-lg bg-white/15 text-white placeholder-white/60 px-2 py-1.5 text-sm outline-none border border-white/30"
+                          />
+                          <div className="flex items-center justify-end gap-1.5">
+                            <button
+                              onClick={() => setEditingMsgId(null)}
+                              className="rounded-lg px-2.5 py-1 text-[11px] font-medium text-white/80 hover:bg-white/15"
+                            >
+                              Cancelar
+                            </button>
+                            <button
+                              onClick={() => salvarEdicao(m.id)}
+                              className="rounded-lg bg-white text-brand-700 px-3 py-1 text-[11px] font-bold hover:bg-white/90"
+                            >
+                              Salvar
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <>
+                          <MediaContent m={m} />
+                          {(m.mediaType === "TEXT" || m.mediaType === "TEMPLATE") && (
+                            <p
+                              className={`whitespace-pre-wrap break-words ${
+                                m.revoked ? "italic opacity-80" : ""
+                              }`}
+                            >
+                              {m.body}
+                            </p>
+                          )}
+                        </>
+                      )}
+
                       {m.status === "FALHOU" && (
                         <div className="flex items-center gap-2 mt-1.5 rounded-lg bg-black/15 px-2 py-1">
                           <span className="text-[10px] flex-1">
@@ -1587,15 +1777,24 @@ export function Inbox({
                           </button>
                         </div>
                       )}
-                      <p
-                        className={`text-[10px] mt-1 text-right flex items-center gap-1 justify-end ${mine ? "text-white/60" : "text-gray-300"}`}
-                      >
-                        {mine && m.authorName
-                          ? `${m.authorName.split(" ")[0]} · `
-                          : ""}
-                        {timeShort(m.createdAt)}
-                        <StatusTicks m={m} />
-                      </p>
+                      {!editando && (
+                        <p
+                          title={mine ? reciboTitle : undefined}
+                          className={`text-[10px] mt-1 text-right flex items-center gap-1 justify-end flex-wrap ${mine ? "text-white/60" : "text-gray-300"}`}
+                        >
+                          {mine && m.authorName
+                            ? `${m.authorName.split(" ")[0]} · `
+                            : ""}
+                          {timeShort(m.createdAt)}
+                          {m.editedAt && !m.revoked && (
+                            <span className="italic">· editada</span>
+                          )}
+                          <StatusTicks m={m} />
+                          {mine && reciboCurto && !m.revoked && (
+                            <span className="font-medium">· {reciboCurto}</span>
+                          )}
+                        </p>
+                      )}
                     </div>
                   </div>
                 );
@@ -1957,6 +2156,11 @@ export function Inbox({
                     body,
                     authorName: currentUserName,
                     createdAt: nowIso,
+                    deliveredAt: null,
+                    readAt: null,
+                    editedAt: null,
+                    revoked: false,
+                    revokedBy: null,
                   });
                   setDraft(
                     `Seu pedido ${orderNumber(order.number)} ficou em R$ ${order.total

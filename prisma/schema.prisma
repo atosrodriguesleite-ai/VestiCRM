@@ -539,6 +539,13 @@ model Message {
   authorId       String?
   author         User?            @relation(fields: [authorId], references: [id], onDelete: SetNull)
   createdAt      DateTime         @default(now())
+  // recibos com horário (WhatsApp): quando o cliente RECEBEU e quando VIU
+  deliveredAt    DateTime?
+  readAt         DateTime?
+  // edição (WhatsApp permite editar até ~15min) e "apagar para todos"
+  editedAt       DateTime?
+  revoked        Boolean          @default(false) // apagada para todos
+  revokedBy      String? // "CUSTOMER" (o cliente apagou) | "STORE" (a loja apagou)
 
   @@index([conversationId, createdAt])
   @@index([externalId])

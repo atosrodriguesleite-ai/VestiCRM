@@ -243,6 +243,41 @@ export async function evoLogout(instance: string) {
   return evo("DELETE", `/instance/delete/${instance}`);
 }
 
+/** JID de contato (1:1) a partir de um telefone BR (assume 55 sem DDI). */
+export function phoneToJid(phone: string): string {
+  const num = (phone ?? "").replace(/\D/g, "");
+  const full = num.length <= 11 ? `55${num}` : num;
+  return `${full}@s.whatsapp.net`;
+}
+
+/**
+ * Apaga a mensagem "para todos" (some do celular do cliente). O WhatsApp só
+ * permite por um tempo limitado (~2 dias) após o envio.
+ */
+export async function evoDeleteForEveryone(
+  instance: string,
+  key: { id: string; remoteJid: string; fromMe: boolean }
+) {
+  return evo("DELETE", `/chat/deleteMessageForEveryone/${instance}`, key);
+}
+
+/**
+ * Edita o texto de uma mensagem já enviada. O WhatsApp só permite editar até
+ * ~15 minutos após o envio (regra da Meta).
+ */
+export async function evoEditMessage(
+  instance: string,
+  number: string,
+  key: { id: string; remoteJid: string; fromMe: boolean },
+  text: string
+) {
+  return evo<{ key?: { id?: string } }>("POST", `/chat/updateMessage/${instance}`, {
+    number,
+    key,
+    text,
+  });
+}
+
 /** Extrai o telefone (dígitos) de um JID "5511999999999@s.whatsapp.net". */
 export function jidToPhone(jid: string): string | null {
   const m = jid.match(/^(\d{8,15})@s\.whatsapp\.net$/);
