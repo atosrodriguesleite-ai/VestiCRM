@@ -37,6 +37,7 @@ import {
   Download,
   Film,
   Trash2,
+  Pencil,
 } from "lucide-react";
 import { OrderComposer } from "@/components/order-composer";
 import { ContactPanel } from "./contact-panel";
@@ -212,6 +213,10 @@ function SetorPill({
 
 type Tag = { id: string; name: string; color: string };
 
+/** Mensagem padrão do botão "enviar link do catálogo" ({nome}/{link} trocados). */
+const CATALOG_MSG_PADRAO =
+  "Oi {nome}! 💜 Montei um catálogo pra você dar uma olhada com calma:\n{link}";
+
 export function Inbox({
   conversations,
   templates,
@@ -220,6 +225,8 @@ export function Inbox({
   allTags,
   currentUserId,
   currentUserName,
+  catalogMsg,
+  canEditCatalogMsg,
 }: {
   conversations: InboxConversation[];
   templates: { id: string; title: string; body: string; category: string }[];
@@ -228,6 +235,8 @@ export function Inbox({
   allTags: Tag[];
   currentUserId: string;
   currentUserName: string;
+  catalogMsg: string | null;
+  canEditCatalogMsg: boolean;
 }) {
   const router = useRouter();
   const [convs, setConvs] = useState(conversations);
@@ -249,6 +258,11 @@ export function Inbox({
   const [showBackup, setShowBackup] = useState(false);
   const [slash, setSlash] = useState<{ query: string; at: number } | null>(null);
   const [sending, setSending] = useState(false);
+  // mensagem personalizável do link do catálogo (por loja)
+  const [catMsg, setCatMsg] = useState<string | null>(catalogMsg);
+  const [showCatMsgEdit, setShowCatMsgEdit] = useState(false);
+  const [catMsgDraft, setCatMsgDraft] = useState("");
+  const [savingCatMsg, setSavingCatMsg] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const taRef = useRef<HTMLTextAreaElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -262,6 +276,28 @@ export function Inbox({
   const recCancelRef = useRef(false);
 
   const selected = convs.find((c) => c.id === selectedId) ?? null;
+
+  // campo de mensagem cresce conforme o texto (até ~7 linhas)
+  useEffect(() => {
+    const ta = taRef.current;
+    if (!ta) return;
+    ta.style.height = "auto";
+    ta.style.height = `${Math.min(ta.scrollHeight, 192)}px`;
+  }, [draft, noteMode, selectedId]);
+
+  async function salvarCatMsg(valor: string | null) {
+    setSavingCatMsg(true);
+    const res = await fetch("/api/comm/settings", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ catalogLinkMsg: valor }),
+    });
+    setSavingCatMsg(false);
+    if (res.ok) {
+      setCatMsg(valor);
+      setShowCatMsgEdit(false);
+    }
+  }
 
   // tela ocupa 100% do espaço útil: mede onde ela começa (pode ter a faixa
   // amarela de Super Admin em cima) e estica até o rodapé da janela
@@ -410,7 +446,7 @@ export function Inbox({
         busy = false;
       }
     }
-    const timer = setInterval(sync, 4000);
+    const timer = setInterval(sync, 2000);
     window.addEventListener("focus", sync);
     return () => {
       alive = false;
@@ -696,9 +732,17 @@ export function Inbox({
     if (!selected) return;
     const nome = selected.customer.name.split(" ")[0];
     const link = selected.customer.catalogLink;
-    const msg = draft.trim()
-      ? `${draft.trim()}\n${link}`
-      : `Oi ${nome}! 💜 Montei um catálogo pra você dar uma olhada com calma:\n${link}`;
+    // já tinha texto digitado → só anexa o link; vazio → usa a mensagem da
+    // loja (personalizável no ✏️ ao lado) trocando {nome} e {link}
+    let msg: string;
+    if (draft.trim()) {
+      msg = `${draft.trim()}\n${link}`;
+    } else {
+      const modelo = (catMsg?.trim() || CATALOG_MSG_PADRAO)
+        .replaceAll("{nome}", nome)
+        .replaceAll("{link}", link);
+      msg = modelo.includes(link) ? modelo : `${modelo}\n${link}`;
+    }
     setDraft(msg);
     setSlash(null);
     taRef.current?.focus();
@@ -1483,6 +1527,50 @@ export function Inbox({
                   ))}
                 </div>
               )}
+              {/* editor da mensagem do link do catálogo (por loja) */}
+              {showCatMsgEdit && (
+                <div className="absolute bottom-full left-3 right-3 sm:right-auto sm:w-96 mb-1 bg-white rounded-xl border border-gray-100 shadow-pop z-20 p-3">
+                  <p className="text-[10px] font-bold uppercase tracking-wide text-gray-400 flex items-center gap-1 mb-1.5">
+                    <Link2 className="size-3" /> Mensagem do link do catálogo
+                  </p>
+                  <textarea
+                    value={catMsgDraft}
+                    onChange={(e) => setCatMsgDraft(e.target.value)}
+                    rows={4}
+                    maxLength={500}
+                    className="w-full resize-none rounded-lg bg-gray-50 border border-transparent focus:border-brand-300 focus:bg-white px-2.5 py-2 text-xs outline-none"
+                  />
+                  <p className="text-[10px] text-gray-400 mt-1 leading-snug">
+                    Use <b>{"{nome}"}</b> para o primeiro nome do cliente e{" "}
+                    <b>{"{link}"}</b> para o link do catálogo (se não usar, o
+                    link entra no final sozinho).
+                  </p>
+                  <div className="flex items-center justify-between gap-2 mt-2">
+                    <button
+                      onClick={() => salvarCatMsg(null)}
+                      disabled={savingCatMsg}
+                      className="text-[11px] text-gray-400 hover:text-gray-600 underline underline-offset-2 disabled:opacity-50"
+                    >
+                      Restaurar padrão
+                    </button>
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        onClick={() => setShowCatMsgEdit(false)}
+                        className="rounded-lg border border-gray-200 text-gray-500 text-xs font-medium px-3 py-1.5 hover:bg-gray-50"
+                      >
+                        Cancelar
+                      </button>
+                      <button
+                        onClick={() => salvarCatMsg(catMsgDraft.trim() || null)}
+                        disabled={savingCatMsg}
+                        className="rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-xs font-semibold px-3.5 py-1.5 transition disabled:opacity-50"
+                      >
+                        {savingCatMsg ? "Salvando…" : "Salvar"}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
               {/* menção @ nas notas internas */}
               {noteMode && mention && mentionMatches.length > 0 && (
                 <div className="absolute bottom-full left-3 mb-1 w-56 bg-white rounded-xl border border-gray-100 shadow-pop z-20 p-1">
@@ -1558,6 +1646,22 @@ export function Inbox({
                 >
                   <Link2 className="size-4.5" />
                 </button>
+                {canEditCatalogMsg && (
+                  <button
+                    onClick={() => {
+                      setCatMsgDraft(catMsg ?? CATALOG_MSG_PADRAO);
+                      setShowCatMsgEdit((v) => !v);
+                      setShowTemplates(false);
+                      setShowAttach(false);
+                    }}
+                    className={`p-1 -ml-1.5 transition shrink-0 ${
+                      showCatMsgEdit ? "text-brand-600" : "text-gray-300 hover:text-brand-600"
+                    }`}
+                    title="Personalizar a mensagem do link do catálogo"
+                  >
+                    <Pencil className="size-3" />
+                  </button>
+                )}
                 <button
                   onClick={() => setShowOrder(true)}
                   className="p-2 text-gray-400 hover:text-brand-600 transition shrink-0"
@@ -1618,13 +1722,13 @@ export function Inbox({
                       sendMessage();
                     }
                   }}
-                  rows={1}
+                  rows={2}
                   placeholder={
                     noteMode
                       ? "Nota interna... use @ para marcar alguém"
                       : "Escrever mensagem... (/ para respostas rápidas)"
                   }
-                  className="flex-1 resize-none bg-transparent text-sm outline-none py-2 max-h-32"
+                  className="flex-1 resize-none bg-transparent text-sm outline-none py-2 max-h-48"
                 />
                 <button
                   onClick={sendMessage}

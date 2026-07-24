@@ -37,6 +37,7 @@ const schema = z.object({
   smtpPort: z.number().int().positive().max(65535).nullable().optional(),
   smtpUser: z.string().nullable().optional(),
   smtpPassword: z.string().min(4).nullable().optional(),
+  catalogLinkMsg: z.string().max(500).nullable().optional(),
 });
 
 export async function GET() {
@@ -71,6 +72,7 @@ export async function GET() {
             smtpPort: s.smtpPort,
             smtpUser: s.smtpUser,
             smtpPassword: maskSecret(s.smtpPassword),
+            catalogLinkMsg: s.catalogLinkMsg,
           }
         : { activeProvider: "MOCK" },
       audits: audits.map((a) => ({

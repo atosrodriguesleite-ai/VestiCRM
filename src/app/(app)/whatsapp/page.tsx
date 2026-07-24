@@ -1,5 +1,6 @@
 import { requireUser } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { isAdmin } from "@/lib/scope";
 import { loadInboxConversations } from "@/lib/inbox-data";
 import { Inbox } from "./inbox";
 
@@ -8,7 +9,7 @@ export const dynamic = "force-dynamic";
 export default async function WhatsAppPage() {
   const user = await requireUser();
 
-  const [data, templates, team, setores, tags] = await Promise.all([
+  const [data, templates, team, setores, tags, comm] = await Promise.all([
     loadInboxConversations(user),
     db.messageTemplate.findMany({
       where: { companyId: user.companyId },
@@ -28,6 +29,10 @@ export default async function WhatsAppPage() {
       orderBy: { name: "asc" },
       select: { id: true, name: true, color: true },
     }),
+    db.commSettings.findUnique({
+      where: { companyId: user.companyId },
+      select: { catalogLinkMsg: true },
+    }),
   ]);
 
   return (
@@ -44,6 +49,8 @@ export default async function WhatsAppPage() {
       allTags={tags}
       currentUserId={user.id}
       currentUserName={user.name}
+      catalogMsg={comm?.catalogLinkMsg ?? null}
+      canEditCatalogMsg={isAdmin(user)}
     />
   );
 }

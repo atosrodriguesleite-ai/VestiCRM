@@ -618,6 +618,8 @@ model CommSettings {
   evolutionPhone        String? // número conectado (informativo)
   // Central de Atendimento: setor padrão dos chamados que entram por este número
   defaultSetorId        String?
+  // mensagem do botão "enviar link do catálogo" ({nome} e {link} são trocados)
+  catalogLinkMsg        String?
   // trava de segurança anti-banimento: espaçamento mínimo + teto diário
   waLastSentAt          DateTime?
   waSentDate            String? // dia (yyyy-mm-dd) do contador abaixo
