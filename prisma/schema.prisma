@@ -478,11 +478,13 @@ model Conversation {
   lastInboundAt  DateTime? // última msg do cliente → tempo aguardando vendedor
   lastOutboundAt DateTime? // última msg da loja → tempo aguardando cliente
   createdAt      DateTime             @default(now())
+  updatedAt      DateTime             @default(now()) @updatedAt // sync incremental da inbox
 
   messages Message[]
   orders   Order[]
 
   @@index([companyId, status])
+  @@index([companyId, updatedAt])
 }
 
 enum MessageDirection {

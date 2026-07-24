@@ -336,8 +336,14 @@ export async function updateDeliveryStatus(
     error: message ? error : "Mensagem não encontrada para o externalId",
   });
   if (!message) return null;
-  return db.message.update({
+  const updated = await db.message.update({
     where: { id: message.id },
     data: { status, ...(error ? { error } : {}) },
   });
+  // marca a conversa como alterada → o sync incremental da inbox atualiza os ✓✓
+  await db.conversation.update({
+    where: { id: message.conversationId },
+    data: { updatedAt: new Date() },
+  });
+  return updated;
 }

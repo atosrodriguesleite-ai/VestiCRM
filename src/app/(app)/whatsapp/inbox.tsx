@@ -317,6 +317,82 @@ export function Inbox({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams]);
 
+  // --- Tempo real: consulta o servidor a cada 4s e traz só o que mudou ---
+  // (mensagem nova do cliente, recibos ✓✓, transferências...). Aba em segundo
+  // plano não consulta; ao voltar o foco, sincroniza na hora.
+  const selectedIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    selectedIdRef.current = selectedId;
+  }, [selectedId]);
+  const lastSyncRef = useRef(new Date(Date.now() - 60_000).toISOString());
+  useEffect(() => {
+    let alive = true;
+    let busy = false;
+    async function sync() {
+      if (busy || document.visibilityState !== "visible") return;
+      busy = true;
+      try {
+        const res = await fetch(
+          `/api/conversations?since=${encodeURIComponent(lastSyncRef.current)}`
+        );
+        if (!res.ok) return;
+        const d: { now?: string; conversations?: InboxConversation[] } =
+          await res.json();
+        if (!alive || !d.conversations) return;
+        // próxima busca ancorada no relógio do servidor, com folga de 10s
+        if (d.now)
+          lastSyncRef.current = new Date(
+            new Date(d.now).getTime() - 10_000
+          ).toISOString();
+        if (d.conversations.length === 0) return;
+        const fresh = d.conversations;
+        const selId = selectedIdRef.current;
+        setConvs((prev) => {
+          const freshById = new Map(fresh.map((c) => [c.id, c]));
+          const merged = prev.map((p) => {
+            const f = freshById.get(p.id);
+            if (!f) return p;
+            freshById.delete(p.id);
+            // preserva mensagem recém-enviada que o servidor ainda não devolveu
+            const ids = new Set(f.messages.map((m) => m.id));
+            const extra = p.messages.filter((m) => !ids.has(m.id));
+            return {
+              ...f,
+              messages: extra.length
+                ? [...f.messages, ...extra].sort((a, b) =>
+                    a.createdAt.localeCompare(b.createdAt)
+                  )
+                : f.messages,
+              unreadCount: f.id === selId ? 0 : f.unreadCount,
+            };
+          });
+          return [...merged, ...freshById.values()]; // novas conversas entram
+        });
+        // conversa aberta recebeu mensagem → já marca como lida no servidor
+        const sel = fresh.find((c) => c.id === selId);
+        if (sel && sel.unreadCount > 0) {
+          fetch(`/api/conversations/${sel.id}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ markRead: true }),
+          });
+        }
+      } catch {
+        // rede oscilou — tenta de novo no próximo tick
+      } finally {
+        busy = false;
+      }
+    }
+    const timer = setInterval(sync, 4000);
+    window.addEventListener("focus", sync);
+    return () => {
+      alive = false;
+      clearInterval(timer);
+      window.removeEventListener("focus", sync);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   function selectConv(id: string) {
     setSelectedId(id);
     setShowTransfer(false);
@@ -895,6 +971,15 @@ export function Inbox({
                   </p>
                   <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
                     <SetorPill setor={c.setor} />
+                    {c.customer.tags.map((t) => (
+                      <span
+                        key={t.id}
+                        className="rounded-full text-[10px] font-semibold px-1.5 py-0.5"
+                        style={{ backgroundColor: `${t.color}1a`, color: t.color }}
+                      >
+                        {t.name}
+                      </span>
+                    ))}
                     {waiting ? (
                       <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 text-amber-700 text-[10px] font-semibold px-1.5 py-0.5">
                         <Clock className="size-2.5" />
@@ -1106,34 +1191,50 @@ export function Inbox({
                     <option value="ALTA">🔥 Alta</option>
                   </select>
                 </label>
+                <div className="col-span-2 flex items-center justify-between gap-2 pt-0.5">
+                  <p className="text-[11px] text-gray-400 flex items-center gap-1">
+                    <CheckCircle2 className="size-3 text-emerald-500" />
+                    Cada mudança já é salva na hora.
+                  </p>
+                  <button
+                    onClick={() => setShowTransfer(false)}
+                    className="rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-xs font-semibold px-4 py-1.5 transition"
+                  >
+                    Concluir
+                  </button>
+                </div>
               </div>
             )}
 
-            {/* etiquetas (tags) do contato — clicáveis para remover, + para adicionar */}
-            <div className="relative flex items-center gap-1.5 px-4 py-2 border-b border-gray-50 overflow-x-auto thin-scroll shrink-0">
-              <TagIcon className="size-3.5 text-gray-300 shrink-0" />
-              {selected.customer.tags.map((t) => (
+            {/* etiquetas (tags) do contato — clicáveis para remover, + para adicionar.
+                O menu suspenso fica FORA da faixa com rolagem horizontal para não
+                ser cortado por ela (flutua por cima da conversa). */}
+            <div className="relative border-b border-gray-50 shrink-0">
+              <div className="flex items-center gap-1.5 px-4 py-2 overflow-x-auto thin-scroll">
+                <TagIcon className="size-3.5 text-gray-300 shrink-0" />
+                {selected.customer.tags.map((t) => (
+                  <button
+                    key={t.id}
+                    onClick={() => toggleTag(t)}
+                    className="group shrink-0 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold"
+                    style={{ backgroundColor: `${t.color}1a`, color: t.color }}
+                    title="Remover etiqueta"
+                  >
+                    {t.name}
+                    <X className="size-2.5 opacity-50 group-hover:opacity-100" />
+                  </button>
+                ))}
                 <button
-                  key={t.id}
-                  onClick={() => toggleTag(t)}
-                  className="group shrink-0 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold"
-                  style={{ backgroundColor: `${t.color}1a`, color: t.color }}
-                  title="Remover etiqueta"
+                  onClick={() => setShowTagPicker((v) => !v)}
+                  className={`shrink-0 inline-flex items-center gap-0.5 rounded-full border border-dashed px-2 py-0.5 text-[11px] font-semibold transition ${
+                    showTagPicker
+                      ? "border-brand-400 text-brand-600 bg-brand-50"
+                      : "border-gray-300 text-gray-400 hover:text-brand-600 hover:border-brand-300"
+                  }`}
                 >
-                  {t.name}
-                  <X className="size-2.5 opacity-50 group-hover:opacity-100" />
+                  <Plus className="size-3" /> etiqueta
                 </button>
-              ))}
-              <button
-                onClick={() => setShowTagPicker((v) => !v)}
-                className={`shrink-0 inline-flex items-center gap-0.5 rounded-full border border-dashed px-2 py-0.5 text-[11px] font-semibold transition ${
-                  showTagPicker
-                    ? "border-brand-400 text-brand-600 bg-brand-50"
-                    : "border-gray-300 text-gray-400 hover:text-brand-600 hover:border-brand-300"
-                }`}
-              >
-                <Plus className="size-3" /> etiqueta
-              </button>
+              </div>
 
               {showTagPicker && (
                 <div className="absolute top-full left-4 mt-1 w-60 bg-white rounded-xl border border-gray-100 shadow-pop z-20 p-2">

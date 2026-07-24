@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { receiveMessage, updateDeliveryStatus } from "@/lib/comm/engine";
-import { jidToPhone } from "@/lib/comm/evolution";
+import { jidToPhone, evoGetMediaBase64 } from "@/lib/comm/evolution";
+import type { MessageMedia } from "@prisma/client";
 
 /**
  * Webhook do WhatsApp sem API oficial (Evolution → plataforma).
@@ -27,27 +28,61 @@ type EvoMessage = {
   message?: {
     conversation?: string;
     extendedTextMessage?: { text?: string };
-    imageMessage?: { caption?: string };
-    videoMessage?: { caption?: string };
-    documentMessage?: { fileName?: string };
-    audioMessage?: unknown;
-    stickerMessage?: unknown;
+    imageMessage?: { caption?: string; mimetype?: string };
+    videoMessage?: { caption?: string; mimetype?: string };
+    documentMessage?: { fileName?: string; mimetype?: string };
+    audioMessage?: { mimetype?: string };
+    stickerMessage?: { mimetype?: string };
   };
   status?: string;
 };
 
-function extractText(m: EvoMessage): { text: string; media: boolean } {
+type Extracted = {
+  text: string;
+  mediaType: MessageMedia;
+  mimeFallback: string | null;
+  fileName: string | null;
+};
+
+function extractText(m: EvoMessage): Extracted {
   const msg = m.message ?? {};
-  if (msg.conversation) return { text: msg.conversation, media: false };
+  if (msg.conversation)
+    return { text: msg.conversation, mediaType: "TEXT", mimeFallback: null, fileName: null };
   if (msg.extendedTextMessage?.text)
-    return { text: msg.extendedTextMessage.text, media: false };
-  if (msg.imageMessage) return { text: msg.imageMessage.caption || "[foto]", media: true };
-  if (msg.videoMessage) return { text: msg.videoMessage.caption || "[vídeo]", media: true };
-  if (msg.audioMessage) return { text: "[áudio]", media: true };
+    return { text: msg.extendedTextMessage.text, mediaType: "TEXT", mimeFallback: null, fileName: null };
+  if (msg.imageMessage)
+    return { text: msg.imageMessage.caption || "[foto]", mediaType: "IMAGE", mimeFallback: msg.imageMessage.mimetype ?? "image/jpeg", fileName: null };
+  if (msg.videoMessage)
+    return { text: msg.videoMessage.caption || "[vídeo]", mediaType: "VIDEO", mimeFallback: msg.videoMessage.mimetype ?? "video/mp4", fileName: null };
+  if (msg.audioMessage)
+    return { text: "[áudio]", mediaType: "AUDIO", mimeFallback: msg.audioMessage.mimetype ?? "audio/ogg", fileName: null };
   if (msg.documentMessage)
-    return { text: `[arquivo] ${msg.documentMessage.fileName ?? ""}`.trim(), media: true };
-  if (msg.stickerMessage) return { text: "[figurinha]", media: true };
-  return { text: "", media: false };
+    return {
+      text: `[arquivo] ${msg.documentMessage.fileName ?? ""}`.trim(),
+      mediaType: "DOCUMENT",
+      mimeFallback: msg.documentMessage.mimetype ?? "application/octet-stream",
+      fileName: msg.documentMessage.fileName ?? null,
+    };
+  if (msg.stickerMessage)
+    return { text: "[figurinha]", mediaType: "IMAGE", mimeFallback: msg.stickerMessage.mimetype ?? "image/webp", fileName: null };
+  return { text: "", mediaType: "TEXT", mimeFallback: null, fileName: null };
+}
+
+// teto de segurança do arquivo salvo na conversa (~12 MB em base64)
+const MEDIA_BASE64_MAX = 12 * 1024 * 1024;
+
+/** Busca o arquivo da mensagem no servidor Evolution e monta a data URL. */
+async function fetchMediaDataUrl(
+  instance: string | null,
+  messageId: string | undefined,
+  mimeFallback: string | null
+): Promise<string | null> {
+  if (!instance || !messageId) return null;
+  const res = await evoGetMediaBase64(instance, messageId);
+  const b64 = res.data?.base64;
+  if (!res.ok || !b64 || b64.length > MEDIA_BASE64_MAX) return null;
+  const mime = res.data?.mimetype || mimeFallback || "application/octet-stream";
+  return `data:${mime.split(";")[0]};base64,${b64}`;
 }
 
 export async function POST(
@@ -103,8 +138,14 @@ export async function POST(
       for (const m of list) {
         const jid = m.key?.remoteJid ?? "";
         const phone = jidToPhone(jid); // grupos/status ficam de fora
-        const { text } = extractText(m);
+        const { text, mediaType, mimeFallback, fileName } = extractText(m);
         if (!phone || !text) continue;
+
+        // foto/áudio/vídeo/arquivo: baixa o conteúdo para exibir na conversa
+        const mediaUrl =
+          mediaType === "TEXT"
+            ? null
+            : await fetchMediaDataUrl(settings.evolutionInstance, m.key?.id, mimeFallback);
 
         if (!m.key?.fromMe) {
           // mensagem do CLIENTE → central de leads (funil, vendedor, tarefa)
@@ -113,6 +154,9 @@ export async function POST(
             phone,
             name: m.pushName || undefined,
             text,
+            ...(mediaType !== "TEXT" && mediaUrl
+              ? { mediaType, mediaUrl, fileName: fileName ?? undefined }
+              : {}),
             externalId: m.key?.id,
           });
         } else {
@@ -143,6 +187,9 @@ export async function POST(
                 channel: "WHATSAPP",
                 direction: "OUT",
                 body: text,
+                ...(mediaType !== "TEXT" && mediaUrl
+                  ? { mediaType, mediaUrl, fileName }
+                  : {}),
                 externalId: m.key?.id,
                 status: "ENVIADA",
               },

@@ -194,7 +194,11 @@ export async function evoSendMedia(
   });
 }
 
-/** Envia áudio de voz (PTT) pelo número conectado (data URL base64 ou link). */
+/**
+ * Envia áudio de voz (PTT) pelo número conectado (data URL base64 ou link).
+ * `encoding: true` faz o servidor converter para o formato de voz do WhatsApp
+ * (ogg/opus) — o navegador grava em webm, que o WhatsApp recusa sem conversão.
+ */
 export async function evoSendAudio(
   instance: string,
   number: string,
@@ -205,7 +209,19 @@ export async function evoSendAudio(
   return evo<{ key?: { id?: string } }>(
     "POST",
     `/message/sendWhatsAppAudio/${instance}`,
-    { number, audio }
+    { number, audio, encoding: true }
+  );
+}
+
+/**
+ * Baixa a mídia de uma mensagem recebida (foto, áudio, vídeo, arquivo) em
+ * base64 — o webhook só avisa que a mídia existe; o arquivo vem por aqui.
+ */
+export async function evoGetMediaBase64(instance: string, messageId: string) {
+  return evo<{ base64?: string; mimetype?: string; fileName?: string }>(
+    "POST",
+    `/chat/getBase64FromMediaMessage/${instance}`,
+    { message: { key: { id: messageId } }, convertToMp4: false }
   );
 }
 

@@ -193,10 +193,18 @@ export function ContactPanel({
               )}
             </div>
             <div className="mt-2 flex flex-wrap gap-1.5">
-              <span className="rounded-full bg-slate-100 text-slate-600 text-[11px] font-medium px-2 py-0.5">
+              <span
+                className="rounded-full bg-slate-100 text-slate-600 text-[11px] font-medium px-2 py-0.5"
+                title="Tipo do cliente (Varejo, Atacado...) — edite na ficha do cliente"
+              >
+                Tipo:{" "}
                 {customerTypeLabel[ficha.type as keyof typeof customerTypeLabel] ?? ficha.type}
               </span>
-              <span className="rounded-full bg-slate-100 text-slate-600 text-[11px] font-medium px-2 py-0.5">
+              <span
+                className="rounded-full bg-slate-100 text-slate-600 text-[11px] font-medium px-2 py-0.5"
+                title="Por onde este cliente chegou (origem do cadastro)"
+              >
+                Origem:{" "}
                 {originLabel[ficha.origin as keyof typeof originLabel] ?? ficha.origin}
               </span>
               {ficha.tags.map((t) => (

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { requireUser, AuthError } from "@/lib/auth";
 import { conversationScope } from "@/lib/scope";
+import { formatPhone } from "@/lib/format";
 
 /**
  * Backup das conversas em CSV (abre no Excel/Planilhas): uma linha por
@@ -13,6 +14,16 @@ import { conversationScope } from "@/lib/scope";
 const esc = (v: unknown) => {
   const s = String(v ?? "").replace(/"/g, '""');
   return /[";\n]/.test(s) ? `"${s}"` : s;
+};
+
+/**
+ * Telefone à prova de Excel: formatado vira texto naturalmente; se ainda for
+ * só dígitos (formato fora do padrão BR), sai como fórmula ="..." para o
+ * Excel não converter em notação científica (5,53E+11).
+ */
+const phoneText = (p: string) => {
+  const f = formatPhone(p);
+  return /^\d{8,}$/.test(f) ? `="${f}"` : f;
 };
 
 const dt = (d: Date) =>
@@ -51,7 +62,8 @@ export async function GET() {
         rows.push([
           dt(m.createdAt),
           c.customer.name,
-          c.customer.phone,
+          // formatado → o Excel trata como texto (número puro vira 5,53E+11)
+          formatPhone(c.customer.phone),
           c.setor?.name ?? "",
           c.assignee?.name ?? "",
           direcao,
