@@ -270,8 +270,9 @@ export function Inbox({
   const [newTplTitle, setNewTplTitle] = useState("");
   const [newTplBody, setNewTplBody] = useState("");
   const [savingTpl, setSavingTpl] = useState(false);
-  // editar / apagar mensagem enviada
-  const [msgMenuId, setMsgMenuId] = useState<string | null>(null);
+  // editar / apagar mensagem enviada (menu estilo WhatsApp: segurar em cima)
+  const [actionMsg, setActionMsg] = useState<InboxMessage | null>(null);
+  const lpTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [editingMsgId, setEditingMsgId] = useState<string | null>(null);
   const [editMsgDraft, setEditMsgDraft] = useState("");
   // mensagem personalizável do link do catálogo (por loja)
@@ -661,6 +662,18 @@ export function Inbox({
     void sendPayload({ body, kind });
   }
 
+  // "pressionar e segurar" (celular) abre o menu de ações da mensagem
+  function startLongPress(m: InboxMessage) {
+    cancelLongPress();
+    lpTimerRef.current = setTimeout(() => setActionMsg(m), 450);
+  }
+  function cancelLongPress() {
+    if (lpTimerRef.current) {
+      clearTimeout(lpTimerRef.current);
+      lpTimerRef.current = null;
+    }
+  }
+
   async function apagarParaTodos(messageId: string) {
     if (!selected) return;
     if (
@@ -669,7 +682,7 @@ export function Inbox({
       )
     )
       return;
-    setMsgMenuId(null);
+    setActionMsg(null);
     const convId = selected.id;
     const res = await fetch(`/api/messages/${messageId}`, { method: "DELETE" });
     if (res.ok) {
@@ -1094,6 +1107,7 @@ export function Inbox({
   const isMine = selected?.assignee?.id === currentUserId;
 
   return (
+    <>
     <div
       ref={shellRef}
       className="flex overflow-hidden bg-white -mx-4 -mt-4 -mb-24 h-[calc(100dvh-120px-var(--kb,0px))] rounded-none border-0 shadow-none md:-mx-8 md:-mt-8 md:-mb-8 md:h-[calc(100dvh-var(--inbox-top,0px))]"
@@ -1711,52 +1725,35 @@ export function Inbox({
                     key={m.id}
                     className={`group flex ${mine ? "justify-end" : "justify-start"}`}
                   >
-                    {/* menu ⋯ (aparece no hover) à esquerda da bolha da loja */}
+                    {/* ⋯ no desktop (hover); no celular é "segurar" a bolha */}
                     {mine && (podeEditar || podeApagar) && !editando && (
-                      <div className="relative self-center mr-1">
-                        <button
-                          onClick={() =>
-                            setMsgMenuId((v) => (v === m.id ? null : m.id))
-                          }
-                          className="p-1 rounded-full text-gray-300 opacity-0 group-hover:opacity-100 hover:text-gray-500 hover:bg-gray-100 transition"
-                          title="Opções da mensagem"
-                        >
-                          <MoreVertical className="size-4" />
-                        </button>
-                        {msgMenuId === m.id && (
-                          <>
-                          <div
-                            className="fixed inset-0 z-10"
-                            onClick={() => setMsgMenuId(null)}
-                          />
-                          <div className="absolute right-0 bottom-full z-20 mb-1 w-44 rounded-xl border border-gray-100 bg-white shadow-pop p-1">
-                            {podeEditar && (
-                              <button
-                                onClick={() => {
-                                  setEditingMsgId(m.id);
-                                  setEditMsgDraft(m.body);
-                                  setMsgMenuId(null);
-                                }}
-                                className="w-full flex items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs text-gray-600 hover:bg-gray-50"
-                              >
-                                <Pencil className="size-3.5" /> Editar mensagem
-                              </button>
-                            )}
-                            <button
-                              onClick={() => apagarParaTodos(m.id)}
-                              className="w-full flex items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs text-rose-600 hover:bg-rose-50"
-                            >
-                              <Trash2 className="size-3.5" /> Apagar para o cliente
-                            </button>
-                          </div>
-                          </>
-                        )}
-                      </div>
+                      <button
+                        onClick={() => setActionMsg(m)}
+                        className="hidden md:block self-center mr-1 p-1 rounded-full text-gray-300 opacity-0 group-hover:opacity-100 hover:text-gray-500 hover:bg-gray-100 transition"
+                        title="Opções da mensagem"
+                      >
+                        <MoreVertical className="size-4" />
+                      </button>
                     )}
                     <div
+                      onTouchStart={
+                        mine && (podeEditar || podeApagar) && !editando
+                          ? () => startLongPress(m)
+                          : undefined
+                      }
+                      onTouchEnd={cancelLongPress}
+                      onTouchMove={cancelLongPress}
+                      onContextMenu={
+                        mine && (podeEditar || podeApagar) && !editando
+                          ? (e) => {
+                              e.preventDefault();
+                              setActionMsg(m);
+                            }
+                          : undefined
+                      }
                       className={`max-w-[80%] rounded-2xl px-3.5 py-2 text-sm shadow-sm ${
                         mine
-                          ? "bg-brand-600 text-white rounded-br-md"
+                          ? "bg-brand-600 text-white rounded-br-md select-none"
                           : "bg-white text-ink rounded-bl-md"
                       } ${m.revoked ? "opacity-90" : ""}`}
                     >
@@ -2294,5 +2291,48 @@ export function Inbox({
         onChange={onFileChosen}
       />
     </div>
+
+    {/* folha de ações da mensagem (segurar no celular / ⋯ no computador):
+        sobe de baixo no celular, centralizada no computador — nunca corta */}
+    {actionMsg && (
+      <div
+        className="fixed inset-0 z-50 flex items-end justify-center sm:items-center bg-black/40 animate-fade-in"
+        onClick={() => setActionMsg(null)}
+      >
+        <div
+          className="w-full sm:max-w-xs bg-white rounded-t-2xl sm:rounded-2xl shadow-pop p-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))] sm:pb-2"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <p className="px-3 pt-2 pb-1 text-[11px] text-gray-400 line-clamp-2">
+            “{actionMsg.body}”
+          </p>
+          {(actionMsg.mediaType === "TEXT" || actionMsg.mediaType === "TEMPLATE") && (
+            <button
+              onClick={() => {
+                setEditingMsgId(actionMsg.id);
+                setEditMsgDraft(actionMsg.body);
+                setActionMsg(null);
+              }}
+              className="w-full flex items-center gap-3 rounded-xl px-3 py-3 text-left text-sm text-gray-700 hover:bg-gray-50"
+            >
+              <Pencil className="size-4 text-gray-400" /> Editar mensagem
+            </button>
+          )}
+          <button
+            onClick={() => apagarParaTodos(actionMsg.id)}
+            className="w-full flex items-center gap-3 rounded-xl px-3 py-3 text-left text-sm text-rose-600 hover:bg-rose-50"
+          >
+            <Trash2 className="size-4" /> Apagar para o cliente
+          </button>
+          <button
+            onClick={() => setActionMsg(null)}
+            className="w-full rounded-xl px-3 py-3 text-center text-sm font-semibold text-gray-500 hover:bg-gray-50 mt-1 border-t border-gray-100"
+          >
+            Cancelar
+          </button>
+        </div>
+      </div>
+    )}
+    </>
   );
 }
