@@ -5,6 +5,7 @@ import { isAdmin } from "@/lib/scope";
 import {
   evolutionEnv,
   evoState,
+  evoSetWebhook,
   jidToPhone,
   TERMO_WA_TEXTO,
   TERMO_WA_VERSAO,
@@ -38,6 +39,13 @@ export async function GET() {
       if (state === "open") {
         status = "CONECTADO";
         phone = jidToPhone(st.data?.instance?.ownerJid ?? "") ?? phone;
+        // auto-cura: garante que a instância escuta todos os eventos atuais
+        // (ex.: "cliente apagou") mesmo tendo sido criada antes — best-effort
+        if (settings.evolutionWebhookToken)
+          await evoSetWebhook(
+            settings.evolutionInstance,
+            settings.evolutionWebhookToken
+          ).catch(() => {});
       } else if (state === "connecting") status = "AGUARDANDO_QR";
       else if (state === "close") status = "DESCONECTADO";
       // auto-correção: conectado de verdade ⇒ provedor ativo é o Evolution

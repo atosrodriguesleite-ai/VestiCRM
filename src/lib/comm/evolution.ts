@@ -134,6 +134,19 @@ async function evo<T = Record<string, unknown>>(
   }
 }
 
+/** Eventos que a loja precisa receber (inclui apagar/editar do cliente). */
+export const WEBHOOK_EVENTS = [
+  "QRCODE_UPDATED",
+  "CONNECTION_UPDATE",
+  "MESSAGES_UPSERT",
+  "MESSAGES_UPDATE",
+  "MESSAGES_DELETE", // cliente apagou uma mensagem
+] as const;
+
+function webhookUrl(webhookToken: string) {
+  return `${appBaseUrl()}/api/whatsapp/evolution/webhook/${webhookToken}`;
+}
+
 /** Cria (ou garante) a instância da loja, já apontando o webhook pra cá. */
 export async function evoCreateInstance(instance: string, webhookToken: string) {
   return evo("POST", "/instance/create", {
@@ -141,9 +154,25 @@ export async function evoCreateInstance(instance: string, webhookToken: string) 
     integration: "WHATSAPP-BAILEYS",
     qrcode: true,
     webhook: {
-      url: `${appBaseUrl()}/api/whatsapp/evolution/webhook/${webhookToken}`,
+      url: webhookUrl(webhookToken),
       byEvents: false,
-      events: ["QRCODE_UPDATED", "CONNECTION_UPDATE", "MESSAGES_UPSERT", "MESSAGES_UPDATE"],
+      events: [...WEBHOOK_EVENTS],
+    },
+  });
+}
+
+/**
+ * Atualiza o webhook de uma instância JÁ criada (ex.: para passar a receber
+ * um evento novo sem precisar reconectar). Best-effort — falha em silêncio.
+ */
+export async function evoSetWebhook(instance: string, webhookToken: string) {
+  return evo("POST", `/webhook/set/${instance}`, {
+    webhook: {
+      enabled: true,
+      url: webhookUrl(webhookToken),
+      webhookByEvents: false,
+      webhookBase64: false,
+      events: [...WEBHOOK_EVENTS],
     },
   });
 }

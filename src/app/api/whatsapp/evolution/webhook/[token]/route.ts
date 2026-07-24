@@ -234,6 +234,22 @@ export async function POST(
       }
     }
 
+    // o cliente apagou uma mensagem (evento dedicado do servidor)
+    if (event === "messages.delete") {
+      const raw = body.data as
+        | { id?: string; keyId?: string; key?: { id?: string } }
+        | { id?: string; keyId?: string; key?: { id?: string } }[];
+      const list = Array.isArray(raw) ? raw : [raw];
+      for (const d of list) {
+        const msgId = d?.key?.id ?? d?.id ?? d?.keyId;
+        if (!msgId) continue;
+        await db.message.updateMany({
+          where: { externalId: msgId, conversation: { companyId } },
+          data: { revoked: true, revokedBy: "CUSTOMER" },
+        });
+      }
+    }
+
     if (event === "messages.update") {
       const raw = body.data as
         | { keyId?: string; status?: string }

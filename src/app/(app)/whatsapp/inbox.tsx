@@ -1711,7 +1711,7 @@ export function Inbox({
                             className="fixed inset-0 z-10"
                             onClick={() => setMsgMenuId(null)}
                           />
-                          <div className="absolute right-0 top-full z-20 mt-1 w-44 rounded-xl border border-gray-100 bg-white shadow-pop p-1">
+                          <div className="absolute right-0 bottom-full z-20 mb-1 w-44 rounded-xl border border-gray-100 bg-white shadow-pop p-1">
                             {podeEditar && (
                               <button
                                 onClick={() => {
