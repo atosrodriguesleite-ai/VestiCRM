@@ -1,6 +1,5 @@
 import { requireUser } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { isAdmin } from "@/lib/scope";
 import { loadInboxConversations } from "@/lib/inbox-data";
 import { Inbox } from "./inbox";
 
@@ -50,7 +49,7 @@ export default async function WhatsAppPage() {
       currentUserId={user.id}
       currentUserName={user.name}
       catalogMsg={comm?.catalogLinkMsg ?? null}
-      canEditCatalogMsg={isAdmin(user)}
+      canEditCatalogMsg={true}
     />
   );
 }

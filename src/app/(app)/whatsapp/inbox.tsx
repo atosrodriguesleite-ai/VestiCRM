@@ -287,7 +287,7 @@ export function Inbox({
 
   async function salvarCatMsg(valor: string | null) {
     setSavingCatMsg(true);
-    const res = await fetch("/api/comm/settings", {
+    const res = await fetch("/api/comm/catalog-msg", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ catalogLinkMsg: valor }),
