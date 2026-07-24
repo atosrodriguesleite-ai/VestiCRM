@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { receiveMessage, updateDeliveryStatus } from "@/lib/comm/engine";
 import { jidToPhone, evoGetMediaBase64 } from "@/lib/comm/evolution";
+import { phoneMatchVariants } from "@/lib/intake";
 import type { MessageMedia } from "@prisma/client";
 
 /**
@@ -192,9 +193,11 @@ export async function POST(
           });
         } else {
           // mensagem enviada PELO CELULAR da loja → registra na conversa do
-          // cliente (histórico completo), sem reenviar nada
+          // cliente (histórico completo), sem reenviar nada. Dedup tolerante
+          // ao 9º dígito para casar com o mesmo cadastro do intake.
           const customer = await db.customer.findFirst({
-            where: { companyId, phone: { endsWith: phone.slice(-11) } },
+            where: { companyId, phone: { in: phoneMatchVariants(phone) } },
+            orderBy: { createdAt: "asc" },
           });
           if (!customer) continue;
           let conv = await db.conversation.findFirst({

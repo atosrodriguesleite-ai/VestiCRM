@@ -46,6 +46,24 @@ export function normalizePhone(raw: string): string {
   return digits;
 }
 
+/**
+ * Variações do MESMO número brasileiro para dedup, tolerando o "9º dígito":
+ * um celular pode aparecer com 9 (55 DD 9XXXXXXXX) ou sem (55 DD XXXXXXXX) —
+ * o WhatsApp costuma mandar com 9, e cadastros antigos ficam sem. Assim a
+ * mesma pessoa não vira dois contatos/duas conversas.
+ */
+export function phoneMatchVariants(raw: string): string[] {
+  const d = normalizePhone(raw);
+  const set = new Set<string>([d]);
+  if (d.startsWith("55") && d.length >= 12) {
+    const ddd = d.slice(2, 4);
+    const sub = d.slice(4); // parte após DDI+DDD
+    if (sub.length === 9 && sub.startsWith("9")) set.add(`55${ddd}${sub.slice(1)}`); // tira o 9
+    if (sub.length === 8) set.add(`55${ddd}9${sub}`); // põe o 9
+  }
+  return [...set];
+}
+
 /** Rodízio: próximo vendedor ativo depois do último que recebeu lead. */
 export function pickRoundRobin<T extends { id: string }>(
   sellers: T[],
@@ -108,8 +126,10 @@ export async function intakeLead(
   const company = await db.company.findUnique({ where: { id: companyId } });
   if (!company) throw new Error("Empresa não encontrada");
 
+  // dedup tolerante ao 9º dígito (com/sem 9) — evita cliente/conversa duplicados
   const existing = await db.customer.findFirst({
-    where: { companyId, phone },
+    where: { companyId, phone: { in: phoneMatchVariants(payload.phone) } },
+    orderBy: { createdAt: "asc" },
   });
 
   const channelLabel = originLabel[payload.origin];

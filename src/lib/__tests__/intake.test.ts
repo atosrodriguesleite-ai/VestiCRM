@@ -1,5 +1,22 @@
 import { describe, it, expect } from "vitest";
-import { normalizePhone, pickRoundRobin } from "../intake";
+import { normalizePhone, phoneMatchVariants, pickRoundRobin } from "../intake";
+
+describe("phoneMatchVariants (dedup tolerante ao 9º dígito)", () => {
+  it("casa com/sem o 9 (mesma pessoa)", () => {
+    // com 9 → também gera a versão sem 9
+    expect(phoneMatchVariants("5533988585607")).toContain("553388585607");
+    // sem 9 → também gera a versão com 9
+    expect(phoneMatchVariants("(33) 8858-5607")).toContain("5533988585607");
+  });
+  it("as duas formas do mesmo número compartilham variação", () => {
+    const a = phoneMatchVariants("5533988585607");
+    const b = phoneMatchVariants("553388585607");
+    expect(a.some((x) => b.includes(x))).toBe(true);
+  });
+  it("inclui sempre o próprio número normalizado", () => {
+    expect(phoneMatchVariants("11998761001")).toContain("5511998761001");
+  });
+});
 
 describe("normalizePhone (deduplicação de leads)", () => {
   it("adiciona DDI 55 a números brasileiros com DDD", () => {
