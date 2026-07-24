@@ -966,7 +966,7 @@ export function Inbox({
   return (
     <div
       ref={shellRef}
-      className="w-full flex overflow-hidden bg-white -mx-4 -mt-4 -mb-24 h-[calc(100dvh-120px-var(--kb,0px))] rounded-none border-0 shadow-none md:-mx-8 md:-mt-8 md:-mb-8 md:h-[calc(100dvh-var(--inbox-top,0px))]"
+      className="flex overflow-hidden bg-white -mx-4 -mt-4 -mb-24 h-[calc(100dvh-120px-var(--kb,0px))] rounded-none border-0 shadow-none md:-mx-8 md:-mt-8 md:-mb-8 md:h-[calc(100dvh-var(--inbox-top,0px))]"
     >
       {/* Lista de conversas */}
       <div
