@@ -1,5 +1,6 @@
 import { db } from "./db";
 import { originLabel } from "./format";
+import { consolidateOpenConversations } from "./merge-contacts";
 import type { Origin, Customer, Conversation, Opportunity, Task } from "@prisma/client";
 
 /**
@@ -190,6 +191,9 @@ export async function intakeLead(
   }
 
   // ---- Conversa: reutiliza a aberta ou cria uma nova ----
+  // antes, junta eventuais conversas abertas duplicadas deste cliente numa só
+  // (auto-cura: a mesma pessoa nunca mostra dois chats abertos na fila)
+  await consolidateOpenConversations(companyId, customer.id);
   let conversation = await db.conversation.findFirst({
     where: { companyId, customerId: customer.id, status: { not: "CLOSED" } },
     orderBy: { lastMessageAt: "desc" },
