@@ -56,9 +56,11 @@ export function riscoParaPlt(risco: Risco, tituloModelo: string): string {
   }
 
   // identificação do risco na borda
-  const combo = Object.entries(risco.combo)
-    .map(([t, v]) => (v > 1 ? `${v}X${t}` : t))
-    .join("+");
+  const combo =
+    risco.rotulo ??
+    Object.entries(risco.combo)
+      .map(([t, v]) => (v > 1 ? `${v}X${t}` : t))
+      .join("+");
   cmd.push(
     "DT~;",
     `PU${pt(1, risco.larguraCm + 1)};`,

@@ -1,30 +1,35 @@
 "use client";
 
 /**
- * Plano de Corte Inteligente — fluxo em 3 passos na mesma tela:
- *   1. Modelo: upload do arquivo do CAD (.adsx/.dxf) e escolha do modelo
- *   2. Configuração: peças (liga/desliga forro), grade, tecido e mesa
- *   3. Resultado: riscos desenhados, metragens, estratégia vencedora e PLT
- *
- * UX pensada pra quem está do lado da mesa de corte: números grandes,
- * linguagem de confecção (folhas, enfesto, risco) e zero jargão técnico.
+ * Plano de Corte Inteligente — tela completa:
+ *   1. Biblioteca de modelos (upload .adsx/DXF + anexar curvas via PDF)
+ *   2. Carrinho do corte: VÁRIOS modelos juntos (mesmo tecido/largura),
+ *      grade por modelo, peças liga/desliga, tecido/mesa e o MODO de
+ *      otimização (quanto tempo o sistema pensa)
+ *   3. Otimização ao vivo: barra de %, cronômetro, frases de "pensando",
+ *      tentativas reais e o plano MELHORANDO na tela; botão "Parar e usar"
+ *   4. Fila: até 3 planos calculando ao mesmo tempo — continuam de onde
+ *      pararam se a página recarregar
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Brain,
   CheckCircle2,
-  ChevronRight,
   Download,
   FileUp,
   Loader2,
+  Paperclip,
+  Plus,
   Ruler,
   Scissors,
   Shirt,
   Sparkles,
+  Square,
   Trash2,
   TrendingDown,
   UploadCloud,
+  X,
 } from "lucide-react";
 import { Button, Card, EmptyState, Field, Input, inputCls } from "@/components/ui";
 
@@ -43,7 +48,6 @@ type ModeloResumo = {
 type ModeloDetalhe = {
   id: string;
   name: string;
-  source: string;
   thumbnail: string | null;
   sizes: string[];
   pieces: {
@@ -55,8 +59,28 @@ type ModeloDetalhe = {
   }[];
 };
 
+type Progresso = {
+  id: string;
+  nome: string | null;
+  status: string;
+  modo: string | null;
+  pct: number;
+  budgetMs: number;
+  elapsedMs: number;
+  restanteMs: number;
+  tentativas: number;
+  fase: string | null;
+  criadoEm: string;
+  aproveitamento: number | null;
+  panos: { pano: string; totalM: number; riscos: number; aproveitamento: number }[];
+  modelName?: string | null;
+  modelos?: number;
+  totalPecasRoupa?: number;
+};
+
 type RiscoResp = {
   combo: Record<string, number>;
+  rotulo?: string;
   folhas: number;
   enfestos: number;
   comprimentoCm: number;
@@ -76,27 +100,29 @@ type PlanoResp = {
   avisos: string[];
 };
 
-type ResultadoResp = {
-  id: string;
-  modelName: string;
+type DetalhePlano = Progresso & {
   resultado: {
     planos: PlanoResp[];
     totalPecasRoupa: number;
     analises: number;
-  };
+  } | null;
 };
 
-type HistoricoItem = {
-  id: string;
-  modelName: string;
-  createdAt: string;
-  totalPecasRoupa: number;
-  panos: { pano: string; totalM: number; riscos: number }[];
+type ItemCarrinho = {
+  detalhe: ModeloDetalhe;
+  grade: Record<string, string>;
+  pecasDesligadas: Set<string>;
 };
 
 /* ---------- helpers ---------- */
 
-const fmtM = (cm: number) => `${(cm / 100).toLocaleString("pt-BR", { maximumFractionDigits: 1 })} m`;
+const fmtM = (cm: number) =>
+  `${(cm / 100).toLocaleString("pt-BR", { maximumFractionDigits: 1 })} m`;
+
+const fmtTempo = (ms: number) => {
+  const s = Math.max(0, Math.floor(ms / 1000));
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+};
 
 async function arquivoParaBase64(file: File): Promise<string> {
   const buf = new Uint8Array(await file.arrayBuffer());
@@ -109,6 +135,23 @@ async function arquivoParaBase64(file: File): Promise<string> {
 
 const PANO_LABEL: Record<string, string> = { TEC: "Tecido", FOR: "Forro" };
 
+const MODOS = [
+  { id: "RAPIDO", label: "Rápido", tempo: "~30s", desc: "primeiro plano bom" },
+  { id: "NORMAL", label: "Normal", tempo: "~3min", desc: "equilíbrio (recomendado)" },
+  { id: "CAPRICHADO", label: "Caprichado", tempo: "~10min", desc: "espreme cada cm" },
+];
+
+const FRASES_PENSANDO = [
+  "🧠 Pensando nas combinações de tamanhos...",
+  "🧩 Tentando encaixar a manga no vão da cava...",
+  "🔄 Girando peças pra ganhar milímetros...",
+  "📏 Medindo o risco de ponta a ponta...",
+  "🎲 Testando ordens que ninguém pensaria...",
+  "✂️ Raspando os últimos centímetros de tecido...",
+  "🧵 Casando curva com curva, sem desperdício...",
+  "🔬 Passando a lupa fina nos vãos...",
+];
+
 /* ---------- componente principal ---------- */
 
 export function PlanoCorteView() {
@@ -117,49 +160,113 @@ export function PlanoCorteView() {
   const [enviando, setEnviando] = useState(false);
   const [arrastando, setArrastando] = useState(false);
 
-  const [selecionado, setSelecionado] = useState<ModeloDetalhe | null>(null);
-  const [carregandoModelo, setCarregandoModelo] = useState(false);
+  const [carrinho, setCarrinho] = useState<ItemCarrinho[]>([]);
+  const [abrindoModelo, setAbrindoModelo] = useState<string | null>(null);
 
   // configuração do plano
-  const [grade, setGrade] = useState<Record<string, string>>({});
-  const [pecasDesligadas, setPecasDesligadas] = useState<Set<string>>(new Set());
+  const [nomePlano, setNomePlano] = useState("");
   const [incluirForro, setIncluirForro] = useState(true);
   const [larguraTecido, setLarguraTecido] = useState("160");
   const [larguraForro, setLarguraForro] = useState("");
-  const [mesa, setMesa] = useState("600");
+  const [mesa, setMesa] = useState("500");
   const [folga, setFolga] = useState("0,5");
   const [maxFolhas, setMaxFolhas] = useState("60");
   const [sentidoUnico, setSentidoUnico] = useState(false);
+  const [modo, setModo] = useState("NORMAL");
 
-  const [gerando, setGerando] = useState(false);
-  const [resultado, setResultado] = useState<ResultadoResp | null>(null);
-  const [historico, setHistorico] = useState<HistoricoItem[]>([]);
-  const [anexandoCurvas, setAnexandoCurvas] = useState(false);
+  // jobs (fila + histórico) e visualização
+  const [lista, setLista] = useState<Progresso[]>([]);
+  const [detalhe, setDetalhe] = useState<DetalhePlano | null>(null);
+  const [criando, setCriando] = useState(false);
+  const dirigindo = useRef<Set<string>>(new Set());
+  const detalheRef = useRef<string | null>(null);
+  const [, forceTick] = useState(0); // cronômetro re-renderiza a cada 1s
+  const sync = useRef<Map<string, number>>(new Map()); // id → timestamp do último update
+
   const [msgCurvas, setMsgCurvas] = useState<string | null>(null);
-
+  const [anexandoCurvas, setAnexandoCurvas] = useState(false);
+  const curvasPara = useRef<string | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const curvasInput = useRef<HTMLInputElement>(null);
   const resultadoRef = useRef<HTMLDivElement>(null);
+  const [fraseIdx, setFraseIdx] = useState(0);
 
-  const carregar = useCallback(async () => {
+  /* ---------- carregamento ---------- */
+
+  const carregarModelos = useCallback(async () => {
     try {
-      const [rm, rh] = await Promise.all([
-        fetch("/api/plano-corte/modelos"),
-        fetch("/api/plano-corte/gerar"),
-      ]);
-      if (rm.ok) setModelos(await rm.json());
-      else setErro((await rm.json()).error ?? "Erro ao carregar modelos");
-      if (rh.ok) setHistorico(await rh.json());
+      const r = await fetch("/api/plano-corte/modelos");
+      if (r.ok) setModelos(await r.json());
     } catch {
       setErro("Sem conexão — tente de novo");
     }
   }, []);
 
-  useEffect(() => {
-    carregar();
-  }, [carregar]);
+  const carregarLista = useCallback(async () => {
+    try {
+      const r = await fetch("/api/plano-corte/gerar");
+      if (!r.ok) return;
+      const dados: Progresso[] = await r.json();
+      setLista(dados);
+      for (const d of dados) sync.current.set(d.id, Date.now());
+      return dados;
+    } catch {
+      /* silencioso */
+    }
+  }, []);
 
-  /* ---------- upload ---------- */
+  const atualizarDetalhe = useCallback(async (id: string) => {
+    const r = await fetch(`/api/plano-corte/planos/${id}`);
+    if (!r.ok) return;
+    const d: DetalhePlano = await r.json();
+    if (detalheRef.current === id) setDetalhe(d);
+  }, []);
+
+  /** Loop de rodadas: chama /rodada até concluir. É ele que move a barra. */
+  const dirigir = useCallback(
+    async (id: string) => {
+      if (dirigindo.current.has(id)) return;
+      dirigindo.current.add(id);
+      try {
+        for (let i = 0; i < 500; i++) {
+          const r = await fetch(`/api/plano-corte/planos/${id}/rodada`, {
+            method: "POST",
+          });
+          if (!r.ok) break;
+          const p: Progresso = await r.json();
+          sync.current.set(id, Date.now());
+          setLista((l) => l.map((x) => (x.id === id ? { ...x, ...p } : x)));
+          if (detalheRef.current === id) await atualizarDetalhe(id);
+          if (p.status !== "EM_ANDAMENTO") break;
+        }
+      } finally {
+        dirigindo.current.delete(id);
+        await carregarLista();
+        if (detalheRef.current === id) await atualizarDetalhe(id);
+      }
+    },
+    [atualizarDetalhe, carregarLista]
+  );
+
+  useEffect(() => {
+    carregarModelos();
+    // retoma planos que ficaram calculando (página fechou no meio)
+    carregarLista().then((dados) => {
+      for (const d of dados ?? [])
+        if (d.status === "EM_ANDAMENTO") dirigir(d.id);
+    });
+    const tick = setInterval(() => forceTick((t) => t + 1), 1000);
+    const frase = setInterval(
+      () => setFraseIdx((i) => (i + 1) % FRASES_PENSANDO.length),
+      4000
+    );
+    return () => {
+      clearInterval(tick);
+      clearInterval(frase);
+    };
+  }, [carregarModelos, carregarLista, dirigir]);
+
+  /* ---------- upload de modelo ---------- */
 
   const enviarArquivo = useCallback(
     async (file: File) => {
@@ -177,48 +284,27 @@ export function PlanoCorteView() {
           setErro(data.error ?? "Não consegui ler o arquivo");
           return;
         }
-        await carregar();
-        abrirModelo(data.id);
+        await carregarModelos();
       } catch {
         setErro("Falha no envio — tente de novo");
       } finally {
         setEnviando(false);
       }
     },
-    [carregar] // eslint-disable-line react-hooks/exhaustive-deps
+    [carregarModelos]
   );
 
-  /* ---------- seleção de modelo ---------- */
+  /* ---------- curvas (PDF) ---------- */
 
-  async function abrirModelo(id: string) {
-    setCarregandoModelo(true);
-    setResultado(null);
-    setErro(null);
-    try {
-      const r = await fetch(`/api/plano-corte/modelos/${id}`);
-      if (!r.ok) {
-        setErro("Modelo não encontrado");
-        return;
-      }
-      const det: ModeloDetalhe = await r.json();
-      setSelecionado(det);
-      setGrade(Object.fromEntries(det.sizes.map((s) => [s, ""])));
-      setPecasDesligadas(new Set());
-      setIncluirForro(true);
-    } finally {
-      setCarregandoModelo(false);
-    }
-  }
-
-  /** Anexa o PDF/DXF com as curvas reais ao modelo aberto (casamento por medidas). */
   async function anexarCurvas(file: File) {
-    if (!selecionado) return;
+    const modelId = curvasPara.current;
+    if (!modelId) return;
     setMsgCurvas(null);
     setErro(null);
     setAnexandoCurvas(true);
     try {
       const contentBase64 = await arquivoParaBase64(file);
-      const r = await fetch(`/api/plano-corte/modelos/${selecionado.id}/curvas`, {
+      const r = await fetch(`/api/plano-corte/modelos/${modelId}/curvas`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ fileName: file.name, contentBase64 }),
@@ -231,8 +317,15 @@ export function PlanoCorteView() {
       setMsgCurvas(
         `Curvas anexadas: ${data.casadas} de ${data.totalAlvos} peças ganharam a curva real 🎉`
       );
-      await abrirModelo(selecionado.id); // recarrega com o selo "curva real"
-      await carregar();
+      await carregarModelos();
+      // atualiza o item do carrinho, se o modelo estiver nele
+      const det = await fetch(`/api/plano-corte/modelos/${modelId}`);
+      if (det.ok) {
+        const dd: ModeloDetalhe = await det.json();
+        setCarrinho((c) =>
+          c.map((item) => (item.detalhe.id === modelId ? { ...item, detalhe: dd } : item))
+        );
+      }
     } catch {
       setErro("Falha no envio — tente de novo");
     } finally {
@@ -240,48 +333,90 @@ export function PlanoCorteView() {
     }
   }
 
+  /* ---------- carrinho ---------- */
+
+  async function adicionarAoCorte(id: string) {
+    if (carrinho.some((i) => i.detalhe.id === id)) {
+      setCarrinho((c) => c.filter((i) => i.detalhe.id !== id));
+      return;
+    }
+    if (carrinho.length >= 6) {
+      setErro("Máximo de 6 modelos por corte");
+      return;
+    }
+    setAbrindoModelo(id);
+    setErro(null);
+    try {
+      const r = await fetch(`/api/plano-corte/modelos/${id}`);
+      if (!r.ok) return;
+      const det: ModeloDetalhe = await r.json();
+      setCarrinho((c) => [
+        ...c,
+        {
+          detalhe: det,
+          grade: Object.fromEntries(det.sizes.map((s) => [s, ""])),
+          pecasDesligadas: new Set<string>(),
+        },
+      ]);
+    } finally {
+      setAbrindoModelo(null);
+    }
+  }
+
   async function excluirModelo(id: string) {
     if (!confirm("Excluir este modelo e seus planos salvos?")) return;
     await fetch(`/api/plano-corte/modelos/${id}`, { method: "DELETE" });
-    if (selecionado?.id === id) setSelecionado(null);
-    await carregar();
+    setCarrinho((c) => c.filter((i) => i.detalhe.id !== id));
+    await carregarModelos();
   }
 
-  /* ---------- gerar plano ---------- */
+  /* ---------- criar plano ---------- */
 
   const num = (s: string, padrao: number) => {
     const n = parseFloat(s.replace(",", "."));
     return Number.isFinite(n) && n > 0 ? n : padrao;
   };
 
-  async function gerar() {
-    if (!selecionado) return;
-    const gradeNum: Record<string, number> = {};
-    for (const [t, v] of Object.entries(grade)) {
-      const n = parseInt(v, 10);
-      if (n > 0) gradeNum[t] = n;
-    }
-    if (Object.keys(gradeNum).length === 0) {
+  async function montarPlano() {
+    const itens = carrinho
+      .map((item) => {
+        const grade: Record<string, number> = {};
+        for (const [t, v] of Object.entries(item.grade)) {
+          const n = parseInt(v, 10);
+          if (n > 0) grade[t] = n;
+        }
+        return {
+          modelId: item.detalhe.id,
+          grade,
+          pecasDesligadas: [
+            ...item.pecasDesligadas,
+            ...(!incluirForro
+              ? item.detalhe.pieces.filter((p) => p.pano === "FOR").map((p) => p.nome)
+              : []),
+          ],
+        };
+      })
+      .filter((i) => Object.keys(i.grade).length > 0);
+    if (itens.length === 0) {
       setErro("Informe a quantidade de pelo menos um tamanho");
       return;
     }
     setErro(null);
-    setGerando(true);
-    setResultado(null);
+    setCriando(true);
     try {
       const r = await fetch("/api/plano-corte/gerar", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          modelId: selecionado.id,
-          grade: gradeNum,
+          nome: nomePlano.trim() || undefined,
+          modo,
+          itens,
           larguraTecidoCm: num(larguraTecido, 160),
           larguraForroCm: larguraForro.trim() ? num(larguraForro, 160) : undefined,
-          mesaCm: num(mesa, 600),
+          mesaCm: num(mesa, 500),
           folgaCm: num(folga, 0.5),
           maxFolhas: Math.round(num(maxFolhas, 60)),
           incluirForro,
-          pecasDesligadas: [...pecasDesligadas],
           sentidoUnico,
         }),
       });
@@ -290,23 +425,70 @@ export function PlanoCorteView() {
         setErro(data.error ?? "Não consegui montar o plano");
         return;
       }
-      setResultado(data);
-      await carregar();
-      setTimeout(() => resultadoRef.current?.scrollIntoView({ behavior: "smooth" }), 80);
+      detalheRef.current = data.id;
+      sync.current.set(data.id, Date.now());
+      await carregarLista();
+      await atualizarDetalhe(data.id);
+      if (data.status === "EM_ANDAMENTO") dirigir(data.id);
+      setTimeout(
+        () => resultadoRef.current?.scrollIntoView({ behavior: "smooth" }),
+        120
+      );
     } catch {
-      setErro("Falha ao gerar o plano — tente de novo");
+      setErro("Falha ao criar o plano — tente de novo");
     } finally {
-      setGerando(false);
+      setCriando(false);
     }
   }
 
-  /* ---------- render ---------- */
+  async function abrirPlano(id: string) {
+    detalheRef.current = id;
+    setDetalhe(null);
+    await atualizarDetalhe(id);
+    const p = lista.find((l) => l.id === id);
+    if (p?.status === "EM_ANDAMENTO") dirigir(id);
+    setTimeout(() => resultadoRef.current?.scrollIntoView({ behavior: "smooth" }), 120);
+  }
 
-  const pecasTec = selecionado?.pieces.filter((p) => p.pano === "TEC") ?? [];
-  const pecasFor = selecionado?.pieces.filter((p) => p.pano === "FOR") ?? [];
-  const totalPecasLigadas =
-    pecasTec.filter((p) => !pecasDesligadas.has(p.nome)).length +
-    (incluirForro ? pecasFor.filter((p) => !pecasDesligadas.has(p.nome)).length : 0);
+  async function pararPlano(id: string) {
+    await fetch(`/api/plano-corte/planos/${id}/parar`, { method: "POST" });
+    await carregarLista();
+    if (detalheRef.current === id) await atualizarDetalhe(id);
+  }
+
+  async function excluirPlano(id: string) {
+    if (!confirm("Apagar este plano?")) return;
+    await fetch(`/api/plano-corte/planos/${id}`, { method: "DELETE" });
+    if (detalheRef.current === id) {
+      detalheRef.current = null;
+      setDetalhe(null);
+    }
+    await carregarLista();
+  }
+
+  /* ---------- derivados ---------- */
+
+  const emAndamento = lista.filter((l) => l.status === "EM_ANDAMENTO");
+  const historico = lista.filter((l) => l.status !== "EM_ANDAMENTO");
+  const temForro = carrinho.some((i) => i.detalhe.pieces.some((p) => p.pano === "FOR"));
+  const totalPecasCarrinho = carrinho.reduce(
+    (s, i) =>
+      s + Object.values(i.grade).reduce((a, v) => a + (parseInt(v, 10) || 0), 0),
+    0
+  );
+
+  /** Cronômetro suave: tempo do servidor + o que passou desde o último sync. */
+  const tempoVivo = (p: Progresso) => {
+    if (p.status !== "EM_ANDAMENTO") return p.elapsedMs;
+    const desde = sync.current.get(p.id);
+    return Math.min(p.budgetMs, p.elapsedMs + (desde ? Date.now() - desde : 0));
+  };
+  const pctVivo = (p: Progresso) =>
+    p.status !== "EM_ANDAMENTO"
+      ? 100
+      : Math.min(99, Math.round((tempoVivo(p) / Math.max(1, p.budgetMs)) * 100));
+
+  /* ---------- render ---------- */
 
   return (
     <div className="space-y-6">
@@ -315,17 +497,88 @@ export function PlanoCorteView() {
           {erro}
         </div>
       )}
+      {msgCurvas && (
+        <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+          {msgCurvas}
+        </div>
+      )}
 
-      {/* ============ PASSO 1 — MODELOS ============ */}
+      {/* ============ FILA: PLANOS CALCULANDO ============ */}
+      {emAndamento.length > 0 && (
+        <Card className="p-5">
+          <h2 className="mb-3 flex items-center gap-2 font-semibold text-slate-900">
+            <Loader2 className="size-4 animate-spin text-brand-600" />
+            Planos calculando ({emAndamento.length}/3)
+          </h2>
+          <div className="space-y-3">
+            {emAndamento.map((p) => (
+              <div key={p.id} className="rounded-xl border border-slate-200 p-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <button
+                    type="button"
+                    onClick={() => abrirPlano(p.id)}
+                    className="min-w-0 text-left"
+                  >
+                    <p className="truncate text-sm font-semibold text-slate-800">
+                      {p.nome || p.modelName || "Plano de corte"}
+                      {(p.modelos ?? 1) > 1 && (
+                        <span className="ml-1.5 text-xs font-normal text-slate-400">
+                          {p.modelos} modelos
+                        </span>
+                      )}
+                    </p>
+                    <p className="text-xs text-slate-500">
+                      ⏱️ {fmtTempo(tempoVivo(p))} de {fmtTempo(p.budgetMs)} · faltam ~
+                      {fmtTempo(Math.max(0, p.budgetMs - tempoVivo(p)))} ·{" "}
+                      {p.tentativas.toLocaleString("pt-BR")} encaixes testados
+                      {p.aproveitamento ? ` · melhor: ${p.aproveitamento}%` : ""}
+                    </p>
+                  </button>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => pararPlano(p.id)}
+                      className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-medium text-slate-600 hover:border-amber-300 hover:text-amber-700"
+                    >
+                      <Square className="size-3" /> Parar e usar
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => excluirPlano(p.id)}
+                      className="rounded-lg p-1.5 text-slate-300 hover:bg-red-50 hover:text-red-500"
+                    >
+                      <Trash2 className="size-3.5" />
+                    </button>
+                  </div>
+                </div>
+                <div className="mt-2 h-2.5 overflow-hidden rounded-full bg-slate-100">
+                  <div
+                    className="h-full rounded-full bg-gradient-to-r from-brand-500 to-brand-600 transition-all duration-1000"
+                    style={{ width: `${pctVivo(p)}%` }}
+                  />
+                </div>
+                <p className="mt-1.5 text-xs text-slate-400">
+                  {pctVivo(p)}% · {FRASES_PENSANDO[fraseIdx]}
+                </p>
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
+
+      {/* ============ PASSO 1 — BIBLIOTECA ============ */}
       <Card className="p-5">
-        <div className="flex items-center gap-2 mb-4">
-          <span className="flex size-7 items-center justify-center rounded-full bg-brand-600 text-white text-sm font-bold">1</span>
-          <h2 className="font-semibold text-slate-900">Escolha o modelo</h2>
-          <span className="text-xs text-slate-400 ml-1 hidden sm:inline">arquivos .adsx (Audaces) ou .dxf</span>
+        <div className="mb-4 flex items-center gap-2">
+          <span className="flex size-7 items-center justify-center rounded-full bg-brand-600 text-sm font-bold text-white">
+            1
+          </span>
+          <h2 className="font-semibold text-slate-900">Escolha os modelos do corte</h2>
+          <span className="ml-1 hidden text-xs text-slate-400 sm:inline">
+            toque pra adicionar · 📎 anexa as curvas (PDF)
+          </span>
         </div>
 
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-          {/* dropzone */}
           <button
             type="button"
             onClick={() => fileInput.current?.click()}
@@ -340,7 +593,7 @@ export function PlanoCorteView() {
               const f = e.dataTransfer.files?.[0];
               if (f) enviarArquivo(f);
             }}
-            className={`flex flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed px-4 py-8 text-center transition min-h-36 ${
+            className={`flex min-h-32 flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed px-4 py-6 text-center transition ${
               arrastando
                 ? "border-brand-500 bg-brand-50"
                 : "border-slate-300 hover:border-brand-400 hover:bg-slate-50"
@@ -352,9 +605,8 @@ export function PlanoCorteView() {
               <UploadCloud className="size-7 text-brand-600" />
             )}
             <span className="text-sm font-medium text-slate-700">
-              {enviando ? "Lendo o arquivo..." : "Solte o arquivo aqui"}
+              {enviando ? "Lendo o arquivo..." : "Novo modelo (.adsx / DXF)"}
             </span>
-            <span className="text-xs text-slate-400">ou toque pra escolher</span>
             <input
               ref={fileInput}
               type="file"
@@ -368,21 +620,20 @@ export function PlanoCorteView() {
             />
           </button>
 
-          {/* cards de modelo */}
           {(modelos ?? []).map((m) => {
-            const ativo = selecionado?.id === m.id;
+            const noCorte = carrinho.some((i) => i.detalhe.id === m.id);
             const temCurva = m.pieces.some((p) => p.temContorno);
             return (
               <div
                 key={m.id}
                 role="button"
                 tabIndex={0}
-                onClick={() => abrirModelo(m.id)}
-                onKeyDown={(e) => e.key === "Enter" && abrirModelo(m.id)}
-                className={`group relative flex flex-col rounded-2xl border p-3 text-left transition cursor-pointer ${
-                  ativo
-                    ? "border-brand-500 ring-4 ring-brand-500/15 bg-brand-50/40"
-                    : "border-slate-200 hover:border-brand-300 bg-white"
+                onClick={() => adicionarAoCorte(m.id)}
+                onKeyDown={(e) => e.key === "Enter" && adicionarAoCorte(m.id)}
+                className={`group relative flex cursor-pointer flex-col rounded-2xl border p-3 text-left transition ${
+                  noCorte
+                    ? "border-brand-500 bg-brand-50/40 ring-4 ring-brand-500/15"
+                    : "border-slate-200 bg-white hover:border-brand-300"
                 }`}
               >
                 <div className="flex items-center gap-3">
@@ -391,7 +642,7 @@ export function PlanoCorteView() {
                     <img
                       src={m.thumbnail}
                       alt=""
-                      className="size-14 rounded-lg object-contain bg-slate-50 border border-slate-100"
+                      className="size-14 rounded-lg border border-slate-100 bg-slate-50 object-contain"
                     />
                   ) : (
                     <div className="flex size-14 items-center justify-center rounded-lg bg-slate-100">
@@ -399,29 +650,51 @@ export function PlanoCorteView() {
                     </div>
                   )}
                   <div className="min-w-0">
-                    <p className="truncate text-sm font-semibold text-slate-900">{m.name}</p>
+                    <p className="truncate text-sm font-semibold text-slate-900">
+                      {m.name}
+                    </p>
                     <p className="text-xs text-slate-500">
                       {m.pieces.length} peças · {m.sizes.join(" ")}
                     </p>
-                    <div className="mt-1 flex gap-1">
-                      <span className="rounded-md bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-600">
-                        {m.source}
-                      </span>
-                      {temCurva && (
+                    <div className="mt-1 flex items-center gap-1">
+                      {temCurva ? (
                         <span className="rounded-md bg-emerald-100 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700">
                           curva real
+                        </span>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            curvasPara.current = m.id;
+                            curvasInput.current?.click();
+                          }}
+                          className="inline-flex items-center gap-1 rounded-md bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-800 hover:bg-amber-200"
+                        >
+                          <Paperclip className="size-2.5" />
+                          {anexandoCurvas && curvasPara.current === m.id
+                            ? "lendo..."
+                            : "anexar curvas"}
+                        </button>
+                      )}
+                      {noCorte && (
+                        <span className="rounded-md bg-brand-100 px-1.5 py-0.5 text-[10px] font-semibold text-brand-700">
+                          ✓ no corte
                         </span>
                       )}
                     </div>
                   </div>
                 </div>
+                {abrindoModelo === m.id && (
+                  <Loader2 className="absolute right-2 top-2 size-4 animate-spin text-brand-600" />
+                )}
                 <button
                   type="button"
                   onClick={(e) => {
                     e.stopPropagation();
                     excluirModelo(m.id);
                   }}
-                  className="absolute right-2 top-2 rounded-lg p-1.5 text-slate-300 opacity-0 transition group-hover:opacity-100 hover:bg-red-50 hover:text-red-500"
+                  className="absolute right-2 bottom-2 rounded-lg p-1.5 text-slate-300 opacity-0 transition group-hover:opacity-100 hover:bg-red-50 hover:text-red-500"
                   title="Excluir modelo"
                 >
                   <Trash2 className="size-4" />
@@ -436,198 +709,236 @@ export function PlanoCorteView() {
             <EmptyState
               icon={<FileUp className="size-8" />}
               title="Nenhum modelo ainda"
-              hint="Exporte o modelo no Audaces Moldes (Arquivo → Exportar) e solte o arquivo aqui — o sistema lê peças, grade e medidas sozinho."
+              hint="Exporte o modelo no Audaces (Arquivo → Exportar) e solte o arquivo aqui — o sistema lê peças, grade e medidas sozinho."
             />
           </div>
         )}
+        <input
+          ref={curvasInput}
+          type="file"
+          accept=".pdf,.dxf"
+          className="hidden"
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            if (f) anexarCurvas(f);
+            e.target.value = "";
+          }}
+        />
       </Card>
 
-      {/* ============ PASSO 2 — CONFIGURAÇÃO ============ */}
-      {carregandoModelo && (
-        <Card className="flex items-center justify-center gap-2 p-8 text-slate-500">
-          <Loader2 className="size-5 animate-spin" /> Abrindo o modelo...
-        </Card>
-      )}
-
-      {selecionado && !carregandoModelo && (
+      {/* ============ PASSO 2 — O CORTE ============ */}
+      {carrinho.length > 0 && (
         <Card className="p-5">
-          <div className="flex flex-wrap items-center gap-2 mb-4">
-            <span className="flex size-7 items-center justify-center rounded-full bg-brand-600 text-white text-sm font-bold">2</span>
+          <div className="mb-4 flex flex-wrap items-center gap-2">
+            <span className="flex size-7 items-center justify-center rounded-full bg-brand-600 text-sm font-bold text-white">
+              2
+            </span>
             <h2 className="font-semibold text-slate-900">Monte o corte</h2>
-            <ChevronRight className="size-4 text-slate-300" />
-            <span className="truncate text-sm text-slate-500">{selecionado.name}</span>
-            {(() => {
-              const temCurva = selecionado.pieces.some((p) =>
-                Object.values(p.tamanhos).some((t) => !!t.contorno)
-              );
-              return temCurva ? (
-                <span className="ml-auto rounded-lg bg-emerald-100 px-2.5 py-1 text-xs font-semibold text-emerald-700">
-                  ✓ curva real — encaixe profissional
-                </span>
-              ) : (
-                <button
-                  type="button"
-                  onClick={() => curvasInput.current?.click()}
-                  disabled={anexandoCurvas}
-                  className="ml-auto inline-flex items-center gap-1.5 rounded-xl border border-amber-300 bg-amber-50 px-3 py-1.5 text-xs font-medium text-amber-800 transition hover:bg-amber-100 disabled:opacity-50"
-                >
-                  {anexandoCurvas ? (
-                    <Loader2 className="size-3.5 animate-spin" />
-                  ) : (
-                    <FileUp className="size-3.5" />
-                  )}
-                  Anexar curvas (PDF do Audaces)
-                </button>
-              );
-            })()}
-            <input
-              ref={curvasInput}
-              type="file"
-              accept=".pdf,.dxf"
-              className="hidden"
-              onChange={(e) => {
-                const f = e.target.files?.[0];
-                if (f) anexarCurvas(f);
-                e.target.value = "";
-              }}
-            />
+            <span className="text-xs text-slate-400">
+              {carrinho.length} modelo(s) · {totalPecasCarrinho} peça(s) de roupa · mesmo
+              tecido e largura
+            </span>
           </div>
-          {msgCurvas && (
-            <div className="mb-4 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
-              {msgCurvas}
-            </div>
-          )}
 
-          <div className="grid gap-6 lg:grid-cols-2">
-            {/* peças */}
+          {/* itens do carrinho */}
+          <div className="space-y-4">
+            {carrinho.map((item, idx) => {
+              const pecasTec = item.detalhe.pieces.filter((p) => p.pano === "TEC");
+              const pecasFor = item.detalhe.pieces.filter((p) => p.pano === "FOR");
+              return (
+                <div key={item.detalhe.id} className="rounded-xl border border-slate-200 p-3.5">
+                  <div className="mb-3 flex items-center justify-between gap-2">
+                    <p className="flex items-center gap-2 truncate text-sm font-semibold text-slate-800">
+                      <Shirt className="size-4 text-slate-400" />
+                      {item.detalhe.name}
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setCarrinho((c) => c.filter((_, i) => i !== idx))
+                      }
+                      className="rounded-lg p-1.5 text-slate-300 hover:bg-red-50 hover:text-red-500"
+                      title="Tirar do corte"
+                    >
+                      <X className="size-4" />
+                    </button>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-6">
+                    {item.detalhe.sizes.map((t) => (
+                      <label key={t} className="block">
+                        <span className="mb-1 block text-center text-xs font-semibold text-slate-500">
+                          {t.trim()}
+                        </span>
+                        <input
+                          type="number"
+                          min={0}
+                          inputMode="numeric"
+                          placeholder="0"
+                          value={item.grade[t] ?? ""}
+                          onChange={(e) =>
+                            setCarrinho((c) =>
+                              c.map((x, i) =>
+                                i === idx
+                                  ? { ...x, grade: { ...x.grade, [t]: e.target.value } }
+                                  : x
+                              )
+                            )
+                          }
+                          className={`${inputCls} text-center font-semibold`}
+                        />
+                      </label>
+                    ))}
+                  </div>
+
+                  {/* peças liga/desliga */}
+                  <div className="mt-3 flex flex-wrap gap-1.5">
+                    {[...pecasTec, ...(incluirForro ? pecasFor : [])].map((p) => {
+                      const ligada = !item.pecasDesligadas.has(p.nome);
+                      return (
+                        <button
+                          key={p.nome}
+                          type="button"
+                          onClick={() =>
+                            setCarrinho((c) =>
+                              c.map((x, i) => {
+                                if (i !== idx) return x;
+                                const n = new Set(x.pecasDesligadas);
+                                if (n.has(p.nome)) n.delete(p.nome);
+                                else n.add(p.nome);
+                                return { ...x, pecasDesligadas: n };
+                              })
+                            )
+                          }
+                          className={`rounded-lg border px-2 py-1 text-xs transition ${
+                            ligada
+                              ? "border-slate-200 bg-white text-slate-700"
+                              : "border-slate-100 bg-slate-50 text-slate-400 line-through"
+                          }`}
+                        >
+                          {p.nome}
+                          {p.pano === "FOR" ? " (forro)" : ""}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* tecido, mesa e modo */}
+          <div className="mt-5 grid gap-5 lg:grid-cols-2">
             <div>
-              <p className="mb-2 text-sm font-medium text-slate-700 flex items-center gap-1.5">
-                <Scissors className="size-4 text-slate-400" /> Peças do molde
+              <p className="mb-2 flex items-center gap-1.5 text-sm font-medium text-slate-700">
+                <Ruler className="size-4 text-slate-400" /> Tecido e mesa deste corte
               </p>
-              <div className="space-y-2">
-                {pecasTec.map((p) => (
-                  <TogglePeca
-                    key={p.nome}
-                    nome={p.nome}
-                    detalhe={p.desc ?? "tecido"}
-                    ligada={!pecasDesligadas.has(p.nome)}
-                    onToggle={() =>
-                      setPecasDesligadas((s) => {
-                        const n = new Set(s);
-                        if (n.has(p.nome)) n.delete(p.nome);
-                        else n.add(p.nome);
-                        return n;
-                      })
-                    }
+              <div className="grid grid-cols-2 gap-3">
+                <Field label="Largura do tecido (cm)">
+                  <Input
+                    value={larguraTecido}
+                    onChange={(e) => setLarguraTecido(e.target.value)}
+                    inputMode="decimal"
                   />
-                ))}
+                </Field>
+                <Field label="Comprimento da mesa (cm)">
+                  <Input value={mesa} onChange={(e) => setMesa(e.target.value)} inputMode="decimal" />
+                </Field>
+                {temForro && incluirForro && (
+                  <Field label="Largura do forro (cm)" hint="vazio = igual ao tecido">
+                    <Input
+                      value={larguraForro}
+                      onChange={(e) => setLarguraForro(e.target.value)}
+                      inputMode="decimal"
+                      placeholder={larguraTecido}
+                    />
+                  </Field>
+                )}
+                <Field label="Folga entre peças (cm)">
+                  <Input value={folga} onChange={(e) => setFolga(e.target.value)} inputMode="decimal" />
+                </Field>
+                <Field label="Folhas máx. por enfesto">
+                  <Input
+                    value={maxFolhas}
+                    onChange={(e) => setMaxFolhas(e.target.value)}
+                    inputMode="numeric"
+                  />
+                </Field>
+                <Field label="Nome do corte (opcional)">
+                  <Input
+                    value={nomePlano}
+                    onChange={(e) => setNomePlano(e.target.value)}
+                    placeholder="Corte semana 32"
+                  />
+                </Field>
               </div>
-
-              {pecasFor.length > 0 && (
-                <div className="mt-4 rounded-xl border border-slate-200 p-3">
-                  <label className="flex items-center justify-between cursor-pointer">
-                    <span className="text-sm font-medium text-slate-700">
-                      Forro
+              <div className="mt-3 space-y-2">
+                {temForro && (
+                  <label className="flex cursor-pointer items-center justify-between rounded-xl border border-slate-200 px-3 py-2.5">
+                    <span className="text-sm font-medium text-slate-800">
+                      Cortar o forro
                       <span className="ml-2 text-xs font-normal text-slate-400">
-                        {pecasFor.length} peça(s) — risco separado
+                        risco separado, metragem própria
                       </span>
                     </span>
                     <Switch ligado={incluirForro} onChange={setIncluirForro} />
                   </label>
-                  {incluirForro && (
-                    <div className="mt-2 space-y-2">
-                      {pecasFor.map((p) => (
-                        <TogglePeca
-                          key={p.nome}
-                          nome={p.nome}
-                          detalhe={p.desc ?? "forro"}
-                          ligada={!pecasDesligadas.has(p.nome)}
-                          onToggle={() =>
-                            setPecasDesligadas((s) => {
-                              const n = new Set(s);
-                              if (n.has(p.nome)) n.delete(p.nome);
-                              else n.add(p.nome);
-                              return n;
-                            })
-                          }
-                        />
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-
-            {/* grade + tecido/mesa */}
-            <div className="space-y-5">
-              <div>
-                <p className="mb-2 text-sm font-medium text-slate-700 flex items-center gap-1.5">
-                  <Shirt className="size-4 text-slate-400" /> Quantas peças de cada tamanho?
-                </p>
-                <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-                  {selecionado.sizes.map((t) => (
-                    <label key={t} className="block">
-                      <span className="mb-1 block text-center text-xs font-semibold text-slate-500">
-                        {t}
-                      </span>
-                      <input
-                        type="number"
-                        min={0}
-                        inputMode="numeric"
-                        placeholder="0"
-                        value={grade[t] ?? ""}
-                        onChange={(e) => setGrade((g) => ({ ...g, [t]: e.target.value }))}
-                        className={`${inputCls} text-center text-lg font-semibold`}
-                      />
-                    </label>
-                  ))}
-                </div>
-              </div>
-
-              <div>
-                <p className="mb-2 text-sm font-medium text-slate-700 flex items-center gap-1.5">
-                  <Ruler className="size-4 text-slate-400" /> Tecido e mesa
-                </p>
-                <div className="grid grid-cols-2 gap-3">
-                  <Field label="Largura do tecido (cm)">
-                    <Input value={larguraTecido} onChange={(e) => setLarguraTecido(e.target.value)} inputMode="decimal" />
-                  </Field>
-                  <Field label="Comprimento da mesa (cm)">
-                    <Input value={mesa} onChange={(e) => setMesa(e.target.value)} inputMode="decimal" />
-                  </Field>
-                  {incluirForro && pecasFor.length > 0 && (
-                    <Field label="Largura do forro (cm)" hint="vazio = igual ao tecido">
-                      <Input value={larguraForro} onChange={(e) => setLarguraForro(e.target.value)} inputMode="decimal" placeholder={larguraTecido} />
-                    </Field>
-                  )}
-                  <Field label="Folga entre peças (cm)">
-                    <Input value={folga} onChange={(e) => setFolga(e.target.value)} inputMode="decimal" />
-                  </Field>
-                  <Field label="Folhas máx. por enfesto">
-                    <Input value={maxFolhas} onChange={(e) => setMaxFolhas(e.target.value)} inputMode="numeric" />
-                  </Field>
-                </div>
-                <label className="mt-3 flex cursor-pointer items-center justify-between rounded-xl border border-slate-200 px-3 py-2.5">
+                )}
+                <label className="flex cursor-pointer items-center justify-between rounded-xl border border-slate-200 px-3 py-2.5">
                   <span className="min-w-0 pr-3">
                     <span className="block text-sm font-medium text-slate-800">
                       Tecido com sentido (estampa direcional)
                     </span>
                     <span className="block text-xs text-slate-400">
-                      liga pra veludo/estampa com direção — nenhuma peça sai de cabeça pra baixo
+                      veludo/estampa com pé — nenhuma peça sai de cabeça pra baixo
                     </span>
                   </span>
                   <Switch ligado={sentidoUnico} onChange={setSentidoUnico} />
                 </label>
               </div>
+            </div>
+
+            {/* modo de otimização */}
+            <div>
+              <p className="mb-2 flex items-center gap-1.5 text-sm font-medium text-slate-700">
+                <Brain className="size-4 text-slate-400" /> Quanto tempo o sistema pensa?
+              </p>
+              <div className="space-y-2">
+                {MODOS.map((m) => (
+                  <button
+                    key={m.id}
+                    type="button"
+                    onClick={() => setModo(m.id)}
+                    className={`flex w-full items-center justify-between rounded-xl border px-3.5 py-3 text-left transition ${
+                      modo === m.id
+                        ? "border-brand-500 bg-brand-50/50 ring-4 ring-brand-500/10"
+                        : "border-slate-200 bg-white hover:border-brand-300"
+                    }`}
+                  >
+                    <span>
+                      <span className="block text-sm font-semibold text-slate-800">
+                        {m.label}{" "}
+                        <span className="text-xs font-normal text-slate-400">{m.tempo}</span>
+                      </span>
+                      <span className="block text-xs text-slate-500">{m.desc}</span>
+                    </span>
+                    {modo === m.id && <CheckCircle2 className="size-5 text-brand-600" />}
+                  </button>
+                ))}
+              </div>
+              <p className="mt-2 text-xs text-slate-400">
+                💡 O plano aparece em segundos e vai MELHORANDO enquanto o sistema pensa —
+                dá pra parar e usar a qualquer momento.
+              </p>
 
               <Button
-                onClick={gerar}
-                disabled={gerando || totalPecasLigadas === 0}
-                className="w-full py-3 text-base"
+                onClick={montarPlano}
+                disabled={criando || totalPecasCarrinho === 0 || emAndamento.length >= 3}
+                className="mt-4 w-full py-3 text-base"
               >
-                {gerando ? (
+                {criando ? (
                   <>
-                    <Loader2 className="size-5 animate-spin" /> Analisando combinações...
+                    <Loader2 className="size-5 animate-spin" /> Criando o plano...
                   </>
                 ) : (
                   <>
@@ -635,27 +946,78 @@ export function PlanoCorteView() {
                   </>
                 )}
               </Button>
+              {emAndamento.length >= 3 && (
+                <p className="mt-2 text-xs text-amber-600">
+                  3 planos já estão calculando — espere um terminar (ou pare um) pra
+                  começar outro.
+                </p>
+              )}
             </div>
           </div>
         </Card>
       )}
 
-      {/* ============ PASSO 3 — RESULTADO ============ */}
-      {resultado && (
-        <div ref={resultadoRef} className="space-y-4 scroll-mt-4">
+      {/* ============ PASSO 3 — PLANO (ao vivo ou concluído) ============ */}
+      {detalhe && (
+        <div ref={resultadoRef} className="scroll-mt-4 space-y-4">
           <Card className="p-5">
-            <div className="flex items-center gap-2 mb-1">
-              <span className="flex size-7 items-center justify-center rounded-full bg-emerald-600 text-white text-sm font-bold">3</span>
-              <h2 className="font-semibold text-slate-900">Plano pronto</h2>
+            <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <span
+                  className={`flex size-7 items-center justify-center rounded-full text-sm font-bold text-white ${
+                    detalhe.status === "EM_ANDAMENTO" ? "bg-brand-600" : "bg-emerald-600"
+                  }`}
+                >
+                  3
+                </span>
+                <h2 className="font-semibold text-slate-900">
+                  {detalhe.nome || detalhe.modelName || "Plano de corte"}
+                  {detalhe.status === "EM_ANDAMENTO" ? " — melhorando ao vivo" : " — pronto"}
+                </h2>
+              </div>
+              {detalhe.status === "EM_ANDAMENTO" && (
+                <button
+                  type="button"
+                  onClick={() => pararPlano(detalhe.id)}
+                  className="inline-flex items-center gap-1.5 rounded-xl border border-amber-300 bg-amber-50 px-3 py-1.5 text-xs font-medium text-amber-800 hover:bg-amber-100"
+                >
+                  <Square className="size-3.5" /> Parar e usar esse
+                </button>
+              )}
             </div>
-            <p className="flex items-center gap-1.5 text-sm text-slate-500">
-              <Sparkles className="size-4 text-amber-500" />
-              Testei {resultado.resultado.analises} combinações de encaixe pra{" "}
-              {resultado.resultado.totalPecasRoupa} peça(s) de roupa — este é o plano que gasta menos tecido.
-            </p>
+
+            {detalhe.status === "EM_ANDAMENTO" ? (
+              <>
+                <div className="mt-3 h-3 overflow-hidden rounded-full bg-slate-100">
+                  <div
+                    className="h-full rounded-full bg-gradient-to-r from-brand-500 to-brand-600 transition-all duration-1000"
+                    style={{ width: `${pctVivo(detalhe)}%` }}
+                  />
+                </div>
+                <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-sm text-slate-600">
+                  <span className="font-medium">
+                    {pctVivo(detalhe)}% · ⏱️ {fmtTempo(tempoVivo(detalhe))} /{" "}
+                    {fmtTempo(detalhe.budgetMs)}
+                  </span>
+                  <span className="text-xs text-slate-400">
+                    {detalhe.tentativas.toLocaleString("pt-BR")} encaixes testados
+                    {detalhe.aproveitamento ? ` · melhor até agora: ${detalhe.aproveitamento}%` : ""}
+                  </span>
+                </div>
+                <p className="mt-2 text-sm text-slate-500">{FRASES_PENSANDO[fraseIdx]}</p>
+              </>
+            ) : (
+              <p className="flex items-center gap-1.5 text-sm text-slate-500">
+                <Sparkles className="size-4 text-amber-500" />
+                {detalhe.tentativas.toLocaleString("pt-BR")} encaixes testados em{" "}
+                {fmtTempo(detalhe.elapsedMs)} pra{" "}
+                {detalhe.resultado?.totalPecasRoupa ?? 0} peça(s) de roupa — este é o
+                melhor plano que encontrei.
+              </p>
+            )}
           </Card>
 
-          {resultado.resultado.planos.map((plano) => (
+          {detalhe.resultado?.planos.map((plano) => (
             <Card key={plano.pano} className="p-5">
               <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
                 <h3 className="text-base font-semibold text-slate-900">
@@ -666,18 +1028,25 @@ export function PlanoCorteView() {
                 </span>
               </div>
 
-              {/* números grandes */}
               <div className="mb-4 grid grid-cols-3 gap-3">
-                <Metrica valor={fmtM(plano.totalTecidoCm)} rotulo={`de ${PANO_LABEL[plano.pano]?.toLowerCase() ?? "pano"} no total`} />
-                <Metrica valor={`${plano.aproveitamentoMedio.toFixed(0)}%`} rotulo="aproveitamento" />
-                <Metrica valor={String(plano.riscos.length)} rotulo={plano.riscos.length === 1 ? "risco" : "riscos"} />
+                <Metrica
+                  valor={fmtM(plano.totalTecidoCm)}
+                  rotulo={`de ${PANO_LABEL[plano.pano]?.toLowerCase() ?? "pano"} no total`}
+                />
+                <Metrica
+                  valor={`${plano.aproveitamentoMedio.toFixed(1)}%`}
+                  rotulo="aproveitamento"
+                />
+                <Metrica
+                  valor={String(plano.riscos.length)}
+                  rotulo={plano.riscos.length === 1 ? "risco" : "riscos"}
+                />
               </div>
 
-              {/* comparativo de estratégias */}
               {plano.comparativo.length > 1 && (
                 <div className="mb-4 rounded-xl bg-slate-50 p-3">
                   <p className="mb-2 flex items-center gap-1.5 text-xs font-semibold text-slate-600">
-                    <TrendingDown className="size-3.5" /> Outras formas que analisei (metragem total):
+                    <TrendingDown className="size-3.5" /> Estratégias de enfesto analisadas:
                   </p>
                   <div className="flex flex-wrap gap-2">
                     {plano.comparativo.map((c, i) => (
@@ -686,7 +1055,7 @@ export function PlanoCorteView() {
                         className={`rounded-lg px-2 py-1 text-xs ${
                           i === 0
                             ? "bg-emerald-100 font-semibold text-emerald-800"
-                            : "bg-white text-slate-500 border border-slate-200"
+                            : "border border-slate-200 bg-white text-slate-500"
                         }`}
                       >
                         {i === 0 && <CheckCircle2 className="mr-1 inline size-3.5" />}
@@ -698,28 +1067,32 @@ export function PlanoCorteView() {
               )}
 
               {plano.avisos.map((a) => (
-                <div key={a} className="mb-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                <div
+                  key={a}
+                  className="mb-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800"
+                >
                   ⚠️ {a}
                 </div>
               ))}
 
-              {/* riscos */}
               <div className="space-y-4">
                 {plano.riscos.map((r, idx) => (
                   <div key={idx} className="rounded-xl border border-slate-200 p-3">
                     <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
                       <p className="text-sm font-medium text-slate-800">
                         Risco {idx + 1}:{" "}
-                        {Object.entries(r.combo)
-                          .map(([t, v]) => (v > 1 ? `${v}× ${t.trim()}` : t.trim()))
-                          .join(" + ")}
+                        {r.rotulo ??
+                          Object.entries(r.combo)
+                            .map(([t, v]) => (v > 1 ? `${v}× ${t.trim()}` : t.trim()))
+                            .join(" + ")}
                         <span className="ml-2 text-xs font-normal text-slate-500">
                           {(r.comprimentoCm / 100).toFixed(2)}m · {r.folhas} folhas
-                          {r.enfestos > 1 ? ` em ${r.enfestos} enfestos` : ""} · {r.aproveitamento.toFixed(0)}%
+                          {r.enfestos > 1 ? ` em ${r.enfestos} enfestos` : ""} ·{" "}
+                          {r.aproveitamento.toFixed(1)}%
                         </span>
                       </p>
                       <a
-                        href={`/api/plano-corte/planos/${resultado.id}/plt?pano=${plano.pano}&risco=${idx}`}
+                        href={`/api/plano-corte/planos/${detalhe.id}/plt?pano=${plano.pano}&risco=${idx}`}
                         download
                         className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 transition hover:border-brand-300 hover:text-brand-700"
                       >
@@ -727,7 +1100,7 @@ export function PlanoCorteView() {
                       </a>
                     </div>
                     <div
-                      className="overflow-x-auto rounded-lg [&_svg]:h-auto [&_svg]:min-w-[640px] [&_svg]:w-full"
+                      className="overflow-x-auto rounded-lg [&_svg]:h-auto [&_svg]:w-full [&_svg]:min-w-[640px]"
                       dangerouslySetInnerHTML={{ __html: r.svg }}
                     />
                   </div>
@@ -743,26 +1116,63 @@ export function PlanoCorteView() {
         <Card className="p-5">
           <h3 className="mb-3 text-sm font-semibold text-slate-700">Últimos planos</h3>
           <div className="divide-y divide-slate-100">
-            {historico.slice(0, 8).map((h) => (
-              <div key={h.id} className="flex flex-wrap items-center justify-between gap-2 py-2.5">
-                <div className="min-w-0">
-                  <p className="truncate text-sm font-medium text-slate-800">{h.modelName}</p>
-                  <p className="text-xs text-slate-400">
-                    {new Date(h.createdAt).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}{" "}
-                    · {h.totalPecasRoupa} peças
+            {historico.slice(0, 10).map((h) => (
+              <div
+                key={h.id}
+                className="flex flex-wrap items-center justify-between gap-2 py-2.5"
+              >
+                <button
+                  type="button"
+                  onClick={() => abrirPlano(h.id)}
+                  className="min-w-0 text-left"
+                >
+                  <p className="truncate text-sm font-medium text-slate-800 hover:text-brand-700">
+                    {h.nome || h.modelName || "Plano de corte"}
+                    {(h.modelos ?? 1) > 1 && (
+                      <span className="ml-1.5 text-xs font-normal text-slate-400">
+                        {h.modelos} modelos
+                      </span>
+                    )}
                   </p>
-                </div>
-                <div className="flex gap-2 text-xs text-slate-600">
-                  {h.panos.map((p) => (
-                    <span key={p.pano} className="rounded-lg bg-slate-100 px-2 py-1">
-                      {PANO_LABEL[p.pano] ?? p.pano}: {p.totalM.toLocaleString("pt-BR")} m · {p.riscos} risco(s)
-                    </span>
-                  ))}
+                  <p className="text-xs text-slate-400">
+                    {new Date(h.criadoEm).toLocaleString("pt-BR", {
+                      day: "2-digit",
+                      month: "2-digit",
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    })}
+                    · {h.totalPecasRoupa ?? 0} peças
+                    {h.aproveitamento ? ` · ${h.aproveitamento}%` : ""}
+                  </p>
+                </button>
+                <div className="flex items-center gap-2">
+                  <div className="flex gap-2 text-xs text-slate-600">
+                    {h.panos.map((p) => (
+                      <span key={p.pano} className="rounded-lg bg-slate-100 px-2 py-1">
+                        {PANO_LABEL[p.pano] ?? p.pano}:{" "}
+                        {p.totalM.toLocaleString("pt-BR")} m
+                      </span>
+                    ))}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => excluirPlano(h.id)}
+                    className="rounded-lg p-1.5 text-slate-300 hover:bg-red-50 hover:text-red-500"
+                  >
+                    <Trash2 className="size-3.5" />
+                  </button>
                 </div>
               </div>
             ))}
           </div>
         </Card>
+      )}
+
+      {carrinho.length === 0 && modelos !== null && modelos.length > 0 && (
+        <div className="flex items-center justify-center gap-2 rounded-2xl border border-dashed border-slate-200 p-6 text-sm text-slate-400">
+          <Plus className="size-4" /> Toque num modelo lá em cima pra começar um corte
+          <Scissors className="size-4" />
+        </div>
       )}
     </div>
   );
@@ -777,7 +1187,9 @@ function Switch({ ligado, onChange }: { ligado: boolean; onChange: (v: boolean) 
       role="switch"
       aria-checked={ligado}
       onClick={() => onChange(!ligado)}
-      className={`relative h-6 w-11 rounded-full transition ${ligado ? "bg-brand-600" : "bg-slate-300"}`}
+      className={`relative h-6 w-11 rounded-full transition ${
+        ligado ? "bg-brand-600" : "bg-slate-300"
+      }`}
     >
       <span
         className={`absolute top-0.5 size-5 rounded-full bg-white shadow transition-all ${
@@ -785,32 +1197,6 @@ function Switch({ ligado, onChange }: { ligado: boolean; onChange: (v: boolean) 
         }`}
       />
     </button>
-  );
-}
-
-function TogglePeca({
-  nome,
-  detalhe,
-  ligada,
-  onToggle,
-}: {
-  nome: string;
-  detalhe: string;
-  ligada: boolean;
-  onToggle: () => void;
-}) {
-  return (
-    <label
-      className={`flex cursor-pointer items-center justify-between rounded-xl border px-3 py-2.5 transition ${
-        ligada ? "border-slate-200 bg-white" : "border-slate-100 bg-slate-50 opacity-60"
-      }`}
-    >
-      <span className="min-w-0">
-        <span className="block truncate text-sm font-medium text-slate-800">{nome}</span>
-        <span className="block text-xs text-slate-400">{detalhe.trim()}</span>
-      </span>
-      <Switch ligado={ligada} onChange={onToggle} />
-    </label>
   );
 }
 

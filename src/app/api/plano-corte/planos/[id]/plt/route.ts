@@ -33,8 +33,8 @@ export async function GET(
     if (!risco)
       return NextResponse.json({ error: "Risco não encontrado" }, { status: 404 });
 
-    const plt = riscoParaPlt(risco, run.model.name);
-    const nomeArq = `risco-${run.model.name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-${pano.toLowerCase()}-${idx + 1}.plt`;
+    const plt = riscoParaPlt(risco, run.name ?? run.model?.name ?? "PLANO");
+    const nomeArq = `risco-${(run.name ?? run.model?.name ?? "plano").toLowerCase().replace(/[^a-z0-9]+/g, "-")}-${pano.toLowerCase()}-${idx + 1}.plt`;
 
     return new NextResponse(plt, {
       headers: {

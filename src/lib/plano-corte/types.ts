@@ -68,7 +68,11 @@ export type Posicionamento = {
 
 /** Um risco (marker): a folha desenhada que se repete a cada folha do enfesto. */
 export type Risco = {
-  combo: Record<string, number>; // tamanhos no risco e proporção (ex.: {M:1, G:1})
+  // tamanhos no risco e proporção. Plano de 1 modelo: chave = tamanho
+  // ("M"); plano multi-modelo: chave composta "índiceDoModelo|tamanho"
+  // ("0|M") — use `rotulo` pra exibir.
+  combo: Record<string, number>;
+  rotulo?: string; // versão legível do combo ("2× BABY LOOK M + REGATA G")
   folhas: number; // quantas folhas enfestar deste risco
   enfestos: number; // em quantos enfestos as folhas se dividem (maxFolhas)
   comprimentoCm: number;

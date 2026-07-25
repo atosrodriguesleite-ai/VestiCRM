@@ -26,6 +26,27 @@ import type {
 
 const mdc = (a: number, b: number): number => (b === 0 ? a : mdc(b, a % b));
 
+/**
+ * Um item do pedido de corte: um modelo com sua grade. O plano aceita
+ * VÁRIOS modelos no mesmo risco (mesmo tecido/largura) — peça pequena de
+ * um modelo preenche o vão da grande do outro.
+ */
+export type ItemPedido = {
+  modelo: ModeloCorte;
+  grade: Record<string, number>; // tamanho → quantidade de roupas
+  pecasDesligadas?: string[]; // peças DESTE modelo fora do plano
+};
+
+/** Chave da grade composta: "M" com 1 modelo; "1|M" com vários. */
+const chaveTam = (idx: number, tam: string, multi: boolean) =>
+  multi ? `${idx}|${tam}` : tam;
+const abreChave = (chave: string): { idx: number; tam: string } => {
+  const p = chave.indexOf("|");
+  return p < 0
+    ? { idx: 0, tam: chave }
+    : { idx: parseInt(chave.slice(0, p), 10) || 0, tam: chave.slice(p + 1) };
+};
+
 type Combo = Record<string, number>; // tamanho → proporção no risco
 type PropostaRisco = { combo: Combo; folhas: number };
 type Estrategia = { nome: string; riscos: PropostaRisco[] };
@@ -143,23 +164,29 @@ function giraProFio(med: {
 }
 
 /** Monta a lista de peças físicas de um risco (combo × peças do pano). */
-function pecasDoRisco(
-  modelo: ModeloCorte,
+export function pecasDoRiscoMulti(
+  itens: ItemPedido[],
   pano: TipoPano,
   combo: Combo,
   params: ParametrosPlano
 ): PecaEncaixe[] {
+  const multi = itens.length > 1;
   const out: PecaEncaixe[] = [];
-  for (const peca of modelo.pecas) {
-    if (peca.pano !== pano) continue;
-    if (params.pecasDesligadas.includes(peca.nome)) continue;
-    for (const [tam, vezes] of Object.entries(combo)) {
+  for (const [chave, vezes] of Object.entries(combo)) {
+    const { idx, tam } = abreChave(chave);
+    const item = itens[idx];
+    if (!item) continue;
+    for (const peca of item.modelo.pecas) {
+      if (peca.pano !== pano) continue;
+      if (params.pecasDesligadas.includes(peca.nome)) continue;
+      if (item.pecasDesligadas?.includes(peca.nome)) continue;
       const med = peca.tamanhos[tam];
       if (!med) continue; // tamanho não gradeado nesta peça
       const girada = giraProFio(med);
       for (let i = 0; i < vezes * peca.qtd; i++) {
         out.push({
-          nome: peca.nome,
+          // no plano misto, o rótulo carrega o modelo (vai pro risco e PLT)
+          nome: multi ? `${peca.nome} · ${item.modelo.nome}` : peca.nome,
           tamanho: tam,
           w: girada.w,
           h: girada.h,
@@ -170,6 +197,18 @@ function pecasDoRisco(
     }
   }
   return out;
+}
+
+/** Combo legível pra tela/PLT: "3× BASE P + 5× M" (com modelo, se misto). */
+export function rotuloDoCombo(itens: ItemPedido[], combo: Combo): string {
+  const multi = itens.length > 1;
+  return Object.entries(combo)
+    .map(([chave, v]) => {
+      const { idx, tam } = abreChave(chave);
+      const nome = multi ? `${itens[idx]?.modelo.nome ?? "?"} ${tam.trim()}` : tam.trim();
+      return v > 1 ? `${v}× ${nome}` : nome;
+    })
+    .join(" + ");
 }
 
 /**
@@ -215,17 +254,23 @@ function dividirSePreciso(
 
 /** Monta o plano de UM pano (tecido ou forro) testando todas as estratégias. */
 function planejarPano(
-  modelo: ModeloCorte,
+  itens: ItemPedido[],
   pano: TipoPano,
-  params: ParametrosPlano
+  params: ParametrosPlano,
+  polirFinalistas = true // false: só exploração (o otimizador pole depois)
 ): { plano: PlanoPano | null; analises: number } {
   const largura =
     pano === "FOR"
       ? params.larguraForroCm ?? params.larguraTecidoCm
       : params.larguraTecidoCm;
 
-  const temPeca = modelo.pecas.some(
-    (p) => p.pano === pano && !params.pecasDesligadas.includes(p.nome)
+  const temPeca = itens.some((item) =>
+    item.modelo.pecas.some(
+      (p) =>
+        p.pano === pano &&
+        !params.pecasDesligadas.includes(p.nome) &&
+        !item.pecasDesligadas?.includes(p.nome)
+    )
   );
   if (!temPeca) return { plano: null, analises: 0 };
 
@@ -239,7 +284,7 @@ function planejarPano(
     let r = cacheRisco.get(chave);
     if (!r) {
       r = encaixarMelhor(
-        pecasDoRisco(modelo, pano, combo, params),
+        pecasDoRiscoMulti(itens, pano, combo, params),
         largura,
         params.folgaCm,
         !params.sentidoUnico, // estampa direcional: peça não vira de cabeça pra baixo
@@ -300,13 +345,14 @@ function planejarPano(
         const proposta = melhorMultiplicacao(propostaBase);
         for (const parte of dividirSePreciso(proposta, params.mesaCm, montar, avisos)) {
           const enc = montar(parte.combo);
-          const areaPecas = pecasDoRisco(modelo, pano, parte.combo, params).reduce(
+          const areaPecas = pecasDoRiscoMulti(itens, pano, parte.combo, params).reduce(
             (s, p) => s + p.area,
             0
           );
           const areaRisco = largura * enc.comprimentoCm;
           riscos.push({
             combo: parte.combo,
+            rotulo: rotuloDoCombo(itens, parte.combo),
             folhas: parte.folhas,
             enfestos: Math.ceil(parte.folhas / Math.max(1, params.maxFolhas)),
             comprimentoCm: enc.comprimentoCm,
@@ -348,7 +394,7 @@ function planejarPano(
       let melhorFolhas = risco.folhas;
       let melhorCusto = melhorFolhas * (melhorEnc.comprimentoCm + params.perdaPorFolhaCm);
       const base = Object.values(risco.combo).reduce(mdc);
-      const pecasBase = pecasDoRisco(modelo, pano, risco.combo, params).length;
+      const pecasBase = pecasDoRiscoMulti(itens, pano, risco.combo, params).length;
       for (const k of [2, 3, 5]) {
         if (risco.folhas % k !== 0) continue;
         if (base % k === 0) continue; // já seria redutível: mesmo risco
@@ -371,12 +417,13 @@ function planejarPano(
         }
       }
       risco.combo = melhorCombo;
+      risco.rotulo = rotuloDoCombo(itens, melhorCombo);
       risco.folhas = melhorFolhas;
       risco.enfestos = Math.ceil(melhorFolhas / Math.max(1, params.maxFolhas));
       risco.comprimentoCm = melhorEnc.comprimentoCm;
       risco.pecas = melhorEnc.pecas;
       risco.estrategiaEncaixe = melhorEnc.estrategia;
-      const areaPecas = pecasDoRisco(modelo, pano, melhorCombo, params).reduce(
+      const areaPecas = pecasDoRiscoMulti(itens, pano, melhorCombo, params).reduce(
         (s, p) => s + p.area,
         0
       );
@@ -387,7 +434,7 @@ function planejarPano(
     }
     av.totalTecidoCm = Math.round(total);
   };
-  for (const av of avaliadas.slice(0, 2)) polir(av);
+  if (polirFinalistas) for (const av of avaliadas.slice(0, 2)) polir(av);
   avaliadas.sort(
     (a, b) => a.totalTecidoCm - b.totalTecidoCm || a.riscos.length - b.riscos.length
   );
@@ -397,10 +444,10 @@ function planejarPano(
     (s, r) =>
       s +
       r.folhas *
-        r.pecas.reduce((s2, p) => {
-          const peca = modelo.pecas.find((pp) => pp.nome === p.nome);
-          return s2 + (peca?.tamanhos[p.tamanho]?.area ?? p.w * p.h);
-        }, 0),
+        pecasDoRiscoMulti(itens, pano, r.combo, params).reduce(
+          (s2, p) => s2 + p.area,
+          0
+        ),
     0
   );
   const areaTecidoTotal = venc.riscos.reduce(
@@ -429,36 +476,53 @@ function planejarPano(
   };
 }
 
-/** Ponto de entrada: monta o plano completo (tecido + forro). */
-export function montarPlano(
-  modelo: ModeloCorte,
-  params: ParametrosPlano
+/**
+ * Ponto de entrada MULTI-MODELO: vários modelos no mesmo corte (mesmo
+ * tecido/largura). A grade composta junta os tamanhos de todos e as
+ * estratégias de enfesto trabalham em cima dela — misturar modelos é o
+ * caminho pro aproveitamento máximo (peça pequena preenche vão da grande).
+ */
+export function montarPlanoMulti(
+  itens: ItemPedido[],
+  params: ParametrosPlano,
+  polirFinalistas = true
 ): ResultadoPlano {
-  // Normaliza os nomes de tamanho da grade contra a grade do modelo
-  // ("BASE P " com espaço ≠ "BASE P") — evita peça sumindo em silêncio.
-  const gradeNormalizada: Record<string, number> = {};
-  for (const [tam, qtd] of Object.entries(params.grade)) {
-    if (!(qtd > 0)) continue;
-    const oficial =
-      modelo.tamanhos.find((t) => t === tam) ??
-      modelo.tamanhos.find((t) => t.trim().toUpperCase() === tam.trim().toUpperCase());
-    if (!oficial) throw new Error(`Tamanho "${tam.trim()}" não existe na grade do modelo`);
-    gradeNormalizada[oficial] = (gradeNormalizada[oficial] ?? 0) + qtd;
-  }
-  params = { ...params, grade: gradeNormalizada };
+  if (itens.length === 0) throw new Error("Adicione pelo menos um modelo ao corte");
+  const multi = itens.length > 1;
 
-  const totalRoupas = Object.values(params.grade).reduce((a, b) => a + b, 0);
+  // Normaliza os nomes de tamanho de cada modelo ("BASE P " com espaço ≠
+  // "BASE P") — evita peça sumindo em silêncio — e monta a grade composta.
+  const gradeComposta: Record<string, number> = {};
+  let totalRoupas = 0;
+  itens.forEach((item, idx) => {
+    for (const [tam, qtd] of Object.entries(item.grade)) {
+      if (!(qtd > 0)) continue;
+      const oficial =
+        item.modelo.tamanhos.find((t) => t === tam) ??
+        item.modelo.tamanhos.find(
+          (t) => t.trim().toUpperCase() === tam.trim().toUpperCase()
+        );
+      if (!oficial)
+        throw new Error(
+          `Tamanho "${tam.trim()}" não existe na grade do modelo ${item.modelo.nome}`
+        );
+      const chave = chaveTam(idx, oficial, multi);
+      gradeComposta[chave] = (gradeComposta[chave] ?? 0) + qtd;
+      totalRoupas += qtd;
+    }
+  });
   if (totalRoupas <= 0) throw new Error("Informe a quantidade de pelo menos um tamanho");
+  params = { ...params, grade: gradeComposta };
 
   const planos: PlanoPano[] = [];
   let analises = 0;
 
-  const tec = planejarPano(modelo, "TEC", params);
+  const tec = planejarPano(itens, "TEC", params, polirFinalistas);
   if (tec.plano) planos.push(tec.plano);
   analises += tec.analises;
 
   if (params.incluirForro) {
-    const forro = planejarPano(modelo, "FOR", params);
+    const forro = planejarPano(itens, "FOR", params, polirFinalistas);
     if (forro.plano) planos.push(forro.plano);
     analises += forro.analises;
   }
@@ -467,4 +531,12 @@ export function montarPlano(
     throw new Error("Nenhuma peça ligada pra montar o plano — reative as peças");
 
   return { planos, totalPecasRoupa: totalRoupas, analises };
+}
+
+/** Atalho de 1 modelo só (mantém compatibilidade com testes e chamadas antigas). */
+export function montarPlano(
+  modelo: ModeloCorte,
+  params: ParametrosPlano
+): ResultadoPlano {
+  return montarPlanoMulti([{ modelo, grade: params.grade }], params);
 }

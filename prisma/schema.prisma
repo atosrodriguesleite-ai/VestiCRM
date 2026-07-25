@@ -1663,21 +1663,30 @@ model CutPlanModel {
   @@index([companyId])
 }
 
-/// Plano de corte gerado: grade pedida + mesa/tecido → riscos otimizados.
-/// Guarda parâmetros e resultado completos (JSON) pra reimprimir o PLT
-/// e reabrir o plano depois sem recalcular.
+/// Plano de corte: um JOB de otimização retomável. A tela dispara rodadas
+/// de cálculo (cada uma retoma `state`), o melhor resultado até agora fica
+/// em `result`, e o progresso (tempo/tentativas) alimenta a barra ao vivo.
+/// Aceita VÁRIOS modelos no mesmo plano (lista em params.itens) — modelId
+/// guarda só o primeiro, por compatibilidade/exibição.
 model CutPlanRun {
   id        String   @id @default(cuid())
   companyId String
-  modelId   String
-  params    String // JSON: ParametrosPlano (grade, larguras, mesa, folga...)
-  result    String // JSON: ResultadoPlano (riscos, metragens, estratégias)
+  modelId   String? // primeiro modelo do plano (planos multi têm a lista no params)
+  name      String? // apelido do corte ("Corte semana 32")
+  status    String   @default("CONCLUIDO") // EM_ANDAMENTO | CONCLUIDO | CANCELADO
+  mode      String? // RAPIDO | NORMAL | CAPRICHADO
+  budgetMs  Int      @default(0) // orçamento de cálculo (tempo de "pensar")
+  elapsedMs Int      @default(0) // cálculo já gasto (soma das rodadas)
+  attempts  Int      @default(0) // encaixes completos avaliados
+  state     String   @default("") // JSON: EstadoOtimizacao (retomada exata)
+  params    String // JSON: ParametrosPlano + itens [{modelId, grade, pecasDesligadas}]
+  result    String // JSON: ResultadoPlano (melhor plano até agora)
   createdAt DateTime @default(now())
 
-  company Company      @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  model   CutPlanModel @relation(fields: [modelId], references: [id], onDelete: Cascade)
+  company Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  model   CutPlanModel? @relation(fields: [modelId], references: [id], onDelete: Cascade)
 
-  @@index([companyId])
+  @@index([companyId, status])
   @@index([modelId])
 }
 
