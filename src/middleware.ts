@@ -20,6 +20,9 @@ const PUBLIC_PATHS = [
   "/api/nuvemshop/webhook", // eventos da Nuvemshop (assinatura HMAC)
   "/api/nuvemshop/lgpd", // webhooks obrigatórios da LGPD (privacidade)
   "/api/nuvemshop/callback", // retorno do OAuth (estado assinado)
+  "/api/mercadopago/webhook", // aviso de pagamento (token na URL + consulta na API)
+  "/api/mercadopago/callback", // retorno do OAuth (estado assinado)
+  "/api/bling/callback", // retorno do OAuth do Bling (estado assinado)
   "/api/track", // Tracking Engine (Inteligência Comercial)
   "/api/catalog/order", // pedido enviado pelo catálogo público
   "/api/img", // fotos de produto (catálogo público carrega daqui)

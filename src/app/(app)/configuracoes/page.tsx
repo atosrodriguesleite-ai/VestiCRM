@@ -23,6 +23,7 @@ import { InstallAppCard } from "./install-app";
 import { SaleNotifications } from "./sale-notifications";
 import { NuvemshopConnect } from "./nuvemshop-connect";
 import { JueriConnect } from "./jueri-connect";
+import { MercadoPagoConnect, BlingConnect } from "./pagamentos-connect";
 import { isAdmin } from "@/lib/scope";
 import type { Origin } from "@prisma/client";
 
@@ -84,6 +85,8 @@ export default async function SettingsPage() {
 
       <InstallAppCard />
       <SaleNotifications />
+      {isAdmin(user) && <MercadoPagoConnect />}
+      {isAdmin(user) && <BlingConnect />}
       {isAdmin(user) && <NuvemshopConnect />}
       {isAdmin(user) && <JueriConnect />}
 

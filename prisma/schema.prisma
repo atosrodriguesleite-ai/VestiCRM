@@ -72,6 +72,8 @@ model Company {
   waConsents     WhatsappConsent[]
   nuvemshop      NuvemshopConnection?
   jueri          JueriConnection?
+  mercadoPago    MercadoPagoConnection?
+  bling          BlingConnection?
   billing        CompanyBilling?
   promoCatalogs  PromoCatalog[]
   fabrics        Fabric[]
@@ -1215,6 +1217,11 @@ model Order {
   stockDeducted  Boolean       @default(false) // estoque só baixa quando o pedido é pago
   source         String        @default("CATALOGO") // CATALOGO | NUVEMSHOP | MANUAL
   nuvemshopId    String? // id do pedido na Nuvemshop (nunca importa duplicado)
+  // NF-e emitida via Bling (a nota é da loja; o Bling é o emissor)
+  nfeBlingId     String? // id da NF-e no Bling
+  nfeNumber      String? // número da nota quando autorizada
+  nfeStatus      String? // EMITINDO | AUTORIZADA | ERRO
+  nfeUrl         String? // link do DANFE/PDF quando disponível
   createdAt      DateTime      @default(now())
 
   items    OrderItem[]
@@ -1275,8 +1282,45 @@ model Payment {
   pixKey    String? // chave usada no BR Code do orçamento
   paidAt    DateTime?
   createdAt DateTime      @default(now())
+  // Cobrança automática (Mercado Pago): confirmação sozinha via webhook
+  provider      String    @default("MANUAL") // MANUAL | MERCADO_PAGO
+  mpPaymentId   String?   @unique // id do pagamento no Mercado Pago
+  pixCopiaECola String? // código Pix copia-e-cola gerado pelo MP
+  pixQrBase64   String? // QR Code (imagem base64) gerado pelo MP
+  feeAmount     Float     @default(0) // taxa da plataforma embutida (R$)
+  dueAt         DateTime? // vencimento (contas a receber / venda a prazo)
 
   @@index([orderId])
+  @@index([status, dueAt])
+}
+
+/// Conexão da loja com o Mercado Pago (modo marketplace): a loja autoriza o
+/// app da plataforma via OAuth; as cobranças saem NA CONTA DELA já com a
+/// taxa da plataforma (application_fee) separada automaticamente.
+model MercadoPagoConnection {
+  id           String    @id @default(cuid())
+  companyId    String    @unique
+  company      Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  mpUserId     String // id do vendedor no Mercado Pago
+  accessToken  String // criptografado (AES-256-GCM)
+  refreshToken String? // criptografado
+  publicKey    String?
+  expiresAt    DateTime? // validade do access token (renovado sozinho)
+  feePercent   Float? // taxa da plataforma desta loja (null = padrão global)
+  webhookToken String    @unique // autentica o webhook desta loja
+  connectedAt  DateTime  @default(now())
+}
+
+/// Conexão da loja com o Bling (ERP): emissão de NF-e a partir do pedido.
+/// OAuth v3 — tokens criptografados, renovados sozinhos.
+model BlingConnection {
+  id           String   @id @default(cuid())
+  companyId    String   @unique
+  company      Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  accessToken  String // criptografado
+  refreshToken String // criptografado
+  expiresAt    DateTime
+  connectedAt  DateTime @default(now())
 }
 
 model Shipping {

@@ -26,6 +26,7 @@ import { PaymentMethodChanger } from "./payment-method";
 import { ShippingMethodChanger } from "./shipping-method";
 import { DeleteOrder } from "./delete-order";
 import { ResaleCatalog } from "./resale-catalog";
+import { CobrancaNfe } from "./cobranca-nfe";
 
 export const dynamic = "force-dynamic";
 
@@ -56,6 +57,18 @@ export default async function OrderDetailPage({
     select: { id: true, name: true },
     orderBy: { name: "asc" },
   });
+
+  // conexões do "dinheiro" (o painel de cobrança/NF-e só aparece se existirem)
+  const [mpConn, blingConn] = await Promise.all([
+    db.mercadoPagoConnection.findUnique({
+      where: { companyId: user.companyId },
+      select: { id: true },
+    }),
+    db.blingConnection.findUnique({
+      where: { companyId: user.companyId },
+      select: { id: true },
+    }),
+  ]);
 
   return (
     <div className="max-w-5xl mx-auto">
@@ -225,6 +238,18 @@ export default async function OrderDetailPage({
         </Card>
 
         <div className="space-y-4">
+          {/* Cobrança Pix automática + NF-e (aparece se a loja conectou) */}
+          <CobrancaNfe
+            orderId={order.id}
+            total={order.total}
+            isPaid={(PAID_ORDER_STATUSES as readonly string[]).includes(order.status)}
+            isCancelled={order.status === "CANCELADO"}
+            mpConnected={Boolean(mpConn)}
+            blingConnected={Boolean(blingConn)}
+            canNfe={isManagerUp(user)}
+            nfe={{ status: order.nfeStatus, number: order.nfeNumber, url: order.nfeUrl }}
+          />
+
           {/* Pagamento */}
           <Card className="p-5">
             <h2 className="font-semibold flex items-center gap-2 mb-3">
