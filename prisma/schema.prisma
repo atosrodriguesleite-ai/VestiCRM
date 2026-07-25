@@ -29,6 +29,7 @@ model Company {
   productionEnabled Boolean  @default(false) // módulo Produção (pago à parte; super admin ativa por loja)
   marketingEnabled  Boolean  @default(false) // módulo Marketing (pago à parte; super admin ativa por loja)
   mediaLibraryEnabled Boolean @default(false) // Biblioteca de imagens (super admin ativa por loja)
+  shippingEnabled   Boolean  @default(false) // módulo Envios/Melhor Envio (pago à parte; super admin ativa por loja)
   suspended         Boolean  @default(false) // acesso bloqueado pelo super admin (ex.: inadimplência)
   createdAt         DateTime @default(now())
 
@@ -74,6 +75,7 @@ model Company {
   jueri          JueriConnection?
   mercadoPago    MercadoPagoConnection?
   bling          BlingConnection?
+  melhorEnvio    MelhorEnvioConnection?
   billing        CompanyBilling?
   promoCatalogs  PromoCatalog[]
   fabrics        Fabric[]
@@ -1122,6 +1124,10 @@ model Product {
   minQuantity    Int      @default(1) // qtd mínima (atacado)
   active         Boolean  @default(true)
   tags           String? // separadas por vírgula
+  // Módulo Envios: peso da peça em GRAMAS para cotar frete. Vem sozinho da
+  // Nuvemshop (quando preenchido lá) e nunca sobrescreve o valor digitado à
+  // mão. Produto sem peso usa o padrão da categoria ou da loja.
+  weightGrams    Int?
   nuvemshopId    String? // id do produto na Nuvemshop (loja integrada)
   jueriId        String? // id do produto no Jueri (integração)
   createdAt      DateTime @default(now())
@@ -1341,6 +1347,48 @@ model Shipping {
   cost         Float     @default(0)
   shippedAt    DateTime?
   deliveredAt  DateTime?
+
+  // Frete comprado pelo módulo Envios (Melhor Envio) — a etiqueta é da loja
+  meOrderId    String? // id do envio no Melhor Envio
+  meService    String? // serviço (PAC, SEDEX, .Package...)
+  meCarrier    String? // transportadora (Correios, Jadlog...)
+  mePrice      Float? // valor pago pela etiqueta
+  meStatus     String? // COMPRADO | ETIQUETA | POSTADO | ENTREGUE | CANCELADO
+  labelUrl     String? // link de impressão da etiqueta
+  weightKg     Float? // peso usado na cotação (auditoria)
+}
+
+// Conexão da loja com o Melhor Envio (módulo Envios, pago à parte).
+// Tokens SEMPRE criptografados. Os dados do remetente saem impressos na
+// etiqueta; os padrões de embalagem cobrem produto sem peso cadastrado.
+model MelhorEnvioConnection {
+  id           String    @id @default(cuid())
+  companyId    String    @unique
+  company      Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  accessToken  String // criptografado (AES-256-GCM)
+  refreshToken String? // criptografado
+  expiresAt    DateTime?
+  connectedAt  DateTime  @default(now())
+
+  // Remetente da etiqueta (pré-preenchido da conta Melhor Envio; editável)
+  fromName       String?
+  fromDocument   String? // CPF ou CNPJ
+  fromPhone      String?
+  fromEmail      String?
+  fromZip        String?
+  fromStreet     String?
+  fromNumber     String?
+  fromComplement String?
+  fromDistrict   String?
+  fromCity       String?
+  fromState      String? // sigla (MG, SP...)
+
+  // Padrões de embalagem para cotação
+  defaultWeightGrams Int @default(300) // peso por peça sem cadastro (g)
+  boxWidthCm         Int @default(30) // caixa padrão do atacado
+  boxHeightCm        Int @default(15)
+  boxLengthCm        Int @default(40)
+  categoryWeights    String @default("") // JSON {"Vestidos":350,...} — peso padrão por categoria (g)
 }
 
 // Timeline do pedido: criação, mudanças de status, pagamento, envio...

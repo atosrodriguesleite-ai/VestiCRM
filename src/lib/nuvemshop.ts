@@ -158,6 +158,7 @@ type NsVariant = {
   sku?: string | null;
   price?: string | number | null;
   stock?: number | null;
+  weight?: string | number | null; // kg (a Nuvemshop usa para calcular frete)
   values?: { pt?: string; es?: string; en?: string }[] | MultiLang[];
 };
 type NsProduct = {
@@ -175,6 +176,12 @@ const num = (v: string | number | null | undefined) => {
   const n = typeof v === "string" ? parseFloat(v) : (v ?? 0);
   return Number.isFinite(n) ? (n as number) : 0;
 };
+
+/** Peso em gramas a partir das variações (a Nuvemshop manda em kg). */
+function pesoGramas(variants: NsVariant[]): number | null {
+  const kg = variants.map((v) => num(v.weight)).find((x) => x > 0);
+  return kg ? Math.round(kg * 1000) : null;
+}
 
 /** Descobre cor e tamanho da variação pelos nomes dos atributos do produto. */
 function corETamanho(p: NsProduct, v: NsVariant): { color: string; size: string } {
@@ -397,6 +404,16 @@ export async function upsertProduct(
         data: { retailPrice: preco },
       });
     }
+    // peso para frete (módulo Envios): entra sozinho da Nuvemshop, mas NUNCA
+    // sobrescreve um peso já preenchido (à mão ou em sync anterior)
+    const pesoNs = num(v.weight);
+    if (pesoNs > 0 && !alvo.product.weightGrams) {
+      await db.product.update({
+        where: { id: alvo.product.id },
+        data: { weightGrams: Math.round(pesoNs * 1000) },
+      });
+      alvo.product.weightGrams = Math.round(pesoNs * 1000);
+    }
     if (report) report.casadas++;
   }
 
@@ -452,6 +469,7 @@ async function criarProdutoEspelhado(companyId: string, p: NsProduct) {
       retailPrice: retail,
       wholesalePrice: 0,
       minQuantity: 1,
+      weightGrams: pesoGramas(variants),
       active: p.published !== false,
     },
     include: { variants: true },

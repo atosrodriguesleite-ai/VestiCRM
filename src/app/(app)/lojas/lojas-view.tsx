@@ -44,6 +44,7 @@ export type Loja = {
   productionEnabled: boolean;
   marketingEnabled: boolean;
   mediaLibraryEnabled: boolean;
+  shippingEnabled: boolean;
   suspended: boolean;
   billing: {
     kind: string;
@@ -280,6 +281,7 @@ function NewLojaForm({
           productionEnabled: false,
           marketingEnabled: false,
           mediaLibraryEnabled: false,
+          shippingEnabled: false,
           suspended: false,
           billing: null,
           lastActiveAt: null,
@@ -797,6 +799,8 @@ function LojaCard({ loja, catalogDomain }: { loja: Loja; catalogDomain: string |
   const [togglingMkt, setTogglingMkt] = useState(false);
   const [biblioteca, setBiblioteca] = useState(loja.mediaLibraryEnabled);
   const [togglingBib, setTogglingBib] = useState(false);
+  const [envios, setEnvios] = useState(loja.shippingEnabled);
+  const [togglingEnv, setTogglingEnv] = useState(false);
 
   // módulo Produção (pago à parte): o Super Admin liga/desliga por loja
   async function toggleProducao() {
@@ -839,6 +843,21 @@ function LojaCard({ loja, catalogDomain }: { loja: Loja; catalogDomain: string |
     setTogglingBib(false);
     if (res.ok) {
       setBiblioteca(!biblioteca);
+      router.refresh();
+    }
+  }
+
+  // módulo Envios / Melhor Envio (pago à parte): idem
+  async function toggleEnvios() {
+    setTogglingEnv(true);
+    const res = await fetch("/api/companies/shipping", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ companyId: loja.id, enabled: !envios }),
+    });
+    setTogglingEnv(false);
+    if (res.ok) {
+      setEnvios(!envios);
       router.refresh();
     }
   }
@@ -1029,6 +1048,28 @@ function LojaCard({ loja, catalogDomain }: { loja: Loja; catalogDomain: string |
           }`}
         >
           {togglingBib ? "..." : biblioteca ? "Desativar" : "Ativar Biblioteca"}
+        </button>
+      </div>
+
+      {/* módulo Envios / Melhor Envio (pago à parte) */}
+      <div className="mt-2 flex items-center justify-between gap-2 text-[11px]">
+        <span className="text-slate-400">
+          Módulo Envios:{" "}
+          <b className={envios ? "text-emerald-600" : "text-slate-500"}>
+            {envios ? "ativado" : "desativado"}
+          </b>
+        </span>
+        <button
+          type="button"
+          onClick={toggleEnvios}
+          disabled={togglingEnv}
+          className={`rounded-full px-2.5 py-1 font-semibold border transition disabled:opacity-50 ${
+            envios
+              ? "border-slate-200 text-slate-500 hover:border-rose-300 hover:text-rose-600"
+              : "border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
+          }`}
+        >
+          {togglingEnv ? "..." : envios ? "Desativar" : "Ativar Envios"}
         </button>
       </div>
 

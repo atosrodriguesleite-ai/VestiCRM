@@ -118,6 +118,12 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   Inteligência), afiliados (só empresa-plataforma).
 - **Produção** (gated por loja): tecidos, rolos, cortes multi-cor, costura,
   lotes/facções, defeitos, simulador, etiquetas.
+- **Envios** (gated por loja, `shippingEnabled`, pago à parte): Melhor Envio
+  OAuth por loja (`lib/melhorenvio.ts`); peso por produto (sync automático da
+  Nuvemshop, nunca sobrescreve manual) + padrão por categoria/loja; no pedido:
+  cotar → comprar etiqueta (saldo da carteira ME da loja; gerente+) → imprimir
+  etiqueta + declaração de conteúdo (`/declaracao/[id]`) + rastreio (msg
+  WhatsApp pronta). Cancelamento antes da postagem devolve o valor.
 - **Super Admin**: painel Lojas (provisionar, cobrança, uso, suspender,
   impersonar), diagnóstico de fotos; loja demo "Bella Moda".
 
@@ -137,6 +143,11 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   receber) e NF-e via Bling (`lib/bling.ts`). PENDENTE para produção:
   criar app no Mercado Pago (envs `MP_CLIENT_ID`/`MP_CLIENT_SECRET`) e app
   no Bling (`BLING_CLIENT_ID`/`BLING_CLIENT_SECRET`) na Vercel.
+- **Envios** (25/07/2026): módulo completo no código. PENDENTE para produção:
+  criar app em melhorenvio.com.br (redirect
+  `https://www.atacadopro.com/api/melhorenvio/callback`) e envs
+  `MELHOR_ENVIO_CLIENT_ID`/`MELHOR_ENVIO_CLIENT_SECRET` na Vercel; ligar a
+  chave por loja no painel Lojas. Parceria/comissão ME em negociação à parte.
 - Dívidas mapeadas: blob storage para fotos; rate-limit no login;
   conferir `INTAKE_SECRET` na Vercel; quebrar telas gigantes
   (`inbox.tsx` ~2,4k linhas) em componentes menores.

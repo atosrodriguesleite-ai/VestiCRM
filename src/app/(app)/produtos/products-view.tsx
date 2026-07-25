@@ -34,6 +34,7 @@ export type ProductItem = {
   wholesalePrice: number;
   retailPrice: number;
   minQuantity: number;
+  weightGrams: number | null; // peso da peça (g) para cotar frete
   active: boolean;
   tags: string | null;
   // fotos em ordem — a primeira é a CAPA (aparece na grade e no catálogo)
@@ -370,6 +371,7 @@ function ProductDetailModal({
     wholesalePrice: String(product.wholesalePrice).replace(".", ","),
     retailPrice: String(product.retailPrice).replace(".", ","),
     minQuantity: String(product.minQuantity),
+    weightGrams: product.weightGrams ? String(product.weightGrams) : "",
     tags: product.tags ?? "",
   });
   // galeria em ordem — a posição 0 é a capa; a lista final vai inteira no save
@@ -421,6 +423,7 @@ function ProductDetailModal({
         wholesalePrice: num(form.wholesalePrice),
         retailPrice: num(form.retailPrice),
         minQuantity: parseInt(form.minQuantity) || 1,
+        weightGrams: parseInt(form.weightGrams) || null,
         tags: form.tags || null,
         images: photos.map((ph) => (ph.id ? { id: ph.id } : { url: ph.url })),
         variantStocks: Object.entries(stocks)
@@ -606,6 +609,16 @@ function ProductDetailModal({
                 <label className={label}>Tags</label>
                 <input value={form.tags} onChange={set("tags")} className={input} placeholder="lançamento, festa" />
               </div>
+            </div>
+            <div>
+              <label className={label}>Peso da peça (g) — para cotar frete</label>
+              <input
+                value={form.weightGrams}
+                onChange={set("weightGrams")}
+                className={input}
+                inputMode="numeric"
+                placeholder="Ex.: 250 (vazio = usa o padrão da loja)"
+              />
             </div>
           </div>
 
@@ -1126,6 +1139,7 @@ function NewProductModal({
         wholesalePrice: num("wholesalePrice"),
         retailPrice: num("retailPrice"),
         minQuantity: parseInt(String(fd.get("minQuantity"))) || 1,
+        weightGrams: parseInt(String(fd.get("weightGrams"))) || undefined,
         tags: fd.get("tags") || undefined,
         images: photos.length
           ? photos.map((p) => p.url)
@@ -1245,9 +1259,15 @@ function NewProductModal({
                 <input name="retailPrice" required className={input} placeholder="0,00" inputMode="decimal" />
               </div>
             </div>
-            <div>
-              <label className={label}>Qtd mínima atacado</label>
-              <input name="minQuantity" defaultValue="1" className={input} inputMode="numeric" />
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className={label}>Qtd mínima atacado</label>
+                <input name="minQuantity" defaultValue="1" className={input} inputMode="numeric" />
+              </div>
+              <div>
+                <label className={label}>Peso da peça (g)</label>
+                <input name="weightGrams" className={input} inputMode="numeric" placeholder="Ex.: 250" />
+              </div>
             </div>
             <div>
               <label className={label}>Cores (grade) *</label>

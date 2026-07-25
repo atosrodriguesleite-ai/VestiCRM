@@ -24,6 +24,7 @@ import { SaleNotifications } from "./sale-notifications";
 import { NuvemshopConnect } from "./nuvemshop-connect";
 import { JueriConnect } from "./jueri-connect";
 import { MercadoPagoConnect, BlingConnect } from "./pagamentos-connect";
+import { MelhorEnvioConnect } from "./envios-connect";
 import { isAdmin } from "@/lib/scope";
 import type { Origin } from "@prisma/client";
 
@@ -71,6 +72,13 @@ export default async function SettingsPage() {
     }),
     db.originRule.findMany({ where: { companyId: user.companyId } }),
   ]);
+  // categorias de produto — usadas nos pesos padrão do módulo Envios
+  const categorias = await db.product.findMany({
+    where: { companyId: user.companyId, active: true },
+    select: { category: true },
+    distinct: ["category"],
+    orderBy: { category: "asc" },
+  });
 
   const rulesByOrigin = Object.fromEntries(
     originRules.map((r) => [r.origin, r.stageId])
@@ -87,6 +95,9 @@ export default async function SettingsPage() {
       <SaleNotifications />
       {isAdmin(user) && <MercadoPagoConnect />}
       {isAdmin(user) && <BlingConnect />}
+      {isAdmin(user) && company?.shippingEnabled && (
+        <MelhorEnvioConnect categories={categorias.map((c) => c.category)} />
+      )}
       {isAdmin(user) && <NuvemshopConnect />}
       {isAdmin(user) && <JueriConnect />}
 

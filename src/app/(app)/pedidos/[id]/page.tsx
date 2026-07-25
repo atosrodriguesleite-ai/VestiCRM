@@ -27,6 +27,7 @@ import { ShippingMethodChanger } from "./shipping-method";
 import { DeleteOrder } from "./delete-order";
 import { ResaleCatalog } from "./resale-catalog";
 import { CobrancaNfe } from "./cobranca-nfe";
+import { EnvioFrete } from "./envio-frete";
 
 export const dynamic = "force-dynamic";
 
@@ -59,7 +60,7 @@ export default async function OrderDetailPage({
   });
 
   // conexões do "dinheiro" (o painel de cobrança/NF-e só aparece se existirem)
-  const [mpConn, blingConn] = await Promise.all([
+  const [mpConn, blingConn, meConn, company] = await Promise.all([
     db.mercadoPagoConnection.findUnique({
       where: { companyId: user.companyId },
       select: { id: true },
@@ -67,6 +68,14 @@ export default async function OrderDetailPage({
     db.blingConnection.findUnique({
       where: { companyId: user.companyId },
       select: { id: true },
+    }),
+    db.melhorEnvioConnection.findUnique({
+      where: { companyId: user.companyId },
+      select: { id: true },
+    }),
+    db.company.findUnique({
+      where: { id: user.companyId },
+      select: { shippingEnabled: true },
     }),
   ]);
 
@@ -249,6 +258,31 @@ export default async function OrderDetailPage({
             canNfe={isManagerUp(user)}
             nfe={{ status: order.nfeStatus, number: order.nfeNumber, url: order.nfeUrl }}
           />
+
+          {/* Envio via Melhor Envio (módulo pago à parte + conexão da loja) */}
+          {company?.shippingEnabled && meConn && (
+            <EnvioFrete
+              orderId={order.id}
+              customerName={order.customer.name}
+              hasZip={(order.customer.zip ?? "").replace(/\D/g, "").length === 8}
+              canBuy={isManagerUp(user)}
+              isCancelled={order.status === "CANCELADO"}
+              initialShipping={
+                order.shipping
+                  ? {
+                      meOrderId: order.shipping.meOrderId,
+                      meService: order.shipping.meService,
+                      meCarrier: order.shipping.meCarrier,
+                      mePrice: order.shipping.mePrice,
+                      meStatus: order.shipping.meStatus,
+                      labelUrl: order.shipping.labelUrl,
+                      trackingCode: order.shipping.trackingCode,
+                      weightKg: order.shipping.weightKg,
+                    }
+                  : null
+              }
+            />
+          )}
 
           {/* Pagamento */}
           <Card className="p-5">

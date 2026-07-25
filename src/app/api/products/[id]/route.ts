@@ -14,6 +14,7 @@ const patchSchema = z.object({
   wholesalePrice: z.number().nonnegative().optional(),
   retailPrice: z.number().nonnegative().optional(),
   minQuantity: z.number().int().positive().optional(),
+  weightGrams: z.number().int().min(1).max(30000).nullable().optional(), // frete
   tags: z.string().nullable().optional(),
   active: z.boolean().optional(),
   imageUrl: z.string().min(1).optional(), // legado: troca a foto única

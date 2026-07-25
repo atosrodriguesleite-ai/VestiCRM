@@ -23,6 +23,7 @@ const PUBLIC_PATHS = [
   "/api/mercadopago/webhook", // aviso de pagamento (token na URL + consulta na API)
   "/api/mercadopago/callback", // retorno do OAuth (estado assinado)
   "/api/bling/callback", // retorno do OAuth do Bling (estado assinado)
+  "/api/melhorenvio/callback", // retorno do OAuth do Melhor Envio (estado assinado)
   "/api/track", // Tracking Engine (Inteligência Comercial)
   "/api/catalog/order", // pedido enviado pelo catálogo público
   "/api/img", // fotos de produto (catálogo público carrega daqui)

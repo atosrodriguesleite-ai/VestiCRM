@@ -50,6 +50,7 @@ export default async function ProductsPage() {
     wholesalePrice: p.wholesalePrice,
     retailPrice: p.retailPrice,
     minQuantity: p.minQuantity,
+    weightGrams: p.weightGrams,
     active: p.active,
     tags: p.tags,
     images: p.images.map((i) => ({ id: i.id, url: imageHref(i.id) })),

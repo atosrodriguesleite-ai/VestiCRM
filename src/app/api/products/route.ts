@@ -23,6 +23,7 @@ const createSchema = z.object({
   wholesalePrice: z.number().nonnegative().default(0),
   retailPrice: z.number().nonnegative().default(0),
   minQuantity: z.number().int().positive().default(1),
+  weightGrams: z.number().int().min(1).max(30000).nullable().optional(), // frete
   tags: z.string().optional(),
   active: z.boolean().default(true),
   images: z.array(z.string().min(1)).default([]),
