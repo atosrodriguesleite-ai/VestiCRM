@@ -115,18 +115,26 @@ export function parsePdfContornos(buf: Buffer): ContornoPdf[] {
   }
   fechaAtual();
 
-  // caminhos → peças: só polilinhas FECHADAS, com curva de verdade
-  // (>20 pontos descarta molduras/réguas) e tamanho de peça de roupa
+  // caminhos → peças: só polilinhas FECHADAS com cara de peça de roupa.
+  // Peça pode ser curva cheia de pontos (frente, manga) OU tira retangular
+  // de poucos pontos (galão, gola, viés) — os filtros separam por medida:
+  //   letras/piques  → área minúscula
+  //   réguas de borda → proporção extrema (50:1)
+  //   molduras por tamanho → retângulo (4-6 pts) grande demais pra ser tira
   const pecas: ContornoPdf[] = [];
   for (const c of caminhos) {
-    if (!c.fechado || c.pts.length <= 20) continue;
+    if (!c.fechado || c.pts.length < 4) continue;
     const xs = c.pts.map((p) => p[0]);
     const ys = c.pts.map((p) => p[1]);
     const minX = Math.min(...xs);
     const maxY = Math.max(...ys);
     const w = (Math.max(...xs) - minX) * PT_CM;
     const h = (maxY - Math.min(...ys)) * PT_CM;
-    if (Math.min(w, h) < 5 || w * h < 200) continue; // letras, piques, ruído
+    const menor = Math.min(w, h);
+    const maior = Math.max(w, h);
+    if (menor < 1 || w * h < 45) continue; // letras, piques, ruído
+    if (maior / Math.max(menor, 0.01) > 30) continue; // réguas de borda
+    if (c.pts.length <= 6 && w * h > 2500) continue; // molduras por tamanho
 
     // origem no canto e eixo Y invertido (PDF cresce pra cima; nós, pra
     // baixo) — MESMA transformação pra toda peça: nada espelha sozinho.

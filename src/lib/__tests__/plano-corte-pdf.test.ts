@@ -59,6 +59,23 @@ describe("leitor de PDF do Audaces", () => {
       }
   });
 
+  it("tira fina (galão/gola, retângulo de 5 pontos) É peça; régua não", () => {
+    const conteudo = [
+      "q 1 0 0 1 0 0 cm",
+      // galão 3×40cm desenhado como retângulo puro (igual o Audaces faz)
+      `${10 * PT} ${10 * PT} m ${13 * PT} ${10 * PT} l ${13 * PT} ${50 * PT} l ${10 * PT} ${50 * PT} l h S`,
+      // régua de borda 3×160cm (proporção extrema → fora)
+      `${0 * PT} ${0 * PT} m ${3 * PT} ${0 * PT} l ${3 * PT} ${160 * PT} l ${0 * PT} ${160 * PT} l h S`,
+      // moldura de tamanho 100×120cm com 4 pontos (→ fora)
+      `${20 * PT} ${20 * PT} m ${120 * PT} ${20 * PT} l ${120 * PT} ${140 * PT} l ${20 * PT} ${140 * PT} l h S`,
+      "Q",
+    ].join("\n");
+    const pecas = parsePdfContornos(pdfFake(conteudo));
+    expect(pecas).toHaveLength(1);
+    expect(pecas[0].w).toBeCloseTo(3, 0);
+    expect(pecas[0].h).toBeCloseTo(40, 0);
+  });
+
   it("respeita blocos q/cm/Q (peça transladada mantém o tamanho)", () => {
     const conteudo = [
       "q",
