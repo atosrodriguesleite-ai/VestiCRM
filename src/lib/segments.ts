@@ -1,4 +1,5 @@
 import { db } from "./db";
+import { PAID_ORDER_STATUSES } from "./orders";
 import type { SessionUser } from "./auth";
 import type { CustomerType, Prisma } from "@prisma/client";
 
@@ -37,15 +38,21 @@ export async function evaluateSegment(user: SessionUser, filter: SegmentFilter) 
     where.opportunities = { some: { status: "LOST" } };
   }
 
+  // total gasto = pedidos PAGOS (fonte única; inclui vendas integradas)
   let customers = await db.customer.findMany({
     where,
-    include: { sales: { select: { total: true } } },
+    include: {
+      orders: {
+        where: { status: { in: PAID_ORDER_STATUSES } },
+        select: { total: true },
+      },
+    },
     orderBy: { name: "asc" },
   });
 
   if (filter.minSpent) {
     customers = customers.filter(
-      (c) => c.sales.reduce((s, v) => s + v.total, 0) >= filter.minSpent!
+      (c) => c.orders.reduce((s, v) => s + v.total, 0) >= filter.minSpent!
     );
   }
 
@@ -54,6 +61,6 @@ export async function evaluateSegment(user: SessionUser, filter: SegmentFilter) 
     name: c.name,
     phone: c.phone,
     city: c.city,
-    totalSpent: c.sales.reduce((s, v) => s + v.total, 0),
+    totalSpent: c.orders.reduce((s, v) => s + v.total, 0),
   }));
 }

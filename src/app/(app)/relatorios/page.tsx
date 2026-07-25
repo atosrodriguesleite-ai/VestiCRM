@@ -12,6 +12,7 @@ import { redirect } from "next/navigation";
 import { requireUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { ownedScope, isManagerUp } from "@/lib/scope";
+import { PAID_ORDER_STATUSES } from "@/lib/orders";
 import { brl, dateShort, originLabel } from "@/lib/format";
 import { Card, PageHeader, EmptyState } from "@/components/ui";
 import { AreaChart, BarList, FunnelBars, StatTile } from "@/components/charts";
@@ -26,11 +27,18 @@ export default async function ReportsPage() {
   const now = new Date();
   const days90 = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
 
+  // Venda = pedido PAGO (fonte única da verdade, igual Dashboard/Inteligência).
+  // Inclui vendas integradas (Nuvemshop etc.), que entram como pedido pago
+  // direto — o modelo Sale não cobre esses fluxos e subcontava.
+  const paidScope = {
+    companyId: user.companyId,
+    status: { in: PAID_ORDER_STATUSES },
+  };
   const [sales, sellers, stages, opps, customers, interests, pendingTasks, conversations] =
     await Promise.all([
-      db.sale.findMany({
-        where: { companyId: user.companyId, createdAt: { gte: days90 } },
-        include: { seller: true },
+      db.order.findMany({
+        where: { ...paidScope, createdAt: { gte: days90 } },
+        select: { total: true, createdAt: true, sellerId: true },
       }),
       db.user.findMany({ where: { companyId: user.companyId, active: true } }),
       db.stage.findMany({
@@ -41,7 +49,12 @@ export default async function ReportsPage() {
       db.opportunity.findMany({ where: { companyId: user.companyId } }),
       db.customer.findMany({
         where: scope,
-        include: { sales: { select: { total: true } } },
+        include: {
+          orders: {
+            where: { status: { in: PAID_ORDER_STATUSES } },
+            select: { total: true },
+          },
+        },
       }),
       db.interest.findMany({
         where: { companyId: user.companyId },
@@ -61,7 +74,12 @@ export default async function ReportsPage() {
   // ---- Canais de aquisição (Lead Intake Engine) ----
   const customersFull = await db.customer.findMany({
     where: { companyId: user.companyId },
-    include: { sales: { select: { total: true, createdAt: true } } },
+    include: {
+      orders: {
+        where: { status: { in: PAID_ORDER_STATUSES } },
+        select: { total: true, createdAt: true },
+      },
+    },
   });
   type ChannelStat = {
     origin: string;
@@ -77,12 +95,12 @@ export default async function ReportsPage() {
       channelMap.get(key) ??
       { origin: key, leads: 0, buyers: 0, revenue: 0, daysToSale: [] };
     stat.leads += 1;
-    if (c.sales.length > 0) {
+    if (c.orders.length > 0) {
       stat.buyers += 1;
-      stat.revenue += c.sales.reduce((s, v) => s + v.total, 0);
-      const firstSale = c.sales.reduce(
+      stat.revenue += c.orders.reduce((s, v) => s + v.total, 0);
+      const firstSale = c.orders.reduce(
         (min, s) => (s.createdAt < min ? s.createdAt : min),
-        c.sales[0].createdAt
+        c.orders[0].createdAt
       );
       stat.daysToSale.push(
         Math.max(0, (firstSale.getTime() - c.createdAt.getTime()) / (24 * 60 * 60 * 1000))
@@ -175,7 +193,7 @@ export default async function ReportsPage() {
   const topCustomers = customers
     .map((c) => ({
       label: c.name,
-      value: c.sales.reduce((s, v) => s + v.total, 0),
+      value: c.orders.reduce((s, v) => s + v.total, 0),
     }))
     .filter((c) => c.value > 0)
     .sort((a, b) => b.value - a.value)

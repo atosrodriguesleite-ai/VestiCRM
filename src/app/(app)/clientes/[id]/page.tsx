@@ -86,6 +86,7 @@ import {
   orderNumber,
   orderStatusLabel,
   orderStatusColor,
+  PAID_ORDER_STATUSES,
 } from "@/lib/orders";
 import { customerJourney } from "@/lib/tracking/insights";
 import { catalogUrl, trackedCatalogLink } from "@/lib/catalog-url";
@@ -166,8 +167,13 @@ export default async function CustomerDetailPage({
     customer.linkCode ?? customer.id
   );
 
-  const totalSpent = customer.sales.reduce((s, v) => s + v.total, 0);
-  const ticket = customer.sales.length ? totalSpent / customer.sales.length : 0;
+  // Total gasto = pedidos PAGOS (fonte única — inclui vendas integradas
+  // tipo Nuvemshop, que não passam pelo modelo Sale)
+  const paidOrders = customer.orders.filter((o) =>
+    (PAID_ORDER_STATUSES as readonly string[]).includes(o.status)
+  );
+  const totalSpent = paidOrders.reduce((s, v) => s + v.total, 0);
+  const ticket = paidOrders.length ? totalSpent / paidOrders.length : 0;
 
   // link para chamar o cliente direto no WhatsApp
   const waDigits = customer.phone.replace(/\D/g, "");
@@ -225,7 +231,7 @@ export default async function CustomerDetailPage({
               {brl(totalSpent)}
             </p>
             <p className="text-xs text-gray-400 mt-1">
-              {customer.sales.length} compras · ticket {brl(ticket)}
+              {paidOrders.length} compras · ticket {brl(ticket)}
             </p>
             <div className="mt-3 flex flex-col gap-2 sm:items-end">
               {waHref && (

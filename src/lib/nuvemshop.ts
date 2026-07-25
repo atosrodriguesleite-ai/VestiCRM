@@ -701,6 +701,12 @@ export async function ingestPaidOrder(companyId: string, nsOrderId: string) {
       description: `Compra na loja online — R$ ${total.toFixed(2).replace(".", ",")}`,
     },
   });
+  // marca a última compra do cliente (alimenta "inativos" e segmentação),
+  // igual ao fluxo manual de pedido pago
+  await db.customer.update({
+    where: { id: customerId },
+    data: { lastPurchaseAt: new Date(), lastContactAt: new Date() },
+  });
 
   // espelha o estoque atual dos produtos vendidos (a baixa aconteceu lá)
   for (const pid of [...new Set((o.products ?? []).map((i) => String(i.product_id)))]) {

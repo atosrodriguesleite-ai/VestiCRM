@@ -40,10 +40,17 @@ async function loadEvents(companyId: string, p: Period) {
 // ---- Visão geral ------------------------------------------------------------
 
 export async function overview(companyId: string, p: Period) {
+  // Venda = pedido PAGO (fonte única, cobre Nuvemshop e integrações — o
+  // modelo Sale só nasce no fluxo manual e subcontava as vendas integradas)
   const [sessions, sales, newCustomers] = await Promise.all([
     loadSessions(companyId, p),
-    db.sale.findMany({
-      where: { companyId, createdAt: { gte: p.from, lte: p.to } },
+    db.order.findMany({
+      where: {
+        companyId,
+        status: { in: PAID_ORDER_STATUSES },
+        createdAt: { gte: p.from, lte: p.to },
+      },
+      select: { total: true },
     }),
     db.customer.count({
       where: { companyId, createdAt: { gte: p.from, lte: p.to } },
@@ -60,9 +67,13 @@ export async function overview(companyId: string, p: Period) {
   const converted = sessions.filter((s) => s.converted);
   const abandoned = sessions.filter((s) => !s.converted && s.cartAdds > 0);
   const revenue = sales.reduce((a, s) => a + s.total, 0);
-  const buyers = await db.sale.groupBy({
+  const buyers = await db.order.groupBy({
     by: ["customerId"],
-    where: { companyId, createdAt: { gte: p.from, lte: p.to } },
+    where: {
+      companyId,
+      status: { in: PAID_ORDER_STATUSES },
+      createdAt: { gte: p.from, lte: p.to },
+    },
     _count: true,
   });
 
@@ -95,14 +106,22 @@ export async function funnel(companyId: string, p: Period) {
     db.customer.count({
       where: { companyId, createdAt: { gte: p.from, lte: p.to } },
     }),
-    db.sale.groupBy({
+    db.order.groupBy({
       by: ["customerId"],
-      where: { companyId, createdAt: { gte: p.from, lte: p.to } },
+      where: {
+        companyId,
+        status: { in: PAID_ORDER_STATUSES },
+        createdAt: { gte: p.from, lte: p.to },
+      },
       _count: true,
     }),
-    db.sale.groupBy({
+    db.order.groupBy({
       by: ["customerId"],
-      where: { companyId, createdAt: { gte: p.from, lte: p.to } },
+      where: {
+        companyId,
+        status: { in: PAID_ORDER_STATUSES },
+        createdAt: { gte: p.from, lte: p.to },
+      },
       _count: true,
       having: { customerId: { _count: { gte: 2 } } },
     }),
@@ -156,12 +175,24 @@ export async function sellerRanking(companyId: string, p: Period) {
   const [sessions, sellers, sales, customers] = await Promise.all([
     loadSessions(companyId, p),
     db.user.findMany({ where: { companyId, active: true } }),
-    db.sale.findMany({
-      where: { companyId, createdAt: { gte: p.from, lte: p.to } },
+    db.order.findMany({
+      where: {
+        companyId,
+        status: { in: PAID_ORDER_STATUSES },
+        createdAt: { gte: p.from, lte: p.to },
+      },
+      select: { total: true, sellerId: true },
     }),
     db.customer.findMany({
       where: { companyId },
-      include: { sales: { orderBy: { createdAt: "asc" }, take: 1 } },
+      include: {
+        orders: {
+          where: { status: { in: PAID_ORDER_STATUSES } },
+          orderBy: { createdAt: "asc" },
+          take: 1,
+          select: { createdAt: true },
+        },
+      },
     }),
   ]);
   return sellers
@@ -171,10 +202,10 @@ export async function sellerRanking(companyId: string, p: Period) {
       const mySales = sales.filter((s) => s.sellerId === u.id);
       const revenue = mySales.reduce((a, s) => a + s.total, 0);
       const daysToSale = customers
-        .filter((c) => c.ownerId === u.id && c.sales[0])
+        .filter((c) => c.ownerId === u.id && c.orders[0])
         .map(
           (c) =>
-            (c.sales[0].createdAt.getTime() - c.createdAt.getTime()) /
+            (c.orders[0].createdAt.getTime() - c.createdAt.getTime()) /
             (24 * 60 * 60 * 1000)
         );
       return {
@@ -311,8 +342,13 @@ export const sizeStats = (c: string, p: Period) => dimensionStats(c, p, "size");
 export async function heatmaps(companyId: string, p: Period) {
   const [sessions, sales] = await Promise.all([
     loadSessions(companyId, p),
-    db.sale.findMany({
-      where: { companyId, createdAt: { gte: p.from, lte: p.to } },
+    db.order.findMany({
+      where: {
+        companyId,
+        status: { in: PAID_ORDER_STATUSES },
+        createdAt: { gte: p.from, lte: p.to },
+      },
+      select: { total: true, createdAt: true },
     }),
   ]);
   const grid = () => Array.from({ length: 7 }, () => Array(24).fill(0) as number[]);

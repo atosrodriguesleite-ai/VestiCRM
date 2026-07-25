@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { requireUser, AuthError } from "@/lib/auth";
 import { ownedScope } from "@/lib/scope";
+import { PAID_ORDER_STATUSES } from "@/lib/orders";
 import { customerTypeLabel, originLabel } from "@/lib/format";
 
 /**
@@ -22,7 +23,11 @@ export async function GET() {
       where: ownedScope(user),
       include: {
         owner: { select: { name: true } },
-        sales: { select: { total: true } },
+        // total comprado = pedidos PAGOS (fonte única, inclui integrações)
+        orders: {
+          where: { status: { in: PAID_ORDER_STATUSES } },
+          select: { total: true },
+        },
       },
       orderBy: { name: "asc" },
     });
@@ -48,7 +53,7 @@ export async function GET() {
       c.district ?? "",
       c.zip ?? "",
       c.owner?.name ?? "",
-      c.sales.reduce((s, v) => s + v.total, 0).toFixed(2).replace(".", ","),
+      c.orders.reduce((s, v) => s + v.total, 0).toFixed(2).replace(".", ","),
       c.lastPurchaseAt
         ? c.lastPurchaseAt.toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo" })
         : "",

@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { requireUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { isManagerUp, isAdmin } from "@/lib/scope";
+import { PAID_ORDER_STATUSES } from "@/lib/orders";
 import { PageHeader } from "@/components/ui";
 import { TeamView, type TeamMember } from "./team-view";
 
@@ -24,7 +25,14 @@ export default async function TeamPage() {
           tasks: { where: { status: "PENDENTE" } },
         },
       },
-      sales: { where: { createdAt: { gte: days30 } }, select: { total: true } },
+      // vendas = pedidos PAGOS (fonte única; inclui integrações tipo Nuvemshop)
+      orders: {
+        where: {
+          createdAt: { gte: days30 },
+          status: { in: PAID_ORDER_STATUSES },
+        },
+        select: { total: true },
+      },
     },
   });
 
@@ -42,7 +50,7 @@ export default async function TeamPage() {
       customers: m._count.customers,
       conversations: m._count.conversations,
       pendingTasks: m._count.tasks,
-      sales30: m.sales.reduce((s, v) => s + v.total, 0),
+      sales30: m.orders.reduce((s, v) => s + v.total, 0),
       monthlyGoal: m.monthlyGoal,
       isMe: m.id === user.id,
     }));
