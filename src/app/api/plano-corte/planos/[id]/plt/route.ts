@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { requireProducao, producaoErro } from "@/lib/producao-auth";
+import { requirePlanoCorte, planoCorteErro } from "@/lib/plano-corte-auth";
 import { riscoParaPlt } from "@/lib/plano-corte/plt";
 import type { ResultadoPlano } from "@/lib/plano-corte/types";
 
@@ -14,7 +14,7 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const user = await requireProducao();
+    const user = await requirePlanoCorte();
     const { id } = await params;
     const url = new URL(req.url);
     const pano = url.searchParams.get("pano") ?? "TEC";
@@ -43,6 +43,6 @@ export async function GET(
       },
     });
   } catch (e) {
-    return producaoErro(e);
+    return planoCorteErro(e);
   }
 }

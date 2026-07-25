@@ -5,8 +5,8 @@ export const dynamic = "force-dynamic";
 
 /**
  * Plano de Corte Inteligente: importa o modelo do CAD (Audaces .adsx/DXF),
- * recebe grade + mesa + tecido e monta os riscos otimizados (o gate do
- * módulo Produção está no layout).
+ * recebe grade + mesa + tecido e monta os riscos otimizados. Módulo pago à
+ * parte, independente da Produção (a trava cutPlanEnabled está no layout).
  */
 export default function PlanoCortePage() {
   return (

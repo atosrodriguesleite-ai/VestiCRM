@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { requireProducao, producaoErro } from "@/lib/producao-auth";
+import { requirePlanoCorte, planoCorteErro } from "@/lib/plano-corte-auth";
 
 /** Detalhe completo do modelo (peças com medidas) e exclusão. */
 
@@ -9,7 +9,7 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const user = await requireProducao();
+    const user = await requirePlanoCorte();
     const { id } = await params;
     const m = await db.cutPlanModel.findFirst({
       where: { id, companyId: user.companyId },
@@ -26,7 +26,7 @@ export async function GET(
       createdAt: m.createdAt.toISOString(),
     });
   } catch (e) {
-    return producaoErro(e);
+    return planoCorteErro(e);
   }
 }
 
@@ -35,7 +35,7 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const user = await requireProducao();
+    const user = await requirePlanoCorte();
     const { id } = await params;
     const m = await db.cutPlanModel.findFirst({
       where: { id, companyId: user.companyId },
@@ -46,6 +46,6 @@ export async function DELETE(
     await db.cutPlanModel.delete({ where: { id: m.id } });
     return NextResponse.json({ ok: true });
   } catch (e) {
-    return producaoErro(e);
+    return planoCorteErro(e);
   }
 }

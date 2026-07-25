@@ -42,6 +42,7 @@ export type Loja = {
   waStatus: string;
   waPhone: string | null;
   productionEnabled: boolean;
+  cutPlanEnabled: boolean;
   marketingEnabled: boolean;
   mediaLibraryEnabled: boolean;
   shippingEnabled: boolean;
@@ -279,6 +280,7 @@ function NewLojaForm({
           waStatus: "DESCONECTADO",
           waPhone: null,
           productionEnabled: false,
+          cutPlanEnabled: false,
           marketingEnabled: false,
           mediaLibraryEnabled: false,
           shippingEnabled: false,
@@ -795,6 +797,8 @@ function LojaCard({ loja, catalogDomain }: { loja: Loja; catalogDomain: string |
   const [accessing, setAccessing] = useState(false);
   const [producao, setProducao] = useState(loja.productionEnabled);
   const [togglingProd, setTogglingProd] = useState(false);
+  const [planoCorte, setPlanoCorte] = useState(loja.cutPlanEnabled);
+  const [togglingPlano, setTogglingPlano] = useState(false);
   const [marketing, setMarketing] = useState(loja.marketingEnabled);
   const [togglingMkt, setTogglingMkt] = useState(false);
   const [biblioteca, setBiblioteca] = useState(loja.mediaLibraryEnabled);
@@ -813,6 +817,21 @@ function LojaCard({ loja, catalogDomain }: { loja: Loja; catalogDomain: string |
     setTogglingProd(false);
     if (res.ok) {
       setProducao(!producao);
+      router.refresh();
+    }
+  }
+
+  // módulo Plano de Corte (pago à parte): idem
+  async function togglePlanoCorte() {
+    setTogglingPlano(true);
+    const res = await fetch("/api/companies/cut-plan", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ companyId: loja.id, enabled: !planoCorte }),
+    });
+    setTogglingPlano(false);
+    if (res.ok) {
+      setPlanoCorte(!planoCorte);
       router.refresh();
     }
   }
@@ -1004,6 +1023,28 @@ function LojaCard({ loja, catalogDomain }: { loja: Loja; catalogDomain: string |
           }`}
         >
           {togglingProd ? "..." : producao ? "Desativar" : "Ativar Produção"}
+        </button>
+      </div>
+
+      {/* módulo Plano de Corte (pago à parte) */}
+      <div className="mt-2 flex items-center justify-between gap-2 text-[11px]">
+        <span className="text-slate-400">
+          Módulo Plano de Corte:{" "}
+          <b className={planoCorte ? "text-emerald-600" : "text-slate-500"}>
+            {planoCorte ? "ativado" : "desativado"}
+          </b>
+        </span>
+        <button
+          type="button"
+          onClick={togglePlanoCorte}
+          disabled={togglingPlano}
+          className={`rounded-full px-2.5 py-1 font-semibold border transition disabled:opacity-50 ${
+            planoCorte
+              ? "border-slate-200 text-slate-500 hover:border-rose-300 hover:text-rose-600"
+              : "border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
+          }`}
+        >
+          {togglingPlano ? "..." : planoCorte ? "Desativar" : "Ativar Plano de Corte"}
         </button>
       </div>
 

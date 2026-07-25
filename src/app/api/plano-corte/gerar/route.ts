@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
-import { requireProducao, producaoErro } from "@/lib/producao-auth";
+import { requirePlanoCorte, planoCorteErro } from "@/lib/plano-corte-auth";
 import { montarPlano } from "@/lib/plano-corte/enfesto";
 import { riscoParaSvg } from "@/lib/plano-corte/svg";
 import type { ModeloCorte, ParametrosPlano } from "@/lib/plano-corte/types";
@@ -28,7 +28,7 @@ const schema = z.object({
 
 export async function POST(req: NextRequest) {
   try {
-    const user = await requireProducao();
+    const user = await requirePlanoCorte();
     const parsed = schema.safeParse(await req.json());
     if (!parsed.success)
       return NextResponse.json({ error: "Parâmetros inválidos" }, { status: 400 });
@@ -94,13 +94,13 @@ export async function POST(req: NextRequest) {
       },
     });
   } catch (e) {
-    return producaoErro(e);
+    return planoCorteErro(e);
   }
 }
 
 export async function GET() {
   try {
-    const user = await requireProducao();
+    const user = await requirePlanoCorte();
     const runs = await db.cutPlanRun.findMany({
       where: { companyId: user.companyId },
       include: { model: { select: { name: true } } },
@@ -127,6 +127,6 @@ export async function GET() {
       })
     );
   } catch (e) {
-    return producaoErro(e);
+    return planoCorteErro(e);
   }
 }

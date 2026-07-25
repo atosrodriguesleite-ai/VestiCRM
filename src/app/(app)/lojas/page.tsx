@@ -98,6 +98,7 @@ export default async function LojasPage() {
     waStatus: connByCompany.get(c.id)?.evolutionStatus ?? "DESCONECTADO",
     waPhone: connByCompany.get(c.id)?.evolutionPhone ?? null,
     productionEnabled: c.productionEnabled,
+    cutPlanEnabled: c.cutPlanEnabled,
     marketingEnabled: c.marketingEnabled,
     mediaLibraryEnabled: c.mediaLibraryEnabled,
     shippingEnabled: c.shippingEnabled,

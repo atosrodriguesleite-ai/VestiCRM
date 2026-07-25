@@ -32,6 +32,7 @@ export default async function AppLayout({
           avatarUrl: dbUser?.avatarUrl ?? null,
           impersonating: Boolean(user.impersonatedBy),
           productionEnabled: company?.productionEnabled ?? false,
+          cutPlanEnabled: company?.cutPlanEnabled ?? false,
           marketingEnabled: company?.marketingEnabled ?? false,
           mediaLibraryEnabled: company?.mediaLibraryEnabled ?? false,
           prefersDark: dark,

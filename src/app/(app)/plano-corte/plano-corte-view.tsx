@@ -140,8 +140,8 @@ export function PlanoCorteView() {
   const carregar = useCallback(async () => {
     try {
       const [rm, rh] = await Promise.all([
-        fetch("/api/producao/plano-corte/modelos"),
-        fetch("/api/producao/plano-corte/gerar"),
+        fetch("/api/plano-corte/modelos"),
+        fetch("/api/plano-corte/gerar"),
       ]);
       if (rm.ok) setModelos(await rm.json());
       else setErro((await rm.json()).error ?? "Erro ao carregar modelos");
@@ -163,7 +163,7 @@ export function PlanoCorteView() {
       setEnviando(true);
       try {
         const contentBase64 = await arquivoParaBase64(file);
-        const r = await fetch("/api/producao/plano-corte/modelos", {
+        const r = await fetch("/api/plano-corte/modelos", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ fileName: file.name, contentBase64 }),
@@ -191,7 +191,7 @@ export function PlanoCorteView() {
     setResultado(null);
     setErro(null);
     try {
-      const r = await fetch(`/api/producao/plano-corte/modelos/${id}`);
+      const r = await fetch(`/api/plano-corte/modelos/${id}`);
       if (!r.ok) {
         setErro("Modelo não encontrado");
         return;
@@ -208,7 +208,7 @@ export function PlanoCorteView() {
 
   async function excluirModelo(id: string) {
     if (!confirm("Excluir este modelo e seus planos salvos?")) return;
-    await fetch(`/api/producao/plano-corte/modelos/${id}`, { method: "DELETE" });
+    await fetch(`/api/plano-corte/modelos/${id}`, { method: "DELETE" });
     if (selecionado?.id === id) setSelecionado(null);
     await carregar();
   }
@@ -235,7 +235,7 @@ export function PlanoCorteView() {
     setGerando(true);
     setResultado(null);
     try {
-      const r = await fetch("/api/producao/plano-corte/gerar", {
+      const r = await fetch("/api/plano-corte/gerar", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -633,7 +633,7 @@ export function PlanoCorteView() {
                         </span>
                       </p>
                       <a
-                        href={`/api/producao/plano-corte/planos/${resultado.id}/plt?pano=${plano.pano}&risco=${idx}`}
+                        href={`/api/plano-corte/planos/${resultado.id}/plt?pano=${plano.pano}&risco=${idx}`}
                         download
                         className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 transition hover:border-brand-300 hover:text-brand-700"
                       >

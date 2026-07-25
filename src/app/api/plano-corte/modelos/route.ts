@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
-import { requireProducao, producaoErro } from "@/lib/producao-auth";
+import { requirePlanoCorte, planoCorteErro } from "@/lib/plano-corte-auth";
 import { parseAdsx, parseDataXml } from "@/lib/plano-corte/audaces";
 import { parseDxf } from "@/lib/plano-corte/dxf";
 import type { ModeloCorte } from "@/lib/plano-corte/types";
@@ -21,7 +21,7 @@ const postSchema = z.object({
 
 export async function POST(req: NextRequest) {
   try {
-    const user = await requireProducao();
+    const user = await requirePlanoCorte();
     const parsed = postSchema.safeParse(await req.json());
     if (!parsed.success)
       return NextResponse.json({ error: "Arquivo inválido" }, { status: 400 });
@@ -71,13 +71,13 @@ export async function POST(req: NextRequest) {
       })),
     });
   } catch (e) {
-    return producaoErro(e);
+    return planoCorteErro(e);
   }
 }
 
 export async function GET() {
   try {
-    const user = await requireProducao();
+    const user = await requirePlanoCorte();
     const modelos = await db.cutPlanModel.findMany({
       where: { companyId: user.companyId },
       orderBy: { createdAt: "desc" },
@@ -101,6 +101,6 @@ export async function GET() {
       }))
     );
   } catch (e) {
-    return producaoErro(e);
+    return planoCorteErro(e);
   }
 }
