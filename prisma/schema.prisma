@@ -1287,6 +1287,7 @@ model Payment {
   mpPaymentId   String?   @unique // id do pagamento no Mercado Pago
   pixCopiaECola String? // código Pix copia-e-cola gerado pelo MP
   pixQrBase64   String? // QR Code (imagem base64) gerado pelo MP
+  checkoutUrl   String? // link de pagamento (cartão parcelado — Checkout Pro)
   feeAmount     Float     @default(0) // taxa da plataforma embutida (R$)
   dueAt         DateTime? // vencimento (contas a receber / venda a prazo)
 
@@ -1308,6 +1309,10 @@ model MercadoPagoConnection {
   expiresAt    DateTime? // validade do access token (renovado sozinho)
   feePercent   Float? // taxa da plataforma desta loja (null = padrão global)
   webhookToken String    @unique // autentica o webhook desta loja
+  // cartão de crédito: limite de parcelas oferecido no link de pagamento.
+  // "Sem juros" é configuração da CONTA Mercado Pago da loja (Custos de
+  // parcelamento) — o link respeita automaticamente o que ela definir lá.
+  maxInstallments Int    @default(12)
   connectedAt  DateTime  @default(now())
 }
 

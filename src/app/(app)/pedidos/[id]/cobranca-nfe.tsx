@@ -12,6 +12,7 @@ import {
   Receipt,
   ExternalLink,
   RefreshCcw,
+  CreditCard,
 } from "lucide-react";
 import { Card } from "@/components/ui";
 import { brl } from "@/lib/format";
@@ -40,12 +41,30 @@ export function CobrancaNfe({
   nfe: { status: string | null; number: string | null; url: string | null };
 }) {
   const router = useRouter();
-  const [busy, setBusy] = useState<"pix" | "nfe" | "nfeStatus" | null>(null);
+  const [busy, setBusy] = useState<"pix" | "card" | "nfe" | "nfeStatus" | null>(null);
   const [erro, setErro] = useState("");
   const [pix, setPix] = useState<{ copiaECola: string; qrBase64: string | null } | null>(null);
-  const [copied, setCopied] = useState(false);
+  const [cardUrl, setCardUrl] = useState<string | null>(null);
+  const [copied, setCopied] = useState<"pix" | "card" | null>(null);
 
   if (!mpConnected && !blingConnected) return null;
+
+  async function gerarCartao() {
+    setBusy("card");
+    setErro("");
+    const res = await fetch(`/api/orders/${orderId}/card`, { method: "POST" });
+    const d = await res.json().catch(() => ({}));
+    setBusy(null);
+    if (res.ok) setCardUrl(d.url);
+    else setErro(d.error ?? "Não foi possível gerar o link do cartão.");
+  }
+
+  async function copiarCartao() {
+    if (!cardUrl) return;
+    await navigator.clipboard.writeText(cardUrl);
+    setCopied("card");
+    setTimeout(() => setCopied(null), 2000);
+  }
 
   async function gerarPix() {
     setBusy("pix");
@@ -60,8 +79,8 @@ export function CobrancaNfe({
   async function copiar() {
     if (!pix) return;
     await navigator.clipboard.writeText(pix.copiaECola);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    setCopied("pix");
+    setTimeout(() => setCopied(null), 2000);
   }
 
   async function emitirNfe() {
@@ -126,8 +145,8 @@ export function CobrancaNfe({
                     onClick={copiar}
                     className="shrink-0 inline-flex items-center gap-1 rounded-lg bg-sky-600 hover:bg-sky-700 text-white text-xs font-semibold px-3 py-2"
                   >
-                    {copied ? <CheckCircle2 className="size-3.5" /> : <Copy className="size-3.5" />}
-                    {copied ? "Copiado!" : "Copiar"}
+                    {copied === "pix" ? <CheckCircle2 className="size-3.5" /> : <Copy className="size-3.5" />}
+                    {copied === "pix" ? "Copiado!" : "Copiar"}
                   </button>
                 </div>
               </div>
@@ -141,6 +160,48 @@ export function CobrancaNfe({
               {busy === "pix" ? <Loader2 className="size-4 animate-spin" /> : <QrCode className="size-4" />}
               Cobrar {brl(total)} via Pix (confirma sozinho)
             </button>
+          )}
+
+          {/* cartão de crédito (link parcelado) */}
+          {!isPaid && (
+            <div className="mt-3">
+              {cardUrl ? (
+                <div>
+                  <p className="text-sm font-semibold mb-1">
+                    💳 Link do cartão gerado — vale 7 dias
+                  </p>
+                  <p className="text-xs text-gray-500 mb-2">
+                    O cliente escolhe as parcelas no link e o pedido confirma
+                    sozinho quando o pagamento for aprovado.
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <code className="flex-1 min-w-0 truncate rounded-lg bg-gray-50 border border-gray-200 px-2.5 py-2 text-[11px]">
+                      {cardUrl}
+                    </code>
+                    <button
+                      onClick={copiarCartao}
+                      className="shrink-0 inline-flex items-center gap-1 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold px-3 py-2"
+                    >
+                      {copied === "card" ? <CheckCircle2 className="size-3.5" /> : <Copy className="size-3.5" />}
+                      {copied === "card" ? "Copiado!" : "Copiar"}
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <button
+                  onClick={gerarCartao}
+                  disabled={busy === "card"}
+                  className="inline-flex items-center gap-1.5 rounded-xl border border-indigo-200 text-indigo-700 hover:bg-indigo-50 text-sm font-medium px-4 py-2.5 transition disabled:opacity-50"
+                >
+                  {busy === "card" ? (
+                    <Loader2 className="size-4 animate-spin" />
+                  ) : (
+                    <CreditCard className="size-4" />
+                  )}
+                  Cobrar no cartão (link parcelado)
+                </button>
+              )}
+            </div>
           )}
         </div>
       )}

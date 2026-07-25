@@ -37,11 +37,48 @@ export async function POST(
     // fonte da verdade: o status REAL consultado na API do MP
     const payment = await mpGetPayment(conn.companyId, mpPaymentId);
     const aprovado = payment?.status === "approved";
+    const cartao = payment?.payment_type_id === "credit_card";
+    const origem = cartao
+      ? `Cartão${payment?.installments && payment.installments > 1 ? ` ${payment.installments}x` : ""} (Mercado Pago)`
+      : "Pix (Mercado Pago)";
 
-    const row = await db.payment.findUnique({ where: { mpPaymentId } });
+    // Pix: a linha de cobrança já existe (criada ao gerar o QR).
+    // Cartão (link): o pagamento NASCE quando o cliente paga — localiza o
+    // pedido pelo external_reference e amarra/cria a linha de cobrança.
+    let row = await db.payment.findUnique({ where: { mpPaymentId } });
+    if (!row && payment?.external_reference) {
+      const order = await db.order.findFirst({
+        where: { id: payment.external_reference, companyId: conn.companyId },
+        select: { id: true, total: true },
+      });
+      if (order) {
+        const pendente = await db.payment.findFirst({
+          where: { orderId: order.id, provider: "MERCADO_PAGO", status: "PENDENTE" },
+          orderBy: { createdAt: "desc" },
+        });
+        row = pendente
+          ? await db.payment.update({
+              where: { id: pendente.id },
+              data: { mpPaymentId, ...(cartao ? { method: "CARTAO" } : {}) },
+            })
+          : await db.payment.create({
+              data: {
+                orderId: order.id,
+                method: cartao ? "CARTAO" : "PIX",
+                status: "PENDENTE",
+                amount: payment.transaction_amount ?? order.total,
+                provider: "MERCADO_PAGO",
+                mpPaymentId,
+              },
+            });
+      }
+    } else if (row && cartao && row.method !== "CARTAO") {
+      await db.payment.update({ where: { id: row.id }, data: { method: "CARTAO" } });
+    }
+
     let liquidado = false;
     if (aprovado && row) {
-      const r = await settleOrderPaid(row.orderId, "Pix (Mercado Pago)");
+      const r = await settleOrderPaid(row.orderId, origem);
       liquidado = r.ok;
     }
 

@@ -223,6 +223,73 @@ export async function mpCreatePixCharge(input: {
   };
 }
 
+/**
+ * Cria o LINK de pagamento com cartão (Checkout Pro): o cliente abre, escolhe
+ * as parcelas e paga — a confirmação chega pelo mesmo webhook. O parcelamento
+ * SEM JUROS segue a configuração da conta MP da loja (Custos de parcelamento).
+ */
+export async function mpCreateCardCheckout(input: {
+  companyId: string;
+  externalRef: string;
+  amount: number;
+  description: string;
+  payerEmail?: string | null;
+  payerName?: string | null;
+}): Promise<{ ok: true; url: string; feeAmount: number } | { ok: false; error: string }> {
+  const token = await mpAccessToken(input.companyId);
+  if (!token) return { ok: false, error: "Mercado Pago não conectado." };
+  const conn = await db.mercadoPagoConnection.findUnique({
+    where: { companyId: input.companyId },
+  });
+  const pct = conn?.feePercent ?? mpEnv().feeDefault;
+  const feeAmount = Math.round(input.amount * pct) / 100;
+
+  const res = await fetch(`${MP_API}/checkout/preferences`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({
+      items: [
+        {
+          title: input.description.slice(0, 120),
+          quantity: 1,
+          unit_price: Math.round(input.amount * 100) / 100,
+          currency_id: "BRL",
+        },
+      ],
+      external_reference: input.externalRef,
+      ...(feeAmount > 0 ? { marketplace_fee: feeAmount } : {}),
+      notification_url: `${appBaseUrl()}/api/mercadopago/webhook/${conn?.webhookToken}`,
+      payment_methods: {
+        installments: conn?.maxInstallments ?? 12,
+        excluded_payment_types: [{ id: "ticket" }], // boleto fora (demora dias)
+      },
+      ...(input.payerEmail?.trim()
+        ? { payer: { email: input.payerEmail.trim(), name: input.payerName ?? undefined } }
+        : {}),
+      expires: true,
+      expiration_date_to: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
+        .toISOString()
+        .replace("Z", "-00:00"),
+    }),
+  });
+  const data = (await res.json().catch(() => null)) as {
+    init_point?: string;
+    message?: string;
+  } | null;
+  if (!res.ok || !data?.init_point) {
+    return {
+      ok: false,
+      error:
+        data?.message?.slice(0, 200) ??
+        `O Mercado Pago recusou o link (HTTP ${res.status}).`,
+    };
+  }
+  return { ok: true, url: data.init_point, feeAmount };
+}
+
 /** Consulta o pagamento no MP (fonte da verdade na confirmação). */
 export async function mpGetPayment(companyId: string, mpPaymentId: string) {
   const token = await mpAccessToken(companyId);
@@ -235,5 +302,8 @@ export async function mpGetPayment(companyId: string, mpPaymentId: string) {
     id?: number | string;
     status?: string; // approved | pending | rejected | cancelled...
     external_reference?: string;
+    payment_type_id?: string; // credit_card | bank_transfer (pix) | ...
+    transaction_amount?: number;
+    installments?: number;
   } | null;
 }
