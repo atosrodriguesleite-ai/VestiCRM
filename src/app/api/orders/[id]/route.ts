@@ -268,6 +268,7 @@ export async function PATCH(
     const data: Record<string, unknown> = {};
     if (parsed.data.notes !== undefined) data.notes = parsed.data.notes;
     if (parsed.data.sellerId !== undefined) {
+      let newSellerName: string | null = null;
       if (parsed.data.sellerId) {
         const seller = await db.user.findFirst({
           where: { id: parsed.data.sellerId, companyId: user.companyId },
@@ -275,8 +276,28 @@ export async function PATCH(
         if (!seller) {
           return NextResponse.json({ error: "Vendedor inválido" }, { status: 404 });
         }
+        newSellerName = seller.name;
       }
       data.sellerId = parsed.data.sellerId;
+      // troca de vendedor mexe em COMISSÃO: fica sempre registrada no
+      // histórico do pedido (quem trocou, de quem para quem) — sem rastro
+      // seria possível redirecionar a comissão em silêncio
+      if (parsed.data.sellerId !== order.sellerId) {
+        const oldSeller = order.sellerId
+          ? await db.user.findUnique({
+              where: { id: order.sellerId },
+              select: { name: true },
+            })
+          : null;
+        await db.orderEvent.create({
+          data: {
+            orderId: order.id,
+            type: "NOTA",
+            description: `Vendedor alterado de ${oldSeller?.name ?? "(sem vendedor)"} para ${newSellerName ?? "(sem vendedor)"} por ${user.name}`,
+            userId: user.id,
+          },
+        });
+      }
     }
     if (parsed.data.customerId && parsed.data.customerId !== order.customerId) {
       const customer = await db.customer.findFirst({
