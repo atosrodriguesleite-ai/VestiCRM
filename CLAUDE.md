@@ -127,8 +127,14 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   **Pendente**: ligar `DATABASE_SAVE_DATA_HISTORIC/NEW_MESSAGE/CHATS/CONTACTS=true`
   no compose do servidor Evolution (Hostinger, via Editor .yaml) e reconectar
   as lojas — sem isso a importação de histórico devolve ~0 mensagens.
+- **Monitoramento** (25/07/2026): vigia em `lib/health.ts` roda de carona no
+  tráfego (SEM cron novo!) — checa servidor Evolution + conexão por loja,
+  alerta sino/push com anti-spam; erros de produção capturados por
+  `src/instrumentation.ts` (onRequestError) → painel `/saude` (Super Admin).
 - Dívidas mapeadas: blob storage para fotos; rate-limit no login;
   conferir `INTAKE_SECRET` na Vercel; quebrar telas gigantes
-  (`inbox.tsx` ~2,4k linhas) em componentes menores.
+  (`inbox.tsx` ~2,4k linhas) em componentes menores; gateway de pagamento
+  (Pix com confirmação automática) e contas a receber são os próximos
+  produtos na fila.
 - Auditoria completa (segurança + métricas) feita em 24/07/2026 — métricas
   unificadas na fonte única; isolamento multi-tenant verificado rota a rota.
