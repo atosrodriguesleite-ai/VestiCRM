@@ -101,6 +101,7 @@ type PlanoResp = {
 };
 
 type DetalhePlano = Progresso & {
+  params?: { perdaPorFolhaCm?: number } | null;
   resultado: {
     planos: PlanoResp[];
     totalPecasRoupa: number;
@@ -1039,7 +1040,7 @@ export function PlanoCorteView() {
                 />
                 <Metrica
                   valor={String(plano.riscos.length)}
-                  rotulo={plano.riscos.length === 1 ? "risco" : "riscos"}
+                  rotulo={plano.riscos.length === 1 ? "corte na mesa" : "cortes na mesa"}
                 />
               </div>
 
@@ -1080,15 +1081,23 @@ export function PlanoCorteView() {
                   <div key={idx} className="rounded-xl border border-slate-200 p-3">
                     <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
                       <p className="text-sm font-medium text-slate-800">
-                        Risco {idx + 1}:{" "}
-                        {r.rotulo ??
-                          Object.entries(r.combo)
-                            .map(([t, v]) => (v > 1 ? `${v}× ${t.trim()}` : t.trim()))
-                            .join(" + ")}
+                        ✂️ Corte {idx + 1} — risco de {(r.comprimentoCm / 100).toFixed(2)}m ×{" "}
+                        {r.folhas} folhas
+                        {r.enfestos > 1 ? ` (em ${r.enfestos} enfestos)` : ""}
                         <span className="ml-2 text-xs font-normal text-slate-500">
-                          {(r.comprimentoCm / 100).toFixed(2)}m · {r.folhas} folhas
-                          {r.enfestos > 1 ? ` em ${r.enfestos} enfestos` : ""} ·{" "}
-                          {r.aproveitamento.toFixed(1)}%
+                          consome ~
+                          {(
+                            (r.folhas *
+                              (r.comprimentoCm + (detalhe.params?.perdaPorFolhaCm ?? 3))) /
+                            100
+                          ).toFixed(1)}
+                          m · {r.aproveitamento.toFixed(1)}%
+                        </span>
+                        <span className="mt-0.5 block text-xs font-normal text-slate-500">
+                          {r.rotulo ??
+                            Object.entries(r.combo)
+                              .map(([t, v]) => (v > 1 ? `${v}× ${t.trim()}` : t.trim()))
+                              .join(" + ")}
                         </span>
                       </p>
                       <a

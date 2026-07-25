@@ -1,4 +1,4 @@
-import { encaixarMelhor, type PecaEncaixe } from "./nesting";
+import { empacotarOrdem, encaixarMelhor, type PecaEncaixe } from "./nesting";
 import type {
   ModeloCorte,
   ParametrosPlano,
@@ -212,44 +212,59 @@ export function rotuloDoCombo(itens: ItemPedido[], combo: Combo): string {
 }
 
 /**
- * Se o risco estourar a mesa, divide o combo em dois riscos com as mesmas
- * folhas (metade dos tamanhos em cada) — recursivo até caber ou não dar
- * mais pra dividir (aí vira aviso, não erro: a loja decide o que fazer).
+ * PARTICIONADOR: se o risco estourar a mesa, divide as roupas em vários
+ * CORTES de forma inteligente — cada unidade (1 roupa no risco) entra no
+ * primeiro corte onde o encaixe continua cabendo na mesa; não coube em
+ * nenhum, abre corte novo. As maiores entram primeiro (first-fit
+ * decreasing). A medida usa um encaixe rápido que é TETO do encaixe final
+ * — se coube na medida, cabe no risco de verdade.
  */
 function dividirSePreciso(
   proposta: PropostaRisco,
   mesaCm: number,
   montar: (c: Combo) => { comprimentoCm: number },
+  montarRapido: (c: Combo) => number,
   avisos: string[]
 ): PropostaRisco[] {
   const { comprimentoCm } = montar(proposta.combo);
   if (comprimentoCm <= mesaCm) return [proposta];
 
-  const entradas = Object.entries(proposta.combo);
-  const totalUnidades = entradas.reduce((s, [, v]) => s + v, 0);
-  if (totalUnidades <= 1) {
+  // explode o combo em unidades: cada unidade = 1 roupa desenhada no risco
+  const unidades: string[] = [];
+  for (const [t, v] of Object.entries(proposta.combo))
+    for (let i = 0; i < v; i++) unidades.push(t);
+  if (unidades.length <= 1) {
     avisos.push(
       `Um risco de 1 tamanho ficou com ${(comprimentoCm / 100).toFixed(2)}m — maior que a mesa. O plano segue, mas confira a mesa ou corte em partes.`
     );
     return [proposta];
   }
 
-  // divide: proporções pares se dividem; ímpares separam por tamanho
-  const a: Combo = {};
-  const b: Combo = {};
-  if (entradas.length === 1) {
-    const [t, v] = entradas[0];
-    a[t] = Math.ceil(v / 2);
-    b[t] = Math.floor(v / 2);
-  } else {
-    const meio = Math.ceil(entradas.length / 2);
-    for (const [t, v] of entradas.slice(0, meio)) a[t] = v;
-    for (const [t, v] of entradas.slice(meio)) b[t] = v;
+  // maiores primeiro: o comprimento sozinho de cada unidade guia a ordem
+  const solo = new Map<string, number>();
+  for (const t of new Set(unidades)) solo.set(t, montarRapido({ [t]: 1 }));
+  unidades.sort((a, b) => (solo.get(b) ?? 0) - (solo.get(a) ?? 0));
+
+  const cortes: Combo[] = [];
+  for (const t of unidades) {
+    let colocado = false;
+    for (const corte of cortes) {
+      const cand: Combo = { ...corte, [t]: (corte[t] ?? 0) + 1 };
+      if (montarRapido(cand) <= mesaCm) {
+        corte[t] = (corte[t] ?? 0) + 1;
+        colocado = true;
+        break;
+      }
+    }
+    if (!colocado) {
+      if ((solo.get(t) ?? 0) > mesaCm)
+        avisos.push(
+          `Uma roupa sozinha (${t.trim()}) precisa de ${((solo.get(t) ?? 0) / 100).toFixed(2)}m — maior que a mesa. Confira o comprimento informado.`
+        );
+      cortes.push({ [t]: 1 });
+    }
   }
-  return [
-    ...dividirSePreciso({ combo: a, folhas: proposta.folhas }, mesaCm, montar, avisos),
-    ...dividirSePreciso({ combo: b, folhas: proposta.folhas }, mesaCm, montar, avisos),
-  ];
+  return cortes.map((combo) => ({ combo, folhas: proposta.folhas }));
 }
 
 /** Monta o plano de UM pano (tecido ou forro) testando todas as estratégias. */
@@ -294,6 +309,23 @@ function planejarPano(
       cacheRisco.set(chave, r);
     }
     return r;
+  };
+
+  // medida-teto do particionador: UM empacotamento skyline (rapidíssimo);
+  // o encaixe final testa várias ordens, então só encurta a partir daqui
+  const cacheRapido = new Map<string, number>();
+  const montarRapido = (combo: Combo): number => {
+    const chave = JSON.stringify(combo);
+    let v = cacheRapido.get(chave);
+    if (v === undefined) {
+      const pecas = pecasDoRiscoMulti(itens, pano, combo, params).sort(
+        (a, b) => b.area - a.area
+      );
+      v = empacotarOrdem(pecas, largura, params.folgaCm, !params.sentidoUnico, "skyline")
+        .comprimentoCm;
+      cacheRapido.set(chave, v);
+    }
+    return v;
   };
 
   type Avaliada = {
@@ -343,7 +375,7 @@ function planejarPano(
     try {
       for (const propostaBase of est.riscos) {
         const proposta = melhorMultiplicacao(propostaBase);
-        for (const parte of dividirSePreciso(proposta, params.mesaCm, montar, avisos)) {
+        for (const parte of dividirSePreciso(proposta, params.mesaCm, montar, montarRapido, avisos)) {
           const enc = montar(parte.combo);
           const areaPecas = pecasDoRiscoMulti(itens, pano, parte.combo, params).reduce(
             (s, p) => s + p.area,

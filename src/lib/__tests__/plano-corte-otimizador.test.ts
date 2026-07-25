@@ -86,6 +86,49 @@ describe("plano multi-modelo (grade composta)", () => {
   });
 });
 
+/* ---------- ordem de corte (mesa apertada, muitos modelos) ---------- */
+
+describe("ordem de corte: particionador + remanejo entre cortes", () => {
+  // 5 "blusas" × 2 tamanhos × 10 de cada, numa mesa que obriga a dividir
+  const cincoModelos: ItemPedido[] = [0.85, 0.95, 1.0, 1.1, 1.2].map((f, i) => {
+    const m = parseDataXml(
+      XML_A.replace("BLUSA A", `BLUSA ${i + 1}`)
+        .replace(/WIDTH_SP>48/g, `WIDTH_SP>${Math.round(48 * f)}`)
+        .replace(/WIDTH_SP>52/g, `WIDTH_SP>${Math.round(52 * f)}`)
+        .replace(/WIDTH_SP>49/g, `WIDTH_SP>${Math.round(49 * f)}`)
+        .replace(/WIDTH_SP>53/g, `WIDTH_SP>${Math.round(53 * f)}`)
+    );
+    return { modelo: m, grade: { P: 10, M: 10 } };
+  });
+  const pMesa = { ...params, mesaCm: 200 }; // mesa curta de propósito
+
+  it("divide em cortes que SEMPRE cabem na mesa e fecham a grade exata", () => {
+    let estado: EstadoOtimizacao | null = null;
+    let resultado: ResultadoPlano | null = null;
+    for (let i = 0; i < 10 && (!estado || estado.fase !== "DONE"); i++) {
+      const r = rodarRodada(cincoModelos, pMesa, estado, resultado, 8_000, 1200);
+      estado = r.estado;
+      resultado = r.resultado;
+    }
+    const fecha: Record<string, number> = {};
+    for (const plano of resultado!.planos)
+      for (const risco of plano.riscos) {
+        expect(risco.comprimentoCm).toBeLessThanOrEqual(200.001); // mesa sagrada
+        for (const [k, v] of Object.entries(risco.combo))
+          fecha[k] = (fecha[k] ?? 0) + risco.folhas * v;
+      }
+    // 5 modelos × 2 tamanhos = 10 combinações, todas com 10 roupas
+    expect(Object.keys(fecha)).toHaveLength(10);
+    for (const v of Object.values(fecha)) expect(v).toBe(10);
+  }, 60_000);
+
+  it("cortes têm rótulo legível com modelo e tamanho", () => {
+    const r = rodarRodada(cincoModelos, pMesa, null, null, 3_000, 800);
+    for (const plano of r.resultado.planos)
+      for (const risco of plano.riscos) expect(risco.rotulo).toMatch(/BLUSA \d/);
+  }, 30_000);
+});
+
 /* ---------- otimizador em rodadas ---------- */
 
 describe("otimizador em rodadas", () => {

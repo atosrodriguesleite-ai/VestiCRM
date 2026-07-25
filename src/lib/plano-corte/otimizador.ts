@@ -2,6 +2,7 @@ import { empacotarOrdem, type PecaEncaixe } from "./nesting";
 import {
   montarPlanoMulti,
   pecasDoRiscoMulti,
+  rotuloDoCombo,
   type ItemPedido,
 } from "./enfesto";
 import type { ParametrosPlano, PlanoPano, ResultadoPlano, Risco } from "./types";
@@ -205,14 +206,108 @@ export function rodarRodada(
         b.risco.folhas * b.risco.comprimentoCm - a.risco.folhas * a.risco.comprimentoCm
     );
 
+  /**
+   * MUTAÇÃO ENTRE CORTES: tenta mover UMA roupa de um corte pra outro do
+   * mesmo pano com as MESMAS folhas (a produção não muda!) e re-encaixa os
+   * dois. É assim que o sistema descobre que "a P do modelo 3 rende mais
+   * no vão da GG do modelo 1" — a conta que não cabe na cabeça de ninguém.
+   * Corte que esvaziar é eliminado (menos enfesto pra equipe).
+   */
+  const tentarMoverEntreCortes = (): boolean => {
+    // agrupa cortes por pano+folhas (só entre iguais a troca é neutra)
+    const grupos = new Map<string, { plano: PlanoPano; riscos: Risco[] }>();
+    for (const plano of resultado!.planos)
+      for (const risco of plano.riscos) {
+        const k = `${plano.pano}|${risco.folhas}`;
+        const g = grupos.get(k) ?? { plano, riscos: [] };
+        g.riscos.push(risco);
+        grupos.set(k, g);
+      }
+    const elegiveis = [...grupos.values()].filter((g) => g.riscos.length >= 2);
+    if (elegiveis.length === 0) return false;
+    const g = elegiveis[Math.floor(rng.next() * elegiveis.length)];
+    const a = g.riscos[Math.floor(rng.next() * g.riscos.length)];
+    let b = g.riscos[Math.floor(rng.next() * g.riscos.length)];
+    if (a === b) b = g.riscos[(g.riscos.indexOf(a) + 1) % g.riscos.length];
+    const chaves = Object.keys(a.combo);
+    if (chaves.length === 0) return false;
+    const chave = chaves[Math.floor(rng.next() * chaves.length)];
+
+    // combos candidatos: 1 roupa sai de A e entra em B
+    const comboA: Record<string, number> = { ...a.combo, [chave]: a.combo[chave] - 1 };
+    if (comboA[chave] <= 0) delete comboA[chave];
+    const comboB: Record<string, number> = { ...b.combo, [chave]: (b.combo[chave] ?? 0) + 1 };
+
+    estado.tentativas++;
+    const pecasB = pecasDoRiscoMulti(itens, g.plano.pano, comboB, params).sort(
+      (x, y) => y.area - x.area
+    );
+    const encB = empacotarOrdem(pecasB, b.larguraCm, params.folgaCm, permitir180, "skyline");
+    if (encB.pecas.length < pecasB.length || encB.comprimentoCm > params.mesaCm)
+      return false; // B estouraria a mesa
+
+    const aEsvazia = Object.keys(comboA).length === 0;
+    let encA = { comprimentoCm: 0, pecas: [] as Risco["pecas"] };
+    if (!aEsvazia) {
+      const pecasA = pecasDoRiscoMulti(itens, g.plano.pano, comboA, params).sort(
+        (x, y) => y.area - x.area
+      );
+      const r = empacotarOrdem(pecasA, a.larguraCm, params.folgaCm, permitir180, "skyline");
+      if (r.pecas.length < pecasA.length) return false;
+      encA = r;
+    }
+
+    // ganha se a soma encurtar (corte eliminado ganha a perda da folha também)
+    const antes = a.comprimentoCm + b.comprimentoCm + params.perdaPorFolhaCm * 2;
+    const depois =
+      encA.comprimentoCm + encB.comprimentoCm + params.perdaPorFolhaCm * (aEsvazia ? 1 : 2);
+    if (depois >= antes - 0.5) return false;
+
+    // aplica: atualiza os dois cortes (ou elimina o que esvaziou)
+    b.combo = comboB;
+    b.rotulo = rotuloDoCombo(itens, comboB);
+    b.comprimentoCm = encB.comprimentoCm;
+    b.pecas = encB.pecas;
+    if (aEsvazia) {
+      g.plano.riscos.splice(g.plano.riscos.indexOf(a), 1);
+    } else {
+      a.combo = comboA;
+      a.rotulo = rotuloDoCombo(itens, comboA);
+      a.comprimentoCm = encA.comprimentoCm;
+      a.pecas = encA.pecas;
+    }
+    if (!g.plano.estrategiaEnfesto.includes("remanejo"))
+      g.plano.estrategiaEnfesto += " + remanejo entre cortes";
+    recalcularPlano(g.plano, itens, params);
+    return true;
+  };
+
   // ---- fase MELHORIA: busca local nas sequências dos riscos ----
   if (estado.fase === "MELHORIA" && alvos.length > 0) {
     const LIMITE_SEM_MELHORA = 900; // mutações seguidas sem ganho → FINO
     let alvoIdx = 0;
     while (!acabou() && estado.semMelhora < LIMITE_SEM_MELHORA) {
+      // de vez em quando, tenta mover roupa ENTRE cortes (mesmas folhas)
+      if (rng.next() < 0.25) {
+        if (tentarMoverEntreCortes()) {
+          estado.semMelhora = 0;
+          estado.ganhouNoCiclo = true;
+        } else {
+          estado.semMelhora++;
+        }
+        continue;
+      }
       // sorteio ponderado: os primeiros alvos (mais impacto) aparecem mais
+      const alvosVivos = alvos.filter((al) =>
+        al.plano.riscos.includes(al.risco)
+      );
+      if (alvosVivos.length === 0) break;
       const { plano, risco } =
-        alvos[rng.next() < 0.6 ? alvoIdx % Math.min(2, alvos.length) : Math.floor(rng.next() * alvos.length)];
+        alvosVivos[
+          rng.next() < 0.6
+            ? alvoIdx % Math.min(2, alvosVivos.length)
+            : Math.floor(rng.next() * alvosVivos.length)
+        ];
       alvoIdx++;
 
       const seqAtual = sequenciaDoRisco(risco);
@@ -275,6 +370,7 @@ export function rodarRodada(
   // ---- fase FINO: lupa de 0,25cm nos riscos finais ----
   if (estado.fase === "FINO" && !acabou()) {
     for (const { plano, risco } of alvos) {
+      if (!plano.riscos.includes(risco)) continue; // corte eliminado no remanejo
       if (acabou()) break;
       estado.tentativas++;
       const fina = empacotarOrdem(
