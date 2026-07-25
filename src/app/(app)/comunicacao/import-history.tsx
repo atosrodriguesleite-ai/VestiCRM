@@ -10,7 +10,7 @@ import { Card } from "@/components/ui";
  */
 export function ImportHistory({ connected }: { connected: boolean }) {
   const [busy, setBusy] = useState(false);
-  const [done, setDone] = useState<{ importadas: number; conversas: number } | null>(null);
+  const [done, setDone] = useState<{ importadas: number; conversas: number; encontradas: number } | null>(null);
   const [erro, setErro] = useState("");
 
   async function importar() {
@@ -26,7 +26,8 @@ export function ImportHistory({ connected }: { connected: boolean }) {
     const res = await fetch("/api/comm/import-history", { method: "POST" });
     setBusy(false);
     const d = await res.json().catch(() => ({}));
-    if (res.ok) setDone({ importadas: d.importadas, conversas: d.conversas });
+    if (res.ok)
+      setDone({ importadas: d.importadas, conversas: d.conversas, encontradas: d.encontradas });
     else setErro(d.error ?? "Não foi possível importar agora.");
   }
 
@@ -49,7 +50,11 @@ export function ImportHistory({ connected }: { connected: boolean }) {
           <CheckCircle2 className="size-4 shrink-0" />
           {done.importadas > 0
             ? `Pronto! ${done.importadas} mensagem(ns) importada(s) em ${done.conversas} conversa(s). Veja na aba Contatos do atendimento. 🎉`
-            : "Nenhuma mensagem nova encontrada para importar (o servidor pode não ter guardado histórico dessa conexão)."}
+            : `O servidor devolveu ${done.encontradas ?? 0} mensagem(ns) guardada(s). ${
+                (done.encontradas ?? 0) === 0
+                  ? "Isso indica que o servidor não está guardando o histórico — dá pra ligar essa opção nas configurações dele."
+                  : "Nenhuma dentro da janela de 30 dias (ou já importadas antes)."
+              }`}
         </p>
       ) : (
         <>

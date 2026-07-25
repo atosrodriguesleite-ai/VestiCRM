@@ -104,10 +104,33 @@ export async function importRecentHistory(
     throw new Error("WhatsApp não conectado. Conecte o número em Comunicação.");
 
   const res = await evoFindMessages(settings.evolutionInstance);
-  if (!res.ok)
-    throw new Error("Não foi possível ler o histórico do servidor de conexão.");
-
   const records = extractRecords(res.data);
+
+  // diagnóstico (aparece na Central de Comunicação): mostra o que o servidor
+  // respondeu — se veio 0, sabemos se é config do servidor ou formato da leitura
+  const shape = Array.isArray(res.data)
+    ? `array(${(res.data as unknown[]).length})`
+    : res.data && typeof res.data === "object"
+      ? `keys:${Object.keys(res.data as object).join(",")}`
+      : typeof res.data;
+  await db.commEvent
+    .create({
+      data: {
+        companyId,
+        channel: "WHATSAPP",
+        direction: "IN",
+        type: "wa.historico.leitura",
+        status: res.ok ? "OK" : "ERRO",
+        payload: JSON.stringify({ httpStatus: res.status, shape, registros: records.length }).slice(0, 500),
+      },
+    })
+    .catch(() => {});
+
+  if (!res.ok)
+    throw new Error(
+      `O servidor recusou a leitura do histórico (HTTP ${res.status}).`
+    );
+
   const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
 
   // filtra pela janela e ordena do mais antigo pro mais novo (cronológico)
