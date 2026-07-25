@@ -99,7 +99,8 @@ function empacotar(
   pecas: PecaEncaixe[],
   larguraCm: number,
   folgaCm: number,
-  usarRotacao: boolean
+  usarRotacao: boolean,
+  tetoCm = Infinity // melhor risco já achado: passou dele, desiste (poda)
 ): { comprimentoCm: number; pos: Posicionamento[] } {
   const colsTecido = Math.max(1, Math.floor((larguraCm + folgaCm) / RES));
   const alturaCol = new Array<number>(colsTecido).fill(0);
@@ -147,6 +148,107 @@ function empacotar(
     });
     const fim = melhor.y + p.h;
     if (fim > comprimento) comprimento = fim;
+    if (comprimento >= tetoCm) return { comprimentoCm: Infinity, pos: [] }; // já perdeu
+  }
+  return { comprimentoCm: Math.round(comprimento * 100) / 100, pos };
+}
+
+/**
+ * Empacotador de GRADE DE OCUPAÇÃO (bottom-left-fill): além do skyline,
+ * este mantém o mapa real de células livres/ocupadas do tecido — então
+ * ele ENXERGA os bolsões vazios que ficaram pra trás e volta pra
+ * preenchê-los (galão no vão entre frentes, manga no buraco da cava...).
+ * Mais lento que o perfil, porém acha encaixes que o skyline não vê.
+ */
+function empacotarGrade(
+  pecas: PecaEncaixe[],
+  larguraCm: number,
+  folgaCm: number,
+  usarRotacao: boolean,
+  tetoCm = Infinity // melhor risco já achado: passou dele, desiste (poda)
+): { comprimentoCm: number; pos: Posicionamento[] } {
+  const cols = Math.max(1, Math.floor((larguraCm + folgaCm) / RES));
+  // altura estimada do mapa: área total ÷ largura, com folga de 2,5×
+  const areaCaixas = pecas.reduce((s, p) => s + (p.w + folgaCm) * (p.h + folgaCm), 0);
+  let rows = Math.max(64, Math.ceil(((areaCaixas / larguraCm) * 2.5) / RES));
+  // ocupação por coluna (column-major: grid[c][linha])
+  let grid: Uint8Array[] = Array.from({ length: cols }, () => new Uint8Array(rows));
+  const cresce = (min: number) => {
+    if (min <= rows) return;
+    const novo = Math.max(min, Math.ceil(rows * 1.5));
+    grid = grid.map((col) => {
+      const n = new Uint8Array(novo);
+      n.set(col);
+      return n;
+    });
+    rows = novo;
+  };
+
+  /** Faixa de células [b, t) ocupada pela peça em cada coluna dela. */
+  const faixas = (perfil: Perfil): { b: number; t: number }[] =>
+    Array.from({ length: perfil.cols }, (_, c) => ({
+      b: Math.floor(perfil.bottom[c] / RES),
+      t: Math.max(
+        Math.floor(perfil.bottom[c] / RES) + 1,
+        Math.ceil(perfil.top[c] / RES)
+      ),
+    }));
+
+  const pos: Posicionamento[] = [];
+  let comprimento = 0;
+
+  for (const p of pecas) {
+    const rots: (0 | 180)[] = usarRotacao && p.contorno ? [0, 180] : [0];
+    let melhor: { x: number; y: number; rot: 0 | 180; fx: { b: number; t: number }[]; alturaCel: number } | null = null;
+
+    for (let tentativa = 0; tentativa < 2 && !melhor; tentativa++) {
+    if (tentativa > 0) cresce(rows * 2); // mapa lotou: dobra e tenta de novo
+    for (const rot of rots) {
+      const perfil = perfilDaPeca(p, rot, folgaCm);
+      if (perfil.cols > cols) continue;
+      const fx = faixas(perfil);
+      const alturaCel = Math.ceil((perfil.h + folgaCm) / RES);
+      cresce(alturaCel + 8);
+
+      // varre de baixo pra cima; primeiro lugar 100% livre vence
+      // (bottom-left-fill: é isso que recupera os bolsões vazios)
+      const yMax = melhor ? melhor.y : rows - alturaCel;
+      busca: for (let y = 0; y <= yMax; y++) {
+        if (y + alturaCel > rows) break;
+        prox: for (let x = 0; x <= cols - perfil.cols; x++) {
+          for (let c = 0; c < perfil.cols; c++) {
+            const col = grid[x + c];
+            for (let l = y + fx[c].b; l < y + fx[c].t; l++)
+              if (col[l]) continue prox; // colidiu: tenta o próximo x
+          }
+          if (!melhor || y < melhor.y || (y === melhor.y && x < melhor.x))
+            melhor = { x, y, rot, fx, alturaCel };
+          break busca; // achou o mais baixo desta rotação
+        }
+      }
+    }
+    }
+    if (!melhor) continue; // não coube (tratado nas camadas de cima)
+
+    cresce(melhor.y + melhor.alturaCel + 8);
+    for (let c = 0; c < melhor.fx.length; c++) {
+      const col = grid[melhor.x + c];
+      for (let l = melhor.y + melhor.fx[c].b; l < melhor.y + melhor.fx[c].t; l++) col[l] = 1;
+    }
+    const yCm = melhor.y * RES;
+    pos.push({
+      nome: p.nome,
+      tamanho: p.tamanho,
+      x: Math.round(melhor.x * RES * 100) / 100,
+      y: Math.round(yCm * 100) / 100,
+      w: p.w,
+      h: p.h,
+      rot: melhor.rot,
+      contorno: p.contorno,
+    });
+    const fim = yCm + p.h;
+    if (fim > comprimento) comprimento = fim;
+    if (comprimento >= tetoCm) return { comprimentoCm: Infinity, pos: [] }; // já perdeu
   }
   return { comprimentoCm: Math.round(comprimento * 100) / 100, pos };
 }
@@ -179,6 +281,30 @@ const ORDENS: { nome: string; fn: (ps: PecaEncaixe[]) => PecaEncaixe[] }[] = [
       return out;
     },
   },
+  {
+    // corpo primeiro, tiras (galão, gola, viés) por último: as tiras são
+    // as melhores "tapa-buracos" — entram nos vãos que sobraram
+    nome: "tiras preenchendo os vãos",
+    fn: (ps) =>
+      [...ps].sort(
+        (a, b) => Math.min(b.w, b.h) - Math.min(a.w, a.h) || b.area - a.area
+      ),
+  },
+  // embaralhamentos com semente fixa (determinísticos): às vezes uma ordem
+  // "sem lógica" acha um encaixe que as ordens espertas não enxergam
+  ...[1, 2, 3].map((semente) => ({
+    nome: `embaralhado ${semente}`,
+    fn: (ps: PecaEncaixe[]) => {
+      const out = [...ps];
+      let s = (semente * 2654435761) >>> 0;
+      for (let i = out.length - 1; i > 0; i--) {
+        s = (Math.imul(s, 1664525) + 1013904223) >>> 0;
+        const j = s % (i + 1);
+        [out[i], out[j]] = [out[j], out[i]];
+      }
+      return out;
+    },
+  })),
 ];
 
 /**
@@ -190,15 +316,24 @@ export function encaixarMelhor(
   pecas: PecaEncaixe[],
   larguraCm: number,
   folgaCm: number,
-  permitir180 = true
+  permitir180 = true,
+  profundo = true // false = só o skyline (exploração barata de combinações)
 ): ResultadoEncaixe & { analises: number } {
   let melhor: ResultadoEncaixe | null = null;
   let analises = 0;
+
+  // FUNIL DE DOIS ESTÁGIOS:
+  // 1º) o skyline (rapidíssimo) testa TODAS as ordens e rotações;
+  // 2º) só os 3 melhores candidatos ganham o motor de grade de ocupação
+  //     (caro, mas enxerga e preenche os bolsões vazios).
+  type Cand = { ordem: (typeof ORDENS)[number]; rot: boolean; comprimentoCm: number };
+  const candidatos: Cand[] = [];
   for (const ordem of ORDENS) {
     for (const rot of permitir180 ? [true, false] : [false]) {
       analises++;
       const { comprimentoCm, pos } = empacotar(ordem.fn(pecas), larguraCm, folgaCm, rot);
       if (pos.length < pecas.length) continue; // alguma peça não coube
+      candidatos.push({ ordem, rot, comprimentoCm });
       if (!melhor || comprimentoCm < melhor.comprimentoCm) {
         melhor = {
           comprimentoCm,
@@ -206,6 +341,27 @@ export function encaixarMelhor(
           estrategia: ordem.nome + (rot ? " + rotação 180°" : ""),
         };
       }
+    }
+  }
+  candidatos.sort((a, b) => a.comprimentoCm - b.comprimentoCm);
+  const finalistas = !profundo || pecas.length > 90 ? [] : candidatos.slice(0, 6);
+  for (const c of finalistas) {
+    analises++;
+    const teto = melhor ? melhor.comprimentoCm : Infinity;
+    const { comprimentoCm, pos } = empacotarGrade(
+      c.ordem.fn(pecas),
+      larguraCm,
+      folgaCm,
+      c.rot,
+      teto
+    );
+    if (pos.length < pecas.length) continue; // poda: já estava perdendo
+    if (!melhor || comprimentoCm < melhor.comprimentoCm) {
+      melhor = {
+        comprimentoCm,
+        pecas: pos,
+        estrategia: c.ordem.nome + (c.rot ? " + rotação 180°" : "") + " + preenche vãos",
+      };
     }
   }
   if (!melhor)

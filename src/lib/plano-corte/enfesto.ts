@@ -230,16 +230,20 @@ function planejarPano(
   if (!temPeca) return { plano: null, analises: 0 };
 
   let analises = 0;
+  // EXPLORA BARATO, POLE FUNDO: as dezenas de combinações de estratégia ×
+  // multiplicação são comparadas só com o skyline (modo rápido); o motor
+  // caro de preencher vãos entra apenas nos riscos do plano VENCEDOR.
   const cacheRisco = new Map<string, ReturnType<typeof encaixarMelhor>>();
-  const montar = (combo: Combo) => {
-    const chave = JSON.stringify(combo);
+  const montar = (combo: Combo, profundo = false) => {
+    const chave = JSON.stringify(combo) + (profundo ? "#p" : "");
     let r = cacheRisco.get(chave);
     if (!r) {
       r = encaixarMelhor(
         pecasDoRisco(modelo, pano, combo, params),
         largura,
         params.folgaCm,
-        !params.sentidoUnico // estampa direcional: peça não vira de cabeça pra baixo
+        !params.sentidoUnico, // estampa direcional: peça não vira de cabeça pra baixo
+        profundo
       );
       analises += r.analises;
       cacheRisco.set(chave, r);
@@ -255,13 +259,45 @@ function planejarPano(
   };
   const avaliadas: Avaliada[] = [];
 
+  /**
+   * MULTIPLICAÇÃO DO RISCO: a ponta ruim do fim do risco se repete a cada
+   * folha enfestada — risco curto × muitas folhas = desperdício repetido.
+   * Se a mesa permite, vale duplicar/triplicar o risco (2×, 3×... roupas
+   * dentro dele) e enfestar menos folhas: mesma produção, menos pontas.
+   * Testamos cada multiplicação que divide as folhas e cabe na mesa.
+   */
+  const melhorMultiplicacao = (proposta: PropostaRisco): PropostaRisco => {
+    let melhor = proposta;
+    let melhorCusto = Infinity;
+    for (let k = 1; k <= 6; k++) {
+      if (proposta.folhas % k !== 0) continue;
+      const comboK: Combo = Object.fromEntries(
+        Object.entries(proposta.combo).map(([t, v]) => [t, v * k])
+      );
+      try {
+        const enc = montar(comboK);
+        if (k > 1 && enc.comprimentoCm > params.mesaCm) break; // não cabe na mesa
+        const folhasK = proposta.folhas / k;
+        const custo = folhasK * (enc.comprimentoCm + params.perdaPorFolhaCm);
+        if (custo < melhorCusto) {
+          melhorCusto = custo;
+          melhor = { combo: comboK, folhas: folhasK };
+        }
+      } catch {
+        break; // combinação grande demais pra largura — para de multiplicar
+      }
+    }
+    return melhor;
+  };
+
   for (const est of estrategias(params.grade)) {
     const avisos: string[] = [];
     const riscos: Risco[] = [];
     let total = 0;
     let ok = true;
     try {
-      for (const proposta of est.riscos) {
+      for (const propostaBase of est.riscos) {
+        const proposta = melhorMultiplicacao(propostaBase);
         for (const parte of dividirSePreciso(proposta, params.mesaCm, montar, avisos)) {
           const enc = montar(parte.combo);
           const areaPecas = pecasDoRisco(modelo, pano, parte.combo, params).reduce(
@@ -295,6 +331,63 @@ function planejarPano(
       "Nenhuma peça coube na largura de tecido informada — confira as medidas"
     );
 
+  avaliadas.sort(
+    (a, b) => a.totalTecidoCm - b.totalTecidoCm || a.riscos.length - b.riscos.length
+  );
+
+  // POLIMENTO FINAL: os 3 melhores planos passam pelo motor caro (grade de
+  // ocupação, que preenche os vãos) — e SÓ DEPOIS o campeão é declarado,
+  // porque o polimento pode mudar quem vence.
+  const polir = (av: Avaliada) => {
+    let total = 0;
+    for (const risco of av.riscos) {
+      // o motor caro também reavalia a MULTIPLICAÇÃO do risco (às vezes o
+      // risco 2× ou 5× fica melhor no encaixe fino do que parecia no rápido)
+      let melhorEnc = montar(risco.combo, true);
+      let melhorCombo = risco.combo;
+      let melhorFolhas = risco.folhas;
+      let melhorCusto = melhorFolhas * (melhorEnc.comprimentoCm + params.perdaPorFolhaCm);
+      const base = Object.values(risco.combo).reduce(mdc);
+      const pecasBase = pecasDoRisco(modelo, pano, risco.combo, params).length;
+      for (const k of [2, 3, 5]) {
+        if (risco.folhas % k !== 0) continue;
+        if (base % k === 0) continue; // já seria redutível: mesmo risco
+        if (pecasBase * k > 40) continue; // risco gigante: caro demais no fino
+        const comboK: Combo = Object.fromEntries(
+          Object.entries(risco.combo).map(([t, v]) => [t, v * k])
+        );
+        try {
+          const enc = montar(comboK, true);
+          if (enc.comprimentoCm > params.mesaCm) break;
+          const custo = (risco.folhas / k) * (enc.comprimentoCm + params.perdaPorFolhaCm);
+          if (custo < melhorCusto) {
+            melhorCusto = custo;
+            melhorEnc = enc;
+            melhorCombo = comboK;
+            melhorFolhas = risco.folhas / k;
+          }
+        } catch {
+          break;
+        }
+      }
+      risco.combo = melhorCombo;
+      risco.folhas = melhorFolhas;
+      risco.enfestos = Math.ceil(melhorFolhas / Math.max(1, params.maxFolhas));
+      risco.comprimentoCm = melhorEnc.comprimentoCm;
+      risco.pecas = melhorEnc.pecas;
+      risco.estrategiaEncaixe = melhorEnc.estrategia;
+      const areaPecas = pecasDoRisco(modelo, pano, melhorCombo, params).reduce(
+        (s, p) => s + p.area,
+        0
+      );
+      const areaRisco = largura * melhorEnc.comprimentoCm;
+      risco.aproveitamento =
+        areaRisco > 0 ? Math.round((areaPecas / areaRisco) * 1000) / 10 : 0;
+      total += melhorFolhas * (melhorEnc.comprimentoCm + params.perdaPorFolhaCm);
+    }
+    av.totalTecidoCm = Math.round(total);
+  };
+  for (const av of avaliadas.slice(0, 2)) polir(av);
   avaliadas.sort(
     (a, b) => a.totalTecidoCm - b.totalTecidoCm || a.riscos.length - b.riscos.length
   );

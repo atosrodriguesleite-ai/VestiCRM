@@ -13,6 +13,10 @@ import type { ModeloCorte, ParametrosPlano } from "@/lib/plano-corte/types";
  * baixar o PLT depois.
  */
 
+// O otimizador testa centenas de combinações — precisa de mais que os 10s
+// padrão da Vercel (o plano Hobby permite até 60s por função).
+export const maxDuration = 60;
+
 const schema = z.object({
   modelId: z.string().min(1),
   grade: z.record(z.string(), z.number().int().min(0).max(100000)),
