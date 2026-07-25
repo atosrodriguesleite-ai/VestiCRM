@@ -1,0 +1,134 @@
+# AtacadoPro (codinome do repo: VestiCRM)
+
+SaaS multi-tenant de CRM + vendas para **moda no atacado** (confecções e
+lojistas brasileiros). **EM PRODUÇÃO** em www.atacadopro.com, com lojas reais
+pagantes (ex.: Toque Leve, Entre Linhas) e a própria empresa-plataforma usando
+o sistema para gerir os leads do AtacadoPro.
+
+## Quem usa e como trabalhar
+
+- O dono (Atos) **não é técnico**: toda comunicação em **português simples**,
+  com emojis, passo a passo, sem jargão. Explicar sempre "o que" e "por quê".
+- Deploy é **automático a cada push** na branch `claude/modacrm-clothing-crm-cxa9gf`
+  (~2-3 min, Vercel). Push = produção. Sempre rodar build + testes antes.
+- Trabalhar em entregas pequenas e completas (schema → API → tela → teste →
+  push), comunicando em linguagem de negócio.
+
+## Stack
+
+- **Next.js 15** (App Router) + React 19 + TypeScript + Tailwind 4
+- **Prisma 6** + PostgreSQL (Neon em produção; local na porta **5433**,
+  iniciar com `pg_ctl -D /var/lib/postgresql/vesti -o "-p 5433"`)
+- Vitest (`npm test`), build com guard de crons (`npm run build`)
+- Hospedagem Vercel (plano Hobby) + domínios: www.atacadopro.com (app/site),
+  catalago.net (catálogo público), bio pública em /bio/[slug]
+
+## Regras operacionais CRÍTICAS (já causaram incidentes)
+
+1. **Vercel Hobby: máximo 2 cron jobs, ambos diários.** Um 3º cron (ou cron
+   não-diário) **bloqueia TODOS os deploys silenciosamente**. O guard
+   `scripts/check-vercel-crons.mjs` roda no build e falha se violar.
+2. **Migrações são escritas à mão** (`prisma/migrations/`) — o banco tem
+   drift; `prisma migrate dev` gera lixo (ex.: ALTER do default de
+   `Customer.linkCode`, que deve ser REMOVIDO de qualquer diff). Produção
+   aplica via `vercel-build` (`prisma migrate deploy`).
+3. **NUNCA rodar `db:seed` em produção** (zera/duplica dados de lojas reais).
+4. Fotos e mídias ficam como **data-URL no banco** (servidas por
+   `/api/img/[id]` com cache). Funciona, mas é a dívida técnica nº 1 —
+   migração para blob storage está planejada.
+5. Segredos NUNCA no chat/commits. Credenciais ficam na Vercel (env) ou
+   criptografadas no banco (AES-256-GCM em `lib/crypto.ts`).
+
+## Arquitetura (mapa mental)
+
+```
+src/app/(app)/…        telas autenticadas (Dashboard, Funil, WhatsApp, Pedidos…)
+src/app/api/…          ~130 rotas REST (validação Zod, requireUser)
+src/app/catalogo/…     catálogo público (sem login)
+src/app/bio/[slug]     bio pública (linktree próprio)
+src/lib/…              43 motores de negócio (toda regra vive aqui)
+prisma/schema.prisma   modelo de dados (comentado em PT-BR)
+```
+
+- **Multi-tenant por `companyId` em TODA query** — filtros centralizados em
+  `src/lib/scope.ts`. Nenhuma loja enxerga dados de outra.
+- **Papéis**: SUPERADMIN (plataforma), ADMIN, MANAGER, SELLER (só a própria
+  carteira), SUPPORT (operacional, sem poderes comerciais).
+- Auth: JWT em cookie httpOnly (`lib/auth.ts`); Super Admin pode "acessar
+  como loja" (impersonação com faixa amarela).
+- Comentários de código em **português**, explicando o porquê das regras.
+
+## Regras de negócio centrais (fonte da verdade)
+
+- **Venda = pedido (`Order`) com status em `PAID_ORDER_STATUSES`**
+  `[PAGO, EM_PRODUCAO, SEPARACAO, ENVIADO, ENTREGUE]` (lib/orders.ts).
+  TODA métrica de faturamento soma por aí (Dashboard, Relatórios,
+  Inteligência, Comissões, Equipe, exportações, segmentos). O modelo `Sale`
+  é legado do fluxo manual — **não usar para métricas**.
+- **Estoque**: orçamento RESERVA (todos os status exceto CANCELADO seguram
+  estoque); reserva expira em 48h (cron `release-reservations` via
+  `lib/reservations.ts`); baixa definitiva/devolução conforme transição de
+  status. Integrações donas de estoque (Nuvemshop) espelham — uma venda,
+  uma baixa.
+- **Comissão** (`Order.sellerId`): pedido montado no sistema → quem montou;
+  pedido do catálogo público → **a responsável pela cliente**
+  (`Customer.ownerId`, a carteira) — link antigo não rouba comissão; cliente
+  NOVA vinda de link de vendedora (`?ref=`) → vendedora vira a responsável e
+  leva o pedido; Nuvemshop → sem vendedor. Pedido só vira PAGO com vendedor;
+  troca de vendedor é auditada em `OrderEvent`.
+- **Leads**: entrada única pelo `lib/intake.ts` (Lead Intake Engine) —
+  dedup por telefone **tolerante ao 9º dígito** (`phoneMatchVariants`),
+  distribuição round-robin/fixa, conversa nasce NA FILA (sem dono; modelo
+  Digisac), oportunidade conforme política da loja.
+- **Catálogo público**: preço/total SEMPRE recalculado no servidor; links
+  rastreados `?ref=` (vendedora) e `?c=` (cliente) alimentam a atribuição.
+
+## Módulos
+
+- **CRM**: clientes (carteira), funil de vendas, tarefas, automações,
+  campanhas de disparo, tags/interesses, notificações (sino + push PWA).
+- **Central de Atendimento WhatsApp** (`/whatsapp`, tela `inbox.tsx`):
+  fila/chats/contatos, setores, assumir/transferir/encerrar, notas internas
+  com @menção, respostas rápidas (criáveis por qualquer um), mídia + áudio
+  (gravação convertida no servidor), pedidos dentro do chat (com PDF enviado
+  de verdade), **sync incremental a cada 4s** (`GET /api/conversations?since=`
+  + `Conversation.updatedAt`), envio otimista (bolha instantânea ⏱️→✓),
+  recibos com horário (entregue/visto), editar (15min) e apagar para todos
+  (~2 dias), detecção de "cliente apagou" (conteúdo preservado), mensagens
+  automáticas personalizáveis (link do catálogo e confirmação de pedido, em
+  `CommSettings`), unificação de contatos duplicados, importação de
+  histórico de 30 dias (depende do servidor Evolution guardar histórico).
+- **Communication Engine** (`lib/comm/`): camada única de envio/recebimento,
+  agnóstica de provedor. `EvolutionProvider` = WhatsApp NÃO-oficial via
+  Evolution API **self-hosted** (VPS Hostinger srv1853369.hstgr.cloud,
+  projeto Docker `evolução-api-2zk0`; envs `EVOLUTION_URL`/`EVOLUTION_KEY`
+  na Vercel; webhook autenticado por token único por loja). Anti-ban:
+  resposta em janela de 24h sai na hora; envio proativo com ritmo humano
+  4-9s; termo de aceite obrigatório registrado. `CloudApiProvider` (Meta
+  oficial) pronto na estrutura. Tudo logado em `CommEvent` (Central de
+  Comunicação).
+- **Integrações de produto/estoque**: **Nuvemshop** (OAuth com state
+  assinado, webhooks HMAC; a Nuvemshop é a DONA do estoque; casamento de
+  produtos SÓ por SKU; venda paga → `ingestPaidOrder` cria Order PAGO
+  direto); **Jueri** (sync 2x/dia via cron `jueri-sync`).
+- **Marketing**: Gestor de Bio (temas, cores custom, capa, QR, métricas
+  BioView/BioClick com filtro de data, atribuição `utm_source=bio` no
+  catálogo), campanhas de aquisição, tracking do catálogo
+  (TrackSession/TrackEvent + `lib/tracking/insights.ts` → tela
+  Inteligência), afiliados (só empresa-plataforma).
+- **Produção** (gated por loja): tecidos, rolos, cortes multi-cor, costura,
+  lotes/facções, defeitos, simulador, etiquetas.
+- **Super Admin**: painel Lojas (provisionar, cobrança, uso, suspender,
+  impersonar), diagnóstico de fotos; loja demo "Bella Moda".
+
+## Estado atual e pendências conhecidas
+
+- WhatsApp/Evolution: operacional em produção (conexão, tempo real, mídia).
+  **Pendente**: ligar `DATABASE_SAVE_DATA_HISTORIC/NEW_MESSAGE/CHATS/CONTACTS=true`
+  no compose do servidor Evolution (Hostinger, via Editor .yaml) e reconectar
+  as lojas — sem isso a importação de histórico devolve ~0 mensagens.
+- Dívidas mapeadas: blob storage para fotos; rate-limit no login;
+  conferir `INTAKE_SECRET` na Vercel; quebrar telas gigantes
+  (`inbox.tsx` ~2,4k linhas) em componentes menores.
+- Auditoria completa (segurança + métricas) feita em 24/07/2026 — métricas
+  unificadas na fonte única; isolamento multi-tenant verificado rota a rota.
