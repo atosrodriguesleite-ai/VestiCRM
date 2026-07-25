@@ -6,7 +6,7 @@ import { importRecentHistory } from "@/lib/comm/history-import";
 export const maxDuration = 60;
 
 /**
- * Importa o histórico recente (últimos 7 dias) do WhatsApp conectado.
+ * Importa o histórico recente (últimos 30 dias) do WhatsApp conectado.
  * Só administrador — cria contatos/conversas a partir do histórico.
  */
 export async function POST() {
@@ -14,7 +14,7 @@ export async function POST() {
     const user = await requireUser();
     if (!isAdmin(user))
       return NextResponse.json({ error: "Sem permissão" }, { status: 403 });
-    const result = await importRecentHistory(user.companyId, 7);
+    const result = await importRecentHistory(user.companyId, 30);
     return NextResponse.json({ ok: true, ...result });
   } catch (e) {
     if (e instanceof AuthError)

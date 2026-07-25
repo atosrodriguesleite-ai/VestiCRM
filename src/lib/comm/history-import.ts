@@ -1,6 +1,12 @@
 import { db } from "../db";
-import { evolutionEnv, evoFindMessages, jidToPhone } from "./evolution";
+import {
+  evolutionEnv,
+  evoFindMessages,
+  evoGetMediaBase64,
+  jidToPhone,
+} from "./evolution";
 import { normalizePhone, phoneMatchVariants } from "../intake";
+import type { MessageMedia } from "@prisma/client";
 
 /**
  * Importa o histórico RECENTE do WhatsApp (últimos N dias) que o servidor já
@@ -18,25 +24,55 @@ type WAMsg = {
   message?: {
     conversation?: string;
     extendedTextMessage?: { text?: string };
-    imageMessage?: { caption?: string };
-    videoMessage?: { caption?: string };
-    documentMessage?: { fileName?: string };
-    audioMessage?: unknown;
-    stickerMessage?: unknown;
+    imageMessage?: { caption?: string; mimetype?: string };
+    videoMessage?: { caption?: string; mimetype?: string };
+    documentMessage?: { fileName?: string; mimetype?: string };
+    audioMessage?: { mimetype?: string };
+    stickerMessage?: { mimetype?: string };
   };
 };
 
-function textOf(m: WAMsg): string {
+type Extracted = {
+  text: string;
+  mediaType: MessageMedia;
+  mimeFallback: string | null;
+  fileName: string | null;
+};
+
+function extract(m: WAMsg): Extracted {
   const msg = m.message ?? {};
-  if (msg.conversation) return msg.conversation;
-  if (msg.extendedTextMessage?.text) return msg.extendedTextMessage.text;
-  if (msg.imageMessage) return msg.imageMessage.caption || "[foto]";
-  if (msg.videoMessage) return msg.videoMessage.caption || "[vídeo]";
-  if (msg.audioMessage) return "[áudio]";
+  if (msg.conversation)
+    return { text: msg.conversation, mediaType: "TEXT", mimeFallback: null, fileName: null };
+  if (msg.extendedTextMessage?.text)
+    return { text: msg.extendedTextMessage.text, mediaType: "TEXT", mimeFallback: null, fileName: null };
+  if (msg.imageMessage)
+    return { text: msg.imageMessage.caption || "[foto]", mediaType: "IMAGE", mimeFallback: msg.imageMessage.mimetype ?? "image/jpeg", fileName: null };
+  if (msg.videoMessage)
+    return { text: msg.videoMessage.caption || "[vídeo]", mediaType: "VIDEO", mimeFallback: msg.videoMessage.mimetype ?? "video/mp4", fileName: null };
+  if (msg.audioMessage)
+    return { text: "[áudio]", mediaType: "AUDIO", mimeFallback: msg.audioMessage.mimetype ?? "audio/ogg", fileName: null };
   if (msg.documentMessage)
-    return `[arquivo] ${msg.documentMessage.fileName ?? ""}`.trim();
-  if (msg.stickerMessage) return "[figurinha]";
-  return "";
+    return { text: `[arquivo] ${msg.documentMessage.fileName ?? ""}`.trim(), mediaType: "DOCUMENT", mimeFallback: msg.documentMessage.mimetype ?? "application/octet-stream", fileName: msg.documentMessage.fileName ?? null };
+  if (msg.stickerMessage)
+    return { text: "[figurinha]", mediaType: "IMAGE", mimeFallback: msg.stickerMessage.mimetype ?? "image/webp", fileName: null };
+  return { text: "", mediaType: "TEXT", mimeFallback: null, fileName: null };
+}
+
+const MEDIA_BASE64_MAX = 12 * 1024 * 1024; // ~12 MB por mídia
+const MEDIA_DOWNLOAD_BUDGET = 250; // teto de mídias baixadas por importação
+
+/** Baixa a mídia (áudio/foto/vídeo/arquivo) e monta a data URL, com teto. */
+async function baixarMidia(
+  instance: string,
+  messageId: string | undefined,
+  mimeFallback: string | null
+): Promise<string | null> {
+  if (!messageId) return null;
+  const res = await evoGetMediaBase64(instance, messageId);
+  const b64 = res.data?.base64;
+  if (!res.ok || !b64 || b64.length > MEDIA_BASE64_MAX) return null;
+  const mime = (res.data?.mimetype || mimeFallback || "application/octet-stream").split(";")[0];
+  return `data:${mime};base64,${b64}`;
 }
 
 /** Extrai a lista de mensagens de formatos variados de resposta do servidor. */
@@ -61,7 +97,7 @@ export type HistoryImportResult = {
 
 export async function importRecentHistory(
   companyId: string,
-  days = 7
+  days = 30
 ): Promise<HistoryImportResult> {
   const settings = await db.commSettings.findUnique({ where: { companyId } });
   if (!settings?.evolutionInstance || !evolutionEnv().configured)
@@ -82,12 +118,14 @@ export async function importRecentHistory(
     .slice(0, 3000); // teto de segurança
 
   let importadas = 0;
+  let midiaBudget = MEDIA_DOWNLOAD_BUDGET;
+  const instance = settings.evolutionInstance;
   const convByCustomer = new Map<string, string>();
 
   for (const { r, ts } of parsed) {
     const phone = jidToPhone(r.key?.remoteJid ?? ""); // grupos/status ficam de fora
     if (!phone) continue;
-    const text = textOf(r);
+    const { text, mediaType, mimeFallback, fileName } = extract(r);
     if (!text) continue;
     const extId = r.key?.id;
 
@@ -139,12 +177,22 @@ export async function importRecentHistory(
       if (exists) continue;
     }
 
+    // mídia (áudio/foto/vídeo/arquivo): baixa o conteúdo, respeitando o teto
+    let mediaUrl: string | null = null;
+    if (mediaType !== "TEXT" && midiaBudget > 0) {
+      mediaUrl = await baixarMidia(instance, extId, mimeFallback);
+      if (mediaUrl) midiaBudget--;
+    }
+
     await db.message.create({
       data: {
         conversationId: convId,
         channel: "WHATSAPP",
         direction: r.key?.fromMe ? "OUT" : "IN",
         body: text,
+        ...(mediaType !== "TEXT" && mediaUrl
+          ? { mediaType, mediaUrl, fileName }
+          : {}),
         externalId: extId,
         status: r.key?.fromMe ? "ENVIADA" : "RECEBIDA",
         createdAt: new Date(ts),
