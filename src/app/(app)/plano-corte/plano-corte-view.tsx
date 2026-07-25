@@ -129,6 +129,7 @@ export function PlanoCorteView() {
   const [mesa, setMesa] = useState("600");
   const [folga, setFolga] = useState("0,5");
   const [maxFolhas, setMaxFolhas] = useState("60");
+  const [sentidoUnico, setSentidoUnico] = useState(false);
 
   const [gerando, setGerando] = useState(false);
   const [resultado, setResultado] = useState<ResultadoResp | null>(null);
@@ -281,6 +282,7 @@ export function PlanoCorteView() {
           maxFolhas: Math.round(num(maxFolhas, 60)),
           incluirForro,
           pecasDesligadas: [...pecasDesligadas],
+          sentidoUnico,
         }),
       });
       const data = await r.json();
@@ -605,6 +607,17 @@ export function PlanoCorteView() {
                     <Input value={maxFolhas} onChange={(e) => setMaxFolhas(e.target.value)} inputMode="numeric" />
                   </Field>
                 </div>
+                <label className="mt-3 flex cursor-pointer items-center justify-between rounded-xl border border-slate-200 px-3 py-2.5">
+                  <span className="min-w-0 pr-3">
+                    <span className="block text-sm font-medium text-slate-800">
+                      Tecido com sentido (estampa direcional)
+                    </span>
+                    <span className="block text-xs text-slate-400">
+                      liga pra veludo/estampa com direção — nenhuma peça sai de cabeça pra baixo
+                    </span>
+                  </span>
+                  <Switch ligado={sentidoUnico} onChange={setSentidoUnico} />
+                </label>
               </div>
 
               <Button

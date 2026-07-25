@@ -121,6 +121,27 @@ function estrategias(grade: Record<string, number>): Estrategia[] {
   });
 }
 
+/**
+ * REGRA DO FIO: no CAD da modelista o fio corre na horizontal (eixo X do
+ * desenho); no risco, o fio deve correr no COMPRIMENTO do tecido (eixo Y
+ * do encaixe). Por isso toda peça entra girada 90° — rotação verdadeira,
+ * sem espelhar: (x, y) → (y, w − x) — mantendo exatamente a orientação
+ * que a modelista desenhou em relação ao fio.
+ */
+function giraProFio(med: {
+  w: number;
+  h: number;
+  area: number;
+  contorno?: [number, number][];
+}) {
+  return {
+    w: med.h, // atravessa a largura do tecido
+    h: med.w, // corre no comprimento (fio)
+    area: med.area,
+    contorno: med.contorno?.map(([x, y]) => [y, med.w - x] as [number, number]),
+  };
+}
+
 /** Monta a lista de peças físicas de um risco (combo × peças do pano). */
 function pecasDoRisco(
   modelo: ModeloCorte,
@@ -135,14 +156,15 @@ function pecasDoRisco(
     for (const [tam, vezes] of Object.entries(combo)) {
       const med = peca.tamanhos[tam];
       if (!med) continue; // tamanho não gradeado nesta peça
+      const girada = giraProFio(med);
       for (let i = 0; i < vezes * peca.qtd; i++) {
         out.push({
           nome: peca.nome,
           tamanho: tam,
-          w: med.w,
-          h: med.h,
-          area: med.area,
-          contorno: med.contorno,
+          w: girada.w,
+          h: girada.h,
+          area: girada.area,
+          contorno: girada.contorno,
         });
       }
     }
@@ -213,7 +235,12 @@ function planejarPano(
     const chave = JSON.stringify(combo);
     let r = cacheRisco.get(chave);
     if (!r) {
-      r = encaixarMelhor(pecasDoRisco(modelo, pano, combo, params), largura, params.folgaCm);
+      r = encaixarMelhor(
+        pecasDoRisco(modelo, pano, combo, params),
+        largura,
+        params.folgaCm,
+        !params.sentidoUnico // estampa direcional: peça não vira de cabeça pra baixo
+      );
       analises += r.analises;
       cacheRisco.set(chave, r);
     }

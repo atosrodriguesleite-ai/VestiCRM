@@ -49,6 +49,9 @@ export type ParametrosPlano = {
   perdaPorFolhaCm: number; // perda de borda/emenda por folha enfestada
   incluirForro: boolean; // liga/desliga as peças de forro
   pecasDesligadas: string[]; // nomes de peças excluídas do plano
+  // Tecido com sentido (estampa direcional, veludo): proíbe girar 180° —
+  // toda peça sai "de pé", no sentido único do tecido.
+  sentidoUnico?: boolean;
 };
 
 /** Uma peça posicionada dentro de um risco. */

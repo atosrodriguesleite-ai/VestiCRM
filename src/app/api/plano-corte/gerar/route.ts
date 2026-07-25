@@ -24,6 +24,7 @@ const schema = z.object({
   perdaPorFolhaCm: z.number().min(0).max(50).default(3),
   incluirForro: z.boolean().default(true),
   pecasDesligadas: z.array(z.string().max(120)).max(100).default([]),
+  sentidoUnico: z.boolean().default(false),
 });
 
 export async function POST(req: NextRequest) {
@@ -57,6 +58,7 @@ export async function POST(req: NextRequest) {
       perdaPorFolhaCm: d.perdaPorFolhaCm,
       incluirForro: d.incluirForro,
       pecasDesligadas: d.pecasDesligadas,
+      sentidoUnico: d.sentidoUnico,
     };
 
     let resultado;

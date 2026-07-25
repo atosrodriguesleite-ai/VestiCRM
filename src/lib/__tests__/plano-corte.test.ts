@@ -258,6 +258,25 @@ describe("planejador de enfesto", () => {
     expect(() => montarPlano(modelo, { ...paramsBase, grade: { GG: 5 } })).toThrow(/GG/);
   });
 
+  it("REGRA DO FIO: peça entra girada — fio (eixo X do CAD) corre no comprimento", () => {
+    // FRENTE P no CAD: 50 (fio) × 40 → no risco: 40 na largura, 50 no comprimento
+    const r = montarPlano(modelo, { ...paramsBase, grade: { P: 1 }, pecasDesligadas: ["FRENTE FOR"] });
+    const risco = r.planos[0].riscos[0];
+    expect(risco.pecas).toHaveLength(1);
+    expect(risco.pecas[0].w).toBe(40); // atravessa a largura do tecido
+    expect(risco.pecas[0].h).toBe(50); // fio, no comprimento do rolo
+    expect(risco.comprimentoCm).toBe(50);
+  });
+
+  it("tecido com sentido (sentidoUnico) nunca gira peça 180°", () => {
+    const r = montarPlano(modelo, { ...paramsBase, sentidoUnico: true });
+    for (const plano of r.planos)
+      for (const risco of plano.riscos) {
+        expect(risco.estrategiaEncaixe).not.toContain("rotação");
+        for (const p of risco.pecas) expect(p.rot).toBe(0);
+      }
+  });
+
   it("compara estratégias e escolhe a mais econômica", () => {
     const r = montarPlano(modelo, { ...paramsBase, grade: { P: 30, M: 50 } });
     for (const plano of r.planos) {

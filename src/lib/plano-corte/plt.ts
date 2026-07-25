@@ -26,27 +26,30 @@ export function riscoParaPlt(risco: Risco, tituloModelo: string): string {
   );
 
   for (const p of risco.pecas) {
-    // encaixe guarda x na largura e y no comprimento → deita no papel
-    const ox = p.y;
-    const oy = p.x;
+    // O encaixe guarda x na largura e y no comprimento; no papel o
+    // comprimento corre no eixo X. A conversão é ROTAÇÃO verdadeira de
+    // 90° — (x, y) → (y, L − x) — nunca troca de eixos, que espelharia a
+    // peça (fio/costura errados na mesa de corte).
+    const X = (my: number) => my;
+    const Y = (mx: number) => risco.larguraCm - mx;
     if (p.contorno && p.contorno.length >= 3) {
       const pts = p.contorno.map(([cx, cy]) => {
         const rx = p.rot === 180 ? p.w - cx : cx;
         const ry = p.rot === 180 ? p.h - cy : cy;
-        return [ox + ry, oy + rx] as [number, number]; // deitado: troca eixos
+        return [X(p.y + ry), Y(p.x + rx)] as [number, number];
       });
       cmd.push(`PU${pt(pts[0][0], pts[0][1])};`);
       cmd.push(`PD${pts.slice(1).map(([x, y]) => pt(x, y)).join(",")},${pt(pts[0][0], pts[0][1])};`);
     } else {
       cmd.push(
-        `PU${pt(ox, oy)};`,
-        `PD${pt(ox + p.h, oy)},${pt(ox + p.h, oy + p.w)},${pt(ox, oy + p.w)},${pt(ox, oy)};`
+        `PU${pt(X(p.y), Y(p.x))};`,
+        `PD${pt(X(p.y + p.h), Y(p.x))},${pt(X(p.y + p.h), Y(p.x + p.w))},${pt(X(p.y), Y(p.x + p.w))},${pt(X(p.y), Y(p.x))};`
       );
     }
     // rótulo dentro da peça: NOME TAM
     cmd.push(
       "DT~;",
-      `PU${pt(ox + p.h / 2 - Math.min(4, p.h / 3), oy + p.w / 2)};`,
+      `PU${pt(X(p.y + p.h / 2) - Math.min(4, p.h / 3), Y(p.x + p.w / 2))};`,
       "SI0.35,0.5;",
       `LB${p.nome} ${p.tamanho}~;`
     );

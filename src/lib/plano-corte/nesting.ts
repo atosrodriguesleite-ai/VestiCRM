@@ -189,12 +189,13 @@ const ORDENS: { nome: string; fn: (ps: PecaEncaixe[]) => PecaEncaixe[] }[] = [
 export function encaixarMelhor(
   pecas: PecaEncaixe[],
   larguraCm: number,
-  folgaCm: number
+  folgaCm: number,
+  permitir180 = true
 ): ResultadoEncaixe & { analises: number } {
   let melhor: ResultadoEncaixe | null = null;
   let analises = 0;
   for (const ordem of ORDENS) {
-    for (const rot of [true, false]) {
+    for (const rot of permitir180 ? [true, false] : [false]) {
       analises++;
       const { comprimentoCm, pos } = empacotar(ordem.fn(pecas), larguraCm, folgaCm, rot);
       if (pos.length < pecas.length) continue; // alguma peça não coube

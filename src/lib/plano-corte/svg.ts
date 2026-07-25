@@ -20,21 +20,26 @@ function corDaPeca(nome: string): string {
 
 const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;");
 
-function pecaSvg(p: Posicionamento, escala: number, pad: number): string {
-  const px = pad + p.x * escala;
-  const py = pad + p.y * escala;
-  const pw = p.w * escala;
-  const ph = p.h * escala;
+/**
+ * Desenha uma peça com o risco DEITADO na tela (comprimento na horizontal).
+ * O encaixe trabalha com x na largura do tecido e y no comprimento; aqui
+ * aplicamos uma ROTAÇÃO verdadeira de 90° — (x, y) → (y, L − x) — nunca
+ * uma troca de eixos, que espelharia a peça (fio e costura errados).
+ */
+function pecaSvg(p: Posicionamento, larguraCm: number, escala: number, pad: number): string {
+  // marker (mx, my) → tela (my, largura − mx)
+  const telaX = (my: number) => pad + my * escala;
+  const telaY = (mx: number) => pad + (larguraCm - mx) * escala;
+
   const cor = corDaPeca(p.nome);
   const partes: string[] = [];
 
   if (p.contorno && p.contorno.length >= 3) {
-    // curva real: aplica rotação 180° dentro da caixa quando for o caso
     const pts = p.contorno
       .map(([cx, cy]) => {
         const rx = p.rot === 180 ? p.w - cx : cx;
         const ry = p.rot === 180 ? p.h - cy : cy;
-        return `${(px + rx * escala).toFixed(1)},${(py + ry * escala).toFixed(1)}`;
+        return `${telaX(p.y + ry).toFixed(1)},${telaY(p.x + rx).toFixed(1)}`;
       })
       .join(" ");
     partes.push(
@@ -42,13 +47,14 @@ function pecaSvg(p: Posicionamento, escala: number, pad: number): string {
     );
   } else {
     partes.push(
-      `<rect x="${px.toFixed(1)}" y="${py.toFixed(1)}" width="${pw.toFixed(1)}" height="${ph.toFixed(1)}" rx="3" fill="${cor}" fill-opacity="0.8" stroke="#1e293b" stroke-width="1"/>`
+      `<rect x="${telaX(p.y).toFixed(1)}" y="${telaY(p.x + p.w).toFixed(1)}" width="${(p.h * escala).toFixed(1)}" height="${(p.w * escala).toFixed(1)}" rx="3" fill="${cor}" fill-opacity="0.8" stroke="#1e293b" stroke-width="1"/>`
     );
   }
 
+  const pw = p.h * escala; // largura da peça NA TELA
   const fs = Math.max(8, Math.min(14, pw / 7));
-  const cx = px + pw / 2;
-  const cy = py + ph / 2;
+  const cx = telaX(p.y + p.h / 2);
+  const cy = telaY(p.x + p.w / 2);
   partes.push(
     `<text x="${cx.toFixed(1)}" y="${(cy - 2).toFixed(1)}" font-size="${fs.toFixed(0)}" fill="#fff" text-anchor="middle" font-weight="bold">${esc(p.nome)}</text>`,
     `<text x="${cx.toFixed(1)}" y="${(cy + fs).toFixed(1)}" font-size="${(fs * 0.85).toFixed(0)}" fill="#fff" text-anchor="middle">${esc(p.tamanho)}</text>`
@@ -71,14 +77,7 @@ export function riscoParaSvg(risco: Risco): string {
     `<rect x="${pad}" y="${pad}" width="${(risco.comprimentoCm * escala).toFixed(1)}" height="${(risco.larguraCm * escala).toFixed(1)}" fill="#f6f3ec" stroke="#94a3b8" stroke-width="1.5" stroke-dasharray="7 4"/>`,
   ];
 
-  // peças (x do encaixe = largura do tecido → vira eixo Y do desenho deitado)
-  for (const p of risco.pecas) {
-    const deitada: Posicionamento = { ...p, x: p.y, y: p.x, w: p.h, h: p.w };
-    // girar o desenho 90° pra apresentação exige trocar contorno também
-    if (p.contorno)
-      deitada.contorno = p.contorno.map(([cx, cy]) => [cy, cx] as [number, number]);
-    partes.push(pecaSvg(deitada, escala, pad));
-  }
+  for (const p of risco.pecas) partes.push(pecaSvg(p, risco.larguraCm, escala, pad));
 
   const combo = Object.entries(risco.combo)
     .map(([t, v]) => (v > 1 ? `${v}× ${t}` : t))
