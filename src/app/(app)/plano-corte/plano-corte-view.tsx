@@ -51,7 +51,7 @@ type ModeloDetalhe = {
     pano: "TEC" | "FOR";
     qtd: number;
     desc?: string;
-    tamanhos: Record<string, { w: number; h: number; area: number }>;
+    tamanhos: Record<string, { w: number; h: number; area: number; contorno?: unknown }>;
   }[];
 };
 
@@ -133,8 +133,11 @@ export function PlanoCorteView() {
   const [gerando, setGerando] = useState(false);
   const [resultado, setResultado] = useState<ResultadoResp | null>(null);
   const [historico, setHistorico] = useState<HistoricoItem[]>([]);
+  const [anexandoCurvas, setAnexandoCurvas] = useState(false);
+  const [msgCurvas, setMsgCurvas] = useState<string | null>(null);
 
   const fileInput = useRef<HTMLInputElement>(null);
+  const curvasInput = useRef<HTMLInputElement>(null);
   const resultadoRef = useRef<HTMLDivElement>(null);
 
   const carregar = useCallback(async () => {
@@ -203,6 +206,36 @@ export function PlanoCorteView() {
       setIncluirForro(true);
     } finally {
       setCarregandoModelo(false);
+    }
+  }
+
+  /** Anexa o PDF/DXF com as curvas reais ao modelo aberto (casamento por medidas). */
+  async function anexarCurvas(file: File) {
+    if (!selecionado) return;
+    setMsgCurvas(null);
+    setErro(null);
+    setAnexandoCurvas(true);
+    try {
+      const contentBase64 = await arquivoParaBase64(file);
+      const r = await fetch(`/api/plano-corte/modelos/${selecionado.id}/curvas`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ fileName: file.name, contentBase64 }),
+      });
+      const data = await r.json();
+      if (!r.ok) {
+        setErro(data.error ?? "Não consegui ler as curvas");
+        return;
+      }
+      setMsgCurvas(
+        `Curvas anexadas: ${data.casadas} de ${data.totalAlvos} peças ganharam a curva real 🎉`
+      );
+      await abrirModelo(selecionado.id); // recarrega com o selo "curva real"
+      await carregar();
+    } catch {
+      setErro("Falha no envio — tente de novo");
+    } finally {
+      setAnexandoCurvas(false);
     }
   }
 
@@ -416,12 +449,52 @@ export function PlanoCorteView() {
 
       {selecionado && !carregandoModelo && (
         <Card className="p-5">
-          <div className="flex items-center gap-2 mb-4">
+          <div className="flex flex-wrap items-center gap-2 mb-4">
             <span className="flex size-7 items-center justify-center rounded-full bg-brand-600 text-white text-sm font-bold">2</span>
             <h2 className="font-semibold text-slate-900">Monte o corte</h2>
             <ChevronRight className="size-4 text-slate-300" />
             <span className="truncate text-sm text-slate-500">{selecionado.name}</span>
+            {(() => {
+              const temCurva = selecionado.pieces.some((p) =>
+                Object.values(p.tamanhos).some((t) => !!t.contorno)
+              );
+              return temCurva ? (
+                <span className="ml-auto rounded-lg bg-emerald-100 px-2.5 py-1 text-xs font-semibold text-emerald-700">
+                  ✓ curva real — encaixe profissional
+                </span>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => curvasInput.current?.click()}
+                  disabled={anexandoCurvas}
+                  className="ml-auto inline-flex items-center gap-1.5 rounded-xl border border-amber-300 bg-amber-50 px-3 py-1.5 text-xs font-medium text-amber-800 transition hover:bg-amber-100 disabled:opacity-50"
+                >
+                  {anexandoCurvas ? (
+                    <Loader2 className="size-3.5 animate-spin" />
+                  ) : (
+                    <FileUp className="size-3.5" />
+                  )}
+                  Anexar curvas (PDF do Audaces)
+                </button>
+              );
+            })()}
+            <input
+              ref={curvasInput}
+              type="file"
+              accept=".pdf,.dxf"
+              className="hidden"
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (f) anexarCurvas(f);
+                e.target.value = "";
+              }}
+            />
           </div>
+          {msgCurvas && (
+            <div className="mb-4 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
+              {msgCurvas}
+            </div>
+          )}
 
           <div className="grid gap-6 lg:grid-cols-2">
             {/* peças */}
