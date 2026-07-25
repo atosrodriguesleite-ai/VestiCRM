@@ -81,6 +81,8 @@ model Company {
   fabrics        Fabric[]
   cutTickets     CutTicket[]
   fabricScraps   FabricScrap[]
+  cutPlanModels  CutPlanModel[]
+  cutPlanRuns    CutPlanRun[]
   marketingCampaigns MarketingCampaign[]
   bioPage        BioPage?
   shippingMethods ShippingMethod[]
@@ -1638,6 +1640,44 @@ model FabricScrap {
   cut     CutTicket? @relation(fields: [cutId], references: [id])
 
   @@index([companyId, status])
+}
+
+/// Modelo de corte importado do CAD (Audaces .adsx ou DXF): nome, grade,
+/// peças com medidas (e contornos, no DXF) e a miniatura do molde.
+/// É a matéria-prima do Plano de Corte Inteligente.
+model CutPlanModel {
+  id        String   @id @default(cuid())
+  companyId String
+  name      String
+  source    String // ADSX | DXF
+  thumbnail String? // data-URL da miniatura que vem dentro do .adsx
+  sizes     String // JSON: ordem da grade ["P","M","G","GG"]
+  pieces    String // JSON: peças (nome, pano TEC/FOR, medidas por tamanho, contorno)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  company Company      @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  runs    CutPlanRun[]
+
+  @@index([companyId])
+}
+
+/// Plano de corte gerado: grade pedida + mesa/tecido → riscos otimizados.
+/// Guarda parâmetros e resultado completos (JSON) pra reimprimir o PLT
+/// e reabrir o plano depois sem recalcular.
+model CutPlanRun {
+  id        String   @id @default(cuid())
+  companyId String
+  modelId   String
+  params    String // JSON: ParametrosPlano (grade, larguras, mesa, folga...)
+  result    String // JSON: ResultadoPlano (riscos, metragens, estratégias)
+  createdAt DateTime @default(now())
+
+  company Company      @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  model   CutPlanModel @relation(fields: [modelId], references: [id], onDelete: Cascade)
+
+  @@index([companyId])
+  @@index([modelId])
 }
 
 /// Configurações da Produção — tudo cadastrável, nada fixo no código.
