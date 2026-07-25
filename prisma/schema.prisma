@@ -213,6 +213,31 @@ model Notification {
   @@index([companyId])
 }
 
+/// Vigia do sistema: registro de erros de produção (painel Saúde do Super
+/// Admin). Nunca guarda dados sensíveis — só mensagem, rota e stack curto.
+model ErrorLog {
+  id        String   @id @default(cuid())
+  source    String // server (erro de rota) | watchdog (vigia) | client
+  path      String? // rota/tela onde estourou
+  message   String
+  detail    String? // stack truncado
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+}
+
+/// Estado do vigia (linha única id="main"). O vigia roda "de carona" no
+/// tráfego normal (máx. 1x a cada poucos minutos) — Vercel Hobby só permite
+/// 2 crons diários, então NÃO usar cron para isso.
+model SystemHealth {
+  id                 String    @id
+  watchdogRunAt      DateTime? // última rodada do vigia (trava anti-corrida)
+  evolutionOk        Boolean   @default(true) // servidor Evolution no ar?
+  evolutionDownSince DateTime?
+  errorAlertAt       DateTime? // último push de erro (anti-spam)
+  updatedAt          DateTime  @updatedAt
+}
+
 // Setor/Departamento de atendimento (Central de Atendimento — WhatsApp).
 // A loja cria os seus (Vendas, Financeiro, Suporte...). Cada número conectado
 // tem um setor padrão, e cada chamado (conversa) pertence a um setor.
@@ -629,6 +654,9 @@ model CommSettings {
   catalogLinkMsg        String?
   // mensagem de confirmação ao montar um pedido ({nome}/{pedido}/{total})
   orderMsg              String?
+  // vigia do WhatsApp: desde quando caiu e quando o último alerta foi enviado
+  evolutionDownSince    DateTime?
+  evolutionAlertAt      DateTime?
   // trava de segurança anti-banimento: espaçamento mínimo + teto diário
   waLastSentAt          DateTime?
   waSentDate            String? // dia (yyyy-mm-dd) do contador abaixo

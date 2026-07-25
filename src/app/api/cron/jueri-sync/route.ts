@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { syncJueriCompany } from "@/lib/jueri-sync";
 import { releaseExpiredReservations } from "@/lib/reservations";
+import { runWatchdogIfDue } from "@/lib/health";
 
 /**
  * Sincronização automática da Jueri — roda 2x por dia (agendada no Vercel,
@@ -55,6 +56,10 @@ export async function GET(req: NextRequest) {
   } catch {
     // uma falha aqui não pode derrubar o resultado do sync
   }
+
+  // vigia do sistema também roda aqui — garante checagem mesmo em período
+  // sem ninguém logado (madrugada/fim de semana)
+  await runWatchdogIfDue();
 
   return NextResponse.json({
     ranAt: new Date().toISOString(),

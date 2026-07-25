@@ -23,6 +23,7 @@ import {
   Radio,
   Brain,
   Store,
+  Activity,
   ArrowLeft,
   Eye,
   PanelLeftClose,
@@ -63,6 +64,7 @@ const NAV = [
   { href: "/configuracoes", label: "Configurações", icon: Settings, group: "Sistema", supportHidden: true },
   { href: "/lojas", label: "Lojas", icon: Store, group: "Plataforma", superOnly: true },
   { href: "/afiliados", label: "Afiliados", icon: Handshake, group: "Plataforma", superOnly: true },
+  { href: "/saude", label: "Saúde", icon: Activity, group: "Plataforma", superOnly: true },
 ];
 
 const MOBILE_NAV = [

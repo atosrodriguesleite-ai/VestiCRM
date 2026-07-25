@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 import { receiveMessage, updateDeliveryStatus } from "@/lib/comm/engine";
 import { jidToPhone, evoGetMediaBase64 } from "@/lib/comm/evolution";
 import { phoneMatchVariants } from "@/lib/intake";
+import { alertWhatsappDown } from "@/lib/health";
 import type { MessageMedia } from "@prisma/client";
 
 /**
@@ -128,11 +129,22 @@ export async function POST(
             ...(state === "open"
               ? {
                   activeProvider: "EVOLUTION",
+                  evolutionDownSince: null,
+                  evolutionAlertAt: null,
                   ...(d?.wuid ? { evolutionPhone: jidToPhone(d.wuid) } : {}),
                 }
               : {}),
           },
         });
+        // ESTAVA conectado e caiu → avisa a loja NA HORA (sino + push).
+        // "close" durante a leitura do QR não conta (não estava conectado).
+        if (state === "close" && settings.evolutionStatus === "CONECTADO") {
+          await db.commSettings.update({
+            where: { companyId },
+            data: { evolutionDownSince: new Date() },
+          });
+          await alertWhatsappDown(companyId).catch(() => {});
+        }
       }
     }
 
