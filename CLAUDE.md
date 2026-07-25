@@ -131,10 +131,14 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   tráfego (SEM cron novo!) — checa servidor Evolution + conexão por loja,
   alerta sino/push com anti-spam; erros de produção capturados por
   `src/instrumentation.ts` (onRequestError) → painel `/saude` (Super Admin).
+- **Dinheiro** (25/07/2026): Mercado Pago marketplace (Pix com confirmação
+  automática via `lib/settle-order.ts`; taxa da plataforma 0,5% em
+  `PLATFORM_FEE_PCT`/`feePercent` por loja), tela Financeiro (contas a
+  receber) e NF-e via Bling (`lib/bling.ts`). PENDENTE para produção:
+  criar app no Mercado Pago (envs `MP_CLIENT_ID`/`MP_CLIENT_SECRET`) e app
+  no Bling (`BLING_CLIENT_ID`/`BLING_CLIENT_SECRET`) na Vercel.
 - Dívidas mapeadas: blob storage para fotos; rate-limit no login;
   conferir `INTAKE_SECRET` na Vercel; quebrar telas gigantes
-  (`inbox.tsx` ~2,4k linhas) em componentes menores; gateway de pagamento
-  (Pix com confirmação automática) e contas a receber são os próximos
-  produtos na fila.
+  (`inbox.tsx` ~2,4k linhas) em componentes menores.
 - Auditoria completa (segurança + métricas) feita em 24/07/2026 — métricas
   unificadas na fonte única; isolamento multi-tenant verificado rota a rota.
