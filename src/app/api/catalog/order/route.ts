@@ -126,8 +126,11 @@ export async function POST(req: NextRequest) {
   const subtotal = lines.reduce((a, l) => a + l.total, 0);
   const totalPieces = lines.reduce((a, l) => a + l.quantity, 0);
 
-  // Vendedor do link inteligente (?ref=julia): o pedido já chega atribuído —
-  // conta para a comissão e libera marcar como pago sem passo manual.
+  // Vendedor do link inteligente (?ref=julia): usado para RASTREAR a origem.
+  // REGRA DE COMISSÃO da loja: a venda é de quem CUIDA da cliente (a
+  // responsável na carteira) no momento da compra — link antigo salvo não
+  // "rouba" a comissão de quem atende hoje. O vendedor do link só fica com o
+  // pedido quando a cliente ainda não tem responsável (cliente novo/anônimo).
   let linkSellerId: string | null = null;
   if (input.ref) {
     linkSellerId = (await resolveRef(company.id, input.ref)).sellerId;
@@ -139,7 +142,7 @@ export async function POST(req: NextRequest) {
           companyId: company.id,
           OR: [{ linkCode: input.c }, { id: input.c }],
         },
-        select: { id: true, city: true, state: true },
+        select: { id: true, city: true, state: true, ownerId: true },
       })
     : null;
 
@@ -154,6 +157,8 @@ export async function POST(req: NextRequest) {
   let customerCity: string | null = null;
   let customerState: string | null = null;
   let opportunityId: string | null = null;
+  // comissão: responsável pela cliente > vendedor do link (só sem responsável)
+  let orderSellerId: string | null = linkSellerId;
 
   if (hasPhone) {
     // Com telefone: entra pelo Lead Intake Engine (deduplica, cria
@@ -170,6 +175,17 @@ export async function POST(req: NextRequest) {
     conversationId = result.conversation?.id ?? null;
     customerCity = result.customer.city;
     customerState = result.customer.state;
+    orderSellerId = result.customer.ownerId ?? linkSellerId;
+    // cliente NOVA que chegou pelo link da vendedora: ela trouxe a cliente,
+    // então assume a carteira (e este pedido). Cliente já existente mantém
+    // a responsável atual — link antigo não rouba a comissão de quem atende.
+    if (result.isNewLead && linkSellerId && result.customer.ownerId !== linkSellerId) {
+      await db.customer.update({
+        where: { id: result.customer.id },
+        data: { ownerId: linkSellerId },
+      });
+      orderSellerId = linkSellerId;
+    }
     // Só vincula a oportunidade que ACABOU de ser criada para este pedido;
     // se o intake reaproveitou uma já aberta, não a ligamos (não é "deste
     // pedido" e não deve ser apagada junto).
@@ -179,6 +195,7 @@ export async function POST(req: NextRequest) {
     customerId = linkCustomer.id;
     customerCity = linkCustomer.city;
     customerState = linkCustomer.state;
+    orderSellerId = linkCustomer.ownerId ?? linkSellerId;
     // pedido do catálogo também vira card no funil
     const stage =
       (
@@ -284,7 +301,7 @@ export async function POST(req: NextRequest) {
         customerId,
         conversationId,
         opportunityId,
-        sellerId: linkSellerId,
+        sellerId: orderSellerId,
         status: "AGUARDANDO_PAGAMENTO",
         subtotal,
         total: subtotal,
