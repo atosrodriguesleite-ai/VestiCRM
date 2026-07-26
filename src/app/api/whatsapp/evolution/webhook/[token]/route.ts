@@ -24,14 +24,26 @@ import type { MessageMedia } from "@prisma/client";
 export const maxDuration = 30;
 
 type EvoKey = { remoteJid?: string; fromMe?: boolean; id?: string };
+// Prévia do ANÚNCIO (Click-to-WhatsApp do Instagram/Facebook): quando o
+// cliente chega clicando num anúncio, a primeira mensagem traz junto o
+// título, o texto e o link do anúncio — informação de ouro pra atribuição.
+type AdReply = {
+  title?: string;
+  body?: string;
+  sourceUrl?: string;
+  sourceId?: string;
+  sourceType?: string;
+};
+type CtxInfo = { contextInfo?: { externalAdReply?: AdReply } };
+
 type EvoMessage = {
   key?: EvoKey;
   pushName?: string;
   message?: {
     conversation?: string;
-    extendedTextMessage?: { text?: string };
-    imageMessage?: { caption?: string; mimetype?: string };
-    videoMessage?: { caption?: string; mimetype?: string };
+    extendedTextMessage?: { text?: string } & CtxInfo;
+    imageMessage?: ({ caption?: string; mimetype?: string } & CtxInfo);
+    videoMessage?: ({ caption?: string; mimetype?: string } & CtxInfo);
     documentMessage?: { fileName?: string; mimetype?: string };
     audioMessage?: { mimetype?: string };
     stickerMessage?: { mimetype?: string };
@@ -51,6 +63,21 @@ type Extracted = {
   mimeFallback: string | null;
   fileName: string | null;
 };
+
+/** Prévia do anúncio (se a mensagem veio de um clique em anúncio). */
+function extractAdReferral(m: EvoMessage): AdReply | null {
+  const msg = m.message ?? {};
+  const portadores: (CtxInfo | undefined)[] = [
+    msg.extendedTextMessage,
+    msg.imageMessage,
+    msg.videoMessage,
+  ];
+  for (const p of portadores) {
+    const ad = p?.contextInfo?.externalAdReply;
+    if (ad && (ad.title || ad.body || ad.sourceUrl)) return ad;
+  }
+  return null;
+}
 
 function extractText(m: EvoMessage): Extracted {
   const msg = m.message ?? {};
@@ -193,7 +220,7 @@ export async function POST(
 
         if (!m.key?.fromMe) {
           // mensagem do CLIENTE → central de leads (funil, vendedor, tarefa)
-          await receiveMessage(companyId, {
+          const result = await receiveMessage(companyId, {
             channel: "WHATSAPP",
             phone,
             name: m.pushName || undefined,
@@ -203,6 +230,46 @@ export async function POST(
               : {}),
             externalId: m.key?.id,
           });
+
+          // 📢 veio de um ANÚNCIO (Click-to-WhatsApp): registra a prévia como
+          // nota no chat — a equipe vê de qual anúncio o cliente chegou e
+          // consegue atribuir a conversa à campanha certa. Sem duplicar: a
+          // mesma prévia só entra uma vez por conversa.
+          const ad = extractAdReferral(m);
+          if (ad && result?.conversation) {
+            const marcador = ad.sourceUrl || ad.title || ad.sourceId || "";
+            const jaTem = marcador
+              ? await db.message.findFirst({
+                  where: {
+                    conversationId: result.conversation.id,
+                    kind: "NOTE",
+                    body: { contains: marcador },
+                  },
+                  select: { id: true },
+                })
+              : null;
+            if (!jaTem) {
+              await db.message.create({
+                data: {
+                  conversationId: result.conversation.id,
+                  direction: "IN",
+                  kind: "NOTE",
+                  body: [
+                    "📢 Cliente veio de um ANÚNCIO",
+                    ad.title ? `“${ad.title}”` : null,
+                    ad.body ? ad.body.slice(0, 200) : null,
+                    ad.sourceUrl ?? null,
+                  ]
+                    .filter(Boolean)
+                    .join("\n"),
+                },
+              });
+              await db.conversation.update({
+                where: { id: result.conversation.id },
+                data: { lastMessageAt: new Date() },
+              });
+            }
+          }
         } else {
           // mensagem enviada PELO CELULAR da loja → registra na conversa do
           // cliente (histórico completo), sem reenviar nada. Dedup tolerante

@@ -2,7 +2,7 @@
 
 /* eslint-disable @next/next/no-img-element */
 
-import { useMemo, useRef, useState, useEffect, type ChangeEvent } from "react";
+import { Fragment, useMemo, useRef, useState, useEffect, type ChangeEvent } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
@@ -98,6 +98,23 @@ export type InboxConversation = {
 };
 
 type Tab = "chats" | "fila" | "contatos";
+
+// Separador de data das mensagens ("Hoje", "Ontem", "ter, 23/07")
+const dayKey = (iso: string) => new Date(iso).toDateString();
+function dayLabel(iso: string): string {
+  const d = new Date(iso);
+  const hoje = new Date();
+  const ontem = new Date(hoje);
+  ontem.setDate(hoje.getDate() - 1);
+  if (d.toDateString() === hoje.toDateString()) return "Hoje";
+  if (d.toDateString() === ontem.toDateString()) return "Ontem";
+  return d.toLocaleDateString("pt-BR", {
+    weekday: "short",
+    day: "2-digit",
+    month: "2-digit",
+    ...(d.getFullYear() !== hoje.getFullYear() ? { year: "numeric" } : {}),
+  });
+}
 
 // Emojis do compositor — grade enxuta com os mais usados em venda de moda.
 // Nativos do aparelho (sem biblioteca externa): leves e iguais ao WhatsApp.
@@ -1758,10 +1775,23 @@ export function Inbox({
 
             {/* mensagens */}
             <div className="flex-1 overflow-y-auto thin-scroll px-4 py-4 space-y-2 bg-[#f4f1f8]">
-              {selected.messages.map((m) => {
+              {selected.messages.map((m, mIdx, msgsArr) => {
+                // separador de DATA (Hoje / Ontem / 23/07) quando o dia muda —
+                // sem ele não dava para saber se a conversa foi ontem ou semana passada
+                const separador =
+                  mIdx === 0 ||
+                  dayKey(msgsArr[mIdx - 1].createdAt) !== dayKey(m.createdAt) ? (
+                    <div className="flex justify-center py-1">
+                      <span className="rounded-full bg-white/90 border border-gray-200 px-3 py-1 text-[11px] font-semibold text-gray-500 shadow-sm">
+                        {dayLabel(m.createdAt)}
+                      </span>
+                    </div>
+                  ) : null;
                 if (m.kind === "NOTE") {
                   return (
-                    <div key={m.id} className="flex justify-center">
+                    <Fragment key={m.id}>
+                    {separador}
+                    <div className="flex justify-center">
                       <div className="max-w-[85%] rounded-xl bg-amber-50 border border-amber-100 px-3 py-2 text-xs text-amber-800">
                         <p className="flex items-center gap-1 font-semibold mb-0.5">
                           <StickyNote className="size-3" />
@@ -1770,6 +1800,7 @@ export function Inbox({
                         <span className="whitespace-pre-wrap">{m.body}</span>
                       </div>
                     </div>
+                    </Fragment>
                   );
                 }
                 const mine = m.direction === "OUT";
@@ -1793,8 +1824,9 @@ export function Inbox({
                 const podeEditar =
                   podeApagar && (m.mediaType === "TEXT" || m.mediaType === "TEMPLATE");
                 return (
+                  <Fragment key={m.id}>
+                  {separador}
                   <div
-                    key={m.id}
                     className={`group flex ${mine ? "justify-end" : "justify-start"}`}
                   >
                     {/* ⋯ no desktop (hover); no celular é "segurar" a bolha */}
@@ -1916,6 +1948,7 @@ export function Inbox({
                       )}
                     </div>
                   </div>
+                  </Fragment>
                 );
               })}
               <div ref={bottomRef} />
