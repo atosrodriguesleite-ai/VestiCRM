@@ -696,22 +696,32 @@ export function montarPlanoMulti(
   }
 
   // O giro de 180° e o encaixe curva-com-curva só funcionam quando a peça
-  // tem a CURVA real (PDF anexado). Só com o .adsx cada peça vira um
-  // retângulo — o encaixe fica conservador e gasta mais tecido que o
-  // Audaces. O lojista precisa saber COMO destravar isso.
+  // tem a CURVA real (PDF anexado) NAQUELE TAMANHO — o casamento é por
+  // tamanho, então um PDF impresso só no base deixa os outros tamanhos como
+  // retângulo sem ninguém perceber. Este raio-X conta peça×tamanho de
+  // verdade usados na grade, pra mostrar exatamente o que está travado.
   {
-    const semCurva = new Set<string>();
-    for (const item of itens)
+    const semCurva: string[] = [];
+    let comCurva = 0;
+    for (const item of itens) {
+      const tams = Object.keys(item.grade).filter((t) => item.grade[t] > 0);
       for (const peca of item.modelo.pecas) {
         if (params.pecasDesligadas.includes(peca.nome)) continue;
         if (item.pecasDesligadas?.includes(peca.nome)) continue;
         if (!params.incluirForro && peca.pano === "FOR") continue;
-        if (!Object.values(peca.tamanhos).some((t) => t.contorno))
-          semCurva.add(multi ? item.modelo.nome : peca.nome);
+        const faltam = tams.filter(
+          (t) => !medidaDaPeca(peca, t, item.modelo.tamanhos)?.contorno
+        );
+        comCurva += tams.length - faltam.length;
+        if (faltam.length > 0)
+          semCurva.push(
+            `${multi ? `${item.modelo.nome}: ` : ""}${peca.nome} (${faltam.join(", ")})`
+          );
       }
-    if (semCurva.size > 0)
+    }
+    if (semCurva.length > 0)
       planos[0].avisos.push(
-        `${[...semCurva].join(", ")} ${semCurva.size === 1 ? "está" : "estão"} sem a curva real das peças — o encaixe usa só a caixa retangular e gasta mais tecido. Anexe o PDF do risco (impressão do Audaces) no modelo pra liberar o encaixe curva-com-curva e o giro de 180°.`
+        `Raio-X das curvas: ${comCurva} peça(s)/tamanho com a curva real e ${semCurva.length} entrando como RETÂNGULO — ${semCurva.join("; ")}. Retângulo não encaixa curva com curva nem aproveita o giro: anexe um PDF do risco que contenha TODOS os tamanhos desses moldes.`
       );
   }
   if (params.sentidoUnico)

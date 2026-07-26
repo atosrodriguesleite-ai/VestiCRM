@@ -44,7 +44,7 @@ type ModeloResumo = {
   source: string;
   thumbnail: string | null;
   sizes: string[];
-  pieces: { nome: string; pano: string; temContorno: boolean }[];
+  pieces: { nome: string; pano: string; temContorno: boolean; curvaCompleta?: boolean }[];
   createdAt: string;
 };
 
@@ -692,9 +692,20 @@ export function PlanoCorteView() {
                       {m.pieces.length} peças · {m.sizes.join(" ")}
                     </p>
                     <div className="mt-1 flex items-center gap-1">
-                      {temCurva ? (
+                      {temCurva && m.pieces.every((p) => p.curvaCompleta !== false) ? (
                         <span className="rounded-md bg-emerald-100 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700">
                           curva real
+                        </span>
+                      ) : temCurva ? (
+                        // tem curva em parte dos tamanhos: o resto entra
+                        // como retângulo e derruba o aproveitamento
+                        <span
+                          className="rounded-md bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-800"
+                          title="Anexe um PDF do risco com TODOS os tamanhos — os tamanhos sem curva entram como retângulo"
+                        >
+                          ⚠️ curva incompleta (
+                          {m.pieces.filter((p) => p.curvaCompleta).length}/{m.pieces.length}{" "}
+                          peças)
                         </span>
                       ) : (
                         <button
