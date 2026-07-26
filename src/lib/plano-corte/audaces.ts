@@ -44,13 +44,17 @@ function detectaPano(desc: string, nomePeca: string): TipoPano {
  * (roupa sem manga), enquanto cortar a mais só gasta pano — e o lojista
  * pode corrigir a quantidade na tela quando o molde fugir do padrão.
  */
-function quantidadeDaPeca(corpo: string, nomePeca: string, desc: string): number {
+function quantidadeDaPeca(corpo: string, nomePeca: string, desc: string) {
   const qtMod = Math.round(num(tag(corpo, "QT_MOD")));
   const porDesc = parseInt(desc.match(/(\d+)\s*X/i)?.[1] ?? "0", 10) || 0;
-  const espelhada = Math.round(num(tag(corpo, "DOUBLE"))) === 1 ? 2 : 0;
+  const dobrada = Math.round(num(tag(corpo, "DOUBLE"))) === 1;
   // "MANGA 1PAR", "ALCA PAR", "2 PARES"...
-  const parNoNome = /\bPAR(ES)?\b|\d\s*PAR/i.test(nomePeca) ? 2 : 0;
-  return Math.max(1, qtMod, porDesc, espelhada, parNoNome);
+  const parNoNome = /\bPAR(ES)?\b|\d\s*PAR/i.test(nomePeca);
+  return {
+    qtd: Math.max(1, qtMod, porDesc, dobrada ? 2 : 0, parNoNome ? 2 : 0),
+    // par de verdade = sai uma de cada lado (a segunda invertida)
+    espelhada: dobrada || parNoNome,
+  };
 }
 
 export function parseAdsx(zipBuffer: Buffer): ModeloCorte {
@@ -87,7 +91,7 @@ export function parseDataXml(xml: string): ModeloCorte {
     const nomePeca = pm[1].trim();
     const corpo = pm[2];
     const desc = tag(corpo, "DESC_P") ?? "";
-    const qtd = quantidadeDaPeca(corpo, nomePeca, desc);
+    const { qtd, espelhada } = quantidadeDaPeca(corpo, nomePeca, desc);
 
     const medidas: Record<string, MedidaTamanho> = {};
     for (const sm of corpo.matchAll(/<SIZE_P\s+NAME_SP="([^"]*)">([\s\S]*?)<\/SIZE_P>/g)) {
@@ -105,6 +109,7 @@ export function parseDataXml(xml: string): ModeloCorte {
       nome: nomePeca,
       pano: detectaPano(desc, nomePeca),
       qtd,
+      espelhada: espelhada || undefined,
       desc: desc || undefined,
       tamanhos: medidas,
     });

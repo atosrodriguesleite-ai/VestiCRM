@@ -367,3 +367,43 @@ describe("quantas vezes a peça é cortada por roupa", () => {
     expect(risco.pecas.filter((p) => p.nome === "MANGA")).toHaveLength(2);
   });
 });
+
+/* ---------- peça em par ESPELHADA (mão esquerda / direita) ---------- */
+
+describe("par espelhado", () => {
+  /** Modelo com uma peça assimétrica marcada como par (DOUBLE=1). */
+  const modeloPar = parseDataXml(`<?xml version="1.0" encoding="iso-8859-1"?>
+<DATA_FILE_AUDACES><MODEL NAME_M="T"><INFO><SIZES_M>
+ <SIZE_M NAME_SP="P"></SIZE_M></SIZES_M></INFO><PATTERNS>
+ <PATTERN NAME_P="MANGA"><DESC_P></DESC_P><QT_MOD>1</QT_MOD><DOUBLE>1</DOUBLE>
+  <SIZES_P><SIZE_P NAME_SP="P"><AREA_SP>400</AREA_SP><WIDTH_SP>20</WIDTH_SP><HEIGHT_SP>30</HEIGHT_SP></SIZE_P></SIZES_P>
+ </PATTERN></PATTERNS></MODEL></DATA_FILE_AUDACES>`);
+
+  it("o leitor marca a peça como espelhada", () => {
+    expect(modeloPar.pecas[0]).toMatchObject({ qtd: 2, espelhada: true });
+  });
+
+  it("sai UMA de cada mão: metade normal, metade invertida", () => {
+    const r = montarPlano(modeloPar, {
+      ...paramsBase,
+      grade: { P: 1 },
+      incluirForro: false,
+    });
+    const mangas = r.planos[0].riscos[0].pecas.filter((p) => p.nome === "MANGA");
+    expect(mangas).toHaveLength(2);
+    expect(mangas.filter((m) => m.espelhada)).toHaveLength(1);
+    expect(mangas.filter((m) => !m.espelhada)).toHaveLength(1);
+  });
+
+  it("peça simples nunca é espelhada (não inverte o que não é par)", () => {
+    const modelo = parseDataXml(`<?xml version="1.0" encoding="iso-8859-1"?>
+<DATA_FILE_AUDACES><MODEL NAME_M="T"><INFO><SIZES_M>
+ <SIZE_M NAME_SP="P"></SIZE_M></SIZES_M></INFO><PATTERNS>
+ <PATTERN NAME_P="FRENTE"><DESC_P>1 X TEC</DESC_P><QT_MOD>1</QT_MOD><DOUBLE>2</DOUBLE>
+  <SIZES_P><SIZE_P NAME_SP="P"><AREA_SP>400</AREA_SP><WIDTH_SP>20</WIDTH_SP><HEIGHT_SP>30</HEIGHT_SP></SIZE_P></SIZES_P>
+ </PATTERN></PATTERNS></MODEL></DATA_FILE_AUDACES>`);
+    expect(modelo.pecas[0].espelhada).toBeUndefined();
+    const r = montarPlano(modelo, { ...paramsBase, grade: { P: 2 }, incluirForro: false });
+    for (const p of r.planos[0].riscos[0].pecas) expect(p.espelhada).toBeFalsy();
+  });
+});

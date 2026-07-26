@@ -149,17 +149,21 @@ function estrategias(grade: Record<string, number>): Estrategia[] {
  * sem espelhar: (x, y) → (y, w − x) — mantendo exatamente a orientação
  * que a modelista desenhou em relação ao fio.
  */
-function giraProFio(med: {
-  w: number;
-  h: number;
-  area: number;
-  contorno?: [number, number][];
-}) {
+function giraProFio(
+  med: { w: number; h: number; area: number; contorno?: [number, number][] },
+  espelhar = false
+) {
+  // PAR ESPELHADO: no enfesto as folhas ficam todas com a face pra cima, e
+  // cortar o mesmo molde 2× daria duas mangas do MESMO lado. A segunda sai
+  // invertida (x → w − x) antes de girar pro fio: vira a mão contrária.
+  const contorno = espelhar
+    ? med.contorno?.map(([x, y]) => [med.w - x, y] as [number, number])
+    : med.contorno;
   return {
     w: med.h, // atravessa a largura do tecido
     h: med.w, // corre no comprimento (fio)
     area: med.area,
-    contorno: med.contorno?.map(([x, y]) => [y, med.w - x] as [number, number]),
+    contorno: contorno?.map(([x, y]) => [y, med.w - x] as [number, number]),
   };
 }
 
@@ -182,16 +186,21 @@ export function pecasDoRiscoMulti(
       if (item.pecasDesligadas?.includes(peca.nome)) continue;
       const med = peca.tamanhos[tam];
       if (!med) continue; // tamanho não gradeado nesta peça
-      const girada = giraProFio(med);
+      const normal = giraProFio(med, false);
+      const invertida = peca.espelhada ? giraProFio(med, true) : normal;
       for (let i = 0; i < vezes * peca.qtd; i++) {
+        // peça em par: alterna normal e invertida (uma de cada mão)
+        const espelhar = Boolean(peca.espelhada) && i % 2 === 1;
+        const g = espelhar ? invertida : normal;
         out.push({
           // no plano misto, o rótulo carrega o modelo (vai pro risco e PLT)
           nome: multi ? `${peca.nome} · ${item.modelo.nome}` : peca.nome,
           tamanho: tam,
-          w: girada.w,
-          h: girada.h,
-          area: girada.area,
-          contorno: girada.contorno,
+          w: g.w,
+          h: g.h,
+          area: g.area,
+          espelhada: espelhar || undefined,
+          contorno: g.contorno,
         });
       }
     }

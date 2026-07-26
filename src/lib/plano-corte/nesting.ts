@@ -27,6 +27,7 @@ export type PecaEncaixe = {
   w: number;
   h: number;
   area: number;
+  espelhada?: boolean; // instância invertida do par (mão contrária)
   contorno?: Contorno;
 };
 
@@ -145,6 +146,7 @@ function empacotar(
       w: p.w,
       h: p.h,
       rot: melhor.rot,
+      espelhada: p.espelhada,
       contorno: p.contorno,
     });
     const fim = melhor.y + p.h;
@@ -246,6 +248,7 @@ function empacotarGrade(
       w: p.w,
       h: p.h,
       rot: melhor.rot,
+      espelhada: p.espelhada,
       contorno: p.contorno,
     });
     const fim = yCm + p.h;

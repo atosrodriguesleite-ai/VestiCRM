@@ -51,7 +51,7 @@ export function riscoParaPlt(risco: Risco, tituloModelo: string): string {
       "DT~;",
       `PU${pt(X(p.y + p.h / 2) - Math.min(4, p.h / 3), Y(p.x + p.w / 2))};`,
       "SI0.35,0.5;",
-      `LB${p.nome} ${p.tamanho}~;`
+      `LB${p.nome} ${p.tamanho}${p.espelhada ? " INV" : ""}~;`
     );
   }
 
