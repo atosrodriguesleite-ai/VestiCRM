@@ -144,7 +144,8 @@ describe("resumo de corte", () => {
       sentidoUnico: true,
     });
     const avisos = r.planos[0].avisos.join(" | ");
-    expect(avisos).toContain("sem a curva real");
+    expect(avisos).toContain("Raio-X das curvas");
+    expect(avisos).toContain("RETÂNGULO");
     expect(avisos).toContain("Tecido com sentido");
   });
 

@@ -95,6 +95,9 @@ export async function GET() {
             nome: p.nome,
             pano: p.pano,
             temContorno: Object.values(p.tamanhos).some((t) => !!t.contorno),
+            // curva valendo em TODOS os tamanhos (o casamento é por tamanho:
+            // PDF de um tamanho só deixa os outros como retângulo)
+            curvaCompleta: Object.values(p.tamanhos).every((t) => !!t.contorno),
           })
         ),
         createdAt: m.createdAt.toISOString(),
