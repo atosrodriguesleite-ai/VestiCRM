@@ -148,7 +148,12 @@ export class EvolutionProvider implements CommProvider {
         );
       }
     } else {
-      res = await evoSendText(this.instance!, number, payload.text ?? "");
+      res = await evoSendText(
+        this.instance!,
+        number,
+        payload.text ?? "",
+        payload.replyToExternalId
+      );
     }
     if (!res.ok) {
       // devolve o motivo que o servidor deu (encurtado) — sem ele, todo erro

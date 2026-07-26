@@ -23,7 +23,14 @@ export async function loadInboxConversations(
         customer: { include: { tags: { include: { tag: true } } } },
         assignee: true,
         setor: true,
-        messages: { orderBy: { createdAt: "asc" }, include: { author: true } },
+        messages: {
+          orderBy: { createdAt: "asc" },
+          include: {
+            author: true,
+            // prévia da mensagem citada (responder mensagem específica)
+            replyTo: { select: { id: true, body: true, direction: true } },
+          },
+        },
       },
       orderBy: { lastMessageAt: "desc" },
     }),
@@ -85,6 +92,13 @@ export async function loadInboxConversations(
       error: m.error,
       body: m.body,
       authorName: m.author?.name ?? null,
+      replyTo: m.replyTo
+        ? {
+            id: m.replyTo.id,
+            body: m.replyTo.body.slice(0, 140),
+            direction: m.replyTo.direction,
+          }
+        : null,
       createdAt: m.createdAt.toISOString(),
       deliveredAt: m.deliveredAt?.toISOString() ?? null,
       readAt: m.readAt?.toISOString() ?? null,

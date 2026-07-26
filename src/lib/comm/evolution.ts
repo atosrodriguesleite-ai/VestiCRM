@@ -192,11 +192,18 @@ export async function evoState(instance: string) {
   );
 }
 
-/** Envia texto pelo número conectado da loja. */
-export async function evoSendText(instance: string, number: string, text: string) {
+/** Envia texto pelo número conectado da loja (com citação opcional). */
+export async function evoSendText(
+  instance: string,
+  number: string,
+  text: string,
+  quotedId?: string
+) {
   return evo<{ key?: { id?: string } }>("POST", `/message/sendText/${instance}`, {
     number,
     text,
+    // responder mensagem específica: o WhatsApp mostra a citação em cima
+    ...(quotedId ? { quoted: { key: { id: quotedId } } } : {}),
   });
 }
 

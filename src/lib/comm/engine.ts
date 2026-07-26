@@ -152,12 +152,24 @@ export async function sendMessage(input: SendMessageInput): Promise<Message> {
       if (!dentroDaJanela) await paceProactiveSend(input.companyId);
     }
 
+    // resposta a mensagem específica: leva o id externo da citada para o
+    // WhatsApp mostrar a "caixinha" da mensagem original em cima
+    let replyToExternalId: string | undefined;
+    if (input.replyToId) {
+      const citada = await db.message.findFirst({
+        where: { id: input.replyToId, conversationId: conv.id },
+        select: { externalId: true },
+      });
+      replyToExternalId = citada?.externalId ?? undefined;
+    }
+
     const result = await provider.send({
       to: conv.customer.phone,
       text: input.mediaType && input.mediaType !== "TEXT" ? undefined : input.body,
       mediaType: input.mediaType,
       mediaUrl: input.mediaUrl,
       fileName: input.fileName,
+      replyToExternalId,
     });
     const durationMs = Date.now() - started;
 

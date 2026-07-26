@@ -32,6 +32,7 @@ import {
   X,
   AtSign,
   Info,
+  Reply,
   Smile,
   Zap,
   Link2,
@@ -65,6 +66,8 @@ export type InboxMessage = {
   error: string | null;
   body: string;
   authorName: string | null;
+  // resposta a mensagem específica (prévia da citada)
+  replyTo?: { id: string; body: string; direction: string } | null;
   createdAt: string;
   deliveredAt: string | null;
   readAt: string | null;
@@ -330,6 +333,8 @@ export function Inbox({
   const [savingTpl, setSavingTpl] = useState(false);
   // editar / apagar mensagem enviada (menu estilo WhatsApp: segurar em cima)
   const [actionMsg, setActionMsg] = useState<InboxMessage | null>(null);
+  // "responder": mensagem marcada para citação (prévia acima do compositor)
+  const [replyMsg, setReplyMsg] = useState<InboxMessage | null>(null);
   const lpTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [editingMsgId, setEditingMsgId] = useState<string | null>(null);
   const [editMsgDraft, setEditMsgDraft] = useState("");
@@ -612,6 +617,7 @@ export function Inbox({
     setShowTagPicker(false);
     setMention(null);
     setSlash(null);
+    setReplyMsg(null); // resposta marcada era da conversa anterior
     setConvs((prev) =>
       prev.map((c) => (c.id === id ? { ...c, unreadCount: 0 } : c))
     );
@@ -652,9 +658,18 @@ export function Inbox({
     const convId = selected.id;
     const tempId = `temp-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
 
+    // prévia da mensagem citada (quando é uma resposta)
+    const citada = payload.replyToId
+      ? selected.messages.find((x) => x.id === payload.replyToId)
+      : null;
+    const replyPreview = citada
+      ? { id: citada.id, body: citada.body.slice(0, 140), direction: citada.direction }
+      : null;
+
     // 1) mostra a bolha imediatamente (status ENVIANDO)
     appendMessage(convId, {
       id: tempId,
+      replyTo: replyPreview,
       direction: "OUT",
       kind: (payload.kind as InboxMessage["kind"]) ?? "TEXT",
       mediaType: (payload.mediaType as InboxMessage["mediaType"]) ?? "TEXT",
@@ -711,6 +726,7 @@ export function Inbox({
         reconciliar(
           {
             id: msg.id,
+            replyTo: replyPreview,
             direction: "OUT",
             kind: msg.kind,
             mediaType: msg.mediaType,
@@ -743,12 +759,18 @@ export function Inbox({
     const body = draft.trim();
     if (!body) return;
     const kind = noteMode ? "NOTE" : "TEXT";
+    const respondendo = !noteMode ? replyMsg : null;
     // limpa o campo NA HORA — sensação de instantâneo, sem esperar o servidor
     setDraft("");
     setNoteMode(false);
     setMention(null);
     setSlash(null);
-    void sendPayload({ body, kind });
+    setReplyMsg(null);
+    void sendPayload({
+      body,
+      kind,
+      ...(respondendo ? { replyToId: respondendo.id } : {}),
+    });
   }
 
   // "pressionar e segurar" (celular) abre o menu de ações da mensagem
@@ -1830,7 +1852,7 @@ export function Inbox({
                     className={`group flex ${mine ? "justify-end" : "justify-start"}`}
                   >
                     {/* ⋯ no desktop (hover); no celular é "segurar" a bolha */}
-                    {mine && (podeEditar || podeApagar) && !editando && (
+                    {mine && !isTemp && !editando && (
                       <button
                         onClick={() => setActionMsg(m)}
                         className="hidden md:block self-center mr-1 p-1 rounded-full text-gray-300 opacity-0 group-hover:opacity-100 hover:text-gray-500 hover:bg-gray-100 transition"
@@ -1841,14 +1863,12 @@ export function Inbox({
                     )}
                     <div
                       onTouchStart={
-                        mine && (podeEditar || podeApagar) && !editando
-                          ? () => startLongPress(m)
-                          : undefined
+                        !isTemp && !editando ? () => startLongPress(m) : undefined
                       }
                       onTouchEnd={cancelLongPress}
                       onTouchMove={cancelLongPress}
                       onContextMenu={
-                        mine && (podeEditar || podeApagar) && !editando
+                        !isTemp && !editando
                           ? (e) => {
                               e.preventDefault();
                               setActionMsg(m);
@@ -1881,6 +1901,13 @@ export function Inbox({
                             autoFocus
                             value={editMsgDraft}
                             onChange={(e) => setEditMsgDraft(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter" && !e.shiftKey) {
+                                e.preventDefault();
+                                salvarEdicao(m.id);
+                              }
+                              if (e.key === "Escape") setEditingMsgId(null);
+                            }}
                             rows={2}
                             className="resize-none rounded-lg bg-white/15 text-white placeholder-white/60 px-2 py-1.5 text-sm outline-none border border-white/30"
                           />
@@ -1901,6 +1928,25 @@ export function Inbox({
                         </div>
                       ) : (
                         <>
+                          {/* caixinha da mensagem citada (resposta específica) */}
+                          {m.replyTo && (
+                            <div
+                              className={`mb-1.5 rounded-lg border-l-[3px] px-2 py-1 text-[11px] leading-snug ${
+                                mine
+                                  ? "bg-white/15 border-white/60 text-white/85"
+                                  : "bg-gray-100 border-brand-400 text-gray-500"
+                              }`}
+                            >
+                              <p className="font-bold">
+                                {m.replyTo.direction === "OUT"
+                                  ? "Você"
+                                  : selected.customer.name.split(" ")[0]}
+                              </p>
+                              <p className="line-clamp-2 break-words">
+                                {m.replyTo.body}
+                              </p>
+                            </div>
+                          )}
                           <MediaContent m={m} />
                           {(m.mediaType === "TEXT" || m.mediaType === "TEMPLATE") && (
                             <p
@@ -1947,6 +1993,16 @@ export function Inbox({
                         </p>
                       )}
                     </div>
+                    {/* ⋯ do lado direito para mensagens do CLIENTE (responder) */}
+                    {!mine && !isTemp && !editando && (
+                      <button
+                        onClick={() => setActionMsg(m)}
+                        className="hidden md:block self-center ml-1 p-1 rounded-full text-gray-300 opacity-0 group-hover:opacity-100 hover:text-gray-500 hover:bg-gray-100 transition"
+                        title="Opções da mensagem"
+                      >
+                        <MoreVertical className="size-4" />
+                      </button>
+                    )}
                   </div>
                   </Fragment>
                 );
@@ -1965,6 +2021,32 @@ export function Inbox({
 
             {/* composer */}
             <div ref={composerRef} className="p-3 border-t border-gray-100 shrink-0 relative">
+              {/* respondendo mensagem específica: prévia com X para cancelar */}
+              {replyMsg && (
+                <div className="mb-2 flex items-start gap-2 rounded-xl border-l-4 border-brand-500 bg-brand-50/70 px-3 py-2">
+                  <div className="min-w-0 flex-1">
+                    <p className="text-[11px] font-bold text-brand-700">
+                      Respondendo{" "}
+                      {replyMsg.direction === "OUT"
+                        ? "você"
+                        : selected.customer.name.split(" ")[0]}
+                    </p>
+                    <p className="text-xs text-gray-600 truncate">
+                      {replyMsg.mediaType !== "TEXT" && replyMsg.mediaType !== "TEMPLATE"
+                        ? "📎 "
+                        : ""}
+                      {replyMsg.body}
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => setReplyMsg(null)}
+                    className="p-1 text-gray-400 hover:text-gray-600 shrink-0"
+                    title="Cancelar resposta"
+                  >
+                    <X className="size-3.5" />
+                  </button>
+                </div>
+              )}
               {showTemplates && (
                 <div className="absolute bottom-full left-3 right-3 mb-1 bg-white rounded-xl border border-gray-100 shadow-pop max-h-72 overflow-y-auto thin-scroll z-10">
                   <div className="sticky top-0 flex items-center justify-between gap-2 px-4 py-2 bg-white border-b border-gray-100">
@@ -2495,24 +2577,45 @@ export function Inbox({
           <p className="px-3 pt-2 pb-1 text-[11px] text-gray-400 line-clamp-2">
             “{actionMsg.body}”
           </p>
-          {(actionMsg.mediaType === "TEXT" || actionMsg.mediaType === "TEMPLATE") && (
+          {/* Responder: qualquer mensagem (sua ou do cliente) */}
+          {actionMsg.kind !== "NOTE" && (
             <button
               onClick={() => {
-                setEditingMsgId(actionMsg.id);
-                setEditMsgDraft(actionMsg.body);
+                setReplyMsg(actionMsg);
                 setActionMsg(null);
+                taRef.current?.focus();
               }}
               className="w-full flex items-center gap-3 rounded-xl px-3 py-3 text-left text-sm text-gray-700 hover:bg-gray-50"
             >
-              <Pencil className="size-4 text-gray-400" /> Editar mensagem
+              <Reply className="size-4 text-brand-600" /> Responder
             </button>
           )}
-          <button
-            onClick={() => apagarParaTodos(actionMsg.id)}
-            className="w-full flex items-center gap-3 rounded-xl px-3 py-3 text-left text-sm text-rose-600 hover:bg-rose-50"
-          >
-            <Trash2 className="size-4" /> Apagar para o cliente
-          </button>
+          {/* editar/apagar: só mensagem SUA, de verdade e não apagada */}
+          {actionMsg.direction === "OUT" &&
+            !actionMsg.revoked &&
+            actionMsg.status !== "FALHOU" &&
+            (actionMsg.mediaType === "TEXT" || actionMsg.mediaType === "TEMPLATE") && (
+              <button
+                onClick={() => {
+                  setEditingMsgId(actionMsg.id);
+                  setEditMsgDraft(actionMsg.body);
+                  setActionMsg(null);
+                }}
+                className="w-full flex items-center gap-3 rounded-xl px-3 py-3 text-left text-sm text-gray-700 hover:bg-gray-50"
+              >
+                <Pencil className="size-4 text-gray-400" /> Editar mensagem
+              </button>
+            )}
+          {actionMsg.direction === "OUT" &&
+            !actionMsg.revoked &&
+            actionMsg.status !== "FALHOU" && (
+              <button
+                onClick={() => apagarParaTodos(actionMsg.id)}
+                className="w-full flex items-center gap-3 rounded-xl px-3 py-3 text-left text-sm text-rose-600 hover:bg-rose-50"
+              >
+                <Trash2 className="size-4" /> Apagar para o cliente
+              </button>
+            )}
           <button
             onClick={() => setActionMsg(null)}
             className="w-full rounded-xl px-3 py-3 text-center text-sm font-semibold text-gray-500 hover:bg-gray-50 mt-1 border-t border-gray-100"
