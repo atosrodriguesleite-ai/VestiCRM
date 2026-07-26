@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { after } from "next/server";
 import { requireUser, AuthError } from "@/lib/auth";
 import { loadInboxConversations } from "@/lib/inbox-data";
 import { runWatchdogIfDue } from "@/lib/health";
@@ -12,9 +13,10 @@ import { runWatchdogIfDue } from "@/lib/health";
 export async function GET(req: NextRequest) {
   try {
     const user = await requireUser();
-    // vigia do sistema pega carona aqui (rota mais movimentada do app);
-    // com a trava de intervalo, quase sempre custa uma consulta e retorna
-    await runWatchdogIfDue();
+    // vigia do sistema pega carona aqui (rota mais movimentada do app), mas
+    // DEPOIS da resposta (after): a checagem externa (até 5s) não segura
+    // mais o sync — a inbox responde na hora, sempre
+    after(() => runWatchdogIfDue());
     const sinceRaw = req.nextUrl.searchParams.get("since");
     const since = sinceRaw ? new Date(sinceRaw) : undefined;
     const conversations = await loadInboxConversations(

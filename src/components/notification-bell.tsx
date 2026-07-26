@@ -41,8 +41,20 @@ export function NotificationBell({ dark = false }: { dark?: boolean }) {
 
   useEffect(() => {
     load();
-    const t = setInterval(load, 45000);
-    return () => clearInterval(t);
+    // aba em segundo plano não consulta (economia de bateria/servidor);
+    // ao voltar, atualiza na hora
+    const tick = () => {
+      if (document.visibilityState !== "hidden") load();
+    };
+    const onVisible = () => {
+      if (document.visibilityState === "visible") load();
+    };
+    const t = setInterval(tick, 45000);
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      clearInterval(t);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
   }, [load]);
 
   useEffect(() => {

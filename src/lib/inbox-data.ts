@@ -74,7 +74,12 @@ export async function loadInboxConversations(
       direction: m.direction,
       kind: m.kind,
       mediaType: m.mediaType,
-      mediaUrl: m.mediaUrl,
+      // mídia NUNCA viaja em base64 no JSON (deixava o celular de joelhos):
+      // vira link que o navegador busca uma vez e guarda em cache
+      mediaUrl:
+        m.mediaUrl && m.mediaUrl.startsWith("data:")
+          ? `/api/messages/${m.id}/media`
+          : m.mediaUrl,
       fileName: m.fileName,
       status: m.status,
       error: m.error,

@@ -43,7 +43,17 @@ export async function POST(
       authorName: user.name,
     });
 
-    return NextResponse.json(message, { status: 201 });
+    // mídia volta como LINK (não base64) — mesmo formato do sync da inbox
+    return NextResponse.json(
+      {
+        ...message,
+        mediaUrl:
+          message.mediaUrl && message.mediaUrl.startsWith("data:")
+            ? `/api/messages/${message.id}/media`
+            : message.mediaUrl,
+      },
+      { status: 201 }
+    );
   } catch (e) {
     if (e instanceof AuthError)
       return NextResponse.json({ error: "Não autenticado" }, { status: 401 });

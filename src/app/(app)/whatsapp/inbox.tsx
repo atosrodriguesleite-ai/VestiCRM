@@ -516,11 +516,23 @@ export function Inbox({
         busy = false;
       }
     }
-    const timer = setInterval(sync, 2000);
+    // Em segundo plano (aba oculta / app minimizado) o polling PARA — não
+    // gasta bateria do celular nem cota do servidor com ninguém olhando.
+    // Ao voltar, sincroniza na hora (a conversa "chega" instantânea).
+    function tick() {
+      if (document.visibilityState === "hidden") return;
+      void sync();
+    }
+    function onVisible() {
+      if (document.visibilityState === "visible") void sync();
+    }
+    const timer = setInterval(tick, 3000);
+    document.addEventListener("visibilitychange", onVisible);
     window.addEventListener("focus", sync);
     return () => {
       alive = false;
       clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVisible);
       window.removeEventListener("focus", sync);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
