@@ -335,8 +335,27 @@ export async function evoEditMessage(
  * sincroniza um lote recente ao conectar — igual ao WhatsApp Web). Usado para
  * importar o histórico recente sem pedir sincronização "a mais" (baixo risco).
  */
-export async function evoFindMessages(instance: string) {
-  return evo<unknown>("POST", `/chat/findMessages/${instance}`, { where: {} });
+export async function evoFindMessages(
+  instance: string,
+  opts?: { remoteJid?: string; page?: number; offset?: number }
+) {
+  return evo<unknown>(
+    "POST",
+    `/chat/findMessages/${instance}`,
+    {
+      // versões novas do servidor exigem a conversa no filtro para devolver
+      // mensagens; sem `remoteJid` a leitura "geral" costuma vir vazia
+      where: opts?.remoteJid ? { key: { remoteJid: opts.remoteJid } } : {},
+      page: opts?.page ?? 1,
+      offset: opts?.offset ?? 500,
+    },
+    EVO_MEDIA_TIMEOUT_MS
+  );
+}
+
+/** Lista as conversas que o servidor tem guardadas (para ler uma a uma). */
+export async function evoFindChats(instance: string) {
+  return evo<unknown>("POST", `/chat/findChats/${instance}`, {}, EVO_MEDIA_TIMEOUT_MS);
 }
 
 /** Extrai o telefone (dígitos) de um JID "5511999999999@s.whatsapp.net". */

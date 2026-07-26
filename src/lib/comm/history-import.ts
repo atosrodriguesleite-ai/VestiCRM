@@ -2,6 +2,7 @@ import { db } from "../db";
 import {
   evolutionEnv,
   evoFindMessages,
+  evoFindChats,
   evoGetMediaBase64,
   jidToPhone,
 } from "./evolution";
@@ -75,6 +76,32 @@ async function baixarMidia(
   return `data:${mime};base64,${b64}`;
 }
 
+/** Conversas lidas uma a uma quando a leitura geral vem vazia (teto de tempo). */
+const MAX_CHATS = 40;
+
+/** Extrai os identificadores das conversas devolvidas pelo servidor. */
+export function extractJids(data: unknown): string[] {
+  const d = data as Record<string, unknown> | unknown[] | null;
+  const lista: unknown[] = Array.isArray(d)
+    ? d
+    : d && typeof d === "object"
+      ? ((d as Record<string, unknown>).chats as unknown[]) ??
+        ((d as Record<string, unknown>).records as unknown[]) ??
+        []
+      : [];
+  const jids: string[] = [];
+  for (const item of lista) {
+    if (!item || typeof item !== "object") continue;
+    const o = item as Record<string, unknown>;
+    const jid = [o.remoteJid, o.id, o.jid].find((v) => typeof v === "string") as
+      | string
+      | undefined;
+    // só conversas de pessoa: grupos (@g.us) e status ficam de fora
+    if (jid && jid.endsWith("@s.whatsapp.net") && !jids.includes(jid)) jids.push(jid);
+  }
+  return jids;
+}
+
 /** Extrai a lista de mensagens de formatos variados de resposta do servidor. */
 function extractRecords(data: unknown): WAMsg[] {
   const d = data as Record<string, unknown> | unknown[] | null;
@@ -104,7 +131,33 @@ export async function importRecentHistory(
     throw new Error("WhatsApp não conectado. Conecte o número em Comunicação.");
 
   const res = await evoFindMessages(settings.evolutionInstance);
-  const records = extractRecords(res.data);
+  let records = extractRecords(res.data);
+  let via = "geral";
+  let conversasVarridas = 0;
+
+  // PLANO B: as versões novas do servidor só devolvem mensagens quando a
+  // pergunta é POR CONVERSA. Se a leitura geral vier vazia, lista os chats e
+  // lê um a um (com teto, para a importação não estourar o tempo).
+  if (res.ok && records.length === 0) {
+    const chats = await evoFindChats(settings.evolutionInstance);
+    const jids = extractJids(chats.data).slice(0, MAX_CHATS);
+    conversasVarridas = jids.length;
+    const acumulado: WAMsg[] = [];
+    for (const jid of jids) {
+      const r = await evoFindMessages(settings.evolutionInstance, {
+        remoteJid: jid,
+        offset: 300,
+      });
+      acumulado.push(...extractRecords(r.data));
+      if (acumulado.length >= 5000) break; // teto de segurança
+    }
+    if (acumulado.length) {
+      records = acumulado;
+      via = "por-conversa";
+    } else {
+      via = `por-conversa-vazio(chats=${extractJids(chats.data).length},http=${chats.status})`;
+    }
+  }
 
   // diagnóstico (aparece na Central de Comunicação): mostra o que o servidor
   // respondeu — se veio 0, sabemos se é config do servidor ou formato da leitura
@@ -121,7 +174,13 @@ export async function importRecentHistory(
         direction: "IN",
         type: "wa.historico.leitura",
         status: res.ok ? "OK" : "ERRO",
-        payload: JSON.stringify({ httpStatus: res.status, shape, registros: records.length }).slice(0, 500),
+        payload: JSON.stringify({
+          httpStatus: res.status,
+          shape,
+          via,
+          conversasVarridas,
+          registros: records.length,
+        }).slice(0, 500),
       },
     })
     .catch(() => {});

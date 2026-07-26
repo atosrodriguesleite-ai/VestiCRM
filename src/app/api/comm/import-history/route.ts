@@ -3,7 +3,8 @@ import { requireUser, AuthError } from "@/lib/auth";
 import { isAdmin } from "@/lib/scope";
 import { importRecentHistory } from "@/lib/comm/history-import";
 
-export const maxDuration = 60;
+// a importação lê conversa por conversa e ainda baixa mídia — precisa de fôlego
+export const maxDuration = 300;
 
 /**
  * Importa o histórico recente (últimos 30 dias) do WhatsApp conectado.
