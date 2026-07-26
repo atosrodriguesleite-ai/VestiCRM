@@ -1194,19 +1194,28 @@ export function PlanoCorteView() {
                     <TrendingDown className="size-3.5" /> Estratégias de enfesto analisadas:
                   </p>
                   <div className="flex flex-wrap gap-2">
-                    {plano.comparativo.map((c, i) => (
-                      <span
-                        key={c.estrategia}
-                        className={`rounded-lg px-2 py-1 text-xs ${
-                          i === 0
-                            ? "bg-emerald-100 font-semibold text-emerald-800"
-                            : "border border-slate-200 bg-white text-slate-500"
-                        }`}
-                      >
-                        {i === 0 && <CheckCircle2 className="mr-1 inline size-3.5" />}
-                        {c.estrategia}: {fmtM(c.totalTecidoCm)}
-                      </span>
-                    ))}
+                    {/* a vencedora é a que o plano usou (o nome pode ter ganhado
+                        sufixo tipo "+ remanejo"), e a lista vai da menor
+                        metragem pra maior */}
+                    {[...plano.comparativo]
+                      .sort((a, b) => a.totalTecidoCm - b.totalTecidoCm)
+                      .map((c) => {
+                        const venceu =
+                          c.estrategia === plano.estrategiaEnfesto.split(" + ")[0];
+                        return (
+                          <span
+                            key={c.estrategia}
+                            className={`rounded-lg px-2 py-1 text-xs ${
+                              venceu
+                                ? "bg-emerald-100 font-semibold text-emerald-800"
+                                : "border border-slate-200 bg-white text-slate-500"
+                            }`}
+                          >
+                            {venceu && <CheckCircle2 className="mr-1 inline size-3.5" />}
+                            {c.estrategia}: {fmtM(c.totalTecidoCm)}
+                          </span>
+                        );
+                      })}
                   </div>
                 </div>
               )}
