@@ -702,6 +702,117 @@ function recolocar(
     : null;
 }
 
+
+/**
+ * ENCAIXE EM COLUNAS (reticulado) — o jeito que o encaixador experiente
+ * monta o risco na mesa: cada tipo de peça grande ganha COLUNAS
+ * disciplinadas ao longo do comprimento, as cópias alternando de cabeça
+ * pra baixo com o passo (pitch) mais apertado que os contornos permitem;
+ * as peças miúdas entram depois, nos corredores e vãos que sobraram.
+ * A busca gulosa/local não acha essa estrutura sozinha — aqui ela nasce
+ * pronta e disputa o funil contra os outros encaixes.
+ */
+export function encaixeColunas(
+  pecas: PecaEncaixe[],
+  larguraCm: number,
+  folgaCm: number,
+  res = RES
+): { comprimentoCm: number; pos: Posicionamento[]; colocadas: number } | null {
+  // agrupa por tipo (mesmo molde/tamanho — o par espelhado entra junto)
+  const grupos = new Map<string, PecaEncaixe[]>();
+  for (const p of pecas) {
+    const k = `${p.modeloIdx ?? 0}|${p.nome}|${p.tamanho}|${p.w.toFixed(2)}|${p.h.toFixed(2)}`;
+    grupos.set(k, [...(grupos.get(k) ?? []), p]);
+  }
+  // colunas primeiro pros tipos de maior área total (donos do risco)
+  const tipos = [...grupos.values()].sort(
+    (a, b) => b[0].area * b.length - a[0].area * a.length
+  );
+
+  const pos: Posicionamento[] = [];
+  let colocadas = 0;
+  let xCursorCols = 0;
+  const colsTecido = Math.max(1, Math.floor((larguraCm + folgaCm) / res));
+  const sobras: PecaEncaixe[] = [];
+  let comprimento = 0;
+
+  for (const grupo of tipos) {
+    const ex = grupo[0];
+    const PA = perfilDaPeca(ex, 0, folgaCm, res);
+    const PB = perfilDaPeca(ex, 180, folgaCm, res);
+    const laneCols = PA.cols;
+    const lanesCabem = Math.floor((colsTecido - xCursorCols) / laneCols);
+    if (lanesCabem < 1 || !ex.contorno) {
+      sobras.push(...grupo);
+      continue;
+    }
+    // passo da corrente A→B e B→A (alternância cabeça/pé no mesmo x)
+    let offAB = 0;
+    let offBA = 0;
+    for (let c = 0; c < laneCols; c++) {
+      const ab = PA.top[c] - PB.bottom[c];
+      const ba = PB.top[c] - PA.bottom[c];
+      if (ab > offAB) offAB = ab;
+      if (ba > offBA) offBA = ba;
+    }
+    const nLanes = Math.min(lanesCabem, grupo.length);
+    const porLane = Math.ceil(grupo.length / nLanes);
+    let idx = 0;
+    for (let l = 0; l < nLanes && idx < grupo.length; l++) {
+      const xCm = (xCursorCols + l * laneCols) * res;
+      let y = 0;
+      for (let i = 0; i < porLane && idx < grupo.length; i++) {
+        const rot: 0 | 180 = i % 2 === 0 ? 0 : 180;
+        const p = grupo[idx++];
+        pos.push({
+          nome: p.nome,
+          tamanho: p.tamanho,
+          x: Math.round(xCm * 100) / 100,
+          y: Math.round(y * 100) / 100,
+          w: p.w,
+          h: p.h,
+          rot,
+          espelhada: p.espelhada,
+          modeloIdx: p.modeloIdx,
+          contorno: p.contorno,
+        });
+        colocadas++;
+        const topo = y + p.h;
+        if (topo > comprimento) comprimento = topo;
+        y += i % 2 === 0 ? offAB : offBA;
+      }
+    }
+    xCursorCols += nLanes * laneCols;
+  }
+  if (pos.length === 0) return null;
+
+  // miúdas e sobras: caem uma a uma no melhor buraco do reticulado
+  for (const p of sobras) {
+    const alvo: Posicionamento = {
+      nome: p.nome,
+      tamanho: p.tamanho,
+      x: 0,
+      y: comprimento + 5, // ponto de partida alto; recolocar acha o buraco
+      w: p.w,
+      h: p.h,
+      rot: 0,
+      espelhada: p.espelhada,
+      modeloIdx: p.modeloIdx,
+      contorno: p.contorno,
+    };
+    const enc = recolocar(pos, alvo, larguraCm, folgaCm, true, res);
+    if (!enc) return null; // não coube: reticulado inválido pra esta lista
+    alvo.x = enc.x;
+    alvo.y = enc.y;
+    alvo.rot = enc.rot;
+    pos.push(alvo);
+    colocadas++;
+    if (alvo.y + alvo.h > comprimento) comprimento = alvo.y + alvo.h;
+  }
+
+  return { comprimentoCm: Math.round(comprimento * 100) / 100, pos, colocadas };
+}
+
 /**
  * Empacota uma SEQUÊNCIA exata de peças (sem reordenar) — é o operário da
  * busca local do otimizador: ele testa milhares de sequências mutadas e
@@ -801,6 +912,19 @@ export function encaixarMelhor(
         estrategia:
           c.ordem.nome + (c.rot ? " + rotação 180°" : "") + c.lista.tag + " + preenche vãos",
       };
+    }
+  }
+  // o reticulado em colunas (jeito do encaixador na mesa) também disputa,
+  // já passando pela compactação fina pra assentar as miúdas
+  if (permitir180) {
+    analises++;
+    const ret = encaixeColunas(pecas, larguraCm, folgaCm);
+    if (ret && ret.colocadas >= esperadas) {
+      const comp = compactarRisco(ret.pos, larguraCm, folgaCm, true);
+      const compr = comp.mudou ? comp.comprimentoCm : ret.comprimentoCm;
+      const posFinal = comp.mudou ? comp.pecas : ret.pos;
+      if (!melhor || compr < melhor.comprimentoCm)
+        melhor = { comprimentoCm: compr, pecas: posFinal, estrategia: "colunas pé-com-cabeça" };
     }
   }
   if (!melhor)
