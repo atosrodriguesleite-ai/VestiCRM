@@ -54,6 +54,7 @@ import {
   relativeDays,
 } from "@/lib/format";
 import { Avatar, EmptyState } from "@/components/ui";
+import { gravacaoParaWav } from "@/lib/audio-wav";
 
 export type InboxMessage = {
   id: string;
@@ -1187,10 +1188,17 @@ export function Inbox({
         setRecording(false);
         setRecSecs(0);
         if (recCancelRef.current || recChunksRef.current.length === 0) return;
-        const blob = new Blob(recChunksRef.current, {
+        const original = new Blob(recChunksRef.current, {
           type: recChunksRef.current[0]?.type || "audio/webm",
         });
-        if (blob.size > 8 * 1024 * 1024) {
+        // o navegador grava SEM a duração dentro do arquivo → o WhatsApp
+        // mostrava o áudio com 0:00. O WAV carrega a duração no cabeçalho.
+        // Se a conversão falhar, envia o original (áudio sem tempo é melhor
+        // que áudio nenhum).
+        const TETO = 8 * 1024 * 1024;
+        const convertido = await gravacaoParaWav(original);
+        const blob = convertido && convertido.size <= TETO ? convertido : original;
+        if (blob.size > TETO) {
           alert("Áudio muito longo (máximo ~8 MB).");
           return;
         }
