@@ -168,8 +168,14 @@ function empacotar(
 
   for (const p of pecas) {
     const rots: (0 | 180)[] = usarRotacao && p.contorno ? [0, 180] : [0];
-    let melhor: { x: number; y: number; topo: number; rot: 0 | 180; perfil: Perfil } | null =
-      null;
+    let melhor: {
+      x: number;
+      y: number;
+      topo: number;
+      pontos: number;
+      rot: 0 | 180;
+      perfil: Perfil;
+    } | null = null;
 
     for (const rot of rots) {
       const perfil = perfilDaPeca(p, rot, folgaCm, res);
@@ -181,9 +187,16 @@ function empacotar(
           const livre = alturaCol[x + c] - perfil.bottom[c];
           if (livre > y) y = livre;
         }
+        // Pontuação com DESPERDÍCIO: além de "onde fica mais baixo", mede o
+        // ar que a peça PRENDE embaixo de si (buraco enterrado = tecido
+        // morto que o skyline nunca mais recupera). Encaixar > empilhar.
+        let ar = 0;
+        for (let c = 0; c < perfil.cols; c++)
+          ar += y + perfil.bottom[c] - alturaCol[x + c];
         const topo = y + perfil.h + folgaCm;
-        if (!melhor || topo < melhor.topo || (topo === melhor.topo && x < melhor.x)) {
-          melhor = { x, y, topo, rot, perfil };
+        const pontos = topo * colsTecido + ar * 0.5;
+        if (!melhor || pontos < melhor.pontos || (pontos === melhor.pontos && x < melhor.x)) {
+          melhor = { x, y, topo, pontos, rot, perfil };
         }
       }
     }
