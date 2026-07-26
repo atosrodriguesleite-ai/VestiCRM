@@ -1,7 +1,9 @@
 import { empacotarOrdem, encaixarMelhor, type PecaEncaixe } from "./nesting";
 import type {
+  MedidaTamanho,
   ModeloCorte,
   ParametrosPlano,
+  PecaModelo,
   PlanoPano,
   ResultadoPlano,
   Risco,
@@ -167,6 +169,59 @@ function giraProFio(
   };
 }
 
+/**
+ * Medida da peça naquele tamanho. Peça NÃO GRADEADA (galão, viés, gola de
+ * acabamento) costuma vir com um tamanho só no Audaces — antes ela sumia do
+ * risco em silêncio e o corte saía com peça faltando. Agora ela usa a
+ * medida do tamanho mais próximo que existe.
+ */
+export function medidaDaPeca(
+  peca: PecaModelo,
+  tam: string,
+  ordem: string[]
+): MedidaTamanho | undefined {
+  const direta = peca.tamanhos[tam];
+  if (direta) return direta;
+  const alvo = ordem.indexOf(tam);
+  const existentes = Object.keys(peca.tamanhos);
+  if (existentes.length === 0) return undefined;
+  if (alvo < 0) return peca.tamanhos[existentes[0]];
+  // o mais perto na grade (empate: o menor, que é o mais conservador)
+  let melhor = existentes[0];
+  let dist = Infinity;
+  for (const t of existentes) {
+    const i = ordem.indexOf(t);
+    const d = i < 0 ? Infinity : Math.abs(i - alvo);
+    if (d < dist) {
+      dist = d;
+      melhor = t;
+    }
+  }
+  return peca.tamanhos[melhor];
+}
+
+/** Peças que não têm medida própria em algum tamanho pedido (pra avisar). */
+export function pecasNaoGradeadas(
+  itens: ItemPedido[],
+  params: ParametrosPlano
+): string[] {
+  const fora = new Set<string>();
+  for (const item of itens) {
+    const tams = Object.keys(item.grade).filter((t) => item.grade[t] > 0);
+    for (const peca of item.modelo.pecas) {
+      if (params.pecasDesligadas.includes(peca.nome)) continue;
+      if (item.pecasDesligadas?.includes(peca.nome)) continue;
+      if (!params.incluirForro && peca.pano === "FOR") continue;
+      for (const t of tams)
+        if (!peca.tamanhos[t]) {
+          fora.add(peca.nome);
+          break;
+        }
+    }
+  }
+  return [...fora];
+}
+
 /** Monta a lista de peças físicas de um risco (combo × peças do pano). */
 export function pecasDoRiscoMulti(
   itens: ItemPedido[],
@@ -184,8 +239,8 @@ export function pecasDoRiscoMulti(
       if (peca.pano !== pano) continue;
       if (params.pecasDesligadas.includes(peca.nome)) continue;
       if (item.pecasDesligadas?.includes(peca.nome)) continue;
-      const med = peca.tamanhos[tam];
-      if (!med) continue; // tamanho não gradeado nesta peça
+      const med = medidaDaPeca(peca, tam, item.modelo.tamanhos);
+      if (!med) continue; // peça sem medida nenhuma: não dá pra encaixar
       const normal = giraProFio(med, false);
       const invertida = peca.espelhada ? giraProFio(med, true) : normal;
       for (let i = 0; i < vezes * peca.qtd; i++) {
@@ -587,6 +642,14 @@ export function montarPlanoMulti(
 
   if (planos.length === 0)
     throw new Error("Nenhuma peça ligada pra montar o plano — reative as peças");
+
+  // peça sem medida própria no tamanho pedido entra com a medida do
+  // tamanho mais próximo — o lojista precisa saber disso
+  const semGrade = pecasNaoGradeadas(itens, params);
+  if (semGrade.length > 0)
+    planos[0].avisos.push(
+      `${semGrade.join(", ")} não ${semGrade.length === 1 ? "está gradeada" : "estão gradeadas"} em todos os tamanhos do Audaces — entraram no risco com a medida do tamanho mais próximo. Confira se está certo.`
+    );
 
   return { planos, totalPecasRoupa: totalRoupas, analises };
 }
