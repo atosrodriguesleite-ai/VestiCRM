@@ -643,6 +643,27 @@ export function montarPlanoMulti(
   if (planos.length === 0)
     throw new Error("Nenhuma peça ligada pra montar o plano — reative as peças");
 
+  // Forro desligado com o modelo TENDO forro: o total de peças fica menor
+  // que o esperado e o lojista descobre isso na mesa. Avisa em números.
+  if (!params.incluirForro) {
+    let pecasForro = 0;
+    const nomes = new Set<string>();
+    for (const item of itens) {
+      const roupas = Object.values(item.grade).reduce((s, v) => s + (v > 0 ? v : 0), 0);
+      for (const peca of item.modelo.pecas) {
+        if (peca.pano !== "FOR") continue;
+        if (params.pecasDesligadas.includes(peca.nome)) continue;
+        if (item.pecasDesligadas?.includes(peca.nome)) continue;
+        pecasForro += peca.qtd * roupas;
+        nomes.add(peca.nome);
+      }
+    }
+    if (pecasForro > 0)
+      planos[0].avisos.push(
+        `O forro está DESLIGADO neste corte: ${pecasForro} peças (${[...nomes].join(", ")}) ficaram de fora da conta. Ligue "Cortar o forro" pra incluir — e "o forro é o mesmo tecido" se ele sai do mesmo pano.`
+      );
+  }
+
   // peça sem medida própria no tamanho pedido entra com a medida do
   // tamanho mais próximo — o lojista precisa saber disso
   const semGrade = pecasNaoGradeadas(itens, params);
