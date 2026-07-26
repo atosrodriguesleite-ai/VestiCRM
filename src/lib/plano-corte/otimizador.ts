@@ -107,9 +107,13 @@ function recalcularPlano(
     areaTecidoTotal > 0
       ? Math.round((areaPecasTotal / areaTecidoTotal) * 1000) / 10
       : 0;
-  // o comparativo guarda o total da estratégia vencedora na época da BASE;
-  // atualiza a linha dela pro número novo (as outras ficam como referência)
-  const linha = plano.comparativo.find((c) => c.estrategia === plano.estrategiaEnfesto);
+  // O comparativo guarda o total da estratégia vencedora na época da BASE;
+  // atualiza a linha dela pro número novo (as outras ficam como referência).
+  // O nome ganha sufixos no caminho ("+ remanejo entre cortes"), então a
+  // busca é pelo nome-base — senão a linha vencedora ficava congelada no
+  // número antigo e a tela mostrava metragem maior que a do topo.
+  const base = plano.estrategiaEnfesto.split(" + ")[0];
+  const linha = plano.comparativo.find((c) => c.estrategia === base);
   if (linha && plano.totalTecidoCm < linha.totalTecidoCm)
     linha.totalTecidoCm = plano.totalTecidoCm;
 }
