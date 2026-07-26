@@ -136,6 +136,18 @@ describe("resumo de corte", () => {
     expect(aviso).toContain("10 peças");
   });
 
+
+  it("avisa quando as peças não têm curva real e quando o sentido único trava o giro", () => {
+    const r = montarPlano(blusa, {
+      ...paramsBase,
+      grade: { P: 2 },
+      sentidoUnico: true,
+    });
+    const avisos = r.planos[0].avisos.join(" | ");
+    expect(avisos).toContain("sem a curva real");
+    expect(avisos).toContain("Tecido com sentido");
+  });
+
   it("plano com 2 modelos separa a contagem de cada um", () => {
     const r = montarPlanoMulti(
       [
