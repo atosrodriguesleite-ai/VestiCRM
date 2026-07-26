@@ -95,6 +95,26 @@ describe("resumo de corte", () => {
     expect(resumo.pecasPorRoupa).toBe(4);
   });
 
+  // bug real (Toque Leve): o galão de acabamento vinha gradeado só no
+  // tamanho base e SUMIA dos outros tamanhos — o corte saía com peça a menos
+  it("peça gradeada num tamanho só entra em TODOS os tamanhos", () => {
+    const soNoP = parseDataXml(
+      XML_BLUSA.replace(
+        '<SIZE_P NAME_SP="M"><AREA_SP>160</AREA_SP><WIDTH_SP>52</WIDTH_SP><HEIGHT_SP>4</HEIGHT_SP></SIZE_P>',
+        ""
+      )
+    );
+    expect(Object.keys(soNoP.pecas.find((p) => p.nome === "GOLA")!.tamanhos)).toEqual([
+      "P",
+    ]);
+    const r = montarPlano(soNoP, { ...paramsBase, grade: { P: 10, M: 10 } });
+    const resumo = resumoDeCorte(r.planos);
+    expect(resumo.porPeca.find((p) => p.nome === "GOLA")!.total).toBe(20);
+    expect(resumo.totalPecas).toBe(100); // 20 roupas × 5 itens, nada sumiu
+    expect(resumo.pecasPorRoupa).toBe(5);
+    expect(r.planos[0].avisos.join(" ")).toContain("GOLA");
+  });
+
   it("plano com 2 modelos separa a contagem de cada um", () => {
     const r = montarPlanoMulti(
       [

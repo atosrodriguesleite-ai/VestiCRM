@@ -1408,6 +1408,11 @@ function ResumoDoCorte({ resumo }: { resumo: ResumoCorte }) {
                       {p.pano === "FOR" && (
                         <span className="ml-1 text-xs text-slate-400">(forro)</span>
                       )}
+                      <span className="block text-xs text-slate-400">
+                        {Object.entries(p.porTamanho)
+                          .map(([t, q]) => `${t}: ${q}`)
+                          .join(" · ")}
+                      </span>
                     </td>
                     <td className="px-3 py-2 text-right tabular-nums text-slate-500">
                       {p.porRoupa.toLocaleString("pt-BR")}×

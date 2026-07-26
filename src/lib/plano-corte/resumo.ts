@@ -17,6 +17,7 @@ export type LinhaPeca = {
   pano: "TEC" | "FOR";
   porRoupa: number; // quantas vezes sai por roupa (2 na manga)
   total: number; // peças a cortar no corte inteiro
+  porTamanho: Record<string, number>; // quebra por tamanho (pra conferir)
 };
 
 export type LinhaTamanho = {
@@ -78,9 +79,11 @@ export function resumoDeCorte(planos: PlanoPano[]): ResumoCorte {
           pano: plano.pano,
           porRoupa: 0,
           total: 0,
+          porTamanho: {} as Record<string, number>,
           idx,
         };
         linha.total += risco.folhas;
+        linha.porTamanho[tamanho] = (linha.porTamanho[tamanho] ?? 0) + risco.folhas;
         porChave.set(chave, linha);
 
         const t = porTam.get(tamanho) ?? { tamanho, roupas: 0, pecas: 0 };
