@@ -171,7 +171,6 @@ export function PlanoCorteView() {
   const [larguraForro, setLarguraForro] = useState("");
   const [mesa, setMesa] = useState("500");
   const [folga, setFolga] = useState("0,5");
-  const [maxFolhas, setMaxFolhas] = useState("60");
   const [sentidoUnico, setSentidoUnico] = useState(false);
   const [modo, setModo] = useState("NORMAL");
 
@@ -416,7 +415,6 @@ export function PlanoCorteView() {
           larguraForroCm: larguraForro.trim() ? num(larguraForro, 160) : undefined,
           mesaCm: num(mesa, 500),
           folgaCm: num(folga, 0.5),
-          maxFolhas: Math.round(num(maxFolhas, 60)),
           incluirForro,
           sentidoUnico,
         }),
@@ -857,13 +855,6 @@ export function PlanoCorteView() {
                 )}
                 <Field label="Folga entre peças (cm)">
                   <Input value={folga} onChange={(e) => setFolga(e.target.value)} inputMode="decimal" />
-                </Field>
-                <Field label="Folhas máx. por enfesto">
-                  <Input
-                    value={maxFolhas}
-                    onChange={(e) => setMaxFolhas(e.target.value)}
-                    inputMode="numeric"
-                  />
                 </Field>
                 <Field label="Nome do corte (opcional)">
                   <Input
