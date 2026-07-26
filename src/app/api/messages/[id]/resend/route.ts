@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireUser, AuthError } from "@/lib/auth";
 import { resendMessage } from "@/lib/comm/engine";
 
+// reenvio de mídia também pode passar do limite padrão (base64 + conversão)
+export const maxDuration = 60;
+
 /** Reenvia uma mensagem que falhou (nova tentativa via engine). */
 export async function POST(
   _req: NextRequest,

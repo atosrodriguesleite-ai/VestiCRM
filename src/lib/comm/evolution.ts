@@ -126,6 +126,9 @@ async function evo<T = Record<string, unknown>>(
       method,
       headers: { "Content-Type": "application/json", apikey: key },
       ...(body ? { body: JSON.stringify(body) } : {}),
+      // teto de segurança: mídia grande + conversão demoram, mas nunca podem
+      // segurar a função até ser morta no meio (erro na tela + envio no ar)
+      signal: AbortSignal.timeout(45_000),
     });
     const data = (await res.json().catch(() => null)) as T | null;
     return { ok: res.ok, status: res.status, data };

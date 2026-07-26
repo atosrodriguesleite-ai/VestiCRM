@@ -17,7 +17,12 @@ const schema = z.object({
 /**
  * Envio de mensagem — passa SEMPRE pela Communication Engine.
  * A tela não conhece o provedor: Mock hoje, Cloud API amanhã, mesma rota.
+ *
+ * maxDuration: áudio/vídeo sobem em base64 e o servidor Evolution ainda
+ * converte o arquivo — no limite padrão a função era morta NO MEIO do envio
+ * (o áudio chegava no cliente, mas a tela mostrava erro).
  */
+export const maxDuration = 60;
 export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
