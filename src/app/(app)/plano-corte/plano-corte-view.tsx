@@ -183,6 +183,7 @@ export function PlanoCorteView() {
   const [, forceTick] = useState(0); // cronômetro re-renderiza a cada 1s
   const sync = useRef<Map<string, number>>(new Map()); // id → timestamp do último update
 
+  const [editandoQtd, setEditandoQtd] = useState<string | null>(null); // modelId
   const [msgCurvas, setMsgCurvas] = useState<string | null>(null);
   const [anexandoCurvas, setAnexandoCurvas] = useState(false);
   const curvasPara = useRef<string | null>(null);
@@ -361,6 +362,31 @@ export function PlanoCorteView() {
     } finally {
       setAbrindoModelo(null);
     }
+  }
+
+  /** Corrige quantas vezes cada peça é cortada por roupa (manga = 2, etc.). */
+  async function salvarQuantidades(
+    modelId: string,
+    pecas: { nome: string; qtd: number }[]
+  ) {
+    const r = await fetch(`/api/plano-corte/modelos/${modelId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ pecas }),
+    });
+    if (!r.ok) {
+      setErro("Não consegui salvar as quantidades");
+      return;
+    }
+    const d = await r.json();
+    setCarrinho((c) =>
+      c.map((item) =>
+        item.detalhe.id === modelId
+          ? { ...item, detalhe: { ...item.detalhe, pieces: d.pieces } }
+          : item
+      )
+    );
+    setEditandoQtd(null);
   }
 
   async function excluirModelo(id: string) {
@@ -747,20 +773,38 @@ export function PlanoCorteView() {
               return (
                 <div key={item.detalhe.id} className="rounded-xl border border-slate-200 p-3.5">
                   <div className="mb-3 flex items-center justify-between gap-2">
-                    <p className="flex items-center gap-2 truncate text-sm font-semibold text-slate-800">
-                      <Shirt className="size-4 text-slate-400" />
-                      {item.detalhe.name}
+                    <p className="flex min-w-0 items-center gap-2 text-sm font-semibold text-slate-800">
+                      <Shirt className="size-4 shrink-0 text-slate-400" />
+                      <span className="truncate">{item.detalhe.name}</span>
+                      <span className="shrink-0 text-xs font-normal text-slate-400">
+                        {pecasTec.length} no tecido
+                        {pecasFor.length > 0 && ` + ${pecasFor.length} no forro`}
+                      </span>
                     </p>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setCarrinho((c) => c.filter((_, i) => i !== idx))
-                      }
-                      className="rounded-lg p-1.5 text-slate-300 hover:bg-red-50 hover:text-red-500"
-                      title="Tirar do corte"
-                    >
-                      <X className="size-4" />
-                    </button>
+                    <span className="flex shrink-0 items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setEditandoQtd(
+                            editandoQtd === item.detalhe.id ? null : item.detalhe.id
+                          )
+                        }
+                        className="rounded-lg border border-slate-200 px-2 py-1 text-[11px] font-medium text-slate-500 transition hover:border-brand-300 hover:text-brand-700"
+                        title="Corrigir quantas vezes cada peça é cortada"
+                      >
+                        peças por roupa
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setCarrinho((c) => c.filter((_, i) => i !== idx))
+                        }
+                        className="rounded-lg p-1.5 text-slate-300 hover:bg-red-50 hover:text-red-500"
+                        title="Tirar do corte"
+                      >
+                        <X className="size-4" />
+                      </button>
+                    </span>
                   </div>
 
                   <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-6">
@@ -790,15 +834,30 @@ export function PlanoCorteView() {
                     ))}
                   </div>
 
+                  {editandoQtd === item.detalhe.id && (
+                    <EditorQuantidades
+                      pecas={item.detalhe.pieces}
+                      onSalvar={(pecas) => salvarQuantidades(item.detalhe.id, pecas)}
+                      onFechar={() => setEditandoQtd(null)}
+                    />
+                  )}
+
                   {/* peças liga/desliga */}
                   <div className="mt-3 flex flex-wrap gap-1.5">
-                    {[...pecasTec, ...(incluirForro ? pecasFor : [])].map((p) => {
-                      const ligada = !item.pecasDesligadas.has(p.nome);
+                    {[...pecasTec, ...pecasFor].map((p) => {
+                      // forro desligado no corte inteiro: a peça continua à
+                      // vista (riscada), pra ninguém achar que ela sumiu
+                      const forroOff = p.pano === "FOR" && !incluirForro;
+                      const ligada = !forroOff && !item.pecasDesligadas.has(p.nome);
                       return (
                         <button
                           key={p.nome}
                           type="button"
-                          onClick={() =>
+                          onClick={() => {
+                            if (forroOff) {
+                              setIncluirForro(true); // religa o forro do corte
+                              return;
+                            }
                             setCarrinho((c) =>
                               c.map((x, i) => {
                                 if (i !== idx) return x;
@@ -807,7 +866,14 @@ export function PlanoCorteView() {
                                 else n.add(p.nome);
                                 return { ...x, pecasDesligadas: n };
                               })
-                            )
+                            );
+                          }}
+                          title={
+                            forroOff
+                              ? "O forro está desligado neste corte — clique pra ligar"
+                              : ligada
+                                ? "Clique pra tirar esta peça do corte"
+                                : "Clique pra incluir esta peça de volta"
                           }
                           className={`rounded-lg border px-2 py-1 text-xs transition ${
                             ligada
@@ -816,7 +882,10 @@ export function PlanoCorteView() {
                           }`}
                         >
                           {p.nome}
-                          {p.pano === "FOR" ? " (forro)" : ""}
+                          {p.qtd > 1 && (
+                            <b className="ml-1 text-brand-700">×{p.qtd}</b>
+                          )}
+                          {p.pano === "FOR" ? (forroOff ? " (forro desligado)" : " (forro)") : ""}
                         </button>
                       );
                     })}
@@ -1179,6 +1248,92 @@ export function PlanoCorteView() {
 }
 
 /* ---------- peças de UI locais ---------- */
+
+/**
+ * Editor de "peças por roupa": manga e alça saem em PAR (2 do mesmo molde),
+ * e nem todo arquivo do Audaces declara isso de forma legível. Aqui o
+ * lojista acerta uma vez e fica valendo pro modelo inteiro.
+ */
+function EditorQuantidades({
+  pecas,
+  onSalvar,
+  onFechar,
+}: {
+  pecas: ModeloDetalhe["pieces"];
+  onSalvar: (pecas: { nome: string; qtd: number }[]) => void;
+  onFechar: () => void;
+}) {
+  const [qtds, setQtds] = useState<Record<string, number>>(() =>
+    Object.fromEntries(pecas.map((p) => [p.nome, p.qtd]))
+  );
+  const [salvando, setSalvando] = useState(false);
+
+  return (
+    <div className="mt-3 rounded-xl border border-brand-200 bg-brand-50/40 p-3">
+      <p className="mb-2 text-xs font-semibold text-slate-700">
+        Quantas vezes cada peça é cortada por roupa
+      </p>
+      <div className="space-y-1.5">
+        {pecas.map((p) => (
+          <div key={p.nome} className="flex items-center justify-between gap-2">
+            <span className="min-w-0 truncate text-xs text-slate-600">
+              {p.nome}
+              {p.pano === "FOR" && <span className="text-slate-400"> (forro)</span>}
+            </span>
+            <span className="flex shrink-0 items-center gap-1">
+              <button
+                type="button"
+                onClick={() =>
+                  setQtds((q) => ({ ...q, [p.nome]: Math.max(1, (q[p.nome] ?? 1) - 1) }))
+                }
+                className="size-6 rounded-lg border border-slate-200 bg-white text-sm font-bold text-slate-500 transition hover:border-brand-300"
+              >
+                −
+              </button>
+              <span className="w-7 text-center text-sm font-semibold tabular-nums text-slate-800">
+                {qtds[p.nome] ?? 1}
+              </span>
+              <button
+                type="button"
+                onClick={() =>
+                  setQtds((q) => ({ ...q, [p.nome]: Math.min(50, (q[p.nome] ?? 1) + 1) }))
+                }
+                className="size-6 rounded-lg border border-slate-200 bg-white text-sm font-bold text-slate-500 transition hover:border-brand-300"
+              >
+                +
+              </button>
+            </span>
+          </div>
+        ))}
+      </div>
+      <p className="mt-2 text-[11px] text-slate-400">
+        💡 Manga, alça e bolso normalmente saem em <b>par (2)</b>. O sistema lê
+        isso do Audaces, mas nem todo molde declara — confira aqui.
+      </p>
+      <div className="mt-2 flex gap-2">
+        <button
+          type="button"
+          onClick={async () => {
+            setSalvando(true);
+            await onSalvar(pecas.map((p) => ({ nome: p.nome, qtd: qtds[p.nome] ?? 1 })));
+            setSalvando(false);
+          }}
+          disabled={salvando}
+          className="flex-1 rounded-xl bg-brand-600 py-2 text-xs font-medium text-white transition hover:bg-brand-700 disabled:opacity-50"
+        >
+          {salvando ? "Salvando..." : "Salvar no modelo"}
+        </button>
+        <button
+          type="button"
+          onClick={onFechar}
+          className="rounded-xl border border-slate-200 px-3 py-2 text-xs font-medium text-slate-500 transition"
+        >
+          Cancelar
+        </button>
+      </div>
+    </div>
+  );
+}
 
 function Switch({ ligado, onChange }: { ligado: boolean; onChange: (v: boolean) => void }) {
   return (
