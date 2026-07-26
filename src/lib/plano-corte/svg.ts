@@ -54,6 +54,7 @@ function pecaSvg(
         return `${telaX(p.y + ry).toFixed(1)},${telaY(p.x + rx).toFixed(1)}`;
       })
       .join(" ");
+    // o contorno JÁ vem invertido do motor quando é a peça do par
     partes.push(
       `<polygon points="${pts}" fill="${cor}" fill-opacity="0.8" stroke="#1e293b" stroke-width="1"/>`
     );
@@ -75,7 +76,7 @@ function pecaSvg(
     const cy = telaY(p.x + p.w / 2);
     partes.push(
       `<text x="${cx.toFixed(1)}" y="${(cy - fs * 0.2).toFixed(1)}" font-size="${fs.toFixed(1)}" fill="#fff" text-anchor="middle" font-weight="bold">${esc(nome)}</text>`,
-      `<text x="${cx.toFixed(1)}" y="${(cy + fs).toFixed(1)}" font-size="${(fs * 0.85).toFixed(1)}" fill="#fff" text-anchor="middle">${esc(p.tamanho.trim())}</text>`
+      `<text x="${cx.toFixed(1)}" y="${(cy + fs).toFixed(1)}" font-size="${(fs * 0.85).toFixed(1)}" fill="#fff" text-anchor="middle">${esc(p.tamanho.trim())}${p.espelhada ? " ↔" : ""}</text>`
     );
   }
   return partes.join("");

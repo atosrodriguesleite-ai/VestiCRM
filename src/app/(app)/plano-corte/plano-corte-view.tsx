@@ -32,6 +32,7 @@ import {
   X,
 } from "lucide-react";
 import { Button, Card, EmptyState, Field, Input, inputCls } from "@/components/ui";
+import { quantidadeSugerida } from "@/lib/plano-corte/types";
 
 /* ---------- tipos espelhando as APIs ---------- */
 
@@ -833,6 +834,41 @@ export function PlanoCorteView() {
                       </label>
                     ))}
                   </div>
+
+                  {(() => {
+                    // modelo importado ANTES do sistema entender peça em par:
+                    // a manga ficou como 1 e o corte sairia sem metade delas
+                    const suspeitas = item.detalhe.pieces.filter(
+                      (p) => p.qtd < quantidadeSugerida(p.nome, p.desc)
+                    );
+                    if (suspeitas.length === 0 || editandoQtd === item.detalhe.id)
+                      return null;
+                    return (
+                      <div className="mt-3 rounded-xl border border-amber-300 bg-amber-50 p-2.5">
+                        <p className="text-xs text-amber-900">
+                          ⚠️ <b>{suspeitas.map((p) => p.nome).join(", ")}</b>{" "}
+                          {suspeitas.length === 1 ? "parece sair" : "parecem sair"} em{" "}
+                          <b>par (2 por roupa)</b>, mas {suspeitas.length === 1 ? "está" : "estão"}{" "}
+                          como 1. Assim o corte sai com metade das peças.
+                        </p>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            salvarQuantidades(
+                              item.detalhe.id,
+                              item.detalhe.pieces.map((p) => ({
+                                nome: p.nome,
+                                qtd: Math.max(p.qtd, quantidadeSugerida(p.nome, p.desc)),
+                              }))
+                            )
+                          }
+                          className="mt-1.5 rounded-lg bg-amber-600 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-amber-700"
+                        >
+                          Corrigir pra 2 por roupa
+                        </button>
+                      </div>
+                    );
+                  })()}
 
                   {editandoQtd === item.detalhe.id && (
                     <EditorQuantidades

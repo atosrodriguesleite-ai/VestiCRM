@@ -20,12 +20,35 @@ export type MedidaTamanho = {
   contorno?: Contorno; // curva real (só quando o modelo veio de DXF)
 };
 
+/**
+ * Quantidade que o NOME e a DESCRIÇÃO da peça sugerem — usada tanto na
+ * importação quanto na tela, pra avisar quando um modelo antigo (lido antes
+ * de o sistema entender peça em par) ficou com a quantidade errada.
+ *
+ * Manga, alça e bolso saem em PAR: cortar 1 em vez de 2 inutiliza o lote.
+ */
+export function quantidadeSugerida(nome: string, desc?: string): number {
+  const porDesc = parseInt((desc ?? "").match(/(\d+)\s*X/i)?.[1] ?? "0", 10) || 0;
+  const par = /\bPAR(ES)?\b|\d\s*PAR/i.test(nome) ? 2 : 0;
+  // molde COMBINADO: um desenho só que serve duas peças da roupa
+  // ("FRENTE E COSTAS", "GOLA / VIÉS", "FRENTE + COSTAS")
+  const combinado = /\S\s*(?:\bE\b|\/|\+|&)\s*\S/i.test(nome) ? 2 : 0;
+  return Math.max(1, porDesc, par, combinado);
+}
+
 /** Peça do molde (ex.: FRENTE, COSTAS FOR) com medidas por tamanho. */
 export type PecaModelo = {
   nome: string;
   pano: TipoPano; // TEC = tecido principal, FOR = forro
   qtd: number; // quantas vezes a peça é cortada por roupa (QT_MOD)
   desc?: string; // descrição original do CAD ("1 X TEC")
+  /**
+   * Peça ESPELHADA (par mão esquerda / mão direita): manga, alça, bolso.
+   * No enfesto as folhas ficam todas com a face pra cima, então cortar o
+   * mesmo molde duas vezes daria duas mangas do MESMO lado. A segunda
+   * precisa sair invertida — é isso que esta marca liga.
+   */
+  espelhada?: boolean;
   tamanhos: Record<string, MedidaTamanho>;
 };
 
@@ -63,6 +86,7 @@ export type Posicionamento = {
   w: number;
   h: number;
   rot: 0 | 180; // rotação aplicada (fio do tecido só permite 180°)
+  espelhada?: boolean; // esta instância é a peça invertida do par
   contorno?: Contorno;
 };
 
