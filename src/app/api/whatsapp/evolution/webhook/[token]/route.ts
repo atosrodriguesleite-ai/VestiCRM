@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { receiveMessage, updateDeliveryStatus } from "@/lib/comm/engine";
 import { jidToPhone, evoGetMediaBase64 } from "@/lib/comm/evolution";
-import { phoneMatchVariants } from "@/lib/intake";
+import { findCustomerByPhone } from "@/lib/intake";
 import { alertWhatsappDown } from "@/lib/health";
 import type { MessageMedia } from "@prisma/client";
 
@@ -23,7 +23,9 @@ import type { MessageMedia } from "@prisma/client";
 
 export const maxDuration = 30;
 
-type EvoKey = { remoteJid?: string; fromMe?: boolean; id?: string };
+// senderPn: quando o WhatsApp manda o contato com a identidade nova (@lid),
+// o número de telefone REAL vem neste campo — sem ele a mensagem se perderia
+type EvoKey = { remoteJid?: string; fromMe?: boolean; id?: string; senderPn?: string };
 // Prévia do ANÚNCIO (Click-to-WhatsApp do Instagram/Facebook): quando o
 // cliente chega clicando num anúncio, a primeira mensagem traz junto o
 // título, o texto e o link do anúncio — informação de ouro pra atribuição.
@@ -183,7 +185,12 @@ export async function POST(
 
       for (const m of list) {
         const jid = m.key?.remoteJid ?? "";
-        const phone = jidToPhone(jid); // grupos/status ficam de fora
+        // grupos/status ficam de fora; contato @lid usa o número do senderPn
+        let phone = jidToPhone(jid);
+        if (!phone && jid.endsWith("@lid")) {
+          const pn = (m.key?.senderPn ?? "").split("@")[0].replace(/\D/g, "");
+          if (/^\d{8,15}$/.test(pn)) phone = pn;
+        }
         if (!phone) continue;
 
         // o cliente apagou uma mensagem (REVOKE): marca a mensagem alvo como
@@ -272,12 +279,9 @@ export async function POST(
           }
         } else {
           // mensagem enviada PELO CELULAR da loja → registra na conversa do
-          // cliente (histórico completo), sem reenviar nada. Dedup tolerante
-          // ao 9º dígito para casar com o mesmo cadastro do intake.
-          const customer = await db.customer.findFirst({
-            where: { companyId, phone: { in: phoneMatchVariants(phone) } },
-            orderBy: { createdAt: "asc" },
-          });
+          // cliente (histórico completo), sem reenviar nada. Casamento
+          // tolerante a 9º dígito, DDI e formatação (mesma regra do intake).
+          const customer = await findCustomerByPhone(companyId, phone);
           if (!customer) continue;
           let conv = await db.conversation.findFirst({
             where: { companyId, customerId: customer.id, status: { not: "CLOSED" } },

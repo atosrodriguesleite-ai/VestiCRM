@@ -16,6 +16,14 @@ describe("phoneMatchVariants (dedup tolerante ao 9º dígito)", () => {
   it("inclui sempre o próprio número normalizado", () => {
     expect(phoneMatchVariants("11998761001")).toContain("5511998761001");
   });
+  it("inclui as formas legadas SEM o DDI 55 (cadastros antigos)", () => {
+    // caso real (Larissa): WhatsApp manda 55 73 9134-7878 (sem o 9) e o
+    // cadastro antigo pode estar salvo como 73991347878 ou 7391347878
+    const v = phoneMatchVariants("557391347878");
+    expect(v).toContain("7391347878"); // sem DDI, sem 9
+    expect(v).toContain("73991347878"); // sem DDI, com 9
+    expect(v).toContain("5573991347878"); // com DDI, com 9
+  });
 });
 
 describe("normalizePhone (deduplicação de leads)", () => {

@@ -3,6 +3,7 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import { requireUser, AuthError } from "@/lib/auth";
 import { PAID_ORDER_STATUSES } from "@/lib/orders";
+import { normalizePhone } from "@/lib/intake";
 
 /** Ficha do contato para o painel lateral do atendimento. */
 export async function GET(
@@ -145,6 +146,9 @@ export async function PATCH(
 
     const { nextContactAt, ownerId, ...rest } = parsed.data;
     const data: Record<string, unknown> = { ...rest };
+    // telefone entra SEMPRE padronizado (só dígitos, com DDI 55) — salvar com
+    // formatação furava o casamento do WhatsApp e criava contato duplicado
+    if (typeof data.phone === "string") data.phone = normalizePhone(data.phone);
     if (nextContactAt !== undefined) {
       data.nextContactAt = nextContactAt ? new Date(nextContactAt) : null;
     }

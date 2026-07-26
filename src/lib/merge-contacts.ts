@@ -143,6 +143,23 @@ export async function mergeDuplicateContacts(
       // depois de juntar os cadastros, junta as conversas abertas do principal
       await consolidateOpenConversations(companyId, g.primary);
     }
+
+    // faxina final: padroniza o telefone dos cadastros que sobraram (só
+    // dígitos, com DDI 55). Telefone salvo com formatação ou sem DDI era o
+    // furo que impedia o WhatsApp de casar com o cadastro e criava duplicado.
+    // Seguro rodar DEPOIS da unificação: números iguais já viraram um só.
+    const restantes = await db.customer.findMany({
+      where: { companyId },
+      select: { id: true, phone: true },
+    });
+    for (const c of restantes) {
+      if (!c.phone || /[a-z]/i.test(c.phone)) continue; // marcadores ("ns-123") ficam
+      let norm = c.phone.replace(/\D/g, "");
+      if (norm.length === 10 || norm.length === 11) norm = "55" + norm;
+      if (norm.length >= 10 && norm !== c.phone) {
+        await db.customer.update({ where: { id: c.id }, data: { phone: norm } });
+      }
+    }
   }
 
   return { gruposDuplicados, cadastrosARemover };

@@ -1,6 +1,7 @@
 import { db } from "./db";
 import { originLabel } from "./format";
 import { consolidateOpenConversations } from "./merge-contacts";
+import { Prisma } from "@prisma/client";
 import type { Origin, Customer, Conversation, Opportunity, Task } from "@prisma/client";
 
 /**
@@ -59,10 +60,43 @@ export function phoneMatchVariants(raw: string): string[] {
   if (d.startsWith("55") && d.length >= 12) {
     const ddd = d.slice(2, 4);
     const sub = d.slice(4); // parte após DDI+DDD
-    if (sub.length === 9 && sub.startsWith("9")) set.add(`55${ddd}${sub.slice(1)}`); // tira o 9
-    if (sub.length === 8) set.add(`55${ddd}9${sub}`); // põe o 9
+    const subs = new Set<string>([sub]);
+    if (sub.length === 9 && sub.startsWith("9")) subs.add(sub.slice(1)); // tira o 9
+    if (sub.length === 8) subs.add(`9${sub}`); // põe o 9
+    for (const s of subs) {
+      set.add(`55${ddd}${s}`);
+      set.add(`${ddd}${s}`); // cadastros legados salvos SEM o DDI 55
+    }
   }
   return [...set];
+}
+
+/**
+ * Encontra o cliente pelo telefone tolerando TODAS as formas já vistas em
+ * produção: com/sem 9º dígito, com/sem DDI 55 e cadastros antigos salvos COM
+ * formatação ("(73) 99134-7878"). Primeiro o caminho rápido (igualdade exata,
+ * usa índice); se não achar, compara só os DÍGITOS direto no banco — telefone
+ * formatado no cadastro era o furo que fazia a mesma pessoa virar dois
+ * contatos e a conversa nascer duplicada, sem histórico.
+ */
+export async function findCustomerByPhone(
+  companyId: string,
+  raw: string
+): Promise<Customer | null> {
+  const variants = phoneMatchVariants(raw);
+  const direto = await db.customer.findFirst({
+    where: { companyId, phone: { in: variants } },
+    orderBy: { createdAt: "asc" },
+  });
+  if (direto) return direto;
+  const rows = await db.$queryRaw<{ id: string }[]>`
+    SELECT id FROM "Customer"
+    WHERE "companyId" = ${companyId}
+      AND regexp_replace(phone, '[^0-9]', '', 'g') IN (${Prisma.join(variants)})
+    ORDER BY "createdAt" ASC
+    LIMIT 1`;
+  if (!rows.length) return null;
+  return db.customer.findUnique({ where: { id: rows[0].id } });
 }
 
 /** Rodízio: próximo vendedor ativo depois do último que recebeu lead. */
@@ -127,11 +161,8 @@ export async function intakeLead(
   const company = await db.company.findUnique({ where: { id: companyId } });
   if (!company) throw new Error("Empresa não encontrada");
 
-  // dedup tolerante ao 9º dígito (com/sem 9) — evita cliente/conversa duplicados
-  const existing = await db.customer.findFirst({
-    where: { companyId, phone: { in: phoneMatchVariants(payload.phone) } },
-    orderBy: { createdAt: "asc" },
-  });
+  // dedup tolerante a 9º dígito, DDI e formatação — evita cliente/conversa duplicados
+  const existing = await findCustomerByPhone(companyId, payload.phone);
 
   const channelLabel = originLabel[payload.origin];
   let customer: Customer;

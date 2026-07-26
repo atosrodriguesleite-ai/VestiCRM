@@ -5,7 +5,7 @@ import {
   evoGetMediaBase64,
   jidToPhone,
 } from "./evolution";
-import { normalizePhone, phoneMatchVariants } from "../intake";
+import { normalizePhone, findCustomerByPhone } from "../intake";
 import type { MessageMedia } from "@prisma/client";
 
 /**
@@ -152,11 +152,8 @@ export async function importRecentHistory(
     if (!text) continue;
     const extId = r.key?.id;
 
-    // cliente (casa com/sem 9º dígito; cria se não existir — sem lead/tarefa)
-    let customer = await db.customer.findFirst({
-      where: { companyId, phone: { in: phoneMatchVariants(phone) } },
-      orderBy: { createdAt: "asc" },
-    });
+    // cliente (casa 9º dígito/DDI/formatação; cria se não existir — sem lead/tarefa)
+    let customer = await findCustomerByPhone(companyId, phone);
     if (!customer) {
       customer = await db.customer.create({
         data: {
