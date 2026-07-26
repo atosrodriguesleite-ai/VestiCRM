@@ -105,7 +105,11 @@ type PlanoResp = {
 };
 
 type DetalhePlano = Progresso & {
-  params?: { perdaPorFolhaCm?: number } | null;
+  params?: {
+    perdaPorFolhaCm?: number;
+    incluirForro?: boolean;
+    forroMesmoTecido?: boolean;
+  } | null;
   resultado: {
     planos: PlanoResp[];
     totalPecasRoupa: number;
@@ -1276,6 +1280,13 @@ export function PlanoCorteView() {
             <ResumoDoCorte
               resumo={detalhe.resultado.resumo}
               modelName={detalhe.modelName}
+              forro={
+                detalhe.params?.incluirForro === false
+                  ? "off"
+                  : detalhe.params?.forroMesmoTecido
+                    ? "junto"
+                    : "separado"
+              }
             />
           )}
         </div>
@@ -1358,9 +1369,12 @@ export function PlanoCorteView() {
 function ResumoDoCorte({
   resumo,
   modelName,
+  forro,
 }: {
   resumo: ResumoCorte;
   modelName?: string | null;
+  /** como o forro entrou NESTE plano (o painel de cima é do PRÓXIMO plano) */
+  forro: "off" | "junto" | "separado";
 }) {
   const multi = resumo.porModelo.length > 1;
   const porModelo = new Map<string, typeof resumo.porPeca>();
@@ -1375,8 +1389,23 @@ function ResumoDoCorte({
       <h3 className="mb-1 flex items-center gap-2 text-base font-semibold text-slate-900">
         <ClipboardList className="size-4 text-brand-600" /> Resumo do corte
       </h3>
-      <p className="mb-4 text-xs text-slate-500">
+      <p className="mb-3 text-xs text-slate-500">
         Confira a pilha no fim do corte com esta lista.
+      </p>
+      {/* o painel de configuração lá em cima é do PRÓXIMO plano — aqui fica o
+          que valeu NESTE resultado, senão o número parece não obedecer */}
+      <p
+        className={`mb-4 inline-block rounded-lg px-2.5 py-1 text-xs ${
+          forro === "off"
+            ? "bg-amber-50 font-medium text-amber-800"
+            : "bg-slate-100 text-slate-600"
+        }`}
+      >
+        {forro === "off"
+          ? "⚠️ Este plano foi montado com o forro DESLIGADO — as peças de forro não estão nesta conta. Ligue a chave e monte o plano de novo."
+          : forro === "junto"
+            ? "🧵 Forro incluído, cortado no mesmo tecido"
+            : "🧵 Forro incluído, em risco separado"}
       </p>
 
       <div className="grid grid-cols-3 gap-3">
