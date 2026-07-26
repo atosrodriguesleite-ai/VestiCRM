@@ -151,22 +151,39 @@ function estrategias(grade: Record<string, number>): Estrategia[] {
  * sem espelhar: (x, y) → (y, w − x) — mantendo exatamente a orientação
  * que a modelista desenhou em relação ao fio.
  */
+// Memoização do giro: o otimizador remonta as peças dos riscos MILHARES de
+// vezes por rodada, e cada remontagem criava contornos novos — arrays novos
+// furavam o cache de perfis do motor de encaixe (que é por referência).
+// Guardando o resultado por medida, o mesmo array circula a rodada inteira.
+type MedidaGirada = { w: number; h: number; area: number; contorno?: [number, number][] };
+const cacheGiro = new WeakMap<object, { normal?: MedidaGirada; invertida?: MedidaGirada }>();
+
 function giraProFio(
   med: { w: number; h: number; area: number; contorno?: [number, number][] },
   espelhar = false
-) {
+): MedidaGirada {
+  let slot = cacheGiro.get(med);
+  if (!slot) {
+    slot = {};
+    cacheGiro.set(med, slot);
+  }
+  const pronto = espelhar ? slot.invertida : slot.normal;
+  if (pronto) return pronto;
   // PAR ESPELHADO: no enfesto as folhas ficam todas com a face pra cima, e
   // cortar o mesmo molde 2× daria duas mangas do MESMO lado. A segunda sai
   // invertida (x → w − x) antes de girar pro fio: vira a mão contrária.
   const contorno = espelhar
     ? med.contorno?.map(([x, y]) => [med.w - x, y] as [number, number])
     : med.contorno;
-  return {
+  const girada: MedidaGirada = {
     w: med.h, // atravessa a largura do tecido
     h: med.w, // corre no comprimento (fio)
     area: med.area,
     contorno: contorno?.map(([x, y]) => [y, med.w - x] as [number, number]),
   };
+  if (espelhar) slot.invertida = girada;
+  else slot.normal = girada;
+  return girada;
 }
 
 /**

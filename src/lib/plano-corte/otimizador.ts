@@ -290,7 +290,9 @@ export function rodarRodada(
 
   // ---- fase MELHORIA: busca local nas sequências dos riscos ----
   if (estado.fase === "MELHORIA" && alvos.length > 0) {
-    const LIMITE_SEM_MELHORA = 900; // mutações seguidas sem ganho → FINO
+    // com os motores memoizados a mutação ficou barata: vale insistir muito
+    // mais antes de declarar beco sem saída
+    const LIMITE_SEM_MELHORA = 4000; // mutações seguidas sem ganho → FINO
     let alvoIdx = 0;
     while (!acabou() && estado.semMelhora < LIMITE_SEM_MELHORA) {
       // de vez em quando, tenta mover roupa ENTRE cortes (mesmas folhas)
@@ -317,18 +319,78 @@ export function rodarRodada(
       alvoIdx++;
 
       const seqAtual = sequenciaDoRisco(risco);
-      const candidata =
-        rng.next() < 0.12
-          ? // de vez em quando, recomeço embaralhado: escapa de beco sem saída
-            (() => {
-              const s = [...seqAtual];
-              for (let i = s.length - 1; i > 0; i--) {
-                const j = Math.floor(rng.next() * (i + 1));
-                [s[i], s[j]] = [s[j], s[i]];
-              }
-              return s;
-            })()
-          : mutar(seqAtual, rng);
+
+      // RECOMEÇO COM DESCIDA (basin hopping): embaralha tudo e faz uma
+      // mini-escalada a partir do embaralhado antes de comparar com o
+      // atual. O embaralhado puro quase nunca ganha de um risco já bom —
+      // com a descida ele vira uma rota de fuga real de ótimo local.
+      if (rng.next() < 0.08) {
+        let baseSeq = [...seqAtual];
+        for (let i = baseSeq.length - 1; i > 0; i--) {
+          const j = Math.floor(rng.next() * (i + 1));
+          [baseSeq[i], baseSeq[j]] = [baseSeq[j], baseSeq[i]];
+        }
+        estado.tentativas++;
+        let baseEnc = empacotarOrdem(
+          baseSeq,
+          risco.larguraCm,
+          params.folgaCm,
+          permitir180,
+          "skyline"
+        );
+        if (baseEnc.pecas.length === baseSeq.length) {
+          for (let k = 0; k < 60 && !acabou(); k++) {
+            const cand = mutar(baseSeq, rng);
+            estado.tentativas++;
+            const e = empacotarOrdem(
+              cand,
+              risco.larguraCm,
+              params.folgaCm,
+              permitir180,
+              "skyline",
+              baseEnc.comprimentoCm
+            );
+            if (
+              e.pecas.length === cand.length &&
+              e.comprimentoCm < baseEnc.comprimentoCm - 0.01
+            ) {
+              baseSeq = cand;
+              baseEnc = e;
+            }
+          }
+        }
+        if (
+          baseEnc.pecas.length === baseSeq.length &&
+          baseEnc.comprimentoCm < risco.comprimentoCm - 0.01
+        ) {
+          estado.tentativas++;
+          const fina = empacotarOrdem(
+            baseSeq,
+            risco.larguraCm,
+            params.folgaCm,
+            permitir180,
+            "grade",
+            baseEnc.comprimentoCm + 0.01
+          );
+          const venceu =
+            fina.pecas.length === baseSeq.length &&
+            fina.comprimentoCm < baseEnc.comprimentoCm
+              ? fina
+              : baseEnc;
+          risco.comprimentoCm = venceu.comprimentoCm;
+          risco.pecas = venceu.pecas;
+          if (!risco.estrategiaEncaixe.includes("busca local"))
+            risco.estrategiaEncaixe += " + busca local";
+          recalcularPlano(plano, itens, params);
+          estado.semMelhora = 0;
+          estado.ganhouNoCiclo = true;
+        } else {
+          estado.semMelhora++;
+        }
+        continue;
+      }
+
+      const candidata = mutar(seqAtual, rng);
 
       estado.tentativas++;
       // avaliação rápida (skyline) com poda no comprimento atual
@@ -399,10 +461,11 @@ export function rodarRodada(
       }
     }
     // fechou uma volta MELHORIA→FINO. Sobrou orçamento? Volta pra MELHORIA
-    // com semente nova. Duas voltas seguidas sem NENHUM ganho = convergiu.
+    // com semente nova — o recomeço com descida faz cada volta explorar um
+    // canto diferente, então vale insistir enquanto o lojista pagou tempo.
     estado.ciclos++;
     const restanteMs = budgetTotalMs - estado.elapsedMs - (Date.now() - inicio);
-    if (restanteMs > 12_000 && (estado.ganhouNoCiclo || estado.ciclos < 2)) {
+    if (restanteMs > 12_000 && (estado.ganhouNoCiclo || estado.ciclos < 6)) {
       estado.fase = "MELHORIA";
       estado.semMelhora = 0;
       estado.ganhouNoCiclo = false;

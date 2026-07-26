@@ -39,7 +39,14 @@ export type ResultadoEncaixe = {
 };
 
 /** Perfil da peça por coluna: contorno inferior e superior (em cm). */
-type Perfil = { cols: number; bottom: number[]; top: number[]; w: number; h: number };
+type Perfil = {
+  cols: number;
+  bottom: number[];
+  top: number[];
+  w: number;
+  h: number;
+  fx?: { b: number; t: number }[]; // faixas em células (grade), calculadas 1×
+};
 
 /** Interseções de uma vertical x=xc com as arestas do polígono. */
 function cortesVerticais(contorno: Contorno, xc: number, res: number): number[] {
@@ -60,7 +67,41 @@ function cortesVerticais(contorno: Contorno, xc: number, res: number): number[] 
   return ys;
 }
 
+/**
+ * Cache de perfis: a MESMA peça é perfilada milhares de vezes durante a
+ * otimização (uma por tentativa de encaixe). O contorno é compartilhado
+ * entre as instâncias (pecasDoRiscoMulti calcula uma vez por peça/tamanho
+ * e reaproveita a referência), então memoizar por contorno elimina o
+ * retrabalho — foi o que destravou a busca local pra milhões de tentativas.
+ * Perfis são SOMENTE-LEITURA depois de prontos.
+ */
+const cachePerfilCurva = new WeakMap<Contorno, Map<string, Perfil>>();
+const cachePerfilCaixa = new Map<string, Perfil>();
+
 function perfilDaPeca(p: PecaEncaixe, rot: 0 | 180, folgaCm: number, res: number): Perfil {
+  const chave = `${rot}|${folgaCm}|${res}|${p.w}|${p.h}`;
+  if (p.contorno && p.contorno.length >= 3) {
+    let porChave = cachePerfilCurva.get(p.contorno);
+    if (!porChave) {
+      porChave = new Map();
+      cachePerfilCurva.set(p.contorno, porChave);
+    }
+    const pronto = porChave.get(chave);
+    if (pronto) return pronto;
+    const perfil = calculaPerfil(p, rot, folgaCm, res);
+    porChave.set(chave, perfil);
+    return perfil;
+  }
+  // peça sem curva: perfil reto, só depende das medidas (rot não muda caixa)
+  const pronto = cachePerfilCaixa.get(chave);
+  if (pronto) return pronto;
+  const perfil = calculaPerfil(p, rot, folgaCm, res);
+  if (cachePerfilCaixa.size > 4096) cachePerfilCaixa.clear(); // teto de memória
+  cachePerfilCaixa.set(chave, perfil);
+  return perfil;
+}
+
+function calculaPerfil(p: PecaEncaixe, rot: 0 | 180, folgaCm: number, res: number): Perfil {
   const wTotal = p.w + folgaCm;
   const cols = Math.max(1, Math.ceil(wTotal / res));
   const bottom = new Array<number>(cols).fill(0);
@@ -165,6 +206,18 @@ function empacotar(
  * preenchê-los (galão no vão entre frentes, manga no buraco da cava...).
  * Mais lento que o perfil, porém acha encaixes que o skyline não vê.
  */
+/** Faixa de células [b, t) da peça em cada coluna (memoizada no perfil —
+ *  o perfil já é único por rotação/folga/resolução). */
+function faixasDoPerfil(perfil: Perfil, res: number): { b: number; t: number }[] {
+  return (perfil.fx ??= Array.from({ length: perfil.cols }, (_, c) => ({
+    b: Math.floor(perfil.bottom[c] / res),
+    t: Math.max(
+      Math.floor(perfil.bottom[c] / res) + 1,
+      Math.ceil(perfil.top[c] / res)
+    ),
+  })));
+}
+
 function empacotarGrade(
   pecas: PecaEncaixe[],
   larguraCm: number,
@@ -174,73 +227,99 @@ function empacotarGrade(
   res = RES // resolução das células (0,25 na "lupa fina")
 ): { comprimentoCm: number; pos: Posicionamento[] } {
   const cols = Math.max(1, Math.floor((larguraCm + folgaCm) / res));
-  // altura estimada do mapa: área total ÷ largura, com folga de 2,5×
-  const areaCaixas = pecas.reduce((s, p) => s + (p.w + folgaCm) * (p.h + folgaCm), 0);
-  let rows = Math.max(64, Math.ceil(((areaCaixas / larguraCm) * 2.5) / res));
-  // ocupação por coluna (column-major: grid[c][linha])
-  let grid: Uint8Array[] = Array.from({ length: cols }, () => new Uint8Array(rows));
-  const cresce = (min: number) => {
-    if (min <= rows) return;
-    const novo = Math.max(min, Math.ceil(rows * 1.5));
-    grid = grid.map((col) => {
-      const n = new Uint8Array(novo);
-      n.set(col);
-      return n;
-    });
-    rows = novo;
+
+  // Ocupação por coluna guardada como INTERVALOS [s, e) ordenados e sem
+  // sobreposição — em vez do mapa de células. Colisão vira busca binária
+  // (O(log intervalos)) e o "pulo" sobre o obstáculo sai de graça: o fim
+  // do intervalo diz exatamente onde a peça pode tentar de novo. Foi essa
+  // troca que levou o motor de ~3 pra centenas de encaixes por segundo,
+  // mantendo o mesmo resultado do bottom-left-fill célula a célula.
+  type Runs = { s: number[]; e: number[] };
+  const runs: Runs[] = Array.from({ length: cols }, () => ({ s: [], e: [] }));
+  // 1ª célula livre de cada coluna: piso da busca (aponta pro buraco mais fundo)
+  const minLivre = new Int32Array(cols);
+
+  /** Se [lo, hi) colide com algum intervalo da coluna, devolve o FIM do
+   *  intervalo que colidiu (pra pular direto); senão -1. */
+  const colide = (r: Runs, lo: number, hi: number): number => {
+    let a = 0;
+    let b = r.e.length - 1;
+    let i = -1;
+    while (a <= b) {
+      const m = (a + b) >> 1;
+      if (r.e[m] > lo) {
+        i = m;
+        b = m - 1;
+      } else a = m + 1;
+    }
+    return i >= 0 && r.s[i] < hi ? r.e[i] : -1;
   };
 
-  /** Faixa de células [b, t) ocupada pela peça em cada coluna dela. */
-  const faixas = (perfil: Perfil): { b: number; t: number }[] =>
-    Array.from({ length: perfil.cols }, (_, c) => ({
-      b: Math.floor(perfil.bottom[c] / res),
-      t: Math.max(
-        Math.floor(perfil.bottom[c] / res) + 1,
-        Math.ceil(perfil.top[c] / res)
-      ),
-    }));
+  /** Marca [lo, hi) como ocupado, fundindo com intervalos encostados. */
+  const marca = (c: number, lo: number, hi: number) => {
+    const r = runs[c];
+    let i = 0;
+    while (i < r.s.length && r.e[i] < lo) i++;
+    let s = lo;
+    let e = hi;
+    let j = i;
+    while (j < r.s.length && r.s[j] <= e) {
+      if (r.s[j] < s) s = r.s[j];
+      if (r.e[j] > e) e = r.e[j];
+      j++;
+    }
+    r.s.splice(i, j - i, s);
+    r.e.splice(i, j - i, e);
+    minLivre[c] = r.s.length > 0 && r.s[0] === 0 ? r.e[0] : 0;
+  };
 
+  const tetoCel = Number.isFinite(tetoCm) ? Math.ceil(tetoCm / res) + 4 : Infinity;
   const pos: Posicionamento[] = [];
   let comprimento = 0;
 
   for (const p of pecas) {
     const rots: (0 | 180)[] = usarRotacao && p.contorno ? [0, 180] : [0];
-    let melhor: { x: number; y: number; rot: 0 | 180; fx: { b: number; t: number }[]; alturaCel: number } | null = null;
+    let melhor: {
+      x: number;
+      y: number;
+      rot: 0 | 180;
+      fx: { b: number; t: number }[];
+      alturaCel: number;
+    } | null = null;
 
-    for (let tentativa = 0; tentativa < 2 && !melhor; tentativa++) {
-    if (tentativa > 0) cresce(rows * 2); // mapa lotou: dobra e tenta de novo
     for (const rot of rots) {
       const perfil = perfilDaPeca(p, rot, folgaCm, res);
       if (perfil.cols > cols) continue;
-      const fx = faixas(perfil);
+      const fx = faixasDoPerfil(perfil, res);
       const alturaCel = Math.ceil((perfil.h + folgaCm) / res);
-      cresce(alturaCel + 8);
 
-      // varre de baixo pra cima; primeiro lugar 100% livre vence
-      // (bottom-left-fill: é isso que recupera os bolsões vazios)
-      const yMax = melhor ? melhor.y : rows - alturaCel;
-      busca: for (let y = 0; y <= yMax; y++) {
-        if (y + alturaCel > rows) break;
-        prox: for (let x = 0; x <= cols - perfil.cols; x++) {
+      for (let x = 0; x <= cols - perfil.cols; x++) {
+        // piso: a peça não assenta abaixo da 1ª célula livre de cada coluna
+        let y = 0;
+        for (let c = 0; c < perfil.cols; c++) {
+          const lb = minLivre[x + c] - fx[c].b;
+          if (lb > y) y = lb;
+        }
+        const yTeto = melhor ? melhor.y : tetoCel;
+        salta: while (y <= yTeto) {
           for (let c = 0; c < perfil.cols; c++) {
-            const col = grid[x + c];
-            for (let l = y + fx[c].b; l < y + fx[c].t; l++)
-              if (col[l]) continue prox; // colidiu: tenta o próximo x
+            const fim = colide(runs[x + c], y + fx[c].b, y + fx[c].t);
+            if (fim >= 0) {
+              y = fim - fx[c].b; // assenta em cima do obstáculo
+              continue salta;
+            }
           }
+          // coube: menor y deste x (empate: x menor vence, varremos crescente)
           if (!melhor || y < melhor.y || (y === melhor.y && x < melhor.x))
             melhor = { x, y, rot, fx, alturaCel };
-          break busca; // achou o mais baixo desta rotação
+          break;
         }
       }
     }
-    }
     if (!melhor) continue; // não coube (tratado nas camadas de cima)
 
-    cresce(melhor.y + melhor.alturaCel + 8);
-    for (let c = 0; c < melhor.fx.length; c++) {
-      const col = grid[melhor.x + c];
-      for (let l = melhor.y + melhor.fx[c].b; l < melhor.y + melhor.fx[c].t; l++) col[l] = 1;
-    }
+    for (let c = 0; c < melhor.fx.length; c++)
+      marca(melhor.x + c, melhor.y + melhor.fx[c].b, melhor.y + melhor.fx[c].t);
     const yCm = melhor.y * res;
     pos.push({
       nome: p.nome,
