@@ -1405,19 +1405,34 @@ function ResumoDoCorte({
       </p>
       {/* o painel de configuração lá em cima é do PRÓXIMO plano — aqui fica o
           que valeu NESTE resultado, senão o número parece não obedecer */}
-      <p
-        className={`mb-4 inline-block rounded-lg px-2.5 py-1 text-xs ${
-          forro === "off"
-            ? "bg-amber-50 font-medium text-amber-800"
-            : "bg-slate-100 text-slate-600"
-        }`}
-      >
-        {forro === "off"
-          ? "⚠️ Este plano foi montado com o forro DESLIGADO — as peças de forro não estão nesta conta. Ligue a chave e monte o plano de novo."
-          : forro === "junto"
-            ? "🧵 Forro incluído, cortado no mesmo tecido"
-            : "🧵 Forro incluído, em risco separado"}
-      </p>
+      <div className="mb-4 flex flex-wrap gap-2">
+        <p
+          className={`inline-block rounded-lg px-2.5 py-1 text-xs ${
+            forro === "off"
+              ? "bg-amber-50 font-medium text-amber-800"
+              : "bg-slate-100 text-slate-600"
+          }`}
+        >
+          {forro === "off"
+            ? "⚠️ Este plano foi montado com o forro DESLIGADO — as peças de forro não estão nesta conta. Ligue a chave e monte o plano de novo."
+            : forro === "junto"
+              ? "🧵 Forro incluído, cortado no mesmo tecido"
+              : "🧵 Forro incluído, em risco separado"}
+        </p>
+        {/* placar das curvas DESTE plano: diz se o gargalo do
+            aproveitamento é falta de desenho (retângulo) ou o encaixe */}
+        <p
+          className={`inline-block rounded-lg px-2.5 py-1 text-xs ${
+            resumo.pecasComoRetangulo > 0
+              ? "bg-amber-50 font-medium text-amber-800"
+              : "bg-emerald-50 font-medium text-emerald-700"
+          }`}
+        >
+          {resumo.pecasComoRetangulo > 0
+            ? `📐 Curvas: ${resumo.pecasComCurva} peças com desenho real · ${resumo.pecasComoRetangulo} entraram como RETÂNGULO (anexe o PDF com todos os tamanhos)`
+            : `📐 Todas as ${resumo.pecasComCurva} peças com o desenho real`}
+        </p>
+      </div>
 
       <div className="grid grid-cols-3 gap-3">
         <Metrica

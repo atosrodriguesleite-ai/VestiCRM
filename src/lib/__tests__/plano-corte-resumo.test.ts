@@ -58,6 +58,9 @@ describe("resumo de corte", () => {
     const manga = resumo.porPeca.find((p) => p.nome === "MANGA")!;
     expect(manga).toMatchObject({ porRoupa: 2, total: 2 });
     expect(resumo.porPeca.find((p) => p.nome === "GOLA")!.total).toBe(1);
+    // modelo sem PDF: tudo retângulo — e o placar tem que dedurar isso
+    expect(resumo.pecasComCurva).toBe(0);
+    expect(resumo.pecasComoRetangulo).toBe(5);
   });
 
   it("10 roupas de cada tamanho: 20 roupas × 5 = 100 peças", () => {

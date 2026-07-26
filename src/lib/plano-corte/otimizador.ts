@@ -168,6 +168,13 @@ export function rodarRodada(
   const estado = estadoAnterior ? { ...estadoAnterior } : estadoInicial();
   const acabou = () => Date.now() - inicio >= budgetRoundMs;
 
+  // orçamento total já estourou (rodada anterior passou do ponto): encerra
+  // na hora — o lojista pediu 10 minutos, não 12
+  if (estadoAnterior && resultadoAnterior && estado.elapsedMs >= budgetTotalMs) {
+    estado.fase = "DONE";
+    return { estado, resultado: resultadoAnterior };
+  }
+
   // ---- fase BASE: o planejador clássico monta o primeiro plano ----
   // (leve, sem polimento — pra tela já mostrar um plano em segundos)
   let resultado = resultadoAnterior;
@@ -530,15 +537,21 @@ export function rodarRodada(
     for (const { plano, risco } of alvos) {
       if (!plano.riscos.includes(risco)) continue; // corte eliminado no remanejo
       if (acabou()) break;
+      // Risco grande estoura o relógio: uma lupa de 0,25cm num risco de 6
+      // modelos leva mais que a rodada inteira, e o relógio só é conferido
+      // ENTRE as etapas — era isso que fazia o plano passar dos 10 minutos
+      // preso nos 99%. Riscos grandes ficam na resolução padrão.
+      const grandalhao = risco.pecas.length > 90;
+
       // o combo pode ter mudado no remanejo: repassa o funil completo de
-      // ordens neste corte (barato agora) antes da lupa
+      // ordens neste corte antes da lupa (nos grandes, só o skyline barato)
       const pecasCombo = pecasDoRiscoMulti(itens, plano.pano, risco.combo, params);
       const cheio = encaixarMelhor(
         pecasCombo,
         risco.larguraCm,
         params.folgaCm,
         permitir180,
-        true
+        !grandalhao
       );
       estado.tentativas += cheio.analises;
       if (
@@ -550,6 +563,7 @@ export function rodarRodada(
         recalcularPlano(plano, itens, params);
         estado.ganhouNoCiclo = true;
       }
+      if (acabou()) break;
       estado.tentativas++;
       const fina = empacotarOrdem(
         sequenciaDoRisco(risco),
@@ -558,7 +572,7 @@ export function rodarRodada(
         permitir180,
         "grade",
         risco.comprimentoCm + 0.01,
-        0.25
+        grandalhao ? 0.5 : 0.25
       );
       if (
         fina.pecas.length === risco.pecas.length &&

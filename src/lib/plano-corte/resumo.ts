@@ -43,6 +43,14 @@ export type ResumoCorte = {
   porModelo: LinhaModelo[]; // itens por roupa de CADA modelo
   porPeca: LinhaPeca[]; // maior primeiro
   porTamanho: LinhaTamanho[];
+  /**
+   * Placar das curvas NO PLANO REAL: quantas peças entraram no risco com o
+   * desenho de verdade e quantas como retângulo (sem PDF casado naquele
+   * tamanho). Retângulo derruba o aproveitamento — este número diz se o
+   * gargalo é dado ou algoritmo.
+   */
+  pecasComCurva: number;
+  pecasComoRetangulo: number;
 };
 
 /** Separa "MANGA · BABY LOOK" em peça e modelo (plano multi-modelo). */
@@ -77,9 +85,14 @@ export function resumoDeCorte(planos: PlanoPano[]): ResumoCorte {
   const roupasPorTam = new Map<string, number>();
   const planoDaGrade = planos[0]; // o primeiro pano já carrega a grade toda
 
+  let pecasComCurva = 0;
+  let pecasComoRetangulo = 0;
+
   for (const plano of planos) {
     for (const risco of plano.riscos) {
       for (const p of risco.pecas) {
+        if (p.contorno && p.contorno.length >= 3) pecasComCurva += risco.folhas;
+        else pecasComoRetangulo += risco.folhas;
         const { peca, modelo } = abrirNome(p.nome);
         const { tamanho } = abrirChave(p.tamanho);
         const idx = p.modeloIdx ?? 0;
@@ -151,5 +164,7 @@ export function resumoDeCorte(planos: PlanoPano[]): ResumoCorte {
     porTamanho: [...porTam.values()].sort((a, b) =>
       a.tamanho.localeCompare(b.tamanho)
     ),
+    pecasComCurva,
+    pecasComoRetangulo,
   };
 }
