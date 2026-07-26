@@ -555,6 +555,21 @@ export function montarPlanoMulti(
   if (totalRoupas <= 0) throw new Error("Informe a quantidade de pelo menos um tamanho");
   params = { ...params, grade: gradeComposta };
 
+  // Forro no MESMO pano: as peças de forro passam a valer como tecido e
+  // entram no mesmo risco — assim elas preenchem os vãos das peças grandes
+  // em vez de gastar uma metragem à parte. Sai um risco só.
+  if (params.incluirForro && params.forroMesmoTecido) {
+    itens = itens.map((item) => ({
+      ...item,
+      modelo: {
+        ...item.modelo,
+        pecas: item.modelo.pecas.map((p) =>
+          p.pano === "FOR" ? { ...p, pano: "TEC" as TipoPano } : p
+        ),
+      },
+    }));
+  }
+
   const planos: PlanoPano[] = [];
   let analises = 0;
 
@@ -562,7 +577,8 @@ export function montarPlanoMulti(
   if (tec.plano) planos.push(tec.plano);
   analises += tec.analises;
 
-  if (params.incluirForro) {
+  // com o forro no mesmo pano não existe segundo risco: já foi tudo junto
+  if (params.incluirForro && !params.forroMesmoTecido) {
     const forro = planejarPano(itens, "FOR", params, polirFinalistas);
     if (forro.plano) planos.push(forro.plano);
     analises += forro.analises;
