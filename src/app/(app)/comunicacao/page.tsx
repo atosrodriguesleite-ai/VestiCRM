@@ -43,6 +43,8 @@ export default async function CommunicationPage() {
         where: {
           companyId: user.companyId,
           direction: "OUT",
+          // só envios de verdade — eventos de diagnóstico futuros não inflam
+          type: { in: ["message.sent", "message.resent"] },
           createdAt: { gte: h24 },
         },
       }),

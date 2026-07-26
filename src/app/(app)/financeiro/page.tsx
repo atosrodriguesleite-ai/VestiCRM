@@ -28,7 +28,12 @@ export default async function FinanceiroPage() {
   if (!isManagerUp(user)) redirect("/dashboard");
 
   const agora = new Date();
-  const inicioMes = new Date(agora.getFullYear(), agora.getMonth(), 1);
+  // início do mês no fuso de São Paulo — MESMA régua do Dashboard (antes
+  // usava o fuso do servidor/UTC e a virada do mês divergia em 3 horas)
+  const spMes = new Date(agora.getTime() - 3 * 60 * 60 * 1000);
+  spMes.setUTCDate(1);
+  spMes.setUTCHours(0, 0, 0, 0);
+  const inicioMes = new Date(spMes.getTime() + 3 * 60 * 60 * 1000);
 
   const [pendentes, recebidoMesAgg, pixAtivos] = await Promise.all([
     db.order.findMany({
@@ -57,6 +62,7 @@ export default async function FinanceiroPage() {
       where: {
         order: { companyId: user.companyId },
         provider: "MERCADO_PAGO",
+        method: "PIX", // o cartão tem link próprio — este cartão é só Pix
         status: "PENDENTE",
         dueAt: { gt: agora },
       },
@@ -154,7 +160,9 @@ export default async function FinanceiroPage() {
                         {pix?.provider === "MERCADO_PAGO" &&
                         pix.dueAt &&
                         pix.dueAt > agora
-                          ? " · Pix enviado ⏳"
+                          ? pix.method === "PIX"
+                            ? " · Pix enviado ⏳"
+                            : " · link do cartão enviado ⏳"
                           : ""}
                       </p>
                     </div>

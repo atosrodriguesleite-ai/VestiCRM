@@ -14,6 +14,7 @@ import { Card, PageHeader, Avatar, Badge, EmptyState } from "@/components/ui";
 import { NewCustomerButton } from "./new-customer";
 import { QuickLeadLink } from "@/components/quick-lead-link";
 import { trackedLinkParts } from "@/lib/catalog-url";
+import { PAID_ORDER_STATUSES } from "@/lib/orders";
 import type { CustomerType, Prisma } from "@prisma/client";
 
 export const dynamic = "force-dynamic";
@@ -40,7 +41,14 @@ export default async function CustomersPage({
       include: {
         owner: true,
         tags: { include: { tag: true } },
-        _count: { select: { opportunities: true, sales: true } },
+        // "compras" = pedidos PAGOS (fonte única) — o modelo Sale legado não
+        // enxerga compras da Nuvemshop e subcontava na lista
+        _count: {
+          select: {
+            opportunities: true,
+            orders: { where: { status: { in: PAID_ORDER_STATUSES } } },
+          },
+        },
       },
       orderBy: { createdAt: "desc" },
     }),
@@ -141,7 +149,7 @@ export default async function CustomersPage({
                 </div>
                 <div className="flex items-center justify-between mt-3 pt-3 border-t border-gray-50 text-[11px] text-gray-400">
                   <span>
-                    {c._count.sales} compra{c._count.sales === 1 ? "" : "s"} ·{" "}
+                    {c._count.orders} compra{c._count.orders === 1 ? "" : "s"} ·{" "}
                     {c._count.opportunities} negócio
                     {c._count.opportunities === 1 ? "" : "s"}
                   </span>
