@@ -30,6 +30,29 @@ function detectaPano(desc: string, nomePeca: string): TipoPano {
   return /\bFOR\b|\bFORRO\b/.test(d) ? "FOR" : "TEC";
 }
 
+/**
+ * Quantas vezes a peça é cortada por roupa. O Audaces espalha essa
+ * informação em três lugares, e o modelista usa o que preferir:
+ *
+ *   QT_MOD  → quantidade explícita
+ *   DESC_P  → texto do modelista ("2 X TEC" = corta 2 vezes)
+ *   DOUBLE  → 1 marca peça ESPELHADA (par: manga, alça, bolso) = 2 peças;
+ *             2 é peça simples. Confirmado nos arquivos reais: só a
+ *             "MANGA 1PAR TEC" veio com DOUBLE=1.
+ *
+ * Vale o MAIOR entre eles: cortar peça a menos inutiliza o lote inteiro
+ * (roupa sem manga), enquanto cortar a mais só gasta pano — e o lojista
+ * pode corrigir a quantidade na tela quando o molde fugir do padrão.
+ */
+function quantidadeDaPeca(corpo: string, nomePeca: string, desc: string): number {
+  const qtMod = Math.round(num(tag(corpo, "QT_MOD")));
+  const porDesc = parseInt(desc.match(/(\d+)\s*X/i)?.[1] ?? "0", 10) || 0;
+  const espelhada = Math.round(num(tag(corpo, "DOUBLE"))) === 1 ? 2 : 0;
+  // "MANGA 1PAR", "ALCA PAR", "2 PARES"...
+  const parNoNome = /\bPAR(ES)?\b|\d\s*PAR/i.test(nomePeca) ? 2 : 0;
+  return Math.max(1, qtMod, porDesc, espelhada, parNoNome);
+}
+
 export function parseAdsx(zipBuffer: Buffer): ModeloCorte {
   const entries = unzip(zipBuffer);
   const xmlEntry = entries.find((e) => e.name.toLowerCase().endsWith(".xml"));
@@ -64,7 +87,7 @@ export function parseDataXml(xml: string): ModeloCorte {
     const nomePeca = pm[1].trim();
     const corpo = pm[2];
     const desc = tag(corpo, "DESC_P") ?? "";
-    const qtd = Math.max(1, Math.round(num(tag(corpo, "QT_MOD"))));
+    const qtd = quantidadeDaPeca(corpo, nomePeca, desc);
 
     const medidas: Record<string, MedidaTamanho> = {};
     for (const sm of corpo.matchAll(/<SIZE_P\s+NAME_SP="([^"]*)">([\s\S]*?)<\/SIZE_P>/g)) {

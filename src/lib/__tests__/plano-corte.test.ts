@@ -311,3 +311,59 @@ describe("saídas do plano", () => {
     expect(plt.trim().endsWith("SP0;")).toBe(true);
   });
 });
+
+/* ---------- quantidade por peça (peça em PAR) ---------- */
+
+describe("quantas vezes a peça é cortada por roupa", () => {
+  const modeloCom = (patterns: string) =>
+    parseDataXml(`<?xml version="1.0" encoding="iso-8859-1"?>
+<DATA_FILE_AUDACES><MODEL NAME_M="T"><INFO><SIZES_M>
+ <SIZE_M NAME_SP="P"></SIZE_M></SIZES_M></INFO>
+<PATTERNS>${patterns}</PATTERNS></MODEL></DATA_FILE_AUDACES>`);
+
+  const peca = (nome: string, campos: string) => `
+   <PATTERN NAME_P="${nome}">${campos}
+    <SIZES_P><SIZE_P NAME_SP="P"><AREA_SP>500</AREA_SP><WIDTH_SP>20</WIDTH_SP><HEIGHT_SP>25</HEIGHT_SP></SIZE_P></SIZES_P>
+   </PATTERN>`;
+
+  it("peça simples (DOUBLE=2) sai 1 vez", () => {
+    const m = modeloCom(peca("FRENTE", "<DESC_P>1 X TEC</DESC_P><QT_MOD>1</QT_MOD><DOUBLE>2</DOUBLE>"));
+    expect(m.pecas[0].qtd).toBe(1);
+  });
+
+  it("PEÇA ESPELHADA (DOUBLE=1) sai 2 vezes — manga, alça, bolso", () => {
+    const m = modeloCom(peca("MANGA", "<DESC_P></DESC_P><QT_MOD>1</QT_MOD><DOUBLE>1</DOUBLE>"));
+    expect(m.pecas[0].qtd).toBe(2);
+  });
+
+  it("descrição '2 X TEC' do modelista vale", () => {
+    const m = modeloCom(peca("ALCA", "<DESC_P>2 X TEC</DESC_P><QT_MOD>1</QT_MOD><DOUBLE>2</DOUBLE>"));
+    expect(m.pecas[0].qtd).toBe(2);
+  });
+
+  it("'PAR' no nome da peça também conta", () => {
+    const m = modeloCom(peca("MANGA 1PAR TEC", "<DESC_P></DESC_P><QT_MOD>1</QT_MOD><DOUBLE>2</DOUBLE>"));
+    expect(m.pecas[0].qtd).toBe(2);
+  });
+
+  it("QT_MOD alto manda quando é o maior", () => {
+    const m = modeloCom(peca("BABADO", "<DESC_P>1 X TEC</DESC_P><QT_MOD>4</QT_MOD><DOUBLE>2</DOUBLE>"));
+    expect(m.pecas[0].qtd).toBe(4);
+  });
+
+  it("nunca menos de 1, mesmo com o arquivo sem os campos", () => {
+    const m = modeloCom(peca("X", "<DESC_P></DESC_P>"));
+    expect(m.pecas[0].qtd).toBe(1);
+  });
+
+  it("a peça em par entra 2× no risco (o plano corta as duas)", () => {
+    const m = modeloCom(
+      peca("FRENTE", "<DESC_P>1 X TEC</DESC_P><QT_MOD>1</QT_MOD><DOUBLE>2</DOUBLE>") +
+        peca("MANGA", "<DESC_P></DESC_P><QT_MOD>1</QT_MOD><DOUBLE>1</DOUBLE>")
+    );
+    const r = montarPlano(m, { ...paramsBase, grade: { P: 1 }, incluirForro: false });
+    const risco = r.planos[0].riscos[0];
+    expect(risco.pecas.filter((p) => p.nome === "FRENTE")).toHaveLength(1);
+    expect(risco.pecas.filter((p) => p.nome === "MANGA")).toHaveLength(2);
+  });
+});
