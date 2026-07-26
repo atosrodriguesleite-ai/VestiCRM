@@ -119,6 +119,24 @@ function dayLabel(iso: string): string {
   });
 }
 
+// Carimbo da lista de conversas — a HORA da última troca sempre à vista:
+// hoje → "12:56"; ontem → "Ontem 12:56"; antes → "23/07 12:56"
+function listStamp(iso: string): string {
+  const d = new Date(iso);
+  const hora = timeShort(iso);
+  const hoje = new Date();
+  const ontem = new Date(hoje);
+  ontem.setDate(hoje.getDate() - 1);
+  if (d.toDateString() === hoje.toDateString()) return hora;
+  if (d.toDateString() === ontem.toDateString()) return `Ontem ${hora}`;
+  const data = d.toLocaleDateString("pt-BR", {
+    day: "2-digit",
+    month: "2-digit",
+    ...(d.getFullYear() !== hoje.getFullYear() ? { year: "2-digit" } : {}),
+  });
+  return `${data} ${hora}`;
+}
+
 // Emojis do compositor — grade completa, organizada para venda de moda.
 // Nativos do aparelho (sem biblioteca externa): leves e iguais ao WhatsApp.
 // O 🤎 abre a fila dos corações — é o coração da marca. 😉
@@ -1399,7 +1417,7 @@ export function Inbox({
                       {c.customer.name}
                     </p>
                     <span className="text-[10px] text-gray-400 shrink-0">
-                      {dateShort(c.lastMessageAt)}
+                      {listStamp(c.lastMessageAt)}
                     </span>
                   </div>
                   <p className="text-xs text-gray-500 truncate mt-0.5">
