@@ -1,6 +1,13 @@
 import { requireUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { PageHeader, Card } from "@/components/ui";
+import {
+  custoMedioFaccao,
+  loteAtrasado,
+  pagamentoVencido,
+  precoDoItem,
+  valoresDoLote,
+} from "@/lib/producao-faccao";
 import { PeriodChips } from "@/components/charts";
 import { StatCard } from "@/components/dash";
 import { SimuladorCompra } from "./simulador";
@@ -56,38 +63,56 @@ export default async function ProducaoDashboard({
     }),
   ]);
 
-  // custo médio real da facção no período (peças boas × preço/peça)
-  let boasFac = 0;
-  let custoFac = 0;
-  for (const b of batches) {
-    const preco = b.faction?.pricePerPiece ?? 0;
-    if (preco <= 0 || b.status !== "FECHADO") continue;
-    for (const i of b.items) {
-      boasFac += i.good;
-      custoFac += i.good * preco;
-    }
-  }
-  const faccaoMedia = boasFac > 0 ? custoFac / boasFac : null;
+  // custo médio real da facção no período — fonte única, preço congelado
+  const faccaoMedia = custoMedioFaccao(batches);
 
   // ranking de facções: enviado × devolvido × defeito × prazo
   const porFaccao = new Map<
     string,
-    { enviadas: number; boas: number; defeito: number; faltantes: number; dias: number[]; preco: number }
+    {
+      enviadas: number;
+      boas: number;
+      defeito: number;
+      faltantes: number;
+      dias: number[];
+      preco: number;
+      custo: number; // R$ das peças boas (preço congelado de cada lote)
+      aPagar: number; // saldo em aberto com a facção
+      atrasados: number; // lotes fora do prazo combinado
+    }
   >();
   for (const b of batches) {
     const nome = b.faction?.name ?? "—";
     const f =
       porFaccao.get(nome) ??
-      { enviadas: 0, boas: 0, defeito: 0, faltantes: 0, dias: [], preco: b.faction?.pricePerPiece ?? 0 };
+      {
+        enviadas: 0, boas: 0, defeito: 0, faltantes: 0, dias: [],
+        preco: 0, custo: 0, aPagar: 0, atrasados: 0,
+      };
     for (const i of b.items) {
       f.enviadas += i.sent;
       f.boas += i.good;
       f.defeito += i.defect;
+      f.custo += i.good * precoDoItem(i, b.faction);
       if (b.status === "FECHADO") f.faltantes += i.sent - i.good - i.defect;
     }
+    const v = valoresDoLote(b);
+    f.aPagar += v.saldo;
+    const pendentes = b.items.reduce((s, i) => s + (i.sent - i.good - i.defect), 0);
+    if (loteAtrasado(b, pendentes)) f.atrasados++;
     if (b.closedAt) f.dias.push((b.closedAt.getTime() - b.sentAt.getTime()) / 86_400_000);
     porFaccao.set(nome, f);
   }
+  // preço médio efetivo por peça de cada facção (o que ela custou de fato)
+  for (const f of porFaccao.values()) f.preco = f.boas > 0 ? f.custo / f.boas : 0;
+
+  // financeiro das facções: o que ainda se deve e o que já foi pago
+  const aPagarFaccoes = batches.reduce((a, b) => a + valoresDoLote(b).saldo, 0);
+  const pagoFaccoes = batches.reduce((a, b) => a + valoresDoLote(b).pago, 0);
+  const lotesAtrasados = batches.filter((b) =>
+    loteAtrasado(b, b.items.reduce((s, i) => s + (i.sent - i.good - i.defect), 0))
+  ).length;
+  const pagamentosVencidos = batches.filter((b) => pagamentoVencido(b)).length;
   const faccoes = [...porFaccao.entries()].sort((a, b) => b[1].enviadas - a[1].enviadas);
 
   const fechados = cortes.filter((c) => c.status === "FECHADO");
@@ -326,6 +351,15 @@ export default async function ProducaoDashboard({
       )}
 
       {faccoes.length > 0 && (
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
+          <StatCard label="A pagar às facções" value={aPagarFaccoes} format="brl" hint="peças boas que voltaram e ainda não foram pagas" />
+          <StatCard label="Já pago no período" value={pagoFaccoes} format="brl" hint="lotes quitados" />
+          <StatCard label="Lotes atrasados" value={lotesAtrasados} hint="passaram do prazo combinado de volta" />
+          <StatCard label="Pagamentos vencidos" value={pagamentosVencidos} hint="previsão de pagamento já passou" />
+        </div>
+      )}
+
+      {faccoes.length > 0 && (
         <Card className="p-5 mb-6">
           <h2 className="font-semibold text-sm mb-3">Ranking de facções</h2>
           <div className="overflow-x-auto thin-scroll">
@@ -338,7 +372,9 @@ export default async function ProducaoDashboard({
                   <th className="py-1.5 pr-3">Defeito</th>
                   <th className="py-1.5 pr-3">Faltantes</th>
                   <th className="py-1.5 pr-3">Prazo médio</th>
-                  <th className="py-1.5">Custo estimado</th>
+                  <th className="py-1.5 pr-3">Atrasados</th>
+                  <th className="py-1.5 pr-3">Custo real</th>
+                  <th className="py-1.5">A pagar</th>
                 </tr>
               </thead>
               <tbody>
@@ -367,8 +403,27 @@ export default async function ProducaoDashboard({
                       <td className="py-2 pr-3 text-gray-500">
                         {prazo != null ? `${prazo.toFixed(1)} dia(s)` : "—"}
                       </td>
-                      <td className="py-2 text-gray-500">
-                        {f.preco > 0 ? fmtR$(f.boas * f.preco) : "—"}
+                      <td className="py-2 pr-3">
+                        {f.atrasados > 0 ? (
+                          <b className="text-rose-600 tabular-nums">{f.atrasados}</b>
+                        ) : (
+                          <span className="text-gray-300">0</span>
+                        )}
+                      </td>
+                      <td className="py-2 pr-3 text-gray-600 tabular-nums">
+                        {f.custo > 0 ? fmtR$(f.custo) : "—"}
+                        {f.preco > 0 && (
+                          <span className="ml-1 text-[11px] text-gray-400">
+                            ({fmtR$(f.preco)}/peça)
+                          </span>
+                        )}
+                      </td>
+                      <td className="py-2 tabular-nums">
+                        {f.aPagar > 0 ? (
+                          <b className="text-amber-700">{fmtR$(f.aPagar)}</b>
+                        ) : (
+                          <span className="text-emerald-600">em dia</span>
+                        )}
                       </td>
                     </tr>
                   );

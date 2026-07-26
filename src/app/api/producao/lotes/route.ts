@@ -15,6 +15,10 @@ const schema = z.object({
   factionId: z.string().nullable().optional(),
   kind: z.enum(["COSTURA", "CONSERTO"]).default("COSTURA"),
   notes: z.string().max(500).nullable().optional(),
+  sentAt: z.string().datetime().nullable().optional(), // data do envio (editável já no montar)
+  sentBy: z.string().max(80).nullable().optional(), // quem levou/entregou
+  dueBackDate: z.string().datetime().nullable().optional(), // prazo combinado de volta
+  dueDate: z.string().datetime().nullable().optional(), // previsão de pagamento
   items: z
     .array(
       z.object({
@@ -22,6 +26,8 @@ const schema = z.object({
         color: z.string().max(60).nullable().optional(),
         size: z.string().max(30).nullable().optional(),
         pieces: z.number().int().positive().max(1000000),
+        // custo de costura por peça DESTE modelo; vazio = usa o da facção
+        pricePerPiece: z.number().nonnegative().max(100000).nullable().optional(),
       })
     )
     .min(1)
@@ -37,6 +43,7 @@ export async function POST(req: NextRequest) {
     }
     const d = parsed.data;
 
+    let faccao: { pricePerPiece: number } | null = null;
     if (d.destination === "FACCAO") {
       const f = d.factionId
         ? await db.sewingFaction.findFirst({
@@ -46,6 +53,7 @@ export async function POST(req: NextRequest) {
       if (!f) {
         return NextResponse.json({ error: "Facção não encontrada" }, { status: 404 });
       }
+      faccao = f;
     }
 
     // valida disponibilidade e consome a fonte (costura ou defeitos) FIFO
@@ -172,12 +180,22 @@ export async function POST(req: NextRequest) {
         destination: d.destination,
         factionId: d.destination === "FACCAO" ? d.factionId : null,
         notes: d.notes ?? null,
+        ...(d.sentAt ? { sentAt: new Date(d.sentAt) } : {}),
+        sentBy: d.sentBy?.trim() || user.name,
+        dueBackDate: d.dueBackDate ? new Date(d.dueBackDate) : null,
+        dueDate: d.dueDate ? new Date(d.dueDate) : null,
         items: {
           create: d.items.map((it) => ({
             productName: it.productName,
             color: it.color ?? null,
             size: it.size ?? null,
             sent: it.pieces,
+            // congela o custo por peça: reajuste futuro da facção não
+            // reescreve o que este lote custou
+            pricePerPiece:
+              it.pricePerPiece != null && it.pricePerPiece >= 0
+                ? it.pricePerPiece
+                : (faccao?.pricePerPiece ?? 0),
           })),
         },
       },

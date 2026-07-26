@@ -1727,15 +1727,30 @@ model SewingBatch {
   destination String    @default("INTERNA") // INTERNA | FACCAO
   factionId   String?
   status      String    @default("ENVIADO") // ENVIADO | PARCIAL | FECHADO
-  sentAt      DateTime  @default(now())
-  closedAt    DateTime?
+  sentAt      DateTime  @default(now()) // data do envio (editável)
+  closedAt    DateTime? // data do recebimento/fechamento (editável)
   notes       String?
+
+  // Responsáveis (quem entregou na facção, quem conferiu a volta)
+  sentBy     String?
+  receivedBy String?
+
+  // Prazo combinado de devolução — alimenta o alerta de lote atrasado
+  dueBackDate DateTime?
+
+  // Pagamento da facção
+  paymentStatus String    @default("PENDENTE") // PENDENTE | PAGO
+  dueDate       DateTime? // previsão de pagamento
+  paidAt        DateTime? // quando foi efetivamente paga
+  paidAmount    Float? // valor pago (pode divergir do calculado)
+  paymentNotes  String? // forma de pagamento, comprovante, observações
 
   faction SewingFaction?    @relation(fields: [factionId], references: [id])
   items   SewingBatchItem[]
 
   @@unique([companyId, code])
   @@index([companyId, status])
+  @@index([companyId, paymentStatus])
 }
 
 /// Item do lote: um SKU com a quantidade enviada e as voltas acumuladas.
@@ -1749,6 +1764,11 @@ model SewingBatchItem {
   sent        Int // peças enviadas
   good        Int     @default(0) // voltaram boas (já lançadas no estoque)
   defect      Int     @default(0) // voltaram com defeito
+  /// Custo de costura por peça DESTE modelo NESTE lote — congelado no
+  /// envio (cópia do preço da facção) e editável depois. Preço histórico:
+  /// mudar a tabela da facção hoje NÃO altera o custo dos lotes passados.
+  /// 0 = lote antigo, sem snapshot → cai no preço atual da facção.
+  pricePerPiece Float @default(0)
 
   batch SewingBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
 

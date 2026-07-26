@@ -1,6 +1,7 @@
 import { requireUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { PageHeader } from "@/components/ui";
+import { custoMedioFaccao } from "@/lib/producao-faccao";
 import { CortesView, type CorteRow, type RollOption, type ProdSettings } from "./cortes-view";
 
 export const dynamic = "force-dynamic";
@@ -40,18 +41,9 @@ export default async function CortesPage() {
     }),
   ]);
 
-  // custo médio REAL da facção (peças boas × preço/peça dos lotes fechados)
-  let boasFaccao = 0;
-  let custoFaccao = 0;
-  for (const b of lotesFaccao) {
-    const preco = b.faction?.pricePerPiece ?? 0;
-    if (preco <= 0) continue;
-    for (const i of b.items) {
-      boasFaccao += i.good;
-      custoFaccao += i.good * preco;
-    }
-  }
-  const faccaoMedia = boasFaccao > 0 ? custoFaccao / boasFaccao : null;
+  // custo médio REAL da facção — fonte única (lib/producao-faccao.ts), com
+  // o preço CONGELADO em cada lote: reajuste de tabela não reescreve o passado
+  const faccaoMedia = custoMedioFaccao(lotesFaccao);
 
   const sobrasPorCorte = new Map<string, typeof sobrasUsadas>();
   for (const s of sobrasUsadas) {

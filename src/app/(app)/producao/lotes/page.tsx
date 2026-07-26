@@ -3,6 +3,12 @@ import { db } from "@/lib/db";
 import { PageHeader } from "@/components/ui";
 import { norm } from "@/lib/nuvemshop";
 import {
+  loteAtrasado,
+  pagamentoVencido,
+  precoDoItem,
+  valoresDoLote,
+} from "@/lib/producao-faccao";
+import {
   LotesView,
   type LoteRow,
   type PoolSku,
@@ -59,6 +65,21 @@ export default async function LotesPage() {
     sentAt: b.sentAt.toISOString(),
     closedAt: b.closedAt?.toISOString() ?? null,
     notes: b.notes,
+    factionId: b.factionId,
+    sentBy: b.sentBy,
+    receivedBy: b.receivedBy,
+    dueBackDate: b.dueBackDate?.toISOString() ?? null,
+    paymentStatus: b.paymentStatus,
+    dueDate: b.dueDate?.toISOString() ?? null,
+    paidAt: b.paidAt?.toISOString() ?? null,
+    paidAmount: b.paidAmount,
+    paymentNotes: b.paymentNotes,
+    valores: valoresDoLote(b),
+    atrasado: loteAtrasado(
+      b,
+      b.items.reduce((s, i) => s + (i.sent - i.good - i.defect), 0)
+    ),
+    pagamentoVencido: pagamentoVencido(b),
     items: b.items.map((i) => ({
       id: i.id,
       productName: i.productName,
@@ -67,6 +88,7 @@ export default async function LotesPage() {
       sent: i.sent,
       good: i.good,
       defect: i.defect,
+      pricePerPiece: precoDoItem(i, b.faction),
     })),
   }));
 
