@@ -678,6 +678,30 @@ export function montarPlanoMulti(
       );
   }
 
+  // O giro de 180° e o encaixe curva-com-curva só funcionam quando a peça
+  // tem a CURVA real (PDF anexado). Só com o .adsx cada peça vira um
+  // retângulo — o encaixe fica conservador e gasta mais tecido que o
+  // Audaces. O lojista precisa saber COMO destravar isso.
+  {
+    const semCurva = new Set<string>();
+    for (const item of itens)
+      for (const peca of item.modelo.pecas) {
+        if (params.pecasDesligadas.includes(peca.nome)) continue;
+        if (item.pecasDesligadas?.includes(peca.nome)) continue;
+        if (!params.incluirForro && peca.pano === "FOR") continue;
+        if (!Object.values(peca.tamanhos).some((t) => t.contorno))
+          semCurva.add(multi ? item.modelo.nome : peca.nome);
+      }
+    if (semCurva.size > 0)
+      planos[0].avisos.push(
+        `${[...semCurva].join(", ")} ${semCurva.size === 1 ? "está" : "estão"} sem a curva real das peças — o encaixe usa só a caixa retangular e gasta mais tecido. Anexe o PDF do risco (impressão do Audaces) no modelo pra liberar o encaixe curva-com-curva e o giro de 180°.`
+      );
+  }
+  if (params.sentidoUnico)
+    planos[0].avisos.push(
+      `"Tecido com sentido" está LIGADO: nenhuma peça é girada de cabeça pra baixo, o que gasta mais tecido. Se a malha não tem pé (cor lisa, sem veludo/estampa direcional), desligue essa chave pra ganhar aproveitamento.`
+    );
+
   // peça sem medida própria no tamanho pedido entra com a medida do
   // tamanho mais próximo — o lojista precisa saber disso
   const semGrade = pecasNaoGradeadas(itens, params);
