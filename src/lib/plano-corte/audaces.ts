@@ -1,4 +1,5 @@
 import { unzip } from "./unzip";
+import { ehPecaPar } from "./types";
 import type { MedidaTamanho, ModeloCorte, PecaModelo, TipoPano } from "./types";
 
 /**
@@ -48,8 +49,8 @@ function quantidadeDaPeca(corpo: string, nomePeca: string, desc: string) {
   const qtMod = Math.round(num(tag(corpo, "QT_MOD")));
   const porDesc = parseInt(desc.match(/(\d+)\s*X/i)?.[1] ?? "0", 10) || 0;
   const dobrada = Math.round(num(tag(corpo, "DOUBLE"))) === 1;
-  // "MANGA 1PAR", "ALCA PAR", "2 PARES"...
-  const parNoNome = /\bPAR(ES)?\b|\d\s*PAR/i.test(nomePeca);
+  // "MANGA", "ALCA PAR", "PUNHO", "BOLSO"... peças que sempre saem em par
+  const parNoNome = ehPecaPar(nomePeca);
   return {
     qtd: Math.max(1, qtMod, porDesc, dobrada ? 2 : 0, parNoNome ? 2 : 0),
     // par de verdade = sai uma de cada lado (a segunda invertida)

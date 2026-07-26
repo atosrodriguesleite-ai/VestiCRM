@@ -6,6 +6,7 @@ import { encaixarMelhor } from "../plano-corte/nesting";
 import { montarPlano } from "../plano-corte/enfesto";
 import { riscoParaPlt } from "../plano-corte/plt";
 import { riscoParaSvg } from "../plano-corte/svg";
+import { ehPecaPar, quantidadeSugerida } from "../plano-corte/types";
 import type { ParametrosPlano } from "../plano-corte/types";
 
 /* ---------- fixtures ---------- */
@@ -346,6 +347,21 @@ describe("quantas vezes a peça é cortada por roupa", () => {
     expect(m.pecas[0].qtd).toBe(2);
   });
 
+  // caso real: arquivo em que o modelista NÃO marcou o par — a manga vinha
+  // como "1 X TEC" e DOUBLE=2, e o corte sairia com metade das mangas
+  it("MANGA sem marca de par no arquivo ainda sai 2 (pelo nome)", () => {
+    const m = modeloCom(peca("MANGA", "<DESC_P>1 X TEC</DESC_P><QT_MOD>1</QT_MOD><DOUBLE>2</DOUBLE>"));
+    expect(m.pecas[0]).toMatchObject({ qtd: 2, espelhada: true });
+  });
+
+  it("acabamento/gola continua 1 (o nome não vira par por acaso)", () => {
+    const m = modeloCom(
+      peca("GALAO ACABAMENTO GOLA", "<DESC_P>1 X TEC</DESC_P><QT_MOD>1</QT_MOD><DOUBLE>2</DOUBLE>")
+    );
+    expect(m.pecas[0].qtd).toBe(1);
+    expect(m.pecas[0].espelhada).toBeFalsy();
+  });
+
   it("QT_MOD alto manda quando é o maior", () => {
     const m = modeloCom(peca("BABADO", "<DESC_P>1 X TEC</DESC_P><QT_MOD>4</QT_MOD><DOUBLE>2</DOUBLE>"));
     expect(m.pecas[0].qtd).toBe(4);
@@ -393,6 +409,13 @@ describe("par espelhado", () => {
     expect(mangas).toHaveLength(2);
     expect(mangas.filter((m) => m.espelhada)).toHaveLength(1);
     expect(mangas.filter((m) => !m.espelhada)).toHaveLength(1);
+  });
+
+  it("molde combinado (FRENTE E COSTAS) sai 2, mas NÃO espelhado", () => {
+    expect(quantidadeSugerida("FRENTE E COSTAS TEC", "1 X TEC")).toBe(2);
+    expect(ehPecaPar("FRENTE E COSTAS TEC")).toBe(false);
+    expect(ehPecaPar("MANGA")).toBe(true);
+    expect(ehPecaPar("GALAO ACABAMENTO GOLA")).toBe(false);
   });
 
   it("peça simples nunca é espelhada (não inverte o que não é par)", () => {

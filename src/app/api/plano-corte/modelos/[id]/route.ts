@@ -45,6 +45,8 @@ const patchSchema = z.object({
         nome: z.string().min(1).max(160),
         qtd: z.number().int().min(1).max(50).optional(),
         pano: z.enum(["TEC", "FOR"]).optional(),
+        // par espelhado: a 2ª peça sai invertida (mão esquerda/direita)
+        espelhada: z.boolean().optional(),
       })
     )
     .min(1)
@@ -74,6 +76,9 @@ export async function PATCH(
       if (!peca) continue; // peça renomeada/removida: ignora em silêncio
       if (ajuste.qtd !== undefined) peca.qtd = ajuste.qtd;
       if (ajuste.pano !== undefined) peca.pano = ajuste.pano;
+      if (ajuste.espelhada !== undefined) peca.espelhada = ajuste.espelhada;
+      // peça com 1 por roupa não tem par pra espelhar
+      if (peca.qtd < 2) peca.espelhada = false;
     }
     await db.cutPlanModel.update({
       where: { id: m.id },
