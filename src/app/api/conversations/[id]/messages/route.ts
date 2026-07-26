@@ -35,6 +35,14 @@ export async function POST(
       return NextResponse.json({ error: "Dados inválidos" }, { status: 400 });
     }
 
+    // mídia (áudio/foto/vídeo/arquivo) sai em SEGUNDO PLANO: a resposta volta
+    // na hora (bolha ⏱️) e o sync confirma o ✓ — segurar a resposta até o fim
+    // da conversão era o que mostrava erro com o áudio já entregue
+    const ehMidia =
+      parsed.data.kind !== "NOTE" &&
+      parsed.data.mediaType !== "TEXT" &&
+      parsed.data.mediaType !== "TEMPLATE";
+
     const message = await sendMessage({
       conversationId: id,
       companyId: user.companyId,
@@ -46,6 +54,7 @@ export async function POST(
       replyToId: parsed.data.replyToId,
       authorId: user.id,
       authorName: user.name,
+      background: ehMidia,
     });
 
     // mídia volta como LINK (não base64) — mesmo formato do sync da inbox

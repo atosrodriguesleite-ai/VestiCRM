@@ -1,3 +1,4 @@
+import { after } from "next/server";
 import { db } from "../db";
 import { decryptSecret } from "../crypto";
 import { intakeLead } from "../intake";
@@ -95,6 +96,13 @@ export type SendMessageInput = {
   replyToId?: string;
   authorId?: string;
   authorName?: string;
+  /**
+   * Envio em SEGUNDO PLANO: a chamada devolve a mensagem ENVIANDO na hora e o
+   * provedor trabalha depois da resposta (after). Usado para mídia (áudio/
+   * foto/vídeo), que demora — segurar a resposta até o fim era o que fazia a
+   * tela mostrar erro com o áudio já entregue no cliente.
+   */
+  background?: boolean;
 };
 
 /** Envia mensagem por qualquer canal. Notas internas nunca saem do CRM. */
@@ -138,64 +146,95 @@ export async function sendMessage(input: SendMessageInput): Promise<Message> {
   }
 
   if (!isNote) {
-    const started = Date.now();
-    const { activeProvider, creds } = await loadCredentials(input.companyId);
-    const provider = resolveProvider(conv.channel, activeProvider, creds);
+    const messageId = message.id;
+    const doSend = async (): Promise<Message> => {
+      const started = Date.now();
+      const { activeProvider, creds } = await loadCredentials(input.companyId);
+      const provider = resolveProvider(conv.channel, activeProvider, creds);
 
-    // conexão sem API oficial: proteção anti-bloqueio SEM travar o vendedor.
-    // Resposta a quem te chamou (janela de 24h) sai na hora; envio proativo/
-    // frio recebe um ritmo humano (intervalo variável) antes de sair.
-    if (conv.channel === "WHATSAPP" && activeProvider === "EVOLUTION") {
-      const janelaMs = WA_JANELA_HORAS * 60 * 60 * 1000;
-      const dentroDaJanela =
-        conv.lastInboundAt && Date.now() - conv.lastInboundAt.getTime() < janelaMs;
-      if (!dentroDaJanela) await paceProactiveSend(input.companyId);
-    }
+      // conexão sem API oficial: proteção anti-bloqueio SEM travar o vendedor.
+      // Resposta a quem te chamou (janela de 24h) sai na hora; envio proativo/
+      // frio recebe um ritmo humano (intervalo variável) antes de sair.
+      if (conv.channel === "WHATSAPP" && activeProvider === "EVOLUTION") {
+        const janelaMs = WA_JANELA_HORAS * 60 * 60 * 1000;
+        const dentroDaJanela =
+          conv.lastInboundAt && Date.now() - conv.lastInboundAt.getTime() < janelaMs;
+        if (!dentroDaJanela) await paceProactiveSend(input.companyId);
+      }
 
-    // resposta a mensagem específica: leva o id externo da citada para o
-    // WhatsApp mostrar a "caixinha" da mensagem original em cima
-    let replyToExternalId: string | undefined;
-    if (input.replyToId) {
-      const citada = await db.message.findFirst({
-        where: { id: input.replyToId, conversationId: conv.id },
-        select: { externalId: true },
-      });
-      replyToExternalId = citada?.externalId ?? undefined;
-    }
+      // resposta a mensagem específica: leva o id externo da citada para o
+      // WhatsApp mostrar a "caixinha" da mensagem original em cima
+      let replyToExternalId: string | undefined;
+      if (input.replyToId) {
+        const citada = await db.message.findFirst({
+          where: { id: input.replyToId, conversationId: conv.id },
+          select: { externalId: true },
+        });
+        replyToExternalId = citada?.externalId ?? undefined;
+      }
 
-    const result = await provider.send({
-      to: conv.customer.phone,
-      text: input.mediaType && input.mediaType !== "TEXT" ? undefined : input.body,
-      mediaType: input.mediaType,
-      mediaUrl: input.mediaUrl,
-      fileName: input.fileName,
-      replyToExternalId,
-    });
-    const durationMs = Date.now() - started;
-
-    message = await db.message.update({
-      where: { id: message.id },
-      data: result.ok
-        ? { status: "ENVIADA", externalId: result.externalId }
-        : { status: "FALHOU", error: result.error },
-    });
-
-    await logEvent({
-      companyId: input.companyId,
-      channel: conv.channel,
-      direction: "OUT",
-      type: "message.sent",
-      status: result.ok ? "OK" : "ERRO",
-      payload: {
-        provider: provider.name,
+      const result = await provider.send({
         to: conv.customer.phone,
-        mediaType: input.mediaType ?? "TEXT",
-        preview: input.body.slice(0, 80),
-      },
-      response: result.ok ? { externalId: result.externalId } : undefined,
-      error: result.ok ? undefined : result.error,
-      durationMs,
-    });
+        text: input.mediaType && input.mediaType !== "TEXT" ? undefined : input.body,
+        mediaType: input.mediaType,
+        mediaUrl: input.mediaUrl,
+        fileName: input.fileName,
+        replyToExternalId,
+      });
+      const durationMs = Date.now() - started;
+
+      // se o eco do webhook já confirmou a mensagem enquanto o provedor
+      // "pensava" (resgate), não regride ENVIADA → FALHOU
+      const updated = await db.message.update({
+        where: { id: messageId },
+        data: result.ok
+          ? { status: "ENVIADA", externalId: result.externalId, error: null }
+          : { status: "FALHOU", error: result.error },
+      });
+
+      await logEvent({
+        companyId: input.companyId,
+        channel: conv.channel,
+        direction: "OUT",
+        type: "message.sent",
+        status: result.ok ? "OK" : "ERRO",
+        payload: {
+          provider: provider.name,
+          to: conv.customer.phone,
+          mediaType: input.mediaType ?? "TEXT",
+          preview: input.body.slice(0, 80),
+        },
+        response: result.ok ? { externalId: result.externalId } : undefined,
+        error: result.ok ? undefined : result.error,
+        durationMs,
+      });
+      return updated;
+    };
+
+    if (input.background) {
+      // devolve ENVIANDO já; o provedor roda depois da resposta e o sync da
+      // inbox (3s) troca o ⏱️ pelo ✓ (ou mostra o erro real com "Reenviar")
+      after(async () => {
+        try {
+          const atual = await db.message.findUnique({ where: { id: messageId } });
+          // eco do webhook pode ter confirmado antes do provedor responder
+          if (atual && atual.status === "ENVIANDO") await doSend();
+        } catch (e) {
+          await db.message
+            .update({
+              where: { id: messageId },
+              data: { status: "FALHOU", error: `Erro no envio: ${String(e).slice(0, 200)}` },
+            })
+            .catch(() => {});
+        }
+        // qualquer desfecho acorda o sync incremental da inbox
+        await db.conversation
+          .update({ where: { id: conv.id }, data: { updatedAt: new Date() } })
+          .catch(() => {});
+      });
+    } else {
+      message = await doSend();
+    }
   }
 
   await db.conversation.update({

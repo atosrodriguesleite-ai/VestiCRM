@@ -117,7 +117,8 @@ export function appBaseUrl() {
 async function evo<T = Record<string, unknown>>(
   method: "GET" | "POST" | "DELETE",
   path: string,
-  body?: unknown
+  body?: unknown,
+  timeoutMs = 45_000
 ): Promise<{ ok: boolean; status: number; data: T | null }> {
   const { url, key } = evolutionEnv();
   if (!url || !key) return { ok: false, status: 0, data: null };
@@ -128,7 +129,7 @@ async function evo<T = Record<string, unknown>>(
       ...(body ? { body: JSON.stringify(body) } : {}),
       // teto de segurança: mídia grande + conversão demoram, mas nunca podem
       // segurar a função até ser morta no meio (erro na tela + envio no ar)
-      signal: AbortSignal.timeout(45_000),
+      signal: AbortSignal.timeout(timeoutMs),
     });
     const data = (await res.json().catch(() => null)) as T | null;
     return { ok: res.ok, status: res.status, data };
@@ -136,6 +137,10 @@ async function evo<T = Record<string, unknown>>(
     return { ok: false, status: 0, data: null };
   }
 }
+
+// mídia demora mais que texto (upload + conversão no servidor de conexão) —
+// ganha um teto maior, ainda dentro do orçamento da função (60s)
+const EVO_MEDIA_TIMEOUT_MS = 50_000;
 
 /** Eventos que a loja precisa receber (inclui apagar/editar do cliente). */
 export const WEBHOOK_EVENTS = [
@@ -238,14 +243,19 @@ export async function evoSendMedia(
   const parts = splitDataUrl(dataUrlOrLink);
   const mimetype = parts?.mimetype ?? undefined;
   const media = parts ? parts.base64 : dataUrlOrLink; // base64 puro ou link http
-  return evo<{ key?: { id?: string } }>("POST", `/message/sendMedia/${instance}`, {
-    number,
-    mediatype: kind,
-    ...(mimetype ? { mimetype } : {}),
-    ...(fileName ? { fileName } : {}),
-    ...(caption ? { caption } : {}),
-    media,
-  });
+  return evo<{ key?: { id?: string } }>(
+    "POST",
+    `/message/sendMedia/${instance}`,
+    {
+      number,
+      mediatype: kind,
+      ...(mimetype ? { mimetype } : {}),
+      ...(fileName ? { fileName } : {}),
+      ...(caption ? { caption } : {}),
+      media,
+    },
+    EVO_MEDIA_TIMEOUT_MS
+  );
 }
 
 /**
@@ -262,7 +272,8 @@ export async function evoSendAudio(
   return evo<{ key?: { id?: string } }>(
     "POST",
     `/message/sendWhatsAppAudio/${instance}`,
-    { number, audio, encoding: true }
+    { number, audio, encoding: true },
+    EVO_MEDIA_TIMEOUT_MS
   );
 }
 
