@@ -21,6 +21,28 @@ export type MedidaTamanho = {
 };
 
 /**
+ * Peças que na roupa saem SEMPRE aos pares — uma de cada lado do corpo, e
+ * a segunda invertida (mão esquerda / mão direita). O Audaces nem sempre
+ * declara o par de um jeito legível, então o nome também vale como pista.
+ */
+const NOMES_EM_PAR = [
+  /\bMANGA/i,
+  /\bMANGUINHA/i,
+  /\bALCA/i,
+  /\bALÇA/i,
+  /\bPUNHO/i,
+  /\bBOLSO/i,
+  /\bPERNA/i,
+  /\bPAR(ES)?\b/i,
+  /\d\s*PAR/i,
+];
+
+/** A peça é um par espelhado (manga, alça, bolso…)? */
+export function ehPecaPar(nome: string): boolean {
+  return NOMES_EM_PAR.some((r) => r.test(nome));
+}
+
+/**
  * Quantidade que o NOME e a DESCRIÇÃO da peça sugerem — usada tanto na
  * importação quanto na tela, pra avisar quando um modelo antigo (lido antes
  * de o sistema entender peça em par) ficou com a quantidade errada.
@@ -29,9 +51,10 @@ export type MedidaTamanho = {
  */
 export function quantidadeSugerida(nome: string, desc?: string): number {
   const porDesc = parseInt((desc ?? "").match(/(\d+)\s*X/i)?.[1] ?? "0", 10) || 0;
-  const par = /\bPAR(ES)?\b|\d\s*PAR/i.test(nome) ? 2 : 0;
+  const par = ehPecaPar(nome) ? 2 : 0;
   // molde COMBINADO: um desenho só que serve duas peças da roupa
-  // ("FRENTE E COSTAS", "GOLA / VIÉS", "FRENTE + COSTAS")
+  // ("FRENTE E COSTAS", "GOLA / VIÉS", "FRENTE + COSTAS"). Não é par
+  // espelhado — são duas partes diferentes tiradas do mesmo desenho.
   const combinado = /\S\s*(?:\bE\b|\/|\+|&)\s*\S/i.test(nome) ? 2 : 0;
   return Math.max(1, porDesc, par, combinado);
 }

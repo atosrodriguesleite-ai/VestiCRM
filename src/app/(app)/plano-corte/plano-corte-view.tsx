@@ -32,7 +32,7 @@ import {
   X,
 } from "lucide-react";
 import { Button, Card, EmptyState, Field, Input, inputCls } from "@/components/ui";
-import { quantidadeSugerida } from "@/lib/plano-corte/types";
+import { ehPecaPar, quantidadeSugerida } from "@/lib/plano-corte/types";
 
 /* ---------- tipos espelhando as APIs ---------- */
 
@@ -56,6 +56,7 @@ type ModeloDetalhe = {
     pano: "TEC" | "FOR";
     qtd: number;
     desc?: string;
+    espelhada?: boolean;
     tamanhos: Record<string, { w: number; h: number; area: number; contorno?: unknown }>;
   }[];
 };
@@ -368,7 +369,7 @@ export function PlanoCorteView() {
   /** Corrige quantas vezes cada peça é cortada por roupa (manga = 2, etc.). */
   async function salvarQuantidades(
     modelId: string,
-    pecas: { nome: string; qtd: number }[]
+    pecas: { nome: string; qtd: number; espelhada?: boolean }[]
   ) {
     const r = await fetch(`/api/plano-corte/modelos/${modelId}`, {
       method: "PATCH",
@@ -839,7 +840,11 @@ export function PlanoCorteView() {
                     // modelo importado ANTES do sistema entender peça em par:
                     // a manga ficou como 1 e o corte sairia sem metade delas
                     const suspeitas = item.detalhe.pieces.filter(
-                      (p) => p.qtd < quantidadeSugerida(p.nome, p.desc)
+                      (p) =>
+                        p.qtd < quantidadeSugerida(p.nome, p.desc) ||
+                        // par com quantidade certa mas sem a marca de
+                        // invertida: sairiam duas mangas do MESMO lado
+                        (ehPecaPar(p.nome) && p.qtd >= 2 && !p.espelhada)
                     );
                     if (suspeitas.length === 0 || editandoQtd === item.detalhe.id)
                       return null;
@@ -847,9 +852,10 @@ export function PlanoCorteView() {
                       <div className="mt-3 rounded-xl border border-amber-300 bg-amber-50 p-2.5">
                         <p className="text-xs text-amber-900">
                           ⚠️ <b>{suspeitas.map((p) => p.nome).join(", ")}</b>{" "}
-                          {suspeitas.length === 1 ? "parece sair" : "parecem sair"} em{" "}
-                          <b>par (2 por roupa)</b>, mas {suspeitas.length === 1 ? "está" : "estão"}{" "}
-                          como 1. Assim o corte sai com metade das peças.
+                          {suspeitas.length === 1 ? "sai" : "saem"} em{" "}
+                          <b>par (2 por roupa, uma invertida)</b>, mas o arquivo
+                          trouxe {suspeitas.length === 1 ? "ela" : "elas"} como 1. Assim
+                          o corte sai com metade das peças.
                         </p>
                         <button
                           type="button"
@@ -859,6 +865,9 @@ export function PlanoCorteView() {
                               item.detalhe.pieces.map((p) => ({
                                 nome: p.nome,
                                 qtd: Math.max(p.qtd, quantidadeSugerida(p.nome, p.desc)),
+                                // molde combinado (FRENTE E COSTAS) NÃO espelha:
+                                // são duas partes diferentes do mesmo desenho
+                                espelhada: p.espelhada || ehPecaPar(p.nome),
                               }))
                             )
                           }
@@ -919,7 +928,10 @@ export function PlanoCorteView() {
                         >
                           {p.nome}
                           {p.qtd > 1 && (
-                            <b className="ml-1 text-brand-700">×{p.qtd}</b>
+                            <b className="ml-1 text-brand-700">
+                              ×{p.qtd}
+                              {p.espelhada ? " ↔" : ""}
+                            </b>
                           )}
                           {p.pano === "FOR" ? (forroOff ? " (forro desligado)" : " (forro)") : ""}
                         </button>
@@ -1296,7 +1308,7 @@ function EditorQuantidades({
   onFechar,
 }: {
   pecas: ModeloDetalhe["pieces"];
-  onSalvar: (pecas: { nome: string; qtd: number }[]) => void;
+  onSalvar: (pecas: { nome: string; qtd: number; espelhada?: boolean }[]) => void;
   onFechar: () => void;
 }) {
   const [qtds, setQtds] = useState<Record<string, number>>(() =>
@@ -1315,6 +1327,12 @@ function EditorQuantidades({
             <span className="min-w-0 truncate text-xs text-slate-600">
               {p.nome}
               {p.pano === "FOR" && <span className="text-slate-400"> (forro)</span>}
+              {(p.espelhada || ehPecaPar(p.nome)) && (
+                <span className="text-brand-600" title="par: a 2ª sai invertida">
+                  {" "}
+                  ↔
+                </span>
+              )}
             </span>
             <span className="flex shrink-0 items-center gap-1">
               <button
@@ -1351,7 +1369,13 @@ function EditorQuantidades({
           type="button"
           onClick={async () => {
             setSalvando(true);
-            await onSalvar(pecas.map((p) => ({ nome: p.nome, qtd: qtds[p.nome] ?? 1 })));
+            await onSalvar(
+              pecas.map((p) => ({
+                nome: p.nome,
+                qtd: qtds[p.nome] ?? 1,
+                espelhada: p.espelhada || ehPecaPar(p.nome),
+              }))
+            );
             setSalvando(false);
           }}
           disabled={salvando}
