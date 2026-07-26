@@ -2001,6 +2001,25 @@ export function Inbox({
                           </button>
                         </div>
                       )}
+                      {/* pendente há tempo demais (envio em 2º plano sem
+                          confirmação): oferece o reenvio em vez de deixar o
+                          ⏱️ eterno */}
+                      {m.status === "ENVIANDO" &&
+                        !isTemp &&
+                        Date.now() - new Date(m.createdAt).getTime() > 120_000 && (
+                          <div className="flex items-center gap-2 mt-1.5 rounded-lg bg-black/15 px-2 py-1">
+                            <span className="text-[10px] flex-1">
+                              Envio não confirmado.
+                            </span>
+                            <button
+                              onClick={() => resend(m.id)}
+                              className="flex items-center gap-1 text-[10px] font-semibold underline underline-offset-2"
+                            >
+                              <RotateCcw className="size-3" />
+                              Reenviar
+                            </button>
+                          </div>
+                        )}
                       {!editando && (
                         <p
                           title={mine ? reciboTitle : undefined}

@@ -308,6 +308,39 @@ export async function POST(
                 where: { conversationId: conv.id, externalId: m.key.id },
               })
             : null;
+          // RESGATE: o eco pode ser uma mensagem que o painel acabou de
+          // enviar mas cuja resposta se perdeu (conversão de mídia lenta →
+          // timeout → "erro" na tela com o áudio JÁ entregue). Adota a
+          // pendente/falhada em vez de criar uma bolha duplicada.
+          if (!exists) {
+            const pendente = await db.message.findFirst({
+              where: {
+                conversationId: conv.id,
+                direction: "OUT",
+                kind: "TEXT",
+                externalId: null,
+                status: { in: ["ENVIANDO", "FALHOU"] },
+                createdAt: { gt: new Date(Date.now() - 10 * 60 * 1000) },
+                ...(mediaType !== "TEXT" ? { mediaType } : { mediaType: "TEXT", body: text }),
+              },
+              orderBy: { createdAt: "desc" },
+            });
+            if (pendente) {
+              await db.message.update({
+                where: { id: pendente.id },
+                data: {
+                  externalId: m.key?.id ?? undefined,
+                  status: "ENVIADA",
+                  error: null,
+                },
+              });
+              await db.conversation.update({
+                where: { id: conv.id },
+                data: { lastMessageAt: new Date(), lastOutboundAt: new Date() },
+              });
+              continue;
+            }
+          }
           if (!exists) {
             await db.message.create({
               data: {
