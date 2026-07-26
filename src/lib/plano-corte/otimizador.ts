@@ -1,4 +1,4 @@
-import { empacotarOrdem, type PecaEncaixe } from "./nesting";
+import { empacotarOrdem, encaixarMelhor, type PecaEncaixe } from "./nesting";
 import {
   montarPlanoMulti,
   pecasDoRiscoMulti,
@@ -288,12 +288,100 @@ export function rodarRodada(
     return true;
   };
 
+  /**
+   * ESVAZIAR UM CORTE EM PACOTE: a jogada que o olho humano vê e a busca
+   * de um-passo-por-vez não alcança — pegar o corte MAIS CURTO e
+   * redistribuir TODAS as roupas dele nas folgas dos outros cortes do
+   * mesmo pano/folhas. Cada passo intermediário piora (os outros crescem),
+   * mas o pacote fecha com uma mesa a menos; por isso é avaliado inteiro,
+   * aceita só se o total (com a perda de folha do corte morto) encurtar.
+   */
+  const tentarEsvaziarCorte = (): boolean => {
+    const grupos = new Map<string, { plano: PlanoPano; riscos: Risco[] }>();
+    for (const plano of resultado!.planos)
+      for (const risco of plano.riscos) {
+        const k = `${plano.pano}|${risco.folhas}`;
+        const g = grupos.get(k) ?? { plano, riscos: [] };
+        g.riscos.push(risco);
+        grupos.set(k, g);
+      }
+    for (const g of [...grupos.values()].filter((x) => x.riscos.length >= 2)) {
+      // vítima: o corte mais curto (menos roupa pra realocar)
+      const vitima = [...g.riscos].sort((a, b) => a.comprimentoCm - b.comprimentoCm)[0];
+      const outros = g.riscos.filter((r) => r !== vitima);
+
+      // distribui unidade por unidade no corte com mais folga na mesa
+      const combos = new Map<Risco, Record<string, number>>(
+        outros.map((r) => [r, { ...r.combo }])
+      );
+      const folga = new Map<Risco, number>(
+        outros.map((r) => [r, params.mesaCm - r.comprimentoCm])
+      );
+      let ok = true;
+      for (const [chave, vezes] of Object.entries(vitima.combo)) {
+        for (let u = 0; u < vezes && ok; u++) {
+          const alvo = [...outros].sort((a, b) => folga.get(b)! - folga.get(a)!)[0];
+          if (!alvo || folga.get(alvo)! <= 0) {
+            ok = false;
+            break;
+          }
+          const c = combos.get(alvo)!;
+          c[chave] = (c[chave] ?? 0) + 1;
+          // estimativa de crescimento: área da roupa ÷ largura (otimista;
+          // a conta de verdade vem do re-encaixe logo abaixo)
+          folga.set(alvo, folga.get(alvo)! - 8);
+        }
+      }
+      if (!ok) continue;
+
+      // re-encaixa os cortes que receberam roupa (funil completo de ordens)
+      estado.tentativas++;
+      const novos: { risco: Risco; combo: Record<string, number>; enc: ReturnType<typeof empacotarOrdem> }[] = [];
+      let depois = 0;
+      let cabe = true;
+      for (const r of outros) {
+        const combo = combos.get(r)!;
+        const pecas = pecasDoRiscoMulti(itens, g.plano.pano, combo, params);
+        estado.tentativas++;
+        const enc = encaixarMelhor(pecas, r.larguraCm, params.folgaCm, permitir180, true);
+        if (enc.pecas.length < pecas.length || enc.comprimentoCm > params.mesaCm) {
+          cabe = false;
+          break;
+        }
+        novos.push({ risco: r, combo, enc: { comprimentoCm: enc.comprimentoCm, pecas: enc.pecas } });
+        depois += enc.comprimentoCm;
+      }
+      if (!cabe) continue;
+
+      const antes =
+        outros.reduce((s, r) => s + r.comprimentoCm, 0) +
+        vitima.comprimentoCm +
+        params.perdaPorFolhaCm; // a folha do corte morto some junto
+      if (depois >= antes - 0.5) continue;
+
+      for (const n of novos) {
+        n.risco.combo = n.combo;
+        n.risco.rotulo = rotuloDoCombo(itens, n.combo);
+        n.risco.comprimentoCm = n.enc.comprimentoCm;
+        n.risco.pecas = n.enc.pecas;
+      }
+      g.plano.riscos.splice(g.plano.riscos.indexOf(vitima), 1);
+      if (!g.plano.estrategiaEnfesto.includes("remanejo"))
+        g.plano.estrategiaEnfesto += " + remanejo entre cortes";
+      recalcularPlano(g.plano, itens, params);
+      return true;
+    }
+    return false;
+  };
+
   // ---- fase MELHORIA: busca local nas sequências dos riscos ----
   if (estado.fase === "MELHORIA" && alvos.length > 0) {
     // com os motores memoizados a mutação ficou barata: vale insistir muito
     // mais antes de declarar beco sem saída
     const LIMITE_SEM_MELHORA = 4000; // mutações seguidas sem ganho → FINO
     let alvoIdx = 0;
+    // primeiro, a jogada grande: dá pra matar uma mesa inteira?
+    while (!acabou() && tentarEsvaziarCorte()) estado.ganhouNoCiclo = true;
     while (!acabou() && estado.semMelhora < LIMITE_SEM_MELHORA) {
       // de vez em quando, tenta mover roupa ENTRE cortes (mesmas folhas)
       if (rng.next() < 0.25) {
@@ -432,6 +520,8 @@ export function rodarRodada(
         estado.semMelhora++;
       }
     }
+    // as sequências melhoraram — tenta a jogada grande de novo antes do FINO
+    while (!acabou() && tentarEsvaziarCorte()) estado.ganhouNoCiclo = true;
     if (estado.semMelhora >= LIMITE_SEM_MELHORA) estado.fase = "FINO";
   }
 
@@ -440,6 +530,26 @@ export function rodarRodada(
     for (const { plano, risco } of alvos) {
       if (!plano.riscos.includes(risco)) continue; // corte eliminado no remanejo
       if (acabou()) break;
+      // o combo pode ter mudado no remanejo: repassa o funil completo de
+      // ordens neste corte (barato agora) antes da lupa
+      const pecasCombo = pecasDoRiscoMulti(itens, plano.pano, risco.combo, params);
+      const cheio = encaixarMelhor(
+        pecasCombo,
+        risco.larguraCm,
+        params.folgaCm,
+        permitir180,
+        true
+      );
+      estado.tentativas += cheio.analises;
+      if (
+        cheio.pecas.length === pecasCombo.length &&
+        cheio.comprimentoCm < risco.comprimentoCm - 0.01
+      ) {
+        risco.comprimentoCm = cheio.comprimentoCm;
+        risco.pecas = cheio.pecas;
+        recalcularPlano(plano, itens, params);
+        estado.ganhouNoCiclo = true;
+      }
       estado.tentativas++;
       const fina = empacotarOrdem(
         sequenciaDoRisco(risco),
