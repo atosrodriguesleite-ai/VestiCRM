@@ -53,7 +53,7 @@ describe("resumo de corte", () => {
     const r = montarPlano(blusa, { ...paramsBase, grade: { P: 1 } });
     const resumo = resumoDeCorte(r.planos);
     expect(resumo.totalRoupas).toBe(1);
-    expect(resumo.pecasPorRoupa).toBe(5);
+    expect(resumo.porModelo[0].pecasPorRoupa).toBe(5);
     expect(resumo.totalPecas).toBe(5);
     const manga = resumo.porPeca.find((p) => p.nome === "MANGA")!;
     expect(manga).toMatchObject({ porRoupa: 2, total: 2 });
@@ -92,7 +92,7 @@ describe("resumo de corte", () => {
     const resumo = resumoDeCorte(r.planos);
     expect(resumo.porPeca.find((p) => p.nome === "GOLA")).toBeUndefined();
     expect(resumo.totalPecas).toBe(12); // 3 roupas × 4 itens
-    expect(resumo.pecasPorRoupa).toBe(4);
+    expect(resumo.porModelo[0].pecasPorRoupa).toBe(4);
   });
 
   // bug real (Toque Leve): o galão de acabamento vinha gradeado só no
@@ -111,8 +111,29 @@ describe("resumo de corte", () => {
     const resumo = resumoDeCorte(r.planos);
     expect(resumo.porPeca.find((p) => p.nome === "GOLA")!.total).toBe(20);
     expect(resumo.totalPecas).toBe(100); // 20 roupas × 5 itens, nada sumiu
-    expect(resumo.pecasPorRoupa).toBe(5);
+    expect(resumo.porModelo[0].pecasPorRoupa).toBe(5);
     expect(r.planos[0].avisos.join(" ")).toContain("GOLA");
+  });
+
+  // caso Toque Leve: 6 modelos, 20 roupas — o total dava 64 (só o tecido)
+  // quando o esperado era 92, porque o forro estava desligado sem avisar
+  it("forro desligado avisa quantas peças ficaram de fora", () => {
+    const comForro = parseDataXml(
+      XML_BLUSA.replace(
+        '<PATTERN NAME_P="GOLA"><DESC_P>1 X TEC</DESC_P>',
+        '<PATTERN NAME_P="GOLA FOR"><DESC_P>1 X FOR</DESC_P>'
+      )
+    );
+    const r = montarPlano(comForro, {
+      ...paramsBase,
+      grade: { P: 10 },
+      incluirForro: false,
+    });
+    const resumo = resumoDeCorte(r.planos);
+    expect(resumo.totalPecas).toBe(40); // 4 itens × 10, sem a gola de forro
+    const aviso = r.planos[0].avisos.join(" ");
+    expect(aviso).toContain("forro está DESLIGADO");
+    expect(aviso).toContain("10 peças");
   });
 
   it("plano com 2 modelos separa a contagem de cada um", () => {
@@ -134,6 +155,25 @@ describe("resumo de corte", () => {
     )!;
     expect(mangaBlusa).toMatchObject({ porRoupa: 2, total: 8 });
     expect(mangaRegata).toMatchObject({ porRoupa: 2, total: 12 });
+  });
+
+  // nada de "4,5 peças por roupa": cada modelo mostra a SUA contagem inteira
+  it("modelos com contagens diferentes não viram média quebrada", () => {
+    const semGola = parseDataXml(
+      XML_BLUSA.replace(/<PATTERN NAME_P="GOLA">[\s\S]*?<\/PATTERN>/, "")
+    );
+    const r = montarPlanoMulti(
+      [
+        { modelo: blusa, grade: { P: 10 } }, // 5 peças por roupa
+        { modelo: { ...semGola, nome: "REGATA" }, grade: { M: 10 } }, // 4 peças
+      ],
+      { ...paramsBase, grade: {} }
+    );
+    const resumo = resumoDeCorte(r.planos);
+    expect(resumo.porModelo).toHaveLength(2);
+    expect(resumo.porModelo.map((m) => m.pecasPorRoupa)).toEqual([5, 4]);
+    expect(resumo.porModelo.map((m) => m.pecas)).toEqual([50, 40]);
+    expect(resumo.totalPecas).toBe(90);
   });
 
   it("forro em risco separado entra na pilha, sem inflar as roupas", () => {

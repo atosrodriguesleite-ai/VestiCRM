@@ -421,12 +421,10 @@ export function PlanoCorteView() {
         return {
           modelId: item.detalhe.id,
           grade,
-          pecasDesligadas: [
-            ...item.pecasDesligadas,
-            ...(!incluirForro
-              ? item.detalhe.pieces.filter((p) => p.pano === "FOR").map((p) => p.nome)
-              : []),
-          ],
+          // só o que o lojista desligou de propósito: o forro inteiro já é
+          // tratado pela chave "Cortar o forro" (e precisa ficar visível pro
+          // sistema poder avisar quantas peças ficaram de fora)
+          pecasDesligadas: [...item.pecasDesligadas],
         };
       })
       .filter((i) => Object.keys(i.grade).length > 0);
@@ -1275,7 +1273,10 @@ export function PlanoCorteView() {
           ))}
 
           {detalhe.resultado?.resumo && (
-            <ResumoDoCorte resumo={detalhe.resultado.resumo} />
+            <ResumoDoCorte
+              resumo={detalhe.resultado.resumo}
+              modelName={detalhe.modelName}
+            />
           )}
         </div>
       )}
@@ -1354,13 +1355,20 @@ export function PlanoCorteView() {
  * metros, pensa em PEÇAS: "2 mangas, 1 gola, frente e costas = 5 itens".
  * Serve pra conferir a pilha no fim e pra saber o que mandar pra costura.
  */
-function ResumoDoCorte({ resumo }: { resumo: ResumoCorte }) {
-  const multi = resumo.porPeca.some((p) => p.modelo);
+function ResumoDoCorte({
+  resumo,
+  modelName,
+}: {
+  resumo: ResumoCorte;
+  modelName?: string | null;
+}) {
+  const multi = resumo.porModelo.length > 1;
   const porModelo = new Map<string, typeof resumo.porPeca>();
   for (const p of resumo.porPeca) {
     const k = p.modelo ?? "";
     porModelo.set(k, [...(porModelo.get(k) ?? []), p]);
   }
+  const nomeDoModelo = (m?: string) => m || modelName || "do corte";
 
   return (
     <Card className="p-5">
@@ -1381,15 +1389,41 @@ function ResumoDoCorte({ resumo }: { resumo: ResumoCorte }) {
           rotulo="roupas prontas"
         />
         <Metrica
-          valor={resumo.pecasPorRoupa.toLocaleString("pt-BR")}
-          rotulo={multi ? "peças por roupa (média)" : "peças por roupa"}
+          valor={
+            multi
+              ? resumo.porModelo.length.toLocaleString("pt-BR")
+              : (resumo.porModelo[0]?.pecasPorRoupa ?? 0).toLocaleString("pt-BR")
+          }
+          rotulo={multi ? "modelos no corte" : "peças por roupa"}
         />
       </div>
+
+      {multi && (
+        <div className="mt-3 flex flex-wrap gap-2">
+          {/* cada modelo tem a SUA contagem — nada de média quebrada */}
+          {resumo.porModelo.map((m) => (
+            <span
+              key={m.modelo ?? ""}
+              className="rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-600"
+            >
+              <b className="text-slate-900">{nomeDoModelo(m.modelo)}</b> ·{" "}
+              {m.pecasPorRoupa} peças por roupa · {m.roupas} roupas ={" "}
+              <b className="text-brand-700">{m.pecas}</b> peças
+            </span>
+          ))}
+        </div>
+      )}
 
       {[...porModelo.entries()].map(([modelo, pecas]) => (
         <div key={modelo} className="mt-4">
           {modelo && (
-            <p className="mb-1.5 text-xs font-semibold text-slate-700">{modelo}</p>
+            <p className="mb-1.5 text-xs font-semibold text-slate-700">
+              {modelo}
+              <span className="ml-2 font-normal text-slate-400">
+                {resumo.porModelo.find((m) => m.modelo === modelo)?.pecasPorRoupa}{" "}
+                peças por roupa
+              </span>
+            </p>
           )}
           <div className="overflow-hidden rounded-xl border border-slate-200">
             <table className="w-full text-sm">
@@ -1426,7 +1460,7 @@ function ResumoDoCorte({ resumo }: { resumo: ResumoCorte }) {
               <tfoot className="border-t border-slate-200 bg-slate-50">
                 <tr>
                   <td className="px-3 py-2 text-xs font-medium text-slate-500" colSpan={2}>
-                    Total {modelo || "do corte"}
+                    Total {nomeDoModelo(modelo)}
                   </td>
                   <td className="px-3 py-2 text-right font-bold tabular-nums text-brand-700">
                     {pecas.reduce((s, p) => s + p.total, 0).toLocaleString("pt-BR")}

@@ -26,10 +26,21 @@ export type LinhaTamanho = {
   pecas: number; // peças a cortar daquele tamanho
 };
 
+/**
+ * Um modelo do corte. Cada modelo tem a SUA contagem de itens por roupa —
+ * uma baby look de 5 peças e uma regata de 4 não viram "4,5 peças".
+ */
+export type LinhaModelo = {
+  modelo?: string; // undefined quando o corte tem um modelo só
+  roupas: number;
+  pecas: number;
+  pecasPorRoupa: number;
+};
+
 export type ResumoCorte = {
   totalPecas: number; // TODAS as peças a cortar (a pilha inteira)
   totalRoupas: number; // roupas que essas peças formam
-  pecasPorRoupa: number; // itens de UMA roupa (ex.: 5)
+  porModelo: LinhaModelo[]; // itens por roupa de CADA modelo
   porPeca: LinhaPeca[]; // maior primeiro
   porTamanho: LinhaTamanho[];
 };
@@ -113,20 +124,29 @@ export function resumoDeCorte(planos: PlanoPano[]): ResumoCorte {
     linha.porRoupa = roupas > 0 ? Math.round((linha.total / roupas) * 100) / 100 : 0;
   }
 
+  // um bloco por modelo: cada um com os SEUS itens por roupa (uma baby look
+  // de 5 peças e uma regata de 4 nunca viram "4,5 peças por roupa")
+  const porModelo: LinhaModelo[] = [...roupasPorModelo.entries()]
+    .sort(([a], [b]) => a - b)
+    .map(([idx, roupas]) => {
+      const linhas = [...porChave.values()].filter((l) => l.idx === idx);
+      return {
+        modelo: linhas[0]?.modelo,
+        roupas,
+        pecas: linhas.reduce((s, l) => s + l.total, 0),
+        pecasPorRoupa:
+          Math.round(linhas.reduce((s, l) => s + l.porRoupa, 0) * 100) / 100,
+      };
+    });
+
   const porPeca = [...porChave.values()]
     .map(({ idx: _idx, ...l }) => l)
     .sort((a, b) => b.total - a.total || a.nome.localeCompare(b.nome));
 
-  const totalPecas = porPeca.reduce((s, l) => s + l.total, 0);
-  const totalRoupas = [...roupasPorModelo.values()].reduce((s, v) => s + v, 0);
-
   return {
-    totalPecas,
-    totalRoupas,
-    // 1 modelo: é o número exato de itens de uma roupa. Vários modelos: é a
-    // média (cada modelo tem a sua contagem em porPeca[].porRoupa).
-    pecasPorRoupa:
-      totalRoupas > 0 ? Math.round((totalPecas / totalRoupas) * 100) / 100 : 0,
+    totalPecas: porPeca.reduce((s, l) => s + l.total, 0),
+    totalRoupas: [...roupasPorModelo.values()].reduce((s, v) => s + v, 0),
+    porModelo,
     porPeca,
     porTamanho: [...porTam.values()].sort((a, b) =>
       a.tamanho.localeCompare(b.tamanho)
