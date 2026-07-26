@@ -94,6 +94,12 @@ export type ParametrosPlano = {
   maxFolhas: number; // altura máxima do enfesto (folhas por vez)
   perdaPorFolhaCm: number; // perda de borda/emenda por folha enfestada
   incluirForro: boolean; // liga/desliga as peças de forro
+  /**
+   * Forro cortado NO MESMO PANO do tecido principal (caso comum quando o
+   * "forro" é a própria malha da peça). As peças de forro entram no mesmo
+   * risco, aproveitando os vãos do tecido — uma metragem só.
+   */
+  forroMesmoTecido?: boolean;
   pecasDesligadas: string[]; // nomes de peças excluídas do plano
   // Tecido com sentido (estampa direcional, veludo): proíbe girar 180° —
   // toda peça sai "de pé", no sentido único do tecido.

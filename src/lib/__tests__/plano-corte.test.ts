@@ -230,6 +230,30 @@ describe("planejador de enfesto", () => {
     expect(totalPecas).toBe(4);
   });
 
+  it("forro no MESMO tecido: um risco só, com as peças de forro dentro", () => {
+    const r = montarPlano(modelo, {
+      ...paramsBase,
+      grade: { P: 2 },
+      forroMesmoTecido: true,
+    });
+    expect(r.planos.map((p) => p.pano)).toEqual(["TEC"]);
+    const tec = r.planos[0];
+    const nomes = new Set(tec.riscos.flatMap((ri) => ri.pecas.map((p) => p.nome)));
+    expect(nomes.has("FRENTE FOR")).toBe(true);
+  });
+
+  it("forro junto gasta MENOS pano que forro em risco separado", () => {
+    const juntos = montarPlano(modelo, {
+      ...paramsBase,
+      grade: { P: 2 },
+      forroMesmoTecido: true,
+    });
+    const separados = montarPlano(modelo, { ...paramsBase, grade: { P: 2 } });
+    const total = (r: typeof juntos) =>
+      r.planos.reduce((s, p) => s + p.totalTecidoCm, 0);
+    expect(total(juntos)).toBeLessThanOrEqual(total(separados));
+  });
+
   it("desligar o forro remove o plano do forro", () => {
     const r = montarPlano(modelo, { ...paramsBase, incluirForro: false });
     expect(r.planos.map((p) => p.pano)).toEqual(["TEC"]);

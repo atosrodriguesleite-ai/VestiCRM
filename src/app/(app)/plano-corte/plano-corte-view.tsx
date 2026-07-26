@@ -169,6 +169,8 @@ export function PlanoCorteView() {
   // configuração do plano
   const [nomePlano, setNomePlano] = useState("");
   const [incluirForro, setIncluirForro] = useState(true);
+  // forro cortado no mesmo pano do tecido (um risco só, uma metragem só)
+  const [forroMesmoTecido, setForroMesmoTecido] = useState(false);
   const [larguraTecido, setLarguraTecido] = useState("160");
   const [larguraForro, setLarguraForro] = useState("");
   const [mesa, setMesa] = useState("500");
@@ -444,6 +446,7 @@ export function PlanoCorteView() {
           mesaCm: num(mesa, 500),
           folgaCm: num(folga, 0.5),
           incluirForro,
+          forroMesmoTecido,
           sentidoUnico,
         }),
       });
@@ -975,7 +978,7 @@ export function PlanoCorteView() {
                 <Field label="Comprimento da mesa (cm)">
                   <Input value={mesa} onChange={(e) => setMesa(e.target.value)} inputMode="decimal" />
                 </Field>
-                {temForro && incluirForro && (
+                {temForro && incluirForro && !forroMesmoTecido && (
                   <Field label="Largura do forro (cm)" hint="vazio = igual ao tecido">
                     <Input
                       value={larguraForro}
@@ -999,13 +1002,31 @@ export function PlanoCorteView() {
               <div className="mt-3 space-y-2">
                 {temForro && (
                   <label className="flex cursor-pointer items-center justify-between rounded-xl border border-slate-200 px-3 py-2.5">
-                    <span className="text-sm font-medium text-slate-800">
-                      Cortar o forro
-                      <span className="ml-2 text-xs font-normal text-slate-400">
-                        risco separado, metragem própria
+                    <span className="min-w-0 pr-3">
+                      <span className="block text-sm font-medium text-slate-800">
+                        Cortar o forro
+                      </span>
+                      <span className="block text-xs font-normal text-slate-400">
+                        {forroMesmoTecido
+                          ? "junto no mesmo risco do tecido"
+                          : "risco separado, metragem própria"}
                       </span>
                     </span>
                     <Switch ligado={incluirForro} onChange={setIncluirForro} />
+                  </label>
+                )}
+                {temForro && incluirForro && (
+                  <label className="flex cursor-pointer items-center justify-between rounded-xl border border-slate-200 px-3 py-2.5">
+                    <span className="min-w-0 pr-3">
+                      <span className="block text-sm font-medium text-slate-800">
+                        O forro é o MESMO tecido
+                      </span>
+                      <span className="block text-xs font-normal text-slate-400">
+                        corta tudo no mesmo risco — as peças de forro preenchem os
+                        vãos e sai uma metragem só
+                      </span>
+                    </span>
+                    <Switch ligado={forroMesmoTecido} onChange={setForroMesmoTecido} />
                   </label>
                 )}
                 <label className="flex cursor-pointer items-center justify-between rounded-xl border border-slate-200 px-3 py-2.5">

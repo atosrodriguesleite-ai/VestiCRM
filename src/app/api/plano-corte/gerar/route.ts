@@ -38,6 +38,7 @@ const schema = z.object({
   maxFolhas: z.number().int().min(1).max(500).default(60),
   perdaPorFolhaCm: z.number().min(0).max(50).default(3),
   incluirForro: z.boolean().default(true),
+  forroMesmoTecido: z.boolean().default(false),
   sentidoUnico: z.boolean().default(false),
 });
 
@@ -71,6 +72,7 @@ export async function POST(req: NextRequest) {
       maxFolhas: d.maxFolhas,
       perdaPorFolhaCm: d.perdaPorFolhaCm,
       incluirForro: d.incluirForro,
+      forroMesmoTecido: d.forroMesmoTecido,
       pecasDesligadas: [],
       sentidoUnico: d.sentidoUnico,
     };
