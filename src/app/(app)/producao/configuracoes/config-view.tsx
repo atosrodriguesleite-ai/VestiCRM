@@ -8,7 +8,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Loader2, Plus, Shirt, Trash2, X } from "lucide-react";
+import { Loader2, Pencil, Plus, Shirt, Trash2, X } from "lucide-react";
 import { Card } from "@/components/ui";
 
 export type Ajustes = {
@@ -348,23 +348,7 @@ function TecidoCard({ tecido: t }: { tecido: TecidoRow }) {
       {t.rolls.length > 0 && (
         <ul className="mt-2 space-y-1">
           {t.rolls.map((rl) => (
-            <li key={rl.id} className="flex items-center justify-between text-xs text-gray-600">
-              <span>
-                <b>{rl.color}</b>
-                {rl.lotCode && <span className="text-gray-400"> · lote {rl.lotCode}</span>} ·{" "}
-                {rl.weightKg.toLocaleString("pt-BR")} kg comprados · R${" "}
-                {rl.pricePerKg.toFixed(2).replace(".", ",")}/kg
-              </span>
-              <span
-                className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${
-                  rl.remainingKg > 0.01
-                    ? "bg-emerald-50 text-emerald-700"
-                    : "bg-gray-100 text-gray-400"
-                }`}
-              >
-                {rl.remainingKg.toLocaleString("pt-BR", { maximumFractionDigits: 2 })} kg restam
-              </span>
-            </li>
+            <RoloLinha key={rl.id} rl={rl} />
           ))}
         </ul>
       )}
@@ -386,6 +370,175 @@ function TecidoCard({ tecido: t }: { tecido: TecidoRow }) {
         </div>
       )}
     </div>
+  );
+}
+
+/* ------------------------------------------------------- rolo (editável) */
+
+/**
+ * Linha do rolo com correção no lugar: cor, lote, peso comprado e preço.
+ * O que já foi destinado a cortes é preservado — corrigir o peso recalcula
+ * só o SALDO (peso novo − já usado), e o servidor recusa peso menor que o
+ * já consumido. Apagar só enquanto o rolo nunca entrou num corte.
+ */
+function RoloLinha({
+  rl,
+}: {
+  rl: {
+    id: string;
+    color: string;
+    lotCode: string | null;
+    weightKg: number;
+    remainingKg: number;
+    pricePerKg: number;
+  };
+}) {
+  const router = useRouter();
+  const [editando, setEditando] = useState(false);
+  const [salvando, setSalvando] = useState(false);
+  const [erro, setErro] = useState("");
+  const [f, setF] = useState({
+    color: rl.color,
+    lotCode: rl.lotCode ?? "",
+    weightKg: String(rl.weightKg).replace(".", ","),
+    pricePerKg: String(rl.pricePerKg).replace(".", ","),
+  });
+
+  const num = (v: string) => parseFloat(v.replace(",", ".")) || 0;
+  const usado = Math.round((rl.weightKg - rl.remainingKg) * 100) / 100;
+
+  async function salvar() {
+    setSalvando(true);
+    setErro("");
+    const res = await fetch(`/api/producao/rolos/${rl.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        color: f.color.trim(),
+        lotCode: f.lotCode.trim() || null,
+        weightKg: num(f.weightKg),
+        pricePerKg: num(f.pricePerKg),
+      }),
+    });
+    setSalvando(false);
+    if (res.ok) {
+      setEditando(false);
+      router.refresh();
+    } else {
+      const d = await res.json().catch(() => ({}));
+      setErro(d.error ?? "Não foi possível salvar o rolo.");
+    }
+  }
+
+  async function apagar() {
+    if (!window.confirm(`Apagar o rolo ${rl.color}?`)) return;
+    setSalvando(true);
+    setErro("");
+    const res = await fetch(`/api/producao/rolos/${rl.id}`, { method: "DELETE" });
+    setSalvando(false);
+    if (res.ok) router.refresh();
+    else {
+      const d = await res.json().catch(() => ({}));
+      setErro(d.error ?? "Não foi possível apagar o rolo.");
+    }
+  }
+
+  if (!editando) {
+    return (
+      <li className="flex items-center justify-between gap-2 text-xs text-gray-600 group">
+        <span className="min-w-0">
+          <b>{rl.color}</b>
+          {rl.lotCode && <span className="text-gray-400"> · lote {rl.lotCode}</span>} ·{" "}
+          {rl.weightKg.toLocaleString("pt-BR")} kg comprados · R${" "}
+          {rl.pricePerKg.toFixed(2).replace(".", ",")}/kg
+          {erro && <span className="block text-rose-600 mt-0.5">{erro}</span>}
+        </span>
+        <span className="flex items-center gap-1.5 shrink-0">
+          <span
+            className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${
+              rl.remainingKg > 0.01
+                ? "bg-emerald-50 text-emerald-700"
+                : "bg-gray-100 text-gray-400"
+            }`}
+          >
+            {rl.remainingKg.toLocaleString("pt-BR", { maximumFractionDigits: 2 })} kg restam
+          </span>
+          <button
+            onClick={() => {
+              setErro("");
+              setEditando(true);
+            }}
+            className="text-gray-300 hover:text-brand-600 p-1 md:opacity-0 md:group-hover:opacity-100 transition"
+            title="Corrigir rolo"
+          >
+            <Pencil className="size-3.5" />
+          </button>
+        </span>
+      </li>
+    );
+  }
+
+  return (
+    <li className="rounded-xl border border-brand-200 bg-brand-50/30 p-2.5">
+      <div className="grid grid-cols-2 gap-2">
+        <input
+          value={f.color}
+          onChange={(e) => setF({ ...f, color: e.target.value })}
+          placeholder="Cor"
+          className={inputCls}
+        />
+        <input
+          value={f.lotCode}
+          onChange={(e) => setF({ ...f, lotCode: e.target.value })}
+          placeholder="Lote (opcional)"
+          className={inputCls}
+        />
+        <input
+          value={f.weightKg}
+          onChange={(e) => setF({ ...f, weightKg: e.target.value })}
+          inputMode="decimal"
+          placeholder="Peso (kg)"
+          className={inputCls}
+        />
+        <input
+          value={f.pricePerKg}
+          onChange={(e) => setF({ ...f, pricePerKg: e.target.value })}
+          inputMode="decimal"
+          placeholder="R$ por kg"
+          className={inputCls}
+        />
+      </div>
+      {usado > 0 && (
+        <p className="text-[10.5px] text-gray-500 mt-1.5">
+          ⚠️ {usado.toLocaleString("pt-BR")} kg já foram destinados a cortes — o peso
+          não pode ficar abaixo disso. Corrigir o preço não altera cortes já fechados.
+        </p>
+      )}
+      {erro && <p className="text-xs text-rose-600 mt-1.5">{erro}</p>}
+      <div className="flex gap-2 mt-2">
+        <button
+          onClick={salvar}
+          disabled={salvando || !f.color.trim() || num(f.weightKg) <= 0}
+          className="flex-1 rounded-xl bg-brand-600 hover:bg-brand-700 text-white text-xs font-medium py-2 transition disabled:opacity-50"
+        >
+          Salvar rolo
+        </button>
+        <button
+          onClick={() => setEditando(false)}
+          className="rounded-xl border border-gray-200 hover:border-gray-300 text-gray-500 text-xs font-medium px-3 py-2 transition"
+        >
+          Cancelar
+        </button>
+        <button
+          onClick={apagar}
+          disabled={salvando}
+          className="rounded-xl border border-gray-200 hover:border-rose-300 text-gray-400 hover:text-rose-600 px-2.5 py-2 transition disabled:opacity-50"
+          title="Apagar rolo"
+        >
+          <Trash2 className="size-3.5" />
+        </button>
+      </div>
+    </li>
   );
 }
 
