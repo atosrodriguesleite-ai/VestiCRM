@@ -22,6 +22,7 @@ import {
   X,
 } from "lucide-react";
 import { Card, EmptyState } from "@/components/ui";
+import { extrasTemFaccao } from "@/lib/producao-faccao";
 
 export type ProdSettings = {
   tables: { name: string; lengthM: number }[];
@@ -1378,6 +1379,10 @@ function Custos({
   const [valor, setValor] = useState("");
   const tecidoPorPeca = c.piecesTotal ? c.fabricCost / c.piecesTotal : 0;
   const extras = items.reduce((a, i) => a + i.value, 0);
+  // a costura já foi lançada à mão nos extras? então o automático se cala
+  // (senão a facção entraria duas vezes no custo completo)
+  const faccaoNosExtras = extrasTemFaccao(items);
+  const faccaoAuto = faccaoNosExtras ? null : faccaoMedia;
   const nrm = (s: string | null | undefined) =>
     (s ?? "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").trim();
   // custo por COR exato: a peça de cada cor paga o rolo da própria cor.
@@ -1430,7 +1435,7 @@ function Custos({
                 {m.color ? ` · ${m.color}` : ""}
                 {m.size ? ` · ${m.size}` : ""} · {m.pieces} un. ({m.pieceWeightG} g)
               </span>
-              <b>{fmtR$(((m.pieceWeightG ?? 0) / 1000) * kgUtilDe(m.color) + extras + (faccaoMedia ?? 0))}/peça</b>
+              <b>{fmtR$(((m.pieceWeightG ?? 0) / 1000) * kgUtilDe(m.color) + extras + (faccaoAuto ?? 0))}/peça</b>
             </p>
           ))}
         </div>
@@ -1444,15 +1449,22 @@ function Custos({
         <div className="rounded-xl bg-brand-50 p-2.5 text-center">
           <p className="text-[10px] uppercase tracking-wide text-brand-400">Completo</p>
           <p className="text-base font-bold text-brand-700">
-            {fmtR$(tecidoPorPeca + extras + (faccaoMedia ?? 0))}
+            {fmtR$(tecidoPorPeca + extras + (faccaoAuto ?? 0))}
             <span className="text-[10px] font-normal text-brand-400">/peça</span>
           </p>
         </div>
       </div>
-      {faccaoMedia != null && (
+      {faccaoAuto != null && (
         <p className="text-[10.5px] text-gray-400 mb-2 leading-snug">
-          O completo inclui <b>costura de facção: {fmtR$(faccaoMedia)}/peça</b> —
+          O completo inclui <b>costura de facção: {fmtR$(faccaoAuto)}/peça</b> —
           média real dos seus lotes fechados (automático).
+        </p>
+      )}
+      {faccaoNosExtras && (
+        <p className="text-[10.5px] text-amber-700 bg-amber-50 rounded-lg px-2 py-1.5 mb-2 leading-snug">
+          Você já lançou a costura nos custos extras, então vale o SEU valor —
+          não somei a média automática das facções pra não contar duas vezes
+          {faccaoMedia != null ? ` (a média dos seus lotes é ${fmtR$(faccaoMedia)}/peça)` : ""}.
         </p>
       )}
       <div className="text-sm text-gray-700 space-y-1">

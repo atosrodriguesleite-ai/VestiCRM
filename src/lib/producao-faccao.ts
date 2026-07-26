@@ -96,6 +96,21 @@ export function custoMedioFaccao(lotes: LoteCusto[]): number | null {
   return boas > 0 ? round2(custo / boas) : null;
 }
 
+/**
+ * O custo de facção já está lançado à mão nos custos extras do corte?
+ *
+ * O "custo completo por peça" soma tecido + extras + a média real da
+ * facção. Se o lojista também cadastrou "Facção" na lista de custos
+ * extras, a costura entraria DUAS VEZES e inflaria o preço de venda
+ * calculado em cima disso. Detectado, o automático se cala e a tela avisa
+ * qual valor está valendo.
+ */
+export function extrasTemFaccao(extras: { name: string }[]): boolean {
+  return extras.some((e) =>
+    /fac[çc][aãa]o|costur|oficina|terceir/i.test((e.name ?? "").trim())
+  );
+}
+
 /** Lote atrasado: prazo de devolução venceu e ainda tem peça fora. */
 export function loteAtrasado(
   lote: { status: string; dueBackDate: Date | string | null },

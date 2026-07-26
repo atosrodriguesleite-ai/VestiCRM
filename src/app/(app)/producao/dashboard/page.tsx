@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 import { PageHeader, Card } from "@/components/ui";
 import {
   custoMedioFaccao,
+  extrasTemFaccao,
   loteAtrasado,
   pagamentoVencido,
   precoDoItem,
@@ -116,12 +117,20 @@ export default async function ProducaoDashboard({
   const faccoes = [...porFaccao.entries()].sort((a, b) => b[1].enviadas - a[1].enviadas);
 
   const fechados = cortes.filter((c) => c.status === "FECHADO");
+  const parciais = cortes.filter((c) => c.status === "PARCIAL");
   const kgCortados = cortes.reduce((a, c) => a + c.usedKg, 0);
-  const pecas = fechados.reduce((a, c) => a + (c.piecesTotal ?? 0), 0);
+  // Peças produzidas acompanha os MESMOS cortes dos quilos cortados: corte
+  // parcial já tirou peças da mesa (elas foram pro estoque de costura), então
+  // contam aqui — senão o rendimento peças/kg apareceria pior do que é.
+  const pecasFechadas = fechados.reduce((a, c) => a + (c.piecesTotal ?? 0), 0);
+  const pecasParciais = parciais.reduce((a, c) => a + (c.piecesFirst ?? 0), 0);
+  const pecas = pecasFechadas + pecasParciais;
 
-  const sobrasDisp = sobras.filter((s) => s.status === "DISPONIVEL" || s.status === "RESERVADA");
+  const sobrasDisp = sobras.filter((s) => s.status === "DISPONIVEL");
+  const sobrasReservadas = sobras.filter((s) => s.status === "RESERVADA");
   const kgSobras = sobrasDisp.reduce((a, s) => a + s.weightKg, 0);
   const valorSobras = sobrasDisp.reduce((a, s) => a + s.value, 0);
+  const kgReservadas = sobrasReservadas.reduce((a, s) => a + s.weightKg, 0);
   const reaproveitadas = sobras.filter((s) => s.status === "CONSUMIDA");
   const economia = reaproveitadas.reduce((a, s) => a + s.value, 0);
   const perdas = sobras.filter((s) => s.status === "PERDA" || s.status === "DESCARTADA");
@@ -154,14 +163,25 @@ export default async function ProducaoDashboard({
   // custo médio por peça (cortes fechados com custo)
   const comCusto = fechados.filter((c) => c.costPerPiece != null && (c.piecesTotal ?? 0) > 0);
   const custoTecidoMedio =
-    fechados.length > 0 && pecas > 0
-      ? fechados.reduce((a, c) => a + c.fabricCost, 0) / Math.max(pecas, 1)
+    fechados.length > 0 && pecasFechadas > 0
+      ? fechados.reduce((a, c) => a + c.fabricCost, 0) / pecasFechadas
       : null;
   const custoMedio =
     comCusto.length > 0
       ? comCusto.reduce((a, c) => a + c.costPerPiece! * c.piecesTotal!, 0) /
         comCusto.reduce((a, c) => a + c.piecesTotal!, 0)
       : null;
+  // A costura já foi lançada à mão nos custos extras dos cortes? Então ela
+  // já está dentro do custoMedio — somar a média das facções por cima
+  // contaria a facção DUAS VEZES no custo completo.
+  const faccaoJaNosExtras = comCusto.some((c) => {
+    try {
+      return extrasTemFaccao(JSON.parse(c.costItems) as { name: string }[]);
+    } catch {
+      return false;
+    }
+  });
+  const faccaoASomar = faccaoJaNosExtras ? null : faccaoMedia;
 
   // rendimento por tecido: corte multi-rolo rateia peças/custo pela fatia
   // de peso de cada tecido dentro do corte
@@ -201,7 +221,8 @@ export default async function ProducaoDashboard({
     const i = diaDe(c.date) - primeiroDia;
     if (i >= 0 && i < nDias) {
       serieKg[i] += c.usedKg;
-      if (c.status === "FECHADO") seriePecas[i] += c.piecesTotal ?? 0;
+      seriePecas[i] +=
+        c.status === "FECHADO" ? (c.piecesTotal ?? 0) : (c.piecesFirst ?? 0);
     }
   }
   const notaSparkline = temPeriodo ? "" : " · gráfico: últimos 30 dias";
@@ -250,13 +271,13 @@ export default async function ProducaoDashboard({
           label="Peças produzidas"
           value={pecas}
           series={seriePecas}
-          hint={`${fechados.length} corte(s) fechados${notaSparkline}`}
+          hint={`${fechados.length} fechado(s)${parciais.length > 0 ? ` + ${parciais.length} parcial(is)` : ""}${notaSparkline}`}
         />
         <StatCard
           label="Sobras disponíveis"
           value={kgSobras}
           format="kg"
-          hint={`${fmtR$(valorSobras)} parados`}
+          hint={`${fmtR$(valorSobras)} parados${kgReservadas > 0 ? ` · +${kgReservadas.toLocaleString("pt-BR", { maximumFractionDigits: 1 })} kg reservados` : ""}`}
           tone="warn"
         />
         <StatCard
@@ -286,12 +307,14 @@ export default async function ProducaoDashboard({
         />
         <StatCard
           label="Custo COMPLETO por peça"
-          value={custoMedio != null ? custoMedio + (faccaoMedia ?? 0) : null}
+          value={custoMedio != null ? custoMedio + (faccaoASomar ?? 0) : null}
           format="brl"
           hint={
-            faccaoMedia != null
-              ? `tecido + extras + facção real (${fmtR$(faccaoMedia)})`
-              : "tecido + custos extras"
+            faccaoJaNosExtras
+              ? "tecido + extras (a costura já está nos seus extras)"
+              : faccaoASomar != null
+                ? `tecido + extras + facção real (${fmtR$(faccaoASomar)})`
+                : "tecido + custos extras"
           }
         />
         <StatCard
