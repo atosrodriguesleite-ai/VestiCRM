@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { parseDataXml } from "../plano-corte/audaces";
-import { montarPlanoMulti, type ItemPedido } from "../plano-corte/enfesto";
+import {
+  aplicarForroMesmoTecido,
+  montarPlanoMulti,
+  type ItemPedido,
+} from "../plano-corte/enfesto";
 import { rodarRodada, type EstadoOtimizacao } from "../plano-corte/otimizador";
 import type { ParametrosPlano, ResultadoPlano } from "../plano-corte/types";
 
@@ -197,5 +201,37 @@ describe("otimizador em rodadas", () => {
     for (const plano of resultado!.planos)
       for (const risco of plano.riscos)
         for (const peca of risco.pecas) expect(peca.rot).toBe(0);
+  });
+
+  // bug real (Toque Leve): com "o forro é o mesmo tecido" ligado, as peças
+  // de forro entravam na 1ª rodada e SUMIAM nas seguintes, porque o
+  // otimizador remonta os riscos a partir da lista original de modelos
+  it("forro no mesmo tecido sobrevive a todas as rodadas", () => {
+    const comForro = parseDataXml(
+      XML_A.replace('<PATTERN NAME_P="COSTAS"><DESC_P>1 X TEC</DESC_P>',
+        '<PATTERN NAME_P="COSTAS FOR"><DESC_P>1 X FOR</DESC_P>')
+    );
+    const p2 = { ...params, forroMesmoTecido: true };
+    const itensForro = aplicarForroMesmoTecido(
+      [{ modelo: comForro, grade: { P: 4, M: 4 } }],
+      p2
+    );
+    const conta = (r: ResultadoPlano) =>
+      r.planos.reduce(
+        (s, pl) => s + pl.riscos.reduce((s2, ri) => s2 + ri.folhas * ri.pecas.length, 0),
+        0
+      );
+    let estado: EstadoOtimizacao | null = null;
+    let resultado: ResultadoPlano | null = null;
+    const totais: number[] = [];
+    for (let i = 0; i < 5; i++) {
+      const r = rodarRodada(itensForro, p2, estado, resultado, 6_000, 500);
+      estado = r.estado;
+      resultado = r.resultado;
+      totais.push(conta(resultado!));
+      if (estado.fase === "DONE") break;
+    }
+    // 8 roupas × 2 peças (frente + costas de forro) = 16, rodada após rodada
+    for (const t of totais) expect(t).toBe(16);
   });
 });

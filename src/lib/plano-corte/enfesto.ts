@@ -200,6 +200,33 @@ export function medidaDaPeca(
   return peca.tamanhos[melhor];
 }
 
+/**
+ * Forro no MESMO pano: as peças de forro passam a valer como tecido e entram
+ * no mesmo risco — preenchem os vãos das peças grandes em vez de gastar uma
+ * metragem à parte.
+ *
+ * IMPORTANTE: isto tem que ser aplicado no MESMO lugar em que a lista de
+ * modelos é montada (`carregarItens`), não só dentro do planejador. O
+ * otimizador remonta as peças de cada risco a cada rodada a partir dessa
+ * lista — se a conversão ficasse só aqui dentro, o forro entrava na primeira
+ * rodada e sumia na segunda. É idempotente: aplicar duas vezes não muda nada.
+ */
+export function aplicarForroMesmoTecido(
+  itens: ItemPedido[],
+  params: Pick<ParametrosPlano, "incluirForro" | "forroMesmoTecido">
+): ItemPedido[] {
+  if (!params.incluirForro || !params.forroMesmoTecido) return itens;
+  return itens.map((item) => ({
+    ...item,
+    modelo: {
+      ...item.modelo,
+      pecas: item.modelo.pecas.map((p) =>
+        p.pano === "FOR" ? { ...p, pano: "TEC" as TipoPano } : p
+      ),
+    },
+  }));
+}
+
 /** Peças que não têm medida própria em algum tamanho pedido (pra avisar). */
 export function pecasNaoGradeadas(
   itens: ItemPedido[],
@@ -611,20 +638,7 @@ export function montarPlanoMulti(
   if (totalRoupas <= 0) throw new Error("Informe a quantidade de pelo menos um tamanho");
   params = { ...params, grade: gradeComposta };
 
-  // Forro no MESMO pano: as peças de forro passam a valer como tecido e
-  // entram no mesmo risco — assim elas preenchem os vãos das peças grandes
-  // em vez de gastar uma metragem à parte. Sai um risco só.
-  if (params.incluirForro && params.forroMesmoTecido) {
-    itens = itens.map((item) => ({
-      ...item,
-      modelo: {
-        ...item.modelo,
-        pecas: item.modelo.pecas.map((p) =>
-          p.pano === "FOR" ? { ...p, pano: "TEC" as TipoPano } : p
-        ),
-      },
-    }));
-  }
+  itens = aplicarForroMesmoTecido(itens, params);
 
   const planos: PlanoPano[] = [];
   let analises = 0;

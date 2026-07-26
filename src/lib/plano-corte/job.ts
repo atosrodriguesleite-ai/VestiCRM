@@ -1,5 +1,5 @@
 import { db } from "../db";
-import type { ItemPedido } from "./enfesto";
+import { aplicarForroMesmoTecido, type ItemPedido } from "./enfesto";
 import type { ModeloCorte, ParametrosPlano, ResultadoPlano } from "./types";
 import { aproveitamentoManchete, type EstadoOtimizacao } from "./otimizador";
 
@@ -37,7 +37,7 @@ export async function carregarItens(
     where: { id: { in: ids }, companyId },
   });
   const porId = new Map(modelos.map((m) => [m.id, m]));
-  return params.itens.map((i) => {
+  const itens = params.itens.map((i) => {
     const m = porId.get(i.modelId);
     if (!m) throw new Error("Um dos modelos do plano não existe mais");
     const modelo: ModeloCorte = {
@@ -48,6 +48,9 @@ export async function carregarItens(
     };
     return { modelo, grade: i.grade, pecasDesligadas: i.pecasDesligadas };
   });
+  // o forro "mesmo tecido" vira tecido AQUI, na origem da lista: as rodadas
+  // do otimizador remontam as peças a partir dela
+  return aplicarForroMesmoTecido(itens, params);
 }
 
 type RunRow = {
