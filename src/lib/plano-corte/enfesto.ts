@@ -200,6 +200,7 @@ export function pecasDoRiscoMulti(
           h: g.h,
           area: g.area,
           espelhada: espelhar || undefined,
+          modeloIdx: idx,
           contorno: g.contorno,
         });
       }

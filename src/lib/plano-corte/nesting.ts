@@ -28,6 +28,7 @@ export type PecaEncaixe = {
   h: number;
   area: number;
   espelhada?: boolean; // instância invertida do par (mão contrária)
+  modeloIdx?: number; // qual modelo do plano (plano com vários modelos)
   contorno?: Contorno;
 };
 
@@ -147,6 +148,7 @@ function empacotar(
       h: p.h,
       rot: melhor.rot,
       espelhada: p.espelhada,
+      modeloIdx: p.modeloIdx,
       contorno: p.contorno,
     });
     const fim = melhor.y + p.h;
@@ -249,6 +251,7 @@ function empacotarGrade(
       h: p.h,
       rot: melhor.rot,
       espelhada: p.espelhada,
+      modeloIdx: p.modeloIdx,
       contorno: p.contorno,
     });
     const fim = yCm + p.h;

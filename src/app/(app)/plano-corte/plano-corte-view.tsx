@@ -16,6 +16,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Brain,
   CheckCircle2,
+  ClipboardList,
   Download,
   FileUp,
   Loader2,
@@ -33,6 +34,7 @@ import {
 } from "lucide-react";
 import { Button, Card, EmptyState, Field, Input, inputCls } from "@/components/ui";
 import { ehPecaPar, quantidadeSugerida } from "@/lib/plano-corte/types";
+import type { ResumoCorte } from "@/lib/plano-corte/resumo";
 
 /* ---------- tipos espelhando as APIs ---------- */
 
@@ -108,6 +110,7 @@ type DetalhePlano = Progresso & {
     planos: PlanoResp[];
     totalPecasRoupa: number;
     analises: number;
+    resumo?: ResumoCorte;
   } | null;
 };
 
@@ -1270,6 +1273,10 @@ export function PlanoCorteView() {
               </div>
             </Card>
           ))}
+
+          {detalhe.resultado?.resumo && (
+            <ResumoDoCorte resumo={detalhe.resultado.resumo} />
+          )}
         </div>
       )}
 
@@ -1341,6 +1348,108 @@ export function PlanoCorteView() {
 }
 
 /* ---------- peças de UI locais ---------- */
+
+/**
+ * Resumo de corte — a lista que vai pra mesa. Quem corta não pensa em
+ * metros, pensa em PEÇAS: "2 mangas, 1 gola, frente e costas = 5 itens".
+ * Serve pra conferir a pilha no fim e pra saber o que mandar pra costura.
+ */
+function ResumoDoCorte({ resumo }: { resumo: ResumoCorte }) {
+  const multi = resumo.porPeca.some((p) => p.modelo);
+  const porModelo = new Map<string, typeof resumo.porPeca>();
+  for (const p of resumo.porPeca) {
+    const k = p.modelo ?? "";
+    porModelo.set(k, [...(porModelo.get(k) ?? []), p]);
+  }
+
+  return (
+    <Card className="p-5">
+      <h3 className="mb-1 flex items-center gap-2 text-base font-semibold text-slate-900">
+        <ClipboardList className="size-4 text-brand-600" /> Resumo do corte
+      </h3>
+      <p className="mb-4 text-xs text-slate-500">
+        Confira a pilha no fim do corte com esta lista.
+      </p>
+
+      <div className="grid grid-cols-3 gap-3">
+        <Metrica
+          valor={resumo.totalPecas.toLocaleString("pt-BR")}
+          rotulo="peças pra cortar no total"
+        />
+        <Metrica
+          valor={resumo.totalRoupas.toLocaleString("pt-BR")}
+          rotulo="roupas prontas"
+        />
+        <Metrica
+          valor={resumo.pecasPorRoupa.toLocaleString("pt-BR")}
+          rotulo={multi ? "peças por roupa (média)" : "peças por roupa"}
+        />
+      </div>
+
+      {[...porModelo.entries()].map(([modelo, pecas]) => (
+        <div key={modelo} className="mt-4">
+          {modelo && (
+            <p className="mb-1.5 text-xs font-semibold text-slate-700">{modelo}</p>
+          )}
+          <div className="overflow-hidden rounded-xl border border-slate-200">
+            <table className="w-full text-sm">
+              <thead className="bg-slate-50 text-xs text-slate-500">
+                <tr>
+                  <th className="px-3 py-2 text-left font-medium">Peça</th>
+                  <th className="px-3 py-2 text-right font-medium">Por roupa</th>
+                  <th className="px-3 py-2 text-right font-medium">Total a cortar</th>
+                </tr>
+              </thead>
+              <tbody>
+                {pecas.map((p) => (
+                  <tr key={`${p.pano}-${p.nome}`} className="border-t border-slate-100">
+                    <td className="px-3 py-2 text-slate-700">
+                      {p.nome}
+                      {p.pano === "FOR" && (
+                        <span className="ml-1 text-xs text-slate-400">(forro)</span>
+                      )}
+                    </td>
+                    <td className="px-3 py-2 text-right tabular-nums text-slate-500">
+                      {p.porRoupa.toLocaleString("pt-BR")}×
+                    </td>
+                    <td className="px-3 py-2 text-right font-semibold tabular-nums text-slate-900">
+                      {p.total.toLocaleString("pt-BR")}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot className="border-t border-slate-200 bg-slate-50">
+                <tr>
+                  <td className="px-3 py-2 text-xs font-medium text-slate-500" colSpan={2}>
+                    Total {modelo || "do corte"}
+                  </td>
+                  <td className="px-3 py-2 text-right font-bold tabular-nums text-brand-700">
+                    {pecas.reduce((s, p) => s + p.total, 0).toLocaleString("pt-BR")}
+                  </td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        </div>
+      ))}
+
+      <div className="mt-4">
+        <p className="mb-1.5 text-xs font-semibold text-slate-700">Por tamanho</p>
+        <div className="flex flex-wrap gap-2">
+          {resumo.porTamanho.map((t) => (
+            <span
+              key={t.tamanho}
+              className="rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-600"
+            >
+              <b className="text-slate-900">{t.tamanho}</b> · {t.roupas} roupas ·{" "}
+              {t.pecas} peças
+            </span>
+          ))}
+        </div>
+      </div>
+    </Card>
+  );
+}
 
 /**
  * Editor de "peças por roupa": manga e alça saem em PAR (2 do mesmo molde),

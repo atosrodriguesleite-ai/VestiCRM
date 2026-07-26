@@ -76,6 +76,7 @@ function sequenciaDoRisco(risco: Risco): PecaEncaixe[] {
     h: p.h,
     area: p.w * p.h, // aproximação só pra ordenar; aproveitamento é recalculado à parte
     espelhada: p.espelhada,
+    modeloIdx: p.modeloIdx,
     contorno: p.contorno,
   }));
 }

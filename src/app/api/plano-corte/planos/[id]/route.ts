@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 import { requirePlanoCorte, planoCorteErro } from "@/lib/plano-corte-auth";
 import { riscoParaSvg } from "@/lib/plano-corte/svg";
 import { progressoDoRun, type ParamsJob } from "@/lib/plano-corte/job";
+import { resumoDeCorte } from "@/lib/plano-corte/resumo";
 import type { ResultadoPlano } from "@/lib/plano-corte/types";
 import type { EstadoOtimizacao } from "@/lib/plano-corte/otimizador";
 
@@ -48,6 +49,9 @@ export async function GET(
       resultado: resultado
         ? {
             ...resultado,
+            // contagem de peças pra conferir na mesa (calculada aqui porque
+            // as posições completas não vão pra tela)
+            resumo: resumoDeCorte(resultado.planos),
             planos: resultado.planos.map((p) => ({
               ...p,
               riscos: p.riscos.map((r) => ({
