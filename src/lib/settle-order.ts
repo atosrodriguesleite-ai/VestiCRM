@@ -3,6 +3,7 @@ import { orderNumber, PAID_ORDER_STATUSES } from "./orders";
 import { notifySalePaid } from "./push";
 import { pushStockToNuvemshop } from "./nuvemshop";
 import { pushStockToJueri } from "./jueri";
+import { winLinkedOpportunity } from "./opportunity-sync";
 
 /**
  * Liquidação AUTOMÁTICA de pedido pago (Pix confirmado pelo gateway).
@@ -114,6 +115,8 @@ export async function settleOrderPaid(
     where: { id: order.customerId },
     data: { lastPurchaseAt: agora, lastContactAt: agora },
   });
+  // FUNIL acompanha: pedido pago → negociação ligada vira GANHA
+  await winLinkedOpportunity(order.companyId, order.opportunityId);
   await db.orderEvent.create({
     data: {
       orderId: order.id,

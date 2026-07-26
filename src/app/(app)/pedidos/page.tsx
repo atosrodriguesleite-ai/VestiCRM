@@ -59,6 +59,24 @@ export default async function OrdersPage({
   if (canal === "atacadopro") where.source = { not: "NUVEMSHOP" };
   const dateQS = `${de ? `&de=${de}` : ""}${ate ? `&ate=${ate}` : ""}${canal ? `&canal=${canal}` : ""}`;
 
+  // filtros cruzados: os chips de STATUS respeitam o canal escolhido e os
+  // chips de CANAL respeitam o status escolhido — os números sempre batem
+  // com a lista exibida (antes cada grupo de chips ignorava o outro filtro)
+  const canalWhere: Prisma.OrderWhereInput =
+    canal === "nuvemshop"
+      ? { source: "NUVEMSHOP" }
+      : canal === "atacadopro"
+        ? { source: { not: "NUVEMSHOP" } }
+        : {};
+  const statusWhere: Prisma.OrderWhereInput =
+    !buscando && status && ORDER_STATUS_FLOW.includes(status as OrderStatus)
+      ? { status: status as OrderStatus }
+      : {};
+  const periodoWhere: Prisma.OrderWhereInput =
+    from || to
+      ? { createdAt: { ...(from ? { gte: from } : {}), ...(to ? { lte: to } : {}) } }
+      : {};
+
   const [orders, counts] = await Promise.all([
     db.order.findMany({
       where,
@@ -73,12 +91,7 @@ export default async function OrdersPage({
     }),
     db.order.groupBy({
       by: ["status"],
-      where: {
-        ...orderScope(user),
-        ...(from || to
-          ? { createdAt: { ...(from ? { gte: from } : {}), ...(to ? { lte: to } : {}) } }
-          : {}),
-      },
+      where: { ...orderScope(user), ...periodoWhere, ...canalWhere },
       _count: true,
     }),
   ]);
@@ -90,12 +103,7 @@ export default async function OrdersPage({
 
   const bySource = await db.order.groupBy({
     by: ["source"],
-    where: {
-      ...orderScope(user),
-      ...(from || to
-        ? { createdAt: { ...(from ? { gte: from } : {}), ...(to ? { lte: to } : {}) } }
-        : {}),
-    },
+    where: { ...orderScope(user), ...periodoWhere, ...statusWhere },
     _count: true,
   });
   const nsCount = bySource.find((r) => r.source === "NUVEMSHOP")?._count ?? 0;

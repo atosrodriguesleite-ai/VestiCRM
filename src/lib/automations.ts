@@ -98,9 +98,16 @@ export async function computeAutomations(
     });
   }
 
-  // Regra 4 — negociação perdida: campanha de reativação
+  // Regra 4 — negociação perdida há 30-180 dias: campanha de reativação.
+  // (Antes pegava perdas dos ÚLTIMOS 60 dias — sugeria "reativar" cliente
+  // que acabou de dizer não, e parava de sugerir justamente quando o tempo
+  // de reaproximação chegava.)
   const lostOpps = await db.opportunity.findMany({
-    where: { ...scope, status: "LOST", closedAt: { gt: days(60) } },
+    where: {
+      ...scope,
+      status: "LOST",
+      closedAt: { lt: days(30), gt: days(180) },
+    },
     include: { customer: true },
   });
   for (const o of lostOpps) {

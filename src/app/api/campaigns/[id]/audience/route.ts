@@ -80,13 +80,21 @@ export async function POST(
       data: { lastContactAt: new Date() },
     });
 
-    // todos receberam? campanha concluída
+    // todos receberam? campanha concluída. O público é DINÂMICO (o filtro
+    // roda de novo a cada consulta), então a conta certa é a INTERSEÇÃO:
+    // quantos do público ATUAL já receberam — não o total bruto de envios
+    // (que pode incluir gente que saiu do filtro e mascarar pendentes).
     const filter = JSON.parse(campaign.filterJson || "{}") as SegmentFilter;
     const [audience, sends] = await Promise.all([
       evaluateSegment(user, filter),
-      db.campaignSend.count({ where: { campaignId: id } }),
+      db.campaignSend.findMany({
+        where: { campaignId: id },
+        select: { customerId: true },
+      }),
     ]);
-    if (audience.length > 0 && sends >= audience.length) {
+    const sentSet = new Set(sends.map((s) => s.customerId));
+    const cobertos = audience.filter((a) => sentSet.has(a.id)).length;
+    if (audience.length > 0 && cobertos >= audience.length) {
       await db.campaign.update({
         where: { id },
         data: { status: "CONCLUIDA" },

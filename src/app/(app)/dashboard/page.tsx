@@ -361,7 +361,11 @@ export default async function DashboardPage({
     .sort((a, b) => b.value - a.value)
     .slice(0, 6);
 
-  const overdue = nextTasks.filter((t) => t.dueAt < now).length;
+  // conta TODAS as pendentes vencidas (antes contava só entre as 7 exibidas
+  // na lista — o cartão travava em "7" mesmo com 20 atrasadas)
+  const overdue = await db.task.count({
+    where: { ...taskScope(user), status: "PENDENTE", dueAt: { lt: now } },
+  });
 
   // metas: vendido no mês por vendedor + meta própria (quando vendedor)
   const soldBySeller = new Map<string, number>();

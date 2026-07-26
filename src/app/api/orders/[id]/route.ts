@@ -10,6 +10,12 @@ import { pushStockToNuvemshop } from "@/lib/nuvemshop";
 import { pushStockToJueri } from "@/lib/jueri";
 import { orderStatusLabel, orderNumber, PAID_ORDER_STATUSES, ORDER_STATUS_FLOW } from "@/lib/orders";
 import { computeOrderTotals } from "@/lib/orders";
+import {
+  winLinkedOpportunity,
+  loseLinkedOpportunity,
+  reopenLinkedOpportunity,
+  syncOpportunityValue,
+} from "@/lib/opportunity-sync";
 
 // Estoque fica RESERVADO em qualquer etapa que não seja Cancelado (o orçamento
 // já reserva). Só o cancelamento devolve. O faturamento (venda) continua sendo
@@ -204,6 +210,8 @@ export async function PATCH(
           },
         });
       });
+      // o valor da negociação no FUNIL acompanha o novo total do pedido
+      await syncOpportunityValue(user.companyId, order.opportunityId, totals.total);
       // se veio SÓ a edição de itens, responde aqui
       if (!parsed.data.status && !parsed.data.notes && parsed.data.sellerId === undefined && !parsed.data.customerId && !parsed.data.paymentMethod && parsed.data.trackingCode === undefined && parsed.data.shippingMethod === undefined) {
         const updated = await db.order.findUnique({ where: { id: order.id } });
@@ -340,13 +348,19 @@ export async function PATCH(
             data: { status: "CONFIRMADO", paidAt: new Date() },
           });
         }
+        // total ATUAL do banco: se os itens foram editados nesta mesma
+        // chamada, `order.total` (lido no começo) estaria desatualizado
+        const atual = await db.order.findUnique({
+          where: { id: order.id },
+          select: { total: true },
+        });
         await db.sale.create({
           data: {
             companyId: user.companyId,
             customerId: order.customerId,
             sellerId: order.sellerId,
             orderId: order.id,
-            total: order.total,
+            total: atual?.total ?? order.total,
             description: `Pedido ${orderNumber(order.number)}`,
             category: "Pedido",
           },
@@ -355,6 +369,17 @@ export async function PATCH(
           where: { id: order.customerId },
           data: { lastPurchaseAt: new Date() },
         });
+      }
+
+      // FUNIL acompanha o pedido: pago → GANHO; cancelado → PERDIDO;
+      // reaberto (saiu de pago/cancelado sem fechar) → volta a ABERTA.
+      // Antes a negociação ficava aberta para sempre e o funil não batia.
+      if (enteringPaid) {
+        await winLinkedOpportunity(user.companyId, order.opportunityId);
+      } else if (newStatus === "CANCELADO") {
+        await loseLinkedOpportunity(user.companyId, order.opportunityId);
+      } else if (leavingPaid || order.status === "CANCELADO") {
+        await reopenLinkedOpportunity(user.companyId, order.opportunityId);
       }
 
       // Envio: Enviado marca a saída; Entregue implica que todo o processo
