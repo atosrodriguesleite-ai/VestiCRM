@@ -779,8 +779,10 @@ export function PlanoCorteView() {
                       <Shirt className="size-4 shrink-0 text-slate-400" />
                       <span className="truncate">{item.detalhe.name}</span>
                       <span className="shrink-0 text-xs font-normal text-slate-400">
-                        {pecasTec.length} no tecido
-                        {pecasFor.length > 0 && ` + ${pecasFor.length} no forro`}
+                        {pecasTec.length} molde(s) no tecido
+                        {pecasFor.length > 0 && ` + ${pecasFor.length} no forro`} ·{" "}
+                        {item.detalhe.pieces.reduce((s, p) => s + p.qtd, 0)} peças por
+                        roupa
                       </span>
                     </p>
                     <span className="flex shrink-0 items-center gap-1">
@@ -937,6 +939,19 @@ export function PlanoCorteView() {
                         </button>
                       );
                     })}
+                    {/* atalho no lugar onde o lojista está olhando: as peças */}
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setEditandoQtd(
+                          editandoQtd === item.detalhe.id ? null : item.detalhe.id
+                        )
+                      }
+                      className="rounded-lg border border-dashed border-brand-300 px-2 py-1 text-xs font-medium text-brand-700 transition hover:bg-brand-50"
+                      title="Manga, alça e bolso saem em par — ajuste aqui quantas vezes cada peça é cortada"
+                    >
+                      ✏️ quantas de cada peça
+                    </button>
                   </div>
                 </div>
               );
@@ -1314,6 +1329,10 @@ function EditorQuantidades({
   const [qtds, setQtds] = useState<Record<string, number>>(() =>
     Object.fromEntries(pecas.map((p) => [p.nome, p.qtd]))
   );
+  // quais saem em PAR (a 2ª invertida): começa no que o arquivo/nome dizem
+  const [pares, setPares] = useState<Record<string, boolean>>(() =>
+    Object.fromEntries(pecas.map((p) => [p.nome, Boolean(p.espelhada) || ehPecaPar(p.nome)]))
+  );
   const [salvando, setSalvando] = useState(false);
 
   return (
@@ -1327,14 +1346,28 @@ function EditorQuantidades({
             <span className="min-w-0 truncate text-xs text-slate-600">
               {p.nome}
               {p.pano === "FOR" && <span className="text-slate-400"> (forro)</span>}
-              {(p.espelhada || ehPecaPar(p.nome)) && (
-                <span className="text-brand-600" title="par: a 2ª sai invertida">
-                  {" "}
-                  ↔
-                </span>
-              )}
             </span>
             <span className="flex shrink-0 items-center gap-1">
+              {/* atalho de par: 2 peças, a segunda invertida */}
+              <button
+                type="button"
+                onClick={() => {
+                  const virar = !pares[p.nome];
+                  setPares((v) => ({ ...v, [p.nome]: virar }));
+                  setQtds((q) => ({
+                    ...q,
+                    [p.nome]: virar ? Math.max(2, q[p.nome] ?? 1) : 1,
+                  }));
+                }}
+                className={`rounded-lg border px-1.5 py-0.5 text-[11px] font-medium transition ${
+                  pares[p.nome]
+                    ? "border-brand-300 bg-brand-100 text-brand-800"
+                    : "border-slate-200 bg-white text-slate-400"
+                }`}
+                title="Sai em par: 2 peças, a segunda invertida (manga, alça, bolso)"
+              >
+                ↔ par
+              </button>
               <button
                 type="button"
                 onClick={() =>
@@ -1361,8 +1394,9 @@ function EditorQuantidades({
         ))}
       </div>
       <p className="mt-2 text-[11px] text-slate-400">
-        💡 Manga, alça e bolso normalmente saem em <b>par (2)</b>. O sistema lê
-        isso do Audaces, mas nem todo molde declara — confira aqui.
+        💡 <b>↔ par</b> = a peça sai 2 vezes, a segunda invertida (manga, alça,
+        bolso). Use o <b>+</b> quando o mesmo molde serve mais partes da roupa
+        sem inverter (ex.: frente e costas no mesmo desenho).
       </p>
       <div className="mt-2 flex gap-2">
         <button
@@ -1373,7 +1407,7 @@ function EditorQuantidades({
               pecas.map((p) => ({
                 nome: p.nome,
                 qtd: qtds[p.nome] ?? 1,
-                espelhada: p.espelhada || ehPecaPar(p.nome),
+                espelhada: Boolean(pares[p.nome]),
               }))
             );
             setSalvando(false);
