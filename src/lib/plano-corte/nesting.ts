@@ -30,6 +30,16 @@ export type PecaEncaixe = {
   espelhada?: boolean; // instância invertida do par (mão contrária)
   modeloIdx?: number; // qual modelo do plano (plano com vários modelos)
   contorno?: Contorno;
+  /**
+   * CASAL PÉ-COM-CABEÇA: esta "peça" é um bloco de duas peças iguais, a
+   * segunda de cabeça pra baixo, travadas no melhor encaixe entre elas.
+   * O perfil do bloco vem pronto; ao posicionar, o empacotador grava as
+   * DUAS peças de verdade (membros) — o bloco nunca sai pro risco.
+   */
+  membros?: { peca: PecaEncaixe; rot: 0 | 180; dxCm: number; dyCm: number }[];
+  perfilPronto?: Perfil;
+  perfilProntoRes?: number;
+  perfilProntoFolga?: number;
 };
 
 export type ResultadoEncaixe = {
@@ -79,6 +89,10 @@ const cachePerfilCurva = new WeakMap<Contorno, Map<string, Perfil>>();
 const cachePerfilCaixa = new Map<string, Perfil>();
 
 function perfilDaPeca(p: PecaEncaixe, rot: 0 | 180, folgaCm: number, res: number): Perfil {
+  // casal pré-montado: o perfil já existe (só na resolução/folga de origem;
+  // fora delas cai na caixa, que é conservadora e nunca sobrepõe)
+  if (p.perfilPronto && rot === 0 && res === p.perfilProntoRes && folgaCm === p.perfilProntoFolga)
+    return p.perfilPronto;
   const chave = `${rot}|${folgaCm}|${res}|${p.w}|${p.h}`;
   if (p.contorno && p.contorno.length >= 3) {
     let porChave = cachePerfilCurva.get(p.contorno);
@@ -145,10 +159,11 @@ function empacotar(
   usarRotacao: boolean,
   tetoCm = Infinity, // melhor risco já achado: passou dele, desiste (poda)
   res = RES // resolução do perfil (0,25 na "lupa fina" do modo caprichado)
-): { comprimentoCm: number; pos: Posicionamento[] } {
+): { comprimentoCm: number; pos: Posicionamento[]; colocadas: number } {
   const colsTecido = Math.max(1, Math.floor((larguraCm + folgaCm) / res));
   const alturaCol = new Array<number>(colsTecido).fill(0);
   const pos: Posicionamento[] = [];
+  let colocadas = 0;
   let comprimento = 0;
 
   for (const p of pecas) {
@@ -180,23 +195,40 @@ function empacotar(
       if (novo > alturaCol[melhor.x + c]) alturaCol[melhor.x + c] = novo;
     }
     const xCm = melhor.x * res;
-    pos.push({
-      nome: p.nome,
-      tamanho: p.tamanho,
-      x: Math.round(xCm * 100) / 100,
-      y: Math.round(melhor.y * 100) / 100,
-      w: p.w,
-      h: p.h,
-      rot: melhor.rot,
-      espelhada: p.espelhada,
-      modeloIdx: p.modeloIdx,
-      contorno: p.contorno,
-    });
+    if (p.membros) {
+      // grava as peças de verdade do casal, já nas posições absolutas
+      for (const m of p.membros)
+        pos.push({
+          nome: m.peca.nome,
+          tamanho: m.peca.tamanho,
+          x: Math.round((xCm + m.dxCm) * 100) / 100,
+          y: Math.round((melhor.y + m.dyCm) * 100) / 100,
+          w: m.peca.w,
+          h: m.peca.h,
+          rot: m.rot,
+          espelhada: m.peca.espelhada,
+          modeloIdx: m.peca.modeloIdx,
+          contorno: m.peca.contorno,
+        });
+    } else
+      pos.push({
+        nome: p.nome,
+        tamanho: p.tamanho,
+        x: Math.round(xCm * 100) / 100,
+        y: Math.round(melhor.y * 100) / 100,
+        w: p.w,
+        h: p.h,
+        rot: melhor.rot,
+        espelhada: p.espelhada,
+        modeloIdx: p.modeloIdx,
+        contorno: p.contorno,
+      });
+    colocadas += p.membros ? p.membros.length : 1;
     const fim = melhor.y + p.h;
     if (fim > comprimento) comprimento = fim;
-    if (comprimento >= tetoCm) return { comprimentoCm: Infinity, pos: [] }; // já perdeu
+    if (comprimento >= tetoCm) return { comprimentoCm: Infinity, pos: [], colocadas: 0 }; // já perdeu
   }
-  return { comprimentoCm: Math.round(comprimento * 100) / 100, pos };
+  return { comprimentoCm: Math.round(comprimento * 100) / 100, pos, colocadas };
 }
 
 /**
@@ -225,7 +257,7 @@ function empacotarGrade(
   usarRotacao: boolean,
   tetoCm = Infinity, // melhor risco já achado: passou dele, desiste (poda)
   res = RES // resolução das células (0,25 na "lupa fina")
-): { comprimentoCm: number; pos: Posicionamento[] } {
+): { comprimentoCm: number; pos: Posicionamento[]; colocadas: number } {
   const cols = Math.max(1, Math.floor((larguraCm + folgaCm) / res));
 
   // Ocupação por coluna guardada como INTERVALOS [s, e) ordenados e sem
@@ -275,6 +307,7 @@ function empacotarGrade(
 
   const tetoCel = Number.isFinite(tetoCm) ? Math.ceil(tetoCm / res) + 4 : Infinity;
   const pos: Posicionamento[] = [];
+  let colocadas = 0;
   let comprimento = 0;
 
   for (const p of pecas) {
@@ -321,23 +354,40 @@ function empacotarGrade(
     for (let c = 0; c < melhor.fx.length; c++)
       marca(melhor.x + c, melhor.y + melhor.fx[c].b, melhor.y + melhor.fx[c].t);
     const yCm = melhor.y * res;
-    pos.push({
-      nome: p.nome,
-      tamanho: p.tamanho,
-      x: Math.round(melhor.x * res * 100) / 100,
-      y: Math.round(yCm * 100) / 100,
-      w: p.w,
-      h: p.h,
-      rot: melhor.rot,
-      espelhada: p.espelhada,
-      modeloIdx: p.modeloIdx,
-      contorno: p.contorno,
-    });
+    const xCmG = melhor.x * res;
+    if (p.membros) {
+      for (const m of p.membros)
+        pos.push({
+          nome: m.peca.nome,
+          tamanho: m.peca.tamanho,
+          x: Math.round((xCmG + m.dxCm) * 100) / 100,
+          y: Math.round((yCm + m.dyCm) * 100) / 100,
+          w: m.peca.w,
+          h: m.peca.h,
+          rot: m.rot,
+          espelhada: m.peca.espelhada,
+          modeloIdx: m.peca.modeloIdx,
+          contorno: m.peca.contorno,
+        });
+    } else
+      pos.push({
+        nome: p.nome,
+        tamanho: p.tamanho,
+        x: Math.round(xCmG * 100) / 100,
+        y: Math.round(yCm * 100) / 100,
+        w: p.w,
+        h: p.h,
+        rot: melhor.rot,
+        espelhada: p.espelhada,
+        modeloIdx: p.modeloIdx,
+        contorno: p.contorno,
+      });
+    colocadas += p.membros ? p.membros.length : 1;
     const fim = yCm + p.h;
     if (fim > comprimento) comprimento = fim;
-    if (comprimento >= tetoCm) return { comprimentoCm: Infinity, pos: [] }; // já perdeu
+    if (comprimento >= tetoCm) return { comprimentoCm: Infinity, pos: [], colocadas: 0 }; // já perdeu
   }
-  return { comprimentoCm: Math.round(comprimento * 100) / 100, pos };
+  return { comprimentoCm: Math.round(comprimento * 100) / 100, pos, colocadas };
 }
 
 /** Ordens de entrada testadas — cada uma "pensa" o encaixe de um jeito. */
@@ -394,6 +444,116 @@ const ORDENS: { nome: string; fn: (ps: PecaEncaixe[]) => PecaEncaixe[] }[] = [
   })),
 ];
 
+
+/**
+ * CASAIS PÉ-COM-CABEÇA — o truque clássico do encaixador: duas peças
+ * iguais, a segunda de cabeça pra baixo, deslizadas uma na outra até o
+ * melhor entrelaçamento (decote mergulha na barra, cava abraça cava).
+ * O bloco resultante vira UMA peça pro empacotador; ao posicionar, as
+ * duas peças reais saem separadas no risco.
+ *
+ * Só forma casal quando o entrelaçamento economiza de verdade (área do
+ * bloco ≤ 92% das duas caixas empilhadas) — senão a peça segue solta.
+ */
+export function montarCasais(
+  pecas: PecaEncaixe[],
+  folgaCm: number,
+  res = RES
+): PecaEncaixe[] {
+  // agrupa cópias da mesma peça/tamanho (o par espelhado entra junto:
+  // mesmo molde, contorno invertido — o entrelaçamento considera os dois)
+  const grupos = new Map<string, PecaEncaixe[]>();
+  for (const p of pecas) {
+    if (!p.contorno || p.contorno.length < 3) continue; // caixa não entrelaça
+    const k = `${p.modeloIdx ?? 0}|${p.nome}|${p.tamanho}|${p.w.toFixed(2)}|${p.h.toFixed(2)}`;
+    grupos.set(k, [...(grupos.get(k) ?? []), p]);
+  }
+
+  const emCasal = new Set<PecaEncaixe>();
+  const blocos: PecaEncaixe[] = [];
+
+  for (const grupo of grupos.values()) {
+    for (let i = 0; i + 1 < grupo.length; i += 2) {
+      const A = grupo[i];
+      const B = grupo[i + 1];
+      const PA = perfilDaPeca(A, 0, folgaCm, res);
+      const PB = perfilDaPeca(B, 180, folgaCm, res);
+
+      // desliza B sobre A e mede a caixa do bloco em cada deslocamento
+      let melhor: { d: number; off: number; areaCel: number; topoMax: number } | null = null;
+      for (let d = -(PB.cols - 1); d < PA.cols; d++) {
+        let off = 0;
+        let sobrepoe = false;
+        for (let c = Math.max(0, d); c < Math.min(PA.cols, d + PB.cols); c++) {
+          sobrepoe = true;
+          const precisa = PA.top[c] - PB.bottom[c - d];
+          if (precisa > off) off = precisa;
+        }
+        if (!sobrepoe) continue; // lado a lado sem contato não ganha nada
+        const ini = Math.min(0, d);
+        const fim = Math.max(PA.cols, d + PB.cols);
+        let topoMax = 0;
+        for (let c = ini; c < fim; c++) {
+          const tA = c >= 0 && c < PA.cols ? PA.top[c] : 0;
+          const tB = c - d >= 0 && c - d < PB.cols ? off + PB.top[c - d] : 0;
+          const t = Math.max(tA, tB);
+          if (t > topoMax) topoMax = t;
+        }
+        const areaCel = (fim - ini) * topoMax;
+        if (!melhor || areaCel < melhor.areaCel) melhor = { d, off, areaCel, topoMax };
+      }
+      if (!melhor) continue;
+
+      // vale a pena? compara com as duas caixas empilhadas
+      const areaDuasCaixas = 2 * PA.cols * (PA.h + folgaCm);
+      if (melhor.areaCel > 0.92 * areaDuasCaixas) continue;
+
+      // monta o perfil do bloco
+      const ini = Math.min(0, melhor.d);
+      const fim = Math.max(PA.cols, melhor.d + PB.cols);
+      const cols = fim - ini;
+      const bottom = new Array<number>(cols).fill(Infinity);
+      const top = new Array<number>(cols).fill(0);
+      for (let c = ini; c < fim; c++) {
+        const j = c - ini;
+        if (c >= 0 && c < PA.cols) {
+          bottom[j] = Math.min(bottom[j], PA.bottom[c]);
+          top[j] = Math.max(top[j], PA.top[c]);
+        }
+        if (c - melhor.d >= 0 && c - melhor.d < PB.cols) {
+          bottom[j] = Math.min(bottom[j], melhor.off + PB.bottom[c - melhor.d]);
+          top[j] = Math.max(top[j], melhor.off + PB.top[c - melhor.d]);
+        }
+        if (!Number.isFinite(bottom[j])) bottom[j] = 0; // coluna vazia no meio
+        if (top[j] <= bottom[j]) top[j] = bottom[j] + res; // nunca degenera
+      }
+
+      const w = cols * res - folgaCm;
+      const h = melhor.topoMax - folgaCm;
+      blocos.push({
+        nome: `${A.nome} ×2`,
+        tamanho: A.tamanho,
+        w,
+        h,
+        area: A.area + B.area,
+        modeloIdx: A.modeloIdx,
+        membros: [
+          { peca: A, rot: 0, dxCm: -ini * res, dyCm: 0 },
+          { peca: B, rot: 180, dxCm: (melhor.d - ini) * res, dyCm: melhor.off },
+        ],
+        perfilPronto: { cols, bottom, top, w, h },
+        perfilProntoRes: res,
+        perfilProntoFolga: folgaCm,
+      });
+      emCasal.add(A);
+      emCasal.add(B);
+    }
+  }
+
+  if (blocos.length === 0) return pecas;
+  return [...blocos, ...pecas.filter((p) => !emCasal.has(p))];
+}
+
 /**
  * Empacota uma SEQUÊNCIA exata de peças (sem reordenar) — é o operário da
  * busca local do otimizador: ele testa milhares de sequências mutadas e
@@ -429,25 +589,47 @@ export function encaixarMelhor(
 ): ResultadoEncaixe & { analises: number } {
   let melhor: ResultadoEncaixe | null = null;
   let analises = 0;
+  const esperadas = pecas.length; // peças de verdade que têm que sair no risco
+
+  // duas listas concorrem: as peças soltas e a versão com CASAIS
+  // pé-com-cabeça (duas iguais travadas em bloco) — vence quem fechar menor
+  const listas: { pecas: PecaEncaixe[]; tag: string }[] = [{ pecas, tag: "" }];
+  if (permitir180) {
+    const casados = montarCasais(pecas, folgaCm);
+    if (casados !== pecas)
+      listas.push({ pecas: casados, tag: " + casais pé-com-cabeça" });
+  }
 
   // FUNIL DE DOIS ESTÁGIOS:
   // 1º) o skyline (rapidíssimo) testa TODAS as ordens e rotações;
-  // 2º) só os 3 melhores candidatos ganham o motor de grade de ocupação
+  // 2º) só os melhores candidatos ganham o motor de grade de ocupação
   //     (caro, mas enxerga e preenche os bolsões vazios).
-  type Cand = { ordem: (typeof ORDENS)[number]; rot: boolean; comprimentoCm: number };
+  type Cand = {
+    ordem: (typeof ORDENS)[number];
+    rot: boolean;
+    comprimentoCm: number;
+    lista: (typeof listas)[number];
+  };
   const candidatos: Cand[] = [];
-  for (const ordem of ORDENS) {
-    for (const rot of permitir180 ? [true, false] : [false]) {
-      analises++;
-      const { comprimentoCm, pos } = empacotar(ordem.fn(pecas), larguraCm, folgaCm, rot);
-      if (pos.length < pecas.length) continue; // alguma peça não coube
-      candidatos.push({ ordem, rot, comprimentoCm });
-      if (!melhor || comprimentoCm < melhor.comprimentoCm) {
-        melhor = {
-          comprimentoCm,
-          pecas: pos,
-          estrategia: ordem.nome + (rot ? " + rotação 180°" : ""),
-        };
+  for (const lista of listas) {
+    for (const ordem of ORDENS) {
+      for (const rot of permitir180 ? [true, false] : [false]) {
+        analises++;
+        const { comprimentoCm, pos, colocadas } = empacotar(
+          ordem.fn(lista.pecas),
+          larguraCm,
+          folgaCm,
+          rot
+        );
+        if (colocadas < esperadas) continue; // alguma peça não coube
+        candidatos.push({ ordem, rot, comprimentoCm, lista });
+        if (!melhor || comprimentoCm < melhor.comprimentoCm) {
+          melhor = {
+            comprimentoCm,
+            pecas: pos,
+            estrategia: ordem.nome + (rot ? " + rotação 180°" : "") + lista.tag,
+          };
+        }
       }
     }
   }
@@ -456,19 +638,20 @@ export function encaixarMelhor(
   for (const c of finalistas) {
     analises++;
     const teto = melhor ? melhor.comprimentoCm : Infinity;
-    const { comprimentoCm, pos } = empacotarGrade(
-      c.ordem.fn(pecas),
+    const { comprimentoCm, pos, colocadas } = empacotarGrade(
+      c.ordem.fn(c.lista.pecas),
       larguraCm,
       folgaCm,
       c.rot,
       teto
     );
-    if (pos.length < pecas.length) continue; // poda: já estava perdendo
+    if (colocadas < esperadas) continue; // poda: já estava perdendo
     if (!melhor || comprimentoCm < melhor.comprimentoCm) {
       melhor = {
         comprimentoCm,
         pecas: pos,
-        estrategia: c.ordem.nome + (c.rot ? " + rotação 180°" : "") + " + preenche vãos",
+        estrategia:
+          c.ordem.nome + (c.rot ? " + rotação 180°" : "") + c.lista.tag + " + preenche vãos",
       };
     }
   }
