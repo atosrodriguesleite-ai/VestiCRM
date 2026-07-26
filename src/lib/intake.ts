@@ -198,6 +198,22 @@ export async function intakeLead(
     where: { companyId, customerId: customer.id, status: { not: "CLOSED" } },
     orderBy: { lastMessageAt: "desc" },
   });
+  // HISTÓRICO É SAGRADO: cliente que volta depois de um atendimento
+  // encerrado REABRE a mesma conversa (com todo o histórico) e cai na fila.
+  // Antes nascia um chat NOVO vazio e o histórico ficava "escondido" na
+  // conversa encerrada — parecia que a conversa tinha sumido.
+  if (!conversation && (payload.message || isNewLead)) {
+    const encerrada = await db.conversation.findFirst({
+      where: { companyId, customerId: customer.id, status: "CLOSED" },
+      orderBy: { lastMessageAt: "desc" },
+    });
+    if (encerrada) {
+      conversation = await db.conversation.update({
+        where: { id: encerrada.id },
+        data: { status: "OPEN", assigneeId: payload.ownerId ?? null },
+      });
+    }
+  }
   if (!conversation && (payload.message || isNewLead)) {
     // Central de Atendimento (modelo Digisac): o chamado NÃO nasce com dono —
     // entra na FILA do setor (assigneeId null) para um vendedor "assumir".

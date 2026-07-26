@@ -217,9 +217,20 @@ export async function POST(
             orderBy: { lastMessageAt: "desc" },
           });
           if (!conv) {
-            conv = await db.conversation.create({
-              data: { companyId, customerId: customer.id, status: "OPEN" },
+            // histórico é sagrado: reabre a conversa encerrada mais recente
+            // (mantém todo o histórico) em vez de nascer um chat vazio
+            const encerrada = await db.conversation.findFirst({
+              where: { companyId, customerId: customer.id, status: "CLOSED" },
+              orderBy: { lastMessageAt: "desc" },
             });
+            conv = encerrada
+              ? await db.conversation.update({
+                  where: { id: encerrada.id },
+                  data: { status: "OPEN" },
+                })
+              : await db.conversation.create({
+                  data: { companyId, customerId: customer.id, status: "OPEN" },
+                });
           }
           const exists = m.key?.id
             ? await db.message.findFirst({

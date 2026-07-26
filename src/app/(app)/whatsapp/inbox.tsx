@@ -32,6 +32,7 @@ import {
   X,
   AtSign,
   Info,
+  Smile,
   Zap,
   Link2,
   Download,
@@ -97,6 +98,39 @@ export type InboxConversation = {
 };
 
 type Tab = "chats" | "fila" | "contatos";
+
+// Emojis do compositor — grade enxuta com os mais usados em venda de moda.
+// Nativos do aparelho (sem biblioteca externa): leves e iguais ao WhatsApp.
+const EMOJI_GROUPS: { titulo: string; emojis: string[] }[] = [
+  {
+    titulo: "Carinhas",
+    emojis: ["😀","😁","😂","🤣","😊","😍","🥰","😘","😉","😎","🤩","🥳","😅","😇","🙂","😌","🤔","🥺","😢","😭","😱","🤯","🤗","🙃","😴","🙄"],
+  },
+  {
+    titulo: "Gestos",
+    emojis: ["👍","👏","🙏","🤝","💪","✌️","🤞","🫶","👌","👋","🤙","✍️","👊","🖐️"],
+  },
+  {
+    titulo: "Corações",
+    emojis: ["❤️","🧡","💛","💚","💙","💜","🖤","🤍","💖","💕","💞","💗","💘","💝"],
+  },
+  {
+    titulo: "Festa",
+    emojis: ["🎉","🎊","✨","⭐","🌟","🔥","💥","🏆","🥇","🎁","🎈"],
+  },
+  {
+    titulo: "Moda e compras",
+    emojis: ["👗","👚","👖","👕","👙","🧥","👒","👜","👠","👟","🕶️","💍","🛍️","🧵","✂️","📦","🚚"],
+  },
+  {
+    titulo: "Dinheiro",
+    emojis: ["💰","💵","💳","🤑","🏷️","💸","🧾"],
+  },
+  {
+    titulo: "Dia a dia",
+    emojis: ["✅","❌","⚠️","❗","❓","📌","🔔","⏰","📅","☀️","🌙","🌈","🌸","🌹","💐","🍀","☕","📱","💬","📸"],
+  },
+];
 
 const STATUS_OPTIONS = [
   "OPEN",
@@ -264,6 +298,7 @@ export function Inbox({
   const [mention, setMention] = useState<{ query: string; at: number } | null>(null);
   const [showTemplates, setShowTemplates] = useState(false);
   const [showAttach, setShowAttach] = useState(false);
+  const [showEmoji, setShowEmoji] = useState(false);
   const [showOrder, setShowOrder] = useState(false);
   const [showTransfer, setShowTransfer] = useState(false);
   const [showContact, setShowContact] = useState(false);
@@ -344,7 +379,8 @@ export function Inbox({
   // catálogo) fecham ao clicar em qualquer área fora deles
   const composerRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    const aberto = showTemplates || showAttach || showNewTpl || showCatMsgEdit;
+    const aberto =
+      showTemplates || showAttach || showNewTpl || showCatMsgEdit || showEmoji;
     if (!aberto) return;
     function onDown(e: MouseEvent) {
       if (composerRef.current && !composerRef.current.contains(e.target as Node)) {
@@ -352,11 +388,26 @@ export function Inbox({
         setShowAttach(false);
         setShowNewTpl(false);
         setShowCatMsgEdit(false);
+        setShowEmoji(false);
       }
     }
     document.addEventListener("mousedown", onDown);
     return () => document.removeEventListener("mousedown", onDown);
-  }, [showTemplates, showAttach, showNewTpl, showCatMsgEdit]);
+  }, [showTemplates, showAttach, showNewTpl, showCatMsgEdit, showEmoji]);
+
+  // insere o emoji na posição do cursor (e devolve o foco ao campo)
+  function insertEmoji(emoji: string) {
+    const ta = taRef.current;
+    const pos = ta?.selectionStart ?? draft.length;
+    setDraft(draft.slice(0, pos) + emoji + draft.slice(pos));
+    requestAnimationFrame(() => {
+      if (ta) {
+        ta.focus();
+        const p = pos + emoji.length;
+        ta.setSelectionRange(p, p);
+      }
+    });
+  }
 
   // menu de etiquetas fecha ao clicar em qualquer lugar fora dele
   const tagPickerRef = useRef<HTMLDivElement>(null);
@@ -2016,6 +2067,30 @@ export function Inbox({
                   ))}
                 </div>
               )}
+              {/* seletor de emoji 😊 */}
+              {showEmoji && (
+                <div className="absolute bottom-full left-3 right-3 sm:right-auto sm:w-96 mb-1 bg-white rounded-xl border border-gray-100 shadow-pop z-20 max-h-64 overflow-y-auto thin-scroll p-2">
+                  {EMOJI_GROUPS.map((g) => (
+                    <div key={g.titulo} className="mb-1.5">
+                      <p className="px-1 text-[10px] font-bold uppercase tracking-wide text-gray-400">
+                        {g.titulo}
+                      </p>
+                      <div className="flex flex-wrap">
+                        {g.emojis.map((e) => (
+                          <button
+                            key={e}
+                            onClick={() => insertEmoji(e)}
+                            className="size-9 grid place-items-center text-[22px] rounded-lg hover:bg-brand-50 transition"
+                            title={e}
+                          >
+                            {e}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
               {/* editor das mensagens automáticas (catálogo + pedido) */}
               {showCatMsgEdit && (
                 <div className="absolute bottom-full left-3 right-3 sm:right-auto sm:w-[26rem] mb-1 bg-white rounded-xl border border-gray-100 shadow-pop z-20 p-3 max-h-[70vh] overflow-y-auto thin-scroll">
@@ -2114,8 +2189,22 @@ export function Inbox({
                 <div className="flex items-center gap-0.5 order-2 sm:order-none shrink-0">
                 <button
                   onClick={() => {
+                    setShowEmoji((v) => !v);
+                    setShowTemplates(false);
+                    setShowAttach(false);
+                  }}
+                  className={`p-2 transition shrink-0 ${
+                    showEmoji ? "text-brand-600" : "text-gray-400 hover:text-brand-600"
+                  }`}
+                  title="Emoji"
+                >
+                  <Smile className="size-4.5" />
+                </button>
+                <button
+                  onClick={() => {
                     setShowTemplates((v) => !v);
                     setShowAttach(false);
+                    setShowEmoji(false);
                   }}
                   className={`p-2 transition shrink-0 ${
                     showTemplates ? "text-brand-600" : "text-gray-400 hover:text-brand-600"
