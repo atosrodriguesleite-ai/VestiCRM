@@ -554,6 +554,141 @@ export function montarCasais(
   return [...blocos, ...pecas.filter((p) => !emCasal.has(p))];
 }
 
+
+/**
+ * COMPACTAÇÃO POR RE-INSERÇÃO — o "empurrãozinho" do encaixador depois do
+ * risco montado: tira UMA peça, re-encaixa no espaço real deixado pelas
+ * outras (podendo girar 180°), e repete varrendo da peça mais alta pra
+ * mais baixa até ninguém mais descer. Busca no nível da PEÇA, que enxerga
+ * lances que a mutação de sequência não alcança.
+ */
+export function compactarRisco(
+  pecas: Posicionamento[],
+  larguraCm: number,
+  folgaCm: number,
+  permitir180: boolean,
+  res = RES
+): { comprimentoCm: number; pecas: Posicionamento[]; mudou: boolean } {
+  const atual = pecas.map((p) => ({ ...p }));
+  let mudouAlgo = false;
+
+  for (let passada = 0; passada < 6; passada++) {
+    let mudou = false;
+    // da peça mais alta pra mais baixa (quem define o comprimento primeiro)
+    const ordem = [...atual].sort((a, b) => b.y + b.h - (a.y + a.h));
+    for (const alvo of ordem) {
+      // ocupação de todo mundo MENOS o alvo
+      const outros = atual.filter((q) => q !== alvo);
+      const comAlvoFora: PecaEncaixe[] = outros.map((q) => ({
+        nome: q.nome,
+        tamanho: q.tamanho,
+        w: q.w,
+        h: q.h,
+        area: q.w * q.h,
+        espelhada: q.espelhada,
+        modeloIdx: q.modeloIdx,
+        contorno: q.contorno,
+      }));
+      // re-empacota TODOS na posição atual (fixos) + o alvo por último:
+      // o alvo cai no melhor buraco possível do risco real
+      const fixos = outros;
+      const enc = recolocar(fixos, alvo, larguraCm, folgaCm, permitir180, res);
+      if (enc && enc.y + alvo.h < alvo.y + alvo.h - 0.01) {
+        alvo.x = enc.x;
+        alvo.y = enc.y;
+        alvo.rot = enc.rot;
+        mudou = true;
+        mudouAlgo = true;
+      }
+      void comAlvoFora;
+    }
+    if (!mudou) break;
+  }
+
+  const comprimentoCm =
+    Math.round(Math.max(0, ...atual.map((p) => p.y + p.h)) * 100) / 100;
+  return { comprimentoCm, pecas: atual, mudou: mudouAlgo };
+}
+
+/** Melhor posição pro alvo com os demais TRAVADOS onde estão. */
+function recolocar(
+  fixos: Posicionamento[],
+  alvo: Posicionamento,
+  larguraCm: number,
+  folgaCm: number,
+  permitir180: boolean,
+  res: number
+): { x: number; y: number; rot: 0 | 180 } | null {
+  const cols = Math.max(1, Math.floor((larguraCm + folgaCm) / res));
+  type Runs = { s: number[]; e: number[] };
+  const runs: Runs[] = Array.from({ length: cols }, () => ({ s: [], e: [] }));
+  const marca = (c: number, lo: number, hi: number) => {
+    if (c < 0 || c >= cols) return;
+    const r = runs[c];
+    let i = 0;
+    while (i < r.s.length && r.e[i] < lo) i++;
+    let s2 = lo;
+    let e2 = hi;
+    let j = i;
+    while (j < r.s.length && r.s[j] <= e2) {
+      if (r.s[j] < s2) s2 = r.s[j];
+      if (r.e[j] > e2) e2 = r.e[j];
+      j++;
+    }
+    r.s.splice(i, j - i, s2);
+    r.e.splice(i, j - i, e2);
+  };
+  for (const q of fixos) {
+    const pq: PecaEncaixe = {
+      nome: q.nome, tamanho: q.tamanho, w: q.w, h: q.h, area: q.w * q.h,
+      contorno: q.contorno,
+    };
+    const perfil = perfilDaPeca(pq, q.rot, folgaCm, res);
+    const fx = faixasDoPerfil(perfil, res);
+    const x0 = Math.round(q.x / res);
+    const y0 = Math.round(q.y / res);
+    for (let c = 0; c < perfil.cols; c++)
+      marca(x0 + c, y0 + fx[c].b, y0 + fx[c].t);
+  }
+  const colide = (r: Runs, lo: number, hi: number): number => {
+    let a = 0, b = r.e.length - 1, i = -1;
+    while (a <= b) {
+      const m = (a + b) >> 1;
+      if (r.e[m] > lo) { i = m; b = m - 1; } else a = m + 1;
+    }
+    return i >= 0 && r.s[i] < hi ? r.e[i] : -1;
+  };
+
+  const pa: PecaEncaixe = {
+    nome: alvo.nome, tamanho: alvo.tamanho, w: alvo.w, h: alvo.h,
+    area: alvo.w * alvo.h, contorno: alvo.contorno,
+  };
+  const rots: (0 | 180)[] = permitir180 && pa.contorno ? [0, 180] : [0];
+  let melhor: { x: number; y: number; rot: 0 | 180 } | null = null;
+  const yAtual = Math.round(alvo.y / res);
+  for (const rot of rots) {
+    const perfil = perfilDaPeca(pa, rot, folgaCm, res);
+    if (perfil.cols > cols) continue;
+    const fx = faixasDoPerfil(perfil, res);
+    for (let x = 0; x <= cols - perfil.cols; x++) {
+      let y = 0;
+      const yTeto = melhor ? melhor.y : yAtual;
+      salta: while (y <= yTeto) {
+        for (let c = 0; c < perfil.cols; c++) {
+          const fim = colide(runs[x + c], y + fx[c].b, y + fx[c].t);
+          if (fim >= 0) { y = fim - fx[c].b; continue salta; }
+        }
+        if (!melhor || y < melhor.y || (y === melhor.y && x < melhor.x))
+          melhor = { x, y, rot };
+        break;
+      }
+    }
+  }
+  return melhor
+    ? { x: Math.round(melhor.x * res * 100) / 100, y: Math.round(melhor.y * res * 100) / 100, rot: melhor.rot }
+    : null;
+}
+
 /**
  * Empacota uma SEQUÊNCIA exata de peças (sem reordenar) — é o operário da
  * busca local do otimizador: ele testa milhares de sequências mutadas e

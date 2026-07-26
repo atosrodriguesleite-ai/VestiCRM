@@ -1,4 +1,4 @@
-import { empacotarOrdem, encaixarMelhor, type PecaEncaixe } from "./nesting";
+import { compactarRisco, empacotarOrdem, encaixarMelhor, type PecaEncaixe } from "./nesting";
 import {
   montarPlanoMulti,
   pecasDoRiscoMulti,
@@ -580,6 +580,23 @@ export function rodarRodada(
       ) {
         risco.comprimentoCm = fina.comprimentoCm;
         risco.pecas = fina.pecas;
+        recalcularPlano(plano, itens, params);
+        estado.ganhouNoCiclo = true;
+      }
+      // COMPACTAÇÃO: tira peça por peça e re-encaixa no espaço real das
+      // outras — o "empurrãozinho" final que a mutação de sequência não vê
+      if (acabou()) break;
+      estado.tentativas++;
+      const comp = compactarRisco(
+        risco.pecas,
+        risco.larguraCm,
+        params.folgaCm,
+        permitir180,
+        grandalhao ? 0.5 : 0.25
+      );
+      if (comp.mudou && comp.comprimentoCm < risco.comprimentoCm - 0.005) {
+        risco.comprimentoCm = comp.comprimentoCm;
+        risco.pecas = comp.pecas;
         recalcularPlano(plano, itens, params);
         estado.ganhouNoCiclo = true;
       }
