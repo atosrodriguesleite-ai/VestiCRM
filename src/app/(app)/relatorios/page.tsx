@@ -40,7 +40,9 @@ export default async function ReportsPage() {
         where: { ...paidScope, createdAt: { gte: days90 } },
         select: { total: true, createdAt: true, sellerId: true },
       }),
-      db.user.findMany({ where: { companyId: user.companyId, active: true } }),
+      // sem filtro de ativo: quem vendeu no período aparece no ranking mesmo
+      // depois de desligado (senão o gráfico não fecha com o faturamento)
+      db.user.findMany({ where: { companyId: user.companyId } }),
       db.stage.findMany({
         where: { pipeline: { companyId: user.companyId } },
         orderBy: { order: "asc" },
@@ -233,7 +235,7 @@ export default async function ReportsPage() {
     <div className="max-w-7xl mx-auto">
       <PageHeader
         title="Relatórios"
-        subtitle="Números dos últimos 90 dias para decidir com clareza."
+        subtitle="Faturamento e vendas dos últimos 90 dias; os blocos de base de clientes mostram o histórico completo (cada um diz o seu período)."
       />
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4 mb-6">
@@ -266,7 +268,7 @@ export default async function ReportsPage() {
 
       {/* Canais de aquisição */}
       <h2 className="font-semibold mb-3 text-sm text-gray-600">
-        Canais de aquisição
+        Canais de aquisição <span className="font-normal text-gray-400">(histórico completo)</span>
       </h2>
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4 mb-4">
         <StatTile
@@ -293,7 +295,7 @@ export default async function ReportsPage() {
       </div>
       <div className="grid lg:grid-cols-3 gap-4 md:gap-6 mb-6">
         <Card className="p-5">
-          <h2 className="font-semibold mb-4">Leads por origem</h2>
+          <h2 className="font-semibold mb-4">Leads por origem <span className="text-xs font-normal text-gray-400">· histórico</span></h2>
           <BarList
             data={channels
               .slice()
@@ -303,7 +305,7 @@ export default async function ReportsPage() {
           />
         </Card>
         <Card className="p-5">
-          <h2 className="font-semibold mb-4">Valor vendido por canal</h2>
+          <h2 className="font-semibold mb-4">Valor vendido por canal <span className="text-xs font-normal text-gray-400">· histórico</span></h2>
           <BarList
             color="#10b981"
             data={channels
@@ -317,7 +319,7 @@ export default async function ReportsPage() {
           />
         </Card>
         <Card className="p-5">
-          <h2 className="font-semibold mb-4">Conversão por origem</h2>
+          <h2 className="font-semibold mb-4">Conversão por origem <span className="text-xs font-normal text-gray-400">· histórico</span></h2>
           <BarList
             color="#0ea5e9"
             data={channels
@@ -356,14 +358,14 @@ export default async function ReportsPage() {
         </Card>
 
         <Card className="p-5">
-          <h2 className="font-semibold mb-4">Oportunidades por etapa do funil</h2>
+          <h2 className="font-semibold mb-4">Oportunidades por etapa do funil <span className="text-xs font-normal text-gray-400">· posição atual</span></h2>
           <FunnelBars data={funnel} />
         </Card>
 
         <Card className="p-5">
           <h2 className="font-semibold flex items-center gap-2 mb-4">
             <XCircle className="size-4 text-rose-500" />
-            Motivos de perda
+            Motivos de perda <span className="text-xs font-normal text-gray-400">· histórico</span>
           </h2>
           {lossData.length === 0 ? (
             <EmptyState title="Nenhuma negociação perdida 🎉" />
@@ -377,7 +379,7 @@ export default async function ReportsPage() {
         </Card>
 
         <Card className="p-5">
-          <h2 className="font-semibold mb-4">Origem dos clientes</h2>
+          <h2 className="font-semibold mb-4">Origem dos clientes <span className="text-xs font-normal text-gray-400">· histórico</span></h2>
           <BarList
             data={originData}
             color="#0ea5e9"
@@ -388,7 +390,7 @@ export default async function ReportsPage() {
         <Card className="p-5">
           <h2 className="font-semibold flex items-center gap-2 mb-4">
             <Gem className="size-4 text-brand-600" />
-            Clientes mais valiosos
+            Clientes mais valiosos <span className="text-xs font-normal text-gray-400">· histórico</span>
           </h2>
           {topCustomers.length === 0 ? (
             <EmptyState title="Sem compras registradas" />

@@ -174,7 +174,9 @@ export async function channelRanking(companyId: string, p: Period) {
 export async function sellerRanking(companyId: string, p: Period) {
   const [sessions, sellers, sales, customers] = await Promise.all([
     loadSessions(companyId, p),
-    db.user.findMany({ where: { companyId, active: true } }),
+    // inclui desligados: o que eles venderam no período continua sendo
+    // resultado do período (o filtro final já esconde quem não teve nada)
+    db.user.findMany({ where: { companyId } }),
     db.order.findMany({
       where: {
         companyId,

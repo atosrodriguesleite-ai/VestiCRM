@@ -38,9 +38,19 @@ export default async function CommissionsPage({
   const company = await db.company.findUnique({ where: { id: user.companyId } });
   const base = (company?.commissionBase ?? "SUBTOTAL") as "SUBTOTAL" | "TOTAL";
 
+  // TODOS os vendedores (inclusive desligados): quem trabalhou no período
+  // TEM comissão a receber. Filtrar por ativo fazia o dinheiro sumir do
+  // relatório — o pedido tem vendedor, então nem entrava em "sem vendedor".
   const sellers = await db.user.findMany({
-    where: { companyId: user.companyId, active: true, role: { not: "SUPERADMIN" } },
-    select: { id: true, name: true, color: true, role: true, commissionRate: true },
+    where: { companyId: user.companyId, role: { not: "SUPERADMIN" } },
+    select: {
+      id: true,
+      name: true,
+      color: true,
+      role: true,
+      commissionRate: true,
+      active: true,
+    },
     orderBy: { name: "asc" },
   });
 
@@ -66,18 +76,22 @@ export default async function CommissionsPage({
     bySeller.set(o.sellerId, { count: cur.count + 1, base: cur.base + val });
   }
 
-  const rows = sellers.map((s) => {
-    const agg = bySeller.get(s.id) ?? { count: 0, base: 0 };
-    return {
-      id: s.id,
-      name: s.name,
-      color: s.color,
-      rate: s.commissionRate,
-      orders: agg.count,
-      base: agg.base,
-      commission: (agg.base * s.commissionRate) / 100,
-    };
-  });
+  const rows = sellers
+    // desligado só aparece se vendeu no período (senão polui a lista)
+    .filter((s) => s.active || (bySeller.get(s.id)?.count ?? 0) > 0)
+    .map((s) => {
+      const agg = bySeller.get(s.id) ?? { count: 0, base: 0 };
+      return {
+        id: s.id,
+        name: s.name,
+        color: s.color,
+        rate: s.commissionRate,
+        orders: agg.count,
+        base: agg.base,
+        commission: (agg.base * s.commissionRate) / 100,
+        inactive: !s.active,
+      };
+    });
 
   return (
     <div className="max-w-5xl mx-auto">

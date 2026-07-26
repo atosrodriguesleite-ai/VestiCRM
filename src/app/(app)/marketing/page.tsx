@@ -67,7 +67,7 @@ export default async function MarketingPage({
   // aplicado depois, em memória, para os cartões e o ranking. Assim os
   // gráficos "por canal" sempre mostram a comparação completa (visão Geral).
   const [leadsAll, prevLeadsAll, ordersAll, prevOrdersAll, campaignRows, buyerCounts] = await Promise.all([
-    db.customer.findMany({ where: { companyId, createdAt: inPeriod }, select: { origin: true, campaignId: true } }),
+    db.customer.findMany({ where: { companyId, createdAt: inPeriod }, select: { id: true, origin: true, campaignId: true } }),
     db.customer.findMany({ where: { companyId, createdAt: inPrev }, select: { origin: true } }),
     db.order.findMany({
       where: { companyId, status: { in: PAID_ORDER_STATUSES }, createdAt: inPeriod },
@@ -94,6 +94,28 @@ export default async function MarketingPage({
   ]);
 
   const campById = new Map(campaignRows.map((c) => [c.id, c]));
+
+  /**
+   * CONVERSÃO POR COORTE: "dos leads que entraram no período, quantos
+   * compraram (a qualquer momento)". Antes era compradores-do-período ÷
+   * leads-do-período — gente que virou lead mês passado e comprou agora
+   * inflava a conta e a conversão passava de 100%.
+   */
+  const idsLeadsPeriodo = leadsAll.map((l) => l.id);
+  const compradoresDaCoorte = idsLeadsPeriodo.length
+    ? new Set(
+        (
+          await db.order.groupBy({
+            by: ["customerId"],
+            where: {
+              companyId,
+              status: { in: PAID_ORDER_STATUSES },
+              customerId: { in: idsLeadsPeriodo },
+            },
+          })
+        ).map((o) => o.customerId)
+      )
+    : new Set<string>();
 
   // ---- canais presentes (para os chips de filtro) ----
   const canaisSet = new Set<string>();
@@ -123,10 +145,14 @@ export default async function MarketingPage({
 
   // ---- agregação por CAMPANHA (respeita o filtro de canal) ----
   const campLeads = new Map<string, number>();
+  const campConvertidos = new Map<string, number>(); // leads DA COORTE que compraram
   let leadsSemCamp = 0;
   for (const l of leads) {
-    if (l.campaignId) campLeads.set(l.campaignId, (campLeads.get(l.campaignId) ?? 0) + 1);
-    else leadsSemCamp += 1;
+    if (l.campaignId) {
+      campLeads.set(l.campaignId, (campLeads.get(l.campaignId) ?? 0) + 1);
+      if (compradoresDaCoorte.has(l.id))
+        campConvertidos.set(l.campaignId, (campConvertidos.get(l.campaignId) ?? 0) + 1);
+    } else leadsSemCamp += 1;
   }
   const campFat = new Map<string, { fat: number; pedidos: number; clientes: Set<string> }>();
   let fatSemCamp = 0;
@@ -157,7 +183,8 @@ export default async function MarketingPage({
         clientes,
         fat: f?.fat ?? 0,
         ticket: f && f.pedidos > 0 ? f.fat / f.pedidos : 0,
-        conversao: ld > 0 ? pct(clientes, ld) : null,
+        // % dos leads que a campanha trouxe NO PERÍODO e que já compraram
+        conversao: ld > 0 ? pct(campConvertidos.get(id) ?? 0, ld) : null,
       };
     })
     .sort((a, b) => b.fat - a.fat || b.leads - a.leads);
@@ -168,7 +195,9 @@ export default async function MarketingPage({
   const ticket = paidOrders.length > 0 ? totalFat / paidOrders.length : 0;
   const prevLeads = prevLeadsList.length;
   const prevRevenue = prevOrdersList.reduce((s, o) => s + o.total, 0);
-  const pctDelta = (a: number, b: number) => (b > 0 ? Math.round(((a - b) / b) * 100) : a > 0 ? 100 : null);
+  // sem base no período anterior não dá pra calcular variação (mesma regra
+  // do Dashboard — antes aqui devolvia "+100%", que era invenção)
+  const pctDelta = (a: number, b: number) => (b > 0 ? Math.round(((a - b) / b) * 100) : null);
   const totalBuyers = buyerCounts.length;
   const repeatBuyers = buyerCounts.filter((b) => b._count._all >= 2).length;
   const recompra = totalBuyers > 0 ? Math.round((repeatBuyers / totalBuyers) * 100) : 0;

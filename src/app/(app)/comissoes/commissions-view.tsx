@@ -20,6 +20,7 @@ type Row = {
   orders: number;
   base: number;
   commission: number;
+  inactive?: boolean; // desligado, mas com comissão a receber do período
 };
 
 export function CommissionsView({
@@ -135,6 +136,14 @@ export function CommissionsView({
                     <div className="flex items-center gap-2">
                       <Avatar name={r.name} color={r.color} size="sm" />
                       <span className="font-medium">{r.name}</span>
+                      {r.inactive && (
+                        <span
+                          className="rounded-full bg-gray-100 text-gray-500 text-[10px] font-semibold px-1.5 py-0.5"
+                          title="Vendedor desligado — a comissão do período continua devida"
+                        >
+                          desligado
+                        </span>
+                      )}
                     </div>
                   </td>
                   <td className="px-4 py-3 text-center tabular-nums">{r.orders}</td>
