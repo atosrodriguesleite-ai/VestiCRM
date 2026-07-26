@@ -145,6 +145,7 @@ export default async function CortesPage() {
     color: r.color,
     remainingKg: r.remainingKg,
     yieldMPerKg: r.fabric.yieldMPerKg,
+    widthM: r.fabric.widthM,
     pricePerKg: r.pricePerKg,
   }));
 

@@ -8,7 +8,7 @@
  * Pensado pra celular: quem registra está do lado da mesa de corte.
  */
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Portal } from "@/components/portal";
 import { useRouter } from "next/navigation";
 import {
@@ -36,6 +36,7 @@ export type RollOption = {
   color: string;
   remainingKg: number;
   yieldMPerKg: number;
+  widthM: number;
   pricePerKg: number;
 };
 
@@ -86,6 +87,9 @@ export type CorteRow = {
   utilizationPct: number | null;
   wasteKg: number | null;
 };
+
+/** Linha do formulário de rolos: qual rolo e quantos kg vão pro corte. */
+type LinhaRolo = { rollId: string; kg: string };
 
 /** Linha do formulário: um modelo/SKU produzido, com peso unitário opcional. */
 type LinhaModelo = { name: string; color: string; size: string; pieces: string; pieceWeightG: string };
@@ -257,6 +261,7 @@ function NovoCorteModal({
   const [obs, setObs] = useState("");
   const [erro, setErro] = useState("");
   const [salvando, setSalvando] = useState(false);
+  const [calc, setCalc] = useState(false); // calculadora de kg aberta
 
   const mesaNum = parseFloat(mesaM.replace(",", "."));
   // enfesto ao vivo: soma os metros de cada rolo pelo rendimento do tecido
@@ -344,12 +349,42 @@ function NovoCorteModal({
               </div>
             ))}
           </div>
-          <button
-            onClick={() => setLinhasRolo([...linhasRolo, { rollId: rolls[0]?.id ?? "", kg: "" }])}
-            className="mt-1.5 text-xs text-brand-600 font-medium underline underline-offset-2"
-          >
-            + outra cor/rolo neste corte
-          </button>
+          <div className="mt-1.5 flex items-center gap-3 flex-wrap">
+            <button
+              onClick={() => setLinhasRolo([...linhasRolo, { rollId: rolls[0]?.id ?? "", kg: "" }])}
+              className="text-xs text-brand-600 font-medium underline underline-offset-2"
+            >
+              + outra cor/rolo neste corte
+            </button>
+            {rolls.length > 0 && (
+              <button
+                onClick={() => setCalc((v) => !v)}
+                className="text-xs text-gray-500 hover:text-brand-600 font-medium underline underline-offset-2"
+              >
+                🧮 não sei os kg — calcular pelo risco
+              </button>
+            )}
+          </div>
+
+          {calc && rolls.length > 0 && (
+            <CalculadoraKg
+              linhas={linhasRolo}
+              rolls={rolls}
+              mesaM={mesaNum > 0 ? mesaNum : null}
+              onAplicar={(kgPorLinha, planName) => {
+                setLinhasRolo((ls) =>
+                  ls.map((x, i) =>
+                    kgPorLinha[i] != null
+                      ? { ...x, kg: kgPorLinha[i]!.toFixed(2).replace(".", ",") }
+                      : x
+                  )
+                );
+                if (planName && !plano) setPlano(planName);
+                setCalc(false);
+              }}
+              onFechar={() => setCalc(false)}
+            />
+          )}
           {rolls.length === 0 && (
             <p className="text-[11px] text-amber-700">
               Nenhum rolo com saldo — cadastre em Configurações.
@@ -495,6 +530,299 @@ function NovoCorteModal({
         </button>
       </div>
     </Modal>
+  );
+}
+
+/* ------------------------------------------------------ calculadora de kg */
+
+type PlanoResumo = { id: string; nome: string };
+type RiscoResumo = {
+  rotulo: string;
+  comprimentoM: number;
+  folhas: number;
+  larguraM: number;
+  pano: string;
+};
+
+/**
+ * Calculadora de kg — resolve o "sei o risco, não sei o peso".
+ *
+ * A conta é o inverso do que o sistema já faz: metros = comprimento do
+ * risco × folhas; kg = metros ÷ rendimento do tecido (m/kg). Cada cor tem
+ * suas folhas (enfesto multicolor), e a margem cobre ponta, emenda e
+ * variação do rendimento — sempre pra CIMA, que faltar pano no meio do
+ * enfesto para a mesa.
+ *
+ * Se a loja tem o módulo Plano de Corte, dá pra puxar o risco pronto de um
+ * plano salvo (comprimento e folhas vêm preenchidos).
+ */
+function CalculadoraKg({
+  linhas,
+  rolls,
+  mesaM,
+  onAplicar,
+  onFechar,
+}: {
+  linhas: LinhaRolo[];
+  rolls: RollOption[];
+  mesaM: number | null;
+  onAplicar: (kgPorLinha: (number | null)[], planName?: string) => void;
+  onFechar: () => void;
+}) {
+  const [riscoM, setRiscoM] = useState("");
+  const [margem, setMargem] = useState("5");
+  const [folhas, setFolhas] = useState<Record<number, string>>({});
+  const [planos, setPlanos] = useState<PlanoResumo[] | null>(null);
+  const [planoId, setPlanoId] = useState("");
+  const [riscos, setRiscos] = useState<RiscoResumo[]>([]);
+  const [carregando, setCarregando] = useState(false);
+  const [planoNome, setPlanoNome] = useState("");
+
+  // planos salvos (silencioso se o módulo Plano de Corte estiver desligado)
+  useEffect(() => {
+    let vivo = true;
+    fetch("/api/plano-corte/gerar")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (!vivo || !Array.isArray(d)) return;
+        setPlanos(
+          d
+            .filter((p: { status: string }) => p.status !== "EM_ANDAMENTO")
+            .slice(0, 15)
+            .map((p: { id: string; nome: string | null; modelName: string | null }) => ({
+              id: p.id,
+              nome: p.nome || p.modelName || "Plano de corte",
+            }))
+        );
+      })
+      .catch(() => {});
+    return () => {
+      vivo = false;
+    };
+  }, []);
+
+  async function abrirPlano(id: string) {
+    setPlanoId(id);
+    setRiscos([]);
+    if (!id) return;
+    setCarregando(true);
+    try {
+      const r = await fetch(`/api/plano-corte/planos/${id}`);
+      if (!r.ok) return;
+      const d = await r.json();
+      setPlanoNome(d.nome || d.modelName || "");
+      const lista: RiscoResumo[] = [];
+      for (const plano of d.resultado?.planos ?? [])
+        for (const risco of plano.riscos ?? [])
+          lista.push({
+            rotulo: risco.rotulo ?? "risco",
+            comprimentoM: risco.comprimentoCm / 100,
+            folhas: risco.folhas,
+            larguraM: risco.larguraCm / 100,
+            pano: plano.pano,
+          });
+      setRiscos(lista);
+    } finally {
+      setCarregando(false);
+    }
+  }
+
+  const num = (v: string) => parseFloat(v.replace(",", ".")) || 0;
+  const risco = num(riscoM);
+  const fator = 1 + num(margem) / 100;
+
+  // kg de cada linha: metros da cor ÷ rendimento do tecido daquele rolo
+  const calculo = linhas.map((l, i) => {
+    const roll = rolls.find((r) => r.id === l.rollId);
+    const f = parseInt(folhas[i] ?? "", 10) || 0;
+    if (!roll || risco <= 0 || f <= 0) return null;
+    const metros = risco * f * fator;
+    return {
+      roll,
+      folhas: f,
+      metros,
+      kg: roll.yieldMPerKg > 0 ? metros / roll.yieldMPerKg : 0,
+    };
+  });
+  const algum = calculo.some((c) => c && c.kg > 0);
+  const totalFolhas = calculo.reduce((a, c) => a + (c?.folhas ?? 0), 0);
+
+  // avisos: risco maior que a mesa, saldo insuficiente, largura diferente
+  const avisos: string[] = [];
+  if (mesaM && risco > mesaM)
+    avisos.push(
+      `O risco (${risco.toLocaleString("pt-BR")} m) é maior que a mesa (${mesaM.toLocaleString("pt-BR")} m).`
+    );
+  for (const c of calculo) {
+    if (!c) continue;
+    if (c.kg > c.roll.remainingKg + 0.001)
+      avisos.push(
+        `${c.roll.color}: precisa de ${c.kg.toFixed(2).replace(".", ",")} kg e o rolo tem ${c.roll.remainingKg.toFixed(2).replace(".", ",")} kg.`
+      );
+  }
+  const larguraPlano = riscos[0]?.larguraM;
+  const larguraDif = calculo.find(
+    (c) => c && larguraPlano && Math.abs(c.roll.widthM - larguraPlano) > 0.03
+  );
+  if (larguraDif && larguraPlano)
+    avisos.push(
+      `O plano foi feito com tecido de ${larguraPlano.toLocaleString("pt-BR")} m e este rolo tem ${larguraDif.roll.widthM.toLocaleString("pt-BR")} m de largura.`
+    );
+
+  return (
+    <div className="mt-2 rounded-xl border border-brand-200 bg-brand-50/40 p-3 space-y-2.5">
+      <p className="text-xs font-semibold text-gray-700">
+        🧮 Calcular os kg pelo risco
+      </p>
+
+      {planos && planos.length > 0 && (
+        <div>
+          <label className="block text-[11px] font-medium text-gray-500 mb-1">
+            Puxar de um plano de corte salvo (opcional)
+          </label>
+          <select
+            value={planoId}
+            onChange={(e) => abrirPlano(e.target.value)}
+            className={inputCls + " w-full"}
+          >
+            <option value="">— digitar na mão —</option>
+            {planos.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.nome}
+              </option>
+            ))}
+          </select>
+          {carregando && (
+            <p className="text-[11px] text-gray-400 mt-1">carregando riscos...</p>
+          )}
+          {riscos.length > 0 && (
+            <div className="mt-1.5 space-y-1">
+              {riscos.map((r, i) => (
+                <button
+                  key={i}
+                  onClick={() => {
+                    setRiscoM(r.comprimentoM.toFixed(2).replace(".", ","));
+                    // folhas do plano vão pra primeira cor; o resto você divide
+                    setFolhas({ 0: String(r.folhas) });
+                  }}
+                  className="w-full text-left rounded-lg border border-gray-200 bg-white hover:border-brand-300 px-2.5 py-1.5 text-[11px] text-gray-600 transition"
+                >
+                  <b className="text-gray-800">
+                    {r.pano === "FOR" ? "Forro" : "Tecido"} ·{" "}
+                    {r.comprimentoM.toFixed(2).replace(".", ",")} m × {r.folhas} folhas
+                  </b>
+                  <span className="block text-gray-400 truncate">{r.rotulo}</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      <div className="grid grid-cols-2 gap-2">
+        <label className="block">
+          <span className="block text-[11px] font-medium text-gray-500 mb-1">
+            Comprimento do risco (m)
+          </span>
+          <input
+            value={riscoM}
+            onChange={(e) => setRiscoM(e.target.value)}
+            inputMode="decimal"
+            placeholder="4,28"
+            className={inputCls + " w-full"}
+          />
+        </label>
+        <label className="block">
+          <span className="block text-[11px] font-medium text-gray-500 mb-1">
+            Margem de segurança (%)
+          </span>
+          <input
+            value={margem}
+            onChange={(e) => setMargem(e.target.value)}
+            inputMode="decimal"
+            placeholder="5"
+            className={inputCls + " w-full"}
+          />
+        </label>
+      </div>
+
+      <div>
+        <p className="text-[11px] font-medium text-gray-500 mb-1">
+          Folhas (camadas) de cada cor
+        </p>
+        <div className="space-y-1.5">
+          {linhas.map((l, i) => {
+            const roll = rolls.find((r) => r.id === l.rollId);
+            const c = calculo[i];
+            return (
+              <div key={i} className="flex items-center justify-between gap-2">
+                <span className="text-[11px] text-gray-600 min-w-0 truncate">
+                  {roll ? `${roll.fabricName} · ${roll.color}` : "—"}
+                  {roll && (
+                    <span className="text-gray-400">
+                      {" "}
+                      ({roll.yieldMPerKg.toLocaleString("pt-BR")} m/kg)
+                    </span>
+                  )}
+                </span>
+                <span className="flex items-center gap-1.5 shrink-0">
+                  <input
+                    value={folhas[i] ?? ""}
+                    onChange={(e) => setFolhas((f) => ({ ...f, [i]: e.target.value }))}
+                    inputMode="numeric"
+                    placeholder="0"
+                    className="w-14 rounded-lg border border-gray-200 px-2 py-1 text-sm text-center"
+                  />
+                  <span className="text-[11px] text-gray-400 w-24 text-right tabular-nums">
+                    {c ? `${c.metros.toFixed(1).replace(".", ",")} m ≈ ` : ""}
+                    <b className="text-gray-700">
+                      {c ? `${c.kg.toFixed(2).replace(".", ",")} kg` : "—"}
+                    </b>
+                  </span>
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {avisos.map((a) => (
+        <p key={a} className="text-[11px] text-amber-700 bg-amber-50 rounded-lg px-2 py-1.5">
+          ⚠️ {a}
+        </p>
+      ))}
+
+      {algum && (
+        <p className="text-[11px] text-gray-500">
+          Total: {totalFolhas} folha(s) ·{" "}
+          <b className="text-gray-700">
+            {calculo.reduce((a, c) => a + (c?.kg ?? 0), 0).toFixed(2).replace(".", ",")} kg
+          </b>{" "}
+          (com {num(margem).toLocaleString("pt-BR")}% de margem)
+        </p>
+      )}
+
+      <div className="flex gap-2">
+        <button
+          onClick={() =>
+            onAplicar(
+              calculo.map((c) => (c && c.kg > 0 ? Math.round(c.kg * 100) / 100 : null)),
+              planoNome || undefined
+            )
+          }
+          disabled={!algum}
+          className="flex-1 rounded-xl bg-brand-600 hover:bg-brand-700 text-white text-xs font-medium py-2 transition disabled:opacity-50"
+        >
+          Usar esses kg no corte
+        </button>
+        <button
+          onClick={onFechar}
+          className="rounded-xl border border-gray-200 hover:border-gray-300 text-gray-500 text-xs font-medium px-3 py-2 transition"
+        >
+          Fechar
+        </button>
+      </div>
+    </div>
   );
 }
 
