@@ -315,7 +315,7 @@ function NovoCorteModal({
           </p>
           <div className="space-y-1.5">
             {linhasRolo.map((l, i) => (
-              <div key={i} className="grid grid-cols-[1fr_76px_24px] gap-1.5">
+              <div key={i} className="grid grid-cols-[1fr_72px_auto_20px] gap-1.5 items-center">
                 <select
                   value={l.rollId}
                   onChange={(e) =>
@@ -338,6 +338,21 @@ function NovoCorteModal({
                   placeholder="kg"
                   className={inputCls}
                 />
+                <button
+                  onClick={() => {
+                    const r = rolls.find((x) => x.id === l.rollId);
+                    if (!r) return;
+                    setLinhasRolo(
+                      linhasRolo.map((x, k) =>
+                        k === i ? { ...x, kg: r.remainingKg.toFixed(2).replace(".", ",") } : x
+                      )
+                    );
+                  }}
+                  className="text-[11px] text-brand-600 font-medium underline underline-offset-2 whitespace-nowrap px-0.5"
+                  title="Destinar o rolo inteiro a este corte"
+                >
+                  tudo
+                </button>
                 <button
                   onClick={() => setLinhasRolo(linhasRolo.filter((_, k) => k !== i))}
                   disabled={linhasRolo.length === 1}
@@ -1153,10 +1168,15 @@ function FormProducao({
   onSubmit: (usedKg: number, items: { name: string; color: string | null; pieces: number; pieceWeightG: number | null }[]) => void;
 }) {
   const [kg, setKg] = useState(String(plannedKg).replace(".", ","));
+  const [porSobra, setPorSobra] = useState(false); // método da balança invertido
+  const [sobrouKg, setSobrouKg] = useState("");
   const [linhas, setLinhas] = useState<LinhaModelo[]>([
     { name: modeloSugerido ?? "", color: cores.length === 1 ? cores[0] : "", size: "", pieces: "", pieceWeightG: "" },
   ]);
   const kgNum = parseFloat(kg.replace(",", "."));
+  // "sobrou 4 de 15, então cortei 11" — o jeito que a mesa realmente conta
+  const sobrouNum = parseFloat(sobrouKg.replace(",", ".")) || 0;
+  const cortadoPelaSobra = Math.round((plannedKg - sobrouNum) * 100) / 100;
   const items = linhasParaItems(linhas);
   const parcial = kgNum > 0 && kgNum < plannedKg - 0.01;
   return (
@@ -1170,6 +1190,70 @@ function FormProducao({
         Peso cortado = o que saiu do rolo pra mesa, COM as aparas. Se guardou
         uma ponta, pese-a e desconte (ela vira o restante do corte).
       </p>
+
+      {!porSobra ? (
+        <button
+          onClick={() => setPorSobra(true)}
+          className="text-[11px] text-brand-600 font-medium underline underline-offset-2"
+        >
+          ⚖️ não sei — calcular pelo que sobrou
+        </button>
+      ) : (
+        <div className="rounded-xl border border-brand-200 bg-brand-50/40 p-2.5 space-y-2">
+          <p className="text-[11px] font-semibold text-gray-700">
+            ⚖️ Pesar o que sobrou (jeito da mesa)
+          </p>
+          <div className="flex items-center justify-between gap-2 text-[11px] text-gray-600">
+            <span>Foi destinado ao corte</span>
+            <b className="text-gray-800 tabular-nums">
+              {plannedKg.toLocaleString("pt-BR", { maximumFractionDigits: 2 })} kg
+            </b>
+          </div>
+          <label className="flex items-center justify-between gap-2">
+            <span className="text-[11px] text-gray-600">
+              Sobrou sem cortar (pese a ponta)
+            </span>
+            <input
+              value={sobrouKg}
+              onChange={(e) => setSobrouKg(e.target.value)}
+              inputMode="decimal"
+              placeholder="0,00"
+              className="w-20 rounded-lg border border-gray-200 px-2 py-1 text-sm text-right"
+            />
+          </label>
+          <div className="flex items-center justify-between gap-2 border-t border-brand-100 pt-2">
+            <span className="text-[11px] text-gray-600">Então foi cortado</span>
+            <b className="text-sm text-brand-800 tabular-nums">
+              {cortadoPelaSobra > 0
+                ? `${cortadoPelaSobra.toLocaleString("pt-BR", { maximumFractionDigits: 2 })} kg`
+                : "—"}
+            </b>
+          </div>
+          <p className="text-[10.5px] text-gray-400 leading-snug">
+            A ponta que sobrou volta pro saldo do rolo. Pedaço tirado por defeito
+            (furo, mancha) não é isso — registre depois como ocorrência, que ele
+            vira sobra reaproveitável.
+          </p>
+          <div className="flex gap-2">
+            <button
+              onClick={() => {
+                setKg(cortadoPelaSobra.toFixed(2).replace(".", ","));
+                setPorSobra(false);
+              }}
+              disabled={!(cortadoPelaSobra > 0)}
+              className="flex-1 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-[11px] font-medium py-1.5 transition disabled:opacity-50"
+            >
+              Usar {cortadoPelaSobra > 0 ? `${cortadoPelaSobra.toLocaleString("pt-BR", { maximumFractionDigits: 2 })} kg` : ""}
+            </button>
+            <button
+              onClick={() => setPorSobra(false)}
+              className="rounded-lg border border-gray-200 text-gray-500 text-[11px] font-medium px-2.5 py-1.5 transition"
+            >
+              Fechar
+            </button>
+          </div>
+        </div>
+      )}
       <EditorModelos linhas={linhas} setLinhas={setLinhas} cores={cores} />
       <ResumoBalanca linhas={linhas} kg={kgNum} />
       {parcial && (
