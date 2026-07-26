@@ -939,7 +939,9 @@ function CorteModal({
             modeloSugerido={c.productName}
             cores={[...new Set(c.rolos.map((r) => r.color))]}
             busy={busy}
-            onSubmit={(usedKg, items) => acao({ action: "producao", usedKg, items })}
+            onSubmit={(usedKg, items, destinoSobra) =>
+              acao({ action: "producao", usedKg, items, destinoSobra })
+            }
           />
         )}
 
@@ -1165,11 +1167,16 @@ function FormProducao({
   modeloSugerido: string | null;
   cores: string[];
   busy: boolean;
-  onSubmit: (usedKg: number, items: { name: string; color: string | null; pieces: number; pieceWeightG: number | null }[]) => void;
+  onSubmit: (
+    usedKg: number,
+    items: { name: string; color: string | null; pieces: number; pieceWeightG: number | null }[],
+    destinoSobra: "CORTAR_DEPOIS" | "ROLO" | "SOBRA"
+  ) => void;
 }) {
   const [kg, setKg] = useState(String(plannedKg).replace(".", ","));
   const [porSobra, setPorSobra] = useState(false); // método da balança invertido
   const [sobrouKg, setSobrouKg] = useState("");
+  const [destino, setDestino] = useState<"CORTAR_DEPOIS" | "ROLO" | "SOBRA">("ROLO");
   const [linhas, setLinhas] = useState<LinhaModelo[]>([
     { name: modeloSugerido ?? "", color: cores.length === 1 ? cores[0] : "", size: "", pieces: "", pieceWeightG: "" },
   ]);
@@ -1257,16 +1264,64 @@ function FormProducao({
       <EditorModelos linhas={linhas} setLinhas={setLinhas} cores={cores} />
       <ResumoBalanca linhas={linhas} kg={kgNum} />
       {parcial && (
-        <p className="text-[11px] text-sky-700">
-          Corte parcial: sobram {(plannedKg - kgNum).toFixed(2).replace(".", ",")} kg — o motor vai projetar o restante.
-        </p>
+        <div className="rounded-xl border border-sky-200 bg-sky-50/60 p-2.5 space-y-1.5">
+          <p className="text-[11px] font-semibold text-sky-900">
+            Sobraram {(plannedKg - kgNum).toFixed(2).replace(".", ",")} kg — o que você
+            fez com eles?
+          </p>
+          {(
+            [
+              {
+                id: "ROLO" as const,
+                titulo: "Guardei a ponta (volta pro rolo)",
+                desc: "não coube outra folha; o saldo volta pro rolo e o corte fecha cobrando só o que foi cortado",
+              },
+              {
+                id: "SOBRA" as const,
+                titulo: "Guardei separado (vira sobra)",
+                desc: "pedaço solto pra usar em corte pequeno; entra no estoque de sobras com valor",
+              },
+              {
+                id: "CORTAR_DEPOIS" as const,
+                titulo: "Vou cortar depois (corte parcial)",
+                desc: "o corte continua aberto e o motor projeta quantas peças o restante ainda dá",
+              },
+            ]
+          ).map((op) => (
+            <label
+              key={op.id}
+              className={`flex gap-2 rounded-lg border p-2 cursor-pointer transition ${
+                destino === op.id
+                  ? "border-sky-400 bg-white"
+                  : "border-transparent hover:bg-white/60"
+              }`}
+            >
+              <input
+                type="radio"
+                checked={destino === op.id}
+                onChange={() => setDestino(op.id)}
+                className="mt-0.5 accent-sky-600"
+              />
+              <span className="min-w-0">
+                <span className="block text-[11px] font-medium text-gray-800">
+                  {op.titulo}
+                </span>
+                <span className="block text-[10.5px] text-gray-500 leading-snug">
+                  {op.desc}
+                </span>
+              </span>
+            </label>
+          ))}
+        </div>
       )}
       <button
-        onClick={() => onSubmit(kgNum, items)}
+        onClick={() => onSubmit(kgNum, items, parcial ? destino : "CORTAR_DEPOIS")}
         disabled={busy || !(kgNum > 0) || items.length === 0}
         className="w-full rounded-xl bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium py-2.5 transition disabled:opacity-50"
       >
-        {parcial ? "Registrar produção parcial" : "Registrar e fechar corte"}
+        {!parcial || destino !== "CORTAR_DEPOIS"
+          ? "Registrar e fechar corte"
+          : "Registrar produção parcial"}
       </button>
     </div>
   );

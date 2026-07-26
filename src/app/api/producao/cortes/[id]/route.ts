@@ -45,6 +45,14 @@ const acaoSchema = z.discriminatedUnion("action", [
     pieces: z.number().int().nonnegative().max(1000000).optional(),
     items: z.array(itemProduzidoSchema).max(60).optional(),
     wasteKg: z.number().nonnegative().max(10000).optional(),
+    /**
+     * O que fazer com o que sobrou (destinado − cortado):
+     *   CORTAR_DEPOIS → corte fica PARCIAL e o motor projeta o restante
+     *   ROLO          → a ponta voltou pro rolo: sai do custo deste corte
+     *   SOBRA         → guardou separado: vira sobra reaproveitável
+     * Nos dois últimos o corte FECHA cobrando só o que foi cortado.
+     */
+    destinoSobra: z.enum(["CORTAR_DEPOIS", "ROLO", "SOBRA"]).default("CORTAR_DEPOIS"),
   }),
   z.object({
     action: z.literal("fechar"),
@@ -192,6 +200,76 @@ export async function PATCH(
         await registraDesperdicio(user.companyId, cut, pesagem.wasteKg);
       } else if (!pesagem && a.wasteKg && a.wasteKg > 0) {
         await registraAparas(user.companyId, cut, a.wasteKg);
+      }
+
+      // PONTA GUARDADA: o que sobrou NÃO foi cortado, então não pode pesar
+      // no custo destas peças. Devolve o peso (pro rolo ou como sobra),
+      // encolhe o corte pro tamanho real e fecha.
+      if (restante > 0.01 && a.destinoSobra !== "CORTAR_DEPOIS") {
+        const totalRolos = cut.rolls.reduce((s2, r) => s2 + r.plannedKg, 0);
+        if (a.destinoSobra === "ROLO" && totalRolos <= 0) {
+          return NextResponse.json(
+            { error: "Este corte não tem rolo pra devolver a ponta — guarde como sobra" },
+            { status: 409 }
+          );
+        }
+        if (a.destinoSobra === "ROLO") {
+          // rateia a ponta entre os rolos, na proporção do que cada um trouxe
+          let devolvido = 0;
+          for (const [idx, r] of cut.rolls.entries()) {
+            const fatia =
+              idx === cut.rolls.length - 1
+                ? Math.round((restante - devolvido) * 1000) / 1000 // último leva o resto (fecha a conta)
+                : Math.round(restante * (r.plannedKg / totalRolos) * 1000) / 1000;
+            if (fatia <= 0) continue;
+            devolvido += fatia;
+            await db.cutRoll.update({
+              where: { id: r.id },
+              data: { plannedKg: Math.round((r.plannedKg - fatia) * 1000) / 1000 },
+            });
+            await db.fabricRoll.update({
+              where: { id: r.rollId },
+              data: { remainingKg: { increment: fatia } },
+            });
+          }
+        } else {
+          // guardou separado: sai do rolo e vira sobra reaproveitável
+          let descontado = 0;
+          for (const [idx, r] of cut.rolls.entries()) {
+            const fatia =
+              idx === cut.rolls.length - 1
+                ? Math.round((restante - descontado) * 1000) / 1000
+                : Math.round(restante * (r.plannedKg / Math.max(totalRolos, 0.001)) * 1000) / 1000;
+            if (fatia <= 0) continue;
+            descontado += fatia;
+            await db.cutRoll.update({
+              where: { id: r.id },
+              data: { plannedKg: Math.round((r.plannedKg - fatia) * 1000) / 1000 },
+            });
+          }
+          await criaSobra(user.companyId, cut, restante, {
+            notes: "Ponta que sobrou do corte (não coube outra folha)",
+          });
+        }
+
+        // o corte encolhe pro que foi realmente cortado
+        await db.cutTicket.update({
+          where: { id: cut.id },
+          data: { plannedKg: a.usedKg },
+        });
+        const cutAtual = await db.cutTicket.findUniqueOrThrow({
+          where: { id: cut.id },
+          include: { rolls: { include: { roll: { include: { fabric: true } } } } },
+        });
+        const fechadoPonta = await fechaCorte(user.companyId, cutAtual, {
+          usedKg: a.usedKg,
+          piecesFirst: totalPecas,
+          piecesRest: null,
+          piecesTotal: totalPecas,
+          lengthM: enfesto.lengthM,
+          sheets: enfesto.sheets,
+        });
+        return NextResponse.json(fechadoPonta);
       }
 
       if (restante > 0.01) {
