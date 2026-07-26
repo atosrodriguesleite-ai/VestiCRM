@@ -351,12 +351,24 @@ export function rodarRodada(
         const pecas = pecasDoRiscoMulti(itens, g.plano.pano, combo, params);
         estado.tentativas++;
         const enc = encaixarMelhor(pecas, r.larguraCm, params.folgaCm, permitir180, true);
-        if (enc.pecas.length < pecas.length || enc.comprimentoCm > params.mesaCm) {
+        let comprimentoCm = enc.comprimentoCm;
+        let posicoes = enc.pecas;
+        // passou um pouco da mesa? tenta ESPREMER com a compactação fina —
+        // é o que transforma "quase coube" em mesa a menos
+        if (enc.pecas.length === pecas.length && comprimentoCm > params.mesaCm && comprimentoCm < params.mesaCm * 1.06) {
+          estado.tentativas++;
+          const comp = compactarRisco(posicoes, r.larguraCm, params.folgaCm, permitir180, 0.25);
+          if (comp.comprimentoCm < comprimentoCm) {
+            comprimentoCm = comp.comprimentoCm;
+            posicoes = comp.pecas;
+          }
+        }
+        if (enc.pecas.length < pecas.length || comprimentoCm > params.mesaCm) {
           cabe = false;
           break;
         }
-        novos.push({ risco: r, combo, enc: { comprimentoCm: enc.comprimentoCm, pecas: enc.pecas } });
-        depois += enc.comprimentoCm;
+        novos.push({ risco: r, combo, enc: { comprimentoCm, pecas: posicoes } });
+        depois += comprimentoCm;
       }
       if (!cabe) continue;
 
@@ -488,13 +500,14 @@ export function rodarRodada(
       const candidata = mutar(seqAtual, rng);
 
       estado.tentativas++;
-      // avaliação rápida (skyline) com poda no comprimento atual
+      // avaliação com poda no comprimento atual: risco pequeno usa o motor
+      // de grade direto (enxerga bolsões — sinal de busca mais verdadeiro)
       const rapida = empacotarOrdem(
         candidata,
         risco.larguraCm,
         params.folgaCm,
         permitir180,
-        "skyline",
+        candidata.length <= 40 ? "grade" : "skyline",
         risco.comprimentoCm
       );
       if (
