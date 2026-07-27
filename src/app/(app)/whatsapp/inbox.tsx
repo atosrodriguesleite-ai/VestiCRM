@@ -445,6 +445,15 @@ export function Inbox({
     return () => document.removeEventListener("mousedown", onDown);
   }, [showTemplates, showAttach, showNewTpl, showCatMsgEdit, showEmoji]);
 
+  // campo de escrita começa com UMA linha e cresce conforme o texto (no
+  // celular, duas linhas fixas roubavam espaço da conversa)
+  useEffect(() => {
+    const ta = taRef.current;
+    if (!ta) return;
+    ta.style.height = "auto";
+    ta.style.height = `${Math.min(ta.scrollHeight, 192)}px`;
+  }, [draft]);
+
   // insere o emoji na posição do cursor (e devolve o foco ao campo)
   function insertEmoji(emoji: string) {
     const ta = taRef.current;
@@ -2495,7 +2504,7 @@ export function Inbox({
                       sendMessage();
                     }
                   }}
-                  rows={2}
+                  rows={1}
                   placeholder={
                     noteMode
                       ? "Nota interna... use @ para marcar alguém"

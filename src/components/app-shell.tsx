@@ -125,6 +125,27 @@ export function AppShell({
   useEffect(() => {
     setCollapsed(localStorage.getItem("vesti_sidebar") === "1");
   }, []);
+
+  /**
+   * Teclado do celular aberto → some com a barra de baixo.
+   * No celular o teclado já come metade da tela; com a barra de navegação
+   * por cima dele sobrava uma frestinha pra ler a conversa. Detecta pela
+   * "janela visível" (funciona no iPhone e no Android, em qualquer tela).
+   */
+  useEffect(() => {
+    const vv = window.visualViewport;
+    if (!vv) return;
+    const aoRedimensionar = () => {
+      const aberto = window.innerHeight - vv.height > 120;
+      document.body.classList.toggle("teclado-aberto", aberto);
+    };
+    vv.addEventListener("resize", aoRedimensionar);
+    aoRedimensionar();
+    return () => {
+      vv.removeEventListener("resize", aoRedimensionar);
+      document.body.classList.remove("teclado-aberto");
+    };
+  }, []);
   function toggleCollapsed() {
     setCollapsed((c) => {
       localStorage.setItem("vesti_sidebar", c ? "0" : "1");
@@ -379,12 +400,13 @@ export function AppShell({
           </div>
         </header>
 
-        <main className="flex-1 p-4 md:p-8 pb-24 md:pb-8 animate-fade-in">
+        {/* com o teclado aberto a barra de baixo some → o espaço dela também */}
+        <main className="flex-1 p-4 md:p-8 pb-24 md:pb-8 [.teclado-aberto_&]:pb-0 animate-fade-in">
           {children}
         </main>
 
         {/* Bottom nav mobile */}
-        <nav className="md:hidden fixed bottom-0 inset-x-0 z-40 bg-surface/90 backdrop-blur-xl border-t border-brand-900/10 flex items-stretch justify-around pb-[env(safe-area-inset-bottom)]">
+        <nav className="md:hidden fixed bottom-0 inset-x-0 z-40 bg-surface/90 backdrop-blur-xl border-t border-brand-900/10 flex items-stretch justify-around pb-[env(safe-area-inset-bottom)] [.teclado-aberto_&]:hidden">
           {mobileItems.map((item) => {
             const active = pathname.startsWith(item.href);
             const Icon = item.icon;
