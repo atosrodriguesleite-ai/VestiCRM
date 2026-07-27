@@ -5,6 +5,7 @@ import { jidToPhone, evoGetMediaBase64 } from "@/lib/comm/evolution";
 import { findCustomerByPhone } from "@/lib/intake";
 import { alertWhatsappDown } from "@/lib/health";
 import { adCode, campanhaDoAnuncio } from "@/lib/ad-match";
+import { formatPhone } from "@/lib/format";
 import type { MessageMedia } from "@prisma/client";
 
 /**
@@ -344,8 +345,41 @@ export async function POST(
           // mensagem enviada PELO CELULAR da loja → registra na conversa do
           // cliente (histórico completo), sem reenviar nada. Casamento
           // tolerante a 9º dígito, DDI e formatação (mesma regra do intake).
-          const customer = await findCustomerByPhone(companyId, phone);
-          if (!customer) continue;
+          let customer = await findCustomerByPhone(companyId, phone);
+          if (!customer) {
+            // A vendedora puxou assunto pelo APP com um número que ainda não
+            // está no CRM (follow-up, indicação, contato de feira). Antes a
+            // mensagem era jogada fora e a conversa nunca aparecia no sistema
+            // — a loja perdia o atendimento de vista.
+            //
+            // Cria o contato mínimo. NÃO passa pelo Lead Intake: aqui quem
+            // puxou assunto foi a LOJA, então não é lead novo entrando — não
+            // cabe distribuir vendedor, abrir oportunidade nem criar tarefa.
+            // A conversa nasce na fila (sem dono), igual ao resto do sistema.
+            //
+            // O nome NÃO pode vir de `pushName`: em mensagem enviada por nós,
+            // esse campo é o nome da PRÓPRIA LOJA, não o de quem recebeu.
+            customer = await db.customer.create({
+              data: {
+                companyId,
+                name: `Contato ${formatPhone(phone)}`,
+                phone,
+                origin: "WHATSAPP",
+              },
+            });
+            await db.customerEvent
+              .create({
+                data: {
+                  companyId,
+                  customerId: customer.id,
+                  type: "LEAD_CRIADO",
+                  channel: "WHATSAPP",
+                  description:
+                    "Contato criado automaticamente: a loja iniciou a conversa pelo aplicativo do WhatsApp.",
+                },
+              })
+              .catch(() => {});
+          }
           let conv = await db.conversation.findFirst({
             where: { companyId, customerId: customer.id, status: { not: "CLOSED" } },
             orderBy: { lastMessageAt: "desc" },
