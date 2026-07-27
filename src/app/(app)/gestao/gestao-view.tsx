@@ -2,7 +2,6 @@
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import Link from "next/link";
 import {
   Building2,
   TrendingUp,
@@ -19,7 +18,7 @@ import {
   ShieldAlert,
 } from "lucide-react";
 import { Card } from "@/components/ui";
-import { brl, dateShort, timeShort } from "@/lib/format";
+import { brl, dateShort, dateFull, timeShort } from "@/lib/format";
 import { cicloLabel, lifetimeLabel, situacaoLabel, canalLeadLabel, type CanalDeLead, type SituacaoCobranca } from "@/lib/gestao";
 
 export type LojaGestao = {
@@ -47,6 +46,7 @@ export type LojaGestao = {
   usuarios: number;
   clientes: number;
   produtos: number;
+  totalPedidos: number;
   ultimoAcesso: string | null;
   emRisco: boolean;
   whatsapp: string;
@@ -78,6 +78,7 @@ type Resumo = {
   emRisco: number;
   atrasados: number;
   ltMedio: number;
+  intercorrencias7d: number;
 };
 
 type Aba = "visao" | "lojas" | "financeiro" | "leads" | "sistema";
@@ -102,23 +103,30 @@ const tomKind: Record<string, string> = {
   CORTESIA: "bg-violet-50 text-violet-700 border-violet-200",
 };
 
-/** Cartão de indicador com variação opcional contra o período anterior. */
+/**
+ * Cartão de indicador com variação opcional contra o período anterior.
+ *
+ * A variação usa os NÚMEROS (`atual`/`anterior`), nunca o texto já formatado:
+ * reler "R$ 21.037,90" para virar número funciona por acidente e quebra na
+ * primeira mudança de formatação.
+ */
 function Kpi({
   label,
   valor,
   hint,
+  atual,
   anterior,
   destaque,
 }: {
   label: string;
   valor: string;
   hint?: string;
+  atual?: number;
   anterior?: number;
   destaque?: boolean;
 }) {
-  const atual = Number(String(valor).replace(/[^\d,-]/g, "").replace(",", ".")) || 0;
-  const temComparativo = anterior !== undefined && anterior > 0;
-  const delta = temComparativo ? Math.round(((atual - anterior) / anterior) * 100) : 0;
+  const temComparativo = atual !== undefined && anterior !== undefined && anterior > 0;
+  const delta = temComparativo ? Math.round(((atual! - anterior!) / anterior!) * 100) : 0;
   return (
     <div className={`rounded-2xl p-4 ${destaque ? "bg-brand-600 text-white" : "bg-white ring-1 ring-slate-100"}`}>
       <p className={`text-[11px] font-semibold uppercase tracking-wide ${destaque ? "text-white/70" : "text-slate-400"}`}>
@@ -167,6 +175,8 @@ export function GestaoView({
   const [erroExcluir, setErroExcluir] = useState("");
   const [ocupado, setOcupado] = useState(false);
   const [salvandoId, setSalvandoId] = useState<string | null>(null);
+  const [acessandoId, setAcessandoId] = useState<string | null>(null);
+  const [erroCiclo, setErroCiclo] = useState("");
 
   const filtradas = useMemo(() => {
     const q = busca.trim().toLowerCase();
@@ -204,14 +214,41 @@ export function GestaoView({
     }
   }
 
+  /** Entra na loja como Super Admin (mesmo caminho do botão do painel Lojas). */
+  async function acessarLoja(loja: LojaGestao) {
+    setAcessandoId(loja.id);
+    try {
+      const res = await fetch("/api/impersonate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ companyId: loja.id }),
+      });
+      if (!res.ok) {
+        setAcessandoId(null);
+        return;
+      }
+      router.push("/dashboard");
+      router.refresh();
+    } catch {
+      setAcessandoId(null);
+    }
+  }
+
   async function salvarCiclo(loja: LojaGestao, cycle: string) {
     setSalvandoId(loja.id);
-    await fetch("/api/companies/billing", {
+    setErroCiclo("");
+    // sem conferir a resposta, um erro voltava o valor antigo na tela sem
+    // dizer nada — e dava a impressão de que tinha salvo
+    const res = await fetch("/api/companies/billing", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ companyId: loja.id, cycle }),
-    });
+    }).catch(() => null);
     setSalvandoId(null);
+    if (!res || !res.ok) {
+      setErroCiclo(`Não foi possível salvar o plano de ${loja.nome}. Tente de novo.`);
+      return;
+    }
     router.refresh();
   }
 
@@ -240,9 +277,9 @@ export function GestaoView({
             >
               <Icon className="size-4" />
               {a.label}
-              {a.id === "sistema" && intercorrencias.length > 0 && (
+              {a.id === "sistema" && resumo.intercorrencias7d > 0 && (
                 <span className={`rounded-full px-1.5 text-[10px] font-bold ${ativa ? "bg-white/20" : "bg-rose-100 text-rose-700"}`}>
-                  {intercorrencias.length}
+                  {resumo.intercorrencias7d}
                 </span>
               )}
             </button>
@@ -258,11 +295,16 @@ export function GestaoView({
             <Kpi
               label="Recebido no mês"
               valor={brl(resumo.recebidoMes)}
+              atual={resumo.recebidoMes}
               anterior={resumo.recebidoMesAnterior}
               hint="vs. mês anterior"
             />
             <Kpi label="Lojas ativas" valor={String(resumo.lojasAtivas)} hint={`${resumo.lojasPagantes} pagantes · ${resumo.lojasTeste} em teste`} />
-            <Kpi label="Tempo médio de casa" valor={`${resumo.ltMedio} m`} hint="lifetime médio das lojas" />
+            <Kpi
+              label="Tempo médio de casa"
+              valor={`${resumo.ltMedio.toLocaleString("pt-BR")} ${resumo.ltMedio === 1 ? "mês" : "meses"}`}
+              hint="média das lojas ativas"
+            />
           </div>
 
           <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
@@ -357,6 +399,12 @@ export function GestaoView({
             />
           </div>
 
+          {erroCiclo && (
+            <p className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
+              {erroCiclo}
+            </p>
+          )}
+
           <div className="grid gap-3">
             {filtradas.map((l) => (
               <Card key={l.id} className={`p-4 ${l.suspensa ? "opacity-70" : ""}`}>
@@ -383,16 +431,19 @@ export function GestaoView({
                     </div>
                     <p className="mt-1 text-xs text-slate-500">
                       {l.responsavel ?? "sem responsável"} · cliente há <b>{lifetimeLabel(l.lifetimeMeses)}</b> (desde{" "}
-                      {dateShort(l.criadaEm)})
+                      {dateFull(l.criadaEm)})
                     </p>
                   </div>
                   <div className="flex shrink-0 items-center gap-1.5">
-                    <Link
-                      href={`/lojas`}
-                      className="rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-medium text-slate-500 hover:border-brand-300 hover:text-brand-700"
+                    <button
+                      onClick={() => acessarLoja(l)}
+                      disabled={acessandoId === l.id}
+                      title={`Acessar ${l.nome} como Super Admin`}
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-medium text-slate-500 transition hover:border-brand-300 hover:text-brand-700 disabled:opacity-50"
                     >
                       <ExternalLink className="size-3.5" />
-                    </Link>
+                      {acessandoId === l.id ? "Entrando…" : "Acessar"}
+                    </button>
                     <button
                       onClick={() => {
                         setExcluindo(l);
@@ -470,7 +521,13 @@ export function GestaoView({
         <div className="space-y-5">
           <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
             <Kpi label="MRR" valor={brl(resumo.mrr)} hint="recorrência ativa" destaque />
-            <Kpi label="Recebido no mês" valor={brl(resumo.recebidoMes)} anterior={resumo.recebidoMesAnterior} />
+            <Kpi
+              label="Recebido no mês"
+              valor={brl(resumo.recebidoMes)}
+              atual={resumo.recebidoMes}
+              anterior={resumo.recebidoMesAnterior}
+              hint="vs. mês anterior"
+            />
             <Kpi label="Implantação no mês" valor={brl(resumo.recebidoImplantacaoMes)} hint="entrada única" />
             <Kpi label="Implantação a receber" valor={brl(resumo.aReceberImplantacao)} hint="ainda em aberto" />
           </div>
@@ -615,7 +672,11 @@ export function GestaoView({
       {aba === "sistema" && (
         <div className="space-y-4">
           <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-            <Kpi label="Intercorrências" valor={String(intercorrencias.length)} hint="últimas registradas" />
+            <Kpi
+              label="Intercorrências"
+              valor={String(resumo.intercorrencias7d)}
+              hint="nos últimos 7 dias"
+            />
             <Kpi
               label="WhatsApp conectado"
               valor={`${lojas.filter((l) => l.whatsapp === "CONECTADO").length}/${lojas.length}`}
@@ -713,7 +774,7 @@ export function GestaoView({
                 <p className="text-[11px]">clientes</p>
               </div>
               <div>
-                <p className="text-lg font-bold tabular-nums">{excluindo.pedidosGeradosMes}+</p>
+                <p className="text-lg font-bold tabular-nums">{excluindo.totalPedidos}</p>
                 <p className="text-[11px]">pedidos</p>
               </div>
               <div>

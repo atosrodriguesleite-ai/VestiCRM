@@ -12,6 +12,7 @@ import {
   emRisco,
   canalDoLead,
   valorDaCobranca,
+  FONTE_AUDITORIA,
   type CanalDeLead,
 } from "@/lib/gestao";
 import { GestaoView, type LojaGestao, type Intercorrencia } from "./gestao-view";
@@ -35,14 +36,20 @@ export default async function GestaoPage() {
   const inicioMesPassado = new Date(Date.UTC(sp.y, sp.m - 2, 1, 3, 0, 0));
   const agora = new Date();
   const dias30 = new Date(agora.getTime() - 30 * 24 * 60 * 60 * 1000);
+  const dias7 = new Date(agora.getTime() - 7 * 24 * 60 * 60 * 1000);
+  // início do mês QUE VEM: fecha a janela do mês corrente, senão um pagamento
+  // lançado com data futura entraria no caixa deste mês
+  const inicioProximoMes = new Date(Date.UTC(sp.y, sp.m, 1, 3, 0, 0));
 
-  const [companies, plataforma, erros] = await Promise.all([
+  const [companies, plataforma, erros, intercorrenciasTotal] = await Promise.all([
     db.company.findMany({
       where: { slug: { not: PLATFORM_SLUG } },
       orderBy: { createdAt: "desc" },
       include: {
         billing: true,
-        _count: { select: { users: true, customers: true, products: true } },
+        // orders aqui é o TOTAL de pedidos da loja (histórico inteiro) — é o
+        // número que aparece no aviso de exclusão, então tem que ser real
+        _count: { select: { users: true, customers: true, products: true, orders: true } },
         users: {
           where: { role: "ADMIN" },
           orderBy: { createdAt: "asc" },
@@ -52,7 +59,19 @@ export default async function GestaoPage() {
       },
     }),
     db.company.findUnique({ where: { slug: PLATFORM_SLUG }, select: { id: true } }),
-    db.errorLog.findMany({ orderBy: { createdAt: "desc" }, take: 40 }),
+    // a lista mostra as 40 mais recentes; "auditoria" são ações do próprio
+    // Super Admin (ex.: exclusão de loja) — ficam registradas, mas não são
+    // defeito do sistema
+    db.errorLog.findMany({
+      where: { source: { not: FONTE_AUDITORIA } },
+      orderBy: { createdAt: "desc" },
+      take: 40,
+    }),
+    // o indicador conta de VERDADE (últimos 7 dias) — antes ele travava em 40
+    // por causa do `take`, e 40 erros pareciam iguais a 4.000
+    db.errorLog.count({
+      where: { source: { not: FONTE_AUDITORIA }, createdAt: { gte: dias7 } },
+    }),
   ]);
 
   const ids = companies.map((c) => c.id);
@@ -87,7 +106,11 @@ export default async function GestaoPage() {
       db.commSettings.findMany({
         select: { companyId: true, evolutionStatus: true, evolutionPhone: true },
       }),
+      // só pagamentos DAS LOJAS: sem o filtro, cobranças lançadas na própria
+      // empresa-plataforma entravam no caixa e o total do rodapé (que soma
+      // loja a loja) não fechava com o indicador do topo
       db.billingPayment.findMany({
+        where: { companyId: { in: ids } },
         select: { companyId: true, kind: true, amount: true, paidAt: true },
       }),
     ]);
@@ -147,6 +170,7 @@ export default async function GestaoPage() {
       usuarios: c._count.users,
       clientes: c._count.customers,
       produtos: c._count.products,
+      totalPedidos: c._count.orders,
       ultimoAcesso: ultimoAcesso?.toISOString() ?? null,
       emRisco: emRisco({ suspended: c.suspended, kind, ultimoAcesso }, 14, agora),
       whatsapp: w?.evolutionStatus ?? "DESCONECTADO",
@@ -188,11 +212,10 @@ export default async function GestaoPage() {
   canais.CATALOGO_LOJAS = { total: leadsLojasTotal, mes: leadsLojasMes, dias30: leadsLojas30 };
 
   // ---- Caixa do mês (o que a plataforma recebeu) ----
-  const recebidoMes = pagamentos
-    .filter((p) => p.paidAt >= inicioMes)
-    .reduce((s, p) => s + p.amount, 0);
+  const noMes = (p: { paidAt: Date }) => p.paidAt >= inicioMes && p.paidAt < inicioProximoMes;
+  const recebidoMes = pagamentos.filter(noMes).reduce((s, p) => s + p.amount, 0);
   const recebidoImplantacaoMes = pagamentos
-    .filter((p) => p.paidAt >= inicioMes && p.kind === "IMPLEMENTACAO")
+    .filter((p) => noMes(p) && p.kind === "IMPLEMENTACAO")
     .reduce((s, p) => s + p.amount, 0);
   const recebidoMesAnterior = pagamentos
     .filter((p) => p.paidAt >= inicioMesPassado && p.paidAt < inicioMes)
@@ -228,13 +251,20 @@ export default async function GestaoPage() {
         pedidosLojasMes: lojas.reduce((s, l) => s + l.pedidosPagosMes, 0),
         lojasAtivas: lojas.filter((l) => !l.suspensa).length,
         lojasPagantes: lojas.filter((l) => l.kind === "PAGANTE" && !l.suspensa).length,
-        lojasTeste: lojas.filter((l) => l.kind === "TESTE").length,
+        // "em teste" tem que ser subconjunto das ATIVAS, senão o rodapé do
+        // cartão pode somar mais do que o número grande em cima dele
+        lojasTeste: lojas.filter((l) => l.kind === "TESTE" && !l.suspensa).length,
         lojasSuspensas: lojas.filter((l) => l.suspensa).length,
         emRisco: lojas.filter((l) => l.emRisco).length,
         atrasados: lojas.filter((l) => l.situacao === "ATRASADO").length,
-        ltMedio: lojas.length
-          ? Math.round((lojas.reduce((s, l) => s + l.lifetimeMeses, 0) / lojas.length) * 10) / 10
-          : 0,
+        // tempo médio de casa das lojas VIVAS (loja suspensa não é mais base
+        // de cliente — puxava a média para cima sem significar nada)
+        ltMedio: (() => {
+          const vivas = lojas.filter((l) => !l.suspensa);
+          if (!vivas.length) return 0;
+          return Math.round((vivas.reduce((s, l) => s + l.lifetimeMeses, 0) / vivas.length) * 10) / 10;
+        })(),
+        intercorrencias7d: intercorrenciasTotal,
       }}
     />
   );

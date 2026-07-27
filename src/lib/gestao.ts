@@ -9,6 +9,33 @@
  * permite travar as regras em teste sem precisar de banco.
  */
 
+import { billingStatus } from "./billing";
+
+/**
+ * Partes da data no FUSO OFICIAL do produto (São Paulo).
+ *
+ * O servidor roda em UTC. Sem fixar o fuso, entre 21h e meia-noite de
+ * Brasília o sistema já está no dia seguinte — e a loja "faria aniversário"
+ * ou "venceria" 3 horas antes da hora.
+ */
+function partesSP(d: Date): { y: number; m: number; dia: number } {
+  const p = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/Sao_Paulo",
+    year: "numeric",
+    month: "numeric",
+    day: "numeric",
+  }).formatToParts(d);
+  const get = (t: string) => Number(p.find((x) => x.type === t)?.value);
+  return { y: get("year"), m: get("month"), dia: get("day") };
+}
+
+/**
+ * Fonte usada no ErrorLog para AÇÕES do Super Admin (ex.: exclusão de loja).
+ * Fica gravado para sempre — mas não é defeito do sistema, então não entra
+ * na conta de intercorrências nem acende alarme na aba Sistema.
+ */
+export const FONTE_AUDITORIA = "auditoria";
+
 /** Ciclos de contrato aceitos (como a recorrência é cobrada). */
 export const CICLOS = ["MENSAL", "SEMESTRAL", "ANUAL"] as const;
 export type Ciclo = (typeof CICLOS)[number];
@@ -36,10 +63,9 @@ export const valorDaCobranca = (monthlyFee: number, ciclo: string): number =>
  * erro de fuso não vira -1).
  */
 export function lifetimeMeses(criadaEm: Date, agora = new Date()): number {
-  const meses =
-    (agora.getFullYear() - criadaEm.getFullYear()) * 12 +
-    (agora.getMonth() - criadaEm.getMonth()) -
-    (agora.getDate() < criadaEm.getDate() ? 1 : 0);
+  const a = partesSP(criadaEm);
+  const b = partesSP(agora);
+  const meses = (b.y - a.y) * 12 + (b.m - a.m) - (b.dia < a.dia ? 1 : 0);
   return Math.max(0, meses);
 }
 
@@ -67,9 +93,15 @@ export type SituacaoCobranca = "EM_DIA" | "A_VENCER" | "ATRASADO" | "SEM_COBRANC
 /**
  * Situação da recorrência de uma loja.
  *
- * `paidThrough` guarda até que competência (mês) a loja pagou. Comparando com
- * o mês corrente e o dia do vencimento, sai a situação — é o que transforma a
- * lista de lojas num painel de cobrança de verdade.
+ * NÃO refaz a conta: delega para `billingStatus` (lib/billing.ts), que é a
+ * régua de cobrança do sistema e já é usada no painel Lojas. Assim o Painel
+ * de Gestão e o painel Lojas NUNCA discordam sobre quem está atrasado —
+ * duas contas paralelas viram, mais cedo ou mais tarde, dois números
+ * diferentes para a mesma loja.
+ *
+ * Aqui só traduzimos o resultado para os quatro estados desta tela: o que
+ * não é régua de cobrança (teste, cortesia, valor não definido) vira
+ * "sem cobrança".
  */
 export function situacaoCobranca(input: {
   kind: string; // TESTE | PAGANTE | CORTESIA
@@ -78,16 +110,19 @@ export function situacaoCobranca(input: {
   paidThrough: Date | null;
   hoje?: Date;
 }): SituacaoCobranca {
-  const { kind, monthlyFee, dueDay, paidThrough } = input;
-  if (kind !== "PAGANTE" || monthlyFee <= 0) return "SEM_COBRANCA";
-  const hoje = input.hoje ?? new Date();
-  const competenciaAtual = new Date(Date.UTC(hoje.getFullYear(), hoje.getMonth(), 1));
-  const pago = paidThrough
-    ? new Date(Date.UTC(paidThrough.getFullYear(), paidThrough.getMonth(), 1))
-    : null;
-  if (pago && pago.getTime() >= competenciaAtual.getTime()) return "EM_DIA";
-  // ainda não pagou o mês corrente: antes do vencimento é só "a vencer"
-  return hoje.getDate() <= dueDay ? "A_VENCER" : "ATRASADO";
+  const status = billingStatus(
+    {
+      kind: input.kind,
+      monthlyFee: input.monthlyFee,
+      dueDay: input.dueDay,
+      paidThrough: input.paidThrough,
+    },
+    input.hoje ?? new Date()
+  );
+  if (status.code === "EM_DIA") return "EM_DIA";
+  if (status.code === "A_VENCER") return "A_VENCER";
+  if (status.code === "ATRASADO") return "ATRASADO";
+  return "SEM_COBRANCA"; // TESTE | VITALICIO (cortesia) | SEM_VALOR
 }
 
 export const situacaoLabel: Record<SituacaoCobranca, string> = {

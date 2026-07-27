@@ -3,6 +3,7 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import { requireUser, AuthError } from "@/lib/auth";
 import { PLATFORM_SLUG } from "@/lib/platform";
+import { FONTE_AUDITORIA } from "@/lib/gestao";
 
 /**
  * EXCLUIR UMA LOJA — apaga a empresa e TUDO que é dela (clientes, conversas,
@@ -52,6 +53,17 @@ export async function POST(req: NextRequest) {
         { status: 409 }
       );
     }
+    // apagar a loja em que você está "acessando como" deixaria a sessão
+    // apontando para uma empresa que não existe mais
+    if (user.companyId === company.id) {
+      return NextResponse.json(
+        {
+          error:
+            "Você está acessando esta loja no momento. Volte ao Super Admin antes de excluí-la.",
+        },
+        { status: 409 }
+      );
+    }
 
     // 2ª confirmação: o nome digitado tem que bater exatamente (sem depender
     // de maiúscula/acento sobrando nas pontas)
@@ -75,7 +87,7 @@ export async function POST(req: NextRequest) {
     await db.errorLog
       .create({
         data: {
-          source: "superadmin",
+          source: FONTE_AUDITORIA,
           path: "/gestao",
           message: `Loja EXCLUÍDA: ${company.name} (${company.slug}) por ${user.name}`,
           detail: JSON.stringify(resumo),

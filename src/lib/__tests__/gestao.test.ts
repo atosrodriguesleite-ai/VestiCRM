@@ -20,8 +20,14 @@ describe("lifetime — há quanto tempo a loja é cliente", () => {
   });
 
   it("mês só conta depois de fechar o dia", () => {
-    // entrou dia 28: em 27/07 ainda não fechou o 3º mês
-    expect(lifetimeMeses(new Date("2026-04-28T00:00:00Z"), hoje)).toBe(2);
+    // entrou dia 29 (meio-dia, sem dúvida de fuso): em 27/07 falta fechar
+    expect(lifetimeMeses(new Date("2026-04-29T12:00:00Z"), hoje)).toBe(2);
+  });
+
+  it("conta no fuso de São Paulo, não no do servidor", () => {
+    // 28/04 00:00 UTC ainda é 27/04 às 21h em São Paulo — para o cliente
+    // brasileiro a loja nasceu no dia 27, então em 27/07 fecha 3 meses.
+    expect(lifetimeMeses(new Date("2026-04-28T00:00:00Z"), hoje)).toBe(3);
   });
 
   it("loja criada hoje é zero, nunca negativo", () => {
@@ -89,6 +95,16 @@ describe("situação da cobrança", () => {
     expect(
       situacaoCobranca({ ...base, paidThrough: null, hoje: new Date("2026-07-27T12:00:00Z") })
     ).toBe("ATRASADO");
+  });
+
+  it("não discorda do painel Lojas: usa a mesma régua (lib/billing)", () => {
+    // paidThrough é gravado como dia 1 da competência em UTC. Lido no fuso de
+    // São Paulo viraria o último dia do mês ANTERIOR — e a loja que pagou
+    // julho apareceria como atrasada. A régua oficial lê em UTC; conferindo:
+    const pagouJulho = new Date("2026-07-01T00:00:00Z");
+    expect(
+      situacaoCobranca({ ...base, paidThrough: pagouJulho, hoje: new Date("2026-07-31T23:00:00Z") })
+    ).toBe("EM_DIA");
   });
 
   it("teste e cortesia não entram na régua de cobrança", () => {
