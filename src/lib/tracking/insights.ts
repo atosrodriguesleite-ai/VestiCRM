@@ -48,7 +48,7 @@ export async function overview(companyId: string, p: Period) {
       where: {
         companyId,
         status: { in: PAID_ORDER_STATUSES },
-        createdAt: { gte: p.from, lte: p.to },
+        paidAt: { gte: p.from, lte: p.to },
       },
       select: { total: true },
     }),
@@ -72,7 +72,7 @@ export async function overview(companyId: string, p: Period) {
     where: {
       companyId,
       status: { in: PAID_ORDER_STATUSES },
-      createdAt: { gte: p.from, lte: p.to },
+      paidAt: { gte: p.from, lte: p.to },
     },
     _count: true,
   });
@@ -111,7 +111,7 @@ export async function funnel(companyId: string, p: Period) {
       where: {
         companyId,
         status: { in: PAID_ORDER_STATUSES },
-        createdAt: { gte: p.from, lte: p.to },
+        paidAt: { gte: p.from, lte: p.to },
       },
       _count: true,
     }),
@@ -120,7 +120,7 @@ export async function funnel(companyId: string, p: Period) {
       where: {
         companyId,
         status: { in: PAID_ORDER_STATUSES },
-        createdAt: { gte: p.from, lte: p.to },
+        paidAt: { gte: p.from, lte: p.to },
       },
       _count: true,
       having: { customerId: { _count: { gte: 2 } } },
@@ -181,7 +181,7 @@ export async function sellerRanking(companyId: string, p: Period) {
       where: {
         companyId,
         status: { in: PAID_ORDER_STATUSES },
-        createdAt: { gte: p.from, lte: p.to },
+        paidAt: { gte: p.from, lte: p.to },
       },
       select: { total: true, sellerId: true },
     }),
@@ -189,10 +189,10 @@ export async function sellerRanking(companyId: string, p: Period) {
       where: { companyId },
       include: {
         orders: {
-          where: { status: { in: PAID_ORDER_STATUSES } },
-          orderBy: { createdAt: "asc" },
+          where: { status: { in: PAID_ORDER_STATUSES }, paidAt: { not: null } },
+          orderBy: { paidAt: "asc" },
           take: 1,
-          select: { createdAt: true },
+          select: { paidAt: true },
         },
       },
     }),
@@ -207,7 +207,7 @@ export async function sellerRanking(companyId: string, p: Period) {
         .filter((c) => c.ownerId === u.id && c.orders[0])
         .map(
           (c) =>
-            (c.orders[0].createdAt.getTime() - c.createdAt.getTime()) /
+            (c.orders[0].paidAt!.getTime() - c.createdAt.getTime()) /
             (24 * 60 * 60 * 1000)
         );
       return {
@@ -267,7 +267,7 @@ async function dimensionStats(companyId: string, p: Period, dim: Dim) {
   const orderItems = await db.orderItem.findMany({
     where: {
       // conta só VENDA DE VERDADE (paga): fora orçamento, aguardando e cancelado
-      order: { companyId, createdAt: { gte: p.from, lte: p.to }, status: { in: PAID_ORDER_STATUSES } },
+      order: { companyId, paidAt: { gte: p.from, lte: p.to }, status: { in: PAID_ORDER_STATUSES } },
     },
   });
   const map = new Map<
@@ -348,9 +348,9 @@ export async function heatmaps(companyId: string, p: Period) {
       where: {
         companyId,
         status: { in: PAID_ORDER_STATUSES },
-        createdAt: { gte: p.from, lte: p.to },
+        paidAt: { gte: p.from, lte: p.to },
       },
-      select: { total: true, createdAt: true },
+      select: { total: true, paidAt: true },
     }),
   ]);
   const grid = () => Array.from({ length: 7 }, () => Array(24).fill(0) as number[]);
@@ -365,7 +365,8 @@ export async function heatmaps(companyId: string, p: Period) {
     if (s.converted) orders[sp(s.startedAt).getUTCDay()][sp(s.startedAt).getUTCHours()] += 1;
   }
   for (const s of sales) {
-    revenue[sp(s.createdAt).getUTCDay()][sp(s.createdAt).getUTCHours()] += s.total;
+    if (!s.paidAt) continue; // pago sem data não entra (não inventa hora)
+    revenue[sp(s.paidAt).getUTCDay()][sp(s.paidAt).getUTCHours()] += s.total;
   }
   const conversion = grid();
   for (let d = 0; d < 7; d++) {

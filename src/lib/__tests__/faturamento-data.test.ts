@@ -23,6 +23,10 @@ const TELAS_DE_DINHEIRO = [
   "app/(app)/financeiro/page.tsx",
   "app/(app)/inteligencia/page.tsx",
   "app/(app)/marketing/page.tsx",
+  "app/(app)/equipe/page.tsx",
+  // o MOTOR da tela Inteligência mora aqui — foi o arquivo que escapou na
+  // primeira migração justamente por não estar nesta lista
+  "lib/tracking/insights.ts",
 ];
 
 /**

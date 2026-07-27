@@ -28,7 +28,7 @@ export default async function TeamPage() {
       // vendas = pedidos PAGOS (fonte única; inclui integrações tipo Nuvemshop)
       orders: {
         where: {
-          createdAt: { gte: days30 },
+          paidAt: { gte: days30 },
           status: { in: PAID_ORDER_STATUSES },
         },
         select: { total: true },
