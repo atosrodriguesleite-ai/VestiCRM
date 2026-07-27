@@ -29,6 +29,9 @@ export type PecaEncaixe = {
   area: number;
   espelhada?: boolean; // instância invertida do par (mão contrária)
   modeloIdx?: number; // qual modelo do plano (plano com vários modelos)
+  // TIRA fina (galão, alça, viés): pode girar 90° — na mesa a modelista
+  // atravessa essas peças na largura sem prejuízo (prática aceita)
+  tira?: boolean;
   contorno?: Contorno;
   /**
    * CASAL PÉ-COM-CABEÇA: esta "peça" é um bloco de duas peças iguais, a
@@ -798,6 +801,7 @@ export function encaixeColunas(
       rot: 0,
       espelhada: p.espelhada,
       modeloIdx: p.modeloIdx,
+      tira: p.tira,
       contorno: p.contorno,
     };
     const enc = recolocar(pos, alvo, larguraCm, folgaCm, true, res);

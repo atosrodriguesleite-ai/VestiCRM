@@ -300,6 +300,10 @@ export function pecasDoRiscoMulti(
           area: g.area,
           espelhada: espelhar || undefined,
           modeloIdx: idx,
+          tira:
+            Math.min(g.w, g.h) <= 6 && Math.max(g.w, g.h) / Math.min(g.w, g.h) >= 6
+              ? true
+              : undefined,
           contorno: g.contorno,
         });
       }

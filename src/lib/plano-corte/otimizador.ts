@@ -77,6 +77,7 @@ function sequenciaDoRisco(risco: Risco): PecaEncaixe[] {
     area: p.w * p.h, // aproximação só pra ordenar; aproveitamento é recalculado à parte
     espelhada: p.espelhada,
     modeloIdx: p.modeloIdx,
+    tira: p.tira,
     contorno: p.contorno,
   }));
 }
@@ -119,6 +120,27 @@ function recalcularPlano(
     linha.totalTecidoCm = plano.totalTecidoCm;
 }
 
+/**
+ * Gira uma TIRA 90° (rotação verdadeira, sem espelhar): a jogada da
+ * modelista de atravessar galão/alça na largura. Memoizada com ida e
+ * volta — girar duas vezes devolve o MESMO objeto (cache de perfis feliz).
+ */
+const cache90 = new WeakMap<PecaEncaixe, PecaEncaixe>();
+function giradaNoventa(p: PecaEncaixe): PecaEncaixe {
+  const pronta = cache90.get(p);
+  if (pronta) return pronta;
+  const g: PecaEncaixe = {
+    ...p,
+    w: p.h,
+    h: p.w,
+    // rotação +90°: (x, y) → (h − y, x) — determinante +1, nunca espelha
+    contorno: p.contorno?.map(([x, y]) => [p.h - y, x] as [number, number]),
+  };
+  cache90.set(p, g);
+  cache90.set(g, p); // caminho de volta
+  return g;
+}
+
 /** Uma mutação de sequência: troca, inversão de trecho ou mudança de posição. */
 function mutar(
   seq: PecaEncaixe[],
@@ -138,10 +160,19 @@ function mutar(
     const [a, b] = i < j ? [i, j] : [j, i];
     for (let k = 0; k < (b - a + 1) / 2; k++)
       [out[a + k], out[b - k]] = [out[b - k], out[a + k]];
-  } else {
+  } else if (tipo < 0.88) {
     // tira de i e enfia em j
     const [peca] = out.splice(i, 1);
     out.splice(j, 0, peca);
+  } else {
+    // gira uma TIRA 90° (se houver); senão vale como troca simples
+    const tiras = out.map((p, k) => (p.tira ? k : -1)).filter((k) => k >= 0);
+    if (tiras.length > 0) {
+      const k = tiras[Math.floor(rng.next() * tiras.length)];
+      out[k] = giradaNoventa(out[k]);
+    } else {
+      [out[i], out[j]] = [out[j], out[i]];
+    }
   }
   return out;
 }
