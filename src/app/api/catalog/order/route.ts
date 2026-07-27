@@ -126,11 +126,12 @@ export async function POST(req: NextRequest) {
   const subtotal = lines.reduce((a, l) => a + l.total, 0);
   const totalPieces = lines.reduce((a, l) => a + l.quantity, 0);
 
-  // Vendedor do link inteligente (?ref=julia): usado para RASTREAR a origem.
-  // REGRA DE COMISSÃO da loja: a venda é de quem CUIDA da cliente (a
-  // responsável na carteira) no momento da compra — link antigo salvo não
-  // "rouba" a comissão de quem atende hoje. O vendedor do link só fica com o
-  // pedido quando a cliente ainda não tem responsável (cliente novo/anônimo).
+  // REGRA DE COMISSÃO da loja: QUEM MANDA O LINK LEVA A VENDA.
+  // A cliente chega no WhatsApp, a vendedora manda o link dela, a cliente
+  // pede: o pedido é dessa vendedora. É ela quem atendeu e fechou.
+  // A carteira acompanha (a cliente passa a ser de quem vendeu), senão o
+  // cadastro apontaria para uma pessoa e a comissão para outra.
+  // Sem vendedora no link, aí sim vale a responsável pela cliente.
   let linkSellerId: string | null = null;
   if (input.ref) {
     linkSellerId = (await resolveRef(company.id, input.ref)).sellerId;
@@ -157,7 +158,7 @@ export async function POST(req: NextRequest) {
   let customerCity: string | null = null;
   let customerState: string | null = null;
   let opportunityId: string | null = null;
-  // comissão: responsável pela cliente > vendedor do link (só sem responsável)
+  // comissão: vendedora do link > responsável pela cliente (só sem link)
   let orderSellerId: string | null = linkSellerId;
 
   if (hasPhone) {
@@ -175,16 +176,35 @@ export async function POST(req: NextRequest) {
     conversationId = result.conversation?.id ?? null;
     customerCity = result.customer.city;
     customerState = result.customer.state;
-    orderSellerId = result.customer.ownerId ?? linkSellerId;
-    // cliente NOVA que chegou pelo link da vendedora: ela trouxe a cliente,
-    // então assume a carteira (e este pedido). Cliente já existente mantém
-    // a responsável atual — link antigo não rouba a comissão de quem atende.
-    if (result.isNewLead && linkSellerId && result.customer.ownerId !== linkSellerId) {
+    // quem mandou o link leva o pedido; sem link, fica com a responsável
+    orderSellerId = linkSellerId ?? result.customer.ownerId;
+    // a carteira segue a venda: quem vendeu passa a cuidar da cliente. Fica
+    // registrado na linha do tempo dela (troca de carteira mexe em dinheiro).
+    if (linkSellerId && result.customer.ownerId !== linkSellerId) {
+      const anterior = result.customer.ownerId
+        ? await db.user.findUnique({
+            where: { id: result.customer.ownerId },
+            select: { name: true },
+          })
+        : null;
+      const novo = await db.user.findUnique({
+        where: { id: linkSellerId },
+        select: { name: true },
+      });
       await db.customer.update({
         where: { id: result.customer.id },
         data: { ownerId: linkSellerId },
       });
-      orderSellerId = linkSellerId;
+      await db.customerEvent.create({
+        data: {
+          companyId: company.id,
+          customerId: result.customer.id,
+          type: "OUTRO",
+          description: anterior
+            ? `Responsável alterada de ${anterior.name} para ${novo?.name ?? "—"}: pedido feito pelo link dela no catálogo`
+            : `${novo?.name ?? "Vendedora"} assumiu a cliente: pedido feito pelo link dela no catálogo`,
+        },
+      });
     }
     // Só vincula a oportunidade que ACABOU de ser criada para este pedido;
     // se o intake reaproveitou uma já aberta, não a ligamos (não é "deste
@@ -195,7 +215,8 @@ export async function POST(req: NextRequest) {
     customerId = linkCustomer.id;
     customerCity = linkCustomer.city;
     customerState = linkCustomer.state;
-    orderSellerId = linkCustomer.ownerId ?? linkSellerId;
+    // mesma regra: quem mandou o link leva
+    orderSellerId = linkSellerId ?? linkCustomer.ownerId;
     // pedido do catálogo também vira card no funil
     const stage =
       (
@@ -293,14 +314,12 @@ export async function POST(req: NextRequest) {
   // porquê. Sem isso, "o pedido da Lara caiu na tela da Juliana" não tinha
   // como ser conferido — e discussão de comissão sem prova é briga.
   let notaComissao: string | null = null;
-  if (linkSellerId && orderSellerId && linkSellerId !== orderSellerId) {
-    const [doLink, doPedido] = await Promise.all([
-      db.user.findUnique({ where: { id: linkSellerId }, select: { name: true } }),
-      db.user.findUnique({ where: { id: orderSellerId }, select: { name: true } }),
-    ]);
-    notaComissao =
-      `Cliente entrou pelo link de ${doLink?.name ?? "outra vendedora"}, mas a comissão ficou com ` +
-      `${doPedido?.name ?? "a responsável"} — regra da loja: o pedido é de quem é responsável pela cliente.`;
+  if (linkSellerId) {
+    const doLink = await db.user.findUnique({
+      where: { id: linkSellerId },
+      select: { name: true },
+    });
+    notaComissao = `Venda de ${doLink?.name ?? "—"}: a cliente pediu pelo link dela no catálogo.`;
   } else if (input.ref && !linkSellerId) {
     notaComissao =
       `O link usado ("${input.ref}") não identificou nenhuma vendedora da equipe` +

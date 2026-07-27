@@ -3,40 +3,55 @@ import { describe, it, expect } from "vitest";
 /**
  * REGRA DA COMISSÃO NO CATÁLOGO — quem leva o pedido.
  *
- * Reproduz aqui a decisão que a rota do catálogo toma, para a regra ficar
- * explícita e travada. Foi essa decisão que fez "pedido da Lara aparecer na
- * tela da Juliana": o link identifica quem MANDOU, mas o pedido é de quem é
- * RESPONSÁVEL pela cliente — menos quando a cliente é nova.
+ * Regra da loja: QUEM MANDA O LINK LEVA A VENDA. A cliente chega no WhatsApp,
+ * a vendedora manda o link dela, a cliente pede — o pedido é dessa vendedora,
+ * porque foi ela quem atendeu e fechou. A carteira acompanha a venda.
+ *
+ * Só quando o link NÃO identifica ninguém é que vale a responsável pela
+ * cliente (ex.: a cliente entrou direto no catálogo, sem link de vendedora).
+ *
+ * Este teste é a regra escrita em código: se alguém inverter isso um dia,
+ * quebra aqui antes de virar comissão paga errada.
  */
 function quemLevaOPedido(input: {
   linkSellerId: string | null; // vendedora do link (?ref=)
   ownerId: string | null; // responsável pela cliente (carteira)
-  isNewLead: boolean;
 }): string | null {
-  const { linkSellerId, ownerId, isNewLead } = input;
-  if (isNewLead && linkSellerId) return linkSellerId; // trouxe a cliente: é dela
-  return ownerId ?? linkSellerId;
+  return input.linkSellerId ?? input.ownerId;
 }
 
-describe("comissão do pedido do catálogo", () => {
-  it("cliente NOVA pelo link da Lara: o pedido é da Lara", () => {
-    expect(quemLevaOPedido({ linkSellerId: "lara", ownerId: "juliana", isNewLead: true })).toBe("lara");
+/** A carteira segue a venda: quem vendeu passa a cuidar da cliente. */
+function novaResponsavel(input: {
+  linkSellerId: string | null;
+  ownerId: string | null;
+}): string | null {
+  return input.linkSellerId ?? input.ownerId;
+}
+
+describe("comissão do pedido do catálogo — quem manda o link leva", () => {
+  it("cliente da Juliana pede pelo link da Lara: a venda é da LARA", () => {
+    // caso reclamado pela lojista: agora resolve a favor de quem atendeu
+    expect(quemLevaOPedido({ linkSellerId: "lara", ownerId: "juliana" })).toBe("lara");
   });
 
-  it("cliente JÁ EXISTENTE da Juliana: o pedido é da Juliana, mesmo com link da Lara", () => {
-    // este é o caso reclamado — é a regra atual da loja, não uma falha
-    expect(quemLevaOPedido({ linkSellerId: "lara", ownerId: "juliana", isNewLead: false })).toBe("juliana");
+  it("e a cliente passa a ser da Lara (carteira acompanha a venda)", () => {
+    expect(novaResponsavel({ linkSellerId: "lara", ownerId: "juliana" })).toBe("lara");
   });
 
-  it("cliente existente SEM responsável: fica com quem mandou o link", () => {
-    expect(quemLevaOPedido({ linkSellerId: "lara", ownerId: null, isNewLead: false })).toBe("lara");
+  it("cliente nova pelo link da Lara: é da Lara", () => {
+    expect(quemLevaOPedido({ linkSellerId: "lara", ownerId: null })).toBe("lara");
   });
 
-  it("sem link e sem responsável: pedido nasce sem vendedor (e não vira PAGO assim)", () => {
-    expect(quemLevaOPedido({ linkSellerId: null, ownerId: null, isNewLead: true })).toBeNull();
+  it("sem link (cliente entrou direto no catálogo): fica com a responsável", () => {
+    expect(quemLevaOPedido({ linkSellerId: null, ownerId: "juliana" })).toBe("juliana");
   });
 
-  it("link que não identifica ninguém não rouba de quem cuida da cliente", () => {
-    expect(quemLevaOPedido({ linkSellerId: null, ownerId: "juliana", isNewLead: false })).toBe("juliana");
+  it("link que não identifica ninguém não tira da responsável", () => {
+    // link com nome que não bate, ou duas pessoas com o mesmo primeiro nome
+    expect(quemLevaOPedido({ linkSellerId: null, ownerId: "juliana" })).toBe("juliana");
+  });
+
+  it("sem link e sem responsável: pedido nasce sem vendedor (não vira PAGO assim)", () => {
+    expect(quemLevaOPedido({ linkSellerId: null, ownerId: null })).toBeNull();
   });
 });

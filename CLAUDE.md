@@ -71,10 +71,12 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   status. Integrações donas de estoque (Nuvemshop) espelham — uma venda,
   uma baixa.
 - **Comissão** (`Order.sellerId`): pedido montado no sistema → quem montou;
-  pedido do catálogo público → **a responsável pela cliente**
-  (`Customer.ownerId`, a carteira) — link antigo não rouba comissão; cliente
-  NOVA vinda de link de vendedora (`?ref=`) → vendedora vira a responsável e
-  leva o pedido; Nuvemshop → sem vendedor. Pedido só vira PAGO com vendedor;
+  pedido do catálogo público → **QUEM MANDOU O LINK LEVA A VENDA**
+  (`?ref=` vence sempre) — a cliente chega no WhatsApp, a vendedora manda o
+  link dela, a cliente pede: o pedido é dessa vendedora, e a **carteira
+  acompanha** (`Customer.ownerId` passa a ser dela, com registro na linha do
+  tempo). Sem vendedora identificada no link, aí sim vale a responsável pela
+  cliente. Nuvemshop → sem vendedor. Pedido só vira PAGO com vendedor;
   troca de vendedor é auditada em `OrderEvent`.
 - **Leads**: entrada única pelo `lib/intake.ts` (Lead Intake Engine) —
   dedup por telefone **tolerante ao 9º dígito** (`phoneMatchVariants`),
