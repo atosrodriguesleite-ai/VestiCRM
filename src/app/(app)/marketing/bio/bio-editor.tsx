@@ -32,7 +32,6 @@ import {
   Star,
   Info,
   ShoppingCart,
-  Users,
   Loader2,
 } from "lucide-react";
 import { Card } from "@/components/ui";
@@ -119,7 +118,6 @@ type Journey = {
   catalogVisits: number; // sessões no catálogo vindas da bio (utm_source=bio)
   bags: number; // dessas sessões, quantas montaram sacola (cartValue > 0)
   bagsValue: number; // soma do valor das sacolas montadas vindas da bio
-  customers: number; // clientes já identificados com origem "bio"
 };
 
 /** Cartão de métrica com um "ⓘ" que explica o que o número significa e como
@@ -452,15 +450,6 @@ export function BioEditor({
                   value={brl(report.journey.bagsValue)}
                   label="Valor em sacolas"
                   hint="Soma do valor de todas as sacolas montadas por quem veio da bio. É o potencial de venda que a bio levou pro catálogo (ainda não é venda fechada)."
-                />
-              </div>
-
-              <div className="mt-2">
-                <StatCard
-                  icon={<Users className="size-4" />}
-                  value={report.journey.customers}
-                  label="Clientes que chegaram pela bio"
-                  hint="Clientes já identificados (com nome/contato) cuja origem registrada foi a bio — por exemplo, carrinho abandonado da loja online marcado como 'bio', ou quem preencheu um formulário vindo do link da bio."
                 />
               </div>
 

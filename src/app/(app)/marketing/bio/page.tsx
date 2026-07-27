@@ -42,8 +42,8 @@ export default async function BioPageEditor() {
   });
 
   // Jornada: o que a bio levou pro catálogo (rastreio marca utm_source=bio no
-  // botão "Ver catálogo"). Somamos visitas, sacolas e clientes atribuídos à bio.
-  const [catalogVisits, bags, bagsAgg, bioCustomers] = await Promise.all([
+  // botão "Ver catálogo"). Somamos visitas e sacolas montadas.
+  const [catalogVisits, bags, bagsAgg] = await Promise.all([
     db.trackSession.count({ where: { companyId: user.companyId, utmSource: "bio" } }),
     db.trackSession.count({
       where: { companyId: user.companyId, utmSource: "bio", cartValue: { gt: 0 } },
@@ -52,15 +52,11 @@ export default async function BioPageEditor() {
       where: { companyId: user.companyId, utmSource: "bio", cartValue: { gt: 0 } },
       _sum: { cartValue: true },
     }),
-    db.customer.count({
-      where: { companyId: user.companyId, landingSource: { startsWith: "bio" } },
-    }),
   ]);
   const journey = {
     catalogVisits,
     bags,
     bagsValue: bagsAgg._sum.cartValue ?? 0,
-    customers: bioCustomers,
   };
 
   return (

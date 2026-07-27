@@ -32,11 +32,10 @@ export async function GET(req: NextRequest) {
     let catalogVisits: number;
     let bags: number;
     let bagsValue: number;
-    let customers: number;
 
     if (from) {
       // por período: usa os eventos com data
-      const [views, clickGroups, cv, bg, bgAgg, cust] = await Promise.all([
+      const [views, clickGroups, cv, bg, bgAgg] = await Promise.all([
         db.bioView.count({ where: { bioPageId: page.id, createdAt: { gte: from } } }),
         db.bioClick.groupBy({
           by: ["bioLinkId"],
@@ -51,9 +50,6 @@ export async function GET(req: NextRequest) {
           where: { companyId, utmSource: "bio", cartValue: { gt: 0 }, startedAt: { gte: from } },
           _sum: { cartValue: true },
         }),
-        db.customer.count({
-          where: { companyId, landingSource: { startsWith: "bio" }, createdAt: { gte: from } },
-        }),
       ]);
       visitas = views;
       cliques = clickGroups.reduce((s, g) => s + g._count._all, 0);
@@ -65,17 +61,15 @@ export async function GET(req: NextRequest) {
       catalogVisits = cv;
       bags = bg;
       bagsValue = bgAgg._sum.cartValue ?? 0;
-      customers = cust;
     } else {
       // tudo: usa os contadores acumulados
-      const [cv, bg, bgAgg, cust] = await Promise.all([
+      const [cv, bg, bgAgg] = await Promise.all([
         db.trackSession.count({ where: { companyId, utmSource: "bio" } }),
         db.trackSession.count({ where: { companyId, utmSource: "bio", cartValue: { gt: 0 } } }),
         db.trackSession.aggregate({
           where: { companyId, utmSource: "bio", cartValue: { gt: 0 } },
           _sum: { cartValue: true },
         }),
-        db.customer.count({ where: { companyId, landingSource: { startsWith: "bio" } } }),
       ]);
       visitas = page.views;
       cliques = page.links.reduce((s, l) => s + l.clicks, 0);
@@ -87,7 +81,6 @@ export async function GET(req: NextRequest) {
       catalogVisits = cv;
       bags = bg;
       bagsValue = bgAgg._sum.cartValue ?? 0;
-      customers = cust;
     }
 
     const ctr = visitas > 0 ? Math.round((cliques / visitas) * 100) : 0;
@@ -96,7 +89,7 @@ export async function GET(req: NextRequest) {
       cliques,
       ctr,
       topLinks,
-      journey: { catalogVisits, bags, bagsValue, customers },
+      journey: { catalogVisits, bags, bagsValue },
     });
   } catch (e) {
     if (e instanceof AuthError)
