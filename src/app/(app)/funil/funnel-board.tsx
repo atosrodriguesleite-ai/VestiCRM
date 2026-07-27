@@ -339,7 +339,10 @@ export function FunnelBoard({
                               deleteCard(card.id, stage.id);
                             }}
                             title="Excluir oportunidade"
-                            className="text-gray-300 hover:text-rose-500 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition p-0.5"
+                            aria-label="Excluir oportunidade"
+                            // área de toque decente no celular: com p-0.5 o alvo
+                            // tinha 18px e o dedo acertava o card em vez do botão
+                            className="text-gray-300 hover:text-rose-500 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition p-2 -m-1 md:p-0.5 md:m-0"
                           >
                             <Trash2 className="size-3.5" />
                           </button>

@@ -103,7 +103,7 @@ export function extractJids(data: unknown): string[] {
 }
 
 /** Extrai a lista de mensagens de formatos variados de resposta do servidor. */
-function extractRecords(data: unknown): WAMsg[] {
+export function extractRecords(data: unknown): WAMsg[] {
   const d = data as Record<string, unknown> | unknown[] | null;
   if (Array.isArray(d)) return d as WAMsg[];
   if (d && typeof d === "object") {

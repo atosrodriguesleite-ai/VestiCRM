@@ -88,14 +88,17 @@ export function CommissionsView({
     <>
       {/* filtros de período + base */}
       <div className="flex flex-col sm:flex-row sm:items-end gap-3 mb-5">
-        <form className="flex items-end gap-2" method="GET">
-          <div>
+        {/* no celular os filtros QUEBRAM linha: sem isso os dois campos de
+            data + botão passavam da largura da tela e empurravam a página
+            inteira para o lado (a tabela ia junto) */}
+        <form className="flex flex-wrap items-end gap-2" method="GET">
+          <div className="min-w-0 flex-1 sm:flex-none">
             <label className="block text-[11px] font-semibold text-gray-500 mb-1">De</label>
-            <input type="date" name="de" defaultValue={de} className={inputCls} />
+            <input type="date" name="de" defaultValue={de} className={`${inputCls} w-full sm:w-auto`} />
           </div>
-          <div>
+          <div className="min-w-0 flex-1 sm:flex-none">
             <label className="block text-[11px] font-semibold text-gray-500 mb-1">Até</label>
-            <input type="date" name="ate" defaultValue={ate} className={inputCls} />
+            <input type="date" name="ate" defaultValue={ate} className={`${inputCls} w-full sm:w-auto`} />
           </div>
           <button className="rounded-lg bg-gray-900 hover:bg-gray-700 text-white text-sm font-medium px-4 py-2 transition">
             Filtrar

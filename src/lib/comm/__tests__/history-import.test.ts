@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { extractJids } from "../history-import";
+import { extractJids, extractRecords } from "../history-import";
 
 /**
  * O servidor de conexão mudou de formato entre versões: às vezes devolve a
@@ -43,5 +43,38 @@ describe("extractJids (lista de conversas do servidor)", () => {
     expect(extractJids(null)).toEqual([]);
     expect(extractJids("erro")).toEqual([]);
     expect(extractJids({ mensagem: "sem permissão" })).toEqual([]);
+  });
+});
+
+/**
+ * O servidor de conexão devolve as mensagens em formatos diferentes conforme
+ * a versão. A leitura precisa aguentar todos — foi por não aguentar que a
+ * importação de histórico voltava vazia mesmo com mensagens guardadas.
+ */
+describe("extractRecords (mensagens do servidor, em qualquer formato)", () => {
+  const msg = { key: { id: "AAA" }, message: { conversation: "oi" } };
+
+  it("array puro (versões antigas)", () => {
+    expect(extractRecords([msg])).toHaveLength(1);
+  });
+
+  it("embrulhado em messages (array)", () => {
+    expect(extractRecords({ messages: [msg] })).toHaveLength(1);
+  });
+
+  it("embrulhado em messages.records (versões novas, com paginação)", () => {
+    expect(
+      extractRecords({ messages: { total: 1, pages: 1, currentPage: 1, records: [msg] } })
+    ).toHaveLength(1);
+  });
+
+  it("embrulhado em records", () => {
+    expect(extractRecords({ records: [msg] })).toHaveLength(1);
+  });
+
+  it("resposta de erro não quebra a importação", () => {
+    expect(extractRecords(null)).toEqual([]);
+    expect(extractRecords({ status: 401, error: "Unauthorized" })).toEqual([]);
+    expect(extractRecords("erro")).toEqual([]);
   });
 });
