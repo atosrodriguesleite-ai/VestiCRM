@@ -476,16 +476,29 @@ export async function updateDeliveryStatus(
   const message = await db.message.findFirst({
     where: { externalId, conversation: { companyId } },
   });
+
+  // RECIBO DE MENSAGEM QUE NÃO É NOSSA — não é erro, é rotina.
+  //
+  // O WhatsApp manda recibo de entrega/leitura de TUDO que passa pelo
+  // número: mensagens digitadas no celular, conversas de grupo, mensagens
+  // antigas de antes da conexão. Nada disso está no CRM, então não há o que
+  // atualizar — e não há nada errado nisso.
+  //
+  // Registrar cada um como ERRO enchia a Central de Comunicação de bolinhas
+  // vermelhas e inflava o contador de "falhas nas últimas 24h" que a lojista
+  // vê. Com o painel gritando falha o tempo todo, o erro DE VERDADE passa
+  // despercebido. Então esse recibo é simplesmente ignorado, em silêncio.
+  if (!message) return null;
+
   await logEvent({
     companyId,
-    channel: message?.channel ?? "WHATSAPP",
+    channel: message.channel,
     direction: "IN",
     type: "status.update",
-    status: message ? "OK" : "ERRO",
+    status: "OK",
     payload: { externalId, status },
-    error: message ? error : "Mensagem não encontrada para o externalId",
+    error,
   });
-  if (!message) return null;
   // grava o HORÁRIO do recibo: entregue e visto (não retrocede um status)
   const agora = new Date();
   const receiptData: Record<string, unknown> = { status, ...(error ? { error } : {}) };
