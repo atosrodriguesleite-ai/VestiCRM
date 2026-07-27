@@ -740,7 +740,7 @@ export function PlanoCorteView() {
                     e.stopPropagation();
                     excluirModelo(m.id);
                   }}
-                  className="absolute right-2 bottom-2 rounded-lg p-1.5 text-slate-300 opacity-0 transition group-hover:opacity-100 hover:bg-red-50 hover:text-red-500"
+                  className="absolute right-2 bottom-2 rounded-lg p-1.5 text-slate-300 transition md:opacity-0 md:group-hover:opacity-100 hover:bg-red-50 hover:text-red-500"
                   title="Excluir modelo"
                 >
                   <Trash2 className="size-4" />

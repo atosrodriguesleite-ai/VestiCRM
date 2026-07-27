@@ -340,7 +340,22 @@ body.teclado-aberto .area-principal {
 /* painel flutuante que nasce do campo de escrita: com o teclado aberto ele
    encolhe, senão o topo dele sai pela borda de cima da tela */
 body.teclado-aberto .painel-flutuante {
-  max-height: 34vh;
+  position: fixed;
+  top: 4rem;
+  bottom: auto;
+  left: 0.75rem;
+  right: 0.75rem;
+  max-height: 45vh;
+  z-index: 50;
+}
+@media (min-width: 640px) {
+  /* no computador não existe teclado ocupando a tela: segue o balão de sempre */
+  body.teclado-aberto .painel-flutuante {
+    position: absolute;
+    top: auto;
+    bottom: 100%;
+    max-height: 18rem;
+  }
 }
 
 /* Espaço reservado FORA da conversa no celular: cabeçalho + barra de baixo.

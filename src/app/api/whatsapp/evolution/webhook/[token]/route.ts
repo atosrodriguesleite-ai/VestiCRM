@@ -66,19 +66,33 @@ type Extracted = {
   fileName: string | null;
 };
 
-/** Prévia do anúncio (se a mensagem veio de um clique em anúncio). */
+/**
+ * Prévia do anúncio (se a mensagem veio de um clique em anúncio).
+ *
+ * O lugar do `externalAdReply` MUDA conforme o tipo de mensagem e a versão do
+ * servidor: pode estar no texto, na foto, no vídeo, no botão, ou solto na
+ * raiz. Em vez de adivinhar o caminho, procura em qualquer profundidade —
+ * era por procurar em só três lugares que a prévia não aparecia.
+ */
 function extractAdReferral(m: EvoMessage): AdReply | null {
-  const msg = m.message ?? {};
-  const portadores: (CtxInfo | undefined)[] = [
-    msg.extendedTextMessage,
-    msg.imageMessage,
-    msg.videoMessage,
-  ];
-  for (const p of portadores) {
-    const ad = p?.contextInfo?.externalAdReply;
-    if (ad && (ad.title || ad.body || ad.sourceUrl)) return ad;
-  }
-  return null;
+  let achado: AdReply | null = null;
+  const visitados = new Set<unknown>();
+  const procurar = (no: unknown, nivel: number) => {
+    if (achado || !no || typeof no !== "object" || nivel > 6) return;
+    if (visitados.has(no)) return;
+    visitados.add(no);
+    for (const [chave, valor] of Object.entries(no as Record<string, unknown>)) {
+      if (achado) return;
+      if (chave === "externalAdReply" && valor && typeof valor === "object") {
+        const ad = valor as AdReply;
+        if (ad.title || ad.body || ad.sourceUrl || ad.sourceId) achado = ad;
+        return;
+      }
+      if (valor && typeof valor === "object") procurar(valor, nivel + 1);
+    }
+  };
+  procurar(m as unknown, 0);
+  return achado;
 }
 
 function extractText(m: EvoMessage): Extracted {
@@ -243,6 +257,26 @@ export async function POST(
           // consegue atribuir a conversa à campanha certa. Sem duplicar: a
           // mesma prévia só entra uma vez por conversa.
           const ad = extractAdReferral(m);
+          // diagnóstico (Central de Comunicação): se o cliente é NOVO e não
+          // veio prévia de anúncio, registra que tipos de conteúdo chegaram —
+          // é assim que descobrimos se o servidor está mandando ou não
+          if (!ad && result?.isNewLead) {
+            await db.commEvent
+              .create({
+                data: {
+                  companyId,
+                  channel: "WHATSAPP",
+                  direction: "IN",
+                  type: "wa.anuncio.ausente",
+                  status: "OK",
+                  payload: JSON.stringify({
+                    tipos: Object.keys(m.message ?? {}),
+                    temContexto: JSON.stringify(m.message ?? {}).includes("contextInfo"),
+                  }).slice(0, 300),
+                },
+              })
+              .catch(() => {});
+          }
           if (ad && result?.conversation) {
             const marcador = ad.sourceUrl || ad.title || ad.sourceId || "";
             const jaTem = marcador

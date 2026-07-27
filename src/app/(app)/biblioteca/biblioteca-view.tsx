@@ -117,7 +117,7 @@ export function BibliotecaView({ initial }: { initial: Asset[] }) {
                   loading="lazy"
                 />
               </button>
-              <div className="absolute inset-x-0 bottom-0 flex items-center justify-between gap-1 bg-gradient-to-t from-black/60 to-transparent p-1.5 opacity-0 group-hover:opacity-100 transition pointer-events-none">
+              <div className="absolute inset-x-0 bottom-0 flex items-center justify-between gap-1 bg-gradient-to-t from-black/60 to-transparent p-1.5 md:opacity-0 md:group-hover:opacity-100 transition pointer-events-none">
                 <div className="pointer-events-auto flex items-center justify-between gap-1 w-full">
                 <a
                   href={`/api/media/${a.id}/raw?download=1`}

@@ -186,7 +186,7 @@ export function TeamView({
                     className="group relative rounded-full disabled:opacity-60"
                   >
                     <Avatar name={m.name} color={m.color} src={m.avatarUrl} size="lg" />
-                    <span className="absolute inset-0 rounded-full bg-black/45 opacity-0 group-hover:opacity-100 transition flex items-center justify-center">
+                    <span className="absolute inset-0 rounded-full bg-black/45 opacity-0 max-md:opacity-100 max-md:bg-black/25 group-hover:opacity-100 transition flex items-center justify-center">
                       <Camera className="size-4 text-white" />
                     </span>
                   </button>
@@ -394,7 +394,7 @@ export function TeamView({
                   title="Adicionar foto"
                 >
                   <Avatar name="?" src={newPhoto} size="lg" color="#c99b5f" />
-                  <span className="absolute inset-0 rounded-full bg-black/45 opacity-0 group-hover:opacity-100 transition flex items-center justify-center">
+                  <span className="absolute inset-0 rounded-full bg-black/45 opacity-0 max-md:opacity-100 max-md:bg-black/25 group-hover:opacity-100 transition flex items-center justify-center">
                     <Camera className="size-4 text-white" />
                   </span>
                 </button>
