@@ -326,3 +326,19 @@ h3 {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* ---- Teclado do celular aberto ------------------------------------------
+   O teclado come metade da tela. A barra de navegação de baixo não serve
+   pra nada nesse momento e ainda roubava a área de leitura da conversa.
+   CSS puro (sem depender de variante gerada) para não haver dúvida. */
+body.teclado-aberto .barra-inferior {
+  display: none !important;
+}
+body.teclado-aberto .area-principal {
+  padding-bottom: 0 !important;
+}
+/* painel flutuante que nasce do campo de escrita: com o teclado aberto ele
+   encolhe, senão o topo dele sai pela borda de cima da tela */
+body.teclado-aberto .painel-flutuante {
+  max-height: 34vh;
+}

@@ -2124,7 +2124,7 @@ export function Inbox({
                 </div>
               )}
               {showTemplates && (
-                <div className="absolute bottom-full left-3 right-3 mb-1 bg-white rounded-xl border border-gray-100 shadow-pop max-h-72 [.teclado-aberto_&]:max-h-[34vh] overflow-y-auto thin-scroll z-10">
+                <div className="painel-flutuante absolute bottom-full left-3 right-3 mb-1 bg-white rounded-xl border border-gray-100 shadow-pop max-h-72 overflow-y-auto thin-scroll z-10">
                   <div className="sticky top-0 flex items-center justify-between gap-2 px-4 py-2 bg-white border-b border-gray-100">
                     <p className="text-[10px] font-bold uppercase tracking-wide text-gray-400 flex items-center gap-1">
                       <Zap className="size-3" /> Respostas rápidas
@@ -2286,9 +2286,19 @@ export function Inbox({
               )}
               {/* editor das mensagens automáticas (catálogo + pedido) */}
               {showCatMsgEdit && (
-                // com o teclado aberto o painel encolhe: assim o topo dele não
-                // sai da tela e o campo que você está editando continua à vista
-                <div className="absolute bottom-full left-3 right-3 sm:right-auto sm:w-[26rem] mb-1 bg-white rounded-xl border border-gray-100 shadow-pop z-20 p-3 max-h-[70vh] [.teclado-aberto_&]:max-h-[34vh] overflow-y-auto thin-scroll">
+                <>
+                {/* fundo escuro só no celular: fecha ao tocar fora */}
+                <div
+                  onClick={() => setShowCatMsgEdit(false)}
+                  className="sm:hidden fixed inset-0 z-40 bg-black/40"
+                />
+                {/*
+                  No CELULAR este editor é uma janela ANCORADA NO TOPO: como
+                  balão nascendo do campo de escrita, o teclado empurrava o
+                  painel e o primeiro campo saía pela borda de cima da tela.
+                  No computador continua o balão de sempre (sm:).
+                */}
+                <div className="fixed left-3 right-3 top-14 z-50 max-h-[60vh] sm:absolute sm:top-auto sm:bottom-full sm:left-3 sm:right-auto sm:w-[26rem] sm:mb-1 sm:z-20 sm:max-h-[70vh] bg-white rounded-xl border border-gray-100 shadow-pop p-3 overflow-y-auto thin-scroll">
                   <p className="text-[11px] font-bold text-gray-500 mb-2">
                     Mensagens automáticas
                   </p>
@@ -2356,6 +2366,7 @@ export function Inbox({
                     </div>
                   </div>
                 </div>
+                </>
               )}
               {/* menção @ nas notas internas */}
               {noteMode && mention && mentionMatches.length > 0 && (

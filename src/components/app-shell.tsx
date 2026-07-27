@@ -127,23 +127,47 @@ export function AppShell({
   }, []);
 
   /**
-   * Teclado do celular aberto → some com a barra de baixo.
-   * No celular o teclado já come metade da tela; com a barra de navegação
-   * por cima dele sobrava uma frestinha pra ler a conversa. Detecta pela
-   * "janela visível" (funciona no iPhone e no Android, em qualquer tela).
+   * Teclado do celular aberto → some com a barra de baixo (ela roubava a
+   * área de leitura da conversa).
+   *
+   * Detecta por DOIS caminhos, porque o iPhone nem sempre avisa a mudança
+   * de tamanho da janela: (1) o campo que ganhou o foco é de digitação;
+   * (2) a janela visível encolheu. Qualquer um dos dois liga o modo.
    */
   useEffect(() => {
-    const vv = window.visualViewport;
-    if (!vv) return;
-    const aoRedimensionar = () => {
-      const aberto = window.innerHeight - vv.height > 120;
-      document.body.classList.toggle("teclado-aberto", aberto);
+    const ehCampoDeTexto = (el: EventTarget | null) => {
+      const n = el as HTMLElement | null;
+      if (!n || !n.tagName) return false;
+      const t = n.tagName;
+      return t === "INPUT" || t === "TEXTAREA" || n.isContentEditable;
     };
-    vv.addEventListener("resize", aoRedimensionar);
-    aoRedimensionar();
+    const ligar = () => document.body.classList.add("teclado-aberto");
+    const desligar = () => document.body.classList.remove("teclado-aberto");
+
+    const aoFocar = (e: FocusEvent) => {
+      if (ehCampoDeTexto(e.target)) ligar();
+    };
+    const aoSairDoFoco = () => {
+      // espera um instante: trocar de campo não deve piscar a barra
+      setTimeout(() => {
+        if (!ehCampoDeTexto(document.activeElement)) desligar();
+      }, 120);
+    };
+    const vv = window.visualViewport;
+    const aoRedimensionar = () => {
+      if (!vv) return;
+      if (window.innerHeight - vv.height > 120) ligar();
+      else if (!ehCampoDeTexto(document.activeElement)) desligar();
+    };
+
+    document.addEventListener("focusin", aoFocar);
+    document.addEventListener("focusout", aoSairDoFoco);
+    vv?.addEventListener("resize", aoRedimensionar);
     return () => {
-      vv.removeEventListener("resize", aoRedimensionar);
-      document.body.classList.remove("teclado-aberto");
+      document.removeEventListener("focusin", aoFocar);
+      document.removeEventListener("focusout", aoSairDoFoco);
+      vv?.removeEventListener("resize", aoRedimensionar);
+      desligar();
     };
   }, []);
   function toggleCollapsed() {
@@ -400,13 +424,14 @@ export function AppShell({
           </div>
         </header>
 
-        {/* com o teclado aberto a barra de baixo some → o espaço dela também */}
-        <main className="flex-1 p-4 md:p-8 pb-24 md:pb-8 [.teclado-aberto_&]:pb-0 animate-fade-in">
+        {/* com o teclado aberto a barra de baixo some → o espaço dela também
+            (regra em globals.css: body.teclado-aberto) */}
+        <main className="area-principal flex-1 p-4 md:p-8 pb-24 md:pb-8 animate-fade-in">
           {children}
         </main>
 
         {/* Bottom nav mobile */}
-        <nav className="md:hidden fixed bottom-0 inset-x-0 z-40 bg-surface/90 backdrop-blur-xl border-t border-brand-900/10 flex items-stretch justify-around pb-[env(safe-area-inset-bottom)] [.teclado-aberto_&]:hidden">
+        <nav className="barra-inferior md:hidden fixed bottom-0 inset-x-0 z-40 bg-surface/90 backdrop-blur-xl border-t border-brand-900/10 flex items-stretch justify-around pb-[env(safe-area-inset-bottom)]">
           {mobileItems.map((item) => {
             const active = pathname.startsWith(item.href);
             const Icon = item.icon;
