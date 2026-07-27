@@ -145,19 +145,56 @@ export function calcularMRR(
 }
 
 /**
- * Loja EM RISCO: pagante que não teve ninguém entrando no sistema há muitos
- * dias. Cliente que parou de usar é cliente que vai cancelar — este é o
- * alerta que dá tempo de ligar antes.
+ * LOJA EM RISCO — os dois riscos que valem dinheiro, separados porque a ação
+ * é diferente:
+ *
+ * - PAGANTE_SUMIU: cliente que paga e parou de usar. Quem não usa cancela na
+ *   próxima fatura. Risco de PERDER uma receita que já existe.
+ * - TESTE_PARADO: quem entrou no teste e não está usando. Risco de NÃO
+ *   FECHAR uma venda — e é o momento em que ainda dá para salvar.
+ *
+ * Cortesia fica de fora: não há receita em jogo nem venda a fechar.
  */
-export function emRisco(
-  loja: { suspended: boolean; kind: string; ultimoAcesso: Date | null },
-  diasSemUso = 14,
+export type TipoDeRisco = "PAGANTE_SUMIU" | "TESTE_PARADO";
+
+export const riscoLabel: Record<TipoDeRisco, string> = {
+  PAGANTE_SUMIU: "cliente sumindo",
+  TESTE_PARADO: "teste parado",
+};
+
+/** Pagante: 14 dias sem ninguém entrar já é sinal de cancelamento vindo. */
+export const DIAS_RISCO_PAGANTE = 14;
+/** Teste: o prazo é mais curto — teste parado esfria rápido. */
+export const DIAS_RISCO_TESTE = 7;
+/** Tolerância para a loja nova dar o primeiro acesso antes de acender alarme. */
+export const DIAS_PRIMEIRO_ACESSO = 2;
+
+export function tipoDeRisco(
+  loja: {
+    suspended: boolean;
+    kind: string;
+    ultimoAcesso: Date | null;
+    criadaEm: Date;
+  },
   hoje = new Date()
-): boolean {
-  if (loja.suspended || loja.kind !== "PAGANTE") return false;
-  if (!loja.ultimoAcesso) return true; // pagante que nunca entrou é o pior caso
-  const dias = (hoje.getTime() - loja.ultimoAcesso.getTime()) / 86_400_000;
-  return dias >= diasSemUso;
+): TipoDeRisco | null {
+  if (loja.suspended) return null; // suspensa já é outro problema, não "risco"
+  const diasDesde = (d: Date) => (hoje.getTime() - d.getTime()) / 86_400_000;
+
+  if (loja.kind === "PAGANTE") {
+    // pagante que NUNCA entrou é o pior caso: pagou e não usou
+    if (!loja.ultimoAcesso) return "PAGANTE_SUMIU";
+    return diasDesde(loja.ultimoAcesso) >= DIAS_RISCO_PAGANTE ? "PAGANTE_SUMIU" : null;
+  }
+
+  if (loja.kind === "TESTE") {
+    // loja recém-criada tem alguns dias para dar o primeiro acesso
+    if (!loja.ultimoAcesso)
+      return diasDesde(loja.criadaEm) >= DIAS_PRIMEIRO_ACESSO ? "TESTE_PARADO" : null;
+    return diasDesde(loja.ultimoAcesso) >= DIAS_RISCO_TESTE ? "TESTE_PARADO" : null;
+  }
+
+  return null; // CORTESIA
 }
 
 /**

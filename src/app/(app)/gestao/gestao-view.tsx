@@ -19,7 +19,18 @@ import {
 } from "lucide-react";
 import { Card } from "@/components/ui";
 import { brl, dateShort, dateFull, timeShort } from "@/lib/format";
-import { cicloLabel, lifetimeLabel, situacaoLabel, canalLeadLabel, type CanalDeLead, type SituacaoCobranca } from "@/lib/gestao";
+import {
+  cicloLabel,
+  lifetimeLabel,
+  situacaoLabel,
+  canalLeadLabel,
+  riscoLabel,
+  DIAS_RISCO_PAGANTE,
+  DIAS_RISCO_TESTE,
+  type CanalDeLead,
+  type SituacaoCobranca,
+  type TipoDeRisco,
+} from "@/lib/gestao";
 
 export type LojaGestao = {
   id: string;
@@ -48,10 +59,9 @@ export type LojaGestao = {
   produtos: number;
   totalPedidos: number;
   ultimoAcesso: string | null;
-  emRisco: boolean;
+  risco: TipoDeRisco | null;
   whatsapp: string;
   whatsappPhone: string | null;
-  notas: string | null;
 };
 
 export type Intercorrencia = {
@@ -75,7 +85,8 @@ type Resumo = {
   lojasPagantes: number;
   lojasTeste: number;
   lojasSuspensas: number;
-  emRisco: number;
+  riscoPagantes: number;
+  riscoTestes: number;
   atrasados: number;
   ltMedio: number;
   intercorrencias7d: number;
@@ -96,6 +107,14 @@ const tomSituacao: Record<SituacaoCobranca, string> = {
   A_VENCER: "bg-amber-50 text-amber-700 border-amber-200",
   ATRASADO: "bg-rose-50 text-rose-700 border-rose-200",
   SEM_COBRANCA: "bg-slate-100 text-slate-500 border-slate-200",
+};
+/**
+ * Cores dos dois riscos — a cor é a informação: laranja é dinheiro que já
+ * entra e pode parar; azul é venda que ainda não fechou.
+ */
+const tomRisco: Record<TipoDeRisco, string> = {
+  PAGANTE_SUMIU: "border-amber-200 bg-amber-50 text-amber-700",
+  TESTE_PARADO: "border-sky-200 bg-sky-50 text-sky-700",
 };
 const tomKind: Record<string, string> = {
   PAGANTE: "bg-brand-50 text-brand-700 border-brand-200",
@@ -148,8 +167,14 @@ function Kpi({
             {Math.abs(delta)}%
           </span>
         )}
-        {hint && (
+        {/* "vs. mês anterior" só faz sentido quando existe mês anterior */}
+        {hint && (anterior === undefined || temComparativo) && (
           <span className={`text-[11px] ${destaque ? "text-white/70" : "text-slate-400"}`}>{hint}</span>
+        )}
+        {anterior !== undefined && !temComparativo && (
+          <span className={`text-[11px] ${destaque ? "text-white/70" : "text-slate-400"}`}>
+            sem histórico para comparar
+          </span>
         )}
       </div>
     </div>
@@ -307,7 +332,7 @@ export function GestaoView({
             />
           </div>
 
-          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+          <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
             <Kpi
               label="Faturamento das lojas"
               valor={brl(resumo.faturamentoLojasMes)}
@@ -315,11 +340,23 @@ export function GestaoView({
             />
             <Kpi label="Implantação a receber" valor={brl(resumo.aReceberImplantacao)} hint="ainda não pago" />
             <Kpi label="Cobranças atrasadas" valor={String(resumo.atrasados)} hint="pagantes vencidos" />
-            <Kpi label="Lojas em risco" valor={String(resumo.emRisco)} hint="pagante sem uso há 14+ dias" />
+            <Kpi
+              label="Clientes sumindo"
+              valor={String(resumo.riscoPagantes)}
+              hint={`pagante sem uso há ${DIAS_RISCO_PAGANTE}+ dias`}
+            />
+            <Kpi
+              label="Testes parados"
+              valor={String(resumo.riscoTestes)}
+              hint={`teste sem uso há ${DIAS_RISCO_TESTE}+ dias`}
+            />
           </div>
 
           {/* alertas que pedem ação */}
-          {(resumo.atrasados > 0 || resumo.emRisco > 0 || resumo.lojasSuspensas > 0) && (
+          {(resumo.atrasados > 0 ||
+            resumo.riscoPagantes > 0 ||
+            resumo.riscoTestes > 0 ||
+            resumo.lojasSuspensas > 0) && (
             <Card className="p-4">
               <p className="mb-3 flex items-center gap-2 text-sm font-semibold text-slate-800">
                 <ShieldAlert className="size-4 text-amber-500" />
@@ -327,7 +364,7 @@ export function GestaoView({
               </p>
               <div className="space-y-2">
                 {lojas
-                  .filter((l) => l.situacao === "ATRASADO" || l.emRisco || l.suspensa)
+                  .filter((l) => l.situacao === "ATRASADO" || l.risco !== null || l.suspensa)
                   .slice(0, 8)
                   .map((l) => (
                     <div key={l.id} className="flex flex-wrap items-center gap-2 rounded-xl bg-slate-50 px-3 py-2">
@@ -337,9 +374,12 @@ export function GestaoView({
                           cobrança atrasada · {brl(l.monthlyFee)}
                         </span>
                       )}
-                      {l.emRisco && (
-                        <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-700">
-                          sem uso {l.ultimoAcesso ? `desde ${dateShort(l.ultimoAcesso)}` : "— nunca entrou"}
+                      {l.risco && (
+                        <span
+                          className={`rounded-full border px-2 py-0.5 text-[11px] font-semibold ${tomRisco[l.risco]}`}
+                        >
+                          {riscoLabel[l.risco]} ·{" "}
+                          {l.ultimoAcesso ? `sem uso desde ${dateShort(l.ultimoAcesso)}` : "nunca entrou"}
                         </span>
                       )}
                       {l.suspensa && (
@@ -423,15 +463,20 @@ export function GestaoView({
                           suspensa
                         </span>
                       )}
-                      {l.emRisco && (
-                        <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-700">
-                          em risco
+                      {l.risco && (
+                        <span
+                          className={`rounded-full border px-2 py-0.5 text-[11px] font-semibold ${tomRisco[l.risco]}`}
+                        >
+                          {riscoLabel[l.risco]}
                         </span>
                       )}
                     </div>
                     <p className="mt-1 text-xs text-slate-500">
-                      {l.responsavel ?? "sem responsável"} · cliente há <b>{lifetimeLabel(l.lifetimeMeses)}</b> (desde{" "}
-                      {dateFull(l.criadaEm)})
+                      {l.responsavel ?? "sem responsável"}
+                      {l.email && <span className="text-slate-400"> · {l.email}</span>}
+                    </p>
+                    <p className="text-xs text-slate-500">
+                      cliente há <b>{lifetimeLabel(l.lifetimeMeses)}</b> (desde {dateFull(l.criadaEm)})
                     </p>
                   </div>
                   <div className="flex shrink-0 items-center gap-1.5">
@@ -474,7 +519,10 @@ export function GestaoView({
                   <div>
                     <p className="text-[10px] uppercase tracking-wide text-slate-400">Mensalidade</p>
                     <p className="text-sm font-semibold tabular-nums text-slate-800">{brl(l.monthlyFee)}</p>
-                    <p className="text-[10px] text-slate-400">vence dia {l.dueDay}</p>
+                    {/* dia de vencimento só interessa em quem realmente paga */}
+                    <p className="text-[10px] text-slate-400">
+                      {l.monthlyFee > 0 ? `vence dia ${l.dueDay}` : "sem mensalidade"}
+                    </p>
                   </div>
                   <div>
                     <p className="text-[10px] uppercase tracking-wide text-slate-400">Plano</p>
@@ -580,14 +628,29 @@ export function GestaoView({
                     </tr>
                   ))}
                 </tbody>
+                {/*
+                  O rodapé mostra DUAS contas por coluna porque elas respondem
+                  perguntas diferentes: a soma da coluna (tudo que está na
+                  tabela) e o número que vale para o caixa (só o que entra de
+                  verdade). Mostrar só o segundo fazia as linhas não fecharem
+                  com o total, e quem somasse na mão achava erro.
+                */}
                 <tfoot>
                   <tr className="border-t border-slate-100 bg-slate-50/40 font-semibold">
                     <td className="px-4 py-3">Total</td>
                     <td />
                     <td className="px-4 py-3 text-right tabular-nums">
                       {brl(lojas.reduce((s, l) => s + l.implementationFee, 0))}
+                      <span className="block text-[10px] font-normal text-amber-600">
+                        {brl(resumo.aReceberImplantacao)} a receber
+                      </span>
                     </td>
-                    <td className="px-4 py-3 text-right tabular-nums">{brl(resumo.mrr)}</td>
+                    <td className="px-4 py-3 text-right tabular-nums">
+                      {brl(lojas.reduce((s, l) => s + l.monthlyFee, 0))}
+                      <span className="block text-[10px] font-normal text-slate-400">
+                        {brl(resumo.mrr)} de MRR
+                      </span>
+                    </td>
                     <td className="px-4 py-3 text-right tabular-nums text-emerald-700">
                       {brl(lojas.reduce((s, l) => s + l.jaGerou, 0))}
                     </td>
@@ -599,7 +662,9 @@ export function GestaoView({
           </Card>
           <p className="text-xs text-slate-400">
             Os valores de implantação e recorrência são editados no painel <b>Lojas</b> (cartão de
-            cobrança de cada uma). Aqui é a visão consolidada.
+            cobrança de cada uma). Aqui é a visão consolidada. O <b>MRR</b> é menor que a soma da
+            coluna porque conta só as pagantes ativas — teste, cortesia e loja suspensa não geram
+            caixa.
           </p>
         </div>
       )}
@@ -679,11 +744,15 @@ export function GestaoView({
             />
             <Kpi
               label="WhatsApp conectado"
-              valor={`${lojas.filter((l) => l.whatsapp === "CONECTADO").length}/${lojas.length}`}
-              hint="lojas com o número no ar"
+              valor={`${lojas.filter((l) => l.whatsapp === "CONECTADO" && !l.suspensa).length}/${resumo.lojasAtivas}`}
+              hint="lojas ativas com o número no ar"
             />
             <Kpi label="Lojas suspensas" valor={String(resumo.lojasSuspensas)} hint="acesso bloqueado" />
-            <Kpi label="Em risco" valor={String(resumo.emRisco)} hint="sem uso há 14+ dias" />
+            <Kpi
+              label="Em risco"
+              valor={String(resumo.riscoPagantes + resumo.riscoTestes)}
+              hint={`${resumo.riscoPagantes} pagantes · ${resumo.riscoTestes} testes`}
+            />
           </div>
 
           <Card className="p-4">
@@ -691,7 +760,12 @@ export function GestaoView({
             <div className="grid gap-2 sm:grid-cols-2">
               {lojas.map((l) => (
                 <div key={l.id} className="flex items-center justify-between gap-2 rounded-xl bg-slate-50 px-3 py-2">
-                  <span className="truncate text-sm text-slate-700">{l.nome}</span>
+                  <span className="min-w-0 truncate text-sm text-slate-700">
+                    {l.nome}
+                    {l.whatsappPhone && (
+                      <span className="ml-1.5 text-xs text-slate-400">{l.whatsappPhone}</span>
+                    )}
+                  </span>
                   <span
                     className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold ${
                       l.whatsapp === "CONECTADO"

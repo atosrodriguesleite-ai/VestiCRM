@@ -6,7 +6,7 @@ import {
   mesesDoCiclo,
   situacaoCobranca,
   calcularMRR,
-  emRisco,
+  tipoDeRisco,
   canalDoLead,
   valorGerado,
 } from "../gestao";
@@ -131,28 +131,76 @@ describe("MRR — receita recorrente mensal", () => {
   });
 });
 
-describe("loja em risco (cliente sumido)", () => {
+describe("loja em risco", () => {
   const hoje = new Date("2026-07-27T12:00:00Z");
+  const velha = new Date("2026-01-01T00:00:00Z"); // criada há muito tempo
 
-  it("pagante sem uso há 14+ dias entra no radar", () => {
+  it("pagante sem uso há 14+ dias: risco de cancelar", () => {
     expect(
-      emRisco({ suspended: false, kind: "PAGANTE", ultimoAcesso: new Date("2026-07-01T00:00:00Z") }, 14, hoje)
-    ).toBe(true);
+      tipoDeRisco(
+        { suspended: false, kind: "PAGANTE", ultimoAcesso: new Date("2026-07-01T00:00:00Z"), criadaEm: velha },
+        hoje
+      )
+    ).toBe("PAGANTE_SUMIU");
   });
 
   it("pagante usando o sistema não é risco", () => {
     expect(
-      emRisco({ suspended: false, kind: "PAGANTE", ultimoAcesso: new Date("2026-07-26T00:00:00Z") }, 14, hoje)
-    ).toBe(false);
+      tipoDeRisco(
+        { suspended: false, kind: "PAGANTE", ultimoAcesso: new Date("2026-07-26T00:00:00Z"), criadaEm: velha },
+        hoje
+      )
+    ).toBeNull();
   });
 
   it("pagante que NUNCA entrou é o pior caso", () => {
-    expect(emRisco({ suspended: false, kind: "PAGANTE", ultimoAcesso: null }, 14, hoje)).toBe(true);
+    expect(
+      tipoDeRisco({ suspended: false, kind: "PAGANTE", ultimoAcesso: null, criadaEm: velha }, hoje)
+    ).toBe("PAGANTE_SUMIU");
   });
 
-  it("suspensa e teste ficam fora do alerta", () => {
-    expect(emRisco({ suspended: true, kind: "PAGANTE", ultimoAcesso: null }, 14, hoje)).toBe(false);
-    expect(emRisco({ suspended: false, kind: "TESTE", ultimoAcesso: null }, 14, hoje)).toBe(false);
+  it("teste parado há 7+ dias: risco de não fechar a venda", () => {
+    expect(
+      tipoDeRisco(
+        { suspended: false, kind: "TESTE", ultimoAcesso: new Date("2026-07-15T00:00:00Z"), criadaEm: velha },
+        hoje
+      )
+    ).toBe("TESTE_PARADO");
+  });
+
+  it("teste usando o sistema não é risco", () => {
+    expect(
+      tipoDeRisco(
+        { suspended: false, kind: "TESTE", ultimoAcesso: new Date("2026-07-25T00:00:00Z"), criadaEm: velha },
+        hoje
+      )
+    ).toBeNull();
+  });
+
+  it("teste que nunca entrou: alarme só depois da tolerância de 2 dias", () => {
+    // criada agora mesmo: ainda não acende
+    expect(
+      tipoDeRisco({ suspended: false, kind: "TESTE", ultimoAcesso: null, criadaEm: hoje }, hoje)
+    ).toBeNull();
+    // criada há 3 dias e ninguém entrou: acende
+    expect(
+      tipoDeRisco(
+        { suspended: false, kind: "TESTE", ultimoAcesso: null, criadaEm: new Date("2026-07-24T00:00:00Z") },
+        hoje
+      )
+    ).toBe("TESTE_PARADO");
+  });
+
+  it("suspensa e cortesia ficam fora do alerta", () => {
+    expect(
+      tipoDeRisco({ suspended: true, kind: "PAGANTE", ultimoAcesso: null, criadaEm: velha }, hoje)
+    ).toBeNull();
+    expect(
+      tipoDeRisco({ suspended: true, kind: "TESTE", ultimoAcesso: null, criadaEm: velha }, hoje)
+    ).toBeNull();
+    expect(
+      tipoDeRisco({ suspended: false, kind: "CORTESIA", ultimoAcesso: null, criadaEm: velha }, hoje)
+    ).toBeNull();
   });
 });
 

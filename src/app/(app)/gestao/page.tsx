@@ -9,7 +9,7 @@ import {
   lifetimeMeses,
   calcularMRR,
   situacaoCobranca,
-  emRisco,
+  tipoDeRisco,
   canalDoLead,
   valorDaCobranca,
   FONTE_AUDITORIA,
@@ -104,6 +104,7 @@ export default async function GestaoPage() {
         select: { companyId: true, lastActiveAt: true },
       }),
       db.commSettings.findMany({
+        where: { companyId: { in: ids } },
         select: { companyId: true, evolutionStatus: true, evolutionPhone: true },
       }),
       // só pagamentos DAS LOJAS: sem o filtro, cobranças lançadas na própria
@@ -172,10 +173,12 @@ export default async function GestaoPage() {
       produtos: c._count.products,
       totalPedidos: c._count.orders,
       ultimoAcesso: ultimoAcesso?.toISOString() ?? null,
-      emRisco: emRisco({ suspended: c.suspended, kind, ultimoAcesso }, 14, agora),
+      risco: tipoDeRisco(
+        { suspended: c.suspended, kind, ultimoAcesso, criadaEm: c.createdAt },
+        agora
+      ),
       whatsapp: w?.evolutionStatus ?? "DESCONECTADO",
       whatsappPhone: w?.evolutionPhone ?? null,
-      notas: b?.notes ?? null,
     };
   });
 
@@ -255,7 +258,8 @@ export default async function GestaoPage() {
         // cartão pode somar mais do que o número grande em cima dele
         lojasTeste: lojas.filter((l) => l.kind === "TESTE" && !l.suspensa).length,
         lojasSuspensas: lojas.filter((l) => l.suspensa).length,
-        emRisco: lojas.filter((l) => l.emRisco).length,
+        riscoPagantes: lojas.filter((l) => l.risco === "PAGANTE_SUMIU").length,
+        riscoTestes: lojas.filter((l) => l.risco === "TESTE_PARADO").length,
         atrasados: lojas.filter((l) => l.situacao === "ATRASADO").length,
         // tempo médio de casa das lojas VIVAS (loja suspensa não é mais base
         // de cliente — puxava a média para cima sem significar nada)
