@@ -8,7 +8,13 @@ import { reverseAndDeleteOrder } from "@/lib/order-actions";
 import { notifySalePaid } from "@/lib/push";
 import { pushStockToNuvemshop } from "@/lib/nuvemshop";
 import { pushStockToJueri } from "@/lib/jueri";
-import { orderStatusLabel, orderNumber, PAID_ORDER_STATUSES, ORDER_STATUS_FLOW } from "@/lib/orders";
+import {
+  orderStatusLabel,
+  orderNumber,
+  PAID_ORDER_STATUSES,
+  ORDER_STATUS_FLOW,
+  podeTransferirVenda,
+} from "@/lib/orders";
 import { computeOrderTotals } from "@/lib/orders";
 import {
   winLinkedOpportunity,
@@ -275,6 +281,20 @@ export async function PATCH(
 
     const data: Record<string, unknown> = {};
     if (parsed.data.notes !== undefined) data.notes = parsed.data.notes;
+    if (parsed.data.sellerId !== undefined && parsed.data.sellerId !== order.sellerId) {
+      // MESMA REGRA do botão "Transferir venda": a vendedora só mexe no
+      // pedido dela. Sem isso, bastaria usar "Editar dados" para desviar a
+      // comissão de uma colega — a regra do botão seria só enfeite.
+      if (!podeTransferirVenda(user, order)) {
+        return NextResponse.json(
+          {
+            error:
+              "Você só pode mudar o vendedor de pedidos que são seus. Peça para a gerente ou a administradora.",
+          },
+          { status: 403 }
+        );
+      }
+    }
     if (parsed.data.sellerId !== undefined) {
       let newSellerName: string | null = null;
       if (parsed.data.sellerId) {

@@ -52,6 +52,28 @@ export const PAID_ORDER_STATUSES: OrderStatus[] = [
  */
 export const CAMPO_DATA_FATURAMENTO = "paidAt" as const;
 
+/**
+ * QUEM PODE TRANSFERIR A VENDA (trocar o vendedor do pedido).
+ *
+ * Regra da loja: a vendedora transfere um pedido DELA para uma colega —
+ * acontece muito (a cliente é da região da outra, a vendedora vai viajar,
+ * o atendimento passou para outra pessoa). O que ela NUNCA pode é mexer no
+ * pedido de outra pessoa: comissão dos outros não se toca.
+ *
+ * Gerente e admin transferem qualquer pedido da loja (é o papel deles).
+ * Suporte não mexe em dinheiro.
+ */
+export function podeTransferirVenda(
+  user: { id: string; role: string },
+  order: { sellerId: string | null }
+): boolean {
+  if (user.role === "SUPPORT") return false;
+  if (user.role === "ADMIN" || user.role === "SUPERADMIN" || user.role === "MANAGER")
+    return true;
+  // vendedora: só o que é dela (pedido sem dono ainda também pode assumir)
+  return order.sellerId === null || order.sellerId === user.id;
+}
+
 export const ORDER_STATUS_FLOW: OrderStatus[] = [
   "ORCAMENTO",
   "AGUARDANDO_PAGAMENTO",

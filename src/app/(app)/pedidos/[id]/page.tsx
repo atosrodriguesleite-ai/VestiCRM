@@ -28,6 +28,8 @@ import { DeleteOrder } from "./delete-order";
 import { ResaleCatalog } from "./resale-catalog";
 import { CobrancaNfe } from "./cobranca-nfe";
 import { EnvioFrete } from "./envio-frete";
+import { TransferirVenda } from "./transferir-venda";
+import { podeTransferirVenda } from "@/lib/orders";
 
 export const dynamic = "force-dynamic";
 
@@ -126,6 +128,15 @@ export default async function OrderDetailPage({
             />
           </div>
           <div className="flex flex-col gap-2 shrink-0">
+            {/* transferir a venda: só aparece para quem pode (dona do pedido,
+                gerente ou admin) — a regra vale no servidor também */}
+            {podeTransferirVenda(user, order) && (
+              <TransferirVenda
+                orderId={order.id}
+                sellerId={order.sellerId}
+                sellers={sellers}
+              />
+            )}
             <a
               href={`/api/orders/${order.id}/pdf`}
               target="_blank"
