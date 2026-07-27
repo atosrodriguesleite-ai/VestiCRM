@@ -342,3 +342,16 @@ body.teclado-aberto .area-principal {
 body.teclado-aberto .painel-flutuante {
   max-height: 34vh;
 }
+
+/* Espaço reservado FORA da conversa no celular: cabeçalho + barra de baixo.
+   Com o teclado aberto a barra some, então a conversa herda esse pedaço —
+   sem isso sobrava uma faixa vazia entre o campo de escrita e o teclado. */
+:root {
+  --chat-reserva: 120px;
+}
+body.teclado-aberto {
+  --chat-reserva: 56px;
+}
+body.teclado-aberto .inbox-raiz {
+  margin-bottom: 0 !important;
+}
