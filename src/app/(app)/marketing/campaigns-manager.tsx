@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Plus, Target, Trash2, Power } from "lucide-react";
+import { Plus, Target, Trash2, Power, Megaphone, Link2 } from "lucide-react";
 import { Button, Card, Field, inputCls, EmptyState, Badge } from "@/components/ui";
 
 export type Campanha = {
@@ -11,7 +11,15 @@ export type Campanha = {
   channel: string;
   utmKey: string;
   active: boolean;
+  adRefs: string | null; // anúncios desta campanha (links/códigos, um por linha)
   leads: number;
+};
+
+/** Anúncio que já trouxe cliente mas ainda não pertence a nenhuma campanha. */
+export type AnuncioDetectado = {
+  ref: string;
+  clientes: number;
+  ultimo: string | null;
 };
 
 const CHANNELS: { value: string; label: string }[] = [
@@ -24,6 +32,10 @@ const CHANNELS: { value: string; label: string }[] = [
 ];
 const channelLabel = (v: string) => CHANNELS.find((c) => c.value === v)?.label ?? v;
 
+/** Quantos anúncios estão cadastrados nesta campanha. */
+const refsCount = (c: { adRefs: string | null }) =>
+  (c.adRefs ?? "").split(/[\n,;]+/).map((s) => s.trim()).filter(Boolean).length;
+
 const channelTone: Record<string, string> = {
   INSTAGRAM: "bg-pink-50 text-pink-700 border-pink-200",
   FACEBOOK: "bg-blue-50 text-blue-700 border-blue-200",
@@ -33,13 +45,22 @@ const channelTone: Record<string, string> = {
   OUTRO: "bg-slate-100 text-slate-600 border-slate-200",
 };
 
-export function CampaignsManager({ initial }: { initial: Campanha[] }) {
+export function CampaignsManager({
+  initial,
+  anuncios = [],
+}: {
+  initial: Campanha[];
+  anuncios?: AnuncioDetectado[];
+}) {
   const router = useRouter();
   const [name, setName] = useState("");
   const [channel, setChannel] = useState("INSTAGRAM");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [busyRef, setBusyRef] = useState<string | null>(null);
+  const [abrirRefs, setAbrirRefs] = useState<string | null>(null);
+  const [refsDraft, setRefsDraft] = useState<Record<string, string>>({});
 
   async function create(e: React.FormEvent) {
     e.preventDefault();
@@ -70,6 +91,39 @@ export function CampaignsManager({ initial }: { initial: Campanha[] }) {
     });
     setBusyId(null);
     if (res.ok) router.refresh();
+  }
+
+  /** Vincula um anúncio detectado a uma campanha (adota o histórico dele). */
+  async function vincular(ref: string, campaignId: string) {
+    if (!campaignId) return;
+    setBusyRef(ref);
+    const res = await fetch(`/api/marketing/campaigns/${campaignId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ vincularAdRef: ref }),
+    });
+    const data = await res.json().catch(() => ({}));
+    setBusyRef(null);
+    if (res.ok) {
+      if (typeof data.adotados === "number" && data.adotados > 0) {
+        alert(
+          `Anúncio vinculado! ${data.adotados} cliente(s) que já tinham chegado por ele agora contam nesta campanha.`
+        );
+      }
+      router.refresh();
+    }
+  }
+
+  /** Salva a lista de anúncios de uma campanha (links ou códigos). */
+  async function salvarRefs(c: Campanha, valor: string) {
+    setBusyId(c.id);
+    await fetch(`/api/marketing/campaigns/${c.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ adRefs: valor.trim() || null }),
+    });
+    setBusyId(null);
+    router.refresh();
   }
 
   async function remove(c: Campanha) {
@@ -165,9 +219,28 @@ export function CampaignsManager({ initial }: { initial: Campanha[] }) {
                     </div>
                     <p className="mt-1 text-[13px] text-slate-500">
                       <b className="text-slate-700 tabular-nums">{c.leads}</b> {c.leads === 1 ? "lead" : "leads"} atribuídos
+                      {refsCount(c) > 0 && (
+                        <>
+                          {" · "}
+                          <b className="text-slate-700 tabular-nums">{refsCount(c)}</b>{" "}
+                          {refsCount(c) === 1 ? "anúncio" : "anúncios"}
+                        </>
+                      )}
                     </p>
                   </div>
                   <div className="flex shrink-0 items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setAbrirRefs(abrirRefs === c.id ? null : c.id);
+                        setRefsDraft((p) => ({ ...p, [c.id]: p[c.id] ?? (c.adRefs ?? "") }));
+                      }}
+                      title="Anúncios desta campanha"
+                      className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-500 hover:border-brand-300 hover:text-brand-700"
+                    >
+                      <Megaphone className="size-3.5" />
+                      Anúncios
+                    </button>
                     <button
                       type="button"
                       onClick={() => toggle(c)}
@@ -193,11 +266,100 @@ export function CampaignsManager({ initial }: { initial: Campanha[] }) {
                     </button>
                   </div>
                 </div>
+
+                {abrirRefs === c.id && (
+                  <div className="mt-3 rounded-xl bg-slate-50 p-3">
+                    <p className="mb-1.5 text-[11px] font-semibold text-slate-600">
+                      Anúncios desta campanha
+                    </p>
+                    <p className="mb-2 text-[11px] leading-snug text-slate-500">
+                      Cole o <b>link do post/anúncio</b> (um por linha). Quando alguém
+                      chegar no WhatsApp clicando nele, a campanha é marcada sozinha.
+                    </p>
+                    <textarea
+                      value={refsDraft[c.id] ?? ""}
+                      onChange={(e) => setRefsDraft((p) => ({ ...p, [c.id]: e.target.value }))}
+                      rows={3}
+                      placeholder={"https://www.instagram.com/p/XXXXXXXXXX/"}
+                      className={`${inputCls} font-mono text-[11px]`}
+                    />
+                    <div className="mt-2 flex justify-end gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setAbrirRefs(null)}
+                        className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-500"
+                      >
+                        Fechar
+                      </button>
+                      <Button
+                        type="button"
+                        disabled={busyId === c.id}
+                        onClick={() => salvarRefs(c, refsDraft[c.id] ?? "")}
+                      >
+                        {busyId === c.id ? "Salvando…" : "Salvar anúncios"}
+                      </Button>
+                    </div>
+                  </div>
+                )}
               </Card>
             ))}
           </div>
         )}
       </div>
+
+      {/* ---- Anúncios detectados sem campanha ---- */}
+      {anuncios.length > 0 && (
+        <div>
+          <div className="mb-3 flex items-center gap-2">
+            <h2 className="text-sm font-semibold text-slate-700">Anúncios detectados</h2>
+            <Badge>{anuncios.length}</Badge>
+          </div>
+          <Card className="p-4">
+            <p className="mb-3 text-[13px] leading-snug text-slate-500">
+              Clientes chegaram no WhatsApp clicando nestes anúncios, que ainda não
+              pertencem a nenhuma campanha. Escolha a campanha e o histórico vai
+              junto — os clientes que já vieram por ele passam a contar lá. 🎯
+            </p>
+            <div className="space-y-2">
+              {anuncios.map((a) => (
+                <div
+                  key={a.ref}
+                  className="flex flex-col gap-2 rounded-xl border border-slate-100 p-3 sm:flex-row sm:items-center"
+                >
+                  <div className="min-w-0 flex-1">
+                    <p className="flex items-center gap-1.5 truncate font-mono text-xs text-slate-700">
+                      <Link2 className="size-3.5 shrink-0 text-slate-400" />
+                      {a.ref}
+                    </p>
+                    <p className="mt-0.5 text-[11px] text-slate-500">
+                      <b className="tabular-nums text-slate-700">{a.clientes}</b>{" "}
+                      {a.clientes === 1 ? "cliente" : "clientes"}
+                      {a.ultimo
+                        ? ` · último em ${new Date(a.ultimo).toLocaleDateString("pt-BR")}`
+                        : ""}
+                    </p>
+                  </div>
+                  <select
+                    defaultValue=""
+                    disabled={busyRef === a.ref || initial.length === 0}
+                    onChange={(e) => vincular(a.ref, e.target.value)}
+                    className={`${inputCls} sm:w-56`}
+                  >
+                    <option value="">
+                      {initial.length === 0 ? "Crie uma campanha antes" : "Vincular à campanha…"}
+                    </option>
+                    {initial.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              ))}
+            </div>
+          </Card>
+        </div>
+      )}
     </div>
   );
 }

@@ -4,6 +4,7 @@ import { receiveMessage, updateDeliveryStatus } from "@/lib/comm/engine";
 import { jidToPhone, evoGetMediaBase64 } from "@/lib/comm/evolution";
 import { findCustomerByPhone } from "@/lib/intake";
 import { alertWhatsappDown } from "@/lib/health";
+import { adCode, campanhaDoAnuncio } from "@/lib/ad-match";
 import type { MessageMedia } from "@prisma/client";
 
 /**
@@ -309,6 +310,34 @@ export async function POST(
                 where: { id: result.conversation.id },
                 data: { lastMessageAt: new Date() },
               });
+            }
+
+            // 🎯 ATRIBUIÇÃO: guarda o código do anúncio no cliente e, se ele
+            // pertence a uma campanha cadastrada, amarra a campanha sozinha.
+            // Vale a regra do "primeiro contato": não sobrescreve atribuição
+            // que já existe (quem trouxe a cliente foi quem trouxe).
+            const codigo = adCode(ad);
+            if (codigo) {
+              const cliente = await db.customer.findUnique({
+                where: { id: result.customer.id },
+                select: { adRef: true, campaignId: true },
+              });
+              const campanhas = cliente?.campaignId
+                ? []
+                : await db.marketingCampaign.findMany({
+                    where: { companyId, active: true },
+                    select: { id: true, adRefs: true, active: true },
+                  });
+              const campanha = campanhaDoAnuncio(codigo, campanhas);
+              const patch = {
+                ...(cliente?.adRef ? {} : { adRef: codigo }),
+                ...(campanha ? { campaignId: campanha.id } : {}),
+              };
+              if (Object.keys(patch).length) {
+                await db.customer
+                  .update({ where: { id: result.customer.id }, data: patch })
+                  .catch(() => {});
+              }
             }
           }
         } else {

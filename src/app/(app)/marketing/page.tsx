@@ -10,6 +10,7 @@ import { Card, PageHeader, EmptyState } from "@/components/ui";
 import { StatCard } from "@/components/dash";
 import { BarList, Donut, PeriodChips } from "@/components/charts";
 import { CampaignsManager, type Campanha } from "./campaigns-manager";
+import { refsDaCampanha } from "@/lib/ad-match";
 
 export const dynamic = "force-dynamic";
 
@@ -80,7 +81,7 @@ export default async function MarketingPage({
     db.marketingCampaign.findMany({
       where: { companyId },
       orderBy: [{ active: "desc" }, { createdAt: "desc" }],
-      select: { id: true, name: true, channel: true, utmKey: true, active: true, _count: { select: { customers: true } } },
+      select: { id: true, name: true, channel: true, utmKey: true, active: true, adRefs: true, _count: { select: { customers: true } } },
     }),
     db.order.groupBy({
       by: ["customerId"],
@@ -94,6 +95,26 @@ export default async function MarketingPage({
   ]);
 
   const campById = new Map(campaignRows.map((c) => [c.id, c]));
+
+  // ANÚNCIOS DETECTADOS: clientes que chegaram clicando num anúncio
+  // (Click-to-WhatsApp). Os que ainda não pertencem a nenhuma campanha ficam
+  // na lista para a loja vincular com um clique — e o histórico vai junto.
+  const anunciosRaw = await db.customer.groupBy({
+    by: ["adRef"],
+    where: { companyId, adRef: { not: null } },
+    _count: { _all: true },
+    _max: { createdAt: true },
+  });
+  const refsJaUsadas = new Set(campaignRows.flatMap((c) => refsDaCampanha(c.adRefs)));
+  const anunciosDetectados = anunciosRaw
+    .filter((a) => a.adRef && !refsJaUsadas.has(a.adRef))
+    .map((a) => ({
+      ref: a.adRef as string,
+      clientes: a._count._all,
+      ultimo: a._max.createdAt?.toISOString() ?? null,
+    }))
+    .sort((a, b) => b.clientes - a.clientes)
+    .slice(0, 12);
 
   /**
    * CONVERSÃO POR COORTE: "dos leads que entraram no período, quantos
@@ -214,6 +235,7 @@ export default async function MarketingPage({
     channel: c.channel,
     utmKey: c.utmKey,
     active: c.active,
+    adRefs: c.adRefs,
     leads: c._count.customers,
   }));
 
@@ -397,7 +419,7 @@ export default async function MarketingPage({
       {/* gestão das campanhas */}
       <div className="pt-2">
         <h2 className="text-sm font-semibold text-slate-700 mb-3">Suas campanhas</h2>
-        <CampaignsManager initial={campanhas} />
+        <CampaignsManager initial={campanhas} anuncios={anunciosDetectados} />
       </div>
     </div>
   );

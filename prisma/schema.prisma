@@ -350,6 +350,11 @@ model Customer {
   // canal de aquisição da PLATAFORMA (só na empresa-plataforma): "bio:<slug>"
   // quando o lead chegou pelo rodapé "feito por atacadopro.com" de uma bio.
   landingSource   String?
+  // ANÚNCIO que trouxe o cliente (Click-to-WhatsApp): código curto do post/
+  // anúncio, tirado da prévia que o WhatsApp manda na primeira mensagem.
+  // É a chave que liga o cliente à campanha — e que responde "quanto este
+  // anúncio me deu" mesmo antes de existir campanha cadastrada.
+  adRef           String?
   createdAt       DateTime     @default(now())
 
   tags          CustomerTag[]
@@ -363,6 +368,7 @@ model Customer {
 
   @@index([companyId])
   @@index([companyId, ownerId])
+  @@index([companyId, adRef])
 }
 
 model Tag {
@@ -979,6 +985,10 @@ model MarketingCampaign {
   name      String
   channel   String   @default("INSTAGRAM") // INSTAGRAM | FACEBOOK | GOOGLE | WHATSAPP | TIKTOK | OUTRO
   utmKey    String // slug curto para casar com ?utm_campaign= dos links
+  // ANÚNCIOS desta campanha (Click-to-WhatsApp): um por linha, colando o LINK
+  // do post/anúncio ou só o código. Quando um cliente chega clicando num
+  // anúncio daqui, a campanha é atribuída sozinha.
+  adRefs    String?
   active    Boolean  @default(true)
   createdAt DateTime @default(now())
 
