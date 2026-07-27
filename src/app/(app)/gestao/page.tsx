@@ -12,6 +12,7 @@ import {
   tipoDeRisco,
   canalDoLead,
   valorDaCobranca,
+  horasForaDoAr,
   FONTE_AUDITORIA,
   type CanalDeLead,
 } from "@/lib/gestao";
@@ -105,7 +106,13 @@ export default async function GestaoPage() {
       }),
       db.commSettings.findMany({
         where: { companyId: { in: ids } },
-        select: { companyId: true, evolutionStatus: true, evolutionPhone: true },
+        select: {
+          companyId: true,
+          evolutionStatus: true,
+          evolutionPhone: true,
+          // desde quando o número está fora do ar (o vigia marca na queda)
+          evolutionDownSince: true,
+        },
       }),
       // só pagamentos DAS LOJAS: sem o filtro, cobranças lançadas na própria
       // empresa-plataforma entravam no caixa e o total do rodapé (que soma
@@ -179,6 +186,8 @@ export default async function GestaoPage() {
       ),
       whatsapp: w?.evolutionStatus ?? "DESCONECTADO",
       whatsappPhone: w?.evolutionPhone ?? null,
+      // null = conectada, ou nunca conectou (aí não é "queda", é setup pendente)
+      horasSemWhatsapp: horasForaDoAr(w?.evolutionDownSince ?? null, agora),
     };
   });
 

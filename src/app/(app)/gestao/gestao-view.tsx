@@ -16,6 +16,7 @@ import {
   ArrowDownRight,
   Clock,
   ShieldAlert,
+  WifiOff,
 } from "lucide-react";
 import { Card } from "@/components/ui";
 import { brl, dateShort, dateFull, timeShort } from "@/lib/format";
@@ -25,8 +26,11 @@ import {
   situacaoLabel,
   canalLeadLabel,
   riscoLabel,
+  tempoForaLabel,
   DIAS_RISCO_PAGANTE,
   DIAS_RISCO_TESTE,
+  ALERTA_WHATSAPP_HORAS,
+  ALERTA_WHATSAPP_HORAS_GRAVE,
   type CanalDeLead,
   type SituacaoCobranca,
   type TipoDeRisco,
@@ -62,6 +66,7 @@ export type LojaGestao = {
   risco: TipoDeRisco | null;
   whatsapp: string;
   whatsappPhone: string | null;
+  horasSemWhatsapp: number | null;
 };
 
 export type Intercorrencia = {
@@ -219,6 +224,27 @@ export function GestaoView({
     [lojas]
   );
 
+  /**
+   * Lojas com o WhatsApp caído há tempo demais. Fica no TOPO, em todas as
+   * abas: enquanto está fora do ar a loja não recebe nem responde nada pelo
+   * sistema, e quase sempre ela nem percebeu. A mais tempo fora vem primeiro.
+   */
+  const semWhatsapp = useMemo(
+    () =>
+      lojas
+        .filter(
+          (l) =>
+            !l.suspensa &&
+            l.horasSemWhatsapp !== null &&
+            l.horasSemWhatsapp >= ALERTA_WHATSAPP_HORAS
+        )
+        .sort((a, b) => (b.horasSemWhatsapp ?? 0) - (a.horasSemWhatsapp ?? 0)),
+    [lojas]
+  );
+  const quedaGrave = semWhatsapp.some(
+    (l) => (l.horasSemWhatsapp ?? 0) >= ALERTA_WHATSAPP_HORAS_GRAVE
+  );
+
   async function excluirLoja() {
     if (!excluindo || ocupado) return;
     setOcupado(true);
@@ -286,6 +312,65 @@ export function GestaoView({
           A plataforma inteira num lugar só — dinheiro, clientes, leads e saúde do sistema.
         </p>
       </div>
+      {/* AVISO FIXO: WhatsApp de loja fora do ar — aparece em qualquer aba */}
+      {semWhatsapp.length > 0 && (
+        <div
+          className={`mb-5 rounded-2xl border p-4 ${
+            quedaGrave ? "border-rose-300 bg-rose-50" : "border-amber-300 bg-amber-50"
+          }`}
+        >
+          <p
+            className={`flex items-center gap-2 text-sm font-bold ${
+              quedaGrave ? "text-rose-800" : "text-amber-800"
+            }`}
+          >
+            <WifiOff className="size-4 shrink-0" />
+            {semWhatsapp.length === 1
+              ? "1 loja está com o WhatsApp fora do ar"
+              : `${semWhatsapp.length} lojas estão com o WhatsApp fora do ar`}
+          </p>
+          <p className={`mt-1 text-xs ${quedaGrave ? "text-rose-700" : "text-amber-700"}`}>
+            Enquanto está caído, a loja não recebe nem responde nada pelo sistema. Só ela consegue
+            reconectar, lendo o QR Code em Comunicação.
+          </p>
+          <div className="mt-3 space-y-1.5">
+            {semWhatsapp.map((l) => {
+              const horas = l.horasSemWhatsapp ?? 0;
+              const grave = horas >= ALERTA_WHATSAPP_HORAS_GRAVE;
+              return (
+                <div
+                  key={l.id}
+                  className="flex flex-wrap items-center gap-2 rounded-xl bg-white/70 px-3 py-2"
+                >
+                  <span className="font-medium text-slate-800">{l.nome}</span>
+                  <span
+                    className={`rounded-full border px-2 py-0.5 text-[11px] font-semibold ${
+                      grave
+                        ? "border-rose-200 bg-rose-100 text-rose-800"
+                        : "border-amber-200 bg-amber-100 text-amber-800"
+                    }`}
+                  >
+                    fora do ar há {tempoForaLabel(horas)}
+                  </span>
+                  {l.kind === "PAGANTE" && (
+                    <span className="rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[11px] font-semibold text-slate-600">
+                      cliente pagante
+                    </span>
+                  )}
+                  <button
+                    onClick={() => acessarLoja(l)}
+                    disabled={acessandoId === l.id}
+                    className="ml-auto rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-600 transition hover:border-brand-300 hover:text-brand-700 disabled:opacity-50"
+                  >
+                    {acessandoId === l.id ? "Entrando…" : "Acessar loja"}
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       <div className="mb-5 flex gap-1.5 overflow-x-auto thin-scroll pb-1">
         {ABAS.map((a) => {
           const Icon = a.icon;
@@ -470,6 +555,13 @@ export function GestaoView({
                           {riscoLabel[l.risco]}
                         </span>
                       )}
+                      {l.horasSemWhatsapp !== null &&
+                        l.horasSemWhatsapp >= ALERTA_WHATSAPP_HORAS && (
+                          <span className="inline-flex items-center gap-1 rounded-full border border-rose-200 bg-rose-50 px-2 py-0.5 text-[11px] font-semibold text-rose-700">
+                            <WifiOff className="size-3" />
+                            WhatsApp fora há {tempoForaLabel(l.horasSemWhatsapp)}
+                          </span>
+                        )}
                     </div>
                     <p className="mt-1 text-xs text-slate-500">
                       {l.responsavel ?? "sem responsável"}
@@ -779,7 +871,9 @@ export function GestaoView({
                       ? "conectado"
                       : l.whatsapp === "AGUARDANDO_QR"
                         ? "aguardando QR"
-                        : "desconectado"}
+                        : l.horasSemWhatsapp !== null
+                          ? `fora há ${tempoForaLabel(l.horasSemWhatsapp)}`
+                          : "nunca conectou"}
                   </span>
                 </div>
               ))}

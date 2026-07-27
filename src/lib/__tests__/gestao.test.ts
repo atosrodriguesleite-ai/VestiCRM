@@ -9,6 +9,9 @@ import {
   tipoDeRisco,
   canalDoLead,
   valorGerado,
+  horasForaDoAr,
+  tempoForaLabel,
+  ALERTA_WHATSAPP_HORAS,
 } from "../gestao";
 
 describe("lifetime — há quanto tempo a loja é cliente", () => {
@@ -228,5 +231,36 @@ describe("valor já gerado pelo cliente", () => {
   });
   it("cliente sem pagamento ainda não gerou nada", () => {
     expect(valorGerado([])).toBe(0);
+  });
+});
+
+describe("WhatsApp fora do ar", () => {
+  const agora = new Date("2026-07-27T18:00:00Z");
+
+  it("loja conectada não tem tempo fora do ar", () => {
+    expect(horasForaDoAr(null, agora)).toBeNull();
+  });
+
+  it("conta as horas cheias desde a queda", () => {
+    expect(horasForaDoAr(new Date("2026-07-27T15:30:00Z"), agora)).toBe(2);
+    expect(horasForaDoAr(new Date("2026-07-26T18:00:00Z"), agora)).toBe(24);
+  });
+
+  it("queda de agora mesmo é zero, nunca negativo", () => {
+    expect(horasForaDoAr(agora, agora)).toBe(0);
+    expect(horasForaDoAr(new Date("2026-07-27T19:00:00Z"), agora)).toBe(0);
+  });
+
+  it("oscilação curta fica abaixo do limite de alerta", () => {
+    const h = horasForaDoAr(new Date("2026-07-27T17:20:00Z"), agora)!;
+    expect(h).toBeLessThan(ALERTA_WHATSAPP_HORAS);
+  });
+
+  it("rótulo em português, virando dias depois de 24h", () => {
+    expect(tempoForaLabel(0)).toBe("menos de 1 hora");
+    expect(tempoForaLabel(1)).toBe("1 hora");
+    expect(tempoForaLabel(5)).toBe("5 horas");
+    expect(tempoForaLabel(24)).toBe("1 dia");
+    expect(tempoForaLabel(50)).toBe("2 dias");
   });
 });

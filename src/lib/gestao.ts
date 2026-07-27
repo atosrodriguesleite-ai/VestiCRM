@@ -198,6 +198,33 @@ export function tipoDeRisco(
 }
 
 /**
+ * WHATSAPP FORA DO AR — a queda que vira prejuízo.
+ *
+ * Oscilação de minutos é normal (celular sem sinal, WhatsApp fechado). O que
+ * importa é a queda que PERSISTE: com o WhatsApp caído a loja não recebe nem
+ * responde nada pelo sistema — o atendimento dela parou, e ela nem sempre
+ * percebe. Passando deste limite, o painel avisa em cima.
+ */
+export const ALERTA_WHATSAPP_HORAS = 2;
+/** A partir daqui a queda é grave: um dia inteiro sem atendimento. */
+export const ALERTA_WHATSAPP_HORAS_GRAVE = 24;
+
+/** Há quantas horas o número está fora do ar (null = não está caído). */
+export function horasForaDoAr(desde: Date | null, agora = new Date()): number | null {
+  if (!desde) return null;
+  const horas = (agora.getTime() - desde.getTime()) / 3_600_000;
+  return horas > 0 ? Math.floor(horas) : 0;
+}
+
+/** Rótulo humano do tempo fora do ar ("3 horas", "2 dias"). */
+export function tempoForaLabel(horas: number): string {
+  if (horas < 1) return "menos de 1 hora";
+  if (horas < 24) return `${horas} ${horas === 1 ? "hora" : "horas"}`;
+  const dias = Math.floor(horas / 24);
+  return `${dias} ${dias === 1 ? "dia" : "dias"}`;
+}
+
+/**
  * De onde vieram os leads. A plataforma capta por caminhos diferentes e cada
  * um precisa ser medido separado — é assim que se decide onde investir.
  */
