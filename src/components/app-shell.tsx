@@ -37,6 +37,7 @@ import {
   Camera,
   Images,
   LayoutPanelTop,
+  Gauge,
 } from "lucide-react";
 import { Avatar } from "./ui";
 import { Logo, LogoMark } from "./logo";
@@ -66,6 +67,7 @@ const NAV = [
   { href: "/comunicacao", label: "Comunicação", icon: Radio, group: "Sistema", managerOnly: true },
   { href: "/equipe", label: "Equipe", icon: UserCog, group: "Sistema", managerOnly: true },
   { href: "/configuracoes", label: "Configurações", icon: Settings, group: "Sistema", supportHidden: true },
+  { href: "/gestao", label: "Gestão", icon: Gauge, group: "Plataforma", superOnly: true },
   { href: "/lojas", label: "Lojas", icon: Store, group: "Plataforma", superOnly: true },
   { href: "/afiliados", label: "Afiliados", icon: Handshake, group: "Plataforma", superOnly: true },
   { href: "/saude", label: "Saúde", icon: Activity, group: "Plataforma", superOnly: true },

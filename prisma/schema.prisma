@@ -719,6 +719,10 @@ model CompanyBilling {
   implementationPaid   Boolean   @default(false)
   implementationPaidAt DateTime?
   monthlyFee           Float     @default(0) // valor da recorrência mensal
+  // CICLO do contrato: de quanto em quanto tempo a loja paga a recorrência.
+  // O valor mensal continua sendo o mesmo (é a régua do MRR); o ciclo diz
+  // como a cobrança é feita — mensal, semestral (6x) ou anual (12x).
+  cycle                String    @default("MENSAL") // MENSAL | SEMESTRAL | ANUAL
   dueDay               Int       @default(10) // dia do vencimento (1..28)
   paidThrough          DateTime? // recorrência paga ATÉ este mês (dia 1 da competência)
   notes                String? // acordo combinado (parcelas, descontos, observações)
