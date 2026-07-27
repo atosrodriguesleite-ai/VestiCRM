@@ -454,6 +454,19 @@ export function Inbox({
     ta.style.height = `${Math.min(ta.scrollHeight, 192)}px`;
   }, [draft]);
 
+  /**
+   * Campo dentro de um painel flutuante (mensagens automáticas, nova resposta
+   * rápida): no celular o teclado sobe e empurra o painel — sem isso o campo
+   * que você tocou some pra fora da tela. Espera o teclado terminar de subir
+   * e traz o campo pro centro da área visível.
+   */
+  function aoFocarCampoPainel(
+    e: React.FocusEvent<HTMLTextAreaElement | HTMLInputElement>
+  ) {
+    const campo = e.currentTarget;
+    setTimeout(() => campo.scrollIntoView({ block: "center", behavior: "smooth" }), 350);
+  }
+
   // insere o emoji na posição do cursor (e devolve o foco ao campo)
   function insertEmoji(emoji: string) {
     const ta = taRef.current;
@@ -2111,7 +2124,7 @@ export function Inbox({
                 </div>
               )}
               {showTemplates && (
-                <div className="absolute bottom-full left-3 right-3 mb-1 bg-white rounded-xl border border-gray-100 shadow-pop max-h-72 overflow-y-auto thin-scroll z-10">
+                <div className="absolute bottom-full left-3 right-3 mb-1 bg-white rounded-xl border border-gray-100 shadow-pop max-h-72 [.teclado-aberto_&]:max-h-[34vh] overflow-y-auto thin-scroll z-10">
                   <div className="sticky top-0 flex items-center justify-between gap-2 px-4 py-2 bg-white border-b border-gray-100">
                     <p className="text-[10px] font-bold uppercase tracking-wide text-gray-400 flex items-center gap-1">
                       <Zap className="size-3" /> Respostas rápidas
@@ -2130,12 +2143,14 @@ export function Inbox({
                       <input
                         value={newTplTitle}
                         onChange={(e) => setNewTplTitle(e.target.value)}
+                        onFocus={aoFocarCampoPainel}
                         placeholder="Atalho (ex: boas-vindas)"
                         className="w-full rounded-lg bg-white border border-gray-200 focus:border-brand-300 px-2.5 py-1.5 text-xs outline-none"
                       />
                       <textarea
                         value={newTplBody}
                         onChange={(e) => setNewTplBody(e.target.value)}
+                        onFocus={aoFocarCampoPainel}
                         rows={2}
                         placeholder="Mensagem... use {{nome}} p/ o nome do cliente e {{vendedora}} p/ o seu"
                         className="w-full resize-none rounded-lg bg-white border border-gray-200 focus:border-brand-300 px-2.5 py-1.5 text-xs outline-none"
@@ -2271,7 +2286,9 @@ export function Inbox({
               )}
               {/* editor das mensagens automáticas (catálogo + pedido) */}
               {showCatMsgEdit && (
-                <div className="absolute bottom-full left-3 right-3 sm:right-auto sm:w-[26rem] mb-1 bg-white rounded-xl border border-gray-100 shadow-pop z-20 p-3 max-h-[70vh] overflow-y-auto thin-scroll">
+                // com o teclado aberto o painel encolhe: assim o topo dele não
+                // sai da tela e o campo que você está editando continua à vista
+                <div className="absolute bottom-full left-3 right-3 sm:right-auto sm:w-[26rem] mb-1 bg-white rounded-xl border border-gray-100 shadow-pop z-20 p-3 max-h-[70vh] [.teclado-aberto_&]:max-h-[34vh] overflow-y-auto thin-scroll">
                   <p className="text-[11px] font-bold text-gray-500 mb-2">
                     Mensagens automáticas
                   </p>
@@ -2282,6 +2299,7 @@ export function Inbox({
                   <textarea
                     value={catMsgDraft}
                     onChange={(e) => setCatMsgDraft(e.target.value)}
+                    onFocus={aoFocarCampoPainel}
                     rows={3}
                     maxLength={500}
                     className="w-full resize-none rounded-lg bg-gray-50 border border-transparent focus:border-brand-300 focus:bg-white px-2.5 py-2 text-xs outline-none"
@@ -2297,6 +2315,7 @@ export function Inbox({
                   <textarea
                     value={ordMsgDraft}
                     onChange={(e) => setOrdMsgDraft(e.target.value)}
+                    onFocus={aoFocarCampoPainel}
                     rows={3}
                     maxLength={500}
                     className="w-full resize-none rounded-lg bg-gray-50 border border-transparent focus:border-brand-300 focus:bg-white px-2.5 py-2 text-xs outline-none"
