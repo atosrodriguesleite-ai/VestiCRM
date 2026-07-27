@@ -2,6 +2,7 @@ import crypto from "crypto";
 import { db } from "./db";
 import { encryptSecret, decryptSecret } from "./crypto";
 import { intakeLead, normalizePhone } from "./intake";
+import { round2 } from "./orders";
 import { notifySalePaid } from "./push";
 
 /**
@@ -559,6 +560,7 @@ type NsOrder = {
   number?: number;
   total?: string | number;
   subtotal?: string | number;
+  shipping_cost_customer?: string | number; // frete que a cliente pagou
   payment_status?: string;
   status?: string;
   contact_name?: string;
@@ -675,6 +677,10 @@ export async function ingestPaidOrder(companyId: string, nsOrderId: string) {
   }
   const subtotal = lines.reduce((a, l) => a + l.quantity * l.unitPrice, 0);
   const total = num(o.total) || subtotal;
+  // O total da Nuvemshop já vem COM frete. Separando os dois, o faturamento
+  // aqui soma só a mercadoria — igual aos pedidos montados no sistema.
+  const shippingFee = round2(Math.max(num(o.shipping_cost_customer), 0));
+  const netTotal = round2(Math.max(total - shippingFee, 0));
 
   const last = await db.order.findFirst({
     where: { companyId },
@@ -690,6 +696,8 @@ export async function ingestPaidOrder(companyId: string, nsOrderId: string) {
       source: "NUVEMSHOP",
       nuvemshopId: nsId,
       subtotal,
+      shippingFee,
+      netTotal,
       total,
       // já nasce pago: a data do dinheiro é agora (é ela que conta no mês)
       paidAt: new Date(),

@@ -72,11 +72,11 @@ export default async function MarketingPage({
     db.customer.findMany({ where: { companyId, createdAt: inPrev }, select: { origin: true } }),
     db.order.findMany({
       where: { companyId, status: { in: PAID_ORDER_STATUSES }, paidAt: inPeriod },
-      select: { total: true, customerId: true, customer: { select: { origin: true, campaignId: true } } },
+      select: { netTotal: true, customerId: true, customer: { select: { origin: true, campaignId: true } } },
     }),
     db.order.findMany({
       where: { companyId, status: { in: PAID_ORDER_STATUSES }, paidAt: inPrev },
-      select: { total: true, customer: { select: { origin: true } } },
+      select: { netTotal: true, customer: { select: { origin: true } } },
     }),
     db.marketingCampaign.findMany({
       where: { companyId },
@@ -147,7 +147,7 @@ export default async function MarketingPage({
   const canalLeads = new Map<string, number>();
   for (const l of leadsAll) canalLeads.set(l.origin, (canalLeads.get(l.origin) ?? 0) + 1);
   const canalFat = new Map<string, number>();
-  for (const o of ordersAll) canalFat.set(o.customer.origin, (canalFat.get(o.customer.origin) ?? 0) + o.total);
+  for (const o of ordersAll) canalFat.set(o.customer.origin, (canalFat.get(o.customer.origin) ?? 0) + o.netTotal);
   const canais = [...canaisSet]
     .map((o) => ({
       origin: o,
@@ -180,11 +180,11 @@ export default async function MarketingPage({
   for (const o of paidOrders) {
     const cid = o.customer.campaignId;
     if (!cid) {
-      fatSemCamp += o.total;
+      fatSemCamp += o.netTotal;
       continue;
     }
     const cur = campFat.get(cid) ?? { fat: 0, pedidos: 0, clientes: new Set<string>() };
-    cur.fat += o.total;
+    cur.fat += o.netTotal;
     cur.pedidos += 1;
     cur.clientes.add(o.customerId);
     campFat.set(cid, cur);
@@ -212,10 +212,10 @@ export default async function MarketingPage({
 
   // ---- números do topo (já filtrados pelo canal, quando houver) ----
   const totalLeads = leads.length;
-  const totalFat = paidOrders.reduce((s, o) => s + o.total, 0);
+  const totalFat = paidOrders.reduce((s, o) => s + o.netTotal, 0);
   const ticket = paidOrders.length > 0 ? totalFat / paidOrders.length : 0;
   const prevLeads = prevLeadsList.length;
-  const prevRevenue = prevOrdersList.reduce((s, o) => s + o.total, 0);
+  const prevRevenue = prevOrdersList.reduce((s, o) => s + o.netTotal, 0);
   // sem base no período anterior não dá pra calcular variação (mesma regra
   // do Dashboard — antes aqui devolvia "+100%", que era invenção)
   const pctDelta = (a: number, b: number) => (b > 0 ? Math.round(((a - b) / b) * 100) : null);

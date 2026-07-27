@@ -50,7 +50,7 @@ export async function overview(companyId: string, p: Period) {
         status: { in: PAID_ORDER_STATUSES },
         paidAt: { gte: p.from, lte: p.to },
       },
-      select: { total: true },
+      select: { netTotal: true },
     }),
     db.customer.count({
       where: { companyId, createdAt: { gte: p.from, lte: p.to } },
@@ -66,7 +66,7 @@ export async function overview(companyId: string, p: Period) {
     .filter((d) => d >= 0);
   const converted = sessions.filter((s) => s.converted);
   const abandoned = sessions.filter((s) => !s.converted && s.cartAdds > 0);
-  const revenue = sales.reduce((a, s) => a + s.total, 0);
+  const revenue = sales.reduce((a, s) => a + s.netTotal, 0);
   const buyers = await db.order.groupBy({
     by: ["customerId"],
     where: {
@@ -183,7 +183,7 @@ export async function sellerRanking(companyId: string, p: Period) {
         status: { in: PAID_ORDER_STATUSES },
         paidAt: { gte: p.from, lte: p.to },
       },
-      select: { total: true, sellerId: true },
+      select: { netTotal: true, sellerId: true },
     }),
     db.customer.findMany({
       where: { companyId },
@@ -202,7 +202,7 @@ export async function sellerRanking(companyId: string, p: Period) {
       const clicks = sessions.filter((s) => s.sellerId === u.id);
       const orders = clicks.filter((s) => s.converted);
       const mySales = sales.filter((s) => s.sellerId === u.id);
-      const revenue = mySales.reduce((a, s) => a + s.total, 0);
+      const revenue = mySales.reduce((a, s) => a + s.netTotal, 0);
       const daysToSale = customers
         .filter((c) => c.ownerId === u.id && c.orders[0])
         .map(
@@ -350,7 +350,7 @@ export async function heatmaps(companyId: string, p: Period) {
         status: { in: PAID_ORDER_STATUSES },
         paidAt: { gte: p.from, lte: p.to },
       },
-      select: { total: true, paidAt: true },
+      select: { netTotal: true, paidAt: true },
     }),
   ]);
   const grid = () => Array.from({ length: 7 }, () => Array(24).fill(0) as number[]);
@@ -366,7 +366,7 @@ export async function heatmaps(companyId: string, p: Period) {
   }
   for (const s of sales) {
     if (!s.paidAt) continue; // pago sem data não entra (não inventa hora)
-    revenue[sp(s.paidAt).getUTCDay()][sp(s.paidAt).getUTCHours()] += s.total;
+    revenue[sp(s.paidAt).getUTCDay()][sp(s.paidAt).getUTCHours()] += s.netTotal;
   }
   const conversion = grid();
   for (let d = 0; d < 7; d++) {

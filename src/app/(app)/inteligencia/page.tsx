@@ -217,7 +217,7 @@ export default async function IntelligencePage({
       status: { in: PAID_ORDER_STATUSES },
       paidAt: { gte: period.from, lte: period.to },
     },
-    _sum: { total: true },
+    _sum: { netTotal: true },
     _count: true,
   });
   const ORIGEM_LABEL: Record<string, string> = {
@@ -229,7 +229,7 @@ export default async function IntelligencePage({
     .map((r) => ({
       origem: ORIGEM_LABEL[r.source] ?? r.source,
       pedidos: r._count,
-      total: r._sum.total ?? 0,
+      total: r._sum.netTotal ?? 0,
       isNuvemshop: r.source === "NUVEMSHOP",
     }))
     .sort((a, b) => b.total - a.total);

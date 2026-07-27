@@ -19,6 +19,10 @@ const createSchema = z.object({
   conversationId: z.string().optional(),
   items: z.array(itemSchema).min(1),
   discount: z.number().nonnegative().default(0),
+  // quando vem porcentagem, ela manda: o valor em reais é derivado do subtotal
+  discountPct: z.number().min(0).max(100).nullish(),
+  surcharge: z.number().nonnegative().default(0),
+  surchargePct: z.number().min(0).max(100).nullish(),
   shippingFee: z.number().nonnegative().default(0),
   notes: z.string().optional(),
   paymentMethod: z.enum(["PIX", "CARTAO", "BOLETO", "CHEQUE", "DINHEIRO", "OUTRO"]).default("PIX"),
@@ -77,8 +81,9 @@ export async function POST(req: NextRequest) {
 
     const totals = computeOrderTotals(
       input.items,
-      input.discount,
-      input.shippingFee
+      { valor: input.discount, pct: input.discountPct },
+      input.shippingFee,
+      { valor: input.surcharge, pct: input.surchargePct }
     );
 
     const order = await db.$transaction(async (tx) => {
@@ -97,7 +102,11 @@ export async function POST(req: NextRequest) {
           status: input.status,
           subtotal: totals.subtotal,
           discount: totals.discount,
+          discountPct: input.discountPct ?? null,
+          surcharge: totals.surcharge,
+          surchargePct: input.surchargePct ?? null,
           shippingFee: totals.shippingFee,
+          netTotal: totals.netTotal,
           total: totals.total,
           notes: input.notes,
           items: {

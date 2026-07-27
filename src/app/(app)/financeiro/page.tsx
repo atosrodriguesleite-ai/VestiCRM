@@ -55,7 +55,7 @@ export default async function FinanceiroPage() {
         status: { in: PAID_ORDER_STATUSES },
         paidAt: { gte: inicioMes },
       },
-      _sum: { total: true },
+      _sum: { netTotal: true },
       _count: true,
     }),
     db.payment.count({
@@ -115,7 +115,7 @@ export default async function FinanceiroPage() {
         />
         <UITile
           label="Recebido no mês"
-          value={brl(recebidoMesAgg._sum.total ?? 0)}
+          value={brl(recebidoMesAgg._sum.netTotal ?? 0)}
           hint={`${recebidoMesAgg._count} venda(s) paga(s)`}
           icon={<CheckCircle2 />}
         />

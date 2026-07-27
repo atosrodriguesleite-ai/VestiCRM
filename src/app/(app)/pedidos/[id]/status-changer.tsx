@@ -63,7 +63,10 @@ export function StatusChanger({
   const cancelled = shown === "CANCELADO";
 
   return (
-    <div>
+    // min-w-0: sem isso a régua de status (que rola na horizontal) empurra o
+    // cartão inteiro e a TELA DO PEDIDO fica mais larga que o celular — dá
+    // para arrastar a página para o lado, e o conteúdo sai da área visível.
+    <div className="min-w-0">
       <div className="flex gap-1.5 overflow-x-auto thin-scroll pb-1">
         {ORDER_STATUS_FLOW.map((s, i) => {
           const active = s === shown;

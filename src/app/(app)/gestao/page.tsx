@@ -83,7 +83,7 @@ export default async function GestaoPage() {
       db.order.groupBy({
         by: ["companyId"],
         where: { companyId: { in: ids }, status: { in: PAID_ORDER_STATUSES }, paidAt: { gte: inicioMes } },
-        _sum: { total: true },
+        _sum: { netTotal: true },
         _count: { _all: true },
       }),
       db.order.groupBy({
@@ -93,7 +93,7 @@ export default async function GestaoPage() {
           status: { in: PAID_ORDER_STATUSES },
           paidAt: { gte: inicioMesPassado, lt: inicioMes },
         },
-        _sum: { total: true },
+        _sum: { netTotal: true },
       }),
       db.order.groupBy({
         by: ["companyId"],
@@ -123,8 +123,8 @@ export default async function GestaoPage() {
       }),
     ]);
 
-  const fatMes = new Map(pagosMes.map((r) => [r.companyId, { total: r._sum.total ?? 0, pedidos: r._count._all }]));
-  const fatAnterior = new Map(pagosMesPassado.map((r) => [r.companyId, r._sum.total ?? 0]));
+  const fatMes = new Map(pagosMes.map((r) => [r.companyId, { total: r._sum.netTotal ?? 0, pedidos: r._count._all }]));
+  const fatAnterior = new Map(pagosMesPassado.map((r) => [r.companyId, r._sum.netTotal ?? 0]));
   const geradosMes = new Map(pedidosGeradosMes.map((r) => [r.companyId, r._count._all]));
   const whatsBy = new Map(whats.map((w) => [w.companyId, w]));
   const acessoBy = new Map<string, Date | null>();

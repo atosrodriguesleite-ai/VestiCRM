@@ -342,6 +342,8 @@ export async function POST(req: NextRequest) {
         sellerId: orderSellerId,
         status: "AGUARDANDO_PAGAMENTO",
         subtotal,
+        // pedido do catálogo não tem frete nem ajuste: valor vendido = total
+        netTotal: subtotal,
         total: subtotal,
         notes: noteLines.join("\n"),
         items: { create: lines },

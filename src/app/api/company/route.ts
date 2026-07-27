@@ -16,7 +16,7 @@ const schema = z.object({
   minOrder: z.number().int().nonnegative().optional(),
   minOrderMode: z.enum(["NONE", "PECAS", "VALOR"]).optional(),
   minOrderValue: z.number().nonnegative().optional(),
-  commissionBase: z.enum(["SUBTOTAL", "TOTAL"]).optional(),
+  commissionBase: z.enum(["SUBTOTAL", "VENDIDO"]).optional(),
   lowStockThreshold: z.number().int().min(0).max(10000).optional(),
   catalogLogoSize: z.enum(["normal", "grande"]).optional(),
   // esconder do catálogo os produtos sem estoque (indisponíveis)

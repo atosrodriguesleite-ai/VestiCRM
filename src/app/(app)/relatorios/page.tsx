@@ -38,7 +38,7 @@ export default async function ReportsPage() {
     await Promise.all([
       db.order.findMany({
         where: { ...paidScope, paidAt: { gte: days90 } },
-        select: { total: true, paidAt: true, sellerId: true },
+        select: { netTotal: true, paidAt: true, sellerId: true },
       }),
       // sem filtro de ativo: quem vendeu no período aparece no ranking mesmo
       // depois de desligado (senão o gráfico não fecha com o faturamento)
@@ -54,7 +54,7 @@ export default async function ReportsPage() {
         include: {
           orders: {
             where: { status: { in: PAID_ORDER_STATUSES } },
-            select: { total: true },
+            select: { netTotal: true },
           },
         },
       }),
@@ -79,7 +79,7 @@ export default async function ReportsPage() {
     include: {
       orders: {
         where: { status: { in: PAID_ORDER_STATUSES } },
-        select: { total: true, paidAt: true },
+        select: { netTotal: true, paidAt: true },
       },
     },
   });
@@ -99,7 +99,7 @@ export default async function ReportsPage() {
     stat.leads += 1;
     if (c.orders.length > 0) {
       stat.buyers += 1;
-      stat.revenue += c.orders.reduce((s, v) => s + v.total, 0);
+      stat.revenue += c.orders.reduce((s, v) => s + v.netTotal, 0);
       // data da compra = data do PAGAMENTO (pedido pago sem data não entra)
       const pagos = c.orders.map((o) => o.paidAt).filter((d): d is Date => !!d);
       if (pagos.length) {
@@ -151,7 +151,7 @@ export default async function ReportsPage() {
       label: dateShort(end),
       total: sales
         .filter((s) => s.paidAt && s.paidAt >= start && s.paidAt < end)
-        .reduce((sum, s) => sum + s.total, 0),
+        .reduce((sum, s) => sum + s.netTotal, 0),
     });
   }
 
@@ -161,7 +161,7 @@ export default async function ReportsPage() {
       label: s.name,
       value: sales
         .filter((v) => v.sellerId === s.id)
-        .reduce((sum, v) => sum + v.total, 0),
+        .reduce((sum, v) => sum + v.netTotal, 0),
     }))
     .filter((s) => s.value > 0)
     .sort((a, b) => b.value - a.value);
@@ -196,7 +196,7 @@ export default async function ReportsPage() {
   const topCustomers = customers
     .map((c) => ({
       label: c.name,
-      value: c.orders.reduce((s, v) => s + v.total, 0),
+      value: c.orders.reduce((s, v) => s + v.netTotal, 0),
     }))
     .filter((c) => c.value > 0)
     .sort((a, b) => b.value - a.value)
@@ -230,7 +230,7 @@ export default async function ReportsPage() {
     .sort((a, b) => b.value - a.value)
     .slice(0, 7);
 
-  const total90 = sales.reduce((s, v) => s + v.total, 0);
+  const total90 = sales.reduce((s, v) => s + v.netTotal, 0);
 
   return (
     <div className="max-w-7xl mx-auto">

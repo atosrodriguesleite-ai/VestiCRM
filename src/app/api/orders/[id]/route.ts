@@ -58,8 +58,30 @@ const patchSchema = z.object({
     .optional(), // forma de pagamento
   items: z.array(itemSchema).min(1).optional(), // edição dos itens (antes de pagar)
   discount: z.number().nonnegative().optional(),
+  discountPct: z.number().min(0).max(100).nullish(),
+  surcharge: z.number().nonnegative().optional(),
+  surchargePct: z.number().min(0).max(100).nullish(),
   shippingFee: z.number().nonnegative().optional(),
 });
+
+/**
+ * Resolve o ajuste (desconto ou acréscimo) a aplicar: o que veio na
+ * requisição, ou o que já estava no pedido. Porcentagem manda sobre valor —
+ * mandar `pct: null` explicitamente é como se diz "volta para reais".
+ */
+function ajusteAtual(
+  valorNovo: number | undefined,
+  pctNovo: number | null | undefined,
+  valorAtual: number,
+  pctAtual: number | null
+): { valor: number; pct: number | null } {
+  if (pctNovo !== undefined) return { valor: valorNovo ?? valorAtual, pct: pctNovo };
+  if (valorNovo !== undefined) return { valor: valorNovo, pct: null }; // digitou em reais
+  return { valor: valorAtual, pct: pctAtual };
+}
+
+const pctResolvida = (nova: number | null | undefined, atual: number | null) =>
+  nova !== undefined ? nova : atual;
 
 export async function PATCH(
   req: NextRequest,
@@ -90,9 +112,14 @@ export async function PATCH(
           { status: 403 }
         );
       }
-      if (parsed.data.discount !== undefined && parsed.data.discount !== order.discount) {
+      const mexeuNoValor =
+        (parsed.data.discount !== undefined && parsed.data.discount !== order.discount) ||
+        parsed.data.discountPct !== undefined ||
+        (parsed.data.surcharge !== undefined && parsed.data.surcharge !== order.surcharge) ||
+        parsed.data.surchargePct !== undefined;
+      if (mexeuNoValor) {
         return NextResponse.json(
-          { error: "Alterar desconto é permitido só para gerente ou admin." },
+          { error: "Alterar desconto ou acréscimo é permitido só para gerente ou admin." },
           { status: 403 }
         );
       }
@@ -145,9 +172,12 @@ export async function PATCH(
         }
       }
 
-      const discount = parsed.data.discount ?? order.discount;
-      const shippingFee = parsed.data.shippingFee ?? order.shippingFee;
-      const totals = computeOrderTotals(parsed.data.items, discount, shippingFee);
+      const totals = computeOrderTotals(
+        parsed.data.items,
+        ajusteAtual(parsed.data.discount, parsed.data.discountPct, order.discount, order.discountPct),
+        parsed.data.shippingFee ?? order.shippingFee,
+        ajusteAtual(parsed.data.surcharge, parsed.data.surchargePct, order.surcharge, order.surchargePct)
+      );
       await db.$transaction(async (tx) => {
         await tx.orderItem.deleteMany({ where: { orderId: order.id } });
         await tx.orderItem.createMany({
@@ -173,7 +203,11 @@ export async function PATCH(
           data: {
             subtotal: totals.subtotal,
             discount: totals.discount,
+            discountPct: pctResolvida(parsed.data.discountPct, order.discountPct),
+            surcharge: totals.surcharge,
+            surchargePct: pctResolvida(parsed.data.surchargePct, order.surchargePct),
             shippingFee: totals.shippingFee,
+            netTotal: totals.netTotal,
             total: totals.total,
           },
         });
@@ -196,10 +230,10 @@ export async function PATCH(
               },
             });
           }
-          // faturamento acompanha o novo total (venda já registrada)
+          // faturamento acompanha o novo VALOR VENDIDO (sem frete)
           await tx.sale.updateMany({
             where: { orderId: order.id },
-            data: { total: totals.total },
+            data: { total: totals.netTotal },
           });
         }
         // valor do pagamento acompanha o novo total (pendente ou confirmado)
@@ -211,15 +245,103 @@ export async function PATCH(
           data: {
             orderId: order.id,
             type: "NOTA",
-            description: `Itens do pedido editados por ${user.name} — novo total R$ ${totals.total.toFixed(2)}`,
+            description: `Itens do pedido editados por ${user.name} — valor vendido R$ ${totals.netTotal.toFixed(2)}, total a pagar R$ ${totals.total.toFixed(2)}`,
             userId: user.id,
           },
         });
       });
-      // o valor da negociação no FUNIL acompanha o novo total do pedido
-      await syncOpportunityValue(user.companyId, order.opportunityId, totals.total);
+      // o funil acompanha o VALOR VENDIDO (frete não é negociação)
+      await syncOpportunityValue(user.companyId, order.opportunityId, totals.netTotal);
       // se veio SÓ a edição de itens, responde aqui
       if (!parsed.data.status && !parsed.data.notes && parsed.data.sellerId === undefined && !parsed.data.customerId && !parsed.data.paymentMethod && parsed.data.trackingCode === undefined && parsed.data.shippingMethod === undefined) {
+        const updated = await db.order.findUnique({ where: { id: order.id } });
+        return NextResponse.json(updated);
+      }
+    }
+
+    // ---- Só os VALORES mudaram (desconto, acréscimo ou frete) ----
+    // Sem este caminho, mexer no desconto exigia reenviar o pedido inteiro.
+    // Aqui o cálculo sai dos itens que JÁ estão gravados.
+    const mexeuSoNosValores =
+      !parsed.data.items &&
+      (parsed.data.discount !== undefined ||
+        parsed.data.discountPct !== undefined ||
+        parsed.data.surcharge !== undefined ||
+        parsed.data.surchargePct !== undefined ||
+        parsed.data.shippingFee !== undefined);
+
+    if (mexeuSoNosValores) {
+      if (order.status === "CANCELADO") {
+        return NextResponse.json(
+          { error: "Pedido cancelado não pode ser editado. Reabra mudando o status antes." },
+          { status: 409 }
+        );
+      }
+      const totals = computeOrderTotals(
+        order.items.map((i) => ({ quantity: i.quantity, unitPrice: i.unitPrice })),
+        ajusteAtual(parsed.data.discount, parsed.data.discountPct, order.discount, order.discountPct),
+        parsed.data.shippingFee ?? order.shippingFee,
+        ajusteAtual(parsed.data.surcharge, parsed.data.surchargePct, order.surcharge, order.surchargePct)
+      );
+
+      // AUDITORIA: mexer no valor do pedido é decisão comercial e mexe em
+      // comissão — fica registrado quem mudou, de quanto para quanto.
+      const mudancas: string[] = [];
+      const brl = (v: number) => `R$ ${v.toFixed(2)}`;
+      if (totals.discount !== order.discount)
+        mudancas.push(`desconto ${brl(order.discount)} → ${brl(totals.discount)}`);
+      if (totals.surcharge !== order.surcharge)
+        mudancas.push(`acréscimo ${brl(order.surcharge)} → ${brl(totals.surcharge)}`);
+      if (totals.shippingFee !== order.shippingFee)
+        mudancas.push(`frete ${brl(order.shippingFee)} → ${brl(totals.shippingFee)}`);
+
+      await db.$transaction(async (tx) => {
+        await tx.order.update({
+          where: { id: order.id },
+          data: {
+            discount: totals.discount,
+            discountPct: pctResolvida(parsed.data.discountPct, order.discountPct),
+            surcharge: totals.surcharge,
+            surchargePct: pctResolvida(parsed.data.surchargePct, order.surchargePct),
+            shippingFee: totals.shippingFee,
+            netTotal: totals.netTotal,
+            total: totals.total,
+          },
+        });
+        // a cobrança acompanha o que a cliente paga (COM frete)
+        await tx.payment.updateMany({
+          where: { orderId: order.id },
+          data: { amount: totals.total },
+        });
+        if (order.stockDeducted) {
+          await tx.sale.updateMany({
+            where: { orderId: order.id },
+            data: { total: totals.netTotal },
+          });
+        }
+        if (mudancas.length) {
+          await tx.orderEvent.create({
+            data: {
+              orderId: order.id,
+              type: "NOTA",
+              description: `Valores alterados por ${user.name}: ${mudancas.join("; ")}. Valor vendido ${brl(totals.netTotal)} · total a pagar ${brl(totals.total)}`,
+              userId: user.id,
+            },
+          });
+        }
+      });
+      // o funil acompanha o VALOR VENDIDO (frete não é negociação)
+      await syncOpportunityValue(user.companyId, order.opportunityId, totals.netTotal);
+
+      if (
+        !parsed.data.status &&
+        !parsed.data.notes &&
+        parsed.data.sellerId === undefined &&
+        !parsed.data.customerId &&
+        !parsed.data.paymentMethod &&
+        parsed.data.trackingCode === undefined &&
+        parsed.data.shippingMethod === undefined
+      ) {
         const updated = await db.order.findUnique({ where: { id: order.id } });
         return NextResponse.json(updated);
       }

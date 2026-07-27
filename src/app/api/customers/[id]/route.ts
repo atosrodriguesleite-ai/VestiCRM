@@ -35,7 +35,7 @@ export async function GET(
     // total gasto e nº de pedidos pagos considerando TODO o histórico
     const agg = await db.order.aggregate({
       where: { customerId: id, status: { in: PAID_ORDER_STATUSES } },
-      _sum: { total: true },
+      _sum: { netTotal: true },
       _count: { _all: true },
     });
 
@@ -54,7 +54,7 @@ export async function GET(
       ownerName: customer.owner?.name ?? null,
       lastPurchaseAt: customer.lastPurchaseAt?.toISOString() ?? null,
       createdAt: customer.createdAt.toISOString(),
-      totalSpent: agg._sum.total ?? 0,
+      totalSpent: agg._sum.netTotal ?? 0,
       paidOrders: agg._count._all,
       tags: customer.tags.map((t) => ({ name: t.tag.name, color: t.tag.color })),
       interests: customer.interests.map((i) => i.interest.name),

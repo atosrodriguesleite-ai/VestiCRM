@@ -32,7 +32,7 @@ export function CommissionsView({
   unassigned,
 }: {
   rows: Row[];
-  base: "SUBTOTAL" | "TOTAL";
+  base: "SUBTOTAL" | "VENDIDO";
   canEdit: boolean;
   de: string;
   ate: string;
@@ -115,7 +115,7 @@ export function CommissionsView({
             className={`${inputCls} bg-white disabled:opacity-60`}
           >
             <option value="SUBTOTAL">Valor dos produtos</option>
-            <option value="TOTAL">Total do pedido (com frete)</option>
+            <option value="VENDIDO">Valor vendido (com desconto)</option>
           </select>
         </div>
       </div>

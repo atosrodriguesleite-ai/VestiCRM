@@ -24,7 +24,11 @@ model Company {
   minOrder          Int      @default(0) // pedido mínimo em PEÇAS (quando minOrderMode = PECAS)
   minOrderMode      String   @default("NONE") // trava do catálogo: NONE | PECAS | VALOR
   minOrderValue     Float    @default(0) // pedido mínimo em R$ (quando minOrderMode = VALOR)
-  commissionBase    String   @default("SUBTOTAL") // base da comissão: SUBTOTAL (produtos) | TOTAL (com frete)
+  // Base da comissão. As DUAS opções são sem frete — o frete nunca remunera
+  // vendedora, e isso é estrutura, não configuração:
+  //   SUBTOTAL = valor das peças, ANTES do desconto
+  //   VENDIDO  = peças − desconto + acréscimo (o valor realmente vendido)
+  commissionBase    String   @default("SUBTOTAL")
   lowStockThreshold Int      @default(5) // alerta de estoque: avisa quando a variação chega a X peças
   productionEnabled Boolean  @default(false) // módulo Produção (pago à parte; super admin ativa por loja)
   marketingEnabled  Boolean  @default(false) // módulo Marketing (pago à parte; super admin ativa por loja)
@@ -1234,7 +1238,22 @@ model Order {
   status         OrderStatus   @default(ORCAMENTO)
   subtotal       Float         @default(0)
   discount       Float         @default(0)
+  // Quando o desconto foi digitado em PORCENTAGEM, guarda o percentual: é o
+  // que permite recalcular sozinho quando as peças do pedido mudam ("10% de
+  // desconto" continua 10% depois de entrar mais uma blusa). Nulo = o valor
+  // em reais é fixo.
+  discountPct    Float?
+  // Acréscimo (juros de parcelamento, taxa de urgência, personalização).
+  // É dinheiro que FICA na loja: conta como venda e entra na comissão.
+  surcharge      Float         @default(0)
+  surchargePct   Float?
   shippingFee    Float         @default(0)
+  // VALOR VENDIDO = subtotal − desconto + acréscimo. É a coluna que TODA
+  // métrica de faturamento soma, e a base da comissão. O frete fica de fora
+  // de propósito: é dinheiro da transportadora atravessando a loja.
+  netTotal       Float         @default(0)
+  // O QUE A CLIENTE PAGA = valor vendido + frete. Serve para cobrar (Pix,
+  // PDF, nota) — nunca para somar faturamento.
   total          Float         @default(0)
   notes          String?
   stockDeducted  Boolean       @default(false) // estoque só baixa quando o pedido é pago
