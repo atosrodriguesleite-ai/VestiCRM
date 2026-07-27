@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { extractJids, extractRecords } from "../history-import";
+import { extractJids, extractRecords, dataDaMensagem } from "../history-import";
 
 /**
  * O servidor de conexão mudou de formato entre versões: às vezes devolve a
@@ -88,5 +88,45 @@ describe("extractJids — identidade nova do WhatsApp (@lid)", () => {
     expect(
       extractJids([{ id: "120363@g.us" }, { id: "status@broadcast" }, { id: "5511999998888@lid" }])
     ).toEqual(["5511999998888@lid"]);
+  });
+});
+
+/**
+ * A data da mensagem chega em formatos diferentes conforme a versão do
+ * servidor. Ler só um formato fez a importação ler 2.961 mensagens e
+ * importar ZERO: todas caíam fora da janela de 30 dias porque a data virava
+ * "inválida" e o filtro descartava em silêncio.
+ */
+describe("dataDaMensagem (data em qualquer formato)", () => {
+  const seg = 1_753_500_000; // segundos (padrão do WhatsApp)
+  const ms = seg * 1000;
+
+  it("segundos (número)", () => {
+    expect(dataDaMensagem({ messageTimestamp: seg })).toBe(ms);
+  });
+
+  it("segundos como texto", () => {
+    expect(dataDaMensagem({ messageTimestamp: String(seg) })).toBe(ms);
+  });
+
+  it("milissegundos não são multiplicados de novo", () => {
+    expect(dataDaMensagem({ messageTimestamp: ms })).toBe(ms);
+  });
+
+  it("data em texto ISO", () => {
+    expect(dataDaMensagem({ createdAt: "2026-07-26T12:00:00.000Z" })).toBe(
+      Date.parse("2026-07-26T12:00:00.000Z")
+    );
+  });
+
+  it("campo alternativo (timestamp)", () => {
+    expect(dataDaMensagem({ timestamp: seg })).toBe(ms);
+  });
+
+  it("sem data legível devolve null (não vira 1970)", () => {
+    expect(dataDaMensagem({})).toBeNull();
+    expect(dataDaMensagem({ messageTimestamp: 0 })).toBeNull();
+    expect(dataDaMensagem({ messageTimestamp: "" })).toBeNull();
+    expect(dataDaMensagem({ messageTimestamp: "ontem" })).toBeNull();
   });
 });

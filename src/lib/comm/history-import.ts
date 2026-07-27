@@ -22,7 +22,12 @@ type WAMsg = {
   // senderPn: com a identidade nova do WhatsApp (@lid) o telefone real vem aqui
   key?: { remoteJid?: string; fromMe?: boolean; id?: string; senderPn?: string };
   pushName?: string;
+  // a data chega em formatos diferentes conforme a versão do servidor:
+  // segundos, milissegundos, texto numérico ou data ISO
   messageTimestamp?: number | string;
+  timestamp?: number | string;
+  createdAt?: string;
+  messageTimestampMs?: number | string;
   message?: {
     conversation?: string;
     extendedTextMessage?: { text?: string };
@@ -58,6 +63,38 @@ function extract(m: WAMsg): Extracted {
   if (msg.stickerMessage)
     return { text: "[figurinha]", mediaType: "IMAGE", mimeFallback: msg.stickerMessage.mimetype ?? "image/webp", fileName: null };
   return { text: "", mediaType: "TEXT", mimeFallback: null, fileName: null };
+}
+
+/**
+ * Data da mensagem, em milissegundos.
+ *
+ * O servidor manda a data de jeitos diferentes conforme a versão: segundos
+ * (padrão do WhatsApp), milissegundos, texto numérico ou data ISO. Ler só um
+ * formato fazia TODAS as mensagens caírem fora da janela de 30 dias — a
+ * importação lia milhares e importava zero.
+ */
+export function dataDaMensagem(m: {
+  messageTimestamp?: number | string;
+  timestamp?: number | string;
+  createdAt?: string;
+  messageTimestampMs?: number | string;
+}): number | null {
+  const brutos = [m.messageTimestamp, m.timestamp, m.messageTimestampMs, m.createdAt];
+  for (const bruto of brutos) {
+    if (bruto === undefined || bruto === null || bruto === "") continue;
+    const n = typeof bruto === "number" ? bruto : Number(bruto);
+    if (Number.isFinite(n) && n > 0) {
+      // < 1e12 é segundo (padrão do WhatsApp); acima já é milissegundo
+      const ms = n < 1e12 ? n * 1000 : n;
+      if (ms > 946_684_800_000) return ms; // a partir do ano 2000: data plausível
+      continue;
+    }
+    if (typeof bruto === "string") {
+      const iso = Date.parse(bruto);
+      if (Number.isFinite(iso)) return iso;
+    }
+  }
+  return null;
 }
 
 const MEDIA_BASE64_MAX = 12 * 1024 * 1024; // ~12 MB por mídia
@@ -131,6 +168,8 @@ export type HistoryImportResult = {
   importadas: number;
   conversas: number;
   encontradas: number;
+  semData: number; // vieram sem data legível
+  naJanela: number; // dentro dos N dias pedidos
 };
 
 export async function importRecentHistory(
@@ -190,27 +229,6 @@ export async function importRecentHistory(
     : res.data && typeof res.data === "object"
       ? `keys:${Object.keys(res.data as object).join(",")}`
       : typeof res.data;
-  await db.commEvent
-    .create({
-      data: {
-        companyId,
-        channel: "WHATSAPP",
-        direction: "IN",
-        type: "wa.historico.leitura",
-        status: res.ok ? "OK" : "ERRO",
-        payload: JSON.stringify({
-          httpStatus: res.status,
-          shape,
-          via,
-          chatsEncontrados,
-          conversasVarridas: lidas,
-          registrosGeral: geral.length,
-          registros: records.length,
-        }).slice(0, 500),
-      },
-    })
-    .catch(() => {});
-
   if (!res.ok)
     throw new Error(
       `O servidor recusou a leitura do histórico (HTTP ${res.status}).`
@@ -219,11 +237,44 @@ export async function importRecentHistory(
   const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
 
   // filtra pela janela e ordena do mais antigo pro mais novo (cronológico)
-  const parsed = records
-    .map((r) => ({ r, ts: Number(r.messageTimestamp ?? 0) * 1000 }))
+  const comData = records
+    .map((r) => ({ r, ts: dataDaMensagem(r) }))
+    .filter((x): x is { r: WAMsg; ts: number } => x.ts !== null);
+  const semData = records.length - comData.length;
+  const parsed = comData
     .filter((x) => x.ts >= cutoff && x.ts <= Date.now() + 60_000)
     .sort((a, b) => a.ts - b.ts)
     .slice(0, 3000); // teto de segurança
+
+  // diagnóstico depois de filtrar: assim ele diz não só quanto o servidor
+  // devolveu, mas quantas mensagens tinham data legível e quantas caíram
+  // dentro da janela — é o que revela um filtro comendo tudo em silêncio
+  const maisNova = comData.length
+    ? new Date(Math.max(...comData.map((x) => x.ts))).toISOString().slice(0, 10)
+    : null;
+  await db.commEvent
+    .create({
+      data: {
+        companyId,
+        channel: "WHATSAPP",
+        direction: "IN",
+        type: "wa.historico.leitura",
+        status: "OK",
+        payload: JSON.stringify({
+          httpStatus: res.status,
+          shape,
+          via,
+          chatsEncontrados,
+          conversasVarridas: lidas,
+          registrosGeral: geral.length,
+          registros: records.length,
+          semDataLegivel: semData,
+          dentroDaJanela: parsed.length,
+          mensagemMaisNova: maisNova,
+        }).slice(0, 500),
+      },
+    })
+    .catch(() => {});
 
   let importadas = 0;
   let midiaBudget = MEDIA_DOWNLOAD_BUDGET;
@@ -331,5 +382,7 @@ export async function importRecentHistory(
     importadas,
     conversas: convByCustomer.size,
     encontradas: records.length,
+    semData,
+    naJanela: parsed.length,
   };
 }
