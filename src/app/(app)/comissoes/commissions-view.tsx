@@ -8,7 +8,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Check } from "lucide-react";
+import { Check, FileText } from "lucide-react";
 import { brl } from "@/lib/format";
 import { Card, Avatar } from "@/components/ui";
 
@@ -127,6 +127,7 @@ export function CommissionsView({
                 <th className="px-4 py-3 text-right">Base</th>
                 <th className="px-4 py-3 text-center">%</th>
                 <th className="px-4 py-3 text-right">Comissão</th>
+                <th className="px-4 py-3 text-center">Extrato</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50">
@@ -166,11 +167,25 @@ export function CommissionsView({
                   <td className="px-4 py-3 text-right font-semibold tabular-nums text-emerald-600">
                     {brl(liveCommission(r))}
                   </td>
+                  <td className="px-4 py-3 text-center">
+                    {/* extrato em PDF do período filtrado: conferência pedido
+                        a pedido antes de pagar (abre em outra aba) */}
+                    <a
+                      href={`/api/comissoes/relatorio?seller=${r.id}&de=${de}&ate=${ate}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs font-medium text-gray-600 hover:border-brand-300 hover:text-brand-700 transition"
+                      title={`Extrato de comissão de ${r.name} (PDF)`}
+                    >
+                      <FileText className="size-3.5" />
+                      PDF
+                    </a>
+                  </td>
                 </tr>
               ))}
               {rows.length === 0 && (
                 <tr>
-                  <td colSpan={5} className="px-4 py-8 text-center text-gray-400 text-sm">
+                  <td colSpan={6} className="px-4 py-8 text-center text-gray-400 text-sm">
                     Nenhum vendedor ativo.
                   </td>
                 </tr>
@@ -187,6 +202,7 @@ export function CommissionsView({
                 <td className="px-4 py-3 text-right tabular-nums text-emerald-700">
                   {brl(totalCommission)}
                 </td>
+                <td className="px-4 py-3" />
               </tr>
             </tfoot>
           </table>
