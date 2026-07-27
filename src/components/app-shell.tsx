@@ -38,6 +38,7 @@ import {
   Images,
   LayoutPanelTop,
   Gauge,
+  ChevronDown,
 } from "lucide-react";
 import { Avatar } from "./ui";
 import { Logo, LogoMark } from "./logo";
@@ -81,6 +82,15 @@ const MOBILE_NAV = [
   { href: "/clientes", label: "Clientes", icon: Users },
 ];
 
+// atalhos do celular pro dono da plataforma: o dia dele começa na Gestão
+const MOBILE_NAV_SUPER = [
+  { href: "/gestao", label: "Gestão", icon: Gauge },
+  { href: "/lojas", label: "Lojas", icon: Store },
+  { href: "/whatsapp", label: "Chat", icon: MessageCircle },
+  { href: "/funil", label: "Funil", icon: KanbanSquare },
+  { href: "/clientes", label: "Clientes", icon: Users },
+];
+
 // atalhos do celular pro Suporte: o dia dele começa nos pedidos
 const MOBILE_NAV_SUPPORT = [
   { href: "/pedidos", label: "Pedidos", icon: ShoppingBag },
@@ -91,6 +101,36 @@ const MOBILE_NAV_SUPPORT = [
 ];
 
 const GROUPS = ["Comercial", "Catálogo", "Relacionamento", "Análise", "Sistema", "Plataforma"];
+
+/**
+ * MENU DO DONO DA PLATAFORMA.
+ *
+ * O menu padrão foi desenhado para uma LOJA de roupas (produtos, produção,
+ * plano de corte, comissões...). Para o Super Admin isso é ruído: ele vive no
+ * painel de gestão e usa o CRM só para os leads do próprio AtacadoPro.
+ *
+ * Então o MESMO menu é reagrupado — nada é removido, nada perde acesso:
+ * primeiro a Plataforma, depois o comercial dele, e o resto vai para um grupo
+ * que abre com um clique. Quando ele entra COMO uma loja (impersonação), o
+ * menu volta a ser o da loja, porque ali ele é a loja.
+ */
+const GRUPOS_SUPER = ["Plataforma", "Meu comercial", "Ferramentas da loja"];
+const GRUPO_SUPER_PADRAO = "Ferramentas da loja";
+const GRUPOS_FECHADOS_INICIAIS = [GRUPO_SUPER_PADRAO];
+const GRUPO_SUPER: Record<string, string> = {
+  "/gestao": "Plataforma",
+  "/lojas": "Plataforma",
+  "/saude": "Plataforma",
+  "/afiliados": "Plataforma",
+  "/dashboard": "Meu comercial",
+  "/funil": "Meu comercial",
+  "/whatsapp": "Meu comercial",
+  "/clientes": "Meu comercial",
+  "/tarefas": "Meu comercial",
+  "/campanhas": "Meu comercial",
+  "/automacoes": "Meu comercial",
+  "/marketing": "Meu comercial",
+};
 
 type ShellUser = {
   name: string;
@@ -190,7 +230,38 @@ export function AppShell({
       return ["ADMIN", "MANAGER", "SUPERADMIN"].includes(user.role);
     return true;
   });
-  const mobileItems = user.role === "SUPPORT" ? MOBILE_NAV_SUPPORT : MOBILE_NAV;
+  // modo plataforma: Super Admin na própria casa (fora da impersonação)
+  const modoPlataforma = user.role === "SUPERADMIN" && !user.impersonating;
+  const grupos = modoPlataforma ? GRUPOS_SUPER : GROUPS;
+  const grupoDoItem = (href: string, group: string) =>
+    modoPlataforma ? (GRUPO_SUPER[href] ?? GRUPO_SUPER_PADRAO) : group;
+
+  // grupos recolhidos (só no modo plataforma) — a escolha fica salva
+  const [fechados, setFechados] = useState<string[]>(GRUPOS_FECHADOS_INICIAIS);
+  useEffect(() => {
+    const salvo = localStorage.getItem("vesti_grupos_fechados");
+    if (salvo) {
+      try {
+        const lista = JSON.parse(salvo);
+        if (Array.isArray(lista)) setFechados(lista.filter((g) => typeof g === "string"));
+      } catch {
+        /* preferência ilegível: fica o padrão */
+      }
+    }
+  }, []);
+  function alternarGrupo(g: string) {
+    setFechados((atual) => {
+      const proximo = atual.includes(g) ? atual.filter((x) => x !== g) : [...atual, g];
+      localStorage.setItem("vesti_grupos_fechados", JSON.stringify(proximo));
+      return proximo;
+    });
+  }
+
+  const mobileItems = modoPlataforma
+    ? MOBILE_NAV_SUPER
+    : user.role === "SUPPORT"
+      ? MOBILE_NAV_SUPPORT
+      : MOBILE_NAV;
 
   // tema claro/escuro: troca otimista + salva no perfil do usuário
   const [dark, setDark] = useState(Boolean(user.prefersDark));
@@ -244,17 +315,37 @@ export function AppShell({
 
   const navLinks = (onClick?: () => void, showLabels = true) => (
     <nav className="flex-1 px-3 py-2 space-y-4 overflow-y-auto thin-scroll">
-      {GROUPS.map((group) => {
-        const groupItems = items.filter((i) => i.group === group);
+      {grupos.map((group) => {
+        const groupItems = items.filter((i) => grupoDoItem(i.href, i.group) === group);
         if (groupItems.length === 0) return null;
+        // com o menu recolhido (só ícones) nada fica escondido atrás de clique
+        const recolhivel = modoPlataforma && showLabels;
+        // o grupo da tela aberta nunca fica fechado (senão some o "você está aqui")
+        const fechado =
+          recolhivel &&
+          fechados.includes(group) &&
+          !groupItems.some((i) => pathname.startsWith(i.href));
         return (
           <div key={group}>
-            {showLabels && (
-              <p className="px-3 mb-1.5 text-[10px] font-mono font-semibold uppercase tracking-[0.14em] text-ocre/70">
-                {group}
-              </p>
-            )}
-            <div className="space-y-0.5">
+            {showLabels &&
+              (recolhivel ? (
+                <button
+                  type="button"
+                  onClick={() => alternarGrupo(group)}
+                  aria-expanded={!fechado}
+                  className="w-full flex items-center justify-between px-3 mb-1.5 text-[10px] font-mono font-semibold uppercase tracking-[0.14em] text-ocre/70 hover:text-ocre transition"
+                >
+                  <span>{group}</span>
+                  <ChevronDown
+                    className={`size-3.5 transition-transform ${fechado ? "-rotate-90" : ""}`}
+                  />
+                </button>
+              ) : (
+                <p className="px-3 mb-1.5 text-[10px] font-mono font-semibold uppercase tracking-[0.14em] text-ocre/70">
+                  {group}
+                </p>
+              ))}
+            <div className={`space-y-0.5 ${fechado ? "hidden" : ""}`}>
               {groupItems.map((item) => {
                 const active = pathname.startsWith(item.href);
                 const Icon = item.icon;
