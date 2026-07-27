@@ -288,6 +288,25 @@ export async function POST(req: NextRequest) {
     input.customer?.phone ? `Telefone: ${input.customer.phone}` : null,
   ].filter(Boolean);
 
+  // RASTRO DA COMISSÃO: quando o link é de uma vendedora mas o pedido vai
+  // para OUTRA (a responsável pela cliente), o histórico do pedido explica o
+  // porquê. Sem isso, "o pedido da Lara caiu na tela da Juliana" não tinha
+  // como ser conferido — e discussão de comissão sem prova é briga.
+  let notaComissao: string | null = null;
+  if (linkSellerId && orderSellerId && linkSellerId !== orderSellerId) {
+    const [doLink, doPedido] = await Promise.all([
+      db.user.findUnique({ where: { id: linkSellerId }, select: { name: true } }),
+      db.user.findUnique({ where: { id: orderSellerId }, select: { name: true } }),
+    ]);
+    notaComissao =
+      `Cliente entrou pelo link de ${doLink?.name ?? "outra vendedora"}, mas a comissão ficou com ` +
+      `${doPedido?.name ?? "a responsável"} — regra da loja: o pedido é de quem é responsável pela cliente.`;
+  } else if (input.ref && !linkSellerId) {
+    notaComissao =
+      `O link usado ("${input.ref}") não identificou nenhuma vendedora da equipe` +
+      " — confira se o nome bate com o cadastro (e se não há duas pessoas com o mesmo primeiro nome).";
+  }
+
   const order = await db.$transaction(async (tx) => {
     const last = await tx.order.findFirst({
       where: { companyId: company.id },
@@ -312,10 +331,10 @@ export async function POST(req: NextRequest) {
         },
         shipping: { create: { cost: 0, city: customerCity, state: customerState } },
         events: {
-          create: {
-            type: "CRIADO",
-            description: "Pedido recebido pelo catálogo público",
-          },
+          create: [
+            { type: "CRIADO", description: "Pedido recebido pelo catálogo público" },
+            ...(notaComissao ? [{ type: "NOTA" as const, description: notaComissao }] : []),
+          ],
         },
       },
     });

@@ -26,8 +26,12 @@ export function catalogLabel(slug: string, domain?: string | null): string {
 
 /** Base + ref de vendedor para links rastreados (?c=) — uso nas telas. */
 export function trackedLinkParts(user: { role: string; name: string }, slug: string) {
+  // ADMIN entra aqui também: a dona costuma mandar link e atender junto —
+  // sem isso o link dela saía SEM identificação e o pedido caía na carteira
+  // de outra pessoa (foi assim que pedido de uma vendedora apareceu na tela
+  // de outra). SUPERADMIN fica de fora: é a plataforma, não vende.
   const sellerRef =
-    user.role === "SELLER" || user.role === "MANAGER"
+    user.role === "SELLER" || user.role === "MANAGER" || user.role === "ADMIN"
       ? user.name
           .toLowerCase()
           .normalize("NFD")
