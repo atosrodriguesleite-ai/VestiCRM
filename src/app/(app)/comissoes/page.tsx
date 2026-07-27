@@ -59,7 +59,7 @@ export default async function CommissionsPage({
     where: {
       companyId: user.companyId,
       status: { in: PAID_ORDER_STATUSES },
-      createdAt: { gte: from, lte: to },
+      paidAt: { gte: from, lte: to },
     },
     select: { sellerId: true, subtotal: true, total: true },
   });

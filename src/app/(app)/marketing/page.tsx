@@ -70,11 +70,11 @@ export default async function MarketingPage({
     db.customer.findMany({ where: { companyId, createdAt: inPeriod }, select: { id: true, origin: true, campaignId: true } }),
     db.customer.findMany({ where: { companyId, createdAt: inPrev }, select: { origin: true } }),
     db.order.findMany({
-      where: { companyId, status: { in: PAID_ORDER_STATUSES }, createdAt: inPeriod },
+      where: { companyId, status: { in: PAID_ORDER_STATUSES }, paidAt: inPeriod },
       select: { total: true, customerId: true, customer: { select: { origin: true, campaignId: true } } },
     }),
     db.order.findMany({
-      where: { companyId, status: { in: PAID_ORDER_STATUSES }, createdAt: inPrev },
+      where: { companyId, status: { in: PAID_ORDER_STATUSES }, paidAt: inPrev },
       select: { total: true, customer: { select: { origin: true } } },
     }),
     db.marketingCampaign.findMany({

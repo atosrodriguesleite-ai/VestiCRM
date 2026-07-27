@@ -35,6 +35,23 @@ export const PAID_ORDER_STATUSES: OrderStatus[] = [
   "ENTREGUE",
 ];
 
+/**
+ * DATA DO DINHEIRO — decide em qual mês a venda entra.
+ *
+ * Faturamento é somado pela data em que o pedido virou PAGO (`Order.paidAt`),
+ * NUNCA pela data em que o orçamento foi montado. Motivo: como o pedido só
+ * entra na conta depois de pago, usar a data de criação fazia um mês já
+ * fechado mudar de valor quando um orçamento antigo era pago em seguida.
+ *
+ * Orçamento montado em julho e pago em agosto = faturamento de AGOSTO,
+ * igualzinho ao extrato do banco. Mês fechado nunca mais muda.
+ *
+ * `createdAt` continua valendo onde a pergunta é "quantos orçamentos foram
+ * GERADOS no período" (denominador da conversão) — ali a data certa é a da
+ * criação mesmo.
+ */
+export const CAMPO_DATA_FATURAMENTO = "paidAt" as const;
+
 export const ORDER_STATUS_FLOW: OrderStatus[] = [
   "ORCAMENTO",
   "AGUARDANDO_PAGAMENTO",

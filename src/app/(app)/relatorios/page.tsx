@@ -37,8 +37,8 @@ export default async function ReportsPage() {
   const [sales, sellers, stages, opps, customers, interests, pendingTasks, conversations] =
     await Promise.all([
       db.order.findMany({
-        where: { ...paidScope, createdAt: { gte: days90 } },
-        select: { total: true, createdAt: true, sellerId: true },
+        where: { ...paidScope, paidAt: { gte: days90 } },
+        select: { total: true, paidAt: true, sellerId: true },
       }),
       // sem filtro de ativo: quem vendeu no período aparece no ranking mesmo
       // depois de desligado (senão o gráfico não fecha com o faturamento)
@@ -79,7 +79,7 @@ export default async function ReportsPage() {
     include: {
       orders: {
         where: { status: { in: PAID_ORDER_STATUSES } },
-        select: { total: true, createdAt: true },
+        select: { total: true, paidAt: true },
       },
     },
   });
@@ -100,13 +100,14 @@ export default async function ReportsPage() {
     if (c.orders.length > 0) {
       stat.buyers += 1;
       stat.revenue += c.orders.reduce((s, v) => s + v.total, 0);
-      const firstSale = c.orders.reduce(
-        (min, s) => (s.createdAt < min ? s.createdAt : min),
-        c.orders[0].createdAt
-      );
-      stat.daysToSale.push(
-        Math.max(0, (firstSale.getTime() - c.createdAt.getTime()) / (24 * 60 * 60 * 1000))
-      );
+      // data da compra = data do PAGAMENTO (pedido pago sem data não entra)
+      const pagos = c.orders.map((o) => o.paidAt).filter((d): d is Date => !!d);
+      if (pagos.length) {
+        const firstSale = pagos.reduce((min, d) => (d < min ? d : min), pagos[0]);
+        stat.daysToSale.push(
+          Math.max(0, (firstSale.getTime() - c.createdAt.getTime()) / (24 * 60 * 60 * 1000))
+        );
+      }
     }
     channelMap.set(key, stat);
   }
@@ -149,7 +150,7 @@ export default async function ReportsPage() {
     weeks.push({
       label: dateShort(end),
       total: sales
-        .filter((s) => s.createdAt >= start && s.createdAt < end)
+        .filter((s) => s.paidAt && s.paidAt >= start && s.paidAt < end)
         .reduce((sum, s) => sum + s.total, 0),
     });
   }

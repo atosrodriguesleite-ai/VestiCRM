@@ -132,8 +132,8 @@ export default async function DashboardPage({
   ] = await Promise.all([
     // Faturamento = pedidos PAGOS (fonte única da verdade, igual à tela Pedidos)
     db.order.findMany({
-      where: { ...orderScope, createdAt: inPeriod },
-      select: { total: true, sellerId: true, createdAt: true },
+      where: { ...orderScope, paidAt: inPeriod },
+      select: { total: true, sellerId: true, paidAt: true },
     }),
     db.customer.count({ where: scope }),
     db.customer.count({ where: { ...scope, createdAt: inPeriod } }),
@@ -183,30 +183,30 @@ export default async function DashboardPage({
     computeAutomations(user),
     // --- Pedidos (módulo catálogo) ---
     db.order.aggregate({
-      where: { ...orderScope, createdAt: { gte: startOfDay } },
+      where: { ...orderScope, paidAt: { gte: startOfDay } },
       _count: true,
       _sum: { total: true },
     }),
     db.order.aggregate({
-      where: { ...orderScope, createdAt: { gte: days7 } },
+      where: { ...orderScope, paidAt: { gte: days7 } },
       _count: true,
       _sum: { total: true },
     }),
     db.order.aggregate({
-      where: { ...orderScope, createdAt: inPeriod },
+      where: { ...orderScope, paidAt: inPeriod },
       _count: true,
       _sum: { total: true },
     }),
     db.orderItem.groupBy({
       by: ["name"],
-      where: { order: { ...orderScope, createdAt: inPeriod } },
+      where: { order: { ...orderScope, paidAt: inPeriod } },
       _sum: { quantity: true },
       orderBy: { _sum: { quantity: "desc" } },
       take: 6,
     }),
     db.order.groupBy({
       by: ["customerId"],
-      where: { ...orderScope, createdAt: inPeriod },
+      where: { ...orderScope, paidAt: inPeriod },
       _sum: { total: true },
       _count: true,
       orderBy: { _sum: { total: "desc" } },
@@ -224,7 +224,7 @@ export default async function DashboardPage({
       where: {
         companyId: user.companyId,
         status: { in: PAID_ORDER_STATUSES },
-        createdAt: { gte: startOfMonth },
+        paidAt: { gte: startOfMonth },
       },
       select: { total: true, sellerId: true },
     }),
@@ -235,8 +235,8 @@ export default async function DashboardPage({
     }),
     // --- comparativo: mesmas métricas no período ANTERIOR ---
     db.order.findMany({
-      where: { ...orderScope, createdAt: inPrev },
-      select: { total: true, createdAt: true },
+      where: { ...orderScope, paidAt: inPrev },
+      select: { total: true, paidAt: true },
     }),
     db.customer.count({ where: { ...scope, createdAt: inPrev } }),
     db.order.count({ where: { ...orderAnyScope, createdAt: inPrev } }),
@@ -280,7 +280,8 @@ export default async function DashboardPage({
   const serieFat = new Array<number>(nDias).fill(0);
   const seriePed = new Array<number>(nDias).fill(0);
   for (const v of sales30) {
-    const i = dayIdx(v.createdAt) - firstIdx;
+    if (!v.paidAt) continue;
+    const i = dayIdx(v.paidAt) - firstIdx;
     if (i >= 0 && i < nDias) {
       serieFat[i] += v.total;
       seriePed[i] += 1;
@@ -289,7 +290,8 @@ export default async function DashboardPage({
   const prevFirstIdx = dayIdx(prevFrom);
   const seriePrev = new Array<number>(nDias).fill(0);
   for (const v of prevSales) {
-    const i = dayIdx(v.createdAt) - prevFirstIdx;
+    if (!v.paidAt) continue;
+    const i = dayIdx(v.paidAt) - prevFirstIdx;
     if (i >= 0 && i < nDias) seriePrev[i] += v.total;
   }
   let labelsDias = Array.from({ length: nDias }, (_, i) => {
@@ -340,7 +342,7 @@ export default async function DashboardPage({
         where: {
           companyId: user.companyId,
           status: { in: PAID_ORDER_STATUSES },
-          createdAt: inPeriod,
+          paidAt: inPeriod,
         },
         select: { total: true, sellerId: true },
       });

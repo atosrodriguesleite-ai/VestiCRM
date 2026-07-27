@@ -327,6 +327,11 @@ export async function PATCH(
 
     if (newStatus && newStatus !== order.status) {
       data.status = newStatus;
+      // DATA DO DINHEIRO: carimba QUANDO o pedido virou pago — é ela que manda
+      // no faturamento do mês. Se voltar atrás (cancelou/virou orçamento de
+      // novo), a data sai junto, senão o mês ficaria com uma venda fantasma.
+      if (enteringPaid) data.paidAt = order.paidAt ?? new Date();
+      if (leavingPaid) data.paidAt = null;
 
       await db.orderEvent.create({
         data: {

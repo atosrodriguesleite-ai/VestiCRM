@@ -1232,6 +1232,11 @@ model Order {
   nfeStatus      String? // EMITINDO | AUTORIZADA | ERRO
   nfeUrl         String? // link do DANFE/PDF quando disponível
   createdAt      DateTime      @default(now())
+  // DATA DO DINHEIRO: quando o pedido virou PAGO. É por ela que TODA métrica
+  // de faturamento é somada (não pela data em que o orçamento foi montado) —
+  // assim o mês bate com o extrato e um mês fechado nunca mais muda de valor.
+  // Carimbada na transição para PAGO e limpa se o pedido voltar atrás.
+  paidAt         DateTime?
 
   items    OrderItem[]
   payments Payment[]
@@ -1243,6 +1248,7 @@ model Order {
   @@unique([companyId, nuvemshopId])
   @@index([companyId, status])
   @@index([companyId, createdAt])
+  @@index([companyId, paidAt])
 }
 
 model OrderItem {

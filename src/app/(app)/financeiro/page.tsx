@@ -53,7 +53,7 @@ export default async function FinanceiroPage() {
       where: {
         companyId: user.companyId,
         status: { in: PAID_ORDER_STATUSES },
-        createdAt: { gte: inicioMes },
+        paidAt: { gte: inicioMes },
       },
       _sum: { total: true },
       _count: true,

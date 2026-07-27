@@ -94,7 +94,8 @@ export async function settleOrderPaid(
 
   await db.order.update({
     where: { id: order.id },
-    data: { status: "PAGO", stockDeducted: true },
+    // paidAt = data do dinheiro (é por ela que o faturamento do mês é somado)
+    data: { status: "PAGO", stockDeducted: true, paidAt: agora },
   });
   await db.payment.updateMany({
     where: { orderId: order.id, status: "PENDENTE" },

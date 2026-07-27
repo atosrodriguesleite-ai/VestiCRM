@@ -215,7 +215,7 @@ export default async function IntelligencePage({
     where: {
       companyId: c,
       status: { in: PAID_ORDER_STATUSES },
-      createdAt: { gte: period.from, lte: period.to },
+      paidAt: { gte: period.from, lte: period.to },
     },
     _sum: { total: true },
     _count: true,

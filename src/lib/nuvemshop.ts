@@ -691,6 +691,8 @@ export async function ingestPaidOrder(companyId: string, nsOrderId: string) {
       nuvemshopId: nsId,
       subtotal,
       total,
+      // já nasce pago: a data do dinheiro é agora (é ela que conta no mês)
+      paidAt: new Date(),
       // estoque NÃO baixa aqui: a Nuvemshop já baixou (é a dona) — o espelho
       // chega pelo refresh abaixo. Uma venda, uma baixa.
       stockDeducted: true,
