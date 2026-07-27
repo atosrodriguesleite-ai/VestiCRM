@@ -138,6 +138,10 @@ describe("ordem de corte: particionador + remanejo entre cortes", () => {
 describe("otimizador em rodadas", () => {
   const itens: ItemPedido[] = [{ modelo: parseDataXml(XML_A), grade: { P: 8, M: 12 } }];
 
+  // 8 rodadas × 700ms de orçamento = até 5,6s de trabalho de propósito, acima
+  // do limite padrão de 5s do teste. O que ele verifica é a QUALIDADE do plano
+  // (nunca piorar e fechar a grade), não a velocidade — então o limite dele
+  // precisa caber no próprio orçamento que ele pede.
   it("BASE devolve plano na 1ª rodada; rodadas seguintes nunca pioram", () => {
     let estado: EstadoOtimizacao | null = null;
     let resultado: ResultadoPlano | null = null;
@@ -155,7 +159,7 @@ describe("otimizador em rodadas", () => {
       expect(totais[i]).toBeLessThanOrEqual(totais[i - 1] + 0.001);
     // a grade continua fechada depois de todas as mutações
     expect(fechamento(resultado!, "TEC")).toEqual({ P: 8, M: 12 });
-  });
+  }, 20_000);
 
   it("orçamento esgotado encerra com DONE", () => {
     let estado: EstadoOtimizacao | null = null;

@@ -27,6 +27,9 @@ const TELAS_DE_DINHEIRO = [
   // o MOTOR da tela Inteligência mora aqui — foi o arquivo que escapou na
   // primeira migração justamente por não estar nesta lista
   "lib/tracking/insights.ts",
+  // o EXTRATO DE COMISSÃO em PDF: é o papel que a dona usa para pagar, tem
+  // que somar pela mesma data que a tela
+  "app/api/comissoes/relatorio/route.ts",
 ];
 
 /**
