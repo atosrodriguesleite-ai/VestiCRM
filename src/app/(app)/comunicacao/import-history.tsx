@@ -16,7 +16,7 @@ export function ImportHistory({ connected }: { connected: boolean }) {
   async function importar() {
     if (
       !window.confirm(
-        "Importar as conversas dos últimos 30 dias (com áudios)? Elas entram no histórico (aba Contatos), organizadas por cliente. Pode levar até 1 minuto."
+        "Importar as conversas dos últimos 30 dias (com áudios)? Elas entram no histórico (aba Contatos), organizadas por cliente. Pode levar alguns minutos."
       )
     )
       return;
@@ -42,7 +42,7 @@ export function ImportHistory({ connected }: { connected: boolean }) {
       <p className="text-sm text-gray-500 mb-3">
         Traz as conversas dos <b>últimos 30 dias</b> (com <b>áudios</b>) que o
         WhatsApp já sincronizou ao conectar — organizadas por cliente, no
-        histórico, e sem risco extra pro número. Pode levar até 1 minuto.
+        histórico, e sem risco extra pro número. Pode levar alguns minutos.
       </p>
 
       {done ? (

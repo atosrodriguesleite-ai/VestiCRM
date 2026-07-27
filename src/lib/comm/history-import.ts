@@ -19,7 +19,8 @@ import type { MessageMedia } from "@prisma/client";
  */
 
 type WAMsg = {
-  key?: { remoteJid?: string; fromMe?: boolean; id?: string };
+  // senderPn: com a identidade nova do WhatsApp (@lid) o telefone real vem aqui
+  key?: { remoteJid?: string; fromMe?: boolean; id?: string; senderPn?: string };
   pushName?: string;
   messageTimestamp?: number | string;
   message?: {
@@ -77,7 +78,7 @@ async function baixarMidia(
 }
 
 /** Conversas lidas uma a uma quando a leitura geral vem vazia (teto de tempo). */
-const MAX_CHATS = 40;
+const MAX_CHATS = 120;
 
 /** Extrai os identificadores das conversas devolvidas pelo servidor. */
 export function extractJids(data: unknown): string[] {
@@ -96,8 +97,10 @@ export function extractJids(data: unknown): string[] {
     const jid = [o.remoteJid, o.id, o.jid].find((v) => typeof v === "string") as
       | string
       | undefined;
-    // só conversas de pessoa: grupos (@g.us) e status ficam de fora
-    if (jid && jid.endsWith("@s.whatsapp.net") && !jids.includes(jid)) jids.push(jid);
+    // só conversas de PESSOA: grupos (@g.us) e status ficam de fora. O "@lid"
+    // é a identidade nova do WhatsApp — sem ele, conversas inteiras sumiam.
+    const ehPessoa = !!jid && (jid.endsWith("@s.whatsapp.net") || jid.endsWith("@lid"));
+    if (jid && ehPessoa && !jids.includes(jid)) jids.push(jid);
   }
   return jids;
 }
@@ -131,33 +134,41 @@ export async function importRecentHistory(
     throw new Error("WhatsApp não conectado. Conecte o número em Comunicação.");
 
   const res = await evoFindMessages(settings.evolutionInstance);
-  let records = extractRecords(res.data);
+  const geral = extractRecords(res.data);
   let via = "geral";
   let conversasVarridas = 0;
+  let chatsEncontrados = 0;
 
-  // PLANO B: as versões novas do servidor só devolvem mensagens quando a
-  // pergunta é POR CONVERSA. Se a leitura geral vier vazia, lista os chats e
-  // lê um a um (com teto, para a importação não estourar o tempo).
-  if (res.ok && records.length === 0) {
+  // A leitura geral costuma devolver só um PEDAÇO (uma página, poucas
+  // conversas). Por isso varremos SEMPRE conversa por conversa e juntamos:
+  // antes, bastava a geral trazer 2 conversas para as outras nunca serem
+  // lidas — e a importação parecia "vazia" mesmo com histórico guardado.
+  const porId = new Map<string, WAMsg>();
+  const guardar = (lista: WAMsg[]) => {
+    for (const m of lista) {
+      const id = m.key?.id ?? `${m.key?.remoteJid ?? ""}-${m.messageTimestamp ?? ""}`;
+      if (!porId.has(id)) porId.set(id, m);
+    }
+  };
+  guardar(geral);
+
+  if (res.ok) {
     const chats = await evoFindChats(settings.evolutionInstance);
-    const jids = extractJids(chats.data).slice(0, MAX_CHATS);
+    const todos = extractJids(chats.data);
+    chatsEncontrados = todos.length;
+    const jids = todos.slice(0, MAX_CHATS);
     conversasVarridas = jids.length;
-    const acumulado: WAMsg[] = [];
     for (const jid of jids) {
       const r = await evoFindMessages(settings.evolutionInstance, {
         remoteJid: jid,
         offset: 300,
       });
-      acumulado.push(...extractRecords(r.data));
-      if (acumulado.length >= 5000) break; // teto de segurança
+      guardar(extractRecords(r.data));
+      if (porId.size >= 8000) break; // teto de segurança
     }
-    if (acumulado.length) {
-      records = acumulado;
-      via = "por-conversa";
-    } else {
-      via = `por-conversa-vazio(chats=${extractJids(chats.data).length},http=${chats.status})`;
-    }
+    via = geral.length ? `geral+conversas` : `por-conversa`;
   }
+  const records = [...porId.values()];
 
   // diagnóstico (aparece na Central de Comunicação): mostra o que o servidor
   // respondeu — se veio 0, sabemos se é config do servidor ou formato da leitura
@@ -178,7 +189,9 @@ export async function importRecentHistory(
           httpStatus: res.status,
           shape,
           via,
+          chatsEncontrados,
           conversasVarridas,
+          registrosGeral: geral.length,
           registros: records.length,
         }).slice(0, 500),
       },
@@ -205,7 +218,13 @@ export async function importRecentHistory(
   const convByCustomer = new Map<string, string>();
 
   for (const { r, ts } of parsed) {
-    const phone = jidToPhone(r.key?.remoteJid ?? ""); // grupos/status ficam de fora
+    // grupos/status ficam de fora; contato @lid usa o número real do senderPn
+    const jid = r.key?.remoteJid ?? "";
+    let phone = jidToPhone(jid);
+    if (!phone && jid.endsWith("@lid")) {
+      const pn = (r.key?.senderPn ?? "").split("@")[0].replace(/\D/g, "");
+      if (/^\d{8,15}$/.test(pn)) phone = pn;
+    }
     if (!phone) continue;
     const { text, mediaType, mimeFallback, fileName } = extract(r);
     if (!text) continue;

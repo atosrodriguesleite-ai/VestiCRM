@@ -78,3 +78,15 @@ describe("extractRecords (mensagens do servidor, em qualquer formato)", () => {
     expect(extractRecords("erro")).toEqual([]);
   });
 });
+
+describe("extractJids — identidade nova do WhatsApp (@lid)", () => {
+  it("conversa @lid entra na varredura (antes sumia inteira)", () => {
+    expect(extractJids([{ id: "123456789@lid" }])).toEqual(["123456789@lid"]);
+  });
+
+  it("grupo e status continuam de fora", () => {
+    expect(
+      extractJids([{ id: "120363@g.us" }, { id: "status@broadcast" }, { id: "5511999998888@lid" }])
+    ).toEqual(["5511999998888@lid"]);
+  });
+});
