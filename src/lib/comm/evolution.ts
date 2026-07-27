@@ -204,18 +204,47 @@ export async function evoState(instance: string) {
   );
 }
 
+/** JID do WhatsApp a partir de um telefone (só dígitos). */
+export const jidDeNumero = (phone: string) =>
+  `${phone.replace(/\D/g, "")}@s.whatsapp.net`;
+
+/**
+ * Dados da mensagem CITADA numa resposta.
+ *
+ * O WhatsApp não aceita citação pela metade: além do id, a citação precisa
+ * dizer DE QUEM é a mensagem original (`remoteJid` + `fromMe`) e o conteúdo
+ * dela. Mandando só o id, o aparelho recebe uma citação sem autor — e a
+ * mensagem pode encalhar no celular da loja como "Aguardando mensagem".
+ */
+export type CitacaoWA = {
+  id: string;
+  remoteJid: string;
+  fromMe: boolean;
+  texto?: string;
+};
+
+const corpoDaCitacao = (c: CitacaoWA) =>
+  c.texto?.trim() ? { message: { conversation: c.texto.slice(0, 1000) } } : {};
+
 /** Envia texto pelo número conectado da loja (com citação opcional). */
 export async function evoSendText(
   instance: string,
   number: string,
   text: string,
-  quotedId?: string
+  citacao?: CitacaoWA
 ) {
   return evo<{ key?: { id?: string } }>("POST", `/message/sendText/${instance}`, {
     number,
     text,
     // responder mensagem específica: o WhatsApp mostra a citação em cima
-    ...(quotedId ? { quoted: { key: { id: quotedId } } } : {}),
+    ...(citacao
+      ? {
+          quoted: {
+            key: { remoteJid: citacao.remoteJid, fromMe: citacao.fromMe, id: citacao.id },
+            ...corpoDaCitacao(citacao),
+          },
+        }
+      : {}),
   });
 }
 

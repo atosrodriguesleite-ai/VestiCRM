@@ -164,13 +164,19 @@ export async function sendMessage(input: SendMessageInput): Promise<Message> {
 
       // resposta a mensagem específica: leva o id externo da citada para o
       // WhatsApp mostrar a "caixinha" da mensagem original em cima
-      let replyToExternalId: string | undefined;
+      let replyTo: { externalId: string; fromMe: boolean; texto?: string } | undefined;
       if (input.replyToId) {
         const citada = await db.message.findFirst({
           where: { id: input.replyToId, conversationId: conv.id },
-          select: { externalId: true },
+          select: { externalId: true, direction: true, body: true },
         });
-        replyToExternalId = citada?.externalId ?? undefined;
+        if (citada?.externalId) {
+          replyTo = {
+            externalId: citada.externalId,
+            fromMe: citada.direction === "OUT",
+            texto: citada.body || undefined,
+          };
+        }
       }
 
       const result = await provider.send({
@@ -179,7 +185,7 @@ export async function sendMessage(input: SendMessageInput): Promise<Message> {
         mediaType: input.mediaType,
         mediaUrl: input.mediaUrl,
         fileName: input.fileName,
-        replyToExternalId,
+        replyTo,
       });
       const durationMs = Date.now() - started;
 

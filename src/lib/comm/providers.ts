@@ -1,6 +1,12 @@
 import type { Channel } from "@prisma/client";
 import type { CommProvider, OutboundPayload, SendResult, ProviderCredentials } from "./types";
-import { evolutionEnv, evoSendText, evoSendMedia, evoSendAudio } from "./evolution";
+import {
+  evolutionEnv,
+  evoSendText,
+  evoSendMedia,
+  evoSendAudio,
+  jidDeNumero,
+} from "./evolution";
 
 /**
  * Providers da Communication Engine.
@@ -148,12 +154,21 @@ export class EvolutionProvider implements CommProvider {
         );
       }
     } else {
-      res = await evoSendText(
-        this.instance!,
-        number,
-        payload.text ?? "",
-        payload.replyToExternalId
-      );
+      const citacao = payload.replyTo
+        ? {
+            id: payload.replyTo.externalId,
+            remoteJid: jidDeNumero(number),
+            fromMe: payload.replyTo.fromMe,
+            texto: payload.replyTo.texto,
+          }
+        : undefined;
+      res = await evoSendText(this.instance!, number, payload.text ?? "", citacao);
+      // REDE DE SEGURANÇA: se a citação for recusada (mensagem antiga demais,
+      // id que o servidor não conhece mais, mídia sem texto), a resposta ainda
+      // tem que chegar. Reenvia sem a "caixinha" em vez de dar erro à vendedora.
+      if (!res.ok && citacao) {
+        res = await evoSendText(this.instance!, number, payload.text ?? "");
+      }
     }
     if (!res.ok) {
       // devolve o motivo que o servidor deu (encurtado) — sem ele, todo erro
