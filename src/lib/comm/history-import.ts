@@ -77,8 +77,16 @@ async function baixarMidia(
   return `data:${mime};base64,${b64}`;
 }
 
-/** Conversas lidas uma a uma quando a leitura geral vem vazia (teto de tempo). */
+/** Conversas lidas uma a uma (teto de segurança). */
 const MAX_CHATS = 120;
+/**
+ * ORÇAMENTO DE TEMPO. A rota tem 5 minutos; paramos de VARRER aos 2min30 e de
+ * GRAVAR aos 4min, devolvendo o que já deu. Antes, uma loja com muitas
+ * conversas estourava o tempo e a tela mostrava só "não foi possível
+ * importar" — perdendo tudo o que já tinha sido lido.
+ */
+const ORCAMENTO_VARRER_MS = 150_000;
+const ORCAMENTO_TOTAL_MS = 240_000;
 
 /** Extrai os identificadores das conversas devolvidas pelo servidor. */
 export function extractJids(data: unknown): string[] {
@@ -129,6 +137,7 @@ export async function importRecentHistory(
   companyId: string,
   days = 30
 ): Promise<HistoryImportResult> {
+  const inicio = Date.now();
   const settings = await db.commSettings.findUnique({ where: { companyId } });
   if (!settings?.evolutionInstance || !evolutionEnv().configured)
     throw new Error("WhatsApp não conectado. Conecte o número em Comunicação.");
@@ -136,7 +145,7 @@ export async function importRecentHistory(
   const res = await evoFindMessages(settings.evolutionInstance);
   const geral = extractRecords(res.data);
   let via = "geral";
-  let conversasVarridas = 0;
+  let lidas = 0;
   let chatsEncontrados = 0;
 
   // A leitura geral costuma devolver só um PEDAÇO (uma página, poucas
@@ -157,16 +166,20 @@ export async function importRecentHistory(
     const todos = extractJids(chats.data);
     chatsEncontrados = todos.length;
     const jids = todos.slice(0, MAX_CHATS);
-    conversasVarridas = jids.length;
     for (const jid of jids) {
+      if (Date.now() - inicio > ORCAMENTO_VARRER_MS) {
+        via = "parcial-tempo";
+        break; // acabou o tempo de varredura: importa o que já leu
+      }
       const r = await evoFindMessages(settings.evolutionInstance, {
         remoteJid: jid,
         offset: 300,
       });
       guardar(extractRecords(r.data));
+      lidas++;
       if (porId.size >= 8000) break; // teto de segurança
     }
-    via = geral.length ? `geral+conversas` : `por-conversa`;
+    if (via !== "parcial-tempo") via = geral.length ? "geral+conversas" : "por-conversa";
   }
   const records = [...porId.values()];
 
@@ -190,7 +203,7 @@ export async function importRecentHistory(
           shape,
           via,
           chatsEncontrados,
-          conversasVarridas,
+          conversasVarridas: lidas,
           registrosGeral: geral.length,
           registros: records.length,
         }).slice(0, 500),
@@ -218,6 +231,7 @@ export async function importRecentHistory(
   const convByCustomer = new Map<string, string>();
 
   for (const { r, ts } of parsed) {
+    if (Date.now() - inicio > ORCAMENTO_TOTAL_MS) break; // devolve o que já gravou
     // grupos/status ficam de fora; contato @lid usa o número real do senderPn
     const jid = r.key?.remoteJid ?? "";
     let phone = jidToPhone(jid);

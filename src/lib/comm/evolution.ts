@@ -141,6 +141,10 @@ async function evo<T = Record<string, unknown>>(
 // mídia demora mais que texto (upload + conversão no servidor de conexão) —
 // ganha um teto maior, ainda dentro do orçamento da função (60s)
 const EVO_MEDIA_TIMEOUT_MS = 50_000;
+// LEITURA de conversas/mensagens: é rápida por natureza. Teto curto de
+// propósito — a importação lê dezenas de conversas em sequência, e uma só
+// travando por 50s comeria o orçamento inteiro da importação.
+const EVO_LEITURA_TIMEOUT_MS = 15_000;
 
 /** Eventos que a loja precisa receber (inclui apagar/editar do cliente). */
 export const WEBHOOK_EVENTS = [
@@ -349,13 +353,13 @@ export async function evoFindMessages(
       page: opts?.page ?? 1,
       offset: opts?.offset ?? 500,
     },
-    EVO_MEDIA_TIMEOUT_MS
+    EVO_LEITURA_TIMEOUT_MS
   );
 }
 
 /** Lista as conversas que o servidor tem guardadas (para ler uma a uma). */
 export async function evoFindChats(instance: string) {
-  return evo<unknown>("POST", `/chat/findChats/${instance}`, {}, EVO_MEDIA_TIMEOUT_MS);
+  return evo<unknown>("POST", `/chat/findChats/${instance}`, {}, EVO_LEITURA_TIMEOUT_MS);
 }
 
 /** Extrai o telefone (dígitos) de um JID "5511999999999@s.whatsapp.net". */

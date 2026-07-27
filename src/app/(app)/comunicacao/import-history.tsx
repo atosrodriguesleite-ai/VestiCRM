@@ -25,9 +25,15 @@ export function ImportHistory({ connected }: { connected: boolean }) {
     setDone(null);
     const res = await fetch("/api/comm/import-history", { method: "POST" });
     setBusy(false);
-    const d = await res.json().catch(() => ({}));
-    if (res.ok)
+    // resposta sem JSON = a importação foi interrompida no meio (tempo/queda)
+    const d = await res.json().catch(() => null);
+    if (res.ok && d)
       setDone({ importadas: d.importadas, conversas: d.conversas, encontradas: d.encontradas });
+    else if (!d)
+      setErro(
+        `A importação foi interrompida antes de terminar (código ${res.status}). ` +
+          "Parte do histórico pode ter entrado — toque de novo para continuar de onde parou."
+      );
     else setErro(d.error ?? "Não foi possível importar agora.");
   }
 
