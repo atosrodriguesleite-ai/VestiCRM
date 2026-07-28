@@ -14,6 +14,7 @@ import {
   valorDaCobranca,
   horasForaDoAr,
   FONTE_AUDITORIA,
+  ehLojaDemo,
   type CanalDeLead,
 } from "@/lib/gestao";
 import { GestaoView, type LojaGestao, type Intercorrencia } from "./gestao-view";
@@ -76,6 +77,8 @@ export default async function GestaoPage() {
   ]);
 
   const ids = companies.map((c) => c.id);
+  // as contas da plataforma ignoram a loja de demonstração (dados inventados)
+  const idsReais = companies.filter((c) => !ehLojaDemo(c.slug)).map((c) => c.id);
 
   // ---- Movimento das lojas: faturamento e pedidos PAGOS (data do pagamento) ----
   const [pagosMes, pagosMesPassado, pedidosGeradosMes, ultimoAcessoRows, whats, pagamentos] =
@@ -118,7 +121,7 @@ export default async function GestaoPage() {
       // empresa-plataforma entravam no caixa e o total do rodapé (que soma
       // loja a loja) não fechava com o indicador do topo
       db.billingPayment.findMany({
-        where: { companyId: { in: ids } },
+        where: { companyId: { in: idsReais } },
         select: { companyId: true, kind: true, amount: true, paidAt: true },
       }),
     ]);
@@ -151,6 +154,8 @@ export default async function GestaoPage() {
       id: c.id,
       nome: c.name,
       slug: c.slug,
+      // loja de apresentação: fica na lista, mas fora de TODO indicador
+      demo: ehLojaDemo(c.slug),
       responsavel: c.users[0]?.name ?? null,
       email: c.users[0]?.email ?? null,
       criadaEm: c.createdAt.toISOString(),
@@ -213,12 +218,12 @@ export default async function GestaoPage() {
   }
   // leads que as LOJAS captaram nos catálogos delas (volume do produto em uso)
   const [leadsLojasTotal, leadsLojasMes, leadsLojas30] = await Promise.all([
-    db.customer.count({ where: { companyId: { in: ids }, origin: "CATALOGO_PUBLICO" } }),
+    db.customer.count({ where: { companyId: { in: idsReais }, origin: "CATALOGO_PUBLICO" } }),
     db.customer.count({
-      where: { companyId: { in: ids }, origin: "CATALOGO_PUBLICO", createdAt: { gte: inicioMes } },
+      where: { companyId: { in: idsReais }, origin: "CATALOGO_PUBLICO", createdAt: { gte: inicioMes } },
     }),
     db.customer.count({
-      where: { companyId: { in: ids }, origin: "CATALOGO_PUBLICO", createdAt: { gte: dias30 } },
+      where: { companyId: { in: idsReais }, origin: "CATALOGO_PUBLICO", createdAt: { gte: dias30 } },
     }),
   ]);
   canais.CATALOGO_LOJAS = { total: leadsLojasTotal, mes: leadsLojasMes, dias30: leadsLojas30 };
@@ -233,8 +238,14 @@ export default async function GestaoPage() {
     .filter((p) => p.paidAt >= inicioMesPassado && p.paidAt < inicioMes)
     .reduce((s, p) => s + p.amount, 0);
 
+  // ---- INDICADORES: só as lojas REAIS ----
+  // A loja de demonstração tem dinheiro de mentira (coerente, mas inventado).
+  // Somar ela aqui faria o painel dizer que os clientes venderam o que
+  // ninguém vendeu. Ela continua na LISTA de lojas, marcada como demo.
+  const reais = lojas.filter((l) => !l.demo);
+
   const mrr = calcularMRR(
-    lojas.map((l) => ({ suspended: l.suspensa, kind: l.kind, monthlyFee: l.monthlyFee }))
+    reais.map((l) => ({ suspended: l.suspensa, kind: l.kind, monthlyFee: l.monthlyFee }))
   );
 
   const intercorrencias: Intercorrencia[] = erros.map((e) => ({
@@ -256,24 +267,24 @@ export default async function GestaoPage() {
         recebidoMes,
         recebidoImplantacaoMes,
         recebidoMesAnterior,
-        aReceberImplantacao: lojas
+        aReceberImplantacao: reais
           .filter((l) => !l.implementationPaid)
           .reduce((s, l) => s + l.implementationFee, 0),
-        faturamentoLojasMes: lojas.reduce((s, l) => s + l.faturamentoMes, 0),
-        pedidosLojasMes: lojas.reduce((s, l) => s + l.pedidosPagosMes, 0),
-        lojasAtivas: lojas.filter((l) => !l.suspensa).length,
-        lojasPagantes: lojas.filter((l) => l.kind === "PAGANTE" && !l.suspensa).length,
+        faturamentoLojasMes: reais.reduce((s, l) => s + l.faturamentoMes, 0),
+        pedidosLojasMes: reais.reduce((s, l) => s + l.pedidosPagosMes, 0),
+        lojasAtivas: reais.filter((l) => !l.suspensa).length,
+        lojasPagantes: reais.filter((l) => l.kind === "PAGANTE" && !l.suspensa).length,
         // "em teste" tem que ser subconjunto das ATIVAS, senão o rodapé do
         // cartão pode somar mais do que o número grande em cima dele
-        lojasTeste: lojas.filter((l) => l.kind === "TESTE" && !l.suspensa).length,
-        lojasSuspensas: lojas.filter((l) => l.suspensa).length,
-        riscoPagantes: lojas.filter((l) => l.risco === "PAGANTE_SUMIU").length,
-        riscoTestes: lojas.filter((l) => l.risco === "TESTE_PARADO").length,
-        atrasados: lojas.filter((l) => l.situacao === "ATRASADO").length,
+        lojasTeste: reais.filter((l) => l.kind === "TESTE" && !l.suspensa).length,
+        lojasSuspensas: reais.filter((l) => l.suspensa).length,
+        riscoPagantes: reais.filter((l) => l.risco === "PAGANTE_SUMIU").length,
+        riscoTestes: reais.filter((l) => l.risco === "TESTE_PARADO").length,
+        atrasados: reais.filter((l) => l.situacao === "ATRASADO").length,
         // tempo médio de casa das lojas VIVAS (loja suspensa não é mais base
         // de cliente — puxava a média para cima sem significar nada)
         ltMedio: (() => {
-          const vivas = lojas.filter((l) => !l.suspensa);
+          const vivas = reais.filter((l) => !l.suspensa);
           if (!vivas.length) return 0;
           return Math.round((vivas.reduce((s, l) => s + l.lifetimeMeses, 0) / vivas.length) * 10) / 10;
         })(),

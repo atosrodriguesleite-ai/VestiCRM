@@ -40,6 +40,8 @@ export type LojaGestao = {
   id: string;
   nome: string;
   slug: string;
+  /** loja de apresentação: aparece na lista, mas fora de todo indicador */
+  demo: boolean;
   responsavel: string | null;
   email: string | null;
   criadaEm: string;
@@ -219,9 +221,13 @@ export function GestaoView({
     );
   }, [lojas, busca]);
 
+  // Indicadores e rankings olham só as lojas REAIS: a loja de demonstração
+  // tem faturamento inventado e lideraria o ranking sem vender nada.
+  const lojasReais = useMemo(() => lojas.filter((l) => !l.demo), [lojas]);
+
   const ranking = useMemo(
-    () => [...lojas].sort((a, b) => b.faturamentoMes - a.faturamentoMes).slice(0, 8),
-    [lojas]
+    () => [...lojasReais].sort((a, b) => b.faturamentoMes - a.faturamentoMes).slice(0, 8),
+    [lojasReais]
   );
 
   /**
@@ -231,7 +237,7 @@ export function GestaoView({
    */
   const semWhatsapp = useMemo(
     () =>
-      lojas
+      lojasReais
         .filter(
           (l) =>
             !l.suspensa &&
@@ -239,7 +245,7 @@ export function GestaoView({
             l.horasSemWhatsapp >= ALERTA_WHATSAPP_HORAS
         )
         .sort((a, b) => (b.horasSemWhatsapp ?? 0) - (a.horasSemWhatsapp ?? 0)),
-    [lojas]
+    [lojasReais]
   );
   const quedaGrave = semWhatsapp.some(
     (l) => (l.horasSemWhatsapp ?? 0) >= ALERTA_WHATSAPP_HORAS_GRAVE
@@ -543,6 +549,11 @@ export function GestaoView({
                       <span className={`rounded-full border px-2 py-0.5 text-[11px] font-semibold ${tomSituacao[l.situacao]}`}>
                         {situacaoLabel[l.situacao]}
                       </span>
+                      {l.demo && (
+                        <span className="rounded-full border border-violet-200 bg-violet-50 px-2 py-0.5 text-[11px] font-semibold text-violet-700">
+                          demonstração
+                        </span>
+                      )}
                       {l.suspensa && (
                         <span className="rounded-full border border-slate-300 bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-600">
                           suspensa
@@ -836,7 +847,7 @@ export function GestaoView({
             />
             <Kpi
               label="WhatsApp conectado"
-              valor={`${lojas.filter((l) => l.whatsapp === "CONECTADO" && !l.suspensa).length}/${resumo.lojasAtivas}`}
+              valor={`${lojasReais.filter((l) => l.whatsapp === "CONECTADO" && !l.suspensa).length}/${resumo.lojasAtivas}`}
               hint="lojas ativas com o número no ar"
             />
             <Kpi label="Lojas suspensas" valor={String(resumo.lojasSuspensas)} hint="acesso bloqueado" />

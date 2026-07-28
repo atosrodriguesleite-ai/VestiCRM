@@ -36,6 +36,19 @@ function partesSP(d: Date): { y: number; m: number; dia: number } {
  */
 export const FONTE_AUDITORIA = "auditoria";
 
+/**
+ * LOJA DE DEMONSTRAÇÃO (a "Bella Moda", criada por scripts/seed-demo.ts).
+ *
+ * Ela existe para APRESENTAR o sistema, então tem cliente, pedido e
+ * faturamento de mentira — todos coerentes de propósito. Por isso ela não
+ * pode entrar nas contas da plataforma: contar o faturamento dela junto com
+ * o das lojas reais faria o painel dizer que os clientes venderam um dinheiro
+ * que ninguém vendeu. Aparece na lista de lojas (é preciso administrá-la),
+ * mas fica FORA de todo indicador.
+ */
+export const SLUG_LOJA_DEMO = "bella-moda-demo";
+export const ehLojaDemo = (slug: string) => slug === SLUG_LOJA_DEMO;
+
 /** Ciclos de contrato aceitos (como a recorrência é cobrada). */
 export const CICLOS = ["MENSAL", "SEMESTRAL", "ANUAL"] as const;
 export type Ciclo = (typeof CICLOS)[number];

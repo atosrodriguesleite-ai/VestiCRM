@@ -34,6 +34,9 @@ function rnd() {
   return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
 }
 const pick = <X,>(arr: X[]) => arr[Math.floor(rnd() * arr.length)];
+const round2 = (v: number) => Math.round(v * 100) / 100;
+/** dinheiro escrito como a lojista lê: R$ 1.374,20 */
+const brl = (v: number) => `R$ ${v.toFixed(2).replace(".", ",").replace(/\B(?=(\d{3})+(?=,))/g, ".")}`;
 const entre = (min: number, max: number) => min + Math.floor(rnd() * (max - min + 1));
 
 const daysAgo = (n: number, h = 10, min?: number) => {
@@ -76,6 +79,11 @@ async function main() {
       whatsapp: "5511914327650",
       productionEnabled: true,
       marketingEnabled: true,
+      mediaLibraryEnabled: true,
+      // Base da comissão: VENDIDO = peças − desconto + acréscimo. É a régua
+      // nova (as duas opções são sem frete) e é o que a demo precisa mostrar:
+      // a vendedora é remunerada pelo que realmente vendeu.
+      commissionBase: "VENDIDO",
       // identidade visual (rosé) — deixa o catálogo e a Bio com a cara da marca
       catalogPrimary: "#9D2449",
       catalogSecondary: "#F6D8E0",
@@ -118,10 +126,42 @@ async function main() {
   await db.setor.create({
     data: { companyId: company.id, name: "Financeiro", color: "#f59e0b", order: 1, users: { connect: [{ id: ana.id }] } },
   });
+  // Central de Atendimento da demo.
+  //
+  // `evolutionInstance` fica NULO de propósito: é ele que faz o vigia
+  // (lib/health.ts) e o painel de Saúde da plataforma olharem para a loja.
+  // Como a demo não tem número de verdade, deixar a instância vazia impede
+  // que ela vire alarme falso ("WhatsApp da Bella Moda caiu") no painel do
+  // Super Admin — e a demo continua mostrando a tela conectada, com as
+  // mensagens automáticas personalizadas.
   await db.commSettings.upsert({
     where: { companyId: company.id },
     update: { defaultSetorId: setorVendas.id },
-    create: { companyId: company.id, defaultSetorId: setorVendas.id },
+    create: {
+      companyId: company.id,
+      defaultSetorId: setorVendas.id,
+      evolutionStatus: "CONECTADO",
+      evolutionPhone: "5511914327650",
+      catalogLinkMsg:
+        "Oi {nome}! 💗 Esse é o nosso catálogo com os preços de atacado: {link}\nQualquer dúvida é só me chamar por aqui!",
+      orderMsg:
+        "{nome}, seu pedido #{pedido} está montado! Total: {total} 🛍️\nAssim que o pagamento cair eu já separo tudo com carinho.",
+    },
+  });
+
+  // Cobrança da PLATAFORMA sobre esta loja.
+  //
+  // CORTESIA de propósito: a demo não pode entrar no MRR do painel de Gestão
+  // (é loja fictícia, não é receita) nem acender "loja em risco" quando o
+  // Atos passa dias sem abrir a demo. Cortesia fica fora das duas contas.
+  await db.companyBilling.create({
+    data: {
+      companyId: company.id,
+      kind: "CORTESIA",
+      monthlyFee: 0,
+      cycle: "MENSAL",
+      notes: "Loja de demonstração da plataforma — não cobrar e não contar no MRR.",
+    },
   });
 
   const ownerId = (k: string) => ({ julia: julia.id, renata: renata.id, ana: ana.id })[k]!;
@@ -260,16 +300,18 @@ async function main() {
     description?: string; cost: number; wholesale: number; retail: number;
     minQty?: number; image: string; colors: string[]; sizes: string[];
     stock: number; tags?: string;
+    /** peso da peça em gramas — é o que o módulo Envios usa para cotar frete */
+    weight: number;
   };
   const productsData: P[] = [
-    { name: "Vestido Midi Aurora", sku: "VES-001", category: "Vestidos", collection: "Primavera", description: "Vestido midi em viscose com amarração na cintura.", cost: 62, wholesale: 89, retail: 149.9, minQty: 5, image: "/products/demo/vestido-aurora.svg", colors: ["Rosa", "Nude"], sizes: ["P", "M", "G"], stock: 18, tags: "lançamento,festa" },
-    { name: "Vestido Vinho Elegance", sku: "VES-002", category: "Vestidos", collection: "Inverno", description: "Vestido em crepe com fenda discreta.", cost: 74, wholesale: 105, retail: 189.9, minQty: 5, image: "/products/demo/vestido-vinho.svg", colors: ["Vinho", "Preto"], sizes: ["P", "M", "G", "GG"], stock: 12, tags: "festa" },
-    { name: "Blusa Tricô Nuvem", sku: "BLU-010", category: "Blusas", collection: "Inverno", description: "Tricô macio de toque acolchoado.", cost: 38, wholesale: 55, retail: 99.9, minQty: 6, image: "/products/demo/blusa-tricot.svg", colors: ["Amarelo", "Off-white"], sizes: ["P", "M", "G"], stock: 22 },
-    { name: "Calça Wide Leg Jeans", sku: "CAL-005", category: "Calças", description: "Jeans premium de cintura alta.", cost: 68, wholesale: 92, retail: 169.9, minQty: 4, image: "/products/demo/calca-jeans.svg", colors: ["Azul"], sizes: ["36", "38", "40", "42"], stock: 14, tags: "básico" },
-    { name: "Conjunto Fitness Power", sku: "FIT-020", category: "Moda fitness", collection: "Verão", description: "Top + legging com compressão leve.", cost: 45, wholesale: 66, retail: 119.9, minQty: 6, image: "/products/demo/conjunto-fitness.svg", colors: ["Verde", "Preto"], sizes: ["P", "M", "G"], stock: 26, tags: "fitness" },
-    { name: "Conjunto Linho Toscana", sku: "CON-008", category: "Conjuntos", collection: "Verão", description: "Blazer + short em linho misto.", cost: 88, wholesale: 125, retail: 219.9, minQty: 4, image: "/products/demo/conjunto-linho.svg", colors: ["Lilás", "Bege"], sizes: ["P", "M", "G"], stock: 9, tags: "lançamento" },
-    { name: "Saia Midi Plissada", sku: "SAI-003", category: "Saias", description: "Plissado fluido com cós elástico.", cost: 42, wholesale: 59, retail: 109.9, minQty: 6, image: "/products/demo/saia-midi.svg", colors: ["Laranja", "Preto"], sizes: ["Único"], stock: 16 },
-    { name: "Cropped Básico Comfy", sku: "CRO-015", category: "Blusas", description: "Algodão penteado, modelagem justa.", cost: 18, wholesale: 27, retail: 49.9, minQty: 10, image: "/products/demo/cropped-basico.svg", colors: ["Azul", "Branco", "Preto"], sizes: ["P", "M", "G"], stock: 40, tags: "básico" },
+    { name: "Vestido Midi Aurora", sku: "VES-001", category: "Vestidos", collection: "Primavera", description: "Vestido midi em viscose com amarração na cintura.", cost: 62, wholesale: 89, retail: 149.9, minQty: 5, image: "/products/demo/vestido-aurora.svg", colors: ["Rosa", "Nude"], sizes: ["P", "M", "G"], weight: 170, stock: 18, tags: "lançamento,festa" },
+    { name: "Vestido Vinho Elegance", sku: "VES-002", category: "Vestidos", collection: "Inverno", description: "Vestido em crepe com fenda discreta.", cost: 74, wholesale: 105, retail: 189.9, minQty: 5, image: "/products/demo/vestido-vinho.svg", colors: ["Vinho", "Preto"], sizes: ["P", "M", "G", "GG"], weight: 240, stock: 12, tags: "festa" },
+    { name: "Blusa Tricô Nuvem", sku: "BLU-010", category: "Blusas", collection: "Inverno", description: "Tricô macio de toque acolchoado.", cost: 38, wholesale: 55, retail: 99.9, minQty: 6, image: "/products/demo/blusa-tricot.svg", colors: ["Amarelo", "Off-white"], sizes: ["P", "M", "G"], weight: 210, stock: 22 },
+    { name: "Calça Wide Leg Jeans", sku: "CAL-005", category: "Calças", description: "Jeans premium de cintura alta.", cost: 68, wholesale: 92, retail: 169.9, minQty: 4, image: "/products/demo/calca-jeans.svg", colors: ["Azul"], sizes: ["36", "38", "40", "42"], weight: 620, stock: 14, tags: "básico" },
+    { name: "Conjunto Fitness Power", sku: "FIT-020", category: "Moda fitness", collection: "Verão", description: "Top + legging com compressão leve.", cost: 45, wholesale: 66, retail: 119.9, minQty: 6, image: "/products/demo/conjunto-fitness.svg", colors: ["Verde", "Preto"], sizes: ["P", "M", "G"], weight: 340, stock: 26, tags: "fitness" },
+    { name: "Conjunto Linho Toscana", sku: "CON-008", category: "Conjuntos", collection: "Verão", description: "Blazer + short em linho misto.", cost: 88, wholesale: 125, retail: 219.9, minQty: 4, image: "/products/demo/conjunto-linho.svg", colors: ["Lilás", "Bege"], sizes: ["P", "M", "G"], weight: 480, stock: 9, tags: "lançamento" },
+    { name: "Saia Midi Plissada", sku: "SAI-003", category: "Saias", description: "Plissado fluido com cós elástico.", cost: 42, wholesale: 59, retail: 109.9, minQty: 6, image: "/products/demo/saia-midi.svg", colors: ["Laranja", "Preto"], sizes: ["Único"], weight: 260, stock: 16 },
+    { name: "Cropped Básico Comfy", sku: "CRO-015", category: "Blusas", description: "Algodão penteado, modelagem justa.", cost: 18, wholesale: 27, retail: 49.9, minQty: 10, image: "/products/demo/cropped-basico.svg", colors: ["Azul", "Branco", "Preto"], sizes: ["P", "M", "G"], weight: 160, stock: 40, tags: "básico" },
   ];
   const productBySku = new Map<string, { id: string; variants: { id: string; color: string; size: string }[] }>();
   for (const p of productsData) {
@@ -279,7 +321,7 @@ async function main() {
         name: p.name, sku: p.sku, category: p.category, brand: "Bella Moda",
         collection: p.collection, description: p.description,
         costPrice: p.cost, wholesalePrice: p.wholesale, retailPrice: p.retail,
-        minQuantity: p.minQty ?? 1, tags: p.tags,
+        minQuantity: p.minQty ?? 1, tags: p.tags, weightGrams: p.weight,
         images: { create: [{ url: p.image, order: 0 }] },
         variants: {
           create: p.colors.flatMap((color) =>
@@ -357,10 +399,38 @@ async function main() {
           qty, price, total: Math.round(qty * price * 100) / 100,
         });
       }
-      const subtotal = Math.round(lines.reduce((s, l) => s + l.total, 0) * 100) / 100;
-      const discount = atacado && rnd() < 0.3 ? Math.round(subtotal * 0.05) : 0;
+      const subtotal = round2(lines.reduce((s, l) => s + l.total, 0));
+      const payMethod = pick(["PIX", "PIX", "PIX", "CARTAO", "BOLETO"]) as "PIX" | "CARTAO" | "BOLETO";
+
+      // ---- DESCONTO: no atacado sai em PORCENTAGEM (é assim que a loja
+      // negocia grade fechada); no varejo é cupom de valor fixo.
+      let discount = 0;
+      let discountPct: number | null = null;
+      if (atacado && rnd() < 0.35) {
+        discountPct = pick([5, 10]);
+        discount = round2((subtotal * discountPct) / 100);
+      } else if (!atacado && rnd() < 0.15) {
+        discount = 20; // cupom "PRIMEIRACOMPRA20"
+      }
+
+      // ---- ACRÉSCIMO: juros do cartão parcelado (%) ou taxa de urgência
+      // (valor fixo). É dinheiro que FICA na loja: entra no faturamento e na
+      // comissão — diferente do frete.
+      let surcharge = 0;
+      let surchargePct: number | null = null;
+      if (payMethod === "CARTAO" && rnd() < 0.55) {
+        surchargePct = 3; // parcelamento em 3x com juros
+        surcharge = round2((subtotal * surchargePct) / 100);
+      } else if (rnd() < 0.05) {
+        surcharge = 35; // taxa de personalização/urgência
+      }
+
       const shippingFee = rnd() < 0.5 ? entre(18, 60) : 0;
-      const total = Math.round((subtotal - discount + shippingFee) * 100) / 100;
+      // VALOR VENDIDO (faturamento e comissão) × TOTAL A PAGAR (com frete).
+      // O frete fica FORA do valor vendido de propósito — é dinheiro da
+      // transportadora atravessando a loja.
+      const netTotal = round2(subtotal - discount + surcharge);
+      const total = round2(netTotal + shippingFee);
 
       // status pela idade: antigo = entregue; recente = em andamento
       let status: string;
@@ -369,7 +439,12 @@ async function main() {
       else status = pick(["PAGO", "PAGO", "ENVIADO", "AGUARDANDO_PAGAMENTO", "ORCAMENTO"]);
       const pago = PAID.includes(status);
       const createdAt = daysAgo(dia, entre(9, 19));
-      const payMethod = pick(["PIX", "PIX", "PIX", "CARTAO", "BOLETO"]) as "PIX" | "CARTAO" | "BOLETO";
+      // DATA DO DINHEIRO: o pedido é montado e o pagamento cai um pouco
+      // depois. É por `paidAt` que TODA métrica de faturamento soma — sem
+      // ele preenchido, a demo mostrava R$ 0,00 em toda tela de dinheiro.
+      const paidAt = pago
+        ? new Date(Math.min(createdAt.getTime() + entre(20, 240) * 60000, Date.now() - 60000))
+        : null;
 
       const order = await db.order.create({
         data: {
@@ -379,8 +454,9 @@ async function main() {
           sellerId: vendedor,
           status: status as "PAGO",
           stockDeducted: pago,
-          subtotal, discount, shippingFee, total,
-          createdAt,
+          subtotal, discount, discountPct, surcharge, surchargePct,
+          shippingFee, netTotal, total,
+          createdAt, paidAt,
           items: {
             create: lines.map((l) => ({
               productId: l.productId, variantId: l.variantId, name: l.name,
@@ -390,9 +466,10 @@ async function main() {
           },
           payments: {
             create: {
+              // a cobrança é o que a cliente paga: valor vendido + frete
               method: payMethod, amount: total,
               status: pago ? "CONFIRMADO" : "PENDENTE",
-              paidAt: pago ? createdAt : null,
+              paidAt,
               createdAt,
             },
           },
@@ -406,23 +483,180 @@ async function main() {
             },
           },
           events: {
-            create: [{ type: "CRIADO", description: `Pedido criado por ${sellerName(vendedor)}`, userId: vendedor, createdAt }],
+            create: [
+              { type: "CRIADO", description: `Pedido criado por ${sellerName(vendedor)}`, userId: vendedor, createdAt },
+              // AUDITORIA dos valores: mexer em desconto/acréscimo é decisão
+              // comercial e mexe em comissão — fica registrado quem mudou e
+              // de quanto para quanto (mesmo texto que a tela grava hoje).
+              ...(discount > 0 || surcharge > 0
+                ? [
+                    {
+                      type: "NOTA",
+                      description:
+                        `Valores alterados por ${sellerName(vendedor)}: ` +
+                        [
+                          discount > 0
+                            ? `desconto R$ 0.00 → R$ ${discount.toFixed(2)}${discountPct ? ` (${discountPct}%)` : ""}`
+                            : null,
+                          surcharge > 0
+                            ? `acréscimo R$ 0.00 → R$ ${surcharge.toFixed(2)}${surchargePct ? ` (${surchargePct}%)` : ""}`
+                            : null,
+                        ]
+                          .filter(Boolean)
+                          .join("; ") +
+                        `. Valor vendido R$ ${netTotal.toFixed(2)} · total a pagar R$ ${total.toFixed(2)}`,
+                      userId: vendedor,
+                      createdAt: new Date(createdAt.getTime() + 8 * 60000),
+                    },
+                  ]
+                : []),
+              ...(paidAt
+                ? [
+                    {
+                      type: "PAGAMENTO",
+                      description: `Pagamento confirmado (${payMethod}) — R$ ${total.toFixed(2)}`,
+                      userId: vendedor,
+                      createdAt: paidAt,
+                    },
+                  ]
+                : []),
+            ],
           },
         },
       });
-      if (pago) {
+      if (pago && paidAt) {
         await db.sale.create({
           data: {
             companyId: company.id, customerId: cliente.id, sellerId: vendedor,
-            orderId: order.id, total, category: atacado ? "Atacado" : "Varejo",
-            description: `Pedido #${String(orderSeq).padStart(4, "0")}`, createdAt,
+            // o registro legado acompanha o VALOR VENDIDO (sem frete), igual
+            // ao que a tela de pedidos grava hoje
+            orderId: order.id, total: netTotal, category: atacado ? "Atacado" : "Varejo",
+            description: `Pedido #${String(orderSeq).padStart(4, "0")}`, createdAt: paidAt,
           },
         });
         const atual = ultimaCompra.get(cliente.id);
-        if (!atual || createdAt > atual) ultimaCompra.set(cliente.id, createdAt);
+        if (!atual || paidAt > atual) ultimaCompra.set(cliente.id, paidAt);
       }
     }
   }
+  // ---- PEDIDOS EM ABERTO (feitos à mão para amarrarem com o resto) ----
+  //
+  // O sorteio acima cria o histórico. Estes três são escritos um a um porque
+  // a demo precisa que eles BATAM com a conversa do WhatsApp e com o card do
+  // funil: a mesma sacola, o mesmo valor, o mesmo desconto. É o que mostra
+  // Financeiro (contas a receber) e a reserva de estoque do orçamento.
+  type Aberto = {
+    cliente: string; vendedora: string;
+    status: "AGUARDANDO_PAGAMENTO" | "ORCAMENTO";
+    diasAtras: number; metodo: "PIX" | "CARTAO" | "BOLETO";
+    frete: number; descontoPct?: number;
+    itens: { sku: string; qtd: number; atacado: boolean }[];
+    nota?: string;
+  };
+  const abertosData: Aberto[] = [
+    {
+      // "sacola de 30 peças" da Camila — a mesma do funil e do WhatsApp
+      cliente: "Camila Rodrigues", vendedora: "renata", status: "AGUARDANDO_PAGAMENTO",
+      diasAtras: 2, metodo: "PIX", frete: 48, descontoPct: 5,
+      itens: [
+        { sku: "CRO-015", qtd: 12, atacado: true },
+        { sku: "BLU-010", qtd: 8, atacado: true },
+        { sku: "FIT-020", qtd: 6, atacado: true },
+        { sku: "SAI-003", qtd: 4, atacado: true },
+      ],
+      nota: "Sacola sortida — 30 peças. PIX enviado pelo WhatsApp.",
+    },
+    {
+      // conta a receber ATRASADA: 9 dias esperando o pagamento
+      cliente: "Isabela Rocha", vendedora: "julia", status: "AGUARDANDO_PAGAMENTO",
+      diasAtras: 9, metodo: "BOLETO", frete: 32,
+      itens: [{ sku: "VES-002", qtd: 1, atacado: false }],
+      nota: "Boleto vencido — cobrar de novo.",
+    },
+    {
+      // orçamento da grade fechada: ainda em negociação e JÁ segurando estoque
+      cliente: "Loja Estilo Mix", vendedora: "renata", status: "ORCAMENTO",
+      diasAtras: 1, metodo: "PIX", frete: 0, descontoPct: 10,
+      itens: [
+        { sku: "VES-001", qtd: 20, atacado: true },
+        { sku: "CON-008", qtd: 20, atacado: true },
+        { sku: "BLU-010", qtd: 20, atacado: true },
+        { sku: "CAL-005", qtd: 20, atacado: true },
+      ],
+      nota: "Grade fechada de 80 peças. Frete CIF combinado.",
+    },
+  ];
+  // guarda o que foi criado para a conversa e o funil citarem os MESMOS valores
+  const abertos = new Map<string, { id: string; numero: number; netTotal: number; total: number; frete: number }>();
+  for (const a of abertosData) {
+    orderSeq += 1;
+    const cliente = cust(a.cliente);
+    const vendedor = ownerId(a.vendedora);
+    const lines = a.itens.map((i) => {
+      const pd = productsData.find((p) => p.sku === i.sku)!;
+      const prod = productBySku.get(i.sku)!;
+      const variant = prod.variants[0];
+      const price = i.atacado ? pd.wholesale : pd.retail;
+      return {
+        sku: i.sku, productId: prod.id, variantId: variant.id, name: pd.name,
+        image: pd.image, color: variant.color, size: variant.size,
+        qty: i.qtd, price, total: round2(i.qtd * price),
+      };
+    });
+    const subtotal = round2(lines.reduce((s, l) => s + l.total, 0));
+    const discount = a.descontoPct ? round2((subtotal * a.descontoPct) / 100) : 0;
+    const netTotal = round2(subtotal - discount);
+    const total = round2(netTotal + a.frete);
+    const createdAt = daysAgo(a.diasAtras, 15);
+    const order = await db.order.create({
+      data: {
+        companyId: company.id, number: orderSeq,
+        customerId: cliente.id, sellerId: vendedor,
+        status: a.status,
+        // orçamento NÃO baixa estoque — ele RESERVA (a baixa é no pagamento)
+        stockDeducted: false,
+        subtotal, discount, discountPct: a.descontoPct ?? null,
+        surcharge: 0, surchargePct: null,
+        shippingFee: a.frete, netTotal, total,
+        notes: a.nota, createdAt,
+        items: {
+          create: lines.map((l) => ({
+            productId: l.productId, variantId: l.variantId, name: l.name,
+            sku: l.sku, imageUrl: l.image, color: l.color, size: l.size,
+            quantity: l.qty, unitPrice: l.price, total: l.total,
+          })),
+        },
+        payments: {
+          create: { method: a.metodo, amount: total, status: "PENDENTE", createdAt },
+        },
+        shipping: {
+          create: {
+            cost: a.frete, city: cliente.city, state: cliente.state,
+            method: a.frete > 0 ? "Transportadora" : "Retirada/Combinar",
+          },
+        },
+        events: {
+          create: [
+            { type: "CRIADO", description: `Pedido criado por ${sellerName(vendedor)}`, userId: vendedor, createdAt },
+            ...(discount > 0
+              ? [
+                  {
+                    type: "NOTA",
+                    description:
+                      `Valores alterados por ${sellerName(vendedor)}: desconto R$ 0.00 → R$ ${discount.toFixed(2)} (${a.descontoPct}%)` +
+                      `. Valor vendido R$ ${netTotal.toFixed(2)} · total a pagar R$ ${total.toFixed(2)}`,
+                    userId: vendedor,
+                    createdAt: new Date(createdAt.getTime() + 6 * 60000),
+                  },
+                ]
+              : []),
+          ],
+        },
+      },
+    });
+    abertos.set(a.cliente, { id: order.id, numero: orderSeq, netTotal, total, frete: a.frete });
+  }
+
   for (const [cid, dt] of ultimaCompra) {
     await db.customer.update({ where: { id: cid }, data: { lastPurchaseAt: dt } });
   }
@@ -440,10 +674,10 @@ async function main() {
     { customer: "Tainá Barbosa", stage: "Interesse identificado", title: "Look casual para trabalho", value: 420, owner: "julia", lastInteraction: 2, created: 12 },
     { customer: "Vanessa Martins", stage: "Catálogo enviado", title: "Catálogo primavera enviado", value: 560, owner: "julia", lastInteraction: 4, created: 20 },
     { customer: "Boutique Charme", stage: "Catálogo enviado", title: "Grade de vestidos — coleção nova", value: 4800, owner: "renata", lastInteraction: 6, created: 15 },
-    { customer: "Loja Estilo Mix", stage: "Pedido em negociação", title: "Pedido mensal de grade completa", value: 7200, owner: "renata", lastInteraction: 1, created: 10 },
+    { customer: "Loja Estilo Mix", stage: "Pedido em negociação", title: "Pedido mensal de grade completa", value: abertos.get("Loja Estilo Mix")!.netTotal, owner: "renata", lastInteraction: 1, created: 10 },
     { customer: "Sandra Regina", stage: "Pedido em negociação", title: "Kit revenda moda fitness", value: 1350, owner: "renata", lastInteraction: 2, created: 8 },
-    { customer: "Camila Rodrigues", stage: "Pagamento pendente", title: "Sacola 30 peças sortidas", value: 1680, owner: "renata", lastInteraction: 1, created: 6 },
-    { customer: "Isabela Rocha", stage: "Pagamento pendente", title: "Vestido vinho + frete", value: 289, owner: "julia", lastInteraction: 3, created: 9 },
+    { customer: "Camila Rodrigues", stage: "Pagamento pendente", title: "Sacola 30 peças sortidas", value: abertos.get("Camila Rodrigues")!.netTotal, owner: "renata", lastInteraction: 1, created: 6 },
+    { customer: "Isabela Rocha", stage: "Pagamento pendente", title: "Vestido vinho + frete", value: abertos.get("Isabela Rocha")!.netTotal, owner: "julia", lastInteraction: 3, created: 9 },
     { customer: "Juliana Pires", stage: "Pedido fechado", title: "Lançamentos rosa — 3 peças", value: 540, owner: "julia", status: "WON", lastInteraction: 3, created: 12, closed: 3 },
     { customer: "Atacadão da Moda BH", stage: "Pedido fechado", title: "Reposição promoções inverno", value: 8900, owner: "renata", status: "WON", lastInteraction: 5, created: 18, closed: 5 },
     { customer: "Mariana Castro", stage: "Pós-venda", title: "Vestido midi lançamento", value: 320, owner: "julia", status: "WON", lastInteraction: 8, created: 16, closed: 8 },
@@ -501,9 +735,36 @@ async function main() {
   }
 
   // ---- conversas de WhatsApp ----
-  type M = { dir: "IN" | "OUT"; body: string; kind?: "TEXT" | "NOTE"; minsAgo: number; author?: string };
+  //
+  // A demo exercita TUDO que a Central de Atendimento sabe fazer hoje: foto,
+  // áudio, documento, localização, contato compartilhado, enquete, reação,
+  // resposta citando outra mensagem, mensagem editada, mensagem que a cliente
+  // apagou, recibos com horário (entregue/visto), nota interna com @menção e
+  // chamado esperando na FILA (sem dono).
+  type M = {
+    dir: "IN" | "OUT";
+    body: string;
+    kind?: "TEXT" | "NOTE";
+    media?: "IMAGE" | "AUDIO" | "DOCUMENT" | "VIDEO";
+    mediaUrl?: string;
+    fileName?: string;
+    minsAgo: number;
+    author?: string;
+    /** apelido desta mensagem, para outra poder citá-la */
+    ref?: string;
+    /** cita a mensagem com este apelido (resposta específica) */
+    replyTo?: string;
+    /** a loja editou o texto depois de enviar (WhatsApp permite ~15min) */
+    edited?: boolean;
+    /** apagada para todos — o conteúdo fica guardado no sistema */
+    revokedBy?: "CUSTOMER" | "STORE";
+    /** enviada pelo CELULAR da loja (eco): sem autor no sistema */
+    doCelular?: boolean;
+  };
   type Conv = {
-    customer: string; assignee: string;
+    customer: string;
+    /** vazio = chamado esperando na FILA, sem dono (modelo da Central) */
+    assignee?: string;
     status: "OPEN" | "WAITING_CLIENT" | "WAITING_PAYMENT" | "CLOSED";
     unread?: number; messages: M[];
   };
@@ -513,7 +774,15 @@ async function main() {
       messages: [
         { dir: "IN", body: "Oi Jú! Vi os stories do lançamento 😍", minsAgo: 60 * 26 },
         { dir: "OUT", body: "Oi Mari!! Chegou hoje, separei as peças que são a sua cara 💜", minsAgo: 60 * 25, author: "julia" },
-        { dir: "IN", body: "Amei!! Quanto fica com o frete?", minsAgo: 45 },
+        {
+          dir: "OUT", body: "Vestido Midi Aurora na cor rosa — o tecido é uma delícia!",
+          media: "IMAGE", mediaUrl: "/products/demo/vestido-aurora.svg",
+          minsAgo: 60 * 25 - 2, author: "julia", ref: "foto-aurora",
+        },
+        // reação: o WhatsApp entrega como mensagem própria, e é assim que o
+        // sistema guarda (o leitor traduz para "[reagiu ❤️]")
+        { dir: "IN", body: "[reagiu ❤️]", minsAgo: 60 * 25 - 3 },
+        { dir: "IN", body: "Amei!! Quanto fica com o frete?", minsAgo: 45, replyTo: "foto-aurora" },
         { dir: "IN", body: "E tem na cor nude também?", minsAgo: 40 },
       ],
     },
@@ -521,39 +790,102 @@ async function main() {
       customer: "Loja Estilo Mix", assignee: "renata", status: "OPEN", unread: 1,
       messages: [
         { dir: "OUT", body: "Bom dia! Segue a tabela atacado atualizada da grade 📋", minsAgo: 60 * 30, author: "renata" },
+        {
+          dir: "OUT", body: "[arquivo] Tabela-Atacado-Bella-Moda.pdf",
+          media: "DOCUMENT", fileName: "Tabela-Atacado-Bella-Moda.pdf",
+          minsAgo: 60 * 30 - 1, author: "renata",
+        },
         { dir: "IN", body: "Bom dia Renata! Vou analisar com a equipe e te retorno.", minsAgo: 60 * 28 },
-        { dir: "OUT", body: "Nota: cliente pediu prazo até sexta. Negociar frete CIF se fechar 60+ peças.", kind: "NOTE", minsAgo: 60 * 27, author: "renata" },
+        { dir: "OUT", body: "@Ana Souza cliente pediu prazo até sexta. Negociar frete CIF se fechar 60+ peças.", kind: "NOTE", minsAgo: 60 * 27, author: "renata" },
+        {
+          dir: "IN",
+          body: "[localização] Loja Estilo Mix — Rua dos Tecidos, 120, Savassi https://maps.google.com/?q=-19.9245,-43.9352",
+          minsAgo: 60 * 5,
+        },
+        {
+          dir: "IN",
+          body: "[contato] Marcos Prado (compras) — +55 31 99776-2100",
+          minsAgo: 60 * 5 - 2,
+        },
+        {
+          dir: "OUT",
+          body:
+            `Montei o orçamento da grade de 80 peças: ${brl(abertos.get("Loja Estilo Mix")!.netTotal)} ` +
+            `com os 10% de desconto. Deixei reservado no estoque por 48h 😉`,
+          minsAgo: 60 * 4, author: "renata",
+        },
         { dir: "IN", body: "Conseguimos fechar 80 peças se o frete for por conta de vocês. Fechado?", minsAgo: 60 * 3 },
       ],
     },
     {
       customer: "Camila Rodrigues", assignee: "renata", status: "WAITING_PAYMENT",
       messages: [
-        { dir: "OUT", body: "Camila, seu pedido de 30 peças ficou em R$ 1.680. Segue o PIX 👇", minsAgo: 60 * 24 * 2, author: "renata" },
+        {
+          // valores tirados do pedido de verdade — a conversa, o funil e o
+          // Financeiro mostram exatamente o mesmo número
+          dir: "OUT",
+          body:
+            `Camila, sua sacola de 30 peças ficou em ${brl(abertos.get("Camila Rodrigues")!.netTotal)} ` +
+            `(já com 5% de desconto) + ${brl(abertos.get("Camila Rodrigues")!.frete)} de frete = ` +
+            `${brl(abertos.get("Camila Rodrigues")!.total)}. Segue o PIX 👇`,
+          minsAgo: 60 * 24 * 2, author: "renata", edited: true,
+        },
+        { dir: "IN", body: "[áudio]", media: "AUDIO", minsAgo: 60 * 24 * 2 - 5 },
+        // a cliente apagou para todos — o sistema preserva o conteúdo e diz
+        // quem apagou (o WhatsApp comum simplesmente some com a mensagem)
+        { dir: "IN", body: "Consigo pagar só semana que vem?", minsAgo: 60 * 24 - 40, revokedBy: "CUSTOMER" },
         { dir: "IN", body: "Recebi! Pago até amanhã sem falta 🙏", minsAgo: 60 * 24 },
+        {
+          // enquete criada no CELULAR da loja: chega como eco, sem autor
+          dir: "OUT", doCelular: true,
+          body: "[enquete] Qual cor você quer na próxima sacola?: Vinho · Preto · Off-white",
+          minsAgo: 60 * 20,
+        },
+        { dir: "IN", body: "[voto em enquete]", minsAgo: 60 * 19 },
       ],
     },
     {
-      customer: "Larissa Mendes", assignee: "julia", status: "OPEN", unread: 1,
+      // CHAMADO NA FILA: lead novo do Instagram, ainda sem vendedora dona
+      customer: "Larissa Mendes", status: "OPEN", unread: 1,
       messages: [
         { dir: "IN", body: "Oii, vi vocês no Instagram! Vocês têm vestido de festa tam P?", minsAgo: 60 * 5 },
+      ],
+    },
+    {
+      customer: "Vanessa Martins", assignee: "julia", status: "WAITING_CLIENT",
+      messages: [
+        { dir: "IN", body: "Oi! Vocês vendem pra pessoa física?", minsAgo: 60 * 30 },
+        {
+          // exatamente a mensagem automática do botão "enviar catálogo"
+          dir: "OUT",
+          body: "Oi Vanessa! 💗 Esse é o nosso catálogo com os preços de atacado: https://catalago.net/bella-moda-demo?ref=julia\nQualquer dúvida é só me chamar por aqui!",
+          minsAgo: 60 * 29, author: "julia",
+        },
+        { dir: "IN", body: "Vou dar uma olhada e te falo 😊", minsAgo: 60 * 28 },
       ],
     },
     {
       customer: "Juliana Pires", assignee: "julia", status: "CLOSED",
       messages: [
         { dir: "IN", body: "Jú, as peças chegaram! PERFEITAS como sempre 😍😍", minsAgo: 60 * 24 * 2 },
-        { dir: "OUT", body: "Aaaah que alegria!! Obrigada pela confiança de sempre, Ju! 💜", minsAgo: 60 * 24 * 2, author: "julia" },
+        {
+          dir: "IN", body: "Olha que lindo ficou!",
+          media: "IMAGE", mediaUrl: "/products/demo/conjunto-linho.svg",
+          minsAgo: 60 * 24 * 2 - 3,
+        },
+        { dir: "OUT", body: "Aaaah que alegria!! Obrigada pela confiança de sempre, Ju! 💜", minsAgo: 60 * 24 * 2 - 10, author: "julia" },
       ],
     },
     {
       customer: "Atacadão da Moda BH", assignee: "renata", status: "CLOSED",
       messages: [
         { dir: "OUT", body: "Pedido faturado e despachado! Rastreio: BR123456789", minsAgo: 60 * 24 * 4, author: "renata" },
-        { dir: "IN", body: "Show! Mês que vem tem reposição de novo 💪", minsAgo: 60 * 24 * 4 },
+        { dir: "IN", body: "Show! Mês que vem tem reposição de novo 💪", minsAgo: 60 * 24 * 4 - 25 },
       ],
     },
   ];
+  const quando = (minsAgo: number) => new Date(Date.now() - minsAgo * 60000);
+  const convPorCliente = new Map<string, string>();
   for (const conv of convsData) {
     const msgs = conv.messages;
     const last = msgs[msgs.length - 1];
@@ -563,31 +895,109 @@ async function main() {
       data: {
         companyId: company.id,
         customerId: cust(conv.customer).id,
-        assigneeId: ownerId(conv.assignee),
+        assigneeId: conv.assignee ? ownerId(conv.assignee) : null,
+        setorId: setorVendas.id,
         channel: "WHATSAPP",
         status: conv.status,
         priority: conv.unread && conv.unread > 0 ? "ALTA" : "NORMAL",
         unreadCount: conv.unread ?? 0,
-        lastMessageAt: new Date(Date.now() - last.minsAgo * 60000),
-        lastInboundAt: lastIn ? new Date(Date.now() - lastIn.minsAgo * 60000) : null,
-        lastOutboundAt: lastOut ? new Date(Date.now() - lastOut.minsAgo * 60000) : null,
+        lastMessageAt: quando(last.minsAgo),
+        lastInboundAt: lastIn ? quando(lastIn.minsAgo) : null,
+        lastOutboundAt: lastOut ? quando(lastOut.minsAgo) : null,
       },
     });
+    convPorCliente.set(conv.customer, created.id);
+    const porRef = new Map<string, string>();
     for (const m of msgs) {
-      await db.message.create({
+      const criadaEm = quando(m.minsAgo);
+      const nota = m.kind === "NOTE";
+      // recibos com horário: a loja vê quando a cliente RECEBEU e quando VIU
+      const entregueEm = m.dir === "OUT" && !nota ? new Date(criadaEm.getTime() + 4000) : null;
+      const vistaEm = m.dir === "OUT" && !nota ? new Date(criadaEm.getTime() + 90000) : null;
+      const msg = await db.message.create({
         data: {
           conversationId: created.id,
           channel: "WHATSAPP",
           direction: m.dir,
-          kind: m.kind ?? "TEXT",
+          kind: nota ? "NOTE" : "TEXT",
+          mediaType: m.media ?? "TEXT",
+          mediaUrl: m.mediaUrl ?? null,
+          fileName: m.fileName ?? null,
           body: m.body,
-          status: m.dir === "IN" ? "RECEBIDA" : m.kind === "NOTE" ? "ENVIADA" : "LIDA",
-          authorId: m.author ? ownerId(m.author) : null,
-          createdAt: new Date(Date.now() - m.minsAgo * 60000),
+          replyToId: m.replyTo ? (porRef.get(m.replyTo) ?? null) : null,
+          status: m.dir === "IN" ? "RECEBIDA" : nota ? "ENVIADA" : "LIDA",
+          deliveredAt: entregueEm,
+          readAt: vistaEm,
+          editedAt: m.edited ? new Date(criadaEm.getTime() + 3 * 60000) : null,
+          revoked: !!m.revokedBy,
+          revokedBy: m.revokedBy ?? null,
+          // mensagem enviada pelo celular da loja não tem autor no sistema
+          authorId: m.author && !m.doCelular ? ownerId(m.author) : null,
+          createdAt: criadaEm,
         },
       });
+      if (m.ref) porRef.set(m.ref, msg.id);
+
+      // ---- espelho na Central de Comunicação ----
+      // Toda mensagem que TRAFEGA pelo WhatsApp deixa registro. Nota interna
+      // não entra: ela nunca sai do sistema. Nenhum evento com erro aqui de
+      // propósito — a demo tem que abrir verde ("nenhuma falha").
+      if (nota) continue;
+      const telefone = customersData.find((c) => c.name === conv.customer)?.phone ?? "";
+      await db.commEvent.create({
+        data: {
+          companyId: company.id,
+          channel: "WHATSAPP",
+          direction: m.dir,
+          type: m.dir === "IN" ? "message.received" : "message.sent",
+          status: "OK",
+          payload: JSON.stringify({ to: telefone, preview: m.body.slice(0, 80) }),
+          durationMs: entre(180, 900),
+          createdAt: criadaEm,
+        },
+      });
+      if (m.dir === "OUT" && vistaEm) {
+        await db.commEvent.create({
+          data: {
+            companyId: company.id,
+            channel: "WHATSAPP",
+            direction: "IN",
+            type: "status.update",
+            status: "OK",
+            payload: JSON.stringify({ to: telefone, preview: "read" }),
+            durationMs: entre(40, 120),
+            createdAt: vistaEm,
+          },
+        });
+      }
     }
   }
+
+  // pedido montado DENTRO do chat: o card do pedido aparece na conversa
+  for (const [nome, ped] of abertos) {
+    const convId = convPorCliente.get(nome);
+    if (convId) await db.order.update({ where: { id: ped.id }, data: { conversationId: convId } });
+  }
+
+  // ---- sino de notificações (menção na nota interna + chamado na fila) ----
+  await db.notification.create({
+    data: {
+      companyId: company.id, userId: ana.id, type: "MENTION",
+      title: "Renata Alves mencionou você",
+      body: "@Ana Souza cliente pediu prazo até sexta. Negociar frete CIF se fechar 60+ peças.",
+      actorName: "Renata Alves",
+      createdAt: daysAgo(1, 11),
+    },
+  });
+  await db.notification.create({
+    data: {
+      companyId: company.id, userId: julia.id, type: "ASSIGN",
+      title: "Novo atendimento na fila",
+      body: "Larissa Mendes está esperando na fila do setor Vendas.",
+      actorName: "Central de Atendimento",
+      createdAt: daysAgo(0, 9),
+    },
+  });
 
   // ---- modelos de mensagem + campanhas ----
   const templates: [string, string, string][] = [
@@ -987,6 +1397,10 @@ async function main() {
     ["loja-fisica", null, "qr-vitrine"],
     ["direto", null, null],
     ["indicacao", null, null],
+    // quem veio da página de links do Instagram (Gestor de Bio): é este
+    // utm_source que fecha a conta "da bio para a sacola"
+    ["bio", "julia", null],
+    ["bio", null, null],
   ];
   const campId = (slug: string | null) =>
     slug === "campanha-verao" ? campVerao.id : slug === "qr-vitrine" ? campQr.id : null;
@@ -1039,7 +1453,11 @@ async function main() {
         channel,
         sellerId: sellerKey ? ownerId(sellerKey) : null,
         campaignId: campId(campSlug),
-        utmSource: channel === "instagram" ? "instagram" : channel === "google" ? "google" : null,
+        utmSource:
+          channel === "instagram" ? "instagram"
+          : channel === "google" ? "google"
+          : channel === "bio" ? "bio"
+          : null,
         utmCampaign: campSlug ?? null,
         device: pick(devices), os: pick(oses), browser: pick(browsers),
         city: pick(["São Paulo", "Belo Horizonte", "Rio de Janeiro", "Curitiba", "Goiânia"]),
@@ -1098,10 +1516,44 @@ async function main() {
     db.bioLink.create({
       data: { bioPageId: bio.id, companyId: company.id, title, subtitle, type, url, order, clicks },
     });
-  await bioLink("Ver catálogo completo", "Novidades toda semana ✨", "CATALOGO", null, 0, 642);
-  await bioLink("Falar com uma vendedora", "Tira dúvidas e faz seu pedido", "WHATSAPP", null, 1, 388);
-  await bioLink("Nossa loja online", "Compre no varejo com entrega", "SITE", "https://bellamoda.com.br", 2, 121);
-  await bioLink("Instagram @bellamoda", "Bastidores e lançamentos", "EXTERNO", "https://instagram.com/bellamoda", 3, 96);
+  // cliques acumulados dão ~34% de aproveitamento sobre as visitas — que é
+  // o que uma página de links saudável faz (antes somavam 97%, impossível)
+  const linkCatalogo = await bioLink("Ver catálogo completo", "Novidades toda semana ✨", "CATALOGO", null, 0, 236);
+  const linkWpp = await bioLink("Falar com uma vendedora", "Tira dúvidas e faz seu pedido", "WHATSAPP", null, 1, 118);
+  const linkSite = await bioLink("Nossa loja online", "Compre no varejo com entrega", "SITE", "https://bellamoda.com.br", 2, 51);
+  const linkInsta = await bioLink("Instagram @bellamoda", "Bastidores e lançamentos", "EXTERNO", "https://instagram.com/bellamoda", 3, 34);
+
+  // ---- métricas da Bio COM DATA ----
+  // Os contadores acumulados respondem "desde sempre". O filtro por período
+  // (7/30 dias) lê estas linhas — sem elas, escolher "últimos 30 dias" na
+  // tela mostrava zero em tudo.
+  const bioViews: { bioPageId: string; companyId: string; createdAt: Date }[] = [];
+  const bioClicks: { bioLinkId: string; bioPageId: string; companyId: string; createdAt: Date }[] = [];
+  const pesoDosLinks: [string, number][] = [
+    [linkCatalogo.id, 0.55], [linkWpp.id, 0.27], [linkSite.id, 0.11], [linkInsta.id, 0.07],
+  ];
+  for (let dia = 44; dia >= 0; dia--) {
+    // movimento sobe no fim de semana (é quando a cliente rola o Instagram)
+    const d = new Date();
+    d.setDate(d.getDate() - dia);
+    const fds = d.getDay() === 0 || d.getDay() === 6;
+    const visitas = entre(6, fds ? 22 : 14);
+    for (let v = 0; v < visitas; v++) {
+      const at = daysAgo(dia, entre(8, 22));
+      bioViews.push({ bioPageId: bio.id, companyId: company.id, createdAt: at });
+      if (rnd() < 0.34) {
+        // sorteio ponderado: o catálogo leva a maior parte dos cliques
+        let r = rnd();
+        const alvo = pesoDosLinks.find(([, p]) => (r -= p) <= 0)?.[0] ?? linkCatalogo.id;
+        bioClicks.push({
+          bioLinkId: alvo, bioPageId: bio.id, companyId: company.id,
+          createdAt: new Date(at.getTime() + entre(5, 90) * 1000),
+        });
+      }
+    }
+  }
+  await db.bioView.createMany({ data: bioViews });
+  await db.bioClick.createMany({ data: bioClicks });
 
   console.log("");
   console.log("✅ Loja de demonstração criada!");
