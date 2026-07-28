@@ -62,6 +62,43 @@ function limpar(linha: string): string {
     .trim();
 }
 
+/**
+ * A linha é um item da lista?
+ *
+ * Conferido no texto CRU, antes de tirar o negrito: o asterisco é ao mesmo
+ * tempo o marcador de negrito do WhatsApp e o marquinho da lista. Tirando
+ * os asteriscos primeiro, "* Blusa — P ×1" virava "Blusa — P ×1" e o item
+ * sumia — foi o que fez a mensagem de 31 peças da Entre Linhas não ser
+ * reconhecida. O espaço depois do marcador é o que separa a lista do
+ * negrito ("*Total:*" não é item).
+ */
+const BULLET = /^[•·▪‣*\-–—]\s+/;
+
+/** Separadores de campo dentro da linha do item (" — ", " – ", " - "). */
+const SEPARADOR = /\s[—–-]\s/g;
+
+/**
+ * A lista de tamanhos é o ÚLTIMO campo da linha, e é por ela que a gente
+ * corta — nunca pelo primeiro separador.
+ *
+ * As lojas escrevem de dois jeitos, porque o nome do produto pode já trazer
+ * a cor (é o que a importação da Nuvemshop faz):
+ *
+ *   • Cropped Básico Comfy Preto — P ×2, M ×1
+ *   • Blusa Clássica Tule — Baunilha Baunilha — Único ×1
+ *
+ * Cortando no primeiro separador, o segundo caso perdia metade do nome do
+ * produto ("Blusa Clássica Tule") e a cor virava tamanho.
+ */
+export function partirItem(corpo: string): { descricao: string; tamanhos: string } | null {
+  const cortes = [...corpo.matchAll(SEPARADOR)];
+  if (cortes.length === 0) return null;
+  const ultimo = cortes[cortes.length - 1];
+  const descricao = corpo.slice(0, ultimo.index).trim();
+  const tamanhos = corpo.slice(ultimo.index! + ultimo[0].length).trim();
+  return descricao && tamanhos ? { descricao, tamanhos } : null;
+}
+
 /** "R$ 1.234,50" → 1234.5 (e "R$ 49,90" → 49.9) */
 export function lerDinheiro(s: string): number | null {
   const m = s.match(/(\d{1,3}(?:\.\d{3})*|\d+)(?:,(\d{1,2}))?/);
@@ -89,8 +126,6 @@ export function lerTamanhos(s: string): { tamanho: string; quantidade: number }[
   return saida;
 }
 
-const BULLET = /^[•·*\-–—]\s+/;
-
 /**
  * Lê a mensagem inteira. Nunca lança: texto colado de WhatsApp vem torto
  * (linha quebrada, emoji no meio, pedaço faltando) e o que der para ler
@@ -109,6 +144,9 @@ export function lerMensagemDePedido(texto: string): PedidoLido {
   };
 
   for (const bruta of linhas) {
+    // o marcador da lista é conferido ANTES de tirar o negrito (ver BULLET)
+    const cru = bruta.replace(/\s+/g, " ").trim();
+    const ehItem = BULLET.test(cru);
     const linha = limpar(bruta);
     if (!linha) continue;
     const norm = normalizar(linha);
@@ -143,17 +181,17 @@ export function lerMensagemDePedido(texto: string): PedidoLido {
     }
 
     // item: "• Calça Wide Leg Jeans Azul — P ×2, M ×1  (3 peças · R$ 509,70)"
-    if (BULLET.test(linha)) {
-      const corpo = linha.replace(BULLET, "");
-      const partes = corpo.split(/\s+[—–]\s+|\s+-\s+/);
-      if (partes.length < 2) continue;
-      const descricao = partes[0].trim();
-      const resto = partes.slice(1).join(" — ");
+    if (ehItem) {
+      const corpo = linha.replace(BULLET, "").trim();
 
       // o parêntese final é conferência ("3 peças · R$ 509,70"), não item
-      const paren = resto.match(/\(([^)]*)\)\s*$/);
-      const listaTamanhos = paren ? resto.slice(0, resto.lastIndexOf("(")) : resto;
-      const tamanhos = lerTamanhos(listaTamanhos);
+      const paren = corpo.match(/\(([^)]*)\)\s*$/);
+      const semParen = paren ? corpo.slice(0, corpo.lastIndexOf("(")).trim() : corpo;
+
+      const partido = partirItem(semParen);
+      if (!partido) continue;
+      const { descricao } = partido;
+      const tamanhos = lerTamanhos(partido.tamanhos);
       if (!descricao || tamanhos.length === 0) continue;
 
       let pecas: number | null = null;
@@ -211,4 +249,31 @@ export function separarProdutoECor<T extends { id: string; name: string }>(
     }
   }
   return melhor ? { produto: melhor.produto, cor: melhor.cor } : null;
+}
+
+/**
+ * Jeitos possíveis de escrever a cor que sobrou da descrição.
+ *
+ * O texto repete a cor quando o NOME do produto já traz a cor dentro (é o
+ * que a importação da Nuvemshop faz): "Blusa Clássica Tule — Baunilha" com
+ * a variação "Baunilha" sai como "Blusa Clássica Tule — Baunilha Baunilha".
+ * Dependendo de como a loja cadastrou, o que sobra é "Baunilha Baunilha",
+ * "— Baunilha Baunilha" ou só "Baunilha" — tentamos as formas, da mais
+ * literal para a mais enxuta, e paramos na primeira que existir no estoque.
+ */
+export function candidatosDeCor(cor: string): string[] {
+  const base = (cor ?? "").replace(/^[\s—–-]+/, "").trim();
+  if (!base) return [];
+  const saida = [base];
+  const palavras = base.split(/\s+/);
+  // "Baunilha Baunilha" / "Azul Marinho Azul marinho" → a metade repetida
+  if (palavras.length % 2 === 0) {
+    const meio = palavras.length / 2;
+    const a = palavras.slice(0, meio).join(" ");
+    const b = palavras.slice(meio).join(" ");
+    if (normalizar(a) === normalizar(b)) saida.push(a);
+  }
+  // último recurso: a última palavra ("Blusa Tule Preto" → "Preto")
+  if (palavras.length > 1) saida.push(palavras[palavras.length - 1]);
+  return [...new Set(saida)];
 }

@@ -1,8 +1,10 @@
 import { describe, it, expect } from "vitest";
 import {
+  candidatosDeCor,
   lerDinheiro,
   lerMensagemDePedido,
   lerTamanhos,
+  partirItem,
   pecasLidas,
   separarProdutoECor,
 } from "../catalogo/ler-mensagem";
@@ -169,5 +171,155 @@ describe("descobrir qual produto é cada linha", () => {
       produto: catalogo[3],
       cor: "",
     });
+  });
+});
+
+/**
+ * MENSAGEM REAL DA ENTRE LINHAS (pedido de 31 peças da LOJA DA GABI).
+ *
+ * Foi ela que mostrou dois furos na primeira versão:
+ *  • o marquinho da lista era "*", e tirar o negrito antes de olhar a linha
+ *    apagava o marcador junto — nenhum item era reconhecido;
+ *  • o nome do produto já traz a cor ("Blusa Clássica Tule — Baunilha"), e
+ *    cortar no PRIMEIRO travessão perdia metade do nome.
+ */
+const ENTRE_LINHAS = `Novo pedido — Entre Linhas
+
+Blusa Clássica Tule
+* Blusa Clássica Tule — Baunilha Baunilha — Único ×1 (1 peça · R$ 21,50)
+* Blusa Clássica Tule — Blush Blush — Único ×2 (2 peças · R$ 43,00)
+* Blusa Clássica Tule — Branco Branco — Único ×1 (1 peça · R$ 21,50)
+* Blusa Clássica Tule — Branco Verde Musgo — Único ×1 (1 peça · R$ 21,50)
+* Blusa Clássica Tule — Prata Prata — Único ×1 (1 peça · R$ 21,50)
+* Blusa Clássica Tule — Preto Preto — Único ×1 (1 peça · R$ 21,50)
+
+Camiseta Comfort
+* Camiseta Comfort — Azul Marinho Azul marinho — M ×1, G ×1, GG ×1 (3 peças · R$ 104,70)
+* Camiseta Comfort — Branco Branco — M ×2 (2 peças · R$ 69,80)
+* Camiseta Comfort — Goiaba Goiaba — P ×1, M ×1, G ×1, GG ×1 (4 peças · R$ 139,60)
+
+Cropped Tule
+* Cropped Tule — Azul marinho Azul marinho — Único ×1 (1 peça · R$ 19,90)
+* Cropped Tule — Blush Blush — Único ×1 (1 peça · R$ 19,90)
+* Cropped Tule — Chiclete Chiclete — Único ×1 (1 peça · R$ 19,90)
+* Cropped Tule — Off White Off White — Único ×1 (1 peça · R$ 19,90)
+* Cropped Tule — Oliva Oliva — Único ×1 (1 peça · R$ 19,90)
+* Cropped Tule — Preto Preto — Único ×1 (1 peça · R$ 19,90)
+* Cropped Tule — Rosa queimado Rosa queimado — Único ×1 (1 peça · R$ 19,90)
+
+Regata Cropped Poliamida
+* Regata Cropped Poliamida — Amorinha Amorinha — GG ×1 (1 peça · R$ 27,90)
+* Regata Cropped Poliamida — Militar Militar — GG ×1 (1 peça · R$ 27,90)
+* Regata Cropped Poliamida — Off White Off White — P ×1, G ×1, GG ×1 (3 peças · R$ 83,70)
+
+Regata Tule
+* Regata Tule — Blush Blush — Único ×1 (1 peça · R$ 19,90)
+* Regata Tule — Off White Off White — Único ×1 (1 peça · R$ 19,90)
+* Regata Tule — Preto Preto — Único ×1 (1 peça · R$ 19,90)
+
+Total: 31 peças · R$ 803,10
+
+Cliente
+Loja: LOJA DA GABI
+Nome: Gabriela Cabral Silva
+Telefone: 31997441595
+
+Valores sujeitos a confirmação.`;
+
+describe("mensagem real da Entre Linhas (31 peças)", () => {
+  const lido = lerMensagemDePedido(ENTRE_LINHAS);
+
+  it("reconhece o pedido (o '*' da lista não é negrito)", () => {
+    expect(lido.itens.length).toBe(22);
+  });
+
+  it("as 31 peças batem com o total declarado", () => {
+    expect(pecasLidas(lido)).toBe(31);
+    expect(lido.totalPecas).toBe(31);
+    expect(lido.totalValor).toBe(803.1);
+  });
+
+  it("não perde metade do nome quando a cor está dentro dele", () => {
+    expect(lido.itens[0].descricao).toBe("Blusa Clássica Tule — Baunilha Baunilha");
+    expect(lido.itens[0].tamanhos).toEqual([{ tamanho: "Único", quantidade: 1 }]);
+  });
+
+  it("linha com vários tamanhos entra inteira", () => {
+    const camiseta = lido.itens.find((i) => i.descricao.includes("Azul Marinho"))!;
+    expect(camiseta.tamanhos).toEqual([
+      { tamanho: "M", quantidade: 1 },
+      { tamanho: "G", quantidade: 1 },
+      { tamanho: "GG", quantidade: 1 },
+    ]);
+    expect(camiseta.pecas).toBe(3);
+  });
+
+  it("os títulos de seção não viram item", () => {
+    expect(lido.itens.some((i) => i.descricao === "Cropped Tule")).toBe(false);
+  });
+
+  it("pega a cliente certa", () => {
+    expect(lido.cliente.nome).toBe("Gabriela Cabral Silva");
+    expect(lido.cliente.loja).toBe("LOJA DA GABI");
+    expect(lido.cliente.telefone).toBe("31997441595");
+  });
+
+  it("casa com o catálogo da loja (nome com a cor dentro)", () => {
+    const catalogo = [
+      { id: "p1", name: "Blusa Clássica Tule — Baunilha" },
+      { id: "p2", name: "Blusa Clássica Tule — Preto" },
+      { id: "p3", name: "Cropped Tule — Off White" },
+    ];
+    const r = separarProdutoECor("Blusa Clássica Tule — Baunilha Baunilha", catalogo);
+    expect(r?.produto.id).toBe("p1");
+    expect(r?.cor).toBe("Baunilha");
+  });
+});
+
+describe("cortar a linha do item pelo ÚLTIMO campo", () => {
+  it("formato simples: produto e cor grudados", () => {
+    expect(partirItem("Cropped Básico Comfy Preto — P ×2, M ×1")).toEqual({
+      descricao: "Cropped Básico Comfy Preto",
+      tamanhos: "P ×2, M ×1",
+    });
+  });
+
+  it("formato com a cor dentro do nome: o nome fica inteiro", () => {
+    expect(partirItem("Blusa Clássica Tule — Baunilha Baunilha — Único ×1")).toEqual({
+      descricao: "Blusa Clássica Tule — Baunilha Baunilha",
+      tamanhos: "Único ×1",
+    });
+  });
+
+  it("hífen dentro da palavra não é separador", () => {
+    expect(partirItem("Blusa Off-white — P ×1")).toEqual({
+      descricao: "Blusa Off-white",
+      tamanhos: "P ×1",
+    });
+  });
+
+  it("linha sem separador nenhum não vira item", () => {
+    expect(partirItem("Cropped Tule")).toBeNull();
+  });
+});
+
+describe("cor repetida no texto", () => {
+  it("a repetição exata é reduzida", () => {
+    expect(candidatosDeCor("Baunilha Baunilha")).toContain("Baunilha");
+    expect(candidatosDeCor("Azul Marinho Azul marinho")).toContain("Azul Marinho");
+  });
+
+  it("cor de verdade com duas palavras não é cortada errado", () => {
+    const c = candidatosDeCor("Verde Musgo");
+    expect(c[0]).toBe("Verde Musgo"); // a forma literal vem primeiro
+  });
+
+  it("travessão que sobrou na frente é removido", () => {
+    expect(candidatosDeCor("— Preto Preto")[0]).toBe("Preto Preto");
+  });
+
+  it("texto vazio não vira candidato", () => {
+    expect(candidatosDeCor("")).toEqual([]);
+    expect(candidatosDeCor("  —  ")).toEqual([]);
   });
 });

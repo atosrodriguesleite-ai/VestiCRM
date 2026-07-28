@@ -4,6 +4,7 @@ import { requireUser, AuthError } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { phoneMatchVariants, normalizePhone } from "@/lib/intake";
 import {
+  candidatosDeCor,
   lerMensagemDePedido,
   normalizar,
   pecasLidas,
@@ -92,11 +93,21 @@ export async function POST(req: NextRequest) {
         const doTamanho = produto.variants.filter(
           (v) => normalizar(v.size) === normalizar(t.tamanho)
         );
-        const variante = cor
+        let variante = cor
           ? doTamanho.find((v) => normalizar(v.color) === normalizar(cor))
           : doTamanho.length === 1
             ? doTamanho[0]
             : undefined;
+        // a cor pode vir repetida no texto (nome do produto já traz a cor):
+        // tentamos as formas conhecidas antes de dar a linha como perdida
+        if (!variante && cor) {
+          for (const c of candidatosDeCor(cor)) {
+            variante = doTamanho.find((v) => normalizar(v.color) === normalizar(c));
+            if (variante) break;
+          }
+        }
+        // produto certo, tamanho certo, e só uma cor possível: é ela
+        if (!variante && doTamanho.length === 1) variante = doTamanho[0];
         linhas.push({
           descricao: item.descricao,
           productId: produto.id,
