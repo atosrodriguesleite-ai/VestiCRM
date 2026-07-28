@@ -10,8 +10,11 @@ import {
   ChevronDown,
   FlaskConical,
   Settings,
+  CheckCircle2,
+  AlertTriangle,
 } from "lucide-react";
 import { dateShort, timeShort } from "@/lib/format";
+import { lerEvento, resumoDoPeriodo } from "@/lib/comm/eventos";
 import { Card, Badge, EmptyState } from "@/components/ui";
 import { StatTile } from "@/components/charts";
 
@@ -162,6 +165,43 @@ export function CommCenter({
         )}
       </Card>
 
+      {/* RESUMO: responde "está tudo bem?" sem obrigar a ler log nenhum */}
+      {(() => {
+        const r = resumoDoPeriodo({
+          recebidas: stats.received24,
+          enviadas: stats.sent24,
+          falhas: stats.failed24,
+          naFila: stats.sending,
+        });
+        const tom =
+          r.gravidade === "OK"
+            ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+            : r.gravidade === "ATENCAO"
+              ? "border-amber-200 bg-amber-50 text-amber-800"
+              : "border-rose-200 bg-rose-50 text-rose-800";
+        return (
+          <div className={`mb-4 rounded-2xl border p-4 ${tom}`}>
+            <p className="flex items-center gap-2 font-bold">
+              {r.gravidade === "OK" ? (
+                <CheckCircle2 className="size-4" />
+              ) : (
+                <AlertTriangle className="size-4" />
+              )}
+              {r.titulo}
+            </p>
+            <p className="mt-0.5 text-sm">{r.detalhe}</p>
+            {r.gravidade === "ERRO" && (
+              <button
+                onClick={() => setFilter("ERRO")}
+                className="mt-2 rounded-lg border border-rose-300 bg-white px-3 py-1.5 text-xs font-semibold text-rose-700 transition hover:bg-rose-100"
+              >
+                Ver só as falhas
+              </button>
+            )}
+          </div>
+        );
+      })()}
+
       <div className="flex items-center justify-between mb-3">
         <h2 className="font-semibold">Log de eventos</h2>
         <div className="flex gap-1.5">
@@ -206,12 +246,22 @@ export function CommCenter({
                   ) : (
                     <ArrowUpRight className="size-3.5 text-brand-500 shrink-0" />
                   )}
-                  <span className="text-xs font-mono font-medium w-40 truncate shrink-0">
-                    {e.type}
+                  <span className="text-xs font-medium w-52 truncate shrink-0">
+                    {lerEvento(e).titulo}
                   </span>
                   <Badge color="#64748b">{e.channel}</Badge>
-                  <span className="text-xs text-gray-400 truncate flex-1">
-                    {e.error ?? (e.payload ? JSON.parse(e.payload).preview ?? "" : "")}
+                  <span
+                    className={`text-xs truncate flex-1 ${e.status === "ERRO" ? "text-rose-600 font-medium" : "text-gray-400"}`}
+                  >
+                    {e.status === "ERRO"
+                      ? (lerEvento(e).porque ?? "")
+                      : (() => {
+                          try {
+                            return e.payload ? (JSON.parse(e.payload).preview ?? "") : "";
+                          } catch {
+                            return "";
+                          }
+                        })()}
                   </span>
                   <span className="text-[11px] text-gray-400 tabular-nums shrink-0 hidden sm:inline">
                     {e.durationMs} ms
@@ -226,6 +276,26 @@ export function CommCenter({
                     }`}
                   />
                 </button>
+                {expanded === e.id && e.status === "ERRO" && (
+                  <div className="px-4 pb-3 animate-fade-in">
+                    {(() => {
+                      const l = lerEvento(e);
+                      return (
+                        <div className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-900">
+                          <p>
+                            <b>Onde errou:</b> {l.ondeErrou}
+                          </p>
+                          <p className="mt-1">
+                            <b>Por quê:</b> {l.porque}
+                          </p>
+                          <p className="mt-1">
+                            <b>O que fazer:</b> {l.oQueFazer}
+                          </p>
+                        </div>
+                      );
+                    })()}
+                  </div>
+                )}
                 {expanded === e.id && (
                   <div className="px-4 pb-3 grid md:grid-cols-2 gap-2 animate-fade-in">
                     <div>
@@ -233,9 +303,13 @@ export function CommCenter({
                         Payload
                       </p>
                       <pre className="text-[11px] bg-gray-50 rounded-xl p-3 overflow-x-auto thin-scroll">
-                        {e.payload
-                          ? JSON.stringify(JSON.parse(e.payload), null, 2)
-                          : "—"}
+                        {(() => {
+                          try {
+                            return e.payload ? JSON.stringify(JSON.parse(e.payload), null, 2) : "—";
+                          } catch {
+                            return e.payload ?? "—";
+                          }
+                        })()}
                       </pre>
                     </div>
                     <div>
@@ -248,9 +322,15 @@ export function CommCenter({
                         }`}
                       >
                         {e.error ??
-                          (e.response
-                            ? JSON.stringify(JSON.parse(e.response), null, 2)
-                            : "OK")}
+                          (() => {
+                            try {
+                              return e.response
+                                ? JSON.stringify(JSON.parse(e.response), null, 2)
+                                : "OK";
+                            } catch {
+                              return e.response ?? "OK";
+                            }
+                          })()}
                       </pre>
                     </div>
                   </div>
