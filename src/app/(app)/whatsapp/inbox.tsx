@@ -56,6 +56,7 @@ import {
 } from "@/lib/format";
 import { autoriaDaMensagem, prefixoDaPrevia } from "@/lib/comm/autoria";
 import { abaDaConversa } from "@/lib/comm/fila";
+import { casaCliente } from "@/lib/busca";
 import { Avatar, EmptyState } from "@/components/ui";
 import { gravacaoParaWav } from "@/lib/audio-wav";
 
@@ -519,16 +520,17 @@ export function Inbox({
   }, [convs]);
 
   const filtered = useMemo(() => {
-    const q = search.trim().toLowerCase();
+    const q = search.trim();
     const list = convs.filter((c) => {
-      if (bucketOf(c) !== tab) return false;
+      // BUSCANDO? procura em TODAS as abas.
+      //
+      // Antes a lupa só olhava a aba aberta: a cliente estava em Contatos
+      // (atendimento encerrado) e a busca em Chats não achava nada — parecia
+      // que a lupa não funcionava. Quem digita um nome quer a pessoa, não a
+      // gaveta em que ela está.
+      if (!q && bucketOf(c) !== tab) return false;
       if (tagFilter && !c.customer.tags.some((t) => t.id === tagFilter)) return false;
-      if (
-        q &&
-        !c.customer.name.toLowerCase().includes(q) &&
-        !c.customer.phone.includes(q.replace(/\D/g, ""))
-      )
-        return false;
+      if (!casaCliente(c.customer, q)) return false;
       return true;
     });
     // Fila: mais antigo primeiro (quem espera há mais tempo no topo).
@@ -1335,10 +1337,28 @@ export function Inbox({
             <input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Buscar por nome ou telefone..."
-              className="w-full rounded-xl bg-gray-50 border border-transparent focus:border-brand-300 focus:bg-white pl-9 pr-3 py-2 text-sm outline-none transition"
+              placeholder="Buscar por nome, telefone ou cidade..."
+              className="w-full rounded-xl bg-gray-50 border border-transparent focus:border-brand-300 focus:bg-white pl-9 pr-9 py-2 text-sm outline-none transition"
             />
+            {search && (
+              <button
+                onClick={() => setSearch("")}
+                title="Limpar busca"
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-300 hover:text-gray-500"
+              >
+                <X className="size-4" />
+              </button>
+            )}
           </div>
+          {/* deixa claro que a busca varre as três abas — senão o resultado
+              "de outra gaveta" parece bug */}
+          {search.trim() && (
+            <p className="-mt-1 mb-2 px-1 text-[11px] text-gray-400">
+              {filtered.length === 0
+                ? "Ninguém encontrado com esse nome, telefone ou cidade."
+                : `${filtered.length} ${filtered.length === 1 ? "resultado" : "resultados"} em Chats, Fila e Contatos.`}
+            </p>
+          )}
           {/* Abas Chats / Fila / Contatos */}
           <div className="flex gap-1 bg-gray-100 rounded-xl p-1">
             {TABS.map((t) => {

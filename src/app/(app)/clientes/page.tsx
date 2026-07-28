@@ -3,6 +3,7 @@ import { Search, Download } from "lucide-react";
 import { requireUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { ownedScope } from "@/lib/scope";
+import { casaCliente } from "@/lib/busca";
 import {
   customerTypeLabel,
   originLabel,
@@ -31,11 +32,11 @@ export default async function CustomersPage({
   const scope = ownedScope(user);
 
   const where: Prisma.CustomerWhereInput = { ...scope };
-  if (q) where.name = { contains: q };
+  const termo = q?.trim() ?? "";
   if (tipo && TYPES.includes(tipo as CustomerType))
     where.type = tipo as CustomerType;
 
-  const [customers, interests, companyRow] = await Promise.all([
+  const [todosOsClientes, interests, companyRow] = await Promise.all([
     db.customer.findMany({
       where,
       include: {
@@ -55,6 +56,18 @@ export default async function CustomersPage({
     db.interest.findMany({ where: { companyId: user.companyId } }),
     db.company.findUnique({ where: { id: user.companyId }, select: { slug: true } }),
   ]);
+
+  // BUSCA: nome, telefone, cidade ou documento — MESMA regra do chat.
+  //
+  // Antes o filtro ia no banco procurando só pelo nome e do jeito exato: o
+  // `contains` do Postgres diferencia maiúscula ("maria" não achava "Maria")
+  // e, mesmo pedindo para ignorar a caixa, ele não ignora ACENTO ("goiania"
+  // não achava "Goiânia"). Peneirando aqui, com o mesmo motor da Central de
+  // Atendimento, a lupa se comporta igual nas duas telas — do jeito que a
+  // lojista digita, sem acento e sem se preocupar com maiúscula.
+  const customers = termo
+    ? todosOsClientes.filter((c) => casaCliente(c, termo))
+    : todosOsClientes;
 
   return (
     <div className="max-w-7xl mx-auto">
@@ -84,7 +97,7 @@ export default async function CustomersPage({
           <input
             name="q"
             defaultValue={q}
-            placeholder="Buscar por nome..."
+            placeholder="Buscar por nome, telefone ou cidade..."
             className="w-full rounded-xl bg-white border border-gray-200 pl-9 pr-3 py-2.5 text-sm outline-none focus:border-brand-400 transition"
           />
           {tipo && <input type="hidden" name="tipo" value={tipo} />}

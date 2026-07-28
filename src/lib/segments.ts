@@ -27,7 +27,7 @@ export async function evaluateSegment(user: SessionUser, filter: SegmentFilter) 
     where.OR = [{ lastPurchaseAt: { lt: cutoff } }, { lastPurchaseAt: null }];
   }
   if (filter.type) where.type = filter.type;
-  if (filter.city) where.city = { contains: filter.city };
+  if (filter.city) where.city = { contains: filter.city, mode: "insensitive" };
   if (filter.interest) {
     where.interests = { some: { interest: { name: filter.interest } } };
   }

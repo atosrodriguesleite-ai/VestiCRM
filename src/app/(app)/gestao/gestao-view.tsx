@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 import { Card } from "@/components/ui";
 import { brl, dateShort, dateFull, timeShort } from "@/lib/format";
+import { casaTexto } from "@/lib/busca";
 import {
   cicloLabel,
   lifetimeLabel,
@@ -215,9 +216,9 @@ export function GestaoView({
     if (!q) return lojas;
     return lojas.filter(
       (l) =>
-        l.nome.toLowerCase().includes(q) ||
-        l.slug.toLowerCase().includes(q) ||
-        (l.responsavel ?? "").toLowerCase().includes(q)
+        casaTexto(l.nome, q) ||
+        casaTexto(l.slug, q) ||
+        casaTexto(l.responsavel, q)
     );
   }, [lojas, busca]);
 

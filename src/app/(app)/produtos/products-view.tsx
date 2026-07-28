@@ -10,6 +10,7 @@ import { brl } from "@/lib/format";
 import { Card, EmptyState } from "@/components/ui";
 import { fileToDataUrl } from "@/lib/upload";
 import { ImportCatalog } from "./import-catalog";
+import { casaTexto } from "@/lib/busca";
 
 type LibraryColor = { name: string; hex: string };
 
@@ -92,8 +93,8 @@ export function ProductsView({
       initial.filter((p) => {
         if (
           q &&
-          !p.name.toLowerCase().includes(q.toLowerCase()) &&
-          !p.sku.toLowerCase().includes(q.toLowerCase())
+          !casaTexto(p.name, q) &&
+          !casaTexto(p.sku, q)
         )
           return false;
         if (category && p.category !== category) return false;

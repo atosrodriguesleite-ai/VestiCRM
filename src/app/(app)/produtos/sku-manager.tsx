@@ -10,6 +10,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Portal } from "@/components/portal";
 import { useRouter } from "next/navigation";
 import { Barcode, CheckCircle2, Loader2, Search, X } from "lucide-react";
+import { casaTexto } from "@/lib/busca";
 
 type Row = {
   id: string;
@@ -44,10 +45,10 @@ export function SkuManager() {
     if (!q) return rows;
     return rows.filter(
       (r) =>
-        r.name.toLowerCase().includes(q) ||
-        r.category.toLowerCase().includes(q) ||
-        (r.sku ?? "").toLowerCase().includes(q) ||
-        r.variants.some((v) => (v.sku ?? "").toLowerCase().includes(q))
+        casaTexto(r.name, q) ||
+        casaTexto(r.category, q) ||
+        casaTexto(r.sku, q) ||
+        r.variants.some((v) => casaTexto(v.sku, q))
     );
   }, [rows, busca]);
 
