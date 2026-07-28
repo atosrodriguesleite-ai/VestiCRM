@@ -38,6 +38,7 @@ import {
   Images,
   LayoutPanelTop,
   Gauge,
+  Boxes,
   ChevronDown,
 } from "lucide-react";
 import { Avatar } from "./ui";
@@ -70,6 +71,7 @@ const NAV = [
   { href: "/configuracoes", label: "Configurações", icon: Settings, group: "Sistema", supportHidden: true },
   { href: "/gestao", label: "Gestão", icon: Gauge, group: "Plataforma", superOnly: true },
   { href: "/lojas", label: "Lojas", icon: Store, group: "Plataforma", superOnly: true },
+  { href: "/portfolio", label: "Portfólio de Produtos", icon: Boxes, group: "Plataforma", superOnly: true },
   { href: "/afiliados", label: "Afiliados", icon: Handshake, group: "Plataforma", superOnly: true },
   { href: "/saude", label: "Saúde", icon: Activity, group: "Plataforma", superOnly: true },
 ];
@@ -122,6 +124,7 @@ const GRUPO_SUPER: Record<string, string> = {
   "/lojas": "Plataforma",
   "/saude": "Plataforma",
   "/afiliados": "Plataforma",
+  "/portfolio": "Plataforma",
   "/dashboard": "Meu comercial",
   "/funil": "Meu comercial",
   "/whatsapp": "Meu comercial",

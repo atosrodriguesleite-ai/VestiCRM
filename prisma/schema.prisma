@@ -93,6 +93,176 @@ model Company {
   shippingMethods ShippingMethod[]
   setores        Setor[]
   notifications  Notification[]
+  portfolioProducts PortfolioProduct[]
+}
+
+/// PORTFÓLIO DE PRODUTOS E SERVIÇOS (só Super Admin, empresa-plataforma).
+///
+/// É o "manual" dos serviços que a plataforma vende junto com o CRM: o que é,
+/// para quem serve, como vender, quanto custa entregar e o passo a passo da
+/// entrega. Não é o catálogo de roupas das lojas (esse é `Product`) — aqui
+/// não há estoque, foto nem pedido: é conhecimento comercial e operacional.
+///
+/// Cada bloco da página vira uma tabela filha, para que a informação seja
+/// consultável e somável (horas, custo, margem) em vez de texto solto.
+model PortfolioProduct {
+  id        String @id @default(cuid())
+  companyId String
+
+  // ---- Cabeçalho ----
+  name      String // "Profissional de Gestão de Mídia Paga"
+  shortDesc String? // resumo de uma linha (aparece no card da listagem)
+  category  String? // agrupamento livre — o dono define os dele
+  status    String  @default("DISPONIVEL") // DISPONIVEL | RASCUNHO | DESCONTINUADO
+  duration  String? // "Recorrente", "Pontual", "3 meses"...
+  baseValue Float? // valor base cobrado; null = "a definir"
+  ownerName String? // responsável pelo produto
+
+  // ---- Visão geral ----
+  fullDesc    String? // descrição completa
+  icpText     String? // ICP (perfil de cliente ideal)
+  icpForWhom  String? // para quem serve
+  icpHowValue String? // como entregar valor
+
+  // ---- Aspectos técnicos ----
+  scope          String? // escopo
+  deliveryFormat String? // formato de entrega
+  teamInvolved   String? // time envolvido
+
+  // ---- Vender / Entregar (texto corrido) ----
+  howToSell    String? // "como eu vendo?"
+  howToDeliver String? // "como eu entrego?"
+  notes        String? // observações livres
+
+  order     Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  company     Company                 @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  variants    PortfolioVariant[]
+  positions   PortfolioPosition[]
+  steps       PortfolioStep[]
+  materials   PortfolioMaterial[]
+  dreLines    PortfolioDreLine[]
+  salesFrames PortfolioSalesFrame[]
+
+  @@index([companyId, name])
+}
+
+/// Variação do mesmo produto (ex.: "Basic", "E-commerce", "Invest. 2-5K").
+/// Quando existe variação, é ela que carrega o preço praticado.
+model PortfolioVariant {
+  id          String  @id @default(cuid())
+  productId   String
+  name        String
+  baseValue   Float?
+  description String?
+  order       Int     @default(0)
+
+  product PortfolioProduct @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([productId])
+}
+
+/// Posições alocadas: quem executa, quantas horas e quanto custa.
+/// A soma das linhas é o custo de entrega do produto.
+model PortfolioPosition {
+  id        String  @id @default(cuid())
+  productId String
+  role      String // cargo/posição
+  hours     Float   @default(0) // horas alocadas
+  cost      Float   @default(0) // custo (CMV) da posição
+  note      String?
+  order     Int     @default(0)
+
+  product PortfolioProduct @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([productId])
+}
+
+/// Linha da DRE do produto. É livre de propósito: cada linha tem rótulo,
+/// sinal e valor, para caber qualquer modelo de conta sem engessar.
+model PortfolioDreLine {
+  id        String  @id @default(cuid())
+  productId String
+  label     String // "(-) Impostos sobre Receita"
+  sign      String  @default("NEUTRO") // ENTRADA | SAIDA | RESULTADO | NEUTRO
+  percent   Float? // % quando a linha for percentual
+  value     Float? // valor em R$
+  highlight Boolean @default(false) // destaca a linha (subtotais)
+  order     Int     @default(0)
+
+  product PortfolioProduct @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([productId])
+}
+
+/// Etapa de entrega: o passo a passo operacional, com quem executa e o
+/// link do POP (procedimento) de cada tarefa.
+model PortfolioStep {
+  id        String  @id @default(cuid())
+  productId String
+  stage     String? // agrupamento ("Principais rotinas", "Onboarding"...)
+  task      String // a tarefa em si
+  detail    String? // o quê / observação
+  executor  String? // quem executa
+  estimate  String? // estimativa (horas, dias, "9")
+  popUrl    String? // link do procedimento
+  order     Int     @default(0)
+
+  product PortfolioProduct @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([productId])
+}
+
+/// Material de apoio — sempre um LINK, nunca arquivo hospedado aqui.
+/// Decisão consciente: manter mídia fora do banco (a dívida nº 1 do sistema).
+model PortfolioMaterial {
+  id        String  @id @default(cuid())
+  productId String
+  kind      String  @default("VENDAS") // VENDAS | OPERACIONAL | TREINAMENTO
+  title     String
+  tag       String? // etiqueta livre ("Comercial", "Material")
+  url       String?
+  order     Int     @default(0)
+
+  product PortfolioProduct @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([productId])
+}
+
+/// Quadro de vendas: tabela livre para os mapas de argumentação
+/// (mapa de caso de uso, roteiro de descoberta...). Cada quadro tem um
+/// título e linhas com até três colunas — cabe tanto o quadro de 2 colunas
+/// quanto o roteiro de 4.
+model PortfolioSalesFrame {
+  id        String  @id @default(cuid())
+  productId String
+  title     String
+  subtitle  String?
+  colA      String? // cabeçalho da 1ª coluna de conteúdo
+  colB      String?
+  colC      String?
+  order     Int     @default(0)
+
+  product PortfolioProduct         @relation(fields: [productId], references: [id], onDelete: Cascade)
+  rows    PortfolioSalesFrameRow[]
+
+  @@index([productId])
+}
+
+model PortfolioSalesFrameRow {
+  id      String  @id @default(cuid())
+  frameId String
+  label   String // "P – Problema", "S – Situação"
+  valueA  String?
+  valueB  String?
+  valueC  String?
+  order   Int     @default(0)
+
+  frame PortfolioSalesFrame @relation(fields: [frameId], references: [id], onDelete: Cascade)
+
+  @@index([frameId])
 }
 
 // Meios de envio cadastrados pela loja (Correios ou Transportadora): Sedex,
