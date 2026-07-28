@@ -103,6 +103,13 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   Todo pedido do catálogo AVISA na hora (`notifyNovoPedido`): com vendedora
   no link, só ela; sem vendedora, gerência/admin (nunca uma vendedora
   qualquer — a separação por link vale também para o aviso).
+  Resgate manual: **"Colar pedido do WhatsApp"** na tela Pedidos
+  (`lib/catalogo/ler-mensagem.ts` + `/api/orders/ler-mensagem`) — lê a
+  mensagem do catálogo, casa com o catálogo da loja (nome mais longo vence
+  ao separar produto/cor), **preço SEMPRE do nosso cadastro**, prévia sem
+  gravar nada e criação pelo caminho normal (`POST /api/orders`). Serve para
+  a venda que só existe na conversa; linha sem cadastro ou sem estoque fica
+  de fora e é anotada no pedido.
 
 ## Módulos
 

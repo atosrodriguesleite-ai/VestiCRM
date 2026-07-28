@@ -11,6 +11,7 @@ import {
 } from "@/lib/orders";
 import { Card, PageHeader, Avatar, Badge, EmptyState } from "@/components/ui";
 import { NewOrderButton } from "./new-order";
+import { ImportarMensagemButton } from "./importar-mensagem";
 import { RowStatusMenu } from "./row-status-menu";
 import type { OrderStatus, Prisma } from "@prisma/client";
 
@@ -131,6 +132,7 @@ export default async function OrdersPage({
               <Download className="size-4" />
               CSV
             </a>
+            <ImportarMensagemButton />
             <NewOrderButton />
           </div>
         }
