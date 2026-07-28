@@ -134,12 +134,11 @@ export async function POST(req: NextRequest) {
   const subtotal = lines.reduce((a, l) => a + l.total, 0);
   const totalPieces = lines.reduce((a, l) => a + l.quantity, 0);
 
-  // REGRA DE COMISSÃO da loja: QUEM MANDA O LINK LEVA A VENDA.
+  // REGRA DE COMISSÃO da loja: QUEM MANDA O LINK LEVA A VENDA — e SÓ ele.
   // A cliente chega no WhatsApp, a vendedora manda o link dela, a cliente
   // pede: o pedido é dessa vendedora. É ela quem atendeu e fechou.
   // A carteira acompanha (a cliente passa a ser de quem vendeu), senão o
   // cadastro apontaria para uma pessoa e a comissão para outra.
-  // Sem vendedora no link, aí sim vale a responsável pela cliente.
   let linkSellerId: string | null = null;
   if (input.ref) {
     linkSellerId = (await resolveRef(company.id, input.ref)).sellerId;
@@ -166,8 +165,19 @@ export async function POST(req: NextRequest) {
   let customerCity: string | null = null;
   let customerState: string | null = null;
   let opportunityId: string | null = null;
-  // comissão: vendedora do link > responsável pela cliente (só sem link)
-  let orderSellerId: string | null = linkSellerId;
+  // COMISSÃO DO CATÁLOGO: SÓ O LINK DECIDE.
+  //
+  // O pedido é de quem mandou o link — e de mais ninguém. Não existe mais o
+  // "sem link, fica com a responsável pela cliente": era esse desvio que
+  // fazia o orçamento nascido do link da Lara cair no painel da Juliana só
+  // porque a cliente estava na carteira dela. Cada painel tem exatamente os
+  // pedidos que vieram do link daquela vendedora.
+  //
+  // Sem vendedora no link, o pedido nasce SEM DONA: é da loja. A gerência
+  // enxerga, e o pedido não vira PAGO enquanto alguém não assumir (a regra
+  // "só vira pago com vendedora" já existe) — assim ninguém recebe comissão
+  // por uma venda que não fez, e nenhuma venda fica sem responsável.
+  const orderSellerId: string | null = linkSellerId;
 
   if (hasPhone) {
     // Com telefone: entra pelo Lead Intake Engine (deduplica, cria
@@ -184,8 +194,6 @@ export async function POST(req: NextRequest) {
     conversationId = result.conversation?.id ?? null;
     customerCity = result.customer.city;
     customerState = result.customer.state;
-    // quem mandou o link leva o pedido; sem link, fica com a responsável
-    orderSellerId = linkSellerId ?? result.customer.ownerId;
     // a carteira segue a venda: quem vendeu passa a cuidar da cliente. Fica
     // registrado na linha do tempo dela (troca de carteira mexe em dinheiro).
     if (linkSellerId && result.customer.ownerId !== linkSellerId) {
@@ -223,8 +231,6 @@ export async function POST(req: NextRequest) {
     customerId = linkCustomer.id;
     customerCity = linkCustomer.city;
     customerState = linkCustomer.state;
-    // mesma regra: quem mandou o link leva
-    orderSellerId = linkSellerId ?? linkCustomer.ownerId;
     // pedido do catálogo também vira card no funil
     const stage =
       (
@@ -317,21 +323,27 @@ export async function POST(req: NextRequest) {
     input.customer?.phone ? `Telefone: ${input.customer.phone}` : null,
   ].filter(Boolean);
 
-  // RASTRO DA COMISSÃO: quando o link é de uma vendedora mas o pedido vai
-  // para OUTRA (a responsável pela cliente), o histórico do pedido explica o
-  // porquê. Sem isso, "o pedido da Lara caiu na tela da Juliana" não tinha
-  // como ser conferido — e discussão de comissão sem prova é briga.
+  // RASTRO DA COMISSÃO: o pedido carrega, escrito, de que link ele veio.
+  // Discussão de comissão sem prova é briga — aqui a prova fica no próprio
+  // pedido: link da fulana, link que não identificou ninguém, ou link geral
+  // da loja.
   let notaComissao: string | null = null;
-  if (linkSellerId) {
+  if (!input.ref) {
+    notaComissao =
+      "Pedido feito pelo link geral do catálogo (sem vendedora no link) — a venda é da loja." +
+      " Defina a responsável no pedido antes de marcar como pago.";
+  } else if (linkSellerId) {
     const doLink = await db.user.findUnique({
       where: { id: linkSellerId },
       select: { name: true },
     });
     notaComissao = `Venda de ${doLink?.name ?? "—"}: a cliente pediu pelo link dela no catálogo.`;
-  } else if (input.ref && !linkSellerId) {
+  } else {
+    // ref veio, mas não bateu com ninguém: a venda fica da loja (não é
+    // chutada para a carteira) e o aviso diz exatamente o que conferir
     notaComissao =
-      `O link usado ("${input.ref}") não identificou nenhuma vendedora da equipe` +
-      " — confira se o nome bate com o cadastro (e se não há duas pessoas com o mesmo primeiro nome).";
+      `O link usado ("${input.ref}") não identificou nenhuma vendedora da equipe — a venda ficou da loja.` +
+      " Confira se o nome bate com o cadastro (e se não há duas pessoas com o mesmo primeiro nome), e defina a responsável antes de marcar como pago.";
   }
 
   // RESERVA DO CATÁLOGO — o buraco que fazia a peça sumir.

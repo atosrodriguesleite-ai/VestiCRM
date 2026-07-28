@@ -70,14 +70,20 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   `lib/reservations.ts`); baixa definitiva/devolução conforme transição de
   status. Integrações donas de estoque (Nuvemshop) espelham — uma venda,
   uma baixa.
-- **Comissão** (`Order.sellerId`): pedido montado no sistema → quem montou;
-  pedido do catálogo público → **QUEM MANDOU O LINK LEVA A VENDA**
-  (`?ref=` vence sempre) — a cliente chega no WhatsApp, a vendedora manda o
-  link dela, a cliente pede: o pedido é dessa vendedora, e a **carteira
-  acompanha** (`Customer.ownerId` passa a ser dela, com registro na linha do
-  tempo). Sem vendedora identificada no link, aí sim vale a responsável pela
-  cliente. Nuvemshop → sem vendedor. Pedido só vira PAGO com vendedor;
-  troca de vendedor é auditada em `OrderEvent`.
+- **Comissão e painel de pedidos** (`Order.sellerId`): pedido montado no
+  sistema → quem montou; pedido do catálogo público → **QUEM MANDOU O LINK
+  LEVA A VENDA, e SÓ ele** (`?ref=`) — a cliente chega no WhatsApp, a
+  vendedora manda o link dela, a cliente pede: o pedido é dessa vendedora, e a
+  **carteira acompanha** (`Customer.ownerId` passa a ser dela, com registro na
+  linha do tempo). **Sem vendedora no link, o pedido nasce SEM DONA (é da
+  loja)** — não existe desvio para a responsável pela cliente: era ele que
+  fazia pedido do link da Lara cair no painel da Juliana. Nuvemshop → sem
+  vendedor. Pedido só vira PAGO com vendedor (é o que obriga a loja a definir
+  a dona antes de faturar); troca de vendedor é auditada em `OrderEvent`.
+- **Visibilidade de pedidos** (`orderScope` em `lib/scope.ts`): vendedora vê
+  SÓ os pedidos dela (`sellerId`); gerente/admin/suporte veem a loja inteira.
+  Vale em toda porta: lista, ficha, PDFs, Pix, NF-e, frete, transferência,
+  declaração e exportação.
 - **Leads**: entrada única pelo `lib/intake.ts` (Lead Intake Engine) —
   dedup por telefone **tolerante ao 9º dígito** (`phoneMatchVariants`),
   distribuição round-robin/fixa, conversa nasce NA FILA (sem dono; modelo
