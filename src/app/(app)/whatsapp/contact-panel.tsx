@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import { brl, formatPhone, customerTypeLabel, originLabel, dateShort } from "@/lib/format";
 import { orderNumber } from "@/lib/orders";
+import { OrigemAnuncio } from "./origem-anuncio";
 
 type Ficha = {
   id: string;
@@ -33,6 +34,8 @@ type Ficha = {
   preferredSize: string | null;
   preferredColors: string | null;
   ownerName: string | null;
+  adRef: string | null;
+  campaign: { id: string; name: string } | null;
   lastPurchaseAt: string | null;
   createdAt: string;
   totalSpent: number;
@@ -54,10 +57,15 @@ export function ContactPanel({
   customerId,
   onClose,
   onRenamed,
+  campanhas = [],
+  podeVincular = false,
 }: {
   customerId: string;
   onClose: () => void;
   onRenamed?: (name: string) => void;
+  /** campanhas da loja, para resolver a origem sem sair do atendimento */
+  campanhas?: { id: string; name: string }[];
+  podeVincular?: boolean;
 }) {
   const [ficha, setFicha] = useState<Ficha | null>(null);
   const [notes, setNotes] = useState("");
@@ -193,6 +201,15 @@ export function ContactPanel({
                 </Row>
               )}
             </div>
+            {/* de qual anúncio veio (e a campanha dona dele) */}
+            {ficha.adRef && (
+              <OrigemAnuncio
+                adRef={ficha.adRef}
+                campanhaAtual={ficha.campaign}
+                campanhas={campanhas}
+                podeVincular={podeVincular}
+              />
+            )}
             <div className="mt-2 flex flex-wrap items-center gap-1.5">
               {/* tipo do cliente: contato criado automaticamente entra como
                   Varejo — aqui dá para corrigir sem sair do atendimento.

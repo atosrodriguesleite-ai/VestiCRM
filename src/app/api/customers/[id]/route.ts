@@ -17,6 +17,7 @@ export async function GET(
       where: { id, companyId: user.companyId },
       include: {
         owner: { select: { name: true } },
+        campaign: { select: { id: true, name: true } },
         tags: { include: { tag: true } },
         interests: { include: { interest: true } },
         orders: {
@@ -52,6 +53,13 @@ export async function GET(
       preferredSize: customer.preferredSize,
       preferredColors: customer.preferredColors,
       ownerName: customer.owner?.name ?? null,
+      // DE ONDE ESSA CLIENTE VEIO: anúncio detectado (Click-to-WhatsApp) e a
+      // campanha dona dele. É o que permite resolver a atribuição no chat,
+      // sem sair do atendimento.
+      adRef: customer.adRef,
+      campaign: customer.campaign
+        ? { id: customer.campaign.id, name: customer.campaign.name }
+        : null,
       lastPurchaseAt: customer.lastPurchaseAt?.toISOString() ?? null,
       createdAt: customer.createdAt.toISOString(),
       totalSpent: agg._sum.netTotal ?? 0,

@@ -315,6 +315,8 @@ const ORDER_MSG_PADRAO =
   "Prontinho {nome}! 💜 Montei seu pedido {pedido} — total {total}. Te enviei o orçamento em PDF, qualquer ajuste é só me falar!";
 
 export function Inbox({
+  campanhas = [],
+  podeVincularCampanha = false,
   conversations,
   templates: templatesProp,
   team,
@@ -326,6 +328,8 @@ export function Inbox({
   orderMsg,
   canEditCatalogMsg,
 }: {
+  campanhas?: { id: string; name: string }[];
+  podeVincularCampanha?: boolean;
   conversations: InboxConversation[];
   templates: { id: string; title: string; body: string; category: string }[];
   team: { id: string; name: string; color: string }[];
@@ -2674,6 +2678,8 @@ export function Inbox({
       {selected && showContact && (
         <div className="fixed inset-x-0 top-14 bottom-16 z-30 bg-white flex flex-col md:static md:inset-auto md:top-auto md:bottom-auto md:z-auto md:w-80 md:shrink-0 md:border-l md:border-gray-100">
           <ContactPanel
+            campanhas={campanhas}
+            podeVincular={podeVincularCampanha}
             customerId={selected.customer.id}
             onClose={() => setShowContact(false)}
             onRenamed={(name) => {

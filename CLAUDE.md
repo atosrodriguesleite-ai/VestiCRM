@@ -130,7 +130,12 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   BioView/BioClick com filtro de data, atribuição `utm_source=bio` no
   catálogo), campanhas de aquisição, tracking do catálogo
   (TrackSession/TrackEvent + `lib/tracking/insights.ts` → tela
-  Inteligência), afiliados (só empresa-plataforma).
+  Inteligência), afiliados (só empresa-plataforma). Anúncio → campanha
+  (`lib/ad-match.ts`): a prévia do Click-to-WhatsApp vira código estável
+  (`adRef`) e o vínculo pode ser feito **direto do chat** (bloco "Veio de
+  anúncio" na ficha do contato, gerente+). O vínculo é RETROATIVO para quem
+  está sem campanha, NUNCA reescreve quem já tem (vale o primeiro contato), e
+  um anúncio só pode ter UMA campanha dona.
 - **Produção** (gated por loja): tecidos, rolos, cortes multi-cor, costura,
   lotes/facções, defeitos, simulador, etiquetas.
 - **Envios** (gated por loja, `shippingEnabled`, pago à parte): Melhor Envio
