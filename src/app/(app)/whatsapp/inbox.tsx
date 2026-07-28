@@ -8,6 +8,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import {
   Send,
   StickyNote,
+  UserCheck,
   ArrowLeft,
   Search,
   MessageCircle,
@@ -53,6 +54,7 @@ import {
   templateCategoryLabel,
   relativeDays,
 } from "@/lib/format";
+import { autoriaDaMensagem, prefixoDaPrevia } from "@/lib/comm/autoria";
 import { Avatar, EmptyState } from "@/components/ui";
 import { gravacaoParaWav } from "@/lib/audio-wav";
 
@@ -1451,9 +1453,7 @@ export function Inbox({
                     </span>
                   </div>
                   <p className="text-xs text-gray-500 truncate mt-0.5">
-                    {last
-                      ? (last.kind === "NOTE" ? "📝 " : "") + last.body
-                      : "Sem mensagens"}
+                    {last ? prefixoDaPrevia(last) + last.body : "Sem mensagens"}
                   </p>
                   <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
                     <SetorPill setor={c.setor} />
@@ -1575,6 +1575,10 @@ export function Inbox({
                   { icon: <Zap className="size-3.5 text-brand-500" />, t: "Digite / no campo de mensagem para usar respostas rápidas." },
                   { icon: <Link2 className="size-3.5 text-brand-500" />, t: "Envie o link do catálogo já rastreado por cliente." },
                   { icon: <StickyNote className="size-3.5 text-amber-500" />, t: "Deixe notas internas (o cliente não vê) e marque colegas com @." },
+                  {
+                    icon: <UserCheck className="size-3.5 text-emerald-500" />,
+                    t: "O nome de quem respondeu fica registrado na mensagem — só a equipe vê, a cliente nunca. Respondendo pelo celular, o WhatsApp não informa quem digitou e o sistema marca 📱 pelo celular.",
+                  },
                 ].map((d, i) => (
                   <div
                     key={i}
@@ -2055,9 +2059,26 @@ export function Inbox({
                           title={mine ? reciboTitle : undefined}
                           className={`text-[10px] mt-1 text-right flex items-center gap-1 justify-end flex-wrap ${mine ? "text-white/60" : "text-gray-300"}`}
                         >
-                          {mine && m.authorName
-                            ? `${m.authorName.split(" ")[0]} · `
-                            : ""}
+                          {/* QUEM RESPONDEU — informação só da equipe: nunca
+                              vai junto no texto que a cliente recebe */}
+                          {mine &&
+                            (() => {
+                              const a = autoriaDaMensagem(m);
+                              if (!a) return null;
+                              return (
+                                <span
+                                  title={a.detalhe}
+                                  className={
+                                    a.tipo === "PESSOA"
+                                      ? "font-semibold"
+                                      : "italic opacity-90"
+                                  }
+                                >
+                                  {a.tipo === "CELULAR" ? "📱 " : ""}
+                                  {a.rotulo} ·
+                                </span>
+                              );
+                            })()}
                           {timeShort(m.createdAt)}
                           {m.editedAt && !m.revoked && (
                             <span className="italic">· editada</span>
