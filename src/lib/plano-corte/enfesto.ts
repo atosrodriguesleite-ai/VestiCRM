@@ -54,7 +54,10 @@ type PropostaRisco = { combo: Combo; folhas: number };
 type Estrategia = { nome: string; riscos: PropostaRisco[] };
 
 /** Estratégias de composição pra uma grade {tamanho: quantidade}. */
-function estrategias(grade: Record<string, number>): Estrategia[] {
+function estrategias(
+  grade: Record<string, number>,
+  ctx?: { areaPorChave: Record<string, number>; capacidadeCm2: number }
+): Estrategia[] {
   const tams = Object.keys(grade).filter((t) => grade[t] > 0);
   if (tams.length === 0) return [];
   const out: Estrategia[] = [];
@@ -128,6 +131,40 @@ function estrategias(grade: Record<string, number>): Estrategia[] {
       resta[b2] -= folhas;
     }
     out.push({ nome: "Duplas maior + menor", riscos });
+  }
+
+  // F) MESAS FECHADAS — o jeito do encaixador de dividir na mão: cada
+  // roupa tem sua área real; as roupas são distribuídas entre as mesas
+  // como quebra-cabeça de capacidade (maior primeiro, cada mesa enchendo
+  // até o teto útil). É a estratégia que decide QUAIS modelos/tamanhos
+  // vão juntos em cada mesa — antes só o lojista sabia fazer isso.
+  if (ctx && ctx.capacidadeCm2 > 0) {
+    const g = tams.map((t) => grade[t]).reduce(mdc);
+    for (const alvo of [0.78, 0.72]) {
+      const cap = ctx.capacidadeCm2 * alvo;
+      // unidades = 1 roupa de cada chave (repetida pela proporção no risco)
+      const unidades: { chave: string; area: number }[] = [];
+      for (const t of tams)
+        for (let i = 0; i < grade[t] / g; i++)
+          unidades.push({ chave: t, area: ctx.areaPorChave[t] ?? 0 });
+      unidades.sort((a, b) => b.area - a.area);
+      const mesas: { area: number; combo: Combo }[] = [];
+      for (const u of unidades) {
+        // primeira mesa onde cabe (maior primeiro = first-fit-decreasing)
+        let m = mesas.find((x) => x.area + u.area <= cap);
+        if (!m) {
+          m = { area: 0, combo: {} };
+          mesas.push(m);
+        }
+        m.area += u.area;
+        m.combo[u.chave] = (m.combo[u.chave] ?? 0) + 1;
+      }
+      if (mesas.length >= 2)
+        out.push({
+          nome: `Mesas fechadas (${Math.round(alvo * 100)}%)`,
+          riscos: mesas.map((m) => ({ combo: m.combo, folhas: g })),
+        });
+    }
   }
 
   // remove estratégias duplicadas (ex.: com 1 tamanho todas viram a mesma)
@@ -300,6 +337,10 @@ export function pecasDoRiscoMulti(
           area: g.area,
           espelhada: espelhar || undefined,
           modeloIdx: idx,
+          tira:
+            Math.min(g.w, g.h) <= 6 && Math.max(g.w, g.h) / Math.min(g.w, g.h) >= 6
+              ? true
+              : undefined,
           contorno: g.contorno,
         });
       }
@@ -476,7 +517,20 @@ function planejarPano(
     return melhor;
   };
 
-  for (const est of estrategias(params.grade)) {
+  // área real de UMA roupa de cada chave (modelo+tamanho) neste pano —
+  // alimenta a estratégia "mesas fechadas"
+  const areaPorChave: Record<string, number> = {};
+  for (const chave of Object.keys(params.grade))
+    areaPorChave[chave] = pecasDoRiscoMulti(itens, pano, { [chave]: 1 }, params).reduce(
+      (s2, p) => s2 + p.area,
+      0
+    );
+  const ctxMesas = {
+    areaPorChave,
+    capacidadeCm2: params.mesaCm * largura,
+  };
+
+  for (const est of estrategias(params.grade, ctxMesas)) {
     const avisos: string[] = [];
     const riscos: Risco[] = [];
     let total = 0;

@@ -88,7 +88,7 @@ export async function GET(req: NextRequest) {
     if (!seller)
       return NextResponse.json({ error: "Vendedor não encontrado" }, { status: 404 });
 
-    const base = (company.commissionBase ?? "SUBTOTAL") as "SUBTOTAL" | "TOTAL";
+    const base = (company.commissionBase ?? "SUBTOTAL") as "SUBTOTAL" | "VENDIDO";
     const orders = await db.order.findMany({
       where: {
         companyId: user.companyId,
@@ -103,15 +103,15 @@ export async function GET(req: NextRequest) {
         status: true,
         source: true,
         subtotal: true,
-        total: true,
+        netTotal: true,
         createdAt: true,
         paidAt: true,
         customer: { select: { name: true } },
       },
     });
 
-    const valorBase = (o: { subtotal: number; total: number }) =>
-      base === "TOTAL" ? o.total : o.subtotal;
+    const valorBase = (o: { subtotal: number; netTotal: number }) =>
+      base === "VENDIDO" ? o.netTotal : o.subtotal;
     const taxa = seller.commissionRate;
     const totalBase = orders.reduce((s, o) => s + valorBase(o), 0);
     const totalComissao = (totalBase * taxa) / 100;
@@ -195,7 +195,8 @@ export async function GET(req: NextRequest) {
 
     // ---- Regra de cálculo por extenso (a parte que evita discussão) ----
     const regras = [
-      `Comissão = ${base === "TOTAL" ? "TOTAL do pedido (com frete)" : "valor dos PRODUTOS (sem frete/desconto de frete)"} × ${String(taxa).replace(".", ",")}%.`,
+      `Comissão = ${base === "VENDIDO" ? "valor VENDIDO (produtos − desconto + acréscimo)" : "valor dos PRODUTOS (antes do desconto)"} × ${String(taxa).replace(".", ",")}%.`,
+      "O FRETE nunca entra na comissão — é valor da transportadora, não venda.",
       "Só entra pedido PAGO (orçamento, aguardando pagamento e cancelado ficam de fora).",
       "O pedido conta no período pela DATA DO PAGAMENTO — não pela data do orçamento.",
       "Pedido do catálogo é de quem é RESPONSÁVEL pela cliente; troca de vendedor fica registrada no histórico do pedido.",

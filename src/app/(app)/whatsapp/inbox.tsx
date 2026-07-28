@@ -8,6 +8,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import {
   Send,
   StickyNote,
+  UserCheck,
   ArrowLeft,
   Search,
   MessageCircle,
@@ -53,6 +54,9 @@ import {
   templateCategoryLabel,
   relativeDays,
 } from "@/lib/format";
+import { autoriaDaMensagem, prefixoDaPrevia } from "@/lib/comm/autoria";
+import { abaDaConversa } from "@/lib/comm/fila";
+import { casaCliente } from "@/lib/busca";
 import { Avatar, EmptyState } from "@/components/ui";
 import { gravacaoParaWav } from "@/lib/audio-wav";
 
@@ -91,6 +95,7 @@ export type InboxConversation = {
     id: string;
     name: string;
     phone: string;
+    photoUrl?: string | null;
     city: string | null;
     wholesale: boolean;
     catalogLink: string;
@@ -310,6 +315,8 @@ const ORDER_MSG_PADRAO =
   "Prontinho {nome}! 💜 Montei seu pedido {pedido} — total {total}. Te enviei o orçamento em PDF, qualquer ajuste é só me falar!";
 
 export function Inbox({
+  campanhas = [],
+  podeVincularCampanha = false,
   conversations,
   templates: templatesProp,
   team,
@@ -321,6 +328,8 @@ export function Inbox({
   orderMsg,
   canEditCatalogMsg,
 }: {
+  campanhas?: { id: string; name: string }[];
+  podeVincularCampanha?: boolean;
   conversations: InboxConversation[];
   templates: { id: string; title: string; body: string; category: string }[];
   team: { id: string; name: string; color: string }[];
@@ -493,10 +502,10 @@ export function Inbox({
     return () => document.removeEventListener("mousedown", onDown);
   }, [showTagPicker]);
 
-  // fila = sem responsável e não encerrada; chats = em atendimento (com
-  // responsável, não encerrada); contatos = histórico (encerradas).
-  const bucketOf = (c: InboxConversation): Tab =>
-    c.status === "CLOSED" ? "contatos" : c.assignee ? "chats" : "fila";
+  // fila = CLIENTE ESPERANDO resposta e sem responsável; chats = em
+  // atendimento; contatos = histórico (encerradas). A regra mora em
+  // lib/comm/fila.ts para a tela e o resto do sistema falarem a mesma língua.
+  const bucketOf = (c: InboxConversation): Tab => abaDaConversa(c);
 
   const counts = useMemo(() => {
     const acc = { chats: 0, fila: 0, contatos: 0 };
@@ -516,16 +525,17 @@ export function Inbox({
   }, [convs]);
 
   const filtered = useMemo(() => {
-    const q = search.trim().toLowerCase();
+    const q = search.trim();
     const list = convs.filter((c) => {
-      if (bucketOf(c) !== tab) return false;
+      // BUSCANDO? procura em TODAS as abas.
+      //
+      // Antes a lupa só olhava a aba aberta: a cliente estava em Contatos
+      // (atendimento encerrado) e a busca em Chats não achava nada — parecia
+      // que a lupa não funcionava. Quem digita um nome quer a pessoa, não a
+      // gaveta em que ela está.
+      if (!q && bucketOf(c) !== tab) return false;
       if (tagFilter && !c.customer.tags.some((t) => t.id === tagFilter)) return false;
-      if (
-        q &&
-        !c.customer.name.toLowerCase().includes(q) &&
-        !c.customer.phone.includes(q.replace(/\D/g, ""))
-      )
-        return false;
+      if (!casaCliente(c.customer, q)) return false;
       return true;
     });
     // Fila: mais antigo primeiro (quem espera há mais tempo no topo).
@@ -553,7 +563,7 @@ export function Inbox({
     if (cid && convs.some((c) => c.id === cid)) {
       setSelectedId(cid);
       const c = convs.find((x) => x.id === cid);
-      if (c) setTab(c.status === "CLOSED" ? "contatos" : c.assignee ? "chats" : "fila");
+      if (c) setTab(abaDaConversa(c));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams]);
@@ -1332,10 +1342,28 @@ export function Inbox({
             <input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Buscar por nome ou telefone..."
-              className="w-full rounded-xl bg-gray-50 border border-transparent focus:border-brand-300 focus:bg-white pl-9 pr-3 py-2 text-sm outline-none transition"
+              placeholder="Buscar por nome, telefone ou cidade..."
+              className="w-full rounded-xl bg-gray-50 border border-transparent focus:border-brand-300 focus:bg-white pl-9 pr-9 py-2 text-sm outline-none transition"
             />
+            {search && (
+              <button
+                onClick={() => setSearch("")}
+                title="Limpar busca"
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-300 hover:text-gray-500"
+              >
+                <X className="size-4" />
+              </button>
+            )}
           </div>
+          {/* deixa claro que a busca varre as três abas — senão o resultado
+              "de outra gaveta" parece bug */}
+          {search.trim() && (
+            <p className="-mt-1 mb-2 px-1 text-[11px] text-gray-400">
+              {filtered.length === 0
+                ? "Ninguém encontrado com esse nome, telefone ou cidade."
+                : `${filtered.length} ${filtered.length === 1 ? "resultado" : "resultados"} em Chats, Fila e Contatos.`}
+            </p>
+          )}
           {/* Abas Chats / Fila / Contatos */}
           <div className="flex gap-1 bg-gray-100 rounded-xl p-1">
             {TABS.map((t) => {
@@ -1437,7 +1465,7 @@ export function Inbox({
                   selectedId === c.id ? "bg-brand-50/60" : ""
                 }`}
               >
-                <Avatar name={c.customer.name} color="#c4622d" />
+                <Avatar name={c.customer.name} color="#c4622d" src={c.customer.photoUrl} />
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center justify-between gap-2">
                     <p className="text-sm font-semibold truncate flex items-center gap-1.5">
@@ -1451,9 +1479,7 @@ export function Inbox({
                     </span>
                   </div>
                   <p className="text-xs text-gray-500 truncate mt-0.5">
-                    {last
-                      ? (last.kind === "NOTE" ? "📝 " : "") + last.body
-                      : "Sem mensagens"}
+                    {last ? prefixoDaPrevia(last) + last.body : "Sem mensagens"}
                   </p>
                   <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
                     <SetorPill setor={c.setor} />
@@ -1575,6 +1601,10 @@ export function Inbox({
                   { icon: <Zap className="size-3.5 text-brand-500" />, t: "Digite / no campo de mensagem para usar respostas rápidas." },
                   { icon: <Link2 className="size-3.5 text-brand-500" />, t: "Envie o link do catálogo já rastreado por cliente." },
                   { icon: <StickyNote className="size-3.5 text-amber-500" />, t: "Deixe notas internas (o cliente não vê) e marque colegas com @." },
+                  {
+                    icon: <UserCheck className="size-3.5 text-emerald-500" />,
+                    t: "O nome de quem respondeu fica registrado na mensagem — só a equipe vê, a cliente nunca. Respondendo pelo celular, o WhatsApp não informa quem digitou e o sistema marca 📱 pelo celular.",
+                  },
                 ].map((d, i) => (
                   <div
                     key={i}
@@ -1597,7 +1627,7 @@ export function Inbox({
               >
                 <ArrowLeft className="size-5" />
               </button>
-              <Avatar name={selected.customer.name} color="#c4622d" />
+              <Avatar name={selected.customer.name} color="#c4622d" src={selected.customer.photoUrl} />
               <div className="min-w-0 flex-1">
                 <Link
                   href={`/clientes/${selected.customer.id}`}
@@ -2055,9 +2085,26 @@ export function Inbox({
                           title={mine ? reciboTitle : undefined}
                           className={`text-[10px] mt-1 text-right flex items-center gap-1 justify-end flex-wrap ${mine ? "text-white/60" : "text-gray-300"}`}
                         >
-                          {mine && m.authorName
-                            ? `${m.authorName.split(" ")[0]} · `
-                            : ""}
+                          {/* QUEM RESPONDEU — informação só da equipe: nunca
+                              vai junto no texto que a cliente recebe */}
+                          {mine &&
+                            (() => {
+                              const a = autoriaDaMensagem(m);
+                              if (!a) return null;
+                              return (
+                                <span
+                                  title={a.detalhe}
+                                  className={
+                                    a.tipo === "PESSOA"
+                                      ? "font-semibold"
+                                      : "italic opacity-90"
+                                  }
+                                >
+                                  {a.tipo === "CELULAR" ? "📱 " : ""}
+                                  {a.rotulo} ·
+                                </span>
+                              );
+                            })()}
                           {timeShort(m.createdAt)}
                           {m.editedAt && !m.revoked && (
                             <span className="italic">· editada</span>
@@ -2631,6 +2678,8 @@ export function Inbox({
       {selected && showContact && (
         <div className="fixed inset-x-0 top-14 bottom-16 z-30 bg-white flex flex-col md:static md:inset-auto md:top-auto md:bottom-auto md:z-auto md:w-80 md:shrink-0 md:border-l md:border-gray-100">
           <ContactPanel
+            campanhas={campanhas}
+            podeVincular={podeVincularCampanha}
             customerId={selected.customer.id}
             onClose={() => setShowContact(false)}
             onRenamed={(name) => {

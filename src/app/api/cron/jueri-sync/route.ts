@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { syncJueriCompany } from "@/lib/jueri-sync";
-import { releaseExpiredReservations } from "@/lib/reservations";
 import { runWatchdogIfDue } from "@/lib/health";
 
 /**
@@ -47,16 +46,6 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  // Aproveita o cron diário pra soltar as reservas de estoque vencidas (>48h).
-  // Fica aqui (e não num cron próprio) pra não estourar o limite de cron jobs
-  // do plano da Vercel — que já barrou deploy quando tinha um cron a mais.
-  let reservas: Awaited<ReturnType<typeof releaseExpiredReservations>> | null = null;
-  try {
-    reservas = await releaseExpiredReservations();
-  } catch {
-    // uma falha aqui não pode derrubar o resultado do sync
-  }
-
   // vigia do sistema também roda aqui — garante checagem mesmo em período
   // sem ninguém logado (madrugada/fim de semana)
   await runWatchdogIfDue();
@@ -65,6 +54,5 @@ export async function GET(req: NextRequest) {
     ranAt: new Date().toISOString(),
     lojas: conns.length,
     results,
-    reservas,
   });
 }

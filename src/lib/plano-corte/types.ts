@@ -117,6 +117,7 @@ export type Posicionamento = {
   rot: 0 | 180; // rotação aplicada (fio do tecido só permite 180°)
   espelhada?: boolean; // esta instância é a peça invertida do par
   modeloIdx?: number; // de qual modelo do plano ela veio (plano multi-modelo)
+  tira?: boolean; // tira fina: pode ter sido girada 90° (galão/alça/viés)
   contorno?: Contorno;
 };
 

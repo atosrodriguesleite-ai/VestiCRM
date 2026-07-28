@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { db } from "@/lib/db";
 import { requireUser } from "@/lib/auth";
+import { orderScope } from "@/lib/scope";
 import { orderNumber } from "@/lib/orders";
 import { brl, dateFull } from "@/lib/format";
 import { PrintButton } from "./print-button";
@@ -20,7 +21,7 @@ export default async function DeclaracaoPage({
 
   const [order, conn, company] = await Promise.all([
     db.order.findFirst({
-      where: { id, companyId: user.companyId },
+      where: { id, ...orderScope(user) },
       include: { customer: true, items: true },
     }),
     db.melhorEnvioConnection.findUnique({ where: { companyId: user.companyId } }),

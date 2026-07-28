@@ -62,6 +62,8 @@ export async function loadInboxConversations(
       name: c.customer.name,
       phone: c.customer.phone,
       city: c.customer.city,
+      // foto do WhatsApp (link do próprio WhatsApp; nulo = mostra iniciais)
+      photoUrl: c.customer.photoUrl,
       wholesale: c.customer.type !== "VAREJO",
       catalogLink: linkForCustomer(c.customer.linkCode, c.customer.id),
       tags: c.customer.tags.map((t) => ({

@@ -24,7 +24,11 @@ model Company {
   minOrder          Int      @default(0) // pedido mínimo em PEÇAS (quando minOrderMode = PECAS)
   minOrderMode      String   @default("NONE") // trava do catálogo: NONE | PECAS | VALOR
   minOrderValue     Float    @default(0) // pedido mínimo em R$ (quando minOrderMode = VALOR)
-  commissionBase    String   @default("SUBTOTAL") // base da comissão: SUBTOTAL (produtos) | TOTAL (com frete)
+  // Base da comissão. As DUAS opções são sem frete — o frete nunca remunera
+  // vendedora, e isso é estrutura, não configuração:
+  //   SUBTOTAL = valor das peças, ANTES do desconto
+  //   VENDIDO  = peças − desconto + acréscimo (o valor realmente vendido)
+  commissionBase    String   @default("SUBTOTAL")
   lowStockThreshold Int      @default(5) // alerta de estoque: avisa quando a variação chega a X peças
   productionEnabled Boolean  @default(false) // módulo Produção (pago à parte; super admin ativa por loja)
   marketingEnabled  Boolean  @default(false) // módulo Marketing (pago à parte; super admin ativa por loja)
@@ -89,6 +93,176 @@ model Company {
   shippingMethods ShippingMethod[]
   setores        Setor[]
   notifications  Notification[]
+  portfolioProducts PortfolioProduct[]
+}
+
+/// PORTFÓLIO DE PRODUTOS E SERVIÇOS (só Super Admin, empresa-plataforma).
+///
+/// É o "manual" dos serviços que a plataforma vende junto com o CRM: o que é,
+/// para quem serve, como vender, quanto custa entregar e o passo a passo da
+/// entrega. Não é o catálogo de roupas das lojas (esse é `Product`) — aqui
+/// não há estoque, foto nem pedido: é conhecimento comercial e operacional.
+///
+/// Cada bloco da página vira uma tabela filha, para que a informação seja
+/// consultável e somável (horas, custo, margem) em vez de texto solto.
+model PortfolioProduct {
+  id        String @id @default(cuid())
+  companyId String
+
+  // ---- Cabeçalho ----
+  name      String // "Profissional de Gestão de Mídia Paga"
+  shortDesc String? // resumo de uma linha (aparece no card da listagem)
+  category  String? // agrupamento livre — o dono define os dele
+  status    String  @default("DISPONIVEL") // DISPONIVEL | RASCUNHO | DESCONTINUADO
+  duration  String? // "Recorrente", "Pontual", "3 meses"...
+  baseValue Float? // valor base cobrado; null = "a definir"
+  ownerName String? // responsável pelo produto
+
+  // ---- Visão geral ----
+  fullDesc    String? // descrição completa
+  icpText     String? // ICP (perfil de cliente ideal)
+  icpForWhom  String? // para quem serve
+  icpHowValue String? // como entregar valor
+
+  // ---- Aspectos técnicos ----
+  scope          String? // escopo
+  deliveryFormat String? // formato de entrega
+  teamInvolved   String? // time envolvido
+
+  // ---- Vender / Entregar (texto corrido) ----
+  howToSell    String? // "como eu vendo?"
+  howToDeliver String? // "como eu entrego?"
+  notes        String? // observações livres
+
+  order     Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  company     Company                 @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  variants    PortfolioVariant[]
+  positions   PortfolioPosition[]
+  steps       PortfolioStep[]
+  materials   PortfolioMaterial[]
+  dreLines    PortfolioDreLine[]
+  salesFrames PortfolioSalesFrame[]
+
+  @@index([companyId, name])
+}
+
+/// Variação do mesmo produto (ex.: "Basic", "E-commerce", "Invest. 2-5K").
+/// Quando existe variação, é ela que carrega o preço praticado.
+model PortfolioVariant {
+  id          String  @id @default(cuid())
+  productId   String
+  name        String
+  baseValue   Float?
+  description String?
+  order       Int     @default(0)
+
+  product PortfolioProduct @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([productId])
+}
+
+/// Posições alocadas: quem executa, quantas horas e quanto custa.
+/// A soma das linhas é o custo de entrega do produto.
+model PortfolioPosition {
+  id        String  @id @default(cuid())
+  productId String
+  role      String // cargo/posição
+  hours     Float   @default(0) // horas alocadas
+  cost      Float   @default(0) // custo (CMV) da posição
+  note      String?
+  order     Int     @default(0)
+
+  product PortfolioProduct @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([productId])
+}
+
+/// Linha da DRE do produto. É livre de propósito: cada linha tem rótulo,
+/// sinal e valor, para caber qualquer modelo de conta sem engessar.
+model PortfolioDreLine {
+  id        String  @id @default(cuid())
+  productId String
+  label     String // "(-) Impostos sobre Receita"
+  sign      String  @default("NEUTRO") // ENTRADA | SAIDA | RESULTADO | NEUTRO
+  percent   Float? // % quando a linha for percentual
+  value     Float? // valor em R$
+  highlight Boolean @default(false) // destaca a linha (subtotais)
+  order     Int     @default(0)
+
+  product PortfolioProduct @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([productId])
+}
+
+/// Etapa de entrega: o passo a passo operacional, com quem executa e o
+/// link do POP (procedimento) de cada tarefa.
+model PortfolioStep {
+  id        String  @id @default(cuid())
+  productId String
+  stage     String? // agrupamento ("Principais rotinas", "Onboarding"...)
+  task      String // a tarefa em si
+  detail    String? // o quê / observação
+  executor  String? // quem executa
+  estimate  String? // estimativa (horas, dias, "9")
+  popUrl    String? // link do procedimento
+  order     Int     @default(0)
+
+  product PortfolioProduct @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([productId])
+}
+
+/// Material de apoio — sempre um LINK, nunca arquivo hospedado aqui.
+/// Decisão consciente: manter mídia fora do banco (a dívida nº 1 do sistema).
+model PortfolioMaterial {
+  id        String  @id @default(cuid())
+  productId String
+  kind      String  @default("VENDAS") // VENDAS | OPERACIONAL | TREINAMENTO
+  title     String
+  tag       String? // etiqueta livre ("Comercial", "Material")
+  url       String?
+  order     Int     @default(0)
+
+  product PortfolioProduct @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([productId])
+}
+
+/// Quadro de vendas: tabela livre para os mapas de argumentação
+/// (mapa de caso de uso, roteiro de descoberta...). Cada quadro tem um
+/// título e linhas com até três colunas — cabe tanto o quadro de 2 colunas
+/// quanto o roteiro de 4.
+model PortfolioSalesFrame {
+  id        String  @id @default(cuid())
+  productId String
+  title     String
+  subtitle  String?
+  colA      String? // cabeçalho da 1ª coluna de conteúdo
+  colB      String?
+  colC      String?
+  order     Int     @default(0)
+
+  product PortfolioProduct         @relation(fields: [productId], references: [id], onDelete: Cascade)
+  rows    PortfolioSalesFrameRow[]
+
+  @@index([productId])
+}
+
+model PortfolioSalesFrameRow {
+  id      String  @id @default(cuid())
+  frameId String
+  label   String // "P – Problema", "S – Situação"
+  valueA  String?
+  valueB  String?
+  valueC  String?
+  order   Int     @default(0)
+
+  frame PortfolioSalesFrame @relation(fields: [frameId], references: [id], onDelete: Cascade)
+
+  @@index([frameId])
 }
 
 // Meios de envio cadastrados pela loja (Correios ou Transportadora): Sedex,
@@ -208,10 +382,11 @@ model Notification {
   company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
   userId    String // destinatário
   user      User     @relation("UserNotifications", fields: [userId], references: [id], onDelete: Cascade)
-  type      String // MENTION | ASSIGN
+  type      String // MENTION | ASSIGN | PEDIDO
   title     String
   body      String   @default("")
   convId    String? // conversa relacionada (para abrir ao clicar)
+  orderId   String? // pedido relacionado (tem prioridade sobre a conversa)
   actorName String? // quem gerou (nome do vendedor)
   read      Boolean  @default(false)
   createdAt DateTime @default(now())
@@ -337,6 +512,13 @@ model Customer {
   lastPurchaseAt  DateTime?
   nextContactAt   DateTime?
   lastContactAt   DateTime?
+  // FOTO DO WHATSAPP: guardamos só o LINK que o WhatsApp serve (nunca a
+  // imagem — foto no banco é a dívida técnica nº 1 daqui). O link vence, por
+  // isso `photoSyncAt` marca quando foi conferido pela última vez; passando
+  // da validade, o sistema busca de novo. Sem foto (cliente escondeu no
+  // WhatsApp), fica nulo e a tela mostra as iniciais coloridas.
+  photoUrl        String?
+  photoSyncAt     DateTime?
   ownerId         String?
   owner           User?        @relation("CustomerOwner", fields: [ownerId], references: [id], onDelete: SetNull)
   // código curto do link rastreado do catálogo (catalago.net/loja/vend/CODIGO)
@@ -350,6 +532,11 @@ model Customer {
   // canal de aquisição da PLATAFORMA (só na empresa-plataforma): "bio:<slug>"
   // quando o lead chegou pelo rodapé "feito por atacadopro.com" de uma bio.
   landingSource   String?
+  // ANÚNCIO que trouxe o cliente (Click-to-WhatsApp): código curto do post/
+  // anúncio, tirado da prévia que o WhatsApp manda na primeira mensagem.
+  // É a chave que liga o cliente à campanha — e que responde "quanto este
+  // anúncio me deu" mesmo antes de existir campanha cadastrada.
+  adRef           String?
   createdAt       DateTime     @default(now())
 
   tags          CustomerTag[]
@@ -363,6 +550,7 @@ model Customer {
 
   @@index([companyId])
   @@index([companyId, ownerId])
+  @@index([companyId, adRef])
 }
 
 model Tag {
@@ -713,6 +901,10 @@ model CompanyBilling {
   implementationPaid   Boolean   @default(false)
   implementationPaidAt DateTime?
   monthlyFee           Float     @default(0) // valor da recorrência mensal
+  // CICLO do contrato: de quanto em quanto tempo a loja paga a recorrência.
+  // O valor mensal continua sendo o mesmo (é a régua do MRR); o ciclo diz
+  // como a cobrança é feita — mensal, semestral (6x) ou anual (12x).
+  cycle                String    @default("MENSAL") // MENSAL | SEMESTRAL | ANUAL
   dueDay               Int       @default(10) // dia do vencimento (1..28)
   paidThrough          DateTime? // recorrência paga ATÉ este mês (dia 1 da competência)
   notes                String? // acordo combinado (parcelas, descontos, observações)
@@ -979,6 +1171,10 @@ model MarketingCampaign {
   name      String
   channel   String   @default("INSTAGRAM") // INSTAGRAM | FACEBOOK | GOOGLE | WHATSAPP | TIKTOK | OUTRO
   utmKey    String // slug curto para casar com ?utm_campaign= dos links
+  // ANÚNCIOS desta campanha (Click-to-WhatsApp): um por linha, colando o LINK
+  // do post/anúncio ou só o código. Quando um cliente chega clicando num
+  // anúncio daqui, a campanha é atribuída sozinha.
+  adRefs    String?
   active    Boolean  @default(true)
   createdAt DateTime @default(now())
 
@@ -1220,12 +1416,33 @@ model Order {
   status         OrderStatus   @default(ORCAMENTO)
   subtotal       Float         @default(0)
   discount       Float         @default(0)
+  // Quando o desconto foi digitado em PORCENTAGEM, guarda o percentual: é o
+  // que permite recalcular sozinho quando as peças do pedido mudam ("10% de
+  // desconto" continua 10% depois de entrar mais uma blusa). Nulo = o valor
+  // em reais é fixo.
+  discountPct    Float?
+  // Acréscimo (juros de parcelamento, taxa de urgência, personalização).
+  // É dinheiro que FICA na loja: conta como venda e entra na comissão.
+  surcharge      Float         @default(0)
+  surchargePct   Float?
   shippingFee    Float         @default(0)
+  // VALOR VENDIDO = subtotal − desconto + acréscimo. É a coluna que TODA
+  // métrica de faturamento soma, e a base da comissão. O frete fica de fora
+  // de propósito: é dinheiro da transportadora atravessando a loja.
+  netTotal       Float         @default(0)
+  // O QUE A CLIENTE PAGA = valor vendido + frete. Serve para cobrar (Pix,
+  // PDF, nota) — nunca para somar faturamento.
   total          Float         @default(0)
   notes          String?
   stockDeducted  Boolean       @default(false) // estoque só baixa quando o pedido é pago
   source         String        @default("CATALOGO") // CATALOGO | NUVEMSHOP | MANUAL
   nuvemshopId    String? // id do pedido na Nuvemshop (nunca importa duplicado)
+  // PROTOCOLO DO ENVIO (catálogo público): código sorteado no aparelho da
+  // cliente ANTES de mandar o pedido. É o que permite o catálogo insistir —
+  // tentar de novo, e até na próxima visita — sem risco de criar o mesmo
+  // pedido duas vezes. Sem isso, um tropeço de internet fazia a mensagem
+  // chegar no WhatsApp da vendedora e o pedido sumir, sem ninguém saber.
+  clientRef      String?
   // NF-e emitida via Bling (a nota é da loja; o Bling é o emissor)
   nfeBlingId     String? // id da NF-e no Bling
   nfeNumber      String? // número da nota quando autorizada
@@ -1246,6 +1463,7 @@ model Order {
 
   @@unique([companyId, number])
   @@unique([companyId, nuvemshopId])
+  @@unique([companyId, clientRef])
   @@index([companyId, status])
   @@index([companyId, createdAt])
   @@index([companyId, paidAt])

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { requireUser, AuthError } from "@/lib/auth";
-import { canSeeAll } from "@/lib/scope";
+import { canSeeAll, orderScope } from "@/lib/scope";
 import { orderStatusLabel, orderNumber, paymentMethodLabel } from "@/lib/orders";
 
 /**
@@ -18,9 +18,8 @@ const brlNum = (n: number) => n.toFixed(2).replace(".", ",");
 export async function GET() {
   try {
     const user = await requireUser();
-    const where = canSeeAll(user)
-      ? { companyId: user.companyId }
-      : { companyId: user.companyId, sellerId: user.id };
+    // mesma régua da tela de Pedidos: vendedora exporta só o que é dela
+    const where = orderScope(user);
     const orders = await db.order.findMany({
       where,
       include: {

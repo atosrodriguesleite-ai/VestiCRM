@@ -318,14 +318,21 @@ export function OrderComposer({
               <span className="tabular-nums">- {brl(totals.discount)}</span>
             </div>
           )}
+          {/* frete separado do valor vendido: ele não fatura nem comissiona */}
           {totals.shippingFee > 0 && (
-            <div className="flex justify-between text-gray-500">
-              <span>Frete</span>
-              <span className="tabular-nums">{brl(totals.shippingFee)}</span>
-            </div>
+            <>
+              <div className="flex justify-between border-t border-gray-100 pt-1 font-medium text-gray-700">
+                <span>Valor vendido</span>
+                <span className="tabular-nums">{brl(totals.netTotal)}</span>
+              </div>
+              <div className="flex justify-between text-gray-500">
+                <span>Frete</span>
+                <span className="tabular-nums">+ {brl(totals.shippingFee)}</span>
+              </div>
+            </>
           )}
           <div className="flex justify-between font-semibold text-sm">
-            <span>Total</span>
+            <span>{totals.shippingFee > 0 ? "Total a pagar" : "Total"}</span>
             <span className="tabular-nums text-brand-700">
               {brl(totals.total)}
             </span>

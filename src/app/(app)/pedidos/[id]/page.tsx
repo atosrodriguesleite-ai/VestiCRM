@@ -7,9 +7,10 @@ import {
   Truck,
   CreditCard,
   History,
+  PackageCheck,
 } from "lucide-react";
 import { requireUser } from "@/lib/auth";
-import { isManagerUp } from "@/lib/scope";
+import { isManagerUp, orderScope } from "@/lib/scope";
 import { db } from "@/lib/db";
 import { brl, dateFull, dateShort, timeShort } from "@/lib/format";
 import {
@@ -28,6 +29,9 @@ import { DeleteOrder } from "./delete-order";
 import { ResaleCatalog } from "./resale-catalog";
 import { CobrancaNfe } from "./cobranca-nfe";
 import { EnvioFrete } from "./envio-frete";
+import { TransferirVenda } from "./transferir-venda";
+import { ValoresEditor } from "./valores-editor";
+import { podeTransferirVenda } from "@/lib/orders";
 
 export const dynamic = "force-dynamic";
 
@@ -40,7 +44,7 @@ export default async function OrderDetailPage({
   const { id } = await params;
 
   const order = await db.order.findFirst({
-    where: { id, companyId: user.companyId },
+    where: { id, ...orderScope(user) },
     include: {
       customer: true,
       seller: true,
@@ -126,6 +130,15 @@ export default async function OrderDetailPage({
             />
           </div>
           <div className="flex flex-col gap-2 shrink-0">
+            {/* transferir a venda: só aparece para quem pode (dona do pedido,
+                gerente ou admin) — a regra vale no servidor também */}
+            {podeTransferirVenda(user, order) && (
+              <TransferirVenda
+                orderId={order.id}
+                sellerId={order.sellerId}
+                sellers={sellers}
+              />
+            )}
             <a
               href={`/api/orders/${order.id}/pdf`}
               target="_blank"
@@ -158,14 +171,38 @@ export default async function OrderDetailPage({
           </div>
         </div>
 
-        <div className="mt-5 pt-5 border-t border-gray-50">
+        {/* PEÇAS SEGURADAS: a reserva não tem prazo — some do estoque no
+            orçamento e só volta no cancelamento. Sem este aviso, orçamento
+            esquecido vira peça sumida do estoque sem ninguém entender. */}
+        {order.stockDeducted &&
+          !(PAID_ORDER_STATUSES as readonly string[]).includes(order.status) &&
+          order.status !== "CANCELADO" && (
+            <p className="mt-4 flex items-start gap-2 rounded-xl border border-amber-100 bg-amber-50 px-3 py-2.5 text-xs text-amber-800">
+              <PackageCheck className="mt-0.5 size-4 shrink-0" />
+              <span>
+                <b>
+                  {order.items.reduce((s, i) => s + i.quantity, 0)}{" "}
+                  {order.items.reduce((s, i) => s + i.quantity, 0) === 1 ? "peça" : "peças"}{" "}
+                  reservadas
+                </b>{" "}
+                para esta cliente — elas estão fora do estoque e não têm prazo
+                para voltar. Se a venda não sair, <b>cancele o pedido</b> para
+                liberar.
+              </span>
+            </p>
+          )}
+
+        <div className="mt-5 pt-5 border-t border-gray-50 min-w-0 overflow-hidden">
           <StatusChanger orderId={order.id} current={order.status} />
         </div>
       </Card>
 
       <div className="grid md:grid-cols-3 gap-4">
         {/* Itens */}
-        <Card className="p-5 md:col-span-2">
+        {/* min-w-0: item de grid não encolhe sozinho — sem isso um nome de peça
+            longo (ou a régua de status) faz o cartão passar da largura do
+            celular e a tela inteira anda para o lado */}
+        <Card className="p-5 md:col-span-2 min-w-0">
           <div className="flex items-center justify-between mb-4">
             <h2 className="font-semibold">Itens do pedido</h2>
             {order.status !== "CANCELADO" && (
@@ -222,23 +259,68 @@ export default async function OrderDetailPage({
             </div>
             {order.discount > 0 && (
               <div className="flex justify-between text-rose-500">
-                <span>Desconto</span>
-                <span className="tabular-nums">- {brl(order.discount)}</span>
+                <span>
+                  Desconto
+                  {order.discountPct != null && (
+                    <span className="ml-1 text-xs text-rose-400">
+                      ({String(order.discountPct).replace(".", ",")}%)
+                    </span>
+                  )}
+                </span>
+                <span className="tabular-nums">− {brl(order.discount)}</span>
               </div>
             )}
+            {order.surcharge > 0 && (
+              <div className="flex justify-between text-emerald-600">
+                <span>
+                  Acréscimo
+                  {order.surchargePct != null && (
+                    <span className="ml-1 text-xs text-emerald-500">
+                      ({String(order.surchargePct).replace(".", ",")}%)
+                    </span>
+                  )}
+                </span>
+                <span className="tabular-nums">+ {brl(order.surcharge)}</span>
+              </div>
+            )}
+            {/*
+              DOIS totais, de propósito: o de cima é o que a loja faturou (e a
+              base da comissão); o de baixo é o que a cliente paga. Sem essa
+              separação o frete voltaria a ser confundido com venda.
+            */}
+            <div className="flex justify-between border-t border-gray-100 pt-1.5 font-semibold">
+              <span>Valor vendido</span>
+              <span className="tabular-nums">{brl(order.netTotal)}</span>
+            </div>
             {order.shippingFee > 0 && (
               <div className="flex justify-between text-gray-500">
                 <span>Frete</span>
-                <span className="tabular-nums">{brl(order.shippingFee)}</span>
+                <span className="tabular-nums">+ {brl(order.shippingFee)}</span>
               </div>
             )}
-            <div className="flex justify-between font-semibold text-base pt-1">
-              <span>Total</span>
+            <div className="flex justify-between font-bold text-base pt-1">
+              <span>Total a pagar</span>
               <span className="tabular-nums text-brand-700">
                 {brl(order.total)}
               </span>
             </div>
+            {order.shippingFee > 0 && (
+              <p className="pt-1 text-[11px] leading-snug text-gray-400">
+                O frete não entra no faturamento da loja nem na comissão da vendedora.
+              </p>
+            )}
           </div>
+          <ValoresEditor
+            orderId={order.id}
+            subtotal={order.subtotal}
+            discount={order.discount}
+            discountPct={order.discountPct}
+            surcharge={order.surcharge}
+            surchargePct={order.surchargePct}
+            shippingFee={order.shippingFee}
+            podeEditar={user.role !== "SUPPORT"}
+            bloqueado={order.status === "CANCELADO"}
+          />
           {order.notes && (
             <p className="mt-4 text-xs text-gray-500 bg-amber-50 border border-amber-100 rounded-xl px-3 py-2">
               {order.notes}

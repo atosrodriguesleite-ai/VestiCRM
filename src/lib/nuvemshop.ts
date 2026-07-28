@@ -2,6 +2,7 @@ import crypto from "crypto";
 import { db } from "./db";
 import { encryptSecret, decryptSecret } from "./crypto";
 import { intakeLead, normalizePhone } from "./intake";
+import { round2 } from "./orders";
 import { notifySalePaid } from "./push";
 
 /**
@@ -524,12 +525,18 @@ async function criarProdutoEspelhado(companyId: string, p: NsProduct) {
  *  de ajuste manual (SKU da variação ou nome de cor/tamanho). */
 export async function syncProducts(companyId: string) {
   const conn = await loadConn(companyId);
-  if (!conn) return { ok: false as const, produtos: 0, report: null };
+  if (!conn) return { ok: false as const, produtos: 0, report: null, status: -1 };
   const report: SyncReport = { casadas: 0, criadas: 0, pendencias: [] };
   let page = 1;
   let total = 0;
   for (; page <= 50; page++) {
     const res = await api<NsProduct[]>(conn, "GET", `/products?per_page=50&page=${page}`);
+    // A PRIMEIRA página falhando não é "sincronizou zero": é a Nuvemshop
+    // recusando a conversa (autorização vencida, limite, fora do ar). Antes
+    // isso saía como sucesso com 0 produtos e ninguém entendia nada.
+    if (!res.ok && page === 1) {
+      return { ok: false as const, produtos: 0, report: null, status: res.status };
+    }
     if (!res.ok || !res.data?.length) break;
     for (const p of res.data) {
       await upsertProduct(companyId, p, report);
@@ -549,7 +556,7 @@ export async function syncProducts(companyId: string) {
       }),
     },
   });
-  return { ok: true as const, produtos: total, report };
+  return { ok: true as const, produtos: total, report, status: 200 };
 }
 
 // ---- Vendas ----------------------------------------------------------------
@@ -559,6 +566,7 @@ type NsOrder = {
   number?: number;
   total?: string | number;
   subtotal?: string | number;
+  shipping_cost_customer?: string | number; // frete que a cliente pagou
   payment_status?: string;
   status?: string;
   contact_name?: string;
@@ -675,6 +683,10 @@ export async function ingestPaidOrder(companyId: string, nsOrderId: string) {
   }
   const subtotal = lines.reduce((a, l) => a + l.quantity * l.unitPrice, 0);
   const total = num(o.total) || subtotal;
+  // O total da Nuvemshop já vem COM frete. Separando os dois, o faturamento
+  // aqui soma só a mercadoria — igual aos pedidos montados no sistema.
+  const shippingFee = round2(Math.max(num(o.shipping_cost_customer), 0));
+  const netTotal = round2(Math.max(total - shippingFee, 0));
 
   const last = await db.order.findFirst({
     where: { companyId },
@@ -690,6 +702,8 @@ export async function ingestPaidOrder(companyId: string, nsOrderId: string) {
       source: "NUVEMSHOP",
       nuvemshopId: nsId,
       subtotal,
+      shippingFee,
+      netTotal,
       total,
       // já nasce pago: a data do dinheiro é agora (é ela que conta no mês)
       paidAt: new Date(),

@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import {
   ArrowLeft,
   MessageCircle,
+  Smartphone,
   ShoppingBag,
   CalendarClock,
   Ruler,
@@ -91,6 +92,7 @@ import {
 import { customerJourney } from "@/lib/tracking/insights";
 import { catalogUrl, trackedCatalogLink } from "@/lib/catalog-url";
 import { CatalogLinkButton } from "./catalog-link-button";
+import { AbrirConversa } from "./abrir-conversa";
 
 export const dynamic = "force-dynamic";
 
@@ -198,7 +200,7 @@ export default async function CustomerDetailPage({
       {/* Cabeçalho */}
       <Card className="p-5 md:p-6 mb-4">
         <div className="flex flex-col sm:flex-row sm:items-start gap-4">
-          <Avatar name={customer.name} color={customer.owner?.color ?? "#c4622d"} size="lg" />
+          <Avatar name={customer.name} color={customer.owner?.color ?? "#c4622d"} size="lg" src={customer.photoUrl} />
           <div className="flex-1 min-w-0">
             <h1 className="text-xl font-semibold tracking-tight">
               {customer.name}
@@ -234,15 +236,21 @@ export default async function CustomerDetailPage({
               {paidOrders.length} compras · ticket {brl(ticket)}
             </p>
             <div className="mt-3 flex flex-col gap-2 sm:items-end">
+              {/* CONVERSAR PELO SISTEMA é o caminho principal: o atendimento
+                  fica registrado, com nome de quem falou, e não cai na fila.
+                  O link do aplicativo continua ali para quem preferir falar
+                  pelo celular — mas agora é a opção secundária. */}
+              <AbrirConversa customerId={customer.id} />
               {waHref && (
                 <a
                   href={waHref}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium px-4 py-2.5 transition"
+                  title="Abre o aplicativo do WhatsApp no celular. A conversa aparece no sistema, mas sem o nome de quem escreveu."
+                  className="inline-flex items-center justify-center gap-1.5 rounded-xl border border-emerald-200 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 text-sm font-medium px-4 py-2.5 transition"
                 >
-                  <MessageCircle className="size-4" />
-                  Chamar no WhatsApp
+                  <Smartphone className="size-4" />
+                  Abrir no celular
                 </a>
               )}
               <CatalogLinkButton url={trackedCatalogUrl} />

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { PDFDocument, StandardFonts, rgb, type RGB } from "pdf-lib";
 import { db } from "@/lib/db";
 import { requireUser, AuthError } from "@/lib/auth";
+import { orderScope } from "@/lib/scope";
 import { orderNumber, orderStatusLabel, paymentMethodLabel } from "@/lib/orders";
 
 /**
@@ -36,7 +37,7 @@ export async function GET(
     const { id } = await params;
 
     const order = await db.order.findFirst({
-      where: { id, companyId: user.companyId },
+      where: { id, ...orderScope(user) },
       include: {
         customer: true,
         seller: true,

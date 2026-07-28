@@ -66,22 +66,50 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   Inteligência, Comissões, Equipe, exportações, segmentos). O modelo `Sale`
   é legado do fluxo manual — **não usar para métricas**.
 - **Estoque**: orçamento RESERVA (todos os status exceto CANCELADO seguram
-  estoque); reserva expira em 48h (cron `release-reservations` via
-  `lib/reservations.ts`); baixa definitiva/devolução conforme transição de
-  status. Integrações donas de estoque (Nuvemshop) espelham — uma venda,
-  uma baixa.
-- **Comissão** (`Order.sellerId`): pedido montado no sistema → quem montou;
-  pedido do catálogo público → **a responsável pela cliente**
-  (`Customer.ownerId`, a carteira) — link antigo não rouba comissão; cliente
-  NOVA vinda de link de vendedora (`?ref=`) → vendedora vira a responsável e
-  leva o pedido; Nuvemshop → sem vendedor. Pedido só vira PAGO com vendedor;
-  troca de vendedor é auditada em `OrderEvent`.
+  estoque) — vale para o pedido montado no sistema E para o do catálogo
+  público (`lib/reservations.ts`, baixa condicionada: nunca negativa, nunca
+  duas vendas da mesma peça). **A reserva NÃO tem prazo**: a peça só volta ao
+  estoque quando o pedido é CANCELADO (a soltura automática em 48h foi
+  removida). A tela do pedido avisa quantas peças estão seguradas. Baixa
+  definitiva/devolução conforme transição de status. Integrações donas de
+  estoque (Nuvemshop) espelham — uma venda, uma baixa.
+- **Comissão e painel de pedidos** (`Order.sellerId`): pedido montado no
+  sistema → quem montou; pedido do catálogo público → **QUEM MANDOU O LINK
+  LEVA A VENDA, e SÓ ele** (`?ref=`) — a cliente chega no WhatsApp, a
+  vendedora manda o link dela, a cliente pede: o pedido é dessa vendedora, e a
+  **carteira acompanha** (`Customer.ownerId` passa a ser dela, com registro na
+  linha do tempo). **Sem vendedora no link, o pedido nasce SEM DONA (é da
+  loja)** — não existe desvio para a responsável pela cliente: era ele que
+  fazia pedido do link da Lara cair no painel da Juliana. Nuvemshop → sem
+  vendedor. Pedido só vira PAGO com vendedor (é o que obriga a loja a definir
+  a dona antes de faturar); troca de vendedor é auditada em `OrderEvent`.
+- **Visibilidade de pedidos** (`orderScope` em `lib/scope.ts`): vendedora vê
+  SÓ os pedidos dela (`sellerId`); gerente/admin/suporte veem a loja inteira.
+  Vale em toda porta: lista, ficha, PDFs, Pix, NF-e, frete, transferência,
+  declaração e exportação.
 - **Leads**: entrada única pelo `lib/intake.ts` (Lead Intake Engine) —
   dedup por telefone **tolerante ao 9º dígito** (`phoneMatchVariants`),
   distribuição round-robin/fixa, conversa nasce NA FILA (sem dono; modelo
   Digisac), oportunidade conforme política da loja.
 - **Catálogo público**: preço/total SEMPRE recalculado no servidor; links
   rastreados `?ref=` (vendedora) e `?c=` (cliente) alimentam a atribuição.
+- **O pedido do catálogo NÃO PODE SE PERDER** (`lib/catalogo/envio-pedido.ts`):
+  o aparelho sorteia um protocolo (`Order.clientRef`, único por loja),
+  guarda o pedido antes de mandar, INSISTE se falhar e reenvia na próxima
+  visita; a rota é idempotente (devolve o pedido existente, e a corrida cai
+  no índice único → P2002 tratado). A cliente vê o recibo do registro na
+  tela. Já causou incidente real: `.catch(() => {})` engolia a falha, a
+  mensagem chegava no WhatsApp da vendedora e o pedido não existia.
+  Todo pedido do catálogo AVISA na hora (`notifyNovoPedido`): com vendedora
+  no link, só ela; sem vendedora, gerência/admin (nunca uma vendedora
+  qualquer — a separação por link vale também para o aviso).
+  Resgate manual: **"Colar pedido do WhatsApp"** na tela Pedidos
+  (`lib/catalogo/ler-mensagem.ts` + `/api/orders/ler-mensagem`) — lê a
+  mensagem do catálogo, casa com o catálogo da loja (nome mais longo vence
+  ao separar produto/cor), **preço SEMPRE do nosso cadastro**, prévia sem
+  gravar nada e criação pelo caminho normal (`POST /api/orders`). Serve para
+  a venda que só existe na conversa; linha sem cadastro ou sem estoque fica
+  de fora e é anotada no pedido.
 
 ## Módulos
 
@@ -97,7 +125,11 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   (~2 dias), detecção de "cliente apagou" (conteúdo preservado), mensagens
   automáticas personalizáveis (link do catálogo e confirmação de pedido, em
   `CommSettings`), unificação de contatos duplicados, importação de
-  histórico de 30 dias (depende do servidor Evolution guardar histórico).
+  histórico de 30 dias (depende do servidor Evolution guardar histórico),
+  **foto de perfil das clientes** (`lib/comm/fotos.ts`: guarda só o LINK do
+  WhatsApp — nunca a imagem —, revalida a cada 7 dias, busca em lote com teto
+  por rodada e cai nas iniciais coloridas quando a cliente esconde a foto ou
+  o link vence).
 - **Communication Engine** (`lib/comm/`): camada única de envio/recebimento,
   agnóstica de provedor. `EvolutionProvider` = WhatsApp NÃO-oficial via
   Evolution API **self-hosted** (VPS Hostinger srv1853369.hstgr.cloud,
@@ -115,7 +147,12 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   BioView/BioClick com filtro de data, atribuição `utm_source=bio` no
   catálogo), campanhas de aquisição, tracking do catálogo
   (TrackSession/TrackEvent + `lib/tracking/insights.ts` → tela
-  Inteligência), afiliados (só empresa-plataforma).
+  Inteligência), afiliados (só empresa-plataforma). Anúncio → campanha
+  (`lib/ad-match.ts`): a prévia do Click-to-WhatsApp vira código estável
+  (`adRef`) e o vínculo pode ser feito **direto do chat** (bloco "Veio de
+  anúncio" na ficha do contato, gerente+). O vínculo é RETROATIVO para quem
+  está sem campanha, NUNCA reescreve quem já tem (vale o primeiro contato), e
+  um anúncio só pode ter UMA campanha dona.
 - **Produção** (gated por loja): tecidos, rolos, cortes multi-cor, costura,
   lotes/facções, defeitos, simulador, etiquetas.
 - **Envios** (gated por loja, `shippingEnabled`, pago à parte): Melhor Envio

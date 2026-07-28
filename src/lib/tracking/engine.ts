@@ -125,7 +125,11 @@ export async function resolveRef(companyId: string, refRaw: string) {
     const users = await db.user.findMany({
       where: { companyId, active: true },
     });
-    const bySlug = users.find(
+    // o link identifica a vendedora pelo PRIMEIRO NOME. Se duas pessoas da
+    // equipe têm o mesmo primeiro nome (duas Julianas), qualquer escolha aqui
+    // seria chute — e chute em comissão é dinheiro no bolso errado. Nesse
+    // caso ninguém é atribuído e o pedido segue a regra da carteira.
+    const candidatos = users.filter(
       (u) =>
         u.name
           .toLowerCase()
@@ -133,7 +137,7 @@ export async function resolveRef(companyId: string, refRaw: string) {
           .replace(/[\u0300-\u036f]/g, "")
           .split(/\s+/)[0] === ref
     );
-    if (bySlug) sellerId = bySlug.id;
+    if (candidatos.length === 1) sellerId = candidatos[0].id;
   }
   return { sellerId, campaignId, campaignChannel };
 }

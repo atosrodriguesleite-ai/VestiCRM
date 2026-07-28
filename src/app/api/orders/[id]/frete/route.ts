@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
-import { requireUser, AuthError } from "@/lib/auth";
-import { isManagerUp } from "@/lib/scope";
+import { requireUser, AuthError, type SessionUser } from "@/lib/auth";
+import { isManagerUp, orderScope } from "@/lib/scope";
 import { orderNumber } from "@/lib/orders";
 import {
   meCalculate,
@@ -22,7 +22,8 @@ import {
 
 export const maxDuration = 30; // compra faz 4 chamadas externas em sequência
 
-async function carregarPedido(userCompanyId: string, orderId: string) {
+async function carregarPedido(user: SessionUser, orderId: string) {
+  const userCompanyId = user.companyId;
   const [company, conn, order] = await Promise.all([
     db.company.findUnique({
       where: { id: userCompanyId },
@@ -30,7 +31,7 @@ async function carregarPedido(userCompanyId: string, orderId: string) {
     }),
     db.melhorEnvioConnection.findUnique({ where: { companyId: userCompanyId } }),
     db.order.findFirst({
-      where: { id: orderId, companyId: userCompanyId },
+      where: { id: orderId, ...orderScope(user) },
       include: {
         customer: true,
         shipping: true,
@@ -50,7 +51,7 @@ export async function GET(
   try {
     const user = await requireUser();
     const { id } = await params;
-    const { company, conn, order } = await carregarPedido(user.companyId, id);
+    const { company, conn, order } = await carregarPedido(user, id);
     if (!order)
       return NextResponse.json({ error: "Pedido não encontrado" }, { status: 404 });
     if (!company?.shippingEnabled)
@@ -113,7 +114,7 @@ export async function POST(
       return NextResponse.json({ error: "Dados inválidos" }, { status: 400 });
     const { action } = parsed.data;
 
-    const { company, conn, order } = await carregarPedido(user.companyId, id);
+    const { company, conn, order } = await carregarPedido(user, id);
     if (!order)
       return NextResponse.json({ error: "Pedido não encontrado" }, { status: 404 });
     if (!company?.shippingEnabled)

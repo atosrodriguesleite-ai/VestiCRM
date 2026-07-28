@@ -1,4 +1,5 @@
 import { requireUser } from "@/lib/auth";
+import { isManagerUp } from "@/lib/scope";
 import { db } from "@/lib/db";
 import { loadInboxConversations } from "@/lib/inbox-data";
 import { Inbox } from "./inbox";
@@ -8,7 +9,7 @@ export const dynamic = "force-dynamic";
 export default async function WhatsAppPage() {
   const user = await requireUser();
 
-  const [data, templates, team, setores, tags, comm] = await Promise.all([
+  const [data, templates, team, setores, tags, comm, campanhas] = await Promise.all([
     loadInboxConversations(user),
     db.messageTemplate.findMany({
       where: { companyId: user.companyId },
@@ -32,10 +33,18 @@ export default async function WhatsAppPage() {
       where: { companyId: user.companyId },
       select: { catalogLinkMsg: true, orderMsg: true },
     }),
+    // campanhas ativas: para resolver "de qual anúncio veio" dentro do chat
+    db.marketingCampaign.findMany({
+      where: { companyId: user.companyId, active: true },
+      orderBy: { createdAt: "desc" },
+      select: { id: true, name: true },
+    }),
   ]);
 
   return (
     <Inbox
+      campanhas={campanhas}
+      podeVincularCampanha={isManagerUp(user)}
       conversations={data}
       templates={templates.map((t) => ({
         id: t.id,

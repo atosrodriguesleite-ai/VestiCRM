@@ -10,6 +10,7 @@ type Notif = {
   title: string;
   body: string;
   convId: string | null;
+  orderId?: string | null;
   read: boolean;
   createdAt: string;
 };
@@ -87,7 +88,10 @@ export function NotificationBell({ dark = false }: { dark?: boolean }) {
         body: JSON.stringify({ id: n.id }),
       });
     }
-    if (n.convId) router.push(`/whatsapp?conv=${n.convId}`);
+    // pedido tem prioridade: o aviso é sobre a venda, e é a tela do pedido
+    // que resolve (definir vendedora, cobrar, conferir estoque)
+    if (n.orderId) router.push(`/pedidos/${n.orderId}`);
+    else if (n.convId) router.push(`/whatsapp?conv=${n.convId}`);
   }
 
   const iconCls = dark

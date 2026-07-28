@@ -141,6 +141,10 @@ async function evo<T = Record<string, unknown>>(
 // mídia demora mais que texto (upload + conversão no servidor de conexão) —
 // ganha um teto maior, ainda dentro do orçamento da função (60s)
 const EVO_MEDIA_TIMEOUT_MS = 50_000;
+// LEITURA de conversas/mensagens: é rápida por natureza. Teto curto de
+// propósito — a importação lê dezenas de conversas em sequência, e uma só
+// travando por 50s comeria o orçamento inteiro da importação.
+const EVO_LEITURA_TIMEOUT_MS = 15_000;
 
 /** Eventos que a loja precisa receber (inclui apagar/editar do cliente). */
 export const WEBHOOK_EVENTS = [
@@ -200,18 +204,47 @@ export async function evoState(instance: string) {
   );
 }
 
+/** JID do WhatsApp a partir de um telefone (só dígitos). */
+export const jidDeNumero = (phone: string) =>
+  `${phone.replace(/\D/g, "")}@s.whatsapp.net`;
+
+/**
+ * Dados da mensagem CITADA numa resposta.
+ *
+ * O WhatsApp não aceita citação pela metade: além do id, a citação precisa
+ * dizer DE QUEM é a mensagem original (`remoteJid` + `fromMe`) e o conteúdo
+ * dela. Mandando só o id, o aparelho recebe uma citação sem autor — e a
+ * mensagem pode encalhar no celular da loja como "Aguardando mensagem".
+ */
+export type CitacaoWA = {
+  id: string;
+  remoteJid: string;
+  fromMe: boolean;
+  texto?: string;
+};
+
+const corpoDaCitacao = (c: CitacaoWA) =>
+  c.texto?.trim() ? { message: { conversation: c.texto.slice(0, 1000) } } : {};
+
 /** Envia texto pelo número conectado da loja (com citação opcional). */
 export async function evoSendText(
   instance: string,
   number: string,
   text: string,
-  quotedId?: string
+  citacao?: CitacaoWA
 ) {
   return evo<{ key?: { id?: string } }>("POST", `/message/sendText/${instance}`, {
     number,
     text,
     // responder mensagem específica: o WhatsApp mostra a citação em cima
-    ...(quotedId ? { quoted: { key: { id: quotedId } } } : {}),
+    ...(citacao
+      ? {
+          quoted: {
+            key: { remoteJid: citacao.remoteJid, fromMe: citacao.fromMe, id: citacao.id },
+            ...corpoDaCitacao(citacao),
+          },
+        }
+      : {}),
   });
 }
 
@@ -349,13 +382,34 @@ export async function evoFindMessages(
       page: opts?.page ?? 1,
       offset: opts?.offset ?? 500,
     },
-    EVO_MEDIA_TIMEOUT_MS
+    EVO_LEITURA_TIMEOUT_MS
   );
 }
 
 /** Lista as conversas que o servidor tem guardadas (para ler uma a uma). */
 export async function evoFindChats(instance: string) {
-  return evo<unknown>("POST", `/chat/findChats/${instance}`, {}, EVO_MEDIA_TIMEOUT_MS);
+  return evo<unknown>("POST", `/chat/findChats/${instance}`, {}, EVO_LEITURA_TIMEOUT_MS);
+}
+
+/**
+ * TODOS os contatos que o servidor conhece — vem com a foto de perfil junto.
+ *
+ * É a chamada barata: UMA consulta traz a agenda inteira com as fotos, em vez
+ * de uma consulta por cliente. O que faltar aqui (contato que o servidor
+ * ainda não viu) é buscado um a um, com parcimônia.
+ */
+export async function evoFindContacts(instance: string) {
+  return evo<unknown>("POST", `/chat/findContacts/${instance}`, {}, EVO_LEITURA_TIMEOUT_MS);
+}
+
+/** Foto de perfil de UM número (usada só para preencher o que faltou). */
+export async function evoProfilePicture(instance: string, number: string) {
+  return evo<{ profilePictureUrl?: string | null }>(
+    "POST",
+    `/chat/fetchProfilePictureUrl/${instance}`,
+    { number },
+    EVO_LEITURA_TIMEOUT_MS
+  );
 }
 
 /** Extrai o telefone (dígitos) de um JID "5511999999999@s.whatsapp.net". */

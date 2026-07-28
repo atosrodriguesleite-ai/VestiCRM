@@ -1,7 +1,12 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { CAMPO_DATA_FATURAMENTO, PAID_ORDER_STATUSES } from "../orders";
+import {
+  CAMPO_DATA_FATURAMENTO,
+  CAMPO_VALOR_FATURAMENTO,
+  PAID_ORDER_STATUSES,
+  computeOrderTotals,
+} from "../orders";
 
 /**
  * REGRA DO DINHEIRO: faturamento é somado pela data do PAGAMENTO.
@@ -27,6 +32,9 @@ const TELAS_DE_DINHEIRO = [
   // o MOTOR da tela Inteligência mora aqui — foi o arquivo que escapou na
   // primeira migração justamente por não estar nesta lista
   "lib/tracking/insights.ts",
+  // o EXTRATO DE COMISSÃO em PDF: é o papel que a dona usa para pagar, tem
+  // que somar pela mesma data que a tela
+  "app/api/comissoes/relatorio/route.ts",
 ];
 
 /**
@@ -73,6 +81,55 @@ describe("faturamento conta pela data do pagamento", () => {
       problemas,
       `Faturamento tem que ser somado por paidAt (data do pagamento), não por ` +
         `createdAt (data em que o orçamento foi montado). Encontrado em: ${problemas.join(", ")}`
+    ).toEqual([]);
+  });
+});
+
+/**
+ * REGRA DO DINHEIRO (2): faturamento soma o VALOR VENDIDO, não o total.
+ *
+ * `total` inclui o frete — dinheiro que atravessa a loja e vai para a
+ * transportadora. Somá-lo inflava o faturamento e podia cair na comissão da
+ * vendedora, remunerando ela por um serviço que não é venda.
+ *
+ * Este teste vigia as telas de dinheiro: se alguém voltar a somar `total`,
+ * ele quebra e explica o porquê.
+ */
+function somasDeTotalNoLugarDoValorVendido(arquivo: string): string[] {
+  const fonte = readFileSync(join(raiz, arquivo), "utf8");
+  const linhaDe = (pos: number) => fonte.slice(0, pos).split("\n").length;
+  const achados: string[] = [];
+
+  // soma agregada no banco: _sum: { total: true }
+  for (const m of fonte.matchAll(/_sum:\s*\{[^}]*\btotal:\s*true/g)) {
+    achados.push(`${arquivo}:${linhaDe(m.index ?? 0)} (_sum de total)`);
+  }
+  // soma em memória de pedidos: reduce(... + algo.total ...)
+  // `item.total` (linha do pedido) é outra coisa e fica de fora de propósito.
+  for (const m of fonte.matchAll(/reduce\([^)]*?\+\s*(?!item\.)(\w+)\.total\b/g)) {
+    achados.push(`${arquivo}:${linhaDe(m.index ?? 0)} (reduce somando .total)`);
+  }
+  return achados;
+}
+
+describe("faturamento soma o valor vendido (frete fora)", () => {
+  it("a fonte da verdade aponta para netTotal", () => {
+    expect(CAMPO_VALOR_FATURAMENTO).toBe("netTotal");
+  });
+
+  it("o frete não entra no valor vendido, mas entra no que a cliente paga", () => {
+    const t = computeOrderTotals([{ quantity: 1, unitPrice: 1000 }], 0, 150);
+    expect(t.netTotal).toBe(1000);
+    expect(t.total).toBe(1150);
+  });
+
+  it("nenhuma tela de dinheiro soma o total do pedido (que tem frete)", () => {
+    const problemas = TELAS_DE_DINHEIRO.flatMap(somasDeTotalNoLugarDoValorVendido);
+    expect(
+      problemas,
+      `Faturamento e comissão somam netTotal (valor vendido = produtos - desconto ` +
+        `+ acréscimo). O campo 'total' inclui FRETE e serve só para cobrar. ` +
+        `Encontrado em: ${problemas.join(", ")}`
     ).toEqual([]);
   });
 });

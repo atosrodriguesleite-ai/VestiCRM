@@ -10,13 +10,19 @@ import { Card } from "@/components/ui";
  */
 export function ImportHistory({ connected }: { connected: boolean }) {
   const [busy, setBusy] = useState(false);
-  const [done, setDone] = useState<{ importadas: number; conversas: number; encontradas: number } | null>(null);
+  const [done, setDone] = useState<{
+    importadas: number;
+    conversas: number;
+    encontradas: number;
+    semData?: number;
+    naJanela?: number;
+  } | null>(null);
   const [erro, setErro] = useState("");
 
   async function importar() {
     if (
       !window.confirm(
-        "Importar as conversas dos últimos 30 dias (com áudios)? Elas entram no histórico (aba Contatos), organizadas por cliente. Pode levar até 1 minuto."
+        "Importar as conversas dos últimos 30 dias (com áudios)? Elas entram no histórico (aba Contatos), organizadas por cliente. Pode levar alguns minutos."
       )
     )
       return;
@@ -25,9 +31,21 @@ export function ImportHistory({ connected }: { connected: boolean }) {
     setDone(null);
     const res = await fetch("/api/comm/import-history", { method: "POST" });
     setBusy(false);
-    const d = await res.json().catch(() => ({}));
-    if (res.ok)
-      setDone({ importadas: d.importadas, conversas: d.conversas, encontradas: d.encontradas });
+    // resposta sem JSON = a importação foi interrompida no meio (tempo/queda)
+    const d = await res.json().catch(() => null);
+    if (res.ok && d)
+      setDone({
+        importadas: d.importadas,
+        conversas: d.conversas,
+        encontradas: d.encontradas,
+        semData: d.semData,
+        naJanela: d.naJanela,
+      });
+    else if (!d)
+      setErro(
+        `A importação foi interrompida antes de terminar (código ${res.status}). ` +
+          "Parte do histórico pode ter entrado — toque de novo para continuar de onde parou."
+      );
     else setErro(d.error ?? "Não foi possível importar agora.");
   }
 
@@ -42,7 +60,7 @@ export function ImportHistory({ connected }: { connected: boolean }) {
       <p className="text-sm text-gray-500 mb-3">
         Traz as conversas dos <b>últimos 30 dias</b> (com <b>áudios</b>) que o
         WhatsApp já sincronizou ao conectar — organizadas por cliente, no
-        histórico, e sem risco extra pro número. Pode levar até 1 minuto.
+        histórico, e sem risco extra pro número. Pode levar alguns minutos.
       </p>
 
       {done ? (
@@ -53,7 +71,13 @@ export function ImportHistory({ connected }: { connected: boolean }) {
             : `O servidor devolveu ${done.encontradas ?? 0} mensagem(ns) guardada(s). ${
                 (done.encontradas ?? 0) === 0
                   ? "Isso indica que o servidor não está guardando o histórico — dá pra ligar essa opção nas configurações dele."
-                  : "Nenhuma dentro da janela de 30 dias (ou já importadas antes)."
+                  : (done.naJanela ?? 0) === 0
+                    ? `Nenhuma delas é dos últimos 30 dias${
+                        (done.semData ?? 0) > 0
+                          ? ` (e ${done.semData} vieram sem data legível)`
+                          : ""
+                      } — o histórico guardado no servidor é mais antigo que isso.`
+                    : "Todas essas já estavam no sistema (nada novo para trazer)."
               }`}
         </p>
       ) : (

@@ -43,7 +43,9 @@ async function platformCompanyId(): Promise<string | null> {
  * NUNCA lança — o vigia jamais pode piorar o problema que está reportando.
  */
 export async function logServerError(input: {
-  source: "server" | "watchdog" | "client";
+  // wa.webhook: falha ao gravar mensagem que chegou do WhatsApp — a mais
+  // grave de todas, porque significa conversa que a loja não vai ver
+  source: "server" | "watchdog" | "client" | "wa.webhook";
   path?: string | null;
   message: string;
   detail?: string | null;
@@ -122,6 +124,33 @@ export async function alertWhatsappDown(companyId: string) {
     "A conexão do WhatsApp da loja caiu. Abra Comunicação e escaneie o QR Code para reconectar.";
   await bellForAdmins(companyId, title, body);
   await sendToCompany(companyId, { title, body, url: "/comunicacao", tag: "wa-down" });
+
+  // O DONO DA PLATAFORMA também precisa saber. WhatsApp caído é atendimento
+  // parado na loja do cliente: ele vai parar de usar o sistema, e loja que
+  // para de usar é loja que cancela. Avisar na hora é o que dá tempo de
+  // ligar antes — em vez de descobrir na renovação.
+  try {
+    const platform = await platformCompanyId();
+    if (platform && platform !== companyId) {
+      const loja = await db.company.findUnique({
+        where: { id: companyId },
+        select: { name: true },
+      });
+      const nome = loja?.name ?? "Uma loja";
+      const tituloPlataforma = `⚠️ WhatsApp caiu: ${nome}`;
+      const corpoPlataforma = `A conexão de WhatsApp da ${nome} caiu. A loja já foi avisada para reconectar pelo QR Code.`;
+      await bellForAdmins(platform, tituloPlataforma, corpoPlataforma);
+      await sendToCompany(platform, {
+        title: tituloPlataforma,
+        body: corpoPlataforma,
+        url: "/gestao",
+        // tag por loja: duas lojas caídas geram dois avisos, não um só
+        tag: `wa-down-${companyId}`,
+      });
+    }
+  } catch {
+    // avisar a plataforma é um extra: nunca pode atrapalhar o aviso à loja
+  }
 }
 
 /**

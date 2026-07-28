@@ -22,6 +22,12 @@ import {
   Lora,
 } from "next/font/google";
 import { mixHex, readableOn } from "@/lib/color";
+import {
+  guardarPendente,
+  protocolo,
+  registrarComInsistencia,
+  reenviarPendentes,
+} from "@/lib/catalogo/envio-pedido";
 import { compareSizes } from "@/lib/sizes";
 import { sortCategories } from "@/lib/categories";
 import {
@@ -400,6 +406,19 @@ export function PublicCatalog({
   const [showConsent, setShowConsent] = useState(false);
   const orderSentRef = useRef(false);
   const cartRef = useRef({ pieces: 0, value: 0 });
+
+  // ---- Registro do pedido: nunca perder uma venda ----
+  // "enviando" enquanto o servidor não confirma; "erro" quando nem
+  // insistindo deu — a cliente vê, e o pedido fica guardado para a próxima
+  // vez que ela abrir o catálogo.
+  const [envio, setEnvio] = useState<"parado" | "enviando" | "ok" | "erro">("parado");
+
+  // Rede de segurança: ao abrir o catálogo, reenvia pedido que ficou para
+  // trás numa visita anterior (internet caiu no momento do envio).
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    reenviarPendentes({ storage: window.localStorage }).catch(() => {});
+  }, []);
   const t = (e: Parameters<CatalogTracker["track"]>[0]) =>
     trackerRef.current?.track(e);
 
@@ -676,10 +695,14 @@ export function PublicCatalog({
           quantity,
         }))
       );
-    fetch("/api/catalog/order", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
+    // PROTOCOLO: o pedido é guardado no aparelho ANTES de sair. Se o envio
+    // falhar, o catálogo insiste — e ainda tenta de novo na próxima visita.
+    // O protocolo garante que insistir nunca cria o pedido duas vezes.
+    const pendente = {
+      clientRef: protocolo(),
+      at: Date.now(),
+      tentativas: 0,
+      payload: {
         company: storeSlug,
         items: orderItems,
         customer: {
@@ -693,10 +716,20 @@ export function PublicCatalog({
         c: tracking.c || undefined,
         // campanha: o servidor recalcula os preços com o desconto dela
         promo: promo?.slug || undefined,
-      }),
-      keepalive: true,
-    }).catch(() => {});
+      } as Record<string, unknown>,
+    };
+    pendente.payload.clientRef = pendente.clientRef;
+    if (typeof window !== "undefined") {
+      guardarPendente(window.localStorage, pendente);
+      setEnvio("enviando");
+      registrarComInsistencia(pendente, { storage: window.localStorage })
+        .then((ok) => setEnvio(ok ? "ok" : "erro"))
+        .catch(() => setEnvio("erro"));
+    }
 
+    // O WhatsApp abre na mesma hora, como sempre: o registro acontece por
+    // trás. Segurar a abertura aqui faria o navegador do celular bloquear a
+    // janela (ela só abre no toque da cliente).
     const url = `https://wa.me/${whatsapp.replace(/\D/g, "")}?text=${encodeURIComponent(msg)}`;
     window.open(url, "_blank") ?? (window.location.href = url);
   }
@@ -721,6 +754,32 @@ export function PublicCatalog({
       className={fontClass}
       style={{ background: T.bg, color: T.ink, minHeight: "100dvh", paddingBottom: 92 }}
     >
+      {/* RECIBO DO ENVIO — a cliente enxerga que o pedido foi registrado.
+          Antes isso acontecia no escuro: se falhasse, a mensagem chegava no
+          WhatsApp da loja e o pedido não existia em lugar nenhum. */}
+      {envio !== "parado" && (
+        <div
+          role="status"
+          className="fixed inset-x-0 top-0 z-[60] px-3 pt-3"
+          style={{ pointerEvents: "none" }}
+        >
+          <div
+            className="mx-auto max-w-[560px] rounded-xl px-3.5 py-2.5 text-[13px] font-semibold shadow-lg"
+            style={{
+              background:
+                envio === "erro" ? "#fef2f2" : envio === "ok" ? "#ecfdf5" : "#ffffff",
+              color: envio === "erro" ? "#9f1239" : envio === "ok" ? "#065f46" : "#334155",
+              border: `1px solid ${envio === "erro" ? "#fecdd3" : envio === "ok" ? "#a7f3d0" : "#e2e8f0"}`,
+            }}
+          >
+            {envio === "enviando" && "Registrando seu pedido na loja…"}
+            {envio === "ok" && "✓ Pedido registrado! A loja já está com ele."}
+            {envio === "erro" &&
+              "Seu pedido foi para o WhatsApp, mas não conseguimos registrar na loja. Confirme com a vendedora pelo WhatsApp, por favor."}
+          </div>
+        </div>
+      )}
+
       {/* TOPBAR */}
       <header ref={headerRef} className="sticky top-0 z-40" style={{ background: T.primary }}>
         {logoSize === "grande" && identity.logoUrl ? (

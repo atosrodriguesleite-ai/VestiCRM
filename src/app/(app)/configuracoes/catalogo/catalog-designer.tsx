@@ -21,6 +21,7 @@ import {
 import { Card } from "@/components/ui";
 import { fileToDataUrl, removeBackground } from "@/lib/upload";
 import { readableOn } from "@/lib/color";
+import { ColorPicker } from "@/components/color-picker";
 
 type ColorItem = { id: string; name: string; hex: string };
 type SizeItem = { id: string; name: string };
@@ -176,6 +177,16 @@ export function CatalogDesigner({
     }
   }
 
+  /** Troca a tonalidade de uma cor existente (o nome é a chave no servidor). */
+  async function trocarTom(cor: ColorItem, hex: string) {
+    setColors((prev) => prev.map((c) => (c.id === cor.id ? { ...c, hex } : c)));
+    await fetch("/api/catalog-colors", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: cor.name, hex }),
+    });
+  }
+
   async function removeColor(id: string) {
     setColors((prev) => prev.filter((c) => c.id !== id));
     await fetch(`/api/catalog-colors/${id}`, { method: "DELETE" });
@@ -316,24 +327,22 @@ export function CatalogDesigner({
                     ["Fundo", bg, setBg],
                   ] as const
                 ).map(([label, value, set]) => (
-                  <label key={label} className="block cursor-pointer">
+                  <div key={label} className="block">
                     <span className="text-[11px] text-gray-500 font-medium">{label}</span>
                     <span
-                      className="mt-1 flex items-center justify-between rounded-xl border border-gray-200 px-2.5 py-2"
+                      className="mt-1 flex items-center justify-between gap-1 rounded-xl border border-gray-200 px-2 py-1.5"
                       style={{ background: value, color: readableOn(value) }}
                     >
                       <span className="text-[11px] font-mono font-semibold uppercase">
                         {value}
                       </span>
-                      <input
-                        type="color"
-                        disabled={!canEditIdentity}
-                        value={value}
-                        onChange={(e) => set(e.target.value)}
-                        className="size-6 rounded cursor-pointer bg-transparent border-0 p-0"
-                      />
+                      {canEditIdentity && (
+                        // mesmo seletor da biblioteca: cartela de moda, código
+                        // exato da marca e o leque completo do aparelho
+                        <ColorPicker value={value} onChange={set} label="" />
+                      )}
                     </span>
-                  </label>
+                  </div>
                 ))}
               </div>
               <div className="flex flex-wrap gap-1.5 mt-2.5">
@@ -507,10 +516,20 @@ export function CatalogDesigner({
               key={c.id}
               className="group flex items-center gap-2 rounded-full border border-gray-200 pl-1.5 pr-2.5 py-1.5 text-xs font-medium"
             >
-              <span
-                className="size-5 rounded-full border border-black/10"
-                style={{ background: c.hex }}
-              />
+              {canEdit ? (
+                // trocar a tonalidade de uma cor JÁ criada sem ter que apagar
+                // e refazer (apagar mexeria nos produtos que usam a cor)
+                <ColorPicker
+                  value={c.hex}
+                  onChange={(hex) => trocarTom(c, hex)}
+                  label=""
+                />
+              ) : (
+                <span
+                  className="size-5 rounded-full border border-black/10"
+                  style={{ background: c.hex }}
+                />
+              )}
               {c.name}
               {canEdit && (
                 <button
@@ -529,12 +548,15 @@ export function CatalogDesigner({
         </div>
         {canEdit && (
           <div className="flex flex-wrap items-center gap-2">
-            <input
-              type="color"
+            <ColorPicker
               value={newColor.hex}
-              onChange={(e) => setNewColor((c) => ({ ...c, hex: e.target.value }))}
-              className="size-10 rounded-xl cursor-pointer border border-gray-200 p-1 bg-white"
-              title="Escolher tonalidade"
+              onChange={(hex) => setNewColor((c) => ({ ...c, hex }))}
+              // escolheu "Terracota" na cartela? o nome já vem junto — ela só
+              // troca se quiser um nome próprio ("Terracota Verão 26")
+              onPickName={(nome) =>
+                setNewColor((c) => ({ ...c, name: c.name.trim() ? c.name : nome }))
+              }
+              label="Escolher cor"
             />
             <input
               value={newColor.name}

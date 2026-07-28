@@ -16,7 +16,17 @@ export type OutboundPayload = {
   mediaUrl?: string;
   fileName?: string;
   templateName?: string;
-  replyToExternalId?: string;
+  /**
+   * Mensagem citada, quando é uma RESPOSTA. Precisa ir completa (id + de quem
+   * é + conteúdo): citação só com o id vira citação sem autor e o WhatsApp
+   * pode não conseguir montar a mensagem.
+   */
+  replyTo?: {
+    externalId: string;
+    /** a citada foi enviada pela loja (OUT) ou pela cliente (IN)? */
+    fromMe: boolean;
+    texto?: string;
+  };
 };
 
 export type SendResult =

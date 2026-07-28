@@ -186,17 +186,17 @@ export default async function DashboardPage({
     db.order.aggregate({
       where: { ...orderScope, paidAt: { gte: startOfDay } },
       _count: true,
-      _sum: { total: true },
+      _sum: { netTotal: true },
     }),
     db.order.aggregate({
       where: { ...orderScope, paidAt: { gte: days7 } },
       _count: true,
-      _sum: { total: true },
+      _sum: { netTotal: true },
     }),
     db.order.aggregate({
       where: { ...orderScope, paidAt: inPeriod },
       _count: true,
-      _sum: { total: true },
+      _sum: { netTotal: true },
     }),
     db.orderItem.groupBy({
       by: ["name"],
@@ -208,7 +208,7 @@ export default async function DashboardPage({
     db.order.groupBy({
       by: ["customerId"],
       where: { ...orderScope, paidAt: inPeriod },
-      _sum: { total: true },
+      _sum: { netTotal: true },
       _count: true,
       orderBy: { _sum: { total: "desc" } },
       take: 5,
@@ -255,7 +255,7 @@ export default async function DashboardPage({
   });
   const buyerName = new Map(buyerNames.map((b) => [b.id, b.name]));
   const avgOrder = ordersMonth._count
-    ? (ordersMonth._sum.total ?? 0) / ordersMonth._count
+    ? (ordersMonth._sum.netTotal ?? 0) / ordersMonth._count
     : 0;
   const repurchaseRate = buyersAll.length
     ? (buyersAll.filter((b) => b._count >= 2).length / buyersAll.length) * 100
@@ -625,14 +625,14 @@ export default async function DashboardPage({
         <StatCard
           label="Pedidos pagos hoje"
           value={ordersToday._count}
-          hint={brl(ordersToday._sum.total ?? 0)}
+          hint={brl(ordersToday._sum.netTotal ?? 0)}
           icon={<ShoppingBag />}
           info="Quantidade e valor dos pedidos pagos hoje (desde a meia-noite, horário de São Paulo)."
         />
         <StatCard
           label="Pagos na semana"
           value={ordersWeek._count}
-          hint={brl(ordersWeek._sum.total ?? 0)}
+          hint={brl(ordersWeek._sum.netTotal ?? 0)}
           icon={<ShoppingBag />}
           info="Pedidos pagos nos últimos 7 dias, com o valor somado."
         />
@@ -697,7 +697,7 @@ export default async function DashboardPage({
                 color="#10b981"
                 data={topBuyers.map((b) => ({
                   label: buyerName.get(b.customerId) ?? "Cliente",
-                  value: b._sum.total ?? 0,
+                  value: b._sum.netTotal ?? 0,
                   sub: `${b._count} pedido${b._count === 1 ? "" : "s"}`,
                 }))}
                 formatValue={brl}

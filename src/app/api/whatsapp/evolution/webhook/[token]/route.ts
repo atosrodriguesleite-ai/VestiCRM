@@ -3,8 +3,10 @@ import { db } from "@/lib/db";
 import { receiveMessage, updateDeliveryStatus } from "@/lib/comm/engine";
 import { jidToPhone, evoGetMediaBase64 } from "@/lib/comm/evolution";
 import { findCustomerByPhone } from "@/lib/intake";
-import { alertWhatsappDown } from "@/lib/health";
-import type { MessageMedia } from "@prisma/client";
+import { alertWhatsappDown, logServerError } from "@/lib/health";
+import { adCode, campanhaDoAnuncio } from "@/lib/ad-match";
+import { formatPhone } from "@/lib/format";
+import { lerMensagemWA } from "@/lib/comm/wa-message";
 
 /**
  * Webhook do WhatsApp sem API oficial (Evolution → plataforma).
@@ -59,13 +61,6 @@ type EvoMessage = {
   status?: string;
 };
 
-type Extracted = {
-  text: string;
-  mediaType: MessageMedia;
-  mimeFallback: string | null;
-  fileName: string | null;
-};
-
 /**
  * Prévia do anúncio (se a mensagem veio de um clique em anúncio).
  *
@@ -93,30 +88,6 @@ function extractAdReferral(m: EvoMessage): AdReply | null {
   };
   procurar(m as unknown, 0);
   return achado;
-}
-
-function extractText(m: EvoMessage): Extracted {
-  const msg = m.message ?? {};
-  if (msg.conversation)
-    return { text: msg.conversation, mediaType: "TEXT", mimeFallback: null, fileName: null };
-  if (msg.extendedTextMessage?.text)
-    return { text: msg.extendedTextMessage.text, mediaType: "TEXT", mimeFallback: null, fileName: null };
-  if (msg.imageMessage)
-    return { text: msg.imageMessage.caption || "[foto]", mediaType: "IMAGE", mimeFallback: msg.imageMessage.mimetype ?? "image/jpeg", fileName: null };
-  if (msg.videoMessage)
-    return { text: msg.videoMessage.caption || "[vídeo]", mediaType: "VIDEO", mimeFallback: msg.videoMessage.mimetype ?? "video/mp4", fileName: null };
-  if (msg.audioMessage)
-    return { text: "[áudio]", mediaType: "AUDIO", mimeFallback: msg.audioMessage.mimetype ?? "audio/ogg", fileName: null };
-  if (msg.documentMessage)
-    return {
-      text: `[arquivo] ${msg.documentMessage.fileName ?? ""}`.trim(),
-      mediaType: "DOCUMENT",
-      mimeFallback: msg.documentMessage.mimetype ?? "application/octet-stream",
-      fileName: msg.documentMessage.fileName ?? null,
-    };
-  if (msg.stickerMessage)
-    return { text: "[figurinha]", mediaType: "IMAGE", mimeFallback: msg.stickerMessage.mimetype ?? "image/webp", fileName: null };
-  return { text: "", mediaType: "TEXT", mimeFallback: null, fileName: null };
 }
 
 // teto de segurança do arquivo salvo na conversa (~12 MB em base64)
@@ -197,7 +168,13 @@ export async function POST(
         ? raw
         : (raw as { messages?: EvoMessage[] })?.messages ?? [raw as EvoMessage];
 
+      // UMA MENSAGEM COM PROBLEMA NÃO PODE DERRUBAR O LOTE.
+      // O servidor entrega várias mensagens de uma vez. Com um único try em
+      // volta do laço, um erro na 3ª fazia as outras 7 nunca serem gravadas —
+      // e ninguém ficava sabendo. Agora cada uma é isolada e o erro fica
+      // registrado no painel de Saúde com o id da mensagem.
       for (const m of list) {
+        try {
         const jid = m.key?.remoteJid ?? "";
         // grupos/status ficam de fora; contato @lid usa o número do senderPn
         let phone = jidToPhone(jid);
@@ -223,21 +200,45 @@ export async function POST(
         const editedText =
           edited?.conversation ?? edited?.extendedTextMessage?.text ?? null;
         if (editedText && m.key?.id) {
-          await db.message.updateMany({
+          const r = await db.message.updateMany({
             where: { externalId: m.key.id, conversation: { companyId } },
             data: { body: editedText, editedAt: new Date() },
           });
-          continue;
+          // Se a mensagem original não está aqui (chegou antes da conexão, ou
+          // se perdeu), NÃO descarta: segue o fluxo e entra como mensagem
+          // nova, já com o texto corrigido. Editar não pode apagar do sistema.
+          if (r.count > 0) continue;
         }
 
-        const { text, mediaType, mimeFallback, fileName } = extractText(m);
+        const { text, mediaType, mimeFallback, fileName } = lerMensagemWA(m);
+        // Só pula quando NÃO HÁ conteúdo nenhum (evento de controle do
+        // protocolo). Formato desconhecido vira uma bolha de aviso — some da
+        // conversa é o que não pode acontecer.
         if (!text) continue;
+
+        // NÃO DUPLICAR: o servidor pode reentregar a mesma mensagem (retentativa,
+        // reconexão, sincronização). O id da mensagem é único no WhatsApp —
+        // se ele já está gravado nesta loja, não entra de novo.
+        if (m.key?.id) {
+          const jaGravada = await db.message.findFirst({
+            where: { externalId: m.key.id, conversation: { companyId } },
+            select: { id: true },
+          });
+          if (jaGravada) continue;
+        }
 
         // foto/áudio/vídeo/arquivo: baixa o conteúdo para exibir na conversa
         const mediaUrl =
           mediaType === "TEXT"
             ? null
             : await fetchMediaDataUrl(settings.evolutionInstance, m.key?.id, mimeFallback);
+        // arquivo não veio (grande demais, expirado no servidor): a mensagem
+        // entra assim mesmo, dizendo que existe um anexo — sem isso a bolha
+        // aparecia como texto seco e ninguém sabia que faltava algo
+        const textoFinal =
+          mediaType !== "TEXT" && !mediaUrl
+            ? `${text} (não foi possível baixar o arquivo — veja no WhatsApp)`
+            : text;
 
         if (!m.key?.fromMe) {
           // mensagem do CLIENTE → central de leads (funil, vendedor, tarefa)
@@ -245,7 +246,7 @@ export async function POST(
             channel: "WHATSAPP",
             phone,
             name: m.pushName || undefined,
-            text,
+            text: textoFinal,
             ...(mediaType !== "TEXT" && mediaUrl
               ? { mediaType, mediaUrl, fileName: fileName ?? undefined }
               : {}),
@@ -257,26 +258,6 @@ export async function POST(
           // consegue atribuir a conversa à campanha certa. Sem duplicar: a
           // mesma prévia só entra uma vez por conversa.
           const ad = extractAdReferral(m);
-          // diagnóstico (Central de Comunicação): se o cliente é NOVO e não
-          // veio prévia de anúncio, registra que tipos de conteúdo chegaram —
-          // é assim que descobrimos se o servidor está mandando ou não
-          if (!ad && result?.isNewLead) {
-            await db.commEvent
-              .create({
-                data: {
-                  companyId,
-                  channel: "WHATSAPP",
-                  direction: "IN",
-                  type: "wa.anuncio.ausente",
-                  status: "OK",
-                  payload: JSON.stringify({
-                    tipos: Object.keys(m.message ?? {}),
-                    temContexto: JSON.stringify(m.message ?? {}).includes("contextInfo"),
-                  }).slice(0, 300),
-                },
-              })
-              .catch(() => {});
-          }
           if (ad && result?.conversation) {
             const marcador = ad.sourceUrl || ad.title || ad.sourceId || "";
             const jaTem = marcador
@@ -310,17 +291,87 @@ export async function POST(
                 data: { lastMessageAt: new Date() },
               });
             }
+
+            // 🎯 ATRIBUIÇÃO: guarda o código do anúncio no cliente e, se ele
+            // pertence a uma campanha cadastrada, amarra a campanha sozinha.
+            // Vale a regra do "primeiro contato": não sobrescreve atribuição
+            // que já existe (quem trouxe a cliente foi quem trouxe).
+            const codigo = adCode(ad);
+            if (codigo) {
+              const cliente = await db.customer.findUnique({
+                where: { id: result.customer.id },
+                select: { adRef: true, campaignId: true },
+              });
+              const campanhas = cliente?.campaignId
+                ? []
+                : await db.marketingCampaign.findMany({
+                    where: { companyId, active: true },
+                    select: { id: true, adRefs: true, active: true },
+                  });
+              const campanha = campanhaDoAnuncio(codigo, campanhas);
+              const patch = {
+                ...(cliente?.adRef ? {} : { adRef: codigo }),
+                ...(campanha ? { campaignId: campanha.id } : {}),
+              };
+              if (Object.keys(patch).length) {
+                await db.customer
+                  .update({ where: { id: result.customer.id }, data: patch })
+                  .catch(() => {});
+              }
+            }
           }
         } else {
           // mensagem enviada PELO CELULAR da loja → registra na conversa do
           // cliente (histórico completo), sem reenviar nada. Casamento
           // tolerante a 9º dígito, DDI e formatação (mesma regra do intake).
-          const customer = await findCustomerByPhone(companyId, phone);
-          if (!customer) continue;
+          let customer = await findCustomerByPhone(companyId, phone);
+          if (!customer) {
+            // A vendedora puxou assunto pelo APP com um número que ainda não
+            // está no CRM (follow-up, indicação, contato de feira). Antes a
+            // mensagem era jogada fora e a conversa nunca aparecia no sistema
+            // — a loja perdia o atendimento de vista.
+            //
+            // Cria o contato mínimo. NÃO passa pelo Lead Intake: aqui quem
+            // puxou assunto foi a LOJA, então não é lead novo entrando — não
+            // cabe distribuir vendedor, abrir oportunidade nem criar tarefa.
+            //
+            // O nome NÃO pode vir de `pushName`: em mensagem enviada por nós,
+            // esse campo é o nome da PRÓPRIA LOJA, não o de quem recebeu.
+            customer = await db.customer.create({
+              data: {
+                companyId,
+                name: `Contato ${formatPhone(phone)}`,
+                phone,
+                origin: "WHATSAPP",
+              },
+            });
+            await db.customerEvent
+              .create({
+                data: {
+                  companyId,
+                  customerId: customer.id,
+                  type: "LEAD_CRIADO",
+                  channel: "WHATSAPP",
+                  description:
+                    "Contato criado automaticamente: a loja iniciou a conversa pelo aplicativo do WhatsApp.",
+                },
+              })
+              .catch(() => {});
+          }
           let conv = await db.conversation.findFirst({
             where: { companyId, customerId: customer.id, status: { not: "CLOSED" } },
             orderBy: { lastMessageAt: "desc" },
           });
+          // conversa aberta que ainda não tem dona: a loja falou com a
+          // cliente, então o atendimento passa a ser da responsável por ela
+          // (mesma régua da carteira). Sem responsável cadastrada, segue sem
+          // dona — e a regra da fila já mantém isso fora da fila.
+          if (conv && !conv.assigneeId && customer.ownerId) {
+            conv = await db.conversation.update({
+              where: { id: conv.id },
+              data: { assigneeId: customer.ownerId },
+            });
+          }
           if (!conv) {
             // histórico é sagrado: reabre a conversa encerrada mais recente
             // (mantém todo o histórico) em vez de nascer um chat vazio
@@ -328,13 +379,28 @@ export async function POST(
               where: { companyId, customerId: customer.id, status: "CLOSED" },
               orderBy: { lastMessageAt: "desc" },
             });
+            // QUEM FALOU FOI A LOJA — a conversa NÃO nasce na fila.
+            //
+            // Fila é cliente esperando atendimento. Aqui foi a loja que puxou
+            // assunto pelo celular, então o atendimento já está acontecendo:
+            // ele vai para a responsável pela cliente (a dona da carteira, a
+            // mesma régua da comissão). Sem responsável cadastrada, a conversa
+            // fica em Chats sem dona — e qualquer uma pode assumir.
             conv = encerrada
               ? await db.conversation.update({
                   where: { id: encerrada.id },
-                  data: { status: "OPEN" },
+                  data: {
+                    status: "OPEN",
+                    ...(encerrada.assigneeId ? {} : { assigneeId: customer.ownerId }),
+                  },
                 })
               : await db.conversation.create({
-                  data: { companyId, customerId: customer.id, status: "OPEN" },
+                  data: {
+                    companyId,
+                    customerId: customer.id,
+                    status: "OPEN",
+                    assigneeId: customer.ownerId,
+                  },
                 });
           }
           const exists = m.key?.id
@@ -355,9 +421,12 @@ export async function POST(
                 externalId: null,
                 status: { in: ["ENVIANDO", "FALHOU"] },
                 createdAt: { gt: new Date(Date.now() - 10 * 60 * 1000) },
-                ...(mediaType !== "TEXT" ? { mediaType } : { mediaType: "TEXT", body: text }),
+                ...(mediaType !== "TEXT" ? { mediaType } : { mediaType: "TEXT", body: textoFinal }),
               },
-              orderBy: { createdAt: "desc" },
+              // MAIS ANTIGA primeiro: os ecos chegam na ordem em que foram
+              // enviados. Adotando a mais nova, duas mensagens iguais mandadas
+              // em seguida ("ok", "ok") trocavam de identidade entre si.
+              orderBy: { createdAt: "asc" },
             });
             if (pendente) {
               await db.message.update({
@@ -370,7 +439,11 @@ export async function POST(
               });
               await db.conversation.update({
                 where: { id: conv.id },
-                data: { lastMessageAt: new Date(), lastOutboundAt: new Date() },
+                data: {
+                  lastMessageAt: new Date(),
+                  lastOutboundAt: new Date(),
+                  unreadCount: 0,
+                },
               });
               continue;
             }
@@ -381,7 +454,7 @@ export async function POST(
                 conversationId: conv.id,
                 channel: "WHATSAPP",
                 direction: "OUT",
-                body: text,
+                body: textoFinal,
                 ...(mediaType !== "TEXT" && mediaUrl
                   ? { mediaType, mediaUrl, fileName }
                   : {}),
@@ -389,11 +462,26 @@ export async function POST(
                 status: "ENVIADA",
               },
             });
+            // respondeu pelo CELULAR = leu a conversa. Sem zerar aqui, o
+            // sistema seguia mostrando "3 não lidas" numa conversa já
+            // atendida, e o time perdia a confiança no contador.
             await db.conversation.update({
               where: { id: conv.id },
-              data: { lastMessageAt: new Date(), lastOutboundAt: new Date() },
+              data: {
+                lastMessageAt: new Date(),
+                lastOutboundAt: new Date(),
+                unreadCount: 0,
+              },
             });
           }
+        }
+        } catch (e) {
+          await logServerError({
+            source: "wa.webhook",
+            path: `/api/whatsapp/evolution/webhook (${event})`,
+            message: `Falha ao gravar uma mensagem do WhatsApp: ${e instanceof Error ? e.message : String(e)}`,
+            detail: JSON.stringify({ id: m.key?.id, de: m.key?.remoteJid, minha: m.key?.fromMe }),
+          }).catch(() => {});
         }
       }
     }
@@ -423,7 +511,10 @@ export async function POST(
             channel: "WHATSAPP",
             direction: "IN",
             type: "wa.cliente.apagou",
-            status: matched > 0 ? "OK" : "ERRO",
+            // não achar a mensagem não é defeito: pode ser de grupo, ou
+            // anterior à conexão. Marcar ERRO enchia o painel da lojista de
+            // falha vermelha por algo normal.
+            status: "OK",
             payload: JSON.stringify(body.data).slice(0, 500),
             response: JSON.stringify({ marcadas: matched }),
           },
@@ -438,16 +529,39 @@ export async function POST(
       const list = Array.isArray(raw) ? raw : [raw];
       for (const u of list) {
         if (!u?.keyId || !u.status) continue;
-        const map: Record<string, "ENTREGUE" | "LIDA"> = {
+        // PLAYED = ouviu o áudio (implica ter lido).
+        // ERROR/FAILED = a mensagem NÃO chegou. Sem tratar isso, a bolha
+        // seguia mostrando "enviada" para sempre e a vendedora achava que a
+        // cliente tinha recebido — a pior informação errada possível aqui.
+        const map: Record<string, "ENTREGUE" | "LIDA" | "FALHOU"> = {
           DELIVERY_ACK: "ENTREGUE",
           READ: "LIDA",
+          PLAYED: "LIDA",
+          ERROR: "FALHOU",
+          FAILED: "FALHOU",
         };
         const status = map[u.status.toUpperCase()];
-        if (status) await updateDeliveryStatus(companyId, u.keyId, status);
+        if (!status) continue;
+        await updateDeliveryStatus(
+          companyId,
+          u.keyId,
+          status,
+          status === "FALHOU"
+            ? "O WhatsApp não conseguiu entregar esta mensagem."
+            : undefined
+        );
       }
     }
-  } catch {
-    // erros internos não devem derrubar o webhook — eventos seguintes continuam
+  } catch (e) {
+    // O webhook nunca devolve erro (senão o servidor entra em tempestade de
+    // retentativas), MAS o problema não pode sumir: fica registrado no painel
+    // de Saúde. Antes era engolido em silêncio — mensagem perdida sem rastro.
+    await logServerError({
+      source: "wa.webhook",
+      path: `/api/whatsapp/evolution/webhook (${event})`,
+      message: `Falha no webhook do WhatsApp: ${e instanceof Error ? e.message : String(e)}`,
+      detail: e instanceof Error ? (e.stack ?? null) : null,
+    }).catch(() => {});
   }
 
   return NextResponse.json({ ok: true });

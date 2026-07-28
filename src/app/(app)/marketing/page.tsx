@@ -10,6 +10,7 @@ import { Card, PageHeader, EmptyState } from "@/components/ui";
 import { StatCard } from "@/components/dash";
 import { BarList, Donut, PeriodChips } from "@/components/charts";
 import { CampaignsManager, type Campanha } from "./campaigns-manager";
+import { refsDaCampanha } from "@/lib/ad-match";
 
 export const dynamic = "force-dynamic";
 
@@ -71,16 +72,16 @@ export default async function MarketingPage({
     db.customer.findMany({ where: { companyId, createdAt: inPrev }, select: { origin: true } }),
     db.order.findMany({
       where: { companyId, status: { in: PAID_ORDER_STATUSES }, paidAt: inPeriod },
-      select: { total: true, customerId: true, customer: { select: { origin: true, campaignId: true } } },
+      select: { netTotal: true, customerId: true, customer: { select: { origin: true, campaignId: true } } },
     }),
     db.order.findMany({
       where: { companyId, status: { in: PAID_ORDER_STATUSES }, paidAt: inPrev },
-      select: { total: true, customer: { select: { origin: true } } },
+      select: { netTotal: true, customer: { select: { origin: true } } },
     }),
     db.marketingCampaign.findMany({
       where: { companyId },
       orderBy: [{ active: "desc" }, { createdAt: "desc" }],
-      select: { id: true, name: true, channel: true, utmKey: true, active: true, _count: { select: { customers: true } } },
+      select: { id: true, name: true, channel: true, utmKey: true, active: true, adRefs: true, _count: { select: { customers: true } } },
     }),
     db.order.groupBy({
       by: ["customerId"],
@@ -94,6 +95,26 @@ export default async function MarketingPage({
   ]);
 
   const campById = new Map(campaignRows.map((c) => [c.id, c]));
+
+  // ANÚNCIOS DETECTADOS: clientes que chegaram clicando num anúncio
+  // (Click-to-WhatsApp). Os que ainda não pertencem a nenhuma campanha ficam
+  // na lista para a loja vincular com um clique — e o histórico vai junto.
+  const anunciosRaw = await db.customer.groupBy({
+    by: ["adRef"],
+    where: { companyId, adRef: { not: null } },
+    _count: { _all: true },
+    _max: { createdAt: true },
+  });
+  const refsJaUsadas = new Set(campaignRows.flatMap((c) => refsDaCampanha(c.adRefs)));
+  const anunciosDetectados = anunciosRaw
+    .filter((a) => a.adRef && !refsJaUsadas.has(a.adRef))
+    .map((a) => ({
+      ref: a.adRef as string,
+      clientes: a._count._all,
+      ultimo: a._max.createdAt?.toISOString() ?? null,
+    }))
+    .sort((a, b) => b.clientes - a.clientes)
+    .slice(0, 12);
 
   /**
    * CONVERSÃO POR COORTE: "dos leads que entraram no período, quantos
@@ -126,7 +147,7 @@ export default async function MarketingPage({
   const canalLeads = new Map<string, number>();
   for (const l of leadsAll) canalLeads.set(l.origin, (canalLeads.get(l.origin) ?? 0) + 1);
   const canalFat = new Map<string, number>();
-  for (const o of ordersAll) canalFat.set(o.customer.origin, (canalFat.get(o.customer.origin) ?? 0) + o.total);
+  for (const o of ordersAll) canalFat.set(o.customer.origin, (canalFat.get(o.customer.origin) ?? 0) + o.netTotal);
   const canais = [...canaisSet]
     .map((o) => ({
       origin: o,
@@ -159,11 +180,11 @@ export default async function MarketingPage({
   for (const o of paidOrders) {
     const cid = o.customer.campaignId;
     if (!cid) {
-      fatSemCamp += o.total;
+      fatSemCamp += o.netTotal;
       continue;
     }
     const cur = campFat.get(cid) ?? { fat: 0, pedidos: 0, clientes: new Set<string>() };
-    cur.fat += o.total;
+    cur.fat += o.netTotal;
     cur.pedidos += 1;
     cur.clientes.add(o.customerId);
     campFat.set(cid, cur);
@@ -191,10 +212,10 @@ export default async function MarketingPage({
 
   // ---- números do topo (já filtrados pelo canal, quando houver) ----
   const totalLeads = leads.length;
-  const totalFat = paidOrders.reduce((s, o) => s + o.total, 0);
+  const totalFat = paidOrders.reduce((s, o) => s + o.netTotal, 0);
   const ticket = paidOrders.length > 0 ? totalFat / paidOrders.length : 0;
   const prevLeads = prevLeadsList.length;
-  const prevRevenue = prevOrdersList.reduce((s, o) => s + o.total, 0);
+  const prevRevenue = prevOrdersList.reduce((s, o) => s + o.netTotal, 0);
   // sem base no período anterior não dá pra calcular variação (mesma regra
   // do Dashboard — antes aqui devolvia "+100%", que era invenção)
   const pctDelta = (a: number, b: number) => (b > 0 ? Math.round(((a - b) / b) * 100) : null);
@@ -214,6 +235,7 @@ export default async function MarketingPage({
     channel: c.channel,
     utmKey: c.utmKey,
     active: c.active,
+    adRefs: c.adRefs,
     leads: c._count.customers,
   }));
 
@@ -397,7 +419,7 @@ export default async function MarketingPage({
       {/* gestão das campanhas */}
       <div className="pt-2">
         <h2 className="text-sm font-semibold text-slate-700 mb-3">Suas campanhas</h2>
-        <CampaignsManager initial={campanhas} />
+        <CampaignsManager initial={campanhas} anuncios={anunciosDetectados} />
       </div>
     </div>
   );

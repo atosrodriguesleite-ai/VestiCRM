@@ -7,7 +7,7 @@ import {
   jidToPhone,
 } from "./evolution";
 import { normalizePhone, findCustomerByPhone } from "../intake";
-import type { MessageMedia } from "@prisma/client";
+import { lerMensagemWA } from "./wa-message";
 
 /**
  * Importa o histórico RECENTE do WhatsApp (últimos N dias) que o servidor já
@@ -19,44 +19,49 @@ import type { MessageMedia } from "@prisma/client";
  */
 
 type WAMsg = {
-  key?: { remoteJid?: string; fromMe?: boolean; id?: string };
+  // senderPn: com a identidade nova do WhatsApp (@lid) o telefone real vem aqui
+  key?: { remoteJid?: string; fromMe?: boolean; id?: string; senderPn?: string };
   pushName?: string;
+  // a data chega em formatos diferentes conforme a versão do servidor:
+  // segundos, milissegundos, texto numérico ou data ISO
   messageTimestamp?: number | string;
-  message?: {
-    conversation?: string;
-    extendedTextMessage?: { text?: string };
-    imageMessage?: { caption?: string; mimetype?: string };
-    videoMessage?: { caption?: string; mimetype?: string };
-    documentMessage?: { fileName?: string; mimetype?: string };
-    audioMessage?: { mimetype?: string };
-    stickerMessage?: { mimetype?: string };
-  };
+  timestamp?: number | string;
+  createdAt?: string;
+  messageTimestampMs?: number | string;
+  // qualquer formato: quem interpreta é o leitor único (lib/comm/wa-message)
+  message?: Record<string, unknown>;
 };
 
-type Extracted = {
-  text: string;
-  mediaType: MessageMedia;
-  mimeFallback: string | null;
-  fileName: string | null;
-};
-
-function extract(m: WAMsg): Extracted {
-  const msg = m.message ?? {};
-  if (msg.conversation)
-    return { text: msg.conversation, mediaType: "TEXT", mimeFallback: null, fileName: null };
-  if (msg.extendedTextMessage?.text)
-    return { text: msg.extendedTextMessage.text, mediaType: "TEXT", mimeFallback: null, fileName: null };
-  if (msg.imageMessage)
-    return { text: msg.imageMessage.caption || "[foto]", mediaType: "IMAGE", mimeFallback: msg.imageMessage.mimetype ?? "image/jpeg", fileName: null };
-  if (msg.videoMessage)
-    return { text: msg.videoMessage.caption || "[vídeo]", mediaType: "VIDEO", mimeFallback: msg.videoMessage.mimetype ?? "video/mp4", fileName: null };
-  if (msg.audioMessage)
-    return { text: "[áudio]", mediaType: "AUDIO", mimeFallback: msg.audioMessage.mimetype ?? "audio/ogg", fileName: null };
-  if (msg.documentMessage)
-    return { text: `[arquivo] ${msg.documentMessage.fileName ?? ""}`.trim(), mediaType: "DOCUMENT", mimeFallback: msg.documentMessage.mimetype ?? "application/octet-stream", fileName: msg.documentMessage.fileName ?? null };
-  if (msg.stickerMessage)
-    return { text: "[figurinha]", mediaType: "IMAGE", mimeFallback: msg.stickerMessage.mimetype ?? "image/webp", fileName: null };
-  return { text: "", mediaType: "TEXT", mimeFallback: null, fileName: null };
+/**
+ * Data da mensagem, em milissegundos.
+ *
+ * O servidor manda a data de jeitos diferentes conforme a versão: segundos
+ * (padrão do WhatsApp), milissegundos, texto numérico ou data ISO. Ler só um
+ * formato fazia TODAS as mensagens caírem fora da janela de 30 dias — a
+ * importação lia milhares e importava zero.
+ */
+export function dataDaMensagem(m: {
+  messageTimestamp?: number | string;
+  timestamp?: number | string;
+  createdAt?: string;
+  messageTimestampMs?: number | string;
+}): number | null {
+  const brutos = [m.messageTimestamp, m.timestamp, m.messageTimestampMs, m.createdAt];
+  for (const bruto of brutos) {
+    if (bruto === undefined || bruto === null || bruto === "") continue;
+    const n = typeof bruto === "number" ? bruto : Number(bruto);
+    if (Number.isFinite(n) && n > 0) {
+      // < 1e12 é segundo (padrão do WhatsApp); acima já é milissegundo
+      const ms = n < 1e12 ? n * 1000 : n;
+      if (ms > 946_684_800_000) return ms; // a partir do ano 2000: data plausível
+      continue;
+    }
+    if (typeof bruto === "string") {
+      const iso = Date.parse(bruto);
+      if (Number.isFinite(iso)) return iso;
+    }
+  }
+  return null;
 }
 
 const MEDIA_BASE64_MAX = 12 * 1024 * 1024; // ~12 MB por mídia
@@ -76,8 +81,16 @@ async function baixarMidia(
   return `data:${mime};base64,${b64}`;
 }
 
-/** Conversas lidas uma a uma quando a leitura geral vem vazia (teto de tempo). */
-const MAX_CHATS = 40;
+/** Conversas lidas uma a uma (teto de segurança). */
+const MAX_CHATS = 120;
+/**
+ * ORÇAMENTO DE TEMPO. A rota tem 5 minutos; paramos de VARRER aos 2min30 e de
+ * GRAVAR aos 4min, devolvendo o que já deu. Antes, uma loja com muitas
+ * conversas estourava o tempo e a tela mostrava só "não foi possível
+ * importar" — perdendo tudo o que já tinha sido lido.
+ */
+const ORCAMENTO_VARRER_MS = 150_000;
+const ORCAMENTO_TOTAL_MS = 240_000;
 
 /** Extrai os identificadores das conversas devolvidas pelo servidor. */
 export function extractJids(data: unknown): string[] {
@@ -96,14 +109,16 @@ export function extractJids(data: unknown): string[] {
     const jid = [o.remoteJid, o.id, o.jid].find((v) => typeof v === "string") as
       | string
       | undefined;
-    // só conversas de pessoa: grupos (@g.us) e status ficam de fora
-    if (jid && jid.endsWith("@s.whatsapp.net") && !jids.includes(jid)) jids.push(jid);
+    // só conversas de PESSOA: grupos (@g.us) e status ficam de fora. O "@lid"
+    // é a identidade nova do WhatsApp — sem ele, conversas inteiras sumiam.
+    const ehPessoa = !!jid && (jid.endsWith("@s.whatsapp.net") || jid.endsWith("@lid"));
+    if (jid && ehPessoa && !jids.includes(jid)) jids.push(jid);
   }
   return jids;
 }
 
 /** Extrai a lista de mensagens de formatos variados de resposta do servidor. */
-function extractRecords(data: unknown): WAMsg[] {
+export function extractRecords(data: unknown): WAMsg[] {
   const d = data as Record<string, unknown> | unknown[] | null;
   if (Array.isArray(d)) return d as WAMsg[];
   if (d && typeof d === "object") {
@@ -120,44 +135,59 @@ export type HistoryImportResult = {
   importadas: number;
   conversas: number;
   encontradas: number;
+  semData: number; // vieram sem data legível
+  naJanela: number; // dentro dos N dias pedidos
 };
 
 export async function importRecentHistory(
   companyId: string,
   days = 30
 ): Promise<HistoryImportResult> {
+  const inicio = Date.now();
   const settings = await db.commSettings.findUnique({ where: { companyId } });
   if (!settings?.evolutionInstance || !evolutionEnv().configured)
     throw new Error("WhatsApp não conectado. Conecte o número em Comunicação.");
 
   const res = await evoFindMessages(settings.evolutionInstance);
-  let records = extractRecords(res.data);
+  const geral = extractRecords(res.data);
   let via = "geral";
-  let conversasVarridas = 0;
+  let lidas = 0;
+  let chatsEncontrados = 0;
 
-  // PLANO B: as versões novas do servidor só devolvem mensagens quando a
-  // pergunta é POR CONVERSA. Se a leitura geral vier vazia, lista os chats e
-  // lê um a um (com teto, para a importação não estourar o tempo).
-  if (res.ok && records.length === 0) {
+  // A leitura geral costuma devolver só um PEDAÇO (uma página, poucas
+  // conversas). Por isso varremos SEMPRE conversa por conversa e juntamos:
+  // antes, bastava a geral trazer 2 conversas para as outras nunca serem
+  // lidas — e a importação parecia "vazia" mesmo com histórico guardado.
+  const porId = new Map<string, WAMsg>();
+  const guardar = (lista: WAMsg[]) => {
+    for (const m of lista) {
+      const id = m.key?.id ?? `${m.key?.remoteJid ?? ""}-${m.messageTimestamp ?? ""}`;
+      if (!porId.has(id)) porId.set(id, m);
+    }
+  };
+  guardar(geral);
+
+  if (res.ok) {
     const chats = await evoFindChats(settings.evolutionInstance);
-    const jids = extractJids(chats.data).slice(0, MAX_CHATS);
-    conversasVarridas = jids.length;
-    const acumulado: WAMsg[] = [];
+    const todos = extractJids(chats.data);
+    chatsEncontrados = todos.length;
+    const jids = todos.slice(0, MAX_CHATS);
     for (const jid of jids) {
+      if (Date.now() - inicio > ORCAMENTO_VARRER_MS) {
+        via = "parcial-tempo";
+        break; // acabou o tempo de varredura: importa o que já leu
+      }
       const r = await evoFindMessages(settings.evolutionInstance, {
         remoteJid: jid,
         offset: 300,
       });
-      acumulado.push(...extractRecords(r.data));
-      if (acumulado.length >= 5000) break; // teto de segurança
+      guardar(extractRecords(r.data));
+      lidas++;
+      if (porId.size >= 8000) break; // teto de segurança
     }
-    if (acumulado.length) {
-      records = acumulado;
-      via = "por-conversa";
-    } else {
-      via = `por-conversa-vazio(chats=${extractJids(chats.data).length},http=${chats.status})`;
-    }
+    if (via !== "parcial-tempo") via = geral.length ? "geral+conversas" : "por-conversa";
   }
+  const records = [...porId.values()];
 
   // diagnóstico (aparece na Central de Comunicação): mostra o que o servidor
   // respondeu — se veio 0, sabemos se é config do servidor ou formato da leitura
@@ -166,25 +196,6 @@ export async function importRecentHistory(
     : res.data && typeof res.data === "object"
       ? `keys:${Object.keys(res.data as object).join(",")}`
       : typeof res.data;
-  await db.commEvent
-    .create({
-      data: {
-        companyId,
-        channel: "WHATSAPP",
-        direction: "IN",
-        type: "wa.historico.leitura",
-        status: res.ok ? "OK" : "ERRO",
-        payload: JSON.stringify({
-          httpStatus: res.status,
-          shape,
-          via,
-          conversasVarridas,
-          registros: records.length,
-        }).slice(0, 500),
-      },
-    })
-    .catch(() => {});
-
   if (!res.ok)
     throw new Error(
       `O servidor recusou a leitura do histórico (HTTP ${res.status}).`
@@ -193,11 +204,44 @@ export async function importRecentHistory(
   const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
 
   // filtra pela janela e ordena do mais antigo pro mais novo (cronológico)
-  const parsed = records
-    .map((r) => ({ r, ts: Number(r.messageTimestamp ?? 0) * 1000 }))
+  const comData = records
+    .map((r) => ({ r, ts: dataDaMensagem(r) }))
+    .filter((x): x is { r: WAMsg; ts: number } => x.ts !== null);
+  const semData = records.length - comData.length;
+  const parsed = comData
     .filter((x) => x.ts >= cutoff && x.ts <= Date.now() + 60_000)
     .sort((a, b) => a.ts - b.ts)
     .slice(0, 3000); // teto de segurança
+
+  // diagnóstico depois de filtrar: assim ele diz não só quanto o servidor
+  // devolveu, mas quantas mensagens tinham data legível e quantas caíram
+  // dentro da janela — é o que revela um filtro comendo tudo em silêncio
+  const maisNova = comData.length
+    ? new Date(Math.max(...comData.map((x) => x.ts))).toISOString().slice(0, 10)
+    : null;
+  await db.commEvent
+    .create({
+      data: {
+        companyId,
+        channel: "WHATSAPP",
+        direction: "IN",
+        type: "wa.historico.leitura",
+        status: "OK",
+        payload: JSON.stringify({
+          httpStatus: res.status,
+          shape,
+          via,
+          chatsEncontrados,
+          conversasVarridas: lidas,
+          registrosGeral: geral.length,
+          registros: records.length,
+          semDataLegivel: semData,
+          dentroDaJanela: parsed.length,
+          mensagemMaisNova: maisNova,
+        }).slice(0, 500),
+      },
+    })
+    .catch(() => {});
 
   let importadas = 0;
   let midiaBudget = MEDIA_DOWNLOAD_BUDGET;
@@ -205,9 +249,16 @@ export async function importRecentHistory(
   const convByCustomer = new Map<string, string>();
 
   for (const { r, ts } of parsed) {
-    const phone = jidToPhone(r.key?.remoteJid ?? ""); // grupos/status ficam de fora
+    if (Date.now() - inicio > ORCAMENTO_TOTAL_MS) break; // devolve o que já gravou
+    // grupos/status ficam de fora; contato @lid usa o número real do senderPn
+    const jid = r.key?.remoteJid ?? "";
+    let phone = jidToPhone(jid);
+    if (!phone && jid.endsWith("@lid")) {
+      const pn = (r.key?.senderPn ?? "").split("@")[0].replace(/\D/g, "");
+      if (/^\d{8,15}$/.test(pn)) phone = pn;
+    }
     if (!phone) continue;
-    const { text, mediaType, mimeFallback, fileName } = extract(r);
+    const { text, mediaType, mimeFallback, fileName } = lerMensagemWA(r);
     if (!text) continue;
     const extId = r.key?.id;
 
@@ -298,5 +349,7 @@ export async function importRecentHistory(
     importadas,
     conversas: convByCustomer.size,
     encontradas: records.length,
+    semData,
+    naJanela: parsed.length,
   };
 }
