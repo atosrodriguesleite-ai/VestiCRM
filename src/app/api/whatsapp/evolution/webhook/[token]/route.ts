@@ -6,7 +6,7 @@ import { findCustomerByPhone } from "@/lib/intake";
 import { alertWhatsappDown } from "@/lib/health";
 import { adCode, campanhaDoAnuncio } from "@/lib/ad-match";
 import { formatPhone } from "@/lib/format";
-import type { MessageMedia } from "@prisma/client";
+import { lerMensagemWA } from "@/lib/comm/wa-message";
 
 /**
  * Webhook do WhatsApp sem API oficial (Evolution → plataforma).
@@ -61,13 +61,6 @@ type EvoMessage = {
   status?: string;
 };
 
-type Extracted = {
-  text: string;
-  mediaType: MessageMedia;
-  mimeFallback: string | null;
-  fileName: string | null;
-};
-
 /**
  * Prévia do anúncio (se a mensagem veio de um clique em anúncio).
  *
@@ -95,30 +88,6 @@ function extractAdReferral(m: EvoMessage): AdReply | null {
   };
   procurar(m as unknown, 0);
   return achado;
-}
-
-function extractText(m: EvoMessage): Extracted {
-  const msg = m.message ?? {};
-  if (msg.conversation)
-    return { text: msg.conversation, mediaType: "TEXT", mimeFallback: null, fileName: null };
-  if (msg.extendedTextMessage?.text)
-    return { text: msg.extendedTextMessage.text, mediaType: "TEXT", mimeFallback: null, fileName: null };
-  if (msg.imageMessage)
-    return { text: msg.imageMessage.caption || "[foto]", mediaType: "IMAGE", mimeFallback: msg.imageMessage.mimetype ?? "image/jpeg", fileName: null };
-  if (msg.videoMessage)
-    return { text: msg.videoMessage.caption || "[vídeo]", mediaType: "VIDEO", mimeFallback: msg.videoMessage.mimetype ?? "video/mp4", fileName: null };
-  if (msg.audioMessage)
-    return { text: "[áudio]", mediaType: "AUDIO", mimeFallback: msg.audioMessage.mimetype ?? "audio/ogg", fileName: null };
-  if (msg.documentMessage)
-    return {
-      text: `[arquivo] ${msg.documentMessage.fileName ?? ""}`.trim(),
-      mediaType: "DOCUMENT",
-      mimeFallback: msg.documentMessage.mimetype ?? "application/octet-stream",
-      fileName: msg.documentMessage.fileName ?? null,
-    };
-  if (msg.stickerMessage)
-    return { text: "[figurinha]", mediaType: "IMAGE", mimeFallback: msg.stickerMessage.mimetype ?? "image/webp", fileName: null };
-  return { text: "", mediaType: "TEXT", mimeFallback: null, fileName: null };
 }
 
 // teto de segurança do arquivo salvo na conversa (~12 MB em base64)
@@ -232,14 +201,35 @@ export async function POST(
           continue;
         }
 
-        const { text, mediaType, mimeFallback, fileName } = extractText(m);
+        const { text, mediaType, mimeFallback, fileName } = lerMensagemWA(m);
+        // Só pula quando NÃO HÁ conteúdo nenhum (evento de controle do
+        // protocolo). Formato desconhecido vira uma bolha de aviso — some da
+        // conversa é o que não pode acontecer.
         if (!text) continue;
+
+        // NÃO DUPLICAR: o servidor pode reentregar a mesma mensagem (retentativa,
+        // reconexão, sincronização). O id da mensagem é único no WhatsApp —
+        // se ele já está gravado nesta loja, não entra de novo.
+        if (m.key?.id) {
+          const jaGravada = await db.message.findFirst({
+            where: { externalId: m.key.id, conversation: { companyId } },
+            select: { id: true },
+          });
+          if (jaGravada) continue;
+        }
 
         // foto/áudio/vídeo/arquivo: baixa o conteúdo para exibir na conversa
         const mediaUrl =
           mediaType === "TEXT"
             ? null
             : await fetchMediaDataUrl(settings.evolutionInstance, m.key?.id, mimeFallback);
+        // arquivo não veio (grande demais, expirado no servidor): a mensagem
+        // entra assim mesmo, dizendo que existe um anexo — sem isso a bolha
+        // aparecia como texto seco e ninguém sabia que faltava algo
+        const textoFinal =
+          mediaType !== "TEXT" && !mediaUrl
+            ? `${text} (não foi possível baixar o arquivo — veja no WhatsApp)`
+            : text;
 
         if (!m.key?.fromMe) {
           // mensagem do CLIENTE → central de leads (funil, vendedor, tarefa)
@@ -247,7 +237,7 @@ export async function POST(
             channel: "WHATSAPP",
             phone,
             name: m.pushName || undefined,
-            text,
+            text: textoFinal,
             ...(mediaType !== "TEXT" && mediaUrl
               ? { mediaType, mediaUrl, fileName: fileName ?? undefined }
               : {}),
@@ -418,7 +408,7 @@ export async function POST(
                 externalId: null,
                 status: { in: ["ENVIANDO", "FALHOU"] },
                 createdAt: { gt: new Date(Date.now() - 10 * 60 * 1000) },
-                ...(mediaType !== "TEXT" ? { mediaType } : { mediaType: "TEXT", body: text }),
+                ...(mediaType !== "TEXT" ? { mediaType } : { mediaType: "TEXT", body: textoFinal }),
               },
               orderBy: { createdAt: "desc" },
             });
@@ -444,7 +434,7 @@ export async function POST(
                 conversationId: conv.id,
                 channel: "WHATSAPP",
                 direction: "OUT",
-                body: text,
+                body: textoFinal,
                 ...(mediaType !== "TEXT" && mediaUrl
                   ? { mediaType, mediaUrl, fileName }
                   : {}),
