@@ -525,12 +525,18 @@ async function criarProdutoEspelhado(companyId: string, p: NsProduct) {
  *  de ajuste manual (SKU da variação ou nome de cor/tamanho). */
 export async function syncProducts(companyId: string) {
   const conn = await loadConn(companyId);
-  if (!conn) return { ok: false as const, produtos: 0, report: null };
+  if (!conn) return { ok: false as const, produtos: 0, report: null, status: -1 };
   const report: SyncReport = { casadas: 0, criadas: 0, pendencias: [] };
   let page = 1;
   let total = 0;
   for (; page <= 50; page++) {
     const res = await api<NsProduct[]>(conn, "GET", `/products?per_page=50&page=${page}`);
+    // A PRIMEIRA página falhando não é "sincronizou zero": é a Nuvemshop
+    // recusando a conversa (autorização vencida, limite, fora do ar). Antes
+    // isso saía como sucesso com 0 produtos e ninguém entendia nada.
+    if (!res.ok && page === 1) {
+      return { ok: false as const, produtos: 0, report: null, status: res.status };
+    }
     if (!res.ok || !res.data?.length) break;
     for (const p of res.data) {
       await upsertProduct(companyId, p, report);
@@ -550,7 +556,7 @@ export async function syncProducts(companyId: string) {
       }),
     },
   });
-  return { ok: true as const, produtos: total, report };
+  return { ok: true as const, produtos: total, report, status: 200 };
 }
 
 // ---- Vendas ----------------------------------------------------------------

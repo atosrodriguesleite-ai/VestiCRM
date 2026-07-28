@@ -16,6 +16,7 @@ import {
   podeTransferirVenda,
 } from "@/lib/orders";
 import { computeOrderTotals } from "@/lib/orders";
+import { reservarOQueTiver, textoDaFalta } from "@/lib/reservations";
 import {
   winLinkedOpportunity,
   loseLinkedOpportunity,
@@ -556,12 +557,48 @@ export async function PATCH(
 
       // ---- Estoque: SEGURA (reserva no orçamento / baixa no pago); devolve ao cancelar ----
       if (needStockDeduct) {
-        for (const item of order.items) {
-          if (!item.variantId) continue;
-          await db.productVariant.update({
-            where: { id: item.variantId },
-            data: { stock: { decrement: item.quantity } },
+        // Baixa condicionada: segura o que existe e NUNCA deixa o estoque
+        // negativo às escondidas. Se faltar peça (pedido antigo, reserva que
+        // expirou, pedido reaberto), o pedido não é travado — dinheiro é
+        // dinheiro — mas a falta fica escrita no histórico e a loja é avisada.
+        const faltas = await reservarOQueTiver(
+          db,
+          order.items.map((i) => ({
+            variantId: i.variantId,
+            quantity: i.quantity,
+            label: `${i.name}${i.color || i.size ? ` (${[i.color, i.size].filter(Boolean).join(" ")})` : ""}`,
+          }))
+        );
+        if (faltas.length > 0) {
+          const aviso = `⚠️ Baixa de estoque incompleta — ${textoDaFalta(faltas)}. Confira o estoque físico.`;
+          await db.orderEvent.create({
+            data: {
+              orderId: order.id,
+              type: "NOTA",
+              description: aviso,
+              userId: user.id,
+            },
           });
+          const equipe = await db.user.findMany({
+            where: {
+              companyId: user.companyId,
+              active: true,
+              role: { in: ["ADMIN", "MANAGER"] },
+            },
+            select: { id: true },
+          });
+          if (equipe.length > 0) {
+            await db.notification.createMany({
+              data: equipe.map((u) => ({
+                companyId: user.companyId,
+                userId: u.id,
+                type: "ASSIGN",
+                title: `Estoque faltou no pedido ${orderNumber(order.number)}`,
+                body: aviso.slice(0, 160),
+                actorName: user.name,
+              })),
+            });
+          }
         }
         // razão conforme o momento: reserva (orçamento/aguardando) ou baixa (pago)
         const motivo = enteringPaid

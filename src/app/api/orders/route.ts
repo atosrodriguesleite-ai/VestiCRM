@@ -6,6 +6,10 @@ import { requireUser, AuthError } from "@/lib/auth";
 import { computeOrderTotals, orderNumber } from "@/lib/orders";
 import { pushStockToNuvemshop } from "@/lib/nuvemshop";
 import { pushStockToJueri } from "@/lib/jueri";
+import { reservarEstoque, textoDaFalta } from "@/lib/reservations";
+
+/** Peça que se foi entre a conferência e a baixa (duas vendas simultâneas). */
+class SemEstoque extends Error {}
 
 const itemSchema = z.object({
   productId: z.string().min(1),
@@ -155,12 +159,23 @@ export async function POST(req: NextRequest) {
       // na criação — assim dois vendedores não vendem a mesma peça. A peça só
       // volta se o pedido for cancelado (ou pela expiração de 48h da reserva).
       // Registra o movimento pra ficar auditável/reversível.
-      for (const it of input.items) {
-        await tx.productVariant.update({
-          where: { id: it.variantId },
-          data: { stock: { decrement: it.quantity } },
-        });
-      }
+      //
+      // A baixa é CONDICIONADA ao estoque existente (não é um decremento
+      // cego): a conferência lá em cima e a baixa aqui são dois momentos, e
+      // duas vendedoras fechando a última peça no mesmo segundo passavam as
+      // duas. Se a peça se foi no meio, a transação inteira é desfeita.
+      const faltas = await reservarEstoque(
+        tx,
+        input.items.map((it) => {
+          const v = variantById.get(it.variantId)!;
+          return {
+            variantId: it.variantId,
+            quantity: it.quantity,
+            label: `${v.product.name} (${v.color} ${v.size})`,
+          };
+        })
+      );
+      if (faltas.length > 0) throw new SemEstoque(textoDaFalta(faltas));
       await tx.inventoryMovement.createMany({
         data: created.items
           .filter((i) => i.variantId)
@@ -216,6 +231,13 @@ export async function POST(req: NextRequest) {
   } catch (e) {
     if (e instanceof AuthError)
       return NextResponse.json({ error: "Não autenticado" }, { status: 401 });
+    // a peça acabou no meio do caminho: nada foi criado, e a vendedora
+    // recebe na hora qual peça e quanto restou
+    if (e instanceof SemEstoque)
+      return NextResponse.json(
+        { error: `Estoque insuficiente — ${e.message}. Ajuste as quantidades.` },
+        { status: 409 }
+      );
     throw e;
   }
 }

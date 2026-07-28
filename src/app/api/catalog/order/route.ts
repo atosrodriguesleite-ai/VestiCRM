@@ -4,6 +4,14 @@ import { db } from "@/lib/db";
 import { imageSrc } from "@/lib/img";
 import { intakeLead, normalizePhone } from "@/lib/intake";
 import { resolveRef } from "@/lib/tracking/engine";
+import {
+  reservarOQueTiver,
+  textoDaFalta,
+  type FaltaDeEstoque,
+} from "@/lib/reservations";
+import { pushStockToNuvemshop } from "@/lib/nuvemshop";
+import { pushStockToJueri } from "@/lib/jueri";
+import { orderNumber } from "@/lib/orders";
 
 /**
  * Pedido vindo do catálogo público — POST /api/catalog/order
@@ -326,13 +334,34 @@ export async function POST(req: NextRequest) {
       " — confira se o nome bate com o cadastro (e se não há duas pessoas com o mesmo primeiro nome).";
   }
 
+  // RESERVA DO CATÁLOGO — o buraco que fazia a peça sumir.
+  //
+  // O pedido montado pela vendedora já segurava o estoque; o pedido do
+  // catálogo (o mais comum: a vendedora manda o link e a cliente monta) não
+  // segurava nada. A peça continuava à venda para todo mundo e, quando a
+  // cliente ia pagar no dia seguinte, tinha acabado. Agora o catálogo reserva
+  // na mesma transação que cria o pedido.
+  //
+  // Se faltar peça, o pedido AINDA assim é criado (com o que havia reservado)
+  // e o que faltou fica escrito nele: no mesmo clique a cliente já mandou o
+  // pedido pelo WhatsApp, então recusar aqui faria a loja receber a mensagem
+  // sem ter pedido nenhum na tela — venda perdida no escuro.
+  let faltas: FaltaDeEstoque[] = [];
   const order = await db.$transaction(async (tx) => {
+    faltas = await reservarOQueTiver(
+      tx,
+      lines.map((l) => ({
+        variantId: l.variantId,
+        quantity: l.quantity,
+        label: `${l.name} (${l.color} ${l.size})`,
+      }))
+    );
     const last = await tx.order.findFirst({
       where: { companyId: company.id },
       orderBy: { number: "desc" },
       select: { number: true },
     });
-    return tx.order.create({
+    const criado = await tx.order.create({
       data: {
         companyId: company.id,
         number: (last?.number ?? 0) + 1,
@@ -341,11 +370,17 @@ export async function POST(req: NextRequest) {
         opportunityId,
         sellerId: orderSellerId,
         status: "AGUARDANDO_PAGAMENTO",
+        stockDeducted: true, // a peça está segurada desde já
         subtotal,
         // pedido do catálogo não tem frete nem ajuste: valor vendido = total
         netTotal: subtotal,
         total: subtotal,
-        notes: noteLines.join("\n"),
+        notes: [
+        ...noteLines,
+        ...(faltas.length
+          ? [`⚠️ Sem estoque para parte do pedido — ${textoDaFalta(faltas)}.`]
+          : []),
+      ].join("\n"),
         items: { create: lines },
         payments: {
           create: { method: "PIX", amount: subtotal, status: "PENDENTE" },
@@ -355,11 +390,50 @@ export async function POST(req: NextRequest) {
           create: [
             { type: "CRIADO", description: "Pedido recebido pelo catálogo público" },
             ...(notaComissao ? [{ type: "NOTA" as const, description: notaComissao }] : []),
+          // a peça acabou entre montar o carrinho e enviar: a loja precisa
+          // saber ANTES de cobrar, para combinar troca/reposição
+          ...(faltas.length
+            ? [
+                {
+                  type: "NOTA" as const,
+                  description: `⚠️ Estoque insuficiente na entrada do pedido — ${textoDaFalta(faltas)}. O que havia foi reservado; combine o restante com a cliente.`,
+                },
+              ]
+            : []),
           ],
         },
       },
+      include: { items: true },
     });
+    // movimento auditável da reserva (o mesmo que o pedido da vendedora grava)
+    await tx.inventoryMovement.createMany({
+      data: criado.items
+        .filter((i) => i.variantId)
+        .map((i) => ({
+          companyId: company.id,
+          variantId: i.variantId!,
+          orderId: criado.id,
+          type: "SAIDA" as const,
+          quantity: i.quantity,
+          reason: `Reserva — pedido ${orderNumber(criado.number)}`,
+        })),
+    });
+    return criado;
   });
+
+  // a reserva some do estoque dos outros canais no mesmo instante
+  const variantIds = order.items
+    .map((i) => i.variantId)
+    .filter((v): v is string => !!v);
+  if (variantIds.length > 0) {
+    pushStockToNuvemshop(company.id, variantIds).catch(() => {});
+    pushStockToJueri(
+      company.id,
+      order.items
+        .filter((i) => i.variantId)
+        .map((i) => ({ variantId: i.variantId!, delta: -i.quantity }))
+    ).catch(() => {});
+  }
 
   return NextResponse.json(
     { ok: true, orderId: order.id, number: order.number },
