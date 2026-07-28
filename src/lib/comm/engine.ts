@@ -270,12 +270,24 @@ export async function sendMessage(input: SendMessageInput): Promise<Message> {
     }
   }
 
+  // RESPONDER É ASSUMIR O ATENDIMENTO — e isso é regra de negócio, não de
+  // tela. Quem manda mensagem para a cliente passa a ser a responsável pela
+  // conversa (se ainda não tinha dona), e conversa encerrada volta a ficar
+  // ABERTA: sem isso, a lojista respondia e o atendimento continuava
+  // parecendo "fila" ou "histórico", que foi exatamente a queixa dela.
+  // Nota interna não conta: anotar não é atender.
   await db.conversation.update({
     where: { id: conv.id },
     data: {
       lastMessageAt: new Date(),
       unreadCount: 0,
-      ...(isNote ? {} : { lastOutboundAt: new Date() }),
+      ...(isNote
+        ? {}
+        : {
+            lastOutboundAt: new Date(),
+            ...(conv.status === "CLOSED" ? { status: "OPEN" as const } : {}),
+            ...(!conv.assigneeId && input.authorId ? { assigneeId: input.authorId } : {}),
+          }),
     },
   });
   if (!isNote) {

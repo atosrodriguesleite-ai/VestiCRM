@@ -334,7 +334,6 @@ export async function POST(
             // Cria o contato mínimo. NÃO passa pelo Lead Intake: aqui quem
             // puxou assunto foi a LOJA, então não é lead novo entrando — não
             // cabe distribuir vendedor, abrir oportunidade nem criar tarefa.
-            // A conversa nasce na fila (sem dono), igual ao resto do sistema.
             //
             // O nome NÃO pode vir de `pushName`: em mensagem enviada por nós,
             // esse campo é o nome da PRÓPRIA LOJA, não o de quem recebeu.
@@ -370,13 +369,28 @@ export async function POST(
               where: { companyId, customerId: customer.id, status: "CLOSED" },
               orderBy: { lastMessageAt: "desc" },
             });
+            // QUEM FALOU FOI A LOJA — a conversa NÃO nasce na fila.
+            //
+            // Fila é cliente esperando atendimento. Aqui foi a loja que puxou
+            // assunto pelo celular, então o atendimento já está acontecendo:
+            // ele vai para a responsável pela cliente (a dona da carteira, a
+            // mesma régua da comissão). Sem responsável cadastrada, a conversa
+            // fica em Chats sem dona — e qualquer uma pode assumir.
             conv = encerrada
               ? await db.conversation.update({
                   where: { id: encerrada.id },
-                  data: { status: "OPEN" },
+                  data: {
+                    status: "OPEN",
+                    ...(encerrada.assigneeId ? {} : { assigneeId: customer.ownerId }),
+                  },
                 })
               : await db.conversation.create({
-                  data: { companyId, customerId: customer.id, status: "OPEN" },
+                  data: {
+                    companyId,
+                    customerId: customer.id,
+                    status: "OPEN",
+                    assigneeId: customer.ownerId,
+                  },
                 });
           }
           const exists = m.key?.id

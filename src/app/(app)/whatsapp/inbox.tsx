@@ -55,6 +55,7 @@ import {
   relativeDays,
 } from "@/lib/format";
 import { autoriaDaMensagem, prefixoDaPrevia } from "@/lib/comm/autoria";
+import { abaDaConversa } from "@/lib/comm/fila";
 import { Avatar, EmptyState } from "@/components/ui";
 import { gravacaoParaWav } from "@/lib/audio-wav";
 
@@ -495,10 +496,10 @@ export function Inbox({
     return () => document.removeEventListener("mousedown", onDown);
   }, [showTagPicker]);
 
-  // fila = sem responsável e não encerrada; chats = em atendimento (com
-  // responsável, não encerrada); contatos = histórico (encerradas).
-  const bucketOf = (c: InboxConversation): Tab =>
-    c.status === "CLOSED" ? "contatos" : c.assignee ? "chats" : "fila";
+  // fila = CLIENTE ESPERANDO resposta e sem responsável; chats = em
+  // atendimento; contatos = histórico (encerradas). A regra mora em
+  // lib/comm/fila.ts para a tela e o resto do sistema falarem a mesma língua.
+  const bucketOf = (c: InboxConversation): Tab => abaDaConversa(c);
 
   const counts = useMemo(() => {
     const acc = { chats: 0, fila: 0, contatos: 0 };
@@ -555,7 +556,7 @@ export function Inbox({
     if (cid && convs.some((c) => c.id === cid)) {
       setSelectedId(cid);
       const c = convs.find((x) => x.id === cid);
-      if (c) setTab(c.status === "CLOSED" ? "contatos" : c.assignee ? "chats" : "fila");
+      if (c) setTab(abaDaConversa(c));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams]);
