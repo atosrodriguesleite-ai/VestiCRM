@@ -362,6 +362,16 @@ export async function POST(
             where: { companyId, customerId: customer.id, status: { not: "CLOSED" } },
             orderBy: { lastMessageAt: "desc" },
           });
+          // conversa aberta que ainda não tem dona: a loja falou com a
+          // cliente, então o atendimento passa a ser da responsável por ela
+          // (mesma régua da carteira). Sem responsável cadastrada, segue sem
+          // dona — e a regra da fila já mantém isso fora da fila.
+          if (conv && !conv.assigneeId && customer.ownerId) {
+            conv = await db.conversation.update({
+              where: { id: conv.id },
+              data: { assigneeId: customer.ownerId },
+            });
+          }
           if (!conv) {
             // histórico é sagrado: reabre a conversa encerrada mais recente
             // (mantém todo o histórico) em vez de nascer um chat vazio
