@@ -19,11 +19,23 @@ export async function GET(req: NextRequest) {
     after(() => runWatchdogIfDue());
     const sinceRaw = req.nextUrl.searchParams.get("since");
     const since = sinceRaw ? new Date(sinceRaw) : undefined;
+
+    // ÂNCORA ANTES DA CONSULTA — e não depois.
+    //
+    // Com `now` marcado depois, uma mensagem gravada DURANTE a consulta caía
+    // num vão: não entrava neste resultado (a consulta já tinha lido o banco)
+    // e ficava para trás do `since` da próxima busca. A bolha só aparecia
+    // quando algo mexesse na conversa de novo — ou seja, mensagem sumindo do
+    // chat sem motivo aparente.
+    //
+    // Marcando antes, a próxima busca REPETE essa fatia de tempo. Repetir é
+    // inofensivo (a tela recebe a conversa inteira e substitui); perder não.
+    const agora = new Date().toISOString();
     const conversations = await loadInboxConversations(
       user,
       since && !isNaN(since.getTime()) ? since : undefined
     );
-    return NextResponse.json({ now: new Date().toISOString(), conversations });
+    return NextResponse.json({ now: agora, conversations });
   } catch (e) {
     if (e instanceof AuthError)
       return NextResponse.json({ error: "Não autenticado" }, { status: 401 });

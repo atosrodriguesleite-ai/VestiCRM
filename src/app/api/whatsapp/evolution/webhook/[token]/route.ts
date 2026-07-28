@@ -423,7 +423,11 @@ export async function POST(
               });
               await db.conversation.update({
                 where: { id: conv.id },
-                data: { lastMessageAt: new Date(), lastOutboundAt: new Date() },
+                data: {
+                  lastMessageAt: new Date(),
+                  lastOutboundAt: new Date(),
+                  unreadCount: 0,
+                },
               });
               continue;
             }
@@ -442,9 +446,16 @@ export async function POST(
                 status: "ENVIADA",
               },
             });
+            // respondeu pelo CELULAR = leu a conversa. Sem zerar aqui, o
+            // sistema seguia mostrando "3 não lidas" numa conversa já
+            // atendida, e o time perdia a confiança no contador.
             await db.conversation.update({
               where: { id: conv.id },
-              data: { lastMessageAt: new Date(), lastOutboundAt: new Date() },
+              data: {
+                lastMessageAt: new Date(),
+                lastOutboundAt: new Date(),
+                unreadCount: 0,
+              },
             });
           }
         }

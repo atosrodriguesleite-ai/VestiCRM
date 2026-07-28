@@ -39,6 +39,13 @@ export type IntakeResult = {
   opportunity: Opportunity | null;
   task: Task | null;
   isNewLead: boolean;
+  /**
+   * A mensagem criada nesta entrada (null quando não veio texto). Quem chama
+   * completa ela depois — mídia, id do WhatsApp, status — e precisa saber
+   * EXATAMENTE qual é: procurar "a mais recente da conversa" errava o alvo
+   * quando duas mensagens chegavam juntas.
+   */
+  message: { id: string } | null;
 };
 
 /** Normaliza telefone para o formato de armazenamento (dígitos, com DDI 55). */
@@ -260,13 +267,19 @@ export async function intakeLead(
       },
     });
   }
+  // Guarda QUAL mensagem foi criada. Quem chama precisa completá-la depois
+  // (mídia, id do WhatsApp, status) e, sem esta referência, tinha que
+  // adivinhar pegando "a mensagem IN mais recente da conversa" — com duas
+  // mensagens chegando no mesmo instante, a foto de uma colava na outra.
+  let message: { id: string } | null = null;
   if (conversation && payload.message) {
-    await db.message.create({
+    message = await db.message.create({
       data: {
         conversationId: conversation.id,
         direction: "IN",
         body: payload.message,
       },
+      select: { id: true },
     });
     conversation = await db.conversation.update({
       where: { id: conversation.id },
@@ -333,5 +346,5 @@ export async function intakeLead(
     });
   }
 
-  return { customer, conversation, opportunity, task, isNewLead };
+  return { customer, conversation, opportunity, task, isNewLead, message };
 }

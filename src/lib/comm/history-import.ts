@@ -7,7 +7,7 @@ import {
   jidToPhone,
 } from "./evolution";
 import { normalizePhone, findCustomerByPhone } from "../intake";
-import type { MessageMedia } from "@prisma/client";
+import { lerMensagemWA } from "./wa-message";
 
 /**
  * Importa o histórico RECENTE do WhatsApp (últimos N dias) que o servidor já
@@ -28,42 +28,9 @@ type WAMsg = {
   timestamp?: number | string;
   createdAt?: string;
   messageTimestampMs?: number | string;
-  message?: {
-    conversation?: string;
-    extendedTextMessage?: { text?: string };
-    imageMessage?: { caption?: string; mimetype?: string };
-    videoMessage?: { caption?: string; mimetype?: string };
-    documentMessage?: { fileName?: string; mimetype?: string };
-    audioMessage?: { mimetype?: string };
-    stickerMessage?: { mimetype?: string };
-  };
+  // qualquer formato: quem interpreta é o leitor único (lib/comm/wa-message)
+  message?: Record<string, unknown>;
 };
-
-type Extracted = {
-  text: string;
-  mediaType: MessageMedia;
-  mimeFallback: string | null;
-  fileName: string | null;
-};
-
-function extract(m: WAMsg): Extracted {
-  const msg = m.message ?? {};
-  if (msg.conversation)
-    return { text: msg.conversation, mediaType: "TEXT", mimeFallback: null, fileName: null };
-  if (msg.extendedTextMessage?.text)
-    return { text: msg.extendedTextMessage.text, mediaType: "TEXT", mimeFallback: null, fileName: null };
-  if (msg.imageMessage)
-    return { text: msg.imageMessage.caption || "[foto]", mediaType: "IMAGE", mimeFallback: msg.imageMessage.mimetype ?? "image/jpeg", fileName: null };
-  if (msg.videoMessage)
-    return { text: msg.videoMessage.caption || "[vídeo]", mediaType: "VIDEO", mimeFallback: msg.videoMessage.mimetype ?? "video/mp4", fileName: null };
-  if (msg.audioMessage)
-    return { text: "[áudio]", mediaType: "AUDIO", mimeFallback: msg.audioMessage.mimetype ?? "audio/ogg", fileName: null };
-  if (msg.documentMessage)
-    return { text: `[arquivo] ${msg.documentMessage.fileName ?? ""}`.trim(), mediaType: "DOCUMENT", mimeFallback: msg.documentMessage.mimetype ?? "application/octet-stream", fileName: msg.documentMessage.fileName ?? null };
-  if (msg.stickerMessage)
-    return { text: "[figurinha]", mediaType: "IMAGE", mimeFallback: msg.stickerMessage.mimetype ?? "image/webp", fileName: null };
-  return { text: "", mediaType: "TEXT", mimeFallback: null, fileName: null };
-}
 
 /**
  * Data da mensagem, em milissegundos.
@@ -291,7 +258,7 @@ export async function importRecentHistory(
       if (/^\d{8,15}$/.test(pn)) phone = pn;
     }
     if (!phone) continue;
-    const { text, mediaType, mimeFallback, fileName } = extract(r);
+    const { text, mediaType, mimeFallback, fileName } = lerMensagemWA(r);
     if (!text) continue;
     const extId = r.key?.id;
 

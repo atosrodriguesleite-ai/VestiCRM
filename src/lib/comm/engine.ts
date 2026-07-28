@@ -413,15 +413,19 @@ export async function receiveMessage(
     message: input.text,
   });
 
-  // enriquece a mensagem criada pelo intake com canal/mídia/externalId
+  // Completa A MENSAGEM QUE O INTAKE ACABOU DE CRIAR com canal, mídia e o id
+  // do WhatsApp.
+  //
+  // Usa o id devolvido pelo intake, e não "a mensagem IN mais recente da
+  // conversa": duas mensagens chegando no mesmo instante (a cliente manda foto
+  // e texto em seguida) faziam a busca por "mais recente" devolver a mensagem
+  // ERRADA — a foto colava na bolha do texto, o recibo de entrega ia para a
+  // bolha errada, e a mensagem que ficava sem id podia entrar duplicada numa
+  // reentrega do servidor.
   if (result.conversation) {
-    const lastMsg = await db.message.findFirst({
-      where: { conversationId: result.conversation.id, direction: "IN" },
-      orderBy: { createdAt: "desc" },
-    });
-    if (lastMsg) {
+    if (result.message) {
       await db.message.update({
-        where: { id: lastMsg.id },
+        where: { id: result.message.id },
         data: {
           channel: input.channel,
           mediaType: input.mediaType ?? "TEXT",
