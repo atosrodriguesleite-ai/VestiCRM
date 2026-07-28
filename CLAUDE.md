@@ -93,6 +93,16 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   Digisac), oportunidade conforme política da loja.
 - **Catálogo público**: preço/total SEMPRE recalculado no servidor; links
   rastreados `?ref=` (vendedora) e `?c=` (cliente) alimentam a atribuição.
+- **O pedido do catálogo NÃO PODE SE PERDER** (`lib/catalogo/envio-pedido.ts`):
+  o aparelho sorteia um protocolo (`Order.clientRef`, único por loja),
+  guarda o pedido antes de mandar, INSISTE se falhar e reenvia na próxima
+  visita; a rota é idempotente (devolve o pedido existente, e a corrida cai
+  no índice único → P2002 tratado). A cliente vê o recibo do registro na
+  tela. Já causou incidente real: `.catch(() => {})` engolia a falha, a
+  mensagem chegava no WhatsApp da vendedora e o pedido não existia.
+  Todo pedido do catálogo AVISA na hora (`notifyNovoPedido`): com vendedora
+  no link, só ela; sem vendedora, gerência/admin (nunca uma vendedora
+  qualquer — a separação por link vale também para o aviso).
 
 ## Módulos
 

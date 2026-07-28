@@ -85,3 +85,59 @@ export async function notifyAssignment(input: {
     },
   });
 }
+
+/**
+ * PEDIDO NOVO DO CATÁLOGO — avisa na hora.
+ *
+ * Até aqui, pedido que entrava pelo catálogo não avisava ninguém: a
+ * vendedora só descobria se abrisse a tela Pedidos por acaso. Foi assim que
+ * uma loja recebeu o pedido no WhatsApp e jurou que "não chegou no sistema".
+ *
+ * Para quem vai o aviso (a mesma régua da comissão, sem exceção):
+ *  • pedido com vendedora no link → só para ela; é a venda dela;
+ *  • pedido SEM vendedora (link geral da loja) → para gerência/admin, que é
+ *    quem enxerga pedido sem dona. Nunca para uma vendedora qualquer: o
+ *    painel de cada uma tem exatamente os pedidos do link dela.
+ */
+export async function notifyNovoPedido(input: {
+  companyId: string;
+  orderId: string;
+  orderNumber: string;
+  sellerId: string | null;
+  convId?: string | null;
+  customerName: string;
+  pieces: number;
+  total: string;
+}) {
+  const destinos = input.sellerId
+    ? [input.sellerId]
+    : (
+        await db.user.findMany({
+          where: {
+            companyId: input.companyId,
+            role: { in: ["ADMIN", "MANAGER"] },
+            active: true,
+          },
+          select: { id: true },
+        })
+      ).map((u) => u.id);
+  if (destinos.length === 0) return 0;
+
+  const semDona = !input.sellerId;
+  await db.notification.createMany({
+    data: destinos.map((userId) => ({
+      companyId: input.companyId,
+      userId,
+      type: "PEDIDO",
+      title: semDona
+        ? `Pedido ${input.orderNumber} chegou SEM vendedora`
+        : `Pedido novo ${input.orderNumber} — ${input.customerName}`,
+      body: semDona
+        ? `${input.customerName} · ${input.pieces} ${input.pieces === 1 ? "peça" : "peças"} · ${input.total}. Veio pelo link geral do catálogo — defina quem vai atender.`
+        : `${input.pieces} ${input.pieces === 1 ? "peça" : "peças"} · ${input.total}. Chegou pelo seu link do catálogo.`,
+      orderId: input.orderId,
+      convId: input.convId ?? null,
+    })),
+  });
+  return destinos.length;
+}

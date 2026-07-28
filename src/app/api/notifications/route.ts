@@ -23,6 +23,7 @@ export async function GET() {
         title: n.title,
         body: n.body,
         convId: n.convId,
+        orderId: n.orderId,
         read: n.read,
         createdAt: n.createdAt.toISOString(),
       })),

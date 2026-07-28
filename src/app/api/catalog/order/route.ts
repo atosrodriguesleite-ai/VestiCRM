@@ -12,6 +12,8 @@ import {
 import { pushStockToNuvemshop } from "@/lib/nuvemshop";
 import { pushStockToJueri } from "@/lib/jueri";
 import { orderNumber } from "@/lib/orders";
+import { notifyNovoPedido } from "@/lib/notify";
+import { brl } from "@/lib/format";
 
 /**
  * Pedido vindo do catálogo público — POST /api/catalog/order
@@ -52,6 +54,13 @@ const schema = z.object({
   ref: z.string().max(120).optional(), // link do vendedor/campanha (?ref=)
   c: z.string().max(60).optional(), // link rastreado por cliente (?c=)
   promo: z.string().max(60).optional(), // catálogo de campanha (desconto)
+  /**
+   * PROTOCOLO DO ENVIO: código sorteado no aparelho da cliente antes de
+   * mandar. É o que deixa o catálogo INSISTIR sem medo — se a internet
+   * oscilar, ele tenta de novo (e até na próxima visita) e este código
+   * garante que o pedido não entra duas vezes.
+   */
+  clientRef: z.string().min(6).max(60).optional(),
 });
 
 export async function POST(req: NextRequest) {
@@ -66,6 +75,25 @@ export async function POST(req: NextRequest) {
   });
   if (!company) {
     return NextResponse.json({ error: "Loja não encontrada" }, { status: 404 });
+  }
+
+  // JÁ ENTROU? A cliente (ou o próprio catálogo, insistindo) pode mandar o
+  // mesmo pedido mais de uma vez. Devolvemos o pedido que já existe em vez
+  // de criar outro — a loja não pode receber a mesma venda em duplicidade,
+  // nem segurar a peça duas vezes no estoque.
+  if (input.clientRef) {
+    const jaExiste = await db.order.findUnique({
+      where: {
+        companyId_clientRef: { companyId: company.id, clientRef: input.clientRef },
+      },
+      select: { id: true, number: true },
+    });
+    if (jaExiste) {
+      return NextResponse.json(
+        { ok: true, orderId: jaExiste.id, number: jaExiste.number, jaRegistrado: true },
+        { status: 200 }
+      );
+    }
   }
 
   // Catálogo de CAMPANHA: o desconto é da loja e recalculado AQUI — só vale
@@ -359,7 +387,8 @@ export async function POST(req: NextRequest) {
   // pedido pelo WhatsApp, então recusar aqui faria a loja receber a mensagem
   // sem ter pedido nenhum na tela — venda perdida no escuro.
   let faltas: FaltaDeEstoque[] = [];
-  const order = await db.$transaction(async (tx) => {
+  const criarPedido = () =>
+    db.$transaction(async (tx) => {
     faltas = await reservarOQueTiver(
       tx,
       lines.map((l) => ({
@@ -381,6 +410,7 @@ export async function POST(req: NextRequest) {
         conversationId,
         opportunityId,
         sellerId: orderSellerId,
+        clientRef: input.clientRef ?? null,
         status: "AGUARDANDO_PAGAMENTO",
         stockDeducted: true, // a peça está segurada desde já
         subtotal,
@@ -431,7 +461,37 @@ export async function POST(req: NextRequest) {
         })),
     });
     return criado;
-  });
+    });
+
+  let order: Awaited<ReturnType<typeof criarPedido>>;
+  try {
+    order = await criarPedido();
+  } catch (e) {
+    // CORRIDA: dois envios do mesmo protocolo chegaram juntos e os dois
+    // passaram pela conferência acima. O índice único barra o segundo — e
+    // aqui devolvemos o pedido que o primeiro criou, em vez de estourar erro
+    // (para o catálogo, insistir tem que ser sempre seguro).
+    const duplicado =
+      input.clientRef &&
+      typeof e === "object" &&
+      e !== null &&
+      (e as { code?: string }).code === "P2002";
+    if (duplicado) {
+      const jaExiste = await db.order.findUnique({
+        where: {
+          companyId_clientRef: { companyId: company.id, clientRef: input.clientRef! },
+        },
+        select: { id: true, number: true },
+      });
+      if (jaExiste) {
+        return NextResponse.json(
+          { ok: true, orderId: jaExiste.id, number: jaExiste.number, jaRegistrado: true },
+          { status: 200 }
+        );
+      }
+    }
+    throw e;
+  }
 
   // a reserva some do estoque dos outros canais no mesmo instante
   const variantIds = order.items
@@ -446,6 +506,20 @@ export async function POST(req: NextRequest) {
         .map((i) => ({ variantId: i.variantId!, delta: -i.quantity }))
     ).catch(() => {});
   }
+
+  // AVISO NA HORA: sino + push. Sem isso, o pedido do catálogo só era
+  // descoberto se alguém abrisse a tela Pedidos por acaso — e foi assim que
+  // uma venda ficou horas parada enquanto a cliente esperava resposta.
+  await notifyNovoPedido({
+    companyId: company.id,
+    orderId: order.id,
+    orderNumber: orderNumber(order.number),
+    sellerId: orderSellerId,
+    convId: conversationId,
+    customerName: displayName || "Cliente do catálogo",
+    pieces: totalPieces,
+    total: brl(subtotal),
+  }).catch(() => {});
 
   return NextResponse.json(
     { ok: true, orderId: order.id, number: order.number },

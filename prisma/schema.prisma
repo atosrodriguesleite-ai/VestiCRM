@@ -382,10 +382,11 @@ model Notification {
   company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
   userId    String // destinatário
   user      User     @relation("UserNotifications", fields: [userId], references: [id], onDelete: Cascade)
-  type      String // MENTION | ASSIGN
+  type      String // MENTION | ASSIGN | PEDIDO
   title     String
   body      String   @default("")
   convId    String? // conversa relacionada (para abrir ao clicar)
+  orderId   String? // pedido relacionado (tem prioridade sobre a conversa)
   actorName String? // quem gerou (nome do vendedor)
   read      Boolean  @default(false)
   createdAt DateTime @default(now())
@@ -1436,6 +1437,12 @@ model Order {
   stockDeducted  Boolean       @default(false) // estoque só baixa quando o pedido é pago
   source         String        @default("CATALOGO") // CATALOGO | NUVEMSHOP | MANUAL
   nuvemshopId    String? // id do pedido na Nuvemshop (nunca importa duplicado)
+  // PROTOCOLO DO ENVIO (catálogo público): código sorteado no aparelho da
+  // cliente ANTES de mandar o pedido. É o que permite o catálogo insistir —
+  // tentar de novo, e até na próxima visita — sem risco de criar o mesmo
+  // pedido duas vezes. Sem isso, um tropeço de internet fazia a mensagem
+  // chegar no WhatsApp da vendedora e o pedido sumir, sem ninguém saber.
+  clientRef      String?
   // NF-e emitida via Bling (a nota é da loja; o Bling é o emissor)
   nfeBlingId     String? // id da NF-e no Bling
   nfeNumber      String? // número da nota quando autorizada
@@ -1456,6 +1463,7 @@ model Order {
 
   @@unique([companyId, number])
   @@unique([companyId, nuvemshopId])
+  @@unique([companyId, clientRef])
   @@index([companyId, status])
   @@index([companyId, createdAt])
   @@index([companyId, paidAt])
