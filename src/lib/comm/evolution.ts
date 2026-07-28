@@ -391,6 +391,27 @@ export async function evoFindChats(instance: string) {
   return evo<unknown>("POST", `/chat/findChats/${instance}`, {}, EVO_LEITURA_TIMEOUT_MS);
 }
 
+/**
+ * TODOS os contatos que o servidor conhece — vem com a foto de perfil junto.
+ *
+ * É a chamada barata: UMA consulta traz a agenda inteira com as fotos, em vez
+ * de uma consulta por cliente. O que faltar aqui (contato que o servidor
+ * ainda não viu) é buscado um a um, com parcimônia.
+ */
+export async function evoFindContacts(instance: string) {
+  return evo<unknown>("POST", `/chat/findContacts/${instance}`, {}, EVO_LEITURA_TIMEOUT_MS);
+}
+
+/** Foto de perfil de UM número (usada só para preencher o que faltou). */
+export async function evoProfilePicture(instance: string, number: string) {
+  return evo<{ profilePictureUrl?: string | null }>(
+    "POST",
+    `/chat/fetchProfilePictureUrl/${instance}`,
+    { number },
+    EVO_LEITURA_TIMEOUT_MS
+  );
+}
+
 /** Extrai o telefone (dígitos) de um JID "5511999999999@s.whatsapp.net". */
 export function jidToPhone(jid: string): string | null {
   const m = jid.match(/^(\d{8,15})@s\.whatsapp\.net$/);

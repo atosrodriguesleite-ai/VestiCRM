@@ -95,6 +95,7 @@ export type InboxConversation = {
     id: string;
     name: string;
     phone: string;
+    photoUrl?: string | null;
     city: string | null;
     wholesale: boolean;
     catalogLink: string;
@@ -1460,7 +1461,7 @@ export function Inbox({
                   selectedId === c.id ? "bg-brand-50/60" : ""
                 }`}
               >
-                <Avatar name={c.customer.name} color="#c4622d" />
+                <Avatar name={c.customer.name} color="#c4622d" src={c.customer.photoUrl} />
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center justify-between gap-2">
                     <p className="text-sm font-semibold truncate flex items-center gap-1.5">
@@ -1622,7 +1623,7 @@ export function Inbox({
               >
                 <ArrowLeft className="size-5" />
               </button>
-              <Avatar name={selected.customer.name} color="#c4622d" />
+              <Avatar name={selected.customer.name} color="#c4622d" src={selected.customer.photoUrl} />
               <div className="min-w-0 flex-1">
                 <Link
                   href={`/clientes/${selected.customer.id}`}

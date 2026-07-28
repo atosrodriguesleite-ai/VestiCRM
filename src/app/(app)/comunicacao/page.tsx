@@ -9,6 +9,7 @@ import { WhatsappConnect } from "./whatsapp-connect";
 import { SetoresManager } from "./setores-manager";
 import { MergeDuplicates } from "./merge-duplicates";
 import { ImportHistory } from "./import-history";
+import { FotosClientes } from "./fotos-clientes";
 
 export const dynamic = "force-dynamic";
 
@@ -111,6 +112,7 @@ export default async function CommunicationPage() {
       {isAdmin(user) && (
         <ImportHistory connected={settings?.evolutionStatus === "CONECTADO"} />
       )}
+      <FotosClientes connected={settings?.evolutionStatus === "CONECTADO"} />
       {isAdmin(user) && <MergeDuplicates />}
       <SetoresManager />
       <CommCenter

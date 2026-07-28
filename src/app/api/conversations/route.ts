@@ -5,6 +5,7 @@ import { requireUser, AuthError } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { loadInboxConversations } from "@/lib/inbox-data";
 import { runWatchdogIfDue } from "@/lib/health";
+import { sincronizarFotosSeDevido } from "@/lib/comm/fotos";
 
 /**
  * Sync incremental da inbox: a tela consulta a cada poucos segundos com
@@ -19,6 +20,9 @@ export async function GET(req: NextRequest) {
     // DEPOIS da resposta (after): a checagem externa (até 5s) não segura
     // mais o sync — a inbox responde na hora, sempre
     after(() => runWatchdogIfDue());
+    // fotos das clientes: pega carona aqui, DEPOIS da resposta, e com freio
+    // (uma varredura a cada 30 min por loja). A tela nunca espera por foto.
+    after(() => sincronizarFotosSeDevido(user.companyId));
     const sinceRaw = req.nextUrl.searchParams.get("since");
     const since = sinceRaw ? new Date(sinceRaw) : undefined;
 

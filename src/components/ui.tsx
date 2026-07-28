@@ -171,26 +171,32 @@ export function Avatar({
       : size === "lg"
         ? "size-12 text-base"
         : "size-8 text-xs";
-  if (src) {
-    return (
-      // eslint-disable-next-line @next/next/no-img-element
-      <img
-        src={src}
-        alt={name}
-        title={name}
-        className={`${cls} rounded-full object-cover shrink-0 ring-2 ring-white bg-gray-100`}
-      />
-    );
-  }
+  // FOTO POR CIMA, INICIAIS POR BAIXO.
+  //
+  // O link de foto que o WhatsApp serve VENCE. Em vez de um retângulo
+  // quebrado (ou de depender de JavaScript para tratar o erro — este
+  // componente também roda em tela de servidor), a foto entra como camada
+  // sobre as iniciais: se o link falhar, ela simplesmente não pinta e as
+  // iniciais coloridas aparecem sozinhas.
+  const fotoSegura =
+    src && /^https?:\/\//i.test(src) ? src.replace(/["'\\)]/g, encodeURIComponent) : null;
+
   return (
     <span
-      className={`${cls} rounded-full inline-flex items-center justify-center font-semibold text-white shrink-0 ring-2 ring-white`}
+      className={`${cls} relative rounded-full inline-flex items-center justify-center font-semibold text-white shrink-0 ring-2 ring-white overflow-hidden`}
       style={{
         background: `linear-gradient(135deg, ${color}, ${color}cc)`,
       }}
       title={name}
     >
       {initials(name)}
+      {fotoSegura && (
+        <span
+          aria-hidden
+          className="absolute inset-0 rounded-full bg-cover bg-center"
+          style={{ backgroundImage: `url("${fotoSegura}")` }}
+        />
+      )}
     </span>
   );
 }

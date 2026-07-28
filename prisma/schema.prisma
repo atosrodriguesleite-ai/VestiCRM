@@ -511,6 +511,13 @@ model Customer {
   lastPurchaseAt  DateTime?
   nextContactAt   DateTime?
   lastContactAt   DateTime?
+  // FOTO DO WHATSAPP: guardamos só o LINK que o WhatsApp serve (nunca a
+  // imagem — foto no banco é a dívida técnica nº 1 daqui). O link vence, por
+  // isso `photoSyncAt` marca quando foi conferido pela última vez; passando
+  // da validade, o sistema busca de novo. Sem foto (cliente escondeu no
+  // WhatsApp), fica nulo e a tela mostra as iniciais coloridas.
+  photoUrl        String?
+  photoSyncAt     DateTime?
   ownerId         String?
   owner           User?        @relation("CustomerOwner", fields: [ownerId], references: [id], onDelete: SetNull)
   // código curto do link rastreado do catálogo (catalago.net/loja/vend/CODIGO)

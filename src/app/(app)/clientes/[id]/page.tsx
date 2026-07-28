@@ -200,7 +200,7 @@ export default async function CustomerDetailPage({
       {/* Cabeçalho */}
       <Card className="p-5 md:p-6 mb-4">
         <div className="flex flex-col sm:flex-row sm:items-start gap-4">
-          <Avatar name={customer.name} color={customer.owner?.color ?? "#c4622d"} size="lg" />
+          <Avatar name={customer.name} color={customer.owner?.color ?? "#c4622d"} size="lg" src={customer.photoUrl} />
           <div className="flex-1 min-w-0">
             <h1 className="text-xl font-semibold tracking-tight">
               {customer.name}
