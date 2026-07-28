@@ -108,7 +108,11 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   (~2 dias), detecção de "cliente apagou" (conteúdo preservado), mensagens
   automáticas personalizáveis (link do catálogo e confirmação de pedido, em
   `CommSettings`), unificação de contatos duplicados, importação de
-  histórico de 30 dias (depende do servidor Evolution guardar histórico).
+  histórico de 30 dias (depende do servidor Evolution guardar histórico),
+  **foto de perfil das clientes** (`lib/comm/fotos.ts`: guarda só o LINK do
+  WhatsApp — nunca a imagem —, revalida a cada 7 dias, busca em lote com teto
+  por rodada e cai nas iniciais coloridas quando a cliente esconde a foto ou
+  o link vence).
 - **Communication Engine** (`lib/comm/`): camada única de envio/recebimento,
   agnóstica de provedor. `EvolutionProvider` = WhatsApp NÃO-oficial via
   Evolution API **self-hosted** (VPS Hostinger srv1853369.hstgr.cloud,
