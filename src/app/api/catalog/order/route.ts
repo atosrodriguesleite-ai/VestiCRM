@@ -33,6 +33,13 @@ import { brl } from "@/lib/format";
  * for marcado como pago (regra do sistema).
  */
 
+/**
+ * O catálogo aceita pedido com muitas linhas e o banco fica na nuvem: sem
+ * folga, o pedido da cliente morre no meio e some (o incidente que a
+ * proteção de protocolo resolve do outro lado).
+ */
+export const maxDuration = 60;
+
 const itemSchema = z.object({
   productId: z.string().min(1),
   color: z.string().min(1),
@@ -461,7 +468,11 @@ export async function POST(req: NextRequest) {
         })),
     });
     return criado;
-    });
+      },
+      // o padrão do Prisma são 5s — apertado para carrinho grande com o
+      // banco na nuvem
+      { timeout: 20_000, maxWait: 10_000 }
+    );
 
   let order: Awaited<ReturnType<typeof criarPedido>>;
   try {

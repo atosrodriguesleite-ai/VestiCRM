@@ -21,7 +21,11 @@ const ler = (p: string) => readFileSync(join(raiz, p), "utf8");
 describe("nada solta reserva por tempo", () => {
   it("o motor de reservas não expõe soltura automática", () => {
     expect("releaseExpiredReservations" in reservas).toBe(false);
+    // a lista é fechada de propósito: qualquer porta nova de soltura
+    // automática aparece aqui antes de chegar em produção
     expect(Object.keys(reservas).sort()).toEqual([
+      "juntarPorVariacao",
+      "reservarCom",
       "reservarEstoque",
       "reservarOQueTiver",
       "textoDaFalta",

@@ -8,6 +8,12 @@ import { pushStockToNuvemshop } from "@/lib/nuvemshop";
 import { pushStockToJueri } from "@/lib/jueri";
 import { reservarEstoque, textoDaFalta } from "@/lib/reservations";
 
+/**
+ * Pedido grande (a mensagem colada do WhatsApp traz 30+ linhas) precisa de
+ * folga: em produção o banco fica na nuvem e cada consulta é uma viagem.
+ */
+export const maxDuration = 60;
+
 /** Peça que se foi entre a conferência e a baixa (duas vendas simultâneas). */
 class SemEstoque extends Error {}
 
@@ -191,7 +197,12 @@ export async function POST(req: NextRequest) {
       await tx.order.update({ where: { id: created.id }, data: { stockDeducted: true } });
 
       return created;
-    });
+      },
+      // o padrão do Prisma são 5s: apertado demais para um pedido de 30
+      // linhas com o banco na nuvem. Estourar aqui derrubava a rota sem
+      // mensagem nenhuma — a vendedora via só "não foi possível criar".
+      { timeout: 20_000, maxWait: 10_000 }
+    );
 
     // Integrações: a reserva feita AQUI é refletida na ORIGEM do estoque
     // (Nuvemshop/Jueri) — a peça reservada some do estoque dos outros canais
@@ -238,6 +249,17 @@ export async function POST(req: NextRequest) {
         { error: `Estoque insuficiente — ${e.message}. Ajuste as quantidades.` },
         { status: 409 }
       );
-    throw e;
+    // Erro inesperado: a vendedora precisa de UMA frase que ajude, e o time
+    // precisa do erro no painel Saúde. Antes a rota estourava sem resposta
+    // JSON e a tela mostrava só "não foi possível criar o pedido".
+    console.error("[POST /api/orders] falhou", e);
+    return NextResponse.json(
+      {
+        error:
+          "O pedido não pôde ser criado. Tente de novo; se repetir, avise o suporte com o horário.",
+        detalhe: e instanceof Error ? e.message.slice(0, 300) : String(e).slice(0, 300),
+      },
+      { status: 500 }
+    );
   }
 }

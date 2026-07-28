@@ -140,8 +140,13 @@ export function ImportarMensagemButton() {
     });
     setBusy(false);
     if (!res.ok) {
+      // a mensagem do servidor vem primeiro; se nem JSON veio, mostramos o
+      // código do erro — "não foi possível" sem mais nada não ajuda ninguém
       const d = await res.json().catch(() => null);
-      return setErro(d?.error ?? "Não foi possível criar o pedido.");
+      return setErro(
+        d?.error ??
+          `Não foi possível criar o pedido (erro ${res.status}). Tente de novo; se repetir, avise o suporte com o horário.`
+      );
     }
     const order = await res.json();
     fechar();

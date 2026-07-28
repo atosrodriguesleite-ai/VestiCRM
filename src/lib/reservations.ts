@@ -1,3 +1,5 @@
+import { Prisma } from "@prisma/client";
+
 /**
  * RESERVA DE ESTOQUE — a peça sai do estoque quando o orçamento é montado.
  *
@@ -23,6 +25,7 @@ export type ItemDeEstoque = {
 
 export type FaltaDeEstoque = { label: string; pedido: number; disponivel: number };
 
+/** O que a reserva PARCIAL (catálogo) precisa do banco. */
 type ClientePrisma = {
   productVariant: {
     updateMany: (args: {
@@ -35,6 +38,41 @@ type ClientePrisma = {
     }) => Promise<{ stock: number } | null>;
   };
 };
+
+/** O que a reserva ATÔMICA em lote precisa do banco. */
+type ClienteEmLote = {
+  productVariant: {
+    findMany: (args: {
+      where: { id: { in: string[] } };
+      select: { id: true; stock: true };
+    }) => Promise<{ id: string; stock: number }[]>;
+  };
+  $queryRaw: (...args: never[]) => Promise<unknown>;
+};
+
+/**
+ * Junta o pedido por PEÇA antes de mexer no estoque.
+ *
+ * A mesma variação pode aparecer em duas linhas (duas linhas da mensagem do
+ * WhatsApp que apontam para a mesma peça, ou a vendedora que adicionou o
+ * mesmo item duas vezes). Somando antes, a conferência de estoque é feita
+ * sobre o TOTAL — senão duas linhas de 1 peça passariam com 1 peça em
+ * estoque, e o estoque ficaria negativo.
+ */
+export function juntarPorVariacao(itens: ItemDeEstoque[]): {
+  variantId: string;
+  quantity: number;
+  label: string;
+}[] {
+  const mapa = new Map<string, { variantId: string; quantity: number; label: string }>();
+  for (const i of itens) {
+    if (!i.variantId || i.quantity <= 0) continue;
+    const atual = mapa.get(i.variantId);
+    if (atual) atual.quantity += i.quantity;
+    else mapa.set(i.variantId, { variantId: i.variantId, quantity: i.quantity, label: i.label });
+  }
+  return [...mapa.values()];
+}
 
 /**
  * RESERVA ATÔMICA DE ESTOQUE.
@@ -49,30 +87,89 @@ type ClientePrisma = {
  * se recusa o pedido (catálogo/vendedora) ou se só avisa (baixa de um pedido
  * antigo que já foi pago).
  */
-export async function reservarEstoque(
-  tx: ClientePrisma,
+/**
+ * A BAIXA CONDICIONAL, isolada de quem a executa.
+ *
+ * Recebe o que precisa sair do estoque e devolve as peças que CONSEGUIRAM
+ * sair (as demais não tinham saldo). Separar isso permite testar a regra
+ * sem banco, e trocar o jeito de falar com o banco sem tocar na regra.
+ */
+export type BaixaCondicional = (
+  pedidos: { variantId: string; quantity: number }[]
+) => Promise<string[]>;
+
+/** Quanto ainda existe de cada peça (só consultado quando algo faltou). */
+export type ConsultaEstoque = (ids: string[]) => Promise<Map<string, number>>;
+
+/**
+ * A REGRA da reserva atômica, sem banco nenhum: junta por peça, manda baixar
+ * de uma vez e relata o que não coube.
+ */
+export async function reservarCom(
+  baixar: BaixaCondicional,
+  consultar: ConsultaEstoque,
   itens: ItemDeEstoque[]
 ): Promise<FaltaDeEstoque[]> {
-  const faltas: FaltaDeEstoque[] = [];
-  for (const item of itens) {
-    if (!item.variantId || item.quantity <= 0) continue;
-    const r = await tx.productVariant.updateMany({
-      where: { id: item.variantId, stock: { gte: item.quantity } },
-      data: { stock: { decrement: item.quantity } },
-    });
-    if (r.count === 0) {
-      const atual = await tx.productVariant.findUnique({
-        where: { id: item.variantId },
-        select: { stock: true },
+  const pedidos = juntarPorVariacao(itens);
+  if (pedidos.length === 0) return [];
+
+  const reservadas = new Set(
+    await baixar(pedidos.map((p) => ({ variantId: p.variantId, quantity: p.quantity })))
+  );
+  const faltando = pedidos.filter((p) => !reservadas.has(p.variantId));
+  if (faltando.length === 0) return [];
+
+  const estoque = await consultar(faltando.map((f) => f.variantId));
+  return faltando.map((f) => ({
+    label: f.label,
+    pedido: f.quantity,
+    disponivel: Math.max(estoque.get(f.variantId) ?? 0, 0),
+  }));
+}
+
+/**
+ * RESERVA ATÔMICA — TUDO NUMA IDA SÓ AO BANCO.
+ *
+ * Antes era um comando por peça. Com o banco na mesma máquina isso é
+ * instantâneo, mas em produção o banco fica na nuvem e cada comando é uma
+ * viagem de ida e volta: um pedido de 29 linhas virava ~30 viagens dentro da
+ * transação, estourava o tempo limite e a vendedora via só "não foi possível
+ * criar o pedido", sem explicação nenhuma. Foi o que aconteceu com o pedido
+ * de 31 peças da LOJA DA GABI.
+ *
+ * A condição "stock >= pedido" continua DENTRO do comando, linha por linha:
+ * o banco segue garantindo que duas vendas simultâneas da última peça não
+ * passem as duas, e que o estoque nunca fique negativo.
+ */
+export async function reservarEstoque(
+  tx: ClienteEmLote,
+  itens: ItemDeEstoque[]
+): Promise<FaltaDeEstoque[]> {
+  return reservarCom(
+    async (pedidos) => {
+      const linhas = Prisma.join(
+        pedidos.map((p) => Prisma.sql`(${p.variantId}::text, ${p.quantity}::int)`)
+      );
+      const ok = (await tx.$queryRaw(
+        Prisma.sql`
+          UPDATE "ProductVariant" AS v
+             SET stock = v.stock - d.qty
+            FROM (VALUES ${linhas}) AS d(id, qty)
+           WHERE v.id = d.id AND v.stock >= d.qty
+          RETURNING v.id
+        ` as never
+      )) as { id: string }[];
+      return ok.map((r) => r.id);
+    },
+    async (ids) => {
+      const atuais = await tx.productVariant.findMany({
+        where: { id: { in: ids } },
+        select: { id: true, stock: true },
       });
-      faltas.push({
-        label: item.label,
-        pedido: item.quantity,
-        disponivel: Math.max(atual?.stock ?? 0, 0),
-      });
-    }
-  }
-  return faltas;
+      return new Map(atuais.map((a) => [a.id, a.stock]));
+    },
+    itens
+  );
 }
 
 /**
