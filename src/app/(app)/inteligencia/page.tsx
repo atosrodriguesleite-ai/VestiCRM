@@ -233,6 +233,8 @@ export default async function IntelligencePage({
       isNuvemshop: r.source === "NUVEMSHOP",
     }))
     .sort((a, b) => b.total - a.total);
+  // frete-ok: `r.total` aqui é um total local já montado a partir de netTotal
+  // (linha acima) — não é o campo `total` do pedido
   const totalOrigens = porOrigem.reduce((a, r) => a + r.total, 0);
 
   const [now, before, funil, canais, vendedores, campanhas, produtos, categorias, cores, tamanhos, mapas, recuperacao, avisos, company, team] =

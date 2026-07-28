@@ -134,7 +134,9 @@ export default async function DashboardPage({
     // Faturamento = pedidos PAGOS (fonte única da verdade, igual à tela Pedidos)
     db.order.findMany({
       where: { ...orderScope, paidAt: inPeriod },
-      select: { total: true, sellerId: true, paidAt: true },
+      // VALOR VENDIDO (netTotal): o frete atravessa a loja e vai para a
+      // transportadora — não é faturamento nem comissão
+      select: { netTotal: true, sellerId: true, paidAt: true },
     }),
     db.customer.count({ where: scope }),
     db.customer.count({ where: { ...scope, createdAt: inPeriod } }),
@@ -210,7 +212,8 @@ export default async function DashboardPage({
       where: { ...orderScope, paidAt: inPeriod },
       _sum: { netTotal: true },
       _count: true,
-      orderBy: { _sum: { total: "desc" } },
+      // ordena pelo MESMO campo que soma, senão a lista sai fora de ordem
+      orderBy: { _sum: { netTotal: "desc" } },
       take: 5,
     }),
     // taxa de recompra: clientes com 2+ pedidos entre quem já pediu
@@ -227,7 +230,7 @@ export default async function DashboardPage({
         status: { in: PAID_ORDER_STATUSES },
         paidAt: { gte: startOfMonth },
       },
-      select: { total: true, sellerId: true },
+      select: { netTotal: true, sellerId: true },
     }),
     // alerta de estoque: variações no limite configurado pela loja
     db.company.findUniqueOrThrow({
@@ -237,7 +240,7 @@ export default async function DashboardPage({
     // --- comparativo: mesmas métricas no período ANTERIOR ---
     db.order.findMany({
       where: { ...orderScope, paidAt: inPrev },
-      select: { total: true, paidAt: true },
+      select: { netTotal: true, paidAt: true },
     }),
     db.customer.count({ where: { ...scope, createdAt: inPrev } }),
     db.order.count({ where: { ...orderAnyScope, createdAt: inPrev } }),
@@ -261,7 +264,7 @@ export default async function DashboardPage({
     ? (buyersAll.filter((b) => b._count >= 2).length / buyersAll.length) * 100
     : 0;
 
-  const revenue30 = sales30.reduce((s, v) => s + v.total, 0);
+  const revenue30 = sales30.reduce((s, v) => s + v.netTotal, 0);
   const ticket = sales30.length ? revenue30 / sales30.length : 0;
   // Conversão = pedidos que viraram pagamento ÷ pedidos gerados no período
   const ordersPaid30 = ordersMonth._count;
@@ -284,7 +287,7 @@ export default async function DashboardPage({
     if (!v.paidAt) continue;
     const i = dayIdx(v.paidAt) - firstIdx;
     if (i >= 0 && i < nDias) {
-      serieFat[i] += v.total;
+      serieFat[i] += v.netTotal;
       seriePed[i] += 1;
     }
   }
@@ -293,7 +296,7 @@ export default async function DashboardPage({
   for (const v of prevSales) {
     if (!v.paidAt) continue;
     const i = dayIdx(v.paidAt) - prevFirstIdx;
-    if (i >= 0 && i < nDias) seriePrev[i] += v.total;
+    if (i >= 0 && i < nDias) seriePrev[i] += v.netTotal;
   }
   let labelsDias = Array.from({ length: nDias }, (_, i) => {
     const d = new Date((firstIdx + i) * DAY);
@@ -316,7 +319,7 @@ export default async function DashboardPage({
 
   const pctDelta = (cur: number, prev: number) =>
     prev > 0 ? ((cur - prev) / prev) * 100 : null;
-  const prevRevenue = prevSales.reduce((s, v) => s + v.total, 0);
+  const prevRevenue = prevSales.reduce((s, v) => s + v.netTotal, 0);
   const prevTicket = prevSales.length ? prevRevenue / prevSales.length : 0;
   const prevConversion = prevOrdersGenerated
     ? (prevSales.length / prevOrdersGenerated) * 100
@@ -345,14 +348,14 @@ export default async function DashboardPage({
           status: { in: PAID_ORDER_STATUSES },
           paidAt: inPeriod,
         },
-        select: { total: true, sellerId: true },
+        select: { netTotal: true, sellerId: true },
       });
   const ranking = sellers
     .map((s) => ({
       seller: s,
       total: allSales30
         .filter((v) => v.sellerId === s.id)
-        .reduce((sum, v) => sum + v.total, 0),
+        .reduce((sum, v) => sum + v.netTotal, 0),
       count: allSales30.filter((v) => v.sellerId === s.id).length,
     }))
     .filter((r) => r.count > 0)
@@ -373,7 +376,8 @@ export default async function DashboardPage({
   // metas: vendido no mês por vendedor + meta própria (quando vendedor)
   const soldBySeller = new Map<string, number>();
   for (const o of monthOrders) {
-    if (o.sellerId) soldBySeller.set(o.sellerId, (soldBySeller.get(o.sellerId) ?? 0) + o.total);
+    if (o.sellerId)
+      soldBySeller.set(o.sellerId, (soldBySeller.get(o.sellerId) ?? 0) + o.netTotal);
   }
   const me = sellers.find((s) => s.id === user.id);
   const myGoal = me?.monthlyGoal ?? 0;

@@ -95,19 +95,51 @@ describe("faturamento conta pela data do pagamento", () => {
  * Este teste vigia as telas de dinheiro: se alguém voltar a somar `total`,
  * ele quebra e explica o porquê.
  */
+/**
+ * O DETECTOR.
+ *
+ * A versão anterior deste guarda existia, vigiava o Dashboard e MESMO ASSIM
+ * deixou passar seis somas com frete. Ela procurava `_sum: { total: true }`
+ * e um formato de `reduce` que nem casava com o jeito que o código escreve
+ * (`reduce((s, v) => s + v.total, 0)` — o parêntese dos parâmetros já
+ * quebrava a expressão). Guarda que não pega nada é pior que guarda nenhum:
+ * dá sensação de segurança.
+ *
+ * Agora a busca é AMPLA e a exceção é EXPLÍCITA: qualquer uso de `total` do
+ * pedido acusa, e o uso legítimo (contas a receber, que é o que a cliente
+ * paga) se declara com o marcador `frete-ok` e o motivo, na própria linha ou
+ * nas duas linhas acima.
+ */
+const PADROES: [RegExp, string][] = [
+  [/_sum:\s*\{[^}]*\btotal:\s*true/g, "soma agregada de total"],
+  [/select:\s*\{[^}]*\btotal:\s*true/g, "select puxando total"],
+  [/orderBy:[^}]*\{\s*total:\s*"(?:asc|desc)"/g, "ordenação por total"],
+  [/[+]=?\s*\w+\.total\b/g, "soma de .total"],
+];
+
+/** O marcador vale na própria linha ou nas duas de cima (comentário). */
+function temPermissao(linhas: string[], i: number): boolean {
+  return linhas
+    .slice(Math.max(0, i - 2), i + 1)
+    .some((l) => l.includes("frete-ok"));
+}
+
 function somasDeTotalNoLugarDoValorVendido(arquivo: string): string[] {
   const fonte = readFileSync(join(raiz, arquivo), "utf8");
+  const linhas = fonte.split("\n");
   const linhaDe = (pos: number) => fonte.slice(0, pos).split("\n").length;
   const achados: string[] = [];
-
-  // soma agregada no banco: _sum: { total: true }
-  for (const m of fonte.matchAll(/_sum:\s*\{[^}]*\btotal:\s*true/g)) {
-    achados.push(`${arquivo}:${linhaDe(m.index ?? 0)} (_sum de total)`);
-  }
-  // soma em memória de pedidos: reduce(... + algo.total ...)
-  // `item.total` (linha do pedido) é outra coisa e fica de fora de propósito.
-  for (const m of fonte.matchAll(/reduce\([^)]*?\+\s*(?!item\.)(\w+)\.total\b/g)) {
-    achados.push(`${arquivo}:${linhaDe(m.index ?? 0)} (reduce somando .total)`);
+  for (const [re, nome] of PADROES) {
+    re.lastIndex = 0;
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(fonte))) {
+      const n = linhaDe(m.index);
+      // `item.total` é o total da LINHA do pedido (peça × quantidade), outra
+      // coisa: nunca tem frete dentro
+      if (/\bitem\.total\b/.test(m[0])) continue;
+      if (temPermissao(linhas, n - 1)) continue;
+      achados.push(`${arquivo}:${n} (${nome})`);
+    }
   }
   return achados;
 }

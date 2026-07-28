@@ -69,10 +69,13 @@ export default async function FinanceiroPage() {
     }),
   ]);
 
+  // frete-ok: contas a RECEBER é o que a cliente paga — frete incluído.
+  // Aqui `total` é o campo certo; faturamento é outra conta (netTotal).
   const totalAReceber = pendentes.reduce((s, o) => s + o.total, 0);
   const diasDe = (d: Date) =>
     Math.floor((agora.getTime() - d.getTime()) / (24 * 60 * 60 * 1000));
   const vencidos = pendentes.filter((o) => diasDe(o.createdAt) > 7);
+  // frete-ok: mesma régua do total a receber
   const totalVencido = vencidos.reduce((s, o) => s + o.total, 0);
 
   // agrupado por cliente (quem mais deve primeiro)
@@ -83,7 +86,7 @@ export default async function FinanceiroPage() {
       total: 0,
       qtd: 0,
     };
-    atual.total += o.total;
+    atual.total += o.total; // frete-ok: quanto a cliente deve, com frete
     atual.qtd += 1;
     porCliente.set(o.customer.id, atual);
   }
