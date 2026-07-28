@@ -44,8 +44,31 @@ const EMBRULHOS = [
   "viewOnceMessageV2Extension",
   "documentWithCaptionMessage", // arquivo com legenda
   "editedMessage", // texto editado
+  // mensagem que a loja enviou por OUTRO aparelho (WhatsApp Web, tablet):
+  // chega embrulhada assim, e sem desembrulhar não aparecia no sistema
+  "deviceSentMessage",
   "protocolMessage", // alguns servidores aninham aqui
 ] as const;
+
+/**
+ * Recados internos do protocolo do WhatsApp — não são conteúdo de ninguém.
+ *
+ * Chaves de criptografia, sincronização entre aparelhos, mudança da regra de
+ * mensagens temporárias. O aplicativo não mostra nada disso, e o sistema
+ * também não pode: viraria bolha de lixo no meio da conversa. Estes são os
+ * ÚNICOS casos em que a mensagem é ignorada de propósito.
+ */
+const RECADOS_DO_PROTOCOLO = new Set([
+  "protocolMessage",
+  "senderKeyDistributionMessage",
+  "messageContextInfo",
+  "ephemeralSettingMessage",
+  "keepInChatMessage",
+  "stickerSyncRmrMessage",
+  "encReactionMessage",
+  "encEventUpdateMessage",
+  "pinInChatMessage",
+]);
 
 /** Tira as camadas de embrulho até chegar no conteúdo de verdade. */
 export function desembrulhar(msg: Conteudo | undefined, nivel = 0): Conteudo {
@@ -61,9 +84,7 @@ const texto = (v: unknown): string => (typeof v === "string" ? v.trim() : "");
 
 /** Nome legível do tipo, para a bolha de aviso do que não foi reconhecido. */
 function nomeDoTipo(msg: Conteudo): string | null {
-  const chaves = Object.keys(msg).filter(
-    (k) => k !== "messageContextInfo" && k !== "senderKeyDistributionMessage"
-  );
+  const chaves = Object.keys(msg).filter((k) => !RECADOS_DO_PROTOCOLO.has(k));
   return chaves[0] ?? null;
 }
 

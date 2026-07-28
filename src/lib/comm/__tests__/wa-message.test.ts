@@ -180,3 +180,41 @@ describe("o que ninguém previu ainda", () => {
     expect(r.text).toBe("oi");
   });
 });
+
+describe("recados internos do protocolo não viram bolha", () => {
+  it("chave de criptografia e sincronização são ignoradas", () => {
+    for (const tipo of [
+      "senderKeyDistributionMessage",
+      "protocolMessage",
+      "ephemeralSettingMessage",
+      "keepInChatMessage",
+      "pinInChatMessage",
+    ]) {
+      const r = lerMensagemWA({ message: { [tipo]: { x: 1 } } });
+      expect(r.text, tipo).toBe(""); // texto vazio = o webhook ignora
+    }
+  });
+
+  it("recado do protocolo JUNTO de conteúdo real não engole o conteúdo", () => {
+    expect(
+      lerMensagemWA({
+        message: { senderKeyDistributionMessage: { x: 1 }, conversation: "bom dia" },
+      }).text
+    ).toBe("bom dia");
+  });
+});
+
+describe("mensagem enviada por OUTRO aparelho da loja", () => {
+  it("WhatsApp Web / tablet vem embrulhado e é desembrulhado", () => {
+    expect(
+      lerMensagemWA({
+        message: {
+          deviceSentMessage: {
+            destinationJid: "5511999998888@s.whatsapp.net",
+            message: { conversation: "respondi pelo computador" },
+          },
+        },
+      }).text
+    ).toBe("respondi pelo computador");
+  });
+});

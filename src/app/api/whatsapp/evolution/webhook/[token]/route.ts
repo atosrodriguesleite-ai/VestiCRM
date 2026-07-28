@@ -3,7 +3,7 @@ import { db } from "@/lib/db";
 import { receiveMessage, updateDeliveryStatus } from "@/lib/comm/engine";
 import { jidToPhone, evoGetMediaBase64 } from "@/lib/comm/evolution";
 import { findCustomerByPhone } from "@/lib/intake";
-import { alertWhatsappDown } from "@/lib/health";
+import { alertWhatsappDown, logServerError } from "@/lib/health";
 import { adCode, campanhaDoAnuncio } from "@/lib/ad-match";
 import { formatPhone } from "@/lib/format";
 import { lerMensagemWA } from "@/lib/comm/wa-message";
@@ -168,7 +168,13 @@ export async function POST(
         ? raw
         : (raw as { messages?: EvoMessage[] })?.messages ?? [raw as EvoMessage];
 
+      // UMA MENSAGEM COM PROBLEMA NÃO PODE DERRUBAR O LOTE.
+      // O servidor entrega várias mensagens de uma vez. Com um único try em
+      // volta do laço, um erro na 3ª fazia as outras 7 nunca serem gravadas —
+      // e ninguém ficava sabendo. Agora cada uma é isolada e o erro fica
+      // registrado no painel de Saúde com o id da mensagem.
       for (const m of list) {
+        try {
         const jid = m.key?.remoteJid ?? "";
         // grupos/status ficam de fora; contato @lid usa o número do senderPn
         let phone = jidToPhone(jid);
@@ -194,11 +200,14 @@ export async function POST(
         const editedText =
           edited?.conversation ?? edited?.extendedTextMessage?.text ?? null;
         if (editedText && m.key?.id) {
-          await db.message.updateMany({
+          const r = await db.message.updateMany({
             where: { externalId: m.key.id, conversation: { companyId } },
             data: { body: editedText, editedAt: new Date() },
           });
-          continue;
+          // Se a mensagem original não está aqui (chegou antes da conexão, ou
+          // se perdeu), NÃO descarta: segue o fluxo e entra como mensagem
+          // nova, já com o texto corrigido. Editar não pode apagar do sistema.
+          if (r.count > 0) continue;
         }
 
         const { text, mediaType, mimeFallback, fileName } = lerMensagemWA(m);
@@ -249,26 +258,6 @@ export async function POST(
           // consegue atribuir a conversa à campanha certa. Sem duplicar: a
           // mesma prévia só entra uma vez por conversa.
           const ad = extractAdReferral(m);
-          // diagnóstico (Central de Comunicação): se o cliente é NOVO e não
-          // veio prévia de anúncio, registra que tipos de conteúdo chegaram —
-          // é assim que descobrimos se o servidor está mandando ou não
-          if (!ad && result?.isNewLead) {
-            await db.commEvent
-              .create({
-                data: {
-                  companyId,
-                  channel: "WHATSAPP",
-                  direction: "IN",
-                  type: "wa.anuncio.ausente",
-                  status: "OK",
-                  payload: JSON.stringify({
-                    tipos: Object.keys(m.message ?? {}),
-                    temContexto: JSON.stringify(m.message ?? {}).includes("contextInfo"),
-                  }).slice(0, 300),
-                },
-              })
-              .catch(() => {});
-          }
           if (ad && result?.conversation) {
             const marcador = ad.sourceUrl || ad.title || ad.sourceId || "";
             const jaTem = marcador
@@ -410,7 +399,10 @@ export async function POST(
                 createdAt: { gt: new Date(Date.now() - 10 * 60 * 1000) },
                 ...(mediaType !== "TEXT" ? { mediaType } : { mediaType: "TEXT", body: textoFinal }),
               },
-              orderBy: { createdAt: "desc" },
+              // MAIS ANTIGA primeiro: os ecos chegam na ordem em que foram
+              // enviados. Adotando a mais nova, duas mensagens iguais mandadas
+              // em seguida ("ok", "ok") trocavam de identidade entre si.
+              orderBy: { createdAt: "asc" },
             });
             if (pendente) {
               await db.message.update({
@@ -459,6 +451,14 @@ export async function POST(
             });
           }
         }
+        } catch (e) {
+          await logServerError({
+            source: "wa.webhook",
+            path: `/api/whatsapp/evolution/webhook (${event})`,
+            message: `Falha ao gravar uma mensagem do WhatsApp: ${e instanceof Error ? e.message : String(e)}`,
+            detail: JSON.stringify({ id: m.key?.id, de: m.key?.remoteJid, minha: m.key?.fromMe }),
+          }).catch(() => {});
+        }
       }
     }
 
@@ -487,7 +487,10 @@ export async function POST(
             channel: "WHATSAPP",
             direction: "IN",
             type: "wa.cliente.apagou",
-            status: matched > 0 ? "OK" : "ERRO",
+            // não achar a mensagem não é defeito: pode ser de grupo, ou
+            // anterior à conexão. Marcar ERRO enchia o painel da lojista de
+            // falha vermelha por algo normal.
+            status: "OK",
             payload: JSON.stringify(body.data).slice(0, 500),
             response: JSON.stringify({ marcadas: matched }),
           },
@@ -502,16 +505,39 @@ export async function POST(
       const list = Array.isArray(raw) ? raw : [raw];
       for (const u of list) {
         if (!u?.keyId || !u.status) continue;
-        const map: Record<string, "ENTREGUE" | "LIDA"> = {
+        // PLAYED = ouviu o áudio (implica ter lido).
+        // ERROR/FAILED = a mensagem NÃO chegou. Sem tratar isso, a bolha
+        // seguia mostrando "enviada" para sempre e a vendedora achava que a
+        // cliente tinha recebido — a pior informação errada possível aqui.
+        const map: Record<string, "ENTREGUE" | "LIDA" | "FALHOU"> = {
           DELIVERY_ACK: "ENTREGUE",
           READ: "LIDA",
+          PLAYED: "LIDA",
+          ERROR: "FALHOU",
+          FAILED: "FALHOU",
         };
         const status = map[u.status.toUpperCase()];
-        if (status) await updateDeliveryStatus(companyId, u.keyId, status);
+        if (!status) continue;
+        await updateDeliveryStatus(
+          companyId,
+          u.keyId,
+          status,
+          status === "FALHOU"
+            ? "O WhatsApp não conseguiu entregar esta mensagem."
+            : undefined
+        );
       }
     }
-  } catch {
-    // erros internos não devem derrubar o webhook — eventos seguintes continuam
+  } catch (e) {
+    // O webhook nunca devolve erro (senão o servidor entra em tempestade de
+    // retentativas), MAS o problema não pode sumir: fica registrado no painel
+    // de Saúde. Antes era engolido em silêncio — mensagem perdida sem rastro.
+    await logServerError({
+      source: "wa.webhook",
+      path: `/api/whatsapp/evolution/webhook (${event})`,
+      message: `Falha no webhook do WhatsApp: ${e instanceof Error ? e.message : String(e)}`,
+      detail: e instanceof Error ? (e.stack ?? null) : null,
+    }).catch(() => {});
   }
 
   return NextResponse.json({ ok: true });

@@ -43,7 +43,9 @@ async function platformCompanyId(): Promise<string | null> {
  * NUNCA lança — o vigia jamais pode piorar o problema que está reportando.
  */
 export async function logServerError(input: {
-  source: "server" | "watchdog" | "client";
+  // wa.webhook: falha ao gravar mensagem que chegou do WhatsApp — a mais
+  // grave de todas, porque significa conversa que a loja não vai ver
+  source: "server" | "watchdog" | "client" | "wa.webhook";
   path?: string | null;
   message: string;
   detail?: string | null;

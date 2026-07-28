@@ -189,14 +189,27 @@ export async function sendMessage(input: SendMessageInput): Promise<Message> {
       });
       const durationMs = Date.now() - started;
 
-      // se o eco do webhook já confirmou a mensagem enquanto o provedor
-      // "pensava" (resgate), não regride ENVIADA → FALHOU
-      const updated = await db.message.update({
-        where: { id: messageId },
-        data: result.ok
-          ? { status: "ENVIADA", externalId: result.externalId, error: null }
-          : { status: "FALHOU", error: result.error },
-      });
+      // NÃO REGRIDE ENVIADA → FALHOU.
+      //
+      // O eco do webhook pode confirmar a mensagem enquanto o provedor ainda
+      // "pensa" (conversão de mídia lenta, rede ruim). Se depois disso o
+      // provedor responder com erro, é falso alarme: a mensagem CHEGOU. Marcar
+      // FALHOU fazia a vendedora reenviar e a cliente receber duas vezes.
+      //
+      // O `updateMany` com filtro de status é o que garante isso: só marca
+      // falha se a mensagem ainda estiver ENVIANDO.
+      if (result.ok) {
+        await db.message.update({
+          where: { id: messageId },
+          data: { status: "ENVIADA", externalId: result.externalId, error: null },
+        });
+      } else {
+        await db.message.updateMany({
+          where: { id: messageId, status: "ENVIANDO" },
+          data: { status: "FALHOU", error: result.error },
+        });
+      }
+      const updated = (await db.message.findUnique({ where: { id: messageId } }))!;
 
       await logEvent({
         companyId: input.companyId,
@@ -239,7 +252,21 @@ export async function sendMessage(input: SendMessageInput): Promise<Message> {
           .catch(() => {});
       });
     } else {
-      message = await doSend();
+      // Envio direto (texto): sem esta proteção, qualquer exceção deixava a
+      // mensagem presa em ENVIANDO para sempre — a vendedora via o ⏱️ girando
+      // e não tinha nem o botão de "Reenviar", porque a bolha nunca chegava a
+      // FALHOU. Agora o erro é gravado na própria mensagem.
+      try {
+        message = await doSend();
+      } catch (e) {
+        await db.message
+          .updateMany({
+            where: { id: messageId, status: "ENVIANDO" },
+            data: { status: "FALHOU", error: `Erro no envio: ${String(e).slice(0, 200)}` },
+          })
+          .catch(() => {});
+        message = (await db.message.findUnique({ where: { id: messageId } })) ?? message;
+      }
     }
   }
 
