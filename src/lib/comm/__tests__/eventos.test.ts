@@ -113,3 +113,31 @@ describe("tipo sem tradução não aparece com cara de código", () => {
     expect(lerEvento({ type: "algo.novo_aqui", status: "OK" }).titulo).toBe("Algo novo aqui");
   });
 });
+
+describe("erro técnico NÃO pode virar 'mensagem não entregue'", () => {
+  it("registro técnico com erro não acusa mensagem perdida", () => {
+    // foi exatamente o defeito do print: 97 'falhas' que não eram mensagens
+    const r = resumoDoPeriodo({
+      recebidas: 20,
+      enviadas: 10,
+      falhas: 0,
+      naFila: 0,
+      outrosErros: 97,
+    });
+    expect(r.gravidade).toBe("ATENCAO");
+    expect(r.titulo).toContain("Nenhuma mensagem deixou de ser entregue");
+    expect(r.detalhe).toContain("não são mensagens de clientes");
+  });
+
+  it("envio que falhou de verdade continua sendo anunciado como tal", () => {
+    const r = resumoDoPeriodo({
+      recebidas: 20,
+      enviadas: 10,
+      falhas: 2,
+      naFila: 0,
+      outrosErros: 97,
+    });
+    expect(r.gravidade).toBe("ERRO");
+    expect(r.titulo).toContain("2 mensagens não foram entregues");
+  });
+});

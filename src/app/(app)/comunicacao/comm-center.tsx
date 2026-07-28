@@ -53,6 +53,7 @@ export function CommCenter({
     received24: number;
     sent24: number;
     failed24: number;
+  outrosErros24: number;
     sending: number;
     avgLatency: number;
     provider: string;
@@ -102,7 +103,7 @@ export function CommCenter({
           icon={<ArrowUpRight />}
         />
         <StatTile
-          label="Falhas (24h)"
+          label="Não entregues (24h)"
           value={String(stats.failed24)}
           tone={stats.failed24 > 0 ? "bad" : "good"}
         />
@@ -172,6 +173,7 @@ export function CommCenter({
           enviadas: stats.sent24,
           falhas: stats.failed24,
           naFila: stats.sending,
+          outrosErros: stats.outrosErros24,
         });
         const tom =
           r.gravidade === "OK"

@@ -152,9 +152,14 @@ export function lerEvento(evento: {
 export function resumoDoPeriodo(input: {
   recebidas: number;
   enviadas: number;
+  /** SÓ envios que falharam — é o que autoriza dizer "não foi entregue" */
   falhas: number;
   naFila: number;
+  /** outros registros com erro (webhook recusado etc.): não são mensagens */
+  outrosErros?: number;
 }): { gravidade: Gravidade; titulo: string; detalhe: string } {
+  const outros = input.outrosErros ?? 0;
+
   if (input.falhas > 0) {
     return {
       gravidade: "ERRO",
@@ -163,6 +168,17 @@ export function resumoDoPeriodo(input: {
           ? "1 mensagem não foi entregue nas últimas 24h"
           : `${input.falhas} mensagens não foram entregues nas últimas 24h`,
       detalhe: "Veja abaixo, no filtro Erros, o que aconteceu em cada uma e o que fazer.",
+    };
+  }
+
+  // Erro que NÃO é mensagem perdida não pode ser anunciado como se fosse.
+  // Dizer "97 mensagens não entregues" quando são registros técnicos antigos
+  // destrói a confiança na tela inteira.
+  if (outros > 0) {
+    return {
+      gravidade: "ATENCAO",
+      titulo: "Nenhuma mensagem deixou de ser entregue",
+      detalhe: `Há ${outros} registro(s) técnico(s) com erro no período — não são mensagens de clientes. Veja no filtro Erros.`,
     };
   }
   if (input.naFila > 0) {
