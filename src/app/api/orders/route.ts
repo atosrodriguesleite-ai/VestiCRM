@@ -157,7 +157,7 @@ export async function POST(req: NextRequest) {
 
       // RESERVA: o pedido do vendedor (orçamento/aguardando) já SEGURA o estoque
       // na criação — assim dois vendedores não vendem a mesma peça. A peça só
-      // volta se o pedido for cancelado (ou pela expiração de 48h da reserva).
+      // volta quando o pedido for CANCELADO — a reserva não tem prazo.
       // Registra o movimento pra ficar auditável/reversível.
       //
       // A baixa é CONDICIONADA ao estoque existente (não é um decremento

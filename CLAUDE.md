@@ -66,10 +66,13 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   Inteligência, Comissões, Equipe, exportações, segmentos). O modelo `Sale`
   é legado do fluxo manual — **não usar para métricas**.
 - **Estoque**: orçamento RESERVA (todos os status exceto CANCELADO seguram
-  estoque); reserva expira em 48h (cron `release-reservations` via
-  `lib/reservations.ts`); baixa definitiva/devolução conforme transição de
-  status. Integrações donas de estoque (Nuvemshop) espelham — uma venda,
-  uma baixa.
+  estoque) — vale para o pedido montado no sistema E para o do catálogo
+  público (`lib/reservations.ts`, baixa condicionada: nunca negativa, nunca
+  duas vendas da mesma peça). **A reserva NÃO tem prazo**: a peça só volta ao
+  estoque quando o pedido é CANCELADO (a soltura automática em 48h foi
+  removida). A tela do pedido avisa quantas peças estão seguradas. Baixa
+  definitiva/devolução conforme transição de status. Integrações donas de
+  estoque (Nuvemshop) espelham — uma venda, uma baixa.
 - **Comissão e painel de pedidos** (`Order.sellerId`): pedido montado no
   sistema → quem montou; pedido do catálogo público → **QUEM MANDOU O LINK
   LEVA A VENDA, e SÓ ele** (`?ref=`) — a cliente chega no WhatsApp, a

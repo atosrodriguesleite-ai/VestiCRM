@@ -613,8 +613,9 @@ async function main() {
         companyId: company.id, number: orderSeq,
         customerId: cliente.id, sellerId: vendedor,
         status: a.status,
-        // orçamento NÃO baixa estoque — ele RESERVA (a baixa é no pagamento)
-        stockDeducted: false,
+        // RESERVA: orçamento/aguardando já seguram a peça (é o que o sistema
+        // faz de verdade). Sem prazo: só volta ao estoque se for cancelado.
+        stockDeducted: true,
         subtotal, discount, discountPct: a.descontoPct ?? null,
         surcharge: 0, surchargePct: null,
         shippingFee: a.frete, netTotal, total,
@@ -653,6 +654,45 @@ async function main() {
           ],
         },
       },
+    });
+    for (const l of lines) {
+      // a demo precisa ter a peça para reservar: se o estoque inicial não
+      // cobre a grade, entra uma reposição antes (senão o catálogo da
+      // apresentação abriria com estoque negativo)
+      const v = await db.productVariant.findUnique({
+        where: { id: l.variantId },
+        select: { stock: true },
+      });
+      if ((v?.stock ?? 0) < l.qty) {
+        const repor = l.qty - (v?.stock ?? 0) + 6;
+        await db.productVariant.update({
+          where: { id: l.variantId },
+          data: { stock: { increment: repor } },
+        });
+        await db.inventoryMovement.create({
+          data: {
+            companyId: company.id,
+            variantId: l.variantId,
+            type: "ENTRADA",
+            quantity: repor,
+            reason: "Reposição de estoque",
+          },
+        });
+      }
+      await db.productVariant.update({
+        where: { id: l.variantId },
+        data: { stock: { decrement: l.qty } },
+      });
+    }
+    await db.inventoryMovement.createMany({
+      data: lines.map((l) => ({
+        companyId: company.id,
+        variantId: l.variantId,
+        orderId: order.id,
+        type: "SAIDA" as const,
+        quantity: l.qty,
+        reason: `Reserva — pedido ${String(orderSeq).padStart(4, "0")}`,
+      })),
     });
     abertos.set(a.cliente, { id: order.id, numero: orderSeq, netTotal, total, frete: a.frete });
   }
@@ -811,7 +851,7 @@ async function main() {
           dir: "OUT",
           body:
             `Montei o orçamento da grade de 80 peças: ${brl(abertos.get("Loja Estilo Mix")!.netTotal)} ` +
-            `com os 10% de desconto. Deixei reservado no estoque por 48h 😉`,
+            `com os 10% de desconto. Já deixei as peças reservadas no estoque 😉`,
           minsAgo: 60 * 4, author: "renata",
         },
         { dir: "IN", body: "Conseguimos fechar 80 peças se o frete for por conta de vocês. Fechado?", minsAgo: 60 * 3 },

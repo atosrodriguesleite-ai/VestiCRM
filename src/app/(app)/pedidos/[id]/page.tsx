@@ -7,6 +7,7 @@ import {
   Truck,
   CreditCard,
   History,
+  PackageCheck,
 } from "lucide-react";
 import { requireUser } from "@/lib/auth";
 import { isManagerUp, orderScope } from "@/lib/scope";
@@ -169,6 +170,27 @@ export default async function OrderDetailPage({
             )}
           </div>
         </div>
+
+        {/* PEÇAS SEGURADAS: a reserva não tem prazo — some do estoque no
+            orçamento e só volta no cancelamento. Sem este aviso, orçamento
+            esquecido vira peça sumida do estoque sem ninguém entender. */}
+        {order.stockDeducted &&
+          !(PAID_ORDER_STATUSES as readonly string[]).includes(order.status) &&
+          order.status !== "CANCELADO" && (
+            <p className="mt-4 flex items-start gap-2 rounded-xl border border-amber-100 bg-amber-50 px-3 py-2.5 text-xs text-amber-800">
+              <PackageCheck className="mt-0.5 size-4 shrink-0" />
+              <span>
+                <b>
+                  {order.items.reduce((s, i) => s + i.quantity, 0)}{" "}
+                  {order.items.reduce((s, i) => s + i.quantity, 0) === 1 ? "peça" : "peças"}{" "}
+                  reservadas
+                </b>{" "}
+                para esta cliente — elas estão fora do estoque e não têm prazo
+                para voltar. Se a venda não sair, <b>cancele o pedido</b> para
+                liberar.
+              </span>
+            </p>
+          )}
 
         <div className="mt-5 pt-5 border-t border-gray-50 min-w-0 overflow-hidden">
           <StatusChanger orderId={order.id} current={order.status} />

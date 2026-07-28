@@ -1,36 +1,19 @@
-import { db } from "./db";
-import { orderNumber } from "./orders";
-import { pushStockToNuvemshop } from "./nuvemshop";
-import { pushStockToJueri } from "./jueri";
-
 /**
- * Expiração das reservas de estoque. Quando um vendedor monta um orçamento, a
- * peça sai do estoque na hora pra ninguém vender a mesma peça duas vezes. Mas
- * se a venda não fecha, a peça não pode ficar presa pra sempre: depois de 48h
- * sem virar pedido pago, a reserva é solta e o estoque volta sozinho.
+ * RESERVA DE ESTOQUE — a peça sai do estoque quando o orçamento é montado.
  *
- * Solta só pedidos AINDA em orçamento/aguardando (não pagos) que estão
- * segurando estoque (stockDeducted) e foram criados há mais de 48h. Registra a
- * devolução (ENTRADA "Reserva expirada") e reflete nas integrações.
+ * REGRA DA LOJA: a reserva NÃO TEM PRAZO. Montou o orçamento, a peça está
+ * segurada; ela só volta para o estoque quando a vendedora CANCELA o pedido.
  *
- * Roda dentro do cron diário (2x/dia) — a janela de 48h tem folga de sobra.
+ * Antes existia uma soltura automática em 48h. Ela ia contra o jeito de
+ * vender do atacado: a cliente pede na terça, paga na sexta, e no meio do
+ * caminho a peça voltava para a prateleira e era vendida para outra. Quem
+ * decide desistir da venda é a loja, não o relógio.
+ *
+ * A contrapartida é responsabilidade: orçamento esquecido segura peça para
+ * sempre. Por isso a tela do pedido mostra, em cima, quantas peças aquele
+ * orçamento está segurando — e que elas voltam ao cancelar.
  */
 
-const RESERVA_HORAS = 48;
-
-/**
- * RESERVA ATÔMICA DE ESTOQUE.
- *
- * Conferir o estoque e depois baixar em dois passos separados tem uma janela
- * no meio: duas clientes fechando a última peça no mesmo segundo passam as
- * duas na conferência e as duas baixam. O `updateMany` com `stock >= pedido`
- * faz as duas coisas de uma vez — o banco garante que só uma ganha; a outra
- * volta zero linhas e o pedido é recusado com a mensagem certa.
- *
- * Devolve a lista do que FALTOU (vazia = reservou tudo). Quem chama decide
- * se recusa o pedido (catálogo/vendedora) ou se só avisa (baixa de um pedido
- * antigo que já foi pago).
- */
 export type ItemDeEstoque = {
   variantId: string | null;
   quantity: number;
@@ -53,6 +36,19 @@ type ClientePrisma = {
   };
 };
 
+/**
+ * RESERVA ATÔMICA DE ESTOQUE.
+ *
+ * Conferir o estoque e depois baixar em dois passos separados tem uma janela
+ * no meio: duas clientes fechando a última peça no mesmo segundo passam as
+ * duas na conferência e as duas baixam. O `updateMany` com `stock >= pedido`
+ * faz as duas coisas de uma vez — o banco garante que só uma ganha; a outra
+ * volta zero linhas e o pedido é recusado com a mensagem certa.
+ *
+ * Devolve a lista do que FALTOU (vazia = reservou tudo). Quem chama decide
+ * se recusa o pedido (catálogo/vendedora) ou se só avisa (baixa de um pedido
+ * antigo que já foi pago).
+ */
 export async function reservarEstoque(
   tx: ClientePrisma,
   itens: ItemDeEstoque[]
@@ -132,69 +128,3 @@ export function textoDaFalta(faltas: FaltaDeEstoque[]): string {
     .join("; ");
 }
 
-export async function releaseExpiredReservations() {
-  const limite = new Date(Date.now() - RESERVA_HORAS * 60 * 60 * 1000);
-
-  const expirados = await db.order.findMany({
-    where: {
-      status: { in: ["ORCAMENTO", "AGUARDANDO_PAGAMENTO"] },
-      stockDeducted: true,
-      createdAt: { lt: limite },
-    },
-    include: { items: true },
-  });
-
-  const soltos: { number: number; companyId: string }[] = [];
-
-  for (const order of expirados) {
-    try {
-      await db.$transaction(async (tx) => {
-        for (const it of order.items) {
-          if (!it.variantId) continue;
-          await tx.productVariant.update({
-            where: { id: it.variantId },
-            data: { stock: { increment: it.quantity } },
-          });
-        }
-        await tx.inventoryMovement.createMany({
-          data: order.items
-            .filter((i) => i.variantId)
-            .map((i) => ({
-              companyId: order.companyId,
-              variantId: i.variantId!,
-              orderId: order.id,
-              type: "ENTRADA" as const,
-              quantity: i.quantity,
-              reason: `Reserva expirada (48h) — pedido ${orderNumber(order.number)}`,
-            })),
-        });
-        await tx.order.update({
-          where: { id: order.id },
-          data: { stockDeducted: false },
-        });
-      });
-
-      // devolve o estoque solto pra origem (Nuvemshop absoluto / Jueri delta +)
-      const variantIds = order.items
-        .map((i) => i.variantId)
-        .filter((v): v is string => !!v);
-      if (variantIds.length > 0) {
-        pushStockToNuvemshop(order.companyId, variantIds).catch(() => {});
-        const changes = order.items
-          .filter((i) => i.variantId)
-          .map((i) => ({ variantId: i.variantId!, delta: i.quantity }));
-        pushStockToJueri(order.companyId, changes).catch(() => {});
-      }
-
-      soltos.push({ number: order.number, companyId: order.companyId });
-    } catch {
-      // um pedido problemático não pode travar os outros
-    }
-  }
-
-  return {
-    verificados: expirados.length,
-    soltos: soltos.length,
-    pedidos: soltos.map((s) => orderNumber(s.number)),
-  };
-}
