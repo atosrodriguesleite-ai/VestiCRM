@@ -216,10 +216,31 @@ export function ProductsView({
 
       {filtered.length === 0 ? (
         <Card>
+          {/* loja sem NENHUM produto ganha o caminho pronto; se é só filtro
+              apertado, o texto continua falando de filtro (não confunde) */}
           <EmptyState
             icon={<Package />}
-            title="Nenhum produto encontrado"
-            hint="Cadastre o primeiro produto ou ajuste os filtros."
+            title={
+              initial.length === 0
+                ? "Seu catálogo ainda está vazio"
+                : "Nenhum produto encontrado"
+            }
+            hint={
+              initial.length === 0
+                ? "Cadastre a primeira peça para começar a montar sua vitrine."
+                : "Ajuste os filtros ou a busca para ver outros produtos."
+            }
+            action={
+              initial.length === 0 ? (
+                <button
+                  onClick={() => setShowNew(true)}
+                  className="flex items-center gap-1.5 rounded-xl bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium px-4 py-2 transition"
+                >
+                  <Plus className="size-4" />
+                  Cadastrar meu primeiro produto
+                </button>
+              ) : undefined
+            }
           />
         </Card>
       ) : (

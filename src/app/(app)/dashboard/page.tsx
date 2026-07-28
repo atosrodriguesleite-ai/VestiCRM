@@ -40,6 +40,7 @@ import { Card, PageHeader, Avatar, PriorityDot, EmptyState } from "@/components/
 import { BarList, AreaCompare, Donut, PeriodChips } from "@/components/charts";
 import { StatCard } from "@/components/dash";
 import { InfoTip } from "@/components/info-tip";
+import { PrimeirosPassos, type Passo } from "./primeiros-passos";
 
 export const dynamic = "force-dynamic";
 
@@ -385,6 +386,51 @@ export default async function DashboardPage({
     },
   });
 
+  // Checklist "Primeiros passos" — só para quem configura a loja (a vendedora
+  // não mexe em catálogo nem em conexão de WhatsApp). Lista vazia = card não
+  // aparece; loja que completou os 4 passos também deixa de ver.
+  let passos: Passo[] = [];
+  if (canSeeAll(user)) {
+    const [comm, produtosCount, pedidosCount, identidade] = await Promise.all([
+      db.commSettings.findUnique({
+        where: { companyId: user.companyId },
+        select: { evolutionStatus: true },
+      }),
+      db.product.count({ where: { companyId: user.companyId } }),
+      db.order.count({ where: { companyId: user.companyId } }),
+      db.company.findUnique({
+        where: { id: user.companyId },
+        select: { logoUrl: true },
+      }),
+    ]);
+    passos = [
+      {
+        done: comm?.evolutionStatus === "CONECTADO",
+        label: "Conectar o WhatsApp da loja",
+        hint: "É por onde a maior parte das vendas acontece.",
+        href: "/comunicacao",
+      },
+      {
+        done: produtosCount > 0,
+        label: "Cadastrar o primeiro produto",
+        hint: "Sem produto, o catálogo fica vazio.",
+        href: "/produtos",
+      },
+      {
+        done: Boolean(identidade?.logoUrl),
+        label: "Colocar sua logo no catálogo",
+        hint: "O catálogo passa a ter a cara da sua marca.",
+        href: "/configuracoes/catalogo",
+      },
+      {
+        done: pedidosCount > 0,
+        label: "Receber o primeiro pedido",
+        hint: "Compartilhe o link do catálogo com suas clientes.",
+        href: "/configuracoes/catalogo",
+      },
+    ];
+  }
+
   return (
     <div className="max-w-7xl mx-auto">
       <PageHeader
@@ -415,6 +461,8 @@ export default async function DashboardPage({
       <div className="mb-5 -mt-1">
         <PeriodChips pathname="/dashboard" de={de} ate={ate} />
       </div>
+
+      <PrimeirosPassos passos={passos} />
 
       {suggestions.length > 0 && (
         <Link

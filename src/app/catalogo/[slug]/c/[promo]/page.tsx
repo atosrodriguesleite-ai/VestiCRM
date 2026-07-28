@@ -48,7 +48,8 @@ export default async function PromoCatalogPage({
   const { slug, promo } = await params;
   const sp = await searchParams;
   const company = await db.company.findUnique({ where: { slug } });
-  if (!company) notFound();
+  // loja suspensa sai do ar também nos catálogos de campanha
+  if (!company || company.suspended) notFound();
 
   const pc = await db.promoCatalog.findUnique({
     where: { companyId_slug: { companyId: company.id, slug: promo } },

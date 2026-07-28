@@ -19,9 +19,11 @@ export async function generateMetadata({
 }): Promise<Metadata> {
   const { slug } = await params;
   const company = await db.company.findUnique({ where: { slug } });
+  // loja suspensa não expõe nem o nome (mesmo tratamento de "não existe")
+  if (!company || company.suspended) return { title: "Catálogo" };
   return {
-    title: company ? `${company.name} — Catálogo` : "Catálogo",
-    description: company?.tagline ?? "Catálogo de produtos",
+    title: `${company.name} — Catálogo`,
+    description: company.tagline ?? "Catálogo de produtos",
   };
 }
 
@@ -35,7 +37,10 @@ export default async function PublicCatalogPage({
   const { slug } = await params;
   const sp = await searchParams;
   const company = await db.company.findUnique({ where: { slug } });
-  if (!company) notFound();
+  // Loja suspensa (ex.: inadimplência) sai do ar também no público. Sem
+  // isso a suspensão não tinha efeito nenhum: a loja continuava recebendo
+  // pedidos pelo catálogo mesmo sem conseguir entrar no sistema.
+  if (!company || company.suspended) notFound();
 
   const [products, customColors] = await Promise.all([
     db.product.findMany({

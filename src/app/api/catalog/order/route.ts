@@ -56,7 +56,9 @@ export async function POST(req: NextRequest) {
   const company = await db.company.findUnique({
     where: { slug: input.company },
   });
-  if (!company) {
+  // Loja suspensa não recebe pedido novo — trava no servidor, para não
+  // depender só da página ter sumido (link antigo, cache, app do cliente).
+  if (!company || company.suspended) {
     return NextResponse.json({ error: "Loja não encontrada" }, { status: 404 });
   }
 

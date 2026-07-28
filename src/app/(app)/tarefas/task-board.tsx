@@ -134,6 +134,22 @@ export function TaskBoard({
                 ? "Nenhuma tarefa atrasada 🎉"
                 : "Nenhuma tarefa aqui"
             }
+            hint={
+              filter === "atrasadas"
+                ? undefined
+                : "Use as tarefas para não esquecer de dar retorno a uma cliente."
+            }
+            action={
+              filter === "atrasadas" ? undefined : (
+                <button
+                  onClick={() => setShowNew(true)}
+                  className="flex items-center gap-1.5 rounded-xl bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium px-4 py-2 transition"
+                >
+                  <Plus className="size-4" />
+                  Criar primeira tarefa
+                </button>
+              )
+            }
           />
         ) : (
           <ul className="divide-y divide-gray-50">

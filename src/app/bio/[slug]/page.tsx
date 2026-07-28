@@ -67,7 +67,8 @@ const TYPE_ICON = {
 
 async function load(slug: string) {
   return db.bioPage.findFirst({
-    where: { slug, published: true },
+    // loja suspensa some do ar também aqui (mesma regra do catálogo)
+    where: { slug, published: true, company: { suspended: false } },
     include: {
       company: {
         select: {

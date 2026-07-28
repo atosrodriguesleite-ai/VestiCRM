@@ -118,9 +118,22 @@ export default async function CustomersPage({
 
       {customers.length === 0 ? (
         <Card>
+          {/* carteira vazia de verdade ganha o botão; busca/filtro sem
+              resultado continua falando de busca */}
           <EmptyState
-            title="Nenhum cliente encontrado"
-            hint="Cadastre o primeiro cliente ou ajuste a busca."
+            title={
+              q || tipo
+                ? "Nenhum cliente encontrado"
+                : "Sua carteira ainda está vazia"
+            }
+            hint={
+              q || tipo
+                ? "Ajuste a busca ou o filtro para ver outros clientes."
+                : "Cadastre a primeira cliente para começar a acompanhar as vendas dela."
+            }
+            action={
+              q || tipo ? undefined : <NewCustomerButton interests={interests} />
+            }
           />
         </Card>
       ) : (
