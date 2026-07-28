@@ -9,7 +9,7 @@ import {
   History,
 } from "lucide-react";
 import { requireUser } from "@/lib/auth";
-import { isManagerUp } from "@/lib/scope";
+import { isManagerUp, orderScope } from "@/lib/scope";
 import { db } from "@/lib/db";
 import { brl, dateFull, dateShort, timeShort } from "@/lib/format";
 import {
@@ -43,7 +43,7 @@ export default async function OrderDetailPage({
   const { id } = await params;
 
   const order = await db.order.findFirst({
-    where: { id, companyId: user.companyId },
+    where: { id, ...orderScope(user) },
     include: {
       customer: true,
       seller: true,

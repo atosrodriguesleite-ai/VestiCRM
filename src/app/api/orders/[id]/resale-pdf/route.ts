@@ -9,6 +9,7 @@ import {
 import sharp from "sharp";
 import { db } from "@/lib/db";
 import { requireUser, AuthError } from "@/lib/auth";
+import { orderScope } from "@/lib/scope";
 
 /**
  * Catálogo de REVENDA em PDF — o lojista/sacoleira encaminha ao cliente da
@@ -67,7 +68,7 @@ export async function GET(
     const { id } = await params;
 
     const order = await db.order.findFirst({
-      where: { id, companyId: user.companyId },
+      where: { id, ...orderScope(user) },
       include: { customer: true, items: true },
     });
     if (!order) {

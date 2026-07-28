@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { requireUser, AuthError } from "@/lib/auth";
-import { isManagerUp } from "@/lib/scope";
+import { isManagerUp, orderScope } from "@/lib/scope";
 import { emitirNfeDoPedido, consultarNfe } from "@/lib/bling";
 
 /** Emite a NF-e do pedido via Bling (gerente/admin). */
@@ -41,7 +41,7 @@ export async function GET(
     const user = await requireUser();
     const { id } = await params;
     const order = await db.order.findFirst({
-      where: { id, companyId: user.companyId },
+      where: { id, ...orderScope(user) },
       select: { id: true, nfeBlingId: true },
     });
     if (!order?.nfeBlingId)

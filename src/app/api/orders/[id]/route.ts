@@ -3,7 +3,7 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import { imageSrc } from "@/lib/img";
 import { requireUser, AuthError } from "@/lib/auth";
-import { isManagerUp, isSupport } from "@/lib/scope";
+import { isManagerUp, isSupport, orderScope } from "@/lib/scope";
 import { reverseAndDeleteOrder } from "@/lib/order-actions";
 import { notifySalePaid } from "@/lib/push";
 import { pushStockToNuvemshop } from "@/lib/nuvemshop";
@@ -97,7 +97,7 @@ export async function PATCH(
     }
 
     const order = await db.order.findFirst({
-      where: { id, companyId: user.companyId },
+      where: { id, ...orderScope(user) },
       include: { items: true, payments: true },
     });
     if (!order) {
@@ -749,7 +749,7 @@ export async function DELETE(
     }
     const { id } = await params;
     const order = await db.order.findFirst({
-      where: { id, companyId: user.companyId },
+      where: { id, ...orderScope(user) },
       include: { items: true },
     });
     if (!order) {

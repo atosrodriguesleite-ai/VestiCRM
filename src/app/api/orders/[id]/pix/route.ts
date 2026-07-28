@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { requireUser, AuthError } from "@/lib/auth";
+import { orderScope } from "@/lib/scope";
 import { orderNumber } from "@/lib/orders";
 import { mpCreatePixCharge } from "@/lib/mercadopago";
 
@@ -17,7 +18,7 @@ export async function POST(
     const user = await requireUser();
     const { id } = await params;
     const order = await db.order.findFirst({
-      where: { id, companyId: user.companyId },
+      where: { id, ...orderScope(user) },
       include: { customer: { select: { name: true, email: true } } },
     });
     if (!order)

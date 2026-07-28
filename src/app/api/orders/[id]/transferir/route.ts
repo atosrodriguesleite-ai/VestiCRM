@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { requireUser, AuthError } from "@/lib/auth";
+import { orderScope } from "@/lib/scope";
 import { podeTransferirVenda } from "@/lib/orders";
 
 /**
@@ -31,7 +32,7 @@ export async function POST(
     }
 
     const order = await db.order.findFirst({
-      where: { id, companyId: user.companyId },
+      where: { id, ...orderScope(user) },
       select: { id: true, sellerId: true, number: true, status: true },
     });
     if (!order) {
