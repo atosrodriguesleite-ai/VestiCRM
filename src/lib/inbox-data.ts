@@ -13,15 +13,25 @@ import type { InboxConversation } from "@/app/(app)/whatsapp/inbox";
 const CONVERSAS_NA_ABERTURA = 200;
 const MENSAGENS_NA_ABERTURA = 100;
 
+/**
+ * @param since  sync incremental: só o que mudou desde então
+ * @param convId UMA conversa específica, com o histórico recente COMPLETO.
+ *   Existe porque o sync entrega só o que mudou: uma conversa que chega à
+ *   tela por ele (a loja tem mais conversas do que cabe na carga inicial)
+ *   viria com uma mensagem só, e o atendimento parecia nunca ter acontecido.
+ */
 export async function loadInboxConversations(
   user: SessionUser,
-  since?: Date
+  since?: Date,
+  convId?: string
 ): Promise<InboxConversation[]> {
   const [conversations, company] = await Promise.all([
     db.conversation.findMany({
       where: {
         ...conversationScope(user),
-        ...(since ? { updatedAt: { gt: since } } : {}),
+        // pedindo UMA conversa, o histórico dela vem inteiro (o `since` não
+        // se aplica: o pedido é justamente "me dá tudo dessa aqui")
+        ...(convId ? { id: convId } : since ? { updatedAt: { gt: since } } : {}),
       },
       include: {
         customer: { include: { tags: { include: { tag: true } } } },
@@ -40,7 +50,7 @@ export async function loadInboxConversations(
         //  • CARGA INICIAL: as últimas 100 de cada conversa (busca em ordem
         //    decrescente e devolve na ordem certa). É o que qualquer app de
         //    mensagem faz — ninguém abre o chat para ler o começo de 2023.
-        messages: since
+        messages: since && !convId
           ? {
               where: { updatedAt: { gt: since } },
               orderBy: { createdAt: "asc" },
@@ -62,7 +72,7 @@ export async function loadInboxConversations(
       orderBy: { lastMessageAt: "desc" },
       // conversa que não recebe mensagem há muito tempo não precisa estar na
       // memória do navegador; a busca continua achando pelo servidor
-      ...(since ? {} : { take: CONVERSAS_NA_ABERTURA }),
+      ...(since || convId ? {} : { take: CONVERSAS_NA_ABERTURA }),
     }),
     db.company.findUnique({
       where: { id: user.companyId },
@@ -111,7 +121,7 @@ export async function loadInboxConversations(
     // na abertura a busca vem da mais nova para a mais antiga (é assim que se
     // pega "as últimas 100"); a tela desenha de cima para baixo, então volta
     // à ordem cronológica aqui
-    messages: (since ? c.messages : [...c.messages].reverse()).map((m) => ({
+    messages: (since && !convId ? c.messages : [...c.messages].reverse()).map((m) => ({
       id: m.id,
       direction: m.direction,
       kind: m.kind,

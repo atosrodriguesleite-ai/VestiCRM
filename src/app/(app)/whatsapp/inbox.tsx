@@ -373,6 +373,12 @@ export function Inbox({
   const [newTplBody, setNewTplBody] = useState("");
   const [savingTpl, setSavingTpl] = useState(false);
   // editar / apagar mensagem enviada (menu estilo WhatsApp: segurar em cima)
+  /**
+   * Ids que a tela já carregou COM histórico. Nasce com o que veio da carga
+   * inicial; o sync usa para saber quem chegou agora e precisa buscar o
+   * histórico (senão a conversa aparece com uma mensagem só).
+   */
+  const idsNaTela = useRef<Set<string>>(new Set(conversations.map((c) => c.id)));
   const [actionMsg, setActionMsg] = useState<InboxMessage | null>(null);
   /** Aviso rápido no rodapé ("Mensagem copiada"). Some sozinho. */
   const [aviso, setAviso] = useState<string | null>(null);
@@ -654,8 +660,39 @@ export function Inbox({
               unreadCount: f.id === selId ? 0 : f.unreadCount,
             };
           });
-          return [...merged, ...freshById.values()]; // novas conversas entram
+          // Conversas que a tela ainda NÃO tinha entram aqui — mas o sync
+          // devolve só o que mudou, então elas chegam com uma mensagem só.
+          // Entram assim (para não sumir da lista) e o histórico vem logo
+          // atrás, na busca abaixo.
+          return [...merged, ...freshById.values()];
         });
+        // HISTÓRICO DAS CONVERSAS NOVAS PARA A TELA.
+        //
+        // Sem isto, a conversa que chega pelo sync mostra só a mensagem que
+        // acabou de mudar — "aparece como se eu nunca tivesse conversado com
+        // ele". Acontece de verdade em loja movimentada: a conversa não
+        // coube na carga inicial e volta à tela quando a cliente escreve.
+        const semHistorico = fresh.filter(
+          (c) => !idsNaTela.current.has(c.id) && c.messages.length > 0
+        );
+        for (const c of fresh) idsNaTela.current.add(c.id);
+        for (const c of semHistorico) {
+          try {
+            const r = await fetch(`/api/conversations/${c.id}`);
+            if (!r.ok) continue;
+            const { conversation } = await r.json();
+            if (!alive || !conversation) continue;
+            setConvs((prev) =>
+              prev.map((p) =>
+                p.id === conversation.id
+                  ? { ...conversation, unreadCount: p.unreadCount }
+                  : p
+              )
+            );
+          } catch {
+            // rede oscilou: a próxima mudança na conversa tenta de novo
+          }
+        }
         // conversa aberta recebeu mensagem → já marca como lida no servidor
         const sel = fresh.find((c) => c.id === selId);
         if (sel && sel.unreadCount > 0) {
