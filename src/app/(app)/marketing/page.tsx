@@ -106,13 +106,26 @@ export default async function MarketingPage({
     _max: { createdAt: true },
   });
   const refsJaUsadas = new Set(campaignRows.flatMap((c) => refsDaCampanha(c.adRefs)));
+  // o CRIATIVO de cada anúncio (link, título e texto). Sem isto a tela mostrava
+  // só o código curto — que não abre nada e não diz que anúncio é.
+  const criativos = await db.adCreative.findMany({
+    where: { companyId },
+    select: { adRef: true, sourceUrl: true, title: true, body: true },
+  });
+  const criativoDe = new Map(criativos.map((c) => [c.adRef, c]));
   const anunciosDetectados = anunciosRaw
     .filter((a) => a.adRef && !refsJaUsadas.has(a.adRef))
-    .map((a) => ({
-      ref: a.adRef as string,
-      clientes: a._count._all,
-      ultimo: a._max.createdAt?.toISOString() ?? null,
-    }))
+    .map((a) => {
+      const cr = criativoDe.get(a.adRef as string);
+      return {
+        ref: a.adRef as string,
+        clientes: a._count._all,
+        ultimo: a._max.createdAt?.toISOString() ?? null,
+        url: cr?.sourceUrl ?? null,
+        titulo: cr?.title ?? null,
+        texto: cr?.body ?? null,
+      };
+    })
     .sort((a, b) => b.clientes - a.clientes)
     .slice(0, 12);
 

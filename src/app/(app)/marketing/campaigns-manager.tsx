@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Plus, Target, Trash2, Power, Megaphone, Link2 } from "lucide-react";
+import { Plus, Target, Trash2, Power, Megaphone, Link2, ExternalLink } from "lucide-react";
 import { Button, Card, Field, inputCls, EmptyState, Badge } from "@/components/ui";
 
 export type Campanha = {
@@ -20,6 +20,14 @@ export type AnuncioDetectado = {
   ref: string;
   clientes: number;
   ultimo: string | null;
+  /**
+   * Endereço ORIGINAL do anúncio. Nulo nos que foram detectados antes de o
+   * sistema passar a guardar o criativo — nesses, o código não dá para virar
+   * link (ele é gravado em minúsculas e o Instagram diferencia maiúsculas).
+   */
+  url: string | null;
+  titulo: string | null;
+  texto: string | null;
 };
 
 const CHANNELS: { value: string; label: string }[] = [
@@ -327,10 +335,43 @@ export function CampaignsManager({
                   className="flex flex-col gap-2 rounded-xl border border-slate-100 p-3 sm:flex-row sm:items-center"
                 >
                   <div className="min-w-0 flex-1">
-                    <p className="flex items-center gap-1.5 truncate font-mono text-xs text-slate-700">
-                      <Link2 className="size-3.5 shrink-0 text-slate-400" />
-                      {a.ref}
-                    </p>
+                    {/* TÍTULO DO ANÚNCIO primeiro: é assim que a lojista
+                        reconhece qual é. O código curto sozinho ("dbn-u8qsqk4")
+                        não diz nada para ninguém. */}
+                    {a.titulo && (
+                      <p className="truncate text-[13px] font-semibold text-slate-700">
+                        {a.titulo}
+                      </p>
+                    )}
+                    {/* CLICÁVEL quando temos o endereço original do anúncio.
+                        O código é gravado em minúsculas e link de Instagram
+                        diferencia maiúsculas — por isso o link tem de vir
+                        guardado, não pode ser remontado a partir do código. */}
+                    {a.url ? (
+                      <a
+                        href={a.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex items-center gap-1.5 truncate font-mono text-xs text-brand-600 hover:text-brand-700 hover:underline"
+                        title="Abrir o anúncio"
+                      >
+                        <ExternalLink className="size-3.5 shrink-0" />
+                        {a.ref}
+                      </a>
+                    ) : (
+                      <p
+                        className="flex items-center gap-1.5 truncate font-mono text-xs text-slate-700"
+                        title="Este anúncio apareceu antes de o sistema passar a guardar o link"
+                      >
+                        <Link2 className="size-3.5 shrink-0 text-slate-400" />
+                        {a.ref}
+                      </p>
+                    )}
+                    {a.texto && (
+                      <p className="mt-0.5 truncate text-[11px] text-slate-400">
+                        {a.texto}
+                      </p>
+                    )}
                     <p className="mt-0.5 text-[11px] text-slate-500">
                       <b className="tabular-nums text-slate-700">{a.clientes}</b>{" "}
                       {a.clientes === 1 ? "cliente" : "clientes"}

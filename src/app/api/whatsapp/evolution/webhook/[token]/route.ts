@@ -298,6 +298,30 @@ export async function POST(
             // que já existe (quem trouxe a cliente foi quem trouxe).
             const codigo = adCode(ad);
             if (codigo) {
+              // GUARDA O CRIATIVO. Até aqui só o código curto sobrevivia, e
+              // ele não abre nada nem diz que anúncio é — a lojista via
+              // "dbn-u8qsqk4" na tela e não fazia ideia. O link vem com as
+              // maiúsculas certas (o código vai para minúsculas e o Instagram
+              // diferencia), então tem que ser guardado como veio.
+              await db.adCreative
+                .upsert({
+                  where: { companyId_adRef: { companyId, adRef: codigo } },
+                  create: {
+                    companyId,
+                    adRef: codigo,
+                    sourceUrl: ad.sourceUrl ?? null,
+                    sourceId: ad.sourceId ?? null,
+                    title: ad.title ?? null,
+                    body: ad.body?.slice(0, 300) ?? null,
+                  },
+                  update: {
+                    lastSeenAt: new Date(),
+                    // completa o que faltava sem apagar o que já tinha
+                    ...(ad.sourceUrl ? { sourceUrl: ad.sourceUrl } : {}),
+                    ...(ad.title ? { title: ad.title } : {}),
+                  },
+                })
+                .catch(() => {});
               const cliente = await db.customer.findUnique({
                 where: { id: result.customer.id },
                 select: { adRef: true, campaignId: true },

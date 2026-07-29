@@ -87,6 +87,7 @@ model Company {
   melhorEnvio    MelhorEnvioConnection?
   billing        CompanyBilling?
   modules        CompanyModule[]
+  adCreatives    AdCreative[]
   promoCatalogs  PromoCatalog[]
   fabrics        Fabric[]
   cutTickets     CutTicket[]
@@ -2083,4 +2084,33 @@ model CompanyModule {
 
   @@unique([companyId, modulo, activatedAt])
   @@index([companyId, deactivatedAt])
+}
+
+/// O ANÚNCIO EM SI — link, título e texto do criativo.
+///
+/// Quando a cliente chega por um Click-to-WhatsApp, o Meta manda junto a
+/// prévia do anúncio. O sistema extraía dela um CÓDIGO curto e jogava o resto
+/// fora: sobrava "dbn-u8qsqk4" na tela, que não abre nada e não diz que
+/// anúncio é. Pior: o código vai para minúsculas, e link de Instagram
+/// diferencia maiúsculas — não dá nem para remontar o endereço depois.
+///
+/// Aqui fica o criativo de verdade, uma linha por anúncio: dá para clicar e
+/// ver, e para reconhecer o anúncio pelo título sem sair do sistema.
+model AdCreative {
+  id         String   @id @default(cuid())
+  companyId  String
+  company    Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  /// mesmo código usado em Customer.adRef (a chave que casa com a campanha)
+  adRef      String
+  /// endereço ORIGINAL do anúncio, com maiúsculas preservadas
+  sourceUrl  String?
+  /// id do anúncio no Meta, quando vier
+  sourceId   String?
+  title      String?
+  body       String?
+  firstSeenAt DateTime @default(now())
+  lastSeenAt  DateTime @default(now())
+
+  @@unique([companyId, adRef])
+  @@index([companyId])
 }
