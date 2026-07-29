@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
-import { imageSrc } from "@/lib/img";
+import { imageHref } from "@/lib/img";
+import { avancarFunil } from "@/lib/funil-auto";
 import { requireUser, AuthError } from "@/lib/auth";
 import { computeOrderTotals, orderNumber } from "@/lib/orders";
 import { pushStockToNuvemshop } from "@/lib/nuvemshop";
@@ -71,7 +72,17 @@ export async function POST(req: NextRequest) {
         id: { in: variantIds },
         product: { companyId: user.companyId },
       },
-      include: { product: { include: { images: { orderBy: { order: "asc" }, take: 1 } } } },
+      // SÓ O ID DA FOTO. Trazer a coluna inteira lia o base64 da imagem
+        // do banco (megabytes por pedido) só para descobrir o endereço
+        // dela — `imageHref` monta o link a partir do id, e a rota
+        // /api/img resolve sozinha quando a foto é link externo.
+        include: {
+          product: {
+            include: {
+              images: { orderBy: { order: "asc" }, take: 1, select: { id: true } },
+            },
+          },
+        },
     });
     const variantById = new Map(variants.map((v) => [v.id, v]));
     for (const item of input.items) {
@@ -152,7 +163,7 @@ export async function POST(req: NextRequest) {
                 variantId: v.id,
                 name: v.product.name,
                 sku: v.product.sku,
-                imageUrl: v.product.images[0] ? imageSrc(v.product.images[0]) : null,
+                imageUrl: v.product.images[0] ? imageHref(v.product.images[0].id) : null,
                 color: v.color,
                 size: v.size,
                 quantity: i.quantity,
@@ -262,6 +273,15 @@ export async function POST(req: NextRequest) {
         data: { lastMessageAt: new Date() },
       });
     }
+
+    // O CARTÃO ANDA SOZINHO: montou orçamento → "Pedido em negociação";
+    // já foi para aguardando pagamento → "Pagamento pendente". Antes essas
+    // duas etapas do meio só existiam se alguém arrastasse o cartão à mão.
+    await avancarFunil(
+      user.companyId,
+      input.customerId,
+      input.status === "AGUARDANDO_PAGAMENTO" ? "PAGAMENTO" : "NEGOCIACAO"
+    );
 
     return NextResponse.json(order, { status: 201 });
   } catch (e) {

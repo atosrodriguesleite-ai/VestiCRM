@@ -86,6 +86,7 @@ model Company {
   bling          BlingConnection?
   melhorEnvio    MelhorEnvioConnection?
   billing        CompanyBilling?
+  modules        CompanyModule[]
   promoCatalogs  PromoCatalog[]
   fabrics        Fabric[]
   cutTickets     CutTicket[]
@@ -768,6 +769,12 @@ model Message {
   authorId       String?
   author         User?            @relation(fields: [authorId], references: [id], onDelete: SetNull)
   createdAt      DateTime         @default(now())
+  // QUANDO ESTA MENSAGEM MUDOU pela última vez (recibo ✓✓, edição,
+  // apagada). É o que permite o sync incremental mandar só o que mudou
+  // em vez do histórico inteiro da conversa a cada 3 segundos: recibo
+  // não altera `createdAt`, então filtrar por data de criação perdia
+  // justamente as atualizações de status.
+  updatedAt      DateTime         @updatedAt @default(now())
   // recibos com horário (WhatsApp): quando o cliente RECEBEU e quando VIU
   deliveredAt    DateTime?
   readAt         DateTime?
@@ -777,6 +784,8 @@ model Message {
   revokedBy      String? // "CUSTOMER" (o cliente apagou) | "STORE" (a loja apagou)
 
   @@index([conversationId, createdAt])
+  // sync incremental da inbox: "o que mudou nesta conversa desde X"
+  @@index([conversationId, updatedAt])
   @@index([externalId])
   // MESMA MENSAGEM NUNCA ENTRA DUAS VEZES.
   //
@@ -2043,4 +2052,35 @@ model DefectItem {
   createdAt   DateTime @default(now())
 
   @@index([companyId, status])
+}
+
+/// MÓDULO CONTRATADO POR UMA LOJA — com preço e histórico.
+///
+/// As 5 chavinhas em `Company` (productionEnabled, marketingEnabled...) ligam
+/// e desligam o módulo, mas NÃO têm preço nem data: ativar era um clique e
+/// cobrar era lembrar de somar na mensalidade de cabeça. Um dia esquece.
+///
+/// Aqui fica o HISTÓRICO, não o estado: responde "desde quando ela tem
+/// Produção?", permite cobrar proporcional no mês da ativação, preserva o
+/// preço antigo de quem já contratou quando a tabela subir, e — o principal —
+/// faz o MRR ser CALCULADO (mensalidade base + módulos ativos) em vez de
+/// digitado à mão.
+model CompanyModule {
+  id         String    @id @default(cuid())
+  companyId  String
+  company    Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  /// chave do módulo: PRODUCAO | MARKETING | BIBLIOTECA | ENVIOS | PLANO_CORTE | INTELIGENCIA
+  modulo     String
+  /// quanto ESTA loja paga por mês por este módulo (0 = cortesia)
+  priceMonth Float     @default(0)
+  /// preço de tabela na data da contratação — mostra quanto de desconto foi
+  /// dado, número que hoje não existe em lugar nenhum
+  listPrice  Float     @default(0)
+  activatedAt   DateTime  @default(now())
+  /// preenchido quando o módulo é desligado (a linha nunca é apagada)
+  deactivatedAt DateTime?
+  notes      String?
+
+  @@unique([companyId, modulo, activatedAt])
+  @@index([companyId, deactivatedAt])
 }

@@ -1,6 +1,7 @@
 import { db } from "../db";
 import { normalizePhone } from "../intake";
 import { forwardToDestinations } from "./destinations";
+import { avancarFunil } from "../funil-auto";
 
 /**
  * Tracking Engine — camada ÚNICA de eventos da Inteligência Comercial.
@@ -202,6 +203,13 @@ export async function startSession(input: StartSessionInput) {
         where: { visitorId: visitor.id },
         data: { customerId: customer.id },
       });
+    }
+    // A CLIENTE ABRIU O CATÁLOGO → o cartão avança sozinho.
+    //
+    // Melhor sinal que "mandei o catálogo": mandar não prova nada, abrir
+    // prova interesse. E o dado já chegava aqui, sem ninguém usar.
+    if (customer) {
+      await avancarFunil(input.companyId, customer.id, "CATALOGO_ENVIADO");
     }
   }
 

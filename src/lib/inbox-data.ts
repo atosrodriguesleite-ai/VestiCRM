@@ -9,6 +9,10 @@ import type { InboxConversation } from "@/app/(app)/whatsapp/inbox";
  * carregamento inicial (página) e o sync incremental (GET /api/conversations,
  * que passa `since` para trazer só o que mudou desde a última busca).
  */
+/** Quanta conversa e quanta mensagem a tela recebe ao abrir. */
+const CONVERSAS_NA_ABERTURA = 200;
+const MENSAGENS_NA_ABERTURA = 100;
+
 export async function loadInboxConversations(
   user: SessionUser,
   since?: Date
@@ -23,16 +27,42 @@ export async function loadInboxConversations(
         customer: { include: { tags: { include: { tag: true } } } },
         assignee: true,
         setor: true,
-        messages: {
-          orderBy: { createdAt: "asc" },
-          include: {
-            author: true,
-            // prévia da mensagem citada (responder mensagem específica)
-            replyTo: { select: { id: true, body: true, direction: true } },
-          },
-        },
+        // O PESO DA TELA MORA AQUI.
+        //
+        // Antes vinham TODAS as mensagens de TODAS as conversas — e de novo a
+        // cada 3 segundos, no sync. Uma cliente com 3.000 mensagens fazia as
+        // 3.000 trafegarem só porque chegou um ✓✓. Era o gargalo nº 1.
+        //
+        //  • SYNC (com `since`): só o que MUDOU desde a última consulta. Como
+        //    recibo e edição não mexem em `createdAt`, o filtro é por
+        //    `updatedAt` — senão o sync perderia as atualizações de status.
+        //    A tela junta com o que já tem e reordena por data.
+        //  • CARGA INICIAL: as últimas 100 de cada conversa (busca em ordem
+        //    decrescente e devolve na ordem certa). É o que qualquer app de
+        //    mensagem faz — ninguém abre o chat para ler o começo de 2023.
+        messages: since
+          ? {
+              where: { updatedAt: { gt: since } },
+              orderBy: { createdAt: "asc" },
+              include: {
+                author: true,
+                replyTo: { select: { id: true, body: true, direction: true } },
+              },
+            }
+          : {
+              orderBy: { createdAt: "desc" },
+              take: MENSAGENS_NA_ABERTURA,
+              include: {
+                author: true,
+                // prévia da mensagem citada (responder mensagem específica)
+                replyTo: { select: { id: true, body: true, direction: true } },
+              },
+            },
       },
       orderBy: { lastMessageAt: "desc" },
+      // conversa que não recebe mensagem há muito tempo não precisa estar na
+      // memória do navegador; a busca continua achando pelo servidor
+      ...(since ? {} : { take: CONVERSAS_NA_ABERTURA }),
     }),
     db.company.findUnique({
       where: { id: user.companyId },
@@ -78,7 +108,10 @@ export async function loadInboxConversations(
     setor: c.setor
       ? { id: c.setor.id, name: c.setor.name, color: c.setor.color }
       : null,
-    messages: c.messages.map((m) => ({
+    // na abertura a busca vem da mais nova para a mais antiga (é assim que se
+    // pega "as últimas 100"); a tela desenha de cima para baixo, então volta
+    // à ordem cronológica aqui
+    messages: (since ? c.messages : [...c.messages].reverse()).map((m) => ({
       id: m.id,
       direction: m.direction,
       kind: m.kind,

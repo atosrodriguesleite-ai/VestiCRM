@@ -1,5 +1,6 @@
 import { after } from "next/server";
 import { db } from "../db";
+import { avancarFunil } from "../funil-auto";
 import { decryptSecret } from "../crypto";
 import { intakeLead } from "../intake";
 import { resolveProvider } from "./providers";
@@ -291,6 +292,13 @@ export async function sendMessage(input: SendMessageInput): Promise<Message> {
   // ABERTA: sem isso, a lojista respondia e o atendimento continuava
   // parecendo "fila" ou "histórico", que foi exatamente a queixa dela.
   // Nota interna não conta: anotar não é atender.
+  // PRIMEIRA RESPOSTA DA LOJA → o cartão avança para "Primeiro contato".
+  // `conv.lastOutboundAt` ainda é o valor de ANTES desta mensagem: nulo
+  // significa que a loja nunca tinha falado com ela.
+  if (!isNote && !conv.lastOutboundAt && message.status !== "FALHOU") {
+    await avancarFunil(input.companyId, conv.customerId, "PRIMEIRO_CONTATO");
+  }
+
   // TENTAR RESPONDER NÃO É TER RESPONDIDO. `lastOutboundAt` é o que decide se
   // a cliente ainda aparece na aba Fila ("esperando a loja"). Marcar mesmo
   // quando o envio falhou tirava a cliente da fila SEM ela ter recebido nada:

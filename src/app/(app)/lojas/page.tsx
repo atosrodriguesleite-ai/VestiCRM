@@ -9,6 +9,7 @@ import { LojasView, type Loja } from "./lojas-view";
 import { JueriTeste } from "./jueri-teste";
 import { catalogDomain } from "@/lib/catalog-url";
 import { spNow } from "@/lib/billing";
+import { mrrDaPlataforma } from "@/lib/modulos";
 
 export const dynamic = "force-dynamic";
 
@@ -61,6 +62,9 @@ export default async function LojasPage() {
     where: { paidAt: { gte: inicioMes } },
   });
   const recebidoMes = recebido._sum.amount ?? 0;
+  // MRR calculado: mensalidade base + módulos contratados. Antes o painel
+  // só somava a mensalidade e todo módulo vendido era receita invisível.
+  const mrr = await mrrDaPlataforma();
 
   // comprovantes do termo do WhatsApp sem API + estado da conexão por loja
   const [consents, connections] = await Promise.all([
@@ -219,7 +223,12 @@ export default async function LojasPage() {
       )}
 
       <JueriTeste />
-      <LojasView initial={lojas} catalogDomain={catalogDomain()} recebidoMes={recebidoMes} />
+      <LojasView
+        initial={lojas}
+        catalogDomain={catalogDomain()}
+        recebidoMes={recebidoMes}
+        mrrModulos={mrr.modulos}
+      />
     </div>
   );
 }

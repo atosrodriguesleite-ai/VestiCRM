@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
-import { imageSrc } from "@/lib/img";
+import { imageHref } from "@/lib/img";
 import { requireUser, AuthError } from "@/lib/auth";
 import { isManagerUp, isSupport, orderScope } from "@/lib/scope";
 import { reverseAndDeleteOrder } from "@/lib/order-actions";
@@ -137,7 +137,17 @@ export async function PATCH(
       const variantIds = parsed.data.items.map((i) => i.variantId);
       const variants = await db.productVariant.findMany({
         where: { id: { in: variantIds }, product: { companyId: user.companyId } },
-        include: { product: { include: { images: { orderBy: { order: "asc" }, take: 1 } } } },
+        // SÓ O ID DA FOTO. Trazer a coluna inteira lia o base64 da imagem
+        // do banco (megabytes por pedido) só para descobrir o endereço
+        // dela — `imageHref` monta o link a partir do id, e a rota
+        // /api/img resolve sozinha quando a foto é link externo.
+        include: {
+          product: {
+            include: {
+              images: { orderBy: { order: "asc" }, take: 1, select: { id: true } },
+            },
+          },
+        },
       });
       const variantById = new Map(variants.map((v) => [v.id, v]));
       for (const item of parsed.data.items) {
@@ -190,7 +200,7 @@ export async function PATCH(
               variantId: v.id,
               name: v.product.name,
               sku: v.product.sku,
-              imageUrl: v.product.images[0] ? imageSrc(v.product.images[0]) : null,
+              imageUrl: v.product.images[0] ? imageHref(v.product.images[0].id) : null,
               color: v.color,
               size: v.size,
               quantity: i.quantity,
