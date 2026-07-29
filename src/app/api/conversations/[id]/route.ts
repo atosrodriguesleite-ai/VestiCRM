@@ -3,6 +3,35 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import { requireUser, AuthError } from "@/lib/auth";
 import { notifyAssignment } from "@/lib/notify";
+import { contadorAoMarcarNaoLida } from "@/lib/comm/fila";
+import { loadInboxConversations } from "@/lib/inbox-data";
+
+/**
+ * UMA conversa com o histórico recente COMPLETO.
+ *
+ * O sync entrega só o que MUDOU desde a última consulta — ótimo para quem já
+ * tem a conversa na tela, péssimo para quem não tem: a conversa aparecia com
+ * uma mensagem só, como se o atendimento nunca tivesse acontecido. A tela
+ * chama aqui quando recebe uma conversa que ainda não conhece.
+ */
+export async function GET(
+  _req: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const user = await requireUser();
+    const { id } = await params;
+    const [conversa] = await loadInboxConversations(user, undefined, id);
+    if (!conversa) {
+      return NextResponse.json({ error: "Não encontrada" }, { status: 404 });
+    }
+    return NextResponse.json({ conversation: conversa });
+  } catch (e) {
+    if (e instanceof AuthError)
+      return NextResponse.json({ error: "Não autenticado" }, { status: 401 });
+    throw e;
+  }
+}
 
 const schema = z.object({
   status: z
@@ -12,6 +41,8 @@ const schema = z.object({
   assigneeId: z.string().nullable().optional(),
   setorId: z.string().nullable().optional(), // setor do chamado (transferência)
   markRead: z.boolean().optional(),
+  /** "volto nessa depois": devolve o marcador de não lida à conversa */
+  markUnread: z.boolean().optional(),
 });
 
 export async function PATCH(
@@ -38,6 +69,10 @@ export async function PATCH(
     if (parsed.data.status) data.status = parsed.data.status;
     if (parsed.data.priority) data.priority = parsed.data.priority;
     if (parsed.data.markRead) data.unreadCount = 0;
+    // marcar à mão nunca APAGA o que já estava: 3 mensagens sem resposta
+    // continuam 3; conversa zerada volta com 1
+    if (parsed.data.markUnread)
+      data.unreadCount = contadorAoMarcarNaoLida(conv.unreadCount);
     if (parsed.data.assigneeId !== undefined) {
       if (parsed.data.assigneeId) {
         // transferência: o destino precisa ser da mesma empresa

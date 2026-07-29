@@ -3,7 +3,7 @@ import { after } from "next/server";
 import { z } from "zod";
 import { requireUser, AuthError } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { loadInboxConversations } from "@/lib/inbox-data";
+import { buscarConversas, loadInboxConversations } from "@/lib/inbox-data";
 import { runWatchdogIfDue } from "@/lib/health";
 import { sincronizarFotosSeDevido } from "@/lib/comm/fotos";
 import { runAutomationsIfDue } from "@/lib/automations-run";
@@ -29,6 +29,17 @@ export async function GET(req: NextRequest) {
     // 2 vagas de cron da Vercel — que já estão ocupadas, e um 3º cron bloqueia
     // todos os deploys.
     after(() => runAutomationsIfDue(user.companyId));
+    // BUSCA: varre a loja INTEIRA, não só o que coube na carga inicial.
+    //
+    // A tela abre com as 200 conversas mais recentes. Sem esta porta, quem
+    // procurasse uma cliente mais antiga não achava NADA — a lupa parecia
+    // quebrada de novo, e a conversa existia o tempo todo.
+    const q = (req.nextUrl.searchParams.get("q") ?? "").trim();
+    if (q) {
+      const achadas = await buscarConversas(user, q);
+      return NextResponse.json({ conversations: achadas, busca: true });
+    }
+
     const sinceRaw = req.nextUrl.searchParams.get("since");
     const since = sinceRaw ? new Date(sinceRaw) : undefined;
 

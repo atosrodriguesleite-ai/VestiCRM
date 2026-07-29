@@ -42,8 +42,12 @@ import {
   Trash2,
   Pencil,
   MoreVertical,
+  MailOpen,
+  Copy,
 } from "lucide-react";
 import { OrderComposer } from "@/components/order-composer";
+import { contadorAoMarcarNaoLida } from "@/lib/comm/fila";
+import { copiarTexto, textoDaMensagem } from "@/lib/copiar";
 import { ContactPanel } from "./contact-panel";
 import { orderNumber } from "@/lib/orders";
 import {
@@ -369,7 +373,55 @@ export function Inbox({
   const [newTplBody, setNewTplBody] = useState("");
   const [savingTpl, setSavingTpl] = useState(false);
   // editar / apagar mensagem enviada (menu estilo WhatsApp: segurar em cima)
+  /**
+   * CONVERSAS COM A CONVERSA CARREGADA.
+   *
+   * A lista chega leve — só a última mensagem de cada uma, para o texto
+   * embaixo do nome. O histórico é buscado quando a conversa é ABERTA, e o
+   * id entra aqui. Enquanto não estiver aqui, o sync não tenta juntar
+   * mensagem nenhuma (juntar num histórico que não existe montaria uma
+   * conversa pela metade — foi assim que "já respondi" virou incidente).
+   */
+  const threadsCarregadas = useRef<Set<string>>(new Set());
+  const [carregandoThread, setCarregandoThread] = useState(false);
   const [actionMsg, setActionMsg] = useState<InboxMessage | null>(null);
+  /**
+   * HISTÓRICO ANTIGO.
+   *
+   * A conversa abre com as últimas 100 mensagens (é o que qualquer app de
+   * mensagem faz). Sem este botão, tudo o que veio antes ficava INACESSÍVEL:
+   * a loja tinha a conversa gravada e não conseguia ler o começo dela.
+   * `semMais` guarda as conversas que já chegaram no início de tudo.
+   */
+  /**
+   * BUSCA NO SERVIDOR.
+   *
+   * A tela tem as conversas mais recentes; a cliente antiga não está nela.
+   * Ao digitar, o servidor varre a loja inteira e as conversas que faltavam
+   * entram na lista — senão a lupa "não acha" justamente quem a vendedora
+   * não lembra de cabeça.
+   */
+  /**
+   * QUANTAS LINHAS A TELA DESENHA.
+   *
+   * A lista INTEIRA fica na memória (é o que faz a contagem das abas e a
+   * busca serem verdadeiras), mas desenhar 2.000 linhas de uma vez trava o
+   * navegador — e chat comercial vive com milhares de conversas. Desenha um
+   * bloco e vai crescendo conforme a pessoa rola.
+   */
+  const BLOCO = 200;
+  const [visiveis, setVisiveis] = useState(BLOCO);
+  const [buscando, setBuscando] = useState(false);
+  const [carregandoAntigas, setCarregandoAntigas] = useState(false);
+  const [semMais, setSemMais] = useState<Set<string>>(new Set());
+
+  /** Aviso rápido no rodapé ("Mensagem copiada"). Some sozinho. */
+  const [aviso, setAviso] = useState<string | null>(null);
+  useEffect(() => {
+    if (!aviso) return;
+    const t = setTimeout(() => setAviso(null), 2200);
+    return () => clearTimeout(t);
+  }, [aviso]);
   // "responder": mensagem marcada para citação (prévia acima do compositor)
   const [replyMsg, setReplyMsg] = useState<InboxMessage | null>(null);
   const lpTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -524,6 +576,43 @@ export function Inbox({
       )[0];
   }, [convs]);
 
+  useEffect(() => {
+    const q = search.trim();
+    if (q.length < 2) return;
+    let vivo = true;
+    const t = setTimeout(async () => {
+      setBuscando(true);
+      try {
+        const r = await fetch(`/api/conversations?q=${encodeURIComponent(q)}`);
+        if (!r.ok) return;
+        const d: { conversations?: InboxConversation[] } = await r.json();
+        if (!vivo || !d.conversations?.length) return;
+        setConvs((prev) => {
+          const tem = new Set(prev.map((c) => c.id));
+          // resultado da busca entra como PRÉVIA (igual ao resto da lista);
+          // o histórico vem quando a vendedora abrir a conversa
+          const novas = d
+            .conversations!.filter((c) => !tem.has(c.id))
+            .map((c) => ({ ...c, messages: c.messages.slice(-1) }));
+          return novas.length ? [...prev, ...novas] : prev;
+        });
+      } catch {
+        // rede oscilou: a lista local continua valendo
+      } finally {
+        if (vivo) setBuscando(false);
+      }
+    }, 350); // espera a pessoa parar de digitar
+    return () => {
+      vivo = false;
+      clearTimeout(t);
+    };
+  }, [search]);
+
+  useEffect(() => {
+    setVisiveis(BLOCO); // trocou de aba, buscou ou filtrou: recomeça o bloco
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab, search, tagFilter]);
+
   const filtered = useMemo(() => {
     const q = search.trim();
     const list = convs.filter((c) => {
@@ -604,6 +693,16 @@ export function Inbox({
             const f = freshById.get(p.id);
             if (!f) return p;
             freshById.delete(p.id);
+            // CONVERSA AINDA NÃO ABERTA: a tela tem só a prévia dela. Juntar
+            // as mensagens do sync aqui montaria um histórico pela metade —
+            // exatamente o "já respondi e não aparece". Atualiza a linha da
+            // lista e mantém como prévia a mensagem mais recente conhecida.
+            if (!threadsCarregadas.current.has(p.id)) {
+              const ultima =
+                f.messages[f.messages.length - 1] ??
+                p.messages[p.messages.length - 1];
+              return { ...f, messages: ultima ? [ultima] : [] };
+            }
             // preserva mensagem recém-enviada que o servidor ainda não devolveu
             const ids = new Set(f.messages.map((m) => m.id));
             const extra = p.messages.filter((m) => {
@@ -643,7 +742,16 @@ export function Inbox({
               unreadCount: f.id === selId ? 0 : f.unreadCount,
             };
           });
-          return [...merged, ...freshById.values()]; // novas conversas entram
+          // Conversa nova para a tela entra pela prévia, como as outras da
+          // lista. O histórico dela vem quando for aberta — nada de buscar
+          // conversa que ninguém pediu.
+          return [
+            ...merged,
+            ...[...freshById.values()].map((c) => ({
+              ...c,
+              messages: c.messages.slice(-1),
+            })),
+          ];
         });
         // conversa aberta recebeu mensagem → já marca como lida no servidor
         const sel = fresh.find((c) => c.id === selId);
@@ -682,8 +790,34 @@ export function Inbox({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  async function carregarThread(id: string) {
+    if (threadsCarregadas.current.has(id)) return;
+    setCarregandoThread(true);
+    try {
+      const r = await fetch(`/api/conversations/${id}`);
+      if (r.ok) {
+        const { conversation } = await r.json();
+        if (conversation) {
+          threadsCarregadas.current.add(id);
+          setConvs((prev) =>
+            prev.map((c) =>
+              c.id === id
+                ? { ...conversation, unreadCount: 0, messages: conversation.messages }
+                : c
+            )
+          );
+        }
+      }
+    } catch {
+      // rede oscilou: reabrir a conversa tenta de novo
+    } finally {
+      setCarregandoThread(false);
+    }
+  }
+
   function selectConv(id: string) {
     setSelectedId(id);
+    void carregarThread(id);
     setShowTransfer(false);
     setShowTagPicker(false);
     setMention(null);
@@ -1017,6 +1151,60 @@ export function Inbox({
     if (!window.confirm("Encerrar este atendimento? Ele vai para o histórico e, se o cliente escrever de novo, volta para a fila.")) return;
     patchLocal(id, { status: "CLOSED" });
     updateConv(id, { status: "CLOSED" }, true);
+  };
+  /**
+   * MARCAR COMO NÃO LIDA — "volto nessa depois".
+   *
+   * FECHA a conversa junto, e não é enfeite: enquanto ela está aberta na
+   * tela, a sincronização zera o marcador a cada 3 segundos (conversa aberta
+   * é conversa lida). Sem fechar, o marcador voltaria sozinho e a vendedora
+   * acharia que o botão não funciona. É o mesmo comportamento do WhatsApp.
+   */
+  /** Copia o texto da mensagem (o da cliente também — pedido, chave Pix, endereço). */
+  async function copiarMensagem(texto: string) {
+    const ok = await copiarTexto(texto);
+    setActionMsg(null);
+    setAviso(ok ? "Mensagem copiada" : "Não consegui copiar nesse navegador");
+  }
+
+  async function carregarAnteriores(convId: string) {
+    const conv = convs.find((c) => c.id === convId);
+    const maisVelha = conv?.messages[0]?.createdAt;
+    if (!maisVelha || carregandoAntigas) return;
+    setCarregandoAntigas(true);
+    try {
+      const r = await fetch(
+        `/api/conversations/${convId}/mensagens?antes=${encodeURIComponent(maisVelha)}`
+      );
+      if (r.ok) {
+        const d: { messages: InboxMessage[]; temMais: boolean } = await r.json();
+        setConvs((prev) =>
+          prev.map((c) => {
+            if (c.id !== convId) return c;
+            // nunca repete o que já está na tela
+            const jaTem = new Set(c.messages.map((m) => m.id));
+            const novas = d.messages.filter((m) => !jaTem.has(m.id));
+            return { ...c, messages: [...novas, ...c.messages] };
+          })
+        );
+        if (!d.temMais) setSemMais((prev) => new Set(prev).add(convId));
+      }
+    } catch {
+      // rede oscilou: o botão continua lá para tentar de novo
+    } finally {
+      setCarregandoAntigas(false);
+    }
+  }
+
+  const marcarNaoLida = (id: string) => {
+    const conv = convs.find((c) => c.id === id);
+    patchLocal(id, { unreadCount: contadorAoMarcarNaoLida(conv?.unreadCount ?? 0) });
+    fetch(`/api/conversations/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ markUnread: true }),
+    }).catch(() => {});
+    setSelectedId(null); // volta para a lista (no celular, sai do chat)
   };
   const reabrir = (id: string) => {
     patchLocal(id, { status: "OPEN", assignee: null });
@@ -1464,7 +1652,7 @@ export function Inbox({
               }
             />
           )}
-          {filtered.map((c) => {
+          {filtered.slice(0, visiveis).map((c) => {
             const last = c.messages[c.messages.length - 1];
             const waiting =
               tab === "fila" && (c.lastInboundAt ?? c.createdAt);
@@ -1527,6 +1715,15 @@ export function Inbox({
               </button>
             );
           })}
+          {filtered.length > visiveis && (
+            <button
+              onClick={() => setVisiveis((v) => v + BLOCO)}
+              className="w-full py-3 text-[13px] font-semibold text-brand-600 hover:bg-brand-50/60 transition"
+            >
+              Mostrar mais {Math.min(BLOCO, filtered.length - visiveis)} de{" "}
+              {filtered.length - visiveis} restantes
+            </button>
+          )}
         </div>
       </div>
 
@@ -1683,7 +1880,7 @@ export function Inbox({
                     className="inline-flex items-center gap-1.5 rounded-xl bg-brand-600 hover:bg-brand-700 text-white text-xs font-semibold px-3 py-2 transition"
                   >
                     <RotateCcw className="size-3.5" />
-                    Reabrir
+                    <span className="hidden sm:inline">Reabrir</span>
                   </button>
                 ) : !selected.assignee ? (
                   <button
@@ -1691,7 +1888,7 @@ export function Inbox({
                     className="inline-flex items-center gap-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold px-3 py-2 transition"
                   >
                     <Hand className="size-3.5" />
-                    Assumir
+                    <span className="hidden sm:inline">Assumir</span>
                   </button>
                 ) : (
                   <button
@@ -1699,9 +1896,17 @@ export function Inbox({
                     className="inline-flex items-center gap-1.5 rounded-xl border border-gray-200 hover:border-emerald-300 hover:text-emerald-700 text-gray-600 text-xs font-semibold px-3 py-2 transition"
                   >
                     <CheckCircle2 className="size-3.5" />
-                    Encerrar
+                    <span className="hidden sm:inline">Encerrar</span>
                   </button>
                 )}
+                <button
+                  onClick={() => marcarNaoLida(selected.id)}
+                  className="p-2 rounded-xl border border-gray-200 text-gray-500 hover:text-brand-600 hover:border-brand-300 transition"
+                  title="Marcar como não lida (volto nessa depois)"
+                  aria-label="Marcar como não lida"
+                >
+                  <MailOpen className="size-4" />
+                </button>
                 <button
                   onClick={() => setShowTransfer((v) => !v)}
                   className={`p-2 rounded-xl border transition ${
@@ -1895,6 +2100,18 @@ export function Inbox({
 
             {/* mensagens */}
             <div className="flex-1 overflow-y-auto thin-scroll px-4 py-4 space-y-2 bg-[#f4f1f8]">
+              {/* HISTÓRICO: o começo da conversa não fica inacessível */}
+              {selected.messages.length >= 100 && !semMais.has(selected.id) && (
+                <div className="flex justify-center pb-2">
+                  <button
+                    onClick={() => carregarAnteriores(selected.id)}
+                    disabled={carregandoAntigas}
+                    className="rounded-full border border-gray-200 bg-white px-4 py-1.5 text-[12px] font-semibold text-gray-600 shadow-sm transition hover:border-brand-300 hover:text-brand-600 disabled:opacity-50"
+                  >
+                    {carregandoAntigas ? "Carregando…" : "Ver mensagens anteriores"}
+                  </button>
+                </div>
+              )}
               {selected.messages.map((m, mIdx, msgsArr) => {
                 // separador de DATA (Hoje / Ontem / 23/07) quando o dia muda —
                 // sem ele não dava para saber se a conversa foi ontem ou semana passada
@@ -1950,10 +2167,14 @@ export function Inbox({
                     className={`group flex ${mine ? "justify-end" : "justify-start"}`}
                   >
                     {/* ⋯ no desktop (hover); no celular é "segurar" a bolha */}
-                    {mine && !isTemp && !editando && (
+                    {!isTemp && !editando && (
                       <button
                         onClick={() => setActionMsg(m)}
-                        className="hidden md:block self-center mr-1 p-1 rounded-full text-gray-300 opacity-0 group-hover:opacity-100 hover:text-gray-500 hover:bg-gray-100 transition"
+                        className={`hidden md:block self-center p-1 rounded-full text-gray-300 opacity-0 group-hover:opacity-100 hover:text-gray-500 hover:bg-gray-100 transition ${
+                          // na mensagem da CLIENTE o ⋯ vai para depois da bolha
+                          // (é dela que se copia pedido, chave Pix e endereço)
+                          mine ? "mr-1" : "ml-1 order-last"
+                        }`}
                         title="Opções da mensagem"
                       >
                         <MoreVertical className="size-4" />
@@ -2718,6 +2939,16 @@ export function Inbox({
 
     {/* folha de ações da mensagem (segurar no celular / ⋯ no computador):
         sobe de baixo no celular, centralizada no computador — nunca corta */}
+    {aviso && (
+      <div
+        role="status"
+        className="pointer-events-none fixed inset-x-0 bottom-24 z-[60] flex justify-center px-4"
+      >
+        <span className="rounded-full bg-ink/90 px-4 py-2 text-[13px] font-semibold text-white shadow-pop">
+          {aviso}
+        </span>
+      </div>
+    )}
     {actionMsg && (
       <div
         className="fixed inset-0 z-50 flex items-end justify-center sm:items-center bg-black/40 animate-fade-in"
@@ -2741,6 +2972,16 @@ export function Inbox({
               className="w-full flex items-center gap-3 rounded-xl px-3 py-3 text-left text-sm text-gray-700 hover:bg-gray-50"
             >
               <Reply className="size-4 text-brand-600" /> Responder
+            </button>
+          )}
+          {/* Copiar: vale para a mensagem da CLIENTE também — é dela que se
+              copia pedido, chave Pix e endereço */}
+          {textoDaMensagem(actionMsg) && (
+            <button
+              onClick={() => copiarMensagem(textoDaMensagem(actionMsg))}
+              className="w-full flex items-center gap-3 rounded-xl px-3 py-3 text-left text-sm text-gray-700 hover:bg-gray-50"
+            >
+              <Copy className="size-4 text-gray-400" /> Copiar mensagem
             </button>
           )}
           {/* editar/apagar: só mensagem SUA, de verdade e não apagada */}

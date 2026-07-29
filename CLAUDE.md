@@ -126,8 +126,28 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   fila/chats/contatos, setores, assumir/transferir/encerrar, notas internas
   com @menção, respostas rápidas (criáveis por qualquer um), mídia + áudio
   (gravação convertida no servidor), pedidos dentro do chat (com PDF enviado
-  de verdade), **sync incremental a cada 4s** (`GET /api/conversations?since=`
-  + `Conversation.updatedAt`), envio otimista (bolha instantânea ⏱️→✓),
+  de verdade), **sync incremental a cada 3s** (`GET /api/conversations?since=`
+  + `Conversation.updatedAt`). **PREPARADO PARA MILHARES DE CONVERSAS**: a
+  LISTA carrega só a ÚLTIMA mensagem de cada conversa, cortada em 140
+  caracteres (pedido do catálogo tem milhares); o histórico vem ao ABRIR a
+  conversa (`threadsCarregadas`), e conversa não aberta nunca recebe mensagem
+  solta do sync. A tela desenha em blocos de 200 linhas, mas guarda a lista
+  INTEIRA (é o que faz contagem de aba e busca serem verdadeiras). Medido em
+  2.007 conversas/120 mil mensagens: 4,5 MB e 200 conversas visíveis → 1,75 MB
+  e TODAS visíveis.
+  **O que o sync entrega é PARCIAL — e isso já causou incidente**: conversa
+  que chega por ele vinha com uma mensagem só ("já respondi e aparece como se
+  nunca tivesse conversado"). Três portas fecham o buraco: `GET
+  /api/conversations/[id]` (conversa inteira, buscada quando a tela não a
+  conhece), `GET /api/conversations/[id]/mensagens?antes=` ("Ver mensagens
+  anteriores" — sem ela o começo da conversa era INACESSÍVEL) e
+  `GET /api/conversations?q=` (busca na loja inteira, `casaCliente` em
+  memória por causa do acento — sem ela a lupa só via as 200 carregadas).
+  Formato da mensagem em um lugar só (`mapMessage`), envio otimista (bolha instantânea ⏱️→✓),
+  **copiar mensagem** (`lib/copiar.ts`, com plano B para navegador
+  antigo; vale para a mensagem da CLIENTE — pedido, Pix, endereço),
+  **marcar conversa como não lida** ("volto nessa depois" — fecha o
+  chat junto, senão o sync zeraria o marcador),
   recibos com horário (entregue/visto), editar (15min) e apagar para todos
   (~2 dias), detecção de "cliente apagou" (conteúdo preservado), mensagens
   automáticas personalizáveis (link do catálogo e confirmação de pedido, em

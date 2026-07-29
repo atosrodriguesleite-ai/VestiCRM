@@ -1,5 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { abaDaConversa, clienteEsperando } from "../fila";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import {
+  abaDaConversa,
+  clienteEsperando,
+  contadorAoMarcarNaoLida,
+} from "../fila";
 
 /**
  * FILA É CLIENTE ESPERANDO. A regra antiga ("sem responsável = fila") jogava
@@ -90,5 +96,61 @@ describe("responder é assumir (regra no servidor, não só na tela)", () => {
     const trecho = /\.\.\.\(isNote[\s\S]*?\n    \},\n  \}\);/.exec(engine)?.[0] ?? "";
     expect(trecho).toContain("assigneeId");
     expect(trecho).toMatch(/isNote\s*\n?\s*\?\s*\{\}/);
+  });
+});
+
+/**
+ * MARCAR COMO NÃO LIDA — "volto nessa depois".
+ *
+ * A vendedora lê a mensagem mas não pode responder na hora. Sem esse gesto,
+ * a conversa perde o marcador e some no meio das outras.
+ */
+describe("marcar conversa como não lida", () => {
+  it("conversa já lida volta com o marcador", () => {
+    expect(contadorAoMarcarNaoLida(0)).toBe(1);
+  });
+
+  it("NÃO apaga mensagens não lidas que já existiam", () => {
+    // chegaram 3 sem resposta: continuam 3, não viram 1
+    expect(contadorAoMarcarNaoLida(3)).toBe(3);
+    expect(contadorAoMarcarNaoLida(1)).toBe(1);
+  });
+
+  it("valor estranho no banco não vira marcador inválido", () => {
+    expect(contadorAoMarcarNaoLida(-2)).toBe(1);
+    expect(contadorAoMarcarNaoLida(0.4)).toBe(1);
+  });
+});
+
+describe("a porta de marcar não lida", () => {
+  const rota = readFileSync(
+    join(process.cwd(), "src/app/api/conversations/[id]/route.ts"),
+    "utf8"
+  );
+  const inbox = readFileSync(
+    join(process.cwd(), "src/app/(app)/whatsapp/inbox.tsx"),
+    "utf8"
+  );
+
+  it("o servidor aceita marcar não lida, pela mesma régua", () => {
+    expect(rota).toContain("markUnread");
+    expect(rota).toContain("contadorAoMarcarNaoLida");
+  });
+
+  it("marcar não lida FECHA a conversa", () => {
+    // enquanto aberta, o sync zera o marcador a cada 3s ("conversa aberta é
+    // conversa lida"): sem fechar, o botão pareceria não funcionar
+    const f = inbox.slice(
+      inbox.indexOf("const marcarNaoLida"),
+      inbox.indexOf("const reabrir")
+    );
+    expect(f).toContain("setSelectedId(null)");
+    expect(f).toContain("markUnread");
+  });
+
+  it("o botão existe no cabeçalho do chat (celular e computador)", () => {
+    // o cabeçalho é o mesmo nos dois tamanhos de tela — um só lugar para
+    // aprender, sem gesto escondido
+    expect(inbox).toContain('aria-label="Marcar como não lida"');
   });
 });
