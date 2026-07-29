@@ -133,7 +133,7 @@ export function QuemChamarHoje({
 
       {resto > 0 && (
         <Link
-          href="/automacoes"
+          href="/tarefas"
           className="flex items-center justify-center gap-1 px-4 py-2.5 text-xs font-medium text-brand-700 hover:bg-brand-50 border-t border-gray-50 transition"
         >
           Ver mais {resto} {resto === 1 ? "cliente" : "clientes"}

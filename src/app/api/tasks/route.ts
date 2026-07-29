@@ -5,6 +5,7 @@ import { requireUser, AuthError } from "@/lib/auth";
 
 const schema = z.object({
   title: z.string().min(1),
+  description: z.string().max(500).optional(),
   type: z
     .enum(["LIGAR", "ENVIAR_CATALOGO", "COBRAR_PAGAMENTO", "POS_VENDA", "REATIVAR", "ENVIAR_NOVIDADES", "CONFIRMAR_ENTREGA", "FOLLOW_UP", "OUTRO"])
     .default("FOLLOW_UP"),

@@ -37,6 +37,8 @@ export async function POST(req: NextRequest) {
         customerId: suggestion.customerId,
         opportunityId: suggestion.opportunityId,
         title: suggestion.title,
+        // guarda o MOTIVO junto (era calculado e descartado aqui)
+        description: suggestion.description,
         type: suggestion.taskType,
         priority: suggestion.priority,
         dueAt: endOfDaySP,

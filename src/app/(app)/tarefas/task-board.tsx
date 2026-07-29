@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import { Portal } from "@/components/portal";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Check, Plus, X, Zap } from "lucide-react";
+import { Check, Plus, X, Zap, MessageCircle, Clock3 } from "lucide-react";
 import {
   dateShort,
   timeShort,
@@ -16,14 +16,41 @@ import { Card, Avatar, PriorityDot, EmptyState } from "@/components/ui";
 export type TaskItem = {
   id: string;
   title: string;
+  /** POR QUE a tarefa existe — o motivo que a automação escreveu */
+  description: string | null;
   type: string;
   dueAt: string;
   priority: string;
   status: string;
   autoRule: string | null;
-  customer: { id: string; name: string } | null;
+  customer: {
+    id: string;
+    name: string;
+    phone: string;
+    /** mensagem pronta (texto da loja) para abrir o WhatsApp já escrito */
+    mensagem: string;
+  } | null;
   assignee: { name: string; color: string } | null;
 };
+
+/** Sugestão do motor que ainda não virou tarefa. */
+export type SugestaoItem = {
+  key: string;
+  rule: string;
+  title: string;
+  description: string;
+  customerId: string;
+  customerName: string;
+  phone: string;
+  mensagem: string;
+};
+
+/** Link do WhatsApp com a mensagem já digitada. */
+export function waHref(phone: string, msg: string): string | null {
+  const d = phone.replace(/\D/g, "");
+  if (d.length < 10) return null;
+  return `https://wa.me/${d.length <= 11 ? "55" + d : d}?text=${encodeURIComponent(msg)}`;
+}
 
 const FILTERS = [
   { key: "hoje", label: "Hoje" },
@@ -34,10 +61,12 @@ const FILTERS = [
 
 export function TaskBoard({
   initialTasks,
+  sugestoes,
   customers,
   team,
 }: {
   initialTasks: TaskItem[];
+  sugestoes: SugestaoItem[];
   customers: { id: string; name: string }[];
   team: { id: string; name: string; color: string }[];
 }) {
@@ -45,6 +74,8 @@ export function TaskBoard({
   const [tasks, setTasks] = useState(initialTasks);
   const [filter, setFilter] = useState<(typeof FILTERS)[number]["key"]>("hoje");
   const [showNew, setShowNew] = useState(false);
+  // sugestões dispensadas nesta visita (some da tela sem virar tarefa)
+  const [dispensadas, setDispensadas] = useState<string[]>([]);
 
   const now = new Date();
   const endOfDay = new Date(now);
@@ -77,6 +108,38 @@ export function TaskBoard({
     }
   });
 
+  /**
+   * ADIAR — a API já aceitava mudar a data; faltava o botão.
+   * Sem isso, a tarefa que a cliente pediu para retomar "semana que vem"
+   * vencia e virava mancha vermelha, e a lojista parava de olhar a lista.
+   */
+  async function adiar(task: TaskItem, dias: number) {
+    const nova = new Date();
+    nova.setDate(nova.getDate() + dias);
+    nova.setHours(23, 59, 0, 0);
+    const iso = nova.toISOString();
+    setTasks((prev) =>
+      prev.map((t) => (t.id === task.id ? { ...t, dueAt: iso } : t))
+    );
+    const res = await fetch(`/api/tasks/${task.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ dueAt: iso }),
+    });
+    if (!res.ok) router.refresh();
+  }
+
+  /** Sugestão vira tarefa de verdade (com o motivo junto). */
+  async function virarTarefa(s: SugestaoItem) {
+    setDispensadas((d) => [...d, s.key]);
+    const res = await fetch("/api/automations/apply", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ key: s.key }),
+    });
+    if (res.ok) router.refresh();
+  }
+
   async function toggleDone(task: TaskItem) {
     const newStatus = task.status === "CONCLUIDA" ? "PENDENTE" : "CONCLUIDA";
     setTasks((prev) =>
@@ -92,6 +155,73 @@ export function TaskBoard({
 
   return (
     <>
+      {/* SUGESTÕES DO MOTOR — a agenda e as tarefas na mesma tela.
+          Antes isso vivia em /automacoes, uma aba que ninguém abria: o
+          trabalho existia e não chegava a quem devia fazer. */}
+      {sugestoes.filter((s) => !dispensadas.includes(s.key)).length > 0 && (
+        <div className="rounded-2xl border border-brand-200 bg-white overflow-hidden mb-4">
+          <div className="px-4 py-2.5 bg-brand-50 border-b border-brand-100">
+            <p className="text-sm font-semibold text-brand-800">
+              ☀️ O sistema encontrou{" "}
+              {sugestoes.filter((s) => !dispensadas.includes(s.key)).length}{" "}
+              {sugestoes.filter((s) => !dispensadas.includes(s.key)).length === 1
+                ? "cliente para você chamar"
+                : "clientes para você chamar"}
+            </p>
+            <p className="text-[11px] text-brand-700/70">
+              Aniversário, hora de comprar de novo, conversa parada. Chame
+              direto ou guarde como tarefa.
+            </p>
+          </div>
+          <ul className="divide-y divide-gray-50">
+            {sugestoes
+              .filter((s) => !dispensadas.includes(s.key))
+              .slice(0, 10)
+              .map((s) => (
+                <li key={s.key} className="px-4 py-3">
+                  <div className="flex items-start gap-2">
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-medium text-gray-800 truncate">
+                        {s.customerName}
+                      </p>
+                      <p className="text-xs text-gray-500">{s.description}</p>
+                    </div>
+                    <span className="shrink-0 rounded-full bg-gray-100 text-gray-500 text-[10px] font-semibold px-2 py-0.5">
+                      {s.rule}
+                    </span>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-1.5 mt-2">
+                    {waHref(s.phone, s.mensagem) && (
+                      <a
+                        href={waHref(s.phone, s.mensagem)!}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-semibold px-2.5 py-1.5 transition"
+                      >
+                        <MessageCircle className="size-3" />
+                        Chamar no WhatsApp
+                      </a>
+                    )}
+                    <button
+                      onClick={() => virarTarefa(s)}
+                      className="inline-flex items-center gap-1 rounded-lg border border-gray-200 hover:border-brand-400 text-[11px] font-medium text-gray-600 px-2.5 py-1.5 transition"
+                    >
+                      <Plus className="size-3" />
+                      Guardar como tarefa
+                    </button>
+                    <button
+                      onClick={() => setDispensadas((d) => [...d, s.key])}
+                      className="ml-auto text-[11px] text-gray-300 hover:text-gray-500 px-2 py-1.5 transition"
+                    >
+                      Agora não
+                    </button>
+                  </div>
+                </li>
+              ))}
+          </ul>
+        </div>
+      )}
+
       <div className="flex gap-1.5 mb-4 overflow-x-auto thin-scroll">
         {FILTERS.map((f) => (
           <button
@@ -158,7 +288,7 @@ export function TaskBoard({
                 t.status === "PENDENTE" && new Date(t.dueAt) < now;
               const done = t.status === "CONCLUIDA";
               return (
-                <li key={t.id} className="flex items-center gap-3 px-4 py-3">
+                <li key={t.id} className="flex items-start gap-3 px-4 py-3">
                   <button
                     onClick={() => toggleDone(t)}
                     className={`size-5 rounded-full border-2 flex items-center justify-center transition shrink-0 ${
@@ -183,6 +313,14 @@ export function TaskBoard({
                         />
                       )}
                     </p>
+                    {/* O MOTIVO — antes era calculado pela automação e
+                        descartado. É o que faz a vendedora entender a tarefa
+                        sem precisar sair da tela para investigar. */}
+                    {t.description && !done && (
+                      <p className="text-xs text-gray-500 mt-0.5">
+                        {t.description}
+                      </p>
+                    )}
                     <p className="text-xs text-gray-400 truncate">
                       {taskTypeLabel[t.type as keyof typeof taskTypeLabel]}
                       {t.customer && (
@@ -199,6 +337,44 @@ export function TaskBoard({
                       {" · "}
                       {priorityLabel[t.priority as keyof typeof priorityLabel]}
                     </p>
+
+                    {/* AÇÃO na própria linha: chamar e adiar. Sem isso a lista
+                        só sabia dizer "faça" — a vendedora tinha de sair para
+                        agir e não voltava. */}
+                    {!done && (
+                      <div className="flex flex-wrap items-center gap-1.5 mt-2">
+                        {t.customer && waHref(t.customer.phone, t.customer.mensagem) && (
+                          <a
+                            href={waHref(t.customer.phone, t.customer.mensagem)!}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-semibold px-2.5 py-1.5 transition"
+                          >
+                            <MessageCircle className="size-3" />
+                            Chamar no WhatsApp
+                          </a>
+                        )}
+                        <span className="inline-flex items-center rounded-lg border border-gray-200 overflow-hidden">
+                          <span className="px-2 py-1.5 text-[11px] text-gray-400 flex items-center gap-1">
+                            <Clock3 className="size-3" />
+                            Adiar
+                          </span>
+                          {[
+                            { d: 1, r: "amanhã" },
+                            { d: 3, r: "3 dias" },
+                            { d: 7, r: "1 semana" },
+                          ].map((o) => (
+                            <button
+                              key={o.d}
+                              onClick={() => adiar(t, o.d)}
+                              className="px-2 py-1.5 text-[11px] font-medium text-gray-500 hover:bg-gray-50 border-l border-gray-200 transition"
+                            >
+                              {o.r}
+                            </button>
+                          ))}
+                        </span>
+                      </div>
+                    )}
                   </div>
                   {t.assignee && (
                     <Avatar

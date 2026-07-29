@@ -1119,6 +1119,10 @@ model Task {
   opportunityId String?
   opportunity   Opportunity? @relation(fields: [opportunityId], references: [id], onDelete: SetNull)
   title         String
+  // POR QUE esta tarefa existe. As automações escrevem aqui o motivo
+  // ("não compra há 68 dias e costuma comprar a cada 40") — sem este
+  // campo, o dado mais útil da tarefa era jogado fora na criação.
+  description   String?
   type          TaskType     @default(FOLLOW_UP)
   dueAt         DateTime
   priority      TaskPriority @default(MEDIA)

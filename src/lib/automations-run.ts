@@ -1,5 +1,6 @@
 import { db } from "./db";
 import { computeAutomations } from "./automations";
+import { sendToUser } from "./push";
 import type { SessionUser } from "./auth";
 
 /**
@@ -93,6 +94,9 @@ export async function runAutomationsIfDue(companyId: string): Promise<void> {
           data: {
             companyId,
             title: s.title,
+            // o MOTIVO da tarefa ("não compra há 68 dias e costuma comprar a
+            // cada 40"). Antes era calculado e jogado fora na criação.
+            description: s.description,
             type: s.taskType,
             priority: s.priority,
             // vence no fim do dia (fuso de São Paulo): tarefa do dia é para
@@ -122,21 +126,37 @@ export async function runAutomationsIfDue(companyId: string): Promise<void> {
       porDono.set(uid, (porDono.get(uid) ?? 0) + 1);
     }
 
+    // tarefas que já estão na agenda de cada uma (vencendo hoje ou atrasadas)
+    const pendentes = await db.task.groupBy({
+      by: ["assigneeId"],
+      where: { companyId, status: "PENDENTE", dueAt: { lte: fimDoDiaSP() } },
+      _count: true,
+    });
+    const tarefasDe = new Map(
+      pendentes.map((p) => [p.assigneeId ?? "", p._count])
+    );
+
     for (const [userId, quantas] of porDono) {
+      const comTarefas = quantas + (tarefasDe.get(userId) ?? 0);
+      const titulo =
+        comTarefas === 1
+          ? "Você tem 1 cliente para chamar hoje"
+          : `Você tem ${comTarefas} clientes para chamar hoje`;
+      const corpo =
+        "Aniversário, recompra atrasada e conversa parada. Toque para ver a lista.";
       await db.notification
         .create({
-          data: {
-            companyId,
-            userId,
-            type: "AGENDA",
-            title:
-              quantas === 1
-                ? "Você tem 1 cliente para chamar hoje"
-                : `Você tem ${quantas} clientes para chamar hoje`,
-            body: "Aniversário, recompra atrasada e conversa parada. Abra o painel para ver a lista.",
-          },
+          data: { companyId, userId, type: "AGENDA", title: titulo, body: corpo },
         })
         .catch(() => {});
+      // e no celular, para quem instalou o app — é o que faz a agenda existir
+      // para quem não abre o sistema de manhã por conta própria
+      await sendToUser(userId, {
+        title: titulo,
+        body: corpo,
+        url: "/tarefas",
+        tag: "agenda-do-dia",
+      }).catch(() => {});
     }
   } catch {
     // automação NUNCA pode derrubar a requisição que a carregou
