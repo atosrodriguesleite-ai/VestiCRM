@@ -43,9 +43,11 @@ import {
   Pencil,
   MoreVertical,
   MailOpen,
+  Copy,
 } from "lucide-react";
 import { OrderComposer } from "@/components/order-composer";
 import { contadorAoMarcarNaoLida } from "@/lib/comm/fila";
+import { copiarTexto, textoDaMensagem } from "@/lib/copiar";
 import { ContactPanel } from "./contact-panel";
 import { orderNumber } from "@/lib/orders";
 import {
@@ -372,6 +374,13 @@ export function Inbox({
   const [savingTpl, setSavingTpl] = useState(false);
   // editar / apagar mensagem enviada (menu estilo WhatsApp: segurar em cima)
   const [actionMsg, setActionMsg] = useState<InboxMessage | null>(null);
+  /** Aviso rápido no rodapé ("Mensagem copiada"). Some sozinho. */
+  const [aviso, setAviso] = useState<string | null>(null);
+  useEffect(() => {
+    if (!aviso) return;
+    const t = setTimeout(() => setAviso(null), 2200);
+    return () => clearTimeout(t);
+  }, [aviso]);
   // "responder": mensagem marcada para citação (prévia acima do compositor)
   const [replyMsg, setReplyMsg] = useState<InboxMessage | null>(null);
   const lpTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -1028,6 +1037,13 @@ export function Inbox({
    * é conversa lida). Sem fechar, o marcador voltaria sozinho e a vendedora
    * acharia que o botão não funciona. É o mesmo comportamento do WhatsApp.
    */
+  /** Copia o texto da mensagem (o da cliente também — pedido, chave Pix, endereço). */
+  async function copiarMensagem(texto: string) {
+    const ok = await copiarTexto(texto);
+    setActionMsg(null);
+    setAviso(ok ? "Mensagem copiada" : "Não consegui copiar nesse navegador");
+  }
+
   const marcarNaoLida = (id: string) => {
     const conv = convs.find((c) => c.id === id);
     patchLocal(id, { unreadCount: contadorAoMarcarNaoLida(conv?.unreadCount ?? 0) });
@@ -1978,10 +1994,14 @@ export function Inbox({
                     className={`group flex ${mine ? "justify-end" : "justify-start"}`}
                   >
                     {/* ⋯ no desktop (hover); no celular é "segurar" a bolha */}
-                    {mine && !isTemp && !editando && (
+                    {!isTemp && !editando && (
                       <button
                         onClick={() => setActionMsg(m)}
-                        className="hidden md:block self-center mr-1 p-1 rounded-full text-gray-300 opacity-0 group-hover:opacity-100 hover:text-gray-500 hover:bg-gray-100 transition"
+                        className={`hidden md:block self-center p-1 rounded-full text-gray-300 opacity-0 group-hover:opacity-100 hover:text-gray-500 hover:bg-gray-100 transition ${
+                          // na mensagem da CLIENTE o ⋯ vai para depois da bolha
+                          // (é dela que se copia pedido, chave Pix e endereço)
+                          mine ? "mr-1" : "ml-1 order-last"
+                        }`}
                         title="Opções da mensagem"
                       >
                         <MoreVertical className="size-4" />
@@ -2746,6 +2766,16 @@ export function Inbox({
 
     {/* folha de ações da mensagem (segurar no celular / ⋯ no computador):
         sobe de baixo no celular, centralizada no computador — nunca corta */}
+    {aviso && (
+      <div
+        role="status"
+        className="pointer-events-none fixed inset-x-0 bottom-24 z-[60] flex justify-center px-4"
+      >
+        <span className="rounded-full bg-ink/90 px-4 py-2 text-[13px] font-semibold text-white shadow-pop">
+          {aviso}
+        </span>
+      </div>
+    )}
     {actionMsg && (
       <div
         className="fixed inset-0 z-50 flex items-end justify-center sm:items-center bg-black/40 animate-fade-in"
@@ -2769,6 +2799,16 @@ export function Inbox({
               className="w-full flex items-center gap-3 rounded-xl px-3 py-3 text-left text-sm text-gray-700 hover:bg-gray-50"
             >
               <Reply className="size-4 text-brand-600" /> Responder
+            </button>
+          )}
+          {/* Copiar: vale para a mensagem da CLIENTE também — é dela que se
+              copia pedido, chave Pix e endereço */}
+          {textoDaMensagem(actionMsg) && (
+            <button
+              onClick={() => copiarMensagem(textoDaMensagem(actionMsg))}
+              className="w-full flex items-center gap-3 rounded-xl px-3 py-3 text-left text-sm text-gray-700 hover:bg-gray-50"
+            >
+              <Copy className="size-4 text-gray-400" /> Copiar mensagem
             </button>
           )}
           {/* editar/apagar: só mensagem SUA, de verdade e não apagada */}

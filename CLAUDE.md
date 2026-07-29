@@ -128,6 +128,8 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   (gravação convertida no servidor), pedidos dentro do chat (com PDF enviado
   de verdade), **sync incremental a cada 4s** (`GET /api/conversations?since=`
   + `Conversation.updatedAt`), envio otimista (bolha instantânea ⏱️→✓),
+  **copiar mensagem** (`lib/copiar.ts`, com plano B para navegador
+  antigo; vale para a mensagem da CLIENTE — pedido, Pix, endereço),
   **marcar conversa como não lida** ("volto nessa depois" — fecha o
   chat junto, senão o sync zeraria o marcador),
   recibos com horário (entregue/visto), editar (15min) e apagar para todos
