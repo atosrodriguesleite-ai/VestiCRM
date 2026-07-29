@@ -302,8 +302,11 @@ export function TaskBoard({
                   </button>
                   <PriorityDot priority={t.priority} />
                   <div className="min-w-0 flex-1">
+                    {/* CELULAR: o título não pode ser cortado. "Primeiro
+                        atendimento —..." não diz com quem é. Quebra em duas
+                        linhas em vez de esconder o que importa. */}
                     <p
-                      className={`text-sm font-medium truncate ${done ? "line-through text-gray-400" : ""}`}
+                      className={`text-sm font-medium leading-snug ${done ? "line-through text-gray-400" : ""}`}
                     >
                       {t.title}
                       {t.autoRule && (
@@ -321,7 +324,7 @@ export function TaskBoard({
                         {t.description}
                       </p>
                     )}
-                    <p className="text-xs text-gray-400 truncate">
+                    <p className="text-xs text-gray-400 mt-0.5">
                       {taskTypeLabel[t.type as keyof typeof taskTypeLabel]}
                       {t.customer && (
                         <>
@@ -336,6 +339,14 @@ export function TaskBoard({
                       )}
                       {" · "}
                       {priorityLabel[t.priority as keyof typeof priorityLabel]}
+                      {/* no celular a data vem aqui: a coluna da direita
+                          roubava metade da largura do cartão */}
+                      <span className="sm:hidden">
+                        {" · "}
+                        <span className={late ? "text-rose-600 font-semibold" : ""}>
+                          {dateShort(t.dueAt)}
+                        </span>
+                      </span>
                     </p>
 
                     {/* AÇÃO na própria linha: chamar e adiar. Sem isso a lista
@@ -354,37 +365,38 @@ export function TaskBoard({
                             Chamar no WhatsApp
                           </a>
                         )}
-                        <span className="inline-flex items-center rounded-lg border border-gray-200 overflow-hidden">
-                          <span className="px-2 py-1.5 text-[11px] text-gray-400 flex items-center gap-1">
-                            <Clock3 className="size-3" />
-                            Adiar
-                          </span>
-                          {[
-                            { d: 1, r: "amanhã" },
-                            { d: 3, r: "3 dias" },
-                            { d: 7, r: "1 semana" },
-                          ].map((o) => (
-                            <button
-                              key={o.d}
-                              onClick={() => adiar(t, o.d)}
-                              className="px-2 py-1.5 text-[11px] font-medium text-gray-500 hover:bg-gray-50 border-l border-gray-200 transition"
-                            >
-                              {o.r}
-                            </button>
-                          ))}
+                        {/* botões SOLTOS, não um bloco só: emendados, o
+                            "1 semana" saía pela direita da tela no celular */}
+                        <span className="inline-flex items-center gap-1 text-[11px] text-gray-400 mr-0.5">
+                          <Clock3 className="size-3" />
+                          Adiar
                         </span>
+                        {[
+                          { d: 1, r: "amanhã" },
+                          { d: 3, r: "3 dias" },
+                          { d: 7, r: "1 sem" },
+                        ].map((o) => (
+                          <button
+                            key={o.d}
+                            onClick={() => adiar(t, o.d)}
+                            className="rounded-lg border border-gray-200 px-2.5 py-1.5 text-[11px] font-medium text-gray-500 hover:border-brand-400 hover:bg-gray-50 transition"
+                          >
+                            {o.r}
+                          </button>
+                        ))}
                       </div>
                     )}
                   </div>
+                  {/* NO CELULAR ESTA COLUNA SOME. Ela levava avatar + data
+                      completa e comia quase metade da largura — era o motivo
+                      de o título e o nome da cliente aparecerem cortados. */}
                   {t.assignee && (
-                    <Avatar
-                      name={t.assignee.name}
-                      color={t.assignee.color}
-                      size="sm"
-                    />
+                    <span className="hidden sm:block shrink-0">
+                      <Avatar name={t.assignee.name} color={t.assignee.color} size="sm" />
+                    </span>
                   )}
                   <span
-                    className={`text-xs tabular-nums shrink-0 ${
+                    className={`hidden sm:block text-xs tabular-nums shrink-0 ${
                       late ? "text-rose-600 font-semibold" : "text-gray-500"
                     }`}
                   >

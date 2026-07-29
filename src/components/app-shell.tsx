@@ -52,7 +52,10 @@ const NAV = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard, group: "Comercial", supportHidden: true },
   { href: "/funil", label: "Funil de vendas", icon: KanbanSquare, group: "Comercial", supportHidden: true },
   { href: "/whatsapp", label: "WhatsApp", icon: MessageCircle, group: "Comercial" },
-  { href: "/tarefas", label: "Tarefas", icon: CheckSquare, group: "Comercial" },
+  // "Agenda" e não "Tarefas": a tela deixou de ser lista de obrigação e
+  // virou a lista de quem precisa de contato hoje. O nome antigo fazia
+  // parecer trabalho burocrático — e era o que ninguém abria.
+  { href: "/tarefas", label: "Minha agenda", icon: CheckSquare, group: "Comercial" },
   { href: "/pedidos", label: "Pedidos", icon: ShoppingBag, group: "Catálogo" },
   { href: "/produtos", label: "Produtos", icon: Package, group: "Catálogo" },
   { href: "/biblioteca", label: "Biblioteca de imagens", icon: Images, group: "Catálogo", mediaLibraryOnly: true, supportHidden: true },
@@ -98,7 +101,7 @@ const MOBILE_NAV_SUPPORT = [
   { href: "/pedidos", label: "Pedidos", icon: ShoppingBag },
   { href: "/whatsapp", label: "Chat", icon: MessageCircle },
   { href: "/clientes", label: "Clientes", icon: Users },
-  { href: "/tarefas", label: "Tarefas", icon: CheckSquare },
+  { href: "/tarefas", label: "Agenda", icon: CheckSquare },
   { href: "/produtos", label: "Produtos", icon: Package },
 ];
 

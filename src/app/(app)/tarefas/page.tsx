@@ -131,10 +131,8 @@ export default async function TasksPage() {
 
   return (
     <div className="max-w-5xl mx-auto">
-      {/* o menu chama "Tarefas": o título mantém a palavra para ninguém se
-          perder, mas já anuncia o que a tela virou */}
       <PageHeader
-        title="Tarefas e agenda do dia"
+        title="Minha agenda"
         subtitle="Quem precisa de contato hoje — e o que já ficou combinado."
       />
       <TaskBoard
