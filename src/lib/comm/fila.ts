@@ -53,3 +53,18 @@ export function abaDaConversa(c: ConversaParaAba): AbaDaCentral {
   if (!c.assignee && clienteEsperando(c)) return "fila";
   return "chats";
 }
+
+/**
+ * MARCAR COMO NÃO LIDA — "volto nessa depois".
+ *
+ * A vendedora abre a conversa, lê, mas não pode responder agora. Sem isso, a
+ * conversa perde o marcador e some no meio das outras: ninguém lembra que
+ * ficou pendente. É o mesmo gesto do WhatsApp.
+ *
+ * O contador de não lidas é o MESMO que a mensagem nova incrementa. Marcar à
+ * mão nunca DIMINUI o que já estava lá — se chegaram 3 mensagens sem
+ * resposta, continuam 3; se estava zerada, vira 1.
+ */
+export function contadorAoMarcarNaoLida(atual: number): number {
+  return Math.max(1, Math.floor(atual) || 0);
+}

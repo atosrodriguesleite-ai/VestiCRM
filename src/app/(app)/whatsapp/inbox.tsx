@@ -42,8 +42,10 @@ import {
   Trash2,
   Pencil,
   MoreVertical,
+  MailOpen,
 } from "lucide-react";
 import { OrderComposer } from "@/components/order-composer";
+import { contadorAoMarcarNaoLida } from "@/lib/comm/fila";
 import { ContactPanel } from "./contact-panel";
 import { orderNumber } from "@/lib/orders";
 import {
@@ -1018,6 +1020,24 @@ export function Inbox({
     patchLocal(id, { status: "CLOSED" });
     updateConv(id, { status: "CLOSED" }, true);
   };
+  /**
+   * MARCAR COMO NÃO LIDA — "volto nessa depois".
+   *
+   * FECHA a conversa junto, e não é enfeite: enquanto ela está aberta na
+   * tela, a sincronização zera o marcador a cada 3 segundos (conversa aberta
+   * é conversa lida). Sem fechar, o marcador voltaria sozinho e a vendedora
+   * acharia que o botão não funciona. É o mesmo comportamento do WhatsApp.
+   */
+  const marcarNaoLida = (id: string) => {
+    const conv = convs.find((c) => c.id === id);
+    patchLocal(id, { unreadCount: contadorAoMarcarNaoLida(conv?.unreadCount ?? 0) });
+    fetch(`/api/conversations/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ markUnread: true }),
+    }).catch(() => {});
+    setSelectedId(null); // volta para a lista (no celular, sai do chat)
+  };
   const reabrir = (id: string) => {
     patchLocal(id, { status: "OPEN", assignee: null });
     updateConv(id, { status: "OPEN", assigneeId: null }, true);
@@ -1683,7 +1703,7 @@ export function Inbox({
                     className="inline-flex items-center gap-1.5 rounded-xl bg-brand-600 hover:bg-brand-700 text-white text-xs font-semibold px-3 py-2 transition"
                   >
                     <RotateCcw className="size-3.5" />
-                    Reabrir
+                    <span className="hidden sm:inline">Reabrir</span>
                   </button>
                 ) : !selected.assignee ? (
                   <button
@@ -1691,7 +1711,7 @@ export function Inbox({
                     className="inline-flex items-center gap-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold px-3 py-2 transition"
                   >
                     <Hand className="size-3.5" />
-                    Assumir
+                    <span className="hidden sm:inline">Assumir</span>
                   </button>
                 ) : (
                   <button
@@ -1699,9 +1719,17 @@ export function Inbox({
                     className="inline-flex items-center gap-1.5 rounded-xl border border-gray-200 hover:border-emerald-300 hover:text-emerald-700 text-gray-600 text-xs font-semibold px-3 py-2 transition"
                   >
                     <CheckCircle2 className="size-3.5" />
-                    Encerrar
+                    <span className="hidden sm:inline">Encerrar</span>
                   </button>
                 )}
+                <button
+                  onClick={() => marcarNaoLida(selected.id)}
+                  className="p-2 rounded-xl border border-gray-200 text-gray-500 hover:text-brand-600 hover:border-brand-300 transition"
+                  title="Marcar como não lida (volto nessa depois)"
+                  aria-label="Marcar como não lida"
+                >
+                  <MailOpen className="size-4" />
+                </button>
                 <button
                   onClick={() => setShowTransfer((v) => !v)}
                   className={`p-2 rounded-xl border transition ${
