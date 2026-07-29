@@ -1,8 +1,9 @@
 import { db } from "./db";
 import { conversationScope } from "./scope";
+import { casaCliente } from "./busca";
 import { catalogUrl, trackedCatalogLink, trackedLinkParts } from "./catalog-url";
 import type { SessionUser } from "./auth";
-import type { InboxConversation } from "@/app/(app)/whatsapp/inbox";
+import type { InboxConversation, InboxMessage } from "@/app/(app)/whatsapp/inbox";
 
 /**
  * Conversas da inbox no formato que a tela consome — compartilhado entre o
@@ -121,35 +122,118 @@ export async function loadInboxConversations(
     // na abertura a busca vem da mais nova para a mais antiga (é assim que se
     // pega "as últimas 100"); a tela desenha de cima para baixo, então volta
     // à ordem cronológica aqui
-    messages: (since && !convId ? c.messages : [...c.messages].reverse()).map((m) => ({
-      id: m.id,
-      direction: m.direction,
-      kind: m.kind,
-      mediaType: m.mediaType,
-      // mídia NUNCA viaja em base64 no JSON (deixava o celular de joelhos):
-      // vira link que o navegador busca uma vez e guarda em cache
-      mediaUrl:
-        m.mediaUrl && m.mediaUrl.startsWith("data:")
-          ? `/api/messages/${m.id}/media`
-          : m.mediaUrl,
-      fileName: m.fileName,
-      status: m.status,
-      error: m.error,
-      body: m.body,
-      authorName: m.author?.name ?? null,
-      replyTo: m.replyTo
-        ? {
-            id: m.replyTo.id,
-            body: m.replyTo.body.slice(0, 140),
-            direction: m.replyTo.direction,
-          }
-        : null,
-      createdAt: m.createdAt.toISOString(),
-      deliveredAt: m.deliveredAt?.toISOString() ?? null,
-      readAt: m.readAt?.toISOString() ?? null,
-      editedAt: m.editedAt?.toISOString() ?? null,
-      revoked: m.revoked,
-      revokedBy: m.revokedBy,
-    })),
+    messages: (since && !convId ? c.messages : [...c.messages].reverse()).map(
+      mapMessage
+    ),
   }));
+}
+
+/**
+ * O FORMATO DA MENSAGEM NA TELA — um lugar só.
+ *
+ * A carga inicial, o sync e a busca de mensagens antigas precisam entregar
+ * exatamente o mesmo formato. Quando isso estava copiado em mais de um
+ * lugar, bastava alguém mexer num que a mensagem antiga chegava diferente
+ * da nova (sem autor, sem recibo) — e ninguém percebia até a loja reclamar.
+ */
+export function mapMessage(m: {
+  id: string;
+  direction: string;
+  kind: string;
+  mediaType: string | null;
+  mediaUrl: string | null;
+  fileName: string | null;
+  status: string | null;
+  error: string | null;
+  body: string;
+  author?: { name: string } | null;
+  replyTo?: { id: string; body: string; direction: string } | null;
+  createdAt: Date;
+  deliveredAt: Date | null;
+  readAt: Date | null;
+  editedAt: Date | null;
+  revoked: boolean;
+  revokedBy: string | null;
+}): InboxMessage {
+  return {
+    id: m.id,
+    direction: m.direction as InboxMessage["direction"],
+    kind: m.kind as InboxMessage["kind"],
+    mediaType: (m.mediaType ?? "TEXT") as InboxMessage["mediaType"],
+    // mídia NUNCA viaja em base64 no JSON (deixava o celular de joelhos):
+    // vira link que o navegador busca uma vez e guarda em cache
+    mediaUrl:
+      m.mediaUrl && m.mediaUrl.startsWith("data:")
+        ? `/api/messages/${m.id}/media`
+        : m.mediaUrl,
+    fileName: m.fileName,
+    status: m.status ?? "",
+    error: m.error,
+    body: m.body,
+    authorName: m.author?.name ?? null,
+    replyTo: m.replyTo
+      ? {
+          id: m.replyTo.id,
+          body: m.replyTo.body.slice(0, 140),
+          direction: m.replyTo.direction,
+        }
+      : null,
+    createdAt: m.createdAt.toISOString(),
+    deliveredAt: m.deliveredAt?.toISOString() ?? null,
+    readAt: m.readAt?.toISOString() ?? null,
+    editedAt: m.editedAt?.toISOString() ?? null,
+    revoked: m.revoked,
+    revokedBy: m.revokedBy,
+  };
+}
+
+/** Teto de conversas devolvidas numa busca (a tela mostra uma lista, não um censo). */
+const RESULTADOS_DA_BUSCA = 60;
+
+/**
+ * BUSCA DE CONVERSA NA LOJA INTEIRA.
+ *
+ * A tela abre com as conversas mais recentes; a cliente antiga não está lá.
+ * Filtrar só o que está na tela fazia a lupa "não achar" justamente quem a
+ * vendedora não lembrava de cabeça — o caso em que a busca serve para algo.
+ *
+ * O casamento acontece em memória com `casaCliente` (o mesmo da tela de
+ * Clientes): é o único jeito de ignorar ACENTO de forma confiável — o banco
+ * ignora maiúscula, mas "goiania" não acha "Goiânia". Para isso a varredura
+ * lê só os dados do contato (sem mensagem nenhuma), que é barato; as
+ * mensagens só são carregadas das conversas que casaram.
+ */
+export async function buscarConversas(
+  user: SessionUser,
+  termo: string
+): Promise<InboxConversation[]> {
+  const candidatas = await db.conversation.findMany({
+    where: conversationScope(user),
+    select: {
+      id: true,
+      lastMessageAt: true,
+      customer: {
+        select: {
+          name: true,
+          phone: true,
+          city: true,
+          state: true,
+          document: true,
+        },
+      },
+    },
+    orderBy: { lastMessageAt: "desc" },
+  });
+
+  const ids = candidatas
+    .filter((c) => casaCliente(c.customer, termo))
+    .slice(0, RESULTADOS_DA_BUSCA)
+    .map((c) => c.id);
+  if (ids.length === 0) return [];
+
+  // carrega as que casaram, com o histórico recente de cada uma
+  const achadas = await Promise.all(
+    ids.map((id) => loadInboxConversations(user, undefined, id))
+  );
+  return achadas.flat();
 }

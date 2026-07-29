@@ -380,6 +380,26 @@ export function Inbox({
    */
   const idsNaTela = useRef<Set<string>>(new Set(conversations.map((c) => c.id)));
   const [actionMsg, setActionMsg] = useState<InboxMessage | null>(null);
+  /**
+   * HISTÓRICO ANTIGO.
+   *
+   * A conversa abre com as últimas 100 mensagens (é o que qualquer app de
+   * mensagem faz). Sem este botão, tudo o que veio antes ficava INACESSÍVEL:
+   * a loja tinha a conversa gravada e não conseguia ler o começo dela.
+   * `semMais` guarda as conversas que já chegaram no início de tudo.
+   */
+  /**
+   * BUSCA NO SERVIDOR.
+   *
+   * A tela tem as conversas mais recentes; a cliente antiga não está nela.
+   * Ao digitar, o servidor varre a loja inteira e as conversas que faltavam
+   * entram na lista — senão a lupa "não acha" justamente quem a vendedora
+   * não lembra de cabeça.
+   */
+  const [buscando, setBuscando] = useState(false);
+  const [carregandoAntigas, setCarregandoAntigas] = useState(false);
+  const [semMais, setSemMais] = useState<Set<string>>(new Set());
+
   /** Aviso rápido no rodapé ("Mensagem copiada"). Some sozinho. */
   const [aviso, setAviso] = useState<string | null>(null);
   useEffect(() => {
@@ -540,6 +560,35 @@ export function Inbox({
           new Date(b.lastInboundAt ?? b.createdAt).getTime()
       )[0];
   }, [convs]);
+
+  useEffect(() => {
+    const q = search.trim();
+    if (q.length < 2) return;
+    let vivo = true;
+    const t = setTimeout(async () => {
+      setBuscando(true);
+      try {
+        const r = await fetch(`/api/conversations?q=${encodeURIComponent(q)}`);
+        if (!r.ok) return;
+        const d: { conversations?: InboxConversation[] } = await r.json();
+        if (!vivo || !d.conversations?.length) return;
+        setConvs((prev) => {
+          const tem = new Set(prev.map((c) => c.id));
+          const novas = d.conversations!.filter((c) => !tem.has(c.id));
+          for (const c of novas) idsNaTela.current.add(c.id);
+          return novas.length ? [...prev, ...novas] : prev;
+        });
+      } catch {
+        // rede oscilou: a lista local continua valendo
+      } finally {
+        if (vivo) setBuscando(false);
+      }
+    }, 350); // espera a pessoa parar de digitar
+    return () => {
+      vivo = false;
+      clearTimeout(t);
+    };
+  }, [search]);
 
   const filtered = useMemo(() => {
     const q = search.trim();
@@ -1079,6 +1128,35 @@ export function Inbox({
     const ok = await copiarTexto(texto);
     setActionMsg(null);
     setAviso(ok ? "Mensagem copiada" : "Não consegui copiar nesse navegador");
+  }
+
+  async function carregarAnteriores(convId: string) {
+    const conv = convs.find((c) => c.id === convId);
+    const maisVelha = conv?.messages[0]?.createdAt;
+    if (!maisVelha || carregandoAntigas) return;
+    setCarregandoAntigas(true);
+    try {
+      const r = await fetch(
+        `/api/conversations/${convId}/mensagens?antes=${encodeURIComponent(maisVelha)}`
+      );
+      if (r.ok) {
+        const d: { messages: InboxMessage[]; temMais: boolean } = await r.json();
+        setConvs((prev) =>
+          prev.map((c) => {
+            if (c.id !== convId) return c;
+            // nunca repete o que já está na tela
+            const jaTem = new Set(c.messages.map((m) => m.id));
+            const novas = d.messages.filter((m) => !jaTem.has(m.id));
+            return { ...c, messages: [...novas, ...c.messages] };
+          })
+        );
+        if (!d.temMais) setSemMais((prev) => new Set(prev).add(convId));
+      }
+    } catch {
+      // rede oscilou: o botão continua lá para tentar de novo
+    } finally {
+      setCarregandoAntigas(false);
+    }
   }
 
   const marcarNaoLida = (id: string) => {
@@ -1976,6 +2054,18 @@ export function Inbox({
 
             {/* mensagens */}
             <div className="flex-1 overflow-y-auto thin-scroll px-4 py-4 space-y-2 bg-[#f4f1f8]">
+              {/* HISTÓRICO: o começo da conversa não fica inacessível */}
+              {selected.messages.length >= 100 && !semMais.has(selected.id) && (
+                <div className="flex justify-center pb-2">
+                  <button
+                    onClick={() => carregarAnteriores(selected.id)}
+                    disabled={carregandoAntigas}
+                    className="rounded-full border border-gray-200 bg-white px-4 py-1.5 text-[12px] font-semibold text-gray-600 shadow-sm transition hover:border-brand-300 hover:text-brand-600 disabled:opacity-50"
+                  >
+                    {carregandoAntigas ? "Carregando…" : "Ver mensagens anteriores"}
+                  </button>
+                </div>
+              )}
               {selected.messages.map((m, mIdx, msgsArr) => {
                 // separador de DATA (Hoje / Ontem / 23/07) quando o dia muda —
                 // sem ele não dava para saber se a conversa foi ontem ou semana passada

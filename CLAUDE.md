@@ -126,8 +126,17 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   fila/chats/contatos, setores, assumir/transferir/encerrar, notas internas
   com @menção, respostas rápidas (criáveis por qualquer um), mídia + áudio
   (gravação convertida no servidor), pedidos dentro do chat (com PDF enviado
-  de verdade), **sync incremental a cada 4s** (`GET /api/conversations?since=`
-  + `Conversation.updatedAt`), envio otimista (bolha instantânea ⏱️→✓),
+  de verdade), **sync incremental a cada 3s** (`GET /api/conversations?since=`
+  + `Conversation.updatedAt`; a tela abre com 200 conversas × 100 mensagens).
+  **O que o sync entrega é PARCIAL — e isso já causou incidente**: conversa
+  que chega por ele vinha com uma mensagem só ("já respondi e aparece como se
+  nunca tivesse conversado"). Três portas fecham o buraco: `GET
+  /api/conversations/[id]` (conversa inteira, buscada quando a tela não a
+  conhece), `GET /api/conversations/[id]/mensagens?antes=` ("Ver mensagens
+  anteriores" — sem ela o começo da conversa era INACESSÍVEL) e
+  `GET /api/conversations?q=` (busca na loja inteira, `casaCliente` em
+  memória por causa do acento — sem ela a lupa só via as 200 carregadas).
+  Formato da mensagem em um lugar só (`mapMessage`), envio otimista (bolha instantânea ⏱️→✓),
   **copiar mensagem** (`lib/copiar.ts`, com plano B para navegador
   antigo; vale para a mensagem da CLIENTE — pedido, Pix, endereço),
   **marcar conversa como não lida** ("volto nessa depois" — fecha o
