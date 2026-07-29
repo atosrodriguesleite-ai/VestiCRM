@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { Portal } from "@/components/portal";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -103,18 +103,49 @@ export function FunnelBoard({
   const [dragOver, setDragOver] = useState<string | null>(null);
   const [showNew, setShowNew] = useState(false);
   const [detail, setDetail] = useState<BoardCard | null>(null);
+  const [erroMover, setErroMover] = useState("");
+  // arrastou para "Perdido": guarda o movimento até a lojista dizer o motivo
+  const [perguntarMotivo, setPerguntarMotivo] = useState<{
+    cardId: string;
+    fromStageId: string;
+    toStageId: string;
+  } | null>(null);
   const dragCard = useRef<{ cardId: string; fromStage: string } | null>(null);
 
-  async function moveCard(cardId: string, fromStageId: string, toStageId: string) {
+  // O QUADRO PRECISA OBEDECER O SERVIDOR.
+  //
+  // O estado nascia de `useState(initialStages)` e nunca mais olhava para a
+  // prop. Como `router.refresh()` re-renderiza o servidor MAS preserva o
+  // estado do componente, a tela ficava mentindo: cartão movido que o servidor
+  // recusou continuava na coluna nova, e oportunidade recém-criada não
+  // aparecia (a lojista criava de novo, gerando duplicata). Este efeito é o
+  // que faz a tela voltar para a verdade.
+  useEffect(() => {
+    setStages(initialStages);
+  }, [initialStages]);
+
+  async function moveCard(
+    cardId: string,
+    fromStageId: string,
+    toStageId: string,
+    lostReason?: string
+  ) {
     if (fromStageId === toStageId) return;
     const toStage = stages.find((s) => s.id === toStageId);
     if (!toStage) return;
 
-    let lostReason: string | undefined;
-    if (toStage.isLost) {
-      lostReason =
-        window.prompt("Motivo da perda (preço, prazo, sumiu...):") ?? undefined;
+    // Perdeu a venda? Pergunta o motivo numa LISTA, não numa caixinha do
+    // navegador: o `window.prompt` não funciona em vários celulares (onde a
+    // lojista trabalha) e o cartão era perdido sem motivo nenhum. Texto livre
+    // também inutilizava o relatório — "preço", "Preço" e "achou caro" viravam
+    // três barras diferentes.
+    if (toStage.isLost && lostReason === undefined) {
+      setPerguntarMotivo({ cardId, fromStageId, toStageId });
+      return;
     }
+
+    // guarda o estado atual para desfazer se o servidor recusar
+    const anterior = stages;
 
     // otimista: move na UI antes da API responder
     setStages((prev) => {
@@ -137,12 +168,24 @@ export function FunnelBoard({
       });
     });
 
-    const res = await fetch(`/api/opportunities/${cardId}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ stageId: toStageId, lostReason }),
-    });
-    if (!res.ok) router.refresh();
+    // DESFAZ quando não deu certo. Antes, falha de rede (celular no 4G) ou
+    // recusa do servidor deixavam o cartão na coluna nova só na tela: a
+    // negociação continuava aberta no banco e ninguém cobrava a cliente.
+    try {
+      const res = await fetch(`/api/opportunities/${cardId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ stageId: toStageId, lostReason }),
+      });
+      if (!res.ok) {
+        setStages(anterior);
+        setErroMover("Não foi possível mover o cartão. Tente de novo.");
+        router.refresh();
+      }
+    } catch {
+      setStages(anterior);
+      setErroMover("Sem conexão. O cartão voltou para onde estava.");
+    }
   }
 
   async function deleteCard(cardId: string, stageId: string) {
@@ -174,6 +217,30 @@ export function FunnelBoard({
 
   return (
     <>
+      {erroMover && (
+        <div className="mb-3 flex items-center gap-2 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2">
+          <p className="flex-1 text-sm text-rose-700">{erroMover}</p>
+          <button
+            onClick={() => setErroMover("")}
+            className="shrink-0 text-rose-400 hover:text-rose-600"
+            aria-label="Fechar aviso"
+          >
+            <X className="size-4" />
+          </button>
+        </div>
+      )}
+
+      {perguntarMotivo && (
+        <MotivoDaPerda
+          onCancelar={() => setPerguntarMotivo(null)}
+          onEscolher={(motivo) => {
+            const m = perguntarMotivo;
+            setPerguntarMotivo(null);
+            moveCard(m.cardId, m.fromStageId, m.toStageId, motivo);
+          }}
+        />
+      )}
+
       <div className="flex-1 flex gap-3 overflow-x-auto pb-4 thin-scroll -mx-4 px-4 md:mx-0 md:px-0">
         {stages.map((stage) => {
           const total = stage.cards.reduce((s, c) => s + c.value, 0);
@@ -730,6 +797,103 @@ function NewOpportunityModal({
           </button>
         </div>
       </form>
+    </div></Portal>
+  );
+}
+
+/**
+ * Motivo da perda — em LISTA, não em caixinha de texto.
+ *
+ * Antes era um `window.prompt`, que tem dois defeitos graves: não funciona em
+ * vários navegadores de celular (onde a lojista trabalha), então o cartão ia
+ * para "Perdido" sem motivo nenhum; e, sendo texto livre, "preço", "Preço" e
+ * "achou caro" viravam três barras diferentes no relatório — que por isso
+ * nunca serviu para decidir nada.
+ *
+ * Os motivos são os do atacado de moda, na linguagem da loja. "Cancelar"
+ * cancela o movimento inteiro: o cartão fica onde estava.
+ */
+const MOTIVOS_DE_PERDA = [
+  "Achou caro",
+  "Não fechou o pedido mínimo",
+  "Prazo de entrega",
+  "Frete caro",
+  "Não tinha a grade/tamanho",
+  "Comprou de outro fornecedor",
+  "Sumiu / não respondeu",
+  "Só estava pesquisando",
+];
+
+function MotivoDaPerda({
+  onEscolher,
+  onCancelar,
+}: {
+  onEscolher: (motivo: string) => void;
+  onCancelar: () => void;
+}) {
+  const [outro, setOutro] = useState("");
+  const [mostrarOutro, setMostrarOutro] = useState(false);
+
+  return (
+    <Portal><div className="fixed inset-0 z-50 flex items-end md:items-center justify-center pb-[var(--kb,0px)]">
+      <div className="absolute inset-0 bg-black/30 animate-fade-in" onClick={onCancelar} />
+      <div className="relative bg-white rounded-t-2xl md:rounded-2xl shadow-pop w-full md:max-w-md p-6 animate-fade-up max-h-[calc(100dvh_-_var(--kb,0px)_-_1.5rem)] overflow-y-auto thin-scroll">
+        <div className="flex items-center justify-between mb-1">
+          <h3 className="font-semibold text-lg">Por que não fechou?</h3>
+          <button onClick={onCancelar} className="text-gray-300 hover:text-gray-500" aria-label="Cancelar">
+            <X className="size-5" />
+          </button>
+        </div>
+        <p className="text-xs text-gray-400 mb-4">
+          Escolher o motivo é o que faz o relatório mostrar onde você está
+          perdendo venda.
+        </p>
+
+        <div className="grid gap-2">
+          {MOTIVOS_DE_PERDA.map((m) => (
+            <button
+              key={m}
+              onClick={() => onEscolher(m)}
+              className="text-left rounded-xl border border-gray-200 hover:border-brand-400 hover:bg-brand-50 px-4 py-3 text-sm font-medium text-gray-700 transition"
+            >
+              {m}
+            </button>
+          ))}
+
+          {!mostrarOutro ? (
+            <button
+              onClick={() => setMostrarOutro(true)}
+              className="text-left rounded-xl border border-dashed border-gray-200 hover:border-brand-400 px-4 py-3 text-sm text-gray-500 transition"
+            >
+              Outro motivo...
+            </button>
+          ) : (
+            <div className="flex gap-2">
+              <input
+                autoFocus
+                value={outro}
+                onChange={(e) => setOutro(e.target.value)}
+                placeholder="Escreva o motivo"
+                maxLength={80}
+                className="flex-1 rounded-xl border border-gray-200 px-3 py-2.5 text-sm outline-none focus:border-brand-400"
+              />
+              <button
+                onClick={() => onEscolher(outro.trim() || "Outro")}
+                className="shrink-0 rounded-xl bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium px-4 transition"
+              >
+                Salvar
+              </button>
+            </div>
+          )}
+        </div>
+
+        <button
+          onClick={onCancelar}
+          className="mt-4 w-full rounded-xl border border-gray-200 hover:bg-gray-50 py-2.5 text-sm font-medium text-gray-500 transition"
+        >
+          Cancelar — deixar o cartão onde está
+        </button>
+      </div>
     </div></Portal>
   );
 }

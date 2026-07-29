@@ -102,12 +102,37 @@ export async function POST(req: NextRequest) {
         orderBy: { number: "desc" },
         select: { number: true },
       });
+      // O PEDIDO GRUDA NA NEGOCIAÇÃO DO FUNIL.
+      //
+      // Até aqui só o pedido do catálogo era ligado. Pedido montado no chat ou
+      // na tela de Pedidos — o caminho principal do atacado — nascia solto, e
+      // TODO o motor de `opportunity-sync` desiste na primeira linha quando não
+      // há vínculo. Resultado: a vendedora fechava a venda, recebia o
+      // pagamento, e o cartão continuava parado em "em negociação" para
+      // sempre. Era o motivo de o funil parecer inútil.
+      //
+      // Pega a negociação ABERTA mais recente da cliente que ainda não tem
+      // pedido: o vínculo é 1-para-1 (`Order.opportunityId` é único), então
+      // uma negociação já usada não pode ser reaproveitada. Não achou nenhuma
+      // livre? O pedido segue sem vínculo, como antes — funil nunca trava
+      // venda.
+      const negociacaoAberta = await tx.opportunity.findFirst({
+        where: {
+          companyId: user.companyId,
+          customerId: input.customerId,
+          status: "OPEN",
+          order: null,
+        },
+        orderBy: { createdAt: "desc" },
+        select: { id: true },
+      });
       const created = await tx.order.create({
         data: {
           companyId: user.companyId,
           number: (last?.number ?? 0) + 1,
           customerId: input.customerId,
           conversationId: input.conversationId,
+          opportunityId: negociacaoAberta?.id ?? null,
           sellerId: user.id,
           status: input.status,
           subtotal: totals.subtotal,

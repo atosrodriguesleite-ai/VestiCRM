@@ -4,6 +4,7 @@ import { encryptSecret, decryptSecret } from "./crypto";
 import { intakeLead, normalizePhone } from "./intake";
 import { round2 } from "./orders";
 import { notifySalePaid } from "./push";
+import { winLinkedOpportunity } from "./opportunity-sync";
 
 /**
  * Integração Nuvemshop — a loja online é a DONA do estoque e dos produtos;
@@ -693,11 +694,24 @@ export async function ingestPaidOrder(companyId: string, nsOrderId: string) {
     orderBy: { number: "desc" },
     select: { number: true },
   });
+  // A VENDA ONLINE FECHA O CARTÃO DO FUNIL.
+  //
+  // A cliente abandona o carrinho → nasce a oportunidade "🛒 Carrinho
+  // abandonado". Depois ela volta e COMPRA. Como o pedido nascia sem vínculo,
+  // o cartão continuava aberto e a vendedora ia cobrar quem já tinha pagado.
+  // Mesma regra do pedido montado no sistema: negociação aberta mais recente
+  // da cliente que ainda não tem pedido (o vínculo é 1-para-1).
+  const negociacaoAberta = await db.opportunity.findFirst({
+    where: { companyId, customerId, status: "OPEN", order: null },
+    orderBy: { createdAt: "desc" },
+    select: { id: true },
+  });
   const order = await db.order.create({
     data: {
       companyId,
       number: (last?.number ?? 0) + 1,
       customerId,
+      opportunityId: negociacaoAberta?.id ?? null,
       status: "PAGO",
       source: "NUVEMSHOP",
       nuvemshopId: nsId,
@@ -741,6 +755,11 @@ export async function ingestPaidOrder(companyId: string, nsOrderId: string) {
     where: { id: customerId },
     data: { lastPurchaseAt: new Date(), lastContactAt: new Date() },
   });
+
+  // O pedido já nasce PAGO (não passa pela transição de status), então o
+  // fechamento do cartão precisa ser chamado aqui — igual faz o Pix em
+  // `settle-order`. Nunca derruba a ingestão: o sync engole os próprios erros.
+  await winLinkedOpportunity(companyId, order.opportunityId);
 
   // espelha o estoque atual dos produtos vendidos (a baixa aconteceu lá)
   for (const pid of [...new Set((o.products ?? []).map((i) => String(i.product_id)))]) {

@@ -71,13 +71,25 @@ export async function reopenLinkedOpportunity(
 ): Promise<void> {
   if (!opportunityId) return;
   try {
-    // última etapa "aberta" do funil (a mais próxima do fechamento)
-    const stages = await db.stage.findMany({
+    // Última etapa "aberta" ANTES do ganho — a mais próxima de fechar.
+    //
+    // Antes pegava simplesmente a última etapa aberta da lista, e no funil
+    // padrão isso é "Pós-venda" (que vem DEPOIS de "Pedido fechado"). Um
+    // pedido estornado voltava para uma etapa que significa "já vendi, estou
+    // acompanhando": ninguém cobrava a cliente e o valor entrava na coluna
+    // errada. Agora só entram as etapas anteriores ao ganho.
+    const abertas = await db.stage.findMany({
       where: { pipeline: { companyId }, isWon: false, isLost: false },
       orderBy: { order: "desc" },
-      take: 1,
+      select: { id: true, order: true },
     });
-    const stage = stages[0];
+    const ganho = await db.stage.findFirst({
+      where: { pipeline: { companyId }, isWon: true },
+      orderBy: { order: "asc" },
+      select: { order: true },
+    });
+    const stage =
+      abertas.find((s) => ganho == null || s.order < ganho.order) ?? abertas[0];
     if (!stage) return;
     await db.opportunity.updateMany({
       where: { id: opportunityId, companyId, status: { not: "OPEN" } },
