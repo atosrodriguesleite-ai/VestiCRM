@@ -374,11 +374,16 @@ export function Inbox({
   const [savingTpl, setSavingTpl] = useState(false);
   // editar / apagar mensagem enviada (menu estilo WhatsApp: segurar em cima)
   /**
-   * Ids que a tela já carregou COM histórico. Nasce com o que veio da carga
-   * inicial; o sync usa para saber quem chegou agora e precisa buscar o
-   * histórico (senão a conversa aparece com uma mensagem só).
+   * CONVERSAS COM A CONVERSA CARREGADA.
+   *
+   * A lista chega leve — só a última mensagem de cada uma, para o texto
+   * embaixo do nome. O histórico é buscado quando a conversa é ABERTA, e o
+   * id entra aqui. Enquanto não estiver aqui, o sync não tenta juntar
+   * mensagem nenhuma (juntar num histórico que não existe montaria uma
+   * conversa pela metade — foi assim que "já respondi" virou incidente).
    */
-  const idsNaTela = useRef<Set<string>>(new Set(conversations.map((c) => c.id)));
+  const threadsCarregadas = useRef<Set<string>>(new Set());
+  const [carregandoThread, setCarregandoThread] = useState(false);
   const [actionMsg, setActionMsg] = useState<InboxMessage | null>(null);
   /**
    * HISTÓRICO ANTIGO.
@@ -396,6 +401,16 @@ export function Inbox({
    * entram na lista — senão a lupa "não acha" justamente quem a vendedora
    * não lembra de cabeça.
    */
+  /**
+   * QUANTAS LINHAS A TELA DESENHA.
+   *
+   * A lista INTEIRA fica na memória (é o que faz a contagem das abas e a
+   * busca serem verdadeiras), mas desenhar 2.000 linhas de uma vez trava o
+   * navegador — e chat comercial vive com milhares de conversas. Desenha um
+   * bloco e vai crescendo conforme a pessoa rola.
+   */
+  const BLOCO = 200;
+  const [visiveis, setVisiveis] = useState(BLOCO);
   const [buscando, setBuscando] = useState(false);
   const [carregandoAntigas, setCarregandoAntigas] = useState(false);
   const [semMais, setSemMais] = useState<Set<string>>(new Set());
@@ -574,8 +589,11 @@ export function Inbox({
         if (!vivo || !d.conversations?.length) return;
         setConvs((prev) => {
           const tem = new Set(prev.map((c) => c.id));
-          const novas = d.conversations!.filter((c) => !tem.has(c.id));
-          for (const c of novas) idsNaTela.current.add(c.id);
+          // resultado da busca entra como PRÉVIA (igual ao resto da lista);
+          // o histórico vem quando a vendedora abrir a conversa
+          const novas = d
+            .conversations!.filter((c) => !tem.has(c.id))
+            .map((c) => ({ ...c, messages: c.messages.slice(-1) }));
           return novas.length ? [...prev, ...novas] : prev;
         });
       } catch {
@@ -589,6 +607,11 @@ export function Inbox({
       clearTimeout(t);
     };
   }, [search]);
+
+  useEffect(() => {
+    setVisiveis(BLOCO); // trocou de aba, buscou ou filtrou: recomeça o bloco
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab, search, tagFilter]);
 
   const filtered = useMemo(() => {
     const q = search.trim();
@@ -670,6 +693,16 @@ export function Inbox({
             const f = freshById.get(p.id);
             if (!f) return p;
             freshById.delete(p.id);
+            // CONVERSA AINDA NÃO ABERTA: a tela tem só a prévia dela. Juntar
+            // as mensagens do sync aqui montaria um histórico pela metade —
+            // exatamente o "já respondi e não aparece". Atualiza a linha da
+            // lista e mantém como prévia a mensagem mais recente conhecida.
+            if (!threadsCarregadas.current.has(p.id)) {
+              const ultima =
+                f.messages[f.messages.length - 1] ??
+                p.messages[p.messages.length - 1];
+              return { ...f, messages: ultima ? [ultima] : [] };
+            }
             // preserva mensagem recém-enviada que o servidor ainda não devolveu
             const ids = new Set(f.messages.map((m) => m.id));
             const extra = p.messages.filter((m) => {
@@ -709,39 +742,17 @@ export function Inbox({
               unreadCount: f.id === selId ? 0 : f.unreadCount,
             };
           });
-          // Conversas que a tela ainda NÃO tinha entram aqui — mas o sync
-          // devolve só o que mudou, então elas chegam com uma mensagem só.
-          // Entram assim (para não sumir da lista) e o histórico vem logo
-          // atrás, na busca abaixo.
-          return [...merged, ...freshById.values()];
+          // Conversa nova para a tela entra pela prévia, como as outras da
+          // lista. O histórico dela vem quando for aberta — nada de buscar
+          // conversa que ninguém pediu.
+          return [
+            ...merged,
+            ...[...freshById.values()].map((c) => ({
+              ...c,
+              messages: c.messages.slice(-1),
+            })),
+          ];
         });
-        // HISTÓRICO DAS CONVERSAS NOVAS PARA A TELA.
-        //
-        // Sem isto, a conversa que chega pelo sync mostra só a mensagem que
-        // acabou de mudar — "aparece como se eu nunca tivesse conversado com
-        // ele". Acontece de verdade em loja movimentada: a conversa não
-        // coube na carga inicial e volta à tela quando a cliente escreve.
-        const semHistorico = fresh.filter(
-          (c) => !idsNaTela.current.has(c.id) && c.messages.length > 0
-        );
-        for (const c of fresh) idsNaTela.current.add(c.id);
-        for (const c of semHistorico) {
-          try {
-            const r = await fetch(`/api/conversations/${c.id}`);
-            if (!r.ok) continue;
-            const { conversation } = await r.json();
-            if (!alive || !conversation) continue;
-            setConvs((prev) =>
-              prev.map((p) =>
-                p.id === conversation.id
-                  ? { ...conversation, unreadCount: p.unreadCount }
-                  : p
-              )
-            );
-          } catch {
-            // rede oscilou: a próxima mudança na conversa tenta de novo
-          }
-        }
         // conversa aberta recebeu mensagem → já marca como lida no servidor
         const sel = fresh.find((c) => c.id === selId);
         if (sel && sel.unreadCount > 0) {
@@ -779,8 +790,34 @@ export function Inbox({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  async function carregarThread(id: string) {
+    if (threadsCarregadas.current.has(id)) return;
+    setCarregandoThread(true);
+    try {
+      const r = await fetch(`/api/conversations/${id}`);
+      if (r.ok) {
+        const { conversation } = await r.json();
+        if (conversation) {
+          threadsCarregadas.current.add(id);
+          setConvs((prev) =>
+            prev.map((c) =>
+              c.id === id
+                ? { ...conversation, unreadCount: 0, messages: conversation.messages }
+                : c
+            )
+          );
+        }
+      }
+    } catch {
+      // rede oscilou: reabrir a conversa tenta de novo
+    } finally {
+      setCarregandoThread(false);
+    }
+  }
+
   function selectConv(id: string) {
     setSelectedId(id);
+    void carregarThread(id);
     setShowTransfer(false);
     setShowTagPicker(false);
     setMention(null);
@@ -1615,7 +1652,7 @@ export function Inbox({
               }
             />
           )}
-          {filtered.map((c) => {
+          {filtered.slice(0, visiveis).map((c) => {
             const last = c.messages[c.messages.length - 1];
             const waiting =
               tab === "fila" && (c.lastInboundAt ?? c.createdAt);
@@ -1678,6 +1715,15 @@ export function Inbox({
               </button>
             );
           })}
+          {filtered.length > visiveis && (
+            <button
+              onClick={() => setVisiveis((v) => v + BLOCO)}
+              className="w-full py-3 text-[13px] font-semibold text-brand-600 hover:bg-brand-50/60 transition"
+            >
+              Mostrar mais {Math.min(BLOCO, filtered.length - visiveis)} de{" "}
+              {filtered.length - visiveis} restantes
+            </button>
+          )}
         </div>
       </div>
 

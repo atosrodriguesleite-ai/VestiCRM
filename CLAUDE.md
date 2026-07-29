@@ -127,7 +127,14 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   com @menção, respostas rápidas (criáveis por qualquer um), mídia + áudio
   (gravação convertida no servidor), pedidos dentro do chat (com PDF enviado
   de verdade), **sync incremental a cada 3s** (`GET /api/conversations?since=`
-  + `Conversation.updatedAt`; a tela abre com 200 conversas × 100 mensagens).
+  + `Conversation.updatedAt`). **PREPARADO PARA MILHARES DE CONVERSAS**: a
+  LISTA carrega só a ÚLTIMA mensagem de cada conversa, cortada em 140
+  caracteres (pedido do catálogo tem milhares); o histórico vem ao ABRIR a
+  conversa (`threadsCarregadas`), e conversa não aberta nunca recebe mensagem
+  solta do sync. A tela desenha em blocos de 200 linhas, mas guarda a lista
+  INTEIRA (é o que faz contagem de aba e busca serem verdadeiras). Medido em
+  2.007 conversas/120 mil mensagens: 4,5 MB e 200 conversas visíveis → 1,75 MB
+  e TODAS visíveis.
   **O que o sync entrega é PARCIAL — e isso já causou incidente**: conversa
   que chega por ele vinha com uma mensagem só ("já respondi e aparece como se
   nunca tivesse conversado"). Três portas fecham o buraco: `GET

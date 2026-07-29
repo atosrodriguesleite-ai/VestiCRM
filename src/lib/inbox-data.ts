@@ -10,9 +10,29 @@ import type { InboxConversation, InboxMessage } from "@/app/(app)/whatsapp/inbox
  * carregamento inicial (página) e o sync incremental (GET /api/conversations,
  * que passa `since` para trazer só o que mudou desde a última busca).
  */
-/** Quanta conversa e quanta mensagem a tela recebe ao abrir. */
-const CONVERSAS_NA_ABERTURA = 200;
+/**
+ * QUANTO A TELA RECEBE AO ABRIR.
+ *
+ * A LISTA não carrega conversa: carrega SÓ A ÚLTIMA MENSAGEM de cada uma
+ * (é o único texto que a lista mostra). O histórico vem quando a conversa é
+ * aberta, uma por vez.
+ *
+ * Medido numa loja de 2.007 conversas e 120 mil mensagens: com 100 mensagens
+ * por conversa a abertura pesava 4,5 MB e ainda assim mostrava só 200
+ * conversas. Chat comercial vive com milhares de conversas — a lista tem que
+ * ser leve por construção, não por sorte.
+ */
+const CONVERSAS_NA_ABERTURA = 2000;
 const MENSAGENS_NA_ABERTURA = 100;
+/** Só a última: é o que a lista escreve embaixo do nome. */
+const MENSAGENS_NA_LISTA = 1;
+/**
+ * A lista mostra UMA LINHA da última mensagem — o resto do texto não serve
+ * para nada nela. E a mensagem real do catálogo tem MILHARES de caracteres
+ * (o pedido inteiro): sem cortar, mil conversas dessas viram megabytes de
+ * texto que ninguém lê. O texto completo vem quando a conversa é aberta.
+ */
+const PREVIA_MAX = 140;
 
 /**
  * @param since  sync incremental: só o que mudou desde então
@@ -26,6 +46,8 @@ export async function loadInboxConversations(
   since?: Date,
   convId?: string
 ): Promise<InboxConversation[]> {
+  // lista = sem `since` e sem conversa específica: só a prévia de cada uma
+  const soPrevia = !since && !convId;
   const [conversations, company] = await Promise.all([
     db.conversation.findMany({
       where: {
@@ -62,7 +84,7 @@ export async function loadInboxConversations(
             }
           : {
               orderBy: { createdAt: "desc" },
-              take: MENSAGENS_NA_ABERTURA,
+              take: soPrevia ? MENSAGENS_NA_LISTA : MENSAGENS_NA_ABERTURA,
               include: {
                 author: true,
                 // prévia da mensagem citada (responder mensagem específica)
@@ -123,7 +145,12 @@ export async function loadInboxConversations(
     // pega "as últimas 100"); a tela desenha de cima para baixo, então volta
     // à ordem cronológica aqui
     messages: (since && !convId ? c.messages : [...c.messages].reverse()).map(
-      mapMessage
+      (m) => {
+        const msg = mapMessage(m);
+        return soPrevia && msg.body.length > PREVIA_MAX
+          ? { ...msg, body: msg.body.slice(0, PREVIA_MAX) }
+          : msg;
+      }
     ),
   }));
 }

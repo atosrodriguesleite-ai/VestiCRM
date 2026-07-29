@@ -20,10 +20,29 @@ const loader = ler("src/lib/inbox-data.ts");
 const rotaLista = ler("src/app/api/conversations/route.ts");
 const rotaMsgs = ler("src/app/api/conversations/[id]/mensagens/route.ts");
 
-describe("1) conversa nova para a tela vem com histórico", () => {
-  it("a tela busca a conversa inteira quando não a conhece", () => {
-    expect(inbox).toMatch(/!idsNaTela\.current\.has\(c\.id\)/);
-    expect(inbox).toMatch(/fetch\(`\/api\/conversations\/\$\{c\.id\}`\)/);
+const rotaConversa = ler("src/app/api/conversations/[id]/route.ts");
+
+describe("1) nenhuma conversa aparece pela metade", () => {
+  it("existe a porta que devolve UMA conversa inteira", () => {
+    expect(rotaConversa).toContain("export async function GET");
+    expect(rotaConversa).toContain("loadInboxConversations(user, undefined, id)");
+  });
+
+  it("pedindo uma conversa, o `since` não corta as mensagens", () => {
+    expect(loader).toContain("since && !convId");
+    expect(loader).toContain("convId ? { id: convId }");
+  });
+
+  it("carregar a conversa não apaga nada da linha da lista", () => {
+    const f = inbox.slice(inbox.indexOf("async function carregarThread"));
+    expect(f).toContain("...conversation");
+  });
+
+  it("abrir a conversa SEMPRE busca o histórico dela no servidor", () => {
+    // a raiz do incidente "já respondi e aparece como se nunca tivesse
+    // conversado": a tela mostrava o pedaço que o sync tinha mandado
+    expect(inbox).toMatch(/fetch\(`\/api\/conversations\/\$\{id\}`\)/);
+    expect(inbox).toContain("threadsCarregadas.current.add(id)");
   });
 });
 
@@ -79,5 +98,47 @@ describe("o formato da mensagem é um só", () => {
     expect(rotaMsgs).toContain("mapMessage");
     // duas cópias divergindo entregam mensagem antiga sem autor/recibo
     expect((loader.match(/authorName: m\.author\?\.name/g) ?? []).length).toBe(1);
+  });
+});
+
+/**
+ * VOLUME — chat comercial vive com MILHARES de conversas.
+ *
+ * Medido numa loja de 2.007 conversas e 120 mil mensagens: a abertura
+ * pesava 4,5 MB e mostrava só 200 conversas. A lista não pode carregar
+ * conversa: carrega a PRÉVIA de cada uma; o histórico vem ao abrir.
+ */
+describe("preparado para milhares de conversas", () => {
+  it("a lista traz UMA mensagem por conversa (a prévia), não o histórico", () => {
+    expect(loader).toContain("MENSAGENS_NA_LISTA = 1");
+    expect(loader).toContain("soPrevia ? MENSAGENS_NA_LISTA : MENSAGENS_NA_ABERTURA");
+  });
+
+  it("a prévia é cortada — pedido do catálogo tem milhares de caracteres", () => {
+    expect(loader).toContain("PREVIA_MAX");
+    expect(loader).toMatch(/soPrevia && msg\.body\.length > PREVIA_MAX/);
+  });
+
+  it("o histórico é buscado ao ABRIR a conversa", () => {
+    expect(inbox).toContain("async function carregarThread");
+    expect(inbox).toContain("threadsCarregadas");
+    expect(inbox).toMatch(/void carregarThread\(id\)/);
+  });
+
+  it("conversa não aberta NUNCA recebe mensagem solta do sync", () => {
+    // juntar mensagem num histórico que não existe monta conversa pela
+    // metade — foi assim que "já respondi" virou incidente
+    const f = inbox.slice(inbox.indexOf("const merged = prev.map"));
+    expect(f).toContain("!threadsCarregadas.current.has(p.id)");
+  });
+
+  it("a tela desenha em blocos (2.000 linhas de uma vez travam o navegador)", () => {
+    expect(inbox).toContain("filtered.slice(0, visiveis)");
+    expect(inbox).toContain("Mostrar mais");
+  });
+
+  it("mas a lista INTEIRA fica na memória: contagem das abas e busca certas", () => {
+    // o corte é só de DESENHO — `filtered` continua vindo de `convs` inteiro
+    expect(inbox).toMatch(/const list = convs\.filter/);
   });
 });
