@@ -90,6 +90,36 @@ function extractAdReferral(m: EvoMessage): AdReply | null {
   return achado;
 }
 
+/**
+ * MENSAGEM QUE NÃO ENTROU FICA REGISTRADA.
+ *
+ * Incidente real: chegou mensagem no celular da loja e ela não apareceu no
+ * sistema. Não deu para investigar porque o descarte era um `continue` mudo —
+ * nenhum log, nenhum vestígio, nada para olhar depois.
+ *
+ * Aqui o conteúdo bruto vai para a Central de Comunicação (e para o painel de
+ * Saúde). É o que permite descobrir QUAL formato o WhatsApp mandou e ensinar
+ * o leitor a entendê-lo.
+ */
+async function registrarDescarte(
+  companyId: string,
+  motivo: string,
+  m: EvoMessage
+): Promise<void> {
+  await db.commEvent.create({
+    data: {
+      companyId,
+      channel: "WHATSAPP",
+      direction: "IN",
+      type: "message.nao-lida-pelo-sistema",
+      status: "ERRO",
+      error: `Mensagem recebida que o sistema não conseguiu interpretar (${motivo}).`,
+      // o conteúdo bruto é a única pista para corrigir o leitor depois
+      payload: JSON.stringify(m).slice(0, 8000),
+    },
+  });
+}
+
 // teto de segurança do arquivo salvo na conversa (~12 MB em base64)
 const MEDIA_BASE64_MAX = 12 * 1024 * 1024;
 
@@ -182,7 +212,17 @@ export async function POST(
           const pn = (m.key?.senderPn ?? "").split("@")[0].replace(/\D/g, "");
           if (/^\d{8,15}$/.test(pn)) phone = pn;
         }
-        if (!phone) continue;
+        if (!phone) {
+          // grupo/status/broadcast é descarte legítimo e silencioso. Mensagem
+          // de gente com telefone que não deu para ler, NÃO: fica registrada
+          // no painel de Saúde para alguém investigar.
+          const ehGrupoOuStatus =
+            jid.endsWith("@g.us") || jid.startsWith("status@");
+          if (!ehGrupoOuStatus) {
+            await registrarDescarte(companyId, "telefone-ilegivel", m).catch(() => {});
+          }
+          continue;
+        }
 
         // o cliente apagou uma mensagem (REVOKE): marca a mensagem alvo como
         // "apagada pelo cliente" mas MANTÉM o conteúdo (a loja ainda lê)
@@ -210,11 +250,27 @@ export async function POST(
           if (r.count > 0) continue;
         }
 
-        const { text, mediaType, mimeFallback, fileName } = lerMensagemWA(m);
-        // Só pula quando NÃO HÁ conteúdo nenhum (evento de controle do
-        // protocolo). Formato desconhecido vira uma bolha de aviso — some da
-        // conversa é o que não pode acontecer.
-        if (!text) continue;
+        const lida = lerMensagemWA(m);
+        let { text } = lida;
+        const { mediaType, mimeFallback, fileName } = lida;
+
+        // NENHUMA MENSAGEM DE CLIENTE PODE SUMIR.
+        //
+        // Antes, quando o sistema não conseguia nem NOMEAR o tipo, a mensagem
+        // era descartada com um `continue` — sem bolha, sem log, sem rastro.
+        // A loja via a mensagem no celular e não via no sistema, e não havia
+        // como investigar depois porque nada tinha sido gravado.
+        //
+        // Agora: evento de controle do protocolo (que não é mensagem de
+        // ninguém) segue sendo ignorado; qualquer outra coisa vira uma bolha
+        // de aviso E fica registrada no painel de Saúde com o conteúdo bruto,
+        // que é o que permite ensinar o sistema a ler aquele formato.
+        if (!text) {
+          const soControle = !m.message || Object.keys(m.message).length === 0;
+          if (soControle) continue;
+          await registrarDescarte(companyId, "formato-desconhecido", m).catch(() => {});
+          text = "[mensagem recebida que o sistema não conseguiu ler — abra o WhatsApp para ver]";
+        }
 
         // NÃO DUPLICAR: o servidor pode reentregar a mesma mensagem (retentativa,
         // reconexão, sincronização). O id da mensagem é único no WhatsApp —
