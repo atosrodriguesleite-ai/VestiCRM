@@ -41,8 +41,53 @@ import { BarList, AreaCompare, Donut, PeriodChips } from "@/components/charts";
 import { StatCard } from "@/components/dash";
 import { InfoTip } from "@/components/info-tip";
 import { PrimeirosPassos, type Passo } from "./primeiros-passos";
+import { QuemChamarHoje, type ChamadaDoDia } from "./quem-chamar-hoje";
 
 export const dynamic = "force-dynamic";
+
+/**
+ * Traduz a regra da automação em tipo + mensagem PRONTA para o WhatsApp.
+ * Os textos são a linguagem da vendedora de moda — a lojista pode editar
+ * antes de enviar, mas nunca começa de uma folha em branco (que é o que faz
+ * ela adiar o contato).
+ */
+function mensagemDaChamada(
+  regra: string,
+  primeiroNome: string
+): { tipo: ChamadaDoDia["tipo"]; mensagem: string } {
+  switch (regra) {
+    case "aniversario":
+      return {
+        tipo: "ANIVERSARIO",
+        mensagem: `Oi ${primeiroNome}! Passando para te desejar um feliz aniversário 🎉 Muitas felicidades! Preparei uma novidade especial para você, quer ver? 💛`,
+      };
+    case "recompra":
+      return {
+        tipo: "RECOMPRA",
+        mensagem: `Oi ${primeiroNome}! Tudo bem? Chegaram peças novas que têm a sua cara 😍 Quer que eu te mande o catálogo?`,
+      };
+    case "pos-venda":
+      return {
+        tipo: "POS_VENDA",
+        mensagem: `Oi ${primeiroNome}! Seu pedido já chegou? Queria muito saber o que você achou das peças 💛`,
+      };
+    case "primeiro-contato":
+      return {
+        tipo: "NOVA",
+        mensagem: `Oi ${primeiroNome}! Tudo bem? Vi que você chegou até a gente 😊 Me conta o que você está procurando que eu te ajudo!`,
+      };
+    case "catalogo-parado":
+      return {
+        tipo: "PARADA",
+        mensagem: `Oi ${primeiroNome}! Passando para saber o que você achou das peças do catálogo 😊 Ficou com alguma dúvida de tamanho ou cor?`,
+      };
+    default:
+      return {
+        tipo: "PARADA",
+        mensagem: `Oi ${primeiroNome}! Tudo bem? Passando para retomar nossa conversa 😊`,
+      };
+  }
+}
 
 export default async function DashboardPage({
   searchParams,
@@ -390,6 +435,36 @@ export default async function DashboardPage({
     },
   });
 
+  // QUEM CHAMAR HOJE — as sugestões do motor viram uma lista de ação, com o
+  // motivo em português e a mensagem pronta. `suggestions` já veio calculado
+  // na rodada de consultas lá em cima (respeitando a carteira de cada uma).
+  const fichasChamada = suggestions.length
+    ? await db.customer.findMany({
+        where: {
+          companyId: user.companyId,
+          id: { in: [...new Set(suggestions.map((s) => s.customerId))] },
+        },
+        select: { id: true, phone: true, owner: { select: { color: true } } },
+      })
+    : [];
+  const fichaPorId = new Map(fichasChamada.map((c) => [c.id, c]));
+  const chamadas: ChamadaDoDia[] = suggestions.map((s) => {
+    const ficha = fichaPorId.get(s.customerId);
+    const primeiro = s.customerName.split(" ")[0];
+    const regra = s.key.split(":")[0];
+    const { tipo, mensagem } = mensagemDaChamada(regra, primeiro);
+    return {
+      key: s.key,
+      customerId: s.customerId,
+      customerName: s.customerName,
+      phone: ficha?.phone ?? "",
+      motivo: s.description,
+      mensagem,
+      tipo,
+      ownerColor: ficha?.owner?.color ?? "#c4622d",
+    };
+  });
+
   // Checklist "Primeiros passos" — só para quem configura a loja (a vendedora
   // não mexe em catálogo nem em conexão de WhatsApp). Lista vazia = card não
   // aparece; loja que completou os 4 passos também deixa de ver.
@@ -465,6 +540,8 @@ export default async function DashboardPage({
       <div className="mb-5 -mt-1">
         <PeriodChips pathname="/dashboard" de={de} ate={ate} />
       </div>
+
+      <QuemChamarHoje chamadas={chamadas} primeiroNome={user.name.split(" ")[0]} />
 
       <PrimeirosPassos passos={passos} />
 

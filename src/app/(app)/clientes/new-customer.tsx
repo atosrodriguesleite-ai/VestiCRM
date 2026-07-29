@@ -32,6 +32,7 @@ export function NewCustomerButton({
         type: fd.get("type"),
         origin: fd.get("origin"),
         preferredSize: fd.get("preferredSize") || undefined,
+        birthDate: fd.get("birthDate") || undefined,
         preferredColors: fd.get("preferredColors") || undefined,
         notes: fd.get("notes") || undefined,
         interestIds: selectedInterests,
@@ -136,6 +137,14 @@ export function NewCustomerButton({
                   </select>
                 </div>
               </div>
+              <div>
+                <label className={label}>Aniversário</label>
+                <input type="date" name="birthDate" className={input} />
+                <p className="text-[11px] text-gray-400 mt-1">
+                  O sistema avisa você no dia — é a mensagem que mais vende no ano.
+                </p>
+              </div>
+
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className={label}>Tamanho preferido</label>

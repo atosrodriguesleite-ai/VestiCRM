@@ -6,6 +6,7 @@ import { db } from "@/lib/db";
 import { loadInboxConversations } from "@/lib/inbox-data";
 import { runWatchdogIfDue } from "@/lib/health";
 import { sincronizarFotosSeDevido } from "@/lib/comm/fotos";
+import { runAutomationsIfDue } from "@/lib/automations-run";
 
 /**
  * Sync incremental da inbox: a tela consulta a cada poucos segundos com
@@ -23,6 +24,11 @@ export async function GET(req: NextRequest) {
     // fotos das clientes: pega carona aqui, DEPOIS da resposta, e com freio
     // (uma varredura a cada 30 min por loja). A tela nunca espera por foto.
     after(() => sincronizarFotosSeDevido(user.companyId));
+    // AUTOMAÇÕES COMERCIAIS também pegam carona (uma rodada por dia por loja,
+    // travada no banco). É o que faz o motor rodar sozinho SEM gastar uma das
+    // 2 vagas de cron da Vercel — que já estão ocupadas, e um 3º cron bloqueia
+    // todos os deploys.
+    after(() => runAutomationsIfDue(user.companyId));
     const sinceRaw = req.nextUrl.searchParams.get("since");
     const since = sinceRaw ? new Date(sinceRaw) : undefined;
 

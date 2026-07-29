@@ -36,6 +36,10 @@ model Company {
   shippingEnabled   Boolean  @default(false) // módulo Envios/Melhor Envio (pago à parte; super admin ativa por loja)
   cutPlanEnabled    Boolean  @default(false) // módulo Plano de Corte (pago à parte; super admin ativa por loja)
   suspended         Boolean  @default(false) // acesso bloqueado pelo super admin (ex.: inadimplência)
+  // última rodada das automações desta loja. É a TRAVA ATÔMICA que faz o
+  // motor rodar de carona no tráfego normal, no máximo uma vez por dia, sem
+  // gastar uma das 2 vagas de cron da Vercel (que já estão as duas ocupadas).
+  automationsRunAt  DateTime?
   createdAt         DateTime @default(now())
 
   // Identidade visual do catálogo público (100% personalizável pelo lojista)
@@ -505,6 +509,9 @@ model Customer {
   notes           String?
   preferredSize   String?
   preferredColors String?
+  // data de nascimento — o disparo de aniversário é o de maior conversão
+  // do ano numa loja de moda. Guarda só o dia/mês/ano do nascimento.
+  birthDate       DateTime?
   // catálogo de revenda (PDF) — preferências lembradas por lojista:
   resaleMarkup    Float        @default(0) // margem de revenda (%)
   resaleRound     Boolean      @default(false) // arredondar preço para ,90
@@ -551,6 +558,8 @@ model Customer {
   @@index([companyId])
   @@index([companyId, ownerId])
   @@index([companyId, adRef])
+  // varredura diária de aniversariantes
+  @@index([companyId, birthDate])
 }
 
 model Tag {

@@ -52,6 +52,7 @@ export async function GET(
       notes: customer.notes,
       preferredSize: customer.preferredSize,
       preferredColors: customer.preferredColors,
+      birthDate: customer.birthDate,
       ownerName: customer.owner?.name ?? null,
       // DE ONDE ESSA CLIENTE VEIO: anúncio detectado (Click-to-WhatsApp) e a
       // campanha dona dele. É o que permite resolver a atribuição no chat,
@@ -108,6 +109,7 @@ const schema = z.object({
   notes: z.string().nullable().optional(),
   preferredSize: z.string().nullable().optional(),
   preferredColors: z.string().nullable().optional(),
+  birthDate: z.string().nullable().optional(),
   nextContactAt: z.string().nullable().optional(),
   ownerId: z.string().nullable().optional(),
 });
@@ -152,8 +154,13 @@ export async function PATCH(
       return NextResponse.json({ error: "Não encontrado" }, { status: 404 });
     }
 
-    const { nextContactAt, ownerId, ...rest } = parsed.data;
+    const { nextContactAt, ownerId, birthDate, ...rest } = parsed.data;
     const data: Record<string, unknown> = { ...rest };
+    // aniversário chega como "AAAA-MM-DD"; grava ao MEIO-DIA em UTC para que
+    // o fuso de São Paulo (UTC-3) nunca jogue a data para o dia anterior
+    if (birthDate !== undefined) {
+      data.birthDate = birthDate ? new Date(`${birthDate}T12:00:00Z`) : null;
+    }
     // telefone entra SEMPRE padronizado (só dígitos, com DDI 55) — salvar com
     // formatação furava o casamento do WhatsApp e criava contato duplicado
     if (typeof data.phone === "string") data.phone = normalizePhone(data.phone);

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Bell, AtSign, ArrowRightLeft, Check } from "lucide-react";
+import { Bell, AtSign, ArrowRightLeft, Check, Sun } from "lucide-react";
 
 type Notif = {
   id: string;
@@ -143,7 +143,13 @@ export function NotificationBell({ dark = false }: { dark?: boolean }) {
               </p>
             ) : (
               items.map((n) => {
-                const Icon = n.type === "MENTION" ? AtSign : ArrowRightLeft;
+                // AGENDA = a lista de "quem chamar hoje" das automações
+                const Icon =
+                  n.type === "MENTION"
+                    ? AtSign
+                    : n.type === "AGENDA"
+                      ? Sun
+                      : ArrowRightLeft;
                 return (
                   <button
                     key={n.id}

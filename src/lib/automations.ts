@@ -3,6 +3,7 @@ import { ownedScope } from "./scope";
 import type { SessionUser } from "./auth";
 import type { TaskType, TaskPriority } from "@prisma/client";
 import { daysSince } from "./format";
+import { clientesNaHoraDeComprar, aniversariantes } from "./recompra";
 
 export type AutomationSuggestion = {
   /** chave estável: regra + entidade — usada para não duplicar tarefas */
@@ -77,24 +78,66 @@ export async function computeAutomations(
     });
   }
 
-  // Regra 3 — comprou há 30+ dias: sugerir recompra
-  const rebuyCustomers = await db.customer.findMany({
-    where: {
-      ...scope,
-      lastPurchaseAt: { lt: days(30), gt: days(90) },
-      opportunities: { none: { status: "OPEN" } },
-    },
+  // Regra 3 — PASSOU DO RITMO DELA (não é mais prazo fixo para todo mundo).
+  //
+  // O prazo fixo de 30 dias errava dos dois lados: a lojista que repõe a cada
+  // 3 semanas era chamada tarde (a concorrente já vendeu) e a que compra de 3
+  // em 3 meses era incomodada cedo — jeito mais rápido de queimar a relação.
+  // Agora o ritmo sai do histórico de compras de cada uma.
+  const naHora = await clientesNaHoraDeComprar(user.companyId, {
+    ownerId: scope.ownerId ?? null,
   });
-  for (const c of rebuyCustomers) {
+  if (naHora.length) {
+    const semNegociacaoAberta = await db.customer.findMany({
+      where: {
+        ...scope,
+        id: { in: naHora.map((c) => c.customerId) },
+        opportunities: { none: { status: "OPEN" } },
+      },
+      select: { id: true, name: true },
+    });
+    const nomePorId = new Map(semNegociacaoAberta.map((c) => [c.id, c.name]));
+    for (const c of naHora) {
+      const nome = nomePorId.get(c.customerId);
+      if (!nome) continue; // já tem negociação aberta: não precisa de empurrão
+      suggestions.push({
+        key: `recompra:${c.customerId}`,
+        rule: c.ritmoProprio ? "Passou do ritmo de compra" : "Tempo sem comprar",
+        title: `Oferecer novidades para ${nome}`,
+        description: c.ritmoProprio
+          ? `Não compra há ${c.diasSemComprar} dias e costuma comprar a cada ${c.cicloDias}. Passou da hora — mande os lançamentos.`
+          : `Última compra há ${c.diasSemComprar} dias (a loja gira a cada ${c.cicloDias}). Envie os lançamentos e sugira recompra.`,
+        customerId: c.customerId,
+        customerName: nome,
+        taskType: "ENVIAR_NOVIDADES",
+        priority: c.ritmoProprio ? "ALTA" : "MEDIA",
+      });
+    }
+  }
+
+  // Regra 7 — ANIVERSÁRIO (hoje e nos próximos 3 dias).
+  // É o disparo de maior conversão do ano numa loja de moda, e o campo nem
+  // existia. Prioridade máxima: data que passou não volta.
+  const fazendoAniversario = await aniversariantes(user.companyId, {
+    ownerId: scope.ownerId ?? null,
+    ateDias: 3,
+  });
+  for (const a of fazendoAniversario) {
+    const quando =
+      a.emQuantosDias === 0
+        ? "é HOJE"
+        : a.emQuantosDias === 1
+          ? "é amanhã"
+          : `é em ${a.emQuantosDias} dias`;
     suggestions.push({
-      key: `recompra:${c.id}`,
-      rule: "Comprou há 30+ dias",
-      title: `Oferecer novidades para ${c.name}`,
-      description: `Última compra ${daysSince(c.lastPurchaseAt!)} dias atrás. Envie os lançamentos e sugira recompra.`,
-      customerId: c.id,
-      customerName: c.name,
-      taskType: "ENVIAR_NOVIDADES",
-      priority: "MEDIA",
+      key: `aniversario:${a.customerId}:${new Date().getUTCFullYear()}`,
+      rule: "Aniversário da cliente",
+      title: `Parabenizar ${a.name}`,
+      description: `O aniversário ${quando}${a.idade ? ` (${a.idade} anos)` : ""}. Mande os parabéns — e, se a loja quiser, um mimo com prazo para ela voltar.`,
+      customerId: a.customerId,
+      customerName: a.name,
+      taskType: "LIGAR",
+      priority: a.emQuantosDias === 0 ? "ALTA" : "MEDIA",
     });
   }
 

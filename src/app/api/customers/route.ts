@@ -18,6 +18,8 @@ const schema = z.object({
   notes: z.string().optional(),
   preferredSize: z.string().optional(),
   preferredColors: z.string().optional(),
+  // aniversário: chega como "AAAA-MM-DD" do input de data
+  birthDate: z.string().optional(),
   interestIds: z.array(z.string()).optional(),
   campaignId: z.string().optional(), // campanha de aquisição (módulo Marketing)
   skipOpportunity: z.boolean().optional(), // fluxos que criam a oportunidade/pedido na sequência
@@ -31,7 +33,7 @@ export async function POST(req: NextRequest) {
     if (!parsed.success) {
       return NextResponse.json({ error: "Dados inválidos" }, { status: 400 });
     }
-    const { interestIds, type, notes, preferredSize, preferredColors, origin, document, campaignId, skipOpportunity, ...core } =
+    const { interestIds, type, notes, preferredSize, preferredColors, birthDate, origin, document, campaignId, skipOpportunity, ...core } =
       parsed.data;
 
     const validOrigins = Object.keys(
@@ -71,6 +73,7 @@ export async function POST(req: NextRequest) {
         notes: notes ?? undefined,
         preferredSize: preferredSize ?? undefined,
         preferredColors: preferredColors ?? undefined,
+        birthDate: birthDate ? new Date(`${birthDate}T12:00:00Z`) : undefined,
         interests: interestIds?.length
           ? {
               deleteMany: {},
