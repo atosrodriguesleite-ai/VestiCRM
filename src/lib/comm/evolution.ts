@@ -114,12 +114,23 @@ export function appBaseUrl() {
   );
 }
 
+/**
+ * `incerto` = NÃO SABEMOS se a mensagem chegou.
+ *
+ * O tempo de espera estourou: o servidor Evolution pode ter recebido e
+ * entregue normalmente, e só a RESPOSTA que não voltou a tempo. Isso é
+ * completamente diferente de "o servidor recusou".
+ *
+ * Já causou incidente real: tratar timeout como falha fazia o código
+ * reenviar sozinho e a cliente receber a MESMA mensagem duas vezes.
+ * Quem for reenviar (automático ou manual) tem que olhar esta bandeira.
+ */
 async function evo<T = Record<string, unknown>>(
   method: "GET" | "POST" | "DELETE",
   path: string,
   body?: unknown,
   timeoutMs = 45_000
-): Promise<{ ok: boolean; status: number; data: T | null }> {
+): Promise<{ ok: boolean; status: number; data: T | null; incerto?: boolean }> {
   const { url, key } = evolutionEnv();
   if (!url || !key) return { ok: false, status: 0, data: null };
   try {
@@ -133,8 +144,11 @@ async function evo<T = Record<string, unknown>>(
     });
     const data = (await res.json().catch(() => null)) as T | null;
     return { ok: res.ok, status: res.status, data };
-  } catch {
-    return { ok: false, status: 0, data: null };
+  } catch (e) {
+    // tempo esgotado → pode ter chegado. Qualquer outro erro (DNS, conexão
+    // recusada, servidor fora do ar) → não saiu do lugar.
+    const incerto = (e as Error)?.name === "TimeoutError";
+    return { ok: false, status: 0, data: null, incerto };
   }
 }
 

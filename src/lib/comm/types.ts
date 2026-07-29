@@ -29,9 +29,18 @@ export type OutboundPayload = {
   };
 };
 
+/**
+ * `externalId` opcional no sucesso: o provedor pode aceitar a mensagem e não
+ * devolver o id. Inventar um id falso quebrava o casamento com o eco que volta
+ * do WhatsApp — sem id, o webhook resgata a mensagem e grava o id verdadeiro.
+ *
+ * `incerto` na falha: o tempo de espera estourou e NÃO sabemos se a mensagem
+ * chegou. Nunca reenviar automaticamente nesse caso (a cliente recebia duas
+ * vezes) — e avisar a vendedora antes que ela reenvie na mão.
+ */
 export type SendResult =
-  | { ok: true; externalId: string }
-  | { ok: false; error: string };
+  | { ok: true; externalId?: string }
+  | { ok: false; error: string; incerto?: boolean };
 
 export interface CommProvider {
   readonly name: string;

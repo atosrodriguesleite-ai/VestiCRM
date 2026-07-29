@@ -166,7 +166,12 @@ export class EvolutionProvider implements CommProvider {
       // REDE DE SEGURANÇA: se a citação for recusada (mensagem antiga demais,
       // id que o servidor não conhece mais, mídia sem texto), a resposta ainda
       // tem que chegar. Reenvia sem a "caixinha" em vez de dar erro à vendedora.
-      if (!res.ok && citacao) {
+      //
+      // SÓ reenvia quando o servidor RESPONDEU recusando (status > 0). Se o
+      // tempo estourou (status 0), a mensagem provavelmente FOI entregue e a
+      // resposta é que não voltou — reenviar aí fazia a cliente receber duas
+      // vezes. Incidente real: era a causa da mensagem duplicada.
+      if (!res.ok && res.status > 0 && citacao) {
         res = await evoSendText(this.instance!, number, payload.text ?? "");
       }
     }
@@ -178,15 +183,20 @@ export class EvolutionProvider implements CommProvider {
         : "";
       return {
         ok: false,
-        error:
-          res.status === 0
+        incerto: res.incerto,
+        error: res.incerto
+          ? "O WhatsApp demorou demais para responder. A mensagem PODE ter sido entregue — confira a conversa no celular antes de reenviar."
+          : res.status === 0
             ? "Servidor de conexão do WhatsApp fora do ar — tente novamente em instantes."
             : `O WhatsApp recusou o envio (HTTP ${res.status}).${motivo}`,
       };
     }
-    const externalId =
-      res.data?.key?.id ?? `evo.${Date.now()}.${Math.random().toString(36).slice(2, 8)}`;
-    return { ok: true, externalId };
+    // Servidor aceitou mas não devolveu o id da mensagem: NUNCA inventar um.
+    // Um id falso não casa com o eco que volta do WhatsApp — dava bolha
+    // duplicada na tela, recibo ✓✓ que nunca chegava e "apagar para todos"
+    // sempre com erro. Sem id, o resgate pelo webhook adota esta mensagem e
+    // grava o id verdadeiro (é exatamente para isso que ele existe).
+    return { ok: true, externalId: res.data?.key?.id ?? undefined };
   }
 }
 

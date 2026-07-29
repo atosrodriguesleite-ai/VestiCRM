@@ -769,6 +769,15 @@ model Message {
 
   @@index([conversationId, createdAt])
   @@index([externalId])
+  // MESMA MENSAGEM NUNCA ENTRA DUAS VEZES.
+  //
+  // Antes a proteção era só "olha se já existe, depois grava" — e duas
+  // entregas simultâneas do mesmo aviso do WhatsApp (o servidor reenvia
+  // quando a resposta demora) passavam as duas, virando bolha duplicada na
+  // conversa. Agora quem garante é o banco, que não tem corrida.
+  // Mensagem nossa nasce sem `externalId` (nulo não conflita no Postgres) e
+  // recebe o id verdadeiro quando o eco volta.
+  @@unique([conversationId, externalId])
 }
 
 enum TemplateCategory {

@@ -314,20 +314,27 @@ export async function importRecentHistory(
       if (mediaUrl) midiaBudget--;
     }
 
-    await db.message.create({
-      data: {
-        conversationId: convId,
-        channel: "WHATSAPP",
-        direction: r.key?.fromMe ? "OUT" : "IN",
-        body: text,
-        ...(mediaType !== "TEXT" && mediaUrl
-          ? { mediaType, mediaUrl, fileName }
-          : {}),
-        externalId: extId,
-        status: r.key?.fromMe ? "ENVIADA" : "RECEBIDA",
-        createdAt: new Date(ts),
-      },
-    });
+    try {
+      await db.message.create({
+        data: {
+          conversationId: convId,
+          channel: "WHATSAPP",
+          direction: r.key?.fromMe ? "OUT" : "IN",
+          body: text,
+          ...(mediaType !== "TEXT" && mediaUrl
+            ? { mediaType, mediaUrl, fileName }
+            : {}),
+          externalId: extId,
+          status: r.key?.fromMe ? "ENVIADA" : "RECEBIDA",
+          createdAt: new Date(ts),
+        },
+      });
+    } catch (e) {
+      // já estava gravada (o índice único pegou): importação repetida não
+      // pode duplicar histórico nem derrubar o resto do lote.
+      if ((e as { code?: string })?.code !== "P2002") throw e;
+      continue;
+    }
     importadas++;
   }
 

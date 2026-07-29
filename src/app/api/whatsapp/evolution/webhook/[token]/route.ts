@@ -449,19 +449,27 @@ export async function POST(
             }
           }
           if (!exists) {
-            await db.message.create({
-              data: {
-                conversationId: conv.id,
-                channel: "WHATSAPP",
-                direction: "OUT",
-                body: textoFinal,
-                ...(mediaType !== "TEXT" && mediaUrl
-                  ? { mediaType, mediaUrl, fileName }
-                  : {}),
-                externalId: m.key?.id,
-                status: "ENVIADA",
-              },
-            });
+            // P2002 = o índice único pegou uma entrega repetida do mesmo aviso
+            // (duas execuções em paralelo passaram pela checagem acima). Não é
+            // erro: a mensagem já está gravada, seguimos em frente.
+            try {
+              await db.message.create({
+                data: {
+                  conversationId: conv.id,
+                  channel: "WHATSAPP",
+                  direction: "OUT",
+                  body: textoFinal,
+                  ...(mediaType !== "TEXT" && mediaUrl
+                    ? { mediaType, mediaUrl, fileName }
+                    : {}),
+                  externalId: m.key?.id,
+                  status: "ENVIADA",
+                },
+              });
+            } catch (e) {
+              if ((e as { code?: string })?.code !== "P2002") throw e;
+              continue;
+            }
             // respondeu pelo CELULAR = leu a conversa. Sem zerar aqui, o
             // sistema seguia mostrando "3 não lidas" numa conversa já
             // atendida, e o time perdia a confiança no contador.

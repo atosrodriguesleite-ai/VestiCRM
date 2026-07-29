@@ -246,6 +246,21 @@ export async function sendMessage(input: SendMessageInput): Promise<Message> {
             })
             .catch(() => {});
         }
+        // Envio em segundo plano que FALHOU: devolve a cliente para a fila.
+        // A conversa já tinha sido marcada como "loja respondeu" lá embaixo
+        // (o envio ainda estava em curso); se não deu certo, ela continua
+        // esperando e precisa voltar a aparecer para a equipe.
+        const fim = await db.message
+          .findUnique({ where: { id: messageId }, select: { status: true } })
+          .catch(() => null);
+        if (fim?.status === "FALHOU") {
+          await db.conversation
+            .update({
+              where: { id: conv.id },
+              data: { lastOutboundAt: conv.lastOutboundAt },
+            })
+            .catch(() => {});
+        }
         // qualquer desfecho acorda o sync incremental da inbox
         await db.conversation
           .update({ where: { id: conv.id }, data: { updatedAt: new Date() } })
@@ -276,6 +291,12 @@ export async function sendMessage(input: SendMessageInput): Promise<Message> {
   // ABERTA: sem isso, a lojista respondia e o atendimento continuava
   // parecendo "fila" ou "histórico", que foi exatamente a queixa dela.
   // Nota interna não conta: anotar não é atender.
+  // TENTAR RESPONDER NÃO É TER RESPONDIDO. `lastOutboundAt` é o que decide se
+  // a cliente ainda aparece na aba Fila ("esperando a loja"). Marcar mesmo
+  // quando o envio falhou tirava a cliente da fila SEM ela ter recebido nada:
+  // ficava sem resposta e invisível para todo mundo. Agora só marca quando a
+  // mensagem não falhou (no envio em segundo plano, o `after` desfaz se falhar).
+  const falhou = message.status === "FALHOU";
   await db.conversation.update({
     where: { id: conv.id },
     data: {
@@ -284,7 +305,7 @@ export async function sendMessage(input: SendMessageInput): Promise<Message> {
       ...(isNote
         ? {}
         : {
-            lastOutboundAt: new Date(),
+            ...(falhou ? {} : { lastOutboundAt: new Date() }),
             ...(conv.status === "CLOSED" ? { status: "OPEN" as const } : {}),
             ...(!conv.assigneeId && input.authorId ? { assigneeId: input.authorId } : {}),
           }),

@@ -608,15 +608,26 @@ export function Inbox({
             const ids = new Set(f.messages.map((m) => m.id));
             const extra = p.messages.filter((m) => {
               if (ids.has(m.id)) return false;
+              // BOLHA QUE FALHOU NUNCA É APAGADA DA TELA.
+              //
+              // Incidente real: a vendedora manda "Bom dia", o envio falha
+              // (bolha ⚠️ com "Reenviar"), e no sync seguinte o servidor
+              // devolve um "Bom dia" ANTIGO da mesma conversa. O texto casava,
+              // a bolha do erro sumia e ela acreditava ter enviado — a cliente
+              // nunca recebeu. O aviso de falha só sai daqui pelas mãos dela.
+              if (m.status === "FALHOU") return true;
               // bolha otimista (ainda "temp-") já confirmada pelo servidor:
-              // se o sync trouxe a mesma mensagem (sentido+texto), descarta a temp
+              // se o sync trouxe a mesma mensagem (sentido+texto), descarta a
+              // temp. Só casa com mensagem RECENTE (2 min): sem essa janela,
+              // qualquer repetição antiga do mesmo texto engolia a bolha nova.
               if (
                 m.id.startsWith("temp-") &&
                 f.messages.some(
                   (fm) =>
                     fm.direction === m.direction &&
                     fm.kind === m.kind &&
-                    fm.body === m.body
+                    fm.body === m.body &&
+                    Date.now() - new Date(fm.createdAt).getTime() < 120_000
                 )
               )
                 return false;
