@@ -65,6 +65,13 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   TODA métrica de faturamento soma por aí (Dashboard, Relatórios,
   Inteligência, Comissões, Equipe, exportações, segmentos). O modelo `Sale`
   é legado do fluxo manual — **não usar para métricas**.
+  **Faturamento soma `netTotal` (valor vendido), NUNCA `total`** (que tem
+  frete e serve só para cobrar). O guarda é `faturamento-data.test.ts`:
+  varredura ampla das telas de dinheiro por `_sum/select/orderBy/+ .total`.
+  Uso legítimo de `total` (contas a receber = o que a cliente paga) se
+  declara com o marcador **`frete-ok`** e o motivo, na linha ou nas duas
+  acima. A versão anterior do guarda tinha regex frouxa e deixou passar seis
+  somas com frete no Dashboard — guarda que não pega nada é pior que nenhum.
 - **Estoque**: orçamento RESERVA (todos os status exceto CANCELADO seguram
   estoque) — vale para o pedido montado no sistema E para o do catálogo
   público (`lib/reservations.ts`, baixa condicionada: nunca negativa, nunca
