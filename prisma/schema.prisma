@@ -867,6 +867,14 @@ model CommSettings {
   catalogLinkMsg        String?
   // mensagem de confirmação ao montar um pedido ({nome}/{pedido}/{total})
   orderMsg              String?
+  // Mensagens da lista "Quem chamar hoje" ({nome} e {dias} são trocados).
+  // Cada loja fala do seu jeito — texto que não parece da loja soa como
+  // robô e a cliente sente. Vazio = usa o padrão do sistema.
+  msgAniversario        String?
+  msgRecompra           String?
+  msgPosVenda           String?
+  msgPrimeiroContato    String?
+  msgConversaParada     String?
   // vigia do WhatsApp: desde quando caiu e quando o último alerta foi enviado
   evolutionDownSince    DateTime?
   evolutionAlertAt      DateTime?

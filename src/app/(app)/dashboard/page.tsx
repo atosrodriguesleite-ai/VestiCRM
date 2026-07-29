@@ -42,52 +42,9 @@ import { StatCard } from "@/components/dash";
 import { InfoTip } from "@/components/info-tip";
 import { PrimeirosPassos, type Passo } from "./primeiros-passos";
 import { QuemChamarHoje, type ChamadaDoDia } from "./quem-chamar-hoje";
+import { montarMensagem, tipoDaRegra, CAMPO_DA_CHAMADA } from "@/lib/mensagens-chamada";
 
 export const dynamic = "force-dynamic";
-
-/**
- * Traduz a regra da automação em tipo + mensagem PRONTA para o WhatsApp.
- * Os textos são a linguagem da vendedora de moda — a lojista pode editar
- * antes de enviar, mas nunca começa de uma folha em branco (que é o que faz
- * ela adiar o contato).
- */
-function mensagemDaChamada(
-  regra: string,
-  primeiroNome: string
-): { tipo: ChamadaDoDia["tipo"]; mensagem: string } {
-  switch (regra) {
-    case "aniversario":
-      return {
-        tipo: "ANIVERSARIO",
-        mensagem: `Oi ${primeiroNome}! Passando para te desejar um feliz aniversário 🎉 Muitas felicidades! Preparei uma novidade especial para você, quer ver? 💛`,
-      };
-    case "recompra":
-      return {
-        tipo: "RECOMPRA",
-        mensagem: `Oi ${primeiroNome}! Tudo bem? Chegaram peças novas que têm a sua cara 😍 Quer que eu te mande o catálogo?`,
-      };
-    case "pos-venda":
-      return {
-        tipo: "POS_VENDA",
-        mensagem: `Oi ${primeiroNome}! Seu pedido já chegou? Queria muito saber o que você achou das peças 💛`,
-      };
-    case "primeiro-contato":
-      return {
-        tipo: "NOVA",
-        mensagem: `Oi ${primeiroNome}! Tudo bem? Vi que você chegou até a gente 😊 Me conta o que você está procurando que eu te ajudo!`,
-      };
-    case "catalogo-parado":
-      return {
-        tipo: "PARADA",
-        mensagem: `Oi ${primeiroNome}! Passando para saber o que você achou das peças do catálogo 😊 Ficou com alguma dúvida de tamanho ou cor?`,
-      };
-    default:
-      return {
-        tipo: "PARADA",
-        mensagem: `Oi ${primeiroNome}! Tudo bem? Passando para retomar nossa conversa 😊`,
-      };
-  }
-}
 
 export default async function DashboardPage({
   searchParams,
@@ -448,11 +405,27 @@ export default async function DashboardPage({
       })
     : [];
   const fichaPorId = new Map(fichasChamada.map((c) => [c.id, c]));
+  // texto de cada mensagem: o da LOJA quando ela personalizou, senão o padrão
+  const textosDaLoja = suggestions.length
+    ? await db.commSettings.findUnique({
+        where: { companyId: user.companyId },
+        select: {
+          msgAniversario: true,
+          msgRecompra: true,
+          msgPosVenda: true,
+          msgPrimeiroContato: true,
+          msgConversaParada: true,
+        },
+      })
+    : null;
   const chamadas: ChamadaDoDia[] = suggestions.map((s) => {
     const ficha = fichaPorId.get(s.customerId);
     const primeiro = s.customerName.split(" ")[0];
-    const regra = s.key.split(":")[0];
-    const { tipo, mensagem } = mensagemDaChamada(regra, primeiro);
+    const tipo = tipoDaRegra(s.key.split(":")[0]);
+    const personalizada = textosDaLoja
+      ? (textosDaLoja as Record<string, string | null>)[CAMPO_DA_CHAMADA[tipo]]
+      : null;
+    const mensagem = montarMensagem(tipo, { nome: primeiro }, personalizada);
     return {
       key: s.key,
       customerId: s.customerId,

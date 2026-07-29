@@ -15,6 +15,7 @@ import { db } from "@/lib/db";
 import { roleLabel } from "@/lib/format";
 import { Card, PageHeader, Badge } from "@/components/ui";
 import { TemplateManager } from "./template-manager";
+import { MensagensChamada } from "./mensagens-chamada";
 import { TagManager } from "./tag-manager";
 import { CatalogSettings } from "./catalog-settings";
 import { catalogDomain } from "@/lib/catalog-url";
@@ -49,7 +50,7 @@ export default async function SettingsPage() {
   const user = await requireUser();
   // perfil Suporte é operacional: telas comerciais ficam fora do papel dele
   if (user.role === "SUPPORT") redirect("/pedidos");
-  const [company, templates, tags, sellers, stages, originRules] = await Promise.all([
+  const [company, templates, tags, sellers, stages, originRules, comm] = await Promise.all([
     db.company.findUnique({ where: { id: user.companyId } }),
     db.messageTemplate.findMany({
       where: { companyId: user.companyId },
@@ -71,6 +72,17 @@ export default async function SettingsPage() {
       select: { id: true, name: true },
     }),
     db.originRule.findMany({ where: { companyId: user.companyId } }),
+    // textos das mensagens de "Quem chamar hoje" (vazio = padrão do sistema)
+    db.commSettings.findUnique({
+      where: { companyId: user.companyId },
+      select: {
+        msgAniversario: true,
+        msgRecompra: true,
+        msgPosVenda: true,
+        msgPrimeiroContato: true,
+        msgConversaParada: true,
+      },
+    }),
   ]);
   // categorias de produto — usadas nos pesos padrão do módulo Envios
   const categorias = await db.product.findMany({
@@ -218,6 +230,24 @@ export default async function SettingsPage() {
           category: t.category,
         }))}
       />
+
+      <h2 className="font-semibold mt-8 mb-1">Mensagens de “Quem chamar hoje”</h2>
+      <p className="text-sm text-gray-500 mb-3">
+        O painel mostra todo dia quem precisa de contato (aniversário, hora de
+        comprar de novo, conversa parada…) já com a mensagem pronta. Aqui você
+        escreve esses textos do jeito da sua loja.
+      </p>
+      <Card className="p-4 mb-2">
+        <MensagensChamada
+          inicial={{
+            msgAniversario: comm?.msgAniversario ?? null,
+            msgRecompra: comm?.msgRecompra ?? null,
+            msgPosVenda: comm?.msgPosVenda ?? null,
+            msgPrimeiroContato: comm?.msgPrimeiroContato ?? null,
+            msgConversaParada: comm?.msgConversaParada ?? null,
+          }}
+        />
+      </Card>
 
       <h2 className="font-semibold mt-8 mb-1">Etiquetas dos contatos</h2>
       <p className="text-sm text-gray-500 mb-3">
