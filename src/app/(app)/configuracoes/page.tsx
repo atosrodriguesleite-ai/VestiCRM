@@ -26,7 +26,7 @@ import { NuvemshopConnect } from "./nuvemshop-connect";
 import { JueriConnect } from "./jueri-connect";
 import { MercadoPagoConnect, BlingConnect } from "./pagamentos-connect";
 import { MelhorEnvioConnect } from "./envios-connect";
-import { isAdmin } from "@/lib/scope";
+import { isAdmin, isSupport, podeOperarIntegracoes } from "@/lib/scope";
 import type { Origin } from "@prisma/client";
 
 export const dynamic = "force-dynamic";
@@ -48,8 +48,16 @@ const INTEGRATIONS = [
 
 export default async function SettingsPage() {
   const user = await requireUser();
-  // perfil Suporte é operacional: telas comerciais ficam fora do papel dele
-  if (user.role === "SUPPORT") redirect("/pedidos");
+  // O SUPORTE ENTRA — mas só na parte operacional.
+  //
+  // Antes ele era expulso desta tela inteira, e quando a Nuvemshop desandava
+  // ou o estoque desencontrava, precisava acordar um admin só para clicar em
+  // "sincronizar". Integração é trabalho dele. O que continua fora do papel
+  // dele é o COMERCIAL: pedido mínimo, base de comissão, identidade do
+  // catálogo, mensagens da loja e distribuição de leads.
+  const comercial = !isSupport(user);
+  // integrações: admin como antes, e agora o suporte junto
+  const integra = podeOperarIntegracoes(user);
   const [company, templates, tags, sellers, stages, originRules, comm] = await Promise.all([
     db.company.findUnique({ where: { id: user.companyId } }),
     db.messageTemplate.findMany({
@@ -100,18 +108,22 @@ export default async function SettingsPage() {
     <div className="max-w-5xl mx-auto">
       <PageHeader
         title="Configurações"
-        subtitle="Dados da loja, modelos de mensagem e integrações."
+        subtitle={
+          comercial
+            ? "Dados da loja, modelos de mensagem e integrações."
+            : "Integrações e ferramentas de atendimento."
+        }
       />
 
       <InstallAppCard />
       <SaleNotifications />
-      {isAdmin(user) && <MercadoPagoConnect />}
-      {isAdmin(user) && <BlingConnect />}
-      {isAdmin(user) && company?.shippingEnabled && (
+      {integra && <MercadoPagoConnect />}
+      {integra && <BlingConnect />}
+      {integra && company?.shippingEnabled && (
         <MelhorEnvioConnect categories={categorias.map((c) => c.category)} />
       )}
-      {isAdmin(user) && <NuvemshopConnect />}
-      {isAdmin(user) && <JueriConnect />}
+      {integra && <NuvemshopConnect />}
+      {integra && <JueriConnect />}
 
       <Card className="p-5 mb-6">
         <h2 className="font-semibold flex items-center gap-2 mb-3">
@@ -142,7 +154,9 @@ export default async function SettingsPage() {
         </div>
       </Card>
 
-      {company && (
+      {/* COMERCIAL: pedido mínimo, base de comissão, identidade do catálogo
+          e distribuição de leads. Fora do papel do suporte. */}
+      {comercial && company && (
         <>
           <h2 className="font-semibold mb-3">Catálogo geral</h2>
           <div className="mb-6">
@@ -231,6 +245,8 @@ export default async function SettingsPage() {
         }))}
       />
 
+      {comercial && (
+        <>
       <h2 className="font-semibold mt-8 mb-1">Mensagens de “Quem chamar hoje”</h2>
       <p className="text-sm text-gray-500 mb-3">
         O painel mostra todo dia quem precisa de contato (aniversário, hora de
@@ -248,6 +264,9 @@ export default async function SettingsPage() {
           }}
         />
       </Card>
+
+        </>
+      )}
 
       <h2 className="font-semibold mt-8 mb-1">Etiquetas dos contatos</h2>
       <p className="text-sm text-gray-500 mb-3">

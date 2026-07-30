@@ -1,14 +1,14 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { requireUser, AuthError } from "@/lib/auth";
-import { isAdmin } from "@/lib/scope";
+import { podeOperarIntegracoes } from "@/lib/scope";
 import { meEnv, meAuthorizeUrl } from "@/lib/melhorenvio";
 
 /** Inicia a conexão: manda a lojista autorizar o app no Melhor Envio dela. */
 export async function GET() {
   try {
     const user = await requireUser();
-    if (!isAdmin(user)) {
+    if (!podeOperarIntegracoes(user)) {
       return NextResponse.json({ error: "Sem permissão" }, { status: 403 });
     }
     // módulo pago à parte: só loja com a chave ligada consegue conectar

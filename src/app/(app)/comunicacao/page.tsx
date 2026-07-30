@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { requireUser } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { isManagerUp } from "@/lib/scope";
+import { isManagerUp, isSupport, podeOperarIntegracoes } from "@/lib/scope";
 import { isAdmin } from "@/lib/scope";
 import { PageHeader } from "@/components/ui";
 import { CommCenter, type CommEventItem } from "./comm-center";
@@ -15,7 +15,13 @@ export const dynamic = "force-dynamic";
 
 export default async function CommunicationPage() {
   const user = await requireUser();
-  if (!isManagerUp(user)) redirect("/dashboard");
+  // Suporte entra: reconectar o WhatsApp e olhar o log de entrega é o
+  // trabalho dele. (Vendedora continua fora — conexão afeta a loja toda.)
+  // O destino do redirecionamento respeita o papel: mandar suporte para o
+  // dashboard era jogá-lo numa tela que ele também não pode ver.
+  if (!podeOperarIntegracoes(user)) {
+    redirect(isSupport(user) ? "/pedidos" : "/dashboard");
+  }
 
   const h24 = new Date(Date.now() - 24 * 60 * 60 * 1000);
 

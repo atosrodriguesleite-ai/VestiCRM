@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireUser, AuthError } from "@/lib/auth";
-import { isAdmin } from "@/lib/scope";
+import { podeOperarIntegracoes } from "@/lib/scope";
 import { importRecentHistory } from "@/lib/comm/history-import";
 
 // a importação lê conversa por conversa e ainda baixa mídia — precisa de fôlego
@@ -13,7 +13,7 @@ export const maxDuration = 300;
 export async function POST() {
   try {
     const user = await requireUser();
-    if (!isAdmin(user))
+    if (!podeOperarIntegracoes(user))
       return NextResponse.json({ error: "Sem permissão" }, { status: 403 });
     const result = await importRecentHistory(user.companyId, 30);
     return NextResponse.json({ ok: true, ...result });

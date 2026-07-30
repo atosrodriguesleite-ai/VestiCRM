@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { requireUser, AuthError } from "@/lib/auth";
-import { isAdmin } from "@/lib/scope";
+import { podeOperarIntegracoes } from "@/lib/scope";
 import { syncJueriPage } from "@/lib/jueri-sync";
 
 /**
@@ -23,7 +23,7 @@ const schema = z.object({
 export async function POST(req: NextRequest) {
   try {
     const user = await requireUser();
-    if (!isAdmin(user)) {
+    if (!podeOperarIntegracoes(user)) {
       return NextResponse.json({ error: "Só admin sincroniza integrações." }, { status: 403 });
     }
     const parsed = schema.safeParse(await req.json());

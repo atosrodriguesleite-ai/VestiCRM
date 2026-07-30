@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { requireUser, AuthError } from "@/lib/auth";
-import { isAdmin } from "@/lib/scope";
+import { podeOperarIntegracoes } from "@/lib/scope";
 import { meEnv, meBalance } from "@/lib/melhorenvio";
 
 /** Estado da conexão Melhor Envio + configurações de remetente/embalagem. */
@@ -77,7 +77,7 @@ const settingsSchema = z.object({
 export async function PATCH(req: NextRequest) {
   try {
     const user = await requireUser();
-    if (!isAdmin(user))
+    if (!podeOperarIntegracoes(user))
       return NextResponse.json({ error: "Sem permissão" }, { status: 403 });
     const parsed = settingsSchema.safeParse(await req.json());
     if (!parsed.success)

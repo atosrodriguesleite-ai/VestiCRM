@@ -69,9 +69,14 @@ const NAV = [
   { href: "/inteligencia", label: "Inteligência", icon: Brain, group: "Análise", managerOnly: true },
   { href: "/comissoes", label: "Comissões", icon: Percent, group: "Análise", managerOnly: true },
   { href: "/financeiro", label: "Financeiro", icon: Wallet, group: "Análise", managerOnly: true },
-  { href: "/comunicacao", label: "Comunicação", icon: Radio, group: "Sistema", managerOnly: true },
+  // Conexão do WhatsApp e log de entrega: trabalho operacional, então o
+  // suporte entra junto com gerente e admin (vendedora não).
+  { href: "/comunicacao", label: "Comunicação", icon: Radio, group: "Sistema", operacional: true },
   { href: "/equipe", label: "Equipe", icon: UserCog, group: "Sistema", managerOnly: true },
-  { href: "/configuracoes", label: "Configurações", icon: Settings, group: "Sistema", supportHidden: true },
+  // Suporte VÊ Configurações: é dele o trabalho de integração (reconectar
+  // a Nuvemshop, sincronizar estoque, desfazer importação). A tela mostra
+  // só a parte operacional para ele — o comercial fica escondido lá dentro.
+  { href: "/configuracoes", label: "Configurações", icon: Settings, group: "Sistema" },
   { href: "/gestao", label: "Gestão", icon: Gauge, group: "Plataforma", superOnly: true },
   { href: "/lojas", label: "Lojas", icon: Store, group: "Plataforma", superOnly: true },
   { href: "/portfolio", label: "Portfólio de Produtos", icon: Boxes, group: "Plataforma", superOnly: true },
@@ -234,6 +239,9 @@ export function AppShell({
     if ("mediaLibraryOnly" in i && i.mediaLibraryOnly) return Boolean(user.mediaLibraryEnabled);
     if ("managerOnly" in i && i.managerOnly)
       return ["ADMIN", "MANAGER", "SUPERADMIN"].includes(user.role);
+    // operacional = quem cuida de integração e conexão (inclui Suporte)
+    if ("operacional" in i && i.operacional)
+      return ["ADMIN", "MANAGER", "SUPERADMIN", "SUPPORT"].includes(user.role);
     return true;
   });
   // modo plataforma: Super Admin na própria casa (fora da impersonação)

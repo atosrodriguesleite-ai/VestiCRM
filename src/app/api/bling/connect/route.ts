@@ -1,13 +1,13 @@
 import { NextResponse } from "next/server";
 import { requireUser, AuthError } from "@/lib/auth";
-import { isAdmin } from "@/lib/scope";
+import { podeOperarIntegracoes } from "@/lib/scope";
 import { blingEnv, blingAuthorizeUrl } from "@/lib/bling";
 
 /** Inicia a conexão: manda a lojista autorizar o app no Bling dela. */
 export async function GET() {
   try {
     const user = await requireUser();
-    if (!isAdmin(user)) {
+    if (!podeOperarIntegracoes(user)) {
       return NextResponse.json({ error: "Sem permissão" }, { status: 403 });
     }
     if (!blingEnv().configured) {

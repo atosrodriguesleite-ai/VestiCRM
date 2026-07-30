@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireUser, AuthError } from "@/lib/auth";
-import { isAdmin } from "@/lib/scope";
+import { podeOperarIntegracoes } from "@/lib/scope";
 import { reconstructStock, applyStockRestore } from "@/lib/stock-restore";
 
 /**
@@ -12,7 +12,7 @@ import { reconstructStock, applyStockRestore } from "@/lib/stock-restore";
 export async function GET() {
   try {
     const user = await requireUser();
-    if (!isAdmin(user)) {
+    if (!podeOperarIntegracoes(user)) {
       return NextResponse.json({ error: "Sem permissão" }, { status: 403 });
     }
     const preview = await reconstructStock(user.companyId);
@@ -27,7 +27,7 @@ export async function GET() {
 export async function POST() {
   try {
     const user = await requireUser();
-    if (!isAdmin(user)) {
+    if (!podeOperarIntegracoes(user)) {
       return NextResponse.json({ error: "Sem permissão" }, { status: 403 });
     }
     const alterados = await applyStockRestore(user.companyId, user.name);

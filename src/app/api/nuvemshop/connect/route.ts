@@ -1,13 +1,13 @@
 import { NextResponse } from "next/server";
 import { requireUser, AuthError } from "@/lib/auth";
-import { isAdmin } from "@/lib/scope";
+import { podeOperarIntegracoes } from "@/lib/scope";
 import { nuvemshopEnv, signState } from "@/lib/nuvemshop";
 
 /** Inicia a conexão: manda o lojista autorizar o app na Nuvemshop dele. */
 export async function GET() {
   try {
     const user = await requireUser();
-    if (!isAdmin(user)) {
+    if (!podeOperarIntegracoes(user)) {
       return NextResponse.json({ error: "Sem permissão" }, { status: 403 });
     }
     const { clientId, authBase, configured } = nuvemshopEnv();

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireUser, AuthError } from "@/lib/auth";
-import { isAdmin } from "@/lib/scope";
+import { podeOperarIntegracoes } from "@/lib/scope";
 import { syncAbandonedCheckouts, syncProducts } from "@/lib/nuvemshop";
 import {
   explicarNuvemshop,
@@ -23,7 +23,7 @@ export async function POST() {
   let user;
   try {
     user = await requireUser();
-    if (!isAdmin(user)) {
+    if (!podeOperarIntegracoes(user)) {
       return NextResponse.json({ error: "Sem permissão" }, { status: 403 });
     }
   } catch (e) {

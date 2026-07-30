@@ -1,14 +1,14 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { requireUser, AuthError } from "@/lib/auth";
-import { isAdmin } from "@/lib/scope";
+import { podeOperarIntegracoes } from "@/lib/scope";
 import { nuvemshopEnv } from "@/lib/nuvemshop";
 
 /** Estado da conexão Nuvemshop (para o card em Configurações). */
 export async function GET() {
   try {
     const user = await requireUser();
-    if (!isAdmin(user)) {
+    if (!podeOperarIntegracoes(user)) {
       return NextResponse.json({ error: "Sem permissão" }, { status: 403 });
     }
     const conn = await db.nuvemshopConnection.findUnique({
@@ -51,7 +51,7 @@ export async function GET() {
 export async function DELETE() {
   try {
     const user = await requireUser();
-    if (!isAdmin(user)) {
+    if (!podeOperarIntegracoes(user)) {
       return NextResponse.json({ error: "Sem permissão" }, { status: 403 });
     }
     await db.nuvemshopConnection.updateMany({

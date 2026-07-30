@@ -90,6 +90,20 @@ export function isSupport(user: SessionUser) {
   return user.role === "SUPPORT";
 }
 
+/**
+ * QUEM CUIDA DAS INTEGRAÇÕES (conectar, desconectar, sincronizar).
+ *
+ * Inclui o SUPORTE de propósito: quando a Nuvemshop desanda ou o estoque
+ * desencontra, quem resolve é o suporte — e antes ele precisava acordar um
+ * admin para clicar em "sincronizar". Isso é trabalho operacional, não
+ * comercial: ninguém aqui mexe em preço, comissão ou pedido mínimo.
+ *
+ * Vendedora fica de fora: integração quebrada afeta a loja inteira.
+ */
+export function podeOperarIntegracoes(user: SessionUser) {
+  return isAdmin(user) || user.role === "MANAGER" || user.role === "SUPPORT";
+}
+
 export function isManagerUp(user: SessionUser) {
   return (
     user.role === "ADMIN" ||
