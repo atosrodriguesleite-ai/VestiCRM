@@ -21,7 +21,7 @@ import {
   Playfair_Display,
   Lora,
 } from "next/font/google";
-import { mixHex, readableOn } from "@/lib/color";
+import { makeSwatch, mixHex, readableOn } from "@/lib/color";
 import {
   guardarPendente,
   protocolo,
@@ -75,21 +75,8 @@ export type CatalogProduct = {
   variants: { color: string; size: string; available: boolean }[];
 };
 
-/* nome da cor → cor real do swatch (fallback neutro) */
-const COLOR_HEX: Record<string, string> = {
-  preto: "#211E1D", branco: "#FAF6EF", "off-white": "#F5F0E4",
-  vinho: "#6E2536", caramelo: "#B07636", terracota: "#BC5836",
-  rosa: "#E8A0BF", nude: "#D9B99B", azul: "#3B5F8A", verde: "#3E7A5E",
-  amarelo: "#E5B93C", lilás: "#B49BD6", lilas: "#B49BD6", bege: "#D8C9A8",
-  laranja: "#D97435", vermelho: "#B33939", cinza: "#8C8C8C", marrom: "#4B3621",
-};
-function makeSwatch(custom: { name: string; hex: string }[]) {
-  const map = new Map(custom.map((c) => [c.name.toLowerCase(), c.hex]));
-  return (color: string) =>
-    map.get(color.toLowerCase()) ??
-    COLOR_HEX[color.toLowerCase()] ??
-    "#C9BEB0";
-}
+/* nome da cor → bolinha do catálogo: a cor cadastrada pela LOJA manda.
+   A regra vive em lib/color.ts (comparada sem acento e sem maiúscula). */
 
 const fmt = (n: number) =>
   "R$ " + n.toFixed(2).replace(".", ",").replace(/\B(?=(\d{3})+(?!\d))/g, ".");
