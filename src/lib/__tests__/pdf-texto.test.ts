@@ -49,6 +49,46 @@ describe("o que a fonte do PDF sabe escrever", () => {
   });
 });
 
+describe("os dois culpados REAIS (painel Saúde, 30/07/2026)", () => {
+  /**
+   * O painel de erros de produção deu nome aos bois — e não era emoji:
+   *
+   *   WinAnsi cannot encode "" (0x200e)   → marca invisível de direção de
+   *      texto que o WhatsApp/iPhone gruda no texto. Ninguém enxerga.
+   *   WinAnsi cannot encode "⚠" (0x26a0)  → o sinal de aviso que o NOSSO
+   *      código escreve na observação do pedido do catálogo quando falta
+   *      estoque ("⚠️ Sem estoque para parte do pedido — …"). O PDF imprime
+   *      as observações: o sistema derrubava o próprio romaneio.
+   */
+  const INVISIVEL = "‎"; // LEFT-TO-RIGHT MARK
+  const AVISO = "⚠️"; // ⚠️
+
+  it("a marca invisível do WhatsApp sai sem deixar rastro", () => {
+    expect(textoPdf(`Samira${INVISIVEL} Duarte`)).toBe("Samira Duarte");
+    expect(textoPdf(INVISIVEL)).toBe("");
+  });
+
+  it("o ⚠️ da nossa própria observação sai e o recado continua", () => {
+    expect(textoPdf(`${AVISO} Sem estoque para parte do pedido — 2 peças.`)).toBe(
+      "Sem estoque para parte do pedido — 2 peças."
+    );
+  });
+
+  it("os dois juntos não derrubam o PDF (era o erro 500 de verdade)", async () => {
+    const pdf = await PDFDocument.create();
+    const font = await pdf.embedFont(StandardFonts.Helvetica);
+    const cru = pdf.addPage([595, 842]);
+    // sem proteção, cada um deles sozinho ja estourava
+    expect(() => cru.drawText(INVISIVEL, { x: 40, y: 800, size: 11, font })).toThrow();
+    expect(() => cru.drawText(AVISO, { x: 40, y: 780, size: 11, font })).toThrow();
+
+    const page = paginaSegura(pdf.addPage([595, 842]));
+    expect(() =>
+      page.drawText(`${AVISO} Samira${INVISIVEL} Duarte`, { x: 40, y: 800, size: 11, font })
+    ).not.toThrow();
+  });
+});
+
 describe("o PDF de verdade (prova do erro e da correção)", () => {
   it("SEM proteção, o emoji derruba a geração — era o erro 500", async () => {
     const pdf = await PDFDocument.create();
