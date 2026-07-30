@@ -29,6 +29,7 @@ export function CategoryManager() {
   const [descTexto, setDescTexto] = useState("");
   const [tipando, setTipando] = useState<string | null>(null);
   const [tipoTexto, setTipoTexto] = useState("");
+  const [criandoTipo, setCriandoTipo] = useState(false);
   // `msg` nasceu só para erro (sai em vermelho); o aviso de "salvou" precisa
   // sair em verde, senão parece que deu problema quando deu certo.
   const [msgOk, setMsgOk] = useState(false);
@@ -183,6 +184,10 @@ export function CategoryManager() {
   }
 
   const outras = (cats ?? []).filter((c) => c.name !== apagando?.name);
+  // guarda-chuvas já criados: viram opção, para ninguém digitar de novo
+  const tiposExistentes = [
+    ...new Set((cats ?? []).map((c) => c.type).filter((t): t is string => !!t)),
+  ].sort((a, b) => a.localeCompare(b, "pt-BR"));
 
   return (
     <>
@@ -235,13 +240,6 @@ export function CategoryManager() {
                 )}
               </div>
 
-              {/* tipos já usados: reaproveitar evita "Blusas" e "blusas" */}
-              <datalist id="tipos-de-peca">
-                {[...new Set((cats ?? []).map((c) => c.type).filter(Boolean))].map((t) => (
-                  <option key={t} value={t} />
-                ))}
-              </datalist>
-
               <div className="thin-scroll flex-1 overflow-y-auto p-5 pt-3">
                 {cats === null ? (
                   <p className="flex items-center justify-center gap-2 py-6 text-sm text-gray-400">
@@ -291,6 +289,11 @@ export function CategoryManager() {
                                 onClick={() => {
                                   setTipando(tipando === c.name ? null : c.name);
                                   setTipoTexto(c.type ?? "");
+                                  // sem nenhum tipo criado ainda, já abre digitando
+                                  setCriandoTipo(
+                                    [...new Set((cats ?? []).map((x) => x.type).filter(Boolean))]
+                                      .length === 0
+                                  );
                                   setApagando(null);
                                   setEditando(null);
                                   setDescrevendo(null);
@@ -349,22 +352,60 @@ export function CategoryManager() {
                             <p className="mb-1.5 text-xs font-semibold text-gray-700">
                               Dentro de qual tipo <b>{c.name}</b> aparece no catálogo?
                             </p>
-                            <input
-                              autoFocus
-                              list="tipos-de-peca"
-                              value={tipoTexto}
-                              onChange={(e) => setTipoTexto(e.target.value)}
-                              onKeyDown={(e) => {
-                                if (e.key === "Enter") salvarTipo(c.name);
-                                if (e.key === "Escape") setTipando(null);
-                              }}
-                              maxLength={40}
-                              placeholder="Ex.: Blusas, Shorts, Calças"
-                              className="w-full rounded-lg border border-brand-200 px-2.5 py-2 text-sm outline-none focus:border-brand-400"
-                            />
+                            {/* ESCOLHER, não digitar: tipo já criado vira opção
+                                da lista. Digitar de novo abria a porta para
+                                "Blusa"/"Blusas" virarem dois guarda-chuvas
+                                quase iguais. Digitação só no "criar novo". */}
+                            {!criandoTipo ? (
+                              <select
+                                autoFocus
+                                value={tipoTexto}
+                                onChange={(e) => {
+                                  if (e.target.value === "__novo__") {
+                                    setCriandoTipo(true);
+                                    setTipoTexto("");
+                                  } else setTipoTexto(e.target.value);
+                                }}
+                                className="w-full rounded-lg border border-brand-200 bg-white px-2.5 py-2 text-sm outline-none focus:border-brand-400"
+                              >
+                                <option value="">— Sem tipo —</option>
+                                {tiposExistentes.map((t) => (
+                                  <option key={t} value={t}>
+                                    {t}
+                                  </option>
+                                ))}
+                                <option value="__novo__">➕ Criar novo tipo…</option>
+                              </select>
+                            ) : (
+                              <div className="flex items-center gap-2">
+                                <input
+                                  autoFocus
+                                  value={tipoTexto}
+                                  onChange={(e) => setTipoTexto(e.target.value)}
+                                  onKeyDown={(e) => {
+                                    if (e.key === "Enter") salvarTipo(c.name);
+                                    if (e.key === "Escape") setCriandoTipo(false);
+                                  }}
+                                  maxLength={40}
+                                  placeholder="Nome do novo tipo (ex.: Shorts)"
+                                  className="min-w-0 flex-1 rounded-lg border border-brand-300 px-2.5 py-2 text-sm outline-none"
+                                />
+                                {tiposExistentes.length > 0 && (
+                                  <button
+                                    onClick={() => {
+                                      setCriandoTipo(false);
+                                      setTipoTexto(c.type ?? "");
+                                    }}
+                                    className="shrink-0 rounded-lg px-2 py-1.5 text-xs font-medium text-gray-500 hover:bg-gray-100"
+                                  >
+                                    Escolher da lista
+                                  </button>
+                                )}
+                              </div>
+                            )}
                             <div className="mt-2 flex items-center justify-between gap-2">
                               <span className="text-[11px] text-gray-400">
-                                Vale para toda peça da categoria · vazio = sem tipo
+                                Vale para toda peça da categoria
                               </span>
                               <div className="flex gap-2">
                                 <button

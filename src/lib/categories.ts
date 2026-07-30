@@ -136,7 +136,23 @@ export function tipoDaCategoria(mapa: TiposDeCategoria, nome: string): string {
   return mapa[chave(nome)] ?? "";
 }
 
-/** Grava (ou tira, com texto vazio) o tipo de uma categoria. */
+/** Tipos já em uso, sem repetir, na ordem em que aparecem. */
+export function tiposEmUso(mapa: TiposDeCategoria): string[] {
+  const vistos = new Map<string, string>();
+  for (const t of Object.values(mapa)) {
+    if (!vistos.has(chave(t))) vistos.set(chave(t), t);
+  }
+  return [...vistos.values()];
+}
+
+/**
+ * Grava (ou tira, com texto vazio) o tipo de uma categoria.
+ *
+ * TRAVA CONTRA GÊMEO: se o tipo digitado já existe escrito de outro jeito
+ * ("blusas" quando já existe "Blusas"), vale a grafia QUE JÁ ESTÁ EM USO. Sem
+ * isso, um deslize de digitação criava um guarda-chuva quase igual e o
+ * catálogo mostrava a mesma coisa duas vezes — e a lojista não ia entender.
+ */
 export function definirTipo(
   mapa: TiposDeCategoria,
   categoria: string,
@@ -144,8 +160,12 @@ export function definirTipo(
 ): TiposDeCategoria {
   const proximo = { ...mapa };
   const limpo = tipo.trim().slice(0, 40);
-  if (limpo) proximo[chave(categoria)] = limpo;
-  else delete proximo[chave(categoria)];
+  if (!limpo) {
+    delete proximo[chave(categoria)];
+    return proximo;
+  }
+  const jaUsado = tiposEmUso(mapa).find((t) => chave(t) === chave(limpo));
+  proximo[chave(categoria)] = jaUsado ?? limpo;
   return proximo;
 }
 

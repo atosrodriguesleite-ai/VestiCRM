@@ -9,6 +9,7 @@ import {
   removerTipo,
   renomearTipo,
   tipoDaCategoria,
+  tiposEmUso,
 } from "../categories";
 
 /**
@@ -60,6 +61,52 @@ describe("guardar e ler o tipo", () => {
     for (const lixo of ["", "{{{", "[1,2]", "42", null]) {
       expect(parseCategoryTypes(lixo as string)).toEqual({});
     }
+  });
+});
+
+describe("trava contra guarda-chuva gêmeo", () => {
+  it("digitar “blusas” quando já existe “Blusas” reaproveita a grafia certa", () => {
+    // sem isso, um deslize de digitação criava dois guarda-chuvas quase iguais
+    const m = definirTipo({ "regata alca": "Blusas" }, "Baby Look", "blusas");
+    expect(tipoDaCategoria(m, "Baby Look")).toBe("Blusas");
+    expect(tiposEmUso(m)).toEqual(["Blusas"]);
+  });
+
+  it("vale também com acento e espaço sobrando", () => {
+    const m = definirTipo({ a: "Calças" }, "B", "  CALCAS ");
+    expect(tipoDaCategoria(m, "B")).toBe("Calças");
+    expect(tiposEmUso(m)).toEqual(["Calças"]);
+  });
+
+  it("tipo realmente novo entra como foi escrito", () => {
+    const m = definirTipo({ a: "Blusas" }, "B", "Shorts");
+    expect(tiposEmUso(m)).toEqual(["Blusas", "Shorts"]);
+  });
+
+  it("lista os tipos em uso sem repetir", () => {
+    expect(tiposEmUso({ a: "Blusas", b: "Blusas", c: "Shorts" })).toEqual([
+      "Blusas",
+      "Shorts",
+    ]);
+  });
+});
+
+describe("a tela faz ESCOLHER, não digitar", () => {
+  const tela = readFileSync(
+    join(process.cwd(), "src/app/(app)/produtos/category-manager.tsx"),
+    "utf8"
+  );
+
+  it("tipo já criado vira opção de lista", () => {
+    expect(tela).toContain("tiposExistentes.map((t)");
+    expect(tela).toContain("— Sem tipo —");
+    expect(tela).toContain("➕ Criar novo tipo…");
+  });
+
+  it("digitar só no “criar novo”", () => {
+    expect(tela).toContain("setCriandoTipo(true)");
+    expect(tela).toContain("Nome do novo tipo");
+    expect(tela).toContain("Escolher da lista");
   });
 });
 
