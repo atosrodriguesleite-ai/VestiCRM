@@ -29,7 +29,7 @@ import {
   reenviarPendentes,
 } from "@/lib/catalogo/envio-pedido";
 import { compareSizes } from "@/lib/sizes";
-import { descricaoDaCategoria, sortCategories } from "@/lib/categories";
+import { agruparPorTipo, descricaoDaCategoria, sortCategories } from "@/lib/categories";
 import {
   CatalogTracker,
   getConsent,
@@ -250,6 +250,7 @@ export function PublicCatalog({
   products,
   categoryOrder = [],
   categoryDescriptions = {},
+  categoryTypes = {},
   promo = null,
   identity,
   logoSize = "normal",
@@ -267,6 +268,8 @@ export function PublicCatalog({
   categoryOrder?: string[];
   /** texto escrito pela lojista para cada categoria (Produtos → Categorias) */
   categoryDescriptions?: Record<string, string>;
+  /** guarda-chuva de cada categoria ("Regata Alça" → "Blusas") */
+  categoryTypes?: Record<string, string>;
   // catálogo de campanha: nome + % de desconto (preços já vêm com desconto)
   promo?: { name: string; slug: string; discount: number } | null;
   identity: CatalogIdentity;
@@ -293,6 +296,13 @@ export function PublicCatalog({
   const categories = useMemo(
     () => sortCategories([...new Set(products.map((p) => p.category))], categoryOrder),
     [products, categoryOrder]
+  );
+
+  // TIPO DE PEÇA: o guarda-chuva das categorias. Lista vazia quando a loja não
+  // usa o recurso — aí o catálogo fica exatamente como era, com uma barra só.
+  const grupos = useMemo(
+    () => agruparPorTipo(categories, categoryTypes),
+    [categories, categoryTypes]
   );
 
   const cardsByCategory = useMemo(() => {
@@ -323,6 +333,19 @@ export function PublicCatalog({
 
   const [cart, setCart] = useState<Cart>({});
   const [activeCat, setActiveCat] = useState(0);
+
+  // Qual guarda-chuva está sendo visto AGORA: sai da categoria ativa, que o
+  // observador de rolagem já mantém atualizada. Assim a barra de cima se
+  // acende sozinha quando a rolagem passa de "Blusas" para "Shorts" — sem
+  // observador novo e sem estado paralelo para desencontrar.
+  const tipoAtivo = grupos.length
+    ? (grupos.find((g) => g.categorias.includes(categories[activeCat]))?.tipo ??
+      grupos[0].tipo)
+    : "";
+  // A barra de baixo mostra só as categorias do tipo que está sendo visto.
+  const categoriasVisiveis = grupos.length
+    ? (grupos.find((g) => g.tipo === tipoAtivo)?.categorias ?? categories)
+    : categories;
   const [sheet, setSheet] = useState<CardItem | null>(null);
   const [draft, setDraft] = useState<Record<string, number>>({});
   const [bagOpen, setBagOpen] = useState(false);
@@ -915,6 +938,40 @@ export function PublicCatalog({
         }}
       >
         <div className="relative max-w-[680px] lg:max-w-[1200px] mx-auto">
+          {/* TIPO DE PEÇA: o guarda-chuva. Só aparece quando a loja organizou as
+              categorias em tipos — quem não usa continua com uma barra só.
+              Tocar leva à primeira categoria do tipo; rolando, a barra se
+              acende sozinha (o tipo sai da categoria ativa). */}
+          {grupos.length > 1 && (
+            <div
+              className="flex gap-2 overflow-x-auto px-[18px] pt-[7px] pb-[3px]"
+              style={{ scrollbarWidth: "none" }}
+            >
+              {grupos.map((g) => {
+                const active = g.tipo === tipoAtivo;
+                return (
+                  <button
+                    key={g.tipo}
+                    onClick={() =>
+                      sectionRefs.current[g.categorias[0]]?.scrollIntoView({
+                        behavior: "smooth",
+                        block: "start",
+                      })
+                    }
+                    className="shrink-0 rounded-full px-[15px] py-[7px] text-[13px] font-extrabold uppercase tracking-wide whitespace-nowrap transition border"
+                    style={
+                      active
+                        ? { background: T.primary, color: T.secondary, borderColor: T.primary }
+                        : { background: "transparent", color: T.muted, borderColor: "transparent" }
+                    }
+                  >
+                    {g.tipo}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
           {/* seta esquerda */}
           {catArrows.left && (
             <button
@@ -940,8 +997,8 @@ export function PublicCatalog({
             className="flex gap-2 overflow-x-auto px-[18px] py-[5px]"
             style={{ scrollbarWidth: "none" }}
           >
-            {categories.map((cat, i) => {
-              const active = activeCat === i;
+            {categoriasVisiveis.map((cat) => {
+              const active = categories[activeCat] === cat;
               const has = catPieces(cat) > 0;
               return (
                 <button

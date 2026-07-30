@@ -2,7 +2,11 @@ import { notFound } from "next/navigation";
 import type { Metadata } from "next";
 import { db } from "@/lib/db";
 import { imageHref } from "@/lib/img";
-import { parseCategoryDescriptions, parseCategoryOrder } from "@/lib/categories";
+import {
+  parseCategoryDescriptions,
+  parseCategoryOrder,
+  parseCategoryTypes,
+} from "@/lib/categories";
 import { PublicCatalog, type CatalogProduct } from "./public-catalog";
 
 export const dynamic = "force-dynamic";
@@ -96,6 +100,7 @@ export default async function PublicCatalogPage({
       products={items}
       categoryOrder={parseCategoryOrder(company.categoryOrder)}
       categoryDescriptions={parseCategoryDescriptions(company.categoryDescriptions)}
+      categoryTypes={parseCategoryTypes(company.categoryTypes)}
       logoSize={company.catalogLogoSize as "normal" | "grande"}
       identity={{
         logoUrl: company.logoUrl,

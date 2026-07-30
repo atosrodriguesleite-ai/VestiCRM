@@ -10,9 +10,9 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Portal } from "@/components/portal";
-import { Tags, Plus, Pencil, Trash2, X, Check, Loader2, ArrowRight, AlertTriangle, AlignLeft } from "lucide-react";
+import { Tags, Plus, Pencil, Trash2, X, Check, Loader2, ArrowRight, AlertTriangle, AlignLeft, Layers } from "lucide-react";
 
-type Cat = { name: string; count: number; description?: string };
+type Cat = { name: string; count: number; description?: string; type?: string };
 
 export function CategoryManager() {
   const router = useRouter();
@@ -27,6 +27,8 @@ export function CategoryManager() {
   const [moverPara, setMoverPara] = useState("");
   const [descrevendo, setDescrevendo] = useState<string | null>(null);
   const [descTexto, setDescTexto] = useState("");
+  const [tipando, setTipando] = useState<string | null>(null);
+  const [tipoTexto, setTipoTexto] = useState("");
   // `msg` nasceu só para erro (sai em vermelho); o aviso de "salvou" precisa
   // sair em verde, senão parece que deu problema quando deu certo.
   const [msgOk, setMsgOk] = useState(false);
@@ -60,6 +62,38 @@ export function CategoryManager() {
       const d = await r.json().catch(() => ({}));
       setMsgOk(false);
       setMsg(d.error ?? "Não foi possível salvar a descrição.");
+    }
+  }
+
+  /**
+   * TIPO DE PEÇA: o guarda-chuva da categoria no catálogo ("Blusas" agrupa
+   * Regata Alça, Baby Look e Ombro Único). Amarrado na CATEGORIA de propósito:
+   * peça nova já nasce no guarda-chuva certo, sem marcar produto por produto.
+   */
+  async function salvarTipo(name: string) {
+    if (busy) return;
+    setBusy(true);
+    setMsg("");
+    const r = await fetch("/api/categories", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ from: name, type: tipoTexto.trim() }),
+    });
+    setBusy(false);
+    if (r.ok) {
+      setTipando(null);
+      setMsgOk(true);
+      setMsg(
+        tipoTexto.trim()
+          ? `“${name}” agora aparece dentro de “${tipoTexto.trim()}” no catálogo.`
+          : "Tipo removido."
+      );
+      await carregar();
+      router.refresh();
+    } else {
+      const d = await r.json().catch(() => ({}));
+      setMsgOk(false);
+      setMsg(d.error ?? "Não foi possível salvar o tipo.");
     }
   }
 
@@ -201,6 +235,13 @@ export function CategoryManager() {
                 )}
               </div>
 
+              {/* tipos já usados: reaproveitar evita "Blusas" e "blusas" */}
+              <datalist id="tipos-de-peca">
+                {[...new Set((cats ?? []).map((c) => c.type).filter(Boolean))].map((t) => (
+                  <option key={t} value={t} />
+                ))}
+              </datalist>
+
               <div className="thin-scroll flex-1 overflow-y-auto p-5 pt-3">
                 {cats === null ? (
                   <p className="flex items-center justify-center gap-2 py-6 text-sm text-gray-400">
@@ -235,10 +276,32 @@ export function CategoryManager() {
                             </>
                           ) : (
                             <>
-                              <span className="min-w-0 flex-1 truncate text-sm font-medium text-gray-800">{c.name}</span>
+                              <span className="min-w-0 flex-1 truncate text-sm font-medium text-gray-800">
+                                {c.name}
+                                {c.type && (
+                                  <span className="ml-1.5 rounded-full bg-brand-50 px-1.5 py-0.5 text-[10px] font-semibold text-brand-700">
+                                    {c.type}
+                                  </span>
+                                )}
+                              </span>
                               <span className="shrink-0 rounded-full bg-gray-100 px-2 py-0.5 text-[11px] font-medium text-gray-500">
                                 {c.count} {c.count === 1 ? "produto" : "produtos"}
                               </span>
+                              <button
+                                onClick={() => {
+                                  setTipando(tipando === c.name ? null : c.name);
+                                  setTipoTexto(c.type ?? "");
+                                  setApagando(null);
+                                  setEditando(null);
+                                  setDescrevendo(null);
+                                }}
+                                className={`grid size-8 place-items-center rounded-lg hover:bg-gray-100 hover:text-brand-600 ${
+                                  c.type ? "text-brand-600" : "text-gray-400"
+                                }`}
+                                title="Tipo de peça (guarda-chuva no catálogo)"
+                              >
+                                <Layers className="size-4" />
+                              </button>
                               <button
                                 onClick={() => {
                                   setEditando(c.name);
@@ -279,6 +342,48 @@ export function CategoryManager() {
                             </>
                           )}
                         </div>
+
+                        {/* tipo de peça: o guarda-chuva no catálogo */}
+                        {tipando === c.name && (
+                          <div className="border-t border-gray-100 bg-brand-50/40 p-3">
+                            <p className="mb-1.5 text-xs font-semibold text-gray-700">
+                              Dentro de qual tipo <b>{c.name}</b> aparece no catálogo?
+                            </p>
+                            <input
+                              autoFocus
+                              list="tipos-de-peca"
+                              value={tipoTexto}
+                              onChange={(e) => setTipoTexto(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") salvarTipo(c.name);
+                                if (e.key === "Escape") setTipando(null);
+                              }}
+                              maxLength={40}
+                              placeholder="Ex.: Blusas, Shorts, Calças"
+                              className="w-full rounded-lg border border-brand-200 px-2.5 py-2 text-sm outline-none focus:border-brand-400"
+                            />
+                            <div className="mt-2 flex items-center justify-between gap-2">
+                              <span className="text-[11px] text-gray-400">
+                                Vale para toda peça da categoria · vazio = sem tipo
+                              </span>
+                              <div className="flex gap-2">
+                                <button
+                                  onClick={() => setTipando(null)}
+                                  className="rounded-lg px-3 py-1.5 text-xs font-medium text-gray-500 hover:bg-gray-100"
+                                >
+                                  Cancelar
+                                </button>
+                                <button
+                                  onClick={() => salvarTipo(c.name)}
+                                  disabled={busy}
+                                  className="rounded-lg bg-brand-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-brand-700 disabled:opacity-50"
+                                >
+                                  {busy ? "Salvando…" : "Salvar"}
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        )}
 
                         {/* descrição da categoria no catálogo público */}
                         {descrevendo === c.name && (

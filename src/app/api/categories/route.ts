@@ -6,11 +6,16 @@ import { isManagerUp, isSupport } from "@/lib/scope";
 import {
   LIMITE_DESCRICAO,
   definirDescricao,
+  definirTipo,
   descricaoDaCategoria,
   parseCategoryDescriptions,
   parseCategoryOrder,
+  parseCategoryTypes,
   removerDescricao,
+  removerTipo,
   renomearDescricao,
+  renomearTipo,
+  tipoDaCategoria,
 } from "@/lib/categories";
 
 /**
@@ -36,19 +41,25 @@ export async function GET() {
     const [company, grouped] = await Promise.all([
       db.company.findUnique({
         where: { id: companyId },
-        select: { extraCategories: true, categoryDescriptions: true },
+        select: {
+          extraCategories: true,
+          categoryDescriptions: true,
+          categoryTypes: true,
+        },
       }),
       db.product.groupBy({ by: ["category"], where: { companyId }, _count: { _all: true } }),
     ]);
     const counts = new Map(grouped.map((g) => [g.category, g._count._all]));
     const extras = parseCategoryOrder(company?.extraCategories);
     const descricoes = parseCategoryDescriptions(company?.categoryDescriptions);
+    const tipos = parseCategoryTypes(company?.categoryTypes);
     const nomes = new Set<string>([...counts.keys(), ...extras]);
     const categories = [...nomes]
       .map((name) => ({
         name,
         count: counts.get(name) ?? 0,
         description: descricaoDaCategoria(descricoes, name),
+        type: tipoDaCategoria(tipos, name),
       }))
       .sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
     return NextResponse.json({ categories });
@@ -94,6 +105,8 @@ const patchSchema = z.object({
   // texto que aparece embaixo do nome da categoria no catálogo público.
   // String vazia = apagar o texto (volta ao comportamento antigo).
   description: z.string().max(LIMITE_DESCRICAO).optional(),
+  // guarda-chuva da categoria no catálogo ("Blusas"). Vazio = tirar.
+  type: z.string().max(40).optional(),
 });
 
 /**
@@ -110,23 +123,37 @@ export async function PATCH(req: NextRequest) {
     const from = parsed.data.from.trim();
     const to = (parsed.data.to ?? from).trim();
     const renomeando = from !== to;
-    if (!renomeando && parsed.data.description === undefined) {
+    if (
+      !renomeando &&
+      parsed.data.description === undefined &&
+      parsed.data.type === undefined
+    ) {
       return NextResponse.json({ ok: true, name: to });
     }
 
     const company = await db.company.findUnique({
       where: { id: companyId },
-      select: { extraCategories: true, categoryOrder: true, categoryDescriptions: true },
+      select: {
+        extraCategories: true,
+        categoryOrder: true,
+        categoryDescriptions: true,
+        categoryTypes: true,
+      },
     });
     let descricoes = parseCategoryDescriptions(company?.categoryDescriptions);
+    let tipos = parseCategoryTypes(company?.categoryTypes);
 
     if (renomeando) {
       await db.product.updateMany({ where: { companyId, category: from }, data: { category: to } });
       // a descrição acompanha o novo nome (senão sumia ao renomear)
       descricoes = renomearDescricao(descricoes, from, to);
+      tipos = renomearTipo(tipos, from, to);
     }
     if (parsed.data.description !== undefined) {
       descricoes = definirDescricao(descricoes, to, parsed.data.description);
+    }
+    if (parsed.data.type !== undefined) {
+      tipos = definirTipo(tipos, to, parsed.data.type);
     }
 
     const swap = (list: string[]) => {
@@ -143,12 +170,14 @@ export async function PATCH(req: NextRequest) {
             }
           : {}),
         categoryDescriptions: JSON.stringify(descricoes),
+        categoryTypes: JSON.stringify(tipos),
       },
     });
     return NextResponse.json({
       ok: true,
       name: to,
       description: descricaoDaCategoria(descricoes, to),
+      type: tipoDaCategoria(tipos, to),
     });
   } catch (e) {
     if (e instanceof AuthError) return NextResponse.json({ error: "Não autenticado" }, { status: 401 });
@@ -189,7 +218,12 @@ export async function DELETE(req: NextRequest) {
 
     const company = await db.company.findUnique({
       where: { id: companyId },
-      select: { extraCategories: true, categoryOrder: true, categoryDescriptions: true },
+      select: {
+        extraCategories: true,
+        categoryOrder: true,
+        categoryDescriptions: true,
+        categoryTypes: true,
+      },
     });
     const drop = (list: string[]) => list.filter((c) => c !== name);
     await db.company.update({
@@ -198,6 +232,9 @@ export async function DELETE(req: NextRequest) {
         // categoria apagada não deixa descrição órfã no banco
         categoryDescriptions: JSON.stringify(
           removerDescricao(parseCategoryDescriptions(company?.categoryDescriptions), name)
+        ),
+        categoryTypes: JSON.stringify(
+          removerTipo(parseCategoryTypes(company?.categoryTypes), name)
         ),
         extraCategories: JSON.stringify(drop(parseCategoryOrder(company?.extraCategories))),
         categoryOrder: JSON.stringify(drop(parseCategoryOrder(company?.categoryOrder))),

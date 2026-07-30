@@ -58,6 +58,12 @@ model Company {
   // sobrescrevia o produto. Agora o texto é da categoria e não muda sem a
   // lojista mandar. Sem texto salvo, cai no comportamento antigo.
   categoryDescriptions String @default("{}")
+  // TIPO DE PEÇA — o guarda-chuva das categorias no catálogo público
+  // ("Blusas" agrupa Regata Alça, Baby Look, Ombro Único). JSON objeto
+  // categoria→tipo: amarrado pela CATEGORIA, não peça por peça, então peça
+  // nova já nasce no guarda-chuva certo. A ORDEM dos tipos sai da ordem das
+  // categorias (categoryOrder) — uma régua só, nada para sincronizar.
+  categoryTypes        String @default("{}")
 
   // Lead Intake Engine — configuração de entrada de leads
   intakeDistribution  String  @default("ROUND_ROBIN") // ROUND_ROBIN | FIXED
