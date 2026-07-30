@@ -29,7 +29,7 @@ import {
   reenviarPendentes,
 } from "@/lib/catalogo/envio-pedido";
 import { compareSizes } from "@/lib/sizes";
-import { sortCategories } from "@/lib/categories";
+import { descricaoDaCategoria, sortCategories } from "@/lib/categories";
 import {
   CatalogTracker,
   getConsent,
@@ -262,6 +262,7 @@ export function PublicCatalog({
   minOrderValue,
   products,
   categoryOrder = [],
+  categoryDescriptions = {},
   promo = null,
   identity,
   logoSize = "normal",
@@ -277,6 +278,8 @@ export function PublicCatalog({
   minOrderValue: number;
   products: CatalogProduct[];
   categoryOrder?: string[];
+  /** texto escrito pela lojista para cada categoria (Produtos → Categorias) */
+  categoryDescriptions?: Record<string, string>;
   // catálogo de campanha: nome + % de desconto (preços já vêm com desconto)
   promo?: { name: string; slug: string; discount: number } | null;
   identity: CatalogIdentity;
@@ -996,7 +999,12 @@ export function PublicCatalog({
       <main>
         {categories.map((cat, i) => {
           const cards = cardsByCategory.get(cat) ?? [];
-          const firstDesc = cards[0]?.product.description;
+          // Texto da CATEGORIA (escrito em Produtos → Categorias). Sem texto
+          // salvo, cai no antigo: a descrição do primeiro produto — assim
+          // nenhuma loja perde o que já aparecia hoje.
+          const firstDesc =
+            descricaoDaCategoria(categoryDescriptions, cat) ||
+            cards[0]?.product.description;
           return (
             <section
               key={cat}

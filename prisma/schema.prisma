@@ -52,6 +52,12 @@ model Company {
   catalogHideOutOfStock Boolean @default(false) // esconder do catálogo os produtos sem estoque (indisponíveis)
   categoryOrder    String  @default("") // ordem das categorias no catálogo (JSON array); vazio = ordem natural
   extraCategories  String  @default("") // categorias criadas à mão (JSON array), inclusive sem produtos ainda
+  // Descrição de cada categoria no catálogo público (JSON objeto nome→texto).
+  // Antes o catálogo mostrava a descrição do PRIMEIRO produto da categoria —
+  // que mudava sozinha quando a ordem mudava ou quando a Nuvemshop
+  // sobrescrevia o produto. Agora o texto é da categoria e não muda sem a
+  // lojista mandar. Sem texto salvo, cai no comportamento antigo.
+  categoryDescriptions String @default("{}")
 
   // Lead Intake Engine — configuração de entrada de leads
   intakeDistribution  String  @default("ROUND_ROBIN") // ROUND_ROBIN | FIXED

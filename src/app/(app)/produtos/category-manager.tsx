@@ -10,9 +10,9 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Portal } from "@/components/portal";
-import { Tags, Plus, Pencil, Trash2, X, Check, Loader2, ArrowRight, AlertTriangle } from "lucide-react";
+import { Tags, Plus, Pencil, Trash2, X, Check, Loader2, ArrowRight, AlertTriangle, AlignLeft } from "lucide-react";
 
-type Cat = { name: string; count: number };
+type Cat = { name: string; count: number; description?: string };
 
 export function CategoryManager() {
   const router = useRouter();
@@ -25,12 +25,49 @@ export function CategoryManager() {
   const [editNome, setEditNome] = useState("");
   const [apagando, setApagando] = useState<Cat | null>(null);
   const [moverPara, setMoverPara] = useState("");
+  const [descrevendo, setDescrevendo] = useState<string | null>(null);
+  const [descTexto, setDescTexto] = useState("");
+  // `msg` nasceu só para erro (sai em vermelho); o aviso de "salvou" precisa
+  // sair em verde, senão parece que deu problema quando deu certo.
+  const [msgOk, setMsgOk] = useState(false);
+
+  /**
+   * Descrição da categoria no catálogo público. Antes o catálogo mostrava a
+   * descrição do PRIMEIRO produto da seção — texto que mudava sozinho quando a
+   * ordem mudava ou quando a Nuvemshop sobrescrevia o produto.
+   */
+  async function salvarDescricao(name: string) {
+    if (busy) return;
+    setBusy(true);
+    setMsg("");
+    const r = await fetch("/api/categories", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ from: name, description: descTexto.trim() }),
+    });
+    setBusy(false);
+    if (r.ok) {
+      setDescrevendo(null);
+      setMsgOk(true);
+      setMsg(
+        descTexto.trim()
+          ? "Descrição salva — já aparece no catálogo."
+          : "Descrição removida."
+      );
+      await carregar();
+      router.refresh();
+    } else {
+      const d = await r.json().catch(() => ({}));
+      setMsgOk(false);
+      setMsg(d.error ?? "Não foi possível salvar a descrição.");
+    }
+  }
 
   async function carregar() {
     setCats(null);
     const r = await fetch("/api/categories");
     if (r.ok) setCats((await r.json()).categories);
-    else setMsg("Não foi possível carregar as categorias.");
+    else { setMsgOk(false); setMsg("Não foi possível carregar as categorias."); }
   }
   useEffect(() => {
     if (open && cats === null) void carregar();
@@ -54,6 +91,7 @@ export function CategoryManager() {
       router.refresh();
     } else {
       const d = await r.json().catch(() => ({}));
+      setMsgOk(false);
       setMsg(d.error ?? "Não foi possível criar.");
     }
   }
@@ -77,6 +115,7 @@ export function CategoryManager() {
       router.refresh();
     } else {
       const d = await r.json().catch(() => ({}));
+      setMsgOk(false);
       setMsg(d.error ?? "Não foi possível renomear.");
     }
   }
@@ -97,6 +136,7 @@ export function CategoryManager() {
       router.refresh();
     } else {
       const d = await r.json().catch(() => ({}));
+      setMsgOk(false);
       setMsg(d.error ?? "Não foi possível apagar.");
     }
   }
@@ -156,7 +196,9 @@ export function CategoryManager() {
                     <Plus className="size-4" /> Criar
                   </button>
                 </div>
-                {msg && <p className="mt-2 text-xs font-medium text-rose-600">{msg}</p>}
+                {msg && (
+                  <p className={`mt-2 text-xs font-medium ${msgOk ? "text-emerald-600" : "text-rose-600"}`}>{msg}</p>
+                )}
               </div>
 
               <div className="thin-scroll flex-1 overflow-y-auto p-5 pt-3">
@@ -210,9 +252,24 @@ export function CategoryManager() {
                               </button>
                               <button
                                 onClick={() => {
+                                  setDescrevendo(descrevendo === c.name ? null : c.name);
+                                  setDescTexto(c.description ?? "");
+                                  setApagando(null);
+                                  setEditando(null);
+                                }}
+                                className={`grid size-8 place-items-center rounded-lg hover:bg-gray-100 hover:text-brand-600 ${
+                                  c.description ? "text-brand-600" : "text-gray-400"
+                                }`}
+                                title="Descrição que aparece no catálogo"
+                              >
+                                <AlignLeft className="size-4" />
+                              </button>
+                              <button
+                                onClick={() => {
                                   setApagando(apagando?.name === c.name ? null : c);
                                   setMoverPara("");
                                   setEditando(null);
+                                  setDescrevendo(null);
                                 }}
                                 className="grid size-8 place-items-center rounded-lg text-gray-400 hover:bg-rose-50 hover:text-rose-500"
                                 title="Apagar"
@@ -222,6 +279,44 @@ export function CategoryManager() {
                             </>
                           )}
                         </div>
+
+                        {/* descrição da categoria no catálogo público */}
+                        {descrevendo === c.name && (
+                          <div className="border-t border-gray-100 bg-brand-50/40 p-3">
+                            <p className="mb-1.5 text-xs font-semibold text-gray-700">
+                              Texto que aparece embaixo de <b>{c.name}</b> no catálogo
+                            </p>
+                            <textarea
+                              autoFocus
+                              value={descTexto}
+                              onChange={(e) => setDescTexto(e.target.value)}
+                              maxLength={220}
+                              rows={2}
+                              placeholder="Ex.: Poliamida Premium · 100% Forrada · Zero transparência · P ao GG"
+                              className="w-full resize-none rounded-lg border border-brand-200 px-2.5 py-2 text-sm outline-none focus:border-brand-400"
+                            />
+                            <div className="mt-2 flex items-center justify-between gap-2">
+                              <span className="text-[11px] text-gray-400">
+                                {descTexto.length}/220 · deixe vazio para não mostrar nada
+                              </span>
+                              <div className="flex gap-2">
+                                <button
+                                  onClick={() => setDescrevendo(null)}
+                                  className="rounded-lg px-3 py-1.5 text-xs font-medium text-gray-500 hover:bg-gray-100"
+                                >
+                                  Cancelar
+                                </button>
+                                <button
+                                  onClick={() => salvarDescricao(c.name)}
+                                  disabled={busy}
+                                  className="rounded-lg bg-brand-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-brand-700 disabled:opacity-50"
+                                >
+                                  {busy ? "Salvando…" : "Salvar"}
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        )}
 
                         {/* painel de exclusão */}
                         {apagando?.name === c.name && (
