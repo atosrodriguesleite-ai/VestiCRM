@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { requireUser } from "@/lib/auth";
 import { isManagerUp, orderScope } from "@/lib/scope";
+import { religarItensDoPedido } from "@/lib/religar-itens";
 import { db } from "@/lib/db";
 import { brl, dateFull, dateShort, timeShort } from "@/lib/format";
 import {
@@ -42,6 +43,12 @@ export default async function OrderDetailPage({
 }) {
   const user = await requireUser();
   const { id } = await params;
+
+  // Peça reimportada (ex.: desfazer + refazer a Nuvemshop) deixa o item do
+  // pedido apontando para o vazio, e a tela mostrava "estoque 0 (insuficiente)"
+  // numa peça cheia de estoque. Religa pelos dados que o item guardou — de
+  // carona ao abrir o pedido, sem cron e sem tocar em estoque.
+  await religarItensDoPedido(id, user.companyId).catch(() => 0);
 
   const order = await db.order.findFirst({
     where: { id, ...orderScope(user) },
