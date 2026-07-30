@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { PDFDocument, StandardFonts, rgb, type RGB } from "pdf-lib";
+import { paginaSegura } from "@/lib/pdf-texto";
 import { db } from "@/lib/db";
 import { requireUser, AuthError } from "@/lib/auth";
 import { orderScope } from "@/lib/scope";
@@ -131,13 +132,13 @@ export async function GET(
 
     const A4: [number, number] = [595.28, 841.89];
     const M = 48;
-    let page = pdf.addPage(A4);
+    let page = paginaSegura(pdf.addPage(A4));
     const { width, height } = page.getSize();
     let y = height - 60;
 
     const newPageIfNeeded = (needed: number) => {
       if (y - needed < 70) {
-        page = pdf.addPage(A4);
+        page = paginaSegura(pdf.addPage(A4));
         y = height - 60;
       }
     };

@@ -210,6 +210,17 @@ export const norm = (s: string | null | undefined) =>
   (s ?? "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").trim();
 // "Baby Look — Branco" → base "Baby Look" (padrão produto-por-cor)
 export const baseNome = (name: string) => name.replace(/\s+[—–-]\s+.+$/, "").trim();
+/**
+ * Duas cores são "a mesma" quando batem ou quando uma contém a outra
+ * ("Off White" ↔ "White"). Serve para não confundir jeito de escrever com cor
+ * diferente — e "Único" (loja sem atributo de cor) nunca conflita com nada.
+ */
+export const mesmaCor = (a: string | null | undefined, b: string | null | undefined) => {
+  const x = norm(a);
+  const y = norm(b);
+  if (!x || !y || x === "unico" || y === "unico") return true;
+  return x === y || x.includes(y) || y.includes(x);
+};
 export const corDoNome = (name: string) => {
   const m = name.match(/\s+[—–-]\s+(.+)$/);
   return m ? m[1].trim() : null;
@@ -337,6 +348,26 @@ export async function upsertProduct(
     // Variação NOVA (com SKU) num produto JÁ vinculado: entra sozinha no
     // produto certo. Se a cor+tamanho já existir nele, vincula; senão, cria.
     if (!alvo && v.sku && targetProductId) {
+      // TRAVA DA COR (incidente Toque Leve, 30/07/2026): num catálogo
+      // produto-por-cor ("Baby Look — Branco"), criar aqui uma variação de
+      // OUTRA cor mistura duas peças numa só — soma o estoque das duas e faz o
+      // catálogo mostrar um card a mais com a foto errada. Foi o que aconteceu
+      // quando a cor nova "Café" entrou dentro do produto Branco (o SKU estava
+      // duplicado e apontou pra lá). Cor nova em produto que declara cor no
+      // nome NUNCA é criada: vira pendência pra lojista criar o produto certo.
+      const nomeAlvo = allProducts.find((x) => x.id === targetProductId)?.name ?? "";
+      const corDoProduto = corDoNome(nomeAlvo);
+      if (corDoProduto && !mesmaCor(color, corDoProduto)) {
+        if (report) {
+          report.pendencias.push({
+            produtoNs: `${nsName} (cor “${color}” não pertence a “${nomeAlvo}”)`,
+            cor: color,
+            tamanho: size,
+            sku: v.sku ?? null,
+          });
+        }
+        continue;
+      }
       const existente = targetByCorTam.get(`${norm(color)}|${norm(size)}`);
       if (existente) {
         alvo = existente;
@@ -558,6 +589,57 @@ export async function syncProducts(companyId: string) {
     },
   });
   return { ok: true as const, produtos: total, report, status: 200 };
+}
+
+/**
+ * Variação como ela está NA NUVEMSHOP, achatada (produto + cor + tamanho +
+ * SKU + estoque). Serve para CONFERIR o vínculo sem alterar nada — é a foto
+ * do outro lado, para comparar com a nossa.
+ */
+export type VariacaoNs = {
+  varId: string;
+  prodId: string;
+  produto: string;
+  cor: string;
+  tamanho: string;
+  sku: string | null;
+  estoque: number;
+};
+
+/**
+ * Lê TODAS as variações da Nuvemshop (paginado), sem escrever uma linha no
+ * banco. É o insumo da conferência de integração.
+ */
+export async function lerVariacoesNuvemshop(companyId: string) {
+  const conn = await loadConn(companyId);
+  if (!conn) return { ok: false as const, status: -1, variacoes: [] as VariacaoNs[], produtos: 0 };
+  const variacoes: VariacaoNs[] = [];
+  let produtos = 0;
+  for (let page = 1; page <= 50; page++) {
+    const res = await api<NsProduct[]>(conn, "GET", `/products?per_page=50&page=${page}`);
+    if (!res.ok && page === 1) {
+      return { ok: false as const, status: res.status, variacoes: [], produtos: 0 };
+    }
+    if (!res.ok || !res.data?.length) break;
+    for (const p of res.data) {
+      produtos++;
+      const nome = texto(p.name).trim() || `Produto ${p.id}`;
+      for (const v of p.variants ?? []) {
+        const { color, size } = corETamanho(p, v);
+        variacoes.push({
+          varId: String(v.id),
+          prodId: String(p.id),
+          produto: nome,
+          cor: color,
+          tamanho: size,
+          sku: (v.sku ?? "").trim() || null,
+          estoque: Math.max(0, v.stock ?? 0),
+        });
+      }
+    }
+    if (res.data.length < 50) break;
+  }
+  return { ok: true as const, status: 200, variacoes, produtos };
 }
 
 // ---- Vendas ----------------------------------------------------------------

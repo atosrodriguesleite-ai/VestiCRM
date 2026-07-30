@@ -2,7 +2,7 @@ import { notFound } from "next/navigation";
 import type { Metadata } from "next";
 import { db } from "@/lib/db";
 import { imageHref } from "@/lib/img";
-import { parseCategoryOrder } from "@/lib/categories";
+import { parseCategoryDescriptions, parseCategoryOrder } from "@/lib/categories";
 import { PublicCatalog, type CatalogProduct } from "../../public-catalog";
 
 export const dynamic = "force-dynamic";
@@ -114,6 +114,7 @@ export default async function PromoCatalogPage({
       minOrderValue={company.minOrderValue}
       products={items}
       categoryOrder={parseCategoryOrder(company.categoryOrder)}
+      categoryDescriptions={parseCategoryDescriptions(company.categoryDescriptions)}
       promo={{ name: pc.name, slug: pc.slug, discount: pc.discount }}
       logoSize={company.catalogLogoSize as "normal" | "grande"}
       identity={{

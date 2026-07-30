@@ -6,6 +6,7 @@ import {
   type PDFPage,
   type PDFFont,
 } from "pdf-lib";
+import { paginaSegura } from "@/lib/pdf-texto";
 import sharp from "sharp";
 import { db } from "@/lib/db";
 import { requireUser, AuthError } from "@/lib/auth";
@@ -194,7 +195,7 @@ export async function GET(
       page.drawText(site, { x, y: ty, size: 8, font: bold, color: CREME });
     };
 
-    let page = pdf.addPage(A4);
+    let page = paginaSegura(pdf.addPage(A4));
     drawHeader(page);
 
     let col = 0;
@@ -202,7 +203,7 @@ export async function GET(
 
     for (const item of byProduct.values()) {
       if (y < CONTENT_BOTTOM) {
-        page = pdf.addPage(A4);
+        page = paginaSegura(pdf.addPage(A4));
         drawHeader(page);
         y = CONTENT_TOP - cardH;
         col = 0;

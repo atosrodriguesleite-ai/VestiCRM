@@ -264,7 +264,7 @@ export async function PATCH(
       // o funil acompanha o VALOR VENDIDO (frete não é negociação)
       await syncOpportunityValue(user.companyId, order.opportunityId, totals.netTotal);
       // se veio SÓ a edição de itens, responde aqui
-      if (!parsed.data.status && !parsed.data.notes && parsed.data.sellerId === undefined && !parsed.data.customerId && !parsed.data.paymentMethod && parsed.data.trackingCode === undefined && parsed.data.shippingMethod === undefined) {
+      if (!parsed.data.status && parsed.data.notes === undefined && parsed.data.sellerId === undefined && !parsed.data.customerId && !parsed.data.paymentMethod && parsed.data.trackingCode === undefined && parsed.data.shippingMethod === undefined) {
         const updated = await db.order.findUnique({ where: { id: order.id } });
         return NextResponse.json(updated);
       }
@@ -346,7 +346,7 @@ export async function PATCH(
 
       if (
         !parsed.data.status &&
-        !parsed.data.notes &&
+        parsed.data.notes === undefined &&
         parsed.data.sellerId === undefined &&
         !parsed.data.customerId &&
         !parsed.data.paymentMethod &&

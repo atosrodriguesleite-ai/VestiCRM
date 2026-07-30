@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { requireUser } from "@/lib/auth";
 import { isManagerUp, orderScope } from "@/lib/scope";
+import { religarItensDoPedido } from "@/lib/religar-itens";
 import { db } from "@/lib/db";
 import { brl, dateFull, dateShort, timeShort } from "@/lib/format";
 import {
@@ -31,6 +32,7 @@ import { CobrancaNfe } from "./cobranca-nfe";
 import { EnvioFrete } from "./envio-frete";
 import { TransferirVenda } from "./transferir-venda";
 import { ValoresEditor } from "./valores-editor";
+import { ObservacoesEditor } from "./observacoes-editor";
 import { podeTransferirVenda } from "@/lib/orders";
 
 export const dynamic = "force-dynamic";
@@ -42,6 +44,12 @@ export default async function OrderDetailPage({
 }) {
   const user = await requireUser();
   const { id } = await params;
+
+  // Peça reimportada (ex.: desfazer + refazer a Nuvemshop) deixa o item do
+  // pedido apontando para o vazio, e a tela mostrava "estoque 0 (insuficiente)"
+  // numa peça cheia de estoque. Religa pelos dados que o item guardou — de
+  // carona ao abrir o pedido, sem cron e sem tocar em estoque.
+  await religarItensDoPedido(id, user.companyId).catch(() => 0);
 
   const order = await db.order.findFirst({
     where: { id, ...orderScope(user) },
@@ -321,11 +329,14 @@ export default async function OrderDetailPage({
             podeEditar={user.role !== "SUPPORT"}
             bloqueado={order.status === "CANCELADO"}
           />
-          {order.notes && (
-            <p className="mt-4 text-xs text-gray-500 bg-amber-50 border border-amber-100 rounded-xl px-3 py-2">
-              {order.notes}
-            </p>
-          )}
+          {/* O bilhete do pedido agora é EDITÁVEL: era só leitura, e o aviso
+              que o "Colar pedido do WhatsApp" escreve ("está faltando…")
+              ficava mentindo depois que a loja resolvia a falta. */}
+          <ObservacoesEditor
+            orderId={order.id}
+            notes={order.notes}
+            bloqueado={order.status === "CANCELADO"}
+          />
         </Card>
 
         <div className="space-y-4">
