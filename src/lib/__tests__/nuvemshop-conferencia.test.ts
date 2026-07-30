@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { conferirVinculo, type VariacaoAqui } from "../nuvemshop-conferencia";
+import { conferirVinculo, resumir, type VariacaoAqui } from "../nuvemshop-conferencia";
 import { mesmaCor, corDoNome, type VariacaoNs } from "../nuvemshop";
 
 /**
@@ -98,6 +98,7 @@ describe("SKU duplicado", () => {
     const a = achados.find((x) => x.tipo === "SKU_DUPLICADO_AQUI");
     expect(a).toBeDefined();
     expect(a!.gravidade).toBe("ALTA");
+    expect(a!.peca).toContain("SKU BABY-1");
   });
 
   it("acusa SKU repetido LÁ (duas peças brigando pela mesma daqui)", () => {
@@ -109,6 +110,25 @@ describe("SKU duplicado", () => {
       ]
     );
     expect(achados.some((x) => x.tipo === "SKU_DUPLICADO_LA")).toBe(true);
+  });
+
+  it("o MESMO SKU repetido dos dois lados é UM aviso, não dois", () => {
+    // era o que inflava a lista: 12 SKUs repetidos viravam 24 linhas
+    const achados = conferirVinculo(
+      [
+        aqui({ produto: "Regata Quadrada", cor: "Terracota", tamanho: "G", sku: "RQD-TER-G" }),
+        aqui({ produto: "Regata Quadrada", cor: "Terracota", tamanho: "GG", sku: "RQD-TER-G" }),
+      ],
+      [
+        la({ varId: "1", produto: "Regata Quadrada", cor: "Terracota", tamanho: "G", sku: "RQD-TER-G" }),
+        la({ varId: "2", produto: "Regata Quadrada", cor: "Terracota", tamanho: "GG", sku: "RQD-TER-G" }),
+      ]
+    );
+    const doSku = achados.filter((x) => x.tipo.startsWith("SKU_DUPLICADO"));
+    expect(doSku).toHaveLength(1);
+    expect(doSku[0].tipo).toBe("SKU_DUPLICADO_NOS_DOIS");
+    // e diz o que fazer primeiro: a Nuvemshop
+    expect(doSku[0].detalhe).toContain("primeiro na Nuvemshop");
   });
 
   it("SKU vazio não conta como duplicado", () => {
@@ -178,15 +198,43 @@ describe("briga de sincronização (a impressão digital)", () => {
 });
 
 describe("ordem e limpeza", () => {
-  it("o importante vem primeiro", () => {
+  it("a lista sai NA ORDEM DE CONSERTAR (SKU da Nuvemshop primeiro)", () => {
     const achados = conferirVinculo(
       [
-        aqui({ produto: "A — Branco", cor: "Branco", sku: "S1", nsVarId: "1", estoque: 5 }),
+        // estoque diferente (último da fila)
+        aqui({ produto: "A", cor: "Branco", sku: "S1", nsVarId: "1", estoque: 5 }),
+        // cor no produto errado (meio da fila)
         aqui({ produto: "B — Preto", cor: "Verde", sku: "S2" }),
       ],
-      [la({ varId: "1", produto: "A", cor: "Branco", sku: "S1", estoque: 9 })]
+      [
+        la({ varId: "1", produto: "A", cor: "Branco", sku: "S1", estoque: 9 }),
+        // SKU repetido na Nuvemshop (tem que vir primeiro de todos)
+        la({ varId: "7", produto: "C", cor: "Rosa", sku: "DUP" }),
+        la({ varId: "8", produto: "C", cor: "Azul", sku: "DUP" }),
+      ]
     );
-    expect(achados[0].gravidade).toBe("ALTA");
+    expect(achados.map((a) => a.tipo)).toEqual([
+      "SKU_DUPLICADO_LA",
+      "COR_FORA_DO_PRODUTO",
+      "ESTOQUE_DIFERENTE",
+    ]);
+  });
+
+  it("o resumo conta por tipo, na mesma ordem", () => {
+    const achados = conferirVinculo(
+      [
+        aqui({ produto: "B — Preto", cor: "Verde", sku: "S2" }),
+        aqui({ produto: "C — Azul", cor: "Rosa", sku: "S3" }),
+      ],
+      [
+        la({ varId: "7", produto: "C", cor: "Rosa", sku: "DUP" }),
+        la({ varId: "8", produto: "C", cor: "Azul", sku: "DUP" }),
+      ]
+    );
+    expect(resumir(achados)).toEqual([
+      { tipo: "SKU_DUPLICADO_LA", nome: "SKU repetido na Nuvemshop", quantos: 1 },
+      { tipo: "COR_FORA_DO_PRODUTO", nome: "Cor no produto errado", quantos: 2 },
+    ]);
   });
 
   it("loja saudável devolve lista vazia (a tela mostra o verde)", () => {

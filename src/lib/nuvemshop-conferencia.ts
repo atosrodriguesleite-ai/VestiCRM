@@ -48,6 +48,7 @@ export type Briga = {
 };
 
 export type TipoAchado =
+  | "SKU_DUPLICADO_NOS_DOIS"
   | "SKU_DUPLICADO_AQUI"
   | "SKU_DUPLICADO_LA"
   | "CARIMBO_CRUZADO"
@@ -95,28 +96,30 @@ export function conferirVinculo(
   const laPorVarId = new Map(la.map((v) => [v.varId, v]));
   const aquiPorId = new Map(aqui.map((v) => [v.id, v]));
 
-  // 1. SKU repetido AQUI: o sistema guarda um SKU → uma variação. Com SKU
-  //    repetido, uma das duas NUNCA recebe estoque (fica congelada) e ninguém
-  //    percebe, porque não vira pendência.
-  for (const [, iguais] of porSku(aqui)) {
-    if (iguais.length < 2) continue;
+  // 1+2. SKU REPETIDO. Um SKU só pode apontar para uma peça — repetido, o
+  //      sistema atualiza uma e congela a outra. O MESMO SKU repetido dos dois
+  //      lados é UM problema, não dois: sai num aviso só (na primeira
+  //      conferência da Toque Leve isso sozinho dobrava o tamanho da lista).
+  const dupAqui = new Map([...porSku(aqui)].filter(([, l]) => l.length > 1));
+  const dupLa = new Map([...porSku(la)].filter(([, l]) => l.length > 1));
+  for (const [chave, iguais] of dupAqui) {
+    const tambemLa = dupLa.get(chave);
     achados.push({
-      tipo: "SKU_DUPLICADO_AQUI",
+      tipo: tambemLa ? "SKU_DUPLICADO_NOS_DOIS" : "SKU_DUPLICADO_AQUI",
       gravidade: "ALTA",
-      peca: iguais.map(rotulo).join("  ⇄  "),
-      detalhe: `${iguais.length} variações daqui estão com o MESMO SKU (${iguais[0].sku}). O sistema só consegue atualizar uma delas — a outra fica com o estoque congelado. Corrija o SKU em Produtos.`,
+      peca: `SKU ${iguais[0].sku} · ${iguais.map(rotulo).join("  ⇄  ")}`,
+      detalhe: tambemLa
+        ? `O SKU ${iguais[0].sku} está repetido NOS DOIS LADOS (${tambemLa.length} peças na Nuvemshop, ${iguais.length} variações aqui). Enquanto estiver repetido lá, toda sincronização volta a embaralhar: corrija primeiro na Nuvemshop, depois aqui.`
+        : `${iguais.length} variações daqui estão com o MESMO SKU (${iguais[0].sku}). O sistema só consegue atualizar uma delas — a outra fica com o estoque congelado.`,
     });
   }
-
-  // 2. SKU repetido LÁ: as duas peças da Nuvemshop vão apontar para a mesma
-  //    variação daqui e sobrescrever o estoque uma da outra.
-  for (const [, iguais] of porSku(la)) {
-    if (iguais.length < 2) continue;
+  for (const [chave, iguais] of dupLa) {
+    if (dupAqui.has(chave)) continue; // já saiu no aviso combinado
     achados.push({
       tipo: "SKU_DUPLICADO_LA",
       gravidade: "ALTA",
-      peca: iguais.map(rotulo).join("  ⇄  "),
-      detalhe: `${iguais.length} peças na Nuvemshop ainda estão com o MESMO SKU (${iguais[0].sku}). Elas brigam pela mesma variação aqui: a última lida ganha. Corrija o SKU na Nuvemshop.`,
+      peca: `SKU ${iguais[0].sku} · ${iguais.map(rotulo).join("  ⇄  ")}`,
+      detalhe: `${iguais.length} peças na Nuvemshop estão com o MESMO SKU (${iguais[0].sku}). Elas brigam pela mesma variação aqui: a última lida ganha.`,
     });
   }
 
@@ -209,8 +212,50 @@ export function conferirVinculo(
     });
   }
 
-  const peso = { ALTA: 0, MEDIA: 1 } as const;
-  return achados.sort((a, b) => peso[a.gravidade] - peso[b.gravidade]);
+  // A ordem da lista É a ordem de consertar. Arrumar SKU na Nuvemshop vem
+  // ANTES de tudo: enquanto ele estiver repetido lá, toda sincronização
+  // desfaz o conserto feito aqui.
+  return achados.sort(
+    (a, b) => ORDEM_DE_CONSERTO.indexOf(a.tipo) - ORDEM_DE_CONSERTO.indexOf(b.tipo)
+  );
+}
+
+/** Ordem em que os problemas devem ser resolvidos (é a ordem da lista). */
+export const ORDEM_DE_CONSERTO: TipoAchado[] = [
+  "SKU_DUPLICADO_NOS_DOIS",
+  "SKU_DUPLICADO_LA",
+  "SKU_DUPLICADO_AQUI",
+  "COR_FORA_DO_PRODUTO",
+  "CARIMBO_CRUZADO",
+  "BRIGA_DE_SYNC",
+  "CARIMBO_ORFAO",
+  "ESTOQUE_DIFERENTE",
+];
+
+/** Nome curto de cada tipo, para o resumo do topo. */
+export const NOME_DO_TIPO: Record<TipoAchado, string> = {
+  SKU_DUPLICADO_NOS_DOIS: "SKU repetido nos dois lados",
+  SKU_DUPLICADO_LA: "SKU repetido na Nuvemshop",
+  SKU_DUPLICADO_AQUI: "SKU repetido aqui",
+  COR_FORA_DO_PRODUTO: "Cor no produto errado",
+  CARIMBO_CRUZADO: "Vínculo apontando pra peça errada",
+  BRIGA_DE_SYNC: "Peça disputada na sincronização",
+  CARIMBO_ORFAO: "Vínculo sem peça na Nuvemshop",
+  ESTOQUE_DIFERENTE: "Estoque não bate",
+};
+
+/**
+ * Resumo por tipo, na ordem de consertar. Sessenta linhas soltas assustam;
+ * "12 SKUs repetidos + 3 cores no lugar errado" é uma lista de tarefas.
+ */
+export function resumir(achados: Achado[]) {
+  const conta = new Map<TipoAchado, number>();
+  for (const a of achados) conta.set(a.tipo, (conta.get(a.tipo) ?? 0) + 1);
+  return ORDEM_DE_CONSERTO.filter((t) => conta.has(t)).map((t) => ({
+    tipo: t,
+    nome: NOME_DO_TIPO[t],
+    quantos: conta.get(t)!,
+  }));
 }
 
 /**
@@ -297,6 +342,7 @@ export async function conferirIntegracao(companyId: string) {
     variacoesAqui: aqui.length,
     vinculadas: aqui.filter((v) => v.nsVarId).length,
     semSku: aqui.filter((v) => !norm(v.sku)).length,
+    resumo: resumir(achados),
     achados: achados.slice(0, 200),
     total: achados.length,
   };

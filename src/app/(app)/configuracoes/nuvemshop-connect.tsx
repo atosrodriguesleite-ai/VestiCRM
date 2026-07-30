@@ -9,6 +9,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   CheckCircle2,
+  Copy,
   FlaskConical,
   Loader2,
   History,
@@ -22,6 +23,7 @@ import {
 } from "lucide-react";
 import { Card } from "@/components/ui";
 import { Portal } from "@/components/portal";
+import { copiarTexto } from "@/lib/copiar";
 
 type Pendencia = { produtoNs: string; cor: string; tamanho: string; sku: string | null };
 type Simulacao = {
@@ -58,6 +60,7 @@ type Conferencia = {
   variacoesAqui: number;
   vinculadas: number;
   semSku: number;
+  resumo: { tipo: string; nome: string; quantos: number }[];
   achados: Achado[];
   total: number;
 };
@@ -389,6 +392,24 @@ function ResultadoConferencia({
 }) {
   const graves = conf.achados.filter((a) => a.gravidade === "ALTA").length;
   const limpo = conf.achados.length === 0;
+  const [copiado, setCopiado] = useState(false);
+
+  /** Leva a lista inteira para o WhatsApp/e-mail — dá pra trabalhar fora da tela. */
+  async function copiarLista() {
+    const texto = [
+      `Conferência da integração Nuvemshop — ${conf.total} ponto(s)`,
+      `Na Nuvemshop: ${conf.produtosNs} produtos / ${conf.variacoesNs} variações · Aqui: ${conf.variacoesAqui} variações`,
+      "",
+      ...conf.resumo.map((r, i) => `${i + 1}. ${r.quantos}× ${r.nome}`),
+      "",
+      ...conf.achados.map(
+        (a) =>
+          `[${a.gravidade}] ${a.peca}${a.estoqueAqui !== undefined ? ` (aqui ${a.estoqueAqui}${a.estoqueLa !== undefined ? ` / lá ${a.estoqueLa}` : ""})` : ""}\n${a.detalhe}`
+      ),
+    ].join("\n");
+    setCopiado(await copiarTexto(texto));
+    setTimeout(() => setCopiado(false), 2500);
+  }
   return (
     <div
       className={`mt-3 rounded-xl border p-3 ${
@@ -414,6 +435,26 @@ function ResultadoConferencia({
         Aqui: <b>{conf.variacoesAqui}</b> variações (<b>{conf.vinculadas}</b> vinculadas
         {conf.semSku > 0 && <>, <b>{conf.semSku}</b> sem SKU</>})
       </p>
+
+      {/* Resumo por tipo: 60 linhas soltas assustam, a lista de tarefas não.
+          A ordem aqui é a ordem de consertar. */}
+      {!limpo && conf.resumo?.length > 0 && (
+        <div className="mt-2 rounded-lg bg-white/70 border border-gray-100 p-2.5">
+          <p className="text-[11px] font-bold text-gray-700 mb-1.5">
+            Resolva nesta ordem 👇
+          </p>
+          <ol className="space-y-1">
+            {conf.resumo.map((r, i) => (
+              <li key={r.tipo} className="text-xs text-gray-700 flex gap-1.5">
+                <span className="text-gray-400 shrink-0">{i + 1}.</span>
+                <span>
+                  <b>{r.quantos}×</b> {r.nome}
+                </span>
+              </li>
+            ))}
+          </ol>
+        </div>
+      )}
 
       {!limpo && (
         <ul className="mt-2 space-y-2 max-h-72 overflow-y-auto thin-scroll">
@@ -450,10 +491,21 @@ function ResultadoConferencia({
           ))}
         </ul>
       )}
-      <p className="text-[11px] text-gray-500 mt-2 leading-snug">
-        Esta conferência só LÊ os dois lados — não alterou nenhum estoque nem
-        produto.
-      </p>
+      <div className="flex items-center justify-between gap-2 flex-wrap mt-2">
+        <p className="text-[11px] text-gray-500 leading-snug">
+          Esta conferência só LÊ os dois lados — não alterou nenhum estoque nem
+          produto.
+        </p>
+        {!limpo && (
+          <button
+            onClick={copiarLista}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 hover:border-brand-300 text-gray-600 text-[11px] font-medium px-2.5 py-1.5 transition shrink-0"
+          >
+            <Copy className="size-3" />
+            {copiado ? "Copiado!" : "Copiar lista"}
+          </button>
+        )}
+      </div>
     </div>
   );
 }
