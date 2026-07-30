@@ -61,6 +61,29 @@ export function normalizePhone(raw: string): string {
  * o WhatsApp costuma mandar com 9, e cadastros antigos ficam sem. Assim a
  * mesma pessoa não vira dois contatos/duas conversas.
  */
+/**
+ * O cliente tem nome de VERDADE ou um apelido que o próprio sistema inventou?
+ *
+ * Quando a mensagem chega antes de a gente saber quem é, o sistema batiza o
+ * contato com o telefone: "Contato (77) 8101-4696", "Lead 4696", "Cliente do
+ * catálogo (não identificado)". Isso é um crachá provisório — assim que o
+ * nome de verdade aparecer (a cliente digita no catálogo, por exemplo), ele
+ * TEM que substituir o crachá.
+ *
+ * O contrário nunca: nome escrito por gente não é sobrescrito por nada.
+ */
+export function nomeProvisorio(nome: string | null | undefined): boolean {
+  const n = (nome ?? "").trim();
+  if (!n) return true;
+  return (
+    /^contato\b/i.test(n) ||
+    /^lead\s+\d+$/i.test(n) ||
+    /^cliente do cat[áa]logo/i.test(n) ||
+    // só dígitos/pontuação de telefone: o número virou "nome"
+    /^[\d\s()+.-]+$/.test(n)
+  );
+}
+
 export function phoneMatchVariants(raw: string): string[] {
   const d = normalizePhone(raw);
   const set = new Set<string>([d]);
@@ -181,7 +204,23 @@ export async function intakeLead(
       where: { id: existing.id },
       data: {
         lastContactAt: new Date(),
-        ...(payload.name && !existing.name ? { name: payload.name } : {}),
+        // NOME DE VERDADE SUBSTITUI O PROVISÓRIO — e só ele.
+        //
+        // Antes a condição era `!existing.name`, que NUNCA é verdade: o nome
+        // do cliente é obrigatório no banco, então sempre tem alguma coisa
+        // escrita. Resultado: o nome que a cliente digitava no catálogo era
+        // jogado fora em silêncio.
+        //
+        // Foi o que aconteceu no pedido #0146 da Entre Linhas: a mensagem do
+        // WhatsApp chegou primeiro e criou a cliente como "Contato (77)
+        // 8101-4696"; quando o pedido do catálogo chegou com o nome digitado,
+        // ele foi ignorado e o painel ficou com o telefone no lugar do nome.
+        //
+        // Agora: nome digitado por gente NUNCA é sobrescrito; só o apelido que
+        // o próprio sistema inventou é que dá lugar ao nome de verdade.
+        ...(payload.name?.trim() && nomeProvisorio(existing.name)
+          ? { name: payload.name.trim() }
+          : {}),
         // atribuição "primeiro contato": só grava a campanha se ainda não há
         ...(payload.campaignId && !existing.campaignId
           ? { campaignId: payload.campaignId }
