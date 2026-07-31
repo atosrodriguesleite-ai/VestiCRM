@@ -890,7 +890,7 @@ export default async function DashboardPage({
                   </div>
                   <span className="text-xs text-amber-600 font-medium shrink-0">
                     {c.lastContactAt
-                      ? `${daysSince(c.lastContactAt)} dias sem contato`
+                      ? `${daysSince(c.lastContactAt)} dia${daysSince(c.lastContactAt) === 1 ? "" : "s"} sem contato`
                       : "nunca contatado"}
                   </span>
                 </li>

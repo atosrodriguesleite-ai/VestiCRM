@@ -24,7 +24,19 @@ export async function evaluateSegment(user: SessionUser, filter: SegmentFilter) 
     const cutoff = new Date(
       Date.now() - filter.inactiveDays * 24 * 60 * 60 * 1000
     );
-    where.OR = [{ lastPurchaseAt: { lt: cutoff } }, { lastPurchaseAt: null }];
+    // "Sem compra há X dias" olha OS PRÓPRIOS PEDIDOS PAGOS — a mesma fonte
+    // do faturamento. O carimbo `lastPurchaseAt` não é gravado em todos os
+    // caminhos, e cliente que COMPROU podia receber mensagem de "sentimos
+    // sua falta" (a pior mensagem errada possível numa campanha).
+    where.orders = {
+      none: {
+        status: { in: PAID_ORDER_STATUSES },
+        paidAt: { gte: cutoff },
+      },
+    };
+    // e quem ENTROU depois do corte fica de fora: lead de anteontem não
+    // "está sem comprar há 60 dias" — nem teve 60 dias para isso
+    where.createdAt = { lt: cutoff };
   }
   if (filter.type) where.type = filter.type;
   if (filter.city) where.city = { contains: filter.city, mode: "insensitive" };
@@ -38,13 +50,14 @@ export async function evaluateSegment(user: SessionUser, filter: SegmentFilter) 
     where.opportunities = { some: { status: "LOST" } };
   }
 
-  // total gasto = pedidos PAGOS (fonte única; inclui vendas integradas)
+  // total gasto = pedidos PAGOS (fonte única; inclui vendas integradas),
+  // somando netTotal — valor comprado, sem frete (regra das telas de dinheiro)
   let customers = await db.customer.findMany({
     where,
     include: {
       orders: {
         where: { status: { in: PAID_ORDER_STATUSES } },
-        select: { total: true },
+        select: { netTotal: true },
       },
     },
     orderBy: { name: "asc" },
@@ -52,7 +65,7 @@ export async function evaluateSegment(user: SessionUser, filter: SegmentFilter) 
 
   if (filter.minSpent) {
     customers = customers.filter(
-      (c) => c.orders.reduce((s, v) => s + v.total, 0) >= filter.minSpent!
+      (c) => c.orders.reduce((s, v) => s + v.netTotal, 0) >= filter.minSpent!
     );
   }
 
@@ -61,6 +74,6 @@ export async function evaluateSegment(user: SessionUser, filter: SegmentFilter) 
     name: c.name,
     phone: c.phone,
     city: c.city,
-    totalSpent: c.orders.reduce((s, v) => s + v.total, 0),
+    totalSpent: c.orders.reduce((s, v) => s + v.netTotal, 0),
   }));
 }

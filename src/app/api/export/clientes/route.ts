@@ -24,10 +24,11 @@ export async function GET() {
       where: ownedScope(user),
       include: {
         owner: { select: { name: true } },
-        // total comprado = pedidos PAGOS (fonte única, inclui integrações)
+        // total comprado = pedidos PAGOS (fonte única, inclui integrações),
+        // por netTotal (sem frete) — mesma régua das telas de dinheiro
         orders: {
           where: { status: { in: PAID_ORDER_STATUSES } },
-          select: { total: true },
+          select: { netTotal: true, paidAt: true },
         },
       },
       orderBy: { name: "asc" },
@@ -55,10 +56,16 @@ export async function GET() {
       c.district ?? "",
       c.zip ?? "",
       c.owner?.name ?? "",
-      c.orders.reduce((s, v) => s + v.total, 0).toFixed(2).replace(".", ","),
-      c.lastPurchaseAt
-        ? c.lastPurchaseAt.toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo" })
-        : "",
+      c.orders.reduce((s, v) => s + v.netTotal, 0).toFixed(2).replace(".", ","),
+      // última compra vem DOS PEDIDOS PAGOS (o carimbo lastPurchaseAt não é
+      // gravado em todos os caminhos e deixava a coluna vazia ou velha)
+      (() => {
+        const u = c.orders.reduce<Date | null>(
+          (max, o) => (o.paidAt && (!max || o.paidAt > max) ? o.paidAt : max),
+          null
+        );
+        return u ? u.toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo" }) : "";
+      })(),
       c.createdAt.toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo" }),
     ]);
 

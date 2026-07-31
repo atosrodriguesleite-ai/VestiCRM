@@ -11,7 +11,7 @@ import {
 import { redirect } from "next/navigation";
 import { requireUser } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { ownedScope, isManagerUp } from "@/lib/scope";
+import { isManagerUp } from "@/lib/scope";
 import { PAID_ORDER_STATUSES } from "@/lib/orders";
 import { brl, dateShort, originLabel } from "@/lib/format";
 import { Card, PageHeader, EmptyState } from "@/components/ui";
@@ -28,7 +28,6 @@ export default async function ReportsPage({
   const user = await requireUser();
   // Relatórios são visão geral da loja: vendedor comum não acessa
   if (!isManagerUp(user)) redirect("/dashboard");
-  const scope = ownedScope(user);
   const now = new Date();
 
   // PERÍODO ESCOLHIDO PELA LOJISTA (atalhos ou datas a dedo).
@@ -50,7 +49,7 @@ export default async function ReportsPage({
     companyId: user.companyId,
     status: { in: PAID_ORDER_STATUSES },
   };
-  const [sales, sellers, stages, opps, customers, interests, pendingTasks, conversations] =
+  const [sales, sellers, stages, opps, allCustomers, interests, tarefasAtrasadas, tarefasPendentes, primeirasIn, primeirasOut] =
     await Promise.all([
       db.order.findMany({
         where: { ...paidScope, paidAt: { gte: periodo.from, lte: periodo.to } },
@@ -65,12 +64,15 @@ export default async function ReportsPage({
         include: { _count: { select: { opportunities: true } } },
       }),
       db.opportunity.findMany({ where: { companyId: user.companyId } }),
+      // a base inteira de clientes, com TODOS os pedidos pagos de cada uma —
+      // serve para canais, inativos, origem e mais valiosos (uma consulta só;
+      // antes eram duas iguais, uma em cima da outra)
       db.customer.findMany({
-        where: scope,
+        where: { companyId: user.companyId },
         include: {
           orders: {
             where: { status: { in: PAID_ORDER_STATUSES } },
-            select: { netTotal: true },
+            select: { netTotal: true, paidAt: true },
           },
         },
       }),
@@ -78,85 +80,114 @@ export default async function ReportsPage({
         where: { companyId: user.companyId },
         include: { _count: { select: { customers: true } } },
       }),
+      // TAREFA ATRASADA, não "toda tarefa pendente da história": 224 tarefas
+      // sem prazo viravam um número que ninguém ia zerar — o que cobra ação é
+      // a tarefa que VENCEU e não foi feita
+      db.task.count({
+        where: { companyId: user.companyId, status: "PENDENTE", dueAt: { lt: now } },
+      }),
       db.task.count({
         where: { companyId: user.companyId, status: "PENDENTE" },
       }),
-      db.conversation.findMany({
-        where: { companyId: user.companyId },
-        include: {
-          messages: { orderBy: { createdAt: "asc" }, select: { direction: true, createdAt: true } },
-        },
+      // 1ª RESPOSTA sem carregar a loja inteira na memória: só o instante da
+      // primeira mensagem de cada lado, agregado pelo banco. Antes vinham
+      // TODAS as mensagens de TODAS as conversas — na escala já medida
+      // (120 mil mensagens) a tela não abriria. `kind: TEXT` porque nota
+      // interna (e a nota de anúncio, que entra como IN) não é resposta.
+      db.message.groupBy({
+        by: ["conversationId"],
+        where: { kind: "TEXT", direction: "IN", conversation: { companyId: user.companyId } },
+        _min: { createdAt: true },
+      }),
+      db.message.groupBy({
+        by: ["conversationId"],
+        where: { kind: "TEXT", direction: "OUT", conversation: { companyId: user.companyId } },
+        _min: { createdAt: true },
       }),
     ]);
 
+  const DIA_MS = 24 * 60 * 60 * 1000;
+  const noPeriodo = (d: Date | null): d is Date =>
+    !!d && d >= periodo.from && d <= periodo.to;
+  /** "1 dia" / "N dias" — o singular importa numa tela que o dono lê. */
+  const dias = (n: number) => {
+    const v = Math.round(n);
+    return `${v} ${v === 1 ? "dia" : "dias"}`;
+  };
+
   // ---- Canais de aquisição (Lead Intake Engine) ----
-  const customersFull = await db.customer.findMany({
-    where: { companyId: user.companyId },
-    include: {
-      orders: {
-        where: { status: { in: PAID_ORDER_STATUSES } },
-        select: { netTotal: true, paidAt: true },
-      },
-    },
-  });
+  //
+  // TUDO DO PERÍODO ESCOLHIDO — antes era o histórico completo, na mesma tela
+  // em que o faturamento era do período: os números não conversavam entre si
+  // e, conforme a loja crescesse, iam parecer errados um ao lado do outro.
+  //   • leads   = clientes que ENTRARAM no período;
+  //   • valor   = pedidos PAGOS no período (bate com o cartão de faturamento);
+  //   • conversão = desses leads do período, quantos já compraram.
   type ChannelStat = {
     origin: string;
     leads: number;
     buyers: number;
     revenue: number;
+    orders: number;
     daysToSale: number[];
   };
   const channelMap = new Map<string, ChannelStat>();
-  for (const c of customersFull) {
+  for (const c of allCustomers) {
     const key = originLabel[c.origin];
     const stat =
       channelMap.get(key) ??
-      { origin: key, leads: 0, buyers: 0, revenue: 0, daysToSale: [] };
-    stat.leads += 1;
-    if (c.orders.length > 0) {
-      stat.buyers += 1;
-      stat.revenue += c.orders.reduce((s, v) => s + v.netTotal, 0);
-      // data da compra = data do PAGAMENTO (pedido pago sem data não entra)
-      const pagos = c.orders.map((o) => o.paidAt).filter((d): d is Date => !!d);
-      if (pagos.length) {
-        const firstSale = pagos.reduce((min, d) => (d < min ? d : min), pagos[0]);
+      { origin: key, leads: 0, buyers: 0, revenue: 0, orders: 0, daysToSale: [] };
+    const chegouNoPeriodo = c.createdAt >= periodo.from && c.createdAt <= periodo.to;
+    if (chegouNoPeriodo) {
+      stat.leads += 1;
+      if (c.orders.length > 0) stat.buyers += 1;
+    }
+    const pagosNoPeriodo = c.orders.filter((o) => noPeriodo(o.paidAt));
+    stat.revenue += pagosNoPeriodo.reduce((s, v) => s + v.netTotal, 0);
+    stat.orders += pagosNoPeriodo.length;
+    // tempo até a venda: clientes cuja PRIMEIRA compra caiu no período
+    const pagas = c.orders.map((o) => o.paidAt).filter((d): d is Date => !!d);
+    if (pagas.length) {
+      const primeira = pagas.reduce((min, d) => (d < min ? d : min), pagas[0]);
+      if (noPeriodo(primeira)) {
         stat.daysToSale.push(
-          Math.max(0, (firstSale.getTime() - c.createdAt.getTime()) / (24 * 60 * 60 * 1000))
+          Math.max(0, (primeira.getTime() - c.createdAt.getTime()) / DIA_MS)
         );
       }
     }
-    channelMap.set(key, stat);
+    if (stat.leads || stat.revenue || stat.orders) channelMap.set(key, stat);
   }
-  const channels = [...channelMap.values()].sort((a, b) => b.revenue - a.revenue);
+  const channels = [...channelMap.values()].sort(
+    (a, b) => b.revenue - a.revenue || b.leads - a.leads
+  );
   const bestChannel = channels[0];
   const avgDaysToSale = (() => {
     const all = channels.flatMap((c) => c.daysToSale);
     return all.length ? all.reduce((a, b) => a + b, 0) / all.length : 0;
   })();
 
-  // tempo médio até a primeira resposta (1ª msg OUT depois da 1ª IN)
+  // tempo médio até a primeira resposta (1ª msg OUT depois da 1ª IN).
+  // Conversa que a LOJA puxou primeiro fica de fora: ali não há "resposta".
+  const primeiraIn = new Map(
+    primeirasIn.map((r) => [r.conversationId, r._min.createdAt])
+  );
   const responseTimes: number[] = [];
-  for (const conv of conversations) {
-    const firstIn = conv.messages.find((m) => m.direction === "IN");
-    if (!firstIn) continue;
-    const firstOut = conv.messages.find(
-      (m) => m.direction === "OUT" && m.createdAt > firstIn.createdAt
-    );
-    if (firstOut) {
-      responseTimes.push(
-        (firstOut.createdAt.getTime() - firstIn.createdAt.getTime()) / 60000
-      );
-    }
+  for (const r of primeirasOut) {
+    const entrada = primeiraIn.get(r.conversationId);
+    const saida = r._min.createdAt;
+    if (!entrada || !saida || saida <= entrada) continue;
+    responseTimes.push((saida.getTime() - entrada.getTime()) / 60000);
   }
   const avgResponseMin = responseTimes.length
     ? responseTimes.reduce((a, b) => a + b, 0) / responseTimes.length
     : 0;
-  const fmtDuration = (min: number) =>
-    min >= 60 * 24
-      ? `${(min / (60 * 24)).toFixed(1)} dias`
-      : min >= 60
-        ? `${(min / 60).toFixed(1)} h`
-        : `${Math.round(min)} min`;
+  const fmtDuration = (min: number) => {
+    if (min >= 60 * 24) {
+      const d = (min / (60 * 24)).toFixed(1);
+      return `${d} ${d === "1.0" ? "dia" : "dias"}`;
+    }
+    return min >= 60 ? `${(min / 60).toFixed(1)} h` : `${Math.round(min)} min`;
+  };
 
   // VENDAS AO LONGO DO PERÍODO ESCOLHIDO.
   //
@@ -168,7 +199,6 @@ export default async function ReportsPage({
   // Agora as barras cobrem exatamente o período. Período curto vira DIA a dia
   // (uma barra por semana num intervalo de 10 dias não diz nada); período
   // longo continua por semana.
-  const DIA_MS = 24 * 60 * 60 * 1000;
   const duracaoDias = Math.max(
     1,
     Math.ceil((periodo.to.getTime() - periodo.from.getTime()) / DIA_MS)
@@ -215,9 +245,9 @@ export default async function ReportsPage({
     .map(([label, value]) => ({ label, value }))
     .sort((a, b) => b.value - a.value);
 
-  // origem dos clientes
+  // origem dos clientes (base inteira)
   const byOrigin = new Map<string, number>();
-  for (const c of customers) {
+  for (const c of allCustomers) {
     const label = originLabel[c.origin];
     byOrigin.set(label, (byOrigin.get(label) ?? 0) + 1);
   }
@@ -225,8 +255,8 @@ export default async function ReportsPage({
     .map(([label, value]) => ({ label, value }))
     .sort((a, b) => b.value - a.value);
 
-  // clientes mais valiosos
-  const topCustomers = customers
+  // clientes mais valiosos (base inteira)
+  const topCustomers = allCustomers
     .map((c) => ({
       label: c.name,
       value: c.orders.reduce((s, v) => s + v.netTotal, 0),
@@ -235,13 +265,30 @@ export default async function ReportsPage({
     .sort((a, b) => b.value - a.value)
     .slice(0, 6);
 
-  // inativos
-  const inactive = (days: number) =>
-    customers.filter(
-      (c) =>
-        !c.lastPurchaseAt ||
-        c.lastPurchaseAt < new Date(now.getTime() - days * 24 * 60 * 60 * 1000)
-    ).length;
+  // QUEM PAROU DE COMPRAR ≠ QUEM NUNCA COMPROU.
+  //
+  // Antes os dois entravam no mesmo saco e o cartão mostrava o mesmo número
+  // em 30, 60 e 90 dias (quase todo mundo era "inativo" por nunca ter
+  // comprado). Cliente inativa é a que COMPRAVA e sumiu — essa se liga e
+  // recupera; quem nunca comprou é lead, e o trabalho é outro (1ª venda).
+  //
+  // A data da última compra vem DOS PRÓPRIOS PEDIDOS PAGOS, a mesma fonte do
+  // faturamento — o carimbo `lastPurchaseAt` não é gravado em todos os
+  // caminhos e fazia a conta não fechar (217 − 7 ≠ 209).
+  const ultimaCompra = (c: { orders: { paidAt: Date | null }[] }): Date | null =>
+    c.orders.reduce<Date | null>(
+      (max, o) => (o.paidAt && (!max || o.paidAt > max) ? o.paidAt : max),
+      null
+    );
+  const compradores = allCustomers.filter((c) => c.orders.length > 0);
+  const leadsSemCompra = allCustomers.length - compradores.length;
+  const pararam = (days: number) => {
+    const corte = new Date(now.getTime() - days * DIA_MS);
+    return compradores.filter((c) => {
+      const u = ultimaCompra(c);
+      return u !== null && u < corte;
+    }).length;
+  };
 
   // tempo médio de fechamento (ganhas)
   const won = opps.filter((o) => o.status === "WON" && o.closedAt);
@@ -263,13 +310,13 @@ export default async function ReportsPage({
     .sort((a, b) => b.value - a.value)
     .slice(0, 7);
 
-  const total90 = sales.reduce((s, v) => s + v.netTotal, 0);
+  const totalPeriodo = sales.reduce((s, v) => s + v.netTotal, 0);
 
   return (
     <div className="max-w-7xl mx-auto">
       <PageHeader
         title="Relatórios"
-        subtitle={`Faturamento e vendas do período escolhido (${rotuloPeriodo}); os blocos de base de clientes mostram o histórico completo (cada um diz o seu período).`}
+        subtitle={`Números do período escolhido (${rotuloPeriodo}); os blocos marcados com “histórico” olham a base inteira de clientes.`}
       />
 
       <div className="mb-5">
@@ -279,71 +326,78 @@ export default async function ReportsPage({
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4 mb-6">
         <StatTile
           label={`Faturamento (${filtro.personalizado ? "período" : "90d"})`}
-          value={brl(total90)}
-          hint={`${sales.length} vendas`}
+          value={brl(totalPeriodo)}
+          hint={`${sales.length} venda${sales.length === 1 ? "" : "s"}`}
           icon={<TrendingUp />}
         />
         <StatTile
           label="Tempo médio de fechamento"
-          value={`${avgClose.toFixed(0)} dias`}
-          hint={`${won.length} pedidos ganhos`}
+          value={dias(avgClose)}
+          hint={won.length === 1 ? "1 negociação ganha" : `${won.length} negociações ganhas`}
           icon={<Clock />}
         />
         <StatTile
-          label="Clientes inativos 60d+"
-          value={String(inactive(60))}
-          hint={`${inactive(30)} há 30d+ · ${inactive(90)} há 90d+`}
+          label="Pararam de comprar (60d+)"
+          value={String(pararam(60))}
+          hint={`${pararam(30)} há 30d+ · ${leadsSemCompra} leads nunca compraram`}
           icon={<Moon />}
-          tone={inactive(60) > 0 ? "warn" : "good"}
+          tone={pararam(60) > 0 ? "warn" : "good"}
         />
         <StatTile
-          label="Follow-ups pendentes"
-          value={String(pendingTasks)}
+          label="Tarefas atrasadas"
+          value={String(tarefasAtrasadas)}
+          hint={`de ${tarefasPendentes} pendentes no total`}
           icon={<Users />}
-          tone={pendingTasks > 10 ? "warn" : "default"}
+          tone={tarefasAtrasadas > 0 ? "warn" : "good"}
         />
       </div>
 
-      {/* Canais de aquisição */}
+      {/* Canais de aquisição — mesmo período dos cartões de cima */}
       <h2 className="font-semibold mb-3 text-sm text-gray-600">
-        Canais de aquisição <span className="font-normal text-gray-400">(histórico completo)</span>
+        Canais de aquisição <span className="font-normal text-gray-400">({rotuloPeriodo})</span>
       </h2>
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4 mb-4">
         <StatTile
           label="Melhor canal"
           value={bestChannel?.origin ?? "—"}
-          hint={bestChannel ? `${brl(bestChannel.revenue)} vendidos` : undefined}
+          hint={
+            bestChannel
+              ? bestChannel.revenue > 0
+                ? `${brl(bestChannel.revenue)} vendidos`
+                : `${bestChannel.leads} leads (sem venda no período)`
+              : undefined
+          }
           tone="good"
         />
         <StatTile
           label="1ª resposta (média)"
           value={fmtDuration(avgResponseMin)}
-          hint={`${conversations.length} conversas analisadas`}
+          hint={`${responseTimes.length} conversa${responseTimes.length === 1 ? "" : "s"} respondida${responseTimes.length === 1 ? "" : "s"}`}
         />
         <StatTile
           label="Tempo até a venda"
-          value={`${avgDaysToSale.toFixed(0)} dias`}
-          hint="do lead à 1ª compra"
+          value={dias(avgDaysToSale)}
+          hint={`do cadastro à 1ª compra · ${channels.reduce((a, c) => a + c.daysToSale.length, 0)} clientes estrearam`}
         />
         <StatTile
           label="Canais ativos"
           value={String(channels.length)}
-          hint="origens com leads"
+          hint="origens com movimento no período"
         />
       </div>
       <div className="grid lg:grid-cols-3 gap-4 md:gap-6 mb-6">
         <Card className="p-5">
-          <h2 className="font-semibold mb-4">Leads por origem <span className="text-xs font-normal text-gray-400">· histórico</span></h2>
+          <h2 className="font-semibold mb-4">Leads por origem <span className="text-xs font-normal text-gray-400">· {rotuloPeriodo}</span></h2>
           <BarList
             data={channels
-              .slice()
+              .filter((c) => c.leads > 0)
               .sort((a, b) => b.leads - a.leads)
               .map((c) => ({ label: c.origin, value: c.leads }))}
             formatValue={(v) => `${v}`}
           />
         </Card>
         <Card className="p-5">
-          <h2 className="font-semibold mb-4">Valor vendido por canal <span className="text-xs font-normal text-gray-400">· histórico</span></h2>
+          <h2 className="font-semibold mb-4">Valor vendido por canal <span className="text-xs font-normal text-gray-400">· {rotuloPeriodo}</span></h2>
           <BarList
             color="#10b981"
             data={channels
@@ -351,22 +405,25 @@ export default async function ReportsPage({
               .map((c) => ({
                 label: c.origin,
                 value: c.revenue,
-                sub: `ticket médio ${brl(c.buyers ? c.revenue / c.buyers : 0)}`,
+                // ticket médio POR PEDIDO. Dividir pelo nº de clientes (como
+                // era) infla o ticket assim que alguém recompra — e recompra
+                // é justamente a graça do atacado.
+                sub: `ticket médio ${brl(c.orders ? c.revenue / c.orders : 0)} · ${c.orders} pedido${c.orders === 1 ? "" : "s"}`,
               }))}
             formatValue={brl}
           />
         </Card>
         <Card className="p-5">
-          <h2 className="font-semibold mb-4">Conversão por origem <span className="text-xs font-normal text-gray-400">· histórico</span></h2>
+          <h2 className="font-semibold mb-4">Conversão por origem <span className="text-xs font-normal text-gray-400">· leads do período</span></h2>
           <BarList
             color="#0ea5e9"
             data={channels
-              .slice()
+              .filter((c) => c.leads > 0)
               .sort((a, b) => b.buyers / b.leads - a.buyers / a.leads)
               .map((c) => ({
                 label: c.origin,
                 value: Math.round((c.buyers / c.leads) * 100),
-                sub: `${c.buyers} de ${c.leads} leads compraram`,
+                sub: `${c.buyers} de ${c.leads} leads do período compraram`,
               }))}
             formatValue={(v) => `${v}%`}
           />

@@ -34,11 +34,14 @@ export async function GET(
     const paid = customer.orders.filter((o) =>
       PAID_ORDER_STATUSES.includes(o.status)
     );
-    // total gasto e nº de pedidos pagos considerando TODO o histórico
+    // total gasto, nº de pedidos e última compra considerando TODO o
+    // histórico — a última compra sai DOS PEDIDOS (o carimbo lastPurchaseAt
+    // não é gravado em todos os caminhos e mostrava data velha no painel)
     const agg = await db.order.aggregate({
       where: { customerId: id, status: { in: PAID_ORDER_STATUSES } },
       _sum: { netTotal: true },
       _count: { _all: true },
+      _max: { paidAt: true },
     });
 
     return NextResponse.json({
@@ -62,7 +65,7 @@ export async function GET(
       campaign: customer.campaign
         ? { id: customer.campaign.id, name: customer.campaign.name }
         : null,
-      lastPurchaseAt: customer.lastPurchaseAt?.toISOString() ?? null,
+      lastPurchaseAt: (agg._max.paidAt ?? customer.lastPurchaseAt)?.toISOString() ?? null,
       createdAt: customer.createdAt.toISOString(),
       totalSpent: agg._sum.netTotal ?? 0,
       paidOrders: agg._count._all,

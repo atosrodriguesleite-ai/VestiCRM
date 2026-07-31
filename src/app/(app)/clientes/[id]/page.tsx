@@ -175,7 +175,16 @@ export default async function CustomerDetailPage({
   const paidOrders = customer.orders.filter((o) =>
     (PAID_ORDER_STATUSES as readonly string[]).includes(o.status)
   );
-  const totalSpent = paidOrders.reduce((s, v) => s + v.total, 0);
+  // valor COMPRADO (netTotal, sem frete) — mesma régua de "Clientes mais
+  // valiosos" e do faturamento; com `total` a mesma cliente aparecia com um
+  // número aqui e outro no ranking
+  const totalSpent = paidOrders.reduce((s, v) => s + v.netTotal, 0);
+  // última compra sai DOS PEDIDOS PAGOS (o carimbo lastPurchaseAt não é
+  // gravado em todos os caminhos e mostrava "nunca" para quem comprou)
+  const ultimaCompra = paidOrders.reduce<Date | null>(
+    (max, o) => (o.paidAt && (!max || o.paidAt > max) ? o.paidAt : max),
+    null
+  );
   const ticket = paidOrders.length ? totalSpent / paidOrders.length : 0;
 
   // link para chamar o cliente direto no WhatsApp
@@ -286,9 +295,7 @@ export default async function CustomerDetailPage({
               <ShoppingBag className="size-3" /> Última compra
             </p>
             <p className="font-medium">
-              {customer.lastPurchaseAt
-                ? relativeDays(customer.lastPurchaseAt)
-                : "nunca"}
+              {ultimaCompra ? relativeDays(ultimaCompra) : "nunca"}
             </p>
           </div>
           <div>
