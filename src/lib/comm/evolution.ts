@@ -170,6 +170,12 @@ export const WEBHOOK_EVENTS = [
   "MESSAGES_UPSERT",
   "MESSAGES_UPDATE",
   "MESSAGES_DELETE", // cliente apagou uma mensagem
+  // NOME DA CLIENTE: o WhatsApp nem sempre manda o nome junto da primeira
+  // mensagem — às vezes ele chega segundos depois, nestes avisos. Sem
+  // escutá-los, o contato ficava "Lead 9621" para sempre (Toque Leve,
+  // 31/07/2026), mesmo com o nome disponível no servidor.
+  "CONTACTS_UPSERT",
+  "CONTACTS_UPDATE",
 ] as const;
 
 function webhookUrl(webhookToken: string) {

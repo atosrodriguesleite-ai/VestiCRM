@@ -1,5 +1,5 @@
 import { db } from "./db";
-import { originLabel } from "./format";
+import { formatPhone, originLabel } from "./format";
 import { consolidateOpenConversations } from "./merge-contacts";
 import { Prisma } from "@prisma/client";
 import type { Origin, Customer, Conversation, Opportunity, Task } from "@prisma/client";
@@ -243,7 +243,15 @@ export async function intakeLead(
     customer = await db.customer.create({
       data: {
         companyId,
-        name: payload.name?.trim() || `Lead ${phone.slice(-4)}`,
+        // CRACHÁ PROVISÓRIO COM O NÚMERO INTEIRO.
+        //
+        // Antes era "Lead 9621" (só os 4 últimos dígitos). Na tela isso parece
+        // erro do sistema — a lojista da Toque Leve estranhou —, não diz de
+        // quem é a conversa e ainda embaralha duas clientes de DDDs
+        // diferentes que terminem igual. "Contato (82) 9664-9621" identifica
+        // a pessoa na hora e continua sendo provisório (`nomeProvisorio`):
+        // some sozinho quando o nome de verdade aparecer.
+        name: payload.name?.trim() || `Contato ${formatPhone(phone)}`,
         phone,
         city: payload.city,
         state: payload.state,

@@ -2,12 +2,13 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { receiveMessage, updateDeliveryStatus } from "@/lib/comm/engine";
 import { jidToPhone, evoGetMediaBase64 } from "@/lib/comm/evolution";
-import { findCustomerByPhone } from "@/lib/intake";
+import { findCustomerByPhone, nomeProvisorio } from "@/lib/intake";
 import { alertWhatsappDown, logServerError } from "@/lib/health";
 import { adCode, campanhaDoAnuncio } from "@/lib/ad-match";
 import { formatPhone } from "@/lib/format";
 import { lerMensagemWA, soRecadoDoProtocolo } from "@/lib/comm/wa-message";
 import { buscarTextoAtual, lerEdicao } from "@/lib/comm/edicao";
+import { lerContatos, nomeDeQuemMandou } from "@/lib/comm/nome-do-contato";
 
 /**
  * Webhook do WhatsApp sem API oficial (Evolution → plataforma).
@@ -20,6 +21,9 @@ import { buscarTextoAtual, lerEdicao } from "@/lib/comm/edicao";
  *                         mensagem enviada PELO CELULAR também entra no
  *                         histórico da conversa (visão completa do cliente)
  *  - messages.update    → recibos de entrega/leitura nas mensagens enviadas
+ *  - contacts.upsert    → o servidor descobriu o nome da cliente (às vezes
+ *    contacts.update      só depois da primeira mensagem): troca o crachá
+ *                         provisório pelo nome de verdade
  *
  * Sempre responde 200 (evita tempestade de retentativas do servidor).
  */
@@ -334,7 +338,10 @@ export async function POST(
           const result = await receiveMessage(companyId, {
             channel: "WHATSAPP",
             phone,
-            name: m.pushName || undefined,
+            // o nome vem em campos diferentes conforme a versão do servidor
+            // e o tipo de conta (empresa manda em `verifiedBizName`) — ler só
+            // `m.pushName` foi o que fez nascer a conversa "Lead 9621"
+            name: nomeDeQuemMandou(m, body.data) || undefined,
             text: textoFinal,
             ...(mediaType !== "TEXT" && mediaUrl
               ? { mediaType, mediaUrl, fileName: fileName ?? undefined }
@@ -604,6 +611,42 @@ export async function POST(
             detail: JSON.stringify({ id: m.key?.id, de: m.key?.remoteJid, minha: m.key?.fromMe }),
           }).catch(() => {});
         }
+      }
+    }
+
+    /**
+     * O SERVIDOR DESCOBRIU O NOME DA CLIENTE.
+     *
+     * O WhatsApp nem sempre manda o nome junto da primeira mensagem — às
+     * vezes ele chega segundos depois, neste aviso separado. A gente jogava
+     * esse aviso no lixo, e o contato ficava "Lead 9621" para sempre, mesmo
+     * com o nome disponível.
+     *
+     * Regra de ouro: só troca CRACHÁ PROVISÓRIO (o apelido que o próprio
+     * sistema inventou com o telefone). Nome escrito por gente — a vendedora
+     * corrigiu, a cliente digitou no catálogo — NUNCA é sobrescrito.
+     */
+    if (event === "contacts.upsert" || event === "contacts.update") {
+      for (const c of lerContatos(body.data)) {
+        const phone = jidToPhone(c.jid);
+        if (!phone) continue;
+        const cliente = await findCustomerByPhone(companyId, phone);
+        if (!cliente || !nomeProvisorio(cliente.name)) continue;
+        await db.customer.update({
+          where: { id: cliente.id },
+          data: { name: c.nome },
+        });
+        await db.customerEvent
+          .create({
+            data: {
+              companyId,
+              customerId: cliente.id,
+              type: "NOVA_INTERACAO",
+              channel: "WHATSAPP",
+              description: `Nome atualizado para “${c.nome}” (veio do perfil do WhatsApp).`,
+            },
+          })
+          .catch(() => {});
       }
     }
 
