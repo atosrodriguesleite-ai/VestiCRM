@@ -47,7 +47,7 @@ import {
 } from "lucide-react";
 import { OrderComposer } from "@/components/order-composer";
 import { contadorAoMarcarNaoLida } from "@/lib/comm/fila";
-import { copiarTexto, textoDaMensagem } from "@/lib/copiar";
+import { copiarTexto, legendaDaMidia, textoDaMensagem } from "@/lib/copiar";
 import { ContactPanel } from "./contact-panel";
 import { orderNumber } from "@/lib/orders";
 import {
@@ -2267,13 +2267,23 @@ export function Inbox({
                             </div>
                           )}
                           <MediaContent m={m} />
-                          {(m.mediaType === "TEXT" || m.mediaType === "TEMPLATE") && (
+                          {/* LEGENDA DA MÍDIA: o texto que a cliente escreveu
+                              junto da foto. Antes a tela só desenhava texto
+                              quando a mensagem era texto PURO — numa foto, a
+                              legenda ficava invisível, mesmo estando gravada.
+                              A cliente mandava a peça e escrevia "essa no P,
+                              3 unidades" embaixo, e a vendedora não via. */}
+                          {(m.mediaType === "TEXT" || m.mediaType === "TEMPLATE"
+                            ? m.body
+                            : legendaDaMidia(m)) && (
                             <p
                               className={`whitespace-pre-wrap break-words ${
                                 m.revoked ? "italic opacity-80" : ""
                               }`}
                             >
-                              {m.body}
+                              {m.mediaType === "TEXT" || m.mediaType === "TEMPLATE"
+                                ? m.body
+                                : legendaDaMidia(m)}
                             </p>
                           )}
                         </>

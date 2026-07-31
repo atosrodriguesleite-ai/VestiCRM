@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { copiarTexto, textoDaMensagem } from "../copiar";
+import { copiarTexto, legendaDaMidia, textoDaMensagem } from "../copiar";
 
 /**
  * COPIAR MENSAGEM no chat.
@@ -130,5 +130,58 @@ describe("a opção no chat", () => {
 
   it("no celular o caminho é segurar a bolha (já existia)", () => {
     expect(inbox).toContain("startLongPress");
+  });
+});
+
+describe("legenda da foto (Toque Leve, 31/07/2026)", () => {
+  /**
+   * A cliente mandou uma foto com texto embaixo e a loja SÓ VIU A FOTO. A
+   * legenda estava gravada — o sistema leu certo do WhatsApp —, mas a tela só
+   * desenhava texto quando a mensagem era de texto puro.
+   *
+   * Numa negociação isso é caro: "essa no P, 3 unidades" some, e a vendedora
+   * responde como se a cliente não tivesse pedido nada.
+   */
+  it("a legenda que a cliente escreveu aparece", () => {
+    expect(
+      legendaDaMidia({ body: "essa no P, 3 unidades", mediaType: "IMAGE" })
+    ).toBe("essa no P, 3 unidades");
+  });
+
+  it.each([
+    ["[foto]", "IMAGE"],
+    ["[vídeo]", "VIDEO"],
+    ["[áudio]", "AUDIO"],
+    ["[figurinha]", "IMAGE"],
+    ["[arquivo] tabela-precos.pdf", "DOCUMENT"],
+  ])("o rótulo %s NÃO vira legenda (foto sem texto fica limpa)", (body, mediaType) => {
+    expect(legendaDaMidia({ body, mediaType })).toBe("");
+  });
+
+  it("legenda vazia ou nula não desenha nada", () => {
+    expect(legendaDaMidia({ body: "   ", mediaType: "IMAGE" })).toBe("");
+    expect(legendaDaMidia({ body: null, mediaType: "IMAGE" })).toBe("");
+  });
+
+  it("legenda que POR ACASO fala de foto continua aparecendo", () => {
+    // "[foto]" sozinho é rótulo; texto de gente que menciona foto, não
+    expect(legendaDaMidia({ body: "manda a [foto] do vinho", mediaType: "IMAGE" })).toBe(
+      "manda a [foto] do vinho"
+    );
+  });
+});
+
+describe("a tela desenha a legenda", () => {
+  const tela = readFileSync(
+    join(process.cwd(), "src/app/(app)/whatsapp/inbox.tsx"),
+    "utf8"
+  );
+
+  it("mídia usa a legenda; texto puro segue usando o corpo", () => {
+    expect(tela).toContain("legendaDaMidia(m)");
+    // a condição antiga escondia o texto de qualquer mídia
+    expect(tela).not.toContain(
+      '{(m.mediaType === "TEXT" || m.mediaType === "TEMPLATE") && (\n                            <p'
+    );
   });
 });
