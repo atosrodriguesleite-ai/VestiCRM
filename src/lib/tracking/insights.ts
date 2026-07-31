@@ -379,14 +379,55 @@ export async function heatmaps(companyId: string, p: Period) {
 
 // ---- Recuperação comercial + alertas -----------------------------------------
 
+/**
+ * OPORTUNIDADES DE RECUPERAÇÃO — carrinho abandonado, quase comprando, cliente
+ * que voltou.
+ *
+ * Devolve TODAS as oportunidades do período (quem chama decide quantas
+ * mostrar). Antes cortava em 12 aqui dentro: a tela dizia "33 carrinhos
+ * abandonados" e não existia jeito de ver os outros 21 — dinheiro parado que
+ * a loja nunca chegava a perseguir.
+ *
+ * O teto alto (`LIMITE_RECUPERACAO`) é só para a página não travar num
+ * período de um ano numa loja grande.
+ */
+export const LIMITE_RECUPERACAO = 300;
+
 export async function recovery(companyId: string, p: Period) {
   const sessions = await db.trackSession.findMany({
-    where: { companyId, startedAt: { gte: p.from } },
+    where: { companyId, startedAt: { gte: p.from, lte: p.to } },
     include: { visitor: true },
     orderBy: { startedAt: "desc" },
   });
   const customers = await db.customer.findMany({ where: { companyId } });
   const byId = new Map(customers.map((c) => [c.id, c]));
+
+  // AS SACOLAS EM UMA CONSULTA SÓ. Antes era uma consulta por carrinho, dentro
+  // do laço: com 12 itens passava, com 300 derrubaria a tela.
+  const idsAbandonados = new Set<string>();
+  const vistosNaVarredura = new Set<string>();
+  for (const s of sessions) {
+    if (!s.converted && s.cartAdds > 0 && s.cartValue > 0 && !vistosNaVarredura.has(s.visitorId)) {
+      vistosNaVarredura.add(s.visitorId);
+      idsAbandonados.add(s.id);
+    }
+  }
+  const eventosDasSacolas = idsAbandonados.size
+    ? await db.trackEvent.findMany({
+        where: {
+          sessionId: { in: [...idsAbandonados] },
+          type: { in: ["cart_add", "cart_remove"] },
+        },
+        orderBy: { createdAt: "asc" },
+      })
+    : [];
+  const eventosPorSessao = new Map<string, typeof eventosDasSacolas>();
+  for (const e of eventosDasSacolas) {
+    if (!e.sessionId) continue;
+    const lista = eventosPorSessao.get(e.sessionId) ?? [];
+    lista.push(e);
+    eventosPorSessao.set(e.sessionId, lista);
+  }
   const out: {
     kind: string;
     title: string;
@@ -404,10 +445,7 @@ export async function recovery(companyId: string, p: Period) {
       const customer = s.customerId ? byId.get(s.customerId) : null;
       const name = customer?.name ?? null;
       // reconstrói a sacola abandonada pelos eventos (produto/cor/tam/qtd)
-      const evs = await db.trackEvent.findMany({
-        where: { sessionId: s.id, type: { in: ["cart_add", "cart_remove"] } },
-        orderBy: { createdAt: "asc" },
-      });
+      const evs = eventosPorSessao.get(s.id) ?? [];
       const bag = new Map<string, number>();
       for (const e of evs) {
         const key = [e.productName, e.color, e.size].filter(Boolean).join(" · ");
@@ -461,7 +499,7 @@ export async function recovery(companyId: string, p: Period) {
       }
     }
   }
-  return out.slice(0, 12);
+  return out.slice(0, LIMITE_RECUPERACAO);
 }
 
 const fmtBrl = (v: number) =>

@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireUser, AuthError } from "@/lib/auth";
 import { isManagerUp } from "@/lib/scope";
+import { lerPeriodo } from "@/lib/periodo";
 import {
-  periodFromDays,
   channelRanking,
   sellerRanking,
   campaignRanking,
@@ -23,8 +23,19 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "Sem permissão" }, { status: 403 });
     }
     const tipo = req.nextUrl.searchParams.get("relatorio") ?? "canais";
-    const days = Number(req.nextUrl.searchParams.get("dias") ?? 30);
-    const period = periodFromDays([1, 7, 30, 90, 365].includes(days) ? days : 30);
+    // mesma leitura da tela: atalho em dias OU o período escolhido a dedo —
+    // a planilha tem que sair do MESMO recorte que está na tela
+    const qs = req.nextUrl.searchParams;
+    const filtro = lerPeriodo({
+      dias: qs.get("dias") ?? undefined,
+      de: qs.get("de") ?? undefined,
+      ate: qs.get("ate") ?? undefined,
+    });
+    const period = filtro.period;
+    // nome do arquivo conta o recorte: "…-30d.csv" ou "…-2026-07-01_2026-07-31.csv"
+    const sufixo = filtro.personalizado
+      ? [filtro.de ?? "inicio", filtro.ate ?? "hoje"].join("_")
+      : `${filtro.dias}d`;
     const c = user.companyId;
 
     let headers: string[] = [];
@@ -75,7 +86,7 @@ export async function GET(req: NextRequest) {
     return new NextResponse(csv, {
       headers: {
         "Content-Type": "text/csv; charset=utf-8",
-        "Content-Disposition": `attachment; filename="inteligencia-${tipo}-${days}d.csv"`,
+        "Content-Disposition": `attachment; filename="inteligencia-${tipo}-${sufixo}.csv"`,
       },
     });
   } catch (e) {
