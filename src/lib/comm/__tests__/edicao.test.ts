@@ -148,8 +148,16 @@ describe("o webhook usa a leitura nova", () => {
   it("edição cifrada PERGUNTA o texto ao servidor (não manda olhar no celular)", () => {
     // nem toda vendedora tem o celular do WhatsApp na mão — mandar ela
     // conferir no aplicativo não é resposta
-    expect(hook).toContain("buscarTextoAtual(settings.evolutionInstance, edicao.alvoId)");
+    expect(hook).toContain("buscarTextoAtual(");
     expect(hook).toContain("...(texto ? { body: texto } : {})");
+    // e a conversa vai junto: é o plano B quando o servidor não filtra por id
+    expect(hook).toContain("m.key?.remoteJid");
+  });
+
+  it("edição sem texto fica REGISTRADA (para descobrir o formato novo)", () => {
+    // mesma lição da mensagem que não entrava: sem o conteúdo bruto, a gente
+    // fica adivinhando qual formato o WhatsApp mandou desta vez
+    expect(hook).toContain('registrarDescarte(companyId, "edição sem texto legível", m)');
   });
 
   it("sem conseguir o texto nem pelo servidor, ao menos marca “editada”", () => {

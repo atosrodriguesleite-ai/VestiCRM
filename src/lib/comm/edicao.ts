@@ -144,20 +144,60 @@ export function acharMensagemNaResposta(resposta: unknown): Qualquer | null {
  */
 export async function buscarTextoAtual(
   instance: string | null,
-  messageId: string
+  messageId: string,
+  remoteJid?: string | null
 ): Promise<string> {
   if (!instance || !messageId) return "";
-  try {
-    const res = await evoFindMessages(instance, { id: messageId });
-    if (!res.ok || !res.data) return "";
-    const m = acharMensagemNaResposta(res.data);
+
+  const texto = (m: Qualquer | null): string => {
     if (!m) return "";
     // a mensagem guardada no servidor já vem com o texto EDITADO; e se ela
     // mesma estiver embrulhada num aviso de edição, a leitura resolve
     const dela = lerEdicao(m);
     if (dela?.texto) return dela.texto;
     return lerMensagemWA(m as { message?: never }).text.trim();
+  };
+
+  try {
+    // 1ª tentativa: pedir a mensagem pelo id (o caminho direto)
+    const porId = await evoFindMessages(instance, { id: messageId });
+    if (porId.ok && porId.data) {
+      const achado = texto(acharMensagemNaResposta(porId.data));
+      if (achado) return achado;
+    }
+
+    // 2ª tentativa: nem toda versão do servidor aceita filtrar por id. Então
+    // pede as últimas da CONVERSA e procura a nossa na lista.
+    if (!remoteJid) return "";
+    const daConversa = await evoFindMessages(instance, { remoteJid, offset: 50 });
+    if (!daConversa.ok || !daConversa.data) return "";
+    const lista = acharTodasAsMensagens(daConversa.data);
+    const nossa = lista.find((x) => str(obj(x.key)?.id) === messageId) ?? null;
+    return texto(nossa);
   } catch {
     return "";
   }
+}
+
+/** Todas as mensagens de uma resposta do servidor, em qualquer formato. */
+export function acharTodasAsMensagens(resposta: unknown): Qualquer[] {
+  const achadas: Qualquer[] = [];
+  const visitados = new Set<unknown>();
+  const procurar = (no: unknown, nivel: number) => {
+    if (!no || typeof no !== "object" || nivel > 6) return;
+    if (visitados.has(no)) return;
+    visitados.add(no);
+    if (Array.isArray(no)) {
+      for (const item of no) procurar(item, nivel + 1);
+      return;
+    }
+    const o = no as Qualquer;
+    if (obj(o.message) && obj(o.key)) {
+      achadas.push(o);
+      return;
+    }
+    for (const valor of Object.values(o)) procurar(valor, nivel + 1);
+  };
+  procurar(resposta, 0);
+  return achadas;
 }

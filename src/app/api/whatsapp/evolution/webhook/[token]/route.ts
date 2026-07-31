@@ -247,7 +247,20 @@ export async function POST(
           // o celular do WhatsApp na mão; mandar ela olhar lá não é resposta.
           const texto =
             edicao.texto ||
-            (await buscarTextoAtual(settings.evolutionInstance, edicao.alvoId));
+            (await buscarTextoAtual(
+              settings.evolutionInstance,
+              edicao.alvoId,
+              m.key?.remoteJid
+            ));
+          // EDIÇÃO SEM TEXTO FICA REGISTRADA (mesma lição da mensagem que não
+          // entrava): sem o conteúdo bruto não dá para descobrir QUAL formato
+          // o WhatsApp mandou desta vez, e a gente fica adivinhando. Isto é o
+          // que permite ensinar o leitor a entender o formato novo.
+          if (!texto) {
+            await registrarDescarte(companyId, "edição sem texto legível", m).catch(
+              () => {}
+            );
+          }
           const r = await db.message.updateMany({
             where: { externalId: edicao.alvoId, conversation: { companyId } },
             data: {
