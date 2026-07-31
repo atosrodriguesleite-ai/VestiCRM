@@ -105,14 +105,15 @@ function extractAdReferral(m: EvoMessage): AdReply | null {
 async function registrarDescarte(
   companyId: string,
   motivo: string,
-  m: EvoMessage
+  m: EvoMessage,
+  tipo = "message.nao-lida-pelo-sistema"
 ): Promise<void> {
   await db.commEvent.create({
     data: {
       companyId,
       channel: "WHATSAPP",
       direction: "IN",
-      type: "message.nao-lida-pelo-sistema",
+      type: tipo,
       status: "ERRO",
       error: `Mensagem recebida que o sistema não conseguiu interpretar (${motivo}).`,
       // o conteúdo bruto é a única pista para corrigir o leitor depois
@@ -257,9 +258,12 @@ export async function POST(
           // o WhatsApp mandou desta vez, e a gente fica adivinhando. Isto é o
           // que permite ensinar o leitor a entender o formato novo.
           if (!texto) {
-            await registrarDescarte(companyId, "edição sem texto legível", m).catch(
-              () => {}
-            );
+            await registrarDescarte(
+              companyId,
+              "edição sem texto legível",
+              m,
+              "wa.edicao.sem-texto"
+            ).catch(() => {});
           }
           const r = await db.message.updateMany({
             where: { externalId: edicao.alvoId, conversation: { companyId } },

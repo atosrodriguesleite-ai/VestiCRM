@@ -157,7 +157,9 @@ describe("o webhook usa a leitura nova", () => {
   it("edição sem texto fica REGISTRADA (para descobrir o formato novo)", () => {
     // mesma lição da mensagem que não entrava: sem o conteúdo bruto, a gente
     // fica adivinhando qual formato o WhatsApp mandou desta vez
-    expect(hook).toContain('registrarDescarte(companyId, "edição sem texto legível", m)');
+    expect(hook).toContain('"edição sem texto legível"');
+    // com nome próprio no log, para a lojista achar sem precisar decifrar
+    expect(hook).toContain('"wa.edicao.sem-texto"');
   });
 
   it("sem conseguir o texto nem pelo servidor, ao menos marca “editada”", () => {
