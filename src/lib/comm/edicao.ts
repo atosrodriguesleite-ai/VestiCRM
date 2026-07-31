@@ -23,6 +23,9 @@
  *      WhatsApp. Melhor que uma bolha enigmática solta na conversa.
  */
 
+import { evoFindMessages } from "./evolution";
+import { lerMensagemWA } from "./wa-message";
+
 type Qualquer = Record<string, unknown>;
 
 const obj = (v: unknown): Qualquer | null =>
@@ -93,4 +96,68 @@ export function lerEdicao(evento: unknown): Edicao | null {
   }
 
   return null;
+}
+
+/**
+ * Acha a mensagem dentro do que o servidor Evolution devolveu.
+ *
+ * A resposta muda de formato entre versões: às vezes é uma lista solta, às
+ * vezes vem embrulhada em `messages.records`. Em vez de adivinhar o caminho,
+ * procura o primeiro item que tenha `message` — a estrutura muda, a mensagem
+ * continua sendo uma mensagem.
+ */
+export function acharMensagemNaResposta(resposta: unknown): Qualquer | null {
+  let achada: Qualquer | null = null;
+  const visitados = new Set<unknown>();
+  const procurar = (no: unknown, nivel: number) => {
+    if (achada || !no || typeof no !== "object" || nivel > 6) return;
+    if (visitados.has(no)) return;
+    visitados.add(no);
+    if (Array.isArray(no)) {
+      for (const item of no) procurar(item, nivel + 1);
+      return;
+    }
+    const o = no as Qualquer;
+    if (obj(o.message) && obj(o.key)) {
+      achada = o;
+      return;
+    }
+    for (const valor of Object.values(o)) procurar(valor, nivel + 1);
+  };
+  procurar(resposta, 0);
+  return achada;
+}
+
+/**
+ * TEXTO NOVO DE UMA EDIÇÃO CIFRADA.
+ *
+ * Quando a edição chega criptografada, o aviso não traz o texto — mas o
+ * SERVIDOR já tem a mensagem atualizada. Então, em vez de deixar a vendedora
+ * sem saber o que mudou, o sistema PERGUNTA.
+ *
+ * Isso importa porque nem toda vendedora tem o celular do WhatsApp na mão:
+ * mandar ela "conferir no aplicativo" não é resposta. (Toque Leve: a cliente
+ * acrescentou "1 M vinho" ao pedido editando a mensagem.)
+ *
+ * Nunca lança e nunca trava o webhook: no pior caso devolve vazio e a
+ * mensagem segue marcada como "editada".
+ */
+export async function buscarTextoAtual(
+  instance: string | null,
+  messageId: string
+): Promise<string> {
+  if (!instance || !messageId) return "";
+  try {
+    const res = await evoFindMessages(instance, { id: messageId });
+    if (!res.ok || !res.data) return "";
+    const m = acharMensagemNaResposta(res.data);
+    if (!m) return "";
+    // a mensagem guardada no servidor já vem com o texto EDITADO; e se ela
+    // mesma estiver embrulhada num aviso de edição, a leitura resolve
+    const dela = lerEdicao(m);
+    if (dela?.texto) return dela.texto;
+    return lerMensagemWA(m as { message?: never }).text.trim();
+  } catch {
+    return "";
+  }
 }

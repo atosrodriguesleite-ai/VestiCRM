@@ -7,7 +7,7 @@ import { alertWhatsappDown, logServerError } from "@/lib/health";
 import { adCode, campanhaDoAnuncio } from "@/lib/ad-match";
 import { formatPhone } from "@/lib/format";
 import { lerMensagemWA } from "@/lib/comm/wa-message";
-import { lerEdicao } from "@/lib/comm/edicao";
+import { buscarTextoAtual, lerEdicao } from "@/lib/comm/edicao";
 
 /**
  * Webhook do WhatsApp sem API oficial (Evolution → plataforma).
@@ -241,12 +241,18 @@ export async function POST(
         // eles mora em lib/comm/edicao.ts.
         const edicao = lerEdicao(m);
         if (edicao?.alvoId) {
+          // EDIÇÃO CIFRADA: o aviso não traz o texto novo, mas o SERVIDOR já
+          // tem a mensagem atualizada — então o sistema pergunta, em vez de
+          // mandar a vendedora "conferir no WhatsApp". Nem toda vendedora tem
+          // o celular do WhatsApp na mão; mandar ela olhar lá não é resposta.
+          const texto =
+            edicao.texto ||
+            (await buscarTextoAtual(settings.evolutionInstance, edicao.alvoId));
           const r = await db.message.updateMany({
             where: { externalId: edicao.alvoId, conversation: { companyId } },
             data: {
-              // edição criptografada não traz o texto novo: então só marca
-              // "editada", para a loja saber que precisa conferir no WhatsApp
-              ...(edicao.texto ? { body: edicao.texto } : {}),
+              // sem texto nem pelo servidor, ao menos marca "editada"
+              ...(texto ? { body: texto } : {}),
               editedAt: new Date(),
             },
           });

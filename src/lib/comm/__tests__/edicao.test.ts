@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { lerEdicao } from "../edicao";
+import { acharMensagemNaResposta, lerEdicao } from "../edicao";
 
 /**
  * MENSAGEM EDITADA — incidente Toque Leve, 31/07/2026.
@@ -145,8 +145,35 @@ describe("o webhook usa a leitura nova", () => {
     expect(hook).not.toContain("m.message?.editedMessage?.message");
   });
 
-  it("edição sem texto legível só marca “editada”", () => {
-    expect(hook).toContain("...(edicao.texto ? { body: edicao.texto } : {})");
+  it("edição cifrada PERGUNTA o texto ao servidor (não manda olhar no celular)", () => {
+    // nem toda vendedora tem o celular do WhatsApp na mão — mandar ela
+    // conferir no aplicativo não é resposta
+    expect(hook).toContain("buscarTextoAtual(settings.evolutionInstance, edicao.alvoId)");
+    expect(hook).toContain("...(texto ? { body: texto } : {})");
+  });
+
+  it("sem conseguir o texto nem pelo servidor, ao menos marca “editada”", () => {
     expect(hook).toContain("editedAt: new Date()");
+  });
+});
+
+describe("achar a mensagem no que o servidor devolve", () => {
+  const MSG = { key: { id: "ORIG" }, message: { conversation: "texto novo" } };
+
+  it.each([
+    ["lista solta", [MSG]],
+    ["embrulhada em messages.records", { messages: { records: [MSG] } }],
+    ["dentro de data", { data: [MSG] }],
+    ["objeto direto", MSG],
+  ])("acha %s", (_nome, resposta) => {
+    expect(acharMensagemNaResposta(resposta)).toMatchObject({
+      key: { id: "ORIG" },
+    });
+  });
+
+  it("resposta vazia ou torta não quebra", () => {
+    for (const nada of [null, undefined, {}, [], "texto", 42, { messages: {} }]) {
+      expect(acharMensagemNaResposta(nada)).toBeNull();
+    }
   });
 });
