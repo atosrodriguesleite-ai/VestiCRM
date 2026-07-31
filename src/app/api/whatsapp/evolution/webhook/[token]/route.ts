@@ -7,6 +7,7 @@ import { alertWhatsappDown, logServerError } from "@/lib/health";
 import { adCode, campanhaDoAnuncio } from "@/lib/ad-match";
 import { formatPhone } from "@/lib/format";
 import { lerMensagemWA } from "@/lib/comm/wa-message";
+import { lerEdicao } from "@/lib/comm/edicao";
 
 /**
  * Webhook do WhatsApp sem API oficial (Evolution → plataforma).
@@ -235,19 +236,27 @@ export async function POST(
           continue;
         }
 
-        // o cliente editou uma mensagem: atualiza o texto e marca "editada"
-        const edited = m.message?.editedMessage?.message;
-        const editedText =
-          edited?.conversation ?? edited?.extendedTextMessage?.text ?? null;
-        if (editedText && m.key?.id) {
+        // O cliente editou uma mensagem. A edição chega em vários formatos e o
+        // id da mensagem a corrigir vem DENTRO do aviso — a leitura de todos
+        // eles mora em lib/comm/edicao.ts.
+        const edicao = lerEdicao(m);
+        if (edicao?.alvoId) {
           const r = await db.message.updateMany({
-            where: { externalId: m.key.id, conversation: { companyId } },
-            data: { body: editedText, editedAt: new Date() },
+            where: { externalId: edicao.alvoId, conversation: { companyId } },
+            data: {
+              // edição criptografada não traz o texto novo: então só marca
+              // "editada", para a loja saber que precisa conferir no WhatsApp
+              ...(edicao.texto ? { body: edicao.texto } : {}),
+              editedAt: new Date(),
+            },
           });
-          // Se a mensagem original não está aqui (chegou antes da conexão, ou
-          // se perdeu), NÃO descarta: segue o fluxo e entra como mensagem
-          // nova, já com o texto corrigido. Editar não pode apagar do sistema.
+          // Achou e corrigiu: acabou aqui.
           if (r.count > 0) continue;
+          // Não achou a original (chegou antes da conexão, ou se perdeu) e a
+          // edição trouxe o texto: segue o fluxo e entra como mensagem NOVA,
+          // já com o texto certo. Editar não pode apagar do sistema.
+          // Sem texto (edição criptografada) também segue: vira bolha de
+          // aviso, porque perder o rastro seria pior.
         }
 
         const lida = lerMensagemWA(m);
