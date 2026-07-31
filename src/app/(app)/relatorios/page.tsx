@@ -15,17 +15,33 @@ import { ownedScope, isManagerUp } from "@/lib/scope";
 import { PAID_ORDER_STATUSES } from "@/lib/orders";
 import { brl, dateShort, originLabel } from "@/lib/format";
 import { Card, PageHeader, EmptyState } from "@/components/ui";
-import { AreaChart, BarList, FunnelBars, StatTile } from "@/components/charts";
+import { AreaChart, BarList, FunnelBars, PeriodChips, StatTile } from "@/components/charts";
+import { lerPeriodo, periodoPorExtenso } from "@/lib/periodo";
 
 export const dynamic = "force-dynamic";
 
-export default async function ReportsPage() {
+export default async function ReportsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ de?: string; ate?: string }>;
+}) {
   const user = await requireUser();
   // Relatórios são visão geral da loja: vendedor comum não acessa
   if (!isManagerUp(user)) redirect("/dashboard");
   const scope = ownedScope(user);
   const now = new Date();
-  const days90 = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
+
+  // PERÍODO ESCOLHIDO PELA LOJISTA (atalhos ou datas a dedo).
+  // Antes era 90 dias FIXOS no código: não dava para ver o mês fechado, a
+  // Black Friday, nem comparar duas semanas de campanha.
+  const { de, ate } = await searchParams;
+  const filtro = lerPeriodo({ de, ate });
+  const periodo = filtro.personalizado
+    ? filtro.period
+    : { from: new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000), to: now };
+  const rotuloPeriodo = filtro.personalizado
+    ? periodoPorExtenso(filtro)
+    : "últimos 90 dias";
 
   // Venda = pedido PAGO (fonte única da verdade, igual Dashboard/Inteligência).
   // Inclui vendas integradas (Nuvemshop etc.), que entram como pedido pago
@@ -37,7 +53,7 @@ export default async function ReportsPage() {
   const [sales, sellers, stages, opps, customers, interests, pendingTasks, conversations] =
     await Promise.all([
       db.order.findMany({
-        where: { ...paidScope, paidAt: { gte: days90 } },
+        where: { ...paidScope, paidAt: { gte: periodo.from, lte: periodo.to } },
         select: { netTotal: true, paidAt: true, sellerId: true },
       }),
       // sem filtro de ativo: quem vendeu no período aparece no ranking mesmo
@@ -142,15 +158,32 @@ export default async function ReportsPage() {
         ? `${(min / 60).toFixed(1)} h`
         : `${Math.round(min)} min`;
 
-  // vendas por semana (últimas 12)
+  // VENDAS AO LONGO DO PERÍODO ESCOLHIDO.
+  //
+  // Antes eram "as últimas 12 semanas" contadas a partir de hoje, sempre.
+  // Com o período escolhido a dedo isso mentiria: pedindo "julho fechado", o
+  // gráfico mostraria 12 semanas até hoje e quase todas em zero — porque as
+  // vendas carregadas são só as de julho.
+  //
+  // Agora as barras cobrem exatamente o período. Período curto vira DIA a dia
+  // (uma barra por semana num intervalo de 10 dias não diz nada); período
+  // longo continua por semana.
+  const DIA_MS = 24 * 60 * 60 * 1000;
+  const duracaoDias = Math.max(
+    1,
+    Math.ceil((periodo.to.getTime() - periodo.from.getTime()) / DIA_MS)
+  );
+  const porDia = duracaoDias <= 31;
+  const passoMs = (porDia ? 1 : 7) * DIA_MS;
+  const quantosBlocos = Math.max(1, Math.min(26, Math.ceil(duracaoDias / (porDia ? 1 : 7))));
   const weeks: { label: string; total: number }[] = [];
-  for (let i = 11; i >= 0; i--) {
-    const start = new Date(now.getTime() - (i + 1) * 7 * 24 * 60 * 60 * 1000);
-    const end = new Date(now.getTime() - i * 7 * 24 * 60 * 60 * 1000);
+  for (let i = quantosBlocos - 1; i >= 0; i--) {
+    const end = new Date(periodo.to.getTime() - i * passoMs);
+    const start = new Date(end.getTime() - passoMs);
     weeks.push({
       label: dateShort(end),
       total: sales
-        .filter((s) => s.paidAt && s.paidAt >= start && s.paidAt < end)
+        .filter((s) => s.paidAt && s.paidAt > start && s.paidAt <= end)
         .reduce((sum, s) => sum + s.netTotal, 0),
     });
   }
@@ -236,12 +269,16 @@ export default async function ReportsPage() {
     <div className="max-w-7xl mx-auto">
       <PageHeader
         title="Relatórios"
-        subtitle="Faturamento e vendas dos últimos 90 dias; os blocos de base de clientes mostram o histórico completo (cada um diz o seu período)."
+        subtitle={`Faturamento e vendas do período escolhido (${rotuloPeriodo}); os blocos de base de clientes mostram o histórico completo (cada um diz o seu período).`}
       />
+
+      <div className="mb-5">
+        <PeriodChips pathname="/relatorios" de={de} ate={ate} allLabel="90 dias" />
+      </div>
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4 mb-6">
         <StatTile
-          label="Faturamento (90d)"
+          label={`Faturamento (${filtro.personalizado ? "período" : "90d"})`}
           value={brl(total90)}
           hint={`${sales.length} vendas`}
           icon={<TrendingUp />}
@@ -340,7 +377,8 @@ export default async function ReportsPage() {
         <Card className="p-5 lg:col-span-2">
           <h2 className="font-semibold flex items-center gap-2 mb-4">
             <BarChart3 className="size-4 text-brand-600" />
-            Vendas por semana
+            Vendas por {porDia ? "dia" : "semana"}{" "}
+            <span className="text-xs font-normal text-gray-400">· {rotuloPeriodo}</span>
           </h2>
           <AreaChart
             points={weeks.map((w) => w.total)}
@@ -350,7 +388,10 @@ export default async function ReportsPage() {
         </Card>
 
         <Card className="p-5">
-          <h2 className="font-semibold mb-4">Vendas por vendedor (90d)</h2>
+          <h2 className="font-semibold mb-4">
+            Vendas por vendedor{" "}
+            <span className="text-xs font-normal text-gray-400">· {rotuloPeriodo}</span>
+          </h2>
           {bySeller.length === 0 ? (
             <EmptyState title="Sem vendas no período" />
           ) : (
