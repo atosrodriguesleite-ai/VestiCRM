@@ -6,7 +6,7 @@ import { findCustomerByPhone } from "@/lib/intake";
 import { alertWhatsappDown, logServerError } from "@/lib/health";
 import { adCode, campanhaDoAnuncio } from "@/lib/ad-match";
 import { formatPhone } from "@/lib/format";
-import { lerMensagemWA } from "@/lib/comm/wa-message";
+import { lerMensagemWA, soRecadoDoProtocolo } from "@/lib/comm/wa-message";
 import { buscarTextoAtual, lerEdicao } from "@/lib/comm/edicao";
 
 /**
@@ -298,8 +298,9 @@ export async function POST(
         // de aviso E fica registrada no painel de Saúde com o conteúdo bruto,
         // que é o que permite ensinar o sistema a ler aquele formato.
         if (!text) {
-          const soControle = !m.message || Object.keys(m.message).length === 0;
-          if (soControle) continue;
+          // recado do protocolo (inclusive o aviso de álbum, cujas fotos
+          // chegam em seguida): ignora de propósito, sem bolha e sem registro
+          if (soRecadoDoProtocolo(m)) continue;
           await registrarDescarte(companyId, "formato-desconhecido", m).catch(() => {});
           text = "[mensagem recebida que o sistema não conseguiu ler — abra o WhatsApp para ver]";
         }
