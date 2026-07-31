@@ -30,6 +30,40 @@ import { lerContatos, nomeDeQuemMandou } from "@/lib/comm/nome-do-contato";
 
 export const maxDuration = 30;
 
+/**
+ * Aplica uma edição na mensagem gravada — e ACORDA O SYNC.
+ *
+ * O sync da inbox (3 em 3s) só entrega conversas cujo `updatedAt` mudou.
+ * Corrigir só a mensagem deixava o texto novo gravado no banco e INVISÍVEL
+ * na tela até alguém recarregar a página — era um dos motivos de "editou e
+ * não atualizou". Tocar a conversa é o que faz a correção chegar na hora.
+ */
+async function aplicarEdicao(
+  companyId: string,
+  alvoId: string,
+  texto: string | null
+): Promise<number> {
+  const r = await db.message.updateMany({
+    where: {
+      externalId: alvoId,
+      conversation: { companyId },
+      // reentrega do mesmo conteúdo (reconexão) não vira "editada"
+      ...(texto ? { NOT: { body: texto } } : {}),
+    },
+    data: {
+      ...(texto ? { body: texto } : {}),
+      editedAt: new Date(),
+    },
+  });
+  if (r.count > 0) {
+    await db.conversation.updateMany({
+      where: { companyId, messages: { some: { externalId: alvoId } } },
+      data: { updatedAt: new Date() },
+    });
+  }
+  return r.count;
+}
+
 // senderPn: quando o WhatsApp manda o contato com a identidade nova (@lid),
 // o número de telefone REAL vem neste campo — sem ele a mensagem se perderia
 type EvoKey = { remoteJid?: string; fromMe?: boolean; id?: string; senderPn?: string };
@@ -269,16 +303,10 @@ export async function POST(
               "wa.edicao.sem-texto"
             ).catch(() => {});
           }
-          const r = await db.message.updateMany({
-            where: { externalId: edicao.alvoId, conversation: { companyId } },
-            data: {
-              // sem texto nem pelo servidor, ao menos marca "editada"
-              ...(texto ? { body: texto } : {}),
-              editedAt: new Date(),
-            },
-          });
+          // sem texto nem pelo servidor, ao menos marca "editada"
+          const corrigidas = await aplicarEdicao(companyId, edicao.alvoId, texto || null);
           // Achou e corrigiu: acabou aqui.
-          if (r.count > 0) continue;
+          if (corrigidas > 0) continue;
           // Não achou a original (chegou antes da conexão, ou se perdeu) e a
           // edição trouxe o texto: segue o fluxo e entra como mensagem NOVA,
           // já com o texto certo. Editar não pode apagar do sistema.
@@ -687,11 +715,30 @@ export async function POST(
     }
 
     if (event === "messages.update") {
-      const raw = body.data as
-        | { keyId?: string; status?: string }
-        | { keyId?: string; status?: string }[];
+      type Update = {
+        keyId?: string;
+        status?: string;
+        key?: { id?: string };
+        message?: Record<string, unknown>;
+      };
+      const raw = body.data as Update | Update[];
       const list = Array.isArray(raw) ? raw : [raw];
       for (const u of list) {
+        // EDIÇÃO QUE CHEGA POR AQUI: conforme a versão, o servidor entrega o
+        // TEXTO NOVO da mensagem editada neste evento (e não no upsert). Era
+        // um dos buracos do "editou e não atualizou": o texto batia na porta
+        // e a gente só olhava o recibo.
+        if (u?.message) {
+          const idAlvo = u.keyId ?? u.key?.id ?? null;
+          const edicao = lerEdicao({ key: { id: idAlvo }, message: u.message });
+          const texto =
+            edicao?.texto ||
+            lerMensagemWA({ message: u.message }).text.trim();
+          const alvo = edicao?.alvoId ?? idAlvo;
+          if (alvo && texto && !texto.startsWith("[")) {
+            await aplicarEdicao(companyId, alvo, texto);
+          }
+        }
         if (!u?.keyId || !u.status) continue;
         // PLAYED = ouviu o áudio (implica ter lido).
         // ERROR/FAILED = a mensagem NÃO chegou. Sem tratar isso, a bolha

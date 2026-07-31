@@ -77,19 +77,12 @@ export async function loadInboxConversations(
           ? {
               where: { updatedAt: { gt: since } },
               orderBy: { createdAt: "asc" },
-              include: {
-                author: true,
-                replyTo: { select: { id: true, body: true, direction: true } },
-              },
+              select: MENSAGEM_LEVE,
             }
           : {
               orderBy: { createdAt: "desc" },
               take: soPrevia ? MENSAGENS_NA_LISTA : MENSAGENS_NA_ABERTURA,
-              include: {
-                author: true,
-                // prévia da mensagem citada (responder mensagem específica)
-                replyTo: { select: { id: true, body: true, direction: true } },
-              },
+              select: MENSAGEM_LEVE,
             },
       },
       orderBy: { lastMessageAt: "desc" },
@@ -109,6 +102,13 @@ export async function loadInboxConversations(
   const catalogBase = catalogUrl(company?.slug ?? "");
   const linkForCustomer = (linkCode: string | null, id: string) =>
     trackedCatalogLink(catalogBase, sellerRef, linkCode ?? id);
+
+  // presença de mídia em lote (uma consulta para todas as mensagens da carga)
+  const comMidia = await idsComMidia(
+    conversations.flatMap((c) =>
+      c.messages.filter((m) => m.mediaType !== "TEXT").map((m) => m.id)
+    )
+  );
 
   return conversations.map((c) => ({
     id: c.id,
@@ -146,13 +146,59 @@ export async function loadInboxConversations(
     // à ordem cronológica aqui
     messages: (since && !convId ? c.messages : [...c.messages].reverse()).map(
       (m) => {
-        const msg = mapMessage(m);
+        const msg = mapMessage({ ...m, temMidia: comMidia.has(m.id) });
         return soPrevia && msg.body.length > PREVIA_MAX
           ? { ...msg, body: msg.body.slice(0, PREVIA_MAX) }
           : msg;
       }
     ),
   }));
+}
+
+/**
+ * OS CAMPOS QUE A TELA USA — SEM `mediaUrl`.
+ *
+ * `mediaUrl` guarda a foto/áudio INTEIRO em base64. Um `include` inocente
+ * puxava esses megabytes do banco em TODA carga (lista, abertura de conversa,
+ * mensagens antigas) só para o `mapMessage` jogar fora e mandar o link.
+ * Era o que fazia "carregar as mensagens" demorar: a tela pedia texto e o
+ * banco despachava as fotos junto. Agora a mídia só sai do banco quando o
+ * navegador pede o arquivo (rota /api/messages/[id]/media, com cache).
+ *
+ * O autor também vem SÓ com o nome — `author: true` trazia a linha inteira
+ * do usuário (com a senha criptografada) do banco à toa.
+ */
+export const MENSAGEM_LEVE = {
+  id: true,
+  direction: true,
+  kind: true,
+  mediaType: true,
+  fileName: true,
+  status: true,
+  error: true,
+  body: true,
+  createdAt: true,
+  deliveredAt: true,
+  readAt: true,
+  editedAt: true,
+  revoked: true,
+  revokedBy: true,
+  author: { select: { name: true } },
+  replyTo: { select: { id: true, body: true, direction: true } },
+} as const;
+
+/**
+ * Quais destas mensagens TÊM mídia gravada? Consulta só o "existe ou não"
+ * (o banco confere IS NOT NULL sem despachar o conteúdo) — é o que permite
+ * montar o link da mídia sem nunca ler o base64.
+ */
+export async function idsComMidia(ids: string[]): Promise<Set<string>> {
+  if (ids.length === 0) return new Set();
+  const rows = await db.message.findMany({
+    where: { id: { in: ids }, mediaUrl: { not: null } },
+    select: { id: true },
+  });
+  return new Set(rows.map((r) => r.id));
 }
 
 /**
@@ -168,7 +214,10 @@ export function mapMessage(m: {
   direction: string;
   kind: string;
   mediaType: string | null;
-  mediaUrl: string | null;
+  /** presente só nos caminhos antigos; os novos passam `temMidia` */
+  mediaUrl?: string | null;
+  /** a mensagem tem mídia gravada? (calculado sem ler o base64) */
+  temMidia?: boolean;
   fileName: string | null;
   status: string | null;
   error: string | null;
@@ -188,11 +237,16 @@ export function mapMessage(m: {
     kind: m.kind as InboxMessage["kind"],
     mediaType: (m.mediaType ?? "TEXT") as InboxMessage["mediaType"],
     // mídia NUNCA viaja em base64 no JSON (deixava o celular de joelhos):
-    // vira link que o navegador busca uma vez e guarda em cache
+    // vira link que o navegador busca uma vez e guarda em cache. A rota
+    // resolve tanto o base64 gravado quanto link externo (redireciona).
     mediaUrl:
-      m.mediaUrl && m.mediaUrl.startsWith("data:")
-        ? `/api/messages/${m.id}/media`
-        : m.mediaUrl,
+      m.mediaUrl !== undefined
+        ? m.mediaUrl && m.mediaUrl.startsWith("data:")
+          ? `/api/messages/${m.id}/media`
+          : m.mediaUrl
+        : m.temMidia
+          ? `/api/messages/${m.id}/media`
+          : null,
     fileName: m.fileName,
     status: m.status ?? "",
     error: m.error,

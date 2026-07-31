@@ -9,7 +9,9 @@ const schema = z.object({
   mediaType: z
     .enum(["TEXT", "IMAGE", "AUDIO", "DOCUMENT", "VIDEO", "TEMPLATE"])
     .default("TEXT"),
-  mediaUrl: z.string().optional(),
+  // teto folgado (o corte real do servidor é ~4,5 MB): rejeita cedo um
+  // payload absurdo em vez de deixá-lo ocupar a função inteira
+  mediaUrl: z.string().max(6_000_000).optional(),
   fileName: z.string().optional(),
   replyToId: z.string().optional(),
 });

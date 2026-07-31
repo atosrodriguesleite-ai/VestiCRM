@@ -140,9 +140,21 @@ describe("o webhook usa a leitura nova", () => {
 
   it("corrige pelo alvo, não pelo id do aviso", () => {
     expect(hook).toContain("const edicao = lerEdicao(m)");
-    expect(hook).toContain("externalId: edicao.alvoId");
+    expect(hook).toContain("aplicarEdicao(companyId, edicao.alvoId");
     // a leitura antiga, que errava o alvo, saiu de cena
     expect(hook).not.toContain("m.message?.editedMessage?.message");
+  });
+
+  it("a edição ACORDA o sync (toca a conversa) — senão só aparecia no F5", () => {
+    expect(hook).toContain("db.conversation.updateMany({");
+    expect(hook).toContain("messages: { some: { externalId: alvoId } }");
+  });
+
+  it("edição que chega pelo messages.update também é aplicada", () => {
+    // conforme a versão do servidor, o texto novo vem NESTE evento — e a
+    // gente só olhava o recibo
+    expect(hook).toContain("if (u?.message) {");
+    expect(hook).toContain("await aplicarEdicao(companyId, alvo, texto)");
   });
 
   it("edição cifrada PERGUNTA o texto ao servidor (não manda olhar no celular)", () => {

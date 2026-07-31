@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireUser, AuthError } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { conversationScope } from "@/lib/scope";
-import { mapMessage } from "@/lib/inbox-data";
+import { idsComMidia, mapMessage, MENSAGEM_LEVE } from "@/lib/inbox-data";
 
 /** Quantas mensagens antigas vêm por vez. */
 const LOTE = 100;
@@ -49,17 +49,19 @@ export async function GET(
       // "as 100 anteriores a esta data"
       orderBy: { createdAt: "desc" },
       take: LOTE + 1, // uma a mais só para saber se ainda há passado
-      include: {
-        author: true,
-        replyTo: { select: { id: true, body: true, direction: true } },
-      },
+      // seleção LEVE: sem `mediaUrl` (o base64 da foto) — era o que fazia
+      // "ver mensagens anteriores" pesar; a mídia vai por link com cache
+      select: MENSAGEM_LEVE,
     });
 
     const temMais = linhas.length > LOTE;
     const lote = (temMais ? linhas.slice(0, LOTE) : linhas).reverse();
+    const comMidia = await idsComMidia(
+      lote.filter((m) => m.mediaType !== "TEXT").map((m) => m.id)
+    );
 
     return NextResponse.json({
-      messages: lote.map(mapMessage),
+      messages: lote.map((m) => mapMessage({ ...m, temMidia: comMidia.has(m.id) })),
       temMais,
     });
   } catch (e) {
