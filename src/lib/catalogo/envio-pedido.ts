@@ -201,3 +201,75 @@ export async function reenviarPendentes(opts: {
   }
   return recuperados;
 }
+
+/**
+ * MESMA SACOLA = MESMO PEDIDO.
+ *
+ * Incidente real (Toque Leve, 31/07/2026): o mesmo pedido apareceu DUAS VEZES
+ * na conversa. Não foi falha de recebimento — a cliente apertou "Enviar
+ * pedido" duas vezes.
+ *
+ * E era fácil: a sacola NÃO é limpa depois de enviar, existem três botões de
+ * enviar na tela, e o WhatsApp abre numa aba nova. A cliente volta para o
+ * catálogo, vê a sacola cheia (parece que não foi) e aperta de novo. Cada
+ * toque sorteava um protocolo NOVO — e protocolo novo é pedido novo. A loja
+ * ficava com dois pedidos iguais e o estoque reservado em dobro.
+ *
+ * A trava reaproveita o que já existe: o protocolo é a chave da idempotência
+ * no servidor (`companyId + clientRef` é único). Então, enquanto a sacola for
+ * a MESMA, o protocolo é o MESMO — e o servidor devolve o pedido que já
+ * existe em vez de criar outro. Mudou uma peça? Aí é outro pedido de verdade,
+ * e ganha protocolo novo.
+ */
+export const CHAVE_ULTIMO_ENVIO = "ap-ultimo-envio";
+
+/** Impressão digital da sacola: itens, cliente e campanha. */
+export function assinaturaDoPedido(payload: Record<string, unknown>): string {
+  const itens = Array.isArray(payload.items) ? payload.items : [];
+  const linhas = itens
+    .map((i) => {
+      const it = (i ?? {}) as Record<string, unknown>;
+      return [it.productId, it.color, it.size, it.quantity].join("|");
+    })
+    .sort();
+  const cliente = (payload.customer ?? {}) as Record<string, unknown>;
+  return [
+    ...linhas,
+    `#${cliente.name ?? ""}`,
+    `#${cliente.phone ?? ""}`,
+    `#${cliente.store ?? ""}`,
+    `#${payload.promo ?? ""}`,
+    `#${payload.ref ?? ""}`,
+  ].join("~");
+}
+
+/**
+ * Protocolo a usar: o MESMO de antes quando a sacola não mudou, um novo
+ * quando mudou. Guardar no aparelho é o que faz a trava sobreviver a fechar
+ * a aba e voltar depois.
+ */
+export function protocoloDaSacola(
+  storage: Storage,
+  payload: Record<string, unknown>
+): string {
+  const assinatura = assinaturaDoPedido(payload);
+  try {
+    const bruto = JSON.parse(storage.getItem(CHAVE_ULTIMO_ENVIO) ?? "null") as {
+      assinatura?: string;
+      clientRef?: string;
+    } | null;
+    if (bruto?.assinatura === assinatura && bruto.clientRef) return bruto.clientRef;
+  } catch {
+    /* registro ilegível não pode impedir o pedido de sair */
+  }
+  const novo = protocolo();
+  try {
+    storage.setItem(
+      CHAVE_ULTIMO_ENVIO,
+      JSON.stringify({ assinatura, clientRef: novo })
+    );
+  } catch {
+    /* sem espaço para guardar: segue com protocolo novo (o normal de antes) */
+  }
+  return novo;
+}

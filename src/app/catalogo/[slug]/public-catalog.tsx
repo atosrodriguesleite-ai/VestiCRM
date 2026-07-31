@@ -24,7 +24,7 @@ import {
 import { makeSwatch, mixHex, readableOn } from "@/lib/color";
 import {
   guardarPendente,
-  protocolo,
+  protocoloDaSacola,
   registrarComInsistencia,
   reenviarPendentes,
 } from "@/lib/catalogo/envio-pedido";
@@ -712,7 +712,9 @@ export function PublicCatalog({
     // falhar, o catálogo insiste — e ainda tenta de novo na próxima visita.
     // O protocolo garante que insistir nunca cria o pedido duas vezes.
     const pendente = {
-      clientRef: protocolo(),
+      // protocolo definido MAIS ABAIXO pela sacola: mesma sacola = mesmo
+      // protocolo = mesmo pedido (a cliente apertando duas vezes não cria dois)
+      clientRef: "",
       at: Date.now(),
       tentativas: 0,
       payload: {
@@ -731,8 +733,13 @@ export function PublicCatalog({
         promo: promo?.slug || undefined,
       } as Record<string, unknown>,
     };
-    pendente.payload.clientRef = pendente.clientRef;
     if (typeof window !== "undefined") {
+      // MESMA SACOLA = MESMO PEDIDO. A sacola não é limpa depois de enviar e o
+      // WhatsApp abre noutra aba: a cliente volta, vê a sacola cheia (parece
+      // que não foi) e aperta de novo. Sem isto, cada toque criava um pedido
+      // novo e o estoque era reservado em dobro.
+      pendente.clientRef = protocoloDaSacola(window.localStorage, pendente.payload);
+      pendente.payload.clientRef = pendente.clientRef;
       guardarPendente(window.localStorage, pendente);
       setEnvio("enviando");
       registrarComInsistencia(pendente, { storage: window.localStorage })
