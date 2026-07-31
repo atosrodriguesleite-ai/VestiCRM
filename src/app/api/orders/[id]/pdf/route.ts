@@ -5,6 +5,7 @@ import { db } from "@/lib/db";
 import { requireUser, AuthError } from "@/lib/auth";
 import { orderScope } from "@/lib/scope";
 import { orderNumber, orderStatusLabel, paymentMethodLabel } from "@/lib/orders";
+import { documentoParaMostrar } from "@/lib/documento";
 
 /**
  * Romaneio do pedido em PDF (A4) — uso interno da loja (expedição).
@@ -182,7 +183,7 @@ export async function GET(
     const lines: string[] = [];
     const contato = [
       c.phone ? `Tel: ${c.phone}` : null,
-      c.document ? `CPF/CNPJ: ${c.document}` : null,
+      documentoParaMostrar(c) || null,
     ].filter(Boolean).join("  ·  ");
     if (contato) lines.push(contato);
     if (c.email) lines.push(`E-mail: ${c.email}`);

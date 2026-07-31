@@ -4,6 +4,7 @@ import { requireUser, AuthError } from "@/lib/auth";
 import { ownedScope } from "@/lib/scope";
 import { PAID_ORDER_STATUSES } from "@/lib/orders";
 import { customerTypeLabel, originLabel } from "@/lib/format";
+import { formatarCpf, formatarCnpj } from "@/lib/documento";
 
 /**
  * Exporta os clientes em CSV (abre direto no Excel/Planilhas).
@@ -33,7 +34,7 @@ export async function GET() {
     });
 
     const header = [
-      "Nome", "Telefone", "E-mail", "CPF/CNPJ", "Tipo", "Origem", "Cidade",
+      "Nome", "Telefone", "E-mail", "CPF", "CNPJ", "Tipo", "Origem", "Cidade",
       "Estado", "Endereço", "Bairro", "CEP", "Vendedor", "Total comprado (R$)",
       "Última compra", "Cadastro",
     ];
@@ -41,7 +42,8 @@ export async function GET() {
       c.name,
       c.phone,
       c.email ?? "",
-      c.document ?? "",
+      formatarCpf(c.cpf),
+      formatarCnpj(c.cnpj),
       customerTypeLabel[c.type] ?? c.type,
       originLabel[c.origin] ?? c.origin,
       c.city ?? "",

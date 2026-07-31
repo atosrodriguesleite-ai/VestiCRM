@@ -5,6 +5,7 @@ import { orderScope } from "@/lib/scope";
 import { orderNumber } from "@/lib/orders";
 import { brl, dateFull } from "@/lib/format";
 import { PrintButton } from "./print-button";
+import { documentoParaMostrar } from "@/lib/documento";
 
 /**
  * Declaração de Conteúdo (modelo dos Correios) — para envio SEM nota fiscal.
@@ -35,7 +36,7 @@ export default async function DeclaracaoPage({
   const c = order.customer;
   const remetente = {
     nome: conn?.fromName ?? company.name,
-    doc: conn?.fromDocument ?? "",
+    doc: documentoParaMostrar({ cpf: conn?.fromCpf, cnpj: conn?.fromCnpj }),
     endereco: [
       conn?.fromStreet,
       conn?.fromNumber,
@@ -49,7 +50,7 @@ export default async function DeclaracaoPage({
   };
   const destinatario = {
     nome: c.name,
-    doc: c.document ?? "",
+    doc: documentoParaMostrar(c),
     endereco: [c.street, c.streetNumber, c.complement, c.district]
       .filter(Boolean)
       .join(", "),

@@ -3,6 +3,7 @@ import { db } from "./db";
 import { encryptSecret, decryptSecret } from "./crypto";
 import { intakeLead, normalizePhone } from "./intake";
 import { round2 } from "./orders";
+import { separarDocumento } from "./documento";
 import { notifySalePaid } from "./push";
 import { winLinkedOpportunity } from "./opportunity-sync";
 
@@ -724,9 +725,15 @@ export async function ingestPaidOrder(companyId: string, nsOrderId: string) {
     where: { id: customerId },
     data: {
       ...(email && !atual?.email ? { email } : {}),
-      ...(o.customer?.identification && !atual?.document
-        ? { document: o.customer.identification }
-        : {}),
+      // a Nuvemshop manda UM campo "identification": 14 dígitos é CNPJ, 11 é
+      // CPF — cada um vai para a sua coluna, sem apagar o que já existe
+      ...(() => {
+        const d = separarDocumento(o.customer?.identification);
+        return {
+          ...(d.cpf && !atual?.cpf ? { cpf: d.cpf } : {}),
+          ...(d.cnpj && !atual?.cnpj ? { cnpj: d.cnpj } : {}),
+        };
+      })(),
       ...(end.zipcode && !atual?.zip ? { zip: end.zipcode } : {}),
       ...(end.address && !atual?.street ? { street: end.address } : {}),
       ...(end.number && !atual?.streetNumber ? { streetNumber: end.number } : {}),

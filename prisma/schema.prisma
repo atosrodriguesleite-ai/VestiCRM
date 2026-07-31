@@ -510,7 +510,13 @@ model Customer {
   name            String
   phone           String
   email           String?
-  document        String? // CPF ou CNPJ
+  // DOCUMENTO: CPF e CNPJ em campos SEPARADOS, e não um só "CPF ou CNPJ".
+  // A cliente lojista costuma ter os dois (CNPJ da loja e CPF da titular), e
+  // cada transportadora/nota exige um deles: o Melhor Envio manda CPF em
+  // `document` e CNPJ em `company_document`, e a NF-e muda de pessoa física
+  // para jurídica. Com um campo só, guardar um apagava o outro.
+  cpf             String?
+  cnpj            String?
   zip             String? // CEP
   street          String?
   streetNumber    String?
@@ -1651,7 +1657,10 @@ model MelhorEnvioConnection {
 
   // Remetente da etiqueta (pré-preenchido da conta Melhor Envio; editável)
   fromName       String?
-  fromDocument   String? // CPF ou CNPJ
+  // mesma regra do cliente: a transportadora pede CPF e CNPJ em campos
+  // diferentes, então a loja guarda os dois (CNPJ da empresa + CPF do titular)
+  fromCpf        String?
+  fromCnpj       String?
   fromPhone      String?
   fromEmail      String?
   fromZip        String?

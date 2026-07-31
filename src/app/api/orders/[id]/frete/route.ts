@@ -188,7 +188,8 @@ export async function POST(
         serviceId: parsed.data.serviceId,
         from: {
           name: conn.fromName,
-          document: conn.fromDocument,
+          cpf: conn.fromCpf,
+          cnpj: conn.fromCnpj,
           phone: conn.fromPhone,
           email: conn.fromEmail,
           zip: conn.fromZip,
@@ -201,7 +202,8 @@ export async function POST(
         },
         to: {
           name: c.name,
-          document: c.document,
+          cpf: c.cpf,
+          cnpj: c.cnpj,
           phone: c.phone,
           email: c.email,
           zip: destZip,

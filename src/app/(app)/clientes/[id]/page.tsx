@@ -75,6 +75,7 @@ import {
   taskTypeLabel,
   conversationStatusLabel,
 } from "@/lib/format";
+import { documentoParaMostrar } from "@/lib/documento";
 import {
   Card,
   Avatar,
@@ -217,6 +218,14 @@ export default async function CustomerDetailPage({
                 </span>
               )}
             </p>
+            {/* CPF/CNPJ na ficha: é o que a vendedora precisa conferir na hora
+                de comprar a etiqueta ou emitir a nota — antes não aparecia
+                aqui e ela tinha que abrir um pedido para ver */}
+            {documentoParaMostrar(customer) && (
+              <p className="text-xs text-gray-400 mt-1">
+                {documentoParaMostrar(customer)}
+              </p>
+            )}
             <div className="flex flex-wrap gap-1.5 mt-3">
               <Badge color="#0ea5e9">{customerTypeLabel[customer.type]}</Badge>
               <Badge color="#64748b">Origem: {originLabel[customer.origin]}</Badge>
