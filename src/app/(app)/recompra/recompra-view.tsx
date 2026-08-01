@@ -102,6 +102,14 @@ export function RecompraView({ dados }: { dados: DadosDaAbaRecompra }) {
       <PageHeader
         title="Recompra"
         subtitle="Quem está na hora de comprar de novo — pelo ritmo de cada cliente — e as VIPs da loja. Toque e a mensagem sai pronta."
+        action={
+          <Link
+            href="/recompra/painel"
+            className="inline-flex items-center gap-1.5 rounded-xl border border-gray-200 bg-white px-3 py-2 text-xs font-semibold text-gray-600 hover:border-brand-300 transition"
+          >
+            📊 Painel de Recompra
+          </Link>
+        }
       />
 
       {clientes.length === 0 ? (

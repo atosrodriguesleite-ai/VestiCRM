@@ -443,3 +443,40 @@ async function enviarPrimeiraMensagem(companyId: string, slug: string): Promise<
     });
   }
 }
+
+
+/**
+ * PLACAR DA RECUPERAÇÃO — função ÚNICA, usada pela tela Recuperação e pelo
+ * Painel de Recompra. Se duas telas fizessem a conta separadas, um dia iam
+ * discordar — e número que não bate mata a confiança no sistema inteiro.
+ *
+ * Soma o que os pedidos recuperados VALERAM de verdade (netTotal do pedido
+ * amarrado; sem pedido amarrado, o valor da sacola).
+ */
+export async function placarDeRecuperacao(
+  companyId: string,
+  desde: Date
+): Promise<{ valor: number; vendas: number }> {
+  const recuperados = await db.abandonedCart.findMany({
+    where: { companyId, status: "RECUPERADO", recoveredAt: { gte: desde } },
+    select: { value: true, recoveredOrderId: true },
+  });
+  const ids = recuperados
+    .map((c) => c.recoveredOrderId)
+    .filter((v): v is string => !!v);
+  const pedidos = ids.length
+    ? await db.order.findMany({
+        where: { id: { in: ids } },
+        select: { id: true, netTotal: true },
+      })
+    : [];
+  const porPedido = new Map(pedidos.map((p) => [p.id, p.netTotal]));
+  return {
+    valor: recuperados.reduce(
+      (s, c) =>
+        s + (c.recoveredOrderId ? (porPedido.get(c.recoveredOrderId) ?? c.value) : c.value),
+      0
+    ),
+    vendas: recuperados.length,
+  };
+}

@@ -154,9 +154,12 @@ describe("o sistema está amarrado", () => {
     expect(cat).toContain("setBagOpen(true)");
   });
 
-  it("o placar soma o pedido pago amarrado (netTotal), não achismo", () => {
-    const rota = ler("src/app/api/recuperacao/route.ts");
-    expect(rota).toContain("netTotal");
-    expect(rota).toContain("recoveredOrderId");
+  it("o placar soma o pedido pago amarrado (netTotal), não achismo — e é função ÚNICA", () => {
+    // a conta mora em placarDeRecuperacao, compartilhada com o Painel de
+    // Recompra: duas contas separadas um dia discordariam
+    const lib = ler("src/lib/recuperacao.ts");
+    expect(lib).toContain("export async function placarDeRecuperacao");
+    expect(lib).toContain("netTotal");
+    expect(ler("src/app/api/recuperacao/route.ts")).toContain("placarDeRecuperacao(");
   });
 });

@@ -3,7 +3,7 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import { requireUser, AuthError } from "@/lib/auth";
 import { isManagerUp } from "@/lib/scope";
-import { lerItens, mensagemDeRecuperacao, varrerCarrinhosSeDeuAHora } from "@/lib/recuperacao";
+import { lerItens, mensagemDeRecuperacao, placarDeRecuperacao, varrerCarrinhosSeDeuAHora } from "@/lib/recuperacao";
 import { after } from "next/server";
 
 /**
@@ -36,31 +36,19 @@ export async function GET(_req: NextRequest) {
       }),
     ]);
 
-    // placar do mês: soma o que os pedidos recuperados VALERAM de verdade
-    // (netTotal do pedido amarrado; sem pedido amarrado, o valor da sacola)
+    // placar do mês pela FUNÇÃO ÚNICA (o Painel de Recompra mostra o mesmo
+    // número — duas contas separadas um dia discordariam)
     const inicioDoMes = new Date();
     inicioDoMes.setDate(1);
     inicioDoMes.setHours(0, 0, 0, 0);
-    const recuperadosNoMes = carts.filter(
-      (c) => c.status === "RECUPERADO" && c.recoveredAt && c.recoveredAt >= inicioDoMes
-    );
-    const pedidos = await db.order.findMany({
-      where: {
-        id: { in: recuperadosNoMes.map((c) => c.recoveredOrderId).filter((v): v is string => !!v) },
-      },
-      select: { id: true, netTotal: true },
-    });
-    const porPedido = new Map(pedidos.map((p) => [p.id, p.netTotal]));
-    const placarMes = recuperadosNoMes.reduce(
-      (s, c) => s + (c.recoveredOrderId ? (porPedido.get(c.recoveredOrderId) ?? c.value) : c.value),
-      0
-    );
+    const placar = await placarDeRecuperacao(user.companyId, inicioDoMes);
+    const placarMes = placar.valor;
 
     return NextResponse.json({
       recoveryAuto: company?.recoveryAuto ?? false,
       podeConfigurar: isManagerUp(user),
       placarMes,
-      recuperadosMes: recuperadosNoMes.length,
+      recuperadosMes: placar.vendas,
       carts: carts.map((c) => ({
         id: c.id,
         source: c.source,
