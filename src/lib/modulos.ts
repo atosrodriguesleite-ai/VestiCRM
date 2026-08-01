@@ -20,7 +20,8 @@ export type ModuloKey =
   | "MARKETING"
   | "INTELIGENCIA"
   | "BIBLIOTECA"
-  | "ENVIOS";
+  | "ENVIOS"
+  | "IA_VENDAS";
 
 export type Modulo = {
   key: ModuloKey;
@@ -87,6 +88,15 @@ export const MODULOS: Modulo[] = [
     entrega: "Cotação, etiqueta e rastreio pelo Melhor Envio.",
     flag: "shippingEnabled",
     precoTabela: 120,
+  },
+  {
+    key: "IA_VENDAS",
+    nome: "IA de Vendas",
+    entrega:
+      "Cérebro treinável (tom, roteiro, políticas), monitor de equipe e plano de conversas com trava.",
+    flag: "aiSalesEnabled",
+    // âncora do plano Pro (1.000 conversas/mês) — o praticado fica livre
+    precoTabela: 397,
   },
 ];
 

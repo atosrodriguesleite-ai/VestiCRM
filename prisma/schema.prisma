@@ -39,6 +39,7 @@ model Company {
   mediaLibraryEnabled Boolean @default(false) // Biblioteca de imagens (super admin ativa por loja)
   shippingEnabled   Boolean  @default(false) // módulo Envios/Melhor Envio (pago à parte; super admin ativa por loja)
   cutPlanEnabled    Boolean  @default(false) // módulo Plano de Corte (pago à parte; super admin ativa por loja)
+  aiSalesEnabled    Boolean  @default(false) // módulo IA de Vendas (pago à parte; super admin ativa por loja)
   suspended         Boolean  @default(false) // acesso bloqueado pelo super admin (ex.: inadimplência)
   // última rodada das automações desta loja. É a TRAVA ATÔMICA que faz o
   // motor rodar de carona no tráfego normal, no máximo uma vez por dia, sem
@@ -117,6 +118,8 @@ model Company {
   setores        Setor[]
   notifications  Notification[]
   portfolioProducts PortfolioProduct[]
+  aiSettings     AiSettings?
+  aiUsage        AiUsage[]
 }
 
 /// PORTFÓLIO DE PRODUTOS E SERVIÇOS (só Super Admin, empresa-plataforma).
@@ -1124,6 +1127,60 @@ model AbandonedCart {
 
   @@unique([companyId, nsCheckoutId])
   @@index([companyId, status, abandonedAt])
+}
+
+// ============ IA DE VENDAS (módulo pago à parte) ============
+//
+// Entrega 1 (01/08/2026): o CÉREBRO da IA — o que a loja ensina (tom de
+// marca, roteiro, políticas) — e a TRAVA DE USO por loja. A IA que responde
+// de verdade chega nas próximas entregas (precisa da chave da API); tudo
+// aqui já funciona sem chave nenhuma e nada nasce ligado sozinho.
+//
+// Configuração da IA de uma loja (1:1 com Company). Toggles todos nascem
+// DESLIGADOS: ligar atendimento automático é decisão da loja, não nossa.
+model AiSettings {
+  id        String  @id @default(cuid())
+  companyId String  @unique
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  // ---- chaves de comportamento (Entregas 2 e 3 leem daqui) ----
+  atendente Boolean @default(false) // IA responde clientes sozinha
+  copilot   Boolean @default(false) // IA sugere respostas para a vendedora
+  // Relatórios da operação para o DONO DA PLATAFORMA (serviço de
+  // acompanhamento de CRM, vendido à parte). Decisão do dono (01/08/2026):
+  // "não vai enviar por enquanto, mas já pode ficar pronto para ativar".
+  relatoriosAoDono Boolean @default(false)
+
+  // ---- o cérebro: o que a loja ensina para a IA ----
+  tomDeMarca String @default("") // como a marca fala (ex.: informal, com emoji, "amiga")
+  roteiro    String @default("") // processo comercial passo a passo
+  politicas  String @default("") // regras duras: troca, prazo, desconto máximo, pedido mínimo
+
+  // ---- trava de uso (o plano vendido para a loja) ----
+  // Conversas de IA inclusas por mês. Bateu o teto → a IA para e o
+  // atendimento volta para as humanas; o excedente vira conversa de upgrade.
+  limiteConversasMes Int @default(1000)
+
+  updatedAt DateTime @default(now()) @updatedAt
+  createdAt DateTime @default(now())
+}
+
+// Contador mensal de uso da IA por loja (mês no calendário de São Paulo,
+// "YYYY-MM"). É a régua da trava E do custo real por loja no painel.
+model AiUsage {
+  id        String  @id @default(cuid())
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  mes       String // "2026-08" (calendário de SP — mesma régua das telas de dinheiro)
+  conversas Int     @default(0) // conversas em que a IA participou no mês
+  respostas Int     @default(0) // mensagens que a IA escreveu (atendente + copilot)
+  // custo real somado em dólar (tokens × preço). Preenchido pela Entrega 2+;
+  // aqui já existe para o painel de margem nascer com histórico desde o dia 1.
+  custoUsd  Float   @default(0)
+  updatedAt DateTime @default(now()) @updatedAt
+
+  @@unique([companyId, mes])
+  @@index([companyId])
 }
 
 // Campanhas/links inteligentes (cada um gera link + QR Code)

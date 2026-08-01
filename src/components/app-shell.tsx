@@ -42,6 +42,7 @@ import {
   ChevronDown,
   ShoppingCart,
   Repeat,
+  Bot,
 } from "lucide-react";
 import { Avatar } from "./ui";
 import { Logo, LogoMark } from "./logo";
@@ -70,6 +71,8 @@ const NAV = [
   // Recuperação e Recompra: vendedora TAMBÉM vê — vender de novo é trabalho dela
   { href: "/recuperacao", label: "Recuperação", icon: ShoppingCart, group: "Análise", supportHidden: true },
   { href: "/recompra", label: "Recompra", icon: Repeat, group: "Relacionamento", supportHidden: true },
+  // módulo IA de Vendas (pago à parte): sem a chave, o menu nem aparece
+  { href: "/ia", label: "IA de Vendas", icon: Bot, group: "Análise", managerOnly: true, aiOnly: true },
   { href: "/relatorios", label: "Relatórios", icon: BarChart3, group: "Análise", managerOnly: true },
   { href: "/inteligencia", label: "Inteligência", icon: Brain, group: "Análise", managerOnly: true },
   { href: "/comissoes", label: "Comissões", icon: Percent, group: "Análise", managerOnly: true },
@@ -164,6 +167,8 @@ type ShellUser = {
   marketingEnabled?: boolean;
   // Biblioteca de imagens (gated): sem a chave, o menu nem aparece
   mediaLibraryEnabled?: boolean;
+  // módulo IA de Vendas (pago à parte): idem
+  aiSalesEnabled?: boolean;
   // modo escuro — preferência individual do usuário
   prefersDark?: boolean;
 };
@@ -242,6 +247,7 @@ export function AppShell({
     if ("cutPlanOnly" in i && i.cutPlanOnly) return Boolean(user.cutPlanEnabled);
     if ("marketingOnly" in i && i.marketingOnly && !user.marketingEnabled) return false;
     if ("mediaLibraryOnly" in i && i.mediaLibraryOnly) return Boolean(user.mediaLibraryEnabled);
+    if ("aiOnly" in i && i.aiOnly && !user.aiSalesEnabled) return false;
     if ("managerOnly" in i && i.managerOnly)
       return ["ADMIN", "MANAGER", "SUPERADMIN"].includes(user.role);
     // operacional = quem cuida de integração e conexão (inclui Suporte)
