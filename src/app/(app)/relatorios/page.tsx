@@ -204,8 +204,13 @@ export default async function ReportsPage({
     Math.ceil((periodo.to.getTime() - periodo.from.getTime()) / DIA_MS)
   );
   const porDia = duracaoDias <= 31;
-  const passoMs = (porDia ? 1 : 7) * DIA_MS;
-  const quantosBlocos = Math.max(1, Math.min(26, Math.ceil(duracaoDias / (porDia ? 1 : 7))));
+  // período longo NÃO corta o gráfico: o PASSO cresce (semana → quinzena →
+  // mês) até caber em 26 barras. Cortar barras fazia o gráfico mostrar
+  // metade do período com o rótulo do período inteiro — o cartão de
+  // faturamento somava tudo e os números "não conversavam".
+  const passoDias = porDia ? 1 : Math.max(7, Math.ceil(duracaoDias / 26 / 7) * 7);
+  const passoMs = passoDias * DIA_MS;
+  const quantosBlocos = Math.max(1, Math.ceil(duracaoDias / passoDias));
   const weeks: { label: string; total: number }[] = [];
   for (let i = quantosBlocos - 1; i >= 0; i--) {
     const end = new Date(periodo.to.getTime() - i * passoMs);
@@ -434,7 +439,7 @@ export default async function ReportsPage({
         <Card className="p-5 lg:col-span-2">
           <h2 className="font-semibold flex items-center gap-2 mb-4">
             <BarChart3 className="size-4 text-brand-600" />
-            Vendas por {porDia ? "dia" : "semana"}{" "}
+            Vendas por {porDia ? "dia" : passoDias === 7 ? "semana" : `${passoDias} dias`}{" "}
             <span className="text-xs font-normal text-gray-400">· {rotuloPeriodo}</span>
           </h2>
           <AreaChart

@@ -412,14 +412,29 @@ export function PublicCatalog({
                     (!item.productId && c.product.name === item.name)
                 );
                 if (!card || !item.size || item.qty <= 0) continue;
-                // só tamanho que ainda existe e com estoque aparece de volta
+                // SÓ tamanho que ainda existe e com estoque volta à sacola —
+                // sem esta peneira, peça esgotada voltava, a cliente
+                // confirmava e a loja só descobria na separação
+                const tamanho = card.sizes.find(
+                  (sz) => sz.size === item.size && sz.available
+                );
+                if (!tamanho) continue;
                 restaurada[card.key] = {
                   ...(restaurada[card.key] ?? {}),
                   [item.size]: item.qty,
                 };
               }
               if (Object.keys(restaurada).length) {
-                setCart((atual) => ({ ...atual, ...restaurada }));
+                // mescla POR TAMANHO: o que a cliente já tinha na sacola
+                // deste aparelho não pode sumir (sobrescrever o card inteiro
+                // apagava o "M:2" local quando a abandonada só tinha "G:1")
+                setCart((atual) => {
+                  const proximo = { ...atual };
+                  for (const [key, sizes] of Object.entries(restaurada)) {
+                    proximo[key] = { ...(proximo[key] ?? {}), ...sizes };
+                  }
+                  return proximo;
+                });
                 setBagOpen(true); // a sacola abre mostrando que está pronta
               }
             }
@@ -472,6 +487,29 @@ export function PublicCatalog({
     if (typeof window === "undefined") return;
     reenviarPendentes({ storage: window.localStorage }).catch(() => {});
   }, []);
+  /**
+   * A FOTO DA SACOLA que viaja junto de cada evento de sacola (meta.sacola).
+   * A Recuperação remonta o carrinho abandonado por ELA — reconstruir pelos
+   * eventos agregados errava: o evento da ficha traz os tamanhos juntos
+   * ("P,M"), o delta total e o TOTAL da sacola como "value", e o lixinho
+   * removia sem dizer o tamanho. A foto é o estado real, item por item.
+   */
+  const fotoDaSacola = (c: Cart) =>
+    Object.entries(c).flatMap(([key, sizes]) => {
+      const card = allCards.find((x) => x.key === key);
+      if (!card) return [];
+      return Object.entries(sizes)
+        .filter(([, q]) => q > 0)
+        .map(([size, q]) => ({
+          productId: card.product.id,
+          name: card.product.name,
+          color: card.color,
+          size,
+          qty: q,
+          price: card.product.retailPrice,
+        }));
+    });
+
   const t = (e: Parameters<CatalogTracker["track"]>[0]) =>
     trackerRef.current?.track(e);
 
@@ -655,6 +693,9 @@ export function PublicCatalog({
     const prevQty = cart[sheet.key] ? sum(cart[sheet.key]) : 0;
     const newQty = sum(clean);
     const newTotal = totalValue - prevQty * price + newQty * price;
+    const proximoCart = { ...cart };
+    if (Object.keys(clean).length) proximoCart[sheet.key] = clean;
+    else delete proximoCart[sheet.key];
     t({
       type: newQty >= prevQty ? "cart_add" : "cart_remove",
       productId: sheet.product.id,
@@ -664,6 +705,7 @@ export function PublicCatalog({
       size: Object.keys(clean).join(","),
       qty: Math.abs(newQty - prevQty) || newQty,
       value: newTotal,
+      meta: { sacola: fotoDaSacola(proximoCart) },
     });
     setCart((prev) => {
       const next = { ...prev };
@@ -1600,6 +1642,8 @@ export function PublicCatalog({
                               </span>
                               <button
                                 onClick={() => {
+                                  const semEsse = { ...cart };
+                                  delete semEsse[c.key];
                                   t({
                                     type: "cart_remove",
                                     productId: c.product.id,
@@ -1608,6 +1652,7 @@ export function PublicCatalog({
                                     color: c.color,
                                     qty: q,
                                     value: totalValue - q * c.product.retailPrice,
+                                    meta: { sacola: fotoDaSacola(semEsse) },
                                   });
                                   setCart((prev) => {
                                     const next = { ...prev };

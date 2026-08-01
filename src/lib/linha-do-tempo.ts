@@ -84,7 +84,8 @@ export async function linhaDoTempoComercial(
         items: { select: { quantity: true } },
       },
       orderBy: { createdAt: "desc" },
-      take: 60,
+      // SEM teto: o ciclo ("ritmo dela") sai destas datas, e cortar em 60
+      // faria esta tela discordar da aba Recompra na cliente muito antiga
     }),
     db.message.findMany({
       where: {

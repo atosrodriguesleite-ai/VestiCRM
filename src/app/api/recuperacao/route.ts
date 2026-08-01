@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { requireUser, AuthError } from "@/lib/auth";
 import { isManagerUp } from "@/lib/scope";
 import { lerItens, mensagemDeRecuperacao, placarDeRecuperacao, varrerCarrinhosSeDeuAHora } from "@/lib/recuperacao";
+import { inicioDoMesSP } from "@/lib/recompra-painel";
 import { after } from "next/server";
 
 /**
@@ -38,10 +39,10 @@ export async function GET(_req: NextRequest) {
 
     // placar do mês pela FUNÇÃO ÚNICA (o Painel de Recompra mostra o mesmo
     // número — duas contas separadas um dia discordariam)
-    const inicioDoMes = new Date();
-    inicioDoMes.setDate(1);
-    inicioDoMes.setHours(0, 0, 0, 0);
-    const placar = await placarDeRecuperacao(user.companyId, inicioDoMes);
+    // início do mês NO CALENDÁRIO DE SÃO PAULO — a mesma régua do Painel de
+    // Recompra (em UTC, a virada das 21h de SP caía no mês errado e as duas
+    // telas divergiam justamente no número que juram compartilhar)
+    const placar = await placarDeRecuperacao(user.companyId, inicioDoMesSP());
     const placarMes = placar.valor;
 
     return NextResponse.json({

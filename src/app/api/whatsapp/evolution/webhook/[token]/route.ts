@@ -655,7 +655,11 @@ export async function POST(
      * corrigiu, a cliente digitou no catálogo — NUNCA é sobrescrito.
      */
     if (event === "contacts.upsert" || event === "contacts.update") {
-      for (const c of lerContatos(body.data)) {
+      // RECONEXÃO pode despejar a agenda INTEIRA num evento só (milhares).
+      // Processar tudo em série estouraria o tempo da função e pesaria no
+      // banco. Teto por evento: os crachás provisórios restantes são trocados
+      // quando a cliente falar (o caminho da mensagem também corrige o nome).
+      for (const c of lerContatos(body.data).slice(0, 50)) {
         const phone = jidToPhone(c.jid);
         if (!phone) continue;
         const cliente = await findCustomerByPhone(companyId, phone);
@@ -728,15 +732,16 @@ export async function POST(
         // TEXTO NOVO da mensagem editada neste evento (e não no upsert). Era
         // um dos buracos do "editou e não atualizou": o texto batia na porta
         // e a gente só olhava o recibo.
+        //
+        // SÓ formato de edição RECONHECIDO (lerEdicao) entra: recibo de
+        // status que ecoe o conteúdo cru da mensagem NÃO é edição — aplicar
+        // esse eco sobrescreveria corpo derivado (ex.: o aviso de "não foi
+        // possível baixar o arquivo") e carimbaria "editada" à toa.
         if (u?.message) {
           const idAlvo = u.keyId ?? u.key?.id ?? null;
           const edicao = lerEdicao({ key: { id: idAlvo }, message: u.message });
-          const texto =
-            edicao?.texto ||
-            lerMensagemWA({ message: u.message }).text.trim();
-          const alvo = edicao?.alvoId ?? idAlvo;
-          if (alvo && texto && !texto.startsWith("[")) {
-            await aplicarEdicao(companyId, alvo, texto);
+          if (edicao?.alvoId && edicao.texto && !edicao.texto.startsWith("[")) {
+            await aplicarEdicao(companyId, edicao.alvoId, edicao.texto);
           }
         }
         if (!u?.keyId || !u.status) continue;

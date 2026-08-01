@@ -150,11 +150,13 @@ describe("o webhook usa a leitura nova", () => {
     expect(hook).toContain("messages: { some: { externalId: alvoId } }");
   });
 
-  it("edição que chega pelo messages.update também é aplicada", () => {
+  it("edição que chega pelo messages.update também é aplicada — mas SÓ formato reconhecido", () => {
     // conforme a versão do servidor, o texto novo vem NESTE evento — e a
-    // gente só olhava o recibo
+    // gente só olhava o recibo. E eco de conteúdo em recibo de status NÃO é
+    // edição: aplicar sobrescreveria corpo derivado e carimbaria "editada".
     expect(hook).toContain("if (u?.message) {");
-    expect(hook).toContain("await aplicarEdicao(companyId, alvo, texto)");
+    expect(hook).toContain("await aplicarEdicao(companyId, edicao.alvoId, edicao.texto)");
+    expect(hook).not.toContain("lerMensagemWA({ message: u.message })");
   });
 
   it("edição cifrada PERGUNTA o texto ao servidor (não manda olhar no celular)", () => {

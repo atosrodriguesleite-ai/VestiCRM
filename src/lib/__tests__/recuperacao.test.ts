@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   horarioComercialSP,
+  sacolaDaFoto,
   itensDoCheckoutNS,
   lerItens,
   mensagemDeRecuperacao,
@@ -161,5 +162,74 @@ describe("o sistema está amarrado", () => {
     expect(lib).toContain("export async function placarDeRecuperacao");
     expect(lib).toContain("netTotal");
     expect(ler("src/app/api/recuperacao/route.ts")).toContain("placarDeRecuperacao(");
+  });
+});
+
+
+describe("auditoria 01/08: a sacola vem da FOTO, não da reconstrução", () => {
+  it("lê a foto gravada no evento (meta.sacola)", () => {
+    expect(
+      sacolaDaFoto(
+        JSON.stringify({
+          sacola: [
+            { productId: "p1", name: "Vestido", color: "Rosa", size: "M", qty: 2, price: 189.9 },
+            { name: "", qty: 3 }, // lixo é filtrado
+          ],
+        })
+      )
+    ).toEqual([
+      { productId: "p1", name: "Vestido", color: "Rosa", size: "M", qty: 2, price: 189.9 },
+    ]);
+  });
+
+  it("meta torta ou sem sacola devolve null (cai na reconstrução)", () => {
+    for (const v of [null, undefined, "", "lixo", "{}", JSON.stringify({ sacola: [] })]) {
+      expect(sacolaDaFoto(v)).toBeNull();
+    }
+  });
+
+  it("a reconstrução (plano B) peneira tamanho composto — 'P,M' não é variante", () => {
+    const lib = readFileSync(join(process.cwd(), "src/lib/recuperacao.ts"), "utf8");
+    expect(lib).toContain('!i.size?.includes(",")');
+    expect(lib).toContain("sacolaDaFoto(e.meta)");
+  });
+
+  it("o catálogo grava a foto nos DOIS emissores (ficha e lixinho)", () => {
+    const cat = readFileSync(
+      join(process.cwd(), "src/app/catalogo/[slug]/public-catalog.tsx"),
+      "utf8"
+    );
+    expect(cat.split("meta: { sacola: fotoDaSacola(").length).toBe(3);
+  });
+});
+
+describe("auditoria 01/08: cintos do motor", () => {
+  const lib = readFileSync(join(process.cwd(), "src/lib/recuperacao.ts"), "utf8");
+
+  it("mensagem automática SÓ com o WhatsApp conectado (senão queimava o carrinho sem mensagem)", () => {
+    expect(lib).toContain('evolutionStatus !== "CONECTADO"');
+  });
+
+  it("UM pedido fecha UM carrinho (o placar não pode dobrar)", () => {
+    expect(lib).toContain("id: { notIn: [...jaUsados] }");
+    expect(lib).toContain("vistos.has(c.recoveredOrderId)");
+  });
+
+  it("a Nuvemshop lenta não segura a varredura (timeout de 5s)", () => {
+    expect(lib).toContain("AbortSignal.timeout(5_000)");
+  });
+
+  it("o mês do placar é no calendário de São Paulo (mesma régua do Painel)", () => {
+    const rota = readFileSync(join(process.cwd(), "src/app/api/recuperacao/route.ts"), "utf8");
+    expect(rota).toContain("inicioDoMesSP()");
+  });
+
+  it("a sacola restaurada respeita estoque e mescla POR TAMANHO", () => {
+    const cat = readFileSync(
+      join(process.cwd(), "src/app/catalogo/[slug]/public-catalog.tsx"),
+      "utf8"
+    );
+    expect(cat).toContain("sz.size === item.size && sz.available");
+    expect(cat).toContain("...(proximo[key] ?? {}), ...sizes");
   });
 });

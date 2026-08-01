@@ -60,6 +60,32 @@ export function horarioComercialSP(agora = new Date()): boolean {
   return hora >= 8 && hora < 20;
 }
 
+/**
+ * A FOTO DA SACOLA gravada no próprio evento (meta.sacola) — a fonte boa.
+ * O catálogo grava o estado real da sacola a cada mexida; remontar por
+ * eventos agregados errava tamanho ("P,M"), quantidade e preço.
+ */
+export function sacolaDaFoto(meta: string | null | undefined): ItemDoCarrinho[] | null {
+  if (!meta) return null;
+  try {
+    const m = JSON.parse(meta) as { sacola?: unknown };
+    if (!Array.isArray(m.sacola)) return null;
+    const itens = (m.sacola as Record<string, unknown>[])
+      .map((i) => ({
+        productId: typeof i.productId === "string" ? i.productId : null,
+        name: typeof i.name === "string" ? i.name.trim() : "",
+        color: typeof i.color === "string" ? i.color : null,
+        size: typeof i.size === "string" ? i.size : null,
+        qty: Number(i.qty ?? 0) || 0,
+        price: Number(i.price ?? 0) || null,
+      }))
+      .filter((i) => i.name && i.qty > 0);
+    return itens.length ? itens : null;
+  } catch {
+    return null;
+  }
+}
+
 /** Reconstrói a sacola a partir dos eventos de navegação (add − remove). */
 export function sacolaDosEventos(
   eventos: {
@@ -220,9 +246,21 @@ async function carrinhosDoCatalogo(companyId: string): Promise<void> {
     const eventos = await db.trackEvent.findMany({
       where: { sessionId: s.id, type: { in: ["cart_add", "cart_remove"] } },
       orderBy: { createdAt: "asc" },
+      select: {
+        type: true, productId: true, productName: true, color: true,
+        size: true, qty: true, value: true, meta: true,
+      },
     });
-    const itens = sacolaDosEventos(eventos);
+    // 1º a FOTO do último evento (estado real); sessão antiga sem foto cai na
+    // reconstrução, com a peneira do tamanho composto ("P,M" não é variante)
+    const ultimaFoto = [...eventos].reverse().map((e) => sacolaDaFoto(e.meta)).find(Boolean);
+    const itens = (
+      ultimaFoto ?? sacolaDosEventos(eventos).filter((i) => !i.size?.includes(","))
+    );
     if (itens.length === 0) continue;
+    const valorDaFoto = ultimaFoto
+      ? ultimaFoto.reduce((soma, i) => soma + (i.price ?? 0) * i.qty, 0)
+      : 0;
     await db.abandonedCart
       .create({
         data: {
@@ -231,7 +269,7 @@ async function carrinhosDoCatalogo(companyId: string): Promise<void> {
           trackSessionId: s.id,
           customerId: s.customerId,
           items: JSON.stringify(itens),
-          value: s.cartValue,
+          value: valorDaFoto > 0 ? valorDaFoto : s.cartValue,
           abandonedAt: s.lastEventAt,
         },
       })
@@ -291,6 +329,9 @@ async function carrinhosDaNuvemshop(companyId: string): Promise<void> {
         Authentication: `bearer ${conn.token}`,
         "User-Agent": "AtacadoPro (integracao@atacadopro.com)",
       },
+      // Nuvemshop lenta não pode segurar a varredura inteira (a rodada dos
+      // 10 min já foi consumida pela trava) — mesmo teto do vigia
+      signal: AbortSignal.timeout(5_000),
     });
     if (!res.ok) return; // loja sem o recurso/permissão: segue a vida
     const data = (await res.json().catch(() => null)) as NsCheckout[] | null;
@@ -352,6 +393,17 @@ async function marcarRecuperados(companyId: string): Promise<void> {
     select: { id: true, customerId: true, abandonedAt: true },
     take: 200,
   });
+  // UM pedido fecha UM carrinho: a cliente que largou sacola no catálogo E
+  // checkout na Nuvemshop e fez UMA compra não pode virar duas recuperações
+  // (o placar dobraria — e painel que dobra número perde a confiança)
+  const jaUsados = new Set(
+    (
+      await db.abandonedCart.findMany({
+        where: { companyId, recoveredOrderId: { not: null } },
+        select: { recoveredOrderId: true },
+      })
+    ).map((c) => c.recoveredOrderId as string)
+  );
   for (const cart of abertos) {
     const pedido = await db.order.findFirst({
       where: {
@@ -359,11 +411,13 @@ async function marcarRecuperados(companyId: string): Promise<void> {
         customerId: cart.customerId!,
         status: { in: PAID_ORDER_STATUSES },
         paidAt: { gt: cart.abandonedAt },
+        id: { notIn: [...jaUsados] },
       },
       orderBy: { paidAt: "asc" },
       select: { id: true, paidAt: true },
     });
     if (pedido) {
+      jaUsados.add(pedido.id);
       await db.abandonedCart.update({
         where: { id: cart.id },
         data: {
@@ -378,6 +432,14 @@ async function marcarRecuperados(companyId: string): Promise<void> {
 
 /** 1ª mensagem automática — uma por carrinho, e só com cliente conhecida. */
 async function enviarPrimeiraMensagem(companyId: string, slug: string): Promise<void> {
+  // WhatsApp desconectado (cai toda semana): NÃO consome o carrinho. O envio
+  // roda em segundo plano e a falha não volta — marcar "enviada" com a
+  // conexão caída queimava o carrinho sem mensagem nenhuma.
+  const conexao = await db.commSettings.findUnique({
+    where: { companyId },
+    select: { evolutionStatus: true },
+  });
+  if (conexao?.evolutionStatus !== "CONECTADO") return;
   const prontos = await db.abandonedCart.findMany({
     where: {
       companyId,
@@ -471,12 +533,19 @@ export async function placarDeRecuperacao(
       })
     : [];
   const porPedido = new Map(pedidos.map((p) => [p.id, p.netTotal]));
-  return {
-    valor: recuperados.reduce(
-      (s, c) =>
-        s + (c.recoveredOrderId ? (porPedido.get(c.recoveredOrderId) ?? c.value) : c.value),
-      0
-    ),
-    vendas: recuperados.length,
-  };
+  // dedup por pedido: dois carrinhos amarrados no MESMO pedido contam uma vez
+  const vistos = new Set<string>();
+  let valor = 0;
+  let vendas = 0;
+  for (const c of recuperados) {
+    if (c.recoveredOrderId) {
+      if (vistos.has(c.recoveredOrderId)) continue;
+      vistos.add(c.recoveredOrderId);
+      valor += porPedido.get(c.recoveredOrderId) ?? c.value;
+    } else {
+      valor += c.value;
+    }
+    vendas += 1;
+  }
+  return { valor, vendas };
 }

@@ -248,17 +248,35 @@ export function assinaturaDoPedido(payload: Record<string, unknown>): string {
  * quando mudou. Guardar no aparelho é o que faz a trava sobreviver a fechar
  * a aba e voltar depois.
  */
+/**
+ * VALIDADE DA TRAVA: 24 horas.
+ *
+ * Sem validade, a trava virava o incidente ao contrário: no atacado, REPOR
+ * exatamente as mesmas peças semanas depois é o fluxo normal — e a sacola
+ * idêntica devolvia o protocolo antigo, o servidor respondia "já registrado"
+ * com o pedido velho, e a REPOSIÇÃO nunca virava pedido (nem aviso). O
+ * duplo-clique que a trava existe para segurar acontece em minutos; um dia
+ * inteiro de folga cobre até "aperto de novo à noite" sem engolir reposição.
+ */
+export const VALIDADE_TRAVA_MS = 24 * 60 * 60 * 1000;
+
 export function protocoloDaSacola(
   storage: Storage,
-  payload: Record<string, unknown>
+  payload: Record<string, unknown>,
+  agora = Date.now()
 ): string {
   const assinatura = assinaturaDoPedido(payload);
   try {
     const bruto = JSON.parse(storage.getItem(CHAVE_ULTIMO_ENVIO) ?? "null") as {
       assinatura?: string;
       clientRef?: string;
+      at?: number;
     } | null;
-    if (bruto?.assinatura === assinatura && bruto.clientRef) return bruto.clientRef;
+    const valida =
+      typeof bruto?.at === "number" && agora - bruto.at < VALIDADE_TRAVA_MS;
+    if (valida && bruto?.assinatura === assinatura && bruto.clientRef) {
+      return bruto.clientRef;
+    }
   } catch {
     /* registro ilegível não pode impedir o pedido de sair */
   }
@@ -266,7 +284,7 @@ export function protocoloDaSacola(
   try {
     storage.setItem(
       CHAVE_ULTIMO_ENVIO,
-      JSON.stringify({ assinatura, clientRef: novo })
+      JSON.stringify({ assinatura, clientRef: novo, at: agora })
     );
   } catch {
     /* sem espaço para guardar: segue com protocolo novo (o normal de antes) */

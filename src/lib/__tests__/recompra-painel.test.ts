@@ -26,7 +26,7 @@ const base = {
   recuperadoMes: 0,
   recuperadoVendas: 0,
   aniversariantes: 0,
-} as const;
+} satisfies Parameters<typeof gerarInsights>[0];
 
 describe("Monitor IA — cada frase nasce de uma conta, nunca de chute", () => {
   it("clientes passadas do ponto viram o alerta nº 1, com o valor em jogo", () => {

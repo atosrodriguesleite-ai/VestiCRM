@@ -115,3 +115,43 @@ describe("o catálogo usa a trava", () => {
     expect(cat).not.toContain("clientRef: protocolo(),");
   });
 });
+
+
+describe("auditoria 01/08: a trava tem validade de 24h", () => {
+  const memoria = () => {
+    const m = new Map<string, string>();
+    return {
+      getItem: (k: string) => m.get(k) ?? null,
+      setItem: (k: string, v: string) => void m.set(k, v),
+      removeItem: (k: string) => void m.delete(k),
+    };
+  };
+  const payload = {
+    items: [{ productId: "p1", color: "Rosa", size: "M", quantity: 2 }],
+    customer: { name: "Ana", phone: "5511999990000", store: "Loja" },
+  };
+
+  it("dentro de 24h, mesma sacola = mesmo protocolo (segura o duplo-clique)", () => {
+    const st = memoria();
+    const t0 = 1_000_000_000_000;
+    const a = protocoloDaSacola(st, payload, t0);
+    const b = protocoloDaSacola(st, payload, t0 + 10 * 60 * 1000);
+    expect(b).toBe(a);
+  });
+
+  it("depois de 24h, a MESMA sacola vira pedido NOVO — reposição idêntica não pode ser engolida", () => {
+    // no atacado, repor as mesmas peças semanas depois é o fluxo normal; a
+    // trava sem validade devolvia o pedido antigo e a reposição sumia
+    const st = memoria();
+    const t0 = 1_000_000_000_000;
+    const a = protocoloDaSacola(st, payload, t0);
+    const b = protocoloDaSacola(st, payload, t0 + 25 * 60 * 60 * 1000);
+    expect(b).not.toBe(a);
+  });
+
+  it("registro antigo sem carimbo de hora não vale (formato anterior à validade)", () => {
+    const st = memoria();
+    st.setItem(CHAVE_ULTIMO_ENVIO, JSON.stringify({ assinatura: "x", clientRef: "VELHO" }));
+    expect(protocoloDaSacola(st, payload, Date.now())).not.toBe("VELHO");
+  });
+});
