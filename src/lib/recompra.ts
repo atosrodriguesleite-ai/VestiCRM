@@ -186,3 +186,202 @@ export async function aniversariantes(
   achados.sort((a, b) => a.emQuantosDias - b.emQuantosDias);
   return achados;
 }
+
+// ---- A ABA "RECOMPRA" (tela própria) ---------------------------------------
+//
+// A esteira acima decide QUEM está na hora (agenda). A aba mostra a loja
+// inteira POR ESTÁGIO, as VIPs e quem cutucar hoje — com a mensagem pronta.
+// Nada sai sozinho: a vendedora dispara (decisão do dono — recompra pede
+// contexto humano; robô aqui soa frio).
+
+import { catalogUrl } from "./catalog-url";
+import { ownedScope } from "./scope";
+import type { SessionUser } from "./auth";
+
+export type Faixa = "ATIVA" | "ESFRIANDO" | "RISCO" | "SUMIDA";
+
+export const FAIXAS: { id: Faixa; rotulo: string; cor: string }[] = [
+  { id: "ATIVA", rotulo: "Ativa", cor: "#059669" },
+  { id: "ESFRIANDO", rotulo: "Esfriando", cor: "#d97706" },
+  { id: "RISCO", rotulo: "Em risco", cor: "#ea580c" },
+  { id: "SUMIDA", rotulo: "Sumida", cor: "#e11d48" },
+];
+
+/** Faixa fixa pela última compra — o estágio de quem ainda não tem ritmo. */
+export function faixaFixa(diasDesdeUltima: number): Faixa {
+  if (diasDesdeUltima < 30) return "ATIVA";
+  if (diasDesdeUltima < 60) return "ESFRIANDO";
+  if (diasDesdeUltima < 90) return "RISCO";
+  return "SUMIDA";
+}
+
+/** As 20 maiores compradoras ganham selo VIP (escolha do dono: Top 20 fixo). */
+export const TOP_VIPS = 20;
+/** Produto que entrou no catálogo há menos de 14 dias conta como novidade. */
+const NOVIDADE_DIAS = 14;
+
+export type ClienteDeRecompra = {
+  id: string;
+  name: string;
+  phone: string;
+  total: number;
+  compras: number;
+  ultimaCompra: string;
+  diasDesde: number;
+  cicloDias: number | null;
+  faixa: Faixa;
+  passouDoPonto: boolean;
+  vip: number | null; // posição no Top 20 (1 = maior compradora)
+  categoriaTop: string | null;
+  aniversarioMes: boolean;
+};
+
+export type DadosDaAbaRecompra = {
+  clientes: ClienteDeRecompra[];
+  novidades: { categoria: string; produtos: number }[];
+  catalogLink: string;
+  mesAtual: string;
+};
+
+/** Monta tudo que a aba Recompra mostra (carteira da vendedora; loja p/ gerente). */
+export async function dadosDaAbaRecompra(user: SessionUser): Promise<DadosDaAbaRecompra> {
+  const agora = new Date();
+  const [clientesRaw, company, novidadesRaw] = await Promise.all([
+    db.customer.findMany({
+      where: { ...ownedScope(user) },
+      select: {
+        id: true,
+        name: true,
+        phone: true,
+        birthDate: true,
+        orders: {
+          where: { status: { in: PAID_ORDER_STATUSES }, paidAt: { not: null } },
+          select: {
+            netTotal: true,
+            paidAt: true,
+            items: { select: { quantity: true, product: { select: { category: true } } } },
+          },
+        },
+      },
+    }),
+    db.company.findUnique({ where: { id: user.companyId }, select: { slug: true } }),
+    db.product.findMany({
+      where: {
+        companyId: user.companyId,
+        active: true,
+        createdAt: { gt: new Date(agora.getTime() - NOVIDADE_DIAS * DIA_MS) },
+      },
+      select: { category: true },
+    }),
+  ]);
+
+  const mesAtual = agora.toLocaleDateString("pt-BR", {
+    month: "long",
+    timeZone: "America/Sao_Paulo",
+  });
+  const mesNumero = Number(
+    new Intl.DateTimeFormat("pt-BR", { timeZone: "America/Sao_Paulo", month: "numeric" }).format(
+      agora
+    )
+  );
+
+  const compradoras: ClienteDeRecompra[] = clientesRaw
+    .filter((c) => c.orders.some((o) => o.paidAt))
+    .map((c) => {
+      const datas = c.orders
+        .map((o) => o.paidAt)
+        .filter((d): d is Date => !!d)
+        .sort((a, b) => a.getTime() - b.getTime());
+      const ultima = datas[datas.length - 1];
+      const diasDesde = Math.floor((agora.getTime() - ultima.getTime()) / DIA_MS);
+      // MESMA régua do motor da agenda (cicloEntreCompras/passouDoRitmo):
+      // duas telas discordando de "quem está na hora" seria veneno
+      const ciclo = cicloEntreCompras(datas[0], ultima, datas.length);
+      const porCategoria = new Map<string, number>();
+      for (const o of c.orders)
+        for (const i of o.items) {
+          const cat = i.product?.category?.trim();
+          if (cat) porCategoria.set(cat, (porCategoria.get(cat) ?? 0) + i.quantity);
+        }
+      const categoriaTop =
+        [...porCategoria.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
+      return {
+        id: c.id,
+        name: c.name,
+        phone: c.phone,
+        total: c.orders.reduce((s, o) => s + o.netTotal, 0),
+        compras: datas.length,
+        ultimaCompra: ultima.toISOString(),
+        diasDesde,
+        cicloDias: ciclo ? Math.round(ciclo) : null,
+        faixa: faixaFixa(diasDesde),
+        passouDoPonto: ciclo != null && passouDoRitmo(diasDesde, ciclo),
+        vip: null,
+        categoriaTop,
+        aniversarioMes: !!c.birthDate && c.birthDate.getUTCMonth() + 1 === mesNumero,
+      };
+    });
+
+  // Top 20 pelo valor comprado (empate: quem comprou mais vezes primeiro)
+  [...compradoras]
+    .sort((a, b) => b.total - a.total || b.compras - a.compras)
+    .slice(0, TOP_VIPS)
+    .forEach((c, i) => {
+      c.vip = i + 1;
+    });
+
+  const porCat = new Map<string, number>();
+  for (const p of novidadesRaw) {
+    const cat = p.category?.trim();
+    if (cat) porCat.set(cat, (porCat.get(cat) ?? 0) + 1);
+  }
+
+  return {
+    // quem passou do próprio ponto primeiro; depois as maiores
+    clientes: compradoras.sort(
+      (a, b) => Number(b.passouDoPonto) - Number(a.passouDoPonto) || b.total - a.total
+    ),
+    novidades: [...porCat.entries()]
+      .map(([categoria, produtos]) => ({ categoria, produtos }))
+      .sort((a, b) => b.produtos - a.produtos),
+    catalogLink: catalogUrl(company?.slug ?? ""),
+    mesAtual,
+  };
+}
+
+// ---- Mensagens prontas (a vendedora dispara) -------------------------------
+
+export function mensagemHoraDeRepor(nome: string, ciclo: number | null, link: string): string {
+  const primeiro = nome.trim().split(/\s+/)[0];
+  return [
+    `Oi ${primeiro}! 💛 Já faz um tempinho desde a sua última reposição${
+      ciclo ? ` (você costuma renovar a cada ${ciclo} dias)` : ""
+    }.`,
+    `Chegou muita coisa boa — dá uma olhada no catálogo:\n${link}`,
+    "Se quiser, separo as novidades do seu estilo. 😉",
+  ].join("\n\n");
+}
+
+export function mensagemAniversario(nome: string, link: string): string {
+  const primeiro = nome.trim().split(/\s+/)[0];
+  return [
+    `${primeiro}!! 🎉 Feliz aniversário! Que seu mês seja incrível!`,
+    `Passando para te desejar tudo de bom — e se quiser se presentear, o catálogo está cheio de novidade:\n${link}`,
+  ].join("\n\n");
+}
+
+export function mensagemNovidade(nome: string, categoria: string, link: string): string {
+  const primeiro = nome.trim().split(/\s+/)[0];
+  return [
+    `Oi ${primeiro}! 💛 Lembrei de você: chegaram novidades em ${categoria} — bem a sua praia.`,
+    `Olha aqui antes que as grades quebrem:\n${link}`,
+  ].join("\n\n");
+}
+
+export function mensagemVipLancamento(nome: string, link: string): string {
+  const primeiro = nome.trim().split(/\s+/)[0];
+  return [
+    `${primeiro}, você é uma das nossas clientes mais especiais 💎`,
+    `Por isso está vendo o lançamento ANTES de todo mundo — escolhe primeiro, garante as grades cheias:\n${link}`,
+  ].join("\n\n");
+}

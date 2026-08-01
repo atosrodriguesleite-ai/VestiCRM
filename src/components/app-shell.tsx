@@ -41,6 +41,7 @@ import {
   Boxes,
   ChevronDown,
   ShoppingCart,
+  Repeat,
 } from "lucide-react";
 import { Avatar } from "./ui";
 import { Logo, LogoMark } from "./logo";
@@ -66,8 +67,9 @@ const NAV = [
   { href: "/automacoes", label: "Automações", icon: Zap, group: "Relacionamento", supportHidden: true },
   { href: "/campanhas", label: "Campanhas", icon: Megaphone, group: "Relacionamento", supportHidden: true },
   { href: "/marketing", label: "Marketing", icon: Target, group: "Análise", managerOnly: true, marketingOnly: true },
-  // Recuperação: vendedora TAMBÉM vê — recuperar venda é trabalho dela
+  // Recuperação e Recompra: vendedora TAMBÉM vê — vender de novo é trabalho dela
   { href: "/recuperacao", label: "Recuperação", icon: ShoppingCart, group: "Análise", supportHidden: true },
+  { href: "/recompra", label: "Recompra", icon: Repeat, group: "Relacionamento", supportHidden: true },
   { href: "/relatorios", label: "Relatórios", icon: BarChart3, group: "Análise", managerOnly: true },
   { href: "/inteligencia", label: "Inteligência", icon: Brain, group: "Análise", managerOnly: true },
   { href: "/comissoes", label: "Comissões", icon: Percent, group: "Análise", managerOnly: true },
