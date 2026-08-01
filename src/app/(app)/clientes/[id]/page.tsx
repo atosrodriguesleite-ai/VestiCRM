@@ -91,6 +91,7 @@ import {
   PAID_ORDER_STATUSES,
 } from "@/lib/orders";
 import { customerJourney } from "@/lib/tracking/insights";
+import { linhaDoTempoComercial } from "@/lib/linha-do-tempo";
 import { catalogUrl, trackedCatalogLink } from "@/lib/catalog-url";
 import { CatalogLinkButton } from "./catalog-link-button";
 import { AbrirConversa } from "./abrir-conversa";
@@ -196,6 +197,10 @@ export default async function CustomerDetailPage({
 
   // Jornada de navegação (Tracking Engine / Inteligência Comercial)
   const journey = await customerJourney(user.companyId, customer.id);
+
+  // Linha do tempo COMERCIAL: pedidos, conversas, campanhas, visitas e
+  // sacolas — cada movimento dizendo se virou venda (lib/linha-do-tempo.ts)
+  const comercial = await linhaDoTempoComercial(user.companyId, customer.id);
 
   return (
     <div className="max-w-5xl mx-auto">
@@ -500,6 +505,74 @@ export default async function CustomerDetailPage({
                   >
                     Abrir no atendimento →
                   </Link>
+                </li>
+              ))}
+            </ul>
+          )}
+        </Card>
+
+        {/* LINHA DO TEMPO COMERCIAL — a história do relacionamento em uma
+            leitura: onde esquentou (pedido), onde esfriou (campanha ignorada,
+            sacola largada) e o "hoje" contra o ritmo próprio da cliente. */}
+        <Card className="p-5 md:col-span-2">
+          <h2 className="font-semibold flex items-center gap-2 mb-1">
+            <CalendarClock className="size-4 text-brand-600" />
+            Linha do tempo comercial
+          </h2>
+          <p
+            className={`mb-3 inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-semibold ${
+              comercial.hoje.passouDoPonto
+                ? "bg-violet-50 text-violet-700 border border-violet-100"
+                : "bg-gray-50 text-gray-500 border border-gray-100"
+            }`}
+          >
+            📅 Hoje —{" "}
+            {comercial.hoje.diasSemComprar == null
+              ? "ainda sem compra paga"
+              : `há ${comercial.hoje.diasSemComprar} dia${
+                  comercial.hoje.diasSemComprar === 1 ? "" : "s"
+                } sem comprar${
+                  comercial.hoje.cicloDias
+                    ? ` (ritmo dela: ~${comercial.hoje.cicloDias} dias)`
+                    : ""
+                }`}
+            {comercial.hoje.passouDoPonto && " ⏰ passou do ponto"}
+          </p>
+          {comercial.eventos.length === 0 ? (
+            <EmptyState title="Ainda não há movimento comercial registrado" />
+          ) : (
+            <ul className="space-y-2.5">
+              {comercial.eventos.map((e, i) => (
+                <li key={i} className="flex items-start gap-2.5">
+                  <span className="text-base leading-5 shrink-0">{e.emoji}</span>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm leading-snug">
+                      <span className="text-gray-400 tabular-nums">
+                        {dateShort(e.quando)}
+                      </span>{" "}
+                      — <span className="font-medium">{e.titulo}</span>
+                      {e.valor != null && (
+                        <span className="font-semibold text-emerald-700">
+                          {" "}
+                          — {brl(e.valor)}
+                        </span>
+                      )}
+                      {e.detalhe && (
+                        <span
+                          className={
+                            e.tom === "BOM"
+                              ? " text-emerald-600"
+                              : e.tom === "RUIM"
+                                ? " text-rose-500"
+                                : " text-gray-400"
+                          }
+                        >
+                          {" "}
+                          · {e.detalhe}
+                        </span>
+                      )}
+                    </p>
+                  </div>
                 </li>
               ))}
             </ul>
