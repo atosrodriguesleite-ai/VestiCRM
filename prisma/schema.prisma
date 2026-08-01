@@ -23,6 +23,10 @@ model Company {
   tagline           String? // frase de apresentação do catálogo público
   minOrder          Int      @default(0) // pedido mínimo em PEÇAS (quando minOrderMode = PECAS)
   minOrderMode      String   @default("NONE") // trava do catálogo: NONE | PECAS | VALOR
+  // Recuperação de carrinhos: a 1ª mensagem sai SOZINHA (2h após o abandono,
+  // em horário comercial, com o ritmo anti-bloqueio do WhatsApp). Nasce
+  // DESLIGADA: mensagem automática para cliente é decisão da loja, não nossa.
+  recoveryAuto      Boolean  @default(false)
   minOrderValue     Float    @default(0) // pedido mínimo em R$ (quando minOrderMode = VALOR)
   // Base da comissão. As DUAS opções são sem frete — o frete nunca remunera
   // vendedora, e isso é estrutura, não configuração:
@@ -74,6 +78,7 @@ model Company {
 
   users          User[]
   customers      Customer[]
+  abandonedCarts AbandonedCart[]
   tags           Tag[]
   interests      Interest[]
   pipelines      Pipeline[]
@@ -580,6 +585,7 @@ model Customer {
   @@index([companyId, adRef])
   // varredura diária de aniversariantes
   @@index([companyId, birthDate])
+  abandonedCarts  AbandonedCart[]
 }
 
 model Tag {
@@ -1062,6 +1068,7 @@ model TrackSession {
   @@index([companyId, sellerId])
   @@index([companyId, campaignId])
   @@index([visitorId])
+  abandonedCart  AbandonedCart?
 }
 
 // Evento da jornada — SEMPRE gravado via Tracking Engine
@@ -1083,6 +1090,40 @@ model TrackEvent {
 
   @@index([companyId, type, createdAt])
   @@index([sessionId])
+}
+
+// CARRINHO ABANDONADO — a esteira de recuperação (tela Recuperação).
+//
+// Nasce do catálogo (sessão de navegação que encheu a sacola e não enviou)
+// ou da Nuvemshop (checkout abandonado, via API). A 1ª mensagem pode sair
+// sozinha (Company.recoveryAuto); o resto é trabalho da vendedora na esteira.
+// O id serve de token do "link mágico" que REMONTA a sacola no catálogo
+// (cuid não é adivinhável e o link só reabre itens, nunca dados da cliente).
+model AbandonedCart {
+  id               String    @id @default(cuid())
+  companyId        String
+  company          Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  source           String // CATALOGO | NUVEMSHOP
+  trackSessionId   String?   @unique // sessão do catálogo que virou este carrinho
+  trackSession     TrackSession? @relation(fields: [trackSessionId], references: [id], onDelete: SetNull)
+  nsCheckoutId     String? // id do checkout abandonado na Nuvemshop
+  customerId       String?
+  customer         Customer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  items            String    @default("[]") // JSON [{productId?,name,color,size,qty,price?}]
+  value            Float     @default(0)
+  checkoutUrl      String? // link de retomada da própria Nuvemshop (quando existir)
+  status           String    @default("NOVO") // NOVO | CHAMADA | RECUPERADO | PERDIDO
+  autoSentAt       DateTime? // 1ª mensagem automática enviada em
+  contactedAt      DateTime? // vendedora chamou em
+  recoveredAt      DateTime?
+  recoveredOrderId String? // pedido pago que fechou a recuperação
+  lostAt           DateTime?
+  abandonedAt      DateTime
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @default(now()) @updatedAt
+
+  @@unique([companyId, nsCheckoutId])
+  @@index([companyId, status, abandonedAt])
 }
 
 // Campanhas/links inteligentes (cada um gera link + QR Code)

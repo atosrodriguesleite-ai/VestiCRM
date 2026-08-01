@@ -387,6 +387,46 @@ export function PublicCatalog({
       }
     } catch {}
     cartLoadedRef.current = true;
+
+    // LINK MÁGICO DA RECUPERAÇÃO (?sacola=): a cliente recebeu no WhatsApp o
+    // link que REMONTA a sacola abandonada — pode ser em outro aparelho, ou
+    // com o armazenamento já vencido. Os itens vêm do servidor e entram por
+    // cima do que houver (o link é a intenção mais recente da cliente).
+    try {
+      const token = new URLSearchParams(window.location.search).get("sacola");
+      if (token) {
+        fetch(`/api/catalogo/sacola?token=${encodeURIComponent(token)}&slug=${encodeURIComponent(storeSlug)}`)
+          .then((r) => (r.ok ? r.json() : null))
+          .then(
+            (data: {
+              itens?: { productId?: string | null; name: string; color?: string | null; size?: string | null; qty: number }[];
+            } | null) => {
+              if (!data?.itens?.length) return;
+              const restaurada: Cart = {};
+              for (const item of data.itens) {
+                // acha o card do produto+cor: pelo id (certeiro) ou pelo nome
+                const card = allCards.find(
+                  (c) =>
+                    (item.productId && c.key.startsWith(`${item.productId}|`) &&
+                      (!item.color || c.key === `${item.productId}|${item.color}`)) ||
+                    (!item.productId && c.product.name === item.name)
+                );
+                if (!card || !item.size || item.qty <= 0) continue;
+                // só tamanho que ainda existe e com estoque aparece de volta
+                restaurada[card.key] = {
+                  ...(restaurada[card.key] ?? {}),
+                  [item.size]: item.qty,
+                };
+              }
+              if (Object.keys(restaurada).length) {
+                setCart((atual) => ({ ...atual, ...restaurada }));
+                setBagOpen(true); // a sacola abre mostrando que está pronta
+              }
+            }
+          )
+          .catch(() => {});
+      }
+    } catch {}
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   useEffect(() => {
