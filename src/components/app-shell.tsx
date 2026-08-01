@@ -55,6 +55,9 @@ const NAV = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard, group: "Comercial", supportHidden: true },
   { href: "/funil", label: "Funil de vendas", icon: KanbanSquare, group: "Comercial", supportHidden: true },
   { href: "/whatsapp", label: "WhatsApp", icon: MessageCircle, group: "Comercial" },
+  // módulo IA de Vendas (pago à parte): sem a chave, o menu nem aparece.
+  // Fica no Comercial, colada no WhatsApp — é ali que ela trabalha.
+  { href: "/ia", label: "IA de Vendas", icon: Bot, group: "Comercial", managerOnly: true, aiOnly: true },
   // "Agenda" e não "Tarefas": a tela deixou de ser lista de obrigação e
   // virou a lista de quem precisa de contato hoje. O nome antigo fazia
   // parecer trabalho burocrático — e era o que ninguém abria.
@@ -71,8 +74,6 @@ const NAV = [
   // Recuperação e Recompra: vendedora TAMBÉM vê — vender de novo é trabalho dela
   { href: "/recuperacao", label: "Recuperação", icon: ShoppingCart, group: "Análise", supportHidden: true },
   { href: "/recompra", label: "Recompra", icon: Repeat, group: "Relacionamento", supportHidden: true },
-  // módulo IA de Vendas (pago à parte): sem a chave, o menu nem aparece
-  { href: "/ia", label: "IA de Vendas", icon: Bot, group: "Análise", managerOnly: true, aiOnly: true },
   { href: "/relatorios", label: "Relatórios", icon: BarChart3, group: "Análise", managerOnly: true },
   { href: "/inteligencia", label: "Inteligência", icon: Brain, group: "Análise", managerOnly: true },
   { href: "/comissoes", label: "Comissões", icon: Percent, group: "Análise", managerOnly: true },
