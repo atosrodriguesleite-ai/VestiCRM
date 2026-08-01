@@ -64,6 +64,7 @@ import { casaCliente } from "@/lib/busca";
 import { Avatar, EmptyState } from "@/components/ui";
 import { gravacaoParaWav } from "@/lib/audio-wav";
 import { comprimirFoto, nomeJpeg } from "@/lib/comprimir-foto";
+import { Portal } from "@/components/portal";
 
 export type InboxMessage = {
   id: string;
@@ -322,28 +323,12 @@ function VisorDeFoto({
     return () => window.removeEventListener("keydown", teclas);
   }, [onClose]);
   return (
-    <div className="fixed inset-0 z-[95] bg-black/95 flex flex-col animate-fade-in">
-      <div className="flex items-center justify-end gap-1 p-2 shrink-0">
-        <a
-          href={src}
-          download="foto.jpg"
-          className="p-2.5 rounded-full text-white/85 hover:bg-white/10 transition"
-          title="Baixar foto"
-        >
-          <Download className="size-5" />
-        </a>
-        <button
-          onClick={onClose}
-          className="p-2.5 rounded-full text-white/85 hover:bg-white/10 transition"
-          title="Fechar (Esc)"
-        >
-          <X className="size-5" />
-        </button>
-      </div>
+    <div className="fixed inset-0 z-[95] bg-black/95 animate-fade-in">
+      {/* a foto (rolável quando ampliada) fica POR BAIXO dos botões */}
       <div
-        className="flex-1 overflow-auto flex min-h-0"
+        className="absolute inset-0 overflow-auto flex"
         onClick={(e) => {
-          // clique no FUNDO fecha; na foto, quem trata é a própria foto
+          // toque no FUNDO fecha; na foto, quem trata é a própria foto
           if (e.target === e.currentTarget) onClose();
         }}
       >
@@ -360,8 +345,35 @@ function VisorDeFoto({
           style={ampliada ? { width: "220%" } : undefined}
         />
       </div>
+      {/* BOTÕES SEMPRE VISÍVEIS: flutuam por cima da foto (mesmo ampliada) e
+          com folga do relógio/câmera do celular (safe-area) — presos numa
+          barra, ficavam escondidos atrás da barra de status do aparelho */}
+      <div
+        className="absolute right-3 z-10 flex gap-2"
+        style={{ top: "calc(0.75rem + env(safe-area-inset-top))" }}
+      >
+        <a
+          href={src}
+          download="foto.jpg"
+          className="p-3 rounded-full bg-black/60 text-white shadow-lg backdrop-blur-sm hover:bg-black/75 transition"
+          title="Baixar foto"
+        >
+          <Download className="size-5" />
+        </a>
+        <button
+          onClick={onClose}
+          className="p-3 rounded-full bg-black/60 text-white shadow-lg backdrop-blur-sm hover:bg-black/75 transition"
+          title="Fechar (Esc)"
+          aria-label="Fechar"
+        >
+          <X className="size-5" />
+        </button>
+      </div>
       {legenda && (
-        <p className="shrink-0 text-center text-white/90 text-sm px-4 py-3 max-h-24 overflow-y-auto whitespace-pre-wrap">
+        <p
+          className="absolute inset-x-0 bottom-0 z-10 text-center text-white/95 text-sm px-4 pt-8 max-h-32 overflow-y-auto whitespace-pre-wrap bg-gradient-to-t from-black/85 to-transparent"
+          style={{ paddingBottom: "calc(0.75rem + env(safe-area-inset-bottom))" }}
+        >
           {legenda}
         </p>
       )}
@@ -3132,13 +3144,17 @@ export function Inbox({
       />
     </div>
 
-    {/* visor de foto em tela cheia (toque na foto; toque de novo dá zoom) */}
+    {/* visor de foto em tela cheia (toque na foto; toque de novo dá zoom).
+        Sai pelo Portal: dentro do painel do chat ele ficava preso atrás do
+        cabeçalho e da barra de navegação no celular. */}
     {fotoAberta && (
-      <VisorDeFoto
-        src={fotoAberta.src}
-        legenda={fotoAberta.legenda}
-        onClose={() => setFotoAberta(null)}
-      />
+      <Portal>
+        <VisorDeFoto
+          src={fotoAberta.src}
+          legenda={fotoAberta.legenda}
+          onClose={() => setFotoAberta(null)}
+        />
+      </Portal>
     )}
 
     {/* folha de ações da mensagem (segurar no celular / ⋯ no computador):
