@@ -240,11 +240,16 @@ export function coresPorFotoNs(p: NsProduct): Map<string, string> {
  * Foto subida à mão (data-URL) não casa com o src da Nuvemshop e fica como está.
  */
 async function etiquetarFotosPorCor(productId: string, p: NsProduct) {
-  for (const [src, color] of coresPorFotoNs(p)) {
-    await db.productImage.updateMany({
-      where: { productId, url: src, color: null },
-      data: { color },
-    });
+  const mapa = coresPorFotoNs(p);
+  if (mapa.size === 0) return; // produto sem vínculo foto→variação: zero consultas
+  // uma leitura só; grava apenas onde falta etiqueta (regime normal: nada a fazer)
+  const semEtiqueta = await db.productImage.findMany({
+    where: { productId, color: null, url: { in: [...mapa.keys()] } },
+    select: { id: true, url: true },
+  });
+  for (const f of semEtiqueta) {
+    const color = mapa.get(f.url);
+    if (color) await db.productImage.update({ where: { id: f.id }, data: { color } });
   }
 }
 
@@ -267,6 +272,31 @@ export const mesmaCor = (a: string | null | undefined, b: string | null | undefi
 export const corDoNome = (name: string) => {
   const m = name.match(/\s+[—–-]\s+(.+)$/);
   return m ? m[1].trim() : null;
+};
+
+/**
+ * POOLS DA SINCRONIZAÇÃO — o porquê: `upsertProduct` consultava o catálogo
+ * INTEIRO (todas as variações com SKU + todos os produtos) para CADA produto
+ * da Nuvemshop. Com o catálogo crescendo, a sincronização completa passou de
+ * 60s e a Vercel matava a função no meio ("Não foi possível sincronizar",
+ * sem explicação — incidente Entre Linhas, 03/08/2026). A `syncProducts`
+ * busca os pools UMA vez e repassa; o webhook (um produto só) segue buscando
+ * na hora. Produto espelhado durante a rodada entra no pool em memória —
+ * é o que impede duplicata se a paginação repetir o mesmo produto.
+ */
+const buscarPoolSku = (companyId: string) =>
+  db.productVariant.findMany({
+    where: { product: { companyId }, sku: { not: null } },
+    include: { product: true },
+  });
+const buscarPoolProdutos = (companyId: string) =>
+  db.product.findMany({
+    where: { companyId },
+    select: { id: true, name: true, sku: true, nuvemshopId: true },
+  });
+export type PoolsDeSync = {
+  skuVariants: Awaited<ReturnType<typeof buscarPoolSku>>;
+  allProducts: Awaited<ReturnType<typeof buscarPoolProdutos>>;
 };
 
 export type SyncPendencia = {
@@ -297,13 +327,15 @@ export type SyncReport = {
 export async function upsertProduct(
   companyId: string,
   p: NsProduct,
-  report?: SyncReport
+  report?: SyncReport,
+  pools?: PoolsDeSync
 ) {
   const nsId = String(p.id);
   const nsName = texto(p.name).trim() || `Produto ${nsId}`;
   const variants = p.variants ?? [];
 
-  // pools de candidatos locais
+  // pools de candidatos locais (a sync completa passa os seus, buscados uma
+  // vez — refazer estas consultas por produto era o que estourava os 60s)
   const [linkedVariants, skuVariants, allProducts] = await Promise.all([
     db.productVariant.findMany({
       where: {
@@ -315,14 +347,8 @@ export async function upsertProduct(
       },
       include: { product: true },
     }),
-    db.productVariant.findMany({
-      where: { product: { companyId }, sku: { not: null } },
-      include: { product: true },
-    }),
-    db.product.findMany({
-      where: { companyId },
-      select: { id: true, name: true, sku: true, nuvemshopId: true },
-    }),
+    pools ? pools.skuVariants : buscarPoolSku(companyId),
+    pools ? pools.allProducts : buscarPoolProdutos(companyId),
   ]);
   const skuMap = new Map(skuVariants.map((v) => [norm(v.sku), v]));
   // vínculo 1↔1 apenas quando JÁ existe ligação explícita (nuvemshopId)
@@ -621,6 +647,12 @@ export async function syncProducts(companyId: string) {
   const conn = await loadConn(companyId);
   if (!conn) return { ok: false as const, produtos: 0, report: null, status: -1 };
   const report: SyncReport = { casadas: 0, criadas: 0, pendencias: [] };
+  // catálogo local lido UMA vez para a rodada inteira (antes era por produto
+  // — com o catálogo grande, estourava os 60s e a Vercel matava a função)
+  const pools: PoolsDeSync = {
+    skuVariants: await buscarPoolSku(companyId),
+    allProducts: await buscarPoolProdutos(companyId),
+  };
   let page = 1;
   let total = 0;
   for (; page <= 50; page++) {
@@ -633,7 +665,17 @@ export async function syncProducts(companyId: string) {
     }
     if (!res.ok || !res.data?.length) break;
     for (const p of res.data) {
-      await upsertProduct(companyId, p, report);
+      const criado = await upsertProduct(companyId, p, report, pools);
+      // espelhado nesta rodada entra no pool: paginação que repetir o mesmo
+      // produto encontra o vínculo em vez de criar duplicata
+      if (criado) {
+        pools.allProducts.push({
+          id: criado.id,
+          name: criado.name,
+          sku: criado.sku,
+          nuvemshopId: criado.nuvemshopId,
+        });
+      }
       total++;
     }
     if (res.data.length < 50) break;
