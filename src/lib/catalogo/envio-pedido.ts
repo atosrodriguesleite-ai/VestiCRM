@@ -44,6 +44,62 @@ export function protocolo(): string {
   return `cat-${Date.now().toString(36)}-${rnd.slice(0, 16)}`;
 }
 
+/**
+ * MESMA SACOLA, MESMO PROTOCOLO — clicar duas vezes não vira dois pedidos.
+ *
+ * Incidente real (Toque Leve): o registro estava lento, a cliente abriu o
+ * WhatsApp e mandou, voltou para o catálogo, viu a tela ainda "enviando" e
+ * CLICOU DE NOVO. Cada clique sorteava um protocolo novo, então o servidor
+ * não reconhecia o repetido: virou pedido em dobro, mensagem em dobro na
+ * vendedora e a MESMA PEÇA reservada duas vezes no estoque.
+ *
+ * O protocolo aleatório protegia a reinsistência automática (que reusa o
+ * mesmo) e não protegia o dedo da cliente. Agora ele é derivado do CONTEÚDO:
+ * mesma sacola + mesma cliente + mesmo dia = mesmo protocolo, e o servidor
+ * devolve o pedido que já existe em vez de criar outro.
+ *
+ * O DIA entra de propósito: pedir as mesmas peças amanhã é pedido novo de
+ * verdade; pedir as mesmas peças dois minutos depois é o dedo, não a vontade.
+ */
+export function assinaturaDoPedido(
+  payload: Record<string, unknown>,
+  agora = Date.now()
+): string {
+  const itens = Array.isArray(payload.items) ? payload.items : [];
+  const cliente = (payload.customer ?? {}) as Record<string, unknown>;
+  // ordena para que a mesma sacola montada em ordem diferente case igual
+  const corpo = itens
+    .map((i) => {
+      const it = i as Record<string, unknown>;
+      return `${it.productId}|${it.color}|${it.size}|${it.quantity}`;
+    })
+    .sort()
+    .join(";");
+  const dia = new Date(agora - 3 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  const quem = `${payload.company ?? ""}|${cliente.phone ?? ""}|${cliente.name ?? ""}`;
+  return hashCurto(`${dia}::${quem}::${corpo}::${payload.promo ?? ""}`);
+}
+
+/** Hash curto e estável (não precisa ser criptográfico — só repetível). */
+function hashCurto(texto: string): string {
+  let h1 = 0x811c9dc5;
+  let h2 = 0x01000193;
+  for (let i = 0; i < texto.length; i++) {
+    const c = texto.charCodeAt(i);
+    h1 = Math.imul(h1 ^ c, 0x01000193) >>> 0;
+    h2 = Math.imul(h2 + c, 0x85ebca6b) >>> 0;
+  }
+  return (h1.toString(36) + h2.toString(36)).slice(0, 18);
+}
+
+/** Protocolo estável para esta sacola: `cat-<assinatura>`. */
+export function protocoloDaSacola(
+  payload: Record<string, unknown>,
+  agora = Date.now()
+): string {
+  return `cat-${assinaturaDoPedido(payload, agora)}`;
+}
+
 type Storage = Pick<globalThis.Storage, "getItem" | "setItem" | "removeItem">;
 
 /** Lê a fila de pendentes tolerando lixo (memória de navegador é bagunçada). */

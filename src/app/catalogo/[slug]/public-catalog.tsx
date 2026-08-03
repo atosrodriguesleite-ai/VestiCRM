@@ -24,7 +24,7 @@ import {
 import { makeSwatch, mixHex, readableOn } from "@/lib/color";
 import {
   guardarPendente,
-  protocolo,
+  protocoloDaSacola,
   registrarComInsistencia,
   reenviarPendentes,
 } from "@/lib/catalogo/envio-pedido";
@@ -402,6 +402,9 @@ export function PublicCatalog({
   // insistindo deu — a cliente vê, e o pedido fica guardado para a próxima
   // vez que ela abrir o catálogo.
   const [envio, setEnvio] = useState<"parado" | "enviando" | "ok" | "erro">("parado");
+  // protocolo da última sacola enviada nesta visita — é o que permite
+  // reconhecer o segundo clique antes de abrir o WhatsApp de novo
+  const jaEnviado = useRef<string>("");
 
   // Rede de segurança: ao abrir o catálogo, reenvia pedido que ficou para
   // trás numa visita anterior (internet caiu no momento do envio).
@@ -687,9 +690,16 @@ export function PublicCatalog({
       );
     // PROTOCOLO: o pedido é guardado no aparelho ANTES de sair. Se o envio
     // falhar, o catálogo insiste — e ainda tenta de novo na próxima visita.
-    // O protocolo garante que insistir nunca cria o pedido duas vezes.
+    // PROTOCOLO DERIVADO DA SACOLA (não sorteado).
+    //
+    // Incidente real: com o registro lento, a cliente mandava pelo WhatsApp,
+    // voltava, via a tela ainda "enviando" e CLICAVA DE NOVO. Cada clique
+    // sorteava um protocolo novo — o servidor não reconhecia o repetido e
+    // criava um SEGUNDO pedido, com a mesma peça reservada duas vezes.
+    // Mesma sacola + mesma cliente + mesmo dia = mesmo protocolo, e aí o
+    // servidor devolve o pedido que já existe.
     const pendente = {
-      clientRef: protocolo(),
+      clientRef: "",
       at: Date.now(),
       tentativas: 0,
       payload: {
@@ -708,10 +718,29 @@ export function PublicCatalog({
         promo: promo?.slug || undefined,
       } as Record<string, unknown>,
     };
+    pendente.clientRef = protocoloDaSacola(pendente.payload);
     pendente.payload.clientRef = pendente.clientRef;
+
+    // JÁ MANDOU ESTA MESMA SACOLA? Pergunta antes de mandar de novo.
+    // O protocolo repetido garante que o servidor não cria pedido duplicado,
+    // mas a vendedora ainda receberia a mensagem duas vezes — e é isso que
+    // faz ela achar que são dois pedidos.
+    if (jaEnviado.current === pendente.clientRef) {
+      const repetir = window.confirm(
+        "Você já enviou este pedido agora há pouco.\n\n" +
+          "Ele foi registrado e a loja já recebeu — enviar de novo só manda a " +
+          "mesma mensagem outra vez.\n\nQuer enviar mesmo assim?"
+      );
+      if (!repetir) {
+        setEnvio("ok");
+        return;
+      }
+    }
+
     if (typeof window !== "undefined") {
       guardarPendente(window.localStorage, pendente);
       setEnvio("enviando");
+      jaEnviado.current = pendente.clientRef;
       registrarComInsistencia(pendente, { storage: window.localStorage })
         .then((ok) => setEnvio(ok ? "ok" : "erro"))
         .catch(() => setEnvio("erro"));
