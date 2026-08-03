@@ -58,7 +58,7 @@ export default async function PublicCatalogPage({
         ...(company.catalogHideOutOfStock ? { variants: { some: { stock: { gt: 0 } } } } : {}),
       },
       include: {
-        images: { orderBy: { order: "asc" }, select: { id: true } },
+        images: { orderBy: { order: "asc" }, select: { id: true, color: true } },
         variants: { orderBy: [{ color: "asc" }, { size: "asc" }] },
       },
       orderBy: [{ collection: "desc" }, { name: "asc" }],
@@ -80,7 +80,8 @@ export default async function PublicCatalogPage({
     wholesalePrice: p.wholesalePrice,
     minQuantity: p.minQuantity,
     tags: p.tags,
-    images: p.images.map((i) => imageHref(i.id)),
+    // url + cor etiquetada: o card de cada cor usa a foto DAQUELA cor
+    images: p.images.map((i) => ({ url: imageHref(i.id), color: i.color })),
     variants: p.variants.map((v) => ({
       color: v.color,
       size: v.size,

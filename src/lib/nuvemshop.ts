@@ -162,6 +162,7 @@ type NsVariant = {
   price?: string | number | null;
   stock?: number | null;
   weight?: string | number | null; // kg (a Nuvemshop usa para calcular frete)
+  image_id?: number | string | null; // foto da variação (capa por cor)
   values?: { pt?: string; es?: string; en?: string }[] | MultiLang[];
 };
 type NsProduct = {
@@ -171,7 +172,7 @@ type NsProduct = {
   published?: boolean;
   attributes?: MultiLang[];
   categories?: { name: MultiLang }[];
-  images?: { src: string; position?: number }[];
+  images?: { id?: number | string; src: string; position?: number }[];
   variants?: NsVariant[];
 };
 
@@ -204,6 +205,47 @@ function corETamanho(p: NsProduct, v: NsVariant): { color: string; size: string 
     size = vals[1] || "Único";
   }
   return { color, size };
+}
+
+/**
+ * CAPA POR COR (pedido da Entre Linhas, 03/08/2026): a Nuvemshop sabe qual
+ * foto pertence a cada variação (`variant.image_id`) — a gente jogava essa
+ * informação fora, e o catálogo mostrava a peça preta no card de toda cor.
+ * Aqui vira o mapa foto(src) → cor. Foto usada por variações de CORES
+ * DIFERENTES é ambígua e fica sem etiqueta (melhor capa geral que cor errada).
+ */
+export function coresPorFotoNs(p: NsProduct): Map<string, string> {
+  const porImagem = new Map<string, Set<string>>();
+  for (const v of p.variants ?? []) {
+    if (v.image_id == null) continue;
+    const { color } = corETamanho(p, v);
+    if (!color || color === "Único") continue;
+    const key = String(v.image_id);
+    const set = porImagem.get(key) ?? new Set<string>();
+    set.add(color);
+    porImagem.set(key, set);
+  }
+  const out = new Map<string, string>();
+  for (const img of p.images ?? []) {
+    if (img.id == null) continue;
+    const cores = porImagem.get(String(img.id));
+    if (cores && cores.size === 1) out.set(img.src, [...cores][0]);
+  }
+  return out;
+}
+
+/**
+ * Etiqueta as fotos JÁ importadas do produto local com a cor da Nuvemshop —
+ * só onde ainda não há etiqueta (nunca sobrescreve escolha manual da lojista).
+ * Foto subida à mão (data-URL) não casa com o src da Nuvemshop e fica como está.
+ */
+async function etiquetarFotosPorCor(productId: string, p: NsProduct) {
+  for (const [src, color] of coresPorFotoNs(p)) {
+    await db.productImage.updateMany({
+      where: { productId, url: src, color: null },
+      data: { color },
+    });
+  }
 }
 
 // normalização pra comparar nomes/SKUs sem pegadinha de acento/caixa
@@ -470,13 +512,25 @@ export async function upsertProduct(
     });
     const fotoCount = await db.productImage.count({ where: { productId: um2um.id } });
     if (fotoCount === 0 && p.images?.length) {
+      const corDaFoto = coresPorFotoNs(p);
       await db.productImage.createMany({
         data: [...p.images]
           .sort((a, b) => (a.position ?? 0) - (b.position ?? 0))
           .slice(0, 10)
-          .map((img, i) => ({ productId: um2um.id, url: img.src, order: i })),
+          .map((img, i) => ({
+            productId: um2um.id,
+            url: img.src,
+            order: i,
+            color: corDaFoto.get(img.src) ?? null,
+          })),
       });
     }
+    // capa por cor: etiqueta as fotos já importadas (só onde falta etiqueta)
+    await etiquetarFotosPorCor(um2um.id, p);
+  } else if (targetProductId) {
+    // produto casado por SKU/vínculo: fotos importadas da Nuvemshop também
+    // ganham a etiqueta de cor (upload manual não casa por URL e fica intacto)
+    await etiquetarFotosPorCor(targetProductId, p);
   }
   return null;
 }
@@ -509,14 +563,21 @@ async function criarProdutoEspelhado(companyId: string, p: NsProduct) {
     include: { variants: true },
   });
 
-  // fotos: só completa quando o produto ainda não tem (nunca sobrescreve)
+  // fotos: só completa quando o produto ainda não tem (nunca sobrescreve).
+  // Já nascem com a etiqueta de cor da Nuvemshop (capa por cor no catálogo).
   const fotoCount = await db.productImage.count({ where: { productId: product.id } });
   if (fotoCount === 0 && p.images?.length) {
+    const corDaFoto = coresPorFotoNs(p);
     await db.productImage.createMany({
       data: [...p.images]
         .sort((a, b) => (a.position ?? 0) - (b.position ?? 0))
         .slice(0, 10)
-        .map((img, i) => ({ productId: product.id, url: img.src, order: i })),
+        .map((img, i) => ({
+          productId: product.id,
+          url: img.src,
+          order: i,
+          color: corDaFoto.get(img.src) ?? null,
+        })),
     });
   }
 

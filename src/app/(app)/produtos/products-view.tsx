@@ -39,7 +39,7 @@ export type ProductItem = {
   active: boolean;
   tags: string | null;
   // fotos em ordem — a primeira é a CAPA (aparece na grade e no catálogo)
-  images: { id: string; url: string }[];
+  images: { id: string; url: string; color?: string | null }[];
   variants: { id: string; color: string; size: string; stock: number; sku: string | null }[];
 };
 
@@ -397,9 +397,9 @@ function ProductDetailModal({
     tags: product.tags ?? "",
   });
   // galeria em ordem — a posição 0 é a capa; a lista final vai inteira no save
-  const [photos, setPhotos] = useState<{ id?: string; url: string }[]>(
-    product.images
-  );
+  const [photos, setPhotos] = useState<
+    { id?: string; url: string; color?: string | null }[]
+  >(product.images);
   const [stocks, setStocks] = useState<Record<string, string>>(
     Object.fromEntries(product.variants.map((v) => [v.id, String(v.stock)]))
   );
@@ -447,7 +447,11 @@ function ProductDetailModal({
         minQuantity: parseInt(form.minQuantity) || 1,
         weightGrams: parseInt(form.weightGrams) || null,
         tags: form.tags || null,
-        images: photos.map((ph) => (ph.id ? { id: ph.id } : { url: ph.url })),
+        images: photos.map((ph) =>
+          ph.id
+            ? { id: ph.id, color: ph.color ?? null }
+            : { url: ph.url, color: ph.color ?? null }
+        ),
         variantStocks: Object.entries(stocks)
           .filter(([id]) => !removedIds.includes(id))
           .map(([id, stock]) => ({
@@ -647,7 +651,18 @@ function ProductDetailModal({
           <div className="space-y-3">
             <div>
               <label className={label}>Fotos do produto</label>
-              <PhotoManager photos={photos} onChange={setPhotos} mediaLibrary={mediaLibrary} />
+              <PhotoManager
+                photos={photos}
+                onChange={setPhotos}
+                mediaLibrary={mediaLibrary}
+                // capa por cor: as opções vêm da própria grade do produto
+                colors={[
+                  ...new Set(
+                    [...product.variants.map((v) => v.color), ...pendingAdds.map((v) => v.color)]
+                      .filter((c) => c && c !== "Único")
+                  ),
+                ]}
+              />
             </div>
 
             <div>
@@ -873,11 +888,14 @@ function PhotoManager({
   onChange,
   max = 10,
   mediaLibrary = false,
+  colors = [],
 }: {
-  photos: { id?: string; url: string }[];
-  onChange: (p: { id?: string; url: string }[]) => void;
+  photos: { id?: string; url: string; color?: string | null }[];
+  onChange: (p: { id?: string; url: string; color?: string | null }[]) => void;
   max?: number;
   mediaLibrary?: boolean;
+  /** cores da grade do produto — liga a etiqueta "capa por cor" nas fotos */
+  colors?: string[];
 }) {
   const fileRef = useRef<HTMLInputElement>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -941,6 +959,33 @@ function PhotoManager({
             >
               <X className="size-3.5" />
             </button>
+            {/* capa por cor: etiqueta qual COR esta foto mostra — o card
+                daquela cor no catálogo usa esta foto */}
+            {colors.length > 0 && (
+              <select
+                value={ph.color ?? ""}
+                onChange={(e) =>
+                  onChange(
+                    photos.map((p2, j) =>
+                      j === i ? { ...p2, color: e.target.value || null } : p2
+                    )
+                  )
+                }
+                title="Cor que esta foto mostra (capa por cor no catálogo)"
+                className={`absolute bottom-1 left-1 right-1 rounded-lg border px-1 py-0.5 text-[10px] font-medium shadow outline-none transition ${
+                  ph.color
+                    ? "border-brand-300 bg-brand-50/95 text-brand-700"
+                    : "border-gray-200 bg-white/90 text-gray-500"
+                }`}
+              >
+                <option value="">Cor: —</option>
+                {colors.map((c) => (
+                  <option key={c} value={c}>
+                    {c}
+                  </option>
+                ))}
+              </select>
+            )}
           </div>
         ))}
         {photos.length < max && (
@@ -982,6 +1027,14 @@ function PhotoManager({
         <Star className="inline size-3 text-amber-500 -mt-0.5" /> pra trocar. No
         catálogo, o cliente desliza pro lado pra ver todas. Ideal: 3:4
         (1200×1600px).
+        {colors.length > 0 && (
+          <>
+            {" "}
+            <b>Capa por cor:</b> marque em cada foto a cor que ela mostra — o
+            card daquela cor no catálogo usa a foto dela (sem marcar, vale a
+            capa geral).
+          </>
+        )}
       </p>
     </div>
   );

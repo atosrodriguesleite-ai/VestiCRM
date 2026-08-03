@@ -29,6 +29,7 @@ import {
   reenviarPendentes,
 } from "@/lib/catalogo/envio-pedido";
 import { compareSizes } from "@/lib/sizes";
+import { fotoDaCor, ordenarFotosDaCor } from "@/lib/capa-por-cor";
 import { agruparPorTipo, descricaoDaCategoria, sortCategories } from "@/lib/categories";
 import {
   CatalogTracker,
@@ -71,7 +72,9 @@ export type CatalogProduct = {
   originalRetailPrice?: number | null;
   minQuantity: number;
   tags: string | null;
-  images: string[];
+  // cada foto pode vir etiquetada com a cor que mostra (capa por cor):
+  // o card da Avelã usa a foto avelã; sem etiqueta, cai na capa geral
+  images: { url: string; color: string | null }[];
   variants: { color: string; size: string; available: boolean }[];
 };
 
@@ -1190,7 +1193,9 @@ export function PublicCatalog({
                       <div className="w-full overflow-hidden relative" style={{ aspectRatio: "3/4", background: T.soft }}>
                         {card.product.images[0] && (
                           <img
-                            src={card.product.images[0]}
+                            // capa por cor: a foto etiquetada com a cor do
+                            // card; sem etiqueta, a capa geral
+                            src={fotoDaCor(card.product.images, card.color)}
                             alt={`${card.product.name} ${card.color}`}
                             loading="lazy"
                             decoding="async"
@@ -1426,7 +1431,9 @@ export function PublicCatalog({
               {sheet.product.images[0] && (
                 <PhotoCarousel
                   key={sheet.key}
-                  images={sheet.product.images}
+                  // a ficha abriu numa COR: as fotos dela vêm primeiro
+                  // (nenhuma some — sem etiqueta continua tudo na ordem)
+                  images={ordenarFotosDaCor(sheet.product.images, sheet.color)}
                   alt={sheet.product.name}
                   soft={T.soft}
                   line={T.line}
@@ -1614,7 +1621,7 @@ export function PublicCatalog({
                         >
                           {c.product.images[0] && (
                             <img
-                              src={c.product.images[0]}
+                              src={fotoDaCor(c.product.images, c.color)}
                               alt=""
                               loading="lazy"
                               decoding="async"

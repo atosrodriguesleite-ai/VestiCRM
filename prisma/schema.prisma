@@ -1524,6 +1524,11 @@ model ProductImage {
   product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
   url       String
   order     Int     @default(0)
+  // CAPA POR COR (pedido da Entre Linhas, 03/08/2026): a foto pode ser
+  // etiquetada com a cor que ela mostra. No catálogo, o card de cada cor usa
+  // a foto DAQUELA cor (sem etiqueta, cai na capa geral — nada quebra).
+  // Vem sozinha da Nuvemshop (variant.image_id) ou da etiqueta no editor.
+  color     String?
 
   @@index([productId])
 }
