@@ -1115,8 +1115,9 @@ export function PublicCatalog({
           <div
             ref={catNavRef}
             onScroll={syncCatArrows}
-            className="flex gap-2 overflow-x-auto px-[18px] py-[5px]"
-            style={{ scrollbarWidth: "none" }}
+            // cat-scroll: celular sem barra (dedo); computador com a
+            // barrinha de arrastar (pedido da Entre Linhas)
+            className="flex gap-2 overflow-x-auto cat-scroll px-[18px] py-[5px]"
           >
             {categoriasVisiveis.map((cat) => {
               const active = categories[activeCat] === cat;
