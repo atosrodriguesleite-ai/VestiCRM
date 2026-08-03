@@ -90,19 +90,42 @@ export function NuvemshopConnect() {
   async function sincronizar() {
     setBusy(true);
     setMsg("");
-    const res = await fetch("/api/nuvemshop/sync", { method: "POST" });
-    const d = await res.json().catch(() => ({}));
-    setBusy(false);
-    if (res.ok) {
-      setMsg(`Sincronizado: ${d.produtos} produtos conferidos, ${d.carrinhosNovos} carrinho(s) abandonado(s) novo(s).`);
-      carregar();
-    } else
+    // EM ETAPAS: cada chamada processa 50 produtos e devolve se acabou.
+    // Era numa tacada só, e catálogo grande estourava o tempo do servidor —
+    // a sincronização morria no meio sem mensagem (incidente Entre Linhas).
+    let page = 1;
+    let total = 0;
+    for (; page <= 60; page++) {
       setMsg(
-        d.error ??
-          // resposta sem explicação = o servidor foi interrompido no meio
-          // (tempo estourado). Dizer só "não foi possível" não ajuda ninguém.
-          "A sincronização demorou demais e foi interrompida. Tente de novo — ela é segura de repetir e continua do estado atual. Se acontecer sempre, avise o suporte."
+        page === 1
+          ? "Sincronizando…"
+          : `Sincronizando… ${total} produtos conferidos até aqui`
       );
+      const res = await fetch("/api/nuvemshop/sync", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ page }),
+      });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setMsg(
+          d.error ??
+            // resposta sem explicação = o servidor foi interrompido no meio
+            "A sincronização foi interrompida no meio. Clique de novo — ela é segura de repetir. Se acontecer sempre, avise o suporte."
+        );
+        setBusy(false);
+        return;
+      }
+      total += d.produtos ?? 0;
+      if (d.fim) {
+        setMsg(
+          `Sincronizado: ${total} produtos conferidos, ${d.carrinhosNovos ?? 0} carrinho(s) abandonado(s) novo(s).`
+        );
+        break;
+      }
+    }
+    setBusy(false);
+    carregar();
   }
 
   async function desconectar() {

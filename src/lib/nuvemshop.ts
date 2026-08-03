@@ -72,6 +72,9 @@ async function api<T = unknown>(
         "Content-Type": "application/json",
         "User-Agent": UA,
       },
+      // Nuvemshop travada não pode segurar a função até a Vercel matá-la
+      // (morte sem mensagem — vira "Não foi possível sincronizar" mudo)
+      signal: AbortSignal.timeout(15_000),
       ...(body ? { body: JSON.stringify(body) } : {}),
     });
     const data = (await res.json().catch(() => null)) as T | null;
@@ -693,6 +696,82 @@ export async function syncProducts(companyId: string) {
     },
   });
   return { ok: true as const, produtos: total, report, status: 200 };
+}
+
+/**
+ * SINCRONIZAÇÃO EM ETAPAS — incidente Entre Linhas (03/08/2026): a rodada
+ * completa numa requisição só morria no limite de 60s da Vercel, sem
+ * mensagem. Aqui cada chamada processa UMA página (50 produtos) e devolve se
+ * acabou — a tela chama a próxima etapa e mostra o progresso. Não existe
+ * catálogo grande o bastante para estourar: o tempo é sempre o de 50
+ * produtos. O relatório vai sendo somado no banco a cada etapa (a etapa 1
+ * zera), então "Conferir integração" continua contando a história inteira.
+ */
+export async function syncPaginaDeProdutos(companyId: string, page: number) {
+  const conn = await loadConn(companyId);
+  if (!conn) return { ok: false as const, produtos: 0, fim: true, status: -1 };
+  const report: SyncReport = { casadas: 0, criadas: 0, pendencias: [] };
+  const pools: PoolsDeSync = {
+    skuVariants: await buscarPoolSku(companyId),
+    allProducts: await buscarPoolProdutos(companyId),
+  };
+  const res = await api<NsProduct[]>(conn, "GET", `/products?per_page=50&page=${page}`);
+  if (!res.ok && page === 1) {
+    return { ok: false as const, produtos: 0, fim: true, status: res.status };
+  }
+  const lista = res.ok ? (res.data ?? []) : [];
+  for (const p of lista) {
+    const criado = await upsertProduct(companyId, p, report, pools);
+    if (criado) {
+      pools.allProducts.push({
+        id: criado.id,
+        name: criado.name,
+        sku: criado.sku,
+        nuvemshopId: criado.nuvemshopId,
+      });
+    }
+  }
+  const fim = lista.length < 50 || page >= 50;
+
+  // soma o parcial desta etapa no relatório guardado (etapa 1 recomeça)
+  const conexao = await db.nuvemshopConnection.findUnique({
+    where: { companyId },
+    select: { lastSyncReport: true },
+  });
+  let anterior = { casadas: 0, criadas: 0, pendencias: [] as SyncPendencia[] };
+  if (page > 1 && conexao?.lastSyncReport) {
+    try {
+      const j = JSON.parse(conexao.lastSyncReport);
+      anterior = {
+        casadas: j.casadas ?? 0,
+        criadas: j.criadas ?? 0,
+        pendencias: Array.isArray(j.pendencias) ? j.pendencias : [],
+      };
+    } catch {
+      // relatório antigo ilegível: recomeça do zero
+    }
+  }
+  const somado = {
+    at: new Date().toISOString(),
+    casadas: anterior.casadas + report.casadas,
+    criadas: anterior.criadas + report.criadas,
+    pendencias: [...anterior.pendencias, ...report.pendencias].slice(0, 100),
+  };
+  await db.nuvemshopConnection.update({
+    where: { companyId },
+    data: {
+      lastSyncReport: JSON.stringify(somado),
+      ...(fim ? { lastProductSync: new Date() } : {}),
+    },
+  });
+
+  return {
+    ok: true as const,
+    produtos: lista.length,
+    fim,
+    proximaPagina: page + 1,
+    status: 200,
+  };
 }
 
 /**

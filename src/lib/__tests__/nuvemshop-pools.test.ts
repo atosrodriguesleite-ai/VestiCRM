@@ -36,12 +36,42 @@ describe("a sincronização completa não relê o catálogo por produto", () => 
   });
 });
 
-describe("quando ainda assim estourar, a lojista sabe o que fazer", () => {
-  it("a tela troca o beco sem saída por instrução (tente de novo, é seguro)", () => {
-    const tela = readFileSync(
-      join(process.cwd(), "src/app/(app)/configuracoes/nuvemshop-connect.tsx"),
-      "utf8"
-    );
+describe("sincronização EM ETAPAS — não existe catálogo que estoure o tempo", () => {
+  const rota = readFileSync(
+    join(process.cwd(), "src/app/api/nuvemshop/sync/route.ts"),
+    "utf8"
+  );
+  const tela = readFileSync(
+    join(process.cwd(), "src/app/(app)/configuracoes/nuvemshop-connect.tsx"),
+    "utf8"
+  );
+
+  it("cada chamada processa UMA página e diz se acabou", () => {
+    expect(lib).toContain("export async function syncPaginaDeProdutos");
+    expect(rota).toContain("syncPaginaDeProdutos(user.companyId, page)");
+    expect(rota).toContain("fim: etapa.fim");
+  });
+
+  it("a tela chama etapa por etapa com progresso, e para no fim", () => {
+    expect(tela).toContain("body: JSON.stringify({ page })");
+    expect(tela).toContain("if (d.fim) {");
+    expect(tela).toContain("produtos conferidos até aqui");
+  });
+
+  it("os carrinhos abandonados entram na ÚLTIMA etapa (uma vez só)", () => {
+    expect(rota).toContain("etapa.fim\n        ? await syncAbandonedCheckouts(user.companyId)");
+  });
+
+  it("o relatório soma entre as etapas e a etapa 1 recomeça", () => {
+    expect(lib).toContain("if (page > 1 && conexao?.lastSyncReport) {");
+    expect(lib).toContain("casadas: anterior.casadas + report.casadas");
+  });
+
+  it("a Nuvemshop travada não segura a função (timeout de 15s na conversa)", () => {
+    expect(lib).toContain("AbortSignal.timeout(15_000)");
+  });
+
+  it("quando ainda assim falhar, a tela instrui (tente de novo, é seguro)", () => {
     expect(tela).toContain("segura de repetir");
   });
 });
