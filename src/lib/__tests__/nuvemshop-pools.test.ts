@@ -54,12 +54,20 @@ describe("sincronização EM ETAPAS — não existe catálogo que estoure o temp
 
   it("a tela chama etapa por etapa com progresso, e para no fim", () => {
     expect(tela).toContain("body: JSON.stringify({ page })");
-    expect(tela).toContain("if (d.fim) {");
+    expect(tela).toContain("if (d.fim) break;");
     expect(tela).toContain("produtos conferidos até aqui");
   });
 
-  it("os carrinhos abandonados entram na ÚLTIMA etapa (uma vez só)", () => {
-    expect(rota).toContain("etapa.fim\n        ? await syncAbandonedCheckouts(user.companyId)");
+  it("os carrinhos abandonados têm etapa PRÓPRIA (nunca junto dos produtos)", () => {
+    // importar carrinho cria cliente/conversa — pesado; junto com os
+    // produtos na mesma requisição já derrubou a rodada
+    expect(rota).toContain("if (body?.carrinhos === true) {");
+    expect(tela).toContain("body: JSON.stringify({ carrinhos: true })");
+  });
+
+  it("etapa lenta (>30s) fica registrada no painel Saúde", () => {
+    expect(rota).toContain("etapa lenta");
+    expect(rota).toContain("30_000");
   });
 
   it("o relatório soma entre as etapas e a etapa 1 recomeça", () => {

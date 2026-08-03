@@ -715,7 +715,13 @@ export async function syncPaginaDeProdutos(companyId: string, page: number) {
     skuVariants: await buscarPoolSku(companyId),
     allProducts: await buscarPoolProdutos(companyId),
   };
-  const res = await api<NsProduct[]>(conn, "GET", `/products?per_page=50&page=${page}`);
+  // 25 por etapa: margem folgada mesmo com banco/Nuvemshop num dia lento
+  const POR_ETAPA = 25;
+  const res = await api<NsProduct[]>(
+    conn,
+    "GET",
+    `/products?per_page=${POR_ETAPA}&page=${page}`
+  );
   if (!res.ok && page === 1) {
     return { ok: false as const, produtos: 0, fim: true, status: res.status };
   }
@@ -731,7 +737,7 @@ export async function syncPaginaDeProdutos(companyId: string, page: number) {
       });
     }
   }
-  const fim = lista.length < 50 || page >= 50;
+  const fim = lista.length < POR_ETAPA || page >= 100;
 
   // soma o parcial desta etapa no relatório guardado (etapa 1 recomeça)
   const conexao = await db.nuvemshopConnection.findUnique({

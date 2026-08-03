@@ -37,9 +37,36 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    // MODO EM ETAPAS (tela nova): cada chamada processa UMA página de 50
-    // produtos e devolve se acabou — nunca chega perto do limite de tempo.
-    const body = (await req.json().catch(() => ({}))) as { page?: number };
+    // MODO EM ETAPAS (tela nova): cada chamada processa UMA página de
+    // produtos OU os carrinhos abandonados — nunca os dois juntos, e nunca
+    // perto do limite de tempo. Etapa lenta fica registrada no Saúde.
+    const body = (await req.json().catch(() => ({}))) as {
+      page?: number;
+      carrinhos?: boolean;
+    };
+    const t0 = Date.now();
+    const telemetria = async (rotulo: string) => {
+      const ms = Date.now() - t0;
+      if (ms > 30_000) {
+        await logServerError({
+          source: "server",
+          path: "/api/nuvemshop/sync",
+          message: `Nuvemshop: etapa lenta (${rotulo} em ${Math.round(ms / 1000)}s)`,
+          detail: `empresa ${user.companyId}`,
+        });
+      }
+      return ms;
+    };
+
+    // etapa dos carrinhos abandonados (a tela chama DEPOIS dos produtos):
+    // importar carrinho cria cliente/conversa — é pesado e já derrubou a
+    // rodada quando corria junto com os produtos na mesma requisição
+    if (body?.carrinhos === true) {
+      const carrinhos = await syncAbandonedCheckouts(user.companyId);
+      const ms = await telemetria("carrinhos");
+      return NextResponse.json({ ok: true, carrinhosNovos: carrinhos.novos, ms });
+    }
+
     const page = Number(body?.page);
     if (Number.isInteger(page) && page >= 1) {
       const etapa = await syncPaginaDeProdutos(user.companyId, page);
@@ -56,16 +83,13 @@ export async function POST(req: NextRequest) {
         });
         return NextResponse.json({ error: mensagem, motivo }, { status: 502 });
       }
-      // na última etapa entram também os carrinhos abandonados
-      const carrinhos = etapa.fim
-        ? await syncAbandonedCheckouts(user.companyId)
-        : { novos: 0 };
+      const ms = await telemetria(`produtos página ${page}`);
       return NextResponse.json({
         ok: true,
         produtos: etapa.produtos,
         fim: etapa.fim,
         proximaPagina: etapa.proximaPagina ?? page + 1,
-        carrinhosNovos: carrinhos.novos,
+        ms,
       });
     }
 
