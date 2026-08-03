@@ -47,7 +47,7 @@ import {
 } from "lucide-react";
 import { OrderComposer } from "@/components/order-composer";
 import { contadorAoMarcarNaoLida } from "@/lib/comm/fila";
-import { copiarTexto, textoDaMensagem } from "@/lib/copiar";
+import { copiarTexto, legendaDaMidia, textoDaMensagem } from "@/lib/copiar";
 import { ContactPanel } from "./contact-panel";
 import { orderNumber } from "@/lib/orders";
 import {
@@ -63,6 +63,8 @@ import { abaDaConversa } from "@/lib/comm/fila";
 import { casaCliente } from "@/lib/busca";
 import { Avatar, EmptyState } from "@/components/ui";
 import { gravacaoParaWav } from "@/lib/audio-wav";
+import { comprimirFoto, nomeJpeg } from "@/lib/comprimir-foto";
+import { Portal } from "@/components/portal";
 
 export type InboxMessage = {
   id: string;
@@ -233,13 +235,21 @@ function StatusTicks({ m }: { m: InboxMessage }) {
   }
 }
 
-function MediaContent({ m }: { m: InboxMessage }) {
+function MediaContent({
+  m,
+  aoAbrirFoto,
+}: {
+  m: InboxMessage;
+  /** clique na foto abre o visor em tela cheia (com zoom) */
+  aoAbrirFoto?: (src: string) => void;
+}) {
   if (m.mediaType === "IMAGE" && m.mediaUrl) {
     return (
       <img
         src={m.mediaUrl}
         alt="Imagem"
-        className="rounded-xl max-w-full w-52 mb-1"
+        onClick={aoAbrirFoto ? () => aoAbrirFoto(m.mediaUrl!) : undefined}
+        className={`rounded-xl max-w-full w-52 mb-1${aoAbrirFoto ? " cursor-zoom-in" : ""}`}
       />
     );
   }
@@ -285,6 +295,90 @@ function MediaContent({ m }: { m: InboxMessage }) {
     );
   }
   return null;
+}
+
+/**
+ * VISOR DE FOTO EM TELA CHEIA — como no aplicativo do WhatsApp.
+ *
+ * A cliente manda a foto da peça e a vendedora precisa VER: estampa, costura,
+ * etiqueta. A miniatura de 208px não mostra nada disso. Toque na foto abre
+ * grande; toque de novo dá zoom (e dá para arrastar/rolar na foto ampliada);
+ * Esc, o X ou o fundo fecham. Tem download para guardar a referência.
+ */
+function VisorDeFoto({
+  src,
+  legenda,
+  onClose,
+}: {
+  src: string;
+  legenda: string;
+  onClose: () => void;
+}) {
+  const [ampliada, setAmpliada] = useState(false);
+  useEffect(() => {
+    const teclas = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", teclas);
+    return () => window.removeEventListener("keydown", teclas);
+  }, [onClose]);
+  return (
+    <div className="fixed inset-0 z-[95] bg-black/95 animate-fade-in">
+      {/* a foto (rolável quando ampliada) fica POR BAIXO dos botões */}
+      <div
+        className="absolute inset-0 overflow-auto flex"
+        onClick={(e) => {
+          // toque no FUNDO fecha; na foto, quem trata é a própria foto
+          if (e.target === e.currentTarget) onClose();
+        }}
+      >
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={src}
+          alt="Foto"
+          onClick={() => setAmpliada((z) => !z)}
+          className={
+            ampliada
+              ? "m-auto max-w-none cursor-zoom-out"
+              : "m-auto max-h-full max-w-full object-contain cursor-zoom-in"
+          }
+          style={ampliada ? { width: "220%" } : undefined}
+        />
+      </div>
+      {/* BOTÕES SEMPRE VISÍVEIS: flutuam por cima da foto (mesmo ampliada) e
+          com folga do relógio/câmera do celular (safe-area) — presos numa
+          barra, ficavam escondidos atrás da barra de status do aparelho */}
+      <div
+        className="absolute right-3 z-10 flex gap-2"
+        style={{ top: "calc(0.75rem + env(safe-area-inset-top))" }}
+      >
+        <a
+          href={src}
+          download="foto.jpg"
+          className="p-3 rounded-full bg-black/60 text-white shadow-lg backdrop-blur-sm hover:bg-black/75 transition"
+          title="Baixar foto"
+        >
+          <Download className="size-5" />
+        </a>
+        <button
+          onClick={onClose}
+          className="p-3 rounded-full bg-black/60 text-white shadow-lg backdrop-blur-sm hover:bg-black/75 transition"
+          title="Fechar (Esc)"
+          aria-label="Fechar"
+        >
+          <X className="size-5" />
+        </button>
+      </div>
+      {legenda && (
+        <p
+          className="absolute inset-x-0 bottom-0 z-10 text-center text-white/95 text-sm px-4 pt-8 max-h-32 overflow-y-auto whitespace-pre-wrap bg-gradient-to-t from-black/85 to-transparent"
+          style={{ paddingBottom: "calc(0.75rem + env(safe-area-inset-bottom))" }}
+        >
+          {legenda}
+        </p>
+      )}
+    </div>
+  );
 }
 
 /** Pastilha pequena com o setor (cor + nome). */
@@ -424,6 +518,17 @@ export function Inbox({
   }, [aviso]);
   // "responder": mensagem marcada para citação (prévia acima do compositor)
   const [replyMsg, setReplyMsg] = useState<InboxMessage | null>(null);
+  // foto aberta no visor de tela cheia (com zoom)
+  const [fotoAberta, setFotoAberta] = useState<{ src: string; legenda: string } | null>(null);
+  // ARRASTAR PARA RESPONDER (celular): igual ao aplicativo do WhatsApp —
+  // desliza a bolha para o lado e ela vira resposta marcada
+  const swipeRef = useRef<{
+    id: string;
+    x: number;
+    y: number;
+    el: HTMLElement | null;
+    disparou: boolean;
+  } | null>(null);
   const lpTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [editingMsgId, setEditingMsgId] = useState<string | null>(null);
   const [editMsgDraft, setEditMsgDraft] = useState("");
@@ -978,6 +1083,55 @@ export function Inbox({
     });
   }
 
+  /** Começo do toque na bolha: guarda o ponto para medir o arrasto. */
+  function swipeStart(m: InboxMessage, e: React.TouchEvent<HTMLDivElement>) {
+    const t = e.touches[0];
+    if (!t) return;
+    swipeRef.current = {
+      id: m.id,
+      x: t.clientX,
+      y: t.clientY,
+      el: e.currentTarget,
+      disparou: false,
+    };
+  }
+
+  /**
+   * Arrasto horizontal ≥ 56px (com pouco desvio vertical) = responder.
+   * A bolha acompanha o dedo até lá, como no aplicativo de verdade.
+   */
+  function swipeMove(m: InboxMessage, e: React.TouchEvent<HTMLDivElement>) {
+    const s = swipeRef.current;
+    if (!s || s.id !== m.id || s.disparou) return;
+    const t = e.touches[0];
+    if (!t) return;
+    const dx = t.clientX - s.x;
+    const dy = Math.abs(t.clientY - s.y);
+    if (dy > 40 || dx < 0) {
+      if (s.el) s.el.style.transform = "";
+      return;
+    }
+    if (dx > 8 && s.el) s.el.style.transform = `translateX(${Math.min(dx, 64)}px)`;
+    if (dx > 56) {
+      s.disparou = true;
+      if (s.el) s.el.style.transform = "";
+      if (!m.revoked && !m.id.startsWith("temp-")) {
+        setReplyMsg(m);
+        try {
+          navigator.vibrate?.(10);
+        } catch {
+          /* navegador sem vibração */
+        }
+      }
+    }
+  }
+
+  function swipeEnd() {
+    const s = swipeRef.current;
+    if (s?.el) s.el.style.transform = "";
+    swipeRef.current = null;
+  }
+
   // "pressionar e segurar" (celular) abre o menu de ações da mensagem
   function startLongPress(m: InboxMessage) {
     cancelLongPress();
@@ -1385,10 +1539,35 @@ export function Inbox({
     const file = e.target.files?.[0];
     if (!file || !selected) return;
     const kind = fileKindRef.current;
-    // vídeo pode ser bem maior; imagem/arquivo mantemos leve
-    const limitMb = kind === "VIDEO" ? 16 : 5;
+
+    // FOTO É COMPRIMIDA NO APARELHO (como o WhatsApp faz): foto de celular
+    // tem 4–12 MB e o teto de envio é ~4,5 MB — sem comprimir, NENHUMA foto
+    // tirada na hora passava ("arquivo muito pesado" em todas)
+    if (kind === "IMAGE") {
+      const comprimida = await comprimirFoto(file);
+      if (comprimida) {
+        await sendPayload({
+          kind: "TEXT",
+          mediaType: "IMAGE",
+          mediaUrl: comprimida,
+          fileName: nomeJpeg(file.name),
+          body: "📷 Imagem",
+        });
+        return;
+      }
+      // formato que o navegador não leu: segue o caminho comum (com teto)
+    }
+
+    // teto REAL do envio: o servidor corta o pedido perto de 4,5 MB e o
+    // base64 infla 1/3 — 3 MB de arquivo é o máximo que chega inteiro.
+    // (O teto antigo de 16 MB era mentira: passava aqui e morria no servidor.)
+    const limitMb = 3;
     if (file.size > limitMb * 1024 * 1024) {
-      alert(`Arquivo muito grande (máximo ${limitMb} MB).`);
+      alert(
+        kind === "VIDEO"
+          ? "Vídeo muito grande (máximo 3 MB). Para vídeo longo, envie pelo aplicativo do WhatsApp."
+          : `Arquivo muito grande (máximo ${limitMb} MB).`
+      );
       return;
     }
     const dataUrl = await blobToDataUrl(file);
@@ -1426,11 +1605,12 @@ export function Inbox({
         // mostrava o áudio com 0:00. O WAV carrega a duração no cabeçalho.
         // Se a conversão falhar, envia o original (áudio sem tempo é melhor
         // que áudio nenhum).
-        const TETO = 8 * 1024 * 1024;
+        // teto REAL: o servidor corta o pedido em ~4,5 MB (base64 infla 1/3)
+        const TETO = 3 * 1024 * 1024;
         const convertido = await gravacaoParaWav(original);
         const blob = convertido && convertido.size <= TETO ? convertido : original;
         if (blob.size > TETO) {
-          alert("Áudio muito longo (máximo ~8 MB).");
+          alert("Áudio muito longo — grave em partes menores.");
           return;
         }
         const dataUrl = await blobToDataUrl(blob);
@@ -2182,10 +2362,22 @@ export function Inbox({
                     )}
                     <div
                       onTouchStart={
-                        !isTemp && !editando ? () => startLongPress(m) : undefined
+                        !isTemp && !editando
+                          ? (e) => {
+                              startLongPress(m);
+                              swipeStart(m, e);
+                            }
+                          : undefined
                       }
-                      onTouchEnd={cancelLongPress}
-                      onTouchMove={cancelLongPress}
+                      onTouchEnd={() => {
+                        cancelLongPress();
+                        swipeEnd();
+                      }}
+                      onTouchMove={(e) => {
+                        // mover o dedo cancela o "segurar" (é rolagem ou arrasto)
+                        cancelLongPress();
+                        if (!isTemp && !editando) swipeMove(m, e);
+                      }}
                       onContextMenu={
                         !isTemp && !editando
                           ? (e) => {
@@ -2194,7 +2386,7 @@ export function Inbox({
                             }
                           : undefined
                       }
-                      className={`max-w-[80%] rounded-2xl px-3.5 py-2 text-sm shadow-sm ${
+                      className={`max-w-[80%] rounded-2xl px-3.5 py-2 text-sm shadow-sm transition-transform duration-100 ${
                         mine
                           ? "bg-brand-600 text-white rounded-br-md select-none"
                           : "bg-white text-ink rounded-bl-md"
@@ -2266,14 +2458,29 @@ export function Inbox({
                               </p>
                             </div>
                           )}
-                          <MediaContent m={m} />
-                          {(m.mediaType === "TEXT" || m.mediaType === "TEMPLATE") && (
+                          <MediaContent
+                            m={m}
+                            aoAbrirFoto={(src) =>
+                              setFotoAberta({ src, legenda: legendaDaMidia(m) })
+                            }
+                          />
+                          {/* LEGENDA DA MÍDIA: o texto que a cliente escreveu
+                              junto da foto. Antes a tela só desenhava texto
+                              quando a mensagem era texto PURO — numa foto, a
+                              legenda ficava invisível, mesmo estando gravada.
+                              A cliente mandava a peça e escrevia "essa no P,
+                              3 unidades" embaixo, e a vendedora não via. */}
+                          {(m.mediaType === "TEXT" || m.mediaType === "TEMPLATE"
+                            ? m.body
+                            : legendaDaMidia(m)) && (
                             <p
                               className={`whitespace-pre-wrap break-words ${
                                 m.revoked ? "italic opacity-80" : ""
                               }`}
                             >
-                              {m.body}
+                              {m.mediaType === "TEXT" || m.mediaType === "TEMPLATE"
+                                ? m.body
+                                : legendaDaMidia(m)}
                             </p>
                           )}
                         </>
@@ -2936,6 +3143,19 @@ export function Inbox({
         onChange={onFileChosen}
       />
     </div>
+
+    {/* visor de foto em tela cheia (toque na foto; toque de novo dá zoom).
+        Sai pelo Portal: dentro do painel do chat ele ficava preso atrás do
+        cabeçalho e da barra de navegação no celular. */}
+    {fotoAberta && (
+      <Portal>
+        <VisorDeFoto
+          src={fotoAberta.src}
+          legenda={fotoAberta.legenda}
+          onClose={() => setFotoAberta(null)}
+        />
+      </Portal>
+    )}
 
     {/* folha de ações da mensagem (segurar no celular / ⋯ no computador):
         sobe de baixo no celular, centralizada no computador — nunca corta */}

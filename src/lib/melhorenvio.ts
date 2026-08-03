@@ -140,7 +140,8 @@ async function prefillSender(companyId: string, token: string) {
     where: { companyId },
     data: {
       fromName: [me?.firstname, me?.lastname].filter(Boolean).join(" ") || null,
-      fromDocument: me?.company_document || me?.document || null,
+      fromCpf: me?.document || null,
+      fromCnpj: me?.company_document || null,
       fromEmail: me?.email ?? null,
       fromPhone:
         typeof me?.phone === "object" ? (me?.phone?.phone ?? null) : (me?.phone ?? null),
@@ -346,7 +347,8 @@ export async function meCalculate(input: {
 
 type Endereco = {
   name: string;
-  document: string | null; // CPF/CNPJ (só dígitos)
+  cpf: string | null; // só dígitos
+  cnpj: string | null; // só dígitos
   phone: string | null;
   email: string | null;
   zip: string;
@@ -359,13 +361,19 @@ type Endereco = {
 };
 
 function pessoaME(e: Endereco) {
-  const doc = (e.document ?? "").replace(/\D/g, "");
+  // O Melhor Envio tem DOIS campos, e é por isso que o sistema guarda os dois
+  // documentos: CPF vai em `document`, CNPJ em `company_document`. A loja
+  // cliente costuma ter os dois (CNPJ da loja, CPF da titular) e algumas
+  // transportadoras exigem um, outras o outro — mandando os dois, qualquer
+  // uma aceita.
+  const cpf = (e.cpf ?? "").replace(/\D/g, "");
+  const cnpj = (e.cnpj ?? "").replace(/\D/g, "");
   return {
     name: e.name,
     phone: (e.phone ?? "").replace(/\D/g, "") || undefined,
     email: e.email || undefined,
-    // CPF vai em `document`; CNPJ vai em `company_document`
-    ...(doc.length === 14 ? { company_document: doc } : doc ? { document: doc } : {}),
+    ...(cpf.length === 11 ? { document: cpf } : {}),
+    ...(cnpj.length === 14 ? { company_document: cnpj } : {}),
     address: e.street,
     number: e.number || "S/N",
     complement: e.complement || undefined,

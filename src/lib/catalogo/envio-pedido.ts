@@ -44,62 +44,6 @@ export function protocolo(): string {
   return `cat-${Date.now().toString(36)}-${rnd.slice(0, 16)}`;
 }
 
-/**
- * MESMA SACOLA, MESMO PROTOCOLO — clicar duas vezes não vira dois pedidos.
- *
- * Incidente real (Toque Leve): o registro estava lento, a cliente abriu o
- * WhatsApp e mandou, voltou para o catálogo, viu a tela ainda "enviando" e
- * CLICOU DE NOVO. Cada clique sorteava um protocolo novo, então o servidor
- * não reconhecia o repetido: virou pedido em dobro, mensagem em dobro na
- * vendedora e a MESMA PEÇA reservada duas vezes no estoque.
- *
- * O protocolo aleatório protegia a reinsistência automática (que reusa o
- * mesmo) e não protegia o dedo da cliente. Agora ele é derivado do CONTEÚDO:
- * mesma sacola + mesma cliente + mesmo dia = mesmo protocolo, e o servidor
- * devolve o pedido que já existe em vez de criar outro.
- *
- * O DIA entra de propósito: pedir as mesmas peças amanhã é pedido novo de
- * verdade; pedir as mesmas peças dois minutos depois é o dedo, não a vontade.
- */
-export function assinaturaDoPedido(
-  payload: Record<string, unknown>,
-  agora = Date.now()
-): string {
-  const itens = Array.isArray(payload.items) ? payload.items : [];
-  const cliente = (payload.customer ?? {}) as Record<string, unknown>;
-  // ordena para que a mesma sacola montada em ordem diferente case igual
-  const corpo = itens
-    .map((i) => {
-      const it = i as Record<string, unknown>;
-      return `${it.productId}|${it.color}|${it.size}|${it.quantity}`;
-    })
-    .sort()
-    .join(";");
-  const dia = new Date(agora - 3 * 60 * 60 * 1000).toISOString().slice(0, 10);
-  const quem = `${payload.company ?? ""}|${cliente.phone ?? ""}|${cliente.name ?? ""}`;
-  return hashCurto(`${dia}::${quem}::${corpo}::${payload.promo ?? ""}`);
-}
-
-/** Hash curto e estável (não precisa ser criptográfico — só repetível). */
-function hashCurto(texto: string): string {
-  let h1 = 0x811c9dc5;
-  let h2 = 0x01000193;
-  for (let i = 0; i < texto.length; i++) {
-    const c = texto.charCodeAt(i);
-    h1 = Math.imul(h1 ^ c, 0x01000193) >>> 0;
-    h2 = Math.imul(h2 + c, 0x85ebca6b) >>> 0;
-  }
-  return (h1.toString(36) + h2.toString(36)).slice(0, 18);
-}
-
-/** Protocolo estável para esta sacola: `cat-<assinatura>`. */
-export function protocoloDaSacola(
-  payload: Record<string, unknown>,
-  agora = Date.now()
-): string {
-  return `cat-${assinaturaDoPedido(payload, agora)}`;
-}
-
 type Storage = Pick<globalThis.Storage, "getItem" | "setItem" | "removeItem">;
 
 /** Lê a fila de pendentes tolerando lixo (memória de navegador é bagunçada). */
@@ -256,4 +200,94 @@ export async function reenviarPendentes(opts: {
     }
   }
   return recuperados;
+}
+
+/**
+ * MESMA SACOLA = MESMO PEDIDO.
+ *
+ * Incidente real (Toque Leve, 31/07/2026): o mesmo pedido apareceu DUAS VEZES
+ * na conversa. Não foi falha de recebimento — a cliente apertou "Enviar
+ * pedido" duas vezes.
+ *
+ * E era fácil: a sacola NÃO é limpa depois de enviar, existem três botões de
+ * enviar na tela, e o WhatsApp abre numa aba nova. A cliente volta para o
+ * catálogo, vê a sacola cheia (parece que não foi) e aperta de novo. Cada
+ * toque sorteava um protocolo NOVO — e protocolo novo é pedido novo. A loja
+ * ficava com dois pedidos iguais e o estoque reservado em dobro.
+ *
+ * A trava reaproveita o que já existe: o protocolo é a chave da idempotência
+ * no servidor (`companyId + clientRef` é único). Então, enquanto a sacola for
+ * a MESMA, o protocolo é o MESMO — e o servidor devolve o pedido que já
+ * existe em vez de criar outro. Mudou uma peça? Aí é outro pedido de verdade,
+ * e ganha protocolo novo.
+ */
+export const CHAVE_ULTIMO_ENVIO = "ap-ultimo-envio";
+
+/** Impressão digital da sacola: itens, cliente e campanha. */
+export function assinaturaDoPedido(payload: Record<string, unknown>): string {
+  const itens = Array.isArray(payload.items) ? payload.items : [];
+  const linhas = itens
+    .map((i) => {
+      const it = (i ?? {}) as Record<string, unknown>;
+      return [it.productId, it.color, it.size, it.quantity].join("|");
+    })
+    .sort();
+  const cliente = (payload.customer ?? {}) as Record<string, unknown>;
+  return [
+    ...linhas,
+    `#${cliente.name ?? ""}`,
+    `#${cliente.phone ?? ""}`,
+    `#${cliente.store ?? ""}`,
+    `#${payload.promo ?? ""}`,
+    `#${payload.ref ?? ""}`,
+  ].join("~");
+}
+
+/**
+ * Protocolo a usar: o MESMO de antes quando a sacola não mudou, um novo
+ * quando mudou. Guardar no aparelho é o que faz a trava sobreviver a fechar
+ * a aba e voltar depois.
+ */
+/**
+ * VALIDADE DA TRAVA: 24 horas.
+ *
+ * Sem validade, a trava virava o incidente ao contrário: no atacado, REPOR
+ * exatamente as mesmas peças semanas depois é o fluxo normal — e a sacola
+ * idêntica devolvia o protocolo antigo, o servidor respondia "já registrado"
+ * com o pedido velho, e a REPOSIÇÃO nunca virava pedido (nem aviso). O
+ * duplo-clique que a trava existe para segurar acontece em minutos; um dia
+ * inteiro de folga cobre até "aperto de novo à noite" sem engolir reposição.
+ */
+export const VALIDADE_TRAVA_MS = 24 * 60 * 60 * 1000;
+
+export function protocoloDaSacola(
+  storage: Storage,
+  payload: Record<string, unknown>,
+  agora = Date.now()
+): string {
+  const assinatura = assinaturaDoPedido(payload);
+  try {
+    const bruto = JSON.parse(storage.getItem(CHAVE_ULTIMO_ENVIO) ?? "null") as {
+      assinatura?: string;
+      clientRef?: string;
+      at?: number;
+    } | null;
+    const valida =
+      typeof bruto?.at === "number" && agora - bruto.at < VALIDADE_TRAVA_MS;
+    if (valida && bruto?.assinatura === assinatura && bruto.clientRef) {
+      return bruto.clientRef;
+    }
+  } catch {
+    /* registro ilegível não pode impedir o pedido de sair */
+  }
+  const novo = protocolo();
+  try {
+    storage.setItem(
+      CHAVE_ULTIMO_ENVIO,
+      JSON.stringify({ assinatura, clientRef: novo, at: agora })
+    );
+  } catch {
+    /* sem espaço para guardar: segue com protocolo novo (o normal de antes) */
+  }
+  return novo;
 }

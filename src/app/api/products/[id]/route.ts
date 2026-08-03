@@ -20,10 +20,16 @@ const patchSchema = z.object({
   imageUrl: z.string().min(1).optional(), // legado: troca a foto única
   // galeria completa em ordem (a primeira é a CAPA): itens com `id` são fotos
   // que já existem (mantidas), itens com `url` são fotos novas (data-URL)
+  // `color` = capa por cor: a cor que a foto mostra (null = sem etiqueta).
+  // Ausente (undefined) preserva a etiqueta atual — cliente antigo não apaga.
   images: z
     .array(
       z
-        .object({ id: z.string().optional(), url: z.string().optional() })
+        .object({
+          id: z.string().optional(),
+          url: z.string().optional(),
+          color: z.string().max(60).nullable().optional(),
+        })
         .refine((e) => e.id || e.url)
     )
     .max(10)
@@ -93,11 +99,11 @@ export async function PATCH(
         if (e.id) {
           await db.productImage.updateMany({
             where: { id: e.id, productId: product.id },
-            data: { order: i },
+            data: { order: i, ...(e.color !== undefined ? { color: e.color } : {}) },
           });
         } else if (e.url) {
           await db.productImage.create({
-            data: { productId: product.id, url: e.url, order: i },
+            data: { productId: product.id, url: e.url, order: i, color: e.color ?? null },
           });
         }
       }

@@ -33,6 +33,7 @@ import { EnvioFrete } from "./envio-frete";
 import { TransferirVenda } from "./transferir-venda";
 import { ValoresEditor } from "./valores-editor";
 import { ObservacoesEditor } from "./observacoes-editor";
+import { DataDaVenda } from "./data-da-venda";
 import { podeTransferirVenda } from "@/lib/orders";
 
 export const dynamic = "force-dynamic";
@@ -112,10 +113,15 @@ export default async function OrderDetailPage({
                 {orderStatusLabel[order.status]}
               </Badge>
             </div>
-            <p className="text-sm text-gray-500 mt-1">
-              Criado em {dateFull(order.createdAt)} às {timeShort(order.createdAt)}
-              {order.seller ? ` · Vendedor(a): ${order.seller.name}` : ""}
-            </p>
+            {/* data automática no dia a dia; o lápis é o caso à parte do
+                lançamento retroativo (gerente+, auditado em OrderEvent) */}
+            <DataDaVenda
+              orderId={order.id}
+              createdAt={order.createdAt.toISOString()}
+              pago={(PAID_ORDER_STATUSES as readonly string[]).includes(order.status)}
+              sellerName={order.seller?.name ?? null}
+              podeEditar={isManagerUp(user)}
+            />
             <CustomerEditor
               customerId={order.customerId}
               orderId={order.id}
@@ -123,7 +129,8 @@ export default async function OrderDetailPage({
                 name: order.customer.name,
                 phone: order.customer.phone,
                 email: order.customer.email,
-                document: order.customer.document,
+                cpf: order.customer.cpf,
+                cnpj: order.customer.cnpj,
                 zip: order.customer.zip,
                 street: order.customer.street,
                 streetNumber: order.customer.streetNumber,

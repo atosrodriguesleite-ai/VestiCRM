@@ -1,27 +1,40 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { protocoloDaSacola, assinaturaDoPedido } from "../catalogo/envio-pedido";
+import {
+  protocoloDaSacola,
+  assinaturaDoPedido,
+  VALIDADE_TRAVA_MS,
+} from "../catalogo/envio-pedido";
 
 /**
  * O MESMO PEDIDO NÃO PODE VIRAR DOIS.
  *
- * Incidente real (Toque Leve): o registro estava lento, a cliente mandou pelo
- * WhatsApp, voltou ao catálogo, viu a tela ainda "enviando" e CLICOU DE NOVO.
- * O protocolo era sorteado a cada clique — o servidor não reconhecia o
- * repetido e criava um SEGUNDO pedido, com a mesma peça reservada duas vezes
- * no estoque e a vendedora recebendo a mensagem duplicada.
+ * Incidente real (Toque Leve, cliente Alaute): a vendedora recebeu o MESMO
+ * pedido duas vezes no WhatsApp e o pedido demorou a chegar no sistema.
  *
- * O sorteio protegia a reinsistência automática (que reusa o mesmo protocolo)
- * e não protegia o dedo da cliente. Agora o protocolo vem do CONTEÚDO.
+ * O protocolo era SORTEADO a cada clique. Ele protegia a reinsistência
+ * automática (que reusa o mesmo) e não protegia o dedo da cliente: com o
+ * registro lento, ela mandava pelo WhatsApp, voltava ao catálogo, via a
+ * sacola ainda cheia e apertava de novo — protocolo novo, SEGUNDO pedido,
+ * mesma peça reservada duas vezes no estoque.
+ *
+ * Agora o protocolo é preso à SACOLA e guardado no aparelho.
  */
 
-const DIA = 24 * 60 * 60 * 1000;
-const sacola = (itens: { productId: string; color: string; size: string; quantity: number }[]) => ({
-  company: "toque-leve",
-  items: itens,
-  customer: { name: "Alaute", phone: "33988215434" },
-});
+/** Memória de navegador de mentirinha (o teste não tem localStorage). */
+function memoria(inicial: Record<string, string> = {}) {
+  const dados = { ...inicial };
+  return {
+    getItem: (k: string) => dados[k] ?? null,
+    setItem: (k: string, v: string) => {
+      dados[k] = v;
+    },
+    removeItem: (k: string) => {
+      delete dados[k];
+    },
+  };
+}
 
 const item = (productId: string, size = "M", quantity = 1) => ({
   productId,
@@ -30,78 +43,91 @@ const item = (productId: string, size = "M", quantity = 1) => ({
   quantity,
 });
 
-describe("protocolo da sacola", () => {
-  it("dois cliques na MESMA sacola geram o mesmo protocolo", () => {
+const sacola = (
+  itens: ReturnType<typeof item>[],
+  phone = "33988215434"
+) => ({
+  company: "toque-leve",
+  items: itens,
+  customer: { name: "Alaute", phone },
+});
+
+describe("protocolo preso à sacola", () => {
+  it("dois cliques na MESMA sacola devolvem o mesmo protocolo", () => {
+    const s = memoria();
     const p = sacola([item("a"), item("b")]);
-    const agora = Date.UTC(2026, 6, 31, 14, 0);
-    expect(protocoloDaSacola(p, agora)).toBe(protocoloDaSacola(p, agora));
+    const primeiro = protocoloDaSacola(s, p);
+    const segundo = protocoloDaSacola(s, p);
+    expect(segundo).toBe(primeiro);
   });
 
-  it("o mesmo protocolo vale mesmo com alguns minutos de diferença", () => {
-    // é exatamente o caso do incidente: ela clica, espera, clica de novo
+  it("vale mesmo com minutos de diferença — é o caso do incidente", () => {
+    const s = memoria();
     const p = sacola([item("a")]);
     const t = Date.UTC(2026, 6, 31, 14, 0);
-    expect(protocoloDaSacola(p, t)).toBe(protocoloDaSacola(p, t + 3 * 60 * 1000));
+    expect(protocoloDaSacola(s, p, t + 3 * 60_000)).toBe(protocoloDaSacola(s, p, t));
   });
 
-  it("a ordem em que as peças entraram na sacola não muda o protocolo", () => {
-    const t = Date.UTC(2026, 6, 31, 14, 0);
-    const a = sacola([item("a"), item("b")]);
-    const b = sacola([item("b"), item("a")]);
-    expect(protocoloDaSacola(a, t)).toBe(protocoloDaSacola(b, t));
+  it("a ordem em que as peças entraram não muda nada", () => {
+    const s = memoria();
+    const a = protocoloDaSacola(s, sacola([item("a"), item("b")]));
+    const b = protocoloDaSacola(s, sacola([item("b"), item("a")]));
+    expect(b).toBe(a);
   });
 
-  it("mudou a sacola, mudou o protocolo — é pedido novo de verdade", () => {
-    const t = Date.UTC(2026, 6, 31, 14, 0);
-    expect(protocoloDaSacola(sacola([item("a")]), t)).not.toBe(
-      protocoloDaSacola(sacola([item("a"), item("b")]), t)
-    );
-    // mudou só a quantidade também conta
-    expect(protocoloDaSacola(sacola([item("a", "M", 1)]), t)).not.toBe(
-      protocoloDaSacola(sacola([item("a", "M", 2)]), t)
-    );
+  it("mudou a sacola, protocolo novo — é pedido de verdade", () => {
+    const s = memoria();
+    const um = protocoloDaSacola(s, sacola([item("a")]));
+    const dois = protocoloDaSacola(s, sacola([item("a"), item("b")]));
+    expect(dois).not.toBe(um);
   });
 
-  it("cliente diferente, protocolo diferente (nunca colide entre pessoas)", () => {
-    const t = Date.UTC(2026, 6, 31, 14, 0);
-    const p1 = { ...sacola([item("a")]), customer: { name: "Ana", phone: "11999999999" } };
-    const p2 = { ...sacola([item("a")]), customer: { name: "Bia", phone: "11888888888" } };
-    expect(protocoloDaSacola(p1, t)).not.toBe(protocoloDaSacola(p2, t));
+  it("mudou só a quantidade também é pedido novo", () => {
+    const s = memoria();
+    const um = protocoloDaSacola(s, sacola([item("a", "M", 1)]));
+    const dois = protocoloDaSacola(s, sacola([item("a", "M", 2)]));
+    expect(dois).not.toBe(um);
   });
 
-  it("a MESMA sacola AMANHÃ é pedido novo — repor é legítimo", () => {
+  it("REPOSIÇÃO depois da validade vira pedido novo", () => {
+    // no atacado, repor exatamente as mesmas peças semanas depois é o normal.
+    // Se a trava não vencesse, a reposição nunca viraria pedido.
+    const s = memoria();
     const p = sacola([item("a")]);
-    const hoje = Date.UTC(2026, 6, 31, 14, 0);
-    expect(protocoloDaSacola(p, hoje)).not.toBe(protocoloDaSacola(p, hoje + DIA));
+    const t = Date.UTC(2026, 6, 31, 10, 0);
+    const hoje = protocoloDaSacola(s, p, t);
+    const depois = protocoloDaSacola(s, p, t + VALIDADE_TRAVA_MS + 1000);
+    expect(depois).not.toBe(hoje);
   });
 
-  it("a assinatura é curta e sem caractere estranho (vira chave no banco)", () => {
-    const a = assinaturaDoPedido(sacola([item("a")]), Date.UTC(2026, 6, 31));
-    expect(a).toMatch(/^[a-z0-9]+$/);
-    expect(a.length).toBeLessThanOrEqual(18);
+  it("memória do navegador ilegível não impede o pedido de sair", () => {
+    const s = memoria({ "ap-ultimo-envio": "{{{ lixo" });
+    expect(protocoloDaSacola(s, sacola([item("a")])).length).toBeGreaterThan(0);
+  });
+
+  it("clientes diferentes nunca colidem", () => {
+    const a = assinaturaDoPedido(sacola([item("a")], "11999999999"));
+    const b = assinaturaDoPedido(sacola([item("a")], "11888888888"));
+    expect(a).not.toBe(b);
   });
 });
 
-describe("o catálogo não sorteia mais o protocolo", () => {
+describe("o catálogo avisa antes de reenviar a mesma sacola", () => {
   const fonte = readFileSync(
     join(process.cwd(), "src/app/catalogo/[slug]/public-catalog.tsx"),
     "utf8"
   );
 
-  it("usa o protocolo derivado da sacola", () => {
-    expect(
-      /protocoloDaSacola\(/.test(fonte),
-      "Protocolo sorteado a cada clique = pedido duplicado quando a cliente " +
-        "clica duas vezes. Tem que vir do conteúdo da sacola."
-    ).toBe(true);
+  it("usa o protocolo preso à sacola, não um sorteio", () => {
+    expect(/protocoloDaSacola\(/.test(fonte)).toBe(true);
   });
 
-  it("avisa antes de reenviar a mesma sacola", () => {
+  it("pergunta antes de abrir o WhatsApp pela segunda vez", () => {
     expect(
       /jaEnviado/.test(fonte),
-      "Sem esse aviso, o segundo clique não cria pedido duplicado (o protocolo " +
-        "resolve) mas ainda manda a MESMA mensagem de novo para a vendedora — " +
-        "que foi o que fez a loja achar que eram dois pedidos."
+      "O protocolo já impede o PEDIDO duplicado. Sem este aviso, a vendedora " +
+        "ainda recebe a MESMA MENSAGEM de novo — que foi o que fez a loja " +
+        "achar que eram dois pedidos."
     ).toBe(true);
   });
 });

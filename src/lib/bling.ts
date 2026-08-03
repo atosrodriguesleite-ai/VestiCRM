@@ -3,6 +3,7 @@ import { encryptSecret, decryptSecret } from "./crypto";
 import { signState, verifyState } from "./nuvemshop"; // state assinado (HMAC)
 import { appBaseUrl } from "./comm/evolution";
 import { orderNumber } from "./orders";
+import { documentoFiscal } from "./documento";
 
 /**
  * Bling (ERP) — emissão de NF-e a partir do pedido.
@@ -158,8 +159,10 @@ export async function emitirNfeDoPedido(
   if (!order) return { ok: false, error: "Pedido não encontrado." };
 
   const c = order.customer;
-  const doc = (c.document ?? "").replace(/\D/g, "");
-  if (doc.length !== 11 && doc.length !== 14) {
+  // a nota aceita UM documento e ele decide se é pessoa jurídica ou física:
+  // tendo CNPJ, quem compra é a loja (o caso normal do atacado)
+  const fiscal = documentoFiscal(c);
+  if (!fiscal) {
     return {
       ok: false,
       error:
@@ -175,8 +178,8 @@ export async function emitirNfeDoPedido(
     dataOperacao: new Date().toISOString().slice(0, 19).replace("T", " "),
     contato: {
       nome: c.name.slice(0, 120),
-      tipoPessoa: doc.length === 14 ? "J" : "F",
-      numeroDocumento: doc,
+      tipoPessoa: fiscal.tipoPessoa,
+      numeroDocumento: fiscal.numero,
       ...(c.email ? { email: c.email } : {}),
       ...(c.phone ? { telefone: c.phone } : {}),
       endereco: {

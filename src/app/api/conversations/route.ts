@@ -5,6 +5,7 @@ import { requireUser, AuthError } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { buscarConversas, loadInboxConversations } from "@/lib/inbox-data";
 import { runWatchdogIfDue } from "@/lib/health";
+import { varrerCarrinhosSeDeuAHora } from "@/lib/recuperacao";
 import { sincronizarFotosSeDevido } from "@/lib/comm/fotos";
 import { runAutomationsIfDue } from "@/lib/automations-run";
 
@@ -21,6 +22,8 @@ export async function GET(req: NextRequest) {
     // DEPOIS da resposta (after): a checagem externa (até 5s) não segura
     // mais o sync — a inbox responde na hora, sempre
     after(() => runWatchdogIfDue());
+    // recuperação de carrinhos: mesma carona (sem cron novo — Vercel Hobby)
+    after(() => varrerCarrinhosSeDeuAHora());
     // fotos das clientes: pega carona aqui, DEPOIS da resposta, e com freio
     // (uma varredura a cada 30 min por loja). A tela nunca espera por foto.
     after(() => sincronizarFotosSeDevido(user.companyId));

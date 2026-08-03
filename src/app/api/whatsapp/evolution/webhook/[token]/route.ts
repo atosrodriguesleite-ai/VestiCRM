@@ -2,11 +2,13 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { receiveMessage, updateDeliveryStatus } from "@/lib/comm/engine";
 import { jidToPhone, evoGetMediaBase64 } from "@/lib/comm/evolution";
-import { findCustomerByPhone } from "@/lib/intake";
+import { findCustomerByPhone, nomeProvisorio } from "@/lib/intake";
 import { alertWhatsappDown, logServerError } from "@/lib/health";
 import { adCode, campanhaDoAnuncio } from "@/lib/ad-match";
 import { formatPhone } from "@/lib/format";
-import { lerMensagemWA } from "@/lib/comm/wa-message";
+import { lerMensagemWA, soRecadoDoProtocolo } from "@/lib/comm/wa-message";
+import { buscarTextoAtual, lerEdicao } from "@/lib/comm/edicao";
+import { lerContatos, nomeDeQuemMandou } from "@/lib/comm/nome-do-contato";
 
 /**
  * Webhook do WhatsApp sem API oficial (Evolution → plataforma).
@@ -19,11 +21,48 @@ import { lerMensagemWA } from "@/lib/comm/wa-message";
  *                         mensagem enviada PELO CELULAR também entra no
  *                         histórico da conversa (visão completa do cliente)
  *  - messages.update    → recibos de entrega/leitura nas mensagens enviadas
+ *  - contacts.upsert    → o servidor descobriu o nome da cliente (às vezes
+ *    contacts.update      só depois da primeira mensagem): troca o crachá
+ *                         provisório pelo nome de verdade
  *
  * Sempre responde 200 (evita tempestade de retentativas do servidor).
  */
 
 export const maxDuration = 30;
+
+/**
+ * Aplica uma edição na mensagem gravada — e ACORDA O SYNC.
+ *
+ * O sync da inbox (3 em 3s) só entrega conversas cujo `updatedAt` mudou.
+ * Corrigir só a mensagem deixava o texto novo gravado no banco e INVISÍVEL
+ * na tela até alguém recarregar a página — era um dos motivos de "editou e
+ * não atualizou". Tocar a conversa é o que faz a correção chegar na hora.
+ */
+async function aplicarEdicao(
+  companyId: string,
+  alvoId: string,
+  texto: string | null
+): Promise<number> {
+  const r = await db.message.updateMany({
+    where: {
+      externalId: alvoId,
+      conversation: { companyId },
+      // reentrega do mesmo conteúdo (reconexão) não vira "editada"
+      ...(texto ? { NOT: { body: texto } } : {}),
+    },
+    data: {
+      ...(texto ? { body: texto } : {}),
+      editedAt: new Date(),
+    },
+  });
+  if (r.count > 0) {
+    await db.conversation.updateMany({
+      where: { companyId, messages: { some: { externalId: alvoId } } },
+      data: { updatedAt: new Date() },
+    });
+  }
+  return r.count;
+}
 
 // senderPn: quando o WhatsApp manda o contato com a identidade nova (@lid),
 // o número de telefone REAL vem neste campo — sem ele a mensagem se perderia
@@ -104,14 +143,15 @@ function extractAdReferral(m: EvoMessage): AdReply | null {
 async function registrarDescarte(
   companyId: string,
   motivo: string,
-  m: EvoMessage
+  m: EvoMessage,
+  tipo = "message.nao-lida-pelo-sistema"
 ): Promise<void> {
   await db.commEvent.create({
     data: {
       companyId,
       channel: "WHATSAPP",
       direction: "IN",
-      type: "message.nao-lida-pelo-sistema",
+      type: tipo,
       status: "ERRO",
       error: `Mensagem recebida que o sistema não conseguiu interpretar (${motivo}).`,
       // o conteúdo bruto é a única pista para corrigir o leitor depois
@@ -235,19 +275,43 @@ export async function POST(
           continue;
         }
 
-        // o cliente editou uma mensagem: atualiza o texto e marca "editada"
-        const edited = m.message?.editedMessage?.message;
-        const editedText =
-          edited?.conversation ?? edited?.extendedTextMessage?.text ?? null;
-        if (editedText && m.key?.id) {
-          const r = await db.message.updateMany({
-            where: { externalId: m.key.id, conversation: { companyId } },
-            data: { body: editedText, editedAt: new Date() },
-          });
-          // Se a mensagem original não está aqui (chegou antes da conexão, ou
-          // se perdeu), NÃO descarta: segue o fluxo e entra como mensagem
-          // nova, já com o texto corrigido. Editar não pode apagar do sistema.
-          if (r.count > 0) continue;
+        // O cliente editou uma mensagem. A edição chega em vários formatos e o
+        // id da mensagem a corrigir vem DENTRO do aviso — a leitura de todos
+        // eles mora em lib/comm/edicao.ts.
+        const edicao = lerEdicao(m);
+        if (edicao?.alvoId) {
+          // EDIÇÃO CIFRADA: o aviso não traz o texto novo, mas o SERVIDOR já
+          // tem a mensagem atualizada — então o sistema pergunta, em vez de
+          // mandar a vendedora "conferir no WhatsApp". Nem toda vendedora tem
+          // o celular do WhatsApp na mão; mandar ela olhar lá não é resposta.
+          const texto =
+            edicao.texto ||
+            (await buscarTextoAtual(
+              settings.evolutionInstance,
+              edicao.alvoId,
+              m.key?.remoteJid
+            ));
+          // EDIÇÃO SEM TEXTO FICA REGISTRADA (mesma lição da mensagem que não
+          // entrava): sem o conteúdo bruto não dá para descobrir QUAL formato
+          // o WhatsApp mandou desta vez, e a gente fica adivinhando. Isto é o
+          // que permite ensinar o leitor a entender o formato novo.
+          if (!texto) {
+            await registrarDescarte(
+              companyId,
+              "edição sem texto legível",
+              m,
+              "wa.edicao.sem-texto"
+            ).catch(() => {});
+          }
+          // sem texto nem pelo servidor, ao menos marca "editada"
+          const corrigidas = await aplicarEdicao(companyId, edicao.alvoId, texto || null);
+          // Achou e corrigiu: acabou aqui.
+          if (corrigidas > 0) continue;
+          // Não achou a original (chegou antes da conexão, ou se perdeu) e a
+          // edição trouxe o texto: segue o fluxo e entra como mensagem NOVA,
+          // já com o texto certo. Editar não pode apagar do sistema.
+          // Sem texto (edição criptografada) também segue: vira bolha de
+          // aviso, porque perder o rastro seria pior.
         }
 
         const lida = lerMensagemWA(m);
@@ -266,8 +330,9 @@ export async function POST(
         // de aviso E fica registrada no painel de Saúde com o conteúdo bruto,
         // que é o que permite ensinar o sistema a ler aquele formato.
         if (!text) {
-          const soControle = !m.message || Object.keys(m.message).length === 0;
-          if (soControle) continue;
+          // recado do protocolo (inclusive o aviso de álbum, cujas fotos
+          // chegam em seguida): ignora de propósito, sem bolha e sem registro
+          if (soRecadoDoProtocolo(m)) continue;
           await registrarDescarte(companyId, "formato-desconhecido", m).catch(() => {});
           text = "[mensagem recebida que o sistema não conseguiu ler — abra o WhatsApp para ver]";
         }
@@ -301,7 +366,10 @@ export async function POST(
           const result = await receiveMessage(companyId, {
             channel: "WHATSAPP",
             phone,
-            name: m.pushName || undefined,
+            // o nome vem em campos diferentes conforme a versão do servidor
+            // e o tipo de conta (empresa manda em `verifiedBizName`) — ler só
+            // `m.pushName` foi o que fez nascer a conversa "Lead 9621"
+            name: nomeDeQuemMandou(m, body.data) || undefined,
             text: textoFinal,
             ...(mediaType !== "TEXT" && mediaUrl
               ? { mediaType, mediaUrl, fileName: fileName ?? undefined }
@@ -574,6 +642,46 @@ export async function POST(
       }
     }
 
+    /**
+     * O SERVIDOR DESCOBRIU O NOME DA CLIENTE.
+     *
+     * O WhatsApp nem sempre manda o nome junto da primeira mensagem — às
+     * vezes ele chega segundos depois, neste aviso separado. A gente jogava
+     * esse aviso no lixo, e o contato ficava "Lead 9621" para sempre, mesmo
+     * com o nome disponível.
+     *
+     * Regra de ouro: só troca CRACHÁ PROVISÓRIO (o apelido que o próprio
+     * sistema inventou com o telefone). Nome escrito por gente — a vendedora
+     * corrigiu, a cliente digitou no catálogo — NUNCA é sobrescrito.
+     */
+    if (event === "contacts.upsert" || event === "contacts.update") {
+      // RECONEXÃO pode despejar a agenda INTEIRA num evento só (milhares).
+      // Processar tudo em série estouraria o tempo da função e pesaria no
+      // banco. Teto por evento: os crachás provisórios restantes são trocados
+      // quando a cliente falar (o caminho da mensagem também corrige o nome).
+      for (const c of lerContatos(body.data).slice(0, 50)) {
+        const phone = jidToPhone(c.jid);
+        if (!phone) continue;
+        const cliente = await findCustomerByPhone(companyId, phone);
+        if (!cliente || !nomeProvisorio(cliente.name)) continue;
+        await db.customer.update({
+          where: { id: cliente.id },
+          data: { name: c.nome },
+        });
+        await db.customerEvent
+          .create({
+            data: {
+              companyId,
+              customerId: cliente.id,
+              type: "NOVA_INTERACAO",
+              channel: "WHATSAPP",
+              description: `Nome atualizado para “${c.nome}” (veio do perfil do WhatsApp).`,
+            },
+          })
+          .catch(() => {});
+      }
+    }
+
     // o cliente apagou uma mensagem (evento dedicado do servidor)
     if (event === "messages.delete") {
       const raw = body.data as
@@ -611,11 +719,31 @@ export async function POST(
     }
 
     if (event === "messages.update") {
-      const raw = body.data as
-        | { keyId?: string; status?: string }
-        | { keyId?: string; status?: string }[];
+      type Update = {
+        keyId?: string;
+        status?: string;
+        key?: { id?: string };
+        message?: Record<string, unknown>;
+      };
+      const raw = body.data as Update | Update[];
       const list = Array.isArray(raw) ? raw : [raw];
       for (const u of list) {
+        // EDIÇÃO QUE CHEGA POR AQUI: conforme a versão, o servidor entrega o
+        // TEXTO NOVO da mensagem editada neste evento (e não no upsert). Era
+        // um dos buracos do "editou e não atualizou": o texto batia na porta
+        // e a gente só olhava o recibo.
+        //
+        // SÓ formato de edição RECONHECIDO (lerEdicao) entra: recibo de
+        // status que ecoe o conteúdo cru da mensagem NÃO é edição — aplicar
+        // esse eco sobrescreveria corpo derivado (ex.: o aviso de "não foi
+        // possível baixar o arquivo") e carimbaria "editada" à toa.
+        if (u?.message) {
+          const idAlvo = u.keyId ?? u.key?.id ?? null;
+          const edicao = lerEdicao({ key: { id: idAlvo }, message: u.message });
+          if (edicao?.alvoId && edicao.texto && !edicao.texto.startsWith("[")) {
+            await aplicarEdicao(companyId, edicao.alvoId, edicao.texto);
+          }
+        }
         if (!u?.keyId || !u.status) continue;
         // PLAYED = ouviu o áudio (implica ter lido).
         // ERROR/FAILED = a mensagem NÃO chegou. Sem tratar isso, a bolha

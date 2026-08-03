@@ -189,12 +189,17 @@ export async function computeAutomations(
     });
   }
 
-  // Regra 6 — pedido fechado sem pós-venda
+  // Regra 6 — pedido fechado sem pós-venda.
+  //
+  // SÓ DEPOIS DE 5 DIAS: pedido fechado HOJE nem saiu da loja — sugerir
+  // "confirme se chegou bem" no mesmo dia não fazia sentido nenhum (a
+  // lojista estranhou, com razão). A janela é 5–14 dias após o fechamento:
+  // tempo de o pedido chegar, e ainda quente para pedir o feedback.
   const wonOpps = await db.opportunity.findMany({
     where: {
       ...scope,
       status: "WON",
-      closedAt: { gt: days(14) },
+      closedAt: { gt: days(14), lt: days(5) },
       tasks: { none: { type: "POS_VENDA" } },
     },
     include: { customer: true },

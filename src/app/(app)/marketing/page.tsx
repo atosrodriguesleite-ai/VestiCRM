@@ -292,7 +292,13 @@ export default async function MarketingPage({
         <ChevronRight className="size-5 shrink-0 text-brand-400 transition group-hover:translate-x-0.5" />
       </Link>
 
-      <PeriodChips pathname="/marketing" de={de} ate={ate} />
+      {/* o canal escolhido viaja junto ao trocar o período (senão sumia) */}
+      <PeriodChips
+        pathname="/marketing"
+        de={de}
+        ate={ate}
+        extra={{ canal: canalParam ?? undefined }}
+      />
 
       {/* filtro por canal — Geral (tudo) ou um canal específico */}
       {canais.length > 0 && (

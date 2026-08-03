@@ -3,12 +3,16 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import { requireUser, AuthError } from "@/lib/auth";
 import { intakeLead } from "@/lib/intake";
+import { conferirDocumentos, guardarDocumento, soDigitos } from "@/lib/documento";
 import type { Origin } from "@prisma/client";
 
 const schema = z.object({
   name: z.string().min(1),
   phone: z.string().min(8),
-  document: z.string().max(20).optional(), // CPF/CNPJ
+  // CPF e CNPJ SEPARADOS: a cliente lojista tem os dois e cada transportadora
+  // pede um deles (ver src/lib/documento.ts)
+  cpf: z.string().max(20).optional(),
+  cnpj: z.string().max(25).optional(),
   city: z.string().optional(),
   state: z.string().optional(),
   type: z
@@ -33,8 +37,14 @@ export async function POST(req: NextRequest) {
     if (!parsed.success) {
       return NextResponse.json({ error: "Dados inválidos" }, { status: 400 });
     }
-    const { interestIds, type, notes, preferredSize, preferredColors, birthDate, origin, document, campaignId, skipOpportunity, ...core } =
+    const { interestIds, type, notes, preferredSize, preferredColors, birthDate, origin, cpf, cnpj, campaignId, skipOpportunity, ...core } =
       parsed.data;
+
+    // CPF/CNPJ digitado errado só dá as caras lá na frente — a transportadora
+    // recusa a etiqueta ou a Receita rejeita a nota, com a venda já fechada.
+    // Melhor avisar aqui, enquanto a vendedora está com a cliente.
+    const docErro = conferirDocumentos({ cpf, cnpj });
+    if (docErro) return NextResponse.json({ error: docErro }, { status: 400 });
 
     const validOrigins = Object.keys(
       (await import("@/lib/format")).originLabel
@@ -69,7 +79,8 @@ export async function POST(req: NextRequest) {
       where: { id: result.customer.id },
       data: {
         type,
-        document: document ?? undefined,
+        cpf: guardarDocumento(cpf) ?? undefined,
+        cnpj: guardarDocumento(cnpj) ?? undefined,
         notes: notes ?? undefined,
         preferredSize: preferredSize ?? undefined,
         preferredColors: preferredColors ?? undefined,
@@ -106,7 +117,11 @@ export async function GET(req: NextRequest) {
               OR: [
                 { name: { contains: q, mode: "insensitive" } },
                 { phone: { contains: q.replace(/\D/g, "") || q } },
-                { document: { contains: q } },
+                // busca por documento: a vendedora digita com ponto e traço,
+                // o banco guarda só os números
+                ...(soDigitos(q)
+                  ? [{ cpf: { contains: soDigitos(q) } }, { cnpj: { contains: soDigitos(q) } }]
+                  : []),
               ],
             }
           : {}),

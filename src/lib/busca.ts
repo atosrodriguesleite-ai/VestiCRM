@@ -57,7 +57,8 @@ export function casaCliente(
     name?: string | null;
     phone?: string | null;
     city?: string | null;
-    document?: string | null;
+    cpf?: string | null;
+    cnpj?: string | null;
   },
   termo: string
 ): boolean {
@@ -67,6 +68,7 @@ export function casaCliente(
     casaTexto(cliente.name, t) ||
     casaTelefone(cliente.phone, t) ||
     casaTexto(cliente.city, t) ||
-    casaTelefone(cliente.document, t)
+    casaTelefone(cliente.cpf, t) ||
+    casaTelefone(cliente.cnpj, t)
   );
 }

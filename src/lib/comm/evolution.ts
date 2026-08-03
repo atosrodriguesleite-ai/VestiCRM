@@ -159,6 +159,9 @@ const EVO_MEDIA_TIMEOUT_MS = 50_000;
 // propósito — a importação lê dezenas de conversas em sequência, e uma só
 // travando por 50s comeria o orçamento inteiro da importação.
 const EVO_LEITURA_TIMEOUT_MS = 15_000;
+// Busca de UMA mensagem, feita no meio do webhook: tem que ser rápida ou não
+// vale a pena — a mensagem editada ainda fica marcada como "editada".
+const EVO_BUSCA_RAPIDA_MS = 6_000;
 
 /** Eventos que a loja precisa receber (inclui apagar/editar do cliente). */
 export const WEBHOOK_EVENTS = [
@@ -167,6 +170,12 @@ export const WEBHOOK_EVENTS = [
   "MESSAGES_UPSERT",
   "MESSAGES_UPDATE",
   "MESSAGES_DELETE", // cliente apagou uma mensagem
+  // NOME DA CLIENTE: o WhatsApp nem sempre manda o nome junto da primeira
+  // mensagem — às vezes ele chega segundos depois, nestes avisos. Sem
+  // escutá-los, o contato ficava "Lead 9621" para sempre (Toque Leve,
+  // 31/07/2026), mesmo com o nome disponível no servidor.
+  "CONTACTS_UPSERT",
+  "CONTACTS_UPDATE",
 ] as const;
 
 function webhookUrl(webhookToken: string) {
@@ -384,19 +393,22 @@ export async function evoEditMessage(
  */
 export async function evoFindMessages(
   instance: string,
-  opts?: { remoteJid?: string; page?: number; offset?: number }
+  opts?: { remoteJid?: string; id?: string; page?: number; offset?: number }
 ) {
+  // Buscar UMA mensagem pelo id é o caminho da edição criptografada: o texto
+  // novo não vem no aviso, mas o servidor tem a mensagem já atualizada.
+  const where = opts?.id
+    ? { key: { id: opts.id } }
+    : opts?.remoteJid
+      ? // versões novas do servidor exigem a conversa no filtro para devolver
+        // mensagens; sem `remoteJid` a leitura "geral" costuma vir vazia
+        { key: { remoteJid: opts.remoteJid } }
+      : {};
   return evo<unknown>(
     "POST",
     `/chat/findMessages/${instance}`,
-    {
-      // versões novas do servidor exigem a conversa no filtro para devolver
-      // mensagens; sem `remoteJid` a leitura "geral" costuma vir vazia
-      where: opts?.remoteJid ? { key: { remoteJid: opts.remoteJid } } : {},
-      page: opts?.page ?? 1,
-      offset: opts?.offset ?? 500,
-    },
-    EVO_LEITURA_TIMEOUT_MS
+    { where, page: opts?.page ?? 1, offset: opts?.id ? 5 : (opts?.offset ?? 500) },
+    opts?.id ? EVO_BUSCA_RAPIDA_MS : EVO_LEITURA_TIMEOUT_MS
   );
 }
 

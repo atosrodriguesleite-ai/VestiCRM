@@ -34,6 +34,8 @@ const TITULOS: Record<string, string> = {
   "message.resent": "Mensagem reenviada",
   "status.update": "Confirmação de entrega/leitura",
   "wa.cliente.apagou": "A cliente apagou uma mensagem",
+  "wa.edicao.sem-texto": "A cliente editou uma mensagem e o texto novo não veio",
+  "message.nao-lida-pelo-sistema": "Mensagem que o sistema não conseguiu ler",
   "wa.historico.leitura": "Leitura do histórico do WhatsApp",
   "webhook.error": "Aviso do WhatsApp recusado pelo sistema",
   // registros antigos, de diagnósticos que já cumpriram o papel
@@ -98,6 +100,15 @@ const CAUSAS: {
     porque: "A conexão com o servidor de WhatsApp demorou demais e foi interrompida.",
     oQueFazer:
       "Verifique se a mensagem chegou no WhatsApp antes de reenviar — às vezes ela sai mesmo com o erro na tela.",
+  },
+  {
+    // a cliente editou e o WhatsApp mandou a edição cifrada; buscar o texto
+    // no servidor também não deu (ele pode não estar guardando mensagens)
+    casa: (e) => /edição sem texto/i.test(e),
+    porque:
+      "A cliente editou a mensagem e o WhatsApp mandou a correção embaralhada. O sistema tentou buscar o texto novo no servidor da loja e não conseguiu.",
+    oQueFazer:
+      "A mensagem está marcada como “editada” no chat: confira o texto atual no WhatsApp antes de fechar o pedido. Se isso repetir, avise o suporte — pode ser configuração do servidor de conexão.",
   },
 ];
 

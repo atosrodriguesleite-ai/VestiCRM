@@ -44,7 +44,8 @@ export async function POST(req: NextRequest) {
               data: {
                 name: "Cliente removido (LGPD)",
                 email: null,
-                document: null,
+                cpf: null,
+                cnpj: null,
                 street: null,
                 streetNumber: null,
                 district: null,

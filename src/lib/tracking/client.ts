@@ -20,6 +20,8 @@ export type ClientEvent = {
   size?: string;
   qty?: number;
   value?: number;
+  /** carga extra (ex.: a foto da sacola para a Recuperação) */
+  meta?: Record<string, unknown>;
 };
 
 const CONSENT_KEY = "vesticrm_consent";

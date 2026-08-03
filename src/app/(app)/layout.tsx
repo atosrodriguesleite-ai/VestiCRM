@@ -35,6 +35,7 @@ export default async function AppLayout({
           cutPlanEnabled: company?.cutPlanEnabled ?? false,
           marketingEnabled: company?.marketingEnabled ?? false,
           mediaLibraryEnabled: company?.mediaLibraryEnabled ?? false,
+          aiSalesEnabled: company?.aiSalesEnabled ?? false,
           prefersDark: dark,
         }}
       >

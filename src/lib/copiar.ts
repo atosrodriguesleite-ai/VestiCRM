@@ -63,3 +63,40 @@ export function textoDaMensagem(m: {
   if (m.revoked) return ""; // mensagem apagada não se copia
   return (m.body ?? "").trim();
 }
+
+/**
+ * LEGENDA DA FOTO/VÍDEO/ÁUDIO — o texto que a cliente escreveu junto da mídia.
+ *
+ * Incidente real (Toque Leve, 31/07/2026): a cliente mandou uma foto com
+ * texto embaixo e a loja só viu a foto. A legenda ESTAVA gravada — o sistema
+ * a leu certo do WhatsApp —, mas a tela só desenhava o texto quando a
+ * mensagem era de texto puro. Numa foto, o texto ficava invisível.
+ *
+ * Numa negociação isso é caro: a cliente manda a peça e escreve "essa no P,
+ * 3 unidades" embaixo, e a vendedora responde como se não tivesse pedido nada.
+ *
+ * Quando a cliente NÃO escreve nada, o sistema guarda um rótulo ("[foto]") só
+ * para a mensagem ter o que mostrar na lista de conversas. Rótulo não é
+ * legenda: embaixo da foto ele não pode aparecer.
+ */
+const ROTULOS_DE_MIDIA = new Set([
+  "[foto]",
+  "[vídeo]",
+  "[video]",
+  "[áudio]",
+  "[audio]",
+  "[figurinha]",
+]);
+
+export function legendaDaMidia(m: {
+  body?: string | null;
+  mediaType?: string | null;
+  fileName?: string | null;
+}): string {
+  const texto = (m.body ?? "").trim();
+  if (!texto) return "";
+  if (ROTULOS_DE_MIDIA.has(texto.toLowerCase())) return "";
+  // documento sem legenda vira "[arquivo] nome-do-arquivo.pdf"
+  if (texto.startsWith("[arquivo]")) return "";
+  return texto;
+}

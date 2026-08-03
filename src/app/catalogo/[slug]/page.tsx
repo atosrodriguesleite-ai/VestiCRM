@@ -2,7 +2,11 @@ import { notFound } from "next/navigation";
 import type { Metadata } from "next";
 import { db } from "@/lib/db";
 import { imageHref } from "@/lib/img";
-import { parseCategoryDescriptions, parseCategoryOrder } from "@/lib/categories";
+import {
+  parseCategoryDescriptions,
+  parseCategoryOrder,
+  parseCategoryTypes,
+} from "@/lib/categories";
 import { PublicCatalog, type CatalogProduct } from "./public-catalog";
 
 export const dynamic = "force-dynamic";
@@ -54,7 +58,7 @@ export default async function PublicCatalogPage({
         ...(company.catalogHideOutOfStock ? { variants: { some: { stock: { gt: 0 } } } } : {}),
       },
       include: {
-        images: { orderBy: { order: "asc" }, select: { id: true } },
+        images: { orderBy: { order: "asc" }, select: { id: true, color: true } },
         variants: { orderBy: [{ color: "asc" }, { size: "asc" }] },
       },
       orderBy: [{ collection: "desc" }, { name: "asc" }],
@@ -76,7 +80,8 @@ export default async function PublicCatalogPage({
     wholesalePrice: p.wholesalePrice,
     minQuantity: p.minQuantity,
     tags: p.tags,
-    images: p.images.map((i) => imageHref(i.id)),
+    // url + cor etiquetada: o card de cada cor usa a foto DAQUELA cor
+    images: p.images.map((i) => ({ url: imageHref(i.id), color: i.color })),
     variants: p.variants.map((v) => ({
       color: v.color,
       size: v.size,
@@ -96,6 +101,7 @@ export default async function PublicCatalogPage({
       products={items}
       categoryOrder={parseCategoryOrder(company.categoryOrder)}
       categoryDescriptions={parseCategoryDescriptions(company.categoryDescriptions)}
+      categoryTypes={parseCategoryTypes(company.categoryTypes)}
       logoSize={company.catalogLogoSize as "normal" | "grande"}
       identity={{
         logoUrl: company.logoUrl,

@@ -68,6 +68,14 @@ const RECADOS_DO_PROTOCOLO = new Set([
   "encReactionMessage",
   "encEventUpdateMessage",
   "pinInChatMessage",
+  // ÁLBUM DE FOTOS (incidente Toque Leve, 31/07/2026): quando a cliente manda
+  // várias fotos de uma vez, o WhatsApp avisa ANTES com um `albumMessage` —
+  // um bilhete dizendo "vêm 3 fotos aí", sem foto nenhuma dentro. As fotos
+  // chegam logo depois, cada uma como mensagem própria (e apareceram certinho
+  // na conversa da Cassia). O bilhete virava uma bolha
+  // "[mensagem não exibida aqui] (albumMessage)" em cima das fotos: aviso
+  // falso de coisa perdida, bem no meio de uma negociação.
+  "albumMessage",
 ]);
 
 /** Tira as camadas de embrulho até chegar no conteúdo de verdade. */
@@ -81,6 +89,21 @@ export function desembrulhar(msg: Conteudo | undefined, nivel = 0): Conteudo {
 }
 
 const texto = (v: unknown): string => (typeof v === "string" ? v.trim() : "");
+
+/**
+ * O evento é SÓ recado do protocolo (nenhum conteúdo de ninguém dentro)?
+ *
+ * Precisa ser explícito porque a checagem "não tem nada em `message`" não
+ * bastava: o álbum de fotos chega com `albumMessage` preenchido — tem chave,
+ * mas não tem conteúdo — e virava uma bolha de "não consegui ler" em cima das
+ * fotos, que chegam logo depois.
+ */
+export function soRecadoDoProtocolo(entrada: { message?: Conteudo } | undefined): boolean {
+  const msg = desembrulhar(entrada?.message);
+  const chaves = Object.keys(msg ?? {});
+  if (chaves.length === 0) return true;
+  return chaves.every((k) => RECADOS_DO_PROTOCOLO.has(k));
+}
 
 /** Nome legível do tipo, para a bolha de aviso do que não foi reconhecido. */
 function nomeDoTipo(msg: Conteudo): string | null {

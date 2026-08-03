@@ -3,6 +3,7 @@ import { db } from "./db";
 import { encryptSecret, decryptSecret } from "./crypto";
 import { intakeLead, normalizePhone } from "./intake";
 import { round2 } from "./orders";
+import { separarDocumento } from "./documento";
 import { notifySalePaid } from "./push";
 import { winLinkedOpportunity } from "./opportunity-sync";
 
@@ -161,6 +162,7 @@ type NsVariant = {
   price?: string | number | null;
   stock?: number | null;
   weight?: string | number | null; // kg (a Nuvemshop usa para calcular frete)
+  image_id?: number | string | null; // foto da variação (capa por cor)
   values?: { pt?: string; es?: string; en?: string }[] | MultiLang[];
 };
 type NsProduct = {
@@ -170,7 +172,7 @@ type NsProduct = {
   published?: boolean;
   attributes?: MultiLang[];
   categories?: { name: MultiLang }[];
-  images?: { src: string; position?: number }[];
+  images?: { id?: number | string; src: string; position?: number }[];
   variants?: NsVariant[];
 };
 
@@ -205,6 +207,52 @@ function corETamanho(p: NsProduct, v: NsVariant): { color: string; size: string 
   return { color, size };
 }
 
+/**
+ * CAPA POR COR (pedido da Entre Linhas, 03/08/2026): a Nuvemshop sabe qual
+ * foto pertence a cada variação (`variant.image_id`) — a gente jogava essa
+ * informação fora, e o catálogo mostrava a peça preta no card de toda cor.
+ * Aqui vira o mapa foto(src) → cor. Foto usada por variações de CORES
+ * DIFERENTES é ambígua e fica sem etiqueta (melhor capa geral que cor errada).
+ */
+export function coresPorFotoNs(p: NsProduct): Map<string, string> {
+  const porImagem = new Map<string, Set<string>>();
+  for (const v of p.variants ?? []) {
+    if (v.image_id == null) continue;
+    const { color } = corETamanho(p, v);
+    if (!color || color === "Único") continue;
+    const key = String(v.image_id);
+    const set = porImagem.get(key) ?? new Set<string>();
+    set.add(color);
+    porImagem.set(key, set);
+  }
+  const out = new Map<string, string>();
+  for (const img of p.images ?? []) {
+    if (img.id == null) continue;
+    const cores = porImagem.get(String(img.id));
+    if (cores && cores.size === 1) out.set(img.src, [...cores][0]);
+  }
+  return out;
+}
+
+/**
+ * Etiqueta as fotos JÁ importadas do produto local com a cor da Nuvemshop —
+ * só onde ainda não há etiqueta (nunca sobrescreve escolha manual da lojista).
+ * Foto subida à mão (data-URL) não casa com o src da Nuvemshop e fica como está.
+ */
+async function etiquetarFotosPorCor(productId: string, p: NsProduct) {
+  const mapa = coresPorFotoNs(p);
+  if (mapa.size === 0) return; // produto sem vínculo foto→variação: zero consultas
+  // uma leitura só; grava apenas onde falta etiqueta (regime normal: nada a fazer)
+  const semEtiqueta = await db.productImage.findMany({
+    where: { productId, color: null, url: { in: [...mapa.keys()] } },
+    select: { id: true, url: true },
+  });
+  for (const f of semEtiqueta) {
+    const color = mapa.get(f.url);
+    if (color) await db.productImage.update({ where: { id: f.id }, data: { color } });
+  }
+}
+
 // normalização pra comparar nomes/SKUs sem pegadinha de acento/caixa
 export const norm = (s: string | null | undefined) =>
   (s ?? "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").trim();
@@ -224,6 +272,31 @@ export const mesmaCor = (a: string | null | undefined, b: string | null | undefi
 export const corDoNome = (name: string) => {
   const m = name.match(/\s+[—–-]\s+(.+)$/);
   return m ? m[1].trim() : null;
+};
+
+/**
+ * POOLS DA SINCRONIZAÇÃO — o porquê: `upsertProduct` consultava o catálogo
+ * INTEIRO (todas as variações com SKU + todos os produtos) para CADA produto
+ * da Nuvemshop. Com o catálogo crescendo, a sincronização completa passou de
+ * 60s e a Vercel matava a função no meio ("Não foi possível sincronizar",
+ * sem explicação — incidente Entre Linhas, 03/08/2026). A `syncProducts`
+ * busca os pools UMA vez e repassa; o webhook (um produto só) segue buscando
+ * na hora. Produto espelhado durante a rodada entra no pool em memória —
+ * é o que impede duplicata se a paginação repetir o mesmo produto.
+ */
+const buscarPoolSku = (companyId: string) =>
+  db.productVariant.findMany({
+    where: { product: { companyId }, sku: { not: null } },
+    include: { product: true },
+  });
+const buscarPoolProdutos = (companyId: string) =>
+  db.product.findMany({
+    where: { companyId },
+    select: { id: true, name: true, sku: true, nuvemshopId: true },
+  });
+export type PoolsDeSync = {
+  skuVariants: Awaited<ReturnType<typeof buscarPoolSku>>;
+  allProducts: Awaited<ReturnType<typeof buscarPoolProdutos>>;
 };
 
 export type SyncPendencia = {
@@ -254,13 +327,15 @@ export type SyncReport = {
 export async function upsertProduct(
   companyId: string,
   p: NsProduct,
-  report?: SyncReport
+  report?: SyncReport,
+  pools?: PoolsDeSync
 ) {
   const nsId = String(p.id);
   const nsName = texto(p.name).trim() || `Produto ${nsId}`;
   const variants = p.variants ?? [];
 
-  // pools de candidatos locais
+  // pools de candidatos locais (a sync completa passa os seus, buscados uma
+  // vez — refazer estas consultas por produto era o que estourava os 60s)
   const [linkedVariants, skuVariants, allProducts] = await Promise.all([
     db.productVariant.findMany({
       where: {
@@ -272,14 +347,8 @@ export async function upsertProduct(
       },
       include: { product: true },
     }),
-    db.productVariant.findMany({
-      where: { product: { companyId }, sku: { not: null } },
-      include: { product: true },
-    }),
-    db.product.findMany({
-      where: { companyId },
-      select: { id: true, name: true, sku: true, nuvemshopId: true },
-    }),
+    pools ? pools.skuVariants : buscarPoolSku(companyId),
+    pools ? pools.allProducts : buscarPoolProdutos(companyId),
   ]);
   const skuMap = new Map(skuVariants.map((v) => [norm(v.sku), v]));
   // vínculo 1↔1 apenas quando JÁ existe ligação explícita (nuvemshopId)
@@ -469,13 +538,25 @@ export async function upsertProduct(
     });
     const fotoCount = await db.productImage.count({ where: { productId: um2um.id } });
     if (fotoCount === 0 && p.images?.length) {
+      const corDaFoto = coresPorFotoNs(p);
       await db.productImage.createMany({
         data: [...p.images]
           .sort((a, b) => (a.position ?? 0) - (b.position ?? 0))
           .slice(0, 10)
-          .map((img, i) => ({ productId: um2um.id, url: img.src, order: i })),
+          .map((img, i) => ({
+            productId: um2um.id,
+            url: img.src,
+            order: i,
+            color: corDaFoto.get(img.src) ?? null,
+          })),
       });
     }
+    // capa por cor: etiqueta as fotos já importadas (só onde falta etiqueta)
+    await etiquetarFotosPorCor(um2um.id, p);
+  } else if (targetProductId) {
+    // produto casado por SKU/vínculo: fotos importadas da Nuvemshop também
+    // ganham a etiqueta de cor (upload manual não casa por URL e fica intacto)
+    await etiquetarFotosPorCor(targetProductId, p);
   }
   return null;
 }
@@ -508,14 +589,21 @@ async function criarProdutoEspelhado(companyId: string, p: NsProduct) {
     include: { variants: true },
   });
 
-  // fotos: só completa quando o produto ainda não tem (nunca sobrescreve)
+  // fotos: só completa quando o produto ainda não tem (nunca sobrescreve).
+  // Já nascem com a etiqueta de cor da Nuvemshop (capa por cor no catálogo).
   const fotoCount = await db.productImage.count({ where: { productId: product.id } });
   if (fotoCount === 0 && p.images?.length) {
+    const corDaFoto = coresPorFotoNs(p);
     await db.productImage.createMany({
       data: [...p.images]
         .sort((a, b) => (a.position ?? 0) - (b.position ?? 0))
         .slice(0, 10)
-        .map((img, i) => ({ productId: product.id, url: img.src, order: i })),
+        .map((img, i) => ({
+          productId: product.id,
+          url: img.src,
+          order: i,
+          color: corDaFoto.get(img.src) ?? null,
+        })),
     });
   }
 
@@ -559,6 +647,12 @@ export async function syncProducts(companyId: string) {
   const conn = await loadConn(companyId);
   if (!conn) return { ok: false as const, produtos: 0, report: null, status: -1 };
   const report: SyncReport = { casadas: 0, criadas: 0, pendencias: [] };
+  // catálogo local lido UMA vez para a rodada inteira (antes era por produto
+  // — com o catálogo grande, estourava os 60s e a Vercel matava a função)
+  const pools: PoolsDeSync = {
+    skuVariants: await buscarPoolSku(companyId),
+    allProducts: await buscarPoolProdutos(companyId),
+  };
   let page = 1;
   let total = 0;
   for (; page <= 50; page++) {
@@ -571,7 +665,17 @@ export async function syncProducts(companyId: string) {
     }
     if (!res.ok || !res.data?.length) break;
     for (const p of res.data) {
-      await upsertProduct(companyId, p, report);
+      const criado = await upsertProduct(companyId, p, report, pools);
+      // espelhado nesta rodada entra no pool: paginação que repetir o mesmo
+      // produto encontra o vínculo em vez de criar duplicata
+      if (criado) {
+        pools.allProducts.push({
+          id: criado.id,
+          name: criado.name,
+          sku: criado.sku,
+          nuvemshopId: criado.nuvemshopId,
+        });
+      }
       total++;
     }
     if (res.data.length < 50) break;
@@ -724,9 +828,15 @@ export async function ingestPaidOrder(companyId: string, nsOrderId: string) {
     where: { id: customerId },
     data: {
       ...(email && !atual?.email ? { email } : {}),
-      ...(o.customer?.identification && !atual?.document
-        ? { document: o.customer.identification }
-        : {}),
+      // a Nuvemshop manda UM campo "identification": 14 dígitos é CNPJ, 11 é
+      // CPF — cada um vai para a sua coluna, sem apagar o que já existe
+      ...(() => {
+        const d = separarDocumento(o.customer?.identification);
+        return {
+          ...(d.cpf && !atual?.cpf ? { cpf: d.cpf } : {}),
+          ...(d.cnpj && !atual?.cnpj ? { cnpj: d.cnpj } : {}),
+        };
+      })(),
       ...(end.zipcode && !atual?.zip ? { zip: end.zipcode } : {}),
       ...(end.address && !atual?.street ? { street: end.address } : {}),
       ...(end.number && !atual?.streetNumber ? { streetNumber: end.number } : {}),

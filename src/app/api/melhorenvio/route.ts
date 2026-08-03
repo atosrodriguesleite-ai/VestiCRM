@@ -19,7 +19,8 @@ export async function GET() {
         select: {
           connectedAt: true,
           fromName: true,
-          fromDocument: true,
+          fromCpf: true,
+          fromCnpj: true,
           fromPhone: true,
           fromEmail: true,
           fromZip: true,
@@ -55,7 +56,9 @@ export async function GET() {
 
 const settingsSchema = z.object({
   fromName: z.string().max(120).optional(),
-  fromDocument: z.string().max(20).optional(),
+  // CPF e CNPJ separados: a transportadora pede um em cada campo
+  fromCpf: z.string().max(20).optional(),
+  fromCnpj: z.string().max(25).optional(),
   fromPhone: z.string().max(20).optional(),
   fromEmail: z.string().max(120).optional(),
   fromZip: z.string().max(10).optional(),

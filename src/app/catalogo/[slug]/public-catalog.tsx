@@ -29,7 +29,8 @@ import {
   reenviarPendentes,
 } from "@/lib/catalogo/envio-pedido";
 import { compareSizes } from "@/lib/sizes";
-import { descricaoDaCategoria, sortCategories } from "@/lib/categories";
+import { fotoDaCor, ordenarFotosDaCor } from "@/lib/capa-por-cor";
+import { agruparPorTipo, descricaoDaCategoria, sortCategories } from "@/lib/categories";
 import {
   CatalogTracker,
   getConsent,
@@ -71,7 +72,9 @@ export type CatalogProduct = {
   originalRetailPrice?: number | null;
   minQuantity: number;
   tags: string | null;
-  images: string[];
+  // cada foto pode vir etiquetada com a cor que mostra (capa por cor):
+  // o card da Avelã usa a foto avelã; sem etiqueta, cai na capa geral
+  images: { url: string; color: string | null }[];
   variants: { color: string; size: string; available: boolean }[];
 };
 
@@ -250,6 +253,7 @@ export function PublicCatalog({
   products,
   categoryOrder = [],
   categoryDescriptions = {},
+  categoryTypes = {},
   promo = null,
   identity,
   logoSize = "normal",
@@ -267,6 +271,8 @@ export function PublicCatalog({
   categoryOrder?: string[];
   /** texto escrito pela lojista para cada categoria (Produtos → Categorias) */
   categoryDescriptions?: Record<string, string>;
+  /** guarda-chuva de cada categoria ("Regata Alça" → "Blusas") */
+  categoryTypes?: Record<string, string>;
   // catálogo de campanha: nome + % de desconto (preços já vêm com desconto)
   promo?: { name: string; slug: string; discount: number } | null;
   identity: CatalogIdentity;
@@ -293,6 +299,13 @@ export function PublicCatalog({
   const categories = useMemo(
     () => sortCategories([...new Set(products.map((p) => p.category))], categoryOrder),
     [products, categoryOrder]
+  );
+
+  // TIPO DE PEÇA: o guarda-chuva das categorias. Lista vazia quando a loja não
+  // usa o recurso — aí o catálogo fica exatamente como era, com uma barra só.
+  const grupos = useMemo(
+    () => agruparPorTipo(categories, categoryTypes),
+    [categories, categoryTypes]
   );
 
   const cardsByCategory = useMemo(() => {
@@ -323,6 +336,19 @@ export function PublicCatalog({
 
   const [cart, setCart] = useState<Cart>({});
   const [activeCat, setActiveCat] = useState(0);
+
+  // Qual guarda-chuva está sendo visto AGORA: sai da categoria ativa, que o
+  // observador de rolagem já mantém atualizada. Assim a barra de cima se
+  // acende sozinha quando a rolagem passa de "Blusas" para "Shorts" — sem
+  // observador novo e sem estado paralelo para desencontrar.
+  const tipoAtivo = grupos.length
+    ? (grupos.find((g) => g.categorias.includes(categories[activeCat]))?.tipo ??
+      grupos[0].tipo)
+    : "";
+  // A barra de baixo mostra só as categorias do tipo que está sendo visto.
+  const categoriasVisiveis = grupos.length
+    ? (grupos.find((g) => g.tipo === tipoAtivo)?.categorias ?? categories)
+    : categories;
   const [sheet, setSheet] = useState<CardItem | null>(null);
   const [draft, setDraft] = useState<Record<string, number>>({});
   const [bagOpen, setBagOpen] = useState(false);
@@ -364,6 +390,61 @@ export function PublicCatalog({
       }
     } catch {}
     cartLoadedRef.current = true;
+
+    // LINK MÁGICO DA RECUPERAÇÃO (?sacola=): a cliente recebeu no WhatsApp o
+    // link que REMONTA a sacola abandonada — pode ser em outro aparelho, ou
+    // com o armazenamento já vencido. Os itens vêm do servidor e entram por
+    // cima do que houver (o link é a intenção mais recente da cliente).
+    try {
+      const token = new URLSearchParams(window.location.search).get("sacola");
+      if (token) {
+        fetch(`/api/catalogo/sacola?token=${encodeURIComponent(token)}&slug=${encodeURIComponent(storeSlug)}`)
+          .then((r) => (r.ok ? r.json() : null))
+          .then(
+            (data: {
+              itens?: { productId?: string | null; name: string; color?: string | null; size?: string | null; qty: number }[];
+            } | null) => {
+              if (!data?.itens?.length) return;
+              const restaurada: Cart = {};
+              for (const item of data.itens) {
+                // acha o card do produto+cor: pelo id (certeiro) ou pelo nome
+                const card = allCards.find(
+                  (c) =>
+                    (item.productId && c.key.startsWith(`${item.productId}|`) &&
+                      (!item.color || c.key === `${item.productId}|${item.color}`)) ||
+                    (!item.productId && c.product.name === item.name)
+                );
+                if (!card || !item.size || item.qty <= 0) continue;
+                // SÓ tamanho que ainda existe e com estoque volta à sacola —
+                // sem esta peneira, peça esgotada voltava, a cliente
+                // confirmava e a loja só descobria na separação
+                const tamanho = card.sizes.find(
+                  (sz) => sz.size === item.size && sz.available
+                );
+                if (!tamanho) continue;
+                restaurada[card.key] = {
+                  ...(restaurada[card.key] ?? {}),
+                  [item.size]: item.qty,
+                };
+              }
+              if (Object.keys(restaurada).length) {
+                // mescla POR TAMANHO: o que a cliente já tinha na sacola
+                // deste aparelho não pode sumir (sobrescrever o card inteiro
+                // apagava o "M:2" local quando a abandonada só tinha "G:1")
+                setCart((atual) => {
+                  const proximo = { ...atual };
+                  for (const [key, sizes] of Object.entries(restaurada)) {
+                    proximo[key] = { ...(proximo[key] ?? {}), ...sizes };
+                  }
+                  return proximo;
+                });
+                setBagOpen(true); // a sacola abre mostrando que está pronta
+              }
+            }
+          )
+          .catch(() => {});
+      }
+    } catch {}
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   useEffect(() => {
@@ -412,6 +493,29 @@ export function PublicCatalog({
     if (typeof window === "undefined") return;
     reenviarPendentes({ storage: window.localStorage }).catch(() => {});
   }, []);
+  /**
+   * A FOTO DA SACOLA que viaja junto de cada evento de sacola (meta.sacola).
+   * A Recuperação remonta o carrinho abandonado por ELA — reconstruir pelos
+   * eventos agregados errava: o evento da ficha traz os tamanhos juntos
+   * ("P,M"), o delta total e o TOTAL da sacola como "value", e o lixinho
+   * removia sem dizer o tamanho. A foto é o estado real, item por item.
+   */
+  const fotoDaSacola = (c: Cart) =>
+    Object.entries(c).flatMap(([key, sizes]) => {
+      const card = allCards.find((x) => x.key === key);
+      if (!card) return [];
+      return Object.entries(sizes)
+        .filter(([, q]) => q > 0)
+        .map(([size, q]) => ({
+          productId: card.product.id,
+          name: card.product.name,
+          color: card.color,
+          size,
+          qty: q,
+          price: card.product.retailPrice,
+        }));
+    });
+
   const t = (e: Parameters<CatalogTracker["track"]>[0]) =>
     trackerRef.current?.track(e);
 
@@ -595,6 +699,9 @@ export function PublicCatalog({
     const prevQty = cart[sheet.key] ? sum(cart[sheet.key]) : 0;
     const newQty = sum(clean);
     const newTotal = totalValue - prevQty * price + newQty * price;
+    const proximoCart = { ...cart };
+    if (Object.keys(clean).length) proximoCart[sheet.key] = clean;
+    else delete proximoCart[sheet.key];
     t({
       type: newQty >= prevQty ? "cart_add" : "cart_remove",
       productId: sheet.product.id,
@@ -604,6 +711,7 @@ export function PublicCatalog({
       size: Object.keys(clean).join(","),
       qty: Math.abs(newQty - prevQty) || newQty,
       value: newTotal,
+      meta: { sacola: fotoDaSacola(proximoCart) },
     });
     setCart((prev) => {
       const next = { ...prev };
@@ -699,6 +807,8 @@ export function PublicCatalog({
     // Mesma sacola + mesma cliente + mesmo dia = mesmo protocolo, e aí o
     // servidor devolve o pedido que já existe.
     const pendente = {
+      // protocolo definido MAIS ABAIXO pela sacola: mesma sacola = mesmo
+      // protocolo = mesmo pedido (a cliente apertando duas vezes não cria dois)
       clientRef: "",
       at: Date.now(),
       tentativas: 0,
@@ -718,26 +828,31 @@ export function PublicCatalog({
         promo: promo?.slug || undefined,
       } as Record<string, unknown>,
     };
-    pendente.clientRef = protocoloDaSacola(pendente.payload);
-    pendente.payload.clientRef = pendente.clientRef;
-
-    // JÁ MANDOU ESTA MESMA SACOLA? Pergunta antes de mandar de novo.
-    // O protocolo repetido garante que o servidor não cria pedido duplicado,
-    // mas a vendedora ainda receberia a mensagem duas vezes — e é isso que
-    // faz ela achar que são dois pedidos.
-    if (jaEnviado.current === pendente.clientRef) {
-      const repetir = window.confirm(
-        "Você já enviou este pedido agora há pouco.\n\n" +
-          "Ele foi registrado e a loja já recebeu — enviar de novo só manda a " +
-          "mesma mensagem outra vez.\n\nQuer enviar mesmo assim?"
-      );
-      if (!repetir) {
-        setEnvio("ok");
-        return;
-      }
-    }
-
     if (typeof window !== "undefined") {
+      // MESMA SACOLA = MESMO PEDIDO. A sacola não é limpa depois de enviar e o
+      // WhatsApp abre noutra aba: a cliente volta, vê a sacola cheia (parece
+      // que não foi) e aperta de novo. Sem isto, cada toque criava um pedido
+      // novo e o estoque era reservado em dobro.
+      pendente.clientRef = protocoloDaSacola(window.localStorage, pendente.payload);
+      pendente.payload.clientRef = pendente.clientRef;
+
+      // JÁ MANDOU ESTA MESMA SACOLA? Pergunta antes de abrir o WhatsApp.
+      //
+      // O protocolo repetido já impede o PEDIDO duplicado. Mas sem este
+      // aviso a vendedora ainda receberia a MESMA MENSAGEM outra vez — e foi
+      // justamente isso que fez a loja achar que eram dois pedidos.
+      if (jaEnviado.current === pendente.clientRef) {
+        const repetir = window.confirm(
+          "Você já enviou este pedido agora há pouco.\n\n" +
+            "Ele foi registrado e a loja já recebeu — enviar de novo só manda " +
+            "a mesma mensagem outra vez.\n\nQuer enviar mesmo assim?"
+        );
+        if (!repetir) {
+          setEnvio("ok");
+          return;
+        }
+      }
+
       guardarPendente(window.localStorage, pendente);
       setEnvio("enviando");
       jaEnviado.current = pendente.clientRef;
@@ -944,6 +1059,40 @@ export function PublicCatalog({
         }}
       >
         <div className="relative max-w-[680px] lg:max-w-[1200px] mx-auto">
+          {/* TIPO DE PEÇA: o guarda-chuva. Só aparece quando a loja organizou as
+              categorias em tipos — quem não usa continua com uma barra só.
+              Tocar leva à primeira categoria do tipo; rolando, a barra se
+              acende sozinha (o tipo sai da categoria ativa). */}
+          {grupos.length > 1 && (
+            <div
+              className="flex gap-2 overflow-x-auto px-[18px] pt-[7px] pb-[3px]"
+              style={{ scrollbarWidth: "none" }}
+            >
+              {grupos.map((g) => {
+                const active = g.tipo === tipoAtivo;
+                return (
+                  <button
+                    key={g.tipo}
+                    onClick={() =>
+                      sectionRefs.current[g.categorias[0]]?.scrollIntoView({
+                        behavior: "smooth",
+                        block: "start",
+                      })
+                    }
+                    className="shrink-0 rounded-full px-[15px] py-[7px] text-[13px] font-extrabold uppercase tracking-wide whitespace-nowrap transition border"
+                    style={
+                      active
+                        ? { background: T.primary, color: T.secondary, borderColor: T.primary }
+                        : { background: "transparent", color: T.muted, borderColor: "transparent" }
+                    }
+                  >
+                    {g.tipo}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
           {/* seta esquerda */}
           {catArrows.left && (
             <button
@@ -969,8 +1118,8 @@ export function PublicCatalog({
             className="flex gap-2 overflow-x-auto px-[18px] py-[5px]"
             style={{ scrollbarWidth: "none" }}
           >
-            {categories.map((cat, i) => {
-              const active = activeCat === i;
+            {categoriasVisiveis.map((cat) => {
+              const active = categories[activeCat] === cat;
               const has = catPieces(cat) > 0;
               return (
                 <button
@@ -1073,7 +1222,9 @@ export function PublicCatalog({
                       <div className="w-full overflow-hidden relative" style={{ aspectRatio: "3/4", background: T.soft }}>
                         {card.product.images[0] && (
                           <img
-                            src={card.product.images[0]}
+                            // capa por cor: a foto etiquetada com a cor do
+                            // card; sem etiqueta, a capa geral
+                            src={fotoDaCor(card.product.images, card.color)}
                             alt={`${card.product.name} ${card.color}`}
                             loading="lazy"
                             decoding="async"
@@ -1309,7 +1460,9 @@ export function PublicCatalog({
               {sheet.product.images[0] && (
                 <PhotoCarousel
                   key={sheet.key}
-                  images={sheet.product.images}
+                  // a ficha abriu numa COR: as fotos dela vêm primeiro
+                  // (nenhuma some — sem etiqueta continua tudo na ordem)
+                  images={ordenarFotosDaCor(sheet.product.images, sheet.color)}
                   alt={sheet.product.name}
                   soft={T.soft}
                   line={T.line}
@@ -1497,7 +1650,7 @@ export function PublicCatalog({
                         >
                           {c.product.images[0] && (
                             <img
-                              src={c.product.images[0]}
+                              src={fotoDaCor(c.product.images, c.color)}
                               alt=""
                               loading="lazy"
                               decoding="async"
@@ -1525,6 +1678,8 @@ export function PublicCatalog({
                               </span>
                               <button
                                 onClick={() => {
+                                  const semEsse = { ...cart };
+                                  delete semEsse[c.key];
                                   t({
                                     type: "cart_remove",
                                     productId: c.product.id,
@@ -1533,6 +1688,7 @@ export function PublicCatalog({
                                     color: c.color,
                                     qty: q,
                                     value: totalValue - q * c.product.retailPrice,
+                                    meta: { sacola: fotoDaSacola(semEsse) },
                                   });
                                   setCart((prev) => {
                                     const next = { ...prev };

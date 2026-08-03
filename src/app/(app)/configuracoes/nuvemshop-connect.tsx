@@ -96,7 +96,13 @@ export function NuvemshopConnect() {
     if (res.ok) {
       setMsg(`Sincronizado: ${d.produtos} produtos conferidos, ${d.carrinhosNovos} carrinho(s) abandonado(s) novo(s).`);
       carregar();
-    } else setMsg(d.error ?? "Não foi possível sincronizar.");
+    } else
+      setMsg(
+        d.error ??
+          // resposta sem explicação = o servidor foi interrompido no meio
+          // (tempo estourado). Dizer só "não foi possível" não ajuda ninguém.
+          "A sincronização demorou demais e foi interrompida. Tente de novo — ela é segura de repetir e continua do estado atual. Se acontecer sempre, avise o suporte."
+      );
   }
 
   async function desconectar() {

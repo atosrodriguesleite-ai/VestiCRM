@@ -33,7 +33,7 @@ export default async function ProductsPage() {
     where: { companyId: user.companyId },
     include: {
       variants: { orderBy: [{ color: "asc" }, { size: "asc" }] },
-      images: { orderBy: { order: "asc" }, select: { id: true } },
+      images: { orderBy: { order: "asc" }, select: { id: true, color: true } },
     },
     orderBy: { name: "asc" },
   });
@@ -53,7 +53,7 @@ export default async function ProductsPage() {
     weightGrams: p.weightGrams,
     active: p.active,
     tags: p.tags,
-    images: p.images.map((i) => ({ id: i.id, url: imageHref(i.id) })),
+    images: p.images.map((i) => ({ id: i.id, url: imageHref(i.id), color: i.color })),
     variants: p.variants.map((v) => ({
       id: v.id,
       color: v.color,

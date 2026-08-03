@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { requireUser, AuthError } from "@/lib/auth";
 import { PAID_ORDER_STATUSES } from "@/lib/orders";
 import { normalizePhone } from "@/lib/intake";
+import { conferirDocumentos, guardarDocumento } from "@/lib/documento";
 
 /** Ficha do contato para o painel lateral do atendimento. */
 export async function GET(
@@ -33,11 +34,14 @@ export async function GET(
     const paid = customer.orders.filter((o) =>
       PAID_ORDER_STATUSES.includes(o.status)
     );
-    // total gasto e nº de pedidos pagos considerando TODO o histórico
+    // total gasto, nº de pedidos e última compra considerando TODO o
+    // histórico — a última compra sai DOS PEDIDOS (o carimbo lastPurchaseAt
+    // não é gravado em todos os caminhos e mostrava data velha no painel)
     const agg = await db.order.aggregate({
       where: { customerId: id, status: { in: PAID_ORDER_STATUSES } },
       _sum: { netTotal: true },
       _count: { _all: true },
+      _max: { paidAt: true },
     });
 
     return NextResponse.json({
@@ -61,7 +65,7 @@ export async function GET(
       campaign: customer.campaign
         ? { id: customer.campaign.id, name: customer.campaign.name }
         : null,
-      lastPurchaseAt: customer.lastPurchaseAt?.toISOString() ?? null,
+      lastPurchaseAt: (agg._max.paidAt ?? customer.lastPurchaseAt)?.toISOString() ?? null,
       createdAt: customer.createdAt.toISOString(),
       totalSpent: agg._sum.netTotal ?? 0,
       paidOrders: agg._count._all,
@@ -87,7 +91,9 @@ const schema = z.object({
   name: z.string().min(1).optional(),
   phone: z.string().min(8).optional(),
   email: z.string().email().nullable().optional().or(z.literal("").transform(() => null)),
-  document: z.string().max(20).nullable().optional(), // CPF/CNPJ
+  // CPF e CNPJ separados (ver src/lib/documento.ts)
+  cpf: z.string().max(20).nullable().optional(),
+  cnpj: z.string().max(25).nullable().optional(),
   zip: z.string().max(10).nullable().optional(),
   street: z.string().max(120).nullable().optional(),
   // "Número" costuma vir com complemento (apto, bloco, loja) — cabe folgado
@@ -126,7 +132,7 @@ export async function PATCH(
       // mensagem que diz QUAL campo travou (antes só dizia "Dados inválidos"
       // e ninguém sabia onde estava o problema)
       const rotulos: Record<string, string> = {
-        name: "Nome", phone: "Telefone", email: "E-mail", document: "CPF/CNPJ",
+        name: "Nome", phone: "Telefone", email: "E-mail", cpf: "CPF", cnpj: "CNPJ",
         zip: "CEP", street: "Rua", streetNumber: "Número", complement: "Complemento", district: "Bairro",
         city: "Cidade", state: "Estado", notes: "Observações",
       };
@@ -154,8 +160,19 @@ export async function PATCH(
       return NextResponse.json({ error: "Não encontrado" }, { status: 404 });
     }
 
-    const { nextContactAt, ownerId, birthDate, ...rest } = parsed.data;
+    const { nextContactAt, ownerId, birthDate, cpf, cnpj, ...rest } = parsed.data;
     const data: Record<string, unknown> = { ...rest };
+
+    // CPF/CNPJ errado só aparece quando a transportadora recusa a etiqueta ou
+    // a Receita rejeita a nota — tarde demais. A conferência é aqui.
+    // confere SÓ o que está sendo enviado agora: cadastro antigo com documento
+    // torto não pode travar quem só quis corrigir o endereço
+    const docErro = conferirDocumentos({ cpf, cnpj });
+    if (docErro) return NextResponse.json({ error: docErro }, { status: 400 });
+    // guarda só os números: a vendedora digita com ponto e traço, e o Melhor
+    // Envio/Bling só aceitam dígitos
+    if (cpf !== undefined) data.cpf = guardarDocumento(cpf);
+    if (cnpj !== undefined) data.cnpj = guardarDocumento(cnpj);
     // aniversário chega como "AAAA-MM-DD"; grava ao MEIO-DIA em UTC para que
     // o fuso de São Paulo (UTC-3) nunca jogue a data para o dia anterior
     if (birthDate !== undefined) {

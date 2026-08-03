@@ -106,6 +106,7 @@ export default async function LojasPage() {
     marketingEnabled: c.marketingEnabled,
     mediaLibraryEnabled: c.mediaLibraryEnabled,
     shippingEnabled: c.shippingEnabled,
+    aiSalesEnabled: c.aiSalesEnabled,
     suspended: c.suspended,
     billing: c.billing
       ? {
