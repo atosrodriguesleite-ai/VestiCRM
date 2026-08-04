@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { imageHref } from "@/lib/img";
+import { corIgual } from "@/lib/capa-por-cor";
 import { avancarFunil } from "@/lib/funil-auto";
 import { requireUser, AuthError } from "@/lib/auth";
 import { computeOrderTotals, orderNumber } from "@/lib/orders";
@@ -76,10 +77,12 @@ export async function POST(req: NextRequest) {
         // do banco (megabytes por pedido) só para descobrir o endereço
         // dela — `imageHref` monta o link a partir do id, e a rota
         // /api/img resolve sozinha quando a foto é link externo.
+        // TODAS as fotos (id+cor): o item guarda a foto DA COR escolhida,
+        // não a capa geral (incidente Entre Linhas: item Azul com foto Preta)
         include: {
           product: {
             include: {
-              images: { orderBy: { order: "asc" }, take: 1, select: { id: true } },
+              images: { orderBy: { order: "asc" }, select: { id: true, color: true } },
             },
           },
         },
@@ -158,12 +161,17 @@ export async function POST(req: NextRequest) {
           items: {
             create: input.items.map((i) => {
               const v = variantById.get(i.variantId)!;
+              // SKU da VARIAÇÃO escolhida (o do produto é o da 1ª variação
+              // importada — mostrava "Preto" num item Azul); foto DA COR
+              const fotoItem =
+                v.product.images.find((im) => corIgual(im.color, v.color)) ??
+                v.product.images[0];
               return {
                 productId: v.productId,
                 variantId: v.id,
                 name: v.product.name,
-                sku: v.product.sku,
-                imageUrl: v.product.images[0] ? imageHref(v.product.images[0].id) : null,
+                sku: v.sku ?? v.product.sku,
+                imageUrl: fotoItem ? imageHref(fotoItem.id) : null,
                 color: v.color,
                 size: v.size,
                 quantity: i.quantity,

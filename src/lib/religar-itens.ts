@@ -1,4 +1,6 @@
 import { db } from "./db";
+import { imageHref } from "./img";
+import { corIgual } from "./capa-por-cor";
 
 /**
  * RELIGAR ITENS DO PEDIDO À PEÇA ATUAL.
@@ -137,4 +139,59 @@ export async function religarItensDoPedido(
     )
   );
   return pares.length;
+}
+
+/**
+ * CONSERTA O RETRATO DO ITEM (incidente Entre Linhas, 04/08/2026): pedidos
+ * antigos gravaram o SKU DO PRODUTO (que em produto importado é o da 1ª
+ * variação — mostrava "Preto" num item Azul Serenity) e a foto da capa geral
+ * em vez da foto da cor. Ajusta o snapshot pelo que a variação apontada diz.
+ * Roda de carona ao abrir o pedido, idempotente; nunca mexe em preço,
+ * quantidade ou estoque — só SKU e foto do item.
+ */
+export async function corrigirRetratoDosItens(
+  orderId: string,
+  companyId: string
+): Promise<number> {
+  const itens = await db.orderItem.findMany({
+    where: { orderId, order: { companyId }, variantId: { not: null } },
+    select: {
+      id: true,
+      sku: true,
+      imageUrl: true,
+      variant: {
+        select: {
+          sku: true,
+          color: true,
+          product: {
+            select: {
+              sku: true,
+              images: {
+                orderBy: { order: "asc" },
+                select: { id: true, color: true },
+              },
+            },
+          },
+        },
+      },
+    },
+  });
+  let consertados = 0;
+  for (const it of itens) {
+    const v = it.variant;
+    if (!v) continue;
+    const skuCerto = v.sku ?? v.product.sku ?? null;
+    const foto =
+      v.product.images.find((im) => corIgual(im.color, v.color)) ??
+      v.product.images[0];
+    const fotoCerta = foto ? imageHref(foto.id) : null;
+    const data: { sku?: string; imageUrl?: string } = {};
+    if (skuCerto && it.sku !== skuCerto) data.sku = skuCerto;
+    if (fotoCerta && it.imageUrl !== fotoCerta) data.imageUrl = fotoCerta;
+    if (Object.keys(data).length > 0) {
+      await db.orderItem.update({ where: { id: it.id }, data });
+      consertados++;
+    }
+  }
+  return consertados;
 }

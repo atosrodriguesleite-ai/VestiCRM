@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { PDFDocument, StandardFonts, rgb, type RGB } from "pdf-lib";
 import { paginaSegura, quebrarEmLinhas } from "@/lib/pdf-texto";
+import { corIgual } from "@/lib/capa-por-cor";
 import { db } from "@/lib/db";
 import { requireUser, AuthError } from "@/lib/auth";
 import { orderScope } from "@/lib/scope";
@@ -76,9 +77,10 @@ export async function GET(
     }
 
     // ---- Fotos das peças (miniatura no romaneio) ----
-    // Uma foto por produto (a capa). Embutimos uma vez só e reaproveitamos
-    // em todos os itens do mesmo produto. Se a foto não for PNG/JPG (ex: webp)
-    // ou falhar, o item sai sem miniatura — nunca derruba o romaneio.
+    // A foto DA COR do item (capa por cor); sem etiqueta, a capa do produto.
+    // Antes era sempre a capa — item Azul saía com a miniatura da peça Preta
+    // (incidente Entre Linhas, 04/08/2026). Se a foto não for PNG/JPG (ex:
+    // webp) ou falhar, o item sai sem miniatura — nunca derruba o romaneio.
     const productIds = [
       ...new Set(order.items.map((i) => i.productId).filter((x): x is string => !!x)),
     ];
@@ -86,12 +88,14 @@ export async function GET(
       ? await db.productImage.findMany({
           where: { productId: { in: productIds } },
           orderBy: { order: "asc" },
-          select: { productId: true, url: true },
+          select: { id: true, productId: true, url: true, color: true },
         })
       : [];
-    const urlByProduct = new Map<string, string>();
+    const fotosByProduct = new Map<string, typeof imgs>();
     for (const im of imgs) {
-      if (!urlByProduct.has(im.productId)) urlByProduct.set(im.productId, im.url);
+      const l = fotosByProduct.get(im.productId);
+      if (l) l.push(im);
+      else fotosByProduct.set(im.productId, [im]);
     }
 
     type Embedded = Awaited<ReturnType<typeof pdf.embedPng>>;
@@ -125,10 +129,22 @@ export async function GET(
       }
     }
 
-    const fotoByProduct = new Map<string, Embedded>();
-    for (const [pid, url] of urlByProduct) {
-      const emb = await embedFoto(url);
-      if (emb) fotoByProduct.set(pid, emb);
+    // escolhe a foto de cada ITEM (cor do item primeiro) e embute cada
+    // imagem UMA vez só, mesmo repetida entre itens
+    const embPorImagem = new Map<string, Embedded | null>();
+    const fotoByItem = new Map<string, Embedded>();
+    for (const item of order.items) {
+      if (!item.productId) continue;
+      const fotos = fotosByProduct.get(item.productId) ?? [];
+      const escolhida =
+        fotos.find((f) => corIgual(f.color, item.color)) ?? fotos[0];
+      if (!escolhida) continue;
+      let emb = embPorImagem.get(escolhida.id);
+      if (emb === undefined) {
+        emb = await embedFoto(escolhida.url);
+        embPorImagem.set(escolhida.id, emb);
+      }
+      if (emb) fotoByItem.set(item.id, emb);
     }
 
     const A4: [number, number] = [595.28, 841.89];
@@ -242,8 +258,8 @@ export async function GET(
         x: cols.check, y: y - 3, width: 12, height: 12,
         borderColor: GRAY, borderWidth: 1,
       });
-      // miniatura da peça (quando o produto tem foto)
-      const foto = item.productId ? fotoByProduct.get(item.productId) : null;
+      // miniatura da peça — a foto da COR do item (quando existe)
+      const foto = fotoByItem.get(item.id) ?? null;
       const photoBottom = y - (PH - 12); // topo da foto ~12pt acima da linha do nome
       if (foto) {
         const d = foto.scaleToFit(PH, PH);

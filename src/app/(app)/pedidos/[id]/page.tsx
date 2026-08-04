@@ -11,7 +11,7 @@ import {
 } from "lucide-react";
 import { requireUser } from "@/lib/auth";
 import { isManagerUp, orderScope } from "@/lib/scope";
-import { religarItensDoPedido } from "@/lib/religar-itens";
+import { corrigirRetratoDosItens, religarItensDoPedido } from "@/lib/religar-itens";
 import { db } from "@/lib/db";
 import { brl, dateFull, dateShort, timeShort } from "@/lib/format";
 import {
@@ -51,6 +51,9 @@ export default async function OrderDetailPage({
   // numa peça cheia de estoque. Religa pelos dados que o item guardou — de
   // carona ao abrir o pedido, sem cron e sem tocar em estoque.
   await religarItensDoPedido(id, user.companyId).catch(() => 0);
+  // conserta SKU/foto de item gravados errados (pedido antigo do catálogo
+  // mostrava o SKU e a foto da 1ª variação em vez da cor escolhida)
+  await corrigirRetratoDosItens(id, user.companyId).catch(() => 0);
 
   const order = await db.order.findFirst({
     where: { id, ...orderScope(user) },

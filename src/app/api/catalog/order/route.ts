@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
-import { imageSrc } from "@/lib/img";
+import { imageHref } from "@/lib/img";
+import { corIgual } from "@/lib/capa-por-cor";
 import { intakeLead, normalizePhone } from "@/lib/intake";
 import { resolveRef } from "@/lib/tracking/engine";
 import {
@@ -127,7 +128,10 @@ export async function POST(req: NextRequest) {
   const products = await db.product.findMany({
     where: { id: { in: productIds }, companyId: company.id, active: true },
     include: {
-      images: { orderBy: { order: "asc" }, take: 1 },
+      // todas as fotos, mas SÓ id+cor (o base64 fica no banco): o item
+      // guarda a foto DA COR escolhida, não a capa geral (incidente Entre
+      // Linhas: item Azul Serenity com foto da peça Preta)
+      images: { orderBy: { order: "asc" }, select: { id: true, color: true } },
       variants: true,
     },
   });
@@ -154,12 +158,17 @@ export async function POST(req: NextRequest) {
     if (!product || !variant) {
       return NextResponse.json({ error: "Produto inválido" }, { status: 404 });
     }
+    // SKU da VARIAÇÃO escolhida (o do produto é o da 1ª variação importada —
+    // mostrava o SKU da Preta num item Azul Serenity); foto DA COR escolhida
+    const fotoItem =
+      product.images.find((im) => corIgual(im.color, variant.color)) ??
+      product.images[0];
     lines.push({
       productId: product.id,
       variantId: variant.id,
       name: product.name,
-      sku: product.sku,
-      imageUrl: product.images[0] ? imageSrc(product.images[0]) : null,
+      sku: variant.sku ?? product.sku,
+      imageUrl: fotoItem ? imageHref(fotoItem.id) : null,
       color: variant.color,
       size: variant.size,
       quantity: item.quantity,
