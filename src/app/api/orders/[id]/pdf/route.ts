@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { PDFDocument, StandardFonts, rgb, type RGB } from "pdf-lib";
-import { paginaSegura } from "@/lib/pdf-texto";
+import { paginaSegura, quebrarEmLinhas } from "@/lib/pdf-texto";
 import { db } from "@/lib/db";
 import { requireUser, AuthError } from "@/lib/auth";
 import { orderScope } from "@/lib/scope";
@@ -260,11 +260,21 @@ export async function GET(
           borderColor: LIGHT, borderWidth: 1,
         });
       }
-      page.drawText(item.name.slice(0, 38), { x: cols.item, y, size: 10, font: bold, color: INK });
+      // nome COMPLETO, quebrado por palavra em até 2 linhas (quem separa o
+      // pedido precisa do nome inteiro — cortado em 38 letras não servia)
+      const linhasNome = quebrarEmLinhas(
+        item.name,
+        (t) => bold.widthOfTextAtSize(t, 10),
+        cols.qty - cols.item - 12,
+        2
+      );
+      linhasNome.forEach((ln, i) => {
+        page.drawText(ln, { x: cols.item, y: y - i * 12, size: 10, font: bold, color: INK });
+      });
       const varTxt = [item.color, item.size].filter(Boolean).join(" · ");
       if (varTxt) {
         page.drawText(varTxt + (item.sku ? `  ·  ${item.sku}` : ""), {
-          x: cols.item, y: y - 11, size: 8, font, color: GRAY,
+          x: cols.item, y: y - linhasNome.length * 12 + 1, size: 8, font, color: GRAY,
         });
       }
       page.drawText(String(item.quantity), { x: cols.qty, y, size: 10, font, color: INK });

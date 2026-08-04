@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { PDFDocument, StandardFonts } from "pdf-lib";
-import { textoPdf, paginaSegura } from "../pdf-texto";
+import { textoPdf, paginaSegura, quebrarEmLinhas } from "../pdf-texto";
 
 /**
  * ROMANEIO EM PDF — incidente Entre Linhas, pedido #0137 (30/07/2026).
@@ -129,5 +129,49 @@ describe("todos os PDFs do sistema estão blindados", () => {
     expect(fonte).toContain("paginaSegura(pdf.addPage(");
     // nenhuma página crua sobrou (bastava UMA para o PDF cair de novo)
     expect(fonte).not.toMatch(/(?<!paginaSegura\()pdf\.addPage\(A4\)/);
+  });
+});
+
+describe("nome completo no romaneio (quebra em linhas, 04/08/2026)", () => {
+  // medidor de brinquedo: 1 letra = 1 de largura
+  const medir = (t: string) => t.length;
+
+  it("o caso da Entre Linhas: nome longo quebra em 2 linhas SEM perder nada", () => {
+    const linhas = quebrarEmLinhas(
+      "Bermuda bolso lateral poliamida premium + Top Nadador",
+      medir,
+      32,
+      2
+    );
+    expect(linhas).toHaveLength(2);
+    expect(linhas.join(" ")).toBe(
+      "Bermuda bolso lateral poliamida premium + Top Nadador"
+    );
+  });
+
+  it("nome curto fica numa linha só", () => {
+    expect(quebrarEmLinhas("Blusa Arrastão", medir, 30, 2)).toEqual([
+      "Blusa Arrastão",
+    ]);
+  });
+
+  it("nome absurdo de comprido fecha a última linha com reticências", () => {
+    const linhas = quebrarEmLinhas("palavra ".repeat(30).trim(), medir, 20, 2);
+    expect(linhas).toHaveLength(2);
+    expect(linhas[1].endsWith("…")).toBe(true);
+  });
+
+  it("palavra única maior que a coluna não trava (fica na linha dela)", () => {
+    const linhas = quebrarEmLinhas("Supercalifragilistic", medir, 10, 2);
+    expect(linhas).toHaveLength(1);
+  });
+
+  it("o romaneio usa a quebra (o corte em 38 letras saiu de cena)", () => {
+    const rota = readFileSync(
+      join(process.cwd(), "src/app/api/orders/[id]/pdf/route.ts"),
+      "utf8"
+    );
+    expect(rota).toContain("quebrarEmLinhas(");
+    expect(rota).not.toContain("item.name.slice(0, 38)");
   });
 });

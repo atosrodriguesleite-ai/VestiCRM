@@ -52,6 +52,44 @@ export function textoPdf(texto: string | null | undefined): string {
 }
 
 /**
+ * NOME COMPLETO NO ROMANEIO (pedido da Entre Linhas, 04/08/2026): o nome da
+ * peça saía cortado em 38 letras ("Bermuda bolso lateral poliamida premiu") —
+ * quem separa o pedido precisa do nome INTEIRO. Quebra por palavra dentro da
+ * largura da coluna, em até N linhas; só se nem assim couber, a última linha
+ * ganha "…" (caso raríssimo, nome de várias linhas).
+ */
+export function quebrarEmLinhas(
+  texto: string,
+  medir: (t: string) => number,
+  larguraMax: number,
+  maxLinhas = 2
+): string[] {
+  const palavras = textoPdf(texto).split(" ").filter(Boolean);
+  if (palavras.length === 0) return [""];
+  const linhas: string[] = [];
+  let atual = "";
+  for (const p of palavras) {
+    const tentativa = atual ? `${atual} ${p}` : p;
+    if (medir(tentativa) <= larguraMax || !atual) {
+      atual = tentativa;
+    } else {
+      linhas.push(atual);
+      atual = p;
+    }
+  }
+  if (atual) linhas.push(atual);
+  if (linhas.length <= maxLinhas) return linhas;
+  // não coube nas linhas disponíveis: fecha a última com reticências
+  const corte = linhas.slice(0, maxLinhas);
+  let ultima = `${corte[maxLinhas - 1]}…`;
+  while (medir(ultima) > larguraMax && ultima.length > 2) {
+    ultima = `${ultima.slice(0, -2)}…`;
+  }
+  corte[maxLinhas - 1] = ultima;
+  return corte;
+}
+
+/**
  * Blinda UMA página: tudo que for escrito nela passa pelo filtro antes.
  *
  * É de propósito que a proteção fique aqui e não em cada chamada: o romaneio
