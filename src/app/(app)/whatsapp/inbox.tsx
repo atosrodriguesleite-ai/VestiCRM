@@ -750,17 +750,41 @@ export function Inbox({
     bottomRef.current?.scrollIntoView({ behavior: "instant" as ScrollBehavior });
   }, [selectedId, selected?.messages.length]);
 
-  // abre direto a conversa vinda do sino de notificações (?conv=...)
+  // abre direto a conversa vinda do sino de notificações ou da Agenda
+  // (?conv=...). `?texto=` chega com a mensagem sugerida JÁ NO CAMPO — a
+  // vendedora só revisa e envia (pedido do dono, 04/08/2026: "conversar"
+  // da agenda deve abrir DENTRO do sistema, não no aplicativo).
   const searchParams = useSearchParams();
+  const prefillFeito = useRef(false);
   useEffect(() => {
     const cid = searchParams.get("conv");
-    if (cid && convs.some((c) => c.id === cid)) {
+    if (!cid) return;
+    const texto = searchParams.get("texto");
+    const conhecida = convs.find((x) => x.id === cid);
+    if (conhecida) {
       setSelectedId(cid);
-      const c = convs.find((x) => x.id === cid);
-      if (c) setTab(abaDaConversa(c));
+      setTab(abaDaConversa(conhecida));
+    } else {
+      // conversa recém-criada pela Agenda: a lista ainda não a conhece —
+      // busca inteira no servidor (mesma porta do sync parcial)
+      fetch(`/api/conversations/${cid}`)
+        .then((r) => (r.ok ? r.json() : null))
+        .then((d) => {
+          if (!d?.conversation) return;
+          setConvs((prev) =>
+            prev.some((c) => c.id === cid) ? prev : [d.conversation, ...prev]
+          );
+          setSelectedId(cid);
+          setTab(abaDaConversa(d.conversation));
+        })
+        .catch(() => {});
+    }
+    if (texto && !prefillFeito.current) {
+      prefillFeito.current = true; // uma vez só — não sobrescreve o que ela digitar
+      setDraft(texto);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchParams]);
+  }, [searchParams, convs.length]);
 
   // --- Tempo real: consulta o servidor a cada 4s e traz só o que mudou ---
   // (mensagem nova do cliente, recibos ✓✓, transferências...). Aba em segundo

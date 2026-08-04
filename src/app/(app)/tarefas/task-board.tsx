@@ -76,6 +76,31 @@ export function TaskBoard({
   const [showNew, setShowNew] = useState(false);
   // sugestões dispensadas nesta visita (some da tela sem virar tarefa)
   const [dispensadas, setDispensadas] = useState<string[]>([]);
+  const [abrindoConversa, setAbrindoConversa] = useState<string | null>(null);
+
+  /**
+   * CONVERSAR DENTRO DO SISTEMA (pedido do dono, 04/08/2026): o botão abria
+   * o aplicativo do WhatsApp — a conversa acontecia fora e a Central nunca
+   * ficava sabendo. Agora abre a Central com a conversa da cliente e a
+   * mensagem sugerida JÁ NO CAMPO: é revisar e enviar. Depois do envio, a
+   * sugestão some sozinha (a Agenda pula quem já recebeu mensagem hoje).
+   */
+  async function conversarNoSistema(customerId: string, mensagem: string) {
+    if (abrindoConversa) return;
+    setAbrindoConversa(customerId);
+    const res = await fetch("/api/conversations", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ customerId }),
+    });
+    const d = await res.json().catch(() => ({}));
+    setAbrindoConversa(null);
+    if (res.ok && d.id) {
+      router.push(`/whatsapp?conv=${d.id}&texto=${encodeURIComponent(mensagem)}`);
+    } else {
+      alert(d.error ?? "Não foi possível abrir a conversa. Tente de novo.");
+    }
+  }
 
   const now = new Date();
   const endOfDay = new Date(now);
@@ -191,17 +216,14 @@ export function TaskBoard({
                     </span>
                   </div>
                   <div className="flex flex-wrap items-center gap-1.5 mt-2">
-                    {waHref(s.phone, s.mensagem) && (
-                      <a
-                        href={waHref(s.phone, s.mensagem)!}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="inline-flex items-center gap-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-semibold px-2.5 py-1.5 transition"
-                      >
-                        <MessageCircle className="size-3" />
-                        Chamar no WhatsApp
-                      </a>
-                    )}
+                    <button
+                      onClick={() => conversarNoSistema(s.customerId, s.mensagem)}
+                      disabled={abrindoConversa === s.customerId}
+                      className="inline-flex items-center gap-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-semibold px-2.5 py-1.5 transition disabled:opacity-60"
+                    >
+                      <MessageCircle className="size-3" />
+                      {abrindoConversa === s.customerId ? "Abrindo…" : "Conversar"}
+                    </button>
                     <button
                       onClick={() => virarTarefa(s)}
                       className="inline-flex items-center gap-1 rounded-lg border border-gray-200 hover:border-brand-400 text-[11px] font-medium text-gray-600 px-2.5 py-1.5 transition"
@@ -354,16 +376,17 @@ export function TaskBoard({
                         agir e não voltava. */}
                     {!done && (
                       <div className="flex flex-wrap items-center gap-1.5 mt-2">
-                        {t.customer && waHref(t.customer.phone, t.customer.mensagem) && (
-                          <a
-                            href={waHref(t.customer.phone, t.customer.mensagem)!}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="inline-flex items-center gap-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-semibold px-2.5 py-1.5 transition"
+                        {t.customer && (
+                          <button
+                            onClick={() =>
+                              conversarNoSistema(t.customer!.id, t.customer!.mensagem)
+                            }
+                            disabled={abrindoConversa === t.customer.id}
+                            className="inline-flex items-center gap-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-semibold px-2.5 py-1.5 transition disabled:opacity-60"
                           >
                             <MessageCircle className="size-3" />
-                            Chamar no WhatsApp
-                          </a>
+                            {abrindoConversa === t.customer.id ? "Abrindo…" : "Conversar"}
+                          </button>
                         )}
                         {/* botões SOLTOS, não um bloco só: emendados, o
                             "1 semana" saía pela direita da tela no celular */}
