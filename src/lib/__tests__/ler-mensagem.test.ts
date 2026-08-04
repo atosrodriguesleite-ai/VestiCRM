@@ -1,6 +1,9 @@
 import { describe, it, expect } from "vitest";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import {
   candidatosDeCor,
+  desachatarMensagem,
   lerDinheiro,
   lerMensagemDePedido,
   lerTamanhos,
@@ -321,5 +324,45 @@ describe("cor repetida no texto", () => {
   it("texto vazio não vira candidato", () => {
     expect(candidatosDeCor("")).toEqual([]);
     expect(candidatosDeCor("  —  ")).toEqual([]);
+  });
+});
+
+describe("mensagem ACHATADA pelo navegador do anúncio (Entre Linhas, 04/08/2026)", () => {
+  // reprodução do print real: veio numa linha só, itens só com a cor e o
+  // nome do modelo como título de seção
+  const ACHATADA =
+    "*Novo pedido — entre linhas* *Blusa Clássica Tule* • Branco — Único ×4 (4 peças · R$ 86,00) • Off White — Único ×2 (2 peças · R$ 43,00) • Preto — Único ×2 (2 peças · R$ 43,00) *Blusão Tule* • Branco — Único ×2 (2 peças · R$ 43,00) • Preto — Único ×3 (3 peças · R$ 64,50) *Total:* 13 peças · R$ 279,50";
+
+  it("desachatar remonta as linhas a partir dos marcadores", () => {
+    const remontada = desachatarMensagem(ACHATADA);
+    expect(remontada.split("\n").length).toBeGreaterThan(6);
+    expect(remontada).toContain("*Blusão Tule*");
+  });
+
+  it("a leitura acha loja, itens (com o modelo da seção) e total", () => {
+    const lido = lerMensagemDePedido(ACHATADA);
+    expect(lido.loja).toBe("entre linhas");
+    expect(lido.itens).toHaveLength(5);
+    expect(lido.itens[0]).toMatchObject({
+      descricao: "Branco",
+      categoria: "Blusa Clássica Tule",
+    });
+    expect(lido.itens[3].categoria).toBe("Blusão Tule");
+    expect(lido.totalPecas).toBe(13);
+    expect(lido.totalValor).toBe(279.5);
+    expect(pecasLidas(lido)).toBe(13);
+  });
+
+  it("mensagem normal (com quebras) passa intacta pelo desachatar", () => {
+    const normal = "linha 1\nlinha 2\nlinha 3\nlinha 4";
+    expect(desachatarMensagem(normal)).toBe(normal);
+  });
+
+  it("o casamento usa o título da seção quando o item vem só com a cor", () => {
+    const rota = readFileSync(
+      join(process.cwd(), "src/app/api/orders/ler-mensagem/route.ts"),
+      "utf8"
+    );
+    expect(rota).toContain("separarProdutoECor(`${item.categoria} ${item.descricao}`");
   });
 });

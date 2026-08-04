@@ -71,7 +71,14 @@ export async function POST(req: NextRequest) {
 
     const linhas: LinhaPrevia[] = [];
     for (const item of lido.itens) {
-      const achado = separarProdutoECor(item.descricao, produtos);
+      // formato antigo/achatado: o item vem só com a cor ("Branco") e o nome
+      // do modelo mora no título da seção — tenta primeiro como veio, depois
+      // com o título na frente ("Blusa Clássica Tule Branco")
+      const achado =
+        separarProdutoECor(item.descricao, produtos) ??
+        (item.categoria
+          ? separarProdutoECor(`${item.categoria} ${item.descricao}`, produtos)
+          : null);
       for (const t of item.tamanhos) {
         if (!achado) {
           linhas.push({
