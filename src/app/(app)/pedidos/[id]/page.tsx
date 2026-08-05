@@ -233,7 +233,15 @@ export default async function OrderDetailPage({
             celular e a tela inteira anda para o lado */}
         <Card className="p-5 md:col-span-2 min-w-0">
           <div className="flex items-center justify-between mb-4">
-            <h2 className="font-semibold">Itens do pedido</h2>
+            <h2 className="font-semibold">
+              Itens do pedido
+              {/* quem separa/confere precisa da conta total de peças de cara */}
+              <span className="ml-2 text-xs font-normal text-gray-400">
+                {order.items.length} {order.items.length === 1 ? "item" : "itens"} ·{" "}
+                {order.items.reduce((a, i) => a + i.quantity, 0)}{" "}
+                {order.items.reduce((a, i) => a + i.quantity, 0) === 1 ? "peça" : "peças"}
+              </span>
+            </h2>
             {order.status !== "CANCELADO" && (
               <ItemsEditor
                 orderId={order.id}
@@ -282,6 +290,12 @@ export default async function OrderDetailPage({
             ))}
           </ul>
           <div className="mt-4 pt-4 border-t border-gray-100 space-y-1.5 text-sm">
+            <div className="flex justify-between text-gray-500">
+              <span>Total de peças</span>
+              <span className="tabular-nums">
+                {order.items.reduce((a, i) => a + i.quantity, 0)}
+              </span>
+            </div>
             <div className="flex justify-between text-gray-500">
               <span>Subtotal</span>
               <span className="tabular-nums">{brl(order.subtotal)}</span>

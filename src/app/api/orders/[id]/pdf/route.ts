@@ -201,7 +201,8 @@ export async function GET(
     const tw = bold.widthOfTextAtSize(title, 13);
     page.drawText(title, { x: width - M - tw, y: y + 2, size: 13, font: bold, color: ACCENT });
     const dateStr = order.createdAt.toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo" });
-    const sub = `${dateStr} · ${orderStatusLabel[order.status]}`;
+    const pecasNoHeader = order.items.reduce((a, i) => a + i.quantity, 0);
+    const sub = `${dateStr} · ${orderStatusLabel[order.status]} · ${pecasNoHeader} ${pecasNoHeader === 1 ? "peça" : "peças"}`;
     const dw = font.widthOfTextAtSize(sub, 9);
     page.drawText(sub, { x: width - M - dw, y: y - 10, size: 9, font, color: GRAY });
 
@@ -328,8 +329,11 @@ export async function GET(
     newPageIfNeeded(110);
     y -= 8;
     const totalPieces = order.items.reduce((a, i) => a + i.quantity, 0);
+    // a conta de peças em linha PRÓPRIA: quem separa confere o total físico
+    // antes de fechar a caixa — escondida no rótulo do subtotal, passava batida
     const totals: [string, string, boolean][] = [
-      [`Peças (${totalPieces})`, money(order.subtotal), false],
+      ["Total de peças", String(totalPieces), false],
+      ["Subtotal", money(order.subtotal), false],
       ...(order.discount > 0
         ? ([["Desconto", `- ${money(order.discount)}`, false]] as [string, string, boolean][])
         : []),
