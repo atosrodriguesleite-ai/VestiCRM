@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { imageHref } from "@/lib/img";
+import { corIgual } from "@/lib/capa-por-cor";
+import { logServerError } from "@/lib/health";
 import { requireUser, AuthError } from "@/lib/auth";
 import { isManagerUp, isSupport, orderScope } from "@/lib/scope";
 import { reverseAndDeleteOrder } from "@/lib/order-actions";
@@ -137,14 +139,13 @@ export async function PATCH(
       const variantIds = parsed.data.items.map((i) => i.variantId);
       const variants = await db.productVariant.findMany({
         where: { id: { in: variantIds }, product: { companyId: user.companyId } },
-        // SÓ O ID DA FOTO. Trazer a coluna inteira lia o base64 da imagem
-        // do banco (megabytes por pedido) só para descobrir o endereço
-        // dela — `imageHref` monta o link a partir do id, e a rota
-        // /api/img resolve sozinha quando a foto é link externo.
+        // SÓ id+cor DA FOTO (o base64 fica no banco). Todas as fotos: o item
+        // guarda a foto DA COR escolhida, não a capa geral — mesma régua da
+        // criação do pedido (incidente Entre Linhas: item Azul c/ foto Preta)
         include: {
           product: {
             include: {
-              images: { orderBy: { order: "asc" }, take: 1, select: { id: true } },
+              images: { orderBy: { order: "asc" }, select: { id: true, color: true } },
             },
           },
         },
@@ -194,13 +195,17 @@ export async function PATCH(
         await tx.orderItem.createMany({
           data: parsed.data.items!.map((i) => {
             const v = variantById.get(i.variantId)!;
+            // SKU da VARIAÇÃO e foto DA COR — igual à criação do pedido
+            const fotoItem =
+              v.product.images.find((im) => corIgual(im.color, v.color)) ??
+              v.product.images[0];
             return {
               orderId: order.id,
               productId: v.productId,
               variantId: v.id,
               name: v.product.name,
-              sku: v.product.sku,
-              imageUrl: v.product.images[0] ? imageHref(v.product.images[0].id) : null,
+              sku: v.sku ?? v.product.sku,
+              imageUrl: fotoItem ? imageHref(fotoItem.id) : null,
               color: v.color,
               size: v.size,
               quantity: i.quantity,
@@ -732,7 +737,22 @@ export async function PATCH(
   } catch (e) {
     if (e instanceof AuthError)
       return NextResponse.json({ error: "Não autenticado" }, { status: 401 });
-    throw e;
+    // ERRO INESPERADO NÃO PODE SER MUDO (incidente Entre Linhas, 05/08/2026):
+    // a tela mostrava só "Não foi possível salvar os itens" e ninguém sabia o
+    // porquê. Agora o detalhe fica no painel Saúde e a resposta explica.
+    await logServerError({
+      source: "server",
+      path: "/api/orders/[id]",
+      message: "Pedido: falha inesperada ao salvar edição",
+      detail: e instanceof Error ? `${e.message}\n${e.stack ?? ""}` : String(e),
+    }).catch(() => {});
+    return NextResponse.json(
+      {
+        error:
+          "Algo inesperado impediu de salvar. Tente de novo em instantes — o detalhe técnico já foi registrado para o suporte (painel Saúde).",
+      },
+      { status: 500 }
+    );
   }
 }
 

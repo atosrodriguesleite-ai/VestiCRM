@@ -36,6 +36,20 @@ describe("pedido montado no sistema grava a peça CERTA", () => {
   });
 });
 
+describe("EDITAR itens também grava a peça certa (o vício não volta pela edição)", () => {
+  const rota = ler("src/app/api/orders/[id]/route.ts");
+
+  it("SKU da variação e foto da cor na edição", () => {
+    expect(rota).toContain("sku: v.sku ?? v.product.sku");
+    expect(rota).toContain("corIgual(im.color, v.color)");
+  });
+
+  it("erro inesperado ao salvar NUNCA é mudo: explica e registra no Saúde", () => {
+    expect(rota).toContain("Pedido: falha inesperada ao salvar edição");
+    expect(rota).toContain("painel Saúde");
+  });
+});
+
 describe("romaneio: a miniatura é a foto da COR do item", () => {
   const rota = ler("src/app/api/orders/[id]/pdf/route.ts");
 
