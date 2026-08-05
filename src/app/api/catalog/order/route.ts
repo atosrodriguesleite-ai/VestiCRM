@@ -12,7 +12,7 @@ import {
 } from "@/lib/reservations";
 import { pushStockToNuvemshop } from "@/lib/nuvemshop";
 import { pushStockToJueri } from "@/lib/jueri";
-import { orderNumber } from "@/lib/orders";
+import { orderNumber, round2 } from "@/lib/orders";
 import { comNumeroUnico } from "@/lib/numero-do-pedido";
 import { notifyNovoPedido } from "@/lib/notify";
 import { brl } from "@/lib/format";
@@ -173,12 +173,15 @@ export async function POST(req: NextRequest) {
       color: variant.color,
       size: variant.size,
       quantity: item.quantity,
-      // preço vigente no catálogo (com o desconto da campanha, se houver)
+      // preço vigente no catálogo (com o desconto da campanha, se houver);
+      // round2: 3 × 19,90 em float dá 59.699999… — o gravado tem que ser 59,70
       unitPrice: promoPrice(product.id, product.retailPrice),
-      total: item.quantity * promoPrice(product.id, product.retailPrice),
+      total: round2(item.quantity * promoPrice(product.id, product.retailPrice)),
     });
   }
-  const subtotal = lines.reduce((a, l) => a + l.total, 0);
+  // round2: soma de floats deixa centavo fantasma (10.1+20.2 = 30.299999…)
+  // e o valor gravado tem que bater com o que a cliente vê e paga
+  const subtotal = round2(lines.reduce((a, l) => a + l.total, 0));
   const totalPieces = lines.reduce((a, l) => a + l.quantity, 0);
 
   // REGRA DE COMISSÃO da loja: QUEM MANDA O LINK LEVA A VENDA — e SÓ ele.

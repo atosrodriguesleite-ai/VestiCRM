@@ -5,6 +5,7 @@ import { imageHref } from "@/lib/img";
 import { corIgual } from "@/lib/capa-por-cor";
 import { avancarFunil } from "@/lib/funil-auto";
 import { requireUser, AuthError } from "@/lib/auth";
+import { isSupport } from "@/lib/scope";
 import { computeOrderTotals, orderNumber } from "@/lib/orders";
 import { pushStockToNuvemshop } from "@/lib/nuvemshop";
 import { pushStockToJueri } from "@/lib/jueri";
@@ -45,6 +46,14 @@ const createSchema = z.object({
 export async function POST(req: NextRequest) {
   try {
     const user = await requireUser();
+    // Suporte é perfil OPERACIONAL: acompanha e ajusta pedidos, mas montar
+    // um pedido é ato comercial (vira carteira e comissão de vendedora)
+    if (isSupport(user)) {
+      return NextResponse.json(
+        { error: "Perfil Suporte não cria pedidos — peça para a vendedora ou a gerente." },
+        { status: 403 }
+      );
+    }
     const parsed = createSchema.safeParse(await req.json());
     if (!parsed.success) {
       return NextResponse.json({ error: "Dados inválidos" }, { status: 400 });

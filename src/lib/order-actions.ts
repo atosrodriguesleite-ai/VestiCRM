@@ -73,6 +73,15 @@ export async function cleanupOrphanCatalogCustomer(
   const remainingOrders = await tx.order.count({ where: { customerId } });
   if (remainingOrders > 0) return;
 
+  // Conversa de WhatsApp com mensagens é HISTÓRICO REAL da loja: apagar o
+  // cliente cascatearia a conversa inteira. Cliente que já conversou fica —
+  // só o pedido some (auditoria 05/08/2026).
+  const temConversa = await tx.conversation.findFirst({
+    where: { customerId, messages: { some: {} } },
+    select: { id: true },
+  });
+  if (temConversa) return;
+
   // Navegação do cliente (visitas/cliques/funil) sai dos relatórios e da
   // Inteligência. Deletar as sessões cascateia os eventos.
   await tx.trackSession.deleteMany({ where: { companyId, customerId } });

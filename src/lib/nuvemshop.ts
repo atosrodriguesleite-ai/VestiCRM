@@ -960,8 +960,10 @@ export async function ingestPaidOrder(companyId: string, nsOrderId: string) {
       unitPrice: num(it.price),
     });
   }
-  const subtotal = lines.reduce((a, l) => a + l.quantity * l.unitPrice, 0);
-  const total = num(o.total) || subtotal;
+  // round2: soma de floats deixa centavo fantasma — o pedido espelhado tem
+  // que bater com o valor da Nuvemshop
+  const subtotal = round2(lines.reduce((a, l) => a + l.quantity * l.unitPrice, 0));
+  const total = round2(num(o.total)) || subtotal;
   // O total da Nuvemshop já vem COM frete. Separando os dois, o faturamento
   // aqui soma só a mercadoria — igual aos pedidos montados no sistema.
   const shippingFee = round2(Math.max(num(o.shipping_cost_customer), 0));
@@ -1016,7 +1018,7 @@ export async function ingestPaidOrder(companyId: string, nsOrderId: string) {
           size: l.size,
           quantity: l.quantity,
           unitPrice: l.unitPrice,
-          total: l.quantity * l.unitPrice,
+          total: round2(l.quantity * l.unitPrice),
         })),
       },
     },

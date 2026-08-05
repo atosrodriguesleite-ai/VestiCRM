@@ -17,6 +17,10 @@ import { documentoParaMostrar } from "@/lib/documento";
  * • Forma de pagamento e forma de envio (com rastreio), para a expedição.
  */
 
+// pedido grande embute várias fotos: os 10s padrão da Vercel cortavam o
+// romaneio no meio da geração
+export const maxDuration = 60;
+
 const INK = rgb(0.118, 0.161, 0.235); // slate-800
 const GRAY = rgb(0.392, 0.455, 0.545); // slate-500
 const LIGHT = rgb(0.945, 0.961, 0.976); // slate-100
@@ -84,11 +88,15 @@ export async function GET(
     const productIds = [
       ...new Set(order.items.map((i) => i.productId).filter((x): x is string => !!x)),
     ];
+    // 1º passo: SÓ os metadados (id + cor). O conteúdo (base64) fica no banco
+    // até sabermos quais fotos o romaneio realmente usa — antes um pedido de
+    // muitos itens puxava TODAS as fotos de TODOS os produtos de uma vez
+    // (megabytes à toa, e o romaneio grande estourava tempo/memória).
     const imgs = productIds.length
       ? await db.productImage.findMany({
           where: { productId: { in: productIds } },
           orderBy: { order: "asc" },
-          select: { id: true, productId: true, url: true, color: true },
+          select: { id: true, productId: true, color: true },
         })
       : [];
     const fotosByProduct = new Map<string, typeof imgs>();
@@ -129,22 +137,36 @@ export async function GET(
       }
     }
 
-    // escolhe a foto de cada ITEM (cor do item primeiro) e embute cada
-    // imagem UMA vez só, mesmo repetida entre itens
-    const embPorImagem = new Map<string, Embedded | null>();
-    const fotoByItem = new Map<string, Embedded>();
+    // 2º passo: escolhe a foto de cada ITEM (cor do item primeiro) e busca o
+    // CONTEÚDO só das escolhidas — uma por peça, nunca a galeria inteira
+    const escolhidaPorItem = new Map<string, string>(); // itemId → imageId
     for (const item of order.items) {
       if (!item.productId) continue;
       const fotos = fotosByProduct.get(item.productId) ?? [];
       const escolhida =
         fotos.find((f) => corIgual(f.color, item.color)) ?? fotos[0];
-      if (!escolhida) continue;
-      let emb = embPorImagem.get(escolhida.id);
+      if (escolhida) escolhidaPorItem.set(item.id, escolhida.id);
+    }
+    const idsEscolhidos = [...new Set(escolhidaPorItem.values())];
+    const conteudos = idsEscolhidos.length
+      ? await db.productImage.findMany({
+          where: { id: { in: idsEscolhidos } },
+          select: { id: true, url: true },
+        })
+      : [];
+    const urlPorImagem = new Map(conteudos.map((c) => [c.id, c.url]));
+
+    // 3º passo: embute cada imagem UMA vez só, mesmo repetida entre itens
+    const embPorImagem = new Map<string, Embedded | null>();
+    const fotoByItem = new Map<string, Embedded>();
+    for (const [itemId, imageId] of escolhidaPorItem) {
+      let emb = embPorImagem.get(imageId);
       if (emb === undefined) {
-        emb = await embedFoto(escolhida.url);
-        embPorImagem.set(escolhida.id, emb);
+        const url = urlPorImagem.get(imageId);
+        emb = url ? await embedFoto(url) : null;
+        embPorImagem.set(imageId, emb);
       }
-      if (emb) fotoByItem.set(item.id, emb);
+      if (emb) fotoByItem.set(itemId, emb);
     }
 
     const A4: [number, number] = [595.28, 841.89];

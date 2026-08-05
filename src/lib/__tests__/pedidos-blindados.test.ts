@@ -238,3 +238,106 @@ describe("webhook da Nuvemshop: falha NUNCA vira 200 mudo", () => {
     expect(webhook).toContain("logServerError");
   });
 });
+
+// ---------------------------------------------------------------------------
+// LOTE 2 — os achados MÉDIOS da mesma auditoria.
+// ---------------------------------------------------------------------------
+describe("edição de pedido: corrida não deixa estoque negativo (M7/M8)", () => {
+  const rota = ler("src/app/api/orders/[id]/route.ts");
+
+  it("baixar MAIS estoque na edição é condicionado ao saldo (gte)", () => {
+    expect(rota).toContain("EstoqueAcabou");
+    expect(rota).toContain("stock: { gte: delta }");
+  });
+
+  it("a mudança de status usa os itens ATUAIS (editados na mesma chamada)", () => {
+    expect(rota).toContain("itensParaEstoque");
+  });
+});
+
+describe("vendedor da venda: ativo, comercial e nunca ausente em pedido pago (M12)", () => {
+  const rota = ler("src/app/api/orders/[id]/route.ts");
+
+  it("usuário inativo ou do Suporte não pode ser o vendedor", () => {
+    expect(rota).toContain('role: { not: "SUPPORT" }');
+    expect(rota).toContain("active: true,");
+  });
+
+  it("não dá para tirar a dona de um pedido pago", () => {
+    expect(rota).toContain("Pedido pago precisa de um vendedor");
+  });
+
+  it("perfil Suporte não cria pedido (venda é ato comercial)", () => {
+    expect(ler("src/app/api/orders/route.ts")).toContain(
+      "Perfil Suporte não cria pedidos"
+    );
+  });
+});
+
+describe("reabrir e editar mantêm o dinheiro coerente (menores)", () => {
+  const rota = ler("src/app/api/orders/[id]/route.ts");
+
+  it("sair de CANCELADO devolve a cobrança estornada para PENDENTE", () => {
+    expect(rota).toContain('status: "ESTORNADO" },');
+    expect(rota).toContain('data: { status: "PENDENTE", paidAt: null }');
+  });
+
+  it("frete editado atualiza o custo do painel de Envio (nos dois caminhos)", () => {
+    expect(rota.split("data: { cost: totals.shippingFee }").length).toBe(3);
+  });
+
+  it("a venda registra o VALOR VENDIDO (sem frete) em todos os caminhos", () => {
+    expect(rota).toContain("atual?.netTotal ?? order.netTotal");
+    expect(ler("src/lib/settle-order.ts")).toContain("total: order.netTotal");
+  });
+});
+
+describe("excluir pedido não apaga trabalho alheio (M9 + menores)", () => {
+  it("negociação que JÁ EXISTIA volta ao funil; só a nascida com o pedido sai", () => {
+    const rota = ler("src/app/api/orders/[id]/route.ts");
+    expect(rota).toContain("nasceuComOPedido");
+    expect(rota).toContain("reopenLinkedOpportunity(user.companyId, oppReaberta)");
+  });
+
+  it("cliente do catálogo com conversa de WhatsApp NUNCA é apagado junto", () => {
+    expect(ler("src/lib/order-actions.ts")).toContain("temConversa");
+  });
+});
+
+describe("dinheiro sem centavo fantasma (M10)", () => {
+  it("catálogo e Nuvemshop arredondam as somas (round2)", () => {
+    expect(ler("src/app/api/catalog/order/route.ts")).toContain(
+      "round2(lines.reduce"
+    );
+    expect(ler("src/lib/nuvemshop.ts")).toContain("round2(lines.reduce");
+  });
+});
+
+describe("rotas pesadas com fôlego e PDF leve (M11)", () => {
+  it("edição de pedido e romaneio declaram maxDuration", () => {
+    expect(ler("src/app/api/orders/[id]/route.ts")).toContain(
+      "export const maxDuration"
+    );
+    expect(ler("src/app/api/orders/[id]/pdf/route.ts")).toContain(
+      "export const maxDuration"
+    );
+  });
+
+  it("o romaneio busca o conteúdo SÓ das fotos escolhidas", () => {
+    const pdf = ler("src/app/api/orders/[id]/pdf/route.ts");
+    // 1º passo sem `url:`; conteúdo depois, filtrado pelas escolhidas
+    expect(pdf).toContain("select: { id: true, productId: true, color: true }");
+    expect(pdf).toContain("idsEscolhidos");
+  });
+});
+
+describe("a tela do pedido respeita a visibilidade ANTES dos efeitos (menor)", () => {
+  it("religar/consertar itens só roda em pedido que o usuário pode ver", () => {
+    const page = ler("src/app/(app)/pedidos/[id]/page.tsx");
+    // a conferência tem que vir ANTES da chamada (o import não conta)
+    expect(page.indexOf("podeVer")).toBeGreaterThan(-1);
+    expect(page.indexOf("podeVer")).toBeLessThan(
+      page.indexOf("religarItensDoPedido(id")
+    );
+  });
+});

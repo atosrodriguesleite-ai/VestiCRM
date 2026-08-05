@@ -21,8 +21,14 @@ import { computeOrderTotals } from "@/lib/orders";
 import { reservarOQueTiver, textoDaFalta } from "@/lib/reservations";
 import { devolverEstoqueDoPedido } from "@/lib/estoque-do-pedido";
 
+// Pedido grande mexe estoque peça a peça com o banco na nuvem: os 10s padrão
+// da Vercel derrubavam a edição no meio (a transação tem folga de 30s)
+export const maxDuration = 60;
+
 /** A trava de corrida pegou: o pedido mudou entre a leitura e a gravação. */
 class StatusMudou extends Error {}
+/** A peça acabou ENTRE a conferência e a baixa (outra venda levou). */
+class EstoqueAcabou extends Error {}
 import {
   winLinkedOpportunity,
   loseLinkedOpportunity,
@@ -239,10 +245,26 @@ export async function PATCH(
         if (order.stockDeducted) {
           for (const [variantId, delta] of deltas) {
             if (delta === 0) continue;
-            await tx.productVariant.update({
-              where: { id: variantId },
-              data: { stock: { decrement: delta } }, // delta>0 baixa; delta<0 devolve
-            });
+            if (delta > 0) {
+              // baixa CONDICIONADA: a conferência lá em cima e a baixa aqui
+              // são dois momentos — outra venda pode levar a peça no meio.
+              // Sem a condição, o estoque ficava negativo na corrida.
+              const baixou = await tx.productVariant.updateMany({
+                where: { id: variantId, stock: { gte: delta } },
+                data: { stock: { decrement: delta } },
+              });
+              if (baixou.count === 0) {
+                const v = variantById.get(variantId);
+                throw new EstoqueAcabou(
+                  v ? `${v.product.name} (${v.color} ${v.size})` : "uma das peças"
+                );
+              }
+            } else {
+              await tx.productVariant.update({
+                where: { id: variantId },
+                data: { stock: { increment: -delta } }, // delta<0 devolve
+              });
+            }
             await tx.inventoryMovement.create({
               data: {
                 companyId: user.companyId,
@@ -260,6 +282,11 @@ export async function PATCH(
             data: { total: totals.netTotal },
           });
         }
+        // o painel de Envio lê o custo daqui — acompanha o frete editado
+        await tx.shipping.updateMany({
+          where: { orderId: order.id },
+          data: { cost: totals.shippingFee },
+        });
         // valor da cobrança acompanha o novo total — SÓ a pendente: pagamento
         // CONFIRMADO é registro histórico do que entrou de verdade (reescrever
         // quebrava a conciliação com o Mercado Pago)
@@ -374,6 +401,12 @@ export async function PATCH(
             total: totals.total,
           },
         });
+        // o painel de Envio lê o custo daqui — sem isso o frete editado não
+        // aparecia na etiqueta/declaração
+        await tx.shipping.updateMany({
+          where: { orderId: order.id },
+          data: { cost: totals.shippingFee },
+        });
         // a cobrança acompanha o que a cliente paga (COM frete) — SÓ a
         // pendente; pagamento confirmado é histórico e não se reescreve
         await tx.payment.updateMany({
@@ -454,17 +487,27 @@ export async function PATCH(
       }
     }
 
+    // ITENS ATUAIS para a régua de estoque: se os itens foram editados NESTA
+    // MESMA chamada, `order.items` (lido no começo) está velho — a baixa
+    // reservava as peças antigas (auditoria 05/08/2026).
+    const itensParaEstoque = parsed.data.items
+      ? await db.orderItem.findMany({
+          where: { orderId: order.id },
+          select: { variantId: true, quantity: true, name: true, color: true, size: true },
+        })
+      : order.items;
+
     // Antes de escrever: se o pedido vai segurar estoque agora (reserva/baixa),
     // confere disponibilidade e bloqueia se faltar.
     if (needStockDeduct) {
-      const variantIds = order.items
+      const variantIds = itensParaEstoque
         .map((i) => i.variantId)
         .filter((v): v is string => !!v);
       const variants = await db.productVariant.findMany({
         where: { id: { in: variantIds } },
       });
       const stockById = new Map(variants.map((v) => [v.id, v.stock]));
-      for (const item of order.items) {
+      for (const item of itensParaEstoque) {
         if (!item.variantId) continue;
         const avail = stockById.get(item.variantId) ?? 0;
         if (avail < item.quantity) {
@@ -497,13 +540,31 @@ export async function PATCH(
     if (parsed.data.sellerId !== undefined) {
       let newSellerName: string | null = null;
       if (parsed.data.sellerId) {
+        // Vendedor da venda tem que ser alguém que VENDE: ativo e fora do
+        // perfil Suporte (que não tem poderes comerciais). Aceitar usuário
+        // desligado sumia com a comissão do painel de equipe.
         const seller = await db.user.findFirst({
-          where: { id: parsed.data.sellerId, companyId: user.companyId },
+          where: {
+            id: parsed.data.sellerId,
+            companyId: user.companyId,
+            active: true,
+            role: { not: "SUPPORT" },
+          },
         });
         if (!seller) {
-          return NextResponse.json({ error: "Vendedor inválido" }, { status: 404 });
+          return NextResponse.json(
+            { error: "Vendedor inválido: precisa ser um usuário ativo da equipe comercial." },
+            { status: 404 }
+          );
         }
         newSellerName = seller.name;
+      } else if (PAID_STATUSES.has(parsed.data.status ?? order.status)) {
+        // a regra que obriga vendedor para faturar vale também ao EDITAR:
+        // sem isso dava para tirar a dona de um pedido já pago
+        return NextResponse.json(
+          { error: "Pedido pago precisa de um vendedor. Transfira a venda em vez de deixá-la sem dona." },
+          { status: 409 }
+        );
       }
       data.sellerId = parsed.data.sellerId;
       // troca de vendedor mexe em COMISSÃO: fica sempre registrada no
@@ -579,6 +640,16 @@ export async function PATCH(
               },
             });
 
+            // REABRIR pedido cancelado: a cobrança estornada volta a valer.
+            // Sem isso o pedido reaberto ficava com pagamento "ESTORNADO"
+            // para sempre — não dava para cobrar de novo.
+            if (order.status === "CANCELADO") {
+              await tx.payment.updateMany({
+                where: { orderId: order.id, status: "ESTORNADO" },
+                data: { status: "PENDENTE", paidAt: null },
+              });
+            }
+
             // Pular etapas segue a lógica completa: entrar em etapa paga
             // vindo de não paga confirma o pagamento e registra a venda.
             if (enteringPaid) {
@@ -586,11 +657,13 @@ export async function PATCH(
                 where: { orderId: order.id, status: "PENDENTE" },
                 data: { status: "CONFIRMADO", paidAt: new Date() },
               });
-              // total ATUAL do banco: se os itens foram editados nesta mesma
-              // chamada, `order.total` (lido no começo) estaria desatualizado
+              // valor ATUAL do banco: se os itens foram editados nesta mesma
+              // chamada, o valor lido no começo estaria desatualizado.
+              // A venda registra o VALOR VENDIDO (sem frete) — mesma régua
+              // da edição de itens, que já gravava netTotal.
               const atual = await tx.order.findUnique({
                 where: { id: order.id },
-                select: { total: true },
+                select: { netTotal: true },
               });
               await tx.sale.create({
                 data: {
@@ -598,7 +671,7 @@ export async function PATCH(
                   customerId: order.customerId,
                   sellerId: order.sellerId,
                   orderId: order.id,
-                  total: atual?.total ?? order.total,
+                  total: atual?.netTotal ?? order.netTotal,
                   description: `Pedido ${orderNumber(order.number)}`,
                   category: "Pedido",
                 },
@@ -641,7 +714,7 @@ export async function PATCH(
               // a gerência é avisada.
               const reserva = await reservarOQueTiver(
                 tx,
-                order.items.map((i) => ({
+                itensParaEstoque.map((i) => ({
                   variantId: i.variantId,
                   quantity: i.quantity,
                   label: `${i.name}${i.color || i.size ? ` (${[i.color, i.size].filter(Boolean).join(" ")})` : ""}`,
@@ -809,6 +882,15 @@ export async function PATCH(
   } catch (e) {
     if (e instanceof AuthError)
       return NextResponse.json({ error: "Não autenticado" }, { status: 401 });
+    if (e instanceof EstoqueAcabou) {
+      // corrida real: outra venda levou a peça entre a conferência e a baixa
+      return NextResponse.json(
+        {
+          error: `${e.message} acabou de ser vendida em outro pedido — o estoque não cobre a edição. Recarregue e ajuste a quantidade.`,
+        },
+        { status: 409 }
+      );
+    }
     // ERRO INESPERADO NÃO PODE SER MUDO (incidente Entre Linhas, 05/08/2026):
     // a tela mostrava só "Não foi possível salvar os itens" e ninguém sabia o
     // porquê. Agora o detalhe fica no painel Saúde e a resposta explica.
@@ -858,20 +940,41 @@ export async function DELETE(
       return NextResponse.json({ error: "Não encontrado" }, { status: 404 });
     }
 
-    const { devolvidas } = await db.$transaction(async (tx) => {
+    const { devolvidas, oppReaberta } = await db.$transaction(async (tx) => {
       const oppId = order.opportunityId;
       // Desfaz o pedido (estoque + faturamento) e o apaga.
       const resultado = await reverseAndDeleteOrder(tx, order);
-      // A oportunidade criada junto com este pedido sai do funil também.
+      // A oportunidade que NASCEU JUNTO com o pedido sai do funil também
+      // (catálogo cria as duas coisas no mesmo instante). Mas a negociação
+      // que JÁ EXISTIA no funil e foi apenas LIGADA ao pedido é trabalho da
+      // vendedora — apagá-la sumia com o cartão e o histórico da negociação.
+      // Essa volta ao funil como aberta (o pedido é que deixou de existir).
+      let reabrir: string | null = null;
       if (oppId) {
-        await tx.opportunity.deleteMany({
+        const opp = await tx.opportunity.findFirst({
           where: { id: oppId, companyId: user.companyId },
+          select: { id: true, createdAt: true },
         });
+        if (opp) {
+          const nasceuComOPedido =
+            Math.abs(opp.createdAt.getTime() - order.createdAt.getTime()) <
+            10 * 60 * 1000;
+          if (nasceuComOPedido) {
+            await tx.opportunity.delete({ where: { id: opp.id } });
+          } else {
+            reabrir = opp.id;
+          }
+        }
       }
       // mesma folga da edição: desfazer pedido grande peça a peça não cabe
       // nos 5s padrão com o banco na nuvem
-      return resultado;
+      return { ...resultado, oppReaberta: reabrir };
     }, { timeout: 30_000, maxWait: 10_000 });
+
+    // a negociação preservada volta para uma etapa aberta do funil
+    if (oppReaberta) {
+      await reopenLinkedOpportunity(user.companyId, oppReaberta);
+    }
 
     // Integrações donas de estoque precisam saber que as peças voltaram —
     // sem isso a Nuvemshop continuava vendendo com o número velho.

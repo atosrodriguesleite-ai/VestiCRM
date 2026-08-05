@@ -46,6 +46,15 @@ export default async function OrderDetailPage({
   const user = await requireUser();
   const { id } = await params;
 
+  // A régua de visibilidade vale ANTES de qualquer efeito colateral: sem esta
+  // conferência, a vendedora abrindo a URL do pedido de uma colega disparava
+  // os consertos automáticos num pedido que ela nem pode ver.
+  const podeVer = await db.order.findFirst({
+    where: { id, ...orderScope(user) },
+    select: { id: true },
+  });
+  if (!podeVer) notFound();
+
   // Peça reimportada (ex.: desfazer + refazer a Nuvemshop) deixa o item do
   // pedido apontando para o vazio, e a tela mostrava "estoque 0 (insuficiente)"
   // numa peça cheia de estoque. Religa pelos dados que o item guardou — de
@@ -70,7 +79,9 @@ export default async function OrderDetailPage({
   if (!order) notFound();
 
   const sellers = await db.user.findMany({
-    where: { companyId: user.companyId, active: true },
+    // vendedor da venda: ativo e fora do perfil Suporte (não comercial) —
+    // mesma régua que a API passou a aplicar
+    where: { companyId: user.companyId, active: true, role: { not: "SUPPORT" } },
     select: { id: true, name: true },
     orderBy: { name: "asc" },
   });

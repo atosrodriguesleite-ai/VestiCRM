@@ -155,7 +155,8 @@ async function liquidarUmaVez(
           customerId: order.customerId,
           sellerId: order.sellerId,
           orderId: order.id,
-          total: order.total,
+          // VALOR VENDIDO (sem frete) — mesma régua da transição manual
+          total: order.netTotal,
           description: `Pedido ${orderNumber(order.number)}`,
           category: "Pedido",
         },
