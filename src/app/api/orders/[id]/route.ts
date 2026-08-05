@@ -190,6 +190,10 @@ export async function PATCH(
         parsed.data.shippingFee ?? order.shippingFee,
         ajusteAtual(parsed.data.surcharge, parsed.data.surchargePct, order.surcharge, order.surchargePct)
       );
+      // FOLGA DE TEMPO (incidente Entre Linhas, 05/08/2026): pedido pago com
+      // vários itens ajusta estoque peça a peça dentro da transação; no
+      // limite padrão de 5s o banco na nuvem fechava a transação NO MEIO
+      // ("Transaction not found") e a edição não salvava.
       await db.$transaction(async (tx) => {
         await tx.orderItem.deleteMany({ where: { orderId: order.id } });
         await tx.orderItem.createMany({
@@ -265,7 +269,7 @@ export async function PATCH(
             userId: user.id,
           },
         });
-      });
+      }, { timeout: 30_000, maxWait: 10_000 });
       // o funil acompanha o VALOR VENDIDO (frete não é negociação)
       await syncOpportunityValue(user.companyId, order.opportunityId, totals.netTotal);
       // se veio SÓ a edição de itens, responde aqui
@@ -345,7 +349,7 @@ export async function PATCH(
             },
           });
         }
-      });
+      }, { timeout: 30_000, maxWait: 10_000 });
       // o funil acompanha o VALOR VENDIDO (frete não é negociação)
       await syncOpportunityValue(user.companyId, order.opportunityId, totals.netTotal);
 
@@ -796,7 +800,9 @@ export async function DELETE(
           where: { id: oppId, companyId: user.companyId },
         });
       }
-    });
+      // mesma folga da edição: desfazer pedido grande peça a peça não cabe
+      // nos 5s padrão com o banco na nuvem
+    }, { timeout: 30_000, maxWait: 10_000 });
 
     return NextResponse.json({ ok: true });
   } catch (e) {
