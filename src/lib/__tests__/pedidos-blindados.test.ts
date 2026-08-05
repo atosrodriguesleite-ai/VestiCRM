@@ -331,6 +331,18 @@ describe("rotas pesadas com fôlego e PDF leve (M11)", () => {
   });
 });
 
+describe("pedido colado do WhatsApp: preço IGUAL ao do catálogo", () => {
+  it("o leitor usa o preço de varejo do cadastro — o mesmo que o catálogo cobra", () => {
+    const leitor = ler("src/app/api/orders/ler-mensagem/route.ts");
+    const catalogo = ler("src/app/api/catalog/order/route.ts");
+    // decisão do dono (05/08/2026): o pedido colado vale o preço do catálogo
+    expect(leitor).toContain("unitPrice: produto.retailPrice");
+    expect(catalogo).toContain("product.retailPrice");
+    // preço de atacado NÃO entra no leitor (o catálogo também não cobra por ele)
+    expect(leitor).not.toContain("wholesalePrice");
+  });
+});
+
 describe("a tela do pedido respeita a visibilidade ANTES dos efeitos (menor)", () => {
   it("religar/consertar itens só roda em pedido que o usuário pode ver", () => {
     const page = ler("src/app/(app)/pedidos/[id]/page.tsx");

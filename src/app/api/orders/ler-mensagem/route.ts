@@ -50,8 +50,10 @@ export async function POST(req: NextRequest) {
       select: {
         id: true,
         name: true,
+        // MESMA RÉGUA DO CATÁLOGO: o catálogo público cobra sempre o preço
+        // de varejo do cadastro — o pedido colado usa o mesmo (decisão do
+        // dono, 05/08/2026)
         retailPrice: true,
-        wholesalePrice: true,
         variants: { select: { id: true, color: true, size: true, stock: true } },
       },
     });
