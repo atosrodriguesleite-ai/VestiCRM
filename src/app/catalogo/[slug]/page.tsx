@@ -103,6 +103,8 @@ export default async function PublicCatalogPage({
       categoryDescriptions={parseCategoryDescriptions(company.categoryDescriptions)}
       categoryTypes={parseCategoryTypes(company.categoryTypes)}
       logoSize={company.catalogLogoSize as "normal" | "grande"}
+      // a chavinha vale por COR: o card da cor esgotada some da vitrine
+      hideSoldOut={company.catalogHideOutOfStock}
       identity={{
         logoUrl: company.logoUrl,
         primary: company.catalogPrimary,

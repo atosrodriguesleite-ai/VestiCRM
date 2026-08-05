@@ -259,6 +259,7 @@ export function PublicCatalog({
   logoSize = "normal",
   customColors,
   tracking,
+  hideSoldOut = false,
 }: {
   storeSlug: string;
   storeName: string;
@@ -279,6 +280,8 @@ export function PublicCatalog({
   logoSize?: "normal" | "grande";
   customColors: { name: string; hex: string }[];
   tracking: Record<string, string | null>;
+  /** chavinha da loja: esconder também o CARD da cor esgotada (não só o produto) */
+  hideSoldOut?: boolean;
 }) {
   // Tema 100% personalizável pelo lojista: 3 cores base + derivadas
   const T = {
@@ -314,20 +317,26 @@ export function PublicCatalog({
     for (const p of products) {
       const colors = [...new Set(p.variants.map((v) => v.color))];
       for (const color of colors) {
+        const sizes = p.variants
+          .filter((v) => v.color === color)
+          .map((v) => ({ size: v.size, available: v.available }))
+          // tamanhos sempre do menor para o maior (P, M, G, GG / 36, 38, 40)
+          .sort((a, b) => compareSizes(a.size, b.size));
+        // Chavinha "esconder sem estoque" vale POR COR: o filtro do servidor
+        // só tira o produto quando TODAS as cores zeram — mas o catálogo
+        // mostra um card por cor, e o card da cor esgotada continuava na
+        // vitrine enquanto outra cor tivesse peça (relato da Entre Linhas).
+        if (hideSoldOut && sizes.every((s) => !s.available)) continue;
         map.get(p.category)!.push({
           key: `${p.id}|${color}`,
           product: p,
           color,
-          // tamanhos sempre do menor para o maior (P, M, G, GG / 36, 38, 40)
-          sizes: p.variants
-            .filter((v) => v.color === color)
-            .map((v) => ({ size: v.size, available: v.available }))
-            .sort((a, b) => compareSizes(a.size, b.size)),
+          sizes,
         });
       }
     }
     return map;
-  }, [products, categories]);
+  }, [products, categories, hideSoldOut]);
 
   const allCards = useMemo(
     () => [...cardsByCategory.values()].flat(),
