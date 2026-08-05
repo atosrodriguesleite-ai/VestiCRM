@@ -227,5 +227,28 @@ export async function computeAutomations(
     select: { autoRule: true },
   });
   const appliedSet = new Set(applied.map((t) => t.autoRule));
-  return suggestions.filter((s) => !appliedSet.has(s.key));
+  const vivas = suggestions.filter((s) => !appliedSet.has(s.key));
+
+  // CONTATO FEITO HOJE ENCERRA A SUGESTÃO (pedido do dono, 05/08/2026):
+  // chamou a cliente — pela Central ou pelo aplicativo (o eco registra) —
+  // e a recomendação sai de TODAS as listas (Dashboard, Agenda, Automações)
+  // até o dia virar. O filtro mora AQUI para nenhuma tela contar diferente.
+  if (vivas.length === 0) return vivas;
+  const hojeSP = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Sao_Paulo",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());
+  const inicioHoje = new Date(`${hojeSP}T03:00:00Z`); // meia-noite de SP
+  const chamadasHoje = await db.conversation.findMany({
+    where: {
+      companyId: user.companyId,
+      customerId: { in: [...new Set(vivas.map((s) => s.customerId))] },
+      lastOutboundAt: { gte: inicioHoje },
+    },
+    select: { customerId: true },
+  });
+  const jaChamadas = new Set(chamadasHoje.map((c) => c.customerId));
+  return vivas.filter((s) => !jaChamadas.has(s.customerId));
 }

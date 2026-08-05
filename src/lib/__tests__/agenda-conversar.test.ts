@@ -44,11 +44,36 @@ describe("a Central recebe quem chega da Agenda", () => {
   });
 });
 
-describe("sugestão cumprida some sozinha", () => {
-  it("a Agenda pula quem já recebeu mensagem da loja HOJE (calendário de SP)", () => {
-    const page = ler("src/app/(app)/tarefas/page.tsx");
-    expect(page).toContain("lastOutboundAt: { gte: inicioHoje }");
-    expect(page).toContain("!jaChamadas.has(s.customerId)");
-    expect(page).toContain('T03:00:00Z'); // meia-noite de SP, não do servidor
+describe("sugestão cumprida some sozinha — em TODAS as listas", () => {
+  it("o filtro mora no motor (Dashboard, Agenda e Automações herdam igual)", () => {
+    const motor = ler("src/lib/automations.ts");
+    expect(motor).toContain("lastOutboundAt: { gte: inicioHoje }");
+    expect(motor).toContain("!jaChamadas.has(s.customerId)");
+    expect(motor).toContain("T03:00:00Z"); // meia-noite de SP, não do servidor
+  });
+
+  it("tarefa de CONTATO se conclui sozinha quando a mensagem sai", () => {
+    const lib = ler("src/lib/contato-feito.ts");
+    // cobrança e entrega ficam DE FORA: mensagem não é pagamento nem entrega
+    expect(lib).not.toContain("COBRAR_PAGAMENTO");
+    expect(lib).not.toContain("CONFIRMAR_ENTREGA");
+    // só o que está para hoje ou atrasado — compromisso futuro fica de pé
+    expect(lib).toContain("dueAt: { lt: fimDeHojeSP(agora) }");
+    expect(lib).toContain('data: { status: "CONCLUIDA" }');
+  });
+
+  it("o gancho dispara no envio pela Central E no eco do celular", () => {
+    expect(ler("src/app/api/conversations/[id]/messages/route.ts")).toContain(
+      "concluirTarefasDeContato(user.companyId, conv.customerId)"
+    );
+    const hook = ler("src/app/api/whatsapp/evolution/webhook/[token]/route.ts");
+    // duas vezes: eco adotado (resgate) e eco gravado como mensagem nova
+    expect(hook.split("concluirTarefasDeContato(companyId, customer.id)").length).toBe(3);
+  });
+
+  it("nota interna NÃO conta como contato (a cliente nunca a recebeu)", () => {
+    expect(ler("src/app/api/conversations/[id]/messages/route.ts")).toContain(
+      'if (parsed.data.kind !== "NOTE") {'
+    );
   });
 });

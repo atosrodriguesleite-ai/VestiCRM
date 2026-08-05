@@ -115,30 +115,9 @@ export default async function TasksPage() {
     };
   });
 
-  // SUGESTÃO CUMPRIDA SOME SOZINHA (pedido do dono, 04/08/2026): quem já
-  // recebeu mensagem da loja HOJE sai da lista — a vendedora conversou, a
-  // Agenda não pode continuar cobrando o mesmo contato no mesmo dia.
-  const hojeSP = new Intl.DateTimeFormat("en-CA", {
-    timeZone: "America/Sao_Paulo",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).format(new Date());
-  const inicioHoje = new Date(`${hojeSP}T03:00:00Z`); // meia-noite de SP
-  const chamadasHoje = sugestoes.length
-    ? await db.conversation.findMany({
-        where: {
-          companyId: user.companyId,
-          customerId: { in: sugestoes.map((s) => s.customerId) },
-          lastOutboundAt: { gte: inicioHoje },
-        },
-        select: { customerId: true },
-      })
-    : [];
-  const jaChamadas = new Set(chamadasHoje.map((c) => c.customerId));
-
+  // quem já recebeu mensagem HOJE não aparece: o filtro mora DENTRO do
+  // computeAutomations (fonte única — Dashboard e Automações herdam igual)
   const sugestoesItens: SugestaoItem[] = sugestoes
-    .filter((s) => !jaChamadas.has(s.customerId))
     .map((s) => {
       const tipo = tipoDaRegra(s.key.split(":")[0]);
       return {
