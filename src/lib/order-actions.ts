@@ -1,4 +1,5 @@
 import type { Prisma } from "@prisma/client";
+import { baixasLiquidasDoPedido } from "./estoque-do-pedido";
 
 /**
  * Apaga um pedido desfazendo TODO o efeito dele — como se nunca tivesse
@@ -24,16 +25,21 @@ export async function reverseAndDeleteOrder(
     stockDeducted: boolean;
     items: { variantId: string | null; quantity: number }[];
   }
-) {
-  // Estoque baixado (pedido pago) volta inteiro para o catálogo.
-  if (order.stockDeducted) {
-    for (const item of order.items) {
-      if (!item.variantId) continue;
-      await tx.productVariant.update({
-        where: { id: item.variantId },
-        data: { stock: { increment: item.quantity } },
-      });
-    }
+): Promise<{ devolvidas: { variantId: string; quantity: number }[] }> {
+  // Devolve EXATAMENTE o que o pedido segurou (livro de movimentos: saiu −
+  // voltou, por variação). Antes devolvia a quantidade do ITEM: reserva
+  // parcial do catálogo e item religado a outra peça criavam estoque
+  // fantasma na exclusão (auditoria 05/08/2026).
+  const liquido = await baixasLiquidasDoPedido(tx, order.id);
+  const devolvidas = [...liquido.entries()].map(([variantId, quantity]) => ({
+    variantId,
+    quantity,
+  }));
+  for (const d of devolvidas) {
+    await tx.productVariant.updateMany({
+      where: { id: d.variantId },
+      data: { stock: { increment: d.quantity } },
+    });
   }
   // A venda sai do faturamento e o histórico de estoque some.
   await tx.sale.deleteMany({ where: { orderId: order.id } });
@@ -44,6 +50,7 @@ export async function reverseAndDeleteOrder(
   // Limpa o cliente que só existia por causa deste pedido (veio do catálogo
   // e não tem mais nenhum pedido). Isso zera as métricas de clientes.
   await cleanupOrphanCatalogCustomer(tx, order.companyId, order.customerId);
+  return { devolvidas };
 }
 
 /**

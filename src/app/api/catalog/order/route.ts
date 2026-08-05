@@ -13,6 +13,7 @@ import {
 import { pushStockToNuvemshop } from "@/lib/nuvemshop";
 import { pushStockToJueri } from "@/lib/jueri";
 import { orderNumber } from "@/lib/orders";
+import { comNumeroUnico } from "@/lib/numero-do-pedido";
 import { notifyNovoPedido } from "@/lib/notify";
 import { brl } from "@/lib/format";
 
@@ -407,7 +408,7 @@ export async function POST(req: NextRequest) {
   let faltas: FaltaDeEstoque[] = [];
   const criarPedido = () =>
     db.$transaction(async (tx) => {
-    faltas = await reservarOQueTiver(
+    const reserva = await reservarOQueTiver(
       tx,
       lines.map((l) => ({
         variantId: l.variantId,
@@ -415,6 +416,7 @@ export async function POST(req: NextRequest) {
         label: `${l.name} (${l.color} ${l.size})`,
       }))
     );
+    faltas = reserva.faltas;
     const last = await tx.order.findFirst({
       where: { companyId: company.id },
       orderBy: { number: "desc" },
@@ -465,19 +467,20 @@ export async function POST(req: NextRequest) {
       },
       include: { items: true },
     });
-    // movimento auditável da reserva (o mesmo que o pedido da vendedora grava)
-    await tx.inventoryMovement.createMany({
-      data: criado.items
-        .filter((i) => i.variantId)
-        .map((i) => ({
+    // movimento auditável da reserva — pelo que foi DE FATO segurado, nunca
+    // pela quantidade pedida (reserva parcial devolvia fantasma no cancelar)
+    if (reserva.seguradas.length > 0) {
+      await tx.inventoryMovement.createMany({
+        data: reserva.seguradas.map((s) => ({
           companyId: company.id,
-          variantId: i.variantId!,
+          variantId: s.variantId,
           orderId: criado.id,
           type: "SAIDA" as const,
-          quantity: i.quantity,
+          quantity: s.quantity,
           reason: `Reserva — pedido ${orderNumber(criado.number)}`,
         })),
-    });
+      });
+    }
     return criado;
       },
       // o padrão do Prisma são 5s — apertado para carrinho grande com o
@@ -487,7 +490,9 @@ export async function POST(req: NextRequest) {
 
   let order: Awaited<ReturnType<typeof criarPedido>>;
   try {
-    order = await criarPedido();
+    // dois pedidos no MESMO instante (outra cliente, painel, Nuvemshop)
+    // disputam o mesmo número — quem perde a corrida tenta de novo do zero
+    order = await comNumeroUnico(criarPedido);
   } catch (e) {
     // CORRIDA: dois envios do mesmo protocolo chegaram juntos e os dois
     // passaram pela conferência acima. O índice único barra o segundo — e

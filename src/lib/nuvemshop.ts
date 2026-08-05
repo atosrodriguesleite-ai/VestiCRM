@@ -6,6 +6,7 @@ import { round2 } from "./orders";
 import { separarDocumento } from "./documento";
 import { notifySalePaid } from "./push";
 import { winLinkedOpportunity } from "./opportunity-sync";
+import { comNumeroUnico } from "./numero-do-pedido";
 
 /**
  * Integração Nuvemshop — a loja online é a DONA do estoque e dos produtos;
@@ -966,11 +967,6 @@ export async function ingestPaidOrder(companyId: string, nsOrderId: string) {
   const shippingFee = round2(Math.max(num(o.shipping_cost_customer), 0));
   const netTotal = round2(Math.max(total - shippingFee, 0));
 
-  const last = await db.order.findFirst({
-    where: { companyId },
-    orderBy: { number: "desc" },
-    select: { number: true },
-  });
   // A VENDA ONLINE FECHA O CARTÃO DO FUNIL.
   //
   // A cliente abandona o carrinho → nasce a oportunidade "🛒 Carrinho
@@ -983,7 +979,15 @@ export async function ingestPaidOrder(companyId: string, nsOrderId: string) {
     orderBy: { createdAt: "desc" },
     select: { id: true },
   });
-  const order = await db.order.create({
+  // comNumeroUnico: a venda online chega junto com pedido do painel/catálogo
+  // e disputa o mesmo número — quem perde a corrida lê de novo e insiste
+  const order = await comNumeroUnico(async () => {
+    const last = await db.order.findFirst({
+      where: { companyId },
+      orderBy: { number: "desc" },
+      select: { number: true },
+    });
+    return db.order.create({
     data: {
       companyId,
       number: (last?.number ?? 0) + 1,
@@ -1016,6 +1020,7 @@ export async function ingestPaidOrder(companyId: string, nsOrderId: string) {
         })),
       },
     },
+    });
   });
   await db.customerEvent.create({
     data: {

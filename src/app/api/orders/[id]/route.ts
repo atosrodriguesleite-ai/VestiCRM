@@ -19,6 +19,10 @@ import {
 } from "@/lib/orders";
 import { computeOrderTotals } from "@/lib/orders";
 import { reservarOQueTiver, textoDaFalta } from "@/lib/reservations";
+import { devolverEstoqueDoPedido } from "@/lib/estoque-do-pedido";
+
+/** A trava de corrida pegou: o pedido mudou entre a leitura e a gravação. */
+class StatusMudou extends Error {}
 import {
   winLinkedOpportunity,
   loseLinkedOpportunity,
@@ -256,11 +260,35 @@ export async function PATCH(
             data: { total: totals.netTotal },
           });
         }
-        // valor do pagamento acompanha o novo total (pendente ou confirmado)
+        // valor da cobrança acompanha o novo total — SÓ a pendente: pagamento
+        // CONFIRMADO é registro histórico do que entrou de verdade (reescrever
+        // quebrava a conciliação com o Mercado Pago)
         await tx.payment.updateMany({
-          where: { orderId: order.id },
+          where: { orderId: order.id, status: "PENDENTE" },
           data: { amount: totals.total },
         });
+        // cobrança Pix/cartão do MP gerada com o valor ANTIGO: expira agora —
+        // senão a cliente pagava o QR velho e o pedido inteiro virava PAGO
+        const invalidadas = await tx.payment.updateMany({
+          where: {
+            orderId: order.id,
+            status: "PENDENTE",
+            provider: "MERCADO_PAGO",
+            dueAt: { gt: new Date() },
+          },
+          data: { dueAt: new Date() },
+        });
+        if (invalidadas.count > 0) {
+          await tx.orderEvent.create({
+            data: {
+              orderId: order.id,
+              type: "NOTA",
+              description:
+                "⚠️ O valor do pedido mudou: a cobrança Pix/cartão anterior foi invalidada — gere uma nova antes de enviar à cliente.",
+              userId: user.id,
+            },
+          });
+        }
         await tx.orderEvent.create({
           data: {
             orderId: order.id,
@@ -270,6 +298,24 @@ export async function PATCH(
           },
         });
       }, { timeout: 30_000, maxWait: 10_000 });
+
+      // Integrações espelham o ajuste de estoque da edição (uma venda, uma
+      // baixa) — antes a Nuvemshop/Jueri nunca ficavam sabendo e os canais
+      // divergiam para sempre.
+      if (order.stockDeducted) {
+        const mudadas = [...deltas.entries()].filter(([, d]) => d !== 0);
+        if (mudadas.length > 0) {
+          pushStockToNuvemshop(
+            user.companyId,
+            mudadas.map(([variantId]) => variantId)
+          ).catch(() => {});
+          pushStockToJueri(
+            user.companyId,
+            // delta>0 = baixou mais no CRM → Jueri desconta; delta<0 devolve
+            mudadas.map(([variantId, delta]) => ({ variantId, delta: -delta }))
+          ).catch(() => {});
+        }
+      }
       // o funil acompanha o VALOR VENDIDO (frete não é negociação)
       await syncOpportunityValue(user.companyId, order.opportunityId, totals.netTotal);
       // se veio SÓ a edição de itens, responde aqui
@@ -328,10 +374,21 @@ export async function PATCH(
             total: totals.total,
           },
         });
-        // a cobrança acompanha o que a cliente paga (COM frete)
+        // a cobrança acompanha o que a cliente paga (COM frete) — SÓ a
+        // pendente; pagamento confirmado é histórico e não se reescreve
         await tx.payment.updateMany({
-          where: { orderId: order.id },
+          where: { orderId: order.id, status: "PENDENTE" },
           data: { amount: totals.total },
+        });
+        // cobrança MP do valor antigo expira (mesma regra da edição de itens)
+        await tx.payment.updateMany({
+          where: {
+            orderId: order.id,
+            status: "PENDENTE",
+            provider: "MERCADO_PAGO",
+            dueAt: { gt: new Date() },
+          },
+          data: { dueAt: new Date() },
         });
         if (order.stockDeducted) {
           await tx.sale.updateMany({
@@ -488,59 +545,190 @@ export async function PATCH(
     }
 
     if (newStatus && newStatus !== order.status) {
-      data.status = newStatus;
-      // DATA DO DINHEIRO: carimba QUANDO o pedido virou pago — é ela que manda
-      // no faturamento do mês. Se voltar atrás (cancelou/virou orçamento de
-      // novo), a data sai junto, senão o mês ficaria com uma venda fantasma.
-      if (enteringPaid) data.paidAt = order.paidAt ?? new Date();
-      if (leavingPaid) data.paidAt = null;
+      /**
+       * TUDO NUMA TRANSAÇÃO COM TRAVA DE CORRIDA (auditoria 05/08/2026).
+       * Antes eram ~15 escritas soltas: duplo clique em Cancelar devolvia o
+       * estoque em dobro, e uma falha no meio deixava pagamento confirmado
+       * sem o status mudar. Agora: o update do status é CONDICIONADO ao
+       * status que lemos (a segunda chamada simultânea não passa) e todos os
+       * efeitos (estoque, venda, pagamento, envio) entram ou saem JUNTOS.
+       */
+      let mexidas: { variantId: string; delta: number }[] = [];
+      try {
+        mexidas = await db.$transaction(
+          async (tx) => {
+            const trava = await tx.order.updateMany({
+              where: { id: order.id, status: order.status },
+              data: {
+                status: newStatus,
+                // DATA DO DINHEIRO: carimba quando virou pago; sai ao voltar
+                ...(enteringPaid ? { paidAt: order.paidAt ?? new Date() } : {}),
+                ...(leavingPaid ? { paidAt: null } : {}),
+                ...(needStockDeduct ? { stockDeducted: true } : {}),
+                ...(needStockReturn ? { stockDeducted: false } : {}),
+              },
+            });
+            if (trava.count === 0) throw new StatusMudou();
 
-      await db.orderEvent.create({
-        data: {
-          orderId: order.id,
-          type: "STATUS",
-          description: `Status alterado para "${orderStatusLabel[newStatus]}" por ${user.name}`,
-          userId: user.id,
-        },
-      });
+            await tx.orderEvent.create({
+              data: {
+                orderId: order.id,
+                type: "STATUS",
+                description: `Status alterado para "${orderStatusLabel[newStatus]}" por ${user.name}`,
+                userId: user.id,
+              },
+            });
 
-      // Pular etapas segue a lógica completa: entrar em qualquer etapa paga
-      // (Pago, Em produção, Separação, Enviado, Entregue) vindo de uma etapa
-      // não paga confirma o pagamento e registra a venda no CRM.
-      if (enteringPaid) {
-        const pending = order.payments.find((p) => p.status === "PENDENTE");
-        if (pending) {
-          await db.payment.update({
-            where: { id: pending.id },
-            data: { status: "CONFIRMADO", paidAt: new Date() },
-          });
-        }
-        // total ATUAL do banco: se os itens foram editados nesta mesma
-        // chamada, `order.total` (lido no começo) estaria desatualizado
-        const atual = await db.order.findUnique({
-          where: { id: order.id },
-          select: { total: true },
-        });
-        await db.sale.create({
-          data: {
-            companyId: user.companyId,
-            customerId: order.customerId,
-            sellerId: order.sellerId,
-            orderId: order.id,
-            total: atual?.total ?? order.total,
-            description: `Pedido ${orderNumber(order.number)}`,
-            category: "Pedido",
+            // Pular etapas segue a lógica completa: entrar em etapa paga
+            // vindo de não paga confirma o pagamento e registra a venda.
+            if (enteringPaid) {
+              await tx.payment.updateMany({
+                where: { orderId: order.id, status: "PENDENTE" },
+                data: { status: "CONFIRMADO", paidAt: new Date() },
+              });
+              // total ATUAL do banco: se os itens foram editados nesta mesma
+              // chamada, `order.total` (lido no começo) estaria desatualizado
+              const atual = await tx.order.findUnique({
+                where: { id: order.id },
+                select: { total: true },
+              });
+              await tx.sale.create({
+                data: {
+                  companyId: user.companyId,
+                  customerId: order.customerId,
+                  sellerId: order.sellerId,
+                  orderId: order.id,
+                  total: atual?.total ?? order.total,
+                  description: `Pedido ${orderNumber(order.number)}`,
+                  category: "Pedido",
+                },
+              });
+              await tx.customer.update({
+                where: { id: order.customerId },
+                data: { lastPurchaseAt: new Date() },
+              });
+            }
+
+            // Envio: Enviado marca a saída; Entregue marca saída + entrega.
+            if (newStatus === "ENVIADO" || newStatus === "ENTREGUE") {
+              const now = new Date();
+              const shipData = {
+                shippedAt: now,
+                ...(newStatus === "ENTREGUE" ? { deliveredAt: now } : {}),
+              };
+              await tx.shipping.upsert({
+                where: { orderId: order.id },
+                update: {
+                  ...(newStatus === "ENTREGUE" ? { deliveredAt: now } : {}),
+                  shippedAt: now,
+                },
+                create: { orderId: order.id, cost: order.shippingFee, ...shipData },
+              });
+            }
+            // Voltar para antes do envio (ou cancelar) limpa as marcas
+            if (["ORCAMENTO", "AGUARDANDO_PAGAMENTO", "PAGO", "EM_PRODUCAO", "SEPARACAO", "CANCELADO"].includes(newStatus)) {
+              await tx.shipping.updateMany({
+                where: { orderId: order.id },
+                data: { shippedAt: null, deliveredAt: null },
+              });
+            }
+
+            // ---- Estoque ----
+            const efeitos: { variantId: string; delta: number }[] = [];
+            if (needStockDeduct) {
+              // Baixa condicionada: segura o que existe, nunca negativa. Se
+              // faltar peça, o pedido não trava — mas a falta fica escrita e
+              // a gerência é avisada.
+              const reserva = await reservarOQueTiver(
+                tx,
+                order.items.map((i) => ({
+                  variantId: i.variantId,
+                  quantity: i.quantity,
+                  label: `${i.name}${i.color || i.size ? ` (${[i.color, i.size].filter(Boolean).join(" ")})` : ""}`,
+                }))
+              );
+              if (reserva.faltas.length > 0) {
+                const aviso = `⚠️ Baixa de estoque incompleta — ${textoDaFalta(reserva.faltas)}. Confira o estoque físico.`;
+                await tx.orderEvent.create({
+                  data: { orderId: order.id, type: "NOTA", description: aviso, userId: user.id },
+                });
+                const equipe = await tx.user.findMany({
+                  where: { companyId: user.companyId, active: true, role: { in: ["ADMIN", "MANAGER"] } },
+                  select: { id: true },
+                });
+                if (equipe.length > 0) {
+                  await tx.notification.createMany({
+                    data: equipe.map((u) => ({
+                      companyId: user.companyId,
+                      userId: u.id,
+                      type: "ASSIGN",
+                      title: `Estoque faltou no pedido ${orderNumber(order.number)}`,
+                      body: aviso.slice(0, 160),
+                      actorName: user.name,
+                    })),
+                  });
+                }
+              }
+              // movimento pelo que foi DE FATO segurado (não pela quantidade
+              // pedida) — é o que a devolução vai ler no cancelamento
+              const motivo = enteringPaid
+                ? `Baixa por pagamento — pedido ${orderNumber(order.number)}`
+                : `Reserva — pedido ${orderNumber(order.number)}`;
+              if (reserva.seguradas.length > 0) {
+                await tx.inventoryMovement.createMany({
+                  data: reserva.seguradas.map((s) => ({
+                    companyId: user.companyId,
+                    variantId: s.variantId,
+                    orderId: order.id,
+                    type: "SAIDA" as const,
+                    quantity: s.quantity,
+                    reason: motivo,
+                  })),
+                });
+              }
+              efeitos.push(
+                ...reserva.seguradas.map((s) => ({ variantId: s.variantId, delta: -s.quantity }))
+              );
+            } else if (needStockReturn) {
+              // devolve EXATAMENTE o que o pedido segurou (livro de
+              // movimentos), nunca a quantidade do item — reserva parcial e
+              // item religado deixam de criar estoque fantasma
+              const devolvidas = await devolverEstoqueDoPedido(tx, {
+                companyId: user.companyId,
+                orderId: order.id,
+                motivo: `Cancelamento do pedido ${orderNumber(order.number)}`,
+              });
+              efeitos.push(
+                ...devolvidas.map((d) => ({ variantId: d.variantId, delta: d.quantity }))
+              );
+            }
+
+            // FATURAMENTO: sair de etapa paga estorna o pagamento e tira a
+            // venda do faturamento — independente do estoque.
+            if (leavingPaid) {
+              await tx.payment.updateMany({
+                where: { orderId: order.id, status: "CONFIRMADO" },
+                data: { status: newStatus === "CANCELADO" ? "ESTORNADO" : "PENDENTE" },
+              });
+              await tx.sale.deleteMany({ where: { orderId: order.id } });
+            }
+            return efeitos;
           },
-        });
-        await db.customer.update({
-          where: { id: order.customerId },
-          data: { lastPurchaseAt: new Date() },
-        });
+          { timeout: 30_000, maxWait: 10_000 }
+        );
+      } catch (e) {
+        if (e instanceof StatusMudou) {
+          return NextResponse.json(
+            { error: "O pedido acabou de ser alterado por outra pessoa. Recarregue a página e confira antes de tentar de novo." },
+            { status: 409 }
+          );
+        }
+        throw e;
       }
 
+      // ---- fora da transação: efeitos não-críticos ----
       // FUNIL acompanha o pedido: pago → GANHO; cancelado → PERDIDO;
-      // reaberto (saiu de pago/cancelado sem fechar) → volta a ABERTA.
-      // Antes a negociação ficava aberta para sempre e o funil não batia.
+      // reaberto → volta a ABERTA.
       if (enteringPaid) {
         await winLinkedOpportunity(user.companyId, order.opportunityId);
       } else if (newStatus === "CANCELADO") {
@@ -549,145 +737,21 @@ export async function PATCH(
         await reopenLinkedOpportunity(user.companyId, order.opportunityId);
       }
 
-      // Envio: Enviado marca a saída; Entregue implica que todo o processo
-      // de envio foi executado (marca saída e entrega de uma vez).
-      if (newStatus === "ENVIADO" || newStatus === "ENTREGUE") {
-        const now = new Date();
-        const shipData = {
-          shippedAt: now,
-          ...(newStatus === "ENTREGUE" ? { deliveredAt: now } : {}),
-        };
-        await db.shipping.upsert({
-          where: { orderId: order.id },
-          update: {
-            ...(newStatus === "ENTREGUE" ? { deliveredAt: now } : {}),
-            shippedAt: now,
-          },
-          create: { orderId: order.id, cost: order.shippingFee, ...shipData },
-        });
-      }
-      // Voltar para antes do envio (ou cancelar) limpa as marcas de entrega
-      if (["ORCAMENTO", "AGUARDANDO_PAGAMENTO", "PAGO", "EM_PRODUCAO", "SEPARACAO", "CANCELADO"].includes(newStatus)) {
-        await db.shipping.updateMany({
-          where: { orderId: order.id },
-          data: { shippedAt: null, deliveredAt: null },
-        });
-      }
-
-      // ---- Estoque: SEGURA (reserva no orçamento / baixa no pago); devolve ao cancelar ----
-      if (needStockDeduct) {
-        // Baixa condicionada: segura o que existe e NUNCA deixa o estoque
-        // negativo às escondidas. Se faltar peça (pedido antigo, reserva que
-        // expirou, pedido reaberto), o pedido não é travado — dinheiro é
-        // dinheiro — mas a falta fica escrita no histórico e a loja é avisada.
-        const faltas = await reservarOQueTiver(
-          db,
-          order.items.map((i) => ({
-            variantId: i.variantId,
-            quantity: i.quantity,
-            label: `${i.name}${i.color || i.size ? ` (${[i.color, i.size].filter(Boolean).join(" ")})` : ""}`,
-          }))
-        );
-        if (faltas.length > 0) {
-          const aviso = `⚠️ Baixa de estoque incompleta — ${textoDaFalta(faltas)}. Confira o estoque físico.`;
-          await db.orderEvent.create({
-            data: {
-              orderId: order.id,
-              type: "NOTA",
-              description: aviso,
-              userId: user.id,
-            },
-          });
-          const equipe = await db.user.findMany({
-            where: {
-              companyId: user.companyId,
-              active: true,
-              role: { in: ["ADMIN", "MANAGER"] },
-            },
-            select: { id: true },
-          });
-          if (equipe.length > 0) {
-            await db.notification.createMany({
-              data: equipe.map((u) => ({
-                companyId: user.companyId,
-                userId: u.id,
-                type: "ASSIGN",
-                title: `Estoque faltou no pedido ${orderNumber(order.number)}`,
-                body: aviso.slice(0, 160),
-                actorName: user.name,
-              })),
-            });
-          }
-        }
-        // razão conforme o momento: reserva (orçamento/aguardando) ou baixa (pago)
-        const motivo = enteringPaid
-          ? `Baixa por pagamento — pedido ${orderNumber(order.number)}`
-          : `Reserva — pedido ${orderNumber(order.number)}`;
-        await db.inventoryMovement.createMany({
-          data: order.items
-            .filter((i) => i.variantId)
-            .map((i) => ({
-              companyId: user.companyId,
-              variantId: i.variantId!,
-              orderId: order.id,
-              type: "SAIDA" as const,
-              quantity: i.quantity,
-              reason: motivo,
-            })),
-        });
-        data.stockDeducted = true;
-      } else if (needStockReturn) {
-        for (const item of order.items) {
-          if (!item.variantId) continue;
-          await db.productVariant.update({
-            where: { id: item.variantId },
-            data: { stock: { increment: item.quantity } },
-          });
-        }
-        await db.inventoryMovement.createMany({
-          data: order.items
-            .filter((i) => i.variantId)
-            .map((i) => ({
-              companyId: user.companyId,
-              variantId: i.variantId!,
-              orderId: order.id,
-              type: "ENTRADA" as const,
-              quantity: i.quantity,
-              reason: `Cancelamento do pedido ${orderNumber(order.number)}`,
-            })),
-        });
-        data.stockDeducted = false;
-      }
-
-      // FATURAMENTO: sair de uma etapa paga (cancelou/voltou p/ orçamento) estorna
-      // o pagamento e tira a venda do faturamento — independente do estoque.
-      if (leavingPaid) {
-        await db.payment.updateMany({
-          where: { orderId: order.id, status: "CONFIRMADO" },
-          data: { status: newStatus === "CANCELADO" ? "ESTORNADO" : "PENDENTE" },
-        });
-        await db.sale.deleteMany({ where: { orderId: order.id } });
-      }
-
-      // Integrações: a baixa/devolução feita AQUI é refletida na ORIGEM do
-      // estoque — uma venda, uma baixa, sem divergir entre os sistemas.
-      if (needStockDeduct || needStockReturn) {
-        const variantIds = order.items
-          .map((i) => i.variantId)
-          .filter((v): v is string => !!v);
-        pushStockToNuvemshop(user.companyId, variantIds).catch(() => {});
-        // Jueri: delta EXATO por variação (reserva/baixa = −, cancelamento = +)
-        const sinal = needStockReturn ? 1 : -1;
-        const changes = order.items
-          .filter((i) => i.variantId)
-          .map((i) => ({ variantId: i.variantId!, delta: sinal * i.quantity }));
-        pushStockToJueri(user.companyId, changes).catch(() => {});
+      // Integrações espelham o que REALMENTE mexeu no estoque (uma venda,
+      // uma baixa) — pelo delta efetivo, não pela quantidade do item.
+      if (mexidas.length > 0) {
+        pushStockToNuvemshop(
+          user.companyId,
+          mexidas.map((m) => m.variantId)
+        ).catch(() => {});
+        pushStockToJueri(user.companyId, mexidas).catch(() => {});
       }
     }
 
     if (parsed.data.paymentMethod) {
+      // só a cobrança pendente muda de forma — a confirmada é histórico
       await db.payment.updateMany({
-        where: { orderId: order.id },
+        where: { orderId: order.id, status: { not: "CONFIRMADO" } },
         data: { method: parsed.data.paymentMethod },
       });
     }
@@ -720,7 +784,11 @@ export async function PATCH(
       });
     }
 
-    const updated = await db.order.update({ where: { id }, data });
+    // o status já foi gravado com trava dentro da transação; aqui entram só
+    // os demais campos (notas, vendedor, cliente, rastreio...)
+    const updated = Object.keys(data).length
+      ? await db.order.update({ where: { id }, data })
+      : (await db.order.findUnique({ where: { id } }))!;
 
     // 💰 Notificação de venda: dispara quando o pedido ACABOU de virar pago.
     // Fire-and-forget: nunca atrasa nem quebra a resposta do pedido.
@@ -790,10 +858,10 @@ export async function DELETE(
       return NextResponse.json({ error: "Não encontrado" }, { status: 404 });
     }
 
-    await db.$transaction(async (tx) => {
+    const { devolvidas } = await db.$transaction(async (tx) => {
       const oppId = order.opportunityId;
       // Desfaz o pedido (estoque + faturamento) e o apaga.
-      await reverseAndDeleteOrder(tx, order);
+      const resultado = await reverseAndDeleteOrder(tx, order);
       // A oportunidade criada junto com este pedido sai do funil também.
       if (oppId) {
         await tx.opportunity.deleteMany({
@@ -802,7 +870,21 @@ export async function DELETE(
       }
       // mesma folga da edição: desfazer pedido grande peça a peça não cabe
       // nos 5s padrão com o banco na nuvem
+      return resultado;
     }, { timeout: 30_000, maxWait: 10_000 });
+
+    // Integrações donas de estoque precisam saber que as peças voltaram —
+    // sem isso a Nuvemshop continuava vendendo com o número velho.
+    if (devolvidas.length > 0) {
+      pushStockToNuvemshop(
+        user.companyId,
+        devolvidas.map((d) => d.variantId)
+      ).catch(() => {});
+      pushStockToJueri(
+        user.companyId,
+        devolvidas.map((d) => ({ variantId: d.variantId, delta: d.quantity }))
+      ).catch(() => {});
+    }
 
     return NextResponse.json({ ok: true });
   } catch (e) {

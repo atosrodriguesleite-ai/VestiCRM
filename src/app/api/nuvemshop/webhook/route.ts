@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
+import { logServerError } from "@/lib/health";
 import {
   ingestCancelledOrder,
   ingestPaidOrder,
@@ -12,8 +13,9 @@ import {
  * Webhook da Nuvemshop: venda paga, cancelamento e mudanças de produto.
  * O corpo traz {store_id, event, id}; buscamos o dado completo na API.
  * Assinatura HMAC (x-linkedstore-hmac-sha256) validada com o client secret.
- * Responde 200 sempre que possível — a Nuvemshop desativa webhooks que
- * falham repetidamente.
+ * Aviso malformado/loja desconhecida → 200 (não há o que reprocessar).
+ * Falha NOSSA ao processar → 500, para a Nuvemshop REENVIAR: responder 200
+ * em erro fazia a venda paga sumir sem rastro (auditoria 05/08/2026).
  */
 
 export const maxDuration = 60;
@@ -74,8 +76,18 @@ export async function POST(req: NextRequest) {
         break;
       }
     }
-  } catch {
-    // erro interno não pode derrubar o webhook
+  } catch (e) {
+    // Falhou de verdade (banco fora, corrida perdida 3x…): responder 200 aqui
+    // dizia à Nuvemshop "entregue" e a venda paga sumia PARA SEMPRE — ela só
+    // reenvia quando recebe erro. Registra no painel Saúde e devolve 500;
+    // a Nuvemshop tenta de novo sozinha.
+    await logServerError({
+      source: "server",
+      path: "/api/nuvemshop/webhook",
+      message: `Nuvemshop: webhook ${body.event} falhou — a Nuvemshop vai reenviar`,
+      detail: e instanceof Error ? `${e.message}\n${e.stack ?? ""}` : String(e),
+    });
+    return NextResponse.json({ error: "Falha ao processar — reenvie" }, { status: 500 });
   }
   return NextResponse.json({ ok: true });
 }

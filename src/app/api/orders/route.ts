@@ -9,6 +9,7 @@ import { computeOrderTotals, orderNumber } from "@/lib/orders";
 import { pushStockToNuvemshop } from "@/lib/nuvemshop";
 import { pushStockToJueri } from "@/lib/jueri";
 import { reservarEstoque, textoDaFalta } from "@/lib/reservations";
+import { comNumeroUnico } from "@/lib/numero-do-pedido";
 
 /**
  * Pedido grande (a mensagem colada do WhatsApp traz 30+ linhas) precisa de
@@ -110,7 +111,9 @@ export async function POST(req: NextRequest) {
       { valor: input.surcharge, pct: input.surchargePct }
     );
 
-    const order = await db.$transaction(async (tx) => {
+    // comNumeroUnico: dois pedidos no mesmo instante (painel + catálogo +
+    // Nuvemshop) disputam o mesmo número; quem perde tenta de novo do zero
+    const order = await comNumeroUnico(() => db.$transaction(async (tx) => {
       const last = await tx.order.findFirst({
         where: { companyId: user.companyId },
         orderBy: { number: "desc" },
@@ -246,7 +249,7 @@ export async function POST(req: NextRequest) {
       // linhas com o banco na nuvem. Estourar aqui derrubava a rota sem
       // mensagem nenhuma — a vendedora via só "não foi possível criar".
       { timeout: 20_000, maxWait: 10_000 }
-    );
+    ));
 
     // Integrações: a reserva feita AQUI é refletida na ORIGEM do estoque
     // (Nuvemshop/Jueri) — a peça reservada some do estoque dos outros canais

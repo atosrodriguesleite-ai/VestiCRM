@@ -184,18 +184,33 @@ export async function reservarEstoque(
  *
  * O estoque nunca fica negativo: cada baixa é condicionada ao que há.
  */
+export type ReservaParcial = {
+  faltas: FaltaDeEstoque[];
+  /**
+   * O que foi DE FATO segurado, por variação. É esta lista que vira
+   * movimento de SAÍDA — gravar a quantidade PEDIDA quando só parte foi
+   * segurada era o que criava estoque fantasma no cancelamento (auditoria
+   * 05/08/2026: devolvia 10 quando só 4 tinham saído).
+   */
+  seguradas: { variantId: string; quantity: number }[];
+};
+
 export async function reservarOQueTiver(
   tx: ClientePrisma,
   itens: ItemDeEstoque[]
-): Promise<FaltaDeEstoque[]> {
+): Promise<ReservaParcial> {
   const faltas: FaltaDeEstoque[] = [];
+  const seguradas: { variantId: string; quantity: number }[] = [];
   for (const item of itens) {
     if (!item.variantId || item.quantity <= 0) continue;
     const cheio = await tx.productVariant.updateMany({
       where: { id: item.variantId, stock: { gte: item.quantity } },
       data: { stock: { decrement: item.quantity } },
     });
-    if (cheio.count > 0) continue; // segurou a quantidade toda
+    if (cheio.count > 0) {
+      seguradas.push({ variantId: item.variantId, quantity: item.quantity });
+      continue; // segurou a quantidade toda
+    }
 
     const atual = await tx.productVariant.findUnique({
       where: { id: item.variantId },
@@ -204,14 +219,17 @@ export async function reservarOQueTiver(
     const disponivel = Math.max(atual?.stock ?? 0, 0);
     if (disponivel > 0) {
       // segura o que sobrou (condicionado de novo: nunca deixa negativo)
-      await tx.productVariant.updateMany({
+      const parcial = await tx.productVariant.updateMany({
         where: { id: item.variantId, stock: { gte: disponivel } },
         data: { stock: { decrement: disponivel } },
       });
+      if (parcial.count > 0) {
+        seguradas.push({ variantId: item.variantId, quantity: disponivel });
+      }
     }
     faltas.push({ label: item.label, pedido: item.quantity, disponivel });
   }
-  return faltas;
+  return { faltas, seguradas };
 }
 
 /** Frase pronta para a cliente/vendedora entender o que faltou. */

@@ -51,8 +51,10 @@ describe("EDITAR itens também grava a peça certa (o vício não volta pela edi
 
   it("as transações do pedido têm folga de tempo (o 5s padrão fechava no meio)", () => {
     // causa real do incidente: 'Transaction not found' — o banco na nuvem
-    // fechou a transação no meio do ajuste de estoque peça a peça
-    expect(rota.split("{ timeout: 30_000, maxWait: 10_000 }").length).toBe(4);
+    // fechou a transação no meio do ajuste de estoque peça a peça.
+    // 4 transações: mudança de status, edição de itens, edição de valores e
+    // exclusão — todas com a mesma folga.
+    expect(rota.split("{ timeout: 30_000, maxWait: 10_000 }").length).toBe(5);
   });
 });
 
