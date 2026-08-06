@@ -65,6 +65,7 @@ export function ProductsView({
   librarySizes,
   mediaLibrary = false,
   canOrganize = false,
+  semCores = false,
 }: {
   initial: ProductItem[];
   categories: string[];
@@ -77,6 +78,8 @@ export function ProductsView({
   mediaLibrary?: boolean;
   /** gerência/suporte: seleção em massa + sugestão automática de categoria */
   canOrganize?: boolean;
+  /** loja sem variação de cor (semijoias): a grade pede só o tamanho */
+  semCores?: boolean;
 }) {
   const router = useRouter();
   const [q, setQ] = useState("");
@@ -488,6 +491,7 @@ export function ProductsView({
           collections={collections}
           brands={brands}
           mediaLibrary={mediaLibrary}
+          semCores={semCores}
           onClose={() => setDetail(null)}
           onChanged={() => {
             setDetail(null);
@@ -503,6 +507,7 @@ export function ProductsView({
           collections={collections}
           brands={brands}
           mediaLibrary={mediaLibrary}
+          semCores={semCores}
           onClose={() => setShowNew(false)}
           onCreated={() => {
             setShowNew(false);
@@ -694,6 +699,7 @@ function ProductDetailModal({
   collections,
   brands,
   mediaLibrary = false,
+  semCores = false,
   onClose,
   onChanged,
 }: {
@@ -704,13 +710,15 @@ function ProductDetailModal({
   collections: string[];
   brands: string[];
   mediaLibrary?: boolean;
+  semCores?: boolean;
   onClose: () => void;
   onChanged: () => void;
 }) {
   const [busy, setBusy] = useState(false);
   const [removedIds, setRemovedIds] = useState<string[]>([]);
   const [newVariant, setNewVariant] = useState({
-    color: libraryColors[0]?.name ?? "",
+    // loja sem cores (semijoias): a cor não é pedida — nasce "Único"
+    color: semCores ? "Único" : libraryColors[0]?.name ?? "",
     size: librarySizes[0] ?? "",
     stock: "5",
   });
@@ -1007,7 +1015,8 @@ function ProductDetailModal({
                   .map((v) => (
                     <div key={v.id} className="flex items-center gap-2 px-3 py-1.5">
                       <span className="text-xs font-medium flex-1 min-w-0 truncate">
-                        {v.color} · {v.size}
+                        {/* loja sem cores mostra só o tamanho */}
+                        {semCores ? v.size : [v.color, v.size].filter(Boolean).join(" · ")}
                       </span>
                       <input
                         value={vskus[v.id] ?? ""}
@@ -1047,7 +1056,7 @@ function ProductDetailModal({
                     className="flex items-center gap-2 px-3 py-1.5 bg-emerald-50/60"
                   >
                     <span className="text-xs font-medium flex-1">
-                      {v.color} · {v.size}{" "}
+                      {semCores ? v.size : [v.color, v.size].filter(Boolean).join(" · ")}{" "}
                       <span className="text-emerald-600">(nova)</span>
                     </span>
                     <span className="text-xs tabular-nums">{v.stock}</span>
@@ -1064,19 +1073,22 @@ function ProductDetailModal({
                 ))}
               </div>
               <div className="flex gap-1.5 mt-2">
-                <select
-                  value={newVariant.color}
-                  onChange={(e) =>
-                    setNewVariant((v) => ({ ...v, color: e.target.value }))
-                  }
-                  className="flex-1 rounded-lg border border-gray-200 px-2 py-1.5 text-xs bg-white outline-none"
-                >
-                  {libraryColors.map((c) => (
-                    <option key={c.name} value={c.name}>
-                      {c.name}
-                    </option>
-                  ))}
-                </select>
+                {/* loja sem cores: só o tamanho — a cor vira "Único" sozinha */}
+                {!semCores && (
+                  <select
+                    value={newVariant.color}
+                    onChange={(e) =>
+                      setNewVariant((v) => ({ ...v, color: e.target.value }))
+                    }
+                    className="flex-1 rounded-lg border border-gray-200 px-2 py-1.5 text-xs bg-white outline-none"
+                  >
+                    {libraryColors.map((c) => (
+                      <option key={c.name} value={c.name}>
+                        {c.name}
+                      </option>
+                    ))}
+                  </select>
+                )}
                 <select
                   value={newVariant.size}
                   onChange={(e) =>
@@ -1492,6 +1504,7 @@ function NewProductModal({
   collections,
   brands,
   mediaLibrary = false,
+  semCores = false,
   onClose,
   onCreated,
 }: {
@@ -1501,6 +1514,7 @@ function NewProductModal({
   collections: string[];
   brands: string[];
   mediaLibrary?: boolean;
+  semCores?: boolean;
   onClose: () => void;
   onCreated: () => void;
 }) {
@@ -1518,8 +1532,12 @@ function NewProductModal({
 
   async function submit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    if (selColors.length === 0 || selSizes.length === 0) {
-      setError("Selecione ao menos uma cor e um tamanho.");
+    if ((!semCores && selColors.length === 0) || selSizes.length === 0) {
+      setError(
+        semCores
+          ? "Selecione ao menos um tamanho."
+          : "Selecione ao menos uma cor e um tamanho."
+      );
       return;
     }
     setSaving(true);
@@ -1529,7 +1547,8 @@ function NewProductModal({
       parseFloat(String(fd.get(name) ?? "0").replace(",", ".")) || 0;
 
     const stock = parseInt(stockPerVariant) || 0;
-    const variants = selColors.flatMap((color) =>
+    // loja sem cores: a grade nasce só por tamanho, com a cor fixa "Único"
+    const variants = (semCores ? ["Único"] : selColors).flatMap((color) =>
       selSizes.map((size) => ({ color, size, stock }))
     );
 
@@ -1678,6 +1697,8 @@ function NewProductModal({
                 <input name="weightGrams" className={input} inputMode="numeric" placeholder="Ex.: 250" />
               </div>
             </div>
+            {/* loja sem cores (semijoias): a grade é só por tamanho */}
+            {!semCores && (
             <div>
               <label className={label}>Cores (grade) *</label>
               <div className="flex flex-wrap gap-1.5">
@@ -1708,6 +1729,7 @@ function NewProductModal({
                 </a>
               </div>
             </div>
+            )}
             <div>
               <label className={label}>Tamanhos *</label>
               <div className="flex flex-wrap gap-1.5">

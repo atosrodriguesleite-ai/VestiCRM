@@ -43,6 +43,18 @@ describe("catálogo sem cores é escolha POR LOJA (ninguém mais muda)", () => {
     expect(catalogo).toContain('hideColors ? "" : ` ${c.color}`');
   });
 
+  it("o editor de produto também respeita: grade só por tamanho, cor 'Único'", () => {
+    const view = ler("src/app/(app)/produtos/products-view.tsx");
+    // editar produto: sem o seletor de cor, a nova variação nasce "Único"
+    expect(view).toContain('semCores ? "Único"');
+    // produto novo: grade montada sem a etapa de cores
+    expect(view).toContain('(semCores ? ["Único"] : selColors)');
+    // a tela recebe a MESMA chave da loja usada no catálogo
+    expect(ler("src/app/(app)/produtos/page.tsx")).toContain(
+      "semCores={company?.catalogHideColors ?? false}"
+    );
+  });
+
   it("a chavinha fica no Personalizar catálogo e grava pela API da loja", () => {
     expect(ler("src/app/(app)/configuracoes/catalogo/catalog-designer.tsx")).toContain(
       "catalogHideColors: hideColors"

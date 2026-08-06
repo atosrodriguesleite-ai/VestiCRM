@@ -155,6 +155,8 @@ export default async function ProductsPage() {
         mediaLibrary={company?.mediaLibraryEnabled ?? false}
         // mesma régua do gerenciador de categorias: gerência + suporte
         canOrganize={isManagerUp(user) || isSupport(user)}
+        // loja sem variação de cor (semijoias): a grade pede só o tamanho
+        semCores={company?.catalogHideColors ?? false}
       />
     </div>
   );
