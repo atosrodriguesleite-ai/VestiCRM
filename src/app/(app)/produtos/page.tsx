@@ -153,6 +153,8 @@ export default async function ProductsPage() {
         libraryColors={libraryColors.map((c) => ({ name: c.name, hex: c.hex }))}
         librarySizes={librarySizes.map((s) => s.name)}
         mediaLibrary={company?.mediaLibraryEnabled ?? false}
+        // mesma régua do gerenciador de categorias: gerência + suporte
+        canOrganize={isManagerUp(user) || isSupport(user)}
       />
     </div>
   );
