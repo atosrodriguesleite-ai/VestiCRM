@@ -260,6 +260,7 @@ export function PublicCatalog({
   customColors,
   tracking,
   hideSoldOut = false,
+  hideColors = false,
 }: {
   storeSlug: string;
   storeName: string;
@@ -282,6 +283,8 @@ export function PublicCatalog({
   tracking: Record<string, string | null>;
   /** chavinha da loja: esconder também o CARD da cor esgotada (não só o produto) */
   hideSoldOut?: boolean;
+  /** loja SEM variação de cor (semijoias): esconde bolinha e nome da cor */
+  hideColors?: boolean;
 }) {
   // Tema 100% personalizável pelo lojista: 3 cores base + derivadas
   const T = {
@@ -765,7 +768,8 @@ export function PublicCatalog({
         const sizeStr = Object.entries(sizes)
           .map(([t, n]) => `${t} ×${n}`)
           .join(", ");
-        msg += `• ${c.product.name} ${c.color} — ${sizeStr}  (${q} ${q > 1 ? "peças" : "peça"} · ${fmt(q * c.product.retailPrice)})\n`;
+        // loja sem cores: a mensagem também não fala em cor
+        msg += `• ${c.product.name}${hideColors ? "" : ` ${c.color}`} — ${sizeStr}  (${q} ${q > 1 ? "peças" : "peça"} · ${fmt(q * c.product.retailPrice)})\n`;
       }
       msg += "\n";
     }
@@ -1255,16 +1259,26 @@ export function PublicCatalog({
                         )}
                       </div>
                       <div className="px-3 pt-[11px] pb-[13px]">
-                        <p className="text-[10px] uppercase font-semibold m-0" style={{ color: T.muted, letterSpacing: ".12em" }}>
-                          {card.product.name}
-                        </p>
-                        <p className="text-[15px] font-bold my-1 flex items-center gap-[7px] leading-tight">
-                          <span
-                            className="size-3.5 rounded-full shrink-0"
-                            style={{ background: swatch(card.color), border: "1px solid rgba(0,0,0,.2)" }}
-                          />
-                          {card.color}
-                        </p>
+                        {/* loja sem cores (semijoias): o NOME assume o lugar
+                            de destaque e a bolinha/cor não aparecem */}
+                        {hideColors ? (
+                          <p className="text-[15px] font-bold my-1 leading-tight line-clamp-2">
+                            {card.product.name}
+                          </p>
+                        ) : (
+                          <>
+                            <p className="text-[10px] uppercase font-semibold m-0" style={{ color: T.muted, letterSpacing: ".12em" }}>
+                              {card.product.name}
+                            </p>
+                            <p className="text-[15px] font-bold my-1 flex items-center gap-[7px] leading-tight">
+                              <span
+                                className="size-3.5 rounded-full shrink-0"
+                                style={{ background: swatch(card.color), border: "1px solid rgba(0,0,0,.2)" }}
+                              />
+                              {card.color}
+                            </p>
+                          </>
+                        )}
                         <p className="text-[15px] font-bold m-0" style={{ color: T.primary }}>
                           {promo && card.product.originalRetailPrice ? (
                             <>
@@ -1486,13 +1500,15 @@ export function PublicCatalog({
                 {sheet.product.sku} · {sheet.product.category}
               </p>
               <p className="font-extrabold text-[21px] uppercase mt-1 mb-2.5">{sheet.product.name}</p>
-              <span
-                className="inline-flex items-center gap-2 rounded-[30px] px-3.5 py-[7px] text-[13px] font-bold"
-                style={{ background: T.soft, border: `1px solid ${T.line}`, color: T.primary }}
-              >
-                <span className="size-[15px] rounded-full" style={{ background: swatch(sheet.color), border: "1px solid rgba(0,0,0,.2)" }} />
-                Cor: {sheet.color}
-              </span>
+              {!hideColors && (
+                <span
+                  className="inline-flex items-center gap-2 rounded-[30px] px-3.5 py-[7px] text-[13px] font-bold"
+                  style={{ background: T.soft, border: `1px solid ${T.line}`, color: T.primary }}
+                >
+                  <span className="size-[15px] rounded-full" style={{ background: swatch(sheet.color), border: "1px solid rgba(0,0,0,.2)" }} />
+                  Cor: {sheet.color}
+                </span>
+              )}
               {sheet.product.description && (
                 <p className="text-sm font-medium leading-relaxed mt-3.5 mb-1" style={{ color: T.muted }}>
                   {sheet.product.description}
@@ -1670,8 +1686,10 @@ export function PublicCatalog({
                           )}
                           <div className="flex-1 min-w-0">
                             <p className="font-bold text-sm m-0 flex items-center gap-[7px]">
-                              <span className="size-[13px] rounded-full shrink-0" style={{ background: swatch(c.color), border: "1px solid rgba(0,0,0,.2)" }} />
-                              {c.product.name} · {c.color}
+                              {!hideColors && (
+                                <span className="size-[13px] rounded-full shrink-0" style={{ background: swatch(c.color), border: "1px solid rgba(0,0,0,.2)" }} />
+                              )}
+                              {hideColors ? c.product.name : `${c.product.name} · ${c.color}`}
                             </p>
                             <p className="text-[13px] font-semibold mt-1 m-0">
                               {Object.entries(sizes).map(([t, n], i) => (

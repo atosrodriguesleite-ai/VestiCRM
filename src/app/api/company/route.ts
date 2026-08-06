@@ -21,6 +21,8 @@ const schema = z.object({
   catalogLogoSize: z.enum(["normal", "grande"]).optional(),
   // esconder do catálogo os produtos sem estoque (indisponíveis)
   catalogHideOutOfStock: z.boolean().optional(),
+  // loja sem variação de cor (semijoias): esconde a bolinha/nome da cor
+  catalogHideColors: z.boolean().optional(),
   // ordem das categorias no catálogo (lista de nomes, na ordem desejada)
   categoryOrder: z.array(z.string().min(1).max(60)).max(200).optional(),
   // identidade visual do catálogo
@@ -108,6 +110,7 @@ export async function PATCH(req: NextRequest) {
       catalogFont: updated.catalogFont,
       catalogLogoSize: updated.catalogLogoSize,
       catalogHideOutOfStock: updated.catalogHideOutOfStock,
+      catalogHideColors: updated.catalogHideColors,
     });
   } catch (e) {
     if (e instanceof AuthError)

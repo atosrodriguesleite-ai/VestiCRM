@@ -124,6 +124,7 @@ export default async function PromoCatalogPage({
       logoSize={company.catalogLogoSize as "normal" | "grande"}
       // mesma régua do catálogo geral: cor esgotada some quando a chave está ligada
       hideSoldOut={company.catalogHideOutOfStock}
+      hideColors={company.catalogHideColors}
       identity={{
         logoUrl: company.logoUrl,
         primary: company.catalogPrimary,
