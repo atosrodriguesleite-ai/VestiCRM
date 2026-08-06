@@ -415,7 +415,7 @@ export function ProductsView({
                 value={catDestino}
                 onChange={(e) => setCatDestino(e.target.value)}
                 list="cats-organizador"
-                placeholder="Categoria de destino..."
+                placeholder="Escolher ou CRIAR categoria (digite o nome)..."
                 className="flex-1 min-w-36 rounded-xl border border-gray-200 px-3 py-2 text-sm outline-none focus:border-brand-400 transition"
               />
               <datalist id="cats-organizador">
@@ -423,6 +423,16 @@ export function ProductsView({
                   <option key={c} value={c} />
                 ))}
               </datalist>
+              {/* digitou um nome que não existe? avisa que vai NASCER agora —
+                  a categoria nova é criada junto com a aplicação, sem passo extra */}
+              {catDestino.trim() &&
+                !categories.some(
+                  (c) => c.toLowerCase() === catDestino.trim().toLowerCase()
+                ) && (
+                  <span className="basis-full text-[11px] font-medium text-emerald-600 -mt-1">
+                    ✨ A categoria nova “{catDestino.trim()}” será criada ao aplicar
+                  </span>
+                )}
               <button
                 onClick={aplicarCategoria}
                 disabled={!catDestino.trim() || selecionados.size === 0 || aplicando}
