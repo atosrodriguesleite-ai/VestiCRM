@@ -66,6 +66,7 @@ export function ProductsView({
   mediaLibrary = false,
   canOrganize = false,
   semCores = false,
+  ocultaSemEstoque = false,
 }: {
   initial: ProductItem[];
   categories: string[];
@@ -80,6 +81,8 @@ export function ProductsView({
   canOrganize?: boolean;
   /** loja sem variação de cor (semijoias): a grade pede só o tamanho */
   semCores?: boolean;
+  /** chave "esconder sem estoque" ligada: o crachá do card explica o sumiço */
+  ocultaSemEstoque?: boolean;
 }) {
   const router = useRouter();
   const [q, setQ] = useState("");
@@ -356,9 +359,17 @@ export function ProductsView({
                       Sem foto · oculto
                     </span>
                   )}
-                  {stock === 0 && p.active && p.images.length > 0 && (
+                  {/* sem NENHUMA variação (ex.: Nuvemshop sem SKU): o catálogo
+                      não tem grade para desenhar — o crachá explica o sumiço */}
+                  {p.active && p.images.length > 0 && p.variants.length === 0 && (
                     <span className="absolute top-2 left-2 bg-rose-600/90 text-white text-[10px] font-medium rounded-full px-2 py-0.5">
-                      Sem estoque
+                      Sem grade · oculto
+                    </span>
+                  )}
+                  {stock === 0 && p.active && p.images.length > 0 && p.variants.length > 0 && (
+                    <span className="absolute top-2 left-2 bg-rose-600/90 text-white text-[10px] font-medium rounded-full px-2 py-0.5">
+                      {/* com a chave da loja ligada, zerado = fora do catálogo */}
+                      {ocultaSemEstoque ? "Sem estoque · oculto" : "Sem estoque"}
                     </span>
                   )}
                   {p.images.length > 1 && (

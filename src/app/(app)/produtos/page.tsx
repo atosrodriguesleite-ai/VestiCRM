@@ -157,6 +157,8 @@ export default async function ProductsPage() {
         canOrganize={isManagerUp(user) || isSupport(user)}
         // loja sem variação de cor (semijoias): a grade pede só o tamanho
         semCores={company?.catalogHideColors ?? false}
+        // o crachá do card diz POR QUE a peça está fora do catálogo
+        ocultaSemEstoque={company?.catalogHideOutOfStock ?? false}
       />
     </div>
   );
