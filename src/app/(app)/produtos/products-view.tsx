@@ -11,6 +11,7 @@ import { Card, EmptyState } from "@/components/ui";
 import { fileToDataUrl } from "@/lib/upload";
 import { ImportCatalog } from "./import-catalog";
 import { casaTexto } from "@/lib/busca";
+import { motivoOculto } from "@/lib/catalogo/visibilidade";
 
 type LibraryColor = { name: string; hex: string };
 
@@ -38,6 +39,8 @@ export type ProductItem = {
   weightGrams: number | null; // peso da peça (g) para cotar frete
   active: boolean;
   tags: string | null;
+  /** peça espelhada da loja online — muda o conselho quando ela está inativa */
+  nuvemshopId: string | null;
   // fotos em ordem — a primeira é a CAPA (aparece na grade e no catálogo)
   images: { id: string; url: string; color?: string | null }[];
   variants: { id: string; color: string; size: string; stock: number; sku: string | null }[];
@@ -63,6 +66,7 @@ export function ProductsView({
   libraryColors,
   librarySizes,
   mediaLibrary = false,
+  hideOutOfStock = false,
 }: {
   initial: ProductItem[];
   categories: string[];
@@ -73,6 +77,8 @@ export function ProductsView({
   libraryColors: LibraryColor[];
   librarySizes: string[];
   mediaLibrary?: boolean;
+  /** chavinha da loja: esconder do catálogo o que está sem estoque */
+  hideOutOfStock?: boolean;
 }) {
   const router = useRouter();
   const [q, setQ] = useState("");
@@ -85,8 +91,27 @@ export function ProductsView({
   const [onlyStock, setOnlyStock] = useState(false);
   const [onlyNoPhoto, setOnlyNoPhoto] = useState(false);
   const [onlyNoSku, setOnlyNoSku] = useState(false);
+  const [onlyHidden, setOnlyHidden] = useState(false);
   const [showNew, setShowNew] = useState(false);
   const [detail, setDetail] = useState<ProductItem | null>(null);
+
+  /**
+   * FORA DO CATÁLOGO: o motivo de cada peça, calculado uma vez só.
+   * É a mesma régua da vitrine pública (lib/catalogo/visibilidade.ts) — a tela
+   * não repete regra nenhuma, senão as duas desencontram com o tempo.
+   */
+  const ocultos = useMemo(() => {
+    const mapa = new Map<string, ReturnType<typeof motivoOculto>>();
+    for (const p of initial) {
+      mapa.set(p.id, motivoOculto(p, { esconderSemEstoque: hideOutOfStock }));
+    }
+    return mapa;
+  }, [initial, hideOutOfStock]);
+
+  const hiddenCount = useMemo(
+    () => [...ocultos.values()].filter(Boolean).length,
+    [ocultos]
+  );
 
   const filtered = useMemo(
     () =>
@@ -106,9 +131,10 @@ export function ProductsView({
         if (onlyStock && totalStock(p) === 0) return false;
         if (onlyNoPhoto && p.images.length > 0) return false;
         if (onlyNoSku && !missingSku(p)) return false;
+        if (onlyHidden && !ocultos.get(p.id)) return false;
         return true;
       }),
-    [initial, q, category, collection, brand, color, size, maxPrice, onlyStock, onlyNoPhoto, onlyNoSku]
+    [initial, q, category, collection, brand, color, size, maxPrice, onlyStock, onlyNoPhoto, onlyNoSku, onlyHidden, ocultos]
   );
 
   // quantos itens estão sem foto (ajuda a priorizar depois da importação)
@@ -202,6 +228,21 @@ export function ProductsView({
             <span className="rounded-full bg-rose-100 text-rose-700 text-[10px] font-semibold px-1.5 py-0.5">{noSkuCount}</span>
           </label>
         )}
+        {hiddenCount > 0 && (
+          <label
+            className="flex items-center gap-1.5 text-xs text-gray-600 cursor-pointer"
+            title="Peças que a cliente NÃO vê no catálogo. Abra cada uma para ver o motivo e o que fazer."
+          >
+            <input
+              type="checkbox"
+              checked={onlyHidden}
+              onChange={(e) => setOnlyHidden(e.target.checked)}
+              className="size-3.5 accent-brand-600"
+            />
+            Fora do catálogo
+            <span className="rounded-full bg-gray-800 text-white text-[10px] font-semibold px-1.5 py-0.5">{hiddenCount}</span>
+          </label>
+        )}
         <div className="ml-auto flex items-center gap-2">
           <ImportCatalog />
           <button
@@ -248,6 +289,7 @@ export function ProductsView({
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
           {filtered.map((p) => {
             const stock = totalStock(p);
+            const oculto = ocultos.get(p.id) ?? null;
             return (
               <button
                 key={p.id}
@@ -267,21 +309,26 @@ export function ProductsView({
                       <Package className="size-10" />
                     </div>
                   )}
-                  {!p.active && (
-                    <span className="absolute top-2 left-2 bg-gray-800/80 text-white text-[10px] font-medium rounded-full px-2 py-0.5">
-                      Inativo
+                  {/* UM selo só, e ele diz a verdade: se a peça está fora do
+                      catálogo, o selo é "oculto" com o motivo. Antes o card
+                      dizia "Sem estoque" para uma peça que a cliente nem via —
+                      a lojista achava que era erro do sistema. */}
+                  {oculto ? (
+                    <span
+                      title={`${oculto.motivo} ${oculto.comoResolver}`}
+                      className="absolute top-2 left-2 bg-gray-900/85 text-white text-[10px] font-medium rounded-full px-2 py-0.5"
+                    >
+                      {oculto.curto}
                     </span>
-                  )}
-                  {/* sem foto: fica OCULTO no catálogo público até ganhar imagem */}
-                  {p.active && p.images.length === 0 && (
-                    <span className="absolute top-2 left-2 bg-amber-500/90 text-white text-[10px] font-medium rounded-full px-2 py-0.5">
-                      Sem foto · oculto
-                    </span>
-                  )}
-                  {stock === 0 && p.active && p.images.length > 0 && (
-                    <span className="absolute top-2 left-2 bg-rose-600/90 text-white text-[10px] font-medium rounded-full px-2 py-0.5">
-                      Sem estoque
-                    </span>
+                  ) : (
+                    stock === 0 && (
+                      <span
+                        title="A peça aparece no catálogo, mas esgotada (a cliente não consegue pedir)."
+                        className="absolute top-2 left-2 bg-rose-600/90 text-white text-[10px] font-medium rounded-full px-2 py-0.5"
+                      >
+                        Sem estoque
+                      </span>
+                    )
                   )}
                   {p.images.length > 1 && (
                     <span className="absolute bottom-2 right-2 bg-black/55 text-white text-[10px] font-medium rounded-full px-2 py-0.5">
@@ -325,6 +372,7 @@ export function ProductsView({
           collections={collections}
           brands={brands}
           mediaLibrary={mediaLibrary}
+          hideOutOfStock={hideOutOfStock}
           onClose={() => setDetail(null)}
           onChanged={() => {
             setDetail(null);
@@ -360,6 +408,7 @@ function ProductDetailModal({
   collections,
   brands,
   mediaLibrary = false,
+  hideOutOfStock = false,
   onClose,
   onChanged,
 }: {
@@ -370,6 +419,7 @@ function ProductDetailModal({
   collections: string[];
   brands: string[];
   mediaLibrary?: boolean;
+  hideOutOfStock?: boolean;
   onClose: () => void;
   onChanged: () => void;
 }) {
@@ -380,6 +430,11 @@ function ProductDetailModal({
     size: librarySizes[0] ?? "",
     stock: "5",
   });
+  // a linha de nova variação já nasce preenchida (primeira cor, primeiro
+  // tamanho, 5 peças). Só é "digitada de verdade" depois que a pessoa mexe —
+  // é isso que separa o esquecimento do + de um campo intocado.
+  const [novaMexida, setNovaMexida] = useState(false);
+  const [avisoGrade, setAvisoGrade] = useState("");
   const [pendingAdds, setPendingAdds] = useState<
     { color: string; size: string; stock: number }[]
   >([]);
@@ -431,6 +486,32 @@ function ProductDetailModal({
     setForm((f) => ({ ...f, [k]: e.target.value }));
 
   async function save() {
+    /**
+     * NADA SE PERDE NA GRADE.
+     *
+     * Caso real (Toque Leve): a lojista escolheu a cor, o tamanho e a
+     * quantidade, NÃO clicou no +, clicou em Salvar — e a cor nunca chegou ao
+     * catálogo. O sistema descartava a linha em silêncio. Agora, se ela mexeu
+     * na linha e a combinação ainda não está na grade, a gente pergunta.
+     */
+    let extras = pendingAdds;
+    if (
+      novaMexida &&
+      newVariant.color &&
+      newVariant.size &&
+      !jaNaGrade(newVariant.color, newVariant.size)
+    ) {
+      const qtd = parseInt(newVariant.stock) || 0;
+      const incluir = window.confirm(
+        `Você escolheu ${newVariant.color} · ${newVariant.size} (${qtd} peça${qtd === 1 ? "" : "s"}) e não clicou no +.\n\nQuer incluir essa variação na grade?`
+      );
+      if (incluir) {
+        extras = [...pendingAdds, { color: newVariant.color, size: newVariant.size, stock: qtd }];
+        setPendingAdds(extras);
+      }
+      setNovaMexida(false);
+    }
+
     setBusy(true);
     const res = await fetch(`/api/products/${product.id}`, {
       method: "PATCH",
@@ -459,7 +540,7 @@ function ProductDetailModal({
             stock: parseInt(stock) || 0,
             sku: (vskus[id] ?? "").trim() || null,
           })),
-        addVariants: pendingAdds,
+        addVariants: extras,
         removeVariantIds: removedIds,
       }),
     });
@@ -507,16 +588,34 @@ function ProductDetailModal({
     onChanged();
   }
 
-  function addPendingVariant() {
-    if (!newVariant.color || !newVariant.size) return;
-    const exists =
+  /**
+   * A linha "cor · tamanho · quantidade" já está na grade (salva ou pendente)?
+   * Serve tanto para o + quanto para o resgate no salvar.
+   */
+  function jaNaGrade(color: string, size: string) {
+    return (
       product.variants.some(
-        (v) => v.color === newVariant.color && v.size === newVariant.size
-      ) ||
-      pendingAdds.some(
-        (v) => v.color === newVariant.color && v.size === newVariant.size
+        (v) => v.color === color && v.size === size && !removedIds.includes(v.id)
+      ) || pendingAdds.some((v) => v.color === color && v.size === size)
+    );
+  }
+
+  /**
+   * Adiciona a variação digitada. Antes, quando a combinação já existia ou
+   * faltava cor/tamanho, o botão + não fazia NADA e não dizia nada — a pessoa
+   * clicava, não via reação e achava que tinha adicionado.
+   */
+  function addPendingVariant() {
+    if (!newVariant.color || !newVariant.size) {
+      setAvisoGrade("Escolha a cor e o tamanho antes de adicionar.");
+      return false;
+    }
+    if (jaNaGrade(newVariant.color, newVariant.size)) {
+      setAvisoGrade(
+        `${newVariant.color} · ${newVariant.size} já está na grade — mude a quantidade na linha dela.`
       );
-    if (exists) return;
+      return false;
+    }
     setPendingAdds((prev) => [
       ...prev,
       {
@@ -525,11 +624,17 @@ function ProductDetailModal({
         stock: parseInt(newVariant.stock) || 0,
       },
     ]);
+    setNovaMexida(false);
+    setAvisoGrade("");
+    return true;
   }
 
   const input =
     "w-full rounded-xl border border-gray-200 px-3 py-2 text-sm outline-none focus:border-brand-400 transition";
   const label = "block text-xs font-medium text-gray-500 mb-1";
+
+  // motivo do que está SALVO hoje (o que a cliente vê agora, não o rascunho)
+  const oculto = motivoOculto(product, { esconderSemEstoque: hideOutOfStock });
 
   return (
     <Portal><div className="fixed inset-0 z-50 flex items-end md:items-center justify-center pb-[var(--kb,0px)]">
@@ -548,6 +653,20 @@ function ProductDetailModal({
             <X className="size-5" />
           </button>
         </div>
+
+        {/* A CLIENTE NÃO ESTÁ VENDO ESTA PEÇA — e por quê. Sem isto, a lojista
+            só descobria abrindo o catálogo e procurando peça por peça. */}
+        {oculto && (
+          <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-3.5 py-2.5">
+            <p className="text-sm font-semibold text-amber-900">
+              Esta peça não aparece no catálogo da cliente
+            </p>
+            <p className="text-xs text-amber-800 mt-0.5">{oculto.motivo}</p>
+            <p className="text-xs text-amber-700 mt-1">
+              <b>O que fazer:</b> {oculto.comoResolver}
+            </p>
+          </div>
+        )}
 
         <div className="grid md:grid-cols-2 gap-5">
           <div className="space-y-3">
@@ -732,9 +851,11 @@ function ProductDetailModal({
               <div className="flex gap-1.5 mt-2">
                 <select
                   value={newVariant.color}
-                  onChange={(e) =>
-                    setNewVariant((v) => ({ ...v, color: e.target.value }))
-                  }
+                  onChange={(e) => {
+                    setNewVariant((v) => ({ ...v, color: e.target.value }));
+                    setNovaMexida(true);
+                    setAvisoGrade("");
+                  }}
                   className="flex-1 rounded-lg border border-gray-200 px-2 py-1.5 text-xs bg-white outline-none"
                 >
                   {libraryColors.map((c) => (
@@ -745,9 +866,11 @@ function ProductDetailModal({
                 </select>
                 <select
                   value={newVariant.size}
-                  onChange={(e) =>
-                    setNewVariant((v) => ({ ...v, size: e.target.value }))
-                  }
+                  onChange={(e) => {
+                    setNewVariant((v) => ({ ...v, size: e.target.value }));
+                    setNovaMexida(true);
+                    setAvisoGrade("");
+                  }}
                   className="w-20 rounded-lg border border-gray-200 px-2 py-1.5 text-xs bg-white outline-none"
                 >
                   {librarySizes.map((s) => (
@@ -758,24 +881,41 @@ function ProductDetailModal({
                 </select>
                 <input
                   value={newVariant.stock}
-                  onChange={(e) =>
+                  onChange={(e) => {
                     setNewVariant((v) => ({
                       ...v,
                       stock: e.target.value.replace(/\D/g, ""),
-                    }))
-                  }
+                    }));
+                    setNovaMexida(true);
+                    setAvisoGrade("");
+                  }}
                   inputMode="numeric"
                   className="w-14 rounded-lg border border-gray-200 px-2 py-1.5 text-xs text-right outline-none"
                 />
                 <button
                   type="button"
                   onClick={addPendingVariant}
-                  className="rounded-lg bg-brand-600 hover:bg-brand-700 text-white px-2.5 transition"
-                  title="Adicionar variação"
+                  className={`rounded-lg text-white px-2.5 transition ${
+                    novaMexida
+                      ? "bg-emerald-600 hover:bg-emerald-700 animate-pulse"
+                      : "bg-brand-600 hover:bg-brand-700"
+                  }`}
+                  title="Adicionar variação à grade"
                 >
                   <Plus className="size-3.5" />
                 </button>
               </div>
+              {/* o + já não some em silêncio: ou entra na grade, ou diz por quê */}
+              {avisoGrade && (
+                <p className="text-[11px] text-amber-700 bg-amber-50 rounded-lg px-2 py-1 mt-1.5">
+                  {avisoGrade}
+                </p>
+              )}
+              {novaMexida && !avisoGrade && (
+                <p className="text-[11px] text-emerald-700 bg-emerald-50 rounded-lg px-2 py-1 mt-1.5">
+                  Falta clicar no <b>+</b> para {newVariant.color} · {newVariant.size} entrar na grade.
+                </p>
+              )}
               <p className="text-[10px] text-gray-400 mt-1">
                 Cores e tamanhos vêm da sua biblioteca em{" "}
                 <a href="/configuracoes/catalogo" className="text-brand-600 underline">

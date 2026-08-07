@@ -53,6 +53,7 @@ export default async function ProductsPage() {
     weightGrams: p.weightGrams,
     active: p.active,
     tags: p.tags,
+    nuvemshopId: p.nuvemshopId,
     images: p.images.map((i) => ({ id: i.id, url: imageHref(i.id), color: i.color })),
     variants: p.variants.map((v) => ({
       id: v.id,
@@ -153,6 +154,7 @@ export default async function ProductsPage() {
         libraryColors={libraryColors.map((c) => ({ name: c.name, hex: c.hex }))}
         librarySizes={librarySizes.map((s) => s.name)}
         mediaLibrary={company?.mediaLibraryEnabled ?? false}
+        hideOutOfStock={company?.catalogHideOutOfStock ?? false}
       />
     </div>
   );
