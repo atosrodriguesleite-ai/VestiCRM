@@ -179,9 +179,13 @@ export function BioEditor({
 
   const publicUrl = `${publicBase}/${page.slug}`;
 
-  // insights: cliques totais, taxa de clique e ranking de botões
+  // insights: cliques totais, cliques por visita e ranking de botões.
+  // NÃO é "taxa de clique" (%): a mesma pessoa clica em vários botões
+  // (catálogo + site + WhatsApp), então cliques > visitas é normal — e o
+  // antigo "103%" confundia (relato de 06/08/2026). A conta honesta com os
+  // dados que temos é a MÉDIA de cliques por visita.
   const totalClicks = links.reduce((s, l) => s + l.clicks, 0);
-  const ctr = page.views > 0 ? Math.round((totalClicks / page.views) * 100) : 0;
+  const ctr = page.views > 0 ? totalClicks / page.views : 0;
   const topLinks = [...links].filter((l) => l.clicks > 0).sort((a, b) => b.clicks - a.clicks).slice(0, 4);
 
   // Relatório por período. "Tudo" (period=0) usa os totais acumulados já
@@ -436,9 +440,9 @@ export function BioEditor({
                   hint="Soma dos cliques em TODOS os botões da bio (WhatsApp, catálogo, site, etc.). Cada toque num botão conta 1 clique."
                 />
                 <StatCard
-                  value={`${report.ctr}%`}
-                  label="Taxa de clique"
-                  hint="Dos que abriram a bio, quantos % clicaram em algum botão. Conta: cliques ÷ visitas × 100. Ex.: 10 visitas e 3 cliques = 30%. Quanto maior, mais a sua bio converte atenção em ação."
+                  value={report.ctr.toFixed(1).replace(".", ",")}
+                  label="Cliques por visita"
+                  hint="Média de cliques que cada visita dá na sua bio. Conta: cliques ÷ visitas. Pode passar de 1: a mesma pessoa clica em mais de um botão (catálogo + WhatsApp, por exemplo). Ex.: 10 visitas e 13 cliques = 1,3. Quanto maior, mais a sua bio converte atenção em ação."
                 />
               </div>
 

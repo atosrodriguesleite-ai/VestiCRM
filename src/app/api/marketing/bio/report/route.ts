@@ -83,7 +83,9 @@ export async function GET(req: NextRequest) {
       bagsValue = bgAgg._sum.cartValue ?? 0;
     }
 
-    const ctr = visitas > 0 ? Math.round((cliques / visitas) * 100) : 0;
+    // MÉDIA de cliques por visita (não é % — a mesma pessoa clica em vários
+    // botões, então o antigo "103%" era normal e parecia bug)
+    const ctr = visitas > 0 ? cliques / visitas : 0;
     return NextResponse.json({
       visitas,
       cliques,
