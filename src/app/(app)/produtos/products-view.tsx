@@ -16,6 +16,19 @@ import { motivoOculto } from "@/lib/catalogo/visibilidade";
 
 type LibraryColor = { name: string; hex: string };
 
+/** Resposta do conferidor (`GET /api/products/[id]/catalogo`). */
+type ConferenciaCatalogo = {
+  lojaSuspensa: boolean;
+  catalogoGeral: {
+    url: string;
+    aparece: boolean;
+    motivo: string | null;
+    comoResolver: string | null;
+  };
+  cores: { cor: string; pecas: number; aparece: boolean }[];
+  campanhas: { nome: string; url: string; inclui: boolean }[];
+};
+
 type StockMov = {
   id: string;
   variacao: string;
@@ -808,6 +821,10 @@ function ProductDetailModal({
   const [hist, setHist] = useState<StockMov[] | null>(null);
   const [histBusy, setHistBusy] = useState(false);
   const [histAberto, setHistAberto] = useState(false);
+  // conferidor de catálogo (resposta vinda do banco, não da tela)
+  const [conf, setConf] = useState<ConferenciaCatalogo | null>(null);
+  const [confBusy, setConfBusy] = useState(false);
+  const [confAberto, setConfAberto] = useState(false);
 
   async function verHistorico() {
     if (histAberto) {
@@ -821,6 +838,26 @@ function ProductDetailModal({
     const d = await res.json().catch(() => ({}));
     setHistBusy(false);
     if (res.ok) setHist(d.movimentos ?? []);
+  }
+
+  /**
+   * CONFERIDOR: pergunta ao BANCO se a cliente está vendo esta peça.
+   * O aviso amarelo cobre os motivos conhecidos; isto responde o caso em que
+   * a peça está certa e a cliente continua sem ver — quase sempre porque o
+   * link enviado foi o de uma CAMPANHA, que só tem as peças selecionadas.
+   */
+  async function conferirCatalogo() {
+    if (confAberto) {
+      setConfAberto(false);
+      return;
+    }
+    setConfAberto(true);
+    if (conf) return;
+    setConfBusy(true);
+    const res = await fetch(`/api/products/${product.id}/catalogo`);
+    const d = await res.json().catch(() => null);
+    setConfBusy(false);
+    if (res.ok) setConf(d);
   }
 
   const num = (v: string) => parseFloat(v.replace(",", ".")) || 0;
@@ -1273,14 +1310,125 @@ function ProductDetailModal({
                 . Ajustes de estoque ficam no histórico de movimentações.
               </p>
 
-              <button
-                type="button"
-                onClick={verHistorico}
-                className="mt-2.5 inline-flex items-center gap-1.5 text-xs font-medium text-gray-500 hover:text-brand-600 transition"
-              >
-                <History className="size-3.5" />
-                {histAberto ? "Ocultar histórico de estoque" : "Ver histórico de estoque"}
-              </button>
+              <div className="mt-2.5 flex flex-wrap items-center gap-x-4 gap-y-1.5">
+                <button
+                  type="button"
+                  onClick={verHistorico}
+                  className="inline-flex items-center gap-1.5 text-xs font-medium text-gray-500 hover:text-brand-600 transition"
+                >
+                  <History className="size-3.5" />
+                  {histAberto ? "Ocultar histórico de estoque" : "Ver histórico de estoque"}
+                </button>
+                <button
+                  type="button"
+                  onClick={conferirCatalogo}
+                  title="Pergunta ao sistema, com os dados de verdade, se a cliente está vendo esta peça"
+                  className="inline-flex items-center gap-1.5 text-xs font-medium text-gray-500 hover:text-brand-600 transition"
+                >
+                  <Search className="size-3.5" />
+                  {confAberto ? "Ocultar conferência" : "A cliente está vendo esta peça?"}
+                </button>
+              </div>
+
+              {confAberto && (
+                <div className="mt-2 rounded-xl border border-gray-100 bg-gray-50/60 p-2.5">
+                  {confBusy ? (
+                    <p className="flex items-center gap-1.5 text-xs text-gray-400 px-1 py-2">
+                      <Loader2 className="size-3.5 animate-spin" /> Conferindo…
+                    </p>
+                  ) : !conf ? (
+                    <p className="text-xs text-gray-400 px-1 py-2">
+                      Não consegui conferir agora. Tente de novo em instantes.
+                    </p>
+                  ) : (
+                    <div className="space-y-2">
+                      {/* veredito do catálogo GERAL — o link do dia a dia */}
+                      <p
+                        className={`text-xs font-semibold ${
+                          conf.catalogoGeral.aparece ? "text-emerald-700" : "text-rose-700"
+                        }`}
+                      >
+                        {conf.catalogoGeral.aparece
+                          ? "✅ Aparece no catálogo geral da loja"
+                          : "❌ NÃO aparece no catálogo geral da loja"}
+                      </p>
+                      {conf.lojaSuspensa && (
+                        <p className="text-xs text-rose-700">
+                          A loja está <b>suspensa</b> — o catálogo inteiro está fora do ar.
+                        </p>
+                      )}
+                      {conf.catalogoGeral.motivo && (
+                        <p className="text-xs text-gray-600">
+                          {conf.catalogoGeral.motivo}{" "}
+                          <b className="text-gray-800">{conf.catalogoGeral.comoResolver}</b>
+                        </p>
+                      )}
+
+                      {/* cor por cor: o catálogo mostra um card por COR */}
+                      {conf.cores.length > 0 && (
+                        <div className="flex flex-wrap gap-1">
+                          {conf.cores.map((c) => (
+                            <span
+                              key={c.cor}
+                              className={`text-[10px] rounded-full px-2 py-0.5 ${
+                                c.aparece
+                                  ? "bg-emerald-100 text-emerald-700"
+                                  : "bg-gray-200 text-gray-500 line-through"
+                              }`}
+                              title={
+                                c.aparece
+                                  ? `${c.pecas} peça(s) — a cliente vê esta cor`
+                                  : "A cliente NÃO vê esta cor"
+                              }
+                            >
+                              {c.cor} · {c.pecas}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+
+                      {/* O LINK IMPORTA: catálogo de campanha só tem as peças
+                          escolhidas. Peça certa + link de campanha = cliente
+                          sem ver, e não é defeito da peça. */}
+                      {conf.campanhas.length > 0 && (
+                        <div className="border-t border-gray-200 pt-2">
+                          <p className="text-[11px] font-medium text-gray-500 mb-1">
+                            Catálogos de campanha da loja
+                          </p>
+                          <ul className="space-y-0.5">
+                            {conf.campanhas.map((c) => (
+                              <li key={c.url} className="text-xs text-gray-600">
+                                {c.inclui ? "✅" : "❌"} {c.nome}
+                                {!c.inclui && (
+                                  <span className="text-gray-400">
+                                    {" "}
+                                    — quem receber ESTE link não vê a peça
+                                  </span>
+                                )}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+
+                      {conf.catalogoGeral.aparece && (
+                        <p className="text-[11px] text-gray-500 border-t border-gray-200 pt-2">
+                          Está tudo certo aqui. Se a cliente continua sem ver, confira{" "}
+                          <b>qual link foi enviado</b> (campanha × geral) e peça para ela
+                          recarregar a página.{" "}
+                          <a
+                            href={conf.catalogoGeral.url}
+                            target="_blank"
+                            className="text-brand-600 underline"
+                          >
+                            Abrir o catálogo geral
+                          </a>
+                        </p>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
 
               {histAberto && (
                 <div className="mt-2 rounded-xl border border-gray-100 bg-gray-50/60 p-2.5">
