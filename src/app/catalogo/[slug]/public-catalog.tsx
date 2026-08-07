@@ -304,7 +304,7 @@ export function PublicCatalog({
 
   // a ordem das categorias (menu e seções) é escolhida pelo lojista em
   // Personalizar catálogo; as que ficarem fora da lista vão para o fim
-  const categories = useMemo(
+  const categoriasBrutas = useMemo(
     () => sortCategories([...new Set(products.map((p) => p.category))], categoryOrder),
     [products, categoryOrder]
   );
@@ -312,8 +312,27 @@ export function PublicCatalog({
   // TIPO DE PEÇA: o guarda-chuva das categorias. Lista vazia quando a loja não
   // usa o recurso — aí o catálogo fica exatamente como era, com uma barra só.
   const grupos = useMemo(
-    () => agruparPorTipo(categories, categoryTypes),
-    [categories, categoryTypes]
+    () => agruparPorTipo(categoriasBrutas, categoryTypes),
+    [categoriasBrutas, categoryTypes]
+  );
+
+  /**
+   * AS SEÇÕES SEGUEM OS TIPOS — senão a barra de cima mente.
+   *
+   * A aba "Conjuntos de short" juntava as categorias de short numa lista só,
+   * mas a PÁGINA continuava na ordem crua das categorias. Resultado real
+   * (Toque Leve): um short, depois legging, depois blusa, depois o OUTRO
+   * short. Quem tocava em "Conjuntos de short" caía no primeiro, rolava,
+   * via legging e concluía que o short não estava no catálogo — sendo que
+   * ele estava, enterrado lá embaixo, depois de outros tipos.
+   *
+   * Agora a página é desenhada na MESMA ordem da barra: tudo de um tipo
+   * junto, e "Outros" (categoria sem guarda-chuva) por último. Loja que não
+   * usa tipos não muda nada — `agruparPorTipo` devolve lista vazia.
+   */
+  const categories = useMemo(
+    () => (grupos.length ? grupos.flatMap((g) => g.categorias) : categoriasBrutas),
+    [grupos, categoriasBrutas]
   );
 
   const cardsByCategory = useMemo(() => {

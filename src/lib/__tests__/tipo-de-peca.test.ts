@@ -144,7 +144,10 @@ describe("as portas estão ligadas", () => {
 
   it("o catálogo monta os grupos e acende o tipo pela rolagem", () => {
     const cat = ler("src/app/catalogo/[slug]/public-catalog.tsx");
-    expect(cat).toContain("agruparPorTipo(categories, categoryTypes)");
+    // os grupos saem da ordem CRUA das categorias; a ordem das seções sai
+    // depois dos grupos (achatada), para a página seguir a barra — ver
+    // `catalogo-secoes-por-tipo.test.ts`
+    expect(cat).toContain("agruparPorTipo(categoriasBrutas, categoryTypes)");
     // o tipo ativo SAI da categoria ativa: sem observador novo, sem estado paralelo
     expect(cat).toContain("g.categorias.includes(categories[activeCat])");
     // a barra de baixo mostra só as categorias do tipo que está sendo visto
