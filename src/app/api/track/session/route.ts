@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { startSession } from "@/lib/tracking/engine";
+import { ehRobo } from "@/lib/robo";
 
 const schema = z.object({
   company: z.string().min(1),
@@ -22,6 +23,12 @@ const schema = z.object({
 
 /** Abre uma sessão de navegação no catálogo (Tracking Engine). */
 export async function POST(req: NextRequest) {
+  // robô não abre sessão: mesma régua da bio (visita e clique). Na prática o
+  // tracking já exige JS + consentimento, mas a porta pública não precisa
+  // aceitar curl/crawler inflando visita de loja.
+  if (ehRobo(req.headers.get("user-agent"))) {
+    return NextResponse.json({ ok: false }, { status: 202 });
+  }
   const parsed = schema.safeParse(await req.json().catch(() => null));
   if (!parsed.success) {
     return NextResponse.json({ error: "Dados inválidos" }, { status: 400 });

@@ -4,7 +4,7 @@ import { db } from "@/lib/db";
 import { imageHref } from "@/lib/img";
 import { corIgual } from "@/lib/capa-por-cor";
 import { intakeLead, normalizePhone } from "@/lib/intake";
-import { resolveRef } from "@/lib/tracking/engine";
+import { atribuirCampanhaPorUtm, resolveRef } from "@/lib/tracking/engine";
 import {
   reservarOQueTiver,
   textoDaFalta,
@@ -417,9 +417,16 @@ export async function POST(req: NextRequest) {
   if (input.trackSessionId) {
     const sessao = await db.trackSession.findFirst({
       where: { id: input.trackSessionId, companyId: company.id },
-      select: { id: true },
+      select: { id: true, utmCampaign: true },
     });
     trackSessionId = sessao?.id ?? null;
+    // ?utm_campaign=<etiqueta> vira a campanha do cliente — só quando ele
+    // ainda não tem (vale o primeiro contato). Nunca derruba o pedido.
+    if (sessao?.utmCampaign) {
+      await atribuirCampanhaPorUtm(company.id, customerId, sessao.utmCampaign).catch(
+        () => {}
+      );
+    }
   }
 
   let faltas: FaltaDeEstoque[] = [];

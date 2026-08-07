@@ -454,19 +454,19 @@ export function BioEditor({
                   icon={<ShoppingCart className="size-4" />}
                   value={report.journey.catalogVisits}
                   label="Foram ao catálogo"
-                  hint="Quantas visitas no seu catálogo vieram do botão da bio. Contamos pela etiqueta de origem (utm_source=bio) que o botão 'Ver catálogo' carimba — mesmo que a pessoa não deixe contato."
+                  hint="Quantas visitas no seu catálogo vieram do botão da bio (etiqueta utm_source=bio). Atenção na comparação com 'Visitas': a visita na bio é contada direto no servidor; a do catálogo só conta para quem ACEITOU o aviso de privacidade — bases diferentes, então a passagem bio → catálogo tende a parecer menor do que é."
                 />
                 <StatCard
                   accent
                   value={report.journey.bags}
                   label="Montaram sacola"
-                  hint="Dessas visitas vindas da bio, quantas chegaram a colocar peças na sacola no catálogo (mesmo sem finalizar). Conta as sessões com sacola (valor maior que zero)."
+                  hint="Pessoas vindas da bio que montaram sacola no catálogo (mesmo sem finalizar). Cada pessoa conta UMA vez — quem visitou 3 vezes com a mesma sacola não conta 3."
                 />
                 <StatCard
                   accent
                   value={brl(report.journey.bagsValue)}
                   label="Valor em sacolas"
-                  hint="Soma do valor de todas as sacolas montadas por quem veio da bio. É o potencial de venda que a bio levou pro catálogo (ainda não é venda fechada)."
+                  hint="Valor somado das sacolas de quem veio da bio — a sacola MAIS RECENTE de cada pessoa, uma vez só. É potencial de venda (ainda não é venda fechada)."
                 />
               </div>
 

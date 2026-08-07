@@ -72,6 +72,9 @@ async function repointCustomer(
   await tx.sale.updateMany({ where: { customerId: dupeId }, data: { customerId: primaryId } });
   await tx.order.updateMany({ where: { customerId: dupeId }, data: { customerId: primaryId } });
   await tx.trackSession.updateMany({ where: { customerId: dupeId }, data: { customerId: primaryId } });
+  // o VISITANTE do tracking também acompanha — sem isto o id apagado ficava
+  // fantasma na Inteligência ("Identificados" contava cliente que não existe)
+  await tx.visitor.updateMany({ where: { customerId: dupeId }, data: { customerId: primaryId } });
 
   // vínculos com chave composta: copia sem conflito e apaga os do duplicado
   const tags = await tx.customerTag.findMany({ where: { customerId: dupeId }, select: { tagId: true } });

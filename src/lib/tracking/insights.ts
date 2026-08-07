@@ -11,6 +11,16 @@ import { PAID_ORDER_STATUSES } from "../orders";
 export type Period = { from: Date; to: Date };
 
 export function periodFromDays(days: number): Period {
+  // "HOJE" é o dia de São Paulo, não as últimas 24h corridas: às 9h da manhã
+  // o jeito antigo incluía a noite de ontem inteira e o número nunca batia
+  // com o Dashboard (auditoria 06/08/2026). Períodos maiores seguem janela
+  // corrida (7/30 dias), igual sempre foram.
+  if (days === 1) {
+    const diaSP = new Intl.DateTimeFormat("en-CA", {
+      timeZone: "America/Sao_Paulo",
+    }).format(new Date());
+    return { from: new Date(`${diaSP}T03:00:00Z`), to: new Date() };
+  }
   return {
     from: new Date(Date.now() - days * 24 * 60 * 60 * 1000),
     to: new Date(),
@@ -116,6 +126,8 @@ export async function overview(companyId: string, p: Period) {
   const durations = sessions
     .map((s) => (s.lastEventAt.getTime() - s.startedAt.getTime()) / 1000)
     .filter((d) => d >= 0);
+  // soma REAL (o "tempo total" era reconstruído por média×sessões, com erro)
+  const totalSessionSeconds = Math.round(durations.reduce((a, b) => a + b, 0));
   const converted = sessions.filter((s) => s.converted);
   // mesma régua da lista de recuperação: 1 visitante = 1 carrinho, com valor
   const abandoned = carrinhosAbandonados(sessions);
@@ -136,8 +148,9 @@ export async function overview(companyId: string, p: Period) {
     uniqueVisitors: visitors.size,
     identifiedCustomers: identified.size,
     avgSessionSeconds: durations.length
-      ? Math.round(durations.reduce((a, b) => a + b, 0) / durations.length)
+      ? Math.round(totalSessionSeconds / durations.length)
       : 0,
+    totalSessionSeconds,
     ordersFromCatalog: converted.length,
     conversionRate: r2(pct(converted.length, sessions.length)),
     abandonedCarts: abandoned.length,
@@ -188,15 +201,19 @@ export async function funnel(companyId: string, p: Period) {
   const withCart = new Set(
     events.filter((e) => e.type === "cart_open").map((e) => e.sessionId)
   );
+  // DUAS POPULAÇÕES, ditas com todas as letras: os 5 primeiros degraus são
+  // SÓ do catálogo (sessões rastreadas); os 3 finais são da LOJA INTEIRA
+  // (WhatsApp, Nuvemshop, manual). Sem o rótulo, o funil "subia" no meio e
+  // parecia bug (40 visitas → 60 leads) — auditoria 06/08/2026.
   return [
-    { label: "Visitas", value: sessions.length },
+    { label: "Visitas (catálogo)", value: sessions.length },
     { label: "Viram produtos", value: withProduct.size },
     { label: "Adicionaram à sacola", value: withAdd.size },
     { label: "Abriram o carrinho", value: withCart.size },
     { label: "Enviaram pedido", value: sessions.filter((s) => s.converted).length },
-    { label: "Entraram no CRM (leads)", value: leads },
-    { label: "Compraram", value: sales.length },
-    { label: "Recompraram", value: rebuyers.length },
+    { label: "Leads novos (loja inteira)", value: leads },
+    { label: "Compraram (loja inteira)", value: sales.length },
+    { label: "Recompraram (loja inteira)", value: rebuyers.length },
   ];
 }
 
@@ -259,8 +276,17 @@ export async function sellerRanking(companyId: string, p: Period) {
       const orders = clicks.filter((s) => s.converted);
       const mySales = sales.filter((s) => s.sellerId === u.id);
       const revenue = mySales.reduce((a, s) => a + s.netTotal, 0);
+      // "dias até a venda" respeita o PERÍODO do relatório: só clientes cuja
+      // 1ª compra aconteceu dentro dele (antes olhava a carteira inteira,
+      // de qualquer época, dentro de um ranking filtrado por período)
       const daysToSale = customers
-        .filter((c) => c.ownerId === u.id && c.orders[0])
+        .filter(
+          (c) =>
+            c.ownerId === u.id &&
+            c.orders[0] &&
+            c.orders[0].paidAt! >= p.from &&
+            c.orders[0].paidAt! <= p.to
+        )
         .map(
           (c) =>
             (c.orders[0].paidAt!.getTime() - c.createdAt.getTime()) /

@@ -60,6 +60,7 @@ const CHANNEL_LABEL: Record<string, string> = {
   qr: "QR Code", direto: "Link Direto", indicacao: "Indicação",
   site: "Site", "loja-fisica": "Loja Física", marketplace: "Marketplace",
   campanha: "Campanhas", vendedor: "Link de Vendedor", tiktok: "TikTok",
+  bio: "Bio (página de links)",
 };
 const channelName = (c: string) => CHANNEL_LABEL[c] ?? c;
 
@@ -345,6 +346,10 @@ export default async function IntelligencePage({
           <p className="text-xs font-bold text-amber-700 uppercase tracking-wide flex items-center gap-1.5 mb-2">
             <Bell className="size-3.5" />
             Alertas inteligentes
+            {/* os alertas são o AGORA — não seguem o filtro de período */}
+            <span className="font-medium normal-case tracking-normal text-amber-500">
+              · últimas 24h
+            </span>
           </p>
           <ul className="grid md:grid-cols-2 gap-x-6 gap-y-1">
             {avisos.map((a) => (
@@ -371,8 +376,8 @@ export default async function IntelligencePage({
         <Kpi label="Clientes novos" value={String(now.newCustomers)} delta={<Delta now={now.newCustomers} before={before.newCustomers} />} info="Clientes cadastrados pela primeira vez no período (primeiro contato com a loja)." />
         <Kpi label="Recorrentes" value={String(now.returningBuyers)} icon={<Repeat />} info="Clientes que compraram mais de uma vez (fidelizados)." />
         <Kpi label="Carrinhos abandonados" value={String(now.abandonedCarts)} hint={`${brl(now.abandonedValue)} parados`} delta={<Delta now={now.abandonedCarts} before={before.abandonedCarts} invert />} icon={<AlertTriangle />} info="Pessoas que deixaram sacola com itens sem enviar o pedido — cada pessoa conta UMA vez (a sacola mais recente dela), mesma régua da lista de recuperação. 'Parados' = valor somado dessas sacolas." href={`/inteligencia?${paramsDoPeriodo(filtro)}&recuperacao=tudo#recuperar`} />
-        <Kpi label="Tempo de sessão total" value={`${Math.round((now.avgSessionSeconds * now.sessions) / 60)} min`} hint="navegação somada" info="Soma do tempo de navegação de todas as sessões no período." />
-        <Kpi label="Identificados" value={String(now.identifiedCustomers)} hint="visitantes que viraram clientes" info="Visitantes anônimos que informaram o telefone (viraram clientes na base da loja)." />
+        <Kpi label="Tempo de sessão total" value={`${Math.round(now.totalSessionSeconds / 60)} min`} hint="navegação somada" info="Soma REAL do tempo de navegação de todas as sessões no período." />
+        <Kpi label="Identificados" value={String(now.identifiedCustomers)} hint="visitas com nome" info="Visitantes ligados a um cliente da base — pelo telefone informado OU por já terem chegado pelo link rastreado da cliente (?c=). Inclui quem já era cliente antes de visitar." />
       </div>
 
       <div className="grid lg:grid-cols-2 gap-4 md:gap-6 mb-6">

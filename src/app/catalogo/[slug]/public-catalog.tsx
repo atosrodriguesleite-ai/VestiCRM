@@ -722,17 +722,21 @@ export function PublicCatalog({
     const proximoCart = { ...cart };
     if (Object.keys(clean).length) proximoCart[sheet.key] = clean;
     else delete proximoCart[sheet.key];
-    t({
-      type: newQty >= prevQty ? "cart_add" : "cart_remove",
-      productId: sheet.product.id,
-      productName: sheet.product.name,
-      category: sheet.product.category,
-      color: sheet.color,
-      size: Object.keys(clean).join(","),
-      qty: Math.abs(newQty - prevQty) || newQty,
-      value: newTotal,
-      meta: { sacola: fotoDaSacola(proximoCart) },
-    });
+    // trocar só a grade (P→M, mesma quantidade) NÃO é peça nova na sacola:
+    // o "+Sacola" dos rankings inflava a cada ajuste (auditoria 06/08/2026)
+    if (newQty !== prevQty) {
+      t({
+        type: newQty > prevQty ? "cart_add" : "cart_remove",
+        productId: sheet.product.id,
+        productName: sheet.product.name,
+        category: sheet.product.category,
+        color: sheet.color,
+        size: Object.keys(clean).join(","),
+        qty: Math.abs(newQty - prevQty),
+        value: newTotal,
+        meta: { sacola: fotoDaSacola(proximoCart) },
+      });
+    }
     setCart((prev) => {
       const next = { ...prev };
       if (Object.keys(clean).length) next[sheet.key] = clean;

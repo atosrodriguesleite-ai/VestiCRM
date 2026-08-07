@@ -1,7 +1,8 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { carrinhosAbandonados } from "../tracking/insights";
+import { carrinhosAbandonados, periodFromDays } from "../tracking/insights";
+import { classifyChannel } from "../tracking/engine";
 import { lembrarOrigem } from "../catalogo/origem";
 import { ehRobo } from "../robo";
 
@@ -113,6 +114,48 @@ describe("robô não conta métrica (visita E clique com a mesma régua)", () =>
   it("o clique da bio usa o MESMO filtro da visita", () => {
     expect(ler("src/app/api/bio/go/[id]/route.ts")).toContain("ehRobo(");
     expect(ler("src/app/bio/[slug]/page.tsx")).toContain("ehRobo(");
+  });
+});
+
+// ---------------------------------------------------------------------------
+describe("Lote 2: canal Bio, dia SP, jornada por pessoa e utm_campaign vivo", () => {
+  it("a bio existe como canal (utm_source=bio não vira 'Site')", () => {
+    expect(classifyChannel({ utmSource: "bio" })).toBe("bio");
+    expect(classifyChannel({ utmSource: "BIO" })).toBe("bio");
+    // sem a etiqueta, nada muda
+    expect(classifyChannel({ referer: "https://instagram.com/x" })).toBe("instagram");
+  });
+
+  it("'Hoje' da Inteligência é o DIA de São Paulo (não as últimas 24h)", () => {
+    const p = periodFromDays(1);
+    // começo do dia SP = T03:00Z do dia corrente — nunca mais de 24h atrás
+    expect(p.to.getTime() - p.from.getTime()).toBeLessThanOrEqual(24 * 60 * 60 * 1000);
+    expect(p.from.toISOString().endsWith("T03:00:00.000Z")).toBe(true);
+  });
+
+  it("a jornada da bio conta 1 pessoa = 1 sacola (função única nas duas telas)", () => {
+    const jornada = ler("src/lib/bio-jornada.ts");
+    expect(jornada).toContain("visitorId");
+    expect(ler("src/app/(app)/marketing/bio/page.tsx")).toContain("jornadaDaBio(");
+    expect(ler("src/app/api/marketing/bio/report/route.ts")).toContain("jornadaDaBio(");
+  });
+
+  it("?utm_campaign atribui a campanha — só a quem ainda não tem", () => {
+    const engine = ler("src/lib/tracking/engine.ts");
+    expect(engine).toContain("atribuirCampanhaPorUtm");
+    // regra do primeiro contato: nunca sobrescreve campanha existente
+    expect(engine).toContain("campaignId: null");
+    expect(ler("src/app/api/catalog/order/route.ts")).toContain("atribuirCampanhaPorUtm(");
+  });
+
+  it("trocar só a grade (mesma quantidade) não infla o +Sacola", () => {
+    expect(ler("src/app/catalogo/[slug]/public-catalog.tsx")).toContain(
+      "if (newQty !== prevQty)"
+    );
+  });
+
+  it("unificar contatos repõe também o visitante do tracking (sem fantasma)", () => {
+    expect(ler("src/lib/merge-contacts.ts")).toContain("tx.visitor.updateMany");
   });
 });
 
