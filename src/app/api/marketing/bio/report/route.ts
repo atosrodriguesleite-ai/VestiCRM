@@ -30,9 +30,6 @@ export async function GET(req: NextRequest) {
     let visitas: number;
     let cliques: number;
     let topLinks: { id: string; title: string; clicks: number }[];
-    let catalogVisits: number;
-    let bags: number;
-    let bagsValue: number;
 
     // jornada com a conta honesta: 1 pessoa = 1 sacola (a mais recente)
     const journey = await jornadaDaBio(companyId, from);
@@ -63,9 +60,7 @@ export async function GET(req: NextRequest) {
         .sort((a, b) => b.clicks - a.clicks)
         .slice(0, 4);
     }
-    catalogVisits = journey.catalogVisits;
-    bags = journey.bags;
-    bagsValue = journey.bagsValue;
+    const { catalogVisits, bags, bagsValue } = journey;
 
     // MÉDIA de cliques por visita (não é % — a mesma pessoa clica em vários
     // botões, então o antigo "103%" era normal e parecia bug)
