@@ -356,15 +356,28 @@ export function BioEditor({
               {copied ? <Check className="size-4 text-emerald-500" /> : <Copy className="size-4" />}
               {copied ? "Copiado!" : "Copiar"}
             </button>
-            <a
-              href={publicUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-1.5 rounded-xl bg-brand-600 px-3.5 py-2.5 text-sm font-semibold text-white transition hover:bg-brand-700"
-            >
-              <ExternalLink className="size-4" />
-              Abrir
-            </a>
+            {page.published ? (
+              <a
+                href={publicUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 rounded-xl bg-brand-600 px-3.5 py-2.5 text-sm font-semibold text-white transition hover:bg-brand-700"
+              >
+                <ExternalLink className="size-4" />
+                Abrir
+              </a>
+            ) : (
+              // bio OCULTA não tem página pública (o link dá 404 de propósito
+              // — rascunho é privado). Abrir sem publicar levava a uma página
+              // preta sem explicação; agora o botão conta o que falta.
+              <span
+                title='Sua bio está oculta — ligue a chave "Publicar" acima para colocá-la no ar.'
+                className="inline-flex cursor-not-allowed items-center gap-1.5 rounded-xl bg-slate-300 px-3.5 py-2.5 text-sm font-semibold text-white"
+              >
+                <ExternalLink className="size-4" />
+                Publique para abrir
+              </span>
+            )}
           </div>
           <div className="mt-3 flex flex-wrap items-center gap-2">
             <button
