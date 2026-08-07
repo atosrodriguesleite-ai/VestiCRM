@@ -517,6 +517,29 @@ export function PublicCatalog({
   const rootRef = useRef<HTMLDivElement | null>(null);
   const headerRef = useRef<HTMLElement | null>(null);
   const catNavBarRef = useRef<HTMLElement | null>(null);
+  /**
+   * ALTURA REAL do que fica grudado no topo (cabeçalho + barras).
+   *
+   * Antes eram três números CRAVADOS no código (140, 140, 74). Bastou a lupa
+   * nova crescer a barra alguns pixels para tudo desalinhar: tocar em
+   * "Conjuntos de calça" parava no lugar errado e a barra acendia o tipo
+   * errado. Número cravado em altura é sempre uma bomba-relógio — agora é
+   * medido de verdade e refeito sozinho quando a barra muda de tamanho.
+   */
+  const [alturaFixa, setAlturaFixa] = useState(150);
+  /**
+   * Enquanto a rolagem suave está a caminho, o vigia de rolagem fica QUIETO.
+   * Sem isso, as seções que passam voando no meio do caminho acendem o chip
+   * errado — e a barra "pisca" e para acesa em outro tipo (foi o que a loja
+   * viu: seção de Legging na tela e "Conjuntos de short" aceso).
+   */
+  const spyTravadoAte = useRef(0);
+  function irParaSecao(cat: string) {
+    const alvo = categories.indexOf(cat);
+    if (alvo >= 0) setActiveCat(alvo); // a barra responde na hora
+    spyTravadoAte.current = Date.now() + 900;
+    sectionRefs.current[cat]?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
 
   // ---- Tracking Engine (Inteligência Comercial) ----
   const trackerRef = useRef<CatalogTracker | null>(null);
@@ -618,6 +641,8 @@ export function PublicCatalog({
   useEffect(() => {
     const observer = new IntersectionObserver(
       (entries) => {
+        // rolagem suave a caminho: o vigia espera o destino chegar
+        if (Date.now() < spyTravadoAte.current) return;
         for (const en of entries) {
           if (en.isIntersecting) {
             const idx = Number((en.target as HTMLElement).dataset.step);
@@ -633,13 +658,15 @@ export function PublicCatalog({
           }
         }
       },
-      { rootMargin: "-140px 0px -55% 0px", threshold: 0 }
+      // a margem de cima é a altura MEDIDA do que fica grudado no topo:
+      // seção escondida atrás da barra não pode acender o chip
+      { rootMargin: `-${alturaFixa}px 0px -55% 0px`, threshold: 0 }
     );
     Object.values(sectionRefs.current).forEach(
       (el) => el && observer.observe(el)
     );
     return () => observer.disconnect();
-  }, [categories]);
+  }, [categories, alturaFixa]);
 
   /* setas ‹ › da barra de categorias — só aparecem quando há o que rolar */
   const syncCatArrows = () => {
@@ -663,6 +690,8 @@ export function PublicCatalog({
       const nh = catNavBarRef.current?.offsetHeight ?? 0;
       root.style.setProperty("--cat-hdr", `${hh}px`);
       root.style.setProperty("--cat-sticky", `${hh + nh}px`);
+      // +6px de folga para o título da seção não encostar na barra
+      setAlturaFixa(hh + nh + 6);
     };
     update();
     const ro = new ResizeObserver(update);
@@ -1202,7 +1231,9 @@ export function PublicCatalog({
         className="sticky z-30 border-b"
         style={{
           // gruda logo abaixo do cabeçalho, cuja altura é medida em runtime
-          top: logoSize === "grande" ? "var(--cat-hdr, 140px)" : 74,
+          // altura MEDIDA do cabeçalho (o 74 cravado desalinhava a barra
+          // sempre que o cabeçalho mudava de tamanho)
+          top: "var(--cat-hdr, 74px)",
           background: T.bg,
           borderColor: T.line,
           boxShadow: "0 6px 12px -10px rgba(0,0,0,.3)",
@@ -1255,12 +1286,7 @@ export function PublicCatalog({
                 return (
                   <button
                     key={g.tipo}
-                    onClick={() =>
-                      sectionRefs.current[g.categorias[0]]?.scrollIntoView({
-                        behavior: "smooth",
-                        block: "start",
-                      })
-                    }
+                    onClick={() => irParaSecao(g.categorias[0])}
                     className="shrink-0 rounded-full px-[15px] py-[7px] text-[13px] font-extrabold uppercase tracking-wide whitespace-nowrap transition border"
                     style={
                       active
@@ -1308,9 +1334,7 @@ export function PublicCatalog({
               return (
                 <button
                   key={cat}
-                  onClick={() =>
-                    sectionRefs.current[cat]?.scrollIntoView({ behavior: "smooth", block: "start" })
-                  }
+                  onClick={() => irParaSecao(cat)}
                   className="flex items-center gap-2 shrink-0 rounded-full px-[15px] py-[9px] text-[13px] font-semibold whitespace-nowrap transition border"
                   style={
                     active
@@ -1394,8 +1418,8 @@ export function PublicCatalog({
               }}
               className="pb-2.5"
               style={{
-                scrollMarginTop:
-                  logoSize === "grande" ? "var(--cat-sticky, 200px)" : 140,
+                // para a seção parar ABAIXO das barras, e não atrás delas
+                scrollMarginTop: "var(--cat-sticky, 150px)",
               }}
             >
               <div className="max-w-[680px] lg:max-w-[1200px] mx-auto px-[18px] pt-[10px]">
