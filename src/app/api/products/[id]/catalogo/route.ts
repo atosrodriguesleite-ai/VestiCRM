@@ -117,7 +117,9 @@ export async function GET(
       produto: { id: produto.id, nome: produto.name },
       lojaSuspensa: company.suspended,
       catalogoGeral: {
-        url: `/catalogo/${company.slug}`,
+        // link DIRETO na peça: abre a vitrine já com ela na tela. Acaba com o
+        // "está lá" × "não está" e serve para mandar UMA peça para a cliente.
+        url: `/catalogo/${company.slug}?peca=${produto.id}`,
         aparece: apareceNoGeral && !company.suspended,
         // quando o motivo conhecido não explica, a resposta não inventa:
         // diz que a peça está no ar e joga a investigação para o link.

@@ -1412,18 +1412,21 @@ function ProductDetailModal({
                       )}
 
                       {conf.catalogoGeral.aparece && (
-                        <p className="text-[11px] text-gray-500 border-t border-gray-200 pt-2">
-                          Está tudo certo aqui. Se a cliente continua sem ver, confira{" "}
-                          <b>qual link foi enviado</b> (campanha × geral) e peça para ela
-                          recarregar a página.{" "}
+                        <div className="border-t border-gray-200 pt-2 space-y-1.5">
+                          {/* prova em um clique: abre a vitrine NA PEÇA */}
                           <a
                             href={conf.catalogoGeral.url}
                             target="_blank"
-                            className="text-brand-600 underline"
+                            className="inline-flex items-center gap-1.5 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-xs font-semibold px-3 py-1.5 transition"
                           >
-                            Abrir o catálogo geral
+                            Ver esta peça no catálogo
                           </a>
-                        </p>
+                          <p className="text-[11px] text-gray-500">
+                            Esse link abre a vitrine <b>já com a peça na tela</b> — dá para
+                            mandar ele direto para a cliente. Se ela continua sem achar
+                            rolando o catálogo, use a <b>lupa</b> no topo da vitrine.
+                          </p>
+                        </div>
                       )}
                     </div>
                   )}

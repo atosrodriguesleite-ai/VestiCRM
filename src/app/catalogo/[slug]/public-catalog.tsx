@@ -31,6 +31,7 @@ import {
 import { compareSizes } from "@/lib/sizes";
 import { fotoDaCor, ordenarFotosDaCor } from "@/lib/capa-por-cor";
 import { agruparPorTipo, descricaoDaCategoria, sortCategories } from "@/lib/categories";
+import { procurarPecas } from "@/lib/catalogo/procurar-peca";
 import {
   CatalogTracker,
   getConsent,
@@ -362,6 +363,38 @@ export function PublicCatalog({
   const categoriasVisiveis = grupos.length
     ? (grupos.find((g) => g.tipo === tipoAtivo)?.categorias ?? categories)
     : categories;
+  /**
+   * LUPA DA VITRINE.
+   *
+   * Com 178 produtos (e um card por COR, o que vira centenas de cards),
+   * achar uma peça rolando a página é impossível. Incidente real: a peça
+   * estava no ar, o conferidor provou, e a loja continuava dizendo "não
+   * aparece" — ela não conseguia encontrar. Procura por nome, código, cor,
+   * categoria e etiquetas, sem acento e sem maiúscula.
+   */
+  const [busca, setBusca] = useState("");
+  const achados = useMemo(() => procurarPecas(allCards, busca), [allCards, busca]);
+  const procurando = busca.trim().length > 0;
+
+  /**
+   * LINK DIRETO PARA UMA PEÇA (`?peca=<id>`).
+   *
+   * Nasceu de uma discussão que não terminava: o sistema dizia "a peça está
+   * no catálogo", a loja dizia "não está". Com este link a conversa acaba em
+   * um clique — abre a vitrine já com a peça na tela. Serve também para a
+   * vendedora mandar UMA peça para a cliente, em vez do catálogo inteiro.
+   * Peça que não existe mais não quebra nada: a vitrine abre normal.
+   */
+  const pecaAbertaRef = useRef(false);
+  useEffect(() => {
+    if (pecaAbertaRef.current || allCards.length === 0) return;
+    const alvo = new URLSearchParams(window.location.search).get("peca");
+    if (!alvo) return;
+    pecaAbertaRef.current = true;
+    const card = allCards.find((c) => c.product.id === alvo);
+    if (card) openSheet(card);
+  }, [allCards]);
+
   const [sheet, setSheet] = useState<CardItem | null>(null);
   const [draft, setDraft] = useState<Record<string, number>>({});
   const [bagOpen, setBagOpen] = useState(false);
@@ -910,6 +943,95 @@ export function PublicCatalog({
       ? `${fmt(minCurrent)} de ${fmt(minTarget)} · pedido mínimo`
       : `${minCurrent} de ${minTarget} peças · pedido mínimo`;
 
+  /**
+   * O CARD DA PEÇA — um desenho só, usado pelas seções e pela lupa.
+   * Duplicar o card era garantir que um dia os dois ficariam diferentes.
+   */
+  const desenharCard = (card: CardItem) => {
+    const inCart = cart[card.key] ? sum(cart[card.key]) : 0;
+    const soldOut = card.sizes.every((s) => !s.available);
+    return (
+      <button
+        key={card.key}
+        onClick={() => openSheet(card)}
+        className="relative text-left rounded-[14px] overflow-hidden flex flex-col active:scale-[0.985] transition border"
+        style={{ borderColor: T.line, background: T.bg }}
+      >
+        {inCart > 0 && (
+          <span
+            className="absolute top-2 right-2 z-10 min-w-[22px] h-[22px] px-1.5 rounded-xl text-[11px] font-bold flex items-center justify-center"
+            style={{ background: T.primary, color: T.secondary, boxShadow: "0 1px 4px rgba(0,0,0,.25)" }}
+          >
+            {inCart}
+          </span>
+        )}
+        <div className="w-full overflow-hidden relative" style={{ aspectRatio: "3/4", background: T.soft }}>
+          {card.product.images[0] && (
+            <img
+              // capa por cor: a foto etiquetada com a cor do card; sem
+              // etiqueta, a capa geral
+              src={fotoDaCor(card.product.images, card.color)}
+              alt={`${card.product.name} ${card.color}`}
+              loading="lazy"
+              decoding="async"
+              className="w-full h-full object-cover object-top"
+              style={soldOut ? { filter: "grayscale(1) opacity(.6)" } : undefined}
+            />
+          )}
+          {soldOut && (
+            <span className="absolute inset-0 flex items-center justify-center">
+              <span className="rounded-full bg-gray-800/80 text-white text-[11px] font-bold px-3.5 py-1.5 uppercase tracking-wide">
+                Indisponível
+              </span>
+            </span>
+          )}
+        </div>
+        <div className="px-3 pt-[11px] pb-[13px]">
+          {/* loja sem cores (semijoias): o NOME assume o lugar de destaque
+              e a bolinha/cor não aparecem */}
+          {hideColors ? (
+            <p className="text-[15px] font-bold my-1 leading-tight line-clamp-2">
+              {card.product.name}
+            </p>
+          ) : (
+            <>
+              <p className="text-[10px] uppercase font-semibold m-0" style={{ color: T.muted, letterSpacing: ".12em" }}>
+                {card.product.name}
+              </p>
+              <p className="text-[15px] font-bold my-1 flex items-center gap-[7px] leading-tight">
+                <span
+                  className="size-3.5 rounded-full shrink-0"
+                  style={{ background: swatch(card.color), border: "1px solid rgba(0,0,0,.2)" }}
+                />
+                {card.color}
+              </p>
+            </>
+          )}
+          <p className="text-[15px] font-bold m-0" style={{ color: T.primary }}>
+            {promo && card.product.originalRetailPrice ? (
+              <>
+                <s className="text-[12px] font-medium mr-1.5" style={{ color: T.muted }}>
+                  {fmt(card.product.originalRetailPrice)}
+                </s>
+                {fmt(card.product.retailPrice)}
+              </>
+            ) : (
+              fmt(card.product.retailPrice)
+            )}{" "}
+            <small className="text-[11px] font-medium" style={{ color: T.muted }}>
+              / peça
+            </small>
+          </p>
+          {soldOut && (
+            <p className="text-[11px] font-semibold mt-1 m-0" style={{ color: "#B33939" }}>
+              Indisponível — consulte reposição
+            </p>
+          )}
+        </div>
+      </button>
+    );
+  };
+
   return (
     <div
       ref={rootRef}
@@ -1087,11 +1209,43 @@ export function PublicCatalog({
         }}
       >
         <div className="relative max-w-[680px] lg:max-w-[1200px] mx-auto">
+          {/* LUPA — sem ela, achar uma peça em 178 produtos era rolar tudo */}
+          <div className="px-[18px] pt-[8px] pb-[2px]">
+            <div className="relative">
+              <span
+                className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none"
+                style={{ color: T.muted }}
+                aria-hidden
+              >
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.2-3.2" /></svg>
+              </span>
+              <input
+                value={busca}
+                onChange={(e) => setBusca(e.target.value)}
+                placeholder="Procurar peça, cor ou código…"
+                aria-label="Procurar no catálogo"
+                className="w-full rounded-full pl-9 pr-9 py-[9px] text-[13px] outline-none border"
+                style={{ background: T.bg, color: T.ink, borderColor: T.line }}
+              />
+              {procurando && (
+                <button
+                  type="button"
+                  onClick={() => setBusca("")}
+                  aria-label="Limpar busca"
+                  className="absolute right-2 top-1/2 -translate-y-1/2 size-6 rounded-full flex items-center justify-center"
+                  style={{ background: T.soft, color: T.primary }}
+                >
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round"><path d="M18 6 6 18M6 6l12 12" /></svg>
+                </button>
+              )}
+            </div>
+          </div>
+
           {/* TIPO DE PEÇA: o guarda-chuva. Só aparece quando a loja organizou as
               categorias em tipos — quem não usa continua com uma barra só.
               Tocar leva à primeira categoria do tipo; rolando, a barra se
               acende sozinha (o tipo sai da categoria ativa). */}
-          {grupos.length > 1 && (
+          {!procurando && grupos.length > 1 && (
             <div
               className="flex gap-2 overflow-x-auto px-[18px] pt-[7px] pb-[3px]"
               style={{ scrollbarWidth: "none" }}
@@ -1122,7 +1276,7 @@ export function PublicCatalog({
           )}
 
           {/* seta esquerda */}
-          {catArrows.left && (
+          {!procurando && catArrows.left && (
             <button
               type="button"
               aria-label="Categorias anteriores"
@@ -1141,6 +1295,7 @@ export function PublicCatalog({
             <span className="hidden md:block pointer-events-none absolute right-0 top-0 bottom-0 w-10 z-[5]" style={{ background: `linear-gradient(270deg, ${T.bg}, transparent)` }} />
           )}
           <div
+            hidden={procurando}
             ref={catNavRef}
             onScroll={syncCatArrows}
             // cat-scroll: celular sem barra (dedo); computador com a
@@ -1175,7 +1330,7 @@ export function PublicCatalog({
             })}
           </div>
           {/* seta direita */}
-          {catArrows.right && (
+          {!procurando && catArrows.right && (
             <button
               type="button"
               aria-label="Próximas categorias"
@@ -1189,8 +1344,39 @@ export function PublicCatalog({
         </div>
       </nav>
 
+      {/* RESULTADOS DA LUPA — enquanto procura, a vitrine vira uma lista só.
+          Sem isso, a pessoa teria que adivinhar em qual seção olhar. */}
+      {procurando && (
+        <main>
+          <div className="max-w-[680px] lg:max-w-[1200px] mx-auto px-[18px] pt-4">
+            <p className="text-[13px] font-bold m-0" style={{ color: T.muted }}>
+              {achados.length === 0
+                ? `Nada encontrado para “${busca.trim()}”`
+                : `${achados.length} ${achados.length === 1 ? "opção encontrada" : "opções encontradas"} para “${busca.trim()}”`}
+            </p>
+            {achados.length === 0 && (
+              <p className="text-[13px] mt-1 m-0" style={{ color: T.muted }}>
+                Tente só uma palavra (o nome da peça ou a cor), ou{" "}
+                <button
+                  type="button"
+                  onClick={() => setBusca("")}
+                  className="underline font-semibold"
+                  style={{ color: T.primary }}
+                >
+                  ver o catálogo inteiro
+                </button>
+                .
+              </p>
+            )}
+          </div>
+          <div className="max-w-[680px] lg:max-w-[1200px] mx-auto grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3.5 px-3.5 pt-4 pb-2">
+            {achados.map(desenharCard)}
+          </div>
+        </main>
+      )}
+
       {/* SEÇÕES */}
-      <main>
+      <main hidden={procurando}>
         {categories.map((cat, i) => {
           const cards = cardsByCategory.get(cat) ?? [];
           // Texto da CATEGORIA (escrito em Produtos → Categorias). Sem texto
@@ -1230,94 +1416,7 @@ export function PublicCatalog({
               <div className="max-w-[680px] lg:max-w-[1200px] mx-auto mt-3.5" style={{ borderTop: `1.5px dashed ${T.line}` }} />
 
               <div className="max-w-[680px] lg:max-w-[1200px] mx-auto grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3.5 px-3.5 pt-4 pb-2">
-                {cards.map((card) => {
-                  const inCart = cart[card.key] ? sum(cart[card.key]) : 0;
-                  const soldOut = card.sizes.every((s) => !s.available);
-                  return (
-                    <button
-                      key={card.key}
-                      onClick={() => openSheet(card)}
-                      className="relative text-left rounded-[14px] overflow-hidden flex flex-col active:scale-[0.985] transition border"
-                      style={{ borderColor: T.line, background: T.bg }}
-                    >
-                      {inCart > 0 && (
-                        <span
-                          className="absolute top-2 right-2 z-10 min-w-[22px] h-[22px] px-1.5 rounded-xl text-[11px] font-bold flex items-center justify-center"
-                          style={{ background: T.primary, color: T.secondary, boxShadow: "0 1px 4px rgba(0,0,0,.25)" }}
-                        >
-                          {inCart}
-                        </span>
-                      )}
-                      <div className="w-full overflow-hidden relative" style={{ aspectRatio: "3/4", background: T.soft }}>
-                        {card.product.images[0] && (
-                          <img
-                            // capa por cor: a foto etiquetada com a cor do
-                            // card; sem etiqueta, a capa geral
-                            src={fotoDaCor(card.product.images, card.color)}
-                            alt={`${card.product.name} ${card.color}`}
-                            loading="lazy"
-                            decoding="async"
-                            className="w-full h-full object-cover object-top"
-                            style={
-                              soldOut
-                                ? { filter: "grayscale(1) opacity(.6)" }
-                                : undefined
-                            }
-                          />
-                        )}
-                        {soldOut && (
-                          <span className="absolute inset-0 flex items-center justify-center">
-                            <span className="rounded-full bg-gray-800/80 text-white text-[11px] font-bold px-3.5 py-1.5 uppercase tracking-wide">
-                              Indisponível
-                            </span>
-                          </span>
-                        )}
-                      </div>
-                      <div className="px-3 pt-[11px] pb-[13px]">
-                        {/* loja sem cores (semijoias): o NOME assume o lugar
-                            de destaque e a bolinha/cor não aparecem */}
-                        {hideColors ? (
-                          <p className="text-[15px] font-bold my-1 leading-tight line-clamp-2">
-                            {card.product.name}
-                          </p>
-                        ) : (
-                          <>
-                            <p className="text-[10px] uppercase font-semibold m-0" style={{ color: T.muted, letterSpacing: ".12em" }}>
-                              {card.product.name}
-                            </p>
-                            <p className="text-[15px] font-bold my-1 flex items-center gap-[7px] leading-tight">
-                              <span
-                                className="size-3.5 rounded-full shrink-0"
-                                style={{ background: swatch(card.color), border: "1px solid rgba(0,0,0,.2)" }}
-                              />
-                              {card.color}
-                            </p>
-                          </>
-                        )}
-                        <p className="text-[15px] font-bold m-0" style={{ color: T.primary }}>
-                          {promo && card.product.originalRetailPrice ? (
-                            <>
-                              <s className="text-[12px] font-medium mr-1.5" style={{ color: T.muted }}>
-                                {fmt(card.product.originalRetailPrice)}
-                              </s>
-                              {fmt(card.product.retailPrice)}
-                            </>
-                          ) : (
-                            fmt(card.product.retailPrice)
-                          )}{" "}
-                          <small className="text-[11px] font-medium" style={{ color: T.muted }}>
-                            / peça
-                          </small>
-                        </p>
-                        {soldOut && (
-                          <p className="text-[11px] font-semibold mt-1 m-0" style={{ color: "#B33939" }}>
-                            Indisponível — consulte reposição
-                          </p>
-                        )}
-                      </div>
-                    </button>
-                  );
-                })}
+                {cards.map(desenharCard)}
               </div>
             </section>
           );
