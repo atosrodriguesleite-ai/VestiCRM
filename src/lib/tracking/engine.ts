@@ -325,9 +325,10 @@ export async function trackEvents(
       cartAdds: { increment: inc("cart_add") },
       cartRemoves: { increment: inc("cart_remove") },
       ...(lastCartValue !== undefined ? { cartValue: lastCartValue } : {}),
-      ...(valid.some((e) => e.type === "order_submitted")
-        ? { converted: true }
-        : {}),
+      // `converted` NÃO é mais marcado aqui: quem marca é o servidor do
+      // pedido (/api/catalog/order), UMA vez por pedido criado. O evento
+      // order_submitted do navegador contava conversão de novo quando a
+      // mesma sacola era reenviada em outra visita (auditoria 06/08/2026).
     },
   });
 

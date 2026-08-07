@@ -50,6 +50,11 @@ export class CatalogTracker {
     return this.sessionId !== null;
   }
 
+  /** id da sessão aberta — o pedido do catálogo manda junto (faturamento por canal) */
+  get session(): string | null {
+    return this.sessionId;
+  }
+
   /** Abre a sessão (só após consentimento). Não bloqueia nada. */
   async start(ref: string | null, utm: Record<string, string | null>) {
     if (this.sessionId || this.starting || getConsent() !== "granted") return;

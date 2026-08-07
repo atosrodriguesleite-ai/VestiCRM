@@ -17,6 +17,7 @@ import {
   ChevronRight,
 } from "lucide-react";
 import { db } from "@/lib/db";
+import { ehRobo } from "@/lib/robo";
 import { mixHex, readableOn } from "@/lib/color";
 import { bioColors, socialLinks } from "@/lib/bio";
 import { platformUrl } from "@/lib/site";
@@ -117,15 +118,10 @@ export default async function BioPublicPage({
 
   // conta a visita — mas SÓ de gente de verdade. Robôs e as prévias de link
   // (WhatsApp, Instagram, Facebook, Google) buscam a página e inflariam as
-  // visitas, bagunçando a taxa de clique. Filtra pelo user-agent. E aguarda a
-  // gravação (fire-and-forget se perde no serverless depois da resposta).
+  // visitas, bagunçando as métricas. Régua única em lib/robo.ts (a mesma do
+  // clique). E aguarda a gravação (fire-and-forget se perde no serverless).
   const ua = (await headers()).get("user-agent") ?? "";
-  const ehRobo =
-    !ua ||
-    /bot|crawler|spider|crawl|slurp|facebookexternalhit|whatsapp|telegram|discord|embedly|preview|monitor|lighthouse|headless|bingpreview|pinterest|linkedinbot|skypeuripreview|vkshare|redditbot|applebot/i.test(
-      ua
-    );
-  if (!ehRobo) {
+  if (!ehRobo(ua)) {
     await Promise.all([
       // total acumulado (all-time)
       db.bioPage.update({ where: { id: page.id }, data: { views: { increment: 1 } } }),

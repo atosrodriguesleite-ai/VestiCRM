@@ -70,6 +70,8 @@ const schema = z.object({
    * garante que o pedido não entra duas vezes.
    */
   clientRef: z.string().min(6).max(60).optional(),
+  /** sessão da Tracking Engine que gerou o pedido (faturamento por canal) */
+  trackSessionId: z.string().max(60).optional(),
 });
 
 export async function POST(req: NextRequest) {
@@ -408,6 +410,18 @@ export async function POST(req: NextRequest) {
   // e o que faltou fica escrito nele: no mesmo clique a cliente já mandou o
   // pedido pelo WhatsApp, então recusar aqui faria a loja receber a mensagem
   // sem ter pedido nenhum na tela — venda perdida no escuro.
+  // SESSÃO DE NAVEGAÇÃO → PEDIDO: valida que a sessão é DESTA loja antes de
+  // gravar (id vem do navegador; sessão de outra loja é ignorada). É o
+  // vínculo que deixa a Inteligência somar faturamento PAGO por canal.
+  let trackSessionId: string | null = null;
+  if (input.trackSessionId) {
+    const sessao = await db.trackSession.findFirst({
+      where: { id: input.trackSessionId, companyId: company.id },
+      select: { id: true },
+    });
+    trackSessionId = sessao?.id ?? null;
+  }
+
   let faltas: FaltaDeEstoque[] = [];
   const criarPedido = () =>
     db.$transaction(async (tx) => {
@@ -434,6 +448,7 @@ export async function POST(req: NextRequest) {
         opportunityId,
         sellerId: orderSellerId,
         clientRef: input.clientRef ?? null,
+        trackSessionId,
         status: "AGUARDANDO_PAGAMENTO",
         stockDeducted: true, // a peça está segurada desde já
         subtotal,
@@ -496,6 +511,15 @@ export async function POST(req: NextRequest) {
     // dois pedidos no MESMO instante (outra cliente, painel, Nuvemshop)
     // disputam o mesmo número — quem perde a corrida tenta de novo do zero
     order = await comNumeroUnico(criarPedido);
+    // CONVERSÃO MARCADA NO SERVIDOR, uma vez por pedido CRIADO. Antes era o
+    // navegador (evento order_submitted) quem marcava: reenviar a mesma
+    // sacola numa visita nova contava DUAS conversões para UM pedido — os
+    // caminhos de pedido repetido (protocolo) não passam por aqui.
+    if (trackSessionId) {
+      await db.trackSession
+        .update({ where: { id: trackSessionId }, data: { converted: true } })
+        .catch(() => {});
+    }
   } catch (e) {
     // CORRIDA: dois envios do mesmo protocolo chegaram juntos e os dois
     // passaram pela conferência acima. O índice único barra o segundo — e

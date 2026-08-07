@@ -36,6 +36,7 @@ import {
   getConsent,
   setConsent,
 } from "@/lib/tracking/client";
+import { lembrarOrigem } from "@/lib/catalogo/origem";
 
 const montserrat = Montserrat({ subsets: ["latin"], weight: ["400", "500", "600", "700", "800"] });
 const inter = Inter({ subsets: ["latin"], weight: ["400", "500", "600", "700", "800"] });
@@ -486,6 +487,10 @@ export function PublicCatalog({
 
   // ---- Tracking Engine (Inteligência Comercial) ----
   const trackerRef = useRef<CatalogTracker | null>(null);
+  // ORIGEM QUE SOBREVIVE: o ?ref da vendedora (e utm/c) fica guardado no
+  // aparelho por 7 dias — a cliente que volta amanhã SEM o link continua
+  // sendo venda de quem mandou (a sacola sobrevivia, a comissão não)
+  const origemRef = useRef<Record<string, string | null>>(tracking);
   const [showConsent, setShowConsent] = useState(false);
   const orderSentRef = useRef(false);
   const cartRef = useRef({ pieces: 0, value: 0 });
@@ -532,10 +537,13 @@ export function PublicCatalog({
     trackerRef.current?.track(e);
 
   useEffect(() => {
+    // resolve a origem ANTES de abrir a sessão: URL manda; sem parâmetro,
+    // vale a origem lembrada no aparelho (7 dias)
+    origemRef.current = lembrarOrigem(window.localStorage, storeSlug, tracking);
     trackerRef.current = new CatalogTracker(storeSlug);
     const consent = getConsent();
     if (consent === "granted") {
-      trackerRef.current.start(tracking.ref, tracking);
+      trackerRef.current.start(origemRef.current.ref, origemRef.current);
     } else if (consent === null) {
       setShowConsent(true);
     }
@@ -834,11 +842,14 @@ export function PublicCatalog({
           store: client.loja || undefined,
         },
         message: msg,
-        // atribuição do link rastreado: vendedor (?ref) e cliente (?c)
-        ref: tracking.ref || undefined,
-        c: tracking.c || undefined,
+        // atribuição do link rastreado: vendedor (?ref) e cliente (?c) — da
+        // URL ou LEMBRADA no aparelho (a comissão não morre da noite pro dia)
+        ref: origemRef.current.ref || undefined,
+        c: origemRef.current.c || undefined,
         // campanha: o servidor recalcula os preços com o desconto dela
         promo: promo?.slug || undefined,
+        // sessão de navegação → o pedido; é o que liga faturamento a canal
+        trackSessionId: trackerRef.current?.session || undefined,
       } as Record<string, unknown>,
     };
     if (typeof window !== "undefined") {
@@ -1416,7 +1427,7 @@ export function PublicCatalog({
               onClick={() => {
                 setConsent("granted");
                 setShowConsent(false);
-                trackerRef.current?.start(tracking.ref, tracking);
+                trackerRef.current?.start(origemRef.current.ref, origemRef.current);
               }}
               className="rounded-xl px-4 py-2 text-xs font-bold"
               style={{ background: T.secondary, color: T.primary }}

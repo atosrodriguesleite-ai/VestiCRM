@@ -1607,6 +1607,11 @@ model Order {
   // pedido duas vezes. Sem isso, um tropeço de internet fazia a mensagem
   // chegar no WhatsApp da vendedora e o pedido sumir, sem ninguém saber.
   clientRef      String?
+  // Sessão de navegação que gerou o pedido (Tracking Engine). É o que
+  // permite à Inteligência somar FATURAMENTO PAGO por canal/campanha — a
+  // auditoria de 06/08/2026 pegou o ranking somando valor de sacola enviada
+  // (não paga, vinda do navegador) rotulado de faturamento.
+  trackSessionId String?
   // NF-e emitida via Bling (a nota é da loja; o Bling é o emissor)
   nfeBlingId     String? // id da NF-e no Bling
   nfeNumber      String? // número da nota quando autorizada
@@ -1631,6 +1636,7 @@ model Order {
   @@index([companyId, status])
   @@index([companyId, createdAt])
   @@index([companyId, paidAt])
+  @@index([companyId, trackSessionId])
 }
 
 model OrderItem {
