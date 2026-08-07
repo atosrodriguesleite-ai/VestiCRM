@@ -78,7 +78,13 @@ export async function POST(
 
     let liquidado = false;
     if (aprovado && row) {
-      const r = await settleOrderPaid(row.orderId, origem);
+      // passa o valor que o MP diz ter recebido: pagou menos que o pedido
+      // custa (QR antigo de pedido editado) → NÃO liquida, só avisa a loja
+      const r = await settleOrderPaid(
+        row.orderId,
+        origem,
+        payment?.transaction_amount ?? undefined
+      );
       liquidado = r.ok;
     }
 

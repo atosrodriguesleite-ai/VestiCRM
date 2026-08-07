@@ -114,28 +114,32 @@ describe("reserva do pedido da vendedora (tudo ou nada)", () => {
 describe("reserva do pedido do catálogo (segura o que tiver)", () => {
   it("com estoque cheio, segura tudo", async () => {
     const estoque = { v1: 8 };
-    const faltas = await reservarOQueTiver(bancoFake(estoque), [
+    const { faltas, seguradas } = await reservarOQueTiver(bancoFake(estoque), [
       { variantId: "v1", quantity: 8, label: "Blusa (Off-white P)" },
     ]);
     expect(faltas).toEqual([]);
+    expect(seguradas).toEqual([{ variantId: "v1", quantity: 8 }]);
     expect(estoque.v1).toBe(0);
   });
 
   it("faltando peça, segura o que existe e RELATA a falta", async () => {
     const estoque = { v1: 2 };
-    const faltas = await reservarOQueTiver(bancoFake(estoque), [
+    const { faltas, seguradas } = await reservarOQueTiver(bancoFake(estoque), [
       { variantId: "v1", quantity: 5, label: "Blusa (Off-white P)" },
     ]);
     expect(estoque.v1).toBe(0); // segurou as 2 que havia
+    // o movimento gravado é o que FOI segurado (2), não o pedido (5)
+    expect(seguradas).toEqual([{ variantId: "v1", quantity: 2 }]);
     expect(faltas).toEqual([{ label: "Blusa (Off-white P)", pedido: 5, disponivel: 2 }]);
   });
 
   it("peça esgotada não deixa o estoque negativo", async () => {
     const estoque = { v1: 0 };
-    const faltas = await reservarOQueTiver(bancoFake(estoque), [
+    const { faltas, seguradas } = await reservarOQueTiver(bancoFake(estoque), [
       { variantId: "v1", quantity: 3, label: "Saia (Preto Único)" },
     ]);
     expect(estoque.v1).toBe(0);
+    expect(seguradas).toEqual([]);
     expect(faltas[0].disponivel).toBe(0);
   });
 });

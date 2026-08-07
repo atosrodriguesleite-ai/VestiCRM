@@ -63,6 +63,7 @@ export function CatalogDesigner({
     catalogBg: string;
     catalogFont: string;
     catalogLogoSize: string;
+    catalogHideColors: boolean;
   };
   colors: ColorItem[];
   sizes: SizeItem[];
@@ -80,6 +81,8 @@ export function CatalogDesigner({
   const [bg, setBg] = useState(initial.catalogBg);
   const [font, setFont] = useState(initial.catalogFont);
   const [logoSize, setLogoSize] = useState(initial.catalogLogoSize);
+  // loja sem variação de cor (semijoias): esconde bolinha/nome de cor
+  const [hideColors, setHideColors] = useState(initial.catalogHideColors);
   const [colors, setColors] = useState(initialColors);
   const [sizes, setSizes] = useState(initialSizes);
   const [newColor, setNewColor] = useState({ name: "", hex: "#c94f7c" });
@@ -150,6 +153,7 @@ export function CatalogDesigner({
         catalogBg: bg,
         catalogFont: font,
         catalogLogoSize: logoSize,
+        catalogHideColors: hideColors,
       }),
     });
     setSaving(false);
@@ -385,6 +389,26 @@ export function CatalogDesigner({
                 Grande: o logo preenche o topo, centralizado. Envie um logo em
                 boa resolução (ideal ~1000×300 px, PNG com fundo transparente).
               </p>
+            </div>
+
+            {/* Loja sem variação de cor (semijoias, acessórios) */}
+            <div className="flex items-center justify-between gap-3 rounded-xl border border-gray-200 px-3 py-2.5">
+              <span className="text-sm min-w-0">
+                Minha loja <b>não trabalha com cores</b>
+                <span className="block text-[11px] text-gray-400">
+                  Semijoias e acessórios: a bolinha e o nome da cor somem do
+                  catálogo — só desta loja.
+                </span>
+              </span>
+              <button
+                type="button"
+                disabled={!canEditIdentity}
+                onClick={() => setHideColors((v) => !v)}
+                className={`relative h-6 w-11 shrink-0 rounded-full transition disabled:opacity-40 ${hideColors ? "bg-emerald-500" : "bg-gray-300"}`}
+                title={hideColors ? "Cores escondidas no catálogo" : "Cores aparecem no catálogo"}
+              >
+                <span className={`absolute top-0.5 size-5 rounded-full bg-white shadow transition-all ${hideColors ? "left-[1.375rem]" : "left-0.5"}`} />
+              </button>
             </div>
 
             <div>

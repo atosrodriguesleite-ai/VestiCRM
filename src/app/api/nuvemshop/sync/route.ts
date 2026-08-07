@@ -1,7 +1,11 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { requireUser, AuthError } from "@/lib/auth";
 import { podeOperarIntegracoes } from "@/lib/scope";
-import { syncAbandonedCheckouts, syncProducts } from "@/lib/nuvemshop";
+import {
+  syncAbandonedCheckouts,
+  syncPaginaDeProdutos,
+  syncProducts,
+} from "@/lib/nuvemshop";
 import {
   explicarNuvemshop,
   motivoPeloErro,
@@ -19,7 +23,7 @@ export const maxDuration = 60;
  * a tela mostrava "Não foi possível sincronizar.", sem pista nenhuma para a
  * lojista nem para o suporte.
  */
-export async function POST() {
+export async function POST(req: NextRequest) {
   let user;
   try {
     user = await requireUser();
@@ -33,6 +37,63 @@ export async function POST() {
   }
 
   try {
+    // MODO EM ETAPAS (tela nova): cada chamada processa UMA página de
+    // produtos OU os carrinhos abandonados — nunca os dois juntos, e nunca
+    // perto do limite de tempo. Etapa lenta fica registrada no Saúde.
+    const body = (await req.json().catch(() => ({}))) as {
+      page?: number;
+      carrinhos?: boolean;
+    };
+    const t0 = Date.now();
+    const telemetria = async (rotulo: string) => {
+      const ms = Date.now() - t0;
+      if (ms > 30_000) {
+        await logServerError({
+          source: "server",
+          path: "/api/nuvemshop/sync",
+          message: `Nuvemshop: etapa lenta (${rotulo} em ${Math.round(ms / 1000)}s)`,
+          detail: `empresa ${user.companyId}`,
+        });
+      }
+      return ms;
+    };
+
+    // etapa dos carrinhos abandonados (a tela chama DEPOIS dos produtos):
+    // importar carrinho cria cliente/conversa — é pesado e já derrubou a
+    // rodada quando corria junto com os produtos na mesma requisição
+    if (body?.carrinhos === true) {
+      const carrinhos = await syncAbandonedCheckouts(user.companyId);
+      const ms = await telemetria("carrinhos");
+      return NextResponse.json({ ok: true, carrinhosNovos: carrinhos.novos, ms });
+    }
+
+    const page = Number(body?.page);
+    if (Number.isInteger(page) && page >= 1) {
+      const etapa = await syncPaginaDeProdutos(user.companyId, page);
+      if (!etapa.ok) {
+        const { motivo, mensagem } =
+          etapa.status === -1
+            ? explicarNuvemshop("SEM_CONEXAO")
+            : explicarNuvemshop(motivoPeloStatus(etapa.status));
+        await logServerError({
+          source: "server",
+          path: "/api/nuvemshop/sync",
+          message: `Nuvemshop: sincronização recusada (${motivo})`,
+          detail: `HTTP ${etapa.status} · página ${page} · empresa ${user.companyId}`,
+        });
+        return NextResponse.json({ error: mensagem, motivo }, { status: 502 });
+      }
+      const ms = await telemetria(`produtos página ${page}`);
+      return NextResponse.json({
+        ok: true,
+        produtos: etapa.produtos,
+        fim: etapa.fim,
+        proximaPagina: etapa.proximaPagina ?? page + 1,
+        ms,
+      });
+    }
+
+    // modo antigo (uma chamada só) — segue para quem chama sem página
     const produtos = await syncProducts(user.companyId);
     if (!produtos.ok) {
       const { motivo, mensagem } =

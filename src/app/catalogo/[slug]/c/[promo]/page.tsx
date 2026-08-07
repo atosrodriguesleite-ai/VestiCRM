@@ -122,6 +122,9 @@ export default async function PromoCatalogPage({
       categoryTypes={parseCategoryTypes(company.categoryTypes)}
       promo={{ name: pc.name, slug: pc.slug, discount: pc.discount }}
       logoSize={company.catalogLogoSize as "normal" | "grande"}
+      // mesma régua do catálogo geral: cor esgotada some quando a chave está ligada
+      hideSoldOut={company.catalogHideOutOfStock}
+      hideColors={company.catalogHideColors}
       identity={{
         logoUrl: company.logoUrl,
         primary: company.catalogPrimary,

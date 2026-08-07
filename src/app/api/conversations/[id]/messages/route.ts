@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { requireUser, AuthError } from "@/lib/auth";
+import { db } from "@/lib/db";
 import { sendMessage } from "@/lib/comm/engine";
+import { concluirTarefasDeContato } from "@/lib/contato-feito";
 
 const schema = z.object({
   body: z.string().min(1),
@@ -58,6 +60,18 @@ export async function POST(
       authorName: user.name,
       background: ehMidia,
     });
+
+    // CONTATO FEITO: mensagem real para a cliente (nota interna não conta)
+    // conclui as tarefas de contato dela e tira a sugestão das listas
+    if (parsed.data.kind !== "NOTE") {
+      const conv = await db.conversation.findUnique({
+        where: { id },
+        select: { customerId: true },
+      });
+      if (conv) {
+        await concluirTarefasDeContato(user.companyId, conv.customerId).catch(() => 0);
+      }
+    }
 
     // mídia volta como LINK (não base64) — mesmo formato do sync da inbox
     return NextResponse.json(

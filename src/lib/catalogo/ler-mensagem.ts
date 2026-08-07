@@ -29,6 +29,12 @@
 export type ItemLido = {
   /** "Calça Wide Leg Jeans Azul" — produto e cor grudados, como no texto */
   descricao: string;
+  /**
+   * O título da seção acima do item ("*Blusa Clássica Tule*"). Em mensagem
+   * de formato antigo o item vem SÓ com a cor ("• Branco — Único ×4") e o
+   * nome do modelo mora aqui — sem ele, não há como saber qual peça é.
+   */
+  categoria: string | null;
   tamanhos: { tamanho: string; quantidade: number }[];
   /** o que a mensagem dizia (serve para conferir se lemos certo) */
   pecas: number | null;
@@ -127,12 +133,43 @@ export function lerTamanhos(s: string): { tamanho: string; quantidade: number }[
 }
 
 /**
+ * MENSAGEM ACHATADA — incidente Entre Linhas (04/08/2026): a cliente veio de
+ * ANÚNCIO e abriu o catálogo dentro do navegador do Instagram/Facebook, que
+ * remove as quebras de linha do link do WhatsApp. O pedido chegou inteiro
+ * numa linha só ("*Novo pedido — entre linhas* *Blusa Clássica Tule* •
+ * Branco — Único ×4 (…) • Off White …"). Os marcadores sobrevivem (•, os
+ * asteriscos do negrito, "Total:") — então dá para REMONTAR as linhas antes
+ * de ler. Só age quando a mensagem está de fato achatada.
+ */
+export function desachatarMensagem(texto: string): string {
+  const t = texto ?? "";
+  const linhasCheias = t.split(/\r?\n/).filter((l) => l.trim()).length;
+  // o "·" fica de fora: é separador de "(4 peças · R$ 86,00)", não marcador
+  const bullets = (t.match(/[•▪‣]/g) ?? []).length;
+  // mensagem normal (várias linhas) ou sem cara de lista: não mexe
+  if (linhasCheias > 3 || bullets < 2) return t;
+  return (
+    t
+      // cada marcador de item começa linha nova
+      .replace(/\s*[•▪‣]\s*/g, "\n• ")
+      // o Total ANTES da regra de categoria (senão "*Total:*" perderia os
+      // números da própria linha)
+      .replace(/\s*\*?\s*Total:\s*\*?\s*/gi, "\nTotal: ")
+      // "*Categoria*" (negrito) vira linha própria — pega também o cabeçalho
+      .replace(/\s*\*([^*\n]{2,80})\*\s*/g, "\n*$1*\n")
+      .replace(/\s+(Loja|Nome|Telefone|Fone|Whatsapp)\s*:\s*/gi, "\n$1: ")
+      .replace(/\n{2,}/g, "\n")
+      .trim()
+  );
+}
+
+/**
  * Lê a mensagem inteira. Nunca lança: texto colado de WhatsApp vem torto
  * (linha quebrada, emoji no meio, pedaço faltando) e o que der para ler
  * já adianta o trabalho da vendedora — o resto ela ajusta na tela.
  */
 export function lerMensagemDePedido(texto: string): PedidoLido {
-  const linhas = (texto ?? "").split(/\r?\n/);
+  const linhas = desachatarMensagem(texto ?? "").split(/\r?\n/);
   const itens: ItemLido[] = [];
   let loja: string | null = null;
   let totalPecas: number | null = null;
@@ -142,6 +179,9 @@ export function lerMensagemDePedido(texto: string): PedidoLido {
     loja: null as string | null,
     telefone: null as string | null,
   };
+  // título da seção acima dos itens ("*Blusa Clássica Tule*") — no formato
+  // antigo o item vem só com a cor, e o nome do modelo mora aqui
+  let categoriaAtual: string | null = null;
 
   for (const bruta of linhas) {
     // o marcador da lista é conferido ANTES de tirar o negrito (ver BULLET)
@@ -202,7 +242,15 @@ export function lerMensagemDePedido(texto: string): PedidoLido {
         const idx = paren[1].search(/R\$/i);
         valor = idx >= 0 ? lerDinheiro(paren[1].slice(idx)) : null;
       }
-      itens.push({ descricao, tamanhos, pecas, valor });
+      itens.push({ descricao, categoria: categoriaAtual, tamanhos, pecas, valor });
+      continue;
+    }
+
+    // linha solta curta sem preço/quantidade: título da seção (nome do
+    // modelo) — no formato antigo o item vem só com a cor, e é este título
+    // que diz de qual peça se trata
+    if (!/R\$/i.test(linha) && linha.length <= 60 && !/[×x]\s*\d/.test(linha)) {
+      categoriaAtual = linha;
     }
   }
 

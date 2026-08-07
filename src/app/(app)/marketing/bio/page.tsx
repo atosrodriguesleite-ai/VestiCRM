@@ -3,6 +3,7 @@ import { requireUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { isManagerUp } from "@/lib/scope";
 import { platformUrl } from "@/lib/site";
+import { jornadaDaBio } from "@/lib/bio-jornada";
 import { PageHeader } from "@/components/ui";
 import { BioEditor } from "./bio-editor";
 
@@ -42,22 +43,8 @@ export default async function BioPageEditor() {
   });
 
   // Jornada: o que a bio levou pro catálogo (rastreio marca utm_source=bio no
-  // botão "Ver catálogo"). Somamos visitas e sacolas montadas.
-  const [catalogVisits, bags, bagsAgg] = await Promise.all([
-    db.trackSession.count({ where: { companyId: user.companyId, utmSource: "bio" } }),
-    db.trackSession.count({
-      where: { companyId: user.companyId, utmSource: "bio", cartValue: { gt: 0 } },
-    }),
-    db.trackSession.aggregate({
-      where: { companyId: user.companyId, utmSource: "bio", cartValue: { gt: 0 } },
-      _sum: { cartValue: true },
-    }),
-  ]);
-  const journey = {
-    catalogVisits,
-    bags,
-    bagsValue: bagsAgg._sum.cartValue ?? 0,
-  };
+  // botão "Ver catálogo"). Conta honesta: 1 pessoa = 1 sacola (a mais recente).
+  const journey = await jornadaDaBio(user.companyId);
 
   return (
     <div className="max-w-5xl mx-auto">

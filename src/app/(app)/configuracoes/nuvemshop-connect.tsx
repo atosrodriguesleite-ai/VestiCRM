@@ -90,19 +90,53 @@ export function NuvemshopConnect() {
   async function sincronizar() {
     setBusy(true);
     setMsg("");
-    const res = await fetch("/api/nuvemshop/sync", { method: "POST" });
-    const d = await res.json().catch(() => ({}));
-    setBusy(false);
-    if (res.ok) {
-      setMsg(`Sincronizado: ${d.produtos} produtos conferidos, ${d.carrinhosNovos} carrinho(s) abandonado(s) novo(s).`);
-      carregar();
-    } else
+    // EM ETAPAS: cada chamada processa 50 produtos e devolve se acabou.
+    // Era numa tacada só, e catálogo grande estourava o tempo do servidor —
+    // a sincronização morria no meio sem mensagem (incidente Entre Linhas).
+    const falhou = (d: { error?: string }) => {
       setMsg(
         d.error ??
           // resposta sem explicação = o servidor foi interrompido no meio
-          // (tempo estourado). Dizer só "não foi possível" não ajuda ninguém.
-          "A sincronização demorou demais e foi interrompida. Tente de novo — ela é segura de repetir e continua do estado atual. Se acontecer sempre, avise o suporte."
+          "A sincronização foi interrompida no meio. Clique de novo — ela é segura de repetir. Se acontecer sempre, avise o suporte."
       );
+      setBusy(false);
+    };
+
+    let page = 1;
+    let total = 0;
+    for (; page <= 200; page++) {
+      setMsg(
+        page === 1
+          ? "Sincronizando…"
+          : `Sincronizando… ${total} produtos conferidos até aqui`
+      );
+      const res = await fetch("/api/nuvemshop/sync", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ page }),
+      });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) return falhou(d);
+      total += d.produtos ?? 0;
+      if (d.fim) break;
+    }
+
+    // carrinhos abandonados em etapa PRÓPRIA: importar carrinho cria
+    // cliente/conversa — junto com os produtos já derrubou a rodada
+    setMsg(`Produtos ok (${total}). Conferindo carrinhos abandonados…`);
+    const resC = await fetch("/api/nuvemshop/sync", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ carrinhos: true }),
+    });
+    const dC = await resC.json().catch(() => ({}));
+    if (!resC.ok) return falhou(dC);
+
+    setMsg(
+      `Sincronizado: ${total} produtos conferidos, ${dC.carrinhosNovos ?? 0} carrinho(s) abandonado(s) novo(s).`
+    );
+    setBusy(false);
+    carregar();
   }
 
   async function desconectar() {

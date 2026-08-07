@@ -6,6 +6,8 @@ import { round2 } from "./orders";
 import { separarDocumento } from "./documento";
 import { notifySalePaid } from "./push";
 import { winLinkedOpportunity } from "./opportunity-sync";
+import { comNumeroUnico } from "./numero-do-pedido";
+import { limparDescricaoHtml, temEntidadeHtml } from "./descricao-limpa";
 
 /**
  * Integração Nuvemshop — a loja online é a DONA do estoque e dos produtos;
@@ -72,6 +74,9 @@ async function api<T = unknown>(
         "Content-Type": "application/json",
         "User-Agent": UA,
       },
+      // Nuvemshop travada não pode segurar a função até a Vercel matá-la
+      // (morte sem mensagem — vira "Não foi possível sincronizar" mudo)
+      signal: AbortSignal.timeout(15_000),
       ...(body ? { body: JSON.stringify(body) } : {}),
     });
     const data = (await res.json().catch(() => null)) as T | null;
@@ -292,7 +297,8 @@ const buscarPoolSku = (companyId: string) =>
 const buscarPoolProdutos = (companyId: string) =>
   db.product.findMany({
     where: { companyId },
-    select: { id: true, name: true, sku: true, nuvemshopId: true },
+    // description entra para a regra "nunca sobrescrever texto editado na loja"
+    select: { id: true, name: true, sku: true, nuvemshopId: true, description: true },
   });
 export type PoolsDeSync = {
   skuVariants: Awaited<ReturnType<typeof buscarPoolSku>>;
@@ -521,19 +527,25 @@ export async function upsertProduct(
 
   // modo 1↔1: mantém também os dados do produto sincronizados
   if (um2um) {
+    // DESCRIÇÃO — mesma regra do peso: o sync NUNCA sobrescreve texto
+    // editado na loja. Antes ele reescrevia a cada rodada, e a lojista via a
+    // edição "sumir e voltar" minutos depois (relato da Entre Linhas,
+    // 06/08/2026). Só dois casos escrevem:
+    //  • descrição local VAZIA → entra a da Nuvemshop, já limpa;
+    //  • descrição local com "computês" (&ccedil; etc., gravado pelo sync
+    //    antigo) → é limpa NO LUGAR, sem trocar o conteúdo.
+    const descricaoLocal = um2um.description ?? "";
+    const novaDescricao = !descricaoLocal.trim()
+      ? limparDescricaoHtml(texto(p.description)) || undefined
+      : temEntidadeHtml(descricaoLocal)
+        ? limparDescricaoHtml(descricaoLocal)
+        : undefined;
     await db.product.update({
       where: { id: um2um.id },
       data: {
         nuvemshopId: nsId,
         active: p.published !== false,
-        ...(texto(p.description)
-          ? {
-              description: texto(p.description)
-                .replace(/<[^>]+>/g, " ")
-                .replace(/\s+/g, " ")
-                .trim(),
-            }
-          : {}),
+        ...(novaDescricao !== undefined ? { description: novaDescricao } : {}),
       },
     });
     const fotoCount = await db.productImage.count({ where: { productId: um2um.id } });
@@ -566,7 +578,9 @@ async function criarProdutoEspelhado(companyId: string, p: NsProduct) {
   const nsId = String(p.id);
   const name = texto(p.name).trim() || `Produto ${nsId}`;
   const category = texto(p.categories?.[0]?.name).trim() || "Loja online";
-  const description = texto(p.description).replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim() || null;
+  // limpa também os códigos HTML (&ccedil; → ç) — só tirar as tags deixava
+  // "Especifica&ccedil;&otilde;es" na cara da cliente final
+  const description = limparDescricaoHtml(texto(p.description)) || null;
   const variants = p.variants ?? [];
   const retail = num(variants[0]?.price);
   const skuBase = (variants.find((v) => v.sku)?.sku ?? "").trim();
@@ -674,6 +688,7 @@ export async function syncProducts(companyId: string) {
           name: criado.name,
           sku: criado.sku,
           nuvemshopId: criado.nuvemshopId,
+          description: criado.description,
         });
       }
       total++;
@@ -693,6 +708,89 @@ export async function syncProducts(companyId: string) {
     },
   });
   return { ok: true as const, produtos: total, report, status: 200 };
+}
+
+/**
+ * SINCRONIZAÇÃO EM ETAPAS — incidente Entre Linhas (03/08/2026): a rodada
+ * completa numa requisição só morria no limite de 60s da Vercel, sem
+ * mensagem. Aqui cada chamada processa UMA página (50 produtos) e devolve se
+ * acabou — a tela chama a próxima etapa e mostra o progresso. Não existe
+ * catálogo grande o bastante para estourar: o tempo é sempre o de 50
+ * produtos. O relatório vai sendo somado no banco a cada etapa (a etapa 1
+ * zera), então "Conferir integração" continua contando a história inteira.
+ */
+export async function syncPaginaDeProdutos(companyId: string, page: number) {
+  const conn = await loadConn(companyId);
+  if (!conn) return { ok: false as const, produtos: 0, fim: true, status: -1 };
+  const report: SyncReport = { casadas: 0, criadas: 0, pendencias: [] };
+  const pools: PoolsDeSync = {
+    skuVariants: await buscarPoolSku(companyId),
+    allProducts: await buscarPoolProdutos(companyId),
+  };
+  // 25 por etapa: margem folgada mesmo com banco/Nuvemshop num dia lento
+  const POR_ETAPA = 25;
+  const res = await api<NsProduct[]>(
+    conn,
+    "GET",
+    `/products?per_page=${POR_ETAPA}&page=${page}`
+  );
+  if (!res.ok && page === 1) {
+    return { ok: false as const, produtos: 0, fim: true, status: res.status };
+  }
+  const lista = res.ok ? (res.data ?? []) : [];
+  for (const p of lista) {
+    const criado = await upsertProduct(companyId, p, report, pools);
+    if (criado) {
+      pools.allProducts.push({
+        id: criado.id,
+        name: criado.name,
+        sku: criado.sku,
+        nuvemshopId: criado.nuvemshopId,
+        description: criado.description,
+      });
+    }
+  }
+  const fim = lista.length < POR_ETAPA || page >= 100;
+
+  // soma o parcial desta etapa no relatório guardado (etapa 1 recomeça)
+  const conexao = await db.nuvemshopConnection.findUnique({
+    where: { companyId },
+    select: { lastSyncReport: true },
+  });
+  let anterior = { casadas: 0, criadas: 0, pendencias: [] as SyncPendencia[] };
+  if (page > 1 && conexao?.lastSyncReport) {
+    try {
+      const j = JSON.parse(conexao.lastSyncReport);
+      anterior = {
+        casadas: j.casadas ?? 0,
+        criadas: j.criadas ?? 0,
+        pendencias: Array.isArray(j.pendencias) ? j.pendencias : [],
+      };
+    } catch {
+      // relatório antigo ilegível: recomeça do zero
+    }
+  }
+  const somado = {
+    at: new Date().toISOString(),
+    casadas: anterior.casadas + report.casadas,
+    criadas: anterior.criadas + report.criadas,
+    pendencias: [...anterior.pendencias, ...report.pendencias].slice(0, 100),
+  };
+  await db.nuvemshopConnection.update({
+    where: { companyId },
+    data: {
+      lastSyncReport: JSON.stringify(somado),
+      ...(fim ? { lastProductSync: new Date() } : {}),
+    },
+  });
+
+  return {
+    ok: true as const,
+    produtos: lista.length,
+    fim,
+    proximaPagina: page + 1,
+    status: 200,
+  };
 }
 
 /**
@@ -874,18 +972,15 @@ export async function ingestPaidOrder(companyId: string, nsOrderId: string) {
       unitPrice: num(it.price),
     });
   }
-  const subtotal = lines.reduce((a, l) => a + l.quantity * l.unitPrice, 0);
-  const total = num(o.total) || subtotal;
+  // round2: soma de floats deixa centavo fantasma — o pedido espelhado tem
+  // que bater com o valor da Nuvemshop
+  const subtotal = round2(lines.reduce((a, l) => a + l.quantity * l.unitPrice, 0));
+  const total = round2(num(o.total)) || subtotal;
   // O total da Nuvemshop já vem COM frete. Separando os dois, o faturamento
   // aqui soma só a mercadoria — igual aos pedidos montados no sistema.
   const shippingFee = round2(Math.max(num(o.shipping_cost_customer), 0));
   const netTotal = round2(Math.max(total - shippingFee, 0));
 
-  const last = await db.order.findFirst({
-    where: { companyId },
-    orderBy: { number: "desc" },
-    select: { number: true },
-  });
   // A VENDA ONLINE FECHA O CARTÃO DO FUNIL.
   //
   // A cliente abandona o carrinho → nasce a oportunidade "🛒 Carrinho
@@ -898,7 +993,15 @@ export async function ingestPaidOrder(companyId: string, nsOrderId: string) {
     orderBy: { createdAt: "desc" },
     select: { id: true },
   });
-  const order = await db.order.create({
+  // comNumeroUnico: a venda online chega junto com pedido do painel/catálogo
+  // e disputa o mesmo número — quem perde a corrida lê de novo e insiste
+  const order = await comNumeroUnico(async () => {
+    const last = await db.order.findFirst({
+      where: { companyId },
+      orderBy: { number: "desc" },
+      select: { number: true },
+    });
+    return db.order.create({
     data: {
       companyId,
       number: (last?.number ?? 0) + 1,
@@ -927,10 +1030,11 @@ export async function ingestPaidOrder(companyId: string, nsOrderId: string) {
           size: l.size,
           quantity: l.quantity,
           unitPrice: l.unitPrice,
-          total: l.quantity * l.unitPrice,
+          total: round2(l.quantity * l.unitPrice),
         })),
       },
     },
+    });
   });
   await db.customerEvent.create({
     data: {

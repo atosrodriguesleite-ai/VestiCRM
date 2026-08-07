@@ -2,12 +2,15 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { imageHref } from "@/lib/img";
+import { corIgual } from "@/lib/capa-por-cor";
 import { avancarFunil } from "@/lib/funil-auto";
 import { requireUser, AuthError } from "@/lib/auth";
+import { isSupport } from "@/lib/scope";
 import { computeOrderTotals, orderNumber } from "@/lib/orders";
 import { pushStockToNuvemshop } from "@/lib/nuvemshop";
 import { pushStockToJueri } from "@/lib/jueri";
 import { reservarEstoque, textoDaFalta } from "@/lib/reservations";
+import { comNumeroUnico } from "@/lib/numero-do-pedido";
 
 /**
  * Pedido grande (a mensagem colada do WhatsApp traz 30+ linhas) precisa de
@@ -43,6 +46,14 @@ const createSchema = z.object({
 export async function POST(req: NextRequest) {
   try {
     const user = await requireUser();
+    // Suporte é perfil OPERACIONAL: acompanha e ajusta pedidos, mas montar
+    // um pedido é ato comercial (vira carteira e comissão de vendedora)
+    if (isSupport(user)) {
+      return NextResponse.json(
+        { error: "Perfil Suporte não cria pedidos — peça para a vendedora ou a gerente." },
+        { status: 403 }
+      );
+    }
     const parsed = createSchema.safeParse(await req.json());
     if (!parsed.success) {
       return NextResponse.json({ error: "Dados inválidos" }, { status: 400 });
@@ -76,10 +87,12 @@ export async function POST(req: NextRequest) {
         // do banco (megabytes por pedido) só para descobrir o endereço
         // dela — `imageHref` monta o link a partir do id, e a rota
         // /api/img resolve sozinha quando a foto é link externo.
+        // TODAS as fotos (id+cor): o item guarda a foto DA COR escolhida,
+        // não a capa geral (incidente Entre Linhas: item Azul com foto Preta)
         include: {
           product: {
             include: {
-              images: { orderBy: { order: "asc" }, take: 1, select: { id: true } },
+              images: { orderBy: { order: "asc" }, select: { id: true, color: true } },
             },
           },
         },
@@ -107,7 +120,9 @@ export async function POST(req: NextRequest) {
       { valor: input.surcharge, pct: input.surchargePct }
     );
 
-    const order = await db.$transaction(async (tx) => {
+    // comNumeroUnico: dois pedidos no mesmo instante (painel + catálogo +
+    // Nuvemshop) disputam o mesmo número; quem perde tenta de novo do zero
+    const order = await comNumeroUnico(() => db.$transaction(async (tx) => {
       const last = await tx.order.findFirst({
         where: { companyId: user.companyId },
         orderBy: { number: "desc" },
@@ -158,12 +173,17 @@ export async function POST(req: NextRequest) {
           items: {
             create: input.items.map((i) => {
               const v = variantById.get(i.variantId)!;
+              // SKU da VARIAÇÃO escolhida (o do produto é o da 1ª variação
+              // importada — mostrava "Preto" num item Azul); foto DA COR
+              const fotoItem =
+                v.product.images.find((im) => corIgual(im.color, v.color)) ??
+                v.product.images[0];
               return {
                 productId: v.productId,
                 variantId: v.id,
                 name: v.product.name,
-                sku: v.product.sku,
-                imageUrl: v.product.images[0] ? imageHref(v.product.images[0].id) : null,
+                sku: v.sku ?? v.product.sku,
+                imageUrl: fotoItem ? imageHref(fotoItem.id) : null,
                 color: v.color,
                 size: v.size,
                 quantity: i.quantity,
@@ -238,7 +258,7 @@ export async function POST(req: NextRequest) {
       // linhas com o banco na nuvem. Estourar aqui derrubava a rota sem
       // mensagem nenhuma — a vendedora via só "não foi possível criar".
       { timeout: 20_000, maxWait: 10_000 }
-    );
+    ));
 
     // Integrações: a reserva feita AQUI é refletida na ORIGEM do estoque
     // (Nuvemshop/Jueri) — a peça reservada some do estoque dos outros canais

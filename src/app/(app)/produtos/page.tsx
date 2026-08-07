@@ -154,7 +154,12 @@ export default async function ProductsPage() {
         libraryColors={libraryColors.map((c) => ({ name: c.name, hex: c.hex }))}
         librarySizes={librarySizes.map((s) => s.name)}
         mediaLibrary={company?.mediaLibraryEnabled ?? false}
-        hideOutOfStock={company?.catalogHideOutOfStock ?? false}
+        // mesma régua do gerenciador de categorias: gerência + suporte
+        canOrganize={isManagerUp(user) || isSupport(user)}
+        // loja sem variação de cor (semijoias): a grade pede só o tamanho
+        semCores={company?.catalogHideColors ?? false}
+        // o crachá do card diz POR QUE a peça está fora do catálogo
+        ocultaSemEstoque={company?.catalogHideOutOfStock ?? false}
       />
     </div>
   );

@@ -9,6 +9,7 @@ import { formatPhone } from "@/lib/format";
 import { lerMensagemWA, soRecadoDoProtocolo } from "@/lib/comm/wa-message";
 import { buscarTextoAtual, lerEdicao } from "@/lib/comm/edicao";
 import { lerContatos, nomeDeQuemMandou } from "@/lib/comm/nome-do-contato";
+import { concluirTarefasDeContato } from "@/lib/contato-feito";
 
 /**
  * Webhook do WhatsApp sem API oficial (Evolution → plataforma).
@@ -593,6 +594,7 @@ export async function POST(
                   unreadCount: 0,
                 },
               });
+              await concluirTarefasDeContato(companyId, customer.id).catch(() => 0);
               continue;
             }
           }
@@ -618,6 +620,9 @@ export async function POST(
               if ((e as { code?: string })?.code !== "P2002") throw e;
               continue;
             }
+            // CONTATO FEITO: a loja chamou a cliente pelo celular — as
+            // tarefas de contato dela se concluem e a sugestão sai das listas
+            await concluirTarefasDeContato(companyId, customer.id).catch(() => 0);
             // respondeu pelo CELULAR = leu a conversa. Sem zerar aqui, o
             // sistema seguia mostrando "3 não lidas" numa conversa já
             // atendida, e o time perdia a confiança no contador.

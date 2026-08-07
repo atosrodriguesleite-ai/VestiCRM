@@ -36,6 +36,7 @@ import {
   getConsent,
   setConsent,
 } from "@/lib/tracking/client";
+import { lembrarOrigem } from "@/lib/catalogo/origem";
 
 const montserrat = Montserrat({ subsets: ["latin"], weight: ["400", "500", "600", "700", "800"] });
 const inter = Inter({ subsets: ["latin"], weight: ["400", "500", "600", "700", "800"] });
@@ -259,6 +260,8 @@ export function PublicCatalog({
   logoSize = "normal",
   customColors,
   tracking,
+  hideSoldOut = false,
+  hideColors = false,
 }: {
   storeSlug: string;
   storeName: string;
@@ -279,6 +282,10 @@ export function PublicCatalog({
   logoSize?: "normal" | "grande";
   customColors: { name: string; hex: string }[];
   tracking: Record<string, string | null>;
+  /** chavinha da loja: esconder também o CARD da cor esgotada (não só o produto) */
+  hideSoldOut?: boolean;
+  /** loja SEM variação de cor (semijoias): esconde bolinha e nome da cor */
+  hideColors?: boolean;
 }) {
   // Tema 100% personalizável pelo lojista: 3 cores base + derivadas
   const T = {
@@ -314,20 +321,26 @@ export function PublicCatalog({
     for (const p of products) {
       const colors = [...new Set(p.variants.map((v) => v.color))];
       for (const color of colors) {
+        const sizes = p.variants
+          .filter((v) => v.color === color)
+          .map((v) => ({ size: v.size, available: v.available }))
+          // tamanhos sempre do menor para o maior (P, M, G, GG / 36, 38, 40)
+          .sort((a, b) => compareSizes(a.size, b.size));
+        // Chavinha "esconder sem estoque" vale POR COR: o filtro do servidor
+        // só tira o produto quando TODAS as cores zeram — mas o catálogo
+        // mostra um card por cor, e o card da cor esgotada continuava na
+        // vitrine enquanto outra cor tivesse peça (relato da Entre Linhas).
+        if (hideSoldOut && sizes.every((s) => !s.available)) continue;
         map.get(p.category)!.push({
           key: `${p.id}|${color}`,
           product: p,
           color,
-          // tamanhos sempre do menor para o maior (P, M, G, GG / 36, 38, 40)
-          sizes: p.variants
-            .filter((v) => v.color === color)
-            .map((v) => ({ size: v.size, available: v.available }))
-            .sort((a, b) => compareSizes(a.size, b.size)),
+          sizes,
         });
       }
     }
     return map;
-  }, [products, categories]);
+  }, [products, categories, hideSoldOut]);
 
   const allCards = useMemo(
     () => [...cardsByCategory.values()].flat(),
@@ -474,6 +487,10 @@ export function PublicCatalog({
 
   // ---- Tracking Engine (Inteligência Comercial) ----
   const trackerRef = useRef<CatalogTracker | null>(null);
+  // ORIGEM QUE SOBREVIVE: o ?ref da vendedora (e utm/c) fica guardado no
+  // aparelho por 7 dias — a cliente que volta amanhã SEM o link continua
+  // sendo venda de quem mandou (a sacola sobrevivia, a comissão não)
+  const origemRef = useRef<Record<string, string | null>>(tracking);
   const [showConsent, setShowConsent] = useState(false);
   const orderSentRef = useRef(false);
   const cartRef = useRef({ pieces: 0, value: 0 });
@@ -520,10 +537,13 @@ export function PublicCatalog({
     trackerRef.current?.track(e);
 
   useEffect(() => {
+    // resolve a origem ANTES de abrir a sessão: URL manda; sem parâmetro,
+    // vale a origem lembrada no aparelho (7 dias)
+    origemRef.current = lembrarOrigem(window.localStorage, storeSlug, tracking);
     trackerRef.current = new CatalogTracker(storeSlug);
     const consent = getConsent();
     if (consent === "granted") {
-      trackerRef.current.start(tracking.ref, tracking);
+      trackerRef.current.start(origemRef.current.ref, origemRef.current);
     } else if (consent === null) {
       setShowConsent(true);
     }
@@ -702,17 +722,21 @@ export function PublicCatalog({
     const proximoCart = { ...cart };
     if (Object.keys(clean).length) proximoCart[sheet.key] = clean;
     else delete proximoCart[sheet.key];
-    t({
-      type: newQty >= prevQty ? "cart_add" : "cart_remove",
-      productId: sheet.product.id,
-      productName: sheet.product.name,
-      category: sheet.product.category,
-      color: sheet.color,
-      size: Object.keys(clean).join(","),
-      qty: Math.abs(newQty - prevQty) || newQty,
-      value: newTotal,
-      meta: { sacola: fotoDaSacola(proximoCart) },
-    });
+    // trocar só a grade (P→M, mesma quantidade) NÃO é peça nova na sacola:
+    // o "+Sacola" dos rankings inflava a cada ajuste (auditoria 06/08/2026)
+    if (newQty !== prevQty) {
+      t({
+        type: newQty > prevQty ? "cart_add" : "cart_remove",
+        productId: sheet.product.id,
+        productName: sheet.product.name,
+        category: sheet.product.category,
+        color: sheet.color,
+        size: Object.keys(clean).join(","),
+        qty: Math.abs(newQty - prevQty),
+        value: newTotal,
+        meta: { sacola: fotoDaSacola(proximoCart) },
+      });
+    }
     setCart((prev) => {
       const next = { ...prev };
       if (Object.keys(clean).length) next[sheet.key] = clean;
@@ -756,7 +780,8 @@ export function PublicCatalog({
         const sizeStr = Object.entries(sizes)
           .map(([t, n]) => `${t} ×${n}`)
           .join(", ");
-        msg += `• ${c.product.name} ${c.color} — ${sizeStr}  (${q} ${q > 1 ? "peças" : "peça"} · ${fmt(q * c.product.retailPrice)})\n`;
+        // loja sem cores: a mensagem também não fala em cor
+        msg += `• ${c.product.name}${hideColors ? "" : ` ${c.color}`} — ${sizeStr}  (${q} ${q > 1 ? "peças" : "peça"} · ${fmt(q * c.product.retailPrice)})\n`;
       }
       msg += "\n";
     }
@@ -821,11 +846,14 @@ export function PublicCatalog({
           store: client.loja || undefined,
         },
         message: msg,
-        // atribuição do link rastreado: vendedor (?ref) e cliente (?c)
-        ref: tracking.ref || undefined,
-        c: tracking.c || undefined,
+        // atribuição do link rastreado: vendedor (?ref) e cliente (?c) — da
+        // URL ou LEMBRADA no aparelho (a comissão não morre da noite pro dia)
+        ref: origemRef.current.ref || undefined,
+        c: origemRef.current.c || undefined,
         // campanha: o servidor recalcula os preços com o desconto dela
         promo: promo?.slug || undefined,
+        // sessão de navegação → o pedido; é o que liga faturamento a canal
+        trackSessionId: trackerRef.current?.session || undefined,
       } as Record<string, unknown>,
     };
     if (typeof window !== "undefined") {
@@ -1115,8 +1143,9 @@ export function PublicCatalog({
           <div
             ref={catNavRef}
             onScroll={syncCatArrows}
-            className="flex gap-2 overflow-x-auto px-[18px] py-[5px]"
-            style={{ scrollbarWidth: "none" }}
+            // cat-scroll: celular sem barra (dedo); computador com a
+            // barrinha de arrastar (pedido da Entre Linhas)
+            className="flex gap-2 overflow-x-auto cat-scroll px-[18px] py-[5px]"
           >
             {categoriasVisiveis.map((cat) => {
               const active = categories[activeCat] === cat;
@@ -1245,16 +1274,26 @@ export function PublicCatalog({
                         )}
                       </div>
                       <div className="px-3 pt-[11px] pb-[13px]">
-                        <p className="text-[10px] uppercase font-semibold m-0" style={{ color: T.muted, letterSpacing: ".12em" }}>
-                          {card.product.name}
-                        </p>
-                        <p className="text-[15px] font-bold my-1 flex items-center gap-[7px] leading-tight">
-                          <span
-                            className="size-3.5 rounded-full shrink-0"
-                            style={{ background: swatch(card.color), border: "1px solid rgba(0,0,0,.2)" }}
-                          />
-                          {card.color}
-                        </p>
+                        {/* loja sem cores (semijoias): o NOME assume o lugar
+                            de destaque e a bolinha/cor não aparecem */}
+                        {hideColors ? (
+                          <p className="text-[15px] font-bold my-1 leading-tight line-clamp-2">
+                            {card.product.name}
+                          </p>
+                        ) : (
+                          <>
+                            <p className="text-[10px] uppercase font-semibold m-0" style={{ color: T.muted, letterSpacing: ".12em" }}>
+                              {card.product.name}
+                            </p>
+                            <p className="text-[15px] font-bold my-1 flex items-center gap-[7px] leading-tight">
+                              <span
+                                className="size-3.5 rounded-full shrink-0"
+                                style={{ background: swatch(card.color), border: "1px solid rgba(0,0,0,.2)" }}
+                              />
+                              {card.color}
+                            </p>
+                          </>
+                        )}
                         <p className="text-[15px] font-bold m-0" style={{ color: T.primary }}>
                           {promo && card.product.originalRetailPrice ? (
                             <>
@@ -1392,7 +1431,7 @@ export function PublicCatalog({
               onClick={() => {
                 setConsent("granted");
                 setShowConsent(false);
-                trackerRef.current?.start(tracking.ref, tracking);
+                trackerRef.current?.start(origemRef.current.ref, origemRef.current);
               }}
               className="rounded-xl px-4 py-2 text-xs font-bold"
               style={{ background: T.secondary, color: T.primary }}
@@ -1476,13 +1515,15 @@ export function PublicCatalog({
                 {sheet.product.sku} · {sheet.product.category}
               </p>
               <p className="font-extrabold text-[21px] uppercase mt-1 mb-2.5">{sheet.product.name}</p>
-              <span
-                className="inline-flex items-center gap-2 rounded-[30px] px-3.5 py-[7px] text-[13px] font-bold"
-                style={{ background: T.soft, border: `1px solid ${T.line}`, color: T.primary }}
-              >
-                <span className="size-[15px] rounded-full" style={{ background: swatch(sheet.color), border: "1px solid rgba(0,0,0,.2)" }} />
-                Cor: {sheet.color}
-              </span>
+              {!hideColors && (
+                <span
+                  className="inline-flex items-center gap-2 rounded-[30px] px-3.5 py-[7px] text-[13px] font-bold"
+                  style={{ background: T.soft, border: `1px solid ${T.line}`, color: T.primary }}
+                >
+                  <span className="size-[15px] rounded-full" style={{ background: swatch(sheet.color), border: "1px solid rgba(0,0,0,.2)" }} />
+                  Cor: {sheet.color}
+                </span>
+              )}
               {sheet.product.description && (
                 <p className="text-sm font-medium leading-relaxed mt-3.5 mb-1" style={{ color: T.muted }}>
                   {sheet.product.description}
@@ -1660,8 +1701,10 @@ export function PublicCatalog({
                           )}
                           <div className="flex-1 min-w-0">
                             <p className="font-bold text-sm m-0 flex items-center gap-[7px]">
-                              <span className="size-[13px] rounded-full shrink-0" style={{ background: swatch(c.color), border: "1px solid rgba(0,0,0,.2)" }} />
-                              {c.product.name} · {c.color}
+                              {!hideColors && (
+                                <span className="size-[13px] rounded-full shrink-0" style={{ background: swatch(c.color), border: "1px solid rgba(0,0,0,.2)" }} />
+                              )}
+                              {hideColors ? c.product.name : `${c.product.name} · ${c.color}`}
                             </p>
                             <p className="text-[13px] font-semibold mt-1 m-0">
                               {Object.entries(sizes).map(([t, n], i) => (

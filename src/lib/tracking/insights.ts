@@ -11,6 +11,16 @@ import { PAID_ORDER_STATUSES } from "../orders";
 export type Period = { from: Date; to: Date };
 
 export function periodFromDays(days: number): Period {
+  // "HOJE" é o dia de São Paulo, não as últimas 24h corridas: às 9h da manhã
+  // o jeito antigo incluía a noite de ontem inteira e o número nunca batia
+  // com o Dashboard (auditoria 06/08/2026). Períodos maiores seguem janela
+  // corrida (7/30 dias), igual sempre foram.
+  if (days === 1) {
+    const diaSP = new Intl.DateTimeFormat("en-CA", {
+      timeZone: "America/Sao_Paulo",
+    }).format(new Date());
+    return { from: new Date(`${diaSP}T03:00:00Z`), to: new Date() };
+  }
   return {
     from: new Date(Date.now() - days * 24 * 60 * 60 * 1000),
     to: new Date(),
@@ -24,6 +34,58 @@ export function previousPeriod(p: Period): Period {
 
 const r2 = (v: number) => Math.round(v * 100) / 100;
 const pct = (num: number, den: number) => (den > 0 ? (num / den) * 100 : 0);
+
+/**
+ * CARRINHOS ABANDONADOS — a régua única (KPI e lista de recuperação).
+ *
+ * Auditoria 06/08/2026: o cartão contava POR SESSÃO (a mesma cliente que
+ * voltou no dia seguinte contava 2× e a sacola somava em dobro) enquanto a
+ * lista logo abaixo deduplicava por visitante — "2 carrinhos / R$ 1.050" em
+ * cima e 1 oportunidade de R$ 550 embaixo. Regra única: 1 visitante = 1
+ * carrinho (a sessão mais RECENTE dele), e só sacola com valor (> 0).
+ */
+export function carrinhosAbandonados<
+  S extends { visitorId: string; converted: boolean; cartAdds: number; cartValue: number; startedAt: Date },
+>(sessions: S[]): S[] {
+  const vistos = new Set<string>();
+  const out: S[] = [];
+  for (const s of [...sessions].sort(
+    (a, b) => b.startedAt.getTime() - a.startedAt.getTime()
+  )) {
+    if (!s.converted && s.cartAdds > 0 && s.cartValue > 0 && !vistos.has(s.visitorId)) {
+      vistos.add(s.visitorId);
+      out.push(s);
+    }
+  }
+  return out;
+}
+
+/**
+ * FATURAMENTO REAL por sessão: soma `netTotal` dos pedidos PAGOS ligados às
+ * sessões (Order.trackSessionId). Antes o ranking somava `cartValue` — o
+ * valor da SACOLA no envio, vindo do navegador, de pedido nem pago — e
+ * chamava de faturamento (auditoria 06/08/2026).
+ */
+async function faturamentoPagoPorSessao(
+  companyId: string,
+  sessionIds: string[]
+): Promise<Map<string, number>> {
+  if (sessionIds.length === 0) return new Map();
+  const pagos = await db.order.findMany({
+    where: {
+      companyId,
+      trackSessionId: { in: sessionIds },
+      status: { in: PAID_ORDER_STATUSES },
+    },
+    select: { trackSessionId: true, netTotal: true },
+  });
+  const porSessao = new Map<string, number>();
+  for (const o of pagos) {
+    if (!o.trackSessionId) continue;
+    porSessao.set(o.trackSessionId, (porSessao.get(o.trackSessionId) ?? 0) + o.netTotal);
+  }
+  return porSessao;
+}
 
 async function loadSessions(companyId: string, p: Period) {
   return db.trackSession.findMany({
@@ -64,8 +126,11 @@ export async function overview(companyId: string, p: Period) {
   const durations = sessions
     .map((s) => (s.lastEventAt.getTime() - s.startedAt.getTime()) / 1000)
     .filter((d) => d >= 0);
+  // soma REAL (o "tempo total" era reconstruído por média×sessões, com erro)
+  const totalSessionSeconds = Math.round(durations.reduce((a, b) => a + b, 0));
   const converted = sessions.filter((s) => s.converted);
-  const abandoned = sessions.filter((s) => !s.converted && s.cartAdds > 0);
+  // mesma régua da lista de recuperação: 1 visitante = 1 carrinho, com valor
+  const abandoned = carrinhosAbandonados(sessions);
   const revenue = sales.reduce((a, s) => a + s.netTotal, 0);
   const buyers = await db.order.groupBy({
     by: ["customerId"],
@@ -83,8 +148,9 @@ export async function overview(companyId: string, p: Period) {
     uniqueVisitors: visitors.size,
     identifiedCustomers: identified.size,
     avgSessionSeconds: durations.length
-      ? Math.round(durations.reduce((a, b) => a + b, 0) / durations.length)
+      ? Math.round(totalSessionSeconds / durations.length)
       : 0,
+    totalSessionSeconds,
     ordersFromCatalog: converted.length,
     conversionRate: r2(pct(converted.length, sessions.length)),
     abandonedCarts: abandoned.length,
@@ -135,15 +201,19 @@ export async function funnel(companyId: string, p: Period) {
   const withCart = new Set(
     events.filter((e) => e.type === "cart_open").map((e) => e.sessionId)
   );
+  // DUAS POPULAÇÕES, ditas com todas as letras: os 5 primeiros degraus são
+  // SÓ do catálogo (sessões rastreadas); os 3 finais são da LOJA INTEIRA
+  // (WhatsApp, Nuvemshop, manual). Sem o rótulo, o funil "subia" no meio e
+  // parecia bug (40 visitas → 60 leads) — auditoria 06/08/2026.
   return [
-    { label: "Visitas", value: sessions.length },
+    { label: "Visitas (catálogo)", value: sessions.length },
     { label: "Viram produtos", value: withProduct.size },
     { label: "Adicionaram à sacola", value: withAdd.size },
     { label: "Abriram o carrinho", value: withCart.size },
     { label: "Enviaram pedido", value: sessions.filter((s) => s.converted).length },
-    { label: "Entraram no CRM (leads)", value: leads },
-    { label: "Compraram", value: sales.length },
-    { label: "Recompraram", value: rebuyers.length },
+    { label: "Leads novos (loja inteira)", value: leads },
+    { label: "Compraram (loja inteira)", value: sales.length },
+    { label: "Recompraram (loja inteira)", value: rebuyers.length },
   ];
 }
 
@@ -151,6 +221,11 @@ export async function funnel(companyId: string, p: Period) {
 
 export async function channelRanking(companyId: string, p: Period) {
   const sessions = await loadSessions(companyId, p);
+  // faturamento REAL: pedidos pagos ligados às sessões (não valor de sacola)
+  const pagoPorSessao = await faturamentoPagoPorSessao(
+    companyId,
+    sessions.map((s) => s.id)
+  );
   const map = new Map<
     string,
     { channel: string; sessions: number; orders: number; revenue: number }
@@ -160,10 +235,8 @@ export async function channelRanking(companyId: string, p: Period) {
       map.get(s.channel) ??
       { channel: s.channel, sessions: 0, orders: 0, revenue: 0 };
     row.sessions += 1;
-    if (s.converted) {
-      row.orders += 1;
-      row.revenue += s.cartValue;
-    }
+    if (s.converted) row.orders += 1;
+    row.revenue += pagoPorSessao.get(s.id) ?? 0;
     map.set(s.channel, row);
   }
   return [...map.values()]
@@ -203,8 +276,17 @@ export async function sellerRanking(companyId: string, p: Period) {
       const orders = clicks.filter((s) => s.converted);
       const mySales = sales.filter((s) => s.sellerId === u.id);
       const revenue = mySales.reduce((a, s) => a + s.netTotal, 0);
+      // "dias até a venda" respeita o PERÍODO do relatório: só clientes cuja
+      // 1ª compra aconteceu dentro dele (antes olhava a carteira inteira,
+      // de qualquer época, dentro de um ranking filtrado por período)
       const daysToSale = customers
-        .filter((c) => c.ownerId === u.id && c.orders[0])
+        .filter(
+          (c) =>
+            c.ownerId === u.id &&
+            c.orders[0] &&
+            c.orders[0].paidAt! >= p.from &&
+            c.orders[0].paidAt! <= p.to
+        )
         .map(
           (c) =>
             (c.orders[0].paidAt!.getTime() - c.createdAt.getTime()) /
@@ -235,11 +317,16 @@ export async function campaignRanking(companyId: string, p: Period) {
     loadSessions(companyId, p),
     db.user.findMany({ where: { companyId } }),
   ]);
+  // faturamento REAL: pedidos pagos ligados às sessões (não valor de sacola)
+  const pagoPorSessao = await faturamentoPagoPorSessao(
+    companyId,
+    sessions.map((s) => s.id)
+  );
   return campaigns
     .map((c) => {
       const mine = sessions.filter((s) => s.campaignId === c.id);
       const orders = mine.filter((s) => s.converted);
-      const revenue = orders.reduce((a, s) => a + s.cartValue, 0);
+      const revenue = mine.reduce((a, s) => a + (pagoPorSessao.get(s.id) ?? 0), 0);
       return {
         id: c.id,
         name: c.name,

@@ -179,9 +179,13 @@ export function BioEditor({
 
   const publicUrl = `${publicBase}/${page.slug}`;
 
-  // insights: cliques totais, taxa de clique e ranking de botões
+  // insights: cliques totais, cliques por visita e ranking de botões.
+  // NÃO é "taxa de clique" (%): a mesma pessoa clica em vários botões
+  // (catálogo + site + WhatsApp), então cliques > visitas é normal — e o
+  // antigo "103%" confundia (relato de 06/08/2026). A conta honesta com os
+  // dados que temos é a MÉDIA de cliques por visita.
   const totalClicks = links.reduce((s, l) => s + l.clicks, 0);
-  const ctr = page.views > 0 ? Math.round((totalClicks / page.views) * 100) : 0;
+  const ctr = page.views > 0 ? totalClicks / page.views : 0;
   const topLinks = [...links].filter((l) => l.clicks > 0).sort((a, b) => b.clicks - a.clicks).slice(0, 4);
 
   // Relatório por período. "Tudo" (period=0) usa os totais acumulados já
@@ -356,15 +360,28 @@ export function BioEditor({
               {copied ? <Check className="size-4 text-emerald-500" /> : <Copy className="size-4" />}
               {copied ? "Copiado!" : "Copiar"}
             </button>
-            <a
-              href={publicUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-1.5 rounded-xl bg-brand-600 px-3.5 py-2.5 text-sm font-semibold text-white transition hover:bg-brand-700"
-            >
-              <ExternalLink className="size-4" />
-              Abrir
-            </a>
+            {page.published ? (
+              <a
+                href={publicUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 rounded-xl bg-brand-600 px-3.5 py-2.5 text-sm font-semibold text-white transition hover:bg-brand-700"
+              >
+                <ExternalLink className="size-4" />
+                Abrir
+              </a>
+            ) : (
+              // bio OCULTA não tem página pública (o link dá 404 de propósito
+              // — rascunho é privado). Abrir sem publicar levava a uma página
+              // preta sem explicação; agora o botão conta o que falta.
+              <span
+                title='Sua bio está oculta — ligue a chave "Publicar" acima para colocá-la no ar.'
+                className="inline-flex cursor-not-allowed items-center gap-1.5 rounded-xl bg-slate-300 px-3.5 py-2.5 text-sm font-semibold text-white"
+              >
+                <ExternalLink className="size-4" />
+                Publique para abrir
+              </span>
+            )}
           </div>
           <div className="mt-3 flex flex-wrap items-center gap-2">
             <button
@@ -423,9 +440,9 @@ export function BioEditor({
                   hint="Soma dos cliques em TODOS os botões da bio (WhatsApp, catálogo, site, etc.). Cada toque num botão conta 1 clique."
                 />
                 <StatCard
-                  value={`${report.ctr}%`}
-                  label="Taxa de clique"
-                  hint="Dos que abriram a bio, quantos % clicaram em algum botão. Conta: cliques ÷ visitas × 100. Ex.: 10 visitas e 3 cliques = 30%. Quanto maior, mais a sua bio converte atenção em ação."
+                  value={report.ctr.toFixed(1).replace(".", ",")}
+                  label="Cliques por visita"
+                  hint="Média de cliques que cada visita dá na sua bio. Conta: cliques ÷ visitas. Pode passar de 1: a mesma pessoa clica em mais de um botão (catálogo + WhatsApp, por exemplo). Ex.: 10 visitas e 13 cliques = 1,3. Quanto maior, mais a sua bio converte atenção em ação."
                 />
               </div>
 
@@ -437,19 +454,19 @@ export function BioEditor({
                   icon={<ShoppingCart className="size-4" />}
                   value={report.journey.catalogVisits}
                   label="Foram ao catálogo"
-                  hint="Quantas visitas no seu catálogo vieram do botão da bio. Contamos pela etiqueta de origem (utm_source=bio) que o botão 'Ver catálogo' carimba — mesmo que a pessoa não deixe contato."
+                  hint="Quantas visitas no seu catálogo vieram do botão da bio (etiqueta utm_source=bio). Atenção na comparação com 'Visitas': a visita na bio é contada direto no servidor; a do catálogo só conta para quem ACEITOU o aviso de privacidade — bases diferentes, então a passagem bio → catálogo tende a parecer menor do que é."
                 />
                 <StatCard
                   accent
                   value={report.journey.bags}
                   label="Montaram sacola"
-                  hint="Dessas visitas vindas da bio, quantas chegaram a colocar peças na sacola no catálogo (mesmo sem finalizar). Conta as sessões com sacola (valor maior que zero)."
+                  hint="Pessoas vindas da bio que montaram sacola no catálogo (mesmo sem finalizar). Cada pessoa conta UMA vez — quem visitou 3 vezes com a mesma sacola não conta 3."
                 />
                 <StatCard
                   accent
                   value={brl(report.journey.bagsValue)}
                   label="Valor em sacolas"
-                  hint="Soma do valor de todas as sacolas montadas por quem veio da bio. É o potencial de venda que a bio levou pro catálogo (ainda não é venda fechada)."
+                  hint="Valor somado das sacolas de quem veio da bio — a sacola MAIS RECENTE de cada pessoa, uma vez só. É potencial de venda (ainda não é venda fechada)."
                 />
               </div>
 

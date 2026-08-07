@@ -287,7 +287,17 @@ function MediaContent({
       </span>
     );
     return m.mediaUrl ? (
-      <a href={m.mediaUrl} download={m.fileName ?? "arquivo"} className="block">
+      // target="_blank": no aplicativo instalado (PWA), abrir o PDF na mesma
+      // tela ENGOLIA o app — o documento tomava tudo, sem botão de voltar, e
+      // só fechando o aplicativo inteiro se saía (relato de 06/08/2026).
+      // Em janela própria o celular mostra o "Concluído"/X do sistema.
+      <a
+        href={m.mediaUrl}
+        target="_blank"
+        rel="noopener"
+        download={m.fileName ?? "arquivo"}
+        className="block"
+      >
         {inner}
       </a>
     ) : (
@@ -553,6 +563,16 @@ export function Inbox({
 
   const selected = convs.find((c) => c.id === selectedId) ?? null;
 
+  // NO CELULAR o Enter do teclado é a tecla de LINHA NOVA — igual ao próprio
+  // WhatsApp; enviar é só no botão ✈️. A vendedora apertava a setinha para
+  // descer de linha e a mensagem saía pela metade (pedido do dono,
+  // 06/08/2026). No computador o Enter continua enviando (Shift+Enter
+  // quebra linha). Detecção por tipo de tela (dedo × mouse), não por tamanho.
+  const [enterEnvia, setEnterEnvia] = useState(true);
+  useEffect(() => {
+    setEnterEnvia(!window.matchMedia("(pointer: coarse)").matches);
+  }, []);
+
   // campo de mensagem cresce conforme o texto (até ~7 linhas)
   useEffect(() => {
     const ta = taRef.current;
@@ -750,17 +770,41 @@ export function Inbox({
     bottomRef.current?.scrollIntoView({ behavior: "instant" as ScrollBehavior });
   }, [selectedId, selected?.messages.length]);
 
-  // abre direto a conversa vinda do sino de notificações (?conv=...)
+  // abre direto a conversa vinda do sino de notificações ou da Agenda
+  // (?conv=...). `?texto=` chega com a mensagem sugerida JÁ NO CAMPO — a
+  // vendedora só revisa e envia (pedido do dono, 04/08/2026: "conversar"
+  // da agenda deve abrir DENTRO do sistema, não no aplicativo).
   const searchParams = useSearchParams();
+  const prefillFeito = useRef(false);
   useEffect(() => {
     const cid = searchParams.get("conv");
-    if (cid && convs.some((c) => c.id === cid)) {
+    if (!cid) return;
+    const texto = searchParams.get("texto");
+    const conhecida = convs.find((x) => x.id === cid);
+    if (conhecida) {
       setSelectedId(cid);
-      const c = convs.find((x) => x.id === cid);
-      if (c) setTab(abaDaConversa(c));
+      setTab(abaDaConversa(conhecida));
+    } else {
+      // conversa recém-criada pela Agenda: a lista ainda não a conhece —
+      // busca inteira no servidor (mesma porta do sync parcial)
+      fetch(`/api/conversations/${cid}`)
+        .then((r) => (r.ok ? r.json() : null))
+        .then((d) => {
+          if (!d?.conversation) return;
+          setConvs((prev) =>
+            prev.some((c) => c.id === cid) ? prev : [d.conversation, ...prev]
+          );
+          setSelectedId(cid);
+          setTab(abaDaConversa(d.conversation));
+        })
+        .catch(() => {});
+    }
+    if (texto && !prefillFeito.current) {
+      prefillFeito.current = true; // uma vez só — não sobrescreve o que ela digitar
+      setDraft(texto);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchParams]);
+  }, [searchParams, convs.length]);
 
   // --- Tempo real: consulta o servidor a cada 4s e traz só o que mudou ---
   // (mensagem nova do cliente, recibos ✓✓, transferências...). Aba em segundo
@@ -2413,7 +2457,8 @@ export function Inbox({
                             value={editMsgDraft}
                             onChange={(e) => setEditMsgDraft(e.target.value)}
                             onKeyDown={(e) => {
-                              if (e.key === "Enter" && !e.shiftKey) {
+                              // no celular Enter quebra linha; salvar é no ✓
+                              if (e.key === "Enter" && !e.shiftKey && enterEnvia) {
                                 e.preventDefault();
                                 salvarEdicao(m.id);
                               }
@@ -3003,7 +3048,7 @@ export function Inbox({
                       setSlash(null);
                       return;
                     }
-                    if (e.key === "Enter" && !e.shiftKey) {
+                    if (e.key === "Enter" && !e.shiftKey && enterEnvia) {
                       // lista de menção aberta → Enter escolhe o 1º nome
                       if (noteMode && mention && mentionMatches.length > 0) {
                         e.preventDefault();

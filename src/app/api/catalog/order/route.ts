@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
-import { imageSrc } from "@/lib/img";
+import { imageHref } from "@/lib/img";
+import { corIgual } from "@/lib/capa-por-cor";
 import { intakeLead, normalizePhone } from "@/lib/intake";
-import { resolveRef } from "@/lib/tracking/engine";
+import { atribuirCampanhaPorUtm, resolveRef } from "@/lib/tracking/engine";
 import {
   reservarOQueTiver,
   textoDaFalta,
@@ -11,7 +12,8 @@ import {
 } from "@/lib/reservations";
 import { pushStockToNuvemshop } from "@/lib/nuvemshop";
 import { pushStockToJueri } from "@/lib/jueri";
-import { orderNumber } from "@/lib/orders";
+import { orderNumber, round2 } from "@/lib/orders";
+import { comNumeroUnico } from "@/lib/numero-do-pedido";
 import { notifyNovoPedido } from "@/lib/notify";
 import { brl } from "@/lib/format";
 
@@ -68,6 +70,8 @@ const schema = z.object({
    * garante que o pedido não entra duas vezes.
    */
   clientRef: z.string().min(6).max(60).optional(),
+  /** sessão da Tracking Engine que gerou o pedido (faturamento por canal) */
+  trackSessionId: z.string().max(60).optional(),
 });
 
 export async function POST(req: NextRequest) {
@@ -127,7 +131,10 @@ export async function POST(req: NextRequest) {
   const products = await db.product.findMany({
     where: { id: { in: productIds }, companyId: company.id, active: true },
     include: {
-      images: { orderBy: { order: "asc" }, take: 1 },
+      // todas as fotos, mas SÓ id+cor (o base64 fica no banco): o item
+      // guarda a foto DA COR escolhida, não a capa geral (incidente Entre
+      // Linhas: item Azul Serenity com foto da peça Preta)
+      images: { orderBy: { order: "asc" }, select: { id: true, color: true } },
       variants: true,
     },
   });
@@ -154,21 +161,29 @@ export async function POST(req: NextRequest) {
     if (!product || !variant) {
       return NextResponse.json({ error: "Produto inválido" }, { status: 404 });
     }
+    // SKU da VARIAÇÃO escolhida (o do produto é o da 1ª variação importada —
+    // mostrava o SKU da Preta num item Azul Serenity); foto DA COR escolhida
+    const fotoItem =
+      product.images.find((im) => corIgual(im.color, variant.color)) ??
+      product.images[0];
     lines.push({
       productId: product.id,
       variantId: variant.id,
       name: product.name,
-      sku: product.sku,
-      imageUrl: product.images[0] ? imageSrc(product.images[0]) : null,
+      sku: variant.sku ?? product.sku,
+      imageUrl: fotoItem ? imageHref(fotoItem.id) : null,
       color: variant.color,
       size: variant.size,
       quantity: item.quantity,
-      // preço vigente no catálogo (com o desconto da campanha, se houver)
+      // preço vigente no catálogo (com o desconto da campanha, se houver);
+      // round2: 3 × 19,90 em float dá 59.699999… — o gravado tem que ser 59,70
       unitPrice: promoPrice(product.id, product.retailPrice),
-      total: item.quantity * promoPrice(product.id, product.retailPrice),
+      total: round2(item.quantity * promoPrice(product.id, product.retailPrice)),
     });
   }
-  const subtotal = lines.reduce((a, l) => a + l.total, 0);
+  // round2: soma de floats deixa centavo fantasma (10.1+20.2 = 30.299999…)
+  // e o valor gravado tem que bater com o que a cliente vê e paga
+  const subtotal = round2(lines.reduce((a, l) => a + l.total, 0));
   const totalPieces = lines.reduce((a, l) => a + l.quantity, 0);
 
   // REGRA DE COMISSÃO da loja: QUEM MANDA O LINK LEVA A VENDA — e SÓ ele.
@@ -395,10 +410,29 @@ export async function POST(req: NextRequest) {
   // e o que faltou fica escrito nele: no mesmo clique a cliente já mandou o
   // pedido pelo WhatsApp, então recusar aqui faria a loja receber a mensagem
   // sem ter pedido nenhum na tela — venda perdida no escuro.
+  // SESSÃO DE NAVEGAÇÃO → PEDIDO: valida que a sessão é DESTA loja antes de
+  // gravar (id vem do navegador; sessão de outra loja é ignorada). É o
+  // vínculo que deixa a Inteligência somar faturamento PAGO por canal.
+  let trackSessionId: string | null = null;
+  if (input.trackSessionId) {
+    const sessao = await db.trackSession.findFirst({
+      where: { id: input.trackSessionId, companyId: company.id },
+      select: { id: true, utmCampaign: true },
+    });
+    trackSessionId = sessao?.id ?? null;
+    // ?utm_campaign=<etiqueta> vira a campanha do cliente — só quando ele
+    // ainda não tem (vale o primeiro contato). Nunca derruba o pedido.
+    if (sessao?.utmCampaign) {
+      await atribuirCampanhaPorUtm(company.id, customerId, sessao.utmCampaign).catch(
+        () => {}
+      );
+    }
+  }
+
   let faltas: FaltaDeEstoque[] = [];
   const criarPedido = () =>
     db.$transaction(async (tx) => {
-    faltas = await reservarOQueTiver(
+    const reserva = await reservarOQueTiver(
       tx,
       lines.map((l) => ({
         variantId: l.variantId,
@@ -406,6 +440,7 @@ export async function POST(req: NextRequest) {
         label: `${l.name} (${l.color} ${l.size})`,
       }))
     );
+    faltas = reserva.faltas;
     const last = await tx.order.findFirst({
       where: { companyId: company.id },
       orderBy: { number: "desc" },
@@ -420,6 +455,7 @@ export async function POST(req: NextRequest) {
         opportunityId,
         sellerId: orderSellerId,
         clientRef: input.clientRef ?? null,
+        trackSessionId,
         status: "AGUARDANDO_PAGAMENTO",
         stockDeducted: true, // a peça está segurada desde já
         subtotal,
@@ -456,19 +492,20 @@ export async function POST(req: NextRequest) {
       },
       include: { items: true },
     });
-    // movimento auditável da reserva (o mesmo que o pedido da vendedora grava)
-    await tx.inventoryMovement.createMany({
-      data: criado.items
-        .filter((i) => i.variantId)
-        .map((i) => ({
+    // movimento auditável da reserva — pelo que foi DE FATO segurado, nunca
+    // pela quantidade pedida (reserva parcial devolvia fantasma no cancelar)
+    if (reserva.seguradas.length > 0) {
+      await tx.inventoryMovement.createMany({
+        data: reserva.seguradas.map((s) => ({
           companyId: company.id,
-          variantId: i.variantId!,
+          variantId: s.variantId,
           orderId: criado.id,
           type: "SAIDA" as const,
-          quantity: i.quantity,
+          quantity: s.quantity,
           reason: `Reserva — pedido ${orderNumber(criado.number)}`,
         })),
-    });
+      });
+    }
     return criado;
       },
       // o padrão do Prisma são 5s — apertado para carrinho grande com o
@@ -478,7 +515,18 @@ export async function POST(req: NextRequest) {
 
   let order: Awaited<ReturnType<typeof criarPedido>>;
   try {
-    order = await criarPedido();
+    // dois pedidos no MESMO instante (outra cliente, painel, Nuvemshop)
+    // disputam o mesmo número — quem perde a corrida tenta de novo do zero
+    order = await comNumeroUnico(criarPedido);
+    // CONVERSÃO MARCADA NO SERVIDOR, uma vez por pedido CRIADO. Antes era o
+    // navegador (evento order_submitted) quem marcava: reenviar a mesma
+    // sacola numa visita nova contava DUAS conversões para UM pedido — os
+    // caminhos de pedido repetido (protocolo) não passam por aqui.
+    if (trackSessionId) {
+      await db.trackSession
+        .update({ where: { id: trackSessionId }, data: { converted: true } })
+        .catch(() => {});
+    }
   } catch (e) {
     // CORRIDA: dois envios do mesmo protocolo chegaram juntos e os dois
     // passaram pela conferência acima. O índice único barra o segundo — e

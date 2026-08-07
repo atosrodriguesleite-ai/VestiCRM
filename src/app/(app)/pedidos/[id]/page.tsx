@@ -11,7 +11,7 @@ import {
 } from "lucide-react";
 import { requireUser } from "@/lib/auth";
 import { isManagerUp, orderScope } from "@/lib/scope";
-import { religarItensDoPedido } from "@/lib/religar-itens";
+import { corrigirRetratoDosItens, religarItensDoPedido } from "@/lib/religar-itens";
 import { db } from "@/lib/db";
 import { brl, dateFull, dateShort, timeShort } from "@/lib/format";
 import {
@@ -46,11 +46,23 @@ export default async function OrderDetailPage({
   const user = await requireUser();
   const { id } = await params;
 
+  // A régua de visibilidade vale ANTES de qualquer efeito colateral: sem esta
+  // conferência, a vendedora abrindo a URL do pedido de uma colega disparava
+  // os consertos automáticos num pedido que ela nem pode ver.
+  const podeVer = await db.order.findFirst({
+    where: { id, ...orderScope(user) },
+    select: { id: true },
+  });
+  if (!podeVer) notFound();
+
   // Peça reimportada (ex.: desfazer + refazer a Nuvemshop) deixa o item do
   // pedido apontando para o vazio, e a tela mostrava "estoque 0 (insuficiente)"
   // numa peça cheia de estoque. Religa pelos dados que o item guardou — de
   // carona ao abrir o pedido, sem cron e sem tocar em estoque.
   await religarItensDoPedido(id, user.companyId).catch(() => 0);
+  // conserta SKU/foto de item gravados errados (pedido antigo do catálogo
+  // mostrava o SKU e a foto da 1ª variação em vez da cor escolhida)
+  await corrigirRetratoDosItens(id, user.companyId).catch(() => 0);
 
   const order = await db.order.findFirst({
     where: { id, ...orderScope(user) },
@@ -67,7 +79,9 @@ export default async function OrderDetailPage({
   if (!order) notFound();
 
   const sellers = await db.user.findMany({
-    where: { companyId: user.companyId, active: true },
+    // vendedor da venda: ativo e fora do perfil Suporte (não comercial) —
+    // mesma régua que a API passou a aplicar
+    where: { companyId: user.companyId, active: true, role: { not: "SUPPORT" } },
     select: { id: true, name: true },
     orderBy: { name: "asc" },
   });
@@ -219,7 +233,15 @@ export default async function OrderDetailPage({
             celular e a tela inteira anda para o lado */}
         <Card className="p-5 md:col-span-2 min-w-0">
           <div className="flex items-center justify-between mb-4">
-            <h2 className="font-semibold">Itens do pedido</h2>
+            <h2 className="font-semibold">
+              Itens do pedido
+              {/* quem separa/confere precisa da conta total de peças de cara */}
+              <span className="ml-2 text-xs font-normal text-gray-400">
+                {order.items.length} {order.items.length === 1 ? "item" : "itens"} ·{" "}
+                {order.items.reduce((a, i) => a + i.quantity, 0)}{" "}
+                {order.items.reduce((a, i) => a + i.quantity, 0) === 1 ? "peça" : "peças"}
+              </span>
+            </h2>
             {order.status !== "CANCELADO" && (
               <ItemsEditor
                 orderId={order.id}
@@ -268,6 +290,12 @@ export default async function OrderDetailPage({
             ))}
           </ul>
           <div className="mt-4 pt-4 border-t border-gray-100 space-y-1.5 text-sm">
+            <div className="flex justify-between text-gray-500">
+              <span>Total de peças</span>
+              <span className="tabular-nums">
+                {order.items.reduce((a, i) => a + i.quantity, 0)}
+              </span>
+            </div>
             <div className="flex justify-between text-gray-500">
               <span>Subtotal</span>
               <span className="tabular-nums">{brl(order.subtotal)}</span>

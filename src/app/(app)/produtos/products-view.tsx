@@ -5,12 +5,13 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Portal } from "@/components/portal";
 import { useRouter } from "next/navigation";
-import { History, Images, Loader2, Package, Palette, Plus, Search, Star, Trash2, Upload, X } from "lucide-react";
+import { Check, History, Images, Loader2, Package, Palette, Plus, Search, Sparkles, Star, Trash2, Upload, Wand2, X } from "lucide-react";
 import { brl } from "@/lib/format";
 import { Card, EmptyState } from "@/components/ui";
 import { fileToDataUrl } from "@/lib/upload";
 import { ImportCatalog } from "./import-catalog";
 import { casaTexto } from "@/lib/busca";
+import { sugerirEmLote, type SugestaoDeCategoria } from "@/lib/organizar-catalogo";
 import { motivoOculto } from "@/lib/catalogo/visibilidade";
 
 type LibraryColor = { name: string; hex: string };
@@ -66,7 +67,9 @@ export function ProductsView({
   libraryColors,
   librarySizes,
   mediaLibrary = false,
-  hideOutOfStock = false,
+  canOrganize = false,
+  semCores = false,
+  ocultaSemEstoque = false,
 }: {
   initial: ProductItem[];
   categories: string[];
@@ -77,8 +80,12 @@ export function ProductsView({
   libraryColors: LibraryColor[];
   librarySizes: string[];
   mediaLibrary?: boolean;
-  /** chavinha da loja: esconder do catálogo o que está sem estoque */
-  hideOutOfStock?: boolean;
+  /** gerência/suporte: seleção em massa + sugestão automática de categoria */
+  canOrganize?: boolean;
+  /** loja sem variação de cor (semijoias): a grade pede só o tamanho */
+  semCores?: boolean;
+  /** chave "esconder sem estoque" ligada: o crachá do card explica o sumiço */
+  ocultaSemEstoque?: boolean;
 }) {
   const router = useRouter();
   const [q, setQ] = useState("");
@@ -103,15 +110,54 @@ export function ProductsView({
   const ocultos = useMemo(() => {
     const mapa = new Map<string, ReturnType<typeof motivoOculto>>();
     for (const p of initial) {
-      mapa.set(p.id, motivoOculto(p, { esconderSemEstoque: hideOutOfStock }));
+      mapa.set(p.id, motivoOculto(p, { esconderSemEstoque: ocultaSemEstoque }));
     }
     return mapa;
-  }, [initial, hideOutOfStock]);
+  }, [initial, ocultaSemEstoque]);
 
   const hiddenCount = useMemo(
     () => [...ocultos.values()].filter(Boolean).length,
     [ocultos]
   );
+  // ---- Organizador de catálogo (loja nova com centenas de peças) ----
+  // modo seleção: tocar no card marca/desmarca em vez de abrir o produto
+  const [organizando, setOrganizando] = useState(false);
+  const [selecionados, setSelecionados] = useState<Set<string>>(new Set());
+  const [catDestino, setCatDestino] = useState("");
+  const [aplicando, setAplicando] = useState(false);
+  const [showSugestoes, setShowSugestoes] = useState(false);
+
+  function alternarSelecao(id: string) {
+    setSelecionados((prev) => {
+      const novo = new Set(prev);
+      if (novo.has(id)) novo.delete(id);
+      else novo.add(id);
+      return novo;
+    });
+  }
+
+  async function aplicarCategoria() {
+    const categoria = catDestino.trim();
+    if (!categoria || selecionados.size === 0 || aplicando) return;
+    setAplicando(true);
+    const res = await fetch("/api/products/organizar", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        itens: [...selecionados].map((id) => ({ id, category: categoria })),
+      }),
+    });
+    setAplicando(false);
+    if (res.ok) {
+      setSelecionados(new Set());
+      setCatDestino("");
+      setOrganizando(false);
+      router.refresh();
+    } else {
+      const data = await res.json().catch(() => null);
+      alert(data?.error ?? "Não foi possível aplicar. Tente de novo.");
+    }
+  }
 
   const filtered = useMemo(
     () =>
@@ -244,6 +290,23 @@ export function ProductsView({
           </label>
         )}
         <div className="ml-auto flex items-center gap-2">
+          {canOrganize && initial.length > 0 && (
+            <button
+              onClick={() => {
+                setOrganizando((v) => !v);
+                setSelecionados(new Set());
+              }}
+              className={`flex items-center gap-1.5 rounded-xl border text-sm font-medium px-3 py-2 transition ${
+                organizando
+                  ? "border-brand-400 bg-brand-50 text-brand-700"
+                  : "border-gray-200 bg-white text-gray-600 hover:border-brand-300"
+              }`}
+              title="Organizar categorias em massa (selecionar vários produtos)"
+            >
+              <Wand2 className="size-4" />
+              <span className="hidden sm:inline">Organizar</span>
+            </button>
+          )}
           <ImportCatalog />
           <button
             onClick={() => setShowNew(true)}
@@ -290,13 +353,28 @@ export function ProductsView({
           {filtered.map((p) => {
             const stock = totalStock(p);
             const oculto = ocultos.get(p.id) ?? null;
+            const marcado = organizando && selecionados.has(p.id);
             return (
               <button
                 key={p.id}
-                onClick={() => setDetail(p)}
-                className="text-left bg-white rounded-2xl border border-gray-100 shadow-card hover:shadow-pop transition overflow-hidden group"
+                // no modo organizar, o toque MARCA (não abre o produto)
+                onClick={() => (organizando ? alternarSelecao(p.id) : setDetail(p))}
+                className={`text-left bg-white rounded-2xl border shadow-card hover:shadow-pop transition overflow-hidden group ${
+                  marcado ? "border-brand-500 ring-2 ring-brand-200" : "border-gray-100"
+                }`}
               >
                 <div className="aspect-square bg-gray-50 relative overflow-hidden">
+                  {organizando && (
+                    <span
+                      className={`absolute top-2 right-2 z-10 size-6 rounded-full border-2 flex items-center justify-center ${
+                        marcado
+                          ? "bg-brand-600 border-brand-600 text-white"
+                          : "bg-white/90 border-gray-300 text-transparent"
+                      }`}
+                    >
+                      <Check className="size-4" />
+                    </span>
+                  )}
                   {p.images[0] ? (
                     <img
                       src={p.images[0].url}
@@ -309,10 +387,10 @@ export function ProductsView({
                       <Package className="size-10" />
                     </div>
                   )}
-                  {/* UM selo só, e ele diz a verdade: se a peça está fora do
-                      catálogo, o selo é "oculto" com o motivo. Antes o card
-                      dizia "Sem estoque" para uma peça que a cliente nem via —
-                      a lojista achava que era erro do sistema. */}
+                  {/* UM crachá só, vindo da MESMA régua da vitrine
+                      (lib/catalogo/visibilidade.ts). Passar o mouse mostra o
+                      motivo e o próximo passo; a explicação inteira fica na
+                      ficha da peça. */}
                   {oculto ? (
                     <span
                       title={`${oculto.motivo} ${oculto.comoResolver}`}
@@ -363,6 +441,94 @@ export function ProductsView({
         </div>
       )}
 
+      {/* barra do organizador: flutua acima do menu de baixo no celular */}
+      {organizando && (
+        <Portal>
+          <div className="fixed inset-x-0 bottom-20 md:bottom-6 z-40 px-3 flex justify-center">
+            <div className="w-full max-w-3xl rounded-2xl bg-white border border-brand-200 shadow-pop p-3 flex flex-wrap items-center gap-2">
+              <span className="text-sm font-semibold text-brand-700 tabular-nums shrink-0">
+                {selecionados.size} selecionado{selecionados.size === 1 ? "" : "s"}
+              </span>
+              <button
+                onClick={() =>
+                  setSelecionados(
+                    selecionados.size === filtered.length
+                      ? new Set()
+                      : new Set(filtered.map((p) => p.id))
+                  )
+                }
+                className="text-xs font-medium text-gray-500 hover:text-brand-600 transition shrink-0"
+              >
+                {selecionados.size === filtered.length ? "Limpar" : `Marcar os ${filtered.length} da tela`}
+              </button>
+              <input
+                value={catDestino}
+                onChange={(e) => setCatDestino(e.target.value)}
+                list="cats-organizador"
+                placeholder="Escolher ou CRIAR categoria (digite o nome)..."
+                className="flex-1 min-w-36 rounded-xl border border-gray-200 px-3 py-2 text-sm outline-none focus:border-brand-400 transition"
+              />
+              <datalist id="cats-organizador">
+                {categories.map((c) => (
+                  <option key={c} value={c} />
+                ))}
+              </datalist>
+              {/* digitou um nome que não existe? avisa que vai NASCER agora —
+                  a categoria nova é criada junto com a aplicação, sem passo extra */}
+              {catDestino.trim() &&
+                !categories.some(
+                  (c) => c.toLowerCase() === catDestino.trim().toLowerCase()
+                ) && (
+                  <span className="basis-full text-[11px] font-medium text-emerald-600 -mt-1">
+                    ✨ A categoria nova “{catDestino.trim()}” será criada ao aplicar
+                  </span>
+                )}
+              <button
+                onClick={aplicarCategoria}
+                disabled={!catDestino.trim() || selecionados.size === 0 || aplicando}
+                className="flex items-center gap-1.5 rounded-xl bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium px-4 py-2 transition disabled:opacity-40 shrink-0"
+              >
+                {aplicando ? <Loader2 className="size-4 animate-spin" /> : <Check className="size-4" />}
+                Aplicar
+              </button>
+              <button
+                onClick={() => setShowSugestoes(true)}
+                className="flex items-center gap-1.5 rounded-xl border border-amber-200 bg-amber-50 text-amber-700 text-sm font-medium px-3 py-2 hover:border-amber-300 transition shrink-0"
+                title="O sistema lê o NOME das peças e sugere a categoria — você revisa antes de aplicar"
+              >
+                <Sparkles className="size-4" />
+                <span className="hidden sm:inline">Sugerir pelo nome</span>
+                <span className="sm:hidden">Sugerir</span>
+              </button>
+              <button
+                onClick={() => {
+                  setOrganizando(false);
+                  setSelecionados(new Set());
+                }}
+                className="p-2 text-gray-400 hover:text-gray-600 transition shrink-0"
+                title="Sair do modo organizar"
+              >
+                <X className="size-4" />
+              </button>
+            </div>
+          </div>
+        </Portal>
+      )}
+
+      {showSugestoes && (
+        <SugestoesModal
+          produtos={filtered}
+          categorias={categories}
+          onClose={() => setShowSugestoes(false)}
+          onDone={() => {
+            setShowSugestoes(false);
+            setOrganizando(false);
+            setSelecionados(new Set());
+            router.refresh();
+          }}
+        />
+      )}
+
       {detail && (
         <ProductDetailModal
           product={detail}
@@ -372,7 +538,8 @@ export function ProductsView({
           collections={collections}
           brands={brands}
           mediaLibrary={mediaLibrary}
-          hideOutOfStock={hideOutOfStock}
+          semCores={semCores}
+          ocultaSemEstoque={ocultaSemEstoque}
           onClose={() => setDetail(null)}
           onChanged={() => {
             setDetail(null);
@@ -388,6 +555,7 @@ export function ProductsView({
           collections={collections}
           brands={brands}
           mediaLibrary={mediaLibrary}
+          semCores={semCores}
           onClose={() => setShowNew(false)}
           onCreated={() => {
             setShowNew(false);
@@ -396,6 +564,177 @@ export function ProductsView({
         />
       )}
     </>
+  );
+}
+
+/**
+ * PRÉVIA DA SUGESTÃO AUTOMÁTICA — o motor lê o nome de cada peça e sugere a
+ * categoria; a loja desmarca o que discordar e só então aplica. Mostra
+ * agrupado por categoria de destino para a revisão ser rápida ("esses 40
+ * viram Vestidos — confere?").
+ */
+function SugestoesModal({
+  produtos,
+  categorias,
+  onClose,
+  onDone,
+}: {
+  produtos: ProductItem[];
+  categorias: string[];
+  onClose: () => void;
+  onDone: () => void;
+}) {
+  const sugestoes = useMemo(
+    () =>
+      sugerirEmLote(
+        produtos.map((p) => ({ id: p.id, name: p.name, category: p.category })),
+        categorias
+      ),
+    [produtos, categorias]
+  );
+  const [aceitas, setAceitas] = useState<Set<string>>(
+    () => new Set(sugestoes.map((s) => s.id))
+  );
+  const [salvando, setSalvando] = useState(false);
+
+  const grupos = useMemo(() => {
+    const map = new Map<string, SugestaoDeCategoria[]>();
+    for (const s of sugestoes) {
+      const lista = map.get(s.sugerida) ?? [];
+      lista.push(s);
+      map.set(s.sugerida, lista);
+    }
+    return [...map.entries()].sort((a, b) => b[1].length - a[1].length);
+  }, [sugestoes]);
+
+  async function aplicar() {
+    if (aceitas.size === 0 || salvando) return;
+    setSalvando(true);
+    const res = await fetch("/api/products/organizar", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        itens: sugestoes
+          .filter((s) => aceitas.has(s.id))
+          .map((s) => ({ id: s.id, category: s.sugerida })),
+      }),
+    });
+    setSalvando(false);
+    if (res.ok) onDone();
+    else {
+      const data = await res.json().catch(() => null);
+      alert(data?.error ?? "Não foi possível aplicar. Tente de novo.");
+    }
+  }
+
+  return (
+    <Portal>
+      <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center">
+        <div className="absolute inset-0 bg-black/40 animate-fade-in" onClick={onClose} />
+        <div className="relative bg-white w-full md:max-w-2xl md:rounded-2xl rounded-t-2xl shadow-pop max-h-[85vh] flex flex-col">
+          <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+            <div>
+              <p className="font-semibold flex items-center gap-1.5">
+                <Sparkles className="size-4 text-amber-500" />
+                Sugestão automática de categorias
+              </p>
+              <p className="text-xs text-gray-400 mt-0.5">
+                Lidas pelo NOME da peça · nada é aplicado sem a sua revisão
+              </p>
+            </div>
+            <button onClick={onClose} className="p-1.5 text-gray-400 hover:text-gray-600">
+              <X className="size-5" />
+            </button>
+          </div>
+
+          <div className="flex-1 overflow-y-auto px-5 py-4">
+            {sugestoes.length === 0 ? (
+              <EmptyState
+                icon={<Wand2 />}
+                title="Nada para sugerir por aqui"
+                hint="Os produtos da tela já estão em categorias compatíveis com o nome — ou o nome não diz o tipo da peça. Use a seleção em massa para os casos manuais."
+              />
+            ) : (
+              <div className="space-y-4">
+                {grupos.map(([categoria, lista]) => {
+                  const todasDoGrupo = lista.every((s) => aceitas.has(s.id));
+                  return (
+                    <div key={categoria}>
+                      <label className="flex items-center gap-2 mb-1.5 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={todasDoGrupo}
+                          onChange={() =>
+                            setAceitas((prev) => {
+                              const novo = new Set(prev);
+                              for (const s of lista) {
+                                if (todasDoGrupo) novo.delete(s.id);
+                                else novo.add(s.id);
+                              }
+                              return novo;
+                            })
+                          }
+                          className="size-4 accent-brand-600"
+                        />
+                        <span className="text-sm font-semibold">
+                          {categoria}
+                          <span className="ml-1.5 text-xs font-normal text-gray-400">
+                            {lista.length} peça{lista.length === 1 ? "" : "s"}
+                          </span>
+                        </span>
+                      </label>
+                      <div className="space-y-1 pl-6">
+                        {lista.map((s) => (
+                          <label
+                            key={s.id}
+                            className="flex items-center gap-2 text-xs cursor-pointer rounded-lg hover:bg-gray-50 px-2 py-1 -mx-2"
+                          >
+                            <input
+                              type="checkbox"
+                              checked={aceitas.has(s.id)}
+                              onChange={() =>
+                                setAceitas((prev) => {
+                                  const novo = new Set(prev);
+                                  if (novo.has(s.id)) novo.delete(s.id);
+                                  else novo.add(s.id);
+                                  return novo;
+                                })
+                              }
+                              className="size-3.5 accent-brand-600 shrink-0"
+                            />
+                            <span className="truncate flex-1">{s.nome}</span>
+                            <span className="text-gray-400 shrink-0">
+                              {s.atual || "sem categoria"} →{" "}
+                              <b className="text-brand-700">{s.sugerida}</b>
+                            </span>
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          {sugestoes.length > 0 && (
+            <div className="px-5 py-4 border-t border-gray-100 flex items-center justify-between gap-3">
+              <span className="text-xs text-gray-400">
+                {aceitas.size} de {sugestoes.length} marcadas
+              </span>
+              <button
+                onClick={aplicar}
+                disabled={aceitas.size === 0 || salvando}
+                className="flex items-center gap-1.5 rounded-xl bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium px-5 py-2.5 transition disabled:opacity-40"
+              >
+                {salvando ? <Loader2 className="size-4 animate-spin" /> : <Check className="size-4" />}
+                Aplicar {aceitas.size} mudança{aceitas.size === 1 ? "" : "s"}
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+    </Portal>
   );
 }
 
@@ -408,7 +747,8 @@ function ProductDetailModal({
   collections,
   brands,
   mediaLibrary = false,
-  hideOutOfStock = false,
+  semCores = false,
+  ocultaSemEstoque = false,
   onClose,
   onChanged,
 }: {
@@ -419,14 +759,16 @@ function ProductDetailModal({
   collections: string[];
   brands: string[];
   mediaLibrary?: boolean;
-  hideOutOfStock?: boolean;
+  semCores?: boolean;
+  ocultaSemEstoque?: boolean;
   onClose: () => void;
   onChanged: () => void;
 }) {
   const [busy, setBusy] = useState(false);
   const [removedIds, setRemovedIds] = useState<string[]>([]);
   const [newVariant, setNewVariant] = useState({
-    color: libraryColors[0]?.name ?? "",
+    // loja sem cores (semijoias): a cor não é pedida — nasce "Único"
+    color: semCores ? "Único" : libraryColors[0]?.name ?? "",
     size: librarySizes[0] ?? "",
     stock: "5",
   });
@@ -506,7 +848,10 @@ function ProductDetailModal({
         `Você escolheu ${newVariant.color} · ${newVariant.size} (${qtd} peça${qtd === 1 ? "" : "s"}) e não clicou no +.\n\nQuer incluir essa variação na grade?`
       );
       if (incluir) {
-        extras = [...pendingAdds, { color: newVariant.color, size: newVariant.size, stock: qtd }];
+        extras = [
+          ...pendingAdds,
+          { color: newVariant.color, size: newVariant.size, stock: qtd },
+        ];
         setPendingAdds(extras);
       }
       setNovaMexida(false);
@@ -589,7 +934,7 @@ function ProductDetailModal({
   }
 
   /**
-   * A linha "cor · tamanho · quantidade" já está na grade (salva ou pendente)?
+   * A combinação cor · tamanho já está na grade (salva ou pendente)?
    * Serve tanto para o + quanto para o resgate no salvar.
    */
   function jaNaGrade(color: string, size: string) {
@@ -601,20 +946,20 @@ function ProductDetailModal({
   }
 
   /**
-   * Adiciona a variação digitada. Antes, quando a combinação já existia ou
+   * Adiciona a variação escolhida. Antes, quando a combinação já existia ou
    * faltava cor/tamanho, o botão + não fazia NADA e não dizia nada — a pessoa
    * clicava, não via reação e achava que tinha adicionado.
    */
   function addPendingVariant() {
     if (!newVariant.color || !newVariant.size) {
       setAvisoGrade("Escolha a cor e o tamanho antes de adicionar.");
-      return false;
+      return;
     }
     if (jaNaGrade(newVariant.color, newVariant.size)) {
       setAvisoGrade(
         `${newVariant.color} · ${newVariant.size} já está na grade — mude a quantidade na linha dela.`
       );
-      return false;
+      return;
     }
     setPendingAdds((prev) => [
       ...prev,
@@ -626,7 +971,6 @@ function ProductDetailModal({
     ]);
     setNovaMexida(false);
     setAvisoGrade("");
-    return true;
   }
 
   const input =
@@ -634,7 +978,7 @@ function ProductDetailModal({
   const label = "block text-xs font-medium text-gray-500 mb-1";
 
   // motivo do que está SALVO hoje (o que a cliente vê agora, não o rascunho)
-  const oculto = motivoOculto(product, { esconderSemEstoque: hideOutOfStock });
+  const oculto = motivoOculto(product, { esconderSemEstoque: ocultaSemEstoque });
 
   return (
     <Portal><div className="fixed inset-0 z-50 flex items-end md:items-center justify-center pb-[var(--kb,0px)]">
@@ -792,7 +1136,8 @@ function ProductDetailModal({
                   .map((v) => (
                     <div key={v.id} className="flex items-center gap-2 px-3 py-1.5">
                       <span className="text-xs font-medium flex-1 min-w-0 truncate">
-                        {v.color} · {v.size}
+                        {/* loja sem cores mostra só o tamanho */}
+                        {semCores ? v.size : [v.color, v.size].filter(Boolean).join(" · ")}
                       </span>
                       <input
                         value={vskus[v.id] ?? ""}
@@ -832,7 +1177,7 @@ function ProductDetailModal({
                     className="flex items-center gap-2 px-3 py-1.5 bg-emerald-50/60"
                   >
                     <span className="text-xs font-medium flex-1">
-                      {v.color} · {v.size}{" "}
+                      {semCores ? v.size : [v.color, v.size].filter(Boolean).join(" · ")}{" "}
                       <span className="text-emerald-600">(nova)</span>
                     </span>
                     <span className="text-xs tabular-nums">{v.stock}</span>
@@ -849,21 +1194,24 @@ function ProductDetailModal({
                 ))}
               </div>
               <div className="flex gap-1.5 mt-2">
-                <select
-                  value={newVariant.color}
-                  onChange={(e) => {
-                    setNewVariant((v) => ({ ...v, color: e.target.value }));
-                    setNovaMexida(true);
-                    setAvisoGrade("");
-                  }}
-                  className="flex-1 rounded-lg border border-gray-200 px-2 py-1.5 text-xs bg-white outline-none"
-                >
-                  {libraryColors.map((c) => (
-                    <option key={c.name} value={c.name}>
-                      {c.name}
-                    </option>
-                  ))}
-                </select>
+                {/* loja sem cores: só o tamanho — a cor vira "Único" sozinha */}
+                {!semCores && (
+                  <select
+                    value={newVariant.color}
+                    onChange={(e) => {
+                      setNewVariant((v) => ({ ...v, color: e.target.value }));
+                      setNovaMexida(true);
+                      setAvisoGrade("");
+                    }}
+                    className="flex-1 rounded-lg border border-gray-200 px-2 py-1.5 text-xs bg-white outline-none"
+                  >
+                    {libraryColors.map((c) => (
+                      <option key={c.name} value={c.name}>
+                        {c.name}
+                      </option>
+                    ))}
+                  </select>
+                )}
                 <select
                   value={newVariant.size}
                   onChange={(e) => {
@@ -913,7 +1261,8 @@ function ProductDetailModal({
               )}
               {novaMexida && !avisoGrade && (
                 <p className="text-[11px] text-emerald-700 bg-emerald-50 rounded-lg px-2 py-1 mt-1.5">
-                  Falta clicar no <b>+</b> para {newVariant.color} · {newVariant.size} entrar na grade.
+                  Falta clicar no <b>+</b> para {semCores ? "" : `${newVariant.color} · `}
+                  {newVariant.size} entrar na grade.
                 </p>
               )}
               <p className="text-[10px] text-gray-400 mt-1">
@@ -1298,6 +1647,7 @@ function NewProductModal({
   collections,
   brands,
   mediaLibrary = false,
+  semCores = false,
   onClose,
   onCreated,
 }: {
@@ -1307,6 +1657,7 @@ function NewProductModal({
   collections: string[];
   brands: string[];
   mediaLibrary?: boolean;
+  semCores?: boolean;
   onClose: () => void;
   onCreated: () => void;
 }) {
@@ -1324,8 +1675,12 @@ function NewProductModal({
 
   async function submit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    if (selColors.length === 0 || selSizes.length === 0) {
-      setError("Selecione ao menos uma cor e um tamanho.");
+    if ((!semCores && selColors.length === 0) || selSizes.length === 0) {
+      setError(
+        semCores
+          ? "Selecione ao menos um tamanho."
+          : "Selecione ao menos uma cor e um tamanho."
+      );
       return;
     }
     setSaving(true);
@@ -1335,7 +1690,8 @@ function NewProductModal({
       parseFloat(String(fd.get(name) ?? "0").replace(",", ".")) || 0;
 
     const stock = parseInt(stockPerVariant) || 0;
-    const variants = selColors.flatMap((color) =>
+    // loja sem cores: a grade nasce só por tamanho, com a cor fixa "Único"
+    const variants = (semCores ? ["Único"] : selColors).flatMap((color) =>
       selSizes.map((size) => ({ color, size, stock }))
     );
 
@@ -1484,6 +1840,8 @@ function NewProductModal({
                 <input name="weightGrams" className={input} inputMode="numeric" placeholder="Ex.: 250" />
               </div>
             </div>
+            {/* loja sem cores (semijoias): a grade é só por tamanho */}
+            {!semCores && (
             <div>
               <label className={label}>Cores (grade) *</label>
               <div className="flex flex-wrap gap-1.5">
@@ -1514,6 +1872,7 @@ function NewProductModal({
                 </a>
               </div>
             </div>
+            )}
             <div>
               <label className={label}>Tamanhos *</label>
               <div className="flex flex-wrap gap-1.5">

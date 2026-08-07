@@ -50,8 +50,10 @@ export async function POST(req: NextRequest) {
       select: {
         id: true,
         name: true,
+        // MESMA RÉGUA DO CATÁLOGO: o catálogo público cobra sempre o preço
+        // de varejo do cadastro — o pedido colado usa o mesmo (decisão do
+        // dono, 05/08/2026)
         retailPrice: true,
-        wholesalePrice: true,
         variants: { select: { id: true, color: true, size: true, stock: true } },
       },
     });
@@ -71,7 +73,14 @@ export async function POST(req: NextRequest) {
 
     const linhas: LinhaPrevia[] = [];
     for (const item of lido.itens) {
-      const achado = separarProdutoECor(item.descricao, produtos);
+      // formato antigo/achatado: o item vem só com a cor ("Branco") e o nome
+      // do modelo mora no título da seção — tenta primeiro como veio, depois
+      // com o título na frente ("Blusa Clássica Tule Branco")
+      const achado =
+        separarProdutoECor(item.descricao, produtos) ??
+        (item.categoria
+          ? separarProdutoECor(`${item.categoria} ${item.descricao}`, produtos)
+          : null);
       for (const t of item.tamanhos) {
         if (!achado) {
           linhas.push({

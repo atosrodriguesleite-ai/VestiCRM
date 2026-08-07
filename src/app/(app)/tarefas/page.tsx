@@ -115,19 +115,22 @@ export default async function TasksPage() {
     };
   });
 
-  const sugestoesItens: SugestaoItem[] = sugestoes.map((s) => {
-    const tipo = tipoDaRegra(s.key.split(":")[0]);
-    return {
-      key: s.key,
-      rule: s.rule,
-      title: s.title,
-      description: s.description,
-      customerId: s.customerId,
-      customerName: s.customerName,
-      phone: telefoneDe.get(s.customerId) ?? "",
-      mensagem: textoDe(tipo, s.customerName),
-    };
-  });
+  // quem já recebeu mensagem HOJE não aparece: o filtro mora DENTRO do
+  // computeAutomations (fonte única — Dashboard e Automações herdam igual)
+  const sugestoesItens: SugestaoItem[] = sugestoes
+    .map((s) => {
+      const tipo = tipoDaRegra(s.key.split(":")[0]);
+      return {
+        key: s.key,
+        rule: s.rule,
+        title: s.title,
+        description: s.description,
+        customerId: s.customerId,
+        customerName: s.customerName,
+        phone: telefoneDe.get(s.customerId) ?? "",
+        mensagem: textoDe(tipo, s.customerName),
+      };
+    });
 
   return (
     <div className="max-w-5xl mx-auto">

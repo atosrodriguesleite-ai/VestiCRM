@@ -60,6 +60,7 @@ const CHANNEL_LABEL: Record<string, string> = {
   qr: "QR Code", direto: "Link Direto", indicacao: "Indicação",
   site: "Site", "loja-fisica": "Loja Física", marketplace: "Marketplace",
   campanha: "Campanhas", vendedor: "Link de Vendedor", tiktok: "TikTok",
+  bio: "Bio (página de links)",
 };
 const channelName = (c: string) => CHANNEL_LABEL[c] ?? c;
 
@@ -345,6 +346,10 @@ export default async function IntelligencePage({
           <p className="text-xs font-bold text-amber-700 uppercase tracking-wide flex items-center gap-1.5 mb-2">
             <Bell className="size-3.5" />
             Alertas inteligentes
+            {/* os alertas são o AGORA — não seguem o filtro de período */}
+            <span className="font-medium normal-case tracking-normal text-amber-500">
+              · últimas 24h
+            </span>
           </p>
           <ul className="grid md:grid-cols-2 gap-x-6 gap-y-1">
             {avisos.map((a) => (
@@ -363,13 +368,16 @@ export default async function IntelligencePage({
         <Kpi label="Tempo médio" value={`${Math.floor(now.avgSessionSeconds / 60)}m${String(now.avgSessionSeconds % 60).padStart(2, "0")}s`} icon={<Timer />} info="Tempo médio que cada visita durou no catálogo (soma do tempo de todas as sessões ÷ nº de sessões)." />
         <Kpi label="Conversão" value={`${now.conversionRate.toFixed(1)}%`} delta={<Delta now={now.conversionRate} before={before.conversionRate} />} icon={<Percent />} info="De cada 100 visitas, quantas enviaram um pedido pelo catálogo. Fórmula: pedidos ÷ sessões × 100." />
         <Kpi label="Pedidos (catálogo)" value={String(now.ordersFromCatalog)} delta={<Delta now={now.ordersFromCatalog} before={before.ordersFromCatalog} />} icon={<ShoppingBag />} info="Pedidos enviados pelo catálogo no período (visitantes que tocaram em Enviar pedido)." />
-        <Kpi label="Faturamento" value={brl(now.revenue)} delta={<Delta now={now.revenue} before={before.revenue} />} icon={<Wallet />} info="Valor somado dos pedidos vindos do catálogo no período (é o valor da sacola no envio)." />
-        <Kpi label="Ticket médio" value={brl(now.avgTicket)} delta={<Delta now={now.avgTicket} before={before.avgTicket} />} info="Valor médio por pedido do catálogo: faturamento ÷ nº de pedidos." />
+        {/* rótulo honesto: a conta é da LOJA INTEIRA (regra da casa), não só
+            do catálogo — o texto antigo fazia loja com Nuvemshop forte achar
+            que o catálogo tinha vendido tudo (auditoria 06/08/2026) */}
+        <Kpi label="Faturamento" value={brl(now.revenue)} delta={<Delta now={now.revenue} before={before.revenue} />} icon={<Wallet />} info="Faturamento da LOJA INTEIRA no período: pedidos pagos (sem frete), de qualquer origem — catálogo, loja online e pedidos montados no sistema." />
+        <Kpi label="Ticket médio" value={brl(now.avgTicket)} delta={<Delta now={now.avgTicket} before={before.avgTicket} />} info="Valor médio por pedido PAGO da loja inteira: faturamento ÷ nº de pedidos pagos (todas as origens, não só o catálogo)." />
         <Kpi label="Clientes novos" value={String(now.newCustomers)} delta={<Delta now={now.newCustomers} before={before.newCustomers} />} info="Clientes cadastrados pela primeira vez no período (primeiro contato com a loja)." />
         <Kpi label="Recorrentes" value={String(now.returningBuyers)} icon={<Repeat />} info="Clientes que compraram mais de uma vez (fidelizados)." />
-        <Kpi label="Carrinhos abandonados" value={String(now.abandonedCarts)} hint={`${brl(now.abandonedValue)} parados`} delta={<Delta now={now.abandonedCarts} before={before.abandonedCarts} invert />} icon={<AlertTriangle />} info="Visitas que colocaram itens na sacola mas NÃO enviaram o pedido. 'Parados' = valor somado dessas sacolas. Toque para ver a lista e recuperar." href={`/inteligencia?${paramsDoPeriodo(filtro)}&recuperacao=tudo#recuperar`} />
-        <Kpi label="Tempo de sessão total" value={`${Math.round((now.avgSessionSeconds * now.sessions) / 60)} min`} hint="navegação somada" info="Soma do tempo de navegação de todas as sessões no período." />
-        <Kpi label="Identificados" value={String(now.identifiedCustomers)} hint="visitantes que viraram clientes" info="Visitantes anônimos que informaram o telefone (viraram clientes na base da loja)." />
+        <Kpi label="Carrinhos abandonados" value={String(now.abandonedCarts)} hint={`${brl(now.abandonedValue)} parados`} delta={<Delta now={now.abandonedCarts} before={before.abandonedCarts} invert />} icon={<AlertTriangle />} info="Pessoas que deixaram sacola com itens sem enviar o pedido — cada pessoa conta UMA vez (a sacola mais recente dela), mesma régua da lista de recuperação. 'Parados' = valor somado dessas sacolas." href={`/inteligencia?${paramsDoPeriodo(filtro)}&recuperacao=tudo#recuperar`} />
+        <Kpi label="Tempo de sessão total" value={`${Math.round(now.totalSessionSeconds / 60)} min`} hint="navegação somada" info="Soma REAL do tempo de navegação de todas as sessões no período." />
+        <Kpi label="Identificados" value={String(now.identifiedCustomers)} hint="visitas com nome" info="Visitantes ligados a um cliente da base — pelo telefone informado OU por já terem chegado pelo link rastreado da cliente (?c=). Inclui quem já era cliente antes de visitar." />
       </div>
 
       <div className="grid lg:grid-cols-2 gap-4 md:gap-6 mb-6">
@@ -430,8 +438,10 @@ export default async function IntelligencePage({
           {canais.length === 0 ? (
             <EmptyState title="Sem acessos no período" hint="Compartilhe os links inteligentes abaixo." />
           ) : (
+            // "Pedidos" = enviados pelo catálogo; "Faturamento (pago)" =
+            // pedidos dessas visitas que VIRARAM dinheiro (netTotal pago)
             <RankTable
-              headers={["Canal", "Acessos", "Pedidos", "Conv.", "Faturamento"]}
+              headers={["Canal", "Acessos", "Pedidos", "Conv.", "Faturamento (pago)"]}
               rows={canais.map((r) => [
                 channelName(r.channel), String(r.sessions), String(r.orders),
                 `${r.conversion.toFixed(0)}%`, brl(r.revenue),
@@ -477,7 +487,7 @@ export default async function IntelligencePage({
             <EmptyState title="Nenhuma campanha ainda" hint="Crie links e QR Codes na seção abaixo." />
           ) : (
             <RankTable
-              headers={["Campanha", "Cliques", "Pedidos", "Conv.", "Faturamento", "Meta"]}
+              headers={["Campanha", "Cliques", "Pedidos", "Conv.", "Faturamento (pago)", "Meta"]}
               rows={campanhas.map((r) => [
                 <span key={r.id}>
                   {r.name}{" "}
