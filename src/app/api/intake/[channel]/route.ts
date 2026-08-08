@@ -53,8 +53,17 @@ export async function POST(
     return NextResponse.json({ error: "Canal desconhecido" }, { status: 404 });
   }
 
+  // FAIL-CLOSED (auditoria 07/08/2026): sem INTAKE_SECRET configurado a rota
+  // ficava ABERTA — qualquer um criava lead/conversa/oportunidade em qualquer
+  // loja sabendo só o slug público. Sem a env, a porta fica FECHADA.
   const secret = process.env.INTAKE_SECRET;
-  if (secret && req.headers.get("x-intake-token") !== secret) {
+  if (!secret) {
+    return NextResponse.json(
+      { error: "Canal de entrada não configurado." },
+      { status: 503 }
+    );
+  }
+  if (req.headers.get("x-intake-token") !== secret) {
     return NextResponse.json({ error: "Token inválido" }, { status: 401 });
   }
 
