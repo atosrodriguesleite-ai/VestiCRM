@@ -83,13 +83,19 @@ export async function GET(
     const storeName = (sp.get("loja") ?? "").trim().slice(0, 40);
     const showPrice = priceMode === "margem";
 
-    await db.customer.update({
-      where: { id: order.customerId },
-      data: {
-        ...(showPrice ? { resaleMarkup: markup, resaleRound: round } : {}),
-        resaleStoreName: storeName || null,
-      },
-    });
+    // preferências LEMBRADAS, nunca apagadas: gerar o PDF com o campo de
+    // loja vazio zerava o resaleStoreName salvo da lojista (auditoria
+    // 07/08/2026) — agora só persiste o que veio preenchido
+    const lembrar = {
+      ...(showPrice ? { resaleMarkup: markup, resaleRound: round } : {}),
+      ...(storeName ? { resaleStoreName: storeName } : {}),
+    };
+    if (Object.keys(lembrar).length > 0) {
+      await db.customer.update({
+        where: { id: order.customerId },
+        data: lembrar,
+      });
+    }
 
     const price = (paid: number) => {
       const v = paid * (1 + markup / 100);

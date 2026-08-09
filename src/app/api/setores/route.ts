@@ -26,7 +26,14 @@ export async function GET() {
       db.setor.findMany({
         where: { companyId },
         orderBy: [{ order: "asc" }, { name: "asc" }],
-        include: { users: { select: { id: true } }, _count: { select: { conversations: true } } },
+        include: {
+          users: { select: { id: true } },
+          // só conversa EM ANDAMENTO conta no crachá do setor — a encerrada
+          // inflava o número e o setor parecia sempre lotado
+          _count: {
+            select: { conversations: { where: { status: { not: "CLOSED" } } } },
+          },
+        },
       }),
       db.user.findMany({
         where: { companyId, active: true, role: { not: "SUPERADMIN" } },

@@ -240,37 +240,63 @@ export async function intakeLead(
     // ---- Lead novo: cria com origem e responsável distribuído ----
     isNewLead = true;
     const ownerId = await resolveOwner(companyId, payload.ownerId);
-    customer = await db.customer.create({
-      data: {
-        companyId,
-        // CRACHÁ PROVISÓRIO COM O NÚMERO INTEIRO.
-        //
-        // Antes era "Lead 9621" (só os 4 últimos dígitos). Na tela isso parece
-        // erro do sistema — a lojista da Toque Leve estranhou —, não diz de
-        // quem é a conversa e ainda embaralha duas clientes de DDDs
-        // diferentes que terminem igual. "Contato (82) 9664-9621" identifica
-        // a pessoa na hora e continua sendo provisório (`nomeProvisorio`):
-        // some sozinho quando o nome de verdade aparecer.
-        name: payload.name?.trim() || `Contato ${formatPhone(phone)}`,
-        phone,
-        city: payload.city,
-        state: payload.state,
-        origin: payload.origin,
-        campaignId: payload.campaignId ?? null,
-        ownerId,
-        lastContactAt: payload.message ? new Date() : null,
-      },
-    });
+    try {
+      customer = await db.customer.create({
+        data: {
+          companyId,
+          // CRACHÁ PROVISÓRIO COM O NÚMERO INTEIRO.
+          //
+          // Antes era "Lead 9621" (só os 4 últimos dígitos). Na tela isso parece
+          // erro do sistema — a lojista da Toque Leve estranhou —, não diz de
+          // quem é a conversa e ainda embaralha duas clientes de DDDs
+          // diferentes que terminem igual. "Contato (82) 9664-9621" identifica
+          // a pessoa na hora e continua sendo provisório (`nomeProvisorio`):
+          // some sozinho quando o nome de verdade aparecer.
+          name: payload.name?.trim() || `Contato ${formatPhone(phone)}`,
+          phone,
+          city: payload.city,
+          state: payload.state,
+          origin: payload.origin,
+          campaignId: payload.campaignId ?? null,
+          ownerId,
+          lastContactAt: payload.message ? new Date() : null,
+        },
+      });
+    } catch (e) {
+      // CORRIDA (incidente #0146): WhatsApp e catálogo chegando no MESMO
+      // instante passavam os dois pela busca lá de cima e criavam a mesma
+      // cliente duas vezes. Com o índice único de telefone, o segundo cai
+      // aqui (P2002) — e em vez de estourar, RE-BUSCA e segue com o cadastro
+      // que o primeiro criou (auditoria 07/08/2026).
+      const corrida =
+        typeof e === "object" && e !== null && (e as { code?: string }).code === "P2002";
+      if (!corrida) throw e;
+      const criadoPeloOutro = await findCustomerByPhone(companyId, payload.phone);
+      if (!criadoPeloOutro) throw e;
+      isNewLead = false;
+      customer = await db.customer.update({
+        where: { id: criadoPeloOutro.id },
+        data: {
+          lastContactAt: new Date(),
+          ...(payload.name?.trim() && nomeProvisorio(criadoPeloOutro.name)
+            ? { name: payload.name.trim() }
+            : {}),
+        },
+      });
+    }
+    // na corrida (isNewLead virou false ali em cima), o LEAD_CRIADO fica por
+    // conta de quem ganhou — este caminho registra só uma nova interação
     await db.customerEvent.create({
       data: {
         companyId,
         customerId: customer.id,
-        type: "LEAD_CRIADO",
+        type: isNewLead ? "LEAD_CRIADO" : "NOVA_INTERACAO",
         channel: payload.origin,
-        description:
-          payload.origin === "MANUAL"
+        description: isNewLead
+          ? payload.origin === "MANUAL"
             ? "Lead criado manualmente"
-            : `Lead criado via ${channelLabel}`,
+            : `Lead criado via ${channelLabel}`
+          : `Nova interação via ${channelLabel}`,
       },
     });
   }

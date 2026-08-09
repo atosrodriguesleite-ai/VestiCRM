@@ -77,8 +77,15 @@ export async function GET(req: NextRequest) {
         return NextResponse.json({ error: "Relatório desconhecido" }, { status: 400 });
     }
 
-    const esc = (v: string | number | null) =>
-      v === null ? "" : /[";\n]/.test(String(v)) ? `"${String(v).replace(/"/g, '""')}"` : String(v);
+    const esc = (v: string | number | null) => {
+      if (v === null) return "";
+      let s = String(v).replace(/"/g, '""');
+      // neutraliza injeção de fórmula: célula começando com = + - @ é
+      // executada pelo Excel/Sheets ao abrir — e o nome do produto (que vira
+      // célula aqui) é texto digitado pela equipe (auditoria 07/08/2026)
+      if (/^[=+\-@\t\r]/.test(s)) s = `'${s}`;
+      return /[";\n]/.test(s) ? `"${s}"` : s;
+    };
     const csv =
       "﻿" + // BOM para acentos no Excel
       [headers, ...rows].map((r) => r.map(esc).join(";")).join("\n");

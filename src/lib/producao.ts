@@ -212,7 +212,10 @@ export function resumoPesagem(
   );
   return {
     pesoPecasKg: round2(pesoPecasKg),
-    utilizationPct: round2((pesoPecasKg / usedKg) * 100),
+    // trava em 100%: peso unitário digitado errado (2000 g numa blusa) fazia
+    // o aproveitamento passar de 100% — fisicamente impossível; o número
+    // travado avisa que tem digitação errada sem quebrar a tela
+    utilizationPct: Math.min(100, round2((pesoPecasKg / usedKg) * 100)),
     wasteKg: round2(Math.max(0, usedKg - pesoPecasKg)),
   };
 }

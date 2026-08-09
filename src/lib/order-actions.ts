@@ -66,9 +66,31 @@ export async function cleanupOrphanCatalogCustomer(
 ) {
   const customer = await tx.customer.findFirst({
     where: { id: customerId, companyId },
-    select: { id: true, origin: true },
+    select: {
+      id: true,
+      origin: true,
+      notes: true,
+      cpf: true,
+      cnpj: true,
+      birthDate: true,
+      tags: { select: { tagId: true }, take: 1 },
+      interests: { select: { interestId: true }, take: 1 },
+    },
   });
   if (!customer || customer.origin !== "CATALOGO_PUBLICO") return;
+
+  // ficha TRABALHADA À MÃO não é órfã: se alguém anotou, etiquetou, marcou
+  // interesse ou documento, apagar jogaria fora trabalho da equipe
+  // (auditoria 07/08/2026). A carteira (ownerId) fica de fora do critério:
+  // ela é atribuída sozinha pelo rodízio, não é sinal de trabalho manual.
+  const enriquecido =
+    !!customer.notes ||
+    !!customer.cpf ||
+    !!customer.cnpj ||
+    !!customer.birthDate ||
+    customer.tags.length > 0 ||
+    customer.interests.length > 0;
+  if (enriquecido) return;
 
   const remainingOrders = await tx.order.count({ where: { customerId } });
   if (remainingOrders > 0) return;

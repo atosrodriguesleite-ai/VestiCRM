@@ -54,22 +54,6 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // distribui a baixa entre os lotes (FIFO)
-    let faltam = d.pieces;
-    const cortesUsados: number[] = [];
-    for (const lote of lotes) {
-      if (faltam <= 0) break;
-      const daqui = Math.min(faltam, lote.cutPieces - lote.donePieces);
-      await db.sewingItem.update({
-        where: { id: lote.id },
-        data: { donePieces: { increment: daqui } },
-      });
-      if (lote.cutCode != null && !cortesUsados.includes(lote.cutCode)) {
-        cortesUsados.push(lote.cutCode);
-      }
-      faltam -= daqui;
-    }
-
     // entrada única no estoque real (mesmo casamento da integração)
     const produtos = await db.product.findMany({
       where: { companyId: user.companyId },
@@ -95,24 +79,49 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    const cortesLabel = cortesUsados
-      .map((c) => `#${String(c).padStart(6, "0")}`)
-      .join(", ");
+    // baixa da costura + crédito no estoque NUMA TRANSAÇÃO SÓ: uma falha no
+    // meio deixava a peça baixada da costura sem entrar no estoque — sumia
+    // entre os dois mundos (auditoria 07/08/2026)
+    const cortesUsados: number[] = [];
+    await db.$transaction(
+      async (tx) => {
+        // distribui a baixa entre os lotes (FIFO)
+        let faltam = d.pieces;
+        for (const lote of lotes) {
+          if (faltam <= 0) break;
+          const daqui = Math.min(faltam, lote.cutPieces - lote.donePieces);
+          await tx.sewingItem.update({
+            where: { id: lote.id },
+            data: { donePieces: { increment: daqui } },
+          });
+          if (lote.cutCode != null && !cortesUsados.includes(lote.cutCode)) {
+            cortesUsados.push(lote.cutCode);
+          }
+          faltam -= daqui;
+        }
+        if (alvo) {
+          const cortesLabel = cortesUsados
+            .map((c) => `#${String(c).padStart(6, "0")}`)
+            .join(", ");
+          await tx.productVariant.update({
+            where: { id: alvo.variantId },
+            data: { stock: { increment: d.pieces } },
+          });
+          await tx.inventoryMovement.create({
+            data: {
+              companyId: user.companyId,
+              variantId: alvo.variantId,
+              type: "ENTRADA",
+              quantity: d.pieces,
+              reason: `Costura finalizada por ${user.name}${cortesLabel ? ` (corte${cortesUsados.length > 1 ? "s" : ""} ${cortesLabel})` : ""}`,
+            },
+          });
+        }
+      },
+      { timeout: 30_000, maxWait: 10_000 }
+    );
 
     if (alvo) {
-      await db.productVariant.update({
-        where: { id: alvo.variantId },
-        data: { stock: { increment: d.pieces } },
-      });
-      await db.inventoryMovement.create({
-        data: {
-          companyId: user.companyId,
-          variantId: alvo.variantId,
-          type: "ENTRADA",
-          quantity: d.pieces,
-          reason: `Costura finalizada por ${user.name}${cortesLabel ? ` (corte${cortesUsados.length > 1 ? "s" : ""} ${cortesLabel})` : ""}`,
-        },
-      });
       pushStockToNuvemshop(user.companyId, [alvo.variantId]).catch(() => {});
       return NextResponse.json({
         ok: true,

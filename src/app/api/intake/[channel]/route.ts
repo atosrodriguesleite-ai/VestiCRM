@@ -78,6 +78,8 @@ export async function POST(
   if (!company) {
     return NextResponse.json({ error: "Loja não encontrada" }, { status: 404 });
   }
+  // loja suspensa não ingere lead (200 mudo: nada a reprocessar)
+  if (company.suspended) return NextResponse.json({ ok: true, suspenso: true });
 
   const result = await intakeLead(company.id, {
     phone: parsed.data.phone,

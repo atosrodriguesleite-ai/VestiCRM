@@ -35,6 +35,8 @@ export async function GET(req: NextRequest) {
   // ficou de fora é priorizada na próxima rodada, em vez de ficar para trás
   // em silêncio para sempre (auditoria 07/08/2026)
   const conns = await db.jueriConnection.findMany({
+    // loja suspensa fica fora da fila do cron (não gasta o tempo da rodada)
+    where: { company: { suspended: false } },
     select: { companyId: true },
     orderBy: { lastSyncAt: { sort: "asc", nulls: "first" } },
   });

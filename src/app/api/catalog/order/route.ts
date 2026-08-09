@@ -242,6 +242,11 @@ export async function POST(req: NextRequest) {
       message: input.message,
       opportunityTitle: `Pedido do catálogo — ${totalPieces} ${totalPieces === 1 ? "peça" : "peças"}`,
       value: subtotal,
+      // cliente NOVA que chegou pelo link da vendedora já nasce na carteira
+      // DELA: sem isso o intake gastava a vez do rodízio e a tarefa/card
+      // nasciam de outra vendedora — para serem repontados logo abaixo, com
+      // rastro falso no meio (auditoria 07/08/2026)
+      ...(linkSellerId ? { ownerId: linkSellerId } : {}),
     });
     customerId = result.customer.id;
     conversationId = result.conversation?.id ?? null;

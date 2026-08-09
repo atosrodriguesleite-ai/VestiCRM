@@ -4,6 +4,7 @@ import type { SessionUser } from "./auth";
 import type { TaskType, TaskPriority } from "@prisma/client";
 import { daysSince } from "./format";
 import { clientesNaHoraDeComprar, aniversariantes } from "./recompra";
+import { nomeCasaComEtapa } from "./funil-auto";
 
 export type AutomationSuggestion = {
   /** chave estável: regra + entidade — usada para não duplicar tarefas */
@@ -54,16 +55,26 @@ export async function computeAutomations(
     });
   }
 
-  // Regra 2 — catálogo enviado e sem avanço há 3+ dias
-  const catalogOpps = await db.opportunity.findMany({
-    where: {
-      ...scope,
-      status: "OPEN",
-      stage: { name: "Catálogo enviado" },
-      lastInteractionAt: { lt: days(3) },
-    },
-    include: { customer: true },
-  });
+  // Regra 2 — catálogo enviado e sem avanço há 3+ dias.
+  // A etapa casa pela MESMA régua do funil automático (variações de nome,
+  // sem acento) — o nome exato fazia a regra sumir se a etapa mudasse.
+  const etapasCatalogo = (
+    await db.stage.findMany({
+      where: { pipeline: { companyId: user.companyId } },
+      select: { id: true, name: true },
+    })
+  ).filter((s) => nomeCasaComEtapa(s.name, "CATALOGO_ENVIADO"));
+  const catalogOpps = etapasCatalogo.length
+    ? await db.opportunity.findMany({
+        where: {
+          ...scope,
+          status: "OPEN",
+          stageId: { in: etapasCatalogo.map((s) => s.id) },
+          lastInteractionAt: { lt: days(3) },
+        },
+        include: { customer: true },
+      })
+    : [];
   for (const o of catalogOpps) {
     suggestions.push({
       key: `catalogo-parado:${o.id}`,

@@ -20,12 +20,23 @@ export function parseMentions(
   authorId?: string
 ): string[] {
   const ids = new Set<string>();
+  // primeiro nome repetido na equipe (duas "Ana"): mencionar "@Ana" é
+  // ambíguo e notificava as DUAS — nesse caso só o nome completo menciona
+  const contagemPrimeiro = new Map<string, number>();
+  for (const u of team) {
+    const primeiro = u.name.split(" ")[0].toLowerCase();
+    contagemPrimeiro.set(primeiro, (contagemPrimeiro.get(primeiro) ?? 0) + 1);
+  }
   for (const u of team) {
     if (u.id === authorId) continue;
     const full = escapeRegex(u.name);
     const first = escapeRegex(u.name.split(" ")[0]);
-    // nome completo primeiro; senão o primeiro nome com fronteira de palavra
-    const re = new RegExp(`@(?:${full}|${first})(?![\\p{L}])`, "iu");
+    const ambiguo = (contagemPrimeiro.get(u.name.split(" ")[0].toLowerCase()) ?? 0) > 1;
+    // fronteira ANTES do @ também: "contato@Joao" é e-mail, não menção
+    const re = new RegExp(
+      `(?<![\\p{L}\\p{N}])@(?:${full}${ambiguo ? "" : `|${first}`})(?![\\p{L}])`,
+      "iu"
+    );
     if (re.test(body)) ids.add(u.id);
   }
   return [...ids];

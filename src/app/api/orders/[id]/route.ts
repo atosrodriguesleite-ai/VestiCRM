@@ -568,6 +568,8 @@ export async function PATCH(
     }
 
     const data: Record<string, unknown> = {};
+    // eventos de troca de vendedor/cliente esperam a gravação dar certo
+    const eventosPendentes: string[] = [];
     if (parsed.data.notes !== undefined) data.notes = parsed.data.notes;
     if (parsed.data.sellerId !== undefined && parsed.data.sellerId !== order.sellerId) {
       // MESMA REGRA do botão "Transferir venda": a vendedora só mexe no
@@ -615,7 +617,11 @@ export async function PATCH(
       data.sellerId = parsed.data.sellerId;
       // troca de vendedor mexe em COMISSÃO: fica sempre registrada no
       // histórico do pedido (quem trocou, de quem para quem) — sem rastro
-      // seria possível redirecionar a comissão em silêncio
+      // seria possível redirecionar a comissão em silêncio.
+      // O EVENTO SÓ É GRAVADO DEPOIS que a alteração salvar de verdade
+      // (eventosPendentes): antes ele era escrito aqui e, se a transação de
+      // status caísse (409/erro), a linha do tempo afirmava uma transferência
+      // que nunca aconteceu (auditoria 07/08/2026).
       if (parsed.data.sellerId !== order.sellerId) {
         const oldSeller = order.sellerId
           ? await db.user.findUnique({
@@ -623,14 +629,9 @@ export async function PATCH(
               select: { name: true },
             })
           : null;
-        await db.orderEvent.create({
-          data: {
-            orderId: order.id,
-            type: "NOTA",
-            description: `Vendedor alterado de ${oldSeller?.name ?? "(sem vendedor)"} para ${newSellerName ?? "(sem vendedor)"} por ${user.name}`,
-            userId: user.id,
-          },
-        });
+        eventosPendentes.push(
+          `Vendedor alterado de ${oldSeller?.name ?? "(sem vendedor)"} para ${newSellerName ?? "(sem vendedor)"} por ${user.name}`
+        );
       }
     }
     if (parsed.data.customerId && parsed.data.customerId !== order.customerId) {
@@ -641,15 +642,17 @@ export async function PATCH(
         return NextResponse.json({ error: "Cliente inválido" }, { status: 404 });
       }
       data.customerId = customer.id;
-      await db.orderEvent.create({
-        data: {
-          orderId: order.id,
-          type: "NOTA",
-          description: `Pedido vinculado ao cliente ${customer.name} por ${user.name}`,
-          userId: user.id,
-        },
-      });
+      eventosPendentes.push(
+        `Pedido vinculado ao cliente ${customer.name} por ${user.name}`
+      );
     }
+
+    // cliente/vendedor FINAIS desta chamada: quando eles mudam JUNTO com o
+    // status→PAGO, a venda e o "última compra" gravavam nos ANTIGOS (lidos no
+    // começo) e o aviso anunciava o nome errado (auditoria 07/08/2026)
+    const clienteFinalId = (data.customerId as string | undefined) ?? order.customerId;
+    const vendedorFinalId =
+      parsed.data.sellerId !== undefined ? parsed.data.sellerId : order.sellerId;
 
     if (newStatus && newStatus !== order.status) {
       /**
@@ -714,8 +717,9 @@ export async function PATCH(
               await tx.sale.create({
                 data: {
                   companyId: user.companyId,
-                  customerId: order.customerId,
-                  sellerId: order.sellerId,
+                  // cliente/vendedor FINAIS (podem ter mudado nesta chamada)
+                  customerId: clienteFinalId,
+                  sellerId: vendedorFinalId,
                   orderId: order.id,
                   total: atual?.netTotal ?? order.netTotal,
                   description: `Pedido ${orderNumber(order.number)}`,
@@ -723,7 +727,7 @@ export async function PATCH(
                 },
               });
               await tx.customer.update({
-                where: { id: order.customerId },
+                where: { id: clienteFinalId },
                 data: { lastPurchaseAt: new Date() },
               });
             }
@@ -966,11 +970,19 @@ export async function PATCH(
       ? await db.order.update({ where: { id }, data })
       : (await db.order.findUnique({ where: { id } }))!;
 
+    // linha do tempo SÓ do que aconteceu de verdade: os eventos de troca de
+    // vendedor/cliente são gravados depois que a alteração salvou
+    for (const descricao of eventosPendentes) {
+      await db.orderEvent.create({
+        data: { orderId: order.id, type: "NOTA", description: descricao, userId: user.id },
+      });
+    }
+
     // 💰 Notificação de venda: dispara quando o pedido ACABOU de virar pago.
     // Fire-and-forget: nunca atrasa nem quebra a resposta do pedido.
     if (enteringPaid) {
       const customer = await db.customer.findUnique({
-        where: { id: order.customerId },
+        where: { id: clienteFinalId },
         select: { name: true },
       });
       notifySalePaid(user.companyId, {
