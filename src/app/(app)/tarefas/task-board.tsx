@@ -287,11 +287,20 @@ export function TaskBoard({
       desfazer: async () => {
         setTasks(antes);
         setAviso(null);
-        await fetch("/api/tasks/bulk", {
+        // `.catch(() => {})` aqui já causou incidente nesta casa: desfazer
+        // que falha em silêncio deixa a pessoa certa de que reabriu — e as
+        // tarefas continuam concluídas no banco
+        const r = await fetch("/api/tasks/bulk", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ ids, status: "PENDENTE" }),
-        }).catch(() => {});
+        }).catch(() => null);
+        if (!r || !r.ok) {
+          setAviso({
+            texto: "Não consegui desfazer — as tarefas continuam concluídas.",
+            tom: "erro",
+          });
+        }
         router.refresh();
       },
     });

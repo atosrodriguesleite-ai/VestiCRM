@@ -55,7 +55,9 @@ export default async function TasksPage() {
 
   const [tasks, customers, team, sugestoes, textos] = await Promise.all([
     db.task.findMany({
-      where: taskScope(user),
+      // CANCELADA fica fora da tela: não é trabalho pendente nem concluído —
+      // sem o filtro ela aparecia em "Atrasadas" como se estivesse aberta
+      where: { ...taskScope(user), status: { not: "CANCELADA" } },
       include: { customer: true, assignee: true },
       orderBy: { dueAt: "asc" },
     }),

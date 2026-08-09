@@ -59,7 +59,9 @@ describe("sugestão cumprida some sozinha — em TODAS as listas", () => {
     expect(lib).not.toContain("CONFIRMAR_ENTREGA");
     // só o que está para hoje ou atrasado — compromisso futuro fica de pé
     expect(lib).toContain("dueAt: { lt: fimDeHojeSP(agora) }");
-    expect(lib).toContain('data: { status: "CONCLUIDA" }');
+    // agora fecha COM o motivo gravado (revisao 09/08: as duas portas de
+    // fechamento automatico explicam igual na tela)
+    expect(lib).toContain('data: { status: "CONCLUIDA", autoDoneReason: "CLIENTE_JA_CHAMADO" }');
   });
 
   it("o gancho dispara no envio pela Central E no eco do celular", () => {

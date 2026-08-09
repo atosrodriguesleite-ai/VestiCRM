@@ -1,5 +1,6 @@
 import { db } from "./db";
 import { PAID_ORDER_STATUSES } from "./orders";
+import { fimDeHojeSP } from "./contato-feito";
 
 /**
  * A TAREFA QUE A VIDA JÁ RESOLVEU.
@@ -52,7 +53,10 @@ const TIPOS_DE_ENTREGA = ["CONFIRMAR_ENTREGA"];
 /**
  * Tarefas cujo trabalho é o próprio CONTATO. Mandar mensagem já é fazer.
  * Cobrança e entrega ficam de fora de propósito: mandar mensagem não faz o
- * dinheiro entrar nem a encomenda chegar (mesma régua de `contato-feito.ts`).
+ * dinheiro entrar nem a encomenda chegar. "OUTRO" também fica de fora — é o
+ * balde do trabalho que NÃO é contato ("separar a troca da Maria"): fechar
+ * essas por mensagem apagaria lembretes de trabalho não feito (mesma régua
+ * de `contato-feito.ts`, que também exclui OUTRO).
  */
 const TIPOS_DE_CONTATO = [
   "LIGAR",
@@ -61,25 +65,36 @@ const TIPOS_DE_CONTATO = [
   "ENVIAR_CATALOGO",
   "ENVIAR_NOVIDADES",
   "POS_VENDA",
-  "OUTRO",
 ];
 
 /** O retrato da realidade daquela cliente, no momento da conferência. */
 export type RetratoDaCliente = {
   /** último momento em que SAIU mensagem nossa para ela */
   ultimaMensagemNossa: Date | null;
-  /** quando um pedido dela passou a estar pago (o mais recente) */
+  /** quando um pedido dela passou a estar pago (o mais recente, por `paidAt`) */
   pagouEm: Date | null;
   /** quando um pedido dela foi entregue (o mais recente) */
   entregueEm: Date | null;
   /** quando um pedido dela foi cancelado (o mais recente) */
   canceladoEm: Date | null;
+  /**
+   * AINDA existe pedido dela aguardando pagamento?
+   *
+   * É o que impede o pagamento do pedido B de fechar a cobrança do pedido A
+   * (a tarefa não sabe de qual pedido é — não existe `Task.orderId`). Se
+   * sobrou QUALQUER pedido esperando dinheiro, a cobrança fica de pé.
+   */
+  aindaDevendo: boolean;
+  /** AINDA existe pedido dela na rua (ENVIADO)? Segura a confirmação de entrega. */
+  aindaACaminho: boolean;
 };
 
 export type TarefaParaConferir = {
   id: string;
   type: string;
   createdAt: Date;
+  /** quando a tarefa vence — compromisso FUTURO não se fecha por mensagem */
+  dueAt: Date;
   customerId: string | null;
   /** a oportunidade ligada já foi fechada (ganha ou perdida)? */
   oportunidadeFechadaEm?: Date | null;
@@ -91,24 +106,30 @@ const depois = (prova: Date | null | undefined, tarefa: Date) =>
 /**
  * A realidade já resolveu esta tarefa? Devolve o motivo, ou `null`.
  *
- * Função PURA: recebe a tarefa e o retrato da cliente, decide. É aqui que
+ * Função PURA: recebe a tarefa, o retrato da cliente e o agora. É aqui que
  * mora a inteligência — e é por isso que dá para testar cada caso.
  */
 export function motivoResolvido(
   tarefa: TarefaParaConferir,
-  retrato: RetratoDaCliente
+  retrato: RetratoDaCliente,
+  agora = new Date()
 ): MotivoResolvido | null {
   const nasceu = tarefa.createdAt;
 
-  // COBRAR: só o dinheiro (ou o cancelamento) encerra. Mandar mensagem não.
+  // COBRAR: só fecha quando NÃO SOBROU pedido esperando dinheiro E algo
+  // aconteceu depois da tarefa. Mandar mensagem não fecha; pagar OUTRO
+  // pedido também não (a dívida de A não se paga com o dinheiro de B).
   if (TIPOS_DE_COBRANCA.includes(tarefa.type)) {
+    if (retrato.aindaDevendo) return null;
     if (depois(retrato.pagouEm, nasceu)) return "PAGAMENTO_CONFIRMADO";
     if (depois(retrato.canceladoEm, nasceu)) return "PEDIDO_CANCELADO";
     return null;
   }
 
-  // CONFIRMAR ENTREGA: só a entrega (ou o cancelamento) encerra.
+  // CONFIRMAR ENTREGA: só fecha quando não há mais pedido na rua E uma
+  // entrega (ou cancelamento) aconteceu depois da tarefa.
   if (TIPOS_DE_ENTREGA.includes(tarefa.type)) {
+    if (retrato.aindaACaminho) return null;
     if (depois(retrato.entregueEm, nasceu)) return "PEDIDO_ENTREGUE";
     if (depois(retrato.canceladoEm, nasceu)) return "PEDIDO_CANCELADO";
     return null;
@@ -117,7 +138,14 @@ export function motivoResolvido(
   // CONTATO: falar com a cliente É o trabalho. Comprar de novo também
   // encerra — "reativar quem sumiu" perde o sentido quando ela voltou.
   if (TIPOS_DE_CONTATO.includes(tarefa.type)) {
-    if (depois(retrato.ultimaMensagemNossa, nasceu)) return "CLIENTE_JA_CHAMADO";
+    // Mensagem só fecha tarefa de HOJE ou atrasada. O compromisso marcado
+    // para semana que vem ("a cliente pediu para voltar dia 20") continua de
+    // pé mesmo que outra conversa aconteça hoje — mesma régua do
+    // `contato-feito.ts`, que o adiar da agenda depende para funcionar.
+    const compromissoFuturo = tarefa.dueAt.getTime() >= fimDeHojeSP(agora).getTime();
+    if (!compromissoFuturo && depois(retrato.ultimaMensagemNossa, nasceu)) {
+      return "CLIENTE_JA_CHAMADO";
+    }
     if (depois(retrato.pagouEm, nasceu)) return "CLIENTE_JA_COMPROU";
     if (depois(tarefa.oportunidadeFechadaEm, nasceu)) return "OPORTUNIDADE_FECHADA";
     return null;
@@ -143,10 +171,14 @@ export async function fecharTarefasResolvidas(companyId: string): Promise<number
         id: true,
         type: true,
         createdAt: true,
+        dueAt: true,
         customerId: true,
         opportunity: { select: { closedAt: true, status: true } },
       },
-      // teto de segurança: agenda gigante não pode travar a abertura da tela
+      // teto de segurança: agenda gigante não pode travar a abertura da tela.
+      // A ordem é fixa (mais antiga primeiro) para o teto não deixar um
+      // resto aleatório de tarefas nunca conferidas.
+      orderBy: { createdAt: "asc" },
       take: 500,
     });
     if (abertas.length === 0) return 0;
@@ -180,6 +212,8 @@ export async function fecharTarefasResolvidas(companyId: string): Promise<number
           pagouEm: null,
           entregueEm: null,
           canceladoEm: null,
+          aindaDevendo: false,
+          aindaACaminho: false,
         };
         retratos.set(id, r);
       }
@@ -196,11 +230,17 @@ export async function fecharTarefasResolvidas(companyId: string): Promise<number
     for (const o of pedidos) {
       const r = pega(o.customerId);
       if (PAID_ORDER_STATUSES.includes(o.status)) {
-        // `paidAt` é a data do dinheiro; sem ela, a última mexida no pedido
-        r.pagouEm = maisNovo(r.pagouEm, o.paidAt ?? o.updatedAt);
+        // SÓ `paidAt` (a data do dinheiro). `updatedAt` mexe em QUALQUER
+        // edição do pedido — usar como prova faria um ajuste de observação
+        // num pedido velho "pagar" a cobrança de hoje.
+        r.pagouEm = maisNovo(r.pagouEm, o.paidAt);
       }
       if (o.status === "ENTREGUE") r.entregueEm = maisNovo(r.entregueEm, o.updatedAt);
       if (o.status === "CANCELADO") r.canceladoEm = maisNovo(r.canceladoEm, o.updatedAt);
+      // pendências que SEGURAM a tarefa aberta (o que impede o pagamento do
+      // pedido B de esconder a dívida do pedido A)
+      if (o.status === "AGUARDANDO_PAGAMENTO") r.aindaDevendo = true;
+      if (o.status === "ENVIADO") r.aindaACaminho = true;
     }
 
     const porMotivo = new Map<MotivoResolvido, string[]>();
@@ -212,6 +252,7 @@ export async function fecharTarefasResolvidas(companyId: string): Promise<number
           id: t.id,
           type: t.type,
           createdAt: t.createdAt,
+          dueAt: t.dueAt,
           customerId: t.customerId,
           oportunidadeFechadaEm:
             t.opportunity && t.opportunity.status !== "OPEN"

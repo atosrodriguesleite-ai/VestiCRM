@@ -57,7 +57,9 @@ export async function concluirTarefasDeContato(
       dueAt: { lt: fimDeHojeSP(agora) },
       OR: [{ type: { in: TIPOS_DE_CONTATO } }, { autoRule: { not: null } }],
     },
-    data: { status: "CONCLUIDA" },
+    // o motivo aparece na agenda ("Concluída pelo sistema — você já falou com
+    // a cliente") — as DUAS portas de fechamento automático explicam igual
+    data: { status: "CONCLUIDA", autoDoneReason: "CLIENTE_JA_CHAMADO" },
   });
   return r.count;
 }

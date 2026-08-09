@@ -3,6 +3,7 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import { requireUser, AuthError } from "@/lib/auth";
 import { taskScope } from "@/lib/scope";
+import { TIPOS_DE_CONTATO } from "@/lib/contato-feito";
 
 /**
  * CONCLUIR (OU REABRIR) VÁRIAS TAREFAS DE UMA VEZ.
@@ -33,22 +34,36 @@ export async function POST(req: NextRequest) {
     // só as que ESTA pessoa pode mexer (o resto é ignorado, não é erro)
     const permitidas = await db.task.findMany({
       where: { ...taskScope(user), id: { in: ids } },
-      select: { id: true, customerId: true },
+      select: { id: true, customerId: true, type: true },
     });
     if (permitidas.length === 0) {
       return NextResponse.json({ atualizadas: 0 });
     }
 
     const r = await db.task.updateMany({
-      where: { id: { in: permitidas.map((t) => t.id) } },
-      data: { status },
+      where: {
+        id: { in: permitidas.map((t) => t.id) },
+        // transição válida apenas: concluir o que está PENDENTE, reabrir o
+        // que está CONCLUÍDA. Sem o guarda, o botão de massa ressuscitava
+        // tarefa CANCELADA como concluída.
+        status: status === "CONCLUIDA" ? "PENDENTE" : "CONCLUIDA",
+      },
+      // decisão humana: qualquer motivo automático anterior deixa de valer
+      data: { status, autoDoneReason: null },
     });
 
-    // concluir tarefa de contato atualiza o "último contato" da cliente —
-    // mesma regra da conclusão avulsa, para as duas portas não divergirem
+    // O "último contato" só é carimbado para tarefas DE CONTATO. O caso de
+    // uso deste botão é limpar dezenas de tarefas velhas de uma vez —
+    // carimbar todo mundo como "falei hoje" silenciaria campanhas e
+    // automações da loja inteira sem ninguém ter falado com ninguém.
     if (status === "CONCLUIDA") {
       const clientes = [
-        ...new Set(permitidas.map((t) => t.customerId).filter((v): v is string => !!v)),
+        ...new Set(
+          permitidas
+            .filter((t) => TIPOS_DE_CONTATO.includes(t.type))
+            .map((t) => t.customerId)
+            .filter((v): v is string => !!v)
+        ),
       ];
       if (clientes.length) {
         await db.customer.updateMany({

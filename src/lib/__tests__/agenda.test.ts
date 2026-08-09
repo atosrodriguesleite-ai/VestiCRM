@@ -62,6 +62,13 @@ describe("em que aba cada tarefa mora", () => {
     expect(abaDaTarefa(vencida, AGORA)).not.toBe("atrasadas");
   });
 
+  it("CANCELADA também não fica em Atrasadas (achado de revisão)", () => {
+    // a API aceita CANCELADA; sem esta regra a tarefa cancelada ficava
+    // eternamente vermelha na lista, parecendo pendente
+    const cancelada = t("a", "2026-08-01T09:00:00-03:00", { status: "CANCELADA" });
+    expect(abaDaTarefa(cancelada, AGORA)).not.toBe("atrasadas");
+  });
+
   it("cada tarefa mora em UMA aba só (nada aparece em duas nem some)", () => {
     const lista = [
       t("a", "2026-08-01T09:00:00-03:00"),

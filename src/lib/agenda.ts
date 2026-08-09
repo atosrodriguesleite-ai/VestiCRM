@@ -44,7 +44,10 @@ export function viradaDoDiaSP(agora: Date): Date {
 
 /** Em qual aba esta tarefa mora? (uma tarefa mora em UMA aba só) */
 export function abaDaTarefa(t: TarefaDaAgenda, agora: Date): AbaDaAgenda {
-  if (t.status === "CONCLUIDA") return "concluidas";
+  // qualquer coisa que NÃO está pendente (CONCLUIDA, CANCELADA) sai das abas
+  // de trabalho. Antes só CONCLUIDA saía — uma tarefa CANCELADA pela API
+  // ficava eternamente em "Atrasadas", vermelha, parecendo pendente.
+  if (t.status !== "PENDENTE") return "concluidas";
   const vence = new Date(t.dueAt).getTime();
   if (vence < agora.getTime()) return "atrasadas";
   if (vence < viradaDoDiaSP(agora).getTime()) return "hoje";
