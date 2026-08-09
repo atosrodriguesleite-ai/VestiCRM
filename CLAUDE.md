@@ -13,6 +13,16 @@ o sistema para gerir os leads do AtacadoPro.
   (~2-3 min, Vercel). Push = produção. Sempre rodar build + testes antes.
 - Trabalhar em entregas pequenas e completas (schema → API → tela → teste →
   push), comunicando em linguagem de negócio.
+- **REVISÃO OBRIGATÓRIA ANTES DO PUSH** (pedido do dono, 09/08/2026): toda
+  entrega de código passa pela revisão especialista (`/code-review`, nível
+  high) ANTES de subir; corrigir os achados confirmados e só então push.
+  Motivo real: a revisão da conferência de tarefas achou 10 bugs num código
+  já "pronto" — 3 deles esconderiam dinheiro pendente. Casos de canto (dois
+  pedidos, compromisso futuro, status raro) são exatamente o que o autor não
+  vê. Exceção: mudança trivial sem lógica (texto, cor, label).
+- Quando a mudança mexe com **dinheiro, estoque ou apagar/concluir dados
+  sozinha**, além da revisão: reproduzir o cenário ponta a ponta contra o
+  Postgres local antes de subir (adivinhar já errou 3 vezes num dia).
 
 ## Stack
 
