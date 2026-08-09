@@ -24,6 +24,8 @@ export type TaskItem = {
   priority: string;
   status: string;
   autoRule: string | null;
+  /** frase pronta quando o SISTEMA concluiu sozinho ("o pagamento entrou") */
+  autoDone: string | null;
   customer: {
     id: string;
     name: string;
@@ -563,6 +565,14 @@ export function TaskBoard({
                     {t.description && !done && (
                       <p className="text-xs text-gray-500 mt-0.5">
                         {t.description}
+                      </p>
+                    )}
+                    {/* CONCLUÍDA SOZINHA: a tarefa não pode simplesmente
+                        sumir — sem o motivo, a lojista desconfia do sistema
+                        em vez de confiar nele. */}
+                    {done && t.autoDone && (
+                      <p className="text-xs text-emerald-700 mt-0.5">
+                        ✔️ Concluída pelo sistema — {t.autoDone}.
                       </p>
                     )}
                     <p className="text-xs text-gray-400 mt-0.5">

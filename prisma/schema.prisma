@@ -1259,6 +1259,11 @@ model Task {
   assigneeId    String?
   assignee      User?        @relation("TaskAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
   autoRule      String? // preenchido quando a tarefa foi criada por automação
+  // POR QUE a tarefa se fechou SOZINHA (o pagamento entrou, você já falou com
+  // a cliente, o pedido foi entregue...). Nulo = quem concluiu foi gente.
+  // Sem gravar o motivo, a tarefa sumia da lista sem explicação — e lista que
+  // some sozinha sem dizer por quê é lista em que ninguém confia.
+  autoDoneReason String?
   createdAt     DateTime     @default(now())
 
   @@index([companyId, status, dueAt])
@@ -1618,6 +1623,10 @@ model Order {
   nfeStatus      String? // EMITINDO | AUTORIZADA | ERRO
   nfeUrl         String? // link do DANFE/PDF quando disponível
   createdAt      DateTime      @default(now())
+  // Última mexida no pedido. Serve à conferência da agenda: prova de que a
+  // entrega/cancelamento aconteceu DEPOIS de a tarefa nascer (prova velha não
+  // fecha tarefa nova). O dinheiro já tinha data própria em `paidAt`.
+  updatedAt      DateTime      @updatedAt @default(now())
   // DATA DO DINHEIRO: quando o pedido virou PAGO. É por ela que TODA métrica
   // de faturamento é somada (não pela data em que o orçamento foi montado) —
   // assim o mês bate com o extrato e um mês fechado nunca mais muda de valor.

@@ -218,11 +218,31 @@ export async function computeAutomations(
     });
   }
 
-  // remove sugestões já aplicadas (task com o mesmo autoRule)
+  /**
+   * SUGESTÃO JÁ APLICADA SAI DA LISTA — MAS SÓ POR UM TEMPO.
+   *
+   * Antes, bastava EXISTIR uma tarefa com aquela chave para a regra calar
+   * PARA SEMPRE. Uma vez concluída "recompra:Maria", a Maria nunca mais era
+   * lembrada — nem seis meses depois. O motor ia emudecendo sozinho, cliente
+   * a cliente, e ninguém percebia porque o silêncio não aparece na tela.
+   *
+   * Isso ficou crítico agora que a agenda fecha tarefa sozinha (a vida
+   * resolveu): sem janela, cada conclusão automática apagaria a regra de vez.
+   *
+   * Regra nova: some enquanto a tarefa está ABERTA e por mais 30 dias depois
+   * de criada. Passou disso, se a condição continuar valendo, o sistema
+   * lembra de novo. As condições de cada regra continuam mandando — esta
+   * janela só evita cobrar a mesma coisa todo dia.
+   */
+  const JANELA_SILENCIO_MS = 30 * 24 * 60 * 60 * 1000;
   const applied = await db.task.findMany({
     where: {
       companyId: user.companyId,
       autoRule: { in: suggestions.map((s) => s.key) },
+      OR: [
+        { status: "PENDENTE" },
+        { createdAt: { gte: new Date(Date.now() - JANELA_SILENCIO_MS) } },
+      ],
     },
     select: { autoRule: true },
   });

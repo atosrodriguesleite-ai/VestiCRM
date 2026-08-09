@@ -10,6 +10,11 @@ import {
   type TipoChamada,
 } from "@/lib/mensagens-chamada";
 import { TaskBoard, type TaskItem, type SugestaoItem } from "./task-board";
+import {
+  fecharTarefasResolvidas,
+  TEXTO_RESOLVIDO,
+  type MotivoResolvido,
+} from "@/lib/tarefas-resolvidas";
 import type { TaskType } from "@prisma/client";
 
 export const dynamic = "force-dynamic";
@@ -33,6 +38,20 @@ const TIPO_POR_TAREFA: Record<TaskType, TipoChamada> = {
 
 export default async function TasksPage() {
   const user = await requireUser();
+
+  /**
+   * A AGENDA CONFERE A REALIDADE ANTES DE SE MOSTRAR.
+   *
+   * Pedido do dono (07/08/2026): "o Gabriel pagou, eu marquei o pedido como
+   * PAGO, e a tarefa continuava lá dizendo que ele deve". A tarefa nascia e
+   * ninguém nunca mais olhava para o MOTIVO dela.
+   *
+   * A conferência roda AQUI, na abertura da tela, de propósito: é quando a
+   * verdade importa, e assim ela não depende de nenhum evento ter sido
+   * capturado na hora certa — evento perdido já causou incidente nesta casa.
+   * Nunca lança e é barato (consultas indexadas, presas às clientes da lista).
+   */
+  await fecharTarefasResolvidas(user.companyId);
 
   const [tasks, customers, team, sugestoes, textos] = await Promise.all([
     db.task.findMany({
@@ -101,6 +120,10 @@ export default async function TasksPage() {
       priority: t.priority,
       status: t.status,
       autoRule: t.autoRule,
+      // POR QUE se fechou sozinha — em português, para a lojista confiar
+      autoDone: t.autoDoneReason
+        ? (TEXTO_RESOLVIDO[t.autoDoneReason as MotivoResolvido] ?? null)
+        : null,
       customer: t.customer
         ? {
             id: t.customer.id,
