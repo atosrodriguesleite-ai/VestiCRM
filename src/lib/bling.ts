@@ -2,7 +2,7 @@ import { db } from "./db";
 import { encryptSecret, decryptSecret } from "./crypto";
 import { signState, verifyState } from "./nuvemshop"; // state assinado (HMAC)
 import { appBaseUrl } from "./comm/evolution";
-import { orderNumber } from "./orders";
+import { orderNumber, round2, PAID_ORDER_STATUSES } from "./orders";
 import { documentoFiscal } from "./documento";
 
 /**
@@ -172,6 +172,49 @@ export async function emitirNfeDoPedido(
   if (order.items.length === 0)
     return { ok: false, error: "Pedido sem itens." };
 
+  // A NOTA SÓ SAI DE VENDA DE VERDADE (paga) e UMA VEZ (auditoria 07/08/2026:
+  // duplo clique transmitia duas NF-e à SEFAZ pelo mesmo pedido).
+  if (order.nfeBlingId && order.nfeStatus !== "ERRO") {
+    return {
+      ok: false,
+      error: "Este pedido já tem NF-e. Consulte a nota existente em vez de emitir outra.",
+    };
+  }
+  if (!(PAID_ORDER_STATUSES as readonly string[]).includes(order.status)) {
+    return {
+      ok: false,
+      error: "Emita a nota só depois que o pedido estiver pago.",
+    };
+  }
+
+  // A NOTA TEM QUE BATER COM O QUE A CLIENTE PAGA (auditoria 07/08/2026: o
+  // payload ia só com os itens a preço cheio — sem desconto nem frete —, e a
+  // nota divergia do cobrado quase sempre). O desconto/acréscimo do pedido é
+  // distribuído proporcionalmente nos itens (mercadoria = valor vendido) e o
+  // frete entra no bloco de transporte. Assim: Σ itens = netTotal e
+  // Σ itens + frete = total (o que a cliente paga).
+  const ajuste = order.subtotal > 0 ? order.netTotal / order.subtotal : 1;
+  const itens = order.items.map((i, idx) => {
+    // último item absorve o arredondamento para Σ fechar exatamente no netTotal
+    const bruto = round2(i.unitPrice * ajuste);
+    return {
+      codigo: i.sku ?? undefined,
+      // sem "null null" quando cor/tamanho são vazios
+      descricao: [i.name, i.color, i.size].filter(Boolean).join(" ").slice(0, 120),
+      unidade: "UN",
+      quantidade: i.quantity,
+      valor: bruto,
+      _idx: idx,
+    };
+  });
+  // corrige o centavo do arredondamento no último item
+  const somaItens = round2(itens.reduce((s, it) => s + it.valor * it.quantidade, 0));
+  const diff = round2(order.netTotal - somaItens);
+  if (diff !== 0 && itens.length > 0) {
+    const ult = itens[itens.length - 1];
+    ult.valor = round2(ult.valor + diff / ult.quantidade);
+  }
+
   // monta a NF-e (modelo 55, saída) no formato da API v3 do Bling
   const payload = {
     tipo: 1, // saída
@@ -192,13 +235,11 @@ export async function emitirNfeDoPedido(
         uf: c.state ?? "",
       },
     },
-    itens: order.items.map((i) => ({
-      codigo: i.sku ?? undefined,
-      descricao: `${i.name} ${i.color} ${i.size}`.trim().slice(0, 120),
-      unidade: "UN",
-      quantidade: i.quantity,
-      valor: i.unitPrice,
-    })),
+    itens: itens.map(({ _idx, ...it }) => it), // tira o campo auxiliar
+    // frete destacado (o que a cliente paga além da mercadoria)
+    ...(order.shippingFee > 0
+      ? { transporte: { frete: round2(order.shippingFee) } }
+      : {}),
     observacoes: `Pedido ${orderNumber(order.number)} — AtacadoPro`,
   };
 

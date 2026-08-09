@@ -52,19 +52,28 @@ export async function POST(
         select: { id: true, total: true },
       });
       if (order) {
+        // amarra à cobrança pendente DO MESMO MÉTODO. Antes pegava a pendente
+        // mais recente de qualquer tipo: o cartão pago SOBRESCREVIA o
+        // mpPaymentId do Pix, e a conciliação se perdia (auditoria 07/08/2026).
+        const metodo = cartao ? "CARTAO" : "PIX";
         const pendente = await db.payment.findFirst({
-          where: { orderId: order.id, provider: "MERCADO_PAGO", status: "PENDENTE" },
+          where: {
+            orderId: order.id,
+            provider: "MERCADO_PAGO",
+            status: "PENDENTE",
+            method: metodo,
+          },
           orderBy: { createdAt: "desc" },
         });
         row = pendente
           ? await db.payment.update({
               where: { id: pendente.id },
-              data: { mpPaymentId, ...(cartao ? { method: "CARTAO" } : {}) },
+              data: { mpPaymentId },
             })
           : await db.payment.create({
               data: {
                 orderId: order.id,
-                method: cartao ? "CARTAO" : "PIX",
+                method: metodo,
                 status: "PENDENTE",
                 amount: payment.transaction_amount ?? order.total,
                 provider: "MERCADO_PAGO",

@@ -400,7 +400,16 @@ export async function meBuyShipment(input: {
   insuranceValue: number;
   orderLabel: string; // ex.: "Pedido #123" (aparece na sua conta ME)
 }): Promise<
-  | { ok: true; meOrderId: string; price: number; labelUrl: string | null; tracking: string | null }
+  | {
+      ok: true;
+      meOrderId: string;
+      price: number;
+      labelUrl: string | null;
+      tracking: string | null;
+      /** pago (saldo debitado) mas a etiqueta ainda não gerou — precisa retomar */
+      pendente?: boolean;
+      aviso?: string;
+    }
   | { ok: false; error: string }
 > {
   const conn = await db.melhorEnvioConnection.findUnique({
@@ -463,11 +472,30 @@ export async function meBuyShipment(input: {
     };
   }
 
-  // 3) gerar a etiqueta (libera impressão e rastreio)
+  const price = Number(cart.data.price ?? 0) || 0;
+
+  // 3) gerar a etiqueta (libera impressão e rastreio).
+  // CRÍTICO (auditoria 07/08/2026): o checkout ACIMA já debitou o saldo da
+  // loja. Se o generate falhar, o dinheiro JÁ SAIU e o envio existe na conta
+  // ME — devolver erro aqui fazia o pedido não gravar nada, e o retry
+  // COMPRAVA OUTRA etiqueta. Então retornamos "pendente": a rota grava o
+  // meOrderId (status GERANDO) e o retry retoma daqui (regenerar), sem
+  // recomprar.
   const gen = await meApi(input.companyId, "POST", "/me/shipment/generate", {
     orders: [meOrderId],
   });
-  if (!gen.ok) return { ok: false, error: meErro(gen.data, gen.status) };
+  if (!gen.ok) {
+    return {
+      ok: true,
+      pendente: true,
+      meOrderId,
+      price,
+      labelUrl: null,
+      tracking: null,
+      aviso:
+        "A etiqueta foi paga mas ainda não gerou. O valor não se perdeu — clique em 'Gerar etiqueta' de novo em instantes (não compre outra).",
+    };
+  }
 
   // 4) link de impressão + rastreio (melhor esforço — dá para buscar depois)
   const [printR, trackR] = await Promise.all([
@@ -477,7 +505,6 @@ export async function meBuyShipment(input: {
     }),
     meTracking(input.companyId, meOrderId),
   ]);
-  const price = Number(cart.data.price ?? 0) || 0;
   return {
     ok: true,
     meOrderId,
@@ -501,6 +528,32 @@ export async function meTracking(
   const info = r.data?.[meOrderId];
   if (!r.ok || !info) return null;
   return { tracking: info.tracking ?? null, status: info.status ?? null };
+}
+
+/**
+ * RETOMA a geração de uma etiqueta JÁ PAGA que não gerou na compra (status
+ * GERANDO). Não recompra nada — só chama generate + print no envio que já
+ * existe na conta ME. É o par do "pendente" de meBuyShipment.
+ */
+export async function meRetomarEtiqueta(
+  companyId: string,
+  meOrderId: string
+): Promise<
+  | { ok: true; labelUrl: string | null; tracking: string | null }
+  | { ok: false; error: string }
+> {
+  const gen = await meApi(companyId, "POST", "/me/shipment/generate", {
+    orders: [meOrderId],
+  });
+  if (!gen.ok) return { ok: false, error: meErro(gen.data, gen.status) };
+  const [printR, trackR] = await Promise.all([
+    meApi<{ url?: string }>(companyId, "POST", "/me/shipment/print", {
+      mode: "private",
+      orders: [meOrderId],
+    }),
+    meTracking(companyId, meOrderId),
+  ]);
+  return { ok: true, labelUrl: printR.data?.url ?? null, tracking: trackR?.tracking ?? null };
 }
 
 /** Link de impressão da etiqueta (pode ser pedido de novo a qualquer hora). */

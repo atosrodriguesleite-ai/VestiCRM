@@ -295,26 +295,31 @@ export async function PATCH(
           data: { amount: totals.total },
         });
         // cobrança Pix/cartão do MP gerada com o valor ANTIGO: expira agora —
-        // senão a cliente pagava o QR velho e o pedido inteiro virava PAGO
-        const invalidadas = await tx.payment.updateMany({
-          where: {
-            orderId: order.id,
-            status: "PENDENTE",
-            provider: "MERCADO_PAGO",
-            dueAt: { gt: new Date() },
-          },
-          data: { dueAt: new Date() },
-        });
-        if (invalidadas.count > 0) {
-          await tx.orderEvent.create({
-            data: {
+        // senão a cliente pagava o QR velho e o pedido inteiro virava PAGO.
+        // SÓ quando o total REALMENTE mudou: invalidar à toa (edição que não
+        // mexe no valor) fazia o novo Pix reusar a mesma Idempotency-Key e
+        // estourar P2002 (auditoria 07/08/2026).
+        if (totals.total !== order.total) {
+          const invalidadas = await tx.payment.updateMany({
+            where: {
               orderId: order.id,
-              type: "NOTA",
-              description:
-                "⚠️ O valor do pedido mudou: a cobrança Pix/cartão anterior foi invalidada — gere uma nova antes de enviar à cliente.",
-              userId: user.id,
+              status: "PENDENTE",
+              provider: "MERCADO_PAGO",
+              dueAt: { gt: new Date() },
             },
+            data: { dueAt: new Date() },
           });
+          if (invalidadas.count > 0) {
+            await tx.orderEvent.create({
+              data: {
+                orderId: order.id,
+                type: "NOTA",
+                description:
+                  "⚠️ O valor do pedido mudou: a cobrança Pix/cartão anterior foi invalidada — gere uma nova antes de enviar à cliente.",
+                userId: user.id,
+              },
+            });
+          }
         }
         await tx.orderEvent.create({
           data: {
@@ -785,6 +790,63 @@ export async function PATCH(
               });
               await tx.sale.deleteMany({ where: { orderId: order.id } });
             }
+
+            // CANCELAMENTO — dinheiro e frete (auditoria 07/08/2026):
+            if (newStatus === "CANCELADO") {
+              // 1) cobrança Pix/cartão pendente NÃO pode continuar pagável:
+              // se a cliente pagasse o QR, o dinheiro entrava num pedido morto
+              const pend = await tx.payment.updateMany({
+                where: {
+                  orderId: order.id,
+                  status: "PENDENTE",
+                  provider: "MERCADO_PAGO",
+                  dueAt: { gt: new Date() },
+                },
+                data: { dueAt: new Date() },
+              });
+              // 2) havia pagamento confirmado? o status ESTORNADO no sistema
+              // NÃO devolve o dinheiro no Mercado Pago — o estorno é manual.
+              const tinhaPago = await tx.payment.count({
+                where: { orderId: order.id, status: "ESTORNADO" },
+              });
+              if (tinhaPago > 0) {
+                await tx.orderEvent.create({
+                  data: {
+                    orderId: order.id,
+                    type: "NOTA",
+                    description:
+                      "⚠️ Pedido cancelado tinha pagamento confirmado — o valor NÃO volta sozinho. Faça o estorno no painel do Mercado Pago.",
+                    userId: user.id,
+                  },
+                });
+              }
+              if (pend.count > 0) {
+                await tx.orderEvent.create({
+                  data: {
+                    orderId: order.id,
+                    type: "NOTA",
+                    description: "Cobrança Pix/cartão pendente foi invalidada pelo cancelamento.",
+                    userId: user.id,
+                  },
+                });
+              }
+              // 3) etiqueta ME comprada e não postada: lembrar de cancelar
+              // (o valor só volta para a carteira ME se a loja cancelar lá)
+              const envio = await tx.shipping.findUnique({
+                where: { orderId: order.id },
+                select: { meOrderId: true, meStatus: true, mePrice: true },
+              });
+              if (envio?.meOrderId && envio.meStatus !== "CANCELADO") {
+                await tx.orderEvent.create({
+                  data: {
+                    orderId: order.id,
+                    type: "ENVIO",
+                    description: `⚠️ Este pedido tem etiqueta do Melhor Envio${envio.mePrice ? ` (R$ ${envio.mePrice.toFixed(2).replace(".", ",")})` : ""}. Cancele a etiqueta no painel de Envio para o valor voltar à carteira.`,
+                    userId: user.id,
+                  },
+                });
+              }
+            }
             return efeitos;
           },
           { timeout: 30_000, maxWait: 10_000 }
@@ -938,6 +1000,22 @@ export async function DELETE(
     });
     if (!order) {
       return NextResponse.json({ error: "Não encontrado" }, { status: 404 });
+    }
+
+    // Pedido com pagamento MP CONFIRMADO não se exclui: a cascata apagaria o
+    // rastro do dinheiro real que entrou no Mercado Pago (auditoria
+    // 07/08/2026). Para desfazer, CANCELE o pedido (que trata o estorno).
+    const pagoMp = await db.payment.count({
+      where: { orderId: order.id, provider: "MERCADO_PAGO", status: "CONFIRMADO" },
+    });
+    if (pagoMp > 0) {
+      return NextResponse.json(
+        {
+          error:
+            "Este pedido tem pagamento confirmado no Mercado Pago e não pode ser excluído. Cancele o pedido (isso trata o estorno) em vez de apagar.",
+        },
+        { status: 409 }
+      );
     }
 
     const { devolvidas, oppReaberta } = await db.$transaction(async (tx) => {

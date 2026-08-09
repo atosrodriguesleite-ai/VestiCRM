@@ -118,19 +118,49 @@ export type ResumoModulos = {
   }[];
 };
 
+/** Campos booleanos de módulo em Company (para derivar o que está ativo). */
+type FlagsDaLoja = Record<string, boolean | null | undefined>;
+
+/**
+ * Módulos ativos DERIVADOS das chavinhas de Company.
+ *
+ * Auditoria 07/08/2026 (GRAVE): a tabela `CompanyModule` NUNCA era escrita —
+ * ligar um módulo só virava o booleano em Company —, então o MRR de módulos
+ * dava sempre R$ 0. Aqui o cálculo passa a nascer das PRÓPRIAS chavinhas: o
+ * módulo com flag ligada conta pelo preço de tabela, e o preço PRATICADO
+ * (negociado, gravado em CompanyModule) sobrepõe quando existir.
+ */
+function ativosDosFlags(
+  flags: FlagsDaLoja,
+  praticado: Map<string, { priceMonth: number; listPrice: number; activatedAt: Date }>
+) {
+  return MODULOS.filter((m) => m.flag && flags[m.flag]).map((m) => {
+    const p = praticado.get(m.key);
+    return {
+      key: m.key,
+      nome: m.nome,
+      priceMonth: p?.priceMonth ?? m.precoTabela,
+      listPrice: p?.listPrice ?? m.precoTabela,
+      activatedAt: p?.activatedAt ?? new Date(0),
+    };
+  });
+}
+
 /** O que esta loja tem contratado hoje, com valores. */
 export async function modulosDaLoja(companyId: string): Promise<ResumoModulos> {
-  const linhas = await db.companyModule.findMany({
-    where: { companyId, deactivatedAt: null },
-    orderBy: { activatedAt: "asc" },
-  });
-  const ativos = linhas.map((l) => ({
-    key: l.modulo as ModuloKey,
-    nome: MODULO_POR_KEY.get(l.modulo as ModuloKey)?.nome ?? l.modulo,
-    priceMonth: l.priceMonth,
-    listPrice: l.listPrice,
-    activatedAt: l.activatedAt,
-  }));
+  const [company, linhas] = await Promise.all([
+    db.company.findUnique({ where: { id: companyId } }),
+    db.companyModule.findMany({ where: { companyId, deactivatedAt: null } }),
+  ]);
+  const praticado = new Map(
+    linhas.map((l) => [
+      l.modulo,
+      { priceMonth: l.priceMonth, listPrice: l.listPrice, activatedAt: l.activatedAt },
+    ])
+  );
+  const ativos = company
+    ? ativosDosFlags(company as unknown as FlagsDaLoja, praticado)
+    : [];
   const mensalModulos = ativos.reduce((s, m) => s + m.priceMonth, 0);
   const mensalTabela = ativos.reduce((s, m) => s + (m.listPrice || m.priceMonth), 0);
   return {
@@ -154,22 +184,45 @@ export async function mrrDaPlataforma(): Promise<{
   total: number;
   descontoMensal: number;
 }> {
-  const [cobrancas, modulos] = await Promise.all([
+  // lojas PAGANTES e não suspensas, com suas chavinhas e o preço praticado
+  const [cobrancas, lojas, praticados] = await Promise.all([
     db.companyBilling.findMany({
       where: { kind: "PAGANTE", company: { suspended: false } },
       select: { monthlyFee: true },
+    }),
+    db.company.findMany({
+      where: { suspended: false, billing: { kind: "PAGANTE" } },
     }),
     db.companyModule.findMany({
       where: {
         deactivatedAt: null,
         company: { suspended: false, billing: { kind: "PAGANTE" } },
       },
-      select: { priceMonth: true, listPrice: true },
+      select: { companyId: true, modulo: true, priceMonth: true, listPrice: true, activatedAt: true },
     }),
   ]);
   const base = cobrancas.reduce((s, c) => s + c.monthlyFee, 0);
-  const somaModulos = modulos.reduce((s, m) => s + m.priceMonth, 0);
-  const somaTabela = modulos.reduce((s, m) => s + (m.listPrice || m.priceMonth), 0);
+  // preço praticado indexado por loja+módulo (sobrepõe a tabela quando existe)
+  const porLoja = new Map<string, Map<string, { priceMonth: number; listPrice: number; activatedAt: Date }>>();
+  for (const p of praticados) {
+    const m = porLoja.get(p.companyId) ?? new Map();
+    m.set(p.modulo, { priceMonth: p.priceMonth, listPrice: p.listPrice, activatedAt: p.activatedAt });
+    porLoja.set(p.companyId, m);
+  }
+  // MRR de módulos DERIVADO das chavinhas de cada loja (a tabela CompanyModule
+  // não era escrita — auditoria 07/08/2026)
+  let somaModulos = 0;
+  let somaTabela = 0;
+  for (const loja of lojas) {
+    const ativos = ativosDosFlags(
+      loja as unknown as FlagsDaLoja,
+      porLoja.get(loja.id) ?? new Map()
+    );
+    for (const a of ativos) {
+      somaModulos += a.priceMonth;
+      somaTabela += a.listPrice || a.priceMonth;
+    }
+  }
   return {
     base,
     modulos: somaModulos,
