@@ -430,6 +430,10 @@ export async function POST(req: NextRequest) {
   }
 
   let faltas: FaltaDeEstoque[] = [];
+  // o que foi DE FATO segurado — é isso (e não a quantidade pedida) que a
+  // Jueri desconta; com reserva parcial, mandar o pedido inteiro deixava o
+  // ERP da loja com estoque errado para sempre (auditoria 07/08/2026)
+  let seguradas: { variantId: string; quantity: number }[] = [];
   const criarPedido = () =>
     db.$transaction(async (tx) => {
     const reserva = await reservarOQueTiver(
@@ -441,6 +445,7 @@ export async function POST(req: NextRequest) {
       }))
     );
     faltas = reserva.faltas;
+    seguradas = reserva.seguradas;
     const last = await tx.order.findFirst({
       where: { companyId: company.id },
       orderBy: { number: "desc" },
@@ -554,17 +559,19 @@ export async function POST(req: NextRequest) {
     throw e;
   }
 
-  // a reserva some do estoque dos outros canais no mesmo instante
+  // a reserva some do estoque dos outros canais no mesmo instante.
+  // Jueri desconta pelo que foi SEGURADO (reserva parcial: pediu 10, havia 4
+  // → desconta 4); a Nuvemshop espelha o número absoluto, então basta o id.
   const variantIds = order.items
     .map((i) => i.variantId)
     .filter((v): v is string => !!v);
   if (variantIds.length > 0) {
     pushStockToNuvemshop(company.id, variantIds).catch(() => {});
+  }
+  if (seguradas.length > 0) {
     pushStockToJueri(
       company.id,
-      order.items
-        .filter((i) => i.variantId)
-        .map((i) => ({ variantId: i.variantId!, delta: -i.quantity }))
+      seguradas.map((s) => ({ variantId: s.variantId, delta: -s.quantity }))
     ).catch(() => {});
   }
 

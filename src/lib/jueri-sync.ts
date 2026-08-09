@@ -1,4 +1,5 @@
 import { db } from "./db";
+import { decryptSecret } from "./crypto";
 import {
   jueriGet,
   extrairPrecos,
@@ -55,10 +56,12 @@ export async function syncJueriPage(
 ): Promise<JueriPageResult> {
   const conn = await db.jueriConnection.findUnique({ where: { companyId } });
   if (!conn) return { ok: false, status: 409, error: "Jueri não conectada." };
+  // token guardado criptografado (conexão antiga em texto puro passa direto)
+  const token = decryptSecret(conn.token);
   const p = (rota: string) => `/${conn.clienteSistema}${rota}`;
 
   // categorias: id → nome (uma consulta por página é barato e simples)
-  const catRes = await jueriGet(conn.token, p("/produto/categoria"));
+  const catRes = await jueriGet(token, p("/produto/categoria"));
   const categorias = new Map<number, string>(
     Array.isArray(catRes.body)
       ? (catRes.body as { id: number; nome: string }[]).map((c) => [c.id, c.nome])
@@ -66,7 +69,7 @@ export async function syncJueriPage(
   );
 
   const lista = await jueriGet(
-    conn.token,
+    token,
     p(`/produto?per_page=${POR_PAGINA}&page=${pagina}`)
   );
   const body = lista.body as {
@@ -159,9 +162,12 @@ export async function syncJueriPage(
         await db.product.update({
           where: { id: existente.id },
           data: {
-            name: nome,
+            // nome e categoria NÃO são sobrescritos no produto que já existe:
+            // a loja organiza o catálogo aqui (organizador de categorias,
+            // nome ajustado) e o sync 2x/dia desfazia todo o trabalho
+            // (auditoria 07/08/2026). Preço, custo, estoque e ativo/inativo
+            // continuam vindo da Jueri — ela é a dona desses números.
             jueriId,
-            category: categoria,
             wholesalePrice: atacado,
             retailPrice: varejo,
             costPrice: Number(prod.custo_total ?? prod.custo_compra_bruto ?? 0) || 0,
@@ -227,6 +233,13 @@ export async function syncJueriPage(
 /**
  * Sincroniza TODAS as páginas de uma loja (usado pelo cron automático).
  * Soma o resumo página a página. `maxPaginas` é uma trava de segurança.
+ *
+ * Página que falha ganha UMA nova tentativa (a API da Jueri soluça): antes,
+ * um tropeço na página 7 abortava o resto do catálogo em silêncio — as
+ * páginas já gravadas ficam (o sync é idempotente), mas as seguintes só
+ * viriam no próximo cron (auditoria 07/08/2026). Se falhar de novo, devolve
+ * o erro DIZENDO a página, e `lastSyncAt` não é marcado — o cron reprioriza
+ * essa loja na próxima rodada.
  */
 export async function syncJueriCompany(
   companyId: string,
@@ -235,8 +248,15 @@ export async function syncJueriCompany(
   const total = zerarResumo();
   let pagina = 1;
   for (;;) {
-    const out = await syncJueriPage(companyId, pagina, false);
-    if (!out.ok) return { ok: false, resumo: total, error: out.error };
+    let out = await syncJueriPage(companyId, pagina, false);
+    if (!out.ok) out = await syncJueriPage(companyId, pagina, false);
+    if (!out.ok) {
+      return {
+        ok: false,
+        resumo: total,
+        error: `${out.error} (parou na página ${pagina}; o que veio antes foi gravado)`,
+      };
+    }
     for (const k of Object.keys(total) as (keyof JueriResumo)[]) {
       total[k] += out.resumo[k];
     }
