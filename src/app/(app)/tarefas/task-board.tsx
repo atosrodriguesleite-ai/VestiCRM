@@ -1,10 +1,10 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Portal } from "@/components/portal";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Check, Plus, X, Zap, MessageCircle, Clock3 } from "lucide-react";
+import { Check, Plus, X, Zap, MessageCircle, Clock3, Search, CalendarDays } from "lucide-react";
 import {
   dateShort,
   timeShort,
@@ -12,6 +12,7 @@ import {
   priorityLabel,
 } from "@/lib/format";
 import { Card, Avatar, PriorityDot, EmptyState } from "@/components/ui";
+import { contarPorAba, tarefasDaAba, type AbaDaAgenda } from "@/lib/agenda";
 
 export type TaskItem = {
   id: string;
@@ -72,11 +73,40 @@ export function TaskBoard({
 }) {
   const router = useRouter();
   const [tasks, setTasks] = useState(initialTasks);
-  const [filter, setFilter] = useState<(typeof FILTERS)[number]["key"]>("hoje");
+
+  /**
+   * A LISTA TEM QUE VOLTAR A ACREDITAR NO SERVIDOR.
+   *
+   * ESTE ERA O BUG DO "CONCLUÍ E CONTINUA ATRASADA". `useState(initialTasks)`
+   * guarda a lista UMA VEZ e nunca mais olha para o servidor. O código pedia
+   * `router.refresh()` quando o salvamento falhava — o servidor até mandava a
+   * verdade de volta, mas a tela ignorava. Resultado: a tarefa ficava verde
+   * na tela, o banco continuava com ela PENDENTE, e no dia seguinte ela
+   * reaparecia atrasada. A pessoa jurava que tinha concluído — e tinha
+   * mesmo, só que o sistema nunca contou que o salvamento falhou.
+   *
+   * Também é o que fazia "Guardar como tarefa" parecer não funcionar: a
+   * tarefa era criada e não aparecia na lista até recarregar a página.
+   */
+  useEffect(() => {
+    setTasks(initialTasks);
+  }, [initialTasks]);
+
+  const [filter, setFilter] = useState<AbaDaAgenda>("hoje");
   const [showNew, setShowNew] = useState(false);
   // sugestões dispensadas nesta visita (some da tela sem virar tarefa)
   const [dispensadas, setDispensadas] = useState<string[]>([]);
   const [abrindoConversa, setAbrindoConversa] = useState<string | null>(null);
+  const [busca, setBusca] = useState("");
+  /** seleção para concluir em massa (162 atrasadas não se limpam uma a uma) */
+  const [selecionadas, setSelecionadas] = useState<Set<string>>(new Set());
+  const [emMassa, setEmMassa] = useState(false);
+  /** aviso na tela: erro de salvamento NUNCA pode ser silencioso */
+  const [aviso, setAviso] = useState<{
+    texto: string;
+    tom: "erro" | "ok";
+    desfazer?: () => void;
+  } | null>(null);
 
   /**
    * CONVERSAR DENTRO DO SISTEMA (pedido do dono, 04/08/2026): o botão abria
@@ -102,47 +132,51 @@ export function TaskBoard({
     }
   }
 
-  const now = new Date();
-  const endOfDay = new Date(now);
-  endOfDay.setHours(23, 59, 59);
+  // uma referência de "agora" por montagem: recalcular a cada render fazia
+  // a lista "pular" de aba no meio de um clique
+  const now = useMemo(() => new Date(), []);
 
-  const counts = useMemo(() => {
-    const pending = tasks.filter((t) => t.status === "PENDENTE");
-    return {
-      hoje: pending.filter(
-        (t) => new Date(t.dueAt) >= now && new Date(t.dueAt) <= endOfDay
-      ).length,
-      atrasadas: pending.filter((t) => new Date(t.dueAt) < now).length,
-      proximas: pending.filter((t) => new Date(t.dueAt) > endOfDay).length,
-      concluidas: tasks.filter((t) => t.status === "CONCLUIDA").length,
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tasks]);
+  // contagem dos botões: SEMPRE a lista inteira (a lupa não pode mudar o
+  // número da aba, senão "Atrasadas 3" mente enquanto se procura algo)
+  const counts = useMemo(() => contarPorAba(tasks, now), [tasks, now]);
+  const visible = useMemo(
+    () => tarefasDaAba(tasks, filter, busca, now),
+    [tasks, filter, busca, now]
+  );
 
-  const visible = tasks.filter((t) => {
-    const due = new Date(t.dueAt);
-    switch (filter) {
-      case "hoje":
-        return t.status === "PENDENTE" && due >= now && due <= endOfDay;
-      case "atrasadas":
-        return t.status === "PENDENTE" && due < now;
-      case "proximas":
-        return t.status === "PENDENTE" && due > endOfDay;
-      case "concluidas":
-        return t.status === "CONCLUIDA";
-    }
-  });
+  const podeSelecionar = filter !== "concluidas";
+  const todasMarcadas =
+    visible.length > 0 && visible.every((t) => selecionadas.has(t.id));
+  function alternarSelecao(id: string) {
+    setSelecionadas((prev) => {
+      const p = new Set(prev);
+      if (p.has(id)) p.delete(id);
+      else p.add(id);
+      return p;
+    });
+  }
+  function marcarTodasVisiveis() {
+    setSelecionadas(todasMarcadas ? new Set() : new Set(visible.map((t) => t.id)));
+  }
 
   /**
    * ADIAR — a API já aceitava mudar a data; faltava o botão.
    * Sem isso, a tarefa que a cliente pediu para retomar "semana que vem"
    * vencia e virava mancha vermelha, e a lojista parava de olhar a lista.
    */
-  async function adiar(task: TaskItem, dias: number) {
-    const nova = new Date();
-    nova.setDate(nova.getDate() + dias);
-    nova.setHours(23, 59, 0, 0);
-    const iso = nova.toISOString();
+  async function adiar(task: TaskItem, dias: number, dataEscolhida?: string) {
+    let iso: string;
+    if (dataEscolhida) {
+      // data escolhida no calendário: vence no fim daquele dia
+      const [a, m, d] = dataEscolhida.split("-").map(Number);
+      iso = new Date(a, m - 1, d, 23, 59, 0, 0).toISOString();
+    } else {
+      const nova = new Date();
+      nova.setDate(nova.getDate() + dias);
+      nova.setHours(23, 59, 0, 0);
+      iso = nova.toISOString();
+    }
+    const antes = task.dueAt;
     setTasks((prev) =>
       prev.map((t) => (t.id === task.id ? { ...t, dueAt: iso } : t))
     );
@@ -151,7 +185,14 @@ export function TaskBoard({
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ dueAt: iso }),
     });
-    if (!res.ok) router.refresh();
+    if (!res.ok) {
+      // volta atrás NA TELA e avisa — antes o adiamento parecia ter dado
+      // certo e a tarefa reaparecia atrasada no dia seguinte
+      setTasks((prev) =>
+        prev.map((t) => (t.id === task.id ? { ...t, dueAt: antes } : t))
+      );
+      setAviso({ texto: "Não consegui adiar. Tente de novo.", tom: "erro" });
+    }
   }
 
   /** Sugestão vira tarefa de verdade (com o motivo junto). */
@@ -162,20 +203,96 @@ export function TaskBoard({
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ key: s.key }),
     });
-    if (res.ok) router.refresh();
+    if (res.ok) {
+      router.refresh(); // agora a lista escuta o refresh (efeito acima)
+      setAviso({ texto: `“${s.title}” virou tarefa.`, tom: "ok" });
+    } else {
+      setDispensadas((d) => d.filter((k) => k !== s.key));
+      setAviso({ texto: "Não consegui guardar como tarefa.", tom: "erro" });
+    }
+  }
+
+  /** Grava o status de UMA tarefa; devolve se deu certo. */
+  async function gravarStatus(id: string, status: string) {
+    const res = await fetch(`/api/tasks/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status }),
+    });
+    return res.ok;
   }
 
   async function toggleDone(task: TaskItem) {
-    const newStatus = task.status === "CONCLUIDA" ? "PENDENTE" : "CONCLUIDA";
+    const antes = task.status;
+    const novo = antes === "CONCLUIDA" ? "PENDENTE" : "CONCLUIDA";
+    const aplicar = (s: string) =>
+      setTasks((prev) => prev.map((t) => (t.id === task.id ? { ...t, status: s } : t)));
+
+    aplicar(novo);
+    const ok = await gravarStatus(task.id, novo);
+    if (!ok) {
+      aplicar(antes); // a tela volta a dizer a verdade
+      setAviso({
+        texto: "Não consegui salvar. A tarefa continua em aberto.",
+        tom: "erro",
+      });
+      return;
+    }
+    if (novo === "CONCLUIDA") {
+      setAviso({
+        texto: "Tarefa concluída.",
+        tom: "ok",
+        // clique errado acontece — e desfazer é mais rápido que caçar na aba
+        desfazer: async () => {
+          aplicar(antes);
+          setAviso(null);
+          if (!(await gravarStatus(task.id, antes))) {
+            aplicar(novo);
+            setAviso({ texto: "Não consegui reabrir a tarefa.", tom: "erro" });
+          }
+        },
+      });
+    }
+  }
+
+  /**
+   * CONCLUIR EM MASSA — o que faz uma lista de 162 atrasadas voltar a ser
+   * usável. Uma chamada só; se falhar, a tela inteira volta ao que era.
+   */
+  async function concluirSelecionadas() {
+    const ids = [...selecionadas];
+    if (ids.length === 0 || emMassa) return;
+    setEmMassa(true);
+    const antes = tasks;
     setTasks((prev) =>
-      prev.map((t) => (t.id === task.id ? { ...t, status: newStatus } : t))
+      prev.map((t) => (selecionadas.has(t.id) ? { ...t, status: "CONCLUIDA" } : t))
     );
-    const res = await fetch(`/api/tasks/${task.id}`, {
-      method: "PATCH",
+    const res = await fetch("/api/tasks/bulk", {
+      method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ status: newStatus }),
+      body: JSON.stringify({ ids, status: "CONCLUIDA" }),
     });
-    if (!res.ok) router.refresh();
+    setEmMassa(false);
+    if (!res.ok) {
+      setTasks(antes);
+      setAviso({ texto: "Não consegui concluir. Nada foi alterado.", tom: "erro" });
+      return;
+    }
+    setSelecionadas(new Set());
+    setAviso({
+      texto: `${ids.length} ${ids.length === 1 ? "tarefa concluída" : "tarefas concluídas"}.`,
+      tom: "ok",
+      desfazer: async () => {
+        setTasks(antes);
+        setAviso(null);
+        await fetch("/api/tasks/bulk", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ids, status: "PENDENTE" }),
+        }).catch(() => {});
+        router.refresh();
+      },
+    });
   }
 
   return (
@@ -244,6 +361,34 @@ export function TaskBoard({
         </div>
       )}
 
+      {/* AVISO — salvamento que falha nunca mais some em silêncio */}
+      {aviso && (
+        <div
+          className={`flex items-center gap-2 rounded-xl px-3.5 py-2.5 mb-3 text-sm ${
+            aviso.tom === "erro"
+              ? "bg-rose-50 border border-rose-200 text-rose-800"
+              : "bg-emerald-50 border border-emerald-200 text-emerald-800"
+          }`}
+        >
+          <span className="flex-1 min-w-0">{aviso.texto}</span>
+          {aviso.desfazer && (
+            <button
+              onClick={aviso.desfazer}
+              className="shrink-0 rounded-lg bg-white/70 hover:bg-white border border-current/20 text-xs font-semibold px-2.5 py-1 transition"
+            >
+              Desfazer
+            </button>
+          )}
+          <button
+            onClick={() => setAviso(null)}
+            aria-label="Fechar aviso"
+            className="shrink-0 opacity-50 hover:opacity-100 transition"
+          >
+            <X className="size-4" />
+          </button>
+        </div>
+      )}
+
       <div className="flex gap-1.5 mb-4 overflow-x-auto thin-scroll">
         {FILTERS.map((f) => (
           <button
@@ -278,21 +423,68 @@ export function TaskBoard({
         </button>
       </div>
 
+      {/* LUPA + SELEÇÃO EM MASSA — 162 atrasadas não se limpam de uma em uma,
+          e achar "a da Alaute" rolando a lista também não é trabalho. */}
+      {tasks.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2 mb-3">
+          <div className="relative flex-1 min-w-44">
+            <Search className="size-4 text-gray-300 absolute left-3 top-1/2 -translate-y-1/2" />
+            <input
+              value={busca}
+              onChange={(e) => setBusca(e.target.value)}
+              placeholder="Buscar por tarefa ou cliente..."
+              className="w-full rounded-xl bg-white border border-gray-200 pl-9 pr-3 py-2 text-sm outline-none focus:border-brand-400 transition"
+            />
+          </div>
+          {podeSelecionar && visible.length > 0 && (
+            <button
+              onClick={marcarTodasVisiveis}
+              className="rounded-xl border border-gray-200 bg-white hover:border-brand-300 text-xs font-medium text-gray-600 px-3 py-2 transition whitespace-nowrap"
+            >
+              {todasMarcadas ? "Desmarcar todas" : `Selecionar as ${visible.length}`}
+            </button>
+          )}
+          {selecionadas.size > 0 && (
+            <button
+              onClick={concluirSelecionadas}
+              disabled={emMassa}
+              className="inline-flex items-center gap-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold px-3 py-2 transition disabled:opacity-60 whitespace-nowrap"
+            >
+              <Check className="size-3.5" />
+              {emMassa
+                ? "Concluindo…"
+                : `Concluir ${selecionadas.size} ${selecionadas.size === 1 ? "tarefa" : "tarefas"}`}
+            </button>
+          )}
+        </div>
+      )}
+
       <Card>
         {visible.length === 0 ? (
           <EmptyState
             title={
-              filter === "atrasadas"
-                ? "Nenhuma tarefa atrasada 🎉"
-                : "Nenhuma tarefa aqui"
+              busca.trim()
+                ? `Nada encontrado para “${busca.trim()}”`
+                : filter === "atrasadas"
+                  ? "Nenhuma tarefa atrasada 🎉"
+                  : "Nenhuma tarefa aqui"
             }
             hint={
-              filter === "atrasadas"
-                ? undefined
-                : "Use as tarefas para não esquecer de dar retorno a uma cliente."
+              busca.trim()
+                ? "A busca vale só para esta aba — experimente outra, ou limpe o campo."
+                : filter === "atrasadas"
+                  ? undefined
+                  : "Use as tarefas para não esquecer de dar retorno a uma cliente."
             }
             action={
-              filter === "atrasadas" ? undefined : (
+              busca.trim() ? (
+                <button
+                  onClick={() => setBusca("")}
+                  className="rounded-xl border border-gray-200 hover:border-brand-400 text-sm font-medium text-gray-600 px-4 py-2 transition"
+                >
+                  Limpar busca
+                </button>
+              ) : filter === "atrasadas" ? undefined : (
                 <button
                   onClick={() => setShowNew(true)}
                   className="flex items-center gap-1.5 rounded-xl bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium px-4 py-2 transition"
@@ -310,18 +502,45 @@ export function TaskBoard({
                 t.status === "PENDENTE" && new Date(t.dueAt) < now;
               const done = t.status === "CONCLUIDA";
               return (
-                <li key={t.id} className="flex items-start gap-3 px-4 py-3">
+                <li
+                  key={t.id}
+                  className={`flex items-start gap-2 px-2 py-1.5 sm:px-4 sm:py-3 ${
+                    selecionadas.has(t.id) ? "bg-emerald-50/60" : ""
+                  }`}
+                >
+                  {/* ALVO DE TOQUE DE VERDADE: a bolinha tinha 20px — no
+                      celular o dedo errava e "concluir" simplesmente não
+                      acontecia, sem nenhuma reação na tela. A área clicável
+                      agora tem 44px (a bolinha continua discreta). */}
                   <button
                     onClick={() => toggleDone(t)}
-                    className={`size-5 rounded-full border-2 flex items-center justify-center transition shrink-0 ${
-                      done
-                        ? "bg-emerald-500 border-emerald-500 text-white"
-                        : "border-gray-300 hover:border-brand-500"
-                    }`}
+                    className="size-11 -m-1.5 flex items-center justify-center shrink-0 group/check"
                     title={done ? "Reabrir" : "Concluir"}
+                    aria-label={done ? "Reabrir tarefa" : "Concluir tarefa"}
                   >
-                    {done && <Check className="size-3" />}
+                    <span
+                      className={`size-5 rounded-full border-2 flex items-center justify-center transition ${
+                        done
+                          ? "bg-emerald-500 border-emerald-500 text-white"
+                          : "border-gray-300 group-hover/check:border-brand-500 group-active/check:scale-90"
+                      }`}
+                    >
+                      {done && <Check className="size-3" />}
+                    </span>
                   </button>
+                  {podeSelecionar && (
+                    <label
+                      className="size-11 -ml-2.5 -my-1.5 flex items-center justify-center shrink-0 cursor-pointer"
+                      title="Selecionar para concluir em massa"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={selecionadas.has(t.id)}
+                        onChange={() => alternarSelecao(t.id)}
+                        className="size-4 accent-emerald-600"
+                      />
+                    </label>
+                  )}
                   <PriorityDot priority={t.priority} />
                   <div className="min-w-0 flex-1">
                     {/* CELULAR: o título não pode ser cortado. "Primeiro
@@ -407,6 +626,23 @@ export function TaskBoard({
                             {o.r}
                           </button>
                         ))}
+                        {/* "a cliente pediu para voltar dia 20" não cabe em
+                            1/3/7 dias — sem data livre, a tarefa vencia e
+                            virava mancha vermelha */}
+                        <label
+                          className="relative inline-flex items-center gap-1 rounded-lg border border-gray-200 px-2.5 py-1.5 text-[11px] font-medium text-gray-500 hover:border-brand-400 hover:bg-gray-50 transition cursor-pointer"
+                          title="Escolher a data"
+                        >
+                          <CalendarDays className="size-3" />
+                          data
+                          <input
+                            type="date"
+                            onChange={(e) =>
+                              e.target.value && adiar(t, 0, e.target.value)
+                            }
+                            className="absolute inset-0 opacity-0 cursor-pointer"
+                          />
+                        </label>
                       </div>
                     )}
                   </div>
