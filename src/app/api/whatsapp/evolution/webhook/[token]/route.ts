@@ -187,6 +187,14 @@ export async function POST(
     where: { evolutionWebhookToken: token },
   });
   if (!settings) return NextResponse.json({ ok: true }); // token desconhecido: ignora em silêncio
+  // loja SUSPENSA não ingere: as portas de dinheiro e vitrine já fecham, mas
+  // as mensagens continuavam entrando e consumindo recurso (auditoria
+  // 07/08/2026). 200 mudo de propósito — erro faria o provedor reenviar.
+  const loja = await db.company.findUnique({
+    where: { id: settings.companyId },
+    select: { suspended: true },
+  });
+  if (loja?.suspended) return NextResponse.json({ ok: true });
 
   const body = (await req.json().catch(() => null)) as {
     event?: string;

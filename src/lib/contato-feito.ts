@@ -55,7 +55,24 @@ export async function concluirTarefasDeContato(
       customerId,
       status: "PENDENTE",
       dueAt: { lt: fimDeHojeSP(agora) },
-      OR: [{ type: { in: TIPOS_DE_CONTATO } }, { autoRule: { not: null } }],
+      OR: [
+        { type: { in: TIPOS_DE_CONTATO } },
+        // SÓ as tarefas automáticas DE CONTATO (lista fechada de regras):
+        // "qualquer automática" concluiria também uma futura automação de
+        // outra natureza — ex.: cobrança — por um simples "oi" (auditoria
+        // 07/08/2026)
+        ...[
+          "intake:",
+          "ns-checkout:",
+          "sem-resposta:",
+          "catalogo-parado:",
+          "recompra:",
+          "aniversario:",
+          "reativar-perdido:",
+          "primeiro-contato:",
+          "pos-venda:",
+        ].map((p) => ({ autoRule: { startsWith: p } })),
+      ],
     },
     // o motivo aparece na agenda ("Concluída pelo sistema — você já falou com
     // a cliente") — as DUAS portas de fechamento automático explicam igual

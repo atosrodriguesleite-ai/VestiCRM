@@ -1488,10 +1488,14 @@ export function Inbox({
       .slice(0, 5);
   }, [mention, team, currentUserId]);
 
+  // aceita {{nome}} E {nome}: as mensagens automáticas usam chave simples e
+  // quem decora um formato usava o outro sem perceber — a variável ia crua
   const resolveTemplate = (body: string) =>
     body
       .replaceAll("{{nome}}", selected?.customer.name.split(" ")[0] ?? "")
-      .replaceAll("{{vendedora}}", currentUserName.split(" ")[0]);
+      .replaceAll("{nome}", selected?.customer.name.split(" ")[0] ?? "")
+      .replaceAll("{{vendedora}}", currentUserName.split(" ")[0])
+      .replaceAll("{vendedora}", currentUserName.split(" ")[0]);
 
   const slashMatches = useMemo(() => {
     if (!slash) return [];
@@ -1681,10 +1685,13 @@ export function Inbox({
 
   const applyTemplate = (body: string) => {
     const name = selected?.customer.name.split(" ")[0] ?? "";
+    // mesma tolerância do resolveTemplate: {{nome}} e {nome} funcionam
     setDraft(
       body
         .replaceAll("{{nome}}", name)
+        .replaceAll("{nome}", name)
         .replaceAll("{{vendedora}}", currentUserName.split(" ")[0])
+        .replaceAll("{vendedora}", currentUserName.split(" ")[0])
     );
     setShowTemplates(false);
   };

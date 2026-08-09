@@ -38,6 +38,13 @@ export async function POST(req: NextRequest) {
     where: { storeId: String(body.store_id) },
   });
   if (!conn || conn.status !== "CONECTADO") return NextResponse.json({ ok: true });
+  // loja suspensa não ingere venda/produto (200 mudo — a Nuvemshop não
+  // precisa reenviar; reativando a loja, o sync completo repõe o espelho)
+  const lojaSuspensa = await db.company.findUnique({
+    where: { id: conn.companyId },
+    select: { suspended: true },
+  });
+  if (lojaSuspensa?.suspended) return NextResponse.json({ ok: true });
   const companyId = conn.companyId;
   const id = String(body.id);
 

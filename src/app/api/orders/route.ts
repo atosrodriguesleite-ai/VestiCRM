@@ -301,7 +301,9 @@ export async function POST(req: NextRequest) {
     await avancarFunil(
       user.companyId,
       input.customerId,
-      input.status === "AGUARDANDO_PAGAMENTO" ? "PAGAMENTO" : "NEGOCIACAO"
+      input.status === "AGUARDANDO_PAGAMENTO" ? "PAGAMENTO" : "NEGOCIACAO",
+      // o cartão certo é o que ficou amarrado a ESTE pedido
+      order.opportunityId
     );
     // o valor do cartão acompanha o pedido desde o NASCIMENTO (valor vendido,
     // sem frete) — a coluna do funil mostrava R$ 0/valor velho enquanto o

@@ -232,6 +232,8 @@ export async function POST(req: NextRequest) {
   if (!company) {
     return NextResponse.json({ error: "Loja não encontrada" }, { status: 404 });
   }
+  // loja suspensa não ingere mensagem (200 mudo: nada a reprocessar)
+  if (company.suspended) return NextResponse.json({ ok: true, suspenso: true });
 
   const result = await receiveMessage(company.id, {
     channel: "WHATSAPP",

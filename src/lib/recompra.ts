@@ -167,9 +167,19 @@ export async function aniversariantes(
     const dia = c.birthDate.getUTCDate();
     // distância em dias até o próximo aniversário (só olhamos alguns dias)
     let emDias: number | null = null;
+    const bissexto = (y: number) => (y % 4 === 0 && y % 100 !== 0) || y % 400 === 0;
     for (let d = 0; d <= ate; d++) {
       const alvo = new Date(Date.UTC(anoAtual, hojeMes, hojeDia + d));
-      if (alvo.getUTCMonth() === mes && alvo.getUTCDate() === dia) {
+      const casa =
+        (alvo.getUTCMonth() === mes && alvo.getUTCDate() === dia) ||
+        // nascida em 29/02: em ano comum comemora em 28/02 — sem isso ela
+        // simplesmente nunca aparecia na lista (auditoria 07/08/2026)
+        (mes === 1 &&
+          dia === 29 &&
+          !bissexto(alvo.getUTCFullYear()) &&
+          alvo.getUTCMonth() === 1 &&
+          alvo.getUTCDate() === 28);
+      if (casa) {
         emDias = d;
         break;
       }

@@ -74,11 +74,16 @@ export async function POST(req: NextRequest) {
       skipOpportunity,
     });
 
-    // campos complementares do formulário (perfil de moda)
+    // campos complementares do formulário (perfil de moda).
+    // Telefone JÁ CADASTRADO (dedup): o formulário volta com os padrões e
+    // sobrescrever cegamente REBAIXAVA a lojista para VAREJO e apagava os
+    // interesses dela (auditoria 07/08/2026). No cadastro existente, o tipo
+    // só muda se veio diferente do padrão, e interesse novo SOMA (não troca).
+    const cadastroNovo = result.isNewLead;
     const customer = await db.customer.update({
       where: { id: result.customer.id },
       data: {
-        type,
+        ...(cadastroNovo || type !== "VAREJO" ? { type } : {}),
         cpf: guardarDocumento(cpf) ?? undefined,
         cnpj: guardarDocumento(cnpj) ?? undefined,
         notes: notes ?? undefined,
@@ -86,10 +91,17 @@ export async function POST(req: NextRequest) {
         preferredColors: preferredColors ?? undefined,
         birthDate: birthDate ? new Date(`${birthDate}T12:00:00Z`) : undefined,
         interests: interestIds?.length
-          ? {
-              deleteMany: {},
-              create: interestIds.map((id) => ({ interestId: id })),
-            }
+          ? cadastroNovo
+            ? {
+                deleteMany: {},
+                create: interestIds.map((id) => ({ interestId: id })),
+              }
+            : {
+                createMany: {
+                  data: interestIds.map((id) => ({ interestId: id })),
+                  skipDuplicates: true,
+                },
+              }
           : undefined,
       },
     });

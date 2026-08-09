@@ -247,6 +247,10 @@ export async function importRecentHistory(
   let midiaBudget = MEDIA_DOWNLOAD_BUDGET;
   const instance = settings.evolutionInstance;
   const convByCustomer = new Map<string, string>();
+  // cliente lembrado por telefone: a MESMA pessoa repete em centenas de
+  // mensagens — buscar no banco a cada uma era o N+1 que deixava a
+  // importação de 3.000 mensagens lenta (auditoria 07/08/2026)
+  const customerByPhone = new Map<string, Awaited<ReturnType<typeof findCustomerByPhone>>>();
 
   for (const { r, ts } of parsed) {
     if (Date.now() - inicio > ORCAMENTO_TOTAL_MS) break; // devolve o que já gravou
@@ -263,7 +267,10 @@ export async function importRecentHistory(
     const extId = r.key?.id;
 
     // cliente (casa 9º dígito/DDI/formatação; cria se não existir — sem lead/tarefa)
-    let customer = await findCustomerByPhone(companyId, phone);
+    let customer = customerByPhone.get(phone) ?? null;
+    if (!customer) {
+      customer = await findCustomerByPhone(companyId, phone);
+    }
     if (!customer) {
       customer = await db.customer.create({
         data: {
@@ -274,6 +281,7 @@ export async function importRecentHistory(
         },
       });
     }
+    customerByPhone.set(phone, customer);
 
     // conversa: reaproveita a do cliente ou cria uma (histórico entra fechado,
     // aparecendo na aba Contatos, para não inundar a fila de atendimento)

@@ -44,17 +44,34 @@ const semAcento = (s: string) =>
   s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
 
 /**
+ * O nome desta etapa casa com alguma varia\u00e7\u00e3o aceita? R\u00e9gua \u00daNICA de
+ * casamento de etapa \u2014 as automa\u00e7\u00f5es usavam nome exato ("Cat\u00e1logo enviado")
+ * enquanto aqui aceit\u00e1vamos variantes: renomear a etapa fazia a sugest\u00e3o
+ * sumir em sil\u00eancio (auditoria 07/08/2026).
+ */
+export function nomeCasaComEtapa(nome: string, etapa: EtapaAuto): boolean {
+  return NOMES[etapa].map(semAcento).includes(semAcento(nome));
+}
+
+/**
  * Avança a negociação ABERTA da cliente até a etapa indicada — se ela ainda
  * não estiver nessa altura do funil. Nunca lança.
  */
 export async function avancarFunil(
   companyId: string,
   customerId: string,
-  etapa: EtapaAuto
+  etapa: EtapaAuto,
+  /** cartão exato a mover (ex.: o da negociação amarrada ao pedido recém-criado) */
+  opportunityId?: string | null
 ): Promise<void> {
   try {
     const oportunidade = await db.opportunity.findFirst({
-      where: { companyId, customerId, status: "OPEN" },
+      // Com o cartão em mãos, move ELE. Sem ele, SÓ negociação sem pedido
+      // amarrado: com duas abertas, avançar a mais recente podia mover o
+      // cartão de OUTRO pedido (auditoria 07/08/2026).
+      where: opportunityId
+        ? { companyId, id: opportunityId, status: "OPEN" }
+        : { companyId, customerId, status: "OPEN", order: null },
       orderBy: { createdAt: "desc" },
       include: { stage: { select: { id: true, order: true, isWon: true, isLost: true } } },
     });
