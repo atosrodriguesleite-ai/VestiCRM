@@ -181,6 +181,21 @@ type NsProduct = {
   variants?: NsVariant[];
 };
 
+/**
+ * ESTOQUE "INFINITO" DA NUVEMSHOP: lá, `stock: null` significa "a loja não
+ * controla a quantidade" (vende sempre). Nosso estoque é um número — o
+ * espelho entra como 9999, que na prática nunca esgota (o catálogo mostra
+ * disponível e a reserva sempre passa). Antes virava ZERO: o produto
+ * aparecia esgotado aqui e, pior, a primeira venda local empurrava esse
+ * número de volta e DESTRUÍA a configuração "infinito" da loja online
+ * (auditoria 07/08/2026). Por isso `pushStockToNuvemshop` também NUNCA
+ * devolve números na zona do infinito (>= 9000).
+ */
+const ESTOQUE_INFINITO = 9999;
+const ZONA_INFINITO = 9000;
+const estoqueNs = (v: NsVariant) =>
+  v.stock == null ? ESTOQUE_INFINITO : Math.max(0, v.stock);
+
 const num = (v: string | number | null | undefined) => {
   const n = typeof v === "string" ? parseFloat(v) : (v ?? 0);
   return Number.isFinite(n) ? (n as number) : 0;
@@ -356,7 +371,22 @@ export async function upsertProduct(
     pools ? pools.skuVariants : buscarPoolSku(companyId),
     pools ? pools.allProducts : buscarPoolProdutos(companyId),
   ]);
-  const skuMap = new Map(skuVariants.map((v) => [norm(v.sku), v]));
+  // SKU DUPLICADO NÃO CASA SOZINHO (incidente Toque Leve, 30/07/2026): com
+  // duas variações locais usando o MESMO SKU, o mapa ficava com uma delas e o
+  // casamento apontava para o produto errado em silêncio — foi assim que a
+  // cor "Café" entrou dentro do produto Branco. SKU repetido é ambíguo: sai
+  // do casamento automático e a variação vira pendência para a lojista
+  // resolver. Vínculo já feito (nuvemshopId) continua valendo normalmente.
+  const vezesPorSku = new Map<string, number>();
+  for (const v of skuVariants) {
+    const chave = norm(v.sku);
+    vezesPorSku.set(chave, (vezesPorSku.get(chave) ?? 0) + 1);
+  }
+  const skuMap = new Map(
+    skuVariants
+      .filter((v) => vezesPorSku.get(norm(v.sku)) === 1)
+      .map((v) => [norm(v.sku), v])
+  );
   // vínculo 1↔1 apenas quando JÁ existe ligação explícita (nuvemshopId)
   const um2um = allProducts.find((x) => x.nuvemshopId === nsId) ?? null;
 
@@ -411,7 +441,7 @@ export async function upsertProduct(
   for (const v of variants) {
     const vId = String(v.id);
     const { color, size } = corETamanho(p, v);
-    const stock = Math.max(0, v.stock ?? 0);
+    const stock = estoqueNs(v);
     const preco = num(v.price);
 
     // só casa por vínculo anterior OU por SKU (nunca por nome/cor)
@@ -459,7 +489,8 @@ export async function upsertProduct(
           },
           include: { product: true },
         });
-        if (stock > 0) {
+        // estoque "infinito" não vira movimento: 9999 é espelho, não contagem
+        if (stock > 0 && v.stock != null) {
           await db.inventoryMovement.create({
             data: {
               companyId,
@@ -493,8 +524,10 @@ export async function upsertProduct(
         ...(v.sku && !alvo.sku ? { sku: v.sku } : {}),
       },
     });
-    // registra o movimento — auditável e reversível (nunca sobrescreve sem rastro)
-    if (antes !== stock) {
+    // registra o movimento — auditável e reversível (nunca sobrescreve sem
+    // rastro). Estoque "infinito" fica de fora: o repor 9996 → 9999 de cada
+    // sync viraria ruído sem significado no histórico.
+    if (antes !== stock && v.stock != null) {
       await db.inventoryMovement.create({
         data: {
           companyId,
@@ -626,7 +659,7 @@ async function criarProdutoEspelhado(companyId: string, p: NsProduct) {
     if (!(v.sku ?? "").trim()) continue;
     const vId = String(v.id);
     const { color, size } = corETamanho(p, v);
-    const stock = Math.max(0, v.stock ?? 0);
+    const stock = estoqueNs(v);
     const created = await db.productVariant.create({
       data: {
         productId: product.id,
@@ -638,8 +671,8 @@ async function criarProdutoEspelhado(companyId: string, p: NsProduct) {
         stock,
       },
     });
-    // registra a entrada no histórico (auditável)
-    if (stock > 0) {
+    // registra a entrada no histórico (auditável) — infinito fica de fora
+    if (stock > 0 && v.stock != null) {
       await db.inventoryMovement.create({
         data: {
           companyId,
@@ -835,7 +868,9 @@ export async function lerVariacoesNuvemshop(companyId: string) {
           cor: color,
           tamanho: size,
           sku: (v.sku ?? "").trim() || null,
-          estoque: Math.max(0, v.stock ?? 0),
+          // mesma régua do espelho: "infinito" (null) compara como 9999 —
+          // senão a conferência acusava divergência falsa (9999 × 0)
+          estoque: estoqueNs(v),
         });
       }
     }
@@ -1235,6 +1270,10 @@ export async function pushStockToNuvemshop(companyId: string, variantIds: string
     // modo produto-por-cor guarda o id do produto NS na própria variação
     const nsProductId = v.nuvemshopProductId ?? v.product.nuvemshopId;
     if (!nsProductId) continue;
+    // espelho de estoque "infinito" (stock null na Nuvemshop): NÃO devolve —
+    // empurrar 9996 para lá transformaria o "vende sempre" da loja num
+    // número finito. Infinito nunca esgota; não há o que espelhar.
+    if (v.stock >= ZONA_INFINITO) continue;
     await api(conn, "PUT", `/products/${nsProductId}/variants/${v.nuvemshopId}`, {
       stock: v.stock,
     });

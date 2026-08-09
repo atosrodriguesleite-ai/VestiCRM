@@ -35,6 +35,11 @@ const TELAS_DE_DINHEIRO = [
   // o EXTRATO DE COMISSÃO em PDF: é o papel que a dona usa para pagar, tem
   // que somar pela mesma data que a tela
   "app/api/comissoes/relatorio/route.ts",
+  // as EXPORTAÇÕES são a planilha que a loja confere no Excel — estavam fora
+  // da varredura e foi exatamente onde o CSV saiu com frete e createdAt
+  // (auditoria 07/08/2026)
+  "app/api/export/pedidos/route.ts",
+  "app/api/export/clientes/route.ts",
 ];
 
 /**
@@ -60,7 +65,11 @@ function consultasDePagoComDataDeCriacao(arquivo: string): string[] {
       /\.\.\.paidScope/.test(consulta);
     // "qualquer status" é a consulta de pedidos gerados: createdAt é o certo lá
     const ehQualquerStatus = /orderAnyScope/.test(consulta);
-    if (ehPago && !ehQualquerStatus && /createdAt:\s*(inPeriod|inPrev|\{)/.test(consulta)) {
+    // COORTE declarada: a conversão conta "dos criados no período, quantos
+    // pagaram" — createdAt é a régua CERTA e o uso se declara com o marcador
+    // `coorte-ok` (conta pedidos; não soma dinheiro)
+    const ehCoorte = /coorte-ok/.test(consulta);
+    if (ehPago && !ehQualquerStatus && !ehCoorte && /createdAt:\s*(inPeriod|inPrev|\{)/.test(consulta)) {
       achados.push(`${arquivo}:${linhaDe(ini)}`);
     }
   });
@@ -115,6 +124,9 @@ const PADROES: [RegExp, string][] = [
   [/select:\s*\{[^}]*\btotal:\s*true/g, "select puxando total"],
   [/orderBy:[^}]*\{\s*total:\s*"(?:asc|desc)"/g, "ordenação por total"],
   [/[+]=?\s*\w+\.total\b/g, "soma de .total"],
+  // `brl(o.total)`, `brlNum(o.total)`… — exibir/formatar o total também
+  // acusa: era o furo que deixou o CSV sair com frete (auditoria 07/08/2026)
+  [/\w+\(\s*\w+\.total\b/g, "uso de .total em função"],
 ];
 
 /** O marcador vale na própria linha ou nas duas de cima (comentário). */

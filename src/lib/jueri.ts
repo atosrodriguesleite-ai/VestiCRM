@@ -126,8 +126,11 @@ export async function pushStockToJueri(
   if (changes.length === 0) return;
   // import tardio: mantém este módulo utilizável sem puxar o Prisma à toa
   const { db } = await import("./db");
+  const { decryptSecret } = await import("./crypto");
   const conn = await db.jueriConnection.findUnique({ where: { companyId } });
   if (!conn) return;
+  // token guardado criptografado (conexão antiga em texto puro passa direto)
+  const token = decryptSecret(conn.token);
 
   const deltaByVariant = new Map(changes.map((c) => [c.variantId, c.delta]));
   const variants = await db.productVariant.findMany({
@@ -142,12 +145,12 @@ export async function pushStockToJueri(
     const delta = deltaByVariant.get(v.id) ?? 0;
     if (delta === 0 || !v.product.jueriId) continue;
     const rota = `/${conn.clienteSistema}/produto/${v.product.jueriId}`;
-    const atual = await jueriGet(conn.token, rota);
+    const atual = await jueriGet(token, rota);
     const prod = atual.body as JueriProduto | null;
     if (atual.status !== 200 || !prod) continue; // não conseguiu ler: não arrisca
 
     const novo = Math.max(0, Math.round((Number(prod.quantidade) || 0) + delta));
-    await jueriPut(conn.token, rota, {
+    await jueriPut(token, rota, {
       descricao: prod.descricao,
       tipo_preco: prod.tipo_preco,
       quantidade: novo,

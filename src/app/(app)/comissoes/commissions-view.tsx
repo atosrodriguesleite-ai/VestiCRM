@@ -77,11 +77,14 @@ export function CommissionsView({
 
   const liveCommission = (r: Row) => {
     const rate = parseFloat((rates[r.id] ?? "0").replace(",", ".")) || 0;
-    return (r.base * rate) / 100;
+    // arredonda POR LINHA (2 casas) — o total soma as linhas exibidas, então
+    // conferir a coluna à mão bate centavo por centavo (mesma régua do PDF)
+    return Math.round(((r.base * rate) / 100) * 100) / 100;
   };
 
   const totalBase = rows.reduce((s, r) => s + r.base, 0);
-  const totalCommission = rows.reduce((s, r) => s + liveCommission(r), 0);
+  const totalCommission =
+    Math.round(rows.reduce((s, r) => s + liveCommission(r), 0) * 100) / 100;
   const inputCls = "rounded-lg border border-gray-200 px-2 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-brand-300";
 
   return (

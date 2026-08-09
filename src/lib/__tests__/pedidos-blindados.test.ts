@@ -223,8 +223,9 @@ describe("integrações espelham TODA mexida de estoque (uma venda, uma baixa)",
   const rota = ler("src/app/api/orders/[id]/route.ts");
 
   it("edição de itens e exclusão avisam Nuvemshop/Jueri", () => {
-    // edição: os deltas mudados; exclusão: o que foi devolvido
-    expect(rota).toContain("mudadas.map(([variantId]) => variantId)");
+    // edição: os deltas EFETIVOS (o que de fato saiu/voltou — Lote 3);
+    // exclusão: o que foi devolvido
+    expect(rota).toContain("efetivos.map((e) => e.variantId)");
     expect(rota).toContain("devolvidas.map((d) => d.variantId)");
   });
 });
@@ -247,7 +248,7 @@ describe("edição de pedido: corrida não deixa estoque negativo (M7/M8)", () =
 
   it("baixar MAIS estoque na edição é condicionado ao saldo (gte)", () => {
     expect(rota).toContain("EstoqueAcabou");
-    expect(rota).toContain("stock: { gte: delta }");
+    expect(rota).toContain("stock: { gte: baixar }");
   });
 
   it("a mudança de status usa os itens ATUAIS (editados na mesma chamada)", () => {

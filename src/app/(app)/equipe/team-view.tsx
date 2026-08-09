@@ -21,6 +21,8 @@ export type TeamMember = {
   conversations: number;
   pendingTasks: number;
   sales30: number;
+  /** vendido no MÊS corrente (fuso SP) — é o que a barra da meta usa */
+  soldMonth: number;
   monthlyGoal: number;
   isMe: boolean;
 };
@@ -318,15 +320,17 @@ export function TeamView({
               </div>
               {m.monthlyGoal > 0 && (
                 <>
+                  {/* a meta é MENSAL: soma só o mês corrente (fuso SP), não
+                      os últimos 30 dias — mesma régua do Dashboard */}
                   <div className="h-2 rounded-full bg-gray-100 overflow-hidden">
                     <div
-                      className={`h-full rounded-full transition-all ${m.sales30 >= m.monthlyGoal ? "bg-emerald-500" : "bg-brand-500"}`}
-                      style={{ width: `${Math.min(100, (m.sales30 / m.monthlyGoal) * 100)}%` }}
+                      className={`h-full rounded-full transition-all ${m.soldMonth >= m.monthlyGoal ? "bg-emerald-500" : "bg-brand-500"}`}
+                      style={{ width: `${Math.min(100, (m.soldMonth / m.monthlyGoal) * 100)}%` }}
                     />
                   </div>
                   <p className="text-[10px] text-gray-400 mt-1">
-                    {brl(m.sales30)} de {brl(m.monthlyGoal)} ·{" "}
-                    {Math.round((m.sales30 / m.monthlyGoal) * 100)}%
+                    {brl(m.soldMonth)} de {brl(m.monthlyGoal)} ·{" "}
+                    {Math.round((m.soldMonth / m.monthlyGoal) * 100)}%
                   </p>
                 </>
               )}

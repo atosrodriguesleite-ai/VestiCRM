@@ -410,7 +410,13 @@ async function marcarRecuperados(companyId: string): Promise<void> {
         companyId,
         customerId: cart.customerId!,
         status: { in: PAID_ORDER_STATUSES },
-        paidAt: { gt: cart.abandonedAt },
+        // JANELA de 30 dias: compra meses depois do abandono é vida normal
+        // da cliente, não recuperação — creditar tudo inflava o placar
+        // (auditoria 07/08/2026)
+        paidAt: {
+          gt: cart.abandonedAt,
+          lte: new Date(cart.abandonedAt.getTime() + 30 * 24 * 60 * 60 * 1000),
+        },
         id: { notIn: [...jaUsados] },
       },
       orderBy: { paidAt: "asc" },
@@ -541,7 +547,11 @@ export async function placarDeRecuperacao(
     if (c.recoveredOrderId) {
       if (vistos.has(c.recoveredOrderId)) continue;
       vistos.add(c.recoveredOrderId);
-      valor += porPedido.get(c.recoveredOrderId) ?? c.value;
+      const pagoDeVerdade = porPedido.get(c.recoveredOrderId) ?? c.value;
+      // crédito honesto: nunca mais que a SACOLA abandonada. A cliente que
+      // largou R$ 300 e depois fez uma compra de R$ 5.000 não "recuperou"
+      // 5.000 — recuperou a sacola. Pagou menos que a sacola? Vale o pago.
+      valor += c.value > 0 ? Math.min(pagoDeVerdade, c.value) : pagoDeVerdade;
     } else {
       valor += c.value;
     }

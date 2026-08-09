@@ -3,6 +3,7 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import { requireUser, AuthError } from "@/lib/auth";
 import { podeOperarIntegracoes } from "@/lib/scope";
+import { encryptSecret } from "@/lib/crypto";
 import { jueriGet } from "@/lib/jueri";
 
 /**
@@ -54,10 +55,15 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // credencial em repouso SEMPRE criptografada (AES-256-GCM), como a da
+    // Nuvemshop — o token estava aberto no banco (auditoria 07/08/2026).
+    // Conexões antigas em texto puro seguem funcionando: decryptSecret
+    // devolve o valor como está quando não há o prefixo enc:v1:.
+    const tokenSeguro = encryptSecret(token);
     await db.jueriConnection.upsert({
       where: { companyId: user.companyId },
-      update: { token, clienteSistema },
-      create: { companyId: user.companyId, token, clienteSistema },
+      update: { token: tokenSeguro, clienteSistema },
+      create: { companyId: user.companyId, token: tokenSeguro, clienteSistema },
     });
     return NextResponse.json({ ok: true });
   } catch (e) {

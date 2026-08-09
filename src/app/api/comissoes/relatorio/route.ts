@@ -13,7 +13,7 @@ import { paginaSegura } from "@/lib/pdf-texto";
 import { db } from "@/lib/db";
 import { requireUser, AuthError } from "@/lib/auth";
 import { isManagerUp } from "@/lib/scope";
-import { orderNumber, orderStatusLabel, PAID_ORDER_STATUSES } from "@/lib/orders";
+import { orderNumber, orderStatusLabel, round2, PAID_ORDER_STATUSES } from "@/lib/orders";
 import { appBaseUrl } from "@/lib/comm/evolution";
 
 /**
@@ -114,8 +114,13 @@ export async function GET(req: NextRequest) {
     const valorBase = (o: { subtotal: number; netTotal: number }) =>
       base === "VENDIDO" ? o.netTotal : o.subtotal;
     const taxa = seller.commissionRate;
-    const totalBase = orders.reduce((s, o) => s + valorBase(o), 0);
-    const totalComissao = (totalBase * taxa) / 100;
+    // a comissão é arredondada POR LINHA e o total soma as linhas — assim a
+    // conta de cabeça (somar a coluna) bate com o total, centavo por centavo
+    // (calcular sobre a base agregada divergia da soma das linhas impressas)
+    const comissaoDaLinha = (o: { subtotal: number; netTotal: number }) =>
+      round2((valorBase(o) * taxa) / 100);
+    const totalBase = round2(orders.reduce((s, o) => s + valorBase(o), 0));
+    const totalComissao = round2(orders.reduce((s, o) => s + comissaoDaLinha(o), 0));
 
     const ACCENT = hexToRgb(company.catalogPrimary, rgb(0.055, 0.004, 0.259));
     const pdf = await PDFDocument.create();
@@ -200,7 +205,8 @@ export async function GET(req: NextRequest) {
       "O FRETE nunca entra na comissão — é valor da transportadora, não venda.",
       "Só entra pedido PAGO (orçamento, aguardando pagamento e cancelado ficam de fora).",
       "O pedido conta no período pela DATA DO PAGAMENTO — não pela data do orçamento.",
-      "Pedido do catálogo é de quem é RESPONSÁVEL pela cliente; troca de vendedor fica registrada no histórico do pedido.",
+      "Pedido do catálogo é de quem MANDOU O LINK (?ref da vendedora); sem link de vendedora, nasce sem dona (é da loja).",
+      "Troca de vendedor fica registrada no histórico do pedido.",
     ];
     const regraH = 16 + regras.length * 12 + 10;
     page.drawRectangle({
@@ -237,7 +243,7 @@ export async function GET(req: NextRequest) {
       page.drawText(bTxt, {
         x: cols.basex - font.widthOfTextAtSize(bTxt, 9), y, size: 9, font, color: INK,
       });
-      const cTxt = money((valorBase(o) * taxa) / 100);
+      const cTxt = money(comissaoDaLinha(o));
       page.drawText(cTxt, {
         x: cols.com - bold.widthOfTextAtSize(cTxt, 9), y, size: 9, font: bold, color: GREEN,
       });

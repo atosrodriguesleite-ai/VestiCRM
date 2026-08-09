@@ -19,7 +19,7 @@ import {
 } from "@/lib/orders";
 import { computeOrderTotals } from "@/lib/orders";
 import { reservarOQueTiver, textoDaFalta } from "@/lib/reservations";
-import { devolverEstoqueDoPedido } from "@/lib/estoque-do-pedido";
+import { baixasLiquidasDoPedido, devolverEstoqueDoPedido } from "@/lib/estoque-do-pedido";
 
 // Pedido grande mexe estoque peça a peça com o banco na nuvem: os 10s padrão
 // da Vercel derrubavam a edição no meio (a transação tem folga de 30s)
@@ -170,14 +170,24 @@ export async function PATCH(
 
       // Se o pedido já baixou estoque (está pago/em produção...), reconcilia:
       // devolve o que saiu e baixa o que entrou, comparando itens antigos × novos.
+      // Pedido da NUVEMSHOP fica de fora: a Nuvemshop é a DONA do estoque —
+      // baixar/devolver aqui contava a mesma venda duas vezes (o espelho chega
+      // pelo sync dela).
+      const reconciliaEstoque = order.stockDeducted && !order.nuvemshopId;
       const deltas = new Map<string, number>(); // variantId → variação (novo - antigo)
-      if (order.stockDeducted) {
+      const pedidoAntigo = new Map<string, number>(); // variantId → qtde nos itens antigos
+      const pedidoNovo = new Map<string, number>(); // variantId → qtde nos itens novos
+      if (reconciliaEstoque) {
         for (const old of order.items) {
-          if (old.variantId) deltas.set(old.variantId, (deltas.get(old.variantId) ?? 0) - old.quantity);
+          if (old.variantId)
+            pedidoAntigo.set(old.variantId, (pedidoAntigo.get(old.variantId) ?? 0) + old.quantity);
         }
         for (const it of parsed.data.items) {
-          deltas.set(it.variantId, (deltas.get(it.variantId) ?? 0) + it.quantity);
+          pedidoNovo.set(it.variantId, (pedidoNovo.get(it.variantId) ?? 0) + it.quantity);
         }
+        for (const [variantId, q] of pedidoNovo) deltas.set(variantId, q);
+        for (const [variantId, q] of pedidoAntigo)
+          deltas.set(variantId, (deltas.get(variantId) ?? 0) - q);
         // valida disponibilidade para os itens que vão baixar MAIS estoque
         for (const [variantId, delta] of deltas) {
           if (delta > 0) {
@@ -200,6 +210,9 @@ export async function PATCH(
         parsed.data.shippingFee ?? order.shippingFee,
         ajusteAtual(parsed.data.surcharge, parsed.data.surchargePct, order.surcharge, order.surchargePct)
       );
+      // o que a edição REALMENTE mexeu no estoque (baixa − devolução), por
+      // variação — é o que as integrações espelham depois da transação
+      const efetivos: { variantId: string; delta: number }[] = [];
       // FOLGA DE TEMPO (incidente Entre Linhas, 05/08/2026): pedido pago com
       // vários itens ajusta estoque peça a peça dentro da transação; no
       // limite padrão de 5s o banco na nuvem fechava a transação NO MEIO
@@ -241,17 +254,35 @@ export async function PATCH(
             total: totals.total,
           },
         });
-        // ajuste de estoque (só quando o pedido já estava com baixa)
-        if (order.stockDeducted) {
-          for (const [variantId, delta] of deltas) {
-            if (delta === 0) continue;
-            if (delta > 0) {
+        // ajuste de estoque (só quando o pedido já estava com baixa).
+        // A DEVOLUÇÃO é limitada ao que o LIVRO DE MOVIMENTOS diz que o
+        // pedido segurou de verdade: reserva parcial do catálogo (pediu 10,
+        // havia 4) devolvia a quantidade do item e criava estoque fantasma —
+        // mesma raiz do bug já consertado no cancelamento (auditoria
+        // 07/08/2026). A baixa extra continua estrita (novo > antigo exige
+        // estoque); a falta antiga do pedido parcial permanece só anotada.
+        if (reconciliaEstoque) {
+          const seguradasNoLivro = await baixasLiquidasDoPedido(tx, order.id);
+          const variantesTocadas = new Set([
+            ...pedidoAntigo.keys(),
+            ...pedidoNovo.keys(),
+            ...seguradasNoLivro.keys(),
+          ]);
+          for (const variantId of variantesTocadas) {
+            const antes = pedidoAntigo.get(variantId) ?? 0;
+            const agora = pedidoNovo.get(variantId) ?? 0;
+            const segurado = seguradasNoLivro.get(variantId) ?? 0;
+            // baixa a MAIS que o pedido passou a pedir (mesma régua de antes)
+            const baixar = Math.max(0, agora - antes);
+            // devolve só o que está segurado ALÉM do que o pedido ainda pede
+            const devolver = Math.max(0, segurado + baixar - agora);
+            if (baixar > 0) {
               // baixa CONDICIONADA: a conferência lá em cima e a baixa aqui
               // são dois momentos — outra venda pode levar a peça no meio.
               // Sem a condição, o estoque ficava negativo na corrida.
               const baixou = await tx.productVariant.updateMany({
-                where: { id: variantId, stock: { gte: delta } },
-                data: { stock: { decrement: delta } },
+                where: { id: variantId, stock: { gte: baixar } },
+                data: { stock: { decrement: baixar } },
               });
               if (baixou.count === 0) {
                 const v = variantById.get(variantId);
@@ -259,23 +290,30 @@ export async function PATCH(
                   v ? `${v.product.name} (${v.color} ${v.size})` : "uma das peças"
                 );
               }
-            } else {
+            }
+            if (devolver > 0) {
               await tx.productVariant.update({
                 where: { id: variantId },
-                data: { stock: { increment: -delta } }, // delta<0 devolve
+                data: { stock: { increment: devolver } },
               });
             }
-            await tx.inventoryMovement.create({
-              data: {
-                companyId: user.companyId,
-                variantId,
-                orderId: order.id,
-                type: delta > 0 ? "SAIDA" : "ENTRADA",
-                quantity: Math.abs(delta),
-                reason: `Edição do pedido ${orderNumber(order.number)}`,
-              },
-            });
+            const efetivo = baixar - devolver; // >0 saiu do estoque, <0 voltou
+            if (efetivo !== 0) {
+              await tx.inventoryMovement.create({
+                data: {
+                  companyId: user.companyId,
+                  variantId,
+                  orderId: order.id,
+                  type: efetivo > 0 ? "SAIDA" : "ENTRADA",
+                  quantity: Math.abs(efetivo),
+                  reason: `Edição do pedido ${orderNumber(order.number)}`,
+                },
+              });
+              efetivos.push({ variantId, delta: efetivo });
+            }
           }
+        }
+        if (order.stockDeducted) {
           // faturamento acompanha o novo VALOR VENDIDO (sem frete)
           await tx.sale.updateMany({
             where: { orderId: order.id },
@@ -333,20 +371,18 @@ export async function PATCH(
 
       // Integrações espelham o ajuste de estoque da edição (uma venda, uma
       // baixa) — antes a Nuvemshop/Jueri nunca ficavam sabendo e os canais
-      // divergiam para sempre.
-      if (order.stockDeducted) {
-        const mudadas = [...deltas.entries()].filter(([, d]) => d !== 0);
-        if (mudadas.length > 0) {
-          pushStockToNuvemshop(
-            user.companyId,
-            mudadas.map(([variantId]) => variantId)
-          ).catch(() => {});
-          pushStockToJueri(
-            user.companyId,
-            // delta>0 = baixou mais no CRM → Jueri desconta; delta<0 devolve
-            mudadas.map(([variantId, delta]) => ({ variantId, delta: -delta }))
-          ).catch(() => {});
-        }
+      // divergiam para sempre. Pelo delta EFETIVO (o que de fato saiu/voltou
+      // do estoque), não pela diferença dos itens.
+      if (efetivos.length > 0) {
+        pushStockToNuvemshop(
+          user.companyId,
+          efetivos.map((e) => e.variantId)
+        ).catch(() => {});
+        pushStockToJueri(
+          user.companyId,
+          // efetivo>0 = baixou mais no CRM → Jueri desconta; <0 devolve
+          efetivos.map((e) => ({ variantId: e.variantId, delta: -e.delta }))
+        ).catch(() => {});
       }
       // o funil acompanha o VALOR VENDIDO (frete não é negociação)
       await syncOpportunityValue(user.companyId, order.opportunityId, totals.netTotal);
@@ -467,10 +503,15 @@ export async function PATCH(
     const willChangeStatus = !!newStatus && newStatus !== order.status;
     // ESTOQUE (reserva/hold): segura ao entrar numa etapa não cancelada;
     // devolve só ao cancelar. Assim o orçamento já reserva a peça.
+    // Pedido da NUVEMSHOP NÃO mexe em estoque aqui: a Nuvemshop é a dona (a
+    // baixa aconteceu lá; o espelho chega pelo sync). Cancelar e reabrir um
+    // pedido dela baixava a MESMA venda de novo no CRM — e o número dobrado
+    // ainda era empurrado de volta para a loja online (auditoria 07/08/2026).
+    const estoqueDaqui = !order.nuvemshopId;
     const needStockDeduct =
-      willChangeStatus && HELD_STATUSES.has(newStatus!) && !order.stockDeducted;
+      willChangeStatus && HELD_STATUSES.has(newStatus!) && !order.stockDeducted && estoqueDaqui;
     const needStockReturn =
-      willChangeStatus && !HELD_STATUSES.has(newStatus!) && order.stockDeducted;
+      willChangeStatus && !HELD_STATUSES.has(newStatus!) && order.stockDeducted && estoqueDaqui;
     // FATURAMENTO (venda): entra/sai de etapa paga — independente do estoque.
     const enteringPaid =
       willChangeStatus && PAID_STATUSES.has(newStatus!) && !PAID_STATUSES.has(order.status);

@@ -30,10 +30,24 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Não autorizado" }, { status: 401 });
   }
 
-  const conns = await db.jueriConnection.findMany({ select: { companyId: true } });
+  // quem sincronizou há mais tempo (ou nunca/falhou — lastSyncAt não marcado)
+  // vai PRIMEIRO: se o tempo da função acabar no meio da fila, a loja que
+  // ficou de fora é priorizada na próxima rodada, em vez de ficar para trás
+  // em silêncio para sempre (auditoria 07/08/2026)
+  const conns = await db.jueriConnection.findMany({
+    select: { companyId: true },
+    orderBy: { lastSyncAt: { sort: "asc", nulls: "first" } },
+  });
   const results: { companyId: string; ok: boolean; resumo?: unknown; error?: string }[] = [];
 
+  const inicio = Date.now();
   for (const c of conns) {
+    // folga de ~1 min antes do teto: parar por conta própria deixa registro
+    // (cortadas) — o corte da Vercel matava a função sem rastro nenhum
+    if (Date.now() - inicio > 240_000) {
+      results.push({ companyId: c.companyId, ok: false, error: "sem tempo nesta rodada (vai primeiro na próxima)" });
+      continue;
+    }
     try {
       const out = await syncJueriCompany(c.companyId);
       results.push({ companyId: c.companyId, ok: out.ok, resumo: out.resumo, error: out.error });
