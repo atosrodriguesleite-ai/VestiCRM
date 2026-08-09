@@ -25,6 +25,13 @@ export async function winLinkedOpportunity(
       where: { pipeline: { companyId }, isWon: true },
     });
     if (!stage) return;
+    // o cartão GANHO carrega o valor VENDIDO do pedido (sem frete) — ganhar
+    // com valor R$ 0/velho fazia o funil e o Dashboard contarem histórias
+    // diferentes da mesma venda (auditoria 07/08/2026)
+    const pedido = await db.order.findFirst({
+      where: { opportunityId, companyId },
+      select: { netTotal: true },
+    });
     await db.opportunity.updateMany({
       where: { id: opportunityId, companyId, status: { not: "WON" } },
       data: {
@@ -32,6 +39,7 @@ export async function winLinkedOpportunity(
         status: "WON",
         closedAt: new Date(),
         lastInteractionAt: new Date(),
+        ...(pedido ? { value: pedido.netTotal } : {}),
       },
     });
   } catch {

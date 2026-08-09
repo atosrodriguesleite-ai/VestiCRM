@@ -250,13 +250,11 @@ export default async function IntelligencePage({
     .map((r) => ({
       origem: ORIGEM_LABEL[r.source] ?? r.source,
       pedidos: r._count,
-      total: r._sum.netTotal ?? 0,
+      totalVendido: r._sum.netTotal ?? 0,
       isNuvemshop: r.source === "NUVEMSHOP",
     }))
-    .sort((a, b) => b.total - a.total);
-  // frete-ok: `r.total` aqui é um total local já montado a partir de netTotal
-  // (linha acima) — não é o campo `total` do pedido
-  const totalOrigens = porOrigem.reduce((a, r) => a + r.total, 0);
+    .sort((a, b) => b.totalVendido - a.totalVendido);
+  const totalOrigens = porOrigem.reduce((a, r) => a + r.totalVendido, 0);
 
   const [now, before, funil, canais, vendedores, campanhas, produtos, categorias, cores, tamanhos, mapas, recuperacao, avisos, company, team] =
     await Promise.all([
@@ -405,10 +403,10 @@ export default async function IntelligencePage({
                       {r.origem}
                     </span>
                     <span className="text-sm tabular-nums">
-                      <b>{brl(r.total)}</b>{" "}
+                      <b>{brl(r.totalVendido)}</b>{" "}
                       <span className="text-xs text-gray-400">
                         · {r.pedidos} pedido{r.pedidos === 1 ? "" : "s"} ·{" "}
-                        {totalOrigens > 0 ? Math.round((r.total / totalOrigens) * 100) : 0}%
+                        {totalOrigens > 0 ? Math.round((r.totalVendido / totalOrigens) * 100) : 0}%
                       </span>
                     </span>
                   </div>
@@ -416,7 +414,7 @@ export default async function IntelligencePage({
                     <span
                       className="block h-full rounded-full"
                       style={{
-                        width: `${totalOrigens > 0 ? Math.max(2, (r.total / totalOrigens) * 100) : 0}%`,
+                        width: `${totalOrigens > 0 ? Math.max(2, (r.totalVendido / totalOrigens) * 100) : 0}%`,
                         background: r.isNuvemshop ? "#0891B2" : "#C4622D",
                       }}
                     />

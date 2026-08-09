@@ -115,6 +115,7 @@ export default async function DashboardPage({
     wonOpps30,
     closedOpps30,
     noContactCustomers,
+    noContactCount,
     nextTasks,
     sellers,
     interests,
@@ -126,11 +127,13 @@ export default async function DashboardPage({
     topBuyers,
     buyersAll,
     ordersGenerated30,
+    cohortPaid30,
     monthOrders,
     companyCfg,
     prevSales,
     prevLeads,
     prevOrdersGenerated,
+    prevCohortPaid,
     statusCounts,
   ] = await Promise.all([
     // Faturamento = pedidos PAGOS (fonte única da verdade, igual à tela Pedidos)
@@ -171,6 +174,14 @@ export default async function DashboardPage({
       orderBy: { lastContactAt: "asc" },
       take: 6,
       include: { owner: true },
+    }),
+    // contagem REAL dos sem-contato: o cartão mostrava o tamanho da lista
+    // acima (take: 6) e travava em "6" mesmo com 40 esfriando
+    db.customer.count({
+      where: {
+        ...scope,
+        OR: [{ lastContactAt: { lt: days7 } }, { lastContactAt: null }],
+      },
     }),
     db.task.findMany({
       where: { ...taskScope(user), status: "PENDENTE" },
@@ -225,6 +236,14 @@ export default async function DashboardPage({
       _count: true,
     }),
     db.order.count({ where: { ...orderAnyScope, createdAt: inPeriod } }),
+    // conversão por COORTE: dos pedidos CRIADOS no período, quantos já estão
+    // pagos. Numerador de paidAt com denominador de createdAt passava de 100%
+    // (pedido antigo pago agora contava sem ter sido gerado no período) e o
+    // rodapé ficava negativo (auditoria 07/08/2026)
+    db.order.count({
+      // coorte-ok: conta pedidos por criação de propósito — não soma dinheiro
+      where: { ...orderScope, createdAt: inPeriod },
+    }),
     // metas: vendas pagas do MÊS CORRENTE (fuso SP), por vendedor
     db.order.findMany({
       where: {
@@ -246,6 +265,11 @@ export default async function DashboardPage({
     }),
     db.customer.count({ where: { ...scope, createdAt: inPrev } }),
     db.order.count({ where: { ...orderAnyScope, createdAt: inPrev } }),
+    // coorte do período anterior (mesma régua da conversão atual)
+    db.order.count({
+      // coorte-ok: conta pedidos por criação de propósito — não soma dinheiro
+      where: { ...orderScope, createdAt: inPrev },
+    }),
     // donut: composição dos pedidos do período por status (qualquer status)
     db.order.groupBy({
       by: ["status"],
@@ -268,10 +292,11 @@ export default async function DashboardPage({
 
   const revenue30 = sales30.reduce((s, v) => s + v.netTotal, 0);
   const ticket = sales30.length ? revenue30 / sales30.length : 0;
-  // Conversão = pedidos que viraram pagamento ÷ pedidos gerados no período
-  const ordersPaid30 = ordersMonth._count;
+  // Conversão por COORTE: dos pedidos CRIADOS no período, quantos já estão
+  // pagos. Nunca passa de 100% (o pago é subconjunto do gerado) e o "sem
+  // pagamento" do rodapé nunca fica negativo.
   const conversion = ordersGenerated30
-    ? (ordersPaid30 / ordersGenerated30) * 100
+    ? (cohortPaid30 / ordersGenerated30) * 100
     : 0;
   const pipelineValue = openOpps.reduce((s, o) => s + o.value, 0);
   const periodLabel = customPeriod
@@ -324,7 +349,7 @@ export default async function DashboardPage({
   const prevRevenue = prevSales.reduce((s, v) => s + v.netTotal, 0);
   const prevTicket = prevSales.length ? prevRevenue / prevSales.length : 0;
   const prevConversion = prevOrdersGenerated
-    ? (prevSales.length / prevOrdersGenerated) * 100
+    ? (prevCohortPaid / prevOrdersGenerated) * 100
     : 0;
   const deltaVendas = pctDelta(revenue30, prevRevenue);
   const deltaTicket = pctDelta(ticket, prevTicket);
@@ -341,27 +366,24 @@ export default async function DashboardPage({
   }));
   const totalPedidosPeriodo = statusCounts.reduce((a, s) => a + s._count, 0);
 
-  // ranking por vendedor (30 dias) — só gerente/admin vê o time todo
-  const allSales30 = canSeeAll(user)
-    ? sales30
-    : await db.order.findMany({
-        where: {
-          companyId: user.companyId,
-          status: { in: PAID_ORDER_STATUSES },
-          paidAt: inPeriod,
-        },
-        select: { netTotal: true, sellerId: true },
-      });
+  // ranking por vendedor — gerente/admin vê o time todo (sales30 já é a loja
+  // inteira para eles); a VENDEDORA vê só a própria linha. Antes a consulta
+  // extra buscava a loja inteira justamente para quem NÃO pode ver o
+  // faturamento dos colegas (auditoria 07/08/2026: o código fazia o oposto
+  // do comentário).
+  const allSales30 = sales30;
   const ranking = sellers
     .map((s) => ({
       seller: s,
-      total: allSales30
+      // "totalVendido" de propósito: é soma de netTotal (sem frete) — chamar
+      // de "total" confundia com o campo total do pedido, que tem frete
+      totalVendido: allSales30
         .filter((v) => v.sellerId === s.id)
         .reduce((sum, v) => sum + v.netTotal, 0),
       count: allSales30.filter((v) => v.sellerId === s.id).length,
     }))
     .filter((r) => r.count > 0)
-    .sort((a, b) => b.total - a.total);
+    .sort((a, b) => b.totalVendido - a.totalVendido);
 
   const topInterests = interests
     .map((i) => ({ label: i.name, value: i._count.customers }))
@@ -560,10 +582,10 @@ export default async function DashboardPage({
           value={conversion}
           format="pct"
           delta={deltaConv}
-          hint={`${ordersPaid30} pagos · ${ordersGenerated30 - ordersPaid30} sem pagamento`}
+          hint={`${cohortPaid30} pagos · ${ordersGenerated30 - cohortPaid30} sem pagamento`}
           icon={<Percent />}
           tone={conversion >= 50 ? "good" : "warn"}
-          info="De cada pedido criado, quantos foram pagos. Cálculo: pedidos pagos ÷ total de pedidos gerados no período."
+          info="Dos pedidos CRIADOS no período, quantos já foram pagos. Pedido antigo pago agora não entra — por isso a taxa nunca passa de 100%."
         />
         <StatCard
           label="Funil aberto"
@@ -591,10 +613,10 @@ export default async function DashboardPage({
         />
         <StatCard
           label="Sem contato há 7+ dias"
-          value={noContactCustomers.length}
+          value={noContactCount}
           hint="clientes esfriando"
           icon={<CalendarClock />}
-          tone={noContactCustomers.length > 0 ? "warn" : "good"}
+          tone={noContactCount > 0 ? "warn" : "good"}
           info="Clientes sem nenhum contato registrado nos últimos 7 dias (ou que nunca foram contatados)."
         />
         <StatCard
@@ -691,13 +713,13 @@ export default async function DashboardPage({
           info="Pedidos pagos nos últimos 7 dias, com o valor somado."
         />
         <StatCard
-          label={customPeriod ? "Pagos no período" : "Pagos no mês"}
+          label={customPeriod ? "Pagos no período" : "Pagos (30d)"}
           value={ordersMonth._count}
           delta={deltaPedidos}
           series={seriePed.length > 92 ? porSemana(seriePed) : seriePed}
           hint={`valor médio ${brl(avgOrder)}`}
           icon={<ShoppingBag />}
-          info="Pedidos pagos no período (padrão: últimos 30 dias). O rodapé mostra o valor médio por pedido; a setinha compara com o período anterior."
+          info="Pedidos pagos no período (padrão: últimos 30 dias corridos — não é o mês do calendário). O rodapé mostra o valor médio por pedido; a setinha compara com o período anterior."
         />
         <StatCard
           label="Taxa de recompra"
@@ -848,7 +870,7 @@ export default async function DashboardPage({
                     )}
                   </div>
                   <span className="text-sm font-semibold tabular-nums">
-                    {brl(r.total)}
+                    {brl(r.totalVendido)}
                   </span>
                 </li>
               ))}

@@ -10,6 +10,7 @@ import { computeOrderTotals, orderNumber } from "@/lib/orders";
 import { pushStockToNuvemshop } from "@/lib/nuvemshop";
 import { pushStockToJueri } from "@/lib/jueri";
 import { reservarEstoque, textoDaFalta } from "@/lib/reservations";
+import { syncOpportunityValue } from "@/lib/opportunity-sync";
 import { comNumeroUnico } from "@/lib/numero-do-pedido";
 
 /**
@@ -302,6 +303,10 @@ export async function POST(req: NextRequest) {
       input.customerId,
       input.status === "AGUARDANDO_PAGAMENTO" ? "PAGAMENTO" : "NEGOCIACAO"
     );
+    // o valor do cartão acompanha o pedido desde o NASCIMENTO (valor vendido,
+    // sem frete) — a coluna do funil mostrava R$ 0/valor velho enquanto o
+    // Dashboard já mostrava a venda (auditoria 07/08/2026)
+    await syncOpportunityValue(user.companyId, order.opportunityId, order.netTotal);
 
     return NextResponse.json(order, { status: 201 });
   } catch (e) {

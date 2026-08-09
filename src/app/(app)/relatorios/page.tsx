@@ -211,14 +211,23 @@ export default async function ReportsPage({
   const passoDias = porDia ? 1 : Math.max(7, Math.ceil(duracaoDias / 26 / 7) * 7);
   const passoMs = passoDias * DIA_MS;
   const quantosBlocos = Math.max(1, Math.ceil(duracaoDias / passoDias));
+  // blocos ancorados no INÍCIO do período: assim só a ÚLTIMA barra pode ser
+  // parcial (o bloco "em andamento", que todo mundo entende). Ancorar no fim
+  // deixava a PRIMEIRA barra coberta pela metade — parecia queda de vendas
+  // onde só havia bloco cortado (auditoria 07/08/2026).
   const weeks: { label: string; total: number }[] = [];
-  for (let i = quantosBlocos - 1; i >= 0; i--) {
-    const end = new Date(periodo.to.getTime() - i * passoMs);
-    const start = new Date(end.getTime() - passoMs);
+  for (let i = 0; i < quantosBlocos; i++) {
+    const start = new Date(periodo.from.getTime() + i * passoMs);
+    const end = new Date(Math.min(start.getTime() + passoMs, periodo.to.getTime()));
     weeks.push({
       label: dateShort(end),
       total: sales
-        .filter((s) => s.paidAt && s.paidAt > start && s.paidAt <= end)
+        .filter(
+          (s) =>
+            s.paidAt &&
+            (i === 0 ? s.paidAt >= start : s.paidAt > start) &&
+            s.paidAt <= end
+        )
         .reduce((sum, s) => sum + s.netTotal, 0),
     });
   }
@@ -335,16 +344,18 @@ export default async function ReportsPage({
           hint={`${sales.length} venda${sales.length === 1 ? "" : "s"}`}
           icon={<TrendingUp />}
         />
+        {/* os dois tiles abaixo são HISTÓRICO (base inteira), não o período
+            do filtro — a marca no rodapé cumpre a promessa do subtítulo */}
         <StatTile
           label="Tempo médio de fechamento"
           value={dias(avgClose)}
-          hint={won.length === 1 ? "1 negociação ganha" : `${won.length} negociações ganhas`}
+          hint={`${won.length === 1 ? "1 negociação ganha" : `${won.length} negociações ganhas`} · histórico`}
           icon={<Clock />}
         />
         <StatTile
           label="Pararam de comprar (60d+)"
           value={String(pararam(60))}
-          hint={`${pararam(30)} há 30d+ · ${leadsSemCompra} leads nunca compraram`}
+          hint={`${pararam(30)} há 30d+ · ${leadsSemCompra} leads nunca compraram · histórico, contado de hoje`}
           icon={<Moon />}
           tone={pararam(60) > 0 ? "warn" : "good"}
         />

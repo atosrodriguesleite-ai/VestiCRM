@@ -172,6 +172,7 @@ export default async function FinanceiroPage() {
                       </p>
                     </div>
                     <div className="text-right shrink-0">
+                      {/* frete-ok: conta a receber mostra o que a cliente paga */}
                       <p className="text-sm font-bold tabular-nums">{brl(o.total)}</p>
                       <p
                         className={`text-[11px] font-semibold ${
@@ -206,6 +207,7 @@ export default async function FinanceiroPage() {
                 >
                   <span className="text-sm truncate">{d.nome}</span>
                   <span className="text-sm font-semibold tabular-nums shrink-0">
+                    {/* frete-ok: quanto a cliente deve, com frete */}
                     {brl(d.total)}
                   </span>
                 </Link>

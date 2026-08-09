@@ -14,6 +14,7 @@ import { pushStockToNuvemshop } from "@/lib/nuvemshop";
 import { pushStockToJueri } from "@/lib/jueri";
 import { orderNumber, round2 } from "@/lib/orders";
 import { comNumeroUnico } from "@/lib/numero-do-pedido";
+import { syncOpportunityValue } from "@/lib/opportunity-sync";
 import { notifyNovoPedido } from "@/lib/notify";
 import { brl } from "@/lib/format";
 
@@ -558,6 +559,10 @@ export async function POST(req: NextRequest) {
     }
     throw e;
   }
+
+  // o valor do cartão no funil acompanha o pedido (a oportunidade criada
+  // pelo intake nascia com R$ 0 e a coluna não batia com Pedidos)
+  await syncOpportunityValue(company.id, order.opportunityId, order.netTotal);
 
   // a reserva some do estoque dos outros canais no mesmo instante.
   // Jueri desconta pelo que foi SEGURADO (reserva parcial: pediu 10, havia 4
