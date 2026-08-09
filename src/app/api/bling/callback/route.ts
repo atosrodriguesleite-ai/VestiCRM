@@ -12,6 +12,8 @@ export async function GET(req: NextRequest) {
 
   const tokens = await blingExchangeCode(code);
   if (!tokens) return back("bling=erro");
-  await blingSaveConnection(companyId, tokens);
+  // conexão sem refresh_token é recusada (morreria sozinha em ~6h)
+  const salvo = await blingSaveConnection(companyId, tokens);
+  if (!salvo) return back("bling=erro");
   return back("bling=ok");
 }

@@ -5,6 +5,7 @@ import { pushStockToNuvemshop } from "./nuvemshop";
 import { pushStockToJueri } from "./jueri";
 import { winLinkedOpportunity } from "./opportunity-sync";
 import { reservarOQueTiver, textoDaFalta } from "./reservations";
+import { mpCancelPayment } from "./mercadopago";
 
 /**
  * Liquidação AUTOMÁTICA de pedido pago (Pix/cartão confirmado pelo gateway).
@@ -34,14 +35,16 @@ export async function settleOrderPaid(
   orderId: string,
   origem: string, // ex.: "Pix (Mercado Pago)"
   /** valor que o gateway diz ter recebido (transaction_amount) */
-  valorPago?: number
+  valorPago?: number,
+  /** id do pagamento no gateway — SÓ essa cobrança é confirmada */
+  mpPaymentId?: string
 ): Promise<{ ok: boolean; already?: boolean; valorDivergente?: boolean }> {
   // A trava de corrida derruba a tentativa inteira (rollback). Tentar de novo
   // uma vez resolve o caso real: o segundo aviso do gateway chegando junto —
   // na segunda ida o pedido já está PAGO e a resposta é "already".
   for (let tentativa = 0; tentativa < 2; tentativa++) {
     try {
-      return await liquidarUmaVez(orderId, origem, valorPago);
+      return await liquidarUmaVez(orderId, origem, valorPago, mpPaymentId);
     } catch (e) {
       if (!(e instanceof CorridaNoSettle)) throw e;
     }
@@ -52,7 +55,8 @@ export async function settleOrderPaid(
 async function liquidarUmaVez(
   orderId: string,
   origem: string,
-  valorPago?: number
+  valorPago?: number,
+  mpPaymentId?: string
 ): Promise<{ ok: boolean; already?: boolean; valorDivergente?: boolean }> {
   const agora = new Date();
 
@@ -64,12 +68,28 @@ async function liquidarUmaVez(
       });
       if (!order) return { tipo: "sumiu" as const };
 
-      // já pago (aviso repetido do gateway) → só garante o pagamento confirmado
+      // JÁ PAGO. Dois casos bem diferentes com a mesma cara:
+      //  a) o gateway REPETIU o aviso da cobrança que liquidou → nada a fazer;
+      //  b) chegou dinheiro de OUTRA cobrança num pedido já pago (a cliente
+      //     pagou o Pix E o cartão) → confirma a linha certa e AVISA a loja,
+      //     porque tem estorno a fazer. Antes este ramo confirmava TODAS as
+      //     linhas pendentes e a duplicidade sumia sem deixar rastro.
       if ((PAID_ORDER_STATUSES as readonly string[]).includes(order.status)) {
-        await tx.payment.updateMany({
-          where: { orderId: order.id, status: "PENDENTE" },
-          data: { status: "CONFIRMADO", paidAt: agora },
-        });
+        if (mpPaymentId) {
+          const confirmou = await tx.payment.updateMany({
+            where: { orderId: order.id, status: "PENDENTE", mpPaymentId },
+            data: { status: "CONFIRMADO", paidAt: agora },
+          });
+          if (confirmou.count > 0) {
+            await tx.orderEvent.create({
+              data: {
+                orderId: order.id,
+                type: "NOTA",
+                description: `🚨 SEGUNDO pagamento recebido via ${origem} num pedido que JÁ ESTAVA PAGO — a cliente pode ter pago duas vezes. Confira no Mercado Pago e faça o estorno se for o caso.`,
+              },
+            });
+          }
+        }
         return { tipo: "ja-pago" as const };
       }
       if (order.status === "CANCELADO") {
@@ -98,6 +118,13 @@ async function liquidarUmaVez(
         });
         return { tipo: "valor-divergente" as const };
       }
+      // Pagou A MAIS (QR antigo de um pedido que foi editado para baixo): o
+      // dinheiro cobre o pedido, então liquida — mas a loja PRECISA saber que
+      // tem troco a devolver. Antes isso passava calado.
+      const trocoADevolver =
+        valorPago != null && valorPago > order.total + 0.009
+          ? Math.round((valorPago - order.total) * 100) / 100
+          : 0;
 
       // TRAVA ATÔMICA: só quem encontra o status que leu ganha a transição.
       // O concorrente (segundo aviso, ou a vendedora mexendo na mesma hora)
@@ -145,10 +172,55 @@ async function liquidarUmaVez(
         }
       }
 
+      // Confirma SÓ a cobrança que foi paga (quando o gateway identifica).
+      // Confirmar todas escondia a conciliação: o Pix não pago aparecia como
+      // "confirmado" e um segundo pagamento real não soava alarme nenhum.
       await tx.payment.updateMany({
-        where: { orderId: order.id, status: "PENDENTE" },
+        where: {
+          orderId: order.id,
+          status: "PENDENTE",
+          ...(mpPaymentId ? { mpPaymentId } : {}),
+        },
         data: { status: "CONFIRMADO", paidAt: agora },
       });
+      // As IRMÃS pendentes do gateway (ex.: o Pix, quando o cartão pagou)
+      // são invalidadas localmente (vencem agora) e canceladas NO Mercado
+      // Pago depois da transação — para o QR no WhatsApp parar de ser pagável.
+      let cancelarNoMp: string[] = [];
+      if (mpPaymentId) {
+        // TODAS as irmãs do gateway, inclusive o link de cartão (que ainda
+        // não tem mpPaymentId — o pagamento dele só nasce quando pagam):
+        // sem invalidar o link, a rota de cartão continuava servindo um
+        // link pagável para um pedido já pago
+        const irmas = await tx.payment.findMany({
+          where: {
+            orderId: order.id,
+            status: "PENDENTE",
+            provider: "MERCADO_PAGO",
+          },
+          select: { id: true, mpPaymentId: true, pixCopiaECola: true },
+        });
+        if (irmas.length > 0) {
+          await tx.payment.updateMany({
+            where: { id: { in: irmas.map((p) => p.id) } },
+            data: { dueAt: agora },
+          });
+          // só cobranças Pix têm pagamento cancelável no MP (o link de
+          // cartão ainda não virou pagamento — a invalidação acima cobre)
+          cancelarNoMp = irmas
+            .filter((p) => p.pixCopiaECola && p.mpPaymentId)
+            .map((p) => p.mpPaymentId!);
+        }
+      }
+      if (trocoADevolver > 0) {
+        await tx.orderEvent.create({
+          data: {
+            orderId: order.id,
+            type: "NOTA",
+            description: `⚠️ A cliente pagou R$ ${valorPago!.toFixed(2)} num pedido de R$ ${order.total.toFixed(2)} (cobrança antiga de um pedido editado). Há R$ ${trocoADevolver.toFixed(2)} a devolver — faça o estorno parcial no Mercado Pago.`,
+          },
+        });
+      }
       await tx.sale.create({
         data: {
           companyId: order.companyId,
@@ -186,6 +258,7 @@ async function liquidarUmaVez(
       return {
         tipo: "liquidado" as const,
         seguradas,
+        cancelarNoMp,
         pedido: {
           id: order.id,
           number: order.number,
@@ -207,7 +280,17 @@ async function liquidarUmaVez(
   if (resultado.tipo === "valor-divergente")
     return { ok: false, valorDivergente: true };
 
-  const { pedido, seguradas } = resultado;
+  const { pedido, seguradas, cancelarNoMp } = resultado;
+
+  // cancela na FONTE as cobranças irmãs que sobraram (o QR antigo no
+  // WhatsApp deixa de ser pagável). AGUARDADO de propósito: na Vercel a
+  // função congela assim que a resposta sai — um disparo sem await morria
+  // antes de chegar ao Mercado Pago. Falha individual não trava nada.
+  if (cancelarNoMp.length > 0) {
+    await Promise.allSettled(
+      cancelarNoMp.map((idMp) => mpCancelPayment(pedido.companyId, idMp))
+    );
+  }
 
   // FUNIL acompanha: pedido pago → negociação ligada vira GANHA
   await winLinkedOpportunity(pedido.companyId, pedido.opportunityId);

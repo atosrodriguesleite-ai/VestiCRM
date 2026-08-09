@@ -92,7 +92,10 @@ export async function POST(
       const r = await settleOrderPaid(
         row.orderId,
         origem,
-        payment?.transaction_amount ?? undefined
+        payment?.transaction_amount ?? undefined,
+        // identifica QUAL cobrança foi paga: só ela é confirmada, as irmãs
+        // são invalidadas, e um 2º pagamento no pedido já pago vira alarme
+        mpPaymentId
       );
       liquidado = r.ok;
     }

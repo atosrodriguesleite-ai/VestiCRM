@@ -14,7 +14,10 @@ const ler = (rel: string) => readFileSync(join(raiz, rel), "utf8");
 describe("NF-e bate com o que a cliente paga", () => {
   const bling = ler("src/lib/bling.ts");
   it("distribui desconto nos itens e destaca frete no transporte", () => {
-    expect(bling).toContain("order.netTotal / order.subtotal");
+    // a conta virou função pura (itensDaNotaFiscal) na blindagem 09/08 —
+    // os casos de centavo vivem em nfe-e-pix-blindados.test.ts
+    expect(bling).toContain("netTotal / subtotal");
+    expect(bling).toContain("itensDaNotaFiscal(order.items, order.subtotal, order.netTotal)");
     expect(bling).toContain("transporte: { frete:");
   });
   it("descrição do item sem 'null null'", () => {
