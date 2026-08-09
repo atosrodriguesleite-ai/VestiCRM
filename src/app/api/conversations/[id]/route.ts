@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { requireUser, AuthError } from "@/lib/auth";
+import { conversationScope, isManagerUp } from "@/lib/scope";
 import { notifyAssignment } from "@/lib/notify";
 import { contadorAoMarcarNaoLida } from "@/lib/comm/fila";
 import { loadInboxConversations } from "@/lib/inbox-data";
@@ -57,12 +58,30 @@ export async function PATCH(
       return NextResponse.json({ error: "Dados inválidos" }, { status: 400 });
     }
 
+    // ESCOPO: vendedora só mexe na conversa dela ou na fila (mesma régua da
+    // leitura). Sem isto, conversa transferida que "lingava" na tela dela
+    // ainda podia ser assumida/encerrada por ela (auditoria 07/08/2026).
     const conv = await db.conversation.findFirst({
-      where: { id, companyId: user.companyId },
+      where: { id, ...conversationScope(user) },
       include: { customer: { select: { name: true } } },
     });
     if (!conv) {
       return NextResponse.json({ error: "Não encontrada" }, { status: 404 });
+    }
+    // TRANSFERIR para OUTRA pessoa (não assumir para si, não devolver à fila)
+    // é decisão de gerência — senão uma vendedora empurra o atendimento
+    // dela para uma colega. Assumir (para si) e largar (null) seguem livres.
+    if (
+      parsed.data.assigneeId !== undefined &&
+      parsed.data.assigneeId !== null &&
+      parsed.data.assigneeId !== user.id &&
+      parsed.data.assigneeId !== conv.assigneeId &&
+      !isManagerUp(user)
+    ) {
+      return NextResponse.json(
+        { error: "Só a gerência pode transferir um atendimento para outra pessoa." },
+        { status: 403 }
+      );
     }
 
     const data: Record<string, unknown> = {};

@@ -5,6 +5,7 @@ import { requireUser, AuthError } from "@/lib/auth";
 import { PAID_ORDER_STATUSES } from "@/lib/orders";
 import { normalizePhone } from "@/lib/intake";
 import { conferirDocumentos, guardarDocumento } from "@/lib/documento";
+import { isManagerUp } from "@/lib/scope";
 
 /** Ficha do contato para o painel lateral do atendimento. */
 export async function GET(
@@ -184,7 +185,17 @@ export async function PATCH(
     if (nextContactAt !== undefined) {
       data.nextContactAt = nextContactAt ? new Date(nextContactAt) : null;
     }
-    if (ownerId !== undefined) {
+    if (ownerId !== undefined && ownerId !== customer.ownerId) {
+      // TROCA DE CARTEIRA = decisão de gerência (mexe em comissão e
+      // visibilidade). A tela já esconde o seletor para vendedora, mas a API
+      // aceitava de qualquer um — uma SELLER podia puxar a cliente para si
+      // chamando a rota direto (auditoria 07/08/2026).
+      if (!isManagerUp(user)) {
+        return NextResponse.json(
+          { error: "Só a gerência pode trocar a responsável pela cliente." },
+          { status: 403 }
+        );
+      }
       if (ownerId) {
         const owner = await db.user.findFirst({
           where: { id: ownerId, companyId: user.companyId },

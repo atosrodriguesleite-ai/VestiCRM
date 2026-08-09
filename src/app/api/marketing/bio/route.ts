@@ -3,6 +3,7 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import { requireUser, AuthError } from "@/lib/auth";
 import { isManagerUp } from "@/lib/scope";
+import { metaPixelValido, gaIdValido } from "@/lib/pixel-id";
 
 /**
  * Gestor de Bio (módulo Marketing) — página + botões de uma loja.
@@ -128,8 +129,21 @@ const schema = z.object({
   tiktok: z.string().max(120).nullable().optional(),
   youtube: z.string().max(200).nullable().optional(),
   facebook: z.string().max(200).nullable().optional(),
-  metaPixelId: z.string().max(40).nullable().optional(),
-  gaId: z.string().max(40).nullable().optional(),
+  // Pixel/Analytics: só o formato de um id de verdade. Sem esta trava, o
+  // campo virava porta de XSS na bio pública (auditoria 07/08/2026). Aceita
+  // vazio (desligar) ou o id bem-formado — nada de aspa/parêntese/;.
+  metaPixelId: z
+    .string()
+    .max(40)
+    .nullable()
+    .optional()
+    .refine(metaPixelValido, "Pixel do Facebook inválido: use só o número do pixel."),
+  gaId: z
+    .string()
+    .max(40)
+    .nullable()
+    .optional()
+    .refine(gaIdValido, "ID do Google inválido: use o formato G-XXXX, UA-… ou AW-…."),
 });
 const clean = (v: string | null | undefined) =>
   v === undefined ? undefined : v?.trim() || null;

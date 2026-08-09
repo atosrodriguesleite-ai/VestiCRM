@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { requireUser, AuthError } from "@/lib/auth";
+import { taskScope } from "@/lib/scope";
 
 const schema = z.object({
   status: z.enum(["PENDENTE", "CONCLUIDA", "CANCELADA"]).optional(),
@@ -21,8 +22,10 @@ export async function PATCH(
       return NextResponse.json({ error: "Dados inválidos" }, { status: 400 });
     }
 
+    // taskScope: vendedora só mexe na própria tarefa (a agenda dela já filtra
+    // assim; a API aceitava qualquer id — auditoria 07/08/2026).
     const task = await db.task.findFirst({
-      where: { id, companyId: user.companyId },
+      where: { id, ...taskScope(user) },
     });
     if (!task) {
       return NextResponse.json({ error: "Não encontrada" }, { status: 404 });

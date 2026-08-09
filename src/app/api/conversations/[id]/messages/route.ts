@@ -4,6 +4,7 @@ import { requireUser, AuthError } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { sendMessage } from "@/lib/comm/engine";
 import { concluirTarefasDeContato } from "@/lib/contato-feito";
+import { conversationScope } from "@/lib/scope";
 
 const schema = z.object({
   body: z.string().min(1),
@@ -37,6 +38,20 @@ export async function POST(
     const parsed = schema.safeParse(await req.json());
     if (!parsed.success) {
       return NextResponse.json({ error: "Dados inválidos" }, { status: 400 });
+    }
+
+    // ESCOPO: vendedora só envia na conversa dela ou na fila (mesma régua da
+    // leitura). Sem isto, uma conversa transferida que "lingava" na tela dela
+    // ainda aceitava envio/edição (auditoria 07/08/2026).
+    const podeVer = await db.conversation.findFirst({
+      where: { id, ...conversationScope(user) },
+      select: { id: true },
+    });
+    if (!podeVer) {
+      return NextResponse.json(
+        { error: "Esta conversa não está mais com você." },
+        { status: 403 }
+      );
     }
 
     // mídia (áudio/foto/vídeo/arquivo) sai em SEGUNDO PLANO: a resposta volta

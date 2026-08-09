@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { requireUser, AuthError } from "@/lib/auth";
-import { isManagerUp } from "@/lib/scope";
+import { isManagerUp, ownedScope } from "@/lib/scope";
 import { reverseAndDeleteOrder, cleanupOrphanCatalogCustomer } from "@/lib/order-actions";
 
 const patchSchema = z.object({
@@ -24,8 +24,11 @@ export async function PATCH(
       return NextResponse.json({ error: "Dados inválidos" }, { status: 400 });
     }
 
+    // ownedScope: vendedora só mexe na negociação da carteira dela (a tela
+    // do funil já filtra assim; a API aceitava qualquer id — auditoria
+    // 07/08/2026). Gerente/admin seguem vendo tudo.
     const opp = await db.opportunity.findFirst({
-      where: { id, companyId: user.companyId },
+      where: { id, ...ownedScope(user) },
     });
     if (!opp) {
       return NextResponse.json({ error: "Não encontrada" }, { status: 404 });
