@@ -60,7 +60,9 @@ export default async function FinanceiroPage() {
     }),
     db.payment.count({
       where: {
-        order: { companyId: user.companyId },
+        // pedido CANCELADO não conta: o Pix dele foi invalidado, mas antes
+        // inflava o cartão por até 24h (auditoria 07/08/2026)
+        order: { companyId: user.companyId, status: { not: "CANCELADO" } },
         provider: "MERCADO_PAGO",
         method: "PIX", // o cartão tem link próprio — este cartão é só Pix
         status: "PENDENTE",

@@ -9,6 +9,7 @@ import {
   meBuyShipment,
   meTracking,
   mePrintUrl,
+  meRetomarEtiqueta,
   meCancel,
   pesoDoPedidoKg,
 } from "@/lib/melhorenvio";
@@ -96,7 +97,7 @@ export async function GET(
 }
 
 const postSchema = z.object({
-  action: z.enum(["cotar", "comprar", "etiqueta", "cancelar"]),
+  action: z.enum(["cotar", "comprar", "gerar", "etiqueta", "cancelar"]),
   serviceId: z.number().int().positive().optional(),
   service: z.string().max(60).optional(),
   carrier: z.string().max(60).optional(),
@@ -225,6 +226,10 @@ export async function POST(
       });
       if (!r.ok) return NextResponse.json({ error: r.error }, { status: 502 });
 
+      // pago mas a etiqueta ainda não gerou: grava o meOrderId (status
+      // GERANDO) para o retry RETOMAR a geração — não comprar de novo
+      const meStatus = r.pendente ? "GERANDO" : "ETIQUETA";
+
       const ship = await db.shipping.upsert({
         where: { orderId: order.id },
         update: {
@@ -233,7 +238,7 @@ export async function POST(
           meService: parsed.data.service ?? null,
           meCarrier: parsed.data.carrier ?? null,
           mePrice: r.price,
-          meStatus: "ETIQUETA",
+          meStatus,
           labelUrl: r.labelUrl,
           weightKg: pesoKg,
           ...(r.tracking ? { trackingCode: r.tracking } : {}),
@@ -249,7 +254,7 @@ export async function POST(
           meService: parsed.data.service ?? null,
           meCarrier: parsed.data.carrier ?? null,
           mePrice: r.price,
-          meStatus: "ETIQUETA",
+          meStatus,
           labelUrl: r.labelUrl,
           weightKg: pesoKg,
           trackingCode: r.tracking,
@@ -265,6 +270,29 @@ export async function POST(
           type: "ENVIO",
           description: `Etiqueta comprada por ${user.name} — ${parsed.data.carrier ?? ""} ${parsed.data.service ?? ""} (R$ ${r.price.toFixed(2).replace(".", ",")}, ${pesoKg} kg) via Melhor Envio`,
           userId: user.id,
+        },
+      });
+      return NextResponse.json({ shipping: ship });
+    }
+
+    // RETOMAR: etiqueta paga que não gerou (status GERANDO) — regenera sem
+    // recomprar. Fecha o buraco do dinheiro que saía e a etiqueta se perdia.
+    if (action === "gerar") {
+      if (!isManagerUp(user))
+        return NextResponse.json(
+          { error: "Só gerente ou admin podem gerar a etiqueta." },
+          { status: 403 }
+        );
+      if (!order.shipping?.meOrderId)
+        return NextResponse.json({ error: "Este pedido não tem etiqueta paga." }, { status: 409 });
+      const rg = await meRetomarEtiqueta(user.companyId, order.shipping.meOrderId);
+      if (!rg.ok) return NextResponse.json({ error: rg.error }, { status: 502 });
+      const ship = await db.shipping.update({
+        where: { id: order.shipping.id },
+        data: {
+          meStatus: "ETIQUETA",
+          labelUrl: rg.labelUrl,
+          ...(rg.tracking ? { trackingCode: rg.tracking } : {}),
         },
       });
       return NextResponse.json({ shipping: ship });

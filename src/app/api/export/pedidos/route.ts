@@ -10,10 +10,15 @@ import { orderStatusLabel, orderNumber, paymentMethodLabel } from "@/lib/orders"
  */
 
 const esc = (v: unknown) => {
-  const s = String(v ?? "").replace(/"/g, '""');
+  let s = String(v ?? "").replace(/"/g, '""');
+  // neutraliza injeção de fórmula: célula começando com = + - @ é executada
+  // pelo Excel/Sheets ao abrir (auditoria 07/08/2026)
+  if (/^[=+\-@\t\r]/.test(s)) s = `'${s}`;
   return /[";\n]/.test(s) ? `"${s}"` : s;
 };
 const brlNum = (n: number) => n.toFixed(2).replace(".", ",");
+const dataSP = (d: Date | null) =>
+  d ? d.toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo" }) : "";
 
 export async function GET() {
   try {
@@ -32,13 +37,14 @@ export async function GET() {
     });
 
     const header = [
-      "Pedido", "Data", "Cliente", "Telefone", "Vendedor", "Status",
-      "Pagamento", "Peças", "Subtotal (R$)", "Desconto (R$)", "Frete (R$)",
-      "Total (R$)",
+      "Pedido", "Criado em", "Pago em", "Cliente", "Telefone", "Vendedor", "Status",
+      "Pagamento", "Peças", "Subtotal (R$)", "Desconto (R$)", "Acréscimo (R$)",
+      "Frete (R$)", "Valor vendido (R$)", "Total a pagar (R$)",
     ];
     const rows = orders.map((o) => [
       orderNumber(o.number),
-      o.createdAt.toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo" }),
+      dataSP(o.createdAt),
+      dataSP(o.paidAt), // a data que o dinheiro entrou (bate com faturamento)
       o.customer.name,
       o.customer.phone,
       o.seller?.name ?? "",
@@ -47,7 +53,10 @@ export async function GET() {
       o.items.reduce((s, i) => s + i.quantity, 0),
       brlNum(o.subtotal),
       brlNum(o.discount),
+      brlNum(o.surcharge),
       brlNum(o.shippingFee),
+      brlNum(o.netTotal), // valor vendido (sem frete) — a régua do faturamento
+      // frete-ok: Total a pagar é o que a cliente paga (com frete)
       brlNum(o.total),
     ]);
 
