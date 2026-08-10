@@ -16,6 +16,8 @@ import {
   PAID_ORDER_STATUSES,
   ORDER_STATUS_FLOW,
   podeTransferirVenda,
+  resolveCancelStock,
+  resolveReopenStock,
 } from "@/lib/orders";
 import { computeOrderTotals } from "@/lib/orders";
 import { reservarOQueTiver, textoDaFalta } from "@/lib/reservations";
@@ -61,6 +63,10 @@ const patchSchema = z.object({
       "CANCELADO",
     ])
     .optional(),
+  // Ao CANCELAR: as peças voltam ao estoque? true/omitido = voltam (padrão
+  // histórico); false = baixa definitiva (perda/brinde/defeito). Ignorado
+  // fora do cancelamento ou quando o pedido não segura estoque.
+  restock: z.boolean().optional(),
   notes: z.string().nullable().optional(),
   trackingCode: z.string().nullable().optional(),
   shippingMethod: z.string().nullable().optional(),
@@ -512,6 +518,15 @@ export async function PATCH(
       willChangeStatus && HELD_STATUSES.has(newStatus!) && !order.stockDeducted && estoqueDaqui;
     const needStockReturn =
       willChangeStatus && !HELD_STATUSES.has(newStatus!) && order.stockDeducted && estoqueDaqui;
+    // Cancelando: o vendedor escolheu devolver as peças ou baixar de vez?
+    const cancelStock = needStockReturn
+      ? resolveCancelStock(order.stockDeducted, parsed.data.restock)
+      : "NADA";
+    // Reabrindo: pedido que cancelou SEM devolver não desconta de novo — as
+    // peças já saíram; a baixa original só "recola" no pedido.
+    const reopenStock = needStockDeduct
+      ? resolveReopenStock(order.stockDeducted, order.stockWrittenOff)
+      : "NADA";
     // FATURAMENTO (venda): entra/sai de etapa paga — independente do estoque.
     const enteringPaid =
       willChangeStatus && PAID_STATUSES.has(newStatus!) && !PAID_STATUSES.has(order.status);
@@ -544,8 +559,9 @@ export async function PATCH(
       : order.items;
 
     // Antes de escrever: se o pedido vai segurar estoque agora (reserva/baixa),
-    // confere disponibilidade e bloqueia se faltar.
-    if (needStockDeduct) {
+    // confere disponibilidade e bloqueia se faltar. Reanexar não desconta
+    // nada, então não há disponibilidade a conferir.
+    if (needStockDeduct && reopenStock !== "REANEXAR") {
       const variantIds = itensParaEstoque
         .map((i) => i.variantId)
         .filter((v): v is string => !!v);
@@ -676,6 +692,11 @@ export async function PATCH(
                 ...(leavingPaid ? { paidAt: null } : {}),
                 ...(needStockDeduct ? { stockDeducted: true } : {}),
                 ...(needStockReturn ? { stockDeducted: false } : {}),
+                // baixa definitiva liga a marca; reanexar (ou devolver) limpa
+                ...(cancelStock === "BAIXAR" ? { stockWrittenOff: true } : {}),
+                ...(reopenStock === "REANEXAR" || cancelStock === "DEVOLVER"
+                  ? { stockWrittenOff: false }
+                  : {}),
               },
             });
             if (trava.count === 0) throw new StatusMudou();
@@ -758,7 +779,20 @@ export async function PATCH(
 
             // ---- Estoque ----
             const efeitos: { variantId: string; delta: number }[] = [];
-            if (needStockDeduct) {
+            if (needStockDeduct && reopenStock === "REANEXAR") {
+              // Pedido cancelado sem devolução voltou à ativa: as peças já
+              // estavam fora do estoque — nada desconta. O líquido do livro
+              // de movimentos deste pedido continua positivo, então um novo
+              // cancelamento COM devolução devolve exatamente o que saiu.
+              await tx.orderEvent.create({
+                data: {
+                  orderId: order.id,
+                  type: "NOTA",
+                  description: `Pedido reaberto por ${user.name}: as peças já haviam sido baixadas no cancelamento e NÃO foram descontadas de novo.`,
+                  userId: user.id,
+                },
+              });
+            } else if (needStockDeduct) {
               // Baixa condicionada: segura o que existe, nunca negativa. Se
               // faltar peça, o pedido não trava — mas a falta fica escrita e
               // a gerência é avisada.
@@ -812,6 +846,18 @@ export async function PATCH(
               efeitos.push(
                 ...reserva.seguradas.map((s) => ({ variantId: s.variantId, delta: -s.quantity }))
               );
+            } else if (needStockReturn && cancelStock === "BAIXAR") {
+              // Vendedor escolheu NÃO devolver: baixa definitiva. O estoque
+              // fica como está — a SAÍDA original do livro de movimentos
+              // vira a baixa — e a decisão fica registrada no histórico.
+              await tx.orderEvent.create({
+                data: {
+                  orderId: order.id,
+                  type: "NOTA",
+                  description: `Cancelado SEM devolver as peças ao estoque (baixa definitiva) — decisão de ${user.name}.`,
+                  userId: user.id,
+                },
+              });
             } else if (needStockReturn) {
               // devolve EXATAMENTE o que o pedido segurou (livro de
               // movimentos), nunca a quantidade do item — reserva parcial e

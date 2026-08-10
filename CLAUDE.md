@@ -87,9 +87,14 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   público (`lib/reservations.ts`, baixa condicionada: nunca negativa, nunca
   duas vendas da mesma peça). **A reserva NÃO tem prazo**: a peça só volta ao
   estoque quando o pedido é CANCELADO (a soltura automática em 48h foi
-  removida). A tela do pedido avisa quantas peças estão seguradas. Baixa
-  definitiva/devolução conforme transição de status. Integrações donas de
-  estoque (Nuvemshop) espelham — uma venda, uma baixa.
+  removida). A tela do pedido avisa quantas peças estão seguradas. Ao
+  CANCELAR, o vendedor escolhe: devolver as peças (padrão; o livro de
+  movimentos devolve exatamente o que saiu) ou **baixa definitiva**
+  (`restock: false` → `Order.stockWrittenOff`; perda/brinde/defeito — nada
+  volta, nada é empurrado às integrações). Reabrir pedido baixado NÃO
+  desconta de novo (`resolveCancelStock`/`resolveReopenStock` em
+  lib/orders.ts). Integrações donas de estoque (Nuvemshop) espelham — uma
+  venda, uma baixa.
 - **Comissão e painel de pedidos** (`Order.sellerId`): pedido montado no
   sistema → quem montou; pedido do catálogo público → **QUEM MANDOU O LINK
   LEVA A VENDA, e SÓ ele** (`?ref=`) — a cliente chega no WhatsApp, a

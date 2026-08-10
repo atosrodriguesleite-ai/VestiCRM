@@ -1604,6 +1604,9 @@ model Order {
   total          Float         @default(0)
   notes          String?
   stockDeducted  Boolean       @default(false) // estoque só baixa quando o pedido é pago
+  // Cancelado SEM devolver as peças (perda/brinde/defeito): o estoque ficou
+  // baixado em definitivo. Reabrir um pedido assim NÃO desconta de novo.
+  stockWrittenOff Boolean      @default(false)
   source         String        @default("CATALOGO") // CATALOGO | NUVEMSHOP | MANUAL
   nuvemshopId    String? // id do pedido na Nuvemshop (nunca importa duplicado)
   // PROTOCOLO DO ENVIO (catálogo público): código sorteado no aparelho da

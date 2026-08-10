@@ -85,6 +85,42 @@ export const ORDER_STATUS_FLOW: OrderStatus[] = [
   "CANCELADO",
 ];
 
+/**
+ * O que fazer com o ESTOQUE ao cancelar um pedido.
+ *
+ * Regra pedida pelas lojas: ao cancelar, o vendedor escolhe se as peças
+ * voltam ao catálogo ou não.
+ *   • DEVOLVER — comportamento clássico: o livro de movimentos devolve
+ *                exatamente o que o pedido segurou.
+ *   • BAIXAR   — as peças NÃO voltam (perda/brinde/defeito): o estoque fica
+ *                como está e o pedido é marcado stockWrittenOff, para um
+ *                eventual reabrir não descontar as mesmas peças duas vezes.
+ *   • NADA     — o pedido não estava segurando estoque; nada a decidir.
+ */
+export function resolveCancelStock(
+  stockDeducted: boolean,
+  restock: boolean | undefined
+): "DEVOLVER" | "BAIXAR" | "NADA" {
+  if (!stockDeducted) return "NADA";
+  // sem resposta explícita, vale o comportamento histórico: devolver
+  return restock === false ? "BAIXAR" : "DEVOLVER";
+}
+
+/**
+ * O que fazer com o estoque ao REABRIR um pedido cancelado (voltar para
+ * qualquer etapa ativa). Se o cancelamento baixou as peças em definitivo
+ * (stockWrittenOff), elas já estão fora do estoque — reabrir só "recola" a
+ * baixa no pedido, sem descontar de novo (o líquido do livro de movimentos
+ * do pedido continua positivo, então cancelar de novo devolvendo funciona).
+ */
+export function resolveReopenStock(
+  stockDeducted: boolean,
+  stockWrittenOff: boolean
+): "DESCONTAR" | "REANEXAR" | "NADA" {
+  if (stockDeducted) return "NADA"; // já está segurando
+  return stockWrittenOff ? "REANEXAR" : "DESCONTAR";
+}
+
 export const paymentMethodLabel: Record<PaymentMethod, string> = {
   PIX: "PIX",
   CARTAO: "Cartão",

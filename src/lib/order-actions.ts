@@ -23,6 +23,7 @@ export async function reverseAndDeleteOrder(
     companyId: string;
     customerId: string;
     stockDeducted: boolean;
+    stockWrittenOff: boolean;
     items: { variantId: string | null; quantity: number }[];
   }
 ): Promise<{ devolvidas: { variantId: string; quantity: number }[] }> {
@@ -30,7 +31,14 @@ export async function reverseAndDeleteOrder(
   // voltou, por variação). Antes devolvia a quantidade do ITEM: reserva
   // parcial do catálogo e item religado a outra peça criavam estoque
   // fantasma na exclusão (auditoria 05/08/2026).
-  const liquido = await baixasLiquidasDoPedido(tx, order.id);
+  //
+  // EXCEÇÃO — baixa definitiva (stockWrittenOff): o cancelamento decidiu que
+  // as peças NÃO voltam (perda/brinde/defeito). Excluir o pedido não pode
+  // ressuscitá-las: nada é devolvido, e os movimentos ficam (desvinculados)
+  // como única explicação de por que o estoque está mais baixo.
+  const liquido = order.stockWrittenOff
+    ? new Map<string, number>()
+    : await baixasLiquidasDoPedido(tx, order.id);
   const devolvidas = [...liquido.entries()].map(([variantId, quantity]) => ({
     variantId,
     quantity,
@@ -43,7 +51,14 @@ export async function reverseAndDeleteOrder(
   }
   // A venda sai do faturamento e o histórico de estoque some.
   await tx.sale.deleteMany({ where: { orderId: order.id } });
-  await tx.inventoryMovement.deleteMany({ where: { orderId: order.id } });
+  if (order.stockWrittenOff) {
+    await tx.inventoryMovement.updateMany({
+      where: { orderId: order.id },
+      data: { orderId: null },
+    });
+  } else {
+    await tx.inventoryMovement.deleteMany({ where: { orderId: order.id } });
+  }
   // Apaga o pedido; itens/pagamentos/envio/eventos caem por cascata.
   await tx.order.delete({ where: { id: order.id } });
 
