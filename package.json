@@ -14,7 +14,7 @@
     "db:seed": "tsx prisma/seed.ts",
     "db:bootstrap": "tsx prisma/bootstrap.ts",
     "db:studio": "prisma studio",
-    "vercel-build": "node scripts/check-vercel-crons.mjs && prisma migrate deploy && tsx prisma/bootstrap.ts && next build",
+    "vercel-build": "node scripts/check-vercel-crons.mjs && node scripts/migrate-deploy.mjs && tsx prisma/bootstrap.ts && next build",
     "test": "vitest run"
   },
   "dependencies": {

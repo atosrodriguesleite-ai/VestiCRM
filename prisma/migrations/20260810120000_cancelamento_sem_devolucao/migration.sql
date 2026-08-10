@@ -10,4 +10,6 @@
 -- pedido (o líquido do livro de movimentos continua positivo, então um novo
 -- cancelamento COM devolução devolve exatamente o que saiu).
 
-ALTER TABLE "Order" ADD COLUMN "stockWrittenOff" BOOLEAN NOT NULL DEFAULT false;
+-- IF NOT EXISTS: reexecutável — se o deploy cair no meio, a nova tentativa
+-- não pode quebrar em "coluna já existe"
+ALTER TABLE "Order" ADD COLUMN IF NOT EXISTS "stockWrittenOff" BOOLEAN NOT NULL DEFAULT false;
