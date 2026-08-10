@@ -426,6 +426,7 @@ export function Inbox({
   campanhas = [],
   podeVincularCampanha = false,
   conversations,
+  carregadoEm,
   templates: templatesProp,
   team,
   setores,
@@ -439,6 +440,8 @@ export function Inbox({
   campanhas?: { id: string; name: string }[];
   podeVincularCampanha?: boolean;
   conversations: InboxConversation[];
+  /** relógio do servidor no momento da carga — âncora do primeiro sync */
+  carregadoEm?: string;
   templates: { id: string; title: string; body: string; category: string }[];
   team: { id: string; name: string; color: string }[];
   setores: { id: string; name: string; color: string }[];
@@ -813,7 +816,17 @@ export function Inbox({
   useEffect(() => {
     selectedIdRef.current = selectedId;
   }, [selectedId]);
-  const lastSyncRef = useRef(new Date(Date.now() - 60_000).toISOString());
+  // Âncora do sync: o RELÓGIO DO SERVIDOR na hora em que a lista foi montada
+  // (com 60s de folga), não o relógio do aparelho ao abrir a tela. O celular
+  // reabre a página com a carga VELHA (cache de navegação): ancorar em
+  // "agora − 60s" deixava para trás tudo que mudou entre a carga e a
+  // reabertura — a vendedora respondia, voltava, e a Fila mostrava a cliente
+  // como se ninguém tivesse respondido.
+  const lastSyncRef = useRef(
+    new Date(
+      (carregadoEm ? new Date(carregadoEm).getTime() : Date.now()) - 60_000
+    ).toISOString()
+  );
   useEffect(() => {
     let alive = true;
     let busy = false;
@@ -927,14 +940,21 @@ export function Inbox({
     function onVisible() {
       if (document.visibilityState === "visible") void sync();
     }
+    // PRIMEIRO SYNC NA HORA: sem isto a tela reaberta ficava até 3s (um tick
+    // inteiro) mostrando o estado velho — no celular parecia "não atualiza"
+    void sync();
     const timer = setInterval(tick, 3000);
     document.addEventListener("visibilitychange", onVisible);
     window.addEventListener("focus", sync);
+    // iPhone/Safari: voltar por gesto restaura a página congelada (bfcache) e
+    // nem sempre dispara visibilitychange — o pageshow cobre esse caminho
+    window.addEventListener("pageshow", onVisible);
     return () => {
       alive = false;
       clearInterval(timer);
       document.removeEventListener("visibilitychange", onVisible);
       window.removeEventListener("focus", sync);
+      window.removeEventListener("pageshow", onVisible);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
