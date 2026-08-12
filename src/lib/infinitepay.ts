@@ -58,9 +58,10 @@ export function mensagemDeErro(cru: string | undefined, status: number): string 
   const c = (cru ?? "").toLowerCase();
   if (c.includes("external_checkout_not_enabled") || c.includes("checkout_not_enabled")) {
     return (
-      "A conta da InfinitePay ainda está com o Checkout Integrado DESLIGADO. " +
-      "No app da InfinitePay: aba Vendas → Checkout → Configurações → " +
-      "Ativar Checkout Integrado. Depois é só cobrar de novo."
+      "A InfinitePay ainda não liberou o pagamento por fora do app (checkout externo). " +
+      "No app: Vendas → Checkout → Checkout Integrado → aba CONFIGURAÇÕES → ative o " +
+      "checkout externo/API. Se aparecer uma CHAVE (token) de API, copie e cole no campo " +
+      "\"Token de API\" em Configurações → Pagamentos aqui no AtacadoPro. Depois cobre de novo."
     );
   }
   if (c.includes("handle") || c.includes("not_found") || status === 404) {

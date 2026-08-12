@@ -20,7 +20,7 @@ describe("conversão de centavos (o erro de 100× mora aqui)", () => {
   });
   it("erro cru da InfinitePay vira instrução que a lojista resolve sozinha", () => {
     expect(mensagemDeErro("external_checkout_not_enabled", 400)).toContain(
-      "Ativar Checkout Integrado"
+      "CONFIGURAÇÕES"
     );
     expect(mensagemDeErro("handle_not_found", 404)).toContain("InfiniteTag");
     expect(mensagemDeErro("unauthorized", 401)).toContain("token");
