@@ -21,8 +21,21 @@ export async function POST(req: NextRequest) {
     if (!parsed.success) {
       return NextResponse.json({ error: "Dados inválidos" }, { status: 400 });
     }
+    // resposta nova entra no FIM da lista — a ordem escolhida pela loja
+    // (setinhas ↑↓) não pode ser bagunçada por uma criação.
+    // Duas criações no MESMO instante podem empatar o order (leitura e escrita
+    // não são atômicas): empate é inofensivo — desempata por categoria/título
+    // e a primeira reordenação normaliza tudo. Não vale um lock por isso.
+    const ultimo = await db.messageTemplate.aggregate({
+      where: { companyId: user.companyId },
+      _max: { order: true },
+    });
     const template = await db.messageTemplate.create({
-      data: { ...parsed.data, companyId: user.companyId },
+      data: {
+        ...parsed.data,
+        companyId: user.companyId,
+        order: (ultimo._max.order ?? -1) + 1,
+      },
     });
     return NextResponse.json(template, { status: 201 });
   } catch (e) {

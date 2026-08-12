@@ -849,6 +849,9 @@ model MessageTemplate {
   title     String
   body      String
   category  TemplateCategory @default(OUTRO)
+  // posição escolhida pela loja (setinhas ↑↓) — antes a ordem era alfabética
+  // e imutável: "Boas vindas", a mais usada, ficava atrás de "Apresentação"
+  order     Int              @default(0)
 
   @@index([companyId])
 }

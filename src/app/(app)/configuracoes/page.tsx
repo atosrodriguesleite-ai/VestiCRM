@@ -62,7 +62,8 @@ export default async function SettingsPage() {
     db.company.findUnique({ where: { id: user.companyId } }),
     db.messageTemplate.findMany({
       where: { companyId: user.companyId },
-      orderBy: { title: "asc" },
+      // mesma ordem do painel do chat: o que a loja escolheu com as setinhas
+      orderBy: [{ order: "asc" }, { category: "asc" }, { title: "asc" }],
     }),
     db.tag.findMany({
       where: { companyId: user.companyId },

@@ -1,10 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Plus, Trash2, Pencil, Check, X } from "lucide-react";
+import { Plus, Trash2, Pencil, Check, X, ChevronUp, ChevronDown } from "lucide-react";
 import { Card, Badge } from "@/components/ui";
 import { templateCategoryLabel } from "@/lib/format";
+import { moverTemplate } from "@/lib/templates-ordem";
 
 type Template = { id: string; title: string; body: string; category: string };
 
@@ -86,6 +87,37 @@ export function TemplateManager({ initial }: { initial: Template[] }) {
     }
   }
 
+  /**
+   * Sobe/desce na lista COMPLETA (a mesma ordem do painel ⚡ do chat).
+   * Otimista: muda na hora. Gravação em FILA (uma PUT por vez — cliques
+   * rápidos em paralelo podiam persistir a lista velha) e falha AVISADA
+   * (engolir erro em silêncio já causou incidente real neste projeto).
+   * Só aparece no filtro "Todos" — mover dentro de um recorte esconderia o
+   * efeito real.
+   */
+  const filaOrdem = useRef<Promise<void>>(Promise.resolve());
+  function mover(id: string, direcao: "subir" | "descer") {
+    // fora do setState: updater precisa ser puro (modo estrito roda 2x)
+    const nova = moverTemplate(templates, id, direcao, false);
+    if (nova === templates) return;
+    setTemplates(nova);
+    const ids = nova.map((t) => t.id);
+    filaOrdem.current = filaOrdem.current.then(async () => {
+      try {
+        const res = await fetch("/api/templates/reorder", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ids }),
+        });
+        if (!res.ok) throw new Error();
+      } catch {
+        alert(
+          "Não consegui salvar a nova ordem. Confira a internet e tente de novo — por enquanto a ordem antiga continua valendo."
+        );
+      }
+    });
+  }
+
   const visible =
     filter === "ALL" ? templates : templates.filter((t) => t.category === filter);
   const usedCategories = [...new Set(templates.map((t) => t.category))];
@@ -118,7 +150,7 @@ export function TemplateManager({ initial }: { initial: Template[] }) {
         ))}
       </div>
 
-      <div className="grid sm:grid-cols-2 gap-3">
+      <div className={filter === "ALL" ? "grid gap-3" : "grid sm:grid-cols-2 gap-3"}>
         {visible.map((t) =>
           editing === t.id ? (
             // ---- edição do modelo (mesmo lugar do card) ----
@@ -180,6 +212,26 @@ export function TemplateManager({ initial }: { initial: Template[] }) {
                 </div>
                 {/* botões SEMPRE visíveis: no celular não existe passar o mouse */}
                 <div className="flex items-center gap-1 shrink-0">
+                  {filter === "ALL" && (
+                    <span className="flex flex-col">
+                      <button
+                        onClick={() => mover(t.id, "subir")}
+                        className="px-1.5 py-0.5 rounded text-gray-300 hover:text-brand-600 hover:bg-brand-50 transition"
+                        title="Subir na lista"
+                        aria-label={`Subir ${t.title}`}
+                      >
+                        <ChevronUp className="size-4" />
+                      </button>
+                      <button
+                        onClick={() => mover(t.id, "descer")}
+                        className="px-1.5 py-0.5 rounded text-gray-300 hover:text-brand-600 hover:bg-brand-50 transition"
+                        title="Descer na lista"
+                        aria-label={`Descer ${t.title}`}
+                      >
+                        <ChevronDown className="size-4" />
+                      </button>
+                    </span>
+                  )}
                   <button
                     onClick={() => setEditing(t.id)}
                     className="p-2 rounded-lg text-gray-400 hover:text-brand-600 hover:bg-brand-50 transition"
@@ -209,7 +261,7 @@ export function TemplateManager({ initial }: { initial: Template[] }) {
       {adding ? (
         <Card className="p-4">
           <form onSubmit={submit} className="space-y-3">
-            <div className="grid sm:grid-cols-2 gap-3">
+            <div className={filter === "ALL" ? "grid gap-3" : "grid sm:grid-cols-2 gap-3"}>
               <input
                 name="title"
                 required

@@ -5,9 +5,12 @@
 import { Fragment, useMemo, useRef, useState, useEffect, type ChangeEvent } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
+import { moverTemplate } from "@/lib/templates-ordem";
 import {
   Send,
   StickyNote,
+  ChevronUp,
+  ChevronDown,
   UserCheck,
   ArrowLeft,
   Search,
@@ -1580,6 +1583,41 @@ export function Inbox({
   }
 
   // cria uma resposta rápida direto da tela (qualquer vendedor/suporte pode)
+  /**
+   * Sobe/desce uma resposta rápida DENTRO da categoria dela (é o movimento
+   * que o painel mostra). Otimista: a lista muda na hora.
+   *
+   * A gravação vai numa FILA (uma PUT por vez, em ordem): cliques rápidos
+   * disparavam PUTs paralelas e a que chegasse por último no servidor podia
+   * ser a lista VELHA — a ordem "voltava um degrau" no F5. E a falha AVISA:
+   * engolir erro com .catch(() => {}) já causou incidente real neste projeto.
+   */
+  const filaOrdem = useRef<Promise<void>>(Promise.resolve());
+  function persistirOrdem(ids: string[]) {
+    filaOrdem.current = filaOrdem.current.then(async () => {
+      try {
+        const res = await fetch("/api/templates/reorder", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ids }),
+        });
+        if (!res.ok) throw new Error();
+      } catch {
+        alert(
+          "Não consegui salvar a nova ordem das respostas rápidas. Confira a internet e tente de novo — por enquanto a ordem antiga continua valendo."
+        );
+      }
+    });
+  }
+  function moverResposta(id: string, direcao: "subir" | "descer") {
+    // calculada FORA do setState: updater precisa ser puro (no modo estrito o
+    // React roda o updater duas vezes — a PUT saía em dobro)
+    const nova = moverTemplate(templates, id, direcao, true);
+    if (nova === templates) return;
+    setTemplates(nova);
+    persistirOrdem(nova.map((t) => t.id));
+  }
+
   async function criarTemplate() {
     const title = newTplTitle.trim();
     const body = newTplBody.trim();
@@ -2788,18 +2826,41 @@ export function Inbox({
                         {templateCategoryLabel[cat as keyof typeof templateCategoryLabel] ?? cat}
                       </p>
                       {list.map((t) => (
-                        <button
+                        <div
                           key={t.id}
-                          onClick={() => applyTemplate(t.body)}
-                          className="w-full text-left px-4 py-2.5 hover:bg-brand-50 transition border-b border-gray-50 last:border-0"
+                          className="flex items-center gap-1 pr-2 hover:bg-brand-50 transition border-b border-gray-50 last:border-0"
                         >
-                          <p className="text-xs font-semibold text-brand-700">
-                            {t.title}
-                          </p>
-                          <p className="text-xs text-gray-500 line-clamp-2">
-                            {t.body}
-                          </p>
-                        </button>
+                          <button
+                            onClick={() => applyTemplate(t.body)}
+                            className="flex-1 min-w-0 text-left px-4 py-2.5"
+                          >
+                            <p className="text-xs font-semibold text-brand-700">
+                              {t.title}
+                            </p>
+                            <p className="text-xs text-gray-500 line-clamp-2">
+                              {t.body}
+                            </p>
+                          </button>
+                          {/* setinhas: reordenam DENTRO da categoria */}
+                          <span className="flex flex-col shrink-0">
+                            <button
+                              onClick={() => moverResposta(t.id, "subir")}
+                              aria-label={`Subir ${t.title}`}
+                              title="Subir"
+                              className="p-1 rounded text-gray-300 hover:text-brand-600 hover:bg-brand-100/60"
+                            >
+                              <ChevronUp className="size-3.5" />
+                            </button>
+                            <button
+                              onClick={() => moverResposta(t.id, "descer")}
+                              aria-label={`Descer ${t.title}`}
+                              title="Descer"
+                              className="p-1 rounded text-gray-300 hover:text-brand-600 hover:bg-brand-100/60"
+                            >
+                              <ChevronDown className="size-3.5" />
+                            </button>
+                          </span>
+                        </div>
                       ))}
                     </div>
                   ))}

@@ -20,7 +20,9 @@ export default async function WhatsAppPage() {
     loadInboxConversations(user),
     db.messageTemplate.findMany({
       where: { companyId: user.companyId },
-      orderBy: [{ category: "asc" }, { title: "asc" }],
+      // a posição é escolhida pela loja (setinhas ↑↓); categoria/título é só
+      // o desempate de cadastros antigos que nunca foram reordenados
+      orderBy: [{ order: "asc" }, { category: "asc" }, { title: "asc" }],
     }),
     db.user.findMany({
       where: { companyId: user.companyId, active: true },
