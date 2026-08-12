@@ -231,6 +231,83 @@ export function metodoDaCaptura(capture?: string | null): "PIX" | "CARTAO" | "OU
  *  5. o settle liquida com as blindagens de sempre (trava de corrida, valor
  *     conferido contra o total, estoque condicionado, aviso de dobro).
  */
+/** Endereço que a cliente pode ter digitado no checkout (campos tolerantes). */
+export type EnderecoCheckout = {
+  zip?: string | null;
+  street?: string | null;
+  streetNumber?: string | null;
+  complement?: string | null;
+  district?: string | null;
+  city?: string | null;
+  state?: string | null;
+};
+
+/**
+ * Extrai o endereço do corpo do webhook da InfinitePay SEM saber o formato
+ * exato — a documentação deles não descreve o endereço, então lemos os nomes
+ * de campo mais prováveis (customer/shipping_address/address, em pt e en) e o
+ * que casar vira ficha. O que não vier fica nulo e é ignorado.
+ */
+export function extrairEndereco(body: Record<string, unknown> | null | undefined): EnderecoCheckout | null {
+  if (!body || typeof body !== "object") return null;
+  const cand =
+    (body.shipping_address as Record<string, unknown>) ??
+    (body.address as Record<string, unknown>) ??
+    ((body.customer as Record<string, unknown>)?.address as Record<string, unknown>) ??
+    (body.customer as Record<string, unknown>) ??
+    null;
+  if (!cand || typeof cand !== "object") return null;
+  const g = (...nomes: string[]): string | null => {
+    for (const n of nomes) {
+      const v = cand[n];
+      if (typeof v === "string" && v.trim()) return v.trim();
+      if (typeof v === "number") return String(v);
+    }
+    return null;
+  };
+  const end: EnderecoCheckout = {
+    zip: g("zipcode", "zip_code", "zip", "cep", "postal_code"),
+    street: g("address", "street", "logradouro", "rua"),
+    streetNumber: g("number", "numero", "street_number"),
+    complement: g("complement", "complemento", "floor", "line2"),
+    district: g("neighborhood", "district", "bairro", "locality"),
+    city: g("city", "cidade"),
+    state: g("state", "province", "estado", "uf"),
+  };
+  // se a "address" for o próprio customer, `street` pode ter pego o nome —
+  // só devolve quando há SINAL real de endereço (CEP ou cidade)
+  return end.zip || end.city ? end : null;
+}
+
+/** Completa a ficha da cliente com o endereço do checkout — só campos vazios. */
+async function preencherEnderecoDaFicha(orderId: string, end: EnderecoCheckout): Promise<void> {
+  const order = await db.order.findUnique({
+    where: { id: orderId },
+    select: { customer: true },
+  });
+  const c = order?.customer;
+  if (!c) return;
+  const dados = {
+    ...(end.zip && !c.zip ? { zip: end.zip } : {}),
+    ...(end.street && !c.street ? { street: end.street } : {}),
+    ...(end.streetNumber && !c.streetNumber ? { streetNumber: end.streetNumber } : {}),
+    ...(end.complement && !c.complement ? { complement: end.complement } : {}),
+    ...(end.district && !c.district ? { district: end.district } : {}),
+    ...(end.city && !c.city ? { city: end.city } : {}),
+    ...(end.state && !c.state ? { state: end.state } : {}),
+  };
+  if (Object.keys(dados).length === 0) return;
+  await db.customer.update({ where: { id: c.id }, data: dados });
+  await db.customerEvent.create({
+    data: {
+      companyId: c.companyId,
+      customerId: c.id,
+      type: "OUTRO",
+      description: "Endereço preenchido pelo checkout da InfinitePay",
+    },
+  });
+}
+
 export async function confirmarPagamentoInfinitePay(args: {
   companyId: string;
   order_nsu: string;
@@ -240,6 +317,8 @@ export async function confirmarPagamentoInfinitePay(args: {
   paid_amount?: number | null;
   capture_method?: string | null;
   receipt_url?: string | null;
+  /** endereço extraído do corpo do webhook (quando a InfinitePay manda) */
+  endereco?: EnderecoCheckout | null;
 }): Promise<
   | { resultado: "pago"; already?: boolean }
   | { resultado: "nao-liquidado" } // conferiu pago, mas o pedido não aceitou (cancelado/valor divergente)
@@ -329,6 +408,14 @@ export async function confirmarPagamentoInfinitePay(args: {
   // o settle recusa pedido cancelado / valor divergente: NÃO dizer "pago"
   // (a página de retorno anunciaria pago um pedido que não liquidou)
   if (!r.ok) return { resultado: "nao-liquidado" };
+
+  // ENDEREÇO da cliente digitado no checkout: se a InfinitePay mandar junto,
+  // completa a ficha (só campos VAZIOS — nunca apaga o que a loja já tem,
+  // mesma régua da Nuvemshop). Se não vier, não faz nada. `endereco` é
+  // passado pelo webhook, que é quem tem o corpo do aviso.
+  if (!r.already && args.endereco) {
+    await preencherEnderecoDaFicha(order.id, args.endereco).catch(() => {});
+  }
 
   // recibo no histórico do pedido (link oficial da InfinitePay)
   if (!r.already && args.receipt_url && /^https:\/\//.test(args.receipt_url)) {

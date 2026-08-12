@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { emCentavos, metodoDaCaptura, mensagemDeErro } from "../infinitepay";
+import { emCentavos, metodoDaCaptura, mensagemDeErro, extrairEndereco } from "../infinitepay";
 
 /**
  * INFINITEPAY (11/08/2026) — guardas da integração de checkout por link.
@@ -32,6 +32,44 @@ describe("conversão de centavos (o erro de 100× mora aqui)", () => {
     expect(metodoDaCaptura("credit_card")).toBe("CARTAO");
     expect(metodoDaCaptura("banana")).toBe("OUTRO");
     expect(metodoDaCaptura(null)).toBe("OUTRO");
+  });
+});
+
+describe("endereço do checkout preenche a ficha (se a InfinitePay mandar)", () => {
+  it("shipping_address em inglês", () => {
+    const e = extrairEndereco({
+      shipping_address: {
+        zipcode: "29100-000",
+        address: "Rua das Flores",
+        number: "42",
+        neighborhood: "Centro",
+        city: "Vila Velha",
+        state: "ES",
+      },
+    });
+    expect(e).toMatchObject({
+      zip: "29100-000",
+      street: "Rua das Flores",
+      streetNumber: "42",
+      district: "Centro",
+      city: "Vila Velha",
+      state: "ES",
+    });
+  });
+  it("customer.address em português", () => {
+    const e = extrairEndereco({
+      customer: { name: "Maria", address: { cep: "01310-100", rua: "Av Paulista", cidade: "São Paulo" } },
+    });
+    expect(e?.zip).toBe("01310-100");
+    expect(e?.city).toBe("São Paulo");
+  });
+  it("sem endereço (só pagamento) → null, não inventa", () => {
+    expect(extrairEndereco({ order_nsu: "x", amount: 3700, capture_method: "pix" })).toBeNull();
+  });
+  it("customer só com nome/telefone → null (não confunde nome com rua)", () => {
+    expect(
+      extrairEndereco({ customer: { name: "João", phone: "+5511999998888", email: "j@x.com" } })
+    ).toBeNull();
   });
 });
 

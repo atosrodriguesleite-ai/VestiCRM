@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { logServerError } from "@/lib/health";
-import { confirmarPagamentoInfinitePay } from "@/lib/infinitepay";
+import { confirmarPagamentoInfinitePay, extrairEndereco } from "@/lib/infinitepay";
 
 /**
  * Webhook da InfinitePay — o aviso de pagamento da loja (token único).
@@ -53,6 +53,24 @@ export async function POST(
   // valor, a confirmação recusa e a InfinitePay reenvia.
   const valorPago = body.paid_amount ?? body.amount ?? null;
 
+  // RAIO-X (temporário): a documentação da InfinitePay não descreve o
+  // endereço no aviso. Registramos as CHAVES do payload (sem valores, para
+  // não jogar dado pessoal no log) no painel Saúde, uma vez, para confirmar
+  // com certeza o que eles mandam — e ligar/afinar o preenchimento de
+  // endereço. Remover depois de confirmado (11/08/2026).
+  await logServerError({
+    source: "server",
+    path: "/api/infinitepay/webhook",
+    message: `InfinitePay: raio-x do aviso — campos recebidos: ${Object.keys(
+      (body as Record<string, unknown>) ?? {}
+    ).join(", ")}`,
+    detail: `customer: ${JSON.stringify(
+      Object.keys(((body as Record<string, unknown>).customer as object) ?? {})
+    )} · shipping_address: ${JSON.stringify(
+      Object.keys(((body as Record<string, unknown>).shipping_address as object) ?? {})
+    )}`,
+  }).catch(() => {});
+
   try {
     const r = await confirmarPagamentoInfinitePay({
       companyId: conn.companyId,
@@ -62,6 +80,8 @@ export async function POST(
       paid_amount: valorPago,
       capture_method: body.capture_method ?? null,
       receipt_url: body.receipt_url ?? null,
+      // se o endereço vier no aviso, a ficha da cliente se completa sozinha
+      endereco: extrairEndereco(body as Record<string, unknown>),
     });
 
     if (r.resultado === "indisponivel") {
