@@ -186,6 +186,13 @@ export function AppShell({
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
 
+  // Navegou = gaveta fecha. Sem isto, abrir uma notificação pelo sino da
+  // gaveta trocava a página POR BAIXO dela — a tela de destino carregava
+  // escondida e parecia que o toque não tinha funcionado.
+  useEffect(() => {
+    setDrawerOpen(false);
+  }, [pathname]);
+
   useEffect(() => {
     setCollapsed(localStorage.getItem("vesti_sidebar") === "1");
   }, []);
