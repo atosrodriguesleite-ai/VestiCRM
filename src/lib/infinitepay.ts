@@ -50,6 +50,31 @@ function headers(conn: InfinitePayConn): Record<string, string> {
 export const emCentavos = (reais: number) => Math.round(round2(reais) * 100);
 
 /**
+ * Traduz o erro cru da InfinitePay para uma frase que a lojista entende e
+ * resolve sozinha (a maioria dos "não gerou o link" é configuração na conta
+ * dela, não problema do nosso sistema).
+ */
+export function mensagemDeErro(cru: string | undefined, status: number): string {
+  const c = (cru ?? "").toLowerCase();
+  if (c.includes("external_checkout_not_enabled") || c.includes("checkout_not_enabled")) {
+    return (
+      "A conta da InfinitePay ainda está com o Checkout Integrado DESLIGADO. " +
+      "No app da InfinitePay: aba Vendas → Checkout → Configurações → " +
+      "Ativar Checkout Integrado. Depois é só cobrar de novo."
+    );
+  }
+  if (c.includes("handle") || c.includes("not_found") || status === 404) {
+    return "InfiniteTag não encontrada na InfinitePay. Confira a tag em Configurações → Pagamentos.";
+  }
+  if (c.includes("unauthorized") || c.includes("token") || status === 401) {
+    return "A InfinitePay pediu autenticação. Cole o token de API da conta em Configurações → Pagamentos.";
+  }
+  return cru
+    ? `A InfinitePay recusou: ${cru}. Confira a conta e tente de novo.`
+    : `A InfinitePay não gerou o link (HTTP ${status}). Confira a InfiniteTag em Configurações.`;
+}
+
+/**
  * Cria o link de checkout do pedido. Os itens vão com preço unitário em
  * centavos; o frete (quando houver) entra como item próprio — o total do
  * checkout tem que bater com o `total` do pedido (o que a cliente paga).
@@ -136,13 +161,7 @@ export async function criarLinkInfinitePay(args: {
     } | null;
     const url = body?.url ?? body?.payment_url;
     if (!res.ok || !url) {
-      return {
-        ok: false,
-        error:
-          body?.error ??
-          body?.message ??
-          `A InfinitePay não gerou o link (HTTP ${res.status}). Confira a InfiniteTag em Configurações.`,
-      };
+      return { ok: false, error: mensagemDeErro(body?.error ?? body?.message, res.status) };
     }
     return { ok: true, url };
   } catch {

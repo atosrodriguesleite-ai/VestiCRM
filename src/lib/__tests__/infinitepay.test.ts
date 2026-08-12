@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { emCentavos, metodoDaCaptura } from "../infinitepay";
+import { emCentavos, metodoDaCaptura, mensagemDeErro } from "../infinitepay";
 
 /**
  * INFINITEPAY (11/08/2026) — guardas da integração de checkout por link.
@@ -17,6 +17,14 @@ describe("conversão de centavos (o erro de 100× mora aqui)", () => {
     expect(emCentavos(0.1 + 0.2)).toBe(30);
     expect(emCentavos(19.99)).toBe(1999);
     expect(emCentavos(1234.56)).toBe(123456);
+  });
+  it("erro cru da InfinitePay vira instrução que a lojista resolve sozinha", () => {
+    expect(mensagemDeErro("external_checkout_not_enabled", 400)).toContain(
+      "Ativar Checkout Integrado"
+    );
+    expect(mensagemDeErro("handle_not_found", 404)).toContain("InfiniteTag");
+    expect(mensagemDeErro("unauthorized", 401)).toContain("token");
+    expect(mensagemDeErro(undefined, 500)).toContain("HTTP 500");
   });
   it("capture_method vira nossa forma de pagamento", () => {
     expect(metodoDaCaptura("pix")).toBe("PIX");
