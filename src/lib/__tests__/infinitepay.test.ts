@@ -72,6 +72,19 @@ describe("o aviso NUNCA confirma sozinho", () => {
   });
 });
 
+describe("a tela do pedido se atualiza sozinha quando o pagamento cai", () => {
+  it("o endpoint de status respeita o escopo de pedidos (multi-tenant)", () => {
+    const rota = ler("src/app/api/orders/[id]/status/route.ts");
+    expect(rota).toContain("orderScope(user)");
+    expect(rota).toContain("status: order.status");
+  });
+  it("o poller só observa enquanto o pedido pode virar pago sozinho", () => {
+    const live = ler("src/app/(app)/pedidos/[id]/status-live.tsx");
+    expect(live).toContain('statusInicial === "ORCAMENTO" || statusInicial === "AGUARDANDO_PAGAMENTO"');
+    expect(live).toContain("router.refresh()");
+  });
+});
+
 describe("as portas públicas passam pelo middleware e não escrevem à toa", () => {
   it("webhook e página de retorno estão liberados no middleware", () => {
     const mw = ler("src/middleware.ts");

@@ -22,6 +22,7 @@ import {
 } from "@/lib/orders";
 import { Card, Badge } from "@/components/ui";
 import { StatusChanger } from "./status-changer";
+import { StatusLive } from "./status-live";
 import { CustomerEditor } from "./customer-editor";
 import { ItemsEditor } from "./items-editor";
 import { PaymentMethodChanger } from "./payment-method";
@@ -119,6 +120,10 @@ export default async function OrderDetailPage({
         <ArrowLeft className="size-4" />
         Pedidos
       </Link>
+
+      {/* enquanto espera o pagamento (Pix/cartão), a tela vira "Pago" sozinha
+          quando o webhook confirmar — sem refresh na mão */}
+      <StatusLive orderId={order.id} statusInicial={order.status} />
 
       <Card className="p-5 md:p-6 mb-4">
         <div className="flex flex-col sm:flex-row sm:items-start gap-4">
