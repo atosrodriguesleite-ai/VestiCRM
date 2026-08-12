@@ -779,28 +779,51 @@ export function Inbox({
   // da agenda deve abrir DENTRO do sistema, não no aplicativo).
   const searchParams = useSearchParams();
   const prefillFeito = useRef(false);
+  // Cada ?conv= é atendido UMA vez. Sem esta trava, qualquer conversa nova
+  // que o sync acrescentasse à lista re-rodava o efeito (convs.length) e
+  // puxava a vendedora de volta à conversa do link no meio de outro
+  // atendimento.
+  const convDoLink = useRef<string | null>(null);
   useEffect(() => {
     const cid = searchParams.get("conv");
     if (!cid) return;
     const texto = searchParams.get("texto");
-    const conhecida = convs.find((x) => x.id === cid);
-    if (conhecida) {
-      setSelectedId(cid);
-      setTab(abaDaConversa(conhecida));
-    } else {
-      // conversa recém-criada pela Agenda: a lista ainda não a conhece —
-      // busca inteira no servidor (mesma porta do sync parcial)
-      fetch(`/api/conversations/${cid}`)
-        .then((r) => (r.ok ? r.json() : null))
-        .then((d) => {
-          if (!d?.conversation) return;
-          setConvs((prev) =>
-            prev.some((c) => c.id === cid) ? prev : [d.conversation, ...prev]
-          );
-          setSelectedId(cid);
-          setTab(abaDaConversa(d.conversation));
-        })
-        .catch(() => {});
+    if (convDoLink.current !== cid) {
+      const conhecida = convs.find((x) => x.id === cid);
+      if (conhecida) {
+        convDoLink.current = cid;
+        // pelo MESMO caminho do clique na lista: carrega o histórico inteiro
+        // (threadsCarregadas) e marca como lida. Abrir direto, sem carregar,
+        // deixava o sync da montagem reduzir a conversa aberta à prévia de
+        // 1 mensagem — a "conversa pela metade" chegando pelo link da Agenda.
+        selectConv(cid);
+        setTab(abaDaConversa(conhecida));
+      } else {
+        // conversa recém-criada pela Agenda: a lista ainda não a conhece —
+        // busca inteira no servidor (mesma porta do sync parcial)
+        convDoLink.current = cid;
+        fetch(`/api/conversations/${cid}`)
+          .then((r) => (r.ok ? r.json() : null))
+          .then((d) => {
+            if (!d?.conversation) return;
+            // o histórico completo veio junto: marca como carregada (senão o
+            // sync reduzia à prévia) e SUBSTITUI se o sync tiver chegado
+            // primeiro com a versão de 1 mensagem
+            threadsCarregadas.current.add(cid);
+            setConvs((prev) =>
+              prev.some((c) => c.id === cid)
+                ? prev.map((c) =>
+                    c.id === cid ? { ...d.conversation, unreadCount: 0 } : c
+                  )
+                : [d.conversation, ...prev]
+            );
+            setSelectedId(cid);
+            setTab(abaDaConversa(d.conversation));
+          })
+          .catch(() => {
+            convDoLink.current = null; // rede oscilou: tenta de novo
+          });
+      }
     }
     if (texto && !prefillFeito.current) {
       prefillFeito.current = true; // uma vez só — não sobrescreve o que ela digitar
@@ -834,6 +857,28 @@ export function Inbox({
       if (busy || document.visibilityState !== "visible") return;
       busy = true;
       try {
+        // VÃO GRANDE (página guardada na volta da navegação, aba/celular que
+        // dormiu horas): o incremental sem teto puxaria todas as mensagens do
+        // período com corpo INTEIRO — o pacote de megabytes que a lista leve
+        // eliminou. Mais barato e igual ao F5: recarrega a lista leve inteira
+        // e busca de novo só o histórico da conversa aberta.
+        const gapMs = Date.now() - new Date(lastSyncRef.current).getTime();
+        if (gapMs > 10 * 60_000) {
+          const res = await fetch(`/api/conversations`);
+          if (!res.ok) return;
+          const d: { now?: string; conversations?: InboxConversation[] } =
+            await res.json();
+          if (!alive || !d.conversations) return;
+          if (d.now)
+            lastSyncRef.current = new Date(
+              new Date(d.now).getTime() - 10_000
+            ).toISOString();
+          threadsCarregadas.current.clear();
+          setConvs(d.conversations);
+          const selId = selectedIdRef.current;
+          if (selId) void carregarThread(selId);
+          return;
+        }
         const res = await fetch(
           `/api/conversations?since=${encodeURIComponent(lastSyncRef.current)}`
         );
