@@ -256,12 +256,12 @@ export function InfinitePayConnect() {
       <div className="flex flex-col sm:flex-row gap-2">
         <label className="flex-1">
           <span className="block text-[11px] font-semibold text-gray-500 mb-1">
-            InfiniteTag da loja (o @usuário da conta InfinitePay)
+            InfiniteTag da loja (aparece no perfil da InfinitePay, ex.: $toque-leve)
           </span>
           <input
             value={handle}
             onChange={(e) => setHandle(e.target.value)}
-            placeholder="ex.: lojadamaria"
+            placeholder="ex.: $toque-leve"
             className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-brand-300"
           />
         </label>

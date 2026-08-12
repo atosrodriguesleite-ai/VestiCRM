@@ -14,14 +14,14 @@ import { encryptSecret } from "@/lib/crypto";
  */
 
 const schema = z.object({
-  // InfiniteTag: letras/números/ponto/underline (o @ é aparado se vier)
+  // InfiniteTag: letras/números/ponto/traço. O prefixo que a InfinitePay
+  // mostra ($ na tela, ou @) é aparado — a lojista cola o que vê ($toque-leve)
   handle: z
     .string()
     .trim()
-    .min(2)
     .max(60)
-    .transform((v) => v.replace(/^@+/, "").toLowerCase())
-    .refine((v) => /^[a-z0-9._-]+$/.test(v), {
+    .transform((v) => v.replace(/^[@$]+/, "").toLowerCase())
+    .refine((v) => /^[a-z0-9._-]{2,}$/.test(v), {
       message: "InfiniteTag inválida — use só letras, números, ponto ou traço.",
     }),
   // ausente = mantém o token guardado; "" = limpa; texto = novo token

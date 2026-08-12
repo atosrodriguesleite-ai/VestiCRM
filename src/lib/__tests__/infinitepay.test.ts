@@ -98,6 +98,10 @@ describe("portas com as regras da casa", () => {
     const rota = ler("src/app/api/infinitepay/conectar/route.ts");
     expect(rota).toContain("apiToken === undefined");
   });
+  it("conectar: apara o prefixo $ e @ da InfiniteTag (cola o que vê na tela)", () => {
+    const rota = ler("src/app/api/infinitepay/conectar/route.ts");
+    expect(rota).toContain("replace(/^[@$]+/");
+  });
   it("webhook aceita valor em paid_amount OU amount", () => {
     const wh = ler("src/app/api/infinitepay/webhook/[token]/route.ts");
     expect(wh).toContain("body.paid_amount ?? body.amount");
