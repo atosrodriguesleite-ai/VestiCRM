@@ -104,6 +104,7 @@ model Company {
   nuvemshop      NuvemshopConnection?
   jueri          JueriConnection?
   mercadoPago    MercadoPagoConnection?
+  infinitePay    InfinitePayConnection?
   bling          BlingConnection?
   melhorEnvio    MelhorEnvioConnection?
   billing        CompanyBilling?
@@ -1698,8 +1699,10 @@ model Payment {
   paidAt    DateTime?
   createdAt DateTime      @default(now())
   // Cobrança automática (Mercado Pago): confirmação sozinha via webhook
-  provider      String    @default("MANUAL") // MANUAL | MERCADO_PAGO
-  mpPaymentId   String?   @unique // id do pagamento no Mercado Pago
+  provider      String    @default("MANUAL") // MANUAL | MERCADO_PAGO | INFINITEPAY
+  // id do pagamento no gateway (Mercado Pago) OU transaction_nsu (InfinitePay).
+  // Único GLOBAL: a confirmação recusa transação já amarrada a outro pedido.
+  mpPaymentId   String?   @unique
   pixCopiaECola String? // código Pix copia-e-cola gerado pelo MP
   pixQrBase64   String? // QR Code (imagem base64) gerado pelo MP
   checkoutUrl   String? // link de pagamento (cartão parcelado — Checkout Pro)
@@ -1729,6 +1732,20 @@ model MercadoPagoConnection {
   // parcelamento) — o link respeita automaticamente o que ela definir lá.
   maxInstallments Int    @default(12)
   connectedAt  DateTime  @default(now())
+}
+
+/// Conexão da loja com a InfinitePay (Checkout por link): o dinheiro cai
+/// DIRETO na conta da loja — sem OAuth, a InfiniteTag (handle) identifica a
+/// conta. A confirmação chega por webhook mas NUNCA vale sozinha: antes de
+/// marcar pago, o sistema confere na API (payment_check).
+model InfinitePayConnection {
+  id           String   @id @default(cuid())
+  companyId    String   @unique
+  company      Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  handle       String // InfiniteTag da loja (sem o @)
+  apiToken     String? // criptografado — só para contas que exigem autenticação
+  webhookToken String   @unique // autentica o webhook desta loja
+  connectedAt  DateTime @default(now())
 }
 
 /// Conexão da loja com o Bling (ERP): emissão de NF-e a partir do pedido.

@@ -24,7 +24,7 @@ import { InstallAppCard } from "./install-app";
 import { SaleNotifications } from "./sale-notifications";
 import { NuvemshopConnect } from "./nuvemshop-connect";
 import { JueriConnect } from "./jueri-connect";
-import { MercadoPagoConnect, BlingConnect } from "./pagamentos-connect";
+import { MercadoPagoConnect, InfinitePayConnect, BlingConnect } from "./pagamentos-connect";
 import { MelhorEnvioConnect } from "./envios-connect";
 import { isAdmin, isSupport, podeOperarIntegracoes } from "@/lib/scope";
 import type { Origin } from "@prisma/client";
@@ -118,6 +118,7 @@ export default async function SettingsPage() {
       <InstallAppCard />
       <SaleNotifications />
       {integra && <MercadoPagoConnect />}
+      {integra && <InfinitePayConnect />}
       {integra && <BlingConnect />}
       {integra && company?.shippingEnabled && (
         <MelhorEnvioConnect categories={categorias.map((c) => c.category)} />

@@ -22,6 +22,8 @@ const PUBLIC_PATHS = [
   "/api/nuvemshop/callback", // retorno do OAuth (estado assinado)
   "/api/mercadopago/webhook", // aviso de pagamento (token na URL + consulta na API)
   "/api/mercadopago/callback", // retorno do OAuth (estado assinado)
+  "/api/infinitepay/webhook", // aviso de pagamento InfinitePay (token na URL + conferência)
+  "/pagamento/confirmado", // página pública de retorno do checkout (só leitura)
   "/api/bling/callback", // retorno do OAuth do Bling (estado assinado)
   "/api/melhorenvio/callback", // retorno do OAuth do Melhor Envio (estado assinado)
   "/api/track", // Tracking Engine (Inteligência Comercial)

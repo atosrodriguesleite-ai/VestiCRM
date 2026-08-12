@@ -27,6 +27,7 @@ export function CobrancaNfe({
   isPaid,
   isCancelled,
   mpConnected,
+  ipConnected,
   blingConnected,
   canNfe,
   nfe,
@@ -36,18 +37,20 @@ export function CobrancaNfe({
   isPaid: boolean;
   isCancelled: boolean;
   mpConnected: boolean;
+  ipConnected: boolean;
   blingConnected: boolean;
   canNfe: boolean; // gerente/admin
   nfe: { status: string | null; number: string | null; url: string | null };
 }) {
   const router = useRouter();
-  const [busy, setBusy] = useState<"pix" | "card" | "nfe" | "nfeStatus" | null>(null);
+  const [busy, setBusy] = useState<"pix" | "card" | "ip" | "nfe" | "nfeStatus" | null>(null);
   const [erro, setErro] = useState("");
   const [pix, setPix] = useState<{ copiaECola: string; qrBase64: string | null } | null>(null);
   const [cardUrl, setCardUrl] = useState<string | null>(null);
-  const [copied, setCopied] = useState<"pix" | "card" | null>(null);
+  const [ipUrl, setIpUrl] = useState<string | null>(null);
+  const [copied, setCopied] = useState<"pix" | "card" | "ip" | null>(null);
 
-  if (!mpConnected && !blingConnected) return null;
+  if (!mpConnected && !ipConnected && !blingConnected) return null;
 
   async function gerarCartao() {
     setBusy("card");
@@ -63,6 +66,23 @@ export function CobrancaNfe({
     if (!cardUrl) return;
     await navigator.clipboard.writeText(cardUrl);
     setCopied("card");
+    setTimeout(() => setCopied(null), 2000);
+  }
+
+  async function gerarInfinitePay() {
+    setBusy("ip");
+    setErro("");
+    const res = await fetch(`/api/orders/${orderId}/infinitepay`, { method: "POST" });
+    const d = await res.json().catch(() => ({}));
+    setBusy(null);
+    if (res.ok) setIpUrl(d.url);
+    else setErro(d.error ?? "Não foi possível gerar o link InfinitePay.");
+  }
+
+  async function copiarInfinitePay() {
+    if (!ipUrl) return;
+    await navigator.clipboard.writeText(ipUrl);
+    setCopied("ip");
     setTimeout(() => setCopied(null), 2000);
   }
 
@@ -202,6 +222,44 @@ export function CobrancaNfe({
                 </button>
               )}
             </div>
+          )}
+        </div>
+      )}
+
+      {/* InfinitePay (link Pix/cartão — dinheiro direto na conta da loja) */}
+      {ipConnected && !isCancelled && !isPaid && (
+        <div className="mb-4">
+          {ipUrl ? (
+            <div>
+              <p className="text-sm font-semibold mb-1">
+                💚 Link InfinitePay gerado — Pix ou cartão em até 12x
+              </p>
+              <p className="text-xs text-gray-500 mb-2">
+                A cliente escolhe como pagar no link e o pedido vira{" "}
+                <b>Pago sozinho</b>. Envie no WhatsApp:
+              </p>
+              <div className="flex items-center gap-2">
+                <code className="flex-1 min-w-0 truncate rounded-lg bg-gray-50 border border-gray-200 px-2.5 py-2 text-[11px]">
+                  {ipUrl}
+                </code>
+                <button
+                  onClick={copiarInfinitePay}
+                  className="shrink-0 inline-flex items-center gap-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold px-3 py-2"
+                >
+                  {copied === "ip" ? <CheckCircle2 className="size-3.5" /> : <Copy className="size-3.5" />}
+                  {copied === "ip" ? "Copiado!" : "Copiar"}
+                </button>
+              </div>
+            </div>
+          ) : (
+            <button
+              onClick={gerarInfinitePay}
+              disabled={busy === "ip"}
+              className="inline-flex items-center gap-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium px-4 py-2.5 transition disabled:opacity-50"
+            >
+              {busy === "ip" ? <Loader2 className="size-4 animate-spin" /> : <CreditCard className="size-4" />}
+              Cobrar {brl(total)} via InfinitePay (Pix ou cartão)
+            </button>
           )}
         </div>
       )}

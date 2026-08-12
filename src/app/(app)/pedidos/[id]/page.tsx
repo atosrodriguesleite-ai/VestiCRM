@@ -87,8 +87,12 @@ export default async function OrderDetailPage({
   });
 
   // conexões do "dinheiro" (o painel de cobrança/NF-e só aparece se existirem)
-  const [mpConn, blingConn, meConn, company] = await Promise.all([
+  const [mpConn, ipConn, blingConn, meConn, company] = await Promise.all([
     db.mercadoPagoConnection.findUnique({
+      where: { companyId: user.companyId },
+      select: { id: true },
+    }),
+    db.infinitePayConnection.findUnique({
       where: { companyId: user.companyId },
       select: { id: true },
     }),
@@ -382,6 +386,7 @@ export default async function OrderDetailPage({
             isPaid={(PAID_ORDER_STATUSES as readonly string[]).includes(order.status)}
             isCancelled={order.status === "CANCELADO"}
             mpConnected={Boolean(mpConn)}
+            ipConnected={Boolean(ipConn)}
             blingConnected={Boolean(blingConn)}
             canNfe={isManagerUp(user)}
             nfe={{ status: order.nfeStatus, number: order.nfeNumber, url: order.nfeUrl }}

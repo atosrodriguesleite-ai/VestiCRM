@@ -85,7 +85,7 @@ async function liquidarUmaVez(
               data: {
                 orderId: order.id,
                 type: "NOTA",
-                description: `🚨 SEGUNDO pagamento recebido via ${origem} num pedido que JÁ ESTAVA PAGO — a cliente pode ter pago duas vezes. Confira no Mercado Pago e faça o estorno se for o caso.`,
+                description: `🚨 SEGUNDO pagamento recebido via ${origem} num pedido que JÁ ESTAVA PAGO — a cliente pode ter pago duas vezes. Confira no painel do provedor (${origem}) e faça o estorno se for o caso.`,
               },
             });
           }
@@ -113,7 +113,7 @@ async function liquidarUmaVez(
           data: {
             orderId: order.id,
             type: "NOTA",
-            description: `⚠️ Pagamento de R$ ${valorPago.toFixed(2)} recebido via ${origem}, mas o pedido custa R$ ${order.total.toFixed(2)}. O pedido NÃO foi marcado como pago — confira no Mercado Pago e finalize manualmente.`,
+            description: `⚠️ Pagamento de R$ ${valorPago.toFixed(2)} recebido via ${origem}, mas o pedido custa R$ ${order.total.toFixed(2)}. O pedido NÃO foi marcado como pago — confira no painel do provedor (${origem}) e finalize manualmente.`,
           },
         });
         return { tipo: "valor-divergente" as const };
@@ -196,19 +196,23 @@ async function liquidarUmaVez(
           where: {
             orderId: order.id,
             status: "PENDENTE",
-            provider: "MERCADO_PAGO",
+            // qualquer cobrança automática irmã (MP OU InfinitePay): o pedido
+            // pagou por um caminho, os outros links/QRs param de valer aqui
+            provider: { in: ["MERCADO_PAGO", "INFINITEPAY"] },
           },
-          select: { id: true, mpPaymentId: true, pixCopiaECola: true },
+          select: { id: true, provider: true, mpPaymentId: true, pixCopiaECola: true },
         });
         if (irmas.length > 0) {
           await tx.payment.updateMany({
             where: { id: { in: irmas.map((p) => p.id) } },
             data: { dueAt: agora },
           });
-          // só cobranças Pix têm pagamento cancelável no MP (o link de
-          // cartão ainda não virou pagamento — a invalidação acima cobre)
+          // só cobranças Pix do MP têm pagamento cancelável na API (o link
+          // de cartão/InfinitePay não vira pagamento antes de pagar — a
+          // invalidação local acima cobre; se a cliente pagar o link velho
+          // mesmo assim, o settle acusa "segundo pagamento" e a loja estorna)
           cancelarNoMp = irmas
-            .filter((p) => p.pixCopiaECola && p.mpPaymentId)
+            .filter((p) => p.provider === "MERCADO_PAGO" && p.pixCopiaECola && p.mpPaymentId)
             .map((p) => p.mpPaymentId!);
         }
       }
@@ -217,7 +221,7 @@ async function liquidarUmaVez(
           data: {
             orderId: order.id,
             type: "NOTA",
-            description: `⚠️ A cliente pagou R$ ${valorPago!.toFixed(2)} num pedido de R$ ${order.total.toFixed(2)} (cobrança antiga de um pedido editado). Há R$ ${trocoADevolver.toFixed(2)} a devolver — faça o estorno parcial no Mercado Pago.`,
+            description: `⚠️ A cliente pagou R$ ${valorPago!.toFixed(2)} num pedido de R$ ${order.total.toFixed(2)} (cobrança antiga de um pedido editado). Há R$ ${trocoADevolver.toFixed(2)} a devolver — faça o estorno parcial no painel do provedor (${origem}).`,
           },
         });
       }
