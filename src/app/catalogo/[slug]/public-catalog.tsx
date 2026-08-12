@@ -27,6 +27,8 @@ import {
   protocoloDaSacola,
   registrarComInsistencia,
   reenviarPendentes,
+  sacolaJaEnviada,
+  marcarRegistrado,
 } from "@/lib/catalogo/envio-pedido";
 import { compareSizes } from "@/lib/sizes";
 import { fotoDaCor, ordenarFotosDaCor } from "@/lib/capa-por-cor";
@@ -577,7 +579,6 @@ export function PublicCatalog({
   const [envio, setEnvio] = useState<"parado" | "enviando" | "ok" | "erro">("parado");
   // protocolo da última sacola enviada nesta visita — é o que permite
   // reconhecer o segundo clique antes de abrir o WhatsApp de novo
-  const jaEnviado = useRef<string>("");
 
   // Rede de segurança: ao abrir o catálogo, reenvia pedido que ficou para
   // trás numa visita anterior (internet caiu no momento do envio).
@@ -875,20 +876,6 @@ export function PublicCatalog({
     }
     msg += "\n_Valores sujeitos a confirmação._";
 
-    // pedido enviado: limpa a sacola salva no aparelho (uma visita futura
-    // começa limpa; a sacola na tela permanece até a página fechar)
-    try {
-      localStorage.removeItem(storeKey);
-    } catch {}
-
-    // Tracking Engine: conversão + unificação do visitante anônimo
-    orderSentRef.current = true;
-    t({ type: "order_submitted", value: totalValue, qty: totalPieces });
-    trackerRef.current?.flush(true);
-    if (client.fone.replace(/\D/g, "").length >= 8) {
-      trackerRef.current?.identify(client.fone);
-    }
-
     // O pedido também é registrado no CRM da loja (tela Pedidos), SEMPRE —
     // mesmo sem dados do cliente. Com telefone, entra ainda como lead
     // (conversa + oportunidade) via Lead Intake Engine no servidor.
@@ -942,15 +929,22 @@ export function PublicCatalog({
       // WhatsApp abre noutra aba: a cliente volta, vê a sacola cheia (parece
       // que não foi) e aperta de novo. Sem isto, cada toque criava um pedido
       // novo e o estoque era reservado em dobro.
+      // JÁ MANDOU ESTA MESMA SACOLA? Consultado ANTES do protocoloDaSacola
+      // (que grava o registro na primeira vez) e lido do APARELHO, não da
+      // memória da aba: no celular, a volta do WhatsApp costuma RECARREGAR o
+      // catálogo — o aviso em useRef zerava e a cliente reenviava a mesma
+      // mensagem sem nenhuma pergunta (era o "pedido duplicado" na conversa).
+      const sacolaRepetida = sacolaJaEnviada(window.localStorage, pendente.payload);
       pendente.clientRef = protocoloDaSacola(window.localStorage, pendente.payload);
       pendente.payload.clientRef = pendente.clientRef;
 
-      // JÁ MANDOU ESTA MESMA SACOLA? Pergunta antes de abrir o WhatsApp.
-      //
       // O protocolo repetido já impede o PEDIDO duplicado. Mas sem este
       // aviso a vendedora ainda receberia a MESMA MENSAGEM outra vez — e foi
       // justamente isso que fez a loja achar que eram dois pedidos.
-      if (jaEnviado.current === pendente.clientRef) {
+      // `sacolaRepetida` só é true com o registro CONFIRMADO pelo servidor
+      // (marcarRegistrado) — o aviso nunca diz "a loja já recebeu" à toa, e
+      // recusar aqui é sempre seguro.
+      if (sacolaRepetida) {
         const repetir = window.confirm(
           "Você já enviou este pedido agora há pouco.\n\n" +
             "Ele foi registrado e a loja já recebeu — enviar de novo só manda " +
@@ -962,11 +956,30 @@ export function PublicCatalog({
         }
       }
 
+      // pedido enviado: limpa a sacola salva no aparelho (uma visita futura
+      // começa limpa; a sacola na tela permanece até a página fechar).
+      // DEPOIS do aviso: recusar o reenvio não pode contar conversão nem
+      // mexer em nada — a cliente não enviou coisa alguma.
+      try {
+        localStorage.removeItem(storeKey);
+      } catch {}
+
+      // Tracking Engine: conversão + unificação do visitante anônimo
+      orderSentRef.current = true;
+      t({ type: "order_submitted", value: totalValue, qty: totalPieces });
+      trackerRef.current?.flush(true);
+      if (client.fone.replace(/\D/g, "").length >= 8) {
+        trackerRef.current?.identify(client.fone);
+      }
+
       guardarPendente(window.localStorage, pendente);
       setEnvio("enviando");
-      jaEnviado.current = pendente.clientRef;
       registrarComInsistencia(pendente, { storage: window.localStorage })
-        .then((ok) => setEnvio(ok ? "ok" : "erro"))
+        .then((ok) => {
+          setEnvio(ok ? "ok" : "erro");
+          // só o ok do servidor autoriza o aviso a dizer "a loja já recebeu"
+          if (ok) marcarRegistrado(window.localStorage, pendente.clientRef);
+        })
         .catch(() => setEnvio("erro"));
     }
 
