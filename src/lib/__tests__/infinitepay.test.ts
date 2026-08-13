@@ -139,6 +139,13 @@ describe("as portas públicas passam pelo middleware e não escrevem à toa", ()
     const n = rota.split('provider: { in: ["MERCADO_PAGO", "INFINITEPAY"] }').length - 1;
     expect(n).toBeGreaterThanOrEqual(4); // 3 invalidações + guard do DELETE
   });
+  it("cancelar pedido pago manda estornar no provedor CERTO (InfinitePay/MP)", () => {
+    const rota = ler("src/app/api/orders/[id]/route.ts");
+    expect(rota).toContain("no app da InfinitePay");
+    expect(rota).toContain('p.provider === "INFINITEPAY"');
+    // não fala mais "Mercado Pago" fixo para todo pagamento estornado
+    expect(rota).not.toContain("Faça o estorno no painel do Mercado Pago.");
+  });
 });
 
 describe("portas com as regras da casa", () => {

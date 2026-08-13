@@ -902,17 +902,27 @@ export async function PATCH(
                 data: { dueAt: new Date() },
               });
               // 2) havia pagamento confirmado? o status ESTORNADO no sistema
-              // NÃO devolve o dinheiro no Mercado Pago — o estorno é manual.
-              const tinhaPago = await tx.payment.count({
+              // NÃO devolve o dinheiro no gateway — o estorno é manual, e no
+              // lugar CERTO: InfinitePay ou Mercado Pago, conforme quem
+              // recebeu (dizer "Mercado Pago" para um pedido da InfinitePay
+              // mandava a loja procurar o estorno na conta errada — 12/08/2026)
+              const estornados = await tx.payment.findMany({
                 where: { orderId: order.id, status: "ESTORNADO" },
+                select: { provider: true },
               });
-              if (tinhaPago > 0) {
+              if (estornados.length > 0) {
+                const temIp = estornados.some((p) => p.provider === "INFINITEPAY");
+                const temMp = estornados.some((p) => p.provider === "MERCADO_PAGO");
+                const onde = temIp && temMp
+                  ? "no app da InfinitePay e no painel do Mercado Pago (conforme onde a cliente pagou)"
+                  : temIp
+                    ? "no app da InfinitePay (aba Vendas → a venda desta cliente → Estornar)"
+                    : "no painel do Mercado Pago";
                 await tx.orderEvent.create({
                   data: {
                     orderId: order.id,
                     type: "NOTA",
-                    description:
-                      "⚠️ Pedido cancelado tinha pagamento confirmado — o valor NÃO volta sozinho. Faça o estorno no painel do Mercado Pago.",
+                    description: `⚠️ Pedido cancelado tinha pagamento confirmado — o valor NÃO volta sozinho para a cliente. Faça o estorno ${onde}.`,
                     userId: user.id,
                   },
                 });
