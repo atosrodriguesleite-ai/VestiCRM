@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import type { Metadata } from "next";
 import { db } from "@/lib/db";
 import { imageHref } from "@/lib/img";
+import { ordenarVariantes } from "@/lib/tamanhos";
 import {
   parseCategoryDescriptions,
   parseCategoryOrder,
@@ -82,7 +83,9 @@ export default async function PublicCatalogPage({
     tags: p.tags,
     // url + cor etiquetada: o card de cada cor usa a foto DAQUELA cor
     images: p.images.map((i) => ({ url: imageHref(i.id), color: i.color })),
-    variants: p.variants.map((v) => ({
+    // ordem de ROUPA (PP, P, M, G, GG / numeração crescente): as bolinhas de
+    // tamanho do catálogo seguem a arara, não o alfabeto
+    variants: ordenarVariantes(p.variants).map((v) => ({
       color: v.color,
       size: v.size,
       available: v.stock > 0,

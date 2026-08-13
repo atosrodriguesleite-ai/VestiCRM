@@ -12,23 +12,11 @@
  * alfabético — no alfabeto o G vinha antes do M e bagunçava a arara.
  */
 
-/** Letras de grade, na ordem da arara. */
-const ORDEM_LETRAS = ["PP", "P", "M", "G", "GG", "XG", "EG", "XGG", "EGG", "EXG", "G1", "G2", "G3", "G4"];
+import { pesoTamanho } from "./tamanhos";
 
-/**
- * Peso do tamanho para ordenação: letras primeiro (PP…GG…), depois a
- * numeração (36, 38, 40… em ordem crescente), "Único" e desconhecidos no fim.
- */
-export function pesoTamanho(tamanho: string | null | undefined): number {
-  const s = (tamanho ?? "").trim().toUpperCase();
-  if (!s) return 990;
-  const letra = ORDEM_LETRAS.indexOf(s);
-  if (letra >= 0) return letra;
-  const numero = parseInt(s.replace(/\D/g, ""), 10);
-  if (!Number.isNaN(numero) && numero > 0) return 100 + numero;
-  if (s === "ÚNICO" || s === "UNICO") return 980;
-  return 900; // desconhecido: perto do fim, desempate alfabético
-}
+// a régua do tamanho mora em lib/tamanhos.ts — é a MESMA das telas
+// (Produtos, catálogo, pedido); reexportada aqui por compatibilidade
+export { pesoTamanho };
 
 type ItemDoRomaneio = {
   productId: string | null;

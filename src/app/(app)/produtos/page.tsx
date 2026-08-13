@@ -12,6 +12,7 @@ import { PhotoDoctor } from "./photo-doctor";
 import { ExportCatalog } from "./export-catalog";
 import { SkuManager } from "./sku-manager";
 import { CategoryManager } from "./category-manager";
+import { ordenarVariantes, ordenarTamanhos, compararTamanhos } from "@/lib/tamanhos";
 
 export const dynamic = "force-dynamic";
 
@@ -29,6 +30,9 @@ export default async function ProductsPage() {
       orderBy: { order: "asc" },
     }),
   ]);
+  // biblioteca sem ordem escolhida (todo mundo com order 0) cai na ordem de
+  // ROUPA — senão o dropdown de tamanho saía "G, GG, M, P, PP"
+  librarySizes.sort((a, b) => a.order - b.order || compararTamanhos(a.name, b.name));
   const products = await db.product.findMany({
     where: { companyId: user.companyId },
     include: {
@@ -37,6 +41,11 @@ export default async function ProductsPage() {
     },
     orderBy: { name: "asc" },
   });
+  // grade na ORDEM DE ROUPA (PP, P, M, G, GG / 32, 34…): o banco só sabe
+  // alfabeto — e no alfabeto o G vinha antes do M (pedido do dono, 12/08/2026)
+  for (const p of products) {
+    p.variants = ordenarVariantes(p.variants);
+  }
 
   const items: ProductItem[] = products.map((p) => ({
     id: p.id,
@@ -80,9 +89,9 @@ export default async function ProductsPage() {
   const colors = [
     ...new Set(products.flatMap((p) => p.variants.map((v) => v.color))),
   ].sort();
-  const sizes = [
+  const sizes = ordenarTamanhos([
     ...new Set(products.flatMap((p) => p.variants.map((v) => v.size))),
-  ];
+  ]);
 
   // monitor de estoque: todas as variações de produtos ativos. O filtro pelo
   // limite acontece no cliente (ao vivo), pra atualizar na hora que o dono
