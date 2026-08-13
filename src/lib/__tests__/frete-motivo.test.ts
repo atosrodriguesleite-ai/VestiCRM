@@ -1,5 +1,26 @@
 import { describe, it, expect } from "vitest";
-import { motivoRecusa } from "../melhorenvio";
+import { motivoRecusa, extrairServiceIds } from "../melhorenvio";
+
+/**
+ * Numa integração por API é QUEM CHAMA que diz quais serviços quer cotar —
+ * sem a lista o Melhor Envio devolvia só o padrão da conta (SEDEX e PAC).
+ */
+describe("extrairServiceIds", () => {
+  it("pega os ids dos serviços para pedir a cotação de todos", () => {
+    const lista = [
+      { id: 1, name: "PAC", company: { name: "Correios" } },
+      { id: 2, name: "SEDEX", company: { name: "Correios" } },
+      { id: 3, name: ".Package", company: { name: "Jadlog" } },
+    ];
+    expect(extrairServiceIds(lista)).toEqual([1, 2, 3]);
+  });
+
+  it("ignora lixo em vez de derrubar a cotação", () => {
+    expect(extrairServiceIds([{ id: 1 }, { id: null }, { id: "x" }, {}, null])).toEqual([1]);
+    expect(extrairServiceIds(null)).toEqual([]);
+    expect(extrairServiceIds({ error: "token" })).toEqual([]);
+  });
+});
 
 /**
  * A cotação sumia com a transportadora que não deu preço — a lojista via só

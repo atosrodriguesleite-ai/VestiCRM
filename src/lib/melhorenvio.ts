@@ -271,6 +271,62 @@ export function pesoDoPedidoKg(items: ItemComPeso[], conn: ConnPesos): number {
 
 // ---- Cotação ----------------------------------------------------------------
 
+/**
+ * IDs de TODOS os serviços do Melhor Envio (Correios + transportadoras).
+ *
+ * Por que isso existe: numa integração por API é QUEM CHAMA que diz quais
+ * serviços quer na cotação. Sem a lista, o Melhor Envio devolve o conjunto
+ * padrão dele — na conta do Atos vinham só SEDEX e PAC, e parecia que o
+ * sistema não cotava transportadora nenhuma. Pedindo a lista inteira, cada
+ * transportadora responde: ou com preço, ou com o motivo de não atender
+ * (que a tela agora mostra).
+ */
+export function extrairServiceIds(data: unknown): number[] {
+  // o Melhor Envio às vezes embrulha a lista em `{ data: [...] }` (o mesmo
+  // vaivém que /me/addresses faz) — aceitar os dois evita voltar calado ao bug
+  const lista = Array.isArray(data)
+    ? data
+    : Array.isArray((data as { data?: unknown })?.data)
+      ? ((data as { data: unknown[] }).data)
+      : [];
+  return lista
+    .map((s) => Number((s as { id?: unknown })?.id))
+    .filter((n) => Number.isInteger(n) && n > 0);
+}
+
+// A lista de serviços do Melhor Envio muda muito raramente (transportadora
+// nova entra de tempos em tempos) — guardar por algumas horas evita uma
+// chamada extra em toda cotação. Guardada POR LOJA: cada loja tem a conta ME
+// dela, e lista de uma loja na cotação de outra é vazamento entre inquilinos.
+const SERVICOS_TTL_MS = 60 * 60 * 1000;
+const servicosCache = new Map<string, { ids: number[]; at: number }>();
+
+/** Esquece a lista guardada — a loja trocou de conta Melhor Envio. */
+export function meLimparCacheServicos(companyId: string) {
+  servicosCache.delete(companyId);
+}
+
+async function meServiceIds(companyId: string): Promise<number[]> {
+  const guardado = servicosCache.get(companyId);
+  if (guardado && Date.now() - guardado.at < SERVICOS_TTL_MS) return guardado.ids;
+  // Internet caindo no meio não pode derrubar a cotação: sem lista a gente
+  // ainda cota o padrão da conta, e é isso que a lojista precisa ver.
+  const r = await meApi(companyId, "GET", "/me/shipment/services").catch(
+    (e: unknown) => ({ ok: false, status: 0, data: null, raw: String(e) })
+  );
+  const ids = r.ok ? extrairServiceIds(r.data) : [];
+  if (!ids.length) {
+    // Sem lista a cotação volta ao padrão da conta (só Correios) — falha
+    // silenciosa é justamente o que escondeu esse bug por semanas.
+    console.error(
+      `[melhorenvio] lista de serviços vazia (status ${r.status}): ${r.raw.slice(0, 300)}`
+    );
+    return guardado?.ids ?? [];
+  }
+  servicosCache.set(companyId, { ids, at: Date.now() });
+  return ids;
+}
+
 export type MeQuote = {
   serviceId: number;
   service: string; // PAC, SEDEX, .Package...
@@ -334,31 +390,51 @@ export async function meCalculate(input: {
       ok: false,
       error: "Preencha o CEP do remetente em Configurações → Melhor Envio.",
     };
-  const r = await meApi<
-    {
-      id?: number;
-      name?: string;
-      price?: string | number;
-      delivery_time?: number;
-      delivery_range?: { min?: number; max?: number };
-      company?: { name?: string; picture?: string };
-      error?: string;
-    }[]
-  >(input.companyId, "POST", "/me/shipment/calculate", {
-    from: { postal_code: conn.fromZip.replace(/\D/g, "") },
-    to: { postal_code: input.toZip.replace(/\D/g, "") },
-    package: {
-      weight: input.weightKg,
-      width: conn.boxWidthCm,
-      height: conn.boxHeightCm,
-      length: conn.boxLengthCm,
-    },
-    options: {
-      insurance_value: Math.round(input.insuranceValue * 100) / 100,
-      receipt: false,
-      own_hand: false,
-    },
-  });
+  const servicos = await meServiceIds(input.companyId);
+  const cotar = (comServicos: boolean) =>
+    meApi<
+      {
+        id?: number;
+        name?: string;
+        price?: string | number;
+        delivery_time?: number;
+        delivery_range?: { min?: number; max?: number };
+        company?: { name?: string; picture?: string };
+        error?: string;
+      }[]
+    >(input.companyId, "POST", "/me/shipment/calculate", {
+      from: { postal_code: conn.fromZip!.replace(/\D/g, "") },
+      to: { postal_code: input.toZip.replace(/\D/g, "") },
+      package: {
+        weight: input.weightKg,
+        width: conn.boxWidthCm,
+        height: conn.boxHeightCm,
+        length: conn.boxLengthCm,
+      },
+      options: {
+        insurance_value: Math.round(input.insuranceValue * 100) / 100,
+        receipt: false,
+        own_hand: false,
+      },
+      // sem isto o Melhor Envio devolve só o padrão da conta (SEDEX e PAC)
+      ...(comServicos ? { services: servicos.join(",") } : {}),
+    });
+
+  let r = await cotar(servicos.length > 0);
+  // Só repesca quando o Melhor Envio recusou o PEDIDO (400/422) — 401 (token),
+  // 403 e 429 (limite) falhariam igual, e repetir só gastaria chamada.
+  if (!r.ok && servicos.length > 0 && (r.status === 400 || r.status === 422)) {
+    // Um id que o ME não aceita mais derrubaria a cotação INTEIRA e a loja
+    // ficaria sem nem os Correios, que antes funcionavam. Repesca sem a lista:
+    // volta ao padrão da conta, mas volta com alguma coisa.
+    console.error(
+      `[melhorenvio] calculate recusou a lista de serviços (${r.status}): ${r.raw.slice(0, 300)}`
+    );
+    // guarda a lista VAZIA: sem isso a próxima cotação buscaria os mesmos ids
+    // e faria 3 chamadas para chegar no mesmo lugar, cotação após cotação
+    servicosCache.set(input.companyId, { ids: [], at: Date.now() });
+    r = await cotar(false);
+  }
   if (!r.ok || !Array.isArray(r.data))
     return { ok: false, error: meErro(r.data, r.status) };
   const cotou = (s: (typeof r.data)[number]) =>
@@ -386,7 +462,7 @@ export async function meCalculate(input: {
     // apareceriam. Só tratamos o que é texto de verdade.
     const bruto = typeof s.error === "string" ? s.error.trim() : "";
     const reason = bruto ? motivoRecusa(bruto) : "Sem preço para este envio.";
-    const chave = `${carrier} ${reason}`;
+    const chave = `${carrier} \u0000 ${reason}`;
     const atual = porMotivo.get(chave);
     const service = s.name?.trim();
     if (atual) {
