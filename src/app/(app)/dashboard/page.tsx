@@ -123,7 +123,7 @@ export default async function DashboardPage({
     ordersToday,
     ordersWeek,
     ordersMonth,
-    topItems,
+    topItemsRaw,
     topBuyers,
     buyersAll,
     ordersGenerated30,
@@ -213,12 +213,14 @@ export default async function DashboardPage({
       _count: true,
       _sum: { netTotal: true },
     }),
+    // agrupado pelo PRODUTO (não pelo nome congelado no item): o pedido
+    // guarda o nome da época — renomear a peça (ex.: tirar a cor do nome)
+    // dividia as vendas em duas linhas e o ranking mentia (12/08/2026).
+    // O top 6 é montado depois, com o nome ATUAL do cadastro.
     db.orderItem.groupBy({
-      by: ["name"],
+      by: ["productId", "name"],
       where: { order: { ...orderScope, paidAt: inPeriod } },
       _sum: { quantity: true },
-      orderBy: { _sum: { quantity: "desc" } },
-      take: 6,
     }),
     db.order.groupBy({
       by: ["customerId"],
@@ -277,6 +279,39 @@ export default async function DashboardPage({
       _count: true,
     }),
   ]);
+
+  // PRODUTOS MAIS VENDIDOS com o nome ATUAL do cadastro. Duas fusões:
+  //  1) pelo produto — vendas antigas de um produto renomeado somam juntas;
+  //  2) pelo nome final — produtos-por-cor que ganharam o MESMO nome (a loja
+  //     tirou a cor do nome; a cor mora na variação) viram UMA família.
+  // Linha sem produto vinculado (avulsa) agrupa pelo nome gravado no item.
+  const somaPorChave = new Map<string, number>();
+  const nomeGravado = new Map<string, string>();
+  for (const t of topItemsRaw) {
+    const chave = t.productId ?? `nome:${t.name}`;
+    somaPorChave.set(chave, (somaPorChave.get(chave) ?? 0) + (t._sum.quantity ?? 0));
+    if (t.productId) nomeGravado.set(t.productId, t.name);
+  }
+  const idsVendidos = [...somaPorChave.keys()].filter((k) => !k.startsWith("nome:"));
+  const nomesAtuais = idsVendidos.length
+    ? await db.product.findMany({
+        where: { id: { in: idsVendidos } },
+        select: { id: true, name: true },
+      })
+    : [];
+  const nomeAtual = new Map(nomesAtuais.map((p) => [p.id, p.name]));
+  const somaPorNome = new Map<string, number>();
+  for (const [chave, qtd] of somaPorChave) {
+    const rotulo = chave.startsWith("nome:")
+      ? chave.slice(5)
+      : // produto apagado do cadastro: vale o nome gravado no pedido
+        (nomeAtual.get(chave) ?? nomeGravado.get(chave) ?? "Produto removido");
+    somaPorNome.set(rotulo, (somaPorNome.get(rotulo) ?? 0) + qtd);
+  }
+  const topItems = [...somaPorNome.entries()]
+    .map(([name, quantidade]) => ({ name, quantidade }))
+    .sort((a, b) => b.quantidade - a.quantidade)
+    .slice(0, 6);
 
   const buyerNames = await db.customer.findMany({
     where: { id: { in: topBuyers.map((b) => b.customerId) } },
@@ -746,7 +781,7 @@ export default async function DashboardPage({
             <h2 className="font-semibold flex items-center gap-2 mb-4">
               <Package className="size-4 text-brand-600" />
               Produtos mais vendidos
-              <InfoTip text="Peças mais vendidas em pedidos PAGOS no período, somando a quantidade de cada modelo. Pedido cancelado ou sem pagamento não conta." />
+              <InfoTip text="Peças mais vendidas em pedidos PAGOS no período, somadas pelo produto do cadastro (nome atual — renomear a peça junta o histórico). Pedido cancelado ou sem pagamento não conta." />
             </h2>
             {topItems.length === 0 ? (
               <EmptyState title="Nenhum pedido ainda" />
@@ -754,7 +789,7 @@ export default async function DashboardPage({
               <BarList
                 data={topItems.map((i) => ({
                   label: i.name,
-                  value: i._sum.quantity ?? 0,
+                  value: i.quantidade,
                 }))}
                 formatValue={(v) => `${v} un.`}
               />

@@ -27,6 +27,11 @@ describe("Dashboard: conversão nunca passa de 100%", () => {
   it("cartão de pedidos diz '30d' (não finge ser o mês do calendário)", () => {
     expect(dash).toContain('"Pagos (30d)"');
   });
+  it("mais vendidos agrupam pelo PRODUTO com o nome ATUAL (renomear junta o histórico)", () => {
+    expect(dash).toContain('by: ["productId", "name"]');
+    expect(dash).toContain("nomeAtual.get(chave)");
+    expect(dash).toContain("somaPorNome");
+  });
 });
 
 describe("Equipe: a meta é do MÊS (fuso SP), não de 30 dias corridos", () => {
