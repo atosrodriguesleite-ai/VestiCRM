@@ -280,13 +280,51 @@ export type MeQuote = {
   days: number | null; // prazo em dias úteis
 };
 
+/** Transportadora que o Melhor Envio devolveu SEM preço, e o porquê. */
+export type MeRecusa = {
+  carrier: string;
+  services: string[];
+  reason: string;
+};
+
+/**
+ * Traduz o "não cotou" do Melhor Envio para o português da lojista.
+ *
+ * Antes a gente simplesmente SUMIA com a transportadora que deu erro — a tela
+ * mostrava só os Correios e ninguém sabia se era limite de peso, trecho sem
+ * cobertura ou conta não liberada. Sumir com o motivo é o mesmo que esconder o
+ * problema: a lojista fica achando que o sistema só cota Correios.
+ */
+export function motivoRecusa(erro: string): string {
+  const e = erro.toLowerCase();
+  // Causa nº 1 na prática: conta pessoa física / sem verificação. As
+  // transportadoras privadas (Jadlog, Loggi, Azul, LATAM...) só liberam depois
+  // que o Melhor Envio valida a conta — os Correios aceitam CPF de cara.
+  // `inativ`/`token` ficam DE FORA de propósito: instabilidade da
+  // transportadora ("serviço inativo") mandaria a lojista verificar uma conta
+  // que já está verificada. Token ruim aparece como erro da chamada inteira.
+  if (/contrato|habilit|autoriza|permiss|liberad|credencia/.test(e))
+    return "Não liberada na sua conta Melhor Envio — faça a verificação da conta no painel deles.";
+  if (/peso/.test(e)) return "Peso do pedido fora do limite dessa transportadora.";
+  if (/dimens|altura|largura|comprimento|tamanho|cubagem/.test(e))
+    return "Tamanho da caixa fora do limite dessa transportadora.";
+  if (/cep|trecho|regi|atend|cobertura|rota|destino|origem/.test(e))
+    return "Não atende este trecho (CEP de origem → destino).";
+  if (/valor|seguro|declarado/.test(e))
+    return "Valor do pedido fora do limite dessa transportadora.";
+  return erro;
+}
+
 /** Cota o frete de UMA caixa (peso somado do pedido + caixa padrão da loja). */
 export async function meCalculate(input: {
   companyId: string;
   toZip: string;
   weightKg: number;
   insuranceValue: number;
-}): Promise<{ ok: true; quotes: MeQuote[]; fromZip: string } | { ok: false; error: string }> {
+}): Promise<
+  | { ok: true; quotes: MeQuote[]; recusadas: MeRecusa[]; fromZip: string }
+  | { ok: false; error: string }
+> {
   const conn = await db.melhorEnvioConnection.findUnique({
     where: { companyId: input.companyId },
   });
@@ -323,8 +361,10 @@ export async function meCalculate(input: {
   });
   if (!r.ok || !Array.isArray(r.data))
     return { ok: false, error: meErro(r.data, r.status) };
+  const cotou = (s: (typeof r.data)[number]) =>
+    !s.error && Boolean(s.id) && Number(s.price) > 0;
   const quotes = r.data
-    .filter((s) => !s.error && s.id && Number(s.price) > 0)
+    .filter(cotou)
     .map((s) => ({
       serviceId: Number(s.id),
       service: s.name ?? "Serviço",
@@ -334,13 +374,40 @@ export async function meCalculate(input: {
       days: s.delivery_time ?? s.delivery_range?.max ?? null,
     }))
     .sort((a, b) => a.price - b.price);
-  if (quotes.length === 0)
+
+  // Quem NÃO cotou vira uma linha explicada, agrupada por transportadora +
+  // motivo (a Jadlog tem 3 serviços; 3 linhas iguais só poluiriam a tela).
+  const porMotivo = new Map<string, MeRecusa>();
+  for (const s of r.data) {
+    if (cotou(s)) continue;
+    const carrier = s.company?.name?.trim() || "Transportadora";
+    // `error` vem de fora: já veio como texto sempre, mas se um dia vier
+    // objeto o `.trim()` derrubaria a cotação INTEIRA — e aí nem os Correios
+    // apareceriam. Só tratamos o que é texto de verdade.
+    const bruto = typeof s.error === "string" ? s.error.trim() : "";
+    const reason = bruto ? motivoRecusa(bruto) : "Sem preço para este envio.";
+    const chave = `${carrier} ${reason}`;
+    const atual = porMotivo.get(chave);
+    const service = s.name?.trim();
+    if (atual) {
+      if (service && !atual.services.includes(service)) atual.services.push(service);
+    } else {
+      porMotivo.set(chave, { carrier, services: service ? [service] : [], reason });
+    }
+  }
+  const recusadas = [...porMotivo.values()].sort((a, b) =>
+    a.carrier.localeCompare(b.carrier, "pt-BR")
+  );
+
+  // Só é erro quando o Melhor Envio não devolveu NADA — se ele explicou por
+  // que cada uma recusou, a tela mostra a explicação em vez de um erro seco.
+  if (quotes.length === 0 && recusadas.length === 0)
     return {
       ok: false,
       error:
         "Nenhuma transportadora atende este trecho/peso. Confira o CEP do cliente e o peso do pedido.",
     };
-  return { ok: true, quotes, fromZip: conn.fromZip };
+  return { ok: true, quotes, recusadas, fromZip: conn.fromZip };
 }
 
 // ---- Compra da etiqueta ------------------------------------------------------

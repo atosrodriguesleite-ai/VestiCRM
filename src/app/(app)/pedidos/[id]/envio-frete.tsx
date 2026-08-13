@@ -31,6 +31,12 @@ type Quote = {
   days: number | null;
 };
 
+type Recusa = {
+  carrier: string;
+  services: string[];
+  reason: string;
+};
+
 type Ship = {
   meOrderId: string | null;
   meService: string | null;
@@ -67,6 +73,7 @@ export function EnvioFrete({
   const router = useRouter();
   const [ship, setShip] = useState<Ship>(initialShipping);
   const [quotes, setQuotes] = useState<Quote[] | null>(null);
+  const [recusadas, setRecusadas] = useState<Recusa[]>([]);
   const [weightKg, setWeightKg] = useState<number | null>(null);
   const [escolhido, setEscolhido] = useState<number | null>(null);
   const [busy, setBusy] = useState<"cotar" | "comprar" | "cancelar" | "rastreio" | "etiqueta" | null>(null);
@@ -90,8 +97,16 @@ export function EnvioFrete({
     setErro("");
     const { ok, d } = await acao({ action: "cotar" });
     setBusy(null);
-    if (!ok) return setErro(d.error ?? "Não foi possível cotar o frete.");
-    setQuotes(d.quotes);
+    if (!ok) {
+      // Cotação velha na tela = preço velho no botão "Comprar etiqueta" (o
+      // servidor recotaria e cobraria outro valor da carteira). Falhou, limpa.
+      setQuotes(null);
+      setRecusadas([]);
+      setEscolhido(null);
+      return setErro(d.error ?? "Não foi possível cotar o frete.");
+    }
+    setQuotes(d.quotes ?? []);
+    setRecusadas(Array.isArray(d.recusadas) ? d.recusadas : []);
     setWeightKg(d.weightKg ?? null);
     setEscolhido(d.quotes?.[0]?.serviceId ?? null);
   }
@@ -117,6 +132,7 @@ export function EnvioFrete({
     if (!ok) return setErro(d.error ?? "Não foi possível comprar a etiqueta.");
     setShip(d.shipping);
     setQuotes(null);
+    setRecusadas([]);
     router.refresh();
   }
 
@@ -286,7 +302,7 @@ export function EnvioFrete({
         <div className="space-y-2">
           <p className="text-xs text-gray-500">
             Cotação para <b>{weightKg} kg</b> (peso das peças + caixa padrão da
-            loja). Escolha o serviço:
+            loja).{quotes.length > 0 && " Escolha o serviço:"}
           </p>
           {quotes.map((q) => (
             <label
@@ -317,8 +333,41 @@ export function EnvioFrete({
               <span className="text-sm font-semibold tabular-nums">{brl(q.price)}</span>
             </label>
           ))}
+          {recusadas.length > 0 && (
+            <details className="rounded-xl border border-gray-200 bg-gray-50/60 px-3 py-2">
+              <summary className="cursor-pointer text-xs font-medium text-gray-600">
+                {recusadas.length}{" "}
+                {recusadas.length === 1
+                  ? "transportadora não cotou"
+                  : "transportadoras não cotaram"}{" "}
+                — ver o motivo
+              </summary>
+              <ul className="mt-2 space-y-1.5">
+                {recusadas.map((rec) => (
+                  <li key={`${rec.carrier}-${rec.reason}`} className="text-xs text-gray-500">
+                    <b className="text-gray-700">{rec.carrier}</b>
+                    {rec.services.length > 0 && (
+                      <span className="text-gray-400"> ({rec.services.join(", ")})</span>
+                    )}
+                    : {rec.reason}
+                  </li>
+                ))}
+              </ul>
+              <p className="mt-2 text-[11px] text-gray-400">
+                Transportadora “não liberada” se resolve no painel do Melhor
+                Envio (Gerenciar → Verificação de conta). Os Correios aceitam
+                conta com CPF; as demais costumam exigir a conta verificada.
+              </p>
+            </details>
+          )}
+          {quotes.length === 0 && (
+            <p className="text-sm text-amber-700 bg-amber-50 border border-amber-100 rounded-xl px-3 py-2">
+              Nenhuma transportadora cotou este envio. Veja o motivo de cada uma
+              acima.
+            </p>
+          )}
           <div className="flex items-center gap-2 pt-1">
-            {canBuy ? (
+            {canBuy && quotes.length > 0 ? (
               <button
                 onClick={comprar}
                 disabled={busy === "comprar" || !escolhido}
@@ -327,11 +376,11 @@ export function EnvioFrete({
                 {busy === "comprar" ? <Loader2 className="size-4 animate-spin" /> : <Truck className="size-4" />}
                 Comprar etiqueta
               </button>
-            ) : (
+            ) : quotes.length > 0 ? (
               <p className="text-xs text-gray-400">
                 Peça a um gerente ou admin para comprar a etiqueta.
               </p>
-            )}
+            ) : null}
             <button
               onClick={cotar}
               disabled={busy === "cotar"}
