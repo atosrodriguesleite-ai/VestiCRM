@@ -10,7 +10,7 @@ import { computeOrderTotals, orderNumber } from "@/lib/orders";
 import { pushStockToNuvemshop } from "@/lib/nuvemshop";
 import { pushStockToJueri } from "@/lib/jueri";
 import { reservarEstoque, textoDaFalta } from "@/lib/reservations";
-import { syncOpportunityValue } from "@/lib/opportunity-sync";
+import { syncOpportunityValue, garantirCartaoDoPedido } from "@/lib/opportunity-sync";
 import { comNumeroUnico } from "@/lib/numero-do-pedido";
 
 /**
@@ -295,6 +295,11 @@ export async function POST(req: NextRequest) {
       });
     }
 
+    // Cliente SEM negociação aberta livre → o pedido nascia solto e a venda
+    // nunca aparecia no funil (nem ao pagar). Agora o cartão nasce junto,
+    // já na etapa certa, amarrado a ESTE pedido.
+    const cartao =
+      order.opportunityId ?? (await garantirCartaoDoPedido(user.companyId, order.id));
     // O CARTÃO ANDA SOZINHO: montou orçamento → "Pedido em negociação";
     // já foi para aguardando pagamento → "Pagamento pendente". Antes essas
     // duas etapas do meio só existiam se alguém arrastasse o cartão à mão.
@@ -303,12 +308,12 @@ export async function POST(req: NextRequest) {
       input.customerId,
       input.status === "AGUARDANDO_PAGAMENTO" ? "PAGAMENTO" : "NEGOCIACAO",
       // o cartão certo é o que ficou amarrado a ESTE pedido
-      order.opportunityId
+      cartao
     );
     // o valor do cartão acompanha o pedido desde o NASCIMENTO (valor vendido,
     // sem frete) — a coluna do funil mostrava R$ 0/valor velho enquanto o
     // Dashboard já mostrava a venda (auditoria 07/08/2026)
-    await syncOpportunityValue(user.companyId, order.opportunityId, order.netTotal);
+    await syncOpportunityValue(user.companyId, cartao, order.netTotal);
 
     return NextResponse.json(order, { status: 201 });
   } catch (e) {

@@ -36,6 +36,7 @@ import {
   loseLinkedOpportunity,
   reopenLinkedOpportunity,
   syncOpportunityValue,
+  garantirCartaoDoPedido,
 } from "@/lib/opportunity-sync";
 
 // Estoque fica RESERVADO em qualquer etapa que não seja Cancelado (o orçamento
@@ -970,9 +971,14 @@ export async function PATCH(
 
       // ---- fora da transação: efeitos não-críticos ----
       // FUNIL acompanha o pedido: pago → GANHO; cancelado → PERDIDO;
-      // reaberto → volta a ABERTA.
+      // reaberto → volta a ABERTA. Pedido sem cartão que virou pago ganha
+      // o seu na hora — venda paga nunca fica fora do "Pedido fechado".
       if (enteringPaid) {
-        await winLinkedOpportunity(user.companyId, order.opportunityId);
+        if (order.opportunityId) {
+          await winLinkedOpportunity(user.companyId, order.opportunityId);
+        } else {
+          await garantirCartaoDoPedido(user.companyId, order.id);
+        }
       } else if (newStatus === "CANCELADO") {
         await loseLinkedOpportunity(user.companyId, order.opportunityId);
       } else if (leavingPaid || order.status === "CANCELADO") {

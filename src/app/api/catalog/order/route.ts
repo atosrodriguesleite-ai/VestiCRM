@@ -14,7 +14,8 @@ import { pushStockToNuvemshop } from "@/lib/nuvemshop";
 import { pushStockToJueri } from "@/lib/jueri";
 import { orderNumber, round2 } from "@/lib/orders";
 import { comNumeroUnico } from "@/lib/numero-do-pedido";
-import { syncOpportunityValue } from "@/lib/opportunity-sync";
+import { syncOpportunityValue, garantirCartaoDoPedido } from "@/lib/opportunity-sync";
+import { avancarFunil } from "@/lib/funil-auto";
 import { notifyNovoPedido } from "@/lib/notify";
 import { brl } from "@/lib/format";
 
@@ -280,9 +281,11 @@ export async function POST(req: NextRequest) {
         },
       });
     }
-    // Só vincula a oportunidade que ACABOU de ser criada para este pedido;
-    // se o intake reaproveitou uma já aberta, não a ligamos (não é "deste
-    // pedido" e não deve ser apagada junto).
+    // Aqui só entra a oportunidade que o intake ACABOU de criar. Quando ele
+    // reaproveita uma negociação já aberta, quem a amarra é o
+    // garantirCartaoDoPedido logo após criar o pedido (funil vivo,
+    // 13/08/2026) — e apagar o pedido não a apaga: a exclusão só leva junto
+    // cartão que NASCEU com o pedido (janela de 10min em nasceuComOPedido).
     opportunityId = result.opportunity?.id ?? null;
   } else if (linkCustomer) {
     // Link rastreado sem telefone digitado: o pedido é do cliente do link.
@@ -565,9 +568,23 @@ export async function POST(req: NextRequest) {
     throw e;
   }
 
+  // Pedido que nasceu SOLTO — cliente de sempre cujo cartão aberto o intake
+  // reaproveitou (e por isso não amarrou), ou política da loja sem criação
+  // automática — ganha o cartão aqui: reaproveita a negociação aberta livre
+  // ou cria uma. Sem isso, pagar esse pedido nunca fechava nada no funil.
+  const cartao =
+    order.opportunityId ?? (await garantirCartaoDoPedido(company.id, order.id));
   // o valor do cartão no funil acompanha o pedido (a oportunidade criada
   // pelo intake nascia com R$ 0 e a coluna não batia com Pedidos)
-  await syncOpportunityValue(company.id, order.opportunityId, order.netTotal);
+  await syncOpportunityValue(company.id, cartao, order.netTotal);
+  // e o cartão ANDA: pedido existe → pelo menos "Pedido em negociação" (o
+  // reaproveitado ficava parado em "Primeiro contato" com pedido amarrado)
+  await avancarFunil(
+    company.id,
+    customerId,
+    order.status === "AGUARDANDO_PAGAMENTO" ? "PAGAMENTO" : "NEGOCIACAO",
+    cartao
+  );
 
   // a reserva some do estoque dos outros canais no mesmo instante.
   // Jueri desconta pelo que foi SEGURADO (reserva parcial: pediu 10, havia 4

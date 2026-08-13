@@ -3,7 +3,7 @@ import { orderNumber, PAID_ORDER_STATUSES } from "./orders";
 import { notifySalePaid } from "./push";
 import { pushStockToNuvemshop } from "./nuvemshop";
 import { pushStockToJueri } from "./jueri";
-import { winLinkedOpportunity } from "./opportunity-sync";
+import { winLinkedOpportunity, garantirCartaoDoPedido } from "./opportunity-sync";
 import { reservarOQueTiver, textoDaFalta } from "./reservations";
 import { mpCancelPayment } from "./mercadopago";
 
@@ -296,8 +296,14 @@ async function liquidarUmaVez(
     );
   }
 
-  // FUNIL acompanha: pedido pago → negociação ligada vira GANHA
-  await winLinkedOpportunity(pedido.companyId, pedido.opportunityId);
+  // FUNIL acompanha: pedido pago → negociação ligada vira GANHA. Pedido que
+  // nasceu SOLTO (cliente sem negociação, intake que reaproveitou cartão)
+  // ganha o cartão aqui — a venda paga NUNCA fica fora do "Pedido fechado".
+  if (pedido.opportunityId) {
+    await winLinkedOpportunity(pedido.companyId, pedido.opportunityId);
+  } else {
+    await garantirCartaoDoPedido(pedido.companyId, pedido.id);
+  }
 
   // integrações donas de estoque espelham a baixa (uma venda, uma baixa)
   if (seguradas.length > 0) {

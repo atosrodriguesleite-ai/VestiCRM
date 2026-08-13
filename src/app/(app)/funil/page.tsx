@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { requireUser } from "@/lib/auth";
 import { maybeSyncNuvemshop } from "@/lib/nuvemshop";
+import { conciliarFunilComPedidos } from "@/lib/opportunity-sync";
 import { db } from "@/lib/db";
 import { ownedScope, isManagerUp } from "@/lib/scope";
 import { PageHeader } from "@/components/ui";
@@ -22,6 +23,11 @@ export default async function FunnelPage({
   if (user.role === "SUPPORT") redirect("/pedidos");
   // loja integrada: busca carrinhos abandonados da Nuvemshop em 2º plano
   maybeSyncNuvemshop(user.companyId);
+  // FUNIL REAL: pedido antigo que nasceu sem cartão ganha o seu antes de a
+  // tela carregar — pago entra FECHADO com a data real; aberto entra na etapa
+  // certa. Em rodadas de 40 (loja com anos de pedidos concilia em algumas
+  // aberturas sem pesar nenhuma); zerado o passado, vira uma consulta vazia.
+  await conciliarFunilComPedidos(user.companyId);
   const scope = ownedScope(user);
   const funnelCompany = await db.company.findUnique({
     where: { id: user.companyId },

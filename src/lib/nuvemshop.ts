@@ -5,7 +5,7 @@ import { intakeLead, normalizePhone } from "./intake";
 import { round2 } from "./orders";
 import { separarDocumento } from "./documento";
 import { notifySalePaid } from "./push";
-import { winLinkedOpportunity } from "./opportunity-sync";
+import { winLinkedOpportunity, garantirCartaoDoPedido } from "./opportunity-sync";
 import { comNumeroUnico } from "./numero-do-pedido";
 import { limparDescricaoHtml, temEntidadeHtml } from "./descricao-limpa";
 
@@ -1089,8 +1089,13 @@ export async function ingestPaidOrder(companyId: string, nsOrderId: string) {
 
   // O pedido já nasce PAGO (não passa pela transição de status), então o
   // fechamento do cartão precisa ser chamado aqui — igual faz o Pix em
-  // `settle-order`. Nunca derruba a ingestão: o sync engole os próprios erros.
-  await winLinkedOpportunity(companyId, order.opportunityId);
+  // `settle-order`. Venda da loja online sem negociação no funil ganha o
+  // cartão FECHADO na hora. Nunca derruba a ingestão: engole os próprios erros.
+  if (order.opportunityId) {
+    await winLinkedOpportunity(companyId, order.opportunityId);
+  } else {
+    await garantirCartaoDoPedido(companyId, order.id);
+  }
 
   // espelha o estoque atual dos produtos vendidos (a baixa aconteceu lá)
   for (const pid of [...new Set((o.products ?? []).map((i) => String(i.product_id)))]) {

@@ -92,11 +92,12 @@ describe("Funil: o valor do cartão acompanha o pedido", () => {
     expect(sync).toContain("value: pedido.netTotal");
   });
   it("criar pedido (sistema e catálogo) sincroniza o valor no nascimento", () => {
+    // `cartao` = o cartão amarrado ao pedido, garantido no nascimento (funil vivo)
     expect(ler("src/app/api/orders/route.ts")).toContain(
-      "syncOpportunityValue(user.companyId, order.opportunityId, order.netTotal)"
+      "syncOpportunityValue(user.companyId, cartao, order.netTotal)"
     );
     expect(ler("src/app/api/catalog/order/route.ts")).toContain(
-      "syncOpportunityValue(company.id, order.opportunityId, order.netTotal)"
+      "syncOpportunityValue(company.id, cartao, order.netTotal)"
     );
   });
 });
