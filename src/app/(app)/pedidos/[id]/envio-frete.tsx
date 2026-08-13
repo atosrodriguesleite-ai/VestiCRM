@@ -46,6 +46,7 @@ type Ship = {
   labelUrl: string | null;
   trackingCode: string | null;
   weightKg: number | null;
+  nfeKey: string | null;
 } | null;
 
 const statusLabel: Record<string, string> = {
@@ -74,6 +75,11 @@ export function EnvioFrete({
   const [ship, setShip] = useState<Ship>(initialShipping);
   const [quotes, setQuotes] = useState<Quote[] | null>(null);
   const [recusadas, setRecusadas] = useState<Recusa[]>([]);
+  // situação da nota NA HORA DA COTAÇÃO (a tela pode estar aberta desde antes
+  // de a nota ser emitida — prometer o documento errado é pior que não dizer)
+  const [temNota, setTemNota] = useState(false);
+  // o servidor recusou a compra por causa da nota e ofereceu seguir sem ela
+  const [podeSemNota, setPodeSemNota] = useState(false);
   const [weightKg, setWeightKg] = useState<number | null>(null);
   const [escolhido, setEscolhido] = useState<number | null>(null);
   const [busy, setBusy] = useState<"cotar" | "comprar" | "cancelar" | "rastreio" | "etiqueta" | null>(null);
@@ -107,16 +113,18 @@ export function EnvioFrete({
     }
     setQuotes(d.quotes ?? []);
     setRecusadas(Array.isArray(d.recusadas) ? d.recusadas : []);
+    setTemNota(Boolean(d.comNota));
     setWeightKg(d.weightKg ?? null);
     setEscolhido(d.quotes?.[0]?.serviceId ?? null);
   }
 
-  async function comprar() {
+  async function comprar(semNota = false) {
     const q = quotes?.find((x) => x.serviceId === escolhido);
     if (!q) return;
+    const doc = semNota || !temNota ? "declaração de conteúdo" : "NF-e";
     if (
       !window.confirm(
-        `Comprar a etiqueta ${q.carrier} ${q.service} por ${brl(q.price)}? O valor sai do saldo da carteira Melhor Envio da loja.`
+        `Comprar a etiqueta ${q.carrier} ${q.service} por ${brl(q.price)} (com ${doc})? O valor sai do saldo da carteira Melhor Envio da loja.`
       )
     )
       return;
@@ -127,12 +135,17 @@ export function EnvioFrete({
       serviceId: q.serviceId,
       service: q.service,
       carrier: q.carrier,
+      ...(semNota ? { semNota: true } : {}),
     });
     setBusy(null);
-    if (!ok) return setErro(d.error ?? "Não foi possível comprar a etiqueta.");
+    if (!ok) {
+      setPodeSemNota(Boolean(d.podeSemNota));
+      return setErro(d.error ?? "Não foi possível comprar a etiqueta.");
+    }
     setShip(d.shipping);
     setQuotes(null);
     setRecusadas([]);
+    setPodeSemNota(false);
     router.refresh();
   }
 
@@ -270,15 +283,25 @@ export function EnvioFrete({
               {busy === "etiqueta" ? <Loader2 className="size-4 animate-spin" /> : <Printer className="size-4" />}
               Imprimir etiqueta
             </button>
-            <a
-              href={`/declaracao/${orderId}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-1.5 rounded-xl border border-gray-200 hover:border-gray-300 text-gray-600 text-sm font-medium px-4 py-2.5 transition"
-            >
-              <FileText className="size-4" />
-              Declaração de conteúdo
-            </a>
+            {ship?.nfeKey ? (
+              <span
+                className="inline-flex items-center gap-1.5 rounded-xl border border-emerald-200 bg-emerald-50 text-emerald-700 text-sm font-medium px-4 py-2.5"
+                title={`Chave de acesso: ${ship.nfeKey}`}
+              >
+                <FileText className="size-4" />
+                Etiqueta com NF-e
+              </span>
+            ) : (
+              <a
+                href={`/declaracao/${orderId}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 rounded-xl border border-gray-200 hover:border-gray-300 text-gray-600 text-sm font-medium px-4 py-2.5 transition"
+              >
+                <FileText className="size-4" />
+                Declaração de conteúdo
+              </a>
+            )}
             {canBuy && ship?.meStatus === "ETIQUETA" && (
               <button
                 onClick={cancelar}
@@ -333,6 +356,19 @@ export function EnvioFrete({
               <span className="text-sm font-semibold tabular-nums">{brl(q.price)}</span>
             </label>
           ))}
+          <p className="text-xs text-gray-500">
+            {temNota ? (
+              <>
+                📄 A etiqueta vai sair <b>com a NF-e</b> (chave de acesso na
+                etiqueta) — sem declaração de conteúdo.
+              </>
+            ) : (
+              <>
+                📄 A etiqueta vai sair com <b>declaração de conteúdo</b>. Para
+                sair com a NF-e, emita a nota deste pedido antes de comprar.
+              </>
+            )}
+          </p>
           {recusadas.length > 0 && (
             <details className="rounded-xl border border-gray-200 bg-gray-50/60 px-3 py-2">
               <summary className="cursor-pointer text-xs font-medium text-gray-600">
@@ -369,7 +405,7 @@ export function EnvioFrete({
           <div className="flex items-center gap-2 pt-1">
             {canBuy && quotes.length > 0 ? (
               <button
-                onClick={comprar}
+                onClick={() => comprar()}
                 disabled={busy === "comprar" || !escolhido}
                 className="inline-flex items-center gap-1.5 rounded-xl bg-orange-600 hover:bg-orange-700 text-white text-sm font-medium px-4 py-2.5 transition disabled:opacity-50"
               >
@@ -402,7 +438,19 @@ export function EnvioFrete({
       )}
 
       {erro && (
-        <p className="text-sm text-rose-600 bg-rose-50 rounded-lg px-3 py-2 mt-3">{erro}</p>
+        <div className="mt-3 space-y-2">
+          <p className="text-sm text-rose-600 bg-rose-50 rounded-lg px-3 py-2">{erro}</p>
+          {podeSemNota && canBuy && (
+            <button
+              onClick={() => comprar(true)}
+              disabled={busy === "comprar"}
+              className="inline-flex items-center gap-1.5 rounded-xl border border-gray-200 hover:border-gray-300 text-gray-600 text-xs font-medium px-3 py-2 transition disabled:opacity-50"
+            >
+              <FileText className="size-3.5" />
+              Comprar mesmo assim, com declaração de conteúdo
+            </button>
+          )}
+        </div>
       )}
     </Card>
   );

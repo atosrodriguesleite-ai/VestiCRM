@@ -416,6 +416,7 @@ export default async function OrderDetailPage({
                       labelUrl: order.shipping.labelUrl,
                       trackingCode: order.shipping.trackingCode,
                       weightKg: order.shipping.weightKg,
+                      nfeKey: order.shipping.nfeKey,
                     }
                   : null
               }

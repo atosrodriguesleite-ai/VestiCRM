@@ -1,4 +1,5 @@
 import { db } from "./db";
+import { limparChaveNfe } from "./bling";
 import { encryptSecret, decryptSecret } from "./crypto";
 import { signState, verifyState } from "./nuvemshop"; // state assinado (HMAC)
 import { appBaseUrl } from "./comm/evolution";
@@ -529,9 +530,28 @@ function pessoaME(e: Endereco) {
 }
 
 /**
+ * Como o envio é declarado ao Melhor Envio: com NF-e (chave de acesso na
+ * etiqueta) ou com declaração de conteúdo. Separado em função pura porque é
+ * a decisão fiscal do envio — tem que dar para conferir sem chamar a API.
+ */
+export function opcoesFiscaisME(nfeKey: string | null | undefined): {
+  non_commercial: boolean;
+  invoice?: { key: string };
+} {
+  // chave torta derrubaria a COMPRA inteira; nesse caso é melhor a etiqueta
+  // sair com declaração de conteúdo do que a loja ficar sem etiqueta
+  const chave = limparChaveNfe(nfeKey);
+  return chave
+    ? { non_commercial: false, invoice: { key: chave } }
+    : { non_commercial: true };
+}
+
+/**
  * Compra a etiqueta de UM envio: carrinho → pagamento (saldo da carteira ME
- * da loja) → gerar etiqueta → link de impressão. Envio com DECLARAÇÃO DE
- * CONTEÚDO (non_commercial) — a NF-e pode ir junto fisicamente na caixa.
+ * da loja) → gerar etiqueta → link de impressão.
+ *
+ * Com `nfeKey` (nota autorizada) a etiqueta sai COM a NF-e; sem chave, sai
+ * com DECLARAÇÃO DE CONTEÚDO, que é o caso da maioria das lojas.
  */
 export async function meBuyShipment(input: {
   companyId: string;
@@ -542,6 +562,8 @@ export async function meBuyShipment(input: {
   weightKg: number;
   insuranceValue: number;
   orderLabel: string; // ex.: "Pedido #123" (aparece na sua conta ME)
+  /** Chave de acesso da NF-e (44 dígitos). Com ela a etiqueta sai COM nota. */
+  nfeKey?: string | null;
 }): Promise<
   | {
       ok: true;
@@ -549,6 +571,8 @@ export async function meBuyShipment(input: {
       price: number;
       labelUrl: string | null;
       tracking: string | null;
+      /** chave da NF-e que foi de fato usada (null = declaração de conteúdo) */
+      nfeKey: string | null;
       /** pago (saldo debitado) mas a etiqueta ainda não gerou — precisa retomar */
       pendente?: boolean;
       aviso?: string;
@@ -559,6 +583,8 @@ export async function meBuyShipment(input: {
     where: { companyId: input.companyId },
   });
   if (!conn) return { ok: false, error: "Melhor Envio não conectado." };
+  const fiscal = opcoesFiscaisME(input.nfeKey);
+  const chave = fiscal.invoice?.key ?? null;
 
   // 1) carrinho
   const cart = await meApi<{ id?: string; price?: string | number }>(
@@ -587,13 +613,29 @@ export async function meBuyShipment(input: {
         receipt: false,
         own_hand: false,
         reverse: false,
-        non_commercial: true, // declaração de conteúdo (imprimível no sistema)
+        // `non_commercial: true` = "esse envio não tem nota, é declaração de
+        // conteúdo". Com a chave da NF-e a gente inverte e manda a nota: a
+        // etiqueta sai com a chave de acesso e a loja não preenche papel
+        // nenhum. Sem chave, segue como sempre foi.
+        ...fiscal,
         tags: [{ tag: input.orderLabel, url: null }],
       },
     }
   );
-  if (!cart.ok || !cart.data?.id)
-    return { ok: false, error: meErro(cart.data, cart.status) };
+  if (!cart.ok || !cart.data?.id) {
+    const msg = meErro(cart.data, cart.status);
+    // Chave BEM FORMADA que o ME recusa (CNPJ da nota diferente do remetente
+    // cadastrado, nota ainda não propagada na SEFAZ) — sem esta explicação a
+    // loja lê "erro 422" e não faz ideia do que arrumar. Não trocamos por
+    // declaração de conteúdo por conta própria: se existe nota, é a nota que
+    // tem que viajar com a caixa.
+    if (chave && /invoice|nota fiscal|nf-?e\b|chave de acesso/i.test(msg))
+      return {
+        ok: false,
+        error: `${msg} Como este envio vai com nota fiscal, vale conferir se o CNPJ que emitiu a nota é o mesmo do remetente em Configurações → Melhor Envio, e se a nota foi autorizada há alguns minutos.`,
+      };
+    return { ok: false, error: msg };
+  }
   const meOrderId = cart.data.id;
 
   // 2) pagamento com o saldo da carteira ME da loja
@@ -635,6 +677,7 @@ export async function meBuyShipment(input: {
       price,
       labelUrl: null,
       tracking: null,
+      nfeKey: chave ?? null,
       aviso:
         "A etiqueta foi paga mas ainda não gerou. O valor não se perdeu — clique em 'Gerar etiqueta' de novo em instantes (não compre outra).",
     };
@@ -654,6 +697,7 @@ export async function meBuyShipment(input: {
     price,
     labelUrl: printR.data?.url ?? null,
     tracking: trackR?.tracking ?? null,
+    nfeKey: chave ?? null,
   };
 }
 

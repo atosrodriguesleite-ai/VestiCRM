@@ -73,6 +73,9 @@ export async function GET(
         nfeStatus: c.situacao,
         nfeNumber: c.numero ?? null,
         nfeUrl: c.url ?? null,
+        // só nota AUTORIZADA guarda chave — é ela que autoriza a etiqueta
+        // com NF-e no Melhor Envio
+        nfeKey: c.situacao === "AUTORIZADA" ? (c.chave ?? null) : null,
       },
     });
     return NextResponse.json(c);

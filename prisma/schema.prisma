@@ -1629,6 +1629,9 @@ model Order {
   nfeNumber      String? // número da nota quando autorizada
   nfeStatus      String? // EMITINDO | AUTORIZADA | ERRO
   nfeUrl         String? // link do DANFE/PDF quando disponível
+  // Chave de acesso da NF-e (44 dígitos). É ELA que faz o Melhor Envio
+  // imprimir a etiqueta com nota fiscal em vez de declaração de conteúdo.
+  nfeKey         String?
   createdAt      DateTime      @default(now())
   // Última mexida no pedido. Serve à conferência da agenda: prova de que a
   // entrega/cancelamento aconteceu DEPOIS de a tarefa nascer (prova velha não
@@ -1785,6 +1788,11 @@ model Shipping {
   meStatus     String? // COMPRADO | ETIQUETA | POSTADO | ENTREGUE | CANCELADO
   labelUrl     String? // link de impressão da etiqueta
   weightKg     Float? // peso usado na cotação (auditoria)
+  // Chave da NF-e que FOI usada nesta etiqueta (quando usada). Fica aqui, e
+  // não só no pedido, porque a tela precisa dizer a verdade do que foi
+  // comprado: etiqueta comprada antes de emitir a nota continua precisando da
+  // declaração de conteúdo, mesmo que a nota saia depois.
+  nfeKey       String?
 }
 
 // Conexão da loja com o Melhor Envio (módulo Envios, pago à parte).

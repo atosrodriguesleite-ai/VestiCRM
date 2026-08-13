@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { requireUser, AuthError, type SessionUser } from "@/lib/auth";
 import { isManagerUp, orderScope } from "@/lib/scope";
 import { orderNumber } from "@/lib/orders";
+import { consultarNfe } from "@/lib/bling";
 import {
   meCalculate,
   meBuyShipment,
@@ -21,7 +22,11 @@ import {
  * Cotar é livre; comprar/cancelar mexem com dinheiro → gerente/admin.
  */
 
-export const maxDuration = 30; // compra faz 4 chamadas externas em sequência
+// a compra faz até 6 chamadas externas em sequência (1 no Bling para
+// confirmar a nota + 5 no Melhor Envio). Timeout curto aqui é perigoso: se
+// estourar DEPOIS do checkout, o saldo já saiu e o retry compraria outra
+// etiqueta — a folga existe para o `upsert` sempre alcançar o meOrderId.
+export const maxDuration = 60;
 
 async function carregarPedido(user: SessionUser, orderId: string) {
   const userCompanyId = user.companyId;
@@ -101,6 +106,10 @@ const postSchema = z.object({
   serviceId: z.number().int().positive().optional(),
   service: z.string().max(60).optional(),
   carrier: z.string().max(60).optional(),
+  // saída de emergência: comprar com declaração de conteúdo mesmo com nota no
+  // pedido (Bling fora do ar, nota que sumiu de lá). É escolha da loja, nunca
+  // do sistema — despachar com o documento errado é problema fiscal dela.
+  semNota: z.boolean().optional(),
 });
 
 export async function POST(
@@ -150,6 +159,9 @@ export async function POST(
         quotes: r.quotes,
         recusadas: r.recusadas,
         weightKg: pesoKg,
+        // a nota pode ter sido emitida DEPOIS de a tela abrir — a cotação
+        // devolve a situação de agora para a promessa não mentir
+        comNota: order.nfeStatus === "AUTORIZADA" && Boolean(order.nfeKey),
       });
     }
 
@@ -190,6 +202,56 @@ export async function POST(
           { status: 409 }
         );
 
+      // NOTA: confere a situação REAL no Bling antes de gastar o saldo.
+      // A nota pode ter sido cancelada no painel do Bling sem ninguém clicar
+      // em "atualizar" aqui — e aí a etiqueta sairia apontando para uma nota
+      // morta, com o dinheiro da carteira já debitado e sem volta.
+      // NOTA: confere a situação REAL no Bling antes de gastar o saldo.
+      // A nota pode ter sido cancelada no painel do Bling sem ninguém clicar
+      // em "atualizar" aqui — e aí a etiqueta sairia apontando para uma nota
+      // morta, com o dinheiro da carteira já debitado e sem volta.
+      let chaveNfe: string | null = null;
+      const temNota = Boolean(
+        order.nfeStatus === "AUTORIZADA" && order.nfeKey && order.nfeBlingId
+      );
+      if (temNota && !parsed.data.semNota) {
+        const nota = await consultarNfe(user.companyId, order.nfeBlingId!).catch(() => ({
+          ok: false as const,
+          situacao: "EMITINDO",
+        }));
+        if (!nota.ok)
+          return NextResponse.json(
+            {
+              error:
+                "Não consegui confirmar a nota fiscal no Bling agora. Tente de novo em instantes — nada foi cobrado.",
+              // Bling fora do ar não pode prender a etiqueta para sempre: a
+              // loja decide seguir com declaração de conteúdo se quiser.
+              podeSemNota: true,
+            },
+            { status: 502 }
+          );
+        if (nota.situacao !== "AUTORIZADA") {
+          // só nota comprovadamente MORTA mexe no pedido. "EMITINDO" pode ser
+          // situação desconhecida do Bling (o mapa cai nela por padrão) —
+          // rebaixar uma nota autorizada por causa disso perderia a chave e
+          // travaria a reemissão.
+          if (nota.situacao === "CANCELADA" || nota.situacao === "REJEITADA") {
+            await db.order.updateMany({
+              where: { id: order.id, nfeBlingId: order.nfeBlingId },
+              data: { nfeStatus: nota.situacao, nfeKey: null },
+            });
+          }
+          return NextResponse.json(
+            {
+              error: `A nota fiscal deste pedido não está mais autorizada no Bling (situação: ${nota.situacao}). Confira a nota antes de comprar a etiqueta — nada foi cobrado.`,
+              podeSemNota: true,
+            },
+            { status: 409 }
+          );
+        }
+        chaveNfe = nota.chave ?? order.nfeKey;
+      }
+
       const r = await meBuyShipment({
         companyId: user.companyId,
         serviceId: parsed.data.serviceId,
@@ -229,6 +291,10 @@ export async function POST(
         weightKg: pesoKg,
         insuranceValue: valorPecas,
         orderLabel: `Pedido ${orderNumber(order.number)}`,
+        // Nota AUTORIZADA e CONFIRMADA no Bling → etiqueta com NF-e. Sem nota
+        // → declaração de conteúdo, como sempre. A loja não escolhe nada: o
+        // que manda é a nota existir de verdade, agora.
+        nfeKey: chaveNfe,
       });
       if (!r.ok) return NextResponse.json({ error: r.error }, { status: 502 });
 
@@ -247,6 +313,9 @@ export async function POST(
           meStatus,
           labelUrl: r.labelUrl,
           weightKg: pesoKg,
+          // registra a chave USADA nesta etiqueta (null = declaração de
+          // conteúdo) — é o que a tela lê depois, e não o estado atual da nota
+          nfeKey: r.nfeKey,
           ...(r.tracking ? { trackingCode: r.tracking } : {}),
           zip: destZip,
           address: `${c.street}, ${c.streetNumber}${c.complement ? ` — ${c.complement}` : ""}`,
@@ -263,6 +332,7 @@ export async function POST(
           meStatus,
           labelUrl: r.labelUrl,
           weightKg: pesoKg,
+          nfeKey: r.nfeKey,
           trackingCode: r.tracking,
           zip: destZip,
           address: `${c.street}, ${c.streetNumber}${c.complement ? ` — ${c.complement}` : ""}`,
@@ -274,7 +344,7 @@ export async function POST(
         data: {
           orderId: order.id,
           type: "ENVIO",
-          description: `Etiqueta comprada por ${user.name} — ${parsed.data.carrier ?? ""} ${parsed.data.service ?? ""} (R$ ${r.price.toFixed(2).replace(".", ",")}, ${pesoKg} kg) via Melhor Envio`,
+          description: `Etiqueta comprada por ${user.name} — ${parsed.data.carrier ?? ""} ${parsed.data.service ?? ""} (R$ ${r.price.toFixed(2).replace(".", ",")}, ${pesoKg} kg) via Melhor Envio — ${r.nfeKey ? `com NF-e ${r.nfeKey}` : "com declaração de conteúdo"}`,
           userId: user.id,
         },
       });
