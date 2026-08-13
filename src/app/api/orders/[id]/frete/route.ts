@@ -144,7 +144,13 @@ export async function POST(
         insuranceValue: valorPecas,
       });
       if (!r.ok) return NextResponse.json({ error: r.error }, { status: 502 });
-      return NextResponse.json({ quotes: r.quotes, weightKg: pesoKg });
+      // `recusadas` = quem não cotou E o porquê. A tela mostra — esconder
+      // fazia parecer que o sistema só cota Correios.
+      return NextResponse.json({
+        quotes: r.quotes,
+        recusadas: r.recusadas,
+        weightKg: pesoKg,
+      });
     }
 
     if (action === "comprar") {
