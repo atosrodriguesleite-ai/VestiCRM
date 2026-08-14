@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { requireUser, AuthError, type SessionUser } from "@/lib/auth";
 import { isManagerUp, orderScope } from "@/lib/scope";
 import { orderNumber } from "@/lib/orders";
+import { consultarNfe } from "@/lib/bling";
 import {
   meCalculate,
   meBuyShipment,
@@ -13,6 +14,7 @@ import {
   meCancel,
   pesoDoPedidoKg,
 } from "@/lib/melhorenvio";
+import { aplicarRastreio, novoCodigoPublico } from "@/lib/rastreio";
 
 /**
  * Frete do pedido via Melhor Envio (módulo Envios, gated por loja).
@@ -21,7 +23,11 @@ import {
  * Cotar é livre; comprar/cancelar mexem com dinheiro → gerente/admin.
  */
 
-export const maxDuration = 30; // compra faz 4 chamadas externas em sequência
+// a compra faz até 6 chamadas externas em sequência (1 no Bling para
+// confirmar a nota + 5 no Melhor Envio). Timeout curto aqui é perigoso: se
+// estourar DEPOIS do checkout, o saldo já saiu e o retry compraria outra
+// etiqueta — a folga existe para o `upsert` sempre alcançar o meOrderId.
+export const maxDuration = 60;
 
 async function carregarPedido(user: SessionUser, orderId: string) {
   const userCompanyId = user.companyId;
@@ -59,33 +65,18 @@ export async function GET(
       return NextResponse.json({ error: "Módulo Envios não contratado." }, { status: 403 });
 
     let ship = order.shipping;
-    // rastreio ao vivo: consulta o ME e guarda o que mudou
+    // rastreio ao vivo: consulta o ME, guarda o que mudou e FAZ O PEDIDO
+    // ANDAR (postado → Enviado, chegou → Entregue) — mesma régua da
+    // varredura de carona, em lib/rastreio.ts (fonte única).
     if (ship?.meOrderId && conn && ship.meStatus !== "CANCELADO") {
       const t = await meTracking(user.companyId, ship.meOrderId).catch(() => null);
       if (t) {
-        const novoStatus =
-          t.status === "delivered"
-            ? "ENTREGUE"
-            : t.status === "posted"
-              ? "POSTADO"
-              : t.status === "cancelled" || t.status === "canceled"
-                ? "CANCELADO"
-                : ship.meStatus;
-        if ((t.tracking && t.tracking !== ship.trackingCode) || novoStatus !== ship.meStatus) {
-          ship = await db.shipping.update({
-            where: { id: ship.id },
-            data: {
-              ...(t.tracking ? { trackingCode: t.tracking } : {}),
-              meStatus: novoStatus,
-              ...(novoStatus === "POSTADO" && !ship.shippedAt
-                ? { shippedAt: new Date() }
-                : {}),
-              ...(novoStatus === "ENTREGUE" && !ship.deliveredAt
-                ? { deliveredAt: new Date() }
-                : {}),
-            },
-          });
-        }
+        const atualizado = await aplicarRastreio({
+          companyId: user.companyId,
+          envio: ship,
+          tracking: t,
+        });
+        ship = { ...ship, ...atualizado };
       }
     }
     return NextResponse.json({ connected: Boolean(conn), shipping: ship });
@@ -101,6 +92,10 @@ const postSchema = z.object({
   serviceId: z.number().int().positive().optional(),
   service: z.string().max(60).optional(),
   carrier: z.string().max(60).optional(),
+  // saída de emergência: comprar com declaração de conteúdo mesmo com nota no
+  // pedido (Bling fora do ar, nota que sumiu de lá). É escolha da loja, nunca
+  // do sistema — despachar com o documento errado é problema fiscal dela.
+  semNota: z.boolean().optional(),
 });
 
 export async function POST(
@@ -144,7 +139,16 @@ export async function POST(
         insuranceValue: valorPecas,
       });
       if (!r.ok) return NextResponse.json({ error: r.error }, { status: 502 });
-      return NextResponse.json({ quotes: r.quotes, weightKg: pesoKg });
+      // `recusadas` = quem não cotou E o porquê. A tela mostra — esconder
+      // fazia parecer que o sistema só cota Correios.
+      return NextResponse.json({
+        quotes: r.quotes,
+        recusadas: r.recusadas,
+        weightKg: pesoKg,
+        // a nota pode ter sido emitida DEPOIS de a tela abrir — a cotação
+        // devolve a situação de agora para a promessa não mentir
+        comNota: order.nfeStatus === "AUTORIZADA" && Boolean(order.nfeKey),
+      });
     }
 
     if (action === "comprar") {
@@ -183,6 +187,52 @@ export async function POST(
           { error: "Complete o endereço do remetente em Configurações → Melhor Envio." },
           { status: 409 }
         );
+
+      // NOTA: confere a situação REAL no Bling antes de gastar o saldo.
+      // A nota pode ter sido cancelada no painel do Bling sem ninguém clicar
+      // em "atualizar" aqui — e aí a etiqueta sairia apontando para uma nota
+      // morta, com o dinheiro da carteira já debitado e sem volta.
+      let chaveNfe: string | null = null;
+      const temNota = Boolean(
+        order.nfeStatus === "AUTORIZADA" && order.nfeKey && order.nfeBlingId
+      );
+      if (temNota && !parsed.data.semNota) {
+        const nota = await consultarNfe(user.companyId, order.nfeBlingId!).catch(() => ({
+          ok: false as const,
+          situacao: "EMITINDO",
+        }));
+        if (!nota.ok)
+          return NextResponse.json(
+            {
+              error:
+                "Não consegui confirmar a nota fiscal no Bling agora. Tente de novo em instantes — nada foi cobrado.",
+              // Bling fora do ar não pode prender a etiqueta para sempre: a
+              // loja decide seguir com declaração de conteúdo se quiser.
+              podeSemNota: true,
+            },
+            { status: 502 }
+          );
+        if (nota.situacao !== "AUTORIZADA") {
+          // só nota comprovadamente MORTA mexe no pedido. "EMITINDO" pode ser
+          // situação desconhecida do Bling (o mapa cai nela por padrão) —
+          // rebaixar uma nota autorizada por causa disso perderia a chave e
+          // travaria a reemissão.
+          if (nota.situacao === "CANCELADA" || nota.situacao === "REJEITADA") {
+            await db.order.updateMany({
+              where: { id: order.id, nfeBlingId: order.nfeBlingId },
+              data: { nfeStatus: nota.situacao, nfeKey: null },
+            });
+          }
+          return NextResponse.json(
+            {
+              error: `A nota fiscal deste pedido não está mais autorizada no Bling (situação: ${nota.situacao}). Confira a nota antes de comprar a etiqueta — nada foi cobrado.`,
+              podeSemNota: true,
+            },
+            { status: 409 }
+          );
+        }
+        chaveNfe = nota.chave ?? order.nfeKey;
+      }
 
       const r = await meBuyShipment({
         companyId: user.companyId,
@@ -223,6 +273,10 @@ export async function POST(
         weightKg: pesoKg,
         insuranceValue: valorPecas,
         orderLabel: `Pedido ${orderNumber(order.number)}`,
+        // Nota AUTORIZADA e CONFIRMADA no Bling → etiqueta com NF-e. Sem nota
+        // → declaração de conteúdo, como sempre. A loja não escolhe nada: o
+        // que manda é a nota existir de verdade, agora.
+        nfeKey: chaveNfe,
       });
       if (!r.ok) return NextResponse.json({ error: r.error }, { status: 502 });
 
@@ -230,10 +284,23 @@ export async function POST(
       // GERANDO) para o retry RETOMAR a geração — não comprar de novo
       const meStatus = r.pendente ? "GERANDO" : "ETIQUETA";
 
+      // MEIO DE ENVIO preenchido pela etiqueta comprada ("Correios PAC"): a
+      // vendedora contratou o frete aqui dentro, não faz sentido ela ainda
+      // ter que escolher "meio de envio" na mão (pedido do dono, 14/08/2026)
+      const meioDeEnvio =
+        [parsed.data.carrier, parsed.data.service].filter(Boolean).join(" ").trim() ||
+        "Melhor Envio";
+      // código do link público de rastreio — nasce com a etiqueta e não muda
+      const publicCode = order.shipping?.publicCode ?? novoCodigoPublico();
+
       const ship = await db.shipping.upsert({
         where: { orderId: order.id },
         update: {
-          method: parsed.data.carrier ?? "Melhor Envio",
+          // NÃO pisa em escolha manual: se a lojista já tinha marcado o meio
+          // de envio, o dela vence — a etiqueta só preenche o que está vazio
+          ...(order.shipping?.method?.trim() ? {} : { method: meioDeEnvio }),
+          publicCode,
+          trackedAt: null, // envio novo entra na frente da fila da varredura
           meOrderId: r.meOrderId,
           meService: parsed.data.service ?? null,
           meCarrier: parsed.data.carrier ?? null,
@@ -241,6 +308,9 @@ export async function POST(
           meStatus,
           labelUrl: r.labelUrl,
           weightKg: pesoKg,
+          // registra a chave USADA nesta etiqueta (null = declaração de
+          // conteúdo) — é o que a tela lê depois, e não o estado atual da nota
+          nfeKey: r.nfeKey,
           ...(r.tracking ? { trackingCode: r.tracking } : {}),
           zip: destZip,
           address: `${c.street}, ${c.streetNumber}${c.complement ? ` — ${c.complement}` : ""}`,
@@ -249,7 +319,8 @@ export async function POST(
         },
         create: {
           orderId: order.id,
-          method: parsed.data.carrier ?? "Melhor Envio",
+          method: meioDeEnvio,
+          publicCode,
           meOrderId: r.meOrderId,
           meService: parsed.data.service ?? null,
           meCarrier: parsed.data.carrier ?? null,
@@ -257,6 +328,7 @@ export async function POST(
           meStatus,
           labelUrl: r.labelUrl,
           weightKg: pesoKg,
+          nfeKey: r.nfeKey,
           trackingCode: r.tracking,
           zip: destZip,
           address: `${c.street}, ${c.streetNumber}${c.complement ? ` — ${c.complement}` : ""}`,
@@ -268,7 +340,7 @@ export async function POST(
         data: {
           orderId: order.id,
           type: "ENVIO",
-          description: `Etiqueta comprada por ${user.name} — ${parsed.data.carrier ?? ""} ${parsed.data.service ?? ""} (R$ ${r.price.toFixed(2).replace(".", ",")}, ${pesoKg} kg) via Melhor Envio`,
+          description: `Etiqueta comprada por ${user.name} — ${parsed.data.carrier ?? ""} ${parsed.data.service ?? ""} (R$ ${r.price.toFixed(2).replace(".", ",")}, ${pesoKg} kg) via Melhor Envio — ${r.nfeKey ? `com NF-e ${r.nfeKey}` : "com declaração de conteúdo"}`,
           userId: user.id,
         },
       });

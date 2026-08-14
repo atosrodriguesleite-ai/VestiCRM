@@ -14,6 +14,8 @@ import {
   tentarRegistrar,
 } from "../catalogo/envio-pedido";
 
+// Guarda RN-010, RN-011 (índice em docs/regras.md; texto no CLAUDE.md).
+
 /**
  * O PEDIDO NÃO PODE SE PERDER.
  *

@@ -3,6 +3,8 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { juntarRef, refsDaCampanha, rotuloDoAnuncio, normalizaRefDigitada } from "../ad-match";
 
+// Guarda RN-015 (índice em docs/regras.md; texto no CLAUDE.md).
+
 /**
  * VINCULAR O ANÚNCIO À CAMPANHA DIRETO DO CHAT.
  *

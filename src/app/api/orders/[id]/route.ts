@@ -16,6 +16,8 @@ import {
   PAID_ORDER_STATUSES,
   ORDER_STATUS_FLOW,
   podeTransferirVenda,
+  resolveCancelStock,
+  resolveReopenStock,
 } from "@/lib/orders";
 import { computeOrderTotals } from "@/lib/orders";
 import { reservarOQueTiver, textoDaFalta } from "@/lib/reservations";
@@ -34,6 +36,7 @@ import {
   loseLinkedOpportunity,
   reopenLinkedOpportunity,
   syncOpportunityValue,
+  garantirCartaoDoPedido,
 } from "@/lib/opportunity-sync";
 
 // Estoque fica RESERVADO em qualquer etapa que não seja Cancelado (o orçamento
@@ -61,6 +64,10 @@ const patchSchema = z.object({
       "CANCELADO",
     ])
     .optional(),
+  // Ao CANCELAR: as peças voltam ao estoque? true/omitido = voltam (padrão
+  // histórico); false = baixa definitiva (perda/brinde/defeito). Ignorado
+  // fora do cancelamento ou quando o pedido não segura estoque.
+  restock: z.boolean().optional(),
   notes: z.string().nullable().optional(),
   trackingCode: z.string().nullable().optional(),
   shippingMethod: z.string().nullable().optional(),
@@ -342,7 +349,10 @@ export async function PATCH(
             where: {
               orderId: order.id,
               status: "PENDENTE",
-              provider: "MERCADO_PAGO",
+              // MP e InfinitePay: o link/QR do valor antigo para de valer —
+              // filtrar só o MP deixava o link InfinitePay velho pagável e o
+              // reuso o servia como se fosse do valor novo (auditoria 11/08/2026)
+              provider: { in: ["MERCADO_PAGO", "INFINITEPAY"] },
               dueAt: { gt: new Date() },
             },
             data: { dueAt: new Date() },
@@ -454,12 +464,13 @@ export async function PATCH(
           where: { orderId: order.id, status: "PENDENTE" },
           data: { amount: totals.total },
         });
-        // cobrança MP do valor antigo expira (mesma regra da edição de itens)
+        // cobrança do valor antigo expira (mesma regra da edição de itens) —
+        // MP e InfinitePay, senão o link InfinitePay velho seguia pagável
         await tx.payment.updateMany({
           where: {
             orderId: order.id,
             status: "PENDENTE",
-            provider: "MERCADO_PAGO",
+            provider: { in: ["MERCADO_PAGO", "INFINITEPAY"] },
             dueAt: { gt: new Date() },
           },
           data: { dueAt: new Date() },
@@ -512,6 +523,15 @@ export async function PATCH(
       willChangeStatus && HELD_STATUSES.has(newStatus!) && !order.stockDeducted && estoqueDaqui;
     const needStockReturn =
       willChangeStatus && !HELD_STATUSES.has(newStatus!) && order.stockDeducted && estoqueDaqui;
+    // Cancelando: o vendedor escolheu devolver as peças ou baixar de vez?
+    const cancelStock = needStockReturn
+      ? resolveCancelStock(order.stockDeducted, parsed.data.restock)
+      : "NADA";
+    // Reabrindo: pedido que cancelou SEM devolver não desconta de novo — as
+    // peças já saíram; a baixa original só "recola" no pedido.
+    const reopenStock = needStockDeduct
+      ? resolveReopenStock(order.stockDeducted, order.stockWrittenOff)
+      : "NADA";
     // FATURAMENTO (venda): entra/sai de etapa paga — independente do estoque.
     const enteringPaid =
       willChangeStatus && PAID_STATUSES.has(newStatus!) && !PAID_STATUSES.has(order.status);
@@ -544,8 +564,9 @@ export async function PATCH(
       : order.items;
 
     // Antes de escrever: se o pedido vai segurar estoque agora (reserva/baixa),
-    // confere disponibilidade e bloqueia se faltar.
-    if (needStockDeduct) {
+    // confere disponibilidade e bloqueia se faltar. Reanexar não desconta
+    // nada, então não há disponibilidade a conferir.
+    if (needStockDeduct && reopenStock !== "REANEXAR") {
       const variantIds = itensParaEstoque
         .map((i) => i.variantId)
         .filter((v): v is string => !!v);
@@ -676,6 +697,11 @@ export async function PATCH(
                 ...(leavingPaid ? { paidAt: null } : {}),
                 ...(needStockDeduct ? { stockDeducted: true } : {}),
                 ...(needStockReturn ? { stockDeducted: false } : {}),
+                // baixa definitiva liga a marca; reanexar (ou devolver) limpa
+                ...(cancelStock === "BAIXAR" ? { stockWrittenOff: true } : {}),
+                ...(reopenStock === "REANEXAR" || cancelStock === "DEVOLVER"
+                  ? { stockWrittenOff: false }
+                  : {}),
               },
             });
             if (trava.count === 0) throw new StatusMudou();
@@ -758,7 +784,20 @@ export async function PATCH(
 
             // ---- Estoque ----
             const efeitos: { variantId: string; delta: number }[] = [];
-            if (needStockDeduct) {
+            if (needStockDeduct && reopenStock === "REANEXAR") {
+              // Pedido cancelado sem devolução voltou à ativa: as peças já
+              // estavam fora do estoque — nada desconta. O líquido do livro
+              // de movimentos deste pedido continua positivo, então um novo
+              // cancelamento COM devolução devolve exatamente o que saiu.
+              await tx.orderEvent.create({
+                data: {
+                  orderId: order.id,
+                  type: "NOTA",
+                  description: `Pedido reaberto por ${user.name}: as peças já haviam sido baixadas no cancelamento e NÃO foram descontadas de novo.`,
+                  userId: user.id,
+                },
+              });
+            } else if (needStockDeduct) {
               // Baixa condicionada: segura o que existe, nunca negativa. Se
               // faltar peça, o pedido não trava — mas a falta fica escrita e
               // a gerência é avisada.
@@ -812,6 +851,18 @@ export async function PATCH(
               efeitos.push(
                 ...reserva.seguradas.map((s) => ({ variantId: s.variantId, delta: -s.quantity }))
               );
+            } else if (needStockReturn && cancelStock === "BAIXAR") {
+              // Vendedor escolheu NÃO devolver: baixa definitiva. O estoque
+              // fica como está — a SAÍDA original do livro de movimentos
+              // vira a baixa — e a decisão fica registrada no histórico.
+              await tx.orderEvent.create({
+                data: {
+                  orderId: order.id,
+                  type: "NOTA",
+                  description: `Cancelado SEM devolver as peças ao estoque (baixa definitiva) — decisão de ${user.name}.`,
+                  userId: user.id,
+                },
+              });
             } else if (needStockReturn) {
               // devolve EXATAMENTE o que o pedido segurou (livro de
               // movimentos), nunca a quantidade do item — reserva parcial e
@@ -844,23 +895,35 @@ export async function PATCH(
                 where: {
                   orderId: order.id,
                   status: "PENDENTE",
-                  provider: "MERCADO_PAGO",
+                  // MP e InfinitePay: o link/QR pendente para de valer no
+                  // cancelamento (o link InfinitePay velho seguia pagável)
+                  provider: { in: ["MERCADO_PAGO", "INFINITEPAY"] },
                   dueAt: { gt: new Date() },
                 },
                 data: { dueAt: new Date() },
               });
               // 2) havia pagamento confirmado? o status ESTORNADO no sistema
-              // NÃO devolve o dinheiro no Mercado Pago — o estorno é manual.
-              const tinhaPago = await tx.payment.count({
+              // NÃO devolve o dinheiro no gateway — o estorno é manual, e no
+              // lugar CERTO: InfinitePay ou Mercado Pago, conforme quem
+              // recebeu (dizer "Mercado Pago" para um pedido da InfinitePay
+              // mandava a loja procurar o estorno na conta errada — 12/08/2026)
+              const estornados = await tx.payment.findMany({
                 where: { orderId: order.id, status: "ESTORNADO" },
+                select: { provider: true },
               });
-              if (tinhaPago > 0) {
+              if (estornados.length > 0) {
+                const temIp = estornados.some((p) => p.provider === "INFINITEPAY");
+                const temMp = estornados.some((p) => p.provider === "MERCADO_PAGO");
+                const onde = temIp && temMp
+                  ? "no app da InfinitePay e no painel do Mercado Pago (conforme onde a cliente pagou)"
+                  : temIp
+                    ? "no app da InfinitePay (aba Vendas → a venda desta cliente → Estornar)"
+                    : "no painel do Mercado Pago";
                 await tx.orderEvent.create({
                   data: {
                     orderId: order.id,
                     type: "NOTA",
-                    description:
-                      "⚠️ Pedido cancelado tinha pagamento confirmado — o valor NÃO volta sozinho. Faça o estorno no painel do Mercado Pago.",
+                    description: `⚠️ Pedido cancelado tinha pagamento confirmado — o valor NÃO volta sozinho para a cliente. Faça o estorno ${onde}.`,
                     userId: user.id,
                   },
                 });
@@ -908,9 +971,14 @@ export async function PATCH(
 
       // ---- fora da transação: efeitos não-críticos ----
       // FUNIL acompanha o pedido: pago → GANHO; cancelado → PERDIDO;
-      // reaberto → volta a ABERTA.
+      // reaberto → volta a ABERTA. Pedido sem cartão que virou pago ganha
+      // o seu na hora — venda paga nunca fica fora do "Pedido fechado".
       if (enteringPaid) {
-        await winLinkedOpportunity(user.companyId, order.opportunityId);
+        if (order.opportunityId) {
+          await winLinkedOpportunity(user.companyId, order.opportunityId);
+        } else {
+          await garantirCartaoDoPedido(user.companyId, order.id);
+        }
       } else if (newStatus === "CANCELADO") {
         await loseLinkedOpportunity(user.companyId, order.opportunityId);
       } else if (leavingPaid || order.status === "CANCELADO") {
@@ -1055,17 +1123,22 @@ export async function DELETE(
       return NextResponse.json({ error: "Não encontrado" }, { status: 404 });
     }
 
-    // Pedido com pagamento MP CONFIRMADO não se exclui: a cascata apagaria o
-    // rastro do dinheiro real que entrou no Mercado Pago (auditoria
-    // 07/08/2026). Para desfazer, CANCELE o pedido (que trata o estorno).
-    const pagoMp = await db.payment.count({
-      where: { orderId: order.id, provider: "MERCADO_PAGO", status: "CONFIRMADO" },
+    // Pedido com pagamento automático CONFIRMADO não se exclui: a cascata
+    // apagaria o rastro do dinheiro real que entrou (Mercado Pago ou
+    // InfinitePay — auditoria 07/08 e 11/08/2026). Para desfazer, CANCELE o
+    // pedido (que trata o estorno).
+    const pagoGateway = await db.payment.count({
+      where: {
+        orderId: order.id,
+        provider: { in: ["MERCADO_PAGO", "INFINITEPAY"] },
+        status: "CONFIRMADO",
+      },
     });
-    if (pagoMp > 0) {
+    if (pagoGateway > 0) {
       return NextResponse.json(
         {
           error:
-            "Este pedido tem pagamento confirmado no Mercado Pago e não pode ser excluído. Cancele o pedido (isso trata o estorno) em vez de apagar.",
+            "Este pedido tem pagamento confirmado (Mercado Pago ou InfinitePay) e não pode ser excluído. Cancele o pedido (isso trata o estorno) em vez de apagar.",
         },
         { status: 409 }
       );

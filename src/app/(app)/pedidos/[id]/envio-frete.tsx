@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   Truck,
@@ -15,6 +15,8 @@ import {
 } from "lucide-react";
 import { Card } from "@/components/ui";
 import { brl } from "@/lib/format";
+import { copiarTexto } from "@/lib/copiar";
+import { nomeProvisorio } from "@/lib/intake";
 
 /**
  * Painel de Envio do pedido (módulo Envios / Melhor Envio):
@@ -31,6 +33,12 @@ type Quote = {
   days: number | null;
 };
 
+type Recusa = {
+  carrier: string;
+  services: string[];
+  reason: string;
+};
+
 type Ship = {
   meOrderId: string | null;
   meService: string | null;
@@ -40,9 +48,13 @@ type Ship = {
   labelUrl: string | null;
   trackingCode: string | null;
   weightKg: number | null;
+  nfeKey: string | null;
 } | null;
 
 const statusLabel: Record<string, string> = {
+  COMPRADO: "Etiqueta paga — gerando",
+  GERANDO: "Gerando a etiqueta…",
+  DEVOLVIDO: "Voltando para a loja ↩️",
   ETIQUETA: "Etiqueta pronta para imprimir",
   POSTADO: "Postado — a caminho 🚚",
   ENTREGUE: "Entregue ✅",
@@ -56,6 +68,7 @@ export function EnvioFrete({
   canBuy,
   isCancelled,
   initialShipping,
+  jaEnviadoEm,
 }: {
   orderId: string;
   customerName: string;
@@ -63,26 +76,70 @@ export function EnvioFrete({
   canBuy: boolean;
   isCancelled: boolean;
   initialShipping: Ship;
+  /** quando o link já foi mandado para a cliente (texto pronto) */
+  jaEnviadoEm?: string | null;
 }) {
   const router = useRouter();
   const [ship, setShip] = useState<Ship>(initialShipping);
   const [quotes, setQuotes] = useState<Quote[] | null>(null);
+  const [recusadas, setRecusadas] = useState<Recusa[]>([]);
+  // situação da nota NA HORA DA COTAÇÃO (a tela pode estar aberta desde antes
+  // de a nota ser emitida — prometer o documento errado é pior que não dizer)
+  const [temNota, setTemNota] = useState(false);
+  // o servidor recusou a compra por causa da nota e ofereceu seguir sem ela
+  const [podeSemNota, setPodeSemNota] = useState(false);
   const [weightKg, setWeightKg] = useState<number | null>(null);
   const [escolhido, setEscolhido] = useState<number | null>(null);
-  const [busy, setBusy] = useState<"cotar" | "comprar" | "cancelar" | "rastreio" | "etiqueta" | null>(null);
+  const [busy, setBusy] = useState<
+    "cotar" | "comprar" | "cancelar" | "rastreio" | "etiqueta" | "enviar" | null
+  >(null);
   const [erro, setErro] = useState("");
-  const [copied, setCopied] = useState<"code" | "msg" | null>(null);
+  const [copied, setCopied] = useState<"code" | "link" | "msg" | null>(null);
+  const [enviado, setEnviado] = useState(false);
+  const [linkRastreio, setLinkRastreio] = useState<string | null>(null);
 
   const comprado = Boolean(ship?.meOrderId && ship.meStatus !== "CANCELADO");
+  // "Contato (77) 8101-4696" é crachá do sistema, não nome de gente
+  const primeiroNomeCliente = nomeProvisorio(customerName)
+    ? null
+    : customerName.trim().split(/\s+/)[0];
+
+  // busca o link de rastreio assim que há envio: o botão de copiar precisa
+  // dele PRONTO (ver copiarLink) e a chamada é barata
+  useEffect(() => {
+    if (!comprado) return;
+    let vivo = true;
+    fetch(`/api/orders/${orderId}/rastreio`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (vivo && d?.url) setLinkRastreio(d.url);
+      })
+      .catch(() => {});
+    return () => {
+      vivo = false;
+    };
+  }, [comprado, orderId]);
 
   async function acao(body: Record<string, unknown>) {
-    const res = await fetch(`/api/orders/${orderId}/frete`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
-    const d = await res.json().catch(() => ({}));
-    return { ok: res.ok, d };
+    try {
+      const res = await fetch(`/api/orders/${orderId}/frete`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const d = await res.json().catch(() => ({}));
+      return { ok: res.ok, d };
+    } catch {
+      // sem isto, sinal oscilando no celular deixava o botão girando para
+      // sempre — inclusive o de COMPRAR ETIQUETA, que mexe com dinheiro
+      return {
+        ok: false,
+        d: {
+          error:
+            "Sua internet oscilou e a resposta não chegou. Atualize a página e confira antes de tentar de novo.",
+        } as Record<string, unknown>,
+      };
+    }
   }
 
   async function cotar() {
@@ -90,18 +147,28 @@ export function EnvioFrete({
     setErro("");
     const { ok, d } = await acao({ action: "cotar" });
     setBusy(null);
-    if (!ok) return setErro(d.error ?? "Não foi possível cotar o frete.");
-    setQuotes(d.quotes);
+    if (!ok) {
+      // Cotação velha na tela = preço velho no botão "Comprar etiqueta" (o
+      // servidor recotaria e cobraria outro valor da carteira). Falhou, limpa.
+      setQuotes(null);
+      setRecusadas([]);
+      setEscolhido(null);
+      return setErro(d.error ?? "Não foi possível cotar o frete.");
+    }
+    setQuotes(d.quotes ?? []);
+    setRecusadas(Array.isArray(d.recusadas) ? d.recusadas : []);
+    setTemNota(Boolean(d.comNota));
     setWeightKg(d.weightKg ?? null);
     setEscolhido(d.quotes?.[0]?.serviceId ?? null);
   }
 
-  async function comprar() {
+  async function comprar(semNota = false) {
     const q = quotes?.find((x) => x.serviceId === escolhido);
     if (!q) return;
+    const doc = semNota || !temNota ? "declaração de conteúdo" : "NF-e";
     if (
       !window.confirm(
-        `Comprar a etiqueta ${q.carrier} ${q.service} por ${brl(q.price)}? O valor sai do saldo da carteira Melhor Envio da loja.`
+        `Comprar a etiqueta ${q.carrier} ${q.service} por ${brl(q.price)} (com ${doc})? O valor sai do saldo da carteira Melhor Envio da loja.`
       )
     )
       return;
@@ -112,11 +179,17 @@ export function EnvioFrete({
       serviceId: q.serviceId,
       service: q.service,
       carrier: q.carrier,
+      ...(semNota ? { semNota: true } : {}),
     });
     setBusy(null);
-    if (!ok) return setErro(d.error ?? "Não foi possível comprar a etiqueta.");
+    if (!ok) {
+      setPodeSemNota(Boolean(d.podeSemNota));
+      return setErro(d.error ?? "Não foi possível comprar a etiqueta.");
+    }
     setShip(d.shipping);
     setQuotes(null);
+    setRecusadas([]);
+    setPodeSemNota(false);
     router.refresh();
   }
 
@@ -159,21 +232,85 @@ export function EnvioFrete({
 
   async function copiarCodigo() {
     if (!ship?.trackingCode) return;
-    await navigator.clipboard.writeText(ship.trackingCode);
+    await copiarTexto(ship.trackingCode);
     setCopied("code");
     setTimeout(() => setCopied(null), 2000);
   }
 
+  /**
+   * Copia o LINK que a cliente abre (funciona mesmo sem WhatsApp na ficha).
+   * O link é buscado ASSIM QUE o painel abre e guardado aqui: no iPhone, um
+   * `await fetch` antes de escrever na área de transferência faz o navegador
+   * perder o "gesto do usuário" e a cópia é recusada em silêncio.
+   */
+  async function copiarLink() {
+    setErro("");
+    // normalmente o link já está em mãos (buscado ao abrir o painel). Se
+    // aquela primeira busca falhou (rede ruim), busca AGORA em vez de repetir
+    // "estou gerando" para sempre — é o que acontecia antes.
+    let link = linkRastreio;
+    if (!link) {
+      const r = await fetch(`/api/orders/${orderId}/rastreio`).catch(() => null);
+      const d = r && r.ok ? await r.json().catch(() => null) : null;
+      link = d?.url ?? null;
+      if (link) setLinkRastreio(link);
+    }
+    if (!link) return setErro("Não consegui gerar o link agora. Tente de novo em instantes.");
+    const deu = await copiarTexto(link);
+    if (!deu) return setErro("Não consegui copiar. Segure o link e copie à mão.");
+    setCopied("link");
+    setTimeout(() => setCopied(null), 2000);
+  }
+
+  /** Texto pronto para colar no WhatsApp Web / outro aparelho. */
   async function copiarMensagem() {
-    if (!ship?.trackingCode) return;
+    setErro("");
+    let link = linkRastreio;
+    if (!link) {
+      const r = await fetch(`/api/orders/${orderId}/rastreio`).catch(() => null);
+      const d = r && r.ok ? await r.json().catch(() => null) : null;
+      link = d?.url ?? null;
+      if (link) setLinkRastreio(link);
+    }
+    if (!link) return setErro("Não consegui gerar o link agora. Tente de novo em instantes.");
+    const jaSaiu = ship?.meStatus === "POSTADO" || ship?.meStatus === "ENTREGUE";
     const msg =
-      `Oi ${customerName.split(" ")[0]}! 📦 Seu pedido já está com a transportadora.\n\n` +
-      `Código de rastreio: ${ship.trackingCode}\n` +
-      `Acompanhe aqui: https://melhorrastreio.com.br/rastreio/${ship.trackingCode}\n\n` +
-      `Qualquer coisa é só chamar! 💛`;
-    await navigator.clipboard.writeText(msg);
+      `${primeiroNomeCliente ? `Oi ${primeiroNomeCliente}!` : "Oi!"} 📦 ` +
+      `Seu pedido já está ${jaSaiu ? "a caminho" : "sendo preparado para envio"}.\n\n` +
+      `Acompanhe a entrega por aqui:\n${link}\n\n` +
+      (ship?.trackingCode ? `Código de rastreio: ${ship.trackingCode}\n\n` : "") +
+      `Qualquer dúvida é só chamar! 💛`;
+    const deu = await copiarTexto(msg);
+    if (!deu) return setErro("Não consegui copiar. Selecione o texto e copie à mão.");
     setCopied("msg");
     setTimeout(() => setCopied(null), 2000);
+  }
+
+  /** Manda o link no WhatsApp da cliente pela conexão da loja (um clique). */
+  async function enviarNoWhatsapp() {
+    setBusy("enviar");
+    setErro("");
+    let res: Response;
+    let d: { error?: string; url?: string } = {};
+    try {
+      res = await fetch(`/api/orders/${orderId}/rastreio`, { method: "POST" });
+      d = await res.json().catch(() => ({}));
+    } catch {
+      // internet caiu no meio: a mensagem PODE ter saído. Mandar de novo às
+      // cegas faria a cliente receber duas vezes.
+      setBusy(null);
+      return setErro(
+        "Sua internet caiu no meio do envio. Abra a conversa da cliente e veja se a mensagem saiu antes de tentar de novo."
+      );
+    }
+    setBusy(null);
+    // o servidor devolve o link junto com o erro (WhatsApp desconectado,
+    // já enviado há pouco): guarda para o botão de copiar funcionar
+    if (d.url) setLinkRastreio(d.url);
+    if (!res.ok) return setErro(d.error ?? "Não foi possível enviar agora.");
+    setEnviado(true);
+    setTimeout(() => setEnviado(false), 4000);
+    router.refresh();
   }
 
   return (
@@ -218,6 +355,63 @@ export function EnvioFrete({
             </button>
           </div>
 
+          {/* RASTREIO PARA A CLIENTE: um clique manda o link no WhatsApp
+              dela (pela conexão da loja, fica registrado na conversa) — sem
+              copiar, colar e procurar a conversa. Pedido cancelado não
+              aparece aqui: a cliente receberia link que não abre. */}
+          {!isCancelled && (
+            <div className="rounded-xl border border-emerald-100 bg-emerald-50/50 p-3">
+              <p className="mb-2 text-xs font-medium text-emerald-900">
+                📦 Mandar o acompanhamento para {primeiroNomeCliente ?? "a cliente"}
+              </p>
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  onClick={enviarNoWhatsapp}
+                  disabled={busy === "enviar"}
+                  className="inline-flex items-center gap-1.5 rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:opacity-50"
+                >
+                  {busy === "enviar" ? (
+                    <Loader2 className="size-4 animate-spin" />
+                  ) : enviado ? (
+                    <CheckCircle2 className="size-4" />
+                  ) : (
+                    <MessageCircle className="size-4" />
+                  )}
+                  {enviado ? "Enviado!" : "Enviar rastreio no WhatsApp"}
+                </button>
+                <button
+                  onClick={copiarLink}
+                  className="inline-flex items-center gap-1 rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-xs font-medium text-gray-600 hover:border-gray-300"
+                >
+                  {copied === "link" ? (
+                    <CheckCircle2 className="size-3.5 text-emerald-600" />
+                  ) : (
+                    <Copy className="size-3.5" />
+                  )}
+                  {copied === "link" ? "Copiado!" : "Copiar link"}
+                </button>
+                {/* mandar por FORA (WhatsApp Web, outro aparelho): o texto
+                    pronto voltou — quem não usa a Central perdia a mensagem */}
+                <button
+                  onClick={copiarMensagem}
+                  className="inline-flex items-center gap-1 rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-xs font-medium text-gray-600 hover:border-gray-300"
+                >
+                  {copied === "msg" ? (
+                    <CheckCircle2 className="size-3.5 text-emerald-600" />
+                  ) : (
+                    <Copy className="size-3.5" />
+                  )}
+                  {copied === "msg" ? "Copiado!" : "Copiar mensagem"}
+                </button>
+              </div>
+              <p className="mt-2 text-[11px] leading-snug text-emerald-800/70">
+                {jaEnviadoEm
+                  ? `Você já mandou o link em ${jaEnviadoEm} — pode mandar de novo se ela pedir.`
+                  : "A cliente clica e vê em que pé está a entrega — sem login, sem precisar entender código dos Correios."}
+              </p>
+            </div>
+          )}
+
           {ship?.trackingCode ? (
             <div className="flex items-center gap-2 flex-wrap">
               <code className="rounded-lg bg-gray-50 border border-gray-200 px-2.5 py-1.5 text-xs font-semibold tracking-wide">
@@ -229,13 +423,6 @@ export function EnvioFrete({
               >
                 {copied === "code" ? <CheckCircle2 className="size-3.5 text-emerald-600" /> : <Copy className="size-3.5" />}
                 {copied === "code" ? "Copiado!" : "Copiar código"}
-              </button>
-              <button
-                onClick={copiarMensagem}
-                className="inline-flex items-center gap-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold px-2.5 py-1.5"
-              >
-                {copied === "msg" ? <CheckCircle2 className="size-3.5" /> : <MessageCircle className="size-3.5" />}
-                {copied === "msg" ? "Copiado!" : "Copiar msg p/ WhatsApp"}
               </button>
             </div>
           ) : (
@@ -254,15 +441,25 @@ export function EnvioFrete({
               {busy === "etiqueta" ? <Loader2 className="size-4 animate-spin" /> : <Printer className="size-4" />}
               Imprimir etiqueta
             </button>
-            <a
-              href={`/declaracao/${orderId}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-1.5 rounded-xl border border-gray-200 hover:border-gray-300 text-gray-600 text-sm font-medium px-4 py-2.5 transition"
-            >
-              <FileText className="size-4" />
-              Declaração de conteúdo
-            </a>
+            {ship?.nfeKey ? (
+              <span
+                className="inline-flex items-center gap-1.5 rounded-xl border border-emerald-200 bg-emerald-50 text-emerald-700 text-sm font-medium px-4 py-2.5"
+                title={`Chave de acesso: ${ship.nfeKey}`}
+              >
+                <FileText className="size-4" />
+                Etiqueta com NF-e
+              </span>
+            ) : (
+              <a
+                href={`/declaracao/${orderId}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 rounded-xl border border-gray-200 hover:border-gray-300 text-gray-600 text-sm font-medium px-4 py-2.5 transition"
+              >
+                <FileText className="size-4" />
+                Declaração de conteúdo
+              </a>
+            )}
             {canBuy && ship?.meStatus === "ETIQUETA" && (
               <button
                 onClick={cancelar}
@@ -286,7 +483,7 @@ export function EnvioFrete({
         <div className="space-y-2">
           <p className="text-xs text-gray-500">
             Cotação para <b>{weightKg} kg</b> (peso das peças + caixa padrão da
-            loja). Escolha o serviço:
+            loja).{quotes.length > 0 && " Escolha o serviço:"}
           </p>
           {quotes.map((q) => (
             <label
@@ -317,21 +514,67 @@ export function EnvioFrete({
               <span className="text-sm font-semibold tabular-nums">{brl(q.price)}</span>
             </label>
           ))}
+          <p className="text-xs text-gray-500">
+            {temNota ? (
+              <>
+                📄 A etiqueta vai sair <b>com a NF-e</b> (chave de acesso na
+                etiqueta) — sem declaração de conteúdo.
+              </>
+            ) : (
+              <>
+                📄 A etiqueta vai sair com <b>declaração de conteúdo</b>. Para
+                sair com a NF-e, emita a nota deste pedido antes de comprar.
+              </>
+            )}
+          </p>
+          {recusadas.length > 0 && (
+            <details className="rounded-xl border border-gray-200 bg-gray-50/60 px-3 py-2">
+              <summary className="cursor-pointer text-xs font-medium text-gray-600">
+                {recusadas.length}{" "}
+                {recusadas.length === 1
+                  ? "transportadora não cotou"
+                  : "transportadoras não cotaram"}{" "}
+                — ver o motivo
+              </summary>
+              <ul className="mt-2 space-y-1.5">
+                {recusadas.map((rec) => (
+                  <li key={`${rec.carrier}-${rec.reason}`} className="text-xs text-gray-500">
+                    <b className="text-gray-700">{rec.carrier}</b>
+                    {rec.services.length > 0 && (
+                      <span className="text-gray-400"> ({rec.services.join(", ")})</span>
+                    )}
+                    : {rec.reason}
+                  </li>
+                ))}
+              </ul>
+              <p className="mt-2 text-[11px] text-gray-400">
+                Transportadora “não liberada” se resolve no painel do Melhor
+                Envio (Gerenciar → Verificação de conta). Os Correios aceitam
+                conta com CPF; as demais costumam exigir a conta verificada.
+              </p>
+            </details>
+          )}
+          {quotes.length === 0 && (
+            <p className="text-sm text-amber-700 bg-amber-50 border border-amber-100 rounded-xl px-3 py-2">
+              Nenhuma transportadora cotou este envio. Veja o motivo de cada uma
+              acima.
+            </p>
+          )}
           <div className="flex items-center gap-2 pt-1">
-            {canBuy ? (
+            {canBuy && quotes.length > 0 ? (
               <button
-                onClick={comprar}
+                onClick={() => comprar()}
                 disabled={busy === "comprar" || !escolhido}
                 className="inline-flex items-center gap-1.5 rounded-xl bg-orange-600 hover:bg-orange-700 text-white text-sm font-medium px-4 py-2.5 transition disabled:opacity-50"
               >
                 {busy === "comprar" ? <Loader2 className="size-4 animate-spin" /> : <Truck className="size-4" />}
                 Comprar etiqueta
               </button>
-            ) : (
+            ) : quotes.length > 0 ? (
               <p className="text-xs text-gray-400">
                 Peça a um gerente ou admin para comprar a etiqueta.
               </p>
-            )}
+            ) : null}
             <button
               onClick={cotar}
               disabled={busy === "cotar"}
@@ -353,7 +596,19 @@ export function EnvioFrete({
       )}
 
       {erro && (
-        <p className="text-sm text-rose-600 bg-rose-50 rounded-lg px-3 py-2 mt-3">{erro}</p>
+        <div className="mt-3 space-y-2">
+          <p className="text-sm text-rose-600 bg-rose-50 rounded-lg px-3 py-2">{erro}</p>
+          {podeSemNota && canBuy && (
+            <button
+              onClick={() => comprar(true)}
+              disabled={busy === "comprar"}
+              className="inline-flex items-center gap-1.5 rounded-xl border border-gray-200 hover:border-gray-300 text-gray-600 text-xs font-medium px-3 py-2 transition disabled:opacity-50"
+            >
+              <FileText className="size-3.5" />
+              Comprar mesmo assim, com declaração de conteúdo
+            </button>
+          )}
+        </div>
       )}
     </Card>
   );

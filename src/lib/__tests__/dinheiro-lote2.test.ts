@@ -51,8 +51,9 @@ describe("cancelamento trata dinheiro e frete", () => {
   it("editar sem mudar o total NÃO invalida o Pix (evita P2002)", () => {
     expect(rota).toContain("if (totals.total !== order.total)");
   });
-  it("não exclui pedido com pagamento MP confirmado", () => {
-    expect(rota).toContain('provider: "MERCADO_PAGO", status: "CONFIRMADO"');
+  it("não exclui pedido com pagamento de gateway confirmado", () => {
+    // MP e InfinitePay (auditoria 11/08/2026): dinheiro real não some por cascata
+    expect(rota).toContain('provider: { in: ["MERCADO_PAGO", "INFINITEPAY"] }');
     expect(rota).toContain("não pode ser excluído");
   });
 });

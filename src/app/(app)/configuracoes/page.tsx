@@ -24,7 +24,7 @@ import { InstallAppCard } from "./install-app";
 import { SaleNotifications } from "./sale-notifications";
 import { NuvemshopConnect } from "./nuvemshop-connect";
 import { JueriConnect } from "./jueri-connect";
-import { MercadoPagoConnect, BlingConnect } from "./pagamentos-connect";
+import { MercadoPagoConnect, InfinitePayConnect, BlingConnect } from "./pagamentos-connect";
 import { MelhorEnvioConnect } from "./envios-connect";
 import { isAdmin, isSupport, podeOperarIntegracoes } from "@/lib/scope";
 import type { Origin } from "@prisma/client";
@@ -62,7 +62,8 @@ export default async function SettingsPage() {
     db.company.findUnique({ where: { id: user.companyId } }),
     db.messageTemplate.findMany({
       where: { companyId: user.companyId },
-      orderBy: { title: "asc" },
+      // mesma ordem do painel do chat: o que a loja escolheu com as setinhas
+      orderBy: [{ order: "asc" }, { category: "asc" }, { title: "asc" }],
     }),
     db.tag.findMany({
       where: { companyId: user.companyId },
@@ -118,6 +119,7 @@ export default async function SettingsPage() {
       <InstallAppCard />
       <SaleNotifications />
       {integra && <MercadoPagoConnect />}
+      {integra && <InfinitePayConnect />}
       {integra && <BlingConnect />}
       {integra && company?.shippingEnabled && (
         <MelhorEnvioConnect categories={categorias.map((c) => c.category)} />

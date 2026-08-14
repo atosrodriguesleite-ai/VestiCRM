@@ -8,6 +8,8 @@ import {
   computeOrderTotals,
 } from "../orders";
 
+// Guarda RN-001, RN-002 (índice em docs/regras.md; texto no CLAUDE.md).
+
 /**
  * REGRA DO DINHEIRO: faturamento é somado pela data do PAGAMENTO.
  *

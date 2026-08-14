@@ -1,4 +1,5 @@
 import { db } from "./db";
+import { limparChaveNfe } from "./bling";
 import { encryptSecret, decryptSecret } from "./crypto";
 import { signState, verifyState } from "./nuvemshop"; // state assinado (HMAC)
 import { appBaseUrl } from "./comm/evolution";
@@ -184,16 +185,31 @@ async function meApi<T = unknown>(
 ): Promise<{ ok: boolean; status: number; data: T | null; raw: string }> {
   const token = await meAccessToken(companyId);
   if (!token) return { ok: false, status: 0, data: null, raw: "sem conexão" };
-  const res = await fetch(`${ME_BASE}/api/v2${path}`, {
-    method,
-    headers: {
-      "Content-Type": "application/json",
-      Accept: "application/json",
-      Authorization: `Bearer ${token}`,
-      "User-Agent": USER_AGENT,
-    },
-    ...(body ? { body: JSON.stringify(body) } : {}),
-  });
+  let res: Response;
+  try {
+    res = await fetch(`${ME_BASE}/api/v2${path}`, {
+      method,
+      // Melhor Envio lento não pode segurar a função: sem teto, uma consulta
+      // travada comia o tempo do cron (e da varredura de rastreio) inteiro.
+      // O estouro vira resposta de erro normal — quem chama já sabe lidar
+      // com `ok: false` e mostra a mensagem; virar exceção daria 500 na tela.
+      signal: AbortSignal.timeout(15_000),
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+        Authorization: `Bearer ${token}`,
+        "User-Agent": USER_AGENT,
+      },
+      ...(body ? { body: JSON.stringify(body) } : {}),
+    });
+  } catch {
+    return {
+      ok: false,
+      status: 0,
+      data: null,
+      raw: "O Melhor Envio demorou demais para responder. Tente de novo em instantes.",
+    };
+  }
   const raw = await res.text().catch(() => "");
   let data: T | null = null;
   try {
@@ -271,6 +287,62 @@ export function pesoDoPedidoKg(items: ItemComPeso[], conn: ConnPesos): number {
 
 // ---- Cotação ----------------------------------------------------------------
 
+/**
+ * IDs de TODOS os serviços do Melhor Envio (Correios + transportadoras).
+ *
+ * Por que isso existe: numa integração por API é QUEM CHAMA que diz quais
+ * serviços quer na cotação. Sem a lista, o Melhor Envio devolve o conjunto
+ * padrão dele — na conta do Atos vinham só SEDEX e PAC, e parecia que o
+ * sistema não cotava transportadora nenhuma. Pedindo a lista inteira, cada
+ * transportadora responde: ou com preço, ou com o motivo de não atender
+ * (que a tela agora mostra).
+ */
+export function extrairServiceIds(data: unknown): number[] {
+  // o Melhor Envio às vezes embrulha a lista em `{ data: [...] }` (o mesmo
+  // vaivém que /me/addresses faz) — aceitar os dois evita voltar calado ao bug
+  const lista = Array.isArray(data)
+    ? data
+    : Array.isArray((data as { data?: unknown })?.data)
+      ? ((data as { data: unknown[] }).data)
+      : [];
+  return lista
+    .map((s) => Number((s as { id?: unknown })?.id))
+    .filter((n) => Number.isInteger(n) && n > 0);
+}
+
+// A lista de serviços do Melhor Envio muda muito raramente (transportadora
+// nova entra de tempos em tempos) — guardar por algumas horas evita uma
+// chamada extra em toda cotação. Guardada POR LOJA: cada loja tem a conta ME
+// dela, e lista de uma loja na cotação de outra é vazamento entre inquilinos.
+const SERVICOS_TTL_MS = 60 * 60 * 1000;
+const servicosCache = new Map<string, { ids: number[]; at: number }>();
+
+/** Esquece a lista guardada — a loja trocou de conta Melhor Envio. */
+export function meLimparCacheServicos(companyId: string) {
+  servicosCache.delete(companyId);
+}
+
+async function meServiceIds(companyId: string): Promise<number[]> {
+  const guardado = servicosCache.get(companyId);
+  if (guardado && Date.now() - guardado.at < SERVICOS_TTL_MS) return guardado.ids;
+  // Internet caindo no meio não pode derrubar a cotação: sem lista a gente
+  // ainda cota o padrão da conta, e é isso que a lojista precisa ver.
+  const r = await meApi(companyId, "GET", "/me/shipment/services").catch(
+    (e: unknown) => ({ ok: false, status: 0, data: null, raw: String(e) })
+  );
+  const ids = r.ok ? extrairServiceIds(r.data) : [];
+  if (!ids.length) {
+    // Sem lista a cotação volta ao padrão da conta (só Correios) — falha
+    // silenciosa é justamente o que escondeu esse bug por semanas.
+    console.error(
+      `[melhorenvio] lista de serviços vazia (status ${r.status}): ${r.raw.slice(0, 300)}`
+    );
+    return guardado?.ids ?? [];
+  }
+  servicosCache.set(companyId, { ids, at: Date.now() });
+  return ids;
+}
+
 export type MeQuote = {
   serviceId: number;
   service: string; // PAC, SEDEX, .Package...
@@ -280,13 +352,51 @@ export type MeQuote = {
   days: number | null; // prazo em dias úteis
 };
 
+/** Transportadora que o Melhor Envio devolveu SEM preço, e o porquê. */
+export type MeRecusa = {
+  carrier: string;
+  services: string[];
+  reason: string;
+};
+
+/**
+ * Traduz o "não cotou" do Melhor Envio para o português da lojista.
+ *
+ * Antes a gente simplesmente SUMIA com a transportadora que deu erro — a tela
+ * mostrava só os Correios e ninguém sabia se era limite de peso, trecho sem
+ * cobertura ou conta não liberada. Sumir com o motivo é o mesmo que esconder o
+ * problema: a lojista fica achando que o sistema só cota Correios.
+ */
+export function motivoRecusa(erro: string): string {
+  const e = erro.toLowerCase();
+  // Causa nº 1 na prática: conta pessoa física / sem verificação. As
+  // transportadoras privadas (Jadlog, Loggi, Azul, LATAM...) só liberam depois
+  // que o Melhor Envio valida a conta — os Correios aceitam CPF de cara.
+  // `inativ`/`token` ficam DE FORA de propósito: instabilidade da
+  // transportadora ("serviço inativo") mandaria a lojista verificar uma conta
+  // que já está verificada. Token ruim aparece como erro da chamada inteira.
+  if (/contrato|habilit|autoriza|permiss|liberad|credencia/.test(e))
+    return "Não liberada na sua conta Melhor Envio — faça a verificação da conta no painel deles.";
+  if (/peso/.test(e)) return "Peso do pedido fora do limite dessa transportadora.";
+  if (/dimens|altura|largura|comprimento|tamanho|cubagem/.test(e))
+    return "Tamanho da caixa fora do limite dessa transportadora.";
+  if (/cep|trecho|regi|atend|cobertura|rota|destino|origem/.test(e))
+    return "Não atende este trecho (CEP de origem → destino).";
+  if (/valor|seguro|declarado/.test(e))
+    return "Valor do pedido fora do limite dessa transportadora.";
+  return erro;
+}
+
 /** Cota o frete de UMA caixa (peso somado do pedido + caixa padrão da loja). */
 export async function meCalculate(input: {
   companyId: string;
   toZip: string;
   weightKg: number;
   insuranceValue: number;
-}): Promise<{ ok: true; quotes: MeQuote[]; fromZip: string } | { ok: false; error: string }> {
+}): Promise<
+  | { ok: true; quotes: MeQuote[]; recusadas: MeRecusa[]; fromZip: string }
+  | { ok: false; error: string }
+> {
   const conn = await db.melhorEnvioConnection.findUnique({
     where: { companyId: input.companyId },
   });
@@ -296,35 +406,57 @@ export async function meCalculate(input: {
       ok: false,
       error: "Preencha o CEP do remetente em Configurações → Melhor Envio.",
     };
-  const r = await meApi<
-    {
-      id?: number;
-      name?: string;
-      price?: string | number;
-      delivery_time?: number;
-      delivery_range?: { min?: number; max?: number };
-      company?: { name?: string; picture?: string };
-      error?: string;
-    }[]
-  >(input.companyId, "POST", "/me/shipment/calculate", {
-    from: { postal_code: conn.fromZip.replace(/\D/g, "") },
-    to: { postal_code: input.toZip.replace(/\D/g, "") },
-    package: {
-      weight: input.weightKg,
-      width: conn.boxWidthCm,
-      height: conn.boxHeightCm,
-      length: conn.boxLengthCm,
-    },
-    options: {
-      insurance_value: Math.round(input.insuranceValue * 100) / 100,
-      receipt: false,
-      own_hand: false,
-    },
-  });
+  const servicos = await meServiceIds(input.companyId);
+  const cotar = (comServicos: boolean) =>
+    meApi<
+      {
+        id?: number;
+        name?: string;
+        price?: string | number;
+        delivery_time?: number;
+        delivery_range?: { min?: number; max?: number };
+        company?: { name?: string; picture?: string };
+        error?: string;
+      }[]
+    >(input.companyId, "POST", "/me/shipment/calculate", {
+      from: { postal_code: conn.fromZip!.replace(/\D/g, "") },
+      to: { postal_code: input.toZip.replace(/\D/g, "") },
+      package: {
+        weight: input.weightKg,
+        width: conn.boxWidthCm,
+        height: conn.boxHeightCm,
+        length: conn.boxLengthCm,
+      },
+      options: {
+        insurance_value: Math.round(input.insuranceValue * 100) / 100,
+        receipt: false,
+        own_hand: false,
+      },
+      // sem isto o Melhor Envio devolve só o padrão da conta (SEDEX e PAC)
+      ...(comServicos ? { services: servicos.join(",") } : {}),
+    });
+
+  let r = await cotar(servicos.length > 0);
+  // Só repesca quando o Melhor Envio recusou o PEDIDO (400/422) — 401 (token),
+  // 403 e 429 (limite) falhariam igual, e repetir só gastaria chamada.
+  if (!r.ok && servicos.length > 0 && (r.status === 400 || r.status === 422)) {
+    // Um id que o ME não aceita mais derrubaria a cotação INTEIRA e a loja
+    // ficaria sem nem os Correios, que antes funcionavam. Repesca sem a lista:
+    // volta ao padrão da conta, mas volta com alguma coisa.
+    console.error(
+      `[melhorenvio] calculate recusou a lista de serviços (${r.status}): ${r.raw.slice(0, 300)}`
+    );
+    // guarda a lista VAZIA: sem isso a próxima cotação buscaria os mesmos ids
+    // e faria 3 chamadas para chegar no mesmo lugar, cotação após cotação
+    servicosCache.set(input.companyId, { ids: [], at: Date.now() });
+    r = await cotar(false);
+  }
   if (!r.ok || !Array.isArray(r.data))
     return { ok: false, error: meErro(r.data, r.status) };
+  const cotou = (s: (typeof r.data)[number]) =>
+    !s.error && Boolean(s.id) && Number(s.price) > 0;
   const quotes = r.data
-    .filter((s) => !s.error && s.id && Number(s.price) > 0)
+    .filter(cotou)
     .map((s) => ({
       serviceId: Number(s.id),
       service: s.name ?? "Serviço",
@@ -334,13 +466,40 @@ export async function meCalculate(input: {
       days: s.delivery_time ?? s.delivery_range?.max ?? null,
     }))
     .sort((a, b) => a.price - b.price);
-  if (quotes.length === 0)
+
+  // Quem NÃO cotou vira uma linha explicada, agrupada por transportadora +
+  // motivo (a Jadlog tem 3 serviços; 3 linhas iguais só poluiriam a tela).
+  const porMotivo = new Map<string, MeRecusa>();
+  for (const s of r.data) {
+    if (cotou(s)) continue;
+    const carrier = s.company?.name?.trim() || "Transportadora";
+    // `error` vem de fora: já veio como texto sempre, mas se um dia vier
+    // objeto o `.trim()` derrubaria a cotação INTEIRA — e aí nem os Correios
+    // apareceriam. Só tratamos o que é texto de verdade.
+    const bruto = typeof s.error === "string" ? s.error.trim() : "";
+    const reason = bruto ? motivoRecusa(bruto) : "Sem preço para este envio.";
+    const chave = `${carrier} \u0000 ${reason}`;
+    const atual = porMotivo.get(chave);
+    const service = s.name?.trim();
+    if (atual) {
+      if (service && !atual.services.includes(service)) atual.services.push(service);
+    } else {
+      porMotivo.set(chave, { carrier, services: service ? [service] : [], reason });
+    }
+  }
+  const recusadas = [...porMotivo.values()].sort((a, b) =>
+    a.carrier.localeCompare(b.carrier, "pt-BR")
+  );
+
+  // Só é erro quando o Melhor Envio não devolveu NADA — se ele explicou por
+  // que cada uma recusou, a tela mostra a explicação em vez de um erro seco.
+  if (quotes.length === 0 && recusadas.length === 0)
     return {
       ok: false,
       error:
         "Nenhuma transportadora atende este trecho/peso. Confira o CEP do cliente e o peso do pedido.",
     };
-  return { ok: true, quotes, fromZip: conn.fromZip };
+  return { ok: true, quotes, recusadas, fromZip: conn.fromZip };
 }
 
 // ---- Compra da etiqueta ------------------------------------------------------
@@ -386,9 +545,28 @@ function pessoaME(e: Endereco) {
 }
 
 /**
+ * Como o envio é declarado ao Melhor Envio: com NF-e (chave de acesso na
+ * etiqueta) ou com declaração de conteúdo. Separado em função pura porque é
+ * a decisão fiscal do envio — tem que dar para conferir sem chamar a API.
+ */
+export function opcoesFiscaisME(nfeKey: string | null | undefined): {
+  non_commercial: boolean;
+  invoice?: { key: string };
+} {
+  // chave torta derrubaria a COMPRA inteira; nesse caso é melhor a etiqueta
+  // sair com declaração de conteúdo do que a loja ficar sem etiqueta
+  const chave = limparChaveNfe(nfeKey);
+  return chave
+    ? { non_commercial: false, invoice: { key: chave } }
+    : { non_commercial: true };
+}
+
+/**
  * Compra a etiqueta de UM envio: carrinho → pagamento (saldo da carteira ME
- * da loja) → gerar etiqueta → link de impressão. Envio com DECLARAÇÃO DE
- * CONTEÚDO (non_commercial) — a NF-e pode ir junto fisicamente na caixa.
+ * da loja) → gerar etiqueta → link de impressão.
+ *
+ * Com `nfeKey` (nota autorizada) a etiqueta sai COM a NF-e; sem chave, sai
+ * com DECLARAÇÃO DE CONTEÚDO, que é o caso da maioria das lojas.
  */
 export async function meBuyShipment(input: {
   companyId: string;
@@ -399,6 +577,8 @@ export async function meBuyShipment(input: {
   weightKg: number;
   insuranceValue: number;
   orderLabel: string; // ex.: "Pedido #123" (aparece na sua conta ME)
+  /** Chave de acesso da NF-e (44 dígitos). Com ela a etiqueta sai COM nota. */
+  nfeKey?: string | null;
 }): Promise<
   | {
       ok: true;
@@ -406,6 +586,8 @@ export async function meBuyShipment(input: {
       price: number;
       labelUrl: string | null;
       tracking: string | null;
+      /** chave da NF-e que foi de fato usada (null = declaração de conteúdo) */
+      nfeKey: string | null;
       /** pago (saldo debitado) mas a etiqueta ainda não gerou — precisa retomar */
       pendente?: boolean;
       aviso?: string;
@@ -416,6 +598,8 @@ export async function meBuyShipment(input: {
     where: { companyId: input.companyId },
   });
   if (!conn) return { ok: false, error: "Melhor Envio não conectado." };
+  const fiscal = opcoesFiscaisME(input.nfeKey);
+  const chave = fiscal.invoice?.key ?? null;
 
   // 1) carrinho
   const cart = await meApi<{ id?: string; price?: string | number }>(
@@ -444,13 +628,29 @@ export async function meBuyShipment(input: {
         receipt: false,
         own_hand: false,
         reverse: false,
-        non_commercial: true, // declaração de conteúdo (imprimível no sistema)
+        // `non_commercial: true` = "esse envio não tem nota, é declaração de
+        // conteúdo". Com a chave da NF-e a gente inverte e manda a nota: a
+        // etiqueta sai com a chave de acesso e a loja não preenche papel
+        // nenhum. Sem chave, segue como sempre foi.
+        ...fiscal,
         tags: [{ tag: input.orderLabel, url: null }],
       },
     }
   );
-  if (!cart.ok || !cart.data?.id)
-    return { ok: false, error: meErro(cart.data, cart.status) };
+  if (!cart.ok || !cart.data?.id) {
+    const msg = meErro(cart.data, cart.status);
+    // Chave BEM FORMADA que o ME recusa (CNPJ da nota diferente do remetente
+    // cadastrado, nota ainda não propagada na SEFAZ) — sem esta explicação a
+    // loja lê "erro 422" e não faz ideia do que arrumar. Não trocamos por
+    // declaração de conteúdo por conta própria: se existe nota, é a nota que
+    // tem que viajar com a caixa.
+    if (chave && /invoice|nota fiscal|nf-?e\b|chave de acesso/i.test(msg))
+      return {
+        ok: false,
+        error: `${msg} Como este envio vai com nota fiscal, vale conferir se o CNPJ que emitiu a nota é o mesmo do remetente em Configurações → Melhor Envio, e se a nota foi autorizada há alguns minutos.`,
+      };
+    return { ok: false, error: msg };
+  }
   const meOrderId = cart.data.id;
 
   // 2) pagamento com o saldo da carteira ME da loja
@@ -492,6 +692,7 @@ export async function meBuyShipment(input: {
       price,
       labelUrl: null,
       tracking: null,
+      nfeKey: chave ?? null,
       aviso:
         "A etiqueta foi paga mas ainda não gerou. O valor não se perdeu — clique em 'Gerar etiqueta' de novo em instantes (não compre outra).",
     };
@@ -511,23 +712,71 @@ export async function meBuyShipment(input: {
     price,
     labelUrl: printR.data?.url ?? null,
     tracking: trackR?.tracking ?? null,
+    nfeKey: chave ?? null,
   };
 }
 
-/** Situação + código de rastreio de um envio comprado. */
+/**
+ * Data do Melhor Envio ("2026-08-14 09:12:33") → Date, ou null.
+ *
+ * DOIS CUIDADOS que já geraram dia errado na tela da cliente:
+ *  • a string vem SEM fuso e é horário de Brasília. Lida crua, o servidor da
+ *    Vercel (UTC) entendia 3h a mais: tudo que a transportadora carimbasse
+ *    entre 21h e meia-noite aparecia no dia seguinte para a cliente;
+ *  • data impossível (ano 2099, 1970) era gravada sem piscar. Fora da janela
+ *    plausível devolve null, e quem chama usa a hora da consulta.
+ */
+export function dataDoMe(v?: string | null): Date | null {
+  if (!v) return null;
+  const texto = v.trim();
+  if (!texto) return null;
+  const temFuso = /(?:Z|[+-]\d{2}:?\d{2})$/i.test(texto);
+  const iso = texto.includes("T") ? texto : texto.replace(" ", "T");
+  const d = new Date(temFuso ? iso : `${iso}-03:00`);
+  if (isNaN(d.getTime())) return null;
+  // janela de sanidade: nada anterior a 2020 nem mais de 2 dias no futuro
+  const agora = Date.now();
+  if (d.getTime() < Date.UTC(2020, 0, 1)) return null;
+  if (d.getTime() > agora + 2 * 24 * 60 * 60 * 1000) return null;
+  return d;
+}
+
+/**
+ * Situação + código de rastreio de um envio comprado.
+ *
+ * Traz também QUANDO postou e QUANDO entregou: a varredura só passa de tempos
+ * em tempos, então carimbar "entregue agora" na hora da consulta mostrava à
+ * cliente um dia de entrega errado. Com a data da transportadora, o que ela
+ * vê é o que aconteceu.
+ */
 export async function meTracking(
   companyId: string,
   meOrderId: string
-): Promise<{ tracking: string | null; status: string | null } | null> {
-  const r = await meApi<Record<string, { tracking?: string | null; status?: string }>>(
-    companyId,
-    "POST",
-    "/me/shipment/tracking",
-    { orders: [meOrderId] }
-  );
+): Promise<{
+  tracking: string | null;
+  status: string | null;
+  postedAt: Date | null;
+  deliveredAt: Date | null;
+} | null> {
+  const r = await meApi<
+    Record<
+      string,
+      {
+        tracking?: string | null;
+        status?: string;
+        posted_at?: string | null;
+        delivered_at?: string | null;
+      }
+    >
+  >(companyId, "POST", "/me/shipment/tracking", { orders: [meOrderId] });
   const info = r.data?.[meOrderId];
   if (!r.ok || !info) return null;
-  return { tracking: info.tracking ?? null, status: info.status ?? null };
+  return {
+    tracking: info.tracking ?? null,
+    status: info.status ?? null,
+    postedAt: dataDoMe(info.posted_at),
+    deliveredAt: dataDoMe(info.delivered_at),
+  };
 }
 
 /**

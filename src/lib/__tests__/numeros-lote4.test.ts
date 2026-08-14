@@ -27,6 +27,34 @@ describe("Dashboard: conversão nunca passa de 100%", () => {
   it("cartão de pedidos diz '30d' (não finge ser o mês do calendário)", () => {
     expect(dash).toContain('"Pagos (30d)"');
   });
+  it("mais vendidos agrupam pelo PRODUTO com o nome ATUAL (renomear junta o histórico)", () => {
+    expect(dash).toContain('by: ["productId", "name"]');
+    expect(dash).toContain("nomeAtual.get(chave)");
+    expect(dash).toContain("somaPorNome");
+  });
+});
+
+describe("Inteligência: Categorias, Cores e Tamanhos contam as MESMAS peças", () => {
+  const ins = ler("src/lib/tracking/insights.ts");
+  it("venda E acesso amarram no produto ATUAL (renomear não divide em duas linhas)", () => {
+    expect(ins).toContain("cadastroAtual(item.productId, item.name)");
+    expect(ins).toContain("cadastroAtual(e.productId, e.productName)");
+    expect(ins).not.toContain("catByName.get(item.name)"); // o jeito antigo, que perdia renomeados
+  });
+  it("peça sem cor/tamanho/categoria entra na conta (não é descartada)", () => {
+    expect(ins).toContain('"Sem cor"');
+    expect(ins).toContain('"Sem tamanho"');
+    expect(ins).toContain('"Sem categoria"');
+  });
+  it("cor/tamanho aparados dos DOIS lados (espaço a mais não vira linha dupla)", () => {
+    expect(ins).toContain("e[dim]?.trim()");
+    expect(ins).toContain("item.color?.trim()");
+    expect(ins).toContain("item.size?.trim()");
+  });
+  it("xarás no cadastro: plano B por nome é determinístico (o mais antigo vence)", () => {
+    expect(ins).toContain("if (!porNome.has(pr.name)) porNome.set(pr.name, pr)");
+    expect(ins).toContain('orderBy: [{ createdAt: "asc" }');
+  });
 });
 
 describe("Equipe: a meta é do MÊS (fuso SP), não de 30 dias corridos", () => {
@@ -64,11 +92,12 @@ describe("Funil: o valor do cartão acompanha o pedido", () => {
     expect(sync).toContain("value: pedido.netTotal");
   });
   it("criar pedido (sistema e catálogo) sincroniza o valor no nascimento", () => {
+    // `cartao` = o cartão amarrado ao pedido, garantido no nascimento (funil vivo)
     expect(ler("src/app/api/orders/route.ts")).toContain(
-      "syncOpportunityValue(user.companyId, order.opportunityId, order.netTotal)"
+      "syncOpportunityValue(user.companyId, cartao, order.netTotal)"
     );
     expect(ler("src/app/api/catalog/order/route.ts")).toContain(
-      "syncOpportunityValue(company.id, order.opportunityId, order.netTotal)"
+      "syncOpportunityValue(company.id, cartao, order.netTotal)"
     );
   });
 });

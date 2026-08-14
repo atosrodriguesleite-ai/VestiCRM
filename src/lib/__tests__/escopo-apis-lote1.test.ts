@@ -2,6 +2,8 @@ import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
+// Guarda RN-007, RN-013 (índice em docs/regras.md; texto no CLAUDE.md).
+
 /**
  * LOTE 1 — "trancar as portas dos fundos" (auditoria 07/08/2026).
  *

@@ -260,25 +260,95 @@ export function assinaturaDoPedido(payload: Record<string, unknown>): string {
  */
 export const VALIDADE_TRAVA_MS = 24 * 60 * 60 * 1000;
 
+/** O registro da trava, como fica guardado no aparelho. */
+type UltimoEnvio = {
+  assinatura?: string;
+  clientRef?: string;
+  at?: number;
+  /** O servidor CONFIRMOU o registro deste protocolo? (marcado após o ok.) */
+  registrado?: boolean;
+};
+
+/** Lê o registro da trava — só devolve se estiver legível e dentro da validade. */
+function lerUltimoEnvio(storage: Storage, agora: number): UltimoEnvio | null {
+  try {
+    const bruto = JSON.parse(
+      storage.getItem(CHAVE_ULTIMO_ENVIO) ?? "null"
+    ) as UltimoEnvio | null;
+    const valida =
+      typeof bruto?.at === "number" && agora - bruto.at < VALIDADE_TRAVA_MS;
+    return valida ? bruto : null;
+  } catch {
+    return null; // registro ilegível não pode impedir o pedido de sair
+  }
+}
+
+/**
+ * Esta MESMA sacola já foi enviada deste aparelho E o servidor confirmou o
+ * registro (últimas 24h)?
+ *
+ * É o que alimenta o aviso "você já enviou este pedido". O aviso vivia só na
+ * memória da aba (useRef) — e no celular a volta do WhatsApp muitas vezes
+ * RECARREGA o catálogo: memória zerada, aviso mudo, e a cliente reenviava a
+ * mesma mensagem sem saber. Lendo do registro persistido da trava, o aviso
+ * sobrevive a recarregar, fechar e voltar.
+ *
+ * Exigir `registrado` é o que impede o aviso de MENTIR: a trava é gravada na
+ * TENTATIVA; se o registro falhou, dizer "a loja já recebeu" e aceitar a
+ * recusa da cliente perderia o pedido com cara de sucesso — justamente o que
+ * a regra "o pedido do catálogo não pode se perder" proíbe. Sem confirmação,
+ * o fluxo segue como envio normal (o protocolo repetido continua garantindo
+ * que pedido não duplica).
+ *
+ * IMPORTANTE: consultar ANTES de chamar protocoloDaSacola — ela grava o
+ * registro na primeira vez.
+ */
+export function sacolaJaEnviada(
+  storage: Storage,
+  payload: Record<string, unknown>,
+  agora = Date.now()
+): boolean {
+  const r = lerUltimoEnvio(storage, agora);
+  return Boolean(
+    r?.clientRef &&
+      r.registrado === true &&
+      r.assinatura === assinaturaDoPedido(payload)
+  );
+}
+
+/**
+ * Marca que o servidor CONFIRMOU o registro do protocolo — chamar quando
+ * `registrarComInsistencia` devolver true. Só a partir daí o aviso de
+ * reenvio pode afirmar "a loja já recebeu".
+ */
+export function marcarRegistrado(
+  storage: Storage,
+  clientRef: string,
+  agora = Date.now()
+) {
+  const r = lerUltimoEnvio(storage, agora);
+  if (!r || r.clientRef !== clientRef) return; // a sacola já mudou: nada a marcar
+  try {
+    storage.setItem(
+      CHAVE_ULTIMO_ENVIO,
+      JSON.stringify({ ...r, registrado: true })
+    );
+  } catch {
+    /* sem espaço: o aviso fica mudo, o envio segue normal */
+  }
+}
+
 export function protocoloDaSacola(
   storage: Storage,
   payload: Record<string, unknown>,
   agora = Date.now()
 ): string {
   const assinatura = assinaturaDoPedido(payload);
-  try {
-    const bruto = JSON.parse(storage.getItem(CHAVE_ULTIMO_ENVIO) ?? "null") as {
-      assinatura?: string;
-      clientRef?: string;
-      at?: number;
-    } | null;
-    const valida =
-      typeof bruto?.at === "number" && agora - bruto.at < VALIDADE_TRAVA_MS;
-    if (valida && bruto?.assinatura === assinatura && bruto.clientRef) {
-      return bruto.clientRef;
-    }
-  } catch {
-    /* registro ilegível não pode impedir o pedido de sair */
+  const r = lerUltimoEnvio(storage, agora);
+  // sacola igual dentro da validade: reaproveita o protocolo (e preserva o
+  // `registrado` que já estiver lá — regravar aqui apagaria a confirmação)
+  if (r?.assinatura === assinatura && r.clientRef) {
+    return r.clientRef;
   }
   const novo = protocolo();
   try {

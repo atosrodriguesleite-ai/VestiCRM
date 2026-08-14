@@ -4,6 +4,7 @@ import { requireUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { isAdmin, isSupport } from "@/lib/scope";
 import { parseCategoryOrder, sortCategories } from "@/lib/categories";
+import { compararTamanhos } from "@/lib/tamanhos";
 import { PageHeader } from "@/components/ui";
 import { CatalogDesigner } from "./catalog-designer";
 
@@ -21,7 +22,9 @@ export default async function CatalogCustomizePage() {
     db.companySize.findMany({
       where: { companyId: user.companyId },
       orderBy: { order: "asc" },
-    }),
+    }).then((tamanhos) =>
+      tamanhos.sort((a, b) => a.order - b.order || compararTamanhos(a.name, b.name))
+    ),
     // TODAS as categorias da loja — produto pausado e categoria criada à mão
     // também entram. Antes só produto ATIVO aparecia, e a lojista via a lista
     // "faltando" categorias (incidente Entre Linhas, 03/08/2026): a ordem

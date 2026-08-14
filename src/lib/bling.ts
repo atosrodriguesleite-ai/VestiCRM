@@ -406,7 +406,8 @@ async function retomarNfeComErro(
     // emitir passa a criar outra nota, agora sem o id antigo no caminho)
     await db.order.update({
       where: { id: orderId },
-      data: { nfeBlingId: null, nfeStatus: "REJEITADA" },
+      // chave junto: nota morta não pode virar etiqueta com nota fiscal
+      data: { nfeBlingId: null, nfeStatus: "REJEITADA", nfeKey: null },
     });
     return {
       ok: false,
@@ -496,7 +497,7 @@ async function transmitirEGravar(
 async function gravarSituacao(
   orderId: string,
   blingId: string,
-  c: { situacao: string; numero?: string; url?: string }
+  c: { situacao: string; numero?: string; url?: string; chave?: string }
 ) {
   await db.order.update({
     where: { id: orderId },
@@ -505,6 +506,9 @@ async function gravarSituacao(
       nfeStatus: c.situacao,
       nfeNumber: c.numero ?? null,
       nfeUrl: c.url ?? null,
+      // a chave só existe depois de a SEFAZ autorizar; nota morta não guarda
+      // chave nenhuma (senão uma etiqueta sairia apontando para nota cancelada)
+      nfeKey: c.situacao === "AUTORIZADA" ? (c.chave ?? null) : null,
     },
   });
 }
@@ -518,13 +522,20 @@ async function gravarSituacao(
 export async function consultarNfe(
   companyId: string,
   blingId: string
-): Promise<{ ok: boolean; situacao: string; numero?: string; url?: string }> {
+): Promise<{
+  ok: boolean;
+  situacao: string;
+  numero?: string;
+  url?: string;
+  chave?: string;
+}> {
   const res = await blingApi<{
     data?: {
       situacao?: number;
       numero?: number | string;
       linkDanfe?: string;
       linkPDF?: string;
+      chaveAcesso?: string;
     };
   }>(companyId, "GET", `/nfe/${blingId}`);
   const d = res.data?.data;
@@ -547,5 +558,19 @@ export async function consultarNfe(
     situacao: mapa[d.situacao ?? 1] ?? "EMITINDO",
     numero: d.numero ? String(d.numero) : undefined,
     url: d.linkDanfe ?? d.linkPDF ?? undefined,
+    chave: limparChaveNfe(d.chaveAcesso),
   };
+}
+
+/**
+ * Chave de acesso da NF-e: 44 dígitos, e só. O Melhor Envio recusa a compra
+ * inteira se a chave vier torta (com espaço, pontuação ou incompleta) — e a
+ * loja perderia a etiqueta por causa de um caractere. Melhor não mandar do
+ * que mandar errado: chave inválida vira `undefined` e o envio sai com
+ * declaração de conteúdo, como sempre saiu.
+ */
+export function limparChaveNfe(valor: unknown): string | undefined {
+  if (typeof valor !== "string") return undefined;
+  const so = valor.replace(/\D/g, "");
+  return so.length === 44 ? so : undefined;
 }

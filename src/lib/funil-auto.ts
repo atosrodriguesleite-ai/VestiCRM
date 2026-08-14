@@ -100,3 +100,81 @@ export async function avancarFunil(
     // funil nunca bloqueia o trabalho de quem está vendendo
   }
 }
+
+/**
+ * A CLIENTE ABRIU O CATÁLOGO E NÃO TINHA NEGOCIAÇÃO → o cartão NASCE sozinho.
+ *
+ * Antes o funil só AVANÇAVA cartão que já existia: mandar o catálogo para uma
+ * cliente sem negociação aberta (a recompra é o caso clássico — o cartão
+ * anterior já fechou) não aparecia em lugar nenhum, e a vendedora perdia a
+ * venda de vista. Agora o clique no link rastreado cria o cartão em
+ * "Catálogo enviado" (ou na primeira etapa aberta, se a loja renomeou tudo).
+ * Cliente com negociação aberta segue no fluxo normal do avancarFunil.
+ */
+export async function nascerCartaoDoCatalogo(
+  companyId: string,
+  customerId: string
+): Promise<void> {
+  try {
+    // a loja que pediu para NÃO criar oportunidade sozinha (intakeOppPolicy
+    // NUNCA) manda aqui também — abrir catálogo não passa por cima da política
+    const empresa = await db.company.findUnique({
+      where: { id: companyId },
+      select: { intakeOppPolicy: true },
+    });
+    if (!empresa || empresa.intakeOppPolicy === "NUNCA") return;
+    const aberta = await db.opportunity.findFirst({
+      where: { companyId, customerId, status: "OPEN" },
+      select: { id: true },
+    });
+    if (aberta) return; // já tem negociação correndo: só avança, não duplica
+    const etapas = await db.stage.findMany({
+      where: { pipeline: { companyId } },
+      orderBy: { order: "asc" },
+      select: { id: true, name: true, isWon: true, isLost: true },
+    });
+    const alvo =
+      etapas.find((e) => nomeCasaComEtapa(e.name, "CATALOGO_ENVIADO")) ??
+      etapas.find((e) => !e.isWon && !e.isLost);
+    if (!alvo) return;
+    const cliente = await db.customer.findFirst({
+      where: { id: customerId, companyId },
+      select: { ownerId: true },
+    });
+    if (!cliente) return;
+    const criada = await db.opportunity.create({
+      data: {
+        companyId,
+        customerId,
+        stageId: alvo.id,
+        title: "Abriu o catálogo",
+        value: 0,
+        ownerId: cliente.ownerId,
+        status: "OPEN",
+      },
+    });
+    // corrida do clique duplo (dois track ao mesmo tempo): os dois passam no
+    // "não tem aberta" e os dois criam. Regra determinística: sobrevive a
+    // mais antiga; quem criou a mais nova apaga a própria.
+    const abertas = await db.opportunity.findMany({
+      where: { companyId, customerId, status: "OPEN" },
+      orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+      select: { id: true },
+    });
+    if (abertas[0]?.id !== criada.id) {
+      await db.opportunity.delete({ where: { id: criada.id } });
+      return;
+    }
+    await db.customerEvent.create({
+      data: {
+        companyId,
+        customerId,
+        type: "OPORTUNIDADE",
+        channel: "CATALOGO_PUBLICO",
+        description: `Abriu o catálogo — negociação criada na etapa "${alvo.name}"`,
+      },
+    });
+  } catch {
+    // idem: o catálogo nunca deixa de abrir por causa do funil
+  }
+}

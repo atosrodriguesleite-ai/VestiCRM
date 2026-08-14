@@ -1,7 +1,7 @@
 import { db } from "../db";
 import { normalizePhone } from "../intake";
 import { forwardToDestinations } from "./destinations";
-import { avancarFunil } from "../funil-auto";
+import { avancarFunil, nascerCartaoDoCatalogo } from "../funil-auto";
 
 /**
  * Tracking Engine — camada ÚNICA de eventos da Inteligência Comercial.
@@ -233,12 +233,13 @@ export async function startSession(input: StartSessionInput) {
         data: { customerId: customer.id },
       });
     }
-    // A CLIENTE ABRIU O CATÁLOGO → o cartão avança sozinho.
-    //
-    // Melhor sinal que "mandei o catálogo": mandar não prova nada, abrir
-    // prova interesse. E o dado já chegava aqui, sem ninguém usar.
+    // A CLIENTE ABRIU O CATÁLOGO → o cartão avança sozinho — e se ela não
+    // tinha negociação nenhuma (recompra, cartão anterior já fechado), o
+    // cartão NASCE em "Catálogo enviado". Melhor sinal que "mandei o
+    // catálogo": mandar não prova nada, abrir prova interesse.
     if (customer) {
       await avancarFunil(input.companyId, customer.id, "CATALOGO_ENVIADO");
+      await nascerCartaoDoCatalogo(input.companyId, customer.id);
     }
   }
 

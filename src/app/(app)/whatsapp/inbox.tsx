@@ -5,9 +5,12 @@
 import { Fragment, useMemo, useRef, useState, useEffect, type ChangeEvent } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
+import { moverTemplate } from "@/lib/templates-ordem";
 import {
   Send,
   StickyNote,
+  ChevronUp,
+  ChevronDown,
   UserCheck,
   ArrowLeft,
   Search,
@@ -426,6 +429,7 @@ export function Inbox({
   campanhas = [],
   podeVincularCampanha = false,
   conversations,
+  carregadoEm,
   templates: templatesProp,
   team,
   setores,
@@ -439,6 +443,8 @@ export function Inbox({
   campanhas?: { id: string; name: string }[];
   podeVincularCampanha?: boolean;
   conversations: InboxConversation[];
+  /** relógio do servidor no momento da carga — âncora do primeiro sync */
+  carregadoEm?: string;
   templates: { id: string; title: string; body: string; category: string }[];
   team: { id: string; name: string; color: string }[];
   setores: { id: string; name: string; color: string }[];
@@ -776,28 +782,51 @@ export function Inbox({
   // da agenda deve abrir DENTRO do sistema, não no aplicativo).
   const searchParams = useSearchParams();
   const prefillFeito = useRef(false);
+  // Cada ?conv= é atendido UMA vez. Sem esta trava, qualquer conversa nova
+  // que o sync acrescentasse à lista re-rodava o efeito (convs.length) e
+  // puxava a vendedora de volta à conversa do link no meio de outro
+  // atendimento.
+  const convDoLink = useRef<string | null>(null);
   useEffect(() => {
     const cid = searchParams.get("conv");
     if (!cid) return;
     const texto = searchParams.get("texto");
-    const conhecida = convs.find((x) => x.id === cid);
-    if (conhecida) {
-      setSelectedId(cid);
-      setTab(abaDaConversa(conhecida));
-    } else {
-      // conversa recém-criada pela Agenda: a lista ainda não a conhece —
-      // busca inteira no servidor (mesma porta do sync parcial)
-      fetch(`/api/conversations/${cid}`)
-        .then((r) => (r.ok ? r.json() : null))
-        .then((d) => {
-          if (!d?.conversation) return;
-          setConvs((prev) =>
-            prev.some((c) => c.id === cid) ? prev : [d.conversation, ...prev]
-          );
-          setSelectedId(cid);
-          setTab(abaDaConversa(d.conversation));
-        })
-        .catch(() => {});
+    if (convDoLink.current !== cid) {
+      const conhecida = convs.find((x) => x.id === cid);
+      if (conhecida) {
+        convDoLink.current = cid;
+        // pelo MESMO caminho do clique na lista: carrega o histórico inteiro
+        // (threadsCarregadas) e marca como lida. Abrir direto, sem carregar,
+        // deixava o sync da montagem reduzir a conversa aberta à prévia de
+        // 1 mensagem — a "conversa pela metade" chegando pelo link da Agenda.
+        selectConv(cid);
+        setTab(abaDaConversa(conhecida));
+      } else {
+        // conversa recém-criada pela Agenda: a lista ainda não a conhece —
+        // busca inteira no servidor (mesma porta do sync parcial)
+        convDoLink.current = cid;
+        fetch(`/api/conversations/${cid}`)
+          .then((r) => (r.ok ? r.json() : null))
+          .then((d) => {
+            if (!d?.conversation) return;
+            // o histórico completo veio junto: marca como carregada (senão o
+            // sync reduzia à prévia) e SUBSTITUI se o sync tiver chegado
+            // primeiro com a versão de 1 mensagem
+            threadsCarregadas.current.add(cid);
+            setConvs((prev) =>
+              prev.some((c) => c.id === cid)
+                ? prev.map((c) =>
+                    c.id === cid ? { ...d.conversation, unreadCount: 0 } : c
+                  )
+                : [d.conversation, ...prev]
+            );
+            setSelectedId(cid);
+            setTab(abaDaConversa(d.conversation));
+          })
+          .catch(() => {
+            convDoLink.current = null; // rede oscilou: tenta de novo
+          });
+      }
     }
     if (texto && !prefillFeito.current) {
       prefillFeito.current = true; // uma vez só — não sobrescreve o que ela digitar
@@ -813,7 +842,17 @@ export function Inbox({
   useEffect(() => {
     selectedIdRef.current = selectedId;
   }, [selectedId]);
-  const lastSyncRef = useRef(new Date(Date.now() - 60_000).toISOString());
+  // Âncora do sync: o RELÓGIO DO SERVIDOR na hora em que a lista foi montada
+  // (com 60s de folga), não o relógio do aparelho ao abrir a tela. O celular
+  // reabre a página com a carga VELHA (cache de navegação): ancorar em
+  // "agora − 60s" deixava para trás tudo que mudou entre a carga e a
+  // reabertura — a vendedora respondia, voltava, e a Fila mostrava a cliente
+  // como se ninguém tivesse respondido.
+  const lastSyncRef = useRef(
+    new Date(
+      (carregadoEm ? new Date(carregadoEm).getTime() : Date.now()) - 60_000
+    ).toISOString()
+  );
   useEffect(() => {
     let alive = true;
     let busy = false;
@@ -821,6 +860,28 @@ export function Inbox({
       if (busy || document.visibilityState !== "visible") return;
       busy = true;
       try {
+        // VÃO GRANDE (página guardada na volta da navegação, aba/celular que
+        // dormiu horas): o incremental sem teto puxaria todas as mensagens do
+        // período com corpo INTEIRO — o pacote de megabytes que a lista leve
+        // eliminou. Mais barato e igual ao F5: recarrega a lista leve inteira
+        // e busca de novo só o histórico da conversa aberta.
+        const gapMs = Date.now() - new Date(lastSyncRef.current).getTime();
+        if (gapMs > 10 * 60_000) {
+          const res = await fetch(`/api/conversations`);
+          if (!res.ok) return;
+          const d: { now?: string; conversations?: InboxConversation[] } =
+            await res.json();
+          if (!alive || !d.conversations) return;
+          if (d.now)
+            lastSyncRef.current = new Date(
+              new Date(d.now).getTime() - 10_000
+            ).toISOString();
+          threadsCarregadas.current.clear();
+          setConvs(d.conversations);
+          const selId = selectedIdRef.current;
+          if (selId) void carregarThread(selId);
+          return;
+        }
         const res = await fetch(
           `/api/conversations?since=${encodeURIComponent(lastSyncRef.current)}`
         );
@@ -927,14 +988,21 @@ export function Inbox({
     function onVisible() {
       if (document.visibilityState === "visible") void sync();
     }
+    // PRIMEIRO SYNC NA HORA: sem isto a tela reaberta ficava até 3s (um tick
+    // inteiro) mostrando o estado velho — no celular parecia "não atualiza"
+    void sync();
     const timer = setInterval(tick, 3000);
     document.addEventListener("visibilitychange", onVisible);
     window.addEventListener("focus", sync);
+    // iPhone/Safari: voltar por gesto restaura a página congelada (bfcache) e
+    // nem sempre dispara visibilitychange — o pageshow cobre esse caminho
+    window.addEventListener("pageshow", onVisible);
     return () => {
       alive = false;
       clearInterval(timer);
       document.removeEventListener("visibilitychange", onVisible);
       window.removeEventListener("focus", sync);
+      window.removeEventListener("pageshow", onVisible);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -1515,6 +1583,41 @@ export function Inbox({
   }
 
   // cria uma resposta rápida direto da tela (qualquer vendedor/suporte pode)
+  /**
+   * Sobe/desce uma resposta rápida DENTRO da categoria dela (é o movimento
+   * que o painel mostra). Otimista: a lista muda na hora.
+   *
+   * A gravação vai numa FILA (uma PUT por vez, em ordem): cliques rápidos
+   * disparavam PUTs paralelas e a que chegasse por último no servidor podia
+   * ser a lista VELHA — a ordem "voltava um degrau" no F5. E a falha AVISA:
+   * engolir erro com .catch(() => {}) já causou incidente real neste projeto.
+   */
+  const filaOrdem = useRef<Promise<void>>(Promise.resolve());
+  function persistirOrdem(ids: string[]) {
+    filaOrdem.current = filaOrdem.current.then(async () => {
+      try {
+        const res = await fetch("/api/templates/reorder", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ids }),
+        });
+        if (!res.ok) throw new Error();
+      } catch {
+        alert(
+          "Não consegui salvar a nova ordem das respostas rápidas. Confira a internet e tente de novo — por enquanto a ordem antiga continua valendo."
+        );
+      }
+    });
+  }
+  function moverResposta(id: string, direcao: "subir" | "descer") {
+    // calculada FORA do setState: updater precisa ser puro (no modo estrito o
+    // React roda o updater duas vezes — a PUT saía em dobro)
+    const nova = moverTemplate(templates, id, direcao, true);
+    if (nova === templates) return;
+    setTemplates(nova);
+    persistirOrdem(nova.map((t) => t.id));
+  }
+
   async function criarTemplate() {
     const title = newTplTitle.trim();
     const body = newTplBody.trim();
@@ -2723,18 +2826,41 @@ export function Inbox({
                         {templateCategoryLabel[cat as keyof typeof templateCategoryLabel] ?? cat}
                       </p>
                       {list.map((t) => (
-                        <button
+                        <div
                           key={t.id}
-                          onClick={() => applyTemplate(t.body)}
-                          className="w-full text-left px-4 py-2.5 hover:bg-brand-50 transition border-b border-gray-50 last:border-0"
+                          className="flex items-center gap-1 pr-2 hover:bg-brand-50 transition border-b border-gray-50 last:border-0"
                         >
-                          <p className="text-xs font-semibold text-brand-700">
-                            {t.title}
-                          </p>
-                          <p className="text-xs text-gray-500 line-clamp-2">
-                            {t.body}
-                          </p>
-                        </button>
+                          <button
+                            onClick={() => applyTemplate(t.body)}
+                            className="flex-1 min-w-0 text-left px-4 py-2.5"
+                          >
+                            <p className="text-xs font-semibold text-brand-700">
+                              {t.title}
+                            </p>
+                            <p className="text-xs text-gray-500 line-clamp-2">
+                              {t.body}
+                            </p>
+                          </button>
+                          {/* setinhas: reordenam DENTRO da categoria */}
+                          <span className="flex flex-col shrink-0">
+                            <button
+                              onClick={() => moverResposta(t.id, "subir")}
+                              aria-label={`Subir ${t.title}`}
+                              title="Subir"
+                              className="p-1 rounded text-gray-300 hover:text-brand-600 hover:bg-brand-100/60"
+                            >
+                              <ChevronUp className="size-3.5" />
+                            </button>
+                            <button
+                              onClick={() => moverResposta(t.id, "descer")}
+                              aria-label={`Descer ${t.title}`}
+                              title="Descer"
+                              className="p-1 rounded text-gray-300 hover:text-brand-600 hover:bg-brand-100/60"
+                            >
+                              <ChevronDown className="size-3.5" />
+                            </button>
+                          </span>
+                        </div>
                       ))}
                     </div>
                   ))}

@@ -22,6 +22,7 @@ import {
 } from "@/lib/orders";
 import { Card, Badge } from "@/components/ui";
 import { StatusChanger } from "./status-changer";
+import { StatusLive } from "./status-live";
 import { CustomerEditor } from "./customer-editor";
 import { ItemsEditor } from "./items-editor";
 import { PaymentMethodChanger } from "./payment-method";
@@ -87,8 +88,12 @@ export default async function OrderDetailPage({
   });
 
   // conexões do "dinheiro" (o painel de cobrança/NF-e só aparece se existirem)
-  const [mpConn, blingConn, meConn, company] = await Promise.all([
+  const [mpConn, ipConn, blingConn, meConn, company] = await Promise.all([
     db.mercadoPagoConnection.findUnique({
+      where: { companyId: user.companyId },
+      select: { id: true },
+    }),
+    db.infinitePayConnection.findUnique({
       where: { companyId: user.companyId },
       select: { id: true },
     }),
@@ -115,6 +120,10 @@ export default async function OrderDetailPage({
         <ArrowLeft className="size-4" />
         Pedidos
       </Link>
+
+      {/* enquanto espera o pagamento (Pix/cartão), a tela vira "Pago" sozinha
+          quando o webhook confirmar — sem refresh na mão */}
+      <StatusLive orderId={order.id} statusInicial={order.status} />
 
       <Card className="p-5 md:p-6 mb-4">
         <div className="flex flex-col sm:flex-row sm:items-start gap-4">
@@ -382,6 +391,7 @@ export default async function OrderDetailPage({
             isPaid={(PAID_ORDER_STATUSES as readonly string[]).includes(order.status)}
             isCancelled={order.status === "CANCELADO"}
             mpConnected={Boolean(mpConn)}
+            ipConnected={Boolean(ipConn)}
             blingConnected={Boolean(blingConn)}
             canNfe={isManagerUp(user)}
             nfe={{ status: order.nfeStatus, number: order.nfeNumber, url: order.nfeUrl }}
@@ -395,6 +405,14 @@ export default async function OrderDetailPage({
               hasZip={(order.customer.zip ?? "").replace(/\D/g, "").length === 8}
               canBuy={isManagerUp(user)}
               isCancelled={order.status === "CANCELADO"}
+              // "você já mandou o link em ..." — sem isso duas pessoas mandam
+              // de novo, porque o "Enviado!" some em 4 segundos
+              jaEnviadoEm={(() => {
+                const ev = order.events.find(
+                  (e) => e.type === "ENVIO" && e.description.startsWith("Link de rastreio enviado")
+                );
+                return ev ? `${dateShort(ev.createdAt)} às ${timeShort(ev.createdAt)}` : null;
+              })()}
               initialShipping={
                 order.shipping
                   ? {
@@ -406,6 +424,7 @@ export default async function OrderDetailPage({
                       labelUrl: order.shipping.labelUrl,
                       trackingCode: order.shipping.trackingCode,
                       weightKg: order.shipping.weightKg,
+                      nfeKey: order.shipping.nfeKey,
                     }
                   : null
               }
@@ -421,7 +440,16 @@ export default async function OrderDetailPage({
             {order.payments.map((p) => (
               <div key={p.id} className="text-sm space-y-1.5">
                 <div className="flex justify-between items-center gap-2">
-                  <PaymentMethodChanger orderId={order.id} current={p.method} />
+                  <div className="flex min-w-0 items-center gap-1.5">
+                    <PaymentMethodChanger orderId={order.id} current={p.method} />
+                    {/* como a cliente pagou de verdade: 6x no cartão vira "6x"
+                        aqui, sem ninguém digitar (vem da confirmação) */}
+                    {p.installments && p.installments > 1 && (
+                      <span className="shrink-0 rounded-full bg-brand-50 px-2 py-0.5 text-[11px] font-semibold text-brand-700">
+                        {p.installments}x
+                      </span>
+                    )}
+                  </div>
                   <span className="font-semibold tabular-nums">
                     {brl(p.amount)}
                   </span>

@@ -9,11 +9,20 @@ export const dynamic = "force-dynamic";
 export default async function WhatsAppPage() {
   const user = await requireUser();
 
+  // O RELÓGIO DA CARGA, marcado ANTES de ler o banco. A tela usa isto como
+  // âncora do primeiro sync: o navegador do celular pode reabrir a página
+  // com esta carga já VELHA (cache de navegação) — ancorando no relógio do
+  // aparelho, tudo que mudou entre a carga e a reabertura nunca chegava
+  // ("respondi e continua como não respondida").
+  const carregadoEm = new Date().toISOString();
+
   const [data, templates, team, setores, tags, comm, campanhas] = await Promise.all([
     loadInboxConversations(user),
     db.messageTemplate.findMany({
       where: { companyId: user.companyId },
-      orderBy: [{ category: "asc" }, { title: "asc" }],
+      // a posição é escolhida pela loja (setinhas ↑↓); categoria/título é só
+      // o desempate de cadastros antigos que nunca foram reordenados
+      orderBy: [{ order: "asc" }, { category: "asc" }, { title: "asc" }],
     }),
     db.user.findMany({
       where: { companyId: user.companyId, active: true },
@@ -46,6 +55,7 @@ export default async function WhatsAppPage() {
       campanhas={campanhas}
       podeVincularCampanha={isManagerUp(user)}
       conversations={data}
+      carregadoEm={carregadoEm}
       templates={templates.map((t) => ({
         id: t.id,
         title: t.title,

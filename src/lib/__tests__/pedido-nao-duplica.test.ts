@@ -124,7 +124,7 @@ describe("o catálogo avisa antes de reenviar a mesma sacola", () => {
 
   it("pergunta antes de abrir o WhatsApp pela segunda vez", () => {
     expect(
-      /jaEnviado/.test(fonte),
+      /sacolaJaEnviada/.test(fonte),
       "O protocolo já impede o PEDIDO duplicado. Sem este aviso, a vendedora " +
         "ainda recebe a MESMA MENSAGEM de novo — que foi o que fez a loja " +
         "achar que eram dois pedidos."

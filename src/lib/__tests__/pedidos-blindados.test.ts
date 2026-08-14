@@ -213,7 +213,8 @@ describe("mudança de status e liquidação de Pix: transacionais e com trava", 
   });
 
   it("pedido editado invalida a cobrança Pix antiga (o QR velho não paga o pedido novo)", () => {
-    expect(rota).toContain('provider: "MERCADO_PAGO"');
+    // MP e InfinitePay: o link/QR do valor antigo para de valer (11/08/2026)
+    expect(rota).toContain('provider: { in: ["MERCADO_PAGO", "INFINITEPAY"] }');
     expect(rota).toContain("a cobrança Pix/cartão anterior foi invalidada");
   });
 });

@@ -374,8 +374,47 @@ async function dimensionStats(companyId: string, p: Period, dim: Dim) {
     row.revenue += revenue;
     map.set(key, row);
   };
+  // Acesso E venda se amarram ao CADASTRO ATUAL pelo productId: evento e item
+  // de pedido guardam o nome/categoria DA ÉPOCA, e quando a lojista renomeia o
+  // produto o nome congelado some do cadastro — resolvido só por nome, a venda
+  // sumia da tabela (Categorias somava 139 peças enquanto Cores somava 305) e
+  // o mesmo produto virava DUAS linhas (uma só com acessos, outra só com
+  // vendas — o alerta "muito visto e não vendeu" disparava à toa). O nome
+  // congelado fica de plano B para produto apagado, e peça sem cor/tamanho
+  // entra como "Sem cor"/"Sem tamanho" — os três quadros contam as MESMAS peças.
+  const precisaCadastro = dim === "productName" || dim === "category";
+  const products =
+    precisaCadastro && (events.length > 0 || orderItems.length > 0)
+      ? await db.product.findMany({
+          where: { companyId },
+          select: { id: true, name: true, category: true },
+          orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+        })
+      : [];
+  const porId = new Map(products.map((pr) => [pr.id, pr]));
+  // nome NÃO é único no cadastro ([companyId, sku] é): com xarás, vence o mais
+  // antigo — determinístico, e só usado como plano B quando o id se perdeu
+  const porNome = new Map<string, (typeof products)[number]>();
+  for (const pr of products) if (!porNome.has(pr.name)) porNome.set(pr.name, pr);
+  const cadastroAtual = (
+    productId: string | null | undefined,
+    nomeCongelado: string | null | undefined
+  ) =>
+    (productId ? porId.get(productId) : undefined) ??
+    (nomeCongelado ? porNome.get(nomeCongelado) : undefined);
   for (const e of events) {
-    const key = e[dim];
+    const key =
+      dim === "productName"
+        ? (cadastroAtual(e.productId, e.productName)?.name ?? e.productName)
+        : dim === "category"
+          ? e.type === "product_view"
+            ? (() => {
+                // categoria de HOJE do produto visto; produto sumiu → a da época
+                const pr = cadastroAtual(e.productId, e.productName);
+                return pr ? pr.category || null : e.category;
+              })()
+            : e.category
+          : e[dim]?.trim() || null;
     if (e.type === "product_view" || e.type === "category_view" || e.type === "color_select" || e.type === "size_select") {
       if (
         (dim === "productName" && e.type === "product_view") ||
@@ -390,26 +429,16 @@ async function dimensionStats(companyId: string, p: Period, dim: Dim) {
     if (e.type === "cart_remove") bump(key, "removes", e.qty ?? 1);
   }
   for (const item of orderItems) {
+    const produto = cadastroAtual(item.productId, item.name);
     const key =
       dim === "productName"
-        ? item.name
+        ? (produto?.name ?? item.name)
         : dim === "category"
-          ? null // categoria não está no snapshot do item
+          ? produto?.category || "Sem categoria"
           : dim === "color"
-            ? item.color
-            : item.size;
+            ? item.color?.trim() || "Sem cor"
+            : item.size?.trim() || "Sem tamanho";
     bump(key, "sold", item.quantity, item.total);
-  }
-  // categorias vendidas via produto → categoria atual
-  if (dim === "category") {
-    const products = await db.product.findMany({
-      where: { companyId },
-      select: { name: true, category: true },
-    });
-    const catByName = new Map(products.map((pr) => [pr.name, pr.category]));
-    for (const item of orderItems) {
-      bump(catByName.get(item.name), "sold", item.quantity, item.total);
-    }
   }
   return [...map.values()].map((row) => ({
     ...row,

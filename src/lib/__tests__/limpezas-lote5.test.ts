@@ -3,6 +3,8 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { parseMentions } from "../notify";
 
+// Guarda RN-006 (índice em docs/regras.md; texto no CLAUDE.md).
+
 /**
  * LOTE 5 — PLATAFORMA E LIMPEZAS (auditoria 07/08/2026). Guardas das
  * correções: unificação sem perder dados, corrida do telefone fechada,

@@ -4,6 +4,7 @@ import { paginaSegura, quebrarEmLinhas } from "@/lib/pdf-texto";
 import { corIgual } from "@/lib/capa-por-cor";
 import { db } from "@/lib/db";
 import { requireUser, AuthError } from "@/lib/auth";
+import { ordenarParaSeparacao } from "@/lib/romaneio";
 import { orderScope } from "@/lib/scope";
 import { orderNumber, orderStatusLabel, paymentMethodLabel } from "@/lib/orders";
 import { documentoParaMostrar } from "@/lib/documento";
@@ -99,6 +100,21 @@ export async function GET(
           select: { id: true, productId: true, color: true },
         })
       : [];
+
+    // categoria de cada produto — é ela que agrupa a ORDEM DE SEPARAÇÃO
+    // (categoria → produto → cor → tamanho → quantidade), para quem separa
+    // andar UMA vez pelo estoque em vez de ir e voltar (pedido do dono,
+    // 12/08/2026)
+    const categorias = productIds.length
+      ? await db.product.findMany({
+          where: { id: { in: productIds } },
+          select: { id: true, category: true },
+        })
+      : [];
+    const categoriaPorProduto = new Map(categorias.map((c) => [c.id, c.category]));
+    const categoriaDe = (pid: string | null) =>
+      (pid ? categoriaPorProduto.get(pid) : null) ?? "";
+    const itensOrdenados = ordenarParaSeparacao(order.items, categoriaDe);
     const fotosByProduct = new Map<string, typeof imgs>();
     for (const im of imgs) {
       const l = fotosByProduct.get(im.productId);
@@ -274,7 +290,19 @@ export async function GET(
 
     const PH = 42; // tamanho da miniatura
     const ROW = 52; // altura da linha: cabe a miniatura maior
-    for (const item of order.items) {
+    // cabecinho de grupo a cada CATEGORIA: quem separa enxerga os blocos de
+    // longe ("REGATAS", "VESTIDOS") e confere prateleira por prateleira
+    let categoriaAtual: string | null = null;
+    for (const item of itensOrdenados) {
+      const cat = categoriaDe(item.productId);
+      if (cat !== categoriaAtual) {
+        categoriaAtual = cat;
+        newPageIfNeeded(ROW + 22);
+        page.drawText((cat || "Outros itens").toUpperCase().slice(0, 60), {
+          x: M, y, size: 9, font: bold, color: ACCENT,
+        });
+        y -= 16;
+      }
       newPageIfNeeded(ROW + 4);
       // caixinha de conferência
       page.drawRectangle({
