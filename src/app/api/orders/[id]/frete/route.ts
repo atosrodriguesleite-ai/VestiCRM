@@ -192,10 +192,6 @@ export async function POST(
       // A nota pode ter sido cancelada no painel do Bling sem ninguém clicar
       // em "atualizar" aqui — e aí a etiqueta sairia apontando para uma nota
       // morta, com o dinheiro da carteira já debitado e sem volta.
-      // NOTA: confere a situação REAL no Bling antes de gastar o saldo.
-      // A nota pode ter sido cancelada no painel do Bling sem ninguém clicar
-      // em "atualizar" aqui — e aí a etiqueta sairia apontando para uma nota
-      // morta, com o dinheiro da carteira já debitado e sem volta.
       let chaveNfe: string | null = null;
       const temNota = Boolean(
         order.nfeStatus === "AUTORIZADA" && order.nfeKey && order.nfeBlingId
