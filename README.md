@@ -1,127 +1,173 @@
 # AtacadoPro
 
-CRM SaaS para lojas de roupas, confecções, atacados, boutiques e revendedoras — com foco em **vendas pelo WhatsApp**, organização comercial e aumento de recompra.
+SaaS multi-tenant de **CRM + vendas para moda no atacado** (confecções, lojistas
+e revendedoras brasileiras), com foco em vender pelo **WhatsApp**.
 
-## Funcionalidades
+> ⚠️ **ESTE SISTEMA ESTÁ EM PRODUÇÃO** em https://www.atacadopro.com, com lojas
+> reais pagantes. Não existe ambiente de homologação: **push na branch de deploy
+> = produção em ~3 minutos**. Leia [`docs/PRIMEIRO-DIA.md`](docs/PRIMEIRO-DIA.md)
+> antes de escrever a primeira linha.
 
-### Inteligência Comercial (Tracking Engine)
+| Documento | Para quê |
+| --- | --- |
+| [`docs/PRIMEIRO-DIA.md`](docs/PRIMEIRO-DIA.md) | Do computador zerado ao sistema rodando. **Comece por aqui.** |
+| [`docs/INCIDENTES.md`](docs/INCIDENTES.md) | Os erros que já custaram dinheiro real e as regras que nasceram deles. |
+| [`docs/ESTADO-DO-PROJETO.md`](docs/ESTADO-DO-PROJETO.md) | O que está no ar, o que está pendente, onde paramos. |
+| [`docs/PRODUCAO.md`](docs/PRODUCAO.md) | Deploy, variáveis de ambiente e migrações. |
+| [`CLAUDE.md`](CLAUDE.md) | Regras de negócio centrais (fonte da verdade). |
+| [`.env.example`](.env.example) | Mapa de TODAS as variáveis de ambiente, comentadas. |
+| [`docs/IMPORTAR-CATALOGO.md`](docs/IMPORTAR-CATALOGO.md) | Formato do arquivo de importação de catálogo. |
+| [`DESIGN_NOTES.md`](DESIGN_NOTES.md) | Identidade visual, tokens de cor e design system. |
 
-- **Tracking Engine** (`src/lib/tracking/`) — camada única de eventos: nenhuma tela grava tracking direto; o catálogo envia lotes para `/api/track` (sendBeacon/keepalive, sempre em background — nunca atrasa o carregamento) e todos os relatórios leem via `insights.ts` / `GET /api/intelligence`.
-- **Links inteligentes + QR Codes** — `vesticrm.com/c/{loja}?ref=julia` (vendedor), `?ref=campanha-verao` (campanha), `?ref=qr-vitrine` (loja física). Cada link vira QR Code (SVG para baixar/imprimir) e cada clique registra canal, campanha, vendedor, device/OS/navegador, cidade/UF, referer, UTM completa e IP mascarado.
-- **Jornada completa** — sessão liga toda a navegação: entrou → viu categoria → viu produto → escolheu cor/tamanho → adicionou → removeu → abriu sacola → enviou pedido → virou lead → comprou. Visitante **anônimo** é criado na hora e **unificado** ao cliente quando informa o telefone.
-- **Dashboard estilo analytics** (`/inteligencia`) — visitantes, sessões, tempo médio, conversão, faturamento, ticket, novos/recorrentes, carrinhos abandonados, com comparativo vs. período anterior (▲▼).
-- **Funil comercial** — Visitas → Viram produtos → Adicionaram → Carrinho → Pedido → CRM → Compra → Recompra.
-- **Rankings** — canais (Instagram, Google, GMB, Facebook, WhatsApp, QR, direto, indicação, loja física, marketplace, campanhas), vendedores (cliques/pedidos/conversão/faturamento/ticket/tempo até venda) e campanhas (cliques/pedidos/ROI vs. meta).
-- **Produtos, categorias, cores e tamanhos** — mais vistos, mais vendidos, mais adicionados/removidos, conversão e abandono.
-- **Heatmaps** dia × hora (acessos e vendas) e **comparativos** de período (hoje/7/30/90 dias/1 ano).
-- **Recuperação comercial** — detecta automaticamente carrinho abandonado, cliente quase comprando e cliente que voltou, com link direto para a ficha. **Alertas inteligentes** ("X foi muito visto e pouco vendido", "Cor Y converte 42%").
-- **Exportação CSV** (Excel) por relatório; **LGPD** com banner de consentimento, IP mascarado e isolamento total por empresa.
-- **Estrutura preparada** (sem integrar): Meta Pixel, GA4, Google/TikTok Ads e GTM (`destinations.ts`) e **replay de sessão** (`replay.ts` + campo `replayId`).
+## Tamanho e forma do projeto
 
-### Communication Engine (camada omnichannel)
+Números conferidos no repositório (agosto/2026):
 
-- **Camada única de comunicação** (`src/lib/comm/`) — nenhuma tela fala com provedor: envio, recebimento, anexos, status, recibos e logs passam pela engine. Trocar Mock ↔ Cloud API é uma configuração; nenhuma tela muda.
-- **Providers plugáveis** — Mock (funcional, simulado), WhatsApp Cloud API (estrutura pronta, incl. verificação de webhook `hub.challenge` da Meta), Instagram Direct, Facebook Messenger, Telegram, E-mail (SMTP) e SMS (interfaces).
-- **Mensagens ricas** — texto, imagem, áudio, documento, vídeo, template, reação e resposta; ID externo (`wamid`); status Enviando → Enviada → Entregue → Lida (ticks no chat), Falhou com erro + botão Reenviar.
-- **Conversas** — canal, prioridade (baixa/normal/alta), tempo aberto, tempo aguardando cliente e aguardando vendedor.
-- **Templates por categoria** — primeiro atendimento, catálogo, cobrança, pós-venda, recompra, promoção, cliente frio, aniversário.
-- **Central de Comunicação** (`/comunicacao`) — monitor de filas, falhas, latência e webhooks com log completo (payload, resposta, tentativas) + **simulador** de todos os cenários (mensagem/imagem/áudio/documento recebidos, envio, erro, recibos de entrega/leitura, webhook com erro).
-- **Credenciais seguras** (Configurações → Comunicação) — Meta App ID/Secret, Business Manager, Phone Number ID, Verify Token, Access Token, Webhook Secret, Instagram, Facebook, Telegram e SMTP. Valores sensíveis criptografados em repouso (AES-256-GCM), sempre mascarados na API, com **auditoria** de quem alterou o quê.
+| | |
+| --- | --- |
+| Linhas de código | ~118.000 |
+| Rotas de API (`route.ts`) | 186 |
+| Modelos no banco | 89 |
+| Migrações SQL versionadas | 88 |
+| Telas autenticadas | 39 |
+| Arquivos de teste (vitest) | 106 — **1.454 testes**, todos passando |
 
-### Central Inteligente de Entrada de Leads (omnichannel)
+## Stack
 
-- **Lead Intake Engine** (`src/lib/intake.ts`) — camada única por onde TODA entrada passa (nenhum canal cria clientes diretamente): deduplica por telefone, cria/reaproveita cliente e conversa, gera oportunidade na etapa configurada, cria tarefa de primeiro atendimento dentro do SLA e registra tudo na timeline.
-- **14 origens rastreadas** — WhatsApp, Catálogo Público, Instagram, Facebook, Site, Nuvemshop, Bling, Marketplace, Indicação, Loja física, Tráfego pago, Google, Evento e Cadastro Manual.
-- **Webhooks prontos** — `POST /api/whatsapp/webhook` (mensagens recebidas) e `POST /api/intake/{canal}` (instagram, facebook, site, nuvemshop, bling, marketplace, google, catalogo). Proteja com `INTAKE_SECRET` (header `x-intake-token`).
-- **Distribuição automática** — rodízio entre vendedores (round robin) ou vendedor fixo, configurável por loja.
-- **Configuração por origem** — cada origem pode iniciar em uma etapa diferente do funil; política de nova oportunidade (sempre / só sem negociação aberta / nunca); SLA do 1º atendimento em minutos.
-- **Timeline do cliente** — "Lead criado via WhatsApp", "Nova interação via Site"... visível na ficha do cliente.
-- **Relatórios por canal** — leads por origem, conversão por origem, ticket médio e valor vendido por canal, melhor canal, tempo médio até a 1ª resposta e até a venda.
-- O pedido enviado no catálogo público também entra no CRM automaticamente (origem Catálogo Público).
+- **Next.js 15.5** (App Router) + **React 19** + **TypeScript** + **Tailwind 4**
+- **Prisma 6** + **PostgreSQL** (Neon em produção, `sa-east-1`)
+- **Vitest** para testes (`npm test`)
+- **Vercel** (plano Hobby) — deploy automático a cada push
+- Auth própria: JWT assinado com `jose`, em cookie httpOnly
 
-### Catálogo 100% personalizável pelo lojista
+Dependências de peso: `pdf-lib` (orçamentos/etiquetas), `sharp` (imagens),
+`qrcode`, `web-push` (notificações PWA), `zod` (validação em toda rota).
 
-- **Identidade visual** (Configurações → Personalizar catálogo): upload do logo da marca, paleta de 3 cores editáveis (com presets Terra/Noir/Rosé/Oliva/Oceano/Lavanda), tipografia (Montserrat, Inter, Poppins, Playfair Display ou Lora) e prévia ao vivo — tudo refletindo na hora no catálogo público.
-- **Cores próprias**: o lojista cria a tonalidade (color picker) e dá o nome ("Rosa Millennial") — vira swatch nos produtos e opção da grade.
-- **Tamanhos próprios**: P/M/G/GG, numeração ou o que fizer sentido para a loja.
-- **Controle total dos produtos**: adicionar, editar e **remover** produtos; foto por **upload do computador/celular** (redimensionada no navegador); grade gerenciável (adicionar/remover combinações cor × tamanho); estoque por variação com ajustes auditados; ativar/desativar.
-- **Esgotado automático**: quando todas as variações de uma cor zeram, a foto fica **acinzentada com o selo "Indisponível"** no catálogo.
-
-### Catálogo + Pedidos
-
-- **Produtos** — catálogo por empresa com SKU, categoria, marca, coleção, descrição, fotos, vídeo, grade cor × tamanho com estoque por variação, preço de custo/atacado/varejo, quantidade mínima, tags e status. Filtros por categoria, cor, tamanho, coleção, marca, preço e estoque.
-- **Pedido direto da conversa** — botão de sacola no chat do WhatsApp abre o catálogo em um modal: busca, escolhe cor/tamanho/quantidade e monta o carrinho sem sair da conversa. Preço de atacado é aplicado automaticamente para clientes atacado ou ao atingir a quantidade mínima.
-- **Carrinho lateral** — foto, variação, quantidade, subtotal, desconto, frete, observações e forma de pagamento; fecha como orçamento ou pedido.
-- **Pedidos** — numeração sequencial por loja e fluxo Orçamento → Aguardando pagamento → Pago → Em produção → Separação → Enviado → Entregue (ou Cancelado), com timeline de eventos, pagamento, rastreio e devolução automática de estoque no cancelamento. Marcar como Pago registra a venda no CRM e atualiza a última compra do cliente.
-- **Timeline integrada** — o pedido aparece na conversa (nota automática), na ficha do cliente e no dashboard (pedidos do dia/semana/mês, valor médio, produtos mais vendidos, clientes que mais compram e taxa de recompra).
-- **Orçamento em PDF** — gerado com pdf-lib: logo tipográfica da loja, itens, totais e bloco PIX com payload BR Code (copia e cola) pronto para virar QR quando a loja configurar a chave (`src/lib/pix.ts`).
-- **Estoque** — toda entrada/saída vira um `InventoryMovement` auditável; criar pedido reserva estoque, cancelar devolve.
-- **Integrações futuras** — contratos `CatalogSyncProvider` para Bling, Nuvemshop e Shopify em `src/lib/integrations/catalog.ts` (interfaces prontas, sem implementação).
-
-### CRM
-
-- **Dashboard** — vendas, ticket médio, taxa de conversão, funil aberto, clientes esfriando, follow-ups atrasados, ranking de vendedores e produtos mais procurados.
-- **Funil de vendas visual** — kanban com cards arrastáveis (Novo lead → Primeiro contato → Interesse → Catálogo enviado → Negociação → Pagamento pendente → Fechado → Pós-venda → Perdido). Mover para "Pedido fechado" registra a venda automaticamente; mover para "Perdido" pede o motivo.
-- **Central de WhatsApp** — caixa de entrada com filtros por status (aberta, aguardando cliente, aguardando pagamento, finalizada), histórico completo, modelos de mensagem com variáveis (`{{nome}}`, `{{vendedora}}`), notas internas, transferência entre vendedores e registro automático no perfil do cliente. Roda em **modo simulado** com camada de integração pronta para a WhatsApp Cloud API (`src/lib/whatsapp.ts`).
-- **Clientes** — ficha completa: tipo (varejo/atacado/revendedora/lojista/boutique/sacoleira), origem, tags, interesses, tamanho e cores preferidas, histórico de compras, conversas e tarefas.
-- **Tarefas e follow-up** — ligar, enviar catálogo, cobrar pagamento, pós-venda, reativação... com data, hora, prioridade, responsável e alertas de atraso no dashboard.
-- **Automação comercial** — 6 regras que vigiam a carteira (cliente sem resposta há 2 dias, catálogo sem retorno, recompra após 30 dias, reativação de perdidos, primeiro contato de lead novo, pós-venda de pedido fechado) e viram tarefa com um clique.
-- **Campanhas de reativação** — segmentação por inatividade (30/60/90 dias), tipo de cliente, cidade, ticket, interesse, tag e negociações abandonadas, com prévia de alcance ao vivo.
-- **Relatórios** — vendas por semana, por vendedor, funil por etapa, motivos de perda, origem dos clientes, clientes mais valiosos, inativos, tempo médio de fechamento e produtos mais desejados.
-- **Equipe e permissões** — papéis Admin / Gerente / Vendedor(a) / Atendimento. Vendedor vê apenas a própria carteira; gerente vê o time; admin gerencia usuários.
-- **Multi-empresa (SaaS)** — todo dado carrega `companyId`; nenhuma loja acessa dados de outra (ver `src/lib/scope.ts`). Papel `SUPERADMIN` reservado para a operação da plataforma.
-
-## Rodando o projeto
-
-Requer um **PostgreSQL**. Em ambiente efêmero/local, `bash scripts/dev-postgres.sh`
-sobe um Postgres pronto e imprime o `DATABASE_URL`.
+## Rodando localmente
 
 ```bash
 npm install
-cp .env.example .env        # defina DATABASE_URL (Postgres) e AUTH_SECRET
-npm run db:deploy           # aplica as migrações (prisma migrate deploy)
-npm run db:seed             # dados de demonstração (NÃO usar em produção)
-npm run dev                 # http://localhost:3000
-npm test                    # testes unitários (vitest)
+
+bash scripts/dev-postgres.sh          # sobe um Postgres local na porta 5433
+export DATABASE_URL="postgresql://vesti@127.0.0.1:5433/vesticrm?schema=public"
+export AUTH_SECRET="qualquer-coisa-com-mais-de-16-caracteres"
+
+npm run db:deploy                     # aplica as 88 migrações
+npm run db:seed                       # popula a loja demo "Bella Moda"
+npm run dev
 ```
 
-Para produção, veja **[docs/PRODUCAO.md](docs/PRODUCAO.md)**.
-
-### Logins de demonstração (senha `demo1234`)
+Logins de demonstração (senha `demo1234`):
 
 | E-mail | Papel |
-|---|---|
-| `ana@bellamoda.com.br` | Administradora |
+| --- | --- |
+| `super@vesticrm.com.br` | Super Admin da plataforma |
+| `ana@bellamoda.com.br` | Administradora da loja |
 | `carla@bellamoda.com.br` | Gerente |
 | `julia@bellamoda.com.br` | Vendedora (vê só a própria carteira) |
-| `renata@bellamoda.com.br` | Vendedora |
-| `marcos@urbanstyle.com.br` | Admin de **outra empresa** (prova o isolamento multi-tenant) |
+| `marcos@urbanstyle.com.br` | Admin de **outra** loja — prova o isolamento multi-tenant |
 
-## Arquitetura
+> 🚫 `npm run db:seed` **APAGA O BANCO** (34 `deleteMany` antes de popular). Há
+> uma trava: ele se recusa a rodar se o banco não for local **ou** se
+> `NODE_ENV=production`, a menos que `ALLOW_PROD_SEED=true`. Ainda assim, nunca
+> aponte o `DATABASE_URL` de produção para ele.
+
+## Mapa do código
 
 ```
 src/
 ├── app/
-│   ├── (app)/           # páginas autenticadas (dashboard, funil, whatsapp, ...)
-│   ├── api/             # rotas REST (auth, customers, opportunities, ...)
-│   └── login/
-├── components/          # AppShell (sidebar/bottom-nav), UI, gráficos SVG
-├── lib/
-│   ├── auth.ts          # sessão JWT (cookie httpOnly, 7 dias)
-│   ├── scope.ts         # regras de visibilidade multi-tenant + papéis
-│   ├── automations.ts   # motor de sugestões comerciais
-│   ├── segments.ts      # segmentação de campanhas
-│   ├── orders.ts        # totais/preços/status de pedidos (testado)
-│   ├── pix.ts           # payload PIX BR Code + CRC16 (testado)
-│   ├── whatsapp.ts      # camada de integração (simulado ↔ Cloud API)
-│   ├── integrations/    # contratos Bling/Nuvemshop/Shopify
-│   └── __tests__/       # testes unitários (vitest)
-└── middleware.ts        # proteção de rotas
+│   ├── (app)/…            39 telas autenticadas (dashboard, funil, whatsapp, pedidos…)
+│   ├── api/…              186 rotas REST
+│   ├── catalogo/[slug]    catálogo público da loja (sem login)
+│   ├── bio/[slug]         página de bio pública (linktree próprio)
+│   └── declaracao/[id]    declaração de conteúdo dos Correios
+├── components/            AppShell, design system (ui.tsx), gráficos SVG
+├── lib/                   ⭐ TODA a regra de negócio vive aqui
+│   ├── catalogo/          pedido do catálogo público, leitor de mensagem do WhatsApp
+│   ├── comm/              Communication Engine (WhatsApp, agnóstico de provedor)
+│   ├── integrations/      contratos de sincronização de catálogo
+│   ├── plano-corte/       leitura de CAD (Audaces/DXF) e otimizador de encaixe
+│   ├── tracking/          eventos do catálogo → tela Inteligência
+│   └── __tests__/         96 arquivos de teste
+└── middleware.ts          proteção de rotas
 prisma/
-├── schema.prisma        # 27 modelos multi-tenant (CRM + catálogo/pedidos)
-└── seed.ts              # loja demo completa (clientes, produtos e pedidos)
+├── schema.prisma          89 modelos, comentados em português
+└── migrations/            88 migrações ESCRITAS À MÃO (ver docs/PRODUCAO.md)
 ```
 
-- **Banco**: PostgreSQL (dev e produção), com schema versionado por `prisma migrate`.
-- **Integrações futuras** (WhatsApp API, Bling, Nuvemshop, Shopify, Instagram, Meta Ads, pagamento, e-mail): a interface `WhatsAppProvider` mostra o padrão — o app fala com abstrações, nunca com o fornecedor direto.
-- **Responsivo**: sidebar no desktop, menu drawer + bottom nav no celular; a central de WhatsApp vira lista → conversa em tela cheia no mobile.
+**A regra de ouro da arquitetura:** tela não sabe regra de negócio. Tela chama
+rota, rota valida e chama motor em `src/lib`, motor decide. Se você está
+escrevendo `if` de negócio dentro de um `.tsx`, provavelmente está no lugar
+errado.
+
+## As 6 regras que não se negociam
+
+Cada uma nasceu de um incidente real. O detalhe de cada história está em
+[`docs/INCIDENTES.md`](docs/INCIDENTES.md).
+
+1. **`companyId` em TODA query.** Multi-tenant é a promessa central do produto —
+   uma loja jamais pode ver dados de outra. Os filtros vivem em `src/lib/scope.ts`.
+2. **Faturamento soma `netTotal`, nunca `total`.** `total` inclui frete e serve só
+   para cobrar da cliente. O teste `faturamento-data.test.ts` varre as telas de
+   dinheiro atrás de violações.
+3. **Venda = `Order` com status em `PAID_ORDER_STATUSES`.** O modelo `Sale` é
+   legado do fluxo manual — **não usar para métrica nenhuma**.
+4. **Máximo 2 cron jobs na Vercel, ambos diários.** Um terceiro cron (ou um cron
+   não-diário) bloqueia TODOS os deploys silenciosamente. O guard
+   `scripts/check-vercel-crons.mjs` roda no build e falha se você violar.
+5. **Migrações são escritas à mão.** O banco tem drift; `prisma migrate dev` gera
+   lixo. Escreva o `.sql` você mesmo.
+6. **Revisão especialista obrigatória antes de todo push** (`/code-review`, nível
+   high). Exceção: mudança trivial sem lógica — texto, cor, label.
+
+## Módulos do produto
+
+O que cada loja enxerga é controlado por `CompanyModule` (chaves: `PRODUCAO`,
+`MARKETING`, `BIBLIOTECA`, `ENVIOS`, `PLANO_CORTE`, `INTELIGENCIA`).
+
+- **CRM** — clientes/carteira, funil kanban, tarefas, automações, campanhas,
+  tags e interesses, notificações (sino + push PWA).
+- **Central de Atendimento WhatsApp** (`/whatsapp`) — fila, chats, setores,
+  transferência, notas com @menção, respostas rápidas, mídia e áudio, pedido
+  dentro do chat. Sync incremental a cada 3s. **Em produção de verdade**, via
+  Evolution API self-hosted (WhatsApp não-oficial).
+- **Catálogo público** (`catalago.net/{loja}`) — preço sempre recalculado no
+  servidor, links rastreados `?ref=` (vendedora) e `?c=` (cliente).
+- **Pedidos e estoque** — orçamento reserva estoque; `InventoryMovement` audita
+  toda entrada e saída; PDF de orçamento e romaneio.
+- **Financeiro** — Pix e cartão por Mercado Pago e InfinitePay (confirmação
+  automática), contas a receber, NF-e via Bling, comissões com extrato em PDF.
+- **Envios** — Melhor Envio por loja: cotar, comprar etiqueta, imprimir
+  declaração, rastrear.
+- **Produção** — tecidos, rolos, cortes multi-cor, costura, facções, defeitos,
+  plano de corte lendo arquivo do Audaces/DXF.
+- **Marketing** — gestor de bio, campanhas, tracking do catálogo, inteligência
+  comercial, afiliados.
+- **Integrações de estoque** — Nuvemshop (dona do estoque, casamento só por SKU)
+  e Jueri (sync 2x/dia).
+- **Super Admin** — provisionar lojas, cobrança, uso, suspender, impersonar.
+
+## Comandos
+
+| Comando | O que faz |
+| --- | --- |
+| `npm run dev` | Servidor de desenvolvimento (Turbopack) |
+| `npm test` | Roda os 106 arquivos de teste |
+| `npm run build` | Guard de crons + build de produção |
+| `npm run db:deploy` | Aplica as migrações (seguro, não apaga dados) |
+| `npm run db:seed` | 🚫 Zera o banco e cria a loja demo — **só em local** |
+| `npm run db:studio` | Interface visual do banco |
+| `npm run lint` | ESLint |
+
+## Convenções
+
+- **Comentários e nomes de domínio em português.** O código fala a língua de
+  quem usa: `netTotal`, `sellerId`, mas `resolveCancelStock`, `casaCliente`,
+  `phoneMatchVariants`. Comentário explica **por quê**, não o quê.
+- **TypeScript sem escapatória.** Hoje há **zero** `: any` e **um** `@ts-ignore`
+  em 118 mil linhas. Mantenha assim — é o que segura quem ainda não conhece o
+  sistema.
+- **Toda rota valida com Zod** e resolve o usuário antes de tocar no banco.
+- **Teste que guarda regra tem nome de regra** (`reserva-sem-prazo.test.ts`,
+  `pedido-nao-duplica.test.ts`). Ao consertar um bug de negócio, deixe o teste.
