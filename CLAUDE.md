@@ -24,28 +24,69 @@ o sistema para gerir os leads do AtacadoPro.
   sozinha**, além da revisão: reproduzir o cenário ponta a ponta contra o
   Postgres local antes de subir (adivinhar já errou 3 vezes num dia).
 
+## Como usar a documentação (`/docs`)
+
+A documentação **faz parte do desenvolvimento**, não é enfeite. A régua da
+pasta `/docs`: um documento só existe se alguma coisa quebra sem ele — o que o
+código responde sozinho não vira documento (doc desatualizada é pior que doc
+nenhuma, porque quem lê confia nela).
+
+**Onde cada resposta mora:**
+
+| Pergunta | Onde |
+|---|---|
+| Qual a regra? | este arquivo, marcada com **RN-0XX** |
+| Que número tem a regra? | `docs/regras.md` (índice: ID → onde vive → qual teste guarda) |
+| **Por que** foi feito assim? | `docs/decisoes/` — **ADR-0XX** |
+| Como sabemos que funciona? | os testes (`npm test`) |
+| Quais contas/chaves externas? | `docs/integracoes.md` |
+| Deu problema em produção? | `docs/runbook.md` |
+| E o jurídico/LGPD? | `docs/juridico/` |
+
+**Protocolo de toda entrega:**
+
+1. Antes de implementar, localizar as **RN** e os **ADR** que a mudança toca
+   (`docs/regras.md` e `docs/decisoes/README.md`).
+2. Implementar, criando/ajustando os testes que guardam a regra.
+3. **Atualizar a documentação afetada no mesmo commit.** Mudou o comportamento
+   de uma RN? O texto dela aqui muda junto. Foi uma decisão nova que restringe
+   o futuro? Nasce um ADR.
+4. Dizer no fim quais IDs foram tocados (ex.: *"implementa RN-016, ADR-011"*).
+
+**Regra dos números:** nunca reaproveitar, nunca renumerar. Regra ou decisão
+que morre vira `revogada em MM/AAAA, substituída por RN-0YY` — some do
+sistema, fica no histórico.
+
+Toda RN vive em **três lugares**: o texto aqui, a linha no índice e o marcador
+`// Guarda RN-0XX` dentro do teste que a defende. O `docs-regras.test.ts` roda
+dentro do `npm run build` (`check:docs`) e **derruba o build** se os três
+discordarem — inclusive se o teste citado como guardião não declarar a regra.
+
 ## Stack
 
 - **Next.js 15** (App Router) + React 19 + TypeScript + Tailwind 4
 - **Prisma 6** + PostgreSQL (Neon em produção; local na porta **5433**,
   iniciar com `pg_ctl -D /var/lib/postgresql/vesti -o "-p 5433"`)
-- Vitest (`npm test`), build com guard de crons (`npm run build`)
-- Hospedagem Vercel (plano Hobby) + domínios: www.atacadopro.com (app/site),
+- Vitest (`npm test`); `npm run build` roda dois guardas antes de compilar:
+  crons (`check-vercel-crons.mjs`) e documentação (`check:docs`)
+- Hospedagem Vercel (conta Pro; o limite de 2 crons é mantido de propósito,
+  ver ADR-002) + domínios: www.atacadopro.com (app/site),
   catalago.net (catálogo público), bio pública em /bio/[slug]
 
 ## Regras operacionais CRÍTICAS (já causaram incidentes)
 
-1. **Vercel Hobby: máximo 2 cron jobs, ambos diários.** Um 3º cron (ou cron
+1. **Máximo 2 cron jobs, ambos diários** (ADR-002). Um 3º cron (ou cron
    não-diário) **bloqueia TODOS os deploys silenciosamente**. O guard
-   `scripts/check-vercel-crons.mjs` roda no build e falha se violar.
-2. **Migrações são escritas à mão** (`prisma/migrations/`) — o banco tem
+   `scripts/check-vercel-crons.mjs` roda no build e falha se violar. Trabalho
+   periódico novo não vira cron: vira motor de carona no tráfego, com trava.
+2. **Migrações são escritas à mão** (`prisma/migrations/`, ADR-001) — o banco tem
    drift; `prisma migrate dev` gera lixo (ex.: ALTER do default de
    `Customer.linkCode`, que deve ser REMOVIDO de qualquer diff). Produção
    aplica via `vercel-build` (`prisma migrate deploy`).
 3. **NUNCA rodar `db:seed` em produção** (zera/duplica dados de lojas reais).
 4. Fotos e mídias ficam como **data-URL no banco** (servidas por
    `/api/img/[id]` com cache). Funciona, mas é a dívida técnica nº 1 —
-   migração para blob storage está planejada.
+   migração para blob storage planejada (ADR-003).
 5. Segredos NUNCA no chat/commits. Credenciais ficam na Vercel (env) ou
    criptografadas no banco (AES-256-GCM em `lib/crypto.ts`).
 
@@ -60,7 +101,7 @@ src/lib/…              43 motores de negócio (toda regra vive aqui)
 prisma/schema.prisma   modelo de dados (comentado em PT-BR)
 ```
 
-- **Multi-tenant por `companyId` em TODA query** — filtros centralizados em
+- **RN-013 · Multi-tenant por `companyId` em TODA query** — filtros centralizados em
   `src/lib/scope.ts`. Nenhuma loja enxerga dados de outra.
 - **Papéis**: SUPERADMIN (plataforma), ADMIN, MANAGER, SELLER (só a própria
   carteira), SUPPORT (operacional, sem poderes comerciais).
@@ -70,32 +111,32 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
 
 ## Regras de negócio centrais (fonte da verdade)
 
-- **Venda = pedido (`Order`) com status em `PAID_ORDER_STATUSES`**
+- **RN-001 · Venda = pedido (`Order`) com status em `PAID_ORDER_STATUSES`**
   `[PAGO, EM_PRODUCAO, SEPARACAO, ENVIADO, ENTREGUE]` (lib/orders.ts).
   TODA métrica de faturamento soma por aí (Dashboard, Relatórios,
   Inteligência, Comissões, Equipe, exportações, segmentos). O modelo `Sale`
   é legado do fluxo manual — **não usar para métricas**.
-  **Faturamento soma `netTotal` (valor vendido), NUNCA `total`** (que tem
+  **RN-002 · Faturamento soma `netTotal` (valor vendido), NUNCA `total`** (que tem
   frete e serve só para cobrar). O guarda é `faturamento-data.test.ts`:
   varredura ampla das telas de dinheiro por `_sum/select/orderBy/+ .total`.
   Uso legítimo de `total` (contas a receber = o que a cliente paga) se
   declara com o marcador **`frete-ok`** e o motivo, na linha ou nas duas
   acima. A versão anterior do guarda tinha regex frouxa e deixou passar seis
   somas com frete no Dashboard — guarda que não pega nada é pior que nenhum.
-- **Estoque**: orçamento RESERVA (todos os status exceto CANCELADO seguram
+- **RN-003 · Estoque**: orçamento RESERVA (todos os status exceto CANCELADO seguram
   estoque) — vale para o pedido montado no sistema E para o do catálogo
   público (`lib/reservations.ts`, baixa condicionada: nunca negativa, nunca
   duas vendas da mesma peça). **A reserva NÃO tem prazo**: a peça só volta ao
   estoque quando o pedido é CANCELADO (a soltura automática em 48h foi
-  removida). A tela do pedido avisa quantas peças estão seguradas. Ao
-  CANCELAR, o vendedor escolhe: devolver as peças (padrão; o livro de
+  removida). A tela do pedido avisa quantas peças estão seguradas.
+  **RN-004** · Ao CANCELAR, o vendedor escolhe: devolver as peças (padrão; o livro de
   movimentos devolve exatamente o que saiu) ou **baixa definitiva**
   (`restock: false` → `Order.stockWrittenOff`; perda/brinde/defeito — nada
   volta, nada é empurrado às integrações). Reabrir pedido baixado NÃO
   desconta de novo (`resolveCancelStock`/`resolveReopenStock` em
   lib/orders.ts). Integrações donas de estoque (Nuvemshop) espelham — uma
   venda, uma baixa.
-- **Comissão e painel de pedidos** (`Order.sellerId`): pedido montado no
+- **RN-005 · Comissão e painel de pedidos** (`Order.sellerId`): pedido montado no
   sistema → quem montou; pedido do catálogo público → **QUEM MANDOU O LINK
   LEVA A VENDA, e SÓ ele** (`?ref=`) — a cliente chega no WhatsApp, a
   vendedora manda o link dela, a cliente pede: o pedido é dessa vendedora, e a
@@ -103,29 +144,29 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   linha do tempo). **Sem vendedora no link, o pedido nasce SEM DONA (é da
   loja)** — não existe desvio para a responsável pela cliente: era ele que
   fazia pedido do link da Lara cair no painel da Juliana. Nuvemshop → sem
-  vendedor. Pedido só vira PAGO com vendedor (é o que obriga a loja a definir
-  a dona antes de faturar); troca de vendedor é auditada em `OrderEvent`.
-- **Visibilidade de pedidos** (`orderScope` em `lib/scope.ts`): vendedora vê
+  vendedor. **RN-006** · Pedido só vira PAGO com vendedor (é o que obriga a loja
+  a definir a dona antes de faturar); troca de vendedor é auditada em `OrderEvent`.
+- **RN-007 · Visibilidade de pedidos** (`orderScope` em `lib/scope.ts`): vendedora vê
   SÓ os pedidos dela (`sellerId`); gerente/admin/suporte veem a loja inteira.
   Vale em toda porta: lista, ficha, PDFs, Pix, NF-e, frete, transferência,
   declaração e exportação.
-- **Leads**: entrada única pelo `lib/intake.ts` (Lead Intake Engine) —
+- **RN-008 · Leads**: entrada única pelo `lib/intake.ts` (Lead Intake Engine) —
   dedup por telefone **tolerante ao 9º dígito** (`phoneMatchVariants`),
   distribuição round-robin/fixa, conversa nasce NA FILA (sem dono; modelo
   Digisac), oportunidade conforme política da loja.
-- **Catálogo público**: preço/total SEMPRE recalculado no servidor; links
+- **RN-009 · Catálogo público**: preço/total SEMPRE recalculado no servidor; links
   rastreados `?ref=` (vendedora) e `?c=` (cliente) alimentam a atribuição.
-- **O pedido do catálogo NÃO PODE SE PERDER** (`lib/catalogo/envio-pedido.ts`):
+- **RN-010 · O pedido do catálogo NÃO PODE SE PERDER** (`lib/catalogo/envio-pedido.ts`):
   o aparelho sorteia um protocolo (`Order.clientRef`, único por loja),
   guarda o pedido antes de mandar, INSISTE se falhar e reenvia na próxima
   visita; a rota é idempotente (devolve o pedido existente, e a corrida cai
   no índice único → P2002 tratado). A cliente vê o recibo do registro na
   tela. Já causou incidente real: `.catch(() => {})` engolia a falha, a
   mensagem chegava no WhatsApp da vendedora e o pedido não existia.
-  Todo pedido do catálogo AVISA na hora (`notifyNovoPedido`): com vendedora
+  **RN-011** · Todo pedido do catálogo AVISA na hora (`notifyNovoPedido`): com vendedora
   no link, só ela; sem vendedora, gerência/admin (nunca uma vendedora
   qualquer — a separação por link vale também para o aviso).
-  Resgate manual: **"Colar pedido do WhatsApp"** na tela Pedidos
+  **RN-012** · Resgate manual: **"Colar pedido do WhatsApp"** na tela Pedidos
   (`lib/catalogo/ler-mensagem.ts` + `/api/orders/ler-mensagem`) — lê a
   mensagem do catálogo, casa com o catálogo da loja (nome mais longo vence
   ao separar produto/cor), **preço SEMPRE do nosso cadastro**, prévia sem
@@ -176,12 +217,12 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   agnóstica de provedor. `EvolutionProvider` = WhatsApp NÃO-oficial via
   Evolution API **self-hosted** (VPS Hostinger srv1853369.hstgr.cloud,
   projeto Docker `evolução-api-2zk0`; envs `EVOLUTION_URL`/`EVOLUTION_KEY`
-  na Vercel; webhook autenticado por token único por loja). Anti-ban:
+  na Vercel; webhook autenticado por token único por loja). **RN-017** · Anti-ban:
   resposta em janela de 24h sai na hora; envio proativo com ritmo humano
-  4-9s; termo de aceite obrigatório registrado. `CloudApiProvider` (Meta
+  4-9s; termo de aceite obrigatório registrado (sem aceite, sem QR Code). `CloudApiProvider` (Meta
   oficial) pronto na estrutura. Tudo logado em `CommEvent` (Central de
   Comunicação).
-- **Integrações de produto/estoque**: **Nuvemshop** (OAuth com state
+- **Integrações de produto/estoque**: **RN-014 · Nuvemshop** (OAuth com state
   assinado, webhooks HMAC; a Nuvemshop é a DONA do estoque; casamento de
   produtos SÓ por SKU; venda paga → `ingestPaidOrder` cria Order PAGO
   direto); **Jueri** (sync 2x/dia via cron `jueri-sync`).
@@ -194,15 +235,18 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   (`adRef`) e o vínculo pode ser feito **direto do chat** (bloco "Veio de
   anúncio" na ficha do contato, gerente+). O vínculo é RETROATIVO para quem
   está sem campanha, NUNCA reescreve quem já tem (vale o primeiro contato), e
-  um anúncio só pode ter UMA campanha dona.
+  um anúncio só pode ter UMA campanha dona (**RN-015**).
 - **Produção** (gated por loja): tecidos, rolos, cortes multi-cor, costura,
   lotes/facções, defeitos, simulador, etiquetas.
 - **Envios** (gated por loja, `shippingEnabled`, pago à parte): Melhor Envio
   OAuth por loja (`lib/melhorenvio.ts`); peso por produto (sync automático da
   Nuvemshop, nunca sobrescreve manual) + padrão por categoria/loja; no pedido:
   cotar → comprar etiqueta (saldo da carteira ME da loja; gerente+) → imprimir
-  etiqueta + declaração de conteúdo (`/declaracao/[id]`) + rastreio (msg
-  WhatsApp pronta). Cancelamento antes da postagem devolve o valor.
+  etiqueta + rastreio (msg WhatsApp pronta). Cancelamento antes da postagem
+  devolve o valor. **RN-016** · Pedido com nota AUTORIZADA (Bling) compra a
+  etiqueta COM a NF-e (chave de acesso); sem nota, sai com declaração de
+  conteúdo (`/declaracao/[id]`). A chave é conferida no Bling ANTES de debitar
+  o saldo, e a chave usada fica na própria etiqueta (`Shipping.nfeKey`).
 - **Super Admin**: painel Lojas (provisionar, cobrança, uso, suspender,
   impersonar), diagnóstico de fotos; loja demo "Bella Moda".
 
@@ -222,11 +266,9 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   receber) e NF-e via Bling (`lib/bling.ts`). PENDENTE para produção:
   criar app no Mercado Pago (envs `MP_CLIENT_ID`/`MP_CLIENT_SECRET`) e app
   no Bling (`BLING_CLIENT_ID`/`BLING_CLIENT_SECRET`) na Vercel.
-- **Envios** (25/07/2026): módulo completo no código. PENDENTE para produção:
-  criar app em melhorenvio.com.br (redirect
-  `https://www.atacadopro.com/api/melhorenvio/callback`) e envs
-  `MELHOR_ENVIO_CLIENT_ID`/`MELHOR_ENVIO_CLIENT_SECRET` na Vercel; ligar a
-  chave por loja no painel Lojas. Parceria/comissão ME em negociação à parte.
+- **Envios** (13/08/2026): Melhor Envio **em produção** — app criado, envs na
+  Vercel, primeira conta conectada e cotando. Parceria/comissão ME em
+  negociação à parte. A etiqueta com NF-e (RN-016) depende do Bling.
 - Dívidas mapeadas: blob storage para fotos; rate-limit no login;
   conferir `INTAKE_SECRET` na Vercel; quebrar telas gigantes
   (`inbox.tsx` ~2,4k linhas) em componentes menores.

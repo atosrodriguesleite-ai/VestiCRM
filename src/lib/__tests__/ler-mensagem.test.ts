@@ -12,6 +12,8 @@ import {
   separarProdutoECor,
 } from "../catalogo/ler-mensagem";
 
+// Guarda RN-012 (índice em docs/regras.md; texto no CLAUDE.md).
+
 /**
  * A vendedora cola a mensagem do WhatsApp e o pedido se monta sozinho.
  * É a rede de segurança da venda que só existe na conversa — caso real:

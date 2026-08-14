@@ -4,6 +4,8 @@ import { join } from "node:path";
 import { conferirVinculo, resumir, type VariacaoAqui } from "../nuvemshop-conferencia";
 import { mesmaCor, corDoNome, type VariacaoNs } from "../nuvemshop";
 
+// Guarda RN-014 (índice em docs/regras.md; texto no CLAUDE.md).
+
 /**
  * CONFERÊNCIA DA INTEGRAÇÃO NUVEMSHOP — guarda do incidente da Toque Leve
  * (30/07/2026).

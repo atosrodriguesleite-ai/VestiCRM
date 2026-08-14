@@ -2,6 +2,8 @@ import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
+// Guarda RN-005 (índice em docs/regras.md; texto no CLAUDE.md).
+
 /**
  * REGRA DA COMISSÃO NO CATÁLOGO — quem leva o pedido.
  *

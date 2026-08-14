@@ -85,7 +85,8 @@ npm run dev                 # http://localhost:3000
 npm test                    # testes unitários (vitest)
 ```
 
-Para produção, veja **[docs/PRODUCAO.md](docs/PRODUCAO.md)**.
+Para produção, veja **[docs/runbook.md](docs/runbook.md)** e
+**[docs/integracoes.md](docs/integracoes.md)**.
 
 ### Logins de demonstração (senha `demo1234`)
 
