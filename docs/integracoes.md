@@ -101,6 +101,21 @@ demonstração é bloqueado em produção.
 
 ## Pendências conhecidas
 
+- 🔴 **`CRED_SECRET` (combinado para 14/08/2026).** Criar a variável na Vercel
+  **com o valor ATUAL da `AUTH_SECRET`** — mesmo valor, nome diferente:
+
+  1. Vercel → projeto → **Settings** → **Environment Variables**
+  2. achar `AUTH_SECRET`, clicar no olhinho 👁️ e **copiar** o valor
+  3. **Add New** → nome `CRED_SECRET` → colar o mesmo valor → marcar
+     Production, Preview e Development
+  4. **Save** e **Redeploy** (Deployments → ⋯ → Redeploy)
+
+  Como o valor é idêntico, os tokens continuam sendo lidos e ninguém percebe
+  nada. Depois disso as duas chaves são independentes: trocar a `AUTH_SECRET`
+  passa a derrubar só as sessões (todo mundo loga de novo), sem tocar nas
+  integrações. **Nunca** gerar um valor NOVO para a `CRED_SECRET` — isso
+  torna ilegível, na hora, todo token já guardado.
+
 - **Evolution:** ligar `DATABASE_SAVE_DATA_HISTORIC`, `NEW_MESSAGE`, `CHATS` e
   `CONTACTS` = `true` no compose do servidor e reconectar as lojas. Sem isso a
   importação de histórico devolve ~0 mensagens.
