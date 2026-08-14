@@ -1,6 +1,8 @@
 import { describe, it, expect } from "vitest";
 import { resolveCancelStock, resolveReopenStock } from "../orders";
 
+// Guarda RN-004 (índice em docs/regras.md; texto no CLAUDE.md).
+
 describe("cancelamento — o que fazer com o estoque", () => {
   it("sem resposta do vendedor, devolve (comportamento histórico)", () => {
     expect(resolveCancelStock(true, undefined)).toBe("DEVOLVER");

@@ -1,6 +1,8 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import { jidToPhone, splitDataUrl, TERMO_WA_SHA, TERMO_WA_TEXTO, evoSendText, jidDeNumero } from "../evolution";
 
+// Guarda RN-017 (índice em docs/regras.md; texto no CLAUDE.md).
+
 describe("splitDataUrl", () => {
   it("separa mime e base64 de uma data URL simples", () => {
     expect(splitDataUrl("data:image/jpeg;base64,AAAA")).toEqual({

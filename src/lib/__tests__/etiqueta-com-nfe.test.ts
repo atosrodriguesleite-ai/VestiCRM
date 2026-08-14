@@ -3,6 +3,8 @@ import { readFileSync } from "node:fs";
 import { limparChaveNfe } from "../bling";
 import { opcoesFiscaisME } from "../melhorenvio";
 
+// Guarda RN-016 (índice em docs/regras.md; texto no CLAUDE.md).
+
 /**
  * Etiqueta com NF-e (chave de acesso) no lugar da declaração de conteúdo.
  *

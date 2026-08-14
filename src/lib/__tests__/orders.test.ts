@@ -7,6 +7,8 @@ import {
   round2,
 } from "../orders";
 
+// Guarda RN-009 (índice em docs/regras.md; texto no CLAUDE.md).
+
 describe("computeOrderTotals", () => {
   it("soma itens, aplica desconto e frete", () => {
     const totals = computeOrderTotals(

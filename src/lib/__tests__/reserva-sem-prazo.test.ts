@@ -3,6 +3,8 @@ import { readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import * as reservas from "../reservations";
 
+// Guarda RN-003 (índice em docs/regras.md; texto no CLAUDE.md).
+
 /**
  * A RESERVA NÃO TEM PRAZO.
  *
