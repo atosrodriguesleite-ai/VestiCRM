@@ -701,20 +701,49 @@ export async function meBuyShipment(input: {
   };
 }
 
-/** Situação + código de rastreio de um envio comprado. */
+/** Data do Melhor Envio ("2026-08-14 09:12:33") → Date, ou null. */
+function dataDoMe(v?: string | null): Date | null {
+  if (!v) return null;
+  const d = new Date(v.includes("T") ? v : v.replace(" ", "T"));
+  return isNaN(d.getTime()) ? null : d;
+}
+
+/**
+ * Situação + código de rastreio de um envio comprado.
+ *
+ * Traz também QUANDO postou e QUANDO entregou: a varredura só passa de tempos
+ * em tempos, então carimbar "entregue agora" na hora da consulta mostrava à
+ * cliente um dia de entrega errado. Com a data da transportadora, o que ela
+ * vê é o que aconteceu.
+ */
 export async function meTracking(
   companyId: string,
   meOrderId: string
-): Promise<{ tracking: string | null; status: string | null } | null> {
-  const r = await meApi<Record<string, { tracking?: string | null; status?: string }>>(
-    companyId,
-    "POST",
-    "/me/shipment/tracking",
-    { orders: [meOrderId] }
-  );
+): Promise<{
+  tracking: string | null;
+  status: string | null;
+  postedAt: Date | null;
+  deliveredAt: Date | null;
+} | null> {
+  const r = await meApi<
+    Record<
+      string,
+      {
+        tracking?: string | null;
+        status?: string;
+        posted_at?: string | null;
+        delivered_at?: string | null;
+      }
+    >
+  >(companyId, "POST", "/me/shipment/tracking", { orders: [meOrderId] });
   const info = r.data?.[meOrderId];
   if (!r.ok || !info) return null;
-  return { tracking: info.tracking ?? null, status: info.status ?? null };
+  return {
+    tracking: info.tracking ?? null,
+    status: info.status ?? null,
+    postedAt: dataDoMe(info.posted_at),
+    deliveredAt: dataDoMe(info.delivered_at),
+  };
 }
 
 /**

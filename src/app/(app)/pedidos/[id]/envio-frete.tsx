@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   Truck,
@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { Card } from "@/components/ui";
 import { brl } from "@/lib/format";
+import { copiarTexto } from "@/lib/copiar";
 
 /**
  * Painel de Envio do pedido (módulo Envios / Melhor Envio):
@@ -82,11 +83,31 @@ export function EnvioFrete({
   const [podeSemNota, setPodeSemNota] = useState(false);
   const [weightKg, setWeightKg] = useState<number | null>(null);
   const [escolhido, setEscolhido] = useState<number | null>(null);
-  const [busy, setBusy] = useState<"cotar" | "comprar" | "cancelar" | "rastreio" | "etiqueta" | null>(null);
+  const [busy, setBusy] = useState<
+    "cotar" | "comprar" | "cancelar" | "rastreio" | "etiqueta" | "enviar" | null
+  >(null);
   const [erro, setErro] = useState("");
-  const [copied, setCopied] = useState<"code" | "msg" | null>(null);
+  const [copied, setCopied] = useState<"code" | "link" | null>(null);
+  const [enviado, setEnviado] = useState(false);
+  const [linkRastreio, setLinkRastreio] = useState<string | null>(null);
 
   const comprado = Boolean(ship?.meOrderId && ship.meStatus !== "CANCELADO");
+
+  // busca o link de rastreio assim que há envio: o botão de copiar precisa
+  // dele PRONTO (ver copiarLink) e a chamada é barata
+  useEffect(() => {
+    if (!comprado) return;
+    let vivo = true;
+    fetch(`/api/orders/${orderId}/rastreio`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (vivo && d?.url) setLinkRastreio(d.url);
+      })
+      .catch(() => {});
+    return () => {
+      vivo = false;
+    };
+  }, [comprado, orderId]);
 
   async function acao(body: Record<string, unknown>) {
     const res = await fetch(`/api/orders/${orderId}/frete`, {
@@ -188,21 +209,37 @@ export function EnvioFrete({
 
   async function copiarCodigo() {
     if (!ship?.trackingCode) return;
-    await navigator.clipboard.writeText(ship.trackingCode);
+    await copiarTexto(ship.trackingCode);
     setCopied("code");
     setTimeout(() => setCopied(null), 2000);
   }
 
-  async function copiarMensagem() {
-    if (!ship?.trackingCode) return;
-    const msg =
-      `Oi ${customerName.split(" ")[0]}! 📦 Seu pedido já está com a transportadora.\n\n` +
-      `Código de rastreio: ${ship.trackingCode}\n` +
-      `Acompanhe aqui: https://melhorrastreio.com.br/rastreio/${ship.trackingCode}\n\n` +
-      `Qualquer coisa é só chamar! 💛`;
-    await navigator.clipboard.writeText(msg);
-    setCopied("msg");
+  /**
+   * Copia o LINK que a cliente abre (funciona mesmo sem WhatsApp na ficha).
+   * O link é buscado ASSIM QUE o painel abre e guardado aqui: no iPhone, um
+   * `await fetch` antes de escrever na área de transferência faz o navegador
+   * perder o "gesto do usuário" e a cópia é recusada em silêncio.
+   */
+  async function copiarLink() {
+    setErro("");
+    if (!linkRastreio) return setErro("Ainda estou gerando o link — tente de novo em 1 segundo.");
+    const deu = await copiarTexto(linkRastreio);
+    if (!deu) return setErro("Não consegui copiar. Segure o link e copie à mão.");
+    setCopied("link");
     setTimeout(() => setCopied(null), 2000);
+  }
+
+  /** Manda o link no WhatsApp da cliente pela conexão da loja (um clique). */
+  async function enviarNoWhatsapp() {
+    setBusy("enviar");
+    setErro("");
+    const res = await fetch(`/api/orders/${orderId}/rastreio`, { method: "POST" });
+    const d = await res.json().catch(() => ({}));
+    setBusy(null);
+    if (!res.ok) return setErro(d.error ?? "Não foi possível enviar agora.");
+    setEnviado(true);
+    setTimeout(() => setEnviado(false), 4000);
+    router.refresh();
   }
 
   return (
@@ -247,6 +284,46 @@ export function EnvioFrete({
             </button>
           </div>
 
+          {/* RASTREIO PARA A CLIENTE: um clique manda o link no WhatsApp
+              dela (pela conexão da loja, fica registrado na conversa) — sem
+              copiar, colar e procurar a conversa. */}
+          <div className="rounded-xl border border-emerald-100 bg-emerald-50/50 p-3">
+            <p className="mb-2 text-xs font-medium text-emerald-900">
+              📦 Mandar o acompanhamento para {customerName.split(" ")[0]}
+            </p>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                onClick={enviarNoWhatsapp}
+                disabled={busy === "enviar"}
+                className="inline-flex items-center gap-1.5 rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:opacity-50"
+              >
+                {busy === "enviar" ? (
+                  <Loader2 className="size-4 animate-spin" />
+                ) : enviado ? (
+                  <CheckCircle2 className="size-4" />
+                ) : (
+                  <MessageCircle className="size-4" />
+                )}
+                {enviado ? "Enviado!" : "Enviar rastreio no WhatsApp"}
+              </button>
+              <button
+                onClick={copiarLink}
+                className="inline-flex items-center gap-1 rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-xs font-medium text-gray-600 hover:border-gray-300"
+              >
+                {copied === "link" ? (
+                  <CheckCircle2 className="size-3.5 text-emerald-600" />
+                ) : (
+                  <Copy className="size-3.5" />
+                )}
+                {copied === "link" ? "Copiado!" : "Copiar link"}
+              </button>
+            </div>
+            <p className="mt-2 text-[11px] leading-snug text-emerald-800/70">
+              A cliente clica e vê em que pé está a entrega — sem login, sem
+              precisar entender código dos Correios.
+            </p>
+          </div>
+
           {ship?.trackingCode ? (
             <div className="flex items-center gap-2 flex-wrap">
               <code className="rounded-lg bg-gray-50 border border-gray-200 px-2.5 py-1.5 text-xs font-semibold tracking-wide">
@@ -258,13 +335,6 @@ export function EnvioFrete({
               >
                 {copied === "code" ? <CheckCircle2 className="size-3.5 text-emerald-600" /> : <Copy className="size-3.5" />}
                 {copied === "code" ? "Copiado!" : "Copiar código"}
-              </button>
-              <button
-                onClick={copiarMensagem}
-                className="inline-flex items-center gap-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold px-2.5 py-1.5"
-              >
-                {copied === "msg" ? <CheckCircle2 className="size-3.5" /> : <MessageCircle className="size-3.5" />}
-                {copied === "msg" ? "Copiado!" : "Copiar msg p/ WhatsApp"}
               </button>
             </div>
           ) : (

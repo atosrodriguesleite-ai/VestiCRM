@@ -26,6 +26,7 @@ const REEXECUTAVEIS = new Set([
   "20260809150000_telefone_unico_por_loja",
   "20260810120000_cancelamento_sem_devolucao",
   "20260811120000_infinitepay",
+  "20260814120000_rastreio_automatico",
 ]);
 
 function rodar(args) {

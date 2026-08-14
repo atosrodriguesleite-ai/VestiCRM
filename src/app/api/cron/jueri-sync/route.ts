@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { syncJueriCompany } from "@/lib/jueri-sync";
 import { runWatchdogIfDue } from "@/lib/health";
+import { atualizarRastreiosSeDevido } from "@/lib/rastreio";
 
 /**
  * Sincronização automática da Jueri — roda 2x por dia (agendada no Vercel,
@@ -41,6 +42,12 @@ export async function GET(req: NextRequest) {
     orderBy: { lastSyncAt: { sort: "asc", nulls: "first" } },
   });
   const results: { companyId: string; ok: boolean; resumo?: unknown; error?: string }[] = [];
+
+  // RASTREIO ANTES da fila do Jueri: a sincronização pode consumir os ~4 min
+  // da rodada, e a varredura trava o relógio global assim que é chamada. No
+  // fim da fila ela queimaria a vaga da madrugada — justo quando não há
+  // ninguém na inbox para dar a carona (revisão 14/08/2026).
+  await atualizarRastreiosSeDevido();
 
   const inicio = Date.now();
   for (const c of conns) {

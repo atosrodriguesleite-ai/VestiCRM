@@ -432,7 +432,16 @@ export default async function OrderDetailPage({
             {order.payments.map((p) => (
               <div key={p.id} className="text-sm space-y-1.5">
                 <div className="flex justify-between items-center gap-2">
-                  <PaymentMethodChanger orderId={order.id} current={p.method} />
+                  <div className="flex min-w-0 items-center gap-1.5">
+                    <PaymentMethodChanger orderId={order.id} current={p.method} />
+                    {/* como a cliente pagou de verdade: 6x no cartão vira "6x"
+                        aqui, sem ninguém digitar (vem da confirmação) */}
+                    {p.installments && p.installments > 1 && (
+                      <span className="shrink-0 rounded-full bg-brand-50 px-2 py-0.5 text-[11px] font-semibold text-brand-700">
+                        {p.installments}x
+                      </span>
+                    )}
+                  </div>
                   <span className="font-semibold tabular-nums">
                     {brl(p.amount)}
                   </span>

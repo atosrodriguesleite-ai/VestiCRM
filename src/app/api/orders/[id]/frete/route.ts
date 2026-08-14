@@ -14,6 +14,7 @@ import {
   meCancel,
   pesoDoPedidoKg,
 } from "@/lib/melhorenvio";
+import { aplicarRastreio, novoCodigoPublico } from "@/lib/rastreio";
 
 /**
  * Frete do pedido via Melhor Envio (módulo Envios, gated por loja).
@@ -64,33 +65,18 @@ export async function GET(
       return NextResponse.json({ error: "Módulo Envios não contratado." }, { status: 403 });
 
     let ship = order.shipping;
-    // rastreio ao vivo: consulta o ME e guarda o que mudou
+    // rastreio ao vivo: consulta o ME, guarda o que mudou e FAZ O PEDIDO
+    // ANDAR (postado → Enviado, chegou → Entregue) — mesma régua da
+    // varredura de carona, em lib/rastreio.ts (fonte única).
     if (ship?.meOrderId && conn && ship.meStatus !== "CANCELADO") {
       const t = await meTracking(user.companyId, ship.meOrderId).catch(() => null);
       if (t) {
-        const novoStatus =
-          t.status === "delivered"
-            ? "ENTREGUE"
-            : t.status === "posted"
-              ? "POSTADO"
-              : t.status === "cancelled" || t.status === "canceled"
-                ? "CANCELADO"
-                : ship.meStatus;
-        if ((t.tracking && t.tracking !== ship.trackingCode) || novoStatus !== ship.meStatus) {
-          ship = await db.shipping.update({
-            where: { id: ship.id },
-            data: {
-              ...(t.tracking ? { trackingCode: t.tracking } : {}),
-              meStatus: novoStatus,
-              ...(novoStatus === "POSTADO" && !ship.shippedAt
-                ? { shippedAt: new Date() }
-                : {}),
-              ...(novoStatus === "ENTREGUE" && !ship.deliveredAt
-                ? { deliveredAt: new Date() }
-                : {}),
-            },
-          });
-        }
+        const atualizado = await aplicarRastreio({
+          companyId: user.companyId,
+          envio: ship,
+          tracking: t,
+        });
+        ship = { ...ship, ...atualizado };
       }
     }
     return NextResponse.json({ connected: Boolean(conn), shipping: ship });
@@ -302,10 +288,21 @@ export async function POST(
       // GERANDO) para o retry RETOMAR a geração — não comprar de novo
       const meStatus = r.pendente ? "GERANDO" : "ETIQUETA";
 
+      // MEIO DE ENVIO preenchido pela etiqueta comprada ("Correios PAC"): a
+      // vendedora contratou o frete aqui dentro, não faz sentido ela ainda
+      // ter que escolher "meio de envio" na mão (pedido do dono, 14/08/2026)
+      const meioDeEnvio =
+        [parsed.data.carrier, parsed.data.service].filter(Boolean).join(" ").trim() ||
+        "Melhor Envio";
+      // código do link público de rastreio — nasce com a etiqueta e não muda
+      const publicCode = order.shipping?.publicCode ?? novoCodigoPublico();
+
       const ship = await db.shipping.upsert({
         where: { orderId: order.id },
         update: {
-          method: parsed.data.carrier ?? "Melhor Envio",
+          method: meioDeEnvio,
+          publicCode,
+          trackedAt: null, // envio novo entra na frente da fila da varredura
           meOrderId: r.meOrderId,
           meService: parsed.data.service ?? null,
           meCarrier: parsed.data.carrier ?? null,
@@ -324,7 +321,8 @@ export async function POST(
         },
         create: {
           orderId: order.id,
-          method: parsed.data.carrier ?? "Melhor Envio",
+          method: meioDeEnvio,
+          publicCode,
           meOrderId: r.meOrderId,
           meService: parsed.data.service ?? null,
           meCarrier: parsed.data.carrier ?? null,

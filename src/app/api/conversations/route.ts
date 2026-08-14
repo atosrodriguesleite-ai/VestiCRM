@@ -5,6 +5,7 @@ import { requireUser, AuthError } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { buscarConversas, loadInboxConversations } from "@/lib/inbox-data";
 import { runWatchdogIfDue } from "@/lib/health";
+import { atualizarRastreiosSeDevido } from "@/lib/rastreio";
 import { varrerCarrinhosSeDeuAHora } from "@/lib/recuperacao";
 import { sincronizarFotosSeDevido } from "@/lib/comm/fotos";
 import { runAutomationsIfDue } from "@/lib/automations-run";
@@ -24,6 +25,9 @@ export async function GET(req: NextRequest) {
     after(() => runWatchdogIfDue());
     // recuperação de carrinhos: mesma carona (sem cron novo — Vercel Hobby)
     after(() => varrerCarrinhosSeDeuAHora());
+    // rastreio dos envios: postado → Enviado, chegou → Entregue. Mesma
+    // carona, mesma trava global (uma rodada a cada 20 min, no máximo)
+    after(() => atualizarRastreiosSeDevido());
     // fotos das clientes: pega carona aqui, DEPOIS da resposta, e com freio
     // (uma varredura a cada 30 min por loja). A tela nunca espera por foto.
     after(() => sincronizarFotosSeDevido(user.companyId));

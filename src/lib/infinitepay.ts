@@ -378,10 +378,17 @@ export async function confirmarPagamentoInfinitePay(args: {
     orderBy: { createdAt: "desc" },
     select: { id: true },
   });
+  // parcelas do cartão: o pedido passa a mostrar "Cartão 6x", do jeito que a
+  // cliente pagou (antes a informação só existia no texto do recibo)
+  const parcelas = check.installments && check.installments > 1 ? check.installments : null;
   if (alvo) {
     await db.payment.update({
       where: { id: alvo.id },
-      data: { mpPaymentId: transaction_nsu, ...(metodo !== "OUTRO" ? { method: metodo } : {}) },
+      data: {
+        mpPaymentId: transaction_nsu,
+        ...(metodo !== "OUTRO" ? { method: metodo } : {}),
+        ...(parcelas ? { installments: parcelas } : {}),
+      },
     });
   } else {
     // pagamento sem cobrança registrada (link antigo de antes de uma
@@ -396,6 +403,7 @@ export async function confirmarPagamentoInfinitePay(args: {
           amount: valorPago, // frete-ok: o que a cliente pagou (com frete)
           provider: "INFINITEPAY",
           mpPaymentId: transaction_nsu,
+          ...(parcelas ? { installments: parcelas } : {}),
         },
       });
     } catch (e) {

@@ -444,6 +444,7 @@ model ErrorLog {
 model SystemHealth {
   id                 String    @id
   watchdogRunAt      DateTime? // última rodada do vigia (trava anti-corrida)
+  trackingRunAt      DateTime? // última varredura de rastreio (mesma trava)
   evolutionOk        Boolean   @default(true) // servidor Evolution no ar?
   evolutionDownSince DateTime?
   errorAlertAt       DateTime? // último push de erro (anti-spam)
@@ -1712,6 +1713,9 @@ model Payment {
   pixCopiaECola String? // código Pix copia-e-cola gerado pelo MP
   pixQrBase64   String? // QR Code (imagem base64) gerado pelo MP
   checkoutUrl   String? // link de pagamento (cartão parcelado — Checkout Pro)
+  // Em quantas vezes a cliente parcelou (cartão). Vem da confirmação do
+  // provedor: o pedido mostra "Cartão 6x", do jeito que ela pagou.
+  installments  Int?
   feeAmount     Float     @default(0) // taxa da plataforma embutida (R$)
   dueAt         DateTime? // vencimento (contas a receber / venda a prazo)
 
@@ -1793,6 +1797,15 @@ model Shipping {
   // comprado: etiqueta comprada antes de emitir a nota continua precisando da
   // declaração de conteúdo, mesmo que a nota saia depois.
   nfeKey       String?
+  // Última consulta ao rastreio (a varredura de carona pega os mais
+  // esquecidos primeiro; ver lib/rastreio.ts)
+  trackedAt    DateTime?
+  // Código do LINK PÚBLICO de rastreio que a vendedora manda para a cliente:
+  // /rastreio/<publicCode>. Sorteado na compra da etiqueta — não expõe o id
+  // do pedido nem exige login.
+  publicCode   String?   @unique
+
+  @@index([meStatus, trackedAt])
 }
 
 // Conexão da loja com o Melhor Envio (módulo Envios, pago à parte).
