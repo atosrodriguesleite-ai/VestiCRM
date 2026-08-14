@@ -58,6 +58,7 @@ export default async function CatalogCustomizePage() {
           catalogPrimary: company.catalogPrimary,
           catalogSecondary: company.catalogSecondary,
           catalogBg: company.catalogBg,
+          catalogPriceMode: company.catalogPriceMode,
           catalogFont: company.catalogFont,
           catalogLogoSize: company.catalogLogoSize,
         }}

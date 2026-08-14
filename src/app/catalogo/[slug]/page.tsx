@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
+import { catalogPrice } from "@/lib/orders";
 import { db } from "@/lib/db";
 import { imageHref } from "@/lib/img";
 import { parseCategoryOrder } from "@/lib/categories";
@@ -69,6 +70,8 @@ export default async function PublicCatalogPage({
     description: p.description,
     retailPrice: p.retailPrice,
     wholesalePrice: p.wholesalePrice,
+    // preço que ESTA loja escolheu exibir (e cobrar) no catálogo
+    precoCatalogo: catalogPrice(p, company.catalogPriceMode),
     minQuantity: p.minQuantity,
     tags: p.tags,
     images: p.images.map((i) => imageHref(i.id)),

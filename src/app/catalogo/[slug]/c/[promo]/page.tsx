@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
+import { catalogPrice } from "@/lib/orders";
 import { db } from "@/lib/db";
 import { imageHref } from "@/lib/img";
 import { parseCategoryOrder } from "@/lib/categories";
@@ -91,6 +92,8 @@ export default async function PromoCatalogPage({
     // preços JÁ com o desconto da campanha (o original vai riscado ao lado)
     retailPrice: off(p.retailPrice, pc.discount),
     wholesalePrice: off(p.wholesalePrice, pc.discount),
+    // preço da vitrine desta loja, já com o desconto do link promocional
+    precoCatalogo: off(catalogPrice(p, company.catalogPriceMode), pc.discount),
     originalRetailPrice: p.retailPrice,
     minQuantity: p.minQuantity,
     tags: p.tags,

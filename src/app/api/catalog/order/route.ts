@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { imageSrc } from "@/lib/img";
 import { intakeLead, normalizePhone } from "@/lib/intake";
 import { resolveRef } from "@/lib/tracking/engine";
+import { catalogPrice } from "@/lib/orders";
 
 /**
  * Pedido vindo do catálogo público — POST /api/catalog/order
@@ -59,6 +60,10 @@ export async function POST(req: NextRequest) {
   if (!company) {
     return NextResponse.json({ error: "Loja não encontrada" }, { status: 404 });
   }
+  // MESMO preço que a vitrine mostrou: a cliente não pode ver um valor na
+  // tela e receber outro na confirmação do pedido
+  const precoVitrine = (p: { retailPrice: number; wholesalePrice: number }) =>
+    catalogPrice(p, company.catalogPriceMode);
 
   // Catálogo de CAMPANHA: o desconto é da loja e recalculado AQUI — só vale
   // se a campanha existe, está ativa e o produto faz parte dela
@@ -119,8 +124,8 @@ export async function POST(req: NextRequest) {
       size: variant.size,
       quantity: item.quantity,
       // preço vigente no catálogo (com o desconto da campanha, se houver)
-      unitPrice: promoPrice(product.id, product.retailPrice),
-      total: item.quantity * promoPrice(product.id, product.retailPrice),
+      unitPrice: promoPrice(product.id, precoVitrine(product)),
+      total: item.quantity * promoPrice(product.id, precoVitrine(product)),
     });
   }
   const subtotal = lines.reduce((a, l) => a + l.total, 0);

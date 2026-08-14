@@ -39,6 +39,9 @@ model Company {
   catalogPrimary   String  @default("#4B3621") // cor principal (topbar, botões)
   catalogSecondary String  @default("#E7DCCC") // cor de apoio (chips, destaques)
   catalogBg        String  @default("#FFFFFF") // fundo
+  /// Qual preço o catálogo público mostra E cobra: VAREJO (padrão) ou
+  /// ATACADO. Vale pra loja inteira — muda todos os produtos de uma vez.
+  catalogPriceMode String  @default("VAREJO")
   catalogFont      String  @default("montserrat") // montserrat | inter | poppins | playfair | lora
   catalogLogoSize  String  @default("normal") // normal | grande (logo grande centralizado no topo)
   catalogHideOutOfStock Boolean @default(false) // esconder do catálogo os produtos sem estoque (indisponíveis)

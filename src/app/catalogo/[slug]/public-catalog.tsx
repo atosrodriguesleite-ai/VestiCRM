@@ -60,6 +60,8 @@ export type CatalogProduct = {
   collection: string | null;
   description: string | null;
   retailPrice: number;
+  // preço que ESTA loja escolheu exibir (varejo ou atacado)
+  precoCatalogo?: number;
   wholesalePrice: number;
   // catálogo de campanha: preço cheio original (aparece riscado)
   originalRetailPrice?: number | null;
@@ -84,6 +86,15 @@ function makeSwatch(custom: { name: string; hex: string }[]) {
     COLOR_HEX[color.toLowerCase()] ??
     "#C9BEB0";
 }
+
+/**
+ * Preço da vitrine: a loja escolhe em Personalizar catálogo se o catálogo
+ * mostra varejo ou atacado. O servidor já manda o valor decidido em
+ * `precoCatalogo` — aqui só honramos (com o varejo como rede de segurança
+ * pra catálogos antigos em cache).
+ */
+const precoDe = (p: { precoCatalogo?: number; retailPrice: number }) =>
+  p.precoCatalogo ?? p.retailPrice;
 
 const fmt = (n: number) =>
   "R$ " + n.toFixed(2).replace(".", ",").replace(/\B(?=(\d{3})+(?!\d))/g, ".");
@@ -432,7 +443,7 @@ export function PublicCatalog({
   const totalPieces = Object.values(cart).reduce((a, s) => a + sum(s), 0);
   const totalValue = Object.entries(cart).reduce((acc, [key, sizes]) => {
     const card = allCards.find((c) => c.key === key);
-    return card ? acc + sum(sizes) * card.product.retailPrice : acc;
+    return card ? acc + sum(sizes) * precoDe(card.product) : acc;
   }, 0);
 
   useEffect(() => {
@@ -579,7 +590,7 @@ export function PublicCatalog({
     for (const [size, qty] of Object.entries(draft)) {
       if (qty > 0) clean[size] = qty;
     }
-    const price = sheet.product.retailPrice;
+    const price = precoDe(sheet.product);
     const prevQty = cart[sheet.key] ? sum(cart[sheet.key]) : 0;
     const newQty = sum(clean);
     const newTotal = totalValue - prevQty * price + newQty * price;
@@ -636,7 +647,7 @@ export function PublicCatalog({
         const sizeStr = Object.entries(sizes)
           .map(([t, n]) => `${t} ×${n}`)
           .join(", ");
-        msg += `• ${c.product.name} ${c.color} — ${sizeStr}  (${q} ${q > 1 ? "peças" : "peça"} · ${fmt(q * c.product.retailPrice)})\n`;
+        msg += `• ${c.product.name} ${c.color} — ${sizeStr}  (${q} ${q > 1 ? "peças" : "peça"} · ${fmt(q * precoDe(c.product))})\n`;
       }
       msg += "\n";
     }
@@ -1027,10 +1038,10 @@ export function PublicCatalog({
                               <s className="text-[12px] font-medium mr-1.5" style={{ color: T.muted }}>
                                 {fmt(card.product.originalRetailPrice)}
                               </s>
-                              {fmt(card.product.retailPrice)}
+                              {fmt(precoDe(card.product))}
                             </>
                           ) : (
-                            fmt(card.product.retailPrice)
+                            fmt(precoDe(card.product))
                           )}{" "}
                           <small className="text-[11px] font-medium" style={{ color: T.muted }}>
                             / peça
@@ -1258,7 +1269,7 @@ export function PublicCatalog({
                     <s className="text-sm font-medium mr-2" style={{ color: T.muted }}>
                       {fmt(sheet.product.originalRetailPrice)}
                     </s>
-                    {fmt(sheet.product.retailPrice)}{" "}
+                    {fmt(precoDe(sheet.product))}{" "}
                     <span
                       className="align-middle ml-1 rounded-full px-2 py-0.5 text-[11px] font-bold"
                       style={{ background: T.primary, color: T.secondary }}
@@ -1267,7 +1278,7 @@ export function PublicCatalog({
                     </span>
                   </>
                 ) : (
-                  fmt(sheet.product.retailPrice)
+                  fmt(precoDe(sheet.product))
                 )}{" "}
                 <small className="text-xs font-medium" style={{ color: T.muted }}>/ peça</small>
               </p>
@@ -1438,7 +1449,7 @@ export function PublicCatalog({
                             </p>
                             <div className="flex justify-between items-center mt-[7px]">
                               <span className="font-bold text-sm" style={{ color: T.primary }}>
-                                {fmt(q * c.product.retailPrice)}
+                                {fmt(q * precoDe(c.product))}
                               </span>
                               <button
                                 onClick={() => {
@@ -1449,7 +1460,7 @@ export function PublicCatalog({
                                     category: c.product.category,
                                     color: c.color,
                                     qty: q,
-                                    value: totalValue - q * c.product.retailPrice,
+                                    value: totalValue - q * precoDe(c.product),
                                   });
                                   setCart((prev) => {
                                     const next = { ...prev };

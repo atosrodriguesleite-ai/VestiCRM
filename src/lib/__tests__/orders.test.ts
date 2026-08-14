@@ -4,6 +4,7 @@ import {
   unitPriceFor,
   orderNumber,
   round2,
+  catalogPrice,
 } from "../orders";
 
 describe("computeOrderTotals", () => {
@@ -81,5 +82,25 @@ describe("orderNumber / round2", () => {
   it("round2 arredonda corretamente", () => {
     expect(round2(10.005)).toBe(10.01);
     expect(round2(0.1 + 0.2)).toBe(0.3);
+  });
+});
+
+/* ---------- preço exibido no catálogo público ---------- */
+
+describe("catalogPrice", () => {
+  const peca = { retailPrice: 49.9, wholesalePrice: 33 };
+
+  it("padrão (VAREJO) mostra o preço de varejo", () => {
+    expect(catalogPrice(peca, "VAREJO")).toBe(49.9);
+    expect(catalogPrice(peca, null)).toBe(49.9);
+    expect(catalogPrice(peca, undefined)).toBe(49.9);
+  });
+
+  it("ATACADO mostra o preço de atacado", () => {
+    expect(catalogPrice(peca, "ATACADO")).toBe(33);
+  });
+
+  it("ATACADO sem preço de atacado cai pro varejo (nunca mostra zero)", () => {
+    expect(catalogPrice({ retailPrice: 49.9, wholesalePrice: 0 }, "ATACADO")).toBe(49.9);
   });
 });

@@ -60,6 +60,7 @@ export function CatalogDesigner({
     catalogPrimary: string;
     catalogSecondary: string;
     catalogBg: string;
+    catalogPriceMode: string;
     catalogFont: string;
     catalogLogoSize: string;
   };
@@ -77,6 +78,8 @@ export function CatalogDesigner({
   const [primary, setPrimary] = useState(initial.catalogPrimary);
   const [secondary, setSecondary] = useState(initial.catalogSecondary);
   const [bg, setBg] = useState(initial.catalogBg);
+  // preço que a vitrine mostra: vale pra TODOS os produtos de uma vez
+  const [precoModo, setPrecoModo] = useState(initial.catalogPriceMode);
   const [font, setFont] = useState(initial.catalogFont);
   const [logoSize, setLogoSize] = useState(initial.catalogLogoSize);
   const [colors, setColors] = useState(initialColors);
@@ -147,6 +150,7 @@ export function CatalogDesigner({
         catalogPrimary: primary,
         catalogSecondary: secondary,
         catalogBg: bg,
+        catalogPriceMode: precoModo,
         catalogFont: font,
         catalogLogoSize: logoSize,
       }),
@@ -359,6 +363,46 @@ export function CatalogDesigner({
                   </button>
                 ))}
               </div>
+            </div>
+
+            {/* Preço da vitrine — vale pra TODOS os produtos de uma vez */}
+            <div>
+              <p className="text-sm font-medium mb-2">Preço que aparece no catálogo</p>
+              <div className="grid grid-cols-2 gap-2">
+                {(
+                  [
+                    ["VAREJO", "Varejo", "o preço cheio da peça"],
+                    ["ATACADO", "Atacado", "o preço por peça no atacado"],
+                  ] as const
+                ).map(([k, txt, dica]) => (
+                  <label
+                    key={k}
+                    className={`rounded-xl border px-3 py-2.5 text-sm text-center cursor-pointer transition ${
+                      precoModo === k
+                        ? "border-brand-400 bg-brand-50 font-medium"
+                        : "border-gray-200 hover:border-gray-300"
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name="precoModo"
+                      disabled={!canEdit}
+                      checked={precoModo === k}
+                      onChange={() => setPrecoModo(k)}
+                      className="sr-only"
+                    />
+                    {txt}
+                    <span className="block text-[11px] font-normal text-gray-400">
+                      {dica}
+                    </span>
+                  </label>
+                ))}
+              </div>
+              <p className="text-[11px] text-gray-400 mt-1.5">
+                Vale para <b>todos os produtos de uma vez</b> — e é o mesmo valor
+                que a cliente paga no pedido feito pelo catálogo. Peça sem preço
+                de atacado cadastrado continua mostrando o varejo.
+              </p>
             </div>
 
             {/* Tipografia */}
