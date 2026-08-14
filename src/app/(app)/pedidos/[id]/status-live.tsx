@@ -12,9 +12,15 @@ import { useRouter } from "next/navigation";
  * ele mudou, recarrega os dados sozinha (a faixa vira "Pago", o painel de
  * cobrança some etc.).
  *
- * Só observa enquanto o pedido AINDA pode virar pago sozinho (orçamento /
- * aguardando pagamento). Assim que sai desse estado, para de perguntar — não
- * fica batendo no servidor à toa. Aba em segundo plano também não pergunta.
+ * DOIS RITMOS, conforme o que pode acontecer:
+ *  • esperando pagamento (orçamento / aguardando) → pergunta a cada 4s: o
+ *    dinheiro cai em segundos e a tela tem que virar "Pago" na hora;
+ *  • pedido pago que ainda pode andar pelo rastreio (postado → Enviado,
+ *    chegou → Entregue) → NÃO fica perguntando (isso leva horas), mas
+ *    reconfere AO VOLTAR o foco. A vendedora sai do app, entrega a cliente,
+ *    volta — e a tela está certa, em vez de mostrar "Pago" o dia inteiro.
+ *  • pedido entregue ou cancelado → não observa nada.
+ * Aba em segundo plano nunca pergunta.
  */
 export function StatusLive({
   orderId,
@@ -27,9 +33,14 @@ export function StatusLive({
   const atual = useRef(statusInicial);
 
   useEffect(() => {
-    // pedido que já saiu de "esperando pagamento" não muda sozinho: não observa
     const AGUARDANDO = statusInicial === "ORCAMENTO" || statusInicial === "AGUARDANDO_PAGAMENTO";
-    if (!AGUARDANDO) return;
+    // pago e ainda a caminho: o rastreio pode fazer o pedido andar sozinho
+    const PODE_ANDAR =
+      statusInicial === "PAGO" ||
+      statusInicial === "EM_PRODUCAO" ||
+      statusInicial === "SEPARACAO" ||
+      statusInicial === "ENVIADO";
+    if (!AGUARDANDO && !PODE_ANDAR) return;
     atual.current = statusInicial;
 
     let vivo = true;
@@ -51,7 +62,8 @@ export function StatusLive({
       }
     }
 
-    const timer = setInterval(checar, 4000);
+    // 4s só para quem espera dinheiro; entrega leva horas e não merece poller
+    const timer = AGUARDANDO ? setInterval(checar, 4000) : null;
     // checa na hora ao voltar o foco (a loja abriu a InfinitePay e voltou)
     const onVisible = () => {
       if (document.visibilityState === "visible") void checar();
@@ -60,7 +72,7 @@ export function StatusLive({
     window.addEventListener("focus", checar);
     return () => {
       vivo = false;
-      clearInterval(timer);
+      if (timer) clearInterval(timer);
       document.removeEventListener("visibilitychange", onVisible);
       window.removeEventListener("focus", checar);
     };

@@ -185,16 +185,31 @@ async function meApi<T = unknown>(
 ): Promise<{ ok: boolean; status: number; data: T | null; raw: string }> {
   const token = await meAccessToken(companyId);
   if (!token) return { ok: false, status: 0, data: null, raw: "sem conexão" };
-  const res = await fetch(`${ME_BASE}/api/v2${path}`, {
-    method,
-    headers: {
-      "Content-Type": "application/json",
-      Accept: "application/json",
-      Authorization: `Bearer ${token}`,
-      "User-Agent": USER_AGENT,
-    },
-    ...(body ? { body: JSON.stringify(body) } : {}),
-  });
+  let res: Response;
+  try {
+    res = await fetch(`${ME_BASE}/api/v2${path}`, {
+      method,
+      // Melhor Envio lento não pode segurar a função: sem teto, uma consulta
+      // travada comia o tempo do cron (e da varredura de rastreio) inteiro.
+      // O estouro vira resposta de erro normal — quem chama já sabe lidar
+      // com `ok: false` e mostra a mensagem; virar exceção daria 500 na tela.
+      signal: AbortSignal.timeout(15_000),
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+        Authorization: `Bearer ${token}`,
+        "User-Agent": USER_AGENT,
+      },
+      ...(body ? { body: JSON.stringify(body) } : {}),
+    });
+  } catch {
+    return {
+      ok: false,
+      status: 0,
+      data: null,
+      raw: "O Melhor Envio demorou demais para responder. Tente de novo em instantes.",
+    };
+  }
   const raw = await res.text().catch(() => "");
   let data: T | null = null;
   try {
@@ -701,11 +716,29 @@ export async function meBuyShipment(input: {
   };
 }
 
-/** Data do Melhor Envio ("2026-08-14 09:12:33") → Date, ou null. */
-function dataDoMe(v?: string | null): Date | null {
+/**
+ * Data do Melhor Envio ("2026-08-14 09:12:33") → Date, ou null.
+ *
+ * DOIS CUIDADOS que já geraram dia errado na tela da cliente:
+ *  • a string vem SEM fuso e é horário de Brasília. Lida crua, o servidor da
+ *    Vercel (UTC) entendia 3h a mais: tudo que a transportadora carimbasse
+ *    entre 21h e meia-noite aparecia no dia seguinte para a cliente;
+ *  • data impossível (ano 2099, 1970) era gravada sem piscar. Fora da janela
+ *    plausível devolve null, e quem chama usa a hora da consulta.
+ */
+export function dataDoMe(v?: string | null): Date | null {
   if (!v) return null;
-  const d = new Date(v.includes("T") ? v : v.replace(" ", "T"));
-  return isNaN(d.getTime()) ? null : d;
+  const texto = v.trim();
+  if (!texto) return null;
+  const temFuso = /(?:Z|[+-]\d{2}:?\d{2})$/i.test(texto);
+  const iso = texto.includes("T") ? texto : texto.replace(" ", "T");
+  const d = new Date(temFuso ? iso : `${iso}-03:00`);
+  if (isNaN(d.getTime())) return null;
+  // janela de sanidade: nada anterior a 2020 nem mais de 2 dias no futuro
+  const agora = Date.now();
+  if (d.getTime() < Date.UTC(2020, 0, 1)) return null;
+  if (d.getTime() > agora + 2 * 24 * 60 * 60 * 1000) return null;
+  return d;
 }
 
 /**

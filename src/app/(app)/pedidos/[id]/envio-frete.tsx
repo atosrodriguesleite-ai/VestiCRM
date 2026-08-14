@@ -16,6 +16,7 @@ import {
 import { Card } from "@/components/ui";
 import { brl } from "@/lib/format";
 import { copiarTexto } from "@/lib/copiar";
+import { nomeProvisorio } from "@/lib/intake";
 
 /**
  * Painel de Envio do pedido (módulo Envios / Melhor Envio):
@@ -51,6 +52,9 @@ type Ship = {
 } | null;
 
 const statusLabel: Record<string, string> = {
+  COMPRADO: "Etiqueta paga — gerando",
+  GERANDO: "Gerando a etiqueta…",
+  DEVOLVIDO: "Voltando para a loja ↩️",
   ETIQUETA: "Etiqueta pronta para imprimir",
   POSTADO: "Postado — a caminho 🚚",
   ENTREGUE: "Entregue ✅",
@@ -64,6 +68,7 @@ export function EnvioFrete({
   canBuy,
   isCancelled,
   initialShipping,
+  jaEnviadoEm,
 }: {
   orderId: string;
   customerName: string;
@@ -71,6 +76,8 @@ export function EnvioFrete({
   canBuy: boolean;
   isCancelled: boolean;
   initialShipping: Ship;
+  /** quando o link já foi mandado para a cliente (texto pronto) */
+  jaEnviadoEm?: string | null;
 }) {
   const router = useRouter();
   const [ship, setShip] = useState<Ship>(initialShipping);
@@ -87,11 +94,15 @@ export function EnvioFrete({
     "cotar" | "comprar" | "cancelar" | "rastreio" | "etiqueta" | "enviar" | null
   >(null);
   const [erro, setErro] = useState("");
-  const [copied, setCopied] = useState<"code" | "link" | null>(null);
+  const [copied, setCopied] = useState<"code" | "link" | "msg" | null>(null);
   const [enviado, setEnviado] = useState(false);
   const [linkRastreio, setLinkRastreio] = useState<string | null>(null);
 
   const comprado = Boolean(ship?.meOrderId && ship.meStatus !== "CANCELADO");
+  // "Contato (77) 8101-4696" é crachá do sistema, não nome de gente
+  const primeiroNomeCliente = nomeProvisorio(customerName)
+    ? null
+    : customerName.trim().split(/\s+/)[0];
 
   // busca o link de rastreio assim que há envio: o botão de copiar precisa
   // dele PRONTO (ver copiarLink) e a chamada é barata
@@ -110,13 +121,25 @@ export function EnvioFrete({
   }, [comprado, orderId]);
 
   async function acao(body: Record<string, unknown>) {
-    const res = await fetch(`/api/orders/${orderId}/frete`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
-    const d = await res.json().catch(() => ({}));
-    return { ok: res.ok, d };
+    try {
+      const res = await fetch(`/api/orders/${orderId}/frete`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const d = await res.json().catch(() => ({}));
+      return { ok: res.ok, d };
+    } catch {
+      // sem isto, sinal oscilando no celular deixava o botão girando para
+      // sempre — inclusive o de COMPRAR ETIQUETA, que mexe com dinheiro
+      return {
+        ok: false,
+        d: {
+          error:
+            "Sua internet oscilou e a resposta não chegou. Atualize a página e confira antes de tentar de novo.",
+        } as Record<string, unknown>,
+      };
+    }
   }
 
   async function cotar() {
@@ -222,10 +245,44 @@ export function EnvioFrete({
    */
   async function copiarLink() {
     setErro("");
-    if (!linkRastreio) return setErro("Ainda estou gerando o link — tente de novo em 1 segundo.");
-    const deu = await copiarTexto(linkRastreio);
+    // normalmente o link já está em mãos (buscado ao abrir o painel). Se
+    // aquela primeira busca falhou (rede ruim), busca AGORA em vez de repetir
+    // "estou gerando" para sempre — é o que acontecia antes.
+    let link = linkRastreio;
+    if (!link) {
+      const r = await fetch(`/api/orders/${orderId}/rastreio`).catch(() => null);
+      const d = r && r.ok ? await r.json().catch(() => null) : null;
+      link = d?.url ?? null;
+      if (link) setLinkRastreio(link);
+    }
+    if (!link) return setErro("Não consegui gerar o link agora. Tente de novo em instantes.");
+    const deu = await copiarTexto(link);
     if (!deu) return setErro("Não consegui copiar. Segure o link e copie à mão.");
     setCopied("link");
+    setTimeout(() => setCopied(null), 2000);
+  }
+
+  /** Texto pronto para colar no WhatsApp Web / outro aparelho. */
+  async function copiarMensagem() {
+    setErro("");
+    let link = linkRastreio;
+    if (!link) {
+      const r = await fetch(`/api/orders/${orderId}/rastreio`).catch(() => null);
+      const d = r && r.ok ? await r.json().catch(() => null) : null;
+      link = d?.url ?? null;
+      if (link) setLinkRastreio(link);
+    }
+    if (!link) return setErro("Não consegui gerar o link agora. Tente de novo em instantes.");
+    const jaSaiu = ship?.meStatus === "POSTADO" || ship?.meStatus === "ENTREGUE";
+    const msg =
+      `${primeiroNomeCliente ? `Oi ${primeiroNomeCliente}!` : "Oi!"} 📦 ` +
+      `Seu pedido já está ${jaSaiu ? "a caminho" : "sendo preparado para envio"}.\n\n` +
+      `Acompanhe a entrega por aqui:\n${link}\n\n` +
+      (ship?.trackingCode ? `Código de rastreio: ${ship.trackingCode}\n\n` : "") +
+      `Qualquer dúvida é só chamar! 💛`;
+    const deu = await copiarTexto(msg);
+    if (!deu) return setErro("Não consegui copiar. Selecione o texto e copie à mão.");
+    setCopied("msg");
     setTimeout(() => setCopied(null), 2000);
   }
 
@@ -233,9 +290,23 @@ export function EnvioFrete({
   async function enviarNoWhatsapp() {
     setBusy("enviar");
     setErro("");
-    const res = await fetch(`/api/orders/${orderId}/rastreio`, { method: "POST" });
-    const d = await res.json().catch(() => ({}));
+    let res: Response;
+    let d: { error?: string; url?: string } = {};
+    try {
+      res = await fetch(`/api/orders/${orderId}/rastreio`, { method: "POST" });
+      d = await res.json().catch(() => ({}));
+    } catch {
+      // internet caiu no meio: a mensagem PODE ter saído. Mandar de novo às
+      // cegas faria a cliente receber duas vezes.
+      setBusy(null);
+      return setErro(
+        "Sua internet caiu no meio do envio. Abra a conversa da cliente e veja se a mensagem saiu antes de tentar de novo."
+      );
+    }
     setBusy(null);
+    // o servidor devolve o link junto com o erro (WhatsApp desconectado,
+    // já enviado há pouco): guarda para o botão de copiar funcionar
+    if (d.url) setLinkRastreio(d.url);
     if (!res.ok) return setErro(d.error ?? "Não foi possível enviar agora.");
     setEnviado(true);
     setTimeout(() => setEnviado(false), 4000);
@@ -286,43 +357,60 @@ export function EnvioFrete({
 
           {/* RASTREIO PARA A CLIENTE: um clique manda o link no WhatsApp
               dela (pela conexão da loja, fica registrado na conversa) — sem
-              copiar, colar e procurar a conversa. */}
-          <div className="rounded-xl border border-emerald-100 bg-emerald-50/50 p-3">
-            <p className="mb-2 text-xs font-medium text-emerald-900">
-              📦 Mandar o acompanhamento para {customerName.split(" ")[0]}
-            </p>
-            <div className="flex flex-wrap items-center gap-2">
-              <button
-                onClick={enviarNoWhatsapp}
-                disabled={busy === "enviar"}
-                className="inline-flex items-center gap-1.5 rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:opacity-50"
-              >
-                {busy === "enviar" ? (
-                  <Loader2 className="size-4 animate-spin" />
-                ) : enviado ? (
-                  <CheckCircle2 className="size-4" />
-                ) : (
-                  <MessageCircle className="size-4" />
-                )}
-                {enviado ? "Enviado!" : "Enviar rastreio no WhatsApp"}
-              </button>
-              <button
-                onClick={copiarLink}
-                className="inline-flex items-center gap-1 rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-xs font-medium text-gray-600 hover:border-gray-300"
-              >
-                {copied === "link" ? (
-                  <CheckCircle2 className="size-3.5 text-emerald-600" />
-                ) : (
-                  <Copy className="size-3.5" />
-                )}
-                {copied === "link" ? "Copiado!" : "Copiar link"}
-              </button>
+              copiar, colar e procurar a conversa. Pedido cancelado não
+              aparece aqui: a cliente receberia link que não abre. */}
+          {!isCancelled && (
+            <div className="rounded-xl border border-emerald-100 bg-emerald-50/50 p-3">
+              <p className="mb-2 text-xs font-medium text-emerald-900">
+                📦 Mandar o acompanhamento para {primeiroNomeCliente ?? "a cliente"}
+              </p>
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  onClick={enviarNoWhatsapp}
+                  disabled={busy === "enviar"}
+                  className="inline-flex items-center gap-1.5 rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:opacity-50"
+                >
+                  {busy === "enviar" ? (
+                    <Loader2 className="size-4 animate-spin" />
+                  ) : enviado ? (
+                    <CheckCircle2 className="size-4" />
+                  ) : (
+                    <MessageCircle className="size-4" />
+                  )}
+                  {enviado ? "Enviado!" : "Enviar rastreio no WhatsApp"}
+                </button>
+                <button
+                  onClick={copiarLink}
+                  className="inline-flex items-center gap-1 rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-xs font-medium text-gray-600 hover:border-gray-300"
+                >
+                  {copied === "link" ? (
+                    <CheckCircle2 className="size-3.5 text-emerald-600" />
+                  ) : (
+                    <Copy className="size-3.5" />
+                  )}
+                  {copied === "link" ? "Copiado!" : "Copiar link"}
+                </button>
+                {/* mandar por FORA (WhatsApp Web, outro aparelho): o texto
+                    pronto voltou — quem não usa a Central perdia a mensagem */}
+                <button
+                  onClick={copiarMensagem}
+                  className="inline-flex items-center gap-1 rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-xs font-medium text-gray-600 hover:border-gray-300"
+                >
+                  {copied === "msg" ? (
+                    <CheckCircle2 className="size-3.5 text-emerald-600" />
+                  ) : (
+                    <Copy className="size-3.5" />
+                  )}
+                  {copied === "msg" ? "Copiado!" : "Copiar mensagem"}
+                </button>
+              </div>
+              <p className="mt-2 text-[11px] leading-snug text-emerald-800/70">
+                {jaEnviadoEm
+                  ? `Você já mandou o link em ${jaEnviadoEm} — pode mandar de novo se ela pedir.`
+                  : "A cliente clica e vê em que pé está a entrega — sem login, sem precisar entender código dos Correios."}
+              </p>
             </div>
-            <p className="mt-2 text-[11px] leading-snug text-emerald-800/70">
-              A cliente clica e vê em que pé está a entrega — sem login, sem
-              precisar entender código dos Correios.
-            </p>
-          </div>
+          )}
 
           {ship?.trackingCode ? (
             <div className="flex items-center gap-2 flex-wrap">

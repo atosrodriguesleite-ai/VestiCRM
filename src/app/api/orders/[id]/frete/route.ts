@@ -296,7 +296,9 @@ export async function POST(
       const ship = await db.shipping.upsert({
         where: { orderId: order.id },
         update: {
-          method: meioDeEnvio,
+          // NÃO pisa em escolha manual: se a lojista já tinha marcado o meio
+          // de envio, o dela vence — a etiqueta só preenche o que está vazio
+          ...(order.shipping?.method?.trim() ? {} : { method: meioDeEnvio }),
           publicCode,
           trackedAt: null, // envio novo entra na frente da fila da varredura
           meOrderId: r.meOrderId,

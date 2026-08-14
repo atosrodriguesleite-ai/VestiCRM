@@ -43,13 +43,17 @@ export async function GET(req: NextRequest) {
   });
   const results: { companyId: string; ok: boolean; resumo?: unknown; error?: string }[] = [];
 
+  // O RELÓGIO COMEÇA AQUI, ANTES DO RASTREIO. A varredura faz chamadas
+  // externas e pode demorar; com o marco zero depois dela, o guard de 240s
+  // achava que tinha a rodada inteira e a Vercel cortava a função no meio da
+  // fila do Jueri — sem sincronizar ninguém e sem deixar rastro (revisão da
+  // bancada, 14/08/2026).
+  const inicio = Date.now();
   // RASTREIO ANTES da fila do Jueri: a sincronização pode consumir os ~4 min
   // da rodada, e a varredura trava o relógio global assim que é chamada. No
   // fim da fila ela queimaria a vaga da madrugada — justo quando não há
-  // ninguém na inbox para dar a carona (revisão 14/08/2026).
+  // ninguém na inbox para dar a carona.
   await atualizarRastreiosSeDevido();
-
-  const inicio = Date.now();
   for (const c of conns) {
     // folga de ~1 min antes do teto: parar por conta própria deixa registro
     // (cortadas) — o corte da Vercel matava a função sem rastro nenhum

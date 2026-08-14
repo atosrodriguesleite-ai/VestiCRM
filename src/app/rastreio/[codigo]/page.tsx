@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Package, Truck, CheckCircle2, Clock, MapPin } from "lucide-react";
 import { db } from "@/lib/db";
 import { orderNumber } from "@/lib/orders";
+import { nomeProvisorio } from "@/lib/intake";
 
 export const dynamic = "force-dynamic";
 
@@ -23,14 +24,25 @@ export const metadata: Metadata = {
  */
 
 const PASSOS = [
-  { chave: "ETIQUETA", titulo: "Pedido embalado", texto: "A loja preparou seu pacote e gerou a etiqueta." },
+  {
+    chave: "ETIQUETA",
+    titulo: "Preparando seu pedido",
+    // NÃO prometer "embalado": a etiqueta costuma ser comprada com as peças
+    // ainda na arara, e a loja não fez essa promessa (revisão 14/08/2026)
+    texto: "A loja está separando suas peças e já reservou o envio.",
+  },
   { chave: "POSTADO", titulo: "A caminho", texto: "O pacote saiu da loja e está com a transportadora." },
   { chave: "ENTREGUE", titulo: "Entregue", texto: "O pacote chegou no endereço de entrega." },
 ] as const;
 
-function indiceDoPasso(meStatus: string | null): number {
-  if (meStatus === "ENTREGUE") return 2;
-  if (meStatus === "POSTADO") return 1;
+/**
+ * O STATUS DO PEDIDO TAMBÉM PUXA O PASSO. A transportadora às vezes demora a
+ * marcar "postado" e a loja marca "Enviado" na mão — sem isto, a cliente
+ * lia "Preparando seu pedido" por dias com a caixa já na rua.
+ */
+function indiceDoPasso(meStatus: string | null, statusPedido: string): number {
+  if (meStatus === "ENTREGUE" || statusPedido === "ENTREGUE") return 2;
+  if (meStatus === "POSTADO" || statusPedido === "ENVIADO") return 1;
   return 0;
 }
 
@@ -49,8 +61,10 @@ export default async function RastreioPublicoPage({
   params: Promise<{ codigo: string }>;
 }) {
   const { codigo } = await params;
-  const envio = await db.shipping.findUnique({
-    where: { publicCode: codigo },
+  const envio = await db.shipping.findFirst({
+    // loja suspensa não serve página pública (mesma régua do catálogo e da
+    // bio): desligada a loja, o link para de mostrar os dados dela
+    where: { publicCode: codigo, order: { company: { suspended: false } } },
     select: {
       meStatus: true,
       meCarrier: true,
@@ -84,8 +98,12 @@ export default async function RastreioPublicoPage({
     );
   }
 
-  const passoAtual = indiceDoPasso(envio.meStatus);
-  const primeiroNome = envio.order.customer.name.split(" ")[0];
+  const passoAtual = indiceDoPasso(envio.meStatus, envio.order.status);
+  // "Contato (77) 8101-4696" é crachá que o sistema inventou, não nome: a
+  // página abria com "Oi, Contato!" na cara da cliente
+  const primeiroNome = nomeProvisorio(envio.order.customer.name)
+    ? null
+    : envio.order.customer.name.trim().split(/\s+/)[0];
   const datas = [null, dataBr(envio.shippedAt), dataBr(envio.deliveredAt)];
 
   return (
@@ -96,7 +114,8 @@ export default async function RastreioPublicoPage({
             {envio.order.company.name}
           </p>
           <h1 className="mt-1 text-xl font-bold text-gray-900">
-            Oi, {primeiroNome}! Seu pedido {orderNumber(envio.order.number)}
+            {primeiroNome ? `Oi, ${primeiroNome}! ` : "Oi! "}
+            Seu pedido {orderNumber(envio.order.number)}
           </h1>
         </div>
 

@@ -405,6 +405,14 @@ export default async function OrderDetailPage({
               hasZip={(order.customer.zip ?? "").replace(/\D/g, "").length === 8}
               canBuy={isManagerUp(user)}
               isCancelled={order.status === "CANCELADO"}
+              // "você já mandou o link em ..." — sem isso duas pessoas mandam
+              // de novo, porque o "Enviado!" some em 4 segundos
+              jaEnviadoEm={(() => {
+                const ev = order.events.find(
+                  (e) => e.type === "ENVIO" && e.description.startsWith("Link de rastreio enviado")
+                );
+                return ev ? `${dateShort(ev.createdAt)} às ${timeShort(ev.createdAt)}` : null;
+              })()}
               initialShipping={
                 order.shipping
                   ? {
