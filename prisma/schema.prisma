@@ -2256,3 +2256,20 @@ model AdCreative {
   @@unique([companyId, adRef])
   @@index([companyId])
 }
+
+/// Trava de força bruta no login (auditoria de arquitetura, 09/08/2026).
+/// Um contador por chave: "login:maria@loja.com" ou "ip:200.1.2.3". A porta
+/// de entrada aceitava tentativas SEM LIMITE — e 158 das 181 rotas passam
+/// por ela. Fica no BANCO porque na Vercel cada requisição pode cair numa
+/// máquina diferente: contador em memória zera sozinho e não é trava.
+/// A janela anda e a faxina acontece no próprio tráfego de login — sem cron
+/// novo (o plano Hobby só aceita 2, e um terceiro bloqueia os deploys).
+model LoginThrottle {
+  key          String    @id // "login:<email|usuario>" ou "ip:<endereco>"
+  fails        Int       @default(0)
+  firstFailAt  DateTime  @default(now())
+  blockedUntil DateTime? // porta fechada até aqui (null = liberada)
+  updatedAt    DateTime  @updatedAt
+
+  @@index([updatedAt])
+}
