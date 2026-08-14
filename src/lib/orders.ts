@@ -272,3 +272,21 @@ export function round2(v: number): number {
 export function orderNumber(n: number): string {
   return `#${String(n).padStart(4, "0")}`;
 }
+
+/**
+ * Preço que o CATÁLOGO PÚBLICO mostra e cobra, conforme a escolha da loja
+ * em Personalizar catálogo. Fonte única: a vitrine e o pedido gerado por
+ * ela têm que usar exatamente este valor, senão a cliente vê um preço e
+ * recebe outro na confirmação.
+ *
+ * ATACADO cai pro varejo quando a peça não tem preço de atacado — melhor
+ * mostrar o preço certo do que zero.
+ */
+export function catalogPrice(
+  product: { retailPrice: number; wholesalePrice: number },
+  modo: string | null | undefined
+): number {
+  return modo === "ATACADO" && product.wholesalePrice > 0
+    ? product.wholesalePrice
+    : product.retailPrice;
+}

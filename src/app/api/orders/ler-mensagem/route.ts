@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { requireUser, AuthError } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { catalogPrice } from "@/lib/orders";
 import { phoneMatchVariants, normalizePhone } from "@/lib/intake";
 import {
   candidatosDeCor,
@@ -44,16 +45,25 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // preço que a vitrine desta loja mostra (varejo ou atacado) — o pedido
+    // colado tem que valer o MESMO que o catálogo cobra
+    const loja = await db.company.findUnique({
+      where: { id: user.companyId },
+      select: { catalogPriceMode: true },
+    });
+    const modoPreco = loja?.catalogPriceMode ?? "VAREJO";
+
     // catálogo da loja (só o que está à venda entra num pedido novo)
     const produtos = await db.product.findMany({
       where: { companyId: user.companyId, active: true },
       select: {
         id: true,
         name: true,
-        // MESMA RÉGUA DO CATÁLOGO: o catálogo público cobra sempre o preço
-        // de varejo do cadastro — o pedido colado usa o mesmo (decisão do
-        // dono, 05/08/2026)
+        // MESMA RÉGUA DO CATÁLOGO: o pedido colado vale o preço que a
+        // vitrine cobra (decisão do dono, 05/08/2026) — hoje isso é varejo
+        // ou atacado, conforme a escolha da loja em Personalizar catálogo
         retailPrice: true,
+        wholesalePrice: true, // pro preço seguir a escolha do catálogo
         variants: { select: { id: true, color: true, size: true, stock: true } },
       },
     });
@@ -126,7 +136,7 @@ export async function POST(req: NextRequest) {
           tamanho: t.tamanho,
           quantidade: t.quantidade,
           // PREÇO SEMPRE DO NOSSO CADASTRO — o valor do texto é só conferência
-          unitPrice: produto.retailPrice,
+          unitPrice: catalogPrice(produto, modoPreco),
           estoque: variante?.stock ?? null,
           problema: variante
             ? variante.stock < t.quantidade

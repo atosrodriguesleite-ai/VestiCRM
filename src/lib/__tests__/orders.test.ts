@@ -5,6 +5,7 @@ import {
   unitPriceFor,
   orderNumber,
   round2,
+  catalogPrice,
 } from "../orders";
 
 // Guarda RN-009 (índice em docs/regras.md; texto no CLAUDE.md).
@@ -173,5 +174,25 @@ describe("atalho 'fechar por' um valor redondo", () => {
 
   it("valor negativo digitado não quebra a conta", () => {
     expect(ajusteParaFecharPor(1000, -500)).toEqual({ discount: 1000, surcharge: 0 });
+  });
+});
+
+/* ---------- preço exibido no catálogo público ---------- */
+
+describe("catalogPrice", () => {
+  const peca = { retailPrice: 49.9, wholesalePrice: 33 };
+
+  it("padrão (VAREJO) mostra o preço de varejo", () => {
+    expect(catalogPrice(peca, "VAREJO")).toBe(49.9);
+    expect(catalogPrice(peca, null)).toBe(49.9);
+    expect(catalogPrice(peca, undefined)).toBe(49.9);
+  });
+
+  it("ATACADO mostra o preço de atacado", () => {
+    expect(catalogPrice(peca, "ATACADO")).toBe(33);
+  });
+
+  it("ATACADO sem preço de atacado cai pro varejo (nunca mostra zero)", () => {
+    expect(catalogPrice({ retailPrice: 49.9, wholesalePrice: 0 }, "ATACADO")).toBe(49.9);
   });
 });

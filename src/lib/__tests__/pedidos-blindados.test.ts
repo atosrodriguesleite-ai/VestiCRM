@@ -334,14 +334,16 @@ describe("rotas pesadas com fôlego e PDF leve (M11)", () => {
 });
 
 describe("pedido colado do WhatsApp: preço IGUAL ao do catálogo", () => {
-  it("o leitor usa o preço de varejo do cadastro — o mesmo que o catálogo cobra", () => {
+  it("leitor e catálogo usam a MESMA régua de preço (catalogPrice)", () => {
     const leitor = ler("src/app/api/orders/ler-mensagem/route.ts");
     const catalogo = ler("src/app/api/catalog/order/route.ts");
-    // decisão do dono (05/08/2026): o pedido colado vale o preço do catálogo
-    expect(leitor).toContain("unitPrice: produto.retailPrice");
-    expect(catalogo).toContain("product.retailPrice");
-    // preço de atacado NÃO entra no leitor (o catálogo também não cobra por ele)
-    expect(leitor).not.toContain("wholesalePrice");
+    // Decisão do dono (05/08/2026): o pedido colado vale o preço do
+    // catálogo. Desde que a loja pode escolher varejo OU atacado na vitrine,
+    // o invariante é os dois usarem a MESMA régua — catalogPrice().
+    expect(leitor).toContain("catalogPrice(produto, modoPreco)");
+    expect(leitor).toContain("catalogPriceMode");
+    expect(catalogo).toContain("catalogPrice(p, company.catalogPriceMode)");
+    expect(catalogo).toContain("precoVitrine(product)");
   });
 });
 

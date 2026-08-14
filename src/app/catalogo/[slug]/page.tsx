@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
+import { catalogPrice } from "@/lib/orders";
 import { db } from "@/lib/db";
 import { imageHref } from "@/lib/img";
 import { ordenarVariantes } from "@/lib/tamanhos";
@@ -79,6 +80,8 @@ export default async function PublicCatalogPage({
     description: p.description,
     retailPrice: p.retailPrice,
     wholesalePrice: p.wholesalePrice,
+    // preço que ESTA loja escolheu exibir (e cobrar) no catálogo
+    precoCatalogo: catalogPrice(p, company.catalogPriceMode),
     minQuantity: p.minQuantity,
     tags: p.tags,
     // url + cor etiquetada: o card de cada cor usa a foto DAQUELA cor

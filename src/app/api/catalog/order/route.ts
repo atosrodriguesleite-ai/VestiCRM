@@ -12,7 +12,7 @@ import {
 } from "@/lib/reservations";
 import { pushStockToNuvemshop } from "@/lib/nuvemshop";
 import { pushStockToJueri } from "@/lib/jueri";
-import { orderNumber, round2 } from "@/lib/orders";
+import { catalogPrice, orderNumber, round2 } from "@/lib/orders";
 import { comNumeroUnico } from "@/lib/numero-do-pedido";
 import { syncOpportunityValue, garantirCartaoDoPedido } from "@/lib/opportunity-sync";
 import { avancarFunil } from "@/lib/funil-auto";
@@ -91,6 +91,10 @@ export async function POST(req: NextRequest) {
   if (!company || company.suspended) {
     return NextResponse.json({ error: "Loja não encontrada" }, { status: 404 });
   }
+  // MESMO preço que a vitrine mostrou: a cliente não pode ver um valor na
+  // tela e receber outro na confirmação do pedido
+  const precoVitrine = (p: { retailPrice: number; wholesalePrice: number }) =>
+    catalogPrice(p, company.catalogPriceMode);
 
   // JÁ ENTROU? A cliente (ou o próprio catálogo, insistindo) pode mandar o
   // mesmo pedido mais de uma vez. Devolvemos o pedido que já existe em vez
@@ -179,8 +183,8 @@ export async function POST(req: NextRequest) {
       quantity: item.quantity,
       // preço vigente no catálogo (com o desconto da campanha, se houver);
       // round2: 3 × 19,90 em float dá 59.699999… — o gravado tem que ser 59,70
-      unitPrice: promoPrice(product.id, product.retailPrice),
-      total: round2(item.quantity * promoPrice(product.id, product.retailPrice)),
+      unitPrice: promoPrice(product.id, precoVitrine(product)),
+      total: round2(item.quantity * promoPrice(product.id, precoVitrine(product))),
     });
   }
   // round2: soma de floats deixa centavo fantasma (10.1+20.2 = 30.299999…)

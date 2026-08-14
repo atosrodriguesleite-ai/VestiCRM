@@ -30,6 +30,8 @@ const schema = z.object({
   catalogPrimary: hexColor.optional(),
   catalogSecondary: hexColor.optional(),
   catalogBg: hexColor.optional(),
+  // preço que o catálogo público mostra e cobra (vale pra loja inteira)
+  catalogPriceMode: z.enum(["VAREJO", "ATACADO"]).optional(),
   catalogFont: z
     .enum(["montserrat", "inter", "poppins", "playfair", "lora"])
     .optional(),
@@ -107,6 +109,7 @@ export async function PATCH(req: NextRequest) {
       catalogPrimary: updated.catalogPrimary,
       catalogSecondary: updated.catalogSecondary,
       catalogBg: updated.catalogBg,
+      catalogPriceMode: updated.catalogPriceMode,
       catalogFont: updated.catalogFont,
       catalogLogoSize: updated.catalogLogoSize,
       catalogHideOutOfStock: updated.catalogHideOutOfStock,
