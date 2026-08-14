@@ -817,6 +817,10 @@ function ProductDetailModal({
   const [vskus, setVskus] = useState<Record<string, string>>(
     Object.fromEntries(product.variants.map((v) => [v.id, v.sku ?? ""]))
   );
+  // COR por variação: dá pra trocar aqui mesmo e o catálogo já mostra a nova
+  const [vcores, setVcores] = useState<Record<string, string>>(
+    Object.fromEntries(product.variants.map((v) => [v.id, v.color]))
+  );
   // histórico de estoque desta peça (carrega sob demanda)
   const [hist, setHist] = useState<StockMov[] | null>(null);
   const [histBusy, setHistBusy] = useState(false);
@@ -921,6 +925,7 @@ function ProductDetailModal({
             id,
             stock: parseInt(stock) || 0,
             sku: (vskus[id] ?? "").trim() || null,
+            color: vcores[id] || undefined,
           })),
         addVariants: extras,
         removeVariantIds: removedIds,
@@ -1172,10 +1177,38 @@ function ProductDetailModal({
                   .filter((v) => !removedIds.includes(v.id))
                   .map((v) => (
                     <div key={v.id} className="flex items-center gap-2 px-3 py-1.5">
-                      <span className="text-xs font-medium flex-1 min-w-0 truncate">
-                        {/* loja sem cores mostra só o tamanho */}
-                        {semCores ? v.size : [v.color, v.size].filter(Boolean).join(" · ")}
-                      </span>
+                      {semCores ? (
+                        // loja sem cores mostra só o tamanho
+                        <span className="text-xs font-medium flex-1 min-w-0 truncate">
+                          {v.size}
+                        </span>
+                      ) : (
+                        <>
+                          <select
+                            value={vcores[v.id] ?? v.color}
+                            onChange={(e) =>
+                              setVcores((c) => ({ ...c, [v.id]: e.target.value }))
+                            }
+                            title="Trocar a cor desta variação — o catálogo atualiza na hora"
+                            className={`flex-1 min-w-0 rounded-lg border px-1.5 py-1 text-xs font-medium outline-none focus:border-brand-400 ${
+                              (vcores[v.id] ?? v.color) !== v.color
+                                ? "border-amber-300 bg-amber-50 text-amber-900"
+                                : "border-transparent bg-transparent hover:border-gray-200"
+                            }`}
+                          >
+                            {/* a cor atual entra na lista mesmo se saiu da biblioteca */}
+                            {(libraryColors.some((c) => c.name === v.color)
+                              ? libraryColors.map((c) => c.name)
+                              : [v.color, ...libraryColors.map((c) => c.name)]
+                            ).map((nome) => (
+                              <option key={nome} value={nome}>
+                                {nome}
+                              </option>
+                            ))}
+                          </select>
+                          <span className="text-xs text-gray-500 shrink-0">· {v.size}</span>
+                        </>
+                      )}
                       <input
                         value={vskus[v.id] ?? ""}
                         onChange={(e) =>
@@ -1307,7 +1340,9 @@ function ProductDetailModal({
                 <a href="/configuracoes/catalogo" className="text-brand-600 underline">
                   Personalizar catálogo
                 </a>
-                . Ajustes de estoque ficam no histórico de movimentações.
+                . Pra trocar a cor de uma variação, use o seletor na linha dela —
+                muda na hora no catálogo. Ajustes de estoque e trocas de cor ficam
+                no histórico de movimentações.
               </p>
 
               <div className="mt-2.5 flex flex-wrap items-center gap-x-4 gap-y-1.5">

@@ -40,6 +40,9 @@ const patchSchema = z.object({
         id: z.string().min(1),
         stock: z.number().int().nonnegative(),
         sku: z.string().max(60).nullable().optional(),
+        // trocar a COR da variação já existente (reflete na hora no
+        // catálogo público, sem precisar apagar e recriar a grade)
+        color: z.string().min(1).max(40).optional(),
       })
     )
     .optional(),
@@ -130,6 +133,29 @@ export async function PATCH(
             where: { id: variant.id },
             data: { sku: vs.sku },
           });
+        }
+        // COR da variação: renomear direto na peça (o catálogo lê daqui).
+        // Se já existir a mesma cor+tamanho, ignora — a grade não pode ter
+        // duas linhas iguais.
+        if (vs.color && vs.color !== variant.color) {
+          const jaTem = product.variants.some(
+            (o) => o.id !== variant.id && o.color === vs.color && o.size === variant.size
+          );
+          if (!jaTem) {
+            await db.productVariant.update({
+              where: { id: variant.id },
+              data: { color: vs.color },
+            });
+            await db.inventoryMovement.create({
+              data: {
+                companyId: user.companyId,
+                variantId: variant.id,
+                type: "AJUSTE",
+                quantity: 0,
+                reason: `Cor alterada por ${user.name} (${variant.color} → ${vs.color})`,
+              },
+            });
+          }
         }
         if (variant.stock === vs.stock) continue;
         await db.productVariant.update({
