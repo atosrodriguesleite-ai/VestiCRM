@@ -252,17 +252,18 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
 
 ## Estado atual e pendências conhecidas
 
-- 🔴 **COMBINADO COM O DONO PARA A MANHÃ DE 14/08/2026 — `CRED_SECRET`.**
+- 🔴 **COMBINADO COM O DONO — `CRED_SECRET` (procedimento NOVO, 16/08/2026).**
   Enquanto este item estiver aqui, **lembrar o Atos no começo da conversa.**
-  A variável não existe na Vercel, e por isso `src/lib/env.ts:33` faz a
-  `CRED_SECRET` cair na `AUTH_SECRET`. Como é ela que criptografa os tokens
-  das integrações (`lib/crypto.ts`), trocar a `AUTH_SECRET` um dia derrubaria
-  Melhor Envio, Nuvemshop, Bling e Mercado Pago de TODAS as lojas de uma vez.
-  A correção é **copiar o valor ATUAL da `AUTH_SECRET`** para uma variável
-  nova `CRED_SECRET` (mesmo valor, nome diferente) — nada muda hoje e as duas
-  ficam independentes. **NÃO** gerar valor novo: isso tornaria ilegíveis todos
-  os tokens já guardados na hora. Passo a passo em `docs/integracoes.md`.
-  Apagar este item só depois de o Atos confirmar que fez.
+  A variável não existe na Vercel e `src/lib/env.ts` faz a `CRED_SECRET`
+  cair na `AUTH_SECRET` — trocar a `AUTH_SECRET` um dia derrubaria as
+  integrações de todas as lojas. O plano antigo (copiar o valor) morreu:
+  a `AUTH_SECRET` é **Sensitive** na Vercel e não pode ser revelada. Por
+  isso o cofre (`lib/crypto.ts`) agora **abre com as duas chaves**: grava
+  com a `CRED_SECRET` e, ao ler, cai na `AUTH_SECRET` se preciso (guarda:
+  `crypto-troca-chave.test.ts`). O Atos só precisa criar `CRED_SECRET`
+  na Vercel com um **valor NOVO aleatório longo (40+ caracteres)** e
+  redeployar — nada quebra, e os tokens antigos migram sozinhos conforme
+  os OAuth renovam. Apagar este item só depois de o Atos confirmar.
 - WhatsApp/Evolution: operacional em produção (conexão, tempo real, mídia).
   **Pendente**: ligar `DATABASE_SAVE_DATA_HISTORIC/NEW_MESSAGE/CHATS/CONTACTS=true`
   no compose do servidor Evolution (Hostinger, via Editor .yaml) e reconectar

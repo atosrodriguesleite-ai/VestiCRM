@@ -41,7 +41,13 @@ Valem para o sistema inteiro. Sem elas o módulo não liga para loja nenhuma.
 ### ⚠️ `CRED_SECRET` — a variável mais perigosa da lista
 
 `CRED_SECRET` é a chave que **criptografa todos os tokens de integração** no
-banco (`lib/crypto.ts`). Quando ela não existe, `src/lib/env.ts` cai em
+banco (`lib/crypto.ts`). **Como criar (procedimento novo):** a `AUTH_SECRET`
+é Sensitive na Vercel (irrecuperável), então gere um **valor novo** aleatório
+longo (40+ caracteres) para `CRED_SECRET` — o cofre grava com a chave nova e
+ainda abre os tokens antigos com a `AUTH_SECRET` (fallback de leitura em
+`lib/crypto.ts`, guardado por `crypto-troca-chave.test.ts`); os tokens migram
+para a chave nova conforme os OAuth renovam. Quando ela não existe,
+`src/lib/env.ts` cai em
 silêncio para o `AUTH_SECRET`.
 
 O perigo: **trocar o `AUTH_SECRET` sem ter um `CRED_SECRET` próprio torna
