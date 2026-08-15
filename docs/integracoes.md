@@ -71,6 +71,20 @@ cobranças e as etiquetas saem da conta da lojista.
 
 Todos os tokens são gravados **criptografados** e renovados sozinhos.
 
+### ⚠️ InfinitePay — migração de URL da API (15/08/2026)
+
+A InfinitePay avisou por e-mail que a API do Checkout Integrado **mudou de
+endereço** e que os antigos serão desligados "a qualquer momento":
+
+- gerar link: `api.infinitepay.io/invoices/public/checkout/links` → `api.checkout.infinitepay.io/links`
+- conferência que liquida o pedido: `.../payment_check` → `api.checkout.infinitepay.io/payment_check`
+
+O código (`src/lib/infinitepay.ts`) já usa os endereços novos. A env
+`INFINITEPAY_API_BASE` **não deve existir na Vercel** — e, se existir
+apontando para o host velho (`api.infinitepay.io`), o código a ignora de
+propósito: o host velho combinado com os caminhos novos derrubaria a
+cobrança e a baixa automática. Payloads e webhooks não mudaram.
+
 ## Endereços de retorno (OAuth redirect)
 
 Precisam bater **exatamente** com o que está cadastrado no painel de cada

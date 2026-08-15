@@ -1,38 +1,35 @@
-// Corta desperdício de "Build CPU Minutes" na Vercel: só a branch de produção
-// merece uma publicação completa. Branches de trabalho (as `claude/...` de
-// cada tarefa) geravam um site-espelho que ninguém abria — e cada espelho
-// desses custa minutos de montagem na fatura.
+// Corta desperdício de "Build CPU Minutes" na Vercel: só deploy de PRODUÇÃO
+// merece uma montagem completa. Cada push em branch de trabalho gerava um
+// site-espelho que ninguém abria — e cada espelho desses custa minutos na
+// fatura.
 //
 // A Vercel chama isto de "Ignored Build Step" (vercel.json → ignoreCommand):
 //   exit 0  → PULA o build (não publica)
 //   exit 1  → SEGUE o build (publica)
 //
-// REGRA DE OURO DAQUI: na dúvida, PUBLICA. Se a variável da branch vier vazia,
-// se o nome não bater, se qualquer coisa der errado — o script sai com 1 e o
-// deploy acontece. É melhor gastar um build à toa do que deixar produção sem
-// subir por causa de uma trava nossa.
+// A decisão vem da PRÓPRIA Vercel (VERCEL_ENV === "production"), nunca de um
+// nome de branch fixado aqui: nome fixo quebraria em silêncio se a branch de
+// produção mudasse no painel — a mesma classe de acidente dos crons, que já
+// travou deploy 2x (achado da revisão de 15/08/2026).
+//
+// REGRA DE OURO: na dúvida, PUBLICA. Variável ausente ou valor inesperado
+// terminam em exit 1 (publica). É melhor gastar um build à toa do que deixar
+// produção sem subir por causa de uma trava nossa.
 
-// Branch que está no ar em www.atacadopro.com. Se um dia a produção mudar de
-// branch, troque aqui (ou defina BRANCH_PRODUCAO nas envs da Vercel).
-const BRANCH_PRODUCAO =
-  process.env.BRANCH_PRODUCAO || "claude/modacrm-clothing-crm-cxa9gf";
+const env = (process.env.VERCEL_ENV || "").trim();
+const branch = (process.env.VERCEL_GIT_COMMIT_REF || "?").trim();
 
-// Nome da branch que a Vercel está tentando montar agora.
-const branch = (process.env.VERCEL_GIT_COMMIT_REF || "").trim();
-
-// Sem saber a branch, não dá pra decidir nada com segurança → publica.
-if (!branch) {
-  console.log("⚠️  Branch desconhecida (VERCEL_GIT_COMMIT_REF vazia) — publicando por segurança.");
-  process.exit(1);
+if (env === "preview") {
+  console.log(
+    `⏭️  Deploy de preview (branch "${branch}") — build pulado para não gastar minutos à toa.\n` +
+      `   A branch de produção do painel da Vercel continua publicando normalmente.`
+  );
+  process.exit(0);
 }
 
-if (branch === BRANCH_PRODUCAO) {
-  console.log(`✓ Branch de produção ("${branch}") — publicando normalmente.`);
-  process.exit(1);
+if (env === "production") {
+  console.log(`✓ Deploy de produção (branch "${branch}") — publicando normalmente.`);
+} else {
+  console.log(`⚠️  VERCEL_ENV inesperado ("${env}") — publicando por segurança.`);
 }
-
-console.log(
-  `⏭️  Branch de trabalho ("${branch}") — build pulado para não gastar minutos à toa.\n` +
-    `   Produção continua sendo a "${BRANCH_PRODUCAO}"; ao mesclar lá, publica normal.`
-);
-process.exit(0);
+process.exit(1);

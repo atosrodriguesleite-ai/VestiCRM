@@ -23,9 +23,14 @@ import { settleOrderPaid } from "./settle-order";
 
 // Endereço NOVO da API (aviso oficial de 15/08/2026): o antigo
 // api.infinitepay.io/invoices/public/checkout/... será desligado a qualquer
-// momento. Se INFINITEPAY_API_BASE estiver definida na Vercel apontando para
-// o endereço velho, REMOVA a env — os caminhos abaixo já são os novos.
-const BASE = process.env.INFINITEPAY_API_BASE ?? "https://api.checkout.infinitepay.io";
+// momento. Uma INFINITEPAY_API_BASE apontando para o host velho é IGNORADA:
+// combinada com os caminhos novos ela derrubaria o link E a conferência que
+// liquida pedido pago (achado da revisão de 15/08/2026).
+const baseEnv = process.env.INFINITEPAY_API_BASE;
+const BASE =
+  baseEnv && !baseEnv.includes("api.infinitepay.io")
+    ? baseEnv
+    : "https://api.checkout.infinitepay.io";
 
 export type InfinitePayConn = {
   handle: string;
