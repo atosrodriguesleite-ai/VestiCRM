@@ -21,7 +21,11 @@ import { settleOrderPaid } from "./settle-order";
  * só, para nunca cobrarmos 100× a mais nem a menos.
  */
 
-const BASE = process.env.INFINITEPAY_API_BASE ?? "https://api.infinitepay.io";
+// Endereço NOVO da API (aviso oficial de 15/08/2026): o antigo
+// api.infinitepay.io/invoices/public/checkout/... será desligado a qualquer
+// momento. Se INFINITEPAY_API_BASE estiver definida na Vercel apontando para
+// o endereço velho, REMOVA a env — os caminhos abaixo já são os novos.
+const BASE = process.env.INFINITEPAY_API_BASE ?? "https://api.checkout.infinitepay.io";
 
 export type InfinitePayConn = {
   handle: string;
@@ -145,7 +149,7 @@ export async function criarLinkInfinitePay(args: {
   };
 
   try {
-    const res = await fetch(`${BASE}/invoices/public/checkout/links`, {
+    const res = await fetch(`${BASE}/links`, {
       method: "POST",
       headers: headers(conn),
       body: JSON.stringify(payload),
@@ -180,7 +184,7 @@ export async function conferirPagamentoInfinitePay(
   dados: { order_nsu: string; transaction_nsu: string; slug: string }
 ): Promise<{ ok: boolean; paid: boolean; installments?: number }> {
   try {
-    const res = await fetch(`${BASE}/invoices/public/checkout/payment_check`, {
+    const res = await fetch(`${BASE}/payment_check`, {
       method: "POST",
       headers: headers(conn),
       body: JSON.stringify({
