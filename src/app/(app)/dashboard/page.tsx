@@ -40,6 +40,9 @@ import { Card, PageHeader, Avatar, PriorityDot, EmptyState } from "@/components/
 import { BarList, AreaCompare, Donut, PeriodChips } from "@/components/charts";
 import { StatCard } from "@/components/dash";
 import { InfoTip } from "@/components/info-tip";
+import { PrimeirosPassos, type Passo } from "./primeiros-passos";
+import { QuemChamarHoje, type ChamadaDoDia } from "./quem-chamar-hoje";
+import { montarMensagem, tipoDaRegra, CAMPO_DA_CHAMADA } from "@/lib/mensagens-chamada";
 
 export const dynamic = "force-dynamic";
 
@@ -112,6 +115,7 @@ export default async function DashboardPage({
     wonOpps30,
     closedOpps30,
     noContactCustomers,
+    noContactCount,
     nextTasks,
     sellers,
     interests,
@@ -119,21 +123,25 @@ export default async function DashboardPage({
     ordersToday,
     ordersWeek,
     ordersMonth,
-    topItems,
+    topItemsRaw,
     topBuyers,
     buyersAll,
     ordersGenerated30,
+    cohortPaid30,
     monthOrders,
     companyCfg,
     prevSales,
     prevLeads,
     prevOrdersGenerated,
+    prevCohortPaid,
     statusCounts,
   ] = await Promise.all([
     // Faturamento = pedidos PAGOS (fonte única da verdade, igual à tela Pedidos)
     db.order.findMany({
       where: { ...orderScope, paidAt: inPeriod },
-      select: { total: true, sellerId: true, paidAt: true },
+      // VALOR VENDIDO (netTotal): o frete atravessa a loja e vai para a
+      // transportadora — não é faturamento nem comissão
+      select: { netTotal: true, sellerId: true, paidAt: true },
     }),
     db.customer.count({ where: scope }),
     db.customer.count({ where: { ...scope, createdAt: inPeriod } }),
@@ -167,6 +175,14 @@ export default async function DashboardPage({
       take: 6,
       include: { owner: true },
     }),
+    // contagem REAL dos sem-contato: o cartão mostrava o tamanho da lista
+    // acima (take: 6) e travava em "6" mesmo com 40 esfriando
+    db.customer.count({
+      where: {
+        ...scope,
+        OR: [{ lastContactAt: { lt: days7 } }, { lastContactAt: null }],
+      },
+    }),
     db.task.findMany({
       where: { ...taskScope(user), status: "PENDENTE" },
       orderBy: { dueAt: "asc" },
@@ -185,31 +201,34 @@ export default async function DashboardPage({
     db.order.aggregate({
       where: { ...orderScope, paidAt: { gte: startOfDay } },
       _count: true,
-      _sum: { total: true },
+      _sum: { netTotal: true },
     }),
     db.order.aggregate({
       where: { ...orderScope, paidAt: { gte: days7 } },
       _count: true,
-      _sum: { total: true },
+      _sum: { netTotal: true },
     }),
     db.order.aggregate({
       where: { ...orderScope, paidAt: inPeriod },
       _count: true,
-      _sum: { total: true },
+      _sum: { netTotal: true },
     }),
+    // agrupado pelo PRODUTO (não pelo nome congelado no item): o pedido
+    // guarda o nome da época — renomear a peça (ex.: tirar a cor do nome)
+    // dividia as vendas em duas linhas e o ranking mentia (12/08/2026).
+    // O top 6 é montado depois, com o nome ATUAL do cadastro.
     db.orderItem.groupBy({
-      by: ["name"],
+      by: ["productId", "name"],
       where: { order: { ...orderScope, paidAt: inPeriod } },
       _sum: { quantity: true },
-      orderBy: { _sum: { quantity: "desc" } },
-      take: 6,
     }),
     db.order.groupBy({
       by: ["customerId"],
       where: { ...orderScope, paidAt: inPeriod },
-      _sum: { total: true },
+      _sum: { netTotal: true },
       _count: true,
-      orderBy: { _sum: { total: "desc" } },
+      // ordena pelo MESMO campo que soma, senão a lista sai fora de ordem
+      orderBy: { _sum: { netTotal: "desc" } },
       take: 5,
     }),
     // taxa de recompra: clientes com 2+ pedidos entre quem já pediu
@@ -219,6 +238,14 @@ export default async function DashboardPage({
       _count: true,
     }),
     db.order.count({ where: { ...orderAnyScope, createdAt: inPeriod } }),
+    // conversão por COORTE: dos pedidos CRIADOS no período, quantos já estão
+    // pagos. Numerador de paidAt com denominador de createdAt passava de 100%
+    // (pedido antigo pago agora contava sem ter sido gerado no período) e o
+    // rodapé ficava negativo (auditoria 07/08/2026)
+    db.order.count({
+      // coorte-ok: conta pedidos por criação de propósito — não soma dinheiro
+      where: { ...orderScope, createdAt: inPeriod },
+    }),
     // metas: vendas pagas do MÊS CORRENTE (fuso SP), por vendedor
     db.order.findMany({
       where: {
@@ -226,7 +253,7 @@ export default async function DashboardPage({
         status: { in: PAID_ORDER_STATUSES },
         paidAt: { gte: startOfMonth },
       },
-      select: { total: true, sellerId: true },
+      select: { netTotal: true, sellerId: true },
     }),
     // alerta de estoque: variações no limite configurado pela loja
     db.company.findUniqueOrThrow({
@@ -236,10 +263,15 @@ export default async function DashboardPage({
     // --- comparativo: mesmas métricas no período ANTERIOR ---
     db.order.findMany({
       where: { ...orderScope, paidAt: inPrev },
-      select: { total: true, paidAt: true },
+      select: { netTotal: true, paidAt: true },
     }),
     db.customer.count({ where: { ...scope, createdAt: inPrev } }),
     db.order.count({ where: { ...orderAnyScope, createdAt: inPrev } }),
+    // coorte do período anterior (mesma régua da conversão atual)
+    db.order.count({
+      // coorte-ok: conta pedidos por criação de propósito — não soma dinheiro
+      where: { ...orderScope, createdAt: inPrev },
+    }),
     // donut: composição dos pedidos do período por status (qualquer status)
     db.order.groupBy({
       by: ["status"],
@@ -248,24 +280,58 @@ export default async function DashboardPage({
     }),
   ]);
 
+  // PRODUTOS MAIS VENDIDOS com o nome ATUAL do cadastro. Duas fusões:
+  //  1) pelo produto — vendas antigas de um produto renomeado somam juntas;
+  //  2) pelo nome final — produtos-por-cor que ganharam o MESMO nome (a loja
+  //     tirou a cor do nome; a cor mora na variação) viram UMA família.
+  // Linha sem produto vinculado (avulsa) agrupa pelo nome gravado no item.
+  const somaPorChave = new Map<string, number>();
+  const nomeGravado = new Map<string, string>();
+  for (const t of topItemsRaw) {
+    const chave = t.productId ?? `nome:${t.name}`;
+    somaPorChave.set(chave, (somaPorChave.get(chave) ?? 0) + (t._sum.quantity ?? 0));
+    if (t.productId) nomeGravado.set(t.productId, t.name);
+  }
+  const idsVendidos = [...somaPorChave.keys()].filter((k) => !k.startsWith("nome:"));
+  const nomesAtuais = idsVendidos.length
+    ? await db.product.findMany({
+        where: { id: { in: idsVendidos } },
+        select: { id: true, name: true },
+      })
+    : [];
+  const nomeAtual = new Map(nomesAtuais.map((p) => [p.id, p.name]));
+  const somaPorNome = new Map<string, number>();
+  for (const [chave, qtd] of somaPorChave) {
+    const rotulo = chave.startsWith("nome:")
+      ? chave.slice(5)
+      : // produto apagado do cadastro: vale o nome gravado no pedido
+        (nomeAtual.get(chave) ?? nomeGravado.get(chave) ?? "Produto removido");
+    somaPorNome.set(rotulo, (somaPorNome.get(rotulo) ?? 0) + qtd);
+  }
+  const topItems = [...somaPorNome.entries()]
+    .map(([name, quantidade]) => ({ name, quantidade }))
+    .sort((a, b) => b.quantidade - a.quantidade)
+    .slice(0, 6);
+
   const buyerNames = await db.customer.findMany({
     where: { id: { in: topBuyers.map((b) => b.customerId) } },
     select: { id: true, name: true },
   });
   const buyerName = new Map(buyerNames.map((b) => [b.id, b.name]));
   const avgOrder = ordersMonth._count
-    ? (ordersMonth._sum.total ?? 0) / ordersMonth._count
+    ? (ordersMonth._sum.netTotal ?? 0) / ordersMonth._count
     : 0;
   const repurchaseRate = buyersAll.length
     ? (buyersAll.filter((b) => b._count >= 2).length / buyersAll.length) * 100
     : 0;
 
-  const revenue30 = sales30.reduce((s, v) => s + v.total, 0);
+  const revenue30 = sales30.reduce((s, v) => s + v.netTotal, 0);
   const ticket = sales30.length ? revenue30 / sales30.length : 0;
-  // Conversão = pedidos que viraram pagamento ÷ pedidos gerados no período
-  const ordersPaid30 = ordersMonth._count;
+  // Conversão por COORTE: dos pedidos CRIADOS no período, quantos já estão
+  // pagos. Nunca passa de 100% (o pago é subconjunto do gerado) e o "sem
+  // pagamento" do rodapé nunca fica negativo.
   const conversion = ordersGenerated30
-    ? (ordersPaid30 / ordersGenerated30) * 100
+    ? (cohortPaid30 / ordersGenerated30) * 100
     : 0;
   const pipelineValue = openOpps.reduce((s, o) => s + o.value, 0);
   const periodLabel = customPeriod
@@ -283,7 +349,7 @@ export default async function DashboardPage({
     if (!v.paidAt) continue;
     const i = dayIdx(v.paidAt) - firstIdx;
     if (i >= 0 && i < nDias) {
-      serieFat[i] += v.total;
+      serieFat[i] += v.netTotal;
       seriePed[i] += 1;
     }
   }
@@ -292,7 +358,7 @@ export default async function DashboardPage({
   for (const v of prevSales) {
     if (!v.paidAt) continue;
     const i = dayIdx(v.paidAt) - prevFirstIdx;
-    if (i >= 0 && i < nDias) seriePrev[i] += v.total;
+    if (i >= 0 && i < nDias) seriePrev[i] += v.netTotal;
   }
   let labelsDias = Array.from({ length: nDias }, (_, i) => {
     const d = new Date((firstIdx + i) * DAY);
@@ -315,10 +381,10 @@ export default async function DashboardPage({
 
   const pctDelta = (cur: number, prev: number) =>
     prev > 0 ? ((cur - prev) / prev) * 100 : null;
-  const prevRevenue = prevSales.reduce((s, v) => s + v.total, 0);
+  const prevRevenue = prevSales.reduce((s, v) => s + v.netTotal, 0);
   const prevTicket = prevSales.length ? prevRevenue / prevSales.length : 0;
   const prevConversion = prevOrdersGenerated
-    ? (prevSales.length / prevOrdersGenerated) * 100
+    ? (prevCohortPaid / prevOrdersGenerated) * 100
     : 0;
   const deltaVendas = pctDelta(revenue30, prevRevenue);
   const deltaTicket = pctDelta(ticket, prevTicket);
@@ -335,27 +401,24 @@ export default async function DashboardPage({
   }));
   const totalPedidosPeriodo = statusCounts.reduce((a, s) => a + s._count, 0);
 
-  // ranking por vendedor (30 dias) — só gerente/admin vê o time todo
-  const allSales30 = canSeeAll(user)
-    ? sales30
-    : await db.order.findMany({
-        where: {
-          companyId: user.companyId,
-          status: { in: PAID_ORDER_STATUSES },
-          paidAt: inPeriod,
-        },
-        select: { total: true, sellerId: true },
-      });
+  // ranking por vendedor — gerente/admin vê o time todo (sales30 já é a loja
+  // inteira para eles); a VENDEDORA vê só a própria linha. Antes a consulta
+  // extra buscava a loja inteira justamente para quem NÃO pode ver o
+  // faturamento dos colegas (auditoria 07/08/2026: o código fazia o oposto
+  // do comentário).
+  const allSales30 = sales30;
   const ranking = sellers
     .map((s) => ({
       seller: s,
-      total: allSales30
+      // "totalVendido" de propósito: é soma de netTotal (sem frete) — chamar
+      // de "total" confundia com o campo total do pedido, que tem frete
+      totalVendido: allSales30
         .filter((v) => v.sellerId === s.id)
-        .reduce((sum, v) => sum + v.total, 0),
+        .reduce((sum, v) => sum + v.netTotal, 0),
       count: allSales30.filter((v) => v.sellerId === s.id).length,
     }))
     .filter((r) => r.count > 0)
-    .sort((a, b) => b.total - a.total);
+    .sort((a, b) => b.totalVendido - a.totalVendido);
 
   const topInterests = interests
     .map((i) => ({ label: i.name, value: i._count.customers }))
@@ -372,7 +435,8 @@ export default async function DashboardPage({
   // metas: vendido no mês por vendedor + meta própria (quando vendedor)
   const soldBySeller = new Map<string, number>();
   for (const o of monthOrders) {
-    if (o.sellerId) soldBySeller.set(o.sellerId, (soldBySeller.get(o.sellerId) ?? 0) + o.total);
+    if (o.sellerId)
+      soldBySeller.set(o.sellerId, (soldBySeller.get(o.sellerId) ?? 0) + o.netTotal);
   }
   const me = sellers.find((s) => s.id === user.id);
   const myGoal = me?.monthlyGoal ?? 0;
@@ -384,6 +448,97 @@ export default async function DashboardPage({
       stock: { lte: companyCfg.lowStockThreshold },
     },
   });
+
+  // QUEM CHAMAR HOJE — as sugestões do motor viram uma lista de ação, com o
+  // motivo em português e a mensagem pronta. `suggestions` já veio calculado
+  // na rodada de consultas lá em cima (respeitando a carteira de cada uma).
+  const fichasChamada = suggestions.length
+    ? await db.customer.findMany({
+        where: {
+          companyId: user.companyId,
+          id: { in: [...new Set(suggestions.map((s) => s.customerId))] },
+        },
+        select: { id: true, phone: true, owner: { select: { color: true } } },
+      })
+    : [];
+  const fichaPorId = new Map(fichasChamada.map((c) => [c.id, c]));
+  // texto de cada mensagem: o da LOJA quando ela personalizou, senão o padrão
+  const textosDaLoja = suggestions.length
+    ? await db.commSettings.findUnique({
+        where: { companyId: user.companyId },
+        select: {
+          msgAniversario: true,
+          msgRecompra: true,
+          msgPosVenda: true,
+          msgPrimeiroContato: true,
+          msgConversaParada: true,
+        },
+      })
+    : null;
+  const chamadas: ChamadaDoDia[] = suggestions.map((s) => {
+    const ficha = fichaPorId.get(s.customerId);
+    const primeiro = s.customerName.split(" ")[0];
+    const tipo = tipoDaRegra(s.key.split(":")[0]);
+    const personalizada = textosDaLoja
+      ? (textosDaLoja as Record<string, string | null>)[CAMPO_DA_CHAMADA[tipo]]
+      : null;
+    const mensagem = montarMensagem(tipo, { nome: primeiro }, personalizada);
+    return {
+      key: s.key,
+      customerId: s.customerId,
+      customerName: s.customerName,
+      phone: ficha?.phone ?? "",
+      motivo: s.description,
+      mensagem,
+      tipo,
+      ownerColor: ficha?.owner?.color ?? "#c4622d",
+    };
+  });
+
+  // Checklist "Primeiros passos" — só para quem configura a loja (a vendedora
+  // não mexe em catálogo nem em conexão de WhatsApp). Lista vazia = card não
+  // aparece; loja que completou os 4 passos também deixa de ver.
+  let passos: Passo[] = [];
+  if (canSeeAll(user)) {
+    const [comm, produtosCount, pedidosCount, identidade] = await Promise.all([
+      db.commSettings.findUnique({
+        where: { companyId: user.companyId },
+        select: { evolutionStatus: true },
+      }),
+      db.product.count({ where: { companyId: user.companyId } }),
+      db.order.count({ where: { companyId: user.companyId } }),
+      db.company.findUnique({
+        where: { id: user.companyId },
+        select: { logoUrl: true },
+      }),
+    ]);
+    passos = [
+      {
+        done: comm?.evolutionStatus === "CONECTADO",
+        label: "Conectar o WhatsApp da loja",
+        hint: "É por onde a maior parte das vendas acontece.",
+        href: "/comunicacao",
+      },
+      {
+        done: produtosCount > 0,
+        label: "Cadastrar o primeiro produto",
+        hint: "Sem produto, o catálogo fica vazio.",
+        href: "/produtos",
+      },
+      {
+        done: Boolean(identidade?.logoUrl),
+        label: "Colocar sua logo no catálogo",
+        hint: "O catálogo passa a ter a cara da sua marca.",
+        href: "/configuracoes/catalogo",
+      },
+      {
+        done: pedidosCount > 0,
+        label: "Receber o primeiro pedido",
+        hint: "Compartilhe o link do catálogo com suas clientes.",
+        href: "/configuracoes/catalogo",
+      },
+    ];
+  }
 
   return (
     <div className="max-w-7xl mx-auto">
@@ -415,6 +570,10 @@ export default async function DashboardPage({
       <div className="mb-5 -mt-1">
         <PeriodChips pathname="/dashboard" de={de} ate={ate} />
       </div>
+
+      <QuemChamarHoje chamadas={chamadas} primeiroNome={user.name.split(" ")[0]} />
+
+      <PrimeirosPassos passos={passos} />
 
       {suggestions.length > 0 && (
         <Link
@@ -458,10 +617,10 @@ export default async function DashboardPage({
           value={conversion}
           format="pct"
           delta={deltaConv}
-          hint={`${ordersPaid30} pagos · ${ordersGenerated30 - ordersPaid30} sem pagamento`}
+          hint={`${cohortPaid30} pagos · ${ordersGenerated30 - cohortPaid30} sem pagamento`}
           icon={<Percent />}
           tone={conversion >= 50 ? "good" : "warn"}
-          info="De cada pedido criado, quantos foram pagos. Cálculo: pedidos pagos ÷ total de pedidos gerados no período."
+          info="Dos pedidos CRIADOS no período, quantos já foram pagos. Pedido antigo pago agora não entra — por isso a taxa nunca passa de 100%."
         />
         <StatCard
           label="Funil aberto"
@@ -489,10 +648,10 @@ export default async function DashboardPage({
         />
         <StatCard
           label="Sem contato há 7+ dias"
-          value={noContactCustomers.length}
+          value={noContactCount}
           hint="clientes esfriando"
           icon={<CalendarClock />}
-          tone={noContactCustomers.length > 0 ? "warn" : "good"}
+          tone={noContactCount > 0 ? "warn" : "good"}
           info="Clientes sem nenhum contato registrado nos últimos 7 dias (ou que nunca foram contatados)."
         />
         <StatCard
@@ -577,25 +736,25 @@ export default async function DashboardPage({
         <StatCard
           label="Pedidos pagos hoje"
           value={ordersToday._count}
-          hint={brl(ordersToday._sum.total ?? 0)}
+          hint={brl(ordersToday._sum.netTotal ?? 0)}
           icon={<ShoppingBag />}
           info="Quantidade e valor dos pedidos pagos hoje (desde a meia-noite, horário de São Paulo)."
         />
         <StatCard
           label="Pagos na semana"
           value={ordersWeek._count}
-          hint={brl(ordersWeek._sum.total ?? 0)}
+          hint={brl(ordersWeek._sum.netTotal ?? 0)}
           icon={<ShoppingBag />}
           info="Pedidos pagos nos últimos 7 dias, com o valor somado."
         />
         <StatCard
-          label={customPeriod ? "Pagos no período" : "Pagos no mês"}
+          label={customPeriod ? "Pagos no período" : "Pagos (30d)"}
           value={ordersMonth._count}
           delta={deltaPedidos}
           series={seriePed.length > 92 ? porSemana(seriePed) : seriePed}
           hint={`valor médio ${brl(avgOrder)}`}
           icon={<ShoppingBag />}
-          info="Pedidos pagos no período (padrão: últimos 30 dias). O rodapé mostra o valor médio por pedido; a setinha compara com o período anterior."
+          info="Pedidos pagos no período (padrão: últimos 30 dias corridos — não é o mês do calendário). O rodapé mostra o valor médio por pedido; a setinha compara com o período anterior."
         />
         <StatCard
           label="Taxa de recompra"
@@ -622,7 +781,7 @@ export default async function DashboardPage({
             <h2 className="font-semibold flex items-center gap-2 mb-4">
               <Package className="size-4 text-brand-600" />
               Produtos mais vendidos
-              <InfoTip text="Peças mais vendidas em pedidos PAGOS no período, somando a quantidade de cada modelo. Pedido cancelado ou sem pagamento não conta." />
+              <InfoTip text="Peças mais vendidas em pedidos PAGOS no período, somadas pelo produto do cadastro (nome atual — renomear a peça junta o histórico). Pedido cancelado ou sem pagamento não conta." />
             </h2>
             {topItems.length === 0 ? (
               <EmptyState title="Nenhum pedido ainda" />
@@ -630,7 +789,7 @@ export default async function DashboardPage({
               <BarList
                 data={topItems.map((i) => ({
                   label: i.name,
-                  value: i._sum.quantity ?? 0,
+                  value: i.quantidade,
                 }))}
                 formatValue={(v) => `${v} un.`}
               />
@@ -649,7 +808,7 @@ export default async function DashboardPage({
                 color="#10b981"
                 data={topBuyers.map((b) => ({
                   label: buyerName.get(b.customerId) ?? "Cliente",
-                  value: b._sum.total ?? 0,
+                  value: b._sum.netTotal ?? 0,
                   sub: `${b._count} pedido${b._count === 1 ? "" : "s"}`,
                 }))}
                 formatValue={brl}
@@ -746,7 +905,7 @@ export default async function DashboardPage({
                     )}
                   </div>
                   <span className="text-sm font-semibold tabular-nums">
-                    {brl(r.total)}
+                    {brl(r.totalVendido)}
                   </span>
                 </li>
               ))}
@@ -788,7 +947,7 @@ export default async function DashboardPage({
                   </div>
                   <span className="text-xs text-amber-600 font-medium shrink-0">
                     {c.lastContactAt
-                      ? `${daysSince(c.lastContactAt)} dias sem contato`
+                      ? `${daysSince(c.lastContactAt)} dia${daysSince(c.lastContactAt) === 1 ? "" : "s"} sem contato`
                       : "nunca contatado"}
                   </span>
                 </li>

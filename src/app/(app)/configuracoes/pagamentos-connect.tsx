@@ -184,3 +184,154 @@ export function BlingConnect() {
     </Card>
   );
 }
+
+type IpEstado = {
+  conectado: boolean;
+  handle: string | null;
+  temToken: boolean;
+};
+
+/**
+ * InfinitePay — checkout por link (Pix/cartão). Sem OAuth: conectar é
+ * digitar a InfiniteTag da loja; o dinheiro cai direto na conta dela.
+ */
+export function InfinitePayConnect() {
+  const [estado, setEstado] = useState<IpEstado | null>(null);
+  const [handle, setHandle] = useState("");
+  const [apiToken, setApiToken] = useState("");
+  const [editando, setEditando] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [erro, setErro] = useState("");
+
+  const carregar = useCallback(async () => {
+    const res = await fetch("/api/infinitepay/conectar");
+    if (res.ok) {
+      const d = await res.json();
+      setEstado(d);
+      setHandle(d.handle ?? "");
+    }
+  }, []);
+  useEffect(() => {
+    carregar();
+  }, [carregar]);
+
+  async function salvar() {
+    setBusy(true);
+    setErro("");
+    const res = await fetch("/api/infinitepay/conectar", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        handle,
+        ...(apiToken.trim() ? { apiToken: apiToken.trim() } : {}),
+      }),
+    });
+    const d = await res.json().catch(() => ({}));
+    setBusy(false);
+    if (!res.ok) {
+      setErro(d.error ?? "Não foi possível salvar a conexão.");
+      return;
+    }
+    setApiToken("");
+    setEditando(false);
+    carregar();
+  }
+
+  async function desconectar() {
+    if (
+      !window.confirm(
+        "Desconectar a InfinitePay? Novos links de pagamento deixam de funcionar até conectar de novo."
+      )
+    )
+      return;
+    setBusy(true);
+    await fetch("/api/infinitepay/conectar", { method: "DELETE" });
+    setBusy(false);
+    setEditando(false);
+    carregar();
+  }
+
+  const formulario = (
+    <div className="space-y-2">
+      <div className="flex flex-col sm:flex-row gap-2">
+        <label className="flex-1">
+          <span className="block text-[11px] font-semibold text-gray-500 mb-1">
+            InfiniteTag da loja (aparece no perfil da InfinitePay, ex.: $toque-leve)
+          </span>
+          <input
+            value={handle}
+            onChange={(e) => setHandle(e.target.value)}
+            placeholder="ex.: $toque-leve"
+            className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-brand-300"
+          />
+        </label>
+        <label className="flex-1">
+          <span className="block text-[11px] font-semibold text-gray-500 mb-1">
+            Token de API (opcional — só se a conta exigir)
+          </span>
+          <input
+            value={apiToken}
+            onChange={(e) => setApiToken(e.target.value)}
+            placeholder={estado?.temToken ? "•••••••• (guardado)" : "deixe em branco"}
+            className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-brand-300"
+          />
+        </label>
+      </div>
+      {erro && <p className="text-xs text-rose-600">{erro}</p>}
+      <button
+        onClick={salvar}
+        disabled={busy || handle.trim().length < 2}
+        className="inline-flex items-center gap-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium px-5 py-2.5 transition disabled:opacity-50"
+      >
+        {busy ? <Loader2 className="size-4 animate-spin" /> : <Wallet className="size-4" />}
+        {estado?.conectado ? "Salvar alteração" : "Conectar InfinitePay"}
+      </button>
+    </div>
+  );
+
+  return (
+    <Card className="p-5 mb-5">
+      <div className="flex items-center justify-between gap-2 flex-wrap mb-1">
+        <h2 className="font-semibold flex items-center gap-2">
+          <Wallet className="size-4 text-emerald-600" />
+          InfinitePay — link de pagamento (Pix e cartão em até 12x)
+        </h2>
+        {estado?.conectado && (
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs font-semibold px-3 py-1">
+            <CheckCircle2 className="size-3.5" />
+            Conectada (@{estado.handle})
+          </span>
+        )}
+      </div>
+      <p className="text-sm text-gray-500 mb-3">
+        Gere o link de pagamento direto no pedido: a cliente escolhe Pix ou
+        cartão parcelado e o pedido vira <b>Pago sozinho</b>. O dinheiro cai na
+        conta InfinitePay <b>da loja</b>, sem taxa da plataforma.
+      </p>
+      {!estado ? (
+        <p className="flex items-center gap-2 text-sm text-gray-400">
+          <Loader2 className="size-4 animate-spin" /> Carregando…
+        </p>
+      ) : estado.conectado && !editando ? (
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          <button
+            onClick={() => setEditando(true)}
+            className="text-xs font-medium text-brand-600 hover:text-brand-700"
+          >
+            Trocar InfiniteTag ou token
+          </button>
+          <button
+            onClick={desconectar}
+            disabled={busy}
+            className="inline-flex items-center gap-1.5 rounded-xl border border-gray-200 hover:border-rose-300 hover:text-rose-600 text-gray-500 text-xs font-medium px-3 py-2 transition disabled:opacity-50"
+          >
+            <Power className="size-3.5" />
+            Desconectar
+          </button>
+        </div>
+      ) : (
+        formulario
+      )}
+    </Card>
+  );
+}

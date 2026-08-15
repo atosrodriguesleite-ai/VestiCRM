@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { requireUser } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { isManagerUp } from "@/lib/scope";
+import { isManagerUp, isSupport, podeOperarIntegracoes } from "@/lib/scope";
 import { isAdmin } from "@/lib/scope";
 import { PageHeader } from "@/components/ui";
 import { CommCenter, type CommEventItem } from "./comm-center";
@@ -9,27 +9,60 @@ import { WhatsappConnect } from "./whatsapp-connect";
 import { SetoresManager } from "./setores-manager";
 import { MergeDuplicates } from "./merge-duplicates";
 import { ImportHistory } from "./import-history";
+import { FotosClientes } from "./fotos-clientes";
 
 export const dynamic = "force-dynamic";
 
 export default async function CommunicationPage() {
   const user = await requireUser();
-  if (!isManagerUp(user)) redirect("/dashboard");
+  // Suporte entra: reconectar o WhatsApp e olhar o log de entrega é o
+  // trabalho dele. (Vendedora continua fora — conexão afeta a loja toda.)
+  // O destino do redirecionamento respeita o papel: mandar suporte para o
+  // dashboard era jogá-lo numa tela que ele também não pode ver.
+  if (!podeOperarIntegracoes(user)) {
+    redirect(isSupport(user) ? "/pedidos" : "/dashboard");
+  }
 
   const h24 = new Date(Date.now() - 24 * 60 * 60 * 1000);
 
-  const [events, sending, failed24, received24, sent24, settings] =
+  const [recentes, errosRecentes, sending, failed24, outrosErros24, received24, sent24, settings] =
     await Promise.all([
       db.commEvent.findMany({
         where: { companyId: user.companyId },
         orderBy: { createdAt: "desc" },
         take: 50,
       }),
+      // OS ERROS VÊM À PARTE.
+      //
+      // A lista mostra os 50 eventos mais recentes e o filtro "Erros" peneira
+      // essa lista. Numa loja movimentada, os erros ficam para trás dos 50
+      // últimos — e a tela dizia "97 falhas" com o filtro Erros vazio. Buscar
+      // os erros numa consulta própria acaba com a contradição.
+      db.commEvent.findMany({
+        where: { companyId: user.companyId, status: "ERRO", createdAt: { gte: h24 } },
+        orderBy: { createdAt: "desc" },
+        take: 50,
+      }),
       db.message.count({
         where: { conversation: { companyId: user.companyId }, status: "ENVIANDO" },
       }),
+      // "não foi entregue" é SÓ envio que falhou. Contar qualquer erro aqui
+      // transformava registro técnico em "mensagem perdida" na cara da lojista.
       db.commEvent.count({
-        where: { companyId: user.companyId, status: "ERRO", createdAt: { gte: h24 } },
+        where: {
+          companyId: user.companyId,
+          status: "ERRO",
+          type: { in: ["message.sent", "message.resent"] },
+          createdAt: { gte: h24 },
+        },
+      }),
+      db.commEvent.count({
+        where: {
+          companyId: user.companyId,
+          status: "ERRO",
+          type: { notIn: ["message.sent", "message.resent"] },
+          createdAt: { gte: h24 },
+        },
       }),
       db.commEvent.count({
         where: {
@@ -50,6 +83,11 @@ export default async function CommunicationPage() {
       }),
       db.commSettings.findUnique({ where: { companyId: user.companyId } }),
     ]);
+
+  // junta recentes + erros do período, sem repetir, do mais novo para o mais velho
+  const events = [...recentes, ...errosRecentes]
+    .filter((e, i, arr) => arr.findIndex((x) => x.id === e.id) === i)
+    .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
 
   const latencies = events.filter((e) => e.durationMs > 0);
   const avgLatency = latencies.length
@@ -80,6 +118,7 @@ export default async function CommunicationPage() {
       {isAdmin(user) && (
         <ImportHistory connected={settings?.evolutionStatus === "CONECTADO"} />
       )}
+      <FotosClientes connected={settings?.evolutionStatus === "CONECTADO"} />
       {isAdmin(user) && <MergeDuplicates />}
       <SetoresManager />
       <CommCenter
@@ -88,6 +127,7 @@ export default async function CommunicationPage() {
           received24,
           sent24,
           failed24,
+          outrosErros24,
           sending,
           avgLatency,
           provider: settings?.activeProvider ?? "MOCK",

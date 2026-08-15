@@ -3,6 +3,8 @@ import { ownedScope } from "./scope";
 import type { SessionUser } from "./auth";
 import type { TaskType, TaskPriority } from "@prisma/client";
 import { daysSince } from "./format";
+import { clientesNaHoraDeComprar, aniversariantes } from "./recompra";
+import { nomeCasaComEtapa } from "./funil-auto";
 
 export type AutomationSuggestion = {
   /** chave estável: regra + entidade — usada para não duplicar tarefas */
@@ -53,16 +55,26 @@ export async function computeAutomations(
     });
   }
 
-  // Regra 2 — catálogo enviado e sem avanço há 3+ dias
-  const catalogOpps = await db.opportunity.findMany({
-    where: {
-      ...scope,
-      status: "OPEN",
-      stage: { name: "Catálogo enviado" },
-      lastInteractionAt: { lt: days(3) },
-    },
-    include: { customer: true },
-  });
+  // Regra 2 — catálogo enviado e sem avanço há 3+ dias.
+  // A etapa casa pela MESMA régua do funil automático (variações de nome,
+  // sem acento) — o nome exato fazia a regra sumir se a etapa mudasse.
+  const etapasCatalogo = (
+    await db.stage.findMany({
+      where: { pipeline: { companyId: user.companyId } },
+      select: { id: true, name: true },
+    })
+  ).filter((s) => nomeCasaComEtapa(s.name, "CATALOGO_ENVIADO"));
+  const catalogOpps = etapasCatalogo.length
+    ? await db.opportunity.findMany({
+        where: {
+          ...scope,
+          status: "OPEN",
+          stageId: { in: etapasCatalogo.map((s) => s.id) },
+          lastInteractionAt: { lt: days(3) },
+        },
+        include: { customer: true },
+      })
+    : [];
   for (const o of catalogOpps) {
     suggestions.push({
       key: `catalogo-parado:${o.id}`,
@@ -77,24 +89,66 @@ export async function computeAutomations(
     });
   }
 
-  // Regra 3 — comprou há 30+ dias: sugerir recompra
-  const rebuyCustomers = await db.customer.findMany({
-    where: {
-      ...scope,
-      lastPurchaseAt: { lt: days(30), gt: days(90) },
-      opportunities: { none: { status: "OPEN" } },
-    },
+  // Regra 3 — PASSOU DO RITMO DELA (não é mais prazo fixo para todo mundo).
+  //
+  // O prazo fixo de 30 dias errava dos dois lados: a lojista que repõe a cada
+  // 3 semanas era chamada tarde (a concorrente já vendeu) e a que compra de 3
+  // em 3 meses era incomodada cedo — jeito mais rápido de queimar a relação.
+  // Agora o ritmo sai do histórico de compras de cada uma.
+  const naHora = await clientesNaHoraDeComprar(user.companyId, {
+    ownerId: scope.ownerId ?? null,
   });
-  for (const c of rebuyCustomers) {
+  if (naHora.length) {
+    const semNegociacaoAberta = await db.customer.findMany({
+      where: {
+        ...scope,
+        id: { in: naHora.map((c) => c.customerId) },
+        opportunities: { none: { status: "OPEN" } },
+      },
+      select: { id: true, name: true },
+    });
+    const nomePorId = new Map(semNegociacaoAberta.map((c) => [c.id, c.name]));
+    for (const c of naHora) {
+      const nome = nomePorId.get(c.customerId);
+      if (!nome) continue; // já tem negociação aberta: não precisa de empurrão
+      suggestions.push({
+        key: `recompra:${c.customerId}`,
+        rule: c.ritmoProprio ? "Passou do ritmo de compra" : "Tempo sem comprar",
+        title: `Oferecer novidades para ${nome}`,
+        description: c.ritmoProprio
+          ? `Não compra há ${c.diasSemComprar} dias e costuma comprar a cada ${c.cicloDias}. Passou da hora — mande os lançamentos.`
+          : `Última compra há ${c.diasSemComprar} dias (a loja gira a cada ${c.cicloDias}). Envie os lançamentos e sugira recompra.`,
+        customerId: c.customerId,
+        customerName: nome,
+        taskType: "ENVIAR_NOVIDADES",
+        priority: c.ritmoProprio ? "ALTA" : "MEDIA",
+      });
+    }
+  }
+
+  // Regra 7 — ANIVERSÁRIO (hoje e nos próximos 3 dias).
+  // É o disparo de maior conversão do ano numa loja de moda, e o campo nem
+  // existia. Prioridade máxima: data que passou não volta.
+  const fazendoAniversario = await aniversariantes(user.companyId, {
+    ownerId: scope.ownerId ?? null,
+    ateDias: 3,
+  });
+  for (const a of fazendoAniversario) {
+    const quando =
+      a.emQuantosDias === 0
+        ? "é HOJE"
+        : a.emQuantosDias === 1
+          ? "é amanhã"
+          : `é em ${a.emQuantosDias} dias`;
     suggestions.push({
-      key: `recompra:${c.id}`,
-      rule: "Comprou há 30+ dias",
-      title: `Oferecer novidades para ${c.name}`,
-      description: `Última compra ${daysSince(c.lastPurchaseAt!)} dias atrás. Envie os lançamentos e sugira recompra.`,
-      customerId: c.id,
-      customerName: c.name,
-      taskType: "ENVIAR_NOVIDADES",
-      priority: "MEDIA",
+      key: `aniversario:${a.customerId}:${new Date().getUTCFullYear()}`,
+      rule: "Aniversário da cliente",
+      title: `Parabenizar ${a.name}`,
+      description: `O aniversário ${quando}${a.idade ? ` (${a.idade} anos)` : ""}. Mande os parabéns — e, se a loja quiser, um mimo com prazo para ela voltar.`,
+      customerId: a.customerId,
+      customerName: a.name,
+      taskType: "LIGAR",
+      priority: a.emQuantosDias === 0 ? "ALTA" : "MEDIA",
     });
   }
 
@@ -146,12 +200,17 @@ export async function computeAutomations(
     });
   }
 
-  // Regra 6 — pedido fechado sem pós-venda
+  // Regra 6 — pedido fechado sem pós-venda.
+  //
+  // SÓ DEPOIS DE 5 DIAS: pedido fechado HOJE nem saiu da loja — sugerir
+  // "confirme se chegou bem" no mesmo dia não fazia sentido nenhum (a
+  // lojista estranhou, com razão). A janela é 5–14 dias após o fechamento:
+  // tempo de o pedido chegar, e ainda quente para pedir o feedback.
   const wonOpps = await db.opportunity.findMany({
     where: {
       ...scope,
       status: "WON",
-      closedAt: { gt: days(14) },
+      closedAt: { gt: days(14), lt: days(5) },
       tasks: { none: { type: "POS_VENDA" } },
     },
     include: { customer: true },
@@ -170,14 +229,57 @@ export async function computeAutomations(
     });
   }
 
-  // remove sugestões já aplicadas (task com o mesmo autoRule)
+  /**
+   * SUGESTÃO JÁ APLICADA SAI DA LISTA — MAS SÓ POR UM TEMPO.
+   *
+   * Antes, bastava EXISTIR uma tarefa com aquela chave para a regra calar
+   * PARA SEMPRE. Uma vez concluída "recompra:Maria", a Maria nunca mais era
+   * lembrada — nem seis meses depois. O motor ia emudecendo sozinho, cliente
+   * a cliente, e ninguém percebia porque o silêncio não aparece na tela.
+   *
+   * Isso ficou crítico agora que a agenda fecha tarefa sozinha (a vida
+   * resolveu): sem janela, cada conclusão automática apagaria a regra de vez.
+   *
+   * Regra nova: some enquanto a tarefa está ABERTA e por mais 30 dias depois
+   * de criada. Passou disso, se a condição continuar valendo, o sistema
+   * lembra de novo. As condições de cada regra continuam mandando — esta
+   * janela só evita cobrar a mesma coisa todo dia.
+   */
+  const JANELA_SILENCIO_MS = 30 * 24 * 60 * 60 * 1000;
   const applied = await db.task.findMany({
     where: {
       companyId: user.companyId,
       autoRule: { in: suggestions.map((s) => s.key) },
+      OR: [
+        { status: "PENDENTE" },
+        { createdAt: { gte: new Date(Date.now() - JANELA_SILENCIO_MS) } },
+      ],
     },
     select: { autoRule: true },
   });
   const appliedSet = new Set(applied.map((t) => t.autoRule));
-  return suggestions.filter((s) => !appliedSet.has(s.key));
+  const vivas = suggestions.filter((s) => !appliedSet.has(s.key));
+
+  // CONTATO FEITO HOJE ENCERRA A SUGESTÃO (pedido do dono, 05/08/2026):
+  // chamou a cliente — pela Central ou pelo aplicativo (o eco registra) —
+  // e a recomendação sai de TODAS as listas (Dashboard, Agenda, Automações)
+  // até o dia virar. O filtro mora AQUI para nenhuma tela contar diferente.
+  if (vivas.length === 0) return vivas;
+  const hojeSP = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Sao_Paulo",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());
+  const inicioHoje = new Date(`${hojeSP}T03:00:00Z`); // meia-noite de SP
+  const chamadasHoje = await db.conversation.findMany({
+    where: {
+      companyId: user.companyId,
+      customerId: { in: [...new Set(vivas.map((s) => s.customerId))] },
+      lastOutboundAt: { gte: inicioHoje },
+    },
+    select: { customerId: true },
+  });
+  const jaChamadas = new Set(chamadasHoje.map((c) => c.customerId));
+  return vivas.filter((s) => !jaChamadas.has(s.customerId));
 }

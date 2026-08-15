@@ -4,7 +4,7 @@
  * Dados do cliente + venda na tela do pedido, com edição inline.
  *
  * Pedidos do catálogo público podem chegar sem identificação; o vendedor
- * preenche aqui nome, telefone, CPF/CNPJ, e-mail e endereço (nada é
+ * preenche aqui nome, telefone, CPF, CNPJ, e-mail e endereço (nada é
  * obrigatório além do nome), além do vendedor responsável e do canal de
  * origem do cliente.
  */
@@ -14,13 +14,15 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Pencil } from "lucide-react";
 import { formatPhone, originLabel } from "@/lib/format";
+import { documentoParaMostrar } from "@/lib/documento";
 import { Avatar } from "@/components/ui";
 
 type CustomerData = {
   name: string;
   phone: string;
   email: string | null;
-  document: string | null;
+  cpf: string | null;
+  cnpj: string | null;
   zip: string | null;
   street: string | null;
   streetNumber: string | null;
@@ -52,7 +54,8 @@ export function CustomerEditor({
     name: customer.name.startsWith("Cliente do catálogo") ? "" : customer.name,
     phone: customer.phone,
     email: customer.email ?? "",
-    document: customer.document ?? "",
+    cpf: customer.cpf ?? "",
+    cnpj: customer.cnpj ?? "",
     zip: customer.zip ?? "",
     street: customer.street ?? "",
     streetNumber: customer.streetNumber ?? "",
@@ -113,7 +116,8 @@ export function CustomerEditor({
     const customerBody: Record<string, unknown> = {
       name: form.name.trim(),
       email: form.email.trim() || null,
-      document: form.document.trim() || null,
+      cpf: form.cpf.trim() || null,
+      cnpj: form.cnpj.trim() || null,
       zip: form.zip.trim() || null,
       street: form.street.trim() || null,
       streetNumber: form.streetNumber.trim() || null,
@@ -149,6 +153,7 @@ export function CustomerEditor({
   }
 
   if (!open) {
+    const doc = documentoParaMostrar(customer);
     const addr = [
       [
         [customer.street, customer.streetNumber].filter(Boolean).join(", "),
@@ -190,9 +195,9 @@ export function CustomerEditor({
             {unidentified ? "Preencher dados do cliente" : "Editar dados"}
           </button>
         </div>
-        {(customer.document || customer.email || addr) && (
+        {(doc || customer.email || addr) && (
           <div className="mt-1.5 space-y-0.5 text-xs text-gray-400">
-            {customer.document && <p>CPF/CNPJ: {customer.document}</p>}
+            {doc && <p>{doc}</p>}
             {customer.email && <p>E-mail: {customer.email}</p>}
             {addr && <p>Endereço: {addr}</p>}
           </div>
@@ -250,9 +255,15 @@ export function CustomerEditor({
           <span className={label}>Telefone (com DDD)</span>
           <input value={form.phone} onChange={set("phone")} placeholder="(11) 99999-0000" inputMode="tel" className={input} />
         </div>
+        {/* CPF e CNPJ separados: a cliente lojista tem os dois e cada
+            transportadora pede um deles */}
         <div>
-          <span className={label}>CPF / CNPJ</span>
-          <input value={form.document} onChange={set("document")} placeholder="000.000.000-00" className={input} />
+          <span className={label}>CPF</span>
+          <input value={form.cpf} onChange={set("cpf")} placeholder="000.000.000-00" inputMode="numeric" className={input} />
+        </div>
+        <div>
+          <span className={label}>CNPJ</span>
+          <input value={form.cnpj} onChange={set("cnpj")} placeholder="00.000.000/0000-00" inputMode="numeric" className={input} />
         </div>
         <div>
           <span className={label}>E-mail</span>

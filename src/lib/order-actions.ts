@@ -1,4 +1,5 @@
 import type { Prisma } from "@prisma/client";
+import { baixasLiquidasDoPedido } from "./estoque-do-pedido";
 
 /**
  * Apaga um pedido desfazendo TODO o efeito dele — como se nunca tivesse
@@ -22,28 +23,49 @@ export async function reverseAndDeleteOrder(
     companyId: string;
     customerId: string;
     stockDeducted: boolean;
+    stockWrittenOff: boolean;
     items: { variantId: string | null; quantity: number }[];
   }
-) {
-  // Estoque baixado (pedido pago) volta inteiro para o catálogo.
-  if (order.stockDeducted) {
-    for (const item of order.items) {
-      if (!item.variantId) continue;
-      await tx.productVariant.update({
-        where: { id: item.variantId },
-        data: { stock: { increment: item.quantity } },
-      });
-    }
+): Promise<{ devolvidas: { variantId: string; quantity: number }[] }> {
+  // Devolve EXATAMENTE o que o pedido segurou (livro de movimentos: saiu −
+  // voltou, por variação). Antes devolvia a quantidade do ITEM: reserva
+  // parcial do catálogo e item religado a outra peça criavam estoque
+  // fantasma na exclusão (auditoria 05/08/2026).
+  //
+  // EXCEÇÃO — baixa definitiva (stockWrittenOff): o cancelamento decidiu que
+  // as peças NÃO voltam (perda/brinde/defeito). Excluir o pedido não pode
+  // ressuscitá-las: nada é devolvido, e os movimentos ficam (desvinculados)
+  // como única explicação de por que o estoque está mais baixo.
+  const liquido = order.stockWrittenOff
+    ? new Map<string, number>()
+    : await baixasLiquidasDoPedido(tx, order.id);
+  const devolvidas = [...liquido.entries()].map(([variantId, quantity]) => ({
+    variantId,
+    quantity,
+  }));
+  for (const d of devolvidas) {
+    await tx.productVariant.updateMany({
+      where: { id: d.variantId },
+      data: { stock: { increment: d.quantity } },
+    });
   }
   // A venda sai do faturamento e o histórico de estoque some.
   await tx.sale.deleteMany({ where: { orderId: order.id } });
-  await tx.inventoryMovement.deleteMany({ where: { orderId: order.id } });
+  if (order.stockWrittenOff) {
+    await tx.inventoryMovement.updateMany({
+      where: { orderId: order.id },
+      data: { orderId: null },
+    });
+  } else {
+    await tx.inventoryMovement.deleteMany({ where: { orderId: order.id } });
+  }
   // Apaga o pedido; itens/pagamentos/envio/eventos caem por cascata.
   await tx.order.delete({ where: { id: order.id } });
 
   // Limpa o cliente que só existia por causa deste pedido (veio do catálogo
   // e não tem mais nenhum pedido). Isso zera as métricas de clientes.
   await cleanupOrphanCatalogCustomer(tx, order.companyId, order.customerId);
+  return { devolvidas };
 }
 
 /**
@@ -59,12 +81,43 @@ export async function cleanupOrphanCatalogCustomer(
 ) {
   const customer = await tx.customer.findFirst({
     where: { id: customerId, companyId },
-    select: { id: true, origin: true },
+    select: {
+      id: true,
+      origin: true,
+      notes: true,
+      cpf: true,
+      cnpj: true,
+      birthDate: true,
+      tags: { select: { tagId: true }, take: 1 },
+      interests: { select: { interestId: true }, take: 1 },
+    },
   });
   if (!customer || customer.origin !== "CATALOGO_PUBLICO") return;
 
+  // ficha TRABALHADA À MÃO não é órfã: se alguém anotou, etiquetou, marcou
+  // interesse ou documento, apagar jogaria fora trabalho da equipe
+  // (auditoria 07/08/2026). A carteira (ownerId) fica de fora do critério:
+  // ela é atribuída sozinha pelo rodízio, não é sinal de trabalho manual.
+  const enriquecido =
+    !!customer.notes ||
+    !!customer.cpf ||
+    !!customer.cnpj ||
+    !!customer.birthDate ||
+    customer.tags.length > 0 ||
+    customer.interests.length > 0;
+  if (enriquecido) return;
+
   const remainingOrders = await tx.order.count({ where: { customerId } });
   if (remainingOrders > 0) return;
+
+  // Conversa de WhatsApp com mensagens é HISTÓRICO REAL da loja: apagar o
+  // cliente cascatearia a conversa inteira. Cliente que já conversou fica —
+  // só o pedido some (auditoria 05/08/2026).
+  const temConversa = await tx.conversation.findFirst({
+    where: { customerId, messages: { some: {} } },
+    select: { id: true },
+  });
+  if (temConversa) return;
 
   // Navegação do cliente (visitas/cliques/funil) sai dos relatórios e da
   // Inteligência. Deletar as sessões cascateia os eventos.

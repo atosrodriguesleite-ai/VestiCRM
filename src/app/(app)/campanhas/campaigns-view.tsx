@@ -72,6 +72,15 @@ export function CampaignsView({
             icon={<Megaphone />}
             title="Nenhuma campanha ainda"
             hint="Crie uma campanha para reativar clientes inativos ou divulgar lançamentos."
+            action={
+              <button
+                onClick={() => setShowNew(true)}
+                className="flex items-center gap-1.5 rounded-xl bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium px-4 py-2 transition"
+              >
+                <Plus className="size-4" />
+                Criar primeira campanha
+              </button>
+            }
           />
         </Card>
       ) : (

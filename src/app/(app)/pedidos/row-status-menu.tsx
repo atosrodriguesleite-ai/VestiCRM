@@ -16,6 +16,7 @@ import { Check, ChevronDown } from "lucide-react";
 import { ORDER_STATUS_FLOW, orderStatusLabel, orderStatusColor } from "@/lib/orders";
 import type { OrderStatus } from "@prisma/client";
 import { Portal } from "@/components/portal";
+import { CancelOrderDialog } from "./cancel-dialog";
 
 export function RowStatusMenu({
   orderId,
@@ -32,6 +33,8 @@ export function RowStatusMenu({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
+  // cancelamento pergunta antes: devolver as peças ao estoque ou baixar de vez?
+  const [askCancel, setAskCancel] = useState(false);
 
   function toggle(e: React.MouseEvent) {
     e.preventDefault();
@@ -46,17 +49,20 @@ export function RowStatusMenu({
     setOpen(true);
   }
 
-  async function pick(e: React.MouseEvent, status: OrderStatus) {
-    e.preventDefault();
-    e.stopPropagation();
+  async function pick(
+    e: React.MouseEvent | null,
+    status: OrderStatus,
+    restock?: boolean
+  ) {
+    e?.preventDefault();
+    e?.stopPropagation();
     if (busy || status === shown) {
       setOpen(false);
       return;
     }
-    if (
-      status === "CANCELADO" &&
-      !window.confirm("Cancelar o pedido? Se ele já estava pago, o estoque volta para o catálogo.")
-    ) {
+    if (status === "CANCELADO" && restock === undefined) {
+      setOpen(false);
+      setAskCancel(true); // a resposta do diálogo chama de novo com restock
       return;
     }
     const previous = shown;
@@ -67,7 +73,7 @@ export function RowStatusMenu({
     const res = await fetch(`/api/orders/${orderId}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ status }),
+      body: JSON.stringify({ status, ...(restock !== undefined ? { restock } : {}) }),
     });
     setBusy(false);
     if (!res.ok) {
@@ -142,6 +148,14 @@ export function RowStatusMenu({
           </div>
         </Portal>
       )}
+      <CancelOrderDialog
+        open={askCancel}
+        onClose={() => setAskCancel(false)}
+        onConfirm={(restock) => {
+          setAskCancel(false);
+          pick(null, "CANCELADO", restock);
+        }}
+      />
     </>
   );
 }

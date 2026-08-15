@@ -3,7 +3,20 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import { requireUser, AuthError } from "@/lib/auth";
 import { isManagerUp, isSupport } from "@/lib/scope";
-import { parseCategoryOrder } from "@/lib/categories";
+import {
+  LIMITE_DESCRICAO,
+  definirDescricao,
+  definirTipo,
+  descricaoDaCategoria,
+  parseCategoryDescriptions,
+  parseCategoryOrder,
+  parseCategoryTypes,
+  removerDescricao,
+  removerTipo,
+  renomearDescricao,
+  renomearTipo,
+  tipoDaCategoria,
+} from "@/lib/categories";
 
 /**
  * Categorias do catálogo. As categorias "vivem" nos produtos (campo category);
@@ -26,14 +39,28 @@ export async function GET() {
     if (!g.ok) return g.res;
     const companyId = g.user.companyId;
     const [company, grouped] = await Promise.all([
-      db.company.findUnique({ where: { id: companyId }, select: { extraCategories: true } }),
+      db.company.findUnique({
+        where: { id: companyId },
+        select: {
+          extraCategories: true,
+          categoryDescriptions: true,
+          categoryTypes: true,
+        },
+      }),
       db.product.groupBy({ by: ["category"], where: { companyId }, _count: { _all: true } }),
     ]);
     const counts = new Map(grouped.map((g) => [g.category, g._count._all]));
     const extras = parseCategoryOrder(company?.extraCategories);
+    const descricoes = parseCategoryDescriptions(company?.categoryDescriptions);
+    const tipos = parseCategoryTypes(company?.categoryTypes);
     const nomes = new Set<string>([...counts.keys(), ...extras]);
     const categories = [...nomes]
-      .map((name) => ({ name, count: counts.get(name) ?? 0 }))
+      .map((name) => ({
+        name,
+        count: counts.get(name) ?? 0,
+        description: descricaoDaCategoria(descricoes, name),
+        type: tipoDaCategoria(tipos, name),
+      }))
       .sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
     return NextResponse.json({ categories });
   } catch (e) {
@@ -72,9 +99,20 @@ export async function POST(req: NextRequest) {
   }
 }
 
-const patchSchema = z.object({ from: z.string().min(1), to: z.string().min(1).max(40) });
+const patchSchema = z.object({
+  from: z.string().min(1),
+  to: z.string().min(1).max(40).optional(),
+  // texto que aparece embaixo do nome da categoria no catálogo público.
+  // String vazia = apagar o texto (volta ao comportamento antigo).
+  description: z.string().max(LIMITE_DESCRICAO).optional(),
+  // guarda-chuva da categoria no catálogo ("Blusas"). Vazio = tirar.
+  type: z.string().max(40).optional(),
+});
 
-/** Renomeia uma categoria em todos os produtos (e nas listas salvas). */
+/**
+ * Renomeia uma categoria em todos os produtos (e nas listas salvas) e/ou
+ * grava a descrição que aparece no catálogo. Dá pra mandar só a descrição.
+ */
 export async function PATCH(req: NextRequest) {
   try {
     const g = await gate();
@@ -83,11 +121,41 @@ export async function PATCH(req: NextRequest) {
     if (!parsed.success) return NextResponse.json({ error: "Dados inválidos" }, { status: 400 });
     const companyId = g.user.companyId;
     const from = parsed.data.from.trim();
-    const to = parsed.data.to.trim();
-    if (from === to) return NextResponse.json({ ok: true, name: to });
+    const to = (parsed.data.to ?? from).trim();
+    const renomeando = from !== to;
+    if (
+      !renomeando &&
+      parsed.data.description === undefined &&
+      parsed.data.type === undefined
+    ) {
+      return NextResponse.json({ ok: true, name: to });
+    }
 
-    await db.product.updateMany({ where: { companyId, category: from }, data: { category: to } });
-    const company = await db.company.findUnique({ where: { id: companyId }, select: { extraCategories: true, categoryOrder: true } });
+    const company = await db.company.findUnique({
+      where: { id: companyId },
+      select: {
+        extraCategories: true,
+        categoryOrder: true,
+        categoryDescriptions: true,
+        categoryTypes: true,
+      },
+    });
+    let descricoes = parseCategoryDescriptions(company?.categoryDescriptions);
+    let tipos = parseCategoryTypes(company?.categoryTypes);
+
+    if (renomeando) {
+      await db.product.updateMany({ where: { companyId, category: from }, data: { category: to } });
+      // a descrição acompanha o novo nome (senão sumia ao renomear)
+      descricoes = renomearDescricao(descricoes, from, to);
+      tipos = renomearTipo(tipos, from, to);
+    }
+    if (parsed.data.description !== undefined) {
+      descricoes = definirDescricao(descricoes, to, parsed.data.description);
+    }
+    if (parsed.data.type !== undefined) {
+      tipos = definirTipo(tipos, to, parsed.data.type);
+    }
+
     const swap = (list: string[]) => {
       const next = list.map((c) => (c === from ? to : c));
       return [...new Set(next)];
@@ -95,11 +163,22 @@ export async function PATCH(req: NextRequest) {
     await db.company.update({
       where: { id: companyId },
       data: {
-        extraCategories: JSON.stringify(swap(parseCategoryOrder(company?.extraCategories))),
-        categoryOrder: JSON.stringify(swap(parseCategoryOrder(company?.categoryOrder))),
+        ...(renomeando
+          ? {
+              extraCategories: JSON.stringify(swap(parseCategoryOrder(company?.extraCategories))),
+              categoryOrder: JSON.stringify(swap(parseCategoryOrder(company?.categoryOrder))),
+            }
+          : {}),
+        categoryDescriptions: JSON.stringify(descricoes),
+        categoryTypes: JSON.stringify(tipos),
       },
     });
-    return NextResponse.json({ ok: true, name: to });
+    return NextResponse.json({
+      ok: true,
+      name: to,
+      description: descricaoDaCategoria(descricoes, to),
+      type: tipoDaCategoria(tipos, to),
+    });
   } catch (e) {
     if (e instanceof AuthError) return NextResponse.json({ error: "Não autenticado" }, { status: 401 });
     throw e;
@@ -137,11 +216,26 @@ export async function DELETE(req: NextRequest) {
       }
     }
 
-    const company = await db.company.findUnique({ where: { id: companyId }, select: { extraCategories: true, categoryOrder: true } });
+    const company = await db.company.findUnique({
+      where: { id: companyId },
+      select: {
+        extraCategories: true,
+        categoryOrder: true,
+        categoryDescriptions: true,
+        categoryTypes: true,
+      },
+    });
     const drop = (list: string[]) => list.filter((c) => c !== name);
     await db.company.update({
       where: { id: companyId },
       data: {
+        // categoria apagada não deixa descrição órfã no banco
+        categoryDescriptions: JSON.stringify(
+          removerDescricao(parseCategoryDescriptions(company?.categoryDescriptions), name)
+        ),
+        categoryTypes: JSON.stringify(
+          removerTipo(parseCategoryTypes(company?.categoryTypes), name)
+        ),
         extraCategories: JSON.stringify(drop(parseCategoryOrder(company?.extraCategories))),
         categoryOrder: JSON.stringify(drop(parseCategoryOrder(company?.categoryOrder))),
       },

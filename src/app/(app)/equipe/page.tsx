@@ -13,6 +13,15 @@ export default async function TeamPage() {
   if (!isManagerUp(user)) redirect("/dashboard");
 
   const days30 = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+  // início do MÊS no fuso de São Paulo — a meta é mensal, e usar 30 dias
+  // corridos misturava vendas do mês passado na barra (a mesma venda contava
+  // para duas metas; auditoria 07/08/2026). Mesma régua do Dashboard.
+  const spMonth = new Date(Date.now() - 3 * 60 * 60 * 1000);
+  spMonth.setUTCDate(1);
+  spMonth.setUTCHours(0, 0, 0, 0);
+  const startOfMonth = new Date(spMonth.getTime() + 3 * 60 * 60 * 1000);
+  // uma janela só cobre as duas contas (30d para o cartão, mês para a meta)
+  const desde = startOfMonth < days30 ? startOfMonth : days30;
 
   const members = await db.user.findMany({
     where: { companyId: user.companyId },
@@ -28,10 +37,10 @@ export default async function TeamPage() {
       // vendas = pedidos PAGOS (fonte única; inclui integrações tipo Nuvemshop)
       orders: {
         where: {
-          paidAt: { gte: days30 },
+          paidAt: { gte: desde },
           status: { in: PAID_ORDER_STATUSES },
         },
-        select: { total: true },
+        select: { netTotal: true, paidAt: true },
       },
     },
   });
@@ -50,7 +59,13 @@ export default async function TeamPage() {
       customers: m._count.customers,
       conversations: m._count.conversations,
       pendingTasks: m._count.tasks,
-      sales30: m.orders.reduce((s, v) => s + v.total, 0),
+      sales30: m.orders
+        .filter((v) => v.paidAt && v.paidAt >= days30)
+        .reduce((s, v) => s + v.netTotal, 0),
+      // a barra da meta soma SÓ o mês corrente (fuso SP)
+      soldMonth: m.orders
+        .filter((v) => v.paidAt && v.paidAt >= startOfMonth)
+        .reduce((s, v) => s + v.netTotal, 0),
       monthlyGoal: m.monthlyGoal,
       isMe: m.id === user.id,
     }));

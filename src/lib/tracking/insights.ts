@@ -11,6 +11,16 @@ import { PAID_ORDER_STATUSES } from "../orders";
 export type Period = { from: Date; to: Date };
 
 export function periodFromDays(days: number): Period {
+  // "HOJE" é o dia de São Paulo, não as últimas 24h corridas: às 9h da manhã
+  // o jeito antigo incluía a noite de ontem inteira e o número nunca batia
+  // com o Dashboard (auditoria 06/08/2026). Períodos maiores seguem janela
+  // corrida (7/30 dias), igual sempre foram.
+  if (days === 1) {
+    const diaSP = new Intl.DateTimeFormat("en-CA", {
+      timeZone: "America/Sao_Paulo",
+    }).format(new Date());
+    return { from: new Date(`${diaSP}T03:00:00Z`), to: new Date() };
+  }
   return {
     from: new Date(Date.now() - days * 24 * 60 * 60 * 1000),
     to: new Date(),
@@ -24,6 +34,58 @@ export function previousPeriod(p: Period): Period {
 
 const r2 = (v: number) => Math.round(v * 100) / 100;
 const pct = (num: number, den: number) => (den > 0 ? (num / den) * 100 : 0);
+
+/**
+ * CARRINHOS ABANDONADOS — a régua única (KPI e lista de recuperação).
+ *
+ * Auditoria 06/08/2026: o cartão contava POR SESSÃO (a mesma cliente que
+ * voltou no dia seguinte contava 2× e a sacola somava em dobro) enquanto a
+ * lista logo abaixo deduplicava por visitante — "2 carrinhos / R$ 1.050" em
+ * cima e 1 oportunidade de R$ 550 embaixo. Regra única: 1 visitante = 1
+ * carrinho (a sessão mais RECENTE dele), e só sacola com valor (> 0).
+ */
+export function carrinhosAbandonados<
+  S extends { visitorId: string; converted: boolean; cartAdds: number; cartValue: number; startedAt: Date },
+>(sessions: S[]): S[] {
+  const vistos = new Set<string>();
+  const out: S[] = [];
+  for (const s of [...sessions].sort(
+    (a, b) => b.startedAt.getTime() - a.startedAt.getTime()
+  )) {
+    if (!s.converted && s.cartAdds > 0 && s.cartValue > 0 && !vistos.has(s.visitorId)) {
+      vistos.add(s.visitorId);
+      out.push(s);
+    }
+  }
+  return out;
+}
+
+/**
+ * FATURAMENTO REAL por sessão: soma `netTotal` dos pedidos PAGOS ligados às
+ * sessões (Order.trackSessionId). Antes o ranking somava `cartValue` — o
+ * valor da SACOLA no envio, vindo do navegador, de pedido nem pago — e
+ * chamava de faturamento (auditoria 06/08/2026).
+ */
+async function faturamentoPagoPorSessao(
+  companyId: string,
+  sessionIds: string[]
+): Promise<Map<string, number>> {
+  if (sessionIds.length === 0) return new Map();
+  const pagos = await db.order.findMany({
+    where: {
+      companyId,
+      trackSessionId: { in: sessionIds },
+      status: { in: PAID_ORDER_STATUSES },
+    },
+    select: { trackSessionId: true, netTotal: true },
+  });
+  const porSessao = new Map<string, number>();
+  for (const o of pagos) {
+    if (!o.trackSessionId) continue;
+    porSessao.set(o.trackSessionId, (porSessao.get(o.trackSessionId) ?? 0) + o.netTotal);
+  }
+  return porSessao;
+}
 
 async function loadSessions(companyId: string, p: Period) {
   return db.trackSession.findMany({
@@ -50,7 +112,7 @@ export async function overview(companyId: string, p: Period) {
         status: { in: PAID_ORDER_STATUSES },
         paidAt: { gte: p.from, lte: p.to },
       },
-      select: { total: true },
+      select: { netTotal: true },
     }),
     db.customer.count({
       where: { companyId, createdAt: { gte: p.from, lte: p.to } },
@@ -64,9 +126,12 @@ export async function overview(companyId: string, p: Period) {
   const durations = sessions
     .map((s) => (s.lastEventAt.getTime() - s.startedAt.getTime()) / 1000)
     .filter((d) => d >= 0);
+  // soma REAL (o "tempo total" era reconstruído por média×sessões, com erro)
+  const totalSessionSeconds = Math.round(durations.reduce((a, b) => a + b, 0));
   const converted = sessions.filter((s) => s.converted);
-  const abandoned = sessions.filter((s) => !s.converted && s.cartAdds > 0);
-  const revenue = sales.reduce((a, s) => a + s.total, 0);
+  // mesma régua da lista de recuperação: 1 visitante = 1 carrinho, com valor
+  const abandoned = carrinhosAbandonados(sessions);
+  const revenue = sales.reduce((a, s) => a + s.netTotal, 0);
   const buyers = await db.order.groupBy({
     by: ["customerId"],
     where: {
@@ -83,8 +148,9 @@ export async function overview(companyId: string, p: Period) {
     uniqueVisitors: visitors.size,
     identifiedCustomers: identified.size,
     avgSessionSeconds: durations.length
-      ? Math.round(durations.reduce((a, b) => a + b, 0) / durations.length)
+      ? Math.round(totalSessionSeconds / durations.length)
       : 0,
+    totalSessionSeconds,
     ordersFromCatalog: converted.length,
     conversionRate: r2(pct(converted.length, sessions.length)),
     abandonedCarts: abandoned.length,
@@ -135,15 +201,19 @@ export async function funnel(companyId: string, p: Period) {
   const withCart = new Set(
     events.filter((e) => e.type === "cart_open").map((e) => e.sessionId)
   );
+  // DUAS POPULAÇÕES, ditas com todas as letras: os 5 primeiros degraus são
+  // SÓ do catálogo (sessões rastreadas); os 3 finais são da LOJA INTEIRA
+  // (WhatsApp, Nuvemshop, manual). Sem o rótulo, o funil "subia" no meio e
+  // parecia bug (40 visitas → 60 leads) — auditoria 06/08/2026.
   return [
-    { label: "Visitas", value: sessions.length },
+    { label: "Visitas (catálogo)", value: sessions.length },
     { label: "Viram produtos", value: withProduct.size },
     { label: "Adicionaram à sacola", value: withAdd.size },
     { label: "Abriram o carrinho", value: withCart.size },
     { label: "Enviaram pedido", value: sessions.filter((s) => s.converted).length },
-    { label: "Entraram no CRM (leads)", value: leads },
-    { label: "Compraram", value: sales.length },
-    { label: "Recompraram", value: rebuyers.length },
+    { label: "Leads novos (loja inteira)", value: leads },
+    { label: "Compraram (loja inteira)", value: sales.length },
+    { label: "Recompraram (loja inteira)", value: rebuyers.length },
   ];
 }
 
@@ -151,6 +221,11 @@ export async function funnel(companyId: string, p: Period) {
 
 export async function channelRanking(companyId: string, p: Period) {
   const sessions = await loadSessions(companyId, p);
+  // faturamento REAL: pedidos pagos ligados às sessões (não valor de sacola)
+  const pagoPorSessao = await faturamentoPagoPorSessao(
+    companyId,
+    sessions.map((s) => s.id)
+  );
   const map = new Map<
     string,
     { channel: string; sessions: number; orders: number; revenue: number }
@@ -160,10 +235,8 @@ export async function channelRanking(companyId: string, p: Period) {
       map.get(s.channel) ??
       { channel: s.channel, sessions: 0, orders: 0, revenue: 0 };
     row.sessions += 1;
-    if (s.converted) {
-      row.orders += 1;
-      row.revenue += s.cartValue;
-    }
+    if (s.converted) row.orders += 1;
+    row.revenue += pagoPorSessao.get(s.id) ?? 0;
     map.set(s.channel, row);
   }
   return [...map.values()]
@@ -183,7 +256,7 @@ export async function sellerRanking(companyId: string, p: Period) {
         status: { in: PAID_ORDER_STATUSES },
         paidAt: { gte: p.from, lte: p.to },
       },
-      select: { total: true, sellerId: true },
+      select: { netTotal: true, sellerId: true },
     }),
     db.customer.findMany({
       where: { companyId },
@@ -202,9 +275,18 @@ export async function sellerRanking(companyId: string, p: Period) {
       const clicks = sessions.filter((s) => s.sellerId === u.id);
       const orders = clicks.filter((s) => s.converted);
       const mySales = sales.filter((s) => s.sellerId === u.id);
-      const revenue = mySales.reduce((a, s) => a + s.total, 0);
+      const revenue = mySales.reduce((a, s) => a + s.netTotal, 0);
+      // "dias até a venda" respeita o PERÍODO do relatório: só clientes cuja
+      // 1ª compra aconteceu dentro dele (antes olhava a carteira inteira,
+      // de qualquer época, dentro de um ranking filtrado por período)
       const daysToSale = customers
-        .filter((c) => c.ownerId === u.id && c.orders[0])
+        .filter(
+          (c) =>
+            c.ownerId === u.id &&
+            c.orders[0] &&
+            c.orders[0].paidAt! >= p.from &&
+            c.orders[0].paidAt! <= p.to
+        )
         .map(
           (c) =>
             (c.orders[0].paidAt!.getTime() - c.createdAt.getTime()) /
@@ -235,11 +317,16 @@ export async function campaignRanking(companyId: string, p: Period) {
     loadSessions(companyId, p),
     db.user.findMany({ where: { companyId } }),
   ]);
+  // faturamento REAL: pedidos pagos ligados às sessões (não valor de sacola)
+  const pagoPorSessao = await faturamentoPagoPorSessao(
+    companyId,
+    sessions.map((s) => s.id)
+  );
   return campaigns
     .map((c) => {
       const mine = sessions.filter((s) => s.campaignId === c.id);
       const orders = mine.filter((s) => s.converted);
-      const revenue = orders.reduce((a, s) => a + s.cartValue, 0);
+      const revenue = mine.reduce((a, s) => a + (pagoPorSessao.get(s.id) ?? 0), 0);
       return {
         id: c.id,
         name: c.name,
@@ -287,8 +374,47 @@ async function dimensionStats(companyId: string, p: Period, dim: Dim) {
     row.revenue += revenue;
     map.set(key, row);
   };
+  // Acesso E venda se amarram ao CADASTRO ATUAL pelo productId: evento e item
+  // de pedido guardam o nome/categoria DA ÉPOCA, e quando a lojista renomeia o
+  // produto o nome congelado some do cadastro — resolvido só por nome, a venda
+  // sumia da tabela (Categorias somava 139 peças enquanto Cores somava 305) e
+  // o mesmo produto virava DUAS linhas (uma só com acessos, outra só com
+  // vendas — o alerta "muito visto e não vendeu" disparava à toa). O nome
+  // congelado fica de plano B para produto apagado, e peça sem cor/tamanho
+  // entra como "Sem cor"/"Sem tamanho" — os três quadros contam as MESMAS peças.
+  const precisaCadastro = dim === "productName" || dim === "category";
+  const products =
+    precisaCadastro && (events.length > 0 || orderItems.length > 0)
+      ? await db.product.findMany({
+          where: { companyId },
+          select: { id: true, name: true, category: true },
+          orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+        })
+      : [];
+  const porId = new Map(products.map((pr) => [pr.id, pr]));
+  // nome NÃO é único no cadastro ([companyId, sku] é): com xarás, vence o mais
+  // antigo — determinístico, e só usado como plano B quando o id se perdeu
+  const porNome = new Map<string, (typeof products)[number]>();
+  for (const pr of products) if (!porNome.has(pr.name)) porNome.set(pr.name, pr);
+  const cadastroAtual = (
+    productId: string | null | undefined,
+    nomeCongelado: string | null | undefined
+  ) =>
+    (productId ? porId.get(productId) : undefined) ??
+    (nomeCongelado ? porNome.get(nomeCongelado) : undefined);
   for (const e of events) {
-    const key = e[dim];
+    const key =
+      dim === "productName"
+        ? (cadastroAtual(e.productId, e.productName)?.name ?? e.productName)
+        : dim === "category"
+          ? e.type === "product_view"
+            ? (() => {
+                // categoria de HOJE do produto visto; produto sumiu → a da época
+                const pr = cadastroAtual(e.productId, e.productName);
+                return pr ? pr.category || null : e.category;
+              })()
+            : e.category
+          : e[dim]?.trim() || null;
     if (e.type === "product_view" || e.type === "category_view" || e.type === "color_select" || e.type === "size_select") {
       if (
         (dim === "productName" && e.type === "product_view") ||
@@ -303,26 +429,16 @@ async function dimensionStats(companyId: string, p: Period, dim: Dim) {
     if (e.type === "cart_remove") bump(key, "removes", e.qty ?? 1);
   }
   for (const item of orderItems) {
+    const produto = cadastroAtual(item.productId, item.name);
     const key =
       dim === "productName"
-        ? item.name
+        ? (produto?.name ?? item.name)
         : dim === "category"
-          ? null // categoria não está no snapshot do item
+          ? produto?.category || "Sem categoria"
           : dim === "color"
-            ? item.color
-            : item.size;
+            ? item.color?.trim() || "Sem cor"
+            : item.size?.trim() || "Sem tamanho";
     bump(key, "sold", item.quantity, item.total);
-  }
-  // categorias vendidas via produto → categoria atual
-  if (dim === "category") {
-    const products = await db.product.findMany({
-      where: { companyId },
-      select: { name: true, category: true },
-    });
-    const catByName = new Map(products.map((pr) => [pr.name, pr.category]));
-    for (const item of orderItems) {
-      bump(catByName.get(item.name), "sold", item.quantity, item.total);
-    }
   }
   return [...map.values()].map((row) => ({
     ...row,
@@ -350,7 +466,7 @@ export async function heatmaps(companyId: string, p: Period) {
         status: { in: PAID_ORDER_STATUSES },
         paidAt: { gte: p.from, lte: p.to },
       },
-      select: { total: true, paidAt: true },
+      select: { netTotal: true, paidAt: true },
     }),
   ]);
   const grid = () => Array.from({ length: 7 }, () => Array(24).fill(0) as number[]);
@@ -366,7 +482,7 @@ export async function heatmaps(companyId: string, p: Period) {
   }
   for (const s of sales) {
     if (!s.paidAt) continue; // pago sem data não entra (não inventa hora)
-    revenue[sp(s.paidAt).getUTCDay()][sp(s.paidAt).getUTCHours()] += s.total;
+    revenue[sp(s.paidAt).getUTCDay()][sp(s.paidAt).getUTCHours()] += s.netTotal;
   }
   const conversion = grid();
   for (let d = 0; d < 7; d++) {
@@ -379,14 +495,55 @@ export async function heatmaps(companyId: string, p: Period) {
 
 // ---- Recuperação comercial + alertas -----------------------------------------
 
+/**
+ * OPORTUNIDADES DE RECUPERAÇÃO — carrinho abandonado, quase comprando, cliente
+ * que voltou.
+ *
+ * Devolve TODAS as oportunidades do período (quem chama decide quantas
+ * mostrar). Antes cortava em 12 aqui dentro: a tela dizia "33 carrinhos
+ * abandonados" e não existia jeito de ver os outros 21 — dinheiro parado que
+ * a loja nunca chegava a perseguir.
+ *
+ * O teto alto (`LIMITE_RECUPERACAO`) é só para a página não travar num
+ * período de um ano numa loja grande.
+ */
+export const LIMITE_RECUPERACAO = 300;
+
 export async function recovery(companyId: string, p: Period) {
   const sessions = await db.trackSession.findMany({
-    where: { companyId, startedAt: { gte: p.from } },
+    where: { companyId, startedAt: { gte: p.from, lte: p.to } },
     include: { visitor: true },
     orderBy: { startedAt: "desc" },
   });
   const customers = await db.customer.findMany({ where: { companyId } });
   const byId = new Map(customers.map((c) => [c.id, c]));
+
+  // AS SACOLAS EM UMA CONSULTA SÓ. Antes era uma consulta por carrinho, dentro
+  // do laço: com 12 itens passava, com 300 derrubaria a tela.
+  const idsAbandonados = new Set<string>();
+  const vistosNaVarredura = new Set<string>();
+  for (const s of sessions) {
+    if (!s.converted && s.cartAdds > 0 && s.cartValue > 0 && !vistosNaVarredura.has(s.visitorId)) {
+      vistosNaVarredura.add(s.visitorId);
+      idsAbandonados.add(s.id);
+    }
+  }
+  const eventosDasSacolas = idsAbandonados.size
+    ? await db.trackEvent.findMany({
+        where: {
+          sessionId: { in: [...idsAbandonados] },
+          type: { in: ["cart_add", "cart_remove"] },
+        },
+        orderBy: { createdAt: "asc" },
+      })
+    : [];
+  const eventosPorSessao = new Map<string, typeof eventosDasSacolas>();
+  for (const e of eventosDasSacolas) {
+    if (!e.sessionId) continue;
+    const lista = eventosPorSessao.get(e.sessionId) ?? [];
+    lista.push(e);
+    eventosPorSessao.set(e.sessionId, lista);
+  }
   const out: {
     kind: string;
     title: string;
@@ -404,10 +561,7 @@ export async function recovery(companyId: string, p: Period) {
       const customer = s.customerId ? byId.get(s.customerId) : null;
       const name = customer?.name ?? null;
       // reconstrói a sacola abandonada pelos eventos (produto/cor/tam/qtd)
-      const evs = await db.trackEvent.findMany({
-        where: { sessionId: s.id, type: { in: ["cart_add", "cart_remove"] } },
-        orderBy: { createdAt: "asc" },
-      });
+      const evs = eventosPorSessao.get(s.id) ?? [];
       const bag = new Map<string, number>();
       for (const e of evs) {
         const key = [e.productName, e.color, e.size].filter(Boolean).join(" · ");
@@ -461,7 +615,7 @@ export async function recovery(companyId: string, p: Period) {
       }
     }
   }
-  return out.slice(0, 12);
+  return out.slice(0, LIMITE_RECUPERACAO);
 }
 
 const fmtBrl = (v: number) =>

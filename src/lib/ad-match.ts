@@ -82,3 +82,30 @@ export function campanhaDoAnuncio<T extends { id: string; adRefs: string | null;
     campanhas.find((c) => c.active && refsDaCampanha(c.adRefs).includes(alvo)) ?? null
   );
 }
+
+/**
+ * Texto do anúncio como a equipe lê ("Post do Instagram · dbn-u8qsqk4").
+ * O código sozinho não diz nada para quem vende; a origem, sim.
+ */
+export function rotuloDoAnuncio(code: string, url?: string | null): string {
+  const u = (url ?? "").toLowerCase();
+  const origem = /instagram\.com/.test(u)
+    ? "Post do Instagram"
+    : /facebook\.com|fb\.com/.test(u)
+      ? "Post do Facebook"
+      : "Anúncio";
+  return `${origem} · ${code}`;
+}
+
+/**
+ * Acrescenta um código de anúncio à lista da campanha, sem repetir e sem
+ * perder o que já estava lá (a loja pode ter colado vários posts).
+ */
+export function juntarRef(adRefs: string | null | undefined, code: string): string {
+  const atuais = refsDaCampanha(adRefs);
+  const alvo = code.toLowerCase();
+  if (atuais.includes(alvo)) return (adRefs ?? "").trim();
+  return [...(adRefs ?? "").split(/\n/).map((l) => l.trim()).filter(Boolean), alvo].join(
+    "\n"
+  );
+}

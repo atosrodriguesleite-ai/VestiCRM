@@ -46,6 +46,7 @@ export type Loja = {
   marketingEnabled: boolean;
   mediaLibraryEnabled: boolean;
   shippingEnabled: boolean;
+  aiSalesEnabled: boolean;
   suspended: boolean;
   billing: {
     kind: string;
@@ -116,10 +117,13 @@ export function LojasView({
   initial,
   catalogDomain,
   recebidoMes,
+  mrrModulos,
 }: {
   initial: Loja[];
   catalogDomain: string | null;
   recebidoMes: number;
+  /** receita mensal dos módulos contratados (calculada no servidor) */
+  mrrModulos: number;
 }) {
   const router = useRouter();
   const [lojas, setLojas] = useState<Loja[]>(initial);
@@ -135,7 +139,9 @@ export function LojasView({
 
   return (
     <div className="space-y-6">
-      {lojas.length > 0 && <ResumoCobranca lojas={lojas} recebidoMes={recebidoMes} />}
+      {lojas.length > 0 && (
+        <ResumoCobranca lojas={lojas} recebidoMes={recebidoMes} mrrModulos={mrrModulos} />
+      )}
 
       {created && <CredentialsPanel cred={created} catalogDomain={catalogDomain} onClose={() => setCreated(null)} />}
 
@@ -185,13 +191,25 @@ export function LojasView({
 
 /* ---------------------------------------------------- resumo de cobrança (topo) */
 
-function ResumoCobranca({ lojas, recebidoMes }: { lojas: Loja[]; recebidoMes: number }) {
-  // MRR = recorrência somada das lojas pagantes e ativas (não suspensas)
-  const mrr = lojas.reduce(
+function ResumoCobranca({
+  lojas,
+  recebidoMes,
+  mrrModulos,
+}: {
+  lojas: Loja[];
+  recebidoMes: number;
+  /** receita mensal dos MÓDULOS contratados (vinha calculada do servidor) */
+  mrrModulos: number;
+}) {
+  // MRR = mensalidade base das lojas pagantes ativas + módulos contratados.
+  // Antes somava só a mensalidade: todo módulo vendido era receita
+  // INVISÍVEL no total da plataforma.
+  const mrrBase = lojas.reduce(
     (a, l) =>
       l.billing?.kind === "PAGANTE" && !l.suspended ? a + l.billing.monthlyFee : a,
     0
   );
+  const mrr = mrrBase + mrrModulos;
   const atrasadas = lojas.filter((l) => statusDe(l).code === "ATRASADO").length;
   // paradas = sem nenhum acesso registrado há mais de 7 dias (risco de churn)
   const seteDias = Date.now() - 7 * 86_400_000;
@@ -200,7 +218,12 @@ function ResumoCobranca({ lojas, recebidoMes }: { lojas: Loja[]; recebidoMes: nu
   ).length;
 
   const cards: { label: string; value: string; tone: string; hint?: string }[] = [
-    { label: "Recorrência / mês", value: brl(mrr), tone: "text-emerald-700", hint: "lojas pagantes ativas" },
+    {
+      label: "Recorrência / mês",
+      value: brl(mrr),
+      tone: "text-emerald-700",
+      hint: mrrModulos > 0 ? `${brl(mrrBase)} base + ${brl(mrrModulos)} módulos` : "lojas pagantes ativas",
+    },
     { label: "Recebido no mês", value: brl(recebidoMes), tone: "text-brand-600", hint: "pagamentos registrados" },
     { label: "Lojas em atraso", value: String(atrasadas), tone: atrasadas ? "text-rose-600" : "text-slate-900", hint: "vencidas sem baixa" },
     { label: "Lojas paradas", value: String(paradas), tone: paradas ? "text-amber-600" : "text-slate-900", hint: "sem acesso há 7+ dias" },
@@ -284,6 +307,7 @@ function NewLojaForm({
           marketingEnabled: false,
           mediaLibraryEnabled: false,
           shippingEnabled: false,
+          aiSalesEnabled: false,
           suspended: false,
           billing: null,
           lastActiveAt: null,
@@ -805,6 +829,8 @@ function LojaCard({ loja, catalogDomain }: { loja: Loja; catalogDomain: string |
   const [togglingBib, setTogglingBib] = useState(false);
   const [envios, setEnvios] = useState(loja.shippingEnabled);
   const [togglingEnv, setTogglingEnv] = useState(false);
+  const [iaVendas, setIaVendas] = useState(loja.aiSalesEnabled);
+  const [togglingIa, setTogglingIa] = useState(false);
 
   // módulo Produção (pago à parte): o Super Admin liga/desliga por loja
   async function toggleProducao() {
@@ -877,6 +903,21 @@ function LojaCard({ loja, catalogDomain }: { loja: Loja; catalogDomain: string |
     setTogglingEnv(false);
     if (res.ok) {
       setEnvios(!envios);
+      router.refresh();
+    }
+  }
+
+  // módulo IA de Vendas (pago à parte): idem
+  async function toggleIaVendas() {
+    setTogglingIa(true);
+    const res = await fetch("/api/companies/ai-sales", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ companyId: loja.id, enabled: !iaVendas }),
+    });
+    setTogglingIa(false);
+    if (res.ok) {
+      setIaVendas(!iaVendas);
       router.refresh();
     }
   }
@@ -1111,6 +1152,28 @@ function LojaCard({ loja, catalogDomain }: { loja: Loja; catalogDomain: string |
           }`}
         >
           {togglingEnv ? "..." : envios ? "Desativar" : "Ativar Envios"}
+        </button>
+      </div>
+
+      {/* módulo IA de Vendas (pago à parte) */}
+      <div className="mt-2 flex items-center justify-between gap-2 text-[11px]">
+        <span className="text-slate-400">
+          Módulo IA de Vendas:{" "}
+          <b className={iaVendas ? "text-emerald-600" : "text-slate-500"}>
+            {iaVendas ? "ativado" : "desativado"}
+          </b>
+        </span>
+        <button
+          type="button"
+          onClick={toggleIaVendas}
+          disabled={togglingIa}
+          className={`rounded-full px-2.5 py-1 font-semibold border transition disabled:opacity-50 ${
+            iaVendas
+              ? "border-slate-200 text-slate-500 hover:border-rose-300 hover:text-rose-600"
+              : "border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
+          }`}
+        >
+          {togglingIa ? "..." : iaVendas ? "Desativar" : "Ativar IA de Vendas"}
         </button>
       </div>
 

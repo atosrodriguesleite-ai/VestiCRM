@@ -48,6 +48,21 @@ export function InstallPrompt() {
     return () => window.removeEventListener("beforeinstallprompt", onPrompt);
   }, []);
 
+  /**
+   * A faixa some sozinha depois de alguns segundos.
+   *
+   * Ela é FIXA no rodapé do celular: enquanto está lá, cobre o fim da tela e
+   * chega a tapar botões (o bloco de valores do pedido, por exemplo). Quem
+   * não reparasse no "x" ficava com um pedaço do sistema bloqueado para
+   * sempre. É um convite, não um aviso — 12 segundos dão tempo de ler e
+   * instalar; depois disso o sistema é mais importante.
+   */
+  useEffect(() => {
+    if (!show) return;
+    const t = setTimeout(() => dismiss(), 12_000);
+    return () => clearTimeout(t);
+  }, [show]);
+
   function dismiss() {
     localStorage.setItem(KEY, "1");
     setShow(false);

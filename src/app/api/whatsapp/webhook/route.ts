@@ -186,9 +186,18 @@ export async function POST(req: NextRequest) {
   );
   if (metaResponse) return metaResponse;
 
-  // 2) formato simulado (testes internos) — protegido por INTAKE_SECRET
+  // 2) formato simulado (testes internos) — protegido por INTAKE_SECRET.
+  // FAIL-CLOSED (auditoria 07/08/2026): sem a env, o formato simulado ficava
+  // aberto para injetar mensagem/recibo em qualquer loja. O WhatsApp REAL
+  // (Meta/Evolution) já retornou acima; aqui, sem segredo, nega.
   const secret = process.env.INTAKE_SECRET;
-  if (secret && req.headers.get("x-intake-token") !== secret) {
+  if (!secret) {
+    return NextResponse.json(
+      { error: "Formato simulado desativado." },
+      { status: 503 }
+    );
+  }
+  if (req.headers.get("x-intake-token") !== secret) {
     return NextResponse.json({ error: "Token inválido" }, { status: 401 });
   }
 
@@ -223,6 +232,8 @@ export async function POST(req: NextRequest) {
   if (!company) {
     return NextResponse.json({ error: "Loja não encontrada" }, { status: 404 });
   }
+  // loja suspensa não ingere mensagem (200 mudo: nada a reprocessar)
+  if (company.suspended) return NextResponse.json({ ok: true, suspenso: true });
 
   const result = await receiveMessage(company.id, {
     channel: "WHATSAPP",

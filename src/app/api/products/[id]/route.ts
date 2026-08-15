@@ -20,10 +20,16 @@ const patchSchema = z.object({
   imageUrl: z.string().min(1).optional(), // legado: troca a foto única
   // galeria completa em ordem (a primeira é a CAPA): itens com `id` são fotos
   // que já existem (mantidas), itens com `url` são fotos novas (data-URL)
+  // `color` = capa por cor: a cor que a foto mostra (null = sem etiqueta).
+  // Ausente (undefined) preserva a etiqueta atual — cliente antigo não apaga.
   images: z
     .array(
       z
-        .object({ id: z.string().optional(), url: z.string().optional() })
+        .object({
+          id: z.string().optional(),
+          url: z.string().optional(),
+          color: z.string().max(60).nullable().optional(),
+        })
         .refine((e) => e.id || e.url)
     )
     .max(10)
@@ -34,6 +40,9 @@ const patchSchema = z.object({
         id: z.string().min(1),
         stock: z.number().int().nonnegative(),
         sku: z.string().max(60).nullable().optional(),
+        // trocar a COR da variação já existente (reflete na hora no
+        // catálogo público, sem precisar apagar e recriar a grade)
+        color: z.string().min(1).max(40).optional(),
       })
     )
     .optional(),
@@ -93,11 +102,11 @@ export async function PATCH(
         if (e.id) {
           await db.productImage.updateMany({
             where: { id: e.id, productId: product.id },
-            data: { order: i },
+            data: { order: i, ...(e.color !== undefined ? { color: e.color } : {}) },
           });
         } else if (e.url) {
           await db.productImage.create({
-            data: { productId: product.id, url: e.url, order: i },
+            data: { productId: product.id, url: e.url, order: i, color: e.color ?? null },
           });
         }
       }
@@ -124,6 +133,29 @@ export async function PATCH(
             where: { id: variant.id },
             data: { sku: vs.sku },
           });
+        }
+        // COR da variação: renomear direto na peça (o catálogo lê daqui).
+        // Se já existir a mesma cor+tamanho, ignora — a grade não pode ter
+        // duas linhas iguais.
+        if (vs.color && vs.color !== variant.color) {
+          const jaTem = product.variants.some(
+            (o) => o.id !== variant.id && o.color === vs.color && o.size === variant.size
+          );
+          if (!jaTem) {
+            await db.productVariant.update({
+              where: { id: variant.id },
+              data: { color: vs.color },
+            });
+            await db.inventoryMovement.create({
+              data: {
+                companyId: user.companyId,
+                variantId: variant.id,
+                type: "AJUSTE",
+                quantity: 0,
+                reason: `Cor alterada por ${user.name} (${variant.color} → ${vs.color})`,
+              },
+            });
+          }
         }
         if (variant.stock === vs.stock) continue;
         await db.productVariant.update({

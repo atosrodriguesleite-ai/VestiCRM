@@ -4,6 +4,7 @@ import { requireUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { isAdmin, isSupport } from "@/lib/scope";
 import { parseCategoryOrder, sortCategories } from "@/lib/categories";
+import { compararTamanhos } from "@/lib/tamanhos";
 import { PageHeader } from "@/components/ui";
 import { CatalogDesigner } from "./catalog-designer";
 
@@ -21,10 +22,15 @@ export default async function CatalogCustomizePage() {
     db.companySize.findMany({
       where: { companyId: user.companyId },
       orderBy: { order: "asc" },
-    }),
-    // mesma consulta do catálogo público, para a lista refletir a ordem real
+    }).then((tamanhos) =>
+      tamanhos.sort((a, b) => a.order - b.order || compararTamanhos(a.name, b.name))
+    ),
+    // TODAS as categorias da loja — produto pausado e categoria criada à mão
+    // também entram. Antes só produto ATIVO aparecia, e a lojista via a lista
+    // "faltando" categorias (incidente Entre Linhas, 03/08/2026): a ordem
+    // escolhida aqui precisa valer também para o que voltar a ficar ativo.
     db.product.findMany({
-      where: { companyId: user.companyId, active: true },
+      where: { companyId: user.companyId },
       select: { category: true },
       orderBy: [{ collection: "desc" }, { name: "asc" }],
     }),
@@ -32,7 +38,12 @@ export default async function CatalogCustomizePage() {
   if (!company) return null;
 
   const categories = sortCategories(
-    [...new Set(catRows.map((r) => r.category))],
+    [
+      ...new Set([
+        ...catRows.map((r) => r.category),
+        ...parseCategoryOrder(company.extraCategories),
+      ]),
+    ],
     parseCategoryOrder(company.categoryOrder)
   );
 
@@ -58,8 +69,10 @@ export default async function CatalogCustomizePage() {
           catalogPrimary: company.catalogPrimary,
           catalogSecondary: company.catalogSecondary,
           catalogBg: company.catalogBg,
+          catalogPriceMode: company.catalogPriceMode,
           catalogFont: company.catalogFont,
           catalogLogoSize: company.catalogLogoSize,
+          catalogHideColors: company.catalogHideColors,
         }}
         colors={colors.map((c) => ({ id: c.id, name: c.name, hex: c.hex }))}
         sizes={sizes.map((s) => ({ id: s.id, name: s.name }))}

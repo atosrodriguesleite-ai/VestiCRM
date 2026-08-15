@@ -1,5 +1,6 @@
 import { after } from "next/server";
 import { db } from "../db";
+import { avancarFunil } from "../funil-auto";
 import { decryptSecret } from "../crypto";
 import { intakeLead } from "../intake";
 import { resolveProvider } from "./providers";
@@ -164,13 +165,19 @@ export async function sendMessage(input: SendMessageInput): Promise<Message> {
 
       // resposta a mensagem específica: leva o id externo da citada para o
       // WhatsApp mostrar a "caixinha" da mensagem original em cima
-      let replyToExternalId: string | undefined;
+      let replyTo: { externalId: string; fromMe: boolean; texto?: string } | undefined;
       if (input.replyToId) {
         const citada = await db.message.findFirst({
           where: { id: input.replyToId, conversationId: conv.id },
-          select: { externalId: true },
+          select: { externalId: true, direction: true, body: true },
         });
-        replyToExternalId = citada?.externalId ?? undefined;
+        if (citada?.externalId) {
+          replyTo = {
+            externalId: citada.externalId,
+            fromMe: citada.direction === "OUT",
+            texto: citada.body || undefined,
+          };
+        }
       }
 
       const result = await provider.send({
@@ -179,18 +186,31 @@ export async function sendMessage(input: SendMessageInput): Promise<Message> {
         mediaType: input.mediaType,
         mediaUrl: input.mediaUrl,
         fileName: input.fileName,
-        replyToExternalId,
+        replyTo,
       });
       const durationMs = Date.now() - started;
 
-      // se o eco do webhook já confirmou a mensagem enquanto o provedor
-      // "pensava" (resgate), não regride ENVIADA → FALHOU
-      const updated = await db.message.update({
-        where: { id: messageId },
-        data: result.ok
-          ? { status: "ENVIADA", externalId: result.externalId, error: null }
-          : { status: "FALHOU", error: result.error },
-      });
+      // NÃO REGRIDE ENVIADA → FALHOU.
+      //
+      // O eco do webhook pode confirmar a mensagem enquanto o provedor ainda
+      // "pensa" (conversão de mídia lenta, rede ruim). Se depois disso o
+      // provedor responder com erro, é falso alarme: a mensagem CHEGOU. Marcar
+      // FALHOU fazia a vendedora reenviar e a cliente receber duas vezes.
+      //
+      // O `updateMany` com filtro de status é o que garante isso: só marca
+      // falha se a mensagem ainda estiver ENVIANDO.
+      if (result.ok) {
+        await db.message.update({
+          where: { id: messageId },
+          data: { status: "ENVIADA", externalId: result.externalId, error: null },
+        });
+      } else {
+        await db.message.updateMany({
+          where: { id: messageId, status: "ENVIANDO" },
+          data: { status: "FALHOU", error: result.error },
+        });
+      }
+      const updated = (await db.message.findUnique({ where: { id: messageId } }))!;
 
       await logEvent({
         companyId: input.companyId,
@@ -227,22 +247,76 @@ export async function sendMessage(input: SendMessageInput): Promise<Message> {
             })
             .catch(() => {});
         }
+        // Envio em segundo plano que FALHOU: devolve a cliente para a fila.
+        // A conversa já tinha sido marcada como "loja respondeu" lá embaixo
+        // (o envio ainda estava em curso); se não deu certo, ela continua
+        // esperando e precisa voltar a aparecer para a equipe.
+        const fim = await db.message
+          .findUnique({ where: { id: messageId }, select: { status: true } })
+          .catch(() => null);
+        if (fim?.status === "FALHOU") {
+          await db.conversation
+            .update({
+              where: { id: conv.id },
+              data: { lastOutboundAt: conv.lastOutboundAt },
+            })
+            .catch(() => {});
+        }
         // qualquer desfecho acorda o sync incremental da inbox
         await db.conversation
           .update({ where: { id: conv.id }, data: { updatedAt: new Date() } })
           .catch(() => {});
       });
     } else {
-      message = await doSend();
+      // Envio direto (texto): sem esta proteção, qualquer exceção deixava a
+      // mensagem presa em ENVIANDO para sempre — a vendedora via o ⏱️ girando
+      // e não tinha nem o botão de "Reenviar", porque a bolha nunca chegava a
+      // FALHOU. Agora o erro é gravado na própria mensagem.
+      try {
+        message = await doSend();
+      } catch (e) {
+        await db.message
+          .updateMany({
+            where: { id: messageId, status: "ENVIANDO" },
+            data: { status: "FALHOU", error: `Erro no envio: ${String(e).slice(0, 200)}` },
+          })
+          .catch(() => {});
+        message = (await db.message.findUnique({ where: { id: messageId } })) ?? message;
+      }
     }
   }
 
+  // RESPONDER É ASSUMIR O ATENDIMENTO — e isso é regra de negócio, não de
+  // tela. Quem manda mensagem para a cliente passa a ser a responsável pela
+  // conversa (se ainda não tinha dona), e conversa encerrada volta a ficar
+  // ABERTA: sem isso, a lojista respondia e o atendimento continuava
+  // parecendo "fila" ou "histórico", que foi exatamente a queixa dela.
+  // Nota interna não conta: anotar não é atender.
+  // PRIMEIRA RESPOSTA DA LOJA → o cartão avança para "Primeiro contato".
+  // `conv.lastOutboundAt` ainda é o valor de ANTES desta mensagem: nulo
+  // significa que a loja nunca tinha falado com ela.
+  if (!isNote && !conv.lastOutboundAt && message.status !== "FALHOU") {
+    await avancarFunil(input.companyId, conv.customerId, "PRIMEIRO_CONTATO");
+  }
+
+  // TENTAR RESPONDER NÃO É TER RESPONDIDO. `lastOutboundAt` é o que decide se
+  // a cliente ainda aparece na aba Fila ("esperando a loja"). Marcar mesmo
+  // quando o envio falhou tirava a cliente da fila SEM ela ter recebido nada:
+  // ficava sem resposta e invisível para todo mundo. Agora só marca quando a
+  // mensagem não falhou (no envio em segundo plano, o `after` desfaz se falhar).
+  const falhou = message.status === "FALHOU";
   await db.conversation.update({
     where: { id: conv.id },
     data: {
       lastMessageAt: new Date(),
       unreadCount: 0,
-      ...(isNote ? {} : { lastOutboundAt: new Date() }),
+      ...(isNote
+        ? {}
+        : {
+            ...(falhou ? {} : { lastOutboundAt: new Date() }),
+            ...(conv.status === "CLOSED" ? { status: "OPEN" as const } : {}),
+            ...(!conv.assigneeId && input.authorId ? { assigneeId: input.authorId } : {}),
+          }),
     },
   });
   if (!isNote) {
@@ -407,15 +481,19 @@ export async function receiveMessage(
     message: input.text,
   });
 
-  // enriquece a mensagem criada pelo intake com canal/mídia/externalId
+  // Completa A MENSAGEM QUE O INTAKE ACABOU DE CRIAR com canal, mídia e o id
+  // do WhatsApp.
+  //
+  // Usa o id devolvido pelo intake, e não "a mensagem IN mais recente da
+  // conversa": duas mensagens chegando no mesmo instante (a cliente manda foto
+  // e texto em seguida) faziam a busca por "mais recente" devolver a mensagem
+  // ERRADA — a foto colava na bolha do texto, o recibo de entrega ia para a
+  // bolha errada, e a mensagem que ficava sem id podia entrar duplicada numa
+  // reentrega do servidor.
   if (result.conversation) {
-    const lastMsg = await db.message.findFirst({
-      where: { conversationId: result.conversation.id, direction: "IN" },
-      orderBy: { createdAt: "desc" },
-    });
-    if (lastMsg) {
+    if (result.message) {
       await db.message.update({
-        where: { id: lastMsg.id },
+        where: { id: result.message.id },
         data: {
           channel: input.channel,
           mediaType: input.mediaType ?? "TEXT",
@@ -470,16 +548,29 @@ export async function updateDeliveryStatus(
   const message = await db.message.findFirst({
     where: { externalId, conversation: { companyId } },
   });
+
+  // RECIBO DE MENSAGEM QUE NÃO É NOSSA — não é erro, é rotina.
+  //
+  // O WhatsApp manda recibo de entrega/leitura de TUDO que passa pelo
+  // número: mensagens digitadas no celular, conversas de grupo, mensagens
+  // antigas de antes da conexão. Nada disso está no CRM, então não há o que
+  // atualizar — e não há nada errado nisso.
+  //
+  // Registrar cada um como ERRO enchia a Central de Comunicação de bolinhas
+  // vermelhas e inflava o contador de "falhas nas últimas 24h" que a lojista
+  // vê. Com o painel gritando falha o tempo todo, o erro DE VERDADE passa
+  // despercebido. Então esse recibo é simplesmente ignorado, em silêncio.
+  if (!message) return null;
+
   await logEvent({
     companyId,
-    channel: message?.channel ?? "WHATSAPP",
+    channel: message.channel,
     direction: "IN",
     type: "status.update",
-    status: message ? "OK" : "ERRO",
+    status: "OK",
     payload: { externalId, status },
-    error: message ? error : "Mensagem não encontrada para o externalId",
+    error,
   });
-  if (!message) return null;
   // grava o HORÁRIO do recibo: entregue e visto (não retrocede um status)
   const agora = new Date();
   const receiptData: Record<string, unknown> = { status, ...(error ? { error } : {}) };

@@ -15,6 +15,7 @@ import { db } from "@/lib/db";
 import { roleLabel } from "@/lib/format";
 import { Card, PageHeader, Badge } from "@/components/ui";
 import { TemplateManager } from "./template-manager";
+import { MensagensChamada } from "./mensagens-chamada";
 import { TagManager } from "./tag-manager";
 import { CatalogSettings } from "./catalog-settings";
 import { catalogDomain } from "@/lib/catalog-url";
@@ -23,9 +24,9 @@ import { InstallAppCard } from "./install-app";
 import { SaleNotifications } from "./sale-notifications";
 import { NuvemshopConnect } from "./nuvemshop-connect";
 import { JueriConnect } from "./jueri-connect";
-import { MercadoPagoConnect, BlingConnect } from "./pagamentos-connect";
+import { MercadoPagoConnect, InfinitePayConnect, BlingConnect } from "./pagamentos-connect";
 import { MelhorEnvioConnect } from "./envios-connect";
-import { isAdmin } from "@/lib/scope";
+import { isAdmin, isSupport, podeOperarIntegracoes } from "@/lib/scope";
 import type { Origin } from "@prisma/client";
 
 export const dynamic = "force-dynamic";
@@ -47,13 +48,22 @@ const INTEGRATIONS = [
 
 export default async function SettingsPage() {
   const user = await requireUser();
-  // perfil Suporte é operacional: telas comerciais ficam fora do papel dele
-  if (user.role === "SUPPORT") redirect("/pedidos");
-  const [company, templates, tags, sellers, stages, originRules] = await Promise.all([
+  // O SUPORTE ENTRA — mas só na parte operacional.
+  //
+  // Antes ele era expulso desta tela inteira, e quando a Nuvemshop desandava
+  // ou o estoque desencontrava, precisava acordar um admin só para clicar em
+  // "sincronizar". Integração é trabalho dele. O que continua fora do papel
+  // dele é o COMERCIAL: pedido mínimo, base de comissão, identidade do
+  // catálogo, mensagens da loja e distribuição de leads.
+  const comercial = !isSupport(user);
+  // integrações: admin como antes, e agora o suporte junto
+  const integra = podeOperarIntegracoes(user);
+  const [company, templates, tags, sellers, stages, originRules, comm] = await Promise.all([
     db.company.findUnique({ where: { id: user.companyId } }),
     db.messageTemplate.findMany({
       where: { companyId: user.companyId },
-      orderBy: { title: "asc" },
+      // mesma ordem do painel do chat: o que a loja escolheu com as setinhas
+      orderBy: [{ order: "asc" }, { category: "asc" }, { title: "asc" }],
     }),
     db.tag.findMany({
       where: { companyId: user.companyId },
@@ -71,6 +81,17 @@ export default async function SettingsPage() {
       select: { id: true, name: true },
     }),
     db.originRule.findMany({ where: { companyId: user.companyId } }),
+    // textos das mensagens de "Quem chamar hoje" (vazio = padrão do sistema)
+    db.commSettings.findUnique({
+      where: { companyId: user.companyId },
+      select: {
+        msgAniversario: true,
+        msgRecompra: true,
+        msgPosVenda: true,
+        msgPrimeiroContato: true,
+        msgConversaParada: true,
+      },
+    }),
   ]);
   // categorias de produto — usadas nos pesos padrão do módulo Envios
   const categorias = await db.product.findMany({
@@ -88,18 +109,23 @@ export default async function SettingsPage() {
     <div className="max-w-5xl mx-auto">
       <PageHeader
         title="Configurações"
-        subtitle="Dados da loja, modelos de mensagem e integrações."
+        subtitle={
+          comercial
+            ? "Dados da loja, modelos de mensagem e integrações."
+            : "Integrações e ferramentas de atendimento."
+        }
       />
 
       <InstallAppCard />
       <SaleNotifications />
-      {isAdmin(user) && <MercadoPagoConnect />}
-      {isAdmin(user) && <BlingConnect />}
-      {isAdmin(user) && company?.shippingEnabled && (
+      {integra && <MercadoPagoConnect />}
+      {integra && <InfinitePayConnect />}
+      {integra && <BlingConnect />}
+      {integra && company?.shippingEnabled && (
         <MelhorEnvioConnect categories={categorias.map((c) => c.category)} />
       )}
-      {isAdmin(user) && <NuvemshopConnect />}
-      {isAdmin(user) && <JueriConnect />}
+      {integra && <NuvemshopConnect />}
+      {integra && <JueriConnect />}
 
       <Card className="p-5 mb-6">
         <h2 className="font-semibold flex items-center gap-2 mb-3">
@@ -130,7 +156,9 @@ export default async function SettingsPage() {
         </div>
       </Card>
 
-      {company && (
+      {/* COMERCIAL: pedido mínimo, base de comissão, identidade do catálogo
+          e distribuição de leads. Fora do papel do suporte. */}
+      {comercial && company && (
         <>
           <h2 className="font-semibold mb-3">Catálogo geral</h2>
           <div className="mb-6">
@@ -218,6 +246,29 @@ export default async function SettingsPage() {
           category: t.category,
         }))}
       />
+
+      {comercial && (
+        <>
+      <h2 className="font-semibold mt-8 mb-1">Mensagens de “Quem chamar hoje”</h2>
+      <p className="text-sm text-gray-500 mb-3">
+        O painel mostra todo dia quem precisa de contato (aniversário, hora de
+        comprar de novo, conversa parada…) já com a mensagem pronta. Aqui você
+        escreve esses textos do jeito da sua loja.
+      </p>
+      <Card className="p-4 mb-2">
+        <MensagensChamada
+          inicial={{
+            msgAniversario: comm?.msgAniversario ?? null,
+            msgRecompra: comm?.msgRecompra ?? null,
+            msgPosVenda: comm?.msgPosVenda ?? null,
+            msgPrimeiroContato: comm?.msgPrimeiroContato ?? null,
+            msgConversaParada: comm?.msgConversaParada ?? null,
+          }}
+        />
+      </Card>
+
+        </>
+      )}
 
       <h2 className="font-semibold mt-8 mb-1">Etiquetas dos contatos</h2>
       <p className="text-sm text-gray-500 mb-3">

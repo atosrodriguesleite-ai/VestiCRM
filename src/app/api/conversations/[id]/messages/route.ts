@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { requireUser, AuthError } from "@/lib/auth";
+import { db } from "@/lib/db";
 import { sendMessage } from "@/lib/comm/engine";
+import { concluirTarefasDeContato } from "@/lib/contato-feito";
+import { conversationScope } from "@/lib/scope";
 
 const schema = z.object({
   body: z.string().min(1),
@@ -9,7 +12,9 @@ const schema = z.object({
   mediaType: z
     .enum(["TEXT", "IMAGE", "AUDIO", "DOCUMENT", "VIDEO", "TEMPLATE"])
     .default("TEXT"),
-  mediaUrl: z.string().optional(),
+  // teto folgado (o corte real do servidor é ~4,5 MB): rejeita cedo um
+  // payload absurdo em vez de deixá-lo ocupar a função inteira
+  mediaUrl: z.string().max(6_000_000).optional(),
   fileName: z.string().optional(),
   replyToId: z.string().optional(),
 });
@@ -35,6 +40,20 @@ export async function POST(
       return NextResponse.json({ error: "Dados inválidos" }, { status: 400 });
     }
 
+    // ESCOPO: vendedora só envia na conversa dela ou na fila (mesma régua da
+    // leitura). Sem isto, uma conversa transferida que "lingava" na tela dela
+    // ainda aceitava envio/edição (auditoria 07/08/2026).
+    const podeVer = await db.conversation.findFirst({
+      where: { id, ...conversationScope(user) },
+      select: { id: true },
+    });
+    if (!podeVer) {
+      return NextResponse.json(
+        { error: "Esta conversa não está mais com você." },
+        { status: 403 }
+      );
+    }
+
     // mídia (áudio/foto/vídeo/arquivo) sai em SEGUNDO PLANO: a resposta volta
     // na hora (bolha ⏱️) e o sync confirma o ✓ — segurar a resposta até o fim
     // da conversão era o que mostrava erro com o áudio já entregue
@@ -56,6 +75,18 @@ export async function POST(
       authorName: user.name,
       background: ehMidia,
     });
+
+    // CONTATO FEITO: mensagem real para a cliente (nota interna não conta)
+    // conclui as tarefas de contato dela e tira a sugestão das listas
+    if (parsed.data.kind !== "NOTE") {
+      const conv = await db.conversation.findUnique({
+        where: { id },
+        select: { customerId: true },
+      });
+      if (conv) {
+        await concluirTarefasDeContato(user.companyId, conv.customerId).catch(() => 0);
+      }
+    }
 
     // mídia volta como LINK (não base64) — mesmo formato do sync da inbox
     return NextResponse.json(

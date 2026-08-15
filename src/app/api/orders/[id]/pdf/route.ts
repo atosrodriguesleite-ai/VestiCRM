@@ -1,8 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { PDFDocument, StandardFonts, rgb, type RGB } from "pdf-lib";
+import { paginaSegura, quebrarEmLinhas } from "@/lib/pdf-texto";
+import { corIgual } from "@/lib/capa-por-cor";
 import { db } from "@/lib/db";
 import { requireUser, AuthError } from "@/lib/auth";
+import { ordenarParaSeparacao } from "@/lib/romaneio";
+import { orderScope } from "@/lib/scope";
 import { orderNumber, orderStatusLabel, paymentMethodLabel } from "@/lib/orders";
+import { documentoParaMostrar } from "@/lib/documento";
 
 /**
  * Romaneio do pedido em PDF (A4) — uso interno da loja (expedição).
@@ -12,6 +17,10 @@ import { orderNumber, orderStatusLabel, paymentMethodLabel } from "@/lib/orders"
  * • Caixinha de conferência ao lado de cada peça, para marcar na separação.
  * • Forma de pagamento e forma de envio (com rastreio), para a expedição.
  */
+
+// pedido grande embute várias fotos: os 10s padrão da Vercel cortavam o
+// romaneio no meio da geração
+export const maxDuration = 60;
 
 const INK = rgb(0.118, 0.161, 0.235); // slate-800
 const GRAY = rgb(0.392, 0.455, 0.545); // slate-500
@@ -36,7 +45,7 @@ export async function GET(
     const { id } = await params;
 
     const order = await db.order.findFirst({
-      where: { id, companyId: user.companyId },
+      where: { id, ...orderScope(user) },
       include: {
         customer: true,
         seller: true,
@@ -73,22 +82,44 @@ export async function GET(
     }
 
     // ---- Fotos das peças (miniatura no romaneio) ----
-    // Uma foto por produto (a capa). Embutimos uma vez só e reaproveitamos
-    // em todos os itens do mesmo produto. Se a foto não for PNG/JPG (ex: webp)
-    // ou falhar, o item sai sem miniatura — nunca derruba o romaneio.
+    // A foto DA COR do item (capa por cor); sem etiqueta, a capa do produto.
+    // Antes era sempre a capa — item Azul saía com a miniatura da peça Preta
+    // (incidente Entre Linhas, 04/08/2026). Se a foto não for PNG/JPG (ex:
+    // webp) ou falhar, o item sai sem miniatura — nunca derruba o romaneio.
     const productIds = [
       ...new Set(order.items.map((i) => i.productId).filter((x): x is string => !!x)),
     ];
+    // 1º passo: SÓ os metadados (id + cor). O conteúdo (base64) fica no banco
+    // até sabermos quais fotos o romaneio realmente usa — antes um pedido de
+    // muitos itens puxava TODAS as fotos de TODOS os produtos de uma vez
+    // (megabytes à toa, e o romaneio grande estourava tempo/memória).
     const imgs = productIds.length
       ? await db.productImage.findMany({
           where: { productId: { in: productIds } },
           orderBy: { order: "asc" },
-          select: { productId: true, url: true },
+          select: { id: true, productId: true, color: true },
         })
       : [];
-    const urlByProduct = new Map<string, string>();
+
+    // categoria de cada produto — é ela que agrupa a ORDEM DE SEPARAÇÃO
+    // (categoria → produto → cor → tamanho → quantidade), para quem separa
+    // andar UMA vez pelo estoque em vez de ir e voltar (pedido do dono,
+    // 12/08/2026)
+    const categorias = productIds.length
+      ? await db.product.findMany({
+          where: { id: { in: productIds } },
+          select: { id: true, category: true },
+        })
+      : [];
+    const categoriaPorProduto = new Map(categorias.map((c) => [c.id, c.category]));
+    const categoriaDe = (pid: string | null) =>
+      (pid ? categoriaPorProduto.get(pid) : null) ?? "";
+    const itensOrdenados = ordenarParaSeparacao(order.items, categoriaDe);
+    const fotosByProduct = new Map<string, typeof imgs>();
     for (const im of imgs) {
-      if (!urlByProduct.has(im.productId)) urlByProduct.set(im.productId, im.url);
+      const l = fotosByProduct.get(im.productId);
+      if (l) l.push(im);
+      else fotosByProduct.set(im.productId, [im]);
     }
 
     type Embedded = Awaited<ReturnType<typeof pdf.embedPng>>;
@@ -122,21 +153,47 @@ export async function GET(
       }
     }
 
-    const fotoByProduct = new Map<string, Embedded>();
-    for (const [pid, url] of urlByProduct) {
-      const emb = await embedFoto(url);
-      if (emb) fotoByProduct.set(pid, emb);
+    // 2º passo: escolhe a foto de cada ITEM (cor do item primeiro) e busca o
+    // CONTEÚDO só das escolhidas — uma por peça, nunca a galeria inteira
+    const escolhidaPorItem = new Map<string, string>(); // itemId → imageId
+    for (const item of order.items) {
+      if (!item.productId) continue;
+      const fotos = fotosByProduct.get(item.productId) ?? [];
+      const escolhida =
+        fotos.find((f) => corIgual(f.color, item.color)) ?? fotos[0];
+      if (escolhida) escolhidaPorItem.set(item.id, escolhida.id);
+    }
+    const idsEscolhidos = [...new Set(escolhidaPorItem.values())];
+    const conteudos = idsEscolhidos.length
+      ? await db.productImage.findMany({
+          where: { id: { in: idsEscolhidos } },
+          select: { id: true, url: true },
+        })
+      : [];
+    const urlPorImagem = new Map(conteudos.map((c) => [c.id, c.url]));
+
+    // 3º passo: embute cada imagem UMA vez só, mesmo repetida entre itens
+    const embPorImagem = new Map<string, Embedded | null>();
+    const fotoByItem = new Map<string, Embedded>();
+    for (const [itemId, imageId] of escolhidaPorItem) {
+      let emb = embPorImagem.get(imageId);
+      if (emb === undefined) {
+        const url = urlPorImagem.get(imageId);
+        emb = url ? await embedFoto(url) : null;
+        embPorImagem.set(imageId, emb);
+      }
+      if (emb) fotoByItem.set(itemId, emb);
     }
 
     const A4: [number, number] = [595.28, 841.89];
     const M = 48;
-    let page = pdf.addPage(A4);
+    let page = paginaSegura(pdf.addPage(A4));
     const { width, height } = page.getSize();
     let y = height - 60;
 
     const newPageIfNeeded = (needed: number) => {
       if (y - needed < 70) {
-        page = pdf.addPage(A4);
+        page = paginaSegura(pdf.addPage(A4));
         y = height - 60;
       }
     };
@@ -160,7 +217,8 @@ export async function GET(
     const tw = bold.widthOfTextAtSize(title, 13);
     page.drawText(title, { x: width - M - tw, y: y + 2, size: 13, font: bold, color: ACCENT });
     const dateStr = order.createdAt.toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo" });
-    const sub = `${dateStr} · ${orderStatusLabel[order.status]}`;
+    const pecasNoHeader = order.items.reduce((a, i) => a + i.quantity, 0);
+    const sub = `${dateStr} · ${orderStatusLabel[order.status]} · ${pecasNoHeader} ${pecasNoHeader === 1 ? "peça" : "peças"}`;
     const dw = font.widthOfTextAtSize(sub, 9);
     page.drawText(sub, { x: width - M - dw, y: y - 10, size: 9, font, color: GRAY });
 
@@ -180,7 +238,7 @@ export async function GET(
     const lines: string[] = [];
     const contato = [
       c.phone ? `Tel: ${c.phone}` : null,
-      c.document ? `CPF/CNPJ: ${c.document}` : null,
+      documentoParaMostrar(c) || null,
     ].filter(Boolean).join("  ·  ");
     if (contato) lines.push(contato);
     if (c.email) lines.push(`E-mail: ${c.email}`);
@@ -232,15 +290,27 @@ export async function GET(
 
     const PH = 42; // tamanho da miniatura
     const ROW = 52; // altura da linha: cabe a miniatura maior
-    for (const item of order.items) {
+    // cabecinho de grupo a cada CATEGORIA: quem separa enxerga os blocos de
+    // longe ("REGATAS", "VESTIDOS") e confere prateleira por prateleira
+    let categoriaAtual: string | null = null;
+    for (const item of itensOrdenados) {
+      const cat = categoriaDe(item.productId);
+      if (cat !== categoriaAtual) {
+        categoriaAtual = cat;
+        newPageIfNeeded(ROW + 22);
+        page.drawText((cat || "Outros itens").toUpperCase().slice(0, 60), {
+          x: M, y, size: 9, font: bold, color: ACCENT,
+        });
+        y -= 16;
+      }
       newPageIfNeeded(ROW + 4);
       // caixinha de conferência
       page.drawRectangle({
         x: cols.check, y: y - 3, width: 12, height: 12,
         borderColor: GRAY, borderWidth: 1,
       });
-      // miniatura da peça (quando o produto tem foto)
-      const foto = item.productId ? fotoByProduct.get(item.productId) : null;
+      // miniatura da peça — a foto da COR do item (quando existe)
+      const foto = fotoByItem.get(item.id) ?? null;
       const photoBottom = y - (PH - 12); // topo da foto ~12pt acima da linha do nome
       if (foto) {
         const d = foto.scaleToFit(PH, PH);
@@ -257,11 +327,21 @@ export async function GET(
           borderColor: LIGHT, borderWidth: 1,
         });
       }
-      page.drawText(item.name.slice(0, 38), { x: cols.item, y, size: 10, font: bold, color: INK });
+      // nome COMPLETO, quebrado por palavra em até 2 linhas (quem separa o
+      // pedido precisa do nome inteiro — cortado em 38 letras não servia)
+      const linhasNome = quebrarEmLinhas(
+        item.name,
+        (t) => bold.widthOfTextAtSize(t, 10),
+        cols.qty - cols.item - 12,
+        2
+      );
+      linhasNome.forEach((ln, i) => {
+        page.drawText(ln, { x: cols.item, y: y - i * 12, size: 10, font: bold, color: INK });
+      });
       const varTxt = [item.color, item.size].filter(Boolean).join(" · ");
       if (varTxt) {
         page.drawText(varTxt + (item.sku ? `  ·  ${item.sku}` : ""), {
-          x: cols.item, y: y - 11, size: 8, font, color: GRAY,
+          x: cols.item, y: y - linhasNome.length * 12 + 1, size: 8, font, color: GRAY,
         });
       }
       page.drawText(String(item.quantity), { x: cols.qty, y, size: 10, font, color: INK });
@@ -277,8 +357,11 @@ export async function GET(
     newPageIfNeeded(110);
     y -= 8;
     const totalPieces = order.items.reduce((a, i) => a + i.quantity, 0);
+    // a conta de peças em linha PRÓPRIA: quem separa confere o total físico
+    // antes de fechar a caixa — escondida no rótulo do subtotal, passava batida
     const totals: [string, string, boolean][] = [
-      [`Peças (${totalPieces})`, money(order.subtotal), false],
+      ["Total de peças", String(totalPieces), false],
+      ["Subtotal", money(order.subtotal), false],
       ...(order.discount > 0
         ? ([["Desconto", `- ${money(order.discount)}`, false]] as [string, string, boolean][])
         : []),

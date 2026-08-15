@@ -20,7 +20,6 @@ import { isManagerUp } from "@/lib/scope";
 import { brl } from "@/lib/format";
 import { PAID_ORDER_STATUSES } from "@/lib/orders";
 import {
-  periodFromDays,
   previousPeriod,
   overview,
   funnel,
@@ -40,6 +39,7 @@ import { FunnelBars } from "@/components/charts";
 import { LinksManager } from "./links-manager";
 import { InfoTip } from "@/components/info-tip";
 import { RecoveryList } from "./recovery-list";
+import { lerPeriodo, paramsDoPeriodo, periodoPorExtenso } from "@/lib/periodo";
 
 export const dynamic = "force-dynamic";
 
@@ -51,12 +51,16 @@ const PERIODS = [
   { d: 365, label: "1 ano" },
 ];
 
+/** Quantas oportunidades de recuperação a tela mostra antes de "ver todas". */
+const RECUPERACAO_NA_TELA = 12;
+
 const CHANNEL_LABEL: Record<string, string> = {
   instagram: "Instagram", facebook: "Facebook", google: "Google",
   "google-meu-negocio": "Google Meu Negócio", whatsapp: "WhatsApp",
   qr: "QR Code", direto: "Link Direto", indicacao: "Indicação",
   site: "Site", "loja-fisica": "Loja Física", marketplace: "Marketplace",
   campanha: "Campanhas", vendedor: "Link de Vendedor", tiktok: "TikTok",
+  bio: "Bio (página de links)",
 };
 const channelName = (c: string) => CHANNEL_LABEL[c] ?? c;
 
@@ -72,11 +76,19 @@ function Delta({ now, before, invert = false }: { now: number; before: number; i
   );
 }
 
-function Kpi({ label, value, hint, delta, icon, info }: {
+function Kpi({ label, value, hint, delta, icon, info, href }: {
   label: string; value: string; hint?: string; delta?: React.ReactNode; icon?: React.ReactNode; info?: string;
+  /** quando existe, o cartão inteiro vira link (ex.: carrinhos → lista) */
+  href?: string;
 }) {
+  const Wrapper = (href ? Link : "div") as React.ElementType;
   return (
-    <div className="min-w-0 bg-white rounded-2xl border border-slate-200/70 shadow-card p-4">
+    <Wrapper
+      {...(href ? { href } : {})}
+      className={`block min-w-0 bg-white rounded-2xl border border-slate-200/70 shadow-card p-4${
+        href ? " hover:border-brand-300 hover:shadow-pop transition" : ""
+      }`}
+    >
       <div className="flex items-start justify-between gap-2 mb-1.5">
         <p className="font-mono text-[10px] md:text-[11px] font-semibold text-slate-400 uppercase tracking-[0.1em] leading-tight flex items-center gap-1">
           {label}
@@ -91,7 +103,7 @@ function Kpi({ label, value, hint, delta, icon, info }: {
         {delta}
       </p>
       {hint && <p className="text-[11px] text-slate-400 mt-0.5 leading-snug">{hint}</p>}
-    </div>
+    </Wrapper>
   );
 }
 
@@ -197,15 +209,24 @@ function Heatmap({ grid, title, format }: { grid: number[][]; title: string; for
 export default async function IntelligencePage({
   searchParams,
 }: {
-  searchParams: Promise<{ dias?: string }>;
+  searchParams: Promise<{
+    dias?: string;
+    de?: string;
+    ate?: string;
+    recuperacao?: string;
+  }>;
 }) {
   const user = await requireUser();
   if (!isManagerUp(user)) redirect("/dashboard");
 
   const sp = await searchParams;
-  const days = [1, 7, 30, 90, 365].includes(Number(sp.dias)) ? Number(sp.dias) : 30;
-  const period = periodFromDays(days);
+  // atalho ("30 dias") OU datas escolhidas a dedo — a leitura é uma só
+  const filtro = lerPeriodo(sp);
+  const { period } = filtro;
+  const days = filtro.dias;
   const prev = previousPeriod(period);
+  // "ver todas" as oportunidades de recuperação (a lista nasce curta)
+  const verTodaRecuperacao = sp.recuperacao === "tudo";
   const c = user.companyId;
 
   // Vendas por ORIGEM (pedidos pagos no período): separa o resultado do
@@ -217,7 +238,7 @@ export default async function IntelligencePage({
       status: { in: PAID_ORDER_STATUSES },
       paidAt: { gte: period.from, lte: period.to },
     },
-    _sum: { total: true },
+    _sum: { netTotal: true },
     _count: true,
   });
   const ORIGEM_LABEL: Record<string, string> = {
@@ -229,11 +250,11 @@ export default async function IntelligencePage({
     .map((r) => ({
       origem: ORIGEM_LABEL[r.source] ?? r.source,
       pedidos: r._count,
-      total: r._sum.total ?? 0,
+      totalVendido: r._sum.netTotal ?? 0,
       isNuvemshop: r.source === "NUVEMSHOP",
     }))
-    .sort((a, b) => b.total - a.total);
-  const totalOrigens = porOrigem.reduce((a, r) => a + r.total, 0);
+    .sort((a, b) => b.totalVendido - a.totalVendido);
+  const totalOrigens = porOrigem.reduce((a, r) => a + r.totalVendido, 0);
 
   const [now, before, funil, canais, vendedores, campanhas, produtos, categorias, cores, tamanhos, mapas, recuperacao, avisos, company, team] =
     await Promise.all([
@@ -249,7 +270,8 @@ export default async function IntelligencePage({
   const topCategorias = [...categorias].sort((a, b) => b.revenue - a.revenue || b.views - a.views).slice(0, 6);
   const topCores = [...cores].sort((a, b) => b.sold - a.sold || b.views - a.views).slice(0, 6);
   const topTamanhos = [...tamanhos].sort((a, b) => b.sold - a.sold || b.views - a.views).slice(0, 6);
-  const exportar = (rel: string) => `/api/intelligence/export?relatorio=${rel}&dias=${days}`;
+  const exportar = (rel: string) =>
+    `/api/intelligence/export?relatorio=${rel}&${paramsDoPeriodo(filtro)}`;
 
   return (
     <div className="max-w-7xl mx-auto">
@@ -275,12 +297,57 @@ export default async function IntelligencePage({
         }
       />
 
+      {/* PERÍODO PERSONALIZADO.
+          Os atalhos resolvem o dia a dia, mas não a pergunta que a lojista
+          faz de verdade: "quanto vendi na Black Friday?", "como fechou o mês
+          passado?". Aqui ela escolhe o começo e o fim. */}
+      <form method="GET" className="flex flex-wrap items-end gap-2 mb-5">
+        <div>
+          <label className="block text-[11px] font-semibold text-gray-500 mb-1">De</label>
+          <input
+            type="date"
+            name="de"
+            defaultValue={filtro.de ?? ""}
+            className="rounded-xl border border-gray-200 px-3 py-2 text-sm bg-white"
+          />
+        </div>
+        <div>
+          <label className="block text-[11px] font-semibold text-gray-500 mb-1">Até</label>
+          <input
+            type="date"
+            name="ate"
+            defaultValue={filtro.ate ?? ""}
+            className="rounded-xl border border-gray-200 px-3 py-2 text-sm bg-white"
+          />
+        </div>
+        <button className="rounded-xl bg-gray-900 hover:bg-gray-700 text-white text-sm font-medium px-4 py-2.5 transition">
+          Filtrar
+        </button>
+        {filtro.personalizado && (
+          <>
+            <span className="text-xs font-medium text-brand-700 bg-brand-50 border border-brand-100 rounded-xl px-3 py-2.5">
+              Período: {periodoPorExtenso(filtro)}
+            </span>
+            <Link
+              href="/inteligencia?dias=30"
+              className="text-xs font-medium text-gray-400 hover:text-gray-600 px-2 py-2.5"
+            >
+              Limpar
+            </Link>
+          </>
+        )}
+      </form>
+
       {/* Alertas inteligentes */}
       {avisos.length > 0 && (
         <Card className="p-4 mb-5 border-amber-200 bg-amber-50/60">
           <p className="text-xs font-bold text-amber-700 uppercase tracking-wide flex items-center gap-1.5 mb-2">
             <Bell className="size-3.5" />
             Alertas inteligentes
+            {/* os alertas são o AGORA — não seguem o filtro de período */}
+            <span className="font-medium normal-case tracking-normal text-amber-500">
+              · últimas 24h
+            </span>
           </p>
           <ul className="grid md:grid-cols-2 gap-x-6 gap-y-1">
             {avisos.map((a) => (
@@ -299,13 +366,16 @@ export default async function IntelligencePage({
         <Kpi label="Tempo médio" value={`${Math.floor(now.avgSessionSeconds / 60)}m${String(now.avgSessionSeconds % 60).padStart(2, "0")}s`} icon={<Timer />} info="Tempo médio que cada visita durou no catálogo (soma do tempo de todas as sessões ÷ nº de sessões)." />
         <Kpi label="Conversão" value={`${now.conversionRate.toFixed(1)}%`} delta={<Delta now={now.conversionRate} before={before.conversionRate} />} icon={<Percent />} info="De cada 100 visitas, quantas enviaram um pedido pelo catálogo. Fórmula: pedidos ÷ sessões × 100." />
         <Kpi label="Pedidos (catálogo)" value={String(now.ordersFromCatalog)} delta={<Delta now={now.ordersFromCatalog} before={before.ordersFromCatalog} />} icon={<ShoppingBag />} info="Pedidos enviados pelo catálogo no período (visitantes que tocaram em Enviar pedido)." />
-        <Kpi label="Faturamento" value={brl(now.revenue)} delta={<Delta now={now.revenue} before={before.revenue} />} icon={<Wallet />} info="Valor somado dos pedidos vindos do catálogo no período (é o valor da sacola no envio)." />
-        <Kpi label="Ticket médio" value={brl(now.avgTicket)} delta={<Delta now={now.avgTicket} before={before.avgTicket} />} info="Valor médio por pedido do catálogo: faturamento ÷ nº de pedidos." />
+        {/* rótulo honesto: a conta é da LOJA INTEIRA (regra da casa), não só
+            do catálogo — o texto antigo fazia loja com Nuvemshop forte achar
+            que o catálogo tinha vendido tudo (auditoria 06/08/2026) */}
+        <Kpi label="Faturamento" value={brl(now.revenue)} delta={<Delta now={now.revenue} before={before.revenue} />} icon={<Wallet />} info="Faturamento da LOJA INTEIRA no período: pedidos pagos (sem frete), de qualquer origem — catálogo, loja online e pedidos montados no sistema." />
+        <Kpi label="Ticket médio" value={brl(now.avgTicket)} delta={<Delta now={now.avgTicket} before={before.avgTicket} />} info="Valor médio por pedido PAGO da loja inteira: faturamento ÷ nº de pedidos pagos (todas as origens, não só o catálogo)." />
         <Kpi label="Clientes novos" value={String(now.newCustomers)} delta={<Delta now={now.newCustomers} before={before.newCustomers} />} info="Clientes cadastrados pela primeira vez no período (primeiro contato com a loja)." />
         <Kpi label="Recorrentes" value={String(now.returningBuyers)} icon={<Repeat />} info="Clientes que compraram mais de uma vez (fidelizados)." />
-        <Kpi label="Carrinhos abandonados" value={String(now.abandonedCarts)} hint={`${brl(now.abandonedValue)} parados`} delta={<Delta now={now.abandonedCarts} before={before.abandonedCarts} invert />} icon={<AlertTriangle />} info="Visitas que colocaram itens na sacola mas NÃO enviaram o pedido. 'Parados' = valor somado dessas sacolas." />
-        <Kpi label="Tempo de sessão total" value={`${Math.round((now.avgSessionSeconds * now.sessions) / 60)} min`} hint="navegação somada" info="Soma do tempo de navegação de todas as sessões no período." />
-        <Kpi label="Identificados" value={String(now.identifiedCustomers)} hint="visitantes que viraram clientes" info="Visitantes anônimos que informaram o telefone (viraram clientes na base da loja)." />
+        <Kpi label="Carrinhos abandonados" value={String(now.abandonedCarts)} hint={`${brl(now.abandonedValue)} parados`} delta={<Delta now={now.abandonedCarts} before={before.abandonedCarts} invert />} icon={<AlertTriangle />} info="Pessoas que deixaram sacola com itens sem enviar o pedido — cada pessoa conta UMA vez (a sacola mais recente dela), mesma régua da lista de recuperação. 'Parados' = valor somado dessas sacolas." href={`/inteligencia?${paramsDoPeriodo(filtro)}&recuperacao=tudo#recuperar`} />
+        <Kpi label="Tempo de sessão total" value={`${Math.round(now.totalSessionSeconds / 60)} min`} hint="navegação somada" info="Soma REAL do tempo de navegação de todas as sessões no período." />
+        <Kpi label="Identificados" value={String(now.identifiedCustomers)} hint="visitas com nome" info="Visitantes ligados a um cliente da base — pelo telefone informado OU por já terem chegado pelo link rastreado da cliente (?c=). Inclui quem já era cliente antes de visitar." />
       </div>
 
       <div className="grid lg:grid-cols-2 gap-4 md:gap-6 mb-6">
@@ -333,10 +403,10 @@ export default async function IntelligencePage({
                       {r.origem}
                     </span>
                     <span className="text-sm tabular-nums">
-                      <b>{brl(r.total)}</b>{" "}
+                      <b>{brl(r.totalVendido)}</b>{" "}
                       <span className="text-xs text-gray-400">
                         · {r.pedidos} pedido{r.pedidos === 1 ? "" : "s"} ·{" "}
-                        {totalOrigens > 0 ? Math.round((r.total / totalOrigens) * 100) : 0}%
+                        {totalOrigens > 0 ? Math.round((r.totalVendido / totalOrigens) * 100) : 0}%
                       </span>
                     </span>
                   </div>
@@ -344,7 +414,7 @@ export default async function IntelligencePage({
                     <span
                       className="block h-full rounded-full"
                       style={{
-                        width: `${totalOrigens > 0 ? Math.max(2, (r.total / totalOrigens) * 100) : 0}%`,
+                        width: `${totalOrigens > 0 ? Math.max(2, (r.totalVendido / totalOrigens) * 100) : 0}%`,
                         background: r.isNuvemshop ? "#0891B2" : "#C4622D",
                       }}
                     />
@@ -366,8 +436,10 @@ export default async function IntelligencePage({
           {canais.length === 0 ? (
             <EmptyState title="Sem acessos no período" hint="Compartilhe os links inteligentes abaixo." />
           ) : (
+            // "Pedidos" = enviados pelo catálogo; "Faturamento (pago)" =
+            // pedidos dessas visitas que VIRARAM dinheiro (netTotal pago)
             <RankTable
-              headers={["Canal", "Acessos", "Pedidos", "Conv.", "Faturamento"]}
+              headers={["Canal", "Acessos", "Pedidos", "Conv.", "Faturamento (pago)"]}
               rows={canais.map((r) => [
                 channelName(r.channel), String(r.sessions), String(r.orders),
                 `${r.conversion.toFixed(0)}%`, brl(r.revenue),
@@ -413,7 +485,7 @@ export default async function IntelligencePage({
             <EmptyState title="Nenhuma campanha ainda" hint="Crie links e QR Codes na seção abaixo." />
           ) : (
             <RankTable
-              headers={["Campanha", "Cliques", "Pedidos", "Conv.", "Faturamento", "Meta"]}
+              headers={["Campanha", "Cliques", "Pedidos", "Conv.", "Faturamento (pago)", "Meta"]}
               rows={campanhas.map((r) => [
                 <span key={r.id}>
                   {r.name}{" "}
@@ -499,9 +571,35 @@ export default async function IntelligencePage({
         </div>
       </Card>
 
-      {/* Recuperação comercial */}
-      <h2 className="font-semibold mb-3">Recuperação comercial</h2>
-      <RecoveryList items={recuperacao} />
+      {/* Recuperação comercial.
+          O cartão lá em cima diz "33 carrinhos abandonados" e antes a lista
+          mostrava no máximo 12 — os outros 21 eram dinheiro parado que a loja
+          não tinha como perseguir. Agora dá para abrir a lista inteira. */}
+      <div id="recuperar" className="flex items-center justify-between gap-3 mb-3 scroll-mt-20">
+        <h2 className="font-semibold">
+          Recuperação comercial
+          {recuperacao.length > 0 && (
+            <span className="text-gray-400 font-normal"> ({recuperacao.length})</span>
+          )}
+        </h2>
+        {recuperacao.length > RECUPERACAO_NA_TELA && (
+          <Link
+            href={`/inteligencia?${paramsDoPeriodo(filtro)}${
+              verTodaRecuperacao ? "" : "&recuperacao=tudo"
+            }#recuperar`}
+            className="text-xs font-semibold text-brand-600 hover:text-brand-700"
+          >
+            {verTodaRecuperacao
+              ? "Mostrar menos"
+              : `Ver todas as ${recuperacao.length} oportunidades`}
+          </Link>
+        )}
+      </div>
+      <RecoveryList
+        items={
+          verTodaRecuperacao ? recuperacao : recuperacao.slice(0, RECUPERACAO_NA_TELA)
+        }
+      />
 
       {/* Links inteligentes + QR */}
       <h2 className="font-semibold mt-8 mb-3">Links inteligentes e QR Codes</h2>

@@ -1,5 +1,6 @@
 import crypto from "crypto";
 import { db } from "./db";
+import { CRED_SECRET } from "./env";
 import { encryptSecret, decryptSecret } from "./crypto";
 import { signState, verifyState } from "./nuvemshop"; // state assinado (HMAC) — mesmo padrão
 import { appBaseUrl } from "./comm/evolution";
@@ -75,13 +76,29 @@ export async function mpExchangeCode(code: string): Promise<TokenResponse | null
   return res.ok && data?.access_token ? data : null;
 }
 
+/**
+ * Token do webhook DETERMINÍSTICO por loja (HMAC do companyId).
+ *
+ * Era sorteado a cada conexão — e a URL de aviso fica GRAVADA em cada
+ * cobrança criada no Mercado Pago. Desconectar e reconectar sorteava um
+ * token novo: a cliente pagava um QR antigo, o aviso batia na URL morta, o
+ * dinheiro caía e o pedido ficava "aguardando pagamento" para sempre.
+ * Determinístico, a reconexão volta a escutar as URLs antigas.
+ */
+export function mpWebhookToken(companyId: string): string {
+  return crypto
+    .createHmac("sha256", CRED_SECRET)
+    .update(`mp-webhook:${companyId}`)
+    .digest("hex");
+}
+
 /** Salva/atualiza a conexão da loja (tokens criptografados). */
 export async function mpSaveConnection(companyId: string, t: TokenResponse) {
   const expiresAt = t.expires_in
     ? new Date(Date.now() + t.expires_in * 1000)
     : null;
   const existing = await db.mercadoPagoConnection.findUnique({ where: { companyId } });
-  const webhookToken = existing?.webhookToken ?? crypto.randomBytes(24).toString("hex");
+  const webhookToken = existing?.webhookToken ?? mpWebhookToken(companyId);
   return db.mercadoPagoConnection.upsert({
     where: { companyId },
     update: {
@@ -159,6 +176,15 @@ export async function mpCreatePixCharge(input: {
   description: string;
   payerEmail?: string | null;
   payerName?: string | null;
+  /**
+   * Número da TENTATIVA de cobrança deste pedido (quantas cobranças MP já
+   * existem). Entra na chave de idempotência: sem ele, editar o pedido de
+   * 100 → 120 → 100 repetia a chave da primeira cobrança e o MP devolvia o
+   * pagamento ANTIGO — que estourava a unicidade local (P2002) e travava a
+   * loja de cobrar o pedido. Dois cliques SIMULTÂNEOS continuam protegidos:
+   * leem a mesma contagem, mesma chave, o MP devolve o mesmo pagamento.
+   */
+  tentativa: number;
 }): Promise<{ ok: true; charge: PixCharge } | { ok: false; error: string }> {
   const token = await mpAccessToken(input.companyId);
   if (!token) return { ok: false, error: "Mercado Pago não conectado." };
@@ -176,7 +202,7 @@ export async function mpCreatePixCharge(input: {
       "Content-Type": "application/json",
       Authorization: `Bearer ${token}`,
       // repetir a chamada (retry) NUNCA pode gerar cobrança duplicada
-      "X-Idempotency-Key": `${input.externalRef}-${input.amount.toFixed(2)}`,
+      "X-Idempotency-Key": `${input.externalRef}-${input.amount.toFixed(2)}-t${input.tentativa}`,
     },
     body: JSON.stringify({
       transaction_amount: Math.round(input.amount * 100) / 100,
@@ -288,6 +314,31 @@ export async function mpCreateCardCheckout(input: {
     };
   }
   return { ok: true, url: data.init_point, feeAmount };
+}
+
+/**
+ * Cancela uma cobrança Pix pendente NO Mercado Pago.
+ *
+ * Usado quando o pedido é pago por outro caminho (ex.: cartão): o QR antigo
+ * que ficou no WhatsApp da cliente deixa de ser pagável NA FONTE — é a única
+ * proteção real contra ela pagar duas vezes. Best-effort: falhar aqui não
+ * pode derrubar a liquidação (o aviso de duplicidade cobre o resto).
+ */
+export async function mpCancelPayment(
+  companyId: string,
+  mpPaymentId: string
+): Promise<boolean> {
+  const token = await mpAccessToken(companyId);
+  if (!token) return false;
+  const res = await fetch(`${MP_API}/v1/payments/${mpPaymentId}`, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({ status: "cancelled" }),
+  });
+  return res.ok;
 }
 
 /** Consulta o pagamento no MP (fonte da verdade na confirmação). */

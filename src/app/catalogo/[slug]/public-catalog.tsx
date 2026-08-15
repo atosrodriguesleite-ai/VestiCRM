@@ -21,14 +21,25 @@ import {
   Playfair_Display,
   Lora,
 } from "next/font/google";
-import { mixHex, readableOn } from "@/lib/color";
+import { makeSwatch, mixHex, readableOn } from "@/lib/color";
+import {
+  guardarPendente,
+  protocoloDaSacola,
+  registrarComInsistencia,
+  reenviarPendentes,
+  sacolaJaEnviada,
+  marcarRegistrado,
+} from "@/lib/catalogo/envio-pedido";
 import { compareSizes } from "@/lib/sizes";
-import { sortCategories } from "@/lib/categories";
+import { fotoDaCor, ordenarFotosDaCor } from "@/lib/capa-por-cor";
+import { agruparPorTipo, descricaoDaCategoria, sortCategories } from "@/lib/categories";
+import { procurarPecas } from "@/lib/catalogo/procurar-peca";
 import {
   CatalogTracker,
   getConsent,
   setConsent,
 } from "@/lib/tracking/client";
+import { lembrarOrigem } from "@/lib/catalogo/origem";
 
 const montserrat = Montserrat({ subsets: ["latin"], weight: ["400", "500", "600", "700", "800"] });
 const inter = Inter({ subsets: ["latin"], weight: ["400", "500", "600", "700", "800"] });
@@ -60,30 +71,30 @@ export type CatalogProduct = {
   collection: string | null;
   description: string | null;
   retailPrice: number;
+  // preço que ESTA loja escolheu exibir (varejo ou atacado)
+  precoCatalogo?: number;
   wholesalePrice: number;
   // catálogo de campanha: preço cheio original (aparece riscado)
   originalRetailPrice?: number | null;
   minQuantity: number;
   tags: string | null;
-  images: string[];
+  // cada foto pode vir etiquetada com a cor que mostra (capa por cor):
+  // o card da Avelã usa a foto avelã; sem etiqueta, cai na capa geral
+  images: { url: string; color: string | null }[];
   variants: { color: string; size: string; available: boolean }[];
 };
 
-/* nome da cor → cor real do swatch (fallback neutro) */
-const COLOR_HEX: Record<string, string> = {
-  preto: "#211E1D", branco: "#FAF6EF", "off-white": "#F5F0E4",
-  vinho: "#6E2536", caramelo: "#B07636", terracota: "#BC5836",
-  rosa: "#E8A0BF", nude: "#D9B99B", azul: "#3B5F8A", verde: "#3E7A5E",
-  amarelo: "#E5B93C", lilás: "#B49BD6", lilas: "#B49BD6", bege: "#D8C9A8",
-  laranja: "#D97435", vermelho: "#B33939", cinza: "#8C8C8C", marrom: "#4B3621",
-};
-function makeSwatch(custom: { name: string; hex: string }[]) {
-  const map = new Map(custom.map((c) => [c.name.toLowerCase(), c.hex]));
-  return (color: string) =>
-    map.get(color.toLowerCase()) ??
-    COLOR_HEX[color.toLowerCase()] ??
-    "#C9BEB0";
-}
+/* nome da cor → bolinha do catálogo: a cor cadastrada pela LOJA manda.
+   A regra vive em lib/color.ts (comparada sem acento e sem maiúscula). */
+
+/**
+ * Preço da vitrine: a loja escolhe em Personalizar catálogo se o catálogo
+ * mostra varejo ou atacado. O servidor já manda o valor decidido em
+ * `precoCatalogo` — aqui só honramos (com o varejo como rede de segurança
+ * pra catálogos antigos em cache).
+ */
+const precoDe = (p: { precoCatalogo?: number; retailPrice: number }) =>
+  p.precoCatalogo ?? p.retailPrice;
 
 const fmt = (n: number) =>
   "R$ " + n.toFixed(2).replace(".", ",").replace(/\B(?=(\d{3})+(?!\d))/g, ".");
@@ -256,11 +267,15 @@ export function PublicCatalog({
   minOrderValue,
   products,
   categoryOrder = [],
+  categoryDescriptions = {},
+  categoryTypes = {},
   promo = null,
   identity,
   logoSize = "normal",
   customColors,
   tracking,
+  hideSoldOut = false,
+  hideColors = false,
 }: {
   storeSlug: string;
   storeName: string;
@@ -271,12 +286,20 @@ export function PublicCatalog({
   minOrderValue: number;
   products: CatalogProduct[];
   categoryOrder?: string[];
+  /** texto escrito pela lojista para cada categoria (Produtos → Categorias) */
+  categoryDescriptions?: Record<string, string>;
+  /** guarda-chuva de cada categoria ("Regata Alça" → "Blusas") */
+  categoryTypes?: Record<string, string>;
   // catálogo de campanha: nome + % de desconto (preços já vêm com desconto)
   promo?: { name: string; slug: string; discount: number } | null;
   identity: CatalogIdentity;
   logoSize?: "normal" | "grande";
   customColors: { name: string; hex: string }[];
   tracking: Record<string, string | null>;
+  /** chavinha da loja: esconder também o CARD da cor esgotada (não só o produto) */
+  hideSoldOut?: boolean;
+  /** loja SEM variação de cor (semijoias): esconde bolinha e nome da cor */
+  hideColors?: boolean;
 }) {
   // Tema 100% personalizável pelo lojista: 3 cores base + derivadas
   const T = {
@@ -294,9 +317,35 @@ export function PublicCatalog({
 
   // a ordem das categorias (menu e seções) é escolhida pelo lojista em
   // Personalizar catálogo; as que ficarem fora da lista vão para o fim
-  const categories = useMemo(
+  const categoriasBrutas = useMemo(
     () => sortCategories([...new Set(products.map((p) => p.category))], categoryOrder),
     [products, categoryOrder]
+  );
+
+  // TIPO DE PEÇA: o guarda-chuva das categorias. Lista vazia quando a loja não
+  // usa o recurso — aí o catálogo fica exatamente como era, com uma barra só.
+  const grupos = useMemo(
+    () => agruparPorTipo(categoriasBrutas, categoryTypes),
+    [categoriasBrutas, categoryTypes]
+  );
+
+  /**
+   * AS SEÇÕES SEGUEM OS TIPOS — senão a barra de cima mente.
+   *
+   * A aba "Conjuntos de short" juntava as categorias de short numa lista só,
+   * mas a PÁGINA continuava na ordem crua das categorias. Resultado real
+   * (Toque Leve): um short, depois legging, depois blusa, depois o OUTRO
+   * short. Quem tocava em "Conjuntos de short" caía no primeiro, rolava,
+   * via legging e concluía que o short não estava no catálogo — sendo que
+   * ele estava, enterrado lá embaixo, depois de outros tipos.
+   *
+   * Agora a página é desenhada na MESMA ordem da barra: tudo de um tipo
+   * junto, e "Outros" (categoria sem guarda-chuva) por último. Loja que não
+   * usa tipos não muda nada — `agruparPorTipo` devolve lista vazia.
+   */
+  const categories = useMemo(
+    () => (grupos.length ? grupos.flatMap((g) => g.categorias) : categoriasBrutas),
+    [grupos, categoriasBrutas]
   );
 
   const cardsByCategory = useMemo(() => {
@@ -305,20 +354,26 @@ export function PublicCatalog({
     for (const p of products) {
       const colors = [...new Set(p.variants.map((v) => v.color))];
       for (const color of colors) {
+        const sizes = p.variants
+          .filter((v) => v.color === color)
+          .map((v) => ({ size: v.size, available: v.available }))
+          // tamanhos sempre do menor para o maior (P, M, G, GG / 36, 38, 40)
+          .sort((a, b) => compareSizes(a.size, b.size));
+        // Chavinha "esconder sem estoque" vale POR COR: o filtro do servidor
+        // só tira o produto quando TODAS as cores zeram — mas o catálogo
+        // mostra um card por cor, e o card da cor esgotada continuava na
+        // vitrine enquanto outra cor tivesse peça (relato da Entre Linhas).
+        if (hideSoldOut && sizes.every((s) => !s.available)) continue;
         map.get(p.category)!.push({
           key: `${p.id}|${color}`,
           product: p,
           color,
-          // tamanhos sempre do menor para o maior (P, M, G, GG / 36, 38, 40)
-          sizes: p.variants
-            .filter((v) => v.color === color)
-            .map((v) => ({ size: v.size, available: v.available }))
-            .sort((a, b) => compareSizes(a.size, b.size)),
+          sizes,
         });
       }
     }
     return map;
-  }, [products, categories]);
+  }, [products, categories, hideSoldOut]);
 
   const allCards = useMemo(
     () => [...cardsByCategory.values()].flat(),
@@ -327,6 +382,51 @@ export function PublicCatalog({
 
   const [cart, setCart] = useState<Cart>({});
   const [activeCat, setActiveCat] = useState(0);
+
+  // Qual guarda-chuva está sendo visto AGORA: sai da categoria ativa, que o
+  // observador de rolagem já mantém atualizada. Assim a barra de cima se
+  // acende sozinha quando a rolagem passa de "Blusas" para "Shorts" — sem
+  // observador novo e sem estado paralelo para desencontrar.
+  const tipoAtivo = grupos.length
+    ? (grupos.find((g) => g.categorias.includes(categories[activeCat]))?.tipo ??
+      grupos[0].tipo)
+    : "";
+  // A barra de baixo mostra só as categorias do tipo que está sendo visto.
+  const categoriasVisiveis = grupos.length
+    ? (grupos.find((g) => g.tipo === tipoAtivo)?.categorias ?? categories)
+    : categories;
+  /**
+   * LUPA DA VITRINE.
+   *
+   * Com 178 produtos (e um card por COR, o que vira centenas de cards),
+   * achar uma peça rolando a página é impossível. Incidente real: a peça
+   * estava no ar, o conferidor provou, e a loja continuava dizendo "não
+   * aparece" — ela não conseguia encontrar. Procura por nome, código, cor,
+   * categoria e etiquetas, sem acento e sem maiúscula.
+   */
+  const [busca, setBusca] = useState("");
+  const achados = useMemo(() => procurarPecas(allCards, busca), [allCards, busca]);
+  const procurando = busca.trim().length > 0;
+
+  /**
+   * LINK DIRETO PARA UMA PEÇA (`?peca=<id>`).
+   *
+   * Nasceu de uma discussão que não terminava: o sistema dizia "a peça está
+   * no catálogo", a loja dizia "não está". Com este link a conversa acaba em
+   * um clique — abre a vitrine já com a peça na tela. Serve também para a
+   * vendedora mandar UMA peça para a cliente, em vez do catálogo inteiro.
+   * Peça que não existe mais não quebra nada: a vitrine abre normal.
+   */
+  const pecaAbertaRef = useRef(false);
+  useEffect(() => {
+    if (pecaAbertaRef.current || allCards.length === 0) return;
+    const alvo = new URLSearchParams(window.location.search).get("peca");
+    if (!alvo) return;
+    pecaAbertaRef.current = true;
+    const card = allCards.find((c) => c.product.id === alvo);
+    if (card) openSheet(card);
+  }, [allCards]);
+
   const [sheet, setSheet] = useState<CardItem | null>(null);
   const [draft, setDraft] = useState<Record<string, number>>({});
   const [bagOpen, setBagOpen] = useState(false);
@@ -368,6 +468,61 @@ export function PublicCatalog({
       }
     } catch {}
     cartLoadedRef.current = true;
+
+    // LINK MÁGICO DA RECUPERAÇÃO (?sacola=): a cliente recebeu no WhatsApp o
+    // link que REMONTA a sacola abandonada — pode ser em outro aparelho, ou
+    // com o armazenamento já vencido. Os itens vêm do servidor e entram por
+    // cima do que houver (o link é a intenção mais recente da cliente).
+    try {
+      const token = new URLSearchParams(window.location.search).get("sacola");
+      if (token) {
+        fetch(`/api/catalogo/sacola?token=${encodeURIComponent(token)}&slug=${encodeURIComponent(storeSlug)}`)
+          .then((r) => (r.ok ? r.json() : null))
+          .then(
+            (data: {
+              itens?: { productId?: string | null; name: string; color?: string | null; size?: string | null; qty: number }[];
+            } | null) => {
+              if (!data?.itens?.length) return;
+              const restaurada: Cart = {};
+              for (const item of data.itens) {
+                // acha o card do produto+cor: pelo id (certeiro) ou pelo nome
+                const card = allCards.find(
+                  (c) =>
+                    (item.productId && c.key.startsWith(`${item.productId}|`) &&
+                      (!item.color || c.key === `${item.productId}|${item.color}`)) ||
+                    (!item.productId && c.product.name === item.name)
+                );
+                if (!card || !item.size || item.qty <= 0) continue;
+                // SÓ tamanho que ainda existe e com estoque volta à sacola —
+                // sem esta peneira, peça esgotada voltava, a cliente
+                // confirmava e a loja só descobria na separação
+                const tamanho = card.sizes.find(
+                  (sz) => sz.size === item.size && sz.available
+                );
+                if (!tamanho) continue;
+                restaurada[card.key] = {
+                  ...(restaurada[card.key] ?? {}),
+                  [item.size]: item.qty,
+                };
+              }
+              if (Object.keys(restaurada).length) {
+                // mescla POR TAMANHO: o que a cliente já tinha na sacola
+                // deste aparelho não pode sumir (sobrescrever o card inteiro
+                // apagava o "M:2" local quando a abandonada só tinha "G:1")
+                setCart((atual) => {
+                  const proximo = { ...atual };
+                  for (const [key, sizes] of Object.entries(restaurada)) {
+                    proximo[key] = { ...(proximo[key] ?? {}), ...sizes };
+                  }
+                  return proximo;
+                });
+                setBagOpen(true); // a sacola abre mostrando que está pronta
+              }
+            }
+          )
+          .catch(() => {});
+      }
+    } catch {}
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   useEffect(() => {
@@ -394,20 +549,88 @@ export function PublicCatalog({
   const rootRef = useRef<HTMLDivElement | null>(null);
   const headerRef = useRef<HTMLElement | null>(null);
   const catNavBarRef = useRef<HTMLElement | null>(null);
+  /**
+   * ALTURA REAL do que fica grudado no topo (cabeçalho + barras).
+   *
+   * Antes eram três números CRAVADOS no código (140, 140, 74). Bastou a lupa
+   * nova crescer a barra alguns pixels para tudo desalinhar: tocar em
+   * "Conjuntos de calça" parava no lugar errado e a barra acendia o tipo
+   * errado. Número cravado em altura é sempre uma bomba-relógio — agora é
+   * medido de verdade e refeito sozinho quando a barra muda de tamanho.
+   */
+  const [alturaFixa, setAlturaFixa] = useState(150);
+  /**
+   * Enquanto a rolagem suave está a caminho, o vigia de rolagem fica QUIETO.
+   * Sem isso, as seções que passam voando no meio do caminho acendem o chip
+   * errado — e a barra "pisca" e para acesa em outro tipo (foi o que a loja
+   * viu: seção de Legging na tela e "Conjuntos de short" aceso).
+   */
+  const spyTravadoAte = useRef(0);
+  function irParaSecao(cat: string) {
+    const alvo = categories.indexOf(cat);
+    if (alvo >= 0) setActiveCat(alvo); // a barra responde na hora
+    spyTravadoAte.current = Date.now() + 900;
+    sectionRefs.current[cat]?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
 
   // ---- Tracking Engine (Inteligência Comercial) ----
   const trackerRef = useRef<CatalogTracker | null>(null);
+  // ORIGEM QUE SOBREVIVE: o ?ref da vendedora (e utm/c) fica guardado no
+  // aparelho por 7 dias — a cliente que volta amanhã SEM o link continua
+  // sendo venda de quem mandou (a sacola sobrevivia, a comissão não)
+  const origemRef = useRef<Record<string, string | null>>(tracking);
   const [showConsent, setShowConsent] = useState(false);
   const orderSentRef = useRef(false);
   const cartRef = useRef({ pieces: 0, value: 0 });
+
+  // ---- Registro do pedido: nunca perder uma venda ----
+  // "enviando" enquanto o servidor não confirma; "erro" quando nem
+  // insistindo deu — a cliente vê, e o pedido fica guardado para a próxima
+  // vez que ela abrir o catálogo.
+  const [envio, setEnvio] = useState<"parado" | "enviando" | "ok" | "erro">("parado");
+  // protocolo da última sacola enviada nesta visita — é o que permite
+  // reconhecer o segundo clique antes de abrir o WhatsApp de novo
+
+  // Rede de segurança: ao abrir o catálogo, reenvia pedido que ficou para
+  // trás numa visita anterior (internet caiu no momento do envio).
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    reenviarPendentes({ storage: window.localStorage }).catch(() => {});
+  }, []);
+  /**
+   * A FOTO DA SACOLA que viaja junto de cada evento de sacola (meta.sacola).
+   * A Recuperação remonta o carrinho abandonado por ELA — reconstruir pelos
+   * eventos agregados errava: o evento da ficha traz os tamanhos juntos
+   * ("P,M"), o delta total e o TOTAL da sacola como "value", e o lixinho
+   * removia sem dizer o tamanho. A foto é o estado real, item por item.
+   */
+  const fotoDaSacola = (c: Cart) =>
+    Object.entries(c).flatMap(([key, sizes]) => {
+      const card = allCards.find((x) => x.key === key);
+      if (!card) return [];
+      return Object.entries(sizes)
+        .filter(([, q]) => q > 0)
+        .map(([size, q]) => ({
+          productId: card.product.id,
+          name: card.product.name,
+          color: card.color,
+          size,
+          qty: q,
+          price: precoDe(card.product),
+        }));
+    });
+
   const t = (e: Parameters<CatalogTracker["track"]>[0]) =>
     trackerRef.current?.track(e);
 
   useEffect(() => {
+    // resolve a origem ANTES de abrir a sessão: URL manda; sem parâmetro,
+    // vale a origem lembrada no aparelho (7 dias)
+    origemRef.current = lembrarOrigem(window.localStorage, storeSlug, tracking);
     trackerRef.current = new CatalogTracker(storeSlug);
     const consent = getConsent();
     if (consent === "granted") {
-      trackerRef.current.start(tracking.ref, tracking);
+      trackerRef.current.start(origemRef.current.ref, origemRef.current);
     } else if (consent === null) {
       setShowConsent(true);
     }
@@ -432,7 +655,7 @@ export function PublicCatalog({
   const totalPieces = Object.values(cart).reduce((a, s) => a + sum(s), 0);
   const totalValue = Object.entries(cart).reduce((acc, [key, sizes]) => {
     const card = allCards.find((c) => c.key === key);
-    return card ? acc + sum(sizes) * card.product.retailPrice : acc;
+    return card ? acc + sum(sizes) * precoDe(card.product) : acc;
   }, 0);
 
   useEffect(() => {
@@ -449,6 +672,8 @@ export function PublicCatalog({
   useEffect(() => {
     const observer = new IntersectionObserver(
       (entries) => {
+        // rolagem suave a caminho: o vigia espera o destino chegar
+        if (Date.now() < spyTravadoAte.current) return;
         for (const en of entries) {
           if (en.isIntersecting) {
             const idx = Number((en.target as HTMLElement).dataset.step);
@@ -464,13 +689,15 @@ export function PublicCatalog({
           }
         }
       },
-      { rootMargin: "-140px 0px -55% 0px", threshold: 0 }
+      // a margem de cima é a altura MEDIDA do que fica grudado no topo:
+      // seção escondida atrás da barra não pode acender o chip
+      { rootMargin: `-${alturaFixa}px 0px -55% 0px`, threshold: 0 }
     );
     Object.values(sectionRefs.current).forEach(
       (el) => el && observer.observe(el)
     );
     return () => observer.disconnect();
-  }, [categories]);
+  }, [categories, alturaFixa]);
 
   /* setas ‹ › da barra de categorias — só aparecem quando há o que rolar */
   const syncCatArrows = () => {
@@ -494,6 +721,8 @@ export function PublicCatalog({
       const nh = catNavBarRef.current?.offsetHeight ?? 0;
       root.style.setProperty("--cat-hdr", `${hh}px`);
       root.style.setProperty("--cat-sticky", `${hh + nh}px`);
+      // +6px de folga para o título da seção não encostar na barra
+      setAlturaFixa(hh + nh + 6);
     };
     update();
     const ro = new ResizeObserver(update);
@@ -579,20 +808,28 @@ export function PublicCatalog({
     for (const [size, qty] of Object.entries(draft)) {
       if (qty > 0) clean[size] = qty;
     }
-    const price = sheet.product.retailPrice;
+    const price = precoDe(sheet.product);
     const prevQty = cart[sheet.key] ? sum(cart[sheet.key]) : 0;
     const newQty = sum(clean);
     const newTotal = totalValue - prevQty * price + newQty * price;
-    t({
-      type: newQty >= prevQty ? "cart_add" : "cart_remove",
-      productId: sheet.product.id,
-      productName: sheet.product.name,
-      category: sheet.product.category,
-      color: sheet.color,
-      size: Object.keys(clean).join(","),
-      qty: Math.abs(newQty - prevQty) || newQty,
-      value: newTotal,
-    });
+    const proximoCart = { ...cart };
+    if (Object.keys(clean).length) proximoCart[sheet.key] = clean;
+    else delete proximoCart[sheet.key];
+    // trocar só a grade (P→M, mesma quantidade) NÃO é peça nova na sacola:
+    // o "+Sacola" dos rankings inflava a cada ajuste (auditoria 06/08/2026)
+    if (newQty !== prevQty) {
+      t({
+        type: newQty > prevQty ? "cart_add" : "cart_remove",
+        productId: sheet.product.id,
+        productName: sheet.product.name,
+        category: sheet.product.category,
+        color: sheet.color,
+        size: Object.keys(clean).join(","),
+        qty: Math.abs(newQty - prevQty),
+        value: newTotal,
+        meta: { sacola: fotoDaSacola(proximoCart) },
+      });
+    }
     setCart((prev) => {
       const next = { ...prev };
       if (Object.keys(clean).length) next[sheet.key] = clean;
@@ -636,7 +873,8 @@ export function PublicCatalog({
         const sizeStr = Object.entries(sizes)
           .map(([t, n]) => `${t} ×${n}`)
           .join(", ");
-        msg += `• ${c.product.name} ${c.color} — ${sizeStr}  (${q} ${q > 1 ? "peças" : "peça"} · ${fmt(q * c.product.retailPrice)})\n`;
+        // loja sem cores: a mensagem também não fala em cor
+        msg += `• ${c.product.name}${hideColors ? "" : ` ${c.color}`} — ${sizeStr}  (${q} ${q > 1 ? "peças" : "peça"} · ${fmt(q * precoDe(c.product))})\n`;
       }
       msg += "\n";
     }
@@ -648,20 +886,6 @@ export function PublicCatalog({
       if (client.fone) msg += `Telefone: ${client.fone}\n`;
     }
     msg += "\n_Valores sujeitos a confirmação._";
-
-    // pedido enviado: limpa a sacola salva no aparelho (uma visita futura
-    // começa limpa; a sacola na tela permanece até a página fechar)
-    try {
-      localStorage.removeItem(storeKey);
-    } catch {}
-
-    // Tracking Engine: conversão + unificação do visitante anônimo
-    orderSentRef.current = true;
-    t({ type: "order_submitted", value: totalValue, qty: totalPieces });
-    trackerRef.current?.flush(true);
-    if (client.fone.replace(/\D/g, "").length >= 8) {
-      trackerRef.current?.identify(client.fone);
-    }
 
     // O pedido também é registrado no CRM da loja (tela Pedidos), SEMPRE —
     // mesmo sem dados do cliente. Com telefone, entra ainda como lead
@@ -676,10 +900,23 @@ export function PublicCatalog({
           quantity,
         }))
       );
-    fetch("/api/catalog/order", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
+    // PROTOCOLO: o pedido é guardado no aparelho ANTES de sair. Se o envio
+    // falhar, o catálogo insiste — e ainda tenta de novo na próxima visita.
+    // PROTOCOLO DERIVADO DA SACOLA (não sorteado).
+    //
+    // Incidente real: com o registro lento, a cliente mandava pelo WhatsApp,
+    // voltava, via a tela ainda "enviando" e CLICAVA DE NOVO. Cada clique
+    // sorteava um protocolo novo — o servidor não reconhecia o repetido e
+    // criava um SEGUNDO pedido, com a mesma peça reservada duas vezes.
+    // Mesma sacola + mesma cliente + mesmo dia = mesmo protocolo, e aí o
+    // servidor devolve o pedido que já existe.
+    const pendente = {
+      // protocolo definido MAIS ABAIXO pela sacola: mesma sacola = mesmo
+      // protocolo = mesmo pedido (a cliente apertando duas vezes não cria dois)
+      clientRef: "",
+      at: Date.now(),
+      tentativas: 0,
+      payload: {
         company: storeSlug,
         items: orderItems,
         customer: {
@@ -688,15 +925,78 @@ export function PublicCatalog({
           store: client.loja || undefined,
         },
         message: msg,
-        // atribuição do link rastreado: vendedor (?ref) e cliente (?c)
-        ref: tracking.ref || undefined,
-        c: tracking.c || undefined,
+        // atribuição do link rastreado: vendedor (?ref) e cliente (?c) — da
+        // URL ou LEMBRADA no aparelho (a comissão não morre da noite pro dia)
+        ref: origemRef.current.ref || undefined,
+        c: origemRef.current.c || undefined,
         // campanha: o servidor recalcula os preços com o desconto dela
         promo: promo?.slug || undefined,
-      }),
-      keepalive: true,
-    }).catch(() => {});
+        // sessão de navegação → o pedido; é o que liga faturamento a canal
+        trackSessionId: trackerRef.current?.session || undefined,
+      } as Record<string, unknown>,
+    };
+    if (typeof window !== "undefined") {
+      // MESMA SACOLA = MESMO PEDIDO. A sacola não é limpa depois de enviar e o
+      // WhatsApp abre noutra aba: a cliente volta, vê a sacola cheia (parece
+      // que não foi) e aperta de novo. Sem isto, cada toque criava um pedido
+      // novo e o estoque era reservado em dobro.
+      // JÁ MANDOU ESTA MESMA SACOLA? Consultado ANTES do protocoloDaSacola
+      // (que grava o registro na primeira vez) e lido do APARELHO, não da
+      // memória da aba: no celular, a volta do WhatsApp costuma RECARREGAR o
+      // catálogo — o aviso em useRef zerava e a cliente reenviava a mesma
+      // mensagem sem nenhuma pergunta (era o "pedido duplicado" na conversa).
+      const sacolaRepetida = sacolaJaEnviada(window.localStorage, pendente.payload);
+      pendente.clientRef = protocoloDaSacola(window.localStorage, pendente.payload);
+      pendente.payload.clientRef = pendente.clientRef;
 
+      // O protocolo repetido já impede o PEDIDO duplicado. Mas sem este
+      // aviso a vendedora ainda receberia a MESMA MENSAGEM outra vez — e foi
+      // justamente isso que fez a loja achar que eram dois pedidos.
+      // `sacolaRepetida` só é true com o registro CONFIRMADO pelo servidor
+      // (marcarRegistrado) — o aviso nunca diz "a loja já recebeu" à toa, e
+      // recusar aqui é sempre seguro.
+      if (sacolaRepetida) {
+        const repetir = window.confirm(
+          "Você já enviou este pedido agora há pouco.\n\n" +
+            "Ele foi registrado e a loja já recebeu — enviar de novo só manda " +
+            "a mesma mensagem outra vez.\n\nQuer enviar mesmo assim?"
+        );
+        if (!repetir) {
+          setEnvio("ok");
+          return;
+        }
+      }
+
+      // pedido enviado: limpa a sacola salva no aparelho (uma visita futura
+      // começa limpa; a sacola na tela permanece até a página fechar).
+      // DEPOIS do aviso: recusar o reenvio não pode contar conversão nem
+      // mexer em nada — a cliente não enviou coisa alguma.
+      try {
+        localStorage.removeItem(storeKey);
+      } catch {}
+
+      // Tracking Engine: conversão + unificação do visitante anônimo
+      orderSentRef.current = true;
+      t({ type: "order_submitted", value: totalValue, qty: totalPieces });
+      trackerRef.current?.flush(true);
+      if (client.fone.replace(/\D/g, "").length >= 8) {
+        trackerRef.current?.identify(client.fone);
+      }
+
+      guardarPendente(window.localStorage, pendente);
+      setEnvio("enviando");
+      registrarComInsistencia(pendente, { storage: window.localStorage })
+        .then((ok) => {
+          setEnvio(ok ? "ok" : "erro");
+          // só o ok do servidor autoriza o aviso a dizer "a loja já recebeu"
+          if (ok) marcarRegistrado(window.localStorage, pendente.clientRef);
+        })
+        .catch(() => setEnvio("erro"));
+    }
+
+    // O WhatsApp abre na mesma hora, como sempre: o registro acontece por
+    // trás. Segurar a abertura aqui faria o navegador do celular bloquear a
+    // janela (ela só abre no toque da cliente).
     const url = `https://wa.me/${whatsapp.replace(/\D/g, "")}?text=${encodeURIComponent(msg)}`;
     window.open(url, "_blank") ?? (window.location.href = url);
   }
@@ -715,12 +1015,127 @@ export function PublicCatalog({
       ? `${fmt(minCurrent)} de ${fmt(minTarget)} · pedido mínimo`
       : `${minCurrent} de ${minTarget} peças · pedido mínimo`;
 
+  /**
+   * O CARD DA PEÇA — um desenho só, usado pelas seções e pela lupa.
+   * Duplicar o card era garantir que um dia os dois ficariam diferentes.
+   */
+  const desenharCard = (card: CardItem) => {
+    const inCart = cart[card.key] ? sum(cart[card.key]) : 0;
+    const soldOut = card.sizes.every((s) => !s.available);
+    return (
+      <button
+        key={card.key}
+        onClick={() => openSheet(card)}
+        className="relative text-left rounded-[14px] overflow-hidden flex flex-col active:scale-[0.985] transition border"
+        style={{ borderColor: T.line, background: T.bg }}
+      >
+        {inCart > 0 && (
+          <span
+            className="absolute top-2 right-2 z-10 min-w-[22px] h-[22px] px-1.5 rounded-xl text-[11px] font-bold flex items-center justify-center"
+            style={{ background: T.primary, color: T.secondary, boxShadow: "0 1px 4px rgba(0,0,0,.25)" }}
+          >
+            {inCart}
+          </span>
+        )}
+        <div className="w-full overflow-hidden relative" style={{ aspectRatio: "3/4", background: T.soft }}>
+          {card.product.images[0] && (
+            <img
+              // capa por cor: a foto etiquetada com a cor do card; sem
+              // etiqueta, a capa geral
+              src={fotoDaCor(card.product.images, card.color)}
+              alt={`${card.product.name} ${card.color}`}
+              loading="lazy"
+              decoding="async"
+              className="w-full h-full object-cover object-top"
+              style={soldOut ? { filter: "grayscale(1) opacity(.6)" } : undefined}
+            />
+          )}
+          {soldOut && (
+            <span className="absolute inset-0 flex items-center justify-center">
+              <span className="rounded-full bg-gray-800/80 text-white text-[11px] font-bold px-3.5 py-1.5 uppercase tracking-wide">
+                Indisponível
+              </span>
+            </span>
+          )}
+        </div>
+        <div className="px-3 pt-[11px] pb-[13px]">
+          {/* loja sem cores (semijoias): o NOME assume o lugar de destaque
+              e a bolinha/cor não aparecem */}
+          {hideColors ? (
+            <p className="text-[15px] font-bold my-1 leading-tight line-clamp-2">
+              {card.product.name}
+            </p>
+          ) : (
+            <>
+              <p className="text-[10px] uppercase font-semibold m-0" style={{ color: T.muted, letterSpacing: ".12em" }}>
+                {card.product.name}
+              </p>
+              <p className="text-[15px] font-bold my-1 flex items-center gap-[7px] leading-tight">
+                <span
+                  className="size-3.5 rounded-full shrink-0"
+                  style={{ background: swatch(card.color), border: "1px solid rgba(0,0,0,.2)" }}
+                />
+                {card.color}
+              </p>
+            </>
+          )}
+          <p className="text-[15px] font-bold m-0" style={{ color: T.primary }}>
+            {promo && card.product.originalRetailPrice ? (
+              <>
+                <s className="text-[12px] font-medium mr-1.5" style={{ color: T.muted }}>
+                  {fmt(card.product.originalRetailPrice)}
+                </s>
+                {fmt(precoDe(card.product))}
+              </>
+            ) : (
+              fmt(precoDe(card.product))
+            )}{" "}
+            <small className="text-[11px] font-medium" style={{ color: T.muted }}>
+              / peça
+            </small>
+          </p>
+          {soldOut && (
+            <p className="text-[11px] font-semibold mt-1 m-0" style={{ color: "#B33939" }}>
+              Indisponível — consulte reposição
+            </p>
+          )}
+        </div>
+      </button>
+    );
+  };
+
   return (
     <div
       ref={rootRef}
       className={fontClass}
       style={{ background: T.bg, color: T.ink, minHeight: "100dvh", paddingBottom: 92 }}
     >
+      {/* RECIBO DO ENVIO — a cliente enxerga que o pedido foi registrado.
+          Antes isso acontecia no escuro: se falhasse, a mensagem chegava no
+          WhatsApp da loja e o pedido não existia em lugar nenhum. */}
+      {envio !== "parado" && (
+        <div
+          role="status"
+          className="fixed inset-x-0 top-0 z-[60] px-3 pt-3"
+          style={{ pointerEvents: "none" }}
+        >
+          <div
+            className="mx-auto max-w-[560px] rounded-xl px-3.5 py-2.5 text-[13px] font-semibold shadow-lg"
+            style={{
+              background:
+                envio === "erro" ? "#fef2f2" : envio === "ok" ? "#ecfdf5" : "#ffffff",
+              color: envio === "erro" ? "#9f1239" : envio === "ok" ? "#065f46" : "#334155",
+              border: `1px solid ${envio === "erro" ? "#fecdd3" : envio === "ok" ? "#a7f3d0" : "#e2e8f0"}`,
+            }}
+          >
+            {envio === "enviando" && "Registrando seu pedido na loja…"}
+            {envio === "ok" && "✓ Pedido registrado! A loja já está com ele."}
+            {envio === "erro" &&
+              "Seu pedido foi para o WhatsApp, mas não conseguimos registrar na loja. Confirme com a vendedora pelo WhatsApp, por favor."}
+          </div>
+        </div>
+      )}
+
       {/* TOPBAR */}
       <header ref={headerRef} className="sticky top-0 z-40" style={{ background: T.primary }}>
         {logoSize === "grande" && identity.logoUrl ? (
@@ -859,15 +1274,78 @@ export function PublicCatalog({
         className="sticky z-30 border-b"
         style={{
           // gruda logo abaixo do cabeçalho, cuja altura é medida em runtime
-          top: logoSize === "grande" ? "var(--cat-hdr, 140px)" : 74,
+          // altura MEDIDA do cabeçalho (o 74 cravado desalinhava a barra
+          // sempre que o cabeçalho mudava de tamanho)
+          top: "var(--cat-hdr, 74px)",
           background: T.bg,
           borderColor: T.line,
           boxShadow: "0 6px 12px -10px rgba(0,0,0,.3)",
         }}
       >
         <div className="relative max-w-[680px] lg:max-w-[1200px] mx-auto">
+          {/* LUPA — sem ela, achar uma peça em 178 produtos era rolar tudo */}
+          <div className="px-[18px] pt-[8px] pb-[2px]">
+            <div className="relative">
+              <span
+                className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none"
+                style={{ color: T.muted }}
+                aria-hidden
+              >
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.2-3.2" /></svg>
+              </span>
+              <input
+                value={busca}
+                onChange={(e) => setBusca(e.target.value)}
+                placeholder="Procurar peça, cor ou código…"
+                aria-label="Procurar no catálogo"
+                className="w-full rounded-full pl-9 pr-9 py-[9px] text-[13px] outline-none border"
+                style={{ background: T.bg, color: T.ink, borderColor: T.line }}
+              />
+              {procurando && (
+                <button
+                  type="button"
+                  onClick={() => setBusca("")}
+                  aria-label="Limpar busca"
+                  className="absolute right-2 top-1/2 -translate-y-1/2 size-6 rounded-full flex items-center justify-center"
+                  style={{ background: T.soft, color: T.primary }}
+                >
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round"><path d="M18 6 6 18M6 6l12 12" /></svg>
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* TIPO DE PEÇA: o guarda-chuva. Só aparece quando a loja organizou as
+              categorias em tipos — quem não usa continua com uma barra só.
+              Tocar leva à primeira categoria do tipo; rolando, a barra se
+              acende sozinha (o tipo sai da categoria ativa). */}
+          {!procurando && grupos.length > 1 && (
+            <div
+              className="flex gap-2 overflow-x-auto px-[18px] pt-[7px] pb-[3px]"
+              style={{ scrollbarWidth: "none" }}
+            >
+              {grupos.map((g) => {
+                const active = g.tipo === tipoAtivo;
+                return (
+                  <button
+                    key={g.tipo}
+                    onClick={() => irParaSecao(g.categorias[0])}
+                    className="shrink-0 rounded-full px-[15px] py-[7px] text-[13px] font-extrabold uppercase tracking-wide whitespace-nowrap transition border"
+                    style={
+                      active
+                        ? { background: T.primary, color: T.secondary, borderColor: T.primary }
+                        : { background: "transparent", color: T.muted, borderColor: "transparent" }
+                    }
+                  >
+                    {g.tipo}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
           {/* seta esquerda */}
-          {catArrows.left && (
+          {!procurando && catArrows.left && (
             <button
               type="button"
               aria-label="Categorias anteriores"
@@ -886,20 +1364,20 @@ export function PublicCatalog({
             <span className="hidden md:block pointer-events-none absolute right-0 top-0 bottom-0 w-10 z-[5]" style={{ background: `linear-gradient(270deg, ${T.bg}, transparent)` }} />
           )}
           <div
+            hidden={procurando}
             ref={catNavRef}
             onScroll={syncCatArrows}
-            className="flex gap-2 overflow-x-auto px-[18px] py-[5px]"
-            style={{ scrollbarWidth: "none" }}
+            // cat-scroll: celular sem barra (dedo); computador com a
+            // barrinha de arrastar (pedido da Entre Linhas)
+            className="flex gap-2 overflow-x-auto cat-scroll px-[18px] py-[5px]"
           >
-            {categories.map((cat, i) => {
-              const active = activeCat === i;
+            {categoriasVisiveis.map((cat) => {
+              const active = categories[activeCat] === cat;
               const has = catPieces(cat) > 0;
               return (
                 <button
                   key={cat}
-                  onClick={() =>
-                    sectionRefs.current[cat]?.scrollIntoView({ behavior: "smooth", block: "start" })
-                  }
+                  onClick={() => irParaSecao(cat)}
                   className="flex items-center gap-2 shrink-0 rounded-full px-[15px] py-[9px] text-[13px] font-semibold whitespace-nowrap transition border"
                   style={
                     active
@@ -919,7 +1397,7 @@ export function PublicCatalog({
             })}
           </div>
           {/* seta direita */}
-          {catArrows.right && (
+          {!procurando && catArrows.right && (
             <button
               type="button"
               aria-label="Próximas categorias"
@@ -933,11 +1411,47 @@ export function PublicCatalog({
         </div>
       </nav>
 
+      {/* RESULTADOS DA LUPA — enquanto procura, a vitrine vira uma lista só.
+          Sem isso, a pessoa teria que adivinhar em qual seção olhar. */}
+      {procurando && (
+        <main>
+          <div className="max-w-[680px] lg:max-w-[1200px] mx-auto px-[18px] pt-4">
+            <p className="text-[13px] font-bold m-0" style={{ color: T.muted }}>
+              {achados.length === 0
+                ? `Nada encontrado para “${busca.trim()}”`
+                : `${achados.length} ${achados.length === 1 ? "opção encontrada" : "opções encontradas"} para “${busca.trim()}”`}
+            </p>
+            {achados.length === 0 && (
+              <p className="text-[13px] mt-1 m-0" style={{ color: T.muted }}>
+                Tente só uma palavra (o nome da peça ou a cor), ou{" "}
+                <button
+                  type="button"
+                  onClick={() => setBusca("")}
+                  className="underline font-semibold"
+                  style={{ color: T.primary }}
+                >
+                  ver o catálogo inteiro
+                </button>
+                .
+              </p>
+            )}
+          </div>
+          <div className="max-w-[680px] lg:max-w-[1200px] mx-auto grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3.5 px-3.5 pt-4 pb-2">
+            {achados.map(desenharCard)}
+          </div>
+        </main>
+      )}
+
       {/* SEÇÕES */}
-      <main>
+      <main hidden={procurando}>
         {categories.map((cat, i) => {
           const cards = cardsByCategory.get(cat) ?? [];
-          const firstDesc = cards[0]?.product.description;
+          // Texto da CATEGORIA (escrito em Produtos → Categorias). Sem texto
+          // salvo, cai no antigo: a descrição do primeiro produto — assim
+          // nenhuma loja perde o que já aparecia hoje.
+          const firstDesc =
+            descricaoDaCategoria(categoryDescriptions, cat) ||
+            cards[0]?.product.description;
           return (
             <section
               key={cat}
@@ -947,8 +1461,8 @@ export function PublicCatalog({
               }}
               className="pb-2.5"
               style={{
-                scrollMarginTop:
-                  logoSize === "grande" ? "var(--cat-sticky, 200px)" : 140,
+                // para a seção parar ABAIXO das barras, e não atrás delas
+                scrollMarginTop: "var(--cat-sticky, 150px)",
               }}
             >
               <div className="max-w-[680px] lg:max-w-[1200px] mx-auto px-[18px] pt-[10px]">
@@ -969,82 +1483,7 @@ export function PublicCatalog({
               <div className="max-w-[680px] lg:max-w-[1200px] mx-auto mt-3.5" style={{ borderTop: `1.5px dashed ${T.line}` }} />
 
               <div className="max-w-[680px] lg:max-w-[1200px] mx-auto grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3.5 px-3.5 pt-4 pb-2">
-                {cards.map((card) => {
-                  const inCart = cart[card.key] ? sum(cart[card.key]) : 0;
-                  const soldOut = card.sizes.every((s) => !s.available);
-                  return (
-                    <button
-                      key={card.key}
-                      onClick={() => openSheet(card)}
-                      className="relative text-left rounded-[14px] overflow-hidden flex flex-col active:scale-[0.985] transition border"
-                      style={{ borderColor: T.line, background: T.bg }}
-                    >
-                      {inCart > 0 && (
-                        <span
-                          className="absolute top-2 right-2 z-10 min-w-[22px] h-[22px] px-1.5 rounded-xl text-[11px] font-bold flex items-center justify-center"
-                          style={{ background: T.primary, color: T.secondary, boxShadow: "0 1px 4px rgba(0,0,0,.25)" }}
-                        >
-                          {inCart}
-                        </span>
-                      )}
-                      <div className="w-full overflow-hidden relative" style={{ aspectRatio: "3/4", background: T.soft }}>
-                        {card.product.images[0] && (
-                          <img
-                            src={card.product.images[0]}
-                            alt={`${card.product.name} ${card.color}`}
-                            loading="lazy"
-                            decoding="async"
-                            className="w-full h-full object-cover object-top"
-                            style={
-                              soldOut
-                                ? { filter: "grayscale(1) opacity(.6)" }
-                                : undefined
-                            }
-                          />
-                        )}
-                        {soldOut && (
-                          <span className="absolute inset-0 flex items-center justify-center">
-                            <span className="rounded-full bg-gray-800/80 text-white text-[11px] font-bold px-3.5 py-1.5 uppercase tracking-wide">
-                              Indisponível
-                            </span>
-                          </span>
-                        )}
-                      </div>
-                      <div className="px-3 pt-[11px] pb-[13px]">
-                        <p className="text-[10px] uppercase font-semibold m-0" style={{ color: T.muted, letterSpacing: ".12em" }}>
-                          {card.product.name}
-                        </p>
-                        <p className="text-[15px] font-bold my-1 flex items-center gap-[7px] leading-tight">
-                          <span
-                            className="size-3.5 rounded-full shrink-0"
-                            style={{ background: swatch(card.color), border: "1px solid rgba(0,0,0,.2)" }}
-                          />
-                          {card.color}
-                        </p>
-                        <p className="text-[15px] font-bold m-0" style={{ color: T.primary }}>
-                          {promo && card.product.originalRetailPrice ? (
-                            <>
-                              <s className="text-[12px] font-medium mr-1.5" style={{ color: T.muted }}>
-                                {fmt(card.product.originalRetailPrice)}
-                              </s>
-                              {fmt(card.product.retailPrice)}
-                            </>
-                          ) : (
-                            fmt(card.product.retailPrice)
-                          )}{" "}
-                          <small className="text-[11px] font-medium" style={{ color: T.muted }}>
-                            / peça
-                          </small>
-                        </p>
-                        {soldOut && (
-                          <p className="text-[11px] font-semibold mt-1 m-0" style={{ color: "#B33939" }}>
-                            Indisponível — consulte reposição
-                          </p>
-                        )}
-                      </div>
-                    </button>
-                  );
-                })}
+                {cards.map(desenharCard)}
               </div>
             </section>
           );
@@ -1158,7 +1597,7 @@ export function PublicCatalog({
               onClick={() => {
                 setConsent("granted");
                 setShowConsent(false);
-                trackerRef.current?.start(tracking.ref, tracking);
+                trackerRef.current?.start(origemRef.current.ref, origemRef.current);
               }}
               className="rounded-xl px-4 py-2 text-xs font-bold"
               style={{ background: T.secondary, color: T.primary }}
@@ -1226,7 +1665,9 @@ export function PublicCatalog({
               {sheet.product.images[0] && (
                 <PhotoCarousel
                   key={sheet.key}
-                  images={sheet.product.images}
+                  // a ficha abriu numa COR: as fotos dela vêm primeiro
+                  // (nenhuma some — sem etiqueta continua tudo na ordem)
+                  images={ordenarFotosDaCor(sheet.product.images, sheet.color)}
                   alt={sheet.product.name}
                   soft={T.soft}
                   line={T.line}
@@ -1240,13 +1681,15 @@ export function PublicCatalog({
                 {sheet.product.sku} · {sheet.product.category}
               </p>
               <p className="font-extrabold text-[21px] uppercase mt-1 mb-2.5">{sheet.product.name}</p>
-              <span
-                className="inline-flex items-center gap-2 rounded-[30px] px-3.5 py-[7px] text-[13px] font-bold"
-                style={{ background: T.soft, border: `1px solid ${T.line}`, color: T.primary }}
-              >
-                <span className="size-[15px] rounded-full" style={{ background: swatch(sheet.color), border: "1px solid rgba(0,0,0,.2)" }} />
-                Cor: {sheet.color}
-              </span>
+              {!hideColors && (
+                <span
+                  className="inline-flex items-center gap-2 rounded-[30px] px-3.5 py-[7px] text-[13px] font-bold"
+                  style={{ background: T.soft, border: `1px solid ${T.line}`, color: T.primary }}
+                >
+                  <span className="size-[15px] rounded-full" style={{ background: swatch(sheet.color), border: "1px solid rgba(0,0,0,.2)" }} />
+                  Cor: {sheet.color}
+                </span>
+              )}
               {sheet.product.description && (
                 <p className="text-sm font-medium leading-relaxed mt-3.5 mb-1" style={{ color: T.muted }}>
                   {sheet.product.description}
@@ -1258,7 +1701,7 @@ export function PublicCatalog({
                     <s className="text-sm font-medium mr-2" style={{ color: T.muted }}>
                       {fmt(sheet.product.originalRetailPrice)}
                     </s>
-                    {fmt(sheet.product.retailPrice)}{" "}
+                    {fmt(precoDe(sheet.product))}{" "}
                     <span
                       className="align-middle ml-1 rounded-full px-2 py-0.5 text-[11px] font-bold"
                       style={{ background: T.primary, color: T.secondary }}
@@ -1267,7 +1710,7 @@ export function PublicCatalog({
                     </span>
                   </>
                 ) : (
-                  fmt(sheet.product.retailPrice)
+                  fmt(precoDe(sheet.product))
                 )}{" "}
                 <small className="text-xs font-medium" style={{ color: T.muted }}>/ peça</small>
               </p>
@@ -1414,7 +1857,7 @@ export function PublicCatalog({
                         >
                           {c.product.images[0] && (
                             <img
-                              src={c.product.images[0]}
+                              src={fotoDaCor(c.product.images, c.color)}
                               alt=""
                               loading="lazy"
                               decoding="async"
@@ -1424,8 +1867,10 @@ export function PublicCatalog({
                           )}
                           <div className="flex-1 min-w-0">
                             <p className="font-bold text-sm m-0 flex items-center gap-[7px]">
-                              <span className="size-[13px] rounded-full shrink-0" style={{ background: swatch(c.color), border: "1px solid rgba(0,0,0,.2)" }} />
-                              {c.product.name} · {c.color}
+                              {!hideColors && (
+                                <span className="size-[13px] rounded-full shrink-0" style={{ background: swatch(c.color), border: "1px solid rgba(0,0,0,.2)" }} />
+                              )}
+                              {hideColors ? c.product.name : `${c.product.name} · ${c.color}`}
                             </p>
                             <p className="text-[13px] font-semibold mt-1 m-0">
                               {Object.entries(sizes).map(([t, n], i) => (
@@ -1438,10 +1883,12 @@ export function PublicCatalog({
                             </p>
                             <div className="flex justify-between items-center mt-[7px]">
                               <span className="font-bold text-sm" style={{ color: T.primary }}>
-                                {fmt(q * c.product.retailPrice)}
+                                {fmt(q * precoDe(c.product))}
                               </span>
                               <button
                                 onClick={() => {
+                                  const semEsse = { ...cart };
+                                  delete semEsse[c.key];
                                   t({
                                     type: "cart_remove",
                                     productId: c.product.id,
@@ -1449,7 +1896,8 @@ export function PublicCatalog({
                                     category: c.product.category,
                                     color: c.color,
                                     qty: q,
-                                    value: totalValue - q * c.product.retailPrice,
+                                    value: totalValue - q * precoDe(c.product),
+                                    meta: { sacola: fotoDaSacola(semEsse) },
                                   });
                                   setCart((prev) => {
                                     const next = { ...prev };

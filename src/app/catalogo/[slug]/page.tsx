@@ -1,8 +1,14 @@
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
+import { catalogPrice } from "@/lib/orders";
 import { db } from "@/lib/db";
 import { imageHref } from "@/lib/img";
-import { parseCategoryOrder } from "@/lib/categories";
+import { ordenarVariantes } from "@/lib/tamanhos";
+import {
+  parseCategoryDescriptions,
+  parseCategoryOrder,
+  parseCategoryTypes,
+} from "@/lib/categories";
 import { PublicCatalog, type CatalogProduct } from "./public-catalog";
 
 export const dynamic = "force-dynamic";
@@ -19,9 +25,11 @@ export async function generateMetadata({
 }): Promise<Metadata> {
   const { slug } = await params;
   const company = await db.company.findUnique({ where: { slug } });
+  // loja suspensa não expõe nem o nome (mesmo tratamento de "não existe")
+  if (!company || company.suspended) return { title: "Catálogo" };
   return {
-    title: company ? `${company.name} — Catálogo` : "Catálogo",
-    description: company?.tagline ?? "Catálogo de produtos",
+    title: `${company.name} — Catálogo`,
+    description: company.tagline ?? "Catálogo de produtos",
   };
 }
 
@@ -35,7 +43,10 @@ export default async function PublicCatalogPage({
   const { slug } = await params;
   const sp = await searchParams;
   const company = await db.company.findUnique({ where: { slug } });
-  if (!company) notFound();
+  // Loja suspensa (ex.: inadimplência) sai do ar também no público. Sem
+  // isso a suspensão não tinha efeito nenhum: a loja continuava recebendo
+  // pedidos pelo catálogo mesmo sem conseguir entrar no sistema.
+  if (!company || company.suspended) notFound();
 
   const [products, customColors] = await Promise.all([
     db.product.findMany({
@@ -49,7 +60,7 @@ export default async function PublicCatalogPage({
         ...(company.catalogHideOutOfStock ? { variants: { some: { stock: { gt: 0 } } } } : {}),
       },
       include: {
-        images: { orderBy: { order: "asc" }, select: { id: true } },
+        images: { orderBy: { order: "asc" }, select: { id: true, color: true } },
         variants: { orderBy: [{ color: "asc" }, { size: "asc" }] },
       },
       orderBy: [{ collection: "desc" }, { name: "asc" }],
@@ -69,10 +80,15 @@ export default async function PublicCatalogPage({
     description: p.description,
     retailPrice: p.retailPrice,
     wholesalePrice: p.wholesalePrice,
+    // preço que ESTA loja escolheu exibir (e cobrar) no catálogo
+    precoCatalogo: catalogPrice(p, company.catalogPriceMode),
     minQuantity: p.minQuantity,
     tags: p.tags,
-    images: p.images.map((i) => imageHref(i.id)),
-    variants: p.variants.map((v) => ({
+    // url + cor etiquetada: o card de cada cor usa a foto DAQUELA cor
+    images: p.images.map((i) => ({ url: imageHref(i.id), color: i.color })),
+    // ordem de ROUPA (PP, P, M, G, GG / numeração crescente): as bolinhas de
+    // tamanho do catálogo seguem a arara, não o alfabeto
+    variants: ordenarVariantes(p.variants).map((v) => ({
       color: v.color,
       size: v.size,
       available: v.stock > 0,
@@ -90,7 +106,13 @@ export default async function PublicCatalogPage({
       minOrderValue={company.minOrderValue}
       products={items}
       categoryOrder={parseCategoryOrder(company.categoryOrder)}
+      categoryDescriptions={parseCategoryDescriptions(company.categoryDescriptions)}
+      categoryTypes={parseCategoryTypes(company.categoryTypes)}
       logoSize={company.catalogLogoSize as "normal" | "grande"}
+      // a chavinha vale por COR: o card da cor esgotada some da vitrine
+      hideSoldOut={company.catalogHideOutOfStock}
+      // loja sem variação de cor (semijoias): bolinha/nome de cor não aparecem
+      hideColors={company.catalogHideColors}
       identity={{
         logoUrl: company.logoUrl,
         primary: company.catalogPrimary,

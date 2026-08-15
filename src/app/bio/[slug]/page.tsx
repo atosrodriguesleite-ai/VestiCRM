@@ -17,6 +17,8 @@ import {
   ChevronRight,
 } from "lucide-react";
 import { db } from "@/lib/db";
+import { ehRobo } from "@/lib/robo";
+import { metaPixelSeguro, gaIdSeguro } from "@/lib/pixel-id";
 import { mixHex, readableOn } from "@/lib/color";
 import { bioColors, socialLinks } from "@/lib/bio";
 import { platformUrl } from "@/lib/site";
@@ -67,7 +69,8 @@ const TYPE_ICON = {
 
 async function load(slug: string) {
   return db.bioPage.findFirst({
-    where: { slug, published: true },
+    // loja suspensa some do ar também aqui (mesma regra do catálogo)
+    where: { slug, published: true, company: { suspended: false } },
     include: {
       company: {
         select: {
@@ -116,15 +119,10 @@ export default async function BioPublicPage({
 
   // conta a visita — mas SÓ de gente de verdade. Robôs e as prévias de link
   // (WhatsApp, Instagram, Facebook, Google) buscam a página e inflariam as
-  // visitas, bagunçando a taxa de clique. Filtra pelo user-agent. E aguarda a
-  // gravação (fire-and-forget se perde no serverless depois da resposta).
+  // visitas, bagunçando as métricas. Régua única em lib/robo.ts (a mesma do
+  // clique). E aguarda a gravação (fire-and-forget se perde no serverless).
   const ua = (await headers()).get("user-agent") ?? "";
-  const ehRobo =
-    !ua ||
-    /bot|crawler|spider|crawl|slurp|facebookexternalhit|whatsapp|telegram|discord|embedly|preview|monitor|lighthouse|headless|bingpreview|pinterest|linkedinbot|skypeuripreview|vkshare|redditbot|applebot/i.test(
-      ua
-    );
-  if (!ehRobo) {
+  if (!ehRobo(ua)) {
     await Promise.all([
       // total acumulado (all-time)
       db.bioPage.update({ where: { id: page.id }, data: { views: { increment: 1 } } }),
@@ -302,17 +300,21 @@ export default async function BioPublicPage({
         </a>
       </div>
 
-      {/* Pixel de remarketing da loja (Meta / Google) — só se configurado */}
-      {page.metaPixelId && (
+      {/* Pixel de remarketing da loja (Meta / Google) — só se configurado.
+          Os ids são HIGIENIZADOS antes de entrar no <Script>: só passam se
+          casarem o formato de um id de verdade (dígitos / G-…/UA-…/AW-…).
+          Qualquer coisa fora disso vira null e o script nem é renderizado —
+          fecha o XSS da auditoria 07/08/2026 (inclusive lixo já gravado). */}
+      {metaPixelSeguro(page.metaPixelId) && (
         <Script id="bio-meta-pixel" strategy="afterInteractive">
-          {`!function(f,b,e,v,n,t,s){if(f.fbq)return;n=f.fbq=function(){n.callMethod?n.callMethod.apply(n,arguments):n.queue.push(arguments)};if(!f._fbq)f._fbq=n;n.push=n;n.loaded=!0;n.version='2.0';n.queue=[];t=b.createElement(e);t.async=!0;t.src=v;s=b.getElementsByTagName(e)[0];s.parentNode.insertBefore(t,s)}(window,document,'script','https://connect.facebook.net/en_US/fbevents.js');fbq('init','${page.metaPixelId}');fbq('track','PageView');`}
+          {`!function(f,b,e,v,n,t,s){if(f.fbq)return;n=f.fbq=function(){n.callMethod?n.callMethod.apply(n,arguments):n.queue.push(arguments)};if(!f._fbq)f._fbq=n;n.push=n;n.loaded=!0;n.version='2.0';n.queue=[];t=b.createElement(e);t.async=!0;t.src=v;s=b.getElementsByTagName(e)[0];s.parentNode.insertBefore(t,s)}(window,document,'script','https://connect.facebook.net/en_US/fbevents.js');fbq('init','${metaPixelSeguro(page.metaPixelId)}');fbq('track','PageView');`}
         </Script>
       )}
-      {page.gaId && (
+      {gaIdSeguro(page.gaId) && (
         <>
-          <Script src={`https://www.googletagmanager.com/gtag/js?id=${page.gaId}`} strategy="afterInteractive" />
+          <Script src={`https://www.googletagmanager.com/gtag/js?id=${gaIdSeguro(page.gaId)}`} strategy="afterInteractive" />
           <Script id="bio-ga" strategy="afterInteractive">
-            {`window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments)}gtag('js',new Date());gtag('config','${page.gaId}');`}
+            {`window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments)}gtag('js',new Date());gtag('config','${gaIdSeguro(page.gaId)}');`}
           </Script>
         </>
       )}

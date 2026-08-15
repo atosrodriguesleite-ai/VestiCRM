@@ -1,6 +1,8 @@
 import { describe, it, expect } from "vitest";
 import { normalizePhone, phoneMatchVariants, pickRoundRobin } from "../intake";
 
+// Guarda RN-008 (índice em docs/regras.md; texto no CLAUDE.md).
+
 describe("phoneMatchVariants (dedup tolerante ao 9º dígito)", () => {
   it("casa com/sem o 9 (mesma pessoa)", () => {
     // com 9 → também gera a versão sem 9

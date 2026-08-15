@@ -9,10 +9,11 @@ import {
   type RGB,
   type PDFPage,
 } from "pdf-lib";
+import { paginaSegura } from "@/lib/pdf-texto";
 import { db } from "@/lib/db";
 import { requireUser, AuthError } from "@/lib/auth";
 import { isManagerUp } from "@/lib/scope";
-import { orderNumber, orderStatusLabel, PAID_ORDER_STATUSES } from "@/lib/orders";
+import { orderNumber, orderStatusLabel, round2, PAID_ORDER_STATUSES } from "@/lib/orders";
 import { appBaseUrl } from "@/lib/comm/evolution";
 
 /**
@@ -88,7 +89,7 @@ export async function GET(req: NextRequest) {
     if (!seller)
       return NextResponse.json({ error: "Vendedor não encontrado" }, { status: 404 });
 
-    const base = (company.commissionBase ?? "SUBTOTAL") as "SUBTOTAL" | "TOTAL";
+    const base = (company.commissionBase ?? "SUBTOTAL") as "SUBTOTAL" | "VENDIDO";
     const orders = await db.order.findMany({
       where: {
         companyId: user.companyId,
@@ -103,18 +104,23 @@ export async function GET(req: NextRequest) {
         status: true,
         source: true,
         subtotal: true,
-        total: true,
+        netTotal: true,
         createdAt: true,
         paidAt: true,
         customer: { select: { name: true } },
       },
     });
 
-    const valorBase = (o: { subtotal: number; total: number }) =>
-      base === "TOTAL" ? o.total : o.subtotal;
+    const valorBase = (o: { subtotal: number; netTotal: number }) =>
+      base === "VENDIDO" ? o.netTotal : o.subtotal;
     const taxa = seller.commissionRate;
-    const totalBase = orders.reduce((s, o) => s + valorBase(o), 0);
-    const totalComissao = (totalBase * taxa) / 100;
+    // a comissão é arredondada POR LINHA e o total soma as linhas — assim a
+    // conta de cabeça (somar a coluna) bate com o total, centavo por centavo
+    // (calcular sobre a base agregada divergia da soma das linhas impressas)
+    const comissaoDaLinha = (o: { subtotal: number; netTotal: number }) =>
+      round2((valorBase(o) * taxa) / 100);
+    const totalBase = round2(orders.reduce((s, o) => s + valorBase(o), 0));
+    const totalComissao = round2(orders.reduce((s, o) => s + comissaoDaLinha(o), 0));
 
     const ACCENT = hexToRgb(company.catalogPrimary, rgb(0.055, 0.004, 0.259));
     const pdf = await PDFDocument.create();
@@ -123,7 +129,7 @@ export async function GET(req: NextRequest) {
 
     const A4: [number, number] = [595.28, 841.89];
     const M = 48;
-    let page = pdf.addPage(A4);
+    let page = paginaSegura(pdf.addPage(A4));
     const { width, height } = page.getSize();
     let y = height - 60;
 
@@ -159,7 +165,7 @@ export async function GET(req: NextRequest) {
     };
     const newPageIfNeeded = (needed: number, comCabecalho = true) => {
       if (y - needed < 80) {
-        page = pdf.addPage(A4);
+        page = paginaSegura(pdf.addPage(A4));
         y = height - 60;
         if (comCabecalho) drawTableHead();
       }
@@ -195,10 +201,12 @@ export async function GET(req: NextRequest) {
 
     // ---- Regra de cálculo por extenso (a parte que evita discussão) ----
     const regras = [
-      `Comissão = ${base === "TOTAL" ? "TOTAL do pedido (com frete)" : "valor dos PRODUTOS (sem frete/desconto de frete)"} × ${String(taxa).replace(".", ",")}%.`,
+      `Comissão = ${base === "VENDIDO" ? "valor VENDIDO (produtos − desconto + acréscimo)" : "valor dos PRODUTOS (antes do desconto)"} × ${String(taxa).replace(".", ",")}%.`,
+      "O FRETE nunca entra na comissão — é valor da transportadora, não venda.",
       "Só entra pedido PAGO (orçamento, aguardando pagamento e cancelado ficam de fora).",
       "O pedido conta no período pela DATA DO PAGAMENTO — não pela data do orçamento.",
-      "Pedido do catálogo é de quem é RESPONSÁVEL pela cliente; troca de vendedor fica registrada no histórico do pedido.",
+      "Pedido do catálogo é de quem MANDOU O LINK (?ref da vendedora); sem link de vendedora, nasce sem dona (é da loja).",
+      "Troca de vendedor fica registrada no histórico do pedido.",
     ];
     const regraH = 16 + regras.length * 12 + 10;
     page.drawRectangle({
@@ -235,7 +243,7 @@ export async function GET(req: NextRequest) {
       page.drawText(bTxt, {
         x: cols.basex - font.widthOfTextAtSize(bTxt, 9), y, size: 9, font, color: INK,
       });
-      const cTxt = money((valorBase(o) * taxa) / 100);
+      const cTxt = money(comissaoDaLinha(o));
       page.drawText(cTxt, {
         x: cols.com - bold.widthOfTextAtSize(cTxt, 9), y, size: 9, font: bold, color: GREEN,
       });

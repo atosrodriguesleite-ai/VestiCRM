@@ -30,7 +30,8 @@ export async function POST(
     if (!run)
       return NextResponse.json({ error: "Plano não encontrado" }, { status: 404 });
 
-    let estado: (EstadoOtimizacao & { lockUntil?: number }) | null = null;
+    let estado: (EstadoOtimizacao & { lockUntil?: number; iniciadoEm?: number }) | null =
+      null;
     let resultado: ResultadoPlano | null = null;
     try {
       estado = run.state ? JSON.parse(run.state) : null;
@@ -55,6 +56,25 @@ export async function POST(
       });
     }
 
+    // RELÓGIO DE PAREDE: o orçamento ("10 minutos") é tempo real, não só
+    // tempo de CPU. O estado só acumulava o cálculo das rodadas, então a
+    // tela batia 10:00/10:00 e o plano seguia pensando. Aqui o prazo é
+    // medido do começo do plano até agora — e estoura de vez.
+    const iniciadoEm = estado?.iniciadoEm ?? run.createdAt.getTime();
+    if (agora - iniciadoEm >= run.budgetMs) {
+      const encerrado = await db.cutPlanRun.update({
+        where: { id: run.id },
+        data: {
+          status: "CONCLUIDO",
+          elapsedMs: run.budgetMs,
+          state: JSON.stringify({ ...(estado ?? {}), fase: "DONE", lockUntil: 0 }),
+        },
+      });
+      return NextResponse.json(
+        progressoDoRun(encerrado, resultado, estado ? { ...estado, fase: "DONE" } : null)
+      );
+    }
+
     const paramsJob = JSON.parse(run.params) as ParamsJob;
     const itens = await carregarItens(user.companyId, paramsJob);
 
@@ -66,14 +86,22 @@ export async function POST(
       run.budgetMs
     );
 
-    const concluiu = rodada.estado.fase === "DONE";
+    // o tempo mostrado ao lojista é o do relógio, não o de CPU
+    const decorrido = Math.min(run.budgetMs, Date.now() - iniciadoEm);
+    const concluiu = rodada.estado.fase === "DONE" || decorrido >= run.budgetMs;
     const salvo = await db.cutPlanRun.update({
       where: { id: run.id },
       data: {
         status: concluiu ? "CONCLUIDO" : "EM_ANDAMENTO",
-        elapsedMs: rodada.estado.elapsedMs,
+        elapsedMs: decorrido,
         attempts: rodada.estado.tentativas,
-        state: JSON.stringify({ ...rodada.estado, lockUntil: 0 }),
+        state: JSON.stringify({
+          ...rodada.estado,
+          fase: concluiu ? "DONE" : rodada.estado.fase,
+          elapsedMs: decorrido,
+          iniciadoEm,
+          lockUntil: 0,
+        }),
         result: JSON.stringify(rodada.resultado),
       },
     });

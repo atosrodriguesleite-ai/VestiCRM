@@ -1,10 +1,14 @@
 import { describe, it, expect } from "vitest";
 import {
   computeOrderTotals,
+  ajusteParaFecharPor,
   unitPriceFor,
   orderNumber,
   round2,
+  catalogPrice,
 } from "../orders";
+
+// Guarda RN-009 (índice em docs/regras.md; texto no CLAUDE.md).
 
 describe("computeOrderTotals", () => {
   it("soma itens, aplica desconto e frete", () => {
@@ -81,5 +85,114 @@ describe("orderNumber / round2", () => {
   it("round2 arredonda corretamente", () => {
     expect(round2(10.005)).toBe(10.01);
     expect(round2(0.1 + 0.2)).toBe(0.3);
+  });
+});
+
+describe("acréscimo, porcentagem e o valor VENDIDO (sem frete)", () => {
+  const carrinho = [{ quantity: 10, unitPrice: 100 }]; // subtotal 1000
+
+  it("o frete NUNCA entra no valor vendido", () => {
+    const t = computeOrderTotals(carrinho, 0, 250);
+    expect(t.netTotal).toBe(1000); // é o que fatura e o que comissiona
+    expect(t.total).toBe(1250); // é o que a cliente paga
+  });
+
+  it("desconto em porcentagem sai sobre o subtotal", () => {
+    const t = computeOrderTotals(carrinho, { pct: 10 }, 0);
+    expect(t.discount).toBe(100);
+    expect(t.netTotal).toBe(900);
+  });
+
+  it("porcentagem se recalcula quando o carrinho muda", () => {
+    const maior = computeOrderTotals([{ quantity: 20, unitPrice: 100 }], { pct: 10 });
+    expect(maior.discount).toBe(200); // 10% de 2000, não os 100 de antes
+  });
+
+  it("valor em reais NÃO se mexe quando o carrinho muda", () => {
+    const a = computeOrderTotals(carrinho, { valor: 150 });
+    const b = computeOrderTotals([{ quantity: 20, unitPrice: 100 }], { valor: 150 });
+    expect(a.discount).toBe(150);
+    expect(b.discount).toBe(150);
+  });
+
+  it("acréscimo em reais e em porcentagem", () => {
+    expect(computeOrderTotals(carrinho, 0, 0, { valor: 80 }).netTotal).toBe(1080);
+    expect(computeOrderTotals(carrinho, 0, 0, { pct: 5 }).surcharge).toBe(50);
+  });
+
+  it("desconto e acréscimo juntos, com frete por fora", () => {
+    const t = computeOrderTotals(carrinho, { pct: 10 }, 40, { valor: 60 });
+    expect(t.discount).toBe(100);
+    expect(t.surcharge).toBe(60);
+    expect(t.netTotal).toBe(960); // 1000 - 100 + 60
+    expect(t.total).toBe(1000); // + 40 de frete
+  });
+
+  it("desconto não derruba o pedido abaixo de zero", () => {
+    const t = computeOrderTotals(carrinho, { valor: 99999 }, 30, { valor: 200 });
+    expect(t.netTotal).toBe(0);
+    expect(t.total).toBe(30); // sobra só o frete a pagar
+  });
+
+  it("porcentagem fora da faixa é contida em 0..100", () => {
+    expect(computeOrderTotals(carrinho, { pct: -5 }).discount).toBe(0);
+    expect(computeOrderTotals(carrinho, { pct: 300 }).discount).toBe(1000);
+  });
+
+  it("acréscimo negativo é ignorado (não vira desconto por acidente)", () => {
+    expect(computeOrderTotals(carrinho, 0, 0, { valor: -70 }).surcharge).toBe(0);
+  });
+
+  it("chamada antiga (número puro) continua funcionando", () => {
+    const t = computeOrderTotals(carrinho, 200, 50);
+    expect(t.discount).toBe(200);
+    expect(t.surcharge).toBe(0);
+    expect(t.netTotal).toBe(800);
+    expect(t.total).toBe(850);
+  });
+});
+
+describe("atalho 'fechar por' um valor redondo", () => {
+  it("valor menor vira desconto", () => {
+    expect(ajusteParaFecharPor(1000, 900)).toEqual({ discount: 100, surcharge: 0 });
+  });
+
+  it("valor maior vira acréscimo", () => {
+    expect(ajusteParaFecharPor(1000, 1120)).toEqual({ discount: 0, surcharge: 120 });
+  });
+
+  it("o total digitado inclui o frete — ele sai da conta antes", () => {
+    // "fecha por 1.050" num pedido de 1.000 + 50 de frete = nem desconto nem acréscimo
+    expect(ajusteParaFecharPor(1000, 1050, 50)).toEqual({ discount: 0, surcharge: 0 });
+    // "fecha por 1.000" com 50 de frete = 50 de desconto na mercadoria
+    expect(ajusteParaFecharPor(1000, 1000, 50)).toEqual({ discount: 50, surcharge: 0 });
+  });
+
+  it("fechar em zero desconta no máximo o subtotal", () => {
+    expect(ajusteParaFecharPor(1000, 0)).toEqual({ discount: 1000, surcharge: 0 });
+  });
+
+  it("valor negativo digitado não quebra a conta", () => {
+    expect(ajusteParaFecharPor(1000, -500)).toEqual({ discount: 1000, surcharge: 0 });
+  });
+});
+
+/* ---------- preço exibido no catálogo público ---------- */
+
+describe("catalogPrice", () => {
+  const peca = { retailPrice: 49.9, wholesalePrice: 33 };
+
+  it("padrão (VAREJO) mostra o preço de varejo", () => {
+    expect(catalogPrice(peca, "VAREJO")).toBe(49.9);
+    expect(catalogPrice(peca, null)).toBe(49.9);
+    expect(catalogPrice(peca, undefined)).toBe(49.9);
+  });
+
+  it("ATACADO mostra o preço de atacado", () => {
+    expect(catalogPrice(peca, "ATACADO")).toBe(33);
+  });
+
+  it("ATACADO sem preço de atacado cai pro varejo (nunca mostra zero)", () => {
+    expect(catalogPrice({ retailPrice: 49.9, wholesalePrice: 0 }, "ATACADO")).toBe(49.9);
   });
 });

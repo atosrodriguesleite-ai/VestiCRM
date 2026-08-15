@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { requireUser, AuthError } from "@/lib/auth";
-import { isAdmin } from "@/lib/scope";
+import { podeOperarIntegracoes } from "@/lib/scope";
 import { meEnv, meBalance } from "@/lib/melhorenvio";
 
 /** Estado da conexão Melhor Envio + configurações de remetente/embalagem. */
@@ -19,7 +19,8 @@ export async function GET() {
         select: {
           connectedAt: true,
           fromName: true,
-          fromDocument: true,
+          fromCpf: true,
+          fromCnpj: true,
           fromPhone: true,
           fromEmail: true,
           fromZip: true,
@@ -55,7 +56,9 @@ export async function GET() {
 
 const settingsSchema = z.object({
   fromName: z.string().max(120).optional(),
-  fromDocument: z.string().max(20).optional(),
+  // CPF e CNPJ separados: a transportadora pede um em cada campo
+  fromCpf: z.string().max(20).optional(),
+  fromCnpj: z.string().max(25).optional(),
   fromPhone: z.string().max(20).optional(),
   fromEmail: z.string().max(120).optional(),
   fromZip: z.string().max(10).optional(),
@@ -77,7 +80,7 @@ const settingsSchema = z.object({
 export async function PATCH(req: NextRequest) {
   try {
     const user = await requireUser();
-    if (!isAdmin(user))
+    if (!podeOperarIntegracoes(user))
       return NextResponse.json({ error: "Sem permissão" }, { status: 403 });
     const parsed = settingsSchema.safeParse(await req.json());
     if (!parsed.success)

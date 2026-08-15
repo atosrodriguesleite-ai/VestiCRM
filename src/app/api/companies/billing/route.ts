@@ -15,6 +15,7 @@ const schema = z.object({
   kind: z.enum(["TESTE", "PAGANTE", "CORTESIA"]).optional(),
   implementationFee: z.number().min(0).max(1_000_000).optional(),
   monthlyFee: z.number().min(0).max(1_000_000).optional(),
+  cycle: z.enum(["MENSAL", "SEMESTRAL", "ANUAL"]).optional(),
   dueDay: z.number().int().optional(),
   notes: z.string().max(2000).optional(),
 });

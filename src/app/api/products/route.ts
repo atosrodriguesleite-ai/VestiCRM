@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { imageHref } from "@/lib/img";
+import { ordenarVariantes } from "@/lib/tamanhos";
 import { requireUser, AuthError } from "@/lib/auth";
 import type { Prisma } from "@prisma/client";
 
@@ -76,10 +77,13 @@ export async function GET(req: NextRequest) {
       orderBy: { name: "asc" },
       take: 60,
     });
-    // fotos data-URL viram /api/img/<id> — resposta leve para o navegador
+    // fotos data-URL viram /api/img/<id> — resposta leve para o navegador.
+    // A grade sai na ordem de ROUPA (PP, P, M, G, GG / numeração): é o que os
+    // seletores de novo pedido / editar itens mostram
     return NextResponse.json(
       products.map((p) => ({
         ...p,
+        variants: ordenarVariantes(p.variants),
         images: p.images.map((i) => ({ ...i, url: imageHref(i.id) })),
       }))
     );

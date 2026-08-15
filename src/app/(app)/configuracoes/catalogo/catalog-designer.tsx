@@ -21,6 +21,7 @@ import {
 import { Card } from "@/components/ui";
 import { fileToDataUrl, removeBackground } from "@/lib/upload";
 import { readableOn } from "@/lib/color";
+import { ColorPicker } from "@/components/color-picker";
 
 type ColorItem = { id: string; name: string; hex: string };
 type SizeItem = { id: string; name: string };
@@ -60,8 +61,10 @@ export function CatalogDesigner({
     catalogPrimary: string;
     catalogSecondary: string;
     catalogBg: string;
+    catalogPriceMode: string;
     catalogFont: string;
     catalogLogoSize: string;
+    catalogHideColors: boolean;
   };
   colors: ColorItem[];
   sizes: SizeItem[];
@@ -77,8 +80,12 @@ export function CatalogDesigner({
   const [primary, setPrimary] = useState(initial.catalogPrimary);
   const [secondary, setSecondary] = useState(initial.catalogSecondary);
   const [bg, setBg] = useState(initial.catalogBg);
+  // preço que a vitrine mostra: vale pra TODOS os produtos de uma vez
+  const [precoModo, setPrecoModo] = useState(initial.catalogPriceMode);
   const [font, setFont] = useState(initial.catalogFont);
   const [logoSize, setLogoSize] = useState(initial.catalogLogoSize);
+  // loja sem variação de cor (semijoias): esconde bolinha/nome de cor
+  const [hideColors, setHideColors] = useState(initial.catalogHideColors);
   const [colors, setColors] = useState(initialColors);
   const [sizes, setSizes] = useState(initialSizes);
   const [newColor, setNewColor] = useState({ name: "", hex: "#c94f7c" });
@@ -147,8 +154,10 @@ export function CatalogDesigner({
         catalogPrimary: primary,
         catalogSecondary: secondary,
         catalogBg: bg,
+        catalogPriceMode: precoModo,
         catalogFont: font,
         catalogLogoSize: logoSize,
+        catalogHideColors: hideColors,
       }),
     });
     setSaving(false);
@@ -174,6 +183,16 @@ export function CatalogDesigner({
       ].sort((a, b) => a.name.localeCompare(b.name)));
       setNewColor({ name: "", hex: newColor.hex });
     }
+  }
+
+  /** Troca a tonalidade de uma cor existente (o nome é a chave no servidor). */
+  async function trocarTom(cor: ColorItem, hex: string) {
+    setColors((prev) => prev.map((c) => (c.id === cor.id ? { ...c, hex } : c)));
+    await fetch("/api/catalog-colors", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: cor.name, hex }),
+    });
   }
 
   async function removeColor(id: string) {
@@ -316,24 +335,22 @@ export function CatalogDesigner({
                     ["Fundo", bg, setBg],
                   ] as const
                 ).map(([label, value, set]) => (
-                  <label key={label} className="block cursor-pointer">
+                  <div key={label} className="block">
                     <span className="text-[11px] text-gray-500 font-medium">{label}</span>
                     <span
-                      className="mt-1 flex items-center justify-between rounded-xl border border-gray-200 px-2.5 py-2"
+                      className="mt-1 flex items-center justify-between gap-1 rounded-xl border border-gray-200 px-2 py-1.5"
                       style={{ background: value, color: readableOn(value) }}
                     >
                       <span className="text-[11px] font-mono font-semibold uppercase">
                         {value}
                       </span>
-                      <input
-                        type="color"
-                        disabled={!canEditIdentity}
-                        value={value}
-                        onChange={(e) => set(e.target.value)}
-                        className="size-6 rounded cursor-pointer bg-transparent border-0 p-0"
-                      />
+                      {canEditIdentity && (
+                        // mesmo seletor da biblioteca: cartela de moda, código
+                        // exato da marca e o leque completo do aparelho
+                        <ColorPicker value={value} onChange={set} label="" />
+                      )}
                     </span>
-                  </label>
+                  </div>
                 ))}
               </div>
               <div className="flex flex-wrap gap-1.5 mt-2.5">
@@ -361,6 +378,46 @@ export function CatalogDesigner({
               </div>
             </div>
 
+            {/* Preço da vitrine — vale pra TODOS os produtos de uma vez */}
+            <div>
+              <p className="text-sm font-medium mb-2">Preço que aparece no catálogo</p>
+              <div className="grid grid-cols-2 gap-2">
+                {(
+                  [
+                    ["VAREJO", "Varejo", "o preço cheio da peça"],
+                    ["ATACADO", "Atacado", "o preço por peça no atacado"],
+                  ] as const
+                ).map(([k, txt, dica]) => (
+                  <label
+                    key={k}
+                    className={`rounded-xl border px-3 py-2.5 text-sm text-center cursor-pointer transition ${
+                      precoModo === k
+                        ? "border-brand-400 bg-brand-50 font-medium"
+                        : "border-gray-200 hover:border-gray-300"
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name="precoModo"
+                      disabled={!canEdit}
+                      checked={precoModo === k}
+                      onChange={() => setPrecoModo(k)}
+                      className="sr-only"
+                    />
+                    {txt}
+                    <span className="block text-[11px] font-normal text-gray-400">
+                      {dica}
+                    </span>
+                  </label>
+                ))}
+              </div>
+              <p className="text-[11px] text-gray-400 mt-1.5">
+                Vale para <b>todos os produtos de uma vez</b> — e é o mesmo valor
+                que a cliente paga no pedido feito pelo catálogo. Peça sem preço
+                de atacado cadastrado continua mostrando o varejo.
+              </p>
+            </div>
+
             {/* Tipografia */}
             <div>
               <p className="text-sm font-medium mb-2">Logo no topo do catálogo</p>
@@ -376,6 +433,26 @@ export function CatalogDesigner({
                 Grande: o logo preenche o topo, centralizado. Envie um logo em
                 boa resolução (ideal ~1000×300 px, PNG com fundo transparente).
               </p>
+            </div>
+
+            {/* Loja sem variação de cor (semijoias, acessórios) */}
+            <div className="flex items-center justify-between gap-3 rounded-xl border border-gray-200 px-3 py-2.5">
+              <span className="text-sm min-w-0">
+                Minha loja <b>não trabalha com cores</b>
+                <span className="block text-[11px] text-gray-400">
+                  Semijoias e acessórios: a bolinha e o nome da cor somem do
+                  catálogo — só desta loja.
+                </span>
+              </span>
+              <button
+                type="button"
+                disabled={!canEditIdentity}
+                onClick={() => setHideColors((v) => !v)}
+                className={`relative h-6 w-11 shrink-0 rounded-full transition disabled:opacity-40 ${hideColors ? "bg-emerald-500" : "bg-gray-300"}`}
+                title={hideColors ? "Cores escondidas no catálogo" : "Cores aparecem no catálogo"}
+              >
+                <span className={`absolute top-0.5 size-5 rounded-full bg-white shadow transition-all ${hideColors ? "left-[1.375rem]" : "left-0.5"}`} />
+              </button>
             </div>
 
             <div>
@@ -507,10 +584,20 @@ export function CatalogDesigner({
               key={c.id}
               className="group flex items-center gap-2 rounded-full border border-gray-200 pl-1.5 pr-2.5 py-1.5 text-xs font-medium"
             >
-              <span
-                className="size-5 rounded-full border border-black/10"
-                style={{ background: c.hex }}
-              />
+              {canEdit ? (
+                // trocar a tonalidade de uma cor JÁ criada sem ter que apagar
+                // e refazer (apagar mexeria nos produtos que usam a cor)
+                <ColorPicker
+                  value={c.hex}
+                  onChange={(hex) => trocarTom(c, hex)}
+                  label=""
+                />
+              ) : (
+                <span
+                  className="size-5 rounded-full border border-black/10"
+                  style={{ background: c.hex }}
+                />
+              )}
               {c.name}
               {canEdit && (
                 <button
@@ -529,12 +616,15 @@ export function CatalogDesigner({
         </div>
         {canEdit && (
           <div className="flex flex-wrap items-center gap-2">
-            <input
-              type="color"
+            <ColorPicker
               value={newColor.hex}
-              onChange={(e) => setNewColor((c) => ({ ...c, hex: e.target.value }))}
-              className="size-10 rounded-xl cursor-pointer border border-gray-200 p-1 bg-white"
-              title="Escolher tonalidade"
+              onChange={(hex) => setNewColor((c) => ({ ...c, hex }))}
+              // escolheu "Terracota" na cartela? o nome já vem junto — ela só
+              // troca se quiser um nome próprio ("Terracota Verão 26")
+              onPickName={(nome) =>
+                setNewColor((c) => ({ ...c, name: c.name.trim() ? c.name : nome }))
+              }
+              label="Escolher cor"
             />
             <input
               value={newColor.name}

@@ -9,6 +9,7 @@ import {
   orderStatusColor,
 } from "@/lib/orders";
 import type { OrderStatus } from "@prisma/client";
+import { CancelOrderDialog } from "../cancel-dialog";
 
 /**
  * Trilha de status clicável — muda o status do pedido com um toque.
@@ -30,17 +31,16 @@ export function StatusChanger({
   useEffect(() => setShown(current), [current]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  // cancelamento pergunta antes: devolver as peças ao estoque ou baixar de vez?
+  const [askCancel, setAskCancel] = useState(false);
   const currentIdx = ORDER_STATUS_FLOW.indexOf(shown);
 
-  async function setStatus(status: OrderStatus) {
+  async function setStatus(status: OrderStatus, restock?: boolean) {
     if (busy || status === shown) return;
-    if (
-      status === "CANCELADO" &&
-      !window.confirm(
-        "Cancelar o pedido? Se ele já estava pago, o estoque volta para o catálogo."
-      )
-    )
+    if (status === "CANCELADO" && restock === undefined) {
+      setAskCancel(true); // a resposta do diálogo chama de novo com restock
       return;
+    }
     const previous = shown;
     setShown(status); // resposta visual imediata
     setBusy(true);
@@ -48,7 +48,7 @@ export function StatusChanger({
     const res = await fetch(`/api/orders/${orderId}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ status }),
+      body: JSON.stringify({ status, ...(restock !== undefined ? { restock } : {}) }),
     });
     setBusy(false);
     if (!res.ok) {
@@ -63,7 +63,10 @@ export function StatusChanger({
   const cancelled = shown === "CANCELADO";
 
   return (
-    <div>
+    // min-w-0: sem isso a régua de status (que rola na horizontal) empurra o
+    // cartão inteiro e a TELA DO PEDIDO fica mais larga que o celular — dá
+    // para arrastar a página para o lado, e o conteúdo sai da área visível.
+    <div className="min-w-0">
       <div className="flex gap-1.5 overflow-x-auto thin-scroll pb-1">
         {ORDER_STATUS_FLOW.map((s, i) => {
           const active = s === shown;
@@ -95,6 +98,14 @@ export function StatusChanger({
           {error}
         </p>
       )}
+      <CancelOrderDialog
+        open={askCancel}
+        onClose={() => setAskCancel(false)}
+        onConfirm={(restock) => {
+          setAskCancel(false);
+          setStatus("CANCELADO", restock);
+        }}
+      />
     </div>
   );
 }

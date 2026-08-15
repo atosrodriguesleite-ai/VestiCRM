@@ -1,6 +1,7 @@
 import { db } from "../db";
 import { normalizePhone } from "../intake";
 import { forwardToDestinations } from "./destinations";
+import { avancarFunil, nascerCartaoDoCatalogo } from "../funil-auto";
 
 /**
  * Tracking Engine — camada ÚNICA de eventos da Inteligência Comercial.
@@ -38,6 +39,10 @@ export function classifyChannel(input: {
   isSeller?: boolean;
 }): string {
   if (input.campaignChannel) return input.campaignChannel;
+  // BIO: o botão da bio carimba utm_source=bio, mas o canal não existia no
+  // ranking — o tráfego dela virava "Site" e o Gestor de Bio dizia uma coisa
+  // enquanto a Inteligência mostrava outra (auditoria 06/08/2026)
+  if ((input.utmSource ?? "").toLowerCase() === "bio") return "bio";
   const probe = `${input.ref ?? ""} ${input.utmSource ?? ""}`.trim();
   if (probe) {
     for (const [rx, channel] of REF_CHANNELS) {
@@ -125,7 +130,11 @@ export async function resolveRef(companyId: string, refRaw: string) {
     const users = await db.user.findMany({
       where: { companyId, active: true },
     });
-    const bySlug = users.find(
+    // o link identifica a vendedora pelo PRIMEIRO NOME. Se duas pessoas da
+    // equipe têm o mesmo primeiro nome (duas Julianas), qualquer escolha aqui
+    // seria chute — e chute em comissão é dinheiro no bolso errado. Nesse
+    // caso ninguém é atribuído e o pedido segue a regra da carteira.
+    const candidatos = users.filter(
       (u) =>
         u.name
           .toLowerCase()
@@ -133,9 +142,34 @@ export async function resolveRef(companyId: string, refRaw: string) {
           .replace(/[\u0300-\u036f]/g, "")
           .split(/\s+/)[0] === ref
     );
-    if (bySlug) sellerId = bySlug.id;
+    if (candidatos.length === 1) sellerId = candidatos[0].id;
   }
   return { sellerId, campaignId, campaignChannel };
+}
+
+/**
+ * ?utm_campaign=<utmKey> → campanha do cliente. A etiqueta era gerada com
+ * capricho nas campanhas de aquisição e NENHUMA rota lia (auditoria
+ * 06/08/2026): lead que entrava pelo link ficava "Sem campanha" para sempre.
+ * Regra da casa: SÓ preenche quem ainda não tem (vale o primeiro contato) —
+ * a mesma do vínculo de anúncio.
+ */
+export async function atribuirCampanhaPorUtm(
+  companyId: string,
+  customerId: string,
+  utmCampaign: string | null | undefined
+) {
+  const chave = utmCampaign?.trim().toLowerCase();
+  if (!chave) return;
+  const campanha = await db.marketingCampaign.findFirst({
+    where: { companyId, active: true, utmKey: { equals: chave, mode: "insensitive" } },
+    select: { id: true },
+  });
+  if (!campanha) return;
+  await db.customer.updateMany({
+    where: { id: customerId, companyId, campaignId: null },
+    data: { campaignId: campanha.id },
+  });
 }
 
 // ---- Sessões ---------------------------------------------------------------
@@ -198,6 +232,14 @@ export async function startSession(input: StartSessionInput) {
         where: { visitorId: visitor.id },
         data: { customerId: customer.id },
       });
+    }
+    // A CLIENTE ABRIU O CATÁLOGO → o cartão avança sozinho — e se ela não
+    // tinha negociação nenhuma (recompra, cartão anterior já fechado), o
+    // cartão NASCE em "Catálogo enviado". Melhor sinal que "mandei o
+    // catálogo": mandar não prova nada, abrir prova interesse.
+    if (customer) {
+      await avancarFunil(input.companyId, customer.id, "CATALOGO_ENVIADO");
+      await nascerCartaoDoCatalogo(input.companyId, customer.id);
     }
   }
 
@@ -313,9 +355,10 @@ export async function trackEvents(
       cartAdds: { increment: inc("cart_add") },
       cartRemoves: { increment: inc("cart_remove") },
       ...(lastCartValue !== undefined ? { cartValue: lastCartValue } : {}),
-      ...(valid.some((e) => e.type === "order_submitted")
-        ? { converted: true }
-        : {}),
+      // `converted` NÃO é mais marcado aqui: quem marca é o servidor do
+      // pedido (/api/catalog/order), UMA vez por pedido criado. O evento
+      // order_submitted do navegador contava conversão de novo quando a
+      // mesma sacola era reenviada em outra visita (auditoria 06/08/2026).
     },
   });
 

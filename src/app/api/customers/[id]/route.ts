@@ -4,6 +4,8 @@ import { db } from "@/lib/db";
 import { requireUser, AuthError } from "@/lib/auth";
 import { PAID_ORDER_STATUSES } from "@/lib/orders";
 import { normalizePhone } from "@/lib/intake";
+import { conferirDocumentos, guardarDocumento } from "@/lib/documento";
+import { isManagerUp } from "@/lib/scope";
 
 /** Ficha do contato para o painel lateral do atendimento. */
 export async function GET(
@@ -17,6 +19,7 @@ export async function GET(
       where: { id, companyId: user.companyId },
       include: {
         owner: { select: { name: true } },
+        campaign: { select: { id: true, name: true } },
         tags: { include: { tag: true } },
         interests: { include: { interest: true } },
         orders: {
@@ -32,11 +35,14 @@ export async function GET(
     const paid = customer.orders.filter((o) =>
       PAID_ORDER_STATUSES.includes(o.status)
     );
-    // total gasto e nº de pedidos pagos considerando TODO o histórico
+    // total gasto, nº de pedidos e última compra considerando TODO o
+    // histórico — a última compra sai DOS PEDIDOS (o carimbo lastPurchaseAt
+    // não é gravado em todos os caminhos e mostrava data velha no painel)
     const agg = await db.order.aggregate({
       where: { customerId: id, status: { in: PAID_ORDER_STATUSES } },
-      _sum: { total: true },
+      _sum: { netTotal: true },
       _count: { _all: true },
+      _max: { paidAt: true },
     });
 
     return NextResponse.json({
@@ -51,10 +57,18 @@ export async function GET(
       notes: customer.notes,
       preferredSize: customer.preferredSize,
       preferredColors: customer.preferredColors,
+      birthDate: customer.birthDate,
       ownerName: customer.owner?.name ?? null,
-      lastPurchaseAt: customer.lastPurchaseAt?.toISOString() ?? null,
+      // DE ONDE ESSA CLIENTE VEIO: anúncio detectado (Click-to-WhatsApp) e a
+      // campanha dona dele. É o que permite resolver a atribuição no chat,
+      // sem sair do atendimento.
+      adRef: customer.adRef,
+      campaign: customer.campaign
+        ? { id: customer.campaign.id, name: customer.campaign.name }
+        : null,
+      lastPurchaseAt: (agg._max.paidAt ?? customer.lastPurchaseAt)?.toISOString() ?? null,
       createdAt: customer.createdAt.toISOString(),
-      totalSpent: agg._sum.total ?? 0,
+      totalSpent: agg._sum.netTotal ?? 0,
       paidOrders: agg._count._all,
       tags: customer.tags.map((t) => ({ name: t.tag.name, color: t.tag.color })),
       interests: customer.interests.map((i) => i.interest.name),
@@ -78,7 +92,9 @@ const schema = z.object({
   name: z.string().min(1).optional(),
   phone: z.string().min(8).optional(),
   email: z.string().email().nullable().optional().or(z.literal("").transform(() => null)),
-  document: z.string().max(20).nullable().optional(), // CPF/CNPJ
+  // CPF e CNPJ separados (ver src/lib/documento.ts)
+  cpf: z.string().max(20).nullable().optional(),
+  cnpj: z.string().max(25).nullable().optional(),
   zip: z.string().max(10).nullable().optional(),
   street: z.string().max(120).nullable().optional(),
   // "Número" costuma vir com complemento (apto, bloco, loja) — cabe folgado
@@ -100,6 +116,7 @@ const schema = z.object({
   notes: z.string().nullable().optional(),
   preferredSize: z.string().nullable().optional(),
   preferredColors: z.string().nullable().optional(),
+  birthDate: z.string().nullable().optional(),
   nextContactAt: z.string().nullable().optional(),
   ownerId: z.string().nullable().optional(),
 });
@@ -116,7 +133,7 @@ export async function PATCH(
       // mensagem que diz QUAL campo travou (antes só dizia "Dados inválidos"
       // e ninguém sabia onde estava o problema)
       const rotulos: Record<string, string> = {
-        name: "Nome", phone: "Telefone", email: "E-mail", document: "CPF/CNPJ",
+        name: "Nome", phone: "Telefone", email: "E-mail", cpf: "CPF", cnpj: "CNPJ",
         zip: "CEP", street: "Rua", streetNumber: "Número", complement: "Complemento", district: "Bairro",
         city: "Cidade", state: "Estado", notes: "Observações",
       };
@@ -144,15 +161,41 @@ export async function PATCH(
       return NextResponse.json({ error: "Não encontrado" }, { status: 404 });
     }
 
-    const { nextContactAt, ownerId, ...rest } = parsed.data;
+    const { nextContactAt, ownerId, birthDate, cpf, cnpj, ...rest } = parsed.data;
     const data: Record<string, unknown> = { ...rest };
+
+    // CPF/CNPJ errado só aparece quando a transportadora recusa a etiqueta ou
+    // a Receita rejeita a nota — tarde demais. A conferência é aqui.
+    // confere SÓ o que está sendo enviado agora: cadastro antigo com documento
+    // torto não pode travar quem só quis corrigir o endereço
+    const docErro = conferirDocumentos({ cpf, cnpj });
+    if (docErro) return NextResponse.json({ error: docErro }, { status: 400 });
+    // guarda só os números: a vendedora digita com ponto e traço, e o Melhor
+    // Envio/Bling só aceitam dígitos
+    if (cpf !== undefined) data.cpf = guardarDocumento(cpf);
+    if (cnpj !== undefined) data.cnpj = guardarDocumento(cnpj);
+    // aniversário chega como "AAAA-MM-DD"; grava ao MEIO-DIA em UTC para que
+    // o fuso de São Paulo (UTC-3) nunca jogue a data para o dia anterior
+    if (birthDate !== undefined) {
+      data.birthDate = birthDate ? new Date(`${birthDate}T12:00:00Z`) : null;
+    }
     // telefone entra SEMPRE padronizado (só dígitos, com DDI 55) — salvar com
     // formatação furava o casamento do WhatsApp e criava contato duplicado
     if (typeof data.phone === "string") data.phone = normalizePhone(data.phone);
     if (nextContactAt !== undefined) {
       data.nextContactAt = nextContactAt ? new Date(nextContactAt) : null;
     }
-    if (ownerId !== undefined) {
+    if (ownerId !== undefined && ownerId !== customer.ownerId) {
+      // TROCA DE CARTEIRA = decisão de gerência (mexe em comissão e
+      // visibilidade). A tela já esconde o seletor para vendedora, mas a API
+      // aceitava de qualquer um — uma SELLER podia puxar a cliente para si
+      // chamando a rota direto (auditoria 07/08/2026).
+      if (!isManagerUp(user)) {
+        return NextResponse.json(
+          { error: "Só a gerência pode trocar a responsável pela cliente." },
+          { status: 403 }
+        );
+      }
       if (ownerId) {
         const owner = await db.user.findFirst({
           where: { id: ownerId, companyId: user.companyId },

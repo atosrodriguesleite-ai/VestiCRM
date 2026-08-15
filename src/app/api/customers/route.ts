@@ -3,12 +3,16 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import { requireUser, AuthError } from "@/lib/auth";
 import { intakeLead } from "@/lib/intake";
+import { conferirDocumentos, guardarDocumento, soDigitos } from "@/lib/documento";
 import type { Origin } from "@prisma/client";
 
 const schema = z.object({
   name: z.string().min(1),
   phone: z.string().min(8),
-  document: z.string().max(20).optional(), // CPF/CNPJ
+  // CPF e CNPJ SEPARADOS: a cliente lojista tem os dois e cada transportadora
+  // pede um deles (ver src/lib/documento.ts)
+  cpf: z.string().max(20).optional(),
+  cnpj: z.string().max(25).optional(),
   city: z.string().optional(),
   state: z.string().optional(),
   type: z
@@ -18,6 +22,8 @@ const schema = z.object({
   notes: z.string().optional(),
   preferredSize: z.string().optional(),
   preferredColors: z.string().optional(),
+  // aniversário: chega como "AAAA-MM-DD" do input de data
+  birthDate: z.string().optional(),
   interestIds: z.array(z.string()).optional(),
   campaignId: z.string().optional(), // campanha de aquisição (módulo Marketing)
   skipOpportunity: z.boolean().optional(), // fluxos que criam a oportunidade/pedido na sequência
@@ -31,8 +37,14 @@ export async function POST(req: NextRequest) {
     if (!parsed.success) {
       return NextResponse.json({ error: "Dados inválidos" }, { status: 400 });
     }
-    const { interestIds, type, notes, preferredSize, preferredColors, origin, document, campaignId, skipOpportunity, ...core } =
+    const { interestIds, type, notes, preferredSize, preferredColors, birthDate, origin, cpf, cnpj, campaignId, skipOpportunity, ...core } =
       parsed.data;
+
+    // CPF/CNPJ digitado errado só dá as caras lá na frente — a transportadora
+    // recusa a etiqueta ou a Receita rejeita a nota, com a venda já fechada.
+    // Melhor avisar aqui, enquanto a vendedora está com a cliente.
+    const docErro = conferirDocumentos({ cpf, cnpj });
+    if (docErro) return NextResponse.json({ error: docErro }, { status: 400 });
 
     const validOrigins = Object.keys(
       (await import("@/lib/format")).originLabel
@@ -62,20 +74,34 @@ export async function POST(req: NextRequest) {
       skipOpportunity,
     });
 
-    // campos complementares do formulário (perfil de moda)
+    // campos complementares do formulário (perfil de moda).
+    // Telefone JÁ CADASTRADO (dedup): o formulário volta com os padrões e
+    // sobrescrever cegamente REBAIXAVA a lojista para VAREJO e apagava os
+    // interesses dela (auditoria 07/08/2026). No cadastro existente, o tipo
+    // só muda se veio diferente do padrão, e interesse novo SOMA (não troca).
+    const cadastroNovo = result.isNewLead;
     const customer = await db.customer.update({
       where: { id: result.customer.id },
       data: {
-        type,
-        document: document ?? undefined,
+        ...(cadastroNovo || type !== "VAREJO" ? { type } : {}),
+        cpf: guardarDocumento(cpf) ?? undefined,
+        cnpj: guardarDocumento(cnpj) ?? undefined,
         notes: notes ?? undefined,
         preferredSize: preferredSize ?? undefined,
         preferredColors: preferredColors ?? undefined,
+        birthDate: birthDate ? new Date(`${birthDate}T12:00:00Z`) : undefined,
         interests: interestIds?.length
-          ? {
-              deleteMany: {},
-              create: interestIds.map((id) => ({ interestId: id })),
-            }
+          ? cadastroNovo
+            ? {
+                deleteMany: {},
+                create: interestIds.map((id) => ({ interestId: id })),
+              }
+            : {
+                createMany: {
+                  data: interestIds.map((id) => ({ interestId: id })),
+                  skipDuplicates: true,
+                },
+              }
           : undefined,
       },
     });
@@ -103,7 +129,11 @@ export async function GET(req: NextRequest) {
               OR: [
                 { name: { contains: q, mode: "insensitive" } },
                 { phone: { contains: q.replace(/\D/g, "") || q } },
-                { document: { contains: q } },
+                // busca por documento: a vendedora digita com ponto e traço,
+                // o banco guarda só os números
+                ...(soDigitos(q)
+                  ? [{ cpf: { contains: soDigitos(q) } }, { cnpj: { contains: soDigitos(q) } }]
+                  : []),
               ],
             }
           : {}),

@@ -72,11 +72,11 @@ export default async function MarketingPage({
     db.customer.findMany({ where: { companyId, createdAt: inPrev }, select: { origin: true } }),
     db.order.findMany({
       where: { companyId, status: { in: PAID_ORDER_STATUSES }, paidAt: inPeriod },
-      select: { total: true, customerId: true, customer: { select: { origin: true, campaignId: true } } },
+      select: { netTotal: true, customerId: true, customer: { select: { origin: true, campaignId: true } } },
     }),
     db.order.findMany({
       where: { companyId, status: { in: PAID_ORDER_STATUSES }, paidAt: inPrev },
-      select: { total: true, customer: { select: { origin: true } } },
+      select: { netTotal: true, customer: { select: { origin: true } } },
     }),
     db.marketingCampaign.findMany({
       where: { companyId },
@@ -106,13 +106,26 @@ export default async function MarketingPage({
     _max: { createdAt: true },
   });
   const refsJaUsadas = new Set(campaignRows.flatMap((c) => refsDaCampanha(c.adRefs)));
+  // o CRIATIVO de cada anúncio (link, título e texto). Sem isto a tela mostrava
+  // só o código curto — que não abre nada e não diz que anúncio é.
+  const criativos = await db.adCreative.findMany({
+    where: { companyId },
+    select: { adRef: true, sourceUrl: true, title: true, body: true },
+  });
+  const criativoDe = new Map(criativos.map((c) => [c.adRef, c]));
   const anunciosDetectados = anunciosRaw
     .filter((a) => a.adRef && !refsJaUsadas.has(a.adRef))
-    .map((a) => ({
-      ref: a.adRef as string,
-      clientes: a._count._all,
-      ultimo: a._max.createdAt?.toISOString() ?? null,
-    }))
+    .map((a) => {
+      const cr = criativoDe.get(a.adRef as string);
+      return {
+        ref: a.adRef as string,
+        clientes: a._count._all,
+        ultimo: a._max.createdAt?.toISOString() ?? null,
+        url: cr?.sourceUrl ?? null,
+        titulo: cr?.title ?? null,
+        texto: cr?.body ?? null,
+      };
+    })
     .sort((a, b) => b.clientes - a.clientes)
     .slice(0, 12);
 
@@ -147,7 +160,7 @@ export default async function MarketingPage({
   const canalLeads = new Map<string, number>();
   for (const l of leadsAll) canalLeads.set(l.origin, (canalLeads.get(l.origin) ?? 0) + 1);
   const canalFat = new Map<string, number>();
-  for (const o of ordersAll) canalFat.set(o.customer.origin, (canalFat.get(o.customer.origin) ?? 0) + o.total);
+  for (const o of ordersAll) canalFat.set(o.customer.origin, (canalFat.get(o.customer.origin) ?? 0) + o.netTotal);
   const canais = [...canaisSet]
     .map((o) => ({
       origin: o,
@@ -180,11 +193,11 @@ export default async function MarketingPage({
   for (const o of paidOrders) {
     const cid = o.customer.campaignId;
     if (!cid) {
-      fatSemCamp += o.total;
+      fatSemCamp += o.netTotal;
       continue;
     }
     const cur = campFat.get(cid) ?? { fat: 0, pedidos: 0, clientes: new Set<string>() };
-    cur.fat += o.total;
+    cur.fat += o.netTotal;
     cur.pedidos += 1;
     cur.clientes.add(o.customerId);
     campFat.set(cid, cur);
@@ -212,10 +225,10 @@ export default async function MarketingPage({
 
   // ---- números do topo (já filtrados pelo canal, quando houver) ----
   const totalLeads = leads.length;
-  const totalFat = paidOrders.reduce((s, o) => s + o.total, 0);
+  const totalFat = paidOrders.reduce((s, o) => s + o.netTotal, 0);
   const ticket = paidOrders.length > 0 ? totalFat / paidOrders.length : 0;
   const prevLeads = prevLeadsList.length;
-  const prevRevenue = prevOrdersList.reduce((s, o) => s + o.total, 0);
+  const prevRevenue = prevOrdersList.reduce((s, o) => s + o.netTotal, 0);
   // sem base no período anterior não dá pra calcular variação (mesma regra
   // do Dashboard — antes aqui devolvia "+100%", que era invenção)
   const pctDelta = (a: number, b: number) => (b > 0 ? Math.round(((a - b) / b) * 100) : null);
@@ -279,7 +292,13 @@ export default async function MarketingPage({
         <ChevronRight className="size-5 shrink-0 text-brand-400 transition group-hover:translate-x-0.5" />
       </Link>
 
-      <PeriodChips pathname="/marketing" de={de} ate={ate} />
+      {/* o canal escolhido viaja junto ao trocar o período (senão sumia) */}
+      <PeriodChips
+        pathname="/marketing"
+        de={de}
+        ate={ate}
+        extra={{ canal: canalParam ?? undefined }}
+      />
 
       {/* filtro por canal — Geral (tudo) ou um canal específico */}
       {canais.length > 0 && (

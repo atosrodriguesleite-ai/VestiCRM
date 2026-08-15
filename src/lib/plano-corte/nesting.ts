@@ -29,6 +29,9 @@ export type PecaEncaixe = {
   area: number;
   espelhada?: boolean; // instância invertida do par (mão contrária)
   modeloIdx?: number; // qual modelo do plano (plano com vários modelos)
+  // TIRA fina (galão, alça, viés): pode girar 90° — na mesa a modelista
+  // atravessa essas peças na largura sem prejuízo (prática aceita)
+  tira?: boolean;
   contorno?: Contorno;
   /**
    * CASAL PÉ-COM-CABEÇA: esta "peça" é um bloco de duas peças iguais, a
@@ -724,46 +727,85 @@ export function encaixeColunas(
     const k = `${p.modeloIdx ?? 0}|${p.nome}|${p.tamanho}|${p.w.toFixed(2)}|${p.h.toFixed(2)}`;
     grupos.set(k, [...(grupos.get(k) ?? []), p]);
   }
-  // colunas primeiro pros tipos de maior área total (donos do risco)
-  const tipos = [...grupos.values()].sort(
-    (a, b) => b[0].area * b.length - a[0].area * a.length
-  );
 
-  const pos: Posicionamento[] = [];
-  let colocadas = 0;
-  let xCursorCols = 0;
   const colsTecido = Math.max(1, Math.floor((larguraCm + folgaCm) / res));
-  const sobras: PecaEncaixe[] = [];
-  let comprimento = 0;
 
-  for (const grupo of tipos) {
+  // Ficha de cada tipo: largura da coluna e PASSO da corrente pé-com-cabeça
+  // (quanto sobe a cada peça, alternando 0° e 180°).
+  type Tipo = {
+    pecas: PecaEncaixe[];
+    laneCols: number;
+    offAB: number;
+    offBA: number;
+    passoMedio: number;
+    lanes: number;
+  };
+  const tipos: Tipo[] = [];
+  const sobras: PecaEncaixe[] = [];
+  for (const grupo of grupos.values()) {
     const ex = grupo[0];
     const PA = perfilDaPeca(ex, 0, folgaCm, res);
     const PB = perfilDaPeca(ex, 180, folgaCm, res);
-    const laneCols = PA.cols;
-    const lanesCabem = Math.floor((colsTecido - xCursorCols) / laneCols);
-    if (lanesCabem < 1 || !ex.contorno) {
+    if (!ex.contorno || PA.cols > colsTecido) {
       sobras.push(...grupo);
       continue;
     }
-    // passo da corrente A→B e B→A (alternância cabeça/pé no mesmo x)
     let offAB = 0;
     let offBA = 0;
-    for (let c = 0; c < laneCols; c++) {
+    for (let c = 0; c < PA.cols; c++) {
       const ab = PA.top[c] - PB.bottom[c];
       const ba = PB.top[c] - PA.bottom[c];
       if (ab > offAB) offAB = ab;
       if (ba > offBA) offBA = ba;
     }
-    const nLanes = Math.min(lanesCabem, grupo.length);
-    const porLane = Math.ceil(grupo.length / nLanes);
+    tipos.push({
+      pecas: grupo,
+      laneCols: PA.cols,
+      offAB,
+      offBA,
+      passoMedio: (offAB + offBA) / 2,
+      lanes: 1,
+    });
+  }
+  if (tipos.length === 0) return null;
+
+  // REPARTIÇÃO DA LARGURA — o ponto que decidia tudo: antes o primeiro tipo
+  // tomava todas as colunas e os outros iam pro fim do risco. Agora cada
+  // tipo começa com UMA coluna e a largura restante é leiloada pra quem
+  // tem a fila mais comprida (maior comprimento previsto), até o pano
+  // acabar. É o que iguala as alturas das colunas e enche a largura.
+  let usadas = tipos.reduce((s2, t) => s2 + t.laneCols, 0);
+  if (usadas > colsTecido) return null; // nem uma coluna de cada cabe
+  const alturaPrevista = (t: Tipo) => (t.pecas.length / t.lanes) * t.passoMedio;
+  for (let guarda = 0; guarda < 200; guarda++) {
+    let alvo: Tipo | null = null;
+    for (const t of tipos)
+      if (
+        usadas + t.laneCols <= colsTecido &&
+        t.pecas.length > t.lanes && // não vale coluna sem peça
+        (!alvo || alturaPrevista(t) > alturaPrevista(alvo))
+      )
+        alvo = t;
+    if (!alvo) break;
+    alvo.lanes++;
+    usadas += alvo.laneCols;
+  }
+
+  const pos: Posicionamento[] = [];
+  let colocadas = 0;
+  let comprimento = 0;
+  let xCursorCols = 0;
+
+  // tipos de coluna mais larga primeiro (encosta o retalho num lado só)
+  for (const t of [...tipos].sort((a, b) => b.laneCols - a.laneCols)) {
+    const porLane = Math.ceil(t.pecas.length / t.lanes);
     let idx = 0;
-    for (let l = 0; l < nLanes && idx < grupo.length; l++) {
-      const xCm = (xCursorCols + l * laneCols) * res;
+    for (let l = 0; l < t.lanes && idx < t.pecas.length; l++) {
+      const xCm = (xCursorCols + l * t.laneCols) * res;
       let y = 0;
-      for (let i = 0; i < porLane && idx < grupo.length; i++) {
+      for (let i = 0; i < porLane && idx < t.pecas.length; i++) {
         const rot: 0 | 180 = i % 2 === 0 ? 0 : 180;
-        const p = grupo[idx++];
+        const p = t.pecas[idx++];
         pos.push({
           nome: p.nome,
           tamanho: p.tamanho,
@@ -774,17 +816,17 @@ export function encaixeColunas(
           rot,
           espelhada: p.espelhada,
           modeloIdx: p.modeloIdx,
+          tira: p.tira,
           contorno: p.contorno,
         });
         colocadas++;
         const topo = y + p.h;
         if (topo > comprimento) comprimento = topo;
-        y += i % 2 === 0 ? offAB : offBA;
+        y += i % 2 === 0 ? t.offAB : t.offBA;
       }
     }
-    xCursorCols += nLanes * laneCols;
+    xCursorCols += t.lanes * t.laneCols;
   }
-  if (pos.length === 0) return null;
 
   // miúdas e sobras: caem uma a uma no melhor buraco do reticulado
   for (const p of sobras) {
@@ -798,6 +840,7 @@ export function encaixeColunas(
       rot: 0,
       espelhada: p.espelhada,
       modeloIdx: p.modeloIdx,
+      tira: p.tira,
       contorno: p.contorno,
     };
     const enc = recolocar(pos, alvo, larguraCm, folgaCm, true, res);

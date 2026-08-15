@@ -16,12 +16,31 @@ export type OutboundPayload = {
   mediaUrl?: string;
   fileName?: string;
   templateName?: string;
-  replyToExternalId?: string;
+  /**
+   * Mensagem citada, quando é uma RESPOSTA. Precisa ir completa (id + de quem
+   * é + conteúdo): citação só com o id vira citação sem autor e o WhatsApp
+   * pode não conseguir montar a mensagem.
+   */
+  replyTo?: {
+    externalId: string;
+    /** a citada foi enviada pela loja (OUT) ou pela cliente (IN)? */
+    fromMe: boolean;
+    texto?: string;
+  };
 };
 
+/**
+ * `externalId` opcional no sucesso: o provedor pode aceitar a mensagem e não
+ * devolver o id. Inventar um id falso quebrava o casamento com o eco que volta
+ * do WhatsApp — sem id, o webhook resgata a mensagem e grava o id verdadeiro.
+ *
+ * `incerto` na falha: o tempo de espera estourou e NÃO sabemos se a mensagem
+ * chegou. Nunca reenviar automaticamente nesse caso (a cliente recebia duas
+ * vezes) — e avisar a vendedora antes que ela reenvie na mão.
+ */
 export type SendResult =
-  | { ok: true; externalId: string }
-  | { ok: false; error: string };
+  | { ok: true; externalId?: string }
+  | { ok: false; error: string; incerto?: boolean };
 
 export interface CommProvider {
   readonly name: string;

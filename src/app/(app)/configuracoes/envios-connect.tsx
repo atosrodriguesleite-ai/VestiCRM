@@ -21,7 +21,8 @@ import { brl } from "@/lib/format";
 
 type Settings = {
   fromName: string | null;
-  fromDocument: string | null;
+  fromCpf: string | null;
+  fromCnpj: string | null;
   fromPhone: string | null;
   fromEmail: string | null;
   fromZip: string | null;
@@ -66,7 +67,8 @@ export function MelhorEnvioConnect({ categories }: { categories: string[] }) {
       const s = d.settings;
       setForm({
         fromName: s.fromName ?? "",
-        fromDocument: s.fromDocument ?? "",
+        fromCpf: s.fromCpf ?? "",
+        fromCnpj: s.fromCnpj ?? "",
         fromPhone: s.fromPhone ?? "",
         fromEmail: s.fromEmail ?? "",
         fromZip: s.fromZip ?? "",
@@ -113,7 +115,8 @@ export function MelhorEnvioConnect({ categories }: { categories: string[] }) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         fromName: form.fromName,
-        fromDocument: form.fromDocument,
+        fromCpf: form.fromCpf,
+        fromCnpj: form.fromCnpj,
         fromPhone: form.fromPhone,
         fromEmail: form.fromEmail,
         fromZip: form.fromZip,
@@ -228,9 +231,16 @@ export function MelhorEnvioConnect({ categories }: { categories: string[] }) {
                 <label className={label}>Nome / Razão social</label>
                 <input value={form.fromName ?? ""} onChange={set("fromName")} className={input} />
               </div>
+              {/* CPF e CNPJ separados: a transportadora tem um campo para
+                  cada um, e algumas exigem os dois (CNPJ da loja + CPF do
+                  titular) */}
               <div>
-                <label className={label}>CPF ou CNPJ</label>
-                <input value={form.fromDocument ?? ""} onChange={set("fromDocument")} className={input} inputMode="numeric" />
+                <label className={label}>CPF</label>
+                <input value={form.fromCpf ?? ""} onChange={set("fromCpf")} className={input} inputMode="numeric" placeholder="000.000.000-00" />
+              </div>
+              <div>
+                <label className={label}>CNPJ</label>
+                <input value={form.fromCnpj ?? ""} onChange={set("fromCnpj")} className={input} inputMode="numeric" placeholder="00.000.000/0000-00" />
               </div>
               <div>
                 <label className={label}>Telefone</label>

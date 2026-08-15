@@ -34,12 +34,33 @@ export async function consolidateOpenConversations(
   const convs = await db.conversation.findMany({
     where: { companyId, customerId, status: { not: "CLOSED" } },
     orderBy: { lastMessageAt: "desc" },
-    select: { id: true },
+    select: { id: true, assigneeId: true, setorId: true, unreadCount: true },
   });
   if (convs.length <= 1) return 0;
   const [target, ...extras] = convs;
   await db.$transaction(async (tx) => {
+    // a MESMA mensagem do WhatsApp pode existir nas duas conversas (entrega
+    // duplicada antes da unificação). Mover por cima estourava o índice
+    // único (conversationId, externalId) e ABORTAVA a unificação inteira —
+    // aqui a cópia repetida é descartada antes de mover (auditoria
+    // 07/08/2026).
+    const doAlvo = await tx.message.findMany({
+      where: { conversationId: target.id, externalId: { not: null } },
+      select: { externalId: true },
+    });
+    const jaNoAlvo = new Set(doAlvo.map((m) => m.externalId as string));
     for (const c of extras) {
+      const comExterno = await tx.message.findMany({
+        where: { conversationId: c.id, externalId: { not: null } },
+        select: { id: true, externalId: true },
+      });
+      const repetidas = comExterno.filter((m) => jaNoAlvo.has(m.externalId as string));
+      if (repetidas.length) {
+        await tx.message.deleteMany({ where: { id: { in: repetidas.map((m) => m.id) } } });
+      }
+      for (const m of comExterno) {
+        if (m.externalId) jaNoAlvo.add(m.externalId);
+      }
       await tx.message.updateMany({
         where: { conversationId: c.id },
         data: { conversationId: target.id },
@@ -48,14 +69,35 @@ export async function consolidateOpenConversations(
         where: { conversationId: c.id },
         data: { conversationId: target.id },
       });
+      // o sino continua abrindo a conversa certa depois da fusão
+      await tx.notification.updateMany({
+        where: { convId: c.id },
+        data: { convId: target.id },
+      });
       await tx.conversation.delete({ where: { id: c.id } });
     }
     await tx.conversation.update({
       where: { id: target.id },
-      data: { lastMessageAt: new Date(), updatedAt: new Date() },
+      data: {
+        lastMessageAt: new Date(),
+        updatedAt: new Date(),
+        // atendimento não se perde: a conversa que fica herda a dona e o
+        // setor das extras quando não tem, e as não-lidas se somam
+        assigneeId: target.assigneeId ?? extras.find((e) => e.assigneeId)?.assigneeId ?? null,
+        setorId: target.setorId ?? extras.find((e) => e.setorId)?.setorId ?? null,
+        unreadCount: extras.reduce((s, e) => s + e.unreadCount, target.unreadCount),
+      },
     });
   });
   return extras.length;
+}
+
+/** Nome que não é nome de gente: placeholder do sistema ou telefone puro. */
+function nomeGenerico(nome: string | null | undefined): boolean {
+  const n = (nome ?? "").trim();
+  if (!n) return true;
+  if (/^cliente (da loja|do cat[aá]logo)/i.test(n)) return true;
+  return /^\+?[\d\s()./-]+$/.test(n); // só dígitos/pontuação = telefone no lugar do nome
 }
 
 /** Repõe todos os vínculos de um cliente duplicado no cliente principal. */
@@ -64,6 +106,69 @@ async function repointCustomer(
   primaryId: string,
   dupeId: string
 ) {
+  // A FICHA SE COMPLETA ANTES DE APAGAR (auditoria 07/08/2026): o principal é
+  // o cadastro mais ANTIGO — muitas vezes o mais pobre. Apagar o duplicado
+  // sem copiar os dados jogava fora nome real, CPF, endereço, aniversário,
+  // anotações, campanha e foto que só existiam no mais novo. Regra: o que o
+  // principal NÃO tem vem do duplicado; o que ele já tem, fica.
+  const [principal, dupe] = await Promise.all([
+    tx.customer.findUnique({ where: { id: primaryId } }),
+    tx.customer.findUnique({ where: { id: dupeId } }),
+  ]);
+  if (principal && dupe) {
+    const puxa = <K extends keyof typeof principal>(campo: K) =>
+      principal[campo] == null || principal[campo] === ""
+        ? { [campo]: dupe[campo] }
+        : {};
+    await tx.customer.update({
+      where: { id: primaryId },
+      data: {
+        // nome de verdade vence o placeholder ("Cliente do catálogo…")
+        ...(nomeGenerico(principal.name) && !nomeGenerico(dupe.name)
+          ? { name: dupe.name }
+          : {}),
+        ...puxa("email"),
+        ...puxa("cpf"),
+        ...puxa("cnpj"),
+        ...puxa("zip"),
+        ...puxa("street"),
+        ...puxa("streetNumber"),
+        ...puxa("complement"),
+        ...puxa("district"),
+        ...puxa("city"),
+        ...puxa("state"),
+        ...puxa("preferredSize"),
+        ...puxa("preferredColors"),
+        ...puxa("birthDate"),
+        ...puxa("resaleStoreName"),
+        ...puxa("photoUrl"),
+        ...puxa("photoSyncAt"),
+        ...puxa("ownerId"),
+        ...puxa("campaignId"),
+        ...puxa("adRef"),
+        ...puxa("landingSource"),
+        ...puxa("affiliateId"),
+        // anotações não se perdem: as duas ficam, separadas
+        ...(dupe.notes && principal.notes && dupe.notes !== principal.notes
+          ? { notes: `${principal.notes}\n---\n${dupe.notes}` }
+          : puxa("notes")),
+        // lojista uma vez, lojista sempre: ATACADO vence o padrão VAREJO
+        ...(principal.type === "VAREJO" && dupe.type === "ATACADO"
+          ? { type: "ATACADO" as const }
+          : {}),
+        // datas de atividade: vale a mais recente das duas
+        ...(dupe.lastPurchaseAt &&
+        (!principal.lastPurchaseAt || dupe.lastPurchaseAt > principal.lastPurchaseAt)
+          ? { lastPurchaseAt: dupe.lastPurchaseAt }
+          : {}),
+        ...(dupe.lastContactAt &&
+        (!principal.lastContactAt || dupe.lastContactAt > principal.lastContactAt)
+          ? { lastContactAt: dupe.lastContactAt }
+          : {}),
+      },
+    });
+  }
+
   // vínculos simples (sem chave composta): basta repontar
   await tx.customerEvent.updateMany({ where: { customerId: dupeId }, data: { customerId: primaryId } });
   await tx.opportunity.updateMany({ where: { customerId: dupeId }, data: { customerId: primaryId } });
@@ -72,6 +177,9 @@ async function repointCustomer(
   await tx.sale.updateMany({ where: { customerId: dupeId }, data: { customerId: primaryId } });
   await tx.order.updateMany({ where: { customerId: dupeId }, data: { customerId: primaryId } });
   await tx.trackSession.updateMany({ where: { customerId: dupeId }, data: { customerId: primaryId } });
+  // o VISITANTE do tracking também acompanha — sem isto o id apagado ficava
+  // fantasma na Inteligência ("Identificados" contava cliente que não existe)
+  await tx.visitor.updateMany({ where: { customerId: dupeId }, data: { customerId: primaryId } });
 
   // vínculos com chave composta: copia sem conflito e apaga os do duplicado
   const tags = await tx.customerTag.findMany({ where: { customerId: dupeId }, select: { tagId: true } });
@@ -90,8 +198,28 @@ async function repointCustomer(
     });
     await tx.customerInterest.deleteMany({ where: { customerId: dupeId } });
   }
-  // envios de campanha (unique campaignId+customerId): mantém o do principal
-  await tx.campaignSend.deleteMany({ where: { customerId: dupeId } });
+  // a sacola abandonada acompanha (o apagar do cliente soltava o vínculo e a
+  // sacola virava órfã — sumia da esteira de recuperação)
+  await tx.abandonedCart.updateMany({
+    where: { customerId: dupeId },
+    data: { customerId: primaryId },
+  });
+
+  // envios de campanha: o HISTÓRICO se preserva (apagar fazia a cliente
+  // receber a MESMA campanha de novo). Repontamos um a um; quando o
+  // principal já recebeu aquela campanha, a linha repetida é descartada.
+  const envios = await tx.campaignSend.findMany({
+    where: { customerId: dupeId },
+    select: { id: true, campaignId: true },
+  });
+  for (const e of envios) {
+    const jaRecebeu = await tx.campaignSend.findUnique({
+      where: { campaignId_customerId: { campaignId: e.campaignId, customerId: primaryId } },
+      select: { id: true },
+    });
+    if (jaRecebeu) await tx.campaignSend.delete({ where: { id: e.id } });
+    else await tx.campaignSend.update({ where: { id: e.id }, data: { customerId: primaryId } });
+  }
 
   await tx.customer.delete({ where: { id: dupeId } });
 }

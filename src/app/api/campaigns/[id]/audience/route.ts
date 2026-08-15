@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { requireUser, AuthError } from "@/lib/auth";
+import { isSupport } from "@/lib/scope";
 import { evaluateSegment, type SegmentFilter } from "@/lib/segments";
 
 /**
@@ -17,6 +18,11 @@ export async function GET(
 ) {
   try {
     const user = await requireUser();
+    // Suporte não mexe em campanhas (a tela já bloqueia; a API aceitava e
+    // devolvia a lista de telefones da loja inteira — auditoria 07/08/2026).
+    if (isSupport(user)) {
+      return NextResponse.json({ error: "Sem permissão" }, { status: 403 });
+    }
     const { id } = await params;
     const campaign = await db.campaign.findFirst({
       where: { id, companyId: user.companyId },
@@ -53,6 +59,9 @@ export async function POST(
 ) {
   try {
     const user = await requireUser();
+    if (isSupport(user)) {
+      return NextResponse.json({ error: "Sem permissão" }, { status: 403 });
+    }
     const { id } = await params;
     const parsed = postSchema.safeParse(await req.json());
     if (!parsed.success) {
@@ -63,6 +72,15 @@ export async function POST(
     });
     if (!campaign) {
       return NextResponse.json({ error: "Não encontrada" }, { status: 404 });
+    }
+    // o cliente marcado tem que ser DESTA loja (CampaignSend não tem
+    // companyId; sem isto dava para amarrar id de outra loja — auditoria)
+    const cliente = await db.customer.findFirst({
+      where: { id: parsed.data.customerId, companyId: user.companyId },
+      select: { id: true },
+    });
+    if (!cliente) {
+      return NextResponse.json({ error: "Cliente inválido" }, { status: 404 });
     }
     await db.campaignSend.upsert({
       where: {

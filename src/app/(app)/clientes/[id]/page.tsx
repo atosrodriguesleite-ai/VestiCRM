@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import {
   ArrowLeft,
   MessageCircle,
+  Smartphone,
   ShoppingBag,
   CalendarClock,
   Ruler,
@@ -74,6 +75,7 @@ import {
   taskTypeLabel,
   conversationStatusLabel,
 } from "@/lib/format";
+import { documentoParaMostrar } from "@/lib/documento";
 import {
   Card,
   Avatar,
@@ -89,8 +91,10 @@ import {
   PAID_ORDER_STATUSES,
 } from "@/lib/orders";
 import { customerJourney } from "@/lib/tracking/insights";
+import { linhaDoTempoComercial } from "@/lib/linha-do-tempo";
 import { catalogUrl, trackedCatalogLink } from "@/lib/catalog-url";
 import { CatalogLinkButton } from "./catalog-link-button";
+import { AbrirConversa } from "./abrir-conversa";
 
 export const dynamic = "force-dynamic";
 
@@ -172,7 +176,16 @@ export default async function CustomerDetailPage({
   const paidOrders = customer.orders.filter((o) =>
     (PAID_ORDER_STATUSES as readonly string[]).includes(o.status)
   );
-  const totalSpent = paidOrders.reduce((s, v) => s + v.total, 0);
+  // valor COMPRADO (netTotal, sem frete) — mesma régua de "Clientes mais
+  // valiosos" e do faturamento; com `total` a mesma cliente aparecia com um
+  // número aqui e outro no ranking
+  const totalSpent = paidOrders.reduce((s, v) => s + v.netTotal, 0);
+  // última compra sai DOS PEDIDOS PAGOS (o carimbo lastPurchaseAt não é
+  // gravado em todos os caminhos e mostrava "nunca" para quem comprou)
+  const ultimaCompra = paidOrders.reduce<Date | null>(
+    (max, o) => (o.paidAt && (!max || o.paidAt > max) ? o.paidAt : max),
+    null
+  );
   const ticket = paidOrders.length ? totalSpent / paidOrders.length : 0;
 
   // link para chamar o cliente direto no WhatsApp
@@ -184,6 +197,10 @@ export default async function CustomerDetailPage({
 
   // Jornada de navegação (Tracking Engine / Inteligência Comercial)
   const journey = await customerJourney(user.companyId, customer.id);
+
+  // Linha do tempo COMERCIAL: pedidos, conversas, campanhas, visitas e
+  // sacolas — cada movimento dizendo se virou venda (lib/linha-do-tempo.ts)
+  const comercial = await linhaDoTempoComercial(user.companyId, customer.id);
 
   return (
     <div className="max-w-5xl mx-auto">
@@ -198,7 +215,7 @@ export default async function CustomerDetailPage({
       {/* Cabeçalho */}
       <Card className="p-5 md:p-6 mb-4">
         <div className="flex flex-col sm:flex-row sm:items-start gap-4">
-          <Avatar name={customer.name} color={customer.owner?.color ?? "#c4622d"} size="lg" />
+          <Avatar name={customer.name} color={customer.owner?.color ?? "#c4622d"} size="lg" src={customer.photoUrl} />
           <div className="flex-1 min-w-0">
             <h1 className="text-xl font-semibold tracking-tight">
               {customer.name}
@@ -215,6 +232,14 @@ export default async function CustomerDetailPage({
                 </span>
               )}
             </p>
+            {/* CPF/CNPJ na ficha: é o que a vendedora precisa conferir na hora
+                de comprar a etiqueta ou emitir a nota — antes não aparecia
+                aqui e ela tinha que abrir um pedido para ver */}
+            {documentoParaMostrar(customer) && (
+              <p className="text-xs text-gray-400 mt-1">
+                {documentoParaMostrar(customer)}
+              </p>
+            )}
             <div className="flex flex-wrap gap-1.5 mt-3">
               <Badge color="#0ea5e9">{customerTypeLabel[customer.type]}</Badge>
               <Badge color="#64748b">Origem: {originLabel[customer.origin]}</Badge>
@@ -234,15 +259,21 @@ export default async function CustomerDetailPage({
               {paidOrders.length} compras · ticket {brl(ticket)}
             </p>
             <div className="mt-3 flex flex-col gap-2 sm:items-end">
+              {/* CONVERSAR PELO SISTEMA é o caminho principal: o atendimento
+                  fica registrado, com nome de quem falou, e não cai na fila.
+                  O link do aplicativo continua ali para quem preferir falar
+                  pelo celular — mas agora é a opção secundária. */}
+              <AbrirConversa customerId={customer.id} />
               {waHref && (
                 <a
                   href={waHref}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium px-4 py-2.5 transition"
+                  title="Abre o aplicativo do WhatsApp no celular. A conversa aparece no sistema, mas sem o nome de quem escreveu."
+                  className="inline-flex items-center justify-center gap-1.5 rounded-xl border border-emerald-200 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 text-sm font-medium px-4 py-2.5 transition"
                 >
-                  <MessageCircle className="size-4" />
-                  Chamar no WhatsApp
+                  <Smartphone className="size-4" />
+                  Abrir no celular
                 </a>
               )}
               <CatalogLinkButton url={trackedCatalogUrl} />
@@ -269,9 +300,7 @@ export default async function CustomerDetailPage({
               <ShoppingBag className="size-3" /> Última compra
             </p>
             <p className="font-medium">
-              {customer.lastPurchaseAt
-                ? relativeDays(customer.lastPurchaseAt)
-                : "nunca"}
+              {ultimaCompra ? relativeDays(ultimaCompra) : "nunca"}
             </p>
           </div>
           <div>
@@ -476,6 +505,74 @@ export default async function CustomerDetailPage({
                   >
                     Abrir no atendimento →
                   </Link>
+                </li>
+              ))}
+            </ul>
+          )}
+        </Card>
+
+        {/* LINHA DO TEMPO COMERCIAL — a história do relacionamento em uma
+            leitura: onde esquentou (pedido), onde esfriou (campanha ignorada,
+            sacola largada) e o "hoje" contra o ritmo próprio da cliente. */}
+        <Card className="p-5 md:col-span-2">
+          <h2 className="font-semibold flex items-center gap-2 mb-1">
+            <CalendarClock className="size-4 text-brand-600" />
+            Linha do tempo comercial
+          </h2>
+          <p
+            className={`mb-3 inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-semibold ${
+              comercial.hoje.passouDoPonto
+                ? "bg-violet-50 text-violet-700 border border-violet-100"
+                : "bg-gray-50 text-gray-500 border border-gray-100"
+            }`}
+          >
+            📅 Hoje —{" "}
+            {comercial.hoje.diasSemComprar == null
+              ? "ainda sem compra paga"
+              : `há ${comercial.hoje.diasSemComprar} dia${
+                  comercial.hoje.diasSemComprar === 1 ? "" : "s"
+                } sem comprar${
+                  comercial.hoje.cicloDias
+                    ? ` (ritmo dela: ~${comercial.hoje.cicloDias} dias)`
+                    : ""
+                }`}
+            {comercial.hoje.passouDoPonto && " ⏰ passou do ponto"}
+          </p>
+          {comercial.eventos.length === 0 ? (
+            <EmptyState title="Ainda não há movimento comercial registrado" />
+          ) : (
+            <ul className="space-y-2.5">
+              {comercial.eventos.map((e, i) => (
+                <li key={i} className="flex items-start gap-2.5">
+                  <span className="text-base leading-5 shrink-0">{e.emoji}</span>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm leading-snug">
+                      <span className="text-gray-400 tabular-nums">
+                        {dateShort(e.quando)}
+                      </span>{" "}
+                      — <span className="font-medium">{e.titulo}</span>
+                      {e.valor != null && (
+                        <span className="font-semibold text-emerald-700">
+                          {" "}
+                          — {brl(e.valor)}
+                        </span>
+                      )}
+                      {e.detalhe && (
+                        <span
+                          className={
+                            e.tom === "BOM"
+                              ? " text-emerald-600"
+                              : e.tom === "RUIM"
+                                ? " text-rose-500"
+                                : " text-gray-400"
+                          }
+                        >
+                          {" "}
+                          · {e.detalhe}
+                        </span>
+                      )}
+                    </p>
+                  </div>
                 </li>
               ))}
             </ul>

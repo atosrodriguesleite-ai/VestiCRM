@@ -15,6 +15,7 @@ export function NewCustomerButton({
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [selectedInterests, setSelectedInterests] = useState<string[]>([]);
+  const [erro, setErro] = useState("");
 
   async function submit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -26,12 +27,14 @@ export function NewCustomerButton({
       body: JSON.stringify({
         name: fd.get("name"),
         phone: String(fd.get("phone")).replace(/\D/g, ""),
-        document: fd.get("document") || undefined,
+        cpf: fd.get("cpf") || undefined,
+        cnpj: fd.get("cnpj") || undefined,
         city: fd.get("city") || undefined,
         state: fd.get("state") || undefined,
         type: fd.get("type"),
         origin: fd.get("origin"),
         preferredSize: fd.get("preferredSize") || undefined,
+        birthDate: fd.get("birthDate") || undefined,
         preferredColors: fd.get("preferredColors") || undefined,
         notes: fd.get("notes") || undefined,
         interestIds: selectedInterests,
@@ -39,10 +42,16 @@ export function NewCustomerButton({
     });
     setSaving(false);
     if (res.ok) {
+      setErro("");
       setOpen(false);
       setSelectedInterests([]);
       router.refresh();
+      return;
     }
+    // sem isto o formulário só ficava parado quando o CPF estava errado, e a
+    // vendedora não fazia ideia do porquê
+    const data = await res.json().catch(() => null);
+    setErro(data?.error ?? "Não foi possível cadastrar o cliente.");
   }
 
   const input =
@@ -96,14 +105,31 @@ export function NewCustomerButton({
                   inputMode="tel"
                 />
               </div>
-              <div>
-                <label className={label}>CPF / CNPJ</label>
-                <input
-                  name="document"
-                  className={input}
-                  placeholder="000.000.000-00 (opcional)"
-                />
+              {/* CPF e CNPJ separados: a cliente lojista tem os dois, e cada
+                  transportadora/nota pede um deles */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className={label}>CPF</label>
+                  <input
+                    name="cpf"
+                    className={input}
+                    placeholder="000.000.000-00"
+                    inputMode="numeric"
+                  />
+                </div>
+                <div>
+                  <label className={label}>CNPJ</label>
+                  <input
+                    name="cnpj"
+                    className={input}
+                    placeholder="00.000.000/0000-00"
+                    inputMode="numeric"
+                  />
+                </div>
               </div>
+              <p className="text-[11px] text-gray-400 -mt-2">
+                Pode preencher os dois: cada transportadora pede um. 📦
+              </p>
               <div className="grid grid-cols-3 gap-3">
                 <div className="col-span-2">
                   <label className={label}>Cidade</label>
@@ -136,6 +162,14 @@ export function NewCustomerButton({
                   </select>
                 </div>
               </div>
+              <div>
+                <label className={label}>Aniversário</label>
+                <input type="date" name="birthDate" className={input} />
+                <p className="text-[11px] text-gray-400 mt-1">
+                  O sistema avisa você no dia — é a mensagem que mais vende no ano.
+                </p>
+              </div>
+
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className={label}>Tamanho preferido</label>
@@ -187,6 +221,11 @@ export function NewCustomerButton({
                   placeholder="Preferências, condições combinadas..."
                 />
               </div>
+              {erro && (
+                <p className="rounded-xl bg-rose-50 border border-rose-100 text-rose-600 text-xs px-3 py-2">
+                  {erro}
+                </p>
+              )}
               <button
                 disabled={saving}
                 className="w-full rounded-xl bg-brand-600 hover:bg-brand-700 text-white font-medium py-2.5 text-sm transition disabled:opacity-60"

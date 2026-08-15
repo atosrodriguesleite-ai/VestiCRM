@@ -1,8 +1,13 @@
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
+import { catalogPrice } from "@/lib/orders";
 import { db } from "@/lib/db";
 import { imageHref } from "@/lib/img";
-import { parseCategoryOrder } from "@/lib/categories";
+import {
+  parseCategoryDescriptions,
+  parseCategoryOrder,
+  parseCategoryTypes,
+} from "@/lib/categories";
 import { PublicCatalog, type CatalogProduct } from "../../public-catalog";
 
 export const dynamic = "force-dynamic";
@@ -48,7 +53,8 @@ export default async function PromoCatalogPage({
   const { slug, promo } = await params;
   const sp = await searchParams;
   const company = await db.company.findUnique({ where: { slug } });
-  if (!company) notFound();
+  // loja suspensa sai do ar também nos catálogos de campanha
+  if (!company || company.suspended) notFound();
 
   const pc = await db.promoCatalog.findUnique({
     where: { companyId_slug: { companyId: company.id, slug: promo } },
@@ -69,7 +75,7 @@ export default async function PromoCatalogPage({
         ...(company.catalogHideOutOfStock ? { variants: { some: { stock: { gt: 0 } } } } : {}),
       },
       include: {
-        images: { orderBy: { order: "asc" }, select: { id: true } },
+        images: { orderBy: { order: "asc" }, select: { id: true, color: true } },
         variants: { orderBy: [{ color: "asc" }, { size: "asc" }] },
       },
       orderBy: [{ collection: "desc" }, { name: "asc" }],
@@ -91,10 +97,12 @@ export default async function PromoCatalogPage({
     // preços JÁ com o desconto da campanha (o original vai riscado ao lado)
     retailPrice: off(p.retailPrice, pc.discount),
     wholesalePrice: off(p.wholesalePrice, pc.discount),
+    // preço da vitrine desta loja, já com o desconto do link promocional
+    precoCatalogo: off(catalogPrice(p, company.catalogPriceMode), pc.discount),
     originalRetailPrice: p.retailPrice,
     minQuantity: p.minQuantity,
     tags: p.tags,
-    images: p.images.map((i) => imageHref(i.id)),
+    images: p.images.map((i) => ({ url: imageHref(i.id), color: i.color })),
     variants: p.variants.map((v) => ({
       color: v.color,
       size: v.size,
@@ -113,8 +121,13 @@ export default async function PromoCatalogPage({
       minOrderValue={company.minOrderValue}
       products={items}
       categoryOrder={parseCategoryOrder(company.categoryOrder)}
+      categoryDescriptions={parseCategoryDescriptions(company.categoryDescriptions)}
+      categoryTypes={parseCategoryTypes(company.categoryTypes)}
       promo={{ name: pc.name, slug: pc.slug, discount: pc.discount }}
       logoSize={company.catalogLogoSize as "normal" | "grande"}
+      // mesma régua do catálogo geral: cor esgotada some quando a chave está ligada
+      hideSoldOut={company.catalogHideOutOfStock}
+      hideColors={company.catalogHideColors}
       identity={{
         logoUrl: company.logoUrl,
         primary: company.catalogPrimary,

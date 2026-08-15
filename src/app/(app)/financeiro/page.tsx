@@ -55,12 +55,14 @@ export default async function FinanceiroPage() {
         status: { in: PAID_ORDER_STATUSES },
         paidAt: { gte: inicioMes },
       },
-      _sum: { total: true },
+      _sum: { netTotal: true },
       _count: true,
     }),
     db.payment.count({
       where: {
-        order: { companyId: user.companyId },
+        // pedido CANCELADO não conta: o Pix dele foi invalidado, mas antes
+        // inflava o cartão por até 24h (auditoria 07/08/2026)
+        order: { companyId: user.companyId, status: { not: "CANCELADO" } },
         provider: "MERCADO_PAGO",
         method: "PIX", // o cartão tem link próprio — este cartão é só Pix
         status: "PENDENTE",
@@ -69,10 +71,13 @@ export default async function FinanceiroPage() {
     }),
   ]);
 
+  // frete-ok: contas a RECEBER é o que a cliente paga — frete incluído.
+  // Aqui `total` é o campo certo; faturamento é outra conta (netTotal).
   const totalAReceber = pendentes.reduce((s, o) => s + o.total, 0);
   const diasDe = (d: Date) =>
     Math.floor((agora.getTime() - d.getTime()) / (24 * 60 * 60 * 1000));
   const vencidos = pendentes.filter((o) => diasDe(o.createdAt) > 7);
+  // frete-ok: mesma régua do total a receber
   const totalVencido = vencidos.reduce((s, o) => s + o.total, 0);
 
   // agrupado por cliente (quem mais deve primeiro)
@@ -83,7 +88,7 @@ export default async function FinanceiroPage() {
       total: 0,
       qtd: 0,
     };
-    atual.total += o.total;
+    atual.total += o.total; // frete-ok: quanto a cliente deve, com frete
     atual.qtd += 1;
     porCliente.set(o.customer.id, atual);
   }
@@ -115,7 +120,7 @@ export default async function FinanceiroPage() {
         />
         <UITile
           label="Recebido no mês"
-          value={brl(recebidoMesAgg._sum.total ?? 0)}
+          value={brl(recebidoMesAgg._sum.netTotal ?? 0)}
           hint={`${recebidoMesAgg._count} venda(s) paga(s)`}
           icon={<CheckCircle2 />}
         />
@@ -167,6 +172,7 @@ export default async function FinanceiroPage() {
                       </p>
                     </div>
                     <div className="text-right shrink-0">
+                      {/* frete-ok: conta a receber mostra o que a cliente paga */}
                       <p className="text-sm font-bold tabular-nums">{brl(o.total)}</p>
                       <p
                         className={`text-[11px] font-semibold ${
@@ -201,6 +207,7 @@ export default async function FinanceiroPage() {
                 >
                   <span className="text-sm truncate">{d.nome}</span>
                   <span className="text-sm font-semibold tabular-nums shrink-0">
+                    {/* frete-ok: quanto a cliente deve, com frete */}
                     {brl(d.total)}
                   </span>
                 </Link>

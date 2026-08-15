@@ -63,10 +63,30 @@ type Payload = {
   tag?: string;
 };
 
+/**
+ * Envia para os dispositivos de UMA pessoa.
+ *
+ * A agenda do dia é individual — "você tem 7 clientes para chamar" só faz
+ * sentido para quem tem as 7. Mandar para a loja inteira faria cada vendedora
+ * receber a conta das outras e desligar a notificação na primeira semana.
+ */
+export async function sendToUser(userId: string, payload: Payload) {
+  if (!pushConfigured()) return { sent: 0, skipped: true };
+  const subs = await db.pushSubscription.findMany({ where: { userId } });
+  return enviarPara(subs, payload);
+}
+
 /** Envia uma notificação para todos os dispositivos inscritos da loja. */
 export async function sendToCompany(companyId: string, payload: Payload) {
   if (!pushConfigured()) return { sent: 0, skipped: true };
   const subs = await db.pushSubscription.findMany({ where: { companyId } });
+  return enviarPara(subs, payload);
+}
+
+async function enviarPara(
+  subs: { endpoint: string; p256dh: string; auth: string }[],
+  payload: Payload
+) {
   if (subs.length === 0) return { sent: 0 };
 
   const body = JSON.stringify(payload);

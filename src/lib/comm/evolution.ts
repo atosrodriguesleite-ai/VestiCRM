@@ -114,12 +114,23 @@ export function appBaseUrl() {
   );
 }
 
+/**
+ * `incerto` = NÃO SABEMOS se a mensagem chegou.
+ *
+ * O tempo de espera estourou: o servidor Evolution pode ter recebido e
+ * entregue normalmente, e só a RESPOSTA que não voltou a tempo. Isso é
+ * completamente diferente de "o servidor recusou".
+ *
+ * Já causou incidente real: tratar timeout como falha fazia o código
+ * reenviar sozinho e a cliente receber a MESMA mensagem duas vezes.
+ * Quem for reenviar (automático ou manual) tem que olhar esta bandeira.
+ */
 async function evo<T = Record<string, unknown>>(
   method: "GET" | "POST" | "DELETE",
   path: string,
   body?: unknown,
   timeoutMs = 45_000
-): Promise<{ ok: boolean; status: number; data: T | null }> {
+): Promise<{ ok: boolean; status: number; data: T | null; incerto?: boolean }> {
   const { url, key } = evolutionEnv();
   if (!url || !key) return { ok: false, status: 0, data: null };
   try {
@@ -133,14 +144,24 @@ async function evo<T = Record<string, unknown>>(
     });
     const data = (await res.json().catch(() => null)) as T | null;
     return { ok: res.ok, status: res.status, data };
-  } catch {
-    return { ok: false, status: 0, data: null };
+  } catch (e) {
+    // tempo esgotado → pode ter chegado. Qualquer outro erro (DNS, conexão
+    // recusada, servidor fora do ar) → não saiu do lugar.
+    const incerto = (e as Error)?.name === "TimeoutError";
+    return { ok: false, status: 0, data: null, incerto };
   }
 }
 
 // mídia demora mais que texto (upload + conversão no servidor de conexão) —
 // ganha um teto maior, ainda dentro do orçamento da função (60s)
 const EVO_MEDIA_TIMEOUT_MS = 50_000;
+// LEITURA de conversas/mensagens: é rápida por natureza. Teto curto de
+// propósito — a importação lê dezenas de conversas em sequência, e uma só
+// travando por 50s comeria o orçamento inteiro da importação.
+const EVO_LEITURA_TIMEOUT_MS = 15_000;
+// Busca de UMA mensagem, feita no meio do webhook: tem que ser rápida ou não
+// vale a pena — a mensagem editada ainda fica marcada como "editada".
+const EVO_BUSCA_RAPIDA_MS = 6_000;
 
 /** Eventos que a loja precisa receber (inclui apagar/editar do cliente). */
 export const WEBHOOK_EVENTS = [
@@ -149,6 +170,12 @@ export const WEBHOOK_EVENTS = [
   "MESSAGES_UPSERT",
   "MESSAGES_UPDATE",
   "MESSAGES_DELETE", // cliente apagou uma mensagem
+  // NOME DA CLIENTE: o WhatsApp nem sempre manda o nome junto da primeira
+  // mensagem — às vezes ele chega segundos depois, nestes avisos. Sem
+  // escutá-los, o contato ficava "Lead 9621" para sempre (Toque Leve,
+  // 31/07/2026), mesmo com o nome disponível no servidor.
+  "CONTACTS_UPSERT",
+  "CONTACTS_UPDATE",
 ] as const;
 
 function webhookUrl(webhookToken: string) {
@@ -200,18 +227,47 @@ export async function evoState(instance: string) {
   );
 }
 
+/** JID do WhatsApp a partir de um telefone (só dígitos). */
+export const jidDeNumero = (phone: string) =>
+  `${phone.replace(/\D/g, "")}@s.whatsapp.net`;
+
+/**
+ * Dados da mensagem CITADA numa resposta.
+ *
+ * O WhatsApp não aceita citação pela metade: além do id, a citação precisa
+ * dizer DE QUEM é a mensagem original (`remoteJid` + `fromMe`) e o conteúdo
+ * dela. Mandando só o id, o aparelho recebe uma citação sem autor — e a
+ * mensagem pode encalhar no celular da loja como "Aguardando mensagem".
+ */
+export type CitacaoWA = {
+  id: string;
+  remoteJid: string;
+  fromMe: boolean;
+  texto?: string;
+};
+
+const corpoDaCitacao = (c: CitacaoWA) =>
+  c.texto?.trim() ? { message: { conversation: c.texto.slice(0, 1000) } } : {};
+
 /** Envia texto pelo número conectado da loja (com citação opcional). */
 export async function evoSendText(
   instance: string,
   number: string,
   text: string,
-  quotedId?: string
+  citacao?: CitacaoWA
 ) {
   return evo<{ key?: { id?: string } }>("POST", `/message/sendText/${instance}`, {
     number,
     text,
     // responder mensagem específica: o WhatsApp mostra a citação em cima
-    ...(quotedId ? { quoted: { key: { id: quotedId } } } : {}),
+    ...(citacao
+      ? {
+          quoted: {
+            key: { remoteJid: citacao.remoteJid, fromMe: citacao.fromMe, id: citacao.id },
+            ...corpoDaCitacao(citacao),
+          },
+        }
+      : {}),
   });
 }
 
@@ -337,25 +393,49 @@ export async function evoEditMessage(
  */
 export async function evoFindMessages(
   instance: string,
-  opts?: { remoteJid?: string; page?: number; offset?: number }
+  opts?: { remoteJid?: string; id?: string; page?: number; offset?: number }
 ) {
+  // Buscar UMA mensagem pelo id é o caminho da edição criptografada: o texto
+  // novo não vem no aviso, mas o servidor tem a mensagem já atualizada.
+  const where = opts?.id
+    ? { key: { id: opts.id } }
+    : opts?.remoteJid
+      ? // versões novas do servidor exigem a conversa no filtro para devolver
+        // mensagens; sem `remoteJid` a leitura "geral" costuma vir vazia
+        { key: { remoteJid: opts.remoteJid } }
+      : {};
   return evo<unknown>(
     "POST",
     `/chat/findMessages/${instance}`,
-    {
-      // versões novas do servidor exigem a conversa no filtro para devolver
-      // mensagens; sem `remoteJid` a leitura "geral" costuma vir vazia
-      where: opts?.remoteJid ? { key: { remoteJid: opts.remoteJid } } : {},
-      page: opts?.page ?? 1,
-      offset: opts?.offset ?? 500,
-    },
-    EVO_MEDIA_TIMEOUT_MS
+    { where, page: opts?.page ?? 1, offset: opts?.id ? 5 : (opts?.offset ?? 500) },
+    opts?.id ? EVO_BUSCA_RAPIDA_MS : EVO_LEITURA_TIMEOUT_MS
   );
 }
 
 /** Lista as conversas que o servidor tem guardadas (para ler uma a uma). */
 export async function evoFindChats(instance: string) {
-  return evo<unknown>("POST", `/chat/findChats/${instance}`, {}, EVO_MEDIA_TIMEOUT_MS);
+  return evo<unknown>("POST", `/chat/findChats/${instance}`, {}, EVO_LEITURA_TIMEOUT_MS);
+}
+
+/**
+ * TODOS os contatos que o servidor conhece — vem com a foto de perfil junto.
+ *
+ * É a chamada barata: UMA consulta traz a agenda inteira com as fotos, em vez
+ * de uma consulta por cliente. O que faltar aqui (contato que o servidor
+ * ainda não viu) é buscado um a um, com parcimônia.
+ */
+export async function evoFindContacts(instance: string) {
+  return evo<unknown>("POST", `/chat/findContacts/${instance}`, {}, EVO_LEITURA_TIMEOUT_MS);
+}
+
+/** Foto de perfil de UM número (usada só para preencher o que faltou). */
+export async function evoProfilePicture(instance: string, number: string) {
+  return evo<{ profilePictureUrl?: string | null }>(
+    "POST",
+    `/chat/fetchProfilePictureUrl/${instance}`,
+    { number },
+    EVO_LEITURA_TIMEOUT_MS
+  );
 }
 
 /** Extrai o telefone (dígitos) de um JID "5511999999999@s.whatsapp.net". */

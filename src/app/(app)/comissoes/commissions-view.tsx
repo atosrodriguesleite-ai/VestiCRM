@@ -32,7 +32,7 @@ export function CommissionsView({
   unassigned,
 }: {
   rows: Row[];
-  base: "SUBTOTAL" | "TOTAL";
+  base: "SUBTOTAL" | "VENDIDO";
   canEdit: boolean;
   de: string;
   ate: string;
@@ -77,25 +77,31 @@ export function CommissionsView({
 
   const liveCommission = (r: Row) => {
     const rate = parseFloat((rates[r.id] ?? "0").replace(",", ".")) || 0;
-    return (r.base * rate) / 100;
+    // arredonda POR LINHA (2 casas) — o total soma as linhas exibidas, então
+    // conferir a coluna à mão bate centavo por centavo (mesma régua do PDF)
+    return Math.round(((r.base * rate) / 100) * 100) / 100;
   };
 
   const totalBase = rows.reduce((s, r) => s + r.base, 0);
-  const totalCommission = rows.reduce((s, r) => s + liveCommission(r), 0);
+  const totalCommission =
+    Math.round(rows.reduce((s, r) => s + liveCommission(r), 0) * 100) / 100;
   const inputCls = "rounded-lg border border-gray-200 px-2 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-brand-300";
 
   return (
     <>
       {/* filtros de período + base */}
       <div className="flex flex-col sm:flex-row sm:items-end gap-3 mb-5">
-        <form className="flex items-end gap-2" method="GET">
-          <div>
+        {/* no celular os filtros QUEBRAM linha: sem isso os dois campos de
+            data + botão passavam da largura da tela e empurravam a página
+            inteira para o lado (a tabela ia junto) */}
+        <form className="flex flex-wrap items-end gap-2" method="GET">
+          <div className="min-w-0 flex-1 sm:flex-none">
             <label className="block text-[11px] font-semibold text-gray-500 mb-1">De</label>
-            <input type="date" name="de" defaultValue={de} className={inputCls} />
+            <input type="date" name="de" defaultValue={de} className={`${inputCls} w-full sm:w-auto`} />
           </div>
-          <div>
+          <div className="min-w-0 flex-1 sm:flex-none">
             <label className="block text-[11px] font-semibold text-gray-500 mb-1">Até</label>
-            <input type="date" name="ate" defaultValue={ate} className={inputCls} />
+            <input type="date" name="ate" defaultValue={ate} className={`${inputCls} w-full sm:w-auto`} />
           </div>
           <button className="rounded-lg bg-gray-900 hover:bg-gray-700 text-white text-sm font-medium px-4 py-2 transition">
             Filtrar
@@ -112,7 +118,7 @@ export function CommissionsView({
             className={`${inputCls} bg-white disabled:opacity-60`}
           >
             <option value="SUBTOTAL">Valor dos produtos</option>
-            <option value="TOTAL">Total do pedido (com frete)</option>
+            <option value="VENDIDO">Valor vendido (com desconto)</option>
           </select>
         </div>
       </div>

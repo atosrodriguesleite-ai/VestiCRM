@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
+import { ehRobo } from "@/lib/robo";
 import { resolveBioTarget, type BioLinkKind } from "@/lib/bio";
 
 /**
@@ -34,13 +35,19 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     { slug: link.bioPage.company.slug, whatsapp: link.bioPage.company.whatsapp }
   );
 
-  // conta o clique: total acumulado + evento com data (relatório por período)
-  await Promise.all([
-    db.bioLink.update({ where: { id }, data: { clicks: { increment: 1 } } }),
-    db.bioClick.create({
-      data: { bioLinkId: link.id, bioPageId: link.bioPageId, companyId: link.companyId },
-    }),
-  ]).catch(() => {});
+  // conta o clique — mas SÓ de gente de verdade. A visita já filtrava robô
+  // e o clique não: o Google seguia os botões da bio e o "cliques por
+  // visita" inflava pelo numerador (auditoria 06/08/2026). Robô é só
+  // redirecionado, sem contar.
+  if (!ehRobo(req.headers.get("user-agent"))) {
+    // total acumulado + evento com data (relatório por período)
+    await Promise.all([
+      db.bioLink.update({ where: { id }, data: { clicks: { increment: 1 } } }),
+      db.bioClick.create({
+        data: { bioLinkId: link.id, bioPageId: link.bioPageId, companyId: link.companyId },
+      }),
+    ]).catch(() => {});
+  }
 
   return NextResponse.redirect(target ? new URL(target, req.url) : home);
 }

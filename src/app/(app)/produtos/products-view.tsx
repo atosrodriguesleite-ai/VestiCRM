@@ -5,13 +5,29 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Portal } from "@/components/portal";
 import { useRouter } from "next/navigation";
-import { History, Images, Loader2, Package, Palette, Plus, Search, Star, Trash2, Upload, X } from "lucide-react";
+import { Check, History, Images, Loader2, Package, Palette, Plus, Search, Sparkles, Star, Trash2, Upload, Wand2, X } from "lucide-react";
 import { brl } from "@/lib/format";
 import { Card, EmptyState } from "@/components/ui";
 import { fileToDataUrl } from "@/lib/upload";
 import { ImportCatalog } from "./import-catalog";
+import { casaTexto } from "@/lib/busca";
+import { sugerirEmLote, type SugestaoDeCategoria } from "@/lib/organizar-catalogo";
+import { motivoOculto } from "@/lib/catalogo/visibilidade";
 
 type LibraryColor = { name: string; hex: string };
+
+/** Resposta do conferidor (`GET /api/products/[id]/catalogo`). */
+type ConferenciaCatalogo = {
+  lojaSuspensa: boolean;
+  catalogoGeral: {
+    url: string;
+    aparece: boolean;
+    motivo: string | null;
+    comoResolver: string | null;
+  };
+  cores: { cor: string; pecas: number; aparece: boolean }[];
+  campanhas: { nome: string; url: string; inclui: boolean }[];
+};
 
 type StockMov = {
   id: string;
@@ -37,8 +53,10 @@ export type ProductItem = {
   weightGrams: number | null; // peso da peça (g) para cotar frete
   active: boolean;
   tags: string | null;
+  /** peça espelhada da loja online — muda o conselho quando ela está inativa */
+  nuvemshopId: string | null;
   // fotos em ordem — a primeira é a CAPA (aparece na grade e no catálogo)
-  images: { id: string; url: string }[];
+  images: { id: string; url: string; color?: string | null }[];
   variants: { id: string; color: string; size: string; stock: number; sku: string | null }[];
 };
 
@@ -62,6 +80,9 @@ export function ProductsView({
   libraryColors,
   librarySizes,
   mediaLibrary = false,
+  canOrganize = false,
+  semCores = false,
+  ocultaSemEstoque = false,
 }: {
   initial: ProductItem[];
   categories: string[];
@@ -72,6 +93,12 @@ export function ProductsView({
   libraryColors: LibraryColor[];
   librarySizes: string[];
   mediaLibrary?: boolean;
+  /** gerência/suporte: seleção em massa + sugestão automática de categoria */
+  canOrganize?: boolean;
+  /** loja sem variação de cor (semijoias): a grade pede só o tamanho */
+  semCores?: boolean;
+  /** chave "esconder sem estoque" ligada: o crachá do card explica o sumiço */
+  ocultaSemEstoque?: boolean;
 }) {
   const router = useRouter();
   const [q, setQ] = useState("");
@@ -84,16 +111,74 @@ export function ProductsView({
   const [onlyStock, setOnlyStock] = useState(false);
   const [onlyNoPhoto, setOnlyNoPhoto] = useState(false);
   const [onlyNoSku, setOnlyNoSku] = useState(false);
+  const [onlyHidden, setOnlyHidden] = useState(false);
   const [showNew, setShowNew] = useState(false);
   const [detail, setDetail] = useState<ProductItem | null>(null);
+
+  /**
+   * FORA DO CATÁLOGO: o motivo de cada peça, calculado uma vez só.
+   * É a mesma régua da vitrine pública (lib/catalogo/visibilidade.ts) — a tela
+   * não repete regra nenhuma, senão as duas desencontram com o tempo.
+   */
+  const ocultos = useMemo(() => {
+    const mapa = new Map<string, ReturnType<typeof motivoOculto>>();
+    for (const p of initial) {
+      mapa.set(p.id, motivoOculto(p, { esconderSemEstoque: ocultaSemEstoque }));
+    }
+    return mapa;
+  }, [initial, ocultaSemEstoque]);
+
+  const hiddenCount = useMemo(
+    () => [...ocultos.values()].filter(Boolean).length,
+    [ocultos]
+  );
+  // ---- Organizador de catálogo (loja nova com centenas de peças) ----
+  // modo seleção: tocar no card marca/desmarca em vez de abrir o produto
+  const [organizando, setOrganizando] = useState(false);
+  const [selecionados, setSelecionados] = useState<Set<string>>(new Set());
+  const [catDestino, setCatDestino] = useState("");
+  const [aplicando, setAplicando] = useState(false);
+  const [showSugestoes, setShowSugestoes] = useState(false);
+
+  function alternarSelecao(id: string) {
+    setSelecionados((prev) => {
+      const novo = new Set(prev);
+      if (novo.has(id)) novo.delete(id);
+      else novo.add(id);
+      return novo;
+    });
+  }
+
+  async function aplicarCategoria() {
+    const categoria = catDestino.trim();
+    if (!categoria || selecionados.size === 0 || aplicando) return;
+    setAplicando(true);
+    const res = await fetch("/api/products/organizar", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        itens: [...selecionados].map((id) => ({ id, category: categoria })),
+      }),
+    });
+    setAplicando(false);
+    if (res.ok) {
+      setSelecionados(new Set());
+      setCatDestino("");
+      setOrganizando(false);
+      router.refresh();
+    } else {
+      const data = await res.json().catch(() => null);
+      alert(data?.error ?? "Não foi possível aplicar. Tente de novo.");
+    }
+  }
 
   const filtered = useMemo(
     () =>
       initial.filter((p) => {
         if (
           q &&
-          !p.name.toLowerCase().includes(q.toLowerCase()) &&
-          !p.sku.toLowerCase().includes(q.toLowerCase())
+          !casaTexto(p.name, q) &&
+          !casaTexto(p.sku, q)
         )
           return false;
         if (category && p.category !== category) return false;
@@ -105,9 +190,10 @@ export function ProductsView({
         if (onlyStock && totalStock(p) === 0) return false;
         if (onlyNoPhoto && p.images.length > 0) return false;
         if (onlyNoSku && !missingSku(p)) return false;
+        if (onlyHidden && !ocultos.get(p.id)) return false;
         return true;
       }),
-    [initial, q, category, collection, brand, color, size, maxPrice, onlyStock, onlyNoPhoto, onlyNoSku]
+    [initial, q, category, collection, brand, color, size, maxPrice, onlyStock, onlyNoPhoto, onlyNoSku, onlyHidden, ocultos]
   );
 
   // quantos itens estão sem foto (ajuda a priorizar depois da importação)
@@ -201,7 +287,39 @@ export function ProductsView({
             <span className="rounded-full bg-rose-100 text-rose-700 text-[10px] font-semibold px-1.5 py-0.5">{noSkuCount}</span>
           </label>
         )}
+        {hiddenCount > 0 && (
+          <label
+            className="flex items-center gap-1.5 text-xs text-gray-600 cursor-pointer"
+            title="Peças que a cliente NÃO vê no catálogo. Abra cada uma para ver o motivo e o que fazer."
+          >
+            <input
+              type="checkbox"
+              checked={onlyHidden}
+              onChange={(e) => setOnlyHidden(e.target.checked)}
+              className="size-3.5 accent-brand-600"
+            />
+            Fora do catálogo
+            <span className="rounded-full bg-gray-800 text-white text-[10px] font-semibold px-1.5 py-0.5">{hiddenCount}</span>
+          </label>
+        )}
         <div className="ml-auto flex items-center gap-2">
+          {canOrganize && initial.length > 0 && (
+            <button
+              onClick={() => {
+                setOrganizando((v) => !v);
+                setSelecionados(new Set());
+              }}
+              className={`flex items-center gap-1.5 rounded-xl border text-sm font-medium px-3 py-2 transition ${
+                organizando
+                  ? "border-brand-400 bg-brand-50 text-brand-700"
+                  : "border-gray-200 bg-white text-gray-600 hover:border-brand-300"
+              }`}
+              title="Organizar categorias em massa (selecionar vários produtos)"
+            >
+              <Wand2 className="size-4" />
+              <span className="hidden sm:inline">Organizar</span>
+            </button>
+          )}
           <ImportCatalog />
           <button
             onClick={() => setShowNew(true)}
@@ -216,23 +334,60 @@ export function ProductsView({
 
       {filtered.length === 0 ? (
         <Card>
+          {/* loja sem NENHUM produto ganha o caminho pronto; se é só filtro
+              apertado, o texto continua falando de filtro (não confunde) */}
           <EmptyState
             icon={<Package />}
-            title="Nenhum produto encontrado"
-            hint="Cadastre o primeiro produto ou ajuste os filtros."
+            title={
+              initial.length === 0
+                ? "Seu catálogo ainda está vazio"
+                : "Nenhum produto encontrado"
+            }
+            hint={
+              initial.length === 0
+                ? "Cadastre a primeira peça para começar a montar sua vitrine."
+                : "Ajuste os filtros ou a busca para ver outros produtos."
+            }
+            action={
+              initial.length === 0 ? (
+                <button
+                  onClick={() => setShowNew(true)}
+                  className="flex items-center gap-1.5 rounded-xl bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium px-4 py-2 transition"
+                >
+                  <Plus className="size-4" />
+                  Cadastrar meu primeiro produto
+                </button>
+              ) : undefined
+            }
           />
         </Card>
       ) : (
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
           {filtered.map((p) => {
             const stock = totalStock(p);
+            const oculto = ocultos.get(p.id) ?? null;
+            const marcado = organizando && selecionados.has(p.id);
             return (
               <button
                 key={p.id}
-                onClick={() => setDetail(p)}
-                className="text-left bg-white rounded-2xl border border-gray-100 shadow-card hover:shadow-pop transition overflow-hidden group"
+                // no modo organizar, o toque MARCA (não abre o produto)
+                onClick={() => (organizando ? alternarSelecao(p.id) : setDetail(p))}
+                className={`text-left bg-white rounded-2xl border shadow-card hover:shadow-pop transition overflow-hidden group ${
+                  marcado ? "border-brand-500 ring-2 ring-brand-200" : "border-gray-100"
+                }`}
               >
                 <div className="aspect-square bg-gray-50 relative overflow-hidden">
+                  {organizando && (
+                    <span
+                      className={`absolute top-2 right-2 z-10 size-6 rounded-full border-2 flex items-center justify-center ${
+                        marcado
+                          ? "bg-brand-600 border-brand-600 text-white"
+                          : "bg-white/90 border-gray-300 text-transparent"
+                      }`}
+                    >
+                      <Check className="size-4" />
+                    </span>
+                  )}
                   {p.images[0] ? (
                     <img
                       src={p.images[0].url}
@@ -245,21 +400,26 @@ export function ProductsView({
                       <Package className="size-10" />
                     </div>
                   )}
-                  {!p.active && (
-                    <span className="absolute top-2 left-2 bg-gray-800/80 text-white text-[10px] font-medium rounded-full px-2 py-0.5">
-                      Inativo
+                  {/* UM crachá só, vindo da MESMA régua da vitrine
+                      (lib/catalogo/visibilidade.ts). Passar o mouse mostra o
+                      motivo e o próximo passo; a explicação inteira fica na
+                      ficha da peça. */}
+                  {oculto ? (
+                    <span
+                      title={`${oculto.motivo} ${oculto.comoResolver}`}
+                      className="absolute top-2 left-2 bg-gray-900/85 text-white text-[10px] font-medium rounded-full px-2 py-0.5"
+                    >
+                      {oculto.curto}
                     </span>
-                  )}
-                  {/* sem foto: fica OCULTO no catálogo público até ganhar imagem */}
-                  {p.active && p.images.length === 0 && (
-                    <span className="absolute top-2 left-2 bg-amber-500/90 text-white text-[10px] font-medium rounded-full px-2 py-0.5">
-                      Sem foto · oculto
-                    </span>
-                  )}
-                  {stock === 0 && p.active && p.images.length > 0 && (
-                    <span className="absolute top-2 left-2 bg-rose-600/90 text-white text-[10px] font-medium rounded-full px-2 py-0.5">
-                      Sem estoque
-                    </span>
+                  ) : (
+                    stock === 0 && (
+                      <span
+                        title="A peça aparece no catálogo, mas esgotada (a cliente não consegue pedir)."
+                        className="absolute top-2 left-2 bg-rose-600/90 text-white text-[10px] font-medium rounded-full px-2 py-0.5"
+                      >
+                        Sem estoque
+                      </span>
+                    )
                   )}
                   {p.images.length > 1 && (
                     <span className="absolute bottom-2 right-2 bg-black/55 text-white text-[10px] font-medium rounded-full px-2 py-0.5">
@@ -294,6 +454,94 @@ export function ProductsView({
         </div>
       )}
 
+      {/* barra do organizador: flutua acima do menu de baixo no celular */}
+      {organizando && (
+        <Portal>
+          <div className="fixed inset-x-0 bottom-20 md:bottom-6 z-40 px-3 flex justify-center">
+            <div className="w-full max-w-3xl rounded-2xl bg-white border border-brand-200 shadow-pop p-3 flex flex-wrap items-center gap-2">
+              <span className="text-sm font-semibold text-brand-700 tabular-nums shrink-0">
+                {selecionados.size} selecionado{selecionados.size === 1 ? "" : "s"}
+              </span>
+              <button
+                onClick={() =>
+                  setSelecionados(
+                    selecionados.size === filtered.length
+                      ? new Set()
+                      : new Set(filtered.map((p) => p.id))
+                  )
+                }
+                className="text-xs font-medium text-gray-500 hover:text-brand-600 transition shrink-0"
+              >
+                {selecionados.size === filtered.length ? "Limpar" : `Marcar os ${filtered.length} da tela`}
+              </button>
+              <input
+                value={catDestino}
+                onChange={(e) => setCatDestino(e.target.value)}
+                list="cats-organizador"
+                placeholder="Escolher ou CRIAR categoria (digite o nome)..."
+                className="flex-1 min-w-36 rounded-xl border border-gray-200 px-3 py-2 text-sm outline-none focus:border-brand-400 transition"
+              />
+              <datalist id="cats-organizador">
+                {categories.map((c) => (
+                  <option key={c} value={c} />
+                ))}
+              </datalist>
+              {/* digitou um nome que não existe? avisa que vai NASCER agora —
+                  a categoria nova é criada junto com a aplicação, sem passo extra */}
+              {catDestino.trim() &&
+                !categories.some(
+                  (c) => c.toLowerCase() === catDestino.trim().toLowerCase()
+                ) && (
+                  <span className="basis-full text-[11px] font-medium text-emerald-600 -mt-1">
+                    ✨ A categoria nova “{catDestino.trim()}” será criada ao aplicar
+                  </span>
+                )}
+              <button
+                onClick={aplicarCategoria}
+                disabled={!catDestino.trim() || selecionados.size === 0 || aplicando}
+                className="flex items-center gap-1.5 rounded-xl bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium px-4 py-2 transition disabled:opacity-40 shrink-0"
+              >
+                {aplicando ? <Loader2 className="size-4 animate-spin" /> : <Check className="size-4" />}
+                Aplicar
+              </button>
+              <button
+                onClick={() => setShowSugestoes(true)}
+                className="flex items-center gap-1.5 rounded-xl border border-amber-200 bg-amber-50 text-amber-700 text-sm font-medium px-3 py-2 hover:border-amber-300 transition shrink-0"
+                title="O sistema lê o NOME das peças e sugere a categoria — você revisa antes de aplicar"
+              >
+                <Sparkles className="size-4" />
+                <span className="hidden sm:inline">Sugerir pelo nome</span>
+                <span className="sm:hidden">Sugerir</span>
+              </button>
+              <button
+                onClick={() => {
+                  setOrganizando(false);
+                  setSelecionados(new Set());
+                }}
+                className="p-2 text-gray-400 hover:text-gray-600 transition shrink-0"
+                title="Sair do modo organizar"
+              >
+                <X className="size-4" />
+              </button>
+            </div>
+          </div>
+        </Portal>
+      )}
+
+      {showSugestoes && (
+        <SugestoesModal
+          produtos={filtered}
+          categorias={categories}
+          onClose={() => setShowSugestoes(false)}
+          onDone={() => {
+            setShowSugestoes(false);
+            setOrganizando(false);
+            setSelecionados(new Set());
+            router.refresh();
+          }}
+        />
+      )}
+
       {detail && (
         <ProductDetailModal
           product={detail}
@@ -303,6 +551,8 @@ export function ProductsView({
           collections={collections}
           brands={brands}
           mediaLibrary={mediaLibrary}
+          semCores={semCores}
+          ocultaSemEstoque={ocultaSemEstoque}
           onClose={() => setDetail(null)}
           onChanged={() => {
             setDetail(null);
@@ -318,6 +568,7 @@ export function ProductsView({
           collections={collections}
           brands={brands}
           mediaLibrary={mediaLibrary}
+          semCores={semCores}
           onClose={() => setShowNew(false)}
           onCreated={() => {
             setShowNew(false);
@@ -326,6 +577,177 @@ export function ProductsView({
         />
       )}
     </>
+  );
+}
+
+/**
+ * PRÉVIA DA SUGESTÃO AUTOMÁTICA — o motor lê o nome de cada peça e sugere a
+ * categoria; a loja desmarca o que discordar e só então aplica. Mostra
+ * agrupado por categoria de destino para a revisão ser rápida ("esses 40
+ * viram Vestidos — confere?").
+ */
+function SugestoesModal({
+  produtos,
+  categorias,
+  onClose,
+  onDone,
+}: {
+  produtos: ProductItem[];
+  categorias: string[];
+  onClose: () => void;
+  onDone: () => void;
+}) {
+  const sugestoes = useMemo(
+    () =>
+      sugerirEmLote(
+        produtos.map((p) => ({ id: p.id, name: p.name, category: p.category })),
+        categorias
+      ),
+    [produtos, categorias]
+  );
+  const [aceitas, setAceitas] = useState<Set<string>>(
+    () => new Set(sugestoes.map((s) => s.id))
+  );
+  const [salvando, setSalvando] = useState(false);
+
+  const grupos = useMemo(() => {
+    const map = new Map<string, SugestaoDeCategoria[]>();
+    for (const s of sugestoes) {
+      const lista = map.get(s.sugerida) ?? [];
+      lista.push(s);
+      map.set(s.sugerida, lista);
+    }
+    return [...map.entries()].sort((a, b) => b[1].length - a[1].length);
+  }, [sugestoes]);
+
+  async function aplicar() {
+    if (aceitas.size === 0 || salvando) return;
+    setSalvando(true);
+    const res = await fetch("/api/products/organizar", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        itens: sugestoes
+          .filter((s) => aceitas.has(s.id))
+          .map((s) => ({ id: s.id, category: s.sugerida })),
+      }),
+    });
+    setSalvando(false);
+    if (res.ok) onDone();
+    else {
+      const data = await res.json().catch(() => null);
+      alert(data?.error ?? "Não foi possível aplicar. Tente de novo.");
+    }
+  }
+
+  return (
+    <Portal>
+      <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center">
+        <div className="absolute inset-0 bg-black/40 animate-fade-in" onClick={onClose} />
+        <div className="relative bg-white w-full md:max-w-2xl md:rounded-2xl rounded-t-2xl shadow-pop max-h-[85vh] flex flex-col">
+          <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+            <div>
+              <p className="font-semibold flex items-center gap-1.5">
+                <Sparkles className="size-4 text-amber-500" />
+                Sugestão automática de categorias
+              </p>
+              <p className="text-xs text-gray-400 mt-0.5">
+                Lidas pelo NOME da peça · nada é aplicado sem a sua revisão
+              </p>
+            </div>
+            <button onClick={onClose} className="p-1.5 text-gray-400 hover:text-gray-600">
+              <X className="size-5" />
+            </button>
+          </div>
+
+          <div className="flex-1 overflow-y-auto px-5 py-4">
+            {sugestoes.length === 0 ? (
+              <EmptyState
+                icon={<Wand2 />}
+                title="Nada para sugerir por aqui"
+                hint="Os produtos da tela já estão em categorias compatíveis com o nome — ou o nome não diz o tipo da peça. Use a seleção em massa para os casos manuais."
+              />
+            ) : (
+              <div className="space-y-4">
+                {grupos.map(([categoria, lista]) => {
+                  const todasDoGrupo = lista.every((s) => aceitas.has(s.id));
+                  return (
+                    <div key={categoria}>
+                      <label className="flex items-center gap-2 mb-1.5 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={todasDoGrupo}
+                          onChange={() =>
+                            setAceitas((prev) => {
+                              const novo = new Set(prev);
+                              for (const s of lista) {
+                                if (todasDoGrupo) novo.delete(s.id);
+                                else novo.add(s.id);
+                              }
+                              return novo;
+                            })
+                          }
+                          className="size-4 accent-brand-600"
+                        />
+                        <span className="text-sm font-semibold">
+                          {categoria}
+                          <span className="ml-1.5 text-xs font-normal text-gray-400">
+                            {lista.length} peça{lista.length === 1 ? "" : "s"}
+                          </span>
+                        </span>
+                      </label>
+                      <div className="space-y-1 pl-6">
+                        {lista.map((s) => (
+                          <label
+                            key={s.id}
+                            className="flex items-center gap-2 text-xs cursor-pointer rounded-lg hover:bg-gray-50 px-2 py-1 -mx-2"
+                          >
+                            <input
+                              type="checkbox"
+                              checked={aceitas.has(s.id)}
+                              onChange={() =>
+                                setAceitas((prev) => {
+                                  const novo = new Set(prev);
+                                  if (novo.has(s.id)) novo.delete(s.id);
+                                  else novo.add(s.id);
+                                  return novo;
+                                })
+                              }
+                              className="size-3.5 accent-brand-600 shrink-0"
+                            />
+                            <span className="truncate flex-1">{s.nome}</span>
+                            <span className="text-gray-400 shrink-0">
+                              {s.atual || "sem categoria"} →{" "}
+                              <b className="text-brand-700">{s.sugerida}</b>
+                            </span>
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          {sugestoes.length > 0 && (
+            <div className="px-5 py-4 border-t border-gray-100 flex items-center justify-between gap-3">
+              <span className="text-xs text-gray-400">
+                {aceitas.size} de {sugestoes.length} marcadas
+              </span>
+              <button
+                onClick={aplicar}
+                disabled={aceitas.size === 0 || salvando}
+                className="flex items-center gap-1.5 rounded-xl bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium px-5 py-2.5 transition disabled:opacity-40"
+              >
+                {salvando ? <Loader2 className="size-4 animate-spin" /> : <Check className="size-4" />}
+                Aplicar {aceitas.size} mudança{aceitas.size === 1 ? "" : "s"}
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+    </Portal>
   );
 }
 
@@ -338,6 +760,8 @@ function ProductDetailModal({
   collections,
   brands,
   mediaLibrary = false,
+  semCores = false,
+  ocultaSemEstoque = false,
   onClose,
   onChanged,
 }: {
@@ -348,16 +772,24 @@ function ProductDetailModal({
   collections: string[];
   brands: string[];
   mediaLibrary?: boolean;
+  semCores?: boolean;
+  ocultaSemEstoque?: boolean;
   onClose: () => void;
   onChanged: () => void;
 }) {
   const [busy, setBusy] = useState(false);
   const [removedIds, setRemovedIds] = useState<string[]>([]);
   const [newVariant, setNewVariant] = useState({
-    color: libraryColors[0]?.name ?? "",
+    // loja sem cores (semijoias): a cor não é pedida — nasce "Único"
+    color: semCores ? "Único" : libraryColors[0]?.name ?? "",
     size: librarySizes[0] ?? "",
     stock: "5",
   });
+  // a linha de nova variação já nasce preenchida (primeira cor, primeiro
+  // tamanho, 5 peças). Só é "digitada de verdade" depois que a pessoa mexe —
+  // é isso que separa o esquecimento do + de um campo intocado.
+  const [novaMexida, setNovaMexida] = useState(false);
+  const [avisoGrade, setAvisoGrade] = useState("");
   const [pendingAdds, setPendingAdds] = useState<
     { color: string; size: string; stock: number }[]
   >([]);
@@ -375,9 +807,9 @@ function ProductDetailModal({
     tags: product.tags ?? "",
   });
   // galeria em ordem — a posição 0 é a capa; a lista final vai inteira no save
-  const [photos, setPhotos] = useState<{ id?: string; url: string }[]>(
-    product.images
-  );
+  const [photos, setPhotos] = useState<
+    { id?: string; url: string; color?: string | null }[]
+  >(product.images);
   const [stocks, setStocks] = useState<Record<string, string>>(
     Object.fromEntries(product.variants.map((v) => [v.id, String(v.stock)]))
   );
@@ -385,10 +817,18 @@ function ProductDetailModal({
   const [vskus, setVskus] = useState<Record<string, string>>(
     Object.fromEntries(product.variants.map((v) => [v.id, v.sku ?? ""]))
   );
+  // COR por variação: dá pra trocar aqui mesmo e o catálogo já mostra a nova
+  const [vcores, setVcores] = useState<Record<string, string>>(
+    Object.fromEntries(product.variants.map((v) => [v.id, v.color]))
+  );
   // histórico de estoque desta peça (carrega sob demanda)
   const [hist, setHist] = useState<StockMov[] | null>(null);
   const [histBusy, setHistBusy] = useState(false);
   const [histAberto, setHistAberto] = useState(false);
+  // conferidor de catálogo (resposta vinda do banco, não da tela)
+  const [conf, setConf] = useState<ConferenciaCatalogo | null>(null);
+  const [confBusy, setConfBusy] = useState(false);
+  const [confAberto, setConfAberto] = useState(false);
 
   async function verHistorico() {
     if (histAberto) {
@@ -404,11 +844,60 @@ function ProductDetailModal({
     if (res.ok) setHist(d.movimentos ?? []);
   }
 
+  /**
+   * CONFERIDOR: pergunta ao BANCO se a cliente está vendo esta peça.
+   * O aviso amarelo cobre os motivos conhecidos; isto responde o caso em que
+   * a peça está certa e a cliente continua sem ver — quase sempre porque o
+   * link enviado foi o de uma CAMPANHA, que só tem as peças selecionadas.
+   */
+  async function conferirCatalogo() {
+    if (confAberto) {
+      setConfAberto(false);
+      return;
+    }
+    setConfAberto(true);
+    if (conf) return;
+    setConfBusy(true);
+    const res = await fetch(`/api/products/${product.id}/catalogo`);
+    const d = await res.json().catch(() => null);
+    setConfBusy(false);
+    if (res.ok) setConf(d);
+  }
+
   const num = (v: string) => parseFloat(v.replace(",", ".")) || 0;
   const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
     setForm((f) => ({ ...f, [k]: e.target.value }));
 
   async function save() {
+    /**
+     * NADA SE PERDE NA GRADE.
+     *
+     * Caso real (Toque Leve): a lojista escolheu a cor, o tamanho e a
+     * quantidade, NÃO clicou no +, clicou em Salvar — e a cor nunca chegou ao
+     * catálogo. O sistema descartava a linha em silêncio. Agora, se ela mexeu
+     * na linha e a combinação ainda não está na grade, a gente pergunta.
+     */
+    let extras = pendingAdds;
+    if (
+      novaMexida &&
+      newVariant.color &&
+      newVariant.size &&
+      !jaNaGrade(newVariant.color, newVariant.size)
+    ) {
+      const qtd = parseInt(newVariant.stock) || 0;
+      const incluir = window.confirm(
+        `Você escolheu ${newVariant.color} · ${newVariant.size} (${qtd} peça${qtd === 1 ? "" : "s"}) e não clicou no +.\n\nQuer incluir essa variação na grade?`
+      );
+      if (incluir) {
+        extras = [
+          ...pendingAdds,
+          { color: newVariant.color, size: newVariant.size, stock: qtd },
+        ];
+        setPendingAdds(extras);
+      }
+      setNovaMexida(false);
+    }
+
     setBusy(true);
     const res = await fetch(`/api/products/${product.id}`, {
       method: "PATCH",
@@ -425,15 +914,20 @@ function ProductDetailModal({
         minQuantity: parseInt(form.minQuantity) || 1,
         weightGrams: parseInt(form.weightGrams) || null,
         tags: form.tags || null,
-        images: photos.map((ph) => (ph.id ? { id: ph.id } : { url: ph.url })),
+        images: photos.map((ph) =>
+          ph.id
+            ? { id: ph.id, color: ph.color ?? null }
+            : { url: ph.url, color: ph.color ?? null }
+        ),
         variantStocks: Object.entries(stocks)
           .filter(([id]) => !removedIds.includes(id))
           .map(([id, stock]) => ({
             id,
             stock: parseInt(stock) || 0,
             sku: (vskus[id] ?? "").trim() || null,
+            color: vcores[id] || undefined,
           })),
-        addVariants: pendingAdds,
+        addVariants: extras,
         removeVariantIds: removedIds,
       }),
     });
@@ -481,16 +975,34 @@ function ProductDetailModal({
     onChanged();
   }
 
-  function addPendingVariant() {
-    if (!newVariant.color || !newVariant.size) return;
-    const exists =
+  /**
+   * A combinação cor · tamanho já está na grade (salva ou pendente)?
+   * Serve tanto para o + quanto para o resgate no salvar.
+   */
+  function jaNaGrade(color: string, size: string) {
+    return (
       product.variants.some(
-        (v) => v.color === newVariant.color && v.size === newVariant.size
-      ) ||
-      pendingAdds.some(
-        (v) => v.color === newVariant.color && v.size === newVariant.size
+        (v) => v.color === color && v.size === size && !removedIds.includes(v.id)
+      ) || pendingAdds.some((v) => v.color === color && v.size === size)
+    );
+  }
+
+  /**
+   * Adiciona a variação escolhida. Antes, quando a combinação já existia ou
+   * faltava cor/tamanho, o botão + não fazia NADA e não dizia nada — a pessoa
+   * clicava, não via reação e achava que tinha adicionado.
+   */
+  function addPendingVariant() {
+    if (!newVariant.color || !newVariant.size) {
+      setAvisoGrade("Escolha a cor e o tamanho antes de adicionar.");
+      return;
+    }
+    if (jaNaGrade(newVariant.color, newVariant.size)) {
+      setAvisoGrade(
+        `${newVariant.color} · ${newVariant.size} já está na grade — mude a quantidade na linha dela.`
       );
-    if (exists) return;
+      return;
+    }
     setPendingAdds((prev) => [
       ...prev,
       {
@@ -499,11 +1011,16 @@ function ProductDetailModal({
         stock: parseInt(newVariant.stock) || 0,
       },
     ]);
+    setNovaMexida(false);
+    setAvisoGrade("");
   }
 
   const input =
     "w-full rounded-xl border border-gray-200 px-3 py-2 text-sm outline-none focus:border-brand-400 transition";
   const label = "block text-xs font-medium text-gray-500 mb-1";
+
+  // motivo do que está SALVO hoje (o que a cliente vê agora, não o rascunho)
+  const oculto = motivoOculto(product, { esconderSemEstoque: ocultaSemEstoque });
 
   return (
     <Portal><div className="fixed inset-0 z-50 flex items-end md:items-center justify-center pb-[var(--kb,0px)]">
@@ -522,6 +1039,20 @@ function ProductDetailModal({
             <X className="size-5" />
           </button>
         </div>
+
+        {/* A CLIENTE NÃO ESTÁ VENDO ESTA PEÇA — e por quê. Sem isto, a lojista
+            só descobria abrindo o catálogo e procurando peça por peça. */}
+        {oculto && (
+          <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-3.5 py-2.5">
+            <p className="text-sm font-semibold text-amber-900">
+              Esta peça não aparece no catálogo da cliente
+            </p>
+            <p className="text-xs text-amber-800 mt-0.5">{oculto.motivo}</p>
+            <p className="text-xs text-amber-700 mt-1">
+              <b>O que fazer:</b> {oculto.comoResolver}
+            </p>
+          </div>
+        )}
 
         <div className="grid md:grid-cols-2 gap-5">
           <div className="space-y-3">
@@ -625,7 +1156,18 @@ function ProductDetailModal({
           <div className="space-y-3">
             <div>
               <label className={label}>Fotos do produto</label>
-              <PhotoManager photos={photos} onChange={setPhotos} mediaLibrary={mediaLibrary} />
+              <PhotoManager
+                photos={photos}
+                onChange={setPhotos}
+                mediaLibrary={mediaLibrary}
+                // capa por cor: as opções vêm da própria grade do produto
+                colors={[
+                  ...new Set(
+                    [...product.variants.map((v) => v.color), ...pendingAdds.map((v) => v.color)]
+                      .filter((c) => c && c !== "Único")
+                  ),
+                ]}
+              />
             </div>
 
             <div>
@@ -635,9 +1177,38 @@ function ProductDetailModal({
                   .filter((v) => !removedIds.includes(v.id))
                   .map((v) => (
                     <div key={v.id} className="flex items-center gap-2 px-3 py-1.5">
-                      <span className="text-xs font-medium flex-1 min-w-0 truncate">
-                        {v.color} · {v.size}
-                      </span>
+                      {semCores ? (
+                        // loja sem cores mostra só o tamanho
+                        <span className="text-xs font-medium flex-1 min-w-0 truncate">
+                          {v.size}
+                        </span>
+                      ) : (
+                        <>
+                          <select
+                            value={vcores[v.id] ?? v.color}
+                            onChange={(e) =>
+                              setVcores((c) => ({ ...c, [v.id]: e.target.value }))
+                            }
+                            title="Trocar a cor desta variação — o catálogo atualiza na hora"
+                            className={`flex-1 min-w-0 rounded-lg border px-1.5 py-1 text-xs font-medium outline-none focus:border-brand-400 ${
+                              (vcores[v.id] ?? v.color) !== v.color
+                                ? "border-amber-300 bg-amber-50 text-amber-900"
+                                : "border-transparent bg-transparent hover:border-gray-200"
+                            }`}
+                          >
+                            {/* a cor atual entra na lista mesmo se saiu da biblioteca */}
+                            {(libraryColors.some((c) => c.name === v.color)
+                              ? libraryColors.map((c) => c.name)
+                              : [v.color, ...libraryColors.map((c) => c.name)]
+                            ).map((nome) => (
+                              <option key={nome} value={nome}>
+                                {nome}
+                              </option>
+                            ))}
+                          </select>
+                          <span className="text-xs text-gray-500 shrink-0">· {v.size}</span>
+                        </>
+                      )}
                       <input
                         value={vskus[v.id] ?? ""}
                         onChange={(e) =>
@@ -676,7 +1247,7 @@ function ProductDetailModal({
                     className="flex items-center gap-2 px-3 py-1.5 bg-emerald-50/60"
                   >
                     <span className="text-xs font-medium flex-1">
-                      {v.color} · {v.size}{" "}
+                      {semCores ? v.size : [v.color, v.size].filter(Boolean).join(" · ")}{" "}
                       <span className="text-emerald-600">(nova)</span>
                     </span>
                     <span className="text-xs tabular-nums">{v.stock}</span>
@@ -693,24 +1264,31 @@ function ProductDetailModal({
                 ))}
               </div>
               <div className="flex gap-1.5 mt-2">
-                <select
-                  value={newVariant.color}
-                  onChange={(e) =>
-                    setNewVariant((v) => ({ ...v, color: e.target.value }))
-                  }
-                  className="flex-1 rounded-lg border border-gray-200 px-2 py-1.5 text-xs bg-white outline-none"
-                >
-                  {libraryColors.map((c) => (
-                    <option key={c.name} value={c.name}>
-                      {c.name}
-                    </option>
-                  ))}
-                </select>
+                {/* loja sem cores: só o tamanho — a cor vira "Único" sozinha */}
+                {!semCores && (
+                  <select
+                    value={newVariant.color}
+                    onChange={(e) => {
+                      setNewVariant((v) => ({ ...v, color: e.target.value }));
+                      setNovaMexida(true);
+                      setAvisoGrade("");
+                    }}
+                    className="flex-1 rounded-lg border border-gray-200 px-2 py-1.5 text-xs bg-white outline-none"
+                  >
+                    {libraryColors.map((c) => (
+                      <option key={c.name} value={c.name}>
+                        {c.name}
+                      </option>
+                    ))}
+                  </select>
+                )}
                 <select
                   value={newVariant.size}
-                  onChange={(e) =>
-                    setNewVariant((v) => ({ ...v, size: e.target.value }))
-                  }
+                  onChange={(e) => {
+                    setNewVariant((v) => ({ ...v, size: e.target.value }));
+                    setNovaMexida(true);
+                    setAvisoGrade("");
+                  }}
                   className="w-20 rounded-lg border border-gray-200 px-2 py-1.5 text-xs bg-white outline-none"
                 >
                   {librarySizes.map((s) => (
@@ -721,40 +1299,174 @@ function ProductDetailModal({
                 </select>
                 <input
                   value={newVariant.stock}
-                  onChange={(e) =>
+                  onChange={(e) => {
                     setNewVariant((v) => ({
                       ...v,
                       stock: e.target.value.replace(/\D/g, ""),
-                    }))
-                  }
+                    }));
+                    setNovaMexida(true);
+                    setAvisoGrade("");
+                  }}
                   inputMode="numeric"
                   className="w-14 rounded-lg border border-gray-200 px-2 py-1.5 text-xs text-right outline-none"
                 />
                 <button
                   type="button"
                   onClick={addPendingVariant}
-                  className="rounded-lg bg-brand-600 hover:bg-brand-700 text-white px-2.5 transition"
-                  title="Adicionar variação"
+                  className={`rounded-lg text-white px-2.5 transition ${
+                    novaMexida
+                      ? "bg-emerald-600 hover:bg-emerald-700 animate-pulse"
+                      : "bg-brand-600 hover:bg-brand-700"
+                  }`}
+                  title="Adicionar variação à grade"
                 >
                   <Plus className="size-3.5" />
                 </button>
               </div>
+              {/* o + já não some em silêncio: ou entra na grade, ou diz por quê */}
+              {avisoGrade && (
+                <p className="text-[11px] text-amber-700 bg-amber-50 rounded-lg px-2 py-1 mt-1.5">
+                  {avisoGrade}
+                </p>
+              )}
+              {novaMexida && !avisoGrade && (
+                <p className="text-[11px] text-emerald-700 bg-emerald-50 rounded-lg px-2 py-1 mt-1.5">
+                  Falta clicar no <b>+</b> para {semCores ? "" : `${newVariant.color} · `}
+                  {newVariant.size} entrar na grade.
+                </p>
+              )}
               <p className="text-[10px] text-gray-400 mt-1">
                 Cores e tamanhos vêm da sua biblioteca em{" "}
                 <a href="/configuracoes/catalogo" className="text-brand-600 underline">
                   Personalizar catálogo
                 </a>
-                . Ajustes de estoque ficam no histórico de movimentações.
+                . Pra trocar a cor de uma variação, use o seletor na linha dela —
+                muda na hora no catálogo. Ajustes de estoque e trocas de cor ficam
+                no histórico de movimentações.
               </p>
 
-              <button
-                type="button"
-                onClick={verHistorico}
-                className="mt-2.5 inline-flex items-center gap-1.5 text-xs font-medium text-gray-500 hover:text-brand-600 transition"
-              >
-                <History className="size-3.5" />
-                {histAberto ? "Ocultar histórico de estoque" : "Ver histórico de estoque"}
-              </button>
+              <div className="mt-2.5 flex flex-wrap items-center gap-x-4 gap-y-1.5">
+                <button
+                  type="button"
+                  onClick={verHistorico}
+                  className="inline-flex items-center gap-1.5 text-xs font-medium text-gray-500 hover:text-brand-600 transition"
+                >
+                  <History className="size-3.5" />
+                  {histAberto ? "Ocultar histórico de estoque" : "Ver histórico de estoque"}
+                </button>
+                <button
+                  type="button"
+                  onClick={conferirCatalogo}
+                  title="Pergunta ao sistema, com os dados de verdade, se a cliente está vendo esta peça"
+                  className="inline-flex items-center gap-1.5 text-xs font-medium text-gray-500 hover:text-brand-600 transition"
+                >
+                  <Search className="size-3.5" />
+                  {confAberto ? "Ocultar conferência" : "A cliente está vendo esta peça?"}
+                </button>
+              </div>
+
+              {confAberto && (
+                <div className="mt-2 rounded-xl border border-gray-100 bg-gray-50/60 p-2.5">
+                  {confBusy ? (
+                    <p className="flex items-center gap-1.5 text-xs text-gray-400 px-1 py-2">
+                      <Loader2 className="size-3.5 animate-spin" /> Conferindo…
+                    </p>
+                  ) : !conf ? (
+                    <p className="text-xs text-gray-400 px-1 py-2">
+                      Não consegui conferir agora. Tente de novo em instantes.
+                    </p>
+                  ) : (
+                    <div className="space-y-2">
+                      {/* veredito do catálogo GERAL — o link do dia a dia */}
+                      <p
+                        className={`text-xs font-semibold ${
+                          conf.catalogoGeral.aparece ? "text-emerald-700" : "text-rose-700"
+                        }`}
+                      >
+                        {conf.catalogoGeral.aparece
+                          ? "✅ Aparece no catálogo geral da loja"
+                          : "❌ NÃO aparece no catálogo geral da loja"}
+                      </p>
+                      {conf.lojaSuspensa && (
+                        <p className="text-xs text-rose-700">
+                          A loja está <b>suspensa</b> — o catálogo inteiro está fora do ar.
+                        </p>
+                      )}
+                      {conf.catalogoGeral.motivo && (
+                        <p className="text-xs text-gray-600">
+                          {conf.catalogoGeral.motivo}{" "}
+                          <b className="text-gray-800">{conf.catalogoGeral.comoResolver}</b>
+                        </p>
+                      )}
+
+                      {/* cor por cor: o catálogo mostra um card por COR */}
+                      {conf.cores.length > 0 && (
+                        <div className="flex flex-wrap gap-1">
+                          {conf.cores.map((c) => (
+                            <span
+                              key={c.cor}
+                              className={`text-[10px] rounded-full px-2 py-0.5 ${
+                                c.aparece
+                                  ? "bg-emerald-100 text-emerald-700"
+                                  : "bg-gray-200 text-gray-500 line-through"
+                              }`}
+                              title={
+                                c.aparece
+                                  ? `${c.pecas} peça(s) — a cliente vê esta cor`
+                                  : "A cliente NÃO vê esta cor"
+                              }
+                            >
+                              {c.cor} · {c.pecas}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+
+                      {/* O LINK IMPORTA: catálogo de campanha só tem as peças
+                          escolhidas. Peça certa + link de campanha = cliente
+                          sem ver, e não é defeito da peça. */}
+                      {conf.campanhas.length > 0 && (
+                        <div className="border-t border-gray-200 pt-2">
+                          <p className="text-[11px] font-medium text-gray-500 mb-1">
+                            Catálogos de campanha da loja
+                          </p>
+                          <ul className="space-y-0.5">
+                            {conf.campanhas.map((c) => (
+                              <li key={c.url} className="text-xs text-gray-600">
+                                {c.inclui ? "✅" : "❌"} {c.nome}
+                                {!c.inclui && (
+                                  <span className="text-gray-400">
+                                    {" "}
+                                    — quem receber ESTE link não vê a peça
+                                  </span>
+                                )}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+
+                      {conf.catalogoGeral.aparece && (
+                        <div className="border-t border-gray-200 pt-2 space-y-1.5">
+                          {/* prova em um clique: abre a vitrine NA PEÇA */}
+                          <a
+                            href={conf.catalogoGeral.url}
+                            target="_blank"
+                            className="inline-flex items-center gap-1.5 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-xs font-semibold px-3 py-1.5 transition"
+                          >
+                            Ver esta peça no catálogo
+                          </a>
+                          <p className="text-[11px] text-gray-500">
+                            Esse link abre a vitrine <b>já com a peça na tela</b> — dá para
+                            mandar ele direto para a cliente. Se ela continua sem achar
+                            rolando o catálogo, use a <b>lupa</b> no topo da vitrine.
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
 
               {histAberto && (
                 <div className="mt-2 rounded-xl border border-gray-100 bg-gray-50/60 p-2.5">
@@ -851,11 +1563,14 @@ function PhotoManager({
   onChange,
   max = 10,
   mediaLibrary = false,
+  colors = [],
 }: {
-  photos: { id?: string; url: string }[];
-  onChange: (p: { id?: string; url: string }[]) => void;
+  photos: { id?: string; url: string; color?: string | null }[];
+  onChange: (p: { id?: string; url: string; color?: string | null }[]) => void;
   max?: number;
   mediaLibrary?: boolean;
+  /** cores da grade do produto — liga a etiqueta "capa por cor" nas fotos */
+  colors?: string[];
 }) {
   const fileRef = useRef<HTMLInputElement>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -919,6 +1634,33 @@ function PhotoManager({
             >
               <X className="size-3.5" />
             </button>
+            {/* capa por cor: etiqueta qual COR esta foto mostra — o card
+                daquela cor no catálogo usa esta foto */}
+            {colors.length > 0 && (
+              <select
+                value={ph.color ?? ""}
+                onChange={(e) =>
+                  onChange(
+                    photos.map((p2, j) =>
+                      j === i ? { ...p2, color: e.target.value || null } : p2
+                    )
+                  )
+                }
+                title="Cor que esta foto mostra (capa por cor no catálogo)"
+                className={`absolute bottom-1 left-1 right-1 rounded-lg border px-1 py-0.5 text-[10px] font-medium shadow outline-none transition ${
+                  ph.color
+                    ? "border-brand-300 bg-brand-50/95 text-brand-700"
+                    : "border-gray-200 bg-white/90 text-gray-500"
+                }`}
+              >
+                <option value="">Cor: —</option>
+                {colors.map((c) => (
+                  <option key={c} value={c}>
+                    {c}
+                  </option>
+                ))}
+              </select>
+            )}
           </div>
         ))}
         {photos.length < max && (
@@ -960,6 +1702,14 @@ function PhotoManager({
         <Star className="inline size-3 text-amber-500 -mt-0.5" /> pra trocar. No
         catálogo, o cliente desliza pro lado pra ver todas. Ideal: 3:4
         (1200×1600px).
+        {colors.length > 0 && (
+          <>
+            {" "}
+            <b>Capa por cor:</b> marque em cada foto a cor que ela mostra — o
+            card daquela cor no catálogo usa a foto dela (sem marcar, vale a
+            capa geral).
+          </>
+        )}
       </p>
     </div>
   );
@@ -1083,6 +1833,7 @@ function NewProductModal({
   collections,
   brands,
   mediaLibrary = false,
+  semCores = false,
   onClose,
   onCreated,
 }: {
@@ -1092,6 +1843,7 @@ function NewProductModal({
   collections: string[];
   brands: string[];
   mediaLibrary?: boolean;
+  semCores?: boolean;
   onClose: () => void;
   onCreated: () => void;
 }) {
@@ -1109,8 +1861,12 @@ function NewProductModal({
 
   async function submit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    if (selColors.length === 0 || selSizes.length === 0) {
-      setError("Selecione ao menos uma cor e um tamanho.");
+    if ((!semCores && selColors.length === 0) || selSizes.length === 0) {
+      setError(
+        semCores
+          ? "Selecione ao menos um tamanho."
+          : "Selecione ao menos uma cor e um tamanho."
+      );
       return;
     }
     setSaving(true);
@@ -1120,7 +1876,8 @@ function NewProductModal({
       parseFloat(String(fd.get(name) ?? "0").replace(",", ".")) || 0;
 
     const stock = parseInt(stockPerVariant) || 0;
-    const variants = selColors.flatMap((color) =>
+    // loja sem cores: a grade nasce só por tamanho, com a cor fixa "Único"
+    const variants = (semCores ? ["Único"] : selColors).flatMap((color) =>
       selSizes.map((size) => ({ color, size, stock }))
     );
 
@@ -1269,6 +2026,8 @@ function NewProductModal({
                 <input name="weightGrams" className={input} inputMode="numeric" placeholder="Ex.: 250" />
               </div>
             </div>
+            {/* loja sem cores (semijoias): a grade é só por tamanho */}
+            {!semCores && (
             <div>
               <label className={label}>Cores (grade) *</label>
               <div className="flex flex-wrap gap-1.5">
@@ -1299,6 +2058,7 @@ function NewProductModal({
                 </a>
               </div>
             </div>
+            )}
             <div>
               <label className={label}>Tamanhos *</label>
               <div className="flex flex-wrap gap-1.5">

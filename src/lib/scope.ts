@@ -47,13 +47,26 @@ export function conversationScope(user: SessionUser) {
 }
 
 /**
- * Filtro da área de Pedidos. Por decisão do lojista, TODOS os perfis
- * (inclusive o vendedor) enxergam os pedidos da loja — a visibilidade de
- * pedidos é liberada; o isolamento entre lojas (companyId) continua.
- * Ações destrutivas (excluir/cancelar) seguem as regras de cada perfil.
+ * Filtro da área de Pedidos.
+ *
+ * VENDEDORA VÊ SÓ O QUE É DELA. O painel de pedidos é a tela de trabalho
+ * dela: o pedido que ela montou, o orçamento que ela mandou, a cobrança que
+ * ela precisa correr atrás. Misturar os pedidos das colegas ali não ajuda em
+ * nada — atrapalha (ela procura o dela no meio de dezenas que não são) e
+ * ainda expõe a carteira de uma para a outra.
+ *
+ * O dono da venda é o `sellerId` — o MESMO campo que manda na comissão. É
+ * assim que "quem mandou o link leva a venda" chega até aqui: o pedido que
+ * nasceu do link da Juliana aparece no painel da Juliana, e o da Lara no da
+ * Lara. Pedido sem vendedora (venda da loja online, por exemplo) é da loja e
+ * aparece para gerência.
+ *
+ * Gerente, admin e suporte continuam vendo a loja inteira.
  */
 export function orderScope(user: SessionUser) {
-  return { companyId: user.companyId };
+  return canSeeAll(user)
+    ? { companyId: user.companyId }
+    : { companyId: user.companyId, sellerId: user.id };
 }
 
 /** Filtro para tarefas (assigneeId). */
@@ -75,6 +88,20 @@ export function isSuperAdmin(user: SessionUser) {
 /** Perfil Suporte — gestão de pedidos e atendimento, sem poderes comerciais. */
 export function isSupport(user: SessionUser) {
   return user.role === "SUPPORT";
+}
+
+/**
+ * QUEM CUIDA DAS INTEGRAÇÕES (conectar, desconectar, sincronizar).
+ *
+ * Inclui o SUPORTE de propósito: quando a Nuvemshop desanda ou o estoque
+ * desencontra, quem resolve é o suporte — e antes ele precisava acordar um
+ * admin para clicar em "sincronizar". Isso é trabalho operacional, não
+ * comercial: ninguém aqui mexe em preço, comissão ou pedido mínimo.
+ *
+ * Vendedora fica de fora: integração quebrada afeta a loja inteira.
+ */
+export function podeOperarIntegracoes(user: SessionUser) {
+  return isAdmin(user) || user.role === "MANAGER" || user.role === "SUPPORT";
 }
 
 export function isManagerUp(user: SessionUser) {

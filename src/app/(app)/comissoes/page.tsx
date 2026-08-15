@@ -36,7 +36,7 @@ export default async function CommissionsPage({
   const to = spEnd(ate) ?? now;
 
   const company = await db.company.findUnique({ where: { id: user.companyId } });
-  const base = (company?.commissionBase ?? "SUBTOTAL") as "SUBTOTAL" | "TOTAL";
+  const base = (company?.commissionBase ?? "SUBTOTAL") as "SUBTOTAL" | "VENDIDO";
 
   // TODOS os vendedores (inclusive desligados): quem trabalhou no período
   // TEM comissão a receber. Filtrar por ativo fazia o dinheiro sumir do
@@ -61,13 +61,13 @@ export default async function CommissionsPage({
       status: { in: PAID_ORDER_STATUSES },
       paidAt: { gte: from, lte: to },
     },
-    select: { sellerId: true, subtotal: true, total: true },
+    select: { sellerId: true, subtotal: true, netTotal: true },
   });
 
   const bySeller = new Map<string, { count: number; base: number }>();
   let unassigned = { count: 0, base: 0 };
   for (const o of paidOrders) {
-    const val = base === "TOTAL" ? o.total : o.subtotal;
+    const val = base === "VENDIDO" ? o.netTotal : o.subtotal;
     if (!o.sellerId) {
       unassigned = { count: unassigned.count + 1, base: unassigned.base + val };
       continue;

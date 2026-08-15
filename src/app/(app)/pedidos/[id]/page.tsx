@@ -7,9 +7,11 @@ import {
   Truck,
   CreditCard,
   History,
+  PackageCheck,
 } from "lucide-react";
 import { requireUser } from "@/lib/auth";
-import { isManagerUp } from "@/lib/scope";
+import { isManagerUp, orderScope } from "@/lib/scope";
+import { corrigirRetratoDosItens, religarItensDoPedido } from "@/lib/religar-itens";
 import { db } from "@/lib/db";
 import { brl, dateFull, dateShort, timeShort } from "@/lib/format";
 import {
@@ -20,6 +22,7 @@ import {
 } from "@/lib/orders";
 import { Card, Badge } from "@/components/ui";
 import { StatusChanger } from "./status-changer";
+import { StatusLive } from "./status-live";
 import { CustomerEditor } from "./customer-editor";
 import { ItemsEditor } from "./items-editor";
 import { PaymentMethodChanger } from "./payment-method";
@@ -28,6 +31,11 @@ import { DeleteOrder } from "./delete-order";
 import { ResaleCatalog } from "./resale-catalog";
 import { CobrancaNfe } from "./cobranca-nfe";
 import { EnvioFrete } from "./envio-frete";
+import { TransferirVenda } from "./transferir-venda";
+import { ValoresEditor } from "./valores-editor";
+import { ObservacoesEditor } from "./observacoes-editor";
+import { DataDaVenda } from "./data-da-venda";
+import { podeTransferirVenda } from "@/lib/orders";
 
 export const dynamic = "force-dynamic";
 
@@ -39,8 +47,26 @@ export default async function OrderDetailPage({
   const user = await requireUser();
   const { id } = await params;
 
+  // A régua de visibilidade vale ANTES de qualquer efeito colateral: sem esta
+  // conferência, a vendedora abrindo a URL do pedido de uma colega disparava
+  // os consertos automáticos num pedido que ela nem pode ver.
+  const podeVer = await db.order.findFirst({
+    where: { id, ...orderScope(user) },
+    select: { id: true },
+  });
+  if (!podeVer) notFound();
+
+  // Peça reimportada (ex.: desfazer + refazer a Nuvemshop) deixa o item do
+  // pedido apontando para o vazio, e a tela mostrava "estoque 0 (insuficiente)"
+  // numa peça cheia de estoque. Religa pelos dados que o item guardou — de
+  // carona ao abrir o pedido, sem cron e sem tocar em estoque.
+  await religarItensDoPedido(id, user.companyId).catch(() => 0);
+  // conserta SKU/foto de item gravados errados (pedido antigo do catálogo
+  // mostrava o SKU e a foto da 1ª variação em vez da cor escolhida)
+  await corrigirRetratoDosItens(id, user.companyId).catch(() => 0);
+
   const order = await db.order.findFirst({
-    where: { id, companyId: user.companyId },
+    where: { id, ...orderScope(user) },
     include: {
       customer: true,
       seller: true,
@@ -54,14 +80,20 @@ export default async function OrderDetailPage({
   if (!order) notFound();
 
   const sellers = await db.user.findMany({
-    where: { companyId: user.companyId, active: true },
+    // vendedor da venda: ativo e fora do perfil Suporte (não comercial) —
+    // mesma régua que a API passou a aplicar
+    where: { companyId: user.companyId, active: true, role: { not: "SUPPORT" } },
     select: { id: true, name: true },
     orderBy: { name: "asc" },
   });
 
   // conexões do "dinheiro" (o painel de cobrança/NF-e só aparece se existirem)
-  const [mpConn, blingConn, meConn, company] = await Promise.all([
+  const [mpConn, ipConn, blingConn, meConn, company] = await Promise.all([
     db.mercadoPagoConnection.findUnique({
+      where: { companyId: user.companyId },
+      select: { id: true },
+    }),
+    db.infinitePayConnection.findUnique({
       where: { companyId: user.companyId },
       select: { id: true },
     }),
@@ -89,6 +121,10 @@ export default async function OrderDetailPage({
         Pedidos
       </Link>
 
+      {/* enquanto espera o pagamento (Pix/cartão), a tela vira "Pago" sozinha
+          quando o webhook confirmar — sem refresh na mão */}
+      <StatusLive orderId={order.id} statusInicial={order.status} />
+
       <Card className="p-5 md:p-6 mb-4">
         <div className="flex flex-col sm:flex-row sm:items-start gap-4">
           <div className="flex-1 min-w-0">
@@ -100,10 +136,15 @@ export default async function OrderDetailPage({
                 {orderStatusLabel[order.status]}
               </Badge>
             </div>
-            <p className="text-sm text-gray-500 mt-1">
-              Criado em {dateFull(order.createdAt)} às {timeShort(order.createdAt)}
-              {order.seller ? ` · Vendedor(a): ${order.seller.name}` : ""}
-            </p>
+            {/* data automática no dia a dia; o lápis é o caso à parte do
+                lançamento retroativo (gerente+, auditado em OrderEvent) */}
+            <DataDaVenda
+              orderId={order.id}
+              createdAt={order.createdAt.toISOString()}
+              pago={(PAID_ORDER_STATUSES as readonly string[]).includes(order.status)}
+              sellerName={order.seller?.name ?? null}
+              podeEditar={isManagerUp(user)}
+            />
             <CustomerEditor
               customerId={order.customerId}
               orderId={order.id}
@@ -111,7 +152,8 @@ export default async function OrderDetailPage({
                 name: order.customer.name,
                 phone: order.customer.phone,
                 email: order.customer.email,
-                document: order.customer.document,
+                cpf: order.customer.cpf,
+                cnpj: order.customer.cnpj,
                 zip: order.customer.zip,
                 street: order.customer.street,
                 streetNumber: order.customer.streetNumber,
@@ -126,6 +168,15 @@ export default async function OrderDetailPage({
             />
           </div>
           <div className="flex flex-col gap-2 shrink-0">
+            {/* transferir a venda: só aparece para quem pode (dona do pedido,
+                gerente ou admin) — a regra vale no servidor também */}
+            {podeTransferirVenda(user, order) && (
+              <TransferirVenda
+                orderId={order.id}
+                sellerId={order.sellerId}
+                sellers={sellers}
+              />
+            )}
             <a
               href={`/api/orders/${order.id}/pdf`}
               target="_blank"
@@ -158,16 +209,48 @@ export default async function OrderDetailPage({
           </div>
         </div>
 
-        <div className="mt-5 pt-5 border-t border-gray-50">
+        {/* PEÇAS SEGURADAS: a reserva não tem prazo — some do estoque no
+            orçamento e só volta no cancelamento. Sem este aviso, orçamento
+            esquecido vira peça sumida do estoque sem ninguém entender. */}
+        {order.stockDeducted &&
+          !(PAID_ORDER_STATUSES as readonly string[]).includes(order.status) &&
+          order.status !== "CANCELADO" && (
+            <p className="mt-4 flex items-start gap-2 rounded-xl border border-amber-100 bg-amber-50 px-3 py-2.5 text-xs text-amber-800">
+              <PackageCheck className="mt-0.5 size-4 shrink-0" />
+              <span>
+                <b>
+                  {order.items.reduce((s, i) => s + i.quantity, 0)}{" "}
+                  {order.items.reduce((s, i) => s + i.quantity, 0) === 1 ? "peça" : "peças"}{" "}
+                  reservadas
+                </b>{" "}
+                para esta cliente — elas estão fora do estoque e não têm prazo
+                para voltar. Se a venda não sair, <b>cancele o pedido</b> para
+                liberar.
+              </span>
+            </p>
+          )}
+
+        <div className="mt-5 pt-5 border-t border-gray-50 min-w-0 overflow-hidden">
           <StatusChanger orderId={order.id} current={order.status} />
         </div>
       </Card>
 
       <div className="grid md:grid-cols-3 gap-4">
         {/* Itens */}
-        <Card className="p-5 md:col-span-2">
+        {/* min-w-0: item de grid não encolhe sozinho — sem isso um nome de peça
+            longo (ou a régua de status) faz o cartão passar da largura do
+            celular e a tela inteira anda para o lado */}
+        <Card className="p-5 md:col-span-2 min-w-0">
           <div className="flex items-center justify-between mb-4">
-            <h2 className="font-semibold">Itens do pedido</h2>
+            <h2 className="font-semibold">
+              Itens do pedido
+              {/* quem separa/confere precisa da conta total de peças de cara */}
+              <span className="ml-2 text-xs font-normal text-gray-400">
+                {order.items.length} {order.items.length === 1 ? "item" : "itens"} ·{" "}
+                {order.items.reduce((a, i) => a + i.quantity, 0)}{" "}
+                {order.items.reduce((a, i) => a + i.quantity, 0) === 1 ? "peça" : "peças"}
+              </span>
+            </h2>
             {order.status !== "CANCELADO" && (
               <ItemsEditor
                 orderId={order.id}
@@ -217,33 +300,87 @@ export default async function OrderDetailPage({
           </ul>
           <div className="mt-4 pt-4 border-t border-gray-100 space-y-1.5 text-sm">
             <div className="flex justify-between text-gray-500">
+              <span>Total de peças</span>
+              <span className="tabular-nums">
+                {order.items.reduce((a, i) => a + i.quantity, 0)}
+              </span>
+            </div>
+            <div className="flex justify-between text-gray-500">
               <span>Subtotal</span>
               <span className="tabular-nums">{brl(order.subtotal)}</span>
             </div>
             {order.discount > 0 && (
               <div className="flex justify-between text-rose-500">
-                <span>Desconto</span>
-                <span className="tabular-nums">- {brl(order.discount)}</span>
+                <span>
+                  Desconto
+                  {order.discountPct != null && (
+                    <span className="ml-1 text-xs text-rose-400">
+                      ({String(order.discountPct).replace(".", ",")}%)
+                    </span>
+                  )}
+                </span>
+                <span className="tabular-nums">− {brl(order.discount)}</span>
               </div>
             )}
+            {order.surcharge > 0 && (
+              <div className="flex justify-between text-emerald-600">
+                <span>
+                  Acréscimo
+                  {order.surchargePct != null && (
+                    <span className="ml-1 text-xs text-emerald-500">
+                      ({String(order.surchargePct).replace(".", ",")}%)
+                    </span>
+                  )}
+                </span>
+                <span className="tabular-nums">+ {brl(order.surcharge)}</span>
+              </div>
+            )}
+            {/*
+              DOIS totais, de propósito: o de cima é o que a loja faturou (e a
+              base da comissão); o de baixo é o que a cliente paga. Sem essa
+              separação o frete voltaria a ser confundido com venda.
+            */}
+            <div className="flex justify-between border-t border-gray-100 pt-1.5 font-semibold">
+              <span>Valor vendido</span>
+              <span className="tabular-nums">{brl(order.netTotal)}</span>
+            </div>
             {order.shippingFee > 0 && (
               <div className="flex justify-between text-gray-500">
                 <span>Frete</span>
-                <span className="tabular-nums">{brl(order.shippingFee)}</span>
+                <span className="tabular-nums">+ {brl(order.shippingFee)}</span>
               </div>
             )}
-            <div className="flex justify-between font-semibold text-base pt-1">
-              <span>Total</span>
+            <div className="flex justify-between font-bold text-base pt-1">
+              <span>Total a pagar</span>
               <span className="tabular-nums text-brand-700">
                 {brl(order.total)}
               </span>
             </div>
+            {order.shippingFee > 0 && (
+              <p className="pt-1 text-[11px] leading-snug text-gray-400">
+                O frete não entra no faturamento da loja nem na comissão da vendedora.
+              </p>
+            )}
           </div>
-          {order.notes && (
-            <p className="mt-4 text-xs text-gray-500 bg-amber-50 border border-amber-100 rounded-xl px-3 py-2">
-              {order.notes}
-            </p>
-          )}
+          <ValoresEditor
+            orderId={order.id}
+            subtotal={order.subtotal}
+            discount={order.discount}
+            discountPct={order.discountPct}
+            surcharge={order.surcharge}
+            surchargePct={order.surchargePct}
+            shippingFee={order.shippingFee}
+            podeEditar={user.role !== "SUPPORT"}
+            bloqueado={order.status === "CANCELADO"}
+          />
+          {/* O bilhete do pedido agora é EDITÁVEL: era só leitura, e o aviso
+              que o "Colar pedido do WhatsApp" escreve ("está faltando…")
+              ficava mentindo depois que a loja resolvia a falta. */}
+          <ObservacoesEditor
+            orderId={order.id}
+            notes={order.notes}
+            bloqueado={order.status === "CANCELADO"}
+          />
         </Card>
 
         <div className="space-y-4">
@@ -254,6 +391,7 @@ export default async function OrderDetailPage({
             isPaid={(PAID_ORDER_STATUSES as readonly string[]).includes(order.status)}
             isCancelled={order.status === "CANCELADO"}
             mpConnected={Boolean(mpConn)}
+            ipConnected={Boolean(ipConn)}
             blingConnected={Boolean(blingConn)}
             canNfe={isManagerUp(user)}
             nfe={{ status: order.nfeStatus, number: order.nfeNumber, url: order.nfeUrl }}
@@ -267,6 +405,14 @@ export default async function OrderDetailPage({
               hasZip={(order.customer.zip ?? "").replace(/\D/g, "").length === 8}
               canBuy={isManagerUp(user)}
               isCancelled={order.status === "CANCELADO"}
+              // "você já mandou o link em ..." — sem isso duas pessoas mandam
+              // de novo, porque o "Enviado!" some em 4 segundos
+              jaEnviadoEm={(() => {
+                const ev = order.events.find(
+                  (e) => e.type === "ENVIO" && e.description.startsWith("Link de rastreio enviado")
+                );
+                return ev ? `${dateShort(ev.createdAt)} às ${timeShort(ev.createdAt)}` : null;
+              })()}
               initialShipping={
                 order.shipping
                   ? {
@@ -278,6 +424,7 @@ export default async function OrderDetailPage({
                       labelUrl: order.shipping.labelUrl,
                       trackingCode: order.shipping.trackingCode,
                       weightKg: order.shipping.weightKg,
+                      nfeKey: order.shipping.nfeKey,
                     }
                   : null
               }
@@ -293,7 +440,16 @@ export default async function OrderDetailPage({
             {order.payments.map((p) => (
               <div key={p.id} className="text-sm space-y-1.5">
                 <div className="flex justify-between items-center gap-2">
-                  <PaymentMethodChanger orderId={order.id} current={p.method} />
+                  <div className="flex min-w-0 items-center gap-1.5">
+                    <PaymentMethodChanger orderId={order.id} current={p.method} />
+                    {/* como a cliente pagou de verdade: 6x no cartão vira "6x"
+                        aqui, sem ninguém digitar (vem da confirmação) */}
+                    {p.installments && p.installments > 1 && (
+                      <span className="shrink-0 rounded-full bg-brand-50 px-2 py-0.5 text-[11px] font-semibold text-brand-700">
+                        {p.installments}x
+                      </span>
+                    )}
+                  </div>
                   <span className="font-semibold tabular-nums">
                     {brl(p.amount)}
                   </span>

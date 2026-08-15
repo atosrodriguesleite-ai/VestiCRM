@@ -11,6 +11,7 @@ import {
 } from "@/lib/orders";
 import { Card, PageHeader, Avatar, Badge, EmptyState } from "@/components/ui";
 import { NewOrderButton } from "./new-order";
+import { ImportarMensagemButton } from "./importar-mensagem";
 import { RowStatusMenu } from "./row-status-menu";
 import type { OrderStatus, Prisma } from "@prisma/client";
 
@@ -131,6 +132,7 @@ export default async function OrdersPage({
               <Download className="size-4" />
               CSV
             </a>
+            <ImportarMensagemButton />
             <NewOrderButton />
           </div>
         }
@@ -246,10 +248,27 @@ export default async function OrdersPage({
 
       {orders.length === 0 ? (
         <Card>
+          {/* o texto antigo mandava "monte pelo WhatsApp" — instrução
+              impossível para quem ainda nem conectou. Agora aponta o
+              caminho real: publicar/compartilhar o catálogo. */}
           <EmptyState
             icon={<ShoppingBag />}
-            title={buscando ? "Nenhum pedido com esse código" : "Nenhum pedido aqui"}
-            hint={buscando ? "Confira o número do pedido e tente de novo." : "Monte um pedido direto da conversa do WhatsApp com o botão de sacola."}
+            title={buscando ? "Nenhum pedido com esse código" : "Nenhum pedido ainda"}
+            hint={
+              buscando
+                ? "Confira o número do pedido e tente de novo."
+                : "Os pedidos aparecem aqui quando alguém compra pelo seu catálogo ou quando você monta um na conversa do WhatsApp."
+            }
+            action={
+              buscando ? undefined : (
+                <Link
+                  href="/configuracoes/catalogo"
+                  className="inline-flex items-center gap-1.5 rounded-xl bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium px-4 py-2 transition"
+                >
+                  Ver e compartilhar meu catálogo
+                </Link>
+              )
+            }
           />
         </Card>
       ) : (

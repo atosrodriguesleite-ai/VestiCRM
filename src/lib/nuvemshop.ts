@@ -2,7 +2,12 @@ import crypto from "crypto";
 import { db } from "./db";
 import { encryptSecret, decryptSecret } from "./crypto";
 import { intakeLead, normalizePhone } from "./intake";
+import { round2 } from "./orders";
+import { separarDocumento } from "./documento";
 import { notifySalePaid } from "./push";
+import { winLinkedOpportunity, garantirCartaoDoPedido } from "./opportunity-sync";
+import { comNumeroUnico } from "./numero-do-pedido";
+import { limparDescricaoHtml, temEntidadeHtml } from "./descricao-limpa";
 
 /**
  * Integração Nuvemshop — a loja online é a DONA do estoque e dos produtos;
@@ -69,6 +74,9 @@ async function api<T = unknown>(
         "Content-Type": "application/json",
         "User-Agent": UA,
       },
+      // Nuvemshop travada não pode segurar a função até a Vercel matá-la
+      // (morte sem mensagem — vira "Não foi possível sincronizar" mudo)
+      signal: AbortSignal.timeout(15_000),
       ...(body ? { body: JSON.stringify(body) } : {}),
     });
     const data = (await res.json().catch(() => null)) as T | null;
@@ -159,6 +167,7 @@ type NsVariant = {
   price?: string | number | null;
   stock?: number | null;
   weight?: string | number | null; // kg (a Nuvemshop usa para calcular frete)
+  image_id?: number | string | null; // foto da variação (capa por cor)
   values?: { pt?: string; es?: string; en?: string }[] | MultiLang[];
 };
 type NsProduct = {
@@ -168,9 +177,24 @@ type NsProduct = {
   published?: boolean;
   attributes?: MultiLang[];
   categories?: { name: MultiLang }[];
-  images?: { src: string; position?: number }[];
+  images?: { id?: number | string; src: string; position?: number }[];
   variants?: NsVariant[];
 };
+
+/**
+ * ESTOQUE "INFINITO" DA NUVEMSHOP: lá, `stock: null` significa "a loja não
+ * controla a quantidade" (vende sempre). Nosso estoque é um número — o
+ * espelho entra como 9999, que na prática nunca esgota (o catálogo mostra
+ * disponível e a reserva sempre passa). Antes virava ZERO: o produto
+ * aparecia esgotado aqui e, pior, a primeira venda local empurrava esse
+ * número de volta e DESTRUÍA a configuração "infinito" da loja online
+ * (auditoria 07/08/2026). Por isso `pushStockToNuvemshop` também NUNCA
+ * devolve números na zona do infinito (>= 9000).
+ */
+const ESTOQUE_INFINITO = 9999;
+const ZONA_INFINITO = 9000;
+const estoqueNs = (v: NsVariant) =>
+  v.stock == null ? ESTOQUE_INFINITO : Math.max(0, v.stock);
 
 const num = (v: string | number | null | undefined) => {
   const n = typeof v === "string" ? parseFloat(v) : (v ?? 0);
@@ -203,14 +227,97 @@ function corETamanho(p: NsProduct, v: NsVariant): { color: string; size: string 
   return { color, size };
 }
 
+/**
+ * CAPA POR COR (pedido da Entre Linhas, 03/08/2026): a Nuvemshop sabe qual
+ * foto pertence a cada variação (`variant.image_id`) — a gente jogava essa
+ * informação fora, e o catálogo mostrava a peça preta no card de toda cor.
+ * Aqui vira o mapa foto(src) → cor. Foto usada por variações de CORES
+ * DIFERENTES é ambígua e fica sem etiqueta (melhor capa geral que cor errada).
+ */
+export function coresPorFotoNs(p: NsProduct): Map<string, string> {
+  const porImagem = new Map<string, Set<string>>();
+  for (const v of p.variants ?? []) {
+    if (v.image_id == null) continue;
+    const { color } = corETamanho(p, v);
+    if (!color || color === "Único") continue;
+    const key = String(v.image_id);
+    const set = porImagem.get(key) ?? new Set<string>();
+    set.add(color);
+    porImagem.set(key, set);
+  }
+  const out = new Map<string, string>();
+  for (const img of p.images ?? []) {
+    if (img.id == null) continue;
+    const cores = porImagem.get(String(img.id));
+    if (cores && cores.size === 1) out.set(img.src, [...cores][0]);
+  }
+  return out;
+}
+
+/**
+ * Etiqueta as fotos JÁ importadas do produto local com a cor da Nuvemshop —
+ * só onde ainda não há etiqueta (nunca sobrescreve escolha manual da lojista).
+ * Foto subida à mão (data-URL) não casa com o src da Nuvemshop e fica como está.
+ */
+async function etiquetarFotosPorCor(productId: string, p: NsProduct) {
+  const mapa = coresPorFotoNs(p);
+  if (mapa.size === 0) return; // produto sem vínculo foto→variação: zero consultas
+  // uma leitura só; grava apenas onde falta etiqueta (regime normal: nada a fazer)
+  const semEtiqueta = await db.productImage.findMany({
+    where: { productId, color: null, url: { in: [...mapa.keys()] } },
+    select: { id: true, url: true },
+  });
+  for (const f of semEtiqueta) {
+    const color = mapa.get(f.url);
+    if (color) await db.productImage.update({ where: { id: f.id }, data: { color } });
+  }
+}
+
 // normalização pra comparar nomes/SKUs sem pegadinha de acento/caixa
 export const norm = (s: string | null | undefined) =>
   (s ?? "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").trim();
 // "Baby Look — Branco" → base "Baby Look" (padrão produto-por-cor)
 export const baseNome = (name: string) => name.replace(/\s+[—–-]\s+.+$/, "").trim();
+/**
+ * Duas cores são "a mesma" quando batem ou quando uma contém a outra
+ * ("Off White" ↔ "White"). Serve para não confundir jeito de escrever com cor
+ * diferente — e "Único" (loja sem atributo de cor) nunca conflita com nada.
+ */
+export const mesmaCor = (a: string | null | undefined, b: string | null | undefined) => {
+  const x = norm(a);
+  const y = norm(b);
+  if (!x || !y || x === "unico" || y === "unico") return true;
+  return x === y || x.includes(y) || y.includes(x);
+};
 export const corDoNome = (name: string) => {
   const m = name.match(/\s+[—–-]\s+(.+)$/);
   return m ? m[1].trim() : null;
+};
+
+/**
+ * POOLS DA SINCRONIZAÇÃO — o porquê: `upsertProduct` consultava o catálogo
+ * INTEIRO (todas as variações com SKU + todos os produtos) para CADA produto
+ * da Nuvemshop. Com o catálogo crescendo, a sincronização completa passou de
+ * 60s e a Vercel matava a função no meio ("Não foi possível sincronizar",
+ * sem explicação — incidente Entre Linhas, 03/08/2026). A `syncProducts`
+ * busca os pools UMA vez e repassa; o webhook (um produto só) segue buscando
+ * na hora. Produto espelhado durante a rodada entra no pool em memória —
+ * é o que impede duplicata se a paginação repetir o mesmo produto.
+ */
+const buscarPoolSku = (companyId: string) =>
+  db.productVariant.findMany({
+    where: { product: { companyId }, sku: { not: null } },
+    include: { product: true },
+  });
+const buscarPoolProdutos = (companyId: string) =>
+  db.product.findMany({
+    where: { companyId },
+    // description entra para a regra "nunca sobrescrever texto editado na loja"
+    select: { id: true, name: true, sku: true, nuvemshopId: true, description: true },
+  });
+export type PoolsDeSync = {
+  skuVariants: Awaited<ReturnType<typeof buscarPoolSku>>;
+  allProducts: Awaited<ReturnType<typeof buscarPoolProdutos>>;
 };
 
 export type SyncPendencia = {
@@ -241,13 +348,15 @@ export type SyncReport = {
 export async function upsertProduct(
   companyId: string,
   p: NsProduct,
-  report?: SyncReport
+  report?: SyncReport,
+  pools?: PoolsDeSync
 ) {
   const nsId = String(p.id);
   const nsName = texto(p.name).trim() || `Produto ${nsId}`;
   const variants = p.variants ?? [];
 
-  // pools de candidatos locais
+  // pools de candidatos locais (a sync completa passa os seus, buscados uma
+  // vez — refazer estas consultas por produto era o que estourava os 60s)
   const [linkedVariants, skuVariants, allProducts] = await Promise.all([
     db.productVariant.findMany({
       where: {
@@ -259,16 +368,25 @@ export async function upsertProduct(
       },
       include: { product: true },
     }),
-    db.productVariant.findMany({
-      where: { product: { companyId }, sku: { not: null } },
-      include: { product: true },
-    }),
-    db.product.findMany({
-      where: { companyId },
-      select: { id: true, name: true, sku: true, nuvemshopId: true },
-    }),
+    pools ? pools.skuVariants : buscarPoolSku(companyId),
+    pools ? pools.allProducts : buscarPoolProdutos(companyId),
   ]);
-  const skuMap = new Map(skuVariants.map((v) => [norm(v.sku), v]));
+  // SKU DUPLICADO NÃO CASA SOZINHO (incidente Toque Leve, 30/07/2026): com
+  // duas variações locais usando o MESMO SKU, o mapa ficava com uma delas e o
+  // casamento apontava para o produto errado em silêncio — foi assim que a
+  // cor "Café" entrou dentro do produto Branco. SKU repetido é ambíguo: sai
+  // do casamento automático e a variação vira pendência para a lojista
+  // resolver. Vínculo já feito (nuvemshopId) continua valendo normalmente.
+  const vezesPorSku = new Map<string, number>();
+  for (const v of skuVariants) {
+    const chave = norm(v.sku);
+    vezesPorSku.set(chave, (vezesPorSku.get(chave) ?? 0) + 1);
+  }
+  const skuMap = new Map(
+    skuVariants
+      .filter((v) => vezesPorSku.get(norm(v.sku)) === 1)
+      .map((v) => [norm(v.sku), v])
+  );
   // vínculo 1↔1 apenas quando JÁ existe ligação explícita (nuvemshopId)
   const um2um = allProducts.find((x) => x.nuvemshopId === nsId) ?? null;
 
@@ -323,7 +441,7 @@ export async function upsertProduct(
   for (const v of variants) {
     const vId = String(v.id);
     const { color, size } = corETamanho(p, v);
-    const stock = Math.max(0, v.stock ?? 0);
+    const stock = estoqueNs(v);
     const preco = num(v.price);
 
     // só casa por vínculo anterior OU por SKU (nunca por nome/cor)
@@ -335,6 +453,26 @@ export async function upsertProduct(
     // Variação NOVA (com SKU) num produto JÁ vinculado: entra sozinha no
     // produto certo. Se a cor+tamanho já existir nele, vincula; senão, cria.
     if (!alvo && v.sku && targetProductId) {
+      // TRAVA DA COR (incidente Toque Leve, 30/07/2026): num catálogo
+      // produto-por-cor ("Baby Look — Branco"), criar aqui uma variação de
+      // OUTRA cor mistura duas peças numa só — soma o estoque das duas e faz o
+      // catálogo mostrar um card a mais com a foto errada. Foi o que aconteceu
+      // quando a cor nova "Café" entrou dentro do produto Branco (o SKU estava
+      // duplicado e apontou pra lá). Cor nova em produto que declara cor no
+      // nome NUNCA é criada: vira pendência pra lojista criar o produto certo.
+      const nomeAlvo = allProducts.find((x) => x.id === targetProductId)?.name ?? "";
+      const corDoProduto = corDoNome(nomeAlvo);
+      if (corDoProduto && !mesmaCor(color, corDoProduto)) {
+        if (report) {
+          report.pendencias.push({
+            produtoNs: `${nsName} (cor “${color}” não pertence a “${nomeAlvo}”)`,
+            cor: color,
+            tamanho: size,
+            sku: v.sku ?? null,
+          });
+        }
+        continue;
+      }
       const existente = targetByCorTam.get(`${norm(color)}|${norm(size)}`);
       if (existente) {
         alvo = existente;
@@ -351,7 +489,8 @@ export async function upsertProduct(
           },
           include: { product: true },
         });
-        if (stock > 0) {
+        // estoque "infinito" não vira movimento: 9999 é espelho, não contagem
+        if (stock > 0 && v.stock != null) {
           await db.inventoryMovement.create({
             data: {
               companyId,
@@ -385,8 +524,10 @@ export async function upsertProduct(
         ...(v.sku && !alvo.sku ? { sku: v.sku } : {}),
       },
     });
-    // registra o movimento — auditável e reversível (nunca sobrescreve sem rastro)
-    if (antes !== stock) {
+    // registra o movimento — auditável e reversível (nunca sobrescreve sem
+    // rastro). Estoque "infinito" fica de fora: o repor 9996 → 9999 de cada
+    // sync viraria ruído sem significado no histórico.
+    if (antes !== stock && v.stock != null) {
       await db.inventoryMovement.create({
         data: {
           companyId,
@@ -419,30 +560,48 @@ export async function upsertProduct(
 
   // modo 1↔1: mantém também os dados do produto sincronizados
   if (um2um) {
+    // DESCRIÇÃO — mesma regra do peso: o sync NUNCA sobrescreve texto
+    // editado na loja. Antes ele reescrevia a cada rodada, e a lojista via a
+    // edição "sumir e voltar" minutos depois (relato da Entre Linhas,
+    // 06/08/2026). Só dois casos escrevem:
+    //  • descrição local VAZIA → entra a da Nuvemshop, já limpa;
+    //  • descrição local com "computês" (&ccedil; etc., gravado pelo sync
+    //    antigo) → é limpa NO LUGAR, sem trocar o conteúdo.
+    const descricaoLocal = um2um.description ?? "";
+    const novaDescricao = !descricaoLocal.trim()
+      ? limparDescricaoHtml(texto(p.description)) || undefined
+      : temEntidadeHtml(descricaoLocal)
+        ? limparDescricaoHtml(descricaoLocal)
+        : undefined;
     await db.product.update({
       where: { id: um2um.id },
       data: {
         nuvemshopId: nsId,
         active: p.published !== false,
-        ...(texto(p.description)
-          ? {
-              description: texto(p.description)
-                .replace(/<[^>]+>/g, " ")
-                .replace(/\s+/g, " ")
-                .trim(),
-            }
-          : {}),
+        ...(novaDescricao !== undefined ? { description: novaDescricao } : {}),
       },
     });
     const fotoCount = await db.productImage.count({ where: { productId: um2um.id } });
     if (fotoCount === 0 && p.images?.length) {
+      const corDaFoto = coresPorFotoNs(p);
       await db.productImage.createMany({
         data: [...p.images]
           .sort((a, b) => (a.position ?? 0) - (b.position ?? 0))
           .slice(0, 10)
-          .map((img, i) => ({ productId: um2um.id, url: img.src, order: i })),
+          .map((img, i) => ({
+            productId: um2um.id,
+            url: img.src,
+            order: i,
+            color: corDaFoto.get(img.src) ?? null,
+          })),
       });
     }
+    // capa por cor: etiqueta as fotos já importadas (só onde falta etiqueta)
+    await etiquetarFotosPorCor(um2um.id, p);
+  } else if (targetProductId) {
+    // produto casado por SKU/vínculo: fotos importadas da Nuvemshop também
+    // ganham a etiqueta de cor (upload manual não casa por URL e fica intacto)
+    await etiquetarFotosPorCor(targetProductId, p);
   }
   return null;
 }
@@ -452,7 +611,9 @@ async function criarProdutoEspelhado(companyId: string, p: NsProduct) {
   const nsId = String(p.id);
   const name = texto(p.name).trim() || `Produto ${nsId}`;
   const category = texto(p.categories?.[0]?.name).trim() || "Loja online";
-  const description = texto(p.description).replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim() || null;
+  // limpa também os códigos HTML (&ccedil; → ç) — só tirar as tags deixava
+  // "Especifica&ccedil;&otilde;es" na cara da cliente final
+  const description = limparDescricaoHtml(texto(p.description)) || null;
   const variants = p.variants ?? [];
   const retail = num(variants[0]?.price);
   const skuBase = (variants.find((v) => v.sku)?.sku ?? "").trim();
@@ -475,14 +636,21 @@ async function criarProdutoEspelhado(companyId: string, p: NsProduct) {
     include: { variants: true },
   });
 
-  // fotos: só completa quando o produto ainda não tem (nunca sobrescreve)
+  // fotos: só completa quando o produto ainda não tem (nunca sobrescreve).
+  // Já nascem com a etiqueta de cor da Nuvemshop (capa por cor no catálogo).
   const fotoCount = await db.productImage.count({ where: { productId: product.id } });
   if (fotoCount === 0 && p.images?.length) {
+    const corDaFoto = coresPorFotoNs(p);
     await db.productImage.createMany({
       data: [...p.images]
         .sort((a, b) => (a.position ?? 0) - (b.position ?? 0))
         .slice(0, 10)
-        .map((img, i) => ({ productId: product.id, url: img.src, order: i })),
+        .map((img, i) => ({
+          productId: product.id,
+          url: img.src,
+          order: i,
+          color: corDaFoto.get(img.src) ?? null,
+        })),
     });
   }
 
@@ -491,7 +659,7 @@ async function criarProdutoEspelhado(companyId: string, p: NsProduct) {
     if (!(v.sku ?? "").trim()) continue;
     const vId = String(v.id);
     const { color, size } = corETamanho(p, v);
-    const stock = Math.max(0, v.stock ?? 0);
+    const stock = estoqueNs(v);
     const created = await db.productVariant.create({
       data: {
         productId: product.id,
@@ -503,8 +671,8 @@ async function criarProdutoEspelhado(companyId: string, p: NsProduct) {
         stock,
       },
     });
-    // registra a entrada no histórico (auditável)
-    if (stock > 0) {
+    // registra a entrada no histórico (auditável) — infinito fica de fora
+    if (stock > 0 && v.stock != null) {
       await db.inventoryMovement.create({
         data: {
           companyId,
@@ -524,15 +692,38 @@ async function criarProdutoEspelhado(companyId: string, p: NsProduct) {
  *  de ajuste manual (SKU da variação ou nome de cor/tamanho). */
 export async function syncProducts(companyId: string) {
   const conn = await loadConn(companyId);
-  if (!conn) return { ok: false as const, produtos: 0, report: null };
+  if (!conn) return { ok: false as const, produtos: 0, report: null, status: -1 };
   const report: SyncReport = { casadas: 0, criadas: 0, pendencias: [] };
+  // catálogo local lido UMA vez para a rodada inteira (antes era por produto
+  // — com o catálogo grande, estourava os 60s e a Vercel matava a função)
+  const pools: PoolsDeSync = {
+    skuVariants: await buscarPoolSku(companyId),
+    allProducts: await buscarPoolProdutos(companyId),
+  };
   let page = 1;
   let total = 0;
   for (; page <= 50; page++) {
     const res = await api<NsProduct[]>(conn, "GET", `/products?per_page=50&page=${page}`);
+    // A PRIMEIRA página falhando não é "sincronizou zero": é a Nuvemshop
+    // recusando a conversa (autorização vencida, limite, fora do ar). Antes
+    // isso saía como sucesso com 0 produtos e ninguém entendia nada.
+    if (!res.ok && page === 1) {
+      return { ok: false as const, produtos: 0, report: null, status: res.status };
+    }
     if (!res.ok || !res.data?.length) break;
     for (const p of res.data) {
-      await upsertProduct(companyId, p, report);
+      const criado = await upsertProduct(companyId, p, report, pools);
+      // espelhado nesta rodada entra no pool: paginação que repetir o mesmo
+      // produto encontra o vínculo em vez de criar duplicata
+      if (criado) {
+        pools.allProducts.push({
+          id: criado.id,
+          name: criado.name,
+          sku: criado.sku,
+          nuvemshopId: criado.nuvemshopId,
+          description: criado.description,
+        });
+      }
       total++;
     }
     if (res.data.length < 50) break;
@@ -549,7 +740,143 @@ export async function syncProducts(companyId: string) {
       }),
     },
   });
-  return { ok: true as const, produtos: total, report };
+  return { ok: true as const, produtos: total, report, status: 200 };
+}
+
+/**
+ * SINCRONIZAÇÃO EM ETAPAS — incidente Entre Linhas (03/08/2026): a rodada
+ * completa numa requisição só morria no limite de 60s da Vercel, sem
+ * mensagem. Aqui cada chamada processa UMA página (50 produtos) e devolve se
+ * acabou — a tela chama a próxima etapa e mostra o progresso. Não existe
+ * catálogo grande o bastante para estourar: o tempo é sempre o de 50
+ * produtos. O relatório vai sendo somado no banco a cada etapa (a etapa 1
+ * zera), então "Conferir integração" continua contando a história inteira.
+ */
+export async function syncPaginaDeProdutos(companyId: string, page: number) {
+  const conn = await loadConn(companyId);
+  if (!conn) return { ok: false as const, produtos: 0, fim: true, status: -1 };
+  const report: SyncReport = { casadas: 0, criadas: 0, pendencias: [] };
+  const pools: PoolsDeSync = {
+    skuVariants: await buscarPoolSku(companyId),
+    allProducts: await buscarPoolProdutos(companyId),
+  };
+  // 25 por etapa: margem folgada mesmo com banco/Nuvemshop num dia lento
+  const POR_ETAPA = 25;
+  const res = await api<NsProduct[]>(
+    conn,
+    "GET",
+    `/products?per_page=${POR_ETAPA}&page=${page}`
+  );
+  if (!res.ok && page === 1) {
+    return { ok: false as const, produtos: 0, fim: true, status: res.status };
+  }
+  const lista = res.ok ? (res.data ?? []) : [];
+  for (const p of lista) {
+    const criado = await upsertProduct(companyId, p, report, pools);
+    if (criado) {
+      pools.allProducts.push({
+        id: criado.id,
+        name: criado.name,
+        sku: criado.sku,
+        nuvemshopId: criado.nuvemshopId,
+        description: criado.description,
+      });
+    }
+  }
+  const fim = lista.length < POR_ETAPA || page >= 100;
+
+  // soma o parcial desta etapa no relatório guardado (etapa 1 recomeça)
+  const conexao = await db.nuvemshopConnection.findUnique({
+    where: { companyId },
+    select: { lastSyncReport: true },
+  });
+  let anterior = { casadas: 0, criadas: 0, pendencias: [] as SyncPendencia[] };
+  if (page > 1 && conexao?.lastSyncReport) {
+    try {
+      const j = JSON.parse(conexao.lastSyncReport);
+      anterior = {
+        casadas: j.casadas ?? 0,
+        criadas: j.criadas ?? 0,
+        pendencias: Array.isArray(j.pendencias) ? j.pendencias : [],
+      };
+    } catch {
+      // relatório antigo ilegível: recomeça do zero
+    }
+  }
+  const somado = {
+    at: new Date().toISOString(),
+    casadas: anterior.casadas + report.casadas,
+    criadas: anterior.criadas + report.criadas,
+    pendencias: [...anterior.pendencias, ...report.pendencias].slice(0, 100),
+  };
+  await db.nuvemshopConnection.update({
+    where: { companyId },
+    data: {
+      lastSyncReport: JSON.stringify(somado),
+      ...(fim ? { lastProductSync: new Date() } : {}),
+    },
+  });
+
+  return {
+    ok: true as const,
+    produtos: lista.length,
+    fim,
+    proximaPagina: page + 1,
+    status: 200,
+  };
+}
+
+/**
+ * Variação como ela está NA NUVEMSHOP, achatada (produto + cor + tamanho +
+ * SKU + estoque). Serve para CONFERIR o vínculo sem alterar nada — é a foto
+ * do outro lado, para comparar com a nossa.
+ */
+export type VariacaoNs = {
+  varId: string;
+  prodId: string;
+  produto: string;
+  cor: string;
+  tamanho: string;
+  sku: string | null;
+  estoque: number;
+};
+
+/**
+ * Lê TODAS as variações da Nuvemshop (paginado), sem escrever uma linha no
+ * banco. É o insumo da conferência de integração.
+ */
+export async function lerVariacoesNuvemshop(companyId: string) {
+  const conn = await loadConn(companyId);
+  if (!conn) return { ok: false as const, status: -1, variacoes: [] as VariacaoNs[], produtos: 0 };
+  const variacoes: VariacaoNs[] = [];
+  let produtos = 0;
+  for (let page = 1; page <= 50; page++) {
+    const res = await api<NsProduct[]>(conn, "GET", `/products?per_page=50&page=${page}`);
+    if (!res.ok && page === 1) {
+      return { ok: false as const, status: res.status, variacoes: [], produtos: 0 };
+    }
+    if (!res.ok || !res.data?.length) break;
+    for (const p of res.data) {
+      produtos++;
+      const nome = texto(p.name).trim() || `Produto ${p.id}`;
+      for (const v of p.variants ?? []) {
+        const { color, size } = corETamanho(p, v);
+        variacoes.push({
+          varId: String(v.id),
+          prodId: String(p.id),
+          produto: nome,
+          cor: color,
+          tamanho: size,
+          sku: (v.sku ?? "").trim() || null,
+          // mesma régua do espelho: "infinito" (null) compara como 9999 —
+          // senão a conferência acusava divergência falsa (9999 × 0)
+          estoque: estoqueNs(v),
+        });
+      }
+    }
+    if (res.data.length < 50) break;
+  }
+  return { ok: true as const, status: 200, variacoes, produtos };
 }
 
 // ---- Vendas ----------------------------------------------------------------
@@ -559,6 +886,7 @@ type NsOrder = {
   number?: number;
   total?: string | number;
   subtotal?: string | number;
+  shipping_cost_customer?: string | number; // frete que a cliente pagou
   payment_status?: string;
   status?: string;
   contact_name?: string;
@@ -633,9 +961,15 @@ export async function ingestPaidOrder(companyId: string, nsOrderId: string) {
     where: { id: customerId },
     data: {
       ...(email && !atual?.email ? { email } : {}),
-      ...(o.customer?.identification && !atual?.document
-        ? { document: o.customer.identification }
-        : {}),
+      // a Nuvemshop manda UM campo "identification": 14 dígitos é CNPJ, 11 é
+      // CPF — cada um vai para a sua coluna, sem apagar o que já existe
+      ...(() => {
+        const d = separarDocumento(o.customer?.identification);
+        return {
+          ...(d.cpf && !atual?.cpf ? { cpf: d.cpf } : {}),
+          ...(d.cnpj && !atual?.cnpj ? { cnpj: d.cnpj } : {}),
+        };
+      })(),
       ...(end.zipcode && !atual?.zip ? { zip: end.zipcode } : {}),
       ...(end.address && !atual?.street ? { street: end.address } : {}),
       ...(end.number && !atual?.streetNumber ? { streetNumber: end.number } : {}),
@@ -673,23 +1007,47 @@ export async function ingestPaidOrder(companyId: string, nsOrderId: string) {
       unitPrice: num(it.price),
     });
   }
-  const subtotal = lines.reduce((a, l) => a + l.quantity * l.unitPrice, 0);
-  const total = num(o.total) || subtotal;
+  // round2: soma de floats deixa centavo fantasma — o pedido espelhado tem
+  // que bater com o valor da Nuvemshop
+  const subtotal = round2(lines.reduce((a, l) => a + l.quantity * l.unitPrice, 0));
+  const total = round2(num(o.total)) || subtotal;
+  // O total da Nuvemshop já vem COM frete. Separando os dois, o faturamento
+  // aqui soma só a mercadoria — igual aos pedidos montados no sistema.
+  const shippingFee = round2(Math.max(num(o.shipping_cost_customer), 0));
+  const netTotal = round2(Math.max(total - shippingFee, 0));
 
-  const last = await db.order.findFirst({
-    where: { companyId },
-    orderBy: { number: "desc" },
-    select: { number: true },
+  // A VENDA ONLINE FECHA O CARTÃO DO FUNIL.
+  //
+  // A cliente abandona o carrinho → nasce a oportunidade "🛒 Carrinho
+  // abandonado". Depois ela volta e COMPRA. Como o pedido nascia sem vínculo,
+  // o cartão continuava aberto e a vendedora ia cobrar quem já tinha pagado.
+  // Mesma regra do pedido montado no sistema: negociação aberta mais recente
+  // da cliente que ainda não tem pedido (o vínculo é 1-para-1).
+  const negociacaoAberta = await db.opportunity.findFirst({
+    where: { companyId, customerId, status: "OPEN", order: null },
+    orderBy: { createdAt: "desc" },
+    select: { id: true },
   });
-  const order = await db.order.create({
+  // comNumeroUnico: a venda online chega junto com pedido do painel/catálogo
+  // e disputa o mesmo número — quem perde a corrida lê de novo e insiste
+  const order = await comNumeroUnico(async () => {
+    const last = await db.order.findFirst({
+      where: { companyId },
+      orderBy: { number: "desc" },
+      select: { number: true },
+    });
+    return db.order.create({
     data: {
       companyId,
       number: (last?.number ?? 0) + 1,
       customerId,
+      opportunityId: negociacaoAberta?.id ?? null,
       status: "PAGO",
       source: "NUVEMSHOP",
       nuvemshopId: nsId,
       subtotal,
+      shippingFee,
+      netTotal,
       total,
       // já nasce pago: a data do dinheiro é agora (é ela que conta no mês)
       paidAt: new Date(),
@@ -707,10 +1065,11 @@ export async function ingestPaidOrder(companyId: string, nsOrderId: string) {
           size: l.size,
           quantity: l.quantity,
           unitPrice: l.unitPrice,
-          total: l.quantity * l.unitPrice,
+          total: round2(l.quantity * l.unitPrice),
         })),
       },
     },
+    });
   });
   await db.customerEvent.create({
     data: {
@@ -727,6 +1086,16 @@ export async function ingestPaidOrder(companyId: string, nsOrderId: string) {
     where: { id: customerId },
     data: { lastPurchaseAt: new Date(), lastContactAt: new Date() },
   });
+
+  // O pedido já nasce PAGO (não passa pela transição de status), então o
+  // fechamento do cartão precisa ser chamado aqui — igual faz o Pix em
+  // `settle-order`. Venda da loja online sem negociação no funil ganha o
+  // cartão FECHADO na hora. Nunca derruba a ingestão: engole os próprios erros.
+  if (order.opportunityId) {
+    await winLinkedOpportunity(companyId, order.opportunityId);
+  } else {
+    await garantirCartaoDoPedido(companyId, order.id);
+  }
 
   // espelha o estoque atual dos produtos vendidos (a baixa aconteceu lá)
   for (const pid of [...new Set((o.products ?? []).map((i) => String(i.product_id)))]) {
@@ -906,6 +1275,10 @@ export async function pushStockToNuvemshop(companyId: string, variantIds: string
     // modo produto-por-cor guarda o id do produto NS na própria variação
     const nsProductId = v.nuvemshopProductId ?? v.product.nuvemshopId;
     if (!nsProductId) continue;
+    // espelho de estoque "infinito" (stock null na Nuvemshop): NÃO devolve —
+    // empurrar 9996 para lá transformaria o "vende sempre" da loja num
+    // número finito. Infinito nunca esgota; não há o que espelhar.
+    if (v.stock >= ZONA_INFINITO) continue;
     await api(conn, "PUT", `/products/${nsProductId}/variants/${v.nuvemshopId}`, {
       stock: v.stock,
     });

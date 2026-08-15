@@ -297,6 +297,40 @@ h3 {
   background-clip: padding-box;
 }
 
+/* Barra de categorias do catálogo público: no CELULAR rola pelo dedo (sem
+   barra, visual limpo); no COMPUTADOR a barrinha aparece — é onde a lojista
+   arrasta com o mouse (pedido da Entre Linhas, 03/08/2026: "a barra sumiu"). */
+.cat-scroll {
+  -ms-overflow-style: none;
+}
+@media (pointer: coarse) {
+  .cat-scroll {
+    scrollbar-width: none;
+  }
+  .cat-scroll::-webkit-scrollbar {
+    display: none;
+  }
+}
+@media (pointer: fine) {
+  /* SEM `scrollbar-width` aqui de propósito: quando ela existe, o Chrome
+     ignora as regras ::-webkit-* e desenha a barra flutuante que some —
+     estilizar o ::-webkit-scrollbar é o que garante a barra SEMPRE visível */
+  .cat-scroll::-webkit-scrollbar {
+    display: block;
+    height: 8px;
+  }
+  .cat-scroll::-webkit-scrollbar-thumb {
+    background: #d8cbb8;
+    border-radius: 4px;
+  }
+  .cat-scroll::-webkit-scrollbar-thumb:hover {
+    background: #bfae95;
+  }
+  .cat-scroll::-webkit-scrollbar-track {
+    background: transparent;
+  }
+}
+
 /* Sem barra de rolagem (carrossel de fotos: desliza pelo gesto) */
 .no-scrollbar {
   scrollbar-width: none;

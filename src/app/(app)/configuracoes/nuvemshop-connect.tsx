@@ -9,9 +9,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   CheckCircle2,
+  Copy,
   FlaskConical,
   Loader2,
   History,
+  Stethoscope,
   Power,
   RefreshCw,
   RotateCcw,
@@ -21,6 +23,7 @@ import {
 } from "lucide-react";
 import { Card } from "@/components/ui";
 import { Portal } from "@/components/portal";
+import { copiarTexto } from "@/lib/copiar";
 
 type Pendencia = { produtoNs: string; cor: string; tamanho: string; sku: string | null };
 type Simulacao = {
@@ -43,12 +46,33 @@ type Estado = {
 
 type RestoreRow = { variantId: string; product: string; color: string; size: string; current: number; proposed: number };
 
+type Achado = {
+  tipo: string;
+  gravidade: "ALTA" | "MEDIA";
+  peca: string;
+  detalhe: string;
+  estoqueAqui?: number;
+  estoqueLa?: number;
+};
+type Conferencia = {
+  produtosNs: number;
+  variacoesNs: number;
+  variacoesAqui: number;
+  vinculadas: number;
+  semSku: number;
+  resumo: { tipo: string; nome: string; quantos: number }[];
+  achados: Achado[];
+  total: number;
+};
+
 export function NuvemshopConnect() {
   const [estado, setEstado] = useState<Estado | null>(null);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
   const [restore, setRestore] = useState<{ rows: RestoreRow[]; incertas: number } | null>(null);
   const [restoreBusy, setRestoreBusy] = useState(false);
+  const [conf, setConf] = useState<Conferencia | null>(null);
+  const [confBusy, setConfBusy] = useState(false);
 
   const carregar = useCallback(async () => {
     const res = await fetch("/api/nuvemshop");
@@ -66,13 +90,53 @@ export function NuvemshopConnect() {
   async function sincronizar() {
     setBusy(true);
     setMsg("");
-    const res = await fetch("/api/nuvemshop/sync", { method: "POST" });
-    const d = await res.json().catch(() => ({}));
+    // EM ETAPAS: cada chamada processa 50 produtos e devolve se acabou.
+    // Era numa tacada só, e catálogo grande estourava o tempo do servidor —
+    // a sincronização morria no meio sem mensagem (incidente Entre Linhas).
+    const falhou = (d: { error?: string }) => {
+      setMsg(
+        d.error ??
+          // resposta sem explicação = o servidor foi interrompido no meio
+          "A sincronização foi interrompida no meio. Clique de novo — ela é segura de repetir. Se acontecer sempre, avise o suporte."
+      );
+      setBusy(false);
+    };
+
+    let page = 1;
+    let total = 0;
+    for (; page <= 200; page++) {
+      setMsg(
+        page === 1
+          ? "Sincronizando…"
+          : `Sincronizando… ${total} produtos conferidos até aqui`
+      );
+      const res = await fetch("/api/nuvemshop/sync", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ page }),
+      });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) return falhou(d);
+      total += d.produtos ?? 0;
+      if (d.fim) break;
+    }
+
+    // carrinhos abandonados em etapa PRÓPRIA: importar carrinho cria
+    // cliente/conversa — junto com os produtos já derrubou a rodada
+    setMsg(`Produtos ok (${total}). Conferindo carrinhos abandonados…`);
+    const resC = await fetch("/api/nuvemshop/sync", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ carrinhos: true }),
+    });
+    const dC = await resC.json().catch(() => ({}));
+    if (!resC.ok) return falhou(dC);
+
+    setMsg(
+      `Sincronizado: ${total} produtos conferidos, ${dC.carrinhosNovos ?? 0} carrinho(s) abandonado(s) novo(s).`
+    );
     setBusy(false);
-    if (res.ok) {
-      setMsg(`Sincronizado: ${d.produtos} produtos conferidos, ${d.carrinhosNovos} carrinho(s) abandonado(s) novo(s).`);
-      carregar();
-    } else setMsg(d.error ?? "Não foi possível sincronizar.");
+    carregar();
   }
 
   async function desconectar() {
@@ -103,6 +167,22 @@ export function NuvemshopConnect() {
       );
       carregar();
     } else setMsg(d.error ?? "Não foi possível desfazer.");
+  }
+
+  /**
+   * Conferência do vínculo: SÓ LEITURA. "Sincronizou" não é o mesmo que
+   * "está certo" — o sync pode dizer 0 pendências e ainda assim ter uma cor
+   * morando no produto errado (foi o que houve com o SKU duplicado).
+   */
+  async function conferir() {
+    setConfBusy(true);
+    setMsg("");
+    setConf(null);
+    const res = await fetch("/api/nuvemshop/conferir");
+    const d = await res.json().catch(() => null);
+    setConfBusy(false);
+    if (res.ok && d) setConf(d);
+    else setMsg(d?.error ?? "Não foi possível conferir a integração.");
   }
 
   async function abrirRestore() {
@@ -181,6 +261,15 @@ export function NuvemshopConnect() {
               Sincronizar agora
             </button>
             <button
+              onClick={conferir}
+              disabled={busy || confBusy}
+              title="Compara peça por peça os dois lados e mostra o que está torto. Não altera nada."
+              className="inline-flex items-center gap-1.5 rounded-xl border border-gray-200 hover:border-brand-300 text-gray-600 text-xs font-medium px-3 py-2 transition disabled:opacity-50"
+            >
+              {confBusy ? <Loader2 className="size-3.5 animate-spin" /> : <Stethoscope className="size-3.5" />}
+              Conferir integração
+            </button>
+            <button
               onClick={abrirRestore}
               disabled={busy || restoreBusy}
               title="Recupera o estoque de antes da importação, a partir do histórico (mostra uma prévia antes)"
@@ -231,6 +320,8 @@ export function NuvemshopConnect() {
           rodape="Como resolver: em Produtos, use o botão SKUs (ou abra a peça) e preencha o SKU da variação com o SKU mostrado acima — ou deixe os nomes de cor/tamanho iguais nos dois lados. Depois toque em Sincronizar agora."
         />
       )}
+
+      {conf && <ResultadoConferencia conf={conf} onFechar={() => setConf(null)} />}
 
       <SimuladorPreConexao />
 
@@ -311,6 +402,151 @@ export function NuvemshopConnect() {
         </Portal>
       )}
     </Card>
+  );
+}
+
+/** Como explicar cada achado para quem não é técnico. */
+const COMO_RESOLVER: Record<string, string> = {
+  COR_FORA_DO_PRODUTO:
+    "Crie o produto dessa cor em Produtos e mova as variações para ele (ou apague a cor errada aqui e sincronize de novo).",
+  CARIMBO_CRUZADO:
+    "O vínculo velho está na frente do SKU novo. Em Produtos, confira o SKU da variação e sincronize de novo.",
+  CARIMBO_ORFAO: "A peça foi apagada na Nuvemshop. Confira se ainda deve existir aqui.",
+  SKU_DUPLICADO_AQUI: "Deixe cada variação com um SKU único em Produtos.",
+  SKU_DUPLICADO_LA: "Corrija o SKU repetido na Nuvemshop e sincronize de novo.",
+  BRIGA_DE_SYNC:
+    "Confira o estoque dessa peça. O histórico dela (em Produtos) mostra o que cada sincronização fez.",
+  ESTOQUE_DIFERENTE: "Sincronize e veja se iguala. Se não igualar, o vínculo pode estar errado.",
+};
+
+/**
+ * Resultado da conferência do vínculo. É a resposta para "está tudo certo?",
+ * que o relatório do sync não dá: ele conta o que casou, não se casou CERTO.
+ */
+function ResultadoConferencia({
+  conf,
+  onFechar,
+}: {
+  conf: Conferencia;
+  onFechar: () => void;
+}) {
+  const graves = conf.achados.filter((a) => a.gravidade === "ALTA").length;
+  const limpo = conf.achados.length === 0;
+  const [copiado, setCopiado] = useState(false);
+
+  /** Leva a lista inteira para o WhatsApp/e-mail — dá pra trabalhar fora da tela. */
+  async function copiarLista() {
+    const texto = [
+      `Conferência da integração Nuvemshop — ${conf.total} ponto(s)`,
+      `Na Nuvemshop: ${conf.produtosNs} produtos / ${conf.variacoesNs} variações · Aqui: ${conf.variacoesAqui} variações`,
+      "",
+      ...conf.resumo.map((r, i) => `${i + 1}. ${r.quantos}× ${r.nome}`),
+      "",
+      ...conf.achados.map(
+        (a) =>
+          `[${a.gravidade}] ${a.peca}${a.estoqueAqui !== undefined ? ` (aqui ${a.estoqueAqui}${a.estoqueLa !== undefined ? ` / lá ${a.estoqueLa}` : ""})` : ""}\n${a.detalhe}`
+      ),
+    ].join("\n");
+    setCopiado(await copiarTexto(texto));
+    setTimeout(() => setCopiado(false), 2500);
+  }
+  return (
+    <div
+      className={`mt-3 rounded-xl border p-3 ${
+        limpo ? "border-emerald-200 bg-emerald-50/70" : "border-rose-200 bg-rose-50/70"
+      }`}
+    >
+      <div className="flex items-start justify-between gap-2">
+        <p className={`text-sm font-bold ${limpo ? "text-emerald-800" : "text-rose-800"}`}>
+          {limpo
+            ? "✅ Integração conferida: tudo casando certo"
+            : `⚠️ ${conf.total} ponto(s) para olhar${graves ? ` · ${graves} importante(s)` : ""}`}
+        </p>
+        <button
+          onClick={onFechar}
+          className="text-gray-400 hover:text-gray-600 shrink-0"
+          aria-label="Fechar conferência"
+        >
+          <X className="size-4" />
+        </button>
+      </div>
+      <p className="text-[11px] text-gray-600 mt-1 leading-snug">
+        Na Nuvemshop: <b>{conf.produtosNs}</b> produtos / <b>{conf.variacoesNs}</b> variações ·
+        Aqui: <b>{conf.variacoesAqui}</b> variações (<b>{conf.vinculadas}</b> vinculadas
+        {conf.semSku > 0 && <>, <b>{conf.semSku}</b> sem SKU</>})
+      </p>
+
+      {/* Resumo por tipo: 60 linhas soltas assustam, a lista de tarefas não.
+          A ordem aqui é a ordem de consertar. */}
+      {!limpo && conf.resumo?.length > 0 && (
+        <div className="mt-2 rounded-lg bg-white/70 border border-gray-100 p-2.5">
+          <p className="text-[11px] font-bold text-gray-700 mb-1.5">
+            Resolva nesta ordem 👇
+          </p>
+          <ol className="space-y-1">
+            {conf.resumo.map((r, i) => (
+              <li key={r.tipo} className="text-xs text-gray-700 flex gap-1.5">
+                <span className="text-gray-400 shrink-0">{i + 1}.</span>
+                <span>
+                  <b>{r.quantos}×</b> {r.nome}
+                </span>
+              </li>
+            ))}
+          </ol>
+        </div>
+      )}
+
+      {!limpo && (
+        <ul className="mt-2 space-y-2 max-h-72 overflow-y-auto thin-scroll">
+          {conf.achados.map((a, i) => (
+            <li
+              key={i}
+              className="rounded-lg bg-white/80 border border-gray-100 p-2.5 text-xs"
+            >
+              <p className="flex items-center gap-1.5 flex-wrap">
+                <span
+                  className={`rounded-full px-1.5 py-0.5 text-[10px] font-bold ${
+                    a.gravidade === "ALTA"
+                      ? "bg-rose-100 text-rose-700"
+                      : "bg-amber-100 text-amber-700"
+                  }`}
+                >
+                  {a.gravidade === "ALTA" ? "IMPORTANTE" : "OLHAR"}
+                </span>
+                <b className="text-gray-800">{a.peca}</b>
+                {a.estoqueAqui !== undefined && (
+                  <span className="text-gray-500">
+                    · aqui {a.estoqueAqui}
+                    {a.estoqueLa !== undefined && ` / lá ${a.estoqueLa}`}
+                  </span>
+                )}
+              </p>
+              <p className="text-gray-600 mt-1 leading-snug">{a.detalhe}</p>
+              {COMO_RESOLVER[a.tipo] && (
+                <p className="text-brand-700 mt-1 leading-snug">
+                  <b>O que fazer:</b> {COMO_RESOLVER[a.tipo]}
+                </p>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+      <div className="flex items-center justify-between gap-2 flex-wrap mt-2">
+        <p className="text-[11px] text-gray-500 leading-snug">
+          Esta conferência só LÊ os dois lados — não alterou nenhum estoque nem
+          produto.
+        </p>
+        {!limpo && (
+          <button
+            onClick={copiarLista}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 hover:border-brand-300 text-gray-600 text-[11px] font-medium px-2.5 py-1.5 transition shrink-0"
+          >
+            <Copy className="size-3" />
+            {copiado ? "Copiado!" : "Copiar lista"}
+          </button>
+        )}
+      </div>
+    </div>
   );
 }
 

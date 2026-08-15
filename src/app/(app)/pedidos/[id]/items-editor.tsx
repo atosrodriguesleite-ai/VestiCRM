@@ -179,24 +179,39 @@ export function ItemsEditor({
 
         {/* itens */}
         <div className="rounded-xl border border-gray-100 divide-y divide-gray-50 mb-4">
-          {lines.map((l) => {
-            const falta = l.quantity > l.stock;
+          {/* CADA LINHA É ELA MESMA. Antes a tela mexia na linha PELO VÍNCULO
+              (variantId): duas peças que perderam o vínculo ficavam com o
+              mesmo "" e viravam a MESMA linha — subir a quantidade de uma
+              subia a da outra, e apagar uma apagava as duas. Agora é pela
+              POSIÇÃO, que é única sempre. */}
+          {lines.map((l, i) => {
+            // Item sem vínculo com a peça atual (ex.: catálogo reimportado e a
+            // religação não achou par). NÃO é estoque zero — dizer "estoque 0
+            // (insuficiente)" aqui já quase fez a loja desistir de uma venda
+            // com a peça cheia na Nuvemshop. Fala a verdade: perdeu o vínculo.
+            const semVinculo = !l.variantId;
+            const falta = !semVinculo && l.quantity > l.stock;
+            const trocar = (mudanca: Partial<Line>) =>
+              setLines((prev) => prev.map((x, xi) => (xi === i ? { ...x, ...mudanca } : x)));
             return (
-              <div key={l.variantId} className="flex items-center gap-2 px-3 py-2">
+              <div key={l.variantId || `sem-vinculo-${i}`} className="flex items-center gap-2 px-3 py-2">
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-medium truncate">{l.name}</p>
-                  <p className={`text-xs ${falta ? "text-rose-500" : "text-gray-400"}`}>
-                    {l.variant} · estoque {l.stock}{falta ? " (insuficiente)" : ""}
+                  <p className={`text-xs ${falta ? "text-rose-500" : semVinculo ? "text-amber-600" : "text-gray-400"}`}>
+                    {l.variant}
+                    {semVinculo
+                      ? " · peça não está mais no catálogo (apague a linha e adicione de novo)"
+                      : ` · estoque ${l.stock}${falta ? " (insuficiente)" : ""}`}
                   </p>
                 </div>
                 <input type="number" min={1} value={l.quantity}
-                  onChange={(e) => setLines((prev) => prev.map((x) => x.variantId === l.variantId ? { ...x, quantity: Math.max(1, parseInt(e.target.value) || 1) } : x))}
+                  onChange={(e) => trocar({ quantity: Math.max(1, parseInt(e.target.value) || 1) })}
                   className={`w-16 rounded-lg border px-2 py-1.5 text-sm text-center ${falta ? "border-rose-300" : "border-gray-200"}`} />
                 <input value={String(l.unitPrice)}
-                  onChange={(e) => setLines((prev) => prev.map((x) => x.variantId === l.variantId ? { ...x, unitPrice: parseFloat(e.target.value.replace(",", ".")) || 0 } : x))}
+                  onChange={(e) => trocar({ unitPrice: parseFloat(e.target.value.replace(",", ".")) || 0 })}
                   inputMode="decimal" className="w-20 rounded-lg border border-gray-200 px-2 py-1.5 text-sm text-right" />
                 <span className="w-20 text-right text-sm font-semibold tabular-nums">{brl(l.quantity * l.unitPrice)}</span>
-                <button onClick={() => setLines((prev) => prev.filter((x) => x.variantId !== l.variantId))} className="text-gray-300 hover:text-rose-500 p-1"><Trash2 className="size-4" /></button>
+                <button onClick={() => setLines((prev) => prev.filter((_, xi) => xi !== i))} className="text-gray-300 hover:text-rose-500 p-1"><Trash2 className="size-4" /></button>
               </div>
             );
           })}

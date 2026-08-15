@@ -20,6 +20,8 @@ export type ClientEvent = {
   size?: string;
   qty?: number;
   value?: number;
+  /** carga extra (ex.: a foto da sacola para a Recuperação) */
+  meta?: Record<string, unknown>;
 };
 
 const CONSENT_KEY = "vesticrm_consent";
@@ -46,6 +48,11 @@ export class CatalogTracker {
 
   get active(): boolean {
     return this.sessionId !== null;
+  }
+
+  /** id da sessão aberta — o pedido do catálogo manda junto (faturamento por canal) */
+  get session(): string | null {
+    return this.sessionId;
   }
 
   /** Abre a sessão (só após consentimento). Não bloqueia nada. */

@@ -8,8 +8,11 @@ import { Spinner } from "@/components/ui";
 
 export default function LoginPage() {
   const router = useRouter();
-  const [email, setEmail] = useState("ana@bellamoda.com.br");
-  const [password, setPassword] = useState("demo1234");
+  // Campos SEMPRE vazios: a tela de login é a primeira impressão de cada
+  // loja. Nunca pré-preencher credenciais (mostrava o e-mail da loja demo
+  // para todo mundo e facilitava acesso indevido).
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 

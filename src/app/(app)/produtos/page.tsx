@@ -12,6 +12,7 @@ import { PhotoDoctor } from "./photo-doctor";
 import { ExportCatalog } from "./export-catalog";
 import { SkuManager } from "./sku-manager";
 import { CategoryManager } from "./category-manager";
+import { ordenarVariantes, ordenarTamanhos, compararTamanhos } from "@/lib/tamanhos";
 
 export const dynamic = "force-dynamic";
 
@@ -29,14 +30,22 @@ export default async function ProductsPage() {
       orderBy: { order: "asc" },
     }),
   ]);
+  // biblioteca sem ordem escolhida (todo mundo com order 0) cai na ordem de
+  // ROUPA — senão o dropdown de tamanho saía "G, GG, M, P, PP"
+  librarySizes.sort((a, b) => a.order - b.order || compararTamanhos(a.name, b.name));
   const products = await db.product.findMany({
     where: { companyId: user.companyId },
     include: {
       variants: { orderBy: [{ color: "asc" }, { size: "asc" }] },
-      images: { orderBy: { order: "asc" }, select: { id: true } },
+      images: { orderBy: { order: "asc" }, select: { id: true, color: true } },
     },
     orderBy: { name: "asc" },
   });
+  // grade na ORDEM DE ROUPA (PP, P, M, G, GG / 32, 34…): o banco só sabe
+  // alfabeto — e no alfabeto o G vinha antes do M (pedido do dono, 12/08/2026)
+  for (const p of products) {
+    p.variants = ordenarVariantes(p.variants);
+  }
 
   const items: ProductItem[] = products.map((p) => ({
     id: p.id,
@@ -53,7 +62,8 @@ export default async function ProductsPage() {
     weightGrams: p.weightGrams,
     active: p.active,
     tags: p.tags,
-    images: p.images.map((i) => ({ id: i.id, url: imageHref(i.id) })),
+    nuvemshopId: p.nuvemshopId,
+    images: p.images.map((i) => ({ id: i.id, url: imageHref(i.id), color: i.color })),
     variants: p.variants.map((v) => ({
       id: v.id,
       color: v.color,
@@ -79,9 +89,9 @@ export default async function ProductsPage() {
   const colors = [
     ...new Set(products.flatMap((p) => p.variants.map((v) => v.color))),
   ].sort();
-  const sizes = [
+  const sizes = ordenarTamanhos([
     ...new Set(products.flatMap((p) => p.variants.map((v) => v.size))),
-  ];
+  ]);
 
   // monitor de estoque: todas as variações de produtos ativos. O filtro pelo
   // limite acontece no cliente (ao vivo), pra atualizar na hora que o dono
@@ -153,6 +163,12 @@ export default async function ProductsPage() {
         libraryColors={libraryColors.map((c) => ({ name: c.name, hex: c.hex }))}
         librarySizes={librarySizes.map((s) => s.name)}
         mediaLibrary={company?.mediaLibraryEnabled ?? false}
+        // mesma régua do gerenciador de categorias: gerência + suporte
+        canOrganize={isManagerUp(user) || isSupport(user)}
+        // loja sem variação de cor (semijoias): a grade pede só o tamanho
+        semCores={company?.catalogHideColors ?? false}
+        // o crachá do card diz POR QUE a peça está fora do catálogo
+        ocultaSemEstoque={company?.catalogHideOutOfStock ?? false}
       />
     </div>
   );

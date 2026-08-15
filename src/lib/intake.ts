@@ -1,5 +1,5 @@
 import { db } from "./db";
-import { originLabel } from "./format";
+import { formatPhone, originLabel } from "./format";
 import { consolidateOpenConversations } from "./merge-contacts";
 import { Prisma } from "@prisma/client";
 import type { Origin, Customer, Conversation, Opportunity, Task } from "@prisma/client";
@@ -39,6 +39,13 @@ export type IntakeResult = {
   opportunity: Opportunity | null;
   task: Task | null;
   isNewLead: boolean;
+  /**
+   * A mensagem criada nesta entrada (null quando não veio texto). Quem chama
+   * completa ela depois — mídia, id do WhatsApp, status — e precisa saber
+   * EXATAMENTE qual é: procurar "a mais recente da conversa" errava o alvo
+   * quando duas mensagens chegavam juntas.
+   */
+  message: { id: string } | null;
 };
 
 /** Normaliza telefone para o formato de armazenamento (dígitos, com DDI 55). */
@@ -54,6 +61,29 @@ export function normalizePhone(raw: string): string {
  * o WhatsApp costuma mandar com 9, e cadastros antigos ficam sem. Assim a
  * mesma pessoa não vira dois contatos/duas conversas.
  */
+/**
+ * O cliente tem nome de VERDADE ou um apelido que o próprio sistema inventou?
+ *
+ * Quando a mensagem chega antes de a gente saber quem é, o sistema batiza o
+ * contato com o telefone: "Contato (77) 8101-4696", "Lead 4696", "Cliente do
+ * catálogo (não identificado)". Isso é um crachá provisório — assim que o
+ * nome de verdade aparecer (a cliente digita no catálogo, por exemplo), ele
+ * TEM que substituir o crachá.
+ *
+ * O contrário nunca: nome escrito por gente não é sobrescrito por nada.
+ */
+export function nomeProvisorio(nome: string | null | undefined): boolean {
+  const n = (nome ?? "").trim();
+  if (!n) return true;
+  return (
+    /^contato\b/i.test(n) ||
+    /^lead\s+\d+$/i.test(n) ||
+    /^cliente do cat[áa]logo/i.test(n) ||
+    // só dígitos/pontuação de telefone: o número virou "nome"
+    /^[\d\s()+.-]+$/.test(n)
+  );
+}
+
 export function phoneMatchVariants(raw: string): string[] {
   const d = normalizePhone(raw);
   const set = new Set<string>([d]);
@@ -174,7 +204,23 @@ export async function intakeLead(
       where: { id: existing.id },
       data: {
         lastContactAt: new Date(),
-        ...(payload.name && !existing.name ? { name: payload.name } : {}),
+        // NOME DE VERDADE SUBSTITUI O PROVISÓRIO — e só ele.
+        //
+        // Antes a condição era `!existing.name`, que NUNCA é verdade: o nome
+        // do cliente é obrigatório no banco, então sempre tem alguma coisa
+        // escrita. Resultado: o nome que a cliente digitava no catálogo era
+        // jogado fora em silêncio.
+        //
+        // Foi o que aconteceu no pedido #0146 da Entre Linhas: a mensagem do
+        // WhatsApp chegou primeiro e criou a cliente como "Contato (77)
+        // 8101-4696"; quando o pedido do catálogo chegou com o nome digitado,
+        // ele foi ignorado e o painel ficou com o telefone no lugar do nome.
+        //
+        // Agora: nome digitado por gente NUNCA é sobrescrito; só o apelido que
+        // o próprio sistema inventou é que dá lugar ao nome de verdade.
+        ...(payload.name?.trim() && nomeProvisorio(existing.name)
+          ? { name: payload.name.trim() }
+          : {}),
         // atribuição "primeiro contato": só grava a campanha se ainda não há
         ...(payload.campaignId && !existing.campaignId
           ? { campaignId: payload.campaignId }
@@ -194,29 +240,63 @@ export async function intakeLead(
     // ---- Lead novo: cria com origem e responsável distribuído ----
     isNewLead = true;
     const ownerId = await resolveOwner(companyId, payload.ownerId);
-    customer = await db.customer.create({
-      data: {
-        companyId,
-        name: payload.name?.trim() || `Lead ${phone.slice(-4)}`,
-        phone,
-        city: payload.city,
-        state: payload.state,
-        origin: payload.origin,
-        campaignId: payload.campaignId ?? null,
-        ownerId,
-        lastContactAt: payload.message ? new Date() : null,
-      },
-    });
+    try {
+      customer = await db.customer.create({
+        data: {
+          companyId,
+          // CRACHÁ PROVISÓRIO COM O NÚMERO INTEIRO.
+          //
+          // Antes era "Lead 9621" (só os 4 últimos dígitos). Na tela isso parece
+          // erro do sistema — a lojista da Toque Leve estranhou —, não diz de
+          // quem é a conversa e ainda embaralha duas clientes de DDDs
+          // diferentes que terminem igual. "Contato (82) 9664-9621" identifica
+          // a pessoa na hora e continua sendo provisório (`nomeProvisorio`):
+          // some sozinho quando o nome de verdade aparecer.
+          name: payload.name?.trim() || `Contato ${formatPhone(phone)}`,
+          phone,
+          city: payload.city,
+          state: payload.state,
+          origin: payload.origin,
+          campaignId: payload.campaignId ?? null,
+          ownerId,
+          lastContactAt: payload.message ? new Date() : null,
+        },
+      });
+    } catch (e) {
+      // CORRIDA (incidente #0146): WhatsApp e catálogo chegando no MESMO
+      // instante passavam os dois pela busca lá de cima e criavam a mesma
+      // cliente duas vezes. Com o índice único de telefone, o segundo cai
+      // aqui (P2002) — e em vez de estourar, RE-BUSCA e segue com o cadastro
+      // que o primeiro criou (auditoria 07/08/2026).
+      const corrida =
+        typeof e === "object" && e !== null && (e as { code?: string }).code === "P2002";
+      if (!corrida) throw e;
+      const criadoPeloOutro = await findCustomerByPhone(companyId, payload.phone);
+      if (!criadoPeloOutro) throw e;
+      isNewLead = false;
+      customer = await db.customer.update({
+        where: { id: criadoPeloOutro.id },
+        data: {
+          lastContactAt: new Date(),
+          ...(payload.name?.trim() && nomeProvisorio(criadoPeloOutro.name)
+            ? { name: payload.name.trim() }
+            : {}),
+        },
+      });
+    }
+    // na corrida (isNewLead virou false ali em cima), o LEAD_CRIADO fica por
+    // conta de quem ganhou — este caminho registra só uma nova interação
     await db.customerEvent.create({
       data: {
         companyId,
         customerId: customer.id,
-        type: "LEAD_CRIADO",
+        type: isNewLead ? "LEAD_CRIADO" : "NOVA_INTERACAO",
         channel: payload.origin,
-        description:
-          payload.origin === "MANUAL"
+        description: isNewLead
+          ? payload.origin === "MANUAL"
             ? "Lead criado manualmente"
-            : `Lead criado via ${channelLabel}`,
+            : `Lead criado via ${channelLabel}`
+          : `Nova interação via ${channelLabel}`,
       },
     });
   }
@@ -260,13 +340,19 @@ export async function intakeLead(
       },
     });
   }
+  // Guarda QUAL mensagem foi criada. Quem chama precisa completá-la depois
+  // (mídia, id do WhatsApp, status) e, sem esta referência, tinha que
+  // adivinhar pegando "a mensagem IN mais recente da conversa" — com duas
+  // mensagens chegando no mesmo instante, a foto de uma colava na outra.
+  let message: { id: string } | null = null;
   if (conversation && payload.message) {
-    await db.message.create({
+    message = await db.message.create({
       data: {
         conversationId: conversation.id,
         direction: "IN",
         body: payload.message,
       },
+      select: { id: true },
     });
     conversation = await db.conversation.update({
       where: { id: conversation.id },
@@ -333,5 +419,5 @@ export async function intakeLead(
     });
   }
 
-  return { customer, conversation, opportunity, task, isNewLead };
+  return { customer, conversation, opportunity, task, isNewLead, message };
 }

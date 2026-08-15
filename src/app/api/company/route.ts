@@ -16,11 +16,13 @@ const schema = z.object({
   minOrder: z.number().int().nonnegative().optional(),
   minOrderMode: z.enum(["NONE", "PECAS", "VALOR"]).optional(),
   minOrderValue: z.number().nonnegative().optional(),
-  commissionBase: z.enum(["SUBTOTAL", "TOTAL"]).optional(),
+  commissionBase: z.enum(["SUBTOTAL", "VENDIDO"]).optional(),
   lowStockThreshold: z.number().int().min(0).max(10000).optional(),
   catalogLogoSize: z.enum(["normal", "grande"]).optional(),
   // esconder do catálogo os produtos sem estoque (indisponíveis)
   catalogHideOutOfStock: z.boolean().optional(),
+  // loja sem variação de cor (semijoias): esconde a bolinha/nome da cor
+  catalogHideColors: z.boolean().optional(),
   // ordem das categorias no catálogo (lista de nomes, na ordem desejada)
   categoryOrder: z.array(z.string().min(1).max(60)).max(200).optional(),
   // identidade visual do catálogo
@@ -28,6 +30,8 @@ const schema = z.object({
   catalogPrimary: hexColor.optional(),
   catalogSecondary: hexColor.optional(),
   catalogBg: hexColor.optional(),
+  // preço que o catálogo público mostra e cobra (vale pra loja inteira)
+  catalogPriceMode: z.enum(["VAREJO", "ATACADO"]).optional(),
   catalogFont: z
     .enum(["montserrat", "inter", "poppins", "playfair", "lora"])
     .optional(),
@@ -105,9 +109,11 @@ export async function PATCH(req: NextRequest) {
       catalogPrimary: updated.catalogPrimary,
       catalogSecondary: updated.catalogSecondary,
       catalogBg: updated.catalogBg,
+      catalogPriceMode: updated.catalogPriceMode,
       catalogFont: updated.catalogFont,
       catalogLogoSize: updated.catalogLogoSize,
       catalogHideOutOfStock: updated.catalogHideOutOfStock,
+      catalogHideColors: updated.catalogHideColors,
     });
   } catch (e) {
     if (e instanceof AuthError)
