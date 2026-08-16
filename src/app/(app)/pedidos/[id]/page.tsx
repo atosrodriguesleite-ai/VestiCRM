@@ -383,7 +383,10 @@ export default async function OrderDetailPage({
           />
         </Card>
 
-        <div className="space-y-4">
+        {/* min-w-0: mesma proteção do cartão de Itens — sem ela, o link da
+            InfinitePay (comprido e sem espaços) alarga esta coluna além da
+            tela do celular e a página inteira anda para o lado */}
+        <div className="space-y-4 min-w-0">
           {/* Cobrança Pix automática + NF-e (aparece se a loja conectou) */}
           <CobrancaNfe
             orderId={order.id}
