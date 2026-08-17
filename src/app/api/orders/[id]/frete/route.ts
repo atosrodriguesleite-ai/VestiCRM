@@ -92,18 +92,26 @@ const postSchema = z.object({
   serviceId: z.number().int().positive().optional(),
   service: z.string().max(60).optional(),
   carrier: z.string().max(60).optional(),
-  // MEDIDAS REAIS do pacote (medidas na fita, peso na balança): no atacado a
-  // caixa muda a cada pedido — medida de verdade = cotação de verdade. Sem
-  // elas vale o automático (peso das peças + caixa padrão da loja). Os tetos
-  // são os do Melhor Envio (150 cm por lado, 150 kg somando transportadoras).
-  medidas: z
-    .object({
-      pesoKg: z.number().positive().max(150),
-      alturaCm: z.number().positive().max(150),
-      larguraCm: z.number().positive().max(150),
-      comprimentoCm: z.number().positive().max(150),
-    })
+  // VOLUMES REAIS do pacote (medidos na fita, pesados na balança): no
+  // atacado a caixa muda a cada pedido (às vezes é saco) e pedido grande vai
+  // em mais de um volume. Sem eles vale o automático (peso das peças + caixa
+  // padrão da loja). Tetos = limites do Melhor Envio (150 cm/150 kg).
+  volumes: z
+    .array(
+      z.object({
+        pesoKg: z.number().positive().max(150),
+        alturaCm: z.number().positive().max(150),
+        larguraCm: z.number().positive().max(150),
+        comprimentoCm: z.number().positive().max(150),
+      })
+    )
+    .min(1)
+    .max(8)
     .optional(),
+  // VALOR SEGURADO da carga: padrão = valor das peças; a loja pode reduzir
+  // (barateia o frete). Com NF-e a escolha some: transportadora confere o
+  // seguro contra o valor da nota — divergir é recusa/ajuste.
+  seguroValor: z.number().min(0).max(1_000_000).optional(),
   // saída de emergência: comprar com declaração de conteúdo mesmo com nota no
   // pedido (Bling fora do ar, nota que sumiu de lá). É escolha da loja, nunca
   // do sistema — despachar com o documento errado é problema fiscal dela.
@@ -134,18 +142,17 @@ export async function POST(
       );
 
     const destZip = (order.customer.zip ?? "").replace(/\D/g, "");
-    // medidas manuais (quando informadas) mandam; senão o automático de sempre
-    const medidas = parsed.data.medidas;
-    const pesoKg = medidas?.pesoKg ?? pesoDoPedidoKg(order.items, conn);
-    const dims = medidas
-      ? {
-          widthCm: medidas.larguraCm,
-          heightCm: medidas.alturaCm,
-          lengthCm: medidas.comprimentoCm,
-        }
-      : undefined;
-    // valor segurado = valor das peças (sem frete)
+    // volumes medidos (quando informados) mandam; senão o automático de sempre
+    const volumes = parsed.data.volumes;
+    const pesoAutomaticoKg = pesoDoPedidoKg(order.items, conn);
+    const pesoKg = volumes
+      ? Math.round(volumes.reduce((s, v) => s + v.pesoKg, 0) * 1000) / 1000
+      : pesoAutomaticoKg;
+    // valor segurado: padrão = valor das peças (sem frete); a loja pode
+    // reduzir — MAS com NF-e o valor da nota manda (transportadora confere)
     const valorPecas = Math.max(0, order.subtotal - order.discount);
+    const notaAtiva = order.nfeStatus === "AUTORIZADA" && Boolean(order.nfeKey);
+    const seguro = notaAtiva ? valorPecas : (parsed.data.seguroValor ?? valorPecas);
 
     if (action === "cotar") {
       if (destZip.length !== 8)
@@ -157,8 +164,8 @@ export async function POST(
         companyId: user.companyId,
         toZip: destZip,
         weightKg: pesoKg,
-        insuranceValue: valorPecas,
-        dims,
+        insuranceValue: seguro,
+        volumes,
       });
       if (!r.ok) return NextResponse.json({ error: r.error }, { status: 502 });
       // `recusadas` = quem não cotou E o porquê. A tela mostra — esconder
@@ -167,12 +174,18 @@ export async function POST(
         quotes: r.quotes,
         recusadas: r.recusadas,
         weightKg: pesoKg,
-        // o pacote que a cotação DECLAROU (fonte única: vem do meCalculate) —
-        // a tela pré-preenche os campos com isto e a compra repete igual
-        medidasUsadas: { ...r.pacote, manuais: Boolean(medidas) },
+        // referência para o aviso de peso suspeito da tela (balança x cadastro)
+        pesoAutomaticoKg,
+        // os volumes que a cotação DECLAROU (fonte única: vêm do meCalculate)
+        // — a tela pré-preenche os campos com isto e a compra repete igual
+        volumesUsados: r.pacotes,
+        volumesManuais: Boolean(volumes),
+        // seguro usado nesta cotação (travado no valor das peças com NF-e)
+        seguroUsado: seguro,
+        seguroTravado: notaAtiva,
         // a nota pode ter sido emitida DEPOIS de a tela abrir — a cotação
         // devolve a situação de agora para a promessa não mentir
-        comNota: order.nfeStatus === "AUTORIZADA" && Boolean(order.nfeKey),
+        comNota: notaAtiva,
       });
     }
 
@@ -269,6 +282,22 @@ export async function POST(
         chaveNfe = nota.chave ?? order.nfeKey;
       }
 
+      // SEGURO PRESO À COTAÇÃO ACEITA: a tela manda o valor da última
+      // cotação e é ELE que vale — recalcular aqui debitaria diferente do
+      // preço confirmado no botão. Com NF-e o seguro TEM de ser o valor das
+      // peças (a transportadora confere contra a nota): se a nota entrou, ou
+      // o pedido mudou, DEPOIS da cotação, recusa e manda recotar.
+      const seguroCompra = parsed.data.seguroValor ?? valorPecas;
+      if (chaveNfe && Math.abs(seguroCompra - valorPecas) > 0.009) {
+        return NextResponse.json(
+          {
+            error:
+              "A nota fiscal entrou (ou o valor do pedido mudou) depois da cotação, e com NF-e o seguro precisa ser o valor das peças. Clique em \"cotar de novo\" e compre com o preço atualizado — nada foi cobrado.",
+          },
+          { status: 409 }
+        );
+      }
+
       const r = await meBuyShipment({
         companyId: user.companyId,
         serviceId: parsed.data.serviceId,
@@ -307,10 +336,10 @@ export async function POST(
           unitPrice: i.unitPrice,
         })),
         weightKg: pesoKg,
-        insuranceValue: valorPecas,
-        // as MESMAS medidas da cotação aceita — etiqueta comprada com medida
+        insuranceValue: seguroCompra,
+        // os MESMOS volumes da cotação aceita — etiqueta comprada com medida
         // diferente da cotada vira ajuste de valor na transportadora
-        dims,
+        volumes,
         orderLabel: `Pedido ${orderNumber(order.number)}`,
         // Nota AUTORIZADA e CONFIRMADA no Bling → etiqueta com NF-e. Sem nota
         // → declaração de conteúdo, como sempre. A loja não escolhe nada: o

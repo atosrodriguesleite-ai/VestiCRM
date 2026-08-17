@@ -14,6 +14,9 @@ import {
   MessageCircle,
 } from "lucide-react";
 import { Card } from "@/components/ui";
+import { pesoDivergente } from "@/lib/peso-pacote";
+import { numeroBR } from "@/lib/numero-br";
+import type { VolumePacote } from "@/lib/melhorenvio";
 import { brl } from "@/lib/format";
 import { copiarTexto } from "@/lib/copiar";
 import { nomeProvisorio } from "@/lib/intake";
@@ -23,6 +26,11 @@ import { nomeProvisorio } from "@/lib/intake";
  * cotar → escolher serviço → comprar etiqueta → imprimir + rastrear.
  * Só aparece para loja com o módulo ligado e o Melhor Envio conectado.
  */
+
+// um volume do envio, como a lojista mede: kg e cm — o MESMO tipo do motor
+// (import type é apagado na compilação; só valor de runtime não pode vir de
+// lib/melhorenvio.ts, que fala com o banco)
+type VolumeNum = VolumePacote;
 
 type Quote = {
   serviceId: number;
@@ -89,25 +97,24 @@ export function EnvioFrete({
   // o servidor recusou a compra por causa da nota e ofereceu seguir sem ela
   const [podeSemNota, setPodeSemNota] = useState(false);
   const [weightKg, setWeightKg] = useState<number | null>(null);
-  // MEDIDAS DO PACOTE (pedido do dono, 17/08/2026): no atacado a caixa muda a
-  // cada pedido — pesar e medir de verdade dá a cotação realista. Os campos
-  // nascem preenchidos com o automático (peso das peças + caixa padrão) e a
-  // lojista só corrige o que mediu na fita. `medCotadas` guarda o que foi
-  // usado na ÚLTIMA cotação: a compra vai com as MESMAS medidas do preço
-  // aceito (medida diferente da cotada vira ajuste na transportadora).
-  const [med, setMed] = useState<{
-    peso: string;
-    altura: string;
-    largura: string;
-    comprimento: string;
-  } | null>(null);
-  const [medManuais, setMedManuais] = useState(false);
-  const [medCotadas, setMedCotadas] = useState<{
-    pesoKg: number;
-    alturaCm: number;
-    larguraCm: number;
-    comprimentoCm: number;
-  } | null>(null);
+  // VOLUMES DO PACOTE (pedido do dono, 17/08/2026): no atacado a embalagem
+  // muda a cada pedido (caixa, saco...) e pedido grande vai em MAIS DE UM
+  // volume. Os campos nascem preenchidos com o automático (peso das peças +
+  // caixa padrão) e a lojista corrige o que pesou/mediu. `volsCotados` e
+  // `seguroCotado` guardam o que a ÚLTIMA cotação usou: a compra vai com os
+  // MESMOS números do preço aceito (diferente do cotado = ajuste da
+  // transportadora depois).
+  const [vols, setVols] = useState<
+    { peso: string; altura: string; largura: string; comprimento: string }[] | null
+  >(null);
+  const [volsManuais, setVolsManuais] = useState(false);
+  const [volsCotados, setVolsCotados] = useState<VolumeNum[] | null>(null);
+  // referência do aviso de peso suspeito (balança x cadastro das peças)
+  const [pesoAuto, setPesoAuto] = useState<number | null>(null);
+  // valor segurado da carga: editável sem nota; com NF-e o valor da nota manda
+  const [seguro, setSeguro] = useState("");
+  const [seguroCotado, setSeguroCotado] = useState<number | null>(null);
+  const [seguroTravado, setSeguroTravado] = useState(false);
   const [escolhido, setEscolhido] = useState<number | null>(null);
   const [busy, setBusy] = useState<
     "cotar" | "comprar" | "cancelar" | "rastreio" | "etiqueta" | "enviar" | null
@@ -161,29 +168,69 @@ export function EnvioFrete({
     }
   }
 
-  // número tolerante a vírgula ("4,95") — é como a balança aparece na cabeça
+  // número do jeito brasileiro ("4,95", "1.500") — lib/numero-br.ts: o
+  // "1.500" que virava 1,5 já foi seguro de R$ 1,50 numa carga de R$ 1.500
   const num = (s: string): number | null => {
-    const n = parseFloat(s.replace(",", "."));
-    return Number.isFinite(n) && n > 0 ? n : null;
+    const n = numeroBR(s);
+    return n != null && n > 0 ? n : null;
   };
+  const numOuZero = (s: string): number | null => {
+    const n = numeroBR(s);
+    return n != null && n >= 0 ? n : null;
+  };
+  const paraTexto = (n: number) => String(n).replace(".", ",");
 
-  /** Medidas digitadas, completas e válidas — ou null (vale o automático). */
-  function medidasDigitadas() {
-    if (!med) return null;
-    const pesoKg = num(med.peso);
-    const alturaCm = num(med.altura);
-    const larguraCm = num(med.largura);
-    const comprimentoCm = num(med.comprimento);
-    if (pesoKg == null || alturaCm == null || larguraCm == null || comprimentoCm == null)
-      return null;
-    return { pesoKg, alturaCm, larguraCm, comprimentoCm };
+  // limites do Melhor Envio (mesmos do servidor — mensagem clara aqui, não
+  // um "Dados inválidos" seco lá)
+  const LIMITE_CM_KG = 150;
+  const LIMITE_VOLUMES = 8;
+
+  /** Volumes digitados, completos e válidos — ou null (vale o automático). */
+  function volumesDigitados(): VolumeNum[] | null {
+    if (!vols || vols.length === 0) return null;
+    const lidos: VolumeNum[] = [];
+    for (const v of vols) {
+      const pesoKg = num(v.peso);
+      const alturaCm = num(v.altura);
+      const larguraCm = num(v.largura);
+      const comprimentoCm = num(v.comprimento);
+      if (pesoKg == null || alturaCm == null || larguraCm == null || comprimentoCm == null)
+        return null;
+      if (
+        pesoKg > LIMITE_CM_KG ||
+        alturaCm > LIMITE_CM_KG ||
+        larguraCm > LIMITE_CM_KG ||
+        comprimentoCm > LIMITE_CM_KG
+      )
+        return null;
+      lidos.push({ pesoKg, alturaCm, larguraCm, comprimentoCm });
+    }
+    return lidos;
   }
 
+  const ERRO_VOLUMES =
+    `Confira as medidas dos volumes: todos os campos preenchidos, até ${LIMITE_CM_KG} kg e ` +
+    `${LIMITE_CM_KG} cm por volume (ou remova o volume incompleto).`;
+
+  const mesmoVolume = (a: VolumeNum, b: VolumeNum) =>
+    a.pesoKg === b.pesoKg &&
+    a.alturaCm === b.alturaCm &&
+    a.larguraCm === b.larguraCm &&
+    a.comprimentoCm === b.comprimentoCm;
+
   async function cotar() {
-    setBusy("cotar");
     setErro("");
-    const m = medidasDigitadas();
-    const { ok, d } = await acao({ action: "cotar", ...(m ? { medidas: m } : {}) });
+    const v = volumesDigitados();
+    // painel aberto com volume incompleto/estourado NÃO cai no automático em
+    // silêncio (jogaria fora o que a lojista mediu) — avisa e espera
+    if (vols && vols.length > 0 && !v) return setErro(ERRO_VOLUMES);
+    setBusy("cotar");
+    const s = seguroTravado ? null : numOuZero(seguro);
+    const { ok, d } = await acao({
+      action: "cotar",
+      ...(v ? { volumes: v } : {}),
+      ...(s != null ? { seguroValor: s } : {}),
+    });
     setBusy(null);
     if (!ok) {
       // Cotação velha na tela = preço velho no botão "Comprar etiqueta" (o
@@ -191,56 +238,59 @@ export function EnvioFrete({
       setQuotes(null);
       setRecusadas([]);
       setEscolhido(null);
-      setMedCotadas(null);
+      setVolsCotados(null);
+      setSeguroCotado(null);
       return setErro(d.error ?? "Não foi possível cotar o frete.");
     }
     setQuotes(d.quotes ?? []);
     setRecusadas(Array.isArray(d.recusadas) ? d.recusadas : []);
     setTemNota(Boolean(d.comNota));
     setWeightKg(d.weightKg ?? null);
+    setPesoAuto(typeof d.pesoAutomaticoKg === "number" ? d.pesoAutomaticoKg : null);
     setEscolhido(d.quotes?.[0]?.serviceId ?? null);
     // pré-preenche os campos com o que ESTA cotação usou (automático na 1ª
-    // vez); a compra vai com exatamente estas medidas
-    const u = d.medidasUsadas as
-      | { pesoKg: number; alturaCm: number; larguraCm: number; comprimentoCm: number; manuais?: boolean }
-      | undefined;
-    if (u) {
-      setMed({
-        peso: String(u.pesoKg).replace(".", ","),
-        altura: String(u.alturaCm).replace(".", ","),
-        largura: String(u.larguraCm).replace(".", ","),
-        comprimento: String(u.comprimentoCm).replace(".", ","),
-      });
-      setMedManuais(Boolean(u.manuais));
-      // SEMPRE prende as medidas da cotação (automática inclusive): a compra
-      // repete exatamente o que gerou o preço confirmado — sem isso, itens
-      // adicionados ao pedido entre cotar e comprar mudavam o valor debitado
-      setMedCotadas({
-        pesoKg: u.pesoKg,
-        alturaCm: u.alturaCm,
-        larguraCm: u.larguraCm,
-        comprimentoCm: u.comprimentoCm,
-      });
+    // vez) e PRENDE tudo: a compra repete exatamente o que gerou o preço
+    // confirmado — sem isso, itens adicionados ao pedido entre cotar e
+    // comprar mudavam o valor debitado do confirmado
+    const usados = d.volumesUsados as VolumeNum[] | undefined;
+    if (Array.isArray(usados) && usados.length > 0) {
+      setVols(
+        usados.map((u) => ({
+          peso: paraTexto(u.pesoKg),
+          altura: paraTexto(u.alturaCm),
+          largura: paraTexto(u.larguraCm),
+          comprimento: paraTexto(u.comprimentoCm),
+        }))
+      );
+      setVolsManuais(Boolean(d.volumesManuais));
+      setVolsCotados(usados);
     }
+    if (typeof d.seguroUsado === "number") {
+      setSeguro(paraTexto(d.seguroUsado));
+      setSeguroCotado(d.seguroUsado);
+    }
+    setSeguroTravado(Boolean(d.seguroTravado));
   }
 
   async function comprar(semNota = false) {
     const q = quotes?.find((x) => x.serviceId === escolhido);
     if (!q) return;
-    // MEDIDA EDITADA SEM RECOTAR NÃO COMPRA: a etiqueta sairia com as
-    // medidas VELHAS da cotação, contradizendo o que a tela promete — e
-    // medida errada na etiqueta é ajuste de valor da transportadora depois
-    const dig = medidasDigitadas();
-    if (
+    // NÚMERO EDITADO SEM RECOTAR NÃO COMPRA: a etiqueta sairia com os
+    // valores VELHOS da cotação, contradizendo o que a tela promete — e
+    // medida/seguro errado na etiqueta é ajuste da transportadora depois
+    const dig = volumesDigitados();
+    // volume incompleto/estourado na tela também não compra: a etiqueta
+    // sairia com os volumes VELHOS enquanto a tela mostra outra coisa
+    if (vols && vols.length > 0 && !dig) return setErro(ERRO_VOLUMES);
+    const mudouVolumes =
       dig &&
-      medCotadas &&
-      (dig.pesoKg !== medCotadas.pesoKg ||
-        dig.alturaCm !== medCotadas.alturaCm ||
-        dig.larguraCm !== medCotadas.larguraCm ||
-        dig.comprimentoCm !== medCotadas.comprimentoCm)
-    ) {
+      volsCotados &&
+      (dig.length !== volsCotados.length || dig.some((v, i) => !mesmoVolume(v, volsCotados[i])));
+    const segDig = seguroTravado ? null : numOuZero(seguro);
+    const mudouSeguro = segDig != null && seguroCotado != null && segDig !== seguroCotado;
+    if (mudouVolumes || mudouSeguro) {
       return setErro(
-        "Você alterou as medidas depois da cotação. Clique em Recotar para atualizar os preços antes de comprar."
+        "Você alterou as medidas ou o seguro depois da cotação. Clique em Recotar para atualizar os preços antes de comprar."
       );
     }
     const doc = semNota || !temNota ? "declaração de conteúdo" : "NF-e";
@@ -257,8 +307,10 @@ export function EnvioFrete({
       serviceId: q.serviceId,
       service: q.service,
       carrier: q.carrier,
-      // as MESMAS medidas da cotação aceita (null = automático de sempre)
-      ...(medCotadas ? { medidas: medCotadas } : {}),
+      // os MESMOS volumes e seguro da cotação aceita — o servidor usa o
+      // seguro ENVIADO (preso), nunca um recálculo; com NF-e ele confere
+      ...(volsCotados ? { volumes: volsCotados } : {}),
+      ...(seguroCotado != null ? { seguroValor: seguroCotado } : {}),
       ...(semNota ? { semNota: true } : {}),
     });
     setBusy(null);
@@ -562,10 +614,11 @@ export function EnvioFrete({
       ) : quotes ? (
         <div className="space-y-2">
           <p className="text-xs text-gray-500">
-            {medManuais ? (
+            {volsManuais ? (
               <>
                 Cotação para <b>{weightKg} kg</b> com as{" "}
-                <b>medidas informadas do pacote</b>.
+                <b>medidas informadas do pacote</b>
+                {vols && vols.length > 1 && <> ({vols.length} volumes)</>}.
               </>
             ) : (
               <>
@@ -575,42 +628,109 @@ export function EnvioFrete({
             )}
             {quotes.length > 0 && " Escolha o serviço:"}
           </p>
-          {/* Pesou e mediu a caixa de verdade? Corrige aqui e recota — no
-              atacado a caixa muda a cada pedido, e medida real = preço real
-              (sem ajuste de valor da transportadora depois). */}
-          {med && (
-            <details className="rounded-xl border border-gray-200 bg-gray-50/60 px-3 py-2" open={medManuais}>
+          {/* Pesou e mediu a embalagem de verdade (caixa, saco...)? Corrige
+              aqui e recota — no atacado a embalagem muda a cada pedido, e
+              medida real = preço real (sem ajuste da transportadora depois).
+              Pedido grande vai em mais de um volume. */}
+          {vols && (
+            <details className="rounded-xl border border-gray-200 bg-gray-50/60 px-3 py-2" open={volsManuais}>
               <summary className="cursor-pointer text-xs font-medium text-gray-600">
                 📏 Pesei e medi o pacote — usar as medidas reais
               </summary>
-              <div className="mt-2 grid grid-cols-2 sm:grid-cols-4 gap-2">
-                {(
-                  [
-                    ["peso", "Peso (kg)"],
-                    ["altura", "Altura (cm)"],
-                    ["largura", "Largura (cm)"],
-                    ["comprimento", "Comprim. (cm)"],
-                  ] as const
-                ).map(([campo, rotulo]) => (
-                  <label key={campo} className="text-[10px] text-gray-400">
-                    {rotulo}
-                    <input
-                      value={med[campo]}
-                      onChange={(e) => setMed({ ...med, [campo]: e.target.value })}
-                      inputMode="decimal"
-                      className="mt-0.5 w-full rounded-lg border border-gray-200 bg-white px-2 py-1.5 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-orange-300"
-                    />
-                  </label>
-                ))}
+              {vols.map((v, i) => (
+                <div key={i} className="mt-2">
+                  {vols.length > 1 && (
+                    <div className="flex items-center justify-between">
+                      <p className="text-[10px] font-semibold text-gray-500">
+                        Volume {i + 1}
+                      </p>
+                      <button
+                        onClick={() => setVols(vols.filter((_, j) => j !== i))}
+                        className="text-[10px] text-gray-400 hover:text-red-500"
+                      >
+                        remover
+                      </button>
+                    </div>
+                  )}
+                  <div className="mt-1 grid grid-cols-2 sm:grid-cols-4 gap-2">
+                    {(
+                      [
+                        ["peso", "Peso (kg)"],
+                        ["altura", "Altura (cm)"],
+                        ["largura", "Largura (cm)"],
+                        ["comprimento", "Comprim. (cm)"],
+                      ] as const
+                    ).map(([campo, rotulo]) => (
+                      <label key={campo} className="text-[10px] text-gray-400">
+                        {rotulo}
+                        <input
+                          value={v[campo]}
+                          onChange={(e) =>
+                            setVols(vols.map((x, j) => (j === i ? { ...x, [campo]: e.target.value } : x)))
+                          }
+                          inputMode="decimal"
+                          className="mt-0.5 w-full rounded-lg border border-gray-200 bg-white px-2 py-1.5 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-orange-300"
+                        />
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              ))}
+              {/* pedido grande: mais uma caixa/saco (Correios só etiquetam 1
+                  volume — com 2+ eles aparecem em "quem não cotou") */}
+              <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+                {vols.length < LIMITE_VOLUMES ? (
+                  <button
+                    onClick={() =>
+                      setVols([...vols, { peso: "", altura: "", largura: "", comprimento: "" }])
+                    }
+                    className="text-xs font-medium text-gray-500 hover:text-gray-700"
+                  >
+                    + Adicionar volume
+                  </button>
+                ) : (
+                  <p className="text-[10px] text-gray-400">
+                    Máximo de {LIMITE_VOLUMES} volumes por etiqueta.
+                  </p>
+                )}
+                <label className="flex items-center gap-1.5 text-[10px] text-gray-400">
+                  🛡️ Valor segurado (R$)
+                  <input
+                    value={seguro}
+                    onChange={(e) => setSeguro(e.target.value)}
+                    disabled={seguroTravado}
+                    inputMode="decimal"
+                    className="w-24 rounded-lg border border-gray-200 bg-white px-2 py-1.5 text-sm text-gray-800 text-right focus:outline-none focus:ring-2 focus:ring-orange-300 disabled:bg-gray-100 disabled:text-gray-400"
+                  />
+                </label>
               </div>
+              {seguroTravado && (
+                <p className="mt-1 text-[10px] text-gray-400">
+                  Com NF-e o seguro fica no valor da nota — a transportadora
+                  confere um contra o outro.
+                </p>
+              )}
+              {/* balança x cadastro: dedo escorregado OU peso errado no
+                  produto — avisa, nunca trava (a balança pode estar certa) */}
+              {(() => {
+                const dig = volumesDigitados();
+                const total = dig ? dig.reduce((s, x) => s + x.pesoKg, 0) : null;
+                return total != null && pesoAuto != null && pesoDivergente(total, pesoAuto) ? (
+                  <p className="mt-2 rounded-lg border border-amber-100 bg-amber-50 px-2.5 py-1.5 text-[11px] text-amber-800">
+                    ⚖️ O peso informado ({paraTexto(Math.round(total * 100) / 100)} kg) está bem
+                    diferente do calculado pelas peças ({paraTexto(pesoAuto)} kg). Confira a
+                    balança — ou o peso cadastrado dos produtos.
+                  </p>
+                ) : null;
+              })()}
               <div className="mt-2 flex items-center justify-between gap-2">
                 <p className="text-[10px] text-gray-400">
-                  A cotação e a etiqueta saem com estas medidas. Sem mexer,
+                  A cotação e a etiqueta saem com estes números. Sem mexer,
                   vale o automático.
                 </p>
                 <button
                   onClick={cotar}
-                  disabled={busy === "cotar" || !medidasDigitadas()}
+                  disabled={busy === "cotar" || !volumesDigitados()}
                   className="inline-flex items-center gap-1 rounded-lg bg-gray-800 hover:bg-gray-900 text-white text-xs font-semibold px-3 py-1.5 transition disabled:opacity-50"
                 >
                   {busy === "cotar" ? (

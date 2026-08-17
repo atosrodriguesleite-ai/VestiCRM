@@ -254,10 +254,14 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   cotar → comprar etiqueta (saldo da carteira ME da loja; gerente+) → imprimir
   etiqueta + rastreio (msg WhatsApp pronta). **Medidas reais do pacote**
   (17/08/2026): a cotação nasce automática (peso das peças + caixa padrão) e a
-  lojista pode pesar/medir a caixa e recotar — a compra sai com as MESMAS
-  medidas da cotação aceita. Compra exige cadastro completo do cliente (CEP,
-  rua, número, bairro, cidade, UF, telefone e CPF **ou** CNPJ; com CNPJ, a
-  Inscrição Estadual — `Customer.stateRegistration` — vai na etiqueta). Cancelamento antes da postagem
+  lojista pode pesar/medir e recotar — com **vários volumes** (caixa, saco;
+  Correios só etiquetam 1) e **valor segurado editável** (com NF-e trava no
+  valor das peças) — a compra sai com os MESMOS números da cotação aceita
+  (fonte única `volumesDoEnvio`); aviso de **peso suspeito** (dobro/metade do
+  calculado, `lib/peso-pacote.ts`). Compra exige cadastro completo do cliente
+  (CEP, rua, número, bairro, cidade, UF, telefone e CPF **ou** CNPJ; com
+  CNPJ, a Inscrição Estadual — `Customer.stateRegistration` — vai na
+  etiqueta). Na ficha, **CEP preenche o endereço sozinho** (ViaCEP). Cancelamento antes da postagem
   devolve o valor. **RN-016** · Pedido com nota AUTORIZADA (Bling) compra a
   etiqueta COM a NF-e (chave de acesso); sem nota, sai com declaração de
   conteúdo (`/declaracao/[id]`). A chave é conferida no Bling ANTES de debitar

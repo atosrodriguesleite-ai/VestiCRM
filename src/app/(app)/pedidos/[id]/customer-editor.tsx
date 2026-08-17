@@ -9,7 +9,7 @@
  * origem do cliente.
  */
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Pencil } from "lucide-react";
@@ -74,6 +74,48 @@ export function CustomerEditor({
   const [results, setResults] = useState<
     { id: string; name: string; phone: string; city: string | null; state: string | null }[]
   >([]);
+
+  // CEP → ENDEREÇO SOZINHO (pedido do dono, 17/08/2026): digitou o CEP,
+  // rua/bairro/cidade/UF chegam preenchidos (busca pública dos Correios via
+  // ViaCEP, direto do navegador). Cidade/UF sempre acompanham o CEP (derivam
+  // dele — é o que conserta endereço com cidade errada); rua e bairro só
+  // preenchem campo VAZIO, nunca pisam no que a vendedora digitou.
+  const cepBuscado = useRef("");
+  useEffect(() => {
+    if (!open) return;
+    const cep = form.zip.replace(/\D/g, "");
+    if (cep.length !== 8 || cep === cepBuscado.current) return;
+    const t = setTimeout(async () => {
+      cepBuscado.current = cep;
+      try {
+        const r = await fetch(`https://viacep.com.br/ws/${cep}/json/`);
+        const d = (await r.json()) as {
+          erro?: boolean;
+          logradouro?: string;
+          bairro?: string;
+          localidade?: string;
+          uf?: string;
+        };
+        if (!r.ok || d?.erro) return;
+        setForm((f) =>
+          // resposta ATRASADA de um CEP antigo não pisa no CEP novo: só
+          // preenche se o campo ainda mostra o CEP desta busca
+          f.zip.replace(/\D/g, "") === cep
+            ? {
+                ...f,
+                street: f.street.trim() ? f.street : d.logradouro ?? "",
+                district: f.district.trim() ? f.district : d.bairro ?? "",
+                city: d.localidade || f.city,
+                state: d.uf || f.state,
+              }
+            : f
+        );
+      } catch {
+        // ViaCEP fora do ar ou sem internet: segue digitando na mão
+      }
+    }, 400);
+    return () => clearTimeout(t);
+  }, [form.zip, open]);
 
   // Busca de clientes já cadastrados (para vincular sem redigitar)
   useEffect(() => {

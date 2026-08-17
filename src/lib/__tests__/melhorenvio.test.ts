@@ -54,7 +54,9 @@ describe("pesoDoPedidoKg (módulo Envios)", () => {
  */
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { pessoaME } from "../melhorenvio";
+import { pessoaME, volumesDoEnvio } from "../melhorenvio";
+import { pesoDivergente } from "../peso-pacote";
+import { numeroBR } from "../numero-br";
 
 const enderecoBase = {
   name: "Milena",
@@ -110,19 +112,29 @@ describe("medidas da cotação viajam até a compra (varredura por fonte)", () =
     "utf8"
   );
 
-  it("a cotação DEVOLVE o pacote que declarou (fonte única, sem re-derivar)", () => {
-    expect(lib).toContain("pacote");
-    expect(rota).toContain("medidasUsadas: { ...r.pacote");
+  it("a cotação DEVOLVE os volumes que declarou (fonte única, sem re-derivar)", () => {
+    expect(lib).toContain("pacotes = volumesDoEnvio(");
+    expect(rota).toContain("volumesUsados: r.pacotes");
   });
 
-  it("a compra usa as MESMAS medidas da cotação (dims na compra e no volume)", () => {
-    expect(rota).toMatch(/insuranceValue: valorPecas,\s*\/\/[^\n]*\n[^\n]*\n\s*dims,/);
-    expect(lib).toContain("input.dims?.widthCm ?? conn.boxWidthCm");
+  it("a compra usa os MESMOS volumes da cotação (fonte única volumesDoEnvio)", () => {
+    expect(rota).toMatch(/\n\s*volumes,\s*\n\s*orderLabel/);
+    expect(lib).toContain("volumes: volumesDoEnvio(input.volumes, input.weightKg, conn)");
   });
 
-  it("a tela PRENDE as medidas cotadas e recusa comprar com medida editada", () => {
-    expect(tela).toContain("setMedCotadas({");
+  it("a tela PRENDE volumes e seguro cotados e recusa comprar com número editado", () => {
+    expect(tela).toContain("setVolsCotados(usados)");
+    expect(tela).toContain("setSeguroCotado(d.seguroUsado)");
     expect(tela).toContain("Clique em Recotar para atualizar os preços antes de comprar");
+  });
+
+  it("o seguro da COMPRA é o da cotação aceita — nunca um recálculo", () => {
+    // recalcular na compra debitaria diferente do preço confirmado no botão
+    expect(rota).toContain("const seguroCompra = parsed.data.seguroValor ?? valorPecas;");
+    expect(rota).toContain("insuranceValue: seguroCompra");
+    // com NF-e o seguro TEM de ser o valor das peças: nota que entrou depois
+    // da cotação recusa a compra e manda recotar (nada é cobrado)
+    expect(rota).toContain("if (chaveNfe && Math.abs(seguroCompra - valorPecas) > 0.009)");
   });
 
   it("a compra exige o cadastro completo (bairro, telefone e CPF ou CNPJ)", () => {
@@ -137,5 +149,58 @@ describe("medidas da cotação viajam até a compra (varredura por fonte)", () =
       "utf8"
     );
     expect(clientes).toContain("if (!cnpjFinal) data.stateRegistration = null;");
+  });
+});
+
+describe("volumes do envio (medidos x automático)", () => {
+  const caixa = { boxWidthCm: 30, boxHeightCm: 15, boxLengthCm: 40 };
+
+  it("sem medidas: UMA caixa padrão com o peso somado das peças", () => {
+    expect(volumesDoEnvio(undefined, 4.95, caixa)).toEqual([
+      { pesoKg: 4.95, alturaCm: 15, larguraCm: 30, comprimentoCm: 40 },
+    ]);
+  });
+
+  it("com medidas: vale exatamente o que a lojista mediu (1 ou N volumes)", () => {
+    const medidos = [
+      { pesoKg: 8, alturaCm: 20, larguraCm: 40, comprimentoCm: 60 },
+      { pesoKg: 5, alturaCm: 10, larguraCm: 30, comprimentoCm: 30 },
+    ];
+    expect(volumesDoEnvio(medidos, 4.95, caixa)).toEqual(medidos);
+  });
+});
+
+describe("número do jeito brasileiro (o '1.500' que virava R$ 1,50)", () => {
+  it("vírgula é decimal; ponto pode ser milhar", () => {
+    expect(numeroBR("4,95")).toBe(4.95);
+    expect(numeroBR("1.500")).toBe(1500); // milhar — ERA lido como 1.5
+    expect(numeroBR("1.500,50")).toBe(1500.5);
+    expect(numeroBR("12.345.678")).toBe(12345678);
+  });
+
+  it("decimal com ponto continua funcionando (quem digita '4.95')", () => {
+    expect(numeroBR("4.95")).toBe(4.95);
+    expect(numeroBR("0.5")).toBe(0.5);
+    expect(numeroBR("150")).toBe(150);
+  });
+
+  it("lixo vira null, nunca NaN solto", () => {
+    expect(numeroBR("")).toBeNull();
+    expect(numeroBR("abc")).toBeNull();
+    expect(numeroBR("  ")).toBeNull();
+  });
+});
+
+describe("peso suspeito (balança x cadastro)", () => {
+  it("avisa no dobro ou na metade — fora disso, silêncio", () => {
+    expect(pesoDivergente(10, 5)).toBe(true); // 2×
+    expect(pesoDivergente(2, 4.2)).toBe(true); // < metade
+    expect(pesoDivergente(6, 5)).toBe(false); // diferença normal
+    expect(pesoDivergente(5, 5)).toBe(false);
+  });
+
+  it("sem referência não há aviso (nunca trava o envio)", () => {
+    expect(pesoDivergente(0, 5)).toBe(false);
+    expect(pesoDivergente(5, 0)).toBe(false);
   });
 });

@@ -285,6 +285,35 @@ export function pesoDoPedidoKg(items: ItemComPeso[], conn: ConnPesos): number {
   return Math.max(0.05, Math.round(gramas) / 1000);
 }
 
+/** Um volume do envio, do jeito que a lojista mede: cm e kg. */
+export type VolumePacote = {
+  pesoKg: number;
+  alturaCm: number;
+  larguraCm: number;
+  comprimentoCm: number;
+};
+
+/**
+ * Os volumes que o envio declara: os MEDIDOS pela lojista quando existem;
+ * senão UMA caixa padrão da loja com o peso somado das peças (o automático
+ * de sempre). Fonte única — cotação e compra usam esta função.
+ */
+export function volumesDoEnvio(
+  medidos: VolumePacote[] | undefined,
+  pesoAutomaticoKg: number,
+  conn: Pick<ConnPesos, "boxWidthCm" | "boxHeightCm" | "boxLengthCm">
+): VolumePacote[] {
+  if (medidos && medidos.length > 0) return medidos;
+  return [
+    {
+      pesoKg: pesoAutomaticoKg,
+      alturaCm: conn.boxHeightCm,
+      larguraCm: conn.boxWidthCm,
+      comprimentoCm: conn.boxLengthCm,
+    },
+  ];
+}
+
 // ---- Cotação ----------------------------------------------------------------
 
 /**
@@ -393,19 +422,20 @@ export async function meCalculate(input: {
   toZip: string;
   weightKg: number;
   insuranceValue: number;
-  /** Medidas REAIS do pacote (cm), medidas na fita — sem elas vale a caixa
-   *  padrão da loja. No atacado a caixa muda a cada pedido, e medida de
-   *  verdade = cotação de verdade (pedido do dono, 17/08/2026). */
-  dims?: { widthCm: number; heightCm: number; lengthCm: number };
+  /** VOLUMES REAIS do pacote (cm/kg), medidos na fita e na balança — sem
+   *  eles vale UMA caixa padrão da loja com o peso somado das peças. No
+   *  atacado a caixa muda a cada pedido (às vezes é saco), e pedido grande
+   *  vai em mais de um volume (pedido do dono, 17/08/2026). */
+  volumes?: VolumePacote[];
 }): Promise<
   | {
       ok: true;
       quotes: MeQuote[];
       recusadas: MeRecusa[];
       fromZip: string;
-      /** O pacote que ESTA cotação declarou — fonte única para a tela
+      /** Os volumes que ESTA cotação declarou — fonte única para a tela
        *  pré-preencher e para a compra sair com as MESMAS medidas. */
-      pacote: { pesoKg: number; alturaCm: number; larguraCm: number; comprimentoCm: number };
+      pacotes: VolumePacote[];
     }
   | { ok: false; error: string }
 > {
@@ -418,14 +448,9 @@ export async function meCalculate(input: {
       ok: false,
       error: "Preencha o CEP do remetente em Configurações → Melhor Envio.",
     };
-  // o pacote é montado UMA vez e devolvido no resultado: o que foi cotado é
-  // exatamente o que a tela mostra e o que a compra repete
-  const pacote = {
-    pesoKg: input.weightKg,
-    larguraCm: input.dims?.widthCm ?? conn.boxWidthCm,
-    alturaCm: input.dims?.heightCm ?? conn.boxHeightCm,
-    comprimentoCm: input.dims?.lengthCm ?? conn.boxLengthCm,
-  };
+  // os volumes são montados UMA vez e devolvidos no resultado: o que foi
+  // cotado é exatamente o que a tela mostra e o que a compra repete
+  const pacotes = volumesDoEnvio(input.volumes, input.weightKg, conn);
   const servicos = await meServiceIds(input.companyId);
   const cotar = (comServicos: boolean) =>
     meApi<
@@ -441,12 +466,26 @@ export async function meCalculate(input: {
     >(input.companyId, "POST", "/me/shipment/calculate", {
       from: { postal_code: conn.fromZip!.replace(/\D/g, "") },
       to: { postal_code: input.toZip.replace(/\D/g, "") },
-      package: {
-        weight: pacote.pesoKg,
-        width: pacote.larguraCm,
-        height: pacote.alturaCm,
-        length: pacote.comprimentoCm,
-      },
+      // 1 volume vai como `package` (o formato de sempre, comprovado);
+      // 2+ vão como `volumes` — Correios só etiquetam 1 volume, e a recusa
+      // deles aparece explicada na lista de "quem não cotou"
+      ...(pacotes.length === 1
+        ? {
+            package: {
+              weight: pacotes[0].pesoKg,
+              width: pacotes[0].larguraCm,
+              height: pacotes[0].alturaCm,
+              length: pacotes[0].comprimentoCm,
+            },
+          }
+        : {
+            volumes: pacotes.map((v) => ({
+              weight: v.pesoKg,
+              width: v.larguraCm,
+              height: v.alturaCm,
+              length: v.comprimentoCm,
+            })),
+          }),
       options: {
         insurance_value: Math.round(input.insuranceValue * 100) / 100,
         receipt: false,
@@ -519,7 +558,7 @@ export async function meCalculate(input: {
       error:
         "Nenhuma transportadora atende este trecho/peso. Confira o CEP do cliente e o peso do pedido.",
     };
-  return { ok: true, quotes, recusadas, fromZip: conn.fromZip, pacote };
+  return { ok: true, quotes, recusadas, fromZip: conn.fromZip, pacotes };
 }
 
 // ---- Compra da etiqueta ------------------------------------------------------
@@ -604,10 +643,10 @@ export async function meBuyShipment(input: {
   items: { name: string; quantity: number; unitPrice: number }[];
   weightKg: number;
   insuranceValue: number;
-  /** Medidas REAIS do pacote (cm) — as MESMAS da cotação aceita; sem elas
-   *  vale a caixa padrão da loja. Etiqueta comprada com medida diferente da
-   *  cotada é ajuste de valor na transportadora. */
-  dims?: { widthCm: number; heightCm: number; lengthCm: number };
+  /** VOLUMES REAIS do pacote — os MESMOS da cotação aceita; sem eles vale a
+   *  caixa padrão da loja. Etiqueta comprada com medida diferente da cotada
+   *  é ajuste de valor na transportadora. */
+  volumes?: VolumePacote[];
   orderLabel: string; // ex.: "Pedido #123" (aparece na sua conta ME)
   /** Chave de acesso da NF-e (44 dígitos). Com ela a etiqueta sai COM nota. */
   nfeKey?: string | null;
@@ -647,14 +686,12 @@ export async function meBuyShipment(input: {
         quantity: i.quantity,
         unitary_value: Math.round(i.unitPrice * 100) / 100,
       })),
-      volumes: [
-        {
-          weight: input.weightKg,
-          width: input.dims?.widthCm ?? conn.boxWidthCm,
-          height: input.dims?.heightCm ?? conn.boxHeightCm,
-          length: input.dims?.lengthCm ?? conn.boxLengthCm,
-        },
-      ],
+      volumes: volumesDoEnvio(input.volumes, input.weightKg, conn).map((v) => ({
+        weight: v.pesoKg,
+        width: v.larguraCm,
+        height: v.alturaCm,
+        length: v.comprimentoCm,
+      })),
       options: {
         insurance_value: Math.round(input.insuranceValue * 100) / 100,
         receipt: false,
