@@ -543,6 +543,9 @@ model Customer {
   // para jurídica. Com um campo só, guardar um apagava o outro.
   cpf             String?
   cnpj            String?
+  // Inscrição Estadual — anda junto do CNPJ (cliente lojista): algumas
+  // transportadoras exigem para envio a pessoa jurídica (etiqueta ME)
+  stateRegistration String?
   zip             String? // CEP
   street          String?
   streetNumber    String?

@@ -89,6 +89,25 @@ export function EnvioFrete({
   // o servidor recusou a compra por causa da nota e ofereceu seguir sem ela
   const [podeSemNota, setPodeSemNota] = useState(false);
   const [weightKg, setWeightKg] = useState<number | null>(null);
+  // MEDIDAS DO PACOTE (pedido do dono, 17/08/2026): no atacado a caixa muda a
+  // cada pedido — pesar e medir de verdade dá a cotação realista. Os campos
+  // nascem preenchidos com o automático (peso das peças + caixa padrão) e a
+  // lojista só corrige o que mediu na fita. `medCotadas` guarda o que foi
+  // usado na ÚLTIMA cotação: a compra vai com as MESMAS medidas do preço
+  // aceito (medida diferente da cotada vira ajuste na transportadora).
+  const [med, setMed] = useState<{
+    peso: string;
+    altura: string;
+    largura: string;
+    comprimento: string;
+  } | null>(null);
+  const [medManuais, setMedManuais] = useState(false);
+  const [medCotadas, setMedCotadas] = useState<{
+    pesoKg: number;
+    alturaCm: number;
+    larguraCm: number;
+    comprimentoCm: number;
+  } | null>(null);
   const [escolhido, setEscolhido] = useState<number | null>(null);
   const [busy, setBusy] = useState<
     "cotar" | "comprar" | "cancelar" | "rastreio" | "etiqueta" | "enviar" | null
@@ -142,10 +161,29 @@ export function EnvioFrete({
     }
   }
 
+  // número tolerante a vírgula ("4,95") — é como a balança aparece na cabeça
+  const num = (s: string): number | null => {
+    const n = parseFloat(s.replace(",", "."));
+    return Number.isFinite(n) && n > 0 ? n : null;
+  };
+
+  /** Medidas digitadas, completas e válidas — ou null (vale o automático). */
+  function medidasDigitadas() {
+    if (!med) return null;
+    const pesoKg = num(med.peso);
+    const alturaCm = num(med.altura);
+    const larguraCm = num(med.largura);
+    const comprimentoCm = num(med.comprimento);
+    if (pesoKg == null || alturaCm == null || larguraCm == null || comprimentoCm == null)
+      return null;
+    return { pesoKg, alturaCm, larguraCm, comprimentoCm };
+  }
+
   async function cotar() {
     setBusy("cotar");
     setErro("");
-    const { ok, d } = await acao({ action: "cotar" });
+    const m = medidasDigitadas();
+    const { ok, d } = await acao({ action: "cotar", ...(m ? { medidas: m } : {}) });
     setBusy(null);
     if (!ok) {
       // Cotação velha na tela = preço velho no botão "Comprar etiqueta" (o
@@ -153,6 +191,7 @@ export function EnvioFrete({
       setQuotes(null);
       setRecusadas([]);
       setEscolhido(null);
+      setMedCotadas(null);
       return setErro(d.error ?? "Não foi possível cotar o frete.");
     }
     setQuotes(d.quotes ?? []);
@@ -160,11 +199,50 @@ export function EnvioFrete({
     setTemNota(Boolean(d.comNota));
     setWeightKg(d.weightKg ?? null);
     setEscolhido(d.quotes?.[0]?.serviceId ?? null);
+    // pré-preenche os campos com o que ESTA cotação usou (automático na 1ª
+    // vez); a compra vai com exatamente estas medidas
+    const u = d.medidasUsadas as
+      | { pesoKg: number; alturaCm: number; larguraCm: number; comprimentoCm: number; manuais?: boolean }
+      | undefined;
+    if (u) {
+      setMed({
+        peso: String(u.pesoKg).replace(".", ","),
+        altura: String(u.alturaCm).replace(".", ","),
+        largura: String(u.larguraCm).replace(".", ","),
+        comprimento: String(u.comprimentoCm).replace(".", ","),
+      });
+      setMedManuais(Boolean(u.manuais));
+      // SEMPRE prende as medidas da cotação (automática inclusive): a compra
+      // repete exatamente o que gerou o preço confirmado — sem isso, itens
+      // adicionados ao pedido entre cotar e comprar mudavam o valor debitado
+      setMedCotadas({
+        pesoKg: u.pesoKg,
+        alturaCm: u.alturaCm,
+        larguraCm: u.larguraCm,
+        comprimentoCm: u.comprimentoCm,
+      });
+    }
   }
 
   async function comprar(semNota = false) {
     const q = quotes?.find((x) => x.serviceId === escolhido);
     if (!q) return;
+    // MEDIDA EDITADA SEM RECOTAR NÃO COMPRA: a etiqueta sairia com as
+    // medidas VELHAS da cotação, contradizendo o que a tela promete — e
+    // medida errada na etiqueta é ajuste de valor da transportadora depois
+    const dig = medidasDigitadas();
+    if (
+      dig &&
+      medCotadas &&
+      (dig.pesoKg !== medCotadas.pesoKg ||
+        dig.alturaCm !== medCotadas.alturaCm ||
+        dig.larguraCm !== medCotadas.larguraCm ||
+        dig.comprimentoCm !== medCotadas.comprimentoCm)
+    ) {
+      return setErro(
+        "Você alterou as medidas depois da cotação. Clique em Recotar para atualizar os preços antes de comprar."
+      );
+    }
     const doc = semNota || !temNota ? "declaração de conteúdo" : "NF-e";
     if (
       !window.confirm(
@@ -179,6 +257,8 @@ export function EnvioFrete({
       serviceId: q.serviceId,
       service: q.service,
       carrier: q.carrier,
+      // as MESMAS medidas da cotação aceita (null = automático de sempre)
+      ...(medCotadas ? { medidas: medCotadas } : {}),
       ...(semNota ? { semNota: true } : {}),
     });
     setBusy(null);
@@ -482,9 +562,67 @@ export function EnvioFrete({
       ) : quotes ? (
         <div className="space-y-2">
           <p className="text-xs text-gray-500">
-            Cotação para <b>{weightKg} kg</b> (peso das peças + caixa padrão da
-            loja).{quotes.length > 0 && " Escolha o serviço:"}
+            {medManuais ? (
+              <>
+                Cotação para <b>{weightKg} kg</b> com as{" "}
+                <b>medidas informadas do pacote</b>.
+              </>
+            ) : (
+              <>
+                Cotação para <b>{weightKg} kg</b> (peso das peças + caixa
+                padrão da loja).
+              </>
+            )}
+            {quotes.length > 0 && " Escolha o serviço:"}
           </p>
+          {/* Pesou e mediu a caixa de verdade? Corrige aqui e recota — no
+              atacado a caixa muda a cada pedido, e medida real = preço real
+              (sem ajuste de valor da transportadora depois). */}
+          {med && (
+            <details className="rounded-xl border border-gray-200 bg-gray-50/60 px-3 py-2" open={medManuais}>
+              <summary className="cursor-pointer text-xs font-medium text-gray-600">
+                📏 Pesei e medi o pacote — usar as medidas reais
+              </summary>
+              <div className="mt-2 grid grid-cols-2 sm:grid-cols-4 gap-2">
+                {(
+                  [
+                    ["peso", "Peso (kg)"],
+                    ["altura", "Altura (cm)"],
+                    ["largura", "Largura (cm)"],
+                    ["comprimento", "Comprim. (cm)"],
+                  ] as const
+                ).map(([campo, rotulo]) => (
+                  <label key={campo} className="text-[10px] text-gray-400">
+                    {rotulo}
+                    <input
+                      value={med[campo]}
+                      onChange={(e) => setMed({ ...med, [campo]: e.target.value })}
+                      inputMode="decimal"
+                      className="mt-0.5 w-full rounded-lg border border-gray-200 bg-white px-2 py-1.5 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-orange-300"
+                    />
+                  </label>
+                ))}
+              </div>
+              <div className="mt-2 flex items-center justify-between gap-2">
+                <p className="text-[10px] text-gray-400">
+                  A cotação e a etiqueta saem com estas medidas. Sem mexer,
+                  vale o automático.
+                </p>
+                <button
+                  onClick={cotar}
+                  disabled={busy === "cotar" || !medidasDigitadas()}
+                  className="inline-flex items-center gap-1 rounded-lg bg-gray-800 hover:bg-gray-900 text-white text-xs font-semibold px-3 py-1.5 transition disabled:opacity-50"
+                >
+                  {busy === "cotar" ? (
+                    <Loader2 className="size-3.5 animate-spin" />
+                  ) : (
+                    <RefreshCcw className="size-3.5" />
+                  )}
+                  Recotar
+                </button>
+              </div>
+            </details>
+          )}
           {quotes.map((q) => (
             <label
               key={q.serviceId}

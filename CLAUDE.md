@@ -252,7 +252,12 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   OAuth por loja (`lib/melhorenvio.ts`); peso por produto (sync automático da
   Nuvemshop, nunca sobrescreve manual) + padrão por categoria/loja; no pedido:
   cotar → comprar etiqueta (saldo da carteira ME da loja; gerente+) → imprimir
-  etiqueta + rastreio (msg WhatsApp pronta). Cancelamento antes da postagem
+  etiqueta + rastreio (msg WhatsApp pronta). **Medidas reais do pacote**
+  (17/08/2026): a cotação nasce automática (peso das peças + caixa padrão) e a
+  lojista pode pesar/medir a caixa e recotar — a compra sai com as MESMAS
+  medidas da cotação aceita. Compra exige cadastro completo do cliente (CEP,
+  rua, número, bairro, cidade, UF, telefone e CPF **ou** CNPJ; com CNPJ, a
+  Inscrição Estadual — `Customer.stateRegistration` — vai na etiqueta). Cancelamento antes da postagem
   devolve o valor. **RN-016** · Pedido com nota AUTORIZADA (Bling) compra a
   etiqueta COM a NF-e (chave de acesso); sem nota, sai com declaração de
   conteúdo (`/declaracao/[id]`). A chave é conferida no Bling ANTES de debitar

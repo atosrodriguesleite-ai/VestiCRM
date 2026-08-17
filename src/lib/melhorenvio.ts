@@ -393,8 +393,20 @@ export async function meCalculate(input: {
   toZip: string;
   weightKg: number;
   insuranceValue: number;
+  /** Medidas REAIS do pacote (cm), medidas na fita — sem elas vale a caixa
+   *  padrão da loja. No atacado a caixa muda a cada pedido, e medida de
+   *  verdade = cotação de verdade (pedido do dono, 17/08/2026). */
+  dims?: { widthCm: number; heightCm: number; lengthCm: number };
 }): Promise<
-  | { ok: true; quotes: MeQuote[]; recusadas: MeRecusa[]; fromZip: string }
+  | {
+      ok: true;
+      quotes: MeQuote[];
+      recusadas: MeRecusa[];
+      fromZip: string;
+      /** O pacote que ESTA cotação declarou — fonte única para a tela
+       *  pré-preencher e para a compra sair com as MESMAS medidas. */
+      pacote: { pesoKg: number; alturaCm: number; larguraCm: number; comprimentoCm: number };
+    }
   | { ok: false; error: string }
 > {
   const conn = await db.melhorEnvioConnection.findUnique({
@@ -406,6 +418,14 @@ export async function meCalculate(input: {
       ok: false,
       error: "Preencha o CEP do remetente em Configurações → Melhor Envio.",
     };
+  // o pacote é montado UMA vez e devolvido no resultado: o que foi cotado é
+  // exatamente o que a tela mostra e o que a compra repete
+  const pacote = {
+    pesoKg: input.weightKg,
+    larguraCm: input.dims?.widthCm ?? conn.boxWidthCm,
+    alturaCm: input.dims?.heightCm ?? conn.boxHeightCm,
+    comprimentoCm: input.dims?.lengthCm ?? conn.boxLengthCm,
+  };
   const servicos = await meServiceIds(input.companyId);
   const cotar = (comServicos: boolean) =>
     meApi<
@@ -422,10 +442,10 @@ export async function meCalculate(input: {
       from: { postal_code: conn.fromZip!.replace(/\D/g, "") },
       to: { postal_code: input.toZip.replace(/\D/g, "") },
       package: {
-        weight: input.weightKg,
-        width: conn.boxWidthCm,
-        height: conn.boxHeightCm,
-        length: conn.boxLengthCm,
+        weight: pacote.pesoKg,
+        width: pacote.larguraCm,
+        height: pacote.alturaCm,
+        length: pacote.comprimentoCm,
       },
       options: {
         insurance_value: Math.round(input.insuranceValue * 100) / 100,
@@ -499,7 +519,7 @@ export async function meCalculate(input: {
       error:
         "Nenhuma transportadora atende este trecho/peso. Confira o CEP do cliente e o peso do pedido.",
     };
-  return { ok: true, quotes, recusadas, fromZip: conn.fromZip };
+  return { ok: true, quotes, recusadas, fromZip: conn.fromZip, pacote };
 }
 
 // ---- Compra da etiqueta ------------------------------------------------------
@@ -508,6 +528,9 @@ type Endereco = {
   name: string;
   cpf: string | null; // só dígitos
   cnpj: string | null; // só dígitos
+  /** Inscrição Estadual — só faz sentido junto do CNPJ (algumas
+   *  transportadoras exigem para envio a pessoa jurídica) */
+  stateRegistration?: string | null;
   phone: string | null;
   email: string | null;
   zip: string;
@@ -519,7 +542,8 @@ type Endereco = {
   state: string; // sigla
 };
 
-function pessoaME(e: Endereco) {
+// exportada para o teste que guarda a regra do documento (CPF/CNPJ/IE)
+export function pessoaME(e: Endereco) {
   // O Melhor Envio tem DOIS campos, e é por isso que o sistema guarda os dois
   // documentos: CPF vai em `document`, CNPJ em `company_document`. A loja
   // cliente costuma ter os dois (CNPJ da loja, CPF da titular) e algumas
@@ -527,12 +551,16 @@ function pessoaME(e: Endereco) {
   // uma aceita.
   const cpf = (e.cpf ?? "").replace(/\D/g, "");
   const cnpj = (e.cnpj ?? "").replace(/\D/g, "");
+  const ie = (e.stateRegistration ?? "").replace(/\D/g, "");
   return {
     name: e.name,
     phone: (e.phone ?? "").replace(/\D/g, "") || undefined,
     email: e.email || undefined,
     ...(cpf.length === 11 ? { document: cpf } : {}),
     ...(cnpj.length === 14 ? { company_document: cnpj } : {}),
+    // Inscrição Estadual acompanha o CNPJ (cliente lojista): sem CNPJ não
+    // existe IE — mandar solta confundiria a transportadora
+    ...(cnpj.length === 14 && ie ? { state_register: ie } : {}),
     address: e.street,
     number: e.number || "S/N",
     complement: e.complement || undefined,
@@ -576,6 +604,10 @@ export async function meBuyShipment(input: {
   items: { name: string; quantity: number; unitPrice: number }[];
   weightKg: number;
   insuranceValue: number;
+  /** Medidas REAIS do pacote (cm) — as MESMAS da cotação aceita; sem elas
+   *  vale a caixa padrão da loja. Etiqueta comprada com medida diferente da
+   *  cotada é ajuste de valor na transportadora. */
+  dims?: { widthCm: number; heightCm: number; lengthCm: number };
   orderLabel: string; // ex.: "Pedido #123" (aparece na sua conta ME)
   /** Chave de acesso da NF-e (44 dígitos). Com ela a etiqueta sai COM nota. */
   nfeKey?: string | null;
@@ -618,9 +650,9 @@ export async function meBuyShipment(input: {
       volumes: [
         {
           weight: input.weightKg,
-          width: conn.boxWidthCm,
-          height: conn.boxHeightCm,
-          length: conn.boxLengthCm,
+          width: input.dims?.widthCm ?? conn.boxWidthCm,
+          height: input.dims?.heightCm ?? conn.boxHeightCm,
+          length: input.dims?.lengthCm ?? conn.boxLengthCm,
         },
       ],
       options: {

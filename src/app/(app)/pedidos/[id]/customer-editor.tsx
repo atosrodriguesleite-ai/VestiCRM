@@ -23,6 +23,7 @@ type CustomerData = {
   email: string | null;
   cpf: string | null;
   cnpj: string | null;
+  stateRegistration: string | null;
   zip: string | null;
   street: string | null;
   streetNumber: string | null;
@@ -56,6 +57,7 @@ export function CustomerEditor({
     email: customer.email ?? "",
     cpf: customer.cpf ?? "",
     cnpj: customer.cnpj ?? "",
+    stateRegistration: customer.stateRegistration ?? "",
     zip: customer.zip ?? "",
     street: customer.street ?? "",
     streetNumber: customer.streetNumber ?? "",
@@ -118,6 +120,8 @@ export function CustomerEditor({
       email: form.email.trim() || null,
       cpf: form.cpf.trim() || null,
       cnpj: form.cnpj.trim() || null,
+      // IE sem CNPJ não existe: apagou o CNPJ, a IE vai junto
+      stateRegistration: form.cnpj.trim() ? form.stateRegistration.trim() || null : null,
       zip: form.zip.trim() || null,
       street: form.street.trim() || null,
       streetNumber: form.streetNumber.trim() || null,
@@ -265,6 +269,14 @@ export function CustomerEditor({
           <span className={label}>CNPJ</span>
           <input value={form.cnpj} onChange={set("cnpj")} placeholder="00.000.000/0000-00" inputMode="numeric" className={input} />
         </div>
+        {/* IE só aparece quando há CNPJ: acompanha a pessoa jurídica (algumas
+            transportadoras exigem na etiqueta) */}
+        {form.cnpj.trim() && (
+          <div>
+            <span className={label}>Inscrição Estadual</span>
+            <input value={form.stateRegistration} onChange={set("stateRegistration")} placeholder="000.000.000.000 (ou vazio se isenta)" inputMode="numeric" className={input} />
+          </div>
+        )}
         <div>
           <span className={label}>E-mail</span>
           <input value={form.email} onChange={set("email")} placeholder="cliente@email.com" type="email" className={input} />

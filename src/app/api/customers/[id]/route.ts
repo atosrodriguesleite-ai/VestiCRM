@@ -95,6 +95,8 @@ const schema = z.object({
   // CPF e CNPJ separados (ver src/lib/documento.ts)
   cpf: z.string().max(20).nullable().optional(),
   cnpj: z.string().max(25).nullable().optional(),
+  // Inscrição Estadual (anda junto do CNPJ; vai na etiqueta do Melhor Envio)
+  stateRegistration: z.string().max(20).nullable().optional(),
   zip: z.string().max(10).nullable().optional(),
   street: z.string().max(120).nullable().optional(),
   // "Número" costuma vir com complemento (apto, bloco, loja) — cabe folgado
@@ -134,6 +136,7 @@ export async function PATCH(
       // e ninguém sabia onde estava o problema)
       const rotulos: Record<string, string> = {
         name: "Nome", phone: "Telefone", email: "E-mail", cpf: "CPF", cnpj: "CNPJ",
+        stateRegistration: "Inscrição Estadual",
         zip: "CEP", street: "Rua", streetNumber: "Número", complement: "Complemento", district: "Bairro",
         city: "Cidade", state: "Estado", notes: "Observações",
       };
@@ -161,7 +164,8 @@ export async function PATCH(
       return NextResponse.json({ error: "Não encontrado" }, { status: 404 });
     }
 
-    const { nextContactAt, ownerId, birthDate, cpf, cnpj, ...rest } = parsed.data;
+    const { nextContactAt, ownerId, birthDate, cpf, cnpj, stateRegistration, ...rest } =
+      parsed.data;
     const data: Record<string, unknown> = { ...rest };
 
     // CPF/CNPJ errado só aparece quando a transportadora recusa a etiqueta ou
@@ -174,6 +178,14 @@ export async function PATCH(
     // Envio/Bling só aceitam dígitos
     if (cpf !== undefined) data.cpf = guardarDocumento(cpf);
     if (cnpj !== undefined) data.cnpj = guardarDocumento(cnpj);
+    // IE ANDA JUNTO DO CNPJ — e a regra vive AQUI, não só na tela: qualquer
+    // porta que apague o CNPJ leva a IE junto (IE órfã de outro CNPJ iria
+    // para a etiqueta do Melhor Envio como dado fiscal errado)
+    if (stateRegistration !== undefined) {
+      data.stateRegistration = stateRegistration?.trim() || null;
+    }
+    const cnpjFinal = cnpj !== undefined ? (data.cnpj as string | null) : customer.cnpj;
+    if (!cnpjFinal) data.stateRegistration = null;
     // aniversário chega como "AAAA-MM-DD"; grava ao MEIO-DIA em UTC para que
     // o fuso de São Paulo (UTC-3) nunca jogue a data para o dia anterior
     if (birthDate !== undefined) {

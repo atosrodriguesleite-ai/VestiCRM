@@ -92,6 +92,18 @@ const postSchema = z.object({
   serviceId: z.number().int().positive().optional(),
   service: z.string().max(60).optional(),
   carrier: z.string().max(60).optional(),
+  // MEDIDAS REAIS do pacote (medidas na fita, peso na balança): no atacado a
+  // caixa muda a cada pedido — medida de verdade = cotação de verdade. Sem
+  // elas vale o automático (peso das peças + caixa padrão da loja). Os tetos
+  // são os do Melhor Envio (150 cm por lado, 150 kg somando transportadoras).
+  medidas: z
+    .object({
+      pesoKg: z.number().positive().max(150),
+      alturaCm: z.number().positive().max(150),
+      larguraCm: z.number().positive().max(150),
+      comprimentoCm: z.number().positive().max(150),
+    })
+    .optional(),
   // saída de emergência: comprar com declaração de conteúdo mesmo com nota no
   // pedido (Bling fora do ar, nota que sumiu de lá). É escolha da loja, nunca
   // do sistema — despachar com o documento errado é problema fiscal dela.
@@ -122,7 +134,16 @@ export async function POST(
       );
 
     const destZip = (order.customer.zip ?? "").replace(/\D/g, "");
-    const pesoKg = pesoDoPedidoKg(order.items, conn);
+    // medidas manuais (quando informadas) mandam; senão o automático de sempre
+    const medidas = parsed.data.medidas;
+    const pesoKg = medidas?.pesoKg ?? pesoDoPedidoKg(order.items, conn);
+    const dims = medidas
+      ? {
+          widthCm: medidas.larguraCm,
+          heightCm: medidas.alturaCm,
+          lengthCm: medidas.comprimentoCm,
+        }
+      : undefined;
     // valor segurado = valor das peças (sem frete)
     const valorPecas = Math.max(0, order.subtotal - order.discount);
 
@@ -137,6 +158,7 @@ export async function POST(
         toZip: destZip,
         weightKg: pesoKg,
         insuranceValue: valorPecas,
+        dims,
       });
       if (!r.ok) return NextResponse.json({ error: r.error }, { status: 502 });
       // `recusadas` = quem não cotou E o porquê. A tela mostra — esconder
@@ -145,6 +167,9 @@ export async function POST(
         quotes: r.quotes,
         recusadas: r.recusadas,
         weightKg: pesoKg,
+        // o pacote que a cotação DECLAROU (fonte única: vem do meCalculate) —
+        // a tela pré-preenche os campos com isto e a compra repete igual
+        medidasUsadas: { ...r.pacote, manuais: Boolean(medidas) },
         // a nota pode ter sido emitida DEPOIS de a tela abrir — a cotação
         // devolve a situação de agora para a promessa não mentir
         comNota: order.nfeStatus === "AUTORIZADA" && Boolean(order.nfeKey),
@@ -170,16 +195,26 @@ export async function POST(
           { status: 409 }
         );
       const c = order.customer;
+      // OBRIGATÓRIOS DA ETIQUETA (pedido do dono, 17/08/2026): a etiqueta
+      // sem bairro/telefone/documento era recusada pela transportadora DEPOIS
+      // do débito — a conferência completa é aqui, antes de gastar o saldo.
+      const cpfDigitos = (c.cpf ?? "").replace(/\D/g, "");
+      const cnpjDigitos = (c.cnpj ?? "").replace(/\D/g, "");
       const faltando = [
         !destZip && "CEP",
         !c.street?.trim() && "rua",
         !c.streetNumber?.trim() && "número",
+        !c.district?.trim() && "bairro",
         !c.city?.trim() && "cidade",
         !c.state?.trim() && "estado",
+        (c.phone ?? "").replace(/\D/g, "").length < 8 && "telefone",
+        cpfDigitos.length !== 11 && cnpjDigitos.length !== 14 && "CPF ou CNPJ",
       ].filter(Boolean);
       if (faltando.length)
         return NextResponse.json(
-          { error: `Complete o endereço do cliente: falta ${faltando.join(", ")}.` },
+          {
+            error: `Complete o cadastro do cliente (botão "Editar dados" no topo do pedido): falta ${faltando.join(", ")}.`,
+          },
           { status: 409 }
         );
       if (!conn.fromZip || !conn.fromStreet || !conn.fromCity || !conn.fromState || !conn.fromName)
@@ -255,6 +290,7 @@ export async function POST(
           name: c.name,
           cpf: c.cpf,
           cnpj: c.cnpj,
+          stateRegistration: c.stateRegistration,
           phone: c.phone,
           email: c.email,
           zip: destZip,
@@ -272,6 +308,9 @@ export async function POST(
         })),
         weightKg: pesoKg,
         insuranceValue: valorPecas,
+        // as MESMAS medidas da cotação aceita — etiqueta comprada com medida
+        // diferente da cotada vira ajuste de valor na transportadora
+        dims,
         orderLabel: `Pedido ${orderNumber(order.number)}`,
         // Nota AUTORIZADA e CONFIRMADA no Bling → etiqueta com NF-e. Sem nota
         // → declaração de conteúdo, como sempre. A loja não escolhe nada: o
