@@ -1642,7 +1642,19 @@ export function PublicCatalog({
           maxHeight: "calc(88dvh - var(--kb, 0px))",
           bottom: "var(--kb, 0px)", // sobe acima do teclado no celular
           boxShadow: "0 -10px 40px rgba(0,0,0,.22)",
-          transform: sheet ? "translateY(0)" : "translateY(100%)",
+          // FECHADA É FECHADA (incidente Entre Linhas, 17/08/2026): o
+          // deslocamento some junto com a gaveta. Antes ela descia só a
+          // própria altura e, se `--kb` estivesse errado (zoom de pinça no
+          // notebook media "teclado" que não existe), ficava PENDURADA no
+          // meio da tela — e o ✕ não fazia nada, porque para o sistema já
+          // estava fechada. `visibility` fecha o resto: nada de gaveta
+          // invisível roubando clique.
+          transform: sheet ? "translateY(0)" : "translateY(calc(100% + var(--kb, 0px)))",
+          visibility: sheet ? "visible" : "hidden",
+          pointerEvents: sheet ? "auto" : "none",
+          // `visibility` acompanha a descida: o navegador mantém visível
+          // durante a transição e só esconde no fim (não pisca)
+          transition: "transform .3s, visibility .3s",
         }}
       >
         {sheet && (
@@ -1812,7 +1824,19 @@ export function PublicCatalog({
           maxHeight: "calc(88dvh - var(--kb, 0px))",
           bottom: "var(--kb, 0px)", // sobe acima do teclado no celular
           boxShadow: "0 -10px 40px rgba(0,0,0,.22)",
-          transform: bagOpen ? "translateY(0)" : "translateY(100%)",
+          // FECHADA É FECHADA (incidente Entre Linhas, 17/08/2026): o
+          // deslocamento some junto com a gaveta. Antes ela descia só a
+          // própria altura e, se `--kb` estivesse errado (zoom de pinça no
+          // notebook media "teclado" que não existe), ficava PENDURADA no
+          // meio da tela — e o ✕ não fazia nada, porque para o sistema já
+          // estava fechada. `visibility` fecha o resto: nada de gaveta
+          // invisível roubando clique.
+          transform: bagOpen ? "translateY(0)" : "translateY(calc(100% + var(--kb, 0px)))",
+          visibility: bagOpen ? "visible" : "hidden",
+          pointerEvents: bagOpen ? "auto" : "none",
+          // `visibility` acompanha a descida: o navegador mantém visível
+          // durante a transição e só esconde no fim (não pisca)
+          transition: "transform .3s, visibility .3s",
         }}
       >
         <div className="w-[38px] h-1 rounded mx-auto mt-2.5" style={{ background: T.line }} />
