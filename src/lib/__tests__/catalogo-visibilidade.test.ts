@@ -96,7 +96,7 @@ describe("por que a peça não aparece no catálogo", () => {
 
 describe("o diagnóstico segue a regra REAL da vitrine", () => {
   const catalogo = readFileSync(
-    join(process.cwd(), "src/app/catalogo/[slug]/page.tsx"),
+    join(process.cwd(), "src/app/catalogo/[slug]/montar-catalogo.tsx"),
     "utf8"
   );
   const vitrine = readFileSync(

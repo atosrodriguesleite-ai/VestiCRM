@@ -13,6 +13,12 @@ import {
 import { pushStockToNuvemshop } from "@/lib/nuvemshop";
 import { pushStockToJueri } from "@/lib/jueri";
 import { catalogPrice, orderNumber, round2 } from "@/lib/orders";
+import {
+  resolverLink,
+  modoValido,
+  faltaParaOMinimo,
+  textoDoMinimo,
+} from "@/lib/catalogo/tabelas-de-preco";
 import { comNumeroUnico } from "@/lib/numero-do-pedido";
 import { syncOpportunityValue, garantirCartaoDoPedido } from "@/lib/opportunity-sync";
 import { avancarFunil } from "@/lib/funil-auto";
@@ -65,6 +71,8 @@ const schema = z.object({
   ref: z.string().max(120).optional(), // link do vendedor/campanha (?ref=)
   c: z.string().max(60).optional(), // link rastreado por cliente (?c=)
   promo: z.string().max(60).optional(), // catálogo de campanha (desconto)
+  /** TABELA DE PREÇO: código do link por onde a cliente entrou (atacado/varejo) */
+  link: z.string().max(60).optional(),
   /**
    * PROTOCOLO DO ENVIO: código sorteado no aparelho da cliente antes de
    * mandar. É o que deixa o catálogo INSISTIR sem medo — se a internet
@@ -91,10 +99,32 @@ export async function POST(req: NextRequest) {
   if (!company || company.suspended) {
     return NextResponse.json({ error: "Loja não encontrada" }, { status: 404 });
   }
+  // TABELA DE PREÇO DO LINK (recurso gated). O navegador diz por qual link
+  // entrou; QUEM DECIDE O PREÇO É AQUI. Link de loja que não ativou o recurso
+  // (ou desativado) não vale, e a vitrine volta à tabela padrão da loja.
+  const tabela = await resolverLink(company.id, input.link, company.priceTablesEnabled);
+  // A CLIENTE VEIO POR UM LINK QUE NÃO VALE MAIS (desativado, ou o recurso
+  // saiu do ar): NÃO cobrar pela tabela padrão. Ela viu preço de atacado na
+  // tela; cair no varejo em silêncio cobraria a mais e ainda faria a
+  // exigência de quantidade mínima sumir sem ninguém perceber.
+  if (input.link && !tabela) {
+    return NextResponse.json(
+      {
+        error:
+          "Este link de preço não está mais valendo. Peça o link atualizado para a loja antes de enviar o pedido.",
+        linkInvalido: true,
+      },
+      { status: 409 }
+    );
+  }
+  // campanha e tabela de preço não se somam: são endereços diferentes, e um
+  // pedido que chegasse com os dois teria desconto sobre atacado — valor que
+  // nenhuma tela mostrou. Manda a tabela do link.
+  const modoDePreco = tabela?.priceMode ?? modoValido(company.catalogPriceMode);
   // MESMO preço que a vitrine mostrou: a cliente não pode ver um valor na
   // tela e receber outro na confirmação do pedido
   const precoVitrine = (p: { retailPrice: number; wholesalePrice: number }) =>
-    catalogPrice(p, company.catalogPriceMode);
+    catalogPrice(p, modoDePreco);
 
   // JÁ ENTROU? A cliente (ou o próprio catálogo, insistindo) pode mandar o
   // mesmo pedido mais de uma vez. Devolvemos o pedido que já existe em vez
@@ -123,7 +153,7 @@ export async function POST(req: NextRequest) {
         include: { products: { select: { productId: true } } },
       })
     : null;
-  const promoActive = promo?.active ? promo : null;
+  const promoActive = promo?.active && !tabela ? promo : null;
   const promoProductIds = new Set(
     promoActive?.products.map((p) => p.productId) ?? []
   );
@@ -187,6 +217,21 @@ export async function POST(req: NextRequest) {
       total: round2(item.quantity * promoPrice(product.id, precoVitrine(product))),
     });
   }
+  // QUANTIDADE MÍNIMA DO ATACADO: a tela já avisa e desabilita o botão, mas
+  // quem decide é o servidor — o navegador é do cliente. Só vale no link de
+  // atacado; catálogo normal (e loja que não ativou o recurso) nunca cai aqui.
+  const faltasDoMinimo = faltaParaOMinimo(
+    input.items.map((i) => ({ productId: i.productId, quantity: i.quantity })),
+    products.map((p) => ({ id: p.id, name: p.name, minQuantity: p.minQuantity })),
+    modoDePreco === "ATACADO" && tabela ? "ATACADO" : "VAREJO"
+  );
+  if (faltasDoMinimo.length > 0) {
+    return NextResponse.json(
+      { error: textoDoMinimo(faltasDoMinimo), minimoAtacado: faltasDoMinimo },
+      { status: 409 }
+    );
+  }
+
   // round2: soma de floats deixa centavo fantasma (10.1+20.2 = 30.299999…)
   // e o valor gravado tem que bater com o que a cliente vê e paga
   const subtotal = round2(lines.reduce((a, l) => a + l.total, 0));
@@ -474,6 +519,9 @@ export async function POST(req: NextRequest) {
         sellerId: orderSellerId,
         clientRef: input.clientRef ?? null,
         trackSessionId,
+        // TABELA que precificou: sem este carimbo, um pedido de atacado
+        // reaberto/recalculado depois voltaria com preço de varejo
+        priceMode: tabela ? modoDePreco : null,
         status: "AGUARDANDO_PAGAMENTO",
         stockDeducted: true, // a peça está segurada desde já
         subtotal,

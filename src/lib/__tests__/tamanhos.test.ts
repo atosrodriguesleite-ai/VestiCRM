@@ -55,7 +55,7 @@ describe("as telas usam a régua", () => {
     expect(pg).toContain("compararTamanhos(a.name, b.name)");
   });
   it("catálogo público: bolinhas de tamanho na ordem da arara", () => {
-    expect(ler("src/app/catalogo/[slug]/page.tsx")).toContain("ordenarVariantes(p.variants)");
+    expect(ler("src/app/catalogo/[slug]/montar-catalogo.tsx")).toContain("ordenarVariantes(p.variants)");
   });
   it("seletores de pedido (API de produtos)", () => {
     expect(ler("src/app/api/products/route.ts")).toContain("ordenarVariantes(p.variants)");

@@ -103,7 +103,7 @@ describe("as portas estão ligadas", () => {
 
   it("as duas páginas do catálogo passam as descrições", () => {
     for (const p of [
-      "src/app/catalogo/[slug]/page.tsx",
+      "src/app/catalogo/[slug]/montar-catalogo.tsx",
       "src/app/catalogo/[slug]/c/[promo]/page.tsx",
     ]) {
       expect(ler(p)).toContain("categoryDescriptions={parseCategoryDescriptions(");

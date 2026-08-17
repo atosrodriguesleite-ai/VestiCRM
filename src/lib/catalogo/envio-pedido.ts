@@ -109,7 +109,13 @@ export function contarTentativa(storage: Storage, clientRef: string) {
   );
 }
 
-export type ResultadoEnvio = { ok: boolean; number?: number; permanente?: boolean };
+export type ResultadoEnvio = {
+  ok: boolean;
+  number?: number;
+  permanente?: boolean;
+  /** por que o servidor recusou (mostrado à cliente quando é recusa dele) */
+  motivo?: string;
+};
 
 /**
  * Uma tentativa de registro. `permanente` marca a falha que não adianta
@@ -131,8 +137,16 @@ export async function tentarRegistrar(
       const d = await res.json().catch(() => ({}));
       return { ok: true, number: d?.number };
     }
-    // 4xx é recusa do servidor: repetir daria o mesmo resultado
-    return { ok: false, permanente: res.status >= 400 && res.status < 500 };
+    // 4xx é recusa do servidor: repetir daria o mesmo resultado. O MOTIVO
+    // sobe junto — recusa que a cliente não vê (quantidade mínima do
+    // atacado, link vencido) é pedido que some sem ninguém entender.
+    const permanente = res.status >= 400 && res.status < 500;
+    const corpo = permanente ? await res.json().catch(() => ({})) : {};
+    return {
+      ok: false,
+      permanente,
+      motivo: typeof corpo?.error === "string" ? corpo.error : undefined,
+    };
   } catch {
     // sem internet / servidor fora: vale insistir
     return { ok: false };
@@ -153,6 +167,8 @@ export async function registrarComInsistencia(
     tentativas?: number;
     intervalos?: number[];
     dormir?: (ms: number) => Promise<unknown>;
+    /** avisado quando o servidor RECUSA de vez (com o motivo, se veio) */
+    aoRecusar?: (motivo?: string) => void;
   }
 ): Promise<boolean> {
   const { storage, fetchImpl = fetch, dormir = espera } = opts;
@@ -167,8 +183,10 @@ export async function registrarComInsistencia(
       return true;
     }
     if (r.permanente) {
-      // recusado de vez: tirar da fila para não insistir a cada visita
+      // recusado de vez: tirar da fila para não insistir a cada visita —
+      // mas devolvendo o motivo, para a tela poder contar à cliente
       removerPendente(storage, pendente.clientRef);
+      opts.aoRecusar?.(r.motivo);
       return false;
     }
     if (i < max - 1) await dormir(intervalos[Math.min(i, intervalos.length - 1)]);
@@ -239,6 +257,11 @@ export function assinaturaDoPedido(payload: Record<string, unknown>): string {
     `#${cliente.phone ?? ""}`,
     `#${cliente.store ?? ""}`,
     `#${payload.promo ?? ""}`,
+    // TABELA DE PREÇO: a MESMA sacola pelo link de varejo e pelo de atacado
+    // são dois pedidos diferentes (valores diferentes). Sem isto, o segundo
+    // caía como "já registrado" e a venda de atacado nunca existia — a tela
+    // dizia "Pedido registrado!" e a loja não recebia nada (revisão 17/08).
+    `#${payload.link ?? ""}`,
     `#${payload.ref ?? ""}`,
   ].join("~");
 }

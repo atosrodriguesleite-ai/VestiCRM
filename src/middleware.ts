@@ -75,6 +75,14 @@ export async function middleware(req: NextRequest) {
         url.pathname = `/catalogo/${segs[0]}/c/${segs[2]}`;
         return NextResponse.rewrite(url);
       }
+      // catálogo com TABELA DE PREÇO: catalago.net/<loja>/l/<código>.
+      // Precisa vir ANTES da regra de vendedor/cliente abaixo, senão o "l"
+      // seria lido como nome de vendedora e o código como cliente.
+      if (segs.length === 3 && segs[1] === "l") {
+        const url = req.nextUrl.clone();
+        url.pathname = `/catalogo/${segs[0]}/l/${segs[2]}`;
+        return NextResponse.rewrite(url);
+      }
       if (segs.length >= 1 && segs.length <= 3) {
         const url = req.nextUrl.clone();
         url.pathname = `/catalogo/${segs[0]}`;

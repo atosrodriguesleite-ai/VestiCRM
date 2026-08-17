@@ -2,11 +2,14 @@ import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import { requireUser } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { isAdmin, isSupport } from "@/lib/scope";
+import { isAdmin, isManagerUp, isSupport } from "@/lib/scope";
 import { parseCategoryOrder, sortCategories } from "@/lib/categories";
 import { compararTamanhos } from "@/lib/tamanhos";
 import { PageHeader } from "@/components/ui";
 import { CatalogDesigner } from "./catalog-designer";
+import { catalogUrl } from "@/lib/catalog-url";
+import { platformUrl } from "@/lib/site";
+import { LinksDePreco } from "./links-de-preco";
 
 export const dynamic = "force-dynamic";
 
@@ -47,6 +50,13 @@ export default async function CatalogCustomizePage() {
     parseCategoryOrder(company.categoryOrder)
   );
 
+  // endereço público do catálogo, montado no SERVIDOR (o domínio de
+  // catálogos vem de variável de ambiente e não existe no navegador)
+  const base = catalogUrl(company.slug);
+  const baseDoCatalogo = base.startsWith("http")
+    ? base
+    : `${platformUrl()}${base}`;
+
   return (
     <div className="max-w-5xl mx-auto">
       <Link
@@ -78,6 +88,18 @@ export default async function CatalogCustomizePage() {
         sizes={sizes.map((s) => ({ id: s.id, name: s.name }))}
         categories={categories}
       />
+      {/* recurso gated: quem não ativou não vê nada aqui */}
+      {company.priceTablesEnabled && (
+        <LinksDePreco
+          // gerente+ (a MESMA régua da API): preço é decisão comercial, e o
+          // perfil Suporte não tem poderes comerciais
+          canEdit={isManagerUp(user)}
+          // o endereço é montado NO SERVIDOR: o domínio de catálogos não
+          // existe no navegador, e o link copiado saía apontando para o
+          // domínio errado
+          baseUrl={baseDoCatalogo}
+        />
+      )}
     </div>
   );
 }

@@ -140,6 +140,13 @@ export default async function OrderDetailPage({
               <Badge color={orderStatusColor[order.status]}>
                 {orderStatusLabel[order.status]}
               </Badge>
+              {/* veio por um link de tabela de preço: a lojista precisa saber
+                  por que a peça saiu por outro valor */}
+              {order.priceMode && (
+                <Badge color={order.priceMode === "ATACADO" ? "#d97706" : "#0284c7"}>
+                  {order.priceMode === "ATACADO" ? "Preço de atacado" : "Preço de varejo"}
+                </Badge>
+              )}
             </div>
             {/* data automática no dia a dia; o lápis é o caso à parte do
                 lançamento retroativo (gerente+, auditado em OrderEvent) */}
