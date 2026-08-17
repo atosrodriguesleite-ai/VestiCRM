@@ -32,8 +32,13 @@ const dt = (d: Date) =>
 export async function GET() {
   try {
     const user = await requireUser();
+    // BACKUP NÃO ACOMPANHA A VISÃO TOTAL DO CHAT (achado da revisão de
+    // 17/08/2026): o interruptor abre a Central na TELA; baixar o histórico
+    // da loja inteira para o computador é outro tamanho de porta (LGPD,
+    // saída de funcionária). Vendedora exporta o escopo normal dela —
+    // atendimentos próprios + fila — com ou sem o interruptor.
     const conversations = await db.conversation.findMany({
-      where: conversationScope(user),
+      where: conversationScope({ ...user, chatVisaoTotal: false }),
       include: {
         customer: { select: { name: true, phone: true } },
         setor: { select: { name: true } },

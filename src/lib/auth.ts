@@ -14,6 +14,8 @@ export type SessionUser = {
   email: string;
   role: Role;
   color: string;
+  /** Vendedora com visão TOTAL do chat (só a Central; carteira/pedidos não). */
+  chatVisaoTotal: boolean;
   /** Quando o Super Admin está acessando uma loja, guarda o id dele. */
   impersonatedBy?: string;
 };
@@ -93,6 +95,9 @@ export async function getSessionUser(): Promise<SessionUser | null> {
       email: user.email,
       role: user.role,
       color: user.color,
+      // lido do banco a CADA requisição: ligar/desligar na tela Equipe vale
+      // na hora, sem a vendedora precisar sair e entrar
+      chatVisaoTotal: user.chatVisaoTotal,
       impersonatedBy,
     };
   } catch {

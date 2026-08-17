@@ -179,7 +179,10 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
 - **CRM**: clientes (carteira), funil de vendas, tarefas, automações,
   campanhas de disparo, tags/interesses, notificações (sino + push PWA).
 - **Central de Atendimento WhatsApp** (`/whatsapp`, tela `inbox.tsx`):
-  fila/chats/contatos, setores, assumir/transferir/encerrar, notas internas
+  fila/chats/contatos (vendedora vê os dela + a fila; o interruptor
+  **"vê todas as conversas do chat"** na tela Equipe — `User.chatVisaoTotal`,
+  `conversationScope` — abre a Central inteira para uma vendedora específica
+  SEM mexer em carteira/pedidos/comissão), setores, assumir/transferir/encerrar, notas internas
   com @menção, respostas rápidas (criáveis por qualquer um), mídia + áudio
   (gravação convertida no servidor), pedidos dentro do chat (com PDF enviado
   de verdade), **sync incremental a cada 3s** (`GET /api/conversations?since=`

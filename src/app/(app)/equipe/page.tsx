@@ -67,6 +67,7 @@ export default async function TeamPage() {
         .filter((v) => v.paidAt && v.paidAt >= startOfMonth)
         .reduce((s, v) => s + v.netTotal, 0),
       monthlyGoal: m.monthlyGoal,
+      chatVisaoTotal: m.chatVisaoTotal,
       isMe: m.id === user.id,
     }));
 

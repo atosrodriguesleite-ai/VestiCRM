@@ -36,9 +36,15 @@ export function ownedScope(user: SessionUser) {
  * Vendedor enxerga os atendimentos DELE + toda a FILA (conversas sem
  * responsável) — é o modelo de fila compartilhada: um número da loja para
  * todos os vendedores, quem estiver livre "assume" da fila.
+ *
+ * EXCEÇÃO POR PESSOA — `chatVisaoTotal` (pedido da Toque Leve, 17/08/2026):
+ * a vendedora marcada vê TODAS as conversas da loja, como gerente. Vale SÓ
+ * aqui, no chat: carteira, pedidos, comissão e relatórios seguem o escopo
+ * normal de vendedora. O admin liga/desliga na tela Equipe e vale na hora
+ * (a sessão relê o usuário do banco a cada requisição).
  */
 export function conversationScope(user: SessionUser) {
-  return canSeeAll(user)
+  return canSeeAll(user) || user.chatVisaoTotal
     ? { companyId: user.companyId }
     : {
         companyId: user.companyId,

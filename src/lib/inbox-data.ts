@@ -100,8 +100,27 @@ export async function loadInboxConversations(
   // catalago.net/loja/julia/<codigo> → sabe o comportamento do cliente no catálogo
   const { sellerRef } = trackedLinkParts(user, company?.slug ?? "");
   const catalogBase = catalogUrl(company?.slug ?? "");
-  const linkForCustomer = (linkCode: string | null, id: string) =>
-    trackedCatalogLink(catalogBase, sellerRef, linkCode ?? id);
+  // VISÃO TOTAL NÃO LEVA A VENDA DA COLEGA (achado da revisão de 17/08/2026):
+  // na conversa assumida por OUTRA pessoa, o link oferecido sai com o ref de
+  // QUEM ATENDE — pela RN-005, quem manda o link leva a venda E a carteira, e
+  // a vendedora com visão total do chat está ali para acompanhar, não para
+  // virar dona da cliente da colega com dois cliques.
+  const refDaConversa = (c: {
+    assigneeId: string | null;
+    assignee: { name: string; role: string } | null;
+  }): string | null =>
+    user.role === "SELLER" &&
+    user.chatVisaoTotal &&
+    c.assigneeId &&
+    c.assigneeId !== user.id &&
+    c.assignee
+      ? trackedLinkParts(c.assignee, company?.slug ?? "").sellerRef
+      : sellerRef;
+  const linkForCustomer = (
+    linkCode: string | null,
+    id: string,
+    c: { assigneeId: string | null; assignee: { name: string; role: string } | null }
+  ) => trackedCatalogLink(catalogBase, refDaConversa(c), linkCode ?? id);
 
   // presença de mídia em lote (uma consulta para todas as mensagens da carga)
   const comMidia = await idsComMidia(
@@ -128,7 +147,7 @@ export async function loadInboxConversations(
       // foto do WhatsApp (link do próprio WhatsApp; nulo = mostra iniciais)
       photoUrl: c.customer.photoUrl,
       wholesale: c.customer.type !== "VAREJO",
-      catalogLink: linkForCustomer(c.customer.linkCode, c.customer.id),
+      catalogLink: linkForCustomer(c.customer.linkCode, c.customer.id, c),
       tags: c.customer.tags.map((t) => ({
         id: t.tag.id,
         name: t.tag.name,

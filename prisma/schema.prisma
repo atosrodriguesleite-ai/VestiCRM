@@ -389,6 +389,11 @@ model User {
   avatarUrl      String? // foto do usuário (data-URL) — opcional; sem foto usa iniciais
   commissionRate Float    @default(0) // % de comissão sobre as vendas do vendedor
   monthlyGoal    Float    @default(0) // meta de vendas do mês (R$) — 0 = sem meta
+  // Vendedora com visão TOTAL do chat (pedido da Toque Leve, 17/08/2026):
+  // vê todas as conversas da Central de Atendimento, como gerente — mas SÓ o
+  // chat. Carteira, pedidos, comissão e relatórios continuam de vendedora.
+  // Ligado por pessoa, pelo admin, na tela Equipe.
+  chatVisaoTotal Boolean  @default(false)
   prefersDark    Boolean  @default(false) // modo escuro — escolha individual de cada usuário
   lastActiveAt   DateTime? // último acesso real ao sistema (não conta impersonação do super admin)
   createdAt      DateTime @default(now())

@@ -24,6 +24,8 @@ export type TeamMember = {
   /** vendido no MÊS corrente (fuso SP) — é o que a barra da meta usa */
   soldMonth: number;
   monthlyGoal: number;
+  /** vendedora com visão TOTAL do chat (só a Central de Atendimento) */
+  chatVisaoTotal: boolean;
   isMe: boolean;
 };
 
@@ -124,6 +126,17 @@ export function TeamView({
       body: JSON.stringify({ active: !m.active }),
     });
     if (res.ok) router.refresh();
+  }
+
+  // visão total do chat: liga/desliga na hora (a sessão relê a cada clique)
+  async function toggleChatVisaoTotal(m: TeamMember) {
+    const res = await fetch(`/api/team/${m.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ chatVisaoTotal: !m.chatVisaoTotal }),
+    });
+    if (res.ok) router.refresh();
+    else window.alert("Não foi possível alterar. Tente de novo.");
   }
 
   async function submit(e: React.FormEvent<HTMLFormElement>) {
@@ -335,6 +348,40 @@ export function TeamView({
                 </>
               )}
             </div>
+            {/* Visão total do chat — só faz sentido para vendedora (os outros
+                papéis já veem tudo). Vale SÓ na Central de Atendimento:
+                carteira, pedidos e comissão seguem o escopo normal. */}
+            {m.role === "SELLER" && (canManage || m.chatVisaoTotal) && (
+              <div className="mt-3 pt-3 border-t border-gray-50 flex items-center justify-between gap-2">
+                <div>
+                  <p className="text-xs font-medium text-gray-700">
+                    💬 Vê todas as conversas do chat
+                  </p>
+                  <p className="text-[10px] text-gray-400">
+                    Abre a Central inteira (como gerente). Pedidos e carteira
+                    continuam só os dela.
+                  </p>
+                </div>
+                {canManage ? (
+                  <button
+                    onClick={() => toggleChatVisaoTotal(m)}
+                    role="switch"
+                    aria-checked={m.chatVisaoTotal}
+                    className={`relative h-6 w-11 shrink-0 rounded-full transition ${
+                      m.chatVisaoTotal ? "bg-emerald-500" : "bg-gray-200"
+                    }`}
+                  >
+                    <span
+                      className={`absolute top-0.5 size-5 rounded-full bg-white shadow transition-all ${
+                        m.chatVisaoTotal ? "left-[22px]" : "left-0.5"
+                      }`}
+                    />
+                  </button>
+                ) : (
+                  <Badge color="#10b981">Ativo</Badge>
+                )}
+              </div>
+            )}
           </Card>
         ))}
       </div>
