@@ -70,8 +70,13 @@ export function podeTransferirVenda(
   if (user.role === "SUPPORT") return false;
   if (user.role === "ADMIN" || user.role === "SUPERADMIN" || user.role === "MANAGER")
     return true;
-  // vendedora: só o que é dela (pedido sem dono ainda também pode assumir)
-  return order.sellerId === null || order.sellerId === user.id;
+  // Vendedora: SÓ o que é dela. Pedido sem dona é DA LOJA (RN-005: "não
+  // existe desvio") — quem define a vendedora é a gerência (RN-006). A
+  // permissão de assumir sem dona era letra morta (o escopo escondia esses
+  // pedidos da vendedora), mas a chavinha pedidosVisaoTotal os tornou
+  // visíveis — e visível + assumível seria a comissão da loja indo embora
+  // em dois cliques (revisão 17/08/2026).
+  return order.sellerId === user.id;
 }
 
 export const ORDER_STATUS_FLOW: OrderStatus[] = [

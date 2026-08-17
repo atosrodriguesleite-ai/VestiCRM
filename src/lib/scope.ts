@@ -68,9 +68,16 @@ export function conversationScope(user: SessionUser) {
  * aparece para gerência.
  *
  * Gerente, admin e suporte continuam vendo a loja inteira.
+ *
+ * EXCEÇÃO POR PESSOA — `pedidosVisaoTotal` (pedido da Toque Leve,
+ * 17/08/2026, irmã da chavinha do chat): a vendedora marcada vê os pedidos
+ * da LOJA inteira. A comissão continua pelo `sellerId` (ver um pedido não o
+ * torna dela), transferir a venda da colega continua proibido
+ * (`podeTransferirVenda`), e a exportação de pedidos segue o escopo normal.
+ * O admin liga/desliga na tela Equipe e vale na hora.
  */
 export function orderScope(user: SessionUser) {
-  return canSeeAll(user)
+  return canSeeAll(user) || user.pedidosVisaoTotal
     ? { companyId: user.companyId }
     : { companyId: user.companyId, sellerId: user.id };
 }

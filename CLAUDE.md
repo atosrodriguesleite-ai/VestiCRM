@@ -149,7 +149,14 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
 - **RN-007 · Visibilidade de pedidos** (`orderScope` em `lib/scope.ts`): vendedora vê
   SÓ os pedidos dela (`sellerId`); gerente/admin/suporte veem a loja inteira.
   Vale em toda porta: lista, ficha, PDFs, Pix, NF-e, frete, transferência,
-  declaração e exportação.
+  declaração e exportação. **Exceção por pessoa** (17/08/2026): o interruptor
+  **"vê todos os pedidos da loja"** na tela Equipe (`User.pedidosVisaoTotal`,
+  irmão do `chatVisaoTotal`) abre a área de Pedidos inteira para uma
+  vendedora específica — **mostra, não mexe**: alterar/cancelar/marcar pago
+  pedido de colega ou da loja exige gerência (trava no PATCH), transferir
+  venda de colega OU assumir pedido sem dona segue proibido
+  (`podeTransferirVenda`; sem dona = da loja, gerência define) e a
+  exportação CSV segue o escopo normal.
 - **RN-008 · Leads**: entrada única pelo `lib/intake.ts` (Lead Intake Engine) —
   dedup por telefone **tolerante ao 9º dígito** (`phoneMatchVariants`),
   distribuição round-robin/fixa, conversa nasce NA FILA (sem dono; modelo

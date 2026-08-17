@@ -23,8 +23,11 @@ const dataSP = (d: Date | null) =>
 export async function GET() {
   try {
     const user = await requireUser();
-    // mesma régua da tela de Pedidos: vendedora exporta só o que é dela
-    const where = orderScope(user);
+    // EXPORTAÇÃO NÃO ACOMPANHA A VISÃO TOTAL (mesma régua do backup de
+    // conversas): ver os pedidos da loja na tela é uma coisa; baixar o
+    // faturamento inteiro em CSV é outro tamanho de porta. Vendedora exporta
+    // só o que é dela, com ou sem o interruptor.
+    const where = orderScope({ ...user, pedidosVisaoTotal: false });
     const orders = await db.order.findMany({
       where,
       include: {

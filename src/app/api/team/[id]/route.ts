@@ -13,6 +13,8 @@ const schema = z.object({
   monthlyGoal: z.number().min(0).optional(), // meta de vendas do mês (R$)
   // vendedora com visão TOTAL do chat (só a Central de Atendimento)
   chatVisaoTotal: z.boolean().optional(),
+  // vendedora com visão TOTAL dos pedidos (exceção por pessoa à RN-007)
+  pedidosVisaoTotal: z.boolean().optional(),
   // foto: string (data-URL) para definir/trocar, ou null para remover
   avatarUrl: z.string().max(700_000).nullable().optional(),
 });
@@ -64,6 +66,9 @@ export async function PATCH(
           : {}),
         ...(parsed.data.chatVisaoTotal !== undefined
           ? { chatVisaoTotal: parsed.data.chatVisaoTotal }
+          : {}),
+        ...(parsed.data.pedidosVisaoTotal !== undefined
+          ? { pedidosVisaoTotal: parsed.data.pedidosVisaoTotal }
           : {}),
         ...(parsed.data.avatarUrl !== undefined
           ? { avatarUrl: parsed.data.avatarUrl || null }

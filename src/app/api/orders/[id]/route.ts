@@ -123,6 +123,19 @@ export async function PATCH(
       return NextResponse.json({ error: "Não encontrado" }, { status: 404 });
     }
 
+    // VISÃO TOTAL MOSTRA, NÃO MEXE (revisão 17/08/2026): a chavinha
+    // pedidosVisaoTotal deixa a vendedora VER a loja inteira, mas pedido de
+    // OUTRA vendedora (ou sem dona = da loja) só a gerência altera. Sem esta
+    // trava, dava para dar desconto, cancelar com baixa definitiva e marcar
+    // pago o pedido da colega — mexendo na comissão dela. Antes da chavinha
+    // este caminho nem existia: o escopo escondia o pedido (404).
+    if (user.role === "SELLER" && order.sellerId !== user.id) {
+      return NextResponse.json(
+        { error: "Este pedido é de outra vendedora — só a gerência pode alterá-lo." },
+        { status: 403 }
+      );
+    }
+
     // Perfil Suporte: gerencia o pedido (status, rastreio, pagamento), mas
     // cancelamento e desconto são decisões comerciais — gerente pra cima.
     if (isSupport(user)) {

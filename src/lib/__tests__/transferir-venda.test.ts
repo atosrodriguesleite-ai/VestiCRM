@@ -22,12 +22,17 @@ describe("podeTransferirVenda", () => {
     expect(podeTransferirVenda(juliana, { sellerId: "lara" })).toBe(false);
   });
 
-  it("pedido ainda sem vendedor pode ser assumido", () => {
-    expect(podeTransferirVenda(lara, { sellerId: null })).toBe(true);
+  it("pedido sem dona é DA LOJA: vendedora NÃO assume sozinha (gerência define)", () => {
+    // A permissão antiga era letra morta (o escopo escondia esses pedidos),
+    // mas a chavinha pedidosVisaoTotal os tornou visíveis — e visível +
+    // assumível seria a comissão da loja indo embora em dois cliques
+    // (RN-005 "não existe desvio" + RN-006; revisão 17/08/2026).
+    expect(podeTransferirVenda(lara, { sellerId: null })).toBe(false);
   });
 
-  it("gerente e dona transferem qualquer pedido", () => {
+  it("gerente e dona transferem qualquer pedido (inclusive sem dona)", () => {
     expect(podeTransferirVenda(gerente, { sellerId: "lara" })).toBe(true);
+    expect(podeTransferirVenda(gerente, { sellerId: null })).toBe(true);
     expect(podeTransferirVenda(dona, { sellerId: "juliana" })).toBe(true);
   });
 

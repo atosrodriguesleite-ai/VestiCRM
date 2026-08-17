@@ -1,10 +1,12 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { podeTransferirVenda } from "../orders";
 import {
   ownedScope,
   canSeeAll,
   conversationScope,
+  orderScope,
   isAdmin,
   isManagerUp,
   tenant,
@@ -22,6 +24,7 @@ const makeUser = (
   role,
   color: "#000",
   chatVisaoTotal: false,
+  pedidosVisaoTotal: false,
   ...extra,
 });
 
@@ -75,6 +78,71 @@ describe("visão total do chat (pedido da Toque Leve, 17/08/2026)", () => {
     expect(
       conversationScope(makeUser("SELLER", { chatVisaoTotal: true })).companyId
     ).toBe("company-1");
+  });
+});
+
+describe("visão total dos PEDIDOS (irmã da chavinha do chat, 17/08/2026)", () => {
+  it("vendedora comum vê só os pedidos dela (RN-007 padrão)", () => {
+    expect(orderScope(makeUser("SELLER"))).toEqual({
+      companyId: "company-1",
+      sellerId: "user-1",
+    });
+  });
+
+  it("vendedora com o interruptor ligado vê os pedidos da loja inteira", () => {
+    expect(orderScope(makeUser("SELLER", { pedidosVisaoTotal: true }))).toEqual({
+      companyId: "company-1",
+    });
+  });
+
+  it("as chavinhas são independentes: pedidos ligada não abre o chat (nem o contrário)", () => {
+    const soPedidos = makeUser("SELLER", { pedidosVisaoTotal: true });
+    expect(conversationScope(soPedidos)).toEqual({
+      companyId: "company-1",
+      OR: [{ assigneeId: "user-1" }, { assigneeId: null }],
+    });
+    const soChat = makeUser("SELLER", { chatVisaoTotal: true });
+    expect(orderScope(soChat)).toEqual({
+      companyId: "company-1",
+      sellerId: "user-1",
+    });
+  });
+
+  it("carteira e canSeeAll continuam de vendedora (só a área de Pedidos abre)", () => {
+    const leticia = makeUser("SELLER", { pedidosVisaoTotal: true });
+    expect(ownedScope(leticia)).toEqual({
+      companyId: "company-1",
+      ownerId: "user-1",
+    });
+    expect(canSeeAll(leticia)).toBe(false);
+  });
+
+  it("exportação de pedidos NÃO acompanha o interruptor (faturamento não desce em CSV)", () => {
+    const rota = readFileSync(
+      join(process.cwd(), "src/app/api/export/pedidos/route.ts"),
+      "utf8"
+    );
+    expect(rota).toContain("pedidosVisaoTotal: false");
+  });
+
+  it("transferir venda de colega OU assumir pedido da loja continua proibido", () => {
+    // podeTransferirVenda decide por sellerId/papel, não pelo orderScope —
+    // a visão total mostra o pedido, mas não deixa mover a comissão
+    const vendedora = { id: "user-1", role: "SELLER" };
+    expect(podeTransferirVenda(vendedora, { sellerId: "outra" })).toBe(false);
+    expect(podeTransferirVenda(vendedora, { sellerId: null })).toBe(false);
+    expect(podeTransferirVenda(vendedora, { sellerId: "user-1" })).toBe(true);
+  });
+
+  it("visão total MOSTRA, não MEXE: alterar pedido de colega exige gerência", () => {
+    // sem esta trava na rota, a chavinha deixaria dar desconto, cancelar e
+    // marcar pago o pedido da colega — mexendo na comissão dela
+    const rota = readFileSync(
+      join(process.cwd(), "src/app/api/orders/[id]/route.ts"),
+      "utf8"
+    );
+    expect(rota).toContain('user.role === "SELLER" && order.sellerId !== user.id');
+    expect(rota).toContain("só a gerência pode alterá-lo");
   });
 });
 

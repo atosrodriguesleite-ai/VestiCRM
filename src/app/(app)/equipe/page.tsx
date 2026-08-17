@@ -68,6 +68,7 @@ export default async function TeamPage() {
         .reduce((s, v) => s + v.netTotal, 0),
       monthlyGoal: m.monthlyGoal,
       chatVisaoTotal: m.chatVisaoTotal,
+      pedidosVisaoTotal: m.pedidosVisaoTotal,
       isMe: m.id === user.id,
     }));
 

@@ -79,6 +79,11 @@ export default async function OrderDetailPage({
   });
   if (!order) notFound();
 
+  // VISÃO TOTAL MOSTRA, NÃO MEXE: vendedora vendo pedido de colega (ou da
+  // loja) pela chavinha pedidosVisaoTotal fica em modo leitura — a API já
+  // recusa a alteração (403); a tela não oferece o botão que vai dar erro.
+  const somenteLeitura = user.role === "SELLER" && order.sellerId !== user.id;
+
   const sellers = await db.user.findMany({
     // vendedor da venda: ativo e fora do perfil Suporte (não comercial) —
     // mesma régua que a API passou a aplicar
@@ -230,9 +235,17 @@ export default async function OrderDetailPage({
             </p>
           )}
 
-        <div className="mt-5 pt-5 border-t border-gray-50 min-w-0 overflow-hidden">
-          <StatusChanger orderId={order.id} current={order.status} />
-        </div>
+        {!somenteLeitura && (
+          <div className="mt-5 pt-5 border-t border-gray-50 min-w-0 overflow-hidden">
+            <StatusChanger orderId={order.id} current={order.status} />
+          </div>
+        )}
+        {somenteLeitura && (
+          <p className="mt-5 pt-4 border-t border-gray-50 text-xs text-gray-400">
+            👁️ Pedido de outra vendedora — você pode acompanhar, mas alterações
+            são com a gerência.
+          </p>
+        )}
       </Card>
 
       <div className="grid md:grid-cols-3 gap-4">
@@ -251,7 +264,7 @@ export default async function OrderDetailPage({
                 {order.items.reduce((a, i) => a + i.quantity, 0) === 1 ? "peça" : "peças"}
               </span>
             </h2>
-            {order.status !== "CANCELADO" && (
+            {order.status !== "CANCELADO" && !somenteLeitura && (
               <ItemsEditor
                 orderId={order.id}
                 discount={order.discount}
@@ -370,7 +383,7 @@ export default async function OrderDetailPage({
             surcharge={order.surcharge}
             surchargePct={order.surchargePct}
             shippingFee={order.shippingFee}
-            podeEditar={user.role !== "SUPPORT"}
+            podeEditar={user.role !== "SUPPORT" && !somenteLeitura}
             bloqueado={order.status === "CANCELADO"}
           />
           {/* O bilhete do pedido agora é EDITÁVEL: era só leitura, e o aviso
@@ -379,7 +392,7 @@ export default async function OrderDetailPage({
           <ObservacoesEditor
             orderId={order.id}
             notes={order.notes}
-            bloqueado={order.status === "CANCELADO"}
+            bloqueado={order.status === "CANCELADO" || somenteLeitura}
           />
         </Card>
 

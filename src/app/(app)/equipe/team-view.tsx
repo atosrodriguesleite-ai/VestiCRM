@@ -26,6 +26,8 @@ export type TeamMember = {
   monthlyGoal: number;
   /** vendedora com visão TOTAL do chat (só a Central de Atendimento) */
   chatVisaoTotal: boolean;
+  /** vendedora com visão TOTAL dos pedidos (exceção por pessoa à RN-007) */
+  pedidosVisaoTotal: boolean;
   isMe: boolean;
 };
 
@@ -128,12 +130,16 @@ export function TeamView({
     if (res.ok) router.refresh();
   }
 
-  // visão total do chat: liga/desliga na hora (a sessão relê a cada clique)
-  async function toggleChatVisaoTotal(m: TeamMember) {
+  // visão total (chat/pedidos): liga/desliga na hora — a sessão relê o
+  // usuário do banco a cada clique, sem precisar sair e entrar
+  async function toggleVisao(
+    m: TeamMember,
+    campo: "chatVisaoTotal" | "pedidosVisaoTotal"
+  ) {
     const res = await fetch(`/api/team/${m.id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ chatVisaoTotal: !m.chatVisaoTotal }),
+      body: JSON.stringify({ [campo]: !m[campo] }),
     });
     if (res.ok) router.refresh();
     else window.alert("Não foi possível alterar. Tente de novo.");
@@ -348,40 +354,62 @@ export function TeamView({
                 </>
               )}
             </div>
-            {/* Visão total do chat — só faz sentido para vendedora (os outros
-                papéis já veem tudo). Vale SÓ na Central de Atendimento:
-                carteira, pedidos e comissão seguem o escopo normal. */}
-            {m.role === "SELLER" && (canManage || m.chatVisaoTotal) && (
-              <div className="mt-3 pt-3 border-t border-gray-50 flex items-center justify-between gap-2">
-                <div>
-                  <p className="text-xs font-medium text-gray-700">
-                    💬 Vê todas as conversas do chat
-                  </p>
-                  <p className="text-[10px] text-gray-400">
-                    Abre a Central inteira (como gerente). Pedidos e carteira
-                    continuam só os dela.
-                  </p>
+            {/* Visões totais — só fazem sentido para vendedora (os outros
+                papéis já veem tudo). Cada chavinha abre UMA área; comissão,
+                carteira e exportações seguem o escopo normal de vendedora. */}
+            {m.role === "SELLER" &&
+              (canManage || m.chatVisaoTotal || m.pedidosVisaoTotal) && (
+                <div className="mt-3 pt-3 border-t border-gray-50 space-y-2.5">
+                  {(
+                    [
+                      {
+                        campo: "chatVisaoTotal",
+                        ligada: m.chatVisaoTotal,
+                        titulo: "💬 Vê todas as conversas do chat",
+                        desc: "Abre a Central inteira (como gerente). Pedidos e carteira continuam só os dela.",
+                      },
+                      {
+                        campo: "pedidosVisaoTotal",
+                        ligada: m.pedidosVisaoTotal,
+                        titulo: "🧾 Vê todos os pedidos da loja",
+                        desc: "Abre a área de Pedidos inteira. A comissão continua de quem vendeu, e transferir venda de colega segue bloqueado.",
+                      },
+                    ] as const
+                  ).map((chave) =>
+                    canManage || chave.ligada ? (
+                      <div
+                        key={chave.campo}
+                        className="flex items-center justify-between gap-2"
+                      >
+                        <div>
+                          <p className="text-xs font-medium text-gray-700">
+                            {chave.titulo}
+                          </p>
+                          <p className="text-[10px] text-gray-400">{chave.desc}</p>
+                        </div>
+                        {canManage ? (
+                          <button
+                            onClick={() => toggleVisao(m, chave.campo)}
+                            role="switch"
+                            aria-checked={chave.ligada}
+                            className={`relative h-6 w-11 shrink-0 rounded-full transition ${
+                              chave.ligada ? "bg-emerald-500" : "bg-gray-200"
+                            }`}
+                          >
+                            <span
+                              className={`absolute top-0.5 size-5 rounded-full bg-white shadow transition-all ${
+                                chave.ligada ? "left-[22px]" : "left-0.5"
+                              }`}
+                            />
+                          </button>
+                        ) : (
+                          <Badge color="#10b981">Ativo</Badge>
+                        )}
+                      </div>
+                    ) : null
+                  )}
                 </div>
-                {canManage ? (
-                  <button
-                    onClick={() => toggleChatVisaoTotal(m)}
-                    role="switch"
-                    aria-checked={m.chatVisaoTotal}
-                    className={`relative h-6 w-11 shrink-0 rounded-full transition ${
-                      m.chatVisaoTotal ? "bg-emerald-500" : "bg-gray-200"
-                    }`}
-                  >
-                    <span
-                      className={`absolute top-0.5 size-5 rounded-full bg-white shadow transition-all ${
-                        m.chatVisaoTotal ? "left-[22px]" : "left-0.5"
-                      }`}
-                    />
-                  </button>
-                ) : (
-                  <Badge color="#10b981">Ativo</Badge>
-                )}
-              </div>
-            )}
+              )}
           </Card>
         ))}
       </div>

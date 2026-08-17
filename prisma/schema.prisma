@@ -394,6 +394,11 @@ model User {
   // chat. Carteira, pedidos, comissão e relatórios continuam de vendedora.
   // Ligado por pessoa, pelo admin, na tela Equipe.
   chatVisaoTotal Boolean  @default(false)
+  // Vendedora com visão TOTAL dos pedidos (pedido da Toque Leve, 17/08/2026):
+  // vê os pedidos da loja inteira na área Pedidos (RN-007 ganha esta exceção
+  // por pessoa). Comissão continua pelo sellerId; transferir venda da colega
+  // continua proibido (podeTransferirVenda); exportação segue o escopo normal.
+  pedidosVisaoTotal Boolean @default(false)
   prefersDark    Boolean  @default(false) // modo escuro — escolha individual de cada usuário
   lastActiveAt   DateTime? // último acesso real ao sistema (não conta impersonação do super admin)
   createdAt      DateTime @default(now())
