@@ -18,9 +18,11 @@
  *   2. editedMessage embrulhando um protocolMessage
  *   3. editedMessage com o texto direto (o formato que a gente já lia)
  *   4. secretEncryptedMessage — a edição vem CRIPTOGRAFADA e não dá para ler.
- *      Não dá para mostrar o texto novo, mas dá para dizer a verdade: marcar
- *      a mensagem como editada, para a loja saber que precisa conferir no
- *      WhatsApp. Melhor que uma bolha enigmática solta na conversa.
+ *      Com alvo, o sistema pergunta o texto novo ao servidor (buscarTextoAtual);
+ *      SEM alvo (incidente Giovana, 13/08/2026), confere a conversa inteira
+ *      (textosAtuaisDaConversa) e corrige o que mudou. Só quando nada disso
+ *      dá certo entra um aviso honesto em português — nunca mais a bolha
+ *      enigmática "(secretEncryptedMessage)".
  */
 
 import { evoFindMessages } from "./evolution";
@@ -84,18 +86,64 @@ export function lerEdicao(evento: unknown): Edicao | null {
     if (texto) return { alvoId: idDoEvento, texto };
   }
 
-  // 4. edição criptografada: dá para saber QUAL mensagem, não O QUE mudou
+  // 4. edição criptografada: dá para saber QUAL mensagem, não O QUE mudou.
+  // O nome do campo do alvo varia entre versões do servidor — todos os
+  // conhecidos entram aqui (incidente Giovana, 13/08/2026: o aviso chegou sem
+  // NENHUM deles e virava bolha "(secretEncryptedMessage)" na conversa).
   const secreta = obj(msg.secretEncryptedMessage);
   if (secreta) {
     const alvo =
       str(obj(secreta.targetMessageKey)?.id) ||
-      str(obj(secreta.targetMessageId)) ||
+      str(obj(secreta.messageKey)?.id) ||
+      str(obj(secreta.key)?.id) ||
+      str(secreta.targetMessageId) ||
+      str(secreta.targetId) ||
       null;
-    // sem alvo não é edição para nós: deixa virar bolha (nada se perde)
-    if (alvo) return { alvoId: alvo, texto: "" };
+    // MESMO SEM ALVO continua sendo uma edição — quem recebe decide o que
+    // fazer (o webhook confere a conversa inteira no servidor). Devolver null
+    // aqui era o que deixava a bolha enigmática nascer.
+    return { alvoId: alvo, texto: "" };
   }
 
   return null;
+}
+
+/**
+ * TEXTO ATUAL DAS ÚLTIMAS MENSAGENS DA CONVERSA, direto do servidor.
+ *
+ * É o plano de resgate da edição cifrada SEM alvo (incidente Giovana,
+ * 13/08/2026): o aviso não diz nem o texto novo nem QUAL mensagem mudou.
+ * Mas o servidor da loja guarda a conversa já atualizada — então o sistema
+ * pede as últimas mensagens e devolve `id → texto` para o webhook comparar
+ * com o que está gravado e corrigir o que mudou.
+ *
+ * SÓ TEXTO PURO entra no mapa: mídia tem corpo derivado no sistema
+ * ("[foto]", "[áudio]") e um eco do servidor não pode sobrescrever isso —
+ * carimbaria "editada" à toa (mesma régua do recibo de status).
+ *
+ * Nunca lança: qualquer falha devolve mapa vazio e a conversa segue.
+ */
+export async function textosAtuaisDaConversa(
+  instance: string | null,
+  remoteJid?: string | null
+): Promise<Map<string, string>> {
+  const mapa = new Map<string, string>();
+  if (!instance || !remoteJid) return mapa;
+  try {
+    const r = await evoFindMessages(instance, { remoteJid, offset: 50 });
+    if (!r.ok || !r.data) return mapa;
+    for (const m of acharTodasAsMensagens(r.data)) {
+      const id = str(obj(m.key)?.id);
+      if (!id) continue;
+      // se a própria mensagem guardada for um aviso de edição, a leitura
+      // resolve; senão vale só o texto simples (conversation/extendedText)
+      const texto = lerEdicao(m)?.texto || textoDoConteudo(m.message);
+      if (texto) mapa.set(id, texto);
+    }
+    return mapa;
+  } catch {
+    return mapa;
+  }
 }
 
 /**
@@ -155,7 +203,11 @@ export async function buscarTextoAtual(
     // mesma estiver embrulhada num aviso de edição, a leitura resolve
     const dela = lerEdicao(m);
     if (dela?.texto) return dela.texto;
-    return lerMensagemWA(m as { message?: never }).text.trim();
+    // leitura DESCONHECIDA não é texto: é o placeholder "[mensagem não
+    // exibida aqui]" — devolvê-lo sobrescreveria a mensagem real da cliente
+    // com código de programador (achado da revisão de 17/08/2026)
+    const leitura = lerMensagemWA(m as { message?: never });
+    return leitura.desconhecida ? "" : leitura.text.trim();
   };
 
   try {

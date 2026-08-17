@@ -111,10 +111,30 @@ describe("formato 4: edição criptografada (secretEncryptedMessage)", () => {
     ).toEqual({ alvoId: "ORIG", texto: "" });
   });
 
-  it("sem saber o alvo NÃO é edição: vira bolha (nada se perde)", () => {
+  it.each([
+    ["messageKey", { messageKey: { id: "ORIG" } }],
+    ["key", { key: { id: "ORIG" } }],
+    ["targetMessageId", { targetMessageId: "ORIG" }],
+    ["targetId", { targetId: "ORIG" }],
+  ])("o alvo pode vir no campo %s (varia com o servidor)", (_nome, campos) => {
+    expect(
+      lerEdicao({
+        key: { id: "AVISO" },
+        message: { secretEncryptedMessage: { encPayload: "…", ...campos } },
+      })
+    ).toEqual({ alvoId: "ORIG", texto: "" });
+  });
+
+  /**
+   * Incidente Giovana, 13/08/2026: o aviso cifrado chegou SEM o alvo e a
+   * leitura devolvia null — a conversa ganhava a bolha enigmática
+   * "(secretEncryptedMessage)". Continua sendo uma EDIÇÃO: quem recebe
+   * decide o resgate (o webhook confere a conversa inteira no servidor).
+   */
+  it("sem saber o alvo AINDA é edição — alvoId null, nunca bolha de código", () => {
     expect(
       lerEdicao({ key: { id: "A" }, message: { secretEncryptedMessage: { encPayload: "…" } } })
-    ).toBeNull();
+    ).toEqual({ alvoId: null, texto: "" });
   });
 });
 
@@ -178,6 +198,46 @@ describe("o webhook usa a leitura nova", () => {
 
   it("sem conseguir o texto nem pelo servidor, ao menos marca “editada”", () => {
     expect(hook).toContain("editedAt: new Date()");
+  });
+
+  /**
+   * Incidente Giovana, 13/08/2026: aviso cifrado SEM alvo virava a bolha
+   * "[mensagem não exibida aqui] (secretEncryptedMessage)". O resgate agora
+   * confere a conversa no servidor e corrige o que mudou; quando nada dá,
+   * o aviso é honesto e em português.
+   */
+  it("edição cifrada SEM alvo confere a conversa inteira no servidor", () => {
+    expect(hook).toContain("textosAtuaisDaConversa(");
+    expect(hook).toContain("if (edicao && !edicao.alvoId) {");
+    // eco do servidor não pode sobrescrever corpo derivado de mídia nem
+    // mensagem apagada — só texto puro entra na comparação
+    expect(hook).toContain('mediaType: "TEXT"');
+    expect(hook).toContain("revoked: false");
+  });
+
+  it("reentrega do aviso não vira alarme falso (conversa conferida = em dia)", () => {
+    // o servidor reentrega o mesmo aviso em reconexões; se a conversa foi
+    // conferida e nada diverge, a correção já aconteceu — avisar "o texto
+    // não chegou" seria mentira
+    expect(hook).toContain("if (conferidas > 0) continue;");
+    // e no caminho COM alvo, "já está com o texto novo" conta como sucesso
+    expect(hook).toContain("const jaAplicada = await db.message.findFirst({");
+  });
+
+  it("quando nada dá, a bolha é um aviso honesto — nunca código de programador", () => {
+    expect(hook).toContain("✏️ A cliente editou uma mensagem e o texto novo não chegou");
+    // quem editou define o aviso: edição feita pela LOJA no celular não pode
+    // culpar a cliente
+    expect(hook).toContain("✏️ Uma mensagem enviada pela loja foi editada no celular");
+    expect(hook).toContain("m.key?.fromMe");
+    expect(hook).toContain("if (avisoEdicaoSemTexto) {");
+  });
+
+  it("placeholder de leitura desconhecida NUNCA vira texto de edição", () => {
+    // sem este guarda, o "[mensagem não exibida aqui]" do servidor
+    // sobrescreveria a mensagem REAL da cliente ao buscar o texto atual
+    const lib = readFileSync(join(process.cwd(), "src/lib/comm/edicao.ts"), "utf8");
+    expect(lib).toContain("leitura.desconhecida ? \"\" : leitura.text.trim()");
   });
 });
 

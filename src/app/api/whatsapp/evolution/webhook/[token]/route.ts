@@ -7,7 +7,7 @@ import { alertWhatsappDown, logServerError } from "@/lib/health";
 import { adCode, campanhaDoAnuncio } from "@/lib/ad-match";
 import { formatPhone } from "@/lib/format";
 import { lerMensagemWA, soRecadoDoProtocolo } from "@/lib/comm/wa-message";
-import { buscarTextoAtual, lerEdicao } from "@/lib/comm/edicao";
+import { buscarTextoAtual, lerEdicao, textosAtuaisDaConversa } from "@/lib/comm/edicao";
 import { lerContatos, nomeDeQuemMandou } from "@/lib/comm/nome-do-contato";
 import { concluirTarefasDeContato } from "@/lib/contato-feito";
 
@@ -61,8 +61,20 @@ async function aplicarEdicao(
       where: { companyId, messages: { some: { externalId: alvoId } } },
       data: { updatedAt: new Date() },
     });
+    return r.count;
   }
-  return r.count;
+  // ZERO linhas com texto em mãos pode ser REENTREGA do mesmo aviso (o guarda
+  // NOT body faz "já corrigida" parecer "não achada"). Sem distinguir, a
+  // segunda entrega do aviso caía no fluxo normal e virava bolha enigmática
+  // na conversa (achado da revisão de 17/08/2026). Já em dia = sucesso.
+  if (texto) {
+    const jaAplicada = await db.message.findFirst({
+      where: { externalId: alvoId, conversation: { companyId }, body: texto },
+      select: { id: true },
+    });
+    if (jaAplicada) return 1;
+  }
+  return 0;
 }
 
 // senderPn: quando o WhatsApp manda o contato com a identidade nova (@lid),
@@ -288,6 +300,13 @@ export async function POST(
         // id da mensagem a corrigir vem DENTRO do aviso — a leitura de todos
         // eles mora em lib/comm/edicao.ts.
         const edicao = lerEdicao(m);
+        // quando a edição não puder ser mostrada, a bolha vira um aviso
+        // honesto em português — nunca o código cru "(secretEncryptedMessage)".
+        // `textoEditado` guarda o texto novo recuperado quando a original não
+        // está no banco: a bolha nova nasce com ele (a leitura crua de um
+        // aviso cifrado não mostra o texto).
+        let avisoEdicaoSemTexto = false;
+        let textoEditado: string | null = null;
         if (edicao?.alvoId) {
           // EDIÇÃO CIFRADA: o aviso não traz o texto novo, mas o SERVIDOR já
           // tem a mensagem atualizada — então o sistema pergunta, em vez de
@@ -314,17 +333,86 @@ export async function POST(
           }
           // sem texto nem pelo servidor, ao menos marca "editada"
           const corrigidas = await aplicarEdicao(companyId, edicao.alvoId, texto || null);
-          // Achou e corrigiu: acabou aqui.
+          // Achou e corrigiu (ou já estava em dia): acabou aqui.
           if (corrigidas > 0) continue;
           // Não achou a original (chegou antes da conexão, ou se perdeu) e a
           // edição trouxe o texto: segue o fluxo e entra como mensagem NOVA,
           // já com o texto certo. Editar não pode apagar do sistema.
-          // Sem texto (edição criptografada) também segue: vira bolha de
-          // aviso, porque perder o rastro seria pior.
+          // Sem texto (edição criptografada) também segue como aviso honesto,
+          // porque perder o rastro seria pior.
+          if (texto) textoEditado = texto;
+          else avisoEdicaoSemTexto = true;
+        }
+
+        if (edicao && !edicao.alvoId) {
+          if (edicao.texto) {
+            // O aviso trouxe o texto mas não a chave da original: não tem o
+            // que corrigir, então o texto novo entra como mensagem nova.
+            textoEditado = edicao.texto;
+          } else {
+            // EDIÇÃO CIFRADA SEM ALVO (incidente Giovana, 13/08/2026): o
+            // aviso não diz nem o texto novo nem QUAL mensagem mudou. Plano
+            // de resgate: pega o texto atual das últimas mensagens da
+            // conversa no servidor e corrige as que estão diferentes do
+            // gravado. Só mensagens de TEXTO entram (dos dois lados — a loja
+            // também edita pelo celular); corpo derivado de mídia ("[foto]")
+            // fica de fora pelo mediaType, e mensagem apagada não volta.
+            let corrigidas = 0;
+            let conferidas = 0;
+            const atuais = await textosAtuaisDaConversa(
+              settings.evolutionInstance,
+              m.key?.remoteJid
+            );
+            if (atuais.size > 0) {
+              const nossas = await db.message.findMany({
+                where: {
+                  conversation: { companyId },
+                  externalId: { in: [...atuais.keys()] },
+                  mediaType: "TEXT",
+                  revoked: false,
+                },
+                select: { externalId: true, body: true },
+              });
+              for (const nossa of nossas) {
+                const novo = atuais.get(nossa.externalId ?? "") ?? "";
+                if (!novo) continue;
+                conferidas += 1;
+                if (novo !== nossa.body) {
+                  corrigidas += await aplicarEdicao(companyId, nossa.externalId!, novo);
+                }
+              }
+            }
+            // Corrigiu: acabou aqui — a conversa já mostra o texto novo.
+            if (corrigidas > 0) continue;
+            // Nada divergente mas a conversa FOI conferida no servidor: é
+            // reentrega do aviso (a correção já foi aplicada) ou edição de
+            // algo fora do alcance do texto puro. Sem isso, a reentrega
+            // virava um alarme falso de "texto não chegou".
+            if (conferidas > 0) continue;
+            // Não deu nem para conferir (servidor sem histórico): registra o
+            // payload cru no painel de Saúde — é o que permite ensinar o
+            // leitor quando o WhatsApp inventar mais um formato — e a bolha
+            // vira um aviso honesto em português, não um código.
+            await registrarDescarte(
+              companyId,
+              "edição sem texto legível",
+              m,
+              "wa.edicao.sem-texto"
+            ).catch(() => {});
+            avisoEdicaoSemTexto = true;
+          }
         }
 
         const lida = lerMensagemWA(m);
         let { text } = lida;
+        if (textoEditado) text = textoEditado;
+        if (avisoEdicaoSemTexto) {
+          // quem editou define o aviso: culpar "a cliente" por uma edição
+          // feita pela loja no celular seria informação errada na conversa
+          text = m.key?.fromMe
+            ? "✏️ Uma mensagem enviada pela loja foi editada no celular e o texto novo não chegou — confira no WhatsApp."
+            : "✏️ A cliente editou uma mensagem e o texto novo não chegou — confira no WhatsApp.";
+        }
         const { mediaType, mimeFallback, fileName } = lida;
 
         // NENHUMA MENSAGEM DE CLIENTE PODE SUMIR.
