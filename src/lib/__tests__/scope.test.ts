@@ -134,14 +134,15 @@ describe("visão total dos PEDIDOS (irmã da chavinha do chat, 17/08/2026)", () 
     expect(podeTransferirVenda(vendedora, { sellerId: "user-1" })).toBe(true);
   });
 
-  it("visão total MOSTRA, não MEXE: alterar pedido de colega exige gerência", () => {
-    // sem esta trava na rota, a chavinha deixaria dar desconto, cancelar e
-    // marcar pago o pedido da colega — mexendo na comissão dela
+  it("visão total EDITA com registro (dono, 18/08/2026); sem a chavinha, a trava fica", () => {
+    // a chavinha libera o PATCH porque toda mexida é carimbada no histórico
+    // (guarda detalhado em escopo-apis-lote1.test.ts); sem ela, o cinto de
+    // segurança da rota continua — comissão segue com o podeTransferirVenda
     const rota = readFileSync(
       join(process.cwd(), "src/app/api/orders/[id]/route.ts"),
       "utf8"
     );
-    expect(rota).toContain('user.role === "SELLER" && order.sellerId !== user.id');
+    expect(rota).toContain("!user.pedidosVisaoTotal");
     expect(rota).toContain("só a gerência pode alterá-lo");
   });
 });

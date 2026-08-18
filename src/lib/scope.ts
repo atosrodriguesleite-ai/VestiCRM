@@ -71,9 +71,12 @@ export function conversationScope(user: SessionUser) {
  *
  * EXCEÇÃO POR PESSOA — `pedidosVisaoTotal` (pedido da Toque Leve,
  * 17/08/2026, irmã da chavinha do chat): a vendedora marcada vê os pedidos
- * da LOJA inteira. A comissão continua pelo `sellerId` (ver um pedido não o
- * torna dela), transferir a venda da colega continua proibido
- * (`podeTransferirVenda`), e a exportação de pedidos segue o escopo normal.
+ * da LOJA inteira — e, desde 18/08/2026 (decisão do dono), também EDITA
+ * qualquer um deles, porque toda mexida do PATCH fica registrada no
+ * histórico do pedido com quem fez. A comissão continua pelo `sellerId`
+ * (ver ou editar um pedido não o torna dela), transferir a venda da colega
+ * ou assumir pedido sem dona continua proibido (`podeTransferirVenda`), e a
+ * exportação de pedidos segue o escopo normal.
  * O admin liga/desliga na tela Equipe e vale na hora.
  */
 export function orderScope(user: SessionUser) {

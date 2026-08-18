@@ -33,7 +33,7 @@ sem ambiguidade.
 | RN-004 | Ao cancelar, escolhe-se devolver ou baixa definitiva; reabrir não desconta de novo | `lib/orders.ts` | `cancel-stock.test.ts` |
 | RN-005 | Quem mandou o link (`?ref=`) leva a venda; sem link, o pedido nasce sem dona | `lib/catalogo/`, `/api/catalog/order` | `comissao-link.test.ts` |
 | RN-006 | Pedido só vira PAGO com vendedor; troca de vendedor é auditada em `OrderEvent` | `PATCH /api/orders/[id]` | `limpezas-lote5.test.ts` |
-| RN-007 | Vendedora vê só os pedidos dela; gerente/admin/suporte veem a loja — em toda porta (exceção por pessoa: `pedidosVisaoTotal`, sem mexer em comissão/transferência/exportação) | `lib/scope.ts` | `escopo-apis-lote1.test.ts` |
+| RN-007 | Vendedora vê só os pedidos dela; gerente/admin/suporte veem a loja — em toda porta (exceção por pessoa: `pedidosVisaoTotal` — vê e, desde 18/08/2026, EDITA com tudo no histórico; comissão/transferência/exportação seguem regras próprias) | `lib/scope.ts` | `escopo-apis-lote1.test.ts` |
 | RN-008 | Lead entra só pelo `lib/intake.ts`; dedup tolerante ao 9º dígito; conversa nasce na fila | `lib/intake.ts` | `intake.test.ts` |
 | RN-009 | Preço e total do catálogo são SEMPRE recalculados no servidor | `lib/orders.ts` (`/api/catalog/order`) | `orders.test.ts` |
 | RN-010 | O pedido do catálogo não pode se perder: protocolo `clientRef` + rota idempotente | `lib/catalogo/envio-pedido.ts` | `envio-pedido.test.ts` |
