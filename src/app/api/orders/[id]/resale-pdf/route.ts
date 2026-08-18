@@ -6,7 +6,7 @@ import {
   type PDFPage,
   type PDFFont,
 } from "pdf-lib";
-import { paginaSegura } from "@/lib/pdf-texto";
+import { paginaSegura, quebrarEmLinhas, textoPdf } from "@/lib/pdf-texto";
 import sharp from "sharp";
 import { db } from "@/lib/db";
 import { requireUser, AuthError } from "@/lib/auth";
@@ -46,16 +46,14 @@ const MAIN_SITE = (
 ).replace(/^https?:\/\//, "").replace(/\/$/, "");
 
 /** Fontes padrao do pdf-lib usam WinAnsi: troca o que ela nao codifica
- *  (em-dash, aspas curvas, espaco fino, emoji...) para nao quebrar. */
+ *  (hifens especiais, espaco fino...) e o textoPdf tira o resto (emoji e
+ *  os codigos de controle que derrubam ate a MEDICAO de largura \u2014 a
+ *  paginaSegura protege so o drawText, nao o widthOfTextAtSize). */
 const MAP: Record<string, string> = {
-  "\u2014": "-", "\u2013": "-", "\u2011": "-", "\u2022": "-", "\u2026": "...",
-  "\u201c": '"', "\u201d": '"', "\u2018": "'", "\u2019": "'",
-  "\u2009": " ", "\u00a0": " ", "\u200b": "",
+  "\u2011": "-", "\u2009": " ", "\u00a0": " ", "\u200b": "",
 };
 const safe = (s: string) =>
-  [...s]
-    .map((ch) => (MAP[ch] !== undefined ? MAP[ch] : ch.codePointAt(0)! <= 0xff ? ch : ""))
-    .join("");
+  textoPdf([...s].map((ch) => MAP[ch] ?? ch).join(""));
 
 /** Espaça letras (visual editorial) — pdf-lib não tem letter-spacing. */
 const spaced = (s: string) => safe(s).toUpperCase().split("").join(" ");
@@ -207,8 +205,8 @@ export async function GET(
         })
       );
     }
-    const capH = 40; // legenda (nome + preço) abaixo da foto
-    const cardH = imgH + capH;
+    const NOME_SIZE = 10.5;
+    const NOME_LH = 13; // entrelinha do nome
     const CONTENT_TOP = height - HEADER_H - 14;
     const CONTENT_BOTTOM = FOOTER_H + 18;
 
@@ -261,71 +259,86 @@ export async function GET(
       page.drawText(site, { x, y: ty, size: 8, font: bold, color: CREME });
     };
 
+    /** Quebra o nome em linhas que cabem na coluna — o nome sai INTEIRO.
+     *  Antes ele era cortado com "..." e a cliente da ponta não sabia qual
+     *  peça era ("Legging básica poliamida premium + Top Kes...").
+     *  Mesmo quebrador do romaneio (pdf-texto): o teto de 6 linhas só existe
+     *  para um nome absurdo não estourar a página — nome real usa 1 a 3. */
+    const quebraNome = (texto: string): string[] =>
+      quebrarEmLinhas(
+        safe(texto),
+        (t) => bold.widthOfTextAtSize(t, NOME_SIZE),
+        cardW - 6,
+        6
+      );
+
     let page = paginaSegura(pdf.addPage(A4));
     drawHeader(page);
+    let yTopo = CONTENT_TOP;
 
-    let col = 0;
-    let y = CONTENT_TOP - cardH;
-
-    for (const item of byProduct.values()) {
-      if (y < CONTENT_BOTTOM) {
+    // Desenha FILEIRA a fileira: a legenda cresce com o nome e a dupla da
+    // mesma fileira compartilha a altura — a grade continua alinhada.
+    const itens = [...byProduct.entries()];
+    for (let i = 0; i < itens.length; i += COLS) {
+      const fileira = itens.slice(i, i + COLS);
+      const nomes = fileira.map(([, it]) => quebraNome(it.name));
+      const maxLinhas = Math.max(...nomes.map((l) => l.length));
+      // 16 até a 1ª linha do nome + entrelinhas + preço + respiro embaixo
+      const capH = 16 + (maxLinhas - 1) * NOME_LH + (showPrice ? 15 : 0) + 9;
+      const cardH = imgH + capH;
+      if (yTopo - cardH < CONTENT_BOTTOM) {
         page = paginaSegura(pdf.addPage(A4));
         drawHeader(page);
-        y = CONTENT_TOP - cardH;
-        col = 0;
+        yTopo = CONTENT_TOP;
       }
-      const x = M + col * (cardW + GAP);
 
-      // fundo neutro (só aparece quando não há foto)
-      const boxX = x;
-      const boxY = y + capH;
-      page.drawRectangle({ x: boxX, y: boxY, width: cardW, height: imgH, color: PHOTOBG });
+      for (let c = 0; c < fileira.length; c++) {
+        const [key, item] = fileira[c];
+        const boxX = M + c * (cardW + GAP);
+        const boxY = yTopo - imgH;
+        // fundo neutro (só aparece quando não há foto)
+        page.drawRectangle({ x: boxX, y: boxY, width: cardW, height: imgH, color: PHOTOBG });
 
-      let embedded = null;
-      let preencheQuadro = false; // recortada na medida exata do quadro
-      const foto = fotos.get(item.productId ?? item.name);
-      if (foto) {
-        try {
-          embedded = foto.png
-            ? await pdf.embedPng(foto.bytes)
-            : await pdf.embedJpg(foto.bytes);
-          preencheQuadro = foto.cover;
-        } catch {
-          embedded = null;
+        let embedded = null;
+        let preencheQuadro = false; // recortada na medida exata do quadro
+        const foto = fotos.get(key);
+        if (foto) {
+          try {
+            embedded = foto.png
+              ? await pdf.embedPng(foto.bytes)
+              : await pdf.embedJpg(foto.bytes);
+            preencheQuadro = foto.cover;
+          } catch {
+            embedded = null;
+          }
+        }
+        if (embedded && preencheQuadro) {
+          page.drawImage(embedded, { x: boxX, y: boxY, width: cardW, height: imgH });
+        } else if (embedded) {
+          // "contain": a foto inteira, centralizada; a sobra fica no fundo neutro
+          const scale = Math.min(cardW / embedded.width, imgH / embedded.height);
+          const w = embedded.width * scale;
+          const h = embedded.height * scale;
+          const ix = boxX + (cardW - w) / 2;
+          const iy = boxY + (imgH - h) / 2;
+          page.drawImage(embedded, { x: ix, y: iy, width: w, height: h });
+        } else {
+          center(page, "sem foto", boxX + cardW / 2, boxY + imgH / 2, 9, font, SOFT);
+        }
+
+        // legenda centralizada: nome inteiro (linha a linha) + preço
+        const cx = boxX + cardW / 2;
+        nomes[c].forEach((linha, k) => {
+          center(page, linha, cx, boxY - 16 - k * NOME_LH, NOME_SIZE, bold, BLACK);
+        });
+        if (showPrice) {
+          // preço na MESMA altura para a fileira toda (alinha pela dupla)
+          const py = boxY - 16 - (maxLinhas - 1) * NOME_LH - 15;
+          center(page, money(price(item.paid)), cx, py, 11.5, bold, BLACK);
         }
       }
-      if (embedded && preencheQuadro) {
-        page.drawImage(embedded, { x: boxX, y: boxY, width: cardW, height: imgH });
-      } else if (embedded) {
-        // "contain": a foto inteira, centralizada; a sobra fica no fundo neutro
-        const scale = Math.min(cardW / embedded.width, imgH / embedded.height);
-        const w = embedded.width * scale;
-        const h = embedded.height * scale;
-        const ix = boxX + (cardW - w) / 2;
-        const iy = boxY + (imgH - h) / 2;
-        page.drawImage(embedded, { x: ix, y: iy, width: w, height: h });
-      } else {
-        center(page, "sem foto", boxX + cardW / 2, boxY + imgH / 2, 9, font, SOFT);
-      }
 
-      // legenda centralizada: nome + preço
-      const cx = x + cardW / 2;
-      const fullName = safe(item.name);
-      let name = fullName;
-      while (bold.widthOfTextAtSize(name, 10.5) > cardW - 6 && name.length > 4) {
-        name = name.slice(0, -1);
-      }
-      if (name !== fullName) name = name.slice(0, -1) + "...";
-      center(page, name, cx, y + capH - 16, 10.5, bold, BLACK);
-      if (showPrice) {
-        center(page, money(price(item.paid)), cx, y + capH - 31, 11.5, bold, BLACK);
-      }
-
-      col++;
-      if (col >= COLS) {
-        col = 0;
-        y -= cardH + GAP;
-      }
+      yTopo -= cardH + GAP;
     }
 
     // marca da plataforma discreta: só no rodapé da ÚLTIMA página
