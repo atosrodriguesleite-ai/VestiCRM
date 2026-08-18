@@ -281,24 +281,49 @@ h3 {
   letter-spacing: 0.08em;
 }
 
-/* Barra de rolagem discreta (tons quentes) */
-.thin-scroll {
-  scrollbar-width: thin;
-  scrollbar-color: #d8cbb8 transparent;
-}
+/* Barra de rolagem discreta (tons quentes).
+
+   NO COMPUTADOR a barra precisa estar SEMPRE visível quando há conteúdo
+   escondido — mesma lição do .cat-scroll (Entre Linhas, 03/08/2026): quando
+   `scrollbar-width` existe, o Chrome ignora as regras ::-webkit-* e desenha a
+   barra flutuante do Windows 11, que só aparece durante o gesto. Foi isso que
+   escondeu os cards da coluna "Catálogo enviado" no funil (relato de cliente,
+   18/08/2026): a coluna rolava, mas sem barra nenhuma ninguém sabia que havia
+   mais cards. Por isso o `scrollbar-width` fica restrito ao Firefox (que não
+   entende ::-webkit-*) e ao celular (onde rolar pelo dedo é natural e a barra
+   fixa só sujaria a tela). */
 .thin-scroll::-webkit-scrollbar {
   width: 7px;
   height: 7px;
 }
 .thin-scroll::-webkit-scrollbar-thumb {
-  background: #d8cbb8;
+  /* tom mais escuro que o antigo #d8cbb8: sobre coluna cinza-clara o bege
+     sumia — barra que não se vê é o mesmo que barra nenhuma */
+  background: #b3a084;
   border-radius: 4px;
   border: 2px solid transparent;
   background-clip: padding-box;
 }
 .thin-scroll::-webkit-scrollbar-thumb:hover {
-  background: #bfae95;
+  background: #96825f;
   background-clip: padding-box;
+}
+.thin-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+@supports not selector(::-webkit-scrollbar) {
+  /* Firefox: não existe ::-webkit-*, então a fina nativa é o melhor possível */
+  .thin-scroll {
+    scrollbar-width: thin;
+    scrollbar-color: #d8cbb8 transparent;
+  }
+}
+@media (pointer: coarse) {
+  /* celular/tablet: barra do sistema (some sozinha; o dedo já sabe rolar) */
+  .thin-scroll {
+    scrollbar-width: thin;
+    scrollbar-color: #d8cbb8 transparent;
+  }
 }
 
 /* Barra de categorias do catálogo público: no CELULAR rola pelo dedo (sem
