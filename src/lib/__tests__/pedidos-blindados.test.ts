@@ -225,9 +225,12 @@ describe("integrações espelham TODA mexida de estoque (uma venda, uma baixa)",
 
   it("edição de itens e exclusão avisam Nuvemshop/Jueri", () => {
     // edição: os deltas EFETIVOS (o que de fato saiu/voltou — Lote 3);
-    // exclusão: o que foi devolvido
+    // exclusão: o que foi devolvido (aviso compartilhado com o DELETE do funil)
     expect(rota).toContain("efetivos.map((e) => e.variantId)");
-    expect(rota).toContain("devolvidas.map((d) => d.variantId)");
+    expect(rota).toContain("avisarIntegracoesDaDevolucao(user.companyId, devolvidas)");
+    expect(ler("src/lib/order-actions.ts")).toContain(
+      "devolvidas.map((d) => d.variantId)"
+    );
   });
 });
 

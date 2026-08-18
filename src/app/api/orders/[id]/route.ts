@@ -6,7 +6,11 @@ import { corIgual } from "@/lib/capa-por-cor";
 import { logServerError } from "@/lib/health";
 import { requireUser, AuthError } from "@/lib/auth";
 import { isManagerUp, isSupport, orderScope } from "@/lib/scope";
-import { reverseAndDeleteOrder } from "@/lib/order-actions";
+import {
+  reverseAndDeleteOrder,
+  temPagamentoConfirmadoDeGateway,
+  avisarIntegracoesDaDevolucao,
+} from "@/lib/order-actions";
 import { notifySalePaid } from "@/lib/push";
 import { pushStockToNuvemshop } from "@/lib/nuvemshop";
 import { pushStockToJueri } from "@/lib/jueri";
@@ -1139,15 +1143,8 @@ export async function DELETE(
     // Pedido com pagamento automático CONFIRMADO não se exclui: a cascata
     // apagaria o rastro do dinheiro real que entrou (Mercado Pago ou
     // InfinitePay — auditoria 07/08 e 11/08/2026). Para desfazer, CANCELE o
-    // pedido (que trata o estorno).
-    const pagoGateway = await db.payment.count({
-      where: {
-        orderId: order.id,
-        provider: { in: ["MERCADO_PAGO", "INFINITEPAY"] },
-        status: "CONFIRMADO",
-      },
-    });
-    if (pagoGateway > 0) {
+    // pedido (que trata o estorno). Mesma trava do DELETE pelo funil.
+    if (await temPagamentoConfirmadoDeGateway(order.id)) {
       return NextResponse.json(
         {
           error:
@@ -1195,16 +1192,7 @@ export async function DELETE(
 
     // Integrações donas de estoque precisam saber que as peças voltaram —
     // sem isso a Nuvemshop continuava vendendo com o número velho.
-    if (devolvidas.length > 0) {
-      pushStockToNuvemshop(
-        user.companyId,
-        devolvidas.map((d) => d.variantId)
-      ).catch(() => {});
-      pushStockToJueri(
-        user.companyId,
-        devolvidas.map((d) => ({ variantId: d.variantId, delta: d.quantity }))
-      ).catch(() => {});
-    }
+    avisarIntegracoesDaDevolucao(user.companyId, devolvidas);
 
     return NextResponse.json({ ok: true });
   } catch (e) {

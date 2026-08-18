@@ -190,14 +190,16 @@ export default async function OrderDetailPage({
                 sellers={sellers}
               />
             )}
-            <a
-              href={`/api/orders/${order.id}/pdf`}
-              target="_blank"
+            {/* abre o VISUALIZADOR do romaneio (página do app), não o PDF cru:
+                no app instalado no celular, o PDF direto tomava a tela sem
+                botão de voltar e a lojista tinha que fechar o app */}
+            <Link
+              href={`/pedidos/${order.id}/romaneio`}
               className="flex items-center justify-center gap-1.5 rounded-xl bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium px-4 py-2.5 transition"
             >
               <FileText className="size-4" />
               Romaneio em PDF
-            </a>
+            </Link>
             {(PAID_ORDER_STATUSES as readonly string[]).includes(order.status) && (
               <ResaleCatalog
                 orderId={order.id}

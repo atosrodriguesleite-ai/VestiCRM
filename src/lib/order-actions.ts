@@ -1,5 +1,8 @@
 import type { Prisma } from "@prisma/client";
+import { db } from "./db";
 import { baixasLiquidasDoPedido } from "./estoque-do-pedido";
+import { pushStockToNuvemshop } from "./nuvemshop";
+import { pushStockToJueri } from "./jueri";
 
 /**
  * Apaga um pedido desfazendo TODO o efeito dele — como se nunca tivesse
@@ -66,6 +69,44 @@ export async function reverseAndDeleteOrder(
   // e não tem mais nenhum pedido). Isso zera as métricas de clientes.
   await cleanupOrphanCatalogCustomer(tx, order.companyId, order.customerId);
   return { devolvidas };
+}
+
+/**
+ * Trava de exclusão: pedido com pagamento de gateway CONFIRMADO (dinheiro
+ * real que entrou pelo Mercado Pago/InfinitePay) não pode ser apagado — a
+ * cascata levaria o rastro do dinheiro junto (auditoria 07/08 e 11/08/2026).
+ * Vale para TODA porta que apaga pedido (tela Pedidos e funil); antes cada
+ * rota copiava a checagem e uma delas ficou sem (revisão 18/08/2026).
+ */
+export async function temPagamentoConfirmadoDeGateway(orderId: string) {
+  const n = await db.payment.count({
+    where: {
+      orderId,
+      provider: { in: ["MERCADO_PAGO", "INFINITEPAY"] },
+      status: "CONFIRMADO",
+    },
+  });
+  return n > 0;
+}
+
+/**
+ * Integrações donas de estoque precisam saber que as peças voltaram — sem
+ * isso a Nuvemshop continuava vendendo com o número velho (RN-014). Roda
+ * FORA da transação e nunca derruba a rota (o push tem retry próprio).
+ */
+export function avisarIntegracoesDaDevolucao(
+  companyId: string,
+  devolvidas: { variantId: string; quantity: number }[]
+) {
+  if (devolvidas.length === 0) return;
+  pushStockToNuvemshop(
+    companyId,
+    devolvidas.map((d) => d.variantId)
+  ).catch(() => {});
+  pushStockToJueri(
+    companyId,
+    devolvidas.map((d) => ({ variantId: d.variantId, delta: d.quantity }))
+  ).catch(() => {});
 }
 
 /**

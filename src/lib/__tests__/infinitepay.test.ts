@@ -137,7 +137,12 @@ describe("as portas públicas passam pelo middleware e não escrevem à toa", ()
   it("edição/cancelamento invalidam o link InfinitePay (não só o do MP)", () => {
     const rota = ler("src/app/api/orders/[id]/route.ts");
     const n = rota.split('provider: { in: ["MERCADO_PAGO", "INFINITEPAY"] }').length - 1;
-    expect(n).toBeGreaterThanOrEqual(4); // 3 invalidações + guard do DELETE
+    expect(n).toBeGreaterThanOrEqual(3); // 3 invalidações
+    // o guard do DELETE virou régua compartilhada (funil usa a mesma)
+    expect(rota).toContain("temPagamentoConfirmadoDeGateway");
+    expect(ler("src/lib/order-actions.ts")).toContain(
+      'provider: { in: ["MERCADO_PAGO", "INFINITEPAY"] }'
+    );
   });
   it("cancelar pedido pago manda estornar no provedor CERTO (InfinitePay/MP)", () => {
     const rota = ler("src/app/api/orders/[id]/route.ts");
