@@ -17,6 +17,20 @@ export const brl = (v: number) =>
     maximumFractionDigits: v % 1 === 0 ? 0 : 2,
   });
 
+/**
+ * Lê um valor em reais digitado à brasileira ("1.000,50", "35,9", "1.000").
+ * Ponto seguido de 3 dígitos é separador de MILHAR — sem essa regra,
+ * "1.000" no campo de desconto virava R$ 1,00 (parseFloat para no 2º ponto).
+ * Valor inválido ou negativo vira 0: os campos de dinheiro das telas são
+ * todos não-negativos (o servidor rejeitaria com um erro genérico).
+ */
+export function numeroBR(texto: string): number {
+  const limpo = texto.replace(/[^\d.,-]/g, "");
+  const semMilhar = limpo.replace(/\.(?=\d{3}(?:\D|$))/g, "");
+  const n = Number(semMilhar.replace(",", "."));
+  return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
 // Fuso oficial do produto: horário de São Paulo/Brasília. O servidor
 // (Vercel) roda em UTC — sem fixar o fuso, as horas saem 3h à frente.
 export const TIMEZONE = "America/Sao_Paulo";
