@@ -8,7 +8,8 @@ import {
   parseCategoryOrder,
   parseCategoryTypes,
 } from "@/lib/categories";
-import { resolverLink, type LinkDeCatalogo } from "@/lib/catalogo/tabelas-de-preco";
+import { type LinkDeCatalogo } from "@/lib/catalogo/tabelas-de-preco";
+import { resolverLink } from "@/lib/catalogo/tabelas-de-preco-servidor";
 import { PublicCatalog, type CatalogProduct } from "./public-catalog";
 
 /**

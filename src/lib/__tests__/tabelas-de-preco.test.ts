@@ -1,12 +1,8 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import {
-  faltaParaOMinimo,
-  modoValido,
-  novoCodigoDeLink,
-  textoDoMinimo,
-} from "../catalogo/tabelas-de-preco";
+import { faltaParaOMinimo, modoValido, textoDoMinimo } from "../catalogo/tabelas-de-preco";
+import { novoCodigoDeLink } from "../catalogo/tabelas-de-preco-servidor";
 
 // Guarda RN-018 (índice em docs/regras.md; texto no CLAUDE.md).
 /**
@@ -95,9 +91,18 @@ describe("modo e código do link", () => {
 });
 
 describe("o recurso é gated: desligado, NADA muda", () => {
-  const lib = ler("src/lib/catalogo/tabelas-de-preco.ts");
+  const lib = ler("src/lib/catalogo/tabelas-de-preco-servidor.ts");
   it("link só vale para loja com o recurso ligado", () => {
     expect(lib).toContain("if (!recursoLigado || !code) return null");
+  });
+
+  it("a regra pura fica SEM servidor — foi o deploy quebrado de 17/08/2026", () => {
+    // o catálogo público (navegador) importa este arquivo; node:crypto ou o
+    // banco aqui dentro derrubam o build da Vercel (webpack) — o turbopack
+    // local engole e não avisa
+    const pura = ler("src/lib/catalogo/tabelas-de-preco.ts");
+    expect(pura).not.toContain("node:crypto");
+    expect(pura).not.toContain('from "../db"');
   });
   it("a chave nasce DESLIGADA para todas as lojas", () => {
     expect(ler("prisma/schema.prisma")).toMatch(/priceTablesEnabled\s+Boolean\s+@default\(false\)/);

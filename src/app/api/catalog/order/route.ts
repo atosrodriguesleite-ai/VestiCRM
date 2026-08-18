@@ -13,12 +13,8 @@ import {
 import { pushStockToNuvemshop } from "@/lib/nuvemshop";
 import { pushStockToJueri } from "@/lib/jueri";
 import { catalogPrice, orderNumber, round2 } from "@/lib/orders";
-import {
-  resolverLink,
-  modoValido,
-  faltaParaOMinimo,
-  textoDoMinimo,
-} from "@/lib/catalogo/tabelas-de-preco";
+import { modoValido, faltaParaOMinimo, textoDoMinimo } from "@/lib/catalogo/tabelas-de-preco";
+import { resolverLink } from "@/lib/catalogo/tabelas-de-preco-servidor";
 import { comNumeroUnico } from "@/lib/numero-do-pedido";
 import { syncOpportunityValue, garantirCartaoDoPedido } from "@/lib/opportunity-sync";
 import { avancarFunil } from "@/lib/funil-auto";

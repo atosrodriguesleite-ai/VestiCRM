@@ -1,6 +1,3 @@
-import { randomBytes } from "node:crypto";
-import { db } from "../db";
-
 /**
  * TABELAS DE PREÇO POR LINK (17/08/2026).
  *
@@ -18,14 +15,16 @@ import { db } from "../db";
  *  3. quem manda no preço é o SERVIDOR. O navegador diz por qual link entrou;
  *     o preço de cada peça é recalculado aqui (RN-009), e o pedido guarda a
  *     tabela usada (`Order.priceMode`) para a conta nunca mudar depois.
+ *
+ * ESTE ARQUIVO É PURO — sem criptografia do Node, sem banco. O catálogo
+ * público (que roda no NAVEGADOR) importa a regra do mínimo daqui, e
+ * qualquer dependência de servidor aqui DERRUBA O DEPLOY: o build da Vercel
+ * (webpack) recusa módulo de Node em código de navegador — foi exatamente o
+ * deploy quebrado de 17/08/2026. Sorteio de código e consulta ao banco moram
+ * em `tabelas-de-preco-servidor.ts`, e o teste guarda esta pureza.
  */
 
 export type ModoDePreco = "VAREJO" | "ATACADO";
-
-/** Código do link (sorteado, curto o bastante para caber num WhatsApp). */
-export function novoCodigoDeLink(): string {
-  return randomBytes(6).toString("base64url"); // 8 caracteres
-}
 
 /** O texto vira um modo conhecido? Qualquer outra coisa é varejo. */
 export function modoValido(bruto: string | null | undefined): ModoDePreco {
@@ -38,25 +37,6 @@ export type LinkDeCatalogo = {
   code: string;
   priceMode: ModoDePreco;
 };
-
-/**
- * Acha o link ATIVO de uma loja pelo código. Devolve null quando o recurso
- * está desligado para a loja — assim um link antigo (ou de uma loja que
- * deixou de assinar) simplesmente deixa de valer, e o catálogo volta ao
- * comportamento padrão em vez de cobrar a tabela errada.
- */
-export async function resolverLink(
-  companyId: string,
-  code: string | null | undefined,
-  recursoLigado: boolean
-): Promise<LinkDeCatalogo | null> {
-  if (!recursoLigado || !code) return null;
-  const link = await db.catalogLink.findFirst({
-    where: { code, companyId, active: true },
-    select: { id: true, name: true, code: true, priceMode: true },
-  });
-  return link ? { ...link, priceMode: modoValido(link.priceMode) } : null;
-}
 
 // ---- Quantidade mínima do atacado -------------------------------------------
 

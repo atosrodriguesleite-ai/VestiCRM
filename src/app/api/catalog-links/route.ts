@@ -3,7 +3,7 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import { requireUser, AuthError } from "@/lib/auth";
 import { isManagerUp } from "@/lib/scope";
-import { novoCodigoDeLink } from "@/lib/catalogo/tabelas-de-preco";
+import { novoCodigoDeLink } from "@/lib/catalogo/tabelas-de-preco-servidor";
 
 /**
  * LINKS COM TABELA DE PREÇO (atacado / varejo) — recurso gated.
