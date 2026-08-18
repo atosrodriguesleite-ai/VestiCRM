@@ -363,3 +363,23 @@ describe("a tela do pedido respeita a visibilidade ANTES dos efeitos (menor)", (
     );
   });
 });
+
+// ---------------------------------------------------------------------------
+describe("o histórico de pedidos é PARA SEMPRE: a lista pagina, não corta", () => {
+  // Relato real (18/08/2026): a lista mostrava só os 100 mais recentes, sem
+  // caminho para os anteriores — pedido antigo parecia APAGADO e a vendedora
+  // só achava pela busca. O teto por página pode existir (desempenho), mas
+  // nunca de novo como corte mudo: tem que haver navegação e a conta total.
+  const lista = ler("src/app/(app)/pedidos/page.tsx");
+  it("a consulta usa skip por página (o take sozinho era o corte mudo)", () => {
+    expect(lista).toContain("skip: (p - 1) * POR_PAGINA");
+    expect(lista).toContain("take: POR_PAGINA");
+  });
+  it("a ordenação tem desempate estável (nº do pedido), senão empate de data esconde pedido entre páginas", () => {
+    expect(lista).toContain('{ number: "desc" as const }');
+  });
+  it("a tela mostra o total e o caminho para os pedidos antigos", () => {
+    expect(lista).toContain("Mais antigos");
+    expect(lista).toContain("totalFiltrado");
+  });
+});
