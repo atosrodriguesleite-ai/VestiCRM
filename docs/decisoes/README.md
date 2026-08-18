@@ -38,3 +38,4 @@ Não escreva para decisão trivial ou reversível em cinco minutos.
 | [ADR-009](ADR-009-multi-tenant-por-companyId.md) | Isolamento entre lojas por `companyId` | aceita |
 | [ADR-010](ADR-010-revisao-antes-do-push.md) | Revisão especialista obrigatória antes de todo push | aceita |
 | [ADR-011](ADR-011-etiqueta-com-nfe.md) | Etiqueta com NF-e quando a nota existe | aceita |
+| [ADR-012](ADR-012-navegador-nao-carrega-servidor.md) | O navegador não carrega código de servidor; build local = build da Vercel | aceita |

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { requireUser, AuthError } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { modoValido, tabelaNoTexto } from "@/lib/catalogo/tabelas-de-preco";
 import { catalogPrice } from "@/lib/orders";
 import { phoneMatchVariants, normalizePhone } from "@/lib/intake";
 import {
@@ -45,13 +46,22 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // preço que a vitrine desta loja mostra (varejo ou atacado) — o pedido
-    // colado tem que valer o MESMO que o catálogo cobra
+    // PREÇO DO PEDIDO COLADO: tem que valer o MESMO que a cliente viu.
+    //
+    // A mensagem do catálogo carimba a tabela quando ela veio de um link de
+    // preço (`_Tabela: Atacado_`). Sem ler isso, a lojista colava um pedido de
+    // ATACADO e o sistema remontava tudo pelo padrão da loja — cobrando
+    // R$ 89,90 de quem devia pagar R$ 45,00, sem ninguém perceber (revisão
+    // 18/08/2026). O texto manda; sem carimbo, vale o padrão de sempre.
     const loja = await db.company.findUnique({
       where: { id: user.companyId },
-      select: { catalogPriceMode: true },
+      select: { catalogPriceMode: true, priceTablesEnabled: true },
     });
-    const modoPreco = loja?.catalogPriceMode ?? "VAREJO";
+    const tabelaDaMensagem = tabelaNoTexto(parsed.data.texto);
+    const modoPreco =
+      loja?.priceTablesEnabled && tabelaDaMensagem
+        ? tabelaDaMensagem
+        : modoValido(loja?.catalogPriceMode);
 
     // catálogo da loja (só o que está à venda entra num pedido novo)
     const produtos = await db.product.findMany({

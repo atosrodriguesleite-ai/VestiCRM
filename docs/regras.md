@@ -44,4 +44,4 @@ sem ambiguidade.
 | RN-015 | Anúncio → campanha é retroativo para quem não tem, nunca reescreve quem já tem | `lib/ad-match.ts` | `anuncio-campanha.test.ts` |
 | RN-016 | Nota AUTORIZADA → etiqueta com NF-e; sem nota → declaração de conteúdo | `lib/melhorenvio.ts` | `etiqueta-com-nfe.test.ts` |
 | RN-017 | WhatsApp: termo de aceite obrigatório antes do QR; envio proativo com ritmo humano | `lib/comm/evolution.ts` | `evolution.test.ts` |
-| RN-018 | Tabelas de preço por link (gated): o link decide o preço, atacado exige a quantidade mínima, e loja sem o recurso não muda em nada | `lib/catalogo/tabelas-de-preco.ts` | `tabelas-de-preco.test.ts` |
+| RN-018 | Tabelas de preço por link (gated): o link decide o preço, atacado exige a quantidade mínima, e loja sem o recurso não muda em nada | `lib/catalogo/tabelas-de-preco{,-servidor}.ts` | `tabelas-de-preco.test.ts` |

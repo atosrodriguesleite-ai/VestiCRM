@@ -16,21 +16,39 @@ import { novoCodigoDeLink } from "@/lib/catalogo/tabelas-de-preco-servidor";
  * Admin: sem isso a porta responde 403 e nada muda para ninguém.
  */
 
-async function guardar(user: { companyId: string; role: string }) {
+/**
+ * Porteiro das duas portas:
+ *  • LER a lista é liberado para qualquer pessoa da loja — é a vendedora que
+ *    manda o link para a cliente dela; recusar leitura fazia a tela dizer
+ *    "nenhum link criado" e ela concluir que a loja não usa tabela
+ *    (revisão 18/08/2026);
+ *  • CRIAR / DESATIVAR continua em gerente+: preço é decisão comercial.
+ */
+async function guardar(
+  user: { companyId: string; role: string },
+  precisaEditar: boolean
+) {
   const company = await db.company.findUnique({
     where: { id: user.companyId },
-    select: { priceTablesEnabled: true },
+    select: { priceTablesEnabled: true, catalogHideOutOfStock: true },
   });
-  if (!company?.priceTablesEnabled) return "Recurso não contratado.";
-  if (!isManagerUp(user as never)) return "Só gerente ou admin podem mexer nos links.";
-  return null;
+  if (!company?.priceTablesEnabled)
+    return { erro: "Sua loja não usa tabelas de preço por link.", company: null };
+  if (precisaEditar && !isManagerUp(user as never))
+    return { erro: "Só gerente ou admin podem criar ou desativar links.", company: null };
+  return { erro: null, company };
 }
 
 export async function GET() {
   try {
     const user = await requireUser();
-    const erro = await guardar(user);
+    const { erro, company } = await guardar(user, false);
     if (erro) return NextResponse.json({ error: erro }, { status: 403 });
+    // a vitrine esconde esgotado quando a loja pede: a conferência tem que
+    // contar as MESMAS peças que a cliente vê, senão o total mente
+    const soComEstoque = company!.catalogHideOutOfStock
+      ? { variants: { some: { stock: { gt: 0 } } } }
+      : {};
     const [links, total, semAtacado, semMinimo] = await Promise.all([
       db.catalogLink.findMany({
         where: { companyId: user.companyId },
@@ -44,13 +62,14 @@ export async function GET() {
       // link de atacado e a cliente veria preço cheio — parecendo que o
       // recurso não funciona, quando o que falta é o cadastro.
       db.product.count({
-        where: { companyId: user.companyId, active: true, images: { some: {} } },
+        where: { companyId: user.companyId, active: true, images: { some: {} }, ...soComEstoque },
       }),
       db.product.count({
         where: {
           companyId: user.companyId,
           active: true,
           images: { some: {} },
+          ...soComEstoque,
           wholesalePrice: { lte: 0 },
         },
       }),
@@ -59,6 +78,7 @@ export async function GET() {
           companyId: user.companyId,
           active: true,
           images: { some: {} },
+          ...soComEstoque,
           minQuantity: { lte: 1 },
         },
       }),
@@ -74,7 +94,7 @@ export async function GET() {
 export async function POST(req: NextRequest) {
   try {
     const user = await requireUser();
-    const erro = await guardar(user);
+    const { erro } = await guardar(user, true);
     if (erro) return NextResponse.json({ error: erro }, { status: 403 });
     const parsed = z
       .object({
@@ -114,7 +134,7 @@ export async function POST(req: NextRequest) {
 export async function PATCH(req: NextRequest) {
   try {
     const user = await requireUser();
-    const erro = await guardar(user);
+    const { erro } = await guardar(user, true);
     if (erro) return NextResponse.json({ error: erro }, { status: 403 });
     const parsed = z
       .object({ id: z.string().min(1), active: z.boolean() })
@@ -122,6 +142,17 @@ export async function PATCH(req: NextRequest) {
     if (!parsed.success)
       return NextResponse.json({ error: "Dados inválidos" }, { status: 400 });
     // updateMany com companyId: link de outra loja não é alcançável
+    if (parsed.data.active) {
+      // reativar também conta para o teto (antes dava para passar de 20)
+      const ativos = await db.catalogLink.count({
+        where: { companyId: user.companyId, active: true },
+      });
+      if (ativos >= 20)
+        return NextResponse.json(
+          { error: "Você já tem 20 links ativos. Desative algum antes." },
+          { status: 409 }
+        );
+    }
     const r = await db.catalogLink.updateMany({
       where: { id: parsed.data.id, companyId: user.companyId },
       data: { active: parsed.data.active },

@@ -1,5 +1,7 @@
 "use client";
 
+import { catalogPrice } from "@/lib/orders";
+
 /**
  * Edição dos itens do pedido — ajustar quantidades, remover ou adicionar
  * produtos a qualquer momento (exceto pedido cancelado). Em pedido já pago,
@@ -38,13 +40,25 @@ export function ItemsEditor({
   discount,
   shippingFee,
   alreadyPaid = false,
+  priceMode = null,
 }: {
   orderId: string;
   initialItems: Line[];
   discount: number;
   shippingFee: number;
   alreadyPaid?: boolean;
+  /**
+   * TABELA que precificou o pedido (do link de atacado/varejo). O item
+   * acrescentado depois segue a MESMA tabela — antes o sistema sugeria
+   * atacado sempre que existisse, inclusive num pedido de varejo (revisão
+   * 18/08/2026).
+   */
+  priceMode?: string | null;
 }) {
+  /** preço a sugerir para uma peça nova: a tabela do pedido manda. */
+  const precoSugerido = (p: { wholesalePrice: number; retailPrice: number }) =>
+    catalogPrice(p, priceMode);
+
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [lines, setLines] = useState<Line[]>(initialItems);
@@ -76,7 +90,7 @@ export function ItemsEditor({
           productId: p.id, variantId: v.id, name: p.name,
           variant: [v.color, v.size].filter(Boolean).join(" · "),
           stock: v.stock, quantity: 1,
-          unitPrice: p.wholesalePrice > 0 ? p.wholesalePrice : p.retailPrice,
+          unitPrice: precoSugerido(p),
         },
       ];
     });

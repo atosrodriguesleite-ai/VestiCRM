@@ -22,7 +22,7 @@ import {
   Lora,
 } from "next/font/google";
 import { makeSwatch, mixHex, readableOn } from "@/lib/color";
-import { faltaParaOMinimo, textoDoMinimo } from "@/lib/catalogo/tabelas-de-preco";
+import { faltaParaOMinimo } from "@/lib/catalogo/tabelas-de-preco";
 import {
   guardarPendente,
   protocoloDaSacola,
@@ -882,6 +882,10 @@ export function PublicCatalog({
     }
     let msg = `*Novo pedido — ${storeName}*\n`;
     if (promo) msg += `_Campanha: ${promo.name} (${promo.discount}% OFF)_\n`;
+    // TABELA DE PREÇO no texto: é por esta linha que o "Colar pedido do
+    // WhatsApp" sabe recompor os valores certos quando o registro automático
+    // falha — sem ela, pedido de atacado era remontado a preço de varejo
+    if (tabela) msg += `_Tabela: ${tabela.mode === "ATACADO" ? "Atacado" : "Varejo"}_\n`;
     msg += `\n`;
     for (const cat of categories) {
       const items = (cardsByCategory.get(cat) ?? []).filter((c) => cart[c.key]);
@@ -1784,6 +1788,17 @@ export function PublicCatalog({
                 )}{" "}
                 <small className="text-xs font-medium" style={{ color: T.muted }}>/ peça</small>
               </p>
+              {/* MÍNIMO SEM PREÇO DE ATACADO (caso clássico de semijoias): a
+                  trava existe mesmo assim, então a vitrine precisa dizer —
+                  senão a cliente monta a sacola e só descobre ao enviar
+                  (revisão 18/08/2026) */}
+              {tabela?.mode === "ATACADO" &&
+                sheet.product.wholesalePrice <= 0 &&
+                sheet.product.minQuantity > 1 && (
+                  <p className="text-[12px] font-semibold mt-1.5 m-0" style={{ color: T.muted }}>
+                    📦 Mínimo de {sheet.product.minQuantity} peças deste modelo
+                  </p>
+                )}
               {sheet.product.wholesalePrice > 0 && sheet.product.minQuantity > 1 && (
                 <p className="text-xs font-semibold -mt-2 mb-3.5" style={{ color: T.muted }}>
                   💼 Atacado: {fmt(sheet.product.wholesalePrice)} / peça a partir de {sheet.product.minQuantity} unidades

@@ -93,3 +93,19 @@ export function textoDoMinimo(faltas: FaltaNoMinimo[]): string {
     `Complete a quantidade para fechar o pedido — ou chame a loja no WhatsApp.`
   );
 }
+
+/**
+ * Lê a TABELA carimbada na mensagem do catálogo (`_Tabela: Atacado_`).
+ *
+ * É o que faz o "Colar pedido do WhatsApp" cobrar o valor certo quando o
+ * registro automático não aconteceu. Sem isto, um pedido de atacado colado à
+ * mão era remontado pelo preço padrão da loja — na Sutilli, R$ 89,90 no lugar
+ * de R$ 45,00, e ninguém percebia (revisão 18/08/2026).
+ *
+ * Mensagem sem carimbo devolve null: vale o padrão da loja, como sempre foi.
+ */
+export function tabelaNoTexto(texto: string): ModoDePreco | null {
+  const m = /_?\s*Tabela:\s*(Atacado|Varejo)\s*_?/i.exec(texto ?? "");
+  if (!m) return null;
+  return m[1].toLowerCase() === "atacado" ? "ATACADO" : "VAREJO";
+}

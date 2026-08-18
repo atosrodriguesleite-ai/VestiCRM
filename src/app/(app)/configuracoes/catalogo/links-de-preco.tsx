@@ -45,14 +45,30 @@ export function LinksDePreco({
     semMinimo: number;
   } | null>(null);
 
+  // TRÊS ESTADOS DIFERENTES: sem permissão, falha de conexão e vazio de
+  // verdade. Antes os três viravam "Nenhum link criado ainda" — a vendedora
+  // concluía que a loja não usa tabela, e a gerente criava link duplicado
+  // depois de uma falha de rede (revisão 18/08/2026).
+  const [semAcesso, setSemAcesso] = useState<string | null>(null);
+  const [falhouCarregar, setFalhouCarregar] = useState(false);
+
   useEffect(() => {
     fetch("/api/catalog-links")
-      .then((r) => (r.ok ? r.json() : { links: [] }))
+      .then(async (r) => {
+        if (r.ok) return r.json();
+        const d = await r.json().catch(() => ({}));
+        if (r.status === 403) setSemAcesso(d.error ?? "Você não tem acesso a esta parte.");
+        else setFalhouCarregar(true);
+        return { links: [] };
+      })
       .then((d) => {
         setLinks(d.links ?? []);
         setConferencia(d.conferencia ?? null);
       })
-      .catch(() => setLinks([]));
+      .catch(() => {
+        setFalhouCarregar(true);
+        setLinks([]);
+      });
   }, []);
 
   const enderecoDe = (code: string) => `${baseUrl}/l/${code}`;
@@ -197,6 +213,13 @@ export function LinksDePreco({
 
       {links === null ? (
         <p className="py-4 text-center text-sm text-gray-400">Carregando…</p>
+      ) : semAcesso ? (
+        <p className="py-4 text-center text-sm text-gray-500">{semAcesso}</p>
+      ) : falhouCarregar ? (
+        <p className="py-4 text-center text-sm text-amber-700">
+          Não consegui carregar os links agora (conexão). Atualize a página antes de
+          criar um novo — para não criar link repetido.
+        </p>
       ) : links.length === 0 ? (
         <p className="py-4 text-center text-sm text-gray-400">
           Nenhum link criado ainda. O catálogo normal continua funcionando como sempre.
@@ -246,8 +269,8 @@ export function LinksDePreco({
                   )}
                 </div>
               </div>
-              <p className="mt-1 truncate font-mono text-[11px] text-gray-400">
-                /l/{l.code}
+              <p className="mt-1 break-all font-mono text-[11px] text-gray-400">
+                {enderecoDe(l.code)}
               </p>
             </div>
           ))}

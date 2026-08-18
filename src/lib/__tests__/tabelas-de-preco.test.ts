@@ -1,7 +1,12 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { faltaParaOMinimo, modoValido, textoDoMinimo } from "../catalogo/tabelas-de-preco";
+import {
+  faltaParaOMinimo,
+  modoValido,
+  tabelaNoTexto,
+  textoDoMinimo,
+} from "../catalogo/tabelas-de-preco";
 import { novoCodigoDeLink } from "../catalogo/tabelas-de-preco-servidor";
 
 // Guarda RN-018 (índice em docs/regras.md; texto no CLAUDE.md).
@@ -90,6 +95,67 @@ describe("modo e código do link", () => {
   });
 });
 
+describe("o pedido colado do WhatsApp cobra pela tabela CERTA", () => {
+  it("lê o carimbo da mensagem do catálogo", () => {
+    expect(tabelaNoTexto("*Novo pedido*\n_Tabela: Atacado_\n")).toBe("ATACADO");
+    expect(tabelaNoTexto("_Tabela: Varejo_")).toBe("VAREJO");
+    expect(tabelaNoTexto("Tabela: atacado")).toBe("ATACADO"); // sem itálico
+  });
+  it("mensagem sem carimbo vale o padrão da loja (nada muda para quem não usa)", () => {
+    expect(tabelaNoTexto("*Novo pedido — Loja*\n\n2x Blusa")).toBeNull();
+    expect(tabelaNoTexto("")).toBeNull();
+  });
+  it("o catálogo CARIMBA a tabela na mensagem", () => {
+    expect(ler("src/app/catalogo/[slug]/public-catalog.tsx")).toContain(
+      'msg += `_Tabela: ${tabela.mode === "ATACADO" ? "Atacado" : "Varejo"}_'
+    );
+  });
+  it("o leitor usa o carimbo (era R$ 89,90 no lugar de R$ 45,00)", () => {
+    const rota = ler("src/app/api/orders/ler-mensagem/route.ts");
+    expect(rota).toContain("tabelaNoTexto(parsed.data.texto)");
+    expect(rota).toContain("loja?.priceTablesEnabled && tabelaDaMensagem");
+  });
+  it("peça acrescentada depois segue a tabela DO PEDIDO", () => {
+    expect(ler("src/app/(app)/pedidos/[id]/items-editor.tsx")).toContain(
+      "catalogPrice(p, priceMode)"
+    );
+    expect(ler("src/app/(app)/pedidos/[id]/page.tsx")).toContain("priceMode={order.priceMode}");
+  });
+});
+
+describe("a vitrine e a tela contam a verdade (revisão 18/08/2026)", () => {
+  it("mínimo SEM preço de atacado também avisa (o caso das semijoias)", () => {
+    const cat = ler("src/app/catalogo/[slug]/public-catalog.tsx");
+    expect(cat).toContain("sheet.product.wholesalePrice <= 0 &&");
+    expect(cat).toContain("Mínimo de {sheet.product.minQuantity} peças deste modelo");
+  });
+  it("vendedora LÊ os links (só criar/desativar é de gerente)", () => {
+    const rota = ler("src/app/api/catalog-links/route.ts");
+    expect(rota).toContain("guardar(user, false)"); // GET
+    expect(rota).toContain("guardar(user, true)"); // POST/PATCH
+    expect(rota).toContain("precisaEditar && !isManagerUp");
+  });
+  it("a conferência conta as peças que a vitrine mostra de verdade", () => {
+    expect(ler("src/app/api/catalog-links/route.ts")).toContain("catalogHideOutOfStock");
+  });
+  it("reativar link respeita o teto de 20", () => {
+    expect(ler("src/app/api/catalog-links/route.ts")).toContain(
+      "reativar também conta para o teto"
+    );
+  });
+  it("estado vazio, sem permissão e falha de rede são TRÊS coisas diferentes", () => {
+    const tela = ler("src/app/(app)/configuracoes/catalogo/links-de-preco.tsx");
+    expect(tela).toContain("setSemAcesso");
+    expect(tela).toContain("setFalhouCarregar");
+    expect(tela).toContain("para não criar link repetido");
+  });
+  it("o endereço completo aparece na tela (dá para conferir e copiar à mão)", () => {
+    expect(ler("src/app/(app)/configuracoes/catalogo/links-de-preco.tsx")).toContain(
+      "{enderecoDe(l.code)}"
+    );
+  });
+});
+
 describe("o recurso é gated: desligado, NADA muda", () => {
   const lib = ler("src/lib/catalogo/tabelas-de-preco-servidor.ts");
   it("link só vale para loja com o recurso ligado", () => {
@@ -131,7 +197,8 @@ describe("o recurso é gated: desligado, NADA muda", () => {
   it("as portas de gerenciar links recusam loja sem o recurso", () => {
     const rota = ler("src/app/api/catalog-links/route.ts");
     expect(rota).toContain("priceTablesEnabled");
-    expect(rota).toContain("Recurso não contratado.");
+    // texto sem jargão: "não contratado" não diz nada para a lojista
+    expect(rota).toContain("Sua loja não usa tabelas de preço por link.");
     expect(rota).toContain("isManagerUp");
   });
   it("só o Super Admin liga a chave", () => {

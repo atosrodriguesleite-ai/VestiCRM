@@ -5,7 +5,7 @@ import { orderScope } from "@/lib/scope";
 import { orderNumber } from "@/lib/orders";
 import { sendMessage } from "@/lib/comm/engine";
 import { linkDoRastreio, novoCodigoPublico } from "@/lib/rastreio";
-import { nomeProvisorio } from "@/lib/intake";
+import { nomeProvisorio } from "@/lib/nome-provisorio";
 
 /** Marca estável no histórico — é por ela que a trava de 10 min enxerga. */
 const MARCA_ENVIO_RASTREIO = "Link de rastreio enviado";

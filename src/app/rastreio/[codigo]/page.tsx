@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { Package, Truck, CheckCircle2, Clock, MapPin } from "lucide-react";
 import { db } from "@/lib/db";
 import { orderNumber } from "@/lib/orders";
-import { nomeProvisorio } from "@/lib/intake";
+import { nomeProvisorio } from "@/lib/nome-provisorio";
 
 export const dynamic = "force-dynamic";
 

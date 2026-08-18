@@ -16,10 +16,12 @@ import {
 import { Card } from "@/components/ui";
 import { pesoDivergente } from "@/lib/peso-pacote";
 import { numeroBR } from "@/lib/numero-br";
-import type { VolumePacote } from "@/lib/melhorenvio";
+// TIPOS do arquivo de tipos, NUNCA do motor: o motor puxa banco e rede, e
+// um import de valor por descuido derruba o deploy (incidente 17/08/2026)
+import type { VolumePacote } from "@/lib/melhorenvio-tipos";
 import { brl } from "@/lib/format";
 import { copiarTexto } from "@/lib/copiar";
-import { nomeProvisorio } from "@/lib/intake";
+import { nomeProvisorio } from "@/lib/nome-provisorio";
 
 /**
  * Painel de Envio do pedido (módulo Envios / Melhor Envio):

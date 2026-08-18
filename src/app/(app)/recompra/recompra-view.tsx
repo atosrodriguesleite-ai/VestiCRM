@@ -21,16 +21,18 @@ import {
 } from "lucide-react";
 import { brl, formatPhone } from "@/lib/format";
 import { Card, PageHeader, EmptyState, Avatar } from "@/components/ui";
+// VALOR vem do arquivo PURO; TIPO pode vir do motor (import type some no
+// build). Misturar os dois na mesma linha era o que empacotava o Prisma
+// dentro do navegador — a raiz do deploy quebrado de 17/08/2026.
 import {
   FAIXAS,
-  type ClienteDeRecompra,
-  type DadosDaAbaRecompra,
   type Faixa,
   mensagemAniversario,
   mensagemHoraDeRepor,
   mensagemNovidade,
   mensagemVipLancamento,
-} from "@/lib/recompra";
+} from "@/lib/recompra-textos";
+import type { ClienteDeRecompra, DadosDaAbaRecompra } from "@/lib/recompra";
 
 type Filtro = "TODAS" | "PONTO" | Faixa;
 

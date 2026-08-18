@@ -275,6 +275,8 @@ export default async function OrderDetailPage({
             {order.status !== "CANCELADO" && !somenteLeitura && (
               <ItemsEditor
                 orderId={order.id}
+                // peça acrescentada depois segue a MESMA tabela do pedido
+                priceMode={order.priceMode}
                 discount={order.discount}
                 shippingFee={order.shippingFee}
                 alreadyPaid={order.stockDeducted}

@@ -3,6 +3,9 @@ import { limparChaveNfe } from "./bling";
 import { encryptSecret, decryptSecret } from "./crypto";
 import { signState, verifyState } from "./nuvemshop"; // state assinado (HMAC)
 import { appBaseUrl } from "./comm/evolution";
+// tipos compartilhados com as TELAS moram fora daqui (ver melhorenvio-tipos.ts)
+import type { VolumePacote, MeQuote, MeRecusa } from "./melhorenvio-tipos";
+export type { VolumePacote, MeQuote, MeRecusa };
 
 /**
  * Melhor Envio — módulo Envios (pago à parte, Company.shippingEnabled).
@@ -286,13 +289,6 @@ export function pesoDoPedidoKg(items: ItemComPeso[], conn: ConnPesos): number {
 }
 
 /** Um volume do envio, do jeito que a lojista mede: cm e kg. */
-export type VolumePacote = {
-  pesoKg: number;
-  alturaCm: number;
-  larguraCm: number;
-  comprimentoCm: number;
-};
-
 /**
  * Os volumes que o envio declara: os MEDIDOS pela lojista quando existem;
  * senão UMA caixa padrão da loja com o peso somado das peças (o automático
@@ -371,22 +367,6 @@ async function meServiceIds(companyId: string): Promise<number[]> {
   servicosCache.set(companyId, { ids, at: Date.now() });
   return ids;
 }
-
-export type MeQuote = {
-  serviceId: number;
-  service: string; // PAC, SEDEX, .Package...
-  carrier: string; // Correios, Jadlog...
-  carrierLogo: string | null;
-  price: number;
-  days: number | null; // prazo em dias úteis
-};
-
-/** Transportadora que o Melhor Envio devolveu SEM preço, e o porquê. */
-export type MeRecusa = {
-  carrier: string;
-  services: string[];
-  reason: string;
-};
 
 /**
  * Traduz o "não cotou" do Melhor Envio para o português da lojista.
