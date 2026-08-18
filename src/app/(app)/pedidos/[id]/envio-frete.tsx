@@ -660,11 +660,13 @@ export function EnvioFrete({
                         ["peso", "Peso (kg)"],
                         ["altura", "Altura (cm)"],
                         ["largura", "Largura (cm)"],
-                        ["comprimento", "Comprim. (cm)"],
+                        ["comprimento", "Compr. (cm)"],
                       ] as const
                     ).map(([campo, rotulo]) => (
-                      <label key={campo} className="text-[10px] text-gray-400">
-                        {rotulo}
+                      <label key={campo} className="min-w-0 text-[10px] text-gray-400">
+                        {/* uma linha só: rótulo comprido quebrava e empurrava o
+                            campo pra baixo, desalinhando dos vizinhos */}
+                        <span className="block truncate">{rotulo}</span>
                         <input
                           value={v[campo]}
                           onChange={(e) =>
