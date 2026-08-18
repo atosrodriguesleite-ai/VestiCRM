@@ -31,12 +31,39 @@ export async function GET() {
     const user = await requireUser();
     const erro = await guardar(user);
     if (erro) return NextResponse.json({ error: erro }, { status: 403 });
-    const links = await db.catalogLink.findMany({
-      where: { companyId: user.companyId },
-      orderBy: { createdAt: "asc" },
-      select: { id: true, name: true, code: true, priceMode: true, active: true },
-    });
-    return NextResponse.json({ links });
+    const [links, total, semAtacado, semMinimo] = await Promise.all([
+      db.catalogLink.findMany({
+        where: { companyId: user.companyId },
+        orderBy: { createdAt: "asc" },
+        select: { id: true, name: true, code: true, priceMode: true, active: true },
+      }),
+      // CONFERÊNCIA DA VITRINE (só as peças que aparecem no catálogo).
+      //
+      // O preço de atacado CAI NO VAREJO quando a peça não tem atacado
+      // cadastrado (`catalogPrice`): sem este aviso, a lojista mandaria o
+      // link de atacado e a cliente veria preço cheio — parecendo que o
+      // recurso não funciona, quando o que falta é o cadastro.
+      db.product.count({
+        where: { companyId: user.companyId, active: true, images: { some: {} } },
+      }),
+      db.product.count({
+        where: {
+          companyId: user.companyId,
+          active: true,
+          images: { some: {} },
+          wholesalePrice: { lte: 0 },
+        },
+      }),
+      db.product.count({
+        where: {
+          companyId: user.companyId,
+          active: true,
+          images: { some: {} },
+          minQuantity: { lte: 1 },
+        },
+      }),
+    ]);
+    return NextResponse.json({ links, conferencia: { total, semAtacado, semMinimo } });
   } catch (e) {
     if (e instanceof AuthError)
       return NextResponse.json({ error: "Não autenticado" }, { status: 401 });

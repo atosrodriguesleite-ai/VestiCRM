@@ -201,6 +201,25 @@ describe("o que a revisão pegou (17/08/2026)", () => {
   });
 });
 
+describe("a conferência antes de mandar o link (17/08/2026)", () => {
+  it("peça sem preço de atacado cai no VAREJO — a régua é esta", () => {
+    // é o motivo do aviso: no link de atacado, peça sem atacado cadastrado
+    // aparece pelo preço cheio, e parece que o recurso não funcionou
+    expect(ler("src/lib/orders.ts")).toContain("modo === \"ATACADO\" && product.wholesalePrice > 0");
+  });
+  it("a API conta as peças sem atacado e sem mínimo (só as da vitrine)", () => {
+    const rota = ler("src/app/api/catalog-links/route.ts");
+    expect(rota).toContain("wholesalePrice: { lte: 0 }");
+    expect(rota).toContain("minQuantity: { lte: 1 }");
+    expect(rota).toContain("images: { some: {} }"); // só o que aparece no catálogo
+  });
+  it("o aviso só aparece quando existe link de ATACADO ativo", () => {
+    const tela = ler("src/app/(app)/configuracoes/catalogo/links-de-preco.tsx");
+    expect(tela).toContain("temLinkAtacado && conferencia && conferencia.semAtacado > 0");
+    expect(tela).toContain("sem preço de\n            atacado cadastrado");
+  });
+});
+
 describe("o endereço curto e a montagem única", () => {
   it("catalago.net/<loja>/l/<código> é reescrito antes da regra de vendedora", () => {
     const mw = ler("src/middleware.ts");

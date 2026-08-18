@@ -38,15 +38,25 @@ export function LinksDePreco({
   const [busy, setBusy] = useState(false);
   const [erro, setErro] = useState("");
   const [copiado, setCopiado] = useState<string | null>(null);
+  /** conferência da vitrine: peças sem preço de atacado / sem mínimo */
+  const [conferencia, setConferencia] = useState<{
+    total: number;
+    semAtacado: number;
+    semMinimo: number;
+  } | null>(null);
 
   useEffect(() => {
     fetch("/api/catalog-links")
       .then((r) => (r.ok ? r.json() : { links: [] }))
-      .then((d) => setLinks(d.links ?? []))
+      .then((d) => {
+        setLinks(d.links ?? []);
+        setConferencia(d.conferencia ?? null);
+      })
       .catch(() => setLinks([]));
   }, []);
 
   const enderecoDe = (code: string) => `${baseUrl}/l/${code}`;
+  const temLinkAtacado = (links ?? []).some((l) => l.active && l.priceMode === "ATACADO");
 
   async function criar() {
     if (!nome.trim() || busy) return;
@@ -151,6 +161,35 @@ export function LinksDePreco({
           </button>
         </div>
       )}
+
+      {/* CONFERÊNCIA ANTES DE MANDAR O LINK: peça sem preço de atacado
+          cadastrado aparece pelo preço de VAREJO no link de atacado (é a
+          regra do catálogo). Sem este aviso, a lojista mandava o link e
+          parecia que o recurso não funcionou. */}
+      {temLinkAtacado && conferencia && conferencia.semAtacado > 0 && (
+        <div className="mb-3 rounded-xl border border-amber-200 bg-amber-50 px-3.5 py-3 text-xs leading-snug text-amber-900">
+          <p className="m-0 font-bold">
+            ⚠️ {conferencia.semAtacado} de {conferencia.total}{" "}
+            {conferencia.semAtacado === 1 ? "peça está" : "peças estão"} sem preço de
+            atacado cadastrado
+          </p>
+          <p className="m-0 mt-1">
+            No link de atacado, essas peças aparecem pelo{" "}
+            <b>preço de varejo</b> — a cliente lojista veria o valor cheio.
+            Preencha o preço de atacado em <b>Produtos</b> antes de mandar o link.
+          </p>
+        </div>
+      )}
+      {temLinkAtacado && conferencia && conferencia.semMinimo === conferencia.total &&
+        conferencia.total > 0 && (
+          <div className="mb-3 rounded-xl border border-sky-200 bg-sky-50 px-3.5 py-3 text-xs leading-snug text-sky-900">
+            <p className="m-0">
+              ℹ️ Nenhuma peça tem <b>quantidade mínima</b> cadastrada, então o link
+              de atacado não vai exigir mínimo nenhum. Se quiser a trava, preencha
+              a <b>quantidade mínima</b> de cada peça em Produtos.
+            </p>
+          </div>
+        )}
 
       {erro && (
         <p className="mb-3 rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-600">{erro}</p>
