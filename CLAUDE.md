@@ -173,6 +173,16 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   **RN-011** · Todo pedido do catálogo AVISA na hora (`notifyNovoPedido`): com vendedora
   no link, só ela; sem vendedora, gerência/admin (nunca uma vendedora
   qualquer — a separação por link vale também para o aviso).
+  **RN-018 · Tabelas de preço por link** (`lib/catalogo/tabelas-de-preco.ts`,
+  gated por `Company.priceTablesEnabled`, DESLIGADO por padrão): a loja que
+  atende lojista E cliente final gera links do MESMO catálogo com tabelas
+  diferentes (`/catalogo/<loja>/l/<código>`, código SORTEADO — o preço de
+  atacado não se descobre por tentativa). Quem manda no preço é o servidor: o
+  navegador só diz por qual link entrou, e o pedido guarda a tabela que o
+  precificou (`Order.priceMode`). No link de ATACADO o mínimo por modelo é
+  EXIGIDO (soma todas as cores e tamanhos do mesmo produto). Link que não vale
+  mais RECUSA o pedido — nunca cai no varejo em silêncio. **Loja que não ativa
+  o recurso não muda em NADA**: mesmo link, mesmo preço, sem trava de mínimo.
   **RN-012** · Resgate manual: **"Colar pedido do WhatsApp"** na tela Pedidos
   (`lib/catalogo/ler-mensagem.ts` + `/api/orders/ler-mensagem`) — lê a
   mensagem do catálogo, casa com o catálogo da loja (nome mais longo vence

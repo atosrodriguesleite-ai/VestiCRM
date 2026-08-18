@@ -27,6 +27,7 @@ const REEXECUTAVEIS = new Set([
   "20260810120000_cancelamento_sem_devolucao",
   "20260811120000_infinitepay",
   "20260814120000_rastreio_automatico",
+  "20260817210000_tabelas_de_preco",
 ]);
 
 function rodar(args) {

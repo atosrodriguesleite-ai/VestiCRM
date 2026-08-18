@@ -342,7 +342,10 @@ describe("pedido colado do WhatsApp: preço IGUAL ao do catálogo", () => {
     // o invariante é os dois usarem a MESMA régua — catalogPrice().
     expect(leitor).toContain("catalogPrice(produto, modoPreco)");
     expect(leitor).toContain("catalogPriceMode");
-    expect(catalogo).toContain("catalogPrice(p, company.catalogPriceMode)");
+    // desde 17/08/2026 o modo pode vir do LINK (tabela de preço) em vez de
+    // só da loja — mas a régua continua sendo a mesma função
+    expect(catalogo).toContain("catalogPrice(p, modoDePreco)");
+    expect(catalogo).toContain("modoValido(company.catalogPriceMode)");
     expect(catalogo).toContain("precoVitrine(product)");
   });
 });

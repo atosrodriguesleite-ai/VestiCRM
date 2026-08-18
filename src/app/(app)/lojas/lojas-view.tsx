@@ -46,6 +46,7 @@ export type Loja = {
   marketingEnabled: boolean;
   mediaLibraryEnabled: boolean;
   shippingEnabled: boolean;
+  priceTablesEnabled: boolean;
   aiSalesEnabled: boolean;
   suspended: boolean;
   billing: {
@@ -307,6 +308,7 @@ function NewLojaForm({
           marketingEnabled: false,
           mediaLibraryEnabled: false,
           shippingEnabled: false,
+          priceTablesEnabled: false,
           aiSalesEnabled: false,
           suspended: false,
           billing: null,
@@ -831,6 +833,8 @@ function LojaCard({ loja, catalogDomain }: { loja: Loja; catalogDomain: string |
   const [togglingEnv, setTogglingEnv] = useState(false);
   const [iaVendas, setIaVendas] = useState(loja.aiSalesEnabled);
   const [togglingIa, setTogglingIa] = useState(false);
+  const [tabelas, setTabelas] = useState(loja.priceTablesEnabled);
+  const [togglingTab, setTogglingTab] = useState(false);
 
   // módulo Produção (pago à parte): o Super Admin liga/desliga por loja
   async function toggleProducao() {
@@ -918,6 +922,22 @@ function LojaCard({ loja, catalogDomain }: { loja: Loja; catalogDomain: string |
     setTogglingIa(false);
     if (res.ok) {
       setIaVendas(!iaVendas);
+      router.refresh();
+    }
+  }
+
+  // TABELAS DE PREÇO POR LINK (atacado + varejo no mesmo catálogo): idem.
+  // Desligado, a loja não vê nada de diferente no catálogo dela.
+  async function toggleTabelas() {
+    setTogglingTab(true);
+    const res = await fetch("/api/companies/price-tables", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ companyId: loja.id, enabled: !tabelas }),
+    });
+    setTogglingTab(false);
+    if (res.ok) {
+      setTabelas(!tabelas);
       router.refresh();
     }
   }
@@ -1174,6 +1194,28 @@ function LojaCard({ loja, catalogDomain }: { loja: Loja; catalogDomain: string |
           }`}
         >
           {togglingIa ? "..." : iaVendas ? "Desativar" : "Ativar IA de Vendas"}
+        </button>
+      </div>
+
+      {/* tabelas de preço por link (atacado + varejo) */}
+      <div className="mt-2 flex items-center justify-between gap-2 text-xs">
+        <span className="text-slate-500">
+          Atacado + varejo por link:{" "}
+          <b className={tabelas ? "text-emerald-600" : "text-slate-400"}>
+            {tabelas ? "ativado" : "desativado"}
+          </b>
+        </span>
+        <button
+          type="button"
+          onClick={toggleTabelas}
+          disabled={togglingTab}
+          className={`rounded-full px-2.5 py-1 font-semibold border transition disabled:opacity-50 ${
+            tabelas
+              ? "border-slate-200 text-slate-500 hover:border-rose-300 hover:text-rose-600"
+              : "border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
+          }`}
+        >
+          {togglingTab ? "..." : tabelas ? "Desativar" : "Ativar tabelas"}
         </button>
       </div>
 

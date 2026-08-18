@@ -21,7 +21,7 @@ describe("catálogo: chave 'esconder sem estoque' esconde a COR esgotada", () =>
   });
 
   it("catálogo geral E catálogo de campanha passam a chave da loja", () => {
-    expect(ler("src/app/catalogo/[slug]/page.tsx")).toContain(
+    expect(ler("src/app/catalogo/[slug]/montar-catalogo.tsx")).toContain(
       "hideSoldOut={company.catalogHideOutOfStock}"
     );
     expect(ler("src/app/catalogo/[slug]/c/[promo]/page.tsx")).toContain(
@@ -30,7 +30,7 @@ describe("catálogo: chave 'esconder sem estoque' esconde a COR esgotada", () =>
   });
 
   it("o filtro do servidor continua tirando o produto todo zerado", () => {
-    expect(ler("src/app/catalogo/[slug]/page.tsx")).toContain(
+    expect(ler("src/app/catalogo/[slug]/montar-catalogo.tsx")).toContain(
       "variants: { some: { stock: { gt: 0 } } }"
     );
   });

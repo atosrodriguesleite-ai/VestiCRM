@@ -22,6 +22,7 @@ import {
   Lora,
 } from "next/font/google";
 import { makeSwatch, mixHex, readableOn } from "@/lib/color";
+import { faltaParaOMinimo, textoDoMinimo } from "@/lib/catalogo/tabelas-de-preco";
 import {
   guardarPendente,
   protocoloDaSacola,
@@ -270,6 +271,7 @@ export function PublicCatalog({
   categoryDescriptions = {},
   categoryTypes = {},
   promo = null,
+  tabela = null,
   identity,
   logoSize = "normal",
   customColors,
@@ -292,6 +294,11 @@ export function PublicCatalog({
   categoryTypes?: Record<string, string>;
   // catálogo de campanha: nome + % de desconto (preços já vêm com desconto)
   promo?: { name: string; slug: string; discount: number } | null;
+  /**
+   * TABELA DE PREÇO deste endereço (recurso gated). Null = catálogo normal
+   * da loja: nada muda, nem preço nem trava de quantidade.
+   */
+  tabela?: { code: string; name: string; mode: "VAREJO" | "ATACADO" } | null;
   identity: CatalogIdentity;
   logoSize?: "normal" | "grande";
   customColors: { name: string; hex: string }[];
@@ -437,7 +444,11 @@ export function PublicCatalog({
   // Guardada NO APARELHO do cliente (localStorage), separada por loja e por
   // campanha (preços diferem). Expira em 7 dias; itens que saíram do catálogo
   // são descartados na volta. Os dados do cliente também voltam preenchidos.
-  const storeKey = `ap-sacola:${storeSlug}${promo ? `:${promo.slug}` : ""}`;
+  // sacola por LOJA e por TABELA: quem abre o link de atacado não herda a
+  // sacola montada no varejo (preços diferentes, mínimos diferentes)
+  const storeKey = `ap-sacola:${storeSlug}${promo ? `:${promo.slug}` : ""}${
+    tabela ? `:l:${tabela.code}` : ""
+  }`;
   const clientKey = `ap-cliente:${storeSlug}`;
   const cartLoadedRef = useRef(false);
   useEffect(() => {
@@ -588,6 +599,8 @@ export function PublicCatalog({
   // insistindo deu — a cliente vê, e o pedido fica guardado para a próxima
   // vez que ela abrir o catálogo.
   const [envio, setEnvio] = useState<"parado" | "enviando" | "ok" | "erro">("parado");
+  /** recusa do servidor em texto (mínimo do atacado, link vencido) */
+  const [erroDoEnvio, setErroDoEnvio] = useState<string | null>(null);
   // protocolo da última sacola enviada nesta visita — é o que permite
   // reconhecer o segundo clique antes de abrir o WhatsApp de novo
 
@@ -848,6 +861,13 @@ export function PublicCatalog({
       showToast(`Faltam ${falta} ${falta === 1 ? "peça" : "peças"} para o mínimo de ${minOrder}`);
       return;
     }
+    if (atacadoBloqueado) {
+      openBag();
+      showToast(
+        `Complete a quantidade mínima de ${faltasDoAtacado[0].nome} (mínimo ${faltasDoAtacado[0].minimo})`
+      );
+      return;
+    }
     if (minOrderMode === "VALOR" && totalValue < minOrderValue) {
       showToast(`Faltam ${fmt(minOrderValue - totalValue)} para o pedido mínimo de ${fmt(minOrderValue)}`);
       return;
@@ -931,6 +951,9 @@ export function PublicCatalog({
         c: origemRef.current.c || undefined,
         // campanha: o servidor recalcula os preços com o desconto dela
         promo: promo?.slug || undefined,
+        // tabela de preço deste endereço: o servidor recalcula os preços
+        // por ela e carimba no pedido (nunca confia no valor da tela)
+        link: tabela?.code || undefined,
         // sessão de navegação → o pedido; é o que liga faturamento a canal
         trackSessionId: trackerRef.current?.session || undefined,
       } as Record<string, unknown>,
@@ -984,8 +1007,19 @@ export function PublicCatalog({
       }
 
       guardarPendente(window.localStorage, pendente);
+      setErroDoEnvio(null);
       setEnvio("enviando");
-      registrarComInsistencia(pendente, { storage: window.localStorage })
+      registrarComInsistencia(pendente, {
+        storage: window.localStorage,
+        // recusa do servidor (quantidade mínima do atacado, link vencido):
+        // a cliente PRECISA saber — antes o pedido sumia calado
+        aoRecusar: (motivo) => {
+          if (motivo) {
+            setErroDoEnvio(motivo);
+            openBag();
+          }
+        },
+      })
         .then((ok) => {
           setEnvio(ok ? "ok" : "erro");
           // só o ok do servidor autoriza o aviso a dizer "a loja já recebeu"
@@ -1000,6 +1034,30 @@ export function PublicCatalog({
     const url = `https://wa.me/${whatsapp.replace(/\D/g, "")}?text=${encodeURIComponent(msg)}`;
     window.open(url, "_blank") ?? (window.location.href = url);
   }
+
+  /**
+   * ATACADO TEM QUANTIDADE MÍNIMA POR MODELO. Vale SÓ no link de atacado
+   * (recurso gated): no catálogo normal, e em toda loja que não ativou, esta
+   * lista é sempre vazia e nada trava.
+   */
+  const faltasDoAtacado = useMemo(() => {
+    if (tabela?.mode !== "ATACADO") return [];
+    const linhas = allCards
+      .filter((c) => cart[c.key])
+      .flatMap((c) =>
+        Object.entries(cart[c.key]).map(([, quantity]) => ({
+          productId: c.product.id,
+          quantity,
+        }))
+      );
+    const produtos = products.map((p) => ({
+      id: p.id,
+      name: p.name,
+      minQuantity: p.minQuantity,
+    }));
+    return faltaParaOMinimo(linhas, produtos, "ATACADO");
+  }, [tabela?.mode, allCards, cart, products]);
+  const atacadoBloqueado = faltasDoAtacado.length > 0;
 
   const minActive = minOrderMode === "PECAS" || minOrderMode === "VALOR";
   const minTarget = minOrderMode === "VALOR" ? minOrderValue : minOrder;
@@ -2025,9 +2083,30 @@ export function PublicCatalog({
                 </p>
               </div>
             )}
+            {erroDoEnvio && (
+              <div
+                className="mb-2.5 rounded-[14px] px-3.5 py-2.5 text-[12px] leading-snug whitespace-pre-line"
+                style={{ background: "#FEE2E2", color: "#991B1B" }}
+              >
+                {erroDoEnvio}
+              </div>
+            )}
+            {atacadoBloqueado && (
+              <div
+                className="mb-2.5 rounded-[14px] px-3.5 py-2.5 text-[12px] leading-snug"
+                style={{ background: "#FEF3C7", color: "#92400E" }}
+              >
+                <p className="m-0 font-bold">Quantidade mínima do atacado</p>
+                {faltasDoAtacado.map((f) => (
+                  <p key={f.productId} className="m-0 mt-0.5">
+                    {f.nome}: {f.pedido} de {f.minimo} {f.minimo === 1 ? "peça" : "peças"}
+                  </p>
+                ))}
+              </div>
+            )}
             <button
               onClick={sendOrder}
-              disabled={minBlocked}
+              disabled={minBlocked || atacadoBloqueado}
               className="w-full flex items-center justify-center gap-[9px] rounded-[14px] p-4 text-[15px] font-bold active:scale-[0.985] transition disabled:opacity-40"
               style={{ background: T.primary, color: T.secondary }}
             >

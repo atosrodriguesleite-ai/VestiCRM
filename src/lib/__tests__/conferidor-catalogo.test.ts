@@ -16,7 +16,7 @@ import { join } from "node:path";
 
 const ler = (rel: string) => readFileSync(join(process.cwd(), rel), "utf8");
 const rota = ler("src/app/api/products/[id]/catalogo/route.ts");
-const vitrine = ler("src/app/catalogo/[slug]/page.tsx");
+const vitrine = ler("src/app/catalogo/[slug]/montar-catalogo.tsx");
 const campanha = ler("src/app/catalogo/[slug]/c/[promo]/page.tsx");
 const tela = ler("src/app/(app)/produtos/products-view.tsx");
 

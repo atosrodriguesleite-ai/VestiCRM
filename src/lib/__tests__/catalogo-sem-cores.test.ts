@@ -25,7 +25,7 @@ describe("catálogo sem cores é escolha POR LOJA (ninguém mais muda)", () => {
   });
 
   it("o catálogo (geral e campanha) recebe a chave da loja", () => {
-    expect(ler("src/app/catalogo/[slug]/page.tsx")).toContain(
+    expect(ler("src/app/catalogo/[slug]/montar-catalogo.tsx")).toContain(
       "hideColors={company.catalogHideColors}"
     );
     expect(ler("src/app/catalogo/[slug]/c/[promo]/page.tsx")).toContain(

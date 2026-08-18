@@ -40,6 +40,10 @@ model Company {
   shippingEnabled   Boolean  @default(false) // módulo Envios/Melhor Envio (pago à parte; super admin ativa por loja)
   cutPlanEnabled    Boolean  @default(false) // módulo Plano de Corte (pago à parte; super admin ativa por loja)
   aiSalesEnabled    Boolean  @default(false) // módulo IA de Vendas (pago à parte; super admin ativa por loja)
+  /// TABELAS DE PREÇO POR LINK (atacado E varejo no mesmo catálogo): a loja
+  /// gera links com tabelas diferentes. DESLIGADO por padrão — loja que não
+  /// ativa não muda em NADA (mesmo link, mesmo preço, mesma tela).
+  priceTablesEnabled Boolean @default(false)
   suspended         Boolean  @default(false) // acesso bloqueado pelo super admin (ex.: inadimplência)
   // última rodada das automações desta loja. É a TRAVA ATÔMICA que faz o
   // motor rodar de carona no tráfego normal, no máximo uma vez por dia, sem
@@ -114,6 +118,7 @@ model Company {
   modules        CompanyModule[]
   adCreatives    AdCreative[]
   promoCatalogs  PromoCatalog[]
+  catalogLinks   CatalogLink[]
   fabrics        Fabric[]
   cutTickets     CutTicket[]
   fabricScraps   FabricScrap[]
@@ -1461,6 +1466,24 @@ model BioClick {
 // desconto próprio (%). O catálogo geral continua intacto; a campanha tem
 // link/QR próprios (catalago.net/<loja>/c/<campanha>) e o desconto é
 // recalculado no servidor na hora do pedido (nunca confiamos no navegador).
+/// LINK COM TABELA DE PREÇO PRÓPRIA (recurso gated: Company.priceTablesEnabled).
+///
+/// A loja que atende lojista E cliente final gera dois endereços do MESMO
+/// catálogo: um mostrando (e cobrando) preço de atacado, outro de varejo.
+/// O código é SORTEADO — o link de atacado não se descobre por tentativa.
+model CatalogLink {
+  id        String   @id @default(cuid())
+  companyId String
+  company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  name      String // como a lojista chama ("Lojistas", "Atacado")
+  code      String   @unique // sorteado; vira /catalogo/<loja>/l/<code>
+  priceMode String   @default("ATACADO") // VAREJO | ATACADO
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  @@index([companyId])
+}
+
 model PromoCatalog {
   id        String   @id @default(cuid())
   companyId String
@@ -1654,6 +1677,11 @@ model Order {
   // entrega/cancelamento aconteceu DEPOIS de a tarefa nascer (prova velha não
   // fecha tarefa nova). O dinheiro já tinha data própria em `paidAt`.
   updatedAt      DateTime      @updatedAt @default(now())
+  /// TABELA que precificou este pedido (VAREJO | ATACADO) quando ele veio de
+  /// um link de preço. Nulo = tabela padrão da loja. O servidor recalcula
+  /// todo preço ao gravar (RN-009): sem este carimbo, pedido de atacado
+  /// seria recobrado no varejo.
+  priceMode      String?
   // DATA DO DINHEIRO: quando o pedido virou PAGO. É por ela que TODA métrica
   // de faturamento é somada (não pela data em que o orçamento foi montado) —
   // assim o mês bate com o extrato e um mês fechado nunca mais muda de valor.
