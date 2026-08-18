@@ -96,6 +96,14 @@ describe("o recurso é gated: desligado, NADA muda", () => {
     expect(lib).toContain("if (!recursoLigado || !code) return null");
   });
 
+  it("o build LOCAL é o mesmo da Vercel (turbopack escondia o erro)", () => {
+    // o deploy de 17/08 caiu num erro que o build local (turbopack) engolia:
+    // "rodei o build e passou" deixou de ser garantia. Agora é o mesmo motor.
+    const pkg = JSON.parse(ler("package.json"));
+    expect(pkg.scripts.build).not.toContain("--turbopack");
+    expect(pkg.scripts.build).toContain("next build");
+  });
+
   it("a regra pura fica SEM servidor — foi o deploy quebrado de 17/08/2026", () => {
     // o catálogo público (navegador) importa este arquivo; node:crypto ou o
     // banco aqui dentro derrubam o build da Vercel (webpack) — o turbopack

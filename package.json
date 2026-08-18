@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev --turbopack",
-    "build": "node scripts/check-vercel-crons.mjs && npm run check:docs && next build --turbopack",
+    "build": "node scripts/check-vercel-crons.mjs && npm run check:docs && next build",
     "start": "next start",
     "lint": "eslint",
     "postinstall": "prisma generate",
