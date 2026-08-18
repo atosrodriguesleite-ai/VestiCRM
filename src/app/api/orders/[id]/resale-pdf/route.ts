@@ -24,7 +24,7 @@ import { orderScope } from "@/lib/scope";
  * lojista. Rodapé com convite discreto ao AtacadoPro.
  */
 
-// pedidos grandes: converter fotos (WebP → JPEG) leva alguns segundos
+// pedidos grandes: TODA foto é recortada e reconvertida (sharp) — leva segundos
 export const maxDuration = 60;
 
 const BLACK = rgb(0.07, 0.07, 0.07);
@@ -147,6 +147,66 @@ export async function GET(
     const FOOTER_H = 40; // faixa preta do rodapé
     const cardW = (width - M * 2 - GAP * (COLS - 1)) / COLS;
     const imgH = cardW * 1.22; // fotos maiores (espaço ganho do cabeçalho)
+    // A foto é RECORTADA na proporção exata do quadro (~2,6x em pixels, para
+    // sair nítida na impressão) — mesma regra do card do catálogo online.
+    const FOTO_W = 640;
+    const FOTO_H = Math.round(FOTO_W * (imgH / cardW));
+
+    // Mesma regra do card do catálogo online (object-cover object-top): a foto
+    // PREENCHE o quadro todo — foto em pé é cortada por BAIXO (nunca a cabeça
+    // da modelo), foto deitada perde as laterais. Era o "contain" (foto inteira
+    // com barras cinzas) que deixava o PDF desencaixado em relação ao catálogo
+    // do sistema. De quebra, o recorte converte WebP e afins em JPEG (PDF só
+    // embute JPEG/PNG).
+    const prepararFoto = async (
+      productId: string | null
+    ): Promise<{ bytes: Buffer; png: boolean; cover: boolean } | null> => {
+      let url = productId ? (firstImage.get(productId) ?? null) : null;
+      // atalho /api/img/<id> (legado): resolve para a foto real
+      if (url && !url.startsWith("data:")) {
+        const ref = url.match(/^\/api\/img\/([a-z0-9]+)/i);
+        const target = ref
+          ? await db.productImage.findUnique({
+              where: { id: ref[1] },
+              select: { url: true },
+            })
+          : null;
+        url = target?.url.startsWith("data:") ? target.url : null;
+      }
+      if (!url) return null;
+      try {
+        const bytes = Buffer.from(url.split(",")[1], "base64");
+        try {
+          const jpg = await sharp(bytes)
+            .rotate()
+            .flatten({ background: "#f6f6f6" }) // PNG transparente ganha o fundo neutro
+            .resize(FOTO_W, FOTO_H, { fit: "cover", position: "top" })
+            .jpeg({ quality: 85 })
+            .toBuffer();
+          return { bytes: jpg, png: false, cover: true };
+        } catch {
+          // plano B: embute a foto como veio, desenhada inteira no quadro
+          return { bytes, png: url.startsWith("data:image/png"), cover: false };
+        }
+      } catch {
+        return null;
+      }
+    };
+
+    // Recorta em lotes de 4 ANTES de montar as páginas: uma a uma, pedido
+    // grande flertava com os 60s da rota; todas de uma vez pesa a memória.
+    const fotos = new Map<
+      string,
+      { bytes: Buffer; png: boolean; cover: boolean } | null
+    >();
+    const chaves = [...byProduct.entries()];
+    for (let i = 0; i < chaves.length; i += 4) {
+      await Promise.all(
+        chaves.slice(i, i + 4).map(async ([key, p]) => {
+          fotos.set(key, await prepararFoto(p.productId));
+        })
+      );
+    }
     const capH = 40; // legenda (nome + preço) abaixo da foto
     const cardH = imgH + capH;
     const CONTENT_TOP = height - HEADER_H - 14;
@@ -221,50 +281,27 @@ export async function GET(
       const boxY = y + capH;
       page.drawRectangle({ x: boxX, y: boxY, width: cardW, height: imgH, color: PHOTOBG });
 
-      let url = item.productId ? (firstImage.get(item.productId) ?? null) : null;
-      // atalho /api/img/<id> (legado): resolve para a foto real
-      if (url && !url.startsWith("data:")) {
-        const ref = url.match(/^\/api\/img\/([a-z0-9]+)/i);
-        const target = ref
-          ? await db.productImage.findUnique({
-              where: { id: ref[1] },
-              select: { url: true },
-            })
-          : null;
-        url = target?.url.startsWith("data:") ? target.url : null;
-      }
       let embedded = null;
-      if (url) {
+      let preencheQuadro = false; // recortada na medida exata do quadro
+      const foto = fotos.get(item.productId ?? item.name);
+      if (foto) {
         try {
-          let bytes = Buffer.from(url.split(",")[1], "base64");
-          const isPng = url.startsWith("data:image/png");
-          const isJpg = /^data:image\/jpe?g/.test(url);
-          if (!isPng && !isJpg) {
-            // PDF só embute JPEG/PNG; WebP e afins são convertidos na hora
-            // (era isto que deixava produtos "sem foto" no catálogo impresso)
-            bytes = await sharp(bytes).rotate().jpeg({ quality: 85 }).toBuffer();
-          }
-          try {
-            embedded = isPng
-              ? await pdf.embedPng(bytes)
-              : await pdf.embedJpg(bytes);
-          } catch {
-            // último recurso: normaliza qualquer arquivo problemático em JPEG
-            const jpg = await sharp(bytes).rotate().jpeg({ quality: 85 }).toBuffer();
-            embedded = await pdf.embedJpg(jpg);
-          }
+          embedded = foto.png
+            ? await pdf.embedPng(foto.bytes)
+            : await pdf.embedJpg(foto.bytes);
+          preencheQuadro = foto.cover;
         } catch {
           embedded = null;
         }
       }
-      if (embedded) {
-        // "contain": a foto aparece INTEIRA no quadro — nunca corta a cabeça
-        // da modelo nem a peça. O que sobrar do quadro fica com o fundo
-        // neutro claro (mesma regra do catálogo online).
+      if (embedded && preencheQuadro) {
+        page.drawImage(embedded, { x: boxX, y: boxY, width: cardW, height: imgH });
+      } else if (embedded) {
+        // "contain": a foto inteira, centralizada; a sobra fica no fundo neutro
         const scale = Math.min(cardW / embedded.width, imgH / embedded.height);
         const w = embedded.width * scale;
         const h = embedded.height * scale;
-        const ix = boxX + (cardW - w) / 2; // centralizada no quadro
+        const ix = boxX + (cardW - w) / 2;
         const iy = boxY + (imgH - h) / 2;
         page.drawImage(embedded, { x: ix, y: iy, width: w, height: h });
       } else {
