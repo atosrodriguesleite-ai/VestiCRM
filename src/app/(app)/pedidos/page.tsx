@@ -31,10 +31,10 @@ export const dynamic = "force-dynamic";
 export default async function OrdersPage({
   searchParams,
 }: {
-  searchParams: Promise<{ status?: string; de?: string; ate?: string; canal?: string; q?: string }>;
+  searchParams: Promise<{ status?: string; de?: string; ate?: string; canal?: string; q?: string; pagina?: string }>;
 }) {
   const user = await requireUser();
-  const { status, de, ate, canal: canalRaw, q: qRaw } = await searchParams;
+  const { status, de, ate, canal: canalRaw, q: qRaw, pagina: paginaRaw } = await searchParams;
   // canal da venda: nuvemshop | atacadopro (catálogo/WhatsApp/manual) | todos
   const canal = canalRaw === "nuvemshop" || canalRaw === "atacadopro" ? canalRaw : null;
   // busca pelo código do pedido (nº) — só os dígitos importam (#0042, 42, "42")
@@ -58,7 +58,6 @@ export default async function OrdersPage({
   }
   if (canal === "nuvemshop") where.source = "NUVEMSHOP";
   if (canal === "atacadopro") where.source = { not: "NUVEMSHOP" };
-  const dateQS = `${de ? `&de=${de}` : ""}${ate ? `&ate=${ate}` : ""}${canal ? `&canal=${canal}` : ""}`;
 
   // filtros cruzados: os chips de STATUS respeitam o canal escolhido e os
   // chips de CANAL respeitam o status escolhido — os números sempre batem
@@ -78,7 +77,29 @@ export default async function OrdersPage({
       ? { createdAt: { ...(from ? { gte: from } : {}), ...(to ? { lte: to } : {}) } }
       : {};
 
-  const [orders, counts] = await Promise.all([
+  // NENHUM PEDIDO SOME: a lista mostra 100 por vez (pedido tem foto, cliente,
+  // vendedor — carregar milhares de uma vez derrubaria a tela no celular),
+  // mas TODO o histórico fica alcançável pelas páginas. Antes o corte nos 100
+  // mais recentes era mudo: pedido antigo "sumia" e a vendedora só achava
+  // pela busca (relato real, 18/08/2026 — o histórico é para sempre).
+  const POR_PAGINA = 100;
+  // na busca por código o resultado é um pedido só: sempre página 1
+  const paginaPedida = buscando
+    ? 1
+    : (() => {
+        const n = Number(paginaRaw ?? "1");
+        return Number.isFinite(n) && n >= 1 ? Math.floor(n) : 1;
+      })();
+
+  // pedidos criados no MESMO instante (dois checkouts do catálogo, webhooks
+  // da Nuvemshop) precisam de um desempate ESTÁVEL entre as páginas — só a
+  // data deixava o banco livre para pôr o mesmo pedido nas duas páginas (ou
+  // em nenhuma, o "sumiço" de novo). O nº do pedido é único na loja.
+  const ordenacao = [
+    { createdAt: "desc" as const },
+    { number: "desc" as const },
+  ];
+  const listar = (p: number) =>
     db.order.findMany({
       where,
       include: {
@@ -87,9 +108,15 @@ export default async function OrdersPage({
         items: { take: 3 },
         _count: { select: { items: true } },
       },
-      orderBy: { createdAt: "desc" },
-      take: 100,
-    }),
+      orderBy: ordenacao,
+      skip: (p - 1) * POR_PAGINA,
+      take: POR_PAGINA,
+    });
+
+  let pagina = paginaPedida;
+  // eslint-disable-next-line prefer-const -- orders é reatribuído no ajuste de página abaixo
+  let [orders, counts] = await Promise.all([
+    listar(pagina),
     db.order.groupBy({
       by: ["status"],
       where: { ...orderScope(user), ...periodoWhere, ...canalWhere },
@@ -101,6 +128,18 @@ export default async function OrdersPage({
     counts.map((c) => [c.status, c._count])
   );
   const totalCount = counts.reduce((s, c) => s + c._count, 0);
+  // o total da lista atual já sai da conta por status (nenhuma consulta a mais)
+  const totalFiltrado = buscando
+    ? orders.length
+    : status && ORDER_STATUS_FLOW.includes(status as OrderStatus)
+      ? (countByStatus[status] ?? 0)
+      : totalCount;
+  const ultimaPagina = Math.max(1, Math.ceil(totalFiltrado / POR_PAGINA));
+  // link velho apontando além do fim (a lista encolheu): cai na última página
+  if (orders.length === 0 && pagina > 1) {
+    pagina = ultimaPagina;
+    orders = await listar(pagina);
+  }
 
   const bySource = await db.order.groupBy({
     by: ["source"],
@@ -109,13 +148,26 @@ export default async function OrdersPage({
   });
   const nsCount = bySource.find((r) => r.source === "NUVEMSHOP")?._count ?? 0;
   const apCount = bySource.filter((r) => r.source !== "NUVEMSHOP").reduce((a, r) => a + r._count, 0);
-  const canalHref = (c: string | null) =>
-    `/pedidos?${[
-      status ? `status=${status}` : "",
+  // UM montador de endereço para todos os filtros da tela: trocar filtro
+  // volta para a página 1; navegar de página mantém os filtros. (Eram três
+  // montadores copiados — quem adicionasse um filtro novo esquecia um deles
+  // e o filtro caía em silêncio ao navegar.)
+  const href = (muda: { status?: string | null; canal?: string | null; pagina?: number } = {}) => {
+    const s = muda.status !== undefined ? muda.status : status;
+    const c = muda.canal !== undefined ? muda.canal : canal;
+    const p = muda.pagina ?? 1;
+    return `/pedidos?${[
+      s ? `status=${s}` : "",
       de ? `de=${de}` : "",
       ate ? `ate=${ate}` : "",
       c ? `canal=${c}` : "",
-    ].filter(Boolean).join("&")}`.replace(/\?$/, "");
+      p > 1 ? `pagina=${p}` : "",
+    ]
+      .filter(Boolean)
+      .join("&")}`.replace(/\?$/, "");
+  };
+  const pageHref = (p: number) => href({ pagina: p });
+  const canalHref = (c: string | null) => href({ canal: c });
 
   return (
     <div className="max-w-6xl mx-auto">
@@ -219,7 +271,7 @@ export default async function OrdersPage({
 
       <div className="flex flex-wrap gap-1.5 mb-4 pb-1">
         <Link
-          href={`/pedidos${dateQS ? `?${dateQS.slice(1)}` : ""}`}
+          href={href({ status: null })}
           className={`px-3 py-2 rounded-xl text-xs font-medium whitespace-nowrap transition ${
             !status
               ? "bg-brand-600 text-white"
@@ -231,7 +283,7 @@ export default async function OrdersPage({
         {ORDER_STATUS_FLOW.map((s) => (
           <Link
             key={s}
-            href={`/pedidos?status=${s}${dateQS}`}
+            href={href({ status: s })}
             className={`px-3 py-2 rounded-xl text-xs font-medium whitespace-nowrap transition ${
               status === s
                 ? "bg-brand-600 text-white"
@@ -272,6 +324,7 @@ export default async function OrdersPage({
           />
         </Card>
       ) : (
+        <>
         <div className="space-y-2">
           {orders.map((o) => (
             <Link key={o.id} href={`/pedidos/${o.id}`} className="block">
@@ -325,6 +378,41 @@ export default async function OrdersPage({
             </Link>
           ))}
         </div>
+
+        {/* Rodapé da lista: deixa claro que o histórico está TODO aqui e dá
+            o caminho para os antigos — o corte mudo nos 100 mais recentes
+            fazia pedido antigo parecer apagado */}
+        {!buscando && (
+          <div className="mt-4 flex flex-col sm:flex-row items-center justify-between gap-2">
+            <p className="text-xs text-gray-400 tabular-nums order-last sm:order-none">
+              Mostrando {(pagina - 1) * POR_PAGINA + 1}–
+              {(pagina - 1) * POR_PAGINA + orders.length} de {totalFiltrado}{" "}
+              {totalFiltrado === 1 ? "pedido" : "pedidos"}
+              {ultimaPagina > 1 ? ` · página ${pagina} de ${ultimaPagina}` : ""}
+            </p>
+            {ultimaPagina > 1 && (
+              <div className="flex items-center gap-2">
+                {pagina > 1 && (
+                  <Link
+                    href={pageHref(pagina - 1)}
+                    className="rounded-xl border border-gray-200 bg-white hover:border-brand-300 text-gray-600 text-sm font-medium px-4 py-2 transition"
+                  >
+                    ← Mais recentes
+                  </Link>
+                )}
+                {pagina < ultimaPagina && (
+                  <Link
+                    href={pageHref(pagina + 1)}
+                    className="rounded-xl border border-gray-200 bg-white hover:border-brand-300 text-gray-600 text-sm font-medium px-4 py-2 transition"
+                  >
+                    Mais antigos →
+                  </Link>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+        </>
       )}
     </div>
   );
