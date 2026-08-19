@@ -7,6 +7,7 @@ import {
   type PDFFont,
 } from "pdf-lib";
 import { paginaSegura, quebrarEmLinhas, textoPdf } from "@/lib/pdf-texto";
+import { corIgual } from "@/lib/capa-por-cor";
 import sharp from "sharp";
 import { db } from "@/lib/db";
 import { requireUser, AuthError } from "@/lib/auth";
@@ -100,36 +101,99 @@ export async function GET(
       return round ? charm(v) : v;
     };
 
-    const byProduct = new Map<
+    // Um card POR COR, com a MESMA foto do romaneio (a da cor comprada,
+    // guardada no item): a capa geral do produto mostrava a bermuda PRATA
+    // num pedido da PRETA — a cliente da ponta reclamou, com razão. Duas
+    // cores da mesma peça também viravam um card só; agora cada uma aparece.
+    const byPeca = new Map<
       string,
-      { name: string; paid: number; productId: string | null }
+      {
+        name: string;
+        color: string | null;
+        paid: number;
+        productId: string | null;
+        imageUrl: string | null;
+      }
     >();
     for (const it of order.items) {
-      const key = it.productId ?? it.name;
-      if (!byProduct.has(key)) {
-        byProduct.set(key, { name: it.name, paid: it.unitPrice, productId: it.productId });
+      const key = `${it.productId ?? it.name}|${it.color ?? ""}`;
+      if (!byPeca.has(key)) {
+        byPeca.set(key, {
+          name: it.name,
+          color: it.color,
+          paid: it.unitPrice,
+          productId: it.productId,
+          imageUrl: it.imageUrl,
+        });
       }
     }
-    const productIds = [...byProduct.values()]
+    const productIds = [...byPeca.values()]
       .map((p) => p.productId)
       .filter((v): v is string => !!v);
-    // só a CAPA de cada produto entra no PDF: primeiro descobre qual é (sem
-    // puxar base64), depois busca o conteúdo apenas dessas
+    // 1º passo (molde do romaneio): galeria LEVE (id + cor, sem base64)
     const imgRows = await db.productImage.findMany({
       where: { productId: { in: productIds } },
-      select: { id: true, productId: true, order: true },
+      select: { id: true, productId: true, color: true },
       orderBy: { order: "asc" },
     });
-    const coverId = new Map<string, string>();
+    const galeriaPorProduto = new Map<string, typeof imgRows>();
     for (const img of imgRows) {
-      if (!coverId.has(img.productId)) coverId.set(img.productId, img.id);
+      const l = galeriaPorProduto.get(img.productId);
+      if (l) l.push(img);
+      else galeriaPorProduto.set(img.productId, [img]);
     }
-    const covers = await db.productImage.findMany({
-      where: { id: { in: [...coverId.values()] } },
-      select: { productId: true, url: true },
-    });
-    const firstImage = new Map<string, string>();
-    for (const img of covers) firstImage.set(img.productId, img.url);
+
+    // 2º passo: a foto de cada card, em ordem de preferência — a guardada no
+    // ITEM (a mesma do romaneio); item antigo sem foto guardada cai na foto
+    // DA COR na galeria (corIgual, nunca "contém"); capa geral por último.
+    const fonteDireta = new Map<string, string>(); // key → data-URL já no item
+    const candidatos = new Map<string, string[]>(); // key → ids por preferência
+    for (const [key, p] of byPeca) {
+      if (p.imageUrl?.startsWith("data:")) {
+        fonteDireta.set(key, p.imageUrl);
+        continue;
+      }
+      const ids: string[] = [];
+      const ref = p.imageUrl?.match(/^\/api\/img\/([a-z0-9]+)/i);
+      if (ref) ids.push(ref[1]);
+      const galeria = p.productId ? (galeriaPorProduto.get(p.productId) ?? []) : [];
+      const daCor = galeria.find((f) => corIgual(f.color, p.color));
+      if (daCor) ids.push(daCor.id);
+      if (galeria[0]) ids.push(galeria[0].id);
+      candidatos.set(key, [...new Set(ids)]);
+    }
+
+    // 3º passo: o CONTEÚDO (pesado) só das primeiras escolhas, numa busca só;
+    // se alguma faltar (foto apagada), UMA segunda busca pega os planos B.
+    const urlPorImagem = new Map<string, string>();
+    const buscarConteudo = async (ids: string[]) => {
+      if (ids.length === 0) return;
+      const rows = await db.productImage.findMany({
+        // RN-013: mesmo buscando por id, a consulta não sai da loja
+        where: { id: { in: ids }, product: { companyId: user.companyId } },
+        select: { id: true, url: true },
+      });
+      for (const r of rows) urlPorImagem.set(r.id, r.url);
+    };
+    await buscarConteudo([
+      ...new Set(
+        [...candidatos.values()].map((c) => c[0]).filter((v): v is string => !!v)
+      ),
+    ]);
+    const faltantes = [...candidatos.values()]
+      .filter((c) => c.length > 0 && !urlPorImagem.has(c[0]))
+      .flatMap((c) => c.slice(1));
+    await buscarConteudo([...new Set(faltantes)]);
+
+    const urlDaPeca = (key: string): string | null => {
+      const direta = fonteDireta.get(key);
+      if (direta) return direta;
+      for (const id of candidatos.get(key) ?? []) {
+        const u = urlPorImagem.get(id);
+        if (u) return u;
+      }
+      return null;
+    };
 
     const pdf = await PDFDocument.create();
     const font = await pdf.embedFont(StandardFonts.Helvetica);
@@ -157,23 +221,21 @@ export async function GET(
     // do sistema. De quebra, o recorte converte WebP e afins em JPEG (PDF só
     // embute JPEG/PNG).
     const prepararFoto = async (
-      productId: string | null
+      url: string | null
     ): Promise<{ bytes: Buffer; png: boolean; cover: boolean } | null> => {
-      let url = productId ? (firstImage.get(productId) ?? null) : null;
-      // atalho /api/img/<id> (legado): resolve para a foto real
-      if (url && !url.startsWith("data:")) {
-        const ref = url.match(/^\/api\/img\/([a-z0-9]+)/i);
-        const target = ref
-          ? await db.productImage.findUnique({
-              where: { id: ref[1] },
-              select: { url: true },
-            })
-          : null;
-        url = target?.url.startsWith("data:") ? target.url : null;
-      }
       if (!url) return null;
       try {
-        const bytes = Buffer.from(url.split(",")[1], "base64");
+        let bytes: Buffer;
+        if (url.startsWith("data:")) {
+          bytes = Buffer.from(url.split(",")[1], "base64");
+        } else if (/^https?:\/\//i.test(url)) {
+          // loja Nuvemshop guarda o LINK da foto — busca como o romaneio
+          const res = await fetch(url);
+          if (!res.ok) return null;
+          bytes = Buffer.from(await res.arrayBuffer());
+        } else {
+          return null;
+        }
         try {
           const jpg = await sharp(bytes)
             .rotate()
@@ -184,7 +246,9 @@ export async function GET(
           return { bytes: jpg, png: false, cover: true };
         } catch {
           // plano B: embute a foto como veio, desenhada inteira no quadro
-          return { bytes, png: url.startsWith("data:image/png"), cover: false };
+          const ehPng =
+            url.startsWith("data:image/png") || /\.png(\?|$)/i.test(url);
+          return { bytes, png: ehPng, cover: false };
         }
       } catch {
         return null;
@@ -197,11 +261,11 @@ export async function GET(
       string,
       { bytes: Buffer; png: boolean; cover: boolean } | null
     >();
-    const chaves = [...byProduct.entries()];
+    const chaves = [...byPeca.keys()];
     for (let i = 0; i < chaves.length; i += 4) {
       await Promise.all(
-        chaves.slice(i, i + 4).map(async ([key, p]) => {
-          fotos.set(key, await prepararFoto(p.productId));
+        chaves.slice(i, i + 4).map(async (key) => {
+          fotos.set(key, await prepararFoto(urlDaPeca(key)));
         })
       );
     }
@@ -278,10 +342,24 @@ export async function GET(
 
     // Desenha FILEIRA a fileira: a legenda cresce com o nome e a dupla da
     // mesma fileira compartilha a altura — a grade continua alinhada.
-    const itens = [...byProduct.entries()];
+    // o card diz a COR (como o romaneio) — a menos que o nome já a contenha
+    // como PALAVRA INTEIRA ("Vestido Azulão" não engole o "— Azul")
+    const semAcento = (s: string) =>
+      s.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
+    const escapaRegex = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const nomeJaTemCor = (nome: string, cor: string) =>
+      new RegExp(`(^|\\P{L})${escapaRegex(semAcento(cor))}(\\P{L}|$)`, "u").test(
+        semAcento(nome)
+      );
+    const rotulo = (p: { name: string; color: string | null }) =>
+      p.color && !nomeJaTemCor(p.name, p.color)
+        ? `${p.name} — ${p.color}`
+        : p.name;
+
+    const itens = [...byPeca.entries()];
     for (let i = 0; i < itens.length; i += COLS) {
       const fileira = itens.slice(i, i + COLS);
-      const nomes = fileira.map(([, it]) => quebraNome(it.name));
+      const nomes = fileira.map(([, it]) => quebraNome(rotulo(it)));
       const maxLinhas = Math.max(...nomes.map((l) => l.length));
       // 16 até a 1ª linha do nome + entrelinhas + preço + respiro embaixo
       const capH = 16 + (maxLinhas - 1) * NOME_LH + (showPrice ? 15 : 0) + 9;
