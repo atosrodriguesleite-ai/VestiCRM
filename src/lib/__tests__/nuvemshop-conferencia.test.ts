@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   conferirVinculo,
+  ehDisputaDeVerdade,
   ORDEM_DE_CONSERTO,
   recortarParaTela,
   resumir,
@@ -249,6 +250,22 @@ describe("briga de sincronização (a impressão digital)", () => {
     expect(a!.detalhe).toContain("histórico");
   });
 
+  /** Achado da revisão: a peça de lá apontada pelo carimbo pode estar SEM
+   *  SKU, enquanto outra peça de lá carrega o SKU daqui — as duas escrevem
+   *  na mesma variação e a disputa segue viva, sem SKU repetido nenhum. */
+  it("carimbo numa peça e SKU em outra: disputa VIVA mesmo sem SKU repetido", () => {
+    const v = aqui({ produto: "Regata tule", cor: "Lilás", sku: "S1", nsVarId: "9" });
+    const achados = conferirVinculo(
+      [v],
+      [
+        la({ varId: "9", produto: "Regata tule", sku: null }), // carimbo, sem SKU
+        la({ varId: "7", produto: "Regata tule", sku: "S1" }), // o SKU leva a OUTRA
+      ],
+      [briga({ variantId: v.id })]
+    );
+    expect(achados.find((x) => x.tipo === "BRIGA_DE_SYNC")!.gravidade).toBe("ALTA");
+  });
+
   it("vínculo apontando pra peça errada também mantém a disputa VIVA", () => {
     const v = aqui({ produto: "Regata tule", cor: "Lilás", sku: "AQUI", nsVarId: "9" });
     const achados = conferirVinculo(
@@ -257,6 +274,28 @@ describe("briga de sincronização (a impressão digital)", () => {
       [briga({ variantId: v.id })]
     );
     expect(achados.find((x) => x.tipo === "BRIGA_DE_SYNC")!.gravidade).toBe("ALTA");
+  });
+});
+
+/**
+ * O 156 da Entre Linhas: metade do catálogo "disputado" sem nada de errado.
+ * Era sincronização rodada duas vezes ao mesmo tempo gravando o MESMO número.
+ */
+describe("disputa de verdade × sincronização repetida", () => {
+  it("dois ajustes parando em números DIFERENTES é disputa", () => {
+    expect(ehDisputaDeVerdade(["(197 → 3)", "(3 → 198)"])).toBe(true);
+  });
+
+  it("o MESMO número gravado duas vezes NÃO é disputa (a peça terminou certa)", () => {
+    expect(ehDisputaDeVerdade(["(197 → 3)", "(197 → 3)"])).toBe(false);
+  });
+
+  it("um ajuste sozinho nunca é disputa", () => {
+    expect(ehDisputaDeVerdade(["(197 → 3)"])).toBe(false);
+  });
+
+  it("formato antigo, sem os números: continua avisando (na dúvida, avisa)", () => {
+    expect(ehDisputaDeVerdade(["ajuste", "ajuste"])).toBe(true);
   });
 });
 
