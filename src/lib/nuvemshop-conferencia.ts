@@ -119,8 +119,18 @@ export function conferirVinculo(
   // sincronização disputa de novo. Corrigido, o que sobra é histórico.
   const causaViva = new Set<string>();
   for (const iguais of dupAqui.values()) for (const v of iguais) causaViva.add(v.id);
-  for (const chave of dupLa.keys()) {
-    for (const v of aqui) if (norm(v.sku) === chave) causaViva.add(v.id);
+  // A regra geral: a sincronização chega numa variação daqui por DOIS
+  // caminhos — o carimbo do vínculo e o SKU. Se cada caminho leva a uma peça
+  // DIFERENTE da Nuvemshop, as duas escrevem nela em toda rodada: a disputa
+  // está viva. (Olhar só o SKU repetido deixava passar o caso da peça de lá
+  // sem SKU carimbada aqui enquanto outra peça de lá carrega o SKU daqui.)
+  const laPorSku = porSku(la);
+  for (const v of aqui) {
+    const alcancam = new Set<string>();
+    const peloCarimbo = v.nsVarId ? laPorVarId.get(v.nsVarId) : undefined;
+    if (peloCarimbo) alcancam.add(peloCarimbo.varId);
+    for (const p of laPorSku.get(norm(v.sku)) ?? []) alcancam.add(p.varId);
+    if (alcancam.size > 1) causaViva.add(v.id);
   }
   for (const [chave, iguais] of dupAqui) {
     const tambemLa = dupLa.get(chave);
@@ -227,15 +237,18 @@ export function conferirVinculo(
   for (const b of brigas) {
     const v = aquiPorId.get(b.variantId);
     const quando = b.quando.toLocaleString("pt-BR");
-    const vezes = b.rodadas === 1 ? "1 sincronização" : `${b.rodadas} sincronizações`;
+    // "ao menos": a varredura olha as movimentações mais recentes, então
+    // rodadas antigas podem ficar de fora — nunca prometer exatidão
+    const vezes =
+      b.rodadas === 1 ? "ao menos 1 sincronização" : `ao menos ${b.rodadas} sincronizações`;
     const aindaAcontece = causaViva.has(b.variantId);
     achados.push({
       tipo: "BRIGA_DE_SYNC",
       gravidade: aindaAcontece ? "ALTA" : "MEDIA",
       peca: v ? rotulo(v) : "Variação removida",
       detalhe: aindaAcontece
-        ? `Duas peças da Nuvemshop estão disputando esta variação: ${vezes} mexeram nela duas vezes seguidas, a última em ${quando}. Na última: ${b.historico.join(" → ")}`
-        : `Esta variação JÁ foi disputada por duas peças da Nuvemshop (${vezes}, a última em ${quando}), mas as o SKU repetido que causava isso não existe mais — isto aqui é só histórico do livro de estoque.`,
+        ? `Duas peças da Nuvemshop estão disputando esta variação — o estoque dela fica com o número da última lida. Já aconteceu em ${vezes} (a última em ${quando}): ${b.historico.join(" → ")}`
+        : `Esta variação JÁ foi disputada por duas peças da Nuvemshop (${vezes}, a última em ${quando}), mas hoje nenhuma peça de lá disputa mais o lugar dela — isto aqui é só histórico do livro de estoque.`,
       estoqueAqui: v?.estoque,
     });
   }
@@ -286,9 +299,40 @@ export function resumir(achados: Achado[]) {
   }));
 }
 
+/** O número em que o ajuste PAROU: "(197 → 3)" → 3. */
+export function destinoDoAjuste(trecho: string): number | null {
+  const m = trecho.match(/\((-?\d+)\s*→\s*(-?\d+)\)/);
+  return m ? Number(m[2]) : null;
+}
+
+/**
+ * DOIS AJUSTES NO MESMO MINUTO NEM SEMPRE SÃO BRIGA (Entre Linhas, 19/08/2026).
+ *
+ * A briga que interessa é a de duas peças da Nuvemshop DISCORDANDO do estoque
+ * — uma escreve 3, a outra escreve 198, e a peça daqui fica com o número da
+ * última lida. Já a sincronização disparada duas vezes ao mesmo tempo (dois
+ * cliques, duas abas) grava o MESMO número duas vezes: a peça termina certa,
+ * ninguém disputou nada. Contar isso como briga acusou metade do catálogo da
+ * Entre Linhas — 156 peças — sem nada de errado nelas.
+ *
+ * Regra: só é disputa quando os ajustes do minuto param em números
+ * DIFERENTES. Ajuste em formato antigo (sem os números) continua avisando —
+ * na dúvida, avisa.
+ */
+export function ehDisputaDeVerdade(historico: string[]): boolean {
+  if (historico.length < 2) return false;
+  const destinos = new Set<number>();
+  for (const h of historico) {
+    const d = destinoDoAjuste(h);
+    if (d !== null) destinos.add(d);
+  }
+  return destinos.size === 0 || destinos.size > 1;
+}
+
 /**
  * Encontra as brigas no histórico de estoque: ajustes da sincronização da
- * Nuvemshop na MESMA variação, no MESMO minuto. Só leitura.
+ * Nuvemshop na MESMA variação, no MESMO minuto, PARANDO EM NÚMEROS
+ * DIFERENTES. Só leitura.
  */
 export async function acharBrigas(companyId: string): Promise<Briga[]> {
   const movs = await db.inventoryMovement.findMany({
@@ -317,10 +361,11 @@ export async function acharBrigas(companyId: string): Promise<Briga[]> {
     else grupos.set(k, { variantId: m.variantId, quando: minuto, historico: [trecho] });
   }
 
-  // 2º passo: junta as rodadas POR PEÇA. Enquanto o SKU estiver duplicado a
-  // disputa se repete em toda sincronização — e uma linha por repetição
-  // transformava meia dúzia de problemas em centenas de avisos.
-  const disputadas = [...grupos.values()].filter((g) => g.historico.length > 1);
+  // 2º passo: junta as rodadas POR PEÇA, contando só as DISPUTAS DE VERDADE.
+  // Enquanto o SKU estiver duplicado a disputa se repete em toda
+  // sincronização — e uma linha por repetição transformava meia dúzia de
+  // problemas em centenas de avisos.
+  const disputadas = [...grupos.values()].filter((g) => ehDisputaDeVerdade(g.historico));
   const porPeca = new Map<string, Briga>();
   for (const g of disputadas) {
     const atual = porPeca.get(g.variantId);
