@@ -461,6 +461,10 @@ export function Inbox({
   const [tab, setTab] = useState<Tab>("fila");
   const [search, setSearch] = useState("");
   const [tagFilter, setTagFilter] = useState<string | null>(null);
+  // filtro "Não lidas" (igual ao do WhatsApp): num dia de disparo em massa, a
+  // resposta de cliente afunda no meio das conversas enviadas — este botão
+  // deixa só quem espera resposta na tela
+  const [soNaoLidas, setSoNaoLidas] = useState(false);
   const [tags, setTags] = useState<Tag[]>(allTags);
   const [showTagPicker, setShowTagPicker] = useState(false);
   const [newTagName, setNewTagName] = useState("");
@@ -742,9 +746,11 @@ export function Inbox({
   useEffect(() => {
     setVisiveis(BLOCO); // trocou de aba, buscou ou filtrou: recomeça o bloco
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tab, search, tagFilter]);
+  }, [tab, search, tagFilter, soNaoLidas]);
 
-  const filtered = useMemo(() => {
+  // a lista com TODOS os filtros MENOS o "Não lidas": é ela que alimenta o
+  // filtro e o número do botãozinho — mesma régua, o contador nunca mente
+  const filtradasBase = useMemo(() => {
     const q = search.trim();
     const list = convs.filter((c) => {
       // BUSCANDO? procura em TODAS as abas.
@@ -770,7 +776,18 @@ export function Inbox({
         new Date(b.lastMessageAt).getTime() - new Date(a.lastMessageAt).getTime()
       );
     });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [convs, tab, search, tagFilter]);
+
+  const naoLida = (c: InboxConversation) => c.unreadCount > 0;
+  const naoLidasNaLista = useMemo(
+    () => filtradasBase.filter(naoLida).length,
+    [filtradasBase]
+  );
+  const filtered = useMemo(
+    () => (soNaoLidas ? filtradasBase.filter(naoLida) : filtradasBase),
+    [filtradasBase, soNaoLidas]
+  );
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "instant" as ScrollBehavior });
@@ -1932,9 +1949,33 @@ export function Inbox({
             })}
           </div>
 
-          {/* filtro por etiqueta (tag) */}
-          {tags.length > 0 && (
-            <div className="flex gap-1.5 overflow-x-auto thin-scroll mt-2 pb-0.5">
+          {/* filtros: "Não lidas" (igual WhatsApp) + etiquetas (tags) */}
+          <div className="flex gap-1.5 overflow-x-auto thin-scroll mt-2 pb-0.5">
+            <button
+              onClick={() => setSoNaoLidas((v) => !v)}
+              className={`shrink-0 inline-flex items-center gap-1 rounded-full px-2 py-1 text-[11px] font-semibold transition ${
+                soNaoLidas
+                  ? "bg-emerald-500 text-white"
+                  : "bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
+              }`}
+              title="Mostrar só as conversas com mensagem esperando resposta"
+            >
+              <span
+                className={`size-1.5 rounded-full ${soNaoLidas ? "bg-white" : "bg-emerald-500"}`}
+              />
+              Não lidas
+              {naoLidasNaLista > 0 && (
+                <span
+                  className={`min-w-4 px-1 rounded-full text-[10px] font-bold ${
+                    soNaoLidas ? "bg-white/25 text-white" : "bg-emerald-500 text-white"
+                  }`}
+                >
+                  {naoLidasNaLista}
+                </span>
+              )}
+            </button>
+            {tags.length > 0 && (
+              <>
               {tagFilter && (
                 <button
                   onClick={() => setTagFilter(null)}
@@ -1963,12 +2004,36 @@ export function Inbox({
                   </button>
                 );
               })}
-            </div>
-          )}
+              </>
+            )}
+          </div>
         </div>
 
         <div className="flex-1 overflow-y-auto thin-scroll">
-          {filtered.length === 0 && (
+          {/* filtro "Não lidas" escondendo conversas que EXISTEM: dizer a
+              verdade e oferecer a saída — o vazio genérico ("Fila vazia 🎉")
+              faria a vendedora largar a fila achando que não há ninguém */}
+          {filtered.length === 0 && soNaoLidas && filtradasBase.length > 0 && (
+            <div className="px-6 py-10 text-center">
+              <p className="text-sm font-semibold text-gray-700">
+                Tudo lido por aqui ✅
+              </p>
+              <p className="text-xs text-gray-400 mt-1">
+                O filtro <b>Não lidas</b> está ligado e {filtradasBase.length}{" "}
+                {filtradasBase.length === 1
+                  ? "conversa está escondida"
+                  : "conversas estão escondidas"}
+                .
+              </p>
+              <button
+                onClick={() => setSoNaoLidas(false)}
+                className="mt-3 rounded-full bg-emerald-500 px-4 py-1.5 text-xs font-semibold text-white transition hover:bg-emerald-600"
+              >
+                Mostrar todas
+              </button>
+            </div>
+          )}
+          {filtered.length === 0 && !(soNaoLidas && filtradasBase.length > 0) && (
             <EmptyState
               title={
                 tab === "fila"
