@@ -1,7 +1,15 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { conferirVinculo, resumir, type VariacaoAqui } from "../nuvemshop-conferencia";
+import {
+  conferirVinculo,
+  ORDEM_DE_CONSERTO,
+  recortarParaTela,
+  resumir,
+  type Achado,
+  type Briga,
+  type VariacaoAqui,
+} from "../nuvemshop-conferencia";
 import { mesmaCor, corDoNome, type VariacaoNs } from "../nuvemshop";
 
 // Guarda RN-014 (índice em docs/regras.md; texto no CLAUDE.md).
@@ -186,16 +194,104 @@ describe("vínculo (o carimbo) contra o SKU", () => {
 });
 
 describe("briga de sincronização (a impressão digital)", () => {
+  const briga = (over: Partial<Briga> & { variantId: string }): Briga => ({
+    quando: new Date("2026-07-30T12:44:00Z"),
+    rodadas: 1,
+    historico: ["(197 → 3)", "(3 → 198)"],
+    ...over,
+  });
+
   it("mostra a peça e o histórico dos ajustes do mesmo minuto", () => {
-    const v = aqui({ produto: "Baby Look — Branco", cor: "Branco", estoque: 395 });
-    const achados = conferirVinculo([v], [], [
-      { variantId: v.id, quando: new Date("2026-07-30T12:44:00Z"), quantos: 2, historico: ["(197 → 3)", "(3 → 198)"] },
-    ]);
+    const v = aqui({ produto: "Baby Look — Branco", cor: "Branco", sku: "DUP", estoque: 395 });
+    const achados = conferirVinculo(
+      [v],
+      // o SKU repetido LÁ é a causa viva da disputa
+      [la({ varId: "1", produto: "Baby Look", sku: "DUP" }), la({ varId: "2", produto: "Baby Look", sku: "DUP" })],
+      [briga({ variantId: v.id })]
+    );
     const a = achados.find((x) => x.tipo === "BRIGA_DE_SYNC");
     expect(a).toBeDefined();
     expect(a!.gravidade).toBe("ALTA");
     expect(a!.peca).toContain("Baby Look");
     expect(a!.detalhe).toContain("197 → 3");
+  });
+
+  /**
+   * O caso Entre Linhas (19/08/2026): a disputa se repete em TODA
+   * sincronização enquanto o SKU estiver duplicado. Contando cada repetição,
+   * meia dúzia de peças viraram 564 avisos — e empurraram para fora da tela
+   * os achados do fim da fila.
+   */
+  it("peça disputada em 300 sincronizações vira UM aviso, não 300", () => {
+    const v = aqui({ produto: "Regata tule", cor: "Lilás" });
+    const achados = conferirVinculo([v], [], [
+      briga({ variantId: v.id, rodadas: 300 }),
+    ]);
+    const brigas = achados.filter((x) => x.tipo === "BRIGA_DE_SYNC");
+    expect(brigas).toHaveLength(1);
+    expect(brigas[0].detalhe).toContain("300 sincronizações");
+  });
+
+  /**
+   * SKU já corrigido: a disputa continua no livro de estoque para sempre, mas
+   * não pode continuar gritando VERMELHO — senão a lojista conserta tudo e o
+   * painel nunca fica limpo.
+   */
+  it("SKU já corrigido: a disputa vira histórico, não alarme", () => {
+    const v = aqui({ produto: "Regata tule", cor: "Lilás", sku: "UNICO" });
+    const achados = conferirVinculo(
+      [v],
+      [la({ varId: "1", produto: "Regata tule", sku: "UNICO" })], // sem repetição hoje
+      [briga({ variantId: v.id })]
+    );
+    const a = achados.find((x) => x.tipo === "BRIGA_DE_SYNC");
+    expect(a!.gravidade).toBe("MEDIA");
+    expect(a!.detalhe).toContain("histórico");
+  });
+
+  it("vínculo apontando pra peça errada também mantém a disputa VIVA", () => {
+    const v = aqui({ produto: "Regata tule", cor: "Lilás", sku: "AQUI", nsVarId: "9" });
+    const achados = conferirVinculo(
+      [v],
+      [la({ varId: "9", produto: "Regata tule", sku: "OUTRO" })], // carimbo cruzado
+      [briga({ variantId: v.id })]
+    );
+    expect(achados.find((x) => x.tipo === "BRIGA_DE_SYNC")!.gravidade).toBe("ALTA");
+  });
+});
+
+describe("o que cabe na tela (nenhuma categoria some em silêncio)", () => {
+  const achado = (tipo: Achado["tipo"], i: number): Achado => ({
+    tipo,
+    gravidade: "ALTA",
+    peca: `peça ${i}`,
+    detalhe: "…",
+  });
+
+  it("categoria barulhenta não empurra as outras para fora da lista", () => {
+    const achados: Achado[] = [
+      ...Array.from({ length: 400 }, (_, i) => achado("BRIGA_DE_SYNC", i)),
+      ...Array.from({ length: 11 }, (_, i) => achado("CARIMBO_ORFAO", i)),
+    ];
+    const { mostrados, omitidos } = recortarParaTela(achados);
+    // os 11 órfãos CHEGAM na tela (antes o teto global comia todos)
+    expect(mostrados.filter((a) => a.tipo === "CARIMBO_ORFAO")).toHaveLength(11);
+    // e o que sobrou é contado, nunca sumido
+    expect(omitidos).toBe(370);
+    expect(mostrados.length + omitidos).toBe(achados.length);
+  });
+
+  /** Achado da revisão: com 8 categorias cheias, um teto global de 200 zerava
+   *  a última da fila ("estoque não bate") — o mesmo sintoma, de novo. */
+  it("TODAS as categorias aparecem, mesmo com todas cheias", () => {
+    const achados: Achado[] = ORDEM_DE_CONSERTO.flatMap((tipo) =>
+      Array.from({ length: 60 }, (_, i) => achado(tipo, i))
+    );
+    const { mostrados, omitidos } = recortarParaTela(achados);
+    for (const tipo of ORDEM_DE_CONSERTO) {
+      expect(mostrados.filter((a) => a.tipo === tipo).length).toBe(30);
+    }
+    expect(mostrados.length + omitidos).toBe(achados.length);
   });
 });
 
