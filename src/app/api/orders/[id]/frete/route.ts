@@ -13,6 +13,7 @@ import {
   meRetomarEtiqueta,
   meCancel,
   pesoDoPedidoKg,
+  volumesDoEnvio,
 } from "@/lib/melhorenvio";
 import { aplicarRastreio, novoCodigoPublico } from "@/lib/rastreio";
 
@@ -352,6 +353,14 @@ export async function POST(
       // GERANDO) para o retry RETOMAR a geração — não comprar de novo
       const meStatus = r.pendente ? "GERANDO" : "ETIQUETA";
 
+      // MEMÓRIA DE EMBALAGEM (RN-019): grava os volumes que a etiqueta
+      // DECLAROU (fonte única volumesDoEnvio — os mesmos da compra) e quantas
+      // peças o pedido tinha. É daqui que o simulador de frete puxa "teve um
+      // envio de X peças nessa caixa" — sem gravar, a medida real morria
+      // junto com a etiqueta.
+      const volumesDaEtiqueta = JSON.stringify(volumesDoEnvio(volumes, pesoKg, conn));
+      const pecasDoPedido = order.items.reduce((s, i) => s + i.quantity, 0);
+
       // MEIO DE ENVIO preenchido pela etiqueta comprada ("Correios PAC"): a
       // vendedora contratou o frete aqui dentro, não faz sentido ela ainda
       // ter que escolher "meio de envio" na mão (pedido do dono, 14/08/2026)
@@ -376,6 +385,9 @@ export async function POST(
           meStatus,
           labelUrl: r.labelUrl,
           weightKg: pesoKg,
+          volumesJson: volumesDaEtiqueta,
+          pieces: pecasDoPedido,
+          meCompradoEm: new Date(),
           // registra a chave USADA nesta etiqueta (null = declaração de
           // conteúdo) — é o que a tela lê depois, e não o estado atual da nota
           nfeKey: r.nfeKey,
@@ -396,6 +408,9 @@ export async function POST(
           meStatus,
           labelUrl: r.labelUrl,
           weightKg: pesoKg,
+          volumesJson: volumesDaEtiqueta,
+          pieces: pecasDoPedido,
+          meCompradoEm: new Date(),
           nfeKey: r.nfeKey,
           trackingCode: r.tracking,
           zip: destZip,

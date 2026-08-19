@@ -258,7 +258,12 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   um anúncio só pode ter UMA campanha dona (**RN-015**).
 - **Produção** (gated por loja): tecidos, rolos, cortes multi-cor, costura,
   lotes/facções, defeitos, simulador, etiquetas.
-- **Envios** (gated por loja, `shippingEnabled`, pago à parte): Melhor Envio
+- **Envios** (gated por loja, `shippingEnabled`, pago à parte): tela própria
+  no menu (`/envios`): painel (gasto do mês, aguardando postagem, em
+  trânsito com alerta de **parado há 7+ dias**, entregues com tempo médio) +
+  lista de tudo que saiu (transportadora, destinatária, rastreio com copiar
+  código/link público, status vivo) — a lista respeita RN-007 (`orderScope`)
+  e a abertura da tela dá carona na varredura de rastreio. Melhor Envio
   OAuth por loja (`lib/melhorenvio.ts`); peso por produto (sync automático da
   Nuvemshop, nunca sobrescreve manual) + padrão por categoria/loja; no pedido:
   cotar → comprar etiqueta (saldo da carteira ME da loja; gerente+) → imprimir
@@ -276,6 +281,16 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   etiqueta COM a NF-e (chave de acesso); sem nota, sai com declaração de
   conteúdo (`/declaracao/[id]`). A chave é conferida no Bling ANTES de debitar
   o saldo, e a chave usada fica na própria etiqueta (`Shipping.nfeKey`).
+  **RN-019 · Simulador de frete** (`lib/envios/simulador.ts`, interruptor
+  `Company.freteSimuladorEnabled`, DESLIGADO por padrão — a própria loja
+  liga, gerente+, com aviso de que é estimativa): responde "quanto fica o
+  frete?" ANTES de o pedido existir. A compra da etiqueta grava a **memória
+  de embalagem** (`Shipping.volumesJson` + `pieces` + `meCompradoEm`) e o
+  simulador mostra os envios REAIS parecidos (peças mais próximas, recência
+  desempata, tolerância 3 peças ou 20%) — **a vendedora ESCOLHE a embalagem,
+  o sistema não chuta** — e cota no Melhor Envio com CEP + valor aproximado
+  digitados. Memória por loja (RN-013); etiqueta cancelada não vira
+  referência; loja sem o interruptor não vê nada de novo.
 - **Super Admin**: painel Lojas (provisionar, cobrança, uso, suspender,
   impersonar), diagnóstico de fotos; loja demo "Bella Moda".
 
