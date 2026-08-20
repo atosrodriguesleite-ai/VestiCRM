@@ -356,11 +356,55 @@ describe("pedido colado do WhatsApp: preço IGUAL ao do catálogo", () => {
 describe("a tela do pedido respeita a visibilidade ANTES dos efeitos (menor)", () => {
   it("religar/consertar itens só roda em pedido que o usuário pode ver", () => {
     const page = ler("src/app/(app)/pedidos/[id]/page.tsx");
-    // a conferência tem que vir ANTES da chamada (o import não conta)
-    expect(page.indexOf("podeVer")).toBeGreaterThan(-1);
-    expect(page.indexOf("podeVer")).toBeLessThan(
-      page.indexOf("religarItensDoPedido(id")
+    // A conferência deixou de ser uma consulta só dela (20/08/2026, por
+    // velocidade): quem barra é a própria leitura do pedido, filtrada por
+    // orderScope. O invariante é o mesmo — o `notFound()` vem ANTES de
+    // qualquer conserto, então a vendedora que abre o pedido de uma colega
+    // cai no 404 sem disparar escrita nenhuma.
+    expect(page).toContain("where: { id, ...orderScope(user) }");
+    const barreira = page.indexOf("notFound();");
+    expect(barreira).toBeGreaterThan(-1);
+    for (const conserto of [
+      "religarItensDoPedido(id",
+      "gravarRetratoDosItens(itensParaGravar",
+    ]) {
+      expect(page.indexOf(conserto), `${conserto} não está na tela`).toBeGreaterThan(-1);
+      expect(
+        page.indexOf(conserto),
+        `${conserto} roda ANTES da régua de visibilidade`
+      ).toBeGreaterThan(barreira);
+    }
+  });
+
+  it("item órfão é religado ANTES de desenhar (o aviso falso mandava apagar a linha)", () => {
+    // Achado da revisão (20/08/2026): adiar a religação para depois da
+    // entrega fazia a primeira abertura mostrar "estoque 0" e o aviso âmbar
+    // "peça não está mais no catálogo — apague a linha". Conselho falso E
+    // destrutivo, justo no caso que a religação existe para consertar.
+    const page = ler("src/app/(app)/pedidos/[id]/page.tsx");
+    const religa = page.indexOf("religarItensDoPedido(id");
+    const desenha = page.indexOf("return (");
+    expect(religa).toBeGreaterThan(-1);
+    expect(religa, "religação caiu para depois do desenho da tela").toBeLessThan(desenha);
+    // e é awaited na frente da tela (não pode estar dentro do after)
+    expect(page).toContain("await religarItensDoPedido(id, user.companyId)");
+    // relê o pedido depois de religar, senão a tela desenha o estado velho
+    expect(page).toContain("if (religados > 0) order = (await lerPedido()) ?? order;");
+  });
+
+  it("a tela do pedido carrega tudo numa ida só ao banco (velocidade)", () => {
+    // Relato do dono (20/08/2026): abrir um pedido demorava no celular e no
+    // computador. Não era consulta lenta — eram SEIS idas ao banco em fila,
+    // e o banco fica longe. Se alguém voltar a enfileirar `await db.` antes
+    // da leitura principal, o problema volta sem ninguém perceber.
+    const page = ler("src/app/(app)/pedidos/[id]/page.tsx");
+    const miolo = page.slice(
+      page.indexOf("export default async function"),
+      page.indexOf("notFound();")
     );
+    const idasSoltas = miolo.match(/await db\./g) ?? [];
+    expect(idasSoltas.length, "consulta em fila antes da leitura principal").toBe(0);
+    expect(miolo).toContain("await Promise.all([");
   });
 });
 

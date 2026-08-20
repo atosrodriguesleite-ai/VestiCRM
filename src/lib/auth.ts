@@ -1,4 +1,6 @@
+import { cache } from "react";
 import { cookies } from "next/headers";
+import { after } from "next/server";
 import { SignJWT, jwtVerify } from "jose";
 import { db } from "./db";
 import { AUTH_SECRET } from "./env";
@@ -50,7 +52,21 @@ export async function destroySession() {
   store.delete(COOKIE);
 }
 
-export async function getSessionUser(): Promise<SessionUser | null> {
+/**
+ * QUEM ESTÁ LOGADO — UMA consulta por requisição (não uma por chamada).
+ *
+ * Antes esta função ia ao banco TODA vez que era chamada, e ela é chamada
+ * várias vezes na mesma navegação: o layout do app pergunta, a página
+ * pergunta de novo, cada componente de servidor pergunta outra vez. Como o
+ * banco fica longe (Neon), cada pergunta repetida custava uma ida e volta
+ * inteira de rede — a tela parada esperando a MESMA resposta duas ou três
+ * vezes. O `cache()` do React guarda o resultado durante a requisição: a
+ * primeira chamada vai ao banco, as demais recebem o que já veio.
+ *
+ * O cache dura só a requisição — ligar/desligar uma chavinha na tela Equipe
+ * continua valendo na navegação seguinte, sem a vendedora sair e entrar.
+ */
+export const getSessionUser = cache(async function getSessionUser(): Promise<SessionUser | null> {
   const store = await cookies();
   const token = store.get(COOKIE)?.value;
   if (!token) return null;
@@ -84,9 +100,19 @@ export async function getSessionUser(): Promise<SessionUser | null> {
         !user.lastActiveAt ||
         Date.now() - user.lastActiveAt.getTime() > 10 * 60 * 1000;
       if (stale) {
-        await db.user
-          .update({ where: { id: user.id }, data: { lastActiveAt: new Date() } })
-          .catch(() => {});
+        // MARCA O ACESSO DEPOIS DE ENTREGAR A TELA: é registro interno, não
+        // muda nada do que a pessoa vê — segurar a resposta por causa dele
+        // punha uma escrita no banco na frente de cada navegação. Fora de um
+        // pedido web (script, cron) o `after` não existe: aí grava direto.
+        const marcar = () =>
+          db.user
+            .update({ where: { id: user.id }, data: { lastActiveAt: new Date() } })
+            .catch(() => {});
+        try {
+          after(marcar);
+        } catch {
+          await marcar();
+        }
       }
     }
 
@@ -106,7 +132,7 @@ export async function getSessionUser(): Promise<SessionUser | null> {
   } catch {
     return null;
   }
-}
+});
 
 /** Lança se não autenticado — usar em páginas e rotas de API. */
 export async function requireUser(): Promise<SessionUser> {
