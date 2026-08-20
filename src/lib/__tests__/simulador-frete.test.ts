@@ -15,6 +15,14 @@ import {
   inicioDoMesSP,
   lerValorBR,
 } from "../envios/painel";
+import {
+  lerMedidasPorCategoria,
+  lerPesosPorCategoria,
+  montarPacote,
+  pilhasDosItens,
+  pesoDaCategoriaG,
+  ALTURA_MAXIMA_VOLUME_CM,
+} from "../envios/pacote";
 
 /**
  * RN-019 — Simulador de frete (tela Envios).
@@ -98,11 +106,119 @@ describe("RN-019 · a memória nasce na compra da etiqueta", () => {
 
   it("a compra grava volumes declarados, nº de peças e a data da compra", () => {
     // fonte única: os MESMOS volumes que a etiqueta declarou (volumesDoEnvio)
-    expect(rota).toContain("volumesDoEnvio(volumes, pesoKg, conn)");
+    expect(rota).toContain("volumesDoEnvio(volumesEfetivos, pesoKg, conn)");
     // no update E no create do upsert (senão a memória depende do caminho)
     expect(rota.match(/volumesJson: volumesDaEtiqueta/g)?.length).toBe(2);
     expect(rota.match(/pieces: pecasDoPedido/g)?.length).toBe(2);
     expect(rota.match(/meCompradoEm: new Date\(\)/g)?.length).toBe(2);
+  });
+
+  it("cotação e compra usam OS MESMOS volumes (pacote por categoria incluído)", () => {
+    // se a cotação montar o pacote pelas categorias e a compra cair na caixa
+    // padrão, a etiqueta sai diferente do preço confirmado — ajuste na
+    // transportadora. As duas chamadas passam volumesEfetivos.
+    expect(rota.match(/volumes: volumesEfetivos/g)?.length).toBe(2);
+  });
+});
+
+describe("RN-019 · pacote montado pelas medidas de 1 peça por categoria", () => {
+  const MEDIDAS = {
+    "Baby Look": { compCm: 30, largCm: 20, altCm: 2 },
+    Vestido: { compCm: 40, largCm: 28, altCm: 3 },
+  };
+
+  it("empilha: base = maior peça, altura = soma das alturas, peso distribuído", () => {
+    const pacote = montarPacote(
+      [
+        { categoria: "Baby Look", quantidade: 10 }, // 20 cm de pilha
+        { categoria: "Vestido", quantidade: 5 }, // 15 cm de pilha
+      ],
+      MEDIDAS,
+      4.2
+    );
+    expect(pacote).toEqual([
+      { pesoKg: 4.2, alturaCm: 35, larguraCm: 28, comprimentoCm: 40 },
+    ]);
+  });
+
+  it("pilha maior que o teto vira mais de um volume (Correios só levam 100 cm)", () => {
+    // 60 baby looks = 120 cm de pilha → 2 volumes de 60 cm, peso dividido
+    const pacote = montarPacote(
+      [{ categoria: "Baby Look", quantidade: 60 }],
+      MEDIDAS,
+      9.6
+    );
+    expect(pacote?.length).toBe(Math.ceil(120 / ALTURA_MAXIMA_VOLUME_CM));
+    expect(pacote?.[0]).toEqual({
+      pesoKg: 4.8,
+      alturaCm: 60,
+      larguraCm: 20,
+      comprimentoCm: 30,
+    });
+  });
+
+  it("pacote pequeno sobe aos mínimos dos Correios (16×11×2) para não ser recusado", () => {
+    const pacote = montarPacote(
+      [{ categoria: "Meia", quantidade: 1 }],
+      { Meia: { compCm: 10, largCm: 8, altCm: 0.5 } },
+      0.05
+    );
+    expect(pacote).toEqual([
+      { pesoKg: 0.05, alturaCm: 2, larguraCm: 11, comprimentoCm: 16 },
+    ]);
+  });
+
+  it("categoria sem medidas → null (cai na caixa padrão, como sempre foi)", () => {
+    expect(
+      montarPacote([{ categoria: "Sem Cadastro", quantidade: 5 }], MEDIDAS, 1)
+    ).toBeNull();
+    expect(montarPacote([], MEDIDAS, 1)).toBeNull();
+    expect(
+      montarPacote([{ categoria: "Baby Look", quantidade: 0 }], MEDIDAS, 1)
+    ).toBeNull();
+    // absurdo (mais de 8 volumes) também não vira etiqueta de mentira
+    expect(
+      montarPacote([{ categoria: "Baby Look", quantidade: 5000 }], MEDIDAS, 800)
+    ).toBeNull();
+  });
+
+  it("medidas tortas no banco são ignoradas sem derrubar o resto", () => {
+    const m = lerMedidasPorCategoria(
+      JSON.stringify({
+        Boa: { compCm: 30, largCm: 20, altCm: 2 },
+        Torta: { compCm: -1, largCm: 20, altCm: 2 },
+        Incompleta: { compCm: 30 },
+      })
+    );
+    expect(Object.keys(m)).toEqual(["Boa"]);
+    expect(lerMedidasPorCategoria("não é json")).toEqual({});
+    expect(lerMedidasPorCategoria("")).toEqual({});
+  });
+
+  it("itens do pedido viram pilhas por categoria; item sem produto anula o cálculo", () => {
+    expect(
+      pilhasDosItens([
+        { quantity: 3, product: { category: "Baby Look" } },
+        { quantity: 2, product: { category: "Baby Look" } },
+        { quantity: 5, product: { category: "Vestido" } },
+      ])
+    ).toEqual([
+      { categoria: "Baby Look", quantidade: 5 },
+      { categoria: "Vestido", quantidade: 5 },
+    ]);
+    // produto apagado depois da venda: sem categoria não se inventa medida
+    expect(
+      pilhasDosItens([{ quantity: 1, product: null }])
+    ).toBeNull();
+    expect(pilhasDosItens([])).toBeNull();
+  });
+
+  it("peso da categoria: padrão da categoria → padrão da loja", () => {
+    const pesos = lerPesosPorCategoria('{"Vestido":350}');
+    expect(pesoDaCategoriaG("Vestido", pesos, 160)).toBe(350);
+    expect(pesoDaCategoriaG("Baby Look", pesos, 160)).toBe(160);
+    expect(lerPesosPorCategoria("lixo")).toEqual({});
+    expect(lerPesosPorCategoria("")).toEqual({});
   });
 });
 

@@ -35,6 +35,7 @@ export async function GET() {
           boxHeightCm: true,
           boxLengthCm: true,
           categoryWeights: true,
+          categoryDims: true,
         },
       }),
     ]);
@@ -74,6 +75,19 @@ const settingsSchema = z.object({
   boxLengthCm: z.number().int().min(1).max(100).optional(),
   // {"Vestidos": 350} — peso padrão por categoria, em gramas
   categoryWeights: z.record(z.string(), z.number().min(0).max(30000)).optional(),
+  // MEDIDAS DE 1 PEÇA por categoria (RN-019): {"Baby Look":{compCm,largCm,altCm}}
+  // — é com isto que a cotação automática e o simulador MONTAM o pacote
+  categoryDims: z
+    .record(
+      z.string(),
+      z.object({
+        compCm: z.number().min(1).max(150),
+        largCm: z.number().min(1).max(150),
+        // peça dobrada pode ter menos de 1 cm de altura (uma regata fininha)
+        altCm: z.number().min(0.2).max(150),
+      })
+    )
+    .optional(),
 });
 
 /** Salva remetente e padrões de embalagem (admin). */
@@ -85,13 +99,16 @@ export async function PATCH(req: NextRequest) {
     const parsed = settingsSchema.safeParse(await req.json());
     if (!parsed.success)
       return NextResponse.json({ error: "Dados inválidos" }, { status: 400 });
-    const { categoryWeights, ...campos } = parsed.data;
+    const { categoryWeights, categoryDims, ...campos } = parsed.data;
     const r = await db.melhorEnvioConnection.updateMany({
       where: { companyId: user.companyId },
       data: {
         ...campos,
         ...(categoryWeights !== undefined
           ? { categoryWeights: JSON.stringify(categoryWeights) }
+          : {}),
+        ...(categoryDims !== undefined
+          ? { categoryDims: JSON.stringify(categoryDims) }
           : {}),
       },
     });

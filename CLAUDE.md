@@ -281,16 +281,24 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   etiqueta COM a NF-e (chave de acesso); sem nota, sai com declaração de
   conteúdo (`/declaracao/[id]`). A chave é conferida no Bling ANTES de debitar
   o saldo, e a chave usada fica na própria etiqueta (`Shipping.nfeKey`).
-  **RN-019 · Simulador de frete** (`lib/envios/simulador.ts`, interruptor
+  **RN-019 · Pacote por categoria e simulador de frete**
+  (`lib/envios/pacote.ts` + `lib/envios/simulador.ts`): cada categoria guarda
+  o peso e as **medidas de 1 peça dobrada**
+  (`MelhorEnvioConnection.categoryDims`, tela Configurações → Melhor Envio) e
+  o sistema **MONTA o pacote empilhando** — base = maior peça, altura = soma
+  das alturas, dividido em volumes acima de 100 cm (teto dos Correios),
+  mínimos 16×11×2. Vale na **cotação automática do pedido** (a caixa padrão
+  única virou reserva de quem não cadastrou; cotação e compra usam OS MESMOS
+  volumes) e no **simulador da tela Envios** (interruptor
   `Company.freteSimuladorEnabled`, DESLIGADO por padrão — a própria loja
-  liga, gerente+, com aviso de que é estimativa): responde "quanto fica o
-  frete?" ANTES de o pedido existir. A compra da etiqueta grava a **memória
-  de embalagem** (`Shipping.volumesJson` + `pieces` + `meCompradoEm`) e o
-  simulador mostra os envios REAIS parecidos (peças mais próximas, recência
-  desempata, tolerância 3 peças ou 20%) — **a vendedora ESCOLHE a embalagem,
-  o sistema não chuta** — e cota no Melhor Envio com CEP + valor aproximado
-  digitados. Memória por loja (RN-013); etiqueta cancelada não vira
-  referência; loja sem o interruptor não vê nada de novo.
+  liga, gerente+, com aviso de que é estimativa): categoria + quantidade +
+  CEP + valor aproximado, pacote montado NO SERVIDOR. Alternativa do
+  simulador: a **memória de embalagem** dos envios reais
+  (`Shipping.volumesJson` + `pieces` + `meCompradoEm`, gravados na compra da
+  etiqueta) — envios parecidos por nº de peças, e a vendedora escolhe.
+  Memória por loja (RN-013); etiqueta cancelada não vira referência;
+  categoria sem medidas não muda NADA (caixa padrão, como sempre); loja sem
+  o interruptor não vê o simulador.
 - **Super Admin**: painel Lojas (provisionar, cobrança, uso, suspender,
   impersonar), diagnóstico de fotos; loja demo "Bella Moda".
 

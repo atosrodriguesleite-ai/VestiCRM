@@ -45,4 +45,4 @@ sem ambiguidade.
 | RN-016 | Nota AUTORIZADA → etiqueta com NF-e; sem nota → declaração de conteúdo | `lib/melhorenvio.ts` | `etiqueta-com-nfe.test.ts` |
 | RN-017 | WhatsApp: termo de aceite obrigatório antes do QR; envio proativo com ritmo humano | `lib/comm/evolution.ts` | `evolution.test.ts` |
 | RN-018 | Tabelas de preço por link (gated): o link decide o preço, atacado exige a quantidade mínima, e loja sem o recurso não muda em nada | `lib/catalogo/tabelas-de-preco{,-servidor}.ts` | `tabelas-de-preco.test.ts` |
-| RN-019 | Simulador de frete (gated, a loja liga): memória de embalagem dos envios reais, a vendedora escolhe — o sistema não chuta; resultado é estimativa declarada | `lib/envios/simulador.ts` | `simulador-frete.test.ts` |
+| RN-019 | Pacote montado pelas medidas de 1 peça por categoria (cotação do pedido + simulador gated); memória dos envios reais é a alternativa; estimativa declarada, e categoria sem medidas não muda nada | `lib/envios/pacote.ts`, `lib/envios/simulador.ts` | `simulador-frete.test.ts` |

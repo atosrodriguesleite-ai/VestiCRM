@@ -118,7 +118,11 @@ describe("medidas da cotação viajam até a compra (varredura por fonte)", () =
   });
 
   it("a compra usa os MESMOS volumes da cotação (fonte única volumesDoEnvio)", () => {
-    expect(rota).toMatch(/\n\s*volumes,\s*\n\s*orderLabel/);
+    // `volumesEfetivos` = manual → pacote por categoria (RN-019) → caixa
+    // padrão, decidido UMA vez e usado na cotação E na compra — etiqueta com
+    // medida diferente da cotada vira ajuste de valor na transportadora
+    expect(rota).toMatch(/\n\s*volumes: volumesEfetivos,\s*\n\s*orderLabel/);
+    expect(rota).toContain("volumes: volumesEfetivos,");
     expect(lib).toContain("volumes: volumesDoEnvio(input.volumes, input.weightKg, conn)");
   });
 

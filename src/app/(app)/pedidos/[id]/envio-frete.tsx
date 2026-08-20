@@ -113,6 +113,8 @@ export function EnvioFrete({
   const [volsCotados, setVolsCotados] = useState<VolumeNum[] | null>(null);
   // referência do aviso de peso suspeito (balança x cadastro das peças)
   const [pesoAuto, setPesoAuto] = useState<number | null>(null);
+  // o automático foi montado pelas medidas das categorias (RN-019)?
+  const [pacoteCategoria, setPacoteCategoria] = useState(false);
   // valor segurado da carga: editável sem nota; com NF-e o valor da nota manda
   const [seguro, setSeguro] = useState("");
   const [seguroCotado, setSeguroCotado] = useState<number | null>(null);
@@ -272,6 +274,9 @@ export function EnvioFrete({
       setSeguroCotado(d.seguroUsado);
     }
     setSeguroTravado(Boolean(d.seguroTravado));
+    // o automático veio EMPILHADO pelas medidas das categorias (RN-019) —
+    // a tela explica de onde saiu o tamanho, senão parece chute
+    setPacoteCategoria(Boolean(d.pacotePorCategoria));
   }
 
   async function comprar(semNota = false) {
@@ -621,6 +626,11 @@ export function EnvioFrete({
                 Cotação para <b>{weightKg} kg</b> com as{" "}
                 <b>medidas informadas do pacote</b>
                 {vols && vols.length > 1 && <> ({vols.length} volumes)</>}.
+              </>
+            ) : pacoteCategoria ? (
+              <>
+                Cotação para <b>{weightKg} kg</b> — pacote montado pelas
+                medidas das peças (empilhadas por categoria).
               </>
             ) : (
               <>

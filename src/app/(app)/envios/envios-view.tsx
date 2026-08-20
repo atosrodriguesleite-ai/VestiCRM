@@ -439,6 +439,9 @@ function CardDoPainel({
 
 /* ---- Simulador de frete (RN-019) --------------------------------------- */
 
+type CategoriaDaLoja = { nome: string; temMedidas: boolean };
+type LinhaDeCategoria = { categoria: string; quantidade: string };
+
 function Simulador({
   ligado,
   podeLigar,
@@ -448,6 +451,14 @@ function Simulador({
   podeLigar: boolean;
   aoMudar: () => void;
 }) {
+  // dois jeitos de dizer o tamanho do pacote: MONTAR pelas medidas de 1 peça
+  // por categoria (o principal — ideia do dono, 19/08/2026) ou reaproveitar
+  // a embalagem de um envio passado parecido (a memória)
+  const [modo, setModo] = useState<"categorias" | "passado">("categorias");
+  const [cats, setCats] = useState<CategoriaDaLoja[] | null>(null);
+  const [linhas, setLinhas] = useState<LinhaDeCategoria[]>([
+    { categoria: "", quantidade: "" },
+  ]);
   const [pecas, setPecas] = useState("");
   const [cep, setCep] = useState("");
   const [valor, setValor] = useState("");
@@ -455,8 +466,24 @@ function Simulador({
   const [escolhida, setEscolhida] = useState<Embalagem | null>(null);
   const [quotes, setQuotes] = useState<MeQuote[] | null>(null);
   const [recusadas, setRecusadas] = useState<MeRecusa[]>([]);
+  const [pacote, setPacote] = useState<VolumePacote[] | null>(null);
   const [busy, setBusy] = useState<"" | "buscar" | "cotar" | "ligar">("");
   const [erro, setErro] = useState("");
+
+  // categorias da loja (com/sem medidas), para o modo principal. Falha de
+  // rede NÃO vira lista vazia: vazia significa "sem medidas cadastradas", e
+  // esse diagnóstico errado mandaria a vendedora atrás da gerência à toa.
+  const [catsFalhou, setCatsFalhou] = useState(false);
+  const carregarCategorias = useCallback(() => {
+    setCatsFalhou(false);
+    fetch("/api/envios/simulador")
+      .then((r) => (r.ok ? r.json() : Promise.reject()))
+      .then((d) => setCats(d.categorias ?? []))
+      .catch(() => setCatsFalhou(true));
+  }, []);
+  useEffect(() => {
+    if (ligado) carregarCategorias();
+  }, [ligado, carregarCategorias]);
 
   // vendedora sem poder de ligar não vê nem o convite (para ela o recurso
   // simplesmente não existe enquanto a gerência não ligar)
@@ -487,17 +514,17 @@ function Simulador({
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-start gap-3">
             <div className="mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-xl bg-brand-50 text-brand-600">
-              <Calculator className="size-4.5" />
+              <Calculator className="size-4" />
             </div>
             <div>
               <p className="text-sm font-semibold text-slate-800">
                 Simulador de frete — responda “quanto fica o frete?” antes de fechar o pedido
               </p>
               <p className="mt-0.5 max-w-2xl text-xs text-slate-500">
-                Ele usa a embalagem de um envio passado parecido (mesmo tanto de peças) para
-                cotar no Melhor Envio só com o CEP da cliente. ⚠️ <b>É uma estimativa</b>:
-                o valor final pode mudar quando a expedição embalar de verdade — a caixa
-                deste pedido pode não ser igual à daquele.
+                Você diz a categoria e a quantidade, e o sistema monta o pacote pelas medidas
+                de 1 peça de cada categoria (Configurações → Melhor Envio) e cota só com o
+                CEP da cliente. ⚠️ <b>É uma estimativa</b>: o valor final pode mudar quando a
+                expedição embalar de verdade.
               </p>
             </div>
           </div>
@@ -510,7 +537,69 @@ function Simulador({
       </Card>
     );
 
-  async function buscar() {
+  function validarDestino(): { cepLimpo: string; valorNum: number } | null {
+    const cepLimpo = cep.replace(/\D/g, "");
+    if (cepLimpo.length !== 8) {
+      setErro("Informe o CEP da cliente (8 números).");
+      return null;
+    }
+    const valorNum = lerValorBR(valor);
+    if (!Number.isFinite(valorNum) || valorNum < 0) {
+      setErro("Informe o valor aproximado do pedido (é o seguro da carga).");
+      return null;
+    }
+    return { cepLimpo, valorNum };
+  }
+
+  async function cotarCom(body: Record<string, unknown>) {
+    setBusy("cotar");
+    setErro("");
+    try {
+      const r = await fetch("/api/envios/simulador", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error ?? "Não foi possível cotar agora.");
+      setQuotes(d.quotes);
+      setRecusadas(d.recusadas ?? []);
+      setPacote(d.pacote ?? null);
+    } catch (e) {
+      setErro(e instanceof Error ? e.message : "Não foi possível cotar agora.");
+    } finally {
+      setBusy("");
+    }
+  }
+
+  // ---- modo principal: montar o pacote pelas categorias -------------------
+  async function simularPorCategorias() {
+    const destino = validarDestino();
+    if (!destino) return;
+    const categorias: { categoria: string; quantidade: number }[] = [];
+    for (const l of linhas) {
+      const qtd = Number(l.quantidade);
+      if (!l.categoria && !l.quantidade) continue; // linha em branco: ignora
+      if (!l.categoria || !Number.isInteger(qtd) || qtd < 1) {
+        setErro("Complete cada linha: categoria e quantidade de peças.");
+        return;
+      }
+      categorias.push({ categoria: l.categoria, quantidade: qtd });
+    }
+    if (categorias.length === 0) {
+      setErro("Adicione ao menos uma categoria com quantidade.");
+      return;
+    }
+    setQuotes(null);
+    await cotarCom({
+      cep: destino.cepLimpo,
+      valorSegurado: destino.valorNum,
+      categorias,
+    });
+  }
+
+  // ---- alternativa: a embalagem de um envio passado ------------------------
+  async function buscarEmbalagens() {
     const n = Number(pecas);
     if (!Number.isInteger(n) || n < 1) {
       setErro("Informe quantas peças o pedido tem.");
@@ -534,40 +623,18 @@ function Simulador({
     }
   }
 
-  async function cotar() {
+  async function cotarPorEmbalagem() {
     if (!escolhida) return;
-    const cepLimpo = cep.replace(/\D/g, "");
-    if (cepLimpo.length !== 8) {
-      setErro("Informe o CEP da cliente (8 números).");
-      return;
-    }
-    const v = lerValorBR(valor);
-    if (!Number.isFinite(v) || v < 0) {
-      setErro("Informe o valor aproximado do pedido (é o seguro da carga).");
-      return;
-    }
-    setBusy("cotar");
-    setErro("");
-    try {
-      const r = await fetch("/api/envios/simulador", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          cep: cepLimpo,
-          valorSegurado: v,
-          volumes: escolhida.volumes,
-        }),
-      });
-      const d = await r.json();
-      if (!r.ok) throw new Error(d.error ?? "Não foi possível cotar agora.");
-      setQuotes(d.quotes);
-      setRecusadas(d.recusadas ?? []);
-    } catch (e) {
-      setErro(e instanceof Error ? e.message : "Não foi possível cotar agora.");
-    } finally {
-      setBusy("");
-    }
+    const destino = validarDestino();
+    if (!destino) return;
+    await cotarCom({
+      cep: destino.cepLimpo,
+      valorSegurado: destino.valorNum,
+      volumes: escolhida.volumes,
+    });
   }
+
+  const semMedidas = cats !== null && cats.every((c) => !c.temMedidas);
 
   return (
     <Card className="px-4 py-4">
@@ -587,97 +654,239 @@ function Simulador({
           </button>
         )}
       </div>
-      <p className="mt-1 text-xs text-slate-500">
-        Diga quantas peças e o sistema encontra um envio passado parecido — você escolhe a
-        embalagem e cota só com o CEP. O valor final pode mudar quando a expedição embalar.
-      </p>
 
-      <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-[110px_130px_150px_auto]">
-        <Input
-          value={pecas}
-          onChange={(e) => setPecas(e.target.value)}
-          inputMode="numeric"
-          placeholder="Peças"
-          className="!text-sm"
-        />
-        <Input
-          value={cep}
-          onChange={(e) => setCep(e.target.value)}
-          inputMode="numeric"
-          placeholder="CEP da cliente"
-          className="!text-sm"
-        />
-        <Input
-          value={valor}
-          onChange={(e) => setValor(e.target.value)}
-          inputMode="decimal"
-          placeholder="Valor aprox. (R$)"
-          className="!text-sm"
-        />
-        <div className="col-span-2 sm:col-span-1">
-          <Button onClick={buscar} disabled={busy !== ""} size="sm" className="w-full sm:w-auto">
-            {busy === "buscar" ? <Spinner className="size-3.5" /> : <Search className="size-3.5" />}
-            Buscar embalagem parecida
-          </Button>
-        </div>
+      {/* como o tamanho do pacote nasce: montado OU de um envio passado */}
+      <div className="mt-2 flex gap-1.5">
+        <button
+          onClick={() => {
+            setModo("categorias");
+            setQuotes(null);
+            setErro("");
+          }}
+          className={`rounded-full px-3 py-1 text-[11px] font-medium transition ${
+            modo === "categorias"
+              ? "bg-slate-900 text-white"
+              : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+          }`}
+        >
+          Pelas categorias
+        </button>
+        <button
+          onClick={() => {
+            setModo("passado");
+            setQuotes(null);
+            setErro("");
+          }}
+          className={`rounded-full px-3 py-1 text-[11px] font-medium transition ${
+            modo === "passado"
+              ? "bg-slate-900 text-white"
+              : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+          }`}
+        >
+          Por um envio passado
+        </button>
       </div>
+
+      {modo === "categorias" ? (
+        <div className="mt-3 space-y-2">
+          <p className="text-xs text-slate-500">
+            Diga a categoria e quantas peças: o pacote é montado pelas medidas de <b>1 peça</b>{" "}
+            de cada categoria (empilhadas), cadastradas em Configurações → Melhor Envio.
+          </p>
+          {catsFalhou && (
+            <Alert tone="warning">
+              Não consegui carregar as categorias agora.{" "}
+              <button onClick={carregarCategorias} className="font-semibold underline">
+                Tentar de novo
+              </button>
+            </Alert>
+          )}
+          {semMedidas && (
+            <Alert tone="warning" icon={<Package />}>
+              Nenhuma categoria tem medidas cadastradas ainda. Peça para a gerência preencher
+              as medidas de 1 peça por categoria em <b>Configurações → Melhor Envio →
+              Embalagem e peso por categoria</b> — ou use a aba “Por um envio passado”.
+            </Alert>
+          )}
+          {linhas.map((l, i) => (
+            <div key={i} className="flex items-center gap-2">
+              <select
+                value={l.categoria}
+                onChange={(e) =>
+                  setLinhas(linhas.map((x, j) => (j === i ? { ...x, categoria: e.target.value } : x)))
+                }
+                className="w-52 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none focus:border-brand-400"
+              >
+                <option value="">Categoria…</option>
+                {(cats ?? []).map((c) => (
+                  <option key={c.nome} value={c.nome} disabled={!c.temMedidas}>
+                    {c.nome}
+                    {!c.temMedidas ? " (sem medidas)" : ""}
+                  </option>
+                ))}
+              </select>
+              <Input
+                value={l.quantidade}
+                onChange={(e) =>
+                  setLinhas(linhas.map((x, j) => (j === i ? { ...x, quantidade: e.target.value } : x)))
+                }
+                inputMode="numeric"
+                placeholder="Peças"
+                className="!w-24 !text-sm"
+              />
+              {linhas.length > 1 && (
+                <button
+                  onClick={() => setLinhas(linhas.filter((_, j) => j !== i))}
+                  className="text-[11px] text-slate-400 hover:text-rose-500"
+                >
+                  remover
+                </button>
+              )}
+            </div>
+          ))}
+          <button
+            onClick={() => setLinhas([...linhas, { categoria: "", quantidade: "" }])}
+            className="text-xs font-medium text-brand-600 hover:text-brand-700"
+          >
+            + Adicionar categoria
+          </button>
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-[130px_150px_auto]">
+            <Input
+              value={cep}
+              onChange={(e) => setCep(e.target.value)}
+              inputMode="numeric"
+              placeholder="CEP da cliente"
+              className="!text-sm"
+            />
+            <Input
+              value={valor}
+              onChange={(e) => setValor(e.target.value)}
+              inputMode="decimal"
+              placeholder="Valor aprox. (R$)"
+              className="!text-sm"
+            />
+            <div className="col-span-2 sm:col-span-1">
+              <Button
+                onClick={simularPorCategorias}
+                disabled={busy !== "" || semMedidas}
+                size="sm"
+                className="w-full sm:w-auto"
+              >
+                {busy === "cotar" ? <Spinner className="size-3.5" /> : <Truck className="size-3.5" />}
+                Simular frete
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : (
+        <div className="mt-3 space-y-2">
+          <p className="text-xs text-slate-500">
+            Diga quantas peças e o sistema encontra um envio passado parecido — você escolhe a
+            embalagem e cota com o CEP.
+          </p>
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-[110px_130px_150px_auto]">
+            <Input
+              value={pecas}
+              onChange={(e) => setPecas(e.target.value)}
+              inputMode="numeric"
+              placeholder="Peças"
+              className="!text-sm"
+            />
+            <Input
+              value={cep}
+              onChange={(e) => setCep(e.target.value)}
+              inputMode="numeric"
+              placeholder="CEP da cliente"
+              className="!text-sm"
+            />
+            <Input
+              value={valor}
+              onChange={(e) => setValor(e.target.value)}
+              inputMode="decimal"
+              placeholder="Valor aprox. (R$)"
+              className="!text-sm"
+            />
+            <div className="col-span-2 sm:col-span-1">
+              <Button
+                onClick={buscarEmbalagens}
+                disabled={busy !== ""}
+                size="sm"
+                className="w-full sm:w-auto"
+              >
+                {busy === "buscar" ? <Spinner className="size-3.5" /> : <Search className="size-3.5" />}
+                Buscar embalagem parecida
+              </Button>
+            </div>
+          </div>
+
+          {embalagens && embalagens.length === 0 && (
+            <Alert tone="info" icon={<Package />}>
+              Ainda não tem envio parecido na memória. A memória cresce sozinha: cada etiqueta
+              comprada com as medidas reais do pacote vira referência para as próximas simulações.
+            </Alert>
+          )}
+
+          {embalagens && embalagens.length > 0 && (
+            <div>
+              <p className="text-xs font-medium text-slate-600">
+                Envios parecidos — escolha o que mais lembra este pedido:
+              </p>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {embalagens.map((em) => {
+                  const ativa = escolhida?.id === em.id;
+                  return (
+                    <button
+                      key={em.id}
+                      onClick={() => {
+                        setEscolhida(em);
+                        setQuotes(null);
+                      }}
+                      className={`rounded-xl border px-3 py-2 text-left text-xs transition ${
+                        ativa
+                          ? "border-brand-500 bg-brand-50 text-brand-800 ring-2 ring-brand-500/20"
+                          : "border-slate-200 bg-white text-slate-600 hover:border-slate-300"
+                      }`}
+                    >
+                      <span className="font-semibold">
+                        {/* vendedora sem visão total não vê número de pedido de
+                            colega (RN-007) — só a embalagem */}
+                        {em.pedido != null ? `Pedido #${em.pedido} · ` : "Envio de "}
+                        {em.pecas} peças
+                      </span>
+                      <span className="mt-0.5 block text-[11px] opacity-80">
+                        {em.pesoKg} kg · {em.volumes.map(medidas).join(" + ")}
+                        {em.volumes.length > 1 ? ` (${em.volumes.length} volumes)` : ""} ·{" "}
+                        {dataCurta(em.compradoEm)}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+              <div className="mt-3">
+                <Button onClick={cotarPorEmbalagem} disabled={!escolhida || busy !== ""} size="sm">
+                  {busy === "cotar" ? <Spinner className="size-3.5" /> : <Truck className="size-3.5" />}
+                  Simular frete com essa embalagem
+                </Button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {erro && <p className="mt-2 text-xs text-rose-600">{erro}</p>}
 
-      {embalagens && embalagens.length === 0 && (
-        <Alert tone="info" icon={<Package />}>
-          Ainda não tem envio parecido na memória. A memória cresce sozinha: cada etiqueta
-          comprada com as medidas reais do pacote vira referência para as próximas simulações.
-        </Alert>
-      )}
-
-      {embalagens && embalagens.length > 0 && (
-        <div className="mt-3">
-          <p className="text-xs font-medium text-slate-600">
-            Envios parecidos — escolha o que mais lembra este pedido:
-          </p>
-          <div className="mt-2 flex flex-wrap gap-2">
-            {embalagens.map((em) => {
-              const ativa = escolhida?.id === em.id;
-              return (
-                <button
-                  key={em.id}
-                  onClick={() => {
-                    setEscolhida(em);
-                    setQuotes(null);
-                  }}
-                  className={`rounded-xl border px-3 py-2 text-left text-xs transition ${
-                    ativa
-                      ? "border-brand-500 bg-brand-50 text-brand-800 ring-2 ring-brand-500/20"
-                      : "border-slate-200 bg-white text-slate-600 hover:border-slate-300"
-                  }`}
-                >
-                  <span className="font-semibold">
-                    {/* vendedora sem visão total não vê número de pedido de
-                        colega (RN-007) — só a embalagem */}
-                    {em.pedido != null ? `Pedido #${em.pedido} · ` : "Envio de "}
-                    {em.pecas} peças
-                  </span>
-                  <span className="mt-0.5 block text-[11px] opacity-80">
-                    {em.pesoKg} kg · {em.volumes.map(medidas).join(" + ")}
-                    {em.volumes.length > 1 ? ` (${em.volumes.length} volumes)` : ""} ·{" "}
-                    {dataCurta(em.compradoEm)}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-          <div className="mt-3">
-            <Button onClick={cotar} disabled={!escolhida || busy !== ""} size="sm">
-              {busy === "cotar" ? <Spinner className="size-3.5" /> : <Truck className="size-3.5" />}
-              Simular frete com essa embalagem
-            </Button>
-          </div>
-        </div>
-      )}
-
       {quotes && (
         <div className="mt-3 space-y-1.5">
+          {pacote && pacote.length > 0 && (
+            <p className="text-[11px] text-slate-500">
+              📦 Pacote estimado:{" "}
+              <b>
+                {Math.round(pacote.reduce((s, v) => s + v.pesoKg, 0) * 1000) / 1000} kg ·{" "}
+                {pacote.map(medidas).join(" + ")}
+                {pacote.length > 1 ? ` (${pacote.length} volumes)` : ""}
+              </b>
+            </p>
+          )}
           {quotes.length === 0 ? (
             <Alert tone="warning">Nenhuma transportadora cotou este trecho.</Alert>
           ) : (
@@ -704,8 +913,8 @@ function Simulador({
             </p>
           )}
           <p className="text-[11px] text-amber-700">
-            ⚠️ Estimativa com a embalagem de um envio passado — o valor final sai na compra da
-            etiqueta, com o pacote deste pedido pesado e medido.
+            ⚠️ Estimativa — o valor final sai na compra da etiqueta, com o pacote deste
+            pedido pesado e medido pela expedição.
           </p>
         </div>
       )}

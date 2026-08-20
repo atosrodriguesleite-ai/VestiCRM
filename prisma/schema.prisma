@@ -1900,6 +1900,12 @@ model MelhorEnvioConnection {
   boxHeightCm        Int @default(15)
   boxLengthCm        Int @default(40)
   categoryWeights    String @default("") // JSON {"Vestidos":350,...} — peso padrão por categoria (g)
+  // MEDIDAS DE 1 PEÇA por categoria (RN-019): JSON
+  // {"Baby Look":{"compCm":30,"largCm":20,"altCm":2},...}. É com isto que a
+  // cotação automática e o simulador MONTAM o pacote (empilham as peças) em
+  // vez de usar uma caixa do mesmo tamanho para 5 ou 50 peças. Categoria sem
+  // medidas → cai na caixa padrão acima, como sempre foi.
+  categoryDims       String @default("")
 }
 
 // Timeline do pedido: criação, mudanças de status, pagamento, envio...
