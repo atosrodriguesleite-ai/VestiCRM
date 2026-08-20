@@ -68,18 +68,46 @@ describe("romaneio: a miniatura é a foto da COR do item", () => {
 });
 
 describe("pedidos ANTIGOS se consertam sozinhos ao abrir a ficha", () => {
-  it("corrigirRetratoDosItens ajusta SKU/foto pelo que a variação diz", () => {
+  it("a regra do retrato ajusta SKU/foto pelo que a variação diz", () => {
     const lib = ler("src/lib/religar-itens.ts");
-    expect(lib).toContain("export async function corrigirRetratoDosItens");
+    // regra PURA (serve à tela e à gravação — ver page.tsx do pedido)
+    expect(lib).toContain("export function retratoCerto");
+    expect(lib).toContain("export async function gravarRetratoDosItens");
     expect(lib).toContain("v.sku ?? v.product.sku");
     // nunca mexe em dinheiro nem estoque — só o retrato
     expect(lib).not.toContain("unitPrice");
     expect(lib).not.toContain("stock");
   });
 
-  it("a ficha do pedido chama o conserto de carona", () => {
-    expect(ler("src/app/(app)/pedidos/[id]/page.tsx")).toContain(
-      "corrigirRetratoDosItens(id, user.companyId)"
-    );
+  it("a ficha do pedido conserta de carona — na TELA já, no banco depois", () => {
+    // Desde 20/08/2026 o conserto saiu da frente da tela (eram 6 idas ao
+    // banco em fila antes de desenhar qualquer coisa). O que NÃO pode mudar:
+    // a primeira abertura já mostra o retrato certo, e a correção é gravada.
+    const page = ler("src/app/(app)/pedidos/[id]/page.tsx");
+    // a tela aplica a regra pura no que veio do banco...
+    expect(page).toContain("retratoCerto(item)");
+    // ...e a gravação acontece depois de a página ser entregue
+    expect(page).toContain("gravarRetratoDosItens(itensParaGravar, id, user.companyId)");
+    expect(page).toMatch(/after\(async \(\) => \{/);
+    // a foto e o SKU exibidos são os corrigidos (não os do banco)
+    expect(page).toContain("item.sku = certo.sku");
+    expect(page).toContain("item.imageUrl = certo.imageUrl");
+  });
+
+  it("o PDF que vai para a CLIENTE também imprime o retrato certo", () => {
+    // Achado da revisão (20/08/2026): com a gravação adiada para depois da
+    // tela, abrir o romaneio nos primeiros milissegundos imprimiria o SKU da
+    // 1ª variação. O documento vai para a cliente — aplica a regra na hora.
+    const pdf = ler("src/app/api/orders/[id]/pdf/route.ts");
+    expect(pdf).toContain("retratoCerto(item)");
+    expect(pdf).toContain("item.sku = certo.sku");
+    // e traz a variação junto, senão a regra não teria com o que comparar
+    expect(pdf).toMatch(/items: \{\s*include: \{\s*variant:/);
+  });
+
+  it("a gravação do retrato segue presa à loja (RN-013) e ao pedido", () => {
+    const lib = ler("src/lib/religar-itens.ts");
+    // updateMany com escopo: dado já carregado não afrouxa o multi-tenant
+    expect(lib).toContain("where: { id: c.id, orderId, order: { companyId } }");
   });
 });

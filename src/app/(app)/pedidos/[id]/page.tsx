@@ -9,9 +9,14 @@ import {
   History,
   PackageCheck,
 } from "lucide-react";
+import { after } from "next/server";
 import { requireUser } from "@/lib/auth";
 import { isManagerUp, orderScope } from "@/lib/scope";
-import { corrigirRetratoDosItens, religarItensDoPedido } from "@/lib/religar-itens";
+import {
+  gravarRetratoDosItens,
+  religarItensDoPedido,
+  retratoCerto,
+} from "@/lib/religar-itens";
 import { db } from "@/lib/db";
 import { brl, dateFull, dateShort, timeShort } from "@/lib/format";
 import {
@@ -47,37 +52,123 @@ export default async function OrderDetailPage({
   const user = await requireUser();
   const { id } = await params;
 
-  // A régua de visibilidade vale ANTES de qualquer efeito colateral: sem esta
-  // conferência, a vendedora abrindo a URL do pedido de uma colega disparava
-  // os consertos automáticos num pedido que ela nem pode ver.
-  const podeVer = await db.order.findFirst({
-    where: { id, ...orderScope(user) },
-    select: { id: true },
-  });
-  if (!podeVer) notFound();
+  // TUDO O QUE A TELA PRECISA, DE UMA VEZ SÓ (velocidade, 20/08/2026).
+  //
+  // Antes eram SEIS idas ao banco em fila indiana — conferir permissão,
+  // religar itens, consertar retrato, ler o pedido, listar vendedores, ler as
+  // conexões —, cada uma esperando a anterior terminar. Como o banco fica
+  // longe (Neon), o que pesava não era a consulta (todas custam poucos
+  // milissegundos) e sim a viagem: seis idas e voltas de rede antes de a
+  // página começar a ser desenhada. Agora tudo sai junto, numa viagem só.
+  //
+  // Os CONSERTOS saíram da frente da tela sem atrasar a verdade: o retrato
+  // certo (SKU/foto) é calculado aqui mesmo, em memória (`retratoCerto`), e
+  // gravado depois da entrega (`after`). A única exceção é o item ÓRFÃO —
+  // raro e barulhento —, tratado logo abaixo.
+  const lerPedido = () =>
+    db.order.findFirst({
+      where: { id, ...orderScope(user) },
+      include: {
+          customer: true,
+          seller: true,
+          conversation: true,
+          items: {
+            include: {
+              variant: {
+                select: {
+                  stock: true,
+                  // o que o conserto de retrato precisa para decidir o SKU e a
+                  // foto certos — vem junto, sem consulta extra
+                  sku: true,
+                  color: true,
+                  product: {
+                    select: {
+                      sku: true,
+                      images: {
+                        orderBy: { order: "asc" },
+                        select: { id: true, color: true },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        payments: { orderBy: { createdAt: "asc" } },
+        shipping: true,
+        events: { orderBy: { createdAt: "desc" }, include: { user: true } },
+      },
+    });
 
-  // Peça reimportada (ex.: desfazer + refazer a Nuvemshop) deixa o item do
-  // pedido apontando para o vazio, e a tela mostrava "estoque 0 (insuficiente)"
-  // numa peça cheia de estoque. Religa pelos dados que o item guardou — de
-  // carona ao abrir o pedido, sem cron e sem tocar em estoque.
-  await religarItensDoPedido(id, user.companyId).catch(() => 0);
-  // conserta SKU/foto de item gravados errados (pedido antigo do catálogo
-  // mostrava o SKU e a foto da 1ª variação em vez da cor escolhida)
-  await corrigirRetratoDosItens(id, user.companyId).catch(() => 0);
+  const [pedidoLido, sellers, mpConn, ipConn, blingConn, meConn, company] =
+    await Promise.all([
+      lerPedido(),
+      db.user.findMany({
+        // vendedor da venda: ativo e fora do perfil Suporte (não comercial) —
+        // mesma régua que a API passou a aplicar
+        where: { companyId: user.companyId, active: true, role: { not: "SUPPORT" } },
+        select: { id: true, name: true },
+        orderBy: { name: "asc" },
+      }),
+      db.mercadoPagoConnection.findUnique({
+        where: { companyId: user.companyId },
+        select: { id: true },
+      }),
+      db.infinitePayConnection.findUnique({
+        where: { companyId: user.companyId },
+        select: { id: true },
+      }),
+      db.blingConnection.findUnique({
+        where: { companyId: user.companyId },
+        select: { id: true },
+      }),
+      db.melhorEnvioConnection.findUnique({
+        where: { companyId: user.companyId },
+        select: { id: true },
+      }),
+      db.company.findUnique({
+        where: { id: user.companyId },
+        select: { shippingEnabled: true },
+      }),
+    ]);
+  // A RÉGUA DE VISIBILIDADE CONTINUA VALENDO ANTES DE QUALQUER ESCRITA: a
+  // consulta acima já filtra por `orderScope`, e nada foi gravado até aqui —
+  // a vendedora que abre a URL do pedido de uma colega cai no 404 sem
+  // disparar conserto nenhum, como antes.
+  if (!pedidoLido) notFound();
+  // `let` porque o caso raro abaixo relê o pedido depois de religar os itens
+  let order = pedidoLido;
 
-  const order = await db.order.findFirst({
-    where: { id, ...orderScope(user) },
-    include: {
-      customer: true,
-      seller: true,
-      conversation: true,
-      items: { include: { variant: { select: { stock: true } } } },
-      payments: { orderBy: { createdAt: "asc" } },
-      shipping: true,
-      events: { orderBy: { createdAt: "desc" }, include: { user: true } },
-    },
+  // CASO RARO — PEÇA REIMPORTADA (incidente Toque Leve, 30/07/2026): o item
+  // ficou sem ponteiro para a variação. Este conserto NÃO pode esperar o
+  // `after`: sem o vínculo a tela mostra "estoque 0" e o aviso âmbar manda a
+  // vendedora APAGAR a linha — conselho destrutivo, e falso. Então religa
+  // agora e relê. Custa duas idas ao banco, mas só no pedido quebrado; o
+  // pedido normal (a esmagadora maioria) não paga nada por isso.
+  if (order.items.some((i) => !i.variantId)) {
+    const religados = await religarItensDoPedido(id, user.companyId).catch(() => 0);
+    if (religados > 0) order = (await lerPedido()) ?? order;
+  }
+
+  // O retrato certo, aplicado NA TELA (o banco recebe depois, no `after`):
+  // pedido antigo do catálogo gravou o SKU e a foto da 1ª variação em vez da
+  // cor escolhida (incidente Entre Linhas, 04/08/2026).
+  const itensParaGravar = order.items.map((i) => ({
+    id: i.id,
+    sku: i.sku,
+    imageUrl: i.imageUrl,
+    variant: i.variant,
+  }));
+  for (const item of order.items) {
+    const certo = retratoCerto(item);
+    if (certo.sku !== undefined) item.sku = certo.sku;
+    if (certo.imageUrl !== undefined) item.imageUrl = certo.imageUrl;
+  }
+  // ...e a gravação acontece DEPOIS de a página ser entregue: a pessoa já
+  // está lendo a tela certa enquanto o banco se atualiza atrás.
+  after(async () => {
+    await gravarRetratoDosItens(itensParaGravar, id, user.companyId).catch(() => 0);
   });
-  if (!order) notFound();
 
   // VISÃO TOTAL EDITA, COM REGISTRO (decisão do dono, 18/08/2026): a
   // vendedora com a chavinha pedidosVisaoTotal altera pedido de colega/da
@@ -86,38 +177,6 @@ export default async function OrderDetailPage({
   // própria. Não existe mais estado "só leitura" nesta tela: vendedora SEM
   // a chavinha nem chega aqui (o orderScope esconde o pedido → 404).
   const pedidoDeColega = user.role === "SELLER" && order.sellerId !== user.id;
-
-  const sellers = await db.user.findMany({
-    // vendedor da venda: ativo e fora do perfil Suporte (não comercial) —
-    // mesma régua que a API passou a aplicar
-    where: { companyId: user.companyId, active: true, role: { not: "SUPPORT" } },
-    select: { id: true, name: true },
-    orderBy: { name: "asc" },
-  });
-
-  // conexões do "dinheiro" (o painel de cobrança/NF-e só aparece se existirem)
-  const [mpConn, ipConn, blingConn, meConn, company] = await Promise.all([
-    db.mercadoPagoConnection.findUnique({
-      where: { companyId: user.companyId },
-      select: { id: true },
-    }),
-    db.infinitePayConnection.findUnique({
-      where: { companyId: user.companyId },
-      select: { id: true },
-    }),
-    db.blingConnection.findUnique({
-      where: { companyId: user.companyId },
-      select: { id: true },
-    }),
-    db.melhorEnvioConnection.findUnique({
-      where: { companyId: user.companyId },
-      select: { id: true },
-    }),
-    db.company.findUnique({
-      where: { id: user.companyId },
-      select: { shippingEnabled: true },
-    }),
-  ]);
 
   return (
     <div className="max-w-5xl mx-auto">

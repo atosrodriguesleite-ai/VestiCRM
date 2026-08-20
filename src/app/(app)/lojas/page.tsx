@@ -17,26 +17,51 @@ export default async function LojasPage() {
   const user = await requireUser();
   if (!isSuperAdmin(user)) redirect("/dashboard");
 
-  const companies = await db.company.findMany({
-    where: { slug: { not: PLATFORM_SLUG } },
-    orderBy: { createdAt: "desc" },
-    include: {
-      _count: { select: { users: true, customers: true, orders: true } },
-      billing: true,
-      users: {
-        where: { role: "ADMIN" },
-        orderBy: { createdAt: "asc" },
-        take: 1,
-        select: { name: true, email: true },
-      },
-    },
-  });
+  // Recebido no mês atual (fuso de São Paulo) — soma dos pagamentos registrados.
+  const sp = spNow();
+  const inicioMes = new Date(Date.UTC(sp.y, sp.m - 1, 1, 3, 0, 0));
 
-  // Uso: último acesso real por loja + quem foi + quantos entraram nos 7 dias.
-  const usuarios = await db.user.findMany({
-    where: { company: { slug: { not: PLATFORM_SLUG } } },
-    select: { companyId: true, name: true, lastActiveAt: true },
-  });
+  // As quatro consultas do painel não dependem uma da outra: saem juntas
+  // (velocidade, 20/08/2026 — eram quatro idas ao banco em fila).
+  const [companies, usuarios, recebido, mrr, consents, connections, platform] =
+    await Promise.all([
+    db.company.findMany({
+      where: { slug: { not: PLATFORM_SLUG } },
+      orderBy: { createdAt: "desc" },
+      include: {
+        _count: { select: { users: true, customers: true, orders: true } },
+        billing: true,
+        users: {
+          where: { role: "ADMIN" },
+          orderBy: { createdAt: "asc" },
+          take: 1,
+          select: { name: true, email: true },
+        },
+      },
+    }),
+    // Uso: último acesso real por loja + quem foi + quantos entraram nos 7 dias.
+    db.user.findMany({
+      where: { company: { slug: { not: PLATFORM_SLUG } } },
+      select: { companyId: true, name: true, lastActiveAt: true },
+    }),
+    db.billingPayment.aggregate({
+      _sum: { amount: true },
+      where: { paidAt: { gte: inicioMes } },
+    }),
+    // MRR calculado: mensalidade base + módulos contratados. Antes o painel
+    // só somava a mensalidade e todo módulo vendido era receita invisível.
+    mrrDaPlataforma(),
+    // comprovantes do termo do WhatsApp sem API + estado da conexão por loja
+    db.whatsappConsent.findMany({ orderBy: { acceptedAt: "desc" } }),
+    db.commSettings.findMany({
+      select: { companyId: true, evolutionStatus: true, evolutionPhone: true },
+    }),
+    // a loja-plataforma (leads do site) — os números dela vêm na rodada 2
+    db.company.findUnique({
+      where: { slug: PLATFORM_SLUG },
+      select: { id: true },
+    }),
+  ]);
   const seteDias = Date.now() - 7 * 24 * 60 * 60 * 1000;
   const usoByCompany = new Map<
     string,
@@ -54,25 +79,8 @@ export default async function LojasPage() {
     usoByCompany.set(u.companyId, cur);
   }
 
-  // Recebido no mês atual (fuso de São Paulo) — soma dos pagamentos registrados.
-  const sp = spNow();
-  const inicioMes = new Date(Date.UTC(sp.y, sp.m - 1, 1, 3, 0, 0));
-  const recebido = await db.billingPayment.aggregate({
-    _sum: { amount: true },
-    where: { paidAt: { gte: inicioMes } },
-  });
   const recebidoMes = recebido._sum.amount ?? 0;
-  // MRR calculado: mensalidade base + módulos contratados. Antes o painel
-  // só somava a mensalidade e todo módulo vendido era receita invisível.
-  const mrr = await mrrDaPlataforma();
 
-  // comprovantes do termo do WhatsApp sem API + estado da conexão por loja
-  const [consents, connections] = await Promise.all([
-    db.whatsappConsent.findMany({ orderBy: { acceptedAt: "desc" } }),
-    db.commSettings.findMany({
-      select: { companyId: true, evolutionStatus: true, evolutionPhone: true },
-    }),
-  ]);
   const consentByCompany = new Map(
     [...consents].reverse().map((c) => [c.companyId, c]) // o mais antigo = 1º aceite
   );
@@ -126,35 +134,27 @@ export default async function LojasPage() {
     active7: usoByCompany.get(c.id)?.ativos7 ?? 0,
   }));
 
-  // Resumo da operação comercial da plataforma (leads do site)
-  const platform = await db.company.findUnique({
-    where: { slug: PLATFORM_SLUG },
-    select: { id: true },
-  });
-  const [newLeads, siteLeads] = platform
+  // RODADA 2 — os quatro números da plataforma, juntos. Eram quatro idas ao
+  // banco em fila (leads novos, leads do site, leads da bio e o total deles),
+  // e nenhuma dependia da outra. "Bio" = quem chegou pelo rodapé "feito por
+  // atacadopro.com" das bios das lojas (landingSource = "bio:<slug>").
+  const [newLeads, siteLeads, bioLeads, bioLeadsTotal] = platform
     ? await Promise.all([
         db.opportunity.count({
           where: { companyId: platform.id, status: "OPEN", stage: { name: "Novo Lead" } },
         }),
         db.customer.count({ where: { companyId: platform.id } }),
+        db.customer.findMany({
+          where: { companyId: platform.id, landingSource: { startsWith: "bio" } },
+          orderBy: { createdAt: "desc" },
+          take: 8,
+          select: { id: true, name: true, phone: true, landingSource: true, createdAt: true },
+        }),
+        db.customer.count({
+          where: { companyId: platform.id, landingSource: { startsWith: "bio" } },
+        }),
       ])
-    : [0, 0];
-
-  // Canal de aquisição "Bio": leads que chegaram pelo rodapé "feito por
-  // atacadopro.com" das bios das lojas (landingSource = "bio:<slug>").
-  const bioLeads = platform
-    ? await db.customer.findMany({
-        where: { companyId: platform.id, landingSource: { startsWith: "bio" } },
-        orderBy: { createdAt: "desc" },
-        take: 8,
-        select: { id: true, name: true, phone: true, landingSource: true, createdAt: true },
-      })
-    : [];
-  const bioLeadsTotal = platform
-    ? await db.customer.count({
-        where: { companyId: platform.id, landingSource: { startsWith: "bio" } },
-      })
-    : 0;
+    : [0, 0, [], 0];
 
   return (
     <div className="max-w-5xl mx-auto">

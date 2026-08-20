@@ -19,8 +19,22 @@ export const dynamic = "force-dynamic";
 export default async function ProductsPage() {
   const user = await requireUser();
 
-  const [company, libraryColors, librarySizes] = await Promise.all([
-    db.company.findUnique({ where: { id: user.companyId } }),
+  // as quatro consultas desta tela são independentes: saem juntas, numa ida
+  // só ao banco (a lista de produtos estava sozinha, esperando as outras)
+  const [company, libraryColors, librarySizes, products] = await Promise.all([
+    // só os campos que a tela usa: a ficha inteira arrastava o `logoUrl`
+    // (a imagem em base64 no banco) a cada abertura da lista de produtos
+    db.company.findUnique({
+      where: { id: user.companyId },
+      select: {
+        slug: true,
+        extraCategories: true,
+        lowStockThreshold: true,
+        catalogHideColors: true,
+        catalogHideOutOfStock: true,
+        mediaLibraryEnabled: true,
+      },
+    }),
     db.companyColor.findMany({
       where: { companyId: user.companyId },
       orderBy: { name: "asc" },
@@ -29,18 +43,18 @@ export default async function ProductsPage() {
       where: { companyId: user.companyId },
       orderBy: { order: "asc" },
     }),
+    db.product.findMany({
+      where: { companyId: user.companyId },
+      include: {
+        variants: { orderBy: [{ color: "asc" }, { size: "asc" }] },
+        images: { orderBy: { order: "asc" }, select: { id: true, color: true } },
+      },
+      orderBy: { name: "asc" },
+    }),
   ]);
   // biblioteca sem ordem escolhida (todo mundo com order 0) cai na ordem de
   // ROUPA — senão o dropdown de tamanho saía "G, GG, M, P, PP"
   librarySizes.sort((a, b) => a.order - b.order || compararTamanhos(a.name, b.name));
-  const products = await db.product.findMany({
-    where: { companyId: user.companyId },
-    include: {
-      variants: { orderBy: [{ color: "asc" }, { size: "asc" }] },
-      images: { orderBy: { order: "asc" }, select: { id: true, color: true } },
-    },
-    orderBy: { name: "asc" },
-  });
   // grade na ORDEM DE ROUPA (PP, P, M, G, GG / 32, 34…): o banco só sabe
   // alfabeto — e no alfabeto o G vinha antes do M (pedido do dono, 12/08/2026)
   for (const p of products) {

@@ -112,8 +112,6 @@ export default async function DashboardPage({
     openOpps,
     negotiatingOpps,
     lostOpps30,
-    wonOpps30,
-    closedOpps30,
     noContactCustomers,
     noContactCount,
     nextTasks,
@@ -155,16 +153,6 @@ export default async function DashboardPage({
     }),
     db.opportunity.count({
       where: { ...scope, status: "LOST", closedAt: inPeriod },
-    }),
-    db.opportunity.count({
-      where: { ...scope, status: "WON", closedAt: inPeriod },
-    }),
-    db.opportunity.count({
-      where: {
-        ...scope,
-        status: { in: ["WON", "LOST"] },
-        closedAt: inPeriod,
-      },
     }),
     db.customer.findMany({
       where: {
@@ -293,12 +281,70 @@ export default async function DashboardPage({
     if (t.productId) nomeGravado.set(t.productId, t.name);
   }
   const idsVendidos = [...somaPorChave.keys()].filter((k) => !k.startsWith("nome:"));
-  const nomesAtuais = idsVendidos.length
-    ? await db.product.findMany({
-        where: { id: { in: idsVendidos } },
-        select: { id: true, name: true },
-      })
-    : [];
+
+  // SEGUNDA RODADA DE CONSULTAS — velocidade, 20/08/2026.
+  //
+  // Estas seis consultas estavam espalhadas pelo resto da função, cada uma
+  // esperando a anterior: nomes atuais das peças, nomes das compradoras,
+  // tarefas vencidas, peças com estoque baixo, fichas de quem chamar hoje e
+  // os textos das mensagens. Só as três primeiras dependiam de algo (do
+  // resultado da rodada lá de cima, que já terminou) — as outras não
+  // dependiam de nada e mesmo assim ficavam na fila. Agora saem todas juntas.
+  const [
+    nomesAtuais,
+    buyerNames,
+    overdue,
+    lowStockCount,
+    fichasChamada,
+    textosDaLoja,
+  ] = await Promise.all([
+    idsVendidos.length
+      ? db.product.findMany({
+          where: { id: { in: idsVendidos } },
+          select: { id: true, name: true },
+        })
+      : [],
+    db.customer.findMany({
+      where: { id: { in: topBuyers.map((b) => b.customerId) } },
+      select: { id: true, name: true },
+    }),
+    // conta TODAS as pendentes vencidas (antes contava só entre as 7 exibidas
+    // na lista — o cartão travava em "7" mesmo com 20 atrasadas)
+    db.task.count({
+      where: { ...taskScope(user), status: "PENDENTE", dueAt: { lt: now } },
+    }),
+    db.productVariant.count({
+      where: {
+        product: { companyId: user.companyId, active: true },
+        stock: { lte: companyCfg.lowStockThreshold },
+      },
+    }),
+    // QUEM CHAMAR HOJE — as sugestões do motor viram uma lista de ação, com o
+    // motivo em português e a mensagem pronta. `suggestions` já veio calculado
+    // na rodada de consultas lá em cima (respeitando a carteira de cada uma).
+    suggestions.length
+      ? db.customer.findMany({
+          where: {
+            companyId: user.companyId,
+            id: { in: [...new Set(suggestions.map((s) => s.customerId))] },
+          },
+          select: { id: true, phone: true, owner: { select: { color: true } } },
+        })
+      : [],
+    // texto de cada mensagem: o da LOJA quando ela personalizou, senão o padrão
+    suggestions.length
+      ? db.commSettings.findUnique({
+          where: { companyId: user.companyId },
+          select: {
+            msgAniversario: true,
+            msgRecompra: true,
+            msgPosVenda: true,
+            msgPrimeiroContato: true,
+            msgConversaParada: true,
+          },
+        })
+      : null,
+  ]);
   const nomeAtual = new Map(nomesAtuais.map((p) => [p.id, p.name]));
   const somaPorNome = new Map<string, number>();
   for (const [chave, qtd] of somaPorChave) {
@@ -313,10 +359,6 @@ export default async function DashboardPage({
     .sort((a, b) => b.quantidade - a.quantidade)
     .slice(0, 6);
 
-  const buyerNames = await db.customer.findMany({
-    where: { id: { in: topBuyers.map((b) => b.customerId) } },
-    select: { id: true, name: true },
-  });
   const buyerName = new Map(buyerNames.map((b) => [b.id, b.name]));
   const avgOrder = ordersMonth._count
     ? (ordersMonth._sum.netTotal ?? 0) / ordersMonth._count
@@ -426,12 +468,6 @@ export default async function DashboardPage({
     .sort((a, b) => b.value - a.value)
     .slice(0, 6);
 
-  // conta TODAS as pendentes vencidas (antes contava só entre as 7 exibidas
-  // na lista — o cartão travava em "7" mesmo com 20 atrasadas)
-  const overdue = await db.task.count({
-    where: { ...taskScope(user), status: "PENDENTE", dueAt: { lt: now } },
-  });
-
   // metas: vendido no mês por vendedor + meta própria (quando vendedor)
   const soldBySeller = new Map<string, number>();
   for (const o of monthOrders) {
@@ -442,39 +478,8 @@ export default async function DashboardPage({
   const myGoal = me?.monthlyGoal ?? 0;
   const mySold = soldBySeller.get(user.id) ?? 0;
 
-  const lowStockCount = await db.productVariant.count({
-    where: {
-      product: { companyId: user.companyId, active: true },
-      stock: { lte: companyCfg.lowStockThreshold },
-    },
-  });
-
-  // QUEM CHAMAR HOJE — as sugestões do motor viram uma lista de ação, com o
-  // motivo em português e a mensagem pronta. `suggestions` já veio calculado
-  // na rodada de consultas lá em cima (respeitando a carteira de cada uma).
-  const fichasChamada = suggestions.length
-    ? await db.customer.findMany({
-        where: {
-          companyId: user.companyId,
-          id: { in: [...new Set(suggestions.map((s) => s.customerId))] },
-        },
-        select: { id: true, phone: true, owner: { select: { color: true } } },
-      })
-    : [];
   const fichaPorId = new Map(fichasChamada.map((c) => [c.id, c]));
   // texto de cada mensagem: o da LOJA quando ela personalizou, senão o padrão
-  const textosDaLoja = suggestions.length
-    ? await db.commSettings.findUnique({
-        where: { companyId: user.companyId },
-        select: {
-          msgAniversario: true,
-          msgRecompra: true,
-          msgPosVenda: true,
-          msgPrimeiroContato: true,
-          msgConversaParada: true,
-        },
-      })
-    : null;
   const chamadas: ChamadaDoDia[] = suggestions.map((s) => {
     const ficha = fichaPorId.get(s.customerId);
     const primeiro = s.customerName.split(" ")[0];

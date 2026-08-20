@@ -27,12 +27,7 @@ export default async function FunnelPage({
   // tela carregar — pago entra FECHADO com a data real; aberto entra na etapa
   // certa. Em rodadas de 40 (loja com anos de pedidos concilia em algumas
   // aberturas sem pesar nenhuma); zerado o passado, vira uma consulta vazia.
-  await conciliarFunilComPedidos(user.companyId);
   const scope = ownedScope(user);
-  const funnelCompany = await db.company.findUnique({
-    where: { id: user.companyId },
-    select: { slug: true },
-  });
   const { de, ate } = await searchParams;
   const from = de && !Number.isNaN(Date.parse(`${de}T00:00:00Z`))
     ? new Date(Date.parse(`${de}T00:00:00Z`) + SP_OFFSET)
@@ -41,15 +36,37 @@ export default async function FunnelPage({
     ? new Date(Date.parse(`${ate}T23:59:59.999Z`) + SP_OFFSET)
     : null;
 
-  const pipeline = await db.pipeline.findFirst({
-    where: { companyId: user.companyId },
-    include: { stages: { orderBy: { order: "asc" } } },
-  });
+  // VELOCIDADE (20/08/2026): esta tela fazia DEZ idas ao banco em fila
+  // indiana. O banco fica longe (Neon), então cada ida custa uma viagem de
+  // rede inteira — a tela ficava parada esperando dez viagens. Agora as
+  // consultas saem em RODADAS: tudo o que não depende de ninguém vai junto,
+  // e só espera quem realmente precisa do resultado anterior.
+  //
+  // Rodada 1 — nada aqui depende de nada: a conciliação do funil (que grava
+  // e por isso tem de terminar antes de LER as oportunidades), o slug da
+  // loja, o funil com suas etapas e a lista de clientes.
+  const [, funnelCompany, pipeline, customers] = await Promise.all([
+    conciliarFunilComPedidos(user.companyId),
+    db.company.findUnique({
+      where: { id: user.companyId },
+      select: { slug: true },
+    }),
+    db.pipeline.findFirst({
+      where: { companyId: user.companyId },
+      include: { stages: { orderBy: { order: "asc" } } },
+    }),
+    db.customer.findMany({
+      where: scope,
+      orderBy: { name: "asc" },
+      select: { id: true, name: true },
+    }),
+  ]);
 
   if (!pipeline) {
     return <p className="text-sm text-gray-500">Nenhum funil configurado.</p>;
   }
 
+  // Rodada 2 — precisa das etapas que a rodada 1 trouxe.
   const opps = await db.opportunity.findMany({
     where: {
       ...scope,
@@ -72,12 +89,6 @@ export default async function FunnelPage({
     orderBy: { lastInteractionAt: "desc" },
   });
 
-  const customers = await db.customer.findMany({
-    where: scope,
-    orderBy: { name: "asc" },
-    select: { id: true, name: true },
-  });
-
   // ---- Pedido enviado (por oportunidade) e carrinho abandonado (por cliente) ----
   // para abrir no card do funil: o que o cliente colocou na sacola ou já pediu.
   const oppIds = opps.map((o) => o.id);
@@ -86,40 +97,56 @@ export default async function FunnelPage({
   // orderScope, não só companyId: o pedido "da loja" (sem vendedora) pode ter
   // cartão na carteira da vendedora — o card não pode virar uma porta lateral
   // para os detalhes de um pedido que a área de Pedidos esconde dela (RN-007)
-  const linkedOrders = await db.order.findMany({
-    where: { ...orderScope(user), opportunityId: { in: oppIds } },
-    include: { items: true },
-  });
-  const orderByOpp = new Map(linkedOrders.map((o) => [o.opportunityId!, o]));
-  // …mas o card PRECISA saber que o pedido existe, mesmo escondido: sem isso
-  // ele caía no ramo "sacola abandonada" e a vendedora mandava "quer que eu
-  // finalize seu pedido?" para cliente que JÁ pediu. Só os vínculos, nada dos
-  // detalhes.
-  const oppsComPedido = new Set(
-    (
-      await db.order.findMany({
+  // Rodada 3 — tudo que depende só dos ids acima, de uma vez: os pedidos
+  // ligados às oportunidades, os vínculos (mesmo os escondidos), as sacolas
+  // abandonadas e o resumo de comportamento no catálogo.
+  const [linkedOrders, vinculos, cartSessions, behaviorSessions] =
+    await Promise.all([
+      db.order.findMany({
+        where: { ...orderScope(user), opportunityId: { in: oppIds } },
+        include: { items: true },
+      }),
+      // …o card PRECISA saber que o pedido existe, mesmo escondido: sem isso
+      // ele caía no ramo "sacola abandonada" e a vendedora mandava "quer que
+      // eu finalize seu pedido?" para cliente que JÁ pediu. Só os vínculos,
+      // nada dos detalhes.
+      db.order.findMany({
         where: { companyId: user.companyId, opportunityId: { in: oppIds } },
         select: { opportunityId: true },
-      })
-    ).map((o) => o.opportunityId)
-  );
-
-  // sessão mais recente NÃO convertida com itens na sacola, por cliente
-  const cartSessions = await db.trackSession.findMany({
-    where: {
-      companyId: user.companyId,
-      customerId: { in: customerIds },
-      converted: false,
-      cartValue: { gt: 0 },
-    },
-    orderBy: { startedAt: "desc" },
-  });
+      }),
+      // sessão mais recente NÃO convertida com itens na sacola, por cliente
+      db.trackSession.findMany({
+        where: {
+          companyId: user.companyId,
+          customerId: { in: customerIds },
+          converted: false,
+          cartValue: { gt: 0 },
+        },
+        orderBy: { startedAt: "desc" },
+      }),
+      // resumo do comportamento no catálogo por cliente (agregados da sessão —
+      // barato, sem varrer eventos): visitas, tempo, vistos, adicionados, removidos
+      db.trackSession.findMany({
+        where: { companyId: user.companyId, customerId: { in: customerIds } },
+        select: {
+          customerId: true,
+          startedAt: true,
+          lastEventAt: true,
+          productsViewed: true,
+          cartAdds: true,
+          cartRemoves: true,
+        },
+      }),
+    ]);
+  const orderByOpp = new Map(linkedOrders.map((o) => [o.opportunityId!, o]));
+  const oppsComPedido = new Set(vinculos.map((o) => o.opportunityId));
   const latestCartByCustomer = new Map<string, (typeof cartSessions)[number]>();
   for (const s of cartSessions) {
     if (s.customerId && !latestCartByCustomer.has(s.customerId)) {
       latestCartByCustomer.set(s.customerId, s);
     }
   }
+  // Rodada 4 — só isto precisa esperar: os eventos das sessões achadas acima.
   const cartEvents = await db.trackEvent.findMany({
     where: {
       sessionId: { in: [...latestCartByCustomer.values()].map((s) => s.id) },
@@ -145,19 +172,6 @@ export default async function FunnelPage({
     cartByCustomer.set(cid, { value: s.cartValue, items });
   }
 
-  // resumo do comportamento no catálogo por cliente (agregados da sessão —
-  // barato, sem varrer eventos): visitas, tempo, vistos, adicionados, removidos
-  const behaviorSessions = await db.trackSession.findMany({
-    where: { companyId: user.companyId, customerId: { in: customerIds } },
-    select: {
-      customerId: true,
-      startedAt: true,
-      lastEventAt: true,
-      productsViewed: true,
-      cartAdds: true,
-      cartRemoves: true,
-    },
-  });
   type Behavior = {
     visits: number;
     seconds: number;

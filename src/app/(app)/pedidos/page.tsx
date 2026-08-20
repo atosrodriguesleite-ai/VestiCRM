@@ -114,12 +114,19 @@ export default async function OrdersPage({
     });
 
   let pagina = paginaPedida;
+  // a contagem por CANAL entrou nesta mesma rodada: era uma terceira ida ao
+  // banco, sozinha, lá embaixo — e não dependia de nada (velocidade, 20/08/2026)
   // eslint-disable-next-line prefer-const -- orders é reatribuído no ajuste de página abaixo
-  let [orders, counts] = await Promise.all([
+  let [orders, counts, bySource] = await Promise.all([
     listar(pagina),
     db.order.groupBy({
       by: ["status"],
       where: { ...orderScope(user), ...periodoWhere, ...canalWhere },
+      _count: true,
+    }),
+    db.order.groupBy({
+      by: ["source"],
+      where: { ...orderScope(user), ...periodoWhere, ...statusWhere },
       _count: true,
     }),
   ]);
@@ -141,11 +148,6 @@ export default async function OrdersPage({
     orders = await listar(pagina);
   }
 
-  const bySource = await db.order.groupBy({
-    by: ["source"],
-    where: { ...orderScope(user), ...periodoWhere, ...statusWhere },
-    _count: true,
-  });
   const nsCount = bySource.find((r) => r.source === "NUVEMSHOP")?._count ?? 0;
   const apCount = bySource.filter((r) => r.source !== "NUVEMSHOP").reduce((a, r) => a + r._count, 0);
   // UM montador de endereço para todos os filtros da tela: trocar filtro
