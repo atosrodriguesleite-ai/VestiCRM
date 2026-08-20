@@ -461,6 +461,20 @@ export function Inbox({
   const [tab, setTab] = useState<Tab>("fila");
   const [search, setSearch] = useState("");
   const [tagFilter, setTagFilter] = useState<string | null>(null);
+  /**
+   * CONTATO PARECIDO (incidente Toque Leve, 20/08/2026): a mesma cliente
+   * cadastrada duas vezes — um dígito trocado no telefone — fazia duas
+   * vendedoras atenderem metades diferentes do assunto, e o que saía pelo
+   * número errado não chegava em ninguém. O sistema não junta sozinho:
+   * mostra aqui, na cara de quem está conversando, e a loja decide.
+   */
+  const [parecidosDe, setParecidosDe] = useState<{
+    customerId: string;
+    lista: { id: string; name: string; phone: string }[];
+  } | null>(null);
+  // dispensado por conversa: um id só fazia o aviso da primeira voltar
+  // quando a vendedora dispensava o da segunda
+  const [parecidoOculto, setParecidoOculto] = useState<Set<string>>(new Set());
   // filtro "Não lidas" (igual ao do WhatsApp): num dia de disparo em massa, a
   // resposta de cliente afunda no meio das conversas enviadas — este botão
   // deixa só quem espera resposta na tela
@@ -791,7 +805,10 @@ export function Inbox({
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "instant" as ScrollBehavior });
-  }, [selectedId, selected?.messages.length]);
+    // `parecidos` entra na conta porque o aviso de cadastro duplicado nasce
+    // ACIMA das mensagens depois da resposta do servidor: sem rolar de novo,
+    // ele empurra as últimas mensagens para baixo da dobra
+  }, [selectedId, selected?.messages.length, parecidosDe?.lista.length]);
 
   // abre direto a conversa vinda do sino de notificações ou da Agenda
   // (?conv=...). `?texto=` chega com a mensagem sugerida JÁ NO CAMPO — a
@@ -1834,6 +1851,33 @@ export function Inbox({
 
   const isMine = selected?.assignee?.id === currentUserId;
 
+  // pergunta "existe outro cadastro dessa mesma pessoa?" ao abrir a conversa
+  const clienteAberto = selected?.customer.id ?? null;
+  useEffect(() => {
+    setParecidosDe(null);
+    if (!clienteAberto) return;
+    let vivo = true;
+    fetch(`/api/customers/${clienteAberto}/parecidos`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (vivo && d?.parecidos?.length)
+          setParecidosDe({ customerId: clienteAberto, lista: d.parecidos });
+      })
+      .catch(() => {
+        // rede oscilou: sem aviso é melhor do que aviso errado
+      });
+    return () => {
+      vivo = false;
+    };
+  }, [clienteAberto]);
+  // o aviso só vale para o contato que está na tela AGORA: a limpeza do
+  // efeito roda depois do desenho, e sem esta conferência o aviso do contato
+  // anterior aparecia por um instante embaixo do nome do novo
+  const parecidos =
+    parecidosDe && parecidosDe.customerId === clienteAberto
+      ? parecidosDe.lista
+      : [];
+
   return (
     <>
     <div
@@ -2330,6 +2374,48 @@ export function Inbox({
                 </button>
               </div>
             </div>
+
+            {/* MESMA PESSOA EM DOIS CADASTROS: quem está conversando precisa
+                saber ANTES de responder — a outra conversa pode ter o resto
+                do assunto, e um dos números pode estar errado (não entrega) */}
+            {parecidos.length > 0 && !parecidoOculto.has(selected.id) && (
+              <div className="px-4 py-2.5 border-b border-amber-100 bg-amber-50/80 shrink-0">
+                <div className="flex items-start gap-2">
+                  <Users className="size-4 text-amber-600 shrink-0 mt-0.5" />
+                  <div className="min-w-0 flex-1">
+                    <p className="text-xs font-semibold text-amber-800">
+                      Parece a mesma pessoa cadastrada {parecidos.length + 1}×
+                    </p>
+                    <p className="text-[11px] text-amber-700 leading-snug mt-0.5">
+                      Cada cadastro tem a SUA conversa — o resto do assunto pode
+                      estar na outra, e um dos números pode estar errado (aí a
+                      mensagem sai e não chega). Confira qual é o certo:
+                    </p>
+                    <div className="flex flex-wrap gap-1.5 mt-1.5">
+                      {parecidos.map((p) => (
+                        <Link
+                          key={p.id}
+                          href={`/clientes/${p.id}`}
+                          className="inline-flex items-center gap-1 rounded-full bg-white border border-amber-200 px-2 py-1 text-[11px] font-medium text-amber-800 hover:border-amber-400 transition"
+                        >
+                          {p.name} · {formatPhone(p.phone)}
+                        </Link>
+                      ))}
+                    </div>
+                  </div>
+                  <button
+                    onClick={() =>
+                      setParecidoOculto((v) => new Set(v).add(selected.id))
+                    }
+                    className="text-amber-400 hover:text-amber-600 shrink-0"
+                    title="Já conferi, esconder"
+                    aria-label="Esconder aviso"
+                  >
+                    <X className="size-4" />
+                  </button>
+                </div>
+              </div>
+            )}
 
             {/* painel de transferência (setor, atendente, status, prioridade) */}
             {showTransfer && (
