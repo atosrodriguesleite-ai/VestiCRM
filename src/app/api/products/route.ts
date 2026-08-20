@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { imageHref } from "@/lib/img";
 import { ordenarVariantes } from "@/lib/tamanhos";
 import { requireUser, AuthError } from "@/lib/auth";
+import { filtrarProdutos } from "@/lib/busca";
 import type { Prisma } from "@prisma/client";
 
 const variantSchema = z.object({
@@ -36,7 +37,7 @@ export async function GET(req: NextRequest) {
   try {
     const user = await requireUser();
     const sp = req.nextUrl.searchParams;
-    const q = sp.get("q") ?? undefined;
+    const q = sp.get("q")?.trim() || undefined;
     const category = sp.get("categoria") ?? undefined;
     const color = sp.get("cor") ?? undefined;
     const size = sp.get("tamanho") ?? undefined;
@@ -48,12 +49,6 @@ export async function GET(req: NextRequest) {
 
     const where: Prisma.ProductWhereInput = { companyId: user.companyId };
     if (onlyActive) where.active = true;
-    if (q) {
-      where.OR = [
-        { name: { contains: q, mode: "insensitive" } },
-        { sku: { contains: q, mode: "insensitive" } },
-      ];
-    }
     if (category) where.category = category;
     if (collection) where.collection = collection;
     if (brand) where.brand = brand;
@@ -67,6 +62,21 @@ export async function GET(req: NextRequest) {
         },
       };
     }
+    // Ordem de RELEVÂNCIA quando há termo (quem começa com ele primeiro) —
+    // preservada depois da segunda query, que devolve em ordem de banco.
+    let rankIds: string[] | null = null;
+    if (q) {
+      // O "contains" do banco NÃO ignora acento: "alca" não achava "Alça" —
+      // e a lojista digita sem acento no corre. Varre só id+nome+SKU da loja
+      // (já com os demais filtros) e casa do mesmo jeito da busca de
+      // clientes (lib/busca), limitado a 60 ids para a query não estourar.
+      const candidatos = await db.product.findMany({
+        where,
+        select: { id: true, name: true, sku: true },
+      });
+      rankIds = filtrarProdutos(candidatos, q).map((c) => c.id);
+      where.id = { in: rankIds };
+    }
 
     const products = await db.product.findMany({
       where,
@@ -77,6 +87,10 @@ export async function GET(req: NextRequest) {
       orderBy: { name: "asc" },
       take: 60,
     });
+    if (rankIds) {
+      const posicao = new Map(rankIds.map((id, i) => [id, i]));
+      products.sort((a, b) => (posicao.get(a.id) ?? 0) - (posicao.get(b.id) ?? 0));
+    }
     // fotos data-URL viram /api/img/<id> — resposta leve para o navegador.
     // A grade sai na ordem de ROUPA (PP, P, M, G, GG / numeração): é o que os
     // seletores de novo pedido / editar itens mostram

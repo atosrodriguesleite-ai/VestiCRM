@@ -49,6 +49,44 @@ export function casaTelefone(
 }
 
 /**
+ * Um produto casa com a busca? Nome ou SKU, do jeito que a lojista digita:
+ * "alca" acha "Regata de Alça", "terracota" acha "ALCA-TERRACOTA".
+ */
+export function casaProduto(
+  produto: { name?: string | null; sku?: string | null },
+  termo: string
+): boolean {
+  const t = termo.trim();
+  if (!t) return true;
+  return casaTexto(produto.name, t) || casaTexto(produto.sku, t);
+}
+
+/**
+ * Filtra e ordena produtos pelo termo digitado: quem COMEÇA com o termo vem
+ * primeiro, o resto em ordem alfabética — e devolve no máximo `limite`.
+ * O teto existe porque a resposta completa (fotos, grade) é pesada; quando é
+ * atingido, a tela avisa "digite mais letras" em vez de esconder em silêncio
+ * (foi assim que um produto novo "sumiu" da busca do pedido).
+ */
+export function filtrarProdutos<T extends { name?: string | null; sku?: string | null }>(
+  produtos: T[],
+  termo: string,
+  limite = 60
+): T[] {
+  const t = normalizarBusca(termo);
+  return produtos
+    .filter((p) => casaProduto(p, termo))
+    .sort((a, b) => {
+      const na = normalizarBusca(a.name ?? "");
+      const nb = normalizarBusca(b.name ?? "");
+      const pa = na.startsWith(t) ? 0 : 1;
+      const pb = nb.startsWith(t) ? 0 : 1;
+      return pa - pb || na.localeCompare(nb);
+    })
+    .slice(0, limite);
+}
+
+/**
  * Uma cliente casa com a busca? Nome, telefone ou cidade — que é por onde a
  * loja procura na vida real ("a Ana de Goiânia", "aquele 62 9...").
  */

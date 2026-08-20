@@ -76,14 +76,20 @@ export function OrderComposer({
 
   useEffect(() => {
     setLoading(true);
+    // aborta a busca anterior: sem isso uma resposta LENTA e antiga
+    // sobrescrevia a lista do que foi digitado por último
+    const ctrl = new AbortController();
     const t = setTimeout(async () => {
-      const res = await fetch(
-        `/api/products?comEstoque=1${q ? `&q=${encodeURIComponent(q)}` : ""}`
-      );
-      if (res.ok) setProducts(await res.json());
-      setLoading(false);
+      try {
+        const res = await fetch(
+          `/api/products?comEstoque=1${q ? `&q=${encodeURIComponent(q)}` : ""}`,
+          { signal: ctrl.signal }
+        );
+        if (res.ok) setProducts(await res.json());
+        setLoading(false);
+      } catch { /* busca abortada */ }
     }, 250);
-    return () => clearTimeout(t);
+    return () => { clearTimeout(t); ctrl.abort(); };
   }, [q]);
 
   const totals = useMemo(
