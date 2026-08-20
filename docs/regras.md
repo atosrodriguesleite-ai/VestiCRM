@@ -45,3 +45,4 @@ sem ambiguidade.
 | RN-016 | Nota AUTORIZADA → etiqueta com NF-e; sem nota → declaração de conteúdo | `lib/melhorenvio.ts` | `etiqueta-com-nfe.test.ts` |
 | RN-017 | WhatsApp: termo de aceite obrigatório antes do QR; envio proativo com ritmo humano | `lib/comm/evolution.ts` | `evolution.test.ts` |
 | RN-018 | Tabelas de preço por link (gated): o link decide o preço, atacado exige a quantidade mínima, e loja sem o recurso não muda em nada | `lib/catalogo/tabelas-de-preco{,-servidor}.ts` | `tabelas-de-preco.test.ts` |
+| RN-019 | Cadastro duplicado por dígito errado: o sistema AVISA no chat, nunca junta sozinho (nome parecido E telefone a um dígito) | `lib/contatos-parecidos.ts` | `contatos-parecidos.test.ts` |
