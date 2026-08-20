@@ -9,12 +9,15 @@ import { BibliotecaView } from "./biblioteca-view";
  */
 export default async function BibliotecaPage() {
   const user = await requireUser();
+  // TRAVA ANTES DO TRABALHO: a Biblioteca é recurso pago. Paralelizar a
+  // lista com a conferência economizaria uma ida ao banco, mas faria a loja
+  // SEM o módulo carregar 500 mídias para ser redirecionada em seguida —
+  // numa tela que nem é quente, não vale inverter a ordem.
   const company = await db.company.findUnique({
     where: { id: user.companyId },
     select: { mediaLibraryEnabled: true },
   });
   if (!company?.mediaLibraryEnabled) redirect("/dashboard");
-
   const assets = await db.mediaAsset.findMany({
     where: { companyId: user.companyId },
     orderBy: { createdAt: "desc" },

@@ -106,56 +106,60 @@ export default async function CustomerDetailPage({
   const user = await requireUser();
   const { id } = await params;
 
-  const customer = await db.customer.findFirst({
-    where: { id, ...ownedScope(user) },
-    include: {
-      owner: true,
-      tags: { include: { tag: true } },
-      interests: { include: { interest: true } },
-      sales: { orderBy: { createdAt: "desc" }, include: { seller: true } },
-      orders: {
-        orderBy: { createdAt: "desc" },
-        include: { _count: { select: { items: true } } },
-      },
-      opportunities: {
-        orderBy: { createdAt: "desc" },
-        include: { stage: true },
-      },
-      conversations: {
-        orderBy: { lastMessageAt: "desc" },
-        include: {
-          messages: { orderBy: { createdAt: "desc" }, take: 3 },
-          assignee: true,
+  // A ficha, a equipe e o slug da loja saem JUNTOS (velocidade, 20/08/2026):
+  // eram três idas ao banco em fila, e as duas últimas não dependiam da
+  // primeira. O `notFound` continua barrando antes de a tela usar qualquer
+  // coisa — quem não pode ver a ficha não vê nada.
+  const [customer, team, companyRow] = await Promise.all([
+    db.customer.findFirst({
+      where: { id, ...ownedScope(user) },
+      include: {
+        owner: true,
+        tags: { include: { tag: true } },
+        interests: { include: { interest: true } },
+        sales: { orderBy: { createdAt: "desc" }, include: { seller: true } },
+        orders: {
+          orderBy: { createdAt: "desc" },
+          include: { _count: { select: { items: true } } },
         },
+        opportunities: {
+          orderBy: { createdAt: "desc" },
+          include: { stage: true },
+        },
+        conversations: {
+          orderBy: { lastMessageAt: "desc" },
+          include: {
+            messages: { orderBy: { createdAt: "desc" }, take: 3 },
+            assignee: true,
+          },
+        },
+        tasks: {
+          where: { status: "PENDENTE" },
+          orderBy: { dueAt: "asc" },
+          include: { assignee: true },
+        },
+        events: { orderBy: { createdAt: "desc" }, take: 20 },
       },
-      tasks: {
-        where: { status: "PENDENTE" },
-        orderBy: { dueAt: "asc" },
-        include: { assignee: true },
-      },
-      events: { orderBy: { createdAt: "desc" }, take: 20 },
-    },
-  });
+    }),
+    // equipe ativa para a troca manual de responsável (gerente/admin)
+    isManagerUp(user)
+      ? db.user.findMany({
+          where: { companyId: user.companyId, active: true, role: { not: "SUPERADMIN" } },
+          select: { id: true, name: true },
+          orderBy: { name: "asc" },
+        })
+      : [],
+    // Link rastreado do catálogo para este cliente: quem abrir já entra
+    // identificado (?c). Se quem copiou atende clientes (vendedor/gerente),
+    // o link leva também a atribuição (?ref = primeiro nome) e o pedido
+    // chega com o vendedor preenchido.
+    db.company.findUnique({
+      where: { id: user.companyId },
+      select: { slug: true },
+    }),
+  ]);
 
   if (!customer) notFound();
-
-  // equipe ativa para a troca manual de responsável (gerente/admin)
-  const team = isManagerUp(user)
-    ? await db.user.findMany({
-        where: { companyId: user.companyId, active: true, role: { not: "SUPERADMIN" } },
-        select: { id: true, name: true },
-        orderBy: { name: "asc" },
-      })
-    : [];
-
-  // Link rastreado do catálogo para este cliente: quem abrir já entra
-  // identificado (?c). Se quem copiou atende clientes (vendedor/gerente),
-  // o link leva também a atribuição (?ref = primeiro nome) e o pedido
-  // chega com o vendedor preenchido.
-  const companyRow = await db.company.findUnique({
-    where: { id: user.companyId },
-    select: { slug: true },
-  });
   const sellerRef =
     user.role === "SELLER" || user.role === "MANAGER"
       ? user.name
@@ -195,12 +199,15 @@ export default async function CustomerDetailPage({
       ? `https://wa.me/${waDigits.length <= 11 ? "55" + waDigits : waDigits}`
       : null;
 
-  // Jornada de navegação (Tracking Engine / Inteligência Comercial)
-  const journey = await customerJourney(user.companyId, customer.id);
-
-  // Linha do tempo COMERCIAL: pedidos, conversas, campanhas, visitas e
-  // sacolas — cada movimento dizendo se virou venda (lib/linha-do-tempo.ts)
-  const comercial = await linhaDoTempoComercial(user.companyId, customer.id);
+  // As duas leituras pesadas da ficha saem JUNTAS — uma não depende da outra
+  // e ficavam em fila (velocidade, 20/08/2026):
+  //  • jornada de navegação (Tracking Engine / Inteligência Comercial)
+  //  • linha do tempo COMERCIAL: pedidos, conversas, campanhas, visitas e
+  //    sacolas — cada movimento dizendo se virou venda (lib/linha-do-tempo.ts)
+  const [journey, comercial] = await Promise.all([
+    customerJourney(user.companyId, customer.id),
+    linhaDoTempoComercial(user.companyId, customer.id),
+  ]);
 
   return (
     <div className="max-w-5xl mx-auto">

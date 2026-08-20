@@ -6,6 +6,7 @@ import { db } from "@/lib/db";
 import { requireUser, AuthError } from "@/lib/auth";
 import { ordenarParaSeparacao } from "@/lib/romaneio";
 import { orderScope } from "@/lib/scope";
+import { retratoCerto } from "@/lib/religar-itens";
 import { orderNumber, orderStatusLabel, paymentMethodLabel } from "@/lib/orders";
 import { documentoParaMostrar } from "@/lib/documento";
 
@@ -49,14 +50,43 @@ export async function GET(
       include: {
         customer: true,
         seller: true,
-        items: true,
+        // o SKU do item pode estar com o retrato ANTIGO (pedido do catálogo
+        // que gravou o SKU da 1ª variação em vez da cor comprada). A tela do
+        // pedido conserta em memória e grava depois; aqui o documento VAI
+        // PARA A CLIENTE, então aplica a mesma regra pura antes de imprimir.
+        items: {
+          include: {
+            variant: {
+              select: {
+                sku: true,
+                color: true,
+                product: {
+                  select: {
+                    sku: true,
+                    images: { orderBy: { order: "asc" }, select: { id: true, color: true } },
+                  },
+                },
+              },
+            },
+          },
+        },
         company: true,
         payments: { orderBy: { createdAt: "asc" } },
         shipping: true,
       },
     });
+
     if (!order) {
       return NextResponse.json({ error: "Não encontrado" }, { status: 404 });
+    }
+    // RETRATO CERTO ANTES DE IMPRIMIR: mesma regra pura da tela do pedido. O
+    // documento vai para a CLIENTE — não pode sair com o SKU da 1ª variação
+    // num pedido antigo do catálogo (incidente Entre Linhas). A tela grava a
+    // correção depois de entregar a página; aqui a gente aplica na hora.
+    for (const item of order.items) {
+      const certo = retratoCerto(item);
+      if (certo.sku !== undefined) item.sku = certo.sku;
+      if (certo.imageUrl !== undefined) item.imageUrl = certo.imageUrl;
     }
 
     const ACCENT = hexToRgb(order.company.catalogPrimary, rgb(0.055, 0.004, 0.259));

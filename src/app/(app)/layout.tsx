@@ -13,12 +13,27 @@ export default async function AppLayout({
   const user = await getSessionUser();
   if (!user) redirect("/login");
 
-  const [company, dbUser] = await Promise.all([
-    db.company.findUnique({ where: { id: user.companyId } }),
-    // preferência de tema e foto são individuais e vêm do banco (valem em qualquer aparelho)
-    db.user.findUnique({ where: { id: user.id }, select: { prefersDark: true, avatarUrl: true } }),
-  ]);
-  const dark = dbUser?.prefersDark ?? false;
+  // SÓ O QUE O MENU USA (velocidade, 20/08/2026).
+  //
+  // Este layout roda em TODA navegação do app. Ele lia a ficha INTEIRA da
+  // loja — inclusive o `logoUrl`, que na maioria das lojas é a imagem em
+  // base64 dentro do banco (dívida técnica nº 1). Ou seja: cada troca de
+  // tela arrastava o logo inteiro do banco para ler cinco chavinhas de
+  // módulo. E ainda consultava o usuário DE NOVO, só para saber o tema e a
+  // foto — que agora vêm junto com a sessão.
+  const company = await db.company.findUnique({
+    where: { id: user.companyId },
+    select: {
+      name: true,
+      productionEnabled: true,
+      cutPlanEnabled: true,
+      marketingEnabled: true,
+      mediaLibraryEnabled: true,
+      aiSalesEnabled: true,
+      shippingEnabled: true,
+    },
+  });
+  const dark = user.prefersDark;
 
   return (
     <div className={dark ? "theme-dark min-h-dvh" : undefined}>
@@ -29,7 +44,7 @@ export default async function AppLayout({
           roleLabel: roleLabel[user.role],
           color: user.color,
           companyName: company?.name ?? "",
-          avatarUrl: dbUser?.avatarUrl ?? null,
+          avatarUrl: user.avatarUrl,
           impersonating: Boolean(user.impersonatedBy),
           productionEnabled: company?.productionEnabled ?? false,
           cutPlanEnabled: company?.cutPlanEnabled ?? false,

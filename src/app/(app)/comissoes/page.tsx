@@ -35,34 +35,40 @@ export default async function CommissionsPage({
   const from = spStart(de) ?? defFrom;
   const to = spEnd(ate) ?? now;
 
-  const company = await db.company.findUnique({ where: { id: user.companyId } });
+  // As três consultas desta tela não dependem uma da outra: saem juntas, numa
+  // ida só ao banco (velocidade, 20/08/2026).
+  const [company, sellers, paidOrders] = await Promise.all([
+    // só a base de comissão: a ficha inteira arrastava o logo em base64
+    db.company.findUnique({
+      where: { id: user.companyId },
+      select: { commissionBase: true },
+    }),
+    // TODOS os vendedores (inclusive desligados): quem trabalhou no período
+    // TEM comissão a receber. Filtrar por ativo fazia o dinheiro sumir do
+    // relatório — o pedido tem vendedor, então nem entrava em "sem vendedor".
+    db.user.findMany({
+      where: { companyId: user.companyId, role: { not: "SUPERADMIN" } },
+      select: {
+        id: true,
+        name: true,
+        color: true,
+        role: true,
+        commissionRate: true,
+        active: true,
+      },
+      orderBy: { name: "asc" },
+    }),
+    // pedidos PAGOS no período (fonte única = igual ao faturamento)
+    db.order.findMany({
+      where: {
+        companyId: user.companyId,
+        status: { in: PAID_ORDER_STATUSES },
+        paidAt: { gte: from, lte: to },
+      },
+      select: { sellerId: true, subtotal: true, netTotal: true },
+    }),
+  ]);
   const base = (company?.commissionBase ?? "SUBTOTAL") as "SUBTOTAL" | "VENDIDO";
-
-  // TODOS os vendedores (inclusive desligados): quem trabalhou no período
-  // TEM comissão a receber. Filtrar por ativo fazia o dinheiro sumir do
-  // relatório — o pedido tem vendedor, então nem entrava em "sem vendedor".
-  const sellers = await db.user.findMany({
-    where: { companyId: user.companyId, role: { not: "SUPERADMIN" } },
-    select: {
-      id: true,
-      name: true,
-      color: true,
-      role: true,
-      commissionRate: true,
-      active: true,
-    },
-    orderBy: { name: "asc" },
-  });
-
-  // pedidos PAGOS no período (fonte única = igual ao faturamento)
-  const paidOrders = await db.order.findMany({
-    where: {
-      companyId: user.companyId,
-      status: { in: PAID_ORDER_STATUSES },
-      paidAt: { gte: from, lte: to },
-    },
-    select: { sellerId: true, subtotal: true, netTotal: true },
-  });
 
   const bySeller = new Map<string, { count: number; base: number }>();
   let unassigned = { count: 0, base: 0 };

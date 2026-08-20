@@ -99,19 +99,38 @@ export default async function MarketingPage({
   // ANÚNCIOS DETECTADOS: clientes que chegaram clicando num anúncio
   // (Click-to-WhatsApp). Os que ainda não pertencem a nenhuma campanha ficam
   // na lista para a loja vincular com um clique — e o histórico vai junto.
-  const anunciosRaw = await db.customer.groupBy({
-    by: ["adRef"],
-    where: { companyId, adRef: { not: null } },
-    _count: { _all: true },
-    _max: { createdAt: true },
-  });
+  const idsLeadsPeriodo = leadsAll.map((l) => l.id);
+  // as tres saem juntas: nenhuma depende da outra (velocidade, 20/08/2026)
+  const [anunciosRaw, criativos, compradoresRaw] = await Promise.all([
+    db.customer.groupBy({
+      by: ["adRef"],
+      where: { companyId, adRef: { not: null } },
+      _count: { _all: true },
+      _max: { createdAt: true },
+    }),
+    // o CRIATIVO de cada anúncio (link, título e texto). Sem isto a tela mostrava
+    // só o código curto — que não abre nada e não diz que anúncio é.
+    db.adCreative.findMany({
+      where: { companyId },
+      select: { adRef: true, sourceUrl: true, title: true, body: true },
+    }),
+    // CONVERSAO POR COORTE: "dos leads que entraram no periodo, quantos
+    // compraram (a qualquer momento)". Antes era compradores-do-periodo /
+    // leads-do-periodo — gente que virou lead mes passado e comprou agora
+    // inflava a conta e a conversao passava de 100%.
+    idsLeadsPeriodo.length
+      ? db.order.groupBy({
+          by: ["customerId"],
+          where: {
+            companyId,
+            status: { in: PAID_ORDER_STATUSES },
+            customerId: { in: idsLeadsPeriodo },
+          },
+        })
+      : [],
+  ]);
+  const compradoresDaCoorte = new Set(compradoresRaw.map((o) => o.customerId));
   const refsJaUsadas = new Set(campaignRows.flatMap((c) => refsDaCampanha(c.adRefs)));
-  // o CRIATIVO de cada anúncio (link, título e texto). Sem isto a tela mostrava
-  // só o código curto — que não abre nada e não diz que anúncio é.
-  const criativos = await db.adCreative.findMany({
-    where: { companyId },
-    select: { adRef: true, sourceUrl: true, title: true, body: true },
-  });
   const criativoDe = new Map(criativos.map((c) => [c.adRef, c]));
   const anunciosDetectados = anunciosRaw
     .filter((a) => a.adRef && !refsJaUsadas.has(a.adRef))
@@ -129,27 +148,6 @@ export default async function MarketingPage({
     .sort((a, b) => b.clientes - a.clientes)
     .slice(0, 12);
 
-  /**
-   * CONVERSÃO POR COORTE: "dos leads que entraram no período, quantos
-   * compraram (a qualquer momento)". Antes era compradores-do-período ÷
-   * leads-do-período — gente que virou lead mês passado e comprou agora
-   * inflava a conta e a conversão passava de 100%.
-   */
-  const idsLeadsPeriodo = leadsAll.map((l) => l.id);
-  const compradoresDaCoorte = idsLeadsPeriodo.length
-    ? new Set(
-        (
-          await db.order.groupBy({
-            by: ["customerId"],
-            where: {
-              companyId,
-              status: { in: PAID_ORDER_STATUSES },
-              customerId: { in: idsLeadsPeriodo },
-            },
-          })
-        ).map((o) => o.customerId)
-      )
-    : new Set<string>();
 
   // ---- canais presentes (para os chips de filtro) ----
   const canaisSet = new Set<string>();

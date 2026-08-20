@@ -94,6 +94,17 @@ describe("pedidos ANTIGOS se consertam sozinhos ao abrir a ficha", () => {
     expect(page).toContain("item.imageUrl = certo.imageUrl");
   });
 
+  it("o PDF que vai para a CLIENTE também imprime o retrato certo", () => {
+    // Achado da revisão (20/08/2026): com a gravação adiada para depois da
+    // tela, abrir o romaneio nos primeiros milissegundos imprimiria o SKU da
+    // 1ª variação. O documento vai para a cliente — aplica a regra na hora.
+    const pdf = ler("src/app/api/orders/[id]/pdf/route.ts");
+    expect(pdf).toContain("retratoCerto(item)");
+    expect(pdf).toContain("item.sku = certo.sku");
+    // e traz a variação junto, senão a regra não teria com o que comparar
+    expect(pdf).toMatch(/items: \{\s*include: \{\s*variant:/);
+  });
+
   it("a gravação do retrato segue presa à loja (RN-013) e ao pedido", () => {
     const lib = ler("src/lib/religar-itens.ts");
     // updateMany com escopo: dado já carregado não afrouxa o multi-tenant

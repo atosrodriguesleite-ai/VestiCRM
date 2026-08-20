@@ -25,6 +25,8 @@ const makeUser = (
   color: "#000",
   chatVisaoTotal: false,
   pedidosVisaoTotal: false,
+  prefersDark: false,
+  avatarUrl: null,
   ...extra,
 });
 

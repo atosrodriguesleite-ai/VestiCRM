@@ -22,6 +22,10 @@ export type SessionUser = {
   pedidosVisaoTotal: boolean;
   /** Quando o Super Admin está acessando uma loja, guarda o id dele. */
   impersonatedBy?: string;
+  /** Modo escuro — preferência individual, lida junto da sessão. */
+  prefersDark: boolean;
+  /** Foto do usuário (menu do topo) — idem. */
+  avatarUrl: string | null;
 };
 
 /**
@@ -128,6 +132,10 @@ export const getSessionUser = cache(async function getSessionUser(): Promise<Ses
       chatVisaoTotal: user.chatVisaoTotal,
       pedidosVisaoTotal: user.pedidosVisaoTotal,
       impersonatedBy,
+      // tema e foto vêm de carona: o layout do app precisava deles e fazia
+      // uma SEGUNDA consulta ao mesmo usuário, em toda navegação
+      prefersDark: user.prefersDark,
+      avatarUrl: user.avatarUrl,
     };
   } catch {
     return null;

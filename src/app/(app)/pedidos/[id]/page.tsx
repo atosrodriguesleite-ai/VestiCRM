@@ -178,8 +178,6 @@ export default async function OrderDetailPage({
   // a chavinha nem chega aqui (o orderScope esconde o pedido → 404).
   const pedidoDeColega = user.role === "SELLER" && order.sellerId !== user.id;
 
-
-
   return (
     <div className="max-w-5xl mx-auto">
       <Link
