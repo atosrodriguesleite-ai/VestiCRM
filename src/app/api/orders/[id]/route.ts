@@ -6,13 +6,18 @@ import { corIgual } from "@/lib/capa-por-cor";
 import { logServerError } from "@/lib/health";
 import { requireUser, AuthError } from "@/lib/auth";
 import { isManagerUp, isSupport, orderScope } from "@/lib/scope";
-import { reverseAndDeleteOrder } from "@/lib/order-actions";
+import {
+  reverseAndDeleteOrder,
+  temPagamentoConfirmadoDeGateway,
+  avisarIntegracoesDaDevolucao,
+} from "@/lib/order-actions";
 import { notifySalePaid } from "@/lib/push";
 import { pushStockToNuvemshop } from "@/lib/nuvemshop";
 import { pushStockToJueri } from "@/lib/jueri";
 import {
   orderStatusLabel,
   orderNumber,
+  paymentMethodLabel,
   PAID_ORDER_STATUSES,
   ORDER_STATUS_FLOW,
   podeTransferirVenda,
@@ -123,13 +128,20 @@ export async function PATCH(
       return NextResponse.json({ error: "Não encontrado" }, { status: 404 });
     }
 
-    // VISÃO TOTAL MOSTRA, NÃO MEXE (revisão 17/08/2026): a chavinha
-    // pedidosVisaoTotal deixa a vendedora VER a loja inteira, mas pedido de
-    // OUTRA vendedora (ou sem dona = da loja) só a gerência altera. Sem esta
-    // trava, dava para dar desconto, cancelar com baixa definitiva e marcar
-    // pago o pedido da colega — mexendo na comissão dela. Antes da chavinha
-    // este caminho nem existia: o escopo escondia o pedido (404).
-    if (user.role === "SELLER" && order.sellerId !== user.id) {
+    // VISÃO TOTAL EDITA, COM REGISTRO (decisão do dono, 18/08/2026 — antes
+    // era "mostra, não mexe"): a vendedora com a chavinha pedidosVisaoTotal
+    // pode alterar qualquer pedido da loja, porque TODA mexida deste PATCH
+    // fica carimbada no histórico do pedido (OrderEvent com quem fez: status,
+    // valores/frete, itens, envio, forma de pagamento, vendedor, cliente).
+    // O que ela segue NÃO podendo é mexer em comissão: trocar o vendedor de
+    // pedido de colega ou assumir pedido sem dona continua na régua do
+    // podeTransferirVenda, logo abaixo. Sem a chavinha, a trava permanece
+    // (o escopo já esconde o pedido; isto é o cinto de segurança).
+    if (
+      user.role === "SELLER" &&
+      order.sellerId !== user.id &&
+      !user.pedidosVisaoTotal
+    ) {
       return NextResponse.json(
         { error: "Este pedido é de outra vendedora — só a gerência pode alterá-lo." },
         { status: 403 }
@@ -604,7 +616,14 @@ export async function PATCH(
     const data: Record<string, unknown> = {};
     // eventos de troca de vendedor/cliente esperam a gravação dar certo
     const eventosPendentes: string[] = [];
-    if (parsed.data.notes !== undefined) data.notes = parsed.data.notes;
+    if (parsed.data.notes !== undefined) {
+      data.notes = parsed.data.notes;
+      // observações também deixam rastro (condição da visão total que
+      // edita) — sem isto dava para reescrever o bilhete do pedido em silêncio
+      if ((parsed.data.notes ?? "") !== (order.notes ?? "")) {
+        eventosPendentes.push(`Observações do pedido atualizadas por ${user.name}`);
+      }
+    }
     if (parsed.data.sellerId !== undefined && parsed.data.sellerId !== order.sellerId) {
       // MESMA REGRA do botão "Transferir venda": a vendedora só mexe no
       // pedido dela. Sem isso, bastaria usar "Editar dados" para desviar a
@@ -1010,11 +1029,29 @@ export async function PATCH(
     }
 
     if (parsed.data.paymentMethod) {
+      // o evento só existe se alguma cobrança PENDENTE realmente trocar de
+      // forma — pedido com pagamento confirmado (ou já na forma pedida) não
+      // muda nada, e histórico registrando troca que não houve é mentira
+      const trocouForma = order.payments.some(
+        (p) => p.status !== "CONFIRMADO" && p.method !== parsed.data.paymentMethod
+      );
       // só a cobrança pendente muda de forma — a confirmada é histórico
       await db.payment.updateMany({
         where: { orderId: order.id, status: { not: "CONFIRMADO" } },
         data: { method: parsed.data.paymentMethod },
       });
+      if (trocouForma) {
+        // forma de pagamento também é dinheiro: fica no histórico como as
+        // demais mexidas (condição da visão total que edita: tudo registrado)
+        await db.orderEvent.create({
+          data: {
+            orderId: order.id,
+            type: "NOTA",
+            description: `Forma de pagamento alterada para ${paymentMethodLabel[parsed.data.paymentMethod]} por ${user.name}`,
+            userId: user.id,
+          },
+        });
+      }
     }
 
     if (
@@ -1139,15 +1176,8 @@ export async function DELETE(
     // Pedido com pagamento automático CONFIRMADO não se exclui: a cascata
     // apagaria o rastro do dinheiro real que entrou (Mercado Pago ou
     // InfinitePay — auditoria 07/08 e 11/08/2026). Para desfazer, CANCELE o
-    // pedido (que trata o estorno).
-    const pagoGateway = await db.payment.count({
-      where: {
-        orderId: order.id,
-        provider: { in: ["MERCADO_PAGO", "INFINITEPAY"] },
-        status: "CONFIRMADO",
-      },
-    });
-    if (pagoGateway > 0) {
+    // pedido (que trata o estorno). Mesma trava do DELETE pelo funil.
+    if (await temPagamentoConfirmadoDeGateway(order.id)) {
       return NextResponse.json(
         {
           error:
@@ -1195,16 +1225,7 @@ export async function DELETE(
 
     // Integrações donas de estoque precisam saber que as peças voltaram —
     // sem isso a Nuvemshop continuava vendendo com o número velho.
-    if (devolvidas.length > 0) {
-      pushStockToNuvemshop(
-        user.companyId,
-        devolvidas.map((d) => d.variantId)
-      ).catch(() => {});
-      pushStockToJueri(
-        user.companyId,
-        devolvidas.map((d) => ({ variantId: d.variantId, delta: d.quantity }))
-      ).catch(() => {});
-    }
+    avisarIntegracoesDaDevolucao(user.companyId, devolvidas);
 
     return NextResponse.json({ ok: true });
   } catch (e) {

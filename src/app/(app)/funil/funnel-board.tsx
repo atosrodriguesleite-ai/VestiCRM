@@ -14,6 +14,7 @@ import {
   ShoppingBag,
 } from "lucide-react";
 import { brl, relativeDays, dateShort, formatPhone, originLabel, originColor } from "@/lib/format";
+import { numeroBR } from "@/lib/numero-br";
 import { orderNumber, orderStatusLabel } from "@/lib/orders";
 import { Avatar, Badge } from "@/components/ui";
 import type { Origin } from "@prisma/client";
@@ -179,7 +180,10 @@ export function FunnelBoard({
       });
       if (!res.ok) {
         setStages(anterior);
-        setErroMover("Não foi possível mover o cartão. Tente de novo.");
+        // o servidor explica a recusa (ex.: "cancele o pedido primeiro") —
+        // mostrar a explicação é o que ensina o caminho certo
+        const d = await res.json().catch(() => null);
+        setErroMover(d?.error ?? "Não foi possível mover o cartão. Tente de novo.");
         router.refresh();
       }
     } catch {
@@ -192,9 +196,10 @@ export function FunnelBoard({
     if (
       !window.confirm(
         "Excluir esta oportunidade do funil?\n\n" +
-          "Se houver um pedido criado junto com ela (pelo catálogo), esse " +
-          "pedido também será apagado e o estoque/faturamento voltam ao " +
-          "normal. Isso NÃO pode ser desfeito."
+          "Se o pedido dela nasceu junto (pelo catálogo), esse pedido também " +
+          "será apagado e o estoque/faturamento voltam ao normal. Pedido que " +
+          "já existia antes é mantido — só o cartão sai do funil. Isso NÃO " +
+          "pode ser desfeito."
       )
     )
       return;
@@ -208,7 +213,9 @@ export function FunnelBoard({
     );
     const res = await fetch(`/api/opportunities/${cardId}`, { method: "DELETE" });
     if (!res.ok) {
-      alert("Não foi possível excluir. Tente de novo.");
+      // o servidor pode recusar com motivo (ex.: pedido com Pix confirmado)
+      const d = await res.json().catch(() => null);
+      alert(d?.error ?? "Não foi possível excluir. Tente de novo.");
       router.refresh();
     } else {
       router.refresh();
@@ -462,7 +469,21 @@ export function FunnelBoard({
       )}
 
       {detail && (
-        <CardDetailModal card={detail} onClose={() => setDetail(null)} />
+        <CardDetailModal
+          card={detail}
+          stages={stages.map((s) => ({ id: s.id, name: s.name }))}
+          currentStageId={
+            stages.find((s) => s.cards.some((c) => c.id === detail.id))?.id ?? null
+          }
+          onMove={(toStageId) => {
+            const from = stages.find((s) =>
+              s.cards.some((c) => c.id === detail.id)
+            );
+            setDetail(null);
+            if (from) moveCard(detail.id, from.id, toStageId);
+          }}
+          onClose={() => setDetail(null)}
+        />
       )}
     </>
   );
@@ -470,9 +491,15 @@ export function FunnelBoard({
 
 function CardDetailModal({
   card,
+  stages,
+  currentStageId,
+  onMove,
   onClose,
 }: {
   card: BoardCard;
+  stages: { id: string; name: string }[];
+  currentStageId: string | null;
+  onMove: (toStageId: string) => void;
   onClose: () => void;
 }) {
   const wa = recoverHref(card);
@@ -598,6 +625,34 @@ function CardDetailModal({
           </div>
         )}
 
+        {/* Mover de etapa por TOQUE: no celular o arrastar não existe (o
+            navegador não dispara drag no dedo) — sem isto, a lojista que
+            trabalha pelo celular não conseguia avançar nem fechar negociação */}
+        {currentStageId && (
+          <div className="mt-4 pt-4 border-t border-gray-100">
+            <label className="block text-[11px] font-semibold text-gray-400 uppercase tracking-wide mb-1.5">
+              Etapa da negociação
+            </label>
+            <select
+              value={currentStageId}
+              onChange={(e) => {
+                if (e.target.value !== currentStageId) onMove(e.target.value);
+              }}
+              className="w-full rounded-xl border border-gray-200 px-3 py-2.5 text-sm bg-white outline-none focus:border-brand-400"
+            >
+              {stages.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.name}
+                </option>
+              ))}
+            </select>
+            <p className="text-[11px] text-gray-400 mt-1">
+              Escolha a etapa para mover o card — no computador também dá para
+              arrastar.
+            </p>
+          </div>
+        )}
+
         {/* Ações: chamar no WhatsApp + comportamento completo */}
         <div className="mt-4 flex flex-col gap-2">
           {waHref(card.phone) && !card.cart && (
@@ -669,7 +724,8 @@ function NewOpportunityModal({
       });
       if (!rc.ok) {
         setSaving(false);
-        setError("Não foi possível cadastrar o lead.");
+        const d = await rc.json().catch(() => null);
+        setError(d?.error ?? "Não foi possível cadastrar o lead.");
         return;
       }
       cid = (await rc.json()).id;
@@ -680,13 +736,20 @@ function NewOpportunityModal({
       body: JSON.stringify({
         customerId: cid,
         title,
-        value: parseFloat(value.replace(",", ".")) || 0,
+        // leitura brasileira: "2.500,00" é dois mil e quinhentos — o
+        // parseFloat puro parava no ponto de milhar e gravava R$ 2,50
+        value: numeroBR(value) ?? 0,
         stageId,
       }),
     });
     setSaving(false);
     if (res.ok) onCreated();
-    else setError("Não foi possível criar a oportunidade.");
+    else {
+      // a recusa do servidor explica o porquê (ex.: cliente da carteira de
+      // outra vendedora) — engolir a explicação deixava só um erro genérico
+      const d = await res.json().catch(() => null);
+      setError(d?.error ?? "Não foi possível criar a oportunidade.");
+    }
   }
 
   return (

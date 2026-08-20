@@ -152,11 +152,14 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   declaração e exportação. **Exceção por pessoa** (17/08/2026): o interruptor
   **"vê todos os pedidos da loja"** na tela Equipe (`User.pedidosVisaoTotal`,
   irmão do `chatVisaoTotal`) abre a área de Pedidos inteira para uma
-  vendedora específica — **mostra, não mexe**: alterar/cancelar/marcar pago
-  pedido de colega ou da loja exige gerência (trava no PATCH), transferir
-  venda de colega OU assumir pedido sem dona segue proibido
-  (`podeTransferirVenda`; sem dona = da loja, gerência define) e a
-  exportação CSV segue o escopo normal.
+  vendedora específica — e, desde 18/08/2026 (decisão do dono), ela também
+  **EDITA qualquer pedido, com tudo registrado**: cada mexida do PATCH
+  (status, valores/frete, itens, envio, forma de pagamento, vendedor,
+  cliente) fica no histórico do pedido com quem fez (`OrderEvent`). O que
+  segue intocável é a COMISSÃO: transferir venda de colega OU assumir
+  pedido sem dona continua proibido (`podeTransferirVenda`; sem dona = da
+  loja, gerência define), excluir pedido e comprar etiqueta seguem
+  gerência, e a exportação CSV segue o escopo normal.
 - **RN-008 · Leads**: entrada única pelo `lib/intake.ts` (Lead Intake Engine) —
   dedup por telefone **tolerante ao 9º dígito** (`phoneMatchVariants`),
   distribuição round-robin/fixa, conversa nasce NA FILA (sem dono; modelo

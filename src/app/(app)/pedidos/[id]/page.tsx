@@ -79,10 +79,13 @@ export default async function OrderDetailPage({
   });
   if (!order) notFound();
 
-  // VISÃO TOTAL MOSTRA, NÃO MEXE: vendedora vendo pedido de colega (ou da
-  // loja) pela chavinha pedidosVisaoTotal fica em modo leitura — a API já
-  // recusa a alteração (403); a tela não oferece o botão que vai dar erro.
-  const somenteLeitura = user.role === "SELLER" && order.sellerId !== user.id;
+  // VISÃO TOTAL EDITA, COM REGISTRO (decisão do dono, 18/08/2026): a
+  // vendedora com a chavinha pedidosVisaoTotal altera pedido de colega/da
+  // loja, e toda mexida fica no histórico do pedido — o aviso âmbar abaixo
+  // diz isso a ela. Comissão continua intocável: transferir venda é régua
+  // própria. Não existe mais estado "só leitura" nesta tela: vendedora SEM
+  // a chavinha nem chega aqui (o orderScope esconde o pedido → 404).
+  const pedidoDeColega = user.role === "SELLER" && order.sellerId !== user.id;
 
   const sellers = await db.user.findMany({
     // vendedor da venda: ativo e fora do perfil Suporte (não comercial) —
@@ -190,14 +193,16 @@ export default async function OrderDetailPage({
                 sellers={sellers}
               />
             )}
-            <a
-              href={`/api/orders/${order.id}/pdf`}
-              target="_blank"
+            {/* abre o VISUALIZADOR do romaneio (página do app), não o PDF cru:
+                no app instalado no celular, o PDF direto tomava a tela sem
+                botão de voltar e a lojista tinha que fechar o app */}
+            <Link
+              href={`/pedidos/${order.id}/romaneio`}
               className="flex items-center justify-center gap-1.5 rounded-xl bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium px-4 py-2.5 transition"
             >
               <FileText className="size-4" />
               Romaneio em PDF
-            </a>
+            </Link>
             {(PAID_ORDER_STATUSES as readonly string[]).includes(order.status) && (
               <ResaleCatalog
                 orderId={order.id}
@@ -243,15 +248,14 @@ export default async function OrderDetailPage({
             </p>
           )}
 
-        {!somenteLeitura && (
-          <div className="mt-5 pt-5 border-t border-gray-50 min-w-0 overflow-hidden">
-            <StatusChanger orderId={order.id} current={order.status} />
-          </div>
-        )}
-        {somenteLeitura && (
-          <p className="mt-5 pt-4 border-t border-gray-50 text-xs text-gray-400">
-            👁️ Pedido de outra vendedora — você pode acompanhar, mas alterações
-            são com a gerência.
+        <div className="mt-5 pt-5 border-t border-gray-50 min-w-0 overflow-hidden">
+          <StatusChanger orderId={order.id} current={order.status} />
+        </div>
+        {pedidoDeColega && (
+          <p className="mt-3 text-xs text-amber-600">
+            ✍️ Pedido {order.seller ? "de outra vendedora" : "da loja"} — você
+            pode editar, e cada alteração fica registrada no histórico com o
+            seu nome.
           </p>
         )}
       </Card>
@@ -272,7 +276,7 @@ export default async function OrderDetailPage({
                 {order.items.reduce((a, i) => a + i.quantity, 0) === 1 ? "peça" : "peças"}
               </span>
             </h2>
-            {order.status !== "CANCELADO" && !somenteLeitura && (
+            {order.status !== "CANCELADO" && (
               <ItemsEditor
                 orderId={order.id}
                 // peça acrescentada depois segue a MESMA tabela do pedido
@@ -393,7 +397,7 @@ export default async function OrderDetailPage({
             surcharge={order.surcharge}
             surchargePct={order.surchargePct}
             shippingFee={order.shippingFee}
-            podeEditar={user.role !== "SUPPORT" && !somenteLeitura}
+            podeEditar={user.role !== "SUPPORT"}
             bloqueado={order.status === "CANCELADO"}
           />
           {/* O bilhete do pedido agora é EDITÁVEL: era só leitura, e o aviso
@@ -402,7 +406,7 @@ export default async function OrderDetailPage({
           <ObservacoesEditor
             orderId={order.id}
             notes={order.notes}
-            bloqueado={order.status === "CANCELADO" || somenteLeitura}
+            bloqueado={order.status === "CANCELADO"}
           />
         </Card>
 

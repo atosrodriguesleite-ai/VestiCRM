@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Percent, DollarSign, Truck, Tag, Plus, Check, X } from "lucide-react";
-import { brl } from "@/lib/format";
+import { brl, numeroBR } from "@/lib/format";
 import { computeOrderTotals, ajusteParaFecharPor } from "@/lib/orders";
 
 /**
@@ -62,10 +62,8 @@ export function ValoresEditor({
   const [freteTexto, setFreteTexto] = useState(shippingFee ? String(shippingFee) : "");
   const [fecharPor, setFecharPor] = useState("");
 
-  const numero = (t: string) => {
-    const n = Number(t.replace(",", "."));
-    return Number.isFinite(n) && n > 0 ? n : 0;
-  };
+  // leitura à brasileira num lugar só ("1.000,50" = mil reais e cinquenta)
+  const numero = numeroBR;
 
   // prévia ao vivo, com a MESMA conta do servidor (nada de fórmula paralela)
   const previa = useMemo(() => {

@@ -6,7 +6,8 @@ import {
   type PDFPage,
   type PDFFont,
 } from "pdf-lib";
-import { paginaSegura } from "@/lib/pdf-texto";
+import { paginaSegura, quebrarEmLinhas, textoPdf } from "@/lib/pdf-texto";
+import { corIgual } from "@/lib/capa-por-cor";
 import sharp from "sharp";
 import { db } from "@/lib/db";
 import { requireUser, AuthError } from "@/lib/auth";
@@ -24,7 +25,7 @@ import { orderScope } from "@/lib/scope";
  * lojista. Rodapé com convite discreto ao AtacadoPro.
  */
 
-// pedidos grandes: converter fotos (WebP → JPEG) leva alguns segundos
+// pedidos grandes: TODA foto é recortada e reconvertida (sharp) — leva segundos
 export const maxDuration = 60;
 
 const BLACK = rgb(0.07, 0.07, 0.07);
@@ -46,16 +47,14 @@ const MAIN_SITE = (
 ).replace(/^https?:\/\//, "").replace(/\/$/, "");
 
 /** Fontes padrao do pdf-lib usam WinAnsi: troca o que ela nao codifica
- *  (em-dash, aspas curvas, espaco fino, emoji...) para nao quebrar. */
+ *  (hifens especiais, espaco fino...) e o textoPdf tira o resto (emoji e
+ *  os codigos de controle que derrubam ate a MEDICAO de largura \u2014 a
+ *  paginaSegura protege so o drawText, nao o widthOfTextAtSize). */
 const MAP: Record<string, string> = {
-  "\u2014": "-", "\u2013": "-", "\u2011": "-", "\u2022": "-", "\u2026": "...",
-  "\u201c": '"', "\u201d": '"', "\u2018": "'", "\u2019": "'",
-  "\u2009": " ", "\u00a0": " ", "\u200b": "",
+  "\u2011": "-", "\u2009": " ", "\u00a0": " ", "\u200b": "",
 };
 const safe = (s: string) =>
-  [...s]
-    .map((ch) => (MAP[ch] !== undefined ? MAP[ch] : ch.codePointAt(0)! <= 0xff ? ch : ""))
-    .join("");
+  textoPdf([...s].map((ch) => MAP[ch] ?? ch).join(""));
 
 /** Espaça letras (visual editorial) — pdf-lib não tem letter-spacing. */
 const spaced = (s: string) => safe(s).toUpperCase().split("").join(" ");
@@ -102,36 +101,99 @@ export async function GET(
       return round ? charm(v) : v;
     };
 
-    const byProduct = new Map<
+    // Um card POR COR, com a MESMA foto do romaneio (a da cor comprada,
+    // guardada no item): a capa geral do produto mostrava a bermuda PRATA
+    // num pedido da PRETA — a cliente da ponta reclamou, com razão. Duas
+    // cores da mesma peça também viravam um card só; agora cada uma aparece.
+    const byPeca = new Map<
       string,
-      { name: string; paid: number; productId: string | null }
+      {
+        name: string;
+        color: string | null;
+        paid: number;
+        productId: string | null;
+        imageUrl: string | null;
+      }
     >();
     for (const it of order.items) {
-      const key = it.productId ?? it.name;
-      if (!byProduct.has(key)) {
-        byProduct.set(key, { name: it.name, paid: it.unitPrice, productId: it.productId });
+      const key = `${it.productId ?? it.name}|${it.color ?? ""}`;
+      if (!byPeca.has(key)) {
+        byPeca.set(key, {
+          name: it.name,
+          color: it.color,
+          paid: it.unitPrice,
+          productId: it.productId,
+          imageUrl: it.imageUrl,
+        });
       }
     }
-    const productIds = [...byProduct.values()]
+    const productIds = [...byPeca.values()]
       .map((p) => p.productId)
       .filter((v): v is string => !!v);
-    // só a CAPA de cada produto entra no PDF: primeiro descobre qual é (sem
-    // puxar base64), depois busca o conteúdo apenas dessas
+    // 1º passo (molde do romaneio): galeria LEVE (id + cor, sem base64)
     const imgRows = await db.productImage.findMany({
       where: { productId: { in: productIds } },
-      select: { id: true, productId: true, order: true },
+      select: { id: true, productId: true, color: true },
       orderBy: { order: "asc" },
     });
-    const coverId = new Map<string, string>();
+    const galeriaPorProduto = new Map<string, typeof imgRows>();
     for (const img of imgRows) {
-      if (!coverId.has(img.productId)) coverId.set(img.productId, img.id);
+      const l = galeriaPorProduto.get(img.productId);
+      if (l) l.push(img);
+      else galeriaPorProduto.set(img.productId, [img]);
     }
-    const covers = await db.productImage.findMany({
-      where: { id: { in: [...coverId.values()] } },
-      select: { productId: true, url: true },
-    });
-    const firstImage = new Map<string, string>();
-    for (const img of covers) firstImage.set(img.productId, img.url);
+
+    // 2º passo: a foto de cada card, em ordem de preferência — a guardada no
+    // ITEM (a mesma do romaneio); item antigo sem foto guardada cai na foto
+    // DA COR na galeria (corIgual, nunca "contém"); capa geral por último.
+    const fonteDireta = new Map<string, string>(); // key → data-URL já no item
+    const candidatos = new Map<string, string[]>(); // key → ids por preferência
+    for (const [key, p] of byPeca) {
+      if (p.imageUrl?.startsWith("data:")) {
+        fonteDireta.set(key, p.imageUrl);
+        continue;
+      }
+      const ids: string[] = [];
+      const ref = p.imageUrl?.match(/^\/api\/img\/([a-z0-9]+)/i);
+      if (ref) ids.push(ref[1]);
+      const galeria = p.productId ? (galeriaPorProduto.get(p.productId) ?? []) : [];
+      const daCor = galeria.find((f) => corIgual(f.color, p.color));
+      if (daCor) ids.push(daCor.id);
+      if (galeria[0]) ids.push(galeria[0].id);
+      candidatos.set(key, [...new Set(ids)]);
+    }
+
+    // 3º passo: o CONTEÚDO (pesado) só das primeiras escolhas, numa busca só;
+    // se alguma faltar (foto apagada), UMA segunda busca pega os planos B.
+    const urlPorImagem = new Map<string, string>();
+    const buscarConteudo = async (ids: string[]) => {
+      if (ids.length === 0) return;
+      const rows = await db.productImage.findMany({
+        // RN-013: mesmo buscando por id, a consulta não sai da loja
+        where: { id: { in: ids }, product: { companyId: user.companyId } },
+        select: { id: true, url: true },
+      });
+      for (const r of rows) urlPorImagem.set(r.id, r.url);
+    };
+    await buscarConteudo([
+      ...new Set(
+        [...candidatos.values()].map((c) => c[0]).filter((v): v is string => !!v)
+      ),
+    ]);
+    const faltantes = [...candidatos.values()]
+      .filter((c) => c.length > 0 && !urlPorImagem.has(c[0]))
+      .flatMap((c) => c.slice(1));
+    await buscarConteudo([...new Set(faltantes)]);
+
+    const urlDaPeca = (key: string): string | null => {
+      const direta = fonteDireta.get(key);
+      if (direta) return direta;
+      for (const id of candidatos.get(key) ?? []) {
+        const u = urlPorImagem.get(id);
+        if (u) return u;
+      }
+      return null;
+    };
 
     const pdf = await PDFDocument.create();
     const font = await pdf.embedFont(StandardFonts.Helvetica);
@@ -147,8 +209,68 @@ export async function GET(
     const FOOTER_H = 40; // faixa preta do rodapé
     const cardW = (width - M * 2 - GAP * (COLS - 1)) / COLS;
     const imgH = cardW * 1.22; // fotos maiores (espaço ganho do cabeçalho)
-    const capH = 40; // legenda (nome + preço) abaixo da foto
-    const cardH = imgH + capH;
+    // A foto é RECORTADA na proporção exata do quadro (~2,6x em pixels, para
+    // sair nítida na impressão) — mesma regra do card do catálogo online.
+    const FOTO_W = 640;
+    const FOTO_H = Math.round(FOTO_W * (imgH / cardW));
+
+    // Mesma regra do card do catálogo online (object-cover object-top): a foto
+    // PREENCHE o quadro todo — foto em pé é cortada por BAIXO (nunca a cabeça
+    // da modelo), foto deitada perde as laterais. Era o "contain" (foto inteira
+    // com barras cinzas) que deixava o PDF desencaixado em relação ao catálogo
+    // do sistema. De quebra, o recorte converte WebP e afins em JPEG (PDF só
+    // embute JPEG/PNG).
+    const prepararFoto = async (
+      url: string | null
+    ): Promise<{ bytes: Buffer; png: boolean; cover: boolean } | null> => {
+      if (!url) return null;
+      try {
+        let bytes: Buffer;
+        if (url.startsWith("data:")) {
+          bytes = Buffer.from(url.split(",")[1], "base64");
+        } else if (/^https?:\/\//i.test(url)) {
+          // loja Nuvemshop guarda o LINK da foto — busca como o romaneio
+          const res = await fetch(url);
+          if (!res.ok) return null;
+          bytes = Buffer.from(await res.arrayBuffer());
+        } else {
+          return null;
+        }
+        try {
+          const jpg = await sharp(bytes)
+            .rotate()
+            .flatten({ background: "#f6f6f6" }) // PNG transparente ganha o fundo neutro
+            .resize(FOTO_W, FOTO_H, { fit: "cover", position: "top" })
+            .jpeg({ quality: 85 })
+            .toBuffer();
+          return { bytes: jpg, png: false, cover: true };
+        } catch {
+          // plano B: embute a foto como veio, desenhada inteira no quadro
+          const ehPng =
+            url.startsWith("data:image/png") || /\.png(\?|$)/i.test(url);
+          return { bytes, png: ehPng, cover: false };
+        }
+      } catch {
+        return null;
+      }
+    };
+
+    // Recorta em lotes de 4 ANTES de montar as páginas: uma a uma, pedido
+    // grande flertava com os 60s da rota; todas de uma vez pesa a memória.
+    const fotos = new Map<
+      string,
+      { bytes: Buffer; png: boolean; cover: boolean } | null
+    >();
+    const chaves = [...byPeca.keys()];
+    for (let i = 0; i < chaves.length; i += 4) {
+      await Promise.all(
+        chaves.slice(i, i + 4).map(async (key) => {
+          fotos.set(key, await prepararFoto(urlDaPeca(key)));
+        })
+      );
+    }
+    const NOME_SIZE = 10.5;
+    const NOME_LH = 13; // entrelinha do nome
     const CONTENT_TOP = height - HEADER_H - 14;
     const CONTENT_BOTTOM = FOOTER_H + 18;
 
@@ -201,94 +323,100 @@ export async function GET(
       page.drawText(site, { x, y: ty, size: 8, font: bold, color: CREME });
     };
 
+    /** Quebra o nome em linhas que cabem na coluna — o nome sai INTEIRO.
+     *  Antes ele era cortado com "..." e a cliente da ponta não sabia qual
+     *  peça era ("Legging básica poliamida premium + Top Kes...").
+     *  Mesmo quebrador do romaneio (pdf-texto): o teto de 6 linhas só existe
+     *  para um nome absurdo não estourar a página — nome real usa 1 a 3. */
+    const quebraNome = (texto: string): string[] =>
+      quebrarEmLinhas(
+        safe(texto),
+        (t) => bold.widthOfTextAtSize(t, NOME_SIZE),
+        cardW - 6,
+        6
+      );
+
     let page = paginaSegura(pdf.addPage(A4));
     drawHeader(page);
+    let yTopo = CONTENT_TOP;
 
-    let col = 0;
-    let y = CONTENT_TOP - cardH;
+    // Desenha FILEIRA a fileira: a legenda cresce com o nome e a dupla da
+    // mesma fileira compartilha a altura — a grade continua alinhada.
+    // o card diz a COR (como o romaneio) — a menos que o nome já a contenha
+    // como PALAVRA INTEIRA ("Vestido Azulão" não engole o "— Azul")
+    const semAcento = (s: string) =>
+      s.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
+    const escapaRegex = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const nomeJaTemCor = (nome: string, cor: string) =>
+      new RegExp(`(^|\\P{L})${escapaRegex(semAcento(cor))}(\\P{L}|$)`, "u").test(
+        semAcento(nome)
+      );
+    const rotulo = (p: { name: string; color: string | null }) =>
+      p.color && !nomeJaTemCor(p.name, p.color)
+        ? `${p.name} — ${p.color}`
+        : p.name;
 
-    for (const item of byProduct.values()) {
-      if (y < CONTENT_BOTTOM) {
+    const itens = [...byPeca.entries()];
+    for (let i = 0; i < itens.length; i += COLS) {
+      const fileira = itens.slice(i, i + COLS);
+      const nomes = fileira.map(([, it]) => quebraNome(rotulo(it)));
+      const maxLinhas = Math.max(...nomes.map((l) => l.length));
+      // 16 até a 1ª linha do nome + entrelinhas + preço + respiro embaixo
+      const capH = 16 + (maxLinhas - 1) * NOME_LH + (showPrice ? 15 : 0) + 9;
+      const cardH = imgH + capH;
+      if (yTopo - cardH < CONTENT_BOTTOM) {
         page = paginaSegura(pdf.addPage(A4));
         drawHeader(page);
-        y = CONTENT_TOP - cardH;
-        col = 0;
+        yTopo = CONTENT_TOP;
       }
-      const x = M + col * (cardW + GAP);
 
-      // fundo neutro (só aparece quando não há foto)
-      const boxX = x;
-      const boxY = y + capH;
-      page.drawRectangle({ x: boxX, y: boxY, width: cardW, height: imgH, color: PHOTOBG });
+      for (let c = 0; c < fileira.length; c++) {
+        const [key, item] = fileira[c];
+        const boxX = M + c * (cardW + GAP);
+        const boxY = yTopo - imgH;
+        // fundo neutro (só aparece quando não há foto)
+        page.drawRectangle({ x: boxX, y: boxY, width: cardW, height: imgH, color: PHOTOBG });
 
-      let url = item.productId ? (firstImage.get(item.productId) ?? null) : null;
-      // atalho /api/img/<id> (legado): resolve para a foto real
-      if (url && !url.startsWith("data:")) {
-        const ref = url.match(/^\/api\/img\/([a-z0-9]+)/i);
-        const target = ref
-          ? await db.productImage.findUnique({
-              where: { id: ref[1] },
-              select: { url: true },
-            })
-          : null;
-        url = target?.url.startsWith("data:") ? target.url : null;
-      }
-      let embedded = null;
-      if (url) {
-        try {
-          let bytes = Buffer.from(url.split(",")[1], "base64");
-          const isPng = url.startsWith("data:image/png");
-          const isJpg = /^data:image\/jpe?g/.test(url);
-          if (!isPng && !isJpg) {
-            // PDF só embute JPEG/PNG; WebP e afins são convertidos na hora
-            // (era isto que deixava produtos "sem foto" no catálogo impresso)
-            bytes = await sharp(bytes).rotate().jpeg({ quality: 85 }).toBuffer();
-          }
+        let embedded = null;
+        let preencheQuadro = false; // recortada na medida exata do quadro
+        const foto = fotos.get(key);
+        if (foto) {
           try {
-            embedded = isPng
-              ? await pdf.embedPng(bytes)
-              : await pdf.embedJpg(bytes);
+            embedded = foto.png
+              ? await pdf.embedPng(foto.bytes)
+              : await pdf.embedJpg(foto.bytes);
+            preencheQuadro = foto.cover;
           } catch {
-            // último recurso: normaliza qualquer arquivo problemático em JPEG
-            const jpg = await sharp(bytes).rotate().jpeg({ quality: 85 }).toBuffer();
-            embedded = await pdf.embedJpg(jpg);
+            embedded = null;
           }
-        } catch {
-          embedded = null;
+        }
+        if (embedded && preencheQuadro) {
+          page.drawImage(embedded, { x: boxX, y: boxY, width: cardW, height: imgH });
+        } else if (embedded) {
+          // "contain": a foto inteira, centralizada; a sobra fica no fundo neutro
+          const scale = Math.min(cardW / embedded.width, imgH / embedded.height);
+          const w = embedded.width * scale;
+          const h = embedded.height * scale;
+          const ix = boxX + (cardW - w) / 2;
+          const iy = boxY + (imgH - h) / 2;
+          page.drawImage(embedded, { x: ix, y: iy, width: w, height: h });
+        } else {
+          center(page, "sem foto", boxX + cardW / 2, boxY + imgH / 2, 9, font, SOFT);
+        }
+
+        // legenda centralizada: nome inteiro (linha a linha) + preço
+        const cx = boxX + cardW / 2;
+        nomes[c].forEach((linha, k) => {
+          center(page, linha, cx, boxY - 16 - k * NOME_LH, NOME_SIZE, bold, BLACK);
+        });
+        if (showPrice) {
+          // preço na MESMA altura para a fileira toda (alinha pela dupla)
+          const py = boxY - 16 - (maxLinhas - 1) * NOME_LH - 15;
+          center(page, money(price(item.paid)), cx, py, 11.5, bold, BLACK);
         }
       }
-      if (embedded) {
-        // "contain": a foto aparece INTEIRA no quadro — nunca corta a cabeça
-        // da modelo nem a peça. O que sobrar do quadro fica com o fundo
-        // neutro claro (mesma regra do catálogo online).
-        const scale = Math.min(cardW / embedded.width, imgH / embedded.height);
-        const w = embedded.width * scale;
-        const h = embedded.height * scale;
-        const ix = boxX + (cardW - w) / 2; // centralizada no quadro
-        const iy = boxY + (imgH - h) / 2;
-        page.drawImage(embedded, { x: ix, y: iy, width: w, height: h });
-      } else {
-        center(page, "sem foto", boxX + cardW / 2, boxY + imgH / 2, 9, font, SOFT);
-      }
 
-      // legenda centralizada: nome + preço
-      const cx = x + cardW / 2;
-      const fullName = safe(item.name);
-      let name = fullName;
-      while (bold.widthOfTextAtSize(name, 10.5) > cardW - 6 && name.length > 4) {
-        name = name.slice(0, -1);
-      }
-      if (name !== fullName) name = name.slice(0, -1) + "...";
-      center(page, name, cx, y + capH - 16, 10.5, bold, BLACK);
-      if (showPrice) {
-        center(page, money(price(item.paid)), cx, y + capH - 31, 11.5, bold, BLACK);
-      }
-
-      col++;
-      if (col >= COLS) {
-        col = 0;
-        y -= cardH + GAP;
-      }
+      yTopo -= cardH + GAP;
     }
 
     // marca da plataforma discreta: só no rodapé da ÚLTIMA página

@@ -11,8 +11,8 @@ import { useEffect, useState } from "react";
 import { Portal } from "@/components/portal";
 import { useRouter } from "next/navigation";
 import { Plus, X, Trash2, Search } from "lucide-react";
-import { brl, formatPhone } from "@/lib/format";
-import { paymentMethodLabel } from "@/lib/orders";
+import { brl, formatPhone, numeroBR } from "@/lib/format";
+import { paymentMethodLabel, computeOrderTotals } from "@/lib/orders";
 
 type CustomerHit = { id: string; name: string; phone: string; city: string | null; state: string | null };
 type ApiVariant = { id: string; color: string; size: string; stock: number };
@@ -61,6 +61,7 @@ export function NewOrderButton() {
 
   // resumo
   const [discount, setDiscount] = useState("");
+  const [surcharge, setSurcharge] = useState("");
   const [shipping, setShipping] = useState("");
   const [payment, setPayment] = useState("PIX");
   const [status, setStatus] = useState<"ORCAMENTO" | "AGUARDANDO_PAGAMENTO">("ORCAMENTO");
@@ -113,11 +114,13 @@ export function NewOrderButton() {
     setProdQuery("");
   }
 
-  const subtotal = lines.reduce((s, l) => s + l.quantity * l.unitPrice, 0);
-  const total =
-    subtotal -
-    (parseFloat(discount.replace(",", ".")) || 0) +
-    (parseFloat(shipping.replace(",", ".")) || 0);
+  // mesma conta do servidor: desconto limitado (total nunca fica negativo)
+  const totals = computeOrderTotals(
+    lines,
+    numeroBR(discount),
+    numeroBR(shipping),
+    numeroBR(surcharge)
+  );
 
   async function submit() {
     setError("");
@@ -163,8 +166,9 @@ export function NewOrderButton() {
           quantity: l.quantity,
           unitPrice: l.unitPrice,
         })),
-        discount: parseFloat(discount.replace(",", ".")) || 0,
-        shippingFee: parseFloat(shipping.replace(",", ".")) || 0,
+        discount: numeroBR(discount),
+        surcharge: numeroBR(surcharge),
+        shippingFee: numeroBR(shipping),
         paymentMethod: payment,
         status,
         notes: notes.trim() || undefined,
@@ -376,10 +380,14 @@ export function NewOrderButton() {
             )}
 
             {/* RESUMO */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-4">
               <div>
                 <label className={label}>Desconto (R$)</label>
                 <input value={discount} onChange={(e) => setDiscount(e.target.value)} placeholder="0,00" inputMode="decimal" className={input} />
+              </div>
+              <div>
+                <label className={label}>Acréscimo (R$)</label>
+                <input value={surcharge} onChange={(e) => setSurcharge(e.target.value)} placeholder="0,00" inputMode="decimal" className={input} />
               </div>
               <div>
                 <label className={label}>Frete (R$)</label>
@@ -418,7 +426,7 @@ export function NewOrderButton() {
             <div className="flex items-center justify-between">
               <p className="text-sm text-gray-500">
                 Total:{" "}
-                <span className="text-base font-bold text-brand-700 tabular-nums">{brl(Math.max(total, 0))}</span>
+                <span className="text-base font-bold text-brand-700 tabular-nums">{brl(totals.total)}</span>
               </p>
               <button
                 onClick={submit}

@@ -13,7 +13,7 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import { brl } from "@/lib/format";
+import { brl, numeroBR } from "@/lib/format";
 import { computeOrderTotals, unitPriceFor } from "@/lib/orders";
 
 type ApiProduct = {
@@ -66,6 +66,7 @@ export function OrderComposer({
   const [picking, setPicking] = useState<ApiProduct | null>(null);
   const [cart, setCart] = useState<CartLine[]>([]);
   const [discount, setDiscount] = useState("");
+  const [surcharge, setSurcharge] = useState("");
   const [shipping, setShipping] = useState("");
   const [notes, setNotes] = useState("");
   const [payment, setPayment] = useState("PIX");
@@ -89,10 +90,11 @@ export function OrderComposer({
     () =>
       computeOrderTotals(
         cart,
-        parseFloat(discount.replace(",", ".")) || 0,
-        parseFloat(shipping.replace(",", ".")) || 0
+        numeroBR(discount),
+        numeroBR(shipping),
+        numeroBR(surcharge)
       ),
-    [cart, discount, shipping]
+    [cart, discount, shipping, surcharge]
   );
   const itemCount = cart.reduce((s, c) => s + c.quantity, 0);
 
@@ -169,8 +171,9 @@ export function OrderComposer({
           quantity: l.quantity,
           unitPrice: l.unitPrice,
         })),
-        discount: parseFloat(discount.replace(",", ".")) || 0,
-        shippingFee: parseFloat(shipping.replace(",", ".")) || 0,
+        discount: numeroBR(discount),
+        surcharge: numeroBR(surcharge),
+        shippingFee: numeroBR(shipping),
         notes: notes || undefined,
         paymentMethod: payment,
         status,
@@ -261,7 +264,7 @@ export function OrderComposer({
       </div>
 
       <div className="px-4 py-3 border-t border-gray-100 space-y-2 shrink-0">
-        <div className="grid grid-cols-2 gap-2">
+        <div className="grid grid-cols-3 gap-2">
           <div>
             <label className="text-[10px] text-gray-400 font-medium">
               Desconto (R$)
@@ -269,6 +272,18 @@ export function OrderComposer({
             <input
               value={discount}
               onChange={(e) => setDiscount(e.target.value)}
+              placeholder="0,00"
+              inputMode="decimal"
+              className="w-full rounded-lg border border-gray-200 px-2 py-1.5 text-xs outline-none focus:border-brand-400"
+            />
+          </div>
+          <div>
+            <label className="text-[10px] text-gray-400 font-medium">
+              Acréscimo (R$)
+            </label>
+            <input
+              value={surcharge}
+              onChange={(e) => setSurcharge(e.target.value)}
               placeholder="0,00"
               inputMode="decimal"
               className="w-full rounded-lg border border-gray-200 px-2 py-1.5 text-xs outline-none focus:border-brand-400"
@@ -316,6 +331,12 @@ export function OrderComposer({
             <div className="flex justify-between text-rose-500">
               <span>Desconto</span>
               <span className="tabular-nums">- {brl(totals.discount)}</span>
+            </div>
+          )}
+          {totals.surcharge > 0 && (
+            <div className="flex justify-between text-emerald-600">
+              <span>Acréscimo</span>
+              <span className="tabular-nums">+ {brl(totals.surcharge)}</span>
             </div>
           )}
           {/* frete separado do valor vendido: ele não fatura nem comissiona */}

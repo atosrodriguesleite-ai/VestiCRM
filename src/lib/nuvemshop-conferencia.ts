@@ -36,14 +36,23 @@ export type VariacaoAqui = {
 };
 
 /**
- * Duas (ou mais) sincronizações mexendo na MESMA variação no MESMO minuto.
- * É a impressão digital do SKU duplicado: duas peças de lá brigando pela
- * mesma peça daqui.
+ * Uma VARIAÇÃO daqui disputada por duas peças da Nuvemshop — a impressão
+ * digital do SKU duplicado (duas sincronizações mexendo nela no mesmo minuto).
+ *
+ * É UM achado por PEÇA, não por rodada de sincronização (revisão 19/08/2026):
+ * a disputa se repete em TODA sincronização enquanto o SKU estiver duplicado,
+ * e contar cada repetição enchia a conferência da Entre Linhas com 564 avisos
+ * de meia dúzia de peças. Pior: como a lista mostra um teto de achados, os 564
+ * empurravam para fora da tela justamente os "vínculo sem peça na Nuvemshop"
+ * — a lojista via o número no resumo e nunca descobria QUAIS peças eram.
  */
 export type Briga = {
   variantId: string;
+  /** quando foi a ÚLTIMA disputa */
   quando: Date;
-  quantos: number;
+  /** em quantas sincronizações esta peça já foi disputada */
+  rodadas: number;
+  /** os ajustes da última rodada disputada (o que dá para ler) */
   historico: string[];
 };
 
@@ -102,6 +111,27 @@ export function conferirVinculo(
   //      conferência da Toque Leve isso sozinho dobrava o tamanho da lista).
   const dupAqui = new Map([...porSku(aqui)].filter(([, l]) => l.length > 1));
   const dupLa = new Map([...porSku(la)].filter(([, l]) => l.length > 1));
+
+  // PEÇAS COM A CAUSA AINDA VIVA. A pergunta "esta disputa ainda acontece?"
+  // não se faz ao relógio (rodada longa e sync que não mexe em nada enganam
+  // qualquer folga de tempo) — se faz ao estado de AGORA: enquanto o SKU
+  // estiver repetido, ou o vínculo apontando para a peça errada, a próxima
+  // sincronização disputa de novo. Corrigido, o que sobra é histórico.
+  const causaViva = new Set<string>();
+  for (const iguais of dupAqui.values()) for (const v of iguais) causaViva.add(v.id);
+  // A regra geral: a sincronização chega numa variação daqui por DOIS
+  // caminhos — o carimbo do vínculo e o SKU. Se cada caminho leva a uma peça
+  // DIFERENTE da Nuvemshop, as duas escrevem nela em toda rodada: a disputa
+  // está viva. (Olhar só o SKU repetido deixava passar o caso da peça de lá
+  // sem SKU carimbada aqui enquanto outra peça de lá carrega o SKU daqui.)
+  const laPorSku = porSku(la);
+  for (const v of aqui) {
+    const alcancam = new Set<string>();
+    const peloCarimbo = v.nsVarId ? laPorVarId.get(v.nsVarId) : undefined;
+    if (peloCarimbo) alcancam.add(peloCarimbo.varId);
+    for (const p of laPorSku.get(norm(v.sku)) ?? []) alcancam.add(p.varId);
+    if (alcancam.size > 1) causaViva.add(v.id);
+  }
   for (const [chave, iguais] of dupAqui) {
     const tambemLa = dupLa.get(chave);
     achados.push({
@@ -173,6 +203,7 @@ export function conferirVinculo(
     //    vínculo diz uma coisa e o SKU diz outra. Como o vínculo manda, o
     //    estoque está vindo da peça ERRADA.
     if (v.sku && par.sku && norm(v.sku) !== norm(par.sku)) {
+      causaViva.add(v.id);
       achados.push({
         tipo: "CARIMBO_CRUZADO",
         gravidade: "ALTA",
@@ -200,14 +231,24 @@ export function conferirVinculo(
   }
 
   // 6. Briga de sincronização: prova histórica de que duas peças de lá mexeram
-  //    na mesma variação daqui no mesmo minuto.
+  //    na mesma variação daqui no mesmo minuto. UM aviso por PEÇA — e quando a
+  //    disputa parou de acontecer, ele deixa de ser alarme e vira histórico
+  //    (senão a lojista conserta o SKU e o painel continua vermelho para sempre).
   for (const b of brigas) {
     const v = aquiPorId.get(b.variantId);
+    const quando = b.quando.toLocaleString("pt-BR");
+    // "ao menos": a varredura olha as movimentações mais recentes, então
+    // rodadas antigas podem ficar de fora — nunca prometer exatidão
+    const vezes =
+      b.rodadas === 1 ? "ao menos 1 sincronização" : `ao menos ${b.rodadas} sincronizações`;
+    const aindaAcontece = causaViva.has(b.variantId);
     achados.push({
       tipo: "BRIGA_DE_SYNC",
-      gravidade: "ALTA",
+      gravidade: aindaAcontece ? "ALTA" : "MEDIA",
       peca: v ? rotulo(v) : "Variação removida",
-      detalhe: `${b.quantos} ajustes de sincronização na mesma variação em ${b.quando.toLocaleString("pt-BR")} — assinatura de duas peças da Nuvemshop disputando esta peça. Histórico: ${b.historico.join(" → ")}`,
+      detalhe: aindaAcontece
+        ? `Duas peças da Nuvemshop estão disputando esta variação — o estoque dela fica com o número da última lida. Já aconteceu em ${vezes} (a última em ${quando}): ${b.historico.join(" → ")}`
+        : `Esta variação JÁ foi disputada por duas peças da Nuvemshop (${vezes}, a última em ${quando}), mas hoje nenhuma peça de lá disputa mais o lugar dela — isto aqui é só histórico do livro de estoque.`,
       estoqueAqui: v?.estoque,
     });
   }
@@ -258,9 +299,40 @@ export function resumir(achados: Achado[]) {
   }));
 }
 
+/** O número em que o ajuste PAROU: "(197 → 3)" → 3. */
+export function destinoDoAjuste(trecho: string): number | null {
+  const m = trecho.match(/\((-?\d+)\s*→\s*(-?\d+)\)/);
+  return m ? Number(m[2]) : null;
+}
+
+/**
+ * DOIS AJUSTES NO MESMO MINUTO NEM SEMPRE SÃO BRIGA (Entre Linhas, 19/08/2026).
+ *
+ * A briga que interessa é a de duas peças da Nuvemshop DISCORDANDO do estoque
+ * — uma escreve 3, a outra escreve 198, e a peça daqui fica com o número da
+ * última lida. Já a sincronização disparada duas vezes ao mesmo tempo (dois
+ * cliques, duas abas) grava o MESMO número duas vezes: a peça termina certa,
+ * ninguém disputou nada. Contar isso como briga acusou metade do catálogo da
+ * Entre Linhas — 156 peças — sem nada de errado nelas.
+ *
+ * Regra: só é disputa quando os ajustes do minuto param em números
+ * DIFERENTES. Ajuste em formato antigo (sem os números) continua avisando —
+ * na dúvida, avisa.
+ */
+export function ehDisputaDeVerdade(historico: string[]): boolean {
+  if (historico.length < 2) return false;
+  const destinos = new Set<number>();
+  for (const h of historico) {
+    const d = destinoDoAjuste(h);
+    if (d !== null) destinos.add(d);
+  }
+  return destinos.size === 0 || destinos.size > 1;
+}
+
 /**
  * Encontra as brigas no histórico de estoque: ajustes da sincronização da
- * Nuvemshop na MESMA variação, no MESMO minuto. Só leitura.
+ * Nuvemshop na MESMA variação, no MESMO minuto, PARANDO EM NÚMEROS
+ * DIFERENTES. Só leitura.
  */
 export async function acharBrigas(companyId: string): Promise<Briga[]> {
   const movs = await db.inventoryMovement.findMany({
@@ -274,7 +346,7 @@ export async function acharBrigas(companyId: string): Promise<Briga[]> {
     select: { variantId: true, createdAt: true, reason: true },
   });
 
-  // chave = variação + minuto (o sync roda em rajada; o minuto é o bastante)
+  // 1º passo: variação + minuto (o sync roda em rajada; o minuto é o bastante)
   const grupos = new Map<
     string,
     { variantId: string; quando: Date; historico: string[] }
@@ -289,15 +361,31 @@ export async function acharBrigas(companyId: string): Promise<Briga[]> {
     else grupos.set(k, { variantId: m.variantId, quando: minuto, historico: [trecho] });
   }
 
-  return [...grupos.values()]
-    .filter((g) => g.historico.length > 1)
-    .map((g) => ({
+  // 2º passo: junta as rodadas POR PEÇA, contando só as DISPUTAS DE VERDADE.
+  // Enquanto o SKU estiver duplicado a disputa se repete em toda
+  // sincronização — e uma linha por repetição transformava meia dúzia de
+  // problemas em centenas de avisos.
+  const disputadas = [...grupos.values()].filter((g) => ehDisputaDeVerdade(g.historico));
+  const porPeca = new Map<string, Briga>();
+  for (const g of disputadas) {
+    const atual = porPeca.get(g.variantId);
+    if (atual) {
+      atual.rodadas++;
+      if (g.quando > atual.quando) {
+        atual.quando = g.quando;
+        atual.historico = g.historico.slice().reverse();
+      }
+      continue;
+    }
+    porPeca.set(g.variantId, {
       variantId: g.variantId,
       quando: g.quando,
-      quantos: g.historico.length,
+      rodadas: 1,
       // do mais antigo pro mais novo, que é como a pessoa lê
       historico: g.historico.slice().reverse(),
-    }));
+    });
+  }
+  return [...porPeca.values()].sort((a, b) => b.quando.getTime() - a.quando.getTime());
 }
 
 /**
@@ -335,6 +423,7 @@ export async function conferirIntegracao(companyId: string) {
   }));
 
   const achados = conferirVinculo(aqui, ns.variacoes, brigas);
+  const { mostrados, omitidos } = recortarParaTela(achados);
   return {
     ok: true as const,
     produtosNs: ns.produtos,
@@ -343,7 +432,37 @@ export async function conferirIntegracao(companyId: string) {
     vinculadas: aqui.filter((v) => v.nsVarId).length,
     semSku: aqui.filter((v) => !norm(v.sku)).length,
     resumo: resumir(achados),
-    achados: achados.slice(0, 200),
+    achados: mostrados,
+    // quantos ficaram de fora da lista (nunca some em silêncio)
+    omitidos,
+    // graves conta a lista INTEIRA, não só o pedaço que coube na tela
+    graves: achados.filter((a) => a.gravidade === "ALTA").length,
     total: achados.length,
   };
+}
+
+/**
+ * O que cabe na tela: até 30 de CADA tipo — e SÓ isso.
+ *
+ * O teto era global (200) e a lista sai na ordem de consertar, então uma
+ * categoria barulhenta no meio da fila empurrava as últimas para fora: a
+ * lojista via "11× vínculo sem peça na Nuvemshop" no resumo sem NUNCA
+ * descobrir quais peças eram (conferência da Entre Linhas, 19/08/2026).
+ *
+ * O teto global NÃO volta junto com o teto por tipo (achado da revisão): com
+ * oito categorias cheias, 8×30 passa de 200 e a última — "estoque não bate",
+ * a mais comum — sairia de novo com ZERO linhas na tela. Trinta de cada é
+ * limite suficiente (no máximo 240 linhas), e o que sobra é CONTADO.
+ */
+export function recortarParaTela(achados: Achado[], porTipo = 30) {
+  const vistos = new Map<TipoAchado, number>();
+  const mostrados: Achado[] = [];
+  let omitidos = 0;
+  for (const a of achados) {
+    const n = (vistos.get(a.tipo) ?? 0) + 1;
+    vistos.set(a.tipo, n);
+    if (n <= porTipo) mostrados.push(a);
+    else omitidos++;
+  }
+  return { mostrados, omitidos };
 }

@@ -3,7 +3,7 @@ import { requireUser } from "@/lib/auth";
 import { maybeSyncNuvemshop } from "@/lib/nuvemshop";
 import { conciliarFunilComPedidos } from "@/lib/opportunity-sync";
 import { db } from "@/lib/db";
-import { ownedScope, isManagerUp } from "@/lib/scope";
+import { ownedScope, orderScope, isManagerUp } from "@/lib/scope";
 import { PageHeader } from "@/components/ui";
 import { FunnelBoard, type BoardStage } from "./funnel-board";
 import { QuickLeadLink } from "@/components/quick-lead-link";
@@ -83,11 +83,26 @@ export default async function FunnelPage({
   const oppIds = opps.map((o) => o.id);
   const customerIds = [...new Set(opps.map((o) => o.customerId))];
 
+  // orderScope, não só companyId: o pedido "da loja" (sem vendedora) pode ter
+  // cartão na carteira da vendedora — o card não pode virar uma porta lateral
+  // para os detalhes de um pedido que a área de Pedidos esconde dela (RN-007)
   const linkedOrders = await db.order.findMany({
-    where: { companyId: user.companyId, opportunityId: { in: oppIds } },
+    where: { ...orderScope(user), opportunityId: { in: oppIds } },
     include: { items: true },
   });
   const orderByOpp = new Map(linkedOrders.map((o) => [o.opportunityId!, o]));
+  // …mas o card PRECISA saber que o pedido existe, mesmo escondido: sem isso
+  // ele caía no ramo "sacola abandonada" e a vendedora mandava "quer que eu
+  // finalize seu pedido?" para cliente que JÁ pediu. Só os vínculos, nada dos
+  // detalhes.
+  const oppsComPedido = new Set(
+    (
+      await db.order.findMany({
+        where: { companyId: user.companyId, opportunityId: { in: oppIds } },
+        select: { opportunityId: true },
+      })
+    ).map((o) => o.opportunityId)
+  );
 
   // sessão mais recente NÃO convertida com itens na sacola, por cliente
   const cartSessions = await db.trackSession.findMany({
@@ -178,9 +193,11 @@ export default async function FunnelPage({
       .map((o) => {
         const ord = orderByOpp.get(o.id);
         // sacola: tracking do catálogo OU, quando não há, a lista de itens
-        // guardada na oportunidade (ex.: carrinho abandonado da Nuvemshop)
+        // guardada na oportunidade (ex.: carrinho abandonado da Nuvemshop).
+        // Cartão com pedido — visível OU escondido pelo escopo — nunca mostra
+        // sacola: o pedido já existe.
         const cart =
-          ord
+          oppsComPedido.has(o.id)
             ? null
             : cartByCustomer.get(o.customerId) ??
               (o.details

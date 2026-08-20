@@ -25,6 +25,25 @@ describe("carteira do cliente só a gerência troca (PATCH ownerId)", () => {
   });
 });
 
+describe("visão total de pedidos EDITA, com tudo no histórico (dono, 18/08/2026)", () => {
+  const rota = ler("src/app/api/orders/[id]/route.ts");
+  it("a chavinha pedidosVisaoTotal libera o PATCH; sem ela, a trava continua", () => {
+    expect(rota).toContain("!user.pedidosVisaoTotal");
+    expect(rota).toContain("Este pedido é de outra vendedora");
+  });
+  it("cada mexida do PATCH carimba quem fez no histórico do pedido", () => {
+    // é a condição da liberação: edição sem rastro não existe
+    expect(rota).toContain("Status alterado para");
+    expect(rota).toContain("Valores alterados por");
+    expect(rota).toContain("Itens do pedido editados por");
+    expect(rota).toContain("Dados de envio atualizados por");
+    expect(rota).toContain("Forma de pagamento alterada para");
+  });
+  it("comissão segue intocável: trocar vendedor no PATCH passa pelo podeTransferirVenda", () => {
+    expect(rota).toContain("podeTransferirVenda(user, order)");
+  });
+});
+
 describe("funil e tarefas: vendedora só mexe no que é dela", () => {
   it("PATCH de oportunidade usa ownedScope", () => {
     const rota = ler("src/app/api/opportunities/[id]/route.ts");

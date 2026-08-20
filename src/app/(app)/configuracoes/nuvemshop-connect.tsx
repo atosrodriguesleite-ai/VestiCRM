@@ -62,6 +62,10 @@ type Conferencia = {
   semSku: number;
   resumo: { tipo: string; nome: string; quantos: number }[];
   achados: Achado[];
+  /** quantos achados não couberam na lista (contados, nunca sumidos) */
+  omitidos?: number;
+  /** graves da lista INTEIRA (o servidor conta antes de recortar) */
+  graves?: number;
   total: number;
 };
 
@@ -430,7 +434,9 @@ function ResultadoConferencia({
   conf: Conferencia;
   onFechar: () => void;
 }) {
-  const graves = conf.achados.filter((a) => a.gravidade === "ALTA").length;
+  // o servidor conta os graves ANTES de recortar a lista; a conta local só
+  // enxergava o pedaço que coube na tela (e dizia "200 importantes" sempre)
+  const graves = conf.graves ?? conf.achados.filter((a) => a.gravidade === "ALTA").length;
   const limpo = conf.achados.length === 0;
   const [copiado, setCopiado] = useState(false);
 
@@ -446,6 +452,9 @@ function ResultadoConferencia({
         (a) =>
           `[${a.gravidade}] ${a.peca}${a.estoqueAqui !== undefined ? ` (aqui ${a.estoqueAqui}${a.estoqueLa !== undefined ? ` / lá ${a.estoqueLa}` : ""})` : ""}\n${a.detalhe}`
       ),
+      ...(conf.omitidos
+        ? ["", `(+ ${conf.omitidos} ponto(s) do mesmo tipo não listados aqui)`]
+        : []),
     ].join("\n");
     setCopiado(await copiarTexto(texto));
     setTimeout(() => setCopiado(false), 2500);
@@ -529,6 +538,13 @@ function ResultadoConferencia({
               )}
             </li>
           ))}
+          {!!conf.omitidos && (
+            <li className="rounded-lg bg-white/60 border border-dashed border-gray-200 p-2.5 text-[11px] text-gray-500">
+              + <b>{conf.omitidos}</b> ponto(s) do mesmo tipo não listados aqui (o
+              resumo acima conta todos). Resolvendo os de cima, estes costumam
+              sair junto — confira de novo depois.
+            </li>
+          )}
         </ul>
       )}
       <div className="flex items-center justify-between gap-2 flex-wrap mt-2">
