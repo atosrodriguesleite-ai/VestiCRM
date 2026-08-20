@@ -46,3 +46,5 @@ sem ambiguidade.
 | RN-017 | WhatsApp: termo de aceite obrigatório antes do QR; envio proativo com ritmo humano | `lib/comm/evolution.ts` | `evolution.test.ts` |
 | RN-018 | Tabelas de preço por link (gated): o link decide o preço, atacado exige a quantidade mínima, e loja sem o recurso não muda em nada | `lib/catalogo/tabelas-de-preco{,-servidor}.ts` | `tabelas-de-preco.test.ts` |
 | RN-019 | Pacote montado pelas medidas de 1 peça por categoria (cotação do pedido + simulador gated); memória dos envios reais é a alternativa; estimativa declarada, e categoria sem medidas não muda nada | `lib/envios/pacote.ts`, `lib/envios/simulador.ts` | `simulador-frete.test.ts` |
+| RN-020 | Cadastro duplicado por dígito errado: o sistema AVISA no chat, nunca junta sozinho (nome parecido E telefone a um dígito) | `lib/contatos-parecidos.ts` | `contatos-parecidos.test.ts` |
+| RN-021 | Pedido por link pessoal: vale o WhatsApp da cliente, não o telefone digitado no formulário; a diferença é anotada no pedido | `lib/catalogo/telefone-do-pedido.ts` | `telefone-do-pedido.test.ts` |

@@ -164,6 +164,27 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   dedup por telefone **tolerante ao 9º dígito** (`phoneMatchVariants`),
   distribuição round-robin/fixa, conversa nasce NA FILA (sem dono; modelo
   Digisac), oportunidade conforme política da loja.
+  **RN-020 · Cadastro duplicado por dígito ERRADO** (`lib/contatos-parecidos.ts`):
+  o dedup da RN-008 resolve o 9º dígito, mas não tem como resolver número
+  digitado errado — para o sistema, `91289574` e `91289575` são duas pessoas,
+  e adivinhar juntaria clientes de verdade. Então o sistema **avisa e não
+  junta**: ao abrir a conversa, se existir outro cadastro com **nome parecido
+  E telefone a um dígito de distância** (mesmo DDD, já ignorando o 9º), o chat
+  mostra "parece a mesma pessoa cadastrada 2×" com o link do outro cadastro.
+  Exigir as DUAS coisas é o que evita alarme falso (duas "Maria Silva" de
+  verdade têm números diferentes; irmãs com números seguidos têm nomes
+  diferentes) — e aviso falso em cadastro de cliente faz a loja parar de ler.
+  Incidente que criou a regra (Toque Leve, 20/08/2026): a mesma cliente em
+  dois cadastros fazia duas vendedoras atenderem metades diferentes do
+  assunto, e o que saía pelo número errado ficava no ✓ simples para sempre.
+  **RN-021 · No pedido do catálogo por LINK PESSOAL, vale o WhatsApp dela**
+  (`lib/catalogo/telefone-do-pedido.ts`): a origem do cadastro duplicado acima
+  era o formulário — o telefone DIGITADO sempre mandava, e um dígito errado
+  criava cliente novo. Entrando pelo link pessoal (`?c=`), o sistema já sabe
+  quem é e aquele número é VERIFICADO (ela está falando dele); o digitado é
+  palpite e não inventa mais cadastro. O que ela digitou fica anotado no
+  pedido com aviso, para a loja conferir. **Sem link pessoal** (link geral,
+  bio, catálogo aberto) nada muda: o digitado é a única informação que existe.
 - **RN-009 · Catálogo público**: preço/total SEMPRE recalculado no servidor; links
   rastreados `?ref=` (vendedora) e `?c=` (cliente) alimentam a atribuição.
 - **RN-010 · O pedido do catálogo NÃO PODE SE PERDER** (`lib/catalogo/envio-pedido.ts`):
