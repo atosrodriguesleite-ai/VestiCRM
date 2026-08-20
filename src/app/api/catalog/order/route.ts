@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { imageHref } from "@/lib/img";
 import { corIgual } from "@/lib/capa-por-cor";
 import { intakeLead, normalizePhone } from "@/lib/intake";
+import { telefoneDoPedido } from "@/lib/catalogo/telefone-do-pedido";
 import { atribuirCampanhaPorUtm, resolveRef } from "@/lib/tracking/engine";
 import {
   reservarOQueTiver,
@@ -249,7 +250,13 @@ export async function POST(req: NextRequest) {
           companyId: company.id,
           OR: [{ linkCode: input.c }, { id: input.c }],
         },
-        select: { id: true, city: true, state: true, ownerId: true },
+        select: {
+          id: true,
+          city: true,
+          state: true,
+          ownerId: true,
+          phone: true,
+        },
       })
     : null;
 
@@ -278,11 +285,33 @@ export async function POST(req: NextRequest) {
   // por uma venda que não fez, e nenhuma venda fica sem responsável.
   const orderSellerId: string | null = linkSellerId;
 
+  // TELEFONE DIGITADO ERRADO NÃO INVENTA CLIENTE (RN-021).
+  //
+  // Incidente Toque Leve (20/08/2026): a cliente errou UM dígito ao preencher
+  // o pedido no catálogo. Como o telefone digitado sempre mandava, nasceu um
+  // segundo cadastro — e com ele uma segunda conversa. A Nívia atendia pelo
+  // WhatsApp de verdade e a Letícia respondia no cadastro do número errado:
+  // cada uma via metade do assunto, e o que saía pelo número errado ficava no
+  // ✓ simples para sempre, porque não existe ninguém naquele número.
+  //
+  // Quando a cliente entra pelo LINK PESSOAL dela (`?c=`, o que a vendedora
+  // mandou no WhatsApp), o sistema JÁ SABE quem ela é — e esse número é
+  // verificado: ela está falando dele. O digitado é palpite. Então o link
+  // manda, e o que ela digitou fica anotado no pedido para a loja conferir.
+  const telefoneDoLink = linkCustomer?.phone ?? "";
+  const escolha = telefoneDoPedido({
+    digitado: rawPhone,
+    doLink: telefoneDoLink,
+  });
+  const telefoneDivergente = escolha.divergente;
+
+  // (sem telefone digitado, o caminho do link continua sendo o de baixo —
+  // esta trava só decide QUAL telefone vale quando a cliente digitou um)
   if (hasPhone) {
     // Com telefone: entra pelo Lead Intake Engine (deduplica, cria
     // conversa e oportunidade — nenhum contato se perde).
     const result = await intakeLead(company.id, {
-      phone: normalizePhone(rawPhone),
+      phone: normalizePhone(escolha.telefone),
       name: displayName || undefined,
       origin: "CATALOGO_PUBLICO",
       message: input.message,
@@ -427,6 +456,9 @@ export async function POST(req: NextRequest) {
     input.customer?.store ? `Loja: ${input.customer.store}` : null,
     input.customer?.name ? `Nome: ${input.customer.name}` : null,
     input.customer?.phone ? `Telefone: ${input.customer.phone}` : null,
+    telefoneDivergente
+      ? `⚠️ A cliente digitou um telefone diferente do WhatsApp dela (${telefoneDoLink}). O pedido ficou no cadastro do WhatsApp, que é o número por onde ela fala — confira qual está certo.`
+      : null,
   ].filter(Boolean);
 
   // RASTRO DA COMISSÃO: o pedido carrega, escrito, de que link ele veio.

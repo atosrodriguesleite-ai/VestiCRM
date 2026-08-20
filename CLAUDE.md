@@ -177,6 +177,14 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   Incidente que criou a regra (Toque Leve, 20/08/2026): a mesma cliente em
   dois cadastros fazia duas vendedoras atenderem metades diferentes do
   assunto, e o que saía pelo número errado ficava no ✓ simples para sempre.
+  **RN-021 · No pedido do catálogo por LINK PESSOAL, vale o WhatsApp dela**
+  (`lib/catalogo/telefone-do-pedido.ts`): a origem do cadastro duplicado acima
+  era o formulário — o telefone DIGITADO sempre mandava, e um dígito errado
+  criava cliente novo. Entrando pelo link pessoal (`?c=`), o sistema já sabe
+  quem é e aquele número é VERIFICADO (ela está falando dele); o digitado é
+  palpite e não inventa mais cadastro. O que ela digitou fica anotado no
+  pedido com aviso, para a loja conferir. **Sem link pessoal** (link geral,
+  bio, catálogo aberto) nada muda: o digitado é a única informação que existe.
 - **RN-009 · Catálogo público**: preço/total SEMPRE recalculado no servidor; links
   rastreados `?ref=` (vendedora) e `?c=` (cliente) alimentam a atribuição.
 - **RN-010 · O pedido do catálogo NÃO PODE SE PERDER** (`lib/catalogo/envio-pedido.ts`):
