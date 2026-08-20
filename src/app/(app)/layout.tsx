@@ -33,6 +33,7 @@ export default async function AppLayout({
           impersonating: Boolean(user.impersonatedBy),
           productionEnabled: company?.productionEnabled ?? false,
           cutPlanEnabled: company?.cutPlanEnabled ?? false,
+          shippingEnabled: company?.shippingEnabled ?? false,
           marketingEnabled: company?.marketingEnabled ?? false,
           mediaLibraryEnabled: company?.mediaLibraryEnabled ?? false,
           aiSalesEnabled: company?.aiSalesEnabled ?? false,

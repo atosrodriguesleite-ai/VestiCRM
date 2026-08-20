@@ -37,7 +37,11 @@ type Settings = {
   boxHeightCm: number;
   boxLengthCm: number;
   categoryWeights: string;
+  categoryDims: string;
 };
+
+/** Campos de UMA categoria na tela: peso e medidas de 1 peça (texto cru). */
+type CamposDaCategoria = { peso: string; comp: string; larg: string; alt: string };
 type Estado = {
   enabled: boolean;
   platformReady: boolean;
@@ -56,7 +60,7 @@ export function MelhorEnvioConnect({ categories }: { categories: string[] }) {
   const [salvando, setSalvando] = useState(false);
   const [salvo, setSalvo] = useState(false);
   const [form, setForm] = useState<Record<string, string>>({});
-  const [pesosCat, setPesosCat] = useState<Record<string, string>>({});
+  const [porCategoria, setPorCategoria] = useState<Record<string, CamposDaCategoria>>({});
 
   const carregar = useCallback(async () => {
     const res = await fetch("/api/melhorenvio");
@@ -83,16 +87,32 @@ export function MelhorEnvioConnect({ categories }: { categories: string[] }) {
         boxHeightCm: String(s.boxHeightCm),
         boxLengthCm: String(s.boxLengthCm),
       });
+      // peso e medidas de 1 peça, por categoria (JSONs separados no banco;
+      // na tela viram uma linha só). Cada JSON tem o PRÓPRIO try/catch: um
+      // registro torto nas medidas não pode descartar os pesos válidos da
+      // tela — no próximo salvar eles seriam apagados do banco sem aviso.
+      let cw: Record<string, number> = {};
+      let cd: Record<string, { compCm?: number; largCm?: number; altCm?: number }> = {};
       try {
-        const cw = s.categoryWeights ? JSON.parse(s.categoryWeights) : {};
-        setPesosCat(
-          Object.fromEntries(
-            Object.entries(cw).map(([k, v]) => [k, String(v)])
-          )
-        );
+        cw = s.categoryWeights ? JSON.parse(s.categoryWeights) : {};
       } catch {
-        setPesosCat({});
+        cw = {};
       }
+      try {
+        cd = s.categoryDims ? JSON.parse(s.categoryDims) : {};
+      } catch {
+        cd = {};
+      }
+      const juntos: Record<string, CamposDaCategoria> = {};
+      for (const cat of new Set([...Object.keys(cw), ...Object.keys(cd)])) {
+        juntos[cat] = {
+          peso: cw[cat] != null ? String(cw[cat]) : "",
+          comp: cd[cat]?.compCm != null ? String(cd[cat].compCm) : "",
+          larg: cd[cat]?.largCm != null ? String(cd[cat].largCm) : "",
+          alt: cd[cat]?.altCm != null ? String(cd[cat].altCm) : "",
+        };
+      }
+      setPorCategoria(juntos);
     }
   }, []);
   useEffect(() => {
@@ -103,13 +123,40 @@ export function MelhorEnvioConnect({ categories }: { categories: string[] }) {
     setForm((f) => ({ ...f, [k]: e.target.value }));
 
   async function salvar() {
+    const num = (v: string) => parseFloat(v.replace(",", "."));
+    const categoryWeights: Record<string, number> = {};
+    const categoryDims: Record<string, { compCm: number; largCm: number; altCm: number }> =
+      {};
+    // valida AQUI, com o nome da categoria e do campo — os mesmos limites do
+    // servidor. Sem isso um valor fora da régua virava "Dados inválidos" seco
+    // e NADA da tela salvava, nem o remetente que estava certo.
+    for (const [cat, c] of Object.entries(porCategoria)) {
+      const peso = parseInt(c.peso);
+      if (c.peso.trim() && !(peso >= 1 && peso <= 30000))
+        return alert(`${cat}: o peso deve ser entre 1 e 30.000 g.`);
+      if (peso > 0) categoryWeights[cat] = peso;
+
+      const comp = num(c.comp);
+      const larg = num(c.larg);
+      const alt = num(c.alt);
+      const alguma = [c.comp, c.larg, c.alt].some((v) => v.trim());
+      const todas = [c.comp, c.larg, c.alt].every((v) => v.trim());
+      // medidas só valem COMPLETAS (as três) — o pacote é montado com elas,
+      // e medida pela metade viraria caixa de tamanho inventado
+      if (alguma && !todas)
+        return alert(
+          `${cat}: preencha as TRÊS medidas (comprimento, largura e altura) — ou deixe as três vazias para usar a caixa padrão.`
+        );
+      if (todas) {
+        if (!(comp >= 1 && comp <= 150) || !(larg >= 1 && larg <= 150))
+          return alert(`${cat}: comprimento e largura devem ser entre 1 e 150 cm.`);
+        if (!(alt >= 0.2 && alt <= 150))
+          return alert(`${cat}: a altura de 1 peça deve ser entre 0,2 e 150 cm.`);
+        categoryDims[cat] = { compCm: comp, largCm: larg, altCm: alt };
+      }
+    }
     setSalvando(true);
     setSalvo(false);
-    const categoryWeights: Record<string, number> = {};
-    for (const [cat, v] of Object.entries(pesosCat)) {
-      const n = parseInt(v);
-      if (n > 0) categoryWeights[cat] = n;
-    }
     const res = await fetch("/api/melhorenvio", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
@@ -131,6 +178,7 @@ export function MelhorEnvioConnect({ categories }: { categories: string[] }) {
         boxHeightCm: parseInt(form.boxHeightCm) || 15,
         boxLengthCm: parseInt(form.boxLengthCm) || 40,
         categoryWeights,
+        categoryDims,
       }),
     });
     setSalvando(false);
@@ -284,52 +332,82 @@ export function MelhorEnvioConnect({ categories }: { categories: string[] }) {
           {/* Padrões de embalagem */}
           <details className="rounded-xl border border-gray-100 open:pb-4">
             <summary className="cursor-pointer select-none px-4 py-3 text-sm font-semibold">
-              📦 Caixa e pesos padrão
+              📦 Embalagem e peso por categoria
             </summary>
             <div className="px-4 space-y-3">
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                <div>
-                  <label className={label}>Peso por peça sem cadastro (g)</label>
-                  <input value={form.defaultWeightGrams ?? ""} onChange={set("defaultWeightGrams")} className={input} inputMode="numeric" />
-                </div>
-                <div>
-                  <label className={label}>Caixa — comprimento (cm)</label>
-                  <input value={form.boxLengthCm ?? ""} onChange={set("boxLengthCm")} className={input} inputMode="numeric" />
-                </div>
-                <div>
-                  <label className={label}>Caixa — largura (cm)</label>
-                  <input value={form.boxWidthCm ?? ""} onChange={set("boxWidthCm")} className={input} inputMode="numeric" />
-                </div>
-                <div>
-                  <label className={label}>Caixa — altura (cm)</label>
-                  <input value={form.boxHeightCm ?? ""} onChange={set("boxHeightCm")} className={input} inputMode="numeric" />
-                </div>
-              </div>
               {categories.length > 0 && (
                 <div>
                   <p className="text-xs text-gray-500 mb-2">
                     <Package className="inline size-3.5 mr-1 text-gray-400" />
-                    Peso padrão <b>por categoria</b> (g) — usado quando a peça
-                    não tem peso próprio. Vazio = usa o peso padrão acima.
+                    Peso e medidas de <b>1 peça dobrada</b> de cada categoria. É
+                    com isso que o sistema <b>monta o pacote sozinho</b> (empilha
+                    as peças) na cotação do pedido e no simulador de frete:
+                    23 peças = 23 alturas somadas, 23 pesos. Categoria sem
+                    medidas usa a caixa padrão lá de baixo, como sempre.
                   </p>
-                  <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
-                    {categories.map((cat) => (
-                      <div key={cat} className="flex items-center gap-2">
-                        <span className="flex-1 min-w-0 truncate text-xs text-gray-600">{cat}</span>
-                        <input
-                          value={pesosCat[cat] ?? ""}
-                          onChange={(e) =>
-                            setPesosCat((p) => ({ ...p, [cat]: e.target.value }))
-                          }
-                          className="w-20 rounded-lg border border-gray-200 px-2 py-1.5 text-xs outline-none focus:border-brand-400"
-                          inputMode="numeric"
-                          placeholder="g"
-                        />
-                      </div>
-                    ))}
+                  {/* cabeçalho das colunas — sem ele os 4 números viram adivinha */}
+                  <div className="hidden md:grid md:grid-cols-[1fr_72px_72px_72px_72px] gap-2 mb-1 pr-1">
+                    <span />
+                    <span className="text-[10px] text-gray-400 text-center">Peso (g)</span>
+                    <span className="text-[10px] text-gray-400 text-center">Compr. (cm)</span>
+                    <span className="text-[10px] text-gray-400 text-center">Larg. (cm)</span>
+                    <span className="text-[10px] text-gray-400 text-center">Alt. (cm)</span>
+                  </div>
+                  <div className="space-y-2">
+                    {categories.map((cat) => {
+                      const c = porCategoria[cat] ?? { peso: "", comp: "", larg: "", alt: "" };
+                      const muda =
+                        (campo: keyof CamposDaCategoria) =>
+                        (e: React.ChangeEvent<HTMLInputElement>) =>
+                          setPorCategoria((p) => ({
+                            ...p,
+                            [cat]: { ...(p[cat] ?? c), [campo]: e.target.value },
+                          }));
+                      const caixa =
+                        "w-full rounded-lg border border-gray-200 px-2 py-1.5 text-xs text-center outline-none focus:border-brand-400";
+                      return (
+                        <div
+                          key={cat}
+                          className="grid grid-cols-2 md:grid-cols-[1fr_72px_72px_72px_72px] gap-2 items-center"
+                        >
+                          <span className="col-span-2 md:col-span-1 min-w-0 truncate text-xs text-gray-600">
+                            {cat}
+                          </span>
+                          <input value={c.peso} onChange={muda("peso")} className={caixa} inputMode="numeric" placeholder="g" title="Peso de 1 peça (g)" />
+                          <input value={c.comp} onChange={muda("comp")} className={caixa} inputMode="decimal" placeholder="C" title="Comprimento de 1 peça dobrada (cm)" />
+                          <input value={c.larg} onChange={muda("larg")} className={caixa} inputMode="decimal" placeholder="L" title="Largura de 1 peça dobrada (cm)" />
+                          <input value={c.alt} onChange={muda("alt")} className={caixa} inputMode="decimal" placeholder="A" title="Altura de 1 peça dobrada (cm)" />
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
               )}
+              <div>
+                <p className="text-xs text-gray-500 mb-2">
+                  🎁 <b>Reserva</b> — usada quando a peça/categoria não tem
+                  cadastro: peso por peça e a caixa padrão (uma só, do mesmo
+                  tamanho para qualquer pedido).
+                </p>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                  <div>
+                    <label className={label}>Peso por peça sem cadastro (g)</label>
+                    <input value={form.defaultWeightGrams ?? ""} onChange={set("defaultWeightGrams")} className={input} inputMode="numeric" />
+                  </div>
+                  <div>
+                    <label className={label}>Caixa — comprimento (cm)</label>
+                    <input value={form.boxLengthCm ?? ""} onChange={set("boxLengthCm")} className={input} inputMode="numeric" />
+                  </div>
+                  <div>
+                    <label className={label}>Caixa — largura (cm)</label>
+                    <input value={form.boxWidthCm ?? ""} onChange={set("boxWidthCm")} className={input} inputMode="numeric" />
+                  </div>
+                  <div>
+                    <label className={label}>Caixa — altura (cm)</label>
+                    <input value={form.boxHeightCm ?? ""} onChange={set("boxHeightCm")} className={input} inputMode="numeric" />
+                  </div>
+                </div>
+              </div>
             </div>
           </details>
 

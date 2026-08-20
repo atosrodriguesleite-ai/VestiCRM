@@ -43,6 +43,7 @@ import {
   ShoppingCart,
   Repeat,
   Bot,
+  Truck,
 } from "lucide-react";
 import { Avatar } from "./ui";
 import { Logo, LogoMark } from "./logo";
@@ -63,6 +64,9 @@ const NAV = [
   // parecer trabalho burocrático — e era o que ninguém abria.
   { href: "/tarefas", label: "Minha agenda", icon: CheckSquare, group: "Comercial" },
   { href: "/pedidos", label: "Pedidos", icon: ShoppingBag, group: "Catálogo" },
+  // módulo Envios (pago à parte): sem a chave, o menu nem aparece. Suporte
+  // VÊ (despachar caixa é operação, não venda).
+  { href: "/envios", label: "Envios", icon: Truck, group: "Catálogo", shippingOnly: true },
   { href: "/produtos", label: "Produtos", icon: Package, group: "Catálogo" },
   { href: "/biblioteca", label: "Biblioteca de imagens", icon: Images, group: "Catálogo", mediaLibraryOnly: true, supportHidden: true },
   { href: "/producao", label: "Produção", icon: Scissors, group: "Catálogo", productionOnly: true, supportHidden: true },
@@ -164,6 +168,8 @@ type ShellUser = {
   productionEnabled?: boolean;
   // módulo Plano de Corte (pago à parte): idem
   cutPlanEnabled?: boolean;
+  // módulo Envios (pago à parte): idem
+  shippingEnabled?: boolean;
   // módulo Marketing (pago à parte): idem
   marketingEnabled?: boolean;
   // Biblioteca de imagens (gated): sem a chave, o menu nem aparece
@@ -253,6 +259,7 @@ export function AppShell({
     if ("superOnly" in i && i.superOnly) return user.role === "SUPERADMIN";
     if ("productionOnly" in i && i.productionOnly) return Boolean(user.productionEnabled);
     if ("cutPlanOnly" in i && i.cutPlanOnly) return Boolean(user.cutPlanEnabled);
+    if ("shippingOnly" in i && i.shippingOnly) return Boolean(user.shippingEnabled);
     if ("marketingOnly" in i && i.marketingOnly && !user.marketingEnabled) return false;
     if ("mediaLibraryOnly" in i && i.mediaLibraryOnly) return Boolean(user.mediaLibraryEnabled);
     if ("aiOnly" in i && i.aiOnly && !user.aiSalesEnabled) return false;

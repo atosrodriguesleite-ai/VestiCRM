@@ -13,8 +13,14 @@ import {
   meRetomarEtiqueta,
   meCancel,
   pesoDoPedidoKg,
+  volumesDoEnvio,
 } from "@/lib/melhorenvio";
 import { aplicarRastreio, novoCodigoPublico } from "@/lib/rastreio";
+import {
+  lerMedidasPorCategoria,
+  montarPacote,
+  pilhasDosItens,
+} from "@/lib/envios/pacote";
 
 /**
  * Frete do pedido via Melhor Envio (módulo Envios, gated por loja).
@@ -148,6 +154,18 @@ export async function POST(
     const pesoKg = volumes
       ? Math.round(volumes.reduce((s, v) => s + v.pesoKg, 0) * 1000) / 1000
       : pesoAutomaticoKg;
+    // PACOTE MONTADO PELAS CATEGORIAS (RN-019): sem medidas da lojista, o
+    // automático empilha as peças pelas medidas de 1 peça de cada categoria
+    // — a caixa padrão (mesmo tamanho para 5 ou 50 peças) fica só de reserva,
+    // para quem não cadastrou as medidas. Cotação e compra usam O MESMO
+    // cálculo: etiqueta com medida diferente da cotada vira ajuste de valor.
+    // Só nas ações que declaram volumes — etiqueta/cancelar não pagam a conta.
+    const cotaOuCompra = action === "cotar" || action === "comprar";
+    const pilhas = cotaOuCompra && !volumes ? pilhasDosItens(order.items) : null;
+    const pacoteCalculado = pilhas
+      ? montarPacote(pilhas, lerMedidasPorCategoria(conn.categoryDims), pesoAutomaticoKg)
+      : null;
+    const volumesEfetivos = volumes ?? pacoteCalculado ?? undefined;
     // valor segurado: padrão = valor das peças (sem frete); a loja pode
     // reduzir — MAS com NF-e o valor da nota manda (transportadora confere)
     const valorPecas = Math.max(0, order.subtotal - order.discount);
@@ -165,7 +183,7 @@ export async function POST(
         toZip: destZip,
         weightKg: pesoKg,
         insuranceValue: seguro,
-        volumes,
+        volumes: volumesEfetivos,
       });
       if (!r.ok) return NextResponse.json({ error: r.error }, { status: 502 });
       // `recusadas` = quem não cotou E o porquê. A tela mostra — esconder
@@ -180,6 +198,9 @@ export async function POST(
         // — a tela pré-preenche os campos com isto e a compra repete igual
         volumesUsados: r.pacotes,
         volumesManuais: Boolean(volumes),
+        // o automático desta cotação foi MONTADO pelas medidas das categorias
+        // (e não pela caixa padrão) — a tela conta isso à lojista
+        pacotePorCategoria: Boolean(!volumes && pacoteCalculado),
         // seguro usado nesta cotação (travado no valor das peças com NF-e)
         seguroUsado: seguro,
         seguroTravado: notaAtiva,
@@ -339,7 +360,7 @@ export async function POST(
         insuranceValue: seguroCompra,
         // os MESMOS volumes da cotação aceita — etiqueta comprada com medida
         // diferente da cotada vira ajuste de valor na transportadora
-        volumes,
+        volumes: volumesEfetivos,
         orderLabel: `Pedido ${orderNumber(order.number)}`,
         // Nota AUTORIZADA e CONFIRMADA no Bling → etiqueta com NF-e. Sem nota
         // → declaração de conteúdo, como sempre. A loja não escolhe nada: o
@@ -351,6 +372,16 @@ export async function POST(
       // pago mas a etiqueta ainda não gerou: grava o meOrderId (status
       // GERANDO) para o retry RETOMAR a geração — não comprar de novo
       const meStatus = r.pendente ? "GERANDO" : "ETIQUETA";
+
+      // MEMÓRIA DE EMBALAGEM (RN-019): grava os volumes que a etiqueta
+      // DECLAROU (fonte única volumesDoEnvio — os mesmos da compra) e quantas
+      // peças o pedido tinha. É daqui que o simulador de frete puxa "teve um
+      // envio de X peças nessa caixa" — sem gravar, a medida real morria
+      // junto com a etiqueta.
+      const volumesDaEtiqueta = JSON.stringify(
+        volumesDoEnvio(volumesEfetivos, pesoKg, conn)
+      );
+      const pecasDoPedido = order.items.reduce((s, i) => s + i.quantity, 0);
 
       // MEIO DE ENVIO preenchido pela etiqueta comprada ("Correios PAC"): a
       // vendedora contratou o frete aqui dentro, não faz sentido ela ainda
@@ -376,6 +407,9 @@ export async function POST(
           meStatus,
           labelUrl: r.labelUrl,
           weightKg: pesoKg,
+          volumesJson: volumesDaEtiqueta,
+          pieces: pecasDoPedido,
+          meCompradoEm: new Date(),
           // registra a chave USADA nesta etiqueta (null = declaração de
           // conteúdo) — é o que a tela lê depois, e não o estado atual da nota
           nfeKey: r.nfeKey,
@@ -396,6 +430,9 @@ export async function POST(
           meStatus,
           labelUrl: r.labelUrl,
           weightKg: pesoKg,
+          volumesJson: volumesDaEtiqueta,
+          pieces: pecasDoPedido,
+          meCompradoEm: new Date(),
           nfeKey: r.nfeKey,
           trackingCode: r.tracking,
           zip: destZip,

@@ -44,6 +44,11 @@ model Company {
   /// gera links com tabelas diferentes. DESLIGADO por padrão — loja que não
   /// ativa não muda em NADA (mesmo link, mesmo preço, mesma tela).
   priceTablesEnabled Boolean @default(false)
+  /// SIMULADOR DE FRETE (RN-019, dentro do módulo Envios): a loja liga se
+  /// fizer sentido para ela — ao ligar, a tela avisa que o resultado é
+  /// ESTIMATIVA (embalagem de um envio passado parecido, não a deste pedido).
+  /// Desligado por padrão: loja que não ativa não vê nada de novo.
+  freteSimuladorEnabled Boolean @default(false)
   suspended         Boolean  @default(false) // acesso bloqueado pelo super admin (ex.: inadimplência)
   // última rodada das automações desta loja. É a TRAVA ATÔMICA que faz o
   // motor rodar de carona no tráfego normal, no máximo uma vez por dia, sem
@@ -1836,6 +1841,15 @@ model Shipping {
   meStatus     String? // COMPRADO | ETIQUETA | POSTADO | ENTREGUE | CANCELADO
   labelUrl     String? // link de impressão da etiqueta
   weightKg     Float? // peso usado na cotação (auditoria)
+  // MEMÓRIA DE EMBALAGEM (RN-019): os volumes que a etiqueta DECLAROU
+  // (JSON de VolumePacote[]) e quantas peças o pedido tinha na compra. É
+  // daqui que o simulador de frete puxa "teve um envio de 23 peças nessa
+  // caixa" — sem estes campos a medida real morria com a etiqueta.
+  volumesJson  String?
+  pieces       Int?
+  // quando a etiqueta foi COMPRADA (o "gasto do mês" da tela Envios soma por
+  // esta data; shippedAt é a postagem, que pode cair noutro mês)
+  meCompradoEm DateTime?
   // Chave da NF-e que FOI usada nesta etiqueta (quando usada). Fica aqui, e
   // não só no pedido, porque a tela precisa dizer a verdade do que foi
   // comprado: etiqueta comprada antes de emitir a nota continua precisando da
@@ -1886,6 +1900,12 @@ model MelhorEnvioConnection {
   boxHeightCm        Int @default(15)
   boxLengthCm        Int @default(40)
   categoryWeights    String @default("") // JSON {"Vestidos":350,...} — peso padrão por categoria (g)
+  // MEDIDAS DE 1 PEÇA por categoria (RN-019): JSON
+  // {"Baby Look":{"compCm":30,"largCm":20,"altCm":2},...}. É com isto que a
+  // cotação automática e o simulador MONTAM o pacote (empilham as peças) em
+  // vez de usar uma caixa do mesmo tamanho para 5 ou 50 peças. Categoria sem
+  // medidas → cai na caixa padrão acima, como sempre foi.
+  categoryDims       String @default("")
 }
 
 // Timeline do pedido: criação, mudanças de status, pagamento, envio...
