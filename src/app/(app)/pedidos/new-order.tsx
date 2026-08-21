@@ -81,11 +81,16 @@ export function NewOrderButton() {
 
   useEffect(() => {
     if (!open) return;
+    // aborta a busca anterior: sem isso uma resposta LENTA e antiga
+    // sobrescrevia a lista do que foi digitado por último
+    const ctrl = new AbortController();
     const t = setTimeout(async () => {
-      const res = await fetch(`/api/products?q=${encodeURIComponent(prodQuery.trim())}`);
-      if (res.ok) setProducts(await res.json());
+      try {
+        const res = await fetch(`/api/products?q=${encodeURIComponent(prodQuery.trim())}`, { signal: ctrl.signal });
+        if (res.ok) setProducts(await res.json());
+      } catch { /* busca abortada */ }
     }, 300);
-    return () => clearTimeout(t);
+    return () => { clearTimeout(t); ctrl.abort(); };
   }, [prodQuery, open]);
 
   function addLine(p: ApiProduct, v: ApiVariant) {
@@ -280,7 +285,10 @@ export function NewOrderButton() {
               </div>
               {prodQuery.trim().length > 0 && !picking && (
                 <div className="mt-1 rounded-xl border border-gray-200 bg-white shadow-pop max-h-56 overflow-y-auto">
-                  {products.slice(0, 8).map((p) => (
+                  {/* a lista INTEIRA que o servidor devolveu, com rolagem — o
+                      corte em 8 escondia o produto novo quando muitos nomes
+                      parecidos vinham antes dele na ordem alfabética */}
+                  {products.map((p) => (
                     <button
                       key={p.id}
                       onClick={() => setPicking(p)}
@@ -300,6 +308,9 @@ export function NewOrderButton() {
                   ))}
                   {products.length === 0 && (
                     <p className="px-3 py-2 text-xs text-gray-400">Nenhum produto encontrado.</p>
+                  )}
+                  {products.length >= 60 && (
+                    <p className="px-3 py-2 text-xs text-amber-600">Tem mais resultado do que dá para mostrar — digite mais letras para afinar.</p>
                   )}
                 </div>
               )}

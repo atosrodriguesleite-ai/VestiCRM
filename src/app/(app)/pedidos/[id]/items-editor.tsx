@@ -73,11 +73,16 @@ export function ItemsEditor({
       setProducts([]);
       return;
     }
+    // aborta a busca anterior: sem isso uma resposta LENTA e antiga
+    // sobrescrevia a lista do que foi digitado por último
+    const ctrl = new AbortController();
     const t = setTimeout(async () => {
-      const res = await fetch(`/api/products?q=${encodeURIComponent(prodQuery.trim())}`);
-      if (res.ok) setProducts(await res.json());
+      try {
+        const res = await fetch(`/api/products?q=${encodeURIComponent(prodQuery.trim())}`, { signal: ctrl.signal });
+        if (res.ok) setProducts(await res.json());
+      } catch { /* busca abortada */ }
     }, 300);
-    return () => clearTimeout(t);
+    return () => { clearTimeout(t); ctrl.abort(); };
   }, [prodQuery, open]);
 
   function addLine(p: ApiProduct, v: ApiVariant) {
@@ -161,7 +166,10 @@ export function ItemsEditor({
           <input value={prodQuery} onChange={(e) => setProdQuery(e.target.value)} placeholder="Adicionar produto (nome ou SKU)…" className={`${inputCls} pl-9`} />
           {prodQuery.trim() && !picking && (
             <div className="absolute z-10 mt-1 w-full rounded-xl border border-gray-200 bg-white shadow-pop max-h-56 overflow-y-auto">
-              {products.slice(0, 8).map((p) => (
+              {/* a lista INTEIRA que o servidor devolveu, com rolagem — o
+                  corte em 8 escondia o produto novo quando muitos nomes
+                  parecidos vinham antes dele na ordem alfabética */}
+              {products.map((p) => (
                 <button key={p.id} onClick={() => setPicking(p)} className="w-full flex items-center gap-3 text-left px-3 py-2 hover:bg-brand-50 transition">
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   {p.images[0] ? <img src={p.images[0].url} alt="" className="size-9 rounded-lg object-cover bg-gray-50" /> : <span className="size-9 rounded-lg bg-gray-100" />}
@@ -172,6 +180,7 @@ export function ItemsEditor({
                 </button>
               ))}
               {products.length === 0 && <p className="px-3 py-2 text-xs text-gray-400">Nenhum produto encontrado.</p>}
+              {products.length >= 60 && <p className="px-3 py-2 text-xs text-amber-600">Tem mais resultado do que dá para mostrar — digite mais letras para afinar.</p>}
             </div>
           )}
         </div>
