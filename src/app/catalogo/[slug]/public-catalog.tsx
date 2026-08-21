@@ -32,6 +32,7 @@ import {
   marcarRegistrado,
 } from "@/lib/catalogo/envio-pedido";
 import { compareSizes } from "@/lib/sizes";
+import { mascaraTelefoneBR } from "@/lib/format";
 import { fotoDaCor, ordenarFotosDaCor } from "@/lib/capa-por-cor";
 import { agruparPorTipo, descricaoDaCategoria, sortCategories } from "@/lib/categories";
 import { procurarPecas } from "@/lib/catalogo/procurar-peca";
@@ -875,9 +876,28 @@ export function PublicCatalog({
     // Nome e telefone são obrigatórios: o telefone é a identificação do
     // cliente (puxa o cadastro existente na base da loja, se houver).
     const foneDigits = client.fone.replace(/\D/g, "");
-    if (!client.nome.trim() || foneDigits.length < 10) {
+    const foneInternacional = client.fone.trim().startsWith("+");
+    if (!client.nome.trim()) {
       openBag();
-      showToast("Preencha seu nome e telefone (com DDD) para enviar o pedido");
+      showToast("Preencha seu nome para enviar o pedido");
+      return;
+    }
+    // 10 ou 11 dígitos EXATOS: é nesse número que a loja vai responder, e
+    // dígito a mais ou a menos vira cliente fantasma que nunca recebe nada
+    // internacional (+) tem formato livre, mas precisa de número de verdade:
+    // "+" ou "+55" sozinhos passavam e o pedido nascia sem como responder
+    if (foneInternacional && foneDigits.length < 8) {
+      openBag();
+      showToast("Telefone incompleto: escreva o número todo");
+      return;
+    }
+    if (!foneInternacional && foneDigits.length !== 10 && foneDigits.length !== 11) {
+      openBag();
+      showToast(
+        foneDigits.length > 11
+          ? "O telefone tem dígitos demais — confira o número com DDD"
+          : "Telefone incompleto: escreva o DDD e o número todo"
+      );
       return;
     }
     let msg = `*Novo pedido — ${storeName}*\n`;
@@ -2044,7 +2064,43 @@ export function PublicCatalog({
                     </label>
                     <input
                       value={client[key]}
-                      onChange={(e) => setClient((c) => ({ ...c, [key]: e.target.value }))}
+                      // TELEFONE: teclado de NÚMEROS e máscara. Era o único
+                      // campo do sistema sem os dois — a cliente digitava
+                      // onze dígitos crus no teclado de letras, e um dígito
+                      // errado passava batido (incidente Toque Leve).
+                      {...(key === "fone"
+                        ? { type: "tel" as const, inputMode: "tel" as const, autoComplete: "tel" }
+                        : {})}
+                      onChange={(e) => {
+                        if (key !== "fone") {
+                          const v = e.target.value;
+                          setClient((c) => ({ ...c, [key]: v }));
+                          return;
+                        }
+                        // CORRIGIR UM DÍGITO NO MEIO sem o cursor fugir para o
+                        // fim: a máscara reescreve o texto todo, e é justamente
+                        // no meio que a cliente corrige depois de conferir.
+                        const el = e.currentTarget;
+                        const cursor = el.selectionStart ?? el.value.length;
+                        const digitosAntes = el.value
+                          .slice(0, cursor)
+                          .replace(/\D/g, "").length;
+                        const novo = mascaraTelefoneBR(el.value);
+                        setClient((c) => ({ ...c, fone: novo }));
+                        requestAnimationFrame(() => {
+                          let vistos = 0;
+                          let i = 0;
+                          while (i < novo.length && vistos < digitosAntes) {
+                            if (/\d/.test(novo[i])) vistos++;
+                            i++;
+                          }
+                          try {
+                            el.setSelectionRange(i, i);
+                          } catch {
+                            // navegador antigo: cursor no fim, como era antes
+                          }
+                        });
+                      }}
                       onBlur={() => {
                         // digitou o telefone e parou? já identifica — se
                         // abandonar agora, sabemos quem é para recuperar
@@ -2118,6 +2174,21 @@ export function PublicCatalog({
                   </p>
                 ))}
               </div>
+            )}
+            {/* CONFERE O NÚMERO ANTES DE MANDAR. É o último instante em que a
+                cliente pode ver que errou — depois disso a loja responde num
+                número que não existe e a venda morre em silêncio (incidente
+                Toque Leve: duas clientes seguidas com o último dígito errado). */}
+            {client.fone.replace(/\D/g, "").length >= 10 && (
+              <p
+                className="mb-[11px] text-center text-[12.5px] leading-snug m-0"
+                style={{ color: T.muted }}
+              >
+                Vamos responder no WhatsApp{" "}
+                <b style={{ color: T.primary }}>{client.fone}</b>
+                <br />
+                <span className="text-[11.5px]">Confira se está certinho 😉</span>
+              </p>
             )}
             <button
               onClick={sendOrder}

@@ -31,6 +31,38 @@ export function numeroBR(texto: string): number {
   return Number.isFinite(n) && n > 0 ? n : 0;
 }
 
+/**
+ * MÁSCARA DO TELEFONE ENQUANTO A CLIENTE DIGITA — "(75) 99128-9575".
+ *
+ * Incidente Toque Leve (agosto/2026): duas clientes seguidas mandaram o
+ * pedido do catálogo com o ÚLTIMO dígito errado. O campo do catálogo era o
+ * único do sistema sem teclado numérico e sem máscara: a cliente digitava
+ * onze dígitos crus, no teclado de letras, e um número errado passava sem
+ * ninguém perceber — nascia um cadastro fantasma e a resposta da loja não
+ * chegava em ninguém.
+ *
+ * Com a máscara, dígito faltando ou sobrando fica VISÍVEL na hora, porque o
+ * formato não fecha. Número internacional (começa com "+") passa cru: a
+ * máscara é brasileira e não pode atrapalhar quem é de fora.
+ */
+export function mascaraTelefoneBR(texto: string): string {
+  if (texto.trim().startsWith("+")) return texto;
+  const todos = texto.replace(/\D/g, "");
+  // DDI 55 digitado junto some do visor — o que importa é o número brasileiro
+  const d = todos.length > 11 && todos.startsWith("55") ? todos.slice(2) : todos;
+  // MAIS DÍGITOS DO QUE CABE: passa CRU, nunca corta. Cortar em silêncio era
+  // pior que o problema — "55 75 99128-9575" virava "(55) 75991-2895", um
+  // número diferente e válido, que passava na conferência e criava o cadastro
+  // fantasma que esta entrega veio evitar (achado da revisão).
+  if (d.length > 11) return texto;
+  if (d.length <= 2) return d ? `(${d}` : "";
+  const ddd = d.slice(0, 2);
+  const resto = d.slice(2);
+  if (resto.length <= 4) return `(${ddd}) ${resto}`;
+  const corte = resto.length <= 8 ? 4 : 5;
+  return `(${ddd}) ${resto.slice(0, corte)}-${resto.slice(corte)}`;
+}
+
 // Fuso oficial do produto: horário de São Paulo/Brasília. O servidor
 // (Vercel) roda em UTC — sem fixar o fuso, as horas saem 3h à frente.
 export const TIMEZONE = "America/Sao_Paulo";
