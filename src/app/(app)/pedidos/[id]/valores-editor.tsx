@@ -182,17 +182,10 @@ export function ValoresEditor({
 
   return (
     <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50/60 p-3">
+      {/* ACRÉSCIMO PRIMEIRO (ordem da conta, pedido do dono 21/08/2026): o
+          acréscimo entra sobre os produtos e o desconto vem DEPOIS, global —
+          em % ele desconta sobre o total já com o acréscimo */}
       <div className="grid gap-3 sm:grid-cols-2">
-        {linhaAjuste(
-          "Desconto",
-          <Tag className="size-3" />,
-          descModo,
-          setDescModo,
-          descTexto,
-          setDescTexto,
-          previa.discount,
-          "text-rose-600"
-        )}
         {linhaAjuste(
           "Acréscimo",
           <Plus className="size-3" />,
@@ -202,6 +195,16 @@ export function ValoresEditor({
           setAcrTexto,
           previa.surcharge,
           "text-emerald-600"
+        )}
+        {linhaAjuste(
+          "Desconto",
+          <Tag className="size-3" />,
+          descModo,
+          setDescModo,
+          descTexto,
+          setDescTexto,
+          previa.discount,
+          "text-rose-600"
         )}
       </div>
 
@@ -255,16 +258,17 @@ export function ValoresEditor({
           <span>Produtos</span>
           <span className="tabular-nums">{brl(previa.subtotal)}</span>
         </div>
-        {previa.discount > 0 && (
-          <div className="flex justify-between text-rose-600">
-            <span>Desconto</span>
-            <span className="tabular-nums">− {brl(previa.discount)}</span>
-          </div>
-        )}
+        {/* mesma ordem da conta: acréscimo entra, o desconto global sai por último */}
         {previa.surcharge > 0 && (
           <div className="flex justify-between text-emerald-600">
             <span>Acréscimo</span>
             <span className="tabular-nums">+ {brl(previa.surcharge)}</span>
+          </div>
+        )}
+        {previa.discount > 0 && (
+          <div className="flex justify-between text-rose-600">
+            <span>Desconto{descModo === "PCT" ? " (sobre o total com acréscimo)" : ""}</span>
+            <span className="tabular-nums">− {brl(previa.discount)}</span>
           </div>
         )}
         <div className="flex justify-between border-t border-slate-100 pt-1 font-semibold text-slate-800">

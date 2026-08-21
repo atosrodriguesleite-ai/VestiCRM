@@ -427,3 +427,19 @@ describe("o histórico de pedidos é PARA SEMPRE: a lista pagina, não corta", (
     expect(lista).toContain("totalFiltrado");
   });
 });
+
+// ---------------------------------------------------------------------------
+describe("desconto global (ADR-013) não reescreve pedido antigo de carona", () => {
+  // A tela reenvia desconto/acréscimo mesmo quando só o frete mudou. Sem a
+  // trava, um ajuste de frete recalculava o desconto % gravado pela regra
+  // nova e mudava o faturamento de pedido pago de mês fechado.
+  const rota = ler("src/app/api/orders/[id]/route.ts");
+  it("ajustes enviados iguais aos gravados → dinheiro gravado fica intacto", () => {
+    expect(rota).toContain("descontoIntacto");
+    expect(rota).toContain("acrescimoIntacto");
+    expect(rota).toContain("netTotal: order.netTotal");
+  });
+  it("a fórmula nova mora só no computeOrderTotals (base do desconto = produtos + acréscimo)", () => {
+    expect(ler("src/lib/orders.ts")).toContain("baseDesconto");
+  });
+});

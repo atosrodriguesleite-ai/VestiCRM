@@ -306,6 +306,54 @@ export async function GET(
       y -= 12;
     }
 
+    // ---- Observações EM DESTAQUE no cabeçalho (pedido do dono, 21/08/2026) ----
+    // O bilhete do pedido ("todas entregues, exceto…", "reservar até sexta")
+    // é instrução de SEPARAÇÃO: escondido lá embaixo, depois dos totais, quem
+    // separava só via depois de fechar a caixa. Agora é uma faixa com a cor
+    // da loja, antes da lista de peças.
+    if (order.notes?.trim()) {
+      y -= 16;
+      const padding = 10;
+      const larguraTexto = width - 2 * M - 2 * padding;
+      // quebra por palavra, respeitando as linhas que a lojista digitou
+      const linhas = order.notes
+        .trim()
+        .split("\n")
+        .flatMap((l) =>
+          l.trim()
+            ? quebrarEmLinhas(l, (t) => bold.widthOfTextAtSize(t, 10), larguraTexto, 3)
+            : [""]
+        )
+        .slice(0, 8); // teto de segurança: bilhete gigante não engole a página
+      const alturaCaixa = 20 + linhas.length * 13 + padding;
+      newPageIfNeeded(alturaCaixa + 10);
+      page.drawRectangle({
+        x: M,
+        y: y - alturaCaixa + 12,
+        width: width - 2 * M,
+        height: alturaCaixa,
+        color: LIGHT,
+      });
+      // barrinha lateral na cor da loja: é o que faz o olho parar aqui
+      page.drawRectangle({
+        x: M,
+        y: y - alturaCaixa + 12,
+        width: 4,
+        height: alturaCaixa,
+        color: ACCENT,
+      });
+      page.drawText("OBSERVAÇÕES DO PEDIDO", {
+        x: M + padding + 2, y: y - 4, size: 8, font: bold, color: ACCENT,
+      });
+      let yTexto = y - 20;
+      for (const linha of linhas) {
+        if (linha)
+          page.drawText(linha, { x: M + padding + 2, y: yTexto, size: 10, font: bold, color: INK });
+        yTexto -= 13;
+      }
+      y = y - alturaCaixa + 12 - 6;
+    }
+
     // ---- Tabela de itens com caixa de conferência ----
     y -= 18;
     page.drawRectangle({ x: M, y: y - 6, width: width - 2 * M, height: 22, color: LIGHT });
@@ -392,6 +440,12 @@ export async function GET(
     const totals: [string, string, boolean][] = [
       ["Total de peças", String(totalPieces), false],
       ["Subtotal", money(order.subtotal), false],
+      // ordem da conta: acréscimo entra antes do desconto (que é global) —
+      // e a linha do acréscimo FALTAVA: com ela ausente, a soma impressa
+      // não fechava com o TOTAL e o desconto parecia maior que o combinado
+      ...(order.surcharge > 0
+        ? ([["Acréscimo", `+ ${money(order.surcharge)}`, false]] as [string, string, boolean][])
+        : []),
       ...(order.discount > 0
         ? ([["Desconto", `- ${money(order.discount)}`, false]] as [string, string, boolean][])
         : []),
@@ -414,17 +468,7 @@ export async function GET(
       y -= strong ? 22 : 16;
     }
 
-    // ---- Observações ----
-    if (order.notes) {
-      newPageIfNeeded(60);
-      y -= 8;
-      page.drawText("OBSERVAÇÕES", { x: M, y, size: 8, font: bold, color: GRAY });
-      y -= 13;
-      for (const line of order.notes.split("\n").slice(0, 4)) {
-        page.drawText(line.slice(0, 110), { x: M, y, size: 9, font, color: INK });
-        y -= 12;
-      }
-    }
+    // (as observações agora abrem o romaneio, em destaque no cabeçalho)
 
     // ---- Bloco de conferência final ----
     newPageIfNeeded(80);
