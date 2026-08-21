@@ -129,3 +129,19 @@ describe("romaneio abre em página do app (não no PDF cru que prende o celular)
     expect(pagina).toContain("...orderScope(user)");
   });
 });
+
+describe("romaneio imprime em um clique (pedido do dono, 21/08/2026)", () => {
+  const viewer = ler("src/app/(app)/pedidos/[id]/romaneio/viewer.tsx");
+  it("o botão Imprimir manda o PDF para a impressora sem abrir aba", () => {
+    expect(viewer).toContain("Imprimir");
+    expect(viewer).toContain("contentWindow?.print()");
+  });
+  it("navegador que recusa imprimir PDF escondido tem plano B visível", () => {
+    // sem isto o clique podia não fazer nada e a lojista ficava sem saída
+    expect(viewer).toContain("A janela não abriu?");
+    expect(viewer).toContain("Abrir o PDF");
+  });
+  it("o plano B é LINK para o endereço normal do PDF (pop-up bloqueia janela aberta por código)", () => {
+    expect(viewer).not.toContain('window.open(');
+  });
+});
