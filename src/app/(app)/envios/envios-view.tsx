@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { Alert, Badge, Button, Card, EmptyState, Input, Spinner } from "@/components/ui";
 import { copiarTexto } from "@/lib/copiar";
+import { MapaEnvios, type MapaDeEnvios } from "./mapa-envios";
 import { AGUARDANDO_POSTAGEM, estaParado, lerValorBR } from "@/lib/envios/painel";
 import type { MeQuote, MeRecusa, VolumePacote } from "@/lib/melhorenvio-tipos";
 
@@ -65,6 +66,8 @@ type Painel = {
 type Dados = {
   lista: Envio[];
   painel: Painel;
+  /** null quando a resposta é de BUSCA (a lupa não muda o mapa) */
+  mapa: MapaDeEnvios | null;
   diasParaParado: number;
   simuladorLigado: boolean;
   podeLigarSimulador: boolean;
@@ -134,7 +137,8 @@ export function EnviosView() {
       const r = await fetch(`/api/envios${q ? `?q=${encodeURIComponent(q)}` : ""}`);
       const d = await r.json();
       if (!r.ok) throw new Error(d.error ?? "Não foi possível carregar os envios.");
-      setDados(d);
+      // resposta de busca vem SEM mapa (a lupa não o muda) — fica o da carga cheia
+      setDados((antes) => (d.mapa ? d : { ...d, mapa: antes?.mapa ?? null }));
       setErro("");
     } catch (e) {
       setErro(e instanceof Error ? e.message : "Não foi possível carregar os envios.");
@@ -226,6 +230,9 @@ export function EnviosView() {
               }
             />
           </div>
+
+          {/* ---- Mapa de envios --------------------------------------- */}
+          {dados.mapa && <MapaEnvios mapa={dados.mapa} />}
 
           {/* ---- Simulador (RN-019) ----------------------------------- */}
           <Simulador

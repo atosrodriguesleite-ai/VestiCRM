@@ -5,6 +5,7 @@ import { requireUser, AuthError } from "@/lib/auth";
 import { isManagerUp, orderScope } from "@/lib/scope";
 import { atualizarRastreiosSeDevido } from "@/lib/rastreio";
 import { DIAS_PARA_PARADO, inicioDoMesSP, resumoDosEnvios } from "@/lib/envios/painel";
+import { montarMapaEnvios } from "@/lib/envios/mapa";
 
 export const dynamic = "force-dynamic";
 
@@ -55,7 +56,7 @@ export async function GET(req: NextRequest) {
         }
       : {};
 
-    const [linhas, porStatus, gasto, entreguesRecentes, parados] = await Promise.all([
+    const [linhas, porStatus, gasto, entreguesRecentes, parados, porCidade] = await Promise.all([
       db.shipping.findMany({
         where: { ...escopo, ...filtroBusca },
         // compra mais recente primeiro; etiqueta de antes da coluna existir
@@ -121,6 +122,21 @@ export async function GET(req: NextRequest) {
           },
         },
       }),
+      // mapa: TODO envio da loja (não só os 300 da lista), agrupado por
+      // cidade/UF no banco. Só a etiqueta CANCELADA fica de fora — e status
+      // nulo (etiqueta de antes da coluna) CONTA: `not` do Prisma exclui
+      // NULL junto, por isso o OR explícito. A lupa não muda o mapa, então
+      // busca com `q` nem refaz esta conta (o navegador guarda a que tem).
+      q
+        ? null
+        : db.shipping.groupBy({
+            by: ["city", "state"],
+            where: {
+              ...escopo,
+              OR: [{ meStatus: null }, { meStatus: { not: "CANCELADO" } }],
+            },
+            _count: { _all: true },
+          }),
     ]);
 
     const painel = resumoDosEnvios({
@@ -156,6 +172,15 @@ export async function GET(req: NextRequest) {
         comNota: Boolean(l.nfeKey),
       })),
       painel,
+      mapa: porCidade
+        ? montarMapaEnvios(
+            porCidade.map((c) => ({
+              cidade: c.city,
+              uf: c.state,
+              quantidade: c._count._all,
+            }))
+          )
+        : null,
       diasParaParado: DIAS_PARA_PARADO,
       simuladorLigado: company.freteSimuladorEnabled,
       podeLigarSimulador: isManagerUp(user),

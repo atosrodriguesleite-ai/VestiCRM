@@ -287,7 +287,14 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   trânsito com alerta de **parado há 7+ dias**, entregues com tempo médio) +
   lista de tudo que saiu (transportadora, destinatária, rastreio com copiar
   código/link público, status vivo) — a lista respeita RN-007 (`orderScope`)
-  e a abertura da tela dá carona na varredura de rastreio. Melhor Envio
+  e a abertura da tela dá carona na varredura de rastreio. **Mapa de envios**
+  (`lib/envios/mapa.ts` + `mapa-envios.tsx`): o Brasil pintado por estado
+  (mais envios = cobre mais forte) com bolinha em cada cidade de destino e
+  lista de estados com quantidade (só estado com 1+ envio) — tudo offline:
+  contornos e coordenadas dos 5.570 municípios foram gerados uma vez
+  (`scripts/gerar-mapa-envios.mjs`) e commitados; cidade que não casa com a
+  base vira ponto no centro do estado (envio nunca some do mapa) e etiqueta
+  cancelada não conta. Melhor Envio
   OAuth por loja (`lib/melhorenvio.ts`); peso por produto (sync automático da
   Nuvemshop, nunca sobrescreve manual) + padrão por categoria/loja; no pedido:
   cotar → comprar etiqueta (saldo da carteira ME da loja; gerente+) → imprimir
