@@ -43,9 +43,18 @@ const VIEW_BOX = (mapaBrasil as { viewBox: string }).viewBox;
 // regenerar o mapa com outro tamanho não pode desalinhar o tooltip
 const LADO = Number(VIEW_BOX.split(" ")[3]);
 
-/** escala sequencial do cobre — mais envios, mais forte */
-const TONS = ["#f5e7da", "#ebcdb2", "#dfab80", "#d28655", "#c4622d"];
-const SEM_ENVIO = "#efe9e0";
+/**
+ * Escala sequencial do cobre — mais envios, mais forte.
+ *
+ * O tom mais claro é COBRE de verdade e o "sem envio" é CINZA: a versão
+ * anterior tinha os dois quase iguais (diferença perceptual 3,6 — o olho não
+ * separa em duas áreas grandes), então o Rio com 42 pedidos parecia tão
+ * apagado quanto Roraima com zero. Agora a menor diferença da escala é 16.
+ */
+const TONS = ["#f2d9bc", "#e5b88c", "#d59260", "#c4622d", "#8f4419"];
+const SEM_ENVIO = "#e9e6e2";
+/** bolinha da cidade: escura o bastante para não sumir no estado mais forte */
+const COR_PONTO = "#4a2410";
 
 /**
  * O SUBSTANTIVO SEGUE O RECORTE. No modo "todos" a conta é de PEDIDOS PAGOS —
@@ -74,13 +83,28 @@ export function MapaEnvios({ mapa }: { mapa: MapaDeEnvios }) {
   const maiorUf = atual.porUf[0]?.quantidade ?? 0;
   const maiorPonto = atual.pontos[0]?.quantidade ?? 0;
 
+  /**
+   * ESCALA LOGARÍTMICA, não proporcional ao maior. Numa confecção real São
+   * Paulo vale dez vezes o segundo colocado: dividindo pelo maior, 25 dos 27
+   * estados caíam no tom mais claro e o mapa dizia "só vendo em SP". O log
+   * abre a cauda: quem tem 3, 12 e 40 pedidos ganha tons diferentes, em vez
+   * de todo mundo empilhado no mais claro.
+   */
   const corDoEstado = (uf: string) => {
     const q = contagem.get(uf) ?? 0;
-    if (q === 0 || maiorUf === 0) return SEM_ENVIO;
-    return TONS[Math.min(TONS.length - 1, Math.floor((q / maiorUf) * TONS.length))];
+    if (q <= 0) return SEM_ENVIO;
+    if (maiorUf <= 1) return TONS[TONS.length - 1]; // todos empatados em 1
+    const proporcao = Math.log(q) / Math.log(maiorUf);
+    return TONS[Math.max(0, Math.min(TONS.length - 1, Math.round(proporcao * (TONS.length - 1))))];
   };
+
+  /**
+   * Bolinha discreta: com todas as cidades empatadas em 1 pedido (loja nova),
+   * o raio antigo dava 12px em TODAS e a Grande São Paulo virava uma mancha
+   * só — Recife e Olinda ficam a 0,7px uma da outra neste mapa.
+   */
   const raioDoPonto = (q: number) =>
-    maiorPonto <= 0 ? 5 : 4.5 + 7.5 * Math.sqrt(q / maiorPonto);
+    maiorPonto <= 0 ? 3.2 : 3.2 + 4.8 * Math.sqrt(q / maiorPonto);
 
   return (
     <Card className="overflow-hidden">
@@ -118,7 +142,8 @@ export function MapaEnvios({ mapa }: { mapa: MapaDeEnvios }) {
 
       <div className="grid gap-4 p-4 lg:grid-cols-[1fr_260px]">
         {/* ---- o Brasil ------------------------------------------------ */}
-        <div className="relative mx-auto w-full max-w-xl" onMouseLeave={() => setDica(null)}>
+        <div className="mx-auto w-full max-w-xl">
+        <div className="relative" onMouseLeave={() => setDica(null)}>
           <svg viewBox={VIEW_BOX} className="w-full" role="img" aria-label={`Mapa do Brasil com a quantidade de ${modo === "todos" ? "pedidos pagos" : "envios"} por estado`}>
             {Object.entries(UFS).map(([uf, forma]) => (
               <path
@@ -140,17 +165,21 @@ export function MapaEnvios({ mapa }: { mapa: MapaDeEnvios }) {
                 <title>{`${NOME_DO_ESTADO[uf] ?? uf} — ${plural(contagem.get(uf) ?? 0, modo)}`}</title>
               </path>
             ))}
-            {/* bolinhas por cidade (as maiores por baixo, para nenhuma sumir) */}
+            {/* bolinhas por cidade (as maiores por baixo, para nenhuma sumir).
+                A do estado SEM cidade identificada sai VAZADA: ela é desenhada
+                sobre a capital, e cheia virava "vendeu para a capital" — que é
+                mentira quando o cadastro só não tinha a cidade. */}
             {atual.pontos.map((p) => (
               <circle
                 key={`${p.cidade ?? "~"}|${p.uf}`}
                 cx={p.x}
                 cy={p.y}
                 r={raioDoPonto(p.quantidade)}
-                fill="#7c3a18"
-                fillOpacity={0.85}
-                stroke="#fff"
-                strokeWidth={2}
+                fill={p.cidade ? COR_PONTO : "#fff"}
+                fillOpacity={p.cidade ? 0.85 : 0.95}
+                stroke={p.cidade ? "#fff" : COR_PONTO}
+                strokeWidth={1.5}
+                strokeDasharray={p.cidade ? undefined : "3 2"}
                 onMouseEnter={() =>
                   setDica({
                     x: p.x,
@@ -174,9 +203,11 @@ export function MapaEnvios({ mapa }: { mapa: MapaDeEnvios }) {
               <p className="whitespace-nowrap text-[11px] text-slate-300">{dica.texto}</p>
             </div>
           )}
-
-          {/* legenda */}
-          <div className="mt-2 flex items-center justify-center gap-2 text-[11px] text-slate-400">
+          </div>
+          {/* legenda fora do bloco do MAPA (a altura dela entrava na conta de
+              posição da dica e empurrava a dica para baixo do ponto), mas
+              ainda dentro da mesma coluna do grid */}
+          <div className="-mt-1 flex flex-wrap items-center justify-center gap-x-2 gap-y-1 text-[11px] text-slate-400">
             <span>menos</span>
             <span className="flex overflow-hidden rounded-sm">
               {TONS.map((t) => (
@@ -184,8 +215,13 @@ export function MapaEnvios({ mapa }: { mapa: MapaDeEnvios }) {
               ))}
             </span>
             <span>mais</span>
-            <span className="ms-3 inline-block size-2.5 rounded-full border border-white bg-[#7c3a18]" />
+            <span className="ms-3 inline-block size-2.5 rounded-full" style={{ backgroundColor: COR_PONTO }} />
             <span>cidade da cliente</span>
+            <span
+              className="ms-3 inline-block size-2.5 rounded-full border-2 bg-white"
+              style={{ borderColor: COR_PONTO }}
+            />
+            <span>cidade não identificada</span>
           </div>
         </div>
 

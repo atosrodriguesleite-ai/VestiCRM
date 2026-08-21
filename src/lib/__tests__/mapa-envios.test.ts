@@ -89,13 +89,13 @@ describe("montarMapaEnvios", () => {
 });
 
 // Guarda RN-022 · Mapa de envios com dois recortes: "todos os pedidos pagos"
-// (endereço do envio ou, na falta, da cliente) e "Melhor Envio" (só
-// etiquetas, sem canceladas); o que não tem estado é contado e dito na tela
+// (endereço da etiqueta ou, na falta, da ficha da cliente) e "Melhor Envio"
+// (só etiquetas, sem canceladas); o que não tem estado é contado e dito na tela
 describe("enderecoDoPedido — de onde sai o destino de um pedido pago", () => {
-  const emSP = { city: "Sorocaba", state: "SP" };
+  const emSP = { city: "Sorocaba", state: "SP", meOrderId: "me-1" };
   const emMG = { city: "Belo Horizonte", state: "MG" };
 
-  it("o endereço do ENVIO manda (foi o usado na etiqueta)", () => {
+  it("o endereço da ETIQUETA manda (foi para onde a caixa foi)", () => {
     expect(enderecoDoPedido({ shipping: emSP, customer: emMG })).toEqual({
       cidade: "Sorocaba",
       uf: "SP",
@@ -112,13 +112,16 @@ describe("enderecoDoPedido — de onde sai o destino de um pedido pago", () => {
   it("registro de envio SEM endereço (pedido marcado como enviado à mão) cai na cliente", () => {
     // este é o caso comum: virar ENVIADO cria o Shipping só com a data
     expect(
-      enderecoDoPedido({ shipping: { city: null, state: null }, customer: emMG })
+      enderecoDoPedido({
+        shipping: { city: null, state: null, meOrderId: null },
+        customer: emMG,
+      })
     ).toEqual({ cidade: "Belo Horizonte", uf: "MG" });
   });
 
   it("NUNCA mistura as duas fontes (cidade de uma com UF da outra erraria o ponto)", () => {
     const r = enderecoDoPedido({
-      shipping: { city: null, state: "SP" },
+      shipping: { city: null, state: "SP", meOrderId: "me-1" },
       customer: emMG,
     });
     expect(r).toEqual({ cidade: null, uf: "SP" }); // centro de SP, não BH
@@ -129,6 +132,76 @@ describe("enderecoDoPedido — de onde sai o destino de um pedido pago", () => {
       cidade: null,
       uf: null,
     });
+  });
+});
+
+describe("casos de canto que a revisão pegou", () => {
+  it("UF por extenso conta (a Nuvemshop grava 'Minas Gerais', não 'MG')", () => {
+    const m = montarMapaEnvios([
+      { cidade: "Belo Horizonte", uf: "Minas Gerais", quantidade: 2 },
+      { cidade: "Sorocaba", uf: "são paulo", quantidade: 1 },
+    ]);
+    expect(m.porUf.map((e) => e.uf).sort()).toEqual(["MG", "SP"]);
+    expect(m.semEndereco).toBe(0);
+    // e cai na cidade certa, não no centro do estado
+    expect(m.pontos.find((p) => p.uf === "MG")?.cidade).toBe("Belo Horizonte");
+  });
+
+  it("hífen e apóstrofo não impedem o casamento da cidade", () => {
+    for (const [cidade, uf] of [
+      ["Santana do Livramento", "RS"],
+      ["Sant'Ana do Livramento", "RS"],
+      ["Biritiba Mirim", "SP"],
+      ["Biritiba-Mirim", "SP"],
+    ] as [string, string][]) {
+      const m = montarMapaEnvios([{ cidade, uf, quantidade: 1 }]);
+      expect(m.pontos[0].cidade, `${cidade} devia casar`).toBe(cidade);
+    }
+  });
+
+  it("total + semEndereco é SEMPRE o que entrou (nada evapora)", () => {
+    const entradas = [
+      { cidade: "Sorocaba", uf: "SP", quantidade: 3 },
+      { cidade: "Lisboa", uf: "XX", quantidade: 2 },
+      { cidade: null, uf: null, quantidade: 4 },
+      { cidade: "Cidade Inventada", uf: "MG", quantidade: 1 },
+    ];
+    const m = montarMapaEnvios(entradas);
+    const entrou = entradas.reduce((s, e) => s + e.quantidade, 0);
+    expect(m.total + m.semEndereco).toBe(entrou);
+  });
+});
+
+// Guarda RN-022 (endereço): o do envio só vale com etiqueta de verdade —
+// sem ela vale a ficha da cliente, que é a fonte mais atual
+describe("endereço congelado do pedido montado no sistema", () => {
+  it("sem etiqueta, vale a FICHA da cliente (a cópia do envio envelhece)", () => {
+    // o pedido montado no sistema nasce com uma cópia do endereço da ficha;
+    // corrigir a UF errada na ficha tem que chegar ao mapa
+    expect(
+      enderecoDoPedido({
+        shipping: { city: "Cuiabá", state: "MG", meOrderId: null },
+        customer: { city: "Cuiabá", state: "MT" },
+      })
+    ).toEqual({ cidade: "Cuiabá", uf: "MT" });
+  });
+
+  it("COM etiqueta, vale o endereço impresso na etiqueta", () => {
+    expect(
+      enderecoDoPedido({
+        shipping: { city: "Santos", state: "SP", meOrderId: "me-1" },
+        customer: { city: "Belo Horizonte", state: "MG" },
+      })
+    ).toEqual({ cidade: "Santos", uf: "SP" });
+  });
+
+  it("ficha sem estado: a cópia do envio ainda é melhor que nada", () => {
+    expect(
+      enderecoDoPedido({
+        shipping: { city: "Recife", state: "PE", meOrderId: null },
+        customer: { city: null, state: null },
+      })
+    ).toEqual({ cidade: "Recife", uf: "PE" });
   });
 });
 
@@ -162,6 +235,28 @@ describe("as portas do mapa", () => {
     // e no MESMO escopo da tela (RN-007: vendedora vê só os pedidos dela)
     expect(blocoDosPedidos).toContain('o."companyId" = ${escopoDoUsuario.companyId}');
     expect(blocoDosPedidos).toContain('o."sellerId" = ${escopoDoUsuario.sellerId}');
+  });
+
+  it("a busca da tela Envios não estoura o Int nem exige acento", () => {
+    const rota = ler("src/app/api/envios/route.ts");
+    // casamento em memória (como a Central de WhatsApp), não `contains` do banco
+    expect(rota).toContain("casaTexto");
+    expect(rota).not.toContain("mode: \"insensitive\"");
+    // número do pedido só quando cabe no Int (rastreio de 14 dígitos derrubava
+    // a tela inteira com erro 500)
+    expect(rota).toContain("digitos.length <= 9");
+  });
+
+  it("a média de entrega sai das 500 mais recentes, não de 500 quaisquer", () => {
+    const rota = ler("src/app/api/envios/route.ts");
+    const blocoDaMedia = rota.slice(rota.indexOf("deliveredAt: { gte:"));
+    expect(blocoDaMedia).toContain('orderBy: { deliveredAt: "desc" }');
+  });
+
+  it("marcar ENTREGUE à mão não apaga a data real da postagem", () => {
+    // sem isso o envio entra na média como 0 dia e a média sai pela metade
+    const rota = ler("src/app/api/orders/[id]/route.ts");
+    expect(rota).toContain("...(envioAtual?.shippedAt ? {} : { shippedAt: now })");
   });
 
   it("a tela oferece os dois recortes e abre no mais completo", () => {

@@ -68,6 +68,10 @@ type Dados = {
   painel: Painel;
   /** null quando a resposta é de BUSCA (a lupa não muda o mapa) */
   mapa: MapaDeEnvios | null;
+  /** a lista bateu no teto de 300 (a tela avisa em vez de calar) */
+  listaCortada: boolean;
+  /** quantos a busca achou na loja inteira (null quando não há busca) */
+  totalDaBusca: number | null;
   diasParaParado: number;
   simuladorLigado: boolean;
   podeLigarSimulador: boolean;
@@ -214,7 +218,7 @@ export function EnviosView() {
               valor={String(dados.painel.emTransito)}
               detalhe={
                 dados.painel.parados > 0
-                  ? `${dados.painel.parados} parado${dados.painel.parados > 1 ? "s" : ""} há +${dados.diasParaParado} dias`
+                  ? `${dados.painel.parados} deles parado${dados.painel.parados > 1 ? "s" : ""} há +${dados.diasParaParado} dias`
                   : "tudo andando"
               }
               alerta={dados.painel.parados > 0}
@@ -225,7 +229,7 @@ export function EnviosView() {
               valor={String(dados.painel.entregues)}
               detalhe={
                 dados.painel.mediaEntregaDias != null
-                  ? `média de ${dados.painel.mediaEntregaDias} dia${dados.painel.mediaEntregaDias === 1 ? "" : "s"} até entregar`
+                  ? `${dados.painel.mediaEntregaDias.toLocaleString("pt-BR")} dia${dados.painel.mediaEntregaDias === 1 ? "" : "s"} em média (últimos 90 dias)`
                   : "sem entregas recentes"
               }
             />
@@ -282,17 +286,25 @@ export function EnviosView() {
             </div>
 
             {lista.length === 0 ? (
+              /* BUSCA SEM RESULTADO NÃO É "loja sem envios": olhar só o
+                 tamanho da lista fazia uma loja com centenas de envios ler
+                 "Nenhum envio ainda" só porque procurou por um nome que não
+                 existe (achado da revisão). Quem manda é o termo buscado. */
               <EmptyState
                 icon={<Truck />}
                 title={
-                  dados.lista.length === 0
-                    ? "Nenhum envio ainda"
-                    : "Nada aqui com esse filtro"
+                  dados.lista.length > 0
+                    ? "Nada aqui com esse filtro"
+                    : busca.trim()
+                      ? `Nada encontrado para "${busca.trim()}"`
+                      : "Nenhum envio ainda"
                 }
                 hint={
-                  dados.lista.length === 0
-                    ? "Quando você comprar uma etiqueta na tela do pedido, o envio aparece aqui com o rastreio andando sozinho."
-                    : "Troque a aba ou limpe a busca."
+                  dados.lista.length > 0
+                    ? "Troque a aba para ver os outros envios."
+                    : busca.trim()
+                      ? "Procure pelo nome da cliente, número do pedido ou código de rastreio."
+                      : "Quando você comprar uma etiqueta na tela do pedido, o envio aparece aqui com o rastreio andando sozinho."
                 }
               />
             ) : (
@@ -399,15 +411,19 @@ export function EnviosView() {
                     })}
                   </tbody>
                 </table>
-                {/* corte declarado (nada de truncar em silêncio): a lupa
-                    busca a loja inteira no servidor, então nada se perde */}
-                {dados.lista.length >= 300 && !busca.trim() && (
-                  <p className="border-t border-slate-50 px-4 py-2 text-[11px] text-slate-400">
-                    Mostrando os 300 envios mais recentes — use a busca para
-                    encontrar qualquer envio antigo.
-                  </p>
-                )}
               </div>
+            )}
+
+            {/* CORTE DECLARADO, nunca em silêncio — e também quando a busca
+                devolve mais do que cabe: o aviso vivia dentro do galho da
+                tabela, então sumia justamente quando a aba ficava vazia e a
+                lojista mais precisava saber que existia coisa além. */}
+            {dados.listaCortada && (
+              <p className="border-t border-slate-50 px-4 py-2 text-[11px] text-slate-400">
+                {dados.totalDaBusca != null
+                  ? `A busca achou ${dados.totalDaBusca} — mostrando os 300 mais recentes. Use um termo mais específico.`
+                  : "Mostrando os 300 envios mais recentes — use a busca para encontrar qualquer envio antigo."}
+              </p>
             )}
           </Card>
         </>

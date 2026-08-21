@@ -298,12 +298,18 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   (padrão) conta TODO pedido pago (RN-001) com endereço — a loja também
   despacha por motoboy, transportadora própria e retirada, e esses pedidos
   não têm etiqueta; **"Melhor Envio"** conta só as etiquetas compradas aqui
-  (aí a cancelada fica de fora, como no gasto do mês). O endereço vem do
-  ENVIO e, na falta, do cadastro da cliente (`enderecoDoPedido`) — pedido
-  marcado como ENVIADO à mão cria envio SEM endereço; as duas fontes nunca
-  se misturam (cidade de uma com UF da outra erraria o ponto). O que não
-  tem estado é CONTADO E DITO na tela ("N sem estado no cadastro"), nunca
-  sumido em silêncio. Melhor Envio
+  (aí a cancelada fica de fora, como no gasto do mês; etiqueta de pedido não
+  pago CONTA nesse recorte — o dinheiro saiu, mesma régua do gasto do mês, e
+  por isso ele NÃO é subconjunto do outro). O endereço vem da ETIQUETA
+  quando existe (foi o impresso) e, fora isso, do cadastro da cliente
+  (`enderecoDoPedido`): todo pedido montado no sistema nasce com uma CÓPIA
+  do endereço da ficha, e cópia envelhece — corrigir a UF na ficha tem que
+  chegar ao mapa. As duas fontes nunca se misturam (cidade de uma com UF da
+  outra erraria o ponto). UF por extenso ("Minas Gerais", que a Nuvemshop
+  grava) é traduzida para a sigla, e a cidade casa sem acento, hífen ou
+  apóstrofo. O que não tem estado é CONTADO E DITO na tela ("N sem estado no
+  cadastro"), inclusive quando o mapa está vazio — é o aviso que explica o
+  vazio. Melhor Envio
   OAuth por loja (`lib/melhorenvio.ts`); peso por produto (sync automático da
   Nuvemshop, nunca sobrescreve manual) + padrão por categoria/loja; no pedido:
   cotar → comprar etiqueta (saldo da carteira ME da loja; gerente+) → imprimir

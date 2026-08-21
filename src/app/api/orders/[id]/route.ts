@@ -797,11 +797,20 @@ export async function PATCH(
                 shippedAt: now,
                 ...(newStatus === "ENTREGUE" ? { deliveredAt: now } : {}),
               };
+              // NÃO carimba por cima da postagem que já existe: a data real
+              // vem da transportadora, e sobrescrevê-la ao confirmar a entrega
+              // na mão ("a cliente avisou no WhatsApp que recebeu") fazia o
+              // envio entrar na média de entrega como ZERO DIA — a média da
+              // tela Envios saía pela metade (achado da revisão).
+              const envioAtual = await tx.shipping.findUnique({
+                where: { orderId: order.id },
+                select: { shippedAt: true },
+              });
               await tx.shipping.upsert({
                 where: { orderId: order.id },
                 update: {
                   ...(newStatus === "ENTREGUE" ? { deliveredAt: now } : {}),
-                  shippedAt: now,
+                  ...(envioAtual?.shippedAt ? {} : { shippedAt: now }),
                 },
                 create: { orderId: order.id, cost: order.shippingFee, ...shipData },
               });

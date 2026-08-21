@@ -7,14 +7,20 @@ import { atualizarRastreiosSeDevido } from "@/lib/rastreio";
 import { DIAS_PARA_PARADO, inicioDoMesSP, resumoDosEnvios } from "@/lib/envios/painel";
 import { enderecoDoPedido, montarMapaEnvios } from "@/lib/envios/mapa";
 import { PAID_ORDER_STATUSES } from "@/lib/orders";
+import { casaTexto, soDigitos } from "@/lib/busca";
 import { Prisma } from "@prisma/client";
 
 export const dynamic = "force-dynamic";
+
+/** Quantos envios a lupa varre em memória (do mais recente para trás). */
+const TETO_DA_BUSCA = 20_000;
 
 /** Uma combinação de endereço (envio + cliente) e quantos pedidos pagos tem. */
 type LinhaDeEndereco = {
   envioCidade: string | null;
   envioUf: string | null;
+  /** houve etiqueta? sem ela o endereço do envio é só cópia velha da ficha */
+  temEtiqueta: boolean;
   clienteCidade: string | null;
   clienteUf: string | null;
   quantidade: number;
@@ -54,25 +60,56 @@ export async function GET(req: NextRequest) {
     // tem que enxergar a loja inteira — a lupa que "só via as 200 carregadas"
     // já foi incidente real na Central de WhatsApp (lição do CLAUDE.md)
     const q = (req.nextUrl.searchParams.get("q") ?? "").trim().slice(0, 80);
-    const numeroBuscado = Number(q.replace(/\D/g, ""));
-    const filtroBusca = q
-      ? {
-          OR: [
-            { order: { customer: { name: { contains: q, mode: "insensitive" as const } } } },
-            { trackingCode: { contains: q, mode: "insensitive" as const } },
-            ...(Number.isInteger(numeroBuscado) && numeroBuscado > 0
-              ? [{ order: { number: numeroBuscado } }]
-              : []),
-          ],
-        }
-      : {};
+
+    // A LUPA CASA EM MEMÓRIA, como a da Central de WhatsApp (`casaCliente`).
+    // Dois defeitos confirmados na revisão morreram aqui:
+    //  1. o `contains` do Postgres NÃO ignora acento — "jose" não achava
+    //     "José", e a vendedora no celular digita sem acento;
+    //  2. termo com muitos dígitos (rastreio da Jadlog, telefone da cliente)
+    //     estourava o Int do número do pedido e derrubava a TELA INTEIRA com
+    //     erro 500 — a lojista via "não foi possível carregar" e achava que o
+    //     sistema tinha caído.
+    // Só os campos leves da loja inteira vêm para cá, e só quando há busca.
+    let idsDaBusca: string[] | null = null;
+    let achadosNaBusca = 0;
+    if (q) {
+      const candidatos = await db.shipping.findMany({
+        where: escopo,
+        // do mais recente para o mais antigo, com teto: sem ele a lupa lia a
+        // tabela inteira a cada tecla numa loja grande
+        orderBy: [{ meCompradoEm: { sort: "desc", nulls: "last" } }, { id: "desc" }],
+        take: TETO_DA_BUSCA,
+        select: {
+          id: true,
+          trackingCode: true,
+          order: { select: { number: true, customer: { select: { name: true } } } },
+        },
+      });
+      const digitos = soDigitos(q);
+      // até 9 dígitos cabem no Int do número do pedido sem estourar
+      const numeroBuscado = digitos.length > 0 && digitos.length <= 9 ? Number(digitos) : null;
+      const casaram = candidatos.filter(
+        (c) =>
+          casaTexto(c.order.customer.name, q) ||
+          casaTexto(c.trackingCode, q) ||
+          (numeroBuscado !== null && c.order.number === numeroBuscado)
+      );
+      achadosNaBusca = casaram.length;
+      // a lista mostra 300: só esses ids vão para o banco (o `IN` não cresce)
+      idsDaBusca = casaram.slice(0, 300).map((c) => c.id);
+    }
+    const filtroBusca = idsDaBusca ? { id: { in: idsDaBusca } } : {};
 
     // MESMO escopo das demais consultas (RN-007/RN-013), escrito para o SQL:
     // a loja sempre, e a vendedora sem visão total só os pedidos dela
     const escopoDoUsuario = orderScope(user);
     const filtrosDoEscopo = [
       Prisma.sql`o."companyId" = ${escopoDoUsuario.companyId}`,
-      Prisma.sql`o.status::text IN (${Prisma.join(PAID_ORDER_STATUSES)})`,
+      // comparado como ENUM, não como texto: o `::text` fazia o Postgres
+      // largar o índice (companyId, status) e varrer a tabela
+      Prisma.sql`o.status IN (${Prisma.join(
+        PAID_ORDER_STATUSES.map((st) => Prisma.sql`${st}::"OrderStatus"`)
+      )})`,
       ...(escopoDoUsuario.sellerId
         ? [Prisma.sql`o."sellerId" = ${escopoDoUsuario.sellerId}`]
         : []),
@@ -117,7 +154,9 @@ export async function GET(req: NextRequest) {
       db.shipping.aggregate({
         where: {
           ...escopo,
-          meStatus: { not: "CANCELADO" },
+          // `not` do Prisma exclui NULL junto: sem o OR, etiqueta antiga (sem
+          // status) sumia do DINHEIRO gasto. Mesma proteção do mapa.
+          OR: [{ meStatus: null }, { meStatus: { not: "CANCELADO" } }],
           meCompradoEm: { gte: inicioDoMes },
         },
         _sum: { mePrice: true },
@@ -130,6 +169,10 @@ export async function GET(req: NextRequest) {
           deliveredAt: { gte: new Date(Date.now() - 90 * 24 * 60 * 60 * 1000) },
           shippedAt: { not: null },
         },
+        // AS 500 MAIS RECENTES, não 500 quaisquer: sem ordem, quem entra na
+        // média é decisão do banco, e a loja com muitas entregas via uma média
+        // tirada de um pedaço aleatório (achado da revisão).
+        orderBy: { deliveredAt: "desc" },
         take: 500,
         select: { shippedAt: true, deliveredAt: true },
       }),
@@ -173,13 +216,14 @@ export async function GET(req: NextRequest) {
       // aqui é uma linha por combinação de endereço, não por pedido.
       q ? null : db.$queryRaw<LinhaDeEndereco[]>`
         SELECT s.city AS "envioCidade", s.state AS "envioUf",
+               (s."meOrderId" IS NOT NULL) AS "temEtiqueta",
                c.city AS "clienteCidade", c.state AS "clienteUf",
                COUNT(*)::int AS quantidade
         FROM "Order" o
         LEFT JOIN "Shipping" s ON s."orderId" = o.id
         JOIN "Customer" c ON c.id = o."customerId"
         WHERE ${Prisma.join(filtrosDoEscopo, " AND ")}
-        GROUP BY 1, 2, 3, 4
+        GROUP BY 1, 2, 3, 4, 5
       `,
     ]);
 
@@ -229,7 +273,11 @@ export async function GET(req: NextRequest) {
               todos: montarMapaEnvios(
                 porEndereco.map((l) => ({
                   ...enderecoDoPedido({
-                    shipping: { city: l.envioCidade, state: l.envioUf },
+                    shipping: {
+                      city: l.envioCidade,
+                      state: l.envioUf,
+                      meOrderId: l.temEtiqueta ? "etiqueta" : null,
+                    },
                     customer: { city: l.clienteCidade, state: l.clienteUf },
                   }),
                   quantidade: l.quantidade,
@@ -237,6 +285,10 @@ export async function GET(req: NextRequest) {
               ),
             }
           : null,
+      // a tela avisa quando a lista foi cortada — inclusive na busca, que
+      // antes calava sobre o resto
+      listaCortada: idsDaBusca ? achadosNaBusca > 300 : linhas.length >= 300,
+      totalDaBusca: idsDaBusca ? achadosNaBusca : null,
       diasParaParado: DIAS_PARA_PARADO,
       simuladorLigado: company.freteSimuladorEnabled,
       podeLigarSimulador: isManagerUp(user),
