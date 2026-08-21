@@ -6,10 +6,22 @@ import { Map as MapIcon } from "lucide-react";
 import { NOME_DO_ESTADO } from "@/lib/envios/estados";
 // import só de TIPO: some na compilação e NÃO puxa os ~170 KB de municípios
 // do mapa.ts para o navegador
-import type { MapaEnvios as MapaDeEnvios } from "@/lib/envios/mapa";
+import type { MapaEnvios as UmMapa } from "@/lib/envios/mapa";
 import mapaBrasil from "@/lib/envios/mapa-brasil.json";
 
-export type { MapaDeEnvios };
+/**
+ * Os dois recortes que a tela oferece:
+ *  - `etiquetas`: só o que saiu com etiqueta do Melhor Envio (o gasto de frete
+ *    que a loja pagou por aqui);
+ *  - `todos`: TODO pedido pago com endereço — inclui motoboy, transportadora
+ *    própria e retirada, que nunca teriam etiqueta.
+ */
+export type MapaDeEnvios = {
+  etiquetas: UmMapa;
+  todos: UmMapa;
+};
+
+type Modo = "todos" | "etiquetas";
 
 /**
  * MAPA DE ENVIOS — o Brasil pintado por onde a loja vende.
@@ -35,19 +47,32 @@ const LADO = Number(VIEW_BOX.split(" ")[3]);
 const TONS = ["#f5e7da", "#ebcdb2", "#dfab80", "#d28655", "#c4622d"];
 const SEM_ENVIO = "#efe9e0";
 
-const plural = (n: number) => `${n} envio${n === 1 ? "" : "s"}`;
+/**
+ * O SUBSTANTIVO SEGUE O RECORTE. No modo "todos" a conta é de PEDIDOS PAGOS —
+ * inclui retirada na loja, que nunca virou envio; chamar tudo de "envio" ali
+ * seria mentira na cara da lojista.
+ */
+const plural = (n: number, modo: Modo) =>
+  modo === "todos"
+    ? `${n} pedido${n === 1 ? "" : "s"}`
+    : `${n} envio${n === 1 ? "" : "s"}`;
 
 export function MapaEnvios({ mapa }: { mapa: MapaDeEnvios }) {
   const [dica, setDica] = useState<{ x: number; y: number; titulo: string; texto: string } | null>(null);
+  // abre no recorte MAIS COMPLETO: o que a lojista quer ver é para onde a
+  // loja vende, não só o que passou pelo Melhor Envio
+  const [modo, setModo] = useState<Modo>("todos");
+
+  const atual = modo === "todos" ? mapa.todos : mapa.etiquetas;
 
   const contagem = useMemo(() => {
     const m = new Map<string, number>();
-    for (const e of mapa.porUf) m.set(e.uf, e.quantidade);
+    for (const e of atual.porUf) m.set(e.uf, e.quantidade);
     return m;
-  }, [mapa.porUf]);
+  }, [atual.porUf]);
 
-  const maiorUf = mapa.porUf[0]?.quantidade ?? 0;
-  const maiorPonto = mapa.pontos[0]?.quantidade ?? 0;
+  const maiorUf = atual.porUf[0]?.quantidade ?? 0;
+  const maiorPonto = atual.pontos[0]?.quantidade ?? 0;
 
   const corDoEstado = (uf: string) => {
     const q = contagem.get(uf) ?? 0;
@@ -59,20 +84,42 @@ export function MapaEnvios({ mapa }: { mapa: MapaDeEnvios }) {
 
   return (
     <Card className="overflow-hidden">
-      <div className="flex items-center gap-2 border-b border-slate-100 px-4 py-3">
+      <div className="flex flex-wrap items-center gap-2 border-b border-slate-100 px-4 py-3">
         <MapIcon className="size-4 text-brand-600" />
         <div>
           <p className="text-sm font-semibold text-slate-800">Mapa de envios</p>
           <p className="text-xs text-slate-400">
-            para onde a loja vende — cada etiqueta comprada acende o destino
+            {modo === "todos"
+              ? "para onde a loja vende — todo pedido pago com endereço"
+              : "só o que saiu com etiqueta comprada aqui no sistema"}
           </p>
+        </div>
+        <div className="ms-auto flex gap-1.5">
+          {(
+            [
+              { key: "todos", rotulo: "Todos os pedidos pagos" },
+              { key: "etiquetas", rotulo: "Melhor Envio" },
+            ] as { key: Modo; rotulo: string }[]
+          ).map((op) => (
+            <button
+              key={op.key}
+              onClick={() => setModo(op.key)}
+              className={`rounded-full px-3 py-1.5 text-xs font-medium transition ${
+                modo === op.key
+                  ? "bg-slate-900 text-white"
+                  : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+              }`}
+            >
+              {op.rotulo}
+            </button>
+          ))}
         </div>
       </div>
 
       <div className="grid gap-4 p-4 lg:grid-cols-[1fr_260px]">
         {/* ---- o Brasil ------------------------------------------------ */}
         <div className="relative mx-auto w-full max-w-xl" onMouseLeave={() => setDica(null)}>
-          <svg viewBox={VIEW_BOX} className="w-full" role="img" aria-label="Mapa do Brasil com a quantidade de envios por estado">
+          <svg viewBox={VIEW_BOX} className="w-full" role="img" aria-label={`Mapa do Brasil com a quantidade de ${modo === "todos" ? "pedidos pagos" : "envios"} por estado`}>
             {Object.entries(UFS).map(([uf, forma]) => (
               <path
                 key={uf}
@@ -86,15 +133,15 @@ export function MapaEnvios({ mapa }: { mapa: MapaDeEnvios }) {
                     x: forma.centro[0],
                     y: forma.centro[1],
                     titulo: NOME_DO_ESTADO[uf] ?? uf,
-                    texto: plural(contagem.get(uf) ?? 0),
+                    texto: plural(contagem.get(uf) ?? 0, modo),
                   })
                 }
               >
-                <title>{`${NOME_DO_ESTADO[uf] ?? uf} — ${plural(contagem.get(uf) ?? 0)}`}</title>
+                <title>{`${NOME_DO_ESTADO[uf] ?? uf} — ${plural(contagem.get(uf) ?? 0, modo)}`}</title>
               </path>
             ))}
             {/* bolinhas por cidade (as maiores por baixo, para nenhuma sumir) */}
-            {mapa.pontos.map((p) => (
+            {atual.pontos.map((p) => (
               <circle
                 key={`${p.cidade ?? "~"}|${p.uf}`}
                 cx={p.x}
@@ -109,11 +156,11 @@ export function MapaEnvios({ mapa }: { mapa: MapaDeEnvios }) {
                     x: p.x,
                     y: p.y,
                     titulo: p.cidade ? `${p.cidade} · ${p.uf}` : `${p.uf} (cidade não identificada)`,
-                    texto: plural(p.quantidade),
+                    texto: plural(p.quantidade, modo),
                   })
                 }
               >
-                <title>{`${p.cidade ?? p.uf} — ${plural(p.quantidade)}`}</title>
+                <title>{`${p.cidade ?? p.uf} — ${plural(p.quantidade, modo)}`}</title>
               </circle>
             ))}
           </svg>
@@ -143,17 +190,20 @@ export function MapaEnvios({ mapa }: { mapa: MapaDeEnvios }) {
         </div>
 
         {/* ---- envios por estado (só quem tem 1+) ---------------------- */}
-        {mapa.total === 0 ? (
-          <div className="flex items-center justify-center p-4 text-center text-sm text-slate-400">
-            Nenhum envio ainda — o mapa acende conforme as etiquetas saem. 🚚
-          </div>
-        ) : (
-          <div>
+        <div>
+          {atual.total === 0 ? (
+            <p className="p-4 text-center text-sm text-slate-400">
+              {modo === "todos"
+                ? "Nenhum pedido pago com endereço cadastrado ainda. 🚚"
+                : "Nenhuma etiqueta comprada ainda — o mapa acende quando a primeira sair. 🚚"}
+            </p>
+          ) : (
+            <>
             <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">
-              Envios por estado
+              {modo === "todos" ? "Pedidos por estado" : "Envios por estado"}
             </p>
             <ul className="max-h-[420px] space-y-2 overflow-y-auto pe-1 thin-scroll">
-              {mapa.porUf.map((e) => (
+              {atual.porUf.map((e) => (
                 <li key={e.uf}>
                   <div className="flex items-baseline justify-between gap-2 text-sm">
                     <span className="truncate text-slate-700">
@@ -172,10 +222,21 @@ export function MapaEnvios({ mapa }: { mapa: MapaDeEnvios }) {
               ))}
             </ul>
             <p className="mt-3 text-xs text-slate-400">
-              {plural(mapa.total)} no total · {mapa.porUf.length} estado{mapa.porUf.length === 1 ? "" : "s"}
+              {plural(atual.total, modo)} no mapa · {atual.porUf.length} estado
+              {atual.porUf.length === 1 ? "" : "s"}
             </p>
-          </div>
-        )}
+            </>
+          )}
+          {/* FORA do "se tem alguém no mapa": o aviso vale principalmente
+              quando o mapa está VAZIO — é ele que explica o vazio. Escondê-lo
+              ali deixava a lojista sem entender por que não vê nada. */}
+          {atual.semEndereco > 0 && (
+            <p className="mt-1 px-1 text-xs text-amber-600">
+              {plural(atual.semEndereco, modo)} sem estado no cadastro — não dá para
+              pôr no mapa.
+            </p>
+          )}
+        </div>
       </div>
     </Card>
   );

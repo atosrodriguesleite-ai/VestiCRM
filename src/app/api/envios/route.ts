@@ -5,9 +5,20 @@ import { requireUser, AuthError } from "@/lib/auth";
 import { isManagerUp, orderScope } from "@/lib/scope";
 import { atualizarRastreiosSeDevido } from "@/lib/rastreio";
 import { DIAS_PARA_PARADO, inicioDoMesSP, resumoDosEnvios } from "@/lib/envios/painel";
-import { montarMapaEnvios } from "@/lib/envios/mapa";
+import { enderecoDoPedido, montarMapaEnvios } from "@/lib/envios/mapa";
+import { PAID_ORDER_STATUSES } from "@/lib/orders";
+import { Prisma } from "@prisma/client";
 
 export const dynamic = "force-dynamic";
+
+/** Uma combinação de endereço (envio + cliente) e quantos pedidos pagos tem. */
+type LinhaDeEndereco = {
+  envioCidade: string | null;
+  envioUf: string | null;
+  clienteCidade: string | null;
+  clienteUf: string | null;
+  quantidade: number;
+};
 
 /**
  * Tela ENVIOS (módulo Envios, gated por loja): tudo que a loja despachou
@@ -56,7 +67,19 @@ export async function GET(req: NextRequest) {
         }
       : {};
 
-    const [linhas, porStatus, gasto, entreguesRecentes, parados, porCidade] = await Promise.all([
+    // MESMO escopo das demais consultas (RN-007/RN-013), escrito para o SQL:
+    // a loja sempre, e a vendedora sem visão total só os pedidos dela
+    const escopoDoUsuario = orderScope(user);
+    const filtrosDoEscopo = [
+      Prisma.sql`o."companyId" = ${escopoDoUsuario.companyId}`,
+      Prisma.sql`o.status::text IN (${Prisma.join(PAID_ORDER_STATUSES)})`,
+      ...(escopoDoUsuario.sellerId
+        ? [Prisma.sql`o."sellerId" = ${escopoDoUsuario.sellerId}`]
+        : []),
+    ];
+
+    const [linhas, porStatus, gasto, entreguesRecentes, parados, porCidade, porEndereco] =
+      await Promise.all([
       db.shipping.findMany({
         where: { ...escopo, ...filtroBusca },
         // compra mais recente primeiro; etiqueta de antes da coluna existir
@@ -122,11 +145,12 @@ export async function GET(req: NextRequest) {
           },
         },
       }),
-      // mapa: TODO envio da loja (não só os 300 da lista), agrupado por
-      // cidade/UF no banco. Só a etiqueta CANCELADA fica de fora — e status
-      // nulo (etiqueta de antes da coluna) CONTA: `not` do Prisma exclui
-      // NULL junto, por isso o OR explícito. A lupa não muda o mapa, então
-      // busca com `q` nem refaz esta conta (o navegador guarda a que tem).
+      // MAPA 1 (Melhor Envio): TODO envio com etiqueta da loja (não só os 300
+      // da lista), agrupado por cidade/UF no banco. Só a etiqueta CANCELADA
+      // fica de fora — e status nulo (etiqueta de antes da coluna) CONTA:
+      // `not` do Prisma exclui NULL junto, por isso o OR explícito. A lupa
+      // não muda o mapa, então busca com `q` nem refaz estas contas (o
+      // navegador guarda as que tem).
       q
         ? null
         : db.shipping.groupBy({
@@ -137,6 +161,26 @@ export async function GET(req: NextRequest) {
             },
             _count: { _all: true },
           }),
+      // MAPA 2 (todos os pedidos pagos): a loja também despacha por motoboy,
+      // transportadora própria e retirada — esses pedidos nunca teriam
+      // etiqueta e sumiam do mapa. Aqui entra TODO pedido pago (RN-001).
+      //
+      // O `groupBy` do Prisma não agrupa por campo de RELAÇÃO, e ler pedido a
+      // pedido levaria milhares de linhas a cada abertura da tela só para
+      // virar 27 números. Então o BANCO agrupa pelos quatro campos de
+      // endereço (envio + cliente) e a REGRA de qual deles vale continua em
+      // TypeScript, num lugar só e testada (`enderecoDoPedido`): o que chega
+      // aqui é uma linha por combinação de endereço, não por pedido.
+      q ? null : db.$queryRaw<LinhaDeEndereco[]>`
+        SELECT s.city AS "envioCidade", s.state AS "envioUf",
+               c.city AS "clienteCidade", c.state AS "clienteUf",
+               COUNT(*)::int AS quantidade
+        FROM "Order" o
+        LEFT JOIN "Shipping" s ON s."orderId" = o.id
+        JOIN "Customer" c ON c.id = o."customerId"
+        WHERE ${Prisma.join(filtrosDoEscopo, " AND ")}
+        GROUP BY 1, 2, 3, 4
+      `,
     ]);
 
     const painel = resumoDosEnvios({
@@ -172,15 +216,27 @@ export async function GET(req: NextRequest) {
         comNota: Boolean(l.nfeKey),
       })),
       painel,
-      mapa: porCidade
-        ? montarMapaEnvios(
-            porCidade.map((c) => ({
-              cidade: c.city,
-              uf: c.state,
-              quantidade: c._count._all,
-            }))
-          )
-        : null,
+      mapa:
+        porCidade && porEndereco
+          ? {
+              etiquetas: montarMapaEnvios(
+                porCidade.map((c) => ({
+                  cidade: c.city,
+                  uf: c.state,
+                  quantidade: c._count._all,
+                }))
+              ),
+              todos: montarMapaEnvios(
+                porEndereco.map((l) => ({
+                  ...enderecoDoPedido({
+                    shipping: { city: l.envioCidade, state: l.envioUf },
+                    customer: { city: l.clienteCidade, state: l.clienteUf },
+                  }),
+                  quantidade: l.quantidade,
+                }))
+              ),
+            }
+          : null,
       diasParaParado: DIAS_PARA_PARADO,
       simuladorLigado: company.freteSimuladorEnabled,
       podeLigarSimulador: isManagerUp(user),

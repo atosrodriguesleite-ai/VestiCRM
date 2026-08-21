@@ -39,16 +39,26 @@ export type MapaEnvios = {
   /** bolinhas: cidade casada na base OU centro do estado (cidade: null) */
   pontos: { x: number; y: number; cidade: string | null; uf: string; quantidade: number }[];
   total: number;
+  /**
+   * Quantos ficaram FORA do mapa por não ter UF cadastrada. O mapa conta isso
+   * em voz alta: sem o aviso, a lojista compara com a tela de Pedidos, vê
+   * menos bolinha do que pedido e conclui que o mapa mente.
+   */
+  semEndereco: number;
 };
 
 export function montarMapaEnvios(envios: EnvioLocalizado[]): MapaEnvios {
   const porUf = new Map<string, number>();
   const pontos = new Map<string, { x: number; y: number; cidade: string | null; uf: string; quantidade: number }>();
 
+  let semEndereco = 0;
   for (const e of envios) {
     if (!e.quantidade) continue;
     const uf = (e.uf ?? "").trim().toUpperCase();
-    if (!UFS[uf]) continue; // sem UF válida não há onde desenhar
+    if (!UFS[uf]) {
+      semEndereco += e.quantidade; // sem UF válida não há onde desenhar
+      continue;
+    }
 
     porUf.set(uf, (porUf.get(uf) ?? 0) + e.quantidade);
 
@@ -78,5 +88,30 @@ export function montarMapaEnvios(envios: EnvioLocalizado[]): MapaEnvios {
     porUf: lista,
     pontos: [...pontos.values()].sort((a, b) => b.quantidade - a.quantidade),
     total: lista.reduce((s, e) => s + e.quantidade, 0),
+    semEndereco,
   };
+}
+
+/**
+ * DE ONDE SAI O ENDEREÇO DE UM PEDIDO PAGO (modo "todos os pedidos").
+ *
+ * Vale o endereço do ENVIO quando ele existe — é o que foi de fato usado na
+ * etiqueta, e a cliente pode ter mudado de endereço depois. Sem ele, vale o
+ * cadastro da cliente: pedido despachado por motoboy/transportadora própria
+ * nasce com registro de envio SEM cidade (só data de saída), e sem esta
+ * queda o mapa "geral" mostraria quase nada.
+ *
+ * As duas fontes NUNCA se misturam: cidade de uma com UF da outra poria a
+ * bolinha na cidade errada. Quem manda na escolha é a UF (sem UF não há
+ * onde desenhar), e a cidade vem junto dela.
+ */
+export function enderecoDoPedido(pedido: {
+  shipping: { city: string | null; state: string | null } | null;
+  customer: { city: string | null; state: string | null } | null;
+}): { cidade: string | null; uf: string | null } {
+  const doEnvio = pedido.shipping?.state?.trim();
+  if (doEnvio) return { cidade: pedido.shipping?.city ?? null, uf: doEnvio };
+  const daCliente = pedido.customer?.state?.trim();
+  if (daCliente) return { cidade: pedido.customer?.city ?? null, uf: daCliente };
+  return { cidade: null, uf: null };
 }

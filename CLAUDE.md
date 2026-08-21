@@ -293,8 +293,17 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   lista de estados com quantidade (só estado com 1+ envio) — tudo offline:
   contornos e coordenadas dos 5.570 municípios foram gerados uma vez
   (`scripts/gerar-mapa-envios.mjs`) e commitados; cidade que não casa com a
-  base vira ponto no centro do estado (envio nunca some do mapa) e etiqueta
-  cancelada não conta. Melhor Envio
+  base vira ponto no centro do estado (envio nunca some do mapa).
+  **RN-022 · Dois recortes** (21/08/2026): **"Todos os pedidos pagos"**
+  (padrão) conta TODO pedido pago (RN-001) com endereço — a loja também
+  despacha por motoboy, transportadora própria e retirada, e esses pedidos
+  não têm etiqueta; **"Melhor Envio"** conta só as etiquetas compradas aqui
+  (aí a cancelada fica de fora, como no gasto do mês). O endereço vem do
+  ENVIO e, na falta, do cadastro da cliente (`enderecoDoPedido`) — pedido
+  marcado como ENVIADO à mão cria envio SEM endereço; as duas fontes nunca
+  se misturam (cidade de uma com UF da outra erraria o ponto). O que não
+  tem estado é CONTADO E DITO na tela ("N sem estado no cadastro"), nunca
+  sumido em silêncio. Melhor Envio
   OAuth por loja (`lib/melhorenvio.ts`); peso por produto (sync automático da
   Nuvemshop, nunca sobrescreve manual) + padrão por categoria/loja; no pedido:
   cotar → comprar etiqueta (saldo da carteira ME da loja; gerente+) → imprimir
