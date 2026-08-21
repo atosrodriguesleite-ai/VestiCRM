@@ -18,6 +18,7 @@ import {
   orderStatusLabel,
   orderNumber,
   paymentMethodLabel,
+  round2,
   PAID_ORDER_STATUSES,
   ORDER_STATUS_FLOW,
   podeTransferirVenda,
@@ -446,12 +447,43 @@ export async function PATCH(
           { status: 409 }
         );
       }
-      const totals = computeOrderTotals(
-        order.items.map((i) => ({ quantity: i.quantity, unitPrice: i.unitPrice })),
-        ajusteAtual(parsed.data.discount, parsed.data.discountPct, order.discount, order.discountPct),
-        parsed.data.shippingFee ?? order.shippingFee,
-        ajusteAtual(parsed.data.surcharge, parsed.data.surchargePct, order.surcharge, order.surchargePct)
+      // A tela reenvia desconto/acréscimo mesmo quando só o FRETE mudou. Se
+      // os ajustes vieram IGUAIS aos gravados, o dinheiro gravado não se
+      // recalcula: a regra do desconto global (dono, 21/08/2026) vale para
+      // quem MEXE no desconto — nunca para reescrever, de carona num ajuste
+      // de frete, o faturamento de pedido antigo calculado pela regra da
+      // época (pago, mês fechado, comissão paga).
+      const pctDescFinal = pctResolvida(parsed.data.discountPct, order.discountPct);
+      const pctAcrFinal = pctResolvida(parsed.data.surchargePct, order.surchargePct);
+      const descontoIntacto =
+        pctDescFinal === order.discountPct &&
+        (pctDescFinal != null ||
+          (parsed.data.discount ?? order.discount) === order.discount);
+      const acrescimoIntacto =
+        pctAcrFinal === order.surchargePct &&
+        (pctAcrFinal != null ||
+          (parsed.data.surcharge ?? order.surcharge) === order.surcharge);
+
+      const freteNovo = round2(
+        Math.max(parsed.data.shippingFee ?? order.shippingFee, 0)
       );
+      const totals =
+        descontoIntacto && acrescimoIntacto
+          ? {
+              // só o frete muda: valor vendido e ajustes ficam como estão
+              subtotal: order.subtotal,
+              discount: order.discount,
+              surcharge: order.surcharge,
+              shippingFee: freteNovo,
+              netTotal: order.netTotal,
+              total: round2(order.netTotal + freteNovo),
+            }
+          : computeOrderTotals(
+              order.items.map((i) => ({ quantity: i.quantity, unitPrice: i.unitPrice })),
+              ajusteAtual(parsed.data.discount, parsed.data.discountPct, order.discount, order.discountPct),
+              parsed.data.shippingFee ?? order.shippingFee,
+              ajusteAtual(parsed.data.surcharge, parsed.data.surchargePct, order.surcharge, order.surchargePct)
+            );
 
       // AUDITORIA: mexer no valor do pedido é decisão comercial e mexe em
       // comissão — fica registrado quem mudou, de quanto para quanto.

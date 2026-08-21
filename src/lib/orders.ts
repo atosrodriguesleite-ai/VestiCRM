@@ -160,16 +160,18 @@ export type OrderTotals = {
 export type AjusteInput = {
   /** valor em reais (usado quando `pct` é null/undefined) */
   valor?: number;
-  /** porcentagem sobre o subtotal (0 a 100) — quando vem, manda nela */
+  /** porcentagem (0 a 100) — quando vem, manda nela. A BASE depende do
+   *  ajuste (ADR-013): acréscimo % incide sobre os produtos; desconto % é
+   *  GLOBAL e incide sobre produtos + acréscimo. */
   pct?: number | null;
 };
 
-/** Resolve um ajuste (desconto ou acréscimo) para reais, sobre o subtotal. */
-export function valorDoAjuste(ajuste: AjusteInput | undefined, subtotal: number): number {
+/** Resolve um ajuste (desconto ou acréscimo) para reais, sobre a BASE dada. */
+export function valorDoAjuste(ajuste: AjusteInput | undefined, base: number): number {
   if (!ajuste) return 0;
   if (ajuste.pct != null) {
     const pct = Math.min(Math.max(ajuste.pct, 0), 100);
-    return round2((subtotal * pct) / 100);
+    return round2((base * pct) / 100);
   }
   return round2(Math.max(ajuste.valor ?? 0, 0));
 }
@@ -186,9 +188,14 @@ export function valorDoAjuste(ajuste: AjusteInput | undefined, subtotal: number)
  * remunerando ela por um serviço que não é venda. Deixando o frete fora da
  * estrutura, não existe jeito de configurar errado.
  *
+ * A ORDEM DA CONTA é regra do dono (21/08/2026): o ACRÉSCIMO entra primeiro
+ * (em % ele incide sobre os produtos) e o DESCONTO é GLOBAL — em % ele
+ * incide sobre o total JÁ COM o acréscimo. Antes o 10% descontava só os
+ * produtos e o acréscimo escapava do desconto, e a conta na tela não batia
+ * com a que a lojista fazia de cabeça ("10% sobre o total").
+ *
  * O desconto é limitado ao subtotal + acréscimo: nunca existe pedido de valor
- * negativo, mas dar 100% de desconto num pedido com acréscimo não pode fazer
- * o total ficar abaixo de zero nem "comer" o acréscimo silenciosamente.
+ * negativo — 100% de desconto zera o pedido inteiro, acréscimo incluído.
  */
 export function computeOrderTotals(
   items: CartItemInput[],
@@ -202,8 +209,12 @@ export function computeOrderTotals(
     typeof v === "number" ? { valor: v } : v;
 
   const safeSurcharge = valorDoAjuste(comoAjuste(surcharge), subtotal);
-  const teto = round2(subtotal + safeSurcharge);
-  const safeDiscount = Math.min(valorDoAjuste(comoAjuste(discount), subtotal), teto);
+  // base do desconto = produtos + acréscimo (desconto global)
+  const baseDesconto = round2(subtotal + safeSurcharge);
+  const safeDiscount = Math.min(
+    valorDoAjuste(comoAjuste(discount), baseDesconto),
+    baseDesconto
+  );
   const safeShipping = round2(Math.max(shippingFee, 0));
 
   const netTotal = round2(subtotal - safeDiscount + safeSurcharge);

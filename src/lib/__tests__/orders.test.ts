@@ -97,10 +97,25 @@ describe("acréscimo, porcentagem e o valor VENDIDO (sem frete)", () => {
     expect(t.total).toBe(1250); // é o que a cliente paga
   });
 
-  it("desconto em porcentagem sai sobre o subtotal", () => {
+  it("desconto em porcentagem, sem acréscimo: sai sobre os produtos", () => {
     const t = computeOrderTotals(carrinho, { pct: 10 }, 0);
     expect(t.discount).toBe(100);
     expect(t.netTotal).toBe(900);
+  });
+
+  it("desconto é GLOBAL (dono, 21/08/2026): o % incide também sobre o acréscimo", () => {
+    // acréscimo entra primeiro; 10% descontam sobre 1000 + 100 = 1100
+    const t = computeOrderTotals(carrinho, { pct: 10 }, 0, { valor: 100 });
+    expect(t.surcharge).toBe(100);
+    expect(t.discount).toBe(110); // não 100: o acréscimo não escapa do desconto
+    expect(t.netTotal).toBe(990); // 1000 + 100 − 110
+  });
+
+  it("100% de desconto zera o pedido inteiro, acréscimo incluído", () => {
+    const t = computeOrderTotals(carrinho, { pct: 100 }, 30, { valor: 250 });
+    expect(t.discount).toBe(1250);
+    expect(t.netTotal).toBe(0);
+    expect(t.total).toBe(30); // sobra só o frete
   });
 
   it("porcentagem se recalcula quando o carrinho muda", () => {
@@ -122,10 +137,10 @@ describe("acréscimo, porcentagem e o valor VENDIDO (sem frete)", () => {
 
   it("desconto e acréscimo juntos, com frete por fora", () => {
     const t = computeOrderTotals(carrinho, { pct: 10 }, 40, { valor: 60 });
-    expect(t.discount).toBe(100);
+    expect(t.discount).toBe(106); // 10% de 1060 (desconto global)
     expect(t.surcharge).toBe(60);
-    expect(t.netTotal).toBe(960); // 1000 - 100 + 60
-    expect(t.total).toBe(1000); // + 40 de frete
+    expect(t.netTotal).toBe(954); // 1000 + 60 − 106
+    expect(t.total).toBe(994); // + 40 de frete
   });
 
   it("desconto não derruba o pedido abaixo de zero", () => {

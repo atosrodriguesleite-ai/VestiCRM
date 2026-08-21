@@ -395,19 +395,8 @@ export default async function OrderDetailPage({
               <span>Subtotal</span>
               <span className="tabular-nums">{brl(order.subtotal)}</span>
             </div>
-            {order.discount > 0 && (
-              <div className="flex justify-between text-rose-500">
-                <span>
-                  Desconto
-                  {order.discountPct != null && (
-                    <span className="ml-1 text-xs text-rose-400">
-                      ({String(order.discountPct).replace(".", ",")}%)
-                    </span>
-                  )}
-                </span>
-                <span className="tabular-nums">− {brl(order.discount)}</span>
-              </div>
-            )}
+            {/* ordem da conta (dono, 21/08/2026): acréscimo entra primeiro,
+                o desconto — global, sobre o total com acréscimo — sai depois */}
             {order.surcharge > 0 && (
               <div className="flex justify-between text-emerald-600">
                 <span>
@@ -419,6 +408,19 @@ export default async function OrderDetailPage({
                   )}
                 </span>
                 <span className="tabular-nums">+ {brl(order.surcharge)}</span>
+              </div>
+            )}
+            {order.discount > 0 && (
+              <div className="flex justify-between text-rose-500">
+                <span>
+                  Desconto
+                  {order.discountPct != null && (
+                    <span className="ml-1 text-xs text-rose-400">
+                      ({String(order.discountPct).replace(".", ",")}%)
+                    </span>
+                  )}
+                </span>
+                <span className="tabular-nums">− {brl(order.discount)}</span>
               </div>
             )}
             {/*
