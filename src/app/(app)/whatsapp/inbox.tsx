@@ -3316,6 +3316,36 @@ export function Inbox({
                 >
                   <ShoppingBag className="size-4.5" />
                 </button>
+                {/* SAÍDA COM O TECLADO ABERTO (relato do dono, 21/08/2026):
+                    no celular o teclado esconde a barra de baixo E empurra o
+                    cabeçalho do chat (onde mora o ← Voltar) para fora da
+                    tela — a lojista ficava presa na conversa e fechava o app
+                    para sair. Este botão fecha o teclado e traz a tela de
+                    volta ao topo, devolvendo o caminho de saída. Só aparece
+                    no celular e só enquanto o teclado está aberto
+                    (regra `.so-com-teclado` em globals.css). */}
+                <button
+                  onClick={() => {
+                    // desfoca QUALQUER campo em foco, não só o de mensagem: o
+                    // botão também aparece com o teclado aberto na resposta
+                    // rápida e nas mensagens automáticas
+                    (document.activeElement as HTMLElement | null)?.blur?.();
+                    // iOS às vezes deixa a página rolada depois do teclado:
+                    // sem isto o cabeçalho podia continuar fora da tela
+                    window.scrollTo({ top: 0 });
+                  }}
+                  className="so-com-teclado items-center gap-0.5 border-l border-gray-200 pl-1.5 pr-0.5 py-2 text-gray-500 shrink-0 min-[380px]:ml-1 min-[380px]:gap-1 min-[380px]:pl-2 min-[380px]:pr-1"
+                  title="Fechar o teclado"
+                  aria-label="Fechar o teclado"
+                >
+                  <ChevronDown className="size-4.5" />
+                  {/* em tela bem estreita fica só a seta: com o rótulo, a
+                      barra de ícones estourava a largura e o botão saía da
+                      tela justamente quando é necessário */}
+                  <span className="hidden min-[380px]:inline text-[11px] font-medium">
+                    teclado
+                  </span>
+                </button>
                 </div>
                 <div className="flex items-end gap-1.5 order-1 sm:order-none sm:flex-1 min-w-0">
                 {recording ? (
