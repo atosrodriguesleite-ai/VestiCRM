@@ -145,3 +145,26 @@ describe("romaneio imprime em um clique (pedido do dono, 21/08/2026)", () => {
     expect(viewer).not.toContain('window.open(');
   });
 });
+
+describe("chat no celular: sempre existe saída com o teclado aberto", () => {
+  // Relato do dono (21/08/2026): com o teclado aberto some a barra de baixo
+  // E o cabeçalho do chat (onde fica o ← Voltar) sai da tela no iPhone — a
+  // lojista ficava presa na conversa e fechava o APP para sair.
+  const inbox = ler("src/app/(app)/whatsapp/inbox.tsx");
+  const css = ler("src/app/globals.css");
+  it("o campo de escrita tem o botão que fecha o teclado", () => {
+    expect(inbox).toContain('aria-label="Fechar o teclado"');
+    // desfoca QUALQUER campo em foco: o teclado também abre pela resposta
+    // rápida e pelas mensagens automáticas, e ali o taRef não era o campo
+    expect(inbox).toContain("(document.activeElement as HTMLElement | null)?.blur?.()");
+  });
+  it("fechar o teclado traz a tela de volta ao topo (o cabeçalho reaparece)", () => {
+    // iPhone às vezes deixa a página rolada depois do teclado
+    expect(inbox).toContain("window.scrollTo({ top: 0 })");
+  });
+  it("o botão só existe no celular e só com o teclado aberto", () => {
+    expect(inbox).toContain("so-com-teclado");
+    expect(css).toContain("body.teclado-aberto .so-com-teclado");
+    expect(css).toMatch(/@media \(min-width: 768px\) \{\s*\/\*[^*]*\*\/\s*body\.teclado-aberto \.so-com-teclado/);
+  });
+});

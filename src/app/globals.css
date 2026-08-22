@@ -433,3 +433,23 @@ body.teclado-aberto {
 body.teclado-aberto .inbox-raiz {
   margin-bottom: 0 !important;
 }
+
+/* ---- Saída visível quando o teclado do celular está aberto ---------------
+   Com o teclado aberto some a barra de baixo (regra acima) e o cabeçalho do
+   chat — onde fica o ← Voltar — é empurrado para fora da área visível pelo
+   iPhone. Sem nenhuma saída à vista, a lojista fechava o APP para sair da
+   conversa (relato do dono, 21/08/2026). O botão "fechar teclado" mora na
+   barra de ícones do campo de escrita (sempre visível, é onde o teclado
+   está colado) e só existe no celular, só enquanto o teclado está aberto. */
+.so-com-teclado {
+  display: none;
+}
+body.teclado-aberto .so-com-teclado {
+  display: inline-flex;
+}
+@media (min-width: 768px) {
+  /* no computador o teclado não engole nada: o botão não faz sentido */
+  body.teclado-aberto .so-com-teclado {
+    display: none;
+  }
+}
