@@ -64,6 +64,7 @@ import {
 import { autoriaDaMensagem, prefixoDaPrevia } from "@/lib/comm/autoria";
 import { abaDaConversa } from "@/lib/comm/fila";
 import { casaCliente } from "@/lib/busca";
+import { pausarOsOutros } from "@/lib/um-som-por-vez";
 import { Avatar, EmptyState } from "@/components/ui";
 import { gravacaoParaWav } from "@/lib/audio-wav";
 import { comprimirFoto, nomeJpeg } from "@/lib/comprimir-foto";
@@ -238,6 +239,19 @@ function StatusTicks({ m }: { m: InboxMessage }) {
   }
 }
 
+/**
+ * UM SOM DE CADA VEZ: começou a tocar um áudio/vídeo, o que estava tocando
+ * na tela para. O player do navegador não faz isso sozinho — dois áudios
+ * abertos saíam juntos e não dava para entender nenhum (relato do dono,
+ * 21/08/2026). A regra em si mora em lib/um-som-por-vez.ts.
+ */
+function umSomPorVez(e: React.SyntheticEvent<HTMLMediaElement>) {
+  pausarOsOutros(
+    e.currentTarget,
+    document.querySelectorAll<HTMLMediaElement>("audio, video")
+  );
+}
+
 function MediaContent({
   m,
   aoAbrirFoto,
@@ -261,6 +275,7 @@ function MediaContent({
       <video
         src={m.mediaUrl}
         controls
+        onPlay={umSomPorVez}
         className="rounded-xl max-w-full w-56 mb-1 bg-black/20"
       />
     );
@@ -268,7 +283,12 @@ function MediaContent({
   if (m.mediaType === "AUDIO") {
     // áudio real toca no player; sem URL (histórico antigo) mostra a onda
     return m.mediaUrl ? (
-      <audio src={m.mediaUrl} controls className="my-1 w-56 max-w-full" />
+      <audio
+        src={m.mediaUrl}
+        controls
+        onPlay={umSomPorVez}
+        className="my-1 w-56 max-w-full"
+      />
     ) : (
       <span className="flex items-center gap-2 py-1">
         <span className="size-8 rounded-full bg-white/20 flex items-center justify-center shrink-0">
