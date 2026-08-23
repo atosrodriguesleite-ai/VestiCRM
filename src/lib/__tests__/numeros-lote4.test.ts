@@ -52,7 +52,11 @@ describe("Inteligência: Categorias, Cores e Tamanhos contam as MESMAS peças", 
     expect(ins).toContain("item.size?.trim()");
   });
   it("xarás no cadastro: plano B por nome é determinístico (o mais antigo vence)", () => {
-    expect(ins).toContain("if (!porNome.has(pr.name)) porNome.set(pr.name, pr)");
+    // desde 22/08/2026 a chave é o nome NORMALIZADO (espaço/acento/caixa
+    // invisíveis não separam mais linhas) — a regra do "mais antigo vence"
+    // continua a mesma
+    expect(ins).toContain("if (!porNome.has(k)) porNome.set(k, pr);");
+    expect(ins).toContain("chaveDoNome(pr.name).toLowerCase()");
     expect(ins).toContain('orderBy: [{ createdAt: "asc" }');
   });
 });
