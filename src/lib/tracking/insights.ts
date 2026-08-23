@@ -96,6 +96,9 @@ async function loadSessions(companyId: string, p: Period) {
 async function loadEvents(companyId: string, p: Period) {
   return db.trackEvent.findMany({
     where: { companyId, createdAt: { gte: p.from, lte: p.to } },
+    // ordem estável: sem ela, qual grafia "chega primeiro" no ranking variava
+    // entre atualizações da página (ordem física do banco)
+    orderBy: [{ createdAt: "asc" }, { id: "asc" }],
   });
 }
 
@@ -349,30 +352,86 @@ export async function campaignRanking(companyId: string, p: Period) {
 
 type Dim = "productName" | "category" | "color" | "size";
 
-async function dimensionStats(companyId: string, p: Period, dim: Dim) {
-  const events = await loadEvents(companyId, p);
-  const orderItems = await db.orderItem.findMany({
-    where: {
-      // conta só VENDA DE VERDADE (paga): fora orçamento, aguardando e cancelado
-      order: { companyId, paidAt: { gte: p.from, lte: p.to }, status: { in: PAID_ORDER_STATUSES } },
-    },
-  });
+/**
+ * Nomes "iguais" que diferem no invisível — espaço sobrando no fim, acento
+ * gravado de outro jeito (ç composto × ç decomposto), caixa diferente —
+ * viravam LINHAS DUPLICADAS no ranking: "Regata Alça" aparecia duas vezes na
+ * tela Inteligência (relato do dono, 22/08/2026). A identidade da linha é o
+ * nome normalizado em minúsculas; o texto EXIBIDO é a primeira forma vista
+ * (a grafia do CADASTRO atual
+ * vence quando existe; entre nomes só congelados, vale a primeira na ordem
+ * estável de leitura).
+ */
+export const chaveDoNome = (s: string) =>
+  s.normalize("NFC").replace(/\s+/g, " ").trim();
+
+type EventoDoRanking = {
+  type: string;
+  productId?: string | null;
+  productName?: string | null;
+  category?: string | null;
+  color?: string | null;
+  size?: string | null;
+  qty?: number | null;
+};
+type ItemDoRanking = {
+  productId?: string | null;
+  name: string;
+  color?: string | null;
+  size?: string | null;
+  quantity: number;
+  total: number;
+};
+type ProdutoDoRanking = { id: string; name: string; category: string | null };
+
+/**
+ * Monta o ranking de uma dimensão (produto/categoria/cor/tamanho) a partir
+ * dos eventos de navegação e dos itens vendidos. Função PURA — os dados
+ * entram prontos — para a regra ser testável sem banco.
+ *
+ * CONVERSÃO compara evento com evento: "de cada 100 aberturas da ficha,
+ * quantas viraram uma adição à sacola". Antes comparava PEÇAS na sacola com
+ * ABERTURAS — e no atacado uma adição é uma grade de 10+ peças, então tudo
+ * que vendia bem estourava e aparecia 100% (relato do dono, 22/08/2026).
+ * A coluna "+Sacola" continua em peças (é a informação útil do atacado).
+ */
+export function montarRanking(
+  events: EventoDoRanking[],
+  orderItems: ItemDoRanking[],
+  products: ProdutoDoRanking[],
+  dim: Dim
+) {
   const map = new Map<
     string,
-    { key: string; views: number; adds: number; removes: number; sold: number; revenue: number }
+    {
+      key: string;
+      views: number;
+      adds: number;
+      addEvents: number;
+      removes: number;
+      sold: number;
+      revenue: number;
+    }
   >();
   const bump = (
     key: string | null | undefined,
-    field: "views" | "adds" | "removes" | "sold",
+    field: "views" | "adds" | "addEvents" | "removes" | "sold",
     n = 1,
-    revenue = 0
+    revenue = 0,
+    /** o nome veio do CADASTRO atual? então a grafia dele manda no rótulo */
+    doCadastro = false
   ) => {
     if (!key) return;
+    const exibir = chaveDoNome(key);
+    if (!exibir) return;
+    const id = exibir.toLowerCase();
     const row =
-      map.get(key) ?? { key, views: 0, adds: 0, removes: 0, sold: 0, revenue: 0 };
+      map.get(id) ??
+      { key: exibir, views: 0, adds: 0, addEvents: 0, removes: 0, sold: 0, revenue: 0 };
+    if (doCadastro) row.key = exibir;
     row[field] += n;
     row.revenue += revenue;
-    map.set(key, row);
+    map.set(id, row);
   };
   // Acesso E venda se amarram ao CADASTRO ATUAL pelo productId: evento e item
   // de pedido guardam o nome/categoria DA ÉPOCA, e quando a lojista renomeia o
@@ -382,37 +441,33 @@ async function dimensionStats(companyId: string, p: Period, dim: Dim) {
   // vendas — o alerta "muito visto e não vendeu" disparava à toa). O nome
   // congelado fica de plano B para produto apagado, e peça sem cor/tamanho
   // entra como "Sem cor"/"Sem tamanho" — os três quadros contam as MESMAS peças.
-  const precisaCadastro = dim === "productName" || dim === "category";
-  const products =
-    precisaCadastro && (events.length > 0 || orderItems.length > 0)
-      ? await db.product.findMany({
-          where: { companyId },
-          select: { id: true, name: true, category: true },
-          orderBy: [{ createdAt: "asc" }, { id: "asc" }],
-        })
-      : [];
   const porId = new Map(products.map((pr) => [pr.id, pr]));
   // nome NÃO é único no cadastro ([companyId, sku] é): com xarás, vence o mais
-  // antigo — determinístico, e só usado como plano B quando o id se perdeu
-  const porNome = new Map<string, (typeof products)[number]>();
-  for (const pr of products) if (!porNome.has(pr.name)) porNome.set(pr.name, pr);
+  // antigo — determinístico, e só usado como plano B quando o id se perdeu.
+  // A busca é pelo nome NORMALIZADO: o congelado com espaço a mais ainda acha.
+  const porNome = new Map<string, ProdutoDoRanking>();
+  for (const pr of products) {
+    const k = chaveDoNome(pr.name).toLowerCase();
+    if (!porNome.has(k)) porNome.set(k, pr);
+  }
   const cadastroAtual = (
     productId: string | null | undefined,
     nomeCongelado: string | null | undefined
   ) =>
     (productId ? porId.get(productId) : undefined) ??
-    (nomeCongelado ? porNome.get(nomeCongelado) : undefined);
+    (nomeCongelado ? porNome.get(chaveDoNome(nomeCongelado).toLowerCase()) : undefined);
   for (const e of events) {
+    const cadastroDoEvento =
+      dim === "productName" || dim === "category"
+        ? cadastroAtual(e.productId, e.productName)
+        : undefined;
     const key =
       dim === "productName"
-        ? (cadastroAtual(e.productId, e.productName)?.name ?? e.productName)
+        ? (cadastroDoEvento?.name ?? e.productName)
         : dim === "category"
           ? e.type === "product_view"
-            ? (() => {
-                // categoria de HOJE do produto visto; produto sumiu → a da época
-                const pr = cadastroAtual(e.productId, e.productName);
-                return pr ? pr.category || null : e.category;
-              })()
+            ? // categoria de HOJE do produto visto; produto sumiu → a da época
+              (cadastroDoEvento ? cadastroDoEvento.category || null : e.category)
             : e.category
           : e[dim]?.trim() || null;
     if (e.type === "product_view" || e.type === "category_view" || e.type === "color_select" || e.type === "size_select") {
@@ -422,11 +477,14 @@ async function dimensionStats(companyId: string, p: Period, dim: Dim) {
         (dim === "color" && (e.type === "color_select" || e.type === "product_view")) ||
         (dim === "size" && e.type === "size_select")
       ) {
-        bump(key, "views");
+        bump(key, "views", 1, 0, Boolean(cadastroDoEvento));
       }
     }
-    if (e.type === "cart_add") bump(key, "adds", e.qty ?? 1);
-    if (e.type === "cart_remove") bump(key, "removes", e.qty ?? 1);
+    if (e.type === "cart_add") {
+      bump(key, "adds", e.qty ?? 1, 0, Boolean(cadastroDoEvento));
+      bump(key, "addEvents"); // a ADIÇÃO em si, não as peças — é o que a conversão usa
+    }
+    if (e.type === "cart_remove") bump(key, "removes", e.qty ?? 1, 0, Boolean(cadastroDoEvento));
   }
   for (const item of orderItems) {
     const produto = cadastroAtual(item.productId, item.name);
@@ -438,16 +496,38 @@ async function dimensionStats(companyId: string, p: Period, dim: Dim) {
           : dim === "color"
             ? item.color?.trim() || "Sem cor"
             : item.size?.trim() || "Sem tamanho";
-    bump(key, "sold", item.quantity, item.total);
+    bump(key, "sold", item.quantity, item.total, Boolean(produto));
   }
-  return [...map.values()].map((row) => ({
+  return [...map.values()].map(({ addEvents, ...row }) => ({
     ...row,
     revenue: r2(row.revenue),
-    // conversão de funil (viu → colocou na sacola), limitada a 100%.
-    // Antes usava peças vendidas/visualizações, o que passava de 100%.
-    conversion: r2(Math.min(100, pct(row.adds, Math.max(row.views, 1)))),
+    // conversão de funil (abriu a ficha → adicionou à sacola), evento com
+    // evento, limitada a 100% por segurança (adição sem abertura no período
+    // é raro, mas existe: a ficha foi aberta antes da meia-noite do recorte)
+    conversion: r2(Math.min(100, pct(addEvents, Math.max(row.views, 1)))),
     abandonRate: r2(pct(row.removes, Math.max(row.adds, 1))),
   }));
+}
+
+async function dimensionStats(companyId: string, p: Period, dim: Dim) {
+  const events = await loadEvents(companyId, p);
+  const orderItems = await db.orderItem.findMany({
+    where: {
+      // conta só VENDA DE VERDADE (paga): fora orçamento, aguardando e cancelado
+      order: { companyId, paidAt: { gte: p.from, lte: p.to }, status: { in: PAID_ORDER_STATUSES } },
+    },
+    orderBy: { id: "asc" }, // mesma razão da ordem estável dos eventos
+  });
+  const precisaCadastro = dim === "productName" || dim === "category";
+  const products =
+    precisaCadastro && (events.length > 0 || orderItems.length > 0)
+      ? await db.product.findMany({
+          where: { companyId },
+          select: { id: true, name: true, category: true },
+          orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+        })
+      : [];
+  return montarRanking(events, orderItems, products, dim);
 }
 
 export const productStats = (c: string, p: Period) => dimensionStats(c, p, "productName");
