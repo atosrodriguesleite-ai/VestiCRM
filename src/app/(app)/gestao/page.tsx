@@ -5,6 +5,7 @@ import { isSuperAdmin } from "@/lib/scope";
 import { PLATFORM_SLUG } from "@/lib/platform";
 import { PAID_ORDER_STATUSES } from "@/lib/orders";
 import { spNow } from "@/lib/billing";
+import type { Origin } from "@prisma/client";
 import {
   lifetimeMeses,
   calcularMRR,
@@ -207,7 +208,7 @@ export default async function GestaoPage() {
     LANDING: { total: 0, mes: 0, dias30: 0 },
     BIO: { total: 0, mes: 0, dias30: 0 },
     CATALOGO_PLATAFORMA: { total: 0, mes: 0, dias30: 0 },
-    CATALOGO_LOJAS: { total: 0, mes: 0, dias30: 0 },
+    CATALOGO_DE_LOJA: { total: 0, mes: 0, dias30: 0 },
     OUTROS: { total: 0, mes: 0, dias30: 0 },
   };
   for (const l of leadsPlataforma) {
@@ -216,17 +217,53 @@ export default async function GestaoPage() {
     if (l.createdAt >= inicioMes) canais[canal].mes += 1;
     if (l.createdAt >= dias30) canais[canal].dias30 += 1;
   }
-  // leads que as LOJAS captaram nos catálogos delas (volume do produto em uso)
-  const [leadsLojasTotal, leadsLojasMes, leadsLojas30] = await Promise.all([
-    db.customer.count({ where: { companyId: { in: idsReais }, origin: "CATALOGO_PUBLICO" } }),
-    db.customer.count({
-      where: { companyId: { in: idsReais }, origin: "CATALOGO_PUBLICO", createdAt: { gte: inicioMes } },
+  // ---- USO DO PRODUTO: clientes que as LOJAS captaram ----
+  //
+  // Isto NÃO é lead da AtacadoPro: são as clientes finais das lojistas. Fica
+  // num bloco à parte de propósito — misturado com os canais de aquisição, o
+  // número (que é 50× maior) dava a impressão de que a plataforma recebia
+  // centenas de interessados por mês.
+  //
+  // E conta TODAS as origens, não só o catálogo: a maior parte das clientes
+  // chega pelo WhatsApp, e contar só o catálogo mostrava uma fração do
+  // movimento real das lojas.
+  //
+  // FORA DA CONTA: as clientes que a INTEGRAÇÃO trouxe (Nuvemshop/Bling). A
+  // loja que conecta a integração hoje importa a base inteira de anos com
+  // `createdAt` de hoje — sem separar, "captadas no mês" saltaria para
+  // milhares no dia da conexão, que é exatamente o número inflado que esta
+  // tela veio consertar. Elas aparecem na linha de baixo, com o nome certo.
+  const IMPORTADAS: Origin[] = ["NUVEMSHOP", "BLING"];
+  const [usoPorOrigem, usoMesPorOrigem] = await Promise.all([
+    db.customer.groupBy({
+      by: ["origin"],
+      where: { companyId: { in: idsReais } },
+      _count: { _all: true },
     }),
-    db.customer.count({
-      where: { companyId: { in: idsReais }, origin: "CATALOGO_PUBLICO", createdAt: { gte: dias30 } },
+    db.customer.groupBy({
+      by: ["origin"],
+      where: { companyId: { in: idsReais }, createdAt: { gte: inicioMes } },
+      _count: { _all: true },
     }),
   ]);
-  canais.CATALOGO_LOJAS = { total: leadsLojasTotal, mes: leadsLojasMes, dias30: leadsLojas30 };
+  const somar = (
+    linhas: { origin: Origin; _count: { _all: number } }[],
+    quais?: Origin[]
+  ) =>
+    linhas
+      .filter((l) => (quais ? quais.includes(l.origin) : !IMPORTADAS.includes(l.origin)))
+      .reduce((s, l) => s + l._count._all, 0);
+  const usoDasLojas = {
+    whatsappMes: somar(usoMesPorOrigem, ["WHATSAPP"]),
+    catalogoMes: somar(usoMesPorOrigem, ["CATALOGO_PUBLICO"]),
+    // "outras" = tudo o que sobra das captadas (já sem as importadas)
+    outrasMes:
+      somar(usoMesPorOrigem) -
+      somar(usoMesPorOrigem, ["WHATSAPP", "CATALOGO_PUBLICO"]),
+    totalMes: somar(usoMesPorOrigem),
+    total: somar(usoPorOrigem),
+    importadasTotal: somar(usoPorOrigem, IMPORTADAS),
+  };
 
   // ---- Caixa do mês (o que a plataforma recebeu) ----
   const noMes = (p: { paidAt: Date }) => p.paidAt >= inicioMes && p.paidAt < inicioProximoMes;
@@ -261,6 +298,7 @@ export default async function GestaoPage() {
     <GestaoView
       lojas={lojas}
       canais={canais}
+      usoDasLojas={usoDasLojas}
       intercorrencias={intercorrencias}
       resumo={{
         mrr,

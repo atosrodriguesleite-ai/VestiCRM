@@ -8,6 +8,7 @@ import {
   calcularMRR,
   tipoDeRisco,
   canalDoLead,
+  marcaDoLink,
   valorGerado,
   horasForaDoAr,
   tempoForaLabel,
@@ -207,6 +208,39 @@ describe("loja em risco", () => {
   });
 });
 
+describe("de onde a lojista veio (marca dos utm no link)", () => {
+  it("rodapé do CATÁLOGO de uma loja guarda a loja que indicou", () => {
+    // ?utm_source=catalogo&utm_medium=powered-by&utm_campaign=toque-leve
+    expect(marcaDoLink("catalogo / powered-by / toque-leve")).toBe(
+      "catalogo:toque-leve"
+    );
+  });
+
+  it("rodapé da BIO de uma loja (sem 'medium' no meio)", () => {
+    expect(marcaDoLink("bio / toque-leve")).toBe("bio:toque-leve");
+  });
+
+  it("sem a loja no link, fica só o canal", () => {
+    expect(marcaDoLink("bio")).toBe("bio");
+    expect(marcaDoLink("catalogo / powered-by")).toBe("catalogo");
+  });
+
+  it("link de afiliado não vira canal de rodapé", () => {
+    expect(marcaDoLink("afiliado / indicacao / maria")).toBeNull();
+  });
+
+  it("campanha chamada 'bio' NÃO passa por rodapé de bio", () => {
+    // a fonte é a 1ª parte (utm_source); procurar em qualquer posição
+    // creditava o boca a boca do produto a um anúncio pago qualquer
+    expect(marcaDoLink("google / cpc / bio")).toBeNull();
+  });
+
+  it("visitante que chegou direto não tem marca", () => {
+    expect(marcaDoLink(null)).toBeNull();
+    expect(marcaDoLink("")).toBeNull();
+  });
+});
+
 describe("canal de entrada dos leads da plataforma", () => {
   it("bio de loja", () => {
     expect(canalDoLead({ origin: "SITE", landingSource: "bio:toque-leve" })).toBe("BIO");
@@ -214,6 +248,19 @@ describe("canal de entrada dos leads da plataforma", () => {
   it("formulário do site", () => {
     expect(canalDoLead({ origin: "SITE", landingSource: null })).toBe("LANDING");
   });
+
+  /**
+   * O canal que o dono queria medir e que estava INVISÍVEL: a lojista que
+   * descobre o AtacadoPro no rodapé "Feito com AtacadoPro" do catálogo de
+   * outra loja. Ela cai no formulário do site (origin SITE), então sem a
+   * marca do rodapé virava "Site / landing page" e o canal aparecia zerado.
+   */
+  it("rodapé do CATÁLOGO de uma loja é canal próprio, não 'site'", () => {
+    expect(
+      canalDoLead({ origin: "SITE", landingSource: "catalogo:toque-leve" })
+    ).toBe("CATALOGO_DE_LOJA");
+  });
+
   it("catálogo da própria plataforma", () => {
     expect(canalDoLead({ origin: "CATALOGO_PUBLICO", landingSource: null })).toBe(
       "CATALOGO_PLATAFORMA"

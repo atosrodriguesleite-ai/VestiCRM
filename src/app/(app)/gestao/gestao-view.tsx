@@ -192,11 +192,22 @@ function Kpi({
 export function GestaoView({
   lojas,
   canais,
+  usoDasLojas,
   intercorrencias,
   resumo,
 }: {
   lojas: LojaGestao[];
   canais: Record<CanalDeLead, { total: number; mes: number; dias30: number }>;
+  /** clientes que as LOJAS captaram — uso do produto, não lead da plataforma */
+  usoDasLojas: {
+    whatsappMes: number;
+    catalogoMes: number;
+    outrasMes: number;
+    totalMes: number;
+    total: number;
+    /** clientes que a integração IMPORTOU — fora da conta de captadas */
+    importadasTotal: number;
+  };
   intercorrencias: Intercorrencia[];
   resumo: Resumo;
 }) {
@@ -776,6 +787,16 @@ export function GestaoView({
       {/* ---------------- LEADS ---------------- */}
       {aba === "leads" && (
         <div className="space-y-5">
+          <div>
+            <p className="text-sm font-semibold text-slate-800">
+              Quem quer contratar o AtacadoPro
+            </p>
+            <p className="mt-0.5 text-[12px] leading-snug text-slate-500">
+              Lojistas que chegaram até a plataforma. O canal mais valioso é o
+              boca a boca do próprio produto: quem descobre o AtacadoPro no
+              rodapé do catálogo ou da bio de uma loja que já usa.
+            </p>
+          </div>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
             {(Object.keys(canalLeadLabel) as CanalDeLead[]).map((canal) => {
               const c = canais[canal];
@@ -829,9 +850,61 @@ export function GestaoView({
               );
             })()}
             <p className="mt-3 border-t border-slate-100 pt-3 text-[11px] leading-snug text-slate-400">
-              <b>Site/landing</b> e <b>link da bio</b> são leads da AtacadoPro (quem quer contratar o
-              sistema). <b>Catálogos das lojas</b> são os clientes finais que as lojas captaram — é o
-              termômetro de quanto o produto está sendo usado de verdade.
+              Todos estes são <b>lojistas interessadas no AtacadoPro</b>. As
+              clientes das lojas ficam no bloco de baixo — são coisas
+              diferentes, e somar as duas dá a impressão de um funil comercial
+              que não existe.
+            </p>
+          </Card>
+
+          {/* USO DO PRODUTO — clientes das LOJAS. Bloco separado de propósito:
+              é 50× maior que a aquisição e, misturado, dava a impressão de que
+              a plataforma recebia centenas de interessados por mês. */}
+          <Card className="p-4">
+            <p className="text-sm font-semibold text-slate-800">
+              Movimento das lojas (termômetro de uso)
+            </p>
+            <p className="mt-0.5 text-[12px] leading-snug text-slate-500">
+              Clientes que as <b>lojas</b> captaram no mês — não são leads da
+              AtacadoPro, são as clientes delas. É o número que mostra se o
+              produto está sendo usado de verdade.
+            </p>
+            <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
+              {[
+                ["WhatsApp", usoDasLojas.whatsappMes],
+                ["Catálogo", usoDasLojas.catalogoMes],
+                ["Outras origens", usoDasLojas.outrasMes],
+                ["Total no mês", usoDasLojas.totalMes],
+              ].map(([rotulo, valor], i) => (
+                <div
+                  key={rotulo as string}
+                  className={`rounded-xl p-3 ${i === 3 ? "bg-brand-50" : "bg-slate-50"}`}
+                >
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+                    {rotulo}
+                  </p>
+                  <p
+                    className={`mt-1 text-2xl font-bold tabular-nums ${i === 3 ? "text-brand-700" : "text-slate-900"}`}
+                  >
+                    {valor}
+                  </p>
+                </div>
+              ))}
+            </div>
+            <p className="mt-3 border-t border-slate-100 pt-3 text-[11px] leading-snug text-slate-400">
+              <b className="tabular-nums text-slate-600">{usoDasLojas.total}</b>{" "}
+              clientes captadas no total, somando todas as lojas.
+              {usoDasLojas.importadasTotal > 0 && (
+                <>
+                  {" "}
+                  Fora da conta:{" "}
+                  <b className="tabular-nums text-slate-600">
+                    {usoDasLojas.importadasTotal}
+                  </b>{" "}
+                  vieram prontas da Nuvemshop/Bling — a loja já tinha essa base
+                  antes, então não é captação nem movimento do mês.
+                </>
+              )}
             </p>
           </Card>
         </div>

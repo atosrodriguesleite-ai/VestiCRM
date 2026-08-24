@@ -3,6 +3,7 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import { intakeLead } from "@/lib/intake";
 import { ensurePlatformCompany, platformOwnerId } from "@/lib/platform";
+import { marcaDoLink } from "@/lib/gestao";
 
 /**
  * Solicitação de demonstração (Landing Page → Super Admin).
@@ -67,22 +68,22 @@ export async function POST(req: NextRequest) {
     ownerId: ownerId ?? undefined,
   });
 
-  // Canal de aquisição "Bio": o rodapé "feito por atacadopro.com" das bios das
-  // lojas leva o visitante até aqui com ?utm_source=bio&utm_campaign=<slug>.
-  // Marca o lead para o Super Admin acompanhar esse canal separadamente.
-  let landingSource: string | null = null;
-  if (d.ref) {
-    const parts = d.ref.split(/[/·,]/).map((p) => p.trim().toLowerCase()).filter(Boolean);
-    if (parts.includes("bio")) {
-      const slug = parts[parts.indexOf("bio") + 1] ?? "";
-      landingSource = slug ? `bio:${slug}` : "bio";
-    }
-  }
+  // DE ONDE VEIO ESTE LEAD — o canal de aquisição da plataforma. A leitura
+  // dos utm vive em `lib/gestao.ts` (marcaDoLink), com teste que a guarda.
+  const landingSource = marcaDoLink(d.ref);
+
+  // PRIMEIRO TOQUE MANDA: se a lojista já tinha pedido demonstração antes
+  // (o intake deduplica pelo telefone), o canal de origem NÃO é reescrito.
+  // Agora que existem dois rodapés concorrentes — bio e catálogo —, uma
+  // segunda solicitação pelo outro caminho reatribuiria o canal
+  // retroativamente e a conta do mês passado mudaria sozinha. Mesma régua do
+  // `campaignId` no intake.ts.
+  const gravarCanal = landingSource && !result.customer.landingSource;
 
   // enriquece: notas do cliente, timeline e renomeia a tarefa automática
   await db.customer.update({
     where: { id: result.customer.id },
-    data: { notes: resumo, ...(landingSource ? { landingSource } : {}) },
+    data: { notes: resumo, ...(gravarCanal ? { landingSource } : {}) },
   });
   await db.customerEvent.create({
     data: {

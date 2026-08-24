@@ -245,27 +245,62 @@ export type CanalDeLead =
   | "LANDING"
   | "BIO"
   | "CATALOGO_PLATAFORMA"
-  | "CATALOGO_LOJAS"
+  | "CATALOGO_DE_LOJA"
   | "OUTROS";
 
 export const canalLeadLabel: Record<CanalDeLead, string> = {
   LANDING: "Site / landing page",
-  BIO: "Link da bio",
-  CATALOGO_PLATAFORMA: "Catálogo da plataforma",
-  CATALOGO_LOJAS: "Catálogos das lojas",
+  BIO: "Rodapé da bio de uma loja",
+  CATALOGO_DE_LOJA: "Rodapé do catálogo de uma loja",
+  CATALOGO_PLATAFORMA: "Catálogo da AtacadoPro",
   OUTROS: "Outros canais",
 };
 
 /**
- * Classifica um lead da EMPRESA-PLATAFORMA pelo caminho de entrada.
- * `landingSource` começa com "bio" quando a pessoa veio do rodapé de uma bio
- * de loja; o formulário do site entra como SITE; o resto é catálogo/manual.
+ * LÊ A MARCA DO LINK que trouxe a visitante até a landing page ("de onde ela
+ * veio"), a partir dos utm que o formulário do site junta em uma linha só.
+ *
+ * Os dois rodapés das lojas mandam gente para cá, cada um com a sua marca:
+ *   • bio      → "bio / <slug-da-loja>"
+ *   • catálogo → "catalogo / powered-by / <slug-da-loja>"
+ *
+ * O catálogo NÃO era reconhecido (só a bio): a lojista que descobriu o
+ * AtacadoPro no rodapé do catálogo de outra loja entrava como "site" e o
+ * canal aparecia ZERADO no painel — justamente o canal que mais interessa.
+ *
+ * A fonte é a PRIMEIRA parte (o utm_source). Procurar "bio" em qualquer
+ * posição faria um utm_campaign chamado "bio" se passar por rodapé de bio.
+ * A campanha (o slug da loja) é a ÚLTIMA, porque o catálogo manda um
+ * "medium" no meio que a bio não manda.
+ */
+export function marcaDoLink(ref: string | null | undefined): string | null {
+  if (!ref) return null;
+  const partes = ref
+    .split(/[/·,]/)
+    .map((p) => p.trim().toLowerCase())
+    .filter(Boolean);
+  const fonte = ["bio", "catalogo"].find((f) => partes[0] === f);
+  if (!fonte) return null;
+  const ultima = partes[partes.length - 1] ?? "";
+  const slug = ultima && ultima !== fonte && ultima !== "powered-by" ? ultima : "";
+  return slug ? `${fonte}:${slug}` : fonte;
+}
+
+/**
+ * Classifica um lead da EMPRESA-PLATAFORMA — quem quer CONTRATAR o sistema —
+ * pelo caminho de entrada.
+ *
+ * O canal que mais interessa é o boca a boca do próprio produto: a lojista
+ * que descobre o AtacadoPro no rodapé do catálogo (ou da bio) de outra loja.
+ * `landingSource` guarda essa marca ("catalogo:<slug>", "bio:<slug>"), posta
+ * pelo formulário do site a partir do utm do link.
  */
 export function canalDoLead(lead: {
   origin: string;
   landingSource: string | null;
 }): CanalDeLead {
   if (lead.landingSource?.startsWith("bio")) return "BIO";
+  if (lead.landingSource?.startsWith("catalogo")) return "CATALOGO_DE_LOJA";
   if (lead.origin === "SITE") return "LANDING";
   if (lead.origin === "CATALOGO_PUBLICO") return "CATALOGO_PLATAFORMA";
   return "OUTROS";
