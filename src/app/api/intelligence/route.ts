@@ -48,7 +48,7 @@ export async function GET(req: NextRequest) {
         sizeStats(companyId, period),
         heatmaps(companyId, period),
         recovery(companyId, period),
-        alerts(companyId, period),
+        alerts(companyId),
       ]);
 
     return NextResponse.json({

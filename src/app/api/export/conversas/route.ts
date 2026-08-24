@@ -12,7 +12,11 @@ import { formatPhone } from "@/lib/format";
  */
 
 const esc = (v: unknown) => {
-  const s = String(v ?? "").replace(/"/g, '""');
+  let s = String(v ?? "").replace(/"/g, '""');
+  // neutraliza injeção de fórmula: célula começando com = + - @ é executada
+  // pelo Excel/Sheets ao abrir — e aqui tem texto escrito pela CLIENTE na
+  // conversa, mesma régua do export de pedidos
+  if (/^[=+\-@\t\r]/.test(s)) s = `'${s}`;
   return /[";\n]/.test(s) ? `"${s}"` : s;
 };
 

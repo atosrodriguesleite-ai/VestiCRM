@@ -110,7 +110,7 @@ export default async function DashboardPage({
     totalCustomers,
     newLeads30,
     openOpps,
-    negotiatingOpps,
+    stagesFunil,
     lostOpps30,
     noContactCustomers,
     noContactCount,
@@ -144,12 +144,13 @@ export default async function DashboardPage({
     db.customer.count({ where: scope }),
     db.customer.count({ where: { ...scope, createdAt: inPeriod } }),
     db.opportunity.findMany({ where: { ...scope, status: "OPEN" } }),
-    db.opportunity.count({
-      where: {
-        ...scope,
-        status: "OPEN",
-        stage: { name: { in: ["Pedido em negociação", "Pagamento pendente"] } },
-      },
+    // etapas do funil — o "em fechamento" conta pela POSIÇÃO (as 2 últimas
+    // antes do ganho), não pelo nome: loja que renomeava as etapas ("Pedido
+    // em negociação" → outro nome) travava o contador em zero para sempre
+    db.stage.findMany({
+      where: { pipeline: { companyId: user.companyId } },
+      select: { id: true, pipelineId: true, order: true, isWon: true, isLost: true },
+      orderBy: { order: "asc" },
     }),
     db.opportunity.count({
       where: { ...scope, status: "LOST", closedAt: inPeriod },
@@ -375,7 +376,40 @@ export default async function DashboardPage({
   const conversion = ordersGenerated30
     ? (cohortPaid30 / ordersGenerated30) * 100
     : 0;
+  // CANCELADO não é "sem pagamento": o rodapé somava pedido cancelado como
+  // cobrança pendente (auditoria 24/08/2026). Usa a mesma contagem por status
+  // do donut (pedidos criados no período).
+  const canceladosPeriodo =
+    statusCounts.find((s) => s.status === "CANCELADO")?._count ?? 0;
+  const aguardandoPagamento = Math.max(
+    0,
+    ordersGenerated30 - cohortPaid30 - canceladosPeriodo
+  );
   const pipelineValue = openOpps.reduce((s, o) => s + o.value, 0);
+  // "em fechamento" = oportunidades ABERTAS nas 2 últimas etapas antes do
+  // ganho de cada funil (no padrão: "Pedido em negociação" e "Pagamento
+  // pendente") — pela posição, o contador sobrevive à renomeação das etapas
+  const etapasDeFechamento = new Set<string>();
+  {
+    const porPipeline = new Map<string, typeof stagesFunil>();
+    for (const s of stagesFunil) {
+      const lista = porPipeline.get(s.pipelineId) ?? [];
+      lista.push(s);
+      porPipeline.set(s.pipelineId, lista);
+    }
+    for (const etapas of porPipeline.values()) {
+      const ordensGanho = etapas.filter((e) => e.isWon).map((e) => e.order);
+      const ordemGanho = ordensGanho.length ? Math.min(...ordensGanho) : Infinity;
+      for (const e of etapas
+        .filter((x) => !x.isWon && !x.isLost && x.order < ordemGanho)
+        .slice(-2)) {
+        etapasDeFechamento.add(e.id);
+      }
+    }
+  }
+  const negotiatingOpps = openOpps.filter((o) =>
+    etapasDeFechamento.has(o.stageId)
+  ).length;
   const periodLabel = customPeriod
     ? `${dateShort(from)} a ${dateShort(to)}`
     : "últimos 30 dias";
@@ -384,7 +418,14 @@ export default async function DashboardPage({
   const DAY = 86_400_000;
   const dayIdx = (d: Date) => Math.floor((d.getTime() - SP_OFFSET) / DAY);
   const firstIdx = dayIdx(from);
-  const nDias = Math.min(Math.max(dayIdx(to) - firstIdx + 1, 1), 400);
+  // teto de ~4 anos só para o array não explodir com uma data digitada
+  // errada. Antes o teto era 400 dias e o corte era MUDO: filtrando 13+
+  // meses, o fim do período sumia do gráfico sem aviso (auditoria
+  // 24/08/2026) — agora o teto quase nunca é atingido e, quando é, a tela diz.
+  const TETO_DIAS_GRAFICO = 1465;
+  const totalDias = Math.max(dayIdx(to) - firstIdx + 1, 1);
+  const nDias = Math.min(totalDias, TETO_DIAS_GRAFICO);
+  const graficoCortado = totalDias > TETO_DIAS_GRAFICO;
   const serieFat = new Array<number>(nDias).fill(0);
   const seriePed = new Array<number>(nDias).fill(0);
   for (const v of sales30) {
@@ -415,7 +456,8 @@ export default async function DashboardPage({
   };
   let chartFat = serieFat;
   let chartPrev = seriePrev;
-  if (nDias > 92) {
+  const agrupadoPorSemana = nDias > 92;
+  if (agrupadoPorSemana) {
     chartFat = porSemana(serieFat);
     chartPrev = porSemana(seriePrev);
     labelsDias = labelsDias.filter((_, i) => i % 7 === 0);
@@ -622,10 +664,10 @@ export default async function DashboardPage({
           value={conversion}
           format="pct"
           delta={deltaConv}
-          hint={`${cohortPaid30} pagos · ${ordersGenerated30 - cohortPaid30} sem pagamento`}
+          hint={`${cohortPaid30} pagos · ${aguardandoPagamento} sem pagamento${canceladosPeriodo > 0 ? ` · ${canceladosPeriodo} cancelados` : ""}`}
           icon={<Percent />}
           tone={conversion >= 50 ? "good" : "warn"}
-          info="Dos pedidos CRIADOS no período, quantos já foram pagos. Pedido antigo pago agora não entra — por isso a taxa nunca passa de 100%."
+          info="Dos pedidos CRIADOS no período, quantos já foram pagos. Pedido antigo pago agora não entra — por isso a taxa nunca passa de 100%. Cancelados aparecem à parte: não são cobrança pendente."
         />
         <StatCard
           label="Funil aberto"
@@ -687,7 +729,23 @@ export default async function DashboardPage({
               <h2 className="font-semibold flex items-center gap-2 text-sm">
                 <TrendingUp className="size-4 text-brand-600" />
                 Faturamento no período
-                <InfoTip text="Valor dos pedidos pagos por dia. A linha tracejada clara é o período anterior de mesma duração — dia 1 alinha com dia 1." />
+                {agrupadoPorSemana && (
+                  <span className="text-[11px] font-normal text-slate-400">
+                    · por semana
+                  </span>
+                )}
+                <InfoTip
+                  text={
+                    agrupadoPorSemana
+                      ? "Período longo agrupa por SEMANA: cada ponto soma os 7 dias a partir da data mostrada. A linha tracejada clara é o período anterior de mesma duração — semana 1 alinha com semana 1."
+                      : "Valor dos pedidos pagos por dia. A linha tracejada clara é o período anterior de mesma duração — dia 1 alinha com dia 1."
+                  }
+                />
+                {graficoCortado && (
+                  <span className="text-[11px] font-normal text-amber-600">
+                    · mostrando os primeiros 4 anos do período
+                  </span>
+                )}
               </h2>
               <div className="flex items-center gap-3 text-[11px] text-slate-400">
                 <span className="flex items-center gap-1.5">

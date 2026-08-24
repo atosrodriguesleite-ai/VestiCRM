@@ -177,6 +177,10 @@ export function StatCard({
           ? "bg-rose-50 text-rose-500"
           : "bg-brand-50 text-brand-500";
   const temDelta = delta != null && Number.isFinite(delta);
+  // variação que ARREDONDA para 0% é "igual", não "subiu": a seta verde no
+  // 0,0% dizia que melhorou quando nada mudou (auditoria 24/08/2026). O corte
+  // segue o arredondamento exibido (1 casa abaixo de 10).
+  const estavel = temDelta && Math.abs(delta!) < 0.05;
   const sobe = temDelta && delta! >= 0;
   return (
     <div className="group min-w-0 bg-white rounded-2xl border border-slate-200/70 shadow-card p-4 md:p-5 transition duration-200 hover:shadow-pop hover:-translate-y-0.5">
@@ -208,17 +212,27 @@ export function StatCard({
           <span
             title={deltaHint}
             className={`inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[11px] font-bold tabular-nums ${
-              sobe ? "bg-emerald-50 text-emerald-600" : "bg-rose-50 text-rose-600"
+              estavel
+                ? "bg-slate-100 text-slate-500"
+                : sobe
+                  ? "bg-emerald-50 text-emerald-600"
+                  : "bg-rose-50 text-rose-600"
             }`}
           >
-            <svg viewBox="0 0 10 10" className={`size-2 ${sobe ? "" : "rotate-180"}`} aria-hidden="true">
-              <path d="M5 1 L9 7 H1 Z" fill="currentColor" />
-            </svg>
+            {estavel ? (
+              <span aria-hidden="true">=</span>
+            ) : (
+              <svg viewBox="0 0 10 10" className={`size-2 ${sobe ? "" : "rotate-180"}`} aria-hidden="true">
+                <path d="M5 1 L9 7 H1 Z" fill="currentColor" />
+              </svg>
+            )}
             {Math.abs(delta!).toLocaleString("pt-BR", {
               maximumFractionDigits: Math.abs(delta!) < 10 ? 1 : 0,
             })}
             %
-            <span className="sr-only">{sobe ? "acima" : "abaixo"} do período anterior</span>
+            <span className="sr-only">
+              {estavel ? "igual ao" : sobe ? "acima do" : "abaixo do"} período anterior
+            </span>
           </span>
         </div>
       )}
