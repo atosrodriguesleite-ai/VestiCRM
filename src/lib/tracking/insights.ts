@@ -828,19 +828,67 @@ export async function recovery(companyId: string, p: Period) {
     }
   }
 
-  // cliente voltou após 30+ dias
+  // CLIENTE VOLTOU = uma visita DENTRO do período que cruza um buraco de
+  // 30+ dias desde a visita anterior. Três armadilhas que esta conta evita
+  // (auditoria + revisão de 24/08/2026):
+  //  • a régua antiga (última visita − PRIMEIRA de todas) fazia a cliente
+  //    fiel de meses "voltar depois de um tempo" toda semana;
+  //  • medir só entre as DUAS últimas apagaria o card assim que a cliente
+  //    reabrisse o link à tarde (cada abertura é uma sessão nova) — por
+  //    isso a VOLTA procurada é a que cruza o buraco, não a última sessão;
+  //  • exigir lastSeenAt dentro do período esconderia, num recorte
+  //    histórico, a volta de julho da cliente que visitou de novo em agosto.
   const visitors = await db.visitor.findMany({
-    where: { companyId, customerId: { not: null }, lastSeenAt: { gte: p.from } },
+    where: {
+      companyId,
+      customerId: { not: null },
+      visits: { gte: 2 },
+      lastSeenAt: { gte: p.from },
+    },
+    select: { id: true, customerId: true, visits: true },
   });
-  for (const v of visitors) {
-    const gap = (v.lastSeenAt.getTime() - v.firstSeenAt.getTime()) / (24 * 60 * 60 * 1000);
-    if (v.visits >= 2 && gap >= 30) {
+  if (visitors.length) {
+    // janela com teto: a visita ANTERIOR ao buraco pode ser bem mais velha
+    // que o período, mas não precisa da história inteira — 400 dias cobrem
+    // qualquer ausência que valha mensagem (e a consulta não cresce sem fim)
+    const inicioJanela = new Date(p.from.getTime() - 400 * 24 * 60 * 60 * 1000);
+    const sessoesDeles = await db.trackSession.findMany({
+      where: {
+        companyId,
+        visitorId: { in: visitors.map((v) => v.id) },
+        startedAt: { gte: inicioJanela, lte: p.to },
+      },
+      select: { visitorId: true, startedAt: true },
+      orderBy: { startedAt: "desc" },
+    });
+    const sessoesPorVisitante = new Map<string, Date[]>();
+    for (const s of sessoesDeles) {
+      const lista = sessoesPorVisitante.get(s.visitorId) ?? [];
+      lista.push(s.startedAt);
+      sessoesPorVisitante.set(s.visitorId, lista);
+    }
+    for (const v of visitors) {
+      const sessoes = sessoesPorVisitante.get(v.id) ?? [];
+      // procura a volta mais RECENTE dentro do período (lista vem desc)
+      let volta: Date | null = null;
+      let ausencia = 0;
+      for (let i = 0; i + 1 < sessoes.length; i++) {
+        if (sessoes[i] > p.to || sessoes[i] < p.from) continue;
+        const dias =
+          (sessoes[i].getTime() - sessoes[i + 1].getTime()) / (24 * 60 * 60 * 1000);
+        if (dias >= 30) {
+          volta = sessoes[i];
+          ausencia = dias;
+          break;
+        }
+      }
+      if (!volta) continue;
       const c = byId.get(v.customerId!);
       if (c) {
         out.push({
           kind: "cliente-voltou",
           title: `${c.name} voltou ao catálogo depois de um tempo`,
-          detail: `${v.visits} visitas no total. Ótimo momento para retomar a conversa.`,
+          detail: `Ficou ${Math.round(ausencia)} dias sem aparecer · ${v.visits} visitas no total. Ótimo momento para retomar a conversa.`,
           customerId: c.id,
         });
       }
@@ -852,17 +900,35 @@ export async function recovery(companyId: string, p: Period) {
 const fmtBrl = (v: number) =>
   "R$ " + v.toFixed(2).replace(".", ",").replace(/\B(?=(\d{3})+(?!\d))/g, ".");
 
-export async function alerts(companyId: string, p: Period) {
+export async function alerts(companyId: string) {
+  // Os alertas são o AGORA da loja e NÃO seguem o filtro da tela (é o que o
+  // selo diz). Antes os de produto/cor usavam o período filtrado: com filtro
+  // de 1 ano, mandavam revisar preço de peça que ninguém vê há meses, com
+  // selo de "24h" (auditoria 24/08/2026). Régua fixa: visitas/carrinho das
+  // últimas 24h; produto e cor dos últimos 7 dias (24h é fino demais para
+  // juntar as 8 aberturas que disparam o aviso).
+  const semanaViva = periodFromDays(7);
   const out: string[] = [];
   const [sessions, prodStats, colStats] = await Promise.all([
     db.trackSession.findMany({
       where: { companyId, startedAt: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) } },
-      include: { visitor: true },
+      select: { visitorId: true, customerId: true, cartValue: true },
     }),
-    productStats(companyId, p),
-    colorStats(companyId, p),
+    productStats(companyId, semanaViva),
+    colorStats(companyId, semanaViva),
   ]);
-  const customers = await db.customer.findMany({ where: { companyId } });
+  // só os nomes de quem apareceu nas sessões de hoje — carregar a ficha
+  // inteira de TODAS as clientes para nomear meia dúzia derrubaria a tela
+  // numa loja grande (mesma razão do select enxuto em recovery)
+  const idsDeHoje = [
+    ...new Set(sessions.map((s) => s.customerId).filter((v): v is string => !!v)),
+  ];
+  const customers = idsDeHoje.length
+    ? await db.customer.findMany({
+        where: { companyId, id: { in: idsDeHoje } },
+        select: { id: true, name: true },
+      })
+    : [];
   const byId = new Map(customers.map((c) => [c.id, c]));
 
   // visitas repetidas hoje

@@ -13,7 +13,11 @@ import { formatarCpf, formatarCnpj } from "@/lib/documento";
  */
 
 const esc = (v: unknown) => {
-  const s = String(v ?? "").replace(/"/g, '""');
+  let s = String(v ?? "").replace(/"/g, '""');
+  // neutraliza injeção de fórmula: célula começando com = + - @ é executada
+  // pelo Excel/Sheets ao abrir — e aqui tem texto digitado pela CLIENTE no
+  // catálogo (nome, endereço), mesma régua do export de pedidos
+  if (/^[=+\-@\t\r]/.test(s)) s = `'${s}`;
   return /[";\n]/.test(s) ? `"${s}"` : s;
 };
 
