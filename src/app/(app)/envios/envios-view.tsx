@@ -218,7 +218,7 @@ export function EnviosView() {
               valor={String(dados.painel.emTransito)}
               detalhe={
                 dados.painel.parados > 0
-                  ? `${dados.painel.parados} deles parado${dados.painel.parados > 1 ? "s" : ""} há +${dados.diasParaParado} dias`
+                  ? `${dados.painel.parados} deles parado${dados.painel.parados > 1 ? "s" : ""} há +${dados.diasParaParado} dias (veja em Atenção)`
                   : "tudo andando"
               }
               alerta={dados.painel.parados > 0}
