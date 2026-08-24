@@ -19,6 +19,7 @@ import {
   WifiOff,
 } from "lucide-react";
 import { Card } from "@/components/ui";
+import { ContatosDosLeads } from "./contatos-leads";
 import { brl, dateShort, dateFull, timeShort } from "@/lib/format";
 import { casaTexto } from "@/lib/busca";
 import {
@@ -36,6 +37,24 @@ import {
   type SituacaoCobranca,
   type TipoDeRisco,
 } from "@/lib/gestao";
+
+/** Um lead da plataforma com o que é preciso para LIGAR para ele. */
+export type LeadContato = {
+  id: string;
+  nome: string;
+  telefone: string;
+  email: string | null;
+  cidade: string | null;
+  uf: string | null;
+  instagram: string | null;
+  canal: CanalDeLead;
+  /** apelido da loja que indicou (quando veio de um rodapé) */
+  loja: string | null;
+  /** em que pé está a negociação (estágio no funil da plataforma) */
+  situacao: string | null;
+  situacaoStatus: string | null;
+  criadoEm: string;
+};
 
 export type LojaGestao = {
   id: string;
@@ -192,12 +211,21 @@ function Kpi({
 export function GestaoView({
   lojas,
   canais,
+  leadsContato,
+  leadsOcultos,
+  janelas,
   usoDasLojas,
   intercorrencias,
   resumo,
 }: {
   lojas: LojaGestao[];
   canais: Record<CanalDeLead, { total: number; mes: number; dias30: number }>;
+  /** os contatos dos leads da plataforma (mais recentes primeiro) */
+  leadsContato: LeadContato[];
+  /** quantos ficaram de fora do teto da lista (0 = a lista é tudo) */
+  leadsOcultos: number;
+  /** limites do período (calculados no servidor, fuso de São Paulo) */
+  janelas: { inicioMes: string; dias30: string };
   /** clientes que as LOJAS captaram — uso do produto, não lead da plataforma */
   usoDasLojas: {
     whatsappMes: number;
@@ -856,6 +884,13 @@ export function GestaoView({
               que não existe.
             </p>
           </Card>
+
+          <ContatosDosLeads
+            leads={leadsContato}
+            ocultos={leadsOcultos}
+            inicioMes={janelas.inicioMes}
+            dias30={janelas.dias30}
+          />
 
           {/* USO DO PRODUTO — clientes das LOJAS. Bloco separado de propósito:
               é 50× maior que a aquisição e, misturado, dava a impressão de que

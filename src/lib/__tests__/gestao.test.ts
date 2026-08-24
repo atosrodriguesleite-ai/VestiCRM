@@ -9,6 +9,9 @@ import {
   tipoDeRisco,
   canalDoLead,
   marcaDoLink,
+  instagramDoLead,
+  notasEmpilhadas,
+  MARCA_ANTERIOR,
   valorGerado,
   horasForaDoAr,
   tempoForaLabel,
@@ -205,6 +208,81 @@ describe("loja em risco", () => {
     expect(
       tipoDeRisco({ suspended: false, kind: "CORTESIA", ultimoAcesso: null, criadaEm: velha }, hoje)
     ).toBeNull();
+  });
+});
+
+describe("segunda solicitação de demonstração não apaga a primeira", () => {
+  const primeira = "🖥️ Solicitação de demonstração\nResponsável: Ana\nInstagram: @bella";
+  const segunda = "🖥️ Solicitação de demonstração\nResponsável: Ana";
+
+  it("a nova fica em cima e a anterior fica embaixo, marcada", () => {
+    const r = notasEmpilhadas(segunda, primeira);
+    expect(r.startsWith(segunda)).toBe(true);
+    expect(r).toContain(MARCA_ANTERIOR);
+    expect(r).toContain("Instagram: @bella");
+  });
+
+  it("o Instagram informado só na 1ª vez continua achável", () => {
+    // é o dado de contato que a lojista não repetiu no 2º formulário
+    expect(instagramDoLead(notasEmpilhadas(segunda, primeira))).toBe("@bella");
+  });
+
+  it("primeiro contato: não inventa histórico", () => {
+    expect(notasEmpilhadas(primeira, null)).toBe(primeira);
+    expect(notasEmpilhadas(primeira, "")).toBe(primeira);
+  });
+
+  it("texto igual não vira duas cópias — nem na terceira vez", () => {
+    expect(notasEmpilhadas(primeira, primeira)).toBe(primeira);
+    // quem clica três vezes no mesmo formulário: a pilha não cresce
+    let notas = notasEmpilhadas(segunda, primeira);
+    const antes = notas;
+    notas = notasEmpilhadas(segunda, notas);
+    notas = notasEmpilhadas(segunda, notas);
+    expect(notas).toBe(antes);
+  });
+
+  it("o campo não cresce sem fim", () => {
+    let notas = primeira;
+    for (let i = 0; i < 60; i++) notas = notasEmpilhadas(segunda, notas);
+    expect(notas.length).toBeLessThanOrEqual(4000);
+  });
+});
+
+describe("Instagram informado no formulário de demonstração", () => {
+  const resumo = (linha: string) =>
+    ["🖥️ Solicitação de demonstração", "Responsável: Ana", linha, "Loja: Bella"].join(
+      "\n"
+    );
+
+  it("com arroba", () => {
+    expect(instagramDoLead(resumo("Instagram: @bellamoda"))).toBe("@bellamoda");
+  });
+
+  it("sem arroba", () => {
+    expect(instagramDoLead(resumo("Instagram: bellamoda"))).toBe("@bellamoda");
+  });
+
+  it("link colado (é o que a lojista faz no celular)", () => {
+    expect(
+      instagramDoLead(resumo("Instagram: https://www.instagram.com/bellamoda/"))
+    ).toBe("@bellamoda");
+  });
+
+  it("link SEM o https — o jeito que sai do celular", () => {
+    // sem isto o @ virava "@instagram.com" e o link não levava a lugar nenhum
+    expect(instagramDoLead(resumo("Instagram: instagram.com/bellamoda"))).toBe(
+      "@bellamoda"
+    );
+    expect(
+      instagramDoLead(resumo("Instagram: www.instagram.com/bellamoda"))
+    ).toBe("@bellamoda");
+  });
+
+  it("quem não informou fica sem — nunca inventa um @", () => {
+    expect(instagramDoLead(resumo("Loja: Bella"))).toBeNull();
+    expect(instagramDoLead(null)).toBeNull();
+    expect(instagramDoLead(resumo("Instagram:   "))).toBeNull();
   });
 });
 

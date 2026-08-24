@@ -3,7 +3,7 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import { intakeLead } from "@/lib/intake";
 import { ensurePlatformCompany, platformOwnerId } from "@/lib/platform";
-import { marcaDoLink } from "@/lib/gestao";
+import { marcaDoLink, notasEmpilhadas } from "@/lib/gestao";
 
 /**
  * Solicitação de demonstração (Landing Page → Super Admin).
@@ -80,10 +80,29 @@ export async function POST(req: NextRequest) {
   // `campaignId` no intake.ts.
   const gravarCanal = landingSource && !result.customer.landingSource;
 
+  // O E-MAIL DA LOJISTA TEM QUE VIRAR CAMPO, não só texto na observação.
+  // O formulário sempre perguntou o e-mail, mas ele só entrava no resumo:
+  // `Customer.email` ficava VAZIO, e quem abria a ficha para responder não
+  // tinha para onde escrever (nem a planilha de leads saía com a coluna
+  // preenchida). Só preenche o que está vazio: e-mail corrigido à mão pela
+  // equipe não é sobrescrito por um formulário novo.
+  const gravarEmail = d.email && !result.customer.email;
+
+  // A SOLICITAÇÃO ANTERIOR NÃO SE PERDE. O `notes` era SUBSTITUÍDO: quem
+  // pedisse demonstração duas vezes apagava o primeiro resumo — e com ele o
+  // Instagram e o e-mail que a lojista tinha informado da primeira vez e não
+  // repetiu na segunda. A mais nova fica em cima (é o que interessa na hora
+  // de ligar) e a anterior fica embaixo, marcada.
+  const notas = notasEmpilhadas(resumo, result.customer.notes);
+
   // enriquece: notas do cliente, timeline e renomeia a tarefa automática
   await db.customer.update({
     where: { id: result.customer.id },
-    data: { notes: resumo, ...(gravarCanal ? { landingSource } : {}) },
+    data: {
+      notes: notas,
+      ...(gravarCanal ? { landingSource } : {}),
+      ...(gravarEmail ? { email: d.email } : {}),
+    },
   });
   await db.customerEvent.create({
     data: {

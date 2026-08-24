@@ -12,13 +12,19 @@ import {
   situacaoCobranca,
   tipoDeRisco,
   canalDoLead,
+  instagramDoLead,
   valorDaCobranca,
   horasForaDoAr,
   FONTE_AUDITORIA,
   ehLojaDemo,
   type CanalDeLead,
 } from "@/lib/gestao";
-import { GestaoView, type LojaGestao, type Intercorrencia } from "./gestao-view";
+import {
+  GestaoView,
+  type LojaGestao,
+  type Intercorrencia,
+  type LeadContato,
+} from "./gestao-view";
 
 export const dynamic = "force-dynamic";
 
@@ -197,13 +203,49 @@ export default async function GestaoPage() {
     };
   });
 
-  // ---- Leads da PLATAFORMA por canal de entrada ----
-  const leadsPlataforma = plataforma
-    ? await db.customer.findMany({
-        where: { companyId: plataforma.id },
-        select: { origin: true, landingSource: true, createdAt: true },
-      })
-    : [];
+  // ---- Leads da PLATAFORMA: quantos, de onde e QUEM SÃO ----
+  //
+  // A tela mostra os CONTATOS, não só a contagem (pedido do dono, 24/08/2026):
+  // saber que chegaram 7 leads não serve para nada se não dá para ligar para
+  // eles. Vem o telefone, o e-mail, a cidade e em que pé está a negociação.
+  //
+  // DUAS CONSULTAS, de propósito. A CONTAGEM precisa de todos os leads, mas
+  // só de três colunas curtas. A LISTA precisa das observações (que guardam o
+  // histórico das solicitações) e da oportunidade de cada um — caro, e só
+  // vale para os que aparecem na tela. Juntas, faziam a página carregar o
+  // texto inteiro de cada lead para contar cinco números.
+  const TETO_CONTATOS = 500;
+  const [leadsPlataforma, leadsDetalhe] = plataforma
+    ? await Promise.all([
+        db.customer.findMany({
+          where: { companyId: plataforma.id },
+          select: { origin: true, landingSource: true, createdAt: true },
+        }),
+        db.customer.findMany({
+          where: { companyId: plataforma.id },
+          orderBy: { createdAt: "desc" },
+          take: TETO_CONTATOS,
+          select: {
+            id: true,
+            name: true,
+            phone: true,
+            email: true,
+            city: true,
+            state: true,
+            notes: true,
+            origin: true,
+            landingSource: true,
+            createdAt: true,
+            // em que pé está: a oportunidade mais recente deste lead
+            opportunities: {
+              orderBy: { createdAt: "desc" },
+              take: 1,
+              select: { status: true, stage: { select: { name: true } } },
+            },
+          },
+        }),
+      ])
+    : [[], []];
   const canais: Record<CanalDeLead, { total: number; mes: number; dias30: number }> = {
     LANDING: { total: 0, mes: 0, dias30: 0 },
     BIO: { total: 0, mes: 0, dias30: 0 },
@@ -217,6 +259,29 @@ export default async function GestaoPage() {
     if (l.createdAt >= inicioMes) canais[canal].mes += 1;
     if (l.createdAt >= dias30) canais[canal].dias30 += 1;
   }
+  // A LISTA DE CONTATOS. Teto de 500 para a página não pesar; quem quiser a
+  // base inteira baixa o CSV (a tela AVISA quando cortou, senão o dono acharia
+  // que a lista é tudo o que existe).
+  const leadsContato: LeadContato[] = leadsDetalhe.map((l) => {
+    const opp = l.opportunities[0];
+    return {
+      id: l.id,
+      nome: l.name,
+      telefone: l.phone,
+      email: l.email,
+      cidade: l.city,
+      uf: l.state,
+      instagram: instagramDoLead(l.notes),
+      canal: canalDoLead(l),
+      // a loja que indicou vem depois dos dois pontos ("catalogo:toque-leve")
+      loja: l.landingSource?.includes(":")
+        ? (l.landingSource.split(":")[1] ?? null)
+        : null,
+      situacao: opp?.stage.name ?? null,
+      situacaoStatus: opp?.status ?? null,
+      criadoEm: l.createdAt.toISOString(),
+    };
+  });
   // ---- USO DO PRODUTO: clientes que as LOJAS captaram ----
   //
   // Isto NÃO é lead da AtacadoPro: são as clientes finais das lojistas. Fica
@@ -298,6 +363,12 @@ export default async function GestaoPage() {
     <GestaoView
       lojas={lojas}
       canais={canais}
+      leadsContato={leadsContato}
+      leadsOcultos={Math.max(0, leadsPlataforma.length - TETO_CONTATOS)}
+      janelas={{
+        inicioMes: inicioMes.toISOString(),
+        dias30: dias30.toISOString(),
+      }}
       usoDasLojas={usoDasLojas}
       intercorrencias={intercorrencias}
       resumo={{

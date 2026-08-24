@@ -256,6 +256,63 @@ export const canalLeadLabel: Record<CanalDeLead, string> = {
   OUTROS: "Outros canais",
 };
 
+/** Separador entre a solicitação nova e a anterior, nas observações do lead. */
+export const MARCA_ANTERIOR = "— solicitação anterior —";
+
+/** Teto das observações: guarda o histórico sem deixar o campo crescer sem fim. */
+const TETO_NOTAS = 4000;
+
+/**
+ * EMPILHA A SOLICITAÇÃO NOVA SOBRE A ANTERIOR.
+ *
+ * A lojista que pede demonstração duas vezes costuma preencher menos na
+ * segunda (só nome e telefone). Substituir as observações apagava o Instagram
+ * e o e-mail informados na primeira — dado de contato que não volta. A nova
+ * fica em cima (é o que interessa para ligar hoje), a antiga fica embaixo,
+ * marcada, e o texto para de crescer no teto.
+ */
+export function notasEmpilhadas(
+  nova: string,
+  anterior: string | null | undefined
+): string {
+  const velha = (anterior ?? "").trim();
+  if (!velha) return nova;
+  // compara com o BLOCO DE CIMA, não com a pilha inteira: quem manda o mesmo
+  // formulário três vezes empilhava três blocos idênticos, porque a partir da
+  // segunda a pilha nunca mais era "igual" ao texto novo.
+  const topo = velha.split(`\n\n${MARCA_ANTERIOR}\n`)[0]?.trim() ?? "";
+  if (topo === nova.trim()) return velha;
+  const junto = `${nova}\n\n${MARCA_ANTERIOR}\n${velha}`;
+  return junto.length <= TETO_NOTAS ? junto : junto.slice(0, TETO_NOTAS);
+}
+
+/**
+ * O INSTAGRAM QUE A LOJISTA INFORMOU no formulário de demonstração.
+ *
+ * O formulário pergunta o Instagram, mas o cadastro de cliente não tem campo
+ * para isso (é um CRM de moda: a ficha guarda CPF, endereço, tamanho). O dado
+ * fica no resumo da solicitação, gravado nas observações — e é justamente por
+ * ali que se confere se a loja existe antes de ligar. Ler dali é melhor do
+ * que perder a informação.
+ */
+export function instagramDoLead(notes: string | null | undefined): string | null {
+  // \s incluiria a QUEBRA DE LINHA: com "Instagram:" vazio, o \s* pulava para
+  // a linha de baixo e o @ virava "Loja: Bella" (pego pelo teste). Por isso o
+  // espaço aqui é só o horizontal, e a captura nunca atravessa a linha.
+  const linha = notes?.match(/^Instagram:[^\S\r\n]*([^\r\n]+)$/m)?.[1]?.trim();
+  if (!linha) return null;
+  // aceita "@loja", "loja" ou o link colado; guarda só o @. O protocolo é
+  // OPCIONAL: no celular a lojista cola "instagram.com/bella" sem o https, e
+  // exigir o protocolo devolvia "@instagram.com" — um @ que não existe, que
+  // ia parar na planilha e no link da tela.
+  const arroba = linha
+    .replace(/^(https?:\/\/)?(www\.)?instagram\.com\//i, "")
+    .replace(/[/?].*$/, "")
+    .replace(/^@+/, "")
+    .trim();
+  return arroba ? `@${arroba}` : null;
+}
+
 /**
  * LÊ A MARCA DO LINK que trouxe a visitante até a landing page ("de onde ela
  * veio"), a partir dos utm que o formulário do site junta em uma linha só.
