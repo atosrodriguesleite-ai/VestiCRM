@@ -176,6 +176,10 @@ export default async function ReportsPage({
     const entrada = primeiraIn.get(r.conversationId);
     const saida = r._min.createdAt;
     if (!entrada || !saida || saida <= entrada) continue;
+    // SÓ conversas que CHEGARAM no período: o cartão era do histórico
+    // inteiro numa seção rotulada com o período — melhorar o atendimento
+    // nunca mexia no número (auditoria 24/08/2026)
+    if (!noPeriodo(entrada)) continue;
     responseTimes.push((saida.getTime() - entrada.getTime()) / 60000);
   }
   const avgResponseMin = responseTimes.length
@@ -238,14 +242,21 @@ export default async function ReportsPage({
     });
   }
 
-  // vendas por vendedor
-  const bySeller = sellers
-    .map((s) => ({
+  // vendas por vendedor — com a linha da LOJA: pedido sem vendedora
+  // (Nuvemshop, catálogo sem link) existe e é dinheiro; sem a linha, as
+  // barras somavam menos que o cartão de Faturamento e parecia venda sumida
+  const semVendedora = sales
+    .filter((v) => !v.sellerId)
+    .reduce((sum, v) => sum + v.netTotal, 0);
+  const bySeller = [
+    ...sellers.map((s) => ({
       label: s.name,
       value: sales
         .filter((v) => v.sellerId === s.id)
         .reduce((sum, v) => sum + v.netTotal, 0),
-    }))
+    })),
+    ...(semVendedora > 0 ? [{ label: "Loja (sem vendedora)", value: semVendedora }] : []),
+  ]
     .filter((s) => s.value > 0)
     .sort((a, b) => b.value - a.value);
 
@@ -394,7 +405,7 @@ export default async function ReportsPage({
         <StatTile
           label="1ª resposta (média)"
           value={fmtDuration(avgResponseMin)}
-          hint={`${responseTimes.length} conversa${responseTimes.length === 1 ? "" : "s"} respondida${responseTimes.length === 1 ? "" : "s"}`}
+          hint={`${responseTimes.length} conversa${responseTimes.length === 1 ? "" : "s"} do período respondida${responseTimes.length === 1 ? "" : "s"}`}
         />
         <StatTile
           label="Tempo até a venda"

@@ -261,7 +261,7 @@ export default async function IntelligencePage({
       overview(c, period), overview(c, prev), funnel(c, period),
       channelRanking(c, period), sellerRanking(c, period), campaignRanking(c, period),
       productStats(c, period), categoryStats(c, period), colorStats(c, period), sizeStats(c, period),
-      heatmaps(c, period), recovery(c, period), alerts(c, period),
+      heatmaps(c, period), recovery(c, period), alerts(c),
       db.company.findUnique({ where: { id: c } }),
       db.user.findMany({ where: { companyId: c, active: true, role: { not: "SUPERADMIN" } }, select: { id: true, name: true } }),
     ]);
@@ -344,9 +344,11 @@ export default async function IntelligencePage({
           <p className="text-xs font-bold text-amber-700 uppercase tracking-wide flex items-center gap-1.5 mb-2">
             <Bell className="size-3.5" />
             Alertas inteligentes
-            {/* os alertas são o AGORA — não seguem o filtro de período */}
+            {/* os alertas são o AGORA — não seguem o filtro de período:
+                visitas/carrinho das últimas 24h, produto e cor dos últimos
+                7 dias (a régua fixa vive em alerts(), lib/tracking/insights) */}
             <span className="font-medium normal-case tracking-normal text-amber-500">
-              · últimas 24h
+              · o agora da loja (independe do filtro)
             </span>
           </p>
           <ul className="grid md:grid-cols-2 gap-x-6 gap-y-1">

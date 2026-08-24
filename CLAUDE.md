@@ -224,9 +224,21 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   **"vê todas as conversas do chat"** na tela Equipe — `User.chatVisaoTotal`,
   `conversationScope` — abre a Central inteira para uma vendedora específica
   SEM mexer em carteira/pedidos/comissão), setores, assumir/transferir/encerrar, notas internas
-  com @menção, respostas rápidas (criáveis por qualquer um), mídia + áudio
-  (gravação convertida no servidor), pedidos dentro do chat (com PDF enviado
-  de verdade), **sync incremental a cada 3s** (`GET /api/conversations?since=`
+  com @menção, respostas rápidas (criáveis por qualquer um), mídia + **áudio
+  de voz** (`lib/audio-wav.ts`: a gravação vira WAV no NAVEGADOR — o webm do
+  MediaRecorder não carrega a duração e o WhatsApp mostrava 0:00 — na MAIOR
+  taxa que couber no envio: 24 kHz até ~65s e 16 kHz daí em diante. Com os
+  16 kHz fixos de antes, tudo acima de 8 kHz era jogado fora (Nyquist) — e é
+  ali que moram o "s" e o "ch": a voz chegava abafada, de telefone. Medido no
+  Chromium com a função real: tom de 8 kHz sai ZERADO a 16 kHz e volta
+  INTEIRO a 24 kHz. O teto para em 24 kHz de propósito: 32 kHz não melhorou
+  nada na medição e só dobraria o peso, que aqui mora como data-URL no banco.
+  A decodificação pede 48 kHz explicitamente, senão a taxa vinha do aparelho
+  de SAÍDA (fone bluetooth em viva-voz derrubava tudo para 16 kHz). A captura
+  usa cancelamento de eco
+  DESLIGADO — é gravação, não chamada —, mantendo supressão de ruído e ganho
+  automático, que loja barulhenta precisa), pedidos dentro do chat (com PDF
+  enviado de verdade), **sync incremental a cada 3s** (`GET /api/conversations?since=`
   + `Conversation.updatedAt`). **PREPARADO PARA MILHARES DE CONVERSAS**: a
   LISTA carrega só a ÚLTIMA mensagem de cada conversa, cortada em 140
   caracteres (pedido do catálogo tem milhares); o histórico vem ao ABRIR a

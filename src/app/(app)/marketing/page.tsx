@@ -236,8 +236,26 @@ export default async function MarketingPage({
 
   // gráficos por canal usam a visão total (leadsAll), não o filtro
   const totalLeadsAll = leadsAll.length;
-  const donutData = canais.filter((c) => c.fat > 0).slice(0, 6).map((c) => ({ label: c.label, value: c.fat, color: c.color }));
-  const leadsBar = canais.filter((c) => c.leads > 0).slice(0, 6).map((c) => ({ label: c.label, value: c.leads, sub: `${pct(c.leads, totalLeadsAll)}%` }));
+  // a rosca mostra os 6 maiores canais e agrupa o resto em "Outros" — antes
+  // o 7º canal em diante era simplesmente descartado e as fatias não somavam
+  // o valor do centro (auditoria 24/08/2026)
+  const canaisComFat = [...canais.filter((c) => c.fat > 0)].sort((a, b) => b.fat - a.fat);
+  const restoFat = canaisComFat.slice(6).reduce((s, c) => s + c.fat, 0);
+  const donutData = [
+    ...canaisComFat.slice(0, 6).map((c) => ({ label: c.label, value: c.fat, color: c.color })),
+    ...(restoFat > 0 ? [{ label: "Outros canais", value: restoFat, color: "#94a3b8" }] : []),
+  ];
+  // mesma regra na barra de leads: 6 maiores POR LEADS (não por faturamento,
+  // que é a ordem de `canais`) e o resto agrupado — cortar o 7º canal fazia
+  // os % das barras não somarem 100%
+  const canaisComLeads = [...canais.filter((c) => c.leads > 0)].sort((a, b) => b.leads - a.leads);
+  const restoLeads = canaisComLeads.slice(6).reduce((s, c) => s + c.leads, 0);
+  const leadsBar = [
+    ...canaisComLeads.slice(0, 6).map((c) => ({ label: c.label, value: c.leads, sub: `${pct(c.leads, totalLeadsAll)}%` })),
+    ...(restoLeads > 0
+      ? [{ label: "Outros canais", value: restoLeads, sub: `${pct(restoLeads, totalLeadsAll)}%` }]
+      : []),
+  ];
   const canalLabel = canalParam ? (originLabel[canalParam as keyof typeof originLabel] ?? canalParam) : null;
 
   const campanhas: Campanha[] = campaignRows.map((c) => ({
