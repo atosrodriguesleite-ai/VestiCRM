@@ -43,17 +43,10 @@ export function nuvemshopEnv() {
 
 const UA = "AtacadoPro (integracao@atacadopro.com)";
 
-// estado assinado do OAuth: prova que o retorno pertence à empresa que iniciou
-export function signState(companyId: string) {
-  const secret = process.env.AUTH_SECRET ?? "dev";
-  const sig = crypto.createHmac("sha256", secret).update(companyId).digest("hex").slice(0, 24);
-  return `${companyId}.${sig}`;
-}
-export function verifyState(state: string): string | null {
-  const [companyId, sig] = state.split(".");
-  if (!companyId || !sig) return null;
-  return signState(companyId) === state ? companyId : null;
-}
+// estado do OAuth: sorteado, com validade, e conferido contra a sessão de
+// quem volta do provedor (lib/oauth-state.ts) — o crachá fixo de antes podia
+// ser reaproveitado por qualquer um, para sempre
+export { signState, verifyState } from "./oauth-state";
 
 // ---- Cliente HTTP ----------------------------------------------------------
 

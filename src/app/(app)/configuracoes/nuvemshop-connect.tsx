@@ -89,6 +89,15 @@ export function NuvemshopConnect() {
     const q = new URLSearchParams(window.location.search).get("nuvemshop");
     if (q === "ok") setMsg("Loja conectada! A primeira importação de produtos já começou.");
     if (q === "erro") setMsg("A conexão não foi concluída — tente de novo.");
+    // trava do link de autorização repassado (RN-023)
+    if (q === "outra_loja")
+      setMsg(
+        "A autorização não pertence a esta loja (ou você não tem permissão de mexer em integrações). Comece clicando em conectar aqui nesta tela."
+      );
+    if (q === "sem_sessao")
+      setMsg(
+        "A volta caiu fora do seu login. Faça tudo na mesma janela do navegador e tente de novo."
+      );
   }, [carregar]);
 
   async function sincronizar() {

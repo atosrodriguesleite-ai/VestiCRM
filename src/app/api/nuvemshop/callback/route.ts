@@ -6,6 +6,7 @@ import {
   syncProducts,
   verifyState,
 } from "@/lib/nuvemshop";
+import { sessaoAutorizadaPara } from "@/lib/oauth-state";
 
 /**
  * Retorno do OAuth da Nuvemshop: troca o código pelo token, salva a conexão
@@ -20,6 +21,9 @@ export async function GET(req: NextRequest) {
   const back = (path: string) => NextResponse.redirect(new URL(path, req.nextUrl.origin));
 
   if (!code || !companyId) return back("/configuracoes?nuvemshop=erro");
+  // quem voltou tem que ser da própria loja (ver lib/oauth-state.ts)
+  const sessao = await sessaoAutorizadaPara(companyId);
+  if (sessao !== "ok") return back(`/configuracoes?nuvemshop=${sessao}`);
 
   const cred = await exchangeCode(code);
   if (!cred) return back("/configuracoes?nuvemshop=erro");
