@@ -66,7 +66,7 @@ import { abaDaConversa } from "@/lib/comm/fila";
 import { casaCliente } from "@/lib/busca";
 import { pausarOsOutros } from "@/lib/um-som-por-vez";
 import { Avatar, EmptyState } from "@/components/ui";
-import { gravacaoParaWav } from "@/lib/audio-wav";
+import { gravacaoParaWav, TETO_AUDIO_BYTES } from "@/lib/audio-wav";
 import { comprimirFoto, nomeJpeg } from "@/lib/comprimir-foto";
 import { Portal } from "@/components/portal";
 
@@ -1789,10 +1789,28 @@ export function Inbox({
   // ---- Gravação de áudio (voz) ----
   async function startRecording() {
     if (!selected) return;
+    let microfoneAberto: MediaStream | null = null;
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      // MICROFONE EM QUALIDADE DE GRAVAÇÃO, não de chamada. O cancelamento
+      // de eco é feito para conversa ao vivo (com o alto-falante tocando a
+      // outra ponta) e some com parte da voz; aqui é gravação, não existe eco
+      // para cancelar. A supressão de ruído e o ganho automático FICAM: loja
+      // de confecção é barulhenta e nem todo mundo fala perto do microfone.
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: false,
+          noiseSuppression: true,
+          autoGainControl: true,
+          channelCount: 1,
+        },
+      });
+      microfoneAberto = stream;
       recChunksRef.current = [];
       recCancelRef.current = false;
+      // Bitrate no PADRÃO do navegador de propósito: subir aqui engorda o
+      // webm original, que é justamente o que vai quando o WAV não cabe no
+      // envio — um áudio longo que passava começaria a ser recusado. O ganho
+      // de qualidade vem da taxa do WAV, não daqui.
       const rec = new MediaRecorder(stream);
       rec.ondataavailable = (ev) => {
         if (ev.data.size > 0) recChunksRef.current.push(ev.data);
@@ -1810,9 +1828,12 @@ export function Inbox({
         // mostrava o áudio com 0:00. O WAV carrega a duração no cabeçalho.
         // Se a conversão falhar, envia o original (áudio sem tempo é melhor
         // que áudio nenhum).
-        // teto REAL: o servidor corta o pedido em ~4,5 MB (base64 infla 1/3)
-        const TETO = 3 * 1024 * 1024;
-        const convertido = await gravacaoParaWav(original);
+        // teto REAL: o servidor corta o pedido em ~4,5 MB (base64 infla 1/3).
+        // A conversão RECEBE o teto: é ele que decide a taxa (quanto maior a
+        // taxa, menos abafada a voz — e quanto mais longo o áudio, menor a
+        // taxa que cabe).
+        const TETO = TETO_AUDIO_BYTES;
+        const convertido = await gravacaoParaWav(original, TETO);
         const blob = convertido && convertido.size <= TETO ? convertido : original;
         if (blob.size > TETO) {
           alert("Áudio muito longo — grave em partes menores.");
@@ -1831,8 +1852,20 @@ export function Inbox({
       setRecording(true);
       setRecSecs(0);
       recTimerRef.current = setInterval(() => setRecSecs((s) => s + 1), 1000);
-    } catch {
-      alert("Não consegui acessar o microfone. Verifique a permissão do navegador.");
+    } catch (e) {
+      // o microfone pode JÁ ter sido aberto quando a falha aconteceu: sem
+      // desligar, a luzinha fica acesa até recarregar a página — e a lojista
+      // acha que o sistema está ouvindo. A mensagem também tem que dizer a
+      // verdade: nem toda falha aqui é permissão negada.
+      microfoneAberto?.getTracks().forEach((t) => t.stop());
+      const semPermissao =
+        e instanceof DOMException &&
+        (e.name === "NotAllowedError" || e.name === "SecurityError");
+      alert(
+        semPermissao
+          ? "Não consegui acessar o microfone. Verifique a permissão do navegador."
+          : "Não consegui começar a gravação neste aparelho. Tente de novo ou use outro navegador."
+      );
     }
   }
   function stopRecording(cancel: boolean) {
