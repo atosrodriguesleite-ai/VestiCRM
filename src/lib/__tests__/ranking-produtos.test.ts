@@ -1,5 +1,7 @@
 import { describe, it, expect } from "vitest";
-import { montarRanking, chaveDoNome } from "../tracking/insights";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { montarRanking, chaveDoNome, valorVendidoDoItem } from "../tracking/insights";
 
 /**
  * Ranking "Produtos — atenção × venda" da tela Inteligência.
@@ -106,5 +108,37 @@ describe("conversão compara evento com evento (grade de atacado não estoura)",
       "productName"
     );
     expect(linhas[0].conversion).toBe(100);
+  });
+});
+
+describe("faturamento das linhas bate com o cartão (rateio do desconto global)", () => {
+  // ADR-013: desconto/acréscimo são do PEDIDO; o item guarda preço × qtd.
+  // Somar item.total fazia Produtos/Categorias mostrarem MAIS que a Visão
+  // Geral (que soma netTotal, RN-002) — auditoria 24/08/2026.
+  it("pedido de 1.000 com 10% de desconto: item de 100 vale 90", () => {
+    expect(valorVendidoDoItem(100, 1000, 900)).toBe(90);
+  });
+
+  it("acréscimo também entra na fatia do item", () => {
+    // subtotal 1.000 + acréscimo 100 → netTotal 1.100
+    expect(valorVendidoDoItem(100, 1000, 1100)).toBeCloseTo(110, 10);
+  });
+
+  it("a soma das fatias devolve exatamente o netTotal do pedido", () => {
+    const itens = [250, 330.5, 419.5]; // subtotal 1.000
+    const soma = itens.reduce((a, t) => a + valorVendidoDoItem(t, 1000, 876.54), 0);
+    expect(soma).toBeCloseTo(876.54, 8);
+  });
+
+  it("pedido sem subtotal (dado velho) não divide por zero: vale o total do item", () => {
+    expect(valorVendidoDoItem(50, 0, 0)).toBe(50);
+  });
+
+  it("a consulta da Inteligência aplica o rateio de verdade", () => {
+    const fonte = readFileSync(
+      join(process.cwd(), "src/lib/tracking/insights.ts"),
+      "utf8"
+    );
+    expect(fonte).toContain("valorVendidoDoItem(item.total, item.order.subtotal, item.order.netTotal)");
   });
 });

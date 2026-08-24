@@ -266,6 +266,19 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   4-9s; termo de aceite obrigatório registrado (sem aceite, sem QR Code). `CloudApiProvider` (Meta
   oficial) pronto na estrutura. Tudo logado em `CommEvent` (Central de
   Comunicação).
+- **RN-023 · Conectar integração é ato da PRÓPRIA loja** (`lib/oauth-state.ts`,
+  vale para Nuvemshop, Bling, Mercado Pago e Melhor Envio): o crachá do OAuth
+  (`state`) é SORTEADO a cada clique e vence em 15 min, e a volta do provedor
+  só é aceita se quem voltou estiver logado NA MESMA loja com permissão de
+  integrações (`sessaoAutorizadaPara`). O crachá antigo era
+  `companyId.HMAC(companyId)` — o mesmo texto para sempre: quem o visse podia
+  montar o link de autorização e mandar para outra pessoa, que autorizava a
+  conta DELA e os tokens (com a carteira do Melhor Envio e o endereço do
+  remetente) caíam na loja de quem mandou o link. O resultado da volta é DITO
+  na tela de Configurações (`resultado-conexao.tsx`; a Nuvemshop no cartão
+  dela), com os dois motivos separados — `outra_loja` (o link era de outra
+  pessoa) e `sem_sessao` (a volta caiu fora do login, típico de quem usa o
+  app instalado) —, senão a trava vira "não funciona e não explica".
 - **Integrações de produto/estoque**: **RN-014 · Nuvemshop** (OAuth com state
   assinado, webhooks HMAC; a Nuvemshop é a DONA do estoque; casamento de
   produtos SÓ por SKU; venda paga → `ingestPaidOrder` cria Order PAGO

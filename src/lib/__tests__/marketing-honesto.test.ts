@@ -50,6 +50,78 @@ describe("carrinhos abandonados: 1 pessoa = 1 carrinho (régua única)", () => {
     ]);
     expect(out.map((s) => s.visitorId)).toEqual(["c"]);
   });
+
+  // Auditoria 24/08/2026: a lista mandava a loja cobrar sacola JÁ VENDIDA —
+  // "você esqueceu suas peças" para quem tinha acabado de pagar.
+  it("quem abandonou mas ENVIOU o pedido em outra visita não é abandono", () => {
+    const out = carrinhosAbandonados([
+      sessao({ startedAt: new Date("2026-08-01T10:00:00Z") }),
+      sessao({ converted: true, startedAt: new Date("2026-08-02T10:00:00Z") }),
+    ]);
+    expect(out).toHaveLength(0);
+  });
+
+  it("cliente identificada que PAGOU depois (WhatsApp, manual) sai da lista", () => {
+    const compras = new Map([["cli-1", [new Date("2026-08-02T10:00:00Z")]]]);
+    const out = carrinhosAbandonados(
+      [sessao({ customerId: "cli-1", startedAt: new Date("2026-08-01T10:00:00Z") })],
+      compras
+    );
+    expect(out).toHaveLength(0);
+  });
+
+  it("compra ANTIGA não resolve sacola nova: comprou, voltou e encheu de novo", () => {
+    const compras = new Map([["cli-1", [new Date("2026-07-20T10:00:00Z")]]]);
+    const out = carrinhosAbandonados(
+      [sessao({ customerId: "cli-1", startedAt: new Date("2026-08-01T10:00:00Z") })],
+      compras
+    );
+    expect(out).toHaveLength(1);
+  });
+
+  it("quem converteu DEPOIS do período também sai (mês fechado não mente)", () => {
+    // sessão de 30/07 dentro do recorte de julho; o envio do pedido foi 02/08
+    const conversoes = new Map([["v1", [new Date("2026-08-02T09:00:00Z")]]]);
+    const out = carrinhosAbandonados(
+      [sessao({ startedAt: new Date("2026-07-30T10:00:00Z") })],
+      new Map(),
+      conversoes
+    );
+    expect(out).toHaveLength(0);
+  });
+
+  it("KPI e lista de recuperação usam a MESMA régua (compras pagas + conversões)", () => {
+    const fonte = ler("src/lib/tracking/insights.ts");
+    // as duas chamadas passam os mapas do banco — sem eles a régua descasa
+    const chamadas = fonte.match(/carrinhosAbandonados\(sessions, comprasPagas, conversoes\)/g) ?? [];
+    expect(chamadas.length).toBe(2);
+    // e o "quase comprando" também não cutuca quem já decidiu
+    expect(fonte).toContain("sessaoResolvida(s, conversoes, comprasPagas)");
+    // as conversões vêm SEM teto de período (só piso) — pedido enviado depois
+    // do recorte resolve a sacola de dentro dele
+    expect(fonte).toContain("converted: true, startedAt: { gte: desde }");
+  });
+
+  it("a esteira de Recuperação (robô do WhatsApp) segue a mesma regra", () => {
+    const esteira = ler("src/lib/recuperacao.ts");
+    // não CRIA carrinho para quem pediu depois da sacola (qualquer porta)…
+    expect(esteira).toContain('status: { not: "CANCELADO" }');
+    expect(esteira).toContain("o.createdAt > s.lastEventAt");
+    // …e não MANDA mensagem se o pedido nasceu entre a varredura e o envio
+    expect(esteira).toContain("o.createdAt > cart.abandonedAt");
+    // o carrinho pulado fica SEM carimbo (a tela mostraria "automática
+    // enviada" mentirosa) e segue na fila humana
+    expect(esteira).toContain("candidatos.filter((c) => !jaPediu.has(c.id))");
+  });
+
+  it("a sacola mostrada na Inteligência é a MESMA da esteira de Recuperação", () => {
+    const fonte = ler("src/lib/tracking/insights.ts");
+    // fonte única (lib/recuperacao.ts): foto do evento e, sem foto, a
+    // reconstrução com a peneira do tamanho composto — a remontagem antiga
+    // daqui errava quantidade e divergia da tela Recuperação
+    expect(fonte).toContain("sacolaDaFoto");
+    expect(fonte).toContain('sacolaDosEventos(evs).filter((i) => !i.size?.includes(","))');
+  });
 });
 
 // ---------------------------------------------------------------------------

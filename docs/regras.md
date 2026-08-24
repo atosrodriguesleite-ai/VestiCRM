@@ -49,3 +49,4 @@ sem ambiguidade.
 | RN-020 | Cadastro duplicado por dígito errado: o sistema AVISA no chat, nunca junta sozinho (nome parecido E telefone a um dígito) | `lib/contatos-parecidos.ts` | `contatos-parecidos.test.ts` |
 | RN-021 | Pedido por link pessoal: vale o WhatsApp da cliente, não o telefone digitado no formulário; a diferença é anotada no pedido | `lib/catalogo/telefone-do-pedido.ts` | `telefone-do-pedido.test.ts` |
 | RN-022 | Mapa de envios com dois recortes: "todos os pedidos pagos" (endereço da etiqueta ou, na falta, da ficha da cliente) e "Melhor Envio" (só etiquetas, sem canceladas); o que não tem estado é contado e dito na tela | `lib/envios/mapa.ts` | `mapa-envios.test.ts` |
+| RN-023 | Conectar integração exige crachá de OAuth sorteado com validade E sessão da própria loja com permissão de integrações; o resultado da volta é dito na tela | `lib/oauth-state.ts` | `oauth-state.test.ts` |

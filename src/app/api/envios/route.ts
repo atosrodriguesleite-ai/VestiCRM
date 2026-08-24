@@ -15,6 +15,30 @@ export const dynamic = "force-dynamic";
 /** Quantos envios a lupa varre em memória (do mais recente para trás). */
 const TETO_DA_BUSCA = 20_000;
 
+/** O que cada linha da lista precisa (usado na lista e nos parados). */
+const CAMPOS_DA_LISTA = {
+  id: true,
+  orderId: true,
+  meCarrier: true,
+  meService: true,
+  meStatus: true,
+  mePrice: true,
+  trackingCode: true,
+  publicCode: true,
+  labelUrl: true,
+  weightKg: true,
+  pieces: true,
+  meCompradoEm: true,
+  shippedAt: true,
+  deliveredAt: true,
+  city: true,
+  state: true,
+  nfeKey: true,
+  order: {
+    select: { number: true, customer: { select: { name: true } } },
+  },
+} as const;
+
 /** Uma combinação de endereço (envio + cliente) e quantos pedidos pagos tem. */
 type LinhaDeEndereco = {
   envioCidade: string | null;
@@ -115,7 +139,7 @@ export async function GET(req: NextRequest) {
         : []),
     ];
 
-    const [linhas, porStatus, gasto, entreguesRecentes, parados, porCidade, porEndereco] =
+    const [linhas, porStatus, gasto, entreguesRecentes, parados, linhasParadas, porCidade, porEndereco] =
       await Promise.all([
       db.shipping.findMany({
         where: { ...escopo, ...filtroBusca },
@@ -123,28 +147,7 @@ export async function GET(req: NextRequest) {
         // (meCompradoEm nulo) vai para o fim, ordenada pelo id
         orderBy: [{ meCompradoEm: { sort: "desc", nulls: "last" } }, { id: "desc" }],
         take: 300,
-        select: {
-          id: true,
-          orderId: true,
-          meCarrier: true,
-          meService: true,
-          meStatus: true,
-          mePrice: true,
-          trackingCode: true,
-          publicCode: true,
-          labelUrl: true,
-          weightKg: true,
-          pieces: true,
-          meCompradoEm: true,
-          shippedAt: true,
-          deliveredAt: true,
-          city: true,
-          state: true,
-          nfeKey: true,
-          order: {
-            select: { number: true, customer: { select: { name: true } } },
-          },
-        },
+        select: CAMPOS_DA_LISTA,
       }),
       db.shipping.groupBy({
         by: ["meStatus"],
@@ -188,6 +191,23 @@ export async function GET(req: NextRequest) {
           },
         },
       }),
+      // OS PARADOS EM SI, fora da fila dos 300: o alerta "1 parado há +7 dias"
+      // mandava a lojista para a aba Atenção e lá não havia nada — o envio
+      // esquecido é justamente o mais ANTIGO, o primeiro a cair fora da lista.
+      // São poucos por definição (é um alerta), então cabem inteiros.
+      db.shipping.findMany({
+        where: {
+          ...escopo,
+          ...filtroBusca,
+          meStatus: "POSTADO",
+          shippedAt: {
+            lt: new Date(Date.now() - DIAS_PARA_PARADO * 24 * 60 * 60 * 1000),
+          },
+        },
+        orderBy: { shippedAt: "asc" }, // o mais esquecido primeiro
+        take: 300,
+        select: CAMPOS_DA_LISTA,
+      }),
       // MAPA 1 (Melhor Envio): TODO envio com etiqueta da loja (não só os 300
       // da lista), agrupado por cidade/UF no banco. Só a etiqueta CANCELADA
       // fica de fora — e status nulo (etiqueta de antes da coluna) CONTA:
@@ -227,6 +247,10 @@ export async function GET(req: NextRequest) {
       `,
     ]);
 
+    // a lista da tela = os 300 mais recentes + TODOS os parados (sem repetir)
+    const vistos = new Set(linhas.map((l) => l.id));
+    const listaCompleta = [...linhas, ...linhasParadas.filter((l) => !vistos.has(l.id))];
+
     const painel = resumoDosEnvios({
       porStatus: porStatus.map((s) => ({
         meStatus: s.meStatus,
@@ -238,7 +262,7 @@ export async function GET(req: NextRequest) {
     });
 
     return NextResponse.json({
-      lista: linhas.map((l) => ({
+      lista: listaCompleta.map((l) => ({
         id: l.id,
         orderId: l.orderId,
         pedido: l.order.number,
@@ -287,7 +311,9 @@ export async function GET(req: NextRequest) {
           : null,
       // a tela avisa quando a lista foi cortada — inclusive na busca, que
       // antes calava sobre o resto
-      listaCortada: idsDaBusca ? achadosNaBusca > 300 : linhas.length >= 300,
+      listaCortada: idsDaBusca
+        ? achadosNaBusca > 300
+        : linhas.length >= 300 || linhasParadas.length >= 300,
       totalDaBusca: idsDaBusca ? achadosNaBusca : null,
       diasParaParado: DIAS_PARA_PARADO,
       simuladorLigado: company.freteSimuladorEnabled,

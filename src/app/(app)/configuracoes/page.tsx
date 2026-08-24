@@ -21,6 +21,7 @@ import { CatalogSettings } from "./catalog-settings";
 import { catalogDomain } from "@/lib/catalog-url";
 import { IntakeSettings } from "./intake-settings";
 import { InstallAppCard } from "./install-app";
+import { ResultadoDaConexao } from "./resultado-conexao";
 import { SaleNotifications } from "./sale-notifications";
 import { NuvemshopConnect } from "./nuvemshop-connect";
 import { JueriConnect } from "./jueri-connect";
@@ -46,7 +47,13 @@ const INTEGRATIONS = [
   { name: "E-mail marketing", desc: "Sincronize segmentos com sua ferramenta de e-mail.", icon: Mail, color: "#64748b" },
 ];
 
-export default async function SettingsPage() {
+export default async function SettingsPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  // o retorno do OAuth chega como ?me=ok / ?bling=erro_sessao …
+  const params = await searchParams;
   const user = await requireUser();
   // O SUPORTE ENTRA — mas só na parte operacional.
   //
@@ -115,6 +122,9 @@ export default async function SettingsPage() {
             : "Integrações e ferramentas de atendimento."
         }
       />
+
+      {/* deu certo? deu errado? a volta do provedor agora FALA */}
+      <ResultadoDaConexao params={params} />
 
       <InstallAppCard />
       <SaleNotifications />
