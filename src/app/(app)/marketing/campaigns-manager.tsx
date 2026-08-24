@@ -119,18 +119,29 @@ export function CampaignsManager({
         );
       }
       router.refresh();
+    } else {
+      // a recusa mais comum é a da RN-015 (anúncio já tem campanha dona) —
+      // sem mostrar o motivo, o clique "não fazia nada" e parecia defeito
+      alert(data.error ?? "Não foi possível vincular o anúncio.");
     }
   }
 
   /** Salva a lista de anúncios de uma campanha (links ou códigos). */
   async function salvarRefs(c: Campanha, valor: string) {
     setBusyId(c.id);
-    await fetch(`/api/marketing/campaigns/${c.id}`, {
+    const res = await fetch(`/api/marketing/campaigns/${c.id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ adRefs: valor.trim() || null }),
     });
     setBusyId(null);
+    if (!res.ok) {
+      // ex.: RN-015 — um dos códigos colados já pertence a outra campanha.
+      // Sem o aviso, o salvar revertia a lista em silêncio ("salvou nada").
+      const data = await res.json().catch(() => ({}));
+      alert(data.error ?? "Não foi possível salvar os anúncios.");
+      return; // mantém a caixa aberta com o texto digitado, para corrigir
+    }
     router.refresh();
   }
 

@@ -102,3 +102,38 @@ describe("a porta de vincular (rota)", () => {
     expect(criar).toMatch(/active:\s*true/);
   });
 });
+
+describe("a OUTRA porta (editar campanha) tem a mesma trava — auditoria 24/08/2026", () => {
+  const rota = readFileSync(
+    join(process.cwd(), "src/app/api/marketing/campaigns/[id]/route.ts"),
+    "utf8"
+  );
+
+  it("colar o mesmo anúncio numa segunda campanha é recusado com 409", () => {
+    // a rota do chat recusava, mas a lista digitada na tela de campanhas
+    // aceitava qualquer coisa — e a atribuição virava loteria
+    expect(rota).toContain("refsDaCampanha");
+    expect(rota).toContain("já está na campanha");
+    expect(rota).toContain("status: 409");
+  });
+
+  it("a checagem cobre a lista digitada E o vincular individual", () => {
+    expect(rota).toMatch(/refsDaCampanha\(parsed\.data\.adRefs/);
+    expect(rota).toMatch(/\.\.\.\(novo \? \[novo\] : \[\]\)/);
+  });
+
+  it("compara só com as campanhas DA LOJA, fora a própria", () => {
+    expect(rota).toContain("id: { not: id }");
+  });
+});
+
+describe("dado antigo com duas donas: a escolha é determinística, não loteria", () => {
+  it("o webhook escolhe campanha em ordem estável (a mais antiga vence)", () => {
+    const webhook = readFileSync(
+      join(process.cwd(), "src/app/api/whatsapp/evolution/webhook/[token]/route.ts"),
+      "utf8"
+    );
+    const bloco = webhook.match(/marketingCampaign\.findMany\(\{[\s\S]*?\}\)/)?.[0] ?? "";
+    expect(bloco).toContain('orderBy: [{ createdAt: "asc" }, { id: "asc" }]');
+  });
+});

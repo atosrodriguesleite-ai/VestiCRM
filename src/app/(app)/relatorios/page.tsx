@@ -220,7 +220,13 @@ export default async function ReportsPage({
     const start = new Date(periodo.from.getTime() + i * passoMs);
     const end = new Date(Math.min(start.getTime() + passoMs, periodo.to.getTime()));
     weeks.push({
-      label: dateShort(end),
+      // a barra leva o nome do dia em que COMEÇA: `end` é a meia-noite do dia
+      // SEGUINTE ao último coberto, e rotular por ele deslocava o gráfico em
+      // +1 dia (a venda de segunda aparecia na barra "terça"; na semana, os
+      // sete dias caíam na barra com a data da semana seguinte — auditoria
+      // 24/08/2026). Como os blocos ancoram no início, o rótulo do início é
+      // o único que sempre aponta um dia realmente coberto.
+      label: dateShort(start),
       total: sales
         .filter(
           (s) =>

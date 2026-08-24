@@ -1,5 +1,6 @@
 import { db } from "../db";
 import { PAID_ORDER_STATUSES } from "../orders";
+import { sacolaDaFoto, sacolaDosEventos } from "../recuperacao";
 
 /**
  * API de leitura da Tracking Engine.
@@ -43,21 +44,129 @@ const pct = (num: number, den: number) => (den > 0 ? (num / den) * 100 : 0);
  * lista logo abaixo deduplicava por visitante — "2 carrinhos / R$ 1.050" em
  * cima e 1 oportunidade de R$ 550 embaixo. Regra única: 1 visitante = 1
  * carrinho (a sessão mais RECENTE dele), e só sacola com valor (> 0).
+ *
+ * Auditoria 24/08/2026: "abandonou" não pode incluir quem JÁ COMPROU. A
+ * sessão em si não converteu, mas a cliente voltou no dia seguinte e enviou o
+ * pedido (outra sessão), ou fechou pelo WhatsApp (pedido PAGO sem sessão
+ * nenhuma) — e a lista mandava a loja cobrar uma sacola já vendida. Mensagem
+ * de "você esqueceu suas peças" para quem acabou de pagar queima a confiança.
+ * A sacola só é abandono se NADA depois dela resolveu: nem conversão do
+ * mesmo visitante, nem pedido pago da cliente identificada. Compra ANTERIOR
+ * à sessão não resolve — sacola nova depois de comprar é desejo novo.
  */
+export function conversoesPorVisitante(
+  sessions: { visitorId: string; converted: boolean; startedAt: Date }[]
+): Map<string, Date[]> {
+  const map = new Map<string, Date[]>();
+  for (const s of sessions) {
+    if (!s.converted) continue;
+    const lista = map.get(s.visitorId) ?? [];
+    lista.push(s.startedAt);
+    map.set(s.visitorId, lista);
+  }
+  return map;
+}
+
+export function sessaoResolvida(
+  s: { visitorId: string; customerId?: string | null; startedAt: Date },
+  conversoes: Map<string, Date[]>,
+  comprasPagas: Map<string, Date[]>
+): boolean {
+  const t = s.startedAt.getTime();
+  if ((conversoes.get(s.visitorId) ?? []).some((d) => d.getTime() >= t)) return true;
+  if (s.customerId && (comprasPagas.get(s.customerId) ?? []).some((d) => d.getTime() >= t))
+    return true;
+  return false;
+}
+
 export function carrinhosAbandonados<
-  S extends { visitorId: string; converted: boolean; cartAdds: number; cartValue: number; startedAt: Date },
->(sessions: S[]): S[] {
+  S extends {
+    visitorId: string;
+    customerId?: string | null;
+    converted: boolean;
+    cartAdds: number;
+    cartValue: number;
+    startedAt: Date;
+  },
+>(
+  sessions: S[],
+  comprasPagas: Map<string, Date[]> = new Map(),
+  // conversões vindas do banco SEM o teto do período: olhando "julho
+  // fechado", a visitante anônima que abandonou dia 30/07 e enviou o pedido
+  // dia 02/08 já decidiu — só as sessões do período não enxergam isso
+  conversoes: Map<string, Date[]> = conversoesPorVisitante(sessions)
+): S[] {
   const vistos = new Set<string>();
   const out: S[] = [];
   for (const s of [...sessions].sort(
     (a, b) => b.startedAt.getTime() - a.startedAt.getTime()
   )) {
-    if (!s.converted && s.cartAdds > 0 && s.cartValue > 0 && !vistos.has(s.visitorId)) {
+    if (
+      !s.converted &&
+      s.cartAdds > 0 &&
+      s.cartValue > 0 &&
+      !sessaoResolvida(s, conversoes, comprasPagas) &&
+      !vistos.has(s.visitorId)
+    ) {
       vistos.add(s.visitorId);
       out.push(s);
     }
   }
   return out;
+}
+
+/**
+ * Datas dos pedidos PAGOS das clientes identificadas nas sessões — é o que
+ * deixa a régua acima enxergar a compra que aconteceu FORA do catálogo
+ * (WhatsApp, pedido manual, Nuvemshop). Só a partir de `desde` (o começo do
+ * período): compra mais antiga que qualquer sessão não resolve nenhuma.
+ */
+export async function comprasPagasDosClientes(
+  companyId: string,
+  customerIds: (string | null)[],
+  desde: Date
+): Promise<Map<string, Date[]>> {
+  const ids = [...new Set(customerIds.filter((v): v is string => !!v))];
+  if (ids.length === 0) return new Map();
+  const pedidos = await db.order.findMany({
+    where: {
+      companyId,
+      customerId: { in: ids },
+      status: { in: PAID_ORDER_STATUSES },
+      paidAt: { gte: desde },
+    },
+    select: { customerId: true, paidAt: true },
+  });
+  const map = new Map<string, Date[]>();
+  for (const o of pedidos) {
+    if (!o.customerId || !o.paidAt) continue;
+    const lista = map.get(o.customerId) ?? [];
+    lista.push(o.paidAt);
+    map.set(o.customerId, lista);
+  }
+  return map;
+}
+
+/**
+ * Conversões dos visitantes SEM o teto do período (só o piso `desde`): o
+ * pedido enviado DEPOIS do recorte também resolve a sacola de dentro dele —
+ * sem isso, o relatório de um mês fechado listava como "abandono" a
+ * visitante anônima que converteu no dia seguinte ao fim do período.
+ */
+export async function conversoesDosVisitantes(
+  companyId: string,
+  visitorIds: string[],
+  desde: Date
+): Promise<Map<string, Date[]>> {
+  const ids = [...new Set(visitorIds)];
+  if (ids.length === 0) return new Map();
+  const convertidas = await db.trackSession.findMany({
+    where: { companyId, visitorId: { in: ids }, converted: true, startedAt: { gte: desde } },
+    select: { visitorId: true, startedAt: true },
+  });
+  return conversoesPorVisitante(
+    convertidas.map((s) => ({ ...s, converted: true }))
+  );
 }
 
 /**
@@ -132,8 +241,14 @@ export async function overview(companyId: string, p: Period) {
   // soma REAL (o "tempo total" era reconstruído por média×sessões, com erro)
   const totalSessionSeconds = Math.round(durations.reduce((a, b) => a + b, 0));
   const converted = sessions.filter((s) => s.converted);
-  // mesma régua da lista de recuperação: 1 visitante = 1 carrinho, com valor
-  const abandoned = carrinhosAbandonados(sessions);
+  // mesma régua da lista de recuperação: 1 visitante = 1 carrinho, com valor,
+  // e quem já comprou (aqui, depois do período, ou pelo WhatsApp) não é abandono
+  const naoConvertidas = sessions.filter((s) => !s.converted);
+  const [comprasPagas, conversoes] = await Promise.all([
+    comprasPagasDosClientes(companyId, naoConvertidas.map((s) => s.customerId), p.from),
+    conversoesDosVisitantes(companyId, naoConvertidas.map((s) => s.visitorId), p.from),
+  ]);
+  const abandoned = carrinhosAbandonados(sessions, comprasPagas, conversoes);
   const revenue = sales.reduce((a, s) => a + s.netTotal, 0);
   const buyers = await db.order.groupBy({
     by: ["customerId"],
@@ -509,15 +624,41 @@ export function montarRanking(
   }));
 }
 
+/**
+ * O que o item VENDEU de verdade: a fatia dele no `netTotal` do pedido.
+ *
+ * O item guarda `total` = preço × quantidade (nível do subtotal) e não sabe
+ * do desconto/acréscimo GLOBAL do pedido (ADR-013). Somar `item.total` fazia
+ * as abas Produtos/Categorias/Cores (e o CSV) mostrarem MAIS faturamento que
+ * o cartão da Visão Geral, que soma `netTotal` (RN-002) — num pedido de
+ * R$ 1.000 com 10% de desconto, as linhas somavam 1.000 e o cartão, 900.
+ * O rateio é proporcional: cada item carrega sua fração do desconto e do
+ * acréscimo, e a soma das linhas volta a bater com o cartão. (Frete fica
+ * fora dos dois lados, como manda a RN-002.)
+ */
+export function valorVendidoDoItem(
+  itemTotal: number,
+  orderSubtotal: number,
+  orderNetTotal: number
+): number {
+  if (orderSubtotal <= 0) return itemTotal;
+  return (itemTotal * orderNetTotal) / orderSubtotal;
+}
+
 async function dimensionStats(companyId: string, p: Period, dim: Dim) {
   const events = await loadEvents(companyId, p);
-  const orderItems = await db.orderItem.findMany({
+  const itensCrus = await db.orderItem.findMany({
     where: {
       // conta só VENDA DE VERDADE (paga): fora orçamento, aguardando e cancelado
       order: { companyId, paidAt: { gte: p.from, lte: p.to }, status: { in: PAID_ORDER_STATUSES } },
     },
+    include: { order: { select: { subtotal: true, netTotal: true } } },
     orderBy: { id: "asc" }, // mesma razão da ordem estável dos eventos
   });
+  const orderItems = itensCrus.map((item) => ({
+    ...item,
+    total: valorVendidoDoItem(item.total, item.order.subtotal, item.order.netTotal),
+  }));
   const precisaCadastro = dim === "productName" || dim === "category";
   const products =
     precisaCadastro && (events.length > 0 || orderItems.length > 0)
@@ -592,22 +733,29 @@ export const LIMITE_RECUPERACAO = 300;
 export async function recovery(companyId: string, p: Period) {
   const sessions = await db.trackSession.findMany({
     where: { companyId, startedAt: { gte: p.from, lte: p.to } },
-    include: { visitor: true },
     orderBy: { startedAt: "desc" },
   });
-  const customers = await db.customer.findMany({ where: { companyId } });
+  // só o que a lista usa (nome e telefone) — carregar a ficha inteira de
+  // todas as clientes derrubaria a tela numa loja grande
+  const customers = await db.customer.findMany({
+    where: { companyId },
+    select: { id: true, name: true, phone: true },
+  });
   const byId = new Map(customers.map((c) => [c.id, c]));
+
+  // A MESMA RÉGUA do KPI (carrinhosAbandonados): 1 visitante = 1 carrinho e
+  // quem já comprou não é abandono — a lista chegou a mandar a loja cobrar
+  // cliente que tinha acabado de pagar pelo WhatsApp (auditoria 24/08/2026).
+  const naoConvertidas = sessions.filter((s) => !s.converted);
+  const [comprasPagas, conversoes] = await Promise.all([
+    comprasPagasDosClientes(companyId, naoConvertidas.map((s) => s.customerId), p.from),
+    conversoesDosVisitantes(companyId, naoConvertidas.map((s) => s.visitorId), p.from),
+  ]);
+  const abandonadas = carrinhosAbandonados(sessions, comprasPagas, conversoes);
+  const idsAbandonados = new Set(abandonadas.map((s) => s.id));
 
   // AS SACOLAS EM UMA CONSULTA SÓ. Antes era uma consulta por carrinho, dentro
   // do laço: com 12 itens passava, com 300 derrubaria a tela.
-  const idsAbandonados = new Set<string>();
-  const vistosNaVarredura = new Set<string>();
-  for (const s of sessions) {
-    if (!s.converted && s.cartAdds > 0 && s.cartValue > 0 && !vistosNaVarredura.has(s.visitorId)) {
-      vistosNaVarredura.add(s.visitorId);
-      idsAbandonados.add(s.id);
-    }
-  }
   const eventosDasSacolas = idsAbandonados.size
     ? await db.trackEvent.findMany({
         where: {
@@ -636,22 +784,22 @@ export async function recovery(companyId: string, p: Period) {
 
   const seen = new Set<string>();
   for (const s of sessions) {
-    if (!s.converted && s.cartAdds > 0 && s.cartValue > 0 && !seen.has(`ab:${s.visitorId}`)) {
-      seen.add(`ab:${s.visitorId}`);
+    if (idsAbandonados.has(s.id)) {
       const customer = s.customerId ? byId.get(s.customerId) : null;
       const name = customer?.name ?? null;
-      // reconstrói a sacola abandonada pelos eventos (produto/cor/tam/qtd)
+      // a sacola como a esteira de Recuperação lê (fonte única em
+      // lib/recuperacao.ts): 1º a FOTO gravada no evento (estado real, com
+      // quantidade e variante certas); sessão antiga sem foto cai na
+      // reconstrução por eventos, com a peneira do tamanho composto ("P,M"
+      // é a grade inteira, não uma variante). A remontagem antiga daqui
+      // errava quantidade e mostrava sacola diferente da tela Recuperação.
       const evs = eventosPorSessao.get(s.id) ?? [];
-      const bag = new Map<string, number>();
-      for (const e of evs) {
-        const key = [e.productName, e.color, e.size].filter(Boolean).join(" · ");
-        if (!key) continue;
-        const q = e.qty ?? 1;
-        bag.set(key, (bag.get(key) ?? 0) + (e.type === "cart_add" ? q : -q));
-      }
-      const items = [...bag.entries()]
-        .filter(([, q]) => q > 0)
-        .map(([k, q]) => `${q}× ${k}`);
+      const ultimaFoto = [...evs].reverse().map((e) => sacolaDaFoto(e.meta)).find(Boolean);
+      const itensDaSacola =
+        ultimaFoto ?? sacolaDosEventos(evs).filter((i) => !i.size?.includes(","));
+      const items = itensDaSacola.map((i) =>
+        [`${i.qty}× ${i.name}`, i.color, i.size].filter(Boolean).join(" · ")
+      );
       out.push({
         kind: "carrinho-abandonado",
         title: `${name ?? "Visitante"} abandonou ${fmtBrl(s.cartValue)} na sacola`,
@@ -664,6 +812,9 @@ export async function recovery(companyId: string, p: Period) {
     }
     if (
       !s.converted && s.productsViewed >= 3 && s.cartAdds === 0 &&
+      // quem depois converteu (ou comprou pelo WhatsApp) DECIDIU — o
+      // "empurrãozinho" chegaria depois da venda feita
+      !sessaoResolvida(s, conversoes, comprasPagas) &&
       !seen.has(`quase:${s.visitorId}`)
     ) {
       seen.add(`quase:${s.visitorId}`);

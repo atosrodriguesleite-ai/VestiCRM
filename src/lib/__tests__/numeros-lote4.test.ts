@@ -126,6 +126,13 @@ describe("Relatórios: gráfico e tiles honestos", () => {
   it("blocos ancorados no INÍCIO (só a última barra pode ser parcial)", () => {
     expect(rel).toContain("periodo.from.getTime() + i * passoMs");
   });
+  it("barra leva o nome do dia em que começa (rotular pelo fim deslocava tudo +1 dia)", () => {
+    // `end` é a meia-noite do dia SEGUINTE ao último coberto: a venda de
+    // segunda caía na barra "terça", e a semana inteira caía na barra com a
+    // data da semana seguinte (auditoria 24/08/2026).
+    expect(rel).toContain("label: dateShort(start)");
+    expect(rel).not.toContain("label: dateShort(end)");
+  });
   it("tiles de base inteira carregam a marca 'histórico'", () => {
     expect(rel).toContain("· histórico");
   });

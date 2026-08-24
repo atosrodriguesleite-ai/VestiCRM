@@ -552,6 +552,12 @@ export async function POST(
                 : await db.marketingCampaign.findMany({
                     where: { companyId, active: true },
                     select: { id: true, adRefs: true, active: true },
+                    // RN-015: o PATCH de campanhas hoje recusa duas donas do
+                    // mesmo anúncio, mas dados antigos podem ter a duplicata.
+                    // Sem ordem estável, QUAL campanha levava a cliente era a
+                    // ordem física do banco (loteria); com ela, vale sempre a
+                    // campanha mais antiga — determinístico e auditável.
+                    orderBy: [{ createdAt: "asc" }, { id: "asc" }],
                   });
               const campanha = campanhaDoAnuncio(codigo, campanhas);
               const patch = {

@@ -239,10 +239,55 @@ async function carrinhosDoCatalogo(companyId: string): Promise<void> {
       },
       abandonedCart: null, // ainda não virou carrinho
     },
-    select: { id: true, customerId: true, cartValue: true, lastEventAt: true },
+    select: {
+      id: true,
+      visitorId: true,
+      customerId: true,
+      cartValue: true,
+      startedAt: true,
+      lastEventAt: true,
+    },
     take: 100,
   });
+  if (sessoes.length === 0) return;
+
+  // QUEM JÁ PEDIU NÃO É ABANDONO (auditoria 24/08/2026). A sessão em si não
+  // converteu, mas a cliente voltou e ENVIOU o pedido em outra visita — ou
+  // fechou pelo WhatsApp (pedido criado sem sessão nenhuma). Virar carrinho
+  // aqui mandava "você esqueceu suas peças" 2h depois de a cliente pedir.
+  // Conta qualquer pedido NÃO-CANCELADO criado depois da sacola: o robô não
+  // pode esperar o PAGO (a mensagem sairia antes de a loja faturar).
+  const conversoes = await db.trackSession.findMany({
+    where: {
+      companyId,
+      visitorId: { in: [...new Set(sessoes.map((s) => s.visitorId))] },
+      converted: true,
+    },
+    select: { visitorId: true, startedAt: true },
+  });
+  const clienteIds = [
+    ...new Set(sessoes.map((s) => s.customerId).filter((v): v is string => !!v)),
+  ];
+  const pedidosDepois = clienteIds.length
+    ? await db.order.findMany({
+        where: {
+          companyId,
+          customerId: { in: clienteIds },
+          status: { not: "CANCELADO" },
+        },
+        select: { customerId: true, createdAt: true },
+      })
+    : [];
+  const resolvida = (s: (typeof sessoes)[number]) =>
+    conversoes.some(
+      (c) => c.visitorId === s.visitorId && c.startedAt >= s.startedAt
+    ) ||
+    pedidosDepois.some(
+      (o) => o.customerId === s.customerId && o.createdAt > s.lastEventAt
+    );
+
   for (const s of sessoes) {
+    if (resolvida(s)) continue;
     const eventos = await db.trackEvent.findMany({
       where: { sessionId: s.id, type: { in: ["cart_add", "cart_remove"] } },
       orderBy: { createdAt: "asc" },
@@ -446,7 +491,7 @@ async function enviarPrimeiraMensagem(companyId: string, slug: string): Promise<
     select: { evolutionStatus: true },
   });
   if (conexao?.evolutionStatus !== "CONECTADO") return;
-  const prontos = await db.abandonedCart.findMany({
+  const candidatos = await db.abandonedCart.findMany({
     where: {
       companyId,
       status: "NOVO",
@@ -455,8 +500,36 @@ async function enviarPrimeiraMensagem(companyId: string, slug: string): Promise<
       abandonedAt: { lt: new Date(Date.now() - ESPERA_AUTO_MS) },
     },
     include: { customer: { select: { id: true, name: true, phone: true } } },
-    take: 5, // poucas por rodada: o ritmo anti-bloqueio agradece
+    orderBy: { abandonedAt: "asc" }, // fila justa: a sacola mais antiga primeiro
+    take: 20, // sobra para descontar os resolvidos e ainda mandar as 5
   });
+  // A CLIENTE JÁ PEDIU? Então nada de "você esqueceu suas peças" — o pedido
+  // pode ter nascido DEPOIS do carrinho (janela entre a varredura e as 2h de
+  // espera) e por qualquer porta (catálogo, WhatsApp, manual). O carrinho
+  // fica na fila HUMANA (sem carimbo de mensagem: a tela mostra o selo de
+  // "automática enviada" e ele estaria mentindo) — quando o pedido for pago,
+  // o marcarRecuperados fecha sozinho.
+  const jaPediu = new Set<string>();
+  if (candidatos.length) {
+    const pedidos = await db.order.findMany({
+      where: {
+        companyId,
+        customerId: { in: candidatos.map((c) => c.customerId as string) },
+        status: { not: "CANCELADO" },
+      },
+      select: { customerId: true, createdAt: true },
+    });
+    for (const cart of candidatos) {
+      if (
+        pedidos.some(
+          (o) => o.customerId === cart.customerId && o.createdAt > cart.abandonedAt
+        )
+      ) {
+        jaPediu.add(cart.id);
+      }
+    }
+  }
+  const prontos = candidatos.filter((c) => !jaPediu.has(c.id)).slice(0, 5); // poucas por rodada: o ritmo anti-bloqueio agradece
   for (const cart of prontos) {
     if (!cart.customer?.phone) continue;
     // conversa da cliente: reaproveita a aberta; senão reabre/cria (na fila)
