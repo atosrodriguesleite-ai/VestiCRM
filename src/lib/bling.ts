@@ -4,6 +4,7 @@ import { signState, verifyState } from "./nuvemshop"; // state assinado (HMAC)
 import { appBaseUrl } from "./comm/evolution";
 import { orderNumber, round2, PAID_ORDER_STATUSES } from "./orders";
 import { documentoFiscal } from "./documento";
+import { telefoneNacional } from "./format";
 
 /**
  * Bling (ERP) — emissão de NF-e a partir do pedido.
@@ -313,7 +314,11 @@ export async function emitirNfeDoPedido(
       tipoPessoa: fiscal.tipoPessoa,
       numeroDocumento: fiscal.numero,
       ...(c.email ? { email: c.email } : {}),
-      ...(c.phone ? { telefone: c.phone } : {}),
+      // SEM O DDI 55 (mesmo motivo da etiqueta): o sistema guarda o telefone
+      // com o 55 na frente para casar com o WhatsApp, e quem lê a nota como
+      // telefone brasileiro toma o "55" por DDD — "(55) 11910-8800" no lugar
+      // de "(11) 91088-0083". A nota viaja com a caixa (RN-016).
+      ...(c.phone ? { telefone: telefoneNacional(c.phone) } : {}),
       endereco: {
         endereco: c.street ?? "",
         numero: c.streetNumber ?? "S/N",

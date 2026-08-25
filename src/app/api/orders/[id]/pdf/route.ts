@@ -8,6 +8,7 @@ import { ordenarParaSeparacao } from "@/lib/romaneio";
 import { orderScope } from "@/lib/scope";
 import { retratoCerto } from "@/lib/religar-itens";
 import { orderNumber, orderStatusLabel, paymentMethodLabel } from "@/lib/orders";
+import { formatPhone } from "@/lib/format";
 import { documentoParaMostrar } from "@/lib/documento";
 
 /**
@@ -267,7 +268,9 @@ export async function GET(
 
     const lines: string[] = [];
     const contato = [
-      c.phone ? `Tel: ${c.phone}` : null,
+      // o telefone é GUARDADO com o DDI 55; no papel que vai para a cliente
+      // ele sai do jeito que se lê no Brasil: "(11) 91088-0083"
+      c.phone ? `Tel: ${formatPhone(c.phone)}` : null,
       documentoParaMostrar(c) || null,
     ].filter(Boolean).join("  ·  ");
     if (contato) lines.push(contato);

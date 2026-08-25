@@ -73,6 +73,46 @@ const enderecoBase = {
   state: "MG",
 };
 
+describe("telefone da etiqueta (pessoaME)", () => {
+  /**
+   * INCIDENTE REAL (25/08/2026, Toque Leve): a cliente Osmarisa está
+   * cadastrada com "5511910880083" (o sistema guarda TODO telefone com o DDI
+   * 55, para casar com o WhatsApp). A etiqueta da Jadlog saiu com
+   * "Telefone: (55) 11910-8800" — a transportadora leu o "55" como DDD,
+   * empurrou o número inteiro uma casa e ainda cortou os dois últimos
+   * dígitos. Na hora da entrega, o motorista ligava para um número que não
+   * existe. Valia para TODA etiqueta comprada, não só a dela.
+   */
+  it("o DDI 55 não vai para a etiqueta", () => {
+    expect(pessoaME({ ...enderecoBase, phone: "5511910880083" }).phone).toBe(
+      "11910880083"
+    );
+  });
+
+  it("fixo com DDI (12 dígitos) também perde o 55", () => {
+    expect(pessoaME({ ...enderecoBase, phone: "553133334444" }).phone).toBe(
+      "3133334444"
+    );
+  });
+
+  it("número já sem DDI passa igual", () => {
+    expect(pessoaME({ ...enderecoBase, phone: "(33) 98846-6229" }).phone).toBe(
+      "33988466229"
+    );
+  });
+
+  it("DDD 55 de verdade (Santa Maria/RS) NÃO é confundido com o DDI", () => {
+    // 10 dígitos: é telefone nacional inteiro, o "55" aqui é o DDD
+    expect(pessoaME({ ...enderecoBase, phone: "5533334444" }).phone).toBe(
+      "5533334444"
+    );
+  });
+
+  it("sem telefone, o campo nem vai", () => {
+    expect(pessoaME({ ...enderecoBase, phone: null }).phone).toBeUndefined();
+  });
+});
+
 describe("documento da etiqueta (pessoaME)", () => {
   it("CNPJ com Inscrição Estadual → state_register vai junto", () => {
     const p = pessoaME({

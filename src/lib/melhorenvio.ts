@@ -3,6 +3,7 @@ import { limparChaveNfe } from "./bling";
 import { encryptSecret, decryptSecret } from "./crypto";
 import { signState, verifyState } from "./nuvemshop"; // state assinado (HMAC)
 import { appBaseUrl } from "./comm/evolution";
+import { telefoneNacional } from "./format";
 // tipos compartilhados com as TELAS moram fora daqui (ver melhorenvio-tipos.ts)
 import type { VolumePacote, MeQuote, MeRecusa } from "./melhorenvio-tipos";
 export type { VolumePacote, MeQuote, MeRecusa };
@@ -573,7 +574,11 @@ export function pessoaME(e: Endereco) {
   const ie = (e.stateRegistration ?? "").replace(/\D/g, "");
   return {
     name: e.name,
-    phone: (e.phone ?? "").replace(/\D/g, "") || undefined,
+    // SEM O DDI 55: a transportadora lê o número como brasileiro e tomava o
+    // "55" por DDD — a etiqueta saía com "(55) 11910-8800" no lugar de
+    // "(11) 91088-0083", trocado e com dois dígitos cortados. Ninguém
+    // conseguia ligar para a cliente na hora da entrega.
+    phone: telefoneNacional(e.phone) || undefined,
     email: e.email || undefined,
     ...(cpf.length === 11 ? { document: cpf } : {}),
     ...(cnpj.length === 14 ? { company_document: cnpj } : {}),

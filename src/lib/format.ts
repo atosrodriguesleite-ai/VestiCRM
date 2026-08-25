@@ -47,9 +47,10 @@ export function numeroBR(texto: string): number {
  */
 export function mascaraTelefoneBR(texto: string): string {
   if (texto.trim().startsWith("+")) return texto;
-  const todos = texto.replace(/\D/g, "");
-  // DDI 55 digitado junto some do visor — o que importa é o número brasileiro
-  const d = todos.length > 11 && todos.startsWith("55") ? todos.slice(2) : todos;
+  // DDI 55 digitado junto some do visor — o que importa é o número brasileiro.
+  // A regra do "55" mora num lugar só (telefoneNacional), senão as duas cópias
+  // dela neste arquivo iam separando com o tempo.
+  const d = telefoneNacional(texto);
   // MAIS DÍGITOS DO QUE CABE: passa CRU, nunca corta. Cortar em silêncio era
   // pior que o problema — "55 75 99128-9575" virava "(55) 75991-2895", um
   // número diferente e válido, que passava na conferência e criava o cadastro
@@ -109,8 +110,29 @@ export function initials(name: string): string {
   return (parts[0][0] + (parts[1]?.[0] ?? "")).toUpperCase();
 }
 
+/**
+ * O NÚMERO DO JEITO QUE SE USA NO BRASIL — sem o 55 da frente.
+ *
+ * O sistema guarda todo telefone com o DDI ("5511910880083", 13 dígitos) para
+ * casar com o WhatsApp. Quem lê esse número esperando um telefone brasileiro
+ * (uma etiqueta de transportadora, por exemplo) toma o "55" como DDD e o
+ * número sai TORTO: "(55) 11910-8800" — trocado e ainda por cima com os dois
+ * últimos dígitos cortados. Foi assim que a etiqueta do Melhor Envio saiu com
+ * um telefone que não era o da cliente.
+ *
+ * O 55 só cai quando é REALMENTE o DDI: número brasileiro tem 10 ou 11
+ * dígitos, então DDI + número dá 12 ou 13. Tirar "55" de qualquer telefone
+ * estragaria o DDD 55 de verdade, que existe (Santa Maria/RS).
+ */
+export function telefoneNacional(raw: string | null | undefined): string {
+  const d = (raw ?? "").replace(/\D/g, "");
+  return (d.length === 12 || d.length === 13) && d.startsWith("55")
+    ? d.slice(2)
+    : d;
+}
+
 export function formatPhone(p: string): string {
-  const digits = p.replace(/\D/g, "").replace(/^55/, "");
+  const digits = telefoneNacional(p);
   if (digits.length === 11)
     return `(${digits.slice(0, 2)}) ${digits.slice(2, 7)}-${digits.slice(7)}`;
   if (digits.length === 10)
