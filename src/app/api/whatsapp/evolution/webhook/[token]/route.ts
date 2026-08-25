@@ -77,6 +77,47 @@ async function aplicarEdicao(
   return 0;
 }
 
+/**
+ * A CLIENTE REAGIU (ou tirou a reação) — o emoji gruda na mensagem.
+ *
+ * Antes isto virava uma BOLHA solta no meio da conversa ("[reagiu 👍]"), sem
+ * dizer a QUE ela reagiu, e ainda empurrava a conversa para o topo da lista
+ * como se fosse mensagem nova. Reação não é conversa: é um sinal em cima do
+ * que já foi dito.
+ *
+ * Toca a conversa no fim pelo mesmo motivo da edição: o sync de 3s só entrega
+ * conversa cujo `updatedAt` mudou — sem isso a reação ficava no banco e
+ * invisível na tela.
+ *
+ * `daLoja` diz de quem é o emoji (ver comentário no `data`).
+ *
+ * Devolve se achou a mensagem alvo. NÃO achou (reação a mensagem de antes da
+ * loja entrar no sistema) NÃO vira bolha: o aplicativo da vendedora mostra
+ * essa reação de qualquer jeito, e uma bolha órfã seria pior que o silêncio.
+ */
+async function aplicarReacao(
+  companyId: string,
+  alvoId: string,
+  emoji: string,
+  daLoja: boolean
+): Promise<boolean> {
+  const r = await db.message.updateMany({
+    where: { externalId: alvoId, conversation: { companyId } },
+    // DE QUEM É A REAÇÃO. O WhatsApp devolve pelo mesmo webhook o eco da
+    // reação que a PRÓPRIA LOJA fez (aqui no sistema ou no celular dela) —
+    // sem separar pelo `fromMe`, o 👍 da vendedora aparecia como se a
+    // cliente tivesse reagido. É também o que faz a reação feita no celular
+    // da loja aparecer aqui.
+    data: daLoja ? { reactionStore: emoji || null } : { reaction: emoji || null },
+  });
+  if (r.count === 0) return false;
+  await db.conversation.updateMany({
+    where: { companyId, messages: { some: { externalId: alvoId } } },
+    data: { updatedAt: new Date() },
+  });
+  return true;
+}
+
 // senderPn: quando o WhatsApp manda o contato com a identidade nova (@lid),
 // o número de telefone REAL vem neste campo — sem ele a mensagem se perderia
 type EvoKey = { remoteJid?: string; fromMe?: boolean; id?: string; senderPn?: string };
@@ -109,6 +150,9 @@ type EvoMessage = {
     editedMessage?: {
       message?: { conversation?: string; extendedTextMessage?: { text?: string } };
     };
+    // REAÇÃO COM EMOJI: `key` aponta a mensagem reagida, `text` é o emoji
+    // (vazio = a cliente TIROU a reação)
+    reactionMessage?: { text?: string; key?: { id?: string } };
   };
   status?: string;
 };
@@ -293,6 +337,19 @@ export async function POST(
             where: { externalId: proto.key.id, conversation: { companyId } },
             data: { revoked: true, revokedBy: "CUSTOMER" },
           });
+          continue;
+        }
+
+        // A CLIENTE REAGIU COM EMOJI: gruda na mensagem reagida em vez de
+        // virar bolha nova (ver `aplicarReacao`).
+        const rea = m.message?.reactionMessage;
+        if (rea && rea.key?.id) {
+          await aplicarReacao(
+            companyId,
+            rea.key.id,
+            (rea.text ?? "").trim(),
+            m.key?.fromMe === true
+          );
           continue;
         }
 

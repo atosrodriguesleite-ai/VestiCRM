@@ -70,6 +70,14 @@ import { gravacaoParaWav, TETO_AUDIO_BYTES } from "@/lib/audio-wav";
 import { comprimirFoto, nomeJpeg } from "@/lib/comprimir-foto";
 import { Portal } from "@/components/portal";
 
+/**
+ * Os emojis de reação — os mesmos seis do aplicativo do WhatsApp.
+ *
+ * Seis é o que cabe numa fileira no celular sem virar rolagem, e são os que
+ * resolvem 99% dos casos do balcão: "recebi", "gostei", "que pena", "combinado".
+ */
+const EMOJIS_REACAO = ["👍", "❤️", "😂", "😮", "😢", "🙏"] as const;
+
 export type InboxMessage = {
   id: string;
   direction: "IN" | "OUT";
@@ -89,6 +97,10 @@ export type InboxMessage = {
   editedAt: string | null;
   revoked: boolean;
   revokedBy: string | null;
+  /** emoji com que a CLIENTE reagiu a esta mensagem */
+  reaction: string | null;
+  /** emoji com que a LOJA reagiu a esta mensagem */
+  reactionStore: string | null;
 };
 
 export type InboxConversation = {
@@ -348,6 +360,11 @@ function VisorDeFoto({
   onClose: () => void;
 }) {
   const [ampliada, setAmpliada] = useState(false);
+  // A FOTO PODE NÃO CARREGAR. O link da foto de perfil que o WhatsApp serve
+  // VENCE, e a foto que a cliente mandou pode ter sumido do servidor. Sem
+  // isto o visor abria em preto com um ícone de imagem quebrada e ninguém
+  // entendia o que tinha acontecido.
+  const [quebrou, setQuebrou] = useState(false);
   useEffect(() => {
     const teclas = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
@@ -365,18 +382,26 @@ function VisorDeFoto({
           if (e.target === e.currentTarget) onClose();
         }}
       >
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          src={src}
-          alt="Foto"
-          onClick={() => setAmpliada((z) => !z)}
-          className={
-            ampliada
-              ? "m-auto max-w-none cursor-zoom-out"
-              : "m-auto max-h-full max-w-full object-contain cursor-zoom-in"
-          }
-          style={ampliada ? { width: "220%" } : undefined}
-        />
+        {quebrou ? (
+          <p className="m-auto max-w-xs px-6 text-center text-sm text-white/80">
+            Não consegui carregar esta foto. O link do WhatsApp costuma vencer
+            depois de alguns dias — abra a conversa no aplicativo para vê-la.
+          </p>
+        ) : (
+          /* eslint-disable-next-line @next/next/no-img-element */
+          <img
+            src={src}
+            alt="Foto"
+            onError={() => setQuebrou(true)}
+            onClick={() => setAmpliada((z) => !z)}
+            className={
+              ampliada
+                ? "m-auto max-w-none cursor-zoom-out"
+                : "m-auto max-h-full max-w-full object-contain cursor-zoom-in"
+            }
+            style={ampliada ? { width: "220%" } : undefined}
+          />
+        )}
       </div>
       {/* BOTÕES SEMPRE VISÍVEIS: flutuam por cima da foto (mesmo ampliada) e
           com folga do relógio/câmera do celular (safe-area) — presos numa
@@ -385,11 +410,17 @@ function VisorDeFoto({
         className="absolute right-3 z-10 flex gap-2"
         style={{ top: "calc(0.75rem + env(safe-area-inset-top))" }}
       >
+        {/* ABRE EM OUTRA ABA, não baixa direto: a foto do WhatsApp vem de
+            OUTRO endereço (pps.whatsapp.net), e nesse caso o navegador ignora
+            o "download" e NAVEGA — a vendedora perdia a Central de vista no
+            meio do atendimento. Em outra aba ela salva pelo próprio navegador
+            e volta para a conversa intacta. */}
         <a
           href={src}
-          download="foto.jpg"
+          target="_blank"
+          rel="noopener noreferrer"
           className="p-3 rounded-full bg-black/60 text-white shadow-lg backdrop-blur-sm hover:bg-black/75 transition"
-          title="Baixar foto"
+          title="Abrir a foto em outra aba (para salvar)"
         >
           <Download className="size-5" />
         </a>
@@ -962,10 +993,21 @@ export function Inbox({
             // exatamente o "já respondi e não aparece". Atualiza a linha da
             // lista e mantém como prévia a mensagem mais recente conhecida.
             if (!threadsCarregadas.current.has(p.id)) {
-              const ultima =
-                f.messages[f.messages.length - 1] ??
-                p.messages[p.messages.length - 1];
-              return { ...f, messages: ultima ? [ultima] : [] };
+              // A PRÉVIA É SEMPRE A MENSAGEM MAIS NOVA — pela DATA, não pela
+              // ordem de chegada do sync. O sync entrega o que MUDOU, e o que
+              // muda nem sempre é a última: a cliente reage com emoji numa
+              // mensagem de três dias atrás, e aquela mensagem antiga volta
+              // no lote. Pegando cegamente a última do lote, a linha da lista
+              // passava a mostrar um texto velho, como se fosse a novidade.
+              const doSync = f.messages[f.messages.length - 1] ?? null;
+              const daTela = p.messages[p.messages.length - 1] ?? null;
+              const maisNova =
+                doSync && daTela
+                  ? doSync.createdAt >= daTela.createdAt
+                    ? doSync
+                    : daTela
+                  : (doSync ?? daTela);
+              return { ...f, messages: maisNova ? [maisNova] : [] };
             }
             // preserva mensagem recém-enviada que o servidor ainda não devolveu
             const ids = new Set(f.messages.map((m) => m.id));
@@ -1146,6 +1188,8 @@ export function Inbox({
     appendMessage(convId, {
       id: tempId,
       replyTo: replyPreview,
+      reaction: null,
+      reactionStore: null,
       direction: "OUT",
       kind: (payload.kind as InboxMessage["kind"]) ?? "TEXT",
       mediaType: (payload.mediaType as InboxMessage["mediaType"]) ?? "TEXT",
@@ -1202,6 +1246,8 @@ export function Inbox({
         reconciliar(
           {
             id: msg.id,
+            reaction: null,
+            reactionStore: null,
             replyTo: replyPreview,
             direction: "OUT",
             kind: msg.kind,
@@ -1337,6 +1383,54 @@ export function Inbox({
     } else {
       alert((await res.json().catch(() => ({}))).error ?? "Não foi possível apagar.");
     }
+  }
+
+  /**
+   * REAGIR COM EMOJI — o mesmo gesto do aplicativo.
+   *
+   * Tocar de novo no MESMO emoji tira a reação (é assim que o WhatsApp
+   * desfaz). A pastilha aparece na hora e volta atrás sozinha se o WhatsApp
+   * recusar: a vendedora não fica achando que reagiu quando não reagiu.
+   */
+  async function reagir(m: InboxMessage, emoji: string) {
+    if (!selected) return;
+    const convId = selected.id;
+    const anterior = m.reactionStore;
+    const novo = anterior === emoji ? "" : emoji;
+    setActionMsg(null);
+    const pintar = (valor: string | null) =>
+      setConvs((prev) =>
+        prev.map((c) =>
+          c.id === convId
+            ? {
+                ...c,
+                messages: c.messages.map((x) =>
+                  x.id === m.id ? { ...x, reactionStore: valor } : x
+                ),
+              }
+            : c
+        )
+      );
+    pintar(novo || null);
+    const res = await fetch(`/api/messages/${m.id}/reacao`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ emoji: novo }),
+    }).catch(() => null);
+    if (!res || !res.ok) {
+      pintar(anterior); // desfaz: não deu certo
+      setAviso(
+        (await res?.json().catch(() => ({})))?.error ?? "Não foi possível reagir."
+      );
+      return;
+    }
+    // REPINTA COM O QUE O SERVIDOR GRAVOU. O sync roda de 3 em 3s e pode ter
+    // passado no meio do caminho, trazendo a mensagem SEM a reação (ele foi
+    // buscar antes do POST terminar) e apagando a pastilha da tela. Aí o
+    // segundo toque da vendedora — que ela dá achando que não pegou — viraria
+    // REMOÇÃO. Confirmar no fim fecha essa fresta.
+    const salvo = await res.json().catch(() => null);
+    if (salvo) pintar(salvo.reactionStore ?? null);
   }
 
   async function salvarEdicao(messageId: string) {
@@ -2331,7 +2425,32 @@ export function Inbox({
               >
                 <ArrowLeft className="size-5" />
               </button>
-              <Avatar name={selected.customer.name} color="#c4622d" src={selected.customer.photoUrl} />
+              {/* FOTO DA CLIENTE, CLICÁVEL — o retrato de 32px não serve para
+                  reconhecer ninguém. Toque abre no mesmo visor de tela cheia
+                  das fotos do chat (com zoom). Sem foto não vira botão: as
+                  iniciais coloridas não têm o que ampliar. */}
+              {selected.customer.photoUrl ? (
+                <button
+                  type="button"
+                  onClick={() =>
+                    setFotoAberta({
+                      src: selected.customer.photoUrl!,
+                      legenda: selected.customer.name,
+                    })
+                  }
+                  className="shrink-0 rounded-full transition hover:opacity-80 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-400"
+                  title="Ver foto da cliente"
+                  aria-label={`Ver foto de ${selected.customer.name}`}
+                >
+                  <Avatar
+                    name={selected.customer.name}
+                    color="#c4622d"
+                    src={selected.customer.photoUrl}
+                  />
+                </button>
+              ) : (
+                <Avatar name={selected.customer.name} color="#c4622d" src={null} />
+              )}
               <div className="min-w-0 flex-1">
                 <Link
                   href={`/clientes/${selected.customer.id}`}
@@ -2744,11 +2863,15 @@ export function Inbox({
                             }
                           : undefined
                       }
-                      className={`max-w-[80%] rounded-2xl px-3.5 py-2 text-sm shadow-sm transition-transform duration-100 ${
+                      className={`relative max-w-[80%] rounded-2xl px-3.5 py-2 text-sm shadow-sm transition-transform duration-100 ${
                         mine
                           ? "bg-brand-600 text-white rounded-br-md select-none"
                           : "bg-white text-ink rounded-bl-md"
-                      } ${m.revoked ? "opacity-90" : ""}`}
+                      } ${m.revoked ? "opacity-90" : ""} ${
+                        // a pastilha da reação fica PENDURADA na beirada de
+                        // baixo: sem essa folga ela cobria a bolha seguinte
+                        m.reaction || m.reactionStore ? "mb-3" : ""
+                      }`}
                     >
                       {/* aviso de mensagem apagada (mantém o texto legível) */}
                       {m.revoked && (
@@ -2912,6 +3035,30 @@ export function Inbox({
                             <span className="font-medium">· {reciboCurto}</span>
                           )}
                         </p>
+                      )}
+
+                      {/* REAÇÕES — penduradas na beirada da bolha, como no
+                          aplicativo. Uma de cada lado: 👤 a da cliente e a da
+                          loja. Tocar abre o menu para trocar ou tirar. */}
+                      {(m.reaction || m.reactionStore) && !editando && (
+                        <button
+                          type="button"
+                          onClick={() => setActionMsg(m)}
+                          title={
+                            [
+                              m.reaction ? `Cliente reagiu ${m.reaction}` : null,
+                              m.reactionStore ? `Você reagiu ${m.reactionStore}` : null,
+                            ]
+                              .filter(Boolean)
+                              .join(" · ") || undefined
+                          }
+                          className={`absolute -bottom-3 flex items-center gap-0.5 rounded-full border border-gray-100 bg-white px-1.5 py-0.5 text-[13px] leading-none shadow-sm transition hover:scale-105 ${
+                            mine ? "right-2" : "left-2"
+                          }`}
+                        >
+                          {m.reaction && <span>{m.reaction}</span>}
+                          {m.reactionStore && <span>{m.reactionStore}</span>}
+                        </button>
                       )}
                     </div>
                     {/* ⋯ do lado direito para mensagens do CLIENTE (responder) */}
@@ -3477,6 +3624,8 @@ export function Inbox({
                   // registro interno (nota) de que o pedido foi criado
                   appendMessage(selected.id, {
                     id: `local-${order.id}`,
+                    reaction: null,
+                    reactionStore: null,
                     direction: "OUT",
                     kind: "NOTE",
                     mediaType: "TEXT",
@@ -3593,6 +3742,28 @@ export function Inbox({
           <p className="px-3 pt-2 pb-1 text-[11px] text-gray-400 line-clamp-2">
             “{actionMsg.body}”
           </p>
+          {/* REAGIR COM EMOJI — primeira coisa da folha, como no aplicativo:
+              é o gesto mais usado e o mais rápido. O emoji já escolhido fica
+              marcado; tocar nele de novo tira a reação. Nota interna não sai
+              para o WhatsApp, então não tem no que reagir. */}
+          {actionMsg.kind !== "NOTE" &&
+            !actionMsg.revoked &&
+            actionMsg.status !== "FALHOU" && (
+            <div className="flex items-center justify-between gap-1 px-2 pb-2 pt-1 border-b border-gray-100">
+              {EMOJIS_REACAO.map((e) => (
+                <button
+                  key={e}
+                  onClick={() => reagir(actionMsg, e)}
+                  className={`grid size-10 place-items-center rounded-full text-xl transition hover:scale-110 ${
+                    actionMsg.reactionStore === e ? "bg-brand-100" : "hover:bg-gray-100"
+                  }`}
+                  title={actionMsg.reactionStore === e ? "Tirar a reação" : `Reagir ${e}`}
+                >
+                  {e}
+                </button>
+              ))}
+            </div>
+          )}
           {/* Responder: qualquer mensagem (sua ou do cliente) */}
           {actionMsg.kind !== "NOTE" && (
             <button

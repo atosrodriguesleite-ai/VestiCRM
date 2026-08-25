@@ -255,6 +255,15 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   anteriores" — sem ela o começo da conversa era INACESSÍVEL) e
   `GET /api/conversations?q=` (busca na loja inteira, `casaCliente` em
   memória por causa do acento — sem ela a lupa só via as 200 carregadas).
+  **Reagir com emoji** (25/08/2026): o mesmo gesto do aplicativo — o emoji
+  fica GRUDADO na mensagem (uma reação de cada lado: `Message.reaction` da
+  cliente, `Message.reactionStore` da loja), nunca vira bolha nova. A reação
+  da cliente antes chegava como mensagem solta "[reagiu 👍]", sem dizer a QUE
+  ela reagiu. Quem separa os dois lados é o `fromMe` do webhook (o WhatsApp
+  devolve pelo mesmo caminho o eco da reação feita pela própria loja, inclusive
+  a feita no celular dela). Emoji vazio remove. Reagir NÃO reordena a lista.
+  **Foto da cliente clicável** no cabeçalho do chat: abre no visor de tela
+  cheia (com zoom) — o retrato de 32px não serve para reconhecer ninguém.
   Formato da mensagem em um lugar só (`mapMessage`), envio otimista (bolha instantânea ⏱️→✓),
   **copiar mensagem** (`lib/copiar.ts`, com plano B para navegador
   antigo; vale para a mensagem da CLIENTE — pedido, Pix, endereço),

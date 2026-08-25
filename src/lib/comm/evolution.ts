@@ -370,6 +370,24 @@ export async function evoDeleteForEveryone(
 }
 
 /**
+ * REAGE A UMA MENSAGEM com um emoji — o mesmo gesto do aplicativo.
+ *
+ * `reaction` vazio REMOVE a reação (é assim que o WhatsApp desfaz; não existe
+ * um "apagar reação" separado). A `key` aponta a mensagem alvo: `fromMe` diz
+ * de que lado ela está, e sem isso o WhatsApp não acha a mensagem.
+ */
+export async function evoSendReaction(
+  instance: string,
+  key: { id: string; remoteJid: string; fromMe: boolean },
+  reaction: string
+) {
+  return evo<{ key?: { id?: string } }>("POST", `/message/sendReaction/${instance}`, {
+    key,
+    reaction,
+  });
+}
+
+/**
  * Edita o texto de uma mensagem já enviada. O WhatsApp só permite editar até
  * ~15 minutos após o envio (regra da Meta).
  */

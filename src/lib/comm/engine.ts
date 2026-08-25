@@ -9,6 +9,7 @@ import {
   WA_JANELA_HORAS,
   evoDeleteForEveryone,
   evoEditMessage,
+  evoSendReaction,
   phoneToJid,
 } from "./evolution";
 import { notifyMentions } from "../notify";
@@ -449,6 +450,77 @@ export async function editMessageText(
   const updated = await db.message.update({
     where: { id: message.id },
     data: { body: text, editedAt: new Date() },
+  });
+  await db.conversation.update({
+    where: { id: message.conversationId },
+    data: { updatedAt: new Date() },
+  });
+  return updated;
+}
+
+/**
+ * REAGE A UMA MENSAGEM COM EMOJI — o mesmo gesto do aplicativo do WhatsApp.
+ *
+ * Serve para o "recebi, obrigada" que não merece uma mensagem: a cliente
+ * manda o comprovante, a vendedora responde com um 👍 e a conversa não ganha
+ * mais uma bolha. É o jeito que todo mundo já usa no celular.
+ *
+ * Emoji VAZIO remove a reação — é assim que o WhatsApp desfaz, não existe um
+ * "apagar reação" separado.
+ *
+ * Guarda o emoji GRUDADO na mensagem (`reactionStore`, o lado da loja), e não
+ * como bolha nova: reação não é conversa, é um sinal em cima do que já foi
+ * dito. Reagir também NÃO reabre a conversa nem muda a ordem da lista — só
+ * toca o `updatedAt` para o sync de 3s levar a novidade à tela (sem isso a
+ * reação ficava gravada no banco e invisível até um F5, o mesmo buraco que
+ * já apareceu na edição de mensagem).
+ */
+export async function reagirNaMensagem(
+  companyId: string,
+  messageId: string,
+  emoji: string
+): Promise<Message> {
+  const message = await db.message.findFirst({
+    where: { id: messageId, conversation: { companyId } },
+    include: { conversation: { include: { customer: true } } },
+  });
+  if (!message) throw new Error("Mensagem não encontrada");
+  // nota interna não existe no WhatsApp da cliente: não há no que reagir lá
+  if (message.kind === "NOTE")
+    throw new Error("Nota interna não vai para o WhatsApp — não dá para reagir.");
+  if (message.revoked)
+    throw new Error("Esta mensagem foi apagada — não dá para reagir a ela.");
+
+  const s = await db.commSettings.findUnique({ where: { companyId } });
+  const noWhatsApp = s?.activeProvider === "EVOLUTION" && !!s.evolutionInstance;
+  // SEM ID NO WHATSAPP, A REAÇÃO NÃO TEM ONDE POUSAR. É o caso da mensagem
+  // que falhou no envio: ela existe aqui, mas nunca chegou lá. Gravar o emoji
+  // assim mesmo deixaria a vendedora convencida de que a cliente viu o 👍 que
+  // nunca saiu daqui — melhor dizer a verdade.
+  if (noWhatsApp && !message.externalId)
+    throw new Error(
+      "Esta mensagem não chegou ao WhatsApp da cliente, então não dá para reagir a ela."
+    );
+  if (noWhatsApp && message.externalId) {
+    const res = await evoSendReaction(
+      s!.evolutionInstance!,
+      {
+        id: message.externalId,
+        remoteJid: phoneToJid(message.conversation.customer.phone),
+        // de que lado está a mensagem em que se reage: a da cliente é
+        // `false`, a da loja é `true` — com o lado errado o WhatsApp não
+        // encontra a mensagem e a reação não sai
+        fromMe: message.direction === "OUT",
+      },
+      emoji
+    );
+    if (!res.ok)
+      throw new Error("O WhatsApp não aceitou a reação. Tente de novo em instantes.");
+  }
+
+  const updated = await db.message.update({
+    where: { id: message.id },
+    data: { reactionStore: emoji || null },
   });
   await db.conversation.update({
     where: { id: message.conversationId },

@@ -202,6 +202,9 @@ export const MENSAGEM_LEVE = {
   editedAt: true,
   revoked: true,
   revokedBy: true,
+  // emoji grudado na mensagem: `reaction` = da cliente, `reactionStore` = da loja
+  reaction: true,
+  reactionStore: true,
   author: { select: { name: true } },
   replyTo: { select: { id: true, body: true, direction: true } },
 } as const;
@@ -249,6 +252,8 @@ export function mapMessage(m: {
   editedAt: Date | null;
   revoked: boolean;
   revokedBy: string | null;
+  reaction?: string | null;
+  reactionStore?: string | null;
 }): InboxMessage {
   return {
     id: m.id,
@@ -284,6 +289,8 @@ export function mapMessage(m: {
     editedAt: m.editedAt?.toISOString() ?? null,
     revoked: m.revoked,
     revokedBy: m.revokedBy,
+    reaction: m.reaction ?? null,
+    reactionStore: m.reactionStore ?? null,
   };
 }
 

@@ -819,7 +819,15 @@ model Message {
   body           String
   mediaUrl       String?
   fileName       String?
-  reaction       String? // emoji de reação
+  // REAÇÃO COM EMOJI — uma de cada lado, como no aplicativo.
+  //   `reaction`      = o emoji com que a CLIENTE reagiu
+  //   `reactionStore` = o emoji com que a LOJA reagiu
+  // Ficam GRUDADAS na mensagem, não viram bolha: reação não é conversa, é
+  // um sinal em cima do que já foi dito. Antes, a reação da cliente chegava
+  // como uma mensagem solta "[reagiu 👍]" no meio do chat, sem dizer a QUE
+  // ela reagiu — e ainda empurrava a conversa para o topo da lista.
+  reaction       String?
+  reactionStore  String?
   replyToId      String? // resposta a outra mensagem
   replyTo        Message?         @relation("MessageReply", fields: [replyToId], references: [id], onDelete: SetNull)
   replies        Message[]        @relation("MessageReply")

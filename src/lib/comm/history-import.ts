@@ -262,6 +262,13 @@ export async function importRecentHistory(
       if (/^\d{8,15}$/.test(pn)) phone = pn;
     }
     if (!phone) continue;
+    // REAÇÃO NÃO VIRA BOLHA aqui também. No caminho ao vivo o emoji gruda na
+    // mensagem reagida; na importação a mensagem alvo pode nem ter vindo no
+    // lote, e o "[reagiu 👍]" solto no meio do histórico não diz a QUE ela
+    // reagiu — é ruído, não conteúdo. A reação continua visível no aplicativo
+    // da loja, que é de onde este histórico está sendo copiado.
+    if ((r.message as { reactionMessage?: unknown } | undefined)?.reactionMessage)
+      continue;
     const { text, mediaType, mimeFallback, fileName } = lerMensagemWA(r);
     if (!text) continue;
     const extId = r.key?.id;
