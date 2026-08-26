@@ -46,6 +46,9 @@ import {
   Trash2,
   Pencil,
   MoreVertical,
+  Pin,
+  Star,
+  Ban,
   MailOpen,
   Copy,
 } from "lucide-react";
@@ -67,6 +70,7 @@ import { abaDaConversa } from "@/lib/comm/fila";
 import { casaCliente } from "@/lib/busca";
 import { linkParaSalvar } from "@/lib/midia-arquivo";
 import { EncaminharMensagem } from "./encaminhar";
+import { MenuDaConversa } from "./menu-da-conversa";
 import {
   CHAVE_MICROFONE,
   MS_ASSENTAR_MICROFONE,
@@ -120,6 +124,10 @@ export type InboxConversation = {
   status: "OPEN" | "WAITING_CLIENT" | "WAITING_PAYMENT" | "CLOSED";
   priority: "BAIXA" | "NORMAL" | "ALTA";
   unreadCount: number;
+  /** fixada no topo da lista */
+  pinned: boolean;
+  /** marcada como favorita */
+  favorite: boolean;
   lastMessageAt: string;
   createdAt: string;
   lastInboundAt: string | null;
@@ -129,6 +137,8 @@ export type InboxConversation = {
     name: string;
     phone: string;
     photoUrl?: string | null;
+    /** bloqueada no WhatsApp da loja (nulo = não está) */
+    blockedAt?: string | null;
     city: string | null;
     wholesale: boolean;
     catalogLink: string;
@@ -492,6 +502,7 @@ const ORDER_MSG_PADRAO =
 export function Inbox({
   campanhas = [],
   podeVincularCampanha = false,
+  podeGerenciar = false,
   conversations,
   carregadoEm,
   templates: templatesProp,
@@ -506,6 +517,8 @@ export function Inbox({
 }: {
   campanhas?: { id: string; name: string }[];
   podeVincularCampanha?: boolean;
+  /** gerência: bloquear cliente fecha a porta para a loja inteira */
+  podeGerenciar?: boolean;
   conversations: InboxConversation[];
   /** relógio do servidor no momento da carga — âncora do primeiro sync */
   carregadoEm?: string;
@@ -543,6 +556,8 @@ export function Inbox({
   // resposta de cliente afunda no meio das conversas enviadas — este botão
   // deixa só quem espera resposta na tela
   const [soNaoLidas, setSoNaoLidas] = useState(false);
+  // favoritas: o filtro que dá sentido a marcar uma conversa como favorita
+  const [soFavoritas, setSoFavoritas] = useState(false);
   const [tags, setTags] = useState<Tag[]>(allTags);
   const [showTagPicker, setShowTagPicker] = useState(false);
   const [newTagName, setNewTagName] = useState("");
@@ -618,6 +633,18 @@ export function Inbox({
   const [replyMsg, setReplyMsg] = useState<InboxMessage | null>(null);
   // mensagem escolhida para ENCAMINHAR (abre a lista de destinos)
   const [encaminhando, setEncaminhando] = useState<InboxMessage | null>(null);
+  // menu da CONVERSA (clique direito no computador, toque longo no celular)
+  const [menuConv, setMenuConv] = useState<{
+    conv: InboxConversation;
+    em: { x: number; y: number };
+  } | null>(null);
+  const toqueLongo = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // o toque longo DISPAROU: o clique que vem logo atrás (no iPhone ele vem)
+  // não pode abrir a conversa por baixo da folha — abrir marcaria como lida
+  // e zeraria o contador antes de a pessoa tocar em "Marcar como não lida"
+  const menuAbriuNoToque = useRef(false);
+  // e o dedo treme: só cancela o toque longo depois de sair deste raio
+  const inicioDoToque = useRef<{ x: number; y: number } | null>(null);
   // foto aberta no visor de tela cheia (com zoom)
   const [fotoAberta, setFotoAberta] = useState<{ src: string; legenda: string } | null>(null);
   // ARRASTAR PARA RESPONDER (celular): igual ao aplicativo do WhatsApp —
@@ -858,7 +885,7 @@ export function Inbox({
   useEffect(() => {
     setVisiveis(BLOCO); // trocou de aba, buscou ou filtrou: recomeça o bloco
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tab, search, tagFilter, soNaoLidas]);
+  }, [tab, search, tagFilter, soNaoLidas, soFavoritas]);
 
   // a lista com TODOS os filtros MENOS o "Não lidas": é ela que alimenta o
   // filtro e o número do botãozinho — mesma régua, o contador nunca mente
@@ -879,6 +906,8 @@ export function Inbox({
     // Fila: mais antigo primeiro (quem espera há mais tempo no topo).
     // Chats/Contatos: atividade mais recente primeiro.
     return list.sort((a, b) => {
+      // FIXADAS SEMPRE NO TOPO, em qualquer aba — é para isso que servem
+      if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
       if (tab === "fila") {
         const at = new Date(a.lastInboundAt ?? a.createdAt).getTime();
         const bt = new Date(b.lastInboundAt ?? b.createdAt).getTime();
@@ -896,10 +925,17 @@ export function Inbox({
     () => filtradasBase.filter(naoLida).length,
     [filtradasBase]
   );
-  const filtered = useMemo(
-    () => (soNaoLidas ? filtradasBase.filter(naoLida) : filtradasBase),
-    [filtradasBase, soNaoLidas]
+  const favoritasNaLista = useMemo(
+    () => filtradasBase.filter((c) => c.favorite).length,
+    [filtradasBase]
   );
+  const filtered = useMemo(() => {
+    let l = filtradasBase;
+    if (soNaoLidas) l = l.filter(naoLida);
+    if (soFavoritas) l = l.filter((c) => c.favorite);
+    return l;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filtradasBase, soNaoLidas, soFavoritas]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "instant" as ScrollBehavior });
@@ -1517,6 +1553,79 @@ export function Inbox({
         ? `Encaminhada para ${n} de ${n + d.falhas} — ${d.falhas} não foi.`
         : `Encaminhada para ${n} ${n === 1 ? "conversa" : "conversas"}.`
     );
+  }
+
+  /** Aplica na tela e manda para o servidor; volta atrás se recusar. */
+  async function mexerNaConversa(
+    convId: string,
+    mudanca: Partial<Pick<InboxConversation, "pinned" | "favorite">> | { markUnread: true }
+  ) {
+    const antes = convs.find((c) => c.id === convId);
+    const local = "markUnread" in mudanca ? { unreadCount: Math.max(1, antes?.unreadCount ?? 0) } : mudanca;
+    setConvs((prev) => prev.map((c) => (c.id === convId ? { ...c, ...local } : c)));
+    // marcar como não lida FECHA o chat: aberto, o sync zeraria o marcador
+    if ("markUnread" in mudanca && selectedId === convId) setSelectedId(null);
+    const res = await fetch(`/api/conversations/${convId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(mudanca),
+    }).catch(() => null);
+    if (!res || !res.ok) {
+      // desfaz SÓ o que foi mexido: devolver o objeto inteiro de antes
+      // apagaria a mensagem que o sync trouxe durante a espera (achado da
+      // revisão) — e o sync incremental não a mandaria de novo
+      const desfazer =
+        "markUnread" in mudanca
+          ? { unreadCount: antes?.unreadCount ?? 0 }
+          : "pinned" in mudanca
+            ? { pinned: antes?.pinned ?? false }
+            : { favorite: antes?.favorite ?? false };
+      setConvs((prev) => prev.map((c) => (c.id === convId ? { ...c, ...desfazer } : c)));
+      setAviso((await res?.json().catch(() => ({})))?.error ?? "Não foi possível salvar.");
+    }
+  }
+
+  /**
+   * BLOQUEAR / DESBLOQUEAR — o bloqueio de verdade, no WhatsApp da loja.
+   * Confirma antes: fecha a porta de uma cliente para a loja inteira. E só
+   * marca na tela depois que o servidor confirma (ele só grava se o WhatsApp
+   * aceitar) — dizer "bloqueada" com mensagem chegando seria mentira.
+   */
+  async function bloquearCliente(c: InboxConversation) {
+    const bloquear = !c.customer.blockedAt;
+    if (
+      bloquear &&
+      !window.confirm(
+        `Bloquear ${c.customer.name} no WhatsApp da loja? Ela deixa de conseguir mandar mensagem para vocês.`
+      )
+    )
+      return;
+    const res = await fetch(`/api/conversations/${c.id}/bloquear`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ bloquear }),
+    }).catch(() => null);
+    const d = await res?.json().catch(() => ({}));
+    if (!res || !res.ok) {
+      setAviso(d?.error ?? "Não foi possível concluir.");
+      return;
+    }
+    setConvs((prev) =>
+      prev.map((x) =>
+        x.customer.id === c.customer.id
+          ? { ...x, customer: { ...x.customer, blockedAt: d?.blockedAt ?? null } }
+          : x
+      )
+    );
+    setAviso(bloquear ? "Cliente bloqueada no WhatsApp." : "Cliente desbloqueada.");
+  }
+
+  /** o dedo se moveu (ou soltou): não era toque longo, era rolagem/toque */
+  function cancelarToqueLongo() {
+    if (toqueLongo.current) {
+      clearTimeout(toqueLongo.current);
+      toqueLongo.current = null;
+    }
   }
 
   async function salvarEdicao(messageId: string) {
@@ -2301,6 +2410,32 @@ export function Inbox({
                 </span>
               )}
             </button>
+            {/* fica na tela enquanto o filtro estiver LIGADO, mesmo que a
+                contagem caia a zero — senão a lista fica vazia e sem como
+                desligar (achado da revisão) */}
+            {(favoritasNaLista > 0 || soFavoritas) && (
+              <button
+                onClick={() => setSoFavoritas((v) => !v)}
+                className={`shrink-0 inline-flex items-center gap-1 rounded-full px-2 py-1 text-[11px] font-semibold transition ${
+                  soFavoritas
+                    ? "bg-amber-400 text-white"
+                    : "bg-amber-50 text-amber-700 hover:bg-amber-100"
+                }`}
+                title="Mostrar só as conversas favoritas"
+              >
+                <Star
+                  className={`size-3 ${soFavoritas ? "fill-white" : "fill-amber-400 text-amber-400"}`}
+                />
+                Favoritas
+                <span
+                  className={`min-w-4 px-1 rounded-full text-[10px] font-bold ${
+                    soFavoritas ? "bg-white/25 text-white" : "bg-amber-400 text-white"
+                  }`}
+                >
+                  {favoritasNaLista}
+                </span>
+              </button>
+            )}
             {tags.length > 0 && (
               <>
               {tagFilter && (
@@ -2385,7 +2520,50 @@ export function Inbox({
             return (
               <button
                 key={c.id}
-                onClick={() => selectConv(c.id)}
+                onClick={() => {
+                  // o clique que vem depois do toque longo é descartado
+                  if (menuAbriuNoToque.current) {
+                    menuAbriuNoToque.current = false;
+                    return;
+                  }
+                  selectConv(c.id);
+                }}
+                // CLIQUE DIREITO (computador) abre o menu no ponto do clique
+                onContextMenu={(e) => {
+                  e.preventDefault();
+                  setMenuConv({ conv: c, em: { x: e.clientX, y: e.clientY } });
+                }}
+                // TOQUE LONGO (celular): meio segundo segurando. O timer é
+                // cancelado no primeiro movimento do dedo, senão rolar a
+                // lista abriria o menu no meio do caminho.
+                onTouchStart={(e) => {
+                  const t = e.touches[0];
+                  if (!t) return;
+                  const em = { x: t.clientX, y: t.clientY };
+                  inicioDoToque.current = em;
+                  menuAbriuNoToque.current = false;
+                  toqueLongo.current = setTimeout(() => {
+                    toqueLongo.current = null;
+                    menuAbriuNoToque.current = true;
+                    setMenuConv({ conv: c, em });
+                    try {
+                      navigator.vibrate?.(10);
+                    } catch {
+                      /* navegador sem vibração */
+                    }
+                  }, 500);
+                }}
+                onTouchMove={(e) => {
+                  // TREMOR DO DEDO NÃO É ROLAGEM. Cancelar no primeiro pixel
+                  // impedia o menu de abrir em quem não tem a mão firme.
+                  const t = e.touches[0];
+                  const i = inicioDoToque.current;
+                  if (!t || !i) return;
+                  if (Math.abs(t.clientX - i.x) > 10 || Math.abs(t.clientY - i.y) > 10)
+                    cancelarToqueLongo();
+                }}
+                onTouchEnd={cancelarToqueLongo}
+                onTouchCancel={cancelarToqueLongo}
                 className={`w-full text-left px-4 py-3 flex gap-3 items-start border-b border-gray-50 transition hover:bg-gray-50 ${
                   selectedId === c.id ? "bg-brand-50/60" : ""
                 }`}
@@ -2396,6 +2574,14 @@ export function Inbox({
                     <p className="text-sm font-semibold truncate flex items-center gap-1.5">
                       {c.priority === "ALTA" && (
                         <Flag className="size-3 text-rose-500 shrink-0" />
+                      )}
+                      {/* por que esta conversa está no topo / marcada */}
+                      {c.pinned && <Pin className="size-3 shrink-0 text-gray-400" />}
+                      {c.favorite && (
+                        <Star className="size-3 shrink-0 fill-amber-400 text-amber-400" />
+                      )}
+                      {c.customer.blockedAt && (
+                        <Ban className="size-3 shrink-0 text-rose-500" />
                       )}
                       {c.customer.name}
                     </p>
@@ -3879,6 +4065,28 @@ export function Inbox({
           src={fotoAberta.src}
           legenda={fotoAberta.legenda}
           onClose={() => setFotoAberta(null)}
+        />
+      </Portal>
+    )}
+
+    {menuConv && (
+      <Portal>
+        <MenuDaConversa
+          em={menuConv.em}
+          noComputador={noComputador}
+          onFechar={() => setMenuConv(null)}
+          acoes={{
+            fixada: menuConv.conv.pinned,
+            favorita: menuConv.conv.favorite,
+            bloqueada: Boolean(menuConv.conv.customer.blockedAt),
+            podeBloquear: podeGerenciar,
+            onFixar: () =>
+              mexerNaConversa(menuConv.conv.id, { pinned: !menuConv.conv.pinned }),
+            onFavoritar: () =>
+              mexerNaConversa(menuConv.conv.id, { favorite: !menuConv.conv.favorite }),
+            onNaoLida: () => mexerNaConversa(menuConv.conv.id, { markUnread: true }),
+            onBloquear: () => bloquearCliente(menuConv.conv),
+          }}
         />
       </Portal>
     )}

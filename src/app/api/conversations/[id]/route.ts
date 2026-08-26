@@ -44,6 +44,10 @@ const schema = z.object({
   markRead: z.boolean().optional(),
   /** "volto nessa depois": devolve o marcador de não lida à conversa */
   markUnread: z.boolean().optional(),
+  /** fixar no topo da lista e favoritar — da CONVERSA, não de cada pessoa:
+   *  a Central é compartilhada e o que a loja fixa vale para quem abrir */
+  pinned: z.boolean().optional(),
+  favorite: z.boolean().optional(),
 });
 
 export async function PATCH(
@@ -92,6 +96,8 @@ export async function PATCH(
     // continuam 3; conversa zerada volta com 1
     if (parsed.data.markUnread)
       data.unreadCount = contadorAoMarcarNaoLida(conv.unreadCount);
+    if (parsed.data.pinned !== undefined) data.pinned = parsed.data.pinned;
+    if (parsed.data.favorite !== undefined) data.favorite = parsed.data.favorite;
     if (parsed.data.assigneeId !== undefined) {
       if (parsed.data.assigneeId) {
         // transferência: o destino precisa ser da mesma empresa

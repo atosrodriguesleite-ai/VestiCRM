@@ -54,6 +54,8 @@ export default async function WhatsAppPage() {
     <Inbox
       campanhas={campanhas}
       podeVincularCampanha={isManagerUp(user)}
+      // bloquear uma cliente é decisão da gerência (fecha a porta para a loja)
+      podeGerenciar={isManagerUp(user)}
       conversations={data}
       carregadoEm={carregadoEm}
       templates={templates.map((t) => ({

@@ -135,6 +135,9 @@ export async function loadInboxConversations(
     status: c.status,
     priority: c.priority,
     unreadCount: c.unreadCount,
+    // fixada no topo / favorita (menu de clique-direito na conversa)
+    pinned: c.pinned,
+    favorite: c.favorite,
     lastMessageAt: c.lastMessageAt.toISOString(),
     createdAt: c.createdAt.toISOString(),
     lastInboundAt: c.lastInboundAt?.toISOString() ?? null,
@@ -146,6 +149,8 @@ export async function loadInboxConversations(
       city: c.customer.city,
       // foto do WhatsApp (link do próprio WhatsApp; nulo = mostra iniciais)
       photoUrl: c.customer.photoUrl,
+      // bloqueada no WhatsApp da loja (nulo = não está)
+      blockedAt: c.customer.blockedAt?.toISOString() ?? null,
       wholesale: c.customer.type !== "VAREJO",
       catalogLink: linkForCustomer(c.customer.linkCode, c.customer.id, c),
       tags: c.customer.tags.map((t) => ({
