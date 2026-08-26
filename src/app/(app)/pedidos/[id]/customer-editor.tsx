@@ -24,6 +24,7 @@ type CustomerData = {
   cpf: string | null;
   cnpj: string | null;
   stateRegistration: string | null;
+  legalName: string | null;
   zip: string | null;
   street: string | null;
   streetNumber: string | null;
@@ -58,6 +59,7 @@ export function CustomerEditor({
     cpf: customer.cpf ?? "",
     cnpj: customer.cnpj ?? "",
     stateRegistration: customer.stateRegistration ?? "",
+    legalName: customer.legalName ?? "",
     zip: customer.zip ?? "",
     street: customer.street ?? "",
     streetNumber: customer.streetNumber ?? "",
@@ -164,6 +166,9 @@ export function CustomerEditor({
       cnpj: form.cnpj.trim() || null,
       // IE sem CNPJ não existe: apagou o CNPJ, a IE vai junto
       stateRegistration: form.cnpj.trim() ? form.stateRegistration.trim() || null : null,
+      legalName: form.cnpj.trim() ? form.legalName.trim() || null : null,
+      // waName NÃO viaja daqui: não há campo na tela, e mandar o valor da
+      // abertura da página pisaria no nome que o webhook gravou depois
       zip: form.zip.trim() || null,
       street: form.street.trim() || null,
       streetNumber: form.streetNumber.trim() || null,
@@ -314,10 +319,18 @@ export function CustomerEditor({
         {/* IE só aparece quando há CNPJ: acompanha a pessoa jurídica (algumas
             transportadoras exigem na etiqueta) */}
         {form.cnpj.trim() && (
-          <div>
-            <span className={label}>Inscrição Estadual</span>
-            <input value={form.stateRegistration} onChange={set("stateRegistration")} placeholder="000.000.000.000 (ou vazio se isenta)" inputMode="numeric" className={input} />
-          </div>
+          <>
+            <div>
+              <span className={label}>Inscrição Estadual</span>
+              <input value={form.stateRegistration} onChange={set("stateRegistration")} placeholder="000.000.000.000 (ou vazio se isenta)" inputMode="numeric" className={input} />
+            </div>
+            <div>
+              {/* RN-024: a FICHA fica no nome de quem conversa; a razão social
+                  sai na NF-e, na etiqueta e na declaração de conteúdo */}
+              <span className={label}>Razão social (sai na nota e na etiqueta)</span>
+              <input value={form.legalName} onChange={set("legalName")} placeholder="Nome da empresa como está no CNPJ" className={input} />
+            </div>
+          </>
         )}
         <div>
           <span className={label}>E-mail</span>

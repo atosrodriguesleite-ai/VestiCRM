@@ -556,6 +556,13 @@ model Customer {
   // Inscrição Estadual — anda junto do CNPJ (cliente lojista): algumas
   // transportadoras exigem para envio a pessoa jurídica (etiqueta ME)
   stateRegistration String?
+  // Razão social (compra no CNPJ). A FICHA fica no nome da pessoa (o nome de
+  // quem conversa no WhatsApp); a razão social sai onde documento manda:
+  // NF-e (Bling), etiqueta do Melhor Envio e declaração de conteúdo (RN-024).
+  legalName       String?
+  // Nome que a cliente usa no WhatsApp (pushName) — organização interna, para
+  // a loja lembrar QUEM É por trás de um cadastro. Nunca vai para documento.
+  waName          String?
   zip             String? // CEP
   street          String?
   streetNumber    String?

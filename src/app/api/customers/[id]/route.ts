@@ -97,6 +97,11 @@ const schema = z.object({
   cnpj: z.string().max(25).nullable().optional(),
   // Inscrição Estadual (anda junto do CNPJ; vai na etiqueta do Melhor Envio)
   stateRegistration: z.string().max(20).nullable().optional(),
+  // Razão social (anda junto do CNPJ; sai na NF-e, etiqueta e declaração —
+  // a FICHA fica no nome de quem conversa, RN-024)
+  legalName: z.string().max(160).nullable().optional(),
+  // Nome no WhatsApp — organização interna, nunca vai para documento
+  waName: z.string().max(120).nullable().optional(),
   zip: z.string().max(10).nullable().optional(),
   street: z.string().max(120).nullable().optional(),
   // "Número" costuma vir com complemento (apto, bloco, loja) — cabe folgado
@@ -186,6 +191,8 @@ export async function PATCH(
     }
     const cnpjFinal = cnpj !== undefined ? (data.cnpj as string | null) : customer.cnpj;
     if (!cnpjFinal) data.stateRegistration = null;
+    // razão social também anda junto do CNPJ (documento sem empresa não existe)
+    if (!cnpjFinal) data.legalName = null;
     // aniversário chega como "AAAA-MM-DD"; grava ao MEIO-DIA em UTC para que
     // o fuso de São Paulo (UTC-3) nunca jogue a data para o dia anterior
     if (birthDate !== undefined) {

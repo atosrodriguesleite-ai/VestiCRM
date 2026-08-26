@@ -278,6 +278,23 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   4-9s; termo de aceite obrigatório registrado (sem aceite, sem QR Code). `CloudApiProvider` (Meta
   oficial) pronto na estrutura. Tudo logado em `CommEvent` (Central de
   Comunicação).
+- **RN-024 · Dados de envio pela própria cliente** (`lib/dados-envio.ts`):
+  o botão 📦 do chat manda um link e a CLIENTE preenche o próprio cadastro —
+  endereço, CPF **ou** CNPJ (PJ abre razão social + inscrição estadual), com
+  CEP puxando o endereço sozinho. O que a ficha já tem aparece para conferir,
+  documento MASCARADO; o que ela mandar VALE (ela sabe onde mora), com
+  registro na linha do tempo e aviso no sino da dona da carteira (sem dona,
+  gerência). O crachá do link é sorteado a cada clique e vence em 7 dias
+  (o link ESCREVE na ficha). **Completo não se marca na mão**: a régua é a
+  MESMA da compra de etiqueta (`dadosDeEnvio`, fonte única) — ficha completa
+  faz o botão avisar a vendedora antes de pedir de novo. O telefone NÃO está
+  no formulário (é a identidade da cliente, lição da RN-021). **Razão
+  social**: a ficha fica no nome de QUEM CONVERSA; `Customer.legalName` sai
+  onde documento manda — NF-e, etiqueta e declaração (`nomeParaDocumentos`)
+  — e anda junto do CNPJ (apagou o CNPJ, some a razão). **Nome no WhatsApp**
+  (`Customer.waName`): gravado sozinho pelo webhook (pushName), aparece na
+  ficha e no chat e é encontrável na busca — organização interna, nunca vai
+  para documento.
 - **RN-023 · Conectar integração é ato da PRÓPRIA loja** (`lib/oauth-state.ts`,
   vale para Nuvemshop, Bling, Mercado Pago e Melhor Envio): o crachá do OAuth
   (`state`) é SORTEADO a cada clique e vence em 15 min, e a volta do provedor

@@ -146,6 +146,9 @@ export async function loadInboxConversations(
       city: c.customer.city,
       // foto do WhatsApp (link do próprio WhatsApp; nulo = mostra iniciais)
       photoUrl: c.customer.photoUrl,
+      // nome que ela usa no WhatsApp (RN-024): quem é a pessoa por trás
+      // de uma ficha que virou razão social
+      waName: c.customer.waName ?? null,
       wholesale: c.customer.type !== "VAREJO",
       catalogLink: linkForCustomer(c.customer.linkCode, c.customer.id, c),
       tags: c.customer.tags.map((t) => ({
@@ -320,6 +323,7 @@ export async function buscarConversas(
           state: true,
           cpf: true,
           cnpj: true,
+          waName: true, // a lupa acha pelo nome do WhatsApp (RN-024)
         },
       },
     },

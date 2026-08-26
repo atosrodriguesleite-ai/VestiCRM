@@ -142,9 +142,17 @@ describe("medidas da cotação viajam até a compra (varredura por fonte)", () =
   });
 
   it("a compra exige o cadastro completo (bairro, telefone e CPF ou CNPJ)", () => {
-    expect(rota).toContain('"bairro"');
-    expect(rota).toContain('"telefone"');
-    expect(rota).toContain('"CPF ou CNPJ"');
+    // a lista mudou de casa: virou a régua ÚNICA em lib/dados-envio (RN-024),
+    // compartilhada com o formulário "Dados de envio" do chat — a compra tem
+    // que usar ELA, e ela tem que seguir exigindo os mesmos campos
+    expect(rota).toContain("dadosDeEnvio(c)");
+    const regua = readFileSync(
+      join(process.cwd(), "src/lib/dados-envio.ts"),
+      "utf8"
+    );
+    expect(regua).toContain('"bairro"');
+    expect(regua).toContain('"telefone"');
+    expect(regua).toContain('"CPF ou CNPJ"');
   });
 
   it("apagar o CNPJ leva a IE junto (regra no servidor, não só na tela)", () => {

@@ -152,3 +152,42 @@ export async function notifyNovoPedido(input: {
   });
   return destinos.length;
 }
+
+/**
+ * A cliente preencheu o formulário "Dados de envio" (RN-024): avisa a dona
+ * da carteira — sem dona, a gerência (mesma régua do pedido sem vendedora).
+ * `mudancas` já vem em linguagem de gente ("endereço atualizado, CPF novo").
+ */
+export async function notifyDadosRecebidos(input: {
+  companyId: string;
+  customerName: string;
+  ownerId: string | null;
+  convId?: string | null;
+  mudancas: string;
+}) {
+  const destinos = input.ownerId
+    ? [input.ownerId]
+    : (
+        await db.user.findMany({
+          where: {
+            companyId: input.companyId,
+            role: { in: ["ADMIN", "MANAGER"] },
+            active: true,
+          },
+          select: { id: true },
+        })
+      ).map((u) => u.id);
+  if (destinos.length === 0) return 0;
+
+  await db.notification.createMany({
+    data: destinos.map((userId) => ({
+      companyId: input.companyId,
+      userId,
+      type: "CADASTRO",
+      title: `${input.customerName} preencheu os dados de envio 📦`,
+      body: input.mudancas,
+      convId: input.convId ?? null,
+    })),
+  });
+  return destinos.length;
+}

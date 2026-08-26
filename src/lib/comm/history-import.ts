@@ -276,6 +276,7 @@ export async function importRecentHistory(
         data: {
           companyId,
           name: r.pushName?.trim() || `Contato ${phone.slice(-4)}`,
+          waName: r.pushName?.trim() || null,
           phone: normalizePhone(phone),
           origin: "WHATSAPP",
         },

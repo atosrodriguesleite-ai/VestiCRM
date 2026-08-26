@@ -460,19 +460,40 @@ export async function POST(
 
         if (!m.key?.fromMe) {
           // mensagem do CLIENTE → central de leads (funil, vendedor, tarefa)
+          const nomeNoWhats = nomeDeQuemMandou(m, body.data);
           const result = await receiveMessage(companyId, {
             channel: "WHATSAPP",
             phone,
             // o nome vem em campos diferentes conforme a versão do servidor
             // e o tipo de conta (empresa manda em `verifiedBizName`) — ler só
             // `m.pushName` foi o que fez nascer a conversa "Lead 9621"
-            name: nomeDeQuemMandou(m, body.data) || undefined,
+            name: nomeNoWhats || undefined,
             text: textoFinal,
             ...(mediaType !== "TEXT" && mediaUrl
               ? { mediaType, mediaUrl, fileName: fileName ?? undefined }
               : {}),
             externalId: m.key?.id,
           });
+
+          // NOME NO WHATSAPP (RN-024): guarda o nome que a cliente usa no
+          // aplicativo num campo PRÓPRIO — a ficha pode virar razão social ou
+          // ser corrigida, e a loja ainda precisa lembrar QUEM É. Só escreve
+          // quando mudou (a maioria das mensagens não gera escrita nenhuma).
+          if (nomeNoWhats && result?.conversation) {
+            await db.customer
+              .updateMany({
+                where: {
+                  id: result.conversation.customerId,
+                  companyId,
+                  // o OR explícito importa: `NOT` sozinho NÃO casa com NULL
+                  // no SQL, e todo cadastro antigo nasce com o campo vazio —
+                  // sem isso o nome nunca seria gravado para ninguém
+                  OR: [{ waName: null }, { NOT: { waName: nomeNoWhats } }],
+                },
+                data: { waName: nomeNoWhats },
+              })
+              .catch(() => {});
+          }
 
           // 📢 veio de um ANÚNCIO (Click-to-WhatsApp): registra a prévia como
           // nota no chat — a equipe vê de qual anúncio o cliente chegou e
