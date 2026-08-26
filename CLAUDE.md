@@ -290,8 +290,17 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   só os tipos que ela desenha: arquivo que a CLIENTE manda e o sistema não
   exibe (um .html, um .svg) sai como download + `nosniff`, senão executaria no
   endereço do app com a sessão da vendedora aberta.
-  **marcar conversa como não lida** ("volto nessa depois" — fecha o
-  chat junto, senão o sync zeraria o marcador),
+  **menu da conversa** (clique direito no computador, toque longo no celular,
+  `menu-da-conversa.tsx`): **fixar/desafixar** (topo da lista, em qualquer
+  aba), **marcar como não lida** ("volto nessa depois" — fecha o chat junto,
+  senão o sync zeraria o marcador), **favoritos** (com filtro próprio) e
+  **bloquear** (gerência; é o bloqueio DE VERDADE no WhatsApp — sem conexão a
+  rota RECUSA, e só grava `Customer.blockedAt` depois que o WhatsApp aceita:
+  dizer "bloqueada" com mensagem chegando seria pior que não ter o botão).
+  Fixada e favorita são da CONVERSA, não de cada pessoa — a Central é
+  compartilhada. O menu MEDE a si mesmo e vira para o lado que tem espaço
+  (`lib/menu-flutuante.ts`, teste varre a janela inteira): conversa no pé da
+  lista abria um menu com metade embaixo da borda,
   recibos com horário (entregue/visto), editar (15min) e apagar para todos
   (~2 dias), detecção de "cliente apagou" (conteúdo preservado), mensagens
   automáticas personalizáveis (link do catálogo e confirmação de pedido, em

@@ -370,6 +370,28 @@ export async function evoDeleteForEveryone(
 }
 
 /**
+ * BLOQUEIA (ou desbloqueia) UM CONTATO no WhatsApp da loja.
+ *
+ * É o bloqueio de verdade, o mesmo do aplicativo: depois dele o WhatsApp
+ * para de entregar as mensagens daquela pessoa. Por isso o sistema só marca
+ * a cliente como bloqueada DEPOIS que esta chamada dá certo — dizer
+ * "bloqueada" na tela com as mensagens continuando a chegar seria pior do
+ * que não ter o botão.
+ */
+export async function evoBlockContact(
+  instance: string,
+  number: string,
+  status: "block" | "unblock"
+) {
+  return evo<{ status?: string }>(
+    "POST",
+    `/message/updateBlockStatus/${instance}`,
+    { number: number.replace(/\D/g, ""), status },
+    EVO_LEITURA_TIMEOUT_MS
+  );
+}
+
+/**
  * REAGE A UMA MENSAGEM com um emoji — o mesmo gesto do aplicativo.
  *
  * `reaction` vazio REMOVE a reação (é assim que o WhatsApp desfaz; não existe
