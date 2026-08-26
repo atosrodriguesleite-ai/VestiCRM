@@ -225,7 +225,11 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   `conversationScope` — abre a Central inteira para uma vendedora específica
   SEM mexer em carteira/pedidos/comissão), setores, assumir/transferir/encerrar, notas internas
   com @menção, respostas rápidas (criáveis por qualquer um), mídia + **áudio
-  de voz** (`lib/audio-wav.ts`: a gravação vira WAV no NAVEGADOR — o webm do
+  de voz** (a vendedora **escolhe o microfone** na engrenagem ao lado do botão
+  de gravar, `lib/microfone.ts` — antes quem mandava era o padrão do Windows e
+  o headset plugado ficava de fora sem ninguém saber; a barra mostra de qual
+  microfone o som está vindo, e microfone que sumiu volta ao padrão AVISANDO.
+  `lib/audio-wav.ts`: a gravação vira WAV no NAVEGADOR — o webm do
   MediaRecorder não carrega a duração e o WhatsApp mostrava 0:00 — na MAIOR
   taxa que couber no envio: 24 kHz até ~65s e 16 kHz daí em diante. Com os
   16 kHz fixos de antes, tudo acima de 8 kHz era jogado fora (Nyquist) — e é

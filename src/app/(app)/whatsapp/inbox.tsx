@@ -64,6 +64,13 @@ import {
 import { autoriaDaMensagem, prefixoDaPrevia } from "@/lib/comm/autoria";
 import { abaDaConversa } from "@/lib/comm/fila";
 import { casaCliente } from "@/lib/busca";
+import {
+  CHAVE_MICROFONE,
+  restricoesDeAudio,
+  microfoneSumiu,
+  nomeCurtoDoMicrofone,
+} from "@/lib/microfone";
+import { EscolherMicrofone } from "./escolher-microfone";
 import { pausarOsOutros } from "@/lib/um-som-por-vez";
 import { Avatar, EmptyState } from "@/components/ui";
 import { gravacaoParaWav, TETO_AUDIO_BYTES } from "@/lib/audio-wav";
@@ -635,6 +642,30 @@ export function Inbox({
   const recChunksRef = useRef<Blob[]>([]);
   const recTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const recCancelRef = useRef(false);
+  // MICROFONE ESCOLHIDO (por aparelho). Sem isto o sistema pedia "um
+  // microfone" e o Windows entregava o padrão dele — o headset plugado ficava
+  // de fora e ninguém ficava sabendo (reclamação de 26/08/2026).
+  const [micId, setMicId] = useState<string | null>(null);
+  // nome do microfone que está REALMENTE gravando (vem da trilha aberta, não
+  // do que a gente pediu — é a única fonte que não mente)
+  const [micNome, setMicNome] = useState("");
+  useEffect(() => {
+    try {
+      setMicId(window.localStorage.getItem(CHAVE_MICROFONE) || null);
+    } catch {
+      // navegador com armazenamento bloqueado: segue no padrão
+    }
+  }, []);
+  function escolherMicrofone(id: string | null, rotulo: string) {
+    setMicId(id);
+    setMicNome(id ? nomeCurtoDoMicrofone(rotulo) : "");
+    try {
+      if (id) window.localStorage.setItem(CHAVE_MICROFONE, id);
+      else window.localStorage.removeItem(CHAVE_MICROFONE);
+    } catch {
+      // não deu para guardar: vale só nesta sessão
+    }
+  }
 
   const selected = convs.find((c) => c.id === selectedId) ?? null;
 
@@ -1890,15 +1921,36 @@ export function Inbox({
       // outra ponta) e some com parte da voz; aqui é gravação, não existe eco
       // para cancelar. A supressão de ruído e o ganho automático FICAM: loja
       // de confecção é barulhenta e nem todo mundo fala perto do microfone.
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          echoCancellation: false,
-          noiseSuppression: true,
-          autoGainControl: true,
-          channelCount: 1,
-        },
-      });
+      // O MICROFONE ESCOLHIDO MANDA — e, se ele sumiu (headset fora da
+      // tomada, outra porta USB), volta para o padrão AVISANDO. Falhar calado
+      // seria repetir o defeito: gravar por um microfone que não é o que a
+      // pessoa acha que está usando.
+      let stream: MediaStream;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          audio: restricoesDeAudio(micId),
+        });
+      } catch (e) {
+        const todos = await navigator.mediaDevices.enumerateDevices().catch(() => []);
+        // só volta ao padrão quando o aparelho REALMENTE sumiu — permissão
+        // negada não pode apagar a escolha da vendedora (ver `microfoneSumiu`)
+        if (
+          !microfoneSumiu(
+            (e as { name?: string })?.name,
+            micId,
+            todos.filter((d) => d.kind === "audioinput")
+          )
+        )
+          throw e;
+        escolherMicrofone(null, "");
+        setAviso("O microfone escolhido sumiu — gravando pelo padrão do computador.");
+        stream = await navigator.mediaDevices.getUserMedia({
+          audio: restricoesDeAudio(null),
+        });
+      }
       microfoneAberto = stream;
+      // de onde o som está vindo DE VERDADE (a barra mostra durante a gravação)
+      setMicNome(nomeCurtoDoMicrofone(stream.getAudioTracks()[0]?.label));
       recChunksRef.current = [];
       recCancelRef.current = false;
       // Bitrate no PADRÃO do navegador de propósito: subir aqui engorda o
@@ -3454,6 +3506,13 @@ export function Inbox({
                 >
                   <Mic className="size-4.5" />
                 </button>
+                {/* escolher o microfone: fica coladinho no de gravar, que é
+                    onde a pessoa olha quando o áudio sai errado */}
+                <EscolherMicrofone
+                  escolhidoId={micId}
+                  onEscolher={escolherMicrofone}
+                  desabilitado={recording}
+                />
                 <button
                   onClick={() => setNoteMode((v) => !v)}
                   className={`p-2 transition shrink-0 ${
@@ -3534,6 +3593,14 @@ export function Inbox({
                     <span className="text-sm font-medium text-rose-600 tabular-nums">
                       Gravando… {Math.floor(recSecs / 60)}:{String(recSecs % 60).padStart(2, "0")}
                     </span>
+                    {/* DE ONDE O SOM ESTÁ VINDO. Sem isto, gravar pelo
+                        microfone errado só era descoberto quando a cliente
+                        reclamava do áudio. */}
+                    {micNome && (
+                      <span className="hidden min-[380px]:inline truncate text-[11px] text-gray-400">
+                        · {micNome}
+                      </span>
+                    )}
                     <span className="flex-1" />
                     <button
                       onClick={() => stopRecording(true)}

@@ -70,11 +70,17 @@ describe("o WAV sai com a taxa que foi pedida", () => {
 
 describe("a gravação captura em qualidade de gravação", () => {
   it("o microfone não usa o modo chamada (que come parte da voz)", () => {
-    const tela = ler("src/app/(app)/whatsapp/inbox.tsx");
-    expect(tela).toContain("echoCancellation: false");
+    // a regra saiu da tela para `lib/microfone.ts` em 26/08/2026, junto com a
+    // escolha de QUAL microfone grava — o teste dela vive em microfone.test.ts
+    const regra = ler("src/lib/microfone.ts");
+    expect(regra).toContain("echoCancellation: false");
     // ruído e ganho FICAM: loja é barulhenta e nem todo mundo fala perto
-    expect(tela).toContain("noiseSuppression: true");
-    expect(tela).toContain("autoGainControl: true");
+    expect(regra).toContain("noiseSuppression: true");
+    expect(regra).toContain("autoGainControl: true");
+    // e a tela usa ESSA regra, não uma cópia paralela
+    expect(ler("src/app/(app)/whatsapp/inbox.tsx")).toContain(
+      "audio: restricoesDeAudio(micId)"
+    );
   });
 
   it("o teto do envio é a fonte única (tela e conversão falam o mesmo)", () => {
