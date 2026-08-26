@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Settings2, Check, Loader2 } from "lucide-react";
+import { Mic, ChevronDown, Check, Loader2 } from "lucide-react";
 import { nomeCurtoDoMicrofone } from "@/lib/microfone";
 
 /**
@@ -25,11 +25,14 @@ import { nomeCurtoDoMicrofone } from "@/lib/microfone";
 export function EscolherMicrofone({
   escolhidoId,
   onEscolher,
-  desabilitado,
+  onGravar,
+  gravando,
 }: {
   escolhidoId: string | null;
   onEscolher: (id: string | null, rotulo: string) => void;
-  desabilitado?: boolean;
+  /** o toque no microfone: começa a gravar */
+  onGravar: () => void;
+  gravando: boolean;
 }) {
   const [aberto, setAberto] = useState(false);
   const [lista, setLista] = useState<MediaDeviceInfo[] | null>(null);
@@ -61,19 +64,41 @@ export function EscolherMicrofone({
   }
 
   return (
-    <div className="relative">
+    // UM MICROFONE SÓ na barra (pedido do dono, 26/08/2026): o ícone grava e a
+    // setinha colada nele abre a lista. Eram dois botões separados e ficava
+    // parecendo dois microfones.
+    //
+    // `z-40` deixa o controle POR CIMA do fundo que fecha a lista: com a lista
+    // aberta, tocar no microfone grava direto em vez de o toque morrer no
+    // fundo invisível e exigir um segundo toque (achado da revisão).
+    <div className="relative z-40 flex items-center rounded-lg transition hover:bg-gray-50">
+      <button
+        type="button"
+        onClick={() => {
+          setAberto(false);
+          onGravar();
+        }}
+        disabled={gravando}
+        className="py-2 pl-2 pr-0.5 text-gray-400 transition hover:text-emerald-600 disabled:opacity-40"
+        title="Gravar áudio"
+      >
+        <Mic className="size-4.5" />
+      </button>
+      {/* A SETINHA PRECISA SER VISÍVEL E DAR PARA ACERTAR COM O DEDO: é a
+          única porta para trocar o microfone. Nasceu cinza-clara demais e
+          colada no botão de gravar — no celular, errar o toque começava uma
+          gravação de verdade (achado da revisão). */}
       <button
         type="button"
         onClick={abrir}
-        disabled={desabilitado}
-        className={`p-2 transition shrink-0 disabled:opacity-40 ${
+        disabled={gravando}
+        className={`py-2.5 pl-1 pr-2 transition disabled:opacity-40 ${
           aberto ? "text-brand-600" : "text-gray-400 hover:text-brand-600"
         }`}
         title="Escolher o microfone"
+        aria-label="Escolher o microfone"
       >
-        {/* engrenagem, não outro microfone: dois ícones de microfone
-            colados um no outro não dizem qual grava e qual configura */}
-        <Settings2 className="size-4" />
+        <ChevronDown className="size-3.5" />
       </button>
 
       {aberto && (

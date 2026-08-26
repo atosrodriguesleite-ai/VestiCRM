@@ -3498,20 +3498,13 @@ export function Inbox({
                 >
                   <Paperclip className="size-4.5" />
                 </button>
-                <button
-                  onClick={startRecording}
-                  disabled={recording}
-                  className="p-2 text-gray-400 hover:text-emerald-600 transition shrink-0 disabled:opacity-40"
-                  title="Gravar áudio"
-                >
-                  <Mic className="size-4.5" />
-                </button>
-                {/* escolher o microfone: fica coladinho no de gravar, que é
-                    onde a pessoa olha quando o áudio sai errado */}
+                {/* microfone: o ícone grava, a setinha ao lado escolhe de
+                    qual aparelho vem o som (um controle só) */}
                 <EscolherMicrofone
                   escolhidoId={micId}
                   onEscolher={escolherMicrofone}
-                  desabilitado={recording}
+                  onGravar={startRecording}
+                  gravando={recording}
                 />
                 <button
                   onClick={() => setNoteMode((v) => !v)}
