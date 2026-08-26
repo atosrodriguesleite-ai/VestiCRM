@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { requireUser, AuthError, type SessionUser } from "@/lib/auth";
 import { isManagerUp, orderScope } from "@/lib/scope";
 import { orderNumber } from "@/lib/orders";
+import { dadosDeEnvio, nomeParaDocumentos } from "@/lib/dados-envio";
 import { consultarNfe } from "@/lib/bling";
 import {
   meCalculate,
@@ -231,19 +232,10 @@ export async function POST(
       const c = order.customer;
       // OBRIGATÓRIOS DA ETIQUETA (pedido do dono, 17/08/2026): a etiqueta
       // sem bairro/telefone/documento era recusada pela transportadora DEPOIS
-      // do débito — a conferência completa é aqui, antes de gastar o saldo.
-      const cpfDigitos = (c.cpf ?? "").replace(/\D/g, "");
-      const cnpjDigitos = (c.cnpj ?? "").replace(/\D/g, "");
-      const faltando = [
-        !destZip && "CEP",
-        !c.street?.trim() && "rua",
-        !c.streetNumber?.trim() && "número",
-        !c.district?.trim() && "bairro",
-        !c.city?.trim() && "cidade",
-        !c.state?.trim() && "estado",
-        (c.phone ?? "").replace(/\D/g, "").length < 8 && "telefone",
-        cpfDigitos.length !== 11 && cnpjDigitos.length !== 14 && "CPF ou CNPJ",
-      ].filter(Boolean);
+      // do débito. A régua vive em UM lugar (lib/dados-envio) — é a MESMA que
+      // o link "Dados de envio" do chat usa para dizer "cadastro completo";
+      // se divergissem, o chat diria completo e a compra recusaria (RN-024).
+      const { faltando } = dadosDeEnvio(c);
       if (faltando.length)
         return NextResponse.json(
           {
@@ -337,7 +329,9 @@ export async function POST(
           state: conn.fromState,
         },
         to: {
-          name: c.name,
+          // compra no CNPJ com razão social: o documento sai no nome que o
+          // fisco conhece; a ficha segue no nome de quem conversa (RN-024)
+          name: nomeParaDocumentos(c),
           cpf: c.cpf,
           cnpj: c.cnpj,
           stateRegistration: c.stateRegistration,

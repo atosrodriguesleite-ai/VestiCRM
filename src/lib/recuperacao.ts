@@ -479,6 +479,68 @@ async function marcarRecuperados(companyId: string): Promise<void> {
       });
     }
   }
+
+  // A VISITANTE ANÔNIMA que pagou também fecha o carrinho. O pedido dela não
+  // tem cliente para casar, mas tem a SESSÃO (Order.trackSessionId), e a
+  // sessão sabe quem é a pessoa (visitor): o pedido PAGO de QUALQUER sessão
+  // da mesma pessoa, depois do abandono, resolve. Sem isso o carrinho
+  // anônimo ficava NOVO para sempre e a Inteligência mandava "recupere com
+  // uma mensagem" uma venda já feita (revisão de 26/08/2026).
+  const anonimos = await db.abandonedCart.findMany({
+    where: {
+      companyId,
+      status: { in: ["NOVO", "CHAMADA"] },
+      customerId: null,
+      trackSessionId: { not: null },
+    },
+    select: { id: true, trackSessionId: true, abandonedAt: true, value: true },
+    take: 200,
+  });
+  if (anonimos.length === 0) return;
+  const sessoesDosCarrinhos = await db.trackSession.findMany({
+    where: { id: { in: anonimos.map((c) => c.trackSessionId as string) } },
+    select: { id: true, visitorId: true },
+  });
+  const visitanteDaSessao = new Map(sessoesDosCarrinhos.map((s) => [s.id, s.visitorId]));
+  const sessoesDasVisitantes = await db.trackSession.findMany({
+    where: { visitorId: { in: [...new Set(sessoesDosCarrinhos.map((s) => s.visitorId))] } },
+    select: { id: true, visitorId: true },
+  });
+  const pedidosPagos = await db.order.findMany({
+    where: {
+      companyId,
+      status: { in: PAID_ORDER_STATUSES },
+      trackSessionId: { in: sessoesDasVisitantes.map((s) => s.id) },
+      paidAt: { not: null },
+      id: { notIn: [...jaUsados] },
+    },
+    orderBy: { paidAt: "asc" },
+    select: { id: true, paidAt: true, trackSessionId: true },
+  });
+  const visitanteDoPedido = new Map(sessoesDasVisitantes.map((s) => [s.id, s.visitorId]));
+  for (const cart of anonimos) {
+    const visitante = visitanteDaSessao.get(cart.trackSessionId as string);
+    if (!visitante) continue;
+    const pedido = pedidosPagos.find(
+      (o) =>
+        !jaUsados.has(o.id) &&
+        visitanteDoPedido.get(o.trackSessionId as string) === visitante &&
+        o.paidAt! > cart.abandonedAt &&
+        // mesma janela de 30 dias da recuperação identificada
+        o.paidAt! <= new Date(cart.abandonedAt.getTime() + 30 * 24 * 60 * 60 * 1000)
+    );
+    if (pedido) {
+      jaUsados.add(pedido.id);
+      await db.abandonedCart.update({
+        where: { id: cart.id },
+        data: {
+          status: "RECUPERADO",
+          recoveredAt: pedido.paidAt ?? new Date(),
+          recoveredOrderId: pedido.id,
+        },
+      });
+    }
+  }
 }
 
 /** 1ª mensagem automática — uma por carrinho, e só com cliente conhecida. */

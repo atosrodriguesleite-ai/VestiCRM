@@ -42,6 +42,8 @@ const TELAS_DE_DINHEIRO = [
   // (auditoria 07/08/2026)
   "app/api/export/pedidos/route.ts",
   "app/api/export/clientes/route.ts",
+  // o "mês fechado em planilha" dos Relatórios: mesmas contas da tela
+  "app/api/export/relatorio/route.ts",
 ];
 
 /**

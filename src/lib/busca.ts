@@ -24,8 +24,9 @@ export function normalizarBusca(texto: string): string {
     .trim();
 }
 
-/** Só os números (para telefone/documento). */
-export const soDigitos = (texto: string): string => texto.replace(/\D/g, "");
+/** Só os números (para telefone/documento). Campo vazio/nulo vira "". */
+export const soDigitos = (texto: string | null | undefined): string =>
+  (texto ?? "").replace(/\D/g, "");
 
 /** O campo contém o termo? (ignora maiúscula e acento) */
 export function casaTexto(campo: string | null | undefined, termo: string): boolean {
@@ -93,6 +94,8 @@ export function filtrarProdutos<T extends { name?: string | null; sku?: string |
 export function casaCliente(
   cliente: {
     name?: string | null;
+    /** nome que a cliente usa no WhatsApp (RN-024) — a loja procura por ele */
+    waName?: string | null;
     phone?: string | null;
     city?: string | null;
     cpf?: string | null;
@@ -104,6 +107,7 @@ export function casaCliente(
   if (!t) return true;
   return (
     casaTexto(cliente.name, t) ||
+    casaTexto(cliente.waName, t) ||
     casaTelefone(cliente.phone, t) ||
     casaTexto(cliente.city, t) ||
     casaTelefone(cliente.cpf, t) ||

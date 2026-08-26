@@ -1,6 +1,7 @@
 import { db } from "./db";
 import { encryptSecret, decryptSecret } from "./crypto";
 import { signState, verifyState } from "./nuvemshop"; // state assinado (HMAC)
+import { nomeParaDocumentos } from "./dados-envio";
 import { appBaseUrl } from "./comm/evolution";
 import { orderNumber, round2, PAID_ORDER_STATUSES } from "./orders";
 import { documentoFiscal } from "./documento";
@@ -310,7 +311,8 @@ export async function emitirNfeDoPedido(
     tipo: 1, // saída
     dataOperacao: new Date().toISOString().slice(0, 19).replace("T", " "),
     contato: {
-      nome: c.name.slice(0, 120),
+      // razão social no CNPJ (RN-024): a nota sai no nome que o fisco conhece
+      nome: nomeParaDocumentos(c).slice(0, 120),
       tipoPessoa: fiscal.tipoPessoa,
       numeroDocumento: fiscal.numero,
       ...(c.email ? { email: c.email } : {}),

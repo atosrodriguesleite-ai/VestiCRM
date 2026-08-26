@@ -51,6 +51,7 @@ import {
   Ban,
   MailOpen,
   Copy,
+  PackageOpen,
 } from "lucide-react";
 import { OrderComposer } from "@/components/order-composer";
 import { contadorAoMarcarNaoLida } from "@/lib/comm/fila";
@@ -139,6 +140,7 @@ export type InboxConversation = {
     photoUrl?: string | null;
     /** bloqueada no WhatsApp da loja (nulo = não está) */
     blockedAt?: string | null;
+    waName?: string | null;
     city: string | null;
     wholesale: boolean;
     catalogLink: string;
@@ -2009,6 +2011,43 @@ export function Inbox({
     taRef.current?.focus();
   }
 
+  // ---- Link "Dados de envio" (RN-024) ----
+  // Gera o link do formulário desta cliente e põe a mensagem no rascunho.
+  // Se a ficha JÁ está completa (mesma régua da etiqueta), avisa ANTES —
+  // para a cliente não ter que mandar tudo de novo.
+  const [gerandoDados, setGerandoDados] = useState(false);
+  async function inserirLinkDados() {
+    if (!selected || gerandoDados) return;
+    setGerandoDados(true);
+    try {
+      const r = await fetch(`/api/customers/${selected.customer.id}/dados-envio`, {
+        method: "POST",
+      });
+      const d = (await r.json()) as { url?: string; completo?: boolean; error?: string };
+      if (!r.ok || !d.url) {
+        alert(d.error ?? "Não consegui gerar o link. Tente de novo.");
+        return;
+      }
+      if (
+        d.completo &&
+        !confirm(
+          "O cadastro desta cliente já está COMPLETO ✅ (endereço, CEP e CPF/CNPJ).\n\nEnviar o formulário mesmo assim?"
+        )
+      )
+        return;
+      const nome = selected.customer.name.split(" ")[0];
+      const msg = draft.trim()
+        ? `${draft.trim()}\n${d.url}`
+        : `Oi ${nome}! 📦 Para eu preparar seu envio, preenche seus dados nesse link rapidinho?\n${d.url}`;
+      setDraft(msg);
+      taRef.current?.focus();
+    } catch {
+      alert("Não consegui gerar o link. Tente de novo.");
+    } finally {
+      setGerandoDados(false);
+    }
+  }
+
   // ---- Envio de mídia real (imagem/vídeo/documento) ----
   function pickFile(kind: "IMAGE" | "VIDEO" | "DOCUMENT") {
     setShowAttach(false);
@@ -2781,6 +2820,11 @@ export function Inbox({
                   {selected.customer.name}
                 </Link>
                 <p className="text-[11px] text-gray-400 truncate">
+                  {/* a pessoa por trás da razão social (RN-024) */}
+                  {selected.customer.waName?.trim() &&
+                  selected.customer.waName.trim() !== selected.customer.name.trim()
+                    ? `${selected.customer.waName} · `
+                    : ""}
                   {formatPhone(selected.customer.phone)}
                   {selected.lastInboundAt &&
                   (!selected.lastOutboundAt ||
@@ -3796,6 +3840,14 @@ export function Inbox({
                   title="Enviar link do catálogo (rastreia este cliente)"
                 >
                   <Link2 className="size-4.5" />
+                </button>
+                <button
+                  onClick={inserirLinkDados}
+                  disabled={gerandoDados}
+                  className="p-2 text-gray-400 hover:text-brand-600 transition shrink-0 disabled:opacity-50"
+                  title="Dados de envio: a cliente preenche o próprio cadastro (avisa se já está completo)"
+                >
+                  <PackageOpen className="size-4.5" />
                 </button>
                 {canEditCatalogMsg && (
                   <button

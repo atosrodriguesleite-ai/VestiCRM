@@ -229,6 +229,7 @@ export default async function OrderDetailPage({
                 cpf: order.customer.cpf,
                 cnpj: order.customer.cnpj,
                 stateRegistration: order.customer.stateRegistration,
+                legalName: order.customer.legalName,
                 zip: order.customer.zip,
                 street: order.customer.street,
                 streetNumber: order.customer.streetNumber,

@@ -49,7 +49,14 @@ export default async function ReportsPage({
     companyId: user.companyId,
     status: { in: PAID_ORDER_STATUSES },
   };
-  const [sales, sellers, stages, opps, allCustomers, interests, tarefasAtrasadas, tarefasPendentes, primeirasIn, primeirasOut] =
+  // PERÍODO ANTERIOR de mesma duração, colado no atual — responde "vendi
+  // mais que no período passado?" sem a lojista filtrar duas vezes e anotar
+  const durPeriodoMs = Math.max(periodo.to.getTime() - periodo.from.getTime(), 1);
+  const periodoAnterior = {
+    from: new Date(periodo.from.getTime() - durPeriodoMs),
+    to: new Date(periodo.from.getTime() - 1),
+  };
+  const [sales, sellers, stages, opps, allCustomers, interests, tarefasAtrasadas, tarefasPendentes, primeirasIn, primeirasOut, vendasAnteriores] =
     await Promise.all([
       db.order.findMany({
         where: { ...paidScope, paidAt: { gte: periodo.from, lte: periodo.to } },
@@ -103,6 +110,10 @@ export default async function ReportsPage({
         by: ["conversationId"],
         where: { kind: "TEXT", direction: "OUT", conversation: { companyId: user.companyId } },
         _min: { createdAt: true },
+      }),
+      db.order.findMany({
+        where: { ...paidScope, paidAt: { gte: periodoAnterior.from, lte: periodoAnterior.to } },
+        select: { netTotal: true },
       }),
     ]);
 
@@ -342,12 +353,37 @@ export default async function ReportsPage({
     .slice(0, 7);
 
   const totalPeriodo = sales.reduce((s, v) => s + v.netTotal, 0);
+  // comparação com o período anterior (mesma régua das setinhas do Dashboard:
+  // sem base no período anterior, não existe variação — nada de "+100%" inventado)
+  const totalAnterior = vendasAnteriores.reduce((s, v) => s + v.netTotal, 0);
+  const deltaFaturamento =
+    totalAnterior > 0 ? ((totalPeriodo - totalAnterior) / totalAnterior) * 100 : null;
+  const rotuloAnterior = `período anterior (${dateShort(periodoAnterior.from)} a ${dateShort(periodoAnterior.to)})`;
+  // filtro "tudo até X" começa na origem dos tempos — não existe "período
+  // anterior" para comparar, e inventar um "antes: R$ 0,00" mentiria
+  const temPeriodoAnterior = periodo.from.getTime() > 24 * 60 * 60 * 1000;
 
   return (
     <div className="max-w-7xl mx-auto">
       <PageHeader
         title="Relatórios"
         subtitle={`Números do período escolhido (${rotuloPeriodo}); os blocos marcados com “histórico” olham a base inteira de clientes.`}
+        action={
+          <a
+            href={`/api/export/relatorio${(() => {
+              const q = new URLSearchParams();
+              if (de) q.set("de", de);
+              if (ate) q.set("ate", ate);
+              const s = q.toString();
+              return s ? `?${s}` : "";
+            })()}`}
+            download
+            className="inline-flex items-center gap-2 rounded-xl bg-gray-900 hover:bg-gray-700 text-white text-sm font-medium px-4 py-2.5 transition"
+          >
+            <BarChart3 className="size-4" />
+            Baixar planilha (CSV)
+          </a>
+        }
       />
 
       <div className="mb-5">
@@ -358,7 +394,9 @@ export default async function ReportsPage({
         <StatTile
           label={`Faturamento (${filtro.personalizado ? "período" : "90d"})`}
           value={brl(totalPeriodo)}
-          hint={`${sales.length} venda${sales.length === 1 ? "" : "s"}`}
+          delta={temPeriodoAnterior ? deltaFaturamento : null}
+          deltaHint={rotuloAnterior}
+          hint={`${sales.length} venda${sales.length === 1 ? "" : "s"}${temPeriodoAnterior ? ` · antes: ${brl(totalAnterior)} (${vendasAnteriores.length} venda${vendasAnteriores.length === 1 ? "" : "s"})` : ""}`}
           icon={<TrendingUp />}
         />
         {/* os dois tiles abaixo são HISTÓRICO (base inteira), não o período
