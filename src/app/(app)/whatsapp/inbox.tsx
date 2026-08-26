@@ -3173,16 +3173,6 @@ export function Inbox({
                         </button>
                       )}
                     </div>
-                    {/* ⋯ do lado direito para mensagens do CLIENTE (responder) */}
-                    {!mine && !isTemp && !editando && (
-                      <button
-                        onClick={() => setActionMsg(m)}
-                        className="hidden md:block self-center ml-1 p-1 rounded-full text-gray-300 opacity-0 group-hover:opacity-100 hover:text-gray-500 hover:bg-gray-100 transition"
-                        title="Opções da mensagem"
-                      >
-                        <MoreVertical className="size-4" />
-                      </button>
-                    )}
                   </div>
                   </Fragment>
                 );
