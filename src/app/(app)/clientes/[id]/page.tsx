@@ -245,6 +245,15 @@ export default async function CustomerDetailPage({
             {documentoParaMostrar(customer) && (
               <p className="text-xs text-gray-400 mt-1">
                 {documentoParaMostrar(customer)}
+                {customer.legalName?.trim() && ` · ${customer.legalName}`}
+              </p>
+            )}
+            {/* quem é a PESSOA por trás do cadastro (RN-024): compra no CNPJ
+                deixa a ficha com cara de empresa, e a loja esquecia com quem
+                falava — o nome do WhatsApp chega sozinho pelo webhook */}
+            {customer.waName?.trim() && customer.waName.trim() !== customer.name.trim() && (
+              <p className="text-xs text-gray-400 mt-1">
+                No WhatsApp: <span className="text-gray-600">{customer.waName}</span>
               </p>
             )}
             <div className="flex flex-wrap gap-1.5 mt-3">

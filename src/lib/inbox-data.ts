@@ -151,6 +151,9 @@ export async function loadInboxConversations(
       photoUrl: c.customer.photoUrl,
       // bloqueada no WhatsApp da loja (nulo = não está)
       blockedAt: c.customer.blockedAt?.toISOString() ?? null,
+      // nome que ela usa no WhatsApp (RN-024): quem é a pessoa por trás
+      // de uma ficha que virou razão social
+      waName: c.customer.waName ?? null,
       wholesale: c.customer.type !== "VAREJO",
       catalogLink: linkForCustomer(c.customer.linkCode, c.customer.id, c),
       tags: c.customer.tags.map((t) => ({
@@ -332,6 +335,7 @@ export async function buscarConversas(
           state: true,
           cpf: true,
           cnpj: true,
+          waName: true, // a lupa acha pelo nome do WhatsApp (RN-024)
         },
       },
     },

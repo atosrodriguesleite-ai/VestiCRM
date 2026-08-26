@@ -1,4 +1,5 @@
 import { notFound } from "next/navigation";
+import { nomeParaDocumentos } from "@/lib/dados-envio";
 import { db } from "@/lib/db";
 import { requireUser } from "@/lib/auth";
 import { orderScope } from "@/lib/scope";
@@ -49,7 +50,7 @@ export default async function DeclaracaoPage({
     cep: conn?.fromZip ?? "",
   };
   const destinatario = {
-    nome: c.name,
+    nome: nomeParaDocumentos(c), // razão social no CNPJ (RN-024)
     doc: documentoParaMostrar(c),
     endereco: [c.street, c.streetNumber, c.complement, c.district]
       .filter(Boolean)

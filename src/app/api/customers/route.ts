@@ -128,6 +128,9 @@ export async function GET(req: NextRequest) {
           ? {
               OR: [
                 { name: { contains: q, mode: "insensitive" } },
+                // o nome que a cliente usa no WhatsApp (RN-024): é por ele
+                // que a loja procura quando a ficha virou razão social
+                { waName: { contains: q, mode: "insensitive" } },
                 { phone: { contains: q.replace(/\D/g, "") || q } },
                 // busca por documento: a vendedora digita com ponto e traço,
                 // o banco guarda só os números
