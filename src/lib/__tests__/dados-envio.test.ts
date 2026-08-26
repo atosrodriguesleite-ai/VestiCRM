@@ -123,6 +123,39 @@ describe("crachá do link — sorteado, com validade, e amarrado à loja", () =>
   });
 });
 
+describe("link curto — 11 caracteres no banco, e o antigo segue valendo", () => {
+  it("as três portas usam o código curto (o crachá de 200+ caracteres assustava no WhatsApp)", () => {
+    expect(ler("src/app/api/customers/[id]/dados-envio/route.ts")).toContain("criarLinkDadosEnvio");
+    expect(ler("src/app/dados/[token]/page.tsx")).toContain("lerLinkDadosEnvio");
+    expect(ler("src/app/api/dados-envio/route.ts")).toContain("lerLinkDadosEnvio");
+  });
+
+  it("o leitor aceita o crachá HMAC antigo — link já enviado no WhatsApp não pode quebrar", () => {
+    const lib = ler("src/lib/dados-envio-link.ts");
+    expect(lib).toContain('v.includes(".")');
+    expect(lib).toContain("lerTokenDadosEnvio(v)");
+  });
+
+  it("o código é sorteado (64 bits — não se adivinha) e vence em 7 dias", () => {
+    const lib = ler("src/lib/dados-envio-link.ts");
+    expect(lib).toContain("randomBytes(8)");
+    expect(lib).toContain("VALIDADE_DO_LINK_MS");
+  });
+});
+
+describe("a razão social não se perde pelo caminho", () => {
+  it("unificar contatos leva legalName, IE e waName junto (achado da revisão: o CNPJ ia e a razão ficava para trás)", () => {
+    const lib = ler("src/lib/merge-contacts.ts");
+    expect(lib).toContain('puxa("legalName")');
+    expect(lib).toContain('puxa("stateRegistration")');
+    expect(lib).toContain('puxa("waName")');
+  });
+
+  it("história importada não batiza a cliente com o nome da PRÓPRIA LOJA (pushName de mensagem fromMe)", () => {
+    expect(ler("src/lib/comm/history-import.ts")).toContain("!r.key?.fromMe && r.pushName");
+  });
+});
+
 describe("as portas da entrega", () => {
   it("o chat tem o botão e ele avisa quando a ficha já está completa", () => {
     const tela = ler("src/app/(app)/whatsapp/inbox.tsx");

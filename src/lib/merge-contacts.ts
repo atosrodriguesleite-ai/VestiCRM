@@ -1,5 +1,6 @@
 import { db } from "./db";
 import type { Prisma } from "@prisma/client";
+import { soDigitos } from "./busca";
 
 /**
  * Unificação de contatos e conversas duplicados.
@@ -130,6 +131,17 @@ async function repointCustomer(
         ...puxa("email"),
         ...puxa("cpf"),
         ...puxa("cnpj"),
+        // razão social e IE andam JUNTO do CNPJ (RN-024): puxar o CNPJ e
+        // largar as duas apagava a razão social na unificação — e ela sai na
+        // NF-e, na etiqueta e na declaração. Só viajam quando o CNPJ que fica
+        // na ficha é o do duplicado (copiado agora ou já igual) — senão a
+        // razão de UMA empresa colava no CNPJ de OUTRA.
+        ...(dupe.cnpj &&
+        (!principal.cnpj || soDigitos(principal.cnpj) === soDigitos(dupe.cnpj))
+          ? { ...puxa("legalName"), ...puxa("stateRegistration") }
+          : {}),
+        // o nome do WhatsApp também acompanha (organização interna)
+        ...puxa("waName"),
         ...puxa("zip"),
         ...puxa("street"),
         ...puxa("streetNumber"),
@@ -201,6 +213,13 @@ async function repointCustomer(
   // a sacola abandonada acompanha (o apagar do cliente soltava o vínculo e a
   // sacola virava órfã — sumia da esteira de recuperação)
   await tx.abandonedCart.updateMany({
+    where: { customerId: dupeId },
+    data: { customerId: primaryId },
+  });
+  // o link "Dados de envio" ainda válido acompanha (apagar o duplicado levava
+  // o link junto por cascade — a cliente clicava minutos depois e via
+  // "link venceu" com o link novinho)
+  await tx.dadosEnvioLink.updateMany({
     where: { customerId: dupeId },
     data: { customerId: primaryId },
   });

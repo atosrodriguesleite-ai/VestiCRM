@@ -7,6 +7,7 @@ import {
   jidToPhone,
 } from "./evolution";
 import { normalizePhone, findCustomerByPhone } from "../intake";
+import { nomeProvisorio } from "../nome-provisorio";
 import { lerMensagemWA } from "./wa-message";
 
 /**
@@ -278,16 +279,29 @@ export async function importRecentHistory(
     if (!customer) {
       customer = await findCustomerByPhone(companyId, phone);
     }
+    // pushName é o nome de QUEM MANDOU a mensagem: numa mensagem fromMe é o
+    // da PRÓPRIA LOJA — usá-lo batizava a cliente com o nome da loja quando
+    // a primeira mensagem importada era uma enviada
+    const nomeDoCliente = (!r.key?.fromMe && r.pushName?.trim()) || "";
     if (!customer) {
       customer = await db.customer.create({
         data: {
           companyId,
-          name: r.pushName?.trim() || `Contato ${phone.slice(-4)}`,
-          waName: r.pushName?.trim() || null,
+          name: nomeDoCliente || `Contato ${phone.slice(-4)}`,
+          waName: nomeDoCliente || null,
           phone: normalizePhone(phone),
           origin: "WHATSAPP",
         },
       });
+    } else if (nomeDoCliente && (!customer.waName || nomeProvisorio(customer.name))) {
+      // a primeira mensagem do lote pode ser a DA LOJA (o nome real chega só
+      // na resposta da cliente, mensagens depois): completa o que faltou —
+      // waName vazio e o crachá provisório — sem nunca mexer em nome de gente
+      const data: { waName?: string; name?: string } = {};
+      if (!customer.waName) data.waName = nomeDoCliente;
+      if (nomeProvisorio(customer.name)) data.name = nomeDoCliente;
+      await db.customer.update({ where: { id: customer.id }, data });
+      customer = { ...customer, ...data };
     }
     customerByPhone.set(phone, customer);
 

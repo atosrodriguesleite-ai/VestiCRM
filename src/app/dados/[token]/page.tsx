@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { db } from "@/lib/db";
-import { dadosDeEnvio, lerTokenDadosEnvio, mascararDocumento } from "@/lib/dados-envio";
+import { dadosDeEnvio, mascararDocumento } from "@/lib/dados-envio";
+import { lerLinkDadosEnvio } from "@/lib/dados-envio-link";
 import { nomeProvisorio } from "@/lib/nome-provisorio";
 import { FormularioDados } from "./formulario";
 
@@ -32,7 +33,9 @@ export default async function PaginaDados({
   } catch {
     tokenLimpo = "";
   }
-  const cracha = lerTokenDadosEnvio(tokenLimpo);
+  // aceita o código curto (11 caracteres, no banco) E o crachá longo antigo —
+  // link já enviado no WhatsApp continua valendo até vencer
+  const cracha = await lerLinkDadosEnvio(tokenLimpo);
 
   const vencido = (
     <main className="min-h-dvh bg-[#faf7f2] flex items-center justify-center p-6">

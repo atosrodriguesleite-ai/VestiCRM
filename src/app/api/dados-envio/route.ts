@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
-import { lerTokenDadosEnvio } from "@/lib/dados-envio";
+import { lerLinkDadosEnvio } from "@/lib/dados-envio-link";
 import { NOME_DO_ESTADO } from "@/lib/envios/estados";
 import { notifyDadosRecebidos } from "@/lib/notify";
 import { normalizarBusca, soDigitos } from "@/lib/busca";
@@ -46,7 +46,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Confira os campos e tente de novo." }, { status: 400 });
   const d = parsed.data;
 
-  const cracha = lerTokenDadosEnvio(d.token);
+  // aceita o código curto (11 caracteres, no banco) E o crachá longo antigo
+  const cracha = await lerLinkDadosEnvio(d.token);
   if (!cracha)
     return NextResponse.json(
       { error: "Este link venceu. Peça um novo na conversa com a loja. 💜" },

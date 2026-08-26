@@ -328,8 +328,15 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   gerência). **Exceção: o NOME da ficha é do VENDEDOR** — o nome digitado no
   formulário só entra quando a ficha ainda tem o crachá provisório
   (`nomeProvisorio`, mesma regra do intake); se diferir do nome da ficha, a
-  loja é avisada ("ela se apresentou como X") e o nome do vendedor fica. O crachá do link é sorteado a cada clique e vence em 7 dias
-  (o link ESCREVE na ficha). **Completo não se marca na mão**: a régua é a
+  loja é avisada ("ela se apresentou como X") e o nome do vendedor fica. O
+  link é CURTO (código de 11 caracteres sorteado a cada clique — 64 bits, não
+  se adivinha — guardado em `DadosEnvioLink`; o crachá HMAC inteiro na URL
+  passava de 200 caracteres e assustava no WhatsApp) e vence em 7 dias (o
+  link ESCREVE na ficha); o leitor (`lib/dados-envio-link.ts`) aceita também
+  o formato antigo — link já enviado segue valendo até vencer. Na
+  unificação de contatos, razão social e IE viajam JUNTO com o CNPJ (e o
+  waName acompanha) — o CNPJ ir sozinho deixava a razão para trás, e ela sai
+  nos documentos. **Completo não se marca na mão**: a régua é a
   MESMA da compra de etiqueta (`dadosDeEnvio`, fonte única) — ficha completa
   faz o botão avisar a vendedora antes de pedir de novo. O telefone NÃO está
   no formulário (é a identidade da cliente, lição da RN-021). **Razão
