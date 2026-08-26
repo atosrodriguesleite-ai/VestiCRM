@@ -16,6 +16,17 @@
 export const CHAVE_MICROFONE = "vesti:microfone";
 
 /**
+ * QUANTO ESPERAR ANTES DE COMEÇAR A GRAVAR DE VERDADE (ms).
+ *
+ * "No primeiro segundo tá estourado, depois fica bom" (26/08/2026). O ganho
+ * automático do navegador começa alto e leva um instante para achar o volume
+ * da voz — esse instante ia inteiro para dentro do arquivo. Meio segundo de
+ * espera joga a subida do ganho FORA da gravação, e é exatamente por isso que
+ * o resto do áudio sempre soou bem.
+ */
+export const MS_ASSENTAR_MICROFONE = 500;
+
+/**
  * Qualidade de GRAVAÇÃO, não de chamada: o cancelamento de eco é feito para
  * conversa ao vivo e come parte da voz. A supressão de ruído e o ganho
  * automático ficam — loja de confecção é barulhenta e nem todo mundo fala

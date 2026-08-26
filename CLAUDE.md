@@ -229,6 +229,13 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   de gravar, `lib/microfone.ts` — antes quem mandava era o padrão do Windows e
   o headset plugado ficava de fora sem ninguém saber; a barra mostra de qual
   microfone o som está vindo, e microfone que sumiu volta ao padrão AVISANDO.
+  **O volume é acertado antes de sair** (`normalizarVoz` em `lib/audio-wav.ts`):
+  o nível vem da ENERGIA DA FALA — quadros de 20 ms, silêncio fora por
+  porteira, mediana em cima (pico e média deixavam um estalo de 200 ms mandar
+  no áudio inteiro) — e o que passa do teto encontra um FREIO SUAVE, nunca a
+  tesoura: cortar reto é literalmente o barulho de "estourado". A gravação só
+  começa depois de `MS_ASSENTAR_MICROFONE` (0,5s), que joga a subida do ganho
+  automático para fora do arquivo — era ela o "primeiro segundo estourado".
   `lib/audio-wav.ts`: a gravação vira WAV no NAVEGADOR — o webm do
   MediaRecorder não carrega a duração e o WhatsApp mostrava 0:00 — na MAIOR
   taxa que couber no envio: 24 kHz até ~65s e 16 kHz daí em diante. Com os

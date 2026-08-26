@@ -66,6 +66,7 @@ import { abaDaConversa } from "@/lib/comm/fila";
 import { casaCliente } from "@/lib/busca";
 import {
   CHAVE_MICROFONE,
+  MS_ASSENTAR_MICROFONE,
   restricoesDeAudio,
   microfoneSumiu,
   nomeCurtoDoMicrofone,
@@ -637,6 +638,9 @@ export function Inbox({
   const fileKindRef = useRef<"IMAGE" | "VIDEO" | "DOCUMENT">("IMAGE");
   // gravação de áudio (voz)
   const [recording, setRecording] = useState(false);
+  // meio segundo entre tocar no microfone e começar a gravar de fato: é o
+  // tempo que o ganho automático leva para achar o volume da voz
+  const [preparando, setPreparando] = useState(false);
   const [recSecs, setRecSecs] = useState(0);
   const recRef = useRef<MediaRecorder | null>(null);
   const recChunksRef = useRef<Blob[]>([]);
@@ -1913,8 +1917,11 @@ export function Inbox({
 
   // ---- Gravação de áudio (voz) ----
   async function startRecording() {
-    if (!selected) return;
+    if (!selected || recording || preparando) return;
     let microfoneAberto: MediaStream | null = null;
+    // zera o cancelamento ANTES de abrir o microfone: a espera de assentar
+    // olha esta bandeira para saber se a pessoa desistiu no meio
+    recCancelRef.current = false;
     try {
       // MICROFONE EM QUALIDADE DE GRAVAÇÃO, não de chamada. O cancelamento
       // de eco é feito para conversa ao vivo (com o alto-falante tocando a
@@ -1951,8 +1958,26 @@ export function Inbox({
       microfoneAberto = stream;
       // de onde o som está vindo DE VERDADE (a barra mostra durante a gravação)
       setMicNome(nomeCurtoDoMicrofone(stream.getAudioTracks()[0]?.label));
+
+      // DEIXA O MICROFONE ASSENTAR ANTES DE GRAVAR (26/08/2026: "no primeiro
+      // segundo tá estourado, depois fica bom").
+      //
+      // O ganho automático do navegador começa alto e leva um instante para
+      // encontrar o volume da voz — esse instante ia inteiro para dentro da
+      // gravação. Meio segundo de espera joga a subida do ganho FORA do
+      // arquivo, e é por isso que o resto do áudio sempre soou bom.
+      //
+      // A barra aparece na hora dizendo "Preparando…": a vendedora vê que o
+      // toque funcionou e sabe que ainda não é hora de falar.
+      setPreparando(true);
+      await new Promise((r) => setTimeout(r, MS_ASSENTAR_MICROFONE));
+      setPreparando(false);
+      // desistiu no meio da espera (fechou a conversa, tocou em cancelar)
+      if (recCancelRef.current) {
+        stream.getTracks().forEach((t) => t.stop());
+        return;
+      }
       recChunksRef.current = [];
-      recCancelRef.current = false;
       // Bitrate no PADRÃO do navegador de propósito: subir aqui engorda o
       // webm original, que é justamente o que vai quando o WAV não cabe no
       // envio — um áudio longo que passava começaria a ser recusado. O ganho
@@ -1962,6 +1987,7 @@ export function Inbox({
         if (ev.data.size > 0) recChunksRef.current.push(ev.data);
       };
       rec.onstop = async () => {
+        recRef.current = null; // não deixa um gravador morto para trás
         stream.getTracks().forEach((t) => t.stop());
         if (recTimerRef.current) clearInterval(recTimerRef.current);
         setRecording(false);
@@ -2004,6 +2030,7 @@ export function Inbox({
       // acha que o sistema está ouvindo. A mensagem também tem que dizer a
       // verdade: nem toda falha aqui é permissão negada.
       microfoneAberto?.getTracks().forEach((t) => t.stop());
+      setPreparando(false); // senão a barra ficava presa em "Preparando…"
       const semPermissao =
         e instanceof DOMException &&
         (e.name === "NotAllowedError" || e.name === "SecurityError");
@@ -2016,7 +2043,13 @@ export function Inbox({
   }
   function stopRecording(cancel: boolean) {
     recCancelRef.current = cancel;
-    recRef.current?.stop();
+    // DURANTE OS 500ms DE "PREPARANDO…" o gravador ainda nem existe. Chamar
+    // stop() num gravador já parado estoura InvalidStateError (o `recRef`
+    // guardava o gravador da vez anterior); e sem apagar o "Preparando…" a
+    // barra ficava meio segundo na tela parecendo que o toque não pegou.
+    // Quem desiste aqui é atendido pela bandeira, que a espera confere.
+    setPreparando(false);
+    if (recRef.current?.state === "recording") recRef.current.stop();
   }
 
   const applyTemplate = (body: string) => {
@@ -3580,7 +3613,25 @@ export function Inbox({
                 </button>
                 </div>
                 <div className="flex items-end gap-1.5 order-1 sm:order-none sm:flex-1 min-w-0">
-                {recording ? (
+                {preparando ? (
+                  /* meio segundo entre o toque e a gravação de verdade: a
+                     barra avisa que o sistema entendeu e que ainda não é
+                     hora de falar (é a subida do ganho do microfone) */
+                  <div className="flex-1 flex items-center gap-2 py-1.5">
+                    <span className="size-2.5 rounded-full bg-amber-400 animate-pulse shrink-0" />
+                    <span className="text-sm font-medium text-amber-600">
+                      Preparando o microfone…
+                    </span>
+                    <span className="flex-1" />
+                    <button
+                      onClick={() => stopRecording(true)}
+                      className="p-2 rounded-xl text-gray-400 hover:text-rose-600 transition shrink-0"
+                      title="Cancelar"
+                    >
+                      <Trash2 className="size-4.5" />
+                    </button>
+                  </div>
+                ) : recording ? (
                   <div className="flex-1 flex items-center gap-2 py-1.5">
                     <span className="size-2.5 rounded-full bg-rose-500 animate-pulse shrink-0" />
                     <span className="text-sm font-medium text-rose-600 tabular-nums">
