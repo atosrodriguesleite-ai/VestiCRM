@@ -153,6 +153,23 @@ describe("as portas da entrega", () => {
     expect(ler("src/lib/busca.ts")).toContain("casaTexto(cliente.waName, t)");
   });
 
+  it("o NOME da ficha é do vendedor: o formulário só preenche crachá provisório", () => {
+    const rota = ler("src/app/api/dados-envio/route.ts");
+    expect(rota).toContain("nomeProvisorio(cliente.name) ? d.nome : cliente.name");
+    expect(rota).toContain("name: nomeFinal");
+    // e quando ela se apresenta diferente, a loja fica sabendo sem perder o
+    // nome — comparando sem acento/maiúscula (alarme falso ensina a ignorar)
+    expect(rota).toContain("ela se apresentou como");
+    expect(rota).toContain("normalizarBusca(d.nome) !== normalizarBusca(cliente.name)");
+    // a página não entrega o crachá provisório pré-preenchido (a cliente
+    // pulava o campo e o telefone virava nome para sempre), e nome de gente
+    // vem TRAVADO no formulário (editar sem efeito enganaria a cliente)
+    const pagina = ler("src/app/dados/[token]/page.tsx");
+    expect(pagina).toContain("!nomeProvisorio(cliente.name)");
+    expect(pagina).toContain('nome: nomeDaLoja ? cliente.name : ""');
+    expect(ler("src/app/dados/[token]/formulario.tsx")).toContain("nomeBloqueado ?");
+  });
+
   it("razão social anda junto do CNPJ na edição (CNPJ apagado leva a razão junto)", () => {
     expect(ler("src/app/api/customers/[id]/route.ts")).toContain(
       "if (!cnpjFinal) data.legalName = null;"

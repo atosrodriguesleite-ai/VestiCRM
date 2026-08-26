@@ -325,7 +325,10 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   CEP puxando o endereço sozinho. O que a ficha já tem aparece para conferir,
   documento MASCARADO; o que ela mandar VALE (ela sabe onde mora), com
   registro na linha do tempo e aviso no sino da dona da carteira (sem dona,
-  gerência). O crachá do link é sorteado a cada clique e vence em 7 dias
+  gerência). **Exceção: o NOME da ficha é do VENDEDOR** — o nome digitado no
+  formulário só entra quando a ficha ainda tem o crachá provisório
+  (`nomeProvisorio`, mesma regra do intake); se diferir do nome da ficha, a
+  loja é avisada ("ela se apresentou como X") e o nome do vendedor fica. O crachá do link é sorteado a cada clique e vence em 7 dias
   (o link ESCREVE na ficha). **Completo não se marca na mão**: a régua é a
   MESMA da compra de etiqueta (`dadosDeEnvio`, fonte única) — ficha completa
   faz o botão avisar a vendedora antes de pedir de novo. O telefone NÃO está

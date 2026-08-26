@@ -38,11 +38,14 @@ export function FormularioDados({
   token,
   loja,
   completo,
+  nomeBloqueado,
   inicial,
 }: {
   token: string;
   loja: string;
   completo: boolean;
+  /** o nome da ficha é da LOJA (nome de gente): mostra, mas não edita */
+  nomeBloqueado: boolean;
   inicial: Inicial;
 }) {
   const [f, setF] = useState({
@@ -116,7 +119,8 @@ export function FormularioDados({
     if (f.tipo === "PJ" && !f.razaoSocial.trim())
       return setErro("Escreva a razão social (o nome da empresa na nota).");
     for (const [valor, nome] of [
-      [f.nome, "seu nome"], [f.cep, "o CEP"], [f.rua, "a rua"],
+      ...(nomeBloqueado ? [] : ([[f.nome, "seu nome"]] as const)),
+      [f.cep, "o CEP"], [f.rua, "a rua"],
       [f.numero, "o número"], [f.bairro, "o bairro"], [f.cidade, "a cidade"],
     ] as const)
       if (!valor.trim()) return setErro(`Falta preencher ${nome}.`);
@@ -183,11 +187,19 @@ export function FormularioDados({
         </header>
 
         <div className="rounded-2xl bg-white border border-gray-100 shadow-sm p-4 space-y-4">
-          <div>
-            <label className={rotulo}>Seu nome completo</label>
-            <input className={campo} value={f.nome} maxLength={120}
-              onChange={(e) => muda({ nome: e.target.value })} />
-          </div>
+          {nomeBloqueado ? (
+            <div className="flex items-center justify-between rounded-xl bg-gray-50 px-3.5 py-3">
+              <p className="text-sm text-gray-600">
+                Cadastro em nome de <span className="font-semibold">{inicial.nome}</span>
+              </p>
+            </div>
+          ) : (
+            <div>
+              <label className={rotulo}>Seu nome completo</label>
+              <input className={campo} value={f.nome} maxLength={120}
+                onChange={(e) => muda({ nome: e.target.value })} />
+            </div>
+          )}
 
           {/* PF ou PJ */}
           <div>
