@@ -678,10 +678,15 @@ export function Inbox({
   // descer de linha e a mensagem saía pela metade (pedido do dono,
   // 06/08/2026). No computador o Enter continua enviando (Shift+Enter
   // quebra linha). Detecção por tipo de tela (dedo × mouse), não por tamanho.
-  const [enterEnvia, setEnterEnvia] = useState(true);
+  //
+  // O MESMO sinal serve para a SELEÇÃO DE TEXTO das bolhas (ver abaixo), por
+  // isso ele mora numa variável com nome próprio em vez de escondido dentro
+  // do `enterEnvia`.
+  const [noComputador, setNoComputador] = useState(true);
   useEffect(() => {
-    setEnterEnvia(!window.matchMedia("(pointer: coarse)").matches);
+    setNoComputador(!window.matchMedia("(pointer: coarse)").matches);
   }, []);
+  const enterEnvia = noComputador;
 
   // campo de mensagem cresce conforme o texto (até ~7 linhas)
   useEffect(() => {
@@ -1358,7 +1363,16 @@ export function Inbox({
       if (s.el) s.el.style.transform = "";
       return;
     }
-    if (dx > 8 && s.el) s.el.style.transform = `translateX(${Math.min(dx, 64)}px)`;
+    if (dx > 8 && s.el) {
+      // NOTEBOOK COM TELA SENSÍVEL AO TOQUE: ali o ponteiro principal é o
+      // mouse, então o texto é selecionável (é o que o dono pediu) — mas o
+      // arrasto com o DEDO continua existindo, e o navegador começava a
+      // marcar texto no meio dele. Ao reconhecer o arrasto, a marcação é
+      // desfeita: o gesto é de responder, não de selecionar (achado da
+      // revisão).
+      window.getSelection?.()?.removeAllRanges();
+      s.el.style.transform = `translateX(${Math.min(dx, 64)}px)`;
+    }
     if (dx > 56) {
       s.disparou = true;
       if (s.el) s.el.style.transform = "";
@@ -2948,9 +2962,22 @@ export function Inbox({
                             }
                           : undefined
                       }
-                      className={`relative max-w-[80%] rounded-2xl px-3.5 py-2 text-sm shadow-sm transition-transform duration-100 ${
+                      className={`relative max-w-[80%] touch-pan-y rounded-2xl px-3.5 py-2 text-sm shadow-sm transition-transform duration-100 ${
                         mine
-                          ? "bg-brand-600 text-white rounded-br-md select-none"
+                          ? // SELECIONAR E COPIAR TAMBÉM O QUE A LOJA MANDOU
+                            // (pedido do dono, 26/08/2026). A bolha da loja
+                            // era a ÚNICA com `select-none`: veio junto do
+                            // "arrastar para responder", para o dedo não
+                            // começar a marcar texto no meio do arrasto. Só
+                            // que o arrasto é gesto de DEDO — no computador
+                            // não existe, e a trava ali só impedia a
+                            // vendedora de copiar a própria mensagem (o Pix
+                            // que ela mandou, o endereço, a medida da peça).
+                            // No celular a trava fica, e copiar continua indo
+                            // pelo "Copiar mensagem" do menu da bolha.
+                            `bg-brand-600 text-white rounded-br-md selection:bg-white/30 selection:text-white ${
+                              noComputador ? "select-text" : "select-none"
+                            }`
                           : "bg-white text-ink rounded-bl-md"
                       } ${m.revoked ? "opacity-90" : ""} ${
                         // a pastilha da reação fica PENDURADA na beirada de
