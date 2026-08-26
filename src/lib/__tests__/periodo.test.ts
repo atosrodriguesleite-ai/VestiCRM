@@ -134,8 +134,9 @@ describe("a tela e a exportação usam a mesma leitura", () => {
     const insights = ler("src/lib/tracking/insights.ts");
     expect(insights).not.toContain("out.slice(0, 12)");
     expect(insights).toContain("LIMITE_RECUPERACAO");
-    // e as sacolas vêm numa consulta só (uma por carrinho derrubaria a tela)
-    expect(insights).toContain("sessionId: { in: [...idsAbandonados] }");
+    // e a sacola vem GRAVADA no carrinho da esteira (nenhuma consulta por
+    // carrinho — uma por carrinho derrubaria a tela; decisão de 26/08/2026)
+    expect(insights).toContain("lerItens(cart.items)");
   });
 
   it("dá para abrir TODOS os carrinhos abandonados", () => {

@@ -129,7 +129,6 @@ export default async function DashboardPage({
     interests,
     ordersToday,
     ordersWeek,
-    ordersMonth,
     topItemsRaw,
     topBuyers,
     buyersAll,
@@ -202,11 +201,6 @@ export default async function DashboardPage({
     }),
     db.order.aggregate({
       where: { ...orderScope, paidAt: { gte: days7 } },
-      _count: true,
-      _sum: { netTotal: true },
-    }),
-    db.order.aggregate({
-      where: { ...orderScope, paidAt: inPeriod },
       _count: true,
       _sum: { netTotal: true },
     }),
@@ -339,9 +333,6 @@ export default async function DashboardPage({
     .slice(0, 6);
 
   const buyerName = new Map(buyerNames.map((b) => [b.id, b.name]));
-  const avgOrder = ordersMonth._count
-    ? (ordersMonth._sum.netTotal ?? 0) / ordersMonth._count
-    : 0;
   const repurchaseRate = buyersAll.length
     ? (buyersAll.filter((b) => b._count >= 2).length / buyersAll.length) * 100
     : 0;
@@ -405,14 +396,10 @@ export default async function DashboardPage({
   const nDias = Math.min(totalDias, TETO_DIAS_GRAFICO);
   const graficoCortado = totalDias > TETO_DIAS_GRAFICO;
   const serieFat = new Array<number>(nDias).fill(0);
-  const seriePed = new Array<number>(nDias).fill(0);
   for (const v of sales30) {
     if (!v.paidAt) continue;
     const i = dayIdx(v.paidAt) - firstIdx;
-    if (i >= 0 && i < nDias) {
-      serieFat[i] += v.netTotal;
-      seriePed[i] += 1;
-    }
+    if (i >= 0 && i < nDias) serieFat[i] += v.netTotal;
   }
   const prevFirstIdx = dayIdx(prevFrom);
   const seriePrev = new Array<number>(nDias).fill(0);
@@ -451,7 +438,6 @@ export default async function DashboardPage({
   const deltaVendas = pctDelta(revenue30, prevRevenue);
   const deltaTicket = pctDelta(ticket, prevTicket);
   const deltaConv = pctDelta(conversion, prevConversion);
-  const deltaPedidos = pctDelta(sales30.length, prevSales.length);
   const deltaLeads = pctDelta(newLeads30, prevLeads);
 
   // donut de status: na ordem do fluxo do pedido, com as cores oficiais
@@ -738,15 +724,10 @@ export default async function DashboardPage({
           icon={<ShoppingBag />}
           info="Pedidos pagos nos últimos 7 dias, com o valor somado."
         />
-        <StatCard
-          label={customPeriod ? "Pagos no período" : "Pagos (30d)"}
-          value={ordersMonth._count}
-          delta={deltaPedidos}
-          series={seriePed.length > 92 ? porSemana(seriePed) : seriePed}
-          hint={`valor médio ${brl(avgOrder)}`}
-          icon={<ShoppingBag />}
-          info="Pedidos pagos no período (padrão: últimos 30 dias corridos — não é o mês do calendário). O rodapé mostra o valor médio por pedido; a setinha compara com o período anterior."
-        />
+        {/* o cartão "Pagos no período" saiu de propósito (decisão do dono,
+            26/08/2026): era o MESMO número do rodapé de "Vendas" lá em cima,
+            e o "valor médio" repetia o cartão "Ticket médio" — número dito
+            duas vezes ocupa espaço e não informa */}
         <StatCard
           label="Taxa de recompra"
           value={repurchaseRate}

@@ -1,6 +1,6 @@
 import { db } from "../db";
 import { PAID_ORDER_STATUSES } from "../orders";
-import { sacolaDaFoto, sacolaDosEventos } from "../recuperacao";
+import { lerItens } from "../recuperacao";
 
 /**
  * API de leitura da Tracking Engine.
@@ -37,22 +37,19 @@ const r2 = (v: number) => Math.round(v * 100) / 100;
 const pct = (num: number, den: number) => (den > 0 ? (num / den) * 100 : 0);
 
 /**
- * CARRINHOS ABANDONADOS — a régua única (KPI e lista de recuperação).
+ * SESSÃO RESOLVIDA — a cliente já decidiu, ninguém mais a cutuca.
  *
- * Auditoria 06/08/2026: o cartão contava POR SESSÃO (a mesma cliente que
- * voltou no dia seguinte contava 2× e a sacola somava em dobro) enquanto a
- * lista logo abaixo deduplicava por visitante — "2 carrinhos / R$ 1.050" em
- * cima e 1 oportunidade de R$ 550 embaixo. Regra única: 1 visitante = 1
- * carrinho (a sessão mais RECENTE dele), e só sacola com valor (> 0).
+ * (Carrinhos abandonados hoje vêm INTEIROS da esteira de Recuperação —
+ * `AbandonedCart`, lib/recuperacao.ts — que aplica essa mesma regra na
+ * criação; estas funções seguem guardando o "quase comprando".)
  *
- * Auditoria 24/08/2026: "abandonou" não pode incluir quem JÁ COMPROU. A
+ * Auditoria 24/08/2026: "não decidiu" não pode incluir quem JÁ COMPROU. A
  * sessão em si não converteu, mas a cliente voltou no dia seguinte e enviou o
  * pedido (outra sessão), ou fechou pelo WhatsApp (pedido PAGO sem sessão
- * nenhuma) — e a lista mandava a loja cobrar uma sacola já vendida. Mensagem
- * de "você esqueceu suas peças" para quem acabou de pagar queima a confiança.
- * A sacola só é abandono se NADA depois dela resolveu: nem conversão do
- * mesmo visitante, nem pedido pago da cliente identificada. Compra ANTERIOR
- * à sessão não resolve — sacola nova depois de comprar é desejo novo.
+ * nenhuma) — e a lista mandava a loja cutucar quem tinha acabado de pagar.
+ * Só conta se NADA depois da sessão resolveu: nem conversão do mesmo
+ * visitante, nem pedido pago da cliente identificada. Compra ANTERIOR à
+ * sessão não resolve — navegação nova depois de comprar é desejo novo.
  */
 export function conversoesPorVisitante(
   sessions: { visitorId: string; converted: boolean; startedAt: Date }[]
@@ -79,41 +76,6 @@ export function sessaoResolvida(
   return false;
 }
 
-export function carrinhosAbandonados<
-  S extends {
-    visitorId: string;
-    customerId?: string | null;
-    converted: boolean;
-    cartAdds: number;
-    cartValue: number;
-    startedAt: Date;
-  },
->(
-  sessions: S[],
-  comprasPagas: Map<string, Date[]> = new Map(),
-  // conversões vindas do banco SEM o teto do período: olhando "julho
-  // fechado", a visitante anônima que abandonou dia 30/07 e enviou o pedido
-  // dia 02/08 já decidiu — só as sessões do período não enxergam isso
-  conversoes: Map<string, Date[]> = conversoesPorVisitante(sessions)
-): S[] {
-  const vistos = new Set<string>();
-  const out: S[] = [];
-  for (const s of [...sessions].sort(
-    (a, b) => b.startedAt.getTime() - a.startedAt.getTime()
-  )) {
-    if (
-      !s.converted &&
-      s.cartAdds > 0 &&
-      s.cartValue > 0 &&
-      !sessaoResolvida(s, conversoes, comprasPagas) &&
-      !vistos.has(s.visitorId)
-    ) {
-      vistos.add(s.visitorId);
-      out.push(s);
-    }
-  }
-  return out;
-}
 
 /**
  * Datas dos pedidos PAGOS das clientes identificadas nas sessões — é o que
@@ -211,12 +173,82 @@ async function loadEvents(companyId: string, p: Period) {
   });
 }
 
+/**
+ * Os carrinhos ABERTOS da esteira que ainda merecem cutucada — a régua única
+ * do KPI e da lista de recuperação (fonte: AbandonedCart, tela Recuperação).
+ *
+ * Fica de fora quem JÁ PEDIU depois do abandono (revisão de 26/08/2026):
+ *  • cliente identificada com pedido NÃO-CANCELADO criado depois da sacola
+ *    (por qualquer porta — catálogo, WhatsApp, manual); pedido pago a
+ *    esteira fecha sozinha (marcarRecuperados), e o enviado-sem-pagar fica
+ *    na fila de trabalho da tela Recuperação, mas a Inteligência não pode
+ *    mandar "recupere com uma mensagem" para quem acabou de pedir;
+ *  • visitante ANÔNIMA cuja mesma pessoa (visitor) converteu em outra
+ *    sessão depois do abandono — o pedido dela não tem cliente para casar,
+ *    mas a navegação sabe que é a mesma pessoa.
+ */
+async function carrinhosAbertosDaEsteira(companyId: string, p: Period) {
+  const carrinhos = await db.abandonedCart.findMany({
+    where: {
+      companyId,
+      status: { in: ["NOVO", "CHAMADA"] },
+      abandonedAt: { gte: p.from, lte: p.to },
+    },
+    orderBy: { abandonedAt: "desc" },
+  });
+  if (carrinhos.length === 0) return carrinhos;
+  const clienteIds = [
+    ...new Set(carrinhos.map((c) => c.customerId).filter((v): v is string => !!v)),
+  ];
+  const sessaoIds = [
+    ...new Set(carrinhos.map((c) => c.trackSessionId).filter((v): v is string => !!v)),
+  ];
+  const [pedidosDepois, sessoesDosCarrinhos] = await Promise.all([
+    clienteIds.length
+      ? db.order.findMany({
+          where: {
+            companyId,
+            customerId: { in: clienteIds },
+            status: { not: "CANCELADO" },
+          },
+          select: { customerId: true, createdAt: true },
+        })
+      : [],
+    sessaoIds.length
+      ? db.trackSession.findMany({
+          where: { id: { in: sessaoIds } },
+          select: { id: true, visitorId: true },
+        })
+      : [],
+  ]);
+  const visitanteDaSessao = new Map(sessoesDosCarrinhos.map((s) => [s.id, s.visitorId]));
+  const conversoes = await conversoesDosVisitantes(
+    companyId,
+    sessoesDosCarrinhos.map((s) => s.visitorId),
+    p.from
+  );
+  const resolvido = (c: (typeof carrinhos)[number]) => {
+    if (
+      c.customerId &&
+      pedidosDepois.some((o) => o.customerId === c.customerId && o.createdAt > c.abandonedAt)
+    ) {
+      return true;
+    }
+    const visitante = c.trackSessionId ? visitanteDaSessao.get(c.trackSessionId) : undefined;
+    if (visitante && (conversoes.get(visitante) ?? []).some((d) => d > c.abandonedAt)) {
+      return true;
+    }
+    return false;
+  };
+  return carrinhos.filter((c) => !resolvido(c));
+}
+
 // ---- Visão geral ------------------------------------------------------------
 
 export async function overview(companyId: string, p: Period) {
   // Venda = pedido PAGO (fonte única, cobre Nuvemshop e integrações — o
   // modelo Sale só nasce no fluxo manual e subcontava as vendas integradas)
-  const [sessions, sales, newCustomers] = await Promise.all([
+  const [sessions, sales, newCustomers, carrinhosDaEsteira] = await Promise.all([
     loadSessions(companyId, p),
     db.order.findMany({
       where: {
@@ -229,6 +261,13 @@ export async function overview(companyId: string, p: Period) {
     db.customer.count({
       where: { companyId, createdAt: { gte: p.from, lte: p.to } },
     }),
+    // CARRINHOS ABANDONADOS: direto da ESTEIRA da tela Recuperação
+    // (AbandonedCart) — uma fonte só, decisão do dono em 26/08/2026. A conta
+    // própria daqui divergia da esteira (que sabe quem já foi chamada e quem
+    // recuperou) e as duas telas mostravam números diferentes. NOVO/CHAMADA
+    // = dinheiro ainda parado (recuperado/perdido não é mais); inclui os
+    // checkouts abandonados da Nuvemshop, como lá.
+    carrinhosAbertosDaEsteira(companyId, p),
   ]);
 
   const visitors = new Set(sessions.map((s) => s.visitorId));
@@ -241,14 +280,6 @@ export async function overview(companyId: string, p: Period) {
   // soma REAL (o "tempo total" era reconstruído por média×sessões, com erro)
   const totalSessionSeconds = Math.round(durations.reduce((a, b) => a + b, 0));
   const converted = sessions.filter((s) => s.converted);
-  // mesma régua da lista de recuperação: 1 visitante = 1 carrinho, com valor,
-  // e quem já comprou (aqui, depois do período, ou pelo WhatsApp) não é abandono
-  const naoConvertidas = sessions.filter((s) => !s.converted);
-  const [comprasPagas, conversoes] = await Promise.all([
-    comprasPagasDosClientes(companyId, naoConvertidas.map((s) => s.customerId), p.from),
-    conversoesDosVisitantes(companyId, naoConvertidas.map((s) => s.visitorId), p.from),
-  ]);
-  const abandoned = carrinhosAbandonados(sessions, comprasPagas, conversoes);
   const revenue = sales.reduce((a, s) => a + s.netTotal, 0);
   const buyers = await db.order.groupBy({
     by: ["customerId"],
@@ -271,8 +302,8 @@ export async function overview(companyId: string, p: Period) {
     totalSessionSeconds,
     ordersFromCatalog: converted.length,
     conversionRate: r2(pct(converted.length, sessions.length)),
-    abandonedCarts: abandoned.length,
-    abandonedValue: r2(abandoned.reduce((a, s) => a + s.cartValue, 0)),
+    abandonedCarts: carrinhosDaEsteira.length,
+    abandonedValue: r2(carrinhosDaEsteira.reduce((a, c) => a + c.value, 0)),
     revenue: r2(revenue),
     salesCount: sales.length,
     avgTicket: sales.length ? r2(revenue / sales.length) : 0,
@@ -743,35 +774,28 @@ export async function recovery(companyId: string, p: Period) {
   });
   const byId = new Map(customers.map((c) => [c.id, c]));
 
-  // A MESMA RÉGUA do KPI (carrinhosAbandonados): 1 visitante = 1 carrinho e
-  // quem já comprou não é abandono — a lista chegou a mandar a loja cobrar
-  // cliente que tinha acabado de pagar pelo WhatsApp (auditoria 24/08/2026).
-  const naoConvertidas = sessions.filter((s) => !s.converted);
-  const [comprasPagas, conversoes] = await Promise.all([
-    comprasPagasDosClientes(companyId, naoConvertidas.map((s) => s.customerId), p.from),
-    conversoesDosVisitantes(companyId, naoConvertidas.map((s) => s.visitorId), p.from),
+  // CARRINHOS ABANDONADOS: direto da ESTEIRA da tela Recuperação
+  // (AbandonedCart), mesma fonte do KPI — uma verdade só (decisão do dono,
+  // 26/08/2026). A esteira já sabe quem comprou depois (fecha sozinha como
+  // RECUPERADO), quem a loja marcou como perdido e quem JÁ FOI CHAMADA —
+  // informação que a conta própria daqui não tinha, e que evita a segunda
+  // mensagem para a mesma cliente. A sacola gravada no carrinho é a mesma
+  // que a tela Recuperação mostra (foto do evento na criação).
+  const [todosOsCarrinhos, comprasPagas, conversoes] = await Promise.all([
+    carrinhosAbertosDaEsteira(companyId, p),
+    // os dois mapas abaixo seguem necessários para o "quase comprando":
+    // quem depois converteu (ou comprou por outra porta) já decidiu
+    comprasPagasDosClientes(
+      companyId,
+      sessions.filter((s) => !s.converted).map((s) => s.customerId),
+      p.from
+    ),
+    conversoesDosVisitantes(
+      companyId,
+      sessions.filter((s) => !s.converted).map((s) => s.visitorId),
+      p.from
+    ),
   ]);
-  const abandonadas = carrinhosAbandonados(sessions, comprasPagas, conversoes);
-  const idsAbandonados = new Set(abandonadas.map((s) => s.id));
-
-  // AS SACOLAS EM UMA CONSULTA SÓ. Antes era uma consulta por carrinho, dentro
-  // do laço: com 12 itens passava, com 300 derrubaria a tela.
-  const eventosDasSacolas = idsAbandonados.size
-    ? await db.trackEvent.findMany({
-        where: {
-          sessionId: { in: [...idsAbandonados] },
-          type: { in: ["cart_add", "cart_remove"] },
-        },
-        orderBy: { createdAt: "asc" },
-      })
-    : [];
-  const eventosPorSessao = new Map<string, typeof eventosDasSacolas>();
-  for (const e of eventosDasSacolas) {
-    if (!e.sessionId) continue;
-    const lista = eventosPorSessao.get(e.sessionId) ?? [];
-    lista.push(e);
-    eventosPorSessao.set(e.sessionId, lista);
-  }
   const out: {
     kind: string;
     title: string;
@@ -782,34 +806,33 @@ export async function recovery(companyId: string, p: Period) {
     value?: number;
   }[] = [];
 
+  const carrinhos = todosOsCarrinhos.slice(0, LIMITE_RECUPERACAO);
+  for (const cart of carrinhos) {
+    const customer = cart.customerId ? byId.get(cart.customerId) : null;
+    const itens = lerItens(cart.items);
+    const items = itens.map((i) =>
+      [`${i.qty}× ${i.name}`, i.color, i.size].filter(Boolean).join(" · ")
+    );
+    const quando = cart.abandonedAt.toLocaleDateString("pt-BR", {
+      timeZone: "America/Sao_Paulo",
+    });
+    const origem = cart.source === "NUVEMSHOP" ? " na Nuvemshop" : "";
+    // "já chamada" (pela vendedora ou pela mensagem automática) muda o
+    // conselho: mandar a SEGUNDA mensagem é o que queima a loja
+    const jaChamada = cart.status === "CHAMADA";
+    out.push({
+      kind: "carrinho-abandonado",
+      title: `${customer?.name ?? "Visitante"} abandonou ${fmtBrl(cart.value)} na sacola`,
+      detail: `Sacola de ${quando}${origem}. ${jaChamada ? "Já chamada — acompanhe pela tela Recuperação." : "Recupere com uma mensagem."}`,
+      customerId: cart.customerId ?? undefined,
+      customerPhone: customer?.phone || undefined,
+      items: items.length ? items : undefined,
+      value: cart.value,
+    });
+  }
+
   const seen = new Set<string>();
   for (const s of sessions) {
-    if (idsAbandonados.has(s.id)) {
-      const customer = s.customerId ? byId.get(s.customerId) : null;
-      const name = customer?.name ?? null;
-      // a sacola como a esteira de Recuperação lê (fonte única em
-      // lib/recuperacao.ts): 1º a FOTO gravada no evento (estado real, com
-      // quantidade e variante certas); sessão antiga sem foto cai na
-      // reconstrução por eventos, com a peneira do tamanho composto ("P,M"
-      // é a grade inteira, não uma variante). A remontagem antiga daqui
-      // errava quantidade e mostrava sacola diferente da tela Recuperação.
-      const evs = eventosPorSessao.get(s.id) ?? [];
-      const ultimaFoto = [...evs].reverse().map((e) => sacolaDaFoto(e.meta)).find(Boolean);
-      const itensDaSacola =
-        ultimaFoto ?? sacolaDosEventos(evs).filter((i) => !i.size?.includes(","));
-      const items = itensDaSacola.map((i) =>
-        [`${i.qty}× ${i.name}`, i.color, i.size].filter(Boolean).join(" · ")
-      );
-      out.push({
-        kind: "carrinho-abandonado",
-        title: `${name ?? "Visitante"} abandonou ${fmtBrl(s.cartValue)} na sacola`,
-        detail: `Sessão de ${s.startedAt.toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo" })} via ${s.channel}. Recupere com uma mensagem.`,
-        customerId: s.customerId ?? undefined,
-        customerPhone: customer?.phone || undefined,
-        items: items.length ? items : undefined,
-        value: s.cartValue,
-      });
-    }
     if (
       !s.converted && s.productsViewed >= 3 && s.cartAdds === 0 &&
       // quem depois converteu (ou comprou pelo WhatsApp) DECIDIU — o

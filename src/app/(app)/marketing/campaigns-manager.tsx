@@ -2,8 +2,9 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Plus, Target, Trash2, Power, Megaphone, Link2, ExternalLink } from "lucide-react";
+import { Plus, Target, Trash2, Power, Megaphone, Link2, ExternalLink, Wallet } from "lucide-react";
 import { Button, Card, Field, inputCls, EmptyState, Badge } from "@/components/ui";
+import { numeroBR } from "@/lib/numero-br";
 
 export type Campanha = {
   id: string;
@@ -12,6 +13,7 @@ export type Campanha = {
   utmKey: string;
   active: boolean;
   adRefs: string | null; // anúncios desta campanha (links/códigos, um por linha)
+  investment: number; // quanto a loja investiu no total (R$)
   leads: number;
 };
 
@@ -69,6 +71,8 @@ export function CampaignsManager({
   const [busyRef, setBusyRef] = useState<string | null>(null);
   const [abrirRefs, setAbrirRefs] = useState<string | null>(null);
   const [refsDraft, setRefsDraft] = useState<Record<string, string>>({});
+  const [abrirInvest, setAbrirInvest] = useState<string | null>(null);
+  const [investDraft, setInvestDraft] = useState<Record<string, string>>({});
 
   async function create(e: React.FormEvent) {
     e.preventDefault();
@@ -142,6 +146,29 @@ export function CampaignsManager({
       alert(data.error ?? "Não foi possível salvar os anúncios.");
       return; // mantém a caixa aberta com o texto digitado, para corrigir
     }
+    router.refresh();
+  }
+
+  /** Salva o investimento total da campanha ("1.500,00" é 1500, não 1,50). */
+  async function salvarInvestimento(c: Campanha, valor: string) {
+    const n = valor.trim() === "" ? 0 : numeroBR(valor);
+    if (n == null || n < 0) {
+      alert("Valor inválido. Escreva como no exemplo: 1.500,00");
+      return;
+    }
+    setBusyId(c.id);
+    const res = await fetch(`/api/marketing/campaigns/${c.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ investment: n }),
+    });
+    setBusyId(null);
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      alert(data.error ?? "Não foi possível salvar o investimento.");
+      return;
+    }
+    setAbrirInvest(null);
     router.refresh();
   }
 
@@ -245,6 +272,14 @@ export function CampaignsManager({
                           {refsCount(c) === 1 ? "anúncio" : "anúncios"}
                         </>
                       )}
+                      {c.investment > 0 && (
+                        <>
+                          {" · investiu "}
+                          <b className="text-slate-700 tabular-nums">
+                            {c.investment.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
+                          </b>
+                        </>
+                      )}
                     </p>
                   </div>
                   <div className="flex shrink-0 items-center gap-1.5">
@@ -259,6 +294,25 @@ export function CampaignsManager({
                     >
                       <Megaphone className="size-3.5" />
                       Anúncios
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setAbrirInvest(abrirInvest === c.id ? null : c.id);
+                        setInvestDraft((p) => ({
+                          ...p,
+                          [c.id]:
+                            p[c.id] ??
+                            (c.investment > 0
+                              ? c.investment.toLocaleString("pt-BR", { minimumFractionDigits: 2 })
+                              : ""),
+                        }));
+                      }}
+                      title="Quanto você investiu nesta campanha"
+                      className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-500 hover:border-brand-300 hover:text-brand-700"
+                    >
+                      <Wallet className="size-3.5" />
+                      Investimento
                     </button>
                     <button
                       type="button"
@@ -285,6 +339,42 @@ export function CampaignsManager({
                     </button>
                   </div>
                 </div>
+
+                {abrirInvest === c.id && (
+                  <div className="mt-3 rounded-xl bg-slate-50 p-3">
+                    <p className="mb-1.5 text-[11px] font-semibold text-slate-600">
+                      Quanto você investiu nesta campanha (total, em R$)
+                    </p>
+                    <p className="mb-2 text-[11px] leading-snug text-slate-500">
+                      Some tudo o que gastou nos anúncios dela (impulsionamentos,
+                      Gerenciador de Anúncios…). Com esse número, o ranking mostra o
+                      <b> retorno por R$ 1 investido</b>. Atualize quando investir mais.
+                    </p>
+                    <input
+                      value={investDraft[c.id] ?? ""}
+                      onChange={(e) => setInvestDraft((p) => ({ ...p, [c.id]: e.target.value }))}
+                      inputMode="decimal"
+                      placeholder="1.500,00"
+                      className={inputCls}
+                    />
+                    <div className="mt-2 flex justify-end gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setAbrirInvest(null)}
+                        className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-500"
+                      >
+                        Fechar
+                      </button>
+                      <Button
+                        type="button"
+                        disabled={busyId === c.id}
+                        onClick={() => salvarInvestimento(c, investDraft[c.id] ?? "")}
+                      >
+                        {busyId === c.id ? "Salvando…" : "Salvar investimento"}
+                      </Button>
+                    </div>
+                  </div>
+                )}
 
                 {abrirRefs === c.id && (
                   <div className="mt-3 rounded-xl bg-slate-50 p-3">
