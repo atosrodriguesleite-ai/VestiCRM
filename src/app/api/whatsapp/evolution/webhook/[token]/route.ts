@@ -118,6 +118,52 @@ async function aplicarReacao(
   return true;
 }
 
+/**
+ * A CLIENTE APAGOU UMA MENSAGEM — marca como apagada E ACORDA O SYNC.
+ *
+ * O aviso chega por DOIS caminhos (o `protocolMessage REVOKE` dentro de
+ * `messages.upsert` e o evento `messages.delete`), e os dois marcavam só a
+ * mensagem. O sync da inbox (3 em 3s) entrega apenas conversas cujo
+ * `updatedAt` mudou — então quem estava com a TELA ABERTA nunca ficava
+ * sabendo: a vendedora seguia vendo a mensagem como se nada tivesse
+ * acontecido, enquanto quem abria a tela depois (carga completa) via o
+ * "Cliente apagou esta mensagem". Incidente real de 26/08/2026 — e o mesmo
+ * buraco já tinha mordido a edição e a reação.
+ *
+ * QUEM APAGOU vem da PRÓPRIA mensagem, não do aviso: no WhatsApp só o autor
+ * apaga "para todos", então mensagem da cliente (IN) = a cliente apagou, e
+ * mensagem da loja (OUT) = a loja apagou (pelo celular, por exemplo — o eco
+ * volta por este mesmo webhook). Marcar tudo como "CUSTOMER" fazia a bolha
+ * dizer "Cliente apagou esta mensagem" numa mensagem que a PRÓPRIA loja
+ * apagou — e o eco ainda sobrescrevia o "STORE" gravado pelo apagar de
+ * dentro do sistema (achado da revisão). Mensagem já marcada não é mexida.
+ *
+ * Devolve quantas mensagens casaram (o `messages.delete` loga isso).
+ */
+async function marcarApagadaPelaCliente(
+  companyId: string,
+  alvoId: string
+): Promise<number> {
+  const [daCliente, daLoja] = await Promise.all([
+    db.message.updateMany({
+      where: { externalId: alvoId, conversation: { companyId }, direction: "IN", revoked: false },
+      data: { revoked: true, revokedBy: "CUSTOMER" },
+    }),
+    db.message.updateMany({
+      where: { externalId: alvoId, conversation: { companyId }, direction: "OUT", revoked: false },
+      data: { revoked: true, revokedBy: "STORE" },
+    }),
+  ]);
+  const total = daCliente.count + daLoja.count;
+  if (total > 0) {
+    await db.conversation.updateMany({
+      where: { companyId, messages: { some: { externalId: alvoId } } },
+      data: { updatedAt: new Date() },
+    });
+  }
+  return total;
+}
+
 // senderPn: quando o WhatsApp manda o contato com a identidade nova (@lid),
 // o número de telefone REAL vem neste campo — sem ele a mensagem se perderia
 type EvoKey = { remoteJid?: string; fromMe?: boolean; id?: string; senderPn?: string };
@@ -333,10 +379,7 @@ export async function POST(
         // "apagada pelo cliente" mas MANTÉM o conteúdo (a loja ainda lê)
         const proto = m.message?.protocolMessage;
         if (proto?.type === "REVOKE" && proto.key?.id) {
-          await db.message.updateMany({
-            where: { externalId: proto.key.id, conversation: { companyId } },
-            data: { revoked: true, revokedBy: "CUSTOMER" },
-          });
+          await marcarApagadaPelaCliente(companyId, proto.key.id);
           continue;
         }
 
@@ -877,11 +920,7 @@ export async function POST(
       for (const d of list) {
         const msgId = d?.key?.id ?? d?.id ?? d?.keyId;
         if (!msgId) continue;
-        const r = await db.message.updateMany({
-          where: { externalId: msgId, conversation: { companyId } },
-          data: { revoked: true, revokedBy: "CUSTOMER" },
-        });
-        matched += r.count;
+        matched += await marcarApagadaPelaCliente(companyId, msgId);
       }
       // diagnóstico (aparece na Central de Comunicação): confirma que o evento
       // chegou e se casou com alguma mensagem
