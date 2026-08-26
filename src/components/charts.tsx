@@ -13,7 +13,6 @@ export const ORDINAL_RAMP = [
   "#3a2a1e",
 ];
 
-import Link from "next/link";
 import { InfoTip } from "./info-tip";
 
 export function StatTile({
@@ -463,133 +462,12 @@ export function Donut({
 }
 
 /**
- * Atalhos de período (Hoje · 7 dias · 30 dias · Este mês · Mês passado):
- * links que preenchem ?de=&ate= no fuso de São Paulo. `allLabel` adiciona
- * um chip "sem filtro" (usado na Produção, cujo padrão é o histórico todo);
- * sem `allLabel`, o chip "30 dias" vira o padrão (link limpo).
+ * Atalhos de período (Hoje · 7 dias · 30 dias · Este mês · Mês passado) +
+ * período personalizado De/Até.
  *
- * Vem junto o PERÍODO PERSONALIZADO (De/Até). Os atalhos resolvem o dia a
- * dia, mas não a pergunta que a lojista faz de verdade: "quanto vendi na
- * Black Friday?", "como foi a semana da campanha do Dia das Mães?".
- *
- * `extra` guarda os outros filtros da tela (ex.: o canal no Marketing) para
- * que trocar o período não jogue fora o que ela já tinha escolhido.
+ * Mora em `period-chips.tsx` porque precisa RODAR NO NAVEGADOR: trocar o
+ * período é navegação para a mesma tela, e sem um aviso de "estou indo
+ * buscar" a tela parecia travada (ver o comentário grande de lá). Este
+ * arquivo continua sendo o endereço conhecido do componente.
  */
-export function PeriodChips({
-  pathname,
-  de,
-  ate,
-  allLabel,
-  extra,
-}: {
-  pathname: string;
-  de?: string;
-  ate?: string;
-  allLabel?: string;
-  extra?: Record<string, string | undefined>;
-}) {
-  const SP_OFFSET = 3 * 60 * 60 * 1000;
-  const DAY = 86_400_000;
-  const agora = new Date(Date.now() - SP_OFFSET); // getters UTC = calendário SP
-  const iso = (d: Date) => d.toISOString().slice(0, 10);
-  const hoje = iso(agora);
-  const atras = (dias: number) => iso(new Date(agora.getTime() - dias * DAY));
-  const inicioMes = iso(new Date(Date.UTC(agora.getUTCFullYear(), agora.getUTCMonth(), 1)));
-  const inicioMesPassado = iso(
-    new Date(Date.UTC(agora.getUTCFullYear(), agora.getUTCMonth() - 1, 1))
-  );
-  const fimMesPassado = iso(new Date(Date.UTC(agora.getUTCFullYear(), agora.getUTCMonth(), 0)));
-
-  const chips: { label: string; de?: string; ate?: string; padrao?: boolean }[] = [
-    ...(allLabel ? [{ label: allLabel, padrao: true }] : []),
-    { label: "Hoje", de: hoje, ate: hoje },
-    { label: "7 dias", de: atras(6), ate: hoje },
-    { label: "30 dias", de: atras(29), ate: hoje, padrao: !allLabel },
-    { label: "Este mês", de: inicioMes, ate: hoje },
-    { label: "Mês passado", de: inicioMesPassado, ate: fimMesPassado },
-  ];
-
-  // outros filtros da tela viajam junto (senão trocar o período os apagava)
-  const outros = Object.entries(extra ?? {})
-    .filter(([, v]) => v)
-    .map(([k, v]) => `${k}=${encodeURIComponent(v!)}`);
-  const comOutros = (params: string[]) => {
-    const todos = [...params, ...outros];
-    return todos.length ? `${pathname}?${todos.join("&")}` : pathname;
-  };
-  // um atalho está marcado? se não, e há datas, o período é personalizado
-  const algumAtalho = chips.some(
-    (c) => (Boolean(c.padrao) && !de && !ate) || (Boolean(c.de) && c.de === de && c.ate === ate)
-  );
-  const personalizado = !algumAtalho && Boolean(de || ate);
-
-  return (
-    <div className="flex flex-col gap-2">
-    <div className="flex items-center gap-1.5 flex-wrap">
-      {chips.map((c) => {
-        const ativo =
-          (Boolean(c.padrao) && !de && !ate) ||
-          (Boolean(c.de) && c.de === de && c.ate === ate);
-        const href =
-          c.padrao || !c.de ? comOutros([]) : comOutros([`de=${c.de}`, `ate=${c.ate}`]);
-        return (
-          <Link
-            key={c.label}
-            href={href}
-            className={`rounded-full px-3 py-1.5 text-xs font-medium border transition ${
-              ativo
-                ? "bg-brand-600 border-brand-600 text-white shadow-sm"
-                : "bg-white border-gray-200 text-gray-500 hover:border-brand-300 hover:text-brand-700"
-            }`}
-          >
-            {c.label}
-          </Link>
-        );
-      })}
-      {personalizado && (
-        <span className="rounded-full px-3 py-1.5 text-xs font-medium border bg-brand-600 border-brand-600 text-white shadow-sm">
-          Personalizado
-        </span>
-      )}
-    </div>
-
-    {/* PERÍODO PERSONALIZADO: a lojista escolhe o começo e o fim */}
-    <form method="GET" action={pathname} className="flex flex-wrap items-end gap-2">
-      {Object.entries(extra ?? {})
-        .filter(([, v]) => v)
-        .map(([k, v]) => (
-          <input key={k} type="hidden" name={k} value={v} />
-        ))}
-      <label className="text-[11px] font-semibold text-gray-500">
-        De
-        <input
-          type="date"
-          name="de"
-          defaultValue={de ?? ""}
-          className="block rounded-xl border border-gray-200 px-3 py-1.5 text-sm bg-white font-normal text-gray-700"
-        />
-      </label>
-      <label className="text-[11px] font-semibold text-gray-500">
-        Até
-        <input
-          type="date"
-          name="ate"
-          defaultValue={ate ?? ""}
-          className="block rounded-xl border border-gray-200 px-3 py-1.5 text-sm bg-white font-normal text-gray-700"
-        />
-      </label>
-      <button className="rounded-xl bg-gray-900 hover:bg-gray-700 text-white text-xs font-semibold px-3.5 py-2 transition">
-        Filtrar
-      </button>
-      {(de || ate) && (
-        <Link
-          href={comOutros([])}
-          className="text-xs font-medium text-gray-400 hover:text-gray-600 px-1 py-2"
-        >
-          Limpar
-        </Link>
-      )}
-    </form>
-    </div>
-  );
-}
+export { PeriodChips } from "./period-chips";

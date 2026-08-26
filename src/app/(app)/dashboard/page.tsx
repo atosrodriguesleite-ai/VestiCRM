@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import Link from "next/link";
 import {
   Wallet,
@@ -9,8 +10,6 @@ import {
   CalendarClock,
   Trophy,
   Shirt,
-  Zap,
-  ChevronRight,
   ShoppingBag,
   Repeat,
   Package,
@@ -21,7 +20,6 @@ import { requireUser } from "@/lib/auth";
 import { maybeSyncNuvemshop } from "@/lib/nuvemshop";
 import { db } from "@/lib/db";
 import { ownedScope, taskScope, canSeeAll, isSuperAdmin } from "@/lib/scope";
-import { computeAutomations } from "@/lib/automations";
 import {
   brl,
   daysSince,
@@ -41,8 +39,8 @@ import { BarList, AreaCompare, Donut, PeriodChips } from "@/components/charts";
 import { StatCard } from "@/components/dash";
 import { InfoTip } from "@/components/info-tip";
 import { PrimeirosPassos, type Passo } from "./primeiros-passos";
-import { QuemChamarHoje, type ChamadaDoDia } from "./quem-chamar-hoje";
-import { montarMensagem, tipoDaRegra, CAMPO_DA_CHAMADA } from "@/lib/mensagens-chamada";
+import { ChamadasDoDia, ChamadasDoDiaEsqueleto } from "./chamadas-do-dia";
+import { computeAutomations } from "@/lib/automations";
 
 export const dynamic = "force-dynamic";
 
@@ -103,6 +101,18 @@ export default async function DashboardPage({
   // pedidos gerados (qualquer status) — denominador da conversão em pagamento
   const orderAnyScope = saleScope;
 
+  // MOTOR DE SUGESTÕES ("quem chamar hoje"): começa AGORA, junto com as
+  // consultas abaixo, mas quem espera por ele é o bloco em Suspense lá no
+  // fim. É o mais demorado da tela e o único que não depende do filtro de
+  // data — assim ele não segura os números do período, e mesmo assim não
+  // atrasa: trabalha em paralelo.
+  //
+  // O `.catch` vazio serve só para o Node não reclamar de "promessa rejeitada
+  // sem ninguém olhando" enquanto ninguém deu `await`. O erro continua
+  // valendo: ele estoura no `await` de quem realmente usa o resultado.
+  const sugestoes = computeAutomations(user);
+  sugestoes.catch(() => {});
+
   // Todas as consultas independentes vão juntas ao banco (uma rodada só) —
   // é o que deixa o dashboard rápido de abrir.
   const [
@@ -117,7 +127,6 @@ export default async function DashboardPage({
     nextTasks,
     sellers,
     interests,
-    suggestions,
     ordersToday,
     ordersWeek,
     ordersMonth,
@@ -185,7 +194,6 @@ export default async function DashboardPage({
       where: { companyId: user.companyId },
       include: { _count: { select: { customers: true } } },
     }),
-    computeAutomations(user),
     // --- Pedidos (módulo catálogo) ---
     db.order.aggregate({
       where: { ...orderScope, paidAt: { gte: startOfDay } },
@@ -285,20 +293,15 @@ export default async function DashboardPage({
 
   // SEGUNDA RODADA DE CONSULTAS — velocidade, 20/08/2026.
   //
-  // Estas seis consultas estavam espalhadas pelo resto da função, cada uma
+  // Estas consultas estavam espalhadas pelo resto da função, cada uma
   // esperando a anterior: nomes atuais das peças, nomes das compradoras,
-  // tarefas vencidas, peças com estoque baixo, fichas de quem chamar hoje e
-  // os textos das mensagens. Só as três primeiras dependiam de algo (do
-  // resultado da rodada lá de cima, que já terminou) — as outras não
-  // dependiam de nada e mesmo assim ficavam na fila. Agora saem todas juntas.
-  const [
-    nomesAtuais,
-    buyerNames,
-    overdue,
-    lowStockCount,
-    fichasChamada,
-    textosDaLoja,
-  ] = await Promise.all([
+  // tarefas vencidas e peças com estoque baixo. Só as duas primeiras
+  // dependiam de algo (do resultado da rodada lá de cima, que já terminou) —
+  // as outras não dependiam de nada e mesmo assim ficavam na fila. Agora
+  // saem todas juntas. (As fichas de "quem chamar hoje" e os textos das
+  // mensagens saíram daqui em 25/08/2026: foram para `chamadas-do-dia.tsx`,
+  // que carrega à parte.)
+  const [nomesAtuais, buyerNames, overdue, lowStockCount] = await Promise.all([
     idsVendidos.length
       ? db.product.findMany({
           where: { id: { in: idsVendidos } },
@@ -320,31 +323,6 @@ export default async function DashboardPage({
         stock: { lte: companyCfg.lowStockThreshold },
       },
     }),
-    // QUEM CHAMAR HOJE — as sugestões do motor viram uma lista de ação, com o
-    // motivo em português e a mensagem pronta. `suggestions` já veio calculado
-    // na rodada de consultas lá em cima (respeitando a carteira de cada uma).
-    suggestions.length
-      ? db.customer.findMany({
-          where: {
-            companyId: user.companyId,
-            id: { in: [...new Set(suggestions.map((s) => s.customerId))] },
-          },
-          select: { id: true, phone: true, owner: { select: { color: true } } },
-        })
-      : [],
-    // texto de cada mensagem: o da LOJA quando ela personalizou, senão o padrão
-    suggestions.length
-      ? db.commSettings.findUnique({
-          where: { companyId: user.companyId },
-          select: {
-            msgAniversario: true,
-            msgRecompra: true,
-            msgPosVenda: true,
-            msgPrimeiroContato: true,
-            msgConversaParada: true,
-          },
-        })
-      : null,
   ]);
   const nomeAtual = new Map(nomesAtuais.map((p) => [p.id, p.name]));
   const somaPorNome = new Map<string, number>();
@@ -520,28 +498,6 @@ export default async function DashboardPage({
   const myGoal = me?.monthlyGoal ?? 0;
   const mySold = soldBySeller.get(user.id) ?? 0;
 
-  const fichaPorId = new Map(fichasChamada.map((c) => [c.id, c]));
-  // texto de cada mensagem: o da LOJA quando ela personalizou, senão o padrão
-  const chamadas: ChamadaDoDia[] = suggestions.map((s) => {
-    const ficha = fichaPorId.get(s.customerId);
-    const primeiro = s.customerName.split(" ")[0];
-    const tipo = tipoDaRegra(s.key.split(":")[0]);
-    const personalizada = textosDaLoja
-      ? (textosDaLoja as Record<string, string | null>)[CAMPO_DA_CHAMADA[tipo]]
-      : null;
-    const mensagem = montarMensagem(tipo, { nome: primeiro }, personalizada);
-    return {
-      key: s.key,
-      customerId: s.customerId,
-      customerName: s.customerName,
-      phone: ficha?.phone ?? "",
-      motivo: s.description,
-      mensagem,
-      tipo,
-      ownerColor: ficha?.owner?.color ?? "#c4622d",
-    };
-  });
-
   // Checklist "Primeiros passos" — só para quem configura a loja (a vendedora
   // não mexe em catálogo nem em conexão de WhatsApp). Lista vazia = card não
   // aparece; loja que completou os 4 passos também deixa de ver.
@@ -592,52 +548,24 @@ export default async function DashboardPage({
       <PageHeader
         title={`Olá, ${user.name.split(" ")[0]} 👋`}
         subtitle={`Visão geral do comercial — ${periodLabel}.`}
-        action={
-          <form className="flex flex-wrap items-end gap-2" method="GET">
-            <div className="flex-1 min-w-0 sm:flex-none">
-              <label className="block text-[11px] font-semibold text-gray-500 mb-1">De</label>
-              <input type="date" name="de" defaultValue={de ?? ""} className="w-full sm:w-auto rounded-xl border border-gray-200 px-3 py-2 text-sm bg-white" />
-            </div>
-            <div className="flex-1 min-w-0 sm:flex-none">
-              <label className="block text-[11px] font-semibold text-gray-500 mb-1">Até</label>
-              <input type="date" name="ate" defaultValue={ate ?? ""} className="w-full sm:w-auto rounded-xl border border-gray-200 px-3 py-2 text-sm bg-white" />
-            </div>
-            <button className="shrink-0 rounded-xl bg-gray-900 hover:bg-gray-700 text-white text-sm font-medium px-4 py-2.5 transition">
-              Filtrar
-            </button>
-            {customPeriod && (
-              <Link href="/dashboard" className="text-xs font-medium text-gray-400 hover:text-gray-600 px-2 py-2.5">
-                Limpar
-              </Link>
-            )}
-          </form>
-        }
       />
 
       <div className="mb-5 -mt-1">
         <PeriodChips pathname="/dashboard" de={de} ate={ate} />
       </div>
 
-      <QuemChamarHoje chamadas={chamadas} primeiroNome={user.name.split(" ")[0]} />
+      {/* carrega à parte: é o bloco mais pesado e o único que NÃO depende do
+          filtro de data — segurando a tela inteira, cada troca de período
+          esperava por ele antes de desenhar qualquer coisa */}
+      <Suspense fallback={<ChamadasDoDiaEsqueleto />}>
+        <ChamadasDoDia
+          user={user}
+          primeiroNome={user.name.split(" ")[0]}
+          sugestoes={sugestoes}
+        />
+      </Suspense>
 
       <PrimeirosPassos passos={passos} />
-
-      {suggestions.length > 0 && (
-        <Link
-          href="/automacoes"
-          className="flex items-center gap-3 rounded-2xl border border-brand-200 bg-brand-50 px-4 py-3 mb-6 hover:bg-brand-100 transition group"
-        >
-          <Zap className="size-5 text-brand-600 shrink-0" />
-          <p className="text-sm text-brand-800 flex-1">
-            <span className="font-semibold">
-              {suggestions.length}{" "}
-              {suggestions.length === 1 ? "sugestão" : "sugestões"} de automação
-            </span>{" "}
-            — follow-ups, recompras e reativações esperando ação.
-          </p>
-          <ChevronRight className="size-4 text-brand-400 group-hover:translate-x-0.5 transition" />
-        </Link>
-      )}
 
       {/* KPIs */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4 mb-6">

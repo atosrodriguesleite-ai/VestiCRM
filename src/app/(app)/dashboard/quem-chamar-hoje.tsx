@@ -15,6 +15,13 @@ import { Avatar } from "@/components/ui";
  * dinheiro" é exatamente esta tela.
  */
 
+/**
+ * Quantas chamadas a lista desenha. Vale também no servidor: é o que ele usa
+ * para montar SÓ estas fichas e mensagens, em vez de todas (a loja de verdade
+ * tem mais de mil sugestões e a tela sempre mostrou 8).
+ */
+export const LIMITE_CHAMADAS = 8;
+
 export type ChamadaDoDia = {
   key: string;
   customerId: string;
@@ -45,12 +52,16 @@ function waHref(phone: string, msg: string): string | null {
 
 export function QuemChamarHoje({
   chamadas,
+  total,
   primeiroNome,
 }: {
+  /** só as que aparecem (no máximo LIMITE_CHAMADAS) */
   chamadas: ChamadaDoDia[];
+  /** quantas existem no total — é o número do cabeçalho e do "ver mais" */
+  total: number;
   primeiroNome: string;
 }) {
-  if (chamadas.length === 0) {
+  if (total === 0) {
     return (
       <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 mb-6">
         <p className="text-sm font-semibold text-emerald-800">
@@ -63,17 +74,15 @@ export function QuemChamarHoje({
     );
   }
 
-  const mostrar = chamadas.slice(0, 8);
-  const resto = chamadas.length - mostrar.length;
+  const mostrar = chamadas.slice(0, LIMITE_CHAMADAS);
+  const resto = total - mostrar.length;
 
   return (
     <div className="rounded-2xl border border-brand-200 bg-white overflow-hidden mb-6">
       <div className="px-4 py-3 bg-brand-50 border-b border-brand-100">
         <p className="text-sm font-semibold text-brand-800">
           ☀️ Bom dia, {primeiroNome}! Hoje você tem{" "}
-          {chamadas.length === 1
-            ? "1 cliente para chamar"
-            : `${chamadas.length} clientes para chamar`}
+          {total === 1 ? "1 cliente para chamar" : `${total} clientes para chamar`}
         </p>
         <p className="text-xs text-brand-700/70">
           Toque em uma para abrir o WhatsApp com a mensagem pronta.
