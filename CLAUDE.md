@@ -277,7 +277,19 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   cheia (com zoom) — o retrato de 32px não serve para reconhecer ninguém.
   Formato da mensagem em um lugar só (`mapMessage`), envio otimista (bolha instantânea ⏱️→✓),
   **copiar mensagem** (`lib/copiar.ts`, com plano B para navegador
-  antigo; vale para a mensagem da CLIENTE — pedido, Pix, endereço),
+  antigo; vale para os DOIS lados — pedido, Pix, endereço),
+  **encaminhar** para até `TETO_DESTINOS` conversas (`lib/encaminhar.ts`): os
+  envios saem em FILA depois da resposta, com o ritmo anti-ban da RN-017 —
+  em paralelo o ritmo não acontece, e esperar dentro do pedido estourava o
+  tempo da função e fazia a cliente receber duas vezes; a legenda da mídia vai
+  como mensagem própria (o envio de mídia manda só o arquivo). Encaminhar É
+  responder: assume a conversa, tira da fila e reabre, como qualquer envio.
+  **Salvar a mídia** (`lib/midia-arquivo.ts`): `/api/messages/[id]/media?baixar=1`
+  entrega como arquivo, com nome e extensão — foto/vídeo/áudio chegam sem nome
+  e sem isso o navegador só ABRIA. A mesma porta serve inline para a bolha, mas
+  só os tipos que ela desenha: arquivo que a CLIENTE manda e o sistema não
+  exibe (um .html, um .svg) sai como download + `nosniff`, senão executaria no
+  endereço do app com a sessão da vendedora aberta.
   **marcar conversa como não lida** ("volto nessa depois" — fecha o
   chat junto, senão o sync zeraria o marcador),
   recibos com horário (entregue/visto), editar (15min) e apagar para todos

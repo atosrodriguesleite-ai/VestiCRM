@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 import { requireUser, AuthError } from "@/lib/auth";
 import { conversationScope } from "@/lib/scope";
 import { shrinkImage, dataUrlToBuffer } from "@/lib/img-server";
+import { nomeDoArquivo } from "@/lib/midia-arquivo";
 
 /**
  * Serve a MÍDIA de uma mensagem (foto, áudio, documento) como arquivo de
@@ -16,15 +17,23 @@ import { shrinkImage, dataUrlToBuffer } from "@/lib/img-server";
  * guarda; a CDN não) — a mídia nunca muda, então é imutável por 1 ano.
  */
 export async function GET(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const user = await requireUser();
     const { id } = await params;
+    // `?baixar=1` = SALVAR NO APARELHO. A mesma porta serve a mídia para
+    // aparecer na bolha (padrão) e para guardar no computador/celular. Sem
+    // esta chave, o navegador só ABRIA a foto numa aba nova — e no celular
+    // nem isso — e não havia como salvar vídeo, áudio ou foto (relato do
+    // dono, 26/08/2026). O atributo `download` do link sozinho não resolve:
+    // ele é ignorado quando o arquivo vem de outro endereço, e alguns
+    // navegadores o ignoram junto com `target="_blank"`.
+    const baixar = req.nextUrl.searchParams.get("baixar") === "1";
     const msg = await db.message.findFirst({
       where: { id, conversation: conversationScope(user) },
-      select: { mediaUrl: true },
+      select: { mediaUrl: true, fileName: true, mediaType: true },
     });
     if (!msg?.mediaUrl) {
       return NextResponse.json(
@@ -57,11 +66,32 @@ export async function GET(
         /* comprime falhou: tenta servir o original */
       }
     }
+    const tipo = mime || "application/octet-stream";
+    // ARQUIVO DA CLIENTE NÃO RODA DENTRO DO SISTEMA.
+    //
+    // O tipo vem do WhatsApp, e a cliente escolhe o que manda: um .html (ou
+    // um .svg, que carrega script) servido para MOSTRAR abre no endereço do
+    // app, com o login da vendedora do lado. Só os tipos que a bolha
+    // realmente desenha são exibidos; o resto sai como arquivo para baixar,
+    // que é inofensivo. O `nosniff` fecha a outra metade: sem ele o
+    // navegador adivinha o tipo pelo conteúdo e ignora o que a gente disse.
+    const podeMostrar =
+      /^(image\/(jpeg|png|gif|webp|bmp)|video\/|audio\/|application\/pdf)/.test(tipo);
+    const comoArquivo = baixar || !podeMostrar;
     return new NextResponse(new Uint8Array(buf), {
       headers: {
-        "Content-Type": mime || "application/octet-stream",
+        "Content-Type": tipo,
         "Content-Length": String(buf.byteLength),
         "Cache-Control": "private, max-age=31536000, immutable",
+        "X-Content-Type-Options": "nosniff",
+        ...(comoArquivo
+          ? {
+              // `filename*` (UTF-8) para nome com acento não virar lixo
+              "Content-Disposition": `attachment; filename*=UTF-8''${encodeURIComponent(
+                nomeDoArquivo(msg.fileName, msg.mediaType, tipo)
+              )}`,
+            }
+          : {}),
       },
     });
   } catch (e) {

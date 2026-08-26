@@ -41,6 +41,7 @@ import {
   Zap,
   Link2,
   Download,
+  Forward,
   Film,
   Trash2,
   Pencil,
@@ -64,6 +65,8 @@ import {
 import { autoriaDaMensagem, prefixoDaPrevia } from "@/lib/comm/autoria";
 import { abaDaConversa } from "@/lib/comm/fila";
 import { casaCliente } from "@/lib/busca";
+import { linkParaSalvar } from "@/lib/midia-arquivo";
+import { EncaminharMensagem } from "./encaminhar";
 import {
   CHAVE_MICROFONE,
   MS_ASSENTAR_MICROFONE,
@@ -418,17 +421,19 @@ function VisorDeFoto({
         className="absolute right-3 z-10 flex gap-2"
         style={{ top: "calc(0.75rem + env(safe-area-inset-top))" }}
       >
-        {/* ABRE EM OUTRA ABA, não baixa direto: a foto do WhatsApp vem de
-            OUTRO endereço (pps.whatsapp.net), e nesse caso o navegador ignora
-            o "download" e NAVEGA — a vendedora perdia a Central de vista no
-            meio do atendimento. Em outra aba ela salva pelo próprio navegador
-            e volta para a conversa intacta. */}
+        {/* FOTO DA CONVERSA: baixa de verdade (é do nosso endereço, e o
+            `?baixar=1` manda o servidor entregar como arquivo com nome).
+            FOTO DE PERFIL da cliente: vem de OUTRO endereço
+            (pps.whatsapp.net), onde o navegador IGNORA o "download" e
+            NAVEGA — ali abre em outra aba, senão a vendedora perdia a
+            Central de vista no meio do atendimento. */}
         <a
-          href={src}
-          target="_blank"
-          rel="noopener noreferrer"
+          href={linkParaSalvar(src)}
+          {...(src.startsWith("/")
+            ? { download: "" }
+            : { target: "_blank", rel: "noopener noreferrer" })}
           className="p-3 rounded-full bg-black/60 text-white shadow-lg backdrop-blur-sm hover:bg-black/75 transition"
-          title="Abrir a foto em outra aba (para salvar)"
+          title={src.startsWith("/") ? "Salvar a foto" : "Abrir a foto em outra aba"}
         >
           <Download className="size-5" />
         </a>
@@ -611,6 +616,8 @@ export function Inbox({
   }, [aviso]);
   // "responder": mensagem marcada para citação (prévia acima do compositor)
   const [replyMsg, setReplyMsg] = useState<InboxMessage | null>(null);
+  // mensagem escolhida para ENCAMINHAR (abre a lista de destinos)
+  const [encaminhando, setEncaminhando] = useState<InboxMessage | null>(null);
   // foto aberta no visor de tela cheia (com zoom)
   const [fotoAberta, setFotoAberta] = useState<{ src: string; legenda: string } | null>(null);
   // ARRASTAR PARA RESPONDER (celular): igual ao aplicativo do WhatsApp —
@@ -1480,6 +1487,36 @@ export function Inbox({
     // REMOÇÃO. Confirmar no fim fecha essa fresta.
     const salvo = await res.json().catch(() => null);
     if (salvo) pintar(salvo.reactionStore ?? null);
+  }
+
+  /**
+   * ENCAMINHA a mensagem escolhida para as conversas marcadas.
+   *
+   * Quem faz o trabalho é o servidor: a tela só conhece o LINK da mídia, e
+   * mandar um vídeo de volta pelo navegador seria minutos de espera no
+   * celular. A resposta diz quantas foram — e o aviso conta a verdade quando
+   * alguma falha.
+   */
+  async function encaminharPara(ids: string[]) {
+    const msg = encaminhando;
+    if (!msg) return;
+    const res = await fetch(`/api/messages/${msg.id}/encaminhar`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ conversationIds: ids }),
+    }).catch(() => null);
+    const d = await res?.json().catch(() => ({}));
+    setEncaminhando(null);
+    if (!res || !res.ok) {
+      setAviso(d?.error ?? "Não foi possível encaminhar.");
+      return;
+    }
+    const n = d?.enviadas ?? 0;
+    setAviso(
+      d?.falhas
+        ? `Encaminhada para ${n} de ${n + d.falhas} — ${d.falhas} não foi.`
+        : `Encaminhada para ${n} ${n === 1 ? "conversa" : "conversas"}.`
+    );
   }
 
   async function salvarEdicao(messageId: string) {
@@ -3846,6 +3883,27 @@ export function Inbox({
       </Portal>
     )}
 
+    {encaminhando && (
+      <Portal>
+        <EncaminharMensagem
+          previa={
+            textoDaMensagem(encaminhando) ||
+            (encaminhando.mediaType === "IMAGE"
+              ? "📷 Foto"
+              : encaminhando.mediaType === "VIDEO"
+                ? "🎬 Vídeo"
+                : encaminhando.mediaType === "AUDIO"
+                  ? "🎤 Áudio"
+                  : (encaminhando.fileName ?? "📎 Arquivo"))
+          }
+          conversas={convs}
+          conversaAtualId={selectedId}
+          onFechar={() => setEncaminhando(null)}
+          onEncaminhar={encaminharPara}
+        />
+      </Portal>
+    )}
+
     {/* folha de ações da mensagem (segurar no celular / ⋯ no computador):
         sobe de baixo no celular, centralizada no computador — nunca corta */}
     {aviso && (
@@ -3905,6 +3963,25 @@ export function Inbox({
               <Reply className="size-4 text-brand-600" /> Responder
             </button>
           )}
+          {/* ENCAMINHAR: os dois lados. Chegou a foto da peça nova e ela
+              manda para as clientes que perguntaram; ou repassa o endereço
+              que ela mesma escreveu. Nota interna não sai do CRM. */}
+          {/* `temp-` = bolha que a tela desenhou na hora e o servidor ainda
+              não confirmou: encaminhar dela mandaria um id que não existe */}
+          {actionMsg.kind !== "NOTE" &&
+            !actionMsg.revoked &&
+            actionMsg.status !== "FALHOU" &&
+            !actionMsg.id.startsWith("temp-") && (
+            <button
+              onClick={() => {
+                setEncaminhando(actionMsg);
+                setActionMsg(null);
+              }}
+              className="w-full flex items-center gap-3 rounded-xl px-3 py-3 text-left text-sm text-gray-700 hover:bg-gray-50"
+            >
+              <Forward className="size-4 text-brand-600" /> Encaminhar
+            </button>
+          )}
           {/* Copiar: vale para a mensagem da CLIENTE também — é dela que se
               copia pedido, chave Pix e endereço */}
           {textoDaMensagem(actionMsg) && (
@@ -3914,6 +3991,32 @@ export function Inbox({
             >
               <Copy className="size-4 text-gray-400" /> Copiar mensagem
             </button>
+          )}
+          {/* SALVAR O ARQUIVO — foto, vídeo, áudio ou documento, tanto o que a
+              cliente mandou quanto o que a loja mandou. É um LINK de verdade
+              (não um botão com JavaScript): é assim que o celular oferece
+              "Salvar em Fotos"/"Baixar". O `?baixar=1` faz o servidor mandar
+              como arquivo, com nome e extensão — sem isso o navegador só
+              ABRIA a foto e não havia como guardar (pedido do dono,
+              26/08/2026). */}
+          {actionMsg.mediaUrl &&
+            actionMsg.mediaType !== "TEXT" &&
+            !actionMsg.id.startsWith("temp-") && (
+            <a
+              href={linkParaSalvar(actionMsg.mediaUrl)}
+              download={actionMsg.fileName ?? ""}
+              onClick={() => setActionMsg(null)}
+              className="w-full flex items-center gap-3 rounded-xl px-3 py-3 text-left text-sm text-gray-700 hover:bg-gray-50"
+            >
+              <Download className="size-4 text-gray-400" />
+              {actionMsg.mediaType === "IMAGE"
+                ? "Salvar foto"
+                : actionMsg.mediaType === "VIDEO"
+                  ? "Salvar vídeo"
+                  : actionMsg.mediaType === "AUDIO"
+                    ? "Salvar áudio"
+                    : "Salvar arquivo"}
+            </a>
           )}
           {/* editar/apagar: só mensagem SUA, de verdade e não apagada */}
           {actionMsg.direction === "OUT" &&
