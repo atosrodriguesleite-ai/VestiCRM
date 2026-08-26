@@ -40,3 +40,4 @@ Não escreva para decisão trivial ou reversível em cinco minutos.
 | [ADR-011](ADR-011-etiqueta-com-nfe.md) | Etiqueta com NF-e quando a nota existe | aceita |
 | [ADR-012](ADR-012-navegador-nao-carrega-servidor.md) | O navegador não carrega código de servidor; build local = build da Vercel | aceita |
 | [ADR-013](ADR-013-desconto-global.md) | Desconto é global: em %, incide sobre o total com acréscimo; pedido antigo não é reescrito de carona | aceita |
+| [ADR-014](ADR-014-carrinho-abandonado-fonte-unica.md) | Carrinho abandonado tem uma fonte só: a esteira de Recuperação (`AbandonedCart`) | aceita |

@@ -1395,6 +1395,10 @@ model MarketingCampaign {
   // do post/anúncio ou só o código. Quando um cliente chega clicando num
   // anúncio daqui, a campanha é atribuída sozinha.
   adRefs    String?
+  // QUANTO A LOJA INVESTIU nesta campanha (total, em R$) — digitado pela
+  // própria loja. É o que transforma o faturamento em retorno de verdade
+  // ("cada R$ 1 investido voltou R$ N"); sem custo, ROI é chute.
+  investment Float   @default(0)
   active    Boolean  @default(true)
   createdAt DateTime @default(now())
 

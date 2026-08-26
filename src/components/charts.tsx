@@ -22,6 +22,8 @@ export function StatTile({
   icon,
   tone = "default",
   info,
+  delta,
+  deltaHint = "vs. período anterior",
 }: {
   label: string;
   value: string;
@@ -29,7 +31,15 @@ export function StatTile({
   icon?: React.ReactNode;
   tone?: "default" | "good" | "warn" | "bad";
   info?: string;
+  /** variação % vs. período anterior (null = sem base para comparar) */
+  delta?: number | null;
+  deltaHint?: string;
 }) {
+  // mesma régua do StatCard do Dashboard: 0% é "igual" (selo neutro), não
+  // seta verde — o corte segue o arredondamento exibido
+  const temDelta = delta != null && Number.isFinite(delta);
+  const estavel = temDelta && Math.abs(delta!) < 0.05;
+  const sobe = temDelta && delta! > 0;
   const toneCls =
     tone === "good"
       ? "text-emerald-600"
@@ -66,6 +76,35 @@ export function StatTile({
       >
         {value}
       </p>
+      {temDelta && (
+        <div className="mt-1">
+          <span
+            title={deltaHint}
+            className={`inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[11px] font-bold tabular-nums ${
+              estavel
+                ? "bg-slate-100 text-slate-500"
+                : sobe
+                  ? "bg-emerald-50 text-emerald-600"
+                  : "bg-rose-50 text-rose-600"
+            }`}
+          >
+            {estavel ? (
+              <span aria-hidden="true">=</span>
+            ) : (
+              <svg viewBox="0 0 10 10" className={`size-2 ${sobe ? "" : "rotate-180"}`} aria-hidden="true">
+                <path d="M5 1 L9 7 H1 Z" fill="currentColor" />
+              </svg>
+            )}
+            {Math.abs(delta!).toLocaleString("pt-BR", {
+              maximumFractionDigits: Math.abs(delta!) < 10 ? 1 : 0,
+            })}
+            %
+            <span className="sr-only">
+              {estavel ? "igual ao" : sobe ? "acima do" : "abaixo do"} período anterior
+            </span>
+          </span>
+        </div>
+      )}
       {hint && (
         <p className="text-[11px] md:text-xs text-slate-400 mt-1.5 md:mt-2 leading-snug">
           {hint}

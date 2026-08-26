@@ -15,6 +15,8 @@ const schema = z.object({
   adRefs: z.string().max(4000).nullable().optional(),
   // vincular UM anúncio detectado: soma na lista e puxa o histórico dele
   vincularAdRef: z.string().max(200).optional(),
+  // quanto a loja investiu no total (R$) — vira o "retorno por R$ 1" no ranking
+  investment: z.number().min(0).max(99_999_999).optional(),
 });
 
 async function owned(companyId: string, id: string) {
@@ -40,6 +42,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       ...(parsed.data.channel != null ? { channel: parsed.data.channel } : {}),
       ...(parsed.data.active != null ? { active: parsed.data.active } : {}),
       ...(parsed.data.adRefs !== undefined ? { adRefs: parsed.data.adRefs } : {}),
+      ...(parsed.data.investment != null ? { investment: parsed.data.investment } : {}),
     };
 
     // Vincular um anúncio JÁ DETECTADO a esta campanha: acrescenta o código na

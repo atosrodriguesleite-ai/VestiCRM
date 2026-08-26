@@ -1,5 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { after } from "next/server";
+import { varrerCarrinhosSeDeuAHora } from "@/lib/recuperacao";
 import {
   Brain,
   Eye,
@@ -218,6 +220,11 @@ export default async function IntelligencePage({
 }) {
   const user = await requireUser();
   if (!isManagerUp(user)) redirect("/dashboard");
+  // os carrinhos vêm da esteira de Recuperação; a varredura roda DE CARONA
+  // no tráfego (trava atômica, no máx. a cada 10 min) — abrir a Inteligência
+  // também conta como tráfego, para o número estar fresco em loja que não
+  // está com a Central aberta naquele momento
+  after(() => varrerCarrinhosSeDeuAHora());
 
   const sp = await searchParams;
   // atalho ("30 dias") OU datas escolhidas a dedo — a leitura é uma só
@@ -375,7 +382,11 @@ export default async function IntelligencePage({
         <Kpi label="Ticket médio" value={brl(now.avgTicket)} delta={<Delta now={now.avgTicket} before={before.avgTicket} />} info="Valor médio por pedido PAGO da loja inteira: faturamento ÷ nº de pedidos pagos (todas as origens, não só o catálogo)." />
         <Kpi label="Clientes novos" value={String(now.newCustomers)} delta={<Delta now={now.newCustomers} before={before.newCustomers} />} info="Clientes cadastrados pela primeira vez no período (primeiro contato com a loja)." />
         <Kpi label="Recorrentes" value={String(now.returningBuyers)} icon={<Repeat />} info="Clientes que compraram mais de uma vez (fidelizados)." />
-        <Kpi label="Carrinhos abandonados" value={String(now.abandonedCarts)} hint={`${brl(now.abandonedValue)} parados`} delta={<Delta now={now.abandonedCarts} before={before.abandonedCarts} invert />} icon={<AlertTriangle />} info="Pessoas que deixaram sacola com itens sem enviar o pedido — cada pessoa conta UMA vez (a sacola mais recente dela), mesma régua da lista de recuperação. 'Parados' = valor somado dessas sacolas." href={`/inteligencia?${paramsDoPeriodo(filtro)}&recuperacao=tudo#recuperar`} />
+        {/* SEM setinha de comparação, de propósito: o número é "quantas ainda
+            estão em aberto AGORA" — no período antigo quase todas já foram
+            recuperadas ou perdidas, então comparar os dois sempre "subia" e
+            punia justamente a loja que trabalha a esteira */}
+        <Kpi label="Carrinhos abandonados" value={String(now.abandonedCarts)} hint={`${brl(now.abandonedValue)} parados`} icon={<AlertTriangle />} info="Sacolas abandonadas ainda em aberto no período — a MESMA conta da tela Recuperação (inclui os checkouts da Nuvemshop). Quem pediu depois (por qualquer canal) ou foi marcada como perdida sai sozinha. 'Parados' = valor somado dessas sacolas." href={`/inteligencia?${paramsDoPeriodo(filtro)}&recuperacao=tudo#recuperar`} />
         <Kpi label="Tempo de sessão total" value={`${Math.round(now.totalSessionSeconds / 60)} min`} hint="navegação somada" info="Soma REAL do tempo de navegação de todas as sessões no período." />
         <Kpi label="Identificados" value={String(now.identifiedCustomers)} hint="visitas com nome" info="Visitantes ligados a um cliente da base — pelo telefone informado OU por já terem chegado pelo link rastreado da cliente (?c=). Inclui quem já era cliente antes de visitar." />
       </div>

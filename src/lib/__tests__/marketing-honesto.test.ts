@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { carrinhosAbandonados, periodFromDays } from "../tracking/insights";
+import { sessaoResolvida, periodFromDays } from "../tracking/insights";
 import { classifyChannel } from "../tracking/engine";
 import { lembrarOrigem } from "../catalogo/origem";
 import { ehRobo } from "../robo";
@@ -15,7 +15,7 @@ import { ehRobo } from "../robo";
  *    valor da sacola vindo do navegador);
  *  • conversão marcada no SERVIDOR, uma vez por pedido criado;
  *  • robô não conta clique na bio (mesma régua da visita);
- *  • carrinhos abandonados: KPI e lista com a MESMA conta;
+ *  • carrinhos abandonados: a ESTEIRA (AbandonedCart) é a única fonte;
  *  • a origem (?ref da vendedora) sobrevive 7 dias no aparelho.
  */
 
@@ -23,86 +23,49 @@ const raiz = process.cwd();
 const ler = (rel: string) => readFileSync(join(raiz, rel), "utf8");
 
 // ---------------------------------------------------------------------------
-describe("carrinhos abandonados: 1 pessoa = 1 carrinho (régua única)", () => {
-  const sessao = (over: Partial<Parameters<typeof carrinhosAbandonados>[0][number]>) => ({
-    visitorId: "v1",
-    converted: false,
-    cartAdds: 1,
-    cartValue: 100,
-    startedAt: new Date("2026-08-01T12:00:00Z"),
-    ...over,
-  });
+describe("carrinhos abandonados: a ESTEIRA é a única fonte (decisão do dono, 26/08/2026)", () => {
+  // A Inteligência fazia uma conta própria de carrinhos, paralela à tela
+  // Recuperação — duas verdades, e a vendedora podia mandar a SEGUNDA
+  // mensagem para uma cliente já chamada pela esteira. Agora KPI e lista
+  // leem de AbandonedCart (que sabe quem foi chamada, quem recuperou e quem
+  // a loja marcou como perdida, e inclui os checkouts da Nuvemshop).
+  const fonte = ler("src/lib/tracking/insights.ts");
 
-  it("a mesma cliente em duas visitas conta UMA vez — a sacola mais recente", () => {
-    const out = carrinhosAbandonados([
-      sessao({ cartValue: 500, startedAt: new Date("2026-08-01T10:00:00Z") }),
-      sessao({ cartValue: 550, startedAt: new Date("2026-08-02T10:00:00Z") }),
-    ]);
-    expect(out).toHaveLength(1);
-    expect(out[0].cartValue).toBe(550);
-  });
-
-  it("sacola esvaziada (valor 0) e sessão convertida ficam de fora", () => {
-    const out = carrinhosAbandonados([
-      sessao({ visitorId: "a", cartValue: 0 }),
-      sessao({ visitorId: "b", converted: true }),
-      sessao({ visitorId: "c", cartValue: 80 }),
-    ]);
-    expect(out.map((s) => s.visitorId)).toEqual(["c"]);
-  });
-
-  // Auditoria 24/08/2026: a lista mandava a loja cobrar sacola JÁ VENDIDA —
-  // "você esqueceu suas peças" para quem tinha acabado de pagar.
-  it("quem abandonou mas ENVIOU o pedido em outra visita não é abandono", () => {
-    const out = carrinhosAbandonados([
-      sessao({ startedAt: new Date("2026-08-01T10:00:00Z") }),
-      sessao({ converted: true, startedAt: new Date("2026-08-02T10:00:00Z") }),
-    ]);
-    expect(out).toHaveLength(0);
-  });
-
-  it("cliente identificada que PAGOU depois (WhatsApp, manual) sai da lista", () => {
-    const compras = new Map([["cli-1", [new Date("2026-08-02T10:00:00Z")]]]);
-    const out = carrinhosAbandonados(
-      [sessao({ customerId: "cli-1", startedAt: new Date("2026-08-01T10:00:00Z") })],
-      compras
-    );
-    expect(out).toHaveLength(0);
-  });
-
-  it("compra ANTIGA não resolve sacola nova: comprou, voltou e encheu de novo", () => {
-    const compras = new Map([["cli-1", [new Date("2026-07-20T10:00:00Z")]]]);
-    const out = carrinhosAbandonados(
-      [sessao({ customerId: "cli-1", startedAt: new Date("2026-08-01T10:00:00Z") })],
-      compras
-    );
-    expect(out).toHaveLength(1);
-  });
-
-  it("quem converteu DEPOIS do período também sai (mês fechado não mente)", () => {
-    // sessão de 30/07 dentro do recorte de julho; o envio do pedido foi 02/08
-    const conversoes = new Map([["v1", [new Date("2026-08-02T09:00:00Z")]]]);
-    const out = carrinhosAbandonados(
-      [sessao({ startedAt: new Date("2026-07-30T10:00:00Z") })],
-      new Map(),
-      conversoes
-    );
-    expect(out).toHaveLength(0);
-  });
-
-  it("KPI e lista de recuperação usam a MESMA régua (compras pagas + conversões)", () => {
-    const fonte = ler("src/lib/tracking/insights.ts");
-    // as duas chamadas passam os mapas do banco — sem eles a régua descasa
-    const chamadas = fonte.match(/carrinhosAbandonados\(sessions, comprasPagas, conversoes\)/g) ?? [];
+  it("KPI e lista passam pelo MESMO funil (carrinhosAbertosDaEsteira)", () => {
+    // uma função só para os dois recortes: se um dia divergirem, é aqui
+    const chamadas = fonte.match(/carrinhosAbertosDaEsteira\(companyId, p\)/g) ?? [];
     expect(chamadas.length).toBe(2);
-    // e o "quase comprando" também não cutuca quem já decidiu
-    expect(fonte).toContain("sessaoResolvida(s, conversoes, comprasPagas)");
-    // as conversões vêm SEM teto de período (só piso) — pedido enviado depois
-    // do recorte resolve a sacola de dentro dele
-    expect(fonte).toContain("converted: true, startedAt: { gte: desde }");
+    expect(fonte).toContain('status: { in: ["NOVO", "CHAMADA"] }');
+    expect(fonte).toContain("carrinhosDaEsteira.length");
   });
 
-  it("a esteira de Recuperação (robô do WhatsApp) segue a mesma regra", () => {
+  it("a lista de recuperação lê os carrinhos da esteira, com a sacola gravada", () => {
+    expect(fonte).toContain("db.abandonedCart.findMany");
+    expect(fonte).toContain("lerItens(cart.items)");
+  });
+
+  it("carrinho de quem JÁ PEDIU sai da conta (o incidente não volta pela esteira)", () => {
+    // cliente identificada com pedido NÃO-CANCELADO depois do abandono, e
+    // visitante anônima cuja mesma pessoa converteu depois — os dois casos
+    // que fariam a Inteligência mandar "recupere" uma venda já feita
+    expect(fonte).toContain("o.customerId === c.customerId && o.createdAt > c.abandonedAt");
+    expect(fonte).toContain("(conversoes.get(visitante) ?? []).some((d) => d > c.abandonedAt)");
+  });
+
+  it("a esteira fecha o carrinho da visitante ANÔNIMA que pagou (via sessão)", () => {
+    const esteira = ler("src/lib/recuperacao.ts");
+    // o pedido não tem cliente para casar, mas tem a sessão — e a sessão
+    // sabe quem é a pessoa; sem isso o carrinho anônimo ficava NOVO p/ sempre
+    expect(esteira).toContain("visitanteDoPedido.get(o.trackSessionId as string) === visitante");
+    expect(esteira).toContain("o.paidAt! > cart.abandonedAt");
+  });
+
+  it("carrinho já CHAMADO avisa — é o que evita a segunda mensagem", () => {
+    expect(fonte).toContain('cart.status === "CHAMADA"');
+    expect(fonte).toContain("Já chamada");
+  });
+
+  it("a esteira de Recuperação (robô do WhatsApp) não cutuca quem já pediu", () => {
     const esteira = ler("src/lib/recuperacao.ts");
     // não CRIA carrinho para quem pediu depois da sacola (qualquer porta)…
     expect(esteira).toContain('status: { not: "CANCELADO" }');
@@ -113,14 +76,36 @@ describe("carrinhos abandonados: 1 pessoa = 1 carrinho (régua única)", () => {
     // enviada" mentirosa) e segue na fila humana
     expect(esteira).toContain("candidatos.filter((c) => !jaPediu.has(c.id))");
   });
+});
 
-  it("a sacola mostrada na Inteligência é a MESMA da esteira de Recuperação", () => {
+// ---------------------------------------------------------------------------
+describe("'quase comprando': quem já decidiu não leva empurrãozinho", () => {
+  const sessao = (over: Partial<Parameters<typeof sessaoResolvida>[0]> = {}) => ({
+    visitorId: "v1",
+    startedAt: new Date("2026-08-01T10:00:00Z"),
+    ...over,
+  });
+
+  it("conversão do MESMO visitante depois da sessão resolve", () => {
+    const conversoes = new Map([["v1", [new Date("2026-08-02T10:00:00Z")]]]);
+    expect(sessaoResolvida(sessao(), conversoes, new Map())).toBe(true);
+  });
+
+  it("pedido PAGO da cliente identificada (WhatsApp, manual) resolve", () => {
+    const compras = new Map([["cli-1", [new Date("2026-08-02T10:00:00Z")]]]);
+    expect(sessaoResolvida(sessao({ customerId: "cli-1" }), new Map(), compras)).toBe(true);
+  });
+
+  it("compra ANTIGA não resolve navegação nova (desejo novo)", () => {
+    const compras = new Map([["cli-1", [new Date("2026-07-20T10:00:00Z")]]]);
+    expect(sessaoResolvida(sessao({ customerId: "cli-1" }), new Map(), compras)).toBe(false);
+  });
+
+  it("a lista aplica a regra e as conversões vêm SEM teto de período", () => {
     const fonte = ler("src/lib/tracking/insights.ts");
-    // fonte única (lib/recuperacao.ts): foto do evento e, sem foto, a
-    // reconstrução com a peneira do tamanho composto — a remontagem antiga
-    // daqui errava quantidade e divergia da tela Recuperação
-    expect(fonte).toContain("sacolaDaFoto");
-    expect(fonte).toContain('sacolaDosEventos(evs).filter((i) => !i.size?.includes(","))');
+    expect(fonte).toContain("sessaoResolvida(s, conversoes, comprasPagas)");
+    // pedido enviado DEPOIS do recorte resolve a sessão de dentro dele
+    expect(fonte).toContain("converted: true, startedAt: { gte: desde }");
   });
 });
 
