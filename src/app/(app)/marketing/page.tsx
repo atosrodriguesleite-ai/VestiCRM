@@ -11,6 +11,17 @@ import { StatCard } from "@/components/dash";
 import { BarList, Donut, PeriodChips } from "@/components/charts";
 import { CampaignsManager, type Campanha } from "./campaigns-manager";
 import { refsDaCampanha } from "@/lib/ad-match";
+import { InfoTip } from "@/components/info-tip";
+
+/**
+ * "3,2×" — quanto voltou para cada R$ 1 investido (— sem investimento).
+ * Retorno pequeno ganha 2 casas: arredondar 0,04 para "0×" diria que o
+ * dinheiro que voltou não existiu.
+ */
+const retornoTxt = (r: number | null) =>
+  r == null
+    ? "—"
+    : `${r.toLocaleString("pt-BR", { maximumFractionDigits: r < 1 ? 2 : 1 })}×`;
 
 export const dynamic = "force-dynamic";
 
@@ -67,7 +78,7 @@ export default async function MarketingPage({
   // buscamos TUDO do período (sem filtrar por canal) — o filtro por canal é
   // aplicado depois, em memória, para os cartões e o ranking. Assim os
   // gráficos "por canal" sempre mostram a comparação completa (visão Geral).
-  const [leadsAll, prevLeadsAll, ordersAll, prevOrdersAll, campaignRows, buyerCounts] = await Promise.all([
+  const [leadsAll, prevLeadsAll, ordersAll, prevOrdersAll, campaignRows, buyerCounts, ordersDeCampanha, clientesDeCampanha] = await Promise.all([
     db.customer.findMany({ where: { companyId, createdAt: inPeriod }, select: { id: true, origin: true, campaignId: true } }),
     db.customer.findMany({ where: { companyId, createdAt: inPrev }, select: { origin: true } }),
     db.order.findMany({
@@ -81,7 +92,7 @@ export default async function MarketingPage({
     db.marketingCampaign.findMany({
       where: { companyId },
       orderBy: [{ active: "desc" }, { createdAt: "desc" }],
-      select: { id: true, name: true, channel: true, utmKey: true, active: true, adRefs: true, _count: { select: { customers: true } } },
+      select: { id: true, name: true, channel: true, utmKey: true, active: true, adRefs: true, investment: true, _count: { select: { customers: true } } },
     }),
     db.order.groupBy({
       by: ["customerId"],
@@ -92,7 +103,29 @@ export default async function MarketingPage({
       },
       _count: { _all: true },
     }),
+    // faturamento de TODA A VIDA das clientes com campanha — é a base do
+    // "retorno por R$ 1 investido": o investimento digitado é o total da
+    // campanha, então o retorno também tem que ser o total (comparar o
+    // gasto inteiro com o faturamento de uma semana filtrada mentiria).
+    // AGREGADO no banco (uma linha por cliente, não por pedido): loja madura
+    // tem milhares de pedidos e a tela não pode carregá-los inteiros.
+    db.order.groupBy({
+      by: ["customerId"],
+      where: { companyId, status: { in: PAID_ORDER_STATUSES }, customer: { campaignId: { not: null } } },
+      _sum: { netTotal: true },
+    }),
+    db.customer.findMany({
+      where: { companyId, campaignId: { not: null } },
+      select: { id: true, campaignId: true },
+    }),
   ]);
+  const campanhaDaCliente = new Map(clientesDeCampanha.map((c) => [c.id, c.campaignId]));
+  const fatTotalPorCampanha = new Map<string, number>();
+  for (const o of ordersDeCampanha) {
+    const cid = campanhaDaCliente.get(o.customerId);
+    if (!cid) continue;
+    fatTotalPorCampanha.set(cid, (fatTotalPorCampanha.get(cid) ?? 0) + (o._sum.netTotal ?? 0));
+  }
 
   const campById = new Map(campaignRows.map((c) => [c.id, c]));
 
@@ -201,12 +234,20 @@ export default async function MarketingPage({
     campFat.set(cid, cur);
   }
   const campanhasIds = new Set<string>([...campLeads.keys(), ...campFat.keys()]);
+  // campanha com INVESTIMENTO digitado aparece SEMPRE, mesmo sem lead no
+  // período filtrado — o retorno é de toda a vida (o InfoTip promete que o
+  // filtro não mexe nele), e sumir com o R$ 2.000 investido porque a semana
+  // foi fraca esconderia exatamente o que a dona quer ver
+  for (const c of campaignRows) {
+    if (c.investment > 0) campanhasIds.add(c.id);
+  }
   const porCampanha = [...campanhasIds]
     .map((id) => {
       const c = campById.get(id);
       const f = campFat.get(id);
       const ld = campLeads.get(id) ?? 0;
       const clientes = f?.clientes.size ?? 0;
+      const investido = c?.investment ?? 0;
       return {
         id,
         name: c?.name ?? "Campanha removida",
@@ -217,6 +258,10 @@ export default async function MarketingPage({
         ticket: f && f.pedidos > 0 ? f.fat / f.pedidos : 0,
         // % dos leads que a campanha trouxe NO PERÍODO e que já compraram
         conversao: ld > 0 ? pct(campConvertidos.get(id) ?? 0, ld) : null,
+        investido,
+        // retorno = faturamento de TODA A VIDA da campanha ÷ investimento
+        // total (as duas pontas na mesma régua; o filtro de período não mexe)
+        retorno: investido > 0 ? (fatTotalPorCampanha.get(id) ?? 0) / investido : null,
       };
     })
     .sort((a, b) => b.fat - a.fat || b.leads - a.leads);
@@ -265,6 +310,7 @@ export default async function MarketingPage({
     utmKey: c.utmKey,
     active: c.active,
     adRefs: c.adRefs,
+    investment: c.investment,
     leads: c._count.customers,
   }));
 
@@ -399,6 +445,15 @@ export default async function MarketingPage({
                   <span>Compraram <b className="text-slate-700">{c.clientes}</b></span>
                   <span>Conv. <b className="text-slate-700">{c.conversao != null ? `${c.conversao}%` : "—"}</b></span>
                 </div>
+                {c.investido > 0 && (
+                  <div className="mt-1 text-xs text-slate-500">
+                    Investiu <b className="text-slate-700">{brl(c.investido)}</b> · cada R$ 1
+                    voltou{" "}
+                    <b className={c.retorno != null && c.retorno >= 1 ? "text-emerald-600" : "text-rose-600"}>
+                      {retornoTxt(c.retorno)}
+                    </b>
+                  </div>
+                )}
               </div>
             ))}
             {(leadsSemCamp > 0 || fatSemCamp > 0) && (
@@ -421,7 +476,14 @@ export default async function MarketingPage({
                   <th className="py-2 px-3 text-right font-semibold tabular-nums">Leads</th>
                   <th className="py-2 px-3 text-right font-semibold tabular-nums">Compraram</th>
                   <th className="py-2 px-3 text-right font-semibold tabular-nums">Conv.</th>
-                  <th className="py-2 pl-3 text-right font-semibold tabular-nums">Faturamento</th>
+                  <th className="py-2 px-3 text-right font-semibold tabular-nums">Faturamento</th>
+                  <th className="py-2 px-3 text-right font-semibold tabular-nums">Investido</th>
+                  <th className="py-2 pl-3 text-right font-semibold tabular-nums">
+                    <span className="inline-flex items-center gap-1">
+                      Retorno
+                      <InfoTip text="Quanto voltou para cada R$ 1 investido: faturamento de TODA a vida da campanha ÷ investimento total digitado em 'Suas campanhas'. O filtro de período não mexe nesta coluna — o gasto é o total, então o retorno também é." />
+                    </span>
+                  </th>
                 </tr>
               </thead>
               <tbody>
@@ -433,7 +495,11 @@ export default async function MarketingPage({
                     <td className="py-2.5 px-3 text-right tabular-nums text-slate-600">{c.leads}</td>
                     <td className="py-2.5 px-3 text-right tabular-nums text-slate-600">{c.clientes}</td>
                     <td className="py-2.5 px-3 text-right tabular-nums text-slate-500">{c.conversao != null ? `${c.conversao}%` : "—"}</td>
-                    <td className="py-2.5 pl-3 text-right tabular-nums font-semibold text-slate-800">{brl(c.fat)}</td>
+                    <td className="py-2.5 px-3 text-right tabular-nums font-semibold text-slate-800">{brl(c.fat)}</td>
+                    <td className="py-2.5 px-3 text-right tabular-nums text-slate-600">{c.investido > 0 ? brl(c.investido) : "—"}</td>
+                    <td className={`py-2.5 pl-3 text-right tabular-nums font-semibold ${c.retorno == null ? "text-slate-400" : c.retorno >= 1 ? "text-emerald-600" : "text-rose-600"}`}>
+                      {retornoTxt(c.retorno)}
+                    </td>
                   </tr>
                 ))}
                 {(leadsSemCamp > 0 || fatSemCamp > 0) && (
@@ -442,7 +508,9 @@ export default async function MarketingPage({
                     <td className="py-2.5 px-3 text-right tabular-nums">{leadsSemCamp}</td>
                     <td className="py-2.5 px-3 text-right tabular-nums">—</td>
                     <td className="py-2.5 px-3 text-right tabular-nums">—</td>
-                    <td className="py-2.5 pl-3 text-right tabular-nums">{brl(fatSemCamp)}</td>
+                    <td className="py-2.5 px-3 text-right tabular-nums">{brl(fatSemCamp)}</td>
+                    <td className="py-2.5 px-3 text-right tabular-nums">—</td>
+                    <td className="py-2.5 pl-3 text-right tabular-nums">—</td>
                   </tr>
                 )}
               </tbody>

@@ -24,8 +24,12 @@ describe("Dashboard: conversão nunca passa de 100%", () => {
   it("cartão 'Sem contato 7+' usa contagem real, não o tamanho da lista de 6", () => {
     expect(dash).toContain("value={noContactCount}");
   });
-  it("cartão de pedidos diz '30d' (não finge ser o mês do calendário)", () => {
-    expect(dash).toContain('"Pagos (30d)"');
+  it("número repetido não volta: o cartão 'Pagos no período' saiu de propósito", () => {
+    // era o MESMO número do rodapé de "Vendas", e o "valor médio" repetia o
+    // cartão "Ticket médio" (enxugada pedida pelo dono, 26/08/2026)
+    expect(dash).not.toContain('"Pagos (30d)"');
+    expect(dash).not.toContain("valor médio ${brl(");
+    expect(dash).toContain("saiu de propósito");
   });
   it("mais vendidos agrupam pelo PRODUTO com o nome ATUAL (renomear junta o histórico)", () => {
     expect(dash).toContain('by: ["productId", "name"]');
