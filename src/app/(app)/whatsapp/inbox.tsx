@@ -4068,8 +4068,17 @@ export function Inbox({
                 </button>
                 </div>
                 <div className="flex items-end gap-1.5 order-1 sm:order-none sm:flex-1 min-w-0">
-                {recording || preparando ? null : filaFotos &&
-                  filaFotos.convId === selected.id ? (
+                {/* A ORDEM AQUI É REGRA, NÃO ESTILO (incidente 28/08/2026):
+                    gravação vem ANTES da fila de fotos — microfone aberto
+                    precisa dos botões de parar/enviar na tela. A tentativa
+                    anterior ("recording ? null : fila ? …") apagava a área
+                    INTEIRA ao tocar no microfone: as barras de "Preparando"
+                    e "Gravando" ficavam inalcançáveis depois do `null`, e
+                    NINGUÉM conseguia mandar áudio. */}
+                {filaFotos &&
+                filaFotos.convId === selected.id &&
+                !recording &&
+                !preparando ? (
                   /* FILA DE FOTOS: sem isto, a vendedora escolhia vinte e a
                      barra ficava muda por meio minuto — parecia travado, e
                      mandar de novo faria a cliente receber tudo em dobro */

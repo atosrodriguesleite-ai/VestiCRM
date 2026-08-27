@@ -140,7 +140,15 @@ describe("o que a revisão pegou (27/08/2026)", () => {
   });
 
   it("a gravação de voz manda na barra (microfone aberto precisa de parar)", () => {
-    expect(inbox).toContain("{recording || preparando ? null : filaFotos &&");
+    // ESTA ASSERÇÃO JÁ GUARDOU O BUG: a versão anterior exigia
+    // `recording || preparando ? null`, que era exatamente o defeito —
+    // `null` encerra a cadeia e as barras de gravação ficavam inalcançáveis,
+    // deixando a área de escrever em branco (ninguém mandava áudio,
+    // 28/08/2026). Teste que descreve o código em vez do COMPORTAMENTO
+    // protege o erro. Agora a régua é: a fila cede a vez à gravação.
+    expect(inbox).toContain("!recording &&");
+    expect(inbox).toContain("!preparando ? (");
+    expect(inbox).not.toContain("recording || preparando ? null");
   });
 
   it("o botão parar responde na hora (o ref sozinho não redesenha)", () => {

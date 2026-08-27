@@ -262,7 +262,14 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   **uma bolha para cada mensagem** (todas têm o corpo "📷 Imagem"; sem isso a
   foto anterior apagava a bolha da que estava em voo e o erro dela sumia).
   A barra mostra o andamento na conversa DELA (nas outras o chat segue
-  normal), dá para PARAR a fila e três falhas seguidas param sozinhas. **Foto em alta resolução**
+  normal), dá para PARAR a fila e três falhas seguidas param sozinhas.
+  **A ORDEM das barras do compositor é regra** (incidente 28/08/2026):
+  gravação vem ANTES da fila — microfone aberto precisa dos botões de parar
+  e enviar. A tentativa de dar prioridade com `recording ? null : …` apagou a
+  área INTEIRA ao tocar no microfone (o `null` encerra a cadeia e as barras
+  ficam inalcançáveis) e NINGUÉM mandou áudio até o conserto. O teste que
+  deveria pegar isso exigia o próprio trecho defeituoso: guarda que descreve
+  o CÓDIGO em vez do COMPORTAMENTO protege o erro em vez de impedi-lo. **Foto em alta resolução**
   (`lib/comprimir-foto.ts`): lado maior 2560px (era 1600 — a cliente dá zoom
   para ver trama e acabamento e via borrão), alvo ~2,2 MB com teto duro que
   volta a 1600px se não couber; a codificação usa `toBlob` (o `toDataURL`
