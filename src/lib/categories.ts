@@ -30,8 +30,22 @@ export function parseCategoryOrder(json: string | null | undefined): string[] {
  */
 export type DescricoesDeCategoria = Record<string, string>;
 
+// espaços colapsados (\s pega NBSP): "Regata Alça " e "Regata  Alça" são a
+// mesma categoria — nome byte-diferente que renderiza igual criava seção gêmea
 const chave = (nome: string) =>
-  nome.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").trim();
+  nome
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+/** Chave canônica de categoria — a MESMA régua para agrupar, ordenar e descrever. */
+export const chaveDeCategoria = chave;
+
+/** Nome limpo para EXIBIR: NFC, espaços colapsados, sem sobras nas pontas. */
+export const rotuloDeCategoria = (nome: string) =>
+  nome.normalize("NFC").replace(/\s+/g, " ").trim();
 
 export const LIMITE_DESCRICAO = 220;
 
@@ -222,11 +236,16 @@ export function agruparPorTipo(
 
 export function sortCategories(categories: string[], saved: string[]): string[] {
   if (!saved.length) return categories;
-  const pos = new Map(saved.map((c, i) => [c.toLowerCase(), i]));
+  // a ordem salva casa pela MESMA chave normalizada do resto do arquivo —
+  // só minúscula deixava a variante com acento decomposto cair no fim
+  const pos = new Map<string, number>();
+  // gêmeas byte-diferentes na ordem SALVA: vale a PRIMEIRA posição (a que a
+  // lojista arrastou) — a fantasma lá de baixo não pode vencer
+  saved.forEach((c, i) => {
+    if (!pos.has(chave(c))) pos.set(chave(c), i);
+  });
   // sort é estável: empates (categorias novas) preservam a ordem natural
   return [...categories].sort(
-    (a, b) =>
-      (pos.get(a.toLowerCase()) ?? saved.length) -
-      (pos.get(b.toLowerCase()) ?? saved.length)
+    (a, b) => (pos.get(chave(a)) ?? saved.length) - (pos.get(chave(b)) ?? saved.length)
   );
 }

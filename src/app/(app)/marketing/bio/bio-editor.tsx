@@ -205,10 +205,10 @@ export function BioEditor({
   const [loadingReport, setLoadingReport] = useState(false);
 
   useEffect(() => {
-    if (period === 0) {
-      setReport(allData);
-      return;
-    }
+    // "Tudo" (period=0) TAMBÉM busca na rota: o atalho local somava só os
+    // contadores dos botões vivos — apagar um botão fazia o "Tudo" ficar
+    // MENOR que o "30 dias" (a rota já soma os cliques do botão apagado);
+    // o allData fica de valor inicial enquanto a resposta não chega
     let alive = true;
     setLoadingReport(true);
     fetch(`/api/marketing/bio/report?days=${period}`)

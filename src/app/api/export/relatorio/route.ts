@@ -115,20 +115,23 @@ export async function GET(req: NextRequest) {
 
     // ---- Vendas por vendedora (com a linha da loja) ----
     const nomeVendedora = new Map(vendedoras.map((v) => [v.id, v.name]));
-    const porVendedora = new Map<string, { pedidos: number; fat: number }>();
+    // agrupa por ID (duas "Maria Silva" são duas linhas, como na tela);
+    // o nome é só o rótulo impresso
+    const porVendedora = new Map<string, { nome: string; pedidos: number; fat: number }>();
     for (const v of vendas) {
+      const id = v.sellerId ?? "loja";
       const nome = v.sellerId
         ? (nomeVendedora.get(v.sellerId) ?? "Vendedora removida")
         : "Loja (sem vendedora)";
-      const cur = porVendedora.get(nome) ?? { pedidos: 0, fat: 0 };
+      const cur = porVendedora.get(id) ?? { nome, pedidos: 0, fat: 0 };
       cur.pedidos += 1;
       cur.fat += v.netTotal;
-      porVendedora.set(nome, cur);
+      porVendedora.set(id, cur);
     }
     linha("VENDAS POR VENDEDORA");
     linha("Vendedora", "Pedidos pagos", "Faturamento");
-    for (const [nome, t] of [...porVendedora.entries()].sort((a, b) => b[1].fat - a[1].fat)) {
-      linha(nome, t.pedidos, brlNum(t.fat));
+    for (const t of [...porVendedora.values()].sort((a, b) => b.fat - a.fat)) {
+      linha(t.nome, t.pedidos, brlNum(t.fat));
     }
     vazio();
 

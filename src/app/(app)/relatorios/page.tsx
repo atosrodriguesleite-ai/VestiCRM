@@ -17,6 +17,7 @@ import { brl, dateShort, originLabel } from "@/lib/format";
 import { Card, PageHeader, EmptyState } from "@/components/ui";
 import { AreaChart, BarList, FunnelBars, PeriodChips, StatTile } from "@/components/charts";
 import { lerPeriodo, periodoPorExtenso } from "@/lib/periodo";
+import { chaveDoNome } from "@/lib/tracking/insights";
 
 export const dynamic = "force-dynamic";
 
@@ -277,15 +278,17 @@ export default async function ReportsPage({
     value: s._count.opportunities,
   }));
 
-  // motivos de perda
-  const lostReasons = new Map<string, number>();
+  // motivos de perda — texto digitado: "Preço alto" com ç/espaço gravado
+  // diferente fundem numa barra só (mesma régua dos rankings, chaveDoNome)
+  const lostReasons = new Map<string, { label: string; value: number }>();
   for (const o of opps.filter((o) => o.status === "LOST")) {
-    const reason = o.lostReason?.trim() || "Sem motivo registrado";
-    lostReasons.set(reason, (lostReasons.get(reason) ?? 0) + 1);
+    const reason = chaveDoNome(o.lostReason ?? "") || "Sem motivo registrado";
+    const k = reason.toLowerCase();
+    const cur = lostReasons.get(k) ?? { label: reason, value: 0 };
+    cur.value += 1;
+    lostReasons.set(k, cur);
   }
-  const lossData = [...lostReasons.entries()]
-    .map(([label, value]) => ({ label, value }))
-    .sort((a, b) => b.value - a.value);
+  const lossData = [...lostReasons.values()].sort((a, b) => b.value - a.value);
 
   // origem dos clientes (base inteira)
   const byOrigin = new Map<string, number>();

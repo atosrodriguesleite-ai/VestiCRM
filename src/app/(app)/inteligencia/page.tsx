@@ -441,7 +441,10 @@ export default async function IntelligencePage({
         {/* Ranking de canais */}
         <Card className="p-5">
           <div className="flex items-center justify-between mb-4">
-            <h2 className="font-semibold">Ranking de canais</h2>
+            <h2 className="font-semibold flex items-center gap-2">
+              Ranking de canais
+              <InfoTip text="Faturamento (pago) = pedidos DESSAS visitas que viraram dinheiro, pagos em qualquer data — mede o que cada canal trouxe. Por isso pode diferir do cartão Faturamento lá em cima, que soma só os pagamentos DENTRO do período." />
+            </h2>
             <a href={exportar("canais")} className="flex items-center gap-1 text-xs font-medium text-brand-600 hover:text-brand-700">
               <Download className="size-3.5" /> CSV
             </a>
@@ -489,7 +492,10 @@ export default async function IntelligencePage({
         {/* Campanhas */}
         <Card className="p-5">
           <div className="flex items-center justify-between mb-4">
-            <h2 className="font-semibold">Campanhas e QR Codes</h2>
+            <h2 className="font-semibold flex items-center gap-2">
+              Campanhas e QR Codes
+              <InfoTip text="Faturamento (pago) = pedidos das visitas da campanha, pagos em qualquer data — campanha antiga não perde a venda que demorou a ser paga. Pode diferir do cartão Faturamento, que soma só os pagamentos do período." />
+            </h2>
             <a href={exportar("campanhas")} className="flex items-center gap-1 text-xs font-medium text-brand-600 hover:text-brand-700">
               <Download className="size-3.5" /> CSV
             </a>

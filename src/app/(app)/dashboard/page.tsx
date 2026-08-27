@@ -41,6 +41,7 @@ import { InfoTip } from "@/components/info-tip";
 import { PrimeirosPassos, type Passo } from "./primeiros-passos";
 import { ChamadasDoDia, ChamadasDoDiaEsqueleto } from "./chamadas-do-dia";
 import { computeAutomations } from "@/lib/automations";
+import { chaveDoNome } from "@/lib/tracking/insights";
 
 export const dynamic = "force-dynamic";
 
@@ -278,10 +279,16 @@ export default async function DashboardPage({
   // Linha sem produto vinculado (avulsa) agrupa pelo nome gravado no item.
   const somaPorChave = new Map<string, number>();
   const nomeGravado = new Map<string, string>();
+  const maiorLinha = new Map<string, number>();
   for (const t of topItemsRaw) {
-    const chave = t.productId ?? `nome:${t.name}`;
+    const chave = t.productId ?? `nome:${chaveDoNome(t.name)}`;
     somaPorChave.set(chave, (somaPorChave.get(chave) ?? 0) + (t._sum.quantity ?? 0));
-    if (t.productId) nomeGravado.set(t.productId, t.name);
+    // fallback de produto apagado: vale o nome da linha de MAIOR quantidade
+    // (pegar "a última do banco" mudava o rótulo a cada recarregamento)
+    if (t.productId && (t._sum.quantity ?? 0) > (maiorLinha.get(t.productId) ?? -1)) {
+      maiorLinha.set(t.productId, t._sum.quantity ?? 0);
+      nomeGravado.set(t.productId, t.name);
+    }
   }
   const idsVendidos = [...somaPorChave.keys()].filter((k) => !k.startsWith("nome:"));
 
@@ -319,16 +326,32 @@ export default async function DashboardPage({
     }),
   ]);
   const nomeAtual = new Map(nomesAtuais.map((p) => [p.id, p.name]));
-  const somaPorNome = new Map<string, number>();
+  // A fusão final usa a chave NORMALIZADA (chaveDoNome: NFC + espaços
+  // colapsados + trim, sem maiúscula/minúscula) — nomes que renderizam
+  // iguais mas diferem em bytes (ç decomposto do iOS/Nuvemshop, espaço no
+  // fim, NBSP) viravam DUAS linhas no cartão: visto em produção com
+  // "Regata Alça" duplicada (175 + 20 un.). Mesma régua da Inteligência,
+  // que já tinha levado esse conserto.
+  const somaPorNome = new Map<string, { rotulo: string; qtd: number; doCadastro: boolean }>();
   for (const [chave, qtd] of somaPorChave) {
+    const doCadastro = !chave.startsWith("nome:") && nomeAtual.has(chave);
     const rotulo = chave.startsWith("nome:")
       ? chave.slice(5)
       : // produto apagado do cadastro: vale o nome gravado no pedido
         (nomeAtual.get(chave) ?? nomeGravado.get(chave) ?? "Produto removido");
-    somaPorNome.set(rotulo, (somaPorNome.get(rotulo) ?? 0) + qtd);
+    const k = chaveDoNome(rotulo).toLowerCase();
+    const linha = somaPorNome.get(k) ?? { rotulo: chaveDoNome(rotulo), qtd: 0, doCadastro };
+    linha.qtd += qtd;
+    // a grafia do CADASTRO vence a do item avulso (mesma regra da
+    // Inteligência) — senão o rótulo mudava conforme a ordem do banco
+    if (doCadastro && !linha.doCadastro) {
+      linha.rotulo = chaveDoNome(rotulo);
+      linha.doCadastro = true;
+    }
+    somaPorNome.set(k, linha);
   }
-  const topItems = [...somaPorNome.entries()]
-    .map(([name, quantidade]) => ({ name, quantidade }))
+  const topItems = [...somaPorNome.values()]
+    .map(({ rotulo, qtd }) => ({ name: rotulo, quantidade: qtd }))
     .sort((a, b) => b.quantidade - a.quantidade)
     .slice(0, 6);
 
@@ -465,8 +488,25 @@ export default async function DashboardPage({
         .reduce((sum, v) => sum + v.netTotal, 0),
       count: allSales30.filter((v) => v.sellerId === s.id).length,
     }))
-    .filter((r) => r.count > 0)
-    .sort((a, b) => b.totalVendido - a.totalVendido);
+    .filter((r) => r.count > 0);
+  // venda SEM dona (Nuvemshop, catálogo sem ?ref=) entra como linha da loja
+  // — sem ela o ranking somava MENOS que o cartão de Vendas da mesma tela
+  // (mesma queixa que criou a linha nos Relatórios). Para a vendedora nada
+  // muda: o escopo dela não tem venda sem dona.
+  const semDona = allSales30.filter((v) => !v.sellerId);
+  if (semDona.length > 0) {
+    ranking.push({
+      seller: {
+        id: "loja-sem-vendedora",
+        name: "Loja (sem vendedora)",
+        color: "#94a3b8",
+        monthlyGoal: 0,
+      } as unknown as (typeof sellers)[number],
+      totalVendido: semDona.reduce((sum, v) => sum + v.netTotal, 0),
+      count: semDona.length,
+    });
+  }
+  ranking.sort((a, b) => b.totalVendido - a.totalVendido);
 
   const topInterests = interests
     .map((i) => ({ label: i.name, value: i._count.customers }))

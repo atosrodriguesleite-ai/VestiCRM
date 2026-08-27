@@ -30,7 +30,16 @@ export function periodFromDays(days: number): Period {
 
 export function previousPeriod(p: Period): Period {
   const len = p.to.getTime() - p.from.getTime();
-  return { from: new Date(p.from.getTime() - len), to: p.from };
+  const DIA = 24 * 60 * 60 * 1000;
+  // "Hoje" (janela menor que um dia): compara com o MESMO trecho de ontem
+  // (00:00 → esta hora), não com o fim da noite — o delta da manhã sempre
+  // "caía 60%" contra o pico noturno de ontem
+  if (len < DIA)
+    return { from: new Date(p.from.getTime() - DIA), to: new Date(p.to.getTime() - DIA) };
+  // janela igual TERMINANDO 1ms antes do período atual — o `to: p.from`
+  // antigo contava a venda paga na borda exata nos DOIS períodos, e as
+  // setinhas divergiam do Dashboard/Relatórios (que já usam from−1ms)
+  return { from: new Date(p.from.getTime() - len), to: new Date(p.from.getTime() - 1) };
 }
 
 const r2 = (v: number) => Math.round(v * 100) / 100;
@@ -166,7 +175,11 @@ async function loadSessions(companyId: string, p: Period) {
 
 async function loadEvents(companyId: string, p: Period) {
   return db.trackEvent.findMany({
-    where: { companyId, createdAt: { gte: p.from, lte: p.to } },
+    // eventos das SESSÕES do período (mesma população do degrau "Visitas"),
+    // não eventos soltos pela data — sessão que cruza a meia-noite fazia o
+    // funil "subir" (Viram produtos > Visitas) e os rankings desalinhavam
+    // dos Acessos
+    where: { companyId, session: { startedAt: { gte: p.from, lte: p.to } } },
     // ordem estável: sem ela, qual grafia "chega primeiro" no ranking variava
     // entre atualizações da página (ordem física do banco)
     orderBy: [{ createdAt: "asc" }, { id: "asc" }],
@@ -217,10 +230,11 @@ async function carrinhosAbertosDaEsteira(companyId: string, p: Period) {
     sessaoIds.length
       ? db.trackSession.findMany({
           where: { id: { in: sessaoIds } },
-          select: { id: true, visitorId: true },
+          select: { id: true, visitorId: true, converted: true },
         })
       : [],
   ]);
+  const sessaoDoCarrinho = new Map(sessoesDosCarrinhos.map((s) => [s.id, s]));
   const visitanteDaSessao = new Map(sessoesDosCarrinhos.map((s) => [s.id, s.visitorId]));
   const conversoes = await conversoesDosVisitantes(
     companyId,
@@ -232,6 +246,13 @@ async function carrinhosAbertosDaEsteira(companyId: string, p: Period) {
       c.customerId &&
       pedidosDepois.some((o) => o.customerId === c.customerId && o.createdAt > c.abandonedAt)
     ) {
+      return true;
+    }
+    // a PRÓPRIA sessão do carrinho enviou o pedido (aba reaberta depois da
+    // varredura): `converted` basta — a única data que existe é o startedAt,
+    // sempre ANTERIOR ao abandono nesse caso, então a régua por data nunca
+    // resolvia e a tela mandava "recupere" para quem já pediu
+    if (c.trackSessionId && sessaoDoCarrinho.get(c.trackSessionId)?.converted) {
       return true;
     }
     const visitante = c.trackSessionId ? visitanteDaSessao.get(c.trackSessionId) : undefined;
@@ -283,11 +304,11 @@ export async function overview(companyId: string, p: Period) {
   const revenue = sales.reduce((a, s) => a + s.netTotal, 0);
   const buyers = await db.order.groupBy({
     by: ["customerId"],
-    where: {
-      companyId,
-      status: { in: PAID_ORDER_STATUSES },
-      paidAt: { gte: p.from, lte: p.to },
-    },
+    // VIDA TODA de propósito — a mesma régua da "Taxa de recompra" do
+    // Dashboard e do Marketing ("compraram mais de uma vez"). Filtrar pelo
+    // período fazia a Inteligência dizer 0 recorrentes enquanto o Dashboard
+    // dizia 40%, para a mesma loja (auditoria 27/08/2026)
+    where: { companyId, status: { in: PAID_ORDER_STATUSES } },
     _count: true,
   });
 
@@ -611,16 +632,20 @@ export function montarRanking(
       dim === "productName"
         ? (cadastroDoEvento?.name ?? e.productName)
         : dim === "category"
-          ? e.type === "product_view"
-            ? // categoria de HOJE do produto visto; produto sumiu → a da época
-              (cadastroDoEvento ? cadastroDoEvento.category || null : e.category)
-            : e.category
+          ? // categoria de HOJE do produto do evento (sacola incluída — só o
+            // product_view resolvia, e renomear a categoria deixava os
+            // +Sacola/Removidos numa linha fantasma com o nome antigo);
+            // produto sumiu ou evento sem produto (category_view) → a da época
+            (cadastroDoEvento ? cadastroDoEvento.category || null : e.category)
           : e[dim]?.trim() || null;
     if (e.type === "product_view" || e.type === "category_view" || e.type === "color_select" || e.type === "size_select") {
       if (
         (dim === "productName" && e.type === "product_view") ||
         (dim === "category" && (e.type === "category_view" || e.type === "product_view")) ||
-        (dim === "color" && (e.type === "color_select" || e.type === "product_view")) ||
+        // só color_select: o product_view chega com a MESMA cor no mesmo
+        // gesto e dobrava as views — a conversão por cor saía pela metade e
+        // o alerta "cor convertendo bem" quase nunca disparava
+        (dim === "color" && e.type === "color_select") ||
         (dim === "size" && e.type === "size_select")
       ) {
         bump(key, "views", 1, 0, Boolean(cadastroDoEvento));
@@ -651,7 +676,9 @@ export function montarRanking(
     // evento, limitada a 100% por segurança (adição sem abertura no período
     // é raro, mas existe: a ficha foi aberta antes da meia-noite do recorte)
     conversion: r2(Math.min(100, pct(addEvents, Math.max(row.views, 1)))),
-    abandonRate: r2(pct(row.removes, Math.max(row.adds, 1))),
+    // teto em 100%: peça adicionada ANTES do recorte e removida dentro dele
+    // fazia o CSV mostrar "300% de abandono"
+    abandonRate: r2(Math.min(100, pct(row.removes, Math.max(row.adds, 1)))),
   }));
 }
 
@@ -935,7 +962,7 @@ export async function alerts(companyId: string) {
   const [sessions, prodStats, colStats] = await Promise.all([
     db.trackSession.findMany({
       where: { companyId, startedAt: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) } },
-      select: { visitorId: true, customerId: true, cartValue: true },
+      select: { visitorId: true, customerId: true, cartValue: true, converted: true },
     }),
     productStats(companyId, semanaViva),
     colorStats(companyId, semanaViva),
@@ -966,9 +993,10 @@ export async function alerts(companyId: string) {
       out.push(`${name ?? "Um visitante"} visitou o catálogo ${n} vezes hoje.`);
     }
   }
-  // carrinho alto hoje
+  // carrinho alto hoje — sessão que JÁ enviou o pedido fica de fora (a
+  // cutucada pós-venda constrangia a loja)
   for (const s of sessions) {
-    if (s.cartValue >= 800) {
+    if (s.cartValue >= 800 && !s.converted) {
       const name = s.customerId ? byId.get(s.customerId)?.name : "Um visitante";
       out.push(`${name ?? "Um visitante"} adicionou ${fmtBrl(s.cartValue)} ao carrinho.`);
     }

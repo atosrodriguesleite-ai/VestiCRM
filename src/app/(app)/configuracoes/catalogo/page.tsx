@@ -3,7 +3,7 @@ import { ArrowLeft } from "lucide-react";
 import { requireUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { isAdmin, isManagerUp, isSupport } from "@/lib/scope";
-import { parseCategoryOrder, sortCategories } from "@/lib/categories";
+import { parseCategoryOrder, sortCategories, chaveDeCategoria, rotuloDeCategoria } from "@/lib/categories";
 import { compararTamanhos } from "@/lib/tamanhos";
 import { PageHeader } from "@/components/ui";
 import { CatalogDesigner } from "./catalog-designer";
@@ -40,13 +40,19 @@ export default async function CatalogCustomizePage() {
   ]);
   if (!company) return null;
 
+  // gêmeas byte-diferentes (ç decomposto, espaço no fim) fundem numa linha
+  // só — senão a lojista via e arrastava DUAS "Regata Alça", e salvar
+  // re-gravava a fantasma na ordem para sempre
+  const canonicas = new Map<string, string>();
+  for (const nome of [
+    ...catRows.map((r) => r.category),
+    ...parseCategoryOrder(company.extraCategories),
+  ]) {
+    const k = chaveDeCategoria(nome);
+    if (!canonicas.has(k)) canonicas.set(k, rotuloDeCategoria(nome));
+  }
   const categories = sortCategories(
-    [
-      ...new Set([
-        ...catRows.map((r) => r.category),
-        ...parseCategoryOrder(company.extraCategories),
-      ]),
-    ],
+    [...canonicas.values()],
     parseCategoryOrder(company.categoryOrder)
   );
 
