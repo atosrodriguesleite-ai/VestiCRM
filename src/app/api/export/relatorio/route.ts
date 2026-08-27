@@ -4,12 +4,13 @@ import { requireUser, AuthError } from "@/lib/auth";
 import { isManagerUp } from "@/lib/scope";
 import { PAID_ORDER_STATUSES } from "@/lib/orders";
 import { originLabel } from "@/lib/format";
-import { lerPeriodo, periodoPorExtenso } from "@/lib/periodo";
+import { lerPeriodo, periodoPorExtenso, ultimosDiasSP } from "@/lib/periodo";
 
 /**
  * "Me dá o mês fechado em planilha" — exporta o RESUMO dos Relatórios em CSV
  * (abre direto no Excel/Planilhas), no MESMO período que a tela mostra
- * (?de=&ate=; sem filtro, últimos 90 dias). Mesma régua de acesso da tela:
+ * (?de=&ate=; sem filtro, últimos 30 dias — o mesmo padrão da tela e das
+ * demais telas de números). Mesma régua de acesso da tela:
  * Relatórios é visão geral da loja, vendedor comum não baixa.
  *
  * As contas são as MESMAS da tela (pedido PAGO, valor vendido `netTotal` sem
@@ -38,11 +39,10 @@ export async function GET(req: NextRequest) {
     const de = req.nextUrl.searchParams.get("de") ?? undefined;
     const ate = req.nextUrl.searchParams.get("ate") ?? undefined;
     const filtro = lerPeriodo({ de, ate });
-    const now = new Date();
-    const periodo = filtro.personalizado
-      ? filtro.period
-      : { from: new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000), to: now };
-    const rotulo = filtro.personalizado ? periodoPorExtenso(filtro) : "últimos 90 dias";
+    // mesmo período da tela, da mesma régua (`ultimosDiasSP`): planilha que
+    // abre num recorte e tela em outro seriam duas verdades
+    const periodo = filtro.personalizado ? filtro.period : ultimosDiasSP(30);
+    const rotulo = filtro.personalizado ? periodoPorExtenso(filtro) : "últimos 30 dias";
     const durMs = Math.max(periodo.to.getTime() - periodo.from.getTime(), 1);
     const anterior = {
       from: new Date(periodo.from.getTime() - durMs),

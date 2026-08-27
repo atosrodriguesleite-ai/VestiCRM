@@ -16,7 +16,7 @@ import { PAID_ORDER_STATUSES } from "@/lib/orders";
 import { brl, dateShort, originLabel } from "@/lib/format";
 import { Card, PageHeader, EmptyState } from "@/components/ui";
 import { AreaChart, BarList, FunnelBars, PeriodChips, StatTile } from "@/components/charts";
-import { lerPeriodo, periodoPorExtenso } from "@/lib/periodo";
+import { lerPeriodo, periodoPorExtenso, ultimosDiasSP } from "@/lib/periodo";
 import { chaveDoNome } from "@/lib/tracking/insights";
 
 export const dynamic = "force-dynamic";
@@ -34,14 +34,19 @@ export default async function ReportsPage({
   // PERÍODO ESCOLHIDO PELA LOJISTA (atalhos ou datas a dedo).
   // Antes era 90 dias FIXOS no código: não dava para ver o mês fechado, a
   // Black Friday, nem comparar duas semanas de campanha.
+  //
+  // O PADRÃO SÃO 30 DIAS, o mesmo do Dashboard, do Marketing e da
+  // Inteligência (auditoria 27/08/2026): aqui abria em 90 dias, então abrir
+  // as telas lado a lado sem mexer no filtro dava faturamentos diferentes —
+  // e cada uma estava certa pelo seu rótulo. São 30 dias de CALENDÁRIO
+  // (`ultimosDiasSP`, a mesma conta do atalho "30 dias" e da planilha): a
+  // janela corrida começava no meio do dia e desalinhava as barras diárias.
   const { de, ate } = await searchParams;
   const filtro = lerPeriodo({ de, ate });
-  const periodo = filtro.personalizado
-    ? filtro.period
-    : { from: new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000), to: now };
+  const periodo = filtro.personalizado ? filtro.period : ultimosDiasSP(30);
   const rotuloPeriodo = filtro.personalizado
     ? periodoPorExtenso(filtro)
-    : "últimos 90 dias";
+    : "últimos 30 dias";
 
   // Venda = pedido PAGO (fonte única da verdade, igual Dashboard/Inteligência).
   // Inclui vendas integradas (Nuvemshop etc.), que entram como pedido pago
@@ -390,12 +395,12 @@ export default async function ReportsPage({
       />
 
       <div className="mb-5">
-        <PeriodChips pathname="/relatorios" de={de} ate={ate} allLabel="90 dias" />
+        <PeriodChips pathname="/relatorios" de={de} ate={ate} />
       </div>
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4 mb-6">
         <StatTile
-          label={`Faturamento (${filtro.personalizado ? "período" : "90d"})`}
+          label={`Faturamento (${filtro.personalizado ? "período" : "30d"})`}
           value={brl(totalPeriodo)}
           delta={temPeriodoAnterior ? deltaFaturamento : null}
           deltaHint={rotuloAnterior}

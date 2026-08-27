@@ -38,6 +38,30 @@ export function fimDoDiaSP(d: string | null | undefined): Date | null {
   return Number.isNaN(t) ? null : new Date(t + FUSO_SP);
 }
 
+/**
+ * Últimos N dias em DIAS DE CALENDÁRIO de São Paulo — o MESMO recorte do
+ * atalho "30 dias" da barra de filtros (de = 29 dias atrás, até = hoje).
+ *
+ * Por que não a janela corrida (`agora - 30 dias`): ela começa no MEIO do
+ * dia, e o gráfico dos Relatórios ancora as barras no início do período —
+ * cada barra cobria 17:00→17:00 e levava o rótulo do dia em que começava,
+ * então a venda paga hoje de manhã aparecia na barra de ONTEM. A planilha do
+ * mesmo período agrupa por dia de calendário e mostrava no dia certo: tela e
+ * CSV divergiam dia a dia (achado da revisão, 27/08/2026). Alinhado à
+ * meia-noite, o padrão da tela é idêntico ao do atalho aceso — clicar nele
+ * não muda nada, que é o que a lojista espera.
+ */
+export function ultimosDiasSP(dias: number): Period {
+  const hoje = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Sao_Paulo",
+  }).format(new Date());
+  const inicioDeHoje = inicioDoDiaSP(hoje)!;
+  return {
+    from: new Date(inicioDeHoje.getTime() - (dias - 1) * 24 * 60 * 60 * 1000),
+    to: fimDoDiaSP(hoje)!,
+  };
+}
+
 export type FiltroDePeriodo = {
   /** o período em si, pronto para as consultas */
   period: Period;
