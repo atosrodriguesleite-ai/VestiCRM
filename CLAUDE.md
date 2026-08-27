@@ -248,7 +248,29 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   de SAÍDA (fone bluetooth em viva-voz derrubava tudo para 16 kHz). A captura
   usa cancelamento de eco
   DESLIGADO — é gravação, não chamada —, mantendo supressão de ruído e ganho
-  automático, que loja barulhenta precisa), pedidos dentro do chat (com PDF
+  automático, que loja barulhenta precisa), **até 20 fotos de uma vez** (a
+  vendedora mandava a arara peça por peça; só FOTO aceita várias — vídeo e
+  documento pesam 3 MB cada). As fotos saem **uma de cada vez, com 2s de pausa
+  entre elas** (`MS_ENTRE_FOTOS`): o envio de mídia é em segundo plano, então
+  sem a pausa os vinte sairiam em rajada — o padrão que faz o WhatsApp
+  desconfiar da conta (RN-017). A pausa é maior que a subida de uma foto, e
+  **na prática** elas chegam na ordem escolhida — não é promessa: ordem
+  garantida exigiria segurar o pedido aberto até o envio terminar, que é
+  exatamente o que matava a função no meio e fazia a cliente RECEBER DUAS
+  VEZES (incidente do áudio). Quem espera é o NAVEGADOR, nunca o servidor.
+  Cada foto tem a própria bolha (⏱️ → ✓ ou ⚠️) — e o dedup do sync casa
+  **uma bolha para cada mensagem** (todas têm o corpo "📷 Imagem"; sem isso a
+  foto anterior apagava a bolha da que estava em voo e o erro dela sumia).
+  A barra mostra o andamento na conversa DELA (nas outras o chat segue
+  normal), dá para PARAR a fila e três falhas seguidas param sozinhas. **Foto em alta resolução**
+  (`lib/comprimir-foto.ts`): lado maior 2560px (era 1600 — a cliente dá zoom
+  para ver trama e acabamento e via borrão), alvo ~2,2 MB com teto duro que
+  volta a 1600px se não couber; a codificação usa `toBlob` (o `toDataURL`
+  congelava a tela em vinte fotos) e a memória é liberada entre elas
+  (`img.close()`, senão o celular derrubava a aba no meio da fila). Medido no
+  Chromium: foto de peça 4032×3024 sai 2560×1920 com ~0,2 MB; o pior caso
+  (ruído em cada pixel) dá 1,88 MB, dentro do teto do envio. Lembrar da
+  dívida nº 1: isso mora como data-URL no banco. Pedidos dentro do chat (com PDF
   enviado de verdade), **sync incremental a cada 3s** (`GET /api/conversations?since=`
   + `Conversation.updatedAt`). **PREPARADO PARA MILHARES DE CONVERSAS**: a
   LISTA carrega só a ÚLTIMA mensagem de cada conversa, cortada em 140

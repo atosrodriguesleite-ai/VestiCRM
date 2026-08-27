@@ -83,7 +83,7 @@ import { EscolherMicrofone } from "./escolher-microfone";
 import { pausarOsOutros } from "@/lib/um-som-por-vez";
 import { Avatar, EmptyState } from "@/components/ui";
 import { gravacaoParaWav, TETO_AUDIO_BYTES } from "@/lib/audio-wav";
-import { comprimirFoto, nomeJpeg } from "@/lib/comprimir-foto";
+import { comprimirFoto, nomeJpeg, TETO_FOTOS_DE_UMA_VEZ } from "@/lib/comprimir-foto";
 import { Portal } from "@/components/portal";
 
 /**
@@ -677,6 +677,15 @@ export function Inbox({
   // meio segundo entre tocar no microfone e começar a gravar de fato: é o
   // tempo que o ganho automático leva para achar o volume da voz
   const [preparando, setPreparando] = useState(false);
+  // fila de fotos em andamento (envio múltiplo): mostra "3 de 20".
+  // Guarda a CONVERSA: sem isso a barra tomava o lugar do campo de escrever
+  // em QUALQUER conversa aberta, e a vendedora não conseguia responder mais
+  // ninguém enquanto as vinte fotos saíam.
+  const [filaFotos, setFilaFotos] = useState<
+    { feito: number; total: number; convId: string } | null
+  >(null);
+  const cancelarFilaRef = useRef(false);
+  const [parandoFila, setParandoFila] = useState(false);
   const [recSecs, setRecSecs] = useState(0);
   const recRef = useRef<MediaRecorder | null>(null);
   const recChunksRef = useRef<Blob[]>([]);
@@ -1096,8 +1105,21 @@ export function Inbox({
             }
             // preserva mensagem recém-enviada que o servidor ainda não devolveu
             const ids = new Set(f.messages.map((m) => m.id));
+            // Uma mensagem do servidor só pode "quitar" UMA bolha otimista.
+            // Sem isto, uma fila de fotos (todas com o corpo "📷 Imagem")
+            // tinha a bolha da foto EM VOO apagada pela foto ANTERIOR que
+            // voltou no sync: se aquele envio falhasse, a bolha de erro com
+            // "Reenviar" não nascia e a foto sumia calada.
+            const jaCasadas = new Set<string>();
             const extra = p.messages.filter((m) => {
-              if (ids.has(m.id)) return false;
+              if (ids.has(m.id)) {
+                // esta já foi reconciliada: a versão do servidor manda. E ela
+                // fica MARCADA como gasta — senão continuava disponível para
+                // "quitar" a bolha da PRÓXIMA foto do lote (mesmo corpo), que
+                // era o buraco que sumia com a foto em voo
+                jaCasadas.add(m.id);
+                return false;
+              }
               // BOLHA QUE FALHOU NUNCA É APAGADA DA TELA.
               //
               // Incidente real: a vendedora manda "Bom dia", o envio falha
@@ -1110,17 +1132,21 @@ export function Inbox({
               // se o sync trouxe a mesma mensagem (sentido+texto), descarta a
               // temp. Só casa com mensagem RECENTE (2 min): sem essa janela,
               // qualquer repetição antiga do mesmo texto engolia a bolha nova.
-              if (
-                m.id.startsWith("temp-") &&
-                f.messages.some(
+              if (m.id.startsWith("temp-")) {
+                const par = f.messages.find(
                   (fm) =>
+                    !jaCasadas.has(fm.id) &&
                     fm.direction === m.direction &&
                     fm.kind === m.kind &&
+                    fm.mediaType === m.mediaType &&
                     fm.body === m.body &&
                     Date.now() - new Date(fm.createdAt).getTime() < 120_000
-                )
-              )
-                return false;
+                );
+                if (par) {
+                  jaCasadas.add(par.id);
+                  return false;
+                }
+              }
               return true;
             });
             return {
@@ -1256,7 +1282,16 @@ export function Inbox({
    * envio real acontece em segundo plano — quando o servidor confirma, a bolha
    * vira ✓ (ou ⚠️ se falhar). Assim a tela nunca "trava" esperando o WhatsApp.
    */
-  async function sendPayload(payload: Record<string, unknown>) {
+  /**
+   * `pularAssumir`: numa fila (vinte fotos), o `selected` do laço é sempre o
+   * MESMO objeto — a tela não redesenha entre as voltas —, então "conversa
+   * sem dona" continuava verdadeiro nas vinte e saíam vinte PATCH iguais,
+   * cada um acordando o sync de 3s. Só a primeira da fila assume.
+   */
+  async function sendPayload(
+    payload: Record<string, unknown>,
+    { pularAssumir = false }: { pularAssumir?: boolean } = {}
+  ) {
     if (!selected) return false;
     const convId = selected.id;
     const tempId = `temp-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
@@ -1293,7 +1328,7 @@ export function Inbox({
     });
 
     // enviar mensagem em conversa da fila = assumir o atendimento (visual já)
-    if (!selected.assignee) {
+    if (!selected.assignee && !pularAssumir) {
       patchLocal(convId, {
         assignee: { id: currentUserId, name: currentUserName, color: "#c4622d" },
       });
@@ -2051,14 +2086,46 @@ export function Inbox({
   // ---- Envio de mídia real (imagem/vídeo/documento) ----
   function pickFile(kind: "IMAGE" | "VIDEO" | "DOCUMENT") {
     setShowAttach(false);
+    // uma fila por vez: escolher mais fotos no meio do envio fazia as duas
+    // filas dividirem a mesma barra — a primeira a terminar escondia o
+    // andamento da outra, e a tela voltava a parecer travada
+    if (filaFotos) {
+      alert("Espere as fotos atuais terminarem de sair para escolher outras. 📷");
+      return;
+    }
+    // gravando voz: a barra da fila cobriria os botões de parar/cancelar e o
+    // microfone ficaria aberto sem jeito de encerrar
+    if (recording || preparando) {
+      alert("Termine o áudio antes de enviar arquivos. 🎤");
+      return;
+    }
     fileKindRef.current = kind;
     if (fileRef.current) {
       fileRef.current.accept =
         kind === "IMAGE" ? "image/*" : kind === "VIDEO" ? "video/*" : "*/*";
+      // VÁRIAS FOTOS DE UMA VEZ (pedido do dono, 27/08/2026): a vendedora
+      // mandava a arara peça por peça, abrindo o seletor a cada foto. Só
+      // para FOTO: vídeo e documento pesam 3 MB cada, e vinte deles seriam
+      // minutos de espera com risco de bloqueio do número.
+      fileRef.current.multiple = kind === "IMAGE";
       fileRef.current.value = "";
       fileRef.current.click();
     }
   }
+
+  /**
+   * Respiro entre uma foto e a próxima na fila. O envio de mídia sai em
+   * segundo plano (a resposta volta assim que a linha é gravada), então sem
+   * esta pausa os vinte envios de verdade aconteceriam praticamente juntos —
+   * o padrão de rajada que faz o WhatsApp desconfiar da conta (RN-017).
+   *
+   * 2s é maior que o tempo típico de subida de uma foto: na prática elas
+   * chegam na ordem escolhida. NÃO é promessa — quem entrega é o servidor
+   * Evolution, e uma foto pesada pode ultrapassar a pausa. Ordem garantida
+   * exigiria segurar o pedido aberto até o envio terminar, que é justamente
+   * o que matava a função no meio e fazia a cliente receber duas vezes.
+   */
+  const MS_ENTRE_FOTOS = 2000;
 
   const blobToDataUrl = (b: Blob): Promise<string> =>
     new Promise((resolve, reject) => {
@@ -2069,26 +2136,118 @@ export function Inbox({
     });
 
   async function onFileChosen(e: ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
+    // a lista do seletor é viva: copiamos ANTES de qualquer espera, senão a
+    // próxima escolha (que zera o campo) apagaria a fila no meio do envio
+    const escolhidos = Array.from(e.target.files ?? []);
+    const file = escolhidos[0];
     if (!file || !selected) return;
     const kind = fileKindRef.current;
 
     // FOTO É COMPRIMIDA NO APARELHO (como o WhatsApp faz): foto de celular
     // tem 4–12 MB e o teto de envio é ~4,5 MB — sem comprimir, NENHUMA foto
     // tirada na hora passava ("arquivo muito pesado" em todas)
+    //
+    // VÁRIAS FOTOS SAEM UMA ATRÁS DA OUTRA, esperando cada uma terminar.
+    // Três motivos para a fila (e não todas de uma vez):
+    //  1. o teto de tamanho é POR pedido — vinte fotos juntas num pedido só
+    //     seriam recusadas na hora;
+    //  2. disparar vinte envios ao mesmo tempo é o que faz o WhatsApp
+    //     desconfiar da conta (RN-017); em fila, sai no ritmo de gente;
+    //  3. na prática a ordem se mantém: a pausa entre elas é maior que a
+    //     subida de uma foto (não é promessa — quem entrega é o servidor
+    //     do WhatsApp).
+    // Quem espera é o NAVEGADOR, nunca o servidor: cada foto é um envio
+    // normal, com a própria bolha (⏱️ → ✓, ou ⚠️ com "Reenviar"). Falhou a
+    // sétima? As outras dezenove seguem — a fila não para.
     if (kind === "IMAGE") {
-      const comprimida = await comprimirFoto(file);
-      if (comprimida) {
-        await sendPayload({
-          kind: "TEXT",
-          mediaType: "IMAGE",
-          mediaUrl: comprimida,
-          fileName: nomeJpeg(file.name),
-          body: "📷 Imagem",
-        });
-        return;
+      const fotos = escolhidos.slice(0, TETO_FOTOS_DE_UMA_VEZ);
+      if (escolhidos.length > TETO_FOTOS_DE_UMA_VEZ) {
+        alert(
+          `Dá para mandar até ${TETO_FOTOS_DE_UMA_VEZ} fotos de uma vez. Vou enviar as ${TETO_FOTOS_DE_UMA_VEZ} primeiras — repita para o resto. 📷`
+        );
       }
-      // formato que o navegador não leu: segue o caminho comum (com teto)
+      const convDaFila = selected.id;
+      const naoLidas: string[] = [];
+      let falhas = 0;
+      let enviadas = 0;
+      // a foto 0 pode ser pulada (ilegível e grande): "i > 0" deixava a
+      // conversa sem dona na tela até o sync de 3s trazer de volta
+      let jaAssumiu = false;
+      cancelarFilaRef.current = false;
+      setFilaFotos({ feito: 0, total: fotos.length, convId: convDaFila });
+      try {
+        for (let i = 0; i < fotos.length; i++) {
+          if (cancelarFilaRef.current) break;
+          const foto = fotos[i];
+          // UMA foto problemática não pode derrubar a fila: qualquer erro
+          // aqui (arquivo corrompido, leitura que falha) é anotado e a
+          // próxima segue. Sem este try, a leitura que estoura levava as
+          // fotos 8 a 20 embora em silêncio, e a barra sumia da tela.
+          try {
+            const comprimida = await comprimirFoto(foto);
+            // formato que o navegador não leu (HEIC antigo, arquivo torto):
+            // segue o plano B de sempre — vai CRUA, se couber no teto do
+            // envio. Não cabendo, é anotada e a fila SEGUE.
+            if (!comprimida && foto.size > 3 * 1024 * 1024) {
+              naoLidas.push(foto.name);
+              continue;
+            }
+            const foi = await sendPayload(
+              {
+                kind: "TEXT",
+                mediaType: "IMAGE",
+                mediaUrl: comprimida ?? (await blobToDataUrl(foto)),
+                fileName: comprimida ? nomeJpeg(foto.name) : foto.name,
+                body: "📷 Imagem",
+              },
+              // a conversa é assumida no PRIMEIRO envio de verdade; os
+              // outros dezenove não repetem o mesmo PATCH
+              { pularAssumir: jaAssumiu }
+            );
+            jaAssumiu = true;
+            if (foi) {
+              enviadas++;
+              falhas = 0;
+            } else {
+              // A BOLHA ⚠️ com "Reenviar" já está na tela por conta do
+              // sendPayload — aqui só decidimos se vale seguir. Três
+              // seguidas é servidor fora do ar, não azar: insistir seriam
+              // dezessete esperas longas com a tela presa.
+              falhas++;
+              if (falhas >= 3) {
+                alert(
+                  "As últimas fotos não estão saindo — parei a fila aqui. Verifique a conexão do WhatsApp e reenvie pelas bolhas com ⚠️."
+                );
+                break;
+              }
+            }
+          } catch {
+            naoLidas.push(foto.name);
+          } finally {
+            setFilaFotos({ feito: i + 1, total: fotos.length, convId: convDaFila });
+          }
+          // RESPIRO ENTRE AS FOTOS. O envio de mídia sai em segundo plano (a
+          // resposta volta assim que a linha é gravada), então sem esta
+          // pausa os vinte envios de verdade aconteceriam praticamente
+          // juntos — que é o padrão de rajada que faz o WhatsApp desconfiar
+          // da conta (RN-017). Quem espera é o NAVEGADOR: o servidor nunca
+          // fica com o pedido aberto, que foi a lição do áudio (a função
+          // morria no meio e a bolha dizia "falhou" com a mídia entregue).
+          if (i < fotos.length - 1 && !cancelarFilaRef.current) {
+            await new Promise((r) => setTimeout(r, MS_ENTRE_FOTOS));
+          }
+        }
+      } finally {
+        setFilaFotos(null);
+        cancelarFilaRef.current = false;
+        setParandoFila(false);
+      }
+      if (naoLidas.length > 0) {
+        alert(
+          `Não consegui abrir ${naoLidas.length === 1 ? "esta foto" : `estas ${naoLidas.length} fotos`}: ${naoLidas.slice(0, 5).join(", ")}${naoLidas.length > 5 ? "…" : ""}. O formato não foi reconhecido e o arquivo é grande demais para ir como está — salve como JPG e tente de novo. Enviei ${enviadas === 1 ? "1 foto" : `${enviadas} fotos`}; confira as bolhas com ⚠️, se houver. 📷`
+        );
+      }
+      return;
     }
 
     // teto REAL do envio: o servidor corta o pedido perto de 4,5 MB e o
@@ -2109,14 +2268,18 @@ export function Inbox({
       mediaType: kind,
       mediaUrl: dataUrl,
       fileName: file.name,
-      body:
-        kind === "IMAGE" ? "📷 Imagem" : kind === "VIDEO" ? "🎬 Vídeo" : `📎 ${file.name}`,
+      // foto já saiu pela fila lá em cima; aqui sobram vídeo e documento
+      body: kind === "VIDEO" ? "🎬 Vídeo" : `📎 ${file.name}`,
     });
   }
 
   // ---- Gravação de áudio (voz) ----
   async function startRecording() {
+    // na conversa que está com a fila, a barra é dela: sem esta trava a
+    // gravação começava sem mostrar nem o tempo nem o botão de parar. Em
+    // OUTRA conversa a vendedora grava normalmente enquanto as fotos saem.
     if (!selected || recording || preparando) return;
+    if (filaFotos && filaFotos.convId === selected.id) return;
     let microfoneAberto: MediaStream | null = null;
     // zera o cancelamento ANTES de abrir o microfone: a espera de assentar
     // olha esta bandeira para saber se a pessoa desistiu no meio
@@ -3593,7 +3756,7 @@ export function Inbox({
                     className="flex flex-col items-center gap-1 rounded-xl px-3 py-2 hover:bg-brand-50 transition"
                   >
                     <ImageIcon className="size-5 text-brand-600" />
-                    <span className="text-[10px] font-medium">Imagem</span>
+                    <span className="text-[10px] font-medium">Fotos</span>
                   </button>
                   <button
                     onClick={() => pickFile("VIDEO")}
@@ -3905,7 +4068,42 @@ export function Inbox({
                 </button>
                 </div>
                 <div className="flex items-end gap-1.5 order-1 sm:order-none sm:flex-1 min-w-0">
-                {preparando ? (
+                {recording || preparando ? null : filaFotos &&
+                  filaFotos.convId === selected.id ? (
+                  /* FILA DE FOTOS: sem isto, a vendedora escolhia vinte e a
+                     barra ficava muda por meio minuto — parecia travado, e
+                     mandar de novo faria a cliente receber tudo em dobro */
+                  <div className="flex-1 flex items-center gap-2 py-1.5">
+                    <span className="size-2.5 rounded-full bg-brand-500 animate-pulse shrink-0" />
+                    <span className="text-sm font-medium text-brand-600 tabular-nums">
+                      {parandoFila
+                        ? "Parando…"
+                        : `Enviando foto ${Math.min(filaFotos.feito + 1, filaFotos.total)} de ${filaFotos.total}…`}
+                    </span>
+                    <div className="flex-1 h-1.5 rounded-full bg-gray-100 overflow-hidden min-w-[40px]">
+                      <div
+                        className="h-full rounded-full bg-brand-500 transition-all"
+                        style={{ width: `${(filaFotos.feito / filaFotos.total) * 100}%` }}
+                      />
+                    </div>
+                    {/* PARAR: sem isto, escolher a pasta errada (ou o WhatsApp
+                        fora do ar) prendia a vendedora até a última foto */}
+                    <button
+                      onClick={() => {
+                        cancelarFilaRef.current = true;
+                        // o ref sozinho não redesenha: a barra seguia dizendo
+                        // "enviando" por vários segundos e o toque parecia
+                        // não ter funcionado
+                        setParandoFila(true);
+                      }}
+                      disabled={parandoFila}
+                      className="p-2 rounded-xl text-gray-400 hover:text-rose-600 transition shrink-0 disabled:opacity-40"
+                      title="Parar de enviar as próximas"
+                    >
+                      <X className="size-4.5" />
+                    </button>
+                  </div>
+                ) : preparando ? (
                   /* meio segundo entre o toque e a gravação de verdade: a
                      barra avisa que o sistema entendeu e que ainda não é
                      hora de falar (é a subida do ganho do microfone) */
