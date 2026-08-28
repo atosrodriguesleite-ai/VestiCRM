@@ -27,11 +27,18 @@ export async function criarLinkFicha(
       expiresAt: new Date(Date.now() + VALIDADE_LINK_FICHA_MS),
     },
   });
-  // faxina de carona (sem cron, regra do CLAUDE.md): vencidos SEM resposta
-  // vão embora — link usado fica, é o registro da conferência
+  // faxina de carona (sem cron, regra do CLAUDE.md): só o link vencido que
+  // nunca foi TOCADO vai embora. Link usado é o registro da conferência, e
+  // link com aceite carimbado é a PROVA do consentimento de quem anexou
+  // documento — apagar isso deixaria o RG na pasta sem autorização registrada
   await db.fichaFormLink
     .deleteMany({
-      where: { funcionarioId, usadoEm: null, expiresAt: { lt: new Date() } },
+      where: {
+        funcionarioId,
+        usadoEm: null,
+        aceiteLGPDEm: null,
+        expiresAt: { lt: new Date() },
+      },
     })
     .catch(() => {});
   return code;

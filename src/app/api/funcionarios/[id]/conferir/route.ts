@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
+import { Prisma } from "@prisma/client";
 import { requireUser, AuthError } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { isAdmin } from "@/lib/scope";
-import { rotuloCampoFicha } from "@/lib/funcionarios";
+import { rotuloCampoFicha, chaveDoDependente } from "@/lib/funcionarios";
 import { aplicarResposta, dataOuNull } from "@/lib/ficha-funcionario";
 
 /**
@@ -51,10 +52,15 @@ export async function POST(
       );
 
     if (!parsed.data.aprovar) {
-      await db.fichaFormLink.update({
-        where: { id: link.id },
-        data: { conferidoEm: new Date() },
+      // "Dispensar" tem que CUMPRIR o que a tela promete: a resposta some.
+      // Carimbar só a data deixaria CPF, chave Pix e conta bancária guardados
+      // para sempre num registro que ninguém mais olha.
+      const fechou = await db.fichaFormLink.updateMany({
+        where: { id: link.id, conferidoEm: null },
+        data: { conferidoEm: new Date(), resposta: Prisma.DbNull },
       });
+      if (fechou.count === 0)
+        return NextResponse.json({ error: "Já foi conferido." }, { status: 409 });
       await db.funcionarioEvento.create({
         data: {
           funcionarioId: id,
@@ -72,24 +78,46 @@ export async function POST(
         { status: 422 }
       );
 
-    await db.funcionario.update({ where: { id }, data: aplicavel.dados });
-    for (const dep of aplicavel.dependentes) {
-      await db.funcionarioDependente.create({
-        data: {
-          funcionarioId: id,
-          nome: dep.nome,
-          nascimento: dataOuNull(dep.nascimento),
-        },
-      });
-    }
-    await db.fichaFormLink.update({
-      where: { id: link.id },
-      data: { conferidoEm: new Date() },
-    });
-
     const campos = Object.keys(link.resposta as object)
       .map((k) => rotuloCampoFicha[k] ?? k)
       .join(", ");
+
+    // filho que já está na ficha não entra de novo (casa por nome, sem acento
+    // nem maiúscula): duplo clique duplicava a família inteira
+    const jaCadastrados = await db.funcionarioDependente.findMany({
+      where: { funcionarioId: id },
+      select: { nome: true },
+    });
+    const conhecidos = new Set(jaCadastrados.map((d) => chaveDoDependente(d.nome)));
+    const novos = aplicavel.dependentes
+      // o nome entra LIMPO na ficha: espaço duplo do teclado do celular não
+      // vira parte do nome do filho
+      .map((d) => ({ ...d, nome: d.nome.replace(/\s+/g, " ").trim() }))
+      .filter((d) => !conhecidos.has(chaveDoDependente(d.nome)));
+
+    // TUDO OU NADA, com a porteira do `conferidoEm: null` DENTRO da transação:
+    // dois cliques seguidos (ou dois admins juntos) — só o primeiro grava
+    const aplicado = await db.$transaction(async (tx) => {
+      const fechou = await tx.fichaFormLink.updateMany({
+        where: { id: link.id, conferidoEm: null },
+        data: { conferidoEm: new Date(), resposta: Prisma.DbNull },
+      });
+      if (fechou.count === 0) return false;
+      await tx.funcionario.update({ where: { id }, data: aplicavel.dados });
+      for (const dep of novos) {
+        await tx.funcionarioDependente.create({
+          data: {
+            funcionarioId: id,
+            nome: dep.nome,
+            nascimento: dataOuNull(dep.nascimento),
+          },
+        });
+      }
+      return true;
+    });
+    if (!aplicado)
+      return NextResponse.json({ error: "Já foi conferido." }, { status: 409 });
+
     await db.funcionarioEvento.create({
       data: {
         funcionarioId: id,

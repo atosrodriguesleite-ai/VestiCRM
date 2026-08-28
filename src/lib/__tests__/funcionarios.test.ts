@@ -8,6 +8,7 @@ import {
   situacaoDoDocumento,
   descricaoMudancaSalario,
   documentosFaltantes,
+  chaveDoDependente,
   CHECKLIST_POR_VINCULO,
   DIAS_AVISO_VENCIMENTO,
   vinculoLabel,
@@ -258,5 +259,55 @@ describe("formulário do link (RN-025): o funcionário só manda o que é dele",
   it("as portas do formulário são PÚBLICAS no middleware (senão o link cai no login)", () => {
     const mw = readFileSync(join(process.cwd(), "src/middleware.ts"), "utf8");
     for (const rota of ["/ficha/", "/api/ficha-form/"]) expect(mw).toContain(`"${rota}"`);
+  });
+});
+
+describe("conferência e anexo não podem gravar duas vezes nem sem consentimento", () => {
+  const rota = (p: string) => readFileSync(join(process.cwd(), p), "utf8");
+
+  it("aprovar é tudo-ou-nada, com a porteira do já-conferido DENTRO da transação", () => {
+    // duplo clique criava os dependentes de novo: a porteira tem que estar no
+    // próprio update, junto com a gravação
+    const r = rota("src/app/api/funcionarios/[id]/conferir/route.ts");
+    expect(r).toContain("db.$transaction");
+    expect(r).toMatch(/updateMany\(\{\s*where: \{ id: link\.id, conferidoEm: null \}/);
+  });
+
+  it("dispensar APAGA a resposta — CPF e conta bancária não ficam guardados", () => {
+    const r = rota("src/app/api/funcionarios/[id]/conferir/route.ts");
+    expect(r).toContain("resposta: Prisma.DbNull");
+  });
+
+  it("dependente que já está na ficha não entra de novo", () => {
+    const r = rota("src/app/api/funcionarios/[id]/conferir/route.ts");
+    expect(r).toContain("chaveDoDependente");
+    expect(r).toMatch(/filter\(\(d\) => !conhecidos\.has/);
+  });
+
+  it("o mesmo filho escrito de outro jeito é a MESMA pessoa", () => {
+    // a prova pegou: "joana  prova" (dois espaços do teclado do celular)
+    // entrava como filha nova ao lado de "Joana Prova"
+    expect(chaveDoDependente("joana  prova")).toBe(chaveDoDependente("Joana Prova"));
+    expect(chaveDoDependente("  JOÃO  da Silva ")).toBe(chaveDoDependente("joao da silva"));
+    expect(chaveDoDependente("Ana")).not.toBe(chaveDoDependente("Ana Paula"));
+  });
+
+  it("depois de queimar o link, histórico e aviso não derrubam o envio", () => {
+    // a resposta já está salva: falha de registro não pode virar 500 e mandar
+    // o funcionário preencher tudo de novo (lição da RN-010)
+    const r = rota("src/app/api/ficha-form/[codigo]/route.ts");
+    const depoisDoConsumo = r.slice(r.indexOf("consumo.count === 0"));
+    expect(depoisDoConsumo).toContain(".catch(() => {})");
+    expect(depoisDoConsumo.match(/\.catch\(\(\) => \{\}\)/g)?.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("anexar documento exige e registra o aceite LGPD", () => {
+    // o documento entra na pasta ANTES do envio final: sem isso, quem anexava
+    // e desistia deixava RG guardado sem consentimento registrado
+    const doc = rota("src/app/api/ficha-form/[codigo]/documento/route.ts");
+    expect(doc).toContain("aceiteLGPD: z.literal(true)");
+    expect(doc).toContain("aceiteLGPDEm: new Date()");
+    // e a faxina não apaga o link que carrega essa prova
+    expect(rota("src/lib/ficha-form-link.ts")).toContain("aceiteLGPDEm: null");
   });
 });

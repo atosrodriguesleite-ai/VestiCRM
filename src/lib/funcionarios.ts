@@ -96,6 +96,23 @@ export const CHECKLIST_POR_VINCULO: Record<FuncionarioVinculo, FuncionarioDocTip
   INFORMAL: ["RG", "CPF_DOC"],
 };
 
+/**
+ * A MESMA pessoa escrita de outro jeito — para não duplicar o filho que já
+ * está na ficha quando o funcionário repete o nome no formulário.
+ *
+ * Colapsa espaço repetido além de acento e maiúscula: no teclado do celular
+ * "Joana Prova" sai "joana  prova" com dois espaços, e só minusculizar
+ * deixava passar como pessoa nova (achado da prova).
+ */
+export function chaveDoDependente(nome: string): string {
+  return nome
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 /** Rótulo humano dos campos que o funcionário manda pelo link (RN-025). */
 export const rotuloCampoFicha: Record<string, string> = {
   fotoUrl: "foto",

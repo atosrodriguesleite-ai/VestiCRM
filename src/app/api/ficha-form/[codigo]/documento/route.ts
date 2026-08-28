@@ -23,6 +23,10 @@ const schema = z.object({
   fileName: z.string().min(1).max(160),
   arquivo: z.string().startsWith("data:").max(5_500_000),
   validade: z.string().nullable().optional(),
+  // o RG entra na pasta ANTES do envio final, então o consentimento tem que
+  // ser exigido e REGISTRADO aqui também: quem anexa e desiste do formulário
+  // deixava documento guardado sem nenhuma prova de que autorizou (LGPD)
+  aceiteLGPD: z.literal(true),
 });
 
 export async function POST(
@@ -38,16 +42,26 @@ export async function POST(
     );
 
   const parsed = schema.safeParse(await req.json().catch(() => null));
-  if (!parsed.success)
+  if (!parsed.success) {
+    const semAceite = parsed.error.issues.some((i) => i.path[0] === "aceiteLGPD");
     return NextResponse.json(
-      { error: "Arquivo grande demais (máximo ~4 MB) ou campos inválidos." },
+      {
+        error: semAceite
+          ? "Para anexar, marque o aceite do uso dos dados."
+          : "Arquivo grande demais (máximo ~4 MB) ou campos inválidos.",
+      },
       { status: 400 }
     );
+  }
 
-  // teto por link, com a contagem no PRÓPRIO update (corrida fechada)
+  // teto por link, com a contagem no PRÓPRIO update (corrida fechada); o
+  // primeiro anexo já carimba o consentimento
   const conta = await db.fichaFormLink.updateMany({
     where: { id: link.id, docsEnviados: { lt: TETO_DOCS_POR_LINK }, usadoEm: null },
-    data: { docsEnviados: { increment: 1 } },
+    data: {
+      docsEnviados: { increment: 1 },
+      ...(link.aceiteLGPDEm ? {} : { aceiteLGPDEm: new Date() }),
+    },
   });
   if (conta.count === 0)
     return NextResponse.json(

@@ -56,17 +56,23 @@ export async function POST(
       { status: 410 }
     );
 
-  await db.funcionarioEvento.create({
-    data: {
-      funcionarioId: link.funcionarioId,
-      descricao: "Enviou a ficha pelo link (aguardando conferência).",
-      autorNome: link.funcionario.nome,
-    },
-  });
+  // A RESPOSTA JÁ ESTÁ SALVA e o link já morreu: daqui para baixo nada pode
+  // derrubar o envio. Sem o `.catch`, uma falha no histórico ou no aviso
+  // devolvia 500 e mandava o funcionário pedir um link novo — refazendo tudo
+  // por causa de uma linha de registro (mesma lição da RN-010).
+  await db.funcionarioEvento
+    .create({
+      data: {
+        funcionarioId: link.funcionarioId,
+        descricao: "Enviou a ficha pelo link (aguardando conferência).",
+        autorNome: link.funcionario.nome,
+      },
+    })
+    .catch(() => {});
   await notifyFichaRecebida({
     companyId: link.companyId,
     funcionarioNome: link.funcionario.nome,
-  });
+  }).catch(() => {});
 
   return NextResponse.json({ ok: true });
 }

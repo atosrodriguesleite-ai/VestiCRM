@@ -111,6 +111,7 @@ export function FormularioFicha({
 
   async function anexar(file: File) {
     setErro("");
+    if (!aceite) return setErro("Para anexar, marque o aceite do uso dos dados.");
     if (file.size > 4 * 1024 * 1024) {
       setErro("Arquivo grande demais (máximo ~4 MB). Tire a foto em qualidade normal.");
       return;
@@ -127,6 +128,9 @@ export function FormularioFicha({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          // o aceite viaja no anexo também: o documento entra na pasta na
+          // hora, então o consentimento é registrado junto (LGPD)
+          aceiteLGPD: aceite,
           tipo: docTipo,
           fileName: file.name,
           arquivo: dataUrl,
