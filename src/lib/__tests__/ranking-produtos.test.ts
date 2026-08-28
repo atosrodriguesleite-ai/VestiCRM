@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { montarRanking, chaveDoNome, valorVendidoDoItem } from "../tracking/insights";
+import { montarRanking, chaveDoNome, previousPeriod, valorVendidoDoItem } from "../tracking/insights";
 
 /**
  * Ranking "Produtos — atenção × venda" da tela Inteligência.
@@ -140,5 +140,91 @@ describe("faturamento das linhas bate com o cartão (rateio do desconto global)"
       "utf8"
     );
     expect(fonte).toContain("valorVendidoDoItem(item.total, item.order.subtotal, item.order.netTotal)");
+  });
+});
+
+describe("Dashboard funde o ranking pela chave normalizada (incidente 27/08/2026)", () => {
+  // Duas linhas "Regata Alça" (175 e 20 un.) no cartão: nomes que renderizam
+  // IGUAIS mas diferem em bytes (ç decomposto, espaço no fim) não se fundiam,
+  // porque a fusão usava a string crua como chave do Map.
+  const page = readFileSync(
+    join(process.cwd(), "src/app/(app)/dashboard/page.tsx"),
+    "utf8"
+  );
+
+  it("a chave de fusão passa por chaveDoNome (não a string crua)", () => {
+    expect(page).toContain("chaveDoNome(rotulo).toLowerCase()");
+    expect(page).toContain("`nome:${chaveDoNome(t.name)}`");
+  });
+
+  it("chaveDoNome junta as variantes do incidente numa linha só", () => {
+    const nfc = "Regata Alça";
+    const nfd = "Regata Alça".normalize("NFD");
+    const comEspaco = "Regata Alça ";
+    const comNbsp = "Regata Alça";
+    const chaves = new Set(
+      [nfc, nfd, comEspaco, comNbsp].map((s) => chaveDoNome(s).toLowerCase())
+    );
+    expect(chaves.size).toBe(1);
+  });
+});
+
+describe("auditoria 27/08/2026 — categoria renomeada e views de cor", () => {
+  const camisa = { id: "p9", name: "Camisa Festa", category: "Festa" };
+
+  it("categoria renomeada: a SACOLA também segue o cadastro atual (não a da época)", () => {
+    const linhas = montarRanking(
+      [
+        { type: "product_view", productId: "p9", productName: "Camisa Festa", category: "Vestidos" },
+        // adicionada quando a categoria ainda se chamava "Vestidos"
+        { type: "cart_add", productId: "p9", productName: "Camisa Festa", category: "Vestidos", qty: 3 },
+      ],
+      [],
+      [camisa],
+      "category"
+    );
+    // uma linha só ("Festa"), com view E adds juntos — antes o cart_add
+    // ficava numa linha fantasma "Vestidos"
+    expect(linhas).toHaveLength(1);
+    expect(linhas[0].key).toBe("Festa");
+    expect(linhas[0].views).toBe(1);
+    expect(linhas[0].adds).toBe(3);
+  });
+
+  it("abrir a ficha NÃO conta view de cor em dobro (product_view + color_select do mesmo gesto)", () => {
+    const linhas = montarRanking(
+      [
+        { type: "product_view", productId: "p9", productName: "Camisa Festa", color: "Rosa" },
+        { type: "color_select", productId: "p9", productName: "Camisa Festa", color: "Rosa" },
+      ],
+      [],
+      [camisa],
+      "color"
+    );
+    expect(linhas).toHaveLength(1);
+    expect(linhas[0].views).toBe(1); // era 2 — a conversão por cor saía pela metade
+  });
+});
+
+describe("previousPeriod — comparativo sem venda contada em dobro", () => {
+  it("período de dias inteiros: o anterior termina 1ms ANTES do atual (a venda da borda não conta 2×)", () => {
+    const p = {
+      from: new Date("2026-08-01T03:00:00.000Z"),
+      to: new Date("2026-08-21T02:59:59.999Z"),
+    };
+    const prev = previousPeriod(p);
+    expect(prev.to.getTime()).toBe(p.from.getTime() - 1);
+    expect(prev.to.getTime()).toBeLessThan(p.from.getTime());
+  });
+
+  it('"Hoje" compara com o MESMO trecho de ontem (não com a noite inteira)', () => {
+    const DIA = 24 * 60 * 60 * 1000;
+    const p = {
+      from: new Date("2026-08-27T03:00:00.000Z"), // 00:00 SP
+      to: new Date("2026-08-27T10:10:00.000Z"), // 07:10 SP
+    };
+    const prev = previousPeriod(p);
+    expect(prev.from.getTime()).toBe(p.from.getTime() - DIA);
+    expect(prev.to.getTime()).toBe(p.to.getTime() - DIA);
   });
 });

@@ -4,12 +4,13 @@ import { requireUser, AuthError } from "@/lib/auth";
 import { isManagerUp } from "@/lib/scope";
 import { PAID_ORDER_STATUSES } from "@/lib/orders";
 import { originLabel } from "@/lib/format";
-import { lerPeriodo, periodoPorExtenso } from "@/lib/periodo";
+import { lerPeriodo, periodoPorExtenso, ultimosDiasSP } from "@/lib/periodo";
 
 /**
  * "Me dá o mês fechado em planilha" — exporta o RESUMO dos Relatórios em CSV
  * (abre direto no Excel/Planilhas), no MESMO período que a tela mostra
- * (?de=&ate=; sem filtro, últimos 90 dias). Mesma régua de acesso da tela:
+ * (?de=&ate=; sem filtro, últimos 30 dias — o mesmo padrão da tela e das
+ * demais telas de números). Mesma régua de acesso da tela:
  * Relatórios é visão geral da loja, vendedor comum não baixa.
  *
  * As contas são as MESMAS da tela (pedido PAGO, valor vendido `netTotal` sem
@@ -38,11 +39,10 @@ export async function GET(req: NextRequest) {
     const de = req.nextUrl.searchParams.get("de") ?? undefined;
     const ate = req.nextUrl.searchParams.get("ate") ?? undefined;
     const filtro = lerPeriodo({ de, ate });
-    const now = new Date();
-    const periodo = filtro.personalizado
-      ? filtro.period
-      : { from: new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000), to: now };
-    const rotulo = filtro.personalizado ? periodoPorExtenso(filtro) : "últimos 90 dias";
+    // mesmo período da tela, da mesma régua (`ultimosDiasSP`): planilha que
+    // abre num recorte e tela em outro seriam duas verdades
+    const periodo = filtro.personalizado ? filtro.period : ultimosDiasSP(30);
+    const rotulo = filtro.personalizado ? periodoPorExtenso(filtro) : "últimos 30 dias";
     const durMs = Math.max(periodo.to.getTime() - periodo.from.getTime(), 1);
     const anterior = {
       from: new Date(periodo.from.getTime() - durMs),
@@ -115,20 +115,23 @@ export async function GET(req: NextRequest) {
 
     // ---- Vendas por vendedora (com a linha da loja) ----
     const nomeVendedora = new Map(vendedoras.map((v) => [v.id, v.name]));
-    const porVendedora = new Map<string, { pedidos: number; fat: number }>();
+    // agrupa por ID (duas "Maria Silva" são duas linhas, como na tela);
+    // o nome é só o rótulo impresso
+    const porVendedora = new Map<string, { nome: string; pedidos: number; fat: number }>();
     for (const v of vendas) {
+      const id = v.sellerId ?? "loja";
       const nome = v.sellerId
         ? (nomeVendedora.get(v.sellerId) ?? "Vendedora removida")
         : "Loja (sem vendedora)";
-      const cur = porVendedora.get(nome) ?? { pedidos: 0, fat: 0 };
+      const cur = porVendedora.get(id) ?? { nome, pedidos: 0, fat: 0 };
       cur.pedidos += 1;
       cur.fat += v.netTotal;
-      porVendedora.set(nome, cur);
+      porVendedora.set(id, cur);
     }
     linha("VENDAS POR VENDEDORA");
     linha("Vendedora", "Pedidos pagos", "Faturamento");
-    for (const [nome, t] of [...porVendedora.entries()].sort((a, b) => b[1].fat - a[1].fat)) {
-      linha(nome, t.pedidos, brlNum(t.fat));
+    for (const t of [...porVendedora.values()].sort((a, b) => b.fat - a.fat)) {
+      linha(t.nome, t.pedidos, brlNum(t.fat));
     }
     vazio();
 

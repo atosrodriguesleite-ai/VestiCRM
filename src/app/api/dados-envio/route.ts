@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
-import { lerTokenDadosEnvio } from "@/lib/dados-envio";
+import { lerLinkDadosEnvio } from "@/lib/dados-envio-link";
 import { NOME_DO_ESTADO } from "@/lib/envios/estados";
 import { notifyDadosRecebidos } from "@/lib/notify";
-import { soDigitos } from "@/lib/busca";
+import { normalizarBusca, soDigitos } from "@/lib/busca";
+import { nomeProvisorio } from "@/lib/nome-provisorio";
 
 export const dynamic = "force-dynamic";
 
@@ -45,7 +46,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Confira os campos e tente de novo." }, { status: 400 });
   const d = parsed.data;
 
-  const cracha = lerTokenDadosEnvio(d.token);
+  // aceita o código curto (11 caracteres, no banco) E o crachá longo antigo
+  const cracha = await lerLinkDadosEnvio(d.token);
   if (!cracha)
     return NextResponse.json(
       { error: "Este link venceu. Peça um novo na conversa com a loja. 💜" },
@@ -84,6 +86,13 @@ export async function POST(req: NextRequest) {
   if (d.tipo === "PJ" && cnpj.length !== 14)
     return NextResponse.json({ error: "CNPJ incompleto — confira os 14 números." }, { status: 400 });
 
+  // O NOME DA FICHA É DO VENDEDOR (decisão do dono, 26/08/2026): às vezes a
+  // cliente nem usa nome no WhatsApp, e é a loja que sabe como chamá-la. O
+  // nome digitado aqui só ENTRA quando a ficha ainda tem o crachá provisório
+  // ("Contato (77) 8101-4696") — a mesma regra do intake, que nasceu de
+  // incidente. Nome escrito por gente não é sobrescrito por nada.
+  const nomeFinal = nomeProvisorio(cliente.name) ? d.nome : cliente.name;
+
   // o que muda de verdade (para a linha do tempo e o aviso não gritarem à toa)
   const mudancas: string[] = [];
   const difere = (antes: string | null | undefined, depois: string) =>
@@ -94,7 +103,12 @@ export async function POST(req: NextRequest) {
     difere(cliente.city, d.cidade) || difere(cliente.state, uf) ||
     difere(cliente.complement, d.complemento ?? "");
   if (enderecoNovo) mudancas.push(`endereço: ${d.rua}, ${d.numero} — ${d.cidade}/${uf}`);
-  if (difere(cliente.name, d.nome)) mudancas.push(`nome: ${d.nome}`);
+  if (difere(cliente.name, nomeFinal)) mudancas.push(`nome: ${nomeFinal}`);
+  // ela se apresentou diferente do nome da ficha (só chega aqui por chamada
+  // direta — o formulário trava o campo): a loja fica sabendo, sem alarme
+  // falso por maiúscula/acento, e o nome do vendedor NÃO muda
+  else if (normalizarBusca(d.nome) !== normalizarBusca(cliente.name))
+    mudancas.push(`ela se apresentou como "${d.nome}" (o nome da ficha fica)`);
   if (d.tipo === "PF" && soDigitos(cliente.cpf ?? undefined) !== cpf) mudancas.push("CPF novo");
   if (d.tipo === "PJ" && soDigitos(cliente.cnpj ?? undefined) !== cnpj) mudancas.push("CNPJ novo");
   if (d.tipo === "PJ" && difere(cliente.legalName, d.razaoSocial ?? ""))
@@ -105,7 +119,7 @@ export async function POST(req: NextRequest) {
   await db.customer.update({
     where: { id: cliente.id },
     data: {
-      name: d.nome,
+      name: nomeFinal,
       zip: d.cep,
       street: d.rua,
       streetNumber: d.numero,
@@ -140,7 +154,7 @@ export async function POST(req: NextRequest) {
   });
   await notifyDadosRecebidos({
     companyId: cliente.companyId,
-    customerName: d.nome,
+    customerName: nomeFinal,
     ownerId: cliente.ownerId,
     convId: conversa?.id ?? null,
     mudancas:

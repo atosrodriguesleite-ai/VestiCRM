@@ -474,14 +474,19 @@ export default async function MarketingPage({
                 <tr className="text-left text-[11px] font-semibold uppercase tracking-wide text-slate-400 border-b border-slate-100">
                   <th className="py-2 pr-3 font-semibold">Campanha</th>
                   <th className="py-2 px-3 text-right font-semibold tabular-nums">Leads</th>
-                  <th className="py-2 px-3 text-right font-semibold tabular-nums">Compraram</th>
+                  <th className="py-2 px-3 text-right font-semibold tabular-nums">
+                    <span className="inline-flex items-center gap-1">
+                      Compraram
+                      <InfoTip text="Clientes da campanha que pagaram pedido NO período — inclui quem virou lead antes dele. Por isso pode ser maior que a coluna Leads (que conta só os leads novos do período)." />
+                    </span>
+                  </th>
                   <th className="py-2 px-3 text-right font-semibold tabular-nums">Conv.</th>
                   <th className="py-2 px-3 text-right font-semibold tabular-nums">Faturamento</th>
                   <th className="py-2 px-3 text-right font-semibold tabular-nums">Investido</th>
                   <th className="py-2 pl-3 text-right font-semibold tabular-nums">
                     <span className="inline-flex items-center gap-1">
                       Retorno
-                      <InfoTip text="Quanto voltou para cada R$ 1 investido: faturamento de TODA a vida da campanha ÷ investimento total digitado em 'Suas campanhas'. O filtro de período não mexe nesta coluna — o gasto é o total, então o retorno também é." />
+                      <InfoTip text="Quanto voltou para cada R$ 1 investido: faturamento de TODA a vida da campanha ÷ investimento total digitado em 'Suas campanhas'. Os filtros de período e de canal não mexem nesta coluna — o gasto é o total, então o retorno também é." />
                     </span>
                   </th>
                 </tr>

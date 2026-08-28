@@ -126,8 +126,9 @@ export function BarList({
   const max = Math.max(...data.map((d) => d.value), 1);
   return (
     <div className="space-y-3">
-      {data.map((d) => (
-        <div key={d.label}>
+      {data.map((d, i) => (
+        // label sozinho repetia a key com clientes homônimas
+        <div key={`${d.label}-${i}`}>
           <div className="flex items-baseline justify-between gap-2 text-sm mb-1">
             <span className="font-medium truncate text-slate-700">{d.label}</span>
             <span className="text-slate-500 font-medium tabular-nums shrink-0">

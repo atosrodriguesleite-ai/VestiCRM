@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import { db } from "@/lib/db";
-import { dadosDeEnvio, lerTokenDadosEnvio, mascararDocumento } from "@/lib/dados-envio";
+import { dadosDeEnvio, mascararDocumento } from "@/lib/dados-envio";
+import { lerLinkDadosEnvio } from "@/lib/dados-envio-link";
+import { nomeProvisorio } from "@/lib/nome-provisorio";
 import { FormularioDados } from "./formulario";
 
 export const dynamic = "force-dynamic";
@@ -31,7 +33,9 @@ export default async function PaginaDados({
   } catch {
     tokenLimpo = "";
   }
-  const cracha = lerTokenDadosEnvio(tokenLimpo);
+  // aceita o código curto (11 caracteres, no banco) E o crachá longo antigo —
+  // link já enviado no WhatsApp continua valendo até vencer
+  const cracha = await lerLinkDadosEnvio(tokenLimpo);
 
   const vencido = (
     <main className="min-h-dvh bg-[#faf7f2] flex items-center justify-center p-6">
@@ -59,13 +63,20 @@ export default async function PaginaDados({
   if (!cliente) return vencido;
 
   const { completo } = dadosDeEnvio(cliente);
+  // O NOME DA FICHA É DO VENDEDOR (RN-024): com nome de gente, o campo vem
+  // travado — editar aqui não mudaria nada e a cliente acharia que mudou.
+  // Com o crachá provisório ("Contato (77)…"), o campo vem VAZIO: entregar o
+  // crachá pré-preenchido fazia a cliente pular o campo e o telefone virava
+  // nome para sempre (achado da revisão).
+  const nomeDaLoja = !nomeProvisorio(cliente.name);
   return (
     <FormularioDados
       token={tokenLimpo}
       loja={cliente.company.name}
       completo={completo}
+      nomeBloqueado={nomeDaLoja}
       inicial={{
-        nome: cliente.name,
+        nome: nomeDaLoja ? cliente.name : "",
         tipo: cliente.cnpj ? "PJ" : "PF",
         cpfMascarado: mascararDocumento(cliente.cpf),
         cnpjMascarado: mascararDocumento(cliente.cnpj),

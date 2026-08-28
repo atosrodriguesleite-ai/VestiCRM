@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { requireUser, AuthError } from "@/lib/auth";
 import { appBaseUrl } from "@/lib/comm/evolution";
-import { criarTokenDadosEnvio, dadosDeEnvio } from "@/lib/dados-envio";
+import { dadosDeEnvio } from "@/lib/dados-envio";
+import { criarLinkDadosEnvio } from "@/lib/dados-envio-link";
 
 /**
  * Botão "Dados de envio" do chat (RN-024): gera o link do formulário desta
@@ -32,9 +33,11 @@ export async function POST(
       return NextResponse.json({ error: "Cliente não encontrado." }, { status: 404 });
 
     const situacao = dadosDeEnvio(cliente);
-    const token = criarTokenDadosEnvio(cliente.id, user.companyId);
+    // código CURTO (11 caracteres, guardado no banco) — o crachá HMAC inteiro
+    // na URL passava de 200 caracteres e assustava no WhatsApp
+    const code = await criarLinkDadosEnvio(cliente.id, user.companyId);
     return NextResponse.json({
-      url: `${appBaseUrl()}/dados/${token}`,
+      url: `${appBaseUrl()}/dados/${code}`,
       ...situacao,
     });
   } catch (e) {

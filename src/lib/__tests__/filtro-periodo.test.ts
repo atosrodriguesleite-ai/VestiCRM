@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import { ultimosDiasSP } from "../periodo";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -89,5 +90,63 @@ describe("o filtro de data aparece UMA vez", () => {
   it("o Dashboard não tem mais o formulário De/Até duplicado no cabeçalho", () => {
     // a tela mostrava dois blocos De/Até + Filtrar, um debaixo do outro
     expect(dash).not.toContain('<input type="date" name="de"');
+  });
+});
+
+describe("as telas de números abrem no MESMO período (auditoria 27/08/2026)", () => {
+  // Os Relatórios abriam em 90 dias e as demais em 30: quem abria duas telas
+  // lado a lado sem mexer no filtro via faturamentos diferentes — cada uma
+  // certa pelo próprio rótulo, e nenhuma explicando a diferença.
+  const ler = (p: string) => readFileSync(join(process.cwd(), p), "utf8");
+  const relatorios = ler("src/app/(app)/relatorios/page.tsx");
+  const csv = ler("src/app/api/export/relatorio/route.ts");
+  const marketing = ler("src/app/(app)/marketing/page.tsx");
+
+  it("Relatórios abre em 30 dias de CALENDÁRIO (nada de 90 dias no braço)", () => {
+    expect(relatorios).toContain("ultimosDiasSP(30)");
+    expect(relatorios).not.toContain("90 * 24 * 60 * 60 * 1000");
+    expect(relatorios).toContain("últimos 30 dias");
+  });
+
+  it("a planilha abre no MESMO período da tela (senão são duas verdades)", () => {
+    expect(csv).toContain("ultimosDiasSP(30)");
+    expect(csv).not.toContain("90 * 24 * 60 * 60 * 1000");
+  });
+
+  it("o atalho aceso ao abrir é o de 30 dias (sem rótulo 'tudo' próprio)", () => {
+    expect(relatorios).toContain('<PeriodChips pathname="/relatorios" de={de} ate={ate} />');
+  });
+
+  it("Dashboard e Marketing também abrem em 30 dias (têm a conta própria)", () => {
+    // não usam `lerPeriodo`: se alguém mexer no padrão de uma delas, as telas
+    // voltam a divergir — e este teste é quem avisa
+    expect(dash).toContain("30 * 24 * 60 * 60 * 1000");
+    expect(marketing).toContain("30 * 864e5");
+    expect(dash).not.toContain("90 * 24 * 60 * 60 * 1000");
+    expect(marketing).not.toContain("90 * 24 * 60 * 60 * 1000");
+  });
+});
+
+describe("o padrão de 30 dias começa à MEIA-NOITE de São Paulo", () => {
+  it("ultimosDiasSP(30) cobre 30 dias inteiros, do primeiro ao último", () => {
+    const p = ultimosDiasSP(30);
+    // começa às 00:00 SP (03:00Z) e termina às 23:59:59.999 SP
+    expect(p.from.toISOString()).toMatch(/T03:00:00\.000Z$/);
+    expect(p.to.toISOString()).toMatch(/T02:59:59\.999Z$/);
+    const dias = (p.to.getTime() - p.from.getTime()) / 86_400_000;
+    expect(dias).toBeCloseTo(30, 3);
+  });
+
+  it("é o MESMO recorte do atalho '30 dias' (clicar no aceso não muda nada)", () => {
+    // o atalho manda de = 29 dias atrás, até = hoje
+    const DIA = 86_400_000;
+    const hoje = new Intl.DateTimeFormat("en-CA", {
+      timeZone: "America/Sao_Paulo",
+    }).format(new Date());
+    const iso = (d: Date) =>
+      new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" }).format(d);
+    const p = ultimosDiasSP(30);
+    expect(iso(p.from)).toBe(iso(new Date(Date.parse(`${hoje}T12:00:00Z`) - 29 * DIA)));
+    expect(iso(p.to)).toBe(hoje);
   });
 });

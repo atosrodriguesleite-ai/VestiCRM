@@ -34,7 +34,13 @@ import {
 import { compareSizes } from "@/lib/sizes";
 import { mascaraTelefoneBR } from "@/lib/format";
 import { fotoDaCor, ordenarFotosDaCor } from "@/lib/capa-por-cor";
-import { agruparPorTipo, descricaoDaCategoria, sortCategories } from "@/lib/categories";
+import {
+  agruparPorTipo,
+  chaveDeCategoria,
+  descricaoDaCategoria,
+  rotuloDeCategoria,
+  sortCategories,
+} from "@/lib/categories";
 import { procurarPecas } from "@/lib/catalogo/procurar-peca";
 import {
   CatalogTracker,
@@ -325,9 +331,20 @@ export function PublicCatalog({
 
   // a ordem das categorias (menu e seções) é escolhida pelo lojista em
   // Personalizar catálogo; as que ficarem fora da lista vão para o fim
+  // nomes byte-diferentes que renderizam IGUAIS (ç decomposto do iOS/Nuvemshop,
+  // espaço no fim, NBSP) viravam duas seções e duas abas gêmeas — junta pela
+  // chave normalizada e exibe a primeira grafia vista (limpa)
+  const rotuloCanonico = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const p of products) {
+      const k = chaveDeCategoria(p.category);
+      if (!m.has(k)) m.set(k, rotuloDeCategoria(p.category));
+    }
+    return m;
+  }, [products]);
   const categoriasBrutas = useMemo(
-    () => sortCategories([...new Set(products.map((p) => p.category))], categoryOrder),
-    [products, categoryOrder]
+    () => sortCategories([...rotuloCanonico.values()], categoryOrder),
+    [rotuloCanonico, categoryOrder]
   );
 
   // TIPO DE PEÇA: o guarda-chuva das categorias. Lista vazia quando a loja não
@@ -372,7 +389,9 @@ export function PublicCatalog({
         // mostra um card por cor, e o card da cor esgotada continuava na
         // vitrine enquanto outra cor tivesse peça (relato da Entre Linhas).
         if (hideSoldOut && sizes.every((s) => !s.available)) continue;
-        map.get(p.category)!.push({
+        // a seção da peça é a canônica — sem isso a variante byte-diferente
+        // não achava a própria seção
+        map.get(rotuloCanonico.get(chaveDeCategoria(p.category)) ?? p.category)?.push({
           key: `${p.id}|${color}`,
           product: p,
           color,
@@ -381,7 +400,7 @@ export function PublicCatalog({
       }
     }
     return map;
-  }, [products, categories, hideSoldOut]);
+  }, [products, categories, hideSoldOut, rotuloCanonico]);
 
   const allCards = useMemo(
     () => [...cardsByCategory.values()].flat(),

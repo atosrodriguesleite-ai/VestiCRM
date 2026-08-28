@@ -248,7 +248,36 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   de SAÍDA (fone bluetooth em viva-voz derrubava tudo para 16 kHz). A captura
   usa cancelamento de eco
   DESLIGADO — é gravação, não chamada —, mantendo supressão de ruído e ganho
-  automático, que loja barulhenta precisa), pedidos dentro do chat (com PDF
+  automático, que loja barulhenta precisa), **até 20 fotos de uma vez** (a
+  vendedora mandava a arara peça por peça; só FOTO aceita várias — vídeo e
+  documento pesam 3 MB cada). As fotos saem **uma de cada vez, com 2s de pausa
+  entre elas** (`MS_ENTRE_FOTOS`): o envio de mídia é em segundo plano, então
+  sem a pausa os vinte sairiam em rajada — o padrão que faz o WhatsApp
+  desconfiar da conta (RN-017). A pausa é maior que a subida de uma foto, e
+  **na prática** elas chegam na ordem escolhida — não é promessa: ordem
+  garantida exigiria segurar o pedido aberto até o envio terminar, que é
+  exatamente o que matava a função no meio e fazia a cliente RECEBER DUAS
+  VEZES (incidente do áudio). Quem espera é o NAVEGADOR, nunca o servidor.
+  Cada foto tem a própria bolha (⏱️ → ✓ ou ⚠️) — e o dedup do sync casa
+  **uma bolha para cada mensagem** (todas têm o corpo "📷 Imagem"; sem isso a
+  foto anterior apagava a bolha da que estava em voo e o erro dela sumia).
+  A barra mostra o andamento na conversa DELA (nas outras o chat segue
+  normal), dá para PARAR a fila e três falhas seguidas param sozinhas.
+  **A ORDEM das barras do compositor é regra** (incidente 28/08/2026):
+  gravação vem ANTES da fila — microfone aberto precisa dos botões de parar
+  e enviar. A tentativa de dar prioridade com `recording ? null : …` apagou a
+  área INTEIRA ao tocar no microfone (o `null` encerra a cadeia e as barras
+  ficam inalcançáveis) e NINGUÉM mandou áudio até o conserto. O teste que
+  deveria pegar isso exigia o próprio trecho defeituoso: guarda que descreve
+  o CÓDIGO em vez do COMPORTAMENTO protege o erro em vez de impedi-lo. **Foto em alta resolução**
+  (`lib/comprimir-foto.ts`): lado maior 2560px (era 1600 — a cliente dá zoom
+  para ver trama e acabamento e via borrão), alvo ~2,2 MB com teto duro que
+  volta a 1600px se não couber; a codificação usa `toBlob` (o `toDataURL`
+  congelava a tela em vinte fotos) e a memória é liberada entre elas
+  (`img.close()`, senão o celular derrubava a aba no meio da fila). Medido no
+  Chromium: foto de peça 4032×3024 sai 2560×1920 com ~0,2 MB; o pior caso
+  (ruído em cada pixel) dá 1,88 MB, dentro do teto do envio. Lembrar da
+  dívida nº 1: isso mora como data-URL no banco. Pedidos dentro do chat (com PDF
   enviado de verdade), **sync incremental a cada 3s** (`GET /api/conversations?since=`
   + `Conversation.updatedAt`). **PREPARADO PARA MILHARES DE CONVERSAS**: a
   LISTA carrega só a ÚLTIMA mensagem de cada conversa, cortada em 140
@@ -325,8 +354,18 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   CEP puxando o endereço sozinho. O que a ficha já tem aparece para conferir,
   documento MASCARADO; o que ela mandar VALE (ela sabe onde mora), com
   registro na linha do tempo e aviso no sino da dona da carteira (sem dona,
-  gerência). O crachá do link é sorteado a cada clique e vence em 7 dias
-  (o link ESCREVE na ficha). **Completo não se marca na mão**: a régua é a
+  gerência). **Exceção: o NOME da ficha é do VENDEDOR** — o nome digitado no
+  formulário só entra quando a ficha ainda tem o crachá provisório
+  (`nomeProvisorio`, mesma regra do intake); se diferir do nome da ficha, a
+  loja é avisada ("ela se apresentou como X") e o nome do vendedor fica. O
+  link é CURTO (código de 11 caracteres sorteado a cada clique — 64 bits, não
+  se adivinha — guardado em `DadosEnvioLink`; o crachá HMAC inteiro na URL
+  passava de 200 caracteres e assustava no WhatsApp) e vence em 7 dias (o
+  link ESCREVE na ficha); o leitor (`lib/dados-envio-link.ts`) aceita também
+  o formato antigo — link já enviado segue valendo até vencer. Na
+  unificação de contatos, razão social e IE viajam JUNTO com o CNPJ (e o
+  waName acompanha) — o CNPJ ir sozinho deixava a razão para trás, e ela sai
+  nos documentos. **Completo não se marca na mão**: a régua é a
   MESMA da compra de etiqueta (`dadosDeEnvio`, fonte única) — ficha completa
   faz o botão avisar a vendedora antes de pedir de novo. O telefone NÃO está
   no formulário (é a identidade da cliente, lição da RN-021). **Razão

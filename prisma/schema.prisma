@@ -137,6 +137,7 @@ model Company {
   portfolioProducts PortfolioProduct[]
   aiSettings     AiSettings?
   aiUsage        AiUsage[]
+  dadosEnvioLinks DadosEnvioLink[]
   funcionarios  Funcionario[]
 }
 
@@ -632,6 +633,7 @@ model Customer {
   // varredura diária de aniversariantes
   @@index([companyId, birthDate])
   abandonedCarts  AbandonedCart[]
+  dadosEnvioLinks DadosEnvioLink[]
 }
 
 model Tag {
@@ -1894,6 +1896,23 @@ model Shipping {
   publicCode   String?   @unique
 
   @@index([meStatus, trackedAt])
+}
+
+// Link CURTO do formulário "Dados de envio" (RN-024). O crachá HMAC dentro
+// da URL deixava o link com ~200 caracteres — feio e assustador no WhatsApp.
+// Aqui o link vira /dados/<código de 11 caracteres sorteados>; o resto
+// (cliente, loja, validade) mora nesta tabela. Vence em 7 dias, como antes.
+model DadosEnvioLink {
+  id         String   @id @default(cuid())
+  companyId  String
+  company    Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  customerId String
+  customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  code       String   @unique // sorteado (64 bits) — não se adivinha
+  createdAt  DateTime @default(now())
+  expiresAt  DateTime
+
+  @@index([customerId])
 }
 
 // Conexão da loja com o Melhor Envio (módulo Envios, pago à parte).
