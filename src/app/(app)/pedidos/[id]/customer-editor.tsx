@@ -41,12 +41,18 @@ export function CustomerEditor({
   customer,
   sellerId,
   sellers,
+  vendaOnline = false,
+  sellerName = null,
 }: {
   customerId: string;
   orderId: string;
   customer: CustomerData;
   sellerId: string | null;
   sellers: { id: string; name: string }[];
+  /** venda da Nuvemshop: sem vendedora por regra (RN-005) — o campo some */
+  vendaOnline?: boolean;
+  /** nome da vendedora atual (para o caso legado: atribuída antes da regra) */
+  sellerName?: string | null;
 }) {
   const router = useRouter();
   const unidentified =
@@ -76,6 +82,25 @@ export function CustomerEditor({
   const [results, setResults] = useState<
     { id: string; name: string; phone: string; city: string | null; state: string | null }[]
   >([]);
+
+  // caso legado da venda online: tira a vendedora atribuída antes da regra
+  // (o servidor exige gerência e registra no histórico do pedido)
+  async function removerVendedora() {
+    setSaving(true);
+    setError("");
+    const r = await fetch(`/api/orders/${orderId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sellerId: null }),
+    }).catch(() => null);
+    setSaving(false);
+    if (!r || !r.ok) {
+      const data = await r?.json().catch(() => null);
+      return setError(data?.error ?? "Não foi possível remover.");
+    }
+    setOpen(false);
+    router.refresh();
+  }
 
   // CEP → ENDEREÇO SOZINHO (pedido do dono, 17/08/2026): digitou o CEP,
   // rua/bairro/cidade/UF chegam preenchidos (busca pública dos Correios via
@@ -186,17 +211,23 @@ export function CustomerEditor({
       body: JSON.stringify(customerBody),
     });
     let ok = res.ok;
-    if (ok && (form.sellerId || null) !== (sellerId ?? null)) {
+    // o erro tem que vir da CHAMADA QUE FALHOU: antes, quando o cliente
+    // salvava e a troca de vendedor era recusada, a tela lia a resposta boa
+    // e mostrava um "não foi possível salvar" genérico — escondendo o motivo
+    // real (permissão) e o fato de os dados do cliente JÁ terem sido salvos
+    let respostaComErro: Response | null = res.ok ? null : res;
+    if (ok && !vendaOnline && (form.sellerId || null) !== (sellerId ?? null)) {
       const r2 = await fetch(`/api/orders/${orderId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ sellerId: form.sellerId || null }),
       });
       ok = r2.ok;
+      if (!r2.ok) respostaComErro = r2;
     }
     setSaving(false);
     if (!ok) {
-      const data = await res.json().catch(() => null);
+      const data = await respostaComErro?.json().catch(() => null);
       return setError(data?.error ?? "Não foi possível salvar.");
     }
     setOpen(false);
@@ -364,17 +395,47 @@ export function CustomerEditor({
           <span className={label}>Estado (UF)</span>
           <input value={form.state} onChange={set("state")} placeholder="SP" maxLength={2} className={input} />
         </div>
-        <div>
-          <span className={label}>Vendedor(a) da venda</span>
-          <select value={form.sellerId} onChange={set("sellerId")} className={input}>
-            <option value="">Sem vendedor definido</option>
-            {sellers.map((s) => (
-              <option key={s.id} value={s.id}>
-                {s.name}
-              </option>
-            ))}
-          </select>
-        </div>
+        {vendaOnline ? (
+          <div>
+            <span className={label}>Vendedor(a) da venda</span>
+            {sellerId ? (
+              // caso LEGADO: vendedora atribuída antes da regra de 28/08/2026
+              // — está gerando comissão indevida; a gerência pode REMOVER
+              // (atribuir/trocar segue proibido)
+              <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-sm text-amber-800">
+                <p>
+                  Atribuída a <b>{sellerName ?? "uma vendedora"}</b> antes da
+                  regra atual — venda da loja online não gera comissão.
+                </p>
+                <button
+                  type="button"
+                  disabled={saving}
+                  onClick={removerVendedora}
+                  className="mt-1.5 rounded-lg border border-amber-300 bg-white px-2.5 py-1 text-xs font-semibold text-amber-700 transition hover:border-amber-400 disabled:opacity-60"
+                >
+                  Remover vendedora (gerência)
+                </button>
+              </div>
+            ) : (
+              <p className="rounded-xl bg-gray-50 px-3 py-2.5 text-sm text-gray-500">
+                Venda da loja online (Nuvemshop) — fica sem vendedora e não gera
+                comissão.
+              </p>
+            )}
+          </div>
+        ) : (
+          <div>
+            <span className={label}>Vendedor(a) da venda</span>
+            <select value={form.sellerId} onChange={set("sellerId")} className={input}>
+              <option value="">Sem vendedor definido</option>
+              {sellers.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.name}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
         <div>
           <span className={label}>Canal de origem do cliente</span>
           <select value={form.origin} onChange={set("origin")} className={input}>

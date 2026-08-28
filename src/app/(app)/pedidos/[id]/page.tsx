@@ -40,7 +40,7 @@ import { TransferirVenda } from "./transferir-venda";
 import { ValoresEditor } from "./valores-editor";
 import { ObservacoesEditor } from "./observacoes-editor";
 import { DataDaVenda } from "./data-da-venda";
-import { podeTransferirVenda } from "@/lib/orders";
+import { podeTransferirVenda, vendaOnline } from "@/lib/orders";
 
 export const dynamic = "force-dynamic";
 
@@ -241,6 +241,8 @@ export default async function OrderDetailPage({
               }}
               sellerId={order.sellerId}
               sellers={sellers}
+              vendaOnline={vendaOnline(order)}
+              sellerName={order.seller?.name ?? null}
             />
           </div>
           <div className="flex flex-col gap-2 shrink-0">

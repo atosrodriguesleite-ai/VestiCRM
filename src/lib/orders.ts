@@ -63,10 +63,26 @@ export const CAMPO_DATA_FATURAMENTO = "paidAt" as const;
  * Gerente e admin transferem qualquer pedido da loja (é o papel deles).
  * Suporte não mexe em dinheiro.
  */
+/**
+ * VENDA DA LOJA ONLINE? A regra da comissão (RN-005) mora aqui, num lugar
+ * só: venda que entra pela Nuvemshop não tem vendedora e não gera comissão.
+ * (O estoque usa outro discriminador — `nuvemshopId` — porque a pergunta lá
+ * é "a Nuvemshop é a dona do estoque DESTE pedido", não o canal da venda.)
+ */
+export function vendaOnline(o: { source?: string | null }): boolean {
+  return o.source === "NUVEMSHOP";
+}
+
 export function podeTransferirVenda(
   user: { id: string; role: string },
-  order: { sellerId: string | null }
+  order: { sellerId: string | null; source?: string }
 ): boolean {
+  // VENDA DA LOJA ONLINE não tem vendedora — E NÃO PODE GANHAR UMA (decisão
+  // do dono, 28/08/2026, RN-005): ninguém atendeu, não gera comissão. Vale
+  // para todo papel, admin incluído — atribuir aqui faria a venda entrar na
+  // comissão e na meta de alguém que não a vendeu. (REMOVER uma vendedora
+  // legada, atribuída antes da regra, é outra porta: só gerência, no PATCH.)
+  if (vendaOnline(order)) return false;
   if (user.role === "SUPPORT") return false;
   if (user.role === "ADMIN" || user.role === "SUPERADMIN" || user.role === "MANAGER")
     return true;

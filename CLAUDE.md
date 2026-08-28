@@ -143,9 +143,15 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   **carteira acompanha** (`Customer.ownerId` passa a ser dela, com registro na
   linha do tempo). **Sem vendedora no link, o pedido nasce SEM DONA (é da
   loja)** — não existe desvio para a responsável pela cliente: era ele que
-  fazia pedido do link da Lara cair no painel da Juliana. Nuvemshop → sem
-  vendedor. **RN-006** · Pedido só vira PAGO com vendedor (é o que obriga a loja
-  a definir a dona antes de faturar); troca de vendedor é auditada em `OrderEvent`.
+  fazia pedido do link da Lara cair no painel da Juliana. **Nuvemshop → sem
+  vendedor, E ASSIM FICA** (28/08/2026): venda da loja online não gera
+  comissão e NÃO ACEITA vendedora — nem admin atribui/transfere
+  (`podeTransferirVenda` recusa por `source`; "Editar dados" esconde o campo;
+  a lista mostra "loja online" em cinza, sem alerta — sem dona ali é o certo).
+  **RN-006** · Pedido só vira PAGO com vendedor (é o que obriga a loja
+  a definir a dona antes de faturar); troca de vendedor é auditada em
+  `OrderEvent`. Exceção: venda da loja online (nasce paga e sem dona por
+  RN-005) — sem ela, pedido Nuvemshop cancelado nunca poderia reabrir.
 - **RN-007 · Visibilidade de pedidos** (`orderScope` em `lib/scope.ts`): vendedora vê
   SÓ os pedidos dela (`sellerId`); gerente/admin/suporte veem a loja inteira.
   Vale em toda porta: lista, ficha, PDFs, Pix, NF-e, frete, transferência,

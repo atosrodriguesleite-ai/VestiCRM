@@ -22,6 +22,7 @@ import {
   PAID_ORDER_STATUSES,
   ORDER_STATUS_FLOW,
   podeTransferirVenda,
+  vendaOnline,
   resolveCancelStock,
   resolveReopenStock,
 } from "@/lib/orders";
@@ -595,8 +596,11 @@ export async function PATCH(
     const leavingPaid =
       willChangeStatus && !PAID_STATUSES.has(newStatus!) && PAID_STATUSES.has(order.status);
 
-    // Regra: um pedido só pode virar PAGO com um vendedor atribuído.
-    if (enteringPaid) {
+    // Regra: um pedido só pode virar PAGO com um vendedor atribuído (RN-006).
+    // EXCEÇÃO: venda da loja online (Nuvemshop) não tem vendedora por regra
+    // (RN-005) — sem a exceção, um pedido Nuvemshop cancelado nunca mais
+    // poderia reabrir: exigiria a vendedora que ele não pode ter.
+    if (enteringPaid && !vendaOnline(order)) {
       const effectiveSeller =
         parsed.data.sellerId !== undefined ? parsed.data.sellerId : order.sellerId;
       if (!effectiveSeller) {
@@ -657,10 +661,32 @@ export async function PATCH(
       }
     }
     if (parsed.data.sellerId !== undefined && parsed.data.sellerId !== order.sellerId) {
+      // Venda da loja online não aceita vendedora (RN-005): a mensagem é
+      // específica — a genérica de permissão mandaria "pedir à gerência",
+      // e a gerência também não pode ATRIBUIR. REMOVER pode (e é o único
+      // jeito de consertar o legado de antes da regra, que segue gerando
+      // comissão indevida) — coisa de gerência, com registro no histórico.
+      if (vendaOnline(order)) {
+        if (parsed.data.sellerId) {
+          return NextResponse.json(
+            {
+              error:
+                "Venda da loja online (Nuvemshop) não tem vendedora e não gera comissão — não dá para atribuir.",
+            },
+            { status: 409 }
+          );
+        }
+        if (!isManagerUp(user)) {
+          return NextResponse.json(
+            { error: "Remover a vendedora de uma venda da loja online é da gerência." },
+            { status: 403 }
+          );
+        }
+      }
       // MESMA REGRA do botão "Transferir venda": a vendedora só mexe no
       // pedido dela. Sem isso, bastaria usar "Editar dados" para desviar a
       // comissão de uma colega — a regra do botão seria só enfeite.
-      if (!podeTransferirVenda(user, order)) {
+      else if (!podeTransferirVenda(user, order)) {
         return NextResponse.json(
           {
             error:
@@ -691,7 +717,12 @@ export async function PATCH(
           );
         }
         newSellerName = seller.name;
-      } else if (PAID_STATUSES.has(parsed.data.status ?? order.status)) {
+      } else if (
+        PAID_STATUSES.has(parsed.data.status ?? order.status) &&
+        // exceção RN-005: a venda online É paga e sem dona — inclusive quando
+        // a gerência REMOVE a vendedora legada de antes da regra
+        !vendaOnline(order)
+      ) {
         // a regra que obriga vendedor para faturar vale também ao EDITAR:
         // sem isso dava para tirar a dona de um pedido já pago
         return NextResponse.json(

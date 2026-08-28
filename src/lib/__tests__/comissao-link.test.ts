@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { podeTransferirVenda } from "../orders";
 
 // Guarda RN-005 (índice em docs/regras.md; texto no CLAUDE.md).
 
@@ -89,5 +90,59 @@ describe("a regra está no código, não só no teste", () => {
   it("pedido sem vendedora avisa que a venda é da loja", () => {
     expect(rota).toContain("a venda é da loja");
     expect(rota).toContain("antes de marcar como pago");
+  });
+});
+
+describe("venda da Nuvemshop não tem vendedora — e não pode ganhar uma", () => {
+  // Decisão do dono (28/08/2026): loja online não gera comissão. Atribuir
+  // vendedora depois faria a venda entrar na comissão e na meta de quem não
+  // a atendeu — nem o admin pode.
+  const admin = { id: "a1", role: "ADMIN" };
+  const gerente = { id: "g1", role: "MANAGER" };
+
+  it("nem admin nem gerência transferem venda da loja online", () => {
+    const vendaOnline = { sellerId: null, source: "NUVEMSHOP" };
+    expect(podeTransferirVenda(admin, vendaOnline)).toBe(false);
+    expect(podeTransferirVenda(gerente, vendaOnline)).toBe(false);
+  });
+
+  it("pedido normal sem dona segue transferível pela gerência (nada mudou)", () => {
+    expect(podeTransferirVenda(admin, { sellerId: null, source: "CATALOGO" })).toBe(true);
+    expect(podeTransferirVenda(gerente, { sellerId: null })).toBe(true);
+  });
+
+  it("as duas portas recusam com a mensagem específica, e o PAGO tem a exceção", () => {
+    const patch = readFileSync(
+      join(process.cwd(), "src/app/api/orders/[id]/route.ts"),
+      "utf8"
+    );
+    const transferir = readFileSync(
+      join(process.cwd(), "src/app/api/orders/[id]/transferir/route.ts"),
+      "utf8"
+    );
+    expect(patch).toContain("não gera comissão — não dá para atribuir");
+    expect(transferir).toContain("não gera comissão — não dá para transferir");
+    // sem a exceção, pedido Nuvemshop cancelado nunca mais reabriria (a trava
+    // do PAGO exigiria a vendedora que ele não pode ter)
+    expect(patch).toContain("enteringPaid && !vendaOnline(order)");
+  });
+
+  it("o legado NÃO fica preso: gerência pode REMOVER a vendedora atribuída antes da regra", () => {
+    // sem isso, venda online que ganhou vendedora antes de 28/08/2026
+    // geraria comissão indevida PARA SEMPRE, sem ninguém poder corrigir
+    const patch = readFileSync(
+      join(process.cwd(), "src/app/api/orders/[id]/route.ts"),
+      "utf8"
+    );
+    expect(patch).toContain("Remover a vendedora de uma venda da loja online é da gerência");
+    // e a trava "pago precisa de vendedor" não pode barrar essa remoção
+    expect(patch).toMatch(/PAID_STATUSES\.has\(parsed\.data\.status \?\? order\.status\) &&\s*\n[^\n]*\n[^\n]*\n\s*!vendaOnline\(order\)/);
+  });
+
+  it("a pergunta \"é venda online?\" tem um dono só (vendaOnline em lib/orders)", () => {
+    // o discriminador repetido à mão em 7 lugares era 7 chances de esquecer
+    // um quando o canal mudar — a regra mora no motor
+    const motor = readFileSync(join(process.cwd(), "src/lib/orders.ts"), "utf8");
+    expect(motor).toContain("export function vendaOnline");
   });
 });

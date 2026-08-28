@@ -8,6 +8,7 @@ import {
   orderStatusLabel,
   orderNumber,
   ORDER_STATUS_FLOW,
+  vendaOnline,
 } from "@/lib/orders";
 import { Card, PageHeader, Avatar, Badge, EmptyState } from "@/components/ui";
 import { NewOrderButton } from "./new-order";
@@ -326,14 +327,15 @@ export default async function OrdersPage({
         <div className="mb-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-2.5">
           <p className="text-sm text-amber-800">
             Estes pedidos não contam na comissão nem na meta de ninguém — por
-            isso a soma das vendedoras fica menor que o faturamento.{" "}
+            isso a soma das vendedoras fica menor que o faturamento. Venda da
+            Nuvemshop fica assim mesmo (loja online não gera comissão);{" "}
             {/* a instrução só para quem PODE definir a dona (gerência): para
                 suporte e vendedora com visão total, "mostra, não mexe" —
                 mandá-los ao botão que a API recusa seria promessa falsa */}
             {isManagerUp(user) ? (
-              <>Abra o pedido e defina a vendedora em <b>&ldquo;Editar dados&rdquo;</b>.</>
+              <>nas demais, abra o pedido e defina a vendedora em <b>&ldquo;Editar dados&rdquo;</b>.</>
             ) : (
-              <>Avise a gerência para definir a vendedora de cada um.</>
+              <>nas demais, avise a gerência para definir a vendedora.</>
             )}
           </p>
         </div>
@@ -420,7 +422,11 @@ export default async function OrdersPage({
                       ) : (
                         <Badge color="#C4622D">AtacadoPro</Badge>
                       )}
-                      {veLojaInteira && !o.seller && <Badge color="#D97706">sem vendedora</Badge>}
+                      {/* Nuvemshop sem dona é o certo (RN-005) — o alerta é só
+                          para venda que PODERIA ter vendedora e não tem */}
+                      {veLojaInteira && !o.seller && !vendaOnline(o) && (
+                        <Badge color="#D97706">sem vendedora</Badge>
+                      )}
                       <RowStatusMenu orderId={o.id} current={o.status} />
                     </div>
                   </div>
@@ -428,9 +434,12 @@ export default async function OrdersPage({
                     <p className="text-xs text-gray-400">
                       {dateShort(o.createdAt)} {timeShort(o.createdAt)}
                     </p>
-                    {/* "—" mudo escondia o problema: sem dona = sem comissão */}
+                    {/* "—" mudo escondia o problema: sem dona = sem comissão.
+                        Nuvemshop fica cinza: sem vendedora ali é o esperado */}
                     {o.seller ? (
                       <p className="text-xs text-gray-400">{o.seller.name}</p>
+                    ) : vendaOnline(o) ? (
+                      <p className="text-xs text-gray-400">loja online</p>
                     ) : veLojaInteira ? (
                       <p className="text-xs font-semibold text-amber-600">sem vendedora</p>
                     ) : (

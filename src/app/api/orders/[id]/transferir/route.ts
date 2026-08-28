@@ -3,7 +3,7 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import { requireUser, AuthError } from "@/lib/auth";
 import { orderScope } from "@/lib/scope";
-import { podeTransferirVenda } from "@/lib/orders";
+import { podeTransferirVenda, vendaOnline } from "@/lib/orders";
 
 /**
  * Transferir a venda para outra vendedora — em poucos cliques, direto do
@@ -33,10 +33,21 @@ export async function POST(
 
     const order = await db.order.findFirst({
       where: { id, ...orderScope(user) },
-      select: { id: true, sellerId: true, number: true, status: true },
+      select: { id: true, sellerId: true, number: true, status: true, source: true },
     });
     if (!order) {
       return NextResponse.json({ error: "Pedido não encontrado" }, { status: 404 });
+    }
+
+    // mensagem específica antes da genérica: aqui nem a gerência pode (RN-005)
+    if (vendaOnline(order)) {
+      return NextResponse.json(
+        {
+          error:
+            "Venda da loja online (Nuvemshop) não tem vendedora e não gera comissão — não dá para transferir.",
+        },
+        { status: 409 }
+      );
     }
 
     if (!podeTransferirVenda(user, order)) {
