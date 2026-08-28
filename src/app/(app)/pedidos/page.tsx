@@ -2,7 +2,7 @@ import Link from "next/link";
 import { ShoppingBag, Download, Search, X } from "lucide-react";
 import { requireUser } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { orderScope } from "@/lib/scope";
+import { orderScope, veTodosPedidos, isManagerUp } from "@/lib/scope";
 import { brl, dateShort, timeShort } from "@/lib/format";
 import {
   orderStatusLabel,
@@ -31,12 +31,19 @@ export const dynamic = "force-dynamic";
 export default async function OrdersPage({
   searchParams,
 }: {
-  searchParams: Promise<{ status?: string; de?: string; ate?: string; canal?: string; q?: string; pagina?: string }>;
+  searchParams: Promise<{ status?: string; de?: string; ate?: string; canal?: string; vendedora?: string; q?: string; pagina?: string }>;
 }) {
   const user = await requireUser();
-  const { status, de, ate, canal: canalRaw, q: qRaw, pagina: paginaRaw } = await searchParams;
+  const { status, de, ate, canal: canalRaw, vendedora: vendedoraRaw, q: qRaw, pagina: paginaRaw } = await searchParams;
   // canal da venda: nuvemshop | atacadopro (catálogo/WhatsApp/manual) | todos
   const canal = canalRaw === "nuvemshop" || canalRaw === "atacadopro" ? canalRaw : null;
+  // filtro "sem vendedora": pedido pago sem dona não conta na comissão de
+  // ninguém (auditoria Entre Linhas, 28/08/2026) — este filtro existe para a
+  // gerência achá-los e atribuir a dona. SÓ para quem já vê a loja inteira:
+  // para a vendedora comum o parâmetro é ignorado (o escopo dela é ela mesma,
+  // e aplicar sellerId nulo por cima furaria a RN-007).
+  const veLojaInteira = veTodosPedidos(user);
+  const semVendedora = vendedoraRaw === "sem" && veLojaInteira;
   // busca pelo código do pedido (nº) — só os dígitos importam (#0042, 42, "42")
   const q = (qRaw ?? "").trim();
   const buscaNumero = q ? Number(q.replace(/\D/g, "")) : NaN;
@@ -58,6 +65,7 @@ export default async function OrdersPage({
   }
   if (canal === "nuvemshop") where.source = "NUVEMSHOP";
   if (canal === "atacadopro") where.source = { not: "NUVEMSHOP" };
+  if (!buscando && semVendedora) where.sellerId = null;
 
   // filtros cruzados: os chips de STATUS respeitam o canal escolhido e os
   // chips de CANAL respeitam o status escolhido — os números sempre batem
@@ -76,6 +84,8 @@ export default async function OrdersPage({
     from || to
       ? { createdAt: { ...(from ? { gte: from } : {}), ...(to ? { lte: to } : {}) } }
       : {};
+  const vendedoraWhere: Prisma.OrderWhereInput =
+    !buscando && semVendedora ? { sellerId: null } : {};
 
   // NENHUM PEDIDO SOME: a lista mostra 100 por vez (pedido tem foto, cliente,
   // vendedor — carregar milhares de uma vez derrubaria a tela no celular),
@@ -117,18 +127,32 @@ export default async function OrdersPage({
   // a contagem por CANAL entrou nesta mesma rodada: era uma terceira ida ao
   // banco, sozinha, lá embaixo — e não dependia de nada (velocidade, 20/08/2026)
   // eslint-disable-next-line prefer-const -- orders é reatribuído no ajuste de página abaixo
-  let [orders, counts, bySource] = await Promise.all([
+  let [orders, counts, bySource, semDonaCount] = await Promise.all([
     listar(pagina),
     db.order.groupBy({
       by: ["status"],
-      where: { ...orderScope(user), ...periodoWhere, ...canalWhere },
+      where: { ...orderScope(user), ...periodoWhere, ...canalWhere, ...vendedoraWhere },
       _count: true,
     }),
     db.order.groupBy({
       by: ["source"],
-      where: { ...orderScope(user), ...periodoWhere, ...statusWhere },
+      where: { ...orderScope(user), ...periodoWhere, ...statusWhere, ...vendedoraWhere },
       _count: true,
     }),
+    // o número do chip "Sem vendedora" — mesma regra dos outros grupos de
+    // chips: respeita todos os filtros MENOS a própria dimensão. Na busca por
+    // código os chips nem aparecem: não gasta uma ida ao banco à toa.
+    veLojaInteira && !buscando
+      ? db.order.count({
+          where: {
+            ...orderScope(user),
+            ...periodoWhere,
+            ...statusWhere,
+            ...canalWhere,
+            sellerId: null,
+          },
+        })
+      : Promise.resolve(0),
   ]);
 
   const countByStatus = Object.fromEntries(
@@ -154,15 +178,25 @@ export default async function OrdersPage({
   // volta para a página 1; navegar de página mantém os filtros. (Eram três
   // montadores copiados — quem adicionasse um filtro novo esquecia um deles
   // e o filtro caía em silêncio ao navegar.)
-  const href = (muda: { status?: string | null; canal?: string | null; pagina?: number } = {}) => {
+  const href = (
+    muda: {
+      status?: string | null;
+      canal?: string | null;
+      vendedora?: string | null;
+      semPeriodo?: boolean;
+      pagina?: number;
+    } = {}
+  ) => {
     const s = muda.status !== undefined ? muda.status : status;
     const c = muda.canal !== undefined ? muda.canal : canal;
+    const v = muda.vendedora !== undefined ? muda.vendedora : semVendedora ? "sem" : null;
     const p = muda.pagina ?? 1;
     return `/pedidos?${[
       s ? `status=${s}` : "",
-      de ? `de=${de}` : "",
-      ate ? `ate=${ate}` : "",
+      !muda.semPeriodo && de ? `de=${de}` : "",
+      !muda.semPeriodo && ate ? `ate=${ate}` : "",
       c ? `canal=${c}` : "",
+      v ? `vendedora=${v}` : "",
       p > 1 ? `pagina=${p}` : "",
     ]
       .filter(Boolean)
@@ -230,6 +264,7 @@ export default async function OrdersPage({
       <form className="flex flex-wrap items-end gap-2 mb-4" method="GET">
         {status && <input type="hidden" name="status" value={status} />}
         {canal && <input type="hidden" name="canal" value={canal} />}
+        {semVendedora && <input type="hidden" name="vendedora" value="sem" />}
         <div>
           <label className="block text-[11px] font-semibold text-gray-500 mb-1">De</label>
           <input type="date" name="de" defaultValue={de ?? ""} className="rounded-xl border border-gray-200 px-3 py-2 text-sm bg-white" />
@@ -242,14 +277,16 @@ export default async function OrdersPage({
           Filtrar
         </button>
         {(de || ate) && (
-          <Link href={status ? `/pedidos?status=${status}` : "/pedidos"} className="text-xs font-medium text-gray-400 hover:text-gray-600 px-2 py-2.5">
+          // pelo montador único: limpar o período NÃO derruba os outros
+          // filtros (o link antigo, montado à mão, perdia canal e vendedora)
+          <Link href={href({ semPeriodo: true })} className="text-xs font-medium text-gray-400 hover:text-gray-600 px-2 py-2.5">
             Limpar período
           </Link>
         )}
       </form>
 
       {/* Canal da venda: tudo, só AtacadoPro (catálogo/WhatsApp/manual) ou só Nuvemshop */}
-      <div className="flex flex-wrap gap-1.5 mb-3">
+      <div className="flex flex-wrap items-center gap-1.5 mb-3">
         {[
           { c: null, label: `Todos os canais (${apCount + nsCount})` },
           { c: "atacadopro", label: `AtacadoPro (${apCount})` },
@@ -269,7 +306,38 @@ export default async function OrdersPage({
             {o.label}
           </Link>
         ))}
+        {/* pedido sem dona não conta na comissão de ninguém — o chip acende
+            em âmbar para a gerência achar e atribuir (só quem vê a loja toda) */}
+        {veLojaInteira && (
+          <Link
+            href={href({ vendedora: semVendedora ? null : "sem" })}
+            className={`px-3 py-2 rounded-xl text-xs font-semibold whitespace-nowrap transition ${
+              semVendedora
+                ? "bg-amber-500 text-white"
+                : "bg-white border border-amber-300 text-amber-700 hover:border-amber-400"
+            }`}
+          >
+            Sem vendedora ({semDonaCount})
+          </Link>
+        )}
       </div>
+
+      {semVendedora && (
+        <div className="mb-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-2.5">
+          <p className="text-sm text-amber-800">
+            Estes pedidos não contam na comissão nem na meta de ninguém — por
+            isso a soma das vendedoras fica menor que o faturamento.{" "}
+            {/* a instrução só para quem PODE definir a dona (gerência): para
+                suporte e vendedora com visão total, "mostra, não mexe" —
+                mandá-los ao botão que a API recusa seria promessa falsa */}
+            {isManagerUp(user) ? (
+              <>Abra o pedido e defina a vendedora em <b>&ldquo;Editar dados&rdquo;</b>.</>
+            ) : (
+              <>Avise a gerência para definir a vendedora de cada um.</>
+            )}
+          </p>
+        </div>
+      )}
 
       <div className="flex flex-wrap gap-1.5 mb-4 pb-1">
         <Link
@@ -352,6 +420,7 @@ export default async function OrdersPage({
                       ) : (
                         <Badge color="#C4622D">AtacadoPro</Badge>
                       )}
+                      {veLojaInteira && !o.seller && <Badge color="#D97706">sem vendedora</Badge>}
                       <RowStatusMenu orderId={o.id} current={o.status} />
                     </div>
                   </div>
@@ -359,9 +428,14 @@ export default async function OrdersPage({
                     <p className="text-xs text-gray-400">
                       {dateShort(o.createdAt)} {timeShort(o.createdAt)}
                     </p>
-                    <p className="text-xs text-gray-400">
-                      {o.seller?.name ?? "—"}
-                    </p>
+                    {/* "—" mudo escondia o problema: sem dona = sem comissão */}
+                    {o.seller ? (
+                      <p className="text-xs text-gray-400">{o.seller.name}</p>
+                    ) : veLojaInteira ? (
+                      <p className="text-xs font-semibold text-amber-600">sem vendedora</p>
+                    ) : (
+                      <p className="text-xs text-gray-400">—</p>
+                    )}
                   </div>
                   {/* selos no computador (inalterado) */}
                   <div className="hidden sm:flex items-center gap-2 shrink-0">

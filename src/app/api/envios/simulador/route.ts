@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { requireUser, AuthError } from "@/lib/auth";
-import { canSeeAll } from "@/lib/scope";
+import { veTodosPedidos } from "@/lib/scope";
 import { meCalculate } from "@/lib/melhorenvio";
 import { embalagensParecidas, pesoTotalKg } from "@/lib/envios/simulador";
 import {
@@ -86,7 +86,7 @@ export async function GET(req: NextRequest) {
     // não importa quem vendeu. Mas a IDENTIDADE do pedido segue a RN-007:
     // vendedora sem visão total recebe só a embalagem (peças, medidas,
     // data), sem número nem id de pedido de colega.
-    const vePedidos = canSeeAll(user) || Boolean(user.pedidosVisaoTotal);
+    const vePedidos = veTodosPedidos(user);
     return NextResponse.json({
       embalagens: embalagens.map((e) => ({
         id: e.id,

@@ -79,8 +79,18 @@ export function conversationScope(user: SessionUser) {
  * exportação de pedidos segue o escopo normal.
  * O admin liga/desliga na tela Equipe e vale na hora.
  */
+/**
+ * Quem ENXERGA todos os pedidos da loja (gerência/suporte, ou vendedora com
+ * a chavinha `pedidosVisaoTotal`). É a MESMA regra do orderScope — num lugar
+ * só, para tela e escopo nunca discordarem: se a exceção da RN-007 mudar um
+ * dia, muda aqui e vale em todo canto.
+ */
+export function veTodosPedidos(user: SessionUser) {
+  return canSeeAll(user) || Boolean(user.pedidosVisaoTotal);
+}
+
 export function orderScope(user: SessionUser) {
-  return canSeeAll(user) || user.pedidosVisaoTotal
+  return veTodosPedidos(user)
     ? { companyId: user.companyId }
     : { companyId: user.companyId, sellerId: user.id };
 }
