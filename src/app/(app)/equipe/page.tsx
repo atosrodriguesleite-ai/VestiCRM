@@ -5,6 +5,7 @@ import { isManagerUp, isAdmin } from "@/lib/scope";
 import { PAID_ORDER_STATUSES } from "@/lib/orders";
 import { PageHeader } from "@/components/ui";
 import { TeamView, type TeamMember } from "./team-view";
+import { FuncionariosSecao } from "./funcionarios-view";
 
 export const dynamic = "force-dynamic";
 
@@ -79,6 +80,12 @@ export default async function TeamPage() {
         subtitle="Papéis e desempenho de cada pessoa. Vendedores veem apenas a própria carteira."
       />
       <TeamView members={data} canManage={isAdmin(user)} />
+
+      {/* FICHAS DE FUNCIONÁRIO (RN-025) — registro de RH da empresa, SEM
+          vínculo com os logins acima: a maior parte dos funcionários nunca
+          entra no sistema. A seção busca os dados pela API (que decide o que
+          cada papel recebe) e só aparece para gerência. */}
+      <FuncionariosSecao souAdmin={isAdmin(user)} />
     </div>
   );
 }

@@ -428,6 +428,17 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   Memória por loja (RN-013); etiqueta cancelada não vira referência;
   categoria sem medidas não muda NADA (caixa padrão, como sempre); loja sem
   o interruptor não vê o simulador.
+- **Equipe · Fichas de funcionário**: **RN-025** · a ficha de RH é da
+  EMPRESA, sem vínculo com login (a maior parte dos funcionários nunca entra
+  no sistema). Salário, documentos, CPF/endereço, dependentes e observações:
+  SÓ ADMIN — o gerente recebe o recorte básico + emergência/alergias, montado
+  no servidor por lista do que ENTRA (`fichaBasica` em `lib/funcionarios.ts`;
+  campo sensível novo nasce invisível). Ficha NUNCA é apagada: desligar
+  arquiva com data/motivo (a API nem tem DELETE), e salário/desligamento
+  ficam no histórico (quem, quando). Documentos entram como anexo com tipo e
+  validade opcional (ASO/CNH/comprovante vencem — a tela avisa), com
+  checklist adaptado ao vínculo (CLT completo; diarista/PJ o essencial).
+  Raça/cor fica FORA do sistema (decisão LGPD com o dono, 26/08/2026).
 - **Super Admin**: painel Lojas (provisionar, cobrança, uso, suspender,
   impersonar), diagnóstico de fotos; loja demo "Bella Moda".
 

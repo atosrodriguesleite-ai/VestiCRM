@@ -137,6 +137,7 @@ model Company {
   portfolioProducts PortfolioProduct[]
   aiSettings     AiSettings?
   aiUsage        AiUsage[]
+  funcionarios  Funcionario[]
 }
 
 /// PORTFÓLIO DE PRODUTOS E SERVIÇOS (só Super Admin, empresa-plataforma).
@@ -2409,4 +2410,149 @@ model LoginThrottle {
   updatedAt    DateTime  @updatedAt
 
   @@index([updatedAt])
+}
+
+// ---------------------------------------------------------------------------
+// EQUIPE · FICHA DE FUNCIONÁRIO (RN-025)
+//
+// Registro de RH da EMPRESA, SEM vínculo com login: a maior parte dos
+// funcionários (costureira, diarista, facção) nunca entra no sistema. A ficha
+// existe para a administração — e ficha de ex-funcionário NUNCA é apagada
+// (questão trabalhista dura anos): desligar arquiva, com data e motivo.
+// Salário, documentos, CPF/endereço e dependentes: só ADMIN. Gerente vê o
+// básico + emergência/alergias (é para isso que servem numa emergência).
+// ---------------------------------------------------------------------------
+
+enum FuncionarioVinculo {
+  CLT
+  MEI_PJ
+  DIARISTA
+  ESTAGIO
+  INFORMAL
+}
+
+enum PeriodicidadePagamento {
+  MENSAL
+  SEMANAL
+  DIARIA
+  POR_PECA
+}
+
+enum FormaPagamentoFuncionario {
+  PIX
+  DINHEIRO
+  TRANSFERENCIA
+}
+
+enum FuncionarioDocTipo {
+  RG
+  CNH
+  CPF_DOC
+  COMPROVANTE_RESIDENCIA
+  TITULO_ELEITOR
+  RESERVISTA
+  ESCOLARIDADE
+  CERTIDAO
+  ASO
+  CONTRATO
+  VACINACAO
+  FREQUENCIA_ESCOLAR
+  OUTRO
+}
+
+model Funcionario {
+  id        String  @id @default(cuid())
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  nome         String
+  fotoUrl      String? // data-URL; sem foto usa iniciais
+  nascimento   DateTime?
+  cpf          String?
+  telefone     String?
+  email        String?
+  // endereço (CEP preenche via ViaCEP, como na ficha de cliente)
+  zip          String?
+  street       String?
+  streetNumber String?
+  complement   String?
+  district     String?
+  city         String?
+  state        String?
+
+  cargo              String?
+  vinculo            FuncionarioVinculo @default(INFORMAL)
+  inicio             DateTime?
+  // desligamento preenchido = ficha ARQUIVADA (nunca se apaga)
+  desligamento       DateTime?
+  motivoDesligamento String?
+
+  // remuneração: o FIXO. Comissão/meta de vendedora seguem no login (User).
+  remuneracao    Float                     @default(0)
+  periodicidade  PeriodicidadePagamento    @default(MENSAL)
+  formaPagamento FormaPagamentoFuncionario @default(PIX)
+  chavePix       String?
+  banco          String?
+  agencia        String?
+  conta          String?
+
+  emergenciaNome       String?
+  emergenciaParentesco String?
+  emergenciaTelefone   String?
+  restricaoAlimentar   String?
+  alergias             String?
+
+  beneficios  String[] // lista marcável (VT, plano de saúde, refeição…)
+  observacoes String? // anotações internas — só ADMIN
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+
+  dependentes FuncionarioDependente[]
+  documentos  FuncionarioDocumento[]
+  eventos     FuncionarioEvento[]
+
+  @@index([companyId])
+}
+
+model FuncionarioDependente {
+  id            String      @id @default(cuid())
+  funcionarioId String
+  funcionario   Funcionario @relation(fields: [funcionarioId], references: [id], onDelete: Cascade)
+  nome          String
+  nascimento    DateTime?
+  createdAt     DateTime    @default(now())
+
+  documentos FuncionarioDocumento[]
+
+  @@index([funcionarioId])
+}
+
+model FuncionarioDocumento {
+  id            String                 @id @default(cuid())
+  funcionarioId String
+  funcionario   Funcionario            @relation(fields: [funcionarioId], references: [id], onDelete: Cascade)
+  // documento de um dependente específico (certidão, vacinação…)
+  dependenteId  String?
+  dependente    FuncionarioDependente? @relation(fields: [dependenteId], references: [id], onDelete: SetNull)
+  tipo          FuncionarioDocTipo
+  fileName      String
+  arquivo       String // data-URL (mesma dívida técnica das demais mídias)
+  // validade opcional → ASO, CNH e comprovante vencem; a tela avisa
+  validade      DateTime?
+  createdAt     DateTime               @default(now())
+
+  @@index([funcionarioId])
+}
+
+// histórico da ficha: mudança de salário, desligamento, reativação — quem e quando
+model FuncionarioEvento {
+  id            String      @id @default(cuid())
+  funcionarioId String
+  funcionario   Funcionario @relation(fields: [funcionarioId], references: [id], onDelete: Cascade)
+  descricao     String
+  autorNome     String
+  createdAt     DateTime    @default(now())
+
+  @@index([funcionarioId])
 }
