@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { receiveMessage, updateDeliveryStatus } from "@/lib/comm/engine";
+import { receiveMessage, updateDeliveryStatus, aplicarRecibosOrfaos } from "@/lib/comm/engine";
 import { jidToPhone, evoGetMediaBase64 } from "@/lib/comm/evolution";
 import { findCustomerByPhone, nomeProvisorio } from "@/lib/intake";
 import { alertWhatsappDown, logServerError } from "@/lib/health";
@@ -809,6 +809,11 @@ export async function POST(
                   error: null,
                 },
               });
+              // o "entregue" pode ter chegado antes de a pendente ganhar o
+              // externalId — reaplica o recibo que ficou órfão esperando
+              if (m.key?.id) {
+                await aplicarRecibosOrfaos(companyId, m.key.id).catch(() => {});
+              }
               await db.conversation.update({
                 where: { id: conv.id },
                 data: {
@@ -842,6 +847,14 @@ export async function POST(
             } catch (e) {
               if ((e as { code?: string })?.code !== "P2002") throw e;
               continue;
+            }
+            // A CORRIDA DO RECIBO (incidente 28/08/2026): a bolha do eco só
+            // nasce DEPOIS do download da mídia — com a cliente online, o
+            // "entregue" chegou ANTES e ficou órfão. Reaplica agora, senão a
+            // mensagem ficava no ✓ para sempre (e cliente com confirmação de
+            // leitura desligada nunca manda outro recibo que conserte).
+            if (m.key?.id) {
+              await aplicarRecibosOrfaos(companyId, m.key.id).catch(() => {});
             }
             // CONTATO FEITO: a loja chamou a cliente pelo celular — as
             // tarefas de contato dela se concluem e a sugestão sai das listas
@@ -945,8 +958,9 @@ export async function POST(
     if (event === "messages.update") {
       type Update = {
         keyId?: string;
+        remoteJid?: string;
         status?: string;
-        key?: { id?: string };
+        key?: { id?: string; remoteJid?: string };
         message?: Record<string, unknown>;
       };
       const raw = body.data as Update | Update[];
@@ -968,7 +982,21 @@ export async function POST(
             await aplicarEdicao(companyId, edicao.alvoId, edicao.texto);
           }
         }
-        if (!u?.keyId || !u.status) continue;
+        // o id vem em `keyId` OU dentro de `key.id`, conforme a versão do
+        // servidor — mesma lição da edição (17/08). Só olhar `keyId` deixava
+        // recibo legítimo cair no chão em builds que mandam o outro formato.
+        const alvoDoRecibo = u?.keyId ?? u?.key?.id;
+        if (!alvoDoRecibo || !u?.status) continue;
+        // recibo de GRUPO/status nunca casa com mensagem do CRM — nem tenta
+        // (e não vira recibo órfão: seria escrita à toa a cada mensagem de grupo)
+        const jidDoRecibo = u.remoteJid ?? u.key?.remoteJid ?? "";
+        if (
+          jidDoRecibo.endsWith("@g.us") ||
+          jidDoRecibo.endsWith("@broadcast") ||
+          jidDoRecibo.startsWith("status@")
+        ) {
+          continue;
+        }
         // PLAYED = ouviu o áudio (implica ter lido).
         // ERROR/FAILED = a mensagem NÃO chegou. Sem tratar isso, a bolha
         // seguia mostrando "enviada" para sempre e a vendedora achava que a
@@ -984,11 +1012,14 @@ export async function POST(
         if (!status) continue;
         await updateDeliveryStatus(
           companyId,
-          u.keyId,
+          alvoDoRecibo,
           status,
           status === "FALHOU"
             ? "O WhatsApp não conseguiu entregar esta mensagem."
-            : undefined
+            : undefined,
+          // aqui existe quem REAPLIQUE o órfão (a corrida do eco pelo
+          // celular) — nos outros webhooks anotar seria escrita perdida
+          { anotarOrfao: true }
         );
       }
     }

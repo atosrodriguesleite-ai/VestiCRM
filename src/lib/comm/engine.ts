@@ -13,6 +13,7 @@ import {
   phoneToJid,
 } from "./evolution";
 import { notifyMentions } from "../notify";
+import { reciboMaisForte, reciboAvanca } from "./recibo";
 import type { ProviderCredentials } from "./types";
 import type {
   Channel,
@@ -201,10 +202,19 @@ export async function sendMessage(input: SendMessageInput): Promise<Message> {
       // O `updateMany` com filtro de status é o que garante isso: só marca
       // falha se a mensagem ainda estiver ENVIANDO.
       if (result.ok) {
-        await db.message.update({
-          where: { id: messageId },
+        // SÓ avança quem ainda está ENVIANDO/FALHOU: o eco do celular (adoção)
+        // ou um recibo aplicado ao vivo podem já ter levado a mensagem a
+        // ENVIADA/ENTREGUE/LIDA — sobrescrever com "ENVIADA" faria o ✓✓
+        // regredir para ✓ para sempre (achado da revisão de 28/08/2026).
+        await db.message.updateMany({
+          where: { id: messageId, status: { in: ["ENVIANDO", "FALHOU"] } },
           data: { status: "ENVIADA", externalId: result.externalId, error: null },
         });
+        // o recibo pode ter chegado ANTES de o externalId ser gravado
+        // (cliente online + provedor lento) — reaplica o que ficou órfão
+        if (result.externalId) {
+          await aplicarRecibosOrfaos(input.companyId, result.externalId).catch(() => {});
+        }
       } else {
         await db.message.updateMany({
           where: { id: messageId, status: "ENVIANDO" },
@@ -610,29 +620,62 @@ export async function receiveMessage(
   return result;
 }
 
-/** Recibo de entrega/leitura vindo do webhook do provedor. */
+/**
+ * Recibo de entrega/leitura vindo do webhook do provedor.
+ *
+ * `anotarOrfao`: só o webhook da Evolution liga — é onde a corrida do eco
+ * pelo celular acontece E onde existe quem reaplique (aplicarRecibosOrfaos).
+ * Nos outros chamadores (Cloud API, simulador) o recibo sem mensagem é de
+ * algo que nunca vai existir no CRM: anotar seria escrita à toa, para sempre.
+ */
 export async function updateDeliveryStatus(
   companyId: string,
   externalId: string,
   status: Extract<MessageStatus, "ENTREGUE" | "LIDA" | "FALHOU">,
-  error?: string
+  error?: string,
+  opts?: { anotarOrfao?: boolean }
 ) {
-  const message = await db.message.findFirst({
+  let message = await db.message.findFirst({
     where: { externalId, conversation: { companyId } },
   });
 
-  // RECIBO DE MENSAGEM QUE NÃO É NOSSA — não é erro, é rotina.
+  // RECIBO DE MENSAGEM QUE AINDA NÃO ESTÁ NO CRM — pode ser das duas coisas:
   //
-  // O WhatsApp manda recibo de entrega/leitura de TUDO que passa pelo
-  // número: mensagens digitadas no celular, conversas de grupo, mensagens
-  // antigas de antes da conexão. Nada disso está no CRM, então não há o que
-  // atualizar — e não há nada errado nisso.
+  //  • mensagem que nunca vai existir aqui (grupo, mensagem de antes da
+  //    conexão) — nada a fazer, e não é erro;
+  //  • CORRIDA com a gravação (incidente real, 28/08/2026): a mensagem
+  //    mandada PELO CELULAR só vira bolha depois que o webhook baixa a mídia
+  //    (áudio/foto levam segundos — e um lote de fotos, mais ainda). Com a
+  //    cliente ONLINE, o "entregue" chega ANTES de a bolha existir. Jogar o
+  //    recibo fora deixava a mensagem no ✓ para sempre — e cliente com
+  //    confirmação de leitura desligada nunca manda outro recibo que
+  //    conserte depois.
   //
-  // Registrar cada um como ERRO enchia a Central de Comunicação de bolinhas
-  // vermelhas e inflava o contador de "falhas nas últimas 24h" que a lojista
-  // vê. Com o painel gritando falha o tempo todo, o erro DE VERDADE passa
-  // despercebido. Então esse recibo é simplesmente ignorado, em silêncio.
-  if (!message) return null;
+  // Por isso o recibo órfão fica ANOTADO (recibo.orfao, status OK — nada de
+  // bolinha vermelha no painel) e é REAPLICADO quando a bolha nasce
+  // (aplicarRecibosOrfaos, chamada em todo lugar que grava o externalId).
+  // Registrar como ERRO está fora de questão: encheria a Central de falhas
+  // falsas e o erro de verdade passaria despercebido.
+  if (!message) {
+    if (!opts?.anotarOrfao) return null;
+    await logEvent({
+      companyId,
+      channel: "WHATSAPP",
+      direction: "IN",
+      type: "recibo.orfao",
+      status: "OK",
+      payload: { externalId, status },
+      error,
+    }).catch(() => {});
+    // a bolha pode ter NASCIDO enquanto o órfão era anotado (a reaplicação
+    // dela pode ter varrido ANTES do nosso registro entrar) — confere de
+    // novo e, se agora existe, aplica direto. Cada lado escreve e depois
+    // olha o outro: um dos dois sempre enxerga o recibo.
+    message = await db.message.findFirst({
+      where: { externalId, conversation: { companyId } },
+    });
+    if (!message) return null;
+  }
 
   await logEvent({
     companyId,
@@ -645,12 +688,21 @@ export async function updateDeliveryStatus(
   });
   // grava o HORÁRIO do recibo: entregue e visto (não retrocede um status)
   const agora = new Date();
-  const receiptData: Record<string, unknown> = { status, ...(error ? { error } : {}) };
+  // O STATUS SÓ ANDA PARA FRENTE (reciboAvanca): a reaplicação do órfão ou
+  // um recibo atrasado não podem rebaixar LIDA para ENTREGUE, nem carimbar
+  // "Falhou" numa mensagem que chegou (achado da revisão de 28/08/2026).
+  // Os horários continuam entrando mesmo com o status parado (ex.: LIDA sem
+  // deliveredAt ganha o carimbo de entregue).
+  const avanca = reciboAvanca(message.status, status);
+  const receiptData: Record<string, unknown> = {
+    ...(avanca ? { status, ...(error ? { error } : {}) } : {}),
+  };
   if (status === "ENTREGUE" && !message.deliveredAt) receiptData.deliveredAt = agora;
   if (status === "LIDA") {
     receiptData.readAt = message.readAt ?? agora;
     if (!message.deliveredAt) receiptData.deliveredAt = agora; // visto implica entregue
   }
+  if (Object.keys(receiptData).length === 0) return message; // nada de novo
   const updated = await db.message.update({
     where: { id: message.id },
     data: receiptData,
@@ -661,4 +713,53 @@ export async function updateDeliveryStatus(
     data: { updatedAt: new Date() },
   });
   return updated;
+}
+
+/** janela em que um recibo órfão ainda vale (a corrida se resolve em minutos) */
+const RECIBO_ORFAO_JANELA_MS = 30 * 60 * 1000;
+
+/**
+ * Reaplica recibos que chegaram ANTES de a mensagem existir no CRM.
+ *
+ * Chamar em todo lugar que grava um `externalId` novo: o eco do celular
+ * (criação e adoção de pendente) e o envio pelo painel. A corrida do
+ * incidente de 28/08/2026: cliente online recebe na hora, o DELIVERY_ACK
+ * bate na porta enquanto o webhook ainda baixa a mídia da mensagem — sem a
+ * reaplicação, o ✓✓ nunca chegava na tela.
+ */
+export async function aplicarRecibosOrfaos(
+  companyId: string,
+  externalId: string
+): Promise<void> {
+  const orfaos = await db.commEvent.findMany({
+    where: {
+      companyId,
+      type: "recibo.orfao",
+      createdAt: { gte: new Date(Date.now() - RECIBO_ORFAO_JANELA_MS) },
+      payload: { contains: externalId },
+    },
+    select: { payload: true },
+  });
+  if (orfaos.length === 0) return;
+  const statuses = orfaos
+    .map((o) => {
+      try {
+        const p = JSON.parse(o.payload ?? "{}") as { externalId?: string; status?: string };
+        // `contains` pode casar por acaso — confere o id de verdade
+        return p.externalId === externalId ? p.status : null;
+      } catch {
+        return null;
+      }
+    })
+    .filter((s): s is "ENTREGUE" | "LIDA" | "FALHOU" =>
+      s === "ENTREGUE" || s === "LIDA" || s === "FALHOU"
+    );
+  const melhor = reciboMaisForte(statuses);
+  if (!melhor) return;
+  await updateDeliveryStatus(
+    companyId,
+    externalId,
+    melhor,
+    melhor === "FALHOU" ? "O WhatsApp não conseguiu entregar esta mensagem." : undefined
+  );
 }
