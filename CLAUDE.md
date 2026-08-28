@@ -478,6 +478,17 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   validade opcional (ASO/CNH/comprovante vencem — a tela avisa), com
   checklist adaptado ao vínculo (CLT completo; diarista/PJ o essencial).
   Raça/cor fica FORA do sistema (decisão LGPD com o dono, 26/08/2026).
+  **Link do formulário** (`/ficha/<código>`, `lib/ficha-form-link.ts`): o
+  admin manda o link e o FUNCIONÁRIO preenche a própria ficha pelo celular,
+  sem login — código sorteado (padrão RN-024), vence em 7 dias e é de USO
+  ÚNICO (o envio o consome). Aceite LGPD obrigatório ANTES de qualquer dado
+  sair do aparelho. O formulário só aceita o que é DO funcionário
+  (`formFichaSchema`, recorte por lista: remuneração/cargo/vínculo mandados
+  junto são descartados); a resposta NÃO entra na ficha — fica **aguardando
+  conferência**, e o admin aprova (grava só o preenchido; campo em branco não
+  apaga nada) ou dispensa, com registro no histórico. Documento anexado pelo
+  link entra na pasta na hora (um POST por arquivo, teto por link) e o admin
+  pode remover na conferência.
 - **Super Admin**: painel Lojas (provisionar, cobrança, uso, suspender,
   impersonar), diagnóstico de fotos; loja demo "Bella Moda".
 

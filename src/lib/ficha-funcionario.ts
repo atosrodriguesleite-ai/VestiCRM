@@ -64,3 +64,106 @@ export function corpoDaFicha(d: Partial<z.infer<typeof fichaSchema>>) {
     ...(inicio !== undefined ? { inicio: dataOuNull(inicio) } : {}),
   };
 }
+
+// ---- Formulário público do funcionário (RN-025, link sem login) -------------
+
+/** O link ESCREVE (via conferência) — então vence, como o da cliente (RN-024). */
+export const VALIDADE_LINK_FICHA_MS = 7 * 24 * 60 * 60 * 1000;
+
+/** Teto de anexos por link: segura abuso de quem pegar o link no meio. */
+export const TETO_DOCS_POR_LINK = 15;
+
+/** Link serve? Vencido ou JÁ USADO (uso único) não abre nem grava mais. */
+export function linkUtilizavel(
+  l: { expiresAt: Date; usadoEm: Date | null },
+  agora: Date = new Date()
+): boolean {
+  return l.usadoEm === null && l.expiresAt.getTime() > agora.getTime();
+}
+
+/**
+ * O QUE O FUNCIONÁRIO PODE MANDAR pelo link — recorte do fichaSchema por
+ * lista do que ENTRA: cargo, vínculo, remuneração, benefícios e observações
+ * são da EMPRESA e não existem aqui (mandar junto é descartado pelo zod).
+ * O aceite LGPD é obrigatório e tem que ser literalmente `true`.
+ */
+export const formFichaSchema = fichaSchema
+  .pick({
+    fotoUrl: true,
+    nascimento: true,
+    cpf: true,
+    telefone: true,
+    email: true,
+    zip: true,
+    street: true,
+    streetNumber: true,
+    complement: true,
+    district: true,
+    city: true,
+    state: true,
+    chavePix: true,
+    banco: true,
+    agencia: true,
+    conta: true,
+    emergenciaNome: true,
+    emergenciaParentesco: true,
+    emergenciaTelefone: true,
+    restricaoAlimentar: true,
+    alergias: true,
+  })
+  .extend({
+    dependentes: z
+      .array(
+        z.object({
+          nome: z.string().trim().min(1).max(120),
+          nascimento: z.string().nullable().optional(),
+        })
+      )
+      .max(10)
+      .optional(),
+    aceiteLGPD: z.literal(true),
+  });
+
+/**
+ * A resposta guardada para conferência: SÓ o que veio preenchido. Campo em
+ * branco não viaja — o funcionário deixar vazio não pode apagar o que o
+ * admin já preencheu (mesma lição do PATCH parcial, acima).
+ */
+export function limparResposta(d: z.infer<typeof formFichaSchema>) {
+  const { aceiteLGPD: _aceite, dependentes, ...campos } = d;
+  const resposta: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(campos)) {
+    if (v === undefined || v === null) continue;
+    if (typeof v === "string" && !v.trim()) continue;
+    resposta[k] = typeof v === "string" ? v.trim() : v;
+  }
+  if (dependentes && dependentes.length > 0) resposta.dependentes = dependentes;
+  return resposta;
+}
+
+/**
+ * CONFERÊNCIA APROVADA → o que gravar na ficha. Revalida a resposta guardada
+ * (Json no banco não é confiável por definição) e converte datas; devolve
+ * null se ela não fizer mais sentido — aí a conferência recusa em vez de
+ * gravar lixo.
+ */
+export function aplicarResposta(resposta: unknown): {
+  dados: Record<string, unknown>;
+  dependentes: { nome: string; nascimento: string | null }[];
+} | null {
+  if (!resposta || typeof resposta !== "object") return null;
+  const parsed = formFichaSchema.omit({ aceiteLGPD: true }).safeParse(resposta);
+  if (!parsed.success) return null;
+  const { dependentes, ...campos } = parsed.data;
+  // presença = veio preenchido (limparResposta já cortou os vazios)
+  const presentes = Object.fromEntries(
+    Object.entries(campos).filter(([, v]) => v !== undefined)
+  );
+  return {
+    dados: corpoDaFicha(presentes),
+    dependentes: (dependentes ?? []).map((d) => ({
+      nome: d.nome,
+      nascimento: d.nascimento ?? null,
+    })),
+  };
+}

@@ -31,6 +31,15 @@ const PUBLIC_PATHS = [
   "/api/catalog/order", // pedido enviado pelo catálogo público
   "/api/img", // fotos de produto (catálogo público carrega daqui)
   "/api/cron/", // tarefas agendadas do Vercel (protegidas por CRON_SECRET)
+  // A CLIENTE preenche os dados de envio pelo link do chat (RN-024) — página
+  // e envio PÚBLICOS: quem prova quem ela é é o código sorteado do link, não
+  // o login (faltava aqui: o link levava a cliente para a tela de entrar)
+  "/dados/",
+  "/api/dados-envio",
+  // O FUNCIONÁRIO preenche a própria ficha pelo link (RN-025) — mesma regra,
+  // com código de uso único no lugar do login
+  "/ficha/",
+  "/api/ficha-form/",
 ];
 
 // Domínio dedicado aos catálogos (ex.: "pedidosatacado.com.br").

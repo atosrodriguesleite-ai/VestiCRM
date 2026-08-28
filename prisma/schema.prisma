@@ -139,6 +139,7 @@ model Company {
   aiUsage        AiUsage[]
   dadosEnvioLinks DadosEnvioLink[]
   funcionarios  Funcionario[]
+  fichaFormLinks FichaFormLink[]
 }
 
 /// PORTFÓLIO DE PRODUTOS E SERVIÇOS (só Super Admin, empresa-plataforma).
@@ -2530,8 +2531,34 @@ model Funcionario {
   dependentes FuncionarioDependente[]
   documentos  FuncionarioDocumento[]
   eventos     FuncionarioEvento[]
+  formLinks   FichaFormLink[]
 
   @@index([companyId])
+}
+
+/// LINK DO FORMULÁRIO DA FICHA (RN-025): o funcionário preenche a própria
+/// ficha pelo celular, sem login. Código sorteado (64 bits), vence em 7 dias
+/// e é de USO ÚNICO — o envio o consome. O que ele manda NÃO entra direto na
+/// ficha: fica em `resposta` AGUARDANDO A CONFERÊNCIA do admin; só a
+/// aprovação grava. Exceção: documento anexado entra na pasta na hora (cada
+/// arquivo é um envio próprio, o teto por link segura abuso) — o admin pode
+/// remover na conferência.
+model FichaFormLink {
+  id            String      @id @default(cuid())
+  companyId     String
+  company       Company     @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  funcionarioId String
+  funcionario   Funcionario @relation(fields: [funcionarioId], references: [id], onDelete: Cascade)
+  code          String      @unique // sorteado (64 bits) — não se adivinha
+  createdAt     DateTime    @default(now())
+  expiresAt     DateTime
+  usadoEm       DateTime? // uso único: o envio preenche e o link morre
+  aceiteLGPDEm  DateTime? // consentimento marcado no formulário (LGPD)
+  resposta      Json? // o que o funcionário mandou, aguardando conferência
+  conferidoEm   DateTime? // admin aplicou (ou dispensou) a resposta
+  docsEnviados  Int         @default(0) // teto de anexos por link
+
+  @@index([funcionarioId])
 }
 
 model FuncionarioDependente {

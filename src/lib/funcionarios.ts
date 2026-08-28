@@ -96,6 +96,32 @@ export const CHECKLIST_POR_VINCULO: Record<FuncionarioVinculo, FuncionarioDocTip
   INFORMAL: ["RG", "CPF_DOC"],
 };
 
+/** Rótulo humano dos campos que o funcionário manda pelo link (RN-025). */
+export const rotuloCampoFicha: Record<string, string> = {
+  fotoUrl: "foto",
+  nascimento: "nascimento",
+  cpf: "CPF",
+  telefone: "telefone",
+  email: "e-mail",
+  zip: "CEP",
+  street: "rua",
+  streetNumber: "número",
+  complement: "complemento",
+  district: "bairro",
+  city: "cidade",
+  state: "UF",
+  chavePix: "chave Pix",
+  banco: "banco",
+  agencia: "agência",
+  conta: "conta",
+  emergenciaNome: "contato de emergência",
+  emergenciaParentesco: "parentesco (emergência)",
+  emergenciaTelefone: "telefone de emergência",
+  restricaoAlimentar: "restrição alimentar",
+  alergias: "alergias",
+  dependentes: "dependentes",
+};
+
 /**
  * O que ainda falta anexar para o vínculo — contando SÓ documento do próprio
  * funcionário: a certidão do filho (dependenteId preenchido) não satisfaz a

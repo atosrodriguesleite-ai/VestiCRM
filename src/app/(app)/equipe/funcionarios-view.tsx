@@ -18,15 +18,18 @@ import {
   AlertTriangle,
   Loader2,
   Check,
+  Link2,
 } from "lucide-react";
 import { Card, Avatar } from "@/components/ui";
 import { brl, dateFull, formatPhone, numeroBR } from "@/lib/format";
 import { casaTexto } from "@/lib/busca";
+import { copiarTexto } from "@/lib/copiar";
 import {
   vinculoLabel,
   periodicidadeLabel,
   formaPagamentoLabel,
   docTipoLabel,
+  rotuloCampoFicha,
   BENEFICIOS,
   documentosFaltantes,
   situacaoDoDocumento,
@@ -62,6 +65,12 @@ type Documento = {
   createdAt: string;
 };
 type Evento = { id: string; descricao: string; autorNome: string; createdAt: string };
+// resposta do formulário do link, aguardando o admin conferir (RN-025)
+type RespostaPendente = {
+  id: string;
+  usadoEm: string;
+  resposta: Record<string, unknown> | null;
+};
 
 type FichaCompleta = FichaBasica & {
   cpf: string | null;
@@ -86,6 +95,7 @@ type FichaCompleta = FichaBasica & {
   dependentes: Dependente[];
   documentos: Documento[];
   eventos: Evento[];
+  formLinks: RespostaPendente[];
 };
 
 const VAZIA: Partial<FichaCompleta> = {
@@ -363,6 +373,7 @@ function LinhaFuncionario({
 }) {
   const f = ficha as FichaCompleta;
   const desligada = Boolean(ficha.desligamento);
+  const aguardando = admin && "formLinks" in ficha ? f.formLinks.length : 0;
   const docsProblema =
     admin && "documentos" in ficha
       ? f.documentos.filter((d) => situacaoDoDocumento(d.validade) !== "OK" && d.validade)
@@ -390,6 +401,11 @@ function LinhaFuncionario({
             {docsProblema > 0 && !desligada && (
               <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700">
                 <AlertTriangle className="size-3" /> {docsProblema} doc.
+              </span>
+            )}
+            {aguardando > 0 && (
+              <span className="shrink-0 rounded-full bg-sky-100 px-2 py-0.5 text-[10px] font-semibold text-sky-700">
+                ficha enviada — conferir
               </span>
             )}
           </span>
@@ -455,6 +471,10 @@ function LinhaFuncionario({
             )}
           </div>
 
+          {admin && "formLinks" in ficha && f.formLinks.length > 0 && (
+            <ConferenciaPendente ficha={f} onMudou={onMudou} />
+          )}
+
           {admin && "documentos" in ficha && (
             <DocumentosDaFicha ficha={f} onMudou={onMudou} />
           )}
@@ -467,6 +487,7 @@ function LinhaFuncionario({
               >
                 Editar ficha
               </button>
+              {!desligada && <BotaoLinkFormulario fichaId={ficha.id} />}
               {desligada ? (
                 <button
                   onClick={() => onDesligar(true)}
@@ -487,6 +508,138 @@ function LinhaFuncionario({
         </div>
       )}
     </Card>
+  );
+}
+
+/**
+ * Botão "Link do formulário" (RN-025): gera o link de uso único e já deixa a
+ * MENSAGEM PRONTA na área de transferência — o admin só cola no WhatsApp do
+ * funcionário.
+ */
+function BotaoLinkFormulario({ fichaId }: { fichaId: string }) {
+  const [estado, setEstado] = useState<"quieto" | "gerando" | "copiado" | "erro">("quieto");
+
+  async function gerar() {
+    setEstado("gerando");
+    const r = await fetch(`/api/funcionarios/${fichaId}/form-link`, { method: "POST" }).catch(
+      () => null
+    );
+    const d = r?.ok ? await r.json().catch(() => null) : null;
+    if (!d?.mensagem) {
+      setEstado("erro");
+      setTimeout(() => setEstado("quieto"), 3000);
+      return;
+    }
+    const copiou = await copiarTexto(d.mensagem);
+    setEstado(copiou ? "copiado" : "erro");
+    setTimeout(() => setEstado("quieto"), 3000);
+    // navegador que recusa a área de transferência não pode ENGOLIR o link:
+    // o admin ainda precisa dele para mandar ao funcionário
+    if (!copiou) window.prompt("Copie a mensagem com o link:", d.mensagem);
+  }
+
+  return (
+    <button
+      onClick={gerar}
+      disabled={estado === "gerando"}
+      className="inline-flex items-center gap-1 rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-600 transition hover:border-sky-300 hover:text-sky-700 disabled:opacity-60"
+    >
+      {estado === "copiado" ? (
+        <>
+          <Check className="size-3.5 text-emerald-600" /> Mensagem copiada!
+        </>
+      ) : estado === "erro" ? (
+        "Não deu — tente de novo"
+      ) : (
+        <>
+          <Link2 className="size-3.5" />
+          {estado === "gerando" ? "Gerando…" : "Link do formulário"}
+        </>
+      )}
+    </button>
+  );
+}
+
+/**
+ * O funcionário enviou a ficha pelo link e a resposta AGUARDA CONFERÊNCIA
+ * (RN-025): o admin vê campo a campo o que veio e decide — aprovar grava na
+ * ficha (só o que veio preenchido), dispensar descarta. Documento anexado
+ * pelo link já está na pasta acima.
+ */
+function ConferenciaPendente({ ficha, onMudou }: { ficha: FichaCompleta; onMudou: () => void }) {
+  const [agindo, setAgindo] = useState(false);
+  const [erro, setErro] = useState("");
+
+  async function decidir(linkId: string, aprovar: boolean) {
+    if (!aprovar && !window.confirm("Dispensar a resposta? Nada será gravado na ficha."))
+      return;
+    setAgindo(true);
+    setErro("");
+    const r = await fetch(`/api/funcionarios/${ficha.id}/conferir`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ linkId, aprovar }),
+    }).catch(() => null);
+    setAgindo(false);
+    if (!r || !r.ok) {
+      setErro((await r?.json().catch(() => ({})))?.error ?? "Não foi possível concluir.");
+      return;
+    }
+    onMudou();
+  }
+
+  // a foto vira "foto nova" e as datas saem à brasileira: o admin confere
+  // gente, não JSON
+  const valorLegivel = (k: string, v: unknown): string => {
+    const dataBR = (t: string) => t.slice(0, 10).split("-").reverse().join("/");
+    if (k === "fotoUrl") return "foto nova";
+    if (k === "dependentes" && Array.isArray(v))
+      return v
+        .map((item) => {
+          const dep = item as { nome?: string; nascimento?: string | null };
+          return `${dep.nome ?? "?"}${dep.nascimento ? ` (${dataBR(String(dep.nascimento))})` : ""}`;
+        })
+        .join("; ");
+    if (k === "nascimento" && typeof v === "string") return dataBR(v);
+    return String(v);
+  };
+
+  return (
+    <div className="mt-3 space-y-2">
+      {ficha.formLinks.map((l) => (
+        <div key={l.id} className="rounded-xl border border-sky-200 bg-sky-50 p-3">
+          <p className="mb-1.5 text-xs font-semibold text-sky-800">
+            📋 {ficha.nome.split(" ")[0]} enviou a ficha pelo link em {dateFull(l.usadoEm)} —
+            aguardando sua conferência
+          </p>
+          <ul className="mb-2 space-y-0.5">
+            {Object.entries(l.resposta ?? {}).map(([k, v]) => (
+              <li key={k} className="text-xs text-slate-700">
+                <span className="text-gray-500">{rotuloCampoFicha[k] ?? k}:</span>{" "}
+                <b>{valorLegivel(k, v)}</b>
+              </li>
+            ))}
+          </ul>
+          {erro && <p className="mb-2 text-xs text-rose-600">{erro}</p>}
+          <div className="flex gap-2">
+            <button
+              onClick={() => decidir(l.id, true)}
+              disabled={agindo}
+              className="rounded-lg bg-sky-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-sky-700 disabled:opacity-60"
+            >
+              Aprovar e gravar na ficha
+            </button>
+            <button
+              onClick={() => decidir(l.id, false)}
+              disabled={agindo}
+              className="rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-500 transition hover:border-rose-300 hover:text-rose-600 disabled:opacity-60"
+            >
+              Dispensar
+            </button>
+          </div>
+        </div>
+      ))}
+    </div>
   );
 }
 

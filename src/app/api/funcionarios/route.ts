@@ -38,6 +38,12 @@ export async function GET() {
               orderBy: { createdAt: "desc" },
             },
             eventos: { orderBy: { createdAt: "desc" }, take: 20 },
+            // resposta do formulário aguardando conferência (RN-025)
+            formLinks: {
+              where: { usadoEm: { not: null }, conferidoEm: null },
+              select: { id: true, usadoEm: true, resposta: true },
+              orderBy: { usadoEm: "desc" },
+            },
           }
         : undefined,
     });

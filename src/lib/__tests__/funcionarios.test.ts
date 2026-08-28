@@ -12,7 +12,16 @@ import {
   DIAS_AVISO_VENCIMENTO,
   vinculoLabel,
 } from "../funcionarios";
-import { fichaSchema, corpoDaFicha, dataOuNull } from "../ficha-funcionario";
+import {
+  fichaSchema,
+  corpoDaFicha,
+  dataOuNull,
+  formFichaSchema,
+  limparResposta,
+  aplicarResposta,
+  linkUtilizavel,
+  VALIDADE_LINK_FICHA_MS,
+} from "../ficha-funcionario";
 
 /**
  * RN-025 · FICHA DE FUNCIONÁRIO — registro de RH da EMPRESA, sem vínculo com
@@ -191,5 +200,63 @@ describe("salário não muda em silêncio", () => {
       { remuneracao: 10, periodicidade: "POR_PECA" }
     );
     expect(d).toContain("por peça");
+  });
+});
+
+describe("formulário do link (RN-025): o funcionário só manda o que é dele", () => {
+  const base = { aceiteLGPD: true as const, telefone: "75 99999-0000" };
+
+  it("cargo, vínculo, remuneração e observações NÃO passam pelo formulário", () => {
+    // o link é público: mandar remuneracao junto não pode virar aumento
+    const parsed = formFichaSchema.parse({
+      ...base,
+      remuneracao: 99999,
+      cargo: "Diretor",
+      vinculo: "CLT",
+      observacoes: "hack",
+    } as Record<string, unknown>);
+    for (const proibido of ["remuneracao", "cargo", "vinculo", "observacoes", "beneficios"])
+      expect(parsed, proibido).not.toHaveProperty(proibido);
+  });
+
+  it("sem o aceite LGPD marcado, o envio é recusado", () => {
+    expect(formFichaSchema.safeParse({ telefone: "75 99999-0000" }).success).toBe(false);
+    expect(formFichaSchema.safeParse({ ...base, aceiteLGPD: false }).success).toBe(false);
+    expect(formFichaSchema.safeParse(base).success).toBe(true);
+  });
+
+  it("limparResposta guarda SÓ o preenchido — em branco não apaga nada depois", () => {
+    const r = limparResposta(
+      formFichaSchema.parse({ ...base, email: "  ", chavePix: null, banco: " Caixa " })
+    );
+    expect(r).toEqual({ telefone: "75 99999-0000", banco: "Caixa" });
+  });
+
+  it("aplicarResposta revalida o Json e converte datas; ausente fica ausente", () => {
+    const ok = aplicarResposta({ nascimento: "1990-05-10", telefone: "75 9" });
+    expect(ok).not.toBeNull();
+    expect(ok!.dados.nascimento).toBeInstanceOf(Date);
+    expect(ok!.dados).not.toHaveProperty("inicio");
+    expect(ok!.dependentes).toEqual([]);
+    // Json adulterado no banco não vira gravação: recusa em vez de gravar lixo
+    expect(aplicarResposta({ telefone: 12345 })).toBeNull();
+    expect(aplicarResposta(null)).toBeNull();
+    expect(aplicarResposta("texto")).toBeNull();
+  });
+
+  it("o link vence em 7 dias e morre no primeiro uso", () => {
+    const agora = new Date("2026-08-28T12:00:00Z");
+    const vivo = { expiresAt: new Date(agora.getTime() + 1000), usadoEm: null };
+    const vencido = { expiresAt: new Date(agora.getTime() - 1000), usadoEm: null };
+    const usado = { expiresAt: new Date(agora.getTime() + 1000), usadoEm: agora };
+    expect(linkUtilizavel(vivo, agora)).toBe(true);
+    expect(linkUtilizavel(vencido, agora)).toBe(false);
+    expect(linkUtilizavel(usado, agora)).toBe(false);
+    expect(VALIDADE_LINK_FICHA_MS).toBe(7 * 24 * 60 * 60 * 1000);
+  });
+
+  it("as portas do formulário são PÚBLICAS no middleware (senão o link cai no login)", () => {
+    const mw = readFileSync(join(process.cwd(), "src/middleware.ts"), "utf8");
+    for (const rota of ["/ficha/", "/api/ficha-form/"]) expect(mw).toContain(`"${rota}"`);
   });
 });

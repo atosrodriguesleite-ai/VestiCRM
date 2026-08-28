@@ -154,6 +154,32 @@ export async function notifyNovoPedido(input: {
 }
 
 /**
+ * FUNCIONÁRIO ENVIOU A FICHA pelo link (RN-025): avisa SÓ os ADMINs ativos —
+ * a conferência é deles, e gerente nem vê salário/CPF. O aviso não carrega
+ * dado sensível: só quem enviou.
+ */
+export async function notifyFichaRecebida(input: {
+  companyId: string;
+  funcionarioNome: string;
+}) {
+  const admins = await db.user.findMany({
+    where: { companyId: input.companyId, role: "ADMIN", active: true },
+    select: { id: true },
+  });
+  if (admins.length === 0) return 0;
+  await db.notification.createMany({
+    data: admins.map((u) => ({
+      companyId: input.companyId,
+      userId: u.id,
+      type: "CADASTRO" as const,
+      title: `${input.funcionarioNome} enviou a ficha 📋`,
+      body: "Confira na tela Equipe e aprove para entrar na ficha.",
+    })),
+  });
+  return admins.length;
+}
+
+/**
  * A cliente preencheu o formulário "Dados de envio" (RN-024): avisa a dona
  * da carteira — sem dona, a gerência (mesma régua do pedido sem vendedora).
  * `mudancas` já vem em linguagem de gente ("endereço atualizado, CPF novo").
