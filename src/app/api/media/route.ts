@@ -3,6 +3,7 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import { requireUser, AuthError } from "@/lib/auth";
 import { dataUrlToBuffer, shrinkImage, bufferToDataUrl, HEAVY_BYTES } from "@/lib/img-server";
+import { tipoDeImagem } from "@/lib/imagem-segura";
 
 /**
  * Biblioteca de imagens da loja (recurso gated: mediaLibraryEnabled).
@@ -58,9 +59,11 @@ export async function POST(req: NextRequest) {
     }
     let url = parsed.data.dataUrl.trim();
 
-    // aceita só imagem em data-URL; comprime se vier pesada (controla o peso)
+    // aceita só imagem em data-URL; comprime se vier pesada (controla o peso).
+    // RN-026: a régua é a lista fechada — `image/*` deixava passar SVG, que
+    // carrega programação dentro e viraria página no endereço do app.
     const decoded = dataUrlToBuffer(url);
-    if (!decoded || !decoded.mime.startsWith("image/")) {
+    if (!decoded || !tipoDeImagem(decoded.mime)) {
       return NextResponse.json({ error: "Envie um arquivo de imagem." }, { status: 400 });
     }
     if (decoded.buf.byteLength > HEAVY_BYTES) {

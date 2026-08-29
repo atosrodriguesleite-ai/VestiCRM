@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { urlDeFotoAceita } from "./imagem-segura";
 import { db } from "./db";
 import { slugify } from "./provision";
 
@@ -51,7 +52,10 @@ const productSchema = z.object({
   sizes: z.array(z.string().min(1)).optional(),
   stock: z.number().int().nonnegative().optional(),
   stockByVariant: z.record(z.string(), z.number().int().nonnegative()).optional(),
-  images: z.array(z.string().min(1)).optional(),
+  // RN-026: mesma régua do cadastro manual
+  images: z
+    .array(z.string().min(1).refine(urlDeFotoAceita, "Formato de imagem não aceito"))
+    .optional(),
 });
 
 export const catalogSchema = z.object({

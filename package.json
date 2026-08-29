@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev --turbopack",
-    "build": "node scripts/check-vercel-crons.mjs && npm run check:docs && next build",
+    "build": "node scripts/check-vercel-crons.mjs && npm run check:docs && npm run check:escopo && next build",
     "start": "next start",
     "lint": "eslint",
     "postinstall": "prisma generate",
@@ -14,16 +14,17 @@
     "db:seed": "tsx prisma/seed.ts",
     "db:bootstrap": "tsx prisma/bootstrap.ts",
     "db:studio": "prisma studio",
-    "vercel-build": "node scripts/check-vercel-crons.mjs && npm run check:docs && node scripts/migrate-deploy.mjs && tsx prisma/bootstrap.ts && next build",
+    "vercel-build": "node scripts/check-vercel-crons.mjs && npm run check:docs && npm run check:escopo && node scripts/migrate-deploy.mjs && tsx prisma/bootstrap.ts && next build",
     "test": "vitest run",
-    "check:docs": "vitest run src/lib/__tests__/docs-regras.test.ts --silent"
+    "check:docs": "vitest run src/lib/__tests__/docs-regras.test.ts --silent",
+    "check:escopo": "vitest run src/lib/__tests__/escopo-tenant.test.ts src/lib/__tests__/imagem-segura.test.ts --silent"
   },
   "dependencies": {
     "@prisma/client": "^6.19.3",
     "bcryptjs": "^3.0.3",
     "jose": "^6.2.3",
     "lucide-react": "^1.23.0",
-    "next": "15.5.20",
+    "next": "^15.5.24",
     "pdf-lib": "^1.17.1",
     "pdfjs-dist": "^6.2.108",
     "prisma": "^6.19.3",

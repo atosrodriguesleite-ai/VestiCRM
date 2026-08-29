@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { z } from "zod";
 import { requireUser, AuthError } from "@/lib/auth";
 import { podeOperarIntegracoes } from "@/lib/scope";
 import {
@@ -23,6 +24,11 @@ export const maxDuration = 60;
  * a tela mostrava "Não foi possível sincronizar.", sem pista nenhuma para a
  * lojista nem para o suporte.
  */
+const corpo = z.object({
+  page: z.number().int().min(1).max(10_000).optional(),
+  carrinhos: z.boolean().optional(),
+});
+
 export async function POST(req: NextRequest) {
   let user;
   try {
@@ -40,10 +46,13 @@ export async function POST(req: NextRequest) {
     // MODO EM ETAPAS (tela nova): cada chamada processa UMA página de
     // produtos OU os carrinhos abandonados — nunca os dois juntos, e nunca
     // perto do limite de tempo. Etapa lenta fica registrada no Saúde.
-    const body = (await req.json().catch(() => ({}))) as {
-      page?: number;
-      carrinhos?: boolean;
-    };
+    // Molde em vez de `as`: `page` sem teto virava página absurda mandada
+    // para a API da Nuvemshop, e o `as` não confere nada em tempo de execução.
+    const lido = corpo.safeParse(await req.json().catch(() => ({})));
+    if (!lido.success) {
+      return NextResponse.json({ error: "Dados inválidos" }, { status: 400 });
+    }
+    const body = lido.data;
     const t0 = Date.now();
     const telemetria = async (rotulo: string) => {
       const ms = Date.now() - t0;

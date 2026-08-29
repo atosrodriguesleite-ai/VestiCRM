@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { imageHref } from "@/lib/img";
+import { ERRO_DE_FOTO, urlDeFotoAceita } from "@/lib/imagem-segura";
 import { ordenarVariantes } from "@/lib/tamanhos";
 import { requireUser, AuthError } from "@/lib/auth";
 import { filtrarProdutos } from "@/lib/busca";
@@ -28,7 +29,11 @@ const createSchema = z.object({
   weightGrams: z.number().int().min(1).max(30000).nullable().optional(), // frete
   tags: z.string().optional(),
   active: z.boolean().default(true),
-  images: z.array(z.string().min(1)).default([]),
+  // RN-026: foto é foto. Aceitar texto livre aqui foi o que permitiu
+  // gravar uma PÁGINA no lugar da imagem e servi-la no nosso domínio.
+  images: z
+    .array(z.string().min(1).refine(urlDeFotoAceita, ERRO_DE_FOTO))
+    .default([]),
   variants: z.array(variantSchema).min(1),
 });
 
@@ -113,7 +118,13 @@ export async function POST(req: NextRequest) {
     const user = await requireUser();
     const parsed = createSchema.safeParse(await req.json());
     if (!parsed.success) {
-      return NextResponse.json({ error: "Dados inválidos" }, { status: 400 });
+      // A mensagem da FOTO chega até a lojista (RN-026): "Dados inválidos"
+      // fazia ela procurar erro no preço e no nome, nunca na imagem.
+      const foto = parsed.error.issues.find((i) => i.message === ERRO_DE_FOTO);
+      return NextResponse.json(
+        { error: foto?.message ?? "Dados inválidos" },
+        { status: 400 }
+      );
     }
     const { images, variants, ...data } = parsed.data;
 

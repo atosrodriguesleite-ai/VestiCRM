@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { requireUser, AuthError } from "@/lib/auth";
 import { dataUrlToBuffer } from "@/lib/img-server";
+import { cabecalhosDaFoto } from "@/lib/imagem-segura";
 
 /**
  * Serve a imagem da biblioteca como binário (pra exibir na grade e pra
@@ -34,12 +35,19 @@ export async function GET(
     }
 
     const download = req.nextUrl.searchParams.get("download");
-    const ext = decoded.mime.split("/")[1]?.split("+")[0] || "jpg";
+    // A extensão sai do tipo REAL do arquivo, mesmo quando ele está fora da
+    // lista: usar o "octet-stream" do cabeçalho gerava `foto.octet-stream`,
+    // e aí a lojista baixa um arquivo que o computador dela não sabe abrir.
+    const ext = (decoded.mime || "image/jpeg").split("/")[1]?.split("+")[0] || "bin";
     const safeName = (asset.name || `imagem-${id}`).replace(/[^\w.-]+/g, "-");
+    // A régua é a mesma da foto de produto (RN-026): tipo fora da lista sai
+    // como download inerte, nunca como página no endereço do app.
     const headers: Record<string, string> = {
-      "Content-Type": decoded.mime || "image/jpeg",
+      ...cabecalhosDaFoto(decoded.mime, {
+        cache: "private, max-age=3600",
+        nome: `${safeName}.${ext}`,
+      }),
       "Content-Length": String(decoded.buf.byteLength),
-      "Cache-Control": "private, max-age=3600",
     };
     if (download) {
       headers["Content-Disposition"] = `attachment; filename="${safeName}.${ext}"`;

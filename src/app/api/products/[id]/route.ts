@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
+import { ERRO_DE_FOTO, urlDeFotoAceita } from "@/lib/imagem-segura";
 import { db } from "@/lib/db";
 import { requireUser, AuthError } from "@/lib/auth";
 
@@ -17,7 +18,11 @@ const patchSchema = z.object({
   weightGrams: z.number().int().min(1).max(30000).nullable().optional(), // frete
   tags: z.string().nullable().optional(),
   active: z.boolean().optional(),
-  imageUrl: z.string().min(1).optional(), // legado: troca a foto única
+  imageUrl: z
+    .string()
+    .min(1)
+    .refine(urlDeFotoAceita, ERRO_DE_FOTO)
+    .optional(), // legado: troca a foto única
   // galeria completa em ordem (a primeira é a CAPA): itens com `id` são fotos
   // que já existem (mantidas), itens com `url` são fotos novas (data-URL)
   // `color` = capa por cor: a cor que a foto mostra (null = sem etiqueta).
@@ -27,7 +32,11 @@ const patchSchema = z.object({
       z
         .object({
           id: z.string().optional(),
-          url: z.string().optional(),
+          // RN-026: a foto nova entra pelo mesmo funil de sempre
+          url: z
+            .string()
+            .refine(urlDeFotoAceita, ERRO_DE_FOTO)
+            .optional(),
           color: z.string().max(60).nullable().optional(),
         })
         .refine((e) => e.id || e.url)
@@ -68,7 +77,15 @@ export async function PATCH(
     const { id } = await params;
     const parsed = patchSchema.safeParse(await req.json());
     if (!parsed.success) {
-      return NextResponse.json({ error: "Dados inválidos" }, { status: 400 });
+      const foto = parsed.error.issues.find((i) => i.message === ERRO_DE_FOTO);
+
+      return NextResponse.json(
+
+        { error: foto?.message ?? "Dados inválidos" },
+
+        { status: 400 }
+
+      );
     }
 
     const product = await db.product.findFirst({

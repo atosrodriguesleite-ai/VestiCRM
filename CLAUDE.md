@@ -495,6 +495,34 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   apaga nada) ou dispensa, com registro no histórico. Documento anexado pelo
   link entra na pasta na hora (um POST por arquivo, teto por link) e o admin
   pode remover na conferência.
+- **RN-026 · Foto é foto** (`lib/imagem-segura.ts`): lista FECHADA de tipos
+  (JPEG, PNG, WebP, GIF, AVIF) valendo na ENTRADA e na SAÍDA. **SVG fica de
+  fora de propósito**: é o único formato de imagem que carrega programação
+  dentro, e nenhuma peça de roupa é SVG. A última palavra é de quem SERVE:
+  tipo fora da lista sai como download inerte (`octet-stream` + anexo +
+  `nosniff` + `sandbox`), NUNCA como página — trancar só o cadastro deixaria
+  de fora o que já está gravado e as outras portas por onde foto entra
+  (importação, Nuvemshop, Jueri). Incidente que criou a regra (auditoria
+  29/08/2026): a foto entrava como texto livre (`z.string()`) e `/api/img/[id]`
+  devolvia o tipo escrito no próprio texto — qualquer pessoa logada gravava
+  `data:text/html;…` e ganhava **uma página do atacante hospedada em
+  www.atacadopro.com**, com cache de 1 ano e cara de link nosso. O estrago é
+  de confiança: o golpista manda o endereço no WhatsApp, a lojista vê o nosso
+  domínio e abre. O padrão certo já existia na casa (mídia do WhatsApp,
+  documento de RH) — só não tinha chegado à foto de produto.
+- **RN-027 · Consulta sem filtro de loja derruba o build**
+  (`escopo-tenant.test.ts`, ADR-015): o guarda varre o código e falha se
+  nascer consulta em modelo com `companyId` que não filtre pela loja (a
+  RN-013 depende de ninguém esquecer; são 902 consultas). Caso legítimo — o
+  que filtra pelo PAI já conferido — se declara com **`escopo-ok: <motivo>`**
+  na linha ou nas duas acima, mesma convenção do `frete-ok` da RN-002. O
+  guarda nasceu com **linha de base** (261 casos em 109 arquivos, quase todos
+  legítimos) e cobra só o que vier depois; a conta **só desce**, nunca sobe
+  (`ATUALIZAR_BASE=1 npx vitest run escopo-tenant` baixa o número depois de
+  arrumar um caso). RLS de verdade no Postgres foi recusado por ora: exigiria
+  amarrar sessão de banco a cada requisição e mexer em todas as consultas, risco
+  grande num sistema com lojas reais vendendo (ADR-015).
+
 - **Super Admin**: painel Lojas (provisionar, cobrança, uso, suspender,
   impersonar), diagnóstico de fotos; loja demo "Bella Moda".
 
@@ -529,8 +557,17 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
 - **Envios** (13/08/2026): Melhor Envio **em produção** — app criado, envs na
   Vercel, primeira conta conectada e cotando. Parceria/comissão ME em
   negociação à parte. A etiqueta com NF-e (RN-016) depende do Bling.
-- Dívidas mapeadas: blob storage para fotos; rate-limit no login;
-  conferir `INTAKE_SECRET` na Vercel; quebrar telas gigantes
-  (`inbox.tsx` ~2,4k linhas) em componentes menores.
+- Dívidas mapeadas: blob storage para fotos; conferir `INTAKE_SECRET` na
+  Vercel; quebrar telas gigantes (`inbox.tsx` ~2,4k linhas); criptografar
+  CPF/CNPJ/endereço da cliente (hoje em texto no banco); CSP completo
+  (só `frame-ancestors` está no ar — o resto pede modo "só relatar" antes);
+  2 fatores para ADMIN/SUPERADMIN; trava de repetição fora do login;
+  trocar senha não derruba sessão antiga; `postcss` e `deepmerge-ts` seguem
+  com alerta (ferramentas de BUILD, só saem com Next 16 / Prisma novo).
+- Auditoria de segurança 29/08/2026 (27 pontos, pedido do dono): fechado o
+  buraco de upload (RN-026), cabeçalhos de segurança + HSTS no ar, Next em
+  15.5.24 (os 4 CVEs do `sharp`/libvips, que processa foto de cliente, saíram)
+  e guarda de escopo no build (RN-027). Rate-limit de login já era feito
+  (09/08) — estava listado como dívida por engano.
 - Auditoria completa (segurança + métricas) feita em 24/07/2026 — métricas
   unificadas na fonte única; isolamento multi-tenant verificado rota a rota.

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createHash } from "crypto";
 import { db } from "@/lib/db";
 import { shrinkImage, dataUrlToBuffer, bufferToDataUrl } from "@/lib/img-server";
+import { cabecalhosDaFoto, tipoDeImagem } from "@/lib/imagem-segura";
 
 /** Identificação do ambiente (para diagnóstico): banco e versão do código. */
 const DB_FP = createHash("sha256")
@@ -31,13 +32,13 @@ const SAFE_RESPONSE_BYTES = 3 * 1024 * 1024;
 function serveBuffer(body: Buffer, mime: string): NextResponse {
   return new NextResponse(new Uint8Array(body), {
     headers: {
-      "Content-Type": mime || "image/jpeg",
+      ...cabecalhosDaFoto(mime, {
+        // foto de produto não muda (editar = nova imagem/id): cache imutável.
+        // s-maxage faz a CDN da Vercel guardar a foto — o banco só é
+        // consultado UMA vez por foto, não uma vez por visitante.
+        cache: "public, max-age=31536000, s-maxage=31536000, immutable",
+      }),
       "Content-Length": String(body.byteLength),
-      // foto de produto não muda (editar = nova imagem/id): cache imutável.
-      // s-maxage faz a CDN da Vercel guardar a foto — o banco só é
-      // consultado UMA vez por foto, não uma vez por visitante.
-      "Cache-Control":
-        "public, max-age=31536000, s-maxage=31536000, immutable",
     },
   });
 }
@@ -69,6 +70,18 @@ async function serveDataUrl(id: string, dataUrl: string): Promise<NextResponse> 
     }
   }
   return serveBuffer(buf, mime);
+}
+
+/**
+ * "Não encontrada" com o motivo, para o diagnóstico de fotos saber a
+ * diferença entre foto que não existe e foto que existe mas não pode ser
+ * servida. Nunca fica na CDN.
+ */
+function naoEncontrada(id: string, motivo: string): NextResponse {
+  return NextResponse.json(
+    { error: "Não encontrada", id, motivo, db: DB_FP, dep: DEPLOY },
+    { status: 404, headers: { "Cache-Control": "no-store" } }
+  );
 }
 
 export async function GET(
@@ -135,8 +148,10 @@ export async function GET(
         redirect: "follow",
         signal: AbortSignal.timeout(15000),
       });
-      let mime = res.headers.get("content-type")?.split(";")[0] ?? "";
-      if (res.ok && mime.startsWith("image/")) {
+      // Só os tipos da lista (RN-026): `image/*` deixava passar SVG, que
+      // é o único formato de imagem que carrega programação dentro.
+      let mime = tipoDeImagem(res.headers.get("content-type")) ?? "";
+      if (res.ok && mime) {
         let buf: Buffer = Buffer.from(await res.arrayBuffer());
         if (buf.byteLength > 0 && buf.byteLength <= MAX_EXTERNAL_BYTES) {
           // originais de câmera/site vêm pesados: comprime antes de guardar
@@ -155,15 +170,31 @@ export async function GET(
         }
       }
     } catch {
-      // busca falhou — cai no redirect abaixo como última tentativa
+      // busca falhou — cai no 404 abaixo
     }
-    return NextResponse.redirect(img.url, {
-      headers: { "Cache-Control": "public, max-age=3600" },
-    });
+    // ESTA PORTA NÃO REDIRECIONA PARA FORA (RN-026).
+    //
+    // Antes, quando a busca falhava, ela devolvia um redirect para o
+    // endereço guardado. Isso a transformava num REDIRECIONADOR PÚBLICO com
+    // o nosso domínio: bastava cadastrar um produto cuja "foto" fosse
+    // `https://golpe.exemplo/entrar` e o link
+    // www.atacadopro.com/api/img/<id> levava a lojista para a página do
+    // golpista — o mesmo golpe que a regra existe para impedir, só que pela
+    // porta do lado. Foto externa que o nosso servidor não consegue buscar
+    // é foto quebrada; quebrada ela fica, e o diagnóstico de fotos acha.
+    return naoEncontrada(id, "externa-inacessivel");
   }
 
-  // Caminho interno (/products/x.svg): redireciona com base na requisição.
-  return NextResponse.redirect(new URL(img.url, _req.url), {
+  // Caminho interno (/products/x.jpg): só dentro da nossa própria casa.
+  // O `new URL` lê `\` como `/`, então uma linha antiga com
+  // `/\golpe.exemplo/x.jpg` resolveria para outro site — a conferência de
+  // origem abaixo é o que impede isso para o que JÁ está no banco (o
+  // cadastro novo já recusa na entrada).
+  const destino = new URL(img.url, _req.url);
+  if (destino.origin !== new URL(_req.url).origin) {
+    return naoEncontrada(id, "caminho-para-fora");
+  }
+  return NextResponse.redirect(destino, {
     headers: { "Cache-Control": "public, max-age=86400" },
   });
 }
