@@ -1,5 +1,5 @@
 import { db } from "./db";
-import { norm, type SyncPendencia } from "./nuvemshop";
+import { norm, indiceDeSkusParecidos, skuParecidoNoCadastro, pistaDoSku, type SyncPendencia } from "./nuvemshop";
 
 /**
  * Relatório PRÉ-CONEXÃO: o lojista exporta a planilha de produtos da
@@ -163,12 +163,29 @@ export async function simularVinculo(
       variants: { select: { id: true, color: true, size: true, sku: true } },
     },
   });
+  // MESMA TRAVA DE AMBIGUIDADE do import (incidente Toque Leve): SKU repetido
+  // em duas variações sai do casamento automático. Sem ela aqui, a prévia
+  // prometia "casaria" e o import devolvia pendência de SKU repetido — a
+  // prévia nunca pode enganar (achado da revisão 31/08/2026).
+  const vezesPorSku = new Map<string, number>();
+  for (const lp of locais)
+    for (const v of lp.variants)
+      if (v.sku) vezesPorSku.set(norm(v.sku), (vezesPorSku.get(norm(v.sku)) ?? 0) + 1);
   const skuMap = new Map<string, { productName: string }>();
   for (const lp of locais) {
     for (const v of lp.variants) {
-      if (v.sku) skuMap.set(norm(v.sku), { productName: lp.name });
+      if (v.sku && vezesPorSku.get(norm(v.sku)) === 1) {
+        skuMap.set(norm(v.sku), { productName: lp.name });
+      }
     }
   }
+  // A PRÉVIA NUNCA ENGANA: a sync real deixou de criar produto quando o SKU é
+  // QUASE igual a um do cadastro (ele duplicava a peça e o estoque ia para a
+  // cópia). Sem a mesma régua aqui, a prévia prometia "vai entrar" e o import
+  // devolvia pendência — achado da revisão de 31/08/2026.
+  const idxParecidos = indiceDeSkusParecidos(
+    locais.flatMap((lp) => lp.variants.map((v) => ({ sku: v.sku, product: { name: lp.name } })))
+  );
 
   const report: SimulacaoReport = {
     produtosNs: nsProducts.length,
@@ -189,12 +206,24 @@ export async function simularVinculo(
       // Nenhum SKU casa com o catálogo → produto NOVO (espelhado). Mas só
       // entra se tiver ao menos um SKU; e dentro dele, variação sem SKU não
       // integra — vira pendência (idêntico ao criarProdutoEspelhado real).
-      if (temAlgumSku) {
+      const quaseCasou = p.variants.some((v) => skuParecidoNoCadastro(v.sku, idxParecidos));
+      if (temAlgumSku && !quaseCasou) {
         report.criariam.push(p.name);
         for (const v of p.variants) {
           if (!(v.sku ?? "").trim()) {
             report.pendencias.push({ produtoNs: p.name, cor: v.color, tamanho: v.size, sku: null });
           }
+        }
+      } else if (quaseCasou) {
+        // igual ao import real: nada é criado e cada variação vira pendência
+        // com o SKU parecido do lado, para a lojista ver o que difere
+        for (const v of p.variants) {
+          report.pendencias.push({
+            produtoNs: p.name,
+            cor: v.color,
+            tamanho: v.size,
+            ...pistaDoSku(v.sku, idxParecidos),
+          });
         }
       } else {
         // sem SKU nenhum: nada casa e nada é criado → tudo pendência

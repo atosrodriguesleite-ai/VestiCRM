@@ -267,8 +267,28 @@ async function etiquetarFotosPorCor(productId: string, p: NsProduct) {
 }
 
 // normalização pra comparar nomes/SKUs sem pegadinha de acento/caixa
+/**
+ * Texto "igual aos olhos" vira a MESMA chave: minúsculas, sem acento e com o
+ * espaço arrumado. O `\s+ → " "` é o que salva o SKU digitado à mão (relato
+ * da loja, 31/08/2026): "359003402Rosa  Chá" (dois espaços) e o espaço
+ * INVISÍVEL que vem colado ao copiar da planilha (nbsp, U+00A0) rendiam
+ * chaves diferentes e o estoque da Nuvemshop não puxava — sem nada na tela
+ * explicando, porque para a lojista os dois textos são idênticos.
+ */
 export const norm = (s: string | null | undefined) =>
-  (s ?? "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").trim();
+  (s ?? "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    // caractere de largura ZERO (vem colado ao copiar de planilha/site) SOME:
+    // vira espaço, "Rosa<zwsp>Cha" viraria "rosa cha" e seguiria sem casar
+    // com "RosaCha" — o defeito ficava escondido quando o invisível estava
+    // na ponta, onde o trim() limpava (achado da revisão de 31/08/2026)
+    .replace(/[\u200b-\u200d\ufeff]/g, "")
+    // espaço de verdade (inclusive o nbsp, que o \s não cobre em runtime
+    // antigo) vira UM espaço só: "Rosa  Chá" = "Rosa Chá"
+    .replace(/[\s\u00a0]+/g, " ")
+    .trim();
 // "Baby Look — Branco" → base "Baby Look" (padrão produto-por-cor)
 export const baseNome = (name: string) => name.replace(/\s+[—–-]\s+.+$/, "").trim();
 /**
@@ -311,6 +331,13 @@ const buscarPoolProdutos = (companyId: string) =>
 export type PoolsDeSync = {
   skuVariants: Awaited<ReturnType<typeof buscarPoolSku>>;
   allProducts: Awaited<ReturnType<typeof buscarPoolProdutos>>;
+  /**
+   * Índice dos SKUs "só letras e números" — montado UMA vez por sincronização
+   * junto com os pools. Refazê-lo por produto custava um `normalize("NFD")`
+   * por variação do catálogo inteiro a cada peça, na função que já morreu no
+   * teto de 60s da Vercel uma vez (Entre Linhas, 03/08/2026).
+   */
+  idxParecidos: Map<string, string>;
 };
 
 export type SyncPendencia = {
@@ -318,12 +345,142 @@ export type SyncPendencia = {
   cor: string;
   tamanho: string;
   sku: string | null;
+  /**
+   * SKU PARECIDO do nosso cadastro (relato da loja, 31/08/2026): a lojista
+   * via "não casou" e não tinha como descobrir por quê — a tela mostrava só
+   * o SKU da Nuvemshop, e comparar 12 dígitos + cor + tamanho a olho, entre
+   * dois sistemas abertos, ninguém faz. Aqui vai o candidato mais próximo do
+   * cadastro dela para ela ver a diferença (mesma ideia da RN-020: AVISA,
+   * nunca junta sozinho — SKU parecido não é SKU igual).
+   */
+  skuParecido?: string | null;
+  /**
+   * O SKU é IGUAL ao do cadastro e mesmo assim não casou? Então ele está
+   * REPETIDO em duas variações da loja — a trava de ambiguidade (incidente
+   * Toque Leve) tira SKU repetido do casamento automático. O conselho é
+   * outro: deixar o SKU único, não "igualar os dois".
+   */
+  repetido?: boolean;
 };
 export type SyncReport = {
   casadas: number;
   criadas: number;
   pendencias: SyncPendencia[];
 };
+
+/**
+ * O SKU do cadastro mais PARECIDO com o que veio da Nuvemshop — só para
+ * EXPLICAR a pendência na tela, nunca para casar. "Parecido" = igual depois
+ * de tirar tudo que não é letra ou número (espaço, hífen, ponto, barra): é
+ * exatamente a diferença que o olho não vê e que trava o casamento.
+ */
+export const soLetrasENumeros = (v: string | null | undefined) =>
+  norm(v).replace(/[^a-z0-9]/g, "");
+
+/**
+ * Índice dos SKUs do cadastro pela forma "só letras e números" — montado UMA
+ * vez por sincronização. Antes a busca varria o pool inteiro por variação (3
+ * `norm` por item): numa loja com milhares de peças eram segundos jogados
+ * fora por página, e o teto de 60s da Vercel já mordeu a Entre Linhas uma vez.
+ */
+export function indiceDeSkusParecidos(
+  poolDeSkus: { sku: string | null; product?: { name?: string } | null }[]
+): Map<string, string> {
+  const idx = new Map<string, string>();
+  for (const v of poolDeSkus) {
+    const k = soLetrasENumeros(v.sku);
+    if (!k || !v.sku) continue;
+    // o NOME do produto vai junto quando existe: "iguale os dois" só é bom
+    // conselho se a lojista souber a QUAL peça o SKU parecido pertence —
+    // sendo de outra peça, igualar criaria SKU duplicado (revisão 31/08/2026)
+    const nome = v.product?.name?.trim();
+    if (!idx.has(k)) idx.set(k, nome ? `${v.sku} (em “${nome}”)` : v.sku);
+  }
+  return idx;
+}
+
+/**
+ * O par `sku` + pista para a pendência, num lugar só. A guarda do VAZIO é o
+ * que impede a variação SEM SKU de sair marcada como "repetido" ("" === ""
+ * dava true — achado da revisão 31/08/2026).
+ */
+export function pistaDoSku(
+  sku: string | null | undefined,
+  idx: Map<string, string> | { sku: string | null; product?: { name?: string } | null }[]
+): { sku: string | null; skuParecido: string | null; repetido: boolean } {
+  const bruto = (sku ?? "").trim();
+  if (!bruto) return { sku: null, skuParecido: null, repetido: false };
+  const parecido = skuParecidoNoCadastro(bruto, idx);
+  // o rótulo pode trazer ' (em "Peça")' junto — a comparação é do SKU puro
+  const soOSku = (parecido ?? "").replace(/\s*\(em .*\)$/, "");
+  return {
+    sku: bruto,
+    skuParecido: parecido,
+    repetido: !!parecido && norm(soOSku) === norm(bruto),
+  };
+}
+
+export function skuParecidoNoCadastro(
+  skuDaNuvemshop: string | null | undefined,
+  poolOuIndice: { sku: string | null }[] | Map<string, string>
+): string | null {
+  const alvo = soLetrasENumeros(skuDaNuvemshop);
+  if (!alvo) return null;
+  const idx = poolOuIndice instanceof Map ? poolOuIndice : indiceDeSkusParecidos(poolOuIndice);
+  const achado = idx.get(alvo) ?? null;
+  if (!achado) return null;
+  // IGUAL de verdade também conta como "parecido" quando NÃO casou: o SKU
+  // repetido em duas variações sai do casamento automático (trava da Toque
+  // Leve) — se ali devolvêssemos null, a peça viraria espelho duplicado sem
+  // uma linha de aviso, justo no caso mais óbvio (achado da revisão 31/08).
+  return achado;
+}
+
+/**
+ * Guarda pendências no relatório da conexão mesmo quando NÃO existe um
+ * `report` de sincronização em curso — é o caso do webhook e da baixa de
+ * estoque da venda paga. Sem isto o produto barrado pela trava do SKU
+ * quase-igual não era criado E não aparecia em lugar nenhum: sumia em
+ * silêncio até alguém clicar em sincronizar (achado da revisão 31/08/2026).
+ * A varredura de carona no tráfego só cuida de carrinhos, não de produtos.
+ */
+async function registrarPendenciasAvulsas(
+  companyId: string,
+  novas: SyncPendencia[]
+): Promise<void> {
+  if (novas.length === 0) return;
+  const conexao = await db.nuvemshopConnection.findUnique({
+    where: { companyId },
+    select: { lastSyncReport: true },
+  });
+  let atual: {
+    at?: string;
+    casadas?: number;
+    criadas?: number;
+    totalPendencias?: number;
+    pendencias?: SyncPendencia[];
+  } = {};
+  try {
+    if (conexao?.lastSyncReport) atual = JSON.parse(conexao.lastSyncReport);
+  } catch {
+    /* relatório antigo ilegível: recomeça deste */
+  }
+  const antes = Array.isArray(atual.pendencias) ? atual.pendencias : [];
+  await db.nuvemshopConnection
+    .update({
+      where: { companyId },
+      data: {
+        lastSyncReport: JSON.stringify({
+          ...atual,
+          // `at`, `casadas` e `criadas` NÃO mudam: a conferência foi a de
+          // antes — quem mudou foi a lista de pendências
+          totalPendencias: (atual.totalPendencias ?? antes.length) + novas.length,
+          pendencias: [...antes, ...novas].slice(0, 100),
+        }),
+      },
+    })
+    .catch(() => {});
+}
 
 /**
  * Cria/atualiza UM produto vindo da Nuvemshop (idempotente), casando em
@@ -390,19 +547,39 @@ export async function upsertProduct(
   const temAlgumSku = variants.some((v) => (v.sku ?? "").trim());
   const temCandidato = linkedVariants.length > 0 || um2um !== null || temMatchSku;
 
+  // QUASE CASOU: alguma variação tem SKU quase igual a um do cadastro (só
+  // pontuação/espaço diferente). Isso NÃO é produto novo — é o mesmo produto
+  // com o SKU digitado de outro jeito. Criar o espelho aqui DUPLICAVA a peça
+  // no catálogo da loja e mandava o estoque para a cópia, enquanto a peça de
+  // verdade seguia zerada: exatamente o "não está puxando o estoque" relatado
+  // em 31/08/2026 — e sem uma linha na tela explicando. Vira pendência com o
+  // SKU parecido do lado (mesma ideia da RN-020: AVISA, nunca junta sozinho).
+  // montado uma vez por SINCRONIZAÇÃO quando ela passa os pools (o caminho
+  // caro); no webhook, que trata um produto só, sai na hora
+  const idxParecidos = pools?.idxParecidos ?? indiceDeSkusParecidos(skuVariants);
+
   if (!temCandidato) {
+    // só aqui interessa (e é aqui que a conta corre): produto sem candidato
+    const quaseCasou = variants.some((v) => skuParecidoNoCadastro(v.sku, idxParecidos));
     // produto genuinamente novo: só espelha se tiver SKU; senão fica pendente
-    if (temAlgumSku) {
+    if (temAlgumSku && !quaseCasou) {
       const criado = await criarProdutoEspelhado(companyId, p);
       if (report) report.criadas++;
       return criado;
     }
-    if (report) {
-      for (const v of variants) {
-        const { color, size } = corETamanho(p, v);
-        report.pendencias.push({ produtoNs: nsName, cor: color, tamanho: size, sku: v.sku ?? null });
-      }
-    }
+    const pendencias = variants.map((v) => {
+      const { color, size } = corETamanho(p, v);
+      return {
+        produtoNs: nsName,
+        cor: color,
+        tamanho: size,
+        ...pistaDoSku(v.sku, idxParecidos),
+      };
+    });
+    if (report) report.pendencias.push(...pendencias);
+    // webhook e baixa de estoque não têm relatório em curso: sem isto, o
+    // produto barrado não era criado E não aparecia em lugar nenhum
+    else await registrarPendenciasAvulsas(companyId, pendencias);
     return null;
   }
 
@@ -430,6 +607,12 @@ export async function upsertProduct(
   const targetByCorTam = new Map(
     targetVariants.map((x) => [`${norm(x.color)}|${norm(x.size)}`, x])
   );
+  // SKUs que JÁ existem dentro do produto certo, pela forma "só letras e
+  // números" — é o que impede a variação duplicada (achado da revisão
+  // 31/08/2026): o mesmo SKU escrito de outro jeito, com a cor/tamanho
+  // digitada diferente ("Rosa Chá" × "Rosa Cha"), criava uma variação nova
+  // e o estoque ia para ela, deixando a de verdade zerada.
+  const idxDoProduto = indiceDeSkusParecidos(targetVariants);
 
   for (const v of variants) {
     const vId = String(v.id);
@@ -469,6 +652,18 @@ export async function upsertProduct(
       const existente = targetByCorTam.get(`${norm(color)}|${norm(size)}`);
       if (existente) {
         alvo = existente;
+      } else if (skuParecidoNoCadastro(v.sku, idxDoProduto)) {
+        // o SKU já vive neste produto, escrito de outro jeito: criar aqui
+        // duplicaria a variação e mandaria o estoque para a cópia
+        if (report) {
+          report.pendencias.push({
+            produtoNs: nsName,
+            cor: color,
+            tamanho: size,
+            ...pistaDoSku(v.sku, idxDoProduto),
+          });
+        }
+        continue;
       } else {
         const nova = await db.productVariant.create({
           data: {
@@ -482,6 +677,10 @@ export async function upsertProduct(
           },
           include: { product: true },
         });
+        // o índice aprende a variação recém-criada: duas variações do MESMO
+        // lote com SKU quase igual ("A-1" e "A 1") duplicariam sem isto
+        const chaveNova = soLetrasENumeros(v.sku);
+        if (chaveNova && !idxDoProduto.has(chaveNova)) idxDoProduto.set(chaveNova, v.sku);
         // estoque "infinito" não vira movimento: 9999 é espelho, não contagem
         if (stock > 0 && v.stock != null) {
           await db.inventoryMovement.create({
@@ -502,7 +701,12 @@ export async function upsertProduct(
 
     if (!alvo) {
       if (report) {
-        report.pendencias.push({ produtoNs: nsName, cor: color, tamanho: size, sku: v.sku ?? null });
+        report.pendencias.push({
+          produtoNs: nsName,
+          cor: color,
+          tamanho: size,
+          ...pistaDoSku(v.sku, idxParecidos),
+        });
       }
       continue;
     }
@@ -689,9 +893,11 @@ export async function syncProducts(companyId: string) {
   const report: SyncReport = { casadas: 0, criadas: 0, pendencias: [] };
   // catálogo local lido UMA vez para a rodada inteira (antes era por produto
   // — com o catálogo grande, estourava os 60s e a Vercel matava a função)
+  const poolSku = await buscarPoolSku(companyId);
   const pools: PoolsDeSync = {
-    skuVariants: await buscarPoolSku(companyId),
+    skuVariants: poolSku,
     allProducts: await buscarPoolProdutos(companyId),
+    idxParecidos: indiceDeSkusParecidos(poolSku),
   };
   let page = 1;
   let total = 0;
@@ -729,6 +935,10 @@ export async function syncProducts(companyId: string) {
         at: new Date().toISOString(),
         casadas: report.casadas,
         criadas: report.criadas,
+        // a LISTA cabe 100 (o relatório vai para uma coluna de texto), mas o
+        // TOTAL é dito inteiro: mostrar "100 pendência(s)" quando são 240
+        // escondia o problema justo de quem mais precisa vê-lo
+        totalPendencias: report.pendencias.length,
         pendencias: report.pendencias.slice(0, 100),
       }),
     },
@@ -749,9 +959,11 @@ export async function syncPaginaDeProdutos(companyId: string, page: number) {
   const conn = await loadConn(companyId);
   if (!conn) return { ok: false as const, produtos: 0, fim: true, status: -1 };
   const report: SyncReport = { casadas: 0, criadas: 0, pendencias: [] };
+  const poolSku = await buscarPoolSku(companyId);
   const pools: PoolsDeSync = {
-    skuVariants: await buscarPoolSku(companyId),
+    skuVariants: poolSku,
     allProducts: await buscarPoolProdutos(companyId),
+    idxParecidos: indiceDeSkusParecidos(poolSku),
   };
   // 25 por etapa: margem folgada mesmo com banco/Nuvemshop num dia lento
   const POR_ETAPA = 25;
@@ -783,13 +995,21 @@ export async function syncPaginaDeProdutos(companyId: string, page: number) {
     where: { companyId },
     select: { lastSyncReport: true },
   });
-  let anterior = { casadas: 0, criadas: 0, pendencias: [] as SyncPendencia[] };
+  let anterior = {
+    casadas: 0,
+    criadas: 0,
+    totalPendencias: 0,
+    pendencias: [] as SyncPendencia[],
+  };
   if (page > 1 && conexao?.lastSyncReport) {
     try {
       const j = JSON.parse(conexao.lastSyncReport);
       anterior = {
         casadas: j.casadas ?? 0,
         criadas: j.criadas ?? 0,
+        // relatório de antes desta versão não tem o total: vale o tamanho da
+        // lista (que era o número mostrado na época)
+        totalPendencias: j.totalPendencias ?? (Array.isArray(j.pendencias) ? j.pendencias.length : 0),
         pendencias: Array.isArray(j.pendencias) ? j.pendencias : [],
       };
     } catch {
@@ -800,6 +1020,7 @@ export async function syncPaginaDeProdutos(companyId: string, page: number) {
     at: new Date().toISOString(),
     casadas: anterior.casadas + report.casadas,
     criadas: anterior.criadas + report.criadas,
+    totalPendencias: anterior.totalPendencias + report.pendencias.length,
     pendencias: [...anterior.pendencias, ...report.pendencias].slice(0, 100),
   };
   await db.nuvemshopConnection.update({

@@ -397,7 +397,17 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
 - **Integrações de produto/estoque**: **RN-014 · Nuvemshop** (OAuth com state
   assinado, webhooks HMAC; a Nuvemshop é a DONA do estoque; casamento de
   produtos SÓ por SKU; venda paga → `ingestPaidOrder` cria Order PAGO
-  direto); **Jueri** (sync 2x/dia via cron `jueri-sync`).
+  direto). O SKU é comparado pelo que a lojista VÊ (`norm`): acento, caixa e
+  **espaço** não contam — o espaço dobrado sem querer e o INVISÍVEL colado da
+  planilha (nbsp) travavam o estoque em silêncio (31/08/2026). Diferença de
+  verdade (pontuação, sufixo) segue NÃO casando — afrouxar aqui joga o
+  estoque de uma cor em outra, o incidente que criou a regra. E SKU **quase
+  igual** a um do cadastro não vira produto novo: antes a sync criava um
+  espelho, a peça aparecia DUAS vezes no catálogo e o estoque ia para a
+  cópia enquanto a de verdade seguia zerada. Agora vira **pendência com o SKU
+  parecido do lado**, na tela de Configurações — a lojista vê o que difere e
+  iguala (AVISA, nunca junta sozinho, como a RN-020);
+  **Jueri** (sync 2x/dia via cron `jueri-sync`).
 - **Marketing**: Gestor de Bio (temas, cores custom, capa, QR, métricas
   BioView/BioClick com filtro de data, atribuição `utm_source=bio` no
   catálogo), campanhas de aquisição, tracking do catálogo

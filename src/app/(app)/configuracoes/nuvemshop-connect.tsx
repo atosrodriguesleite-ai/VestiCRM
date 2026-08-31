@@ -25,7 +25,14 @@ import { Card } from "@/components/ui";
 import { Portal } from "@/components/portal";
 import { copiarTexto } from "@/lib/copiar";
 
-type Pendencia = { produtoNs: string; cor: string; tamanho: string; sku: string | null };
+type Pendencia = {
+  produtoNs: string;
+  cor: string;
+  tamanho: string;
+  sku: string | null;
+  skuParecido?: string | null;
+  repetido?: boolean;
+};
 type Simulacao = {
   produtosNs: number;
   variacoesNs: number;
@@ -41,7 +48,13 @@ type Estado = {
   lastCheckoutSync: string | null;
   produtos: number;
   vendas: number;
-  report?: { at?: string; casadas?: number; criadas?: number; pendencias?: Pendencia[] };
+  report?: {
+    at?: string;
+    casadas?: number;
+    criadas?: number;
+    totalPendencias?: number;
+    pendencias?: Pendencia[];
+  };
 };
 
 type RestoreRow = { variantId: string; product: string; color: string; size: string; current: number; proposed: number };
@@ -321,13 +334,16 @@ export function NuvemshopConnect() {
           Última conferência:{" "}
           <b className="text-emerald-700">{estado.report.casadas ?? 0} variações casadas</b> ·{" "}
           {estado.report.criadas ?? 0} produto(s) novo(s) espelhado(s) ·{" "}
+          {/* o TOTAL de verdade: a lista guardada para no 100 (cabe no
+              relatório), e mostrar 100 quando são 240 escondia o problema */}
           <b className={estado.report.pendencias?.length ? "text-amber-700" : "text-emerald-700"}>
-            {estado.report.pendencias?.length ?? 0} pendência(s)
+            {estado.report.totalPendencias ?? estado.report.pendencias?.length ?? 0} pendência(s)
           </b>
         </div>
       )}
       {estado.connected && (estado.report?.pendencias?.length ?? 0) > 0 && (
         <ListaPendencias
+          total={estado.report!.totalPendencias}
           pendencias={estado.report!.pendencias!}
           titulo="⚠️ Variações da Nuvemshop que o sistema NÃO conseguiu casar sozinho:"
           rodape="Como resolver: em Produtos, use o botão SKUs (ou abra a peça) e preencha o SKU da variação com o SKU mostrado acima — ou deixe os nomes de cor/tamanho iguais nos dois lados. Depois toque em Sincronizar agora."
@@ -579,11 +595,15 @@ function ListaPendencias({
   pendencias,
   titulo,
   rodape,
+  total,
 }: {
   pendencias: Pendencia[];
   titulo: string;
   rodape: string;
+  /** quantas existem de verdade (a lista guardada para em 100) */
+  total?: number;
 }) {
+  const escondidas = Math.max((total ?? pendencias.length) - pendencias.length, 0);
   return (
     <div className="mt-2 rounded-xl border border-amber-200 bg-amber-50/70 p-3">
       <p className="text-xs font-bold text-amber-800 mb-1.5">{titulo}</p>
@@ -594,9 +614,37 @@ function ListaPendencias({
             {p.sku && (
               <span className="text-amber-700"> (SKU na Nuvemshop: <b>{p.sku}</b>)</span>
             )}
+            {/* o quase-igual do cadastro: é o que mostra à lojista O QUE
+                difere — sem isso ela via "não casou" e não tinha como
+                descobrir o porquê (relato de 31/08/2026) */}
+            {p.skuParecido && !p.repetido && (
+              <div className="ml-3 text-amber-800">
+                ↳ no seu cadastro existe <b>{p.skuParecido}</b> — quase igual.
+                Deixe os dois <b>exatamente</b> iguais (confira espaços e
+                pontuação) que o estoque passa a puxar.
+              </div>
+            )}
+            {/* SKU igual que mesmo assim não casou = repetido aqui dentro; o
+                conselho é outro (deixar único), senão a lojista tenta
+                "igualar" dois textos que já são iguais */}
+            {p.skuParecido && p.repetido && (
+              <div className="ml-3 text-amber-800">
+                ↳ este SKU está <b>repetido</b> em mais de uma variação do seu
+                cadastro. Deixe cada peça com um SKU só dela que o estoque
+                passa a puxar.
+              </div>
+            )}
           </li>
         ))}
       </ul>
+      {/* lista cortada: dizer quantas ficaram de fora, senão a lojista
+          conserta 100 e acha que acabou (achado da revisão 31/08/2026) */}
+      {escondidas > 0 && (
+        <p className="text-[11px] font-semibold text-amber-800 mt-1.5">
+          + {escondidas} não listada(s) aqui — resolva estas e sincronize de novo
+          para ver as próximas.
+        </p>
+      )}
       <p className="text-[11px] text-amber-700 mt-2 leading-snug">{rodape}</p>
     </div>
   );

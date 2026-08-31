@@ -11,7 +11,7 @@ import {
   type Briga,
   type VariacaoAqui,
 } from "../nuvemshop-conferencia";
-import { mesmaCor, corDoNome, type VariacaoNs } from "../nuvemshop";
+import { mesmaCor, corDoNome, norm, skuParecidoNoCadastro, indiceDeSkusParecidos, pistaDoSku, type VariacaoNs } from "../nuvemshop";
 
 // Guarda RN-014 (índice em docs/regras.md; texto no CLAUDE.md).
 
@@ -419,5 +419,151 @@ describe("a conferência não pode alterar nada", () => {
     expect(rota).toContain("export async function GET");
     expect(rota).not.toContain("export async function POST");
     expect(rota).toContain("isAdmin(user)");
+  });
+});
+
+describe("SKU digitado à mão não pode travar o estoque (relato da loja, 31/08/2026)", () => {
+  // A lojista cadastrou "359003402Rosa Chá" nos dois sistemas e o estoque não
+  // puxava. Acento e caixa o casamento já resolvia; o que escapava era o
+  // ESPAÇO — o dobrado sem querer e o invisível que vem colado da planilha.
+  it("acento, caixa e espaço nas pontas continuam casando", () => {
+    expect(norm("359003402Rosa Chá")).toBe(norm("359003402rosa cha"));
+    expect(norm("  359003402Rosa Chá  ")).toBe(norm("359003402Rosa Chá"));
+    // ç/á gravados decompostos (copiar e colar entre sistemas) também
+    expect(norm("359003402Rosa Chá".normalize("NFD"))).toBe(norm("359003402Rosa Chá"));
+  });
+
+  it("espaço DUPLO no meio agora casa (era o que travava em silêncio)", () => {
+    expect(norm("359003402Rosa  Chá")).toBe(norm("359003402Rosa Chá"));
+  });
+
+  it("espaço INVISÍVEL (nbsp, zero-width) também casa — inclusive NO MEIO", () => {
+    expect(norm("359003402Rosa\u00a0Chá")).toBe(norm("359003402Rosa Chá"));
+    expect(norm("359003402Rosa Chá\u200b")).toBe(norm("359003402Rosa Chá"));
+    // largura zero SOME (não vira espaço): na ponta o trim escondia o defeito
+    expect(norm("359003402Rosa\u200bCha")).toBe(norm("359003402RosaCha"));
+    expect(norm("359003402\ufeffRosaCha")).toBe(norm("359003402RosaCha"));
+  });
+
+  it("SKU de VERDADE diferente continua NÃO casando (a régua não afrouxou)", () => {
+    // se afrouxasse aqui, o estoque de uma cor cairia em outra — o incidente
+    // da Toque Leve que a RN-014 existe para impedir
+    expect(norm("359003402Rosa Chá")).not.toBe(norm("359003402Rosa Chá único"));
+    expect(norm("359003402Preto")).not.toBe(norm("359003402Prata"));
+  });
+});
+
+describe("a pendência EXPLICA por que não casou (o quase-igual do cadastro)", () => {
+  const pool = [
+    { sku: "359003402-Rosa-Cha" },
+    { sku: "359003402Preto" },
+    { sku: null },
+  ];
+
+  it("acha o SKU quase igual (só a pontuação difere) para a lojista comparar", () => {
+    expect(skuParecidoNoCadastro("359003402 Rosa Cha", pool)).toBe("359003402-Rosa-Cha");
+  });
+
+  it("SKU IGUAL também responde — a função só é consultada quando NÃO casou", () => {
+    // é o caso do SKU repetido: o casamento automático já o descartou, então
+    // "igual" aqui significa "existe no cadastro e mesmo assim não casou".
+    // Devolver null escondia justamente o caso mais óbvio (revisão 31/08).
+    expect(skuParecidoNoCadastro("359003402Preto", pool)).toBe("359003402Preto");
+  });
+
+  it("o índice é montado UMA vez e responde igual à busca direta", () => {
+    const idx = indiceDeSkusParecidos(pool);
+    expect(skuParecidoNoCadastro("359003402 Rosa Cha", idx)).toBe("359003402-Rosa-Cha");
+    expect(skuParecidoNoCadastro("999999Verde", idx)).toBeNull();
+  });
+
+  it("sem nada perto, não inventa sugestão", () => {
+    expect(skuParecidoNoCadastro("999999Verde", pool)).toBeNull();
+    expect(skuParecidoNoCadastro(null, pool)).toBeNull();
+    expect(skuParecidoNoCadastro("   ", pool)).toBeNull();
+  });
+
+  // A DECISÃO em si (criar espelho × virar pendência) é comportamento, não
+  // texto: descrever a LINHA do código protegeria o erro em vez de impedi-lo
+  // (lição de 28/08/2026). Aqui vale a regra pura que a decisão consulta.
+  it("SKU quase igual acusa (é o que impede o produto duplicado)", () => {
+    for (const skuNs of [
+      "359003402 Rosa Cha",   // espaço no lugar do hífen
+      "359003402.Rosa.Cha",   // pontuação trocada
+      "359003402RosaCha",     // sem separador nenhum
+    ])
+      expect(skuParecidoNoCadastro(skuNs, pool), skuNs).toBe("359003402-Rosa-Cha");
+  });
+
+  it("SKU REPETIDO no cadastro também acusa (não vira espelho em silêncio)", () => {
+    // a trava de ambiguidade (Toque Leve) tira SKU repetido do casamento;
+    // sem acusar aqui, a peça virava produto novo sem nenhum aviso
+    const comRepetido = [{ sku: "359003402Preto" }, { sku: "359003402Preto" }];
+    expect(skuParecidoNoCadastro("359003402Preto", comRepetido)).toBe("359003402Preto");
+  });
+
+  it("produto GENUINAMENTE novo (sem nada parecido) continua entrando sozinho", () => {
+    // a trava é só para o quase-igual: loja que cadastra a peça só na
+    // Nuvemshop precisa vê-la chegar no catálogo sem trabalho manual
+    expect(skuParecidoNoCadastro("SKU-QUE-NAO-EXISTE-99", pool)).toBeNull();
+  });
+
+  it("a PRÉVIA usa a mesma régua do import (prévia que engana é pior que nenhuma)", () => {
+    const previa = readFileSync(join(process.cwd(), "src/lib/nuvemshop-simulacao.ts"), "utf8");
+    expect(previa).toContain("skuParecidoNoCadastro");
+    expect(previa).toContain("idxParecidos");
+  });
+
+  it("o total de pendências é o VERDADEIRO (a lista guardada para em 100)", () => {
+    const motor = readFileSync(join(process.cwd(), "src/lib/nuvemshop.ts"), "utf8");
+    expect(motor).toContain("totalPendencias: report.pendencias.length");
+    const tela = readFileSync(
+      join(process.cwd(), "src/app/(app)/configuracoes/nuvemshop-connect.tsx"),
+      "utf8"
+    );
+    expect(tela).toContain("estado.report.totalPendencias ??");
+  });
+
+  it("variação SEM SKU não sai marcada como 'repetido' (o vazio não é igual a nada)", () => {
+    // "" === "" dava true e carimbava repetido em toda pendência sem SKU
+    for (const vazio of [null, undefined, "   "]) {
+      const r = pistaDoSku(vazio, pool);
+      expect(r.repetido, String(vazio)).toBe(false);
+      expect(r.skuParecido).toBeNull();
+      expect(r.sku).toBeNull();
+    }
+  });
+
+  it("a pista diz de QUAL peça é o SKU parecido (senão o conselho vira erro)", () => {
+    // igualar com o SKU de OUTRA peça criaria SKU duplicado — e SKU duplicado
+    // sai do casamento automático, quebrando também a que funcionava
+    const comNome = [{ sku: "359003402-Rosa-Cha", product: { name: "Conjunto Samira" } }];
+    expect(skuParecidoNoCadastro("359003402 Rosa Cha", comNome)).toBe(
+      '359003402-Rosa-Cha (em “Conjunto Samira”)'
+    );
+    // o rótulo não confunde a conta do "repetido": ela olha o SKU puro
+    expect(pistaDoSku("359003402-Rosa-Cha", comNome).repetido).toBe(true);
+  });
+
+  it("sem relatório em curso (webhook), a pendência é gravada mesmo assim", () => {
+    // o produto barrado não é criado — se também não fosse anotado, sumia em
+    // silêncio até alguém clicar em sincronizar
+    const motor = readFileSync(join(process.cwd(), "src/lib/nuvemshop.ts"), "utf8");
+    expect(motor).toContain("registrarPendenciasAvulsas");
+    expect(motor).toContain("else await registrarPendenciasAvulsas(companyId, pendencias);");
+  });
+
+  it("a PRÉVIA aplica a mesma trava de SKU repetido do import", () => {
+    const previa = readFileSync(join(process.cwd(), "src/lib/nuvemshop-simulacao.ts"), "utf8");
+    expect(previa).toContain("vezesPorSku.get(norm(v.sku)) === 1");
+  });
+
+  it("a tela mostra a comparação (senão o achado morre no servidor)", () => {
+    const tela = readFileSync(
+      join(process.cwd(), "src/app/(app)/configuracoes/nuvemshop-connect.tsx"),
+      "utf8"
+    );
+    expect(tela).toContain("p.skuParecido");
+    expect(tela).toContain("no seu cadastro existe");
   });
 });
