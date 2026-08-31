@@ -49,7 +49,18 @@ export async function POST() {
     // regra pura `vinculosParaSoltar`, dentro da conferência
     const ids = r.paraSoltar;
     if (ids.length === 0) {
-      return NextResponse.json({ soltos: 0, mensagem: "Nenhum vínculo torto para soltar." });
+      return NextResponse.json({
+        soltos: 0,
+        leituraCompleta: r.leituraCompleta,
+        // "nada para soltar" e "não deu para conferir" são coisas MUITO
+        // diferentes — dizer a primeira quando é a segunda faz o botão sumir
+        // sem explicação (revisão de 31/08/2026)
+        mensagem: r.leituraCompleta
+          ? "Nenhum vínculo torto para soltar."
+          : r.motivoLeitura === "VAZIO"
+            ? "A Nuvemshop não devolveu nenhum produto agora. Por segurança nada foi solto — confira a conexão em Configurações."
+            : "A Nuvemshop não respondeu o catálogo inteiro agora. Por segurança nada foi solto — confira de novo daqui a pouco.",
+      });
     }
 
     // RN-013: o `product.companyId` no filtro é o que garante que a conferência
@@ -71,16 +82,21 @@ export async function POST() {
           direction: "OUT",
           type: "nuvemshop.vinculos.soltos",
           status: "OK",
+          // limita a LISTA, nunca o texto: cortar o JSON em 8000 caracteres
+          // partia no meio de um nome e o rastro virava lixo impossível de
+          // ler — justamente o que serve para achar vínculo solto por engano
+          // (revisão de 31/08/2026)
           payload: JSON.stringify({
             porQuem: user.id,
             leituraCompleta: r.leituraCompleta,
-            variacoes: afetadas.map((v) => ({
+            total: afetadas.length,
+            variacoes: afetadas.slice(0, 200).map((v) => ({
               id: v.id,
               peca: `${v.product.name} · ${v.color} ${v.size}`,
               sku: v.sku,
               vinculoSolto: v.nuvemshopId,
             })),
-          }).slice(0, 8000),
+          }),
         },
       })
       .catch(() => {});

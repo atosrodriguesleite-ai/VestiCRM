@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   conferirVinculo,
+  conferirComHistorico,
   ehDisputaDeVerdade,
   ORDEM_DE_CONSERTO,
   recortarParaTela,
@@ -10,6 +11,8 @@ import {
   type Achado,
   type Briga,
   vinculosParaSoltar,
+  leituraConfiavelParaSoltar,
+  motivoDaLeitura,
   type VariacaoAqui,
 } from "../nuvemshop-conferencia";
 import { mesmaCor, corDoNome, norm, skuParecidoNoCadastro, indiceDeSkusParecidos, pistaDoSku, type VariacaoNs } from "../nuvemshop";
@@ -225,10 +228,16 @@ describe("briga de sincronização (a impressão digital)", () => {
    * os achados do fim da fila.
    */
   it("peça disputada em 300 sincronizações vira UM aviso, não 300", () => {
-    const v = aqui({ produto: "Regata tule", cor: "Lilás" });
-    const achados = conferirVinculo([v], [], [
-      briga({ variantId: v.id, rodadas: 300 }),
-    ]);
+    const v = aqui({ produto: "Regata tule", cor: "Lilás", sku: "DUP" });
+    const achados = conferirVinculo(
+      [v],
+      // causa ainda viva: o SKU segue repetido lá
+      [
+        la({ varId: "1", produto: "Regata tule", sku: "DUP" }),
+        la({ varId: "2", produto: "Regata tule", sku: "DUP" }),
+      ],
+      [briga({ variantId: v.id, rodadas: 300 })]
+    );
     const brigas = achados.filter((x) => x.tipo === "BRIGA_DE_SYNC");
     expect(brigas).toHaveLength(1);
     expect(brigas[0].detalhe).toContain("300 sincronizações");
@@ -236,19 +245,111 @@ describe("briga de sincronização (a impressão digital)", () => {
 
   /**
    * SKU já corrigido: a disputa continua no livro de estoque para sempre, mas
-   * não pode continuar gritando VERMELHO — senão a lojista conserta tudo e o
-   * painel nunca fica limpo.
+   * NÃO É TAREFA. Enquanto ela saía na lista (mesmo em amarelo), o painel da
+   * loja dizia "50 pontos para olhar" com 45 sendo lembrança de coisa já
+   * consertada — e as 5 de verdade sumiam no meio (pedido do dono,
+   * 31/08/2026). Agora ela sai da lista E da conta, e volta só como
+   * histórico tranquilo.
    */
-  it("SKU já corrigido: a disputa vira histórico, não alarme", () => {
+  it("SKU já corrigido: a disputa sai da lista e vira histórico", () => {
     const v = aqui({ produto: "Regata tule", cor: "Lilás", sku: "UNICO" });
-    const achados = conferirVinculo(
+    const { achados, resolvidas } = conferirComHistorico(
       [v],
       [la({ varId: "1", produto: "Regata tule", sku: "UNICO" })], // sem repetição hoje
       [briga({ variantId: v.id })]
     );
+    expect(achados.find((x) => x.tipo === "BRIGA_DE_SYNC")).toBeUndefined();
+    expect(resolvidas).toHaveLength(1);
+    expect(resolvidas[0].peca).toContain("Regata tule");
+  });
+
+  /** A disputa VIVA continua sendo tarefa — e das importantes. */
+  it("disputa viva continua na lista, e não no histórico", () => {
+    const v = aqui({ produto: "Regata tule", cor: "Lilás", sku: "DUP" });
+    const { achados, resolvidas } = conferirComHistorico(
+      [v],
+      [
+        la({ varId: "1", produto: "Regata tule", sku: "DUP" }),
+        la({ varId: "2", produto: "Regata tule", sku: "DUP" }),
+      ],
+      [briga({ variantId: v.id })]
+    );
+    expect(achados.find((x) => x.tipo === "BRIGA_DE_SYNC")!.gravidade).toBe("ALTA");
+    expect(resolvidas).toHaveLength(0);
+  });
+
+  /**
+   * O número do topo é a soma da lista de tarefas. Uma loja com o SKU já
+   * arrumado e um punhado de brigas velhas tem que ver ZERO — não "45".
+   */
+  it("loja já arrumada: nenhuma tarefa, só histórico", () => {
+    const pecas = [1, 2, 3].map((n) =>
+      aqui({ produto: "Regata tule", cor: `Cor ${n}`, sku: `S${n}`, nsVarId: `${n}` })
+    );
+    const { achados, resolvidas } = conferirComHistorico(
+      pecas,
+      pecas.map((p, i) => la({ varId: `${i + 1}`, produto: "Regata tule", sku: p.sku })),
+      pecas.map((p) => briga({ variantId: p.id }))
+    );
+    expect(achados).toHaveLength(0);
+    expect(resolvidas).toHaveLength(3);
+  });
+
+  /**
+   * Achado da revisão (31/08/2026): leitura da Nuvemshop pela metade fazia a
+   * briga VIVA parecer resolvida — a peça que causa a disputa era justamente
+   * uma das que não vieram, e a tela dizia "nada a fazer" com o estoque
+   * embaralhando a cada sincronização.
+   */
+  it("leitura incompleta NÃO promove briga a resolvida", () => {
+    const v = aqui({ produto: "Regata tule", cor: "Lilás", sku: "DUP" });
+    const { achados, resolvidas } = conferirComHistorico(
+      [v],
+      [], // a Nuvemshop não devolveu nada nesta rodada
+      [briga({ variantId: v.id })],
+      false
+    );
+    expect(resolvidas).toHaveLength(0);
     const a = achados.find((x) => x.tipo === "BRIGA_DE_SYNC");
-    expect(a!.gravidade).toBe("MEDIA");
-    expect(a!.detalhe).toContain("histórico");
+    expect(a).toBeDefined();
+    // o texto diz POR QUE não dá para encerrar, em vez de afirmar que acabou
+    expect(a!.detalhe).toContain("não dá pra dizer que acabou");
+  });
+
+  /**
+   * O contrário do caso acima, e a fronteira da regra: peça SEM SKU aqui é
+   * alcançada SÓ pelo carimbo — uma escritora, nenhuma disputa. A briga velha
+   * dela (de quando ela tinha o SKU repetido, antes de a lojista apagar o SKU
+   * para desempatar) é história. Marcar como viva devolveria o vermelho
+   * eterno que esta entrega veio tirar.
+   */
+  it("peça SEM SKU aqui: só o carimbo escreve nela, a briga velha é histórico", () => {
+    const v = aqui({ produto: "Regata tule", cor: "Lilás", sku: null, nsVarId: "2" });
+    const { achados, resolvidas } = conferirComHistorico(
+      [v],
+      [la({ varId: "2", produto: "Regata tule", sku: "PRETO-M" })],
+      [briga({ variantId: v.id })]
+    );
+    expect(achados.find((x) => x.tipo === "BRIGA_DE_SYNC")).toBeUndefined();
+    expect(resolvidas).toHaveLength(1);
+  });
+
+  /** Histórico se lê da mais recente para a mais antiga. */
+  it("as resolvidas saem da mais recente para a mais antiga", () => {
+    const a = aqui({ produto: "Blusa", cor: "Azul", sku: "A" });
+    const b = aqui({ produto: "Blusa", cor: "Rosa", sku: "B" });
+    const { resolvidas } = conferirComHistorico(
+      [a, b],
+      [la({ varId: "1", produto: "Blusa", sku: "A" }), la({ varId: "2", produto: "Blusa", sku: "B" })],
+      [
+        briga({ variantId: a.id, quando: new Date("2026-01-01T10:00:00Z") }),
+        briga({ variantId: b.id, quando: new Date("2026-08-01T10:00:00Z") }),
+      ]
+    );
+    expect(resolvidas.map((r) => r.peca)).toEqual([
+      expect.stringContaining("Rosa"),
+      expect.stringContaining("Azul"),
+    ]);
   });
 
   /** Achado da revisão: a peça de lá apontada pelo carimbo pode estar SEM
@@ -627,6 +728,44 @@ describe("a conferência CONSERTA, não só diagnostica (relato de loja, 31/08/2
     // peça não lida parece apagada: soltar aí quebraria o que funcionava
     const lista = [achado("CARIMBO_CRUZADO", "v1"), achado("CARIMBO_ORFAO", "v2")];
     expect(vinculosParaSoltar(lista, false)).toEqual(["v1"]);
+  });
+
+  /**
+   * Achado da revisão (31/08/2026): catálogo que volta VAZIO ainda contava
+   * como leitura completa. Aí TODA variação vinculada vira "órfã" e um clique
+   * apagaria o vínculo do catálogo inteiro.
+   */
+  /**
+   * "Veio pela metade" e "voltou vazia" pedem recados DIFERENTES: mandar
+   * "tente de novo daqui a pouco" para loja com catálogo legitimamente vazio
+   * é aviso que nunca vai mudar (mesma lição da RN-023).
+   */
+  it("diz POR QUE a leitura não serviu", () => {
+    expect(motivoDaLeitura({ completa: true, variacoesNs: 480 })).toBe("OK");
+    expect(motivoDaLeitura({ completa: false, variacoesNs: 480 })).toBe("PARCIAL");
+    expect(motivoDaLeitura({ completa: true, variacoesNs: 0 })).toBe("VAZIO");
+  });
+
+  it("catálogo vazio NUNCA autoriza soltar (era o clique que zerava tudo)", () => {
+    expect(leituraConfiavelParaSoltar({ completa: true, variacoesNs: 0 })).toBe(false);
+  });
+
+  it("leitura pela metade não autoriza, mesmo com catálogo cheio", () => {
+    expect(leituraConfiavelParaSoltar({ completa: false, variacoesNs: 480 })).toBe(false);
+  });
+
+  it("leitura inteira e com catálogo: pode soltar", () => {
+    expect(leituraConfiavelParaSoltar({ completa: true, variacoesNs: 480 })).toBe(true);
+  });
+
+  /**
+   * Uma trava por PROPORÇÃO de órfãos foi tentada e recusada (31/08/2026):
+   * loja que apaga e recria metade dos produtos é o cenário EXATO do vínculo
+   * órfão — ela ficaria sem conserto para sempre. Quem responde "a leitura
+   * veio inteira?" é o `completa`, e ele erra para o lado seguro.
+   */
+  it("muitos órfãos com leitura inteira ainda autoriza (loja apagou mesmo)", () => {
+    expect(leituraConfiavelParaSoltar({ completa: true, variacoesNs: 9 })).toBe(true);
   });
 
   it("não repete id e ignora achado sem peça identificada", () => {

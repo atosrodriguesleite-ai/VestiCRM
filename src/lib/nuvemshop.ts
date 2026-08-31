@@ -1076,6 +1076,12 @@ export async function lerVariacoesNuvemshop(companyId: string) {
       return { ok: false as const, status: res.status, variacoes: [], produtos: 0, completa: false };
     }
     if (!res.ok) {
+      // PÁGINA QUE FALHOU É LEITURA PARCIAL, PONTO — inclusive o 404. Tentar
+      // adivinhar "isso aqui foi só o fim da lista" foi testado e recusado na
+      // revisão de 31/08/2026: `completa` é o que AUTORIZA soltar vínculo, e
+      // um 404 passageiro faria a página não lida virar "peça apagada lá" e o
+      // botão apagar vínculo BOM. O custo de errar para o lado seguro é um
+      // aviso âmbar a mais; o do outro lado é estoque quebrado.
       completa = false;
       break;
     }

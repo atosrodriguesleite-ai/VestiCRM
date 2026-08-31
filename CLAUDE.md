@@ -419,7 +419,24 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   espelho, a peça aparecia DUAS vezes no catálogo e o estoque ia para a
   cópia enquanto a de verdade seguia zerada. Agora vira **pendência com o SKU
   parecido do lado**, na tela de Configurações — a lojista vê o que difere e
-  iguala (AVISA, nunca junta sozinho, como a RN-020);
+  iguala (AVISA, nunca junta sozinho, como a RN-020).
+  **A CONFERÊNCIA DA INTEGRAÇÃO TAMBÉM CONSERTA**
+  (`lib/nuvemshop-conferencia.ts`): ela compara os dois lados (só leitura) e
+  o botão **"Soltar N vínculo(s) errado(s)"** tira do caminho os carimbos
+  objetivamente errados — vínculo apontando para peça de OUTRO SKU e vínculo
+  de peça que não existe mais lá. Só isso: SKU duplicado, cor no produto
+  errado e disputa exigem decisão da lojista. Estoque NÃO muda no clique (o
+  número volta certo na próxima sincronização, pelo SKU), quem escolhe os ids
+  é o SERVIDOR (a tela não manda lista) e as peças soltas ficam no `CommEvent`
+  (até 200 identificadas por vez, sempre com o total).
+  Leitura da Nuvemshop que veio pela metade — ou VAZIA — não autoriza soltar
+  órfão (`leituraConfiavelParaSoltar`): peça não lida parece apagada, e um
+  clique zeraria o catálogo inteiro. **O número do topo conta só TAREFA**
+  (31/08/2026): disputa de sincronização cuja causa já foi corrigida sai da
+  lista e da conta e vira uma linha de histórico no rodapé — o painel dizia
+  "50 pontos para olhar" com 45 sendo lembrança de coisa resolvida, e as 5 de
+  verdade sumiam no meio. "Já acabou" só vale quando deu para conferir: com a
+  leitura incompleta a disputa continua avisando.
   **Jueri** (sync 2x/dia via cron `jueri-sync`).
 - **Marketing**: Gestor de Bio (temas, cores custom, capa, QR, métricas
   BioView/BioClick com filtro de data, atribuição `utm_source=bio` no

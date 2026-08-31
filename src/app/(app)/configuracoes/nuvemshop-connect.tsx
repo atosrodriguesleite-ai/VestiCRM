@@ -78,11 +78,16 @@ type Conferencia = {
   /** ids que o servidor solta (lista inteira, não a recortada da tela) */
   paraSoltar?: string[];
   leituraCompleta?: boolean;
+  /** por que a leitura não serviu: "PARCIAL" (veio pela metade) ou "VAZIO" */
+  motivoLeitura?: "OK" | "PARCIAL" | "VAZIO";
   /** quantos achados não couberam na lista (contados, nunca sumidos) */
   omitidos?: number;
   /** graves da lista INTEIRA (o servidor conta antes de recortar) */
   graves?: number;
   total: number;
+  /** disputas que JÁ acabaram: histórico, não tarefa */
+  resolvidas?: number;
+  ultimaResolvida?: string | null;
 };
 
 export function NuvemshopConnect() {
@@ -520,13 +525,18 @@ function ResultadoConferencia({
   // o servidor conta os graves ANTES de recortar a lista; a conta local só
   // enxergava o pedaço que coube na tela (e dizia "200 importantes" sempre)
   const graves = conf.graves ?? conf.achados.filter((a) => a.gravidade === "ALTA").length;
-  const limpo = conf.achados.length === 0;
+  const leves = Math.max(conf.total - graves, 0);
+  // LEITURA PELA METADE NÃO É "TUDO CERTO" (revisão de 31/08/2026): o verde
+  // aparecia por cima do aviso âmbar, prometendo o que a conferência não
+  // pôde verificar — a mesma falsa calma que a separação das brigas tirou
+  const incompleta = conf.leituraCompleta === false;
+  const limpo = conf.achados.length === 0 && !incompleta;
   const [copiado, setCopiado] = useState(false);
 
   /** Leva a lista inteira para o WhatsApp/e-mail — dá pra trabalhar fora da tela. */
   async function copiarLista() {
     const texto = [
-      `Conferência da integração Nuvemshop — ${conf.total} ponto(s)`,
+      `Conferência da integração Nuvemshop — ${graves} para arrumar, ${leves} para ficar de olho`,
       `Na Nuvemshop: ${conf.produtosNs} produtos / ${conf.variacoesNs} variações · Aqui: ${conf.variacoesAqui} variações`,
       "",
       ...conf.resumo.map((r, i) => `${i + 1}. ${r.quantos}× ${r.nome}`),
@@ -537,6 +547,12 @@ function ResultadoConferencia({
       ),
       ...(conf.omitidos
         ? ["", `(+ ${conf.omitidos} ponto(s) do mesmo tipo não listados aqui)`]
+        : []),
+      ...(conf.resolvidas
+        ? [
+            "",
+            `(${conf.resolvidas} disputa(s) antiga(s) já resolvida(s) — só histórico, nada a fazer)`,
+          ]
         : []),
     ].join("\n");
     setCopiado(await copiarTexto(texto));
@@ -550,9 +566,17 @@ function ResultadoConferencia({
     >
       <div className="flex items-start justify-between gap-2">
         <p className={`text-sm font-bold ${limpo ? "text-emerald-800" : "text-rose-800"}`}>
-          {limpo
+          {/* O NÚMERO PRECISA DIZER A VERDADE (pedido do dono, 31/08/2026):
+              "50 pontos para olhar" com 45 sendo histórico assusta e esconde
+              as 5 de verdade. Agora separa o que ARRUMAR do que só merece um
+              olho — e histórico ficou fora da conta. */}
+          {incompleta && conf.total === 0
+            ? "⚠️ Não deu para conferir tudo agora"
+            : limpo
             ? "✅ Integração conferida: tudo casando certo"
-            : `⚠️ ${conf.total} ponto(s) para olhar${graves ? ` · ${graves} importante(s)` : ""}`}
+            : graves > 0
+              ? `⚠️ ${graves} coisa(s) para arrumar${leves ? ` · ${leves} só para ficar de olho` : ""}`
+              : `👀 ${leves} ponto(s) para ficar de olho — nada grave`}
         </p>
         <button
           onClick={onFechar}
@@ -652,6 +676,43 @@ function ResultadoConferencia({
           )}
         </ul>
       )}
+      {/* LEITURA QUE NÃO VEIO INTEIRA PRECISA APARECER: sem isto, "nada a
+          fazer", a lista curta e o botão sumido pareceriam a foto completa
+          da loja. É a MESMA régua que segura o conserto. */}
+      {incompleta && (
+        <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 p-2 text-[11px] text-amber-800 leading-snug">
+          {conf.motivoLeitura === "VAZIO" ? (
+            <>
+              ⚠️ A Nuvemshop não devolveu <b>nenhum produto</b> nesta
+              conferência. Se a sua loja lá tem produtos, a conexão pode estar
+              apontando para a loja errada ou precisa ser refeita. Por
+              segurança, nada foi solto.
+            </>
+          ) : (
+            <>
+              ⚠️ A Nuvemshop não devolveu o catálogo inteiro nesta conferência
+              (costuma ser instabilidade lá). O que está aqui vale, mas pode
+              faltar coisa — e, por segurança, o sistema <b>não solta vínculo
+              de peça apagada</b> agora. <b>Confira de novo daqui a pouco.</b>
+            </>
+          )}
+        </p>
+      )}
+
+      {/* DISPUTA QUE JÁ ACABOU É HISTÓRICO, NÃO TAREFA (pedido do dono,
+          31/08/2026): ela saía na lista e no número do topo — "50 pontos para
+          olhar" quando eram 5. Fica aqui embaixo, no tom de quem dá boa
+          notícia, e NÃO entra na conta de cima. */}
+      {!!conf.resolvidas && (
+        <p className="mt-2 rounded-lg bg-white/60 border border-gray-100 p-2 text-[11px] text-gray-500 leading-snug">
+          ✔️ <b>{conf.resolvidas}</b> disputa(s) de sincronização que já
+          aconteceram nesta loja <b>não acontecem mais</b>
+          {conf.ultimaResolvida &&
+            ` (a última em ${new Date(conf.ultimaResolvida).toLocaleDateString("pt-BR")})`}
+          . É só histórico — <b>nada a fazer</b>.
+        </p>
+      )}
+
       <div className="flex items-center justify-between gap-2 flex-wrap mt-2">
         <p className="text-[11px] text-gray-500 leading-snug">
           Esta conferência só LÊ os dois lados — não alterou nenhum estoque nem
