@@ -21,7 +21,7 @@ export default async function TransferenciasPage() {
 
   const [contas, transferencias] = await Promise.all([
     db.finConta.findMany({
-      where: { companyId: user.companyId, arquivadaEm: null },
+      where: { companyId: user.companyId, arquivadaEm: null, tipo: { not: "CARTAO" } },
       orderBy: [{ padrao: "desc" }, { nome: "asc" }],
       select: { id: true, nome: true },
     }),

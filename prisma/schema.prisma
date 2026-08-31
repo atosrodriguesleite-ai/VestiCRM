@@ -2641,7 +2641,14 @@ model FinConta {
   companyId      String
   company        Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
   nome           String
-  tipo           String    @default("BANCO") // BANCO | CAIXINHA | DIGITAL | POUPANCA
+  tipo           String    @default("BANCO") // BANCO | CAIXINHA | DIGITAL | POUPANCA | CARTAO
+  /// CARTÃO DE CRÉDITO (RN-037): a conta do cartão não guarda dinheiro — ela
+  /// junta as compras numa FATURA. O dia em que a fatura fecha e o dia em que
+  /// ela vence é o que decide para qual fatura cada compra vai.
+  diaFechamento  Int?
+  diaVencimento  Int?
+  /// de qual conta sai o dinheiro quando a fatura é paga
+  contaPagamentoId String?
   saldoInicial   Float     @default(0)
   /// data do saldo inicial: o extrato desta conta conta a partir daqui
   saldoInicialEm DateTime  @default(now())

@@ -87,7 +87,16 @@ export async function PaginaMovimentacoes({
       db.finConta.findMany({
         where: { companyId: user.companyId, arquivadaEm: null },
         orderBy: [{ padrao: "desc" }, { nome: "asc" }],
-        select: { id: true, nome: true, padrao: true },
+        select: {
+        id: true,
+        nome: true,
+        padrao: true,
+        // cartão (RN-037): o form calcula a fatura da compra e a baixa
+        // exclui o cartão da lista (lá o dinheiro não anda)
+        tipo: true,
+        diaFechamento: true,
+        diaVencimento: true,
+      },
       }),
       db.finCategoria.findMany({
         where: { companyId: user.companyId, arquivadaEm: null, tipo },

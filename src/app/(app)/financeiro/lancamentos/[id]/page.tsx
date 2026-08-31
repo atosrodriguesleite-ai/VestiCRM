@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { isManagerUp } from "@/lib/scope";
 import { financeiroLiberado } from "@/lib/financeiro/gate";
 import { carregarFicha } from "@/lib/financeiro/consulta";
+import { notaDoLancamento } from "@/lib/financeiro/nota-do-lancamento";
 import {
   diaSP,
   podeEditarValores,
@@ -37,12 +38,24 @@ export default async function LancamentoPage({
   if (!l) notFound();
 
   const hoje = new Date();
+  // a nota do pedido que gerou este recebimento (RN-036): a lojista via a
+  // conta aqui e tinha que ir procurar o pedido em outra tela
+  const nota = await notaDoLancamento(user.companyId, l);
   // os cadastros do formulário de edição vêm junto (uma ida só ao banco)
   const [contas, categorias, fornecedores, centros, colecoes] = await Promise.all([
     db.finConta.findMany({
       where: { companyId: user.companyId, arquivadaEm: null },
       orderBy: [{ padrao: "desc" }, { nome: "asc" }],
-      select: { id: true, nome: true, padrao: true },
+      select: {
+        id: true,
+        nome: true,
+        padrao: true,
+        // cartão (RN-037): o form calcula a fatura da compra e a baixa
+        // exclui o cartão da lista (lá o dinheiro não anda)
+        tipo: true,
+        diaFechamento: true,
+        diaVencimento: true,
+      },
     }),
     db.finCategoria.findMany({
       where: { companyId: user.companyId, arquivadaEm: null, tipo: l.tipo },
@@ -139,6 +152,7 @@ export default async function LancamentoPage({
           estornoAutor: b.estornoAutor,
         })),
       }))}
+      nota={nota}
       anexos={l.anexos.map((a) => ({
         id: a.id,
         fileName: a.fileName,

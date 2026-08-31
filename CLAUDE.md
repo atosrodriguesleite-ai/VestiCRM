@@ -630,6 +630,46 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   CONTEÚDO, não o cabeçalho (banco que exporta UTF-8 dizendo `CHARSET:1252`
   existe), e o valor aceita separador de milhar dos dois formatos. **O arquivo em si não é guardado** (dívida técnica nº 1): dele
   saem as linhas, que é o que a conciliação usa.
+  **RN-036 · NOTA E COMISSÃO NO FINANCEIRO** (`lib/financeiro/nota-do-lancamento.ts`
+  e `lib/financeiro/comissoes.ts`): duas pontas soltas que faltavam. A ficha
+  do lançamento que veio de PEDIDO agora **mostra a nota** (situação, número,
+  link do DANFE e o pedido de origem) e, com o Bling conectado, emite dali
+  mesmo — pela MESMA porta do pedido: **quem emite continua sendo o Bling**
+  (RN-016), o financeiro só mostra o caminho; nota AUTORIZADA não se emite de
+  novo (viraria nota em dobro), a que deu ERRO pode. E a **comissão vira
+  CONTA A PAGAR** num clique na tela de Comissões: sem isso a lojista via
+  "sobrou R$ 4.000 no mês" sem lembrar das comissões que ainda vai pagar — a
+  segunda maior despesa de uma loja de atacado. A conta nasce da MESMA fonte
+  da tela (pedidos pagos, `commissionBase` da loja, percentual da vendedora;
+  frete nunca entra, RN-002) e **não paga duas vezes**: a chave
+  `vendedora:início:fim` é única no banco, gerar o mesmo período devolve a
+  conta que já existe e período que **ENCOSTA** num já gerado é RECUSADO
+  dizendo qual — mudar um dia no filtro pagaria o mesmo mês de novo. **Só
+  período FECHADO vira conta a pagar**: com o mês em curso, a venda da tarde
+  entraria no período registrado e ficaria fora do valor. Comissão CANCELADA
+  pode ser lançada de novo (a chave ganha sufixo — o único do banco vale para
+  cancelado também, e sem isso a lojista cancelava, como a mensagem manda, e
+  nunca mais lançava aquele período), e a tela só marca "✓ lançada" no período
+  IGUAL: uma quinzena gerada avisa que cruza, em vez de esconder a outra
+  metade do mês.
+  **RN-037 · CARTÃO DE CRÉDITO** (`lib/financeiro/cartao.ts` +
+  `cartao-fatura.ts`, tela `/financeiro/cartoes`): a conta do cartão **NÃO
+  guarda dinheiro** — ela junta compras numa FATURA. É essa a diferença que
+  faz a conta bater: a compra de hoje no cartão é despesa de hoje (entra no
+  DRE do mês certo), mas o dinheiro só sai do banco no vencimento da fatura;
+  lançar a compra como saída do banco no dia da compra é o erro clássico — o
+  extrato passa a divergir e o fluxo mostra dinheiro saindo num mês em que ele
+  ficou. A loja cadastra o cartão com o **dia em que fecha e o dia em que
+  vence**, e a compra cai sozinha na fatura certa (comprou no dia do
+  fechamento ou depois, vai para a próxima; parcelado entra numa fatura por
+  mês; dia 31 em mês curto cai no último dia, RN-028). **Pagar a fatura dá
+  baixa em TODAS as compras dela de uma vez**, na conta de onde o dinheiro
+  sai — 40 compras baixadas uma a uma é onde a lojista desiste do financeiro
+  —, em transação SERIALIZÁVEL e sem repagar o que já estava pago. Cartão
+  **nunca vira a conta padrão** (nem ao virar cartão numa edição): a porta
+  única de entrada das vendas (RN-031) baixaria a venda paga no cartão de
+  crédito da loja. E o cartão **não aparece onde o dinheiro anda** — baixa e
+  transferência —, senão daria para quitar a parcela fora de qualquer fatura.
 - **Envios** (gated por loja, `shippingEnabled`, pago à parte): tela própria
   no menu (`/envios`): painel (gasto do mês, aguardando postagem, em
   trânsito com alerta de **parado há 7+ dias**, entregues com tempo médio) +

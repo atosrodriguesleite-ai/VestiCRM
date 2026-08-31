@@ -41,6 +41,10 @@ type Conta = {
   cor: string;
   padrao: boolean;
   arquivada: boolean;
+  // cartão de crédito (RN-037)
+  diaFechamento: number | null;
+  diaVencimento: number | null;
+  contaPagamentoId: string | null;
 };
 type Categoria = {
   id: string;
@@ -91,6 +95,7 @@ const TIPO_CONTA: Record<string, string> = {
   CAIXINHA: "Caixinha (dinheiro)",
   DIGITAL: "Conta digital",
   POUPANCA: "Poupança",
+  CARTAO: "Cartão de crédito",
 };
 
 async function chamar(
@@ -183,6 +188,12 @@ function AbaContas({ iniciais }: { iniciais: Conta[] }) {
   const [saldoEm, setSaldoEm] = useState(hojeSP());
   const [cor, setCor] = useState("#0E8A5F");
   const [padrao, setPadrao] = useState(false);
+  // cartão de crédito (RN-037): os dias que decidem a fatura de cada compra
+  const [fechamento, setFechamento] = useState("");
+  const [vencimento, setVencimento] = useState("");
+  const [contaPagamento, setContaPagamento] = useState("");
+  const ehCartao = tipo === "CARTAO";
+  const contas = iniciais;
 
   function abrirForm(c: Conta | null) {
     setErro("");
@@ -194,6 +205,9 @@ function AbaContas({ iniciais }: { iniciais: Conta[] }) {
     setSaldoEm(c ? c.saldoInicialEm.slice(0, 10) : hojeSP());
     setCor(c?.cor ?? "#0E8A5F");
     setPadrao(c?.padrao ?? false);
+    setFechamento(c?.diaFechamento ? String(c.diaFechamento) : "");
+    setVencimento(c?.diaVencimento ? String(c.diaVencimento) : "");
+    setContaPagamento(c?.contaPagamentoId ?? "");
   }
 
   async function salvar() {
@@ -205,13 +219,28 @@ function AbaContas({ iniciais }: { iniciais: Conta[] }) {
       return;
     }
     setSalvando(true);
+    // o cartão não guarda dinheiro (RN-037): sem saldo inicial e nunca padrão
+    const diaF = ehCartao ? Number(fechamento) : NaN;
+    const diaV = ehCartao ? Number(vencimento) : NaN;
+    if (ehCartao && (!(diaF >= 1 && diaF <= 31) || !(diaV >= 1 && diaV <= 31))) {
+      setErro("No cartão, diga o dia em que a fatura fecha e o dia em que vence");
+      setSalvando(false);
+      return;
+    }
     const body = {
       nome: nome.trim(),
       tipo,
-      saldoInicial: valor,
+      saldoInicial: ehCartao ? 0 : valor,
       saldoInicialEm: saldoEm,
       cor,
-      padrao,
+      padrao: ehCartao ? false : padrao,
+      ...(ehCartao
+        ? {
+            diaFechamento: diaF,
+            diaVencimento: diaV,
+            contaPagamentoId: contaPagamento || null,
+          }
+        : { diaFechamento: null, diaVencimento: null, contaPagamentoId: null }),
     };
     const r = editando
       ? await chamar(`/api/financeiro/contas/${editando.id}`, "PATCH", body)
@@ -272,23 +301,68 @@ function AbaContas({ iniciais }: { iniciais: Conta[] }) {
                 ))}
               </select>
             </Field>
-            <Field
-              label="Saldo inicial (R$)"
-              hint="O extrato desta conta começa a contar a partir daqui"
-            >
-              <Input
-                inputMode="decimal"
-                value={saldo}
-                onChange={(e) => setSaldo(e.target.value)}
-              />
-            </Field>
-            <Field label="Data do saldo inicial">
-              <Input
-                type="date"
-                value={saldoEm}
-                onChange={(e) => setSaldoEm(e.target.value)}
-              />
-            </Field>
+            {ehCartao ? (
+              <>
+                <Field
+                  label="Dia em que a fatura FECHA"
+                  hint="Compra feita a partir deste dia já vai para a fatura seguinte"
+                >
+                  <Input
+                    inputMode="numeric"
+                    value={fechamento}
+                    onChange={(e) => setFechamento(e.target.value)}
+                    placeholder="28"
+                  />
+                </Field>
+                <Field label="Dia em que a fatura VENCE">
+                  <Input
+                    inputMode="numeric"
+                    value={vencimento}
+                    onChange={(e) => setVencimento(e.target.value)}
+                    placeholder="5"
+                  />
+                </Field>
+                <Field
+                  label="Conta que paga a fatura"
+                  hint="De onde o dinheiro sai quando a fatura é paga"
+                >
+                  <select
+                    className={inputCls}
+                    value={contaPagamento}
+                    onChange={(e) => setContaPagamento(e.target.value)}
+                  >
+                    <option value="">— escolher depois —</option>
+                    {contas
+                      .filter((c) => c.tipo !== "CARTAO" && !c.arquivada)
+                      .map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.nome}
+                        </option>
+                      ))}
+                  </select>
+                </Field>
+              </>
+            ) : (
+              <>
+                <Field
+                  label="Saldo inicial (R$)"
+                  hint="O extrato desta conta começa a contar a partir daqui"
+                >
+                  <Input
+                    inputMode="decimal"
+                    value={saldo}
+                    onChange={(e) => setSaldo(e.target.value)}
+                  />
+                </Field>
+                <Field label="Data do saldo inicial">
+                  <Input
+                    type="date"
+                    value={saldoEm}
+                    onChange={(e) => setSaldoEm(e.target.value)}
+                  />
+                </Field>
+              </>
+            )}
             <Field label="Cor de identificação">
               <input
                 type="color"

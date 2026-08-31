@@ -5,6 +5,7 @@ import { X } from "lucide-react";
 import { Portal } from "@/components/portal";
 import { Button, Field, Input, inputCls } from "@/components/ui";
 import { brl } from "@/lib/format";
+import { faturaDaCompra } from "@/lib/financeiro/cartao-fatura";
 import { numeroBR } from "@/lib/numero-br";
 import {
   dividirEmParcelas,
@@ -66,7 +67,14 @@ export function FormLancamento({
 }: {
   tipo: "RECEITA" | "DESPESA";
   hoje: string;
-  contas: { id: string; nome: string; padrao: boolean }[];
+  contas: {
+    id: string;
+    nome: string;
+    padrao: boolean;
+    tipo?: string;
+    diaFechamento?: number | null;
+    diaVencimento?: number | null;
+  }[];
   categorias: Opcao[];
   fornecedores: { id: string; nome: string; categoriaPadraoId: string | null }[];
   centros: Opcao[];
@@ -77,6 +85,33 @@ export function FormLancamento({
 }) {
   const receita = tipo === "RECEITA";
   const contaPadrao = contas.find((c) => c.padrao)?.id ?? contas[0]?.id ?? "";
+
+  /**
+   * Compra no CARTÃO cai na fatura certa sozinha (RN-037): escolher o cartão
+   * numa parcela já acerta o vencimento dela — e num parcelado, cada parcela
+   * vai para a fatura do mês seguinte, que é o que acontece na vida.
+   */
+  function vencimentoNoCartao(contaId: string, indice: number): string | null {
+    const conta = contas.find((c) => c.id === contaId);
+    if (!conta || conta.tipo !== "CARTAO") return null;
+    if (!conta.diaFechamento || !conta.diaVencimento) return null;
+    const compra = /^\d{4}-\d{2}-\d{2}$/.test(competencia) ? competencia : hoje;
+    const primeira = faturaDaCompra(compra, {
+      diaFechamento: conta.diaFechamento,
+      diaVencimento: conta.diaVencimento,
+    });
+    if (indice === 0) return primeira.vencimento;
+    // as próximas caem nas faturas seguintes, mês a mês
+    const [ano, mes, dia] = primeira.vencimento.split("-").map(Number);
+    const d = new Date(Date.UTC(ano, mes - 1 + indice, 1));
+    const ultimo = new Date(
+      Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0)
+    ).getUTCDate();
+    const dois = (n: number) => String(n).padStart(2, "0");
+    return `${d.getUTCFullYear()}-${dois(d.getUTCMonth() + 1)}-${dois(
+      Math.min(dia, ultimo)
+    )}`;
+  }
 
   const [descricao, setDescricao] = useState(editando?.descricao ?? "");
   const [documento, setDocumento] = useState(editando?.documento ?? "");
@@ -444,7 +479,15 @@ export function FormLancamento({
                   <select
                     className={`${inputCls} !py-2 w-44`}
                     value={p.contaId}
-                    onChange={(e) => mudarParcela(i, { contaId: e.target.value })}
+                    onChange={(e) => {
+                      const contaId = e.target.value;
+                      const venc = vencimentoNoCartao(contaId, i);
+                      mudarParcela(i, {
+                        contaId,
+                        // cartão acerta o vencimento pela fatura (RN-037)
+                        ...(venc ? { vencimento: venc, forma: "CARTAO" as FormaPagamento } : {}),
+                      });
+                    }}
                   >
                     <option value="">— conta —</option>
                     {contas.map((c) => (

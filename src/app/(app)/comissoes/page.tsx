@@ -3,6 +3,9 @@ import { requireUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { isManagerUp, isAdmin } from "@/lib/scope";
 import { PAID_ORDER_STATUSES } from "@/lib/orders";
+import { financeiroLiberado } from "@/lib/financeiro/gate";
+import { comissoesJaGeradas } from "@/lib/financeiro/comissoes";
+import { diaSP } from "@/lib/financeiro/lancamentos";
 import { PageHeader } from "@/components/ui";
 import { CommissionsView } from "./commissions-view";
 
@@ -41,7 +44,8 @@ export default async function CommissionsPage({
     // só a base de comissão: a ficha inteira arrastava o logo em base64
     db.company.findUnique({
       where: { id: user.companyId },
-      select: { commissionBase: true },
+      // a chave do módulo vem junto: com ela, a comissão vira conta a pagar
+      select: { commissionBase: true, financeEnabled: true },
     }),
     // TODOS os vendedores (inclusive desligados): quem trabalhou no período
     // TEM comissão a receber. Filtrar por ativo fazia o dinheiro sumir do
@@ -69,6 +73,14 @@ export default async function CommissionsPage({
     }),
   ]);
   const base = (company?.commissionBase ?? "SUBTOTAL") as "SUBTOTAL" | "VENDIDO";
+  // RN-036: com o módulo Financeiro ligado, a comissão do período vira conta
+  // a pagar num clique — e a tela mostra quais já foram lançadas
+  const financeiro = financeiroLiberado(user, company?.financeEnabled ?? false);
+  const jaGeradas = financeiro
+    ? Object.fromEntries(
+        await comissoesJaGeradas(user.companyId, diaSP(from), diaSP(to))
+      )
+    : {};
 
   const bySeller = new Map<string, { count: number; base: number }>();
   let unassigned = { count: 0, base: 0 };
@@ -112,6 +124,10 @@ export default async function CommissionsPage({
         de={de ?? ""}
         ate={ate ?? ""}
         unassigned={unassigned}
+        financeiro={financeiro}
+        periodo={{ de: diaSP(from), ate: diaSP(to) }}
+        periodoFechado={diaSP(to) < diaSP(new Date())}
+        jaGeradas={jaGeradas}
       />
     </div>
   );

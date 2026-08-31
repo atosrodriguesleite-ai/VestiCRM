@@ -28,13 +28,16 @@ export function BaixaModal({
   linha: { parcelaId: string; descricao: string; saldo: number; numero: number };
   tipo: "RECEITA" | "DESPESA";
   hoje: string;
-  contas: { id: string; nome: string; padrao: boolean }[];
+  contas: { id: string; nome: string; padrao: boolean; tipo?: string }[];
   onFechar: () => void;
   onSalvo: () => void;
 }) {
   const receita = tipo === "RECEITA";
+  // CARTÃO fica de fora (RN-037): a conta do cartão não guarda dinheiro —
+  // dar baixa "nele" quitaria a parcela fora de qualquer fatura
+  const contasDeDinheiro = contas.filter((c) => c.tipo !== "CARTAO");
   const [contaId, setContaId] = useState(
-    contas.find((c) => c.padrao)?.id ?? contas[0]?.id ?? ""
+    contasDeDinheiro.find((c) => c.padrao)?.id ?? contasDeDinheiro[0]?.id ?? ""
   );
   const [data, setData] = useState(hoje);
   const [valor, setValor] = useState(linha.saldo.toFixed(2).replace(".", ","));
@@ -123,8 +126,10 @@ export function BaixaModal({
                 value={contaId}
                 onChange={(e) => setContaId(e.target.value)}
               >
-                {contas.length === 0 && <option value="">Cadastre uma conta</option>}
-                {contas.map((c) => (
+                {contasDeDinheiro.length === 0 && (
+                  <option value="">Cadastre uma conta</option>
+                )}
+                {contasDeDinheiro.map((c) => (
                   <option key={c.id} value={c.id}>
                     {c.nome}
                   </option>

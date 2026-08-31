@@ -8,6 +8,7 @@ import {
   Ban,
   CircleDollarSign,
   Download,
+  FileText,
   Paperclip,
   Pencil,
   RotateCcw,
@@ -24,6 +25,7 @@ import {
   type Opcao,
 } from "../../_mov/form-lancamento";
 import { formatarDia } from "@/lib/financeiro/dia";
+import type { NotaDoLancamento } from "@/lib/financeiro/nota-do-lancamento";
 
 /**
  * A FICHA DO LANÇAMENTO (RN-028). Aqui a lojista vê tudo que aconteceu com
@@ -86,11 +88,19 @@ export function FichaLancamento({
   paraEditar,
   lancamento,
   parcelas,
+  nota,
   anexos,
   eventos,
 }: {
   hoje: string;
-  contas: { id: string; nome: string; padrao: boolean }[];
+  contas: {
+    id: string;
+    nome: string;
+    padrao: boolean;
+    tipo?: string;
+    diaFechamento?: number | null;
+    diaVencimento?: number | null;
+  }[];
   categorias: Opcao[];
   fornecedores: { id: string; nome: string; categoriaPadraoId: string | null }[];
   centros: Opcao[];
@@ -114,6 +124,7 @@ export function FichaLancamento({
     colecao: string | null;
   };
   parcelas: Parcela[];
+  nota: NotaDoLancamento | null;
   anexos: { id: string; fileName: string; autorNome: string; quando: string }[];
   eventos: { id: string; descricao: string; autorNome: string; quando: string }[];
 }) {
@@ -126,6 +137,27 @@ export function FichaLancamento({
   const arquivoRef = useRef<HTMLInputElement>(null);
 
   const voltarPara = receita ? "/financeiro/contas-a-receber" : "/financeiro/contas-a-pagar";
+
+  // emitir a nota é pela MESMA porta do pedido (RN-016/RN-036): quem emite
+  // continua sendo o Bling, o financeiro só mostra o caminho
+  async function emitirNota() {
+    if (!nota) return;
+    setOcupado(true);
+    setErro("");
+    try {
+      const res = await fetch(`/api/orders/${nota.pedidoId}/nfe`, { method: "POST" });
+      const d = await res.json().catch(() => null);
+      setOcupado(false);
+      if (!res.ok) {
+        setErro(d?.error ?? "Não consegui emitir a nota agora");
+        return;
+      }
+      router.refresh();
+    } catch {
+      setOcupado(false);
+      setErro("Sem conexão — confira a internet e tente de novo");
+    }
+  }
   const totalPago = parcelas.reduce((s, p) => s + p.abatido, 0);
   const totalFalta = parcelas.reduce((s, p) => s + p.saldo, 0);
 
@@ -335,6 +367,61 @@ export function FichaLancamento({
         </Card>
 
         <div className="space-y-4">
+          {nota && (
+            <Card className="p-5">
+              <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold text-slate-800">
+                <FileText className="size-4" /> Nota fiscal
+              </h2>
+              <p className="text-sm text-slate-600">
+                Veio do{" "}
+                <Link
+                  href={`/pedidos/${nota.pedidoId}`}
+                  className="font-medium text-brand-700 hover:underline"
+                >
+                  pedido #{nota.numero}
+                </Link>
+              </p>
+              <p className="mt-1 text-sm">
+                {nota.status === "AUTORIZADA" ? (
+                  <span className="text-emerald-700">
+                    ✅ Nota {nota.nfeNumero ?? ""} autorizada
+                  </span>
+                ) : nota.status === "EMITINDO" ? (
+                  <span className="text-amber-700">⏳ Emitindo…</span>
+                ) : nota.status === "ERRO" ? (
+                  <span className="text-rose-700">⚠️ A emissão deu erro</span>
+                ) : (
+                  <span className="text-slate-500">Sem nota emitida</span>
+                )}
+              </p>
+              {nota.url && (
+                <a
+                  href={nota.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="mt-2 inline-block text-sm font-medium text-brand-700 hover:underline"
+                >
+                  Abrir o DANFE →
+                </a>
+              )}
+              {nota.podeEmitir && (
+                <Button
+                  className="mt-3 w-full"
+                  onClick={emitirNota}
+                  disabled={ocupado || nota.status === "EMITINDO"}
+                >
+                  {nota.status === "ERRO" ? "Tentar emitir de novo" : "Emitir nota"}
+                </Button>
+              )}
+              {!nota.blingConectado && (
+                <p className="mt-2 text-xs text-slate-400">
+                  Para emitir daqui, conecte o Bling em Configurações. Quem emite
+                  a nota continua sendo ele.
+                </p>
+              )}
+            </Card>
+          )}
+
           <Card className="p-5">
             <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold text-slate-800">
               <Paperclip className="size-4" /> Anexos

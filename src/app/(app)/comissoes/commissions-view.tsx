@@ -30,6 +30,10 @@ export function CommissionsView({
   de,
   ate,
   unassigned,
+  financeiro = false,
+  periodo,
+  periodoFechado = false,
+  jaGeradas = {},
 }: {
   rows: Row[];
   base: "SUBTOTAL" | "VENDIDO";
@@ -37,6 +41,17 @@ export function CommissionsView({
   de: string;
   ate: string;
   unassigned: { count: number; base: number };
+  /** módulo Financeiro ligado (RN-027): sem ele, nada de conta a pagar */
+  financeiro?: boolean;
+  /** o período do filtro em dias, para gerar a conta */
+  periodo?: { de: string; ate: string };
+  /** o período já terminou? (comissão só se lança sobre período fechado) */
+  periodoFechado?: boolean;
+  /** vendedora → a comissão já gerada que cobre este período */
+  jaGeradas?: Record<
+    string,
+    { lancamentoId: string; exata: boolean; de: string; ate: string }
+  >;
 }) {
   const router = useRouter();
   const [rates, setRates] = useState<Record<string, string>>(
@@ -45,6 +60,50 @@ export function CommissionsView({
   const [savingId, setSavingId] = useState<string | null>(null);
   const [savedId, setSavedId] = useState<string | null>(null);
   const [savingBase, setSavingBase] = useState(false);
+  const [gerando, setGerando] = useState<string | null>(null);
+  const [erroConta, setErroConta] = useState("");
+
+  /**
+   * Comissão vira CONTA A PAGAR no financeiro (RN-036) — mesma conta desta
+   * tela, para a lojista não pagar de memória. O vencimento pergunta-se: cada
+   * loja paga num dia.
+   */
+  async function gerarConta(id: string, nome: string) {
+    if (!periodo) return;
+    const resposta = window.prompt(
+      `Quando você vai pagar a comissão de ${nome}? (dia, no formato AAAA-MM-DD)`,
+      periodo.ate
+    );
+    if (!resposta) return;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(resposta.trim())) {
+      setErroConta("Escreva a data assim: 2026-09-30");
+      return;
+    }
+    setGerando(id);
+    setErroConta("");
+    try {
+      const res = await fetch("/api/financeiro/comissoes", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          sellerId: id,
+          de: periodo.de,
+          ate: periodo.ate,
+          vencimento: resposta.trim(),
+        }),
+      });
+      const d = await res.json().catch(() => null);
+      setGerando(null);
+      if (!res.ok) {
+        setErroConta(d?.error ?? "Não deu certo — tente de novo");
+        return;
+      }
+      router.refresh();
+    } catch {
+      setGerando(null);
+      setErroConta("Sem conexão — confira a internet e tente de novo");
+    }
+  }
 
   async function saveRate(id: string) {
     const rate = parseFloat((rates[id] ?? "0").replace(",", "."));
@@ -95,7 +154,12 @@ export function CommissionsView({
             data + botão passavam da largura da tela e empurravam a página
             inteira para o lado (a tabela ia junto) */}
         <form className="flex flex-wrap items-end gap-2" method="GET">
-          <div className="min-w-0 flex-1 sm:flex-none">
+          {erroConta && (
+          <p className="mb-3 rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800">
+            {erroConta}
+          </p>
+        )}
+        <div className="min-w-0 flex-1 sm:flex-none">
             <label className="block text-[11px] font-semibold text-gray-500 mb-1">De</label>
             <input type="date" name="de" defaultValue={de} className={`${inputCls} w-full sm:w-auto`} />
           </div>
@@ -186,6 +250,38 @@ export function CommissionsView({
                       <FileText className="size-3.5" />
                       PDF
                     </a>
+                    {financeiro && r.commission > 0 && (
+                      jaGeradas[r.id] ? (
+                        <a
+                          href={`/financeiro/lancamentos/${jaGeradas[r.id].lancamentoId}`}
+                          className={`ml-1.5 inline-flex items-center rounded-lg border px-2.5 py-1.5 text-xs font-medium ${
+                            jaGeradas[r.id].exata
+                              ? "border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
+                              : "border-amber-200 bg-amber-50 text-amber-800 hover:bg-amber-100"
+                          }`}
+                          title={
+                            jaGeradas[r.id].exata
+                              ? "Já existe conta a pagar desta comissão"
+                              : `Existe comissão lançada de ${jaGeradas[r.id].de} a ${jaGeradas[r.id].ate}, que cruza este período`
+                          }
+                        >
+                          {jaGeradas[r.id].exata ? "✓ lançada" : "⚠️ período cruzado"}
+                        </a>
+                      ) : (
+                        <button
+                          onClick={() => gerarConta(r.id, r.name)}
+                          disabled={gerando === r.id || !canEdit || !periodoFechado}
+                          className="ml-1.5 inline-flex items-center rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs font-medium text-gray-600 transition hover:border-brand-300 hover:text-brand-700 disabled:opacity-50"
+                          title={
+                            periodoFechado
+                              ? "Criar a conta a pagar desta comissão no Financeiro"
+                              : "O período ainda não terminou — escolha um período fechado (ex.: o mês passado)"
+                          }
+                        >
+                          {gerando === r.id ? "…" : "Lançar a pagar"}
+                        </button>
+                      )
+                    )}
                   </td>
                 </tr>
               ))}

@@ -76,7 +76,14 @@ export function ListaMovimentacoes({
   linhas: LinhaMovimentacao[];
   resumo: ResumoPeriodo;
   truncado: boolean;
-  contas: { id: string; nome: string; padrao: boolean }[];
+  contas: {
+    id: string;
+    nome: string;
+    padrao: boolean;
+    tipo?: string;
+    diaFechamento?: number | null;
+    diaVencimento?: number | null;
+  }[];
   categorias: Opcao[];
   fornecedores: { id: string; nome: string; categoriaPadraoId: string | null }[];
   centros: Opcao[];

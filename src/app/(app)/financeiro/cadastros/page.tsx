@@ -66,6 +66,9 @@ export default async function FinanceiroCadastrosPage() {
         cor: c.cor,
         padrao: c.padrao,
         arquivada: Boolean(c.arquivadaEm),
+        diaFechamento: c.diaFechamento,
+        diaVencimento: c.diaVencimento,
+        contaPagamentoId: c.contaPagamentoId,
       }))}
       categorias={categorias.map((c) => ({
         id: c.id,

@@ -15,12 +15,16 @@ class ContaForaDaLoja extends Error {}
 
 const patchSchema = z.object({
   nome: z.string().trim().min(1).max(80).optional(),
-  tipo: z.enum(["BANCO", "CAIXINHA", "DIGITAL", "POUPANCA"]).optional(),
+  tipo: z.enum(["BANCO", "CAIXINHA", "DIGITAL", "POUPANCA", "CARTAO"]).optional(),
   saldoInicial: z.number().finite().optional(),
   saldoInicialEm: z.coerce.date().optional(),
   cor: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional(),
   padrao: z.boolean().optional(),
   arquivar: z.boolean().optional(),
+  // cartão de crédito (RN-037)
+  diaFechamento: z.number().int().min(1).max(31).nullable().optional(),
+  diaVencimento: z.number().int().min(1).max(31).nullable().optional(),
+  contaPagamentoId: z.string().nullable().optional(),
 });
 
 export async function PATCH(
@@ -36,6 +40,23 @@ export async function PATCH(
       return NextResponse.json({ error: "Dados inválidos" }, { status: 400 });
     const { arquivar, padrao, ...campos } = parsed.data;
 
+    // a conta que paga a fatura precisa ser desta loja, viva e não ser cartão
+    if (campos.contaPagamentoId) {
+      const pagadora = await db.finConta.findFirst({
+        where: {
+          id: campos.contaPagamentoId,
+          companyId: porta.user.companyId,
+          arquivadaEm: null,
+        },
+        select: { id: true, tipo: true },
+      });
+      if (!pagadora || pagadora.tipo === "CARTAO" || pagadora.id === id)
+        return NextResponse.json(
+          { error: "Escolha uma conta desta loja (que não seja outro cartão) para pagar a fatura" },
+          { status: 400 }
+        );
+    }
+
     try {
       const conta = await db.$transaction(async (tx) => {
         // posse conferida ANTES de mexer em qualquer coisa: se a conta não é
@@ -43,10 +64,16 @@ export async function PATCH(
         // um return não desfaria, e o desmarque abaixo ficaria commitado
         const alvo = await tx.finConta.findFirst({
           where: { id, companyId: porta.user.companyId },
-          select: { id: true },
+          select: { id: true, tipo: true },
         });
         if (!alvo) throw new ContaForaDaLoja();
-        if (padrao) {
+        // cartão nunca vira conta padrão (RN-037): a porta única de entrada
+        // das vendas (RN-031) baixaria a venda paga no cartão de crédito
+        const ehCartao = (campos.tipo ?? alvo.tipo) === "CARTAO";
+        // virou cartão? deixa de ser padrão AGORA — continuar padrão faria a
+        // porta única de vendas (RN-031) baixar venda paga dentro do cartão
+        const querPadrao = padrao === true && !ehCartao;
+        if (querPadrao) {
           await tx.finConta.updateMany({
             where: { companyId: porta.user.companyId, padrao: true, id: { not: id } },
             data: { padrao: false },
@@ -56,7 +83,11 @@ export async function PATCH(
           where: { id },
           data: {
             ...campos,
-            ...(padrao !== undefined ? { padrao } : {}),
+            ...(ehCartao
+              ? { padrao: false }
+              : padrao !== undefined
+                ? { padrao: querPadrao }
+                : {}),
             ...(arquivar !== undefined
               ? { arquivadaEm: arquivar ? new Date() : null, ...(arquivar ? { padrao: false } : {}) }
               : {}),
