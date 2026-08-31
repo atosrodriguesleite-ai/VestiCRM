@@ -9,6 +9,7 @@ import {
   resumir,
   type Achado,
   type Briga,
+  vinculosParaSoltar,
   type VariacaoAqui,
 } from "../nuvemshop-conferencia";
 import { mesmaCor, corDoNome, norm, skuParecidoNoCadastro, indiceDeSkusParecidos, pistaDoSku, type VariacaoNs } from "../nuvemshop";
@@ -565,5 +566,103 @@ describe("a pendência EXPLICA por que não casou (o quase-igual do cadastro)", 
     );
     expect(tela).toContain("p.skuParecido");
     expect(tela).toContain("no seu cadastro existe");
+  });
+});
+
+describe("a conferência CONSERTA, não só diagnostica (relato de loja, 31/08/2026)", () => {
+  const rota = readFileSync(
+    join(process.cwd(), "src/app/api/nuvemshop/conferir/soltar-vinculos/route.ts"),
+    "utf8"
+  );
+  const tela = readFileSync(
+    join(process.cwd(), "src/app/(app)/configuracoes/nuvemshop-connect.tsx"),
+    "utf8"
+  );
+
+  it("o achado diz QUAL peça é (sem isso não há o que consertar)", () => {
+    const aqui: VariacaoAqui[] = [
+      { id: "v1", produto: "Bermuda", cor: "Preto", tamanho: "único", sku: "359003402Preto", estoque: 3, nsVarId: "ns-9" },
+    ];
+    const la: VariacaoNs[] = [
+      { varId: "ns-9", prodId: "p1", produto: "Bermuda", cor: "Rosa Chá", tamanho: "único", sku: "359003402RosaCha", estoque: 3 },
+    ];
+    const achados = conferirVinculo(aqui, la, []);
+    const cruzado = achados.find((a) => a.tipo === "CARIMBO_CRUZADO");
+    expect(cruzado?.variantId).toBe("v1");
+  });
+
+  it("o vínculo ÓRFÃO (peça apagada lá) também sai identificado", () => {
+    const aqui: VariacaoAqui[] = [
+      { id: "v2", produto: "Regata", cor: "Vinho", tamanho: "Único", sku: "X1", estoque: 0, nsVarId: "sumiu" },
+    ];
+    const orfao = conferirVinculo(aqui, [], []).find((a) => a.tipo === "CARIMBO_ORFAO");
+    expect(orfao?.variantId).toBe("v2");
+  });
+
+  // A REGRA de o que soltar é função pura: testar o TEXTO do arquivo passaria
+  // com o conserto pela metade e quebraria numa renomeação (lição 28/08/2026)
+  const achado = (tipo: Achado["tipo"], variantId: string): Achado => ({
+    tipo,
+    gravidade: "ALTA",
+    peca: "Peça",
+    detalhe: "",
+    variantId,
+  });
+
+  it("solta SÓ os dois casos objetivamente errados", () => {
+    const lista = [
+      achado("CARIMBO_CRUZADO", "v1"),
+      achado("CARIMBO_ORFAO", "v2"),
+      achado("BRIGA_DE_SYNC", "v3"),
+      achado("SKU_DUPLICADO_AQUI", "v4"),
+      achado("COR_FORA_DO_PRODUTO", "v5"),
+      achado("ESTOQUE_DIFERENTE", "v6"),
+    ];
+    // briga de sync, SKU duplicado e cor no produto errado exigem decisão da
+    // lojista — o sistema não adivinha
+    expect(vinculosParaSoltar(lista, true)).toEqual(["v1", "v2"]);
+  });
+
+  it("leitura da Nuvemshop pela METADE não solta órfão (apagaria vínculo bom)", () => {
+    // peça não lida parece apagada: soltar aí quebraria o que funcionava
+    const lista = [achado("CARIMBO_CRUZADO", "v1"), achado("CARIMBO_ORFAO", "v2")];
+    expect(vinculosParaSoltar(lista, false)).toEqual(["v1"]);
+  });
+
+  it("não repete id e ignora achado sem peça identificada", () => {
+    const semId: Achado = { tipo: "CARIMBO_CRUZADO", gravidade: "ALTA", peca: "x", detalhe: "" };
+    const lista = [achado("CARIMBO_CRUZADO", "v1"), achado("CARIMBO_ORFAO", "v1"), semId];
+    expect(vinculosParaSoltar(lista, true)).toEqual(["v1"]);
+  });
+
+  it("quem decide o que soltar é o SERVIDOR (a tela não manda ids)", () => {
+    // aceitar lista de fora seria porta para soltar vínculo saudável
+    expect(rota).toContain("conferirIntegracao(user.companyId)");
+    expect(rota).not.toMatch(/await req\.json\(\)/);
+    expect(rota).toContain("r.paraSoltar");
+  });
+
+  it("age sobre a lista INTEIRA, não sobre o pedaço exibido na tela", () => {
+    // a lista da tela é recortada por tipo: soltar 30 de 45 e dizer "pronto"
+    // deixava 15 mandando estoque da peça errada em silêncio
+    expect(rota).not.toContain("r.achados");
+    expect(tela).toContain("conf.paraSoltar?.length ??");
+  });
+
+  it("não mexe em estoque — só tira o vínculo do caminho, e deixa rastro", () => {
+    expect(rota).toContain("nuvemshopId: null, nuvemshopProductId: null");
+    expect(rota).not.toContain("stock:");
+    expect(rota).toContain("O estoque NÃO foi alterado agora");
+    expect(rota).toContain("nuvemshop.vinculos.soltos");
+  });
+
+  it("erro não apaga a conferência da tela, e a rede caindo não trava o botão", () => {
+    expect(tela).toContain("A conexão caiu no meio. Nada foi solto");
+    expect(tela).toContain("} finally {");
+  });
+
+  it("é da loja e só do ADMIN (é estoque)", () => {
+    expect(rota).toContain("isAdmin(user)");
+    expect(rota).toContain("product: { companyId: user.companyId }");
   });
 });

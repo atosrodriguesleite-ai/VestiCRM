@@ -1064,12 +1064,22 @@ export async function lerVariacoesNuvemshop(companyId: string) {
   if (!conn) return { ok: false as const, status: -1, variacoes: [] as VariacaoNs[], produtos: 0 };
   const variacoes: VariacaoNs[] = [];
   let produtos = 0;
+  // A LEITURA TERMINOU INTEIRA? Página que falha no meio (429/5xx/timeout) ou
+  // catálogo maior que o teto de páginas devolvem lista PARCIAL — e peça que
+  // não foi lida parece "apagada lá". Quem só COMPARA pode conviver com isso;
+  // quem CONSERTA (soltar vínculo) não pode: apagaria vínculo bom (achado da
+  // revisão de 31/08/2026).
+  let completa = true;
   for (let page = 1; page <= 50; page++) {
     const res = await api<NsProduct[]>(conn, "GET", `/products?per_page=50&page=${page}`);
     if (!res.ok && page === 1) {
-      return { ok: false as const, status: res.status, variacoes: [], produtos: 0 };
+      return { ok: false as const, status: res.status, variacoes: [], produtos: 0, completa: false };
     }
-    if (!res.ok || !res.data?.length) break;
+    if (!res.ok) {
+      completa = false;
+      break;
+    }
+    if (!res.data?.length) break;
     for (const p of res.data) {
       produtos++;
       const nome = texto(p.name).trim() || `Produto ${p.id}`;
@@ -1089,8 +1099,10 @@ export async function lerVariacoesNuvemshop(companyId: string) {
       }
     }
     if (res.data.length < 50) break;
+    // encostou no teto de páginas com a última cheia: tem mais catálogo lá
+    if (page === 50) completa = false;
   }
-  return { ok: true as const, status: 200, variacoes, produtos };
+  return { ok: true as const, status: 200, variacoes, produtos, completa };
 }
 
 // ---- Vendas ----------------------------------------------------------------

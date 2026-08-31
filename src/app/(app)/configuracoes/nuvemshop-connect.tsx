@@ -75,6 +75,9 @@ type Conferencia = {
   semSku: number;
   resumo: { tipo: string; nome: string; quantos: number }[];
   achados: Achado[];
+  /** ids que o servidor solta (lista inteira, não a recortada da tela) */
+  paraSoltar?: string[];
+  leituraCompleta?: boolean;
   /** quantos achados não couberam na lista (contados, nunca sumidos) */
   omitidos?: number;
   /** graves da lista INTEIRA (o servidor conta antes de recortar) */
@@ -350,7 +353,18 @@ export function NuvemshopConnect() {
         />
       )}
 
-      {conf && <ResultadoConferencia conf={conf} onFechar={() => setConf(null)} />}
+      {conf && (
+        <ResultadoConferencia
+          conf={conf}
+          onFechar={() => setConf(null)}
+          onConsertou={(m) => {
+            setMsg(m);
+            // a conferência na tela virou foto velha depois do conserto:
+            // fecha para não sugerir soltar de novo o que já foi solto
+            setConf(null);
+          }}
+        />
+      )}
 
       <SimuladorPreConexao />
 
@@ -455,10 +469,54 @@ const COMO_RESOLVER: Record<string, string> = {
 function ResultadoConferencia({
   conf,
   onFechar,
+  onConsertou,
 }: {
   conf: Conferencia;
   onFechar: () => void;
+  onConsertou: (msg: string) => void;
 }) {
+  const [soltando, setSoltando] = useState(false);
+  const [erro, setErro] = useState("");
+  // quantos o sistema solta — vem do RESUMO (lista inteira). Contar pelos
+  // `achados` pegava só o pedaço exibido: o resumo dizia "45×" e o botão
+  // oferecia 30 (achado da revisão de 31/08/2026)
+  const tortos =
+    conf.paraSoltar?.length ??
+    conf.resumo
+      .filter((r) => r.tipo === "CARIMBO_CRUZADO" || r.tipo === "CARIMBO_ORFAO")
+      .reduce((soma, r) => soma + r.quantos, 0);
+
+  /** Solta os vínculos tortos — quem decide QUAIS é o servidor. */
+  async function soltarVinculos() {
+    if (
+      !window.confirm(
+        "Soltar os vínculos que apontam para a peça errada?\n\n" +
+          "O estoque NÃO muda agora: o vínculo torto sai da frente e, na " +
+          "próxima sincronização, o número passa a vir da peça certa (pelo SKU)."
+      )
+    )
+      return;
+    setSoltando(true);
+    try {
+      const res = await fetch("/api/nuvemshop/conferir/soltar-vinculos", { method: "POST" });
+      const d = await res.json().catch(() => null);
+      if (res.ok) {
+        // deu certo: a conferência na tela virou foto velha — quem fecha é
+        // o onConsertou
+        onConsertou(d?.mensagem ?? "Vínculos soltos.");
+      } else {
+        // ERRO não apaga o relatório: nada foi solto, e fechar a conferência
+        // faria a lojista perder a lista que ela levou minutos para tirar
+        setErro(d?.error ?? "Não foi possível soltar os vínculos. Tente de novo.");
+      }
+    } catch {
+      // sinal caiu / passou do tempo: sem isto o botão ficava preso em
+      // "Soltando…" para sempre, sem dizer nada
+      setErro("A conexão caiu no meio. Nada foi solto — tente de novo.");
+    } finally {
+      setSoltando(false);
+    }
+  }
   // o servidor conta os graves ANTES de recortar a lista; a conta local só
   // enxergava o pedaço que coube na tela (e dizia "200 importantes" sempre)
   const graves = conf.graves ?? conf.achados.filter((a) => a.gravidade === "ALTA").length;
@@ -527,6 +585,28 @@ function ResultadoConferencia({
               </li>
             ))}
           </ol>
+          {/* CONSERTO, não só diagnóstico: a lojista via "o estoque vem da
+              peça errada" e não tinha como desfazer (relato de 31/08/2026) */}
+          {tortos > 0 && (
+            <div className="mt-2.5 border-t border-gray-100 pt-2.5">
+              <button
+                onClick={soltarVinculos}
+                disabled={soltando}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-rose-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-rose-700 disabled:opacity-60"
+              >
+                {soltando ? "Soltando…" : `Soltar ${tortos} vínculo(s) errado(s)`}
+              </button>
+              <p className="text-[11px] text-gray-500 mt-1.5 leading-snug">
+                Tira do caminho os vínculos que apontam para a peça errada (ou
+                para peça que não existe mais na Nuvemshop). O estoque não muda
+                agora — depois toque em <b>Sincronizar agora</b> e o número vem
+                da peça certa, pelo SKU.
+              </p>
+              {erro && (
+                <p className="text-[11px] font-semibold text-rose-700 mt-1.5">{erro}</p>
+              )}
+            </div>
+          )}
         </div>
       )}
 

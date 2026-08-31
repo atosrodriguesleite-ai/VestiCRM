@@ -74,6 +74,14 @@ export type Achado = {
   detalhe: string;
   estoqueAqui?: number;
   estoqueLa?: number;
+  /**
+   * Qual variação daqui o achado aponta — é o que permite CONSERTAR (soltar o
+   * vínculo torto), não só diagnosticar. A tela nunca manda este id de volta:
+   * o servidor reconfere e decide sozinho (relato da loja, 31/08/2026 — a
+   * conferência mostrava 12 vínculos errados e a lojista não tinha como
+   * desfazer nenhum).
+   */
+  variantId?: string;
 };
 
 const rotulo = (v: { produto: string; cor: string; tamanho: string }) =>
@@ -192,6 +200,7 @@ export function conferirVinculo(
         tipo: "CARIMBO_ORFAO",
         gravidade: "MEDIA",
         peca: rotulo(v),
+        variantId: v.id,
         detalhe:
           "O vínculo aponta para uma peça que não existe mais na Nuvemshop (foi apagada ou recriada). Enquanto o vínculo velho estiver aí, ele passa na frente do SKU.",
         estoqueAqui: v.estoque,
@@ -208,6 +217,7 @@ export function conferirVinculo(
         tipo: "CARIMBO_CRUZADO",
         gravidade: "ALTA",
         peca: rotulo(v),
+        variantId: v.id,
         detalhe: `O vínculo diz que esta peça é a “${rotulo(par)}” da Nuvemshop (SKU ${par.sku}), mas o SKU daqui é ${v.sku}. O estoque está vindo da peça errada — provável resíduo do SKU duplicado.`,
         estoqueAqui: v.estoque,
         estoqueLa: par.estoque,
@@ -262,6 +272,34 @@ export function conferirVinculo(
 }
 
 /** Ordem em que os problemas devem ser resolvidos (é a ordem da lista). */
+/**
+ * OS VÍNCULOS QUE O SISTEMA SOLTA SOZINHO — regra pura, testável sem banco.
+ *
+ * Só os dois casos em que o vínculo está objetivamente errado. SKU duplicado
+ * e briga de sync ficam de fora de propósito: ali quem decide é a lojista.
+ *
+ * `leituraCompleta` é a trava do órfão: quando a leitura da Nuvemshop veio
+ * pela metade (página que falhou, catálogo além do teto), peça NÃO LIDA
+ * parece apagada — soltar aí apagaria vínculo BOM. Nesse caso vai só o
+ * cruzado, que depende de peça lida de verdade (revisão de 31/08/2026).
+ */
+export function vinculosParaSoltar(
+  achados: Achado[],
+  leituraCompleta: boolean
+): string[] {
+  const tipos: TipoAchado[] = leituraCompleta
+    ? ["CARIMBO_CRUZADO", "CARIMBO_ORFAO"]
+    : ["CARIMBO_CRUZADO"];
+  return [
+    ...new Set(
+      achados
+        .filter((a) => tipos.includes(a.tipo))
+        .map((a) => a.variantId)
+        .filter((v): v is string => !!v)
+    ),
+  ];
+}
+
 export const ORDEM_DE_CONSERTO: TipoAchado[] = [
   "SKU_DUPLICADO_NOS_DOIS",
   "SKU_DUPLICADO_LA",
@@ -433,6 +471,10 @@ export async function conferirIntegracao(companyId: string) {
     semSku: aqui.filter((v) => !norm(v.sku)).length,
     resumo: resumir(achados),
     achados: mostrados,
+    // a lista exibida é recortada por tipo; o CONSERTO precisa de todos —
+    // soltar 30 de 45 e dizer "pronto" deixava 15 mandando estoque errado
+    paraSoltar: vinculosParaSoltar(achados, ns.completa),
+    leituraCompleta: ns.completa,
     // quantos ficaram de fora da lista (nunca some em silêncio)
     omitidos,
     // graves conta a lista INTEIRA, não só o pedaço que coube na tela
