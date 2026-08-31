@@ -49,6 +49,11 @@ model Company {
   /// ESTIMATIVA (embalagem de um envio passado parecido, não a deste pedido).
   /// Desligado por padrão: loja que não ativa não vê nada de novo.
   freteSimuladorEnabled Boolean @default(false)
+  /// MÓDULO FINANCEIRO (RN-027, pago à parte; super admin ativa por loja).
+  /// Sem a chave, a loja segue vendo a tela simples de contas a receber de
+  /// pedidos — não muda em NADA. Com a chave, abre a gestão financeira
+  /// completa (cadastros, contas a pagar/receber, fluxo de caixa...).
+  financeEnabled    Boolean  @default(false)
   suspended         Boolean  @default(false) // acesso bloqueado pelo super admin (ex.: inadimplência)
   // última rodada das automações desta loja. É a TRAVA ATÔMICA que faz o
   // motor rodar de carona no tráfego normal, no máximo uma vez por dia, sem
@@ -140,6 +145,11 @@ model Company {
   dadosEnvioLinks DadosEnvioLink[]
   funcionarios  Funcionario[]
   fichaFormLinks FichaFormLink[]
+  finContas      FinConta[]
+  finCategorias  FinCategoria[]
+  finCentrosCusto FinCentroCusto[]
+  finColecoes    FinColecao[]
+  fornecedores   Fornecedor[]
 }
 
 /// PORTFÓLIO DE PRODUTOS E SERVIÇOS (só Super Admin, empresa-plataforma).
@@ -2601,4 +2611,121 @@ model FuncionarioEvento {
   createdAt     DateTime    @default(now())
 
   @@index([funcionarioId])
+}
+
+// ---------------------------------------------------------------------------
+// MÓDULO FINANCEIRO (RN-027) — Fase 1: os cadastros-fundação.
+//
+// Tudo no financeiro aponta para estes cadastros. Regra da fase: cadastro
+// NUNCA é apagado, é ARQUIVADO (`arquivadoEm`) — quando os lançamentos
+// chegarem (Fase 2), apagar uma conta/categoria com histórico quebraria o
+// extrato e o DRE. Arquivado some das escolhas novas e segue nos relatórios.
+// Clientes NÃO ganham cadastro novo: o financeiro usa o `Customer` do CRM
+// (cliente duplicado é a dor que a RN-020 já ensinou a evitar).
+// ---------------------------------------------------------------------------
+
+/// Conta financeira: onde o dinheiro mora (banco, caixinha, conta digital).
+/// O saldo NUNCA será digitado: saldo = saldoInicial + tudo que entrar −
+/// tudo que sair (os lançamentos chegam na Fase 2). Ajuste de saldo será um
+/// lançamento visível, nunca um número sobrescrito.
+model FinConta {
+  id             String    @id @default(cuid())
+  companyId      String
+  company        Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  nome           String
+  tipo           String    @default("BANCO") // BANCO | CAIXINHA | DIGITAL | POUPANCA
+  saldoInicial   Float     @default(0)
+  /// data do saldo inicial: o extrato desta conta conta a partir daqui
+  saldoInicialEm DateTime  @default(now())
+  cor            String    @default("#0E8A5F") // bolinha de identificação nas telas
+  /// conta sugerida por padrão nos lançamentos novos (uma por loja)
+  padrao         Boolean   @default(false)
+  arquivadaEm    DateTime?
+  createdAt      DateTime  @default(now())
+
+  @@index([companyId])
+}
+
+/// Categoria financeira: a etiqueta do dinheiro ("de onde veio" / "para onde
+/// foi"), em árvore numerada (01 → 01.01 → 01.01.01). A loja nasce com a
+/// árvore pronta para moda (semeada na primeira abertura, idempotente) e pode
+/// criar as dela. É a categoria que fará o DRE existir (Fase 6).
+model FinCategoria {
+  id          String    @id @default(cuid())
+  companyId   String
+  company     Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  nome        String
+  tipo        String // RECEITA | DESPESA
+  /// código hierárquico ("02.06"); único por loja — é ele que ordena a árvore
+  codigo      String
+  paiId       String?
+  pai         FinCategoria?  @relation("FinCategoriaArvore", fields: [paiId], references: [id], onDelete: SetNull)
+  filhas      FinCategoria[] @relation("FinCategoriaArvore")
+  /// veio da árvore padrão: renomeável, mas não muda de tipo nem de lugar
+  sistema     Boolean   @default(false)
+  arquivadaEm DateTime?
+  createdAt   DateTime  @default(now())
+
+  fornecedoresPadrao Fornecedor[]
+
+  @@unique([companyId, codigo])
+  @@index([companyId])
+}
+
+/// Centro de custo: a "frente" do negócio (loja física, online, marca B) —
+/// opcional, para quem tem mais de uma. Todo relatório poderá filtrar por ele.
+model FinCentroCusto {
+  id          String    @id @default(cuid())
+  companyId   String
+  company     Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  nome        String
+  arquivadoEm DateTime?
+  createdAt   DateTime  @default(now())
+
+  @@index([companyId])
+}
+
+/// Coleção (o "Projetos" dos financeiros genéricos, traduzido para moda):
+/// etiqueta com começo e fim para responder "a coleção Inverno 2026 deu
+/// lucro?" — receitas e despesas marcadas por ela, resultado no encerramento.
+model FinColecao {
+  id          String    @id @default(cuid())
+  companyId   String
+  company     Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  nome        String
+  inicio      DateTime?
+  fim         DateTime?
+  arquivadaEm DateTime?
+  createdAt   DateTime  @default(now())
+
+  @@index([companyId])
+}
+
+/// Fornecedor: o outro lado das contas a pagar (tecido, facção, aluguel,
+/// embalagem...). CNPJ **ou** CPF (mesma régua dos clientes, dígitos
+/// conferidos). A categoria padrão faz a conta do fornecedor já nascer
+/// etiquetada certa ("Aluguel Sr. João" → categoria Aluguel).
+model Fornecedor {
+  id                 String        @id @default(cuid())
+  companyId          String
+  company            Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  nome               String // como a loja o chama no dia a dia
+  razaoSocial        String?
+  cnpj               String?
+  cpf                String?
+  /// inscrição estadual (acompanha o CNPJ, como no cadastro de clientes)
+  ie                 String?
+  telefone           String?
+  email              String?
+  chavePix           String?
+  /// banco/agência/conta em texto livre — é anotação para pagar, não integração
+  dadosBancarios     String?
+  observacoes        String?
+  categoriaPadraoId  String?
+  categoriaPadrao    FinCategoria? @relation(fields: [categoriaPadraoId], references: [id], onDelete: SetNull)
+  arquivadoEm        DateTime?
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
+
+  @@index([companyId])
 }

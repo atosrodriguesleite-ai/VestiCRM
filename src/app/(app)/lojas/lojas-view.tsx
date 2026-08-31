@@ -48,6 +48,7 @@ export type Loja = {
   shippingEnabled: boolean;
   priceTablesEnabled: boolean;
   aiSalesEnabled: boolean;
+  financeEnabled: boolean;
   suspended: boolean;
   billing: {
     kind: string;
@@ -310,6 +311,7 @@ function NewLojaForm({
           shippingEnabled: false,
           priceTablesEnabled: false,
           aiSalesEnabled: false,
+          financeEnabled: false,
           suspended: false,
           billing: null,
           lastActiveAt: null,
@@ -835,6 +837,8 @@ function LojaCard({ loja, catalogDomain }: { loja: Loja; catalogDomain: string |
   const [togglingIa, setTogglingIa] = useState(false);
   const [tabelas, setTabelas] = useState(loja.priceTablesEnabled);
   const [togglingTab, setTogglingTab] = useState(false);
+  const [financeiro, setFinanceiro] = useState(loja.financeEnabled);
+  const [togglingFin, setTogglingFin] = useState(false);
 
   // módulo Produção (pago à parte): o Super Admin liga/desliga por loja
   async function toggleProducao() {
@@ -922,6 +926,21 @@ function LojaCard({ loja, catalogDomain }: { loja: Loja; catalogDomain: string |
     setTogglingIa(false);
     if (res.ok) {
       setIaVendas(!iaVendas);
+      router.refresh();
+    }
+  }
+
+  // módulo Financeiro (RN-027, pago à parte): idem
+  async function toggleFinanceiro() {
+    setTogglingFin(true);
+    const res = await fetch("/api/companies/finance", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ companyId: loja.id, enabled: !financeiro }),
+    });
+    setTogglingFin(false);
+    if (res.ok) {
+      setFinanceiro(!financeiro);
       router.refresh();
     }
   }
@@ -1194,6 +1213,28 @@ function LojaCard({ loja, catalogDomain }: { loja: Loja; catalogDomain: string |
           }`}
         >
           {togglingIa ? "..." : iaVendas ? "Desativar" : "Ativar IA de Vendas"}
+        </button>
+      </div>
+
+      {/* módulo Financeiro (RN-027, pago à parte) */}
+      <div className="mt-2 flex items-center justify-between gap-2 text-[11px]">
+        <span className="text-slate-400">
+          Módulo Financeiro:{" "}
+          <b className={financeiro ? "text-emerald-600" : "text-slate-500"}>
+            {financeiro ? "ativado" : "desativado"}
+          </b>
+        </span>
+        <button
+          type="button"
+          onClick={toggleFinanceiro}
+          disabled={togglingFin}
+          className={`rounded-full px-2.5 py-1 font-semibold border transition disabled:opacity-50 ${
+            financeiro
+              ? "border-slate-200 text-slate-500 hover:border-rose-300 hover:text-rose-600"
+              : "border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
+          }`}
+        >
+          {togglingFin ? "..." : financeiro ? "Desativar" : "Ativar Financeiro"}
         </button>
       </div>
 

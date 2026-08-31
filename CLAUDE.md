@@ -421,6 +421,26 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   tem régua própria e fica de fora.
 - **Produção** (gated por loja): tecidos, rolos, cortes multi-cor, costura,
   lotes/facções, defeitos, simulador, etiquetas.
+- **Financeiro** (gated por loja, pago à parte — R$ 160 de tabela no catálogo
+  de módulos): gestão financeira completa, desenhada com o dono em 31/08/2026
+  (mapa em 6 fases: cadastros → contas a pagar/receber → recorrência/extrato →
+  porta única de entrada das vendas → dashboard/DFC → DRE/conciliação OFX).
+  **RN-027 · Módulo Financeiro** (`Company.financeEnabled`, porteira em
+  `lib/financeiro/gate.ts`): TODA porta do módulo (API e tela) exige a chave
+  da loja E gerente/admin — vendedora e SUPORTE ficam fora (dinheiro é assunto
+  comercial, mesma régua de Relatórios); sem a chave a rota responde 404 e a
+  loja **não muda em NADA** (segue a tela simples de contas a receber de
+  pedidos). Fase 1 (cadastros, `lib/financeiro/cadastros.ts`): contas (saldo
+  inicial com data — o saldo nunca será digitado, será somado), categorias em
+  árvore numerada que **nasce pronta para moda** (semeadura idempotente na
+  primeira abertura; o CÓDIGO é o servidor quem dá, e filha HERDA o tipo da
+  mãe — categoria de receita debaixo de despesa faria o DRE somar errado),
+  centros de custo, coleções ("o Inverno 2026 deu lucro?") e fornecedores
+  (CNPJ/CPF com dígitos conferidos antes de gravar; IE anda junto do CNPJ;
+  categoria padrão só de DESPESA). **Cadastro não se apaga, se ARQUIVA** — a
+  API nem tem DELETE: quando os lançamentos chegarem, apagar conta/categoria
+  com histórico quebraria extrato e DRE. Clientes NÃO ganham cadastro novo: o
+  financeiro usa a ficha do CRM.
 - **Envios** (gated por loja, `shippingEnabled`, pago à parte): tela própria
   no menu (`/envios`): painel (gasto do mês, aguardando postagem, em
   trânsito com alerta de **parado há 7+ dias**, entregues com tempo médio) +

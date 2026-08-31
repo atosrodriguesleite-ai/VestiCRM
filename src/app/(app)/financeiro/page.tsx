@@ -11,6 +11,7 @@ import {
 import { requireUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { isManagerUp } from "@/lib/scope";
+import { financeiroLiberado } from "@/lib/financeiro/gate";
 import { PAID_ORDER_STATUSES, orderNumber } from "@/lib/orders";
 import { brl, dateShort } from "@/lib/format";
 import { Card, PageHeader } from "@/components/ui";
@@ -35,7 +36,9 @@ export default async function FinanceiroPage() {
   spMes.setUTCHours(0, 0, 0, 0);
   const inicioMes = new Date(spMes.getTime() + 3 * 60 * 60 * 1000);
 
-  const [pendentes, recebidoMesAgg, pixAtivos] = await Promise.all([
+  // a consulta da chave do módulo (RN-027) vai JUNTO das outras: em série
+  // seria uma ida a mais ao banco em toda abertura da tela
+  const [pendentes, recebidoMesAgg, pixAtivos, company] = await Promise.all([
     db.order.findMany({
       where: { companyId: user.companyId, status: "AGUARDANDO_PAGAMENTO" },
       include: {
@@ -68,6 +71,11 @@ export default async function FinanceiroPage() {
         status: "PENDENTE",
         dueAt: { gt: agora },
       },
+    }),
+    // chave do módulo Financeiro completo: liga o atalho dos cadastros
+    db.company.findUnique({
+      where: { id: user.companyId },
+      select: { financeEnabled: true },
     }),
   ]);
 
@@ -102,6 +110,16 @@ export default async function FinanceiroPage() {
       <PageHeader
         title="Financeiro — Contas a Receber"
         subtitle="Quem deve, quanto e desde quando — e o que já entrou no mês."
+        action={
+          financeiroLiberado(user, company?.financeEnabled ?? false) ? (
+            <Link
+              href="/financeiro/cadastros"
+              className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-sm font-medium text-slate-700 hover:border-slate-300 hover:bg-slate-50"
+            >
+              <Users className="size-4" /> Cadastros do Financeiro
+            </Link>
+          ) : undefined
+        }
       />
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4 mb-6">

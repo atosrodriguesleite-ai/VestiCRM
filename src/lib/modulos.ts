@@ -21,7 +21,8 @@ export type ModuloKey =
   | "INTELIGENCIA"
   | "BIBLIOTECA"
   | "ENVIOS"
-  | "IA_VENDAS";
+  | "IA_VENDAS"
+  | "FINANCEIRO";
 
 export type Modulo = {
   key: ModuloKey;
@@ -97,6 +98,15 @@ export const MODULOS: Modulo[] = [
     flag: "aiSalesEnabled",
     // âncora do plano Pro (1.000 conversas/mês) — o praticado fica livre
     precoTabela: 397,
+  },
+  {
+    key: "FINANCEIRO",
+    nome: "Financeiro",
+    entrega:
+      "Contas a pagar/receber, fornecedores, fluxo de caixa, DRE e conciliação.",
+    flag: "financeEnabled",
+    // preço definido pelo dono no desenho do módulo (31/08/2026)
+    precoTabela: 160,
   },
 ];
 
