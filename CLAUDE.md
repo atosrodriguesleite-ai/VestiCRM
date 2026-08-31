@@ -619,8 +619,18 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
 - **Envios** (13/08/2026): Melhor Envio **em produção** — app criado, envs na
   Vercel, primeira conta conectada e cotando. Parceria/comissão ME em
   negociação à parte. A etiqueta com NF-e (RN-016) depende do Bling.
-- Dívidas mapeadas: blob storage para fotos; rate-limit no login;
-  conferir `INTAKE_SECRET` na Vercel; quebrar telas gigantes
-  (`inbox.tsx` ~2,4k linhas) em componentes menores.
+- Dívidas mapeadas: blob storage para fotos e arquivos (é ele que impõe o
+  teto de ~12MB da RN-028 — a única exceção declarada ao "se a cliente
+  mandou, tem que chegar"); conferir `INTAKE_SECRET` na Vercel; quebrar telas
+  gigantes (`inbox.tsx` ~2,4k linhas) em componentes menores. O rate-limit no
+  login SAIU da lista: já existe (`lib/rate-limit.ts`, com trava antes da
+  consulta, contagem antes de conferir a senha e senha falsa para o login
+  inexistente não virar detector de contas).
+- **Auditoria do WhatsApp (31/08/2026)**, pedida antes de o módulo virar base
+  de um produto novo: nasceram a RN-028 e o ADR-015 (arquivo que não se
+  perde) e a porta do WhatsApp oficial virou fail-closed. **Grupos (`@g.us`)
+  continuam sendo descartados na porta de propósito** — aqui cliente é uma
+  pessoa com telefone. Produto que precise de grupo tem aí a sua primeira
+  obra.
 - Auditoria completa (segurança + métricas) feita em 24/07/2026 — métricas
   unificadas na fonte única; isolamento multi-tenant verificado rota a rota.
