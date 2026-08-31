@@ -83,6 +83,12 @@ export async function PainelFinanceiro({
               Cadastros
             </Link>
             <Link
+              href="/financeiro/dre"
+              className="inline-flex items-center rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+            >
+              Deu lucro?
+            </Link>
+            <Link
               href="/financeiro/dfc"
               className="inline-flex items-center rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
             >
@@ -256,6 +262,7 @@ export async function PainelFinanceiro({
           { href: "/financeiro/contas-a-pagar", nome: "Contas a Pagar", cor: "rose" },
           { href: "/financeiro/extrato", nome: "Extrato", cor: "sky" },
           { href: "/financeiro/contas-fixas", nome: "Contas fixas", cor: "violet" },
+          { href: "/financeiro/fluxo-de-caixa", nome: "Fluxo de caixa", cor: "sky" },
         ].map((a) => (
           <Link
             key={a.href}

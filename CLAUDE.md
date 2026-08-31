@@ -573,6 +573,31 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   A árvore de categorias ganhou o bloco **07 · Investimentos** e a semeadura
   passou a COMPLETAR o que falta — sem isso a loja antiga nunca veria o bloco
   novo e o DFC dela nasceria torto.
+  **RN-034 · DEU LUCRO ≠ TEM DINHEIRO** (`lib/financeiro/relatorios.ts`, telas
+  `/financeiro/dre` e `/financeiro/fluxo-de-caixa`): são duas perguntas
+  diferentes, e é por não separá-las que loja lucrativa quebra. O **DRE** é
+  por **COMPETÊNCIA** — a venda de agosto é resultado de agosto, mesmo que a
+  cliente pague em outubro (o valor é o do LANÇAMENTO, então venda em 3× é
+  resultado inteiro do mês da venda) — e sai mês a mês por categoria, com
+  receita → custo da mercadoria → **lucro bruto** → despesas → resultado, tudo
+  com % sobre a receita e montado sozinho pelo CÓDIGO da árvore (RN-027; 01/02
+  receita, 03 custo, 04 venda, 05 administrativa, 06 financeira, categoria da
+  loja entra pelo TIPO). **Investimento (07) fica FORA do resultado e é DITO
+  na tela**: comprar uma máquina de R$ 8.000 não é prejuízo, é dinheiro que
+  virou máquina — somá-lo faria um mês bom parecer desastre; o efeito no caixa
+  aparece no DFC. O **Fluxo de Caixa** é a outra conta: pela **data do
+  dinheiro**, meses nas colunas, agrupável por categoria (padrão), cliente,
+  fornecedor ou coleção, e com três recortes — realizado, previsto e o
+  **misto** (padrão): o realizado vale sempre e o previsto entra só do mês
+  corrente para frente — previsto no passado inventaria dinheiro que já se
+  sabe que não entrou, e o mês em curso soma os dois (o que já entrou mais o
+  que falta). Do previsto entra só **o que FALTA** (a parte já paga já entrou
+  pelo realizado — contar as duas dobraria a venda) e a **conta ATRASADA não
+  some**: ela cai no mês corrente, que é quando a loja vai correr atrás
+  (mesma régua do saldo previsto, RN-033) — inclusive a que venceu antes do
+  período, buscada com teto próprio e só quando o mês corrente está nas
+  colunas. O saldo do primeiro mês é o saldo REAL da loja (RN-030), com cada
+  mês começando onde o anterior terminou.
 - **Envios** (gated por loja, `shippingEnabled`, pago à parte): tela própria
   no menu (`/envios`): painel (gasto do mês, aguardando postagem, em
   trânsito com alerta de **parado há 7+ dias**, entregues com tempo médio) +
