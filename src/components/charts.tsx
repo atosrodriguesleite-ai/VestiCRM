@@ -444,10 +444,12 @@ export function Donut({
   const itens = data.filter((d) => d.value > 0);
   const total = itens.reduce((a, d) => a + d.value, 0);
   if (total === 0) return null;
-  // valor do centro se adapta ao tamanho (ex.: "R$ 51.602,30") pra não estourar o furo
+  // valor do centro se adapta ao tamanho pra não estourar o furo (~90px):
+  // medido com "R$ 316.215,31" (13 letras) — em text-sm passava da borda,
+  // em text-xs cabe; acima de 13 (casa do milhão) só cabe em 10px
   const vlen = centerValue.length;
   const valueSize =
-    vlen <= 6 ? "text-xl" : vlen <= 8 ? "text-lg" : vlen <= 11 ? "text-base" : vlen <= 13 ? "text-sm" : "text-xs";
+    vlen <= 6 ? "text-xl" : vlen <= 8 ? "text-lg" : vlen <= 10 ? "text-base" : vlen <= 12 ? "text-sm" : vlen <= 13 ? "text-xs" : "text-[10px]";
   const r = 15.915; // raio que dá circunferência 100 (facilita o dasharray em %)
   let acc = 0;
   return (

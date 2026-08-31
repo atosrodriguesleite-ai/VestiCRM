@@ -470,7 +470,7 @@ export default async function MarketingPage({
               <p className="text-xs text-slate-400 mb-4">
                 O gráfico acima mostra de onde <b>vêm as clientes</b> que compram; este mostra por qual
                 porta <b>cada pedido</b> entrou. Cliente do WhatsApp que compra pela loja online conta no
-                WhatsApp lá em cima — e na loja online aqui. “Vendedoras” são os pedidos com dona definida
+                WhatsApp lá em cima, e na loja online aqui. “Vendedoras” são os pedidos com dona definida
                 (os que geram comissão; a tela de Comissões tem período e base próprios).
               </p>
               <BarList data={saidaBar} color="#7e6f5d" formatValue={brl} />
