@@ -5,7 +5,8 @@ import { requireUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { isManagerUp } from "@/lib/scope";
 import { PAID_ORDER_STATUSES } from "@/lib/orders";
-import { brl, originLabel } from "@/lib/format";
+import { brl } from "@/lib/format";
+import { CANAL_WHATSAPP_CATALOGO, canalDaOrigem, canalValido, labelDoCanal, origensDoCanal } from "@/lib/canais";
 import { Card, PageHeader, EmptyState } from "@/components/ui";
 import { StatCard } from "@/components/dash";
 import { BarList, Donut, PeriodChips } from "@/components/charts";
@@ -27,10 +28,11 @@ export const dynamic = "force-dynamic";
 
 // cor de cada canal de aquisição (para o donut/legendas)
 const ORIGIN_COLOR: Record<string, string> = {
-  WHATSAPP: "#10b981",
+  // WHATSAPP e CATALOGO_PUBLICO não têm cor própria: nas métricas eles nunca
+  // chegam aqui separados — viram o canal unido antes (RN-026)
+  [CANAL_WHATSAPP_CATALOGO]: "#10b981",
   INSTAGRAM: "#e1306c",
   FACEBOOK: "#3b5f8a",
-  CATALOGO_PUBLICO: "#c4622d",
   NUVEMSHOP: "#14b8a6",
   SITE: "#7e6f5d",
   GOOGLE: "#e5b93c",
@@ -57,8 +59,10 @@ export default async function MarketingPage({
 
   const { de, ate, canal } = await searchParams;
   const companyId = user.companyId;
-  // filtro por canal: só aceita uma origem válida (senão, visão Geral)
-  const canalParam = canal && canal in originLabel ? canal : null;
+  // filtro por canal: só aceita um canal que existe (senão, visão Geral).
+  // Link antigo com ?canal=WHATSAPP ou CATALOGO_PUBLICO cai no canal unido
+  // (RN-026) — favorito salvo não pode virar tela vazia.
+  const canalParam = canal && canalValido(canal) ? canalDaOrigem(canal) : null;
   const now = new Date();
   const SP_OFFSET = 3 * 60 * 60 * 1000; // São Paulo é UTC-3
   const spStart = (d?: string) => {
@@ -99,7 +103,8 @@ export default async function MarketingPage({
       where: {
         companyId,
         status: { in: PAID_ORDER_STATUSES },
-        ...(canalParam ? { customer: { origin: canalParam as never } } : {}),
+        // o canal unido filtra as duas origens de uma vez (RN-026)
+        ...(canalParam ? { customer: { origin: { in: origensDoCanal(canalParam) as never[] } } } : {}),
       },
       _count: { _all: true },
     }),
@@ -183,19 +188,27 @@ export default async function MarketingPage({
 
 
   // ---- canais presentes (para os chips de filtro) ----
+  // daqui para baixo tudo conta por CANAL DE MÉTRICA (canalDaOrigem), que
+  // soma WhatsApp + catálogo público num canal só (RN-026)
   const canaisSet = new Set<string>();
-  for (const l of leadsAll) canaisSet.add(l.origin);
-  for (const o of ordersAll) canaisSet.add(o.customer.origin);
+  for (const l of leadsAll) canaisSet.add(canalDaOrigem(l.origin));
+  for (const o of ordersAll) canaisSet.add(canalDaOrigem(o.customer.origin));
 
   // ---- gráficos "por canal" (SEMPRE a visão geral/comparação) ----
   const canalLeads = new Map<string, number>();
-  for (const l of leadsAll) canalLeads.set(l.origin, (canalLeads.get(l.origin) ?? 0) + 1);
+  for (const l of leadsAll) {
+    const c = canalDaOrigem(l.origin);
+    canalLeads.set(c, (canalLeads.get(c) ?? 0) + 1);
+  }
   const canalFat = new Map<string, number>();
-  for (const o of ordersAll) canalFat.set(o.customer.origin, (canalFat.get(o.customer.origin) ?? 0) + o.netTotal);
+  for (const o of ordersAll) {
+    const c = canalDaOrigem(o.customer.origin);
+    canalFat.set(c, (canalFat.get(c) ?? 0) + o.netTotal);
+  }
   const canais = [...canaisSet]
     .map((o) => ({
       origin: o,
-      label: originLabel[o as keyof typeof originLabel] ?? o,
+      label: labelDoCanal(o),
       color: originColor(o),
       leads: canalLeads.get(o) ?? 0,
       fat: canalFat.get(o) ?? 0,
@@ -203,10 +216,10 @@ export default async function MarketingPage({
     .sort((a, b) => b.fat - a.fat || b.leads - a.leads);
 
   // ---- aplica o filtro de canal (Geral = tudo) ----
-  const leads = canalParam ? leadsAll.filter((l) => l.origin === canalParam) : leadsAll;
-  const paidOrders = canalParam ? ordersAll.filter((o) => o.customer.origin === canalParam) : ordersAll;
-  const prevLeadsList = canalParam ? prevLeadsAll.filter((l) => l.origin === canalParam) : prevLeadsAll;
-  const prevOrdersList = canalParam ? prevOrdersAll.filter((o) => o.customer.origin === canalParam) : prevOrdersAll;
+  const leads = canalParam ? leadsAll.filter((l) => canalDaOrigem(l.origin) === canalParam) : leadsAll;
+  const paidOrders = canalParam ? ordersAll.filter((o) => canalDaOrigem(o.customer.origin) === canalParam) : ordersAll;
+  const prevLeadsList = canalParam ? prevLeadsAll.filter((l) => canalDaOrigem(l.origin) === canalParam) : prevLeadsAll;
+  const prevOrdersList = canalParam ? prevOrdersAll.filter((o) => canalDaOrigem(o.customer.origin) === canalParam) : prevOrdersAll;
 
   // ---- agregação por CAMPANHA (respeita o filtro de canal) ----
   const campLeads = new Map<string, number>();
@@ -301,7 +314,7 @@ export default async function MarketingPage({
       ? [{ label: "Outros canais", value: restoLeads, sub: `${pct(restoLeads, totalLeadsAll)}%` }]
       : []),
   ];
-  const canalLabel = canalParam ? (originLabel[canalParam as keyof typeof originLabel] ?? canalParam) : null;
+  const canalLabel = canalParam ? labelDoCanal(canalParam) : null;
 
   const campanhas: Campanha[] = campaignRows.map((c) => ({
     id: c.id,

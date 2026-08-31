@@ -13,7 +13,8 @@ import { requireUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { isManagerUp } from "@/lib/scope";
 import { PAID_ORDER_STATUSES } from "@/lib/orders";
-import { brl, dateShort, originLabel } from "@/lib/format";
+import { brl, dateShort } from "@/lib/format";
+import { canalDaOrigem, labelDoCanal } from "@/lib/canais";
 import { Card, PageHeader, EmptyState } from "@/components/ui";
 import { AreaChart, BarList, FunnelBars, PeriodChips, StatTile } from "@/components/charts";
 import { lerPeriodo, periodoPorExtenso, ultimosDiasSP } from "@/lib/periodo";
@@ -150,7 +151,8 @@ export default async function ReportsPage({
   };
   const channelMap = new Map<string, ChannelStat>();
   for (const c of allCustomers) {
-    const key = originLabel[c.origin];
+    // WhatsApp + catálogo público contam como UM canal (RN-026)
+    const key = labelDoCanal(canalDaOrigem(c.origin));
     const stat =
       channelMap.get(key) ??
       { origin: key, leads: 0, buyers: 0, revenue: 0, orders: 0, daysToSale: [] };
@@ -298,7 +300,8 @@ export default async function ReportsPage({
   // origem dos clientes (base inteira)
   const byOrigin = new Map<string, number>();
   for (const c of allCustomers) {
-    const label = originLabel[c.origin];
+    // mesma soma dos canais de aquisição (RN-026)
+    const label = labelDoCanal(canalDaOrigem(c.origin));
     byOrigin.set(label, (byOrigin.get(label) ?? 0) + 1);
   }
   const originData = [...byOrigin.entries()]

@@ -408,6 +408,17 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   anúncio" na ficha do contato, gerente+). O vínculo é RETROATIVO para quem
   está sem campanha, NUNCA reescreve quem já tem (vale o primeiro contato), e
   um anúncio só pode ter UMA campanha dona (**RN-015**).
+  **RN-026 · WhatsApp e catálogo público são UM canal só nas métricas**
+  (`lib/canais.ts`, 31/08/2026): a origem do cadastro separa os dois por
+  acaso técnico — a cliente que chama no WhatsApp recebe o link do catálogo
+  e pede por ele; separados, o canal das vendedoras parecia dois canais
+  pequenos ao lado da Nuvemshop e a loja tirava conclusão errada de onde
+  investir. Toda tela que AGREGA por canal (Marketing — inclusive o filtro
+  por canal —, Relatórios e a exportação CSV) soma os dois como "WhatsApp e
+  catálogo"; Nuvemshop e os demais seguem separados. A soma é SÓ DE
+  APRESENTAÇÃO: `Customer.origin` continua gravado separado no banco (ficha,
+  intake e regras por origem não mudam), e o painel de Gestão da plataforma
+  tem régua própria e fica de fora.
 - **Produção** (gated por loja): tecidos, rolos, cortes multi-cor, costura,
   lotes/facções, defeitos, simulador, etiquetas.
 - **Envios** (gated por loja, `shippingEnabled`, pago à parte): tela própria

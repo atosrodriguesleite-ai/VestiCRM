@@ -3,7 +3,7 @@ import { db } from "@/lib/db";
 import { requireUser, AuthError } from "@/lib/auth";
 import { isManagerUp } from "@/lib/scope";
 import { PAID_ORDER_STATUSES } from "@/lib/orders";
-import { originLabel } from "@/lib/format";
+import { canalDaOrigem, labelDoCanal } from "@/lib/canais";
 import { lerPeriodo, periodoPorExtenso, ultimosDiasSP } from "@/lib/periodo";
 
 /**
@@ -138,7 +138,8 @@ export async function GET(req: NextRequest) {
     // ---- Leads por canal de origem ----
     const porCanal = new Map<string, number>();
     for (const c of clientes) {
-      const nome = originLabel[c.origin];
+      // WhatsApp + catálogo público contam como UM canal (RN-026)
+      const nome = labelDoCanal(canalDaOrigem(c.origin));
       porCanal.set(nome, (porCanal.get(nome) ?? 0) + 1);
     }
     linha("LEADS POR CANAL (entraram no período)");
