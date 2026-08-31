@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { isManagerUp } from "@/lib/scope";
 import { financeiroLiberado } from "@/lib/financeiro/gate";
 import { garantirCategoriasPadrao } from "@/lib/financeiro/cadastros";
+import { garantirRecorrencias } from "@/lib/financeiro/recorrencia";
 import { carregarMovimentacoes, type BasePeriodo } from "@/lib/financeiro/consulta";
 import { dataDoDia, diaSP, type StatusParcela } from "@/lib/financeiro/lancamentos";
 import { ListaMovimentacoes } from "./lista";
@@ -43,6 +44,9 @@ export async function PaginaMovimentacoes({
     redirect("/financeiro");
 
   await garantirCategoriasPadrao(user.companyId);
+  // CONTAS FIXAS de carona no tráfego (RN-029): sem cron novo (ADR-002).
+  // Na maioria das aberturas não há nada a fazer e sai numa consulta só.
+  await garantirRecorrencias(user.companyId);
 
   const sp = await searchParams;
   const texto = (k: string) => (Array.isArray(sp[k]) ? sp[k][0] : sp[k]) ?? "";

@@ -151,6 +151,8 @@ model Company {
   finColecoes    FinColecao[]
   fornecedores   Fornecedor[]
   finLancamentos FinLancamento[]
+  finRecorrencias FinRecorrencia[]
+  finTransferencias FinTransferencia[]
 }
 
 /// PORTFÓLIO DE PRODUTOS E SERVIÇOS (só Super Admin, empresa-plataforma).
@@ -647,6 +649,7 @@ model Customer {
   abandonedCarts  AbandonedCart[]
   dadosEnvioLinks DadosEnvioLink[]
   finLancamentos  FinLancamento[]
+  finRecorrencias FinRecorrencia[]
 }
 
 model Tag {
@@ -2647,6 +2650,9 @@ model FinConta {
 
   parcelas FinParcela[]
   baixas   FinBaixa[]
+  recorrencias FinRecorrencia[]
+  transferenciasSaida  FinTransferencia[] @relation("TransferenciaOrigem")
+  transferenciasEntrada FinTransferencia[] @relation("TransferenciaDestino")
 
   @@index([companyId])
 }
@@ -2673,6 +2679,7 @@ model FinCategoria {
 
   fornecedoresPadrao Fornecedor[]
   lancamentos        FinLancamento[]
+  recorrencias       FinRecorrencia[]
 
   @@unique([companyId, codigo])
   @@index([companyId])
@@ -2688,7 +2695,8 @@ model FinCentroCusto {
   arquivadoEm DateTime?
   createdAt   DateTime  @default(now())
 
-  lancamentos FinLancamento[]
+  lancamentos  FinLancamento[]
+  recorrencias FinRecorrencia[]
 
   @@index([companyId])
 }
@@ -2706,7 +2714,8 @@ model FinColecao {
   arquivadaEm DateTime?
   createdAt   DateTime  @default(now())
 
-  lancamentos FinLancamento[]
+  lancamentos  FinLancamento[]
+  recorrencias FinRecorrencia[]
 
   @@index([companyId])
 }
@@ -2737,7 +2746,8 @@ model Fornecedor {
   createdAt          DateTime      @default(now())
   updatedAt          DateTime      @updatedAt
 
-  lancamentos FinLancamento[]
+  lancamentos  FinLancamento[]
+  recorrencias FinRecorrencia[]
 
   @@index([companyId])
 }
@@ -2786,6 +2796,12 @@ model FinLancamento {
   /// origemId) é o que fará "1 pedido = 1 lançamento, nunca duplica".
   origemId      String?
   canceladoEm   DateTime?
+  /// veio de uma conta fixa (RN-029) e de qual mês ("2026-09") — o único
+  /// (recorrenciaId, recorrenciaMes) é o que faz a materialização NUNCA
+  /// duplicar, mesmo com duas abas abrindo a tela ao mesmo tempo
+  recorrenciaId String?
+  recorrencia   FinRecorrencia? @relation(fields: [recorrenciaId], references: [id], onDelete: SetNull)
+  recorrenciaMes String?
   createdAt     DateTime        @default(now())
   updatedAt     DateTime        @updatedAt
 
@@ -2794,6 +2810,7 @@ model FinLancamento {
   eventos  FinLancamentoEvento[]
 
   @@unique([companyId, origem, origemId])
+  @@unique([recorrenciaId, recorrenciaMes])
   @@index([companyId, tipo])
 }
 
@@ -2876,4 +2893,75 @@ model FinLancamentoEvento {
   createdAt    DateTime      @default(now())
 
   @@index([lancamentoId, createdAt])
+}
+
+// ---------------------------------------------------------------------------
+// MÓDULO FINANCEIRO — Fase 3: contas fixas (RN-029) e transferências (RN-030).
+// ---------------------------------------------------------------------------
+
+/// CONTA FIXA (RN-029): aluguel, salário, internet, assinatura. A loja
+/// configura UMA vez e o sistema materializa os lançamentos dos próximos
+/// meses sozinho — de carona no tráfego, NUNCA num cron novo (ADR-002: um 3º
+/// cron trava todos os deploys).
+model FinRecorrencia {
+  id            String    @id @default(cuid())
+  companyId     String
+  company       Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  tipo          String // RECEITA | DESPESA
+  descricao     String
+  valor         Float
+  /// dia do vencimento (1–31); mês curto cai no último dia, nunca vaza
+  diaVencimento Int
+  customerId    String?
+  customer      Customer?       @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  fornecedorId  String?
+  fornecedor    Fornecedor?     @relation(fields: [fornecedorId], references: [id], onDelete: SetNull)
+  categoriaId   String?
+  categoria     FinCategoria?   @relation(fields: [categoriaId], references: [id], onDelete: SetNull)
+  centroCustoId String?
+  centroCusto   FinCentroCusto? @relation(fields: [centroCustoId], references: [id], onDelete: SetNull)
+  colecaoId     String?
+  colecao       FinColecao?     @relation(fields: [colecaoId], references: [id], onDelete: SetNull)
+  contaId       String?
+  conta         FinConta?       @relation(fields: [contaId], references: [id], onDelete: SetNull)
+  forma         String    @default("PIX")
+  observacoes   String?
+  /// primeiro mês que vale (dia 1 do mês, ao meio-dia)
+  inicio        DateTime
+  /// último mês que vale; null = sem fim ("até a loja mandar parar")
+  fim           DateTime?
+  ativa         Boolean   @default(true)
+  /// até que mês já foi materializado ("2026-11") — evita reprocessar
+  geradoAte     String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  lancamentos FinLancamento[]
+
+  @@index([companyId, ativa])
+}
+
+/// TRANSFERÊNCIA entre contas da própria loja (RN-030): tirou do banco e pôs
+/// na caixinha. NÃO é receita nem despesa — somá-la ao resultado faria o DRE
+/// e o fluxo de caixa mentirem. Tem DUAS datas porque a vida tem: a TED sai
+/// hoje e cai amanhã, e cada conta enxerga o dinheiro no SEU dia.
+model FinTransferencia {
+  id             String    @id @default(cuid())
+  companyId      String
+  company        Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  contaOrigemId  String
+  contaOrigem    FinConta  @relation("TransferenciaOrigem", fields: [contaOrigemId], references: [id])
+  contaDestinoId String
+  contaDestino   FinConta  @relation("TransferenciaDestino", fields: [contaDestinoId], references: [id])
+  valor          Float
+  dataSaida      DateTime
+  dataEntrada    DateTime
+  descricao      String?
+  autorNome      String
+  /// transferência errada se CANCELA (fica no histórico), nunca se apaga
+  canceladaEm    DateTime?
+  canceladaPor   String?
+  createdAt      DateTime  @default(now())
+
+  @@index([companyId, dataSaida])
 }

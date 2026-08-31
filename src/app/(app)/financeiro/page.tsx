@@ -127,7 +127,7 @@ export default async function FinanceiroPage() {
       {/* módulo Financeiro completo (RN-028): os atalhos das telas de verdade.
           Sem a chave, esta faixa não existe e a tela é a de sempre. */}
       {moduloCompleto && (
-        <div className="mb-6 grid gap-3 sm:grid-cols-2">
+        <div className="mb-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <Link
             href="/financeiro/contas-a-receber"
             className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 transition hover:border-emerald-300 hover:bg-emerald-100"
@@ -145,6 +145,26 @@ export default async function FinanceiroPage() {
             <p className="font-semibold text-rose-900">Contas a Pagar</p>
             <p className="text-sm text-rose-700">
               Fornecedores, aluguel, salários: o que vence e o que já foi pago.
+            </p>
+          </Link>
+          <Link
+            href="/financeiro/extrato"
+            className="rounded-2xl border border-sky-200 bg-sky-50 p-4 transition hover:border-sky-300 hover:bg-sky-100"
+          >
+            <p className="font-semibold text-sky-900">Extrato</p>
+            <p className="text-sm text-sky-700">
+              Entradas, saídas e transferências com saldo acumulado — para
+              conferir com o banco.
+            </p>
+          </Link>
+          <Link
+            href="/financeiro/contas-fixas"
+            className="rounded-2xl border border-violet-200 bg-violet-50 p-4 transition hover:border-violet-300 hover:bg-violet-100"
+          >
+            <p className="font-semibold text-violet-900">Contas fixas</p>
+            <p className="text-sm text-violet-700">
+              Aluguel, salário, internet: configure uma vez e o sistema lança
+              todo mês.
             </p>
           </Link>
         </div>

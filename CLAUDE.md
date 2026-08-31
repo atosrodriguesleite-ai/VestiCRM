@@ -478,6 +478,34 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   de MANUAL (Fase 4) não aceita edição de valor — a fonte da verdade é o
   pedido, e o único (companyId, origem, origemId) garante "1 pedido = 1
   lançamento".
+  **RN-029 · CONTAS FIXAS** (`lib/financeiro/recorrencia.ts`, tela
+  `/financeiro/contas-fixas`): aluguel, salário, internet — a loja configura
+  UMA vez (valor, dia, categoria, "sem fim" ou até quando) e o sistema
+  materializa os lançamentos dos **próximos 3 meses** sozinho. **NÃO é cron**
+  (ADR-002: um 3º cron trava TODOS os deploys em silêncio): roda de CARONA no
+  tráfego ao abrir as telas do financeiro, e a consulta é barata — só as
+  contas fixas que ainda não chegaram no horizonte. **Nunca duplica**: o
+  lançamento gerado carrega (recorrenciaId, mês) e esse par é ÚNICO no banco,
+  então duas abas abrindo juntas esbarram no índice (P2002 tratado), não em
+  dois aluguéis. Dia 31 cai no último dia do mês curto (mesma régua da
+  RN-028). **Editar e encerrar mexem SÓ no futuro**: os meses que ainda não
+  venceram e **não têm baixa** são refeitos; o que já foi pago fica intocado —
+  o aluguel de agosto continua tendo sido o de agosto. Conta fixa que começou
+  anos atrás não trava a tela (teto de 24 meses por rodada).
+  **RN-030 · TRANSFERÊNCIA E EXTRATO** (`lib/financeiro/extrato.ts`, telas
+  `/financeiro/transferencias` e `/extrato`): transferência entre contas da
+  PRÓPRIA loja **não é receita nem despesa** — contá-la como receita infla o
+  faturamento e como despesa inventa prejuízo; ela sai de uma conta, entra na
+  outra e some no total da loja. Tem **DUAS datas** porque a vida tem: a TED
+  sai hoje e cai amanhã, e cada conta enxerga o dinheiro no SEU dia (uma data
+  só faria o saldo de uma delas mentir por um dia); o dinheiro não pode cair
+  antes de sair, e transferência errada se CANCELA com quem e quando, nunca se
+  apaga. No **extrato**, o **saldo NUNCA é digitado, é SOMADO**: saldo inicial
+  da conta (a partir da data que a loja declarou) + tudo que entrou − tudo que
+  saiu, com o acumulado linha a linha — não existe campo "saldo atual" no
+  banco para alguém corrigir na mão e a tela passar a mentir. Os cards de
+  entrou/saiu contam só receitas e despesas realizadas; a transferência
+  aparece na lista mas fica FORA deles.
 - **Envios** (gated por loja, `shippingEnabled`, pago à parte): tela própria
   no menu (`/envios`): painel (gasto do mês, aguardando postagem, em
   trânsito com alerta de **parado há 7+ dias**, entregues com tempo médio) +
