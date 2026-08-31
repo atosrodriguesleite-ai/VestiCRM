@@ -150,6 +150,7 @@ model Company {
   finCentrosCusto FinCentroCusto[]
   finColecoes    FinColecao[]
   fornecedores   Fornecedor[]
+  finLancamentos FinLancamento[]
 }
 
 /// PORTFÓLIO DE PRODUTOS E SERVIÇOS (só Super Admin, empresa-plataforma).
@@ -645,6 +646,7 @@ model Customer {
   @@index([companyId, birthDate])
   abandonedCarts  AbandonedCart[]
   dadosEnvioLinks DadosEnvioLink[]
+  finLancamentos  FinLancamento[]
 }
 
 model Tag {
@@ -2643,6 +2645,9 @@ model FinConta {
   arquivadaEm    DateTime?
   createdAt      DateTime  @default(now())
 
+  parcelas FinParcela[]
+  baixas   FinBaixa[]
+
   @@index([companyId])
 }
 
@@ -2667,6 +2672,7 @@ model FinCategoria {
   createdAt   DateTime  @default(now())
 
   fornecedoresPadrao Fornecedor[]
+  lancamentos        FinLancamento[]
 
   @@unique([companyId, codigo])
   @@index([companyId])
@@ -2681,6 +2687,8 @@ model FinCentroCusto {
   nome        String
   arquivadoEm DateTime?
   createdAt   DateTime  @default(now())
+
+  lancamentos FinLancamento[]
 
   @@index([companyId])
 }
@@ -2697,6 +2705,8 @@ model FinColecao {
   fim         DateTime?
   arquivadaEm DateTime?
   createdAt   DateTime  @default(now())
+
+  lancamentos FinLancamento[]
 
   @@index([companyId])
 }
@@ -2727,5 +2737,143 @@ model Fornecedor {
   createdAt          DateTime      @default(now())
   updatedAt          DateTime      @updatedAt
 
+  lancamentos FinLancamento[]
+
   @@index([companyId])
+}
+
+// ---------------------------------------------------------------------------
+// MÓDULO FINANCEIRO (RN-028) — Fase 2: o LANÇAMENTO.
+//
+// Conta a receber e conta a pagar são a MESMA peça, mudando o lado (`tipo`).
+// A anatomia é sempre a mesma: cabeçalho (quem, quanto, qual etiqueta) →
+// parcelas (quando cada pedaço vence) → baixas (o dinheiro andou de verdade).
+//
+// O que NUNCA se digita: o status da parcela (sai do vencimento + baixas) e o
+// saldo da conta (sai do saldo inicial + baixas). O que NUNCA se apaga: a
+// baixa errada se ESTORNA, com quem e quando.
+// ---------------------------------------------------------------------------
+
+model FinLancamento {
+  id            String          @id @default(cuid())
+  companyId     String
+  company       Company         @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  tipo          String // RECEITA (a receber) | DESPESA (a pagar)
+  descricao     String
+  documento     String? // nº da nota, do contrato, do boleto
+  /// data de emissão/competência (quando o fato aconteceu)
+  competencia   DateTime
+  /// RECEITA: a cliente é a ficha do CRM — o financeiro NÃO cria cadastro de
+  /// cliente próprio (cliente duplicado é a dor que a RN-020 já ensinou)
+  customerId    String?
+  customer      Customer?       @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  fornecedorId  String?
+  fornecedor    Fornecedor?     @relation(fields: [fornecedorId], references: [id], onDelete: SetNull)
+  categoriaId   String?
+  categoria     FinCategoria?   @relation(fields: [categoriaId], references: [id], onDelete: SetNull)
+  centroCustoId String?
+  centroCusto   FinCentroCusto? @relation(fields: [centroCustoId], references: [id], onDelete: SetNull)
+  colecaoId     String?
+  colecao       FinColecao?     @relation(fields: [colecaoId], references: [id], onDelete: SetNull)
+  /// soma das parcelas — a PARCELA é a fonte da verdade do quanto
+  valor         Float
+  observacoes   String?
+  /// de onde veio: MANUAL hoje; PEDIDO/NUVEMSHOP/marketplace na Fase 4, pela
+  /// porta única de entrada das vendas. Lançamento automático não aceita
+  /// edição de valor — a fonte da verdade é o pedido.
+  origem        String          @default("MANUAL")
+  /// id do pedido/venda que gerou (Fase 4). O único (companyId, origem,
+  /// origemId) é o que fará "1 pedido = 1 lançamento, nunca duplica".
+  origemId      String?
+  canceladoEm   DateTime?
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+
+  parcelas FinParcela[]
+  anexos   FinAnexo[]
+  eventos  FinLancamentoEvento[]
+
+  @@unique([companyId, origem, origemId])
+  @@index([companyId, tipo])
+}
+
+/// Uma parcela do lançamento: quando vence, quanto, por qual conta e forma.
+/// Vendeu R$ 3.000 em 3×? Um lançamento, três parcelas, três vencimentos.
+model FinParcela {
+  id           String        @id @default(cuid())
+  /// companyId repetido de propósito: a tela lista PARCELAS (por vencimento),
+  /// e o filtro multi-tenant (RN-013) tem que morar na linha que se lê
+  companyId    String
+  lancamentoId String
+  lancamento   FinLancamento @relation(fields: [lancamentoId], references: [id], onDelete: Cascade)
+  numero       Int
+  vencimento   DateTime
+  valor        Float
+  /// conta PREVISTA (por onde deve cair/sair) — a conta REAL é a da baixa
+  contaId      String?
+  conta        FinConta?     @relation(fields: [contaId], references: [id], onDelete: SetNull)
+  forma        String        @default("PIX") // PIX|BOLETO|DINHEIRO|CARTAO|DEBITO|TRANSFERENCIA|OUTRO
+  createdAt    DateTime      @default(now())
+
+  baixas FinBaixa[]
+
+  @@index([companyId, vencimento])
+  @@index([lancamentoId])
+}
+
+/// A BAIXA: o dinheiro andou de verdade. É ela que mexe no saldo da conta.
+///
+/// Três números, e a diferença entre eles importa:
+///   • `valor`    = o que ABATE da parcela (parcela de 100 paga = 100)
+///   • `desconto` = perdão concedido    → sai menos dinheiro da conta
+///   • `juros`    = multa/acréscimo     → entra/sai mais dinheiro
+///   • movimentado na conta = valor − desconto + juros (calculado, nunca gravado)
+model FinBaixa {
+  id           String     @id @default(cuid())
+  companyId    String
+  parcelaId    String
+  parcela      FinParcela @relation(fields: [parcelaId], references: [id], onDelete: Cascade)
+  contaId      String
+  conta        FinConta   @relation(fields: [contaId], references: [id])
+  data         DateTime
+  valor        Float
+  desconto     Float      @default(0)
+  juros        Float      @default(0)
+  observacao   String?
+  autorNome    String
+  /// baixa errada se ESTORNA (fica no histórico), nunca se apaga
+  estornadaEm  DateTime?
+  estornoAutor String?
+  createdAt    DateTime   @default(now())
+
+  @@index([companyId, data])
+  @@index([parcelaId])
+}
+
+/// Anexo do lançamento: foto do boleto, PDF da nota, comprovante.
+/// Data-URL no banco — mesma dívida técnica nº 1 das demais mídias.
+model FinAnexo {
+  id           String        @id @default(cuid())
+  companyId    String
+  lancamentoId String
+  lancamento   FinLancamento @relation(fields: [lancamentoId], references: [id], onDelete: Cascade)
+  fileName     String
+  arquivo      String
+  autorNome    String
+  createdAt    DateTime      @default(now())
+
+  @@index([lancamentoId])
+}
+
+/// Ocorrências: o histórico de quem mexeu no lançamento (mesma filosofia do
+/// histórico do pedido — dinheiro sem rastro é dinheiro em discussão).
+model FinLancamentoEvento {
+  id           String        @id @default(cuid())
+  lancamentoId String
+  lancamento   FinLancamento @relation(fields: [lancamentoId], references: [id], onDelete: Cascade)
+  descricao    String
+  autorNome    String
+  createdAt    DateTime      @default(now())
+
+  @@index([lancamentoId, createdAt])
 }

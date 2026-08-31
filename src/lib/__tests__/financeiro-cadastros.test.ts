@@ -63,7 +63,12 @@ describe("porteira do módulo (RN-027)", () => {
     }
   });
 
-  it("nenhuma rota do módulo tem DELETE: cadastro se arquiva, não se apaga", () => {
+  it("nenhuma rota do módulo tem DELETE, exceto o anexo", () => {
+    // Cadastro se ARQUIVA e lançamento se CANCELA — apagar quebraria extrato,
+    // DRE e conciliação. A ÚNICA exceção declarada é o anexo: anexou o boleto
+    // errado, tem que poder tirar (e a remoção fica no histórico). Mesma régua
+    // já usada no documento da ficha de funcionário (RN-025).
+    const PODEM_APAGAR = ["anexos"];
     const raiz = join(process.cwd(), "src/app/api/financeiro");
     const varrer = (dir: string): string[] =>
       readdirSync(dir).flatMap((f) => {
@@ -71,10 +76,12 @@ describe("porteira do módulo (RN-027)", () => {
         return statSync(p).isDirectory() ? varrer(p) : f === "route.ts" ? [p] : [];
       });
     for (const rota of varrer(raiz)) {
-      expect(
-        /export\s+(async\s+)?function\s+DELETE/.test(readFileSync(rota, "utf8")),
-        `${rota} exporta DELETE — cadastro do financeiro se ARQUIVA`
-      ).toBe(false);
+      const temDelete = /export\s+(async\s+)?function\s+DELETE/.test(
+        readFileSync(rota, "utf8")
+      );
+      const liberada = PODEM_APAGAR.some((p) => rota.includes(`/${p}/`));
+      if (temDelete)
+        expect(liberada, `${rota} exporta DELETE sem estar na exceção`).toBe(true);
     }
   });
 

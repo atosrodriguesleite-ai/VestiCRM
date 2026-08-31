@@ -25,6 +25,8 @@ import {
   Store,
   Activity,
   Wallet,
+  TrendingUp,
+  TrendingDown,
   ArrowLeft,
   Eye,
   PanelLeftClose,
@@ -82,6 +84,10 @@ const NAV = [
   { href: "/inteligencia", label: "Inteligência", icon: Brain, group: "Análise", managerOnly: true },
   { href: "/comissoes", label: "Comissões", icon: Percent, group: "Análise", managerOnly: true },
   { href: "/financeiro", label: "Financeiro", icon: Wallet, group: "Análise", managerOnly: true },
+  // módulo Financeiro completo (RN-027/RN-028, pago à parte): sem a chave, o
+  // menu nem aparece — a loja segue com a tela simples de contas a receber
+  { href: "/financeiro/contas-a-receber", label: "Contas a Receber", icon: TrendingUp, group: "Análise", managerOnly: true, financeOnly: true },
+  { href: "/financeiro/contas-a-pagar", label: "Contas a Pagar", icon: TrendingDown, group: "Análise", managerOnly: true, financeOnly: true },
   // Conexão do WhatsApp e log de entrega: trabalho operacional, então o
   // suporte entra junto com gerente e admin (vendedora não).
   { href: "/comunicacao", label: "Comunicação", icon: Radio, group: "Sistema", operacional: true },
@@ -124,6 +130,22 @@ const MOBILE_NAV_SUPPORT = [
 ];
 
 const GROUPS = ["Comercial", "Catálogo", "Relacionamento", "Análise", "Sistema", "Plataforma"];
+
+/**
+ * Qual item do menu acende. Vence o href MAIS ESPECÍFICO que casa com a
+ * rota: com "/financeiro" e "/financeiro/contas-a-receber" no mesmo menu, o
+ * `startsWith` sozinho acendia os dois e o "você está aqui" mentia.
+ */
+function itemAtivo(
+  pathname: string,
+  href: string,
+  todos: { href: string }[]
+): boolean {
+  if (!pathname.startsWith(href)) return false;
+  return !todos.some(
+    (i) => i.href !== href && i.href.startsWith(href) && pathname.startsWith(i.href)
+  );
+}
 
 /**
  * MENU DO DONO DA PLATAFORMA.
@@ -170,6 +192,8 @@ type ShellUser = {
   cutPlanEnabled?: boolean;
   // módulo Envios (pago à parte): idem
   shippingEnabled?: boolean;
+  // módulo Financeiro (pago à parte): idem
+  financeEnabled?: boolean;
   // módulo Marketing (pago à parte): idem
   marketingEnabled?: boolean;
   // Biblioteca de imagens (gated): sem a chave, o menu nem aparece
@@ -260,6 +284,9 @@ export function AppShell({
     if ("productionOnly" in i && i.productionOnly) return Boolean(user.productionEnabled);
     if ("cutPlanOnly" in i && i.cutPlanOnly) return Boolean(user.cutPlanEnabled);
     if ("shippingOnly" in i && i.shippingOnly) return Boolean(user.shippingEnabled);
+    if ("financeOnly" in i && i.financeOnly) {
+      if (!user.financeEnabled) return false;
+    }
     if ("marketingOnly" in i && i.marketingOnly && !user.marketingEnabled) return false;
     if ("mediaLibraryOnly" in i && i.mediaLibraryOnly) return Boolean(user.mediaLibraryEnabled);
     if ("aiOnly" in i && i.aiOnly && !user.aiSalesEnabled) return false;
@@ -387,7 +414,7 @@ export function AppShell({
               ))}
             <div className={`space-y-0.5 ${fechado ? "hidden" : ""}`}>
               {groupItems.map((item) => {
-                const active = pathname.startsWith(item.href);
+                const active = itemAtivo(pathname, item.href, items);
                 const Icon = item.icon;
                 return (
                   <Link
@@ -566,7 +593,7 @@ export function AppShell({
         {/* Bottom nav mobile */}
         <nav className="barra-inferior md:hidden fixed bottom-0 inset-x-0 z-40 bg-surface/90 backdrop-blur-xl border-t border-brand-900/10 flex items-stretch justify-around pb-[env(safe-area-inset-bottom)]">
           {mobileItems.map((item) => {
-            const active = pathname.startsWith(item.href);
+            const active = itemAtivo(pathname, item.href, items);
             const Icon = item.icon;
             return (
               <Link

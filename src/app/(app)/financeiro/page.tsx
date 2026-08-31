@@ -105,13 +105,15 @@ export default async function FinanceiroPage() {
     .sort((a, b) => b.total - a.total)
     .slice(0, 8);
 
+  const moduloCompleto = financeiroLiberado(user, company?.financeEnabled ?? false);
+
   return (
     <div className="max-w-6xl mx-auto">
       <PageHeader
-        title="Financeiro — Contas a Receber"
-        subtitle="Quem deve, quanto e desde quando — e o que já entrou no mês."
+        title="Financeiro — Pedidos a Receber"
+        subtitle="Quem deve dos PEDIDOS, quanto e desde quando — e o que já entrou no mês."
         action={
-          financeiroLiberado(user, company?.financeEnabled ?? false) ? (
+          moduloCompleto ? (
             <Link
               href="/financeiro/cadastros"
               className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-sm font-medium text-slate-700 hover:border-slate-300 hover:bg-slate-50"
@@ -121,6 +123,32 @@ export default async function FinanceiroPage() {
           ) : undefined
         }
       />
+
+      {/* módulo Financeiro completo (RN-028): os atalhos das telas de verdade.
+          Sem a chave, esta faixa não existe e a tela é a de sempre. */}
+      {moduloCompleto && (
+        <div className="mb-6 grid gap-3 sm:grid-cols-2">
+          <Link
+            href="/financeiro/contas-a-receber"
+            className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 transition hover:border-emerald-300 hover:bg-emerald-100"
+          >
+            <p className="font-semibold text-emerald-900">Contas a Receber</p>
+            <p className="text-sm text-emerald-700">
+              Tudo que a loja tem para receber, com parcelas e baixa — não só
+              os pedidos.
+            </p>
+          </Link>
+          <Link
+            href="/financeiro/contas-a-pagar"
+            className="rounded-2xl border border-rose-200 bg-rose-50 p-4 transition hover:border-rose-300 hover:bg-rose-100"
+          >
+            <p className="font-semibold text-rose-900">Contas a Pagar</p>
+            <p className="text-sm text-rose-700">
+              Fornecedores, aluguel, salários: o que vence e o que já foi pago.
+            </p>
+          </Link>
+        </div>
+      )}
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4 mb-6">
         <UITile

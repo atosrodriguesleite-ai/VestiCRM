@@ -441,6 +441,43 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   API nem tem DELETE: quando os lançamentos chegarem, apagar conta/categoria
   com histórico quebraria extrato e DRE. Clientes NÃO ganham cadastro novo: o
   financeiro usa a ficha do CRM.
+  **RN-028 · O LANÇAMENTO** (`lib/financeiro/lancamentos.ts`, telas
+  `/financeiro/contas-a-receber` e `/contas-a-pagar`): conta a receber e a
+  pagar são a MESMA peça, mudando o lado (`FinLancamento.tipo`) — cabeçalho →
+  **parcelas** (`FinParcela`) → **baixas** (`FinBaixa`, o dinheiro andando).
+  O **status NUNCA é digitado** (sai do vencimento + baixas) e **o vencimento
+  manda**: parcela paga pela metade E vencida é ATRASADA, não "parcial" — o
+  dinheiro está atrasado do mesmo jeito (antes ela entrava no card Atrasado
+  mas sumia ao filtrar por atrasado, e a lojista cobrava a metade errada da
+  lista). PARCIAL é o que tem parte paga e ainda não venceu. O **valor do
+  lançamento é a SOMA das parcelas**, calculada no servidor. **Centavo não some**: R$ 100 em 3× é
+  33,33 + 33,33 + **33,34** (a sobra vai para a última) e o vencimento
+  mensal do dia 31 cai no último dia do mês curto — nunca vaza para o mês
+  seguinte, que faria a parcela sumir do relatório. **Data é DIA, guardado ao
+  MEIO-DIA em UTC** (`dataDoDia`): meia-noite viraria o dia anterior em São
+  Paulo. Na baixa, **abatimento, desconto e juros são três números
+  diferentes** — a parcela de R$ 100 paga com R$ 10 de multa QUITA a parcela
+  e movimenta R$ 110 na conta; somá-los antes de gravar faz o extrato
+  divergir do banco. **Baixa parcial** é normal ("metade agora"), e **baixa
+  errada se ESTORNA** (fica riscada na ficha, com quem e quando), nunca se
+  apaga; desconto maior que o abatimento é recusado (moveria dinheiro
+  NEGATIVO na conta). Com baixa ativa não se cancela; **editar é mais
+  rígido — QUALQUER baixa, mesmo já estornada, trava a edição**: editar
+  refaz as parcelas e as baixas penduradas nelas iriam junto (o cascade
+  apagaria justamente o registro de que algo deu errado). Lançamento com
+  movimento se cancela e se refaz. Os **cards somam o período INTEIRO**, nunca
+  só as 500 linhas exibidas; no recorte por **liquidação** o card de
+  recebido/pago soma o que MOVIMENTOU na conta dentro da janela (com juros e
+  desconto) — é esse número que bate com o extrato do banco. A baixa roda em transação **SERIALIZÁVEL**: sem isso duas pessoas
+  dando baixa na mesma parcela ao mesmo tempo passam as duas pela conferência
+  e a parcela fica paga em dobro. Categoria escolhida tem que ser do MESMO
+  lado do lançamento (receita numa conta a pagar faria o DRE somar errado).
+  Anexos (boleto, comprovante) são data-URL e saem sempre como download com
+  `nosniff`; **o anexo é a ÚNICA coisa do módulo que se apaga** (anexou o
+  boleto errado), com registro no histórico. Lançamento com `origem` diferente
+  de MANUAL (Fase 4) não aceita edição de valor — a fonte da verdade é o
+  pedido, e o único (companyId, origem, origemId) garante "1 pedido = 1
+  lançamento".
 - **Envios** (gated por loja, `shippingEnabled`, pago à parte): tela própria
   no menu (`/envios`): painel (gasto do mês, aguardando postagem, em
   trânsito com alerta de **parado há 7+ dias**, entregues com tempo médio) +
