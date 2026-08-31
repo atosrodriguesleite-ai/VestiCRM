@@ -40,7 +40,7 @@ sem ambiguidade.
 | RN-011 | O aviso de pedido novo segue a separação por link: com `ref`, só ela; sem, gerência | `notifyNovoPedido` | `envio-pedido.test.ts` |
 | RN-012 | "Colar pedido do WhatsApp": preço sempre do nosso cadastro; linha sem cadastro fica de fora | `lib/catalogo/ler-mensagem.ts` | `ler-mensagem.test.ts` |
 | RN-013 | Toda query filtra por `companyId`, pelos helpers de `lib/scope.ts` | `lib/scope.ts` | `escopo-apis-lote1.test.ts` |
-| RN-014 | A Nuvemshop é a dona do estoque; casamento de produtos só por SKU; uma venda, uma baixa | `lib/nuvemshop.ts` | `nuvemshop-conferencia.test.ts` |
+| RN-014 | A Nuvemshop é a dona do estoque; casamento de produtos só por SKU; uma venda, uma baixa; a conferência solta o vínculo errado e conta só tarefa | `lib/nuvemshop.ts`, `lib/nuvemshop-conferencia.ts` | `nuvemshop-conferencia.test.ts` |
 | RN-015 | Anúncio → campanha é retroativo para quem não tem, nunca reescreve quem já tem | `lib/ad-match.ts` | `anuncio-campanha.test.ts` |
 | RN-016 | Nota AUTORIZADA → etiqueta com NF-e; sem nota → declaração de conteúdo | `lib/melhorenvio.ts` | `etiqueta-com-nfe.test.ts` |
 | RN-017 | WhatsApp: termo de aceite obrigatório antes do QR; envio proativo com ritmo humano | `lib/comm/evolution.ts` | `evolution.test.ts` |
