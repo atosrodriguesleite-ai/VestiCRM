@@ -23,6 +23,7 @@ import {
 } from "next/font/google";
 import { makeSwatch, mixHex, readableOn } from "@/lib/color";
 import { faltaParaOMinimo } from "@/lib/catalogo/tabelas-de-preco";
+import { CAMPOS_DO_PEDIDO, type ConfigCampo } from "@/lib/catalogo/campos-do-pedido";
 import {
   guardarPendente,
   protocoloDaSacola,
@@ -273,6 +274,7 @@ export function PublicCatalog({
   minOrder,
   minOrderMode,
   minOrderValue,
+  formFields = [],
   products,
   categoryOrder = [],
   categoryDescriptions = {},
@@ -293,6 +295,8 @@ export function PublicCatalog({
   minOrder: number;
   minOrderMode: "NONE" | "PECAS" | "VALOR";
   minOrderValue: number;
+  /** campos extras do pedido, escolhidos pela loja (RN-027); vazio = só nome/telefone/loja */
+  formFields?: ConfigCampo[];
   products: CatalogProduct[];
   categoryOrder?: string[];
   /** texto escrito pela lojista para cada categoria (Produtos → Categorias) */
@@ -459,6 +463,8 @@ export function PublicCatalog({
   const [bagOpen, setBagOpen] = useState(false);
   const [toast, setToast] = useState("");
   const [client, setClient] = useState({ loja: "", nome: "", fone: "" });
+  // campos extras que ESTA loja pediu (RN-027) — ex.: { CEP: "57000-000" }
+  const [extras, setExtras] = useState<Record<string, string>>({});
 
   // ---- Sacola persistente: sobrevive a sair do catálogo e voltar ----------
   // Guardada NO APARELHO do cliente (localStorage), separada por loja e por
@@ -494,8 +500,22 @@ export function PublicCatalog({
       }
       const rawClient = localStorage.getItem(clientKey);
       if (rawClient) {
-        const c = JSON.parse(rawClient) as { loja?: string; nome?: string; fone?: string };
+        const c = JSON.parse(rawClient) as {
+          loja?: string;
+          nome?: string;
+          fone?: string;
+          extras?: Record<string, string>;
+        };
         setClient({ loja: c.loja ?? "", nome: c.nome ?? "", fone: c.fone ?? "" });
+        // volta só o que a loja AINDA pede (configuração pode ter mudado)
+        if (c.extras) {
+          const volta: Record<string, string> = {};
+          for (const f of formFields) {
+            const v = c.extras[f.campo];
+            if (typeof v === "string" && v) volta[f.campo] = v;
+          }
+          if (Object.keys(volta).length) setExtras(volta);
+        }
       }
     } catch {}
     cartLoadedRef.current = true;
@@ -566,10 +586,10 @@ export function PublicCatalog({
   useEffect(() => {
     if (!cartLoadedRef.current) return;
     try {
-      if (client.loja || client.nome || client.fone)
-        localStorage.setItem(clientKey, JSON.stringify(client));
+      if (client.loja || client.nome || client.fone || Object.keys(extras).length)
+        localStorage.setItem(clientKey, JSON.stringify({ ...client, extras }));
     } catch {}
-  }, [client, clientKey]);
+  }, [client, extras, clientKey]);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const sectionRefs = useRef<Record<string, HTMLElement | null>>({});
   const catNavRef = useRef<HTMLDivElement | null>(null);
@@ -919,6 +939,15 @@ export function PublicCatalog({
       );
       return;
     }
+    // campos extras que ESTA loja marcou como obrigatórios (RN-027) — a
+    // trava é aqui no formulário; o servidor aceita sem (pedido não se perde)
+    for (const f of formFields) {
+      if (f.obrigatorio && !(extras[f.campo] ?? "").trim()) {
+        openBag();
+        showToast(`Preencha o campo ${CAMPOS_DO_PEDIDO[f.campo].rotulo} para enviar o pedido`);
+        return;
+      }
+    }
     let msg = `*Novo pedido — ${storeName}*\n`;
     if (promo) msg += `_Campanha: ${promo.name} (${promo.discount}% OFF)_\n`;
     // TABELA DE PREÇO no texto: é por esta linha que o "Colar pedido do
@@ -947,6 +976,12 @@ export function PublicCatalog({
       if (client.loja) msg += `Loja: ${client.loja}\n`;
       if (client.nome) msg += `Nome: ${client.nome}\n`;
       if (client.fone) msg += `Telefone: ${client.fone}\n`;
+      // os campos extras da loja também vão na mensagem: é onde a vendedora
+      // lê o pedido primeiro (e o "Colar pedido do WhatsApp" preserva tudo)
+      for (const f of formFields) {
+        const v = (extras[f.campo] ?? "").trim();
+        if (v) msg += `${CAMPOS_DO_PEDIDO[f.campo].rotulo}: ${v}\n`;
+      }
     }
     msg += "\n_Valores sujeitos a confirmação._";
 
@@ -986,6 +1021,16 @@ export function PublicCatalog({
           name: client.nome || undefined,
           phone: client.fone || undefined,
           store: client.loja || undefined,
+          // campos extras (RN-027): a chave do payload vem do cardápio — o
+          // mesmo lugar que o servidor lê, para nada se perder no caminho
+          ...Object.fromEntries(
+            formFields
+              .map(({ campo }) => [
+                CAMPOS_DO_PEDIDO[campo].payload,
+                (extras[campo] ?? "").trim() || undefined,
+              ])
+              .filter(([, v]) => v !== undefined)
+          ),
         },
         message: msg,
         // atribuição do link rastreado: vendedor (?ref) e cliente (?c) — da
@@ -2142,6 +2187,45 @@ export function PublicCatalog({
                     />
                   </div>
                 ))}
+                {/* campos extras escolhidos POR ESTA loja (RN-027) */}
+                {formFields.map(({ campo, obrigatorio }) => {
+                  const def = CAMPOS_DO_PEDIDO[campo];
+                  return (
+                    <div key={campo} className="mb-[11px]">
+                      <label
+                        className="block text-[11px] uppercase font-bold mb-1.5"
+                        style={{ color: T.primary, letterSpacing: ".08em" }}
+                      >
+                        {def.rotulo}
+                        {obrigatorio ? " *" : ""}
+                      </label>
+                      <input
+                        value={extras[campo] ?? ""}
+                        // CEP no teclado de números (mesma lição do telefone)
+                        {...(campo === "CEP"
+                          ? { inputMode: "numeric" as const, autoComplete: "postal-code" }
+                          : {})}
+                        maxLength={def.max}
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          setExtras((x) => ({ ...x, [campo]: v }));
+                        }}
+                        onFocus={(e) => {
+                          // teclado aberto: centraliza o campo dentro da folha
+                          const el = e.currentTarget;
+                          setTimeout(
+                            () => el.scrollIntoView({ block: "center", behavior: "smooth" }),
+                            300
+                          );
+                        }}
+                        placeholder={def.exemplo}
+                        // 16px: fonte menor faz o iOS dar zoom automático no foco
+                        className="w-full rounded-xl border px-3.5 py-[13px] text-[16px] bg-white outline-none"
+                        style={{ borderColor: T.line }}
+                      />
+                    </div>
+                  );
+                })}
               </div>
             </>
           )}

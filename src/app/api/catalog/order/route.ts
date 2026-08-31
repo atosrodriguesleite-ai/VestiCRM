@@ -5,6 +5,13 @@ import { imageHref } from "@/lib/img";
 import { corIgual } from "@/lib/capa-por-cor";
 import { intakeLead, normalizePhone } from "@/lib/intake";
 import { telefoneDoPedido } from "@/lib/catalogo/telefone-do-pedido";
+import {
+  CAMPOS_DO_PEDIDO,
+  dadosAceitos,
+  lerCamposDaLoja,
+  type CampoDoPedido,
+  type FichaCampo,
+} from "@/lib/catalogo/campos-do-pedido";
 import { atribuirCampanhaPorUtm, resolveRef } from "@/lib/tracking/engine";
 import {
   reservarOQueTiver,
@@ -62,6 +69,15 @@ const schema = z.object({
       name: z.string().max(120).optional(),
       phone: z.string().max(30).optional(),
       store: z.string().max(120).optional(),
+      // campos EXTRAS configuráveis por loja (RN-027). Todos opcionais AQUI
+      // de propósito: o reenvio automático (RN-010) guarda payload antigo, e
+      // pedido não pode ser recusado por campo que faltou — quem obriga é o
+      // formulário. O servidor só aproveita o que a loja configurou.
+      cep: z.string().max(60).optional(),
+      endereco: z.string().max(240).optional(),
+      bairro: z.string().max(160).optional(),
+      cidade: z.string().max(160).optional(),
+      estado: z.string().max(80).optional(),
     })
     .optional(),
   message: z.string().max(10000).optional(), // texto enviado no WhatsApp
@@ -80,6 +96,74 @@ const schema = z.object({
   /** sessão da Tracking Engine que gerou o pedido (faturamento por canal) */
   trackSessionId: z.string().max(60).optional(),
 });
+
+// rótulo humano de cada coluna que os campos extras alcançam (RN-027)
+const ROTULO_DA_FICHA: Record<FichaCampo, string> = {
+  zip: "CEP",
+  street: "Endereço",
+  streetNumber: "Número",
+  district: "Bairro",
+  city: "Cidade",
+  state: "Estado",
+};
+
+/**
+ * Aplica os campos extras do formulário (RN-027) na ficha — só o que MUDOU.
+ * A detecção de mudança é o que deixa o reenvio automático (RN-010)
+ * inofensivo: repetir o mesmo payload não grava evento duplicado na linha do
+ * tempo, e o reenvio com o dado CORRIGIDO (mesma sacola, CEP novo) chega à
+ * ficha mesmo quando o pedido já existe. Devolve as linhas aceitas (para as
+ * notas do pedido) e o recorte (para o endereço do envio).
+ */
+async function aplicarCamposExtras(
+  company: { id: string; catalogFormFields: string },
+  customerId: string,
+  doPayload: Record<string, string | undefined>
+) {
+  const digitado: Partial<Record<CampoDoPedido, string | undefined>> = {};
+  for (const [campo, def] of Object.entries(CAMPOS_DO_PEDIDO)) {
+    digitado[campo as CampoDoPedido] = doPayload[def.payload];
+  }
+  const aceitos = dadosAceitos(lerCamposDaLoja(company.catalogFormFields), digitado);
+  const linhas = (Object.keys(ROTULO_DA_FICHA) as FichaCampo[])
+    .filter((k) => aceitos[k] !== undefined)
+    .map((k) => `${ROTULO_DA_FICHA[k]}: ${aceitos[k]}`);
+  if (linhas.length === 0) return { linhas, aceitos };
+
+  const atual = await db.customer.findFirst({
+    where: { id: customerId, companyId: company.id },
+    select: { zip: true, street: true, streetNumber: true, district: true, city: true, state: true },
+  });
+  const mudou = atual
+    ? Object.fromEntries(
+        Object.entries(aceitos).filter(([k, v]) => atual[k as FichaCampo] !== v)
+      )
+    : {};
+  if (atual && Object.keys(mudou).length > 0) {
+    // o que a cliente diz do próprio endereço VALE (régua da RN-024);
+    // campo em branco nem chega aqui, então nada é apagado
+    await db.customer.updateMany({
+      where: { id: customerId, companyId: company.id },
+      data: mudou,
+    });
+    // rastro na linha do tempo: a loja precisa saber que foi a CLIENTE quem
+    // preencheu, e quando — mesma transparência do link de dados de envio
+    await db.customerEvent.create({
+      data: {
+        companyId: company.id,
+        customerId,
+        type: "OUTRO",
+        channel: "CATALOGO_PUBLICO",
+        description: `Dados preenchidos pela própria cliente no pedido do catálogo — ${(
+          Object.keys(mudou) as FichaCampo[]
+        )
+          .map((k) => `${ROTULO_DA_FICHA[k]}: ${mudou[k]}`)
+          .join(" · ")}`,
+      },
+    });
+  }
+  return { linhas, aceitos };
+}
 
 export async function POST(req: NextRequest) {
   const parsed = schema.safeParse(await req.json().catch(() => null));
@@ -132,9 +216,14 @@ export async function POST(req: NextRequest) {
       where: {
         companyId_clientRef: { companyId: company.id, clientRef: input.clientRef },
       },
-      select: { id: true, number: true },
+      select: { id: true, number: true, customerId: true },
     });
     if (jaExiste) {
+      // reenvio da MESMA sacola com um dado corrigido (a cliente errou o CEP
+      // e mandou de novo): o pedido já existe, mas a correção não pode se
+      // perder — a detecção de mudança dentro do aplicarCamposExtras é o que
+      // impede o reenvio idêntico de duplicar evento na linha do tempo
+      await aplicarCamposExtras(company, jaExiste.customerId, input.customer ?? {});
       return NextResponse.json(
         { ok: true, orderId: jaExiste.id, number: jaExiste.number, jaRegistrado: true },
         { status: 200 }
@@ -451,11 +540,26 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  // ---- Campos extras do formulário (RN-027) ----
+  // Recorte por lista: só entra na ficha o que a LOJA configurou pedir — o
+  // resto do payload é descartado, venha de onde vier.
+  const { linhas: linhasDosExtras, aceitos: dadosExtras } = await aplicarCamposExtras(
+    company,
+    customerId,
+    input.customer ?? {}
+  );
+  // o endereço que acompanha o pedido (mapa de envios) usa o que ela
+  // ACABOU de dizer, não a cópia antiga da ficha
+  if (dadosExtras.city) customerCity = dadosExtras.city;
+  if (dadosExtras.state) customerState = dadosExtras.state;
+
   const noteLines = [
     "Pedido recebido pelo catálogo público.",
     input.customer?.store ? `Loja: ${input.customer.store}` : null,
     input.customer?.name ? `Nome: ${input.customer.name}` : null,
     input.customer?.phone ? `Telefone: ${input.customer.phone}` : null,
+    // os campos extras que a loja pediu ficam escritos no pedido (RN-027)
+    ...linhasDosExtras,
     telefoneDivergente
       ? `⚠️ A cliente digitou um telefone diferente do WhatsApp dela (${telefoneDoLink}). O pedido ficou no cadastro do WhatsApp, que é o número por onde ela fala — confira qual está certo.`
       : null,

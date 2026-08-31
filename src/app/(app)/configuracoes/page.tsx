@@ -29,6 +29,7 @@ import { MercadoPagoConnect, InfinitePayConnect, BlingConnect } from "./pagament
 import { MelhorEnvioConnect } from "./envios-connect";
 import { isAdmin, isSupport, podeOperarIntegracoes } from "@/lib/scope";
 import type { Origin } from "@prisma/client";
+import { lerCamposDaLoja } from "@/lib/catalogo/campos-do-pedido";
 
 export const dynamic = "force-dynamic";
 
@@ -183,6 +184,7 @@ export default async function SettingsPage({
                 minOrder: company.minOrder,
                 minOrderMode: company.minOrderMode as "NONE" | "PECAS" | "VALOR",
                 minOrderValue: company.minOrderValue,
+                formFields: lerCamposDaLoja(company.catalogFormFields),
               }}
             />
           </div>

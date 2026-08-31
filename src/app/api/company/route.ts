@@ -3,6 +3,7 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import { requireUser, AuthError } from "@/lib/auth";
 import { isAdmin, isSupport } from "@/lib/scope";
+import { CAMPOS_DO_PEDIDO, type CampoDoPedido } from "@/lib/catalogo/campos-do-pedido";
 
 const hexColor = z.string().regex(/^#[0-9a-fA-F]{6}$/, "Cor inválida");
 
@@ -35,6 +36,18 @@ const schema = z.object({
   catalogFont: z
     .enum(["montserrat", "inter", "poppins", "playfair", "lora"])
     .optional(),
+  // campos EXTRAS do pedido do catálogo (RN-027): cardápio fechado, cada um
+  // com a chavinha de obrigatório; lista vazia = formulário de sempre
+  catalogFormFields: z
+    .array(
+      z.object({
+        // derivado do cardápio: campo novo lá entra aqui sozinho
+        campo: z.enum(Object.keys(CAMPOS_DO_PEDIDO) as [CampoDoPedido, ...CampoDoPedido[]]),
+        obrigatorio: z.boolean(),
+      })
+    )
+    .max(10)
+    .optional(),
 });
 
 /** Configurações da loja (admin): nome, frase e WhatsApp do catálogo público. */
@@ -55,7 +68,7 @@ export async function PATCH(req: NextRequest) {
     if (!isAdmin(user) && !(isSupport(user) && soOrdem) && !soVitrineEstoque) {
       return NextResponse.json({ error: "Sem permissão" }, { status: 403 });
     }
-    const { categoryOrder, ...data } = parsed.data;
+    const { categoryOrder, catalogFormFields, ...data } = parsed.data;
     if (data.whatsapp) data.whatsapp = data.whatsapp.replace(/\D/g, "");
 
     if (data.slug !== undefined) {
@@ -93,6 +106,10 @@ export async function PATCH(req: NextRequest) {
         ...data,
         ...(categoryOrder !== undefined
           ? { categoryOrder: JSON.stringify(categoryOrder) }
+          : {}),
+        // mesmo padrão do categoryOrder: JSON em texto, dedup na leitura
+        ...(catalogFormFields !== undefined
+          ? { catalogFormFields: JSON.stringify(catalogFormFields) }
           : {}),
       },
     });
