@@ -9,6 +9,7 @@ import {
   parseCategoryTypes,
 } from "@/lib/categories";
 import { type LinkDeCatalogo } from "@/lib/catalogo/tabelas-de-preco";
+import { lerCamposDaLoja } from "@/lib/catalogo/campos-do-pedido";
 import { resolverLink } from "@/lib/catalogo/tabelas-de-preco-servidor";
 import { PublicCatalog, type CatalogProduct } from "./public-catalog";
 
@@ -105,6 +106,7 @@ export async function montarCatalogo({
       minOrder={company.minOrder}
       minOrderMode={company.minOrderMode as "NONE" | "PECAS" | "VALOR"}
       minOrderValue={company.minOrderValue}
+      formFields={lerCamposDaLoja(company.catalogFormFields)}
       products={items}
       categoryOrder={parseCategoryOrder(company.categoryOrder)}
       categoryDescriptions={parseCategoryDescriptions(company.categoryDescriptions)}

@@ -213,6 +213,19 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   EXIGIDO (soma todas as cores e tamanhos do mesmo produto). Link que não vale
   mais RECUSA o pedido — nunca cai no varejo em silêncio. **Loja que não ativa
   o recurso não muda em NADA**: mesmo link, mesmo preço, sem trava de mínimo.
+  **RN-027 · Campos do pedido escolhidos por loja**
+  (`lib/catalogo/campos-do-pedido.ts`, 31/08/2026): além de nome e telefone,
+  a loja escolhe em Configurações → Catálogo quais campos o pedido pergunta
+  — CEP, endereço, bairro, cidade, UF — cada um com chavinha de obrigatório
+  (uma loja cota frete pelo CEP, outra entrega de motoboy e vive de bairro).
+  Cardápio FECHADO: cada campo cai numa coluna da ficha da cliente (campo
+  livre viraria dado sem casa). O que ela preenche VALE na ficha (régua da
+  RN-024; em branco não apaga nada) e fica escrito no pedido e na mensagem.
+  **Recorte por lista no servidor**: a rota só aceita o que a loja
+  configurou. **Obrigatório trava só o navegador** — o servidor aceita o
+  pedido sem o campo, porque pedido do catálogo não pode se perder (RN-010)
+  e o reenvio automático guarda payload antigo. Loja que não configurar
+  nada não muda em NADA.
   **RN-012** · Resgate manual: **"Colar pedido do WhatsApp"** na tela Pedidos
   (`lib/catalogo/ler-mensagem.ts` + `/api/orders/ler-mensagem`) — lê a
   mensagem do catálogo, casa com o catálogo da loja (nome mais longo vence

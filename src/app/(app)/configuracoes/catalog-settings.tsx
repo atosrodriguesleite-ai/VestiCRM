@@ -4,8 +4,13 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Check, Copy, ExternalLink } from "lucide-react";
 import { Card } from "@/components/ui";
+import {
+  CAMPOS_DO_PEDIDO,
+  type CampoDoPedido,
+  type ConfigCampo,
+} from "@/lib/catalogo/campos-do-pedido";
 
-/** Personalização do catálogo público (nome, frase, WhatsApp, mínimo). */
+/** Personalização do catálogo público (nome, frase, WhatsApp, mínimo, campos do pedido). */
 export function CatalogSettings({
   slug,
   catalogDomain,
@@ -21,6 +26,7 @@ export function CatalogSettings({
     minOrder: number;
     minOrderMode: "NONE" | "PECAS" | "VALOR";
     minOrderValue: number;
+    formFields: ConfigCampo[];
   };
   canEdit: boolean;
 }) {
@@ -33,6 +39,9 @@ export function CatalogSettings({
     minOrder: String(initial.minOrder),
     minOrderValue: initial.minOrderValue ? String(initial.minOrderValue) : "",
   });
+  // campos extras do pedido (RN-027): o que a loja pede além de nome/telefone
+  const [formFields, setFormFields] = useState<ConfigCampo[]>(initial.formFields);
+  const configDe = (campo: CampoDoPedido) => formFields.find((f) => f.campo === campo);
   const [slugForm, setSlugForm] = useState(slug);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -75,6 +84,7 @@ export function CatalogSettings({
           form.minOrderMode === "VALOR"
             ? parseFloat(form.minOrderValue.replace(",", ".")) || 0
             : 0,
+        catalogFormFields: formFields,
       }),
     });
     setSaving(false);
@@ -242,6 +252,61 @@ export function CatalogSettings({
               O cliente pode enviar o pedido com qualquer quantidade ou valor.
             </p>
           )}
+        </div>
+
+        {/* Campos extras do pedido (RN-027): cada loja pede o que precisa */}
+        <div className="sm:col-span-2">
+          <label className={label}>O que o pedido pergunta ao cliente</label>
+          <p className="mb-2 text-xs text-gray-400 leading-snug">
+            Nome e telefone são sempre pedidos. Marque o que mais a sua loja
+            precisa — o que o cliente preencher entra direto no cadastro dele.
+          </p>
+          <div className="space-y-2">
+            {(Object.keys(CAMPOS_DO_PEDIDO) as CampoDoPedido[]).map((campo) => {
+              const cfg = configDe(campo);
+              return (
+                <div
+                  key={campo}
+                  className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-gray-200 px-3 py-2.5"
+                >
+                  <label className="flex items-center gap-2 text-sm text-gray-700">
+                    <input
+                      type="checkbox"
+                      disabled={!canEdit}
+                      checked={!!cfg}
+                      onChange={(e) =>
+                        setFormFields((atual) =>
+                          e.target.checked
+                            ? [...atual, { campo, obrigatorio: false }]
+                            : atual.filter((f) => f.campo !== campo)
+                        )
+                      }
+                      className="size-4 accent-brand-600"
+                    />
+                    {CAMPOS_DO_PEDIDO[campo].rotulo}
+                  </label>
+                  {cfg && (
+                    <label className="flex items-center gap-1.5 text-xs text-gray-500">
+                      <input
+                        type="checkbox"
+                        disabled={!canEdit}
+                        checked={cfg.obrigatorio}
+                        onChange={(e) =>
+                          setFormFields((atual) =>
+                            atual.map((f) =>
+                              f.campo === campo ? { ...f, obrigatorio: e.target.checked } : f
+                            )
+                          )
+                        }
+                        className="size-3.5 accent-brand-600"
+                      />
+                      obrigatório para enviar
+                    </label>
+                  )}
+                </div>
+              );
+            })}
+          </div>
         </div>
       </div>
 
