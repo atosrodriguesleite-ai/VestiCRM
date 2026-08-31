@@ -475,6 +475,9 @@ model SystemHealth {
   id                 String    @id
   watchdogRunAt      DateTime? // última rodada do vigia (trava anti-corrida)
   trackingRunAt      DateTime? // última varredura de rastreio (mesma trava)
+  // RN-028: última repesca de arquivo que não chegou (mesma trava atômica —
+  // trabalho periódico novo pega carona no tráfego, nunca vira cron: ADR-002)
+  midiaRunAt         DateTime?
   evolutionOk        Boolean   @default(true) // servidor Evolution no ar?
   evolutionDownSince DateTime?
   errorAlertAt       DateTime? // último push de erro (anti-spam)
@@ -875,6 +878,21 @@ model Message {
   revoked        Boolean          @default(false) // apagada para todos
   revokedBy      String? // "CUSTOMER" (o cliente apagou) | "STORE" (a loja apagou)
 
+  // ARQUIVO QUE AINDA NÃO CHEGOU (RN-028).
+  //
+  // A bolha nasce ANTES do download: primeiro a mensagem existe, depois o
+  // arquivo vem. Antes era o contrário — o webhook baixava a mídia e só
+  // então gravava — e um lote de fotos estourava o tempo da função no meio,
+  // levando junto todas as mensagens que ainda não tinham sido gravadas.
+  //
+  // `mediaPending` = o WhatsApp tem o arquivo e nós ainda não. É a fila que
+  // a repesca varre; `mediaNextTryAt` espaça as tentativas (o servidor pode
+  // estar ocupado) e `mediaTries` conta para saber quando parar.
+  mediaPending   Boolean          @default(false)
+  mediaTries     Int              @default(0)
+  mediaError     String?
+  mediaNextTryAt DateTime?
+
   @@index([conversationId, createdAt])
   // sync incremental da inbox: "o que mudou nesta conversa desde X"
   @@index([conversationId, updatedAt])
@@ -888,6 +906,10 @@ model Message {
   // Mensagem nossa nasce sem `externalId` (nulo não conflita no Postgres) e
   // recebe o id verdadeiro quando o eco volta.
   @@unique([conversationId, externalId])
+  // A FILA DA REPESCA: "o que ainda falta baixar, e o que já pode tentar de
+  // novo". Sem índice, a varredura de carona no tráfego leria a tabela de
+  // mensagens inteira a cada rodada.
+  @@index([mediaPending, mediaNextTryAt])
 }
 
 enum TemplateCategory {

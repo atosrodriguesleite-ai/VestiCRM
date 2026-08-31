@@ -80,3 +80,42 @@ describe("rotas de intake: fail-closed sem INTAKE_SECRET", () => {
     expect(rota).not.toContain("if (secret && req.headers.get");
   });
 });
+
+/**
+ * AUDITORIA DO WHATSAPP (31/08/2026) — antes de o módulo virar a base de um
+ * produto novo. Dois buracos na porta do WhatsApp oficial:
+ *
+ *  1. A assinatura da Meta só era conferida SE a loja tivesse App Secret
+ *     salvo. Sem ele, quem descobrisse o `phone_number_id` (que não é
+ *     segredo) injetava mensagem falsa dentro da loja — criando cliente,
+ *     conversa e lead em nome de gente que nunca escreveu. É o MESMO
+ *     fail-open que o lote 0 fechou no formato simulado, sobrevivendo no
+ *     formato oficial ao lado.
+ *  2. O verify token era comparado com `===`: comparação de segredo que para
+ *     no primeiro caractere diferente entrega o token pelo relógio.
+ */
+describe("porta do WhatsApp oficial (Meta): só entra quem prova que é a Meta", () => {
+  const rota = ler("src/app/api/whatsapp/webhook/route.ts");
+
+  it("sem App Secret configurado, NADA entra", () => {
+    expect(rota).toContain("if (!settings.metaAppSecret)");
+    // o jeito antigo — validar só quando o segredo existe — não pode voltar
+    expect(rota).not.toContain("if (settings.metaAppSecret) {");
+  });
+
+  it("assinatura que não confere é recusada", () => {
+    expect(rota).toContain("assinaturaOk");
+    expect(rota).toContain("timingSafeEqual");
+  });
+
+  it("recusa não é silenciosa: fica registrada para a loja descobrir por quê", () => {
+    // silêncio aqui repetiria o defeito que a RN-028 existe para matar —
+    // mensagem que não entra e não deixa rastro
+    expect(rota).toContain("webhook.recusado");
+  });
+
+  it("o verify token é comparado em tempo constante", () => {
+    expect(rota).toContain("tokenConfere");
+    expect(rota).not.toContain("decryptSecret(s.verifyToken!) === token");
+  });
+});

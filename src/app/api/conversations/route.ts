@@ -8,6 +8,7 @@ import { runWatchdogIfDue } from "@/lib/health";
 import { atualizarRastreiosSeDevido } from "@/lib/rastreio";
 import { varrerCarrinhosSeDeuAHora } from "@/lib/recuperacao";
 import { sincronizarFotosSeDevido } from "@/lib/comm/fotos";
+import { repescarMidiasPendentes } from "@/lib/comm/midia-pendente";
 import { runAutomationsIfDue } from "@/lib/automations-run";
 
 /**
@@ -16,6 +17,16 @@ import { runAutomationsIfDue } from "@/lib/automations-run";
  * nova, recibo ✓✓, transferência, status...). `now` volta para ancorar a
  * próxima consulta no relógio do servidor (imune a relógio errado no cliente).
  */
+/**
+ * A rota mais movimentada do app é também a que dá CARONA para o trabalho
+ * periódico (vigia, rastreio, fotos, automações e a repesca de arquivos da
+ * RN-028). Tudo isso roda DEPOIS da resposta (`after`) — a inbox nunca
+ * espera —, mas ainda dentro da vida da função: sem um teto declarado, uma
+ * rodada de repesca podia ser cortada no meio e perder o minuto inteiro
+ * (a trava é tomada antes do trabalho). Achado da revisão de 31/08/2026.
+ */
+export const maxDuration = 60;
+
 export async function GET(req: NextRequest) {
   try {
     const user = await requireUser();
@@ -31,6 +42,10 @@ export async function GET(req: NextRequest) {
     // fotos das clientes: pega carona aqui, DEPOIS da resposta, e com freio
     // (uma varredura a cada 30 min por loja). A tela nunca espera por foto.
     after(() => sincronizarFotosSeDevido(user.companyId));
+    // ARQUIVO QUE NÃO CHEGOU (RN-028): a fila é varrida aqui, na rota mais
+    // movimentada do app, no máximo uma vez por minuto no sistema inteiro.
+    // Sem cron novo — um 3º cron bloqueia TODOS os deploys (ADR-002).
+    after(() => repescarMidiasPendentes());
     // AUTOMAÇÕES COMERCIAIS também pegam carona (uma rodada por dia por loja,
     // travada no banco). É o que faz o motor rodar sozinho SEM gastar uma das
     // 2 vagas de cron da Vercel — que já estão ocupadas, e um 3º cron bloqueia

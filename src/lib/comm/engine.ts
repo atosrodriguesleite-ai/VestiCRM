@@ -548,6 +548,13 @@ export type ReceiveMessageInput = {
   mediaUrl?: string;
   fileName?: string;
   externalId?: string;
+  /**
+   * RN-028: a mensagem nasce ANTES do arquivo. `true` = o WhatsApp tem a
+   * mídia e nós ainda não — a bolha já existe e o arquivo entra depois
+   * (busca imediata ou repesca). Sem isso, a bolha só nascia depois do
+   * download e um lote pesado levava as mensagens seguintes embora.
+   */
+  mediaPending?: boolean;
 };
 
 /** Entrada de mensagem (webhook) — delega ao Lead Intake Engine. */
@@ -582,6 +589,7 @@ export async function receiveMessage(
           mediaUrl: input.mediaUrl,
           fileName: input.fileName,
           externalId: input.externalId,
+          mediaPending: input.mediaPending ?? false,
           status: "RECEBIDA",
         },
       });

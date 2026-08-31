@@ -24,6 +24,7 @@ import {
   CheckCheck,
   Clock,
   AlertTriangle,
+  Loader2,
   RotateCcw,
   Flag,
   Inbox as InboxIcon,
@@ -117,6 +118,10 @@ export type InboxMessage = {
   reaction: string | null;
   /** emoji com que a LOJA reagiu a esta mensagem */
   reactionStore: string | null;
+  /** RN-028: o arquivo existe no WhatsApp e ainda está vindo para cá */
+  mediaPending?: boolean;
+  /** RN-028: o arquivo não vem mais — por quê (para a bolha não mentir) */
+  mediaErro?: string | null;
 };
 
 export type InboxConversation = {
@@ -295,6 +300,32 @@ function MediaContent({
   /** clique na foto abre o visor em tela cheia (com zoom) */
   aoAbrirFoto?: (src: string) => void;
 }) {
+  // ARQUIVO A CAMINHO OU QUE NÃO CHEGOU (RN-028).
+  //
+  // Antes, mídia sem arquivo virava uma bolha muda: a vendedora via um texto
+  // seco e não sabia se faltava algo, se tinha falhado ou se era para
+  // esperar. Agora a bolha DIZ em que pé está — e o sistema segue buscando
+  // sozinho enquanto disser "chegando".
+  if (m.mediaType !== "TEXT" && !m.mediaUrl && (m.mediaPending || m.mediaErro)) {
+    return (
+      <span className="flex items-center gap-2 rounded-xl bg-black/10 px-3 py-2 mb-1 text-xs">
+        {m.mediaPending ? (
+          <>
+            <Loader2 className="size-3.5 shrink-0 animate-spin" />
+            <span>Arquivo chegando…</span>
+          </>
+        ) : (
+          <>
+            <AlertTriangle className="size-3.5 shrink-0" />
+            <span>
+              O arquivo não chegou — abra o WhatsApp para vê-lo
+              {m.fileName ? ` (${m.fileName})` : ""}
+            </span>
+          </>
+        )}
+      </span>
+    );
+  }
   if (m.mediaType === "IMAGE" && m.mediaUrl) {
     return (
       <img

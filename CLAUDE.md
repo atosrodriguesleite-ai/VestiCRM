@@ -366,7 +366,32 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   resposta em janela de 24h sai na hora; envio proativo com ritmo humano
   4-9s; termo de aceite obrigatório registrado (sem aceite, sem QR Code). `CloudApiProvider` (Meta
   oficial) pronto na estrutura. Tudo logado em `CommEvent` (Central de
-  Comunicação).
+  Comunicação). **A porta do WhatsApp oficial é fail-closed** (auditoria
+  31/08/2026): sem o App Secret da Meta configurado, a loja NÃO ingere nada —
+  antes a assinatura só era conferida quando o segredo existia, e quem
+  descobrisse o `phone_number_id` (que não é segredo) injetava mensagem falsa
+  criando cliente, conversa e lead em nome de gente que nunca escreveu. Recusa
+  fica registrada (`webhook.recusado`), nunca em silêncio.
+- **RN-028 · O ARQUIVO DA CLIENTE NÃO SE PERDE**
+  (`lib/comm/midia-pendente.ts`, 31/08/2026 — ADR-015): o webhook não recebe o
+  arquivo, recebe o AVISO de que ele existe, e precisa buscá-lo. O código
+  baixava ANTES de gravar, e isso tinha dois buracos: (1) o webhook vivia 30s
+  e cada download podia levar 45 — um lote de fotos, ou um documento lento,
+  fazia a Vercel matar a execução no meio e as mensagens ainda não gravadas
+  **sumiam sem rastro** (nem o registro de erro rodava); (2) falhou uma vez,
+  perdeu para sempre — ninguém tentava de novo, nada ficava registrado. Agora
+  a **mensagem nasce PRIMEIRO**, marcada como `mediaPending`, e o arquivo vem
+  depois, com **orçamento de tempo** (12s por arquivo, 25s no lote, função de
+  60s): estourou, as mensagens seguintes continuam sendo gravadas na hora e só
+  o arquivo delas vai para a **fila de repesca** (espera crescente 1min → 6h,
+  de carona no tráfego com trava — nunca cron novo, ADR-002). A repesca TOCA a
+  conversa, senão o arquivo chegava ao banco e ficava invisível na tela (mesmo
+  buraco da edição, da reação e do apagar). **Desistir é explícito**: sai da
+  fila, a bolha DIZ que o arquivo não chegou e o caso vai para a Saúde e para
+  a Central de Comunicação com o nome do arquivo. A tela mostra "Arquivo
+  chegando…" enquanto a fila trabalha. Teto de ~12MB continua (a mídia mora
+  como data-URL no banco, dívida nº 1): acima disso desiste NA HORA e avisa,
+  em vez de insistir numa porta que não abre.
 - **RN-024 · Dados de envio pela própria cliente** (`lib/dados-envio.ts`):
   o botão 📦 do chat manda um link e a CLIENTE preenche o próprio cadastro —
   endereço, CPF **ou** CNPJ (PJ abre razão social + inscrição estadual), com
