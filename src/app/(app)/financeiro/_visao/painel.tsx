@@ -263,6 +263,7 @@ export async function PainelFinanceiro({
           { href: "/financeiro/extrato", nome: "Extrato", cor: "sky" },
           { href: "/financeiro/contas-fixas", nome: "Contas fixas", cor: "violet" },
           { href: "/financeiro/fluxo-de-caixa", nome: "Fluxo de caixa", cor: "sky" },
+          { href: "/financeiro/conciliacao", nome: "Conferir com o banco", cor: "amber" },
         ].map((a) => (
           <Link
             key={a.href}

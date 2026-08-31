@@ -3,6 +3,7 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import { AuthError } from "@/lib/auth";
 import { porteiraFinanceiro } from "@/lib/financeiro/gate";
+import { soltarConciliacaoDaBaixa } from "@/lib/financeiro/conciliacao";
 import { valorMovimentado } from "@/lib/financeiro/lancamentos";
 import { brl } from "@/lib/format";
 
@@ -53,6 +54,10 @@ export async function PATCH(
     });
     if (r.count === 0)
       return NextResponse.json({ error: "Esta baixa já foi estornada" }, { status: 409 });
+
+    // dinheiro que voltou atrás não pode continuar "conferido" com o extrato
+    // (RN-035): a linha do banco volta para a fila de pendentes
+    await soltarConciliacaoDaBaixa(id);
 
     await db.finLancamentoEvento.create({
       data: {

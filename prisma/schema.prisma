@@ -153,6 +153,9 @@ model Company {
   finLancamentos FinLancamento[]
   finRecorrencias FinRecorrencia[]
   finTransferencias FinTransferencia[]
+  finOfxImportacoes FinOfxImportacao[]
+  finOfxLinhas      FinOfxLinha[]
+  finOfxVinculos    FinOfxVinculo[]
 }
 
 /// PORTFÓLIO DE PRODUTOS E SERVIÇOS (só Super Admin, empresa-plataforma).
@@ -2653,6 +2656,8 @@ model FinConta {
   recorrencias FinRecorrencia[]
   transferenciasSaida  FinTransferencia[] @relation("TransferenciaOrigem")
   transferenciasEntrada FinTransferencia[] @relation("TransferenciaDestino")
+  extratosImportados   FinOfxImportacao[]
+  linhasDoBanco        FinOfxLinha[]
 
   @@index([companyId])
 }
@@ -2866,6 +2871,8 @@ model FinBaixa {
   estornoAutor String?
   createdAt    DateTime   @default(now())
 
+  vinculoOfx FinOfxVinculo?
+
   @@index([companyId, data])
   @@index([parcelaId])
 }
@@ -2967,4 +2974,83 @@ model FinTransferencia {
   createdAt      DateTime  @default(now())
 
   @@index([companyId, dataSaida])
+}
+
+// ---------------------------------------------------------------------------
+// MÓDULO FINANCEIRO — Fase 6: conciliação bancária por OFX (RN-035).
+// ---------------------------------------------------------------------------
+
+/// Um arquivo de extrato (OFX) que a loja baixou do banco e subiu aqui.
+/// Guardar a importação é o que permite dizer "isto veio do extrato de
+/// 01/09" quando a lojista perguntar de onde saiu uma linha.
+model FinOfxImportacao {
+  id         String    @id @default(cuid())
+  companyId  String
+  company    Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  contaId    String
+  conta      FinConta  @relation(fields: [contaId], references: [id], onDelete: Cascade)
+  arquivo    String // nome do arquivo, como veio do computador dela
+  banco      String? // o que o OFX diz (ORG/BANKID), quando diz
+  periodoDe  DateTime?
+  periodoAte DateTime?
+  /// quantas linhas vieram e quantas eram novas (o resto já estava aqui)
+  linhas     Int       @default(0)
+  novas      Int       @default(0)
+  autorNome  String
+  createdAt  DateTime  @default(now())
+
+  linhasDoExtrato FinOfxLinha[]
+
+  @@index([companyId, createdAt])
+}
+
+/// Uma linha do extrato do banco. O `fitid` é o identificador que o próprio
+/// banco dá a cada movimento: é ele que faz reimportar o mesmo arquivo (ou
+/// dois arquivos que se sobrepõem) NÃO duplicar nada.
+model FinOfxLinha {
+  id           String           @id @default(cuid())
+  companyId    String
+  company      Company          @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  contaId      String
+  conta        FinConta         @relation(fields: [contaId], references: [id], onDelete: Cascade)
+  importacaoId String
+  importacao   FinOfxImportacao @relation(fields: [importacaoId], references: [id], onDelete: Cascade)
+  fitid        String
+  data         DateTime
+  /// com sinal: entrou positivo, saiu negativo (como o banco manda)
+  valor        Float
+  descricao    String
+  /// "não é do sistema" (tarifa que a loja não quer lançar, engano do banco):
+  /// sai da fila de pendentes sem virar lançamento
+  ignoradaEm   DateTime?
+  ignoradaPor  String?
+  createdAt    DateTime         @default(now())
+
+  vinculos FinOfxVinculo[]
+
+  @@unique([companyId, contaId, fitid])
+  @@index([companyId, contaId, data])
+}
+
+/// O casamento entre a linha do banco e a baixa do sistema. É uma tabela
+/// própria porque um depósito só pode pagar VÁRIAS parcelas — a lojista
+/// marca as duas pontas e os totais têm que bater.
+///
+/// O único por baixa é a regra: a mesma baixa não se concilia duas vezes
+/// (senão o mesmo dinheiro apareceria conferido em dois lugares).
+model FinOfxVinculo {
+  id         String      @id @default(cuid())
+  companyId  String
+  company    Company     @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  linhaId    String
+  linha      FinOfxLinha @relation(fields: [linhaId], references: [id], onDelete: Cascade)
+  baixaId    String      @unique
+  baixa      FinBaixa    @relation(fields: [baixaId], references: [id], onDelete: Cascade)
+  /// casou sozinho na importação (mesmo valor, mesma data) ou foi a lojista
+  automatico Boolean     @default(false)
+  autorNome  String
+  createdAt  DateTime    @default(now())
+
+  @@unique([companyId, baixaId])
+  @@index([linhaId])
 }

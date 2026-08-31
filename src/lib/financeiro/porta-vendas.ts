@@ -1,5 +1,6 @@
 import { after } from "next/server";
 import { db } from "../db";
+import { soltarConciliacaoDaBaixa } from "./conciliacao";
 import { round2, PAID_ORDER_STATUSES, orderNumber } from "../orders";
 import { dataDoDia, diaSP, valorMovimentado } from "./lancamentos";
 import { garantirCategoriasPadrao } from "./cadastros";
@@ -569,14 +570,21 @@ async function darBaixaDaPorta(
 
 /** Estorna SÓ as baixas que a porta deu — as da lojista são intocáveis. */
 async function estornarBaixasDaPorta(lancamentoId: string, motivo: string) {
+  const alvo = {
+    parcela: { lancamentoId },
+    estornadaEm: null,
+    autorNome: AUTOR_SISTEMA,
+  } as const;
+  const paraSoltar = await db.finBaixa.findMany({
+    where: alvo,
+    select: { id: true },
+  });
   const { count } = await db.finBaixa.updateMany({
-    where: {
-      parcela: { lancamentoId },
-      estornadaEm: null,
-      autorNome: AUTOR_SISTEMA,
-    },
+    where: alvo,
     data: { estornadaEm: new Date(), estornoAutor: AUTOR_SISTEMA },
   });
+  // dinheiro que voltou atrás não segue "conferido" com o extrato (RN-035)
+  for (const b of paraSoltar) await soltarConciliacaoDaBaixa(b.id);
   if (count > 0) {
     await db.finLancamentoEvento.create({
       data: {

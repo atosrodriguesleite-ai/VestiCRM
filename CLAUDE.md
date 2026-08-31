@@ -598,6 +598,38 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   período, buscada com teto próprio e só quando o mês corrente está nas
   colunas. O saldo do primeiro mês é o saldo REAL da loja (RN-030), com cada
   mês começando onde o anterior terminou.
+  **RN-035 · CONFERIR COM O BANCO** (`lib/financeiro/ofx.ts` +
+  `lib/financeiro/conciliacao.ts`, tela `/financeiro/conciliacao`): o extrato
+  que o banco exporta (OFX) de um lado, o que a loja registrou do outro. Três
+  decisões sustentam tudo. **Quem diz que é o mesmo movimento é o BANCO**: o
+  `FITID` de cada linha é o identificador dele, e o único (loja, conta, fitid)
+  faz reimportar o mesmo arquivo — ou dois arquivos que se sobrepõem, que é o
+  normal — não duplicar nada. **O casamento óbvio é feito sozinho** (mesmo
+  valor com o sinal certo, data dentro de 3 dias) e fica marcado como
+  automático, mas **só quando a resposta é ÚNICA dos dois lados**: duas baixas
+  de R$ 300 no mesmo dia são exatamente onde o palpite erra, e conciliar
+  errado é pior que não conciliar. **Um depósito pode pagar VÁRIAS parcelas**,
+  então o vínculo é tabela própria e a conciliação só fecha quando os dois
+  lados **somam igual** — o "quase igual" é o erro que a tela existe para
+  achar. A mesma baixa não se concilia duas vezes (único por baixa) e
+  estornada não se concilia. **Conciliar NUNCA mexe em dinheiro**: não cria,
+  não altera e não apaga baixa — carimba "conferido"; linha que não é do
+  sistema (tarifa que a loja não lança) se marca como fora e volta para a
+  fila quando quiser — e **baixa estornada solta a conciliação** (nas duas
+  portas de estorno): linha "conferida" contra dinheiro que voltou atrás
+  faria a conferência do mês fechar com um erro impossível de achar. O
+  casamento automático roda sobre TODAS as linhas pendentes da janela, não
+  só as do arquivo que acabou de entrar: linha que ficou sem par casa quando
+  o lançamento aparece, e subir o mesmo arquivo de novo continua conciliando
+  o que dá. Os dois sabores do arquivo entram pelo mesmo leitor
+  (OFX 1.x é SGML, com tag que não fecha; 2.x é XML), a data ignora o fuso
+  colado, o texto vem em windows-1252 quando o cabeçalho diz, e movimento sem
+  FITID/data/valor é descartado e CONTADO (a tela avisa; linha ilegível calada
+  faria a lojista fechar a conferência com o extrato divergindo) — 19 linhas
+  certas valem mais que 20 com uma inventada. Quem decide o acento é o
+  CONTEÚDO, não o cabeçalho (banco que exporta UTF-8 dizendo `CHARSET:1252`
+  existe), e o valor aceita separador de milhar dos dois formatos. **O arquivo em si não é guardado** (dívida técnica nº 1): dele
+  saem as linhas, que é o que a conciliação usa.
 - **Envios** (gated por loja, `shippingEnabled`, pago à parte): tela própria
   no menu (`/envios`): painel (gasto do mês, aguardando postagem, em
   trânsito com alerta de **parado há 7+ dias**, entregues com tempo médio) +
