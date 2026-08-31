@@ -418,7 +418,13 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   catálogo"; Nuvemshop e os demais seguem separados. A soma é SÓ DE
   APRESENTAÇÃO: `Customer.origin` continua gravado separado no banco (ficha,
   intake e regras por origem não mudam), e o painel de Gestão da plataforma
-  tem régua própria e fica de fora.
+  tem régua própria e fica de fora. A tela Marketing mostra também a OUTRA
+  pergunta, **"Por onde a venda saiu"** (`saidaDaVenda`): o canal credita a
+  venda a quem TROUXE a cliente (primeiro contato); a porta de saída olha o
+  PEDIDO — loja online (`source` NUVEMSHOP), com vendedora ou sem vendedora —
+  e é o recorte que bate com a tela de Comissões (cliente do WhatsApp que
+  compra pela Nuvemshop conta no WhatsApp num gráfico e na loja online no
+  outro; foi a diferença de R$ 9 mil que o dono caçou em 31/08/2026).
 - **Produção** (gated por loja): tecidos, rolos, cortes multi-cor, costura,
   lotes/facções, defeitos, simulador, etiquetas.
 - **Envios** (gated por loja, `shippingEnabled`, pago à parte): tela própria

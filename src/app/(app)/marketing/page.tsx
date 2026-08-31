@@ -6,7 +6,7 @@ import { db } from "@/lib/db";
 import { isManagerUp } from "@/lib/scope";
 import { PAID_ORDER_STATUSES } from "@/lib/orders";
 import { brl } from "@/lib/format";
-import { CANAL_WHATSAPP_CATALOGO, canalDaOrigem, canalValido, labelDoCanal, origensDoCanal } from "@/lib/canais";
+import { CANAL_WHATSAPP_CATALOGO, canalDaOrigem, canalValido, labelDoCanal, origensDoCanal, saidaDaVenda, SAIDA_LABEL, type SaidaDaVenda } from "@/lib/canais";
 import { Card, PageHeader, EmptyState } from "@/components/ui";
 import { StatCard } from "@/components/dash";
 import { BarList, Donut, PeriodChips } from "@/components/charts";
@@ -87,7 +87,7 @@ export default async function MarketingPage({
     db.customer.findMany({ where: { companyId, createdAt: inPrev }, select: { origin: true } }),
     db.order.findMany({
       where: { companyId, status: { in: PAID_ORDER_STATUSES }, paidAt: inPeriod },
-      select: { netTotal: true, customerId: true, customer: { select: { origin: true, campaignId: true } } },
+      select: { netTotal: true, customerId: true, source: true, sellerId: true, customer: { select: { origin: true, campaignId: true } } },
     }),
     db.order.findMany({
       where: { companyId, status: { in: PAID_ORDER_STATUSES }, paidAt: inPrev },
@@ -316,6 +316,29 @@ export default async function MarketingPage({
   ];
   const canalLabel = canalParam ? labelDoCanal(canalParam) : null;
 
+  // ---- por onde a VENDA saiu (a outra pergunta — pedido, não cliente) ----
+  // sempre a visão geral, como os gráficos por canal: é uma comparação
+  const saidaAgg = new Map<SaidaDaVenda, { fat: number; pedidos: number }>();
+  for (const o of ordersAll) {
+    const s = saidaDaVenda(o);
+    const cur = saidaAgg.get(s) ?? { fat: 0, pedidos: 0 };
+    cur.fat += o.netTotal;
+    cur.pedidos += 1;
+    saidaAgg.set(s, cur);
+  }
+  const totalFatAll = [...saidaAgg.values()].reduce((s, v) => s + v.fat, 0);
+  const saidaBar = (Object.keys(SAIDA_LABEL) as SaidaDaVenda[])
+    .map((s) => ({ saida: s, ...(saidaAgg.get(s) ?? { fat: 0, pedidos: 0 }) }))
+    // pedidos > 0 também entra: pedido pago de R$ 0 (brinde) some do valor,
+    // mas a contagem dele não pode sumir da tela
+    .filter((s) => s.fat > 0 || s.pedidos > 0)
+    .sort((a, b) => b.fat - a.fat)
+    .map((s) => ({
+      label: SAIDA_LABEL[s.saida],
+      value: s.fat,
+      sub: `${s.pedidos} pedido${s.pedidos === 1 ? "" : "s"} · ${pct(s.fat, totalFatAll)}%`,
+    }));
+
   const campanhas: Campanha[] = campaignRows.map((c) => ({
     id: c.id,
     name: c.name,
@@ -437,6 +460,22 @@ export default async function MarketingPage({
               <p className="text-sm text-slate-400">Nenhum lead no período.</p>
             )}
           </Card>
+
+          {/* por onde a venda saiu — a OUTRA pergunta (RN-026): o gráfico de
+              cima credita a venda ao canal que trouxe a CLIENTE; este olha o
+              PEDIDO. É o recorte que bate com a tela de Comissões. */}
+          {saidaBar.length > 0 && (
+            <Card className="p-5 lg:col-span-2">
+              <h3 className="text-sm font-semibold text-slate-700 mb-1">Por onde a venda saiu</h3>
+              <p className="text-xs text-slate-400 mb-4">
+                O gráfico acima mostra de onde <b>vêm as clientes</b> que compram; este mostra por qual
+                porta <b>cada pedido</b> entrou. Cliente do WhatsApp que compra pela loja online conta no
+                WhatsApp lá em cima — e na loja online aqui. “Vendedoras” são os pedidos com dona definida
+                (os que geram comissão; a tela de Comissões tem período e base próprios).
+              </p>
+              <BarList data={saidaBar} color="#7e6f5d" formatValue={brl} />
+            </Card>
+          )}
         </div>
       ) : null}
 
