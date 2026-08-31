@@ -1,0 +1,313 @@
+import { db } from "../db";
+import { round2 } from "../orders";
+import { saldoAte } from "./extrato";
+import {
+  grupoDFCdoCodigo,
+  type GrupoDFC,
+  type LinhaDFC,
+  type RelatorioDFC,
+} from "./dfc-tipos";
+import {
+  dataDoDia,
+  diaSP,
+  saldoDaParcela,
+  statusDaParcela,
+  valorMovimentado,
+} from "./lancamentos";
+
+/**
+ * A VISÃO DE DONO (RN-033): saldo previsto e o DFC.
+ *
+ * As duas perguntas que a lojista faz de manhã e que nenhuma tela respondia:
+ * "quanto eu vou ter no dia X?" e "para onde foi o dinheiro do mês?".
+ *
+ * Regra que vale para as duas: **só entra o que é dinheiro de verdade**.
+ * Previsão soma o que está EM ABERTO (nunca o que já foi pago, senão conta
+ * duas vezes); o DFC soma o que MOVIMENTOU nas contas (nunca o previsto,
+ * senão a loja "gerou caixa" que não existe).
+ */
+
+/* ---- saldo previsto ----------------------------------------------------- */
+
+export type Previsao = {
+  saldoHoje: number;
+  aReceber: number;
+  aPagar: number;
+  saldoPrevisto: number;
+  ate: string;
+};
+
+/**
+ * "Se tudo que vence entrar e sair, quanto eu tenho no dia X?" — saldo de
+ * hoje + o que ainda falta receber − o que ainda falta pagar, até a data.
+ *
+ * O ATRASADO ENTRA: a conta vencida ontem continua sendo dinheiro a receber,
+ * e tirá-la da previsão faria a loja se planejar com um número menor do que
+ * a realidade. Cancelado fica de fora (nunca vai acontecer).
+ */
+export async function preverSaldo(
+  companyId: string,
+  dias: number,
+  hoje = new Date()
+): Promise<Previsao> {
+  const ate = dataDoDia(
+    diaSP(new Date(hoje.getTime() + dias * 86_400_000))
+  )!;
+  const [saldoHoje, aReceber, aPagar] = await Promise.all([
+    saldoAte(companyId, null, dataDoDia(diaSP(hoje))!),
+    emAbertoAte(companyId, "RECEITA", ate),
+    emAbertoAte(companyId, "DESPESA", ate),
+  ]);
+  return {
+    saldoHoje,
+    aReceber,
+    aPagar,
+    saldoPrevisto: round2(saldoHoje + aReceber - aPagar),
+    ate: diaSP(ate),
+  };
+}
+
+/**
+ * Quanto FALTA receber (ou pagar) até uma data — somado NO BANCO.
+ *
+ * A soma é "valor das parcelas − o que já foi abatido nelas": a parcela
+ * quitada entra valendo zero dos dois lados, então o resultado é só o que
+ * está em aberto. Carregar as parcelas para somar em memória traria a
+ * história inteira da loja a cada abertura da tela (a previsão não tem
+ * limite para trás: conta vencida há um ano continua sendo dinheiro).
+ *
+ * O abatimento nunca passa do valor da parcela (`conferirBaixa`), então a
+ * conta não vira negativa por parcela paga a mais.
+ */
+async function emAbertoAte(
+  companyId: string,
+  tipo: "RECEITA" | "DESPESA",
+  ate: Date
+): Promise<number> {
+  const doTipo = { lancamento: { tipo, canceladoEm: null } };
+  const [parcelas, abatido] = await Promise.all([
+    db.finParcela.aggregate({
+      where: { companyId, vencimento: { lte: ate }, ...doTipo },
+      _sum: { valor: true },
+    }),
+    db.finBaixa.aggregate({
+      where: {
+        companyId,
+        estornadaEm: null,
+        parcela: { vencimento: { lte: ate }, ...doTipo },
+      },
+      _sum: { valor: true },
+    }),
+  ]);
+  return round2((parcelas._sum.valor ?? 0) - (abatido._sum.valor ?? 0));
+}
+
+/* ---- DFC: por onde o dinheiro andou ------------------------------------- */
+
+// os nomes dos blocos, o formato do relatório e a regra de qual bloco cada
+// categoria pertence vivem em `dfc-tipos.ts` (puro) — a TELA do DFC precisa
+// deles e não pode arrastar o banco para o navegador. Reexportados aqui para
+// quem já lê o DFC por este arquivo.
+export {
+  DFC_LABEL,
+  grupoDFCdoCodigo,
+  type GrupoDFC,
+  type LinhaDFC,
+  type RelatorioDFC,
+} from "./dfc-tipos";
+
+/**
+ * O DFC do período: só o que MOVIMENTOU nas contas, agrupado em operacional,
+ * investimento e financiamento.
+ *
+ * O teste de honestidade do relatório: saldo inicial + gerado = saldo final.
+ * Se não fechar, alguma coisa ficou de fora — e é por isso que a
+ * transferência entre contas próprias aparece separada, valendo zero no
+ * total da loja (RN-030).
+ */
+export async function montarDFC(
+  companyId: string,
+  de: Date,
+  ate: Date
+): Promise<RelatorioDFC> {
+  const [saldoInicial, saldoFinal, aberturas, baixas] = await Promise.all([
+    saldoAte(companyId, null, new Date(de.getTime() - 1)),
+    saldoAte(companyId, null, ate),
+    // conta cadastrada COM saldo inicial dentro do período: o dinheiro
+    // aparece no saldo final sem ter sido gerado nem transferido. Sem esta
+    // linha ele caía na sobra e a tela chamava de "transferência" — dizer o
+    // nome errado do dinheiro é pior que não mostrar.
+    db.finConta.aggregate({
+      where: { companyId, saldoInicialEm: { gte: de, lte: ate } },
+      _sum: { saldoInicial: true },
+    }),
+    db.finBaixa.findMany({
+      where: { companyId, estornadaEm: null, data: { gte: de, lte: ate } },
+      select: {
+        valor: true,
+        desconto: true,
+        juros: true,
+        parcela: {
+          select: {
+            lancamento: {
+              select: {
+                tipo: true,
+                categoria: { select: { nome: true, codigo: true } },
+              },
+            },
+          },
+        },
+      },
+    }),
+  ]);
+
+  const porChave = new Map<string, LinhaDFC>();
+  for (const b of baixas) {
+    const l = b.parcela.lancamento;
+    const codigo = l.categoria?.codigo ?? null;
+    const grupo = grupoDFCdoCodigo(codigo);
+    const nome = l.categoria
+      ? `${l.categoria.codigo} · ${l.categoria.nome}`
+      : "Sem categoria";
+    const chave = `${grupo}|${nome}`;
+    const atual =
+      porChave.get(chave) ??
+      ({ grupo, categoria: nome, entrou: 0, saiu: 0, resultado: 0 } as LinhaDFC);
+    const mov = valorMovimentado(b);
+    if (l.tipo === "RECEITA") atual.entrou = round2(atual.entrou + mov);
+    else atual.saiu = round2(atual.saiu + mov);
+    atual.resultado = round2(atual.entrou - atual.saiu);
+    porChave.set(chave, atual);
+  }
+
+  const ordem: GrupoDFC[] = ["OPERACIONAL", "INVESTIMENTO", "FINANCIAMENTO"];
+  const grupos = ordem.map((grupo) => {
+    const linhas = [...porChave.values()]
+      .filter((l) => l.grupo === grupo)
+      .sort((a, b) => a.categoria.localeCompare(b.categoria));
+    const entrou = round2(linhas.reduce((s, l) => s + l.entrou, 0));
+    const saiu = round2(linhas.reduce((s, l) => s + l.saiu, 0));
+    return { grupo, entrou, saiu, resultado: round2(entrou - saiu), linhas };
+  });
+
+  const geradoNoPeriodo = round2(grupos.reduce((s, g) => s + g.resultado, 0));
+  const saldosDeclarados = round2(aberturas._sum.saldoInicial ?? 0);
+  return {
+    saldoInicial,
+    saldoFinal,
+    grupos,
+    geradoNoPeriodo,
+    saldosDeclarados,
+    // o que ainda sobra entre o gerado e a diferença dos saldos é
+    // transferência entrando/saindo do recorte (RN-030) — dita na tela,
+    // nunca escondida. A conta FECHA: inicial + gerado + declarado +
+    // transferências = final.
+    transferencias: round2(
+      saldoFinal - saldoInicial - geradoNoPeriodo - saldosDeclarados
+    ),
+  };
+}
+
+/* ---- inadimplência ------------------------------------------------------ */
+
+export type LinhaInadimplencia = {
+  parcelaId: string;
+  lancamentoId: string;
+  clienteId: string | null;
+  clienteNome: string;
+  temWhatsapp: boolean;
+  descricao: string;
+  vencimento: string;
+  diasAtraso: number;
+  falta: number;
+  cobradoHoje: boolean;
+  cobradoEm: string | null;
+};
+
+/** Teto da lista de atrasados: acima disso a tela DIZ que está mostrando parte. */
+export const TETO_INADIMPLENCIA = 500;
+
+/**
+ * Quem está devendo, do mais atrasado para o menos.
+ *
+ * A LISTA tem teto, mas o TOTAL não: ele é somado no banco sobre o período
+ * inteiro (mesma régua da RN-028 — card que soma só as linhas exibidas mostra
+ * menos dívida do que existe, e a lojista se planeja com o número errado).
+ */
+export async function carregarInadimplencia(
+  companyId: string,
+  hoje = new Date()
+): Promise<{
+  linhas: LinhaInadimplencia[];
+  total: number;
+  clientes: number;
+  truncado: boolean;
+}> {
+  const limite = dataDoDia(diaSP(hoje))!;
+  const vencidasEmAberto = {
+    companyId,
+    vencimento: { lt: limite },
+    lancamento: { tipo: "RECEITA", canceladoEm: null },
+  } as const;
+  const [somaParcelas, somaAbatido] = await Promise.all([
+    db.finParcela.aggregate({ where: vencidasEmAberto, _sum: { valor: true } }),
+    db.finBaixa.aggregate({
+      where: { companyId, estornadaEm: null, parcela: vencidasEmAberto },
+      _sum: { valor: true },
+    }),
+  ]);
+  const total = round2((somaParcelas._sum.valor ?? 0) - (somaAbatido._sum.valor ?? 0));
+
+  const parcelas = await db.finParcela.findMany({
+    where: {
+      companyId,
+      vencimento: { lt: dataDoDia(diaSP(hoje))! },
+      lancamento: { tipo: "RECEITA", canceladoEm: null },
+    },
+    include: {
+      baixas: true,
+      lancamento: {
+        select: {
+          id: true,
+          descricao: true,
+          cobradoEm: true,
+          customer: { select: { id: true, name: true, phone: true } },
+        },
+      },
+    },
+    orderBy: { vencimento: "asc" },
+    take: TETO_INADIMPLENCIA,
+  });
+
+  const linhas: LinhaInadimplencia[] = [];
+  for (const p of parcelas) {
+    if (statusDaParcela(p, hoje) !== "ATRASADA") continue;
+    const falta = saldoDaParcela(p);
+    if (falta <= 0) continue;
+    const l = p.lancamento;
+    linhas.push({
+      parcelaId: p.id,
+      lancamentoId: l.id,
+      clienteId: l.customer?.id ?? null,
+      clienteNome: l.customer?.name ?? "Sem cliente",
+      temWhatsapp: Boolean(l.customer?.phone),
+      descricao: l.descricao,
+      vencimento: diaSP(p.vencimento),
+      diasAtraso: Math.round(
+        (new Date(`${diaSP(hoje)}T12:00:00Z`).getTime() -
+          new Date(`${diaSP(p.vencimento)}T12:00:00Z`).getTime()) /
+          86_400_000
+      ),
+      falta,
+      cobradoHoje: Boolean(l.cobradoEm && diaSP(l.cobradoEm) === diaSP(hoje)),
+      cobradoEm: l.cobradoEm ? diaSP(l.cobradoEm) : null,
+    });
+  }
+  linhas.sort((a, b) => b.diasAtraso - a.diasAtraso);
+  return {
+    linhas,
+    total,
+    clientes: new Set(linhas.map((l) => l.clienteId ?? l.lancamentoId)).size,
+    truncado: parcelas.length >= TETO_INADIMPLENCIA,
+  };
+}

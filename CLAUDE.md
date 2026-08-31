@@ -536,6 +536,43 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   o trabalho vai no `after()` do Next — chamada solta seria congelada pela
   Vercel junto com a resposta, e a venda paga desapareceria do financeiro sem
   erro nenhum. Loja sem o módulo (RN-027): a porta sai calada.
+  **RN-032 · COBRAR PELO WHATSAPP** (`lib/financeiro/cobranca.ts`, tela
+  `/financeiro/inadimplencia`): é o que um financeiro comum NÃO faz — a lista
+  de atrasados existe em todo sistema, e a lojista ainda tinha que sair
+  procurando a conversa uma por uma. Aqui a mensagem é MONTADA pelo sistema
+  (primeiro nome, valor que falta, vencimento, tom conforme o atraso — nunca
+  acusa, sempre abre a porta para a cliente responder) e ENVIADA por uma
+  PESSOA clicando, pela Central de sempre, com o ritmo anti-ban da RN-017.
+  A mesma conta **não é cobrada duas vezes no mesmo dia** (`cobradoEm`), e a
+  porta RECUSA com frase em português quando falta o essencial: sem cliente,
+  sem WhatsApp, cliente bloqueada, parcela quitada ou lançamento cancelado.
+  Se o envio falhar, **não se diz que foi enviado** — o carimbo de cobrança
+  só é gravado depois que a mensagem sai, e "sair" se confere pelo STATUS da
+  mensagem: a Central não lança erro quando o provedor recusa, ela devolve a
+  mensagem marcada como FALHOU (é o mesmo caminho que faz o ⏱️ virar ⚠️ na
+  bolha). Sem olhar o status, a cobrança se dava por enviada com o WhatsApp
+  desligado — a lojista riscava da lista e a cliente nunca soube.
+  **RN-033 · A VISÃO DE DONO** (`lib/financeiro/visao.ts`, `/financeiro` e
+  `/financeiro/dfc`): com o módulo ligado, a tela do Financeiro deixa de ser
+  a lista de pedidos a receber e vira o PAINEL — saldo hoje (somado por
+  conta), a receber e a pagar do mês, atrasado, e o **saldo previsto** para 7,
+  15 ou 30 dias com o termômetro de cobertura. A previsão soma só o que está
+  EM ABERTO (o já pago não pode contar duas vezes) e **o atrasado ENTRA**: a
+  conta vencida ontem continua sendo dinheiro a receber, e tirá-la faria a
+  loja se planejar com menos do que tem. O **DFC** responde "por onde o
+  dinheiro andou" com o que MOVIMENTOU nas contas, em três blocos
+  (operacional / investimento / financiamento, pelo CÓDIGO da categoria — o
+  código é do sistema, o nome é da loja, então renomear não quebra o
+  relatório; categoria criada pela loja cai em operacional). O teste de
+  honestidade fica na tela: saldo inicial + gerado + **saldo das contas
+  cadastradas no período** + transferências = saldo final, e a diferença é
+  DITA, nunca escondida (RN-030) — **cada uma com o nome CERTO**: conta
+  cadastrada com saldo inicial DENTRO do recorte traz dinheiro que a loja não
+  gerou nem transferiu, e ele caía na sobra chamado de "transferência". Dizer
+  o nome errado do dinheiro é pior que não mostrar.
+  A árvore de categorias ganhou o bloco **07 · Investimentos** e a semeadura
+  passou a COMPLETAR o que falta — sem isso a loja antiga nunca veria o bloco
+  novo e o DFC dela nasceria torto.
 - **Envios** (gated por loja, `shippingEnabled`, pago à parte): tela própria
   no menu (`/envios`): painel (gasto do mês, aguardando postagem, em
   trânsito com alerta de **parado há 7+ dias**, entregues com tempo médio) +

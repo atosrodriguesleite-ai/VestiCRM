@@ -23,7 +23,7 @@ import {
   type LancamentoParaEditar,
   type Opcao,
 } from "../../_mov/form-lancamento";
-import { formatarDia } from "../../_mov/lista";
+import { formatarDia } from "@/lib/financeiro/dia";
 
 /**
  * A FICHA DO LANÇAMENTO (RN-028). Aqui a lojista vê tudo que aconteceu com

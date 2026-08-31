@@ -2796,6 +2796,9 @@ model FinLancamento {
   /// origemId) é o que fará "1 pedido = 1 lançamento, nunca duplica".
   origemId      String?
   canceladoEm   DateTime?
+  /// quando a loja cobrou esta conta pela última vez (RN-032): é o que
+  /// impede cobrar a mesma cliente duas vezes no mesmo dia
+  cobradoEm     DateTime?
   /// veio de uma conta fixa (RN-029) e de qual mês ("2026-09") — o único
   /// (recorrenciaId, recorrenciaMes) é o que faz a materialização NUNCA
   /// duplicar, mesmo com duas abas abrindo a tela ao mesmo tempo

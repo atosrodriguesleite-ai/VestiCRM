@@ -16,6 +16,7 @@ import {
 import { Button, Card, Input, PageHeader, inputCls } from "@/components/ui";
 import { StatTile } from "@/components/charts";
 import { brl } from "@/lib/format";
+import { formatarDia } from "@/lib/financeiro/dia";
 import {
   STATUS_LABEL,
   type ResumoPeriodo,
@@ -339,8 +340,3 @@ export function ListaMovimentacoes({
   );
 }
 
-/** "2026-09-05" → "05/09/2026" (o dia já vem pronto do servidor, em SP). */
-export function formatarDia(iso: string): string {
-  const [a, m, d] = iso.split("-");
-  return `${d}/${m}/${a}`;
-}

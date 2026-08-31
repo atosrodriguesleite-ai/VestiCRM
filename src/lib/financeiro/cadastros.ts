@@ -70,6 +70,11 @@ export const CATEGORIAS_PADRAO: CategoriaPadrao[] = [
   { codigo: "06.01", nome: "Tarifas bancárias", tipo: "DESPESA" },
   { codigo: "06.02", nome: "Juros e multas pagos", tipo: "DESPESA" },
   { codigo: "06.03", nome: "Parcelas de empréstimos", tipo: "DESPESA" },
+  // ---- investimentos (o que a loja COMPRA para durar: máquina, reforma) ---
+  { codigo: "07", nome: "Investimentos", tipo: "DESPESA" },
+  { codigo: "07.01", nome: "Máquinas e equipamentos", tipo: "DESPESA" },
+  { codigo: "07.02", nome: "Reforma e instalações", tipo: "DESPESA" },
+  { codigo: "07.03", nome: "Móveis e informática", tipo: "DESPESA" },
 ];
 
 /** "04.02" → "04"; código de topo ("04") → null. */
@@ -96,36 +101,66 @@ export function proximoCodigo(existentes: string[], paiCodigo: string | null): s
 }
 
 /**
- * Semeia a árvore padrão UMA vez por loja. Idempotente de dois jeitos: só
- * roda se a loja não tem categoria nenhuma, e o `skipDuplicates` (em cima do
- * único companyId+codigo) segura a corrida de duas abas abrindo juntas.
+ * Garante a árvore padrão da loja: semeia na primeira vez e COMPLETA o que
+ * faltar depois (grupo novo entra para quem já usava o módulo — sem isso a
+ * loja antiga nunca veria "Investimentos" e o DFC dela nasceria torto).
+ *
+ * Idempotente de dois jeitos: só escreve o que falta, e o `skipDuplicates`
+ * em cima do único (companyId, codigo) segura a corrida de duas abas juntas.
+ * O caminho comum — nada a fazer — é UMA consulta e nenhuma escrita.
  */
 export async function garantirCategoriasPadrao(companyId: string): Promise<void> {
-  const existentes = await db.finCategoria.count({ where: { companyId } });
-  if (existentes > 0) return;
+  const existentes = await db.finCategoria.findMany({
+    where: { companyId },
+    select: { codigo: true, tipo: true, sistema: true },
+  });
+  const porCodigo = new Map(existentes.map((c) => [c.codigo, c]));
+  const livre = (c: CategoriaPadrao) => !porCodigo.has(c.codigo);
+
+  // Só semeia debaixo de um pai que seja MESMO o nosso: a loja pode ter
+  // criado uma categoria dela que ficou com o código "07" (`proximoCodigo`
+  // numera na ordem), e pendurar "07.01 Máquinas" ali dentro colocaria
+  // despesa de sistema debaixo de categoria da lojista — e o DFC leria
+  // aquilo tudo como investimento.
+  const nossoPai = (codigo: string, tipo: TipoCategoria) => {
+    const pai = paiDoCodigo(codigo);
+    if (!pai) return true;
+    const dono = porCodigo.get(pai);
+    return Boolean(dono?.sistema) && dono?.tipo === tipo;
+  };
+
+  const faltando = CATEGORIAS_PADRAO.filter(livre);
+  if (faltando.length === 0) return;
 
   // pais primeiro (createMany não devolve ids — busca depois para ligar as filhas)
-  const pais = CATEGORIAS_PADRAO.filter((c) => paiDoCodigo(c.codigo) === null);
-  await db.finCategoria.createMany({
-    data: pais.map((c) => ({ companyId, ...c, sistema: true })),
-    skipDuplicates: true,
-  });
-  const criados = await db.finCategoria.findMany({
-    where: { companyId, paiId: null },
+  const pais = faltando.filter((c) => paiDoCodigo(c.codigo) === null);
+  if (pais.length > 0) {
+    await db.finCategoria.createMany({
+      data: pais.map((c) => ({ companyId, ...c, sistema: true })),
+      skipDuplicates: true,
+    });
+    for (const c of pais) porCodigo.set(c.codigo, { ...c, sistema: true });
+  }
+  const todas = await db.finCategoria.findMany({
+    where: { companyId },
     select: { id: true, codigo: true },
   });
-  const idPorCodigo = new Map(criados.map((c) => [c.codigo, c.id]));
+  const idPorCodigo = new Map(todas.map((c) => [c.codigo, c.id]));
 
-  const filhas = CATEGORIAS_PADRAO.filter((c) => paiDoCodigo(c.codigo) !== null);
-  await db.finCategoria.createMany({
-    data: filhas.map((c) => ({
-      companyId,
-      ...c,
-      sistema: true,
-      paiId: idPorCodigo.get(paiDoCodigo(c.codigo)!) ?? null,
-    })),
-    skipDuplicates: true,
-  });
+  const filhas = faltando.filter(
+    (c) => paiDoCodigo(c.codigo) !== null && nossoPai(c.codigo, c.tipo)
+  );
+  if (filhas.length > 0) {
+    await db.finCategoria.createMany({
+      data: filhas.map((c) => ({
+        companyId,
+        ...c,
+        sistema: true,
+        paiId: idPorCodigo.get(paiDoCodigo(c.codigo)!) ?? null,
+      })),
+      skipDuplicates: true,
+    });
+  }
 }
 
 /**

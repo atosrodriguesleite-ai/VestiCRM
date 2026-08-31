@@ -28,6 +28,7 @@ import {
   TrendingUp,
   TrendingDown,
   ScrollText,
+  AlertCircle,
   ArrowLeft,
   Eye,
   PanelLeftClose,
@@ -90,6 +91,7 @@ const NAV = [
   { href: "/financeiro/contas-a-receber", label: "Contas a Receber", icon: TrendingUp, group: "Análise", managerOnly: true, financeOnly: true },
   { href: "/financeiro/contas-a-pagar", label: "Contas a Pagar", icon: TrendingDown, group: "Análise", managerOnly: true, financeOnly: true },
   { href: "/financeiro/extrato", label: "Extrato", icon: ScrollText, group: "Análise", managerOnly: true, financeOnly: true },
+  { href: "/financeiro/inadimplencia", label: "Inadimplência", icon: AlertCircle, group: "Análise", managerOnly: true, financeOnly: true },
   // Conexão do WhatsApp e log de entrega: trabalho operacional, então o
   // suporte entra junto com gerente e admin (vendedora não).
   { href: "/comunicacao", label: "Comunicação", icon: Radio, group: "Sistema", operacional: true },

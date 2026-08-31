@@ -123,6 +123,106 @@ export async function saldoAte(
   );
 }
 
+export type SaldoDeConta = {
+  id: string;
+  nome: string;
+  cor: string;
+  arquivada: boolean;
+  saldo: number;
+};
+
+/**
+ * O saldo de TODAS as contas da loja de uma vez, pela mesma régua do
+ * `saldoAte` (saldo inicial + baixas − transferências). São 5 consultas no
+ * total, não 5 por conta: o painel abre em toda visita ao Financeiro.
+ *
+ * A conta ARQUIVADA entra na lista quando ainda tem dinheiro: arquivar é
+ * tirar das escolhas novas, não fazer o saldo sumir — e o painel soma todas,
+ * então esconder a arquivada faria as linhas não fecharem com o total.
+ */
+export async function saldosPorConta(
+  companyId: string,
+  ate: Date
+): Promise<SaldoDeConta[]> {
+  const [contas, receitas, despesas, saidas, entradas] = await Promise.all([
+    db.finConta.findMany({
+      where: { companyId },
+      orderBy: [{ padrao: "desc" }, { nome: "asc" }],
+      select: {
+        id: true,
+        nome: true,
+        cor: true,
+        arquivadaEm: true,
+        saldoInicial: true,
+        saldoInicialEm: true,
+      },
+    }),
+    db.finBaixa.groupBy({
+      by: ["contaId"],
+      where: {
+        companyId,
+        estornadaEm: null,
+        data: { lte: ate },
+        parcela: { lancamento: { tipo: "RECEITA" } },
+      },
+      _sum: { valor: true, desconto: true, juros: true },
+    }),
+    db.finBaixa.groupBy({
+      by: ["contaId"],
+      where: {
+        companyId,
+        estornadaEm: null,
+        data: { lte: ate },
+        parcela: { lancamento: { tipo: "DESPESA" } },
+      },
+      _sum: { valor: true, desconto: true, juros: true },
+    }),
+    db.finTransferencia.groupBy({
+      by: ["contaOrigemId"],
+      where: { companyId, canceladaEm: null, dataSaida: { lte: ate } },
+      _sum: { valor: true },
+    }),
+    db.finTransferencia.groupBy({
+      by: ["contaDestinoId"],
+      where: { companyId, canceladaEm: null, dataEntrada: { lte: ate } },
+      _sum: { valor: true },
+    }),
+  ]);
+
+  const movPorConta = (
+    linhas: {
+      contaId: string;
+      _sum: { valor: number | null; desconto: number | null; juros: number | null };
+    }[]
+  ) =>
+    new Map(
+      linhas.map((l) => [
+        l.contaId,
+        (l._sum.valor ?? 0) - (l._sum.desconto ?? 0) + (l._sum.juros ?? 0),
+      ])
+    );
+  const entrou = movPorConta(receitas);
+  const saiu = movPorConta(despesas);
+  const transferiuDe = new Map(saidas.map((t) => [t.contaOrigemId, t._sum.valor ?? 0]));
+  const transferiuPara = new Map(
+    entradas.map((t) => [t.contaDestinoId, t._sum.valor ?? 0])
+  );
+
+  return contas.map((c) => ({
+    id: c.id,
+    nome: c.nome,
+    cor: c.cor,
+    arquivada: c.arquivadaEm !== null,
+    saldo: round2(
+      (c.saldoInicialEm <= ate ? c.saldoInicial : 0) +
+        (entrou.get(c.id) ?? 0) -
+        (saiu.get(c.id) ?? 0) -
+        (transferiuDe.get(c.id) ?? 0) +
+        (transferiuPara.get(c.id) ?? 0)
+    ),
+  }));
+}
+
 /** O extrato do período, já com o saldo acumulado e os cards do topo. */
 export async function carregarExtrato(filtro: FiltroExtrato): Promise<{
   linhas: LinhaExtrato[];

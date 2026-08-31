@@ -7,7 +7,7 @@ import { ArrowRight, Ban, Plus } from "lucide-react";
 import { Button, Card, Field, Input, PageHeader, inputCls } from "@/components/ui";
 import { brl } from "@/lib/format";
 import { numeroBR } from "@/lib/numero-br";
-import { formatarDia } from "../_mov/lista";
+import { formatarDia } from "@/lib/financeiro/dia";
 
 /**
  * TRANSFERÊNCIAS (RN-030). As DUAS datas são o detalhe que faz o extrato

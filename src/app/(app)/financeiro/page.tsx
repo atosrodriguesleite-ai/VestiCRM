@@ -12,6 +12,9 @@ import { requireUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { isManagerUp } from "@/lib/scope";
 import { financeiroLiberado } from "@/lib/financeiro/gate";
+import { garantirCategoriasPadrao } from "@/lib/financeiro/cadastros";
+import { garantirRecorrencias } from "@/lib/financeiro/recorrencia";
+import { PainelFinanceiro } from "./_visao/painel";
 import { PAID_ORDER_STATUSES, orderNumber } from "@/lib/orders";
 import { brl, dateShort } from "@/lib/format";
 import { Card, PageHeader } from "@/components/ui";
@@ -24,9 +27,28 @@ export const dynamic = "force-dynamic";
  * quem me deve, quanto, desde quando — e quanto já entrou no mês.
  * "A receber" = pedidos aguardando pagamento (a prazo/cobrança enviada).
  */
-export default async function FinanceiroPage() {
+export default async function FinanceiroPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
   const user = await requireUser();
   if (!isManagerUp(user)) redirect("/dashboard");
+
+  // MÓDULO COMPLETO (RN-033): a Visão Geral toma o lugar da tela simples.
+  // Sem a chave, tudo daqui para baixo continua exatamente como sempre foi.
+  const chave = await db.company.findUnique({
+    where: { id: user.companyId },
+    select: { financeEnabled: true },
+  });
+  if (financeiroLiberado(user, chave?.financeEnabled ?? false)) {
+    await garantirCategoriasPadrao(user.companyId);
+    await garantirRecorrencias(user.companyId);
+    const sp = await searchParams;
+    const bruto = Number(Array.isArray(sp.dias) ? sp.dias[0] : sp.dias);
+    const dias = [7, 15, 30].includes(bruto) ? bruto : 30;
+    return <PainelFinanceiro companyId={user.companyId} dias={dias} />;
+  }
 
   const agora = new Date();
   // início do mês no fuso de São Paulo — MESMA régua do Dashboard (antes
@@ -38,7 +60,7 @@ export default async function FinanceiroPage() {
 
   // a consulta da chave do módulo (RN-027) vai JUNTO das outras: em série
   // seria uma ida a mais ao banco em toda abertura da tela
-  const [pendentes, recebidoMesAgg, pixAtivos, company] = await Promise.all([
+  const [pendentes, recebidoMesAgg, pixAtivos] = await Promise.all([
     db.order.findMany({
       where: { companyId: user.companyId, status: "AGUARDANDO_PAGAMENTO" },
       include: {
@@ -72,11 +94,6 @@ export default async function FinanceiroPage() {
         dueAt: { gt: agora },
       },
     }),
-    // chave do módulo Financeiro completo: liga o atalho dos cadastros
-    db.company.findUnique({
-      where: { id: user.companyId },
-      select: { financeEnabled: true },
-    }),
   ]);
 
   // frete-ok: contas a RECEBER é o que a cliente paga — frete incluído.
@@ -105,70 +122,12 @@ export default async function FinanceiroPage() {
     .sort((a, b) => b.total - a.total)
     .slice(0, 8);
 
-  const moduloCompleto = financeiroLiberado(user, company?.financeEnabled ?? false);
-
   return (
     <div className="max-w-6xl mx-auto">
       <PageHeader
         title="Financeiro — Pedidos a Receber"
         subtitle="Quem deve dos PEDIDOS, quanto e desde quando — e o que já entrou no mês."
-        action={
-          moduloCompleto ? (
-            <Link
-              href="/financeiro/cadastros"
-              className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-sm font-medium text-slate-700 hover:border-slate-300 hover:bg-slate-50"
-            >
-              <Users className="size-4" /> Cadastros do Financeiro
-            </Link>
-          ) : undefined
-        }
       />
-
-      {/* módulo Financeiro completo (RN-028): os atalhos das telas de verdade.
-          Sem a chave, esta faixa não existe e a tela é a de sempre. */}
-      {moduloCompleto && (
-        <div className="mb-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <Link
-            href="/financeiro/contas-a-receber"
-            className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 transition hover:border-emerald-300 hover:bg-emerald-100"
-          >
-            <p className="font-semibold text-emerald-900">Contas a Receber</p>
-            <p className="text-sm text-emerald-700">
-              Tudo que a loja tem para receber, com parcelas e baixa — não só
-              os pedidos.
-            </p>
-          </Link>
-          <Link
-            href="/financeiro/contas-a-pagar"
-            className="rounded-2xl border border-rose-200 bg-rose-50 p-4 transition hover:border-rose-300 hover:bg-rose-100"
-          >
-            <p className="font-semibold text-rose-900">Contas a Pagar</p>
-            <p className="text-sm text-rose-700">
-              Fornecedores, aluguel, salários: o que vence e o que já foi pago.
-            </p>
-          </Link>
-          <Link
-            href="/financeiro/extrato"
-            className="rounded-2xl border border-sky-200 bg-sky-50 p-4 transition hover:border-sky-300 hover:bg-sky-100"
-          >
-            <p className="font-semibold text-sky-900">Extrato</p>
-            <p className="text-sm text-sky-700">
-              Entradas, saídas e transferências com saldo acumulado — para
-              conferir com o banco.
-            </p>
-          </Link>
-          <Link
-            href="/financeiro/contas-fixas"
-            className="rounded-2xl border border-violet-200 bg-violet-50 p-4 transition hover:border-violet-300 hover:bg-violet-100"
-          >
-            <p className="font-semibold text-violet-900">Contas fixas</p>
-            <p className="text-sm text-violet-700">
-              Aluguel, salário, internet: configure uma vez e o sistema lança
-              todo mês.
-            </p>
-          </Link>
-        </div>
-      )}
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4 mb-6">
         <UITile

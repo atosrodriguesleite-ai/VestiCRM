@@ -7,7 +7,7 @@ import { Card, Input, PageHeader, inputCls } from "@/components/ui";
 import { StatTile } from "@/components/charts";
 import { brl } from "@/lib/format";
 import type { CardsExtrato, LinhaExtrato } from "@/lib/financeiro/extrato";
-import { formatarDia } from "../_mov/lista";
+import { formatarDia } from "@/lib/financeiro/dia";
 
 /**
  * EXTRATO (RN-030). A coluna que a lojista realmente lê é a do SALDO: é ela
