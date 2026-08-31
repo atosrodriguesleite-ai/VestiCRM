@@ -117,8 +117,8 @@ export function CommissionsView({
             onChange={(e) => saveBase(e.target.value)}
             className={`${inputCls} bg-white disabled:opacity-60`}
           >
-            <option value="SUBTOTAL">Valor dos produtos</option>
-            <option value="VENDIDO">Valor vendido (com desconto)</option>
+            <option value="SUBTOTAL">Valor dos produtos (antes de desconto/acréscimo)</option>
+            <option value="VENDIDO">Valor vendido (desconto abate, acréscimo soma)</option>
           </select>
         </div>
       </div>
