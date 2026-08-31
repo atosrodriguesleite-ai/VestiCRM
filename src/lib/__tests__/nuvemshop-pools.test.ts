@@ -17,8 +17,16 @@ const lib = readFileSync(join(process.cwd(), "src/lib/nuvemshop.ts"), "utf8");
 describe("a sincronização completa não relê o catálogo por produto", () => {
   it("os pools são buscados UMA vez na syncProducts e repassados", () => {
     expect(lib).toContain("const pools: PoolsDeSync = {");
-    expect(lib).toContain("skuVariants: await buscarPoolSku(companyId)");
+    // a busca acontece FORA do laço de produtos (uma vez por sincronização)
+    expect(lib).toContain("const poolSku = await buscarPoolSku(companyId);");
     expect(lib).toContain("upsertProduct(companyId, p, report, pools)");
+  });
+
+  it("o índice dos SKUs parecidos também é montado UMA vez (vai junto no pool)", () => {
+    // refazer por produto custava um normalize() por variação do catálogo a
+    // cada peça — na função que já morreu no teto de 60s da Vercel
+    expect(lib).toContain("idxParecidos: indiceDeSkusParecidos(poolSku)");
+    expect(lib).toContain("pools?.idxParecidos ?? indiceDeSkusParecidos(skuVariants)");
   });
 
   it("upsertProduct usa o pool recebido em vez de consultar de novo", () => {
