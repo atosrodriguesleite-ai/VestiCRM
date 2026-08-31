@@ -45,6 +45,7 @@ import {
   syncOpportunityValue,
   garantirCartaoDoPedido,
 } from "@/lib/opportunity-sync";
+import { sincronizarPedidoSemQuebrar } from "@/lib/financeiro/porta-vendas";
 
 // Estoque fica RESERVADO em qualquer etapa que não seja Cancelado (o orçamento
 // já reserva). Só o cancelamento devolve. O faturamento (venda) continua sendo
@@ -1182,6 +1183,11 @@ export async function PATCH(
         customerName: customer?.name ?? "Cliente",
       }).catch(() => {});
     }
+
+    // PORTA ÚNICA DO FINANCEIRO (RN-031): qualquer mexida no pedido põe o
+    // lançamento em dia — virou pago, voltou para aguardando, cancelou,
+    // reabriu. Sem o módulo sai calada; falhando, não segura a resposta.
+    sincronizarPedidoSemQuebrar(order.id);
 
     return NextResponse.json(updated);
   } catch (e) {

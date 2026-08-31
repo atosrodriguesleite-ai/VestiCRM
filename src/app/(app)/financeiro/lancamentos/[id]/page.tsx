@@ -108,6 +108,7 @@ export default async function LancamentoPage({
         valor: l.valor,
         observacoes: l.observacoes,
         origem: l.origem,
+        origemId: l.origemId,
         cancelado: Boolean(l.canceladoEm),
         pessoa: l.customer?.name ?? l.fornecedor?.nome ?? null,
         categoria: l.categoria ? `${l.categoria.codigo} · ${l.categoria.nome}` : null,

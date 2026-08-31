@@ -59,6 +59,13 @@ type Parcela = {
   baixas: Baixa[];
 };
 
+/** Como a origem automática aparece para a lojista (RN-031). */
+function rotuloOrigem(origem: string): string {
+  if (origem === "ETIQUETA") return "compra de etiqueta";
+  if (origem === "PEDIDO") return "venda";
+  return origem.toLowerCase();
+}
+
 const CORES: Record<StatusParcela, string> = {
   ATRASADA: "bg-rose-50 text-rose-700 ring-rose-200",
   VENCE_HOJE: "bg-amber-50 text-amber-700 ring-amber-200",
@@ -99,6 +106,7 @@ export function FichaLancamento({
     valor: number;
     observacoes: string | null;
     origem: string;
+    origemId: string | null;
     cancelado: boolean;
     pessoa: string | null;
     categoria: string | null;
@@ -228,7 +236,20 @@ export function FichaLancamento({
             {lancamento.colecao && <span>Coleção: {lancamento.colecao}</span>}
             {lancamento.origem !== "MANUAL" && (
               <span className="font-medium text-slate-600">
-                Origem: {lancamento.origem} (valor vem do pedido)
+                {lancamento.origem === "PEDIDO" && lancamento.origemId ? (
+                  <>
+                    Veio da venda —{" "}
+                    <Link
+                      href={`/pedidos/${lancamento.origemId}`}
+                      className="text-brand-700 hover:underline"
+                    >
+                      abrir o pedido
+                    </Link>{" "}
+                    (o valor é o dele)
+                  </>
+                ) : (
+                  <>Origem: {rotuloOrigem(lancamento.origem)} — o valor vem da venda</>
+                )}
               </span>
             )}
           </div>

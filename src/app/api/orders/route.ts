@@ -12,6 +12,7 @@ import { pushStockToJueri } from "@/lib/jueri";
 import { reservarEstoque, textoDaFalta } from "@/lib/reservations";
 import { syncOpportunityValue, garantirCartaoDoPedido } from "@/lib/opportunity-sync";
 import { comNumeroUnico } from "@/lib/numero-do-pedido";
+import { sincronizarPedidoSemQuebrar } from "@/lib/financeiro/porta-vendas";
 
 /**
  * Pedido grande (a mensagem colada do WhatsApp traz 30+ linhas) precisa de
@@ -314,6 +315,10 @@ export async function POST(req: NextRequest) {
     // sem frete) — a coluna do funil mostrava R$ 0/valor velho enquanto o
     // Dashboard já mostrava a venda (auditoria 07/08/2026)
     await syncOpportunityValue(user.companyId, cartao, order.netTotal);
+
+    // PORTA ÚNICA DO FINANCEIRO (RN-031): pedido criado já aguardando
+    // pagamento (ou pago) vira lançamento sozinho
+    sincronizarPedidoSemQuebrar(order.id);
 
     return NextResponse.json(order, { status: 201 });
   } catch (e) {

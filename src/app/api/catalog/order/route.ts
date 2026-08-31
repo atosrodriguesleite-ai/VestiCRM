@@ -21,6 +21,7 @@ import { syncOpportunityValue, garantirCartaoDoPedido } from "@/lib/opportunity-
 import { avancarFunil } from "@/lib/funil-auto";
 import { notifyNovoPedido } from "@/lib/notify";
 import { brl } from "@/lib/format";
+import { sincronizarPedidoSemQuebrar } from "@/lib/financeiro/porta-vendas";
 
 /**
  * Pedido vindo do catálogo público — POST /api/catalog/order
@@ -695,6 +696,10 @@ export async function POST(req: NextRequest) {
     pieces: totalPieces,
     total: brl(subtotal),
   }).catch(() => {});
+
+  // PORTA ÚNICA DO FINANCEIRO (RN-031): pedido do catálogo aguardando
+  // pagamento já nasce como conta a receber (orçamento não vira nada)
+  sincronizarPedidoSemQuebrar(order.id);
 
   return NextResponse.json(
     { ok: true, orderId: order.id, number: order.number },

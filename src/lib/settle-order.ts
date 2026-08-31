@@ -6,6 +6,7 @@ import { pushStockToJueri } from "./jueri";
 import { winLinkedOpportunity, garantirCartaoDoPedido } from "./opportunity-sync";
 import { reservarOQueTiver, textoDaFalta } from "./reservations";
 import { mpCancelPayment } from "./mercadopago";
+import { sincronizarPedidoSemQuebrar } from "./financeiro/porta-vendas";
 
 /**
  * Liquidação AUTOMÁTICA de pedido pago (Pix/cartão confirmado pelo gateway).
@@ -322,6 +323,10 @@ async function liquidarUmaVez(
     where: { id: pedido.customerId },
     select: { name: true },
   });
+  // PORTA ÚNICA DO FINANCEIRO (RN-031): o Pix confirmado vira recebimento
+  // sozinho. Sem o módulo, sai calada; falhando, não atrapalha a venda.
+  sincronizarPedidoSemQuebrar(pedido.id);
+
   notifySalePaid(pedido.companyId, {
     id: pedido.id,
     number: pedido.number,

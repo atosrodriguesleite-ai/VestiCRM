@@ -506,6 +506,36 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   banco para alguém corrigir na mão e a tela passar a mentir. Os cards de
   entrou/saiu contam só receitas e despesas realizadas; a transferência
   aparece na lista mas fica FORA deles.
+  **RN-031 · A PORTA ÚNICA DE ENTRADA DAS VENDAS**
+  (`lib/financeiro/porta-vendas.ts`): TODA venda entra no financeiro por um
+  lugar só — pedido do sistema, pedido do catálogo, venda da Nuvemshop, Pix
+  confirmado (`settle-order`) e, amanhã, Mercado Livre: cada origem só
+  traduz o que tem, nenhuma escreve lançamento por conta própria (é o que faz
+  "marketplace novo" custar um tradutor, e não uma reforma nas telas).
+  **1 PEDIDO = 1 LANÇAMENTO, para sempre**: o par (loja, origem, origemId) é
+  ÚNICO no banco, então reprocessar o mesmo pedido — e o gateway REENVIA o
+  mesmo aviso, é o contrato dele — não cria dois recebimentos. A porta é
+  chamada em TODA transição e acerta o que mudou — a regra vive numa **máquina
+  de estados pura** (`decidirAcaoDaPorta`), testada sem banco: pago ganha
+  **baixa automática do que FALTA** na conta padrão (sinal registrado à mão
+  não trava mais a baixa, e sem conta padrão ela NÃO inventa uma — anota no
+  histórico); voltar para aguardando **estorna só a baixa DELA**; cancelar
+  **ou voltar a ORÇAMENTO** desfaz e cancela (senão ficaria dinheiro que
+  nunca entrou no extrato); e o **valor acompanha o pedido** — pedido de R$
+  100 editado para R$ 450 refaz o lançamento e a baixa, porque o automático
+  não aceita edição na tela (RN-028). **O QUE A LOJISTA FEZ NA MÃO É DELA**:
+  baixa manual e cancelamento manual nunca são desfeitos — a porta avisa no
+  histórico (uma vez, sem virar spam) e para. A venda entra pelo `total` (o
+  que a cliente paga, **frete-ok**; faturamento continua `netTotal` por
+  RN-002), com a categoria da origem (atacado, varejo, loja online) e as
+  datas ao **meio-dia UTC** (RN-028 — carimbo cru some do filtro do mês).
+  A **etiqueta do Melhor Envio vira despesa de frete já baixada**, chaveada
+  pelo `meOrderId` (a COMPRA, não o envio: recomprar de PAC para SEDEX é
+  outra despesa), e **cancelar a etiqueta estorna e cancela a despesa** — o
+  valor voltou para a carteira ME. **NUNCA ATRAPALHA A VENDA E NUNCA SOME**:
+  o trabalho vai no `after()` do Next — chamada solta seria congelada pela
+  Vercel junto com a resposta, e a venda paga desapareceria do financeiro sem
+  erro nenhum. Loja sem o módulo (RN-027): a porta sai calada.
 - **Envios** (gated por loja, `shippingEnabled`, pago à parte): tela própria
   no menu (`/envios`): painel (gasto do mês, aguardando postagem, em
   trânsito com alerta de **parado há 7+ dias**, entregues com tempo médio) +
