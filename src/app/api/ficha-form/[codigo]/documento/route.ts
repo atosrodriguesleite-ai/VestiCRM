@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { FuncionarioDocTipo } from "@prisma/client";
 import { db } from "@/lib/db";
-import { TETO_DOCS_POR_LINK, dataOuNull } from "@/lib/ficha-funcionario";
+import { TETO_DOCS_POR_LINK } from "@/lib/ficha-funcionario";
 import { lerLinkFicha } from "@/lib/ficha-form-link";
 
 export const dynamic = "force-dynamic";
@@ -19,10 +18,12 @@ export const maxDuration = 30;
  * TETO de anexos.
  */
 const schema = z.object({
-  tipo: z.nativeEnum(FuncionarioDocTipo),
+  // TIPO e VALIDADE não vêm do formulário (decisão do dono, 28/08/2026): o
+  // funcionário manda SÓ o CPF, e quem decide o rótulo é o servidor — a
+  // lista inteira de documentos assustava e ninguém preenchia. O admin
+  // continua anexando qualquer tipo, com validade, pela tela Equipe.
   fileName: z.string().min(1).max(160),
   arquivo: z.string().startsWith("data:").max(5_500_000),
-  validade: z.string().nullable().optional(),
   // o RG entra na pasta ANTES do envio final, então o consentimento tem que
   // ser exigido e REGISTRADO aqui também: quem anexa e desiste do formulário
   // deixava documento guardado sem nenhuma prova de que autorizou (LGPD)
@@ -72,10 +73,9 @@ export async function POST(
   const doc = await db.funcionarioDocumento.create({
     data: {
       funcionarioId: link.funcionarioId,
-      tipo: parsed.data.tipo,
+      tipo: "CPF_DOC",
       fileName: parsed.data.fileName,
       arquivo: parsed.data.arquivo,
-      validade: dataOuNull(parsed.data.validade),
     },
     select: { id: true, tipo: true, fileName: true, validade: true },
   });

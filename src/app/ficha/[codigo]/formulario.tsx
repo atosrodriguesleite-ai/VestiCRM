@@ -2,8 +2,8 @@
 
 import { useEffect, useRef, useState } from "react";
 import { NOME_DO_ESTADO } from "@/lib/envios/estados";
-import { docTipoLabel, CHECKLIST_POR_VINCULO, vinculoLabel } from "@/lib/funcionarios";
-import type { FuncionarioVinculo, FuncionarioDocTipo } from "@prisma/client";
+import { docTipoLabel } from "@/lib/funcionarios";
+import type { FuncionarioDocTipo } from "@prisma/client";
 
 /**
  * O formulário da ficha (RN-025), pensado para o celular do funcionário:
@@ -48,24 +48,20 @@ export function FormularioFicha({
   codigo,
   empresa,
   nome,
-  vinculo,
   cpfMascarado,
   inicial,
 }: {
   codigo: string;
   empresa: string;
   nome: string;
-  vinculo: FuncionarioVinculo;
   cpfMascarado: string | null;
   inicial: Inicial;
 }) {
-  const [f, setF] = useState({ ...inicial, cpf: "" });
+  const [f, setF] = useState({ ...inicial, cpf: "", nome });
   const [aceite, setAceite] = useState(false);
   const [trocarCpf, setTrocarCpf] = useState(false);
   const [dependentes, setDependentes] = useState<{ nome: string; nascimento: string }[]>([]);
   const [docs, setDocs] = useState<{ id: string; tipo: FuncionarioDocTipo; fileName: string }[]>([]);
-  const [docTipo, setDocTipo] = useState<FuncionarioDocTipo>("RG");
-  const [docValidade, setDocValidade] = useState("");
   const [anexando, setAnexando] = useState(false);
   const [enviando, setEnviando] = useState(false);
   const [erro, setErro] = useState("");
@@ -131,16 +127,16 @@ export function FormularioFicha({
           // o aceite viaja no anexo também: o documento entra na pasta na
           // hora, então o consentimento é registrado junto (LGPD)
           aceiteLGPD: aceite,
-          tipo: docTipo,
+          // o TIPO não vai daqui: quem rotula é o servidor (o formulário
+          // pede só o CPF). Duas fontes para o mesmo rótulo é receita de
+          // discordarem um dia.
           fileName: file.name,
           arquivo: dataUrl,
-          validade: docValidade || null,
         }),
       });
       const d = await resp.json().catch(() => null);
       if (!resp.ok) throw new Error(d?.error ?? "Não foi possível anexar. Tente de novo.");
       setDocs((v) => [...v, d]);
-      setDocValidade("");
     } catch (e) {
       setErro(e instanceof Error ? e.message : "Não foi possível anexar. Tente de novo.");
     } finally {
@@ -166,6 +162,11 @@ export function FormularioFicha({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           aceiteLGPD: true,
+          // só viaja se ele CORRIGIU: sem isso, uma aba aberta há dias
+          // devolveria o nome antigo e desfaria a correção do admin
+          ...(f.nome.trim() && f.nome.trim() !== nome.trim()
+            ? { nome: f.nome.trim() }
+            : {}),
           nascimento: soPreenchido(f.nascimento),
           ...(precisaDigitarCpf ? { cpf: soPreenchido(f.cpf) } : {}),
           telefone: soPreenchido(f.telefone),
@@ -214,8 +215,6 @@ export function FormularioFicha({
       </main>
     );
 
-  const checklist = CHECKLIST_POR_VINCULO[vinculo].map((t) => docTipoLabel[t]).join(", ");
-
   return (
     <main className="min-h-dvh bg-[#faf7f2] py-8 px-4">
       <div className="mx-auto max-w-md">
@@ -247,6 +246,12 @@ export function FormularioFicha({
             aceite ? "" : "pointer-events-none opacity-40"
           }`}
         >
+          <div>
+            <label className={rotulo}>Nome completo</label>
+            <input className={campo} value={f.nome} maxLength={120}
+              onChange={(e) => muda({ nome: e.target.value })} />
+          </div>
+
           <div className="grid grid-cols-2 gap-2">
             <div>
               <label className={rotulo}>Nascimento</label>
@@ -421,11 +426,12 @@ export function FormularioFicha({
           {/* documentos: cada arquivo sobe NA HORA */}
           <div className="rounded-xl bg-gray-50 p-3">
             <p className="text-xs font-semibold text-gray-600 mb-1">
-              📎 Fotos dos documentos
+              📎 Foto do CPF
             </p>
             <p className="text-[11px] text-gray-400 mb-2">
-              A empresa precisa ({vinculoLabel[vinculo]}): {checklist}. Pode
-              fotografar com a câmera — cada arquivo até ~4 MB.
+              Envie a foto do seu <b>CPF</b>. Pode fotografar com a câmera —
+              cada arquivo até ~4 MB. Outros documentos a empresa pede depois,
+              se precisar.
             </p>
             {docs.length > 0 && (
               <ul className="mb-2 space-y-1">
@@ -436,19 +442,6 @@ export function FormularioFicha({
                 ))}
               </ul>
             )}
-            <div className="grid grid-cols-2 gap-2 mb-2">
-              <select className={campo} value={docTipo}
-                onChange={(e) => setDocTipo(e.target.value as FuncionarioDocTipo)}>
-                {Object.entries(docTipoLabel).map(([v, l]) => (
-                  <option key={v} value={v}>{l}</option>
-                ))}
-              </select>
-              <div>
-                <input type="date" className={campo} value={docValidade}
-                  title="Validade (se tiver)"
-                  onChange={(e) => setDocValidade(e.target.value)} />
-              </div>
-            </div>
             <label
               className={`block w-full rounded-xl border border-dashed border-gray-300 px-3 py-2.5 text-center text-sm font-medium ${
                 anexando ? "text-gray-400" : "text-[#c4622d] cursor-pointer"

@@ -57,7 +57,6 @@ export default async function PaginaFicha({
       codigo={codigoLimpo}
       empresa={f.company.name}
       nome={f.nome}
-      vinculo={f.vinculo}
       cpfMascarado={mascararDocumento(f.cpf)}
       inicial={{
         nascimento: f.nascimento ? f.nascimento.toISOString().slice(0, 10) : "",
