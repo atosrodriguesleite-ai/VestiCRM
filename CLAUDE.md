@@ -505,7 +505,15 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   conferência**, e o admin aprova (grava só o preenchido; campo em branco não
   apaga nada) ou dispensa, com registro no histórico. Documento anexado pelo
   link entra na pasta na hora (um POST por arquivo, teto por link) e o admin
-  pode remover na conferência.
+  pode remover na conferência. **O formulário é CURTO de propósito**
+  (28/08/2026): começa pelo **nome completo** (dele, já preenchido com o que
+  o admin digitou — só viaja se ele CORRIGIR, senão uma aba aberta há dias
+  desfaria a correção feita na ficha) e pede **só a foto do CPF** — sem
+  escolher tipo e sem data de validade, que quem rotula é o SERVIDOR
+  (`CPF_DOC` fixo). A lista inteira de documentos e o vínculo ("informal")
+  saíram da tela do funcionário: assustavam e ninguém preenchia — e o
+  vínculo é classificação interna da empresa. O checklist por vínculo e o
+  anexo de qualquer tipo, com validade, seguem inteiros na tela do ADMIN.
 - **Super Admin**: painel Lojas (provisionar, cobrança, uso, suspender,
   impersonar), diagnóstico de fotos; loja demo "Bella Moda".
 

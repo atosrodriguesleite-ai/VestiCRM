@@ -311,3 +311,63 @@ describe("conferência e anexo não podem gravar duas vezes nem sem consentiment
     expect(rota("src/lib/ficha-form-link.ts")).toContain("aceiteLGPDEm: null");
   });
 });
+
+describe("o formulário do funcionário, do jeito que o dono pediu (28/08/2026)", () => {
+  const rota = (p: string) => readFileSync(join(process.cwd(), p), "utf8");
+  const form = rota("src/app/ficha/[codigo]/formulario.tsx");
+  const rotaDoc = rota("src/app/api/ficha-form/[codigo]/documento/route.ts");
+
+  it("NOME COMPLETO é o primeiro campo — e ele pode corrigir o que o admin digitou", () => {
+    expect(formFichaSchema.safeParse({ aceiteLGPD: true, nome: "Maria Aparecida" }).success).toBe(true);
+    expect(form).toContain("Nome completo");
+    // primeiro de todos: vem antes do nascimento (o campo que abria a lista)
+    expect(form.indexOf("Nome completo")).toBeLessThan(form.indexOf("Nascimento"));
+  });
+
+  it("o nome só entra na ficha DEPOIS da conferência do admin (nada automático)", () => {
+    // mesma porta de todo o resto: a resposta fica aguardando conferência
+    const r = aplicarResposta({ nome: "Maria Aparecida da Silva" });
+    expect(r!.dados.nome).toBe("Maria Aparecida da Silva");
+    expect(rota("src/app/api/ficha-form/[codigo]/route.ts")).toContain("limparResposta");
+  });
+
+  it("o vínculo NÃO aparece para o funcionário ('informal' é classificação interna)", () => {
+    expect(form).not.toContain("vinculoLabel");
+    expect(form).not.toContain("A empresa precisa");
+  });
+
+  it("documento: só o CPF — sem lista de tipos e sem data de validade", () => {
+    expect(form).toContain("📎 Foto do CPF");
+    expect(form).not.toContain("docTipo,"); // o seletor de tipo saiu
+    expect(form).not.toContain("docValidade"); // o campo de data saiu
+    expect(form).not.toContain('type="date" className={campo} value={docValidade}');
+  });
+
+  it("quem decide o tipo é o SERVIDOR (o formulário não escolhe mais)", () => {
+    expect(rotaDoc).toContain('tipo: "CPF_DOC"');
+    expect(rotaDoc).not.toContain("tipo: parsed.data.tipo");
+    expect(rotaDoc).not.toContain("validade: dataOuNull");
+  });
+
+  it("o nome só viaja se ele CORRIGIR (aba antiga não desfaz correção do admin)", () => {
+    // o campo nasce preenchido; mandar sempre faria o envio de uma aba
+    // aberta há dias devolver o nome velho por cima do que o admin ajustou
+    expect(form).toContain("f.nome.trim() !== nome.trim()");
+  });
+
+  it("o texto não convida a mandar RG/CNH (entrariam rotulados como CPF)", () => {
+    expect(form).toContain("Envie a foto do seu <b>CPF</b>");
+    expect(form).not.toContain("documento com o número dele");
+  });
+
+  it("o rótulo do anexo tem UMA fonte só: o servidor (cliente não manda tipo)", () => {
+    expect(form).not.toMatch(/tipo: "CPF_DOC"/);
+    expect(rotaDoc).toContain('tipo: "CPF_DOC"');
+  });
+
+  it("o checklist por vínculo continua valendo na tela do ADMIN", () => {
+    // o admin segue anexando qualquer documento, com validade, pela Equipe
+    expect(CHECKLIST_POR_VINCULO.CLT).toContain("ASO");
+    expect(rota("src/app/(app)/equipe/funcionarios-view.tsx")).toContain("docTipoLabel");
+  });
+});

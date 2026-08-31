@@ -89,6 +89,11 @@ export function linkUtilizavel(
  */
 export const formFichaSchema = fichaSchema
   .pick({
+    // o NOME é do próprio funcionário (é a ficha DELE): ele confere e
+    // corrige o que o admin digitou às pressas ("Maria da costura" vira
+    // "Maria Aparecida da Silva"). Nada entra sozinho — a resposta fica
+    // aguardando a conferência do admin, como todo o resto (RN-025).
+    nome: true,
     fotoUrl: true,
     nascimento: true,
     cpf: true,
@@ -112,6 +117,11 @@ export const formFichaSchema = fichaSchema
     alergias: true,
   })
   .extend({
+    // na FICHA o nome é obrigatório; no FORMULÁRIO é opcional — quem não
+    // mexer no campo não pode ser barrado, e em branco não apaga o nome
+    // que já está na ficha (mesma régua de todo o resto: só o preenchido
+    // viaja e só entra depois da conferência do admin)
+    nome: z.string().trim().min(1).max(120).optional(),
     dependentes: z
       .array(
         z.object({
