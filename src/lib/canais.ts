@@ -1,4 +1,5 @@
 import { originLabel } from "./format";
+import { vendaOnline } from "./orders";
 
 /**
  * RN-026 · WhatsApp e catálogo público são O MESMO canal nas métricas.
@@ -54,3 +55,27 @@ export function labelDoCanal(canal: string): string {
   if (c === CANAL_WHATSAPP_CATALOGO) return "WhatsApp e catálogo";
   return Object.hasOwn(originLabel, c) ? originLabel[c as keyof typeof originLabel] : c;
 }
+
+/**
+ * A OUTRA pergunta: por onde a VENDA saiu (não de onde veio a cliente).
+ *
+ * O canal acima credita a venda a quem TROUXE a cliente (primeiro contato) —
+ * cliente do WhatsApp comprando na loja online conta no WhatsApp. Esta régua
+ * olha o PEDIDO: por qual porta o dinheiro entrou. É o recorte que bate com
+ * a tela de Comissões (pedido com dona × sem dona) e respondeu de verdade o
+ * "cadê os R$ 9 mil" do dono (31/08/2026).
+ */
+export type SaidaDaVenda = "LOJA_ONLINE" | "COM_VENDEDORA" | "SEM_VENDEDORA";
+
+export function saidaDaVenda(pedido: { source: string; sellerId: string | null }): SaidaDaVenda {
+  // "é venda da loja online?" tem dono único (`vendaOnline`, RN-005) — uma
+  // segunda loja online amanhã não pode atualizar lá e esquecer daqui
+  if (vendaOnline(pedido)) return "LOJA_ONLINE";
+  return pedido.sellerId ? "COM_VENDEDORA" : "SEM_VENDEDORA";
+}
+
+export const SAIDA_LABEL: Record<SaidaDaVenda, string> = {
+  LOJA_ONLINE: "Loja online (Nuvemshop)",
+  COM_VENDEDORA: "Vendedoras (pedido com dona)",
+  SEM_VENDEDORA: "Sem vendedora (link geral / da loja)",
+};
