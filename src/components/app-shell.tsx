@@ -57,6 +57,7 @@ import { Avatar } from "./ui";
 import { Logo, LogoMark } from "./logo";
 import { NotificationBell } from "./notification-bell";
 import { fileToDataUrl } from "@/lib/upload";
+import { grupoDoMenu, rotuloDoMenu } from "@/lib/menu-grupos";
 
 // supportHidden: o perfil Suporte é operacional (gestão de pedidos +
 // atendimento) — telas comerciais e de configuração ficam fora do menu dele.
@@ -89,17 +90,22 @@ const NAV = [
   { href: "/relatorios", label: "Relatórios", icon: BarChart3, group: "Análise", managerOnly: true },
   { href: "/inteligencia", label: "Inteligência", icon: Brain, group: "Análise", managerOnly: true },
   { href: "/comissoes", label: "Comissões", icon: Percent, group: "Análise", managerOnly: true },
+  // FINANCEIRO — a ordem é a ROTINA da lojista, não o alfabeto: o que ela abre
+  // todo dia em cima, o que ela abre uma vez por mês embaixo. Com o módulo
+  // ligado estes itens saem de "Análise" e ganham grupo próprio
+  // (`grupoDoItem`), senão nove linhas soltas se misturavam com Marketing e
+  // Relatórios e o dia a dia sumia no meio do mensal.
   { href: "/financeiro", label: "Financeiro", icon: Wallet, group: "Análise", managerOnly: true },
   // módulo Financeiro completo (RN-029/RN-030, pago à parte): sem a chave, o
   // menu nem aparece — a loja segue com a tela simples de contas a receber
   { href: "/financeiro/contas-a-receber", label: "Contas a Receber", icon: TrendingUp, group: "Análise", managerOnly: true, financeOnly: true },
-  { href: "/financeiro/contas-a-pagar", label: "Contas a Pagar", icon: TrendingDown, group: "Análise", managerOnly: true, financeOnly: true },
-  { href: "/financeiro/extrato", label: "Extrato", icon: ScrollText, group: "Análise", managerOnly: true, financeOnly: true },
   { href: "/financeiro/inadimplencia", label: "Inadimplência", icon: AlertCircle, group: "Análise", managerOnly: true, financeOnly: true },
+  { href: "/financeiro/contas-a-pagar", label: "Contas a Pagar", icon: TrendingDown, group: "Análise", managerOnly: true, financeOnly: true },
+  { href: "/financeiro/cartoes", label: "Cartões", icon: CreditCard, group: "Análise", managerOnly: true, financeOnly: true },
+  { href: "/financeiro/extrato", label: "Extrato", icon: ScrollText, group: "Análise", managerOnly: true, financeOnly: true },
+  { href: "/financeiro/conciliacao", label: "Conferir com o banco", icon: Landmark, group: "Análise", managerOnly: true, financeOnly: true },
   { href: "/financeiro/fluxo-de-caixa", label: "Fluxo de caixa", icon: LineChart, group: "Análise", managerOnly: true, financeOnly: true },
   { href: "/financeiro/dre", label: "Deu lucro?", icon: PiggyBank, group: "Análise", managerOnly: true, financeOnly: true },
-  { href: "/financeiro/conciliacao", label: "Conferir com o banco", icon: Landmark, group: "Análise", managerOnly: true, financeOnly: true },
-  { href: "/financeiro/cartoes", label: "Cartões", icon: CreditCard, group: "Análise", managerOnly: true, financeOnly: true },
   // Conexão do WhatsApp e log de entrega: trabalho operacional, então o
   // suporte entra junto com gerente e admin (vendedora não).
   { href: "/comunicacao", label: "Comunicação", icon: Radio, group: "Sistema", operacional: true },
@@ -141,7 +147,19 @@ const MOBILE_NAV_SUPPORT = [
   { href: "/produtos", label: "Produtos", icon: Package },
 ];
 
-const GROUPS = ["Comercial", "Catálogo", "Relacionamento", "Análise", "Sistema", "Plataforma"];
+const GROUPS = [
+  "Comercial",
+  "Catálogo",
+  "Relacionamento",
+  "Análise",
+  // só aparece para a loja que tem o módulo (RN-029) — sem a chave, o
+  // "Financeiro" simples continua morando em Análise, como sempre morou
+  "Financeiro",
+  "Sistema",
+  "Plataforma",
+];
+
+
 
 /**
  * Qual item do menu acende. Vence o href MAIS ESPECÍFICO que casa com a
@@ -312,8 +330,12 @@ export function AppShell({
   // modo plataforma: Super Admin na própria casa (fora da impersonação)
   const modoPlataforma = user.role === "SUPERADMIN" && !user.impersonating;
   const grupos = modoPlataforma ? GRUPOS_SUPER : GROUPS;
+  // a decisão de grupo/rótulo é pura e mora em `lib/menu-grupos.ts`
+  const ctxMenu = { modoPlataforma, financeEnabled: Boolean(user.financeEnabled) };
   const grupoDoItem = (href: string, group: string) =>
-    modoPlataforma ? (GRUPO_SUPER[href] ?? GRUPO_SUPER_PADRAO) : group;
+    grupoDoMenu(href, group, ctxMenu, GRUPO_SUPER[href] ?? GRUPO_SUPER_PADRAO);
+  const rotuloDoItem = (href: string, label: string) =>
+    rotuloDoMenu(href, label, ctxMenu);
 
   // grupos recolhidos (só no modo plataforma) — a escolha fica salva
   const [fechados, setFechados] = useState<string[]>(GRUPOS_FECHADOS_INICIAIS);
@@ -397,13 +419,16 @@ export function AppShell({
       {grupos.map((group) => {
         const groupItems = items.filter((i) => grupoDoItem(i.href, i.group) === group);
         if (groupItems.length === 0) return null;
-        // com o menu recolhido (só ícones) nada fica escondido atrás de clique
-        const recolhivel = modoPlataforma && showLabels;
-        // o grupo da tela aberta nunca fica fechado (senão some o "você está aqui")
-        const fechado =
-          recolhivel &&
-          fechados.includes(group) &&
-          !groupItems.some((i) => pathname.startsWith(i.href));
+        // O grupo da tela ABERTA não recolhe — senão sumiria o "você está
+        // aqui". E como não recolhe, ele também não mostra a setinha: um botão
+        // que não faz nada quando se clica é pior que botão nenhum (a lojista
+        // clicava, nada acontecia, e o grupo sumia na navegação seguinte).
+        const estouAqui = groupItems.some((i) => pathname.startsWith(i.href));
+        // com o menu recolhido (só ícones) nada fica escondido atrás de clique.
+        // Fora isso, TODO grupo recolhe: a lista da lateral cresceu e quem não
+        // usa uma área todo dia quer poder fechá-la (a escolha fica salva).
+        const recolhivel = showLabels && !estouAqui;
+        const fechado = recolhivel && fechados.includes(group);
         return (
           <div key={group}>
             {showLabels &&
@@ -433,7 +458,7 @@ export function AppShell({
                     key={item.href}
                     href={item.href}
                     onClick={onClick}
-                    title={!showLabels ? item.label : undefined}
+                    title={!showLabels ? rotuloDoItem(item.href, item.label) : undefined}
                     className={`group relative flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition duration-150 ${
                       active
                         ? "bg-cobre/20 text-creme"
@@ -446,7 +471,7 @@ export function AppShell({
                     <Icon
                       className={`size-[18px] shrink-0 transition ${active ? "text-ocre" : "text-creme/40 group-hover:text-creme/80"}`}
                     />
-                    {showLabels && item.label}
+                    {showLabels && rotuloDoItem(item.href, item.label)}
                   </Link>
                 );
               })}

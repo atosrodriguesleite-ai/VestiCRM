@@ -34,7 +34,6 @@ export function DreView({
     router.push(`?${p.toString()}`);
   }
 
-  const colunas = dre.meses.length;
   const Linha = ({
     rotulo,
     valores,

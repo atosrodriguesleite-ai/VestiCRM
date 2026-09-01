@@ -69,6 +69,7 @@ export function ListaMovimentacoes({
   fornecedores,
   centros,
   colecoes,
+  abrirNova,
 }: {
   tipo: "RECEITA" | "DESPESA";
   hoje: string;
@@ -88,11 +89,15 @@ export function ListaMovimentacoes({
   fornecedores: { id: string; nome: string; categoriaPadraoId: string | null }[];
   centros: Opcao[];
   colecoes: Opcao[];
+  /** "fixa" abre a janela nova já na conta que se repete (RN-031) */
+  abrirNova?: "fixa";
 }) {
   const router = useRouter();
   const receita = tipo === "RECEITA";
   const [busca, setBusca] = useState(filtro.q);
-  const [criando, setCriando] = useState(false);
+  // "?nova=fixa" (link da tela de Contas fixas) já abre a janela na opção
+  // certa: quem clicou em "Nova conta fixa" não quer clicar de novo
+  const [criando, setCriando] = useState(abrirNova !== undefined);
   const [baixando, setBaixando] = useState<LinhaMovimentacao | null>(null);
 
   function aplicar(mudanca: Partial<FiltroTela>) {
@@ -317,6 +322,7 @@ export function ListaMovimentacoes({
         <FormLancamento
           tipo={tipo}
           hoje={hoje}
+          comecarFixa={abrirNova === "fixa"}
           contas={contas}
           categorias={categorias}
           fornecedores={fornecedores}

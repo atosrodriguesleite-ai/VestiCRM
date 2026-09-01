@@ -62,6 +62,7 @@ export function FormLancamento({
   centros,
   colecoes,
   editando,
+  comecarFixa = false,
   onFechar,
   onSalvo,
 }: {
@@ -80,6 +81,8 @@ export function FormLancamento({
   centros: Opcao[];
   colecoes: Opcao[];
   editando?: LancamentoParaEditar;
+  /** já abre na opção "todo mês" (link da tela de Contas fixas) */
+  comecarFixa?: boolean;
   onFechar: () => void;
   onSalvo: () => void;
 }) {
@@ -121,6 +124,22 @@ export function FormLancamento({
   const [colecaoId, setColecaoId] = useState(editando?.colecaoId ?? "");
   const [observacoes, setObservacoes] = useState(editando?.observacoes ?? "");
   const [fornecedorId, setFornecedorId] = useState(editando?.fornecedorId ?? "");
+
+  /**
+   * CONTA FIXA (RN-031) nasce AQUI, na mesma janela de lançar a conta: o
+   * aluguel é uma conta a pagar como qualquer outra, só que se repete. Ter
+   * uma tela separada para cadastrá-la obrigava a lojista a saber, ANTES de
+   * começar, em qual das duas portas entrar — e ela sempre entrava por esta.
+   * Editar lançamento que já existe não vira conta fixa (é outro objeto).
+   */
+  const [ehFixa, setEhFixa] = useState(comecarFixa);
+  const [diaFixo, setDiaFixo] = useState("5");
+  const [inicioFixo, setInicioFixo] = useState(hoje.slice(0, 7));
+  const [fimFixo, setFimFixo] = useState("");
+  const [valorFixo, setValorFixo] = useState("");
+  const [contaFixa, setContaFixa] = useState(contaPadrao);
+  const [formaFixa, setFormaFixa] = useState<FormaPagamento>("PIX");
+  const podeSerFixa = !editando;
 
   // cliente: busca por nome/telefone (a loja tem milhares — lista fechada não serve)
   const [customerId, setCustomerId] = useState(editando?.customerId ?? "");
@@ -214,11 +233,73 @@ export function FormLancamento({
     );
   }
 
+  /**
+   * Salva a CONTA FIXA (RN-031): o sistema materializa os próximos meses
+   * sozinho, então aqui não se digitam parcelas — só o valor, o dia do
+   * vencimento e de quando até quando ela vale.
+   */
+  async function salvarContaFixa() {
+    const valor = numeroBR(valorFixo) ?? 0;
+    if (!(valor > 0)) {
+      setErro("Diga quanto é a conta de cada mês");
+      return;
+    }
+    const dia = Number(diaFixo);
+    if (!(dia >= 1 && dia <= 31)) {
+      setErro("O dia do vencimento vai de 1 a 31");
+      return;
+    }
+    if (!/^\d{4}-\d{2}$/.test(inicioFixo)) {
+      setErro("Diga a partir de qual mês ela vale");
+      return;
+    }
+    if (fimFixo && fimFixo < inicioFixo) {
+      setErro("O mês final não pode ser antes do inicial");
+      return;
+    }
+    setSalvando(true);
+    setErro("");
+    try {
+      const res = await fetch("/api/financeiro/recorrencias", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          tipo,
+          descricao: descricao.trim(),
+          valor,
+          diaVencimento: dia,
+          customerId: receita ? customerId || null : null,
+          fornecedorId: receita ? null : fornecedorId || null,
+          categoriaId: categoriaId || null,
+          centroCustoId: centroCustoId || null,
+          colecaoId: colecaoId || null,
+          contaId: contaFixa || null,
+          forma: formaFixa,
+          observacoes: observacoes.trim() || null,
+          inicio: inicioFixo,
+          fim: fimFixo || null,
+        }),
+      });
+      setSalvando(false);
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        setErro(data?.error ?? "Não deu certo — tente de novo");
+        return;
+      }
+      onSalvo();
+    } catch {
+      setSalvando(false);
+      setErro("Sem conexão — confira a internet e tente de novo");
+    }
+  }
+
   async function salvar() {
     if (!descricao.trim()) {
       setErro("Escreva uma descrição — é o que a loja vai reconhecer na lista");
       return;
     }
+    // conta que se repete todo mês: vira MOLDE (RN-031), não lançamento
+    if (ehFixa && podeSerFixa) return salvarContaFixa();
     const linhas = parcelas.map((p) => ({
       vencimento: p.vencimento,
       valor: numeroBR(p.valor) ?? 0,
@@ -278,7 +359,15 @@ export function FormLancamento({
         <div className="max-h-[92dvh] w-full overflow-y-auto rounded-t-2xl bg-white p-5 sm:max-w-3xl sm:rounded-2xl">
           <div className="mb-4 flex items-start justify-between gap-3">
             <h2 className="text-lg font-semibold text-slate-900">
-              {editando ? "Editar lançamento" : receita ? "Nova conta a receber" : "Nova conta a pagar"}
+              {editando
+                ? "Editar lançamento"
+                : ehFixa
+                  ? receita
+                    ? "Novo recebimento fixo"
+                    : "Nova conta fixa"
+                  : receita
+                    ? "Nova conta a receber"
+                    : "Nova conta a pagar"}
             </h2>
             <button
               type="button"
@@ -375,16 +464,24 @@ export function FormLancamento({
               </select>
             </Field>
 
-            <Field label="Data de emissão">
-              <Input
-                type="date"
-                value={competencia}
-                onChange={(e) => setCompetencia(e.target.value)}
-              />
-            </Field>
-            <Field label="Documento (opcional)" hint="Nº da nota, contrato, boleto">
-              <Input value={documento} onChange={(e) => setDocumento(e.target.value)} />
-            </Field>
+            {/* na conta que se repete estes dois não existem: a data é o
+                "começa em" lá embaixo, e o documento seria de um mês só —
+                campo que a lojista preenche e o sistema joga fora é pior que
+                campo nenhum */}
+            {!(ehFixa && podeSerFixa) && (
+              <>
+                <Field label="Data de emissão">
+                  <Input
+                    type="date"
+                    value={competencia}
+                    onChange={(e) => setCompetencia(e.target.value)}
+                  />
+                </Field>
+                <Field label="Documento (opcional)" hint="Nº da nota, contrato, boleto">
+                  <Input value={documento} onChange={(e) => setDocumento(e.target.value)} />
+                </Field>
+              </>
+            )}
 
             {centros.length > 0 && (
               <Field label="Centro de custo (opcional)">
@@ -422,8 +519,108 @@ export function FormLancamento({
 
           <div className="mt-5 rounded-xl border border-slate-200 p-4">
             <h3 className="mb-3 text-sm font-semibold text-slate-800">
-              Condição de pagamento
+              {ehFixa ? "Quando ela vence, todo mês" : "Condição de pagamento"}
             </h3>
+
+            {/* a escolha que evita a segunda porta: é uma conta só ou se
+                repete? (RN-031) — editar lançamento que já existe não vira
+                conta fixa, então a pergunta nem aparece */}
+            {podeSerFixa && (
+              <div className="mb-4 flex flex-wrap gap-2">
+                {[
+                  { fixa: false, rotulo: receita ? "Recebimento único" : "Conta única" },
+                  { fixa: true, rotulo: "Todo mês (fixa)" },
+                ].map((op) => (
+                  <button
+                    key={String(op.fixa)}
+                    type="button"
+                    onClick={() => setEhFixa(op.fixa)}
+                    className={`rounded-xl border px-3.5 py-2 text-sm font-medium transition ${
+                      ehFixa === op.fixa
+                        ? "border-brand-300 bg-brand-50 text-brand-800"
+                        : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+                    }`}
+                  >
+                    {op.rotulo}
+                  </button>
+                ))}
+                <p className="w-full text-xs text-slate-400">
+                  {ehFixa
+                    ? "Aluguel, salário, internet: você cadastra uma vez e ela aparece sozinha todo mês, sem ninguém digitar."
+                    : "Uma conta que acontece uma vez — pode ser à vista ou parcelada."}
+                </p>
+              </div>
+            )}
+
+            {ehFixa && podeSerFixa ? (
+              <div className="grid gap-4 sm:grid-cols-2">
+                <Field label="Valor de cada mês (R$)">
+                  <Input
+                    inputMode="decimal"
+                    placeholder="1.500,00"
+                    value={valorFixo}
+                    onChange={(e) => setValorFixo(e.target.value)}
+                  />
+                </Field>
+                <Field
+                  label="Vence todo dia"
+                  hint="Dia 31 cai no último dia dos meses curtos"
+                >
+                  <Input
+                    inputMode="numeric"
+                    value={diaFixo}
+                    onChange={(e) => setDiaFixo(e.target.value)}
+                  />
+                </Field>
+                <Field label="Começa em" hint="Mês do primeiro lançamento">
+                  <Input
+                    type="month"
+                    value={inicioFixo}
+                    onChange={(e) => setInicioFixo(e.target.value)}
+                  />
+                </Field>
+                <Field label="Vai até (opcional)" hint="Em branco = sem data para acabar">
+                  <Input
+                    type="month"
+                    value={fimFixo}
+                    onChange={(e) => setFimFixo(e.target.value)}
+                  />
+                </Field>
+                <Field label="Conta prevista">
+                  <select
+                    className={inputCls}
+                    value={contaFixa}
+                    onChange={(e) => setContaFixa(e.target.value)}
+                  >
+                    <option value="">— conta —</option>
+                    {contas.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.nome}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+                <Field label="Forma">
+                  <select
+                    className={inputCls}
+                    value={formaFixa}
+                    onChange={(e) => setFormaFixa(e.target.value as FormaPagamento)}
+                  >
+                    {FORMAS_PAGAMENTO.map((f) => (
+                      <option key={f} value={f}>
+                        {FORMA_LABEL[f]}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+                <p className="sm:col-span-2 text-xs text-slate-400">
+                  O sistema já deixa os próximos 3 meses lançados. Depois, em{" "}
+                  <b>Contas fixas</b>, dá para editar ou encerrar — mexendo só
+                  nos meses que ainda não venceram.
+                </p>
+              </div>
+            ) : (
+            <>
             <div className="flex flex-wrap items-end gap-3">
               <label className="text-xs text-slate-500">
                 Valor total (R$)
@@ -517,6 +714,8 @@ export function FormLancamento({
               <b className="text-slate-800">{brl(somaParcelas)}</b> — é este o
               valor do lançamento.
             </p>
+            </>
+            )}
           </div>
 
           <div className="mt-4">
@@ -533,7 +732,11 @@ export function FormLancamento({
 
           <div className="mt-5 flex gap-2">
             <Button onClick={salvar} disabled={salvando}>
-              {salvando ? "Salvando…" : "Salvar lançamento"}
+              {salvando
+                ? "Salvando…"
+                : ehFixa && podeSerFixa
+                  ? "Salvar conta fixa"
+                  : "Salvar lançamento"}
             </Button>
             <Button variant="secondary" onClick={onFechar}>
               Cancelar

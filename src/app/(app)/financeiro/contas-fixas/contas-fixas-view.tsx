@@ -55,27 +55,33 @@ export function ContasFixasView({
   recorrencias: Recorrencia[];
 }) {
   const router = useRouter();
-  const [aberto, setAberto] = useState<Recorrencia | "nova" | null>(null);
+  // só EDIÇÃO abre formulário aqui: o cadastro mora em Contas a Pagar (RN-031)
+  const [aberto, setAberto] = useState<Recorrencia | null>(null);
   const [erro, setErro] = useState("");
 
   return (
     <div className="max-w-5xl mx-auto">
       <PageHeader
         title="Contas fixas"
-        subtitle="Aluguel, salário, internet, assinatura: configure uma vez e o sistema lança todo mês sozinho."
+        subtitle="Aluguel, salário, internet, assinatura: configuradas uma vez, o sistema lança todo mês sozinho."
         action={
           <div className="flex gap-2">
+            {/* A conta fixa NASCE em Contas a Pagar (RN-031): é lá que a
+                lojista vai quando pensa "tenho uma conta para pagar", e ter
+                duas portas de cadastro a obrigava a escolher a porta certa
+                ANTES de começar. Aqui ela só acompanha, edita e encerra. */}
+            <Link
+              href="/financeiro/contas-a-pagar?nova=fixa"
+              className="inline-flex items-center gap-1.5 rounded-xl bg-brand-600 px-3.5 py-2 text-sm font-semibold text-white hover:bg-brand-700"
+            >
+              <Plus className="size-4" /> Nova conta fixa
+            </Link>
             <Link
               href="/financeiro/contas-a-pagar"
               className="inline-flex items-center rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
             >
               Contas a Pagar
             </Link>
-            {aberto === null && (
-              <Button onClick={() => setAberto("nova")}>
-                <Plus className="size-4" /> Nova conta fixa
-              </Button>
-            )}
           </div>
         }
       />
@@ -88,7 +94,7 @@ export function ContasFixasView({
           contas={contas}
           categorias={categorias}
           fornecedores={fornecedores}
-          editando={aberto === "nova" ? null : aberto}
+          editando={aberto}
           onFechar={() => setAberto(null)}
           onSalvo={() => {
             setAberto(null);
@@ -100,8 +106,14 @@ export function ContasFixasView({
       <Card className="divide-y divide-slate-100">
         {recorrencias.length === 0 && (
           <p className="p-5 text-sm text-slate-500">
-            Nenhuma conta fixa. Cadastre o aluguel e ele passa a aparecer nas
-            contas a pagar de todo mês, sem ninguém digitar.
+            Nenhuma conta fixa ainda. Cadastre o aluguel em{" "}
+            <Link
+              href="/financeiro/contas-a-pagar?nova=fixa"
+              className="font-medium text-brand-700 hover:underline"
+            >
+              Contas a Pagar → Novo lançamento → &quot;Todo mês&quot;
+            </Link>{" "}
+            e ele passa a aparecer todo mês, sem ninguém digitar.
           </p>
         )}
         {recorrencias.map((r) => (

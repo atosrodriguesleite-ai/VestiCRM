@@ -549,9 +549,13 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   de MANUAL (Fase 4) não aceita edição de valor — a fonte da verdade é o
   pedido, e o único (companyId, origem, origemId) garante "1 pedido = 1
   lançamento".
-  **RN-031 · CONTAS FIXAS** (`lib/financeiro/recorrencia.ts`, tela
-  `/financeiro/contas-fixas`): aluguel, salário, internet — a loja configura
-  UMA vez (valor, dia, categoria, "sem fim" ou até quando) e o sistema
+  **RN-031 · CONTAS FIXAS** (`lib/financeiro/recorrencia.ts`): aluguel,
+  salário, internet — a conta fixa **nasce na MESMA janela de lançar a conta**
+  (Contas a Pagar → Novo lançamento → "Todo mês"), porque é lá que a lojista
+  vai quando pensa "tenho uma conta para pagar"; ter uma tela separada de
+  cadastro a obrigava a escolher a porta certa ANTES de começar, e ela sempre
+  entrava por esta. A tela `/financeiro/contas-fixas` fica para ACOMPANHAR:
+  ver, editar e encerrar. A loja configura UMA vez (valor, dia, categoria, "sem fim" ou até quando) e o sistema
   materializa os lançamentos dos **próximos 3 meses** sozinho. **NÃO é cron**
   (ADR-002: um 3º cron trava TODOS os deploys em silêncio): roda de CARONA no
   tráfego ao abrir as telas do financeiro, e a consulta é barata — só as

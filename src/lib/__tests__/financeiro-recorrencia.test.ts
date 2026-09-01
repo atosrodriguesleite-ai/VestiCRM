@@ -189,3 +189,48 @@ describe("as correções da revisão de 31/08/2026 (RN-031, RN-032)", () => {
     expect(extrato).toContain("db.finConta.aggregate");
   });
 });
+
+describe("a conta fixa nasce em Contas a Pagar (RN-031)", () => {
+  const lerArquivo = (p: string) => readFileSync(join(process.cwd(), p), "utf8");
+  const form = lerArquivo("src/app/(app)/financeiro/_mov/form-lancamento.tsx");
+
+  it("a mesma janela de lançar a conta pergunta se ela se repete", () => {
+    // ter uma tela separada para cadastrar obrigava a lojista a saber, ANTES
+    // de começar, em qual das duas portas entrar — e ela entrava por esta
+    expect(form).toContain("Todo mês (fixa)");
+    expect(form).toContain("const [ehFixa, setEhFixa] = useState(comecarFixa);");
+  });
+
+  it("marcada como fixa, o salvar vai para a porta da recorrência", () => {
+    // conta fixa é MOLDE, não lançamento: entra por /recorrencias
+    expect(form).toContain("if (ehFixa && podeSerFixa) return salvarContaFixa();");
+    expect(form).toContain('fetch("/api/financeiro/recorrencias"');
+    // e leva o que a recorrência precisa (dia, início, fim), não parcelas
+    for (const campo of ["diaVencimento", "inicio", "fim"]) {
+      expect(form).toContain(`${campo}:`);
+    }
+  });
+
+  it("EDITAR lançamento que já existe não vira conta fixa", () => {
+    // são objetos diferentes: o lançamento é um mês, a conta fixa é o molde
+    expect(form).toContain("const podeSerFixa = !editando;");
+  });
+
+  it("a tela de Contas fixas deixou de ser a segunda porta de cadastro", () => {
+    const tela = lerArquivo("src/app/(app)/financeiro/contas-fixas/contas-fixas-view.tsx");
+    // o botão de criar leva para Contas a Pagar, já na opção certa
+    expect(tela).toContain('href="/financeiro/contas-a-pagar?nova=fixa"');
+    expect(tela).not.toContain('<Button onClick={() => setAberto("nova")}>');
+    // mas EDITAR continua ali (é onde a conta fixa vive depois de criada)
+    expect(tela).toContain("Editar conta fixa");
+  });
+
+  it("o link abre a janela já na conta que se repete", () => {
+    expect(lerArquivo("src/app/(app)/financeiro/_mov/pagina.tsx")).toContain(
+      'abrirNova={texto("nova") === "fixa" ? "fixa" : undefined}'
+    );
+    expect(lerArquivo("src/app/(app)/financeiro/_mov/lista.tsx")).toContain(
+      "useState(abrirNova !== undefined)"
+    );
+  });
+});

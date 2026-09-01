@@ -135,6 +135,9 @@ export async function PaginaMovimentacoes({
       fornecedores={fornecedores}
       centros={centros}
       colecoes={colecoes}
+      // "?nova=fixa" abre a janela já na opção da conta que se repete — é o
+      // link que a tela de Contas fixas usa (o cadastro mora aqui, RN-031)
+      abrirNova={texto("nova") === "fixa" ? "fixa" : undefined}
     />
   );
 }
