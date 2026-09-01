@@ -13,7 +13,7 @@ import {
 } from "./lancamentos";
 
 /**
- * A CONSULTA DA TELA de contas a receber/pagar (RN-028).
+ * A CONSULTA DA TELA de contas a receber/pagar (RN-030).
  *
  * A tela lista PARCELAS, não lançamentos: o que a lojista persegue é
  * "o que vence esta semana", e um lançamento em 3× tem três respostas

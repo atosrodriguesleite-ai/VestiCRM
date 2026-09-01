@@ -11,7 +11,7 @@ const acaoSchema = z.discriminatedUnion("acao", [
 ]);
 
 /**
- * Conciliar, desfazer e "não é do sistema" (RN-035). Nenhuma delas mexe em
+ * Conciliar, desfazer e "não é do sistema" (RN-037). Nenhuma delas mexe em
  * dinheiro: conciliação carimba "conferido", nunca cria nem apaga baixa.
  */
 export async function PATCH(

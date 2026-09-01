@@ -2,7 +2,7 @@ import { PaginaMovimentacoes } from "../_mov/pagina";
 
 export const dynamic = "force-dynamic";
 
-/** Contas a Pagar (RN-028) — o que a loja tem para pagar. */
+/** Contas a Pagar (RN-030) — o que a loja tem para pagar. */
 export default async function ContasAPagarPage({
   searchParams,
 }: {

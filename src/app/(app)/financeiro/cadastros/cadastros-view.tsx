@@ -27,7 +27,7 @@ function hojeSP(): string {
 }
 
 /**
- * FINANCEIRO · CADASTROS (RN-027) — cinco abas, um princípio: cadastro não
+ * FINANCEIRO · CADASTROS (RN-029) — cinco abas, um princípio: cadastro não
  * se apaga, se ARQUIVA (os botões refletem isso; DELETE nem existe na API).
  * Clientes ficam de fora de propósito: o financeiro usa a ficha do CRM.
  */
@@ -41,7 +41,7 @@ type Conta = {
   cor: string;
   padrao: boolean;
   arquivada: boolean;
-  // cartão de crédito (RN-037)
+  // cartão de crédito (RN-039)
   diaFechamento: number | null;
   diaVencimento: number | null;
   contaPagamentoId: string | null;
@@ -188,7 +188,7 @@ function AbaContas({ iniciais }: { iniciais: Conta[] }) {
   const [saldoEm, setSaldoEm] = useState(hojeSP());
   const [cor, setCor] = useState("#0E8A5F");
   const [padrao, setPadrao] = useState(false);
-  // cartão de crédito (RN-037): os dias que decidem a fatura de cada compra
+  // cartão de crédito (RN-039): os dias que decidem a fatura de cada compra
   const [fechamento, setFechamento] = useState("");
   const [vencimento, setVencimento] = useState("");
   const [contaPagamento, setContaPagamento] = useState("");
@@ -219,7 +219,7 @@ function AbaContas({ iniciais }: { iniciais: Conta[] }) {
       return;
     }
     setSalvando(true);
-    // o cartão não guarda dinheiro (RN-037): sem saldo inicial e nunca padrão
+    // o cartão não guarda dinheiro (RN-039): sem saldo inicial e nunca padrão
     const diaF = ehCartao ? Number(fechamento) : NaN;
     const diaV = ehCartao ? Number(vencimento) : NaN;
     if (ehCartao && (!(diaF >= 1 && diaF <= 31) || !(diaV >= 1 && diaV <= 31))) {

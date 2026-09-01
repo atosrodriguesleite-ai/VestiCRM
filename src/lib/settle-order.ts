@@ -323,7 +323,7 @@ async function liquidarUmaVez(
     where: { id: pedido.customerId },
     select: { name: true },
   });
-  // PORTA ÚNICA DO FINANCEIRO (RN-031): o Pix confirmado vira recebimento
+  // PORTA ÚNICA DO FINANCEIRO (RN-033): o Pix confirmado vira recebimento
   // sozinho. Sem o módulo, sai calada; falhando, não atrapalha a venda.
   sincronizarPedidoSemQuebrar(pedido.id);
 

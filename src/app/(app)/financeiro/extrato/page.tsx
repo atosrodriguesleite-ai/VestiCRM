@@ -11,7 +11,7 @@ import { ExtratoView } from "./extrato-view";
 export const dynamic = "force-dynamic";
 
 /**
- * EXTRATO (RN-030) — o livro-caixa: tudo que entrou, saiu e foi transferido,
+ * EXTRATO (RN-032) — o livro-caixa: tudo que entrou, saiu e foi transferido,
  * com o saldo acumulado linha a linha. É aqui que se confere com o banco.
  */
 export default async function ExtratoPage({

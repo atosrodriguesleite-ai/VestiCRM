@@ -1,4 +1,4 @@
--- MÓDULO FINANCEIRO (RN-027) — Fase 1: chavinha por loja + cadastros-fundação
+-- MÓDULO FINANCEIRO (RN-029) — Fase 1: chavinha por loja + cadastros-fundação
 -- (contas, categorias, centros de custo, coleções, fornecedores).
 -- Escrita à mão (ADR-001) e idempotente: rodar duas vezes não quebra.
 

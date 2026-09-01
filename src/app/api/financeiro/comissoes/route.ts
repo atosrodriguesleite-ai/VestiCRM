@@ -14,8 +14,8 @@ const schema = z.object({
 });
 
 /**
- * GERAR A CONTA A PAGAR DA COMISSÃO (RN-036). Porta do módulo Financeiro
- * (RN-027): exige a chave da loja e gerente/admin — vendedora não gera a
+ * GERAR A CONTA A PAGAR DA COMISSÃO (RN-038). Porta do módulo Financeiro
+ * (RN-029): exige a chave da loja e gerente/admin — vendedora não gera a
  * própria comissão.
  */
 export async function POST(req: NextRequest) {

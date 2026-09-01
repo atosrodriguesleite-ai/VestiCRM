@@ -5,7 +5,7 @@ import { AuthError } from "@/lib/auth";
 import { porteiraFinanceiro } from "@/lib/financeiro/gate";
 
 /**
- * Renomear/arquivar categoria (RN-027). O que NÃO dá para mudar aqui é
+ * Renomear/arquivar categoria (RN-029). O que NÃO dá para mudar aqui é
  * proposital: tipo e lugar na árvore são estrutura — mudá-los reclassificaria
  * o histórico inteiro em silêncio. Sem DELETE: categoria se arquiva.
  */

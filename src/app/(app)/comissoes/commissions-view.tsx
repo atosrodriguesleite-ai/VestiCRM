@@ -41,7 +41,7 @@ export function CommissionsView({
   de: string;
   ate: string;
   unassigned: { count: number; base: number };
-  /** módulo Financeiro ligado (RN-027): sem ele, nada de conta a pagar */
+  /** módulo Financeiro ligado (RN-029): sem ele, nada de conta a pagar */
   financeiro?: boolean;
   /** o período do filtro em dias, para gerar a conta */
   periodo?: { de: string; ate: string };
@@ -64,7 +64,7 @@ export function CommissionsView({
   const [erroConta, setErroConta] = useState("");
 
   /**
-   * Comissão vira CONTA A PAGAR no financeiro (RN-036) — mesma conta desta
+   * Comissão vira CONTA A PAGAR no financeiro (RN-038) — mesma conta desta
    * tela, para a lojista não pagar de memória. O vencimento pergunta-se: cada
    * loja paga num dia.
    */

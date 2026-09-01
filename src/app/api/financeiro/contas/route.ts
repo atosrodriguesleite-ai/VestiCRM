@@ -5,7 +5,7 @@ import { AuthError } from "@/lib/auth";
 import { porteiraFinanceiro } from "@/lib/financeiro/gate";
 
 /**
- * CONTAS FINANCEIRAS (RN-027) — onde o dinheiro da loja mora.
+ * CONTAS FINANCEIRAS (RN-029) — onde o dinheiro da loja mora.
  * Toda porta do módulo passa pela porteira: gerente+ E loja com a chave.
  */
 
@@ -18,7 +18,7 @@ const contaSchema = z.object({
   saldoInicialEm: z.coerce.date().optional(),
   cor: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional(),
   padrao: z.boolean().default(false),
-  // cartão de crédito (RN-037): os dias que decidem a fatura de cada compra.
+  // cartão de crédito (RN-039): os dias que decidem a fatura de cada compra.
   // `nullable` porque o formulário manda null para conta que NÃO é cartão —
   // só `optional` recusava a criação de qualquer conta (achado da revisão).
   diaFechamento: z.number().int().min(1).max(31).nullable().optional(),
@@ -69,8 +69,8 @@ export async function POST(req: NextRequest) {
     if (!parsed.success)
       return NextResponse.json({ error: "Dados inválidos" }, { status: 400 });
 
-    // CARTÃO não é conta de dinheiro (RN-037): não pode ser a conta PADRÃO —
-    // a porta única de entrada das vendas (RN-031) baixaria a venda paga no
+    // CARTÃO não é conta de dinheiro (RN-039): não pode ser a conta PADRÃO —
+    // a porta única de entrada das vendas (RN-033) baixaria a venda paga no
     // cartão de crédito da loja — nem carrega saldo inicial.
     const dados =
       parsed.data.tipo === "CARTAO"

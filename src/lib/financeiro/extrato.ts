@@ -3,7 +3,7 @@ import { round2 } from "../orders";
 import { diaSP, saldoDaParcela, statusDaParcela, valorMovimentado } from "./lancamentos";
 
 /**
- * O EXTRATO (RN-030) — o livro-caixa da loja: toda entrada, saída e
+ * O EXTRATO (RN-032) — o livro-caixa da loja: toda entrada, saída e
  * transferência em ordem, com o SALDO ACUMULADO linha a linha. É a tela onde
  * se responde "o sistema bate com o banco?".
  *

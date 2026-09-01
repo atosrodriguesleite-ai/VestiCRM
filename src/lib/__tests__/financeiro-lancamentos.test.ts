@@ -1,4 +1,4 @@
-// Guarda RN-028
+// Guarda RN-030
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -19,14 +19,14 @@ import {
 } from "../financeiro/lancamentos";
 
 /**
- * RN-028 · O lançamento do financeiro: parcelas sem perder centavo, status
+ * RN-030 · O lançamento do financeiro: parcelas sem perder centavo, status
  * SEMPRE calculado, baixa parcial, estorno com rastro e a régua do que pode
  * ser mexido depois que o dinheiro andou.
  */
 
 const dia = (iso: string) => dataDoDia(iso)!;
 
-describe("parcelamento não perde centavo (RN-028)", () => {
+describe("parcelamento não perde centavo (RN-030)", () => {
   it("R$ 100 em 3× fecha exatamente R$ 100", () => {
     const p = dividirEmParcelas(100, 3);
     expect(p).toEqual([33.33, 33.33, 33.34]);
@@ -50,7 +50,7 @@ describe("parcelamento não perde centavo (RN-028)", () => {
   });
 });
 
-describe("vencimentos mensais (RN-028)", () => {
+describe("vencimentos mensais (RN-030)", () => {
   it("anda de mês em mês mantendo o dia", () => {
     const datas = vencimentosMensais(dia("2026-01-10"), 3).map(diaSP);
     expect(datas).toEqual(["2026-01-10", "2026-02-10", "2026-03-10"]);
@@ -69,7 +69,7 @@ describe("vencimentos mensais (RN-028)", () => {
   });
 });
 
-describe("o dia é o de São Paulo, não o do servidor (RN-028)", () => {
+describe("o dia é o de São Paulo, não o do servidor (RN-030)", () => {
   it("data guardada ao meio-dia continua no mesmo dia no fuso de SP", () => {
     expect(diaSP(dia("2026-09-05"))).toBe("2026-09-05");
   });
@@ -85,7 +85,7 @@ describe("o dia é o de São Paulo, não o do servidor (RN-028)", () => {
   });
 });
 
-describe("status calculado, nunca digitado (RN-028)", () => {
+describe("status calculado, nunca digitado (RN-030)", () => {
   const hoje = dia("2026-09-10");
   const parcela = (venc: string, baixas: { valor: number; estornadaEm?: Date }[] = []) => ({
     valor: 100,
@@ -136,7 +136,7 @@ describe("status calculado, nunca digitado (RN-028)", () => {
   });
 });
 
-describe("o que a baixa movimenta na conta (RN-028)", () => {
+describe("o que a baixa movimenta na conta (RN-030)", () => {
   it("desconto tira e juros somam — o abatimento continua o mesmo", () => {
     expect(valorMovimentado({ valor: 100, desconto: 5 })).toBe(95);
     expect(valorMovimentado({ valor: 100, juros: 10 })).toBe(110);
@@ -150,7 +150,7 @@ describe("o que a baixa movimenta na conta (RN-028)", () => {
   });
 });
 
-describe("a baixa cabe? (RN-028)", () => {
+describe("a baixa cabe? (RN-030)", () => {
   const p = { valor: 100, vencimento: dia("2026-09-01"), baixas: [{ valor: 60 }] };
 
   it("aceita o que falta e recusa o que passa", () => {
@@ -175,7 +175,7 @@ describe("a baixa cabe? (RN-028)", () => {
   });
 });
 
-describe("resumo do período: os baldes somam o total (RN-028)", () => {
+describe("resumo do período: os baldes somam o total (RN-030)", () => {
   const hoje = dia("2026-09-10");
 
   it("cada parcela entra em um balde só, e o que falta usa o SALDO", () => {
@@ -243,7 +243,7 @@ describe("resumo do período: os baldes somam o total (RN-028)", () => {
   });
 });
 
-describe("o que pode ser mexido depois que o dinheiro andou (RN-028)", () => {
+describe("o que pode ser mexido depois que o dinheiro andou (RN-030)", () => {
   const comBaixa = [
     { valor: 100, vencimento: dia("2026-09-01"), baixas: [{ valor: 100 }] },
   ];
@@ -282,12 +282,12 @@ describe("o que pode ser mexido depois que o dinheiro andou (RN-028)", () => {
 
 /**
  * Estes dois são guardas de ARQUITETURA (varredura de arquivo), na mesma
- * família do guarda da porteira da RN-027: eles vigiam uma propriedade que
+ * família do guarda da porteira da RN-029: eles vigiam uma propriedade que
  * some sem ninguém ver numa rota futura. O COMPORTAMENTO do dinheiro é
  * guardado pelos testes acima e pelo cenário ponta a ponta rodado contra o
  * Postgres local antes do push.
  */
-describe("as portas do dinheiro estão fechadas (RN-028)", () => {
+describe("as portas do dinheiro estão fechadas (RN-030)", () => {
   const ler = (p: string) => readFileSync(join(process.cwd(), p), "utf8");
 
   it("baixa roda em transação SERIALIZÁVEL (duas pessoas, uma parcela)", () => {

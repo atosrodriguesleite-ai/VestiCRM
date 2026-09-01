@@ -1,4 +1,4 @@
--- MÓDULO FINANCEIRO (RN-028) — Fase 2: lançamentos, parcelas, baixas,
+-- MÓDULO FINANCEIRO (RN-030) — Fase 2: lançamentos, parcelas, baixas,
 -- anexos e histórico. Conta a receber e a pagar são a mesma peça (`tipo`).
 -- Escrita à mão (ADR-001) e idempotente: rodar duas vezes não quebra.
 

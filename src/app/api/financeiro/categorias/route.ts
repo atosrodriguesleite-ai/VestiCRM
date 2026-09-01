@@ -9,7 +9,7 @@ import {
 } from "@/lib/financeiro/cadastros";
 
 /**
- * CATEGORIAS FINANCEIRAS (RN-027) — a etiqueta do dinheiro, em árvore.
+ * CATEGORIAS FINANCEIRAS (RN-029) — a etiqueta do dinheiro, em árvore.
  * O GET semeia a árvore padrão de moda na primeira abertura (idempotente).
  * Quem numera o código é o SERVIDOR — código digitado colide.
  */

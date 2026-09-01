@@ -1,5 +1,5 @@
 /**
- * A REGRA DA FATURA DO CARTÃO (RN-037) — parte PURA.
+ * A REGRA DA FATURA DO CARTÃO (RN-039) — parte PURA.
  *
  * Mora sozinha porque quem mais precisa dela é o FORMULÁRIO de lançamento, que
  * roda no navegador: importar do motor arrastaria o banco para dentro do
@@ -9,7 +9,7 @@
 
 export type RegraDoCartao = { diaFechamento: number; diaVencimento: number };
 
-/** O último dia do mês (mês curto não deixa vazar para o seguinte, RN-028). */
+/** O último dia do mês (mês curto não deixa vazar para o seguinte, RN-030). */
 export function ultimoDiaDoMes(ano: number, mes: number): number {
   return new Date(Date.UTC(ano, mes, 0)).getUTCDate();
 }

@@ -12,7 +12,7 @@ import { CartoesView } from "./cartoes-view";
 export const dynamic = "force-dynamic";
 
 /**
- * CARTÕES DE CRÉDITO (RN-037): as compras juntadas em faturas, e a fatura
+ * CARTÕES DE CRÉDITO (RN-039): as compras juntadas em faturas, e a fatura
  * paga de uma vez na conta de onde o dinheiro sai.
  */
 export default async function CartoesPage() {

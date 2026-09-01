@@ -4,7 +4,7 @@ import { db } from "@/lib/db";
 import { AuthError } from "@/lib/auth";
 import { porteiraFinanceiro } from "@/lib/financeiro/gate";
 
-/** CENTROS DE CUSTO (RN-027) — a "frente" do negócio (loja física, online…). */
+/** CENTROS DE CUSTO (RN-029) — a "frente" do negócio (loja física, online…). */
 
 export async function GET() {
   try {

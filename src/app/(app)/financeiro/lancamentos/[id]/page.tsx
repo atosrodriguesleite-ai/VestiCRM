@@ -15,7 +15,7 @@ import { FichaLancamento } from "./ficha-view";
 export const dynamic = "force-dynamic";
 
 /**
- * A FICHA DO LANÇAMENTO (RN-028): cabeçalho, parcelas com suas baixas,
+ * A FICHA DO LANÇAMENTO (RN-030): cabeçalho, parcelas com suas baixas,
  * anexos e o histórico de quem mexeu. É a página de onde se dá baixa,
  * estorna, anexa comprovante e cancela.
  */
@@ -38,7 +38,7 @@ export default async function LancamentoPage({
   if (!l) notFound();
 
   const hoje = new Date();
-  // a nota do pedido que gerou este recebimento (RN-036): a lojista via a
+  // a nota do pedido que gerou este recebimento (RN-038): a lojista via a
   // conta aqui e tinha que ir procurar o pedido em outra tela
   const nota = await notaDoLancamento(user.companyId, l);
   // os cadastros do formulário de edição vêm junto (uma ida só ao banco)
@@ -50,7 +50,7 @@ export default async function LancamentoPage({
         id: true,
         nome: true,
         padrao: true,
-        // cartão (RN-037): o form calcula a fatura da compra e a baixa
+        // cartão (RN-039): o form calcula a fatura da compra e a baixa
         // exclui o cartão da lista (lá o dinheiro não anda)
         tipo: true,
         diaFechamento: true,
@@ -81,7 +81,7 @@ export default async function LancamentoPage({
     }),
   ]);
 
-  // a MESMA régua da API decide se o botão de editar aparece (RN-028)
+  // a MESMA régua da API decide se o botão de editar aparece (RN-030)
   const impedimentoEdicao = podeEditarValores(l.parcelas, l.origem);
 
   return (

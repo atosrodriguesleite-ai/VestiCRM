@@ -930,7 +930,7 @@ function LojaCard({ loja, catalogDomain }: { loja: Loja; catalogDomain: string |
     }
   }
 
-  // módulo Financeiro (RN-027, pago à parte): idem
+  // módulo Financeiro (RN-029, pago à parte): idem
   async function toggleFinanceiro() {
     setTogglingFin(true);
     const res = await fetch("/api/companies/finance", {
@@ -1216,7 +1216,7 @@ function LojaCard({ loja, catalogDomain }: { loja: Loja; catalogDomain: string |
         </button>
       </div>
 
-      {/* módulo Financeiro (RN-027, pago à parte) */}
+      {/* módulo Financeiro (RN-029, pago à parte) */}
       <div className="mt-2 flex items-center justify-between gap-2 text-[11px]">
         <span className="text-slate-400">
           Módulo Financeiro:{" "}

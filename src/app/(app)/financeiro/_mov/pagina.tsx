@@ -10,7 +10,7 @@ import { dataDoDia, diaSP, type StatusParcela } from "@/lib/financeiro/lancament
 import { ListaMovimentacoes } from "./lista";
 
 /**
- * A TELA de Contas a Receber / Contas a Pagar (RN-028) — a mesma página para
+ * A TELA de Contas a Receber / Contas a Pagar (RN-030) — a mesma página para
  * os dois lados, mudando só o `tipo`.
  *
  * Os filtros moram na URL: o período que a lojista escolheu sobrevive ao
@@ -44,7 +44,7 @@ export async function PaginaMovimentacoes({
     redirect("/financeiro");
 
   await garantirCategoriasPadrao(user.companyId);
-  // CONTAS FIXAS de carona no tráfego (RN-029): sem cron novo (ADR-002).
+  // CONTAS FIXAS de carona no tráfego (RN-031): sem cron novo (ADR-002).
   // Na maioria das aberturas não há nada a fazer e sai numa consulta só.
   await garantirRecorrencias(user.companyId);
 
@@ -91,7 +91,7 @@ export async function PaginaMovimentacoes({
         id: true,
         nome: true,
         padrao: true,
-        // cartão (RN-037): o form calcula a fatura da compra e a baixa
+        // cartão (RN-039): o form calcula a fatura da compra e a baixa
         // exclui o cartão da lista (lá o dinheiro não anda)
         tipo: true,
         diaFechamento: true,

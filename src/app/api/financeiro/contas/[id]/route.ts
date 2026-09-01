@@ -5,7 +5,7 @@ import { AuthError } from "@/lib/auth";
 import { porteiraFinanceiro } from "@/lib/financeiro/gate";
 
 /**
- * Editar/arquivar uma conta (RN-027). NÃO existe DELETE de propósito:
+ * Editar/arquivar uma conta (RN-029). NÃO existe DELETE de propósito:
  * quando os lançamentos chegarem, apagar conta com histórico quebraria o
  * extrato — arquivar tira das escolhas novas e preserva o passado.
  */
@@ -21,7 +21,7 @@ const patchSchema = z.object({
   cor: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional(),
   padrao: z.boolean().optional(),
   arquivar: z.boolean().optional(),
-  // cartão de crédito (RN-037)
+  // cartão de crédito (RN-039)
   diaFechamento: z.number().int().min(1).max(31).nullable().optional(),
   diaVencimento: z.number().int().min(1).max(31).nullable().optional(),
   contaPagamentoId: z.string().nullable().optional(),
@@ -67,11 +67,11 @@ export async function PATCH(
           select: { id: true, tipo: true },
         });
         if (!alvo) throw new ContaForaDaLoja();
-        // cartão nunca vira conta padrão (RN-037): a porta única de entrada
-        // das vendas (RN-031) baixaria a venda paga no cartão de crédito
+        // cartão nunca vira conta padrão (RN-039): a porta única de entrada
+        // das vendas (RN-033) baixaria a venda paga no cartão de crédito
         const ehCartao = (campos.tipo ?? alvo.tipo) === "CARTAO";
         // virou cartão? deixa de ser padrão AGORA — continuar padrão faria a
-        // porta única de vendas (RN-031) baixar venda paga dentro do cartão
+        // porta única de vendas (RN-033) baixar venda paga dentro do cartão
         const querPadrao = padrao === true && !ehCartao;
         if (querPadrao) {
           await tx.finConta.updateMany({

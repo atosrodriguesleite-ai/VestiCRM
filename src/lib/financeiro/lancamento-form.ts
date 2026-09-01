@@ -4,7 +4,7 @@ import { round2 } from "../orders";
 import { dataDoDia, FORMAS_PAGAMENTO } from "./lancamentos";
 
 /**
- * A FICHA DO LANÇAMENTO (RN-028) — validação e conferência num lugar só,
+ * A FICHA DO LANÇAMENTO (RN-030) — validação e conferência num lugar só,
  * usada por criar e editar.
  *
  * O que esta camada garante antes de qualquer coisa chegar ao banco:

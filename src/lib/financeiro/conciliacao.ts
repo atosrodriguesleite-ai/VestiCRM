@@ -5,7 +5,7 @@ import { dataDoDia, diaSP, valorMovimentado } from "./lancamentos";
 import { lerOFX, type MovimentoOFX } from "./ofx";
 
 /**
- * CONCILIAÇÃO BANCÁRIA (RN-035) — "o sistema bate com o banco?".
+ * CONCILIAÇÃO BANCÁRIA (RN-037) — "o sistema bate com o banco?".
  *
  * De um lado o extrato que o banco exportou (OFX), do outro as baixas que a
  * loja registrou. Conciliar é dizer, movimento a movimento: este dinheiro do
@@ -508,7 +508,7 @@ export async function carregarConciliacao(
     db.finOfxLinha.count({ where: { ...daJanela, ignoradaEm: null, vinculos: { none: {} } } }),
     db.finOfxLinha.count({ where: { ...daJanela, vinculos: { some: {} } } }),
     db.finOfxLinha.count({ where: { ...daJanela, ignoradaEm: { not: null } } }),
-    // card conta o PERÍODO INTEIRO (RN-028), nunca as 500 linhas exibidas
+    // card conta o PERÍODO INTEIRO (RN-030), nunca as 500 linhas exibidas
     db.finBaixa.count({
       where: {
         companyId,

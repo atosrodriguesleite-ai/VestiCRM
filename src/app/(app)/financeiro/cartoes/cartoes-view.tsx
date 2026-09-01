@@ -12,7 +12,7 @@ import { STATUS_LABEL } from "@/lib/financeiro/lancamentos";
 import type { CartaoComFaturas } from "@/lib/financeiro/cartao";
 
 /**
- * CARTÕES (RN-037). A conta do cartão não guarda dinheiro: junta as compras
+ * CARTÕES (RN-039). A conta do cartão não guarda dinheiro: junta as compras
  * numa fatura. Pagar a fatura dá baixa em todas de uma vez, na conta de onde
  * o dinheiro sai de verdade.
  */

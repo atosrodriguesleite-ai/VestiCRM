@@ -2,7 +2,7 @@ import { db } from "../db";
 import { ORIGEM_PEDIDO } from "./porta-vendas";
 
 /**
- * A NOTA FISCAL VISTA DO FINANCEIRO (RN-036).
+ * A NOTA FISCAL VISTA DO FINANCEIRO (RN-038).
  *
  * O financeiro NÃO emite nota: quem emite é o Bling (RN-016), que é onde a
  * loja já tem certificado, regime tributário e numeração. O que faltava era

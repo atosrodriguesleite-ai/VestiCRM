@@ -188,7 +188,7 @@ async function repointCustomer(
   await tx.task.updateMany({ where: { customerId: dupeId }, data: { customerId: primaryId } });
   await tx.sale.updateMany({ where: { customerId: dupeId }, data: { customerId: primaryId } });
   await tx.order.updateMany({ where: { customerId: dupeId }, data: { customerId: primaryId } });
-  // o FINANCEIRO viaja junto (RN-031/RN-036): a conta a receber e a conta
+  // o FINANCEIRO viaja junto (RN-033/RN-038): a conta a receber e a conta
   // fixa da cliente apagada iam ficar "Sem cliente" (o vínculo é SetNull) —
   // a inadimplência perderia o nome e a cobrança pelo WhatsApp o telefone
   await tx.finLancamento.updateMany({ where: { customerId: dupeId }, data: { customerId: primaryId } });

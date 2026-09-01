@@ -9,7 +9,7 @@ import {
 import { garantirRecorrencias } from "@/lib/financeiro/recorrencia";
 
 /**
- * CRIAR CONTA FIXA (RN-029). Assim que nasce, já materializa os próximos
+ * CRIAR CONTA FIXA (RN-031). Assim que nasce, já materializa os próximos
  * meses — a lojista cadastra o aluguel e ele aparece na lista na hora, sem
  * "espere o sistema rodar".
  */

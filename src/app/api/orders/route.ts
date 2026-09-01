@@ -316,7 +316,7 @@ export async function POST(req: NextRequest) {
     // Dashboard já mostrava a venda (auditoria 07/08/2026)
     await syncOpportunityValue(user.companyId, cartao, order.netTotal);
 
-    // PORTA ÚNICA DO FINANCEIRO (RN-031): pedido criado já aguardando
+    // PORTA ÚNICA DO FINANCEIRO (RN-033): pedido criado já aguardando
     // pagamento (ou pago) vira lançamento sozinho
     sincronizarPedidoSemQuebrar(order.id);
 

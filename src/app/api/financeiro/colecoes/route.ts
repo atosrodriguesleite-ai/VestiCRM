@@ -5,7 +5,7 @@ import { AuthError } from "@/lib/auth";
 import { porteiraFinanceiro } from "@/lib/financeiro/gate";
 
 /**
- * COLEÇÕES (RN-027) — o "Projetos" dos financeiros genéricos traduzido para
+ * COLEÇÕES (RN-029) — o "Projetos" dos financeiros genéricos traduzido para
  * moda: etiqueta com começo e fim para responder "a coleção deu lucro?".
  */
 

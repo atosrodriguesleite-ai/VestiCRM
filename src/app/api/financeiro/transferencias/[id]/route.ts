@@ -5,7 +5,7 @@ import { AuthError } from "@/lib/auth";
 import { porteiraFinanceiro } from "@/lib/financeiro/gate";
 
 /**
- * CANCELAR uma transferência (RN-030) — errou a conta ou o valor.
+ * CANCELAR uma transferência (RN-032) — errou a conta ou o valor.
  *
  * Como todo o módulo: não se apaga, se cancela com quem e quando. A
  * transferência cancelada some dos saldos e do extrato, mas continua na

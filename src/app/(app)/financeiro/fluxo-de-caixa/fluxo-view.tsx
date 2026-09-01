@@ -15,7 +15,7 @@ import {
 } from "@/lib/financeiro/relatorios-tipos";
 
 /**
- * FLUXO DE CAIXA (RN-034) — "tem dinheiro?". Mês a mês, com o que já entrou
+ * FLUXO DE CAIXA (RN-036) — "tem dinheiro?". Mês a mês, com o que já entrou
  * e saiu no passado e o que está previsto daqui para frente.
  */
 export function FluxoView({
@@ -258,7 +258,7 @@ export function FluxoView({
                   {brl(fluxo.geracao.reduce((s, v) => s + v, 0))}
                 </td>
               </tr>
-              {/* nem receita nem despesa, mas mexem no saldo (RN-030): sem
+              {/* nem receita nem despesa, mas mexem no saldo (RN-032): sem
                   estas linhas o "saldo no fim" não bateria com o extrato */}
               {fluxo.aberturas.some((v) => v !== 0) && (
                 <tr className="bg-white text-slate-500">

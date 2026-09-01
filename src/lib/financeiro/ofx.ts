@@ -1,5 +1,5 @@
 /**
- * O LEITOR DE OFX (RN-035) — o arquivo que todo banco brasileiro exporta.
+ * O LEITOR DE OFX (RN-037) — o arquivo que todo banco brasileiro exporta.
  *
  * Puro de propósito: ler o extrato não toca no banco de dados, então a regra
  * é testável linha a linha (e o arquivo de verdade de cada banco tem manias

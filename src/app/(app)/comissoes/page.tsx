@@ -73,7 +73,7 @@ export default async function CommissionsPage({
     }),
   ]);
   const base = (company?.commissionBase ?? "SUBTOTAL") as "SUBTOTAL" | "VENDIDO";
-  // RN-036: com o módulo Financeiro ligado, a comissão do período vira conta
+  // RN-038: com o módulo Financeiro ligado, a comissão do período vira conta
   // a pagar num clique — e a tela mostra quais já foram lançadas
   const financeiro = financeiroLiberado(user, company?.financeEnabled ?? false);
   const jaGeradas = financeiro

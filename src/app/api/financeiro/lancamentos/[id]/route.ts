@@ -13,7 +13,7 @@ import {
 } from "@/lib/financeiro/lancamentos";
 
 /**
- * EDITAR ou CANCELAR o lançamento (RN-028). Não existe DELETE: dinheiro que
+ * EDITAR ou CANCELAR o lançamento (RN-030). Não existe DELETE: dinheiro que
  * andou não se apaga. Com baixa ativa, nem editar valores nem cancelar —
  * primeiro estorna a baixa (que fica no histórico), depois mexe.
  */

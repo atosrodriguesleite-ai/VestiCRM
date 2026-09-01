@@ -7,7 +7,7 @@ import { dataDoDia } from "@/lib/financeiro/lancamentos";
 import { round2 } from "@/lib/orders";
 
 /**
- * TRANSFERÊNCIA entre contas da própria loja (RN-030).
+ * TRANSFERÊNCIA entre contas da própria loja (RN-032).
  *
  * Duas datas porque a vida tem duas: a TED sai hoje e cai amanhã, e cada
  * conta enxerga o dinheiro no SEU dia — o extrato do banco também. Uma data

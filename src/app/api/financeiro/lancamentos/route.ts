@@ -8,7 +8,7 @@ import {
 } from "@/lib/financeiro/lancamento-form";
 
 /**
- * CRIAR LANÇAMENTO (RN-028) — conta a receber ou a pagar, com suas parcelas.
+ * CRIAR LANÇAMENTO (RN-030) — conta a receber ou a pagar, com suas parcelas.
  * A leitura da lista mora na própria tela (server component, com filtros pela
  * URL); aqui fica a escrita, que é onde as regras precisam morar.
  */

@@ -1,4 +1,4 @@
-// Guarda RN-035
+// Guarda RN-037
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -6,7 +6,7 @@ import { decodificarOFX, diaDoOFX, lerOFX, valorDoOFX } from "../financeiro/ofx"
 import { casamentosObvios } from "../financeiro/conciliacao";
 
 /**
- * RN-035 · Conciliação bancária: o extrato do banco entra por OFX, o FITID
+ * RN-037 · Conciliação bancária: o extrato do banco entra por OFX, o FITID
  * impede duplicar, o casamento óbvio é automático (e só quando a resposta é
  * única), um depósito pode pagar várias parcelas e os dois lados têm que
  * somar igual. Conciliar carimba "conferido" — nunca mexe em dinheiro.
@@ -69,7 +69,7 @@ const OFX_XML = `<?xml version="1.0" encoding="UTF-8"?>
   </STMTRS></STMTTRNRS></BANKMSGSRSV1>
 </OFX>`;
 
-describe("ler o arquivo do banco (RN-035)", () => {
+describe("ler o arquivo do banco (RN-037)", () => {
   it("lê o OFX 1.x (SGML, tag que não fecha) — o formato do banco brasileiro", () => {
     const e = lerOFX(OFX_SGML);
     expect(e.movimentos).toHaveLength(3);
@@ -160,7 +160,7 @@ describe("ler o arquivo do banco (RN-035)", () => {
   });
 });
 
-describe("as regras da conciliação (RN-035)", () => {
+describe("as regras da conciliação (RN-037)", () => {
   const motor = ler("src/lib/financeiro/conciliacao.ts");
 
   it("quem diz que é o mesmo movimento é o BANCO (fitid único por conta)", () => {
@@ -250,7 +250,7 @@ describe("as regras da conciliação (RN-035)", () => {
     );
   });
 
-  it("os cards contam o PERÍODO INTEIRO, nunca as linhas exibidas (RN-028)", () => {
+  it("os cards contam o PERÍODO INTEIRO, nunca as linhas exibidas (RN-030)", () => {
     expect(motor).toContain("db.finBaixa.count(");
     expect(motor).not.toContain("semExtrato: baixas.length");
   });
@@ -276,7 +276,7 @@ describe("as regras da conciliação (RN-035)", () => {
     expect(motor).toContain("a conciliação é conta a conta");
   });
 
-  it("as portas são gated como todas as do módulo (RN-027)", () => {
+  it("as portas são gated como todas as do módulo (RN-029)", () => {
     for (const p of [
       "src/app/api/financeiro/conciliacao/importar/route.ts",
       "src/app/api/financeiro/conciliacao/[linhaId]/route.ts",

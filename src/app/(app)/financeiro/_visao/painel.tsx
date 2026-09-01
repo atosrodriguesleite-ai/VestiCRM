@@ -9,7 +9,7 @@ import { dataDoDia, diaSP, saldoDaParcela, statusDaParcela } from "@/lib/finance
 import { formatarDia } from "@/lib/financeiro/dia";
 
 /**
- * VISÃO GERAL do Financeiro (RN-033) — o painel que responde as três
+ * VISÃO GERAL do Financeiro (RN-035) — o painel que responde as três
  * perguntas do dono em dez segundos: quanto eu tenho, quanto entra e sai
  * até o fim do mês, e o que está atrasado.
  */

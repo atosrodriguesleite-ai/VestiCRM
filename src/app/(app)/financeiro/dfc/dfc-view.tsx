@@ -8,7 +8,7 @@ import { brl } from "@/lib/format";
 import { DFC_LABEL, type RelatorioDFC } from "@/lib/financeiro/dfc-tipos";
 
 /**
- * DFC (RN-033). O teste de honestidade do relatório está na tela: saldo
+ * DFC (RN-035). O teste de honestidade do relatório está na tela: saldo
  * inicial + o que a loja gerou = saldo final. Se sobrar diferença, ela é
  * DITA (transferência entrando ou saindo do recorte), nunca escondida.
  */

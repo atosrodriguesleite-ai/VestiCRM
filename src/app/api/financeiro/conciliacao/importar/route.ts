@@ -13,7 +13,7 @@ const TETO_BYTES = 5 * 1024 * 1024;
 export const maxDuration = 60;
 
 /**
- * IMPORTAR EXTRATO OFX (RN-035). O arquivo NÃO é guardado: dele saem as
+ * IMPORTAR EXTRATO OFX (RN-037). O arquivo NÃO é guardado: dele saem as
  * linhas do extrato, que é o que a conciliação usa — guardar o OFX inteiro
  * como data-URL só aumentaria a dívida técnica nº 1 sem servir para nada.
  */

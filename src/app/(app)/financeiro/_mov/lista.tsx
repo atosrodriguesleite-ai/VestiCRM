@@ -27,7 +27,7 @@ import { FormLancamento, type Opcao } from "./form-lancamento";
 import { BaixaModal } from "./baixa-modal";
 
 /**
- * CONTAS A RECEBER / A PAGAR (RN-028) — a lista de PARCELAS do período.
+ * CONTAS A RECEBER / A PAGAR (RN-030) — a lista de PARCELAS do período.
  *
  * O que a lojista faz aqui em 90% das visitas: olhar o que está atrasado e
  * dar baixa no que caiu. Por isso a baixa é um clique na própria linha, sem

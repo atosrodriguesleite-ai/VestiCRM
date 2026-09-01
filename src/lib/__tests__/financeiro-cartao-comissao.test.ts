@@ -1,4 +1,4 @@
-// Guarda RN-036, RN-037
+// Guarda RN-038, RN-039
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -11,14 +11,14 @@ import {
 import { janelaDoPeriodo } from "../financeiro/comissoes";
 
 /**
- * RN-036 · Nota fiscal vista do financeiro e comissão virando conta a pagar.
- * RN-037 · Cartão de crédito: a conta do cartão não guarda dinheiro, junta as
+ * RN-038 · Nota fiscal vista do financeiro e comissão virando conta a pagar.
+ * RN-039 · Cartão de crédito: a conta do cartão não guarda dinheiro, junta as
  * compras numa fatura; o dinheiro sai da conta do banco no vencimento.
  */
 
 const ler = (p: string) => readFileSync(join(process.cwd(), p), "utf8");
 
-describe("em qual fatura a compra cai (RN-037)", () => {
+describe("em qual fatura a compra cai (RN-039)", () => {
   // cartão que fecha dia 28 e vence dia 5 (o mais comum)
   const cartao = { diaFechamento: 28, diaVencimento: 5 };
 
@@ -64,7 +64,7 @@ describe("em qual fatura a compra cai (RN-037)", () => {
   });
 });
 
-describe("o cartão não guarda dinheiro (RN-037)", () => {
+describe("o cartão não guarda dinheiro (RN-039)", () => {
   const motor = ler("src/lib/financeiro/cartao.ts");
 
   it("pagar a fatura dá baixa na conta do BANCO, não no cartão", () => {
@@ -77,7 +77,7 @@ describe("o cartão não guarda dinheiro (RN-037)", () => {
     expect(motor).toContain("Esta fatura já está paga");
   });
 
-  it("o pagamento roda em transação SERIALIZÁVEL (RN-028)", () => {
+  it("o pagamento roda em transação SERIALIZÁVEL (RN-030)", () => {
     // duas pessoas pagando a mesma fatura junto pagariam em dobro
     expect(motor).toContain("Serializable");
     expect(motor).toContain("P2034");
@@ -91,7 +91,7 @@ describe("o cartão não guarda dinheiro (RN-037)", () => {
     expect(patch).toContain('(campos.tipo ?? alvo.tipo) === "CARTAO"');
   });
 
-  it("a porta da fatura é gated como todas as do módulo (RN-027)", () => {
+  it("a porta da fatura é gated como todas as do módulo (RN-029)", () => {
     expect(ler("src/app/api/financeiro/cartoes/[id]/fatura/route.ts")).toContain(
       "porteiraFinanceiro"
     );
@@ -101,7 +101,7 @@ describe("o cartão não guarda dinheiro (RN-037)", () => {
   });
 });
 
-describe("comissão vira conta a pagar (RN-036)", () => {
+describe("comissão vira conta a pagar (RN-038)", () => {
   const motor = ler("src/lib/financeiro/comissoes.ts");
 
   it("a chave guarda vendedora e período — e volta a ser lida", () => {
@@ -173,14 +173,14 @@ describe("comissão vira conta a pagar (RN-036)", () => {
     expect(motor).toContain('CODIGO_CATEGORIA_COMISSAO = "04.01"');
   });
 
-  it("a porta exige a chave do módulo e gerente+ (RN-027)", () => {
+  it("a porta exige a chave do módulo e gerente+ (RN-029)", () => {
     expect(ler("src/app/api/financeiro/comissoes/route.ts")).toContain(
       "porteiraFinanceiro"
     );
   });
 });
 
-describe("a nota fiscal vista do financeiro (RN-036)", () => {
+describe("a nota fiscal vista do financeiro (RN-038)", () => {
   const motor = ler("src/lib/financeiro/nota-do-lancamento.ts");
 
   it("quem emite continua sendo o Bling (RN-016), o financeiro só mostra", () => {

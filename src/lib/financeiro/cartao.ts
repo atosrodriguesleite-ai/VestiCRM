@@ -11,7 +11,7 @@ import {
 } from "./lancamentos";
 
 /**
- * CARTÃO DE CRÉDITO (RN-037).
+ * CARTÃO DE CRÉDITO (RN-039).
  *
  * A conta do cartão NÃO guarda dinheiro — ela junta compras numa FATURA. É
  * essa a diferença que faz a conta bater: a compra de hoje no cartão é
@@ -183,7 +183,7 @@ export type ResultadoPagamento =
  * conta de onde o dinheiro sai. Uma fatura de 40 compras baixada uma a uma na
  * mão é onde a lojista desiste do financeiro.
  *
- * Roda em transação SERIALIZÁVEL (mesma régua da baixa avulsa, RN-028): duas
+ * Roda em transação SERIALIZÁVEL (mesma régua da baixa avulsa, RN-030): duas
  * pessoas pagando a mesma fatura ao mesmo tempo passariam as duas pela
  * conferência e o mês fecharia pago em dobro.
  */

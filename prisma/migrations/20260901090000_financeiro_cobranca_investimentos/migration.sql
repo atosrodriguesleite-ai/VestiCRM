@@ -1,4 +1,4 @@
--- MÓDULO FINANCEIRO — Fase 5: cobrança pelo WhatsApp (RN-032).
+-- MÓDULO FINANCEIRO — Fase 5: cobrança pelo WhatsApp (RN-034).
 -- Escrita à mão (ADR-001) e idempotente: rodar duas vezes não quebra.
 
 -- quando a loja cobrou esta conta pela última vez: é o que impede cobrar a

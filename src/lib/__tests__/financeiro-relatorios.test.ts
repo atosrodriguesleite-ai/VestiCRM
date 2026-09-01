@@ -1,4 +1,4 @@
-// Guarda RN-034
+// Guarda RN-036
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -13,14 +13,14 @@ import {
 } from "../financeiro/relatorios-tipos";
 
 /**
- * RN-034 · DRE e Fluxo de Caixa respondem perguntas DIFERENTES: "deu lucro?"
+ * RN-036 · DRE e Fluxo de Caixa respondem perguntas DIFERENTES: "deu lucro?"
  * (por competência) e "tem dinheiro?" (pela data do dinheiro). Investimento
  * entra no caixa e fica fora do resultado.
  */
 
 const ler = (p: string) => readFileSync(join(process.cwd(), p), "utf8");
 
-describe("em que linha do DRE cada categoria entra (RN-034)", () => {
+describe("em que linha do DRE cada categoria entra (RN-036)", () => {
   it("venda é receita, venha de onde vier", () => {
     for (const c of ["01", "01.01", "01.03", "02.01"]) {
       expect(blocoDREdoCodigo(c, "RECEITA")).toBe("RECEITA");
@@ -71,7 +71,7 @@ describe("em que linha do DRE cada categoria entra (RN-034)", () => {
   });
 });
 
-describe("as colunas de mês (RN-034)", () => {
+describe("as colunas de mês (RN-036)", () => {
   it("lista os meses entre as duas pontas, inclusive", () => {
     expect(mesesEntre("2026-07", "2026-10")).toEqual([
       "2026-07",
@@ -106,7 +106,7 @@ describe("as colunas de mês (RN-034)", () => {
   });
 });
 
-describe("as duas contas não se misturam (RN-034)", () => {
+describe("as duas contas não se misturam (RN-036)", () => {
   const motor = ler("src/lib/financeiro/relatorios.ts");
 
   it("o DRE lê a COMPETÊNCIA (a venda de agosto é resultado de agosto)", () => {
@@ -137,7 +137,7 @@ describe("as duas contas não se misturam (RN-034)", () => {
     expect(motor).toContain("acumularSaldo(");
   });
 
-  it("as telas do relatório são gated como toda porta do módulo (RN-027)", () => {
+  it("as telas do relatório são gated como toda porta do módulo (RN-029)", () => {
     for (const p of [
       "src/app/(app)/financeiro/dre/page.tsx",
       "src/app/(app)/financeiro/fluxo-de-caixa/page.tsx",
@@ -149,7 +149,7 @@ describe("as duas contas não se misturam (RN-034)", () => {
   });
 });
 
-describe("em que mês cada previsão entra (RN-034)", () => {
+describe("em que mês cada previsão entra (RN-036)", () => {
   const HOJE = "2026-09";
 
   it("no recorte realizado não existe previsão nenhuma", () => {
@@ -169,13 +169,13 @@ describe("em que mês cada previsão entra (RN-034)", () => {
 
   it("no misto, a conta ATRASADA cai no mês corrente — nunca some", () => {
     // ela venceu no passado, mas o dinheiro ainda vai andar: o mês em que a
-    // loja corre atrás é este (mesma régua do saldo previsto, RN-033)
+    // loja corre atrás é este (mesma régua do saldo previsto, RN-035)
     expect(mesDoPrevisto("2026-08", HOJE, "misto")).toBe(HOJE);
     expect(mesDoPrevisto("2025-02", HOJE, "misto")).toBe(HOJE);
   });
 });
 
-describe("o saldo mês a mês do fluxo (RN-034)", () => {
+describe("o saldo mês a mês do fluxo (RN-036)", () => {
   const zeros = (n: number) => new Array(n).fill(0);
 
   it("começa no saldo real e cada mês termina onde o seguinte começa", () => {

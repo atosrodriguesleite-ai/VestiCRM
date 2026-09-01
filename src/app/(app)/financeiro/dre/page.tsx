@@ -16,7 +16,7 @@ function mesValido(v: string): string | null {
 }
 
 /**
- * DRE (RN-034) — "a loja deu lucro?", por competência, mês a mês.
+ * DRE (RN-036) — "a loja deu lucro?", por competência, mês a mês.
  */
 export default async function DrePage({
   searchParams,
@@ -32,7 +32,7 @@ export default async function DrePage({
   if (!financeiroLiberado(user, company?.financeEnabled ?? false))
     redirect("/financeiro");
 
-  // carona no tráfego (RN-029/ADR-002): as contas fixas do horizonte
+  // carona no tráfego (RN-031/ADR-002): as contas fixas do horizonte
   await garantirRecorrencias(user.companyId);
 
   const sp = await searchParams;

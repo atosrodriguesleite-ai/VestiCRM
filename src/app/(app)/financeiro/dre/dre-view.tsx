@@ -13,7 +13,7 @@ import {
 } from "@/lib/financeiro/relatorios-tipos";
 
 /**
- * DRE (RN-034) — "a loja deu lucro?". Por COMPETÊNCIA: a venda de agosto é
+ * DRE (RN-036) — "a loja deu lucro?". Por COMPETÊNCIA: a venda de agosto é
  * resultado de agosto, mesmo que a cliente pague em outubro.
  */
 export function DreView({

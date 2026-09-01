@@ -1,4 +1,4 @@
-// Guarda RN-032, RN-033
+// Guarda RN-034, RN-035
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -8,15 +8,15 @@ import { CATEGORIAS_PADRAO } from "../financeiro/cadastros";
 import { dataDoDia } from "../financeiro/lancamentos";
 
 /**
- * RN-032 · Cobrança pelo WhatsApp: a mensagem é montada pelo sistema, enviada
+ * RN-034 · Cobrança pelo WhatsApp: a mensagem é montada pelo sistema, enviada
  * por uma pessoa, e a mesma conta não é cobrada duas vezes no mesmo dia.
- * RN-033 · A visão de dono: saldo previsto (só o que está em aberto) e DFC
+ * RN-035 · A visão de dono: saldo previsto (só o que está em aberto) e DFC
  * (só o que movimentou), com a conta fechando.
  */
 
 const ler = (p: string) => readFileSync(join(process.cwd(), p), "utf8");
 
-describe("a mensagem de cobrança (RN-032)", () => {
+describe("a mensagem de cobrança (RN-034)", () => {
   const base = {
     clienteNome: "Ana Paula Souza",
     descricao: "Venda #0042",
@@ -61,7 +61,7 @@ describe("a mensagem de cobrança (RN-032)", () => {
   });
 });
 
-describe("as travas da cobrança (RN-032)", () => {
+describe("as travas da cobrança (RN-034)", () => {
   const motor = ler("src/lib/financeiro/cobranca.ts");
 
   it("recusa quando falta o essencial, com frase em português", () => {
@@ -101,7 +101,7 @@ describe("as travas da cobrança (RN-032)", () => {
   });
 });
 
-describe("em que bloco do DFC cada categoria entra (RN-033)", () => {
+describe("em que bloco do DFC cada categoria entra (RN-035)", () => {
   it("máquina e reforma são investimento", () => {
     expect(grupoDFCdoCodigo("07")).toBe("INVESTIMENTO");
     expect(grupoDFCdoCodigo("07.01")).toBe("INVESTIMENTO");
@@ -142,7 +142,7 @@ describe("em que bloco do DFC cada categoria entra (RN-033)", () => {
   });
 });
 
-describe("saldo previsto e DFC contam a verdade (RN-033)", () => {
+describe("saldo previsto e DFC contam a verdade (RN-035)", () => {
   const visao = ler("src/lib/financeiro/visao.ts");
 
   it("a previsão soma o que está EM ABERTO (o já pago não conta duas vezes)", () => {
@@ -178,7 +178,7 @@ describe("saldo previsto e DFC contam a verdade (RN-033)", () => {
   });
 
   it("os cards do painel somam o PERÍODO INTEIRO, não as linhas exibidas", () => {
-    // mesma régua da RN-028: card que soma só as 500 linhas carregadas mostra
+    // mesma régua da RN-030: card que soma só as 500 linhas carregadas mostra
     // menos dívida do que existe, e a lojista se planeja com o número errado
     expect(visao).toContain("db.finParcela.aggregate");
     expect(visao).toContain("db.finBaixa.aggregate");

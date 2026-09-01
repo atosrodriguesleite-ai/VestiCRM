@@ -10,7 +10,7 @@ import { DfcView } from "./dfc-view";
 export const dynamic = "force-dynamic";
 
 /**
- * DFC (RN-033) — "por onde o dinheiro andou": só o que entrou e saiu de
+ * DFC (RN-035) — "por onde o dinheiro andou": só o que entrou e saiu de
  * verdade, separado em operacional, investimento e financiamento.
  */
 export default async function DfcPage({

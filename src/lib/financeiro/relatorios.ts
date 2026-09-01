@@ -17,7 +17,7 @@ import {
 } from "./relatorios-tipos";
 
 /**
- * OS DOIS RELATÓRIOS QUE RESPONDEM PERGUNTAS DIFERENTES (RN-034).
+ * OS DOIS RELATÓRIOS QUE RESPONDEM PERGUNTAS DIFERENTES (RN-036).
  *
  * O DRE responde "a loja deu LUCRO?" e o Fluxo de Caixa responde "tem
  * DINHEIRO?". Parecem a mesma pergunta e não são — é por não separá-las que
@@ -75,7 +75,7 @@ const ordenarPorTotal = (linhas: LinhaRelatorio[]) =>
  * O DRE do período, mês a mês, por COMPETÊNCIA — a data em que o fato
  * aconteceu, não a data do pagamento.
  *
- * O valor é o do LANÇAMENTO (que é a soma das parcelas, RN-028): a venda
+ * O valor é o do LANÇAMENTO (que é a soma das parcelas, RN-030): a venda
  * parcelada em 3× é resultado inteiro do mês da venda. Cancelado fica de
  * fora — nunca aconteceu.
  */
@@ -216,7 +216,7 @@ const SELECT_DO_LANCAMENTO = {
  * misturar previsto no passado inventaria dinheiro que já se sabe que não
  * entrou.
  *
- * O saldo inicial do primeiro mês é o saldo REAL da loja (RN-030: somado,
+ * O saldo inicial do primeiro mês é o saldo REAL da loja (RN-032: somado,
  * nunca digitado); daí para frente cada mês começa onde o anterior terminou.
  */
 export async function montarFluxoDeCaixa(
@@ -280,12 +280,12 @@ export async function montarFluxoDeCaixa(
         : Promise.resolve([]),
       cabeAtrasado ? atrasadoEmAberto(companyId, de) : Promise.resolve([]),
       // conta cadastrada COM saldo dentro do período: o dinheiro aparece no
-      // saldo sem ter sido gerado (mesma régua do DFC, RN-033)
+      // saldo sem ter sido gerado (mesma régua do DFC, RN-035)
       db.finConta.findMany({
         where: { companyId, saldoInicialEm: { gte: de, lte: ate } },
         select: { saldoInicial: true, saldoInicialEm: true },
       }),
-      // transferência que cruza o mês (RN-030): saiu em agosto, caiu em
+      // transferência que cruza o mês (RN-032): saiu em agosto, caiu em
       // setembro. Sem somar a chegada, todos os meses seguintes ficariam
       // abaixo do saldo real — e o extrato deixaria de bater.
       db.finTransferencia.findMany({

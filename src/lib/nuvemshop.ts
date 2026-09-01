@@ -1104,7 +1104,7 @@ export async function ingestPaidOrder(companyId: string, nsOrderId: string) {
     customerName: nome,
   }).catch(() => {});
 
-  // PORTA ÚNICA DO FINANCEIRO (RN-031): a venda da loja online vira
+  // PORTA ÚNICA DO FINANCEIRO (RN-033): a venda da loja online vira
   // recebimento pela MESMA porta do pedido do sistema
   sincronizarPedidoSemQuebrar(order.id);
 
@@ -1118,7 +1118,7 @@ export async function ingestCancelledOrder(companyId: string, nsOrderId: string)
   });
   if (!order || order.status === "CANCELADO") return;
   await db.order.update({ where: { id: order.id }, data: { status: "CANCELADO" } });
-  // o cancelamento da loja online também passa pela porta (RN-031): o
+  // o cancelamento da loja online também passa pela porta (RN-033): o
   // recebimento automático é estornado e o lançamento, cancelado
   sincronizarPedidoSemQuebrar(order.id);
 }

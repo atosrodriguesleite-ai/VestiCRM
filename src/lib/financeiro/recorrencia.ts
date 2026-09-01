@@ -3,7 +3,7 @@ import { round2 } from "../orders";
 import { diaSP } from "./lancamentos";
 
 /**
- * CONTAS FIXAS (RN-029) — aluguel, salário, internet, assinatura.
+ * CONTAS FIXAS (RN-031) — aluguel, salário, internet, assinatura.
  *
  * A loja configura UMA vez (valor, dia, categoria, "sem fim" ou até quando) e
  * o sistema materializa os lançamentos dos próximos meses sozinho.

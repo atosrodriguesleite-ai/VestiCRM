@@ -4,7 +4,7 @@ import { brl } from "../format";
 import { diaSP } from "./lancamentos";
 
 /**
- * COBRANÇA PELO WHATSAPP (RN-032) — o que só o AtacadoPro consegue fazer.
+ * COBRANÇA PELO WHATSAPP (RN-034) — o que só o AtacadoPro consegue fazer.
  *
  * Um financeiro comum mostra a lista de inadimplentes e para por aí; a
  * lojista ainda tem que sair procurando a conversa uma por uma. Aqui a

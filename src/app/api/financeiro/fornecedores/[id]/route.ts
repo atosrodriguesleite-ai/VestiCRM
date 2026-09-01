@@ -10,7 +10,7 @@ import {
 } from "@/lib/financeiro/fornecedor";
 
 /**
- * Editar/arquivar fornecedor (RN-027; sem DELETE — arquiva). Dois corpos
+ * Editar/arquivar fornecedor (RN-029; sem DELETE — arquiva). Dois corpos
  * aceitos: a FICHA INTEIRA (o formulário de edição manda tudo) ou só
  * `{ arquivar }` (o botão de arquivar não conhece a ficha).
  */

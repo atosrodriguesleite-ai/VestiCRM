@@ -5,7 +5,7 @@ import { AuthError } from "@/lib/auth";
 import { porteiraFinanceiro } from "@/lib/financeiro/gate";
 
 /**
- * ANEXAR ao lançamento (RN-028): foto do boleto, PDF da nota, comprovante.
+ * ANEXAR ao lançamento (RN-030): foto do boleto, PDF da nota, comprovante.
  *
  * Teto de ~4 MB por arquivo (data-URL, dívida técnica nº 1): foto de celular
  * passa; scanner em resolução de pôster não — e o servidor cortaria o pedido

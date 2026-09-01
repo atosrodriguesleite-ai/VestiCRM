@@ -4,7 +4,7 @@ import { porteiraFinanceiro } from "@/lib/financeiro/gate";
 import { cobrarParcelaNoWhatsapp } from "@/lib/financeiro/cobranca";
 
 /**
- * COBRAR pelo WhatsApp (RN-032). A mensagem é montada pelo sistema e enviada
+ * COBRAR pelo WhatsApp (RN-034). A mensagem é montada pelo sistema e enviada
  * por uma PESSOA clicando — disparo automático para cliente é decisão da
  * loja, não nossa. Sai pela Central de sempre, com o ritmo anti-ban (RN-017).
  */

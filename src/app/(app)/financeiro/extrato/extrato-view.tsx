@@ -10,7 +10,7 @@ import type { CardsExtrato, LinhaExtrato } from "@/lib/financeiro/extrato";
 import { formatarDia } from "@/lib/financeiro/dia";
 
 /**
- * EXTRATO (RN-030). A coluna que a lojista realmente lê é a do SALDO: é ela
+ * EXTRATO (RN-032). A coluna que a lojista realmente lê é a do SALDO: é ela
  * que ela compara, linha a linha, com o extrato do banco.
  */
 export function ExtratoView({

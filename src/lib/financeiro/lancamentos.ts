@@ -1,7 +1,7 @@
 import { round2 } from "../orders";
 
 /**
- * O MOTOR DO LANÇAMENTO (RN-028) — regras puras, sem banco, testáveis.
+ * O MOTOR DO LANÇAMENTO (RN-030) — regras puras, sem banco, testáveis.
  *
  * Conta a receber e conta a pagar são a MESMA peça: um lançamento com uma ou
  * mais PARCELAS, e cada parcela recebendo uma ou mais BAIXAS (o dinheiro

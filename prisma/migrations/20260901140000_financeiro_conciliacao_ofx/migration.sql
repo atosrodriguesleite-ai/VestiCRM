@@ -1,4 +1,4 @@
--- Fase 6 do módulo Financeiro: conciliação bancária por OFX (RN-035).
+-- Fase 6 do módulo Financeiro: conciliação bancária por OFX (RN-037).
 -- Migração escrita à mão e IDEMPOTENTE (ADR-001): o banco tem drift e a
 -- mesma migração pode ser aplicada mais de uma vez em ambiente de teste.
 

@@ -35,7 +35,7 @@ export default async function FinanceiroPage({
   const user = await requireUser();
   if (!isManagerUp(user)) redirect("/dashboard");
 
-  // MÓDULO COMPLETO (RN-033): a Visão Geral toma o lugar da tela simples.
+  // MÓDULO COMPLETO (RN-035): a Visão Geral toma o lugar da tela simples.
   // Sem a chave, tudo daqui para baixo continua exatamente como sempre foi.
   const chave = await db.company.findUnique({
     where: { id: user.companyId },
@@ -58,7 +58,7 @@ export default async function FinanceiroPage({
   spMes.setUTCHours(0, 0, 0, 0);
   const inicioMes = new Date(spMes.getTime() + 3 * 60 * 60 * 1000);
 
-  // a consulta da chave do módulo (RN-027) vai JUNTO das outras: em série
+  // a consulta da chave do módulo (RN-029) vai JUNTO das outras: em série
   // seria uma ida a mais ao banco em toda abertura da tela
   const [pendentes, recebidoMesAgg, pixAtivos] = await Promise.all([
     db.order.findMany({

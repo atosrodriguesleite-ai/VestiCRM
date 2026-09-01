@@ -1,4 +1,4 @@
-// Guarda RN-027
+// Guarda RN-029
 import { describe, it, expect } from "vitest";
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
@@ -13,7 +13,7 @@ import type { SessionUser } from "../auth";
 import { MODULOS } from "../modulos";
 
 /**
- * RN-027 · Módulo Financeiro: gated por `financeEnabled`, só gerente/admin;
+ * RN-029 · Módulo Financeiro: gated por `financeEnabled`, só gerente/admin;
  * loja com a chave desligada não muda em NADA; cadastro não se apaga, se
  * arquiva; a árvore de categorias nasce pronta e íntegra.
  */
@@ -21,7 +21,7 @@ import { MODULOS } from "../modulos";
 const usuario = (role: string) =>
   ({ role, companyId: "loja-1" }) as unknown as SessionUser;
 
-describe("porteira do módulo (RN-027)", () => {
+describe("porteira do módulo (RN-029)", () => {
   it("com a chave ligada, entram gerente, admin e super admin", () => {
     for (const role of ["MANAGER", "ADMIN", "SUPERADMIN"]) {
       expect(financeiroLiberado(usuario(role), true)).toBe(true);

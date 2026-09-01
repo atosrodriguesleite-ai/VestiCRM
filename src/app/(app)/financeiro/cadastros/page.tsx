@@ -9,7 +9,7 @@ import { CadastrosView } from "./cadastros-view";
 export const dynamic = "force-dynamic";
 
 /**
- * FINANCEIRO · CADASTROS (RN-027, Fase 1) — a fundação do módulo: contas,
+ * FINANCEIRO · CADASTROS (RN-029, Fase 1) — a fundação do módulo: contas,
  * categorias (árvore pronta para moda), centros de custo, coleções e
  * fornecedores. Porteira dupla: gerente+ E loja com a chave do módulo —
  * sem a chave, a tela "não existe" e volta para o Financeiro simples.
@@ -21,7 +21,7 @@ export default async function FinanceiroCadastrosPage() {
     where: { id: user.companyId },
     select: { financeEnabled: true },
   });
-  // a MESMA decisão da porteira das rotas (RN-027) — nunca reimplementada
+  // a MESMA decisão da porteira das rotas (RN-029) — nunca reimplementada
   if (!financeiroLiberado(user, company?.financeEnabled ?? false))
     redirect("/financeiro");
 

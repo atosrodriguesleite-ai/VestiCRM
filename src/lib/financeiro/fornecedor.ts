@@ -4,7 +4,7 @@ import { guardarDocumento } from "../documento";
 import { conferirDocumentosFornecedor } from "./cadastros";
 
 /**
- * A FICHA DO FORNECEDOR (RN-027) — validação e normalização num lugar só,
+ * A FICHA DO FORNECEDOR (RN-029) — validação e normalização num lugar só,
  * usada pelo POST (criar) e pelo PATCH (editar, que manda a ficha inteira).
  */
 

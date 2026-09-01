@@ -1187,7 +1187,7 @@ export async function PATCH(
       }).catch(() => {});
     }
 
-    // PORTA ÚNICA DO FINANCEIRO (RN-031): qualquer mexida no pedido põe o
+    // PORTA ÚNICA DO FINANCEIRO (RN-033): qualquer mexida no pedido põe o
     // lançamento em dia — virou pago, voltou para aguardando, cancelou,
     // reabriu. Sem o módulo sai calada; falhando, não segura a resposta.
     sincronizarPedidoSemQuebrar(order.id);
@@ -1269,7 +1269,7 @@ export async function DELETE(
     }
 
     // o lançamento do financeiro não pode ficar vivo apontando para uma
-    // venda que deixou de existir (RN-031) — dinheiro fantasma no extrato
+    // venda que deixou de existir (RN-033) — dinheiro fantasma no extrato
     apagarPedidoDoFinanceiroSemQuebrar(user.companyId, order.id);
     const { devolvidas, oppReaberta } = await db.$transaction(async (tx) => {
       const oppId = order.opportunityId;

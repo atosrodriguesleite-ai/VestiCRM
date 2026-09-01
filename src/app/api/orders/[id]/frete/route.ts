@@ -439,7 +439,7 @@ export async function POST(
           state: c.state,
         },
       });
-      // PORTA ÚNICA DO FINANCEIRO (RN-031): a etiqueta comprada vira despesa
+      // PORTA ÚNICA DO FINANCEIRO (RN-033): a etiqueta comprada vira despesa
       // de frete, já baixada — o dinheiro saiu da carteira do Melhor Envio
       registrarEtiquetaSemQuebrar(ship.id);
       await db.orderEvent.create({
@@ -507,7 +507,7 @@ export async function POST(
       where: { id: order.shipping.id },
       data: { meStatus: "CANCELADO" },
     });
-    // PORTA ÚNICA (RN-031): o valor volta para a carteira do Melhor Envio,
+    // PORTA ÚNICA (RN-033): o valor volta para a carteira do Melhor Envio,
     // então a despesa é estornada e cancelada — com rastro, nunca apagada
     cancelarEtiquetaSemQuebrar(user.companyId, order.shipping.meOrderId, ship.id);
     await db.orderEvent.create({

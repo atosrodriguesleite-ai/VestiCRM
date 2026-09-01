@@ -90,7 +90,7 @@ const NAV = [
   { href: "/inteligencia", label: "Inteligência", icon: Brain, group: "Análise", managerOnly: true },
   { href: "/comissoes", label: "Comissões", icon: Percent, group: "Análise", managerOnly: true },
   { href: "/financeiro", label: "Financeiro", icon: Wallet, group: "Análise", managerOnly: true },
-  // módulo Financeiro completo (RN-027/RN-028, pago à parte): sem a chave, o
+  // módulo Financeiro completo (RN-029/RN-030, pago à parte): sem a chave, o
   // menu nem aparece — a loja segue com a tela simples de contas a receber
   { href: "/financeiro/contas-a-receber", label: "Contas a Receber", icon: TrendingUp, group: "Análise", managerOnly: true, financeOnly: true },
   { href: "/financeiro/contas-a-pagar", label: "Contas a Pagar", icon: TrendingDown, group: "Análise", managerOnly: true, financeOnly: true },

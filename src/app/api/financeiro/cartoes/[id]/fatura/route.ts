@@ -12,8 +12,8 @@ const schema = z.object({
 });
 
 /**
- * PAGAR A FATURA DO CARTÃO (RN-037): dá baixa em todas as compras dela de uma
- * vez, na conta de onde o dinheiro sai. Porta do módulo (RN-027).
+ * PAGAR A FATURA DO CARTÃO (RN-039): dá baixa em todas as compras dela de uma
+ * vez, na conta de onde o dinheiro sai. Porta do módulo (RN-029).
  */
 export async function POST(
   req: NextRequest,

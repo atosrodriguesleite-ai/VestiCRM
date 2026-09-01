@@ -10,7 +10,7 @@ import { ContasFixasView } from "./contas-fixas-view";
 export const dynamic = "force-dynamic";
 
 /**
- * CONTAS FIXAS (RN-029) — aluguel, salário, internet: configura uma vez e o
+ * CONTAS FIXAS (RN-031) — aluguel, salário, internet: configura uma vez e o
  * sistema lança sozinho todo mês (de carona no tráfego, sem cron novo).
  */
 export default async function ContasFixasPage() {

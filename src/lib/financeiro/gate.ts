@@ -4,7 +4,7 @@ import { requireUser, type SessionUser } from "../auth";
 import { isManagerUp } from "../scope";
 
 /**
- * A PORTEIRA DO MÓDULO FINANCEIRO (RN-027).
+ * A PORTEIRA DO MÓDULO FINANCEIRO (RN-029).
  *
  * Duas chaves, as duas obrigatórias em TODA porta do módulo (API e tela):
  *

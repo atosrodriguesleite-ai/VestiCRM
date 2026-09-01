@@ -16,7 +16,7 @@ import {
 } from "@/lib/financeiro/lancamentos";
 
 /**
- * NOVO / EDITAR LANÇAMENTO (RN-028).
+ * NOVO / EDITAR LANÇAMENTO (RN-030).
  *
  * A lojista digita o valor TOTAL e o número de parcelas; o sistema monta os
  * vencimentos (mensais, respeitando fim de mês) e divide sem perder centavo —
@@ -87,7 +87,7 @@ export function FormLancamento({
   const contaPadrao = contas.find((c) => c.padrao)?.id ?? contas[0]?.id ?? "";
 
   /**
-   * Compra no CARTÃO cai na fatura certa sozinha (RN-037): escolher o cartão
+   * Compra no CARTÃO cai na fatura certa sozinha (RN-039): escolher o cartão
    * numa parcela já acerta o vencimento dela — e num parcelado, cada parcela
    * vai para a fatura do mês seguinte, que é o que acontece na vida.
    */
@@ -484,7 +484,7 @@ export function FormLancamento({
                       const venc = vencimentoNoCartao(contaId, i);
                       mudarParcela(i, {
                         contaId,
-                        // cartão acerta o vencimento pela fatura (RN-037)
+                        // cartão acerta o vencimento pela fatura (RN-039)
                         ...(venc ? { vencimento: venc, forma: "CARTAO" as FormaPagamento } : {}),
                       });
                     }}

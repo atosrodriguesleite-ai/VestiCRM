@@ -8,7 +8,7 @@ import { TransferenciasView } from "./transferencias-view";
 
 export const dynamic = "force-dynamic";
 
-/** TRANSFERÊNCIAS (RN-030) — dinheiro entre contas da própria loja. */
+/** TRANSFERÊNCIAS (RN-032) — dinheiro entre contas da própria loja. */
 export default async function TransferenciasPage() {
   const user = await requireUser();
   if (!isManagerUp(user)) redirect("/dashboard");

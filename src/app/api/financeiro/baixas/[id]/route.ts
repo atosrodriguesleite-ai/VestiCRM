@@ -8,7 +8,7 @@ import { valorMovimentado } from "@/lib/financeiro/lancamentos";
 import { brl } from "@/lib/format";
 
 /**
- * ESTORNAR uma baixa (RN-028) — baixou errado, desfaz COM RASTRO.
+ * ESTORNAR uma baixa (RN-030) — baixou errado, desfaz COM RASTRO.
  *
  * A baixa não é apagada: fica marcada com quem estornou e quando, some das
  * contas (saldo, status, extrato) e continua visível no histórico. Apagar
@@ -56,7 +56,7 @@ export async function PATCH(
       return NextResponse.json({ error: "Esta baixa já foi estornada" }, { status: 409 });
 
     // dinheiro que voltou atrás não pode continuar "conferido" com o extrato
-    // (RN-035): a linha do banco volta para a fila de pendentes
+    // (RN-037): a linha do banco volta para a fila de pendentes
     await soltarConciliacaoDaBaixa(id);
 
     await db.finLancamentoEvento.create({

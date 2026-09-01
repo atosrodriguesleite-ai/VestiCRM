@@ -8,7 +8,7 @@ import {
 } from "@/lib/financeiro/fornecedor";
 
 /**
- * FORNECEDORES (RN-027) — o outro lado das contas a pagar. CNPJ **ou** CPF,
+ * FORNECEDORES (RN-029) — o outro lado das contas a pagar. CNPJ **ou** CPF,
  * com dígitos conferidos ANTES de gravar (mesma régua da ficha de cliente:
  * documento errado só aparece lá na frente, com a compra já feita).
  */

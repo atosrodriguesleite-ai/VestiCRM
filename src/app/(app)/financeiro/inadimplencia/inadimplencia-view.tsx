@@ -11,7 +11,7 @@ import type { LinhaInadimplencia } from "@/lib/financeiro/visao";
 import { formatarDia } from "@/lib/financeiro/dia";
 
 /**
- * INADIMPLÊNCIA (RN-032). O botão de cobrar é o coração da tela: a lojista
+ * INADIMPLÊNCIA (RN-034). O botão de cobrar é o coração da tela: a lojista
  * não precisa sair procurando a conversa — a mensagem entra na Central, na
  * conversa da cliente, e a vendedora vê tudo como sempre viu.
  */

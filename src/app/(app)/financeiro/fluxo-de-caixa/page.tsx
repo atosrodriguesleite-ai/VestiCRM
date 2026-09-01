@@ -21,7 +21,7 @@ function mesValido(v: string): string | null {
 }
 
 /**
- * FLUXO DE CAIXA (RN-034) — "tem dinheiro?", mês a mês.
+ * FLUXO DE CAIXA (RN-036) — "tem dinheiro?", mês a mês.
  */
 export default async function FluxoDeCaixaPage({
   searchParams,

@@ -2,7 +2,7 @@ import { db } from "../db";
 import { cnpjValido, cpfValido, soDigitos } from "../documento";
 
 /**
- * MÓDULO FINANCEIRO (RN-027) — Fase 1: os cadastros-fundação.
+ * MÓDULO FINANCEIRO (RN-029) — Fase 1: os cadastros-fundação.
  *
  * Tudo no financeiro aponta para cinco cadastros: contas (onde o dinheiro
  * mora), categorias (a etiqueta do dinheiro), centros de custo, coleções e

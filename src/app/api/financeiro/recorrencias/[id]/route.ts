@@ -16,7 +16,7 @@ import {
 } from "@/lib/financeiro/recorrencia";
 
 /**
- * EDITAR ou ENCERRAR a conta fixa (RN-029).
+ * EDITAR ou ENCERRAR a conta fixa (RN-031).
  *
  * Editar mexe SÓ NO FUTURO: os meses que ainda não venceram e não têm baixa
  * são refeitos com os valores novos; o que já foi pago fica exatamente como

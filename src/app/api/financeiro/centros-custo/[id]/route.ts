@@ -4,7 +4,7 @@ import { db } from "@/lib/db";
 import { AuthError } from "@/lib/auth";
 import { porteiraFinanceiro } from "@/lib/financeiro/gate";
 
-/** Renomear/arquivar centro de custo (RN-027; sem DELETE — arquiva). */
+/** Renomear/arquivar centro de custo (RN-029; sem DELETE — arquiva). */
 
 const patchSchema = z.object({
   nome: z.string().trim().min(1).max(80).optional(),

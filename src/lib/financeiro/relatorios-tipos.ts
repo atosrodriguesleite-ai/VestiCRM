@@ -1,5 +1,5 @@
 /**
- * DRE e Fluxo de Caixa — a parte PURA (RN-034): os blocos, os rótulos e a
+ * DRE e Fluxo de Caixa — a parte PURA (RN-036): os blocos, os rótulos e a
  * regra de em qual linha do DRE cada categoria entra.
  *
  * Fica separada do motor porque as telas rodam no navegador e não podem
@@ -23,7 +23,7 @@ export const DRE_LABEL: Record<BlocoDRE, string> = {
 
 /**
  * Em qual linha do DRE a categoria entra, pelo CÓDIGO da árvore padrão
- * (RN-027) — o código é do sistema e o nome é da loja, então renomear não
+ * (RN-029) — o código é do sistema e o nome é da loja, então renomear não
  * quebra o relatório.
  *
  *   01, 02  → receita          03 → custo da mercadoria
@@ -31,7 +31,7 @@ export const DRE_LABEL: Record<BlocoDRE, string> = {
  *   07      → FORA: investimento não é despesa do mês. Comprar uma máquina
  *             de R$ 8.000 não é prejuízo — é dinheiro que virou máquina, e
  *             somá-lo aqui faria um mês bom parecer desastre. Ele aparece no
- *             DFC (RN-033), que é a conta do dinheiro, não a do resultado.
+ *             DFC (RN-035), que é a conta do dinheiro, não a do resultado.
  *
  * Categoria criada pela loja (código fora da árvore) entra pelo TIPO: receita
  * vira receita, despesa vira administrativa — que é onde a maioria pertence.
@@ -117,7 +117,7 @@ export type RelatorioFluxo = {
   geracao: number[];
   /** saldo inicial de conta cadastrada DENTRO do mês (não é receita) */
   aberturas: number[];
-  /** transferência que entrou/saiu no mês (RN-030): net zero na mesma janela */
+  /** transferência que entrou/saiu no mês (RN-032): net zero na mesma janela */
   transito: number[];
   saldoInicial: number[];
   saldoFinal: number[];
@@ -139,7 +139,7 @@ export type RelatorioFluxo = {
  *
  * A conta ATRASADA não some: ela venceu no passado, mas o dinheiro ainda vai
  * andar, e o mês em que a loja vai correr atrás é o corrente (mesma régua do
- * saldo previsto, RN-033). Previsto em mês já fechado inventaria dinheiro que
+ * saldo previsto, RN-035). Previsto em mês já fechado inventaria dinheiro que
  * se sabe que não entrou.
  */
 export function mesDoPrevisto(
@@ -155,7 +155,7 @@ export function mesDoPrevisto(
 /**
  * O saldo mês a mês: começa no saldo REAL da loja e cada mês termina onde o
  * seguinte começa. Além do que a loja gerou, entram as duas coisas que mexem
- * no saldo sem serem receita nem despesa (RN-030): conta cadastrada com saldo
+ * no saldo sem serem receita nem despesa (RN-032): conta cadastrada com saldo
  * dentro do período e transferência em trânsito (saiu num mês, caiu no
  * outro). Sem elas, "saldo no fim" não bate com o extrato.
  */

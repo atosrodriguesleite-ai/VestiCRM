@@ -9,7 +9,7 @@ import { InadimplenciaView } from "./inadimplencia-view";
 export const dynamic = "force-dynamic";
 
 /**
- * INADIMPLÊNCIA (RN-032) — quem está devendo, do mais atrasado para o menos,
+ * INADIMPLÊNCIA (RN-034) — quem está devendo, do mais atrasado para o menos,
  * com a cobrança saindo pela Central de Atendimento que a loja já usa.
  */
 export default async function InadimplenciaPage() {

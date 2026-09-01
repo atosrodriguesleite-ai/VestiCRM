@@ -6,7 +6,7 @@ import { dataDoDia, diaSP } from "./lancamentos";
 import { garantirCategoriasPadrao } from "./cadastros";
 
 /**
- * A PORTA ÚNICA DE ENTRADA DAS VENDAS (RN-031).
+ * A PORTA ÚNICA DE ENTRADA DAS VENDAS (RN-033).
  *
  * Toda venda — pedido montado no sistema, pedido do catálogo, venda da
  * Nuvemshop, Pix confirmado e, amanhã, Mercado Livre — entra no financeiro
@@ -19,7 +19,7 @@ import { garantirCategoriasPadrao } from "./cadastros";
  *  • 1 PEDIDO = 1 LANÇAMENTO, para sempre. O par (loja, origem, origemId) é
  *    ÚNICO no banco: reprocessar o mesmo pedido — e o gateway REENVIA o mesmo
  *    aviso, é o contrato dele — não cria dois recebimentos.
- *  • A LOJA SEM O MÓDULO NÃO MUDA EM NADA (RN-027): a porta sai calada.
+ *  • A LOJA SEM O MÓDULO NÃO MUDA EM NADA (RN-029): a porta sai calada.
  *  • NUNCA DERRUBA A VENDA, e nunca some: o trabalho vai para o `after()` do
  *    Next (a Vercel CONGELA a função assim que a resposta sai — chamada solta
  *    sem `after` simplesmente não terminaria, e a venda paga desapareceria do
@@ -37,7 +37,7 @@ export const MARCA_CANCELAMENTO = "[porta] lançamento cancelado com o pedido";
 
 /**
  * Qual categoria recebe a venda, pela origem do pedido. Devolve o CÓDIGO da
- * árvore padrão (RN-027); loja que renomeou a categoria continua funcionando,
+ * árvore padrão (RN-029); loja que renomeou a categoria continua funcionando,
  * porque o código é do sistema e o nome é dela.
  */
 export function codigoDaCategoriaDeVenda(
@@ -94,7 +94,7 @@ const NADA: AcaoDaPorta = {
 
 /**
  * O que a porta faz, dado o estado do pedido e o do lançamento. Toda a
- * regra de dinheiro da RN-031 mora aqui — pura, para o teste conseguir
+ * regra de dinheiro da RN-033 mora aqui — pura, para o teste conseguir
  * percorrer as transições sem banco nenhum.
  */
 export function decidirAcaoDaPorta(
@@ -208,7 +208,7 @@ export async function sincronizarPedidoNoFinanceiro(
     },
   });
   if (!pedido) return { feito: false, motivo: "nao-encontrado" };
-  // RN-027: loja sem o módulo não muda em NADA
+  // RN-029: loja sem o módulo não muda em NADA
   if (!pedido.company.financeEnabled) return { feito: false, motivo: "modulo-desligado" };
 
   const existente = await db.finLancamento.findFirst({
@@ -331,14 +331,14 @@ export async function sincronizarPedidoNoFinanceiro(
  * A DATA DA VENDA FOI CORRIGIDA — um ato EXPLÍCITO da tela "corrigir data",
  * nunca uma inferência: o pagamento que chega meses depois NÃO é correção de
  * data (a venda de agosto paga em outubro continua sendo competência de
- * agosto, RN-034), então o sincronizar comum não mexe em data nenhuma.
+ * agosto, RN-036), então o sincronizar comum não mexe em data nenhuma.
  *
  * Aqui, sim, o financeiro acompanha: competência, vencimento e a data da
  * baixa AUTOMÁTICA vão para o novo dia — a baixa feita à mão fica com a data
- * em que o dinheiro andou. Baixa que muda de dia SOLTA a conciliação (RN-035):
+ * em que o dinheiro andou. Baixa que muda de dia SOLTA a conciliação (RN-037):
  * "conferido" contra uma linha do banco de outro dia seria mentira carimbada.
  * Tudo numa transação: metade movida seria impossível de consertar depois
- * (lançamento automático recusa edição na tela, RN-028).
+ * (lançamento automático recusa edição na tela, RN-030).
  */
 export async function corrigirDataDaVendaNoFinanceiro(
   orderId: string
@@ -384,7 +384,7 @@ export async function corrigirDataDaVendaNoFinanceiro(
       data: { data: quando },
     });
     // baixa que mudou de dia não pode continuar "conferida" com o extrato
-    // do dia antigo (mesma régua do estorno, RN-035)
+    // do dia antigo (mesma régua do estorno, RN-037)
     await tx.finOfxVinculo.deleteMany({
       where: { baixaId: { in: automaticasMovidas } },
     });
@@ -427,7 +427,7 @@ export async function apagarPedidoDoFinanceiro(
   companyId: string,
   orderId: string
 ): Promise<Resultado> {
-  // RN-027: loja sem o módulo não muda em NADA — nem no apagar
+  // RN-029: loja sem o módulo não muda em NADA — nem no apagar
   const chave = await db.company.findUnique({
     where: { id: companyId },
     select: { financeEnabled: true },
@@ -553,7 +553,7 @@ function estadoDoLancamento(
 }
 
 /**
- * ETIQUETA COMPRADA vira despesa de frete (RN-031), já baixada — o dinheiro
+ * ETIQUETA COMPRADA vira despesa de frete (RN-033), já baixada — o dinheiro
  * saiu da carteira do Melhor Envio na hora da compra.
  *
  * A chave é a COMPRA (`meOrderId`), não o envio: cancelar a etiqueta e
@@ -654,7 +654,7 @@ export async function cancelarEtiquetaNoFinanceiro(
 
 /* ---- bastidores -------------------------------------------------------- */
 
-/** O DIA do dinheiro, ao meio-dia UTC (RN-028): fuso não muda o mês. */
+/** O DIA do dinheiro, ao meio-dia UTC (RN-030): fuso não muda o mês. */
 function diaDoDinheiro(d: Date): Date {
   return dataDoDia(diaSP(d)) ?? d;
 }
@@ -749,7 +749,7 @@ async function estornarBaixasDaPorta(lancamentoId: string, motivo: string) {
     where: alvo,
     data: { estornadaEm: new Date(), estornoAutor: AUTOR_SISTEMA },
   });
-  // dinheiro que voltou atrás não segue "conferido" com o extrato (RN-035)
+  // dinheiro que voltou atrás não segue "conferido" com o extrato (RN-037)
   for (const b of paraSoltar) await soltarConciliacaoDaBaixa(b.id);
   if (count > 0) {
     await db.finLancamentoEvento.create({

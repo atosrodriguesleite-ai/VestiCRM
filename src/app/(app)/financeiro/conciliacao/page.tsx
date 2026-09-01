@@ -12,7 +12,7 @@ export const dynamic = "force-dynamic";
 const ABAS = ["pendente", "conciliado", "ignorado"] as const;
 
 /**
- * CONCILIAÇÃO BANCÁRIA (RN-035) — "o sistema bate com o banco?".
+ * CONCILIAÇÃO BANCÁRIA (RN-037) — "o sistema bate com o banco?".
  */
 export default async function ConciliacaoPage({
   searchParams,

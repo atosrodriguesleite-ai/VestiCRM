@@ -13,7 +13,7 @@ import {
 import { brl } from "@/lib/format";
 
 /**
- * DAR BAIXA numa parcela (RN-028) — o dinheiro andou de verdade.
+ * DAR BAIXA numa parcela (RN-030) — o dinheiro andou de verdade.
  *
  * É a operação mais delicada do módulo, e por isso roda em transação
  * SERIALIZÁVEL: sem isso, duas pessoas dando baixa na mesma parcela ao mesmo

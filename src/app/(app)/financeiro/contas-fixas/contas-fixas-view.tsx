@@ -10,7 +10,7 @@ import { numeroBR } from "@/lib/numero-br";
 import { FORMA_LABEL, FORMAS_PAGAMENTO, type FormaPagamento } from "@/lib/financeiro/lancamentos";
 
 /**
- * CONTAS FIXAS (RN-029). A promessa da tela: configurou uma vez, o sistema
+ * CONTAS FIXAS (RN-031). A promessa da tela: configurou uma vez, o sistema
  * lança todo mês. Editar mexe SÓ nos meses futuros ainda não pagos — o
  * aluguel de agosto continua tendo sido o de agosto.
  */

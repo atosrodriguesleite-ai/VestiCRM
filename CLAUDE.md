@@ -425,7 +425,7 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   de módulos): gestão financeira completa, desenhada com o dono em 31/08/2026
   (mapa em 6 fases: cadastros → contas a pagar/receber → recorrência/extrato →
   porta única de entrada das vendas → dashboard/DFC → DRE/conciliação OFX).
-  **RN-027 · Módulo Financeiro** (`Company.financeEnabled`, porteira em
+  **RN-029 · Módulo Financeiro** (`Company.financeEnabled`, porteira em
   `lib/financeiro/gate.ts`): TODA porta do módulo (API e tela) exige a chave
   da loja E gerente/admin — vendedora e SUPORTE ficam fora (dinheiro é assunto
   comercial, mesma régua de Relatórios); sem a chave a rota responde 404 e a
@@ -441,7 +441,7 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   API nem tem DELETE: quando os lançamentos chegarem, apagar conta/categoria
   com histórico quebraria extrato e DRE. Clientes NÃO ganham cadastro novo: o
   financeiro usa a ficha do CRM.
-  **RN-028 · O LANÇAMENTO** (`lib/financeiro/lancamentos.ts`, telas
+  **RN-030 · O LANÇAMENTO** (`lib/financeiro/lancamentos.ts`, telas
   `/financeiro/contas-a-receber` e `/contas-a-pagar`): conta a receber e a
   pagar são a MESMA peça, mudando o lado (`FinLancamento.tipo`) — cabeçalho →
   **parcelas** (`FinParcela`) → **baixas** (`FinBaixa`, o dinheiro andando).
@@ -478,7 +478,7 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   de MANUAL (Fase 4) não aceita edição de valor — a fonte da verdade é o
   pedido, e o único (companyId, origem, origemId) garante "1 pedido = 1
   lançamento".
-  **RN-029 · CONTAS FIXAS** (`lib/financeiro/recorrencia.ts`, tela
+  **RN-031 · CONTAS FIXAS** (`lib/financeiro/recorrencia.ts`, tela
   `/financeiro/contas-fixas`): aluguel, salário, internet — a loja configura
   UMA vez (valor, dia, categoria, "sem fim" ou até quando) e o sistema
   materializa os lançamentos dos **próximos 3 meses** sozinho. **NÃO é cron**
@@ -488,11 +488,11 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   lançamento gerado carrega (recorrenciaId, mês) e esse par é ÚNICO no banco,
   então duas abas abrindo juntas esbarram no índice (P2002 tratado), não em
   dois aluguéis. Dia 31 cai no último dia do mês curto (mesma régua da
-  RN-028). **Editar e encerrar mexem SÓ no futuro**: os meses que ainda não
+  RN-030). **Editar e encerrar mexem SÓ no futuro**: os meses que ainda não
   venceram e **não têm baixa** são refeitos; o que já foi pago fica intocado —
   o aluguel de agosto continua tendo sido o de agosto. Conta fixa que começou
   anos atrás não trava a tela (teto de 24 meses por rodada).
-  **RN-030 · TRANSFERÊNCIA E EXTRATO** (`lib/financeiro/extrato.ts`, telas
+  **RN-032 · TRANSFERÊNCIA E EXTRATO** (`lib/financeiro/extrato.ts`, telas
   `/financeiro/transferencias` e `/extrato`): transferência entre contas da
   PRÓPRIA loja **não é receita nem despesa** — contá-la como receita infla o
   faturamento e como despesa inventa prejuízo; ela sai de uma conta, entra na
@@ -506,7 +506,7 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   banco para alguém corrigir na mão e a tela passar a mentir. Os cards de
   entrou/saiu contam só receitas e despesas realizadas; a transferência
   aparece na lista mas fica FORA deles.
-  **RN-031 · A PORTA ÚNICA DE ENTRADA DAS VENDAS**
+  **RN-033 · A PORTA ÚNICA DE ENTRADA DAS VENDAS**
   (`lib/financeiro/porta-vendas.ts`): TODA venda entra no financeiro por um
   lugar só — pedido do sistema, pedido do catálogo, venda da Nuvemshop, Pix
   confirmado (`settle-order`) e, amanhã, Mercado Livre: cada origem só
@@ -523,7 +523,7 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   **ou voltar a ORÇAMENTO** desfaz e cancela (senão ficaria dinheiro que
   nunca entrou no extrato); e o **valor acompanha o pedido** — pedido de R$
   100 editado para R$ 450 refaz o lançamento e a baixa, porque o automático
-  não aceita edição na tela (RN-028). **O QUE A LOJISTA FEZ NA MÃO É DELA**:
+  não aceita edição na tela (RN-030). **O QUE A LOJISTA FEZ NA MÃO É DELA**:
   baixa manual e cancelamento manual nunca são desfeitos — a porta avisa no
   histórico (uma vez, sem virar spam) e para. **Pedido APAGADO cancela o
   lançamento** (estorna a baixa automática; com baixa manual, fica e avisa) —
@@ -531,24 +531,24 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   até quando a exclusão falha. **Corrigir a DATA da venda é ato
   EXPLÍCITO** (`corrigirDataDaVendaNoFinanceiro`, só a tela de corrigir data
   chama): move competência, vencimento e a baixa automática numa transação e
-  solta a conciliação da baixa movida (RN-035); a baixa manual fica com a
+  solta a conciliação da baixa movida (RN-037); a baixa manual fica com a
   data em que o dinheiro andou. **Pagamento atrasado NÃO muda competência**:
-  a venda de agosto paga em outubro continua resultado de agosto (RN-034) —
+  a venda de agosto paga em outubro continua resultado de agosto (RN-036) —
   só a data da baixa é de outubro. **Unificar contatos leva o financeiro junto**: lançamentos e
   contas fixas da ficha apagada passam para a que sobrevive, senão a
   inadimplência virava "Sem cliente" e a cobrança perdia o WhatsApp.
   A venda entra pelo `total` (o
   que a cliente paga, **frete-ok**; faturamento continua `netTotal` por
   RN-002), com a categoria da origem (atacado, varejo, loja online) e as
-  datas ao **meio-dia UTC** (RN-028 — carimbo cru some do filtro do mês).
+  datas ao **meio-dia UTC** (RN-030 — carimbo cru some do filtro do mês).
   A **etiqueta do Melhor Envio vira despesa de frete já baixada**, chaveada
   pelo `meOrderId` (a COMPRA, não o envio: recomprar de PAC para SEDEX é
   outra despesa), e **cancelar a etiqueta estorna e cancela a despesa** — o
   valor voltou para a carteira ME. **NUNCA ATRAPALHA A VENDA E NUNCA SOME**:
   o trabalho vai no `after()` do Next — chamada solta seria congelada pela
   Vercel junto com a resposta, e a venda paga desapareceria do financeiro sem
-  erro nenhum. Loja sem o módulo (RN-027): a porta sai calada.
-  **RN-032 · COBRAR PELO WHATSAPP** (`lib/financeiro/cobranca.ts`, tela
+  erro nenhum. Loja sem o módulo (RN-029): a porta sai calada.
+  **RN-034 · COBRAR PELO WHATSAPP** (`lib/financeiro/cobranca.ts`, tela
   `/financeiro/inadimplencia`): é o que um financeiro comum NÃO faz — a lista
   de atrasados existe em todo sistema, e a lojista ainda tinha que sair
   procurando a conversa uma por uma. Aqui a mensagem é MONTADA pelo sistema
@@ -564,7 +564,7 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   mensagem marcada como FALHOU (é o mesmo caminho que faz o ⏱️ virar ⚠️ na
   bolha). Sem olhar o status, a cobrança se dava por enviada com o WhatsApp
   desligado — a lojista riscava da lista e a cliente nunca soube.
-  **RN-033 · A VISÃO DE DONO** (`lib/financeiro/visao.ts`, `/financeiro` e
+  **RN-035 · A VISÃO DE DONO** (`lib/financeiro/visao.ts`, `/financeiro` e
   `/financeiro/dfc`): com o módulo ligado, a tela do Financeiro deixa de ser
   a lista de pedidos a receber e vira o PAINEL — saldo hoje (somado por
   conta), a receber e a pagar do mês, atrasado, e o **saldo previsto** para 7,
@@ -578,21 +578,21 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   relatório; categoria criada pela loja cai em operacional). O teste de
   honestidade fica na tela: saldo inicial + gerado + **saldo das contas
   cadastradas no período** + transferências = saldo final, e a diferença é
-  DITA, nunca escondida (RN-030) — **cada uma com o nome CERTO**: conta
+  DITA, nunca escondida (RN-032) — **cada uma com o nome CERTO**: conta
   cadastrada com saldo inicial DENTRO do recorte traz dinheiro que a loja não
   gerou nem transferiu, e ele caía na sobra chamado de "transferência". Dizer
   o nome errado do dinheiro é pior que não mostrar.
   A árvore de categorias ganhou o bloco **07 · Investimentos** e a semeadura
   passou a COMPLETAR o que falta — sem isso a loja antiga nunca veria o bloco
   novo e o DFC dela nasceria torto.
-  **RN-034 · DEU LUCRO ≠ TEM DINHEIRO** (`lib/financeiro/relatorios.ts`, telas
+  **RN-036 · DEU LUCRO ≠ TEM DINHEIRO** (`lib/financeiro/relatorios.ts`, telas
   `/financeiro/dre` e `/financeiro/fluxo-de-caixa`): são duas perguntas
   diferentes, e é por não separá-las que loja lucrativa quebra. O **DRE** é
   por **COMPETÊNCIA** — a venda de agosto é resultado de agosto, mesmo que a
   cliente pague em outubro (o valor é o do LANÇAMENTO, então venda em 3× é
   resultado inteiro do mês da venda) — e sai mês a mês por categoria, com
   receita → custo da mercadoria → **lucro bruto** → despesas → resultado, tudo
-  com % sobre a receita e montado sozinho pelo CÓDIGO da árvore (RN-027; 01/02
+  com % sobre a receita e montado sozinho pelo CÓDIGO da árvore (RN-029; 01/02
   receita, 03 custo, 04 venda, 05 administrativa, 06 financeira, categoria da
   loja entra pelo TIPO). **Investimento (07) fica FORA do resultado e é DITO
   na tela**: comprar uma máquina de R$ 8.000 não é prejuízo, é dinheiro que
@@ -606,11 +606,11 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   que falta). Do previsto entra só **o que FALTA** (a parte já paga já entrou
   pelo realizado — contar as duas dobraria a venda) e a **conta ATRASADA não
   some**: ela cai no mês corrente, que é quando a loja vai correr atrás
-  (mesma régua do saldo previsto, RN-033) — inclusive a que venceu antes do
+  (mesma régua do saldo previsto, RN-035) — inclusive a que venceu antes do
   período, buscada com teto próprio e só quando o mês corrente está nas
-  colunas. O saldo do primeiro mês é o saldo REAL da loja (RN-030), com cada
+  colunas. O saldo do primeiro mês é o saldo REAL da loja (RN-032), com cada
   mês começando onde o anterior terminou.
-  **RN-035 · CONFERIR COM O BANCO** (`lib/financeiro/ofx.ts` +
+  **RN-037 · CONFERIR COM O BANCO** (`lib/financeiro/ofx.ts` +
   `lib/financeiro/conciliacao.ts`, tela `/financeiro/conciliacao`): o extrato
   que o banco exporta (OFX) de um lado, o que a loja registrou do outro. Três
   decisões sustentam tudo. **Quem diz que é o mesmo movimento é o BANCO**: o
@@ -642,7 +642,7 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   CONTEÚDO, não o cabeçalho (banco que exporta UTF-8 dizendo `CHARSET:1252`
   existe), e o valor aceita separador de milhar dos dois formatos. **O arquivo em si não é guardado** (dívida técnica nº 1): dele
   saem as linhas, que é o que a conciliação usa.
-  **RN-036 · NOTA E COMISSÃO NO FINANCEIRO** (`lib/financeiro/nota-do-lancamento.ts`
+  **RN-038 · NOTA E COMISSÃO NO FINANCEIRO** (`lib/financeiro/nota-do-lancamento.ts`
   e `lib/financeiro/comissoes.ts`): duas pontas soltas que faltavam. A ficha
   do lançamento que veio de PEDIDO agora **mostra a nota** (situação, número,
   link do DANFE e o pedido de origem) e, com o Bling conectado, emite dali
@@ -664,7 +664,7 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   nunca mais lançava aquele período), e a tela só marca "✓ lançada" no período
   IGUAL: uma quinzena gerada avisa que cruza, em vez de esconder a outra
   metade do mês.
-  **RN-037 · CARTÃO DE CRÉDITO** (`lib/financeiro/cartao.ts` +
+  **RN-039 · CARTÃO DE CRÉDITO** (`lib/financeiro/cartao.ts` +
   `cartao-fatura.ts`, tela `/financeiro/cartoes`): a conta do cartão **NÃO
   guarda dinheiro** — ela junta compras numa FATURA. É essa a diferença que
   faz a conta bater: a compra de hoje no cartão é despesa de hoje (entra no
@@ -674,12 +674,12 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   ficou. A loja cadastra o cartão com o **dia em que fecha e o dia em que
   vence**, e a compra cai sozinha na fatura certa (comprou no dia do
   fechamento ou depois, vai para a próxima; parcelado entra numa fatura por
-  mês; dia 31 em mês curto cai no último dia, RN-028). **Pagar a fatura dá
+  mês; dia 31 em mês curto cai no último dia, RN-030). **Pagar a fatura dá
   baixa em TODAS as compras dela de uma vez**, na conta de onde o dinheiro
   sai — 40 compras baixadas uma a uma é onde a lojista desiste do financeiro
   —, em transação SERIALIZÁVEL e sem repagar o que já estava pago. Cartão
   **nunca vira a conta padrão** (nem ao virar cartão numa edição): a porta
-  única de entrada das vendas (RN-031) baixaria a venda paga no cartão de
+  única de entrada das vendas (RN-033) baixaria a venda paga no cartão de
   crédito da loja. E o cartão **não aparece onde o dinheiro anda** — baixa e
   transferência —, senão daria para quitar a parcela fora de qualquer fatura.
 - **Envios** (gated por loja, `shippingEnabled`, pago à parte): tela própria

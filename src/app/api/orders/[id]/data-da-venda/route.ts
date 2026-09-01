@@ -62,7 +62,7 @@ export async function POST(
       },
     });
 
-    // o financeiro acompanha a CORREÇÃO explícita (RN-031): sem isso o DRE e
+    // o financeiro acompanha a CORREÇÃO explícita (RN-033): sem isso o DRE e
     // o fluxo seguiam contando a venda no mês errado. O pagamento que chega
     // depois NÃO passa por aqui — competência não muda por pagamento.
     corrigirDataDaVendaSemQuebrar(order.id);

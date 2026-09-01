@@ -6,7 +6,7 @@ import { nomeDoArquivo } from "@/lib/midia-arquivo";
 import { porteiraFinanceiro } from "@/lib/financeiro/gate";
 
 /**
- * BAIXAR / REMOVER um anexo do lançamento (RN-028).
+ * BAIXAR / REMOVER um anexo do lançamento (RN-030).
  *
  * O arquivo SEMPRE sai como download com `nosniff` — comprovante não é
  * página para abrir no endereço do app (mesma regra da mídia do chat e do

@@ -697,7 +697,7 @@ export async function POST(req: NextRequest) {
     total: brl(subtotal),
   }).catch(() => {});
 
-  // PORTA ÚNICA DO FINANCEIRO (RN-031): pedido do catálogo aguardando
+  // PORTA ÚNICA DO FINANCEIRO (RN-033): pedido do catálogo aguardando
   // pagamento já nasce como conta a receber (orçamento não vira nada)
   sincronizarPedidoSemQuebrar(order.id);
 

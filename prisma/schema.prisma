@@ -49,7 +49,7 @@ model Company {
   /// ESTIMATIVA (embalagem de um envio passado parecido, não a deste pedido).
   /// Desligado por padrão: loja que não ativa não vê nada de novo.
   freteSimuladorEnabled Boolean @default(false)
-  /// MÓDULO FINANCEIRO (RN-027, pago à parte; super admin ativa por loja).
+  /// MÓDULO FINANCEIRO (RN-029, pago à parte; super admin ativa por loja).
   /// Sem a chave, a loja segue vendo a tela simples de contas a receber de
   /// pedidos — não muda em NADA. Com a chave, abre a gestão financeira
   /// completa (cadastros, contas a pagar/receber, fluxo de caixa...).
@@ -2622,7 +2622,7 @@ model FuncionarioEvento {
 }
 
 // ---------------------------------------------------------------------------
-// MÓDULO FINANCEIRO (RN-027) — Fase 1: os cadastros-fundação.
+// MÓDULO FINANCEIRO (RN-029) — Fase 1: os cadastros-fundação.
 //
 // Tudo no financeiro aponta para estes cadastros. Regra da fase: cadastro
 // NUNCA é apagado, é ARQUIVADO (`arquivadoEm`) — quando os lançamentos
@@ -2642,7 +2642,7 @@ model FinConta {
   company        Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
   nome           String
   tipo           String    @default("BANCO") // BANCO | CAIXINHA | DIGITAL | POUPANCA | CARTAO
-  /// CARTÃO DE CRÉDITO (RN-037): a conta do cartão não guarda dinheiro — ela
+  /// CARTÃO DE CRÉDITO (RN-039): a conta do cartão não guarda dinheiro — ela
   /// junta as compras numa FATURA. O dia em que a fatura fecha e o dia em que
   /// ela vence é o que decide para qual fatura cada compra vai.
   diaFechamento  Int?
@@ -2765,7 +2765,7 @@ model Fornecedor {
 }
 
 // ---------------------------------------------------------------------------
-// MÓDULO FINANCEIRO (RN-028) — Fase 2: o LANÇAMENTO.
+// MÓDULO FINANCEIRO (RN-030) — Fase 2: o LANÇAMENTO.
 //
 // Conta a receber e conta a pagar são a MESMA peça, mudando o lado (`tipo`).
 // A anatomia é sempre a mesma: cabeçalho (quem, quanto, qual etiqueta) →
@@ -2808,10 +2808,10 @@ model FinLancamento {
   /// origemId) é o que fará "1 pedido = 1 lançamento, nunca duplica".
   origemId      String?
   canceladoEm   DateTime?
-  /// quando a loja cobrou esta conta pela última vez (RN-032): é o que
+  /// quando a loja cobrou esta conta pela última vez (RN-034): é o que
   /// impede cobrar a mesma cliente duas vezes no mesmo dia
   cobradoEm     DateTime?
-  /// veio de uma conta fixa (RN-029) e de qual mês ("2026-09") — o único
+  /// veio de uma conta fixa (RN-031) e de qual mês ("2026-09") — o único
   /// (recorrenciaId, recorrenciaMes) é o que faz a materialização NUNCA
   /// duplicar, mesmo com duas abas abrindo a tela ao mesmo tempo
   recorrenciaId String?
@@ -2913,10 +2913,10 @@ model FinLancamentoEvento {
 }
 
 // ---------------------------------------------------------------------------
-// MÓDULO FINANCEIRO — Fase 3: contas fixas (RN-029) e transferências (RN-030).
+// MÓDULO FINANCEIRO — Fase 3: contas fixas (RN-031) e transferências (RN-032).
 // ---------------------------------------------------------------------------
 
-/// CONTA FIXA (RN-029): aluguel, salário, internet, assinatura. A loja
+/// CONTA FIXA (RN-031): aluguel, salário, internet, assinatura. A loja
 /// configura UMA vez e o sistema materializa os lançamentos dos próximos
 /// meses sozinho — de carona no tráfego, NUNCA num cron novo (ADR-002: um 3º
 /// cron trava todos os deploys).
@@ -2958,7 +2958,7 @@ model FinRecorrencia {
   @@index([companyId, ativa])
 }
 
-/// TRANSFERÊNCIA entre contas da própria loja (RN-030): tirou do banco e pôs
+/// TRANSFERÊNCIA entre contas da própria loja (RN-032): tirou do banco e pôs
 /// na caixinha. NÃO é receita nem despesa — somá-la ao resultado faria o DRE
 /// e o fluxo de caixa mentirem. Tem DUAS datas porque a vida tem: a TED sai
 /// hoje e cai amanhã, e cada conta enxerga o dinheiro no SEU dia.
@@ -2984,7 +2984,7 @@ model FinTransferencia {
 }
 
 // ---------------------------------------------------------------------------
-// MÓDULO FINANCEIRO — Fase 6: conciliação bancária por OFX (RN-035).
+// MÓDULO FINANCEIRO — Fase 6: conciliação bancária por OFX (RN-037).
 // ---------------------------------------------------------------------------
 
 /// Um arquivo de extrato (OFX) que a loja baixou do banco e subiu aqui.

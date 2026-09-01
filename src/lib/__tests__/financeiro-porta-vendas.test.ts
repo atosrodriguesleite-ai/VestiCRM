@@ -1,4 +1,4 @@
-// Guarda RN-031
+// Guarda RN-033
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -13,7 +13,7 @@ import {
 import { CATEGORIAS_PADRAO } from "../financeiro/cadastros";
 
 /**
- * RN-031 · A porta única de entrada das vendas. Os testes percorrem a MÁQUINA
+ * RN-033 · A porta única de entrada das vendas. Os testes percorrem a MÁQUINA
  * DE ESTADOS (regra pura): é o comportamento do dinheiro que é guardado aqui,
  * não o texto do código — guarda que descreve o código protege o erro em vez
  * de impedi-lo (lição do incidente de 28/08/2026).
@@ -35,7 +35,7 @@ const lanc = (over: Partial<EstadoDoLancamento> = {}): EstadoDoLancamento => ({
 
 const semLancamento = lanc({ existe: false, valor: 0, saldo: 0 });
 
-describe("qual categoria recebe a venda (RN-031)", () => {
+describe("qual categoria recebe a venda (RN-033)", () => {
   it("loja online e marketplaces têm categoria própria", () => {
     expect(codigoDaCategoriaDeVenda("NUVEMSHOP", null)).toBe("01.03");
     expect(codigoDaCategoriaDeVenda("NUVEMSHOP", "VAREJO")).toBe("01.03");
@@ -62,7 +62,7 @@ describe("qual categoria recebe a venda (RN-031)", () => {
   });
 });
 
-describe("o pedido nasce (RN-031)", () => {
+describe("o pedido nasce (RN-033)", () => {
   it("aguardando pagamento cria a conta a receber", () => {
     const a = decidirAcaoDaPorta({ status: "AGUARDANDO_PAGAMENTO", valor: 530 }, semLancamento);
     expect(a.criar).toBe(true);
@@ -84,7 +84,7 @@ describe("o pedido nasce (RN-031)", () => {
   });
 });
 
-describe("o pedido vira pago (RN-031)", () => {
+describe("o pedido vira pago (RN-033)", () => {
   it("dá baixa do que falta", () => {
     const a = decidirAcaoDaPorta({ status: "PAGO", valor: 530 }, lanc());
     expect(a.darBaixa).toBe(530);
@@ -116,7 +116,7 @@ describe("o pedido vira pago (RN-031)", () => {
   });
 });
 
-describe("o pedido volta atrás (RN-031)", () => {
+describe("o pedido volta atrás (RN-033)", () => {
   it("voltou para aguardando: estorna só a baixa automática", () => {
     const a = decidirAcaoDaPorta(
       { status: "AGUARDANDO_PAGAMENTO", valor: 530 },
@@ -148,7 +148,7 @@ describe("o pedido volta atrás (RN-031)", () => {
   });
 });
 
-describe("o que a lojista fez na mão é dela (RN-031)", () => {
+describe("o que a lojista fez na mão é dela (RN-033)", () => {
   it("cancelar pedido com baixa MANUAL: avisa e não mexe", () => {
     const a = decidirAcaoDaPorta(
       { status: "CANCELADO", valor: 530 },
@@ -178,7 +178,7 @@ describe("o que a lojista fez na mão é dela (RN-031)", () => {
   });
 });
 
-describe("o pedido muda de valor (RN-031)", () => {
+describe("o pedido muda de valor (RN-033)", () => {
   it("o lançamento acompanha o novo total", () => {
     const a = decidirAcaoDaPorta({ status: "AGUARDANDO_PAGAMENTO", valor: 450 }, lanc({ valor: 100, saldo: 100 }));
     expect(a.novoValor).toBe(450);
@@ -209,7 +209,7 @@ describe("o pedido muda de valor (RN-031)", () => {
   });
 });
 
-describe("a porta é a única entrada e nunca atrapalha a venda (RN-031)", () => {
+describe("a porta é a única entrada e nunca atrapalha a venda (RN-033)", () => {
   it("todos os pontos de venda passam por ela, e nenhum escreve por fora", () => {
     const pontos = [
       "src/lib/settle-order.ts",
@@ -251,7 +251,7 @@ describe("a porta é a única entrada e nunca atrapalha a venda (RN-031)", () =>
   });
 });
 
-describe("nenhum número some, venha o que vier do pedido (RN-031)", () => {
+describe("nenhum número some, venha o que vier do pedido (RN-033)", () => {
   const ler = (rel: string) =>
     readFileSync(join(process.cwd(), rel), "utf8");
 
@@ -261,7 +261,7 @@ describe("nenhum número some, venha o que vier do pedido (RN-031)", () => {
     // o after() dispara mesmo quando a exclusão falhou no meio: com o pedido
     // ainda de pé, nada é cancelado
     expect(porta).toContain("pedido-ainda-existe");
-    // e loja sem o módulo não muda em NADA, nem no apagar (RN-027)
+    // e loja sem o módulo não muda em NADA, nem no apagar (RN-029)
     expect(porta).toMatch(/apagarPedidoDoFinanceiro[\s\S]*?financeEnabled/);
     // baixa manual é da lojista: o lançamento fica, com aviso
     expect(porta).toContain("O pedido foi APAGADO, mas há baixa registrada à mão");
@@ -279,11 +279,11 @@ describe("nenhum número some, venha o que vier do pedido (RN-031)", () => {
     // a função própria existe e roda em transação (metade movida não se conserta)
     expect(porta).toContain("export async function corrigirDataDaVendaNoFinanceiro");
     expect(porta).toMatch(/corrigirDataDaVendaNoFinanceiro[\s\S]*?db\.\$transaction/);
-    // baixa que mudou de dia solta a conciliação (RN-035)
+    // baixa que mudou de dia solta a conciliação (RN-037)
     expect(porta).toMatch(/corrigirDataDaVendaNoFinanceiro[\s\S]*?finOfxVinculo\.deleteMany/);
     // e o sincronizar COMUM não mexe na data de lançamento que JÁ EXISTE
     // (criar novo tem competência, claro): a venda de agosto paga em outubro
-    // continua sendo competência de agosto (RN-034)
+    // continua sendo competência de agosto (RN-036)
     const depoisDoCriar = porta.slice(
       porta.indexOf("// ---- só um aviso"),
       porta.indexOf("export async function corrigirDataDaVendaNoFinanceiro")

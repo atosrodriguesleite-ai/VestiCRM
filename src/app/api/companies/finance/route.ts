@@ -3,7 +3,7 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import { requireUser, AuthError } from "@/lib/auth";
 
-/** Chave do módulo Financeiro (RN-027, pago à parte) — só o Super Admin
+/** Chave do módulo Financeiro (RN-029, pago à parte) — só o Super Admin
  *  liga/desliga, loja por loja, no painel Lojas. */
 export async function POST(req: NextRequest) {
   try {

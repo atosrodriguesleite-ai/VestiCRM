@@ -1,4 +1,4 @@
--- MÓDULO FINANCEIRO — Fase 3: contas fixas (RN-029) e transferências (RN-030).
+-- MÓDULO FINANCEIRO — Fase 3: contas fixas (RN-031) e transferências (RN-032).
 -- Escrita à mão (ADR-001) e idempotente: rodar duas vezes não quebra.
 
 -- CONTA FIXA: o molde que gera os lançamentos dos próximos meses

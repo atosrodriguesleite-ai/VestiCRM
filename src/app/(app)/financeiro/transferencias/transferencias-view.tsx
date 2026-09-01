@@ -10,7 +10,7 @@ import { numeroBR } from "@/lib/numero-br";
 import { formatarDia } from "@/lib/financeiro/dia";
 
 /**
- * TRANSFERÊNCIAS (RN-030). As DUAS datas são o detalhe que faz o extrato
+ * TRANSFERÊNCIAS (RN-032). As DUAS datas são o detalhe que faz o extrato
  * bater: a TED sai hoje e cai amanhã, e cada conta vê o dinheiro no seu dia.
  */
 

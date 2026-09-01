@@ -28,7 +28,7 @@ import { formatarDia } from "@/lib/financeiro/dia";
 import type { NotaDoLancamento } from "@/lib/financeiro/nota-do-lancamento";
 
 /**
- * A FICHA DO LANÇAMENTO (RN-028). Aqui a lojista vê tudo que aconteceu com
+ * A FICHA DO LANÇAMENTO (RN-030). Aqui a lojista vê tudo que aconteceu com
  * aquele dinheiro — inclusive o que deu errado: baixa estornada continua na
  * tela, riscada, com quem estornou. É isso que permite explicar o extrato
  * três meses depois.
@@ -61,7 +61,7 @@ type Parcela = {
   baixas: Baixa[];
 };
 
-/** Como a origem automática aparece para a lojista (RN-031). */
+/** Como a origem automática aparece para a lojista (RN-033). */
 function rotuloOrigem(origem: string): string {
   if (origem === "ETIQUETA") return "compra de etiqueta";
   if (origem === "PEDIDO") return "venda";
@@ -138,7 +138,7 @@ export function FichaLancamento({
 
   const voltarPara = receita ? "/financeiro/contas-a-receber" : "/financeiro/contas-a-pagar";
 
-  // emitir a nota é pela MESMA porta do pedido (RN-016/RN-036): quem emite
+  // emitir a nota é pela MESMA porta do pedido (RN-016/RN-038): quem emite
   // continua sendo o Bling, o financeiro só mostra o caminho
   async function emitirNota() {
     if (!nota) return;

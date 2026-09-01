@@ -21,7 +21,7 @@ type Importacao = {
 };
 
 /**
- * CONCILIAÇÃO (RN-035): o extrato do banco de um lado, os lançamentos da loja
+ * CONCILIAÇÃO (RN-037): o extrato do banco de um lado, os lançamentos da loja
  * do outro. A lojista marca os dois lados; a conciliação só fecha quando os
  * totais batem — o "quase igual" é o erro que esta tela existe para achar.
  */

@@ -1,5 +1,5 @@
 /**
- * DFC — a parte PURA (RN-033): nomes dos blocos, o formato do relatório e a
+ * DFC — a parte PURA (RN-035): nomes dos blocos, o formato do relatório e a
  * regra de qual bloco cada categoria pertence.
  *
  * Mora num arquivo só dela porque a TELA do DFC precisa dos rótulos, e a tela
@@ -18,7 +18,7 @@ export const DFC_LABEL: Record<GrupoDFC, string> = {
 
 /**
  * Em qual bloco do DFC a categoria entra, pelo CÓDIGO da árvore padrão
- * (RN-027). O código é do sistema e o nome é da loja, então renomear a
+ * (RN-029). O código é do sistema e o nome é da loja, então renomear a
  * categoria não quebra o relatório.
  *
  *   07.xx           → investimento (máquina, reforma: compra para durar)

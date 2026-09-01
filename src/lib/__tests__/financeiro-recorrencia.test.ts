@@ -1,4 +1,4 @@
-// Guarda RN-029, RN-030
+// Guarda RN-031, RN-032
 import { describe, it, expect } from "vitest";
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
@@ -14,10 +14,10 @@ import {
 import { dataDoDia, diaSP } from "../financeiro/lancamentos";
 
 /**
- * RN-029 · Contas fixas: o sistema lança sozinho os próximos meses, de carona
+ * RN-031 · Contas fixas: o sistema lança sozinho os próximos meses, de carona
  * no tráfego (nunca num cron novo, ADR-002), sem duplicar e sem reescrever o
  * passado.
- * RN-030 · Transferência entre contas próprias não é receita nem despesa, tem
+ * RN-032 · Transferência entre contas próprias não é receita nem despesa, tem
  * DUAS datas, e o saldo é sempre SOMADO (nunca digitado).
  */
 
@@ -29,7 +29,7 @@ const molde = (over: Partial<Parameters<typeof mesesAMaterializar>[0]> = {}) => 
   ...over,
 });
 
-describe("contas de mês (RN-029)", () => {
+describe("contas de mês (RN-031)", () => {
   it("anda para frente e para trás atravessando o ano", () => {
     expect(proximoMes("2026-12")).toBe("2027-01");
     expect(somarMeses("2026-09", 3)).toBe("2026-12");
@@ -44,7 +44,7 @@ describe("contas de mês (RN-029)", () => {
   });
 });
 
-describe("vencimento do mês respeita mês curto (RN-029)", () => {
+describe("vencimento do mês respeita mês curto (RN-031)", () => {
   it("dia 31 em fevereiro cai no último dia, sem vazar para março", () => {
     expect(diaSP(vencimentoDoMes("2026-02", 31))).toBe("2026-02-28");
     expect(diaSP(vencimentoDoMes("2028-02", 31))).toBe("2028-02-29"); // bissexto
@@ -56,7 +56,7 @@ describe("vencimento do mês respeita mês curto (RN-029)", () => {
   });
 });
 
-describe("quais meses materializar (RN-029)", () => {
+describe("quais meses materializar (RN-031)", () => {
   it("conta fixa nova gera o mês atual + o horizonte", () => {
     const meses = mesesAMaterializar(molde(), "2026-09");
     expect(meses).toEqual(["2026-09", "2026-10", "2026-11", "2026-12"]);
@@ -109,7 +109,7 @@ describe("quais meses materializar (RN-029)", () => {
   });
 });
 
-describe("as regras que não podem sumir do código (RN-029, RN-030)", () => {
+describe("as regras que não podem sumir do código (RN-031, RN-032)", () => {
   const ler = (p: string) => readFileSync(join(process.cwd(), p), "utf8");
 
   it("a materialização NÃO vira cron (ADR-002: um 3º cron trava os deploys)", () => {
@@ -165,7 +165,7 @@ describe("as regras que não podem sumir do código (RN-029, RN-030)", () => {
   });
 });
 
-describe("as correções da revisão de 31/08/2026 (RN-029, RN-030)", () => {
+describe("as correções da revisão de 31/08/2026 (RN-031, RN-032)", () => {
   const ler = (p: string) => readFileSync(join(process.cwd(), p), "utf8");
 
   it("editar/encerrar conta fixa NUNCA apaga lançamento com anexo", () => {

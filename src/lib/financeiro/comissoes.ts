@@ -4,7 +4,7 @@ import { PAID_ORDER_STATUSES, round2 } from "../orders";
 import { dataDoDia, diaSP } from "./lancamentos";
 
 /**
- * COMISSÃO VIRA CONTA A PAGAR (RN-036).
+ * COMISSÃO VIRA CONTA A PAGAR (RN-038).
  *
  * A tela de Comissões sempre soube QUANTO cada vendedora tem a receber; o
  * que faltava era o dinheiro entrar no financeiro. Sem isso a lojista via
@@ -23,7 +23,7 @@ import { dataDoDia, diaSP } from "./lancamentos";
  */
 
 export const ORIGEM_COMISSAO = "COMISSAO";
-/** Categoria da árvore padrão onde a comissão entra (RN-027). */
+/** Categoria da árvore padrão onde a comissão entra (RN-029). */
 export const CODIGO_CATEGORIA_COMISSAO = "04.01";
 
 export type ComissaoDoPeriodo = {

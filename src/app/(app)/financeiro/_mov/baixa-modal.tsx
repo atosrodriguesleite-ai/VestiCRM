@@ -9,7 +9,7 @@ import { numeroBR } from "@/lib/numero-br";
 import { round2 } from "@/lib/orders";
 
 /**
- * DAR BAIXA (RN-028) — o dinheiro andou.
+ * DAR BAIXA (RN-030) — o dinheiro andou.
  *
  * A tela separa três números de propósito, porque somá-los antes de gravar é
  * o que faz o extrato divergir do banco: o que ABATE da parcela, o desconto
@@ -33,7 +33,7 @@ export function BaixaModal({
   onSalvo: () => void;
 }) {
   const receita = tipo === "RECEITA";
-  // CARTÃO fica de fora (RN-037): a conta do cartão não guarda dinheiro —
+  // CARTÃO fica de fora (RN-039): a conta do cartão não guarda dinheiro —
   // dar baixa "nele" quitaria a parcela fora de qualquer fatura
   const contasDeDinheiro = contas.filter((c) => c.tipo !== "CARTAO");
   const [contaId, setContaId] = useState(

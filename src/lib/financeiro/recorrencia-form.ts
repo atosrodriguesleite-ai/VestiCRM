@@ -4,8 +4,8 @@ import { round2 } from "../orders";
 import { dataDoDia, FORMAS_PAGAMENTO } from "./lancamentos";
 
 /**
- * A FICHA DA CONTA FIXA (RN-029) — as mesmas conferências do lançamento
- * (RN-028), porque ela é o MOLDE de lançamentos: etiqueta desta loja, não
+ * A FICHA DA CONTA FIXA (RN-031) — as mesmas conferências do lançamento
+ * (RN-030), porque ela é o MOLDE de lançamentos: etiqueta desta loja, não
  * arquivada, e categoria do MESMO lado (receita fixa não pode nascer com
  * categoria de despesa, senão o DRE soma errado todo mês).
  */

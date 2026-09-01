@@ -16,7 +16,7 @@ import {
 } from "./lancamentos";
 
 /**
- * A VISÃO DE DONO (RN-033): saldo previsto e o DFC.
+ * A VISÃO DE DONO (RN-035): saldo previsto e o DFC.
  *
  * As duas perguntas que a lojista faz de manhã e que nenhuma tela respondia:
  * "quanto eu vou ter no dia X?" e "para onde foi o dinheiro do mês?".
@@ -123,7 +123,7 @@ export {
  * O teste de honestidade do relatório: saldo inicial + gerado = saldo final.
  * Se não fechar, alguma coisa ficou de fora — e é por isso que a
  * transferência entre contas próprias aparece separada, valendo zero no
- * total da loja (RN-030).
+ * total da loja (RN-032).
  */
 export async function montarDFC(
   companyId: string,
@@ -199,7 +199,7 @@ export async function montarDFC(
     geradoNoPeriodo,
     saldosDeclarados,
     // o que ainda sobra entre o gerado e a diferença dos saldos é
-    // transferência entrando/saindo do recorte (RN-030) — dita na tela,
+    // transferência entrando/saindo do recorte (RN-032) — dita na tela,
     // nunca escondida. A conta FECHA: inicial + gerado + declarado +
     // transferências = final.
     transferencias: round2(
@@ -231,7 +231,7 @@ export const TETO_INADIMPLENCIA = 500;
  * Quem está devendo, do mais atrasado para o menos.
  *
  * A LISTA tem teto, mas o TOTAL não: ele é somado no banco sobre o período
- * inteiro (mesma régua da RN-028 — card que soma só as linhas exibidas mostra
+ * inteiro (mesma régua da RN-030 — card que soma só as linhas exibidas mostra
  * menos dívida do que existe, e a lojista se planeja com o número errado).
  */
 export async function carregarInadimplencia(
