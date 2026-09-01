@@ -7,9 +7,10 @@ import {
   tabelaNoTexto,
   textoDoMinimo,
 } from "../catalogo/tabelas-de-preco";
+import { precoSugeridoNoPedido } from "../orders";
 import { novoCodigoDeLink } from "../catalogo/tabelas-de-preco-servidor";
 
-// Guarda RN-018 (índice em docs/regras.md; texto no CLAUDE.md).
+// Guarda RN-018, RN-041 (índice em docs/regras.md; texto no CLAUDE.md).
 /**
  * TABELAS DE PREÇO POR LINK (17/08/2026) — atacado e varejo no mesmo catálogo.
  *
@@ -115,11 +116,65 @@ describe("o pedido colado do WhatsApp cobra pela tabela CERTA", () => {
     expect(rota).toContain("tabelaNoTexto(parsed.data.texto)");
     expect(rota).toContain("loja?.priceTablesEnabled && tabelaDaMensagem");
   });
+  /**
+   * O COMPORTAMENTO, não a linha: a versão anterior deste guarda exigia o
+   * trecho `catalogPrice(p, priceMode)` — e guarda que descreve o CÓDIGO
+   * protege o erro em vez de impedi-lo (lição de 28/08/2026). Justamente
+   * este: a mesma tela mostrava atacado na lista e criava a linha a varejo.
+   */
   it("peça acrescentada depois segue a tabela DO PEDIDO", () => {
-    expect(ler("src/app/(app)/pedidos/[id]/items-editor.tsx")).toContain(
-      "catalogPrice(p, priceMode)"
-    );
+    const peca = { retailPrice: 100, wholesalePrice: 80 };
+    expect(precoSugeridoNoPedido(peca, { priceMode: "ATACADO" })).toBe(80);
+    expect(precoSugeridoNoPedido(peca, { priceMode: "VAREJO" })).toBe(100);
+    // e o desconto do link de campanha (RN-040) entra por cima
+    expect(precoSugeridoNoPedido(peca, { priceMode: "VAREJO", campaignDiscount: 20 })).toBe(80);
+    // a tela recebe a origem do pedido
     expect(ler("src/app/(app)/pedidos/[id]/page.tsx")).toContain("priceMode={order.priceMode}");
+    expect(ler("src/app/(app)/pedidos/[id]/page.tsx")).toContain("source={order.source}");
+  });
+
+  /**
+   * SEM TABELA, QUEM RESPONDE É A ORIGEM (RN-041). `priceMode` é nulo em quase
+   * todo pedido — e ele NÃO pode ser carimbado só para resolver isso, porque
+   * a porta do Financeiro (RN-033) escolhe a categoria da receita por ele.
+   */
+  it("sem tabela, o preço sai da ORIGEM do pedido", () => {
+    const peca = { retailPrice: 100, wholesalePrice: 80 };
+    // loja online: o preço de lá é o varejo — sugerir atacado colocaria uma
+    // peça de R$ 80 ao lado de linhas de R$ 100 no mesmo pedido
+    expect(precoSugeridoNoPedido(peca, { source: "NUVEMSHOP" })).toBe(100);
+    // pedido do catálogo: a tabela que o catálogo daquela loja mostra
+    expect(
+      precoSugeridoNoPedido(peca, { source: "CATALOGO", catalogPriceMode: "VAREJO" })
+    ).toBe(100);
+    expect(
+      precoSugeridoNoPedido(peca, { source: "CATALOGO", catalogPriceMode: "ATACADO" })
+    ).toBe(80);
+    // sem origem conhecida (a tela de montar pedido): atacado, como sempre foi
+    expect(precoSugeridoNoPedido(peca)).toBe(80);
+  });
+
+
+  /** Peça sem preço de atacado cai no varejo, nunca em zero. */
+  it("peça sem preço de atacado não vira R$ 0", () => {
+    expect(precoSugeridoNoPedido({ retailPrice: 59.9, wholesalePrice: 0 })).toBe(59.9);
+  });
+
+  /**
+   * UMA REGRA SÓ, nos três lugares: a listinha de busca mostrava o preço de
+   * ATACADO e a linha nascia a VAREJO — na mesma tela, e o `unitPrice` que a
+   * tela manda é o que vira o pedido (achado de 01/09/2026).
+   */
+  it("lista e linha usam a MESMA regra de preço", () => {
+    for (const tela of [
+      "src/app/(app)/pedidos/[id]/items-editor.tsx",
+      "src/app/(app)/pedidos/new-order.tsx",
+    ]) {
+      const fonte = ler(tela);
+      expect(fonte).toContain("precoSugeridoNoPedido");
+      // nenhuma conta caseira de preço sobrou por perto
+      expect(fonte).not.toContain("wholesalePrice > 0 ? p.wholesalePrice");
+    }
   });
 });
 
@@ -217,6 +272,13 @@ describe("quem manda no preço é o servidor", () => {
     expect(rota).toContain("faltaParaOMinimo(");
     expect(rota).toContain("status: 409");
   });
+  /**
+   * O carimbo vale SÓ para o link de tabela, e isso é decisão, não descuido
+   * (revisão de 01/09/2026): a porta única do Financeiro (RN-033) escolhe a
+   * categoria da receita por ele. Carimbar todo pedido do catálogo mudaria a
+   * venda de loja VAREJO de "Venda atacado" para "Venda varejo" no meio do
+   * ano, quebrando a linha do DRE.
+   */
   it("o pedido guarda a tabela que o precificou", () => {
     expect(rota).toContain("priceMode: tabela ? modoDePreco : null");
     expect(ler("prisma/schema.prisma")).toMatch(/priceMode\s+String\?/);
