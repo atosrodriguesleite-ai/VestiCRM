@@ -709,6 +709,13 @@ export async function POST(req: NextRequest) {
         trackSessionId,
         // TABELA que precificou: sem este carimbo, um pedido de atacado
         // reaberto/recalculado depois voltaria com preço de varejo
+        // SÓ quando veio de um link de tabela. Carimbar sempre foi tentado e
+        // recusado na revisão de 01/09/2026: `priceMode` não é só informação
+        // de preço — a porta única do Financeiro (RN-033) escolhe a categoria
+        // da receita por ele, e passar a carimbar mudaria a venda do catálogo
+        // de loja VAREJO de "Venda atacado" para "Venda varejo" no meio do
+        // ano, quebrando a linha do DRE. Quem responde "qual preço este
+        // pedido usa" é `precoSugeridoNoPedido`, pela ORIGEM do pedido.
         priceMode: tabela ? modoDePreco : null,
         // qual link de campanha precificou (RN-040): é o que explica o valor
         // meses depois e o que o resgate pelo WhatsApp reaproveita

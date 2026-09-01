@@ -128,7 +128,7 @@ export default async function OrderDetailPage({
       }),
       db.company.findUnique({
         where: { id: user.companyId },
-        select: { shippingEnabled: true },
+        select: { shippingEnabled: true, catalogPriceMode: true },
       }),
     ]);
   // A RÉGUA DE VISIBILIDADE CONTINUA VALENDO ANTES DE QUALQUER ESCRITA: a
@@ -341,8 +341,11 @@ export default async function OrderDetailPage({
             {order.status !== "CANCELADO" && (
               <ItemsEditor
                 orderId={order.id}
-                // peça acrescentada depois segue a MESMA tabela do pedido
+                // peça acrescentada depois segue o MESMO preço do pedido: a
+                // regra é a ORIGEM dele (RN-041), não um carimbo só
                 priceMode={order.priceMode}
+                source={order.source}
+                catalogPriceMode={company?.catalogPriceMode}
                 campaignDiscount={order.campaignDiscount}
                 discount={order.discount}
                 shippingFee={order.shippingFee}

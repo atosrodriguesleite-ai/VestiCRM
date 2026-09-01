@@ -1,7 +1,6 @@
 "use client";
 
-import { catalogPrice } from "@/lib/orders";
-import { precoComDesconto } from "@/lib/catalogo/condicoes-da-campanha";
+import { precoSugeridoNoPedido } from "@/lib/orders";
 
 /**
  * Edição dos itens do pedido — ajustar quantidades, remover ou adicionar
@@ -43,6 +42,8 @@ export function ItemsEditor({
   alreadyPaid = false,
   priceMode = null,
   campaignDiscount = 0,
+  source = null,
+  catalogPriceMode = null,
 }: {
   orderId: string;
   initialItems: Line[];
@@ -62,10 +63,14 @@ export function ItemsEditor({
    * acrescentada depois, a R$ 100 — no mesmo pedido (revisão 01/09/2026).
    */
   campaignDiscount?: number;
+  /** de onde o pedido veio (CATALOGO | NUVEMSHOP | MANUAL) — RN-041 */
+  source?: string | null;
+  /** a tabela que o catálogo desta loja mostra */
+  catalogPriceMode?: string | null;
 }) {
-  /** preço a sugerir para uma peça nova: a tabela E o desconto do pedido mandam. */
+  /** preço a sugerir para uma peça nova: regra ÚNICA, em `lib/orders.ts`. */
   const precoSugerido = (p: { wholesalePrice: number; retailPrice: number }) =>
-    precoComDesconto(catalogPrice(p, priceMode), campaignDiscount);
+    precoSugeridoNoPedido(p, { priceMode, source, catalogPriceMode, campaignDiscount });
 
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -183,7 +188,9 @@ export function ItemsEditor({
                   {p.images[0] ? <img src={p.images[0].url} alt="" className="size-9 rounded-lg object-cover bg-gray-50" /> : <span className="size-9 rounded-lg bg-gray-100" />}
                   <span className="flex-1 min-w-0">
                     <span className="block text-sm font-medium truncate">{p.name}</span>
-                    <span className="block text-xs text-gray-400">{p.sku} · {brl(p.wholesalePrice > 0 ? p.wholesalePrice : p.retailPrice)}</span>
+                    {/* O MESMO preço que vai virar a linha: a listinha mostrava atacado e a
+                        linha entrava a varejo, na mesma tela (achado de 01/09/2026) */}
+                    <span className="block text-xs text-gray-400">{p.sku} · {brl(precoSugerido(p))}</span>
                   </span>
                 </button>
               ))}

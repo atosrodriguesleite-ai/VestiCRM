@@ -271,6 +271,27 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   régua da RN-025). Os números de cada campanha (cliques, pedidos,
   faturamento) aparecem **também no celular** — estavam escondidos em tela
   pequena, e é ali que a lojista lê.
+  **RN-041 · Preço sugerido ao acrescentar peça no pedido tem UMA regra só**
+  (`precoSugeridoNoPedido` em `lib/orders.ts`, 01/09/2026): existia em três
+  lugares com três regras — montar pedido usava ATACADO, acrescentar peça num
+  pedido existente usava a tabela do pedido (nula em quase todo pedido, então
+  caía no VAREJO) e a listinha de busca DESSA MESMA TELA mostrava ATACADO. A
+  lojista via R$ 80 na lista e a linha entrava com R$ 100 — e o `unitPrice`
+  que a tela manda é o que vira o pedido. A regra é a **ORIGEM do pedido**:
+  link de tabela (RN-018) segue a tabela dele; loja online (Nuvemshop) é
+  varejo, que é o preço de lá; pedido do catálogo segue a tabela que o
+  catálogo daquela loja mostra; sem origem conhecida vale atacado (é o que a
+  tela de montar pedido sempre fez). O desconto do link de campanha (RN-040)
+  entra por cima. **Pendente, e é decisão do dono**: nada carimba `MANUAL`
+  hoje (`Order.source` nasce "CATALOGO"), então o pedido montado à mão numa
+  loja com o catálogo em VAREJO ainda vê atacado numa tela e varejo na outra —
+  carimbar resolve, mas mexe no relatório de origem de pedidos antigos e pede
+  backfill.
+  **Não se resolve carimbando `Order.priceMode` em todo pedido** — foi tentado
+  e recusado na revisão: ele não é só informação de preço, a porta única do
+  Financeiro (RN-033) escolhe a CATEGORIA da receita por ele, e carimbar
+  mudaria a venda do catálogo de loja varejo de "Venda atacado" para "Venda
+  varejo" no meio do ano, quebrando a linha do DRE.
   **RN-012** · Resgate manual: **"Colar pedido do WhatsApp"** na tela Pedidos
   (`lib/catalogo/ler-mensagem.ts` + `/api/orders/ler-mensagem`) — lê a
   mensagem do catálogo, casa com o catálogo da loja (nome mais longo vence
