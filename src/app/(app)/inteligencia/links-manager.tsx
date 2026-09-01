@@ -3,6 +3,7 @@
 /* eslint-disable @next/next/no-img-element */
 
 import { useState } from "react";
+import Link from "next/link";
 import { Portal } from "@/components/portal";
 import { useRouter } from "next/navigation";
 import { Check, Copy, Pencil, Plus, QrCode, Store, Trash2, X } from "lucide-react";
@@ -65,11 +66,14 @@ export function LinksManager({
   catalogDomain,
   team,
   campaigns,
+  periodo,
 }: {
   slug: string;
   catalogDomain: string | null;
   team: { id: string; name: string }[];
   campaigns: Campaign[];
+  /** o período que os números do cartão estão contando (viaja no link) */
+  periodo?: { de: string; ate: string };
 }) {
   const router = useRouter();
   const [showNew, setShowNew] = useState(false);
@@ -206,12 +210,34 @@ export function LinksManager({
                       01/09/2026): estavam escondidos em tela pequena, e a
                       pergunta "como eu rastreio os pedidos vindos daqui?"
                       tinha a resposta invisível justamente onde ela é lida */}
-                  <div className="text-right shrink-0">
+                  {/* O NÚMERO PRECISA LEVAR AO PEDIDO (relato do dono,
+                      01/09/2026: "diz que tive um pedido vindo da campanha,
+                      não localizei esse pedido"). Contar sem dar o caminho é
+                      deixar a lojista procurando à mão. */}
+                  <Link
+                    href={`/pedidos?campanha=${encodeURIComponent(c.slug)}${
+                      periodo ? `&de=${periodo.de}&ate=${periodo.ate}` : ""
+                    }`}
+                    className="text-right shrink-0 rounded-lg px-1.5 py-1 -mr-1 hover:bg-brand-50 transition"
+                    title={`Ver os pedidos da campanha ${c.name}`}
+                  >
                     <p className="text-[11px] sm:text-xs font-semibold tabular-nums whitespace-nowrap">
-                      {c.clicks} cliques · {c.orders} pedidos
+                      {c.clicks} cliques ·{" "}
+                      <span className="text-brand-700 underline decoration-brand-300 underline-offset-2">
+                        {c.orders} pedidos
+                      </span>
                     </p>
-                    <p className="text-[11px] text-emerald-600 tabular-nums">{brl(c.revenue)}</p>
-                  </div>
+                    {/* R$ 0 com pedido na conta não é venda perdida: é venda
+                        ainda NÃO PAGA (o faturamento soma só pedido pago,
+                        RN-001). Sem dizer isso, o cartão parece defeito. */}
+                    <p className="text-[11px] text-emerald-600 tabular-nums">
+                      {c.orders > 0 && c.revenue === 0 ? (
+                        <span className="text-amber-600">aguardando pagamento</span>
+                      ) : (
+                        brl(c.revenue)
+                      )}
+                    </p>
+                  </Link>
                   <button
                     onClick={() => {
                       // recado da ação ANTERIOR não pode sobreviver à

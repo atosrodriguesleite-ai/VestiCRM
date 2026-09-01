@@ -27,6 +27,8 @@ export async function reverseAndDeleteOrder(
     customerId: string;
     stockDeducted: boolean;
     stockWrittenOff: boolean;
+    /** visita do catálogo que gerou este pedido (RN-040) */
+    trackSessionId?: string | null;
     items: { variantId: string | null; quantity: number }[];
   }
 ): Promise<{ devolvidas: { variantId: string; quantity: number }[] }> {
@@ -64,6 +66,36 @@ export async function reverseAndDeleteOrder(
   }
   // Apaga o pedido; itens/pagamentos/envio/eventos caem por cascata.
   await tx.order.delete({ where: { id: order.id } });
+
+  // A VISITA DEIXA DE CONTAR COMO VENDA (relato do dono, 01/09/2026: "fala
+  // que tem um pedido, mas esse pedido não chegou aqui"). O pedido do
+  // catálogo marca `TrackSession.converted` ao nascer, e apagar o pedido
+  // NUNCA desmarcava: a campanha seguia anunciando uma venda que não existe
+  // mais, o funil contava "enviou pedido" e — o pior — a recuperação parava
+  // de procurar essa cliente, achando que ela já tinha comprado.
+  //
+  // Fica aqui, no funil ÚNICO de exclusão, para valer também quando o pedido
+  // é apagado pelo funil de vendas. E só desmarca se NÃO sobrou nenhum outro
+  // pedido daquela visita: duas sacolas na mesma sessão são raras, mas apagar
+  // uma não pode apagar a prova da outra.
+  if (order.trackSessionId) {
+    const aindaTem = await tx.order.count({
+      // companyId junto: é a convenção da RN-013 e é o que usa o índice
+      // (companyId, trackSessionId) — sem ele a exclusão varria a tabela
+      // inteira de pedidos dentro da transação
+      where: { companyId: order.companyId, trackSessionId: order.trackSessionId },
+    });
+    if (aindaTem === 0) {
+      // updateMany e não update: `Order.trackSessionId` não tem chave
+      // estrangeira, então a sessão pode já ter sumido — e um P2025 aqui
+      // abortaria a transação inteira, deixando o pedido impossível de
+      // excluir. companyId junto pela RN-013 (revisão de 01/09/2026).
+      await tx.trackSession.updateMany({
+        where: { id: order.trackSessionId, companyId: order.companyId },
+        data: { converted: false },
+      });
+    }
+  }
 
   // Limpa o cliente que só existia por causa deste pedido (veio do catálogo
   // e não tem mais nenhum pedido). Isso zera as métricas de clientes.

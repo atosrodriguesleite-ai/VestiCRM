@@ -345,13 +345,13 @@ export function catalogPrice(
  *    pedido sempre fez.
  * E o desconto do link de campanha (RN-040) entra por cima, em qualquer caso.
  *
- * O QUE AINDA NÃO ESTÁ RESOLVIDO, e é decisão do dono: hoje nada carimba
+ * O QUE FICA COMO ESTÁ, POR DECISÃO DO DONO (01/09/2026): hoje nada carimba
  * MANUAL — `Order.source` nasce "CATALOGO" por default —, então o pedido
  * montado à mão cai na tabela do CATÁLOGO da loja. Para loja de atacado isso
  * já bate com a tela de montar pedido; para loja com o catálogo em varejo, a
  * tela de montar sugere atacado e esta aqui sugere varejo. Carimbar MANUAL
  * resolveria, mas mexe em relatório de origem de pedidos antigos e pede
- * backfill — vai virar entrega própria, com a decisão tomada (01/09/2026).
+ * backfill — e o valor continua editável na tela antes de salvar.
  *
  * Por que não simplesmente carimbar `priceMode` em todo pedido: ele NÃO é só
  * informação de preço — a porta única do Financeiro (RN-033) escolhe a

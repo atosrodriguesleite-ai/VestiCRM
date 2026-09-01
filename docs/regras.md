@@ -68,3 +68,4 @@ sem ambiguidade.
 | RN-039 | Cartão de crédito: a conta do cartão não guarda dinheiro, junta as compras na fatura (fechamento/vencimento decidem qual, mês curto respeitado); pagar a fatura baixa todas de uma vez na conta do banco, em transação serializável; cartão nunca é conta padrão | `lib/financeiro/cartao.ts`, `lib/financeiro/cartao-fatura.ts` | `financeiro-cartao-comissao.test.ts` |
 | RN-040 | O link de campanha tem desconto e mínimo próprios, editáveis; o endereço do link nunca muda | `lib/catalogo/condicoes-da-campanha.ts` | `condicoes-da-campanha.test.ts` |
 | RN-041 | Preço sugerido ao acrescentar peça no pedido tem uma regra só, pela ORIGEM do pedido | `lib/orders.ts` | `tabelas-de-preco.test.ts` |
+| RN-042 | Contagem de venda sempre aponta para pedido que existe: excluir pedido desfaz a conversão da visita, e o número da campanha leva até os pedidos | `lib/campanha-pedidos.ts`, `lib/order-actions.ts` | `campanha-pedidos.test.ts` |

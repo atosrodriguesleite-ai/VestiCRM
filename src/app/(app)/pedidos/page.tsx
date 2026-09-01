@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { whereDaCampanha } from "@/lib/campanha-pedidos";
 import { ShoppingBag, Download, Search, X } from "lucide-react";
 import { requireUser } from "@/lib/auth";
 import { db } from "@/lib/db";
@@ -33,10 +34,10 @@ export const dynamic = "force-dynamic";
 export default async function OrdersPage({
   searchParams,
 }: {
-  searchParams: Promise<{ status?: string; de?: string; ate?: string; canal?: string; vendedora?: string; q?: string; pagina?: string }>;
+  searchParams: Promise<{ status?: string; de?: string; ate?: string; canal?: string; vendedora?: string; q?: string; pagina?: string; campanha?: string }>;
 }) {
   const user = await requireUser();
-  const { status, de, ate, canal: canalRaw, vendedora: vendedoraRaw, q: qRaw, pagina: paginaRaw } = await searchParams;
+  const { status, de, ate, canal: canalRaw, vendedora: vendedoraRaw, q: qRaw, pagina: paginaRaw, campanha: campanhaRaw } = await searchParams;
   // canal da venda: nuvemshop | atacadopro (catálogo/WhatsApp/manual) | todos
   const canal = canalRaw === "nuvemshop" || canalRaw === "atacadopro" ? canalRaw : null;
   // filtro "sem vendedora": pedido pago sem dona não conta na comissão de
@@ -76,6 +77,58 @@ export default async function OrdersPage({
   if (from || to) {
     where.createdAt = { ...(from ? { gte: from } : {}), ...(to ? { lte: to } : {}) };
   }
+  // PEDIDOS DE UMA CAMPANHA (RN-040): é o caminho que faltava entre o número
+  // do cartão da campanha e o pedido em si — a lojista via "1 pedido" e não
+  // tinha como chegar nele (relato do dono, 01/09/2026).
+  // o que vem da URL não é promessa de texto: `?campanha=a&campanha=b` chega
+  // como ARRAY em runtime, e um `.trim()` em cima derrubava a tela inteira
+  const campanhaBruta = Array.isArray(campanhaRaw) ? campanhaRaw[0] : campanhaRaw;
+  const campanhaSlug =
+    (typeof campanhaBruta === "string" ? campanhaBruta : "").trim().toLowerCase() || null;
+  let campanhaWhere: Prisma.OrderWhereInput | null = null;
+  const campanha = campanhaSlug
+    ? await db.trackCampaign.findFirst({
+        where: { companyId: user.companyId, slug: campanhaSlug },
+        select: { id: true, name: true, slug: true },
+      })
+    : null;
+  if (campanha) {
+    // pela CAMPANHA, não pelo texto do `?ref=`: é a mesma régua que o cartão
+    // da Inteligência usa para contar, e número que não bate com a lista
+    // deixaria a lojista procurando de novo
+    // TODAS as visitas da campanha, com teto. Recortar por `converted` foi
+    // tentado e recusado na revisão: aquele campo é gravado em best-effort
+    // (`.catch(() => {})` na rota do pedido), então um pedido PAGO de verdade
+    // podia sumir da conta e da lista por causa de uma marca que falhou. O
+    // teto existe porque o `IN` cresce com os cliques; acima dele, o pedido
+    // ainda é achado pelo carimbo (`Order.campaignRef`).
+    const sessoes = await db.trackSession.findMany({
+      where: { companyId: user.companyId, campaignId: campanha.id },
+      select: { id: true },
+      orderBy: { startedAt: "desc" },
+      take: 5000,
+    });
+    campanhaWhere = whereDaCampanha(campanha.slug, sessoes.map((x) => x.id));
+  } else if (campanhaSlug) {
+    // pediram uma campanha que não existe (link velho, endereço digitado
+    // errado, campanha excluída): mostrar a LOJA INTEIRA como se fossem dela
+    // seria pior que mostrar nada — a lojista leria pedido de outra origem
+    // como resultado da campanha
+    campanhaWhere = { id: "campanha-inexistente" };
+  }
+  /** Junta o recorte da campanha sem brigar com o `OR` do orderScope (RN-007). */
+  const comCampanha = (base: Prisma.OrderWhereInput): Prisma.OrderWhereInput =>
+    campanhaWhere
+      ? {
+          ...base,
+          AND: [
+            ...(Array.isArray(base.AND) ? base.AND : base.AND ? [base.AND] : []),
+            campanhaWhere,
+          ],
+        }
+      : base;
+  Object.assign(where, comCampanha(where));
+
   if (canal === "nuvemshop") where.source = "NUVEMSHOP";
   if (canal === "atacadopro") where.source = { not: "NUVEMSHOP" };
   if (!buscando && semVendedora) where.sellerId = null;
@@ -150,14 +203,14 @@ export default async function OrdersPage({
       ? Promise.resolve([])
       : db.order.groupBy({
           by: ["status"],
-          where: { ...orderScope(user), ...periodoWhere, ...canalWhere, ...vendedoraWhere },
+          where: comCampanha({ ...orderScope(user), ...periodoWhere, ...canalWhere, ...vendedoraWhere }),
           _count: true,
         }),
     buscando
       ? Promise.resolve([])
       : db.order.groupBy({
           by: ["source"],
-          where: { ...orderScope(user), ...periodoWhere, ...statusWhere, ...vendedoraWhere },
+          where: comCampanha({ ...orderScope(user), ...periodoWhere, ...statusWhere, ...vendedoraWhere }),
           _count: true,
         }),
     // o número do chip "Sem vendedora" — mesma regra dos outros grupos de
@@ -165,13 +218,13 @@ export default async function OrdersPage({
     // código os chips nem aparecem: não gasta uma ida ao banco à toa.
     veLojaInteira && !buscando
       ? db.order.count({
-          where: {
+          where: comCampanha({
             ...orderScope(user),
             ...periodoWhere,
             ...statusWhere,
             ...canalWhere,
             sellerId: null,
-          },
+          }),
         })
       : Promise.resolve(0),
     // total da BUSCA por nome/telefone: pode passar de uma página, e sem a
@@ -209,12 +262,16 @@ export default async function OrdersPage({
       vendedora?: string | null;
       semPeriodo?: boolean;
       pagina?: number;
+      campanha?: string | null;
     } = {}
   ) => {
     const s = muda.status !== undefined ? muda.status : status;
     const c = muda.canal !== undefined ? muda.canal : canal;
     const v = muda.vendedora !== undefined ? muda.vendedora : semVendedora ? "sem" : null;
     const p = muda.pagina ?? 1;
+    // o filtro de campanha viaja junto: sem isso, trocar de status ou de
+    // página jogava a lojista de volta na lista inteira
+    const camp = muda.campanha !== undefined ? muda.campanha : (campanha?.slug ?? null);
     return `/pedidos?${[
       s ? `status=${s}` : "",
       !muda.semPeriodo && de ? `de=${de}` : "",
@@ -224,6 +281,7 @@ export default async function OrdersPage({
       // a busca viaja junto ao trocar de página (senão a página 2 da busca
       // por nome voltava para a lista inteira)
       buscando ? `q=${encodeURIComponent(q)}` : "",
+      camp ? `campanha=${encodeURIComponent(camp)}` : "",
       p > 1 ? `pagina=${p}` : "",
     ]
       .filter(Boolean)
@@ -308,6 +366,7 @@ export default async function OrdersPage({
         {status && <input type="hidden" name="status" value={status} />}
         {canal && <input type="hidden" name="canal" value={canal} />}
         {semVendedora && <input type="hidden" name="vendedora" value="sem" />}
+        {campanha && <input type="hidden" name="campanha" value={campanha.slug} />}
         <div>
           <label className="block text-[11px] font-semibold text-gray-500 mb-1">De</label>
           <input type="date" name="de" defaultValue={de ?? ""} className="rounded-xl border border-gray-200 px-3 py-2 text-sm bg-white" />
@@ -364,6 +423,38 @@ export default async function OrdersPage({
           </Link>
         )}
       </div>
+
+      {/* De onde a lojista veio: o número do cartão da campanha. A faixa diz
+          o que ela está vendo e como sair — filtro sem saída assusta. */}
+      {!campanha && campanhaSlug && (
+        <div className="mb-3 flex items-center justify-between gap-3 flex-wrap rounded-xl border border-amber-200 bg-amber-50 px-4 py-2.5">
+          <p className="text-sm text-amber-800">
+            ⚠️ Não existe campanha com o endereço <b>{campanhaSlug}</b> nesta
+            loja (pode ter sido excluída ou o link está errado).
+          </p>
+          <Link
+            href={href({ campanha: null })}
+            className="text-xs font-semibold text-amber-800 hover:underline whitespace-nowrap"
+          >
+            Ver todos os pedidos
+          </Link>
+        </div>
+      )}
+
+      {campanha && (
+        <div className="mb-3 flex items-center justify-between gap-3 flex-wrap rounded-xl border border-brand-200 bg-brand-50 px-4 py-2.5">
+          <p className="text-sm text-brand-800">
+            🏷 Mostrando só os pedidos que vieram da campanha{" "}
+            <b>{campanha.name}</b>.
+          </p>
+          <Link
+            href={href({ campanha: null })}
+            className="text-xs font-semibold text-brand-700 hover:text-brand-800 whitespace-nowrap"
+          >
+            Ver todos os pedidos
+          </Link>
+        </div>
+      )}
 
       {semVendedora && (
         <div className="mb-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-2.5">

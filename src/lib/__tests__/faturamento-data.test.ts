@@ -73,7 +73,23 @@ function consultasDePagoComDataDeCriacao(arquivo: string): string[] {
     // pagaram" — createdAt é a régua CERTA e o uso se declara com o marcador
     // `coorte-ok` (conta pedidos; não soma dinheiro)
     const ehCoorte = /coorte-ok/.test(consulta);
-    if (ehPago && !ehQualquerStatus && !ehCoorte && /createdAt:\s*(inPeriod|inPrev|\{)/.test(consulta)) {
+    // JANELA DE ATRIBUIÇÃO declarada (01/09/2026): há um caso em que a data
+    // de criação decide QUAIS pedidos entram na conta, e não quando o
+    // dinheiro entrou — o pedido carimbado com a campanha (RN-040) não tem
+    // visita, então o próprio pedido é o evento que o liga a ela. Ali a
+    // janela é da ATRIBUIÇÃO: o pedido criado dentro do período conta, tenha
+    // sido pago quando for (é a promessa da tela: "campanha antiga não perde
+    // a venda que demorou a ser paga"). O marcador é `janela-atribuicao-ok`,
+    // vale SÓ para isso e é tão estreito quanto o `coorte-ok`: quem somar
+    // faturamento por data de criação continua caindo aqui.
+    const ehJanelaDeAtribuicao = /janela-atribuicao-ok/.test(consulta);
+    if (
+      ehPago &&
+      !ehQualquerStatus &&
+      !ehCoorte &&
+      !ehJanelaDeAtribuicao &&
+      /createdAt:\s*(inPeriod|inPrev|\{)/.test(consulta)
+    ) {
       achados.push(`${arquivo}:${linhaDe(ini)}`);
     }
   });
