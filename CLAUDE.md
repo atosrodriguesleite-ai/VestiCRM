@@ -270,7 +270,8 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   para de valer, mas os números seguem no relatório (venda não se apaga,
   régua da RN-025). Os números de cada campanha (cliques, pedidos,
   faturamento) aparecem **também no celular** — estavam escondidos em tela
-  pequena, e é ali que a lojista lê.
+  pequena, e é ali que a lojista lê (o caminho do número até o pedido está na
+  regra seguinte).
   **RN-041 · Preço sugerido ao acrescentar peça no pedido tem UMA regra só**
   (`precoSugeridoNoPedido` em `lib/orders.ts`, 01/09/2026): existia em três
   lugares com três regras — montar pedido usava ATACADO, acrescentar peça num
@@ -282,16 +283,42 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   varejo, que é o preço de lá; pedido do catálogo segue a tabela que o
   catálogo daquela loja mostra; sem origem conhecida vale atacado (é o que a
   tela de montar pedido sempre fez). O desconto do link de campanha (RN-040)
-  entra por cima. **Pendente, e é decisão do dono**: nada carimba `MANUAL`
-  hoje (`Order.source` nasce "CATALOGO"), então o pedido montado à mão numa
-  loja com o catálogo em VAREJO ainda vê atacado numa tela e varejo na outra —
-  carimbar resolve, mas mexe no relatório de origem de pedidos antigos e pede
-  backfill.
+  entra por cima. **Fica assim, por decisão do dono (01/09/2026)**: nada
+  carimba `MANUAL` hoje (`Order.source` nasce "CATALOGO"), então o pedido
+  montado à mão numa loja com o catálogo em VAREJO vê atacado numa tela e
+  varejo na outra. Carimbar resolveria, mas mexe no relatório de origem de
+  pedidos antigos e pede backfill — e só atinge loja com o catálogo em varejo,
+  com o valor editável antes de salvar. Se voltar à mesa, é entrega própria:
+  carimbo + backfill dos pedidos antigos, para o canal "Catálogo" não
+  aparecer despencando de um mês para o outro.
   **Não se resolve carimbando `Order.priceMode` em todo pedido** — foi tentado
   e recusado na revisão: ele não é só informação de preço, a porta única do
   Financeiro (RN-033) escolhe a CATEGORIA da receita por ele, e carimbar
   mudaria a venda do catálogo de loja varejo de "Venda atacado" para "Venda
   varejo" no meio do ano, quebrando a linha do DRE.
+  **RN-042 · Contagem de venda sempre aponta para um pedido que EXISTE**
+  (`lib/order-actions.ts` + `lib/campanha-pedidos.ts`, 01/09/2026): relato do
+  dono — *"fala que tem um pedido, mas esse pedido não chegou aqui"*. O pedido
+  do catálogo marca `TrackSession.converted` ao nascer, e **apagar o pedido
+  nunca desmarcava**: a campanha seguia anunciando uma venda que não existe
+  mais, o funil contava "enviou pedido" e — o pior — a **recuperação parava de
+  procurar aquela cliente**, achando que ela já tinha comprado. Agora o funil
+  ÚNICO de exclusão (`reverseAndDeleteOrder`, as duas portas: tela de Pedidos
+  e funil de vendas) desmarca a visita, DENTRO da transação, e só quando não
+  sobrou nenhum outro pedido dela. **E o número leva ao pedido**: "N pedidos"
+  no cartão da campanha é link para `/pedidos?campanha=<slug>`, com faixa
+  dizendo o recorte e como sair. Um pedido é da campanha por DOIS caminhos, e
+  os dois valem: o carimbo (`Order.campaignRef`) e a sessão
+  (`Order.trackSessionId`) — sem o segundo, todo pedido anterior ao carimbo
+  sumiria da busca. O contador soma **PEDIDO**, não sessão convertida, pela
+  MESMA régua da lista — e a lista abre no MESMO período do cartão, senão o
+  número e a lista discordam de novo. Pedido **CANCELADO** não conta (é
+  dinheiro que não vem), e a busca pela visita **não depende** da marca de
+  conversão (ela é gravada em best-effort: depender dela sumiria com pedido
+  pago de verdade). Endereço de campanha que não existe mostra **aviso**,
+  nunca a loja inteira disfarçada de resultado da campanha. E **"R$ 0" com pedido na conta diz "aguardando
+  pagamento"** — faturamento soma só pedido pago (RN-001), e sem a frase o
+  cartão parecia defeito.
   **RN-012** · Resgate manual: **"Colar pedido do WhatsApp"** na tela Pedidos
   (`lib/catalogo/ler-mensagem.ts` + `/api/orders/ler-mensagem`) — lê a
   mensagem do catálogo, casa com o catálogo da loja (nome mais longo vence

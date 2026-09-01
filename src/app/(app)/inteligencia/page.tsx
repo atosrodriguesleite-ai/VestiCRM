@@ -626,6 +626,13 @@ export default async function IntelligencePage({
         slug={company?.slug ?? ""}
         catalogDomain={process.env.CATALOG_DOMAIN?.trim() ?? null}
         team={team}
+        // O MESMO PERÍODO do cartão viaja para a lista de Pedidos: sem ele, o
+        // cartão contava 2 pedidos do mês e o link abria a loja inteira —
+        // número e lista discordando de novo (revisão de 01/09/2026)
+        periodo={{
+          de: period.from.toLocaleDateString("en-CA", { timeZone: "America/Sao_Paulo" }),
+          ate: period.to.toLocaleDateString("en-CA", { timeZone: "America/Sao_Paulo" }),
+        }}
         campaigns={campanhas
           // encerrada sai da LISTA de links (o link não vale mais), mas segue
           // no relatório de campanhas acima — RN-040
