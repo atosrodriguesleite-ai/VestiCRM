@@ -305,3 +305,18 @@ describe("as portas do dinheiro estão fechadas (RN-030)", () => {
     expect(/export\s+(async\s+)?function\s+DELETE/.test(rota)).toBe(false);
   });
 });
+
+describe("data que não existe no calendário (RN-030)", () => {
+  it("30 de fevereiro é RECUSADO — antes virava 2 de março em silêncio", () => {
+    // um vencimento digitado errado caía noutro mês sem ninguém ver
+    expect(dataDoDia("2026-02-30")).toBeNull();
+    expect(dataDoDia("2026-04-31")).toBeNull();
+    expect(dataDoDia("2026-13-01")).toBeNull();
+  });
+
+  it("mas o que existe continua valendo, inclusive 29/02 bissexto", () => {
+    expect(dataDoDia("2026-02-28")?.toISOString()).toBe("2026-02-28T12:00:00.000Z");
+    expect(dataDoDia("2028-02-29")?.toISOString()).toBe("2028-02-29T12:00:00.000Z");
+    expect(dataDoDia("2026-09-05")?.toISOString()).toBe("2026-09-05T12:00:00.000Z");
+  });
+});

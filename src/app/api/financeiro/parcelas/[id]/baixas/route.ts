@@ -65,9 +65,16 @@ export async function POST(
             companyId: porta.user.companyId,
             arquivadaEm: null,
           },
-          select: { id: true, nome: true },
+          select: { id: true, nome: true, tipo: true },
         });
         if (!conta) return { erro: "Conta não encontrada", status: 400 };
+        // CARTÃO não é conta de dinheiro (RN-039): baixar "nele" quitaria a
+        // parcela fora de qualquer fatura. A trava mora aqui, não só na tela.
+        if (conta.tipo === "CARTAO")
+          return {
+            erro: "A conta do cartão não guarda dinheiro — escolha a conta de onde o dinheiro sai (a fatura se paga na tela de Cartões)",
+            status: 400,
+          };
 
         const impedimento = conferirBaixa(parcela, parsed.data);
         if (impedimento) return { erro: impedimento, status: 409 };

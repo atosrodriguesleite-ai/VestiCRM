@@ -258,12 +258,27 @@ export async function carregarInadimplencia(
   ]);
   const total = round2((somaParcelas._sum.valor ?? 0) - (somaAbatido._sum.valor ?? 0));
 
-  const parcelas = await db.finParcela.findMany({
-    where: {
-      companyId,
-      vencimento: { lt: dataDoDia(diaSP(hoje))! },
-      lancamento: { tipo: "RECEITA", canceladoEm: null },
-    },
+  // O "ainda em aberto" é filtrado NO BANCO (valor > soma das baixas vivas):
+  // trazer as 500 mais antigas e só então descartar as pagas gastava a vaga
+  // com quem já quitou — loja com histórico via "Atrasado: R$ 12.000" ao lado
+  // de uma lista VAZIA, e a cobrança pelo WhatsApp não tinha em quem clicar.
+  const idsEmAberto = await db.$queryRaw<{ id: string }[]>`
+    SELECT p."id"
+      FROM "FinParcela" p
+      JOIN "FinLancamento" l ON l."id" = p."lancamentoId"
+     WHERE p."companyId" = ${companyId}
+       AND p."vencimento" < ${limite}
+       AND l."tipo" = 'RECEITA'
+       AND l."canceladoEm" IS NULL
+       AND p."valor" > COALESCE((
+             SELECT SUM(b."valor") FROM "FinBaixa" b
+              WHERE b."parcelaId" = p."id" AND b."estornadaEm" IS NULL
+           ), 0)
+     ORDER BY p."vencimento" ASC
+     LIMIT ${TETO_INADIMPLENCIA}
+  `;
+  const parcelas = idsEmAberto.length === 0 ? [] : await db.finParcela.findMany({
+    where: { companyId, id: { in: idsEmAberto.map((r) => r.id) } },
     include: {
       baixas: true,
       lancamento: {
@@ -276,7 +291,6 @@ export async function carregarInadimplencia(
       },
     },
     orderBy: { vencimento: "asc" },
-    take: TETO_INADIMPLENCIA,
   });
 
   const linhas: LinhaInadimplencia[] = [];
@@ -308,6 +322,6 @@ export async function carregarInadimplencia(
     linhas,
     total,
     clientes: new Set(linhas.map((l) => l.clienteId ?? l.lancamentoId)).size,
-    truncado: parcelas.length >= TETO_INADIMPLENCIA,
+    truncado: idsEmAberto.length >= TETO_INADIMPLENCIA,
   };
 }

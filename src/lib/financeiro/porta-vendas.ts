@@ -1,4 +1,5 @@
 import { after } from "next/server";
+import { Prisma } from "@prisma/client";
 import { db } from "../db";
 import { soltarConciliacaoDaBaixa } from "./conciliacao";
 import { round2, PAID_ORDER_STATUSES, orderNumber } from "../orders";
@@ -227,6 +228,15 @@ export async function sincronizarPedidoNoFinanceiro(
 
   // ---- criar -------------------------------------------------------------
   if (acao.criar) {
+    // Corrida real: o PATCH do pedido e o aviso do gateway chegam juntos e os
+    // dois decidem "criar". O único (loja, origem, origemId) segura o segundo
+    // — e aí a sincronização RECOMEÇA, para o pedido pago não ficar com o
+    // lançamento do primeiro e sem a baixa (dinheiro pago sem entrar).
+    const jaExiste = await db.finLancamento.findFirst({
+      where: { companyId: pedido.companyId, origem: ORIGEM_PEDIDO, origemId: pedido.id },
+      select: { id: true },
+    });
+    if (jaExiste) return sincronizarPedidoNoFinanceiro(orderId);
     // a loja pode ter acabado de ganhar o módulo e nunca ter aberto a tela:
     // sem a árvore semeada, a venda nasceria sem categoria PARA SEMPRE
     await garantirCategoriasPadrao(pedido.companyId);
@@ -237,7 +247,9 @@ export async function sincronizarPedidoNoFinanceiro(
     const conta = await contaPadrao(pedido.companyId);
     const quando = diaDoDinheiro(pedido.paidAt ?? pedido.createdAt);
     const valor = round2(pedido.total);
-    const criado = await db.finLancamento.create({
+    let criado;
+    try {
+      criado = await db.finLancamento.create({
       data: {
         companyId: pedido.companyId,
         tipo: "RECEITA",
@@ -266,8 +278,15 @@ export async function sincronizarPedidoNoFinanceiro(
           },
         },
       },
-      include: { parcelas: true },
-    });
+        include: { parcelas: true },
+      });
+    } catch (e) {
+      // o outro caminho ganhou a corrida entre a conferência e o create:
+      // recomeça e deixa a sincronização acertar valor e baixa
+      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002")
+        return sincronizarPedidoNoFinanceiro(orderId);
+      throw e;
+    }
     if ((PAID_ORDER_STATUSES as string[]).includes(pedido.status)) {
       await darBaixaDaPorta(criado.id, criado.parcelas[0].id, pedido.companyId, valor, quando);
     }
@@ -537,15 +556,22 @@ function estadoDoLancamento(
     };
   const vivas = l.parcelas.flatMap((p) => p.baixas.filter((b) => !b.estornadaEm));
   const abatido = round2(vivas.reduce((s, b) => s + b.valor, 0));
-  // o cancelamento é da porta quando o evento mais recente que fala de
-  // cancelamento é o dela — o da lojista tem outro autor
-  const ultimoCancel = l.eventos.find((e) => /cancelad/i.test(e.descricao));
+  // O cancelamento é da porta quando existe a MARCA dela no histórico — nunca
+  // por "parece que fala de cancelamento": o próprio aviso da porta ("este
+  // lançamento foi cancelado à mão") casava no texto e era assinado pelo
+  // sistema, então o cancelamento DA LOJISTA passava a ser lido como da porta
+  // e o lançamento ressuscitava com baixa automática na sincronização
+  // seguinte — dinheiro que ela mandou embora voltando sozinho ao extrato.
+  const canceladoPelaPorta =
+    Boolean(l.canceladoEm) &&
+    l.eventos.some(
+      (e) => e.autorNome === AUTOR_SISTEMA && e.descricao.startsWith(MARCA_CANCELAMENTO)
+    );
   return {
     existe: true,
     valor: round2(l.valor),
     cancelado: Boolean(l.canceladoEm),
-    canceladoPelaPorta:
-      Boolean(l.canceladoEm) && ultimoCancel?.autorNome === AUTOR_SISTEMA,
+    canceladoPelaPorta,
     saldo: round2(Math.max(0, round2(l.valor) - abatido)),
     temBaixaManualViva: vivas.some((b) => b.autorNome !== AUTOR_SISTEMA),
     temBaixaAutomaticaViva: vivas.some((b) => b.autorNome === AUTOR_SISTEMA),

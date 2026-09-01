@@ -55,10 +55,20 @@ export async function POST(req: NextRequest) {
         companyId: porta.user.companyId,
         arquivadaEm: null,
       },
-      select: { id: true },
+      select: { id: true, tipo: true },
     });
     if (contas.length !== 2)
       return NextResponse.json({ error: "Conta não encontrada" }, { status: 400 });
+    // cartão fica FORA de onde o dinheiro anda (RN-039): transferir "para o
+    // cartão" quitaria compras fora de qualquer fatura
+    if (contas.some((c) => c.tipo === "CARTAO"))
+      return NextResponse.json(
+        {
+          error:
+            "A conta do cartão não guarda dinheiro — a fatura se paga na tela de Cartões",
+        },
+        { status: 400 }
+      );
 
     const t = await db.finTransferencia.create({
       data: {

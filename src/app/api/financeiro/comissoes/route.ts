@@ -27,12 +27,20 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Dados inválidos" }, { status: 400 });
 
     const { sellerId, de, ate, vencimento } = parsed.data;
+    // "2026-02-30" passa no formato e não existe no calendário: sem esta
+    // conferência o Prisma recebia null e a tela levava um erro sem frase
+    const diaDoVencimento = dataDoDia(vencimento);
+    if (!diaDoVencimento)
+      return NextResponse.json(
+        { error: "A data de pagamento não existe no calendário — confira o dia" },
+        { status: 400 }
+      );
     const r = await gerarContaDaComissao(
       porta.user.companyId,
       // o período viaja em DIA: quem transforma em janela de tempo é o motor
       // (`janelaDoPeriodo`), que inclui o dia inteiro do fim — o pedido pago
       // às 22h do último dia do mês é comissão daquele mês
-      { sellerId, de, ate, vencimento: dataDoDia(vencimento)! },
+      { sellerId, de, ate, vencimento: diaDoVencimento },
       porta.user.name
     );
     if (!r.ok) return NextResponse.json({ error: r.erro }, { status: r.status });

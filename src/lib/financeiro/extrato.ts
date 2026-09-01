@@ -420,7 +420,12 @@ export async function carregarExtrato(filtro: FiltroExtrato): Promise<{
     receitasEmAberto: 0,
     despesasEmAberto: 0,
     saldoInicial,
-    saldoFinal: acumulado,
+    // O saldo final é SOMADO NO BANCO, nunca do acumulado da lista: acima do
+    // teto de linhas o extrato mostra parte do período, e um "saldo no fim"
+    // tirado dali mostraria menos dinheiro do que a loja tem — justo o número
+    // que ela usa para conferir com o banco (RN-032: saldo se soma, não se
+    // digita nem se estima).
+    saldoFinal: truncado ? await saldoAte(companyId, contaId, ate) : acumulado,
   };
   const agora = new Date();
   for (const p of parcelasDoPeriodo) {

@@ -182,7 +182,10 @@ describe("saldo previsto e DFC contam a verdade (RN-035)", () => {
     // menos dívida do que existe, e a lojista se planeja com o número errado
     expect(visao).toContain("db.finParcela.aggregate");
     expect(visao).toContain("db.finBaixa.aggregate");
-    expect(visao).toContain("truncado: parcelas.length >= TETO_INADIMPLENCIA");
+    expect(visao).toContain("truncado: idsEmAberto.length >= TETO_INADIMPLENCIA");
+    // e a vaga não se gasta com parcela já quitada: o filtro do "em aberto"
+    // é feito NO BANCO, senão a lista vinha vazia ao lado de um total grande
+    expect(visao).toContain('SELECT SUM(b."valor") FROM "FinBaixa" b');
     // e a tela DIZ que está mostrando parte
     const tela = ler("src/app/(app)/financeiro/inadimplencia/inadimplencia-view.tsx");
     expect(tela).toContain("mostrando as mais antigas");

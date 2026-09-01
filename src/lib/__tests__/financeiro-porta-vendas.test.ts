@@ -302,3 +302,35 @@ describe("nenhum número some, venha o que vier do pedido (RN-033)", () => {
     expect(merge).toContain("tx.finRecorrencia.updateMany({ where: { customerId: dupeId }");
   });
 });
+
+describe("o cancelamento da lojista não ressuscita (RN-033)", () => {
+  const ler = (rel: string) => readFileSync(join(process.cwd(), rel), "utf8");
+
+  it("o dono do cancelamento se prova pela MARCA, nunca por 'parece cancelamento'", () => {
+    // o próprio aviso da porta ("este lançamento foi cancelado à mão") casava
+    // num teste de texto e era assinado pelo sistema: na rodada seguinte o
+    // cancelamento DA LOJISTA passava por 'da porta' e o lançamento voltava
+    // com baixa automática — dinheiro que ela mandou embora ressuscitando
+    const porta = ler("src/lib/financeiro/porta-vendas.ts");
+    expect(porta).toContain("e.descricao.startsWith(MARCA_CANCELAMENTO)");
+    expect(porta).not.toContain("/cancelad/i");
+  });
+
+  it("a criação trata a corrida de dois avisos ao mesmo tempo", () => {
+    // PATCH do pedido e webhook do gateway decidem "criar" juntos: o único do
+    // banco segura o segundo e a sincronização RECOMEÇA — senão o pedido pago
+    // ficava com lançamento e sem baixa, calado
+    const porta = ler("src/lib/financeiro/porta-vendas.ts");
+    expect(porta).toContain("return sincronizarPedidoNoFinanceiro(orderId);");
+    expect(porta).toContain('e.code === "P2002"');
+  });
+
+  it("cartão fica fora de onde o dinheiro anda — no SERVIDOR, não só na tela", () => {
+    expect(ler("src/app/api/financeiro/parcelas/[id]/baixas/route.ts")).toContain(
+      'conta.tipo === "CARTAO"'
+    );
+    expect(ler("src/app/api/financeiro/transferencias/route.ts")).toContain(
+      'c.tipo === "CARTAO"'
+    );
+  });
+});
