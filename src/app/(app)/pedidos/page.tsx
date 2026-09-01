@@ -15,6 +15,7 @@ import { NewOrderButton } from "./new-order";
 import { ImportarMensagemButton } from "./importar-mensagem";
 import { RowStatusMenu } from "./row-status-menu";
 import type { OrderStatus, Prisma } from "@prisma/client";
+import { classificarBusca, clientesDaBusca } from "@/lib/busca-de-pedidos";
 
 // converte YYYY-MM-DD (fuso de São Paulo, UTC-3) em Date UTC
 const SP_OFFSET = 3 * 60 * 60 * 1000;
@@ -45,18 +46,29 @@ export default async function OrdersPage({
   // e aplicar sellerId nulo por cima furaria a RN-007).
   const veLojaInteira = veTodosPedidos(user);
   const semVendedora = vendedoraRaw === "sem" && veLojaInteira;
-  // busca pelo código do pedido (nº) — só os dígitos importam (#0042, 42, "42")
+  // busca inteligente: número curto = código do pedido, número comprido =
+  // telefone (tolerante ao 9º dígito), texto = nome da cliente (sem acento)
   const q = (qRaw ?? "").trim();
-  const buscaNumero = q ? Number(q.replace(/\D/g, "")) : NaN;
   const buscando = q.length > 0;
+  const busca = buscando ? classificarBusca(q) : null;
 
   const from = de ? spDayStart(de) : null;
   const to = ate ? spDayEnd(ate) : null;
 
   const where: Prisma.OrderWhereInput = orderScope(user);
-  // busca por código: encontra o pedido em qualquer status/período
-  if (buscando) {
-    where.number = Number.isFinite(buscaNumero) && buscaNumero > 0 ? buscaNumero : -1;
+  // a busca encontra o pedido em qualquer status; quem limita o que aparece
+  // continua sendo o orderScope (RN-007) — o recorte da busca é só de cliente
+  let buscaEstourou = false;
+  if (busca) {
+    if (busca.tipo === "codigo") {
+      where.number = busca.numero;
+    } else {
+      const { ids, estourou } = await clientesDaBusca(user.companyId, busca);
+      buscaEstourou = estourou;
+      // nenhum cliente casou: id impossível para a lista vir vazia (em vez
+      // de um `in: []` esquecido virar "sem filtro" numa refatoração futura)
+      where.customerId = ids.length ? { in: ids } : "busca-sem-resultado";
+    }
   }
   if (!buscando && status && ORDER_STATUS_FLOW.includes(status as OrderStatus)) {
     where.status = status as OrderStatus;
@@ -94,13 +106,15 @@ export default async function OrdersPage({
   // mais recentes era mudo: pedido antigo "sumia" e a vendedora só achava
   // pela busca (relato real, 18/08/2026 — o histórico é para sempre).
   const POR_PAGINA = 100;
-  // na busca por código o resultado é um pedido só: sempre página 1
-  const paginaPedida = buscando
-    ? 1
-    : (() => {
-        const n = Number(paginaRaw ?? "1");
-        return Number.isFinite(n) && n >= 1 ? Math.floor(n) : 1;
-      })();
+  // na busca por CÓDIGO o resultado é um pedido só: sempre página 1. Busca
+  // por nome/telefone pode passar de 100 pedidos — aí as páginas valem.
+  const paginaPedida =
+    busca?.tipo === "codigo"
+      ? 1
+      : (() => {
+          const n = Number(paginaRaw ?? "1");
+          return Number.isFinite(n) && n >= 1 ? Math.floor(n) : 1;
+        })();
 
   // pedidos criados no MESMO instante (dois checkouts do catálogo, webhooks
   // da Nuvemshop) precisam de um desempate ESTÁVEL entre as páginas — só a
@@ -128,18 +142,24 @@ export default async function OrdersPage({
   // a contagem por CANAL entrou nesta mesma rodada: era uma terceira ida ao
   // banco, sozinha, lá embaixo — e não dependia de nada (velocidade, 20/08/2026)
   // eslint-disable-next-line prefer-const -- orders é reatribuído no ajuste de página abaixo
-  let [orders, counts, bySource, semDonaCount] = await Promise.all([
+  let [orders, counts, bySource, semDonaCount, buscaTotal] = await Promise.all([
     listar(pagina),
-    db.order.groupBy({
-      by: ["status"],
-      where: { ...orderScope(user), ...periodoWhere, ...canalWhere, ...vendedoraWhere },
-      _count: true,
-    }),
-    db.order.groupBy({
-      by: ["source"],
-      where: { ...orderScope(user), ...periodoWhere, ...statusWhere, ...vendedoraWhere },
-      _count: true,
-    }),
+    // na busca os chips somem — as duas contagens por grupo seriam jogadas
+    // fora (mesma razão do guard do semDonaCount logo abaixo)
+    buscando
+      ? Promise.resolve([])
+      : db.order.groupBy({
+          by: ["status"],
+          where: { ...orderScope(user), ...periodoWhere, ...canalWhere, ...vendedoraWhere },
+          _count: true,
+        }),
+    buscando
+      ? Promise.resolve([])
+      : db.order.groupBy({
+          by: ["source"],
+          where: { ...orderScope(user), ...periodoWhere, ...statusWhere, ...vendedoraWhere },
+          _count: true,
+        }),
     // o número do chip "Sem vendedora" — mesma regra dos outros grupos de
     // chips: respeita todos os filtros MENOS a própria dimensão. Na busca por
     // código os chips nem aparecem: não gasta uma ida ao banco à toa.
@@ -154,6 +174,9 @@ export default async function OrdersPage({
           },
         })
       : Promise.resolve(0),
+    // total da BUSCA por nome/telefone: pode passar de uma página, e sem a
+    // conta as páginas seguintes ficariam inalcançáveis
+    buscando ? db.order.count({ where }) : Promise.resolve(0),
   ]);
 
   const countByStatus = Object.fromEntries(
@@ -162,7 +185,7 @@ export default async function OrdersPage({
   const totalCount = counts.reduce((s, c) => s + c._count, 0);
   // o total da lista atual já sai da conta por status (nenhuma consulta a mais)
   const totalFiltrado = buscando
-    ? orders.length
+    ? buscaTotal
     : status && ORDER_STATUS_FLOW.includes(status as OrderStatus)
       ? (countByStatus[status] ?? 0)
       : totalCount;
@@ -198,6 +221,9 @@ export default async function OrdersPage({
       !muda.semPeriodo && ate ? `ate=${ate}` : "",
       c ? `canal=${c}` : "",
       v ? `vendedora=${v}` : "",
+      // a busca viaja junto ao trocar de página (senão a página 2 da busca
+      // por nome voltava para a lista inteira)
+      buscando ? `q=${encodeURIComponent(q)}` : "",
       p > 1 ? `pagina=${p}` : "",
     ]
       .filter(Boolean)
@@ -227,15 +253,14 @@ export default async function OrdersPage({
         }
       />
 
-      {/* Busca pelo código do pedido — disponível para todos os usuários */}
+      {/* Busca inteligente — nome, telefone ou código; para todos os usuários */}
       <form method="GET" className="mb-4">
         <div className="relative">
           <Search className="size-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
           <input
             name="q"
             defaultValue={q}
-            inputMode="numeric"
-            placeholder="Buscar pelo código do pedido (ex.: 42 ou #0042)"
+            placeholder="Buscar por nome, telefone ou código do pedido (ex.: Maria, 82 99999-1234 ou #0042)"
             className="w-full rounded-xl border border-gray-200 bg-white pl-9 pr-24 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-200"
           />
           <button className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-xs font-semibold px-3 py-1.5 transition">
@@ -247,10 +272,27 @@ export default async function OrdersPage({
       {buscando && (
         <div className="mb-4 flex items-center justify-between gap-3 rounded-xl border border-brand-100 bg-brand-50/60 px-4 py-2.5">
           <p className="text-sm text-slate-600">
-            {orders.length > 0 ? (
+            {orders.length === 0 ? (
+              <>Nenhum pedido encontrado para <b className="text-slate-800">{q}</b>.</>
+            ) : busca?.tipo === "codigo" ? (
               <>Resultado para o código <b className="text-slate-800">{q.startsWith("#") ? q : `#${q.replace(/\D/g, "")}`}</b></>
+            ) : busca?.tipo === "telefone" ? (
+              <>
+                {totalFiltrado} pedido{totalFiltrado === 1 ? "" : "s"} do telefone{" "}
+                <b className="text-slate-800">{q}</b>
+              </>
             ) : (
-              <>Nenhum pedido com o código <b className="text-slate-800">{q}</b>.</>
+              <>
+                {totalFiltrado} pedido{totalFiltrado === 1 ? "" : "s"} de cliente com{" "}
+                <b className="text-slate-800">{q}</b> no nome
+              </>
+            )}
+            {buscaEstourou && (
+              <>
+                {" "}
+                — busca muito aberta: parte dos clientes parecidos ficou de fora.
+                Digite mais letras (ou o telefone) para afinar.
+              </>
             )}
           </p>
           <Link href="/pedidos" className="inline-flex items-center gap-1 text-xs font-medium text-brand-600 hover:text-brand-700">
@@ -377,10 +419,12 @@ export default async function OrdersPage({
               caminho real: publicar/compartilhar o catálogo. */}
           <EmptyState
             icon={<ShoppingBag />}
-            title={buscando ? "Nenhum pedido com esse código" : "Nenhum pedido ainda"}
+            title={buscando ? "Nenhum pedido encontrado" : "Nenhum pedido ainda"}
             hint={
               buscando
-                ? "Confira o número do pedido e tente de novo."
+                ? busca?.tipo === "codigo"
+                  ? "Confira o número do pedido e tente de novo."
+                  : "Confira o nome ou o telefone e tente de novo — dá para buscar também pelo código do pedido (ex.: #0042)."
                 : "Os pedidos aparecem aqui quando alguém compra pelo seu catálogo ou quando você monta um na conversa do WhatsApp."
             }
             action={
@@ -466,8 +510,10 @@ export default async function OrdersPage({
 
         {/* Rodapé da lista: deixa claro que o histórico está TODO aqui e dá
             o caminho para os antigos — o corte mudo nos 100 mais recentes
-            fazia pedido antigo parecer apagado */}
-        {!buscando && (
+            fazia pedido antigo parecer apagado. Vale TAMBÉM na busca por
+            nome/telefone (pode passar de 100 pedidos); só a busca por
+            código, que devolve um pedido só, fica sem rodapé. */}
+        {busca?.tipo !== "codigo" && (
           <div className="mt-4 flex flex-col sm:flex-row items-center justify-between gap-2">
             <p className="text-xs text-gray-400 tabular-nums order-last sm:order-none">
               Mostrando {(pagina - 1) * POR_PAGINA + 1}–
