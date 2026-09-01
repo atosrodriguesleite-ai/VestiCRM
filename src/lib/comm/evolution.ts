@@ -337,11 +337,19 @@ export async function evoSendAudio(
  * Baixa a mídia de uma mensagem recebida (foto, áudio, vídeo, arquivo) em
  * base64 — o webhook só avisa que a mídia existe; o arquivo vem por aqui.
  */
-export async function evoGetMediaBase64(instance: string, messageId: string) {
+export async function evoGetMediaBase64(
+  instance: string,
+  messageId: string,
+  timeoutMs?: number
+) {
   return evo<{ base64?: string; mimetype?: string; fileName?: string }>(
     "POST",
     `/chat/getBase64FromMediaMessage/${instance}`,
-    { message: { key: { id: messageId } }, convertToMp4: false }
+    { message: { key: { id: messageId } }, convertToMp4: false },
+    // O TETO TEM QUE CABER NA VIDA DE QUEM CHAMOU (RN-028). O padrão de 45s
+    // era MAIOR que o tempo máximo do webhook (30s): um arquivo lento matava
+    // a execução e levava junto as mensagens ainda não gravadas do lote.
+    timeoutMs
   );
 }
 

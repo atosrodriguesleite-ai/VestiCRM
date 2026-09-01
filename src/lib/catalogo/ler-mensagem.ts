@@ -157,7 +157,13 @@ export function desachatarMensagem(texto: string): string {
       .replace(/\s*\*?\s*Total:\s*\*?\s*/gi, "\nTotal: ")
       // "*Categoria*" (negrito) vira linha própria — pega também o cabeçalho
       .replace(/\s*\*([^*\n]{2,80})\*\s*/g, "\n*$1*\n")
-      .replace(/\s+(Loja|Nome|Telefone|Fone|Whatsapp)\s*:\s*/gi, "\n$1: ")
+      // os campos extras da loja (RN-027) também são marcadores de linha —
+      // sem eles aqui, o CEP colado na linha do telefone virava dígito de
+      // telefone na mensagem achatada do navegador do Instagram
+      .replace(
+        /\s+(Loja|Nome|Telefone|Fone|Whatsapp|CEP|Endere[çc]o(?:\s*\(rua e n[úu]mero\))?|Bairro|Cidade|Estado(?:\s*\(UF\))?)\s*:\s*/gi,
+        "\n$1: "
+      )
       .replace(/\n{2,}/g, "\n")
       .trim()
   );

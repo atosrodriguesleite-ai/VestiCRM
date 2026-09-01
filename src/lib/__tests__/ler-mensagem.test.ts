@@ -360,6 +360,20 @@ describe("mensagem ACHATADA pelo navegador do anúncio (Entre Linhas, 04/08/2026
     expect(desachatarMensagem(normal)).toBe(normal);
   });
 
+  it("os campos extras da loja (RN-027) não grudam no telefone quando achatados", () => {
+    // sem os rótulos novos no desachatar, o CEP colado na linha do telefone
+    // virava dígito de telefone ("3199744159557000000") e a leitura casava
+    // um cliente fantasma — a mesma praga que a RN-020/021 combatem
+    const achatada =
+      "*Novo pedido — entre linhas* • Branco — Único ×4 (4 peças · R$ 86,00) • Preto — Único ×2 (2 peças · R$ 43,00) *Total:* 6 peças · R$ 129,00 *Cliente* Nome: Ana Telefone: (31) 99744-1595 CEP: 57000-000 Bairro: Ponta Verde Endereço (rua e número): Rua das Flores, 123";
+    const remontada = desachatarMensagem(achatada);
+    expect(remontada).toContain("\nCEP: 57000-000");
+    expect(remontada).toContain("\nBairro: Ponta Verde");
+    expect(remontada).toContain("\nEndereço (rua e número): Rua das Flores, 123");
+    const lido = lerMensagemDePedido(achatada);
+    expect(lido.cliente.telefone).toBe("31997441595");
+  });
+
   it("o casamento usa o título da seção quando o item vem só com a cor", () => {
     const rota = readFileSync(
       join(process.cwd(), "src/app/api/orders/ler-mensagem/route.ts"),

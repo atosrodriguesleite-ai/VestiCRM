@@ -15,6 +15,24 @@ import { receiveMessage, updateDeliveryStatus } from "@/lib/comm/engine";
  *        de assinatura X-Hub-Signature-256) e o simulado (testes internos).
  */
 
+/**
+ * Janela do aviso de recusa. A loja precisa descobrir POR QUE as mensagens
+ * não estão entrando — uma vez a cada 15 minutos basta para isso, e impede
+ * que a porta vire um jeito de encher o banco de quem não tem senha nenhuma.
+ */
+const MS_ENTRE_AVISOS_DE_RECUSA = 15 * 60_000;
+
+/** Compara dois segredos sem entregar o tamanho nem o conteúdo pelo relógio. */
+function tokenConfere(esperado: string, recebido: string): boolean {
+  const a = Buffer.from(esperado);
+  const b = Buffer.from(recebido);
+  // comprimentos diferentes: `timingSafeEqual` LANÇA em vez de devolver
+  // false, então o tamanho é conferido antes (ele já vaza pelo tamanho da
+  // requisição de qualquer jeito — o conteúdo é que não pode vazar).
+  if (a.length !== b.length) return false;
+  return crypto.timingSafeEqual(a, b);
+}
+
 export async function GET(req: NextRequest) {
   const mode = req.nextUrl.searchParams.get("hub.mode");
   const token = req.nextUrl.searchParams.get("hub.verify_token");
@@ -24,11 +42,20 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Requisição inválida" }, { status: 400 });
   }
 
-  // compara com o verify token de qualquer empresa configurada
   const all = await db.commSettings.findMany({
     where: { verifyToken: { not: null } },
   });
-  const match = all.some((s) => decryptSecret(s.verifyToken!) === token);
+  // compara com o verify token de qualquer empresa configurada.
+  //
+  // TEMPO CONSTANTE: `===` em texto secreto para de comparar no primeiro
+  // caractere diferente, e a diferença de tempo é medível — dá para
+  // descobrir o token letra por letra. `timingSafeEqual` sempre percorre
+  // tudo. (E percorre a lista INTEIRA de propósito: sair no primeiro acerto
+  // devolveria a resposta mais rápido para tokens quase certos.)
+  let match = false;
+  for (const s of all) {
+    if (tokenConfere(decryptSecret(s.verifyToken!), token)) match = true;
+  }
   if (!match) {
     return NextResponse.json({ error: "Verify token inválido" }, { status: 403 });
   }
@@ -102,17 +129,64 @@ async function handleMetaPayload(raw: string, signature: string | null) {
       });
       if (!settings) continue;
 
-      // assinatura: se o App Secret está configurado, exige e valida
-      if (settings.metaAppSecret) {
-        const appSecret = decryptSecret(settings.metaAppSecret);
-        const expected =
-          "sha256=" +
-          crypto.createHmac("sha256", appSecret).update(raw).digest("hex");
-        const ok =
-          signature &&
-          signature.length === expected.length &&
-          crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected));
-        if (!ok) continue; // assinatura inválida: ignora silenciosamente
+      // ASSINATURA OBRIGATÓRIA — FAIL-CLOSED.
+      //
+      // Aqui a validação só acontecia SE a loja tivesse App Secret salvo.
+      // Sem ele, qualquer um que descobrisse o `phone_number_id` (que não é
+      // segredo: aparece em documentação, integração e suporte) injetava
+      // mensagem falsa dentro da loja — criando cliente, conversa e lead em
+      // nome de gente que nunca escreveu. O formato simulado já tinha sido
+      // fechado assim em 07/08/2026; este ficou aberto.
+      //
+      // Agora é o contrário: sem App Secret configurado, NADA entra. A porta
+      // do WhatsApp oficial só abre para quem prova que é a Meta.
+      // O REGISTRO TEM FREIO. Quem bate aqui não está autenticado (é
+      // justamente o ponto), e o `phone_number_id` não é segredo: sem freio,
+      // qualquer um enchia a Central de Comunicação da loja — e o banco — com
+      // milhares de "webhook.recusado". Um registro por janela conta a mesma
+      // história sem virar arma (achado da revisão, 31/08/2026).
+      const recusar = async (motivo: string) => {
+        const desde = new Date(Date.now() - MS_ENTRE_AVISOS_DE_RECUSA);
+        const jaAvisado = await db.commEvent.findFirst({
+          where: {
+            companyId: settings.companyId,
+            type: "webhook.recusado",
+            createdAt: { gt: desde },
+          },
+          select: { id: true },
+        });
+        if (jaAvisado) return;
+        await db.commEvent
+          .create({
+            data: {
+              companyId: settings.companyId,
+              channel: "WHATSAPP",
+              direction: "IN",
+              type: "webhook.recusado",
+              status: "ERRO",
+              error: `Mensagem recusada na porta do WhatsApp oficial: ${motivo}.`,
+              payload: raw.slice(0, 2000),
+            },
+          })
+          .catch(() => {});
+      };
+      if (!settings.metaAppSecret) {
+        // silêncio aqui seria o defeito de novo: fica registrado para a loja
+        // descobrir POR QUE as mensagens não estão entrando
+        await recusar("a loja não tem o App Secret da Meta configurado");
+        continue;
+      }
+      const appSecret = decryptSecret(settings.metaAppSecret);
+      const expected =
+        "sha256=" +
+        crypto.createHmac("sha256", appSecret).update(raw).digest("hex");
+      const assinaturaOk =
+        Boolean(signature) &&
+        signature!.length === expected.length &&
+        crypto.timingSafeEqual(Buffer.from(signature!), Buffer.from(expected));
+      if (!assinaturaOk) {
+        await recusar("a assinatura da requisição não confere");
+        continue;
       }
 
       const contactName = value.contacts?.[0]?.profile?.name;

@@ -25,7 +25,14 @@ import { Card } from "@/components/ui";
 import { Portal } from "@/components/portal";
 import { copiarTexto } from "@/lib/copiar";
 
-type Pendencia = { produtoNs: string; cor: string; tamanho: string; sku: string | null };
+type Pendencia = {
+  produtoNs: string;
+  cor: string;
+  tamanho: string;
+  sku: string | null;
+  skuParecido?: string | null;
+  repetido?: boolean;
+};
 type Simulacao = {
   produtosNs: number;
   variacoesNs: number;
@@ -41,7 +48,13 @@ type Estado = {
   lastCheckoutSync: string | null;
   produtos: number;
   vendas: number;
-  report?: { at?: string; casadas?: number; criadas?: number; pendencias?: Pendencia[] };
+  report?: {
+    at?: string;
+    casadas?: number;
+    criadas?: number;
+    totalPendencias?: number;
+    pendencias?: Pendencia[];
+  };
 };
 
 type RestoreRow = { variantId: string; product: string; color: string; size: string; current: number; proposed: number };
@@ -62,11 +75,19 @@ type Conferencia = {
   semSku: number;
   resumo: { tipo: string; nome: string; quantos: number }[];
   achados: Achado[];
+  /** ids que o servidor solta (lista inteira, não a recortada da tela) */
+  paraSoltar?: string[];
+  leituraCompleta?: boolean;
+  /** por que a leitura não serviu: "PARCIAL" (veio pela metade) ou "VAZIO" */
+  motivoLeitura?: "OK" | "PARCIAL" | "VAZIO";
   /** quantos achados não couberam na lista (contados, nunca sumidos) */
   omitidos?: number;
   /** graves da lista INTEIRA (o servidor conta antes de recortar) */
   graves?: number;
   total: number;
+  /** disputas que JÁ acabaram: histórico, não tarefa */
+  resolvidas?: number;
+  ultimaResolvida?: string | null;
 };
 
 export function NuvemshopConnect() {
@@ -321,20 +342,34 @@ export function NuvemshopConnect() {
           Última conferência:{" "}
           <b className="text-emerald-700">{estado.report.casadas ?? 0} variações casadas</b> ·{" "}
           {estado.report.criadas ?? 0} produto(s) novo(s) espelhado(s) ·{" "}
+          {/* o TOTAL de verdade: a lista guardada para no 100 (cabe no
+              relatório), e mostrar 100 quando são 240 escondia o problema */}
           <b className={estado.report.pendencias?.length ? "text-amber-700" : "text-emerald-700"}>
-            {estado.report.pendencias?.length ?? 0} pendência(s)
+            {estado.report.totalPendencias ?? estado.report.pendencias?.length ?? 0} pendência(s)
           </b>
         </div>
       )}
       {estado.connected && (estado.report?.pendencias?.length ?? 0) > 0 && (
         <ListaPendencias
+          total={estado.report!.totalPendencias}
           pendencias={estado.report!.pendencias!}
           titulo="⚠️ Variações da Nuvemshop que o sistema NÃO conseguiu casar sozinho:"
           rodape="Como resolver: em Produtos, use o botão SKUs (ou abra a peça) e preencha o SKU da variação com o SKU mostrado acima — ou deixe os nomes de cor/tamanho iguais nos dois lados. Depois toque em Sincronizar agora."
         />
       )}
 
-      {conf && <ResultadoConferencia conf={conf} onFechar={() => setConf(null)} />}
+      {conf && (
+        <ResultadoConferencia
+          conf={conf}
+          onFechar={() => setConf(null)}
+          onConsertou={(m) => {
+            setMsg(m);
+            // a conferência na tela virou foto velha depois do conserto:
+            // fecha para não sugerir soltar de novo o que já foi solto
+            setConf(null);
+          }}
+        />
+      )}
 
       <SimuladorPreConexao />
 
@@ -439,20 +474,69 @@ const COMO_RESOLVER: Record<string, string> = {
 function ResultadoConferencia({
   conf,
   onFechar,
+  onConsertou,
 }: {
   conf: Conferencia;
   onFechar: () => void;
+  onConsertou: (msg: string) => void;
 }) {
+  const [soltando, setSoltando] = useState(false);
+  const [erro, setErro] = useState("");
+  // quantos o sistema solta — vem do RESUMO (lista inteira). Contar pelos
+  // `achados` pegava só o pedaço exibido: o resumo dizia "45×" e o botão
+  // oferecia 30 (achado da revisão de 31/08/2026)
+  const tortos =
+    conf.paraSoltar?.length ??
+    conf.resumo
+      .filter((r) => r.tipo === "CARIMBO_CRUZADO" || r.tipo === "CARIMBO_ORFAO")
+      .reduce((soma, r) => soma + r.quantos, 0);
+
+  /** Solta os vínculos tortos — quem decide QUAIS é o servidor. */
+  async function soltarVinculos() {
+    if (
+      !window.confirm(
+        "Soltar os vínculos que apontam para a peça errada?\n\n" +
+          "O estoque NÃO muda agora: o vínculo torto sai da frente e, na " +
+          "próxima sincronização, o número passa a vir da peça certa (pelo SKU)."
+      )
+    )
+      return;
+    setSoltando(true);
+    try {
+      const res = await fetch("/api/nuvemshop/conferir/soltar-vinculos", { method: "POST" });
+      const d = await res.json().catch(() => null);
+      if (res.ok) {
+        // deu certo: a conferência na tela virou foto velha — quem fecha é
+        // o onConsertou
+        onConsertou(d?.mensagem ?? "Vínculos soltos.");
+      } else {
+        // ERRO não apaga o relatório: nada foi solto, e fechar a conferência
+        // faria a lojista perder a lista que ela levou minutos para tirar
+        setErro(d?.error ?? "Não foi possível soltar os vínculos. Tente de novo.");
+      }
+    } catch {
+      // sinal caiu / passou do tempo: sem isto o botão ficava preso em
+      // "Soltando…" para sempre, sem dizer nada
+      setErro("A conexão caiu no meio. Nada foi solto — tente de novo.");
+    } finally {
+      setSoltando(false);
+    }
+  }
   // o servidor conta os graves ANTES de recortar a lista; a conta local só
   // enxergava o pedaço que coube na tela (e dizia "200 importantes" sempre)
   const graves = conf.graves ?? conf.achados.filter((a) => a.gravidade === "ALTA").length;
-  const limpo = conf.achados.length === 0;
+  const leves = Math.max(conf.total - graves, 0);
+  // LEITURA PELA METADE NÃO É "TUDO CERTO" (revisão de 31/08/2026): o verde
+  // aparecia por cima do aviso âmbar, prometendo o que a conferência não
+  // pôde verificar — a mesma falsa calma que a separação das brigas tirou
+  const incompleta = conf.leituraCompleta === false;
+  const limpo = conf.achados.length === 0 && !incompleta;
   const [copiado, setCopiado] = useState(false);
 
   /** Leva a lista inteira para o WhatsApp/e-mail — dá pra trabalhar fora da tela. */
   async function copiarLista() {
     const texto = [
-      `Conferência da integração Nuvemshop — ${conf.total} ponto(s)`,
+      `Conferência da integração Nuvemshop — ${graves} para arrumar, ${leves} para ficar de olho`,
       `Na Nuvemshop: ${conf.produtosNs} produtos / ${conf.variacoesNs} variações · Aqui: ${conf.variacoesAqui} variações`,
       "",
       ...conf.resumo.map((r, i) => `${i + 1}. ${r.quantos}× ${r.nome}`),
@@ -463,6 +547,12 @@ function ResultadoConferencia({
       ),
       ...(conf.omitidos
         ? ["", `(+ ${conf.omitidos} ponto(s) do mesmo tipo não listados aqui)`]
+        : []),
+      ...(conf.resolvidas
+        ? [
+            "",
+            `(${conf.resolvidas} disputa(s) antiga(s) já resolvida(s) — só histórico, nada a fazer)`,
+          ]
         : []),
     ].join("\n");
     setCopiado(await copiarTexto(texto));
@@ -476,9 +566,17 @@ function ResultadoConferencia({
     >
       <div className="flex items-start justify-between gap-2">
         <p className={`text-sm font-bold ${limpo ? "text-emerald-800" : "text-rose-800"}`}>
-          {limpo
+          {/* O NÚMERO PRECISA DIZER A VERDADE (pedido do dono, 31/08/2026):
+              "50 pontos para olhar" com 45 sendo histórico assusta e esconde
+              as 5 de verdade. Agora separa o que ARRUMAR do que só merece um
+              olho — e histórico ficou fora da conta. */}
+          {incompleta && conf.total === 0
+            ? "⚠️ Não deu para conferir tudo agora"
+            : limpo
             ? "✅ Integração conferida: tudo casando certo"
-            : `⚠️ ${conf.total} ponto(s) para olhar${graves ? ` · ${graves} importante(s)` : ""}`}
+            : graves > 0
+              ? `⚠️ ${graves} coisa(s) para arrumar${leves ? ` · ${leves} só para ficar de olho` : ""}`
+              : `👀 ${leves} ponto(s) para ficar de olho — nada grave`}
         </p>
         <button
           onClick={onFechar}
@@ -511,6 +609,28 @@ function ResultadoConferencia({
               </li>
             ))}
           </ol>
+          {/* CONSERTO, não só diagnóstico: a lojista via "o estoque vem da
+              peça errada" e não tinha como desfazer (relato de 31/08/2026) */}
+          {tortos > 0 && (
+            <div className="mt-2.5 border-t border-gray-100 pt-2.5">
+              <button
+                onClick={soltarVinculos}
+                disabled={soltando}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-rose-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-rose-700 disabled:opacity-60"
+              >
+                {soltando ? "Soltando…" : `Soltar ${tortos} vínculo(s) errado(s)`}
+              </button>
+              <p className="text-[11px] text-gray-500 mt-1.5 leading-snug">
+                Tira do caminho os vínculos que apontam para a peça errada (ou
+                para peça que não existe mais na Nuvemshop). O estoque não muda
+                agora — depois toque em <b>Sincronizar agora</b> e o número vem
+                da peça certa, pelo SKU.
+              </p>
+              {erro && (
+                <p className="text-[11px] font-semibold text-rose-700 mt-1.5">{erro}</p>
+              )}
+            </div>
+          )}
         </div>
       )}
 
@@ -556,6 +676,43 @@ function ResultadoConferencia({
           )}
         </ul>
       )}
+      {/* LEITURA QUE NÃO VEIO INTEIRA PRECISA APARECER: sem isto, "nada a
+          fazer", a lista curta e o botão sumido pareceriam a foto completa
+          da loja. É a MESMA régua que segura o conserto. */}
+      {incompleta && (
+        <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 p-2 text-[11px] text-amber-800 leading-snug">
+          {conf.motivoLeitura === "VAZIO" ? (
+            <>
+              ⚠️ A Nuvemshop não devolveu <b>nenhum produto</b> nesta
+              conferência. Se a sua loja lá tem produtos, a conexão pode estar
+              apontando para a loja errada ou precisa ser refeita. Por
+              segurança, nada foi solto.
+            </>
+          ) : (
+            <>
+              ⚠️ A Nuvemshop não devolveu o catálogo inteiro nesta conferência
+              (costuma ser instabilidade lá). O que está aqui vale, mas pode
+              faltar coisa — e, por segurança, o sistema <b>não solta vínculo
+              de peça apagada</b> agora. <b>Confira de novo daqui a pouco.</b>
+            </>
+          )}
+        </p>
+      )}
+
+      {/* DISPUTA QUE JÁ ACABOU É HISTÓRICO, NÃO TAREFA (pedido do dono,
+          31/08/2026): ela saía na lista e no número do topo — "50 pontos para
+          olhar" quando eram 5. Fica aqui embaixo, no tom de quem dá boa
+          notícia, e NÃO entra na conta de cima. */}
+      {!!conf.resolvidas && (
+        <p className="mt-2 rounded-lg bg-white/60 border border-gray-100 p-2 text-[11px] text-gray-500 leading-snug">
+          ✔️ <b>{conf.resolvidas}</b> disputa(s) de sincronização que já
+          aconteceram nesta loja <b>não acontecem mais</b>
+          {conf.ultimaResolvida &&
+            ` (a última em ${new Date(conf.ultimaResolvida).toLocaleDateString("pt-BR")})`}
+          . É só histórico — <b>nada a fazer</b>.
+        </p>
+      )}
+
       <div className="flex items-center justify-between gap-2 flex-wrap mt-2">
         <p className="text-[11px] text-gray-500 leading-snug">
           Esta conferência só LÊ os dois lados — não alterou nenhum estoque nem
@@ -579,11 +736,15 @@ function ListaPendencias({
   pendencias,
   titulo,
   rodape,
+  total,
 }: {
   pendencias: Pendencia[];
   titulo: string;
   rodape: string;
+  /** quantas existem de verdade (a lista guardada para em 100) */
+  total?: number;
 }) {
+  const escondidas = Math.max((total ?? pendencias.length) - pendencias.length, 0);
   return (
     <div className="mt-2 rounded-xl border border-amber-200 bg-amber-50/70 p-3">
       <p className="text-xs font-bold text-amber-800 mb-1.5">{titulo}</p>
@@ -594,9 +755,37 @@ function ListaPendencias({
             {p.sku && (
               <span className="text-amber-700"> (SKU na Nuvemshop: <b>{p.sku}</b>)</span>
             )}
+            {/* o quase-igual do cadastro: é o que mostra à lojista O QUE
+                difere — sem isso ela via "não casou" e não tinha como
+                descobrir o porquê (relato de 31/08/2026) */}
+            {p.skuParecido && !p.repetido && (
+              <div className="ml-3 text-amber-800">
+                ↳ no seu cadastro existe <b>{p.skuParecido}</b> — quase igual.
+                Deixe os dois <b>exatamente</b> iguais (confira espaços e
+                pontuação) que o estoque passa a puxar.
+              </div>
+            )}
+            {/* SKU igual que mesmo assim não casou = repetido aqui dentro; o
+                conselho é outro (deixar único), senão a lojista tenta
+                "igualar" dois textos que já são iguais */}
+            {p.skuParecido && p.repetido && (
+              <div className="ml-3 text-amber-800">
+                ↳ este SKU está <b>repetido</b> em mais de uma variação do seu
+                cadastro. Deixe cada peça com um SKU só dela que o estoque
+                passa a puxar.
+              </div>
+            )}
           </li>
         ))}
       </ul>
+      {/* lista cortada: dizer quantas ficaram de fora, senão a lojista
+          conserta 100 e acha que acabou (achado da revisão 31/08/2026) */}
+      {escondidas > 0 && (
+        <p className="text-[11px] font-semibold text-amber-800 mt-1.5">
+          + {escondidas} não listada(s) aqui — resolva estas e sincronize de novo
+          para ver as próximas.
+        </p>
+      )}
       <p className="text-[11px] text-amber-700 mt-2 leading-snug">{rodape}</p>
     </div>
   );

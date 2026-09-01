@@ -19,7 +19,7 @@
  */
 
 import { normalizarBusca } from "../busca";
-import { NOME_DO_ESTADO } from "./estados";
+import { NOME_DO_ESTADO, siglaDoEstado } from "./estados";
 import mapaBrasil from "./mapa-brasil.json";
 import municipiosXy from "./municipios-xy.json";
 
@@ -47,23 +47,10 @@ for (const [chave, ponto] of Object.entries(municipiosXy as Record<string, numbe
   XY.set(chaveCidade(cidade, uf), ponto);
 }
 
-/**
- * A UF do cadastro nem sempre é a sigla: a Nuvemshop manda o NOME do estado
- * ("Minas Gerais") no endereço, e sem esta tradução a loja integrada via
- * pedido inteiro para o balde de "sem estado no cadastro".
- */
-const POR_NOME = new Map(
-  Object.entries(NOME_DO_ESTADO).map(([sigla, nome]) => [normalizarBusca(nome), sigla])
-);
-
-/** Devolve a sigla de 2 letras, aceitando sigla ou nome por extenso. */
-export function siglaDoEstado(bruto: string | null | undefined): string | null {
-  const t = (bruto ?? "").trim();
-  if (!t) return null;
-  const sigla = t.toUpperCase();
-  if (UFS[sigla]) return sigla;
-  return POR_NOME.get(normalizarBusca(t)) ?? null;
-}
+// a tradução de nome/sigla mudou-se para estados.ts (módulo leve): o
+// formulário do catálogo também precisa dela, e daqui viriam os ~170 KB
+// de municípios junto. Re-exportada para os chamadores antigos.
+export { siglaDoEstado };
 
 export type EnvioLocalizado = {
   cidade: string | null;

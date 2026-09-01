@@ -213,6 +213,19 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   EXIGIDO (soma todas as cores e tamanhos do mesmo produto). Link que não vale
   mais RECUSA o pedido — nunca cai no varejo em silêncio. **Loja que não ativa
   o recurso não muda em NADA**: mesmo link, mesmo preço, sem trava de mínimo.
+  **RN-027 · Campos do pedido escolhidos por loja**
+  (`lib/catalogo/campos-do-pedido.ts`, 31/08/2026): além de nome e telefone,
+  a loja escolhe em Configurações → Catálogo quais campos o pedido pergunta
+  — CEP, endereço, bairro, cidade, UF — cada um com chavinha de obrigatório
+  (uma loja cota frete pelo CEP, outra entrega de motoboy e vive de bairro).
+  Cardápio FECHADO: cada campo cai numa coluna da ficha da cliente (campo
+  livre viraria dado sem casa). O que ela preenche VALE na ficha (régua da
+  RN-024; em branco não apaga nada) e fica escrito no pedido e na mensagem.
+  **Recorte por lista no servidor**: a rota só aceita o que a loja
+  configurou. **Obrigatório trava só o navegador** — o servidor aceita o
+  pedido sem o campo, porque pedido do catálogo não pode se perder (RN-010)
+  e o reenvio automático guarda payload antigo. Loja que não configurar
+  nada não muda em NADA.
   **RN-012** · Resgate manual: **"Colar pedido do WhatsApp"** na tela Pedidos
   (`lib/catalogo/ler-mensagem.ts` + `/api/orders/ler-mensagem`) — lê a
   mensagem do catálogo, casa com o catálogo da loja (nome mais longo vence
@@ -353,7 +366,32 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   resposta em janela de 24h sai na hora; envio proativo com ritmo humano
   4-9s; termo de aceite obrigatório registrado (sem aceite, sem QR Code). `CloudApiProvider` (Meta
   oficial) pronto na estrutura. Tudo logado em `CommEvent` (Central de
-  Comunicação).
+  Comunicação). **A porta do WhatsApp oficial é fail-closed** (auditoria
+  31/08/2026): sem o App Secret da Meta configurado, a loja NÃO ingere nada —
+  antes a assinatura só era conferida quando o segredo existia, e quem
+  descobrisse o `phone_number_id` (que não é segredo) injetava mensagem falsa
+  criando cliente, conversa e lead em nome de gente que nunca escreveu. Recusa
+  fica registrada (`webhook.recusado`), nunca em silêncio.
+- **RN-028 · O ARQUIVO DA CLIENTE NÃO SE PERDE**
+  (`lib/comm/midia-pendente.ts`, 31/08/2026 — ADR-015): o webhook não recebe o
+  arquivo, recebe o AVISO de que ele existe, e precisa buscá-lo. O código
+  baixava ANTES de gravar, e isso tinha dois buracos: (1) o webhook vivia 30s
+  e cada download podia levar 45 — um lote de fotos, ou um documento lento,
+  fazia a Vercel matar a execução no meio e as mensagens ainda não gravadas
+  **sumiam sem rastro** (nem o registro de erro rodava); (2) falhou uma vez,
+  perdeu para sempre — ninguém tentava de novo, nada ficava registrado. Agora
+  a **mensagem nasce PRIMEIRO**, marcada como `mediaPending`, e o arquivo vem
+  depois, com **orçamento de tempo** (12s por arquivo, 25s no lote, função de
+  60s): estourou, as mensagens seguintes continuam sendo gravadas na hora e só
+  o arquivo delas vai para a **fila de repesca** (espera crescente 1min → 6h,
+  de carona no tráfego com trava — nunca cron novo, ADR-002). A repesca TOCA a
+  conversa, senão o arquivo chegava ao banco e ficava invisível na tela (mesmo
+  buraco da edição, da reação e do apagar). **Desistir é explícito**: sai da
+  fila, a bolha DIZ que o arquivo não chegou e o caso vai para a Saúde e para
+  a Central de Comunicação com o nome do arquivo. A tela mostra "Arquivo
+  chegando…" enquanto a fila trabalha. Teto de ~12MB continua (a mídia mora
+  como data-URL no banco, dívida nº 1): acima disso desiste NA HORA e avisa,
+  em vez de insistir numa porta que não abre.
 - **RN-024 · Dados de envio pela própria cliente** (`lib/dados-envio.ts`):
   o botão 📦 do chat manda um link e a CLIENTE preenche o próprio cadastro —
   endereço, CPF **ou** CNPJ (PJ abre razão social + inscrição estadual), com
@@ -397,7 +435,34 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
 - **Integrações de produto/estoque**: **RN-014 · Nuvemshop** (OAuth com state
   assinado, webhooks HMAC; a Nuvemshop é a DONA do estoque; casamento de
   produtos SÓ por SKU; venda paga → `ingestPaidOrder` cria Order PAGO
-  direto); **Jueri** (sync 2x/dia via cron `jueri-sync`).
+  direto). O SKU é comparado pelo que a lojista VÊ (`norm`): acento, caixa e
+  **espaço** não contam — o espaço dobrado sem querer e o INVISÍVEL colado da
+  planilha (nbsp) travavam o estoque em silêncio (31/08/2026). Diferença de
+  verdade (pontuação, sufixo) segue NÃO casando — afrouxar aqui joga o
+  estoque de uma cor em outra, o incidente que criou a regra. E SKU **quase
+  igual** a um do cadastro não vira produto novo: antes a sync criava um
+  espelho, a peça aparecia DUAS vezes no catálogo e o estoque ia para a
+  cópia enquanto a de verdade seguia zerada. Agora vira **pendência com o SKU
+  parecido do lado**, na tela de Configurações — a lojista vê o que difere e
+  iguala (AVISA, nunca junta sozinho, como a RN-020).
+  **A CONFERÊNCIA DA INTEGRAÇÃO TAMBÉM CONSERTA**
+  (`lib/nuvemshop-conferencia.ts`): ela compara os dois lados (só leitura) e
+  o botão **"Soltar N vínculo(s) errado(s)"** tira do caminho os carimbos
+  objetivamente errados — vínculo apontando para peça de OUTRO SKU e vínculo
+  de peça que não existe mais lá. Só isso: SKU duplicado, cor no produto
+  errado e disputa exigem decisão da lojista. Estoque NÃO muda no clique (o
+  número volta certo na próxima sincronização, pelo SKU), quem escolhe os ids
+  é o SERVIDOR (a tela não manda lista) e as peças soltas ficam no `CommEvent`
+  (até 200 identificadas por vez, sempre com o total).
+  Leitura da Nuvemshop que veio pela metade — ou VAZIA — não autoriza soltar
+  órfão (`leituraConfiavelParaSoltar`): peça não lida parece apagada, e um
+  clique zeraria o catálogo inteiro. **O número do topo conta só TAREFA**
+  (31/08/2026): disputa de sincronização cuja causa já foi corrigida sai da
+  lista e da conta e vira uma linha de histórico no rodapé — o painel dizia
+  "50 pontos para olhar" com 45 sendo lembrança de coisa resolvida, e as 5 de
+  verdade sumiam no meio. "Já acabou" só vale quando deu para conferir: com a
+  leitura incompleta a disputa continua avisando.
+  **Jueri** (sync 2x/dia via cron `jueri-sync`).
 - **Marketing**: Gestor de Bio (temas, cores custom, capa, QR, métricas
   BioView/BioClick com filtro de data, atribuição `utm_source=bio` no
   catálogo), campanhas de aquisição, tracking do catálogo
@@ -418,7 +483,13 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   catálogo"; Nuvemshop e os demais seguem separados. A soma é SÓ DE
   APRESENTAÇÃO: `Customer.origin` continua gravado separado no banco (ficha,
   intake e regras por origem não mudam), e o painel de Gestão da plataforma
-  tem régua própria e fica de fora.
+  tem régua própria e fica de fora. A tela Marketing mostra também a OUTRA
+  pergunta, **"Por onde a venda saiu"** (`saidaDaVenda`): o canal credita a
+  venda a quem TROUXE a cliente (primeiro contato); a porta de saída olha o
+  PEDIDO — loja online (`source` NUVEMSHOP), com vendedora ou sem vendedora —
+  e é o recorte que bate com a tela de Comissões (cliente do WhatsApp que
+  compra pela Nuvemshop conta no WhatsApp num gráfico e na loja online no
+  outro; foi a diferença de R$ 9 mil que o dono caçou em 31/08/2026).
 - **Produção** (gated por loja): tecidos, rolos, cortes multi-cor, costura,
   lotes/facções, defeitos, simulador, etiquetas.
 - **Financeiro** (gated por loja, pago à parte — R$ 160 de tabela no catálogo
@@ -809,8 +880,18 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
 - **Envios** (13/08/2026): Melhor Envio **em produção** — app criado, envs na
   Vercel, primeira conta conectada e cotando. Parceria/comissão ME em
   negociação à parte. A etiqueta com NF-e (RN-016) depende do Bling.
-- Dívidas mapeadas: blob storage para fotos; rate-limit no login;
-  conferir `INTAKE_SECRET` na Vercel; quebrar telas gigantes
-  (`inbox.tsx` ~2,4k linhas) em componentes menores.
+- Dívidas mapeadas: blob storage para fotos e arquivos (é ele que impõe o
+  teto de ~12MB da RN-028 — a única exceção declarada ao "se a cliente
+  mandou, tem que chegar"); conferir `INTAKE_SECRET` na Vercel; quebrar telas
+  gigantes (`inbox.tsx` ~2,4k linhas) em componentes menores. O rate-limit no
+  login SAIU da lista: já existe (`lib/rate-limit.ts`, com trava antes da
+  consulta, contagem antes de conferir a senha e senha falsa para o login
+  inexistente não virar detector de contas).
+- **Auditoria do WhatsApp (31/08/2026)**, pedida antes de o módulo virar base
+  de um produto novo: nasceram a RN-028 e o ADR-015 (arquivo que não se
+  perde) e a porta do WhatsApp oficial virou fail-closed. **Grupos (`@g.us`)
+  continuam sendo descartados na porta de propósito** — aqui cliente é uma
+  pessoa com telefone. Produto que precise de grupo tem aí a sua primeira
+  obra.
 - Auditoria completa (segurança + métricas) feita em 24/07/2026 — métricas
   unificadas na fonte única; isolamento multi-tenant verificado rota a rota.

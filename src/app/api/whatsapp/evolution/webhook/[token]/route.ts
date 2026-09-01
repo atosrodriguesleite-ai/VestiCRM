@@ -1,7 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { receiveMessage, updateDeliveryStatus, aplicarRecibosOrfaos } from "@/lib/comm/engine";
-import { jidToPhone, evoGetMediaBase64 } from "@/lib/comm/evolution";
+import { jidToPhone } from "@/lib/comm/evolution";
+import {
+  completarMidia,
+  MS_BUSCA_MIDIA,
+  MS_ORCAMENTO_MIDIA_WEBHOOK,
+} from "@/lib/comm/midia-pendente";
 import { findCustomerByPhone, nomeProvisorio } from "@/lib/intake";
 import { alertWhatsappDown, logServerError } from "@/lib/health";
 import { adCode, campanhaDoAnuncio } from "@/lib/ad-match";
@@ -29,7 +34,16 @@ import { concluirTarefasDeContato } from "@/lib/contato-feito";
  * Sempre responde 200 (evita tempestade de retentativas do servidor).
  */
 
-export const maxDuration = 30;
+/**
+ * O TEMPO DA FUNÇÃO É O ORÇAMENTO DO LOTE (RN-028).
+ *
+ * Era 30s — menos que o teto de UM download de arquivo (45s). Um lote de
+ * fotos, ou um documento lento, matava a execução no meio e levava junto
+ * todas as mensagens ainda não gravadas, sem deixar rastro. Agora são 60s, e
+ * o download tem orçamento próprio e curto lá dentro: o que não couber vai
+ * para a fila de repesca em vez de morrer.
+ */
+export const maxDuration = 60;
 
 /**
  * Aplica uma edição na mensagem gravada — e ACORDA O SYNC.
@@ -263,23 +277,6 @@ async function registrarDescarte(
   });
 }
 
-// teto de segurança do arquivo salvo na conversa (~12 MB em base64)
-const MEDIA_BASE64_MAX = 12 * 1024 * 1024;
-
-/** Busca o arquivo da mensagem no servidor Evolution e monta a data URL. */
-async function fetchMediaDataUrl(
-  instance: string | null,
-  messageId: string | undefined,
-  mimeFallback: string | null
-): Promise<string | null> {
-  if (!instance || !messageId) return null;
-  const res = await evoGetMediaBase64(instance, messageId);
-  const b64 = res.data?.base64;
-  if (!res.ok || !b64 || b64.length > MEDIA_BASE64_MAX) return null;
-  const mime = res.data?.mimetype || mimeFallback || "application/octet-stream";
-  return `data:${mime.split(";")[0]};base64,${b64}`;
-}
-
 export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ token: string }> }
@@ -348,6 +345,19 @@ export async function POST(
       const list: EvoMessage[] = Array.isArray(raw)
         ? raw
         : (raw as { messages?: EvoMessage[] })?.messages ?? [raw as EvoMessage];
+
+      // ORÇAMENTO DE ARQUIVO DO LOTE (RN-028). A partir daqui, os downloads
+      // têm um tempo total para acontecer. Estourou, as mensagens seguintes
+      // ainda são GRAVADAS na mesma hora — só o arquivo delas vai para a fila
+      // de repesca. Gravar a conversa é o que nunca pode faltar.
+      const inicioDoLote = Date.now();
+      // CABE UM DOWNLOAD INTEIRO no que sobrou? Perguntar só "ainda estou
+      // dentro do orçamento" não bastava: um download que COMEÇA no último
+      // segundo ainda roda o tempo dele todo por cima. Medido no teste de
+      // ponta a ponta, quatro arquivos travados levavam o webhook a 36s com
+      // orçamento de 25 — a conta certa é esta.
+      const temTempoParaArquivo = () =>
+        Date.now() - inicioDoLote + MS_BUSCA_MIDIA <= MS_ORCAMENTO_MIDIA_WEBHOOK;
 
       // UMA MENSAGEM COM PROBLEMA NÃO PODE DERRUBAR O LOTE.
       // O servidor entrega várias mensagens de uma vez. Com um único try em
@@ -545,18 +555,28 @@ export async function POST(
           if (jaGravada) continue;
         }
 
-        // foto/áudio/vídeo/arquivo: baixa o conteúdo para exibir na conversa
-        const mediaUrl =
-          mediaType === "TEXT"
-            ? null
-            : await fetchMediaDataUrl(settings.evolutionInstance, m.key?.id, mimeFallback);
-        // arquivo não veio (grande demais, expirado no servidor): a mensagem
-        // entra assim mesmo, dizendo que existe um anexo — sem isso a bolha
-        // aparecia como texto seco e ninguém sabia que faltava algo
-        const textoFinal =
-          mediaType !== "TEXT" && !mediaUrl
-            ? `${text} (não foi possível baixar o arquivo — veja no WhatsApp)`
-            : text;
+        // A MENSAGEM NASCE ANTES DO ARQUIVO (RN-028).
+        //
+        // Aqui era onde o arquivo era baixado ANTES de a mensagem existir —
+        // e onde o lote morria. Agora a bolha é gravada já marcada como
+        // "arquivo a caminho" e o download acontece logo depois, com
+        // orçamento de tempo. O que não chegar fica na fila e é repescado.
+        const temArquivo = mediaType !== "TEXT";
+        const textoFinal = text;
+
+        /** Busca o arquivo agora, se ainda houver tempo no lote. */
+        const buscarArquivoAgora = async (messageId: string) => {
+          if (!temTempoParaArquivo()) return; // a repesca cuida
+          await completarMidia({
+            id: messageId,
+            externalId: m.key?.id ?? null,
+            mediaTries: 0,
+            fileName,
+            companyId,
+            instance: settings.evolutionInstance,
+            mimeFallback,
+          });
+        };
 
         if (!m.key?.fromMe) {
           // mensagem do CLIENTE → central de leads (funil, vendedor, tarefa)
@@ -569,11 +589,18 @@ export async function POST(
             // `m.pushName` foi o que fez nascer a conversa "Lead 9621"
             name: nomeNoWhats || undefined,
             text: textoFinal,
-            ...(mediaType !== "TEXT" && mediaUrl
-              ? { mediaType, mediaUrl, fileName: fileName ?? undefined }
+            // RN-028: entra SEM o arquivo e marcada como pendente — a bolha
+            // existe desde já; o arquivo chega logo abaixo ou na repesca.
+            ...(temArquivo
+              ? { mediaType, fileName: fileName ?? undefined, mediaPending: true }
               : {}),
             externalId: m.key?.id,
           });
+
+          // agora sim, o arquivo (com o orçamento de tempo do lote)
+          if (temArquivo && result?.message) {
+            await buscarArquivoAgora(result.message.id);
+          }
 
           // NOME NO WHATSAPP (RN-024): guarda o nome que a cliente usa no
           // aplicativo num campo PRÓPRIO — a ficha pode virar razão social ou
@@ -830,16 +857,17 @@ export async function POST(
             // P2002 = o índice único pegou uma entrega repetida do mesmo aviso
             // (duas execuções em paralelo passaram pela checagem acima). Não é
             // erro: a mensagem já está gravada, seguimos em frente.
+            let criada: { id: string };
             try {
-              await db.message.create({
+              criada = await db.message.create({
                 data: {
                   conversationId: conv.id,
                   channel: "WHATSAPP",
                   direction: "OUT",
                   body: textoFinal,
-                  ...(mediaType !== "TEXT" && mediaUrl
-                    ? { mediaType, mediaUrl, fileName }
-                    : {}),
+                  // mesma regra da mensagem da cliente (RN-028): a bolha
+                  // nasce primeiro, o arquivo vem depois
+                  ...(temArquivo ? { mediaType, fileName, mediaPending: true } : {}),
                   externalId: m.key?.id,
                   status: "ENVIADA",
                 },
@@ -848,6 +876,7 @@ export async function POST(
               if ((e as { code?: string })?.code !== "P2002") throw e;
               continue;
             }
+            if (temArquivo) await buscarArquivoAgora(criada.id);
             // A CORRIDA DO RECIBO (incidente 28/08/2026): a bolha do eco só
             // nasce DEPOIS do download da mídia — com a cliente online, o
             // "entregue" chegou ANTES e ficou órfão. Reaplica agora, senão a

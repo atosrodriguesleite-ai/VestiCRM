@@ -74,6 +74,14 @@ export type Achado = {
   detalhe: string;
   estoqueAqui?: number;
   estoqueLa?: number;
+  /**
+   * Qual variação daqui o achado aponta — é o que permite CONSERTAR (soltar o
+   * vínculo torto), não só diagnosticar. A tela nunca manda este id de volta:
+   * o servidor reconfere e decide sozinho (relato da loja, 31/08/2026 — a
+   * conferência mostrava 12 vínculos errados e a lojista não tinha como
+   * desfazer nenhum).
+   */
+  variantId?: string;
 };
 
 const rotulo = (v: { produto: string; cor: string; tamanho: string }) =>
@@ -96,11 +104,29 @@ function porSku<T extends { sku: string | null }>(itens: T[]) {
  * Regra pura da conferência: compara as duas fotos (aqui × Nuvemshop) e devolve
  * o que está torto. Sem banco, sem rede — é o coração testável.
  */
+export type BrigaResolvida = { peca: string; quando: Date };
+
 export function conferirVinculo(
   aqui: VariacaoAqui[],
   la: VariacaoNs[],
   brigas: Briga[] = []
 ): Achado[] {
+  return conferirComHistorico(aqui, la, brigas).achados;
+}
+
+/**
+ * A conferência inteira: o que precisa de AÇÃO (`achados`) e o que já passou
+ * (`resolvidas`). Separar os dois é o que faz o número do topo dizer a
+ * verdade — antes ele somava 45 lembranças de brigas já consertadas às 5
+ * tarefas de verdade (pedido do dono, 31/08/2026).
+ */
+export function conferirComHistorico(
+  aqui: VariacaoAqui[],
+  la: VariacaoNs[],
+  brigas: Briga[] = [],
+  leituraCompleta = true
+): { achados: Achado[]; resolvidas: BrigaResolvida[] } {
+  const resolvidas: BrigaResolvida[] = [];
   const achados: Achado[] = [];
   const laPorVarId = new Map(la.map((v) => [v.varId, v]));
   const aquiPorId = new Map(aqui.map((v) => [v.id, v]));
@@ -132,6 +158,10 @@ export function conferirVinculo(
     for (const p of laPorSku.get(norm(v.sku)) ?? []) alcancam.add(p.varId);
     if (alcancam.size > 1) causaViva.add(v.id);
   }
+  // (o CARIMBO CRUZADO também segura a disputa: quem marca é o próprio achado,
+  // lá embaixo, que roda antes do laço das brigas. Peça SEM SKU aqui é
+  // alcançada só pelo carimbo — uma escritora, nenhuma disputa: a briga velha
+  // dela é história, não alarme.)
   for (const [chave, iguais] of dupAqui) {
     const tambemLa = dupLa.get(chave);
     achados.push({
@@ -192,6 +222,7 @@ export function conferirVinculo(
         tipo: "CARIMBO_ORFAO",
         gravidade: "MEDIA",
         peca: rotulo(v),
+        variantId: v.id,
         detalhe:
           "O vínculo aponta para uma peça que não existe mais na Nuvemshop (foi apagada ou recriada). Enquanto o vínculo velho estiver aí, ele passa na frente do SKU.",
         estoqueAqui: v.estoque,
@@ -208,6 +239,7 @@ export function conferirVinculo(
         tipo: "CARIMBO_CRUZADO",
         gravidade: "ALTA",
         peca: rotulo(v),
+        variantId: v.id,
         detalhe: `O vínculo diz que esta peça é a “${rotulo(par)}” da Nuvemshop (SKU ${par.sku}), mas o SKU daqui é ${v.sku}. O estoque está vindo da peça errada — provável resíduo do SKU duplicado.`,
         estoqueAqui: v.estoque,
         estoqueLa: par.estoque,
@@ -231,9 +263,14 @@ export function conferirVinculo(
   }
 
   // 6. Briga de sincronização: prova histórica de que duas peças de lá mexeram
-  //    na mesma variação daqui no mesmo minuto. UM aviso por PEÇA — e quando a
-  //    disputa parou de acontecer, ele deixa de ser alarme e vira histórico
-  //    (senão a lojista conserta o SKU e o painel continua vermelho para sempre).
+  //    na mesma variação daqui no mesmo minuto.
+  //
+  //    A BRIGA QUE JÁ PAROU NÃO É TAREFA (pedido do dono, 31/08/2026): a loja
+  //    consertou o SKU, a disputa acabou, e mesmo assim o painel dizia "50
+  //    pontos para olhar" — 45 deles eram lembrança de brigas resolvidas. Um
+  //    número que conta o que NÃO precisa de ação assusta e esconde as 4
+  //    coisas que precisam. Agora ela sai da lista e da conta, e vira uma
+  //    linha tranquila no rodapé ("já resolvidas").
   for (const b of brigas) {
     const v = aquiPorId.get(b.variantId);
     const quando = b.quando.toLocaleString("pt-BR");
@@ -242,13 +279,25 @@ export function conferirVinculo(
     const vezes =
       b.rodadas === 1 ? "ao menos 1 sincronização" : `ao menos ${b.rodadas} sincronizações`;
     const aindaAcontece = causaViva.has(b.variantId);
+    // "ACABOU" SÓ SE DEU PARA CONFERIR (achado da revisão de 31/08/2026):
+    // quando a leitura da Nuvemshop veio pela metade (página que falhou,
+    // catálogo além do teto), a peça que causa a disputa pode ser justamente
+    // uma das que não vieram — e o silêncio viraria "nada a fazer" com o
+    // estoque embaralhando a cada sincronização. Na dúvida, AVISA.
+    if (!aindaAcontece && leituraCompleta) {
+      resolvidas.push({
+        peca: v ? rotulo(v) : "Variação removida",
+        quando: b.quando,
+      });
+      continue;
+    }
     achados.push({
       tipo: "BRIGA_DE_SYNC",
       gravidade: aindaAcontece ? "ALTA" : "MEDIA",
       peca: v ? rotulo(v) : "Variação removida",
       detalhe: aindaAcontece
         ? `Duas peças da Nuvemshop estão disputando esta variação — o estoque dela fica com o número da última lida. Já aconteceu em ${vezes} (a última em ${quando}): ${b.historico.join(" → ")}`
-        : `Esta variação JÁ foi disputada por duas peças da Nuvemshop (${vezes}, a última em ${quando}), mas hoje nenhuma peça de lá disputa mais o lugar dela — isto aqui é só histórico do livro de estoque.`,
+        : `Esta variação já foi disputada por duas peças da Nuvemshop em ${vezes} (a última em ${quando}): ${b.historico.join(" → ")}. Não deu pra conferir o catálogo da Nuvemshop nesta rodada, então não dá pra dizer que acabou — confira de novo depois.`,
       estoqueAqui: v?.estoque,
     });
   }
@@ -256,12 +305,77 @@ export function conferirVinculo(
   // A ordem da lista É a ordem de consertar. Arrumar SKU na Nuvemshop vem
   // ANTES de tudo: enquanto ele estiver repetido lá, toda sincronização
   // desfaz o conserto feito aqui.
-  return achados.sort(
-    (a, b) => ORDEM_DE_CONSERTO.indexOf(a.tipo) - ORDEM_DE_CONSERTO.indexOf(b.tipo)
-  );
+  return {
+    achados: achados.sort(
+      (a, b) => ORDEM_DE_CONSERTO.indexOf(a.tipo) - ORDEM_DE_CONSERTO.indexOf(b.tipo)
+    ),
+    // da mais recente para a mais antiga (é assim que se lê histórico)
+    resolvidas: resolvidas.sort((a, b) => b.quando.getTime() - a.quando.getTime()),
+  };
 }
 
 /** Ordem em que os problemas devem ser resolvidos (é a ordem da lista). */
+/**
+ * OS VÍNCULOS QUE O SISTEMA SOLTA SOZINHO — regra pura, testável sem banco.
+ *
+ * Só os dois casos em que o vínculo está objetivamente errado. SKU duplicado
+ * e briga de sync ficam de fora de propósito: ali quem decide é a lojista.
+ *
+ * `leituraCompleta` é a trava do órfão: quando a leitura da Nuvemshop veio
+ * pela metade (página que falhou, catálogo além do teto, catálogo que voltou
+ * VAZIO), peça NÃO LIDA parece apagada — soltar aí apagaria vínculo BOM.
+ * Nesse caso vai só o cruzado, que depende de peça lida de verdade (revisão
+ * de 31/08/2026). Quem decide se a leitura serve é
+ * `leituraConfiavelParaSoltar` — a MESMA régua que decide se a disputa velha
+ * pode ser dada como encerrada.
+ */
+export type MotivoLeitura = "OK" | "PARCIAL" | "VAZIO";
+
+/**
+ * POR QUE a leitura não serviu — "veio pela metade" e "voltou vazia" pedem
+ * recados diferentes: mandar "tente de novo daqui a pouco" para uma loja com
+ * catálogo legitimamente vazio é um aviso que nunca vai mudar (revisão de
+ * 31/08/2026, mesma lição da RN-023).
+ */
+export function motivoDaLeitura(x: { completa: boolean; variacoesNs: number }): MotivoLeitura {
+  if (!x.completa) return "PARCIAL";
+  if (x.variacoesNs === 0) return "VAZIO";
+  return "OK";
+}
+
+export function leituraConfiavelParaSoltar(x: {
+  completa: boolean;
+  variacoesNs: number;
+}): boolean {
+  // catálogo vazio não é "a lojista apagou tudo lá": é leitura que não veio
+  // (200 com corpo estranho, loja recém-conectada, conexão trocada). Aí TODO
+  // vínculo vira órfão e um clique zeraria o catálogo inteiro.
+  //
+  // E são SÓ estas duas perguntas. Uma trava por PROPORÇÃO de órfãos foi
+  // tentada e recusada na mesma revisão: loja que apaga e recria metade dos
+  // produtos — o cenário exato do vínculo órfão — ficaria sem conserto para
+  // SEMPRE, com a leitura vindo inteira todas as vezes. Quem garante que a
+  // leitura veio inteira é o `completa`, e ele erra para o lado seguro.
+  return x.completa && x.variacoesNs > 0;
+}
+
+export function vinculosParaSoltar(
+  achados: Achado[],
+  leituraCompleta: boolean
+): string[] {
+  const tipos: TipoAchado[] = leituraCompleta
+    ? ["CARIMBO_CRUZADO", "CARIMBO_ORFAO"]
+    : ["CARIMBO_CRUZADO"];
+  return [
+    ...new Set(
+      achados
+        .filter((a) => tipos.includes(a.tipo))
+        .map((a) => a.variantId)
+        .filter((v): v is string => !!v)
+    ),
+  ];
+}
+
 export const ORDEM_DE_CONSERTO: TipoAchado[] = [
   "SKU_DUPLICADO_NOS_DOIS",
   "SKU_DUPLICADO_LA",
@@ -422,22 +536,50 @@ export async function conferirIntegracao(companyId: string) {
     nsVarId: v.nuvemshopId,
   }));
 
-  const achados = conferirVinculo(aqui, ns.variacoes, brigas);
+  // A CONFIANÇA NA LEITURA É UMA SÓ (revisão de 31/08/2026): antes o
+  // histórico usava `ns.completa` (que diz "sim" para catálogo que voltou
+  // VAZIO) e o conserto usava a régua estrita — a tela dizia "nada a fazer"
+  // e escondia o botão sem explicar nada.
+  const vinculadas = aqui.filter((v) => v.nsVarId).length;
+  const leituraConfiavel = leituraConfiavelParaSoltar({
+    completa: ns.completa,
+    variacoesNs: ns.variacoes.length,
+  });
+
+  const { achados, resolvidas } = conferirComHistorico(
+    aqui,
+    ns.variacoes,
+    brigas,
+    leituraConfiavel
+  );
   const { mostrados, omitidos } = recortarParaTela(achados);
   return {
     ok: true as const,
     produtosNs: ns.produtos,
     variacoesNs: ns.variacoes.length,
     variacoesAqui: aqui.length,
-    vinculadas: aqui.filter((v) => v.nsVarId).length,
+    vinculadas,
     semSku: aqui.filter((v) => !norm(v.sku)).length,
     resumo: resumir(achados),
     achados: mostrados,
+    // a lista exibida é recortada por tipo; o CONSERTO precisa de todos —
+    // soltar 30 de 45 e dizer "pronto" deixava 15 mandando estoque errado
+    paraSoltar: vinculosParaSoltar(achados, leituraConfiavel),
+    // é a MESMA régua que segurou o conserto: o aviso âmbar da tela e o
+    // recado do botão precisam explicar o que a régua decidiu — e POR QUÊ
+    leituraCompleta: leituraConfiavel,
+    motivoLeitura: motivoDaLeitura({
+      completa: ns.completa,
+      variacoesNs: ns.variacoes.length,
+    }),
     // quantos ficaram de fora da lista (nunca some em silêncio)
     omitidos,
     // graves conta a lista INTEIRA, não só o pedaço que coube na tela
     graves: achados.filter((a) => a.gravidade === "ALTA").length,
     total: achados.length,
+    // brigas que JÁ acabaram: contam como tranquilidade, não como tarefa
+    resolvidas: resolvidas.length,
+    ultimaResolvida: resolvidas[0]?.quando ?? null,
   };
 }
 

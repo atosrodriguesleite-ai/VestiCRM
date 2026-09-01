@@ -210,6 +210,10 @@ export const MENSAGEM_LEVE = {
   editedAt: true,
   revoked: true,
   revokedBy: true,
+  // ARQUIVO A CAMINHO / QUE NÃO CHEGOU (RN-028) — dois booleanos baratos que
+  // a bolha usa para dizer a verdade em vez de mostrar um vazio silencioso.
+  mediaPending: true,
+  mediaError: true,
   // emoji grudado na mensagem: `reaction` = da cliente, `reactionStore` = da loja
   reaction: true,
   reactionStore: true,
@@ -260,6 +264,10 @@ export function mapMessage(m: {
   editedAt: Date | null;
   revoked: boolean;
   revokedBy: string | null;
+  /** RN-028: o WhatsApp tem o arquivo e nós ainda não (está na fila) */
+  mediaPending?: boolean;
+  /** RN-028: por que o arquivo não chegou (só quando desistimos) */
+  mediaError?: string | null;
   reaction?: string | null;
   reactionStore?: string | null;
 }): InboxMessage {
@@ -297,6 +305,10 @@ export function mapMessage(m: {
     editedAt: m.editedAt?.toISOString() ?? null,
     revoked: m.revoked,
     revokedBy: m.revokedBy,
+    mediaPending: m.mediaPending ?? false,
+    // só interessa à tela quando o arquivo REALMENTE não vem mais: enquanto
+    // está na fila, o erro da última tentativa é ruído (ela vai tentar de novo)
+    mediaErro: m.mediaPending ? null : (m.mediaError ?? null),
     reaction: m.reaction ?? null,
     reactionStore: m.reactionStore ?? null,
   };

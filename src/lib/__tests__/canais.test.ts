@@ -6,6 +6,8 @@ import {
   canalValido,
   labelDoCanal,
   origensDoCanal,
+  saidaDaVenda,
+  SAIDA_LABEL,
 } from "../canais";
 import { originLabel } from "../format";
 
@@ -65,6 +67,22 @@ describe("RN-026 — WhatsApp e catálogo público são um canal só nas métric
     expect(labelDoCanal("CATALOGO_PUBLICO")).toBe(labelDoCanal(CANAL_WHATSAPP_CATALOGO));
     // e chave herdada de objeto volta como veio, nunca como função do protótipo
     expect(labelDoCanal("constructor")).toBe("constructor");
+  });
+
+  it('a "porta de saída" da venda olha o PEDIDO, não a cliente', () => {
+    // Nuvemshop manda: venda da loja online é da loja online mesmo com
+    // vendedora gravada por engano em algum dado antigo — e nunca tem dona
+    // por regra (RN-005), então o pedido decide sozinho
+    expect(saidaDaVenda({ source: "NUVEMSHOP", sellerId: null })).toBe("LOJA_ONLINE");
+    expect(saidaDaVenda({ source: "NUVEMSHOP", sellerId: "vend-1" })).toBe("LOJA_ONLINE");
+    // fora da loja online, quem separa é a DONA do pedido — é o recorte que
+    // bate com a tela de Comissões (com dona = base de comissão)
+    expect(saidaDaVenda({ source: "CATALOGO", sellerId: "vend-1" })).toBe("COM_VENDEDORA");
+    expect(saidaDaVenda({ source: "MANUAL", sellerId: "vend-1" })).toBe("COM_VENDEDORA");
+    expect(saidaDaVenda({ source: "CATALOGO", sellerId: null })).toBe("SEM_VENDEDORA");
+    expect(saidaDaVenda({ source: "MANUAL", sellerId: null })).toBe("SEM_VENDEDORA");
+    // cada porta tem nome de gente na tela
+    for (const rotulo of Object.values(SAIDA_LABEL)) expect(rotulo.length).toBeGreaterThan(3);
   });
 
   it("toda tela que agrega métrica por canal passa pela soma (varredura)", () => {
