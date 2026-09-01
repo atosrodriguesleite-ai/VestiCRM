@@ -503,6 +503,15 @@ export async function campaignRanking(companyId: string, p: Period) {
         slug: c.slug,
         channel: c.channel,
         active: c.active,
+        // campanha encerrada some da lista de links, mas o faturamento dela
+        // continua no relatório — venda não se apaga (RN-040)
+        archivedAt: c.archivedAt,
+        discount: c.discount,
+        minOrderMode: c.minOrderMode,
+        minOrderPieces: c.minOrderPieces,
+        minOrderValue: c.minOrderValue,
+        goalValue: c.goal,
+        ownerId: c.ownerId,
         ownerName: users.find((u) => u.id === c.ownerId)?.name ?? null,
         goal: c.goal,
         clicks: mine.length,

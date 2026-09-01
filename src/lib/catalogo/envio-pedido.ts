@@ -263,6 +263,22 @@ export function assinaturaDoPedido(payload: Record<string, unknown>): string {
     // dizia "Pedido registrado!" e a loja não recebia nada (revisão 17/08).
     `#${payload.link ?? ""}`,
     `#${payload.ref ?? ""}`,
+    // CONDIÇÃO DO LINK DE CAMPANHA (RN-040), pelo MESMO motivo da tabela
+    // acima: a mesma sacola a 0% e a 30% são dois pedidos de valores
+    // diferentes. Sem isto, a loja editava o desconto, pedia para a cliente
+    // mandar de novo, e o segundo envio caía como "já registrado" —
+    // devolvendo o pedido VELHO, a preço cheio, com a tela dizendo "Pedido
+    // registrado!" (achado da revisão de 01/09/2026).
+    //
+    // SÓ ENTRA QUANDO EXISTE CAMPANHA, e isso é a parte importante: a
+    // assinatura vive no APARELHO da cliente. Acrescentar campo fixo mudaria
+    // TODA assinatura já guardada — a sacola mandada às 12:00 deixaria de
+    // casar às 12:05, ganharia protocolo novo e viraria pedido DUPLICADO,
+    // com estoque reservado duas vezes. Que é justamente o incidente que
+    // esta trava existe para impedir.
+    ...(payload.campanha
+      ? [`#${payload.campanha}`, `#${payload.campanhaDesconto ?? ""}`]
+      : []),
   ].join("~");
 }
 

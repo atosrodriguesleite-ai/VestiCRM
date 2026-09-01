@@ -1,6 +1,7 @@
 "use client";
 
 import { catalogPrice } from "@/lib/orders";
+import { precoComDesconto } from "@/lib/catalogo/condicoes-da-campanha";
 
 /**
  * Edição dos itens do pedido — ajustar quantidades, remover ou adicionar
@@ -41,6 +42,7 @@ export function ItemsEditor({
   shippingFee,
   alreadyPaid = false,
   priceMode = null,
+  campaignDiscount = 0,
 }: {
   orderId: string;
   initialItems: Line[];
@@ -54,10 +56,16 @@ export function ItemsEditor({
    * 18/08/2026).
    */
   priceMode?: string | null;
+  /**
+   * DESCONTO DO LINK DE CAMPANHA que precificou o pedido (RN-040). Mesmo
+   * motivo da tabela acima: sem ele, três peças saíam a R$ 80 e a quarta,
+   * acrescentada depois, a R$ 100 — no mesmo pedido (revisão 01/09/2026).
+   */
+  campaignDiscount?: number;
 }) {
-  /** preço a sugerir para uma peça nova: a tabela do pedido manda. */
+  /** preço a sugerir para uma peça nova: a tabela E o desconto do pedido mandam. */
   const precoSugerido = (p: { wholesalePrice: number; retailPrice: number }) =>
-    catalogPrice(p, priceMode);
+    precoComDesconto(catalogPrice(p, priceMode), campaignDiscount);
 
   const router = useRouter();
   const [open, setOpen] = useState(false);

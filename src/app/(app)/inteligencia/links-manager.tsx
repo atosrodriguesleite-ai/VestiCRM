@@ -5,8 +5,9 @@
 import { useState } from "react";
 import { Portal } from "@/components/portal";
 import { useRouter } from "next/navigation";
-import { Check, Copy, Plus, QrCode, Store, X } from "lucide-react";
-import { brl } from "@/lib/format";
+import { Check, Copy, Pencil, Plus, QrCode, Store, Trash2, X } from "lucide-react";
+import { brl, numeroBR } from "@/lib/format";
+import { TETO_DE_DESCONTO } from "@/lib/catalogo/condicoes-da-campanha";
 import { Card, Badge, EmptyState } from "@/components/ui";
 
 type Campaign = {
@@ -18,7 +19,27 @@ type Campaign = {
   orders: number;
   revenue: number;
   active: boolean;
+  // CONDIÇÕES DO LINK (RN-040): editáveis a qualquer hora; o endereço não
+  discount: number;
+  minOrderMode: string | null;
+  minOrderPieces: number;
+  minOrderValue: number;
+  goal: number;
+  ownerId: string | null;
 };
+
+/** Como o mínimo próprio do link aparece na lista, em duas palavras. */
+function seloDoMinimo(c: {
+  minOrderMode: string | null;
+  minOrderPieces: number;
+  minOrderValue: number;
+}) {
+  if (c.minOrderMode === "PECAS")
+    return c.minOrderPieces > 0 ? `mín. ${c.minOrderPieces} pç` : "sem mínimo";
+  if (c.minOrderMode === "VALOR")
+    return c.minOrderValue > 0 ? `mín. ${brl(c.minOrderValue)}` : "sem mínimo";
+  return "sem mínimo";
+}
 
 const CHANNELS = [
   ["campanha", "Campanha"], ["instagram", "Instagram"], ["facebook", "Facebook"],
@@ -52,6 +73,8 @@ export function LinksManager({
 }) {
   const router = useRouter();
   const [showNew, setShowNew] = useState(false);
+  const [editing, setEditing] = useState<Campaign | null>(null);
+  const [recado, setRecado] = useState("");
   const [qrFor, setQrFor] = useState<{ url: string; label: string } | null>(null);
   const [copied, setCopied] = useState("");
 
@@ -152,6 +175,11 @@ export function LinksManager({
             Nova campanha
           </button>
         </div>
+        {recado && (
+          <p className="mb-3 rounded-xl bg-emerald-50 border border-emerald-100 px-3 py-2 text-xs text-emerald-800 leading-snug">
+            {recado}
+          </p>
+        )}
         {campaigns.length === 0 ? (
           <EmptyState title="Nenhuma campanha ainda" hint="Crie uma campanha para gerar link, UTM e QR Code." />
         ) : (
@@ -163,14 +191,40 @@ export function LinksManager({
                   <div className="min-w-0 flex-1">
                     <p className="text-sm font-medium truncate flex items-center gap-2">
                       {c.name}
-                      {!c.active && <Badge color="#94a3b8">inativa</Badge>}
+                      {!c.active && <Badge color="#94a3b8">pausada</Badge>}
+                      {c.discount > 0 && <Badge color="#059669">{c.discount}% OFF</Badge>}
+                      {/* TODO mínimo próprio ganha selo: sem o de R$ (e sem o
+                          de "0 peças"), link com trava ficava igualzinho a
+                          link sem condição, e só abrindo dava para saber */}
+                      {c.minOrderMode !== null && (
+                        <Badge color="#7c3aed">{seloDoMinimo(c)}</Badge>
+                      )}
                     </p>
                     <p className="text-[10px] text-gray-400 font-mono truncate">{shortLabelFor(c.slug)}</p>
                   </div>
-                  <div className="text-right shrink-0 hidden sm:block">
-                    <p className="text-xs font-semibold tabular-nums">{c.clicks} cliques · {c.orders} pedidos</p>
+                  {/* OS NÚMEROS APARECEM NO CELULAR (relato do dono,
+                      01/09/2026): estavam escondidos em tela pequena, e a
+                      pergunta "como eu rastreio os pedidos vindos daqui?"
+                      tinha a resposta invisível justamente onde ela é lida */}
+                  <div className="text-right shrink-0">
+                    <p className="text-[11px] sm:text-xs font-semibold tabular-nums whitespace-nowrap">
+                      {c.clicks} cliques · {c.orders} pedidos
+                    </p>
                     <p className="text-[11px] text-emerald-600 tabular-nums">{brl(c.revenue)}</p>
                   </div>
+                  <button
+                    onClick={() => {
+                      // recado da ação ANTERIOR não pode sobreviver à
+                      // próxima: "campanha encerrada, 12 cliques" ficava na
+                      // tela enquanto a lojista editava OUTRA campanha
+                      setRecado("");
+                      setEditing(c);
+                    }}
+                    className="p-1.5 rounded-lg text-gray-400 hover:text-brand-600 hover:bg-brand-50"
+                    title="Editar condições"
+                  >
+                    <Pencil className="size-4" />
+                  </button>
                   <button onClick={() => copy(url)} className="p-1.5 rounded-lg text-gray-400 hover:text-brand-600 hover:bg-brand-50" title="Copiar">
                     {copied === url ? <Check className="size-4 text-emerald-500" /> : <Copy className="size-4" />}
                   </button>
@@ -218,6 +272,23 @@ export function LinksManager({
         </div></Portal>
       )}
 
+      {editing && (
+        <EditCampaignModal
+          campaign={editing}
+          team={team}
+          linkLabel={shortLabelFor(editing.slug)}
+          onClose={() => setEditing(null)}
+          onSaved={(mensagem) => {
+            setEditing(null);
+            // quem sabe o que aconteceu é o SERVIDOR (apagou de vez ou
+            // encerrou guardando os números) — a tela repete o que ele disse,
+            // e limpa quando a ação não tem recado (salvar comum)
+            setRecado(mensagem ?? "");
+            router.refresh();
+          }}
+        />
+      )}
+
       {showNew && (
         <NewCampaignModal
           team={team}
@@ -246,6 +317,7 @@ function NewCampaignModal({
   const [channel, setChannel] = useState("campanha");
   const [ownerId, setOwnerId] = useState("");
   const [goal, setGoal] = useState("");
+  const [cond, setCond] = useState<Cond>(CONDICOES_PADRAO);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
@@ -264,7 +336,8 @@ function NewCampaignModal({
         slug: slug || autoSlug(name),
         channel,
         ownerId: ownerId || null,
-        goal: parseFloat(goal.replace(",", ".")) || 0,
+        goal: numeroBR(goal),
+        ...condicoesParaApi(cond),
       }),
     });
     setSaving(false);
@@ -319,6 +392,7 @@ function NewCampaignModal({
             <label className={label}>Meta de faturamento (R$)</label>
             <input value={goal} onChange={(e) => setGoal(e.target.value)} className={input} placeholder="0,00" inputMode="decimal" />
           </div>
+          <CondicoesFields cond={cond} onChange={setCond} />
           {error && <p className="text-sm text-rose-600 bg-rose-50 rounded-lg px-3 py-2">{error}</p>}
           <button
             onClick={submit}
@@ -326,6 +400,284 @@ function NewCampaignModal({
             className="w-full rounded-xl bg-brand-600 hover:bg-brand-700 text-white font-medium py-2.5 text-sm transition disabled:opacity-60"
           >
             {saving ? "Criando..." : "Criar campanha + QR Code"}
+          </button>
+        </div>
+      </div>
+    </div></Portal>
+  );
+}
+
+// ---- Condições do link (RN-040) --------------------------------------------
+
+/**
+ * O QUE A LOJA EDITA DEPOIS DE JÁ TER DIVULGADO O LINK.
+ *
+ * O endereço (`ref`) não está aqui de propósito: ele já foi mandado no grupo,
+ * impresso no QR e colado no story (pedido do dono, 01/09/2026). Mudar o
+ * endereço quebraria tudo isso sem avisar ninguém.
+ */
+type Cond = {
+  discount: string;
+  minMode: "" | "NONE" | "PECAS" | "VALOR";
+  minPieces: string;
+  minValue: string;
+};
+
+const CONDICOES_PADRAO: Cond = { discount: "", minMode: "", minPieces: "", minValue: "" };
+
+/** O que vai para a API — o que a tela mostra vazio vira "herda da loja". */
+function condicoesParaApi(c: Cond) {
+  return {
+    discount: Math.max(0, Math.min(TETO_DE_DESCONTO, Math.round(numeroBR(c.discount)))),
+    minOrderMode: c.minMode === "" ? null : c.minMode,
+    minOrderPieces: Math.max(0, Math.round(numeroBR(c.minPieces))),
+    minOrderValue: Math.max(0, numeroBR(c.minValue)),
+  };
+}
+
+function condicoesDaCampanha(c: Campaign): Cond {
+  return {
+    discount: c.discount > 0 ? String(c.discount) : "",
+    minMode: (c.minOrderMode as Cond["minMode"]) ?? "",
+    minPieces: c.minOrderPieces > 0 ? String(c.minOrderPieces) : "",
+    minValue: c.minOrderValue > 0 ? String(c.minOrderValue).replace(".", ",") : "",
+  };
+}
+
+function CondicoesFields({ cond, onChange }: { cond: Cond; onChange: (c: Cond) => void }) {
+  const input =
+    "w-full rounded-xl border border-gray-200 px-3 py-2.5 text-sm outline-none focus:border-brand-400 transition";
+  const label = "block text-sm font-medium mb-1.5";
+  const set = (p: Partial<Cond>) => onChange({ ...cond, ...p });
+  return (
+    <div className="rounded-xl border border-gray-100 bg-gray-50/60 p-3 space-y-3">
+      <p className="text-xs font-semibold text-gray-700">
+        Condições deste link{" "}
+        <span className="font-normal text-gray-500">— dá para mudar depois</span>
+      </p>
+      <div>
+        <label className={label}>Desconto (%)</label>
+        <input
+          value={cond.discount}
+          onChange={(e) => set({ discount: e.target.value.replace(/\D/g, "").slice(0, 3) })}
+          className={input}
+          placeholder="0 = sem desconto"
+          inputMode="numeric"
+        />
+        <p className="text-[11px] text-gray-500 mt-1 leading-snug">
+          Quem entrar por este link vê todos os preços já com o desconto.
+        </p>
+        {/* CORTAR CALADO É PIOR: quem digitava 100 salvava 90 e o link
+            passava a cobrar 10% do catálogo, com a tela dizendo que deu certo
+            (achado da revisão de 01/09/2026) */}
+        {numeroBR(cond.discount) > TETO_DE_DESCONTO && (
+          <p className="text-[11px] font-semibold text-amber-700 mt-1 leading-snug">
+            O desconto máximo é {TETO_DE_DESCONTO}% — vai ser salvo como{" "}
+            {TETO_DE_DESCONTO}%. Para dar a peça, use brinde no pedido.
+          </p>
+        )}
+      </div>
+      <div>
+        <label className={label}>Pedido mínimo</label>
+        <select
+          value={cond.minMode}
+          onChange={(e) => set({ minMode: e.target.value as Cond["minMode"] })}
+          className={`${input} bg-white`}
+        >
+          <option value="">Usar o mínimo da loja</option>
+          <option value="NONE">Sem mínimo neste link</option>
+          <option value="PECAS">Mínimo de peças</option>
+          <option value="VALOR">Mínimo em R$</option>
+        </select>
+      </div>
+      {cond.minMode === "PECAS" && (
+        <input
+          value={cond.minPieces}
+          onChange={(e) => set({ minPieces: e.target.value.replace(/\D/g, "") })}
+          className={input}
+          placeholder="Quantas peças, no mínimo"
+          inputMode="numeric"
+        />
+      )}
+      {cond.minMode === "VALOR" && (
+        <input
+          value={cond.minValue}
+          onChange={(e) => set({ minValue: e.target.value })}
+          className={input}
+          placeholder="Valor mínimo (R$)"
+          inputMode="decimal"
+        />
+      )}
+    </div>
+  );
+}
+
+function EditCampaignModal({
+  campaign,
+  team,
+  linkLabel,
+  onClose,
+  onSaved,
+}: {
+  campaign: Campaign;
+  team: { id: string; name: string }[];
+  linkLabel: string;
+  onClose: () => void;
+  onSaved: (mensagem?: string) => void;
+}) {
+  const [name, setName] = useState(campaign.name);
+  const [channel, setChannel] = useState(campaign.channel);
+  const [ownerId, setOwnerId] = useState(campaign.ownerId ?? "");
+  const [goal, setGoal] = useState(campaign.goal > 0 ? String(campaign.goal).replace(".", ",") : "");
+  const [active, setActive] = useState(campaign.active);
+  const [cond, setCond] = useState<Cond>(condicoesDaCampanha(campaign));
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  async function salvar() {
+    setSaving(true);
+    setError("");
+    try {
+      const res = await fetch(`/api/track-campaigns/${campaign.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name,
+          channel,
+          ownerId: ownerId || null,
+          goal: numeroBR(goal),
+          active,
+          ...condicoesParaApi(cond),
+        }),
+      });
+      if (res.ok) onSaved();
+      else {
+        const d = await res.json().catch(() => ({}));
+        setError(d.error ?? "Não deu para salvar. Tente de novo.");
+      }
+    } catch {
+      // sinal caiu no meio: sem isto o botão ficava preso em "Salvando…"
+      setError("A conexão caiu no meio. Nada foi salvo — tente de novo.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function excluir() {
+    // A TELA NÃO PROMETE O QUE NÃO SABE: os números aqui são do PERÍODO
+    // filtrado, e o servidor conta a história inteira — campanha antiga
+    // aparece 0×0 e a promessa de "some de vez" sairia furada (achado da
+    // revisão de 01/09/2026). Quem decide é o servidor; a tela conta depois.
+    if (
+      !window.confirm(
+        `Tirar a campanha "${campaign.name}" da lista?\n\n` +
+          "O link para de aplicar as condições e volta a abrir o catálogo " +
+          "normal da loja, e o pedido que vier por ele nasce SEM VENDEDORA " +
+          "(fica da loja). Se ela já tiver trazido clientes, os números dela " +
+          "continuam no relatório de campanhas."
+      )
+    )
+      return;
+    setSaving(true);
+    setError("");
+    try {
+      const res = await fetch(`/api/track-campaigns/${campaign.id}`, { method: "DELETE" });
+      const d = await res.json().catch(() => null);
+      if (res.ok) onSaved(d?.mensagem);
+      else setError(d?.error ?? "Não deu para excluir. Tente de novo.");
+    } catch {
+      setError("A conexão caiu no meio. Nada foi excluído — tente de novo.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const input =
+    "w-full rounded-xl border border-gray-200 px-3 py-2.5 text-sm outline-none focus:border-brand-400 transition";
+  const label = "block text-sm font-medium mb-1.5";
+
+  return (
+    <Portal><div className="fixed inset-0 z-50 flex items-end md:items-center justify-center pb-[var(--kb,0px)]">
+      <div className="absolute inset-0 bg-black/30 animate-fade-in" onClick={onClose} />
+      <div className="relative bg-white rounded-t-2xl md:rounded-2xl shadow-pop w-full md:max-w-md p-6 animate-fade-up max-h-[92vh] overflow-y-auto thin-scroll">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="font-semibold text-lg">Editar campanha</h3>
+          <button onClick={onClose} className="text-gray-400 p-1"><X className="size-5" /></button>
+        </div>
+
+        {/* O ENDEREÇO NÃO SE EDITA — e a tela precisa DIZER isso, senão a
+            ausência do campo parece defeito */}
+        <div className="rounded-xl border border-gray-100 bg-gray-50/60 px-3 py-2.5 mb-4">
+          <p className="text-[11px] text-gray-500 mb-0.5">Link (não muda nunca)</p>
+          <p className="text-xs font-mono text-gray-700 break-all">{linkLabel}</p>
+          <p className="text-[11px] text-gray-500 mt-1 leading-snug">
+            Você já divulgou este endereço — ele fica congelado. As condições
+            abaixo você muda quando quiser, e valem na próxima visita.
+          </p>
+        </div>
+
+        <div className="space-y-4">
+          <div>
+            <label className={label}>Nome</label>
+            <input value={name} onChange={(e) => setName(e.target.value)} className={input} />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className={label}>Canal</label>
+              <select value={channel} onChange={(e) => setChannel(e.target.value)} className={`${input} bg-white`}>
+                {CHANNELS.map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className={label}>Responsável</label>
+              <select value={ownerId} onChange={(e) => setOwnerId(e.target.value)} className={`${input} bg-white`}>
+                <option value="">Loja</option>
+                {team.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
+              </select>
+            </div>
+          </div>
+          <div>
+            <label className={label}>Meta de faturamento (R$)</label>
+            <input value={goal} onChange={(e) => setGoal(e.target.value)} className={input} inputMode="decimal" placeholder="0,00" />
+          </div>
+
+          <CondicoesFields cond={cond} onChange={setCond} />
+
+          <label className="flex items-start gap-2.5 rounded-xl border border-gray-100 p-3 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={!active}
+              onChange={(e) => setActive(!e.target.checked)}
+              className="mt-0.5 size-4 accent-brand-600"
+            />
+            <span className="text-sm">
+              Pausar campanha
+              <span className="block text-[11px] text-gray-500 leading-snug">
+                O link continua abrindo o catálogo, com o preço e o mínimo
+                normais da loja. Enquanto estiver pausada, as visitas
+                <b> deixam de contar</b> para esta campanha no relatório — e o
+                pedido que vier por ele nasce <b>sem vendedora</b> (fica da
+                loja), em vez de ir para a responsável.
+              </span>
+            </span>
+          </label>
+
+          {error && <p className="text-sm text-rose-600 bg-rose-50 rounded-lg px-3 py-2">{error}</p>}
+
+          <button
+            onClick={salvar}
+            disabled={saving || !name.trim()}
+            className="w-full rounded-xl bg-brand-600 hover:bg-brand-700 text-white font-medium py-2.5 text-sm transition disabled:opacity-60"
+          >
+            {saving ? "Salvando..." : "Salvar condições"}
+          </button>
+          <button
+            onClick={excluir}
+            disabled={saving}
+            className="w-full inline-flex items-center justify-center gap-1.5 rounded-xl border border-rose-200 text-rose-600 hover:bg-rose-50 font-medium py-2.5 text-sm transition disabled:opacity-60"
+          >
+            <Trash2 className="size-4" />
+            Excluir campanha
           </button>
         </div>
       </div>

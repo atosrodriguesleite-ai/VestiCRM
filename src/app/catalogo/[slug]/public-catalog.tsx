@@ -280,6 +280,7 @@ export function PublicCatalog({
   categoryDescriptions = {},
   categoryTypes = {},
   promo = null,
+  condicoes = null,
   tabela = null,
   identity,
   logoSize = "normal",
@@ -305,6 +306,13 @@ export function PublicCatalog({
   categoryTypes?: Record<string, string>;
   // catálogo de campanha: nome + % de desconto (preços já vêm com desconto)
   promo?: { name: string; slug: string; discount: number } | null;
+  /**
+   * CONDIÇÃO PRÓPRIA DO LINK DE CAMPANHA (RN-040): a loja edita o desconto e
+   * o pedido mínimo do `?ref=` sem NUNCA mexer no endereço, que já foi
+   * divulgado. Viaja junto do pedido para o servidor reconferir — a vitrine
+   * mostra, o servidor decide (RN-009).
+   */
+  condicoes?: { slug: string; name: string; discount: number } | null;
   /**
    * TABELA DE PREÇO deste endereço (recurso gated). Null = catálogo normal
    * da loja: nada muda, nem preço nem trava de quantidade.
@@ -472,6 +480,22 @@ export function PublicCatalog({
   // são descartados na volta. Os dados do cliente também voltam preenchidos.
   // sacola por LOJA e por TABELA: quem abre o link de atacado não herda a
   // sacola montada no varejo (preços diferentes, mínimos diferentes)
+  /**
+   * A OFERTA QUE A VITRINE MOSTRA: o catálogo de campanha (`promo`) e a
+   * condição do link (`condicoes`, RN-040) aparecem igual para a cliente —
+   * faixa no topo e preço antigo riscado. Só o caminho do servidor é
+   * diferente, e ele vai no payload, não aqui.
+   */
+  const oferta =
+    promo ?? (condicoes && condicoes.discount > 0
+      ? { name: condicoes.name, slug: condicoes.slug, discount: condicoes.discount }
+      : null);
+  // A SACOLA NÃO ENTRA NA CONTA DO LINK DE CAMPANHA (revisão de 01/09/2026):
+  // ela guarda só QUANTIDADES — o preço é sempre recalculado no servidor
+  // (RN-009) e redesenhado a cada abertura —, então não havia valor velho a
+  // proteger. Amarrar a chave à campanha fazia o contrário do prometido:
+  // pausar a campanha trocava a chave por baixo de quem estava escolhendo e
+  // a sacola montada sumia da tela.
   const storeKey = `ap-sacola:${storeSlug}${promo ? `:${promo.slug}` : ""}${
     tabela ? `:l:${tabela.code}` : ""
   }`;
@@ -949,7 +973,7 @@ export function PublicCatalog({
       }
     }
     let msg = `*Novo pedido — ${storeName}*\n`;
-    if (promo) msg += `_Campanha: ${promo.name} (${promo.discount}% OFF)_\n`;
+    if (oferta) msg += `_Campanha: ${oferta.name} (${oferta.discount}% OFF)_\n`;
     // TABELA DE PREÇO no texto: é por esta linha que o "Colar pedido do
     // WhatsApp" sabe recompor os valores certos quando o registro automático
     // falha — sem ela, pedido de atacado era remontado a preço de varejo
@@ -1039,6 +1063,17 @@ export function PublicCatalog({
         c: origemRef.current.c || undefined,
         // campanha: o servidor recalcula os preços com o desconto dela
         promo: promo?.slug || undefined,
+        // condição do link de campanha (RN-040): o servidor reconfere e
+        // recalcula. Vai separado do `ref` de propósito — o `ref` LEMBRADO no
+        // aparelho mantém a comissão da vendedora (RN-005), mas emprestar
+        // desconto a quem entrou pelo catálogo normal faria a vitrine mostrar
+        // um preço e o pedido cobrar outro
+        campanha: condicoes?.slug || undefined,
+        // O DESCONTO QUE ELA VIU. Sem ele, editar a condição no meio do
+        // caminho (ou o reenvio automático da RN-010, dias depois) gravaria
+        // um valor diferente do que a vitrine e a mensagem do WhatsApp
+        // disseram — achado da revisão de 01/09/2026
+        campanhaDesconto: condicoes ? condicoes.discount : undefined,
         // tabela de preço deste endereço: o servidor recalcula os preços
         // por ela e carimba no pedido (nunca confia no valor da tela)
         link: tabela?.code || undefined,
@@ -1226,7 +1261,7 @@ export function PublicCatalog({
             </>
           )}
           <p className="text-[15px] font-bold m-0" style={{ color: T.primary }}>
-            {promo && card.product.originalRetailPrice ? (
+            {oferta && card.product.originalRetailPrice ? (
               <>
                 <s className="text-[12px] font-medium mr-1.5" style={{ color: T.muted }}>
                   {fmt(card.product.originalRetailPrice)}
@@ -1354,13 +1389,13 @@ export function PublicCatalog({
       </header>
 
       {/* FAIXA DA CAMPANHA — desconto já aplicado nos preços */}
-      {promo && (
+      {oferta && (
         <div
           className="text-center px-[18px] py-2"
           style={{ background: T.primary, color: T.secondary }}
         >
           <p className="text-[13px] font-extrabold uppercase tracking-wide m-0">
-            🏷 {promo.name} — {promo.discount}% OFF
+            🏷 {oferta.name} — {oferta.discount}% OFF
           </p>
           <p className="text-[10.5px] font-medium m-0 opacity-80">
             desconto já aplicado em todos os preços deste catálogo
@@ -1854,7 +1889,7 @@ export function PublicCatalog({
                 </p>
               )}
               <p className="text-xl font-extrabold my-3.5" style={{ color: T.primary }}>
-                {promo && sheet.product.originalRetailPrice ? (
+                {oferta && sheet.product.originalRetailPrice ? (
                   <>
                     <s className="text-sm font-medium mr-2" style={{ color: T.muted }}>
                       {fmt(sheet.product.originalRetailPrice)}
@@ -1864,7 +1899,7 @@ export function PublicCatalog({
                       className="align-middle ml-1 rounded-full px-2 py-0.5 text-[11px] font-bold"
                       style={{ background: T.primary, color: T.secondary }}
                     >
-                      -{promo.discount}%
+                      -{oferta.discount}%
                     </span>
                   </>
                 ) : (

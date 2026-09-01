@@ -47,6 +47,12 @@ type Previa = {
     confere: boolean;
     valorNaMensagem: number | null;
     comProblema: number;
+    /** desconto do link de campanha lido na mensagem (RN-040) */
+    descontoDoLink?: number;
+    campanhaNaMensagem?: string | null;
+    campanhaSlug?: string | null;
+    /** a mensagem cita campanha que não achamos: preço cheio, mas AVISANDO */
+    campanhaNaoResolvida?: boolean;
   };
 };
 
@@ -127,9 +133,21 @@ export function ImportarMensagemButton() {
           unitPrice: l.unitPrice ?? 0,
         })),
         status: "AGUARDANDO_PAGAMENTO",
+        // carimbo do link de campanha (RN-040): é o que faz a peça
+        // acrescentada depois seguir o mesmo desconto — e é por ele que a
+        // exclusão da campanha conta os pedidos dela
+        campaignRef: previa.resumo.campanhaSlug ?? null,
         notes: [
           "Pedido lançado a partir da mensagem do WhatsApp.",
           previa.cliente.lojaDela ? `Loja da cliente: ${previa.cliente.lojaDela}` : null,
+          // POR QUE ESTE PEDIDO SAIU MAIS BARATO — senão o valor não se
+          // explica depois (mesma linha que o pedido do catálogo grava)
+          previa.resumo.descontoDoLink
+            ? `🏷 Link da campanha “${previa.resumo.campanhaNaMensagem}” — ${previa.resumo.descontoDoLink}% de desconto já aplicado.`
+            : null,
+          previa.resumo.campanhaNaoResolvida
+            ? `⚠️ A mensagem citava a campanha “${previa.resumo.campanhaNaMensagem}”, que não confere com o cadastro. Os preços são os cheios — confira o valor combinado com a cliente.`
+            : null,
           previa.resumo.comProblema > 0
             ? `⚠️ ${previa.resumo.comProblema} linha(s) da mensagem não entraram (sem cadastro ou sem estoque) — confira com a cliente.`
             : null,
@@ -300,6 +318,23 @@ export function ImportarMensagemButton() {
                       </span>
                       <b>{brl(subtotal)}</b>
                     </div>
+                    {previa.resumo.campanhaNaoResolvida && (
+                      <p className="text-[12px] text-amber-700">
+                        ⚠️ A mensagem cita a campanha{" "}
+                        <b>“{previa.resumo.campanhaNaMensagem}”</b>, e o desconto
+                        dela não confere com o cadastro de agora (pode ter sido
+                        pausada, renomeada ou ter mudado de porcentagem). Os
+                        preços acima são os <b>cheios</b> — confira com a
+                        cliente o valor combinado antes de criar o pedido.
+                      </p>
+                    )}
+                    {!!previa.resumo.descontoDoLink && (
+                      <p className="text-[12px] text-emerald-700">
+                        🏷 A mensagem veio de um link de campanha com{" "}
+                        <b>{previa.resumo.descontoDoLink}% de desconto</b> — os
+                        preços acima já saem com ele.
+                      </p>
+                    )}
                     {previa.resumo.comProblema > 0 && (
                       <p className="text-[12px] text-gray-500">
                         As linhas em vermelho ficam de fora e são anotadas no pedido —

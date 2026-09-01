@@ -226,6 +226,51 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   pedido sem o campo, porque pedido do catálogo não pode se perder (RN-010)
   e o reenvio automático guarda payload antigo. Loja que não configurar
   nada não muda em NADA.
+  **RN-040 · Condições do LINK DE CAMPANHA, editáveis sem trocar o endereço**
+  (`lib/catalogo/condicoes-da-campanha.ts`, 01/09/2026): o link de campanha
+  da tela Inteligência (`?ref=`) deixou de só rastrear — a loja define nele um
+  **desconto** e um **pedido mínimo próprios** (menos peças, ou nenhum), e
+  **edita isso quando quiser**. O que NUNCA muda é o **endereço**: ele já foi
+  mandado no grupo, impresso no QR e colado no story (pedido do dono) — a
+  rota de edição nem aceita `slug`. Quem manda no preço é o SERVIDOR
+  (RN-009); a condição viaja no pedido em campo PRÓPRIO, separada do `ref`,
+  porque o `ref` pode vir LEMBRADO do aparelho (comissão, RN-005) e desconto
+  lembrado cobraria o que a vitrine não mostrou. **Descontos NÃO se somam**:
+  com tabela de preço (RN-018) ou catálogo promocional na mesma visita, a
+  condição do link não entra. Campanha **pausada** volta o link ao catálogo
+  normal (nunca 404 — pior que perder o desconto é o link divulgado quebrar)
+  e para de contar visitas para ela no relatório. **O pedido NUNCA é recusado por
+  mudança de condição** — editar desconto é a ação de todo dia que esta regra
+  criou, e pedido da fila do aparelho que volta recusado é DESCARTADO pelo
+  reenvio (o incidente da RN-010). O pedido leva o desconto que a vitrine
+  MOSTROU; se ele não bate com o de agora (nos dois sentidos: sumiu cobraria a
+  mais da cliente, apareceu faria a loja receber menos que o combinado), o
+  pedido ENTRA pelo valor do servidor e a diferença é **gritada na ficha e no
+  histórico** para a loja confirmar antes de cobrar. O desconto que precificou
+  fica **gravado no pedido** (`Order.campaignRef`/`campaignDiscount`) — e peça
+  acrescentada depois segue esse desconto (senão três linhas saíam a R$ 80 e a
+  quarta a R$ 100, no mesmo pedido), e o
+  resgate **"Colar pedido do WhatsApp"** lê o carimbo `_Campanha: X (N% OFF)_`
+  da mensagem: sem isso a lojista colava um pedido aprovado por R$ 800 e o
+  sistema criava de R$ 1.000. **Mas o número do texto NÃO decide dinheiro** —
+  a mensagem do wa.me é digitável, e "(90% OFF)" daria 90% sobre o cadastro:
+  o texto diz QUAL campanha e a porcentagem só CONFERE; o desconto sai do
+  cadastro da loja (`descontoDoResgate`). Não bateu — campanha xará, renomeada,
+  pausada, porcentagem mudada —, vale o preço CHEIO e a prévia **avisa**
+  (remontar calado é o incidente). É a diferença para o `tabelaNoTexto`, que
+  escolhe entre dois preços que já são nossos. Pausar também tem efeito em
+  comissão: pedido pelo link pausado nasce **sem vendedora** (é da loja, por
+  RN-005), e a tela diz isso antes de pausar. **Endereço de campanha é da
+  campanha, mesmo pausada** (`resolveRef`): antes o mesmo `?ref=` caía na
+  regra do primeiro nome e a campanha "Julia" da Ana, pausada, passava a
+  creditar a VENDEDORA Julia — levando a carteira da cliente junto. Endereço de campanha
+  encerrada **fica reservado** (recriar herdaria os cliques dela), e a tela
+  diz isso. **Excluir**: campanha sem nenhum clique some
+  de vez; a que já trouxe gente vira **encerrada** — sai da lista e o link
+  para de valer, mas os números seguem no relatório (venda não se apaga,
+  régua da RN-025). Os números de cada campanha (cliques, pedidos,
+  faturamento) aparecem **também no celular** — estavam escondidos em tela
+  pequena, e é ali que a lojista lê.
   **RN-012** · Resgate manual: **"Colar pedido do WhatsApp"** na tela Pedidos
   (`lib/catalogo/ler-mensagem.ts` + `/api/orders/ler-mensagem`) — lê a
   mensagem do catálogo, casa com o catálogo da loja (nome mais longo vence
