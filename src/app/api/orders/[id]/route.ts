@@ -45,7 +45,10 @@ import {
   syncOpportunityValue,
   garantirCartaoDoPedido,
 } from "@/lib/opportunity-sync";
-import { sincronizarPedidoSemQuebrar } from "@/lib/financeiro/porta-vendas";
+import {
+  apagarPedidoDoFinanceiroSemQuebrar,
+  sincronizarPedidoSemQuebrar,
+} from "@/lib/financeiro/porta-vendas";
 
 // Estoque fica RESERVADO em qualquer etapa que não seja Cancelado (o orçamento
 // já reserva). Só o cancelamento devolve. O faturamento (venda) continua sendo
@@ -1265,6 +1268,9 @@ export async function DELETE(
       );
     }
 
+    // o lançamento do financeiro não pode ficar vivo apontando para uma
+    // venda que deixou de existir (RN-031) — dinheiro fantasma no extrato
+    apagarPedidoDoFinanceiroSemQuebrar(user.companyId, order.id);
     const { devolvidas, oppReaberta } = await db.$transaction(async (tx) => {
       const oppId = order.opportunityId;
       // Desfaz o pedido (estoque + faturamento) e o apaga.

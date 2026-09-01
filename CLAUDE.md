@@ -525,7 +525,19 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   100 editado para R$ 450 refaz o lançamento e a baixa, porque o automático
   não aceita edição na tela (RN-028). **O QUE A LOJISTA FEZ NA MÃO É DELA**:
   baixa manual e cancelamento manual nunca são desfeitos — a porta avisa no
-  histórico (uma vez, sem virar spam) e para. A venda entra pelo `total` (o
+  histórico (uma vez, sem virar spam) e para. **Pedido APAGADO cancela o
+  lançamento** (estorna a baixa automática; com baixa manual, fica e avisa) —
+  e a porta confere antes que o pedido sumiu MESMO, porque o after() dispara
+  até quando a exclusão falha. **Corrigir a DATA da venda é ato
+  EXPLÍCITO** (`corrigirDataDaVendaNoFinanceiro`, só a tela de corrigir data
+  chama): move competência, vencimento e a baixa automática numa transação e
+  solta a conciliação da baixa movida (RN-035); a baixa manual fica com a
+  data em que o dinheiro andou. **Pagamento atrasado NÃO muda competência**:
+  a venda de agosto paga em outubro continua resultado de agosto (RN-034) —
+  só a data da baixa é de outubro. **Unificar contatos leva o financeiro junto**: lançamentos e
+  contas fixas da ficha apagada passam para a que sobrevive, senão a
+  inadimplência virava "Sem cliente" e a cobrança perdia o WhatsApp.
+  A venda entra pelo `total` (o
   que a cliente paga, **frete-ok**; faturamento continua `netTotal` por
   RN-002), com a categoria da origem (atacado, varejo, loja online) e as
   datas ao **meio-dia UTC** (RN-028 — carimbo cru some do filtro do mês).

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { requireUser, AuthError } from "@/lib/auth";
+import { corrigirDataDaVendaSemQuebrar } from "@/lib/financeiro/porta-vendas";
 import { isManagerUp, orderScope } from "@/lib/scope";
 import { PAID_ORDER_STATUSES } from "@/lib/orders";
 import { descricaoDaMudancaDeData, validarDataDaVenda } from "@/lib/data-da-venda";
@@ -60,6 +61,11 @@ export async function POST(
         userId: user.id,
       },
     });
+
+    // o financeiro acompanha a CORREÇÃO explícita (RN-031): sem isso o DRE e
+    // o fluxo seguiam contando a venda no mês errado. O pagamento que chega
+    // depois NÃO passa por aqui — competência não muda por pagamento.
+    corrigirDataDaVendaSemQuebrar(order.id);
 
     return NextResponse.json({ ok: true, pago });
   } catch (e) {

@@ -9,6 +9,7 @@ import {
   temPagamentoConfirmadoDeGateway,
   avisarIntegracoesDaDevolucao,
 } from "@/lib/order-actions";
+import { apagarPedidoDoFinanceiroSemQuebrar } from "@/lib/financeiro/porta-vendas";
 import { orderNumber } from "@/lib/orders";
 
 const patchSchema = z.object({
@@ -174,6 +175,8 @@ export async function DELETE(
       );
     }
 
+    // idem exclusão pela tela de Pedidos: a venda some, o financeiro cancela
+    if (opp.order) apagarPedidoDoFinanceiroSemQuebrar(user.companyId, opp.order.id);
     const devolvidas = await db.$transaction(
       async (tx) => {
         let dev: { variantId: string; quantity: number }[] = [];

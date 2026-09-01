@@ -250,3 +250,55 @@ describe("a porta é a única entrada e nunca atrapalha a venda (RN-031)", () =>
     expect(ler("src/lib/financeiro/porta-vendas.ts")).toContain("frete-ok");
   });
 });
+
+describe("nenhum número some, venha o que vier do pedido (RN-031)", () => {
+  const ler = (rel: string) =>
+    readFileSync(join(process.cwd(), rel), "utf8");
+
+  it("pedido APAGADO cancela o lançamento — sem dinheiro fantasma no extrato", () => {
+    const porta = ler("src/lib/financeiro/porta-vendas.ts");
+    expect(porta).toContain("export async function apagarPedidoDoFinanceiro");
+    // o after() dispara mesmo quando a exclusão falhou no meio: com o pedido
+    // ainda de pé, nada é cancelado
+    expect(porta).toContain("pedido-ainda-existe");
+    // e loja sem o módulo não muda em NADA, nem no apagar (RN-027)
+    expect(porta).toMatch(/apagarPedidoDoFinanceiro[\s\S]*?financeEnabled/);
+    // baixa manual é da lojista: o lançamento fica, com aviso
+    expect(porta).toContain("O pedido foi APAGADO, mas há baixa registrada à mão");
+    // e as DUAS portas de exclusão chamam
+    expect(ler("src/app/api/orders/[id]/route.ts")).toContain(
+      "apagarPedidoDoFinanceiroSemQuebrar"
+    );
+    expect(ler("src/app/api/opportunities/[id]/route.ts")).toContain(
+      "apagarPedidoDoFinanceiroSemQuebrar"
+    );
+  });
+
+  it("corrigir a DATA da venda é ato EXPLÍCITO — pagamento atrasado não muda competência", () => {
+    const porta = ler("src/lib/financeiro/porta-vendas.ts");
+    // a função própria existe e roda em transação (metade movida não se conserta)
+    expect(porta).toContain("export async function corrigirDataDaVendaNoFinanceiro");
+    expect(porta).toMatch(/corrigirDataDaVendaNoFinanceiro[\s\S]*?db\.\$transaction/);
+    // baixa que mudou de dia solta a conciliação (RN-035)
+    expect(porta).toMatch(/corrigirDataDaVendaNoFinanceiro[\s\S]*?finOfxVinculo\.deleteMany/);
+    // e o sincronizar COMUM não mexe na data de lançamento que JÁ EXISTE
+    // (criar novo tem competência, claro): a venda de agosto paga em outubro
+    // continua sendo competência de agosto (RN-034)
+    const depoisDoCriar = porta.slice(
+      porta.indexOf("// ---- só um aviso"),
+      porta.indexOf("export async function corrigirDataDaVendaNoFinanceiro")
+    );
+    expect(depoisDoCriar.length).toBeGreaterThan(100);
+    expect(depoisDoCriar).not.toContain("competencia:");
+    // só a tela de corrigir data chama
+    expect(ler("src/app/api/orders/[id]/data-da-venda/route.ts")).toContain(
+      "corrigirDataDaVendaSemQuebrar"
+    );
+  });
+
+  it("unificar contatos leva o financeiro junto (a conta não fica 'Sem cliente')", () => {
+    const merge = ler("src/lib/merge-contacts.ts");
+    expect(merge).toContain("tx.finLancamento.updateMany({ where: { customerId: dupeId }");
+    expect(merge).toContain("tx.finRecorrencia.updateMany({ where: { customerId: dupeId }");
+  });
+});

@@ -2,7 +2,7 @@ import { after } from "next/server";
 import { db } from "../db";
 import { soltarConciliacaoDaBaixa } from "./conciliacao";
 import { round2, PAID_ORDER_STATUSES, orderNumber } from "../orders";
-import { dataDoDia, diaSP, valorMovimentado } from "./lancamentos";
+import { dataDoDia, diaSP } from "./lancamentos";
 import { garantirCategoriasPadrao } from "./cadastros";
 
 /**
@@ -178,7 +178,7 @@ function somaAutomatica(lanc: EstadoDoLancamento): number {
 /* ---- a aplicação no banco ---------------------------------------------- */
 
 type Resultado =
-  | { feito: false; motivo: "modulo-desligado" | "sem-dinheiro" | "nao-encontrado" }
+  | { feito: false; motivo: "modulo-desligado" | "sem-dinheiro" | "nao-encontrado" | "pedido-ainda-existe" }
   | { feito: true; lancamentoId: string; acao: "criado" | "atualizado" | "cancelado" | "nada" };
 
 /**
@@ -327,6 +327,184 @@ export async function sincronizarPedidoNoFinanceiro(
   return { feito: true, lancamentoId: existente.id, acao: mexeu ? "atualizado" : "nada" };
 }
 
+/**
+ * A DATA DA VENDA FOI CORRIGIDA — um ato EXPLÍCITO da tela "corrigir data",
+ * nunca uma inferência: o pagamento que chega meses depois NÃO é correção de
+ * data (a venda de agosto paga em outubro continua sendo competência de
+ * agosto, RN-034), então o sincronizar comum não mexe em data nenhuma.
+ *
+ * Aqui, sim, o financeiro acompanha: competência, vencimento e a data da
+ * baixa AUTOMÁTICA vão para o novo dia — a baixa feita à mão fica com a data
+ * em que o dinheiro andou. Baixa que muda de dia SOLTA a conciliação (RN-035):
+ * "conferido" contra uma linha do banco de outro dia seria mentira carimbada.
+ * Tudo numa transação: metade movida seria impossível de consertar depois
+ * (lançamento automático recusa edição na tela, RN-028).
+ */
+export async function corrigirDataDaVendaNoFinanceiro(
+  orderId: string
+): Promise<Resultado> {
+  const pedido = await db.order.findUnique({
+    where: { id: orderId },
+    select: {
+      id: true,
+      companyId: true,
+      paidAt: true,
+      createdAt: true,
+      company: { select: { financeEnabled: true } },
+    },
+  });
+  if (!pedido) return { feito: false, motivo: "nao-encontrado" };
+  if (!pedido.company.financeEnabled) return { feito: false, motivo: "modulo-desligado" };
+
+  const lanc = await db.finLancamento.findFirst({
+    where: { companyId: pedido.companyId, origem: ORIGEM_PEDIDO, origemId: pedido.id },
+    include: { parcelas: { include: { baixas: true } } },
+  });
+  if (!lanc || lanc.canceladoEm)
+    return { feito: false, motivo: "nao-encontrado" };
+
+  const quando = diaDoDinheiro(pedido.paidAt ?? pedido.createdAt);
+  if (lanc.competencia.getTime() === quando.getTime())
+    return { feito: true, lancamentoId: lanc.id, acao: "nada" };
+
+  const automaticasMovidas = lanc.parcelas
+    .flatMap((p) => p.baixas)
+    .filter((b) => !b.estornadaEm && b.autorNome === AUTOR_SISTEMA)
+    .map((b) => b.id);
+
+  await db.$transaction(async (tx) => {
+    for (const parcela of lanc.parcelas) {
+      await tx.finParcela.update({
+        where: { id: parcela.id },
+        data: { vencimento: quando },
+      });
+    }
+    await tx.finBaixa.updateMany({
+      where: { id: { in: automaticasMovidas } },
+      data: { data: quando },
+    });
+    // baixa que mudou de dia não pode continuar "conferida" com o extrato
+    // do dia antigo (mesma régua do estorno, RN-035)
+    await tx.finOfxVinculo.deleteMany({
+      where: { baixaId: { in: automaticasMovidas } },
+    });
+    // a competência por ÚLTIMO: é ela que diz "já movi" — se algo falhasse
+    // antes, a próxima chamada refaz tudo em vez de pular para sempre
+    await tx.finLancamento.update({
+      where: { id: lanc.id },
+      data: {
+        competencia: quando,
+        eventos: {
+          create: {
+            descricao: `Data da venda corrigida na tela do pedido: o financeiro acompanhou (${diaSP(quando).split("-").reverse().join("/")})`,
+            autorNome: AUTOR_SISTEMA,
+          },
+        },
+      },
+    });
+  });
+  return { feito: true, lancamentoId: lanc.id, acao: "atualizado" };
+}
+
+/** A versão que não quebra a tela de corrigir data (mesma régua do after()). */
+export function corrigirDataDaVendaSemQuebrar(orderId: string): void {
+  after(() =>
+    corrigirDataDaVendaNoFinanceiro(orderId).catch((e) =>
+      console.error("[financeiro] falhou ao corrigir a data da venda", orderId, e)
+    )
+  );
+}
+
+/**
+ * O PEDIDO FOI APAGADO (a tela de Pedidos e o funil permitem, para pedido sem
+ * pagamento de gateway confirmado). O lançamento não pode ficar vivo apontando
+ * para uma venda que não existe mais — dinheiro fantasma no extrato.
+ *
+ * Mesma régua do cancelamento: estorna só a baixa AUTOMÁTICA e cancela; baixa
+ * registrada à mão é da lojista — o lançamento fica, com o aviso.
+ */
+export async function apagarPedidoDoFinanceiro(
+  companyId: string,
+  orderId: string
+): Promise<Resultado> {
+  // RN-027: loja sem o módulo não muda em NADA — nem no apagar
+  const chave = await db.company.findUnique({
+    where: { id: companyId },
+    select: { financeEnabled: true },
+  });
+  if (!chave?.financeEnabled) return { feito: false, motivo: "modulo-desligado" };
+
+  // o after() dispara mesmo quando a exclusão FALHOU no meio: se o pedido
+  // ainda está de pé, não se cancela nada — a venda continua valendo
+  const aindaExiste = await db.order.findUnique({
+    where: { id: orderId },
+    select: { id: true },
+  });
+  if (aindaExiste) return { feito: false, motivo: "pedido-ainda-existe" };
+
+  const lanc = await db.finLancamento.findFirst({
+    where: { companyId, origem: ORIGEM_PEDIDO, origemId: orderId },
+    include: {
+      parcelas: { include: { baixas: true } },
+      eventos: { orderBy: { createdAt: "desc" }, take: 20 },
+    },
+  });
+  if (!lanc) return { feito: false, motivo: "nao-encontrado" };
+  if (lanc.canceladoEm) return { feito: true, lancamentoId: lanc.id, acao: "nada" };
+
+  return cancelarLancamentoPelaPorta(lanc, {
+    avisoComBaixaManual:
+      "O pedido foi APAGADO, mas há baixa registrada à mão — confira este lançamento",
+    motivoDoEstorno: "Pedido apagado",
+    marca: `${MARCA_CANCELAMENTO} (pedido apagado)`,
+  });
+}
+
+/**
+ * O DESFECHO ÚNICO do cancelamento pela porta (pedido cancelado, etiqueta
+ * cancelada, pedido apagado): baixa manual viva é da lojista — o lançamento
+ * fica, com o aviso; sem ela, a baixa automática estorna e o lançamento
+ * cancela com a marca da porta. Três cópias deste bloco já divergiram uma
+ * vez — por isso ele mora num lugar só.
+ */
+async function cancelarLancamentoPelaPorta(
+  lanc: {
+    id: string;
+    parcelas: { baixas: { estornadaEm: Date | null; autorNome: string }[] }[];
+    eventos: { descricao: string }[];
+  },
+  textos: { avisoComBaixaManual: string; motivoDoEstorno: string; marca: string }
+): Promise<Resultado> {
+  const temBaixaManualViva = lanc.parcelas.some((p) =>
+    p.baixas.some((b) => !b.estornadaEm && b.autorNome !== AUTOR_SISTEMA)
+  );
+  if (temBaixaManualViva) {
+    await avisarUmaVez(lanc.id, textos.avisoComBaixaManual, lanc.eventos);
+    return { feito: true, lancamentoId: lanc.id, acao: "nada" };
+  }
+  await estornarBaixasDaPorta(lanc.id, textos.motivoDoEstorno);
+  await db.finLancamento.update({
+    where: { id: lanc.id },
+    data: {
+      canceladoEm: new Date(),
+      eventos: { create: { descricao: textos.marca, autorNome: AUTOR_SISTEMA } },
+    },
+  });
+  return { feito: true, lancamentoId: lanc.id, acao: "cancelado" };
+}
+
+/** A versão que nunca quebra a exclusão do pedido (mesma régua do after()). */
+export function apagarPedidoDoFinanceiroSemQuebrar(
+  companyId: string,
+  orderId: string
+): void {
+  after(() =>
+    apagarPedidoDoFinanceiro(companyId, orderId).catch((e) =>
+      console.error("[financeiro] falhou ao apagar o pedido do financeiro", orderId, e)
+    )
+  );
+}
+
 /** Traduz o lançamento do banco para o estado que a regra pura entende. */
 function estadoDoLancamento(
   l:
@@ -463,27 +641,15 @@ export async function cancelarEtiquetaNoFinanceiro(
   if (!lanc) return { feito: false, motivo: "nao-encontrado" };
   if (lanc.canceladoEm) return { feito: true, lancamentoId: lanc.id, acao: "nada" };
 
-  const estado = estadoDoLancamento({ ...lanc, eventos: [] });
-  if (estado.temBaixaManualViva) {
-    await db.finLancamentoEvento.create({
-      data: {
-        lancamentoId: lanc.id,
-        descricao:
-          "Etiqueta cancelada, mas há baixa registrada à mão — confira este lançamento",
-        autorNome: AUTOR_SISTEMA,
-      },
-    });
-    return { feito: true, lancamentoId: lanc.id, acao: "nada" };
-  }
-  await estornarBaixasDaPorta(lanc.id, "Etiqueta cancelada");
-  await db.finLancamento.update({
-    where: { id: lanc.id },
-    data: {
-      canceladoEm: new Date(),
-      eventos: { create: { descricao: MARCA_CANCELAMENTO, autorNome: AUTOR_SISTEMA } },
-    },
-  });
-  return { feito: true, lancamentoId: lanc.id, acao: "cancelado" };
+  return cancelarLancamentoPelaPorta(
+    { ...lanc, eventos: [] },
+    {
+      avisoComBaixaManual:
+        "Etiqueta cancelada, mas há baixa registrada à mão — confira este lançamento",
+      motivoDoEstorno: "Etiqueta cancelada",
+      marca: MARCA_CANCELAMENTO,
+    }
+  );
 }
 
 /* ---- bastidores -------------------------------------------------------- */
