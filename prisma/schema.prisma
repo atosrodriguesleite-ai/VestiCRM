@@ -1295,11 +1295,28 @@ model TrackCampaign {
   id        String   @id @default(cuid())
   companyId String
   name      String
-  slug      String // valor do ?ref=
+  /// valor do ?ref= — é o ENDEREÇO do link, e ele NUNCA muda depois de criado
+  /// (já foi mandado no grupo, impresso no QR, colado no story). O que se
+  /// edita são as CONDIÇÕES abaixo.
+  slug      String
   channel   String   @default("campanha") // instagram|qr|google|...
   ownerId   String? // responsável
   goal      Float    @default(0) // meta de faturamento
   active    Boolean  @default(true)
+
+  // ---- CONDIÇÕES DO LINK (editáveis a qualquer hora, RN-040) --------------
+  /// % de desconto sobre o preço do catálogo para quem entra por este link.
+  /// 0 = sem desconto (o link só rastreia, como sempre foi).
+  discount       Int     @default(0)
+  /// Pedido mínimo SÓ deste link: null = herda o da loja.
+  /// NONE (sem mínimo) | PECAS | VALOR — mesmos nomes de Company.minOrderMode.
+  minOrderMode   String?
+  minOrderPieces Int     @default(0)
+  minOrderValue  Float   @default(0)
+  /// Campanha "excluída" que já tem histórico: some da lista e o link para de
+  /// valer, mas os números continuam nos relatórios (venda não se apaga).
+  archivedAt     DateTime?
+
   createdAt DateTime @default(now())
 
   @@unique([companyId, slug])
@@ -1764,6 +1781,11 @@ model Order {
   /// todo preço ao gravar (RN-009): sem este carimbo, pedido de atacado
   /// seria recobrado no varejo.
   priceMode      String?
+  /// LINK DE CAMPANHA que precificou este pedido (RN-040): qual campanha e
+  /// quantos % de desconto ela deu. Sem isto o valor não se explicava depois
+  /// — e o resgate "Colar pedido do WhatsApp" remontava a preço cheio.
+  campaignRef      String?
+  campaignDiscount Int     @default(0)
   // DATA DO DINHEIRO: quando o pedido virou PAGO. É por ela que TODA métrica
   // de faturamento é somada (não pela data em que o orçamento foi montado) —
   // assim o mês bate com o extrato e um mês fechado nunca mais muda de valor.

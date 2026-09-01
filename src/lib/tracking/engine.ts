@@ -119,13 +119,21 @@ export async function resolveRef(companyId: string, refRaw: string) {
   let sellerId: string | null = null;
   let campaignId: string | null = null;
   let campaignChannel: string | null = null;
+  // O ENDEREÇO É DA CAMPANHA, MESMO PAUSADA (achado da revisão de
+  // 01/09/2026). Antes a busca filtrava `active: true` e, pausada, o mesmo
+  // `?ref=` caía na regra de baixo: campanha "Julia" (slug `julia`) da Ana
+  // passava a creditar a VENDEDORA Julia — levando a carteira da cliente
+  // junto (RN-005). Pausar tem que só desligar a campanha, nunca reapontar
+  // o link para outra pessoa.
   const campaign = await db.trackCampaign.findFirst({
-    where: { companyId, slug: ref, active: true },
+    where: { companyId, slug: ref },
   });
   if (campaign) {
-    campaignId = campaign.id;
-    campaignChannel = campaign.channel;
-    sellerId = campaign.ownerId;
+    if (campaign.active && !campaign.archivedAt) {
+      campaignId = campaign.id;
+      campaignChannel = campaign.channel;
+      sellerId = campaign.ownerId;
+    }
   } else {
     const users = await db.user.findMany({
       where: { companyId, active: true },

@@ -43,6 +43,15 @@ const createSchema = z.object({
   notes: z.string().optional(),
   paymentMethod: z.enum(["PIX", "CARTAO", "BOLETO", "CHEQUE", "DINHEIRO", "OUTRO"]).default("PIX"),
   status: z.enum(["ORCAMENTO", "AGUARDANDO_PAGAMENTO"]).default("ORCAMENTO"),
+  // LINK DE CAMPANHA que precificou (RN-040) — usado pelo resgate "Colar
+  // pedido do WhatsApp". Sem isto o pedido nascia com desconto 0 e a peça
+  // acrescentada depois vinha a preço cheio, no mesmo pedido.
+  //
+  // Só o ENDEREÇO vem daqui. A PORCENTAGEM é lida do cadastro: aceitar o
+  // número da tela deixava qualquer vendedora carimbar 90% e o editor de
+  // itens passava a sugerir toda peça nova a 10% do preço (achado da revisão
+  // de 01/09/2026). Em toda esta entrega quem calcula desconto é o servidor.
+  campaignRef: z.string().max(120).nullish(),
 });
 
 export async function POST(req: NextRequest) {
@@ -61,6 +70,21 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Dados inválidos" }, { status: 400 });
     }
     const input = parsed.data;
+
+    // CAMPANHA DO PEDIDO (RN-040): o endereço vem da tela, a PORCENTAGEM vem
+    // do cadastro — e da campanha DESTA loja (RN-013). Campanha pausada ou
+    // encerrada não desconta nada; o carimbo do endereço fica assim mesmo,
+    // porque é por ele que a exclusão conta os pedidos dela.
+    const campanhaDoPedido = input.campaignRef
+      ? await db.trackCampaign.findFirst({
+          where: { companyId: user.companyId, slug: input.campaignRef },
+          select: { slug: true, discount: true, active: true, archivedAt: true },
+        })
+      : null;
+    const descontoDaCampanha =
+      campanhaDoPedido && campanhaDoPedido.active && !campanhaDoPedido.archivedAt
+        ? campanhaDoPedido.discount
+        : 0;
 
     // valida cliente e conversa dentro do tenant
     const customer = await db.customer.findFirst({
@@ -172,6 +196,8 @@ export async function POST(req: NextRequest) {
           netTotal: totals.netTotal,
           total: totals.total,
           notes: input.notes,
+          campaignRef: campanhaDoPedido?.slug ?? null,
+          campaignDiscount: descontoDaCampanha,
           items: {
             create: input.items.map((i) => {
               const v = variantById.get(i.variantId)!;

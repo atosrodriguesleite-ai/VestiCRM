@@ -2,6 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { imageHref } from "@/lib/img";
+import {
+  condicoesDoLink,
+  precisaDoLinkAtualizado,
+  precoComDesconto,
+} from "@/lib/catalogo/condicoes-da-campanha";
+import { resolverCampanhaDoLink } from "@/lib/catalogo/condicoes-da-campanha-servidor";
 import { corIgual } from "@/lib/capa-por-cor";
 import { intakeLead, normalizePhone } from "@/lib/intake";
 import { telefoneDoPedido } from "@/lib/catalogo/telefone-do-pedido";
@@ -85,6 +91,13 @@ const schema = z.object({
   ref: z.string().max(120).optional(), // link do vendedor/campanha (?ref=)
   c: z.string().max(60).optional(), // link rastreado por cliente (?c=)
   promo: z.string().max(60).optional(), // catálogo de campanha (desconto)
+  // condição do link de campanha (RN-040): a loja edita desconto e mínimo do
+  // `?ref=` sem mexer no endereço. Vai separado do `ref` porque o `ref` pode
+  // vir LEMBRADO do aparelho (comissão, RN-005) e desconto lembrado cobraria
+  // um valor que a vitrine não mostrou
+  campanha: z.string().max(120).optional(),
+  /** o desconto que a vitrine MOSTROU (conferido antes de gravar) */
+  campanhaDesconto: z.number().int().min(0).max(100).optional(),
   /** TABELA DE PREÇO: código do link por onde a cliente entrou (atacado/varejo) */
   link: z.string().max(60).optional(),
   /**
@@ -232,6 +245,33 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  // CONDIÇÃO DO LINK DE CAMPANHA (RN-040): o desconto e o pedido mínimo
+  // próprios do `?ref=` desta visita, recalculados AQUI (RN-009).
+  const campanha = input.campanha
+    ? await resolverCampanhaDoLink(company.id, input.campanha)
+    : null;
+  const condicoes = condicoesDoLink(campanha, company, !!tabela || !!input.promo);
+  // MUDOU O PREÇO ENTRE A TELA E O ENVIO? O PEDIDO ENTRA ASSIM MESMO.
+  //
+  // A primeira versão recusava com 409, como faz a tabela de preço. Mas ali o
+  // link some por ação rara, e aqui EDITAR O DESCONTO é a ação de todo dia
+  // que esta entrega acabou de dar para a lojista. Pedido que fica na fila do aparelho
+  // (RN-010) e volta recusado é DESCARTADO pelo reenvio: a mensagem já chegou
+  // no WhatsApp da vendedora e o pedido não existiria — o incidente que criou
+  // a RN-010. Então o pedido ENTRA sempre, pelo preço que o servidor calcula
+  // (RN-009, nunca pelo número que o navegador mandou), e a diferença é
+  // GRITADA na ficha para a loja resolver com a cliente.
+  const descontoVisto = input.campanhaDesconto ?? 0;
+  const precoMudou =
+    !!input.campanha && precisaDoLinkAtualizado(descontoVisto, condicoes.desconto);
+  const avisoDeMudanca = precoMudou
+    ? `⚠️ As condições deste link mudaram entre a tela e o envio: a cliente viu ${
+        descontoVisto > 0 ? `${descontoVisto}% de desconto` : "o preço cheio"
+      } e o link agora dá ${
+        condicoes.desconto > 0 ? `${condicoes.desconto}%` : "o preço cheio"
+      }. O pedido foi gravado pelo valor de AGORA — confirme com a cliente antes de cobrar.`
+    : null;
+
   // Catálogo de CAMPANHA: o desconto é da loja e recalculado AQUI — só vale
   // se a campanha existe, está ativa e o produto faz parte dela
   const promo = input.promo
@@ -247,7 +287,9 @@ export async function POST(req: NextRequest) {
   const promoPrice = (productId: string, price: number) =>
     promoActive && promoProductIds.has(productId)
       ? Math.round(price * (1 - promoActive.discount / 100) * 100) / 100
-      : price;
+      : // DESCONTOS NÃO SE SOMAM (RN-040): `condicoesDoLink` já devolveu zero
+        // quando existe tabela de preço ou catálogo de campanha na visita
+        precoComDesconto(price, condicoes.desconto);
 
   // Resolve as variações (produto ativo + cor + tamanho) dentro da loja
   const productIds = [...new Set(input.items.map((i) => i.productId))];
@@ -583,10 +625,23 @@ export async function POST(req: NextRequest) {
     notaComissao = `Venda de ${doLink?.name ?? "—"}: a cliente pediu pelo link dela no catálogo.`;
   } else {
     // ref veio, mas não bateu com ninguém: a venda fica da loja (não é
-    // chutada para a carteira) e o aviso diz exatamente o que conferir
-    notaComissao =
-      `O link usado ("${input.ref}") não identificou nenhuma vendedora da equipe — a venda ficou da loja.` +
-      " Confira se o nome bate com o cadastro (e se não há duas pessoas com o mesmo primeiro nome), e defina a responsável antes de marcar como pago.";
+    // chutada para a carteira) e o aviso diz exatamente o que conferir.
+    //
+    // CAMPANHA PAUSADA TEM AVISO PRÓPRIO (achado da revisão de 01/09/2026):
+    // desde que o endereço de campanha deixou de cair na regra do primeiro
+    // nome (RN-040), o link pausado passa por aqui — e mandar a lojista
+    // "conferir se há duas pessoas com o mesmo primeiro nome" seria conselho
+    // errado para o que agora é a consequência normal de pausar.
+    const campanhaDoRef = await db.trackCampaign.findFirst({
+      where: { companyId: company.id, slug: (input.ref ?? "").trim().toLowerCase() },
+      select: { name: true, active: true, archivedAt: true },
+    });
+    notaComissao = campanhaDoRef
+      ? `O pedido veio da campanha "${campanhaDoRef.name}", que está ${
+          campanhaDoRef.archivedAt ? "encerrada" : "pausada"
+        } — por isso a venda ficou da loja, sem vendedora. Defina a responsável antes de marcar como pago.`
+      : `O link usado ("${input.ref}") não identificou nenhuma vendedora da equipe — a venda ficou da loja.` +
+        " Confira se o nome bate com o cadastro (e se não há duas pessoas com o mesmo primeiro nome), e defina a responsável antes de marcar como pago.";
   }
 
   // RESERVA DO CATÁLOGO — o buraco que fazia a peça sumir.
@@ -655,6 +710,12 @@ export async function POST(req: NextRequest) {
         // TABELA que precificou: sem este carimbo, um pedido de atacado
         // reaberto/recalculado depois voltaria com preço de varejo
         priceMode: tabela ? modoDePreco : null,
+        // qual link de campanha precificou (RN-040): é o que explica o valor
+        // meses depois e o que o resgate pelo WhatsApp reaproveita
+        // SEMPRE que o link foi usado, mesmo sem desconto: é por esta coluna
+        // que a exclusão conta os pedidos da campanha (achado da revisão)
+        campaignRef: campanha ? campanha.slug : null,
+        campaignDiscount: campanha ? condicoes.desconto : 0,
         status: "AGUARDANDO_PAGAMENTO",
         stockDeducted: true, // a peça está segurada desde já
         subtotal,
@@ -663,6 +724,13 @@ export async function POST(req: NextRequest) {
         total: subtotal,
         notes: [
         ...noteLines,
+        // POR QUE ESTE PEDIDO SAIU MAIS BARATO: sem esta linha, o valor não
+        // se explicava depois (a tabela de preço deixa `priceMode`; a
+        // condição do link não deixava nada) — achado da revisão
+        ...(campanha && condicoes.desconto > 0
+          ? [`🏷 Link da campanha “${campanha.name}” — ${condicoes.desconto}% de desconto já aplicado.`]
+          : []),
+        ...(avisoDeMudanca ? [avisoDeMudanca] : []),
         ...(faltas.length
           ? [`⚠️ Sem estoque para parte do pedido — ${textoDaFalta(faltas)}.`]
           : []),
@@ -675,6 +743,7 @@ export async function POST(req: NextRequest) {
         events: {
           create: [
             { type: "CRIADO", description: "Pedido recebido pelo catálogo público" },
+            ...(avisoDeMudanca ? [{ type: "NOTA" as const, description: avisoDeMudanca }] : []),
             ...(notaComissao ? [{ type: "NOTA" as const, description: notaComissao }] : []),
           // a peça acabou entre montar o carrinho e enviar: a loja precisa
           // saber ANTES de cobrar, para combinar troca/reposição

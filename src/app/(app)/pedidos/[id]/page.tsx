@@ -343,6 +343,7 @@ export default async function OrderDetailPage({
                 orderId={order.id}
                 // peça acrescentada depois segue a MESMA tabela do pedido
                 priceMode={order.priceMode}
+                campaignDiscount={order.campaignDiscount}
                 discount={order.discount}
                 shippingFee={order.shippingFee}
                 alreadyPaid={order.stockDeducted}

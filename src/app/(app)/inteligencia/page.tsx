@@ -626,10 +626,17 @@ export default async function IntelligencePage({
         slug={company?.slug ?? ""}
         catalogDomain={process.env.CATALOG_DOMAIN?.trim() ?? null}
         team={team}
-        campaigns={campanhas.map((r) => ({
-          id: r.id, name: r.name, slug: r.slug, channel: r.channel,
-          clicks: r.clicks, orders: r.orders, revenue: r.revenue, active: r.active,
-        }))}
+        campaigns={campanhas
+          // encerrada sai da LISTA de links (o link não vale mais), mas segue
+          // no relatório de campanhas acima — RN-040
+          .filter((r) => !r.archivedAt)
+          .map((r) => ({
+            id: r.id, name: r.name, slug: r.slug, channel: r.channel,
+            clicks: r.clicks, orders: r.orders, revenue: r.revenue, active: r.active,
+            discount: r.discount, minOrderMode: r.minOrderMode,
+            minOrderPieces: r.minOrderPieces, minOrderValue: r.minOrderValue,
+            goal: r.goalValue, ownerId: r.ownerId,
+          }))}
       />
     </div>
   );
