@@ -124,7 +124,7 @@ describe("insistir quando a internet oscila", () => {
     expect(lerPendentes(s)).toHaveLength(1);
   });
 
-  it("429 (trava de ritmo, RN-043) NÃO descarta: o pedido fica para a próxima visita", async () => {
+  it("429 (trava de ritmo, RN-044) NÃO descarta: o pedido fica para a próxima visita", async () => {
     // a trava anti-enxurrada diz "agora não", não "nunca" — descartar aqui
     // perderia pedido de verdade preso atrás de um bloqueio (CGNAT põe um
     // bairro inteiro no mesmo IP)

@@ -251,7 +251,7 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // ---- RITMO (RN-043): pedido NOVO tem teto por IP ----
+  // ---- RITMO (RN-044): pedido NOVO tem teto por IP ----
   //
   // Sem isto, um script criava pedidos falsos de graça — cada um RESERVANDO
   // estoque sem prazo (RN-003): o ataque mais barato contra uma loja. A
@@ -495,7 +495,7 @@ export async function POST(req: NextRequest) {
       name: displayName || undefined,
       origin: "CATALOGO_PUBLICO",
       message: input.message,
-      // RN-043, o outro lado da corrida: se o webhook gravou a mensagem de
+      // RN-044, o outro lado da corrida: se o webhook gravou a mensagem de
       // verdade primeiro (a cliente apertou enviar no wa.me antes de este
       // POST chegar), o intake reaproveita aquela bolha em vez de criar a
       // segunda — só a COM id do WhatsApp, e só dentro da mesma meia hora.

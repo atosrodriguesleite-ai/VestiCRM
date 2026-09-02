@@ -1142,7 +1142,7 @@ export function PublicCatalog({
             openBag();
           }
         },
-        // trava de ritmo (RN-043): o pedido está GUARDADO e entra sozinho —
+        // trava de ritmo (RN-044): o pedido está GUARDADO e entra sozinho —
         // a cliente precisa ler isso, não um erro genérico
         aoAguardar: (motivo) => {
           setErroDoEnvio(

@@ -36,7 +36,7 @@ const schema = z.object({
 });
 
 export async function POST(req: NextRequest) {
-  // ritmo (RN-043): o formulário é público e cada envio vira lead na base da
+  // ritmo (RN-044): o formulário é público e cada envio vira lead na base da
   // plataforma — sem teto, um script enche a Gestão de lixo de graça
   const chavesRitmo = chavesDoDemo(ipDaRequisicao(req.headers));
   if (chavesRitmo.length > 0) {

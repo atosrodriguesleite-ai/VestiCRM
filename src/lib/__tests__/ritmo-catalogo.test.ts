@@ -9,14 +9,14 @@ import {
 } from "../rate-limit";
 import { ehArquivoEstatico } from "../porteiro";
 
-// Guarda RN-043
+// Guarda RN-044
 //
 // As portas públicas de ESCRITA têm ritmo: sem teto, um script criava
 // pedidos falsos de graça, cada um reservando estoque sem prazo (RN-003) —
 // o ataque mais barato contra uma loja. E a trava convive com a RN-010:
 // pedido legítimo nunca se perde.
 
-describe("RN-043 — ritmo nas portas públicas de escrita", () => {
+describe("RN-044 — ritmo nas portas públicas de escrita", () => {
   it("pedido do catálogo conta por IP+loja E por IP sozinho", () => {
     const chaves = chavesDoPedidoCatalogo("loja1", "1.2.3.4");
     expect(chaves).toEqual(["cat:loja1|1.2.3.4", "catip:1.2.3.4"]);
@@ -44,7 +44,7 @@ describe("RN-043 — ritmo nas portas públicas de escrita", () => {
     const idempotencia = rota.indexOf("jaRegistrado");
     const trava = rota.indexOf("chavesDoPedidoCatalogo(");
     expect(idempotencia, "a rota perdeu o retorno idempotente do clientRef").toBeGreaterThan(0);
-    expect(trava, "a rota perdeu a trava de ritmo da RN-043").toBeGreaterThan(0);
+    expect(trava, "a rota perdeu a trava de ritmo da RN-044").toBeGreaterThan(0);
     expect(
       trava,
       "a trava de ritmo passou para ANTES do retorno idempotente — reenvio legítimo seria barrado (RN-010)"

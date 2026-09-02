@@ -81,7 +81,7 @@ export function ipDaRequisicao(headers: Headers): string | null {
 }
 
 /**
- * RITMO DAS PORTAS PÚBLICAS DE ESCRITA (RN-043).
+ * RITMO DAS PORTAS PÚBLICAS DE ESCRITA (RN-044).
  *
  * O pedido do catálogo não tem login — e sem ritmo, um script criava
  * pedidos falsos de graça, cada um RESERVANDO estoque sem prazo (RN-003):

@@ -110,7 +110,7 @@ export function contarTentativa(storage: Storage, clientRef: string) {
 }
 
 /**
- * Devolve a tentativa contada: o 429 da trava de ritmo (RN-043) é "agora
+ * Devolve a tentativa contada: o 429 da trava de ritmo (RN-044) é "agora
  * não", não uma tentativa de verdade — se ela queimasse o teto vitalício
  * (MAX_TENTATIVAS), um pedido legítimo preso atrás de uma enxurrada longa
  * seria descartado em silêncio, a promessa que a RN-010 existe para impedir.
@@ -130,7 +130,7 @@ export type ResultadoEnvio = {
   ok: boolean;
   number?: number;
   permanente?: boolean;
-  /** trava de ritmo (429, RN-043): "agora não" — guardar e tentar depois */
+  /** trava de ritmo (429, RN-044): "agora não" — guardar e tentar depois */
   aguardar?: boolean;
   /** por que o servidor recusou (mostrado à cliente quando é recusa dele) */
   motivo?: string;
@@ -159,7 +159,7 @@ export async function tentarRegistrar(
     // 4xx é recusa do servidor: repetir daria o mesmo resultado. O MOTIVO
     // sobe junto — recusa que a cliente não vê (quantidade mínima do
     // atacado, link vencido) é pedido que some sem ninguém entender.
-    // EXCEÇÃO: 429 é a trava de ritmo (RN-043) dizendo "agora não" — o
+    // EXCEÇÃO: 429 é a trava de ritmo (RN-044) dizendo "agora não" — o
     // pedido FICA na fila e entra sozinho na próxima visita, quando a
     // janela abre. Descartá-lo perderia pedido de verdade preso atrás de
     // uma enxurrada (CGNAT põe um bairro inteiro no mesmo IP).
@@ -218,7 +218,7 @@ export async function registrarComInsistencia(
       return false;
     }
     if (r.aguardar) {
-      // trava de ritmo (RN-043): insistir agora é inútil (o bloqueio dura
+      // trava de ritmo (RN-044): insistir agora é inútil (o bloqueio dura
       // minutos) e esta rodada NÃO pode queimar o teto vitalício — senão o
       // pedido legítimo preso atrás de uma enxurrada longa seria descartado
       descontarTentativa(storage, pendente.clientRef);
@@ -252,7 +252,7 @@ export async function reenviarPendentes(opts: {
     } else if (r.permanente) {
       removerPendente(opts.storage, p.clientRef);
     } else if (r.aguardar) {
-      // trava de ritmo: a rodada não conta (RN-043) e os DEMAIS pendentes
+      // trava de ritmo: a rodada não conta (RN-044) e os DEMAIS pendentes
       // parariam na mesma trava — melhor esperar a próxima visita
       descontarTentativa(opts.storage, p.clientRef);
       break;
