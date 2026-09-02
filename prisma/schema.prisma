@@ -38,6 +38,9 @@ model Company {
   marketingEnabled  Boolean  @default(false) // módulo Marketing (pago à parte; super admin ativa por loja)
   mediaLibraryEnabled Boolean @default(false) // Biblioteca de imagens (super admin ativa por loja)
   shippingEnabled   Boolean  @default(false) // módulo Envios/Melhor Envio (pago à parte; super admin ativa por loja)
+  // Código de login pelo WhatsApp em aparelho novo (RN-045) — opt-in por
+  // loja, ligado pelo admin na tela Equipe. Desligado, nada muda no login.
+  loginCodeEnabled  Boolean  @default(false)
   cutPlanEnabled    Boolean  @default(false) // módulo Plano de Corte (pago à parte; super admin ativa por loja)
   aiSalesEnabled    Boolean  @default(false) // módulo IA de Vendas (pago à parte; super admin ativa por loja)
   /// TABELAS DE PREÇO POR LINK (atacado E varejo no mesmo catálogo): a loja
@@ -433,6 +436,9 @@ model User {
   // continua proibido (podeTransferirVenda); exportação segue o escopo normal.
   pedidosVisaoTotal Boolean @default(false)
   prefersDark    Boolean  @default(false) // modo escuro — escolha individual de cada usuário
+  // WhatsApp que recebe o código de login em aparelho novo (RN-045).
+  // Sem telefone, o usuário entra como sempre — a chavinha da loja avisa.
+  loginPhone     String?
   lastActiveAt   DateTime? // último acesso real ao sistema (não conta impersonação do super admin)
   createdAt      DateTime @default(now())
 
@@ -446,6 +452,7 @@ model User {
   orderEvents   OrderEvent[]
   setores       Setor[]        @relation("SetorUsers") // atendimento: setores do vendedor
   notifications Notification[] @relation("UserNotifications")
+  loginCodes    LoginCode[]
 
   @@index([companyId])
 }
@@ -977,6 +984,22 @@ model CommEvent {
 
   @@index([companyId, createdAt])
   @@index([type])
+}
+
+// Desafio do código de login (RN-045): uma linha por tentativa de entrar em
+// aparelho novo. O código NUNCA é guardado — só o HMAC dele; expira em 10
+// minutos e morre com 5 erros. Limpeza pega carona no próprio login.
+model LoginCode {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  codeHash  String
+  expiresAt DateTime
+  tries     Int      @default(0)
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([expiresAt])
 }
 
 // Credenciais por empresa — valores sensíveis criptografados (AES-256-GCM)

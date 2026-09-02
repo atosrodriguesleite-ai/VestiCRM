@@ -15,6 +15,16 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  // segunda etapa (RN-045): a loja ligou o código por WhatsApp e este
+  // aparelho é novo — a senha já conferiu, falta o código de 6 dígitos
+  const [desafio, setDesafio] = useState<string | null>(null);
+  const [codigo, setCodigo] = useState("");
+
+  function entrar(role?: string) {
+    // Suporte cai direto na gestão de pedidos — o dashboard não é dele
+    router.push(role === "SUPERADMIN" ? "/lojas" : role === "SUPPORT" ? "/pedidos" : "/dashboard");
+    router.refresh();
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -26,14 +36,32 @@ export default function LoginPage() {
       body: JSON.stringify({ email, password }),
     });
     const data = await res.json().catch(() => ({}));
-    if (res.ok) {
-      // Suporte cai direto na gestão de pedidos — o dashboard não é dele
-      router.push(
-        data.role === "SUPERADMIN" ? "/lojas" : data.role === "SUPPORT" ? "/pedidos" : "/dashboard"
-      );
-      router.refresh();
+    if (res.ok && data.precisaCodigo) {
+      setDesafio(data.desafio);
+      setCodigo("");
+      setLoading(false);
+    } else if (res.ok) {
+      entrar(data.role);
     } else {
       setError(data.error ?? "E-mail ou senha inválidos");
+      setLoading(false);
+    }
+  }
+
+  async function handleCodigo(e: React.FormEvent) {
+    e.preventDefault();
+    setLoading(true);
+    setError("");
+    const res = await fetch("/api/auth/login/codigo", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ desafio, codigo }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (res.ok) {
+      entrar(data.role);
+    } else {
+      setError(data.error ?? "Código inválido — tente de novo.");
       setLoading(false);
     }
   }
@@ -99,12 +127,67 @@ export default function LoginPage() {
           </div>
 
           <h2 className="text-2xl font-semibold tracking-tight text-slate-900 mb-1">
-            Bem-vinda de volta
+            {desafio ? "Confirme que é você" : "Bem-vinda de volta"}
           </h2>
           <p className="text-sm text-slate-500 mb-8">
-            Acesse o painel comercial da sua loja.
+            {desafio
+              ? "Enviamos um código de 6 dígitos no seu WhatsApp. É só digitar aqui."
+              : "Acesse o painel comercial da sua loja."}
           </p>
 
+          {desafio ? (
+            <form onSubmit={handleCodigo} className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1.5">
+                  Código do WhatsApp
+                </label>
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  autoFocus
+                  required
+                  maxLength={6}
+                  value={codigo}
+                  onChange={(e) => setCodigo(e.target.value.replace(/\D/g, ""))}
+                  className={`${input} text-center text-2xl tracking-[0.5em] font-semibold`}
+                  placeholder="••••••"
+                />
+              </div>
+              {error && (
+                <p className="text-sm text-rose-600 bg-rose-50 rounded-xl px-3.5 py-2.5 border border-rose-100">
+                  {error}
+                </p>
+              )}
+              <button
+                type="submit"
+                disabled={loading || codigo.length < 6}
+                className="w-full rounded-xl bg-brand-600 hover:bg-brand-700 active:scale-[0.99] text-white font-medium py-3 text-sm transition disabled:opacity-60 flex items-center justify-center gap-2 shadow-xs hover:shadow-card"
+              >
+                {loading ? (
+                  <>
+                    <Spinner /> Conferindo...
+                  </>
+                ) : (
+                  <>
+                    Confirmar <ArrowRight className="size-4" />
+                  </>
+                )}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  // o código vale 10 min e morre com 5 erros: recomeçar pela
+                  // senha gera um código NOVO — é o "reenviar" desta tela
+                  setDesafio(null);
+                  setError("");
+                }}
+                className="w-full text-xs font-medium text-slate-500 hover:text-slate-700 transition"
+              >
+                Não chegou? Voltar e entrar de novo (manda outro código)
+              </button>
+            </form>
+          ) : (
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1.5">
@@ -153,6 +236,7 @@ export default function LoginPage() {
               )}
             </button>
           </form>
+          )}
 
           <div className="mt-8 rounded-xl border border-slate-200 bg-slate-50/70 p-4 text-xs text-slate-500 space-y-1">
             <p className="font-semibold text-slate-600 mb-1">

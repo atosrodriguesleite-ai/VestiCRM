@@ -107,6 +107,19 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   carteira), SUPPORT (operacional, sem poderes comerciais).
 - Auth: JWT em cookie httpOnly (`lib/auth.ts`); Super Admin pode "acessar
   como loja" (impersonação com faixa amarela).
+  **RN-045 · Código de login pelo WhatsApp em aparelho novo**
+  (`lib/auth-codigo.ts`, 02/09/2026): segundo fator do jeito deste público —
+  nada de app autenticador; o código de 6 dígitos chega no WhatsApp da
+  própria pessoa, mandado pela conexão da própria loja. **Opt-in por loja**
+  (chavinha na tela Equipe, nasce DESLIGADA) e **por pessoa**
+  (`User.loginPhone`, cadastrado ali). Aparelho conhecido não pede código
+  por 90 dias (cookie assinado por HMAC, de UMA pessoa — outra conta no
+  mesmo aparelho pede). O código nunca é guardado (só o HMAC), vale 10 min
+  e morre com 5 erros, contados ANTES de conferir. **NUNCA TRANCA A LOJISTA
+  FORA**: sem telefone cadastrado, ou com o WhatsApp da loja caído/envio
+  recusado, o login entra como sempre e o ocorrido fica registrado
+  (`login.codigo-falhou` na Central de Comunicação) — fail-open consciente
+  e documentado.
 - Comentários de código em **português**, explicando o porquê das regras.
 
 ## Regras de negócio centrais (fonte da verdade)

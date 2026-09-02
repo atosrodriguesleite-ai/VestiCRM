@@ -24,7 +24,13 @@ export default async function TeamPage() {
   // uma janela só cobre as duas contas (30d para o cartão, mês para a meta)
   const desde = startOfMonth < days30 ? startOfMonth : days30;
 
-  const members = await db.user.findMany({
+  // as duas consultas não dependem uma da outra: uma ida só ao banco
+  const [company, members] = await Promise.all([
+    db.company.findUnique({
+      where: { id: user.companyId },
+      select: { loginCodeEnabled: true },
+    }),
+    db.user.findMany({
     where: { companyId: user.companyId },
     orderBy: { createdAt: "asc" },
     include: {
@@ -44,7 +50,8 @@ export default async function TeamPage() {
         select: { netTotal: true, paidAt: true },
       },
     },
-  });
+    }),
+  ]);
 
   const data: TeamMember[] = members
     .filter((m) => m.role !== "SUPERADMIN")
@@ -68,6 +75,9 @@ export default async function TeamPage() {
         .filter((v) => v.paidAt && v.paidAt >= startOfMonth)
         .reduce((s, v) => s + v.netTotal, 0),
       monthlyGoal: m.monthlyGoal,
+      // telefone pessoal é sensível: o recorte é NO SERVIDOR (regra da
+      // RN-025) — gerente vê a tela, mas o número não viaja para ela
+      loginPhone: isAdmin(user) ? m.loginPhone : null,
       chatVisaoTotal: m.chatVisaoTotal,
       pedidosVisaoTotal: m.pedidosVisaoTotal,
       isMe: m.id === user.id,
@@ -79,7 +89,11 @@ export default async function TeamPage() {
         title="Equipe"
         subtitle="Papéis e desempenho de cada pessoa. Vendedores veem apenas a própria carteira."
       />
-      <TeamView members={data} canManage={isAdmin(user)} />
+      <TeamView
+        members={data}
+        canManage={isAdmin(user)}
+        codigoLoginLigado={company?.loginCodeEnabled ?? false}
+      />
 
       {/* FICHAS DE FUNCIONÁRIO (RN-025) — registro de RH da empresa, SEM
           vínculo com os logins acima: a maior parte dos funcionários nunca

@@ -99,6 +99,24 @@ export function ipDaRequisicao(headers: Headers): string | null {
 export const LIMITE_CATALOGO_POR_PAR = 20; // IP + loja
 export const LIMITE_CATALOGO_POR_IP = 60; // IP em todas as lojas
 export const LIMITE_DEMO_POR_IP = 5; // formulário de demonstração
+// Código de login (RN-045): teto de ENVIOS por pessoa — quem tem a senha da
+// vítima não pode usar o login para metralhar códigos pelo WhatsApp da loja
+// (a rajada que a RN-017 existe para evitar, e ainda assédio na vítima)
+// 4 na conta = 3 códigos SAEM e o 4º pedido espera (o teto fecha NA conta
+// que o alcança — mesma aritmética das outras chaves)
+export const LIMITE_CODIGOS_POR_USUARIO = 4;
+// e teto de CHUTES de código por IP (a porta /codigo é pública)
+export const LIMITE_CODIGO_POR_IP = 30;
+
+/** Chave do envio de código de login: conta por PESSOA, não por IP. */
+export function chavesDeCodigoDoUsuario(userId: string): string[] {
+  return [`codigo:${userId}`];
+}
+
+/** Chave dos chutes na porta pública do código. */
+export function chavesDeChuteDeCodigo(ip: string | null): string[] {
+  return ip ? [`codip:${ip}`] : [];
+}
 
 /** Chaves do pedido do catálogo. Sem IP identificável, não trava (RN-010). */
 export function chavesDoPedidoCatalogo(companyId: string, ip: string | null): string[] {
@@ -125,6 +143,8 @@ function limiteDa(chave: string): number {
   if (chave.startsWith("cat:")) return LIMITE_CATALOGO_POR_PAR;
   if (chave.startsWith("catip:")) return LIMITE_CATALOGO_POR_IP;
   if (chave.startsWith("demo:")) return LIMITE_DEMO_POR_IP;
+  if (chave.startsWith("codigo:")) return LIMITE_CODIGOS_POR_USUARIO;
+  if (chave.startsWith("codip:")) return LIMITE_CODIGO_POR_IP;
   return LIMITE_POR_LOGIN;
 }
 
