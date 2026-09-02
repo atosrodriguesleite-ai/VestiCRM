@@ -319,6 +319,44 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   nunca a loja inteira disfarçada de resultado da campanha. E **"R$ 0" com pedido na conta diz "aguardando
   pagamento"** — faturamento soma só pedido pago (RN-001), e sem a frase o
   cartão parecia defeito.
+  **RN-043 · O pedido do catálogo é UMA bolha só na Central**
+  (`lib/comm/bolha-do-pedido.ts`, 01/09/2026): relato do dono — pedido de
+  teste, UMA mensagem no WhatsApp do celular, DUAS idênticas na Central. Não
+  era o WhatsApp entregando em dobro (isso o webhook já barra pelo id): eram
+  DOIS CAMINHOS gravando a mesma coisa — o catálogo grava a mensagem do pedido
+  na conversa na hora em que ele nasce (RN-010: a loja vê o pedido mesmo sem
+  WhatsApp conectado), e segundos depois a cliente aperta "enviar" no wa.me e
+  a mensagem de verdade chega pelo webhook, que nunca ouviu falar da bolha do
+  catálogo. Agora a mensagem do WhatsApp com o MESMO texto, da MESMA cliente,
+  dentro de 30 min da bolha do catálogo, **É a bolha do catálogo**: ela ganha
+  o id do WhatsApp e o status de recebida — nada é criado e apagado depois
+  (deixaria brecha para o sync mostrar as duas). Só casa bolha **sem id do
+  WhatsApp** e **só texto**: a cliente mandar o mesmo texto duas vezes de
+  propósito aparece duas vezes, como no celular dela. **Vale nos DOIS sentidos, dentro da mesma meia hora**: qualquer um dos
+  caminhos pode vencer a corrida, e se o webhook gravou primeiro é o catálogo
+  que reaproveita a mensagem do WhatsApp (a bolha COM id — nunca a sem id,
+  que é a bolha de OUTRO pedido do catálogo — e só se ela chegou DEPOIS do
+  último pedido da cliente: a que já foi a bolha do pedido anterior não serve
+  para o que está nascendo, senão repetir o mesmo pedido minutos depois sem
+  apertar enviar sumia com o segundo). **A regra mora DENTRO do
+  `intakeLead`** (opção `reaproveitarBolha`: o webhook pede `do-catalogo`, o
+  catálogo pede `do-whatsapp`), no mesmo passo que cria a mensagem, sob
+  **trava por cliente**
+  (`pg_advisory_xact_lock`): os dois caminhos chegam JUNTOS — o navegador
+  dispara o pedido e abre o wa.me no mesmo instante — e conferir por fora,
+  antes do intake, deixava a corrida que fazia o duplicado voltar de vez em
+  quando. Dentro da trava também entram o **id do WhatsApp** (a cliente
+  reenviando o mesmo pedido em paralelo vira duas bolhas, não uma com o id
+  trocado) e a **reabertura da conversa** da bolha (mensagem que chega reabre,
+  como sempre); se a corrida deixou uma conversa vazia, o consolidate de
+  sempre junta na hora. A decisão de qual bolha reaproveitar é função pura
+  (`escolherBolha`); a janela de 30 min é o recorte, não um "últimas N".
+  **O que foi construído e RETIRADO** foi a janela de DIAS para o pedido da
+  fila do aparelho (RN-010) gravado muito depois da mensagem de verdade: com
+  ela, a cliente que repetisse o MESMO pedido na quinta reaproveitava a bolha
+  de segunda e, sem apertar enviar, o segundo pedido não aparecia no chat
+  NUNCA. Um pedido invisível é pior que uma bolha a mais no reenvio raro da
+  fila. Limite aceito.
   **RN-012** · Resgate manual: **"Colar pedido do WhatsApp"** na tela Pedidos
   (`lib/catalogo/ler-mensagem.ts` + `/api/orders/ler-mensagem`) — lê a
   mensagem do catálogo, casa com o catálogo da loja (nome mais longo vence

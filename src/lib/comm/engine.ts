@@ -568,6 +568,18 @@ export async function receiveMessage(
     name: input.name,
     origin: input.channel, // Channel ⊂ Origin (todo canal é uma origem)
     message: input.text,
+    // A BOLHA DO CATÁLOGO JÁ EXISTE? (RN-043) O pedido do catálogo grava a
+    // mensagem na conversa antes de a cliente apertar "enviar" no wa.me;
+    // quando a mensagem de verdade chega aqui, ela É aquela bolha — o intake
+    // a reaproveita (só a que ainda não tem id do WhatsApp, e só texto) e
+    // ela ganha o id e o status logo abaixo, no caminho de sempre. Sem isto
+    // a Central mostrava o pedido duas vezes e o celular, uma (01/09/2026).
+    ...(!input.mediaType || input.mediaType === "TEXT"
+      ? { reaproveitarBolha: "do-catalogo" as const }
+      : {}),
+    // o id do WhatsApp vai junto para ser carimbado sob a trava (a segunda
+    // mensagem igual em paralelo tem que ver a bolha já com id)
+    externalId: input.externalId,
   });
 
   // Completa A MENSAGEM QUE O INTAKE ACABOU DE CRIAR com canal, mídia e o id
@@ -621,6 +633,8 @@ export async function receiveMessage(
       mediaType: input.mediaType ?? "TEXT",
       preview: input.text.slice(0, 80),
       isNewLead: result.isNewLead,
+      // a mensagem casou com a bolha que o catálogo já tinha criado
+      ...(result.mensagemReaproveitada ? { mescladaNaBolhaDoCatalogo: true } : {}),
     },
     durationMs: Date.now() - started,
   });
