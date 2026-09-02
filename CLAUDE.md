@@ -19,7 +19,11 @@ o sistema para gerir os leads do AtacadoPro.
   Motivo real: a revisão da conferência de tarefas achou 10 bugs num código
   já "pronto" — 3 deles esconderiam dinheiro pendente. Casos de canto (dois
   pedidos, compromisso futuro, status raro) são exatamente o que o autor não
-  vê. Exceção: mudança trivial sem lógica (texto, cor, label).
+  vê. Exceção: mudança trivial sem lógica (texto, cor, label) — e, por
+  pedido do dono (02/09/2026), **conserto simples de tela vai pela via
+  rápida**: implementar direto, testes + build e push, sem a revisão
+  completa. A revisão completa continua obrigatória quando a mudança cria
+  ou altera REGRA de dinheiro/estoque ou porta pública.
 - Quando a mudança mexe com **dinheiro, estoque ou apagar/concluir dados
   sozinha**, além da revisão: reproduzir o cenário ponta a ponta contra o
   Postgres local antes de subir (adivinhar já errou 3 vezes num dia).
