@@ -357,6 +357,20 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   de segunda e, sem apertar enviar, o segundo pedido não aparecia no chat
   NUNCA. Um pedido invisível é pior que uma bolha a mais no reenvio raro da
   fila. Limite aceito.
+  **RN-044 · Porta pública de escrita tem RITMO** (`lib/rate-limit.ts`,
+  chaves `cat:`/`catip:`/`demo:`, 02/09/2026): pedido NOVO do catálogo tem
+  teto por IP+loja (20/15min) e por IP (60/15min) — sem isso, um script
+  criava pedidos falsos de graça, cada um RESERVANDO estoque sem prazo
+  (RN-003): o ataque mais barato contra uma loja. A trava CONVIVE com a
+  RN-010: fica DEPOIS da idempotência (reenviar o MESMO pedido nunca é
+  barrado), quem já está bloqueado não conta de novo (o reenvio automático
+  não estica o próprio bloqueio) e o 429 NÃO descarta o pendente no
+  aparelho — ele entra sozinho na próxima visita. Trava que fecha deixa
+  rastro (`catalogo.flood` na Central de Comunicação); sem IP identificável
+  não trava (melhor aceitar que agrupar o mundo). O formulário de
+  demonstração tem o mesmo ritmo. Junto, o porteiro global fechou o alçapão
+  do ponto (`lib/porteiro.ts`): só arquivo estático FORA de /api dispensa
+  sessão — caminho com ponto no meio não é mais passe livre.
   **RN-012** · Resgate manual: **"Colar pedido do WhatsApp"** na tela Pedidos
   (`lib/catalogo/ler-mensagem.ts` + `/api/orders/ler-mensagem`) — lê a
   mensagem do catálogo, casa com o catálogo da loja (nome mais longo vence

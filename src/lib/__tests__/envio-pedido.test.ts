@@ -124,6 +124,34 @@ describe("insistir quando a internet oscila", () => {
     expect(lerPendentes(s)).toHaveLength(1);
   });
 
+  it("429 (trava de ritmo, RN-043) NÃO descarta: o pedido fica para a próxima visita", async () => {
+    // a trava anti-enxurrada diz "agora não", não "nunca" — descartar aqui
+    // perderia pedido de verdade preso atrás de um bloqueio (CGNAT põe um
+    // bairro inteiro no mesmo IP)
+    const s = memoria();
+    const p = pedido("a1");
+    guardarPendente(s, p);
+    const f = vi.fn().mockResolvedValue(resposta(429, { error: "aguarde" }));
+    let avisado: string | undefined;
+    const ok = await registrarComInsistencia(p, {
+      storage: s,
+      fetchImpl: f as unknown as typeof fetch,
+      dormir: async () => {},
+      aoAguardar: (motivo) => {
+        avisado = motivo;
+      },
+    });
+    expect(ok).toBe(false);
+    expect(lerPendentes(s)).toHaveLength(1); // guardado, nunca descartado
+    // insistir contra um bloqueio de minutos é inútil: UMA tentativa e para
+    expect(f).toHaveBeenCalledTimes(1);
+    // e a rodada não queima o teto vitalício — bloqueio longo não pode
+    // consumir as 8 vidas do pendente (seria descarte disfarçado)
+    expect(lerPendentes(s)[0].tentativas ?? 0).toBe(0);
+    // a cliente lê o motivo do servidor ("seu pedido ficou guardado")
+    expect(avisado).toBe("aguarde");
+  });
+
   it("recusa do servidor (dados inválidos) não fica insistindo para sempre", async () => {
     const s = memoria();
     const p = pedido("a1");

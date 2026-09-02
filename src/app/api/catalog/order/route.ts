@@ -12,6 +12,12 @@ import { corIgual } from "@/lib/capa-por-cor";
 import { intakeLead, normalizePhone } from "@/lib/intake";
 import { telefoneDoPedido } from "@/lib/catalogo/telefone-do-pedido";
 import {
+  chavesDoPedidoCatalogo,
+  ipDaRequisicao,
+  registrarTentativa,
+  segundosDeBloqueio,
+} from "@/lib/rate-limit";
+import {
   CAMPOS_DO_PEDIDO,
   dadosAceitos,
   lerCamposDaLoja,
@@ -242,6 +248,48 @@ export async function POST(req: NextRequest) {
         { ok: true, orderId: jaExiste.id, number: jaExiste.number, jaRegistrado: true },
         { status: 200 }
       );
+    }
+  }
+
+  // ---- RITMO (RN-043): pedido NOVO tem teto por IP ----
+  //
+  // Sem isto, um script criava pedidos falsos de graça — cada um RESERVANDO
+  // estoque sem prazo (RN-003): o ataque mais barato contra uma loja. A
+  // trava fica DEPOIS da idempotência do protocolo, de propósito: o reenvio
+  // do MESMO pedido (clientRef) já retornou lá em cima e nunca é barrado —
+  // pedido do catálogo não pode se perder (RN-010). E quem está bloqueado
+  // NÃO conta de novo: o reenvio automático insistindo não pode esticar o
+  // próprio bloqueio para sempre.
+  const ip = ipDaRequisicao(req.headers);
+  const chavesRitmo = chavesDoPedidoCatalogo(company.id, ip);
+  const recusaDeRitmo = NextResponse.json(
+    {
+      error:
+        "Muitos pedidos seguidos deste aparelho — aguarde alguns minutos. " +
+        "Pode ficar tranquila: o catálogo guarda o pedido e reenvia sozinho.",
+    },
+    { status: 429 }
+  );
+  if (chavesRitmo.length > 0) {
+    if ((await segundosDeBloqueio(chavesRitmo)) !== null) return recusaDeRitmo;
+    const travouAgora = await registrarTentativa(chavesRitmo);
+    if (travouAgora !== null) {
+      // a trava fechou NESTE pedido: recusa e deixa rastro para a loja e a
+      // plataforma verem (Central de Comunicação) — trava muda nunca
+      await db.commEvent
+        .create({
+          data: {
+            companyId: company.id,
+            direction: "IN",
+            type: "catalogo.flood",
+            status: "ERRO",
+            error: `Enxurrada de pedidos do catálogo de um mesmo endereço (IP ${ip}): a trava de ritmo fechou por ${Math.ceil(travouAgora / 60)} min. Pedido legítimo reenvia sozinho depois.`,
+          },
+        })
+        .catch(() => {
+          // o registro é aviso; falhar aqui não pode derrubar a recusa
+        });
+      return recusaDeRitmo;
     }
   }
 

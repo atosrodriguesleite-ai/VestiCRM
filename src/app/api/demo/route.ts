@@ -4,6 +4,12 @@ import { db } from "@/lib/db";
 import { intakeLead } from "@/lib/intake";
 import { ensurePlatformCompany, platformOwnerId } from "@/lib/platform";
 import { marcaDoLink, notasEmpilhadas } from "@/lib/gestao";
+import {
+  chavesDoDemo,
+  ipDaRequisicao,
+  registrarTentativa,
+  segundosDeBloqueio,
+} from "@/lib/rate-limit";
 
 /**
  * Solicitação de demonstração (Landing Page → Super Admin).
@@ -30,6 +36,18 @@ const schema = z.object({
 });
 
 export async function POST(req: NextRequest) {
+  // ritmo (RN-043): o formulário é público e cada envio vira lead na base da
+  // plataforma — sem teto, um script enche a Gestão de lixo de graça
+  const chavesRitmo = chavesDoDemo(ipDaRequisicao(req.headers));
+  if (chavesRitmo.length > 0) {
+    const recusa = () =>
+      NextResponse.json(
+        { error: "Muitos envios seguidos — aguarde alguns minutos e tente de novo." },
+        { status: 429 }
+      );
+    if ((await segundosDeBloqueio(chavesRitmo)) !== null) return recusa();
+    if ((await registrarTentativa(chavesRitmo)) !== null) return recusa();
+  }
   const parsed = schema.safeParse(await req.json().catch(() => null));
   if (!parsed.success) {
     return NextResponse.json(
