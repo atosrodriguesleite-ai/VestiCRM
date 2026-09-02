@@ -209,17 +209,19 @@ export async function GET(
     const FOOTER_H = 40; // faixa preta do rodapé
     const cardW = (width - M * 2 - GAP * (COLS - 1)) / COLS;
     const imgH = cardW * 1.22; // fotos maiores (espaço ganho do cabeçalho)
-    // A foto é RECORTADA na proporção exata do quadro (~2,6x em pixels, para
-    // sair nítida na impressão) — mesma regra do card do catálogo online.
+    // A foto é ENCAIXADA num quadro de proporção exata (~2,6x em pixels,
+    // para sair nítida na impressão) — inteira, sem recorte (ver abaixo).
     const FOTO_W = 640;
     const FOTO_H = Math.round(FOTO_W * (imgH / cardW));
 
-    // Mesma regra do card do catálogo online (object-cover object-top): a foto
-    // PREENCHE o quadro todo — foto em pé é cortada por BAIXO (nunca a cabeça
-    // da modelo), foto deitada perde as laterais. Era o "contain" (foto inteira
-    // com barras cinzas) que deixava o PDF desencaixado em relação ao catálogo
-    // do sistema. De quebra, o recorte converte WebP e afins em JPEG (PDF só
-    // embute JPEG/PNG).
+    // A foto sai INTEIRA (fit: contain), com o fundo neutro completando o
+    // quadro — o "cover" que imitava o card do catálogo online cortava a
+    // peça e as pernas da modelo na foto de corpo inteiro, e revendedora
+    // vende com a foto completa (reclamação de cliente real, 02/09/2026).
+    // O quadro continua com a MEDIDA EXATA para todos os cards (o fundo é
+    // gravado na própria imagem), então a grade segue alinhada — que era o
+    // problema que levou ao cover. De quebra, converte WebP e afins em JPEG
+    // (PDF só embute JPEG/PNG).
     const prepararFoto = async (
       url: string | null
     ): Promise<{ bytes: Buffer; png: boolean; cover: boolean } | null> => {
@@ -240,7 +242,7 @@ export async function GET(
           const jpg = await sharp(bytes)
             .rotate()
             .flatten({ background: "#f6f6f6" }) // PNG transparente ganha o fundo neutro
-            .resize(FOTO_W, FOTO_H, { fit: "cover", position: "top" })
+            .resize(FOTO_W, FOTO_H, { fit: "contain", background: "#f6f6f6" })
             .jpeg({ quality: 85 })
             .toBuffer();
           return { bytes: jpg, png: false, cover: true };
