@@ -1,5 +1,5 @@
 /**
- * A LISTA DE CONVERSAS NÃO PERDE O LUGAR (RN-044).
+ * A LISTA DE CONVERSAS NÃO PERDE O LUGAR (RN-046).
  *
  * Relato da loja (03/09/2026): a vendedora faz follow-up **de baixo para
  * cima** — desce até as conversas mais antigas, abre uma, encerra, e queria

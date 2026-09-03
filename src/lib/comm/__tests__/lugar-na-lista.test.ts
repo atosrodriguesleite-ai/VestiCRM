@@ -8,7 +8,7 @@ import {
   vaiGuardarOLugar,
 } from "../../lugar-na-lista";
 
-// Guarda RN-044 (índice em docs/regras.md; texto no CLAUDE.md).
+// Guarda RN-046 (índice em docs/regras.md; texto no CLAUDE.md).
 
 /**
  * A LISTA DE CONVERSAS NÃO PERDE O LUGAR.
