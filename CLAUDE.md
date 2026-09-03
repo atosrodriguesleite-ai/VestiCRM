@@ -169,6 +169,35 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   a definir a dona antes de faturar); troca de vendedor é auditada em
   `OrderEvent`. Exceção: venda da loja online (nasce paga e sem dona por
   RN-005) — sem ela, pedido Nuvemshop cancelado nunca poderia reabrir.
+  **RN-047 · Marcar "pago" na mão confirma UMA cobrança, não todas**
+  (`escolherCobrancaAConfirmar` em `lib/orders.ts`, 03/09/2026): relato do
+  dono — *"o cliente pagou R$ 553,50, porém no sistema consta que ele pagou
+  R$ 554,50"*. O mesmo pedido tem, normalmente, MAIS DE UMA cobrança
+  pendente: o pedido do catálogo já nasce com uma (RN-010) e a vendedora
+  ainda gera o QR do Mercado Pago ou o link da InfinitePay para mandar no
+  WhatsApp. São **caminhos alternativos do mesmo dinheiro** — a cliente paga
+  por UM. Marcar pago confirmava TODAS: pedido de R$ 554,50 constava como
+  R$ 1.109,00 recebidos e a ficha anunciava "pago a mais R$ 555,50". O
+  caminho AUTOMÁTICO já acertava isso desde 07/08/2026 (`settleOrderPaid`:
+  "confirmar todas escondia a conciliação"); o da mão ficou para trás. Agora
+  vale a mesma régua da baixa da porta do Financeiro (RN-033): confirma **o
+  que FALTA**, uma cobrança só. **A do gateway fica por último**, e por dois
+  motivos que apontam para o mesmo lado: quem marca na mão recebeu POR FORA
+  (dinheiro que entrasse pelo gateway já teria sido liquidado pelo webhook), e
+  o alarme de **"🚨 SEGUNDO pagamento"** do `settleOrderPaid` só dispara
+  enquanto existir linha PENDENTE com aquele id — carimbá-la faria a cliente
+  pagar o QR depois e o dinheiro em dobro entrar CALADO. Entre as demais vale
+  a mais RECENTE, que é o link que a vendedora acabou de mandar. O valor
+  gravado é o que falta, **mas cobrança do gateway nunca é reescrita** (o
+  número dela é o que o provedor tem, e mudá-lo quebraria a conferência com o
+  extrato). As irmãs **não viram pagamento e não somem**: param de valer aqui
+  E no provedor (o Pix do Mercado Pago é cancelado lá — vencer só no nosso
+  banco não impede a cliente de pagar o código que já está no WhatsApp dela) e
+  a ficha as mostra como **"cobrança não usada"** em cinza — dizer "Pendente"
+  ali faria a loja procurar um dinheiro que não falta. O que **continua sendo dito** é a
+  diferença de verdade: pedido corrigido DEPOIS do pagamento confirmado
+  mostra "falta cobrar"/"pago a mais" (relato Entre Linhas, 02/09/2026) —
+  pagamento confirmado é história e não se reescreve.
 - **RN-007 · Visibilidade de pedidos** (`orderScope` em `lib/scope.ts`): vendedora vê
   SÓ os pedidos dela (`sellerId`); gerente/admin/suporte veem a loja inteira.
   Vale em toda porta: lista, ficha, PDFs, Pix, NF-e, frete, transferência,
@@ -388,6 +417,30 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   demonstração tem o mesmo ritmo. Junto, o porteiro global fechou o alçapão
   do ponto (`lib/porteiro.ts`): só arquivo estático FORA de /api dispensa
   sessão — caminho com ponto no meio não é mais passe livre.
+  **RN-046 · A lista de conversas NÃO PERDE O LUGAR**
+  (`lib/lugar-na-lista.ts`, 03/09/2026): relato da loja — a vendedora faz
+  follow-up **de baixo para cima** (desce até as conversas antigas, abre uma,
+  encerra) e voltava para o **topo** da lista, tendo que rolar tudo de novo a
+  cada atendimento. A causa é do NAVEGADOR, não da tela: no celular a lista é
+  a mesma coluna do chat e fica escondida com `display:none` enquanto a
+  conversa está aberta — **elemento escondido perde a rolagem**, e na volta o
+  `scrollTop` é zero. Então o lugar é guardado por nós a cada rolagem e
+  devolvido quando a lista reaparece, esperando o navegador refazer a conta da
+  altura (`requestAnimationFrame`: sem isso a rolagem máxima ainda é a da
+  lista escondida — zero — e o pedido é ignorado). **O que separa "ela subiu até o topo" de "o navegador
+  zerou" é a ALTURA VISÍVEL**, não o scroll: lista escondida tem altura zero e
+  não vira lugar guardado — mas o topo, com a lista visível, é lugar legítimo
+  e fica guardado. A primeira versão guardava só posição maior que zero e
+  deixava o topo inalcançável (a lista era puxada de volta ao lugar antigo a
+  cada ida ao chat, achado da revisão). **No computador não mexe**: ali a lista
+  fica ao lado do chat e já está no lugar; só devolve quando a lista está no
+  topo E há lugar guardado. Lista que **encolheu** (a conversa encerrada saiu
+  da aba) encaixa no máximo possível — pedir posição que não existe mais faz o
+  navegador ignorar e voltar ao topo, o próprio bug. E o **atalho** que a loja
+  pediu ("algum meio de descer sem ter que rolar"): um botão só, colado na
+  base da coluna, apontando para onde ainda falta ir (↓ fim na metade de cima,
+  ↑ topo na de baixo), que só aparece quando **sobra mais de uma tela para rolar** — em lista
+  curta seria enfeite tampando conversa.
   **RN-012** · Resgate manual: **"Colar pedido do WhatsApp"** na tela Pedidos
   (`lib/catalogo/ler-mensagem.ts` + `/api/orders/ler-mensagem`) — lê a
   mensagem do catálogo, casa com o catálogo da loja (nome mais longo vence
@@ -769,12 +822,37 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   "marketplace novo" custar um tradutor, e não uma reforma nas telas).
   **1 PEDIDO = 1 LANÇAMENTO, para sempre**: o par (loja, origem, origemId) é
   ÚNICO no banco, então reprocessar o mesmo pedido — e o gateway REENVIA o
-  mesmo aviso, é o contrato dele — não cria dois recebimentos. A porta é
+  mesmo aviso, é o contrato dele — não cria dois recebimentos. E **uma parcela
+  nunca tem duas baixas automáticas vivas** (índice parcial no banco, P2002
+  tratado): o PATCH do pedido e o aviso do gateway chegam juntos, liam o mesmo
+  saldo e cada um criava a sua baixa — a venda de R$ 100 entrava R$ 200. A porta é
   chamada em TODA transição e acerta o que mudou — a regra vive numa **máquina
   de estados pura** (`decidirAcaoDaPorta`), testada sem banco: pago ganha
   **baixa automática do que FALTA** na conta padrão (sinal registrado à mão
   não trava mais a baixa, e sem conta padrão ela NÃO inventa uma — anota no
-  histórico); voltar para aguardando **estorna só a baixa DELA**; cancelar
+  histórico). **Só que o histórico é onde ninguém olha**: a lojista marcava o
+  pedido como PAGO e via a MESMA venda no card "Atrasado", achando que o
+  sistema tinha perdido o dinheiro dela (relato de 03/09/2026). Agora o
+  painel e o Contas a Receber **DIZEM em vermelho** o que falta configurar,
+  com quantas vendas estão esperando — e **escolher a conta padrão REPESCA**
+  as vendas pagas que ficaram sem baixa (a porta é chamada de novo, é
+  idempotente e continua sendo a única a escrever; teto de 50 por rodada, no
+  `after()` ao salvar a conta e **de carona** em toda abertura do Financeiro —
+  nunca um 3º cron, ADR-002). A repescagem pega a venda com **saldo em
+  aberto** (a paga com sinal registrado à mão também) e **só o que a porta VAI
+  resolver**: fica de fora a parcela em que alguém ESTORNOU à mão (a varredura
+  roda sem ninguém pedir, e desfaria o estorno em segundos) e o pedido que
+  mudou de valor tendo baixa à mão viva (esse a porta só avisa, e ficaria na
+  fila para sempre, empurrando para fora do teto os casos que têm conserto).
+  Isso é da VARREDURA: numa transição de verdade do pedido a porta continua
+  baixando o que falta, como sempre — o que muda é que ninguém varre o
+  passado por conta própria. E a baixa da porta, quando já existe, é
+  **AJUSTADA, nunca duplicada**: criar a segunda pagava a venda duas vezes;
+  desistir na recusa do índice deixava a parcela com saldo aberto para sempre
+  (o sinal à mão estornado depois da baixa automática). O quanto ajustar é
+  lido na hora, do banco — somar um valor que envelheceu numa corrida
+  dobraria o dinheiro —, e a baixa que muda de valor SOLTA a conciliação
+  (RN-037); voltar para aguardando **estorna só a baixa DELA**; cancelar
   **ou voltar a ORÇAMENTO** desfaz e cancela (senão ficaria dinheiro que
   nunca entrou no extrato); e o **valor acompanha o pedido** — pedido de R$
   100 editado para R$ 450 refaz o lançamento e a baixa, porque o automático
@@ -789,7 +867,18 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   solta a conciliação da baixa movida (RN-037); a baixa manual fica com a
   data em que o dinheiro andou. **Pagamento atrasado NÃO muda competência**:
   a venda de agosto paga em outubro continua resultado de agosto (RN-036) —
-  só a data da baixa é de outubro. **Unificar contatos leva o financeiro junto**: lançamentos e
+  só a data da baixa é de outubro. **A porta é chamada em TODA porta de edição, não
+  só na troca de status** (03/09/2026): editar itens, desconto, acréscimo ou
+  frete respondia ANTES da chamada, e o lançamento ficava congelado no valor
+  antigo — o pedido valia R$ 553,50 e a conciliação seguia oferecendo
+  R$ 554,50 para casar com a linha do banco. A varredura de carona também
+  deixou de olhar só a venda paga SEM baixa: acerta agora a venda cujo
+  **valor diverge** do pedido (`vendasComValorDivergente`), que é o que
+  conserta sozinho o que já ficou torto — ninguém vai reeditar pedido antigo
+  só para o número se ajustar. Continua de fora quem tem baixa VIVA
+  registrada à mão (ali a porta só avisa, e repescar seria trabalho que não
+  muda nada em toda abertura da tela).
+  **Unificar contatos leva o financeiro junto**: lançamentos e
   contas fixas da ficha apagada passam para a que sobrevive, senão a
   inadimplência virava "Sem cliente" e a cobrança perdia o WhatsApp.
   A venda entra pelo `total` (o
@@ -879,7 +968,7 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   então o vínculo é tabela própria e a conciliação só fecha quando os dois
   lados **somam igual** — o "quase igual" é o erro que a tela existe para
   achar. A mesma baixa não se concilia duas vezes (único por baixa) e
-  estornada não se concilia. **Conciliar NUNCA mexe em dinheiro**: não cria,
+  estornada não se concilia. **Conciliar NUNCA mexe em dinheiro que já existe**: não cria,
   não altera e não apaga baixa — carimba "conferido"; linha que não é do
   sistema (tarifa que a loja não lança) se marca como fora e volta para a
   fila quando quiser — e **baixa estornada solta a conciliação** (nas duas
@@ -897,6 +986,26 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   CONTEÚDO, não o cabeçalho (banco que exporta UTF-8 dizendo `CHARSET:1252`
   existe), e o valor aceita separador de milhar dos dois formatos. **O arquivo em si não é guardado** (dívida técnica nº 1): dele
   saem as linhas, que é o que a conciliação usa.
+  **A LINHA QUE O SISTEMA NÃO TINHA VIRA LANÇAMENTO NA HORA** (03/09/2026):
+  antes a lojista tinha duas saídas ruins — marcar "fora do sistema" (e o
+  dinheiro sumia do DRE e do fluxo) ou sair da conferência, abrir Contas a
+  Pagar, lançar, voltar e procurar a linha de novo; na terceira vez ela
+  desiste da conciliação. Agora o botão abre a **ficha completa de sempre**
+  (RN-030, mesmo validador — parcelas, categoria, centro de custo, coleção)
+  já com o valor, a data e a conta que o BANCO informou, e o lançamento nasce
+  **baixado e conferido** com aquela linha. É a ÚNICA porta da conciliação
+  que registra baixa, e é o certo: aqui o extrato do banco está dizendo que o
+  dinheiro andou — o que segue proibido é o botão "Conferir" quitar conta que
+  já existe (dar por recebida uma venda que ninguém pagou). O **lado tem que
+  bater com o sinal** do banco (entrou = conta a receber), o dinheiro vai
+  baixando as parcelas em ordem sem nunca passar do valor de cada uma, e a
+  transação é **SERIALIZÁVEL** — duas abas criando da mesma linha fariam o
+  mesmo dinheiro entrar dobrado. Se a ficha somar MENOS que a linha, ela
+  continua na fila com a diferença à mostra (é o mesmo caso do depósito que
+  pagou duas contas). Do outro lado, achar a venda certa entre 200 baixas era
+  o trabalho manual que sobrava: com uma linha escolhida, as que **COMBINAM**
+  (mesmo valor, data pertinho) sobem para o topo com ✨ e a **busca** acha
+  pelo nome da cliente ou pelo número do pedido.
   **RN-038 · NOTA E COMISSÃO NO FINANCEIRO** (`lib/financeiro/nota-do-lancamento.ts`
   e `lib/financeiro/comissoes.ts`): duas pontas soltas que faltavam. A ficha
   do lançamento que veio de PEDIDO agora **mostra a nota** (situação, número,

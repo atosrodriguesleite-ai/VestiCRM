@@ -552,21 +552,37 @@ export default async function OrderDetailPage({
                     {brl(p.amount)}
                   </span>
                 </div>
-                <Badge
-                  color={
-                    p.status === "CONFIRMADO"
-                      ? "#059669"
-                      : p.status === "ESTORNADO"
-                        ? "#e11d48"
-                        : "#d97706"
-                  }
-                >
-                  {p.status === "CONFIRMADO"
-                    ? `Pago ${p.paidAt ? dateShort(p.paidAt) : ""}`
-                    : p.status === "ESTORNADO"
-                      ? "Estornado"
-                      : "Pendente"}
-                </Badge>
+                {/* Cobrança pendente em pedido JÁ PAGO é o caminho que a
+                    cliente não usou (o QR que sobrou quando ela pagou pelo
+                    link, ou vice-versa) — dizer "Pendente" ali faria a loja
+                    procurar um dinheiro que não falta (RN-047) */}
+                {(() => {
+                  const pedidoPago = (PAID_ORDER_STATUSES as readonly string[]).includes(
+                    order.status
+                  );
+                  const naoUsada = p.status === "PENDENTE" && pedidoPago;
+                  return (
+                    <Badge
+                      color={
+                        p.status === "CONFIRMADO"
+                          ? "#059669"
+                          : p.status === "ESTORNADO"
+                            ? "#e11d48"
+                            : naoUsada
+                              ? "#94a3b8"
+                              : "#d97706"
+                      }
+                    >
+                      {p.status === "CONFIRMADO"
+                        ? `Pago ${p.paidAt ? dateShort(p.paidAt) : ""}`
+                        : p.status === "ESTORNADO"
+                          ? "Estornado"
+                          : naoUsada
+                            ? "Cobrança não usada"
+                            : "Pendente"}
+                    </Badge>
+                  );
+                })()}
               </div>
             ))}
             {/* Valor editado DEPOIS do pagamento (frete/desconto): o pago

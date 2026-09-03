@@ -1,6 +1,7 @@
-import { NextRequest, NextResponse } from "next/server";
+import { after, NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
+import { repescarVendasSemBaixa } from "@/lib/financeiro/porta-vendas";
 import { AuthError } from "@/lib/auth";
 import { porteiraFinanceiro } from "@/lib/financeiro/gate";
 
@@ -57,6 +58,7 @@ export async function PATCH(
         );
     }
 
+    let eraPadrao = false;
     try {
       const conta = await db.$transaction(async (tx) => {
         // posse conferida ANTES de mexer em qualquer coisa: se a conta não é
@@ -64,9 +66,10 @@ export async function PATCH(
         // um return não desfaria, e o desmarque abaixo ficaria commitado
         const alvo = await tx.finConta.findFirst({
           where: { id, companyId: porta.user.companyId },
-          select: { id: true, tipo: true },
+          select: { id: true, tipo: true, padrao: true },
         });
         if (!alvo) throw new ContaForaDaLoja();
+        eraPadrao = alvo.padrao;
         // cartão nunca vira conta padrão (RN-039): a porta única de entrada
         // das vendas (RN-033) baixaria a venda paga no cartão de crédito
         const ehCartao = (campos.tipo ?? alvo.tipo) === "CARTAO";
@@ -94,7 +97,23 @@ export async function PATCH(
           },
         });
       });
-      return NextResponse.json({ conta });
+      // a conta ACABOU de virar a padrão: as vendas pagas que ficaram sem baixa por
+      // falta dela são acertadas (RN-033) — senão a lojista vê no card
+      // "Atrasado" a venda que ela mesma marcou como paga.
+      // NO after(): são até 50 sincronizações, e dentro da resposta um
+      // timeout devolveria erro com a conta JÁ criada — a lojista clicaria
+      // de novo e nasceria uma segunda conta com o mesmo nome. O que passar
+      // do teto é repescado de carona na próxima abertura do Financeiro.
+      const repescar = conta.padrao && !eraPadrao;
+      if (repescar)
+        after(async () => {
+          try {
+            await repescarVendasSemBaixa(porta.user.companyId);
+          } catch (e) {
+            console.error("[contas] repescagem falhou", e);
+          }
+        });
+      return NextResponse.json({ conta, repescando: repescar });
     } catch (e) {
       if (e instanceof ContaForaDaLoja)
         return NextResponse.json({ error: "Não encontrado" }, { status: 404 });

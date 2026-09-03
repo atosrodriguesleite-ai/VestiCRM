@@ -212,8 +212,9 @@ describe("a conta fixa nasce em Contas a Pagar (RN-031)", () => {
   });
 
   it("EDITAR lançamento que já existe não vira conta fixa", () => {
-    // são objetos diferentes: o lançamento é um mês, a conta fixa é o molde
-    expect(form).toContain("const podeSerFixa = !editando;");
+    // são objetos diferentes: o lançamento é um mês, a conta fixa é o molde.
+    // Movimento vindo do EXTRATO também não: ele já aconteceu, uma vez
+    expect(form).toContain("const podeSerFixa = !editando && !daLinhaDoBanco;");
   });
 
   it("a tela de Contas fixas deixou de ser a segunda porta de cadastro", () => {

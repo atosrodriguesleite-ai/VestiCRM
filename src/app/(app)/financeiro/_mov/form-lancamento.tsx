@@ -63,6 +63,7 @@ export function FormLancamento({
   colecoes,
   editando,
   comecarFixa = false,
+  daLinhaDoBanco,
   onFechar,
   onSalvo,
 }: {
@@ -83,8 +84,20 @@ export function FormLancamento({
   editando?: LancamentoParaEditar;
   /** já abre na opção "todo mês" (link da tela de Contas fixas) */
   comecarFixa?: boolean;
+  /**
+   * A LINHA DO BANCO (RN-037): a ficha nasce com o valor, a data e a conta que
+   * o extrato informou, e o lançamento é criado por uma porta própria — que
+   * além de criar, já registra a baixa e carimba a linha como conferida.
+   */
+  daLinhaDoBanco?: {
+    linhaId: string;
+    descricao: string;
+    valor: number;
+    dia: string;
+    contaId: string;
+  };
   onFechar: () => void;
-  onSalvo: () => void;
+  onSalvo: (resposta?: Record<string, unknown>) => void;
 }) {
   const receita = tipo === "RECEITA";
   const contaPadrao = contas.find((c) => c.padrao)?.id ?? contas[0]?.id ?? "";
@@ -116,9 +129,13 @@ export function FormLancamento({
     )}`;
   }
 
-  const [descricao, setDescricao] = useState(editando?.descricao ?? "");
+  const [descricao, setDescricao] = useState(
+    editando?.descricao ?? daLinhaDoBanco?.descricao ?? ""
+  );
   const [documento, setDocumento] = useState(editando?.documento ?? "");
-  const [competencia, setCompetencia] = useState(editando?.competencia ?? hoje);
+  const [competencia, setCompetencia] = useState(
+    editando?.competencia ?? daLinhaDoBanco?.dia ?? hoje
+  );
   const [categoriaId, setCategoriaId] = useState(editando?.categoriaId ?? "");
   const [centroCustoId, setCentroCustoId] = useState(editando?.centroCustoId ?? "");
   const [colecaoId, setColecaoId] = useState(editando?.colecaoId ?? "");
@@ -139,7 +156,7 @@ export function FormLancamento({
   const [valorFixo, setValorFixo] = useState("");
   const [contaFixa, setContaFixa] = useState(contaPadrao);
   const [formaFixa, setFormaFixa] = useState<FormaPagamento>("PIX");
-  const podeSerFixa = !editando;
+  const podeSerFixa = !editando && !daLinhaDoBanco;
 
   // cliente: busca por nome/telefone (a loja tem milhares — lista fechada não serve)
   const [customerId, setCustomerId] = useState(editando?.customerId ?? "");
@@ -151,13 +168,15 @@ export function FormLancamento({
   const [valorTotal, setValorTotal] = useState(
     editando
       ? String(editando.parcelas.reduce((s, p) => s + p.valor, 0).toFixed(2)).replace(".", ",")
-      : ""
+      : daLinhaDoBanco
+        ? Math.abs(daLinhaDoBanco.valor).toFixed(2).replace(".", ",")
+        : ""
   );
   const [qtdParcelas, setQtdParcelas] = useState(
     String(editando?.parcelas.length ?? 1)
   );
   const [primeiroVenc, setPrimeiroVenc] = useState(
-    editando?.parcelas[0]?.vencimento ?? hoje
+    editando?.parcelas[0]?.vencimento ?? daLinhaDoBanco?.dia ?? hoje
   );
   const [parcelas, setParcelas] = useState<ParcelaForm[]>(
     editando
@@ -169,7 +188,16 @@ export function FormLancamento({
             ? (p.forma as FormaPagamento)
             : "PIX",
         }))
-      : [{ vencimento: hoje, valor: "", contaId: contaPadrao, forma: "PIX" }]
+      : daLinhaDoBanco
+        ? [
+            {
+              vencimento: daLinhaDoBanco.dia,
+              valor: Math.abs(daLinhaDoBanco.valor).toFixed(2).replace(".", ","),
+              contaId: daLinhaDoBanco.contaId,
+              forma: "PIX" as FormaPagamento,
+            },
+          ]
+        : [{ vencimento: hoje, valor: "", contaId: contaPadrao, forma: "PIX" }]
   );
   const [erro, setErro] = useState("");
   const [salvando, setSalvando] = useState(false);
@@ -333,20 +361,22 @@ export function FormLancamento({
       const res = await fetch(
         editando
           ? `/api/financeiro/lancamentos/${editando.id}`
-          : "/api/financeiro/lancamentos",
+          : daLinhaDoBanco
+            ? `/api/financeiro/conciliacao/${daLinhaDoBanco.linhaId}/lancamento`
+            : "/api/financeiro/lancamentos",
         {
           method: editando ? "PATCH" : "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(corpo),
         }
       );
+      const data = await res.json().catch(() => null);
       setSalvando(false);
       if (!res.ok) {
-        const data = await res.json().catch(() => null);
         setErro(data?.error ?? "Não deu certo — tente de novo");
         return;
       }
-      onSalvo();
+      onSalvo(data ?? undefined);
     } catch {
       setSalvando(false);
       setErro("Sem conexão — confira a internet e tente de novo");
@@ -358,17 +388,29 @@ export function FormLancamento({
       <div className="fixed inset-0 z-[80] flex items-end justify-center bg-black/40 sm:items-center sm:p-4">
         <div className="max-h-[92dvh] w-full overflow-y-auto rounded-t-2xl bg-white p-5 sm:max-w-3xl sm:rounded-2xl">
           <div className="mb-4 flex items-start justify-between gap-3">
-            <h2 className="text-lg font-semibold text-slate-900">
-              {editando
-                ? "Editar lançamento"
-                : ehFixa
-                  ? receita
-                    ? "Novo recebimento fixo"
-                    : "Nova conta fixa"
-                  : receita
-                    ? "Nova conta a receber"
-                    : "Nova conta a pagar"}
-            </h2>
+            <div>
+              <h2 className="text-lg font-semibold text-slate-900">
+                {editando
+                  ? "Editar lançamento"
+                  : daLinhaDoBanco
+                    ? receita
+                      ? "Lançar este recebimento"
+                      : "Lançar este pagamento"
+                    : ehFixa
+                      ? receita
+                        ? "Novo recebimento fixo"
+                        : "Nova conta fixa"
+                      : receita
+                        ? "Nova conta a receber"
+                        : "Nova conta a pagar"}
+              </h2>
+              {daLinhaDoBanco && (
+                <p className="mt-0.5 text-xs text-slate-500">
+                  Do extrato do banco. Ele já nasce {receita ? "recebido" : "pago"} e
+                  conferido com esta linha.
+                </p>
+              )}
+            </div>
             <button
               type="button"
               onClick={onFechar}
@@ -384,6 +426,7 @@ export function FormLancamento({
               <Field label="Descrição">
                 <Input
                   value={descricao}
+                  maxLength={160}
                   onChange={(e) => setDescricao(e.target.value)}
                   placeholder={receita ? "Venda para a loja da Ana" : "Tecido — pedido 220"}
                 />

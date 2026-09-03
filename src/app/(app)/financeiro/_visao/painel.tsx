@@ -3,10 +3,15 @@ import { db } from "@/lib/db";
 import { brl } from "@/lib/format";
 import { Card, PageHeader } from "@/components/ui";
 import { StatTile } from "@/components/charts";
-import { carregarInadimplencia, preverSaldo } from "@/lib/financeiro/visao";
+import {
+  carregarInadimplencia,
+  conferirContaPadrao,
+  preverSaldo,
+} from "@/lib/financeiro/visao";
 import { saldosPorConta } from "@/lib/financeiro/extrato";
 import { dataDoDia, diaSP, saldoDaParcela, statusDaParcela } from "@/lib/financeiro/lancamentos";
 import { formatarDia } from "@/lib/financeiro/dia";
+import { AvisoContaPadrao } from "./aviso-conta-padrao";
 
 /**
  * VISÃO GERAL do Financeiro (RN-035) — o painel que responde as três
@@ -27,10 +32,11 @@ export async function PainelFinanceiro({
     `${hojeDia.slice(0, 7)}-${String(new Date(Date.UTC(ano, mes, 0)).getUTCDate()).padStart(2, "0")}`
   )!;
 
-  const [previsao, inad, contas, doMes] = await Promise.all([
+  const [previsao, inad, contas, avisoConta, doMes] = await Promise.all([
     preverSaldo(companyId, dias, hoje),
     carregarInadimplencia(companyId, hoje),
     saldosPorConta(companyId, dataDoDia(hojeDia)!),
+    conferirContaPadrao(companyId),
     db.finParcela.findMany({
       where: {
         companyId,
@@ -97,6 +103,8 @@ export async function PainelFinanceiro({
           </div>
         }
       />
+
+      <AvisoContaPadrao aviso={avisoConta} />
 
       <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
         <StatTile

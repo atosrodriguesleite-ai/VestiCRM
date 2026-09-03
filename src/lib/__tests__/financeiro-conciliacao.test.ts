@@ -4,6 +4,10 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { decodificarOFX, diaDoOFX, lerOFX, valorDoOFX } from "../financeiro/ofx";
 import { casamentosObvios } from "../financeiro/conciliacao";
+import {
+  dividirBaixaNasParcelas,
+  ordenarCandidatas,
+} from "../financeiro/conciliacao-tela";
 
 /**
  * RN-037 · Conciliação bancária: o extrato do banco entra por OFX, o FITID
@@ -260,11 +264,121 @@ describe("as regras da conciliação (RN-037)", () => {
     expect(motor).toContain("Os dois lados não batem");
   });
 
-  it("conciliar NÃO mexe em dinheiro: só carimba conferido", () => {
-    // nenhuma escrita em baixa, parcela ou lançamento mora aqui
-    expect(motor).not.toMatch(/db\.finBaixa\.(create|update|delete)/);
-    expect(motor).not.toMatch(/db\.finParcela\.(create|update|delete)/);
-    expect(motor).not.toMatch(/db\.finLancamento\.(create|update|delete)/);
+  /**
+   * O guarda olha o CORPO de cada função, não o arquivo inteiro: desde que a
+   * linha do banco pode virar lançamento (03/09/2026), o arquivo escreve em
+   * baixa — só que por uma porta só. Guarda que descreve o arquivo em vez do
+   * comportamento passaria a proteger o erro em vez de impedi-lo.
+   */
+  const corpoDe = (nome: string) => {
+    const i = motor.indexOf(`export async function ${nome}(`);
+    expect(i, `função ${nome} não encontrada`).toBeGreaterThan(-1);
+    const j = motor.indexOf("\nexport ", i + 10);
+    return motor.slice(i, j === -1 ? motor.length : j);
+  };
+
+  it("conferir, desfazer e ignorar NÃO mexem em dinheiro: só carimbam", () => {
+    for (const nome of ["conciliar", "desconciliar", "ignorarLinha"]) {
+      const corpo = corpoDe(nome);
+      expect(corpo).not.toMatch(/(db|tx)\.finBaixa\.(create|update|delete)/);
+      expect(corpo).not.toMatch(/(db|tx)\.finParcela\.(create|update|delete)/);
+      expect(corpo).not.toMatch(/(db|tx)\.finLancamento\.(create|update|delete)/);
+    }
+  });
+
+  it("a linha SEM lançamento vira lançamento na hora, já baixado e conferido", () => {
+    const corpo = corpoDe("criarLancamentoDaLinha");
+    // a ficha é a MESMA de Contas a Pagar/Receber (RN-030, mesmo validador)
+    expect(corpo).toContain("conferirLancamento(companyId, dados)");
+    expect(corpo).toContain("tx.finLancamento.create");
+    expect(corpo).toContain("tx.finBaixa.create");
+    expect(corpo).toContain("tx.finOfxVinculo.createMany");
+    // o lado tem que bater com o sinal do banco
+    expect(corpo).toContain("Este dinheiro ENTROU na conta");
+    expect(corpo).toContain("Este dinheiro SAIU da conta");
+    // duas abas criando da mesma linha fariam o dinheiro entrar dobrado
+    expect(corpo).toContain(
+      "Prisma.TransactionIsolationLevel.Serializable"
+    );
+    // linha já conferida não vira lançamento novo
+    expect(corpo).toContain("Esta linha já está conferida");
+  });
+
+  it("no CARTÃO a porta recusa: lá o dinheiro não anda (RN-039)", () => {
+    const corpo = corpoDe("criarLancamentoDaLinha");
+    expect(corpo).toContain('conta.tipo === "CARTAO"');
+    expect(corpo).toContain("Esta conta está arquivada");
+  });
+
+  it("a tela não oferece 'Lançar' onde o servidor vai recusar", () => {
+    const view = ler("src/app/(app)/financeiro/conciliacao/conciliacao-view.tsx");
+    // linha fora do sistema e conta de CARTÃO: a ficha inteira preenchida só
+    // para levar 400/409 no salvar é a pior forma de dizer não
+    expect(view).toContain("{!l.ignorada && !contaEhCartao && (");
+  });
+
+  it("só carimba conferido quando os dois lados somam IGUAL", () => {
+    const corpo = corpoDe("criarLancamentoDaLinha");
+    expect(corpo).toContain("Math.abs(baixado - alvo) < 0.005");
+  });
+
+  it("o dinheiro do banco baixa as parcelas em ordem, sem passar do valor de cada uma", () => {
+    // R$ 100 num lançamento de 3× quita a primeira e para
+    expect(
+      dividirBaixaNasParcelas(100, [
+        { id: "a", valor: 100 },
+        { id: "b", valor: 100 },
+        { id: "c", valor: 100 },
+      ])
+    ).toEqual([{ parcelaId: "a", valor: 100 }]);
+    // depósito maior que a primeira parcela transborda para a seguinte
+    expect(
+      dividirBaixaNasParcelas(150, [
+        { id: "a", valor: 100 },
+        { id: "b", valor: 100 },
+      ])
+    ).toEqual([
+      { parcelaId: "a", valor: 100 },
+      { parcelaId: "b", valor: 50 },
+    ]);
+    // CENTAVO NÃO SOME: 100 em 3× é 33,33 + 33,33 + 33,34 (RN-030)
+    expect(
+      dividirBaixaNasParcelas(100, [
+        { id: "a", valor: 33.33 },
+        { id: "b", valor: 33.33 },
+        { id: "c", valor: 33.34 },
+      ]).reduce((s, i) => s + i.valor, 0)
+    ).toBeCloseTo(100, 10);
+    // ficha menor que a linha do banco: baixa o que cabe, e só
+    expect(
+      dividirBaixaNasParcelas(500, [{ id: "a", valor: 120 }])
+    ).toEqual([{ parcelaId: "a", valor: 120 }]);
+  });
+
+  it("as candidatas que COMBINAM sobem para o topo, e a marcada nunca some da busca", () => {
+    const linha = { dia: "2026-09-05", valor: 530 };
+    const lista = [
+      { id: "1", dia: "2026-09-01", valor: 200, descricao: "Venda #0070", pessoa: "Bruna" },
+      { id: "2", dia: "2026-09-06", valor: 530, descricao: "Venda #0072", pessoa: "Adriana" },
+      { id: "3", dia: "2026-09-02", valor: 530, descricao: "Venda #0071", pessoa: "Célia" },
+      // mesmo valor, mas 10 dias longe: NÃO combina
+      { id: "4", dia: "2026-09-20", valor: 530, descricao: "Venda #0080", pessoa: "Dani" },
+    ];
+    expect(ordenarCandidatas(lista, linha, "", []).map((c) => c.id)).toEqual([
+      "3",
+      "2",
+      "1",
+      "4",
+    ]);
+    // a busca acha sem acento e pelo número do pedido
+    expect(ordenarCandidatas(lista, linha, "celia", []).map((c) => c.id)).toEqual(["3"]);
+    expect(ordenarCandidatas(lista, linha, "#0080", []).map((c) => c.id)).toEqual(["4"]);
+    // marcada continua à vista mesmo fora da busca — senão a conferência
+    // fecharia com menos dinheiro do que a lojista escolheu
+    expect(ordenarCandidatas(lista, linha, "celia", ["2"]).map((c) => c.id)).toEqual([
+      "3",
+      "2",
+    ]);
   });
 
   it("estornada não se concilia (o dinheiro voltou atrás)", () => {
@@ -280,6 +394,7 @@ describe("as regras da conciliação (RN-037)", () => {
     for (const p of [
       "src/app/api/financeiro/conciliacao/importar/route.ts",
       "src/app/api/financeiro/conciliacao/[linhaId]/route.ts",
+      "src/app/api/financeiro/conciliacao/[linhaId]/lancamento/route.ts",
       "src/app/(app)/financeiro/conciliacao/page.tsx",
     ]) {
       expect(ler(p)).toMatch(/porteiraFinanceiro|financeiroLiberado/);

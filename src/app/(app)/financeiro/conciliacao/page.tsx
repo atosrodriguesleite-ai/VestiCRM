@@ -34,7 +34,7 @@ export default async function ConciliacaoPage({
   const contas = await db.finConta.findMany({
     where: { companyId: user.companyId, arquivadaEm: null },
     orderBy: [{ padrao: "desc" }, { nome: "asc" }],
-    select: { id: true, nome: true },
+    select: { id: true, nome: true, tipo: true },
   });
   if (contas.length === 0)
     return (
@@ -59,6 +59,44 @@ export default async function ConciliacaoPage({
   const ate = dataDoDia(texto("ate")) ?? dataDoDia(hoje)!;
 
   const painel = await carregarConciliacao(user.companyId, contaId, aba, de, ate);
+  // as listas da ficha do lançamento (RN-030): a linha do banco pode ser dos
+  // DOIS lados, então as categorias vêm inteiras e a tela mostra as do lado
+  // certo conforme o sinal do movimento
+  const [categorias, fornecedores, centros, colecoes, contasDoForm] =
+    await Promise.all([
+      db.finCategoria.findMany({
+        where: { companyId: user.companyId, arquivadaEm: null },
+        orderBy: { codigo: "asc" },
+        select: { id: true, nome: true, codigo: true, tipo: true },
+      }),
+      db.fornecedor.findMany({
+        where: { companyId: user.companyId, arquivadoEm: null },
+        orderBy: { nome: "asc" },
+        select: { id: true, nome: true, categoriaPadraoId: true },
+      }),
+      db.finCentroCusto.findMany({
+        where: { companyId: user.companyId, arquivadoEm: null },
+        orderBy: { nome: "asc" },
+        select: { id: true, nome: true },
+      }),
+      db.finColecao.findMany({
+        where: { companyId: user.companyId, arquivadaEm: null },
+        orderBy: { createdAt: "desc" },
+        select: { id: true, nome: true },
+      }),
+      db.finConta.findMany({
+        where: { companyId: user.companyId, arquivadaEm: null },
+        orderBy: [{ padrao: "desc" }, { nome: "asc" }],
+        select: {
+          id: true,
+          nome: true,
+          padrao: true,
+          tipo: true,
+          diaFechamento: true,
+          diaVencimento: true,
+        },
+      }),
+    ]);
   const importacoes = await db.finOfxImportacao.findMany({
     where: { companyId: user.companyId, contaId },
     orderBy: { createdAt: "desc" },
@@ -78,7 +116,19 @@ export default async function ConciliacaoPage({
     <ConciliacaoView
       contas={contas}
       filtro={{ conta: contaId, aba, de: diaSP(de), ate: diaSP(ate) }}
+      // RN-039: no cartão o dinheiro não anda (a fatura é que se paga), então
+      // a tela nem oferece "Lançar" — o servidor recusaria depois da ficha
+      // inteira preenchida, que é a pior forma de dizer não
+      contaEhCartao={contas.find((c) => c.id === contaId)?.tipo === "CARTAO"}
       painel={painel}
+      hoje={hoje}
+      ficha={{
+        contas: contasDoForm,
+        categorias,
+        fornecedores,
+        centros,
+        colecoes,
+      }}
       importacoes={importacoes.map((i) => ({
         id: i.id,
         arquivo: i.arquivo,

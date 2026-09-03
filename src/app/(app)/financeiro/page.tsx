@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { after } from "next/server";
 import { redirect } from "next/navigation";
 import {
   Wallet,
@@ -14,6 +15,7 @@ import { isManagerUp } from "@/lib/scope";
 import { financeiroLiberado } from "@/lib/financeiro/gate";
 import { garantirCategoriasPadrao } from "@/lib/financeiro/cadastros";
 import { garantirRecorrencias } from "@/lib/financeiro/recorrencia";
+import { repescarSemQuebrar } from "@/lib/financeiro/porta-vendas";
 import { PainelFinanceiro } from "./_visao/painel";
 import { PAID_ORDER_STATUSES, orderNumber } from "@/lib/orders";
 import { brl, dateShort } from "@/lib/format";
@@ -44,6 +46,13 @@ export default async function FinanceiroPage({
   if (financeiroLiberado(user, chave?.financeEnabled ?? false)) {
     await garantirCategoriasPadrao(user.companyId);
     await garantirRecorrencias(user.companyId);
+    // RN-033: as vendas pagas que ficaram sem baixa por falta de conta
+    // padrão são acertadas DE CARONA no tráfego (ADR-002: nunca um 3º
+    // cron). Na esmagadora maioria das vezes não há nada a fazer e sai numa
+    // consulta só, e ela vai no after(): é trabalho de carona, não pode
+    // SEGURAR a tela. Duas abas ao mesmo tempo não pagam nada em dobro (o
+    // índice parcial da baixa automática recusa a segunda).
+    after(() => repescarSemQuebrar(user.companyId));
     const sp = await searchParams;
     const bruto = Number(Array.isArray(sp.dias) ? sp.dias[0] : sp.dias);
     const dias = [7, 15, 30].includes(bruto) ? bruto : 30;

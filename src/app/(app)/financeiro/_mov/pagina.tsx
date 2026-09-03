@@ -1,3 +1,4 @@
+import { after } from "next/server";
 import { redirect } from "next/navigation";
 import { requireUser } from "@/lib/auth";
 import { db } from "@/lib/db";
@@ -5,8 +6,11 @@ import { isManagerUp } from "@/lib/scope";
 import { financeiroLiberado } from "@/lib/financeiro/gate";
 import { garantirCategoriasPadrao } from "@/lib/financeiro/cadastros";
 import { garantirRecorrencias } from "@/lib/financeiro/recorrencia";
+import { repescarSemQuebrar } from "@/lib/financeiro/porta-vendas";
 import { carregarMovimentacoes, type BasePeriodo } from "@/lib/financeiro/consulta";
 import { dataDoDia, diaSP, type StatusParcela } from "@/lib/financeiro/lancamentos";
+import { conferirContaPadrao } from "@/lib/financeiro/visao";
+import { AvisoContaPadrao } from "../_visao/aviso-conta-padrao";
 import { ListaMovimentacoes } from "./lista";
 
 /**
@@ -47,6 +51,13 @@ export async function PaginaMovimentacoes({
   // CONTAS FIXAS de carona no tráfego (RN-031): sem cron novo (ADR-002).
   // Na maioria das aberturas não há nada a fazer e sai numa consulta só.
   await garantirRecorrencias(user.companyId);
+  // RN-033: as vendas pagas que ficaram sem baixa por falta de conta padrão
+  // são acertadas DE CARONA no tráfego (ADR-002: nunca um 3º cron). Na
+  // esmagadora maioria das vezes não há nada a fazer e sai numa consulta só,
+  // e ela vai no after(): é trabalho de carona, não pode SEGURAR a tela.
+  // Duas abas ao mesmo tempo não pagam nada em dobro — o índice parcial da
+  // baixa automática recusa a segunda.
+  after(() => repescarSemQuebrar(user.companyId));
 
   const sp = await searchParams;
   const texto = (k: string) => (Array.isArray(sp[k]) ? sp[k][0] : sp[k]) ?? "";
@@ -78,12 +89,19 @@ export async function PaginaMovimentacoes({
   const de = dataDoDia(deIso)!;
   const ate = dataDoDia(ateIso)!;
 
-  const [dados, contas, categorias, fornecedores, centros, colecoes] =
+  const [dados, avisoConta, contas, categorias, fornecedores, centros, colecoes] =
     await Promise.all([
       carregarMovimentacoes(
         { companyId: user.companyId, tipo, base, de, ate, status, q: texto("q") },
         hoje
       ),
+      // RN-033: sem conta padrão a venda paga não vira dinheiro na conta — e
+      // é em Contas a RECEBER que a lojista repara, vendo como atrasada a
+      // venda que ela mesma marcou como paga em Pedidos. Em Contas a Pagar o
+      // aviso não aparece, então a consulta nem sai
+      tipo === "RECEITA"
+        ? conferirContaPadrao(user.companyId)
+        : Promise.resolve({ semConta: false, semPadrao: false, vendasParadas: 0 }),
       db.finConta.findMany({
         where: { companyId: user.companyId, arquivadaEm: null },
         orderBy: [{ padrao: "desc" }, { nome: "asc" }],
@@ -123,21 +141,30 @@ export async function PaginaMovimentacoes({
     ]);
 
   return (
-    <ListaMovimentacoes
-      tipo={tipo}
-      hoje={hojeDia}
-      filtro={{ de: deIso, ate: ateIso, base, status, q: texto("q") }}
-      linhas={dados.linhas}
-      resumo={dados.resumo}
-      truncado={dados.truncado}
-      contas={contas}
-      categorias={categorias}
-      fornecedores={fornecedores}
-      centros={centros}
-      colecoes={colecoes}
-      // "?nova=fixa" abre a janela já na opção da conta que se repete — é o
-      // link que a tela de Contas fixas usa (o cadastro mora aqui, RN-031)
-      abrirNova={texto("nova") === "fixa" ? "fixa" : undefined}
-    />
+    <>
+      {/* RN-033: o aviso mora aqui e no painel — são as duas telas onde a
+          lojista repara que a venda paga não virou dinheiro na conta */}
+      {tipo === "RECEITA" && (
+        <div className="mx-auto max-w-7xl">
+          <AvisoContaPadrao aviso={avisoConta} />
+        </div>
+      )}
+      <ListaMovimentacoes
+        tipo={tipo}
+        hoje={hojeDia}
+        filtro={{ de: deIso, ate: ateIso, base, status, q: texto("q") }}
+        linhas={dados.linhas}
+        resumo={dados.resumo}
+        truncado={dados.truncado}
+        contas={contas}
+        categorias={categorias}
+        fornecedores={fornecedores}
+        centros={centros}
+        colecoes={colecoes}
+        // "?nova=fixa" abre a janela já na opção da conta que se repete — é o
+        // link que a tela de Contas fixas usa (o cadastro mora aqui, RN-031)
+        abrirNova={texto("nova") === "fixa" ? "fixa" : undefined}
+      />
+    </>
   );
 }

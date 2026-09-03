@@ -2,7 +2,7 @@
 
 /* eslint-disable @next/next/no-img-element */
 
-import { Fragment, useMemo, useRef, useState, useEffect, type ChangeEvent } from "react";
+import { Fragment, useCallback, useMemo, useRef, useState, useEffect, type ChangeEvent } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { moverTemplate } from "@/lib/templates-ordem";
@@ -71,6 +71,14 @@ import {
 import { autoriaDaMensagem, prefixoDaPrevia } from "@/lib/comm/autoria";
 import { abaDaConversa } from "@/lib/comm/fila";
 import { casaCliente, type MensagemAchada } from "@/lib/busca";
+import {
+  listaEstaEscondida,
+  lugarParaVoltar,
+  mostraAtalhoDaLista,
+  sentidoDoAtalho,
+  vaiDevolverOLugar,
+  vaiGuardarOLugar,
+} from "@/lib/lugar-na-lista";
 import { linkParaSalvar } from "@/lib/midia-arquivo";
 import { EncaminharMensagem } from "./encaminhar";
 import { MenuDaConversa } from "./menu-da-conversa";
@@ -799,6 +807,13 @@ export function Inbox({
   // tela ocupa 100% do espaço útil: mede onde ela começa (pode ter a faixa
   // amarela de Super Admin em cima) e estica até o rodapé da janela
   const shellRef = useRef<HTMLDivElement>(null);
+  // A LISTA NÃO PERDE O LUGAR (RN-046): no celular a lista é escondida com
+  // `display:none` enquanto o chat está aberto, e elemento escondido perde a
+  // rolagem — na volta o navegador entrega scrollTop zero. Guardamos o lugar
+  // a cada rolagem e devolvemos quando a lista reaparece.
+  const listaRef = useRef<HTMLDivElement>(null);
+  const lugarDaLista = useRef(0);
+  const [atalhoDaLista, setAtalhoDaLista] = useState<"fim" | "topo" | null>(null);
   useEffect(() => {
     const el = shellRef.current;
     if (!el) return;
@@ -968,6 +983,66 @@ export function Inbox({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab, search, tagFilter, soNaoLidas, soFavoritas]);
 
+  /** Guarda o lugar e acerta o atalho — na rolagem e quando a lista muda. */
+  const medirALista = useCallback(() => {
+    const el = listaRef.current;
+    if (!el) return;
+    const maxima = el.scrollHeight - el.clientHeight;
+    // lista escondida (o chat está aberto) não tem lugar nem altura para
+    // medir: mexer aqui apagaria justamente o lugar que guardamos
+    if (listaEstaEscondida(el.clientHeight)) return;
+    if (vaiGuardarOLugar(el.scrollTop, el.clientHeight))
+      lugarDaLista.current = el.scrollTop;
+    setAtalhoDaLista(
+      mostraAtalhoDaLista(el.scrollHeight, el.clientHeight)
+        ? sentidoDoAtalho(el.scrollTop, maxima)
+        : null
+    );
+  }, []);
+
+  // ROTAÇÃO, TECLADO E JANELA REDIMENSIONADA mudam a altura sem ninguém
+  // rolar: sem observar, o atalho ficava do tamanho de antes (some quando
+  // devia aparecer, e vice-versa) até ela rolar na mão
+  useEffect(() => {
+    const el = listaRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const obs = new ResizeObserver(() => medirALista());
+    obs.observe(el);
+    return () => obs.disconnect();
+  }, [medirALista]);
+
+  // DEVOLVE O LUGAR quando a lista reaparece (no celular, o chat fechou). O
+  // rAF espera o navegador refazer a conta da altura: sem ele a rolagem
+  // máxima ainda é a de uma lista escondida (zero) e o pedido é ignorado.
+  useEffect(() => {
+    if (selectedId) return;
+    let vivo = true;
+    const id = requestAnimationFrame(() => {
+      if (!vivo) return;
+      const el = listaRef.current;
+      if (!el) return;
+      if (vaiDevolverOLugar(el.scrollTop, lugarDaLista.current)) {
+        el.scrollTop = lugarParaVoltar(
+          lugarDaLista.current,
+          el.scrollHeight - el.clientHeight
+        );
+      }
+      medirALista();
+    });
+    return () => {
+      vivo = false;
+      cancelAnimationFrame(id);
+    };
+  }, [selectedId, medirALista]);
+
+  /** O atalho: leva ao fim (ou de volta ao topo) sem rolar na mão. */
+  const irNaLista = (para: "fim" | "topo") => {
+    listaRef.current?.scrollTo({
+      top: para === "fim" ? listaRef.current.scrollHeight : 0,
+      behavior: "smooth",
+    });
+  };
+
   // a lista com TODOS os filtros MENOS o "Não lidas": é ela que alimenta o
   // filtro e o número do botãozinho — mesma régua, o contador nunca mente
   const filtradasBase = useMemo(() => {
@@ -1018,6 +1093,13 @@ export function Inbox({
     return l;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filtradasBase, soNaoLidas, soFavoritas]);
+
+  // a lista muda de tamanho sem ninguém rolar (encerrou uma conversa, chegou
+  // mensagem nova, "Mostrar mais"): sem medir de novo, o atalho ficava
+  // pendurado numa lista que já cabia na tela
+  useEffect(() => {
+    medirALista();
+  }, [filtered.length, visiveis, medirALista]);
 
   useEffect(() => {
     // indo até uma mensagem achada pela lupa, quem manda na rolagem é o pulo
@@ -2809,7 +2891,11 @@ export function Inbox({
           </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto thin-scroll">
+        <div
+          ref={listaRef}
+          onScroll={medirALista}
+          className="flex-1 overflow-y-auto thin-scroll relative"
+        >
           {/* filtro "Não lidas" escondendo conversas que EXISTEM: dizer a
               verdade e oferecer a saída — o vazio genérico ("Fila vazia 🎉")
               faria a vendedora largar a fila achando que não há ninguém */}
@@ -2984,6 +3070,33 @@ export function Inbox({
               </button>
             );
           })}
+          {/* O ATALHO PEDIDO PELA LOJA (RN-046): a vendedora faz follow-up de
+              baixo para cima e pediu "algum meio de descer sem ter que
+              rolar". Cola na base da coluna e some quando a lista cabe na
+              tela — em lista curta seria enfeite tampando conversa. */}
+          {atalhoDaLista && (
+            <button
+              type="button"
+              onClick={() => irNaLista(atalhoDaLista)}
+              aria-label={
+                atalhoDaLista === "fim"
+                  ? "Ir para o fim da lista"
+                  : "Voltar ao topo da lista"
+              }
+              title={
+                atalhoDaLista === "fim"
+                  ? "Ir para o fim da lista"
+                  : "Voltar ao topo da lista"
+              }
+              className="sticky bottom-3 left-full z-10 mr-3 -mt-11 flex size-9 items-center justify-center rounded-full border border-gray-200 bg-white text-gray-500 shadow-md transition hover:border-brand-300 hover:text-brand-600"
+            >
+              {atalhoDaLista === "fim" ? (
+                <ChevronDown className="size-5" />
+              ) : (
+                <ChevronUp className="size-5" />
+              )}
+            </button>
+          )}
           {filtered.length > visiveis && (
             <button
               onClick={() => setVisiveis((v) => v + BLOCO)}

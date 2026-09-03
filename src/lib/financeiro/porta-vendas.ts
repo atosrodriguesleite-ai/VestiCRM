@@ -3,7 +3,7 @@ import { Prisma } from "@prisma/client";
 import { db } from "../db";
 import { soltarConciliacaoDaBaixa } from "./conciliacao";
 import { round2, PAID_ORDER_STATUSES, orderNumber } from "../orders";
-import { dataDoDia, diaSP } from "./lancamentos";
+import { dataDoDia, diaSP, saldoDaParcela } from "./lancamentos";
 import { garantirCategoriasPadrao } from "./cadastros";
 
 /**
@@ -748,9 +748,61 @@ async function darBaixaDaPorta(
     );
     return;
   }
-  await db.finBaixa.create({
-    data: { companyId, parcelaId, contaId: conta, data, valor, autorNome: AUTOR_SISTEMA },
+
+  /**
+   * UMA PARCELA, UMA BAIXA AUTOMÁTICA VIVA (índice parcial no banco).
+   *
+   * Quando a baixa da porta já existe, ela é AJUSTADA — nunca nasce uma
+   * segunda. Os dois erros que este caminho evita: criar a segunda pagava a
+   * venda DUAS VEZES (o PATCH do pedido e o aviso do gateway chegam juntos e
+   * liam o mesmo saldo); e simplesmente desistir na recusa do índice deixava
+   * a parcela com saldo aberto PARA SEMPRE — é o caso do sinal registrado à
+   * mão que a lojista estorna depois da baixa automática (achado da revisão,
+   * 03/09/2026).
+   *
+   * O quanto ajustar é lido AGORA, do banco: o valor que veio da máquina de
+   * estados pode ter envelhecido numa corrida, e somá-lo em cima de uma baixa
+   * que a outra chamada acabou de criar dobraria o dinheiro.
+   */
+  const viva = await db.finBaixa.findFirst({
+    where: { parcelaId, estornadaEm: null, autorNome: AUTOR_SISTEMA },
+    select: { id: true, valor: true },
   });
+  if (viva) {
+    const parcela = await db.finParcela.findUnique({
+      where: { id: parcelaId },
+      select: {
+        valor: true,
+        vencimento: true,
+        baixas: { select: { valor: true, estornadaEm: true } },
+      },
+    });
+    const falta = parcela ? saldoDaParcela(parcela) : 0;
+    if (falta <= 0.005) return; // o dinheiro já está todo lá
+    const novo = round2(viva.valor + falta);
+    await db.finBaixa.update({ where: { id: viva.id }, data: { valor: novo, data } });
+    // o valor mudou: "conferido" com a linha do banco viraria mentira (RN-037)
+    await soltarConciliacaoDaBaixa(viva.id);
+    await db.finLancamentoEvento.create({
+      data: {
+        lancamentoId,
+        descricao: `Recebimento automático acertado para R$ ${novo.toFixed(2)} em ${diaSP(data)}`,
+        autorNome: AUTOR_SISTEMA,
+      },
+    });
+    return;
+  }
+
+  try {
+    await db.finBaixa.create({
+      data: { companyId, parcelaId, contaId: conta, data, valor, autorNome: AUTOR_SISTEMA },
+    });
+  } catch (e) {
+    // a corrida criou a baixa entre a leitura acima e este insert: o dinheiro
+    // dela é o MESMO que este lado ia registrar, então não se soma nada
+    if ((e as { code?: string })?.code === "P2002") return;
+    throw e;
+  }
   await db.finLancamentoEvento.create({
     data: {
       lancamentoId,
@@ -815,6 +867,204 @@ function rotuloDaOrigem(source: string): string {
  * venda paga sumiria do financeiro sem erro nenhum. Com o `after`, o trabalho
  * roda DEPOIS da resposta, sem segurar a tela e sem se perder.
  */
+/** Teto por rodada da repescagem: loja com anos de pedidos não trava a tela. */
+export const TETO_REPESCA = 50;
+
+/**
+ * Quais VENDAS PAGAS estão sem baixa nenhuma.
+ *
+ * A consulta é crua de propósito: o filtro do status do pedido tem que entrar
+ * ANTES do teto. Todo pedido do catálogo nasce AGUARDANDO_PAGAMENTO e já cria
+ * o lançamento sem baixa — buscando "os 200 lançamentos sem baixa mais novos"
+ * e só depois perguntando quais estão pagos, a loja com 250 pedidos em aberto
+ * enchia a janela com eles e as vendas pagas paradas nunca apareciam (achado
+ * da revisão, 03/09/2026).
+ */
+export async function pedidosPagosSemBaixa(
+  companyId: string,
+  teto = TETO_REPESCA
+): Promise<string[]> {
+  const linhas = await db.$queryRaw<{ origemId: string }[]>`
+    SELECT l."origemId"
+      FROM "FinLancamento" l
+      JOIN "Order" o
+        ON o."id" = l."origemId" AND o."companyId" = l."companyId"
+     WHERE l."companyId" = ${companyId}
+       AND l."origem" = ${ORIGEM_PEDIDO}
+       AND l."canceladoEm" IS NULL
+       AND o."status"::text = ANY(${[...PAID_ORDER_STATUSES]}::text[])
+       AND EXISTS (
+             SELECT 1
+               FROM "FinParcela" p
+              WHERE p."lancamentoId" = l."id"
+                -- AINDA FALTA DINHEIRO nesta parcela. Não basta "não tem
+                -- baixa nenhuma": a venda paga com SINAL registrado à mão
+                -- tem baixa e continua devendo o resto — e ficaria atrasada
+                -- para sempre (achado da revisão, 03/09/2026).
+                AND p."valor" - COALESCE((
+                      SELECT SUM(b."valor") FROM "FinBaixa" b
+                       WHERE b."parcelaId" = p."id" AND b."estornadaEm" IS NULL
+                    ), 0) > 0.005
+                -- e NINGUÉM estornou à mão nesta parcela. Baixa que a
+                -- lojista mandou embora não volta: a repescagem roda de
+                -- carona em toda abertura do Financeiro e desfaria o estorno
+                -- em segundos — "o que a lojista fez na mão é dela" (RN-033).
+                -- Vale para a baixa dela E para a da porta; o estorno feito
+                -- pela PRÓPRIA porta (pedido que voltou para aguardando) é
+                -- que não conta como decisão de ninguém.
+                AND NOT EXISTS (
+                      SELECT 1 FROM "FinBaixa" b2
+                       WHERE b2."parcelaId" = p."id"
+                         AND b2."estornadaEm" IS NOT NULL
+                         AND COALESCE(b2."estornoAutor", '') <> ${AUTOR_SISTEMA}
+                    )
+           )
+       -- e a PORTA VAI RESOLVER: pedido que mudou de valor tendo baixa viva
+       -- registrada à mão só ganha um aviso (ela é que decide o ajuste), e
+       -- ficaria na fila para sempre — 50 sincronizações que não mudam nada
+       -- em toda abertura do Financeiro, empurrando para fora do teto os
+       -- casos que TÊM conserto (achado da revisão, 03/09/2026)
+       AND NOT (
+             ABS(l."valor" - o."total") > 0.005
+             AND EXISTS (
+                   SELECT 1
+                     FROM "FinBaixa" b3
+                     JOIN "FinParcela" p3 ON p3."id" = b3."parcelaId"
+                    WHERE p3."lancamentoId" = l."id"
+                      AND b3."estornadaEm" IS NULL
+                      AND b3."autorNome" <> ${AUTOR_SISTEMA}
+                 )
+           )
+     ORDER BY l."createdAt" DESC
+     LIMIT ${teto}`;
+  return linhas.map((l) => l.origemId);
+}
+
+/**
+ * Quais vendas estão com o financeiro num valor DIFERENTE do pedido.
+ *
+ * A porta acerta o valor a cada mexida no pedido — mas ela só era chamada
+ * quando o pedido mudava de STATUS. Editar itens, desconto, acréscimo ou
+ * frete respondia antes, e o lançamento ficava congelado no valor antigo:
+ * o pedido #0076 valia R$ 553,50 e a conciliação seguia oferecendo
+ * R$ 554,50 para casar com a linha do banco (03/09/2026). A chamada foi
+ * corrigida na porta de edição; esta varredura é para o que JÁ ficou torto —
+ * ninguém vai reeditar pedido antigo só para o número se acertar.
+ *
+ * Fica de fora quem tem baixa VIVA registrada à mão: ali a porta só avisa
+ * (a lojista é que decide o ajuste), então repescar seria trabalho que não
+ * muda nada, em toda abertura do Financeiro — a mesma armadilha que a
+ * consulta de cima já evita.
+ */
+export async function vendasComValorDivergente(
+  companyId: string,
+  teto = TETO_REPESCA
+): Promise<string[]> {
+  const linhas = await db.$queryRaw<{ origemId: string }[]>`
+    SELECT l."origemId"
+      FROM "FinLancamento" l
+      JOIN "Order" o
+        ON o."id" = l."origemId" AND o."companyId" = l."companyId"
+     WHERE l."companyId" = ${companyId}
+       AND l."origem" = ${ORIGEM_PEDIDO}
+       AND l."canceladoEm" IS NULL
+       AND (
+             o."status"::text = ANY(${[...PAID_ORDER_STATUSES]}::text[])
+             OR o."status"::text = 'AGUARDANDO_PAGAMENTO'
+           )
+       AND ABS(l."valor" - o."total") > 0.005
+       -- pedido que virou ZERO (brinde, 100% de desconto) NÃO entra: a porta
+       -- só acerta valor maior que zero, então ele voltaria em toda rodada
+       -- ocupando vaga do teto — na frente dos que TÊM conserto
+       AND o."total" > 0.005
+       -- decisão da lojista é intocável (RN-033), nos DOIS sentidos: a baixa
+       -- que ela registrou (viva) e a que ela MANDOU EMBORA. Sem a segunda, a
+       -- porta veria saldo cheio e recriaria a baixa automática na primeira
+       -- abertura do Financeiro, desfazendo o estorno dela em segundos.
+       AND NOT EXISTS (
+             SELECT 1
+               FROM "FinBaixa" b
+               JOIN "FinParcela" p ON p."id" = b."parcelaId"
+              WHERE p."lancamentoId" = l."id"
+                AND (
+                      (b."estornadaEm" IS NULL AND b."autorNome" <> ${AUTOR_SISTEMA})
+                      OR (
+                           b."estornadaEm" IS NOT NULL
+                           AND COALESCE(b."estornoAutor", '') <> ${AUTOR_SISTEMA}
+                         )
+                    )
+           )
+     ORDER BY l."createdAt" DESC
+     LIMIT ${teto}`;
+  return linhas.map((l) => l.origemId);
+}
+
+/**
+ * A REPESCAGEM DAS VENDAS SEM BAIXA (RN-033).
+ *
+ * Sem conta padrão a porta NÃO inventa uma conta: a venda paga fica
+ * registrada, em aberto, com o motivo escrito no histórico. Só que ninguém
+ * voltava para dar as baixas depois — a loja escolhia a conta padrão e as
+ * vendas que ela mesma marcou como pagas continuavam no card "Atrasado",
+ * pedindo para serem baixadas de novo na mão. Foi o relato que criou esta
+ * função (03/09/2026).
+ *
+ * A porta é simplesmente chamada DE NOVO para essas vendas: ela é idempotente
+ * e continua sendo a única a escrever no financeiro. Duas rodadas ao mesmo
+ * tempo (a lojista salvando a conta enquanto outra aba abre o painel) não
+ * pagam nada em dobro — o índice parcial da baixa automática recusa a
+ * segunda.
+ */
+export async function repescarVendasSemBaixa(
+  companyId: string,
+  teto = TETO_REPESCA
+): Promise<number> {
+  // O VALOR não depende de conta padrão: acertar o lançamento que ficou no
+  // preço velho é conserto de número, não movimento de dinheiro — e é o que
+  // faz a conciliação voltar a bater com o extrato do banco.
+  const ids = new Set(await vendasComValorDivergente(companyId, teto));
+  // o TETO é da rodada inteira, não de cada consulta: duas listas cheias
+  // fariam 100 sincronizações em série dentro do after() de uma abertura de
+  // tela (achado da revisão, 03/09/2026)
+  const restante = teto - ids.size;
+  // a baixa, essa sim, precisa de conta: sem ela a porta avisaria de novo
+  if (restante > 0 && (await contaPadrao(companyId)))
+    for (const id of await pedidosPagosSemBaixa(companyId, restante)) ids.add(id);
+  let acertadas = 0;
+  for (const id of ids) {
+    const r = await sincronizarPedidoNoFinanceiro(id);
+    if (r.feito && r.acao !== "nada") acertadas++;
+  }
+  return acertadas;
+}
+
+/**
+ * A repescagem DE CARONA no tráfego (ADR-002: nunca um 3º cron). Roda ao
+ * abrir as telas do financeiro e NUNCA derruba a tela — é trabalho de carona,
+ * não é a resposta da página.
+ */
+/** Quanto tempo a varredura de carona espera antes de olhar a mesma loja de novo. */
+const MS_ENTRE_VARREDURAS = 5 * 60_000;
+const ultimaVarredura = new Map<string, number>();
+
+export async function repescarSemQuebrar(companyId: string): Promise<void> {
+  // TRAVA DE TEMPO: a consulta não é grátis (três subconsultas correlacionadas
+  // sobre os lançamentos de pedido) e a lojista abre estas telas em sequência.
+  // Cinco minutos por loja bastam — quem tem pressa é quem acabou de escolher
+  // a conta padrão, e aí a própria rota já dispara a repescagem.
+  const agora = Date.now();
+  const antes = ultimaVarredura.get(companyId) ?? 0;
+  if (agora - antes < MS_ENTRE_VARREDURAS) return;
+  ultimaVarredura.set(companyId, agora);
+  try {
+    await repescarVendasSemBaixa(companyId);
+  } catch (e) {
+    console.error("[porta-vendas] repescagem falhou", e);
+    // erro não vale como "já varri": a próxima abertura tenta de novo
+    ultimaVarredura.delete(companyId);
+  }
+}
+
 export function sincronizarPedidoSemQuebrar(orderId: string): void {
   after(() =>
     sincronizarPedidoNoFinanceiro(orderId).catch((e) =>
