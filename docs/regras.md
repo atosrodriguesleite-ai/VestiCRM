@@ -70,3 +70,4 @@ sem ambiguidade.
 | RN-041 | Preço sugerido ao acrescentar peça no pedido tem uma regra só, pela ORIGEM do pedido | `lib/orders.ts` | `tabelas-de-preco.test.ts` |
 | RN-042 | Contagem de venda sempre aponta para pedido que existe: excluir pedido desfaz a conversão da visita, e o número da campanha leva até os pedidos | `lib/campanha-pedidos.ts`, `lib/order-actions.ts` | `campanha-pedidos.test.ts` |
 | RN-043 | O pedido do catálogo é uma bolha só na Central: a mensagem do WhatsApp com o mesmo texto vira a bolha que o catálogo já criou | `lib/comm/bolha-do-pedido.ts` | `bolha-do-pedido.test.ts` |
+| RN-044 | A lista de conversas não perde o lugar ao voltar do chat, e tem atalho para o fim | `lib/lugar-na-lista.ts` | `lugar-na-lista.test.ts` |

@@ -357,6 +357,30 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   de segunda e, sem apertar enviar, o segundo pedido não aparecia no chat
   NUNCA. Um pedido invisível é pior que uma bolha a mais no reenvio raro da
   fila. Limite aceito.
+  **RN-044 · A lista de conversas NÃO PERDE O LUGAR**
+  (`lib/lugar-na-lista.ts`, 03/09/2026): relato da loja — a vendedora faz
+  follow-up **de baixo para cima** (desce até as conversas antigas, abre uma,
+  encerra) e voltava para o **topo** da lista, tendo que rolar tudo de novo a
+  cada atendimento. A causa é do NAVEGADOR, não da tela: no celular a lista é
+  a mesma coluna do chat e fica escondida com `display:none` enquanto a
+  conversa está aberta — **elemento escondido perde a rolagem**, e na volta o
+  `scrollTop` é zero. Então o lugar é guardado por nós a cada rolagem e
+  devolvido quando a lista reaparece, esperando o navegador refazer a conta da
+  altura (`requestAnimationFrame`: sem isso a rolagem máxima ainda é a da
+  lista escondida — zero — e o pedido é ignorado). **O que separa "ela subiu até o topo" de "o navegador
+  zerou" é a ALTURA VISÍVEL**, não o scroll: lista escondida tem altura zero e
+  não vira lugar guardado — mas o topo, com a lista visível, é lugar legítimo
+  e fica guardado. A primeira versão guardava só posição maior que zero e
+  deixava o topo inalcançável (a lista era puxada de volta ao lugar antigo a
+  cada ida ao chat, achado da revisão). **No computador não mexe**: ali a lista
+  fica ao lado do chat e já está no lugar; só devolve quando a lista está no
+  topo E há lugar guardado. Lista que **encolheu** (a conversa encerrada saiu
+  da aba) encaixa no máximo possível — pedir posição que não existe mais faz o
+  navegador ignorar e voltar ao topo, o próprio bug. E o **atalho** que a loja
+  pediu ("algum meio de descer sem ter que rolar"): um botão só, colado na
+  base da coluna, apontando para onde ainda falta ir (↓ fim na metade de cima,
+  ↑ topo na de baixo), que só aparece quando **sobra mais de uma tela para rolar** — em lista
+  curta seria enfeite tampando conversa.
   **RN-012** · Resgate manual: **"Colar pedido do WhatsApp"** na tela Pedidos
   (`lib/catalogo/ler-mensagem.ts` + `/api/orders/ler-mensagem`) — lê a
   mensagem do catálogo, casa com o catálogo da loja (nome mais longo vence
