@@ -33,7 +33,25 @@ export type ContatoBasico = {
   id: string;
   name: string;
   phone: string;
+  /** por que o sistema acha que é a mesma pessoa (quando não é só o telefone) */
+  motivo?: string;
 };
+
+/**
+ * SEGUNDO SINAL (03/09/2026): o MESMO pedido do catálogo chegando de OUTRO
+ * número. Caso real da Toque Leve: a lojista digitou o telefone pessoal no
+ * formulário (o pedido e a bolha nasceram nesse cadastro) e apertou
+ * "enviar" no WhatsApp da LOJA dela — a mensagem idêntica chegou de outro
+ * número e virou outro cadastro. Números totalmente diferentes: o sinal do
+ * telefone (acima) não pega, e a bolha única (RN-043) só junta a MESMA
+ * cliente. Aqui também só se AVISA — a loja decide e unifica.
+ */
+export const JANELA_MESMO_PEDIDO_MS = 2 * 60 * 60 * 1000;
+
+/** A mensagem é o texto de um pedido do catálogo? (é assim que ele começa) */
+export function ehTextoDePedidoDoCatalogo(body: string): boolean {
+  return /^\*Novo pedido\b/.test(body.trim());
+}
 
 /** Sem acento, sem caixa, sem espaço dobrado — para comparar nome de gente. */
 export function normNome(s: string): string {
