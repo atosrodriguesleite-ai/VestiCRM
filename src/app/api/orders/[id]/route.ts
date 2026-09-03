@@ -25,9 +25,11 @@ import {
   vendaOnline,
   resolveCancelStock,
   resolveReopenStock,
+  escolherCobrancaAConfirmar,
 } from "@/lib/orders";
 import { computeOrderTotals } from "@/lib/orders";
 import { reservarOQueTiver, textoDaFalta } from "@/lib/reservations";
+import { mpCancelPayment } from "@/lib/mercadopago";
 import { baixasLiquidasDoPedido, devolverEstoqueDoPedido } from "@/lib/estoque-do-pedido";
 
 // Pedido grande mexe estoque peça a peça com o banco na nuvem: os 10s padrão
@@ -410,6 +412,15 @@ export async function PATCH(
         });
       }, { timeout: 30_000, maxWait: 10_000 });
 
+      // PORTA ÚNICA DO FINANCEIRO (RN-033): editar itens/valores MUDA o que a
+      // cliente deve, e o financeiro só era avisado na TROCA DE STATUS — lá
+      // embaixo, depois de respostas antecipadas e de validações que ainda
+      // podem recusar a chamada. O lançamento ficava congelado no valor
+      // VELHO: foi assim que a venda #0076 continuou R$ 554,50 na conciliação
+      // com o pedido valendo R$ 553,50. Fica AQUI, colado na transação que já
+      // gravou o novo valor, para valer também quando o resto do PATCH falhar.
+      sincronizarPedidoSemQuebrar(order.id);
+
       // Integrações espelham o ajuste de estoque da edição (uma venda, uma
       // baixa) — antes a Nuvemshop/Jueri nunca ficavam sabendo e os canais
       // divergiam para sempre. Pelo delta EFETIVO (o que de fato saiu/voltou
@@ -554,6 +565,14 @@ export async function PATCH(
           });
         }
       }, { timeout: 30_000, maxWait: 10_000 });
+      // PORTA ÚNICA DO FINANCEIRO (RN-033): editar itens/valores MUDA o que a
+      // cliente deve, e o financeiro só era avisado na TROCA DE STATUS — lá
+      // embaixo, depois de respostas antecipadas e de validações que ainda
+      // podem recusar a chamada. O lançamento ficava congelado no valor
+      // VELHO: foi assim que a venda #0076 continuou R$ 554,50 na conciliação
+      // com o pedido valendo R$ 553,50. Fica AQUI, colado na transação que já
+      // gravou o novo valor, para valer também quando o resto do PATCH falhar.
+      sincronizarPedidoSemQuebrar(order.id);
       // o funil acompanha o VALOR VENDIDO (frete não é negociação)
       await syncOpportunityValue(user.companyId, order.opportunityId, totals.netTotal);
 
@@ -784,6 +803,8 @@ export async function PATCH(
        * efeitos (estoque, venda, pagamento, envio) entram ou saem JUNTOS.
        */
       let mexidas: { variantId: string; delta: number }[] = [];
+      /** QRs do Mercado Pago a cancelar NO PROVEDOR depois da transação (RN-047) */
+      let cancelarNoMp: string[] = [];
       try {
         mexidas = await db.$transaction(
           async (tx) => {
@@ -827,10 +848,61 @@ export async function PATCH(
             // Pular etapas segue a lógica completa: entrar em etapa paga
             // vindo de não paga confirma o pagamento e registra a venda.
             if (enteringPaid) {
-              await tx.payment.updateMany({
-                where: { orderId: order.id, status: "PENDENTE" },
-                data: { status: "CONFIRMADO", paidAt: new Date() },
+              // UMA cobrança vira "pago", nunca todas (RN-047). O mesmo pedido
+              // costuma ter duas pendentes — a que nasce com ele e o link/QR
+              // que a vendedora gerou — e são caminhos ALTERNATIVOS do mesmo
+              // dinheiro: confirmar as duas fazia o pedido constar como pago
+              // em DOBRO ("pago a mais R$ 555,50", pedido #0076, 03/09/2026).
+              const cobrancas = await tx.payment.findMany({
+                where: { orderId: order.id },
+                select: {
+                  id: true, status: true, amount: true, mpPaymentId: true, createdAt: true,
+                  provider: true, pixCopiaECola: true,
+                },
               });
+              const totalAgora = await tx.order.findUnique({
+                where: { id: order.id },
+                // frete-ok: a cobrança é do que a cliente paga
+                select: { total: true },
+              });
+              const decisao = escolherCobrancaAConfirmar(
+                cobrancas,
+                totalAgora?.total ?? order.total
+              );
+              if (decisao.confirmar) {
+                await tx.payment.update({
+                  where: { id: decisao.confirmar },
+                  data: {
+                    status: "CONFIRMADO",
+                    paidAt: new Date(),
+                    ...(decisao.ajustarPara != null ? { amount: decisao.ajustarPara } : {}),
+                  },
+                });
+              }
+              // as irmãs NÃO viram pagamento — só param de valer, senão o QR
+              // no WhatsApp da cliente continuava pagável num pedido já pago
+              if (decisao.invalidar.length > 0) {
+                await tx.payment.updateMany({
+                  where: { id: { in: decisao.invalidar }, status: "PENDENTE" },
+                  data: { dueAt: new Date() },
+                });
+                // ...e o QR do Mercado Pago para de valer LÁ TAMBÉM. Vencer só
+                // aqui dentro não impede a cliente de pagar o código que já
+                // está no WhatsApp dela — é o mesmo cuidado que o caminho
+                // automático toma (`settleOrderPaid`). O link de cartão/
+                // InfinitePay não vira pagamento antes de pagar: não há o que
+                // cancelar, e a linha pendente segura o alarme de segundo
+                // pagamento.
+                cancelarNoMp = cobrancas
+                  .filter(
+                    (c) =>
+                      decisao.invalidar.includes(c.id) &&
+                      c.provider === "MERCADO_PAGO" &&
+                      c.pixCopiaECola &&
+                      c.mpPaymentId
+                  )
+                  .map((c) => c.mpPaymentId!);
+              }
               // valor ATUAL do banco: se os itens foram editados nesta mesma
               // chamada, o valor lido no começo estaria desatualizado.
               // A venda registra o VALOR VENDIDO (sem frete) — mesma régua
@@ -1078,6 +1150,14 @@ export async function PATCH(
       }
 
       // ---- fora da transação: efeitos não-críticos ----
+      // o QR que sobrou para de valer no Mercado Pago (RN-047). Best-effort:
+      // falhar aqui não desfaz o pedido pago — a linha continua pendente e o
+      // alarme de segundo pagamento segue armado.
+      if (cancelarNoMp.length > 0) {
+        await Promise.allSettled(
+          cancelarNoMp.map((idMp) => mpCancelPayment(user.companyId, idMp))
+        ).catch(() => {});
+      }
       // FUNIL acompanha o pedido: pago → GANHO; cancelado → PERDIDO;
       // reaberto → volta a ABERTA. Pedido sem cartão que virou pago ganha
       // o seu na hora — venda paga nunca fica fora do "Pedido fechado".

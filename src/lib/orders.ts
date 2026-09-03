@@ -379,3 +379,90 @@ export function precoSugeridoNoPedido(
         : "ATACADO");
   return precoComDesconto(catalogPrice(produto, modo), pedido.campaignDiscount ?? 0);
 }
+
+/* ---- QUAL COBRANÇA VIRA "PAGO" AO MARCAR NA MÃO (RN-047) --------------- */
+
+/**
+ * O mesmo pedido pode ter MAIS DE UMA cobrança pendente ao mesmo tempo, e
+ * isso é normal: o pedido do catálogo já nasce com uma cobrança PIX, e a
+ * vendedora ainda gera o QR do Mercado Pago ou o link da InfinitePay para
+ * mandar no WhatsApp. São CAMINHOS ALTERNATIVOS do mesmo dinheiro — a cliente
+ * paga por UM deles.
+ *
+ * Marcar o pedido como pago na mão confirmava TODAS. Um pedido de R$ 554,50
+ * com duas cobranças passava a constar como R$ 1.109,00 recebidos, e a ficha
+ * anunciava "pago a mais R$ 555,50" — dinheiro que nunca entrou (incidente
+ * Jago Fitwear, pedido #0076, 03/09/2026). O caminho automático já acertava
+ * isso desde a auditoria de 07/08/2026 ("confirmar todas escondia a
+ * conciliação", em `settleOrderPaid`); o caminho da MÃO ficou para trás.
+ *
+ * A régua é a mesma da baixa da porta do Financeiro (RN-033): confirma **o
+ * que FALTA**, uma cobrança só. As irmãs não somem — elas param de valer
+ * (o QR/link não pode continuar pagável num pedido já pago) e a ficha as
+ * mostra como cobrança não usada.
+ */
+export type CobrancaDoPedido = {
+  id: string;
+  status: string;
+  amount: number;
+  /** id no gateway: quem tem, tem dinheiro identificado do outro lado */
+  mpPaymentId?: string | null;
+  createdAt: Date;
+};
+
+export type DecisaoDaCobranca = {
+  /** a cobrança que vira CONFIRMADO (null = o pedido já está coberto) */
+  confirmar: string | null;
+  /** valor a gravar nela — null quando o que ela já diz está certo */
+  ajustarPara: number | null;
+  /** as irmãs pendentes: param de valer, sem virar pagamento */
+  invalidar: string[];
+};
+
+export function escolherCobrancaAConfirmar(
+  cobrancas: CobrancaDoPedido[],
+  total: number
+): DecisaoDaCobranca {
+  const pendentes = cobrancas.filter((c) => c.status === "PENDENTE");
+  const jaPago = round2(
+    cobrancas
+      .filter((c) => c.status === "CONFIRMADO")
+      .reduce((s, c) => s + c.amount, 0)
+  );
+  const falta = round2(total - jaPago);
+  // já coberto (a cliente pagou pelo gateway antes de alguém mexer no status):
+  // nada vira pagamento; as pendentes só param de valer
+  if (falta <= 0.005)
+    return { confirmar: null, ajustarPara: null, invalidar: pendentes.map((c) => c.id) };
+
+  // QUAL delas: a cobrança SEM transação no gateway vem primeiro, e por dois
+  // motivos que apontam para o mesmo lado. (1) É a verdade: se o dinheiro
+  // tivesse entrado pelo gateway, o webhook já teria liquidado sozinho — quem
+  // marca na mão recebeu por fora (Pix na chave, transferência, dinheiro).
+  // (2) É o alarme: `settleOrderPaid` só grita "🚨 SEGUNDO pagamento" quando
+  // ainda existe linha PENDENTE com aquele `mpPaymentId`; carimbar a do
+  // gateway como paga faria a cliente pagar o QR depois e o dinheiro em
+  // dobro entrar calado (achado da revisão, 03/09/2026).
+  // Empatadas, vale a MAIS RECENTE — é o link que a vendedora acabou de
+  // mandar para a cliente.
+  const ordenadas = [...pendentes].sort((a, b) => {
+    const ga = a.mpPaymentId ? 1 : 0;
+    const gb = b.mpPaymentId ? 1 : 0;
+    if (ga !== gb) return ga - gb;
+    return b.createdAt.getTime() - a.createdAt.getTime();
+  });
+  const escolhida = ordenadas[0];
+  if (!escolhida) return { confirmar: null, ajustarPara: null, invalidar: [] };
+
+  // o valor gravado é o que FALTA. Cobrança com transação no gateway não se
+  // reescreve: o número dela é o que o provedor tem, e mudá-lo quebraria a
+  // conferência com o extrato do Mercado Pago / InfinitePay.
+  const podeAjustar = !escolhida.mpPaymentId;
+  const ajustarPara =
+    podeAjustar && Math.abs(escolhida.amount - falta) > 0.005 ? falta : null;
+  return {
+    confirmar: escolhida.id,
+    ajustarPara,
+    invalidar: ordenadas.slice(1).map((c) => c.id),
+  };
+}

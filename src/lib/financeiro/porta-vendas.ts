@@ -941,6 +941,65 @@ export async function pedidosPagosSemBaixa(
 }
 
 /**
+ * Quais vendas estão com o financeiro num valor DIFERENTE do pedido.
+ *
+ * A porta acerta o valor a cada mexida no pedido — mas ela só era chamada
+ * quando o pedido mudava de STATUS. Editar itens, desconto, acréscimo ou
+ * frete respondia antes, e o lançamento ficava congelado no valor antigo:
+ * o pedido #0076 valia R$ 553,50 e a conciliação seguia oferecendo
+ * R$ 554,50 para casar com a linha do banco (03/09/2026). A chamada foi
+ * corrigida na porta de edição; esta varredura é para o que JÁ ficou torto —
+ * ninguém vai reeditar pedido antigo só para o número se acertar.
+ *
+ * Fica de fora quem tem baixa VIVA registrada à mão: ali a porta só avisa
+ * (a lojista é que decide o ajuste), então repescar seria trabalho que não
+ * muda nada, em toda abertura do Financeiro — a mesma armadilha que a
+ * consulta de cima já evita.
+ */
+export async function vendasComValorDivergente(
+  companyId: string,
+  teto = TETO_REPESCA
+): Promise<string[]> {
+  const linhas = await db.$queryRaw<{ origemId: string }[]>`
+    SELECT l."origemId"
+      FROM "FinLancamento" l
+      JOIN "Order" o
+        ON o."id" = l."origemId" AND o."companyId" = l."companyId"
+     WHERE l."companyId" = ${companyId}
+       AND l."origem" = ${ORIGEM_PEDIDO}
+       AND l."canceladoEm" IS NULL
+       AND (
+             o."status"::text = ANY(${[...PAID_ORDER_STATUSES]}::text[])
+             OR o."status"::text = 'AGUARDANDO_PAGAMENTO'
+           )
+       AND ABS(l."valor" - o."total") > 0.005
+       -- pedido que virou ZERO (brinde, 100% de desconto) NÃO entra: a porta
+       -- só acerta valor maior que zero, então ele voltaria em toda rodada
+       -- ocupando vaga do teto — na frente dos que TÊM conserto
+       AND o."total" > 0.005
+       -- decisão da lojista é intocável (RN-033), nos DOIS sentidos: a baixa
+       -- que ela registrou (viva) e a que ela MANDOU EMBORA. Sem a segunda, a
+       -- porta veria saldo cheio e recriaria a baixa automática na primeira
+       -- abertura do Financeiro, desfazendo o estorno dela em segundos.
+       AND NOT EXISTS (
+             SELECT 1
+               FROM "FinBaixa" b
+               JOIN "FinParcela" p ON p."id" = b."parcelaId"
+              WHERE p."lancamentoId" = l."id"
+                AND (
+                      (b."estornadaEm" IS NULL AND b."autorNome" <> ${AUTOR_SISTEMA})
+                      OR (
+                           b."estornadaEm" IS NOT NULL
+                           AND COALESCE(b."estornoAutor", '') <> ${AUTOR_SISTEMA}
+                         )
+                    )
+           )
+     ORDER BY l."createdAt" DESC
+     LIMIT ${teto}`;
+  return linhas.map((l) => l.origemId);
+}
+
+/**
  * A REPESCAGEM DAS VENDAS SEM BAIXA (RN-033).
  *
  * Sem conta padrão a porta NÃO inventa uma conta: a venda paga fica
@@ -960,9 +1019,17 @@ export async function repescarVendasSemBaixa(
   companyId: string,
   teto = TETO_REPESCA
 ): Promise<number> {
-  // sem conta padrão não há para onde a baixa ir: a porta avisaria de novo
-  if (!(await contaPadrao(companyId))) return 0;
-  const ids = await pedidosPagosSemBaixa(companyId, teto);
+  // O VALOR não depende de conta padrão: acertar o lançamento que ficou no
+  // preço velho é conserto de número, não movimento de dinheiro — e é o que
+  // faz a conciliação voltar a bater com o extrato do banco.
+  const ids = new Set(await vendasComValorDivergente(companyId, teto));
+  // o TETO é da rodada inteira, não de cada consulta: duas listas cheias
+  // fariam 100 sincronizações em série dentro do after() de uma abertura de
+  // tela (achado da revisão, 03/09/2026)
+  const restante = teto - ids.size;
+  // a baixa, essa sim, precisa de conta: sem ela a porta avisaria de novo
+  if (restante > 0 && (await contaPadrao(companyId)))
+    for (const id of await pedidosPagosSemBaixa(companyId, restante)) ids.add(id);
   let acertadas = 0;
   for (const id of ids) {
     const r = await sincronizarPedidoNoFinanceiro(id);
