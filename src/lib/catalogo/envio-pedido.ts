@@ -109,10 +109,29 @@ export function contarTentativa(storage: Storage, clientRef: string) {
   );
 }
 
+/**
+ * Devolve a tentativa contada: o 429 da trava de ritmo (RN-044) é "agora
+ * não", não uma tentativa de verdade — se ela queimasse o teto vitalício
+ * (MAX_TENTATIVAS), um pedido legítimo preso atrás de uma enxurrada longa
+ * seria descartado em silêncio, a promessa que a RN-010 existe para impedir.
+ */
+export function descontarTentativa(storage: Storage, clientRef: string) {
+  gravar(
+    storage,
+    lerPendentes(storage).map((p) =>
+      p.clientRef === clientRef
+        ? { ...p, tentativas: Math.max(0, (p.tentativas ?? 0) - 1) }
+        : p
+    )
+  );
+}
+
 export type ResultadoEnvio = {
   ok: boolean;
   number?: number;
   permanente?: boolean;
+  /** trava de ritmo (429, RN-044): "agora não" — guardar e tentar depois */
+  aguardar?: boolean;
   /** por que o servidor recusou (mostrado à cliente quando é recusa dele) */
   motivo?: string;
 };
@@ -140,11 +159,18 @@ export async function tentarRegistrar(
     // 4xx é recusa do servidor: repetir daria o mesmo resultado. O MOTIVO
     // sobe junto — recusa que a cliente não vê (quantidade mínima do
     // atacado, link vencido) é pedido que some sem ninguém entender.
-    const permanente = res.status >= 400 && res.status < 500;
-    const corpo = permanente ? await res.json().catch(() => ({})) : {};
+    // EXCEÇÃO: 429 é a trava de ritmo (RN-044) dizendo "agora não" — o
+    // pedido FICA na fila e entra sozinho na próxima visita, quando a
+    // janela abre. Descartá-lo perderia pedido de verdade preso atrás de
+    // uma enxurrada (CGNAT põe um bairro inteiro no mesmo IP).
+    const aguardar = res.status === 429;
+    const permanente = res.status >= 400 && res.status < 500 && !aguardar;
+    const corpo =
+      permanente || aguardar ? await res.json().catch(() => ({})) : {};
     return {
       ok: false,
       permanente,
+      aguardar,
       motivo: typeof corpo?.error === "string" ? corpo.error : undefined,
     };
   } catch {
@@ -169,6 +195,8 @@ export async function registrarComInsistencia(
     dormir?: (ms: number) => Promise<unknown>;
     /** avisado quando o servidor RECUSA de vez (com o motivo, se veio) */
     aoRecusar?: (motivo?: string) => void;
+    /** avisado quando a trava de ritmo pediu para esperar (pedido GUARDADO) */
+    aoAguardar?: (motivo?: string) => void;
   }
 ): Promise<boolean> {
   const { storage, fetchImpl = fetch, dormir = espera } = opts;
@@ -187,6 +215,14 @@ export async function registrarComInsistencia(
       // mas devolvendo o motivo, para a tela poder contar à cliente
       removerPendente(storage, pendente.clientRef);
       opts.aoRecusar?.(r.motivo);
+      return false;
+    }
+    if (r.aguardar) {
+      // trava de ritmo (RN-044): insistir agora é inútil (o bloqueio dura
+      // minutos) e esta rodada NÃO pode queimar o teto vitalício — senão o
+      // pedido legítimo preso atrás de uma enxurrada longa seria descartado
+      descontarTentativa(storage, pendente.clientRef);
+      opts.aoAguardar?.(r.motivo);
       return false;
     }
     if (i < max - 1) await dormir(intervalos[Math.min(i, intervalos.length - 1)]);
@@ -215,6 +251,11 @@ export async function reenviarPendentes(opts: {
       recuperados++;
     } else if (r.permanente) {
       removerPendente(opts.storage, p.clientRef);
+    } else if (r.aguardar) {
+      // trava de ritmo: a rodada não conta (RN-044) e os DEMAIS pendentes
+      // parariam na mesma trava — melhor esperar a próxima visita
+      descontarTentativa(opts.storage, p.clientRef);
+      break;
     }
   }
   return recuperados;
@@ -263,6 +304,22 @@ export function assinaturaDoPedido(payload: Record<string, unknown>): string {
     // dizia "Pedido registrado!" e a loja não recebia nada (revisão 17/08).
     `#${payload.link ?? ""}`,
     `#${payload.ref ?? ""}`,
+    // CONDIÇÃO DO LINK DE CAMPANHA (RN-040), pelo MESMO motivo da tabela
+    // acima: a mesma sacola a 0% e a 30% são dois pedidos de valores
+    // diferentes. Sem isto, a loja editava o desconto, pedia para a cliente
+    // mandar de novo, e o segundo envio caía como "já registrado" —
+    // devolvendo o pedido VELHO, a preço cheio, com a tela dizendo "Pedido
+    // registrado!" (achado da revisão de 01/09/2026).
+    //
+    // SÓ ENTRA QUANDO EXISTE CAMPANHA, e isso é a parte importante: a
+    // assinatura vive no APARELHO da cliente. Acrescentar campo fixo mudaria
+    // TODA assinatura já guardada — a sacola mandada às 12:00 deixaria de
+    // casar às 12:05, ganharia protocolo novo e viraria pedido DUPLICADO,
+    // com estoque reservado duas vezes. Que é justamente o incidente que
+    // esta trava existe para impedir.
+    ...(payload.campanha
+      ? [`#${payload.campanha}`, `#${payload.campanhaDesconto ?? ""}`]
+      : []),
   ].join("~");
 }
 

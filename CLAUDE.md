@@ -19,7 +19,11 @@ o sistema para gerir os leads do AtacadoPro.
   Motivo real: a revisão da conferência de tarefas achou 10 bugs num código
   já "pronto" — 3 deles esconderiam dinheiro pendente. Casos de canto (dois
   pedidos, compromisso futuro, status raro) são exatamente o que o autor não
-  vê. Exceção: mudança trivial sem lógica (texto, cor, label).
+  vê. Exceção: mudança trivial sem lógica (texto, cor, label) — e, por
+  pedido do dono (02/09/2026), **conserto simples de tela vai pela via
+  rápida**: implementar direto, testes + build e push, sem a revisão
+  completa. A revisão completa continua obrigatória quando a mudança cria
+  ou altera REGRA de dinheiro/estoque ou porta pública.
 - Quando a mudança mexe com **dinheiro, estoque ou apagar/concluir dados
   sozinha**, além da revisão: reproduzir o cenário ponta a ponta contra o
   Postgres local antes de subir (adivinhar já errou 3 vezes num dia).
@@ -107,6 +111,19 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   carteira), SUPPORT (operacional, sem poderes comerciais).
 - Auth: JWT em cookie httpOnly (`lib/auth.ts`); Super Admin pode "acessar
   como loja" (impersonação com faixa amarela).
+  **RN-045 · Código de login pelo WhatsApp em aparelho novo**
+  (`lib/auth-codigo.ts`, 02/09/2026): segundo fator do jeito deste público —
+  nada de app autenticador; o código de 6 dígitos chega no WhatsApp da
+  própria pessoa, mandado pela conexão da própria loja. **Opt-in por loja**
+  (chavinha na tela Equipe, nasce DESLIGADA) e **por pessoa**
+  (`User.loginPhone`, cadastrado ali). Aparelho conhecido não pede código
+  por 90 dias (cookie assinado por HMAC, de UMA pessoa — outra conta no
+  mesmo aparelho pede). O código nunca é guardado (só o HMAC), vale 10 min
+  e morre com 5 erros, contados ANTES de conferir. **NUNCA TRANCA A LOJISTA
+  FORA**: sem telefone cadastrado, ou com o WhatsApp da loja caído/envio
+  recusado, o login entra como sempre e o ocorrido fica registrado
+  (`login.codigo-falhou` na Central de Comunicação) — fail-open consciente
+  e documentado.
 - Comentários de código em **português**, explicando o porquê das regras.
 
 ## Regras de negócio centrais (fonte da verdade)
@@ -226,6 +243,175 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   pedido sem o campo, porque pedido do catálogo não pode se perder (RN-010)
   e o reenvio automático guarda payload antigo. Loja que não configurar
   nada não muda em NADA.
+  **RN-040 · Condições do LINK DE CAMPANHA, editáveis sem trocar o endereço**
+  (`lib/catalogo/condicoes-da-campanha.ts`, 01/09/2026): o link de campanha
+  da tela Inteligência (`?ref=`) deixou de só rastrear — a loja define nele um
+  **desconto** e um **pedido mínimo próprios** (menos peças, ou nenhum), e
+  **edita isso quando quiser**. O que NUNCA muda é o **endereço**: ele já foi
+  mandado no grupo, impresso no QR e colado no story (pedido do dono) — a
+  rota de edição nem aceita `slug`. Quem manda no preço é o SERVIDOR
+  (RN-009); a condição viaja no pedido em campo PRÓPRIO, separada do `ref`,
+  porque o `ref` pode vir LEMBRADO do aparelho (comissão, RN-005) e desconto
+  lembrado cobraria o que a vitrine não mostrou. **Descontos NÃO se somam**:
+  com tabela de preço (RN-018) ou catálogo promocional na mesma visita, a
+  condição do link não entra. Campanha **pausada** volta o link ao catálogo
+  normal (nunca 404 — pior que perder o desconto é o link divulgado quebrar)
+  e para de contar visitas para ela no relatório. **O pedido NUNCA é recusado por
+  mudança de condição** — editar desconto é a ação de todo dia que esta regra
+  criou, e pedido da fila do aparelho que volta recusado é DESCARTADO pelo
+  reenvio (o incidente da RN-010). O pedido leva o desconto que a vitrine
+  MOSTROU; se ele não bate com o de agora (nos dois sentidos: sumiu cobraria a
+  mais da cliente, apareceu faria a loja receber menos que o combinado), o
+  pedido ENTRA pelo valor do servidor e a diferença é **gritada na ficha e no
+  histórico** para a loja confirmar antes de cobrar. O desconto que precificou
+  fica **gravado no pedido** (`Order.campaignRef`/`campaignDiscount`) — e peça
+  acrescentada depois segue esse desconto (senão três linhas saíam a R$ 80 e a
+  quarta a R$ 100, no mesmo pedido), e o
+  resgate **"Colar pedido do WhatsApp"** lê o carimbo `_Campanha: X (N% OFF)_`
+  da mensagem: sem isso a lojista colava um pedido aprovado por R$ 800 e o
+  sistema criava de R$ 1.000. **Mas o número do texto NÃO decide dinheiro** —
+  a mensagem do wa.me é digitável, e "(90% OFF)" daria 90% sobre o cadastro:
+  o texto diz QUAL campanha e a porcentagem só CONFERE; o desconto sai do
+  cadastro da loja (`descontoDoResgate`). Não bateu — campanha xará, renomeada,
+  pausada, porcentagem mudada —, vale o preço CHEIO e a prévia **avisa**
+  (remontar calado é o incidente). É a diferença para o `tabelaNoTexto`, que
+  escolhe entre dois preços que já são nossos. Pausar também tem efeito em
+  comissão: pedido pelo link pausado nasce **sem vendedora** (é da loja, por
+  RN-005), e a tela diz isso antes de pausar. **Endereço de campanha é da
+  campanha, mesmo pausada** (`resolveRef`): antes o mesmo `?ref=` caía na
+  regra do primeiro nome e a campanha "Julia" da Ana, pausada, passava a
+  creditar a VENDEDORA Julia — levando a carteira da cliente junto. Endereço de campanha
+  encerrada **fica reservado** (recriar herdaria os cliques dela), e a tela
+  diz isso. **Excluir**: campanha sem nenhum clique some
+  de vez; a que já trouxe gente vira **encerrada** — sai da lista e o link
+  para de valer, mas os números seguem no relatório (venda não se apaga,
+  régua da RN-025). Os números de cada campanha (cliques, pedidos,
+  faturamento) aparecem **também no celular** — estavam escondidos em tela
+  pequena, e é ali que a lojista lê (o caminho do número até o pedido está na
+  regra seguinte).
+  **RN-041 · Preço sugerido ao acrescentar peça no pedido tem UMA regra só**
+  (`precoSugeridoNoPedido` em `lib/orders.ts`, 01/09/2026): existia em três
+  lugares com três regras — montar pedido usava ATACADO, acrescentar peça num
+  pedido existente usava a tabela do pedido (nula em quase todo pedido, então
+  caía no VAREJO) e a listinha de busca DESSA MESMA TELA mostrava ATACADO. A
+  lojista via R$ 80 na lista e a linha entrava com R$ 100 — e o `unitPrice`
+  que a tela manda é o que vira o pedido. A regra é a **ORIGEM do pedido**:
+  link de tabela (RN-018) segue a tabela dele; loja online (Nuvemshop) é
+  varejo, que é o preço de lá; pedido do catálogo segue a tabela que o
+  catálogo daquela loja mostra; sem origem conhecida vale atacado (é o que a
+  tela de montar pedido sempre fez). O desconto do link de campanha (RN-040)
+  entra por cima. **Fica assim, por decisão do dono (01/09/2026)**: nada
+  carimba `MANUAL` hoje (`Order.source` nasce "CATALOGO"), então o pedido
+  montado à mão numa loja com o catálogo em VAREJO vê atacado numa tela e
+  varejo na outra. Carimbar resolveria, mas mexe no relatório de origem de
+  pedidos antigos e pede backfill — e só atinge loja com o catálogo em varejo,
+  com o valor editável antes de salvar. Se voltar à mesa, é entrega própria:
+  carimbo + backfill dos pedidos antigos, para o canal "Catálogo" não
+  aparecer despencando de um mês para o outro.
+  **Não se resolve carimbando `Order.priceMode` em todo pedido** — foi tentado
+  e recusado na revisão: ele não é só informação de preço, a porta única do
+  Financeiro (RN-033) escolhe a CATEGORIA da receita por ele, e carimbar
+  mudaria a venda do catálogo de loja varejo de "Venda atacado" para "Venda
+  varejo" no meio do ano, quebrando a linha do DRE.
+  **RN-042 · Contagem de venda sempre aponta para um pedido que EXISTE**
+  (`lib/order-actions.ts` + `lib/campanha-pedidos.ts`, 01/09/2026): relato do
+  dono — *"fala que tem um pedido, mas esse pedido não chegou aqui"*. O pedido
+  do catálogo marca `TrackSession.converted` ao nascer, e **apagar o pedido
+  nunca desmarcava**: a campanha seguia anunciando uma venda que não existe
+  mais, o funil contava "enviou pedido" e — o pior — a **recuperação parava de
+  procurar aquela cliente**, achando que ela já tinha comprado. Agora o funil
+  ÚNICO de exclusão (`reverseAndDeleteOrder`, as duas portas: tela de Pedidos
+  e funil de vendas) desmarca a visita, DENTRO da transação, e só quando não
+  sobrou nenhum outro pedido dela. **E o número leva ao pedido**: "N pedidos"
+  no cartão da campanha é link para `/pedidos?campanha=<slug>`, com faixa
+  dizendo o recorte e como sair. Um pedido é da campanha por DOIS caminhos, e
+  os dois valem: o carimbo (`Order.campaignRef`) e a sessão
+  (`Order.trackSessionId`) — sem o segundo, todo pedido anterior ao carimbo
+  sumiria da busca. O contador soma **PEDIDO**, não sessão convertida, pela
+  MESMA régua da lista — e a lista abre no MESMO período do cartão, senão o
+  número e a lista discordam de novo. Pedido **CANCELADO** não conta (é
+  dinheiro que não vem), e a busca pela visita **não depende** da marca de
+  conversão (ela é gravada em best-effort: depender dela sumiria com pedido
+  pago de verdade). Endereço de campanha que não existe mostra **aviso**,
+  nunca a loja inteira disfarçada de resultado da campanha. E **"R$ 0" com pedido na conta diz "aguardando
+  pagamento"** — faturamento soma só pedido pago (RN-001), e sem a frase o
+  cartão parecia defeito.
+  **RN-043 · O pedido do catálogo é UMA bolha só na Central**
+  (`lib/comm/bolha-do-pedido.ts`, 01/09/2026): relato do dono — pedido de
+  teste, UMA mensagem no WhatsApp do celular, DUAS idênticas na Central. Não
+  era o WhatsApp entregando em dobro (isso o webhook já barra pelo id): eram
+  DOIS CAMINHOS gravando a mesma coisa — o catálogo grava a mensagem do pedido
+  na conversa na hora em que ele nasce (RN-010: a loja vê o pedido mesmo sem
+  WhatsApp conectado), e segundos depois a cliente aperta "enviar" no wa.me e
+  a mensagem de verdade chega pelo webhook, que nunca ouviu falar da bolha do
+  catálogo. Agora a mensagem do WhatsApp com o MESMO texto, da MESMA cliente,
+  dentro de 30 min da bolha do catálogo, **É a bolha do catálogo**: ela ganha
+  o id do WhatsApp e o status de recebida — nada é criado e apagado depois
+  (deixaria brecha para o sync mostrar as duas). Só casa bolha **sem id do
+  WhatsApp** e **só texto**: a cliente mandar o mesmo texto duas vezes de
+  propósito aparece duas vezes, como no celular dela. **Vale nos DOIS sentidos, dentro da mesma meia hora**: qualquer um dos
+  caminhos pode vencer a corrida, e se o webhook gravou primeiro é o catálogo
+  que reaproveita a mensagem do WhatsApp (a bolha COM id — nunca a sem id,
+  que é a bolha de OUTRO pedido do catálogo — e só se ela chegou DEPOIS do
+  último pedido da cliente: a que já foi a bolha do pedido anterior não serve
+  para o que está nascendo, senão repetir o mesmo pedido minutos depois sem
+  apertar enviar sumia com o segundo). **A regra mora DENTRO do
+  `intakeLead`** (opção `reaproveitarBolha`: o webhook pede `do-catalogo`, o
+  catálogo pede `do-whatsapp`), no mesmo passo que cria a mensagem, sob
+  **trava por cliente**
+  (`pg_advisory_xact_lock`): os dois caminhos chegam JUNTOS — o navegador
+  dispara o pedido e abre o wa.me no mesmo instante — e conferir por fora,
+  antes do intake, deixava a corrida que fazia o duplicado voltar de vez em
+  quando. Dentro da trava também entram o **id do WhatsApp** (a cliente
+  reenviando o mesmo pedido em paralelo vira duas bolhas, não uma com o id
+  trocado) e a **reabertura da conversa** da bolha (mensagem que chega reabre,
+  como sempre); se a corrida deixou uma conversa vazia, o consolidate de
+  sempre junta na hora. A decisão de qual bolha reaproveitar é função pura
+  (`escolherBolha`); a janela de 30 min é o recorte, não um "últimas N".
+  **O que foi construído e RETIRADO** foi a janela de DIAS para o pedido da
+  fila do aparelho (RN-010) gravado muito depois da mensagem de verdade: com
+  ela, a cliente que repetisse o MESMO pedido na quinta reaproveitava a bolha
+  de segunda e, sem apertar enviar, o segundo pedido não aparecia no chat
+  NUNCA. Um pedido invisível é pior que uma bolha a mais no reenvio raro da
+  fila. Limite aceito.
+  **RN-044 · Porta pública de escrita tem RITMO** (`lib/rate-limit.ts`,
+  chaves `cat:`/`catip:`/`demo:`, 02/09/2026): pedido NOVO do catálogo tem
+  teto por IP+loja (20/15min) e por IP (60/15min) — sem isso, um script
+  criava pedidos falsos de graça, cada um RESERVANDO estoque sem prazo
+  (RN-003): o ataque mais barato contra uma loja. A trava CONVIVE com a
+  RN-010: fica DEPOIS da idempotência (reenviar o MESMO pedido nunca é
+  barrado), quem já está bloqueado não conta de novo (o reenvio automático
+  não estica o próprio bloqueio) e o 429 NÃO descarta o pendente no
+  aparelho — ele entra sozinho na próxima visita. Trava que fecha deixa
+  rastro (`catalogo.flood` na Central de Comunicação); sem IP identificável
+  não trava (melhor aceitar que agrupar o mundo). O formulário de
+  demonstração tem o mesmo ritmo. Junto, o porteiro global fechou o alçapão
+  do ponto (`lib/porteiro.ts`): só arquivo estático FORA de /api dispensa
+  sessão — caminho com ponto no meio não é mais passe livre.
+  **RN-046 · A lista de conversas NÃO PERDE O LUGAR**
+  (`lib/lugar-na-lista.ts`, 03/09/2026): relato da loja — a vendedora faz
+  follow-up **de baixo para cima** (desce até as conversas antigas, abre uma,
+  encerra) e voltava para o **topo** da lista, tendo que rolar tudo de novo a
+  cada atendimento. A causa é do NAVEGADOR, não da tela: no celular a lista é
+  a mesma coluna do chat e fica escondida com `display:none` enquanto a
+  conversa está aberta — **elemento escondido perde a rolagem**, e na volta o
+  `scrollTop` é zero. Então o lugar é guardado por nós a cada rolagem e
+  devolvido quando a lista reaparece, esperando o navegador refazer a conta da
+  altura (`requestAnimationFrame`: sem isso a rolagem máxima ainda é a da
+  lista escondida — zero — e o pedido é ignorado). **O que separa "ela subiu até o topo" de "o navegador
+  zerou" é a ALTURA VISÍVEL**, não o scroll: lista escondida tem altura zero e
+  não vira lugar guardado — mas o topo, com a lista visível, é lugar legítimo
+  e fica guardado. A primeira versão guardava só posição maior que zero e
+  deixava o topo inalcançável (a lista era puxada de volta ao lugar antigo a
+  cada ida ao chat, achado da revisão). **No computador não mexe**: ali a lista
+  fica ao lado do chat e já está no lugar; só devolve quando a lista está no
+  topo E há lugar guardado. Lista que **encolheu** (a conversa encerrada saiu
+  da aba) encaixa no máximo possível — pedir posição que não existe mais faz o
+  navegador ignorar e voltar ao topo, o próprio bug. E o **atalho** que a loja
+  pediu ("algum meio de descer sem ter que rolar"): um botão só, colado na
+  base da coluna, apontando para onde ainda falta ir (↓ fim na metade de cima,
+  ↑ topo na de baixo), que só aparece quando **sobra mais de uma tela para rolar** — em lista
+  curta seria enfeite tampando conversa.
   **RN-012** · Resgate manual: **"Colar pedido do WhatsApp"** na tela Pedidos
   (`lib/catalogo/ler-mensagem.ts` + `/api/orders/ler-mensagem`) — lê a
   mensagem do catálogo, casa com o catálogo da loja (nome mais longo vence

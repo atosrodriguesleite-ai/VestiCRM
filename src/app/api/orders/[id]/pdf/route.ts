@@ -318,43 +318,55 @@ export async function GET(
       y -= 16;
       const padding = 10;
       const larguraTexto = width - 2 * M - 2 * padding;
-      // quebra por palavra, respeitando as linhas que a lojista digitou
-      const linhas = order.notes
+      // quebra por palavra, respeitando as linhas que a lojista digitou.
+      // SEM CORTE: o teto antigo (8 linhas, 3 por parágrafo) comia o final
+      // do bilhete — a tela aceitava a observação inteira e o romaneio
+      // entregava pela metade (relato Entre Linhas, 02/09/2026). Bilhete
+      // maior que a página continua num quadro na página seguinte.
+      let restantes = order.notes
         .trim()
         .split("\n")
         .flatMap((l) =>
           l.trim()
-            ? quebrarEmLinhas(l, (t) => bold.widthOfTextAtSize(t, 10), larguraTexto, 3)
+            ? quebrarEmLinhas(l, (t) => bold.widthOfTextAtSize(t, 10), larguraTexto, 10_000)
             : [""]
-        )
-        .slice(0, 8); // teto de segurança: bilhete gigante não engole a página
-      const alturaCaixa = 20 + linhas.length * 13 + padding;
-      newPageIfNeeded(alturaCaixa + 10);
-      page.drawRectangle({
-        x: M,
-        y: y - alturaCaixa + 12,
-        width: width - 2 * M,
-        height: alturaCaixa,
-        color: LIGHT,
-      });
-      // barrinha lateral na cor da loja: é o que faz o olho parar aqui
-      page.drawRectangle({
-        x: M,
-        y: y - alturaCaixa + 12,
-        width: 4,
-        height: alturaCaixa,
-        color: ACCENT,
-      });
-      page.drawText("OBSERVAÇÕES DO PEDIDO", {
-        x: M + padding + 2, y: y - 4, size: 8, font: bold, color: ACCENT,
-      });
-      let yTexto = y - 20;
-      for (const linha of linhas) {
-        if (linha)
-          page.drawText(linha, { x: M + padding + 2, y: yTexto, size: 10, font: bold, color: INK });
-        yTexto -= 13;
+        );
+      let primeira = true;
+      while (restantes.length > 0) {
+        // garante espaço para o quadro abrir com ao menos 3 linhas de texto
+        newPageIfNeeded(20 + padding + 3 * 13 + 10);
+        const cabem = Math.max(1, Math.floor((y - 70 - (20 + padding)) / 13));
+        const bloco = restantes.slice(0, cabem);
+        restantes = restantes.slice(cabem);
+        const alturaCaixa = 20 + bloco.length * 13 + padding;
+        page.drawRectangle({
+          x: M,
+          y: y - alturaCaixa + 12,
+          width: width - 2 * M,
+          height: alturaCaixa,
+          color: LIGHT,
+        });
+        // barrinha lateral na cor da loja: é o que faz o olho parar aqui
+        page.drawRectangle({
+          x: M,
+          y: y - alturaCaixa + 12,
+          width: 4,
+          height: alturaCaixa,
+          color: ACCENT,
+        });
+        page.drawText(
+          primeira ? "OBSERVAÇÕES DO PEDIDO" : "OBSERVAÇÕES DO PEDIDO (CONTINUAÇÃO)",
+          { x: M + padding + 2, y: y - 4, size: 8, font: bold, color: ACCENT }
+        );
+        let yTexto = y - 20;
+        for (const linha of bloco) {
+          if (linha)
+            page.drawText(linha, { x: M + padding + 2, y: yTexto, size: 10, font: bold, color: INK });
+          yTexto -= 13;
+        }
+        y = y - alturaCaixa + 12 - 6;
+        primeira = false;
       }
-      y = y - alturaCaixa + 12 - 6;
     }
 
     // ---- Tabela de itens com caixa de conferência ----

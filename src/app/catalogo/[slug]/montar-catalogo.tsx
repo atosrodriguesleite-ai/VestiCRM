@@ -11,6 +11,8 @@ import {
 import { type LinkDeCatalogo } from "@/lib/catalogo/tabelas-de-preco";
 import { lerCamposDaLoja } from "@/lib/catalogo/campos-do-pedido";
 import { resolverLink } from "@/lib/catalogo/tabelas-de-preco-servidor";
+import { condicoesDoLink, precoComDesconto } from "@/lib/catalogo/condicoes-da-campanha";
+import { resolverCampanhaDoLink } from "@/lib/catalogo/condicoes-da-campanha-servidor";
 import { PublicCatalog, type CatalogProduct } from "./public-catalog";
 
 /**
@@ -50,6 +52,13 @@ export async function montarCatalogo({
   }
   const modo = tabela?.priceMode ?? company.catalogPriceMode;
 
+  // CONDIÇÕES DO LINK DE CAMPANHA (RN-040): desconto e pedido mínimo próprios
+  // do `?ref=` desta visita. Não somam com a tabela de preço — dois descontos
+  // dariam um valor que nenhuma tela mostrou.
+  const campanha = tabela ? null : await resolverCampanhaDoLink(company.id, sp.ref);
+  const cond = condicoesDoLink(campanha, company, !!tabela);
+  const comDesconto = (v: number) => precoComDesconto(v, cond.desconto);
+
   const [products, customColors] = await Promise.all([
     db.product.findMany({
       // vitrine pública: só produtos COM foto (item sem foto fica oculto até
@@ -80,10 +89,12 @@ export async function montarCatalogo({
     category: p.category,
     collection: p.collection,
     description: p.description,
-    retailPrice: p.retailPrice,
-    wholesalePrice: p.wholesalePrice,
+    // preços JÁ com o desconto do link (o original vai riscado ao lado)
+    retailPrice: comDesconto(p.retailPrice),
+    wholesalePrice: comDesconto(p.wholesalePrice),
     // preço da TABELA desta visita (o link manda; sem link, o padrão da loja)
-    precoCatalogo: catalogPrice(p, modo),
+    precoCatalogo: comDesconto(catalogPrice(p, modo)),
+    originalRetailPrice: cond.desconto > 0 ? catalogPrice(p, modo) : undefined,
     minQuantity: p.minQuantity,
     tags: p.tags,
     // url + cor etiquetada: o card de cada cor usa a foto DAQUELA cor
@@ -103,9 +114,10 @@ export async function montarCatalogo({
       storeName={company.name}
       tagline={company.tagline}
       whatsapp={company.whatsapp}
-      minOrder={company.minOrder}
-      minOrderMode={company.minOrderMode as "NONE" | "PECAS" | "VALOR"}
-      minOrderValue={company.minOrderValue}
+      // mínimo desta visita: o do link quando ele define um, senão o da loja
+      minOrder={cond.minOrderPieces}
+      minOrderMode={cond.minOrderMode}
+      minOrderValue={cond.minOrderValue}
       formFields={lerCamposDaLoja(company.catalogFormFields)}
       products={items}
       categoryOrder={parseCategoryOrder(company.categoryOrder)}
@@ -121,6 +133,17 @@ export async function montarCatalogo({
       // não ativou o recurso não ganha trava nenhuma.
       tabela={
         tabela ? { code: tabela.code, name: tabela.name, mode: tabela.priceMode } : null
+      }
+      // O LINK DE CAMPANHA DESTA VISITA (RN-040). Viaja SEMPRE que a visita
+      // veio por uma campanha, mesmo sem desconto nenhum: é o carimbo que o
+      // pedido guarda (`Order.campaignRef`) e por onde a exclusão conta os
+      // pedidos dela. Amarrar isso a "tem condição especial" deixava a
+      // campanha de puro rastreio com 0 pedidos — e apagável (achado da
+      // revisão de 01/09/2026). O servidor reconfere tudo ao receber.
+      condicoes={
+        campanha
+          ? { slug: campanha.slug, name: campanha.name, discount: cond.desconto }
+          : null
       }
       identity={{
         logoUrl: company.logoUrl,

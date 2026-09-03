@@ -128,7 +128,7 @@ export default async function OrderDetailPage({
       }),
       db.company.findUnique({
         where: { id: user.companyId },
-        select: { shippingEnabled: true },
+        select: { shippingEnabled: true, catalogPriceMode: true },
       }),
     ]);
   // A RÉGUA DE VISIBILIDADE CONTINUA VALENDO ANTES DE QUALQUER ESCRITA: a
@@ -341,8 +341,12 @@ export default async function OrderDetailPage({
             {order.status !== "CANCELADO" && (
               <ItemsEditor
                 orderId={order.id}
-                // peça acrescentada depois segue a MESMA tabela do pedido
+                // peça acrescentada depois segue o MESMO preço do pedido: a
+                // regra é a ORIGEM dele (RN-041), não um carimbo só
                 priceMode={order.priceMode}
+                source={order.source}
+                catalogPriceMode={company?.catalogPriceMode}
+                campaignDiscount={order.campaignDiscount}
                 discount={order.discount}
                 shippingFee={order.shippingFee}
                 alreadyPaid={order.stockDeducted}
@@ -565,6 +569,36 @@ export default async function OrderDetailPage({
                 </Badge>
               </div>
             ))}
+            {/* Valor editado DEPOIS do pagamento (frete/desconto): o pago
+                confirmado é história e não se reescreve — então a diferença
+                tem que ser DITA aqui, senão "Pago R$ 535" com total R$ 571
+                parecia que o ajuste não pegou (relato Entre Linhas, 02/09) */}
+            {(() => {
+              const pagoConfirmado = order.payments
+                .filter((p) => p.status === "CONFIRMADO")
+                .reduce((s, p) => s + p.amount, 0);
+              const diferenca = Math.round((order.total - pagoConfirmado) * 100) / 100;
+              if (pagoConfirmado <= 0 || Math.abs(diferenca) < 0.01) return null;
+              return (
+                <div className="mt-3 pt-3 border-t border-gray-100 text-sm space-y-1">
+                  <div className="flex justify-between text-gray-500">
+                    <span>Total a pagar (com os ajustes)</span>
+                    <span className="tabular-nums">{brl(order.total)}</span>
+                  </div>
+                  {diferenca > 0 ? (
+                    <div className="flex justify-between font-semibold text-amber-700">
+                      <span>⚠️ Falta cobrar</span>
+                      <span className="tabular-nums">{brl(diferenca)}</span>
+                    </div>
+                  ) : (
+                    <div className="flex justify-between font-semibold text-sky-700">
+                      <span>Pago a mais (combinar devolução/crédito)</span>
+                      <span className="tabular-nums">{brl(-diferenca)}</span>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
           </Card>
 
           {/* Frete */}

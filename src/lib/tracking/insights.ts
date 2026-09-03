@@ -1,4 +1,5 @@
 import { db } from "../db";
+import { ehDaCampanha } from "../campanha-pedidos";
 import { PAID_ORDER_STATUSES } from "../orders";
 import { lerItens } from "../recuperacao";
 
@@ -487,27 +488,79 @@ export async function campaignRanking(companyId: string, p: Period) {
     loadSessions(companyId, p),
     db.user.findMany({ where: { companyId } }),
   ]);
-  // faturamento REAL: pedidos pagos ligados às sessões (não valor de sacola)
-  const pagoPorSessao = await faturamentoPagoPorSessao(
-    companyId,
-    sessions.map((s) => s.id)
-  );
+  // O NÚMERO TEM QUE LEVAR A UM PEDIDO DE VERDADE (relato do dono,
+  // 01/09/2026: "diz que tive um pedido vindo da campanha, não localizei
+  // esse pedido"). Antes o contador somava SESSÕES marcadas como convertidas
+  // — se o pedido fosse excluído depois, a sessão continuava contando e a
+  // campanha exibia um pedido que não existe mais. Agora conta o PEDIDO, pela
+  // mesma régua que a lista filtrada usa, então os dois sempre batem.
+  const pedidos = await db.order.findMany({
+    where: {
+      companyId,
+      OR: [
+        // `janela-atribuicao-ok`: a data aqui decide QUAIS pedidos são da
+        // campanha, não quando o dinheiro entrou. O pedido carimbado não tem
+        // visita — ele mesmo é o evento que o liga à campanha —, então vale a
+        // data em que nasceu; pago depois continua contando (é a promessa da
+        // tela). Sem esse recorte, o cartão dizia "0 cliques · 10 pedidos" no
+        // filtro de hoje (achado da revisão de 01/09/2026).
+        {
+          campaignRef: { in: campaigns.map((c) => c.slug) },
+          createdAt: { gte: p.from, lte: p.to },
+        },
+        // pela VISITA: as sessões já vêm recortadas pelo período. Recortar
+        // também por `converted` foi tentado e recusado na revisão — aquele
+        // campo é gravado em best-effort, e um pedido PAGO sumiria da conta
+        // por causa de uma marca que falhou.
+        { trackSessionId: { in: sessions.map((s) => s.id) } },
+      ],
+    },
+    select: {
+      id: true,
+      campaignRef: true,
+      trackSessionId: true,
+      netTotal: true,
+      status: true,
+    },
+  });
+  // pedido CANCELADO não é venda da campanha: contá-lo fazia o cartão dizer
+  // "1 pedido · aguardando pagamento" para dinheiro que nunca vem (achado da
+  // revisão de 01/09/2026)
+  const vivos = pedidos.filter((o) => o.status !== "CANCELADO");
   return campaigns
     .map((c) => {
       const mine = sessions.filter((s) => s.campaignId === c.id);
-      const orders = mine.filter((s) => s.converted);
-      const revenue = mine.reduce((a, s) => a + (pagoPorSessao.get(s.id) ?? 0), 0);
+      const idsDasSessoes = new Set(mine.map((s) => s.id));
+      const orders = vivos.filter((o) => ehDaCampanha(o, c.slug, idsDasSessoes));
+      // FATURAMENTO DOS MESMOS PEDIDOS QUE O CONTADOR CONTA: somar só o que
+      // veio por sessão deixava o pedido achado pelo carimbo (o resgate
+      // "Colar pedido do WhatsApp" não tem sessão) marcado como "aguardando
+      // pagamento" para sempre, mesmo pago (revisão de 01/09/2026)
+      const revenue = orders
+        .filter((o) => (PAID_ORDER_STATUSES as string[]).includes(o.status))
+        .reduce((a, o) => a + o.netTotal, 0);
       return {
         id: c.id,
         name: c.name,
         slug: c.slug,
         channel: c.channel,
         active: c.active,
+        // campanha encerrada some da lista de links, mas o faturamento dela
+        // continua no relatório — venda não se apaga (RN-040)
+        archivedAt: c.archivedAt,
+        discount: c.discount,
+        minOrderMode: c.minOrderMode,
+        minOrderPieces: c.minOrderPieces,
+        minOrderValue: c.minOrderValue,
+        goalValue: c.goal,
+        ownerId: c.ownerId,
         ownerName: users.find((u) => u.id === c.ownerId)?.name ?? null,
         goal: c.goal,
         clicks: mine.length,
         orders: orders.length,
-        conversion: r2(pct(orders.length, mine.length)),
+        // pedido colado do WhatsApp não tem clique: sem o teto, 2 cliques e
+        // 3 pedidos viravam "150%"
+        conversion: Math.min(100, r2(pct(orders.length, mine.length))),
         revenue: r2(revenue),
         roi: c.goal > 0 ? r2(pct(revenue, c.goal)) : null, // % da meta
       };

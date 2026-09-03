@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { jwtVerify } from "jose";
 import { AUTH_SECRET } from "./lib/env";
+import { ehArquivoEstatico } from "./lib/porteiro";
 
 const secret = new TextEncoder().encode(AUTH_SECRET);
 
@@ -29,6 +30,10 @@ const PUBLIC_PATHS = [
   "/api/melhorenvio/callback", // retorno do OAuth do Melhor Envio (estado assinado)
   "/api/track", // Tracking Engine (Inteligência Comercial)
   "/api/catalog/order", // pedido enviado pelo catálogo público
+  // a SACOLA do link de recuperação: a cliente abre deslogada, e sem esta
+  // linha o porteiro devolvia 401 e o link chegava vazio (o token da URL —
+  // id não adivinhável — é quem autentica; a rota só devolve itens)
+  "/api/catalogo/sacola",
   "/api/img", // fotos de produto (catálogo público carrega daqui)
   "/api/cron/", // tarefas agendadas do Vercel (protegidas por CRON_SECRET)
   // A CLIENTE preenche os dados de envio pelo link do chat (RN-024) — página
@@ -115,7 +120,10 @@ export async function middleware(req: NextRequest) {
   if (
     PUBLIC_PATHS.some((p) => pathname.startsWith(p)) ||
     pathname.startsWith("/_next") ||
-    pathname.includes(".")
+    // arquivo estático de verdade (sw.js, manifest, ícone) — a régua antiga
+    // ("qualquer caminho com ponto") era um alçapão que pulava a sessão até
+    // em /api (auditoria de portas públicas, 02/09/2026)
+    ehArquivoEstatico(pathname)
   ) {
     return NextResponse.next();
   }

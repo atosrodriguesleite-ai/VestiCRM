@@ -254,7 +254,10 @@ export async function evoSendText(
   instance: string,
   number: string,
   text: string,
-  citacao?: CitacaoWA
+  citacao?: CitacaoWA,
+  // o padrão de 45s serve ao chat (fila em segundo plano); chamada que segura
+  // uma tela — como o código de login — passa um teto curto
+  timeoutMs?: number
 ) {
   return evo<{ key?: { id?: string } }>("POST", `/message/sendText/${instance}`, {
     number,

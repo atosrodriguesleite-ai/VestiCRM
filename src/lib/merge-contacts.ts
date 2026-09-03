@@ -102,7 +102,7 @@ function nomeGenerico(nome: string | null | undefined): boolean {
 }
 
 /** Repõe todos os vínculos de um cliente duplicado no cliente principal. */
-async function repointCustomer(
+export async function repointCustomer(
   tx: Prisma.TransactionClient,
   primaryId: string,
   dupeId: string

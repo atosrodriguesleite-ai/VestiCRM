@@ -24,6 +24,8 @@ export type TeamMember = {
   /** vendido no MÊS corrente (fuso SP) — é o que a barra da meta usa */
   soldMonth: number;
   monthlyGoal: number;
+  /** WhatsApp que recebe o código de login em aparelho novo (RN-045) */
+  loginPhone: string | null;
   /** vendedora com visão TOTAL do chat (só a Central de Atendimento) */
   chatVisaoTotal: boolean;
   /** vendedora com visão TOTAL dos pedidos (exceção por pessoa à RN-007) */
@@ -41,9 +43,12 @@ const roleColor: Record<string, string> = {
 export function TeamView({
   members,
   canManage,
+  codigoLoginLigado,
 }: {
   members: TeamMember[];
   canManage: boolean;
+  /** chavinha da loja: código de login por WhatsApp em aparelho novo (RN-045) */
+  codigoLoginLigado: boolean;
 }) {
   const router = useRouter();
   const [showNew, setShowNew] = useState(false);
@@ -145,6 +150,29 @@ export function TeamView({
     else window.alert("Não foi possível alterar. Tente de novo.");
   }
 
+  // WhatsApp do código de login (RN-045): salvo ao sair do campo, como a meta
+  async function saveLoginPhone(m: TeamMember, bruto: string) {
+    const phone = bruto.trim();
+    if (phone === (m.loginPhone ?? "")) return;
+    const res = await fetch(`/api/team/${m.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ loginPhone: phone || null }),
+    });
+    if (res.ok) router.refresh();
+    else window.alert("Não foi possível salvar o WhatsApp de login.");
+  }
+
+  async function toggleCodigoLogin() {
+    const res = await fetch("/api/company", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ loginCodeEnabled: !codigoLoginLigado }),
+    });
+    if (res.ok) router.refresh();
+    else window.alert("Não foi possível alterar. Tente de novo.");
+  }
+
   async function submit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setSaving(true);
@@ -178,6 +206,34 @@ export function TeamView({
 
   return (
     <>
+      {/* Segurança do login (RN-045): chavinha da LOJA, ligada pelo admin */}
+      {canManage && (
+        <Card className="p-4 mb-4 flex flex-wrap items-center justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-sm font-semibold text-slate-800">
+              Código de segurança no login 🔐
+            </p>
+            <p className="text-xs text-slate-500 mt-0.5">
+              Aparelho novo pede um código de 6 dígitos enviado no WhatsApp da
+              pessoa (cadastre abaixo, em cada cartão). Quem estiver sem
+              WhatsApp cadastrado — ou se o WhatsApp da loja cair — entra como
+              hoje, sem travar ninguém.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={toggleCodigoLogin}
+            className={`shrink-0 rounded-full px-4 py-2 text-xs font-semibold transition ${
+              codigoLoginLigado
+                ? "bg-emerald-600 text-white hover:bg-emerald-700"
+                : "bg-white border border-gray-200 text-gray-600 hover:border-brand-300"
+            }`}
+          >
+            {codigoLoginLigado ? "Ligado ✓" : "Desligado"}
+          </button>
+        </Card>
+      )}
+
       {canManage && (
         <div className="flex justify-end mb-4">
           <button
@@ -314,6 +370,22 @@ export function TeamView({
                 <p className="text-[10px] text-gray-400">vendas 30d</p>
               </div>
             </div>
+            {/* WhatsApp do código de login (RN-045) — só faz efeito com a
+                chavinha da loja ligada; sem número, a pessoa entra como hoje */}
+            {canManage && codigoLoginLigado && (
+              <div className="mt-3 pt-3 border-t border-gray-50 flex items-center justify-between gap-2">
+                <p className="text-[10px] font-mono font-semibold uppercase tracking-[0.1em] text-gray-400">
+                  WhatsApp do login
+                </p>
+                <input
+                  defaultValue={m.loginPhone ?? ""}
+                  onBlur={(e) => saveLoginPhone(m, e.target.value)}
+                  placeholder="sem código (DDD + número)"
+                  inputMode="tel"
+                  className="w-40 rounded-lg border border-gray-200 px-2 py-1 text-xs text-right bg-white focus:outline-none focus:ring-2 focus:ring-brand-300"
+                />
+              </div>
+            )}
             {/* meta mensal: barra de progresso + edição pelo admin */}
             <div className="mt-3 pt-3 border-t border-gray-50">
               <div className="flex items-center justify-between gap-2 mb-1">

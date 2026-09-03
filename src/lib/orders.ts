@@ -1,3 +1,4 @@
+import { precoComDesconto } from "./catalogo/condicoes-da-campanha";
 import type { OrderStatus, PaymentMethod } from "@prisma/client";
 
 export const orderStatusLabel: Record<OrderStatus, string> = {
@@ -321,4 +322,60 @@ export function catalogPrice(
   return modo === "ATACADO" && product.wholesalePrice > 0
     ? product.wholesalePrice
     : product.retailPrice;
+}
+
+/**
+ * O PREÇO QUE O SISTEMA SUGERE AO ACRESCENTAR UMA PEÇA NUM PEDIDO (RN-041).
+ *
+ * Existia em TRÊS lugares com TRÊS regras diferentes (achado de 01/09/2026):
+ * a tela de montar pedido usava atacado; a de acrescentar peça num pedido
+ * existente usava `catalogPrice(p, order.priceMode)` — e `priceMode` é NULO em
+ * quase todo pedido, então caía no VAREJO; e a listinha de busca dessa mesma
+ * tela mostrava ATACADO. Ou seja: dentro da mesma tela, a lojista via
+ * R$ 80,00 na lista e a linha entrava com R$ 100,00. Como o `unitPrice` que a
+ * tela manda é o que vira o pedido, isso é dinheiro cobrado errado.
+ *
+ * A regra é a ORIGEM do pedido, nunca um carimbo só:
+ *  • veio por um LINK DE TABELA (RN-018) → a tabela dele manda;
+ *  • veio da LOJA ONLINE (Nuvemshop) → varejo, que é o preço de lá;
+ *  • veio do CATÁLOGO da loja → a tabela que o catálogo mostra
+ *    (`Company.catalogPriceMode`);
+ *  • montado na MÃO pela vendedora → atacado (aqui é loja de atacado, e quem
+ *    monta pedido na mão está atendendo lojista) — é o que a tela de montar
+ *    pedido sempre fez.
+ * E o desconto do link de campanha (RN-040) entra por cima, em qualquer caso.
+ *
+ * O QUE FICA COMO ESTÁ, POR DECISÃO DO DONO (01/09/2026): hoje nada carimba
+ * MANUAL — `Order.source` nasce "CATALOGO" por default —, então o pedido
+ * montado à mão cai na tabela do CATÁLOGO da loja. Para loja de atacado isso
+ * já bate com a tela de montar pedido; para loja com o catálogo em varejo, a
+ * tela de montar sugere atacado e esta aqui sugere varejo. Carimbar MANUAL
+ * resolveria, mas mexe em relatório de origem de pedidos antigos e pede
+ * backfill — e o valor continua editável na tela antes de salvar.
+ *
+ * Por que não simplesmente carimbar `priceMode` em todo pedido: ele NÃO é só
+ * informação de preço — a porta única do Financeiro (RN-033) escolhe a
+ * categoria da receita por ele. Carimbar mudaria a venda do catálogo de loja
+ * VAREJO de "Venda atacado" para "Venda varejo" no meio do ano e quebraria a
+ * linha do DRE (achado da revisão de 01/09/2026).
+ */
+export function precoSugeridoNoPedido(
+  produto: { retailPrice: number; wholesalePrice: number },
+  pedido: {
+    priceMode?: string | null;
+    /** CATALOGO | NUVEMSHOP | MANUAL — de onde o pedido veio */
+    source?: string | null;
+    /** a tabela que o catálogo da loja mostra (só usada quando `source` é catálogo) */
+    catalogPriceMode?: string | null;
+    campaignDiscount?: number;
+  } = {}
+): number {
+  const modo =
+    pedido.priceMode ??
+    (pedido.source === "NUVEMSHOP"
+      ? "VAREJO"
+      : pedido.source === "CATALOGO"
+        ? (pedido.catalogPriceMode ?? "VAREJO")
+        : "ATACADO");
+  return precoComDesconto(catalogPrice(produto, modo), pedido.campaignDiscount ?? 0);
 }

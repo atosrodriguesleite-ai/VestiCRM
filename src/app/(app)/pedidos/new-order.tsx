@@ -12,6 +12,7 @@ import { Portal } from "@/components/portal";
 import { useRouter } from "next/navigation";
 import { Plus, X, Trash2, Search } from "lucide-react";
 import { brl, formatPhone, numeroBR } from "@/lib/format";
+import { precoSugeridoNoPedido } from "@/lib/orders";
 import { paymentMethodLabel, computeOrderTotals } from "@/lib/orders";
 
 type CustomerHit = { id: string; name: string; phone: string; city: string | null; state: string | null };
@@ -111,7 +112,9 @@ export function NewOrderButton() {
           variant: [v.color, v.size].filter(Boolean).join(" · "),
           stock: v.stock,
           quantity: 1,
-          unitPrice: p.wholesalePrice > 0 ? p.wholesalePrice : p.retailPrice,
+          // regra ÚNICA do preço sugerido (lib/orders.ts): pedido montado na
+          // mão não tem tabela, então segue o atacado — como sempre foi
+          unitPrice: precoSugeridoNoPedido(p),
         },
       ];
     });
@@ -302,7 +305,7 @@ export function NewOrderButton() {
                       )}
                       <span className="flex-1 min-w-0">
                         <span className="block text-sm font-medium truncate">{p.name}</span>
-                        <span className="block text-xs text-gray-400">{p.sku} · {brl(p.wholesalePrice > 0 ? p.wholesalePrice : p.retailPrice)}</span>
+                        <span className="block text-xs text-gray-400">{p.sku} · {brl(precoSugeridoNoPedido(p))}</span>
                       </span>
                     </button>
                   ))}

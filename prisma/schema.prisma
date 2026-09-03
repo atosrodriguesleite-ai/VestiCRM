@@ -38,6 +38,9 @@ model Company {
   marketingEnabled  Boolean  @default(false) // módulo Marketing (pago à parte; super admin ativa por loja)
   mediaLibraryEnabled Boolean @default(false) // Biblioteca de imagens (super admin ativa por loja)
   shippingEnabled   Boolean  @default(false) // módulo Envios/Melhor Envio (pago à parte; super admin ativa por loja)
+  // Código de login pelo WhatsApp em aparelho novo (RN-045) — opt-in por
+  // loja, ligado pelo admin na tela Equipe. Desligado, nada muda no login.
+  loginCodeEnabled  Boolean  @default(false)
   cutPlanEnabled    Boolean  @default(false) // módulo Plano de Corte (pago à parte; super admin ativa por loja)
   aiSalesEnabled    Boolean  @default(false) // módulo IA de Vendas (pago à parte; super admin ativa por loja)
   /// TABELAS DE PREÇO POR LINK (atacado E varejo no mesmo catálogo): a loja
@@ -433,6 +436,9 @@ model User {
   // continua proibido (podeTransferirVenda); exportação segue o escopo normal.
   pedidosVisaoTotal Boolean @default(false)
   prefersDark    Boolean  @default(false) // modo escuro — escolha individual de cada usuário
+  // WhatsApp que recebe o código de login em aparelho novo (RN-045).
+  // Sem telefone, o usuário entra como sempre — a chavinha da loja avisa.
+  loginPhone     String?
   lastActiveAt   DateTime? // último acesso real ao sistema (não conta impersonação do super admin)
   createdAt      DateTime @default(now())
 
@@ -446,6 +452,7 @@ model User {
   orderEvents   OrderEvent[]
   setores       Setor[]        @relation("SetorUsers") // atendimento: setores do vendedor
   notifications Notification[] @relation("UserNotifications")
+  loginCodes    LoginCode[]
 
   @@index([companyId])
 }
@@ -979,6 +986,22 @@ model CommEvent {
   @@index([type])
 }
 
+// Desafio do código de login (RN-045): uma linha por tentativa de entrar em
+// aparelho novo. O código NUNCA é guardado — só o HMAC dele; expira em 10
+// minutos e morre com 5 erros. Limpeza pega carona no próprio login.
+model LoginCode {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  codeHash  String
+  expiresAt DateTime
+  tries     Int      @default(0)
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
 // Credenciais por empresa — valores sensíveis criptografados (AES-256-GCM)
 model CommSettings {
   id                 String   @id @default(cuid())
@@ -1295,11 +1318,28 @@ model TrackCampaign {
   id        String   @id @default(cuid())
   companyId String
   name      String
-  slug      String // valor do ?ref=
+  /// valor do ?ref= — é o ENDEREÇO do link, e ele NUNCA muda depois de criado
+  /// (já foi mandado no grupo, impresso no QR, colado no story). O que se
+  /// edita são as CONDIÇÕES abaixo.
+  slug      String
   channel   String   @default("campanha") // instagram|qr|google|...
   ownerId   String? // responsável
   goal      Float    @default(0) // meta de faturamento
   active    Boolean  @default(true)
+
+  // ---- CONDIÇÕES DO LINK (editáveis a qualquer hora, RN-040) --------------
+  /// % de desconto sobre o preço do catálogo para quem entra por este link.
+  /// 0 = sem desconto (o link só rastreia, como sempre foi).
+  discount       Int     @default(0)
+  /// Pedido mínimo SÓ deste link: null = herda o da loja.
+  /// NONE (sem mínimo) | PECAS | VALOR — mesmos nomes de Company.minOrderMode.
+  minOrderMode   String?
+  minOrderPieces Int     @default(0)
+  minOrderValue  Float   @default(0)
+  /// Campanha "excluída" que já tem histórico: some da lista e o link para de
+  /// valer, mas os números continuam nos relatórios (venda não se apaga).
+  archivedAt     DateTime?
+
   createdAt DateTime @default(now())
 
   @@unique([companyId, slug])
@@ -1764,6 +1804,11 @@ model Order {
   /// todo preço ao gravar (RN-009): sem este carimbo, pedido de atacado
   /// seria recobrado no varejo.
   priceMode      String?
+  /// LINK DE CAMPANHA que precificou este pedido (RN-040): qual campanha e
+  /// quantos % de desconto ela deu. Sem isto o valor não se explicava depois
+  /// — e o resgate "Colar pedido do WhatsApp" remontava a preço cheio.
+  campaignRef      String?
+  campaignDiscount Int     @default(0)
   // DATA DO DINHEIRO: quando o pedido virou PAGO. É por ela que TODA métrica
   // de faturamento é somada (não pela data em que o orçamento foi montado) —
   // assim o mês bate com o extrato e um mês fechado nunca mais muda de valor.

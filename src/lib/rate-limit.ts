@@ -80,6 +80,55 @@ export function ipDaRequisicao(headers: Headers): string | null {
   return encaminhado ? encaminhado.slice(0, 45) : null;
 }
 
+/**
+ * RITMO DAS PORTAS PÚBLICAS DE ESCRITA (RN-044).
+ *
+ * O pedido do catálogo não tem login — e sem ritmo, um script criava
+ * pedidos falsos de graça, cada um RESERVANDO estoque sem prazo (RN-003):
+ * o ataque mais barato contra uma loja. A trava reusa a mesma engenharia
+ * do login (contador no banco, janela de 15 min, sem cron).
+ *
+ * Os tetos são FOLGADOS de propósito: 20 pedidos DIFERENTES em 15 minutos
+ * na mesma loja não é um cliente — e ainda cabe uma promoção ao vivo com
+ * vários clientes atrás do MESMO IP de operadora (CGNAT); baixo demais
+ * travaria gente inocente, e o custo de um falso bloqueio é só atraso
+ * (o pendente entra sozinho depois), nunca perda. Quem decide o desenho
+ * anti-perda é a ROTA: o reenvio do MESMO pedido (protocolo `clientRef`)
+ * passa ANTES da trava e nunca é barrado.
+ */
+export const LIMITE_CATALOGO_POR_PAR = 20; // IP + loja
+export const LIMITE_CATALOGO_POR_IP = 60; // IP em todas as lojas
+export const LIMITE_DEMO_POR_IP = 5; // formulário de demonstração
+// Código de login (RN-045): teto de ENVIOS por pessoa — quem tem a senha da
+// vítima não pode usar o login para metralhar códigos pelo WhatsApp da loja
+// (a rajada que a RN-017 existe para evitar, e ainda assédio na vítima)
+// 4 na conta = 3 códigos SAEM e o 4º pedido espera (o teto fecha NA conta
+// que o alcança — mesma aritmética das outras chaves)
+export const LIMITE_CODIGOS_POR_USUARIO = 4;
+// e teto de CHUTES de código por IP (a porta /codigo é pública)
+export const LIMITE_CODIGO_POR_IP = 30;
+
+/** Chave do envio de código de login: conta por PESSOA, não por IP. */
+export function chavesDeCodigoDoUsuario(userId: string): string[] {
+  return [`codigo:${userId}`];
+}
+
+/** Chave dos chutes na porta pública do código. */
+export function chavesDeChuteDeCodigo(ip: string | null): string[] {
+  return ip ? [`codip:${ip}`] : [];
+}
+
+/** Chaves do pedido do catálogo. Sem IP identificável, não trava (RN-010). */
+export function chavesDoPedidoCatalogo(companyId: string, ip: string | null): string[] {
+  if (!ip) return [];
+  return [`cat:${companyId}|${ip}`, `catip:${ip}`];
+}
+
+/** Chave do formulário de demonstração da landing page. */
+export function chavesDoDemo(ip: string | null): string[] {
+  return ip ? [`demo:${ip}`] : [];
+}
+
 /** As chaves contadas nesta tentativa (ver as três contagens acima). */
 export function chavesDoLogin(login: string, ip: string | null): string[] {
   const quem = login.trim().toLowerCase().slice(0, 120);
@@ -91,6 +140,11 @@ export function chavesDoLogin(login: string, ip: string | null): string[] {
 function limiteDa(chave: string): number {
   if (chave.startsWith("par:")) return LIMITE_POR_PAR;
   if (chave.startsWith("ip:")) return LIMITE_POR_IP;
+  if (chave.startsWith("cat:")) return LIMITE_CATALOGO_POR_PAR;
+  if (chave.startsWith("catip:")) return LIMITE_CATALOGO_POR_IP;
+  if (chave.startsWith("demo:")) return LIMITE_DEMO_POR_IP;
+  if (chave.startsWith("codigo:")) return LIMITE_CODIGOS_POR_USUARIO;
+  if (chave.startsWith("codip:")) return LIMITE_CODIGO_POR_IP;
   return LIMITE_POR_LOGIN;
 }
 
