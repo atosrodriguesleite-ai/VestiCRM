@@ -476,6 +476,24 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   anteriores" — sem ela o começo da conversa era INACESSÍVEL) e
   `GET /api/conversations?q=` (busca na loja inteira, `casaCliente` em
   memória por causa do acento — sem ela a lupa só via as 200 carregadas).
+  **A lupa também acha PALAVRA dentro da conversa** (03/09/2026, pedido do
+  dono: "como no aplicativo do WhatsApp"): a mesma porta procura no texto
+  das mensagens da loja (`buscarMensagens` em `lib/inbox-data.ts`) pelo
+  **índice de texto** `Message_busca_palavra_idx` (GIN, migração
+  20260903120000, criado CONCURRENTLY): a consulta usa a MESMA expressão do
+  índice (texto em minúsculas, sem acento, barra vira espaço — "azul/branco"
+  acha por "branco"); medido em 200 mil mensagens, LIKE levava 2,7 s e o
+  índice 2 ms. Cada palavra digitada é PREFIXO, todas obrigatórias, em
+  qualquer ordem (`consultaDePalavras`); letra solta cai fora e sem palavra
+  de 3 letras não há busca. Mensagem apagada fica de fora; o recorte de quem
+  vê cada conversa é o `conversationScope` de sempre, aplicado em cima. A lista mostra o TRECHO com a palavra pintada
+  (`trechoDaBusca` em `lib/busca.ts`, posição no texto ORIGINAL) e quantas
+  mensagens casaram; abrir a conversa PULA até a mensagem (carregando o
+  passado página a página, com teto e aviso) e a barra ▲▼ anda entre elas.
+  **Emoji**: o seletor (`seletor-de-emoji.tsx`, grade em `lib/emojis.ts`)
+  tem **barra de pesquisa** em português sem acento ("coracao", "caixa",
+  "feliz"; Enter escolhe o primeiro) e é o MESMO na caixa de **editar
+  mensagem** — antes não dava para pôr emoji na mensagem editada.
   **Reagir com emoji** (25/08/2026): o mesmo gesto do aplicativo — o emoji
   fica GRUDADO na mensagem (uma reação de cada lado: `Message.reaction` da
   cliente, `Message.reactionStore` da loja), nunca vira bolha nova. A reação

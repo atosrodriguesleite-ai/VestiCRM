@@ -24,6 +24,22 @@ export function normalizarBusca(texto: string): string {
     .trim();
 }
 
+/**
+ * Tradução de acentos DENTRO do banco (pt-BR), o par do `normalizarBusca`
+ * para `translate(lower(coluna), COM_ACENTO, SEM_ACENTO)` — é o que permite
+ * procurar sem puxar a tabela inteira para a memória.
+ */
+export const COM_ACENTO = "áàâãäéèêëíìîïóòôõöúùûüçñ";
+export const SEM_ACENTO = "aaaaaeeeeiiiiooooouuuucn";
+/**
+ * Para o TEXTO DA MENSAGEM a barra também vira espaço: "azul/branco" e
+ * "P/M" são o vocabulário de moda, e o separador de palavras do Postgres
+ * trata "azul/branco" como UMA palavra — "branco" não acharia. É a mesma
+ * tabela do índice de texto da mensagem (migração 20260903120000).
+ */
+export const COM_ACENTO_MENSAGEM = `${COM_ACENTO}/`;
+export const SEM_ACENTO_MENSAGEM = `${SEM_ACENTO} `;
+
 /** Só os números (para telefone/documento). Campo vazio/nulo vira "". */
 export const soDigitos = (texto: string | null | undefined): string =>
   (texto ?? "").replace(/\D/g, "");
@@ -113,4 +129,98 @@ export function casaCliente(
     casaTelefone(cliente.cpf, t) ||
     casaTelefone(cliente.cnpj, t)
   );
+}
+
+/**
+ * ONDE O TERMO APARECE NO TEXTO — ignorando maiúscula e acento, mas
+ * devolvendo a posição no texto ORIGINAL (é o que a tela precisa para
+ * pintar a palavra achada sem trocar "Goiânia" por "goiania").
+ *
+ * Normalizar o texto inteiro e procurar nele não serve: "é" vira "e" + um
+ * acento solto que é apagado, e a posição no texto normalizado deixa de
+ * bater com a do original. Aqui cada caractere é normalizado sozinho e
+ * lembra de onde veio.
+ */
+export function localizarTermo(
+  texto: string,
+  termo: string
+): { inicio: number; fim: number } | null {
+  const alvo = normalizarBusca(termo);
+  if (!alvo) return null;
+  let normalizado = "";
+  const origem: number[] = []; // posição original de cada caractere normalizado
+  let pos = 0;
+  for (const ch of texto) {
+    // caractere a caractere, SEM o trim do normalizador: o espaço entre
+    // duas palavras tem que sobreviver, senão "blusa vermelha" nunca casa
+    const n = ch.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+    for (let i = 0; i < n.length; i++) origem.push(pos);
+    normalizado += n;
+    pos += ch.length;
+  }
+  const idx = normalizado.indexOf(alvo);
+  if (idx < 0) return null;
+  // o fim é o começo do caractere seguinte ao último casado (ou o fim do texto)
+  const fim = idx + alvo.length < origem.length ? origem[idx + alvo.length] : texto.length;
+  return { inicio: origem[idx], fim };
+}
+
+/**
+ * O PEDAÇO DO TEXTO em volta da palavra achada — como o aplicativo do
+ * WhatsApp mostra na busca: "…quero a blusa VERMELHA tamanho M…". A palavra
+ * vem separada (`casa`) para a tela pintar. Quebras de linha viram espaço:
+ * a lista tem uma linha só.
+ */
+export type TrechoDaBusca = { antes: string; casa: string; depois: string };
+
+/**
+ * Uma mensagem achada pela lupa da Central: em qual conversa está, quando
+ * foi, de que lado veio e o pedaço do texto em volta da palavra.
+ */
+export type MensagemAchada = {
+  id: string;
+  conversationId: string;
+  createdAt: string;
+  direction: "IN" | "OUT";
+  trecho: TrechoDaBusca;
+};
+
+export function trechoDaBusca(texto: string, termo: string, folga = 40): TrechoDaBusca | null {
+  const plano = texto.replace(/\s+/g, " ");
+  const onde = localizarTermo(plano, termo);
+  if (!onde) return null;
+  const ini = Math.max(0, onde.inicio - folga);
+  const fim = Math.min(plano.length, onde.fim + folga);
+  return {
+    antes: (ini > 0 ? "…" : "") + plano.slice(ini, onde.inicio),
+    casa: plano.slice(onde.inicio, onde.fim),
+    depois: plano.slice(onde.fim, fim) + (fim < plano.length ? "…" : ""),
+  };
+}
+
+/**
+ * AS PALAVRAS que a busca por mensagem vai procurar, a partir do que foi
+ * digitado: só letras e números, sem acento. Letra solta cai fora ("R$ 100"
+ * procura "100", não "r" — que casaria "reais" e pintaria uma letra), e sem
+ * pelo menos uma palavra de 3 letras não há busca ("a b" abriria a loja
+ * inteira). Vazio = nada a procurar (só emoji, só pontuação).
+ */
+export function palavrasDaBusca(termo: string): string[] {
+  const palavras = (normalizarBusca(termo).match(/[a-z0-9]+/g) ?? []).filter(
+    (p) => p.length >= 2
+  );
+  return palavras.some((p) => p.length >= 3) ? palavras : [];
+}
+
+/**
+ * A CONSULTA DE PALAVRAS para o banco (`to_tsquery`): cada palavra vira
+ * PREFIXO ("vermelh" acha "vermelha" e "vermelhas"), todas têm que aparecer,
+ * em qualquer ordem. Só o que `palavrasDaBusca` deixa passar entra — é o que
+ * o índice de texto conhece, e o que mantém a consulta a salvo de caractere
+ * especial. Sem palavra, `null`.
+ */
+export function consultaDePalavras(termo: string): string | null {
+  const palavras = palavrasDaBusca(termo);
+  if (palavras.length === 0) return null;
+  return palavras.map((p) => `${p}:*`).join(" & ");
 }

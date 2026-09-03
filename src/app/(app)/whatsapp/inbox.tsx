@@ -58,6 +58,7 @@ import { OrderComposer } from "@/components/order-composer";
 import { contadorAoMarcarNaoLida } from "@/lib/comm/fila";
 import { copiarTexto, legendaDaMidia, textoDaMensagem } from "@/lib/copiar";
 import { ContactPanel } from "./contact-panel";
+import { SeletorDeEmoji } from "./seletor-de-emoji";
 import { orderNumber } from "@/lib/orders";
 import {
   formatPhone,
@@ -69,7 +70,7 @@ import {
 } from "@/lib/format";
 import { autoriaDaMensagem, prefixoDaPrevia } from "@/lib/comm/autoria";
 import { abaDaConversa } from "@/lib/comm/fila";
-import { casaCliente } from "@/lib/busca";
+import { casaCliente, type MensagemAchada } from "@/lib/busca";
 import { linkParaSalvar } from "@/lib/midia-arquivo";
 import { EncaminharMensagem } from "./encaminhar";
 import { MenuDaConversa } from "./menu-da-conversa";
@@ -192,48 +193,6 @@ function listStamp(iso: string): string {
   });
   return `${data} ${hora}`;
 }
-
-// Emojis do compositor — grade completa, organizada para venda de moda.
-// Nativos do aparelho (sem biblioteca externa): leves e iguais ao WhatsApp.
-// O 🤎 abre a fila dos corações — é o coração da marca. 😉
-const EMOJI_GROUPS: { titulo: string; emojis: string[] }[] = [
-  {
-    titulo: "Corações",
-    emojis: ["🤎","❤️","🧡","💛","💚","💙","💜","🖤","🤍","🩷","🩵","🩶","💖","💕","💞","💓","💗","💘","💝","💟","❣️","❤️‍🔥","❤️‍🩹","💔","💌","💋"],
-  },
-  {
-    titulo: "Carinhas",
-    emojis: ["😀","😃","😄","😁","😆","😅","😂","🤣","🥲","🥹","😊","☺️","🙂","🙃","😉","😌","😍","🥰","😘","😗","😙","😚","😋","😛","😜","🤪","😝","🤩","🥳","😎","🤓","🧐","🤗","🤭","🫢","🤫","🤔","🫡","😐","😑","😶","🙄","😏","😬","😮‍💨","😪","😴","🥱","😷","🤒","🤕","🥴","😵","🤯","🥺","😢","😭","😤","😠","😱","😨","😰","😥","😓","🤤","😇","🥸","🤠","😈","👻","💀","🤖","👽","😺","😻","🙈","🙉","🙊"],
-  },
-  {
-    titulo: "Gestos e pessoas",
-    emojis: ["👍","👎","👏","🙌","🙏","🤝","💪","✌️","🤞","🫶","🤟","🤘","🤙","👌","🤌","🤏","👋","🖐️","✋","🖖","👈","👉","👆","👇","☝️","✊","👊","🤛","🤜","🫵","🤲","🫰","✍️","💅","🤳","💃","🕺","🧍‍♀️","🏃‍♀️","👩","👨","👧","👦","👶","👵","👴","👩‍💼","🤦‍♀️","🤷‍♀️","💁‍♀️","🙋‍♀️","🙆‍♀️","🙅‍♀️"],
-  },
-  {
-    titulo: "Festa e destaque",
-    emojis: ["🎉","🎊","✨","⭐","🌟","💫","🔥","💥","⚡","🏆","🥇","🥈","🥉","🎁","🎈","🎂","🍾","🥂","🎶","🎵","👑","💎","🪩","🎀","🧸","🎯","🧿","🍀"],
-  },
-  {
-    titulo: "Moda e compras",
-    emojis: ["👗","👚","👖","👕","👔","👙","🩱","🩳","👘","🥻","🧥","🦺","👒","🧢","👜","👛","🎒","👠","👡","👢","🥿","👞","👟","🥾","🧦","🧤","🧣","👓","🕶️","💍","💄","⌚","💼","🛍️","🛒","🧵","🪡","✂️","🧶","📦","🚚","✈️","🏭","🏬","🏠"],
-  },
-  {
-    titulo: "Dinheiro",
-    emojis: ["💰","💵","💴","💶","💳","🪙","🤑","🏷️","💸","🧾","📈","📊","💲","🏦","🔖"],
-  },
-  {
-    titulo: "Comidas e bebidas",
-    emojis: ["☕","🍵","🥤","🧉","🍷","🍹","🍺","🍫","🍰","🧁","🍩","🍪","🍓","🍒","🍉","🍇","🥐","🍞","🍕","🍔","🌭","🍟","🥗","🍝","🍦","🍯"],
-  },
-  {
-    titulo: "Natureza e clima",
-    emojis: ["☀️","🌤️","⛅","🌧️","⛈️","🌈","❄️","🌙","🌛","🌊","💧","🌸","🌹","🌺","🌻","🌷","🌼","💐","🍃","🌿","☘️","🌴","🌵","🦋","🐝","🐞","🐱","🐶","🦄"],
-  },
-  {
-    titulo: "Símbolos e dia a dia",
-    emojis: ["✅","☑️","✔️","❌","✖️","⚠️","❗","‼️","❓","💯","🆗","🆕","🆙","🔝","🔜","📌","📍","📎","🔔","🔕","⏰","⌛","⏳","📅","🗓️","📆","📞","☎️","📱","💬","🗨️","✉️","📩","📤","📥","📝","✏️","🖊️","🔍","🔒","🔓","🔑","💡","📸","📷","🎥","📣","📢","🔗","♻️","🚫","🔞","💤","🌀","➕","➖","➡️","⬅️","⬆️","⬇️","↩️","🔄"],
-  },
-];
 
 const STATUS_OPTIONS = [
   "OPEN",
@@ -679,6 +638,29 @@ export function Inbox({
   const BLOCO = 200;
   const [visiveis, setVisiveis] = useState(BLOCO);
   const [buscando, setBuscando] = useState(false);
+  /**
+   * MENSAGENS EM QUE A PALAVRA BUSCADA APARECEU, por conversa (vêm do
+   * servidor, da mais recente para a mais antiga). É o que a lista mostra
+   * embaixo do nome no lugar da última mensagem, e para onde a tela pula ao
+   * abrir a conversa — como no aplicativo do WhatsApp (pedido do dono,
+   * 03/09/2026). Some quando a busca é apagada.
+   */
+  const [achados, setAchados] = useState<Record<string, MensagemAchada[]>>({});
+  /** qual das mensagens achadas está em foco na conversa aberta (▲▼) */
+  const [posAchado, setPosAchado] = useState(0);
+  /** mensagem para a qual a tela está indo (carrega o passado até chegar nela) */
+  const [pulo, setPulo] = useState<MensagemAchada | null>(null);
+  // espelho do `pulo` para a rolagem automática consultar SEM depender dele:
+  // se ele entrasse nas dependências, o fim do pulo (pulo → null) rodaria a
+  // rolagem para o fim e desfaria o que o pulo acabou de fazer
+  const puloRef = useRef<MensagemAchada | null>(null);
+  puloRef.current = pulo;
+  const paginasDoPulo = useRef(0);
+  /** bolha em destaque (a mensagem achada pela lupa); apaga sozinha */
+  const [destaqueMsgId, setDestaqueMsgId] = useState<string | null>(null);
+  /** seletor de emoji aberto DENTRO da caixa de edição de mensagem */
+  const [showEmojiEdicao, setShowEmojiEdicao] = useState(false);
+  const editTaRef = useRef<HTMLTextAreaElement>(null);
   const [carregandoAntigas, setCarregandoAntigas] = useState(false);
   const [semMais, setSemMais] = useState<Set<string>>(new Set());
 
@@ -871,11 +853,16 @@ export function Inbox({
     setTimeout(() => campo.scrollIntoView({ block: "center", behavior: "smooth" }), 350);
   }
 
-  // insere o emoji na posição do cursor (e devolve o foco ao campo)
-  function insertEmoji(emoji: string) {
-    const ta = taRef.current;
-    const pos = ta?.selectionStart ?? draft.length;
-    setDraft(draft.slice(0, pos) + emoji + draft.slice(pos));
+  // insere o emoji na posição do cursor (e devolve o foco ao campo) — a
+  // MESMA regra para o compositor e para a caixa de edição de mensagem
+  function inserirNoCursor(
+    ta: HTMLTextAreaElement | null,
+    texto: string,
+    emoji: string,
+    setTexto: (t: string) => void
+  ) {
+    const pos = ta?.selectionStart ?? texto.length;
+    setTexto(texto.slice(0, pos) + emoji + texto.slice(pos));
     requestAnimationFrame(() => {
       if (ta) {
         ta.focus();
@@ -883,6 +870,14 @@ export function Inbox({
         ta.setSelectionRange(p, p);
       }
     });
+  }
+  function insertEmoji(emoji: string) {
+    inserirNoCursor(taRef.current, draft, emoji, setDraft);
+  }
+  // emoji NA MENSAGEM SENDO EDITADA (pedido do dono, 03/09/2026: "quando
+  // vou editar uma mensagem não consigo colocar emoji")
+  function inserirEmojiNaEdicao(emoji: string) {
+    inserirNoCursor(editTaRef.current, editMsgDraft, emoji, setEditMsgDraft);
   }
 
   // menu de etiquetas fecha ao clicar em qualquer lugar fora dele
@@ -921,15 +916,30 @@ export function Inbox({
 
   useEffect(() => {
     const q = search.trim();
-    if (q.length < 2) return;
+    if (q.length < 2) {
+      setAchados({}); // apagou a busca: a lista volta a mostrar a última mensagem
+      return;
+    }
     let vivo = true;
     const t = setTimeout(async () => {
       setBuscando(true);
       try {
         const r = await fetch(`/api/conversations?q=${encodeURIComponent(q)}`);
-        if (!r.ok) return;
-        const d: { conversations?: InboxConversation[] } = await r.json();
-        if (!vivo || !d.conversations?.length) return;
+        if (!r.ok) {
+          // busca que falhou não pode deixar na tela o resultado da PALAVRA
+          // ANTERIOR pintado embaixo do termo novo
+          if (vivo) setAchados({});
+          return;
+        }
+        const d: { conversations?: InboxConversation[]; mensagens?: MensagemAchada[] } =
+          await r.json();
+        if (!vivo) return;
+        // as mensagens achadas são DESTA busca: trocou o termo, troca a lista
+        const porConversa: Record<string, MensagemAchada[]> = {};
+        for (const m of d.mensagens ?? []) (porConversa[m.conversationId] ??= []).push(m);
+        setAchados(porConversa);
+        setPosAchado(0); // a barra ▲▼ recomeça: a lista de achados é outra
+        if (!d.conversations?.length) return;
         setConvs((prev) => {
           const tem = new Set(prev.map((c) => c.id));
           // resultado da busca entra como PRÉVIA (igual ao resto da lista);
@@ -940,7 +950,9 @@ export function Inbox({
           return novas.length ? [...prev, ...novas] : prev;
         });
       } catch {
-        // rede oscilou: a lista local continua valendo
+        // rede oscilou: a lista local continua valendo — sem trecho de
+        // busca antiga pintado nela
+        if (vivo) setAchados({});
       } finally {
         if (vivo) setBuscando(false);
       }
@@ -969,7 +981,8 @@ export function Inbox({
       // gaveta em que ela está.
       if (!q && bucketOf(c) !== tab) return false;
       if (tagFilter && !c.customer.tags.some((t) => t.id === tagFilter)) return false;
-      if (!casaCliente(c.customer, q)) return false;
+      // a conversa fica se o CONTATO casa ou se a PALAVRA apareceu nela
+      if (!casaCliente(c.customer, q) && !achados[c.id]) return false;
       return true;
     });
     // Fila: mais antigo primeiro (quem espera há mais tempo no topo).
@@ -987,7 +1000,7 @@ export function Inbox({
       );
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [convs, tab, search, tagFilter]);
+  }, [convs, tab, search, tagFilter, achados]);
 
   const naoLida = (c: InboxConversation) => c.unreadCount > 0;
   const naoLidasNaLista = useMemo(
@@ -1007,11 +1020,72 @@ export function Inbox({
   }, [filtradasBase, soNaoLidas, soFavoritas]);
 
   useEffect(() => {
+    // indo até uma mensagem achada pela lupa, quem manda na rolagem é o pulo
+    if (puloRef.current) return;
     bottomRef.current?.scrollIntoView({ behavior: "instant" as ScrollBehavior });
     // `parecidos` entra na conta porque o aviso de cadastro duplicado nasce
     // ACIMA das mensagens depois da resposta do servidor: sem rolar de novo,
     // ele empurra as últimas mensagens para baixo da dobra
   }, [selectedId, selected?.messages.length, parecidosDe?.lista.length]);
+
+  /**
+   * PULA ATÉ A MENSAGEM ACHADA PELA LUPA (como no aplicativo do WhatsApp).
+   *
+   * A conversa abre com as últimas 100; se a mensagem é mais antiga, carrega
+   * o passado página a página até ela aparecer — com teto: uma conversa de
+   * anos não trava a tela, e a pessoa fica sabendo. Dirigido pelo estado:
+   * cada lote que chega redesenha a conversa e o efeito confere de novo.
+   */
+  useEffect(() => {
+    if (!pulo || !selected || selected.id !== pulo.conversationId) return;
+    const el = document.getElementById(`msg-${pulo.id}`);
+    if (el) {
+      el.scrollIntoView({ block: "center", behavior: "smooth" });
+      setDestaqueMsgId(pulo.id);
+      setPulo(null);
+      return;
+    }
+    // o histórico recente ainda está vindo: espera ele chegar
+    if (!threadsCarregadas.current.has(selected.id) || carregandoAntigas) return;
+    const maisVelha = selected.messages[0]?.createdAt;
+    const aindaTemPassado = !semMais.has(selected.id);
+    if (
+      maisVelha &&
+      maisVelha > pulo.createdAt &&
+      aindaTemPassado &&
+      paginasDoPulo.current < 25
+    ) {
+      paginasDoPulo.current += 1;
+      void carregarAnteriores(selected.id);
+      return;
+    }
+    // não dá para chegar nela por aqui (muito antiga, ou sumiu)
+    setPulo(null);
+    setAviso("Essa mensagem é antiga demais para abrir por aqui.");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pulo, selected, semMais, carregandoAntigas]);
+
+  // o destaque da mensagem achada apaga sozinho
+  useEffect(() => {
+    if (!destaqueMsgId) return;
+    const t = setTimeout(() => setDestaqueMsgId(null), 2500);
+    return () => clearTimeout(t);
+  }, [destaqueMsgId]);
+
+  // fechou a edição da mensagem: o seletor de emoji dela fecha junto
+  useEffect(() => {
+    if (!editingMsgId) setShowEmojiEdicao(false);
+  }, [editingMsgId]);
+
+  /** Vai até a n-ésima mensagem achada da conversa aberta (0 = mais recente). */
+  function irParaAchado(convId: string, pos: number) {
+    const lista = achados[convId];
+    if (!lista?.length) return;
+    const i = Math.max(0, Math.min(lista.length - 1, pos));
+    setPosAchado(i);
+    paginasDoPulo.current = 0;
+    setPulo(lista[i]);
+  }
 
   // abre direto a conversa vinda do sino de notificações ou da Agenda
   // (?conv=...). `?texto=` chega com a mensagem sugerida JÁ NO CAMPO — a
@@ -1299,6 +1373,8 @@ export function Inbox({
 
   function selectConv(id: string) {
     setSelectedId(id);
+    setPosAchado(0); // a barra ▲▼ da lupa recomeça na mensagem mais recente
+    setPulo(null); // pulo pendente era da conversa anterior
     void carregarThread(id);
     setShowTransfer(false);
     setShowTagPicker(false);
@@ -2588,7 +2664,7 @@ export function Inbox({
             <input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Buscar por nome, telefone ou cidade..."
+              placeholder="Buscar nome, telefone ou palavra da conversa..."
               className="w-full rounded-xl bg-gray-50 border border-transparent focus:border-brand-300 focus:bg-white pl-9 pr-9 py-2 text-sm outline-none transition"
             />
             {search && (
@@ -2606,7 +2682,9 @@ export function Inbox({
           {search.trim() && (
             <p className="-mt-1 mb-2 px-1 text-[11px] text-gray-400">
               {filtered.length === 0
-                ? "Ninguém encontrado com esse nome, telefone ou cidade."
+                ? buscando
+                  ? "Procurando nas conversas…"
+                  : "Nada encontrado: nem contato com esse nome ou telefone, nem conversa com essa palavra."
                 : `${filtered.length} ${filtered.length === 1 ? "resultado" : "resultados"} em Chats, Fila e Contatos.`}
             </p>
           )}
@@ -2787,6 +2865,8 @@ export function Inbox({
                     return;
                   }
                   selectConv(c.id);
+                  // achou pela palavra? vai direto na mensagem (a mais recente)
+                  if (achados[c.id]?.length) irParaAchado(c.id, 0);
                 }}
                 // CLIQUE DIREITO (computador) abre o menu no ponto do clique
                 onContextMenu={(e) => {
@@ -2849,9 +2929,26 @@ export function Inbox({
                       {listStamp(c.lastMessageAt)}
                     </span>
                   </div>
-                  <p className="text-xs text-gray-500 truncate mt-0.5">
-                    {last ? prefixoDaPrevia(last) + last.body : "Sem mensagens"}
-                  </p>
+                  {achados[c.id]?.length ? (
+                    // a PALAVRA buscada, pintada no trecho em que apareceu
+                    // (como no aplicativo); mais de uma mensagem, diz quantas
+                    <p className="text-xs text-gray-500 truncate mt-0.5">
+                      {achados[c.id].length > 1 && (
+                        <span className="mr-1 rounded-full bg-brand-100 text-brand-700 px-1.5 text-[10px] font-bold">
+                          {achados[c.id].length} msgs
+                        </span>
+                      )}
+                      {achados[c.id][0].trecho.antes}
+                      <mark className="rounded-sm bg-amber-200 px-0.5 text-ink">
+                        {achados[c.id][0].trecho.casa}
+                      </mark>
+                      {achados[c.id][0].trecho.depois}
+                    </p>
+                  ) : (
+                    <p className="text-xs text-gray-500 truncate mt-0.5">
+                      {last ? prefixoDaPrevia(last) + last.body : "Sem mensagens"}
+                    </p>
+                  )}
                   <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
                     <SetorPill setor={c.setor} />
                     {c.customer.tags.map((t) => (
@@ -3360,6 +3457,38 @@ export function Inbox({
 
             {/* mensagens */}
             <div className="flex-1 overflow-y-auto thin-scroll px-4 py-4 space-y-2 bg-[#f4f1f8]">
+              {/* A PALAVRA BUSCADA NESTA CONVERSA: quantas vezes apareceu e
+                  ▲▼ para andar entre elas (a lista abre na mais recente) */}
+              {search.trim() && achados[selected.id]?.length ? (
+                <div className="sticky top-0 z-10 -mx-4 -mt-4 mb-2 flex items-center gap-2 border-b border-amber-100 bg-amber-50/95 px-4 py-2 text-xs text-amber-800">
+                  <Search className="size-3.5 shrink-0" />
+                  <span className="min-w-0 flex-1 truncate">
+                    <b>{achados[selected.id].length}</b>{" "}
+                    {achados[selected.id].length === 1 ? "mensagem" : "mensagens"} com “
+                    {search.trim()}”
+                    {achados[selected.id].length > 1 &&
+                      ` · ${posAchado + 1} de ${achados[selected.id].length}`}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => irParaAchado(selected.id, posAchado + 1)}
+                    disabled={posAchado >= achados[selected.id].length - 1}
+                    title="Mais antiga"
+                    className="rounded-lg p-1 hover:bg-amber-100 disabled:opacity-30"
+                  >
+                    <ChevronUp className="size-4" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => irParaAchado(selected.id, posAchado - 1)}
+                    disabled={posAchado <= 0}
+                    title="Mais recente"
+                    className="rounded-lg p-1 hover:bg-amber-100 disabled:opacity-30"
+                  >
+                    <ChevronDown className="size-4" />
+                  </button>
+                </div>
+              ) : null}
               {/* HISTÓRICO: o começo da conversa não fica inacessível */}
               {selected.messages.length >= 100 && !semMais.has(selected.id) && (
                 <div className="flex justify-center pb-2">
@@ -3388,8 +3517,12 @@ export function Inbox({
                   return (
                     <Fragment key={m.id}>
                     {separador}
-                    <div className="flex justify-center">
-                      <div className="max-w-[85%] rounded-xl bg-amber-50 border border-amber-100 px-3 py-2 text-xs text-amber-800">
+                    <div id={`msg-${m.id}`} className="flex justify-center">
+                      <div
+                        className={`max-w-[85%] rounded-xl bg-amber-50 border border-amber-100 px-3 py-2 text-xs text-amber-800 ${
+                          destaqueMsgId === m.id ? "ring-2 ring-amber-400" : ""
+                        }`}
+                      >
                         <p className="flex items-center gap-1 font-semibold mb-0.5">
                           <StickyNote className="size-3" />
                           Nota interna · {m.authorName ?? "equipe"}
@@ -3424,6 +3557,7 @@ export function Inbox({
                   <Fragment key={m.id}>
                   {separador}
                   <div
+                    id={`msg-${m.id}`}
                     className={`group flex ${mine ? "justify-end" : "justify-start"}`}
                   >
                     {/* ⋯ no desktop (hover); no celular é "segurar" a bolha */}
@@ -3487,6 +3621,11 @@ export function Inbox({
                         // a pastilha da reação fica PENDURADA na beirada de
                         // baixo: sem essa folga ela cobria a bolha seguinte
                         m.reaction || m.reactionStore ? "mb-3" : ""
+                      } ${
+                        // a mensagem achada pela lupa chega em DESTAQUE
+                        destaqueMsgId === m.id
+                          ? "ring-2 ring-amber-400 ring-offset-2 ring-offset-[#f4f1f8]"
+                          : ""
                       }`}
                     >
                       {/* aviso de mensagem apagada (mantém o texto legível) */}
@@ -3504,8 +3643,18 @@ export function Inbox({
                       )}
 
                       {editando ? (
-                        <div className="flex flex-col gap-1.5 min-w-[220px]">
+                        <div className="relative flex flex-col gap-1.5 min-w-[220px]">
+                          {/* emoji NA EDIÇÃO: o mesmo seletor do compositor,
+                              aberto em cima da bolha (embaixo ficaria cortado
+                              pela borda do chat na última mensagem) */}
+                          {showEmojiEdicao && (
+                            <SeletorDeEmoji
+                              onEscolher={inserirEmojiNaEdicao}
+                              className="absolute bottom-full right-0 mb-1 w-80 max-w-[85vw] text-ink"
+                            />
+                          )}
                           <textarea
+                            ref={editTaRef}
                             autoFocus
                             value={editMsgDraft}
                             onChange={(e) => setEditMsgDraft(e.target.value)}
@@ -3521,6 +3670,16 @@ export function Inbox({
                             className="resize-none rounded-lg bg-white/15 text-white placeholder-white/60 px-2 py-1.5 text-sm outline-none border border-white/30"
                           />
                           <div className="flex items-center justify-end gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => setShowEmojiEdicao((v) => !v)}
+                              title="Emoji"
+                              className={`mr-auto rounded-lg p-1 hover:bg-white/15 ${
+                                showEmojiEdicao ? "text-white" : "text-white/80"
+                              }`}
+                            >
+                              <Smile className="size-4" />
+                            </button>
                             <button
                               onClick={() => setEditingMsgId(null)}
                               className="rounded-lg px-2.5 py-1 text-[11px] font-medium text-white/80 hover:bg-white/15"
@@ -3881,29 +4040,12 @@ export function Inbox({
                   ))}
                 </div>
               )}
-              {/* seletor de emoji 😊 */}
+              {/* seletor de emoji 😊 — com barra de pesquisa */}
               {showEmoji && (
-                <div className="absolute bottom-full left-3 right-3 sm:right-auto sm:w-96 mb-1 bg-white rounded-xl border border-gray-100 shadow-pop z-20 max-h-64 overflow-y-auto thin-scroll p-2">
-                  {EMOJI_GROUPS.map((g) => (
-                    <div key={g.titulo} className="mb-1.5">
-                      <p className="px-1 text-[10px] font-bold uppercase tracking-wide text-gray-400">
-                        {g.titulo}
-                      </p>
-                      <div className="flex flex-wrap">
-                        {g.emojis.map((e) => (
-                          <button
-                            key={e}
-                            onClick={() => insertEmoji(e)}
-                            className="size-9 grid place-items-center text-[22px] rounded-lg hover:bg-brand-50 transition"
-                            title={e}
-                          >
-                            {e}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  ))}
-                </div>
+                <SeletorDeEmoji
+                  onEscolher={insertEmoji}
+                  className="absolute bottom-full left-3 right-3 sm:right-auto sm:w-96 mb-1"
+                />
               )}
               {/* editor das mensagens automáticas (catálogo + pedido) */}
               {showCatMsgEdit && (

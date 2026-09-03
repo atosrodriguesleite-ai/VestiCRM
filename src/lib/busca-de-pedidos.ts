@@ -1,6 +1,6 @@
 import { Prisma } from "@prisma/client";
 import { db } from "./db";
-import { normalizarBusca } from "./busca";
+import { COM_ACENTO, SEM_ACENTO, normalizarBusca } from "./busca";
 import { phoneMatchVariants } from "./intake";
 
 /**
@@ -44,10 +44,6 @@ export function classificarBusca(q: string): BuscaDePedidos {
 
 /** Teto de clientes casados: mantém o `IN` da consulta de pedidos saudável. */
 const TETO_CLIENTES = 500;
-
-/** Tradução de acentos DENTRO do banco (pt-BR), o par do `normalizarBusca`. */
-const COM_ACENTO = "áàâãäéèêëíìîïóòôõöúùûüçñ";
-const SEM_ACENTO = "aaaaaeeeeiiiiooooouuuucn";
 
 /** Estourou o teto? Corta e AVISA — resultado capado em silêncio some pedido. */
 function comTeto(ids: string[]): { ids: string[]; estourou: boolean } {
