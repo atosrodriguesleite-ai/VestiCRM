@@ -106,7 +106,7 @@ export async function POST(req: NextRequest) {
       // a conta padrão acabou de nascer: as vendas pagas que ficaram sem baixa por
       // falta dela são acertadas (RN-033) — senão a lojista vê no card
       // "Atrasado" a venda que ela mesma marcou como paga.
-      // NO after(): são até 50 sincronizações, e dentro da resposta um
+      // NO after(): são até TETO_REPESCA sincronizações no total (as duas varreduras dividem o mesmo teto), e dentro da resposta um
       // timeout devolveria erro com a conta JÁ criada — a lojista clicaria
       // de novo e nasceria uma segunda conta com o mesmo nome. O que passar
       // do teto é repescado de carona na próxima abertura do Financeiro.

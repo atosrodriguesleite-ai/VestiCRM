@@ -231,6 +231,32 @@ describe("a porta é a única entrada e nunca atrapalha a venda (RN-033)", () =>
     expect(frete).not.toContain("db.finLancamento.create");
   });
 
+  /**
+   * TODA transação que muda o valor do pedido avisa a porta — não só a que
+   * troca o status. A edição de itens e a de desconto/acréscimo/frete
+   * respondiam antes da chamada lá do fim, e o lançamento ficava congelado no
+   * valor VELHO: o pedido valia R$ 553,50 e a conciliação seguia oferecendo
+   * R$ 554,50 (venda #0076, 03/09/2026). O que este teste checa é a POSIÇÃO —
+   * a chamada colada na transação, antes de qualquer resposta ou validação
+   * que ainda possa recusar o PATCH.
+   */
+  it("cada transação que grava netTotal avisa a porta antes da próxima resposta", () => {
+    const rota = ler("src/app/api/orders/[id]/route.ts");
+    // cada bloco vai do fecho de uma transação até o fecho da seguinte
+    const trechos = rota.split("{ timeout: 30_000, maxWait: 10_000 });");
+    // os dois primeiros são os que gravam valor (itens e desconto/frete)
+    const gravamValor = trechos.filter((t) => t.includes("netTotal: totals.netTotal"));
+    expect(gravamValor.length).toBe(2);
+    for (const bloco of gravamValor) {
+      const depois = trechos[trechos.indexOf(bloco) + 1] ?? "";
+      const ateAResposta = depois.slice(0, depois.indexOf("return NextResponse.json"));
+      expect(
+        ateAResposta,
+        "edição de valor respondendo sem avisar o financeiro (RN-033)"
+      ).toContain("sincronizarPedidoSemQuebrar(order.id)");
+    }
+  });
+
   it("o trabalho vai para o after() do Next — sem ele a Vercel congela e a venda some", () => {
     const motor = ler("src/lib/financeiro/porta-vendas.ts");
     expect(motor).toContain('import { after } from "next/server"');
