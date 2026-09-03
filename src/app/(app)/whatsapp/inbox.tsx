@@ -825,7 +825,7 @@ export function Inbox({
   // tela ocupa 100% do espaço útil: mede onde ela começa (pode ter a faixa
   // amarela de Super Admin em cima) e estica até o rodapé da janela
   const shellRef = useRef<HTMLDivElement>(null);
-  // A LISTA NÃO PERDE O LUGAR (RN-044): no celular a lista é escondida com
+  // A LISTA NÃO PERDE O LUGAR (RN-046): no celular a lista é escondida com
   // `display:none` enquanto o chat está aberto, e elemento escondido perde a
   // rolagem — na volta o navegador entrega scrollTop zero. Guardamos o lugar
   // a cada rolagem e devolvemos quando a lista reaparece.
@@ -2973,7 +2973,7 @@ export function Inbox({
               </button>
             );
           })}
-          {/* O ATALHO PEDIDO PELA LOJA (RN-044): a vendedora faz follow-up de
+          {/* O ATALHO PEDIDO PELA LOJA (RN-046): a vendedora faz follow-up de
               baixo para cima e pediu "algum meio de descer sem ter que
               rolar". Cola na base da coluna e some quando a lista cabe na
               tela — em lista curta seria enfeite tampando conversa. */}
