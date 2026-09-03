@@ -3,12 +3,17 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { CheckCircle2, EyeOff, Landmark, Upload } from "lucide-react";
+import { CheckCircle2, EyeOff, Landmark, Plus, Search, Upload } from "lucide-react";
 import { Button, Card, Input, PageHeader } from "@/components/ui";
 import { StatTile } from "@/components/charts";
 import { brl } from "@/lib/format";
 import { formatarDia } from "@/lib/financeiro/dia";
-import type { PainelConciliacao } from "@/lib/financeiro/conciliacao";
+import {
+  combinaComALinha,
+  ordenarCandidatas,
+} from "@/lib/financeiro/conciliacao-tela";
+import type { LinhaDoBanco, PainelConciliacao } from "@/lib/financeiro/conciliacao";
+import { FormLancamento, type Opcao } from "../_mov/form-lancamento";
 
 type Importacao = {
   id: string;
@@ -28,17 +33,40 @@ type Importacao = {
 export function ConciliacaoView({
   contas,
   filtro,
+  contaEhCartao,
   painel,
+  hoje,
+  ficha,
   importacoes,
 }: {
   contas: { id: string; nome: string }[];
   filtro: { conta: string; aba: "pendente" | "conciliado" | "ignorado"; de: string; ate: string };
+  /** conta de CARTÃO não recebe baixa (RN-039): a tela não oferece "Lançar" */
+  contaEhCartao: boolean;
   painel: PainelConciliacao;
+  hoje: string;
+  /** as listas da ficha do lançamento, para criar direto da linha do banco */
+  ficha: {
+    contas: {
+      id: string;
+      nome: string;
+      padrao: boolean;
+      tipo: string;
+      diaFechamento: number | null;
+      diaVencimento: number | null;
+    }[];
+    categorias: (Opcao & { tipo: string })[];
+    fornecedores: { id: string; nome: string; categoriaPadraoId: string | null }[];
+    centros: Opcao[];
+    colecoes: Opcao[];
+  };
   importacoes: Importacao[];
 }) {
   const router = useRouter();
   const [linhaAberta, setLinhaAberta] = useState<string | null>(null);
   const [marcadas, setMarcadas] = useState<string[]>([]);
+  const [busca, setBusca] = useState("");
+  const [criandoDe, setCriandoDe] = useState<LinhaDoBanco | null>(null);
   const [erro, setErro] = useState("");
   const [aviso, setAviso] = useState("");
   const [ocupado, setOcupado] = useState(false);
@@ -60,6 +88,22 @@ export function ConciliacaoView({
   const diferenca = linhaSelecionada
     ? Math.round((linhaSelecionada.valor - somaMarcada) * 100) / 100
     : 0;
+
+  /**
+   * A MAIOR PARTE DOS RECEBIMENTOS É VENDA DO SISTEMA, e achar a venda certa
+   * numa lista de 200 baixas era o trabalho manual que sobrava. Então, com uma
+   * linha do banco escolhida, sobem para o topo as que COMBINAM com ela —
+   * mesmo valor e data pertinho, a mesma régua do casamento automático — e a
+   * busca acha pelo nome da cliente ou pelo número do pedido.
+   */
+  const combina = (c: (typeof painel.candidatas)[number]) =>
+    !!linhaSelecionada && combinaComALinha(c, linhaSelecionada);
+  const candidatas = ordenarCandidatas(
+    painel.candidatas,
+    linhaSelecionada ?? null,
+    busca,
+    marcadas
+  );
 
   async function enviarArquivo(arquivo: File) {
     setOcupado(true);
@@ -318,11 +362,23 @@ export function ConciliacaoView({
                   {linhaAberta === l.id && !l.conciliada && (
                     <div className="mt-2 rounded-xl border border-slate-200 bg-slate-50 p-3">
                       <p className="mb-2 text-xs text-slate-500">
-                        Marque no lado direito o que é este dinheiro. Falta{" "}
-                        <b className={diferenca === 0 ? "text-emerald-700" : "text-slate-700"}>
-                          {brl(diferenca)}
-                        </b>{" "}
-                        para os dois lados baterem.
+                        Marque no lado direito o que é este dinheiro — pode ser
+                        mais de um (um depósito que pagou duas contas). Marcado:{" "}
+                        <b className="text-slate-700">{brl(somaMarcada)}</b> de{" "}
+                        <b className="text-slate-700">{brl(l.valor)}</b>
+                        {diferenca === 0 ? (
+                          <b className="text-emerald-700"> — bateu! ✅</b>
+                        ) : (
+                          <>
+                            , faltam <b className="text-slate-700">{brl(diferenca)}</b>.
+                          </>
+                        )}
+                        {marcadas.length === 0 && (
+                          <>
+                            {" "}
+                            Não achou? Lance na hora, no botão abaixo.
+                          </>
+                        )}
                       </p>
                       <div className="flex flex-wrap gap-2">
                         <Button
@@ -333,6 +389,19 @@ export function ConciliacaoView({
                         >
                           Conferir
                         </Button>
+                        {/* linha "fora do sistema" não vira lançamento: a
+                            ficha inteira preenchida só para levar 409 no
+                            salvar é a pior forma de dizer não */}
+                        {!l.ignorada && !contaEhCartao && (
+                          <button
+                            onClick={() => setCriandoDe(l)}
+                            disabled={ocupado}
+                            className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                          >
+                            <Plus className="size-4" />
+                            {l.valor > 0 ? "Lançar este recebimento" : "Lançar este pagamento"}
+                          </button>
+                        )}
                         <button
                           onClick={() => acao(l.id, { acao: "ignorar", ignorar: !l.ignorada })}
                           disabled={ocupado}
@@ -364,15 +433,34 @@ export function ConciliacaoView({
             O que a loja registrou
           </h2>
           <p className="mb-3 text-xs text-slate-400">
-            Lançamentos desta conta ainda não conferidos com o extrato.
+            Recebimentos e pagamentos JÁ registrados nesta conta e ainda não
+            conferidos com o extrato — a venda que você marcou como paga
+            aparece aqui.
           </p>
+          {painel.candidatas.length > 0 && (
+            <div className="relative mb-3">
+              <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" />
+              <Input
+                value={busca}
+                onChange={(e) => setBusca(e.target.value)}
+                placeholder="Buscar pelo nome da cliente ou nº do pedido"
+                className="!py-2 !pl-9"
+              />
+            </div>
+          )}
           {painel.candidatas.length === 0 ? (
             <p className="text-sm text-slate-400">
-              Tudo conferido neste período. 👏
+              Nada registrado nesta conta esperando conferência. Se o dinheiro
+              do banco existe mas não está aqui, abra a linha à esquerda e use
+              &quot;Lançar&quot;.
+            </p>
+          ) : candidatas.length === 0 ? (
+            <p className="text-sm text-slate-400">
+              Nenhum lançamento com &quot;{busca}&quot;.
             </p>
           ) : (
             <ul className="divide-y divide-slate-100">
-              {painel.candidatas.map((c) => (
+              {candidatas.map((c) => (
                 <li key={c.id}>
                   <label
                     className={`flex cursor-pointer items-center gap-3 px-2 py-2.5 hover:bg-slate-50 ${
@@ -394,6 +482,14 @@ export function ConciliacaoView({
                       {formatarDia(c.dia)}
                     </span>
                     <span className="min-w-0 flex-1 truncate text-sm text-slate-700">
+                      {combina(c) && (
+                        <span
+                          className="mr-1 text-emerald-700"
+                          title="Mesmo valor e data pertinho da linha escolhida"
+                        >
+                          ✨
+                        </span>
+                      )}
                       {c.descricao}
                       {c.pessoa && (
                         <span className="text-slate-400"> · {c.pessoa}</span>
@@ -418,6 +514,45 @@ export function ConciliacaoView({
           )}
         </Card>
       </div>
+
+      {criandoDe && (
+        <FormLancamento
+          tipo={criandoDe.valor > 0 ? "RECEITA" : "DESPESA"}
+          hoje={hoje}
+          contas={ficha.contas}
+          categorias={ficha.categorias.filter(
+            (c) => c.tipo === (criandoDe.valor > 0 ? "RECEITA" : "DESPESA")
+          )}
+          fornecedores={ficha.fornecedores}
+          centros={ficha.centros}
+          colecoes={ficha.colecoes}
+          daLinhaDoBanco={{
+            linhaId: criandoDe.id,
+            // o schema do lançamento para em 160 (RN-030): o memo do banco
+            // vem cortado, senão a ficha voltaria "Dados inválidos" sem motivo
+            descricao: criandoDe.descricao.slice(0, 160),
+            valor: criandoDe.valor,
+            dia: criandoDe.dia,
+            contaId: filtro.conta,
+          }}
+          onFechar={() => setCriandoDe(null)}
+          onSalvo={(r) => {
+            setCriandoDe(null);
+            setLinhaAberta(null);
+            setMarcadas([]);
+            setErro("");
+            const falta = Number(r?.falta ?? 0);
+            setAviso(
+              r?.conciliada
+                ? "Lançamento criado, baixado e conferido com o extrato. ✅"
+                : `Lançamento criado e baixado. Ele cobre parte desta linha do banco (faltam ${brl(
+                    falta
+                  )}): abra a linha, marque à direita os lançamentos que completam e clique em Conferir.`
+            );
+            router.refresh();
+          }}
+        />
+      )}
 
       {importacoes.length > 0 && (
         <Card className="mt-4 p-5">

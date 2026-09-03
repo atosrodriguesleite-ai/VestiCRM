@@ -334,3 +334,149 @@ describe("o cancelamento da lojista não ressuscita (RN-033)", () => {
     );
   });
 });
+
+/**
+ * SEM CONTA PADRÃO, A VENDA PAGA NÃO VIRA DINHEIRO NA CONTA (RN-033).
+ *
+ * A porta não inventa uma conta — mas escrevia o motivo só no histórico do
+ * lançamento, onde ninguém olha: a lojista marcava o pedido como PAGO em
+ * Pedidos e via a MESMA venda no card "Atrasado" (relato de 03/09/2026).
+ */
+describe("a conta padrão que faltava (RN-033)", () => {
+  const ler = (rel: string) => readFileSync(join(process.cwd(), rel), "utf8");
+  const porta = ler("src/lib/financeiro/porta-vendas.ts");
+
+  it("a falta é DITA em vermelho, no painel e no Contas a Receber", () => {
+    const aviso = ler("src/app/(app)/financeiro/_visao/aviso-conta-padrao.tsx");
+    expect(aviso).toContain("Falta escolher a conta onde o dinheiro das vendas entra");
+    expect(aviso).toContain("/financeiro/cadastros");
+    // as duas telas onde a lojista repara na falta
+    expect(ler("src/app/(app)/financeiro/_visao/painel.tsx")).toContain(
+      "<AvisoContaPadrao aviso={avisoConta} />"
+    );
+    const lista = ler("src/app/(app)/financeiro/_mov/pagina.tsx");
+    expect(lista).toContain("<AvisoContaPadrao aviso={avisoConta} />");
+    // Contas a PAGAR não fala de venda parada — o aviso é do lado do recebimento
+    expect(lista).toContain('tipo === "RECEITA" && (');
+  });
+
+  it("o aviso só aparece quando NÃO há conta padrão, e NUNCA derruba a tela", () => {
+    const visao = ler("src/lib/financeiro/visao.ts");
+    expect(visao).toContain("if (padrao > 0) return SEM_AVISO;");
+    // é um aviso, não a resposta da página: uma falha aqui daria 500 no
+    // painel E em Contas a Receber ao mesmo tempo
+    expect(visao).toContain('console.error("[financeiro] aviso da conta padrão falhou", e);');
+    expect(visao).toContain("return SEM_AVISO;");
+  });
+
+  it("escolher a conta padrão REPESCA as vendas pagas que ficaram sem baixa", () => {
+    // a porta é chamada DE NOVO (é idempotente e continua a única a escrever)
+    expect(porta).toContain("export async function repescarVendasSemBaixa");
+    expect(porta).toContain("await sincronizarPedidoNoFinanceiro(id)");
+    // e com teto por rodada: loja com anos de pedidos não trava a tela
+    expect(porta).toContain("export const TETO_REPESCA");
+    const criar = ler("src/app/api/financeiro/contas/route.ts");
+    expect(criar).toContain("await repescarVendasSemBaixa(porta.user.companyId)");
+    expect(criar).toContain("conta.padrao");
+    // a conta JÁ está salva: erro na repescagem não pode virar a resposta,
+    // senão a lojista clica de novo e nasce uma segunda conta igual
+    for (const rota of [
+      "src/app/api/financeiro/contas/route.ts",
+      "src/app/api/financeiro/contas/[id]/route.ts",
+    ]) {
+      expect(ler(rota)).toContain('console.error("[contas] repescagem falhou", e);');
+      // e FORA da resposta: até 50 sincronizações dentro do POST/PATCH
+      // devolveriam timeout com a conta já criada
+      expect(ler(rota)).toContain("after(async () => {");
+    }
+    // no PATCH a condição é "VIROU padrão agora", não "é a padrão": trocar a
+    // COR da conta disparava a repescagem inteira dentro da resposta
+    expect(ler("src/app/api/financeiro/contas/[id]/route.ts")).toContain(
+      "conta.padrao && !eraPadrao"
+    );
+  });
+
+  it("pedido EM ABERTO não pode encher a janela e esconder a venda paga", () => {
+    // todo pedido do catálogo nasce AGUARDANDO_PAGAMENTO e já cria lançamento
+    // sem baixa: buscando "os N sem baixa mais novos" e só depois perguntando
+    // quais estão pagos, a loja com muitos pedidos em aberto nunca repescava
+    expect(porta).toContain("export async function pedidosPagosSemBaixa");
+    expect(porta).toContain('o."status"::text = ANY(');
+    // o critério é SALDO EM ABERTO — a venda paga com sinal registrado à mão
+    // tem baixa e continua devendo o resto
+    expect(porta).toMatch(/p\."valor" - COALESCE\(/);
+    // e a porta nunca desfaz o estorno da lojista: baixa automática que ela
+    // mandou embora não volta na repescagem de carona
+    expect(porta).toContain('COALESCE(b2."estornoAutor"');
+    // e só entra o que a porta VAI resolver: pedido que mudou de valor tendo
+    // baixa viva à mão só ganha aviso, e ficaria na fila para sempre
+    expect(porta).toContain('ABS(l."valor" - o."total") > 0.005');
+    expect(porta).toContain('b3."autorNome" <> ${AUTOR_SISTEMA}');
+    // o filtro do status vem ANTES do teto, na mesma consulta
+    const corpo = porta.slice(porta.indexOf("export async function pedidosPagosSemBaixa"));
+    expect(corpo.indexOf('o."status"::text')).toBeLessThan(corpo.indexOf("LIMIT"));
+    // e o painel bebe da MESMA fonte
+    expect(ler("src/lib/financeiro/visao.ts")).toContain(
+      "await pedidosPagosSemBaixa(companyId, TETO_AVISO)"
+    );
+  });
+
+  it("a repescagem também roda DE CARONA no tráfego, sem cron novo (ADR-002)", () => {
+    expect(porta).toContain("export async function repescarSemQuebrar");
+    for (const tela of [
+      "src/app/(app)/financeiro/page.tsx",
+      "src/app/(app)/financeiro/_mov/pagina.tsx",
+    ]) {
+      // no after(): é trabalho de carona, não pode SEGURAR a tela
+      expect(ler(tela)).toContain("after(() => repescarSemQuebrar(user.companyId));");
+    }
+    // e NUNCA derruba a tela: é trabalho de carona, não a resposta da página
+    expect(porta).toContain("[porta-vendas] repescagem falhou");
+    // com trava de tempo: a lojista abre as três telas em sequência e a
+    // consulta não é grátis
+    expect(porta).toContain("const MS_ENTRE_VARREDURAS");
+    expect(porta).toContain("if (agora - antes < MS_ENTRE_VARREDURAS) return;");
+    // erro não vale como "já varri"
+    expect(porta).toContain("ultimaVarredura.delete(companyId);");
+  });
+
+  it("a baixa recusada pelo índice só sai calada quando o dinheiro já está lá", () => {
+    // sinal manual estornado DEPOIS da baixa automática: ainda falta dinheiro
+    // na parcela, mas o índice recusa a segunda baixa automática — em
+    // silêncio, a parcela ficaria em aberto para sempre e sem rastro
+    // a baixa que já existe é AJUSTADA, nunca duplicada — e o quanto ajustar
+    // é lido AGORA do banco: somar um valor que envelheceu numa corrida
+    // dobraria o dinheiro
+    expect(porta).toContain("const falta = parcela ? saldoDaParcela(parcela) : 0;");
+    expect(porta).toContain("const novo = round2(viva.valor + falta);");
+    expect(porta).toContain("if (falta <= 0.005) return;");
+    // baixa que muda de valor solta a conciliação (RN-037)
+    expect(porta).toContain("await soltarConciliacaoDaBaixa(viva.id);");
+  });
+
+  it("UMA PARCELA, UMA BAIXA AUTOMÁTICA VIVA — quem garante é o banco", () => {
+    // o PATCH do pedido e o aviso do gateway chegam juntos, liam o mesmo
+    // saldo e cada um criava a sua baixa: a venda de R$ 100 entrava R$ 200
+    const migracoes = readFileSync(
+      join(
+        process.cwd(),
+        "prisma/migrations/20260903090000_financeiro_baixa_automatica_unica/migration.sql"
+      ),
+      "utf8"
+    );
+    expect(migracoes).toContain('CREATE UNIQUE INDEX IF NOT EXISTS "FinBaixa_parcelaId_automatica_key"');
+    expect(migracoes).toContain('WHERE "estornadaEm" IS NULL AND "autorNome" = \'Sistema\'');
+    // o back-fill SOMA as automáticas vivas na mais antiga, com teto no que a
+    // parcela ainda deve: duas vivas nem sempre são a duplicata da corrida —
+    // podem ser 70 + 30 de uma venda de 100 cujo sinal à mão foi estornado, e
+    // estornar a de 30 faria a venda paga virar ATRASADA no deploy
+    expect(migracoes).toContain("GREATEST(0, LEAST(");
+    // e solta a conciliação das parcelas que vão mudar, ANTES de mudá-las
+    expect(migracoes.indexOf('DELETE FROM "FinOfxVinculo"')).toBeLessThan(
+      migracoes.indexOf('UPDATE "FinBaixa"')
+    );
+    // e a porta trata a recusa: o P2002 do índice nunca vira erro na venda —
+    // a corrida registrou o MESMO dinheiro, então não se soma nada
+    expect(porta).toContain('if ((e as { code?: string })?.code === "P2002") return;');
+  });
+});

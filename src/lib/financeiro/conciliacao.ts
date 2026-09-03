@@ -3,6 +3,13 @@ import { db } from "../db";
 import { round2 } from "../orders";
 import { dataDoDia, diaSP, valorMovimentado } from "./lancamentos";
 import { lerOFX, type MovimentoOFX } from "./ofx";
+import {
+  dividirBaixaNasParcelas,
+  JANELA_DIAS,
+} from "./conciliacao-tela";
+import { conferirLancamento, type LancamentoInput } from "./lancamento-form";
+
+export { JANELA_DIAS };
 
 /**
  * CONCILIAÇÃO BANCÁRIA (RN-037) — "o sistema bate com o banco?".
@@ -25,8 +32,7 @@ import { lerOFX, type MovimentoOFX } from "./ofx";
  * não apaga e não altera baixa nenhuma. Ele carimba "conferido".
  */
 
-/** Quantos dias de folga entre a data da baixa e a do banco no casamento automático. */
-export const JANELA_DIAS = 3;
+
 /** Teto de linhas por arquivo — extrato anual de loja grande não trava a tela. */
 export const TETO_LINHAS_OFX = 5_000;
 
@@ -345,6 +351,206 @@ export async function conciliar(
     throw e;
   }
   return { ok: true, conciliado: baixas.length };
+}
+
+/* ---- criar o lançamento que faltava ------------------------------------- */
+
+export type ResultadoCriacao =
+  | {
+      ok: true;
+      lancamentoId: string;
+      /** quanto do dinheiro do banco virou baixa */
+      baixado: number;
+      conciliada: boolean;
+      /** o que ainda falta para a linha do banco fechar */
+      falta: number;
+    }
+  | { ok: false; erro: string; status: number };
+
+/**
+ * O MOVIMENTO QUE O SISTEMA NÃO TINHA (RN-037).
+ *
+ * O extrato mostra uma tarifa, um Pix de uma venda anotada só no caderno, um
+ * pagamento que ninguém lançou. Até aqui a lojista tinha duas saídas ruins:
+ * marcar como "fora do sistema" (e o dinheiro sumia do DRE e do fluxo) ou
+ * sair da conferência, abrir Contas a Pagar, lançar, voltar e procurar a
+ * linha de novo. Na terceira vez ela desiste da conciliação.
+ *
+ * Então o lançamento nasce DAQUI, pela ficha completa de sempre (RN-030,
+ * mesmo validador — parcelas, categoria, centro de custo, coleção), já com o
+ * valor, a data e a conta que o BANCO informou.
+ *
+ * Uma coisa este caminho faz que o botão "Conferir" nunca faz: ele REGISTRA A
+ * BAIXA. E é o certo — aqui o dinheiro comprovadamente andou, é o extrato do
+ * banco dizendo. O que a conciliação continua sem fazer é mexer em baixa que
+ * já existe: conferir carimba, nunca quita (era o risco de a lojista dar por
+ * recebida uma venda que ninguém pagou).
+ *
+ * SERIALIZÁVEL: sem isso duas abas criando da mesma linha do banco passariam
+ * as duas pela conferência e o mesmo dinheiro entraria dobrado.
+ */
+export async function criarLancamentoDaLinha(
+  companyId: string,
+  linhaId: string,
+  dados: LancamentoInput,
+  autorNome: string
+): Promise<ResultadoCriacao> {
+  const linha = await db.finOfxLinha.findFirst({
+    where: { id: linhaId, companyId },
+    include: { vinculos: { select: { id: true } } },
+  });
+  if (!linha) return { ok: false, erro: "Linha não encontrada", status: 404 };
+  if (linha.ignoradaEm)
+    return {
+      ok: false,
+      erro: "Esta linha está marcada como fora do sistema — traga ela de volta para a fila antes",
+      status: 409,
+    };
+  if (linha.vinculos.length > 0)
+    return { ok: false, erro: "Esta linha já está conferida", status: 409 };
+
+  // ONDE O DINHEIRO ANDA NÃO PODE SER CARTÃO (RN-039): o cartão não guarda
+  // dinheiro, junta compras numa fatura — baixar aqui quitaria a parcela
+  // fora de qualquer fatura. Conta arquivada também não recebe movimento
+  // novo. É a mesma trava da porta normal de baixa.
+  const conta = await db.finConta.findFirst({
+    where: { id: linha.contaId, companyId },
+    select: { tipo: true, arquivadaEm: true },
+  });
+  if (!conta) return { ok: false, erro: "Conta não encontrada", status: 404 };
+  if (conta.tipo === "CARTAO")
+    return {
+      ok: false,
+      erro: "No cartão de crédito o dinheiro não anda — a compra entra na fatura, e a fatura é que se paga",
+      status: 400,
+    };
+  if (conta.arquivadaEm)
+    return { ok: false, erro: "Esta conta está arquivada", status: 409 };
+
+  // o LADO tem que bater com o sinal do banco: dinheiro que entrou é conta a
+  // receber, dinheiro que saiu é conta a pagar. Trocado, o DRE somaria ao
+  // contrário e o extrato da conta ficaria com o dobro do erro.
+  const entrou = linha.valor > 0;
+  if (entrou && dados.tipo !== "RECEITA")
+    return {
+      ok: false,
+      erro: "Este dinheiro ENTROU na conta — crie uma conta a receber",
+      status: 400,
+    };
+  if (!entrou && dados.tipo !== "DESPESA")
+    return {
+      ok: false,
+      erro: "Este dinheiro SAIU da conta — crie uma conta a pagar",
+      status: 400,
+    };
+
+  const conferido = await conferirLancamento(companyId, dados);
+  if ("erro" in conferido)
+    return { ok: false, erro: conferido.erro, status: 400 };
+
+  const alvo = round2(Math.abs(linha.valor));
+
+  try {
+    return await db.$transaction(
+      async (tx) => {
+        // outra aba pode ter conferido esta linha enquanto a ficha estava
+        // aberta: no SERIALIZÁVEL esta leitura é o que segura a corrida
+        const jaTem = await tx.finOfxVinculo.count({ where: { linhaId: linha.id } });
+        if (jaTem > 0)
+          return {
+            ok: false as const,
+            erro: "Alguém conferiu esta linha agora mesmo — atualize a tela",
+            status: 409,
+          };
+
+        const lancamento = await tx.finLancamento.create({
+          data: {
+            companyId,
+            ...conferido.dados.cabecalho,
+            parcelas: {
+              create: conferido.dados.parcelas.map((p) => ({ companyId, ...p })),
+            },
+            eventos: {
+              create: {
+                descricao: `Lançamento criado pelo extrato do banco (${diaSP(linha.data)}) em ${conferido.dados.parcelas.length}× no valor de R$ ${conferido.dados.cabecalho.valor.toFixed(2)}`,
+                autorNome,
+              },
+            },
+          },
+          select: {
+            id: true,
+            parcelas: { orderBy: { numero: "asc" }, select: { id: true, valor: true } },
+          },
+        });
+
+        // o dinheiro do banco vai baixando as parcelas em ordem, cada uma até
+        // o seu valor: um Pix de R$ 100 num lançamento de 3× quita a primeira
+        // e para — nunca paga mais do que a parcela vale
+        const aBaixar = dividirBaixaNasParcelas(alvo, lancamento.parcelas);
+        const baixaIds: string[] = [];
+        for (const item of aBaixar) {
+          const baixa = await tx.finBaixa.create({
+            data: {
+              companyId,
+              parcelaId: item.parcelaId,
+              contaId: linha.contaId,
+              data: linha.data,
+              valor: item.valor,
+              autorNome,
+              observacao: `Do extrato: ${linha.descricao}`.slice(0, 200),
+            },
+            select: { id: true },
+          });
+          baixaIds.push(baixa.id);
+        }
+        const baixado = round2(aBaixar.reduce((s, i) => s + i.valor, 0));
+
+        await tx.finLancamentoEvento.create({
+          data: {
+            lancamentoId: lancamento.id,
+            descricao: `${entrou ? "Recebimento" : "Pagamento"} de R$ ${baixado.toFixed(2)} registrado pelo extrato em ${diaSP(linha.data)}`,
+            autorNome,
+          },
+        });
+
+        // só carimba "conferido" quando ESTA ficha sozinha bate com a linha.
+        // Cobrindo menos (a linha do banco pagou duas contas), a linha segue
+        // na fila e as baixas recém-criadas viram candidatas: a lojista marca
+        // as duas e fecha pelo "Conferir" de sempre (RN-037)
+        const conciliada = baixaIds.length > 0 && Math.abs(baixado - alvo) < 0.005;
+        if (conciliada) {
+          await tx.finOfxVinculo.createMany({
+            data: baixaIds.map((baixaId) => ({
+              companyId,
+              linhaId: linha.id,
+              baixaId,
+              automatico: false,
+              autorNome,
+            })),
+          });
+        }
+
+        return {
+          ok: true as const,
+          lancamentoId: lancamento.id,
+          baixado,
+          conciliada,
+          falta: round2(alvo - baixado),
+        };
+      },
+      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }
+    );
+  } catch (e) {
+    // corrida de verdade no serializável (P2034) ou o único do vínculo
+    const code = (e as { code?: string })?.code;
+    if (code === "P2034" || code === "P2002")
+      return {
+        ok: false,
+        erro: "Duas pessoas mexeram nesta linha ao mesmo tempo — tente de novo",
+        status: 409,
+      };
+    throw e;
+  }
 }
 
 /** Desfaz a conciliação de uma linha (conferiu errado, acontece). */

@@ -1,6 +1,7 @@
-import { NextRequest, NextResponse } from "next/server";
+import { after, NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
+import { repescarVendasSemBaixa } from "@/lib/financeiro/porta-vendas";
 import { AuthError } from "@/lib/auth";
 import { porteiraFinanceiro } from "@/lib/financeiro/gate";
 
@@ -102,7 +103,23 @@ export async function POST(req: NextRequest) {
           data: { companyId: porta.user.companyId, ...dados },
         });
       });
-      return NextResponse.json({ conta });
+      // a conta padrão acabou de nascer: as vendas pagas que ficaram sem baixa por
+      // falta dela são acertadas (RN-033) — senão a lojista vê no card
+      // "Atrasado" a venda que ela mesma marcou como paga.
+      // NO after(): são até 50 sincronizações, e dentro da resposta um
+      // timeout devolveria erro com a conta JÁ criada — a lojista clicaria
+      // de novo e nasceria uma segunda conta com o mesmo nome. O que passar
+      // do teto é repescado de carona na próxima abertura do Financeiro.
+      const repescar = conta.padrao;
+      if (repescar)
+        after(async () => {
+          try {
+            await repescarVendasSemBaixa(porta.user.companyId);
+          } catch (e) {
+            console.error("[contas] repescagem falhou", e);
+          }
+        });
+      return NextResponse.json({ conta, repescando: repescar });
     } catch (e) {
       if ((e as { code?: string })?.code === "P2002")
         return NextResponse.json({ error: "Tente de novo" }, { status: 409 });

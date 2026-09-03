@@ -102,7 +102,7 @@ async function chamar(
   url: string,
   method: "POST" | "PATCH",
   body: unknown
-): Promise<{ ok: boolean; erro?: string }> {
+): Promise<{ ok: boolean; erro?: string; dados?: Record<string, unknown> }> {
   // rede fora do ar não pode travar o botão em "Salvando…" (o fetch REJEITA)
   try {
     const res = await fetch(url, {
@@ -110,7 +110,8 @@ async function chamar(
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     });
-    if (res.ok) return { ok: true };
+    if (res.ok)
+      return { ok: true, dados: (await res.json().catch(() => null)) ?? undefined };
     const data = await res.json().catch(() => null);
     return { ok: false, erro: data?.error ?? "Não deu certo — tente de novo" };
   } catch {
@@ -188,6 +189,7 @@ function AbaContas({ iniciais }: { iniciais: Conta[] }) {
   const [saldoEm, setSaldoEm] = useState(hojeSP());
   const [cor, setCor] = useState("#0E8A5F");
   const [padrao, setPadrao] = useState(false);
+  const [repescando, setRepescando] = useState(false);
   // cartão de crédito (RN-039): os dias que decidem a fatura de cada compra
   const [fechamento, setFechamento] = useState("");
   const [vencimento, setVencimento] = useState("");
@@ -252,6 +254,11 @@ function AbaContas({ iniciais }: { iniciais: Conta[] }) {
     }
     setCriando(false);
     setEditando(null);
+    // RN-033: escolher a conta padrão acerta as vendas pagas que ficaram sem
+    // baixa por falta dela. O trabalho vai no after() do servidor, então a
+    // tela NÃO promete um número — dizer "50 vendas baixadas" com 87 ainda
+    // na fila seria pior que não dizer nada
+    setRepescando(Boolean(r.dados?.repescando));
     router.refresh();
   }
 
@@ -274,6 +281,13 @@ function AbaContas({ iniciais }: { iniciais: Conta[] }) {
         </Button>
       )}
       {!formAberto && erro && <p className="text-sm text-rose-600">{erro}</p>}
+      {repescando && (
+        <p className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800">
+          Pronto! Esta é a conta onde o dinheiro das vendas entra. As vendas
+          que já estavam pagas e esperando estão sendo baixadas aqui — elas
+          saem do &quot;atrasado&quot; conforme você usa o Financeiro.
+        </p>
+      )}
 
       {formAberto && (
         <Card className="p-5">

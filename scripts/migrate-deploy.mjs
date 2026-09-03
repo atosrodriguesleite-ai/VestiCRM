@@ -28,6 +28,11 @@ const REEXECUTAVEIS = new Set([
   "20260811120000_infinitepay",
   "20260814120000_rastreio_automatico",
   "20260817210000_tabelas_de_preco",
+  // o back-fill é convergente (soma as automáticas vivas na mais antiga, com
+  // teto no que a parcela deve) e o índice é IF NOT EXISTS: rodar de novo dá
+  // no mesmo. Sem estar aqui, um lock timeout na criação do índice travaria
+  // TODOS os deploys com P3009 até alguém mexer no banco à mão.
+  "20260903090000_financeiro_baixa_automatica_unica",
 ]);
 
 function rodar(args) {

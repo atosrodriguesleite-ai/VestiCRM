@@ -589,12 +589,37 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   "marketplace novo" custar um tradutor, e não uma reforma nas telas).
   **1 PEDIDO = 1 LANÇAMENTO, para sempre**: o par (loja, origem, origemId) é
   ÚNICO no banco, então reprocessar o mesmo pedido — e o gateway REENVIA o
-  mesmo aviso, é o contrato dele — não cria dois recebimentos. A porta é
+  mesmo aviso, é o contrato dele — não cria dois recebimentos. E **uma parcela
+  nunca tem duas baixas automáticas vivas** (índice parcial no banco, P2002
+  tratado): o PATCH do pedido e o aviso do gateway chegam juntos, liam o mesmo
+  saldo e cada um criava a sua baixa — a venda de R$ 100 entrava R$ 200. A porta é
   chamada em TODA transição e acerta o que mudou — a regra vive numa **máquina
   de estados pura** (`decidirAcaoDaPorta`), testada sem banco: pago ganha
   **baixa automática do que FALTA** na conta padrão (sinal registrado à mão
   não trava mais a baixa, e sem conta padrão ela NÃO inventa uma — anota no
-  histórico); voltar para aguardando **estorna só a baixa DELA**; cancelar
+  histórico). **Só que o histórico é onde ninguém olha**: a lojista marcava o
+  pedido como PAGO e via a MESMA venda no card "Atrasado", achando que o
+  sistema tinha perdido o dinheiro dela (relato de 03/09/2026). Agora o
+  painel e o Contas a Receber **DIZEM em vermelho** o que falta configurar,
+  com quantas vendas estão esperando — e **escolher a conta padrão REPESCA**
+  as vendas pagas que ficaram sem baixa (a porta é chamada de novo, é
+  idempotente e continua sendo a única a escrever; teto de 50 por rodada, no
+  `after()` ao salvar a conta e **de carona** em toda abertura do Financeiro —
+  nunca um 3º cron, ADR-002). A repescagem pega a venda com **saldo em
+  aberto** (a paga com sinal registrado à mão também) e **só o que a porta VAI
+  resolver**: fica de fora a parcela em que alguém ESTORNOU à mão (a varredura
+  roda sem ninguém pedir, e desfaria o estorno em segundos) e o pedido que
+  mudou de valor tendo baixa à mão viva (esse a porta só avisa, e ficaria na
+  fila para sempre, empurrando para fora do teto os casos que têm conserto).
+  Isso é da VARREDURA: numa transição de verdade do pedido a porta continua
+  baixando o que falta, como sempre — o que muda é que ninguém varre o
+  passado por conta própria. E a baixa da porta, quando já existe, é
+  **AJUSTADA, nunca duplicada**: criar a segunda pagava a venda duas vezes;
+  desistir na recusa do índice deixava a parcela com saldo aberto para sempre
+  (o sinal à mão estornado depois da baixa automática). O quanto ajustar é
+  lido na hora, do banco — somar um valor que envelheceu numa corrida
+  dobraria o dinheiro —, e a baixa que muda de valor SOLTA a conciliação
+  (RN-037); voltar para aguardando **estorna só a baixa DELA**; cancelar
   **ou voltar a ORÇAMENTO** desfaz e cancela (senão ficaria dinheiro que
   nunca entrou no extrato); e o **valor acompanha o pedido** — pedido de R$
   100 editado para R$ 450 refaz o lançamento e a baixa, porque o automático
@@ -699,7 +724,7 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   então o vínculo é tabela própria e a conciliação só fecha quando os dois
   lados **somam igual** — o "quase igual" é o erro que a tela existe para
   achar. A mesma baixa não se concilia duas vezes (único por baixa) e
-  estornada não se concilia. **Conciliar NUNCA mexe em dinheiro**: não cria,
+  estornada não se concilia. **Conciliar NUNCA mexe em dinheiro que já existe**: não cria,
   não altera e não apaga baixa — carimba "conferido"; linha que não é do
   sistema (tarifa que a loja não lança) se marca como fora e volta para a
   fila quando quiser — e **baixa estornada solta a conciliação** (nas duas
@@ -717,6 +742,26 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   CONTEÚDO, não o cabeçalho (banco que exporta UTF-8 dizendo `CHARSET:1252`
   existe), e o valor aceita separador de milhar dos dois formatos. **O arquivo em si não é guardado** (dívida técnica nº 1): dele
   saem as linhas, que é o que a conciliação usa.
+  **A LINHA QUE O SISTEMA NÃO TINHA VIRA LANÇAMENTO NA HORA** (03/09/2026):
+  antes a lojista tinha duas saídas ruins — marcar "fora do sistema" (e o
+  dinheiro sumia do DRE e do fluxo) ou sair da conferência, abrir Contas a
+  Pagar, lançar, voltar e procurar a linha de novo; na terceira vez ela
+  desiste da conciliação. Agora o botão abre a **ficha completa de sempre**
+  (RN-030, mesmo validador — parcelas, categoria, centro de custo, coleção)
+  já com o valor, a data e a conta que o BANCO informou, e o lançamento nasce
+  **baixado e conferido** com aquela linha. É a ÚNICA porta da conciliação
+  que registra baixa, e é o certo: aqui o extrato do banco está dizendo que o
+  dinheiro andou — o que segue proibido é o botão "Conferir" quitar conta que
+  já existe (dar por recebida uma venda que ninguém pagou). O **lado tem que
+  bater com o sinal** do banco (entrou = conta a receber), o dinheiro vai
+  baixando as parcelas em ordem sem nunca passar do valor de cada uma, e a
+  transação é **SERIALIZÁVEL** — duas abas criando da mesma linha fariam o
+  mesmo dinheiro entrar dobrado. Se a ficha somar MENOS que a linha, ela
+  continua na fila com a diferença à mostra (é o mesmo caso do depósito que
+  pagou duas contas). Do outro lado, achar a venda certa entre 200 baixas era
+  o trabalho manual que sobrava: com uma linha escolhida, as que **COMBINAM**
+  (mesmo valor, data pertinho) sobem para o topo com ✨ e a **busca** acha
+  pelo nome da cliente ou pelo número do pedido.
   **RN-038 · NOTA E COMISSÃO NO FINANCEIRO** (`lib/financeiro/nota-do-lancamento.ts`
   e `lib/financeiro/comissoes.ts`): duas pontas soltas que faltavam. A ficha
   do lançamento que veio de PEDIDO agora **mostra a nota** (situação, número,

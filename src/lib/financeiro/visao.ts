@@ -1,5 +1,6 @@
 import { db } from "../db";
 import { round2 } from "../orders";
+import { pedidosPagosSemBaixa } from "./porta-vendas";
 import { saldoAte } from "./extrato";
 import {
   grupoDFCdoCodigo,
@@ -324,4 +325,73 @@ export async function carregarInadimplencia(
     clientes: new Set(linhas.map((l) => l.clienteId ?? l.lancamentoId)).size,
     truncado: idsEmAberto.length >= TETO_INADIMPLENCIA,
   };
+}
+
+/* ---- o aviso da conta padrão -------------------------------------------- */
+
+export type AvisoContaPadrao = {
+  /** a loja ainda não cadastrou nenhuma conta de dinheiro */
+  semConta: boolean;
+  /** tem conta, mas nenhuma escolhida como padrão */
+  semPadrao: boolean;
+  /** vendas pagas esperando a baixa que a porta não pôde dar (RN-033) */
+  vendasParadas: number;
+};
+
+/** Quantas vendas paradas o aviso chega a contar — o número é para assustar, não para auditar. */
+const TETO_AVISO = 200;
+
+/**
+ * SEM CONTA PADRÃO, A VENDA PAGA NÃO VIRA DINHEIRO NA CONTA (RN-033).
+ *
+ * A porta única de entrada das vendas não inventa uma conta: ela registra o
+ * recebimento em aberto e escreve o motivo no histórico do lançamento — onde
+ * ninguém olha. O resultado, na loja de verdade: a lojista marcava o pedido
+ * como PAGO e via a mesma venda no card "Atrasado", achando que o sistema
+ * tinha perdido o dinheiro dela.
+ *
+ * Por isso o painel DIZ, em vermelho, o que está faltando configurar. Trava
+ * que não explica vira "não funciona".
+ */
+const SEM_AVISO: AvisoContaPadrao = {
+  semConta: false,
+  semPadrao: false,
+  vendasParadas: 0,
+};
+
+/**
+ * NUNCA DERRUBA A TELA: é um aviso, não a resposta da página. Uma falha aqui
+ * daria 500 no painel E em Contas a Receber ao mesmo tempo — a mesma lição do
+ * `garantirRecorrencias`.
+ */
+export async function conferirContaPadrao(
+  companyId: string
+): Promise<AvisoContaPadrao> {
+  try {
+    return await conferirContaPadraoOuFalha(companyId);
+  } catch (e) {
+    console.error("[financeiro] aviso da conta padrão falhou", e);
+    return SEM_AVISO;
+  }
+}
+
+async function conferirContaPadraoOuFalha(
+  companyId: string
+): Promise<AvisoContaPadrao> {
+  const [contas, padrao] = await Promise.all([
+    // cartão de crédito não guarda dinheiro e nunca é padrão (RN-039)
+    db.finConta.count({
+      where: { companyId, arquivadaEm: null, tipo: { not: "CARTAO" } },
+    }),
+    db.finConta.count({ where: { companyId, arquivadaEm: null, padrao: true } }),
+  ]);
+  if (padrao > 0) return SEM_AVISO;
+
+  // as vendas que estão esperando — mesma fonte da repescagem (RN-033), com
+  // o filtro do status do pedido DENTRO da consulta: buscar lançamento sem
+  // baixa e só depois perguntar quais estão pagos fazia os pedidos em aberto
+  // (que também nascem sem baixa) encherem a janela e zerarem o número
+  const vendasParadas = (await pedidosPagosSemBaixa(companyId, TETO_AVISO)).length;
+
+  return { semConta: contas === 0, semPadrao: contas > 0, vendasParadas };
 }
