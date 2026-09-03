@@ -1142,6 +1142,15 @@ export function PublicCatalog({
             openBag();
           }
         },
+        // trava de ritmo (RN-044): o pedido está GUARDADO e entra sozinho —
+        // a cliente precisa ler isso, não um erro genérico
+        aoAguardar: (motivo) => {
+          setErroDoEnvio(
+            motivo ??
+              "Muitos pedidos agora — o seu ficou guardado e será registrado sozinho em alguns minutos."
+          );
+          openBag();
+        },
       })
         .then((ok) => {
           setEnvio(ok ? "ok" : "erro");

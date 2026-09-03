@@ -19,7 +19,11 @@ o sistema para gerir os leads do AtacadoPro.
   Motivo real: a revisão da conferência de tarefas achou 10 bugs num código
   já "pronto" — 3 deles esconderiam dinheiro pendente. Casos de canto (dois
   pedidos, compromisso futuro, status raro) são exatamente o que o autor não
-  vê. Exceção: mudança trivial sem lógica (texto, cor, label).
+  vê. Exceção: mudança trivial sem lógica (texto, cor, label) — e, por
+  pedido do dono (02/09/2026), **conserto simples de tela vai pela via
+  rápida**: implementar direto, testes + build e push, sem a revisão
+  completa. A revisão completa continua obrigatória quando a mudança cria
+  ou altera REGRA de dinheiro/estoque ou porta pública.
 - Quando a mudança mexe com **dinheiro, estoque ou apagar/concluir dados
   sozinha**, além da revisão: reproduzir o cenário ponta a ponta contra o
   Postgres local antes de subir (adivinhar já errou 3 vezes num dia).
@@ -107,6 +111,19 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   carteira), SUPPORT (operacional, sem poderes comerciais).
 - Auth: JWT em cookie httpOnly (`lib/auth.ts`); Super Admin pode "acessar
   como loja" (impersonação com faixa amarela).
+  **RN-045 · Código de login pelo WhatsApp em aparelho novo**
+  (`lib/auth-codigo.ts`, 02/09/2026): segundo fator do jeito deste público —
+  nada de app autenticador; o código de 6 dígitos chega no WhatsApp da
+  própria pessoa, mandado pela conexão da própria loja. **Opt-in por loja**
+  (chavinha na tela Equipe, nasce DESLIGADA) e **por pessoa**
+  (`User.loginPhone`, cadastrado ali). Aparelho conhecido não pede código
+  por 90 dias (cookie assinado por HMAC, de UMA pessoa — outra conta no
+  mesmo aparelho pede). O código nunca é guardado (só o HMAC), vale 10 min
+  e morre com 5 erros, contados ANTES de conferir. **NUNCA TRANCA A LOJISTA
+  FORA**: sem telefone cadastrado, ou com o WhatsApp da loja caído/envio
+  recusado, o login entra como sempre e o ocorrido fica registrado
+  (`login.codigo-falhou` na Central de Comunicação) — fail-open consciente
+  e documentado.
 - Comentários de código em **português**, explicando o porquê das regras.
 
 ## Regras de negócio centrais (fonte da verdade)
@@ -357,7 +374,21 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   de segunda e, sem apertar enviar, o segundo pedido não aparecia no chat
   NUNCA. Um pedido invisível é pior que uma bolha a mais no reenvio raro da
   fila. Limite aceito.
-  **RN-044 · A lista de conversas NÃO PERDE O LUGAR**
+  **RN-044 · Porta pública de escrita tem RITMO** (`lib/rate-limit.ts`,
+  chaves `cat:`/`catip:`/`demo:`, 02/09/2026): pedido NOVO do catálogo tem
+  teto por IP+loja (20/15min) e por IP (60/15min) — sem isso, um script
+  criava pedidos falsos de graça, cada um RESERVANDO estoque sem prazo
+  (RN-003): o ataque mais barato contra uma loja. A trava CONVIVE com a
+  RN-010: fica DEPOIS da idempotência (reenviar o MESMO pedido nunca é
+  barrado), quem já está bloqueado não conta de novo (o reenvio automático
+  não estica o próprio bloqueio) e o 429 NÃO descarta o pendente no
+  aparelho — ele entra sozinho na próxima visita. Trava que fecha deixa
+  rastro (`catalogo.flood` na Central de Comunicação); sem IP identificável
+  não trava (melhor aceitar que agrupar o mundo). O formulário de
+  demonstração tem o mesmo ritmo. Junto, o porteiro global fechou o alçapão
+  do ponto (`lib/porteiro.ts`): só arquivo estático FORA de /api dispensa
+  sessão — caminho com ponto no meio não é mais passe livre.
+  **RN-046 · A lista de conversas NÃO PERDE O LUGAR**
   (`lib/lugar-na-lista.ts`, 03/09/2026): relato da loja — a vendedora faz
   follow-up **de baixo para cima** (desce até as conversas antigas, abre uma,
   encerra) e voltava para o **topo** da lista, tendo que rolar tudo de novo a

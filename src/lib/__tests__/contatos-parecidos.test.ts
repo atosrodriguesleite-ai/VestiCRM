@@ -140,3 +140,14 @@ describe("acharParecidos", () => {
     expect(achados.map((c) => c.id)).toEqual(["1"]);
   });
 });
+
+describe("segundo sinal: o mesmo pedido do catálogo vindo de outro número (03/09/2026)", () => {
+  it("reconhece o texto do pedido do catálogo pelo começo, e só ele", async () => {
+    const { ehTextoDePedidoDoCatalogo } = await import("../contatos-parecidos");
+    expect(ehTextoDePedidoDoCatalogo("*Novo pedido — Toque Leve*\n*Regatas*\n• Regata Nadador Preto — M ×1")).toBe(true);
+    expect(ehTextoDePedidoDoCatalogo("  *Novo pedido — Loja*")).toBe(true);
+    // conversa normal, mesmo falando de pedido, não é a impressão digital
+    expect(ehTextoDePedidoDoCatalogo("oi, fiz um novo pedido no catálogo")).toBe(false);
+    expect(ehTextoDePedidoDoCatalogo("")).toBe(false);
+  });
+});

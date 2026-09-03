@@ -36,6 +36,8 @@ const schema = z.object({
   catalogFont: z
     .enum(["montserrat", "inter", "poppins", "playfair", "lora"])
     .optional(),
+  // código de login por WhatsApp em aparelho novo (RN-045) — só admin liga
+  loginCodeEnabled: z.boolean().optional(),
   // campos EXTRAS do pedido do catálogo (RN-027): cardápio fechado, cada um
   // com a chavinha de obrigatório; lista vazia = formulário de sempre
   catalogFormFields: z

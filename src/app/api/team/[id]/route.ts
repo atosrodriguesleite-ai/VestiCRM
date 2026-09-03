@@ -17,6 +17,18 @@ const schema = z.object({
   pedidosVisaoTotal: z.boolean().optional(),
   // foto: string (data-URL) para definir/trocar, ou null para remover
   avatarUrl: z.string().max(700_000).nullable().optional(),
+  // WhatsApp que recebe o código de login em aparelho novo (RN-045);
+  // null limpa (a pessoa volta a entrar sem código). Validado AQUI, na
+  // gravação: número sem DDD passaria calado e o código nunca chegaria —
+  // com o registro culpando a conexão da loja (diagnóstico impossível)
+  loginPhone: z
+    .string()
+    .transform((v) => v.replace(/\D/g, ""))
+    .refine((d) => d.length >= 10 && d.length <= 13, {
+      message: "WhatsApp incompleto: use DDD + número (ex.: 82 99999-1234).",
+    })
+    .nullable()
+    .optional(),
 });
 
 export async function PATCH(
@@ -72,6 +84,9 @@ export async function PATCH(
           : {}),
         ...(parsed.data.avatarUrl !== undefined
           ? { avatarUrl: parsed.data.avatarUrl || null }
+          : {}),
+        ...(parsed.data.loginPhone !== undefined
+          ? { loginPhone: parsed.data.loginPhone }
           : {}),
       },
     });

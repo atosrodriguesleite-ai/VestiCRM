@@ -588,8 +588,35 @@ export function Inbox({
    */
   const [parecidosDe, setParecidosDe] = useState<{
     customerId: string;
-    lista: { id: string; name: string; phone: string }[];
+    lista: { id: string; name: string; phone: string; motivo?: string }[];
   } | null>(null);
+  // UNIFICAR AQUI (gerência): o cadastro parecido é fundido NO cadastro da
+  // conversa aberta — pedidos, conversas e histórico vêm junto (03/09/2026)
+  const [unificando, setUnificando] = useState<string | null>(null);
+  async function unificarAqui(p: { id: string; name: string }) {
+    if (!clienteAberto) return;
+    if (
+      !window.confirm(
+        `Unificar "${p.name}" NESTE cadastro? O pedido, as conversas e o histórico do outro cadastro passam para cá. Não dá para desfazer.`
+      )
+    )
+      return;
+    setUnificando(p.id);
+    const res = await fetch(`/api/customers/${clienteAberto}/unificar`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ duplicadoId: p.id }),
+    });
+    setUnificando(null);
+    if (res.ok) {
+      // a conversa mudou de forma (mensagens do outro cadastro entraram):
+      // recarregar é o jeito seguro de a tela ver o resultado inteiro
+      window.location.reload();
+    } else {
+      const d = await res.json().catch(() => ({}));
+      window.alert(d.error ?? "Não foi possível unificar. Tente de novo.");
+    }
+  }
   // dispensado por conversa: um id só fazia o aviso da primeira voltar
   // quando a vendedora dispensava o da segunda
   const [parecidoOculto, setParecidoOculto] = useState<Set<string>>(new Set());
@@ -3236,15 +3263,31 @@ export function Inbox({
                       estar na outra, e um dos números pode estar errado (aí a
                       mensagem sai e não chega). Confira qual é o certo:
                     </p>
-                    <div className="flex flex-wrap gap-1.5 mt-1.5">
+                    <div className="flex flex-col gap-1.5 mt-1.5">
                       {parecidos.map((p) => (
-                        <Link
-                          key={p.id}
-                          href={`/clientes/${p.id}`}
-                          className="inline-flex items-center gap-1 rounded-full bg-white border border-amber-200 px-2 py-1 text-[11px] font-medium text-amber-800 hover:border-amber-400 transition"
-                        >
-                          {p.name} · {formatPhone(p.phone)}
-                        </Link>
+                        <div key={p.id} className="flex flex-wrap items-center gap-1.5">
+                          <Link
+                            href={`/clientes/${p.id}`}
+                            className="inline-flex items-center gap-1 rounded-full bg-white border border-amber-200 px-2 py-1 text-[11px] font-medium text-amber-800 hover:border-amber-400 transition"
+                          >
+                            {p.name} · {formatPhone(p.phone)}
+                          </Link>
+                          {podeGerenciar && (
+                            <button
+                              type="button"
+                              disabled={unificando === p.id}
+                              onClick={() => unificarAqui(p)}
+                              className="inline-flex items-center rounded-full bg-amber-600 hover:bg-amber-700 text-white px-2.5 py-1 text-[11px] font-semibold transition disabled:opacity-60"
+                            >
+                              {unificando === p.id ? "Unificando…" : "Unificar aqui"}
+                            </button>
+                          )}
+                          {p.motivo && (
+                            <span className="basis-full text-[11px] text-amber-700 leading-snug">
+                              {p.motivo}
+                            </span>
+                          )}
+                        </div>
                       ))}
                     </div>
                   </div>

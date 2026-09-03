@@ -4,6 +4,13 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import { createSession } from "@/lib/auth";
 import {
+  COOKIE_APARELHO,
+  aparelhoConfiavel,
+  criarDesafio,
+  enviarCodigoWhatsApp,
+} from "@/lib/auth-codigo";
+import {
+  chavesDeCodigoDoUsuario,
   chavesDoLogin,
   faxinaDeTravas,
   ipDaRequisicao,
@@ -67,6 +74,7 @@ export async function POST(req: NextRequest) {
   // 3) Confere a senha SEMPRE, mesmo sem usuário (ver HASH_DE_MENTIRA).
   const user = await db.user.findUnique({
     where: login.includes("@") ? { email: login } : { username: login },
+    include: { company: { select: { loginCodeEnabled: true } } },
   });
   const senhaConfere = await bcrypt.compare(
     parsed.data.password,
@@ -81,8 +89,51 @@ export async function POST(req: NextRequest) {
 
   // 4) Entrou: o contador desta pessoa zera (o do IP não — ver limparFalhas)
   await limparFalhas(chaves);
-  await createSession(user!.id);
   // faxina de carona: sem cron novo, o plano Hobby não tem vaga
   faxinaDeTravas().catch(() => {});
+
+  // 5) SEGUNDO FATOR (RN-045): loja com a chavinha ligada + pessoa com
+  //    WhatsApp de login + APARELHO DESCONHECIDO → o código vai pelo
+  //    WhatsApp e a sessão só nasce depois dele. Se o código não tem como
+  //    chegar, o login segue (fail-open) com o motivo REGISTRADO — trancar
+  //    a lojista fora do próprio sistema seria pior que o risco coberto.
+  const podePedirCodigo =
+    user!.company.loginCodeEnabled &&
+    !!user!.loginPhone &&
+    !aparelhoConfiavel(req.cookies.get(COOKIE_APARELHO)?.value, user!.id);
+  if (podePedirCodigo) {
+    // teto de ENVIOS por pessoa (3/15min): quem tem a senha não pode usar o
+    // login para metralhar códigos pelo WhatsApp da loja (rajada = risco de
+    // banimento, RN-017 — e assédio na dona do telefone)
+    const chavesCodigo = chavesDeCodigoDoUsuario(user!.id);
+    const recusaCodigo = NextResponse.json(
+      { error: "Muitos códigos enviados — aguarde alguns minutos e tente de novo." },
+      { status: 429 }
+    );
+    if ((await segundosDeBloqueio(chavesCodigo)) !== null) return recusaCodigo;
+    if ((await registrarTentativa(chavesCodigo)) !== null) return recusaCodigo;
+    const { desafioId, codigo } = await criarDesafio(user!.id);
+    const enviado = await enviarCodigoWhatsApp(user!.companyId, user!.loginPhone!, codigo);
+    if (enviado) {
+      return NextResponse.json({ ok: true, precisaCodigo: true, desafio: desafioId });
+    }
+    // desafio sem envio não pode ficar vivo (ninguém tem o código dele)
+    await db.loginCode.delete({ where: { id: desafioId } }).catch(() => {});
+    await db.commEvent
+      .create({
+        data: {
+          companyId: user!.companyId,
+          direction: "OUT",
+          type: "login.codigo-falhou",
+          status: "ERRO",
+          error: `Código de login de ${user!.name} não pôde ser enviado (WhatsApp da loja desconectado ou envio recusado) — a entrada foi liberada sem o código, como manda a RN-045.`,
+        },
+      })
+      .catch(() => {
+        // o registro é aviso; falhar aqui não pode impedir a entrada
+      });
+  }
+
+  await createSession(user!.id);
   return NextResponse.json({ ok: true, role: user!.role });
 }
