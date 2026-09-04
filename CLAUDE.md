@@ -441,6 +441,47 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   base da coluna, apontando para onde ainda falta ir (↓ fim na metade de cima,
   ↑ topo na de baixo), que só aparece quando **sobra mais de uma tela para rolar** — em lista
   curta seria enfeite tampando conversa.
+  **RN-048 · Envio que estourou o tempo NÃO é falha, é "confirmando"**
+  (`lib/comm/entrega-incerta.ts`, 03/09/2026): relato do dono — quatro alarmes
+  vermelhos em 24h na Central, todos do MESMO áudio. O envio bateu no teto de
+  50s ("O WhatsApp demorou demais para responder"), a tela mostrou ⚠️ ERRO com
+  o botão **Reenviar**, e a vendedora clicou três vezes — duas delas num
+  instante em que o servidor de conexão estava fora do ar. A bandeira
+  `incerto` JÁ EXISTIA no cliente do Evolution, com o aviso escrito em cima
+  dela (*"quem for reenviar tem que olhar esta bandeira"*) — só que ninguém
+  olhava: o resultado incerto era gravado como `FALHOU`, igual a uma recusa. E
+  vermelho na tela é convite para reenviar, ou seja, o incidente da cliente
+  recebendo a mesma mensagem duas vezes, agora pela mão da vendedora. Agora:
+  tempo esgotado deixa a mensagem em **ENVIANDO com o motivo guardado**, e a
+  bolha diz *"⏳ Confirmando a entrega… ela pode já ter chegado. Não precisa
+  reenviar"* — **sem botão de reenviar**, de propósito. Quem resolve é o **ECO
+  do próprio WhatsApp**: toda mensagem que a loja manda volta pelo webhook, e
+  o resgate que já existia adota a bolha e a marca como enviada — só faltava
+  dar TEMPO para o eco chegar. **A espera tem fim** (`MS_CONFIRMANDO_ENTREGA`,
+  3 min, contados **de quando a mensagem ficou incerta** — pela data de
+  nascimento, o REENVIO de uma mensagem antiga já nascia vencido e o vermelho
+  voltava em segundos, achado da revisão): passada a janela sem eco, aí sim
+  vira falha, com o texto honesto
+  ("não deu para confirmar — PODE ter chegado"), e a **cliente volta para a
+  fila** (o `lastOutboundAt` é RECALCULADO pela última mensagem que de fato
+  saiu, nunca chutado) — dizer "confirmando" para sempre esconderia a mensagem
+  que realmente não saiu. A varredura roda **de carona** no sync da inbox, com
+  trava de 30s por loja — nunca um 3º cron (ADR-002). O REENVIO manual segue a
+  MESMA régua (estourou de novo, volta a "confirmando", nunca ao vermelho).
+  Reconhecer a "confirmando" é `ENVIANDO` **com motivo gravado**: envio em
+  curso não tem motivo nenhum, então a varredura nunca confunde os dois.
+  **Erro de CONEXÃO é outra coisa**: quando a conexão nem chegou a ser feita
+  (`ECONNREFUSED`, `ENOTFOUND`, `EAI_AGAIN`…, lidos do `cause.code` do fetch),
+  a mensagem com CERTEZA não saiu — essa ganha **uma** segunda tentativa
+  automática 1,5s depois, e a queda de instantes passa sem a vendedora saber —
+  **dentro do MESMO orçamento de tempo** (o que sobra do relógio é o teto
+  dela; sem sobra, não há segunda tentativa): dois tetos cheios somariam
+  50s + 50s e matariam a função no meio, que é o problema que o teto existe
+  para evitar.
+  Vale só para ENVIO: a leitura roda dentro do webhook, com orçamento curto.
+  **`ECONNRESET` fica de fora de propósito** — a conexão cair no meio pode ter
+  sido depois de o servidor receber tudo, e repetir aí duplicaria a mensagem,
+  que é o erro que esta regra inteira existe para evitar.
   **RN-012** · Resgate manual: **"Colar pedido do WhatsApp"** na tela Pedidos
   (`lib/catalogo/ler-mensagem.ts` + `/api/orders/ler-mensagem`) — lê a
   mensagem do catálogo, casa com o catálogo da loja (nome mais longo vence

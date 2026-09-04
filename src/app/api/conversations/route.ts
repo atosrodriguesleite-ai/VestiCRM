@@ -9,6 +9,7 @@ import { atualizarRastreiosSeDevido } from "@/lib/rastreio";
 import { varrerCarrinhosSeDeuAHora } from "@/lib/recuperacao";
 import { sincronizarFotosSeDevido } from "@/lib/comm/fotos";
 import { repescarMidiasPendentes } from "@/lib/comm/midia-pendente";
+import { fecharConfirmacoesSemQuebrar } from "@/lib/comm/engine";
 import { runAutomationsIfDue } from "@/lib/automations-run";
 
 /**
@@ -46,6 +47,11 @@ export async function GET(req: NextRequest) {
     // movimentada do app, no máximo uma vez por minuto no sistema inteiro.
     // Sem cron novo — um 3º cron bloqueia TODOS os deploys (ADR-002).
     after(() => repescarMidiasPendentes());
+    // ENVIO SEM CONFIRMAÇÃO (RN-048): a mensagem que estourou o tempo fica
+    // "confirmando entrega" esperando o eco do WhatsApp; passada a janela sem
+    // eco, é aqui que ela vira falha e a cliente volta para a fila. Carona na
+    // rota mais movimentada, travada por loja — nunca um 3º cron (ADR-002).
+    after(() => fecharConfirmacoesSemQuebrar(user.companyId));
     // AUTOMAÇÕES COMERCIAIS também pegam carona (uma rodada por dia por loja,
     // travada no banco). É o que faz o motor rodar sozinho SEM gastar uma das
     // 2 vagas de cron da Vercel — que já estão ocupadas, e um 3º cron bloqueia

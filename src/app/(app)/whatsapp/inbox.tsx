@@ -3870,11 +3870,27 @@ export function Inbox({
                           </button>
                         </div>
                       )}
+                      {/* CONFIRMANDO ENTREGA (RN-048): o WhatsApp demorou
+                          demais para responder e a mensagem PODE ter chegado.
+                          Aqui não existe botão de reenviar de propósito — era
+                          esse botão, numa bolha vermelha, que fazia a cliente
+                          receber o mesmo áudio três vezes. O eco do WhatsApp
+                          resolve sozinho; a varredura fecha o caso se ele não
+                          vier. */}
+                      {m.status === "ENVIANDO" && !isTemp && m.error && (
+                        <div className="flex items-center gap-2 mt-1.5 rounded-lg bg-black/15 px-2 py-1">
+                          <span className="text-[10px] flex-1">
+                            ⏳ Confirmando a entrega… ela pode já ter chegado.
+                            Não precisa reenviar.
+                          </span>
+                        </div>
+                      )}
                       {/* pendente há tempo demais (envio em 2º plano sem
                           confirmação): oferece o reenvio em vez de deixar o
                           ⏱️ eterno */}
                       {m.status === "ENVIANDO" &&
                         !isTemp &&
+                        !m.error &&
                         Date.now() - new Date(m.createdAt).getTime() > 120_000 && (
                           <div className="flex items-center gap-2 mt-1.5 rounded-lg bg-black/15 px-2 py-1">
                             <span className="text-[10px] flex-1">
