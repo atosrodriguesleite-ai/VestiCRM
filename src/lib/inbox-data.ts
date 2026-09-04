@@ -1,6 +1,15 @@
 import { db } from "./db";
 import { conversationScope } from "./scope";
-import { casaCliente } from "./busca";
+import { Prisma } from "@prisma/client";
+import {
+  COM_ACENTO_MENSAGEM,
+  SEM_ACENTO_MENSAGEM,
+  casaCliente,
+  consultaDePalavras,
+  palavrasDaBusca,
+  trechoDaBusca,
+  type MensagemAchada,
+} from "./busca";
 import { catalogUrl, trackedCatalogLink, trackedLinkParts } from "./catalog-url";
 import type { SessionUser } from "./auth";
 import type { InboxConversation, InboxMessage } from "@/app/(app)/whatsapp/inbox";
@@ -40,13 +49,19 @@ const PREVIA_MAX = 140;
  *   Existe porque o sync entrega só o que mudou: uma conversa que chega à
  *   tela por ele (a loja tem mais conversas do que cabe na carga inicial)
  *   viria com uma mensagem só, e o atendimento parecia nunca ter acontecido.
+ * @param ids  um LOTE de conversas escolhidas (resultado da busca), em modo
+ *   PRÉVIA: a lista só escreve a última mensagem, e o histórico vem quando a
+ *   conversa é aberta — carregar 100 mensagens de cada uma das 60 achadas
+ *   era peso jogado fora.
  */
 export async function loadInboxConversations(
   user: SessionUser,
   since?: Date,
-  convId?: string
+  convId?: string,
+  ids?: string[]
 ): Promise<InboxConversation[]> {
-  // lista = sem `since` e sem conversa específica: só a prévia de cada uma
+  // lista (ou lote da busca) = sem `since` e sem conversa específica: só a
+  // prévia de cada uma
   const soPrevia = !since && !convId;
   const [conversations, company] = await Promise.all([
     db.conversation.findMany({
@@ -54,7 +69,8 @@ export async function loadInboxConversations(
         ...conversationScope(user),
         // pedindo UMA conversa, o histórico dela vem inteiro (o `since` não
         // se aplica: o pedido é justamente "me dá tudo dessa aqui")
-        ...(convId ? { id: convId } : since ? { updatedAt: { gt: since } } : {}),
+        // numa linha só: é a forma que o guarda `inbox-auditoria` confere
+        ...(convId ? { id: convId } : ids ? { id: { in: ids } } : since ? { updatedAt: { gt: since } } : {}),
       },
       include: {
         customer: { include: { tags: { include: { tag: true } } } },
@@ -88,7 +104,7 @@ export async function loadInboxConversations(
       orderBy: { lastMessageAt: "desc" },
       // conversa que não recebe mensagem há muito tempo não precisa estar na
       // memória do navegador; a busca continua achando pelo servidor
-      ...(since || convId ? {} : { take: CONVERSAS_NA_ABERTURA }),
+      ...(since || convId || ids ? {} : { take: CONVERSAS_NA_ABERTURA }),
     }),
     db.company.findUnique({
       where: { id: user.companyId },
@@ -316,24 +332,37 @@ export function mapMessage(m: {
 
 /** Teto de conversas devolvidas numa busca (a tela mostra uma lista, não um censo). */
 const RESULTADOS_DA_BUSCA = 60;
+/** Teto de MENSAGENS achadas por palavra (as mais recentes primeiro). */
+const MENSAGENS_NA_BUSCA = 300;
+/**
+ * Palavra dentro da conversa só a partir de 3 letras (`palavrasDaBusca`):
+ * com "ma" metade das mensagens da loja casaria, e a lista viraria a loja
+ * inteira.
+ */
 
 /**
- * BUSCA DE CONVERSA NA LOJA INTEIRA.
+ * BUSCA DE CONVERSA NA LOJA INTEIRA — pelo CONTATO e pela PALAVRA.
  *
  * A tela abre com as conversas mais recentes; a cliente antiga não está lá.
  * Filtrar só o que está na tela fazia a lupa "não achar" justamente quem a
  * vendedora não lembrava de cabeça — o caso em que a busca serve para algo.
  *
- * O casamento acontece em memória com `casaCliente` (o mesmo da tela de
- * Clientes): é o único jeito de ignorar ACENTO de forma confiável — o banco
- * ignora maiúscula, mas "goiania" não acha "Goiânia". Para isso a varredura
- * lê só os dados do contato (sem mensagem nenhuma), que é barato; as
- * mensagens só são carregadas das conversas que casaram.
+ * O casamento pelo contato acontece em memória com `casaCliente` (o mesmo
+ * da tela de Clientes): é o único jeito de ignorar ACENTO de forma
+ * confiável — o banco ignora maiúscula, mas "goiania" não acha "Goiânia".
+ * Para isso a varredura lê só os dados do contato (sem mensagem nenhuma),
+ * que é barato; as mensagens só são carregadas das conversas que casaram.
+ *
+ * A PALAVRA DENTRO DA CONVERSA (pedido do dono, 03/09/2026: "como no
+ * aplicativo do WhatsApp") é procurada no banco, com o acento traduzido lá
+ * (`translate`) — mensagem é a maior tabela da loja e não cabe na memória.
+ * Cada mensagem achada volta com o TRECHO em volta da palavra, para a lista
+ * mostrar onde ela apareceu, e a tela pula até ela ao abrir a conversa.
  */
 export async function buscarConversas(
   user: SessionUser,
   termo: string
-): Promise<InboxConversation[]> {
+): Promise<{ conversations: InboxConversation[]; mensagens: MensagemAchada[] }> {
   const candidatas = await db.conversation.findMany({
     where: conversationScope(user),
     select: {
@@ -354,15 +383,102 @@ export async function buscarConversas(
     orderBy: { lastMessageAt: "desc" },
   });
 
-  const ids = candidatas
+  const peloContato = candidatas
     .filter((c) => casaCliente(c.customer, termo))
-    .slice(0, RESULTADOS_DA_BUSCA)
     .map((c) => c.id);
-  if (ids.length === 0) return [];
-
-  // carrega as que casaram, com o histórico recente de cada uma
-  const achadas = await Promise.all(
-    ids.map((id) => loadInboxConversations(user, undefined, id))
+  // `candidatas` já é tudo o que a pessoa pode ver: serve de recorte para
+  // as mensagens, sem consultar a visibilidade de novo
+  const achadas = await buscarMensagens(
+    user.companyId,
+    termo,
+    new Set(candidatas.map((c) => c.id))
   );
-  return achadas.flat();
+
+  // contato primeiro (é o que a lupa sempre fez), depois as conversas em
+  // que a palavra apareceu, da mais recente para a mais antiga — sem repetir
+  const ids: string[] = [];
+  const visto = new Set<string>();
+  for (const id of [...peloContato, ...achadas.map((m) => m.conversationId)]) {
+    if (visto.has(id)) continue;
+    visto.add(id);
+    ids.push(id);
+    if (ids.length >= RESULTADOS_DA_BUSCA) break;
+  }
+  // mensagem de conversa que ficou fora do teto não volta: apontaria para
+  // uma linha que a lista não tem
+  const mensagens = achadas.filter((m) => visto.has(m.conversationId));
+  if (ids.length === 0) return { conversations: [], mensagens: [] };
+
+  // carrega as que casaram em modo PRÉVIA (a lista só mostra a última
+  // mensagem; o histórico vem ao abrir), na ordem em que foram achadas
+  const carregadas = await loadInboxConversations(user, undefined, undefined, ids);
+  const porId = new Map(carregadas.map((c) => [c.id, c]));
+  return {
+    conversations: ids.flatMap((id) => porId.get(id) ?? []),
+    mensagens,
+  };
+}
+
+/**
+ * As mensagens da loja em que a palavra aparece — mais recentes primeiro.
+ *
+ * A consulta é por LOJA (RN-013) direto no banco, e o recorte de quem pode
+ * ver cada conversa (`visiveis`: os ids que o `conversationScope` de sempre
+ * devolveu — vendedora vê as dela e a fila) é aplicado em cima — a busca por
+ * palavra não pode abrir a conversa da colega para quem não a veria na lista.
+ *
+ * É O ÍNDICE QUE FAZ SER INSTANTÂNEO: `Message_busca_palavra_idx` (GIN de
+ * texto, migração 20260903) indexa EXATAMENTE a expressão abaixo — o
+ * `to_tsvector` do texto em minúsculas e sem acento. Medido em 200 mil
+ * mensagens: varrer o texto com LIKE levava 2,7 s por busca; pelo índice,
+ * 2 ms. A expressão da consulta tem que ser IDÊNTICA à do índice (por isso
+ * as tabelas de acento vão inline, não como parâmetro): mudar uma vírgula
+ * aqui sem mudar a migração volta a varrer a tabela inteira em silêncio.
+ *
+ * Mensagem apagada para todos fica de fora: o texto continua guardado, mas
+ * não está mais na conversa.
+ */
+const EXPRESSAO_INDEXADA = Prisma.raw(
+  `to_tsvector('simple', translate(lower(m.body), '${COM_ACENTO_MENSAGEM}', '${SEM_ACENTO_MENSAGEM}'))`
+);
+
+export async function buscarMensagens(
+  companyId: string,
+  termo: string,
+  visiveis: Set<string>
+): Promise<MensagemAchada[]> {
+  // sem palavra de pelo menos 3 letras não há busca (é o `palavrasDaBusca`
+  // quem decide; a constante documenta a régua)
+  const consulta = consultaDePalavras(termo);
+  if (!consulta || visiveis.size === 0) return [];
+  const linhas = await db.$queryRaw<
+    { id: string; conversationId: string; createdAt: Date; direction: string; body: string }[]
+  >`
+    SELECT m.id, m."conversationId", m."createdAt", m.direction::text AS direction, m.body
+    FROM "Message" m
+    JOIN "Conversation" c ON c.id = m."conversationId"
+    WHERE c."companyId" = ${companyId}
+      AND m.revoked = false
+      AND ${EXPRESSAO_INDEXADA} @@ to_tsquery('simple', ${consulta})
+    ORDER BY m."createdAt" DESC
+    LIMIT ${MENSAGENS_NA_BUSCA}`;
+  const resultado: MensagemAchada[] = [];
+  for (const l of linhas) {
+    if (!visiveis.has(l.conversationId)) continue;
+    // o banco casa por PALAVRAS (qualquer ordem); o trecho tenta o termo
+    // inteiro e, se as palavras estão separadas no texto, mostra a primeira
+    // delas — se nem ela aparece (caractere fora da tabela de acentos), a
+    // mensagem fica de fora em vez de voltar sem trecho
+    const trecho =
+      trechoDaBusca(l.body, termo) ?? trechoDaBusca(l.body, palavrasDaBusca(termo)[0] ?? "");
+    if (!trecho) continue;
+    resultado.push({
+      id: l.id,
+      conversationId: l.conversationId,
+      createdAt: l.createdAt.toISOString(),
+      direction: l.direction === "IN" ? "IN" : "OUT",
+      trecho,
+    });
+  }
+  return resultado;
 }

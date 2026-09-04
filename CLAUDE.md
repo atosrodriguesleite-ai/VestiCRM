@@ -169,6 +169,35 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   a definir a dona antes de faturar); troca de vendedor é auditada em
   `OrderEvent`. Exceção: venda da loja online (nasce paga e sem dona por
   RN-005) — sem ela, pedido Nuvemshop cancelado nunca poderia reabrir.
+  **RN-047 · Marcar "pago" na mão confirma UMA cobrança, não todas**
+  (`escolherCobrancaAConfirmar` em `lib/orders.ts`, 03/09/2026): relato do
+  dono — *"o cliente pagou R$ 553,50, porém no sistema consta que ele pagou
+  R$ 554,50"*. O mesmo pedido tem, normalmente, MAIS DE UMA cobrança
+  pendente: o pedido do catálogo já nasce com uma (RN-010) e a vendedora
+  ainda gera o QR do Mercado Pago ou o link da InfinitePay para mandar no
+  WhatsApp. São **caminhos alternativos do mesmo dinheiro** — a cliente paga
+  por UM. Marcar pago confirmava TODAS: pedido de R$ 554,50 constava como
+  R$ 1.109,00 recebidos e a ficha anunciava "pago a mais R$ 555,50". O
+  caminho AUTOMÁTICO já acertava isso desde 07/08/2026 (`settleOrderPaid`:
+  "confirmar todas escondia a conciliação"); o da mão ficou para trás. Agora
+  vale a mesma régua da baixa da porta do Financeiro (RN-033): confirma **o
+  que FALTA**, uma cobrança só. **A do gateway fica por último**, e por dois
+  motivos que apontam para o mesmo lado: quem marca na mão recebeu POR FORA
+  (dinheiro que entrasse pelo gateway já teria sido liquidado pelo webhook), e
+  o alarme de **"🚨 SEGUNDO pagamento"** do `settleOrderPaid` só dispara
+  enquanto existir linha PENDENTE com aquele id — carimbá-la faria a cliente
+  pagar o QR depois e o dinheiro em dobro entrar CALADO. Entre as demais vale
+  a mais RECENTE, que é o link que a vendedora acabou de mandar. O valor
+  gravado é o que falta, **mas cobrança do gateway nunca é reescrita** (o
+  número dela é o que o provedor tem, e mudá-lo quebraria a conferência com o
+  extrato). As irmãs **não viram pagamento e não somem**: param de valer aqui
+  E no provedor (o Pix do Mercado Pago é cancelado lá — vencer só no nosso
+  banco não impede a cliente de pagar o código que já está no WhatsApp dela) e
+  a ficha as mostra como **"cobrança não usada"** em cinza — dizer "Pendente"
+  ali faria a loja procurar um dinheiro que não falta. O que **continua sendo dito** é a
+  diferença de verdade: pedido corrigido DEPOIS do pagamento confirmado
+  mostra "falta cobrar"/"pago a mais" (relato Entre Linhas, 02/09/2026) —
+  pagamento confirmado é história e não se reescreve.
 - **RN-007 · Visibilidade de pedidos** (`orderScope` em `lib/scope.ts`): vendedora vê
   SÓ os pedidos dela (`sellerId`); gerente/admin/suporte veem a loja inteira.
   Vale em toda porta: lista, ficha, PDFs, Pix, NF-e, frete, transferência,
@@ -500,6 +529,24 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   anteriores" — sem ela o começo da conversa era INACESSÍVEL) e
   `GET /api/conversations?q=` (busca na loja inteira, `casaCliente` em
   memória por causa do acento — sem ela a lupa só via as 200 carregadas).
+  **A lupa também acha PALAVRA dentro da conversa** (03/09/2026, pedido do
+  dono: "como no aplicativo do WhatsApp"): a mesma porta procura no texto
+  das mensagens da loja (`buscarMensagens` em `lib/inbox-data.ts`) pelo
+  **índice de texto** `Message_busca_palavra_idx` (GIN, migração
+  20260903120000, criado CONCURRENTLY): a consulta usa a MESMA expressão do
+  índice (texto em minúsculas, sem acento, barra vira espaço — "azul/branco"
+  acha por "branco"); medido em 200 mil mensagens, LIKE levava 2,7 s e o
+  índice 2 ms. Cada palavra digitada é PREFIXO, todas obrigatórias, em
+  qualquer ordem (`consultaDePalavras`); letra solta cai fora e sem palavra
+  de 3 letras não há busca. Mensagem apagada fica de fora; o recorte de quem
+  vê cada conversa é o `conversationScope` de sempre, aplicado em cima. A lista mostra o TRECHO com a palavra pintada
+  (`trechoDaBusca` em `lib/busca.ts`, posição no texto ORIGINAL) e quantas
+  mensagens casaram; abrir a conversa PULA até a mensagem (carregando o
+  passado página a página, com teto e aviso) e a barra ▲▼ anda entre elas.
+  **Emoji**: o seletor (`seletor-de-emoji.tsx`, grade em `lib/emojis.ts`)
+  tem **barra de pesquisa** em português sem acento ("coracao", "caixa",
+  "feliz"; Enter escolhe o primeiro) e é o MESMO na caixa de **editar
+  mensagem** — antes não dava para pôr emoji na mensagem editada.
   **Reagir com emoji** (25/08/2026): o mesmo gesto do aplicativo — o emoji
   fica GRUDADO na mensagem (uma reação de cada lado: `Message.reaction` da
   cliente, `Message.reactionStore` da loja), nunca vira bolha nova. A reação
@@ -846,7 +893,18 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   solta a conciliação da baixa movida (RN-037); a baixa manual fica com a
   data em que o dinheiro andou. **Pagamento atrasado NÃO muda competência**:
   a venda de agosto paga em outubro continua resultado de agosto (RN-036) —
-  só a data da baixa é de outubro. **Unificar contatos leva o financeiro junto**: lançamentos e
+  só a data da baixa é de outubro. **A porta é chamada em TODA porta de edição, não
+  só na troca de status** (03/09/2026): editar itens, desconto, acréscimo ou
+  frete respondia ANTES da chamada, e o lançamento ficava congelado no valor
+  antigo — o pedido valia R$ 553,50 e a conciliação seguia oferecendo
+  R$ 554,50 para casar com a linha do banco. A varredura de carona também
+  deixou de olhar só a venda paga SEM baixa: acerta agora a venda cujo
+  **valor diverge** do pedido (`vendasComValorDivergente`), que é o que
+  conserta sozinho o que já ficou torto — ninguém vai reeditar pedido antigo
+  só para o número se ajustar. Continua de fora quem tem baixa VIVA
+  registrada à mão (ali a porta só avisa, e repescar seria trabalho que não
+  muda nada em toda abertura da tela).
+  **Unificar contatos leva o financeiro junto**: lançamentos e
   contas fixas da ficha apagada passam para a que sobrevive, senão a
   inadimplência virava "Sem cliente" e a cobrança perdia o WhatsApp.
   **TODO caminho que muda o valor do pedido passa pela porta** (auditoria de

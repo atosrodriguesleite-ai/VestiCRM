@@ -58,8 +58,10 @@ export async function GET(req: NextRequest) {
     // quebrada de novo, e a conversa existia o tempo todo.
     const q = (req.nextUrl.searchParams.get("q") ?? "").trim();
     if (q) {
-      const achadas = await buscarConversas(user, q);
-      return NextResponse.json({ conversations: achadas, busca: true });
+      // devolve também as MENSAGENS em que a palavra apareceu (com o
+      // trecho): é o que a lista mostra e para onde a tela pula ao abrir
+      const { conversations, mensagens } = await buscarConversas(user, q);
+      return NextResponse.json({ conversations, mensagens, busca: true });
     }
 
     const sinceRaw = req.nextUrl.searchParams.get("since");

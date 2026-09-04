@@ -921,6 +921,10 @@ model Message {
   @@index([conversationId, createdAt])
   // sync incremental da inbox: "o que mudou nesta conversa desde X"
   @@index([conversationId, updatedAt])
+  // BUSCA POR PALAVRA (lupa da Central): existe também o índice de texto
+  // "Message_busca_palavra_idx" (GIN sobre to_tsvector do body sem acento),
+  // criado na migração 20260903120000 — índice de expressão, que o Prisma
+  // não sabe declarar aqui. Nunca deixar um diff automático derrubá-lo.
   @@index([externalId])
   // MESMA MENSAGEM NUNCA ENTRA DUAS VEZES.
   //
