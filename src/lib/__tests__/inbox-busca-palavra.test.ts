@@ -34,9 +34,27 @@ describe("busca por palavra no servidor (a consulta e o índice)", () => {
   });
 
   it("é por LOJA no banco (RN-013) e mensagem apagada fica de fora", () => {
-    expect(f).toMatch(/c\."companyId" = \$\{companyId\}/);
+    expect(f).toMatch(/c\."companyId" = \$\{user\.companyId\}/);
     expect(f).toMatch(/m\.revoked = false/);
     expect(f).toContain("LIMIT ${MENSAGENS_NA_BUSCA}");
+  });
+
+  /**
+   * O RECORTE DE QUEM VÊ VAI ANTES DO TETO. Filtrando depois de trazer as N
+   * mais recentes, a vendedora que vê só as conversas dela recebia "Nada
+   * encontrado" numa loja movimentada: as mais recentes eram todas de
+   * colegas (achado da revisão, 03/09/2026). Medido no Postgres local, com
+   * 400 mensagens recentes das colegas e a dela mais antiga: antes ela
+   * sobrava 0 nas 300 trazidas; agora a busca devolve a dela e só a dela.
+   */
+  it("o recorte de quem vê entra DENTRO da consulta, antes do teto", () => {
+    const recorte = f.indexOf("RECORTE_DE_QUEM_VE(user)");
+    const teto = f.indexOf("LIMIT ${MENSAGENS_NA_BUSCA}");
+    expect(recorte).toBeGreaterThan(-1);
+    expect(recorte).toBeLessThan(teto);
+    // e a régua é a MESMA da lista, de um lugar só
+    expect(loader).toContain("veTodaAConversa(user)");
+    expect(ler("src/lib/scope.ts")).toContain("return veTodaAConversa(user)");
   });
 
   it("a porta devolve as mensagens achadas junto com as conversas", () => {

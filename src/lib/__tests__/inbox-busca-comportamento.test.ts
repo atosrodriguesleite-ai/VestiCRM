@@ -32,27 +32,92 @@ beforeEach(() => {
   conversationFindMany.mockReset();
 });
 
+const vendedora = {
+  id: "u-vendedora",
+  name: "Lara",
+  email: "l@x",
+  companyId: "loja",
+  role: "SELLER",
+  chatVisaoTotal: false,
+} as SessionUser;
+const gerente = { ...vendedora, id: "u-gerente", role: "MANAGER" } as SessionUser;
+
+/**
+ * A consulta que o `$queryRaw` recebeu, achatada: o Prisma entrega os pedaços
+ * de texto no primeiro argumento e os valores nos seguintes — e um fragmento
+ * (`Prisma.sql`) chega como objeto com o próprio texto e os próprios valores.
+ */
+const sqlDaBusca = () => {
+  const [tpl, ...valores] = queryRaw.mock.calls[0] as [string[], ...unknown[]];
+  const achata = (v: unknown): { texto: string; valores: unknown[] } => {
+    const frag = v as { strings?: string[]; values?: unknown[] };
+    return frag && Array.isArray(frag.strings)
+      ? { texto: frag.strings.join(" ? "), valores: frag.values ?? [] }
+      : { texto: "", valores: [v] };
+  };
+  const partes = valores.map(achata);
+  return {
+    texto: [...Array.from(tpl ?? []), ...partes.map((p) => p.texto)].join(" "),
+    valores: partes.flatMap((p) => p.valores),
+  };
+};
+
 describe("buscarMensagens", () => {
-  it("só devolve mensagem de conversa que a pessoa PODE VER", async () => {
-    queryRaw.mockResolvedValue([
-      linha("m1", "minha", "quero a blusa vermelha"),
-      linha("m2", "da-colega", "outra blusa vermelha"),
-    ]);
-    const r = await buscarMensagens("loja", "vermelha", new Set(["minha"]));
+  it("devolve a mensagem com o trecho em volta da palavra", async () => {
+    queryRaw.mockResolvedValue([linha("m1", "minha", "quero a blusa vermelha")]);
+    const r = await buscarMensagens(vendedora, "vermelha");
     expect(r.map((m) => m.id)).toEqual(["m1"]);
     expect(r[0].trecho).toEqual({ antes: "quero a blusa ", casa: "vermelha", depois: "" });
   });
 
+  /**
+   * O RECORTE MORA NA CONSULTA — e este teste prova isso pelo COMPORTAMENTO:
+   * o que o banco devolve é o que sai, sem peneira depois. É a metade que dá
+   * para afirmar sem banco; a outra (que a consulta recorta MESMO) foi medida
+   * contra o Postgres local na entrega — 400 mensagens recentes das colegas +
+   * uma da vendedora, mais antiga: antes ela sobrava ZERO nas 300 trazidas e
+   * a tela dizia "Nada encontrado"; agora volta a dela, e só a dela.
+   *
+   * Por que a peneira não pode voltar: ela roda DEPOIS do teto de resultados,
+   * então numa loja movimentada as mais recentes são todas de colegas e não
+   * sobra nada (achado da revisão, 03/09/2026).
+   */
+  it("não peneira depois: o que o banco devolve é o que sai", async () => {
+    queryRaw.mockResolvedValue([linha("m1", "da-colega", "blusa canelada")]);
+    const r = await buscarMensagens(vendedora, "canelada");
+    expect(r.map((m) => m.id)).toEqual(["m1"]);
+  });
+
+  it("a vendedora leva o próprio id para o banco; a fila continua visível", async () => {
+    queryRaw.mockResolvedValue([]);
+    await buscarMensagens(vendedora, "blusa");
+    const { texto, valores } = sqlDaBusca();
+    expect(valores).toContain(vendedora.id);
+    expect(texto).toContain('c."assigneeId" IS NULL');
+  });
+
+  it("quem vê a loja inteira não manda recorte nenhum", async () => {
+    queryRaw.mockResolvedValue([]);
+    await buscarMensagens(gerente, "blusa");
+    expect(sqlDaBusca().valores).not.toContain(gerente.id);
+  });
+
+  it("a chavinha do chat vale aqui também", async () => {
+    queryRaw.mockResolvedValue([]);
+    const comChavinha = { ...vendedora, chatVisaoTotal: true } as SessionUser;
+    await buscarMensagens(comChavinha, "blusa");
+    expect(sqlDaBusca().valores).not.toContain(comChavinha.id);
+  });
+
   it("palavras em outra ordem: acha, e o trecho mostra a primeira delas", async () => {
     queryRaw.mockResolvedValue([linha("m1", "c", "a VERMELHA é a blusa que quero")]);
-    const [m] = await buscarMensagens("loja", "blusa vermelha", new Set(["c"]));
+    const [m] = await buscarMensagens(vendedora, "blusa vermelha");
     expect(m.trecho.casa).toBe("blusa");
   });
 
-  it("sem palavra de 3 letras, ou sem nada visível, nem consulta o banco", async () => {
-    expect(await buscarMensagens("loja", "ab", new Set(["c"]))).toEqual([]);
-    expect(await buscarMensagens("loja", "🎉🎉", new Set(["c"]))).toEqual([]);
-    expect(await buscarMensagens("loja", "blusa", new Set())).toEqual([]);
+  it("sem palavra de 3 letras, nem consulta o banco", async () => {
+    expect(await buscarMensagens(vendedora, "ab")).toEqual([]);
+    expect(await buscarMensagens(vendedora, "🎉🎉")).toEqual([]);
     expect(queryRaw).not.toHaveBeenCalled();
   });
 });

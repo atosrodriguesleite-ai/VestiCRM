@@ -580,7 +580,15 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   índice 2 ms. Cada palavra digitada é PREFIXO, todas obrigatórias, em
   qualquer ordem (`consultaDePalavras`); letra solta cai fora e sem palavra
   de 3 letras não há busca. Mensagem apagada fica de fora; o recorte de quem
-  vê cada conversa é o `conversationScope` de sempre, aplicado em cima. A lista mostra o TRECHO com a palavra pintada
+  vê cada conversa é o `conversationScope` de sempre (`veTodaAConversa`,
+  num lugar só) e entra **DENTRO da consulta, antes do teto de resultados**:
+  aplicado em cima ele fazia a vendedora que vê só as conversas dela receber
+  "Nada encontrado" numa loja movimentada — as 300 mensagens mais recentes
+  eram todas de colegas e sobrava zero (achado da revisão, 03/09/2026).
+  Medido no Postgres local com 400 mensagens recentes das colegas e a dela
+  mais antiga. A conferência contra a lista que ela já carregou continua
+  acontecendo depois, de graça, como SEGUNDA tranca — isolamento não pode
+  depender de um lugar só (RN-013). A lista mostra o TRECHO com a palavra pintada
   (`trechoDaBusca` em `lib/busca.ts`, posição no texto ORIGINAL) e quantas
   mensagens casaram; abrir a conversa PULA até a mensagem (carregando o
   passado página a página, com teto e aviso) e a barra ▲▼ anda entre elas.
