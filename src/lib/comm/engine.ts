@@ -14,6 +14,12 @@ import {
 } from "./evolution";
 import { notifyMentions } from "../notify";
 import { reciboMaisForte, reciboAvanca } from "./recibo";
+import {
+  AVISO_SEM_CONFIRMACAO,
+  confirmacaoVenceu,
+  MS_CONFIRMANDO_ENTREGA,
+  situacaoDoEnvio,
+} from "./entrega-incerta";
 import type { ProviderCredentials } from "./types";
 import type {
   Channel,
@@ -215,6 +221,17 @@ export async function sendMessage(input: SendMessageInput): Promise<Message> {
         if (result.externalId) {
           await aplicarRecibosOrfaos(input.companyId, result.externalId).catch(() => {});
         }
+      } else if (situacaoDoEnvio(result) === "confirmando") {
+        // TEMPO ESGOTADO NÃO É FALHA (RN-048). A mensagem pode ter sido
+        // entregue e só a resposta não ter voltado — marcar vermelho aqui é o
+        // que fazia a vendedora reenviar e a cliente receber duas vezes. Fica
+        // ENVIANDO, com o motivo guardado, esperando o ECO do WhatsApp (o
+        // resgate do webhook adota a bolha e a marca como enviada). Quem
+        // fecha o caso, se o eco não vier, é a varredura da janela.
+        await db.message.updateMany({
+          where: { id: messageId, status: "ENVIANDO" },
+          data: { error: result.error },
+        });
       } else {
         await db.message.updateMany({
           where: { id: messageId, status: "ENVIANDO" },
@@ -373,12 +390,116 @@ export async function resendMessage(
     attempts: 2,
   });
 
-  return db.message.update({
-    where: { id: message.id },
-    data: result.ok
-      ? { status: "REENVIADA", externalId: result.externalId, error: null }
-      : { status: "FALHOU", error: result.error },
+  // O REENVIO SEGUE A MESMA RÉGUA (RN-048): estourou o tempo, volta para
+  // "confirmando" — nunca para o vermelho que convida a um terceiro envio.
+  const dados = result.ok
+    ? { status: "REENVIADA" as const, externalId: result.externalId, error: null }
+    : situacaoDoEnvio(result) === "confirmando"
+      ? { status: "ENVIANDO" as const, error: result.error }
+      : { status: "FALHOU" as const, error: result.error };
+  return db.message.update({ where: { id: message.id }, data: dados });
+}
+
+/* ---- a janela de confirmação tem fim (RN-048) -------------------------- */
+
+/** Teto por rodada: loja com muita conversa não segura a tela por isso. */
+export const TETO_CONFIRMACOES = 100;
+
+/**
+ * Fecha o caso das mensagens que ficaram "confirmando entrega" e nunca
+ * receberam o eco do WhatsApp.
+ *
+ * Dizer "confirmando" para sempre seria pior que o vermelho de antes: a
+ * mensagem que REALMENTE não saiu ficaria escondida, a cliente sem resposta e
+ * a loja achando que respondeu. Passada a janela, vira falha — com o texto
+ * honesto: não deu para confirmar, PODE ter chegado.
+ *
+ * Como reconhecer uma "confirmando": está ENVIANDO **e tem motivo gravado**.
+ * Envio em curso não tem motivo nenhum; só o tempo esgotado escreve ali.
+ */
+export async function fecharConfirmacoesVencidas(
+  companyId: string,
+  teto = TETO_CONFIRMACOES
+): Promise<number> {
+  const limite = new Date(Date.now() - MS_CONFIRMANDO_ENTREGA);
+  const vencidas = await db.message.findMany({
+    where: {
+      conversation: { companyId },
+      direction: "OUT",
+      status: "ENVIANDO",
+      error: { not: null },
+      // A JANELA CONTA DE QUANDO A MENSAGEM FICOU INCERTA, não de quando ela
+      // nasceu. Pelo `createdAt`, o REENVIO de uma mensagem antiga já nascia
+      // vencido: a varredura o marcava como falha em segundos, o vermelho com
+      // "Reenviar" voltava e a vendedora clicava de novo — o duplicado que
+      // esta regra existe para evitar (achado da revisão, 03/09/2026).
+      updatedAt: { lt: limite },
+    },
+    select: { id: true, conversationId: true, updatedAt: true },
+    orderBy: { updatedAt: "asc" },
+    take: teto,
   });
+  if (vencidas.length === 0) return 0;
+
+  const agora = new Date();
+  const fechadas = vencidas.filter((m) => confirmacaoVenceu(m.updatedAt, agora));
+  if (fechadas.length === 0) return 0;
+
+  await db.message.updateMany({
+    // o filtro de status vai DE NOVO aqui: o eco pode ter chegado entre a
+    // busca e esta escrita, e marcar falha por cima de uma mensagem já
+    // confirmada é o "não regride ENVIADA → FALHOU" de sempre
+    where: { id: { in: fechadas.map((m) => m.id) }, status: "ENVIANDO" },
+    data: { status: "FALHOU", error: AVISO_SEM_CONFIRMACAO },
+  });
+
+  // A CLIENTE VOLTA A ESPERAR. A conversa tinha sido marcada como "a loja
+  // respondeu" quando o envio começou; sem desfazer isso, a cliente que NÃO
+  // recebeu nada sai da fila e fica invisível para a equipe. O valor certo é
+  // recalculado (a última mensagem que de fato saiu), nunca chutado.
+  for (const conversationId of new Set(fechadas.map((m) => m.conversationId))) {
+    const ultimaQueSaiu = await db.message.findFirst({
+      where: {
+        conversationId,
+        direction: "OUT",
+        kind: { not: "NOTE" },
+        status: { notIn: ["FALHOU", "ENVIANDO"] },
+      },
+      orderBy: { createdAt: "desc" },
+      select: { createdAt: true },
+    });
+    await db.conversation
+      .update({
+        where: { id: conversationId },
+        // o updatedAt acorda o sync da inbox: sem ele a bolha só mudaria
+        // quando alguém abrisse a conversa de novo
+        data: { lastOutboundAt: ultimaQueSaiu?.createdAt ?? null, updatedAt: agora },
+      })
+      .catch(() => {});
+  }
+  return fechadas.length;
+}
+
+/** Quanto tempo a varredura de carona espera antes de olhar a mesma loja. */
+const MS_ENTRE_VARREDURAS = 30_000;
+const ultimaVarredura = new Map<string, number>();
+
+/**
+ * A varredura DE CARONA no tráfego (ADR-002: nunca um 3º cron). A inbox
+ * pergunta por novidades a cada 3s — é ali que ela pega carona, com trava de
+ * tempo para não repetir a consulta a cada batida.
+ */
+export async function fecharConfirmacoesSemQuebrar(companyId: string): Promise<void> {
+  const agora = Date.now();
+  if (agora - (ultimaVarredura.get(companyId) ?? 0) < MS_ENTRE_VARREDURAS) return;
+  ultimaVarredura.set(companyId, agora);
+  try {
+    await fecharConfirmacoesVencidas(companyId);
+  } catch (e) {
+    console.error("[comm] varredura de confirmação falhou", e);
+    // erro não vale como "já varri": a próxima batida tenta de novo
+    ultimaVarredura.delete(companyId);
+  }
 }
 
 /**

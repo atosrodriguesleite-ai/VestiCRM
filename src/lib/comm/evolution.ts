@@ -98,6 +98,8 @@ export async function paceProactiveSend(companyId: string): Promise<void> {
   });
 }
 
+import { requisicaoNaoSaiu, tempoEsgotado } from "./entrega-incerta";
+
 // ---- Cliente do servidor Evolution ----------------------------------------
 
 export function evolutionEnv() {
@@ -129,28 +131,64 @@ async function evo<T = Record<string, unknown>>(
   method: "GET" | "POST" | "DELETE",
   path: string,
   body?: unknown,
-  timeoutMs = 45_000
-): Promise<{ ok: boolean; status: number; data: T | null; incerto?: boolean }> {
+  timeoutMs = 45_000,
+  /**
+   * Só para ENVIO: uma segunda tentativa quando a conexão nem chegou a ser
+   * feita (RN-048). É seguro porque nesse caso a mensagem com certeza não
+   * saiu; qualquer outro erro NUNCA é repetido sozinho. Leitura não usa: ela
+   * roda dentro de webhook com orçamento curto, e esperar de novo comeria o
+   * tempo das mensagens seguintes.
+   */
+  tentarDeNovoSeNaoSaiu = false
+): Promise<{ ok: boolean; status: number; data: T | null; incerto?: boolean; naoSaiu?: boolean }> {
   const { url, key } = evolutionEnv();
   if (!url || !key) return { ok: false, status: 0, data: null };
-  try {
-    const res = await fetch(`${url}${path}`, {
-      method,
-      headers: { "Content-Type": "application/json", apikey: key },
-      ...(body ? { body: JSON.stringify(body) } : {}),
-      // teto de segurança: mídia grande + conversão demoram, mas nunca podem
-      // segurar a função até ser morta no meio (erro na tela + envio no ar)
-      signal: AbortSignal.timeout(timeoutMs),
-    });
-    const data = (await res.json().catch(() => null)) as T | null;
-    return { ok: res.ok, status: res.status, data };
-  } catch (e) {
-    // tempo esgotado → pode ter chegado. Qualquer outro erro (DNS, conexão
-    // recusada, servidor fora do ar) → não saiu do lugar.
-    const incerto = (e as Error)?.name === "TimeoutError";
-    return { ok: false, status: 0, data: null, incerto };
-  }
+  const uma = async (tetoDaVez: number) => {
+    try {
+      const res = await fetch(`${url}${path}`, {
+        method,
+        headers: { "Content-Type": "application/json", apikey: key },
+        ...(body ? { body: JSON.stringify(body) } : {}),
+        // teto de segurança: mídia grande + conversão demoram, mas nunca podem
+        // segurar a função até ser morta no meio (erro na tela + envio no ar)
+        signal: AbortSignal.timeout(tetoDaVez),
+      });
+      const data = (await res.json().catch(() => null)) as T | null;
+      return { ok: res.ok, status: res.status, data };
+    } catch (e) {
+      // tempo esgotado → pode ter chegado. Conexão que nem se estabeleceu →
+      // não saiu do lugar, e SÓ essa dá para repetir sem risco de duplicar.
+      return {
+        ok: false,
+        status: 0,
+        data: null,
+        incerto: tempoEsgotado(e),
+        naoSaiu: requisicaoNaoSaiu(e),
+      };
+    }
+  };
+  const comecou = Date.now();
+  const r = await uma(timeoutMs);
+  if (r.ok || !tentarDeNovoSeNaoSaiu || !r.naoSaiu) return r;
+  // A SEGUNDA TENTATIVA CABE NO MESMO ORÇAMENTO. O teto de 50s foi escolhido
+  // para a função de 60s não morrer no meio (erro na tela com o envio no ar);
+  // dar um teto NOVO à segunda tentativa poderia somar 50s + 50s e devolver
+  // exatamente esse problema — a falha de conexão nem sempre é instantânea
+  // (DNS lento, conectar que estoura). Então o que sobra do relógio é o teto
+  // dela, e sem sobra não há segunda tentativa (achado da revisão, 03/09/2026).
+  const sobra = timeoutMs - (Date.now() - comecou) - MS_ANTES_DE_TENTAR_DE_NOVO;
+  if (sobra < MS_MINIMO_PARA_TENTAR_DE_NOVO) return r;
+  // o servidor de conexão cai por alguns instantes e volta: esperar um pouco
+  // e tentar UMA vez resolve sem a vendedora saber que houve soluço
+  await new Promise((ok) => setTimeout(ok, MS_ANTES_DE_TENTAR_DE_NOVO));
+  return uma(sobra);
 }
+
+/** Sem pelo menos isto de relógio sobrando, não vale tentar de novo. */
+const MS_MINIMO_PARA_TENTAR_DE_NOVO = 5_000;
+
+/** Espera antes da segunda tentativa do envio que não saiu do lugar. */
+const MS_ANTES_DE_TENTAR_DE_NOVO = 1_500;
 
 // mídia demora mais que texto (upload + conversão no servidor de conexão) —
 // ganha um teto maior, ainda dentro do orçamento da função (60s)
@@ -259,19 +297,25 @@ export async function evoSendText(
   // uma tela — como o código de login — passa um teto curto
   timeoutMs?: number
 ) {
-  return evo<{ key?: { id?: string } }>("POST", `/message/sendText/${instance}`, {
-    number,
-    text,
+  return evo<{ key?: { id?: string } }>(
+    "POST",
+    `/message/sendText/${instance}`,
+    {
+      number,
+      text,
     // responder mensagem específica: o WhatsApp mostra a citação em cima
-    ...(citacao
-      ? {
-          quoted: {
-            key: { remoteJid: citacao.remoteJid, fromMe: citacao.fromMe, id: citacao.id },
-            ...corpoDaCitacao(citacao),
-          },
-        }
-      : {}),
-  });
+      ...(citacao
+        ? {
+            quoted: {
+              key: { remoteJid: citacao.remoteJid, fromMe: citacao.fromMe, id: citacao.id },
+              ...corpoDaCitacao(citacao),
+            },
+          }
+        : {}),
+    },
+    timeoutMs,
+    true // RN-048: conexão que não saiu do lugar ganha uma segunda tentativa
+  );
 }
 
 /**
@@ -313,7 +357,8 @@ export async function evoSendMedia(
       ...(caption ? { caption } : {}),
       media,
     },
-    EVO_MEDIA_TIMEOUT_MS
+    EVO_MEDIA_TIMEOUT_MS,
+    true // RN-048
   );
 }
 
@@ -332,7 +377,8 @@ export async function evoSendAudio(
     "POST",
     `/message/sendWhatsAppAudio/${instance}`,
     { number, audio, encoding: true },
-    EVO_MEDIA_TIMEOUT_MS
+    EVO_MEDIA_TIMEOUT_MS,
+    true // RN-048
   );
 }
 
