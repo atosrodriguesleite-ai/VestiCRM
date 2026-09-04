@@ -28,6 +28,9 @@ import {
  * senão a loja "gerou caixa" que não existe).
  */
 
+/** Teto de baixas do DFC: período grande demais avisa em vez de travar. */
+export const TETO_DFC = 20_000;
+
 /* ---- saldo previsto ----------------------------------------------------- */
 
 export type Previsao = {
@@ -54,10 +57,11 @@ export async function preverSaldo(
   const ate = dataDoDia(
     diaSP(new Date(hoje.getTime() + dias * 86_400_000))
   )!;
+  const hojeDia = dataDoDia(diaSP(hoje))!;
   const [saldoHoje, aReceber, aPagar] = await Promise.all([
-    saldoAte(companyId, null, dataDoDia(diaSP(hoje))!),
-    emAbertoAte(companyId, "RECEITA", ate),
-    emAbertoAte(companyId, "DESPESA", ate),
+    saldoAte(companyId, null, hojeDia),
+    emAbertoAte(companyId, "RECEITA", ate, hojeDia),
+    emAbertoAte(companyId, "DESPESA", ate, hojeDia),
   ]);
   return {
     saldoHoje,
@@ -83,7 +87,8 @@ export async function preverSaldo(
 async function emAbertoAte(
   companyId: string,
   tipo: "RECEITA" | "DESPESA",
-  ate: Date
+  ate: Date,
+  hojeDia: Date
 ): Promise<number> {
   const doTipo = { lancamento: { tipo, canceladoEm: null } };
   const [parcelas, abatido] = await Promise.all([
@@ -95,12 +100,55 @@ async function emAbertoAte(
       where: {
         companyId,
         estornadaEm: null,
+        // SÓ O QUE JÁ ESTÁ NA CONTA. O `saldoHoje` conta baixa até HOJE; se
+        // aqui a soma pegasse todas, a baixa com data de AMANHÃ (o cheque
+        // que a lojista já registrou) saía das duas pontas e o dinheiro
+        // desaparecia da previsão — enquanto o fluxo de caixa, que filtra
+        // por data, mostrava o mesmo valor como realizado. Duas telas
+        // discordando (auditoria completa do módulo, 03/09/2026).
+        data: { lte: hojeDia },
         parcela: { vencimento: { lte: ate }, ...doTipo },
       },
       _sum: { valor: true },
     }),
   ]);
   return round2((parcelas._sum.valor ?? 0) - (abatido._sum.valor ?? 0));
+}
+
+/**
+ * Quanto FALTA receber (ou pagar) com vencimento DENTRO de um período —
+ * somado NO BANCO, pela mesma régua do saldo previsto.
+ *
+ * O painel trazia todas as parcelas do mês para a memória (com um teto de
+ * 20 mil SEM ordem definida): batendo no teto, o Postgres devolvia um
+ * subconjunto ARBITRÁRIO e os cards "a receber"/"a pagar do mês" mudavam de
+ * valor entre dois F5, sem nada avisando (auditoria de 03/09/2026).
+ */
+export async function emAbertoNoPeriodo(
+  companyId: string,
+  tipo: "RECEITA" | "DESPESA",
+  de: Date,
+  ate: Date
+): Promise<number> {
+  const doTipo = { lancamento: { tipo, canceladoEm: null } };
+  const naJanela = { vencimento: { gte: de, lte: ate } };
+  const [parcelas, abatido] = await Promise.all([
+    db.finParcela.aggregate({
+      where: { companyId, ...naJanela, ...doTipo },
+      _sum: { valor: true },
+    }),
+    db.finBaixa.aggregate({
+      where: {
+        companyId,
+        estornadaEm: null,
+        parcela: { ...naJanela, ...doTipo },
+      },
+      _sum: { valor: true },
+    }),
+  ]);
+  return round2(
+    Math.max(0, (parcelas._sum.valor ?? 0) - (abatido._sum.valor ?? 0))
+  );
 }
 
 /* ---- DFC: por onde o dinheiro andou ------------------------------------- */
@@ -139,7 +187,13 @@ export async function montarDFC(
     // linha ele caía na sobra e a tela chamava de "transferência" — dizer o
     // nome errado do dinheiro é pior que não mostrar.
     db.finConta.aggregate({
-      where: { companyId, saldoInicialEm: { gte: de, lte: ate } },
+      // cartão não guarda dinheiro (RN-039) e está fora do saldo: incluí-lo
+      // aqui quebraria o teste de honestidade do DFC
+      where: {
+        companyId,
+        tipo: { not: "CARTAO" },
+        saldoInicialEm: { gte: de, lte: ate },
+      },
       _sum: { saldoInicial: true },
     }),
     db.finBaixa.findMany({
@@ -153,20 +207,48 @@ export async function montarDFC(
             lancamento: {
               select: {
                 tipo: true,
-                categoria: { select: { nome: true, codigo: true } },
+                categoria: { select: { nome: true, codigo: true, sistema: true } },
               },
             },
           },
         },
       },
+      // era o ÚNICO relatório sem teto, com o período vindo da URL: um
+      // "?de=2020-01-01&ate=2030-12-31" carregava todas as baixas da loja
+      // com o join até a categoria e estourava a memória da função. O DRE e
+      // o fluxo já param em TETO_RELATORIO e AVISAM na tela; aqui não havia
+      // nem teto nem campo para dizer que faltou (auditoria de 03/09/2026).
+      orderBy: { data: "asc" },
+      take: TETO_DFC + 1,
     }),
   ]);
+  const truncado = baixas.length > TETO_DFC;
+  const usadas = truncado ? baixas.slice(0, TETO_DFC) : baixas;
+
+  const raizesDoSistema = new Set(
+    (
+      await db.finCategoria.findMany({
+        where: { companyId, sistema: true, paiId: null },
+        select: { codigo: true },
+      })
+    ).map((r) => r.codigo)
+  );
+  /**
+   * Quem diz se o "07" é o NOSSO bloco de investimentos é a RAIZ da árvore,
+   * não a folha: a loja pode ter criado uma categoria dela com o código "07"
+   * (aí a despesa dela é despesa mesmo), e pode ter criado "07.01 Máquinas"
+   * DENTRO do nosso bloco (aí é investimento). Auditoria de 03/09/2026.
+   */
+  const raizEhDoSistema = (codigo: string | null) => {
+    const raiz = codigo ? codigo.split(".")[0] : null;
+    return raiz === null ? true : raizesDoSistema.has(raiz);
+  };
 
   const porChave = new Map<string, LinhaDFC>();
-  for (const b of baixas) {
+  for (const b of usadas) {
     const l = b.parcela.lancamento;
     const codigo = l.categoria?.codigo ?? null;
-    const grupo = grupoDFCdoCodigo(codigo);
+    const grupo = grupoDFCdoCodigo(codigo, raizEhDoSistema(codigo));
     const nome = l.categoria
       ? `${l.categoria.codigo} · ${l.categoria.nome}`
       : "Sem categoria";
@@ -199,6 +281,7 @@ export async function montarDFC(
     grupos,
     geradoNoPeriodo,
     saldosDeclarados,
+    truncado,
     // o que ainda sobra entre o gerado e a diferença dos saldos é
     // transferência entrando/saindo do recorte (RN-032) — dita na tela,
     // nunca escondida. A conta FECHA: inicial + gerado + declarado +
@@ -364,11 +447,32 @@ const SEM_AVISO: AvisoContaPadrao = {
  * daria 500 no painel E em Contas a Receber ao mesmo tempo — a mesma lição do
  * `garantirRecorrencias`.
  */
+/** Quanto tempo o aviso reaproveita a resposta anterior da mesma loja. */
+const MS_AVISO = 60_000;
+const cacheDoAviso = new Map<string, { em: number; aviso: AvisoContaPadrao }>();
+
+/**
+ * Esquece o aviso guardado desta loja. A rota das contas chama ao salvar:
+ * sem isso a lojista escolhia a conta padrão e o aviso vermelho continuava
+ * na tela por até um minuto, dizendo que falta o que ela acabou de fazer.
+ */
+export function esquecerAvisoDaContaPadrao(companyId: string): void {
+  cacheDoAviso.delete(companyId);
+}
+
 export async function conferirContaPadrao(
   companyId: string
 ): Promise<AvisoContaPadrao> {
+  // a consulta é a MESMA da varredura (três subconsultas correlacionadas), e
+  // a lojista abre painel, Contas a Receber e Contas a Pagar em sequência.
+  // O número serve para assustar, não para auditar: um minuto de memória
+  // basta e tira o custo de cada clique (auditoria de 03/09/2026).
+  const guardado = cacheDoAviso.get(companyId);
+  if (guardado && Date.now() - guardado.em < MS_AVISO) return guardado.aviso;
   try {
-    return await conferirContaPadraoOuFalha(companyId);
+    const aviso = await conferirContaPadraoOuFalha(companyId);
+    cacheDoAviso.set(companyId, { em: Date.now(), aviso });
+    return aviso;
   } catch (e) {
     console.error("[financeiro] aviso da conta padrão falhou", e);
     return SEM_AVISO;

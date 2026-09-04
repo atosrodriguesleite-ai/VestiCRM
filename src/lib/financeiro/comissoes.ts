@@ -1,5 +1,6 @@
 import { Prisma } from "@prisma/client";
 import { db } from "../db";
+import { formatarDia } from "./dia";
 import { PAID_ORDER_STATUSES, round2 } from "../orders";
 import { dataDoDia, diaSP } from "./lancamentos";
 
@@ -131,10 +132,7 @@ export async function gerarContaDaComissao(
     if (periodosSeCruzam(chave, novo))
       return {
         ok: false,
-        erro: `Já existe comissão desta vendedora de ${chave.de.split("-").reverse().join("/")} a ${chave.ate
-          .split("-")
-          .reverse()
-          .join("/")} — cancele aquela antes de gerar um período que a cobre`,
+        erro: `Já existe comissão desta vendedora de ${formatarDia(chave.de)} a ${formatarDia(chave.ate)} — cancele aquela antes de gerar um período que a cobre`,
         status: 409,
       };
   }
@@ -152,13 +150,16 @@ export async function gerarContaDaComissao(
       status: 400,
     };
 
+  // arquivada some das escolhas NOVAS — é a régua do módulo inteiro
+  // (porta-vendas, fornecedor, lançamento e conta fixa filtram igual). Sem o
+  // filtro, a conta da comissão nascia apontando para uma categoria que a
+  // lojista não consegue mais ver nem escolher (auditoria de 03/09/2026)
   const categoria = await db.finCategoria.findFirst({
-    where: { companyId, codigo: CODIGO_CATEGORIA_COMISSAO },
+    where: { companyId, codigo: CODIGO_CATEGORIA_COMISSAO, arquivadaEm: null },
     select: { id: true },
   });
 
-  const emBR = (dia: string) => dia.split("-").reverse().join("/");
-  const descricao = `Comissão · ${vendedora.name} · ${emBR(de)} a ${emBR(ate)}`;
+  const descricao = `Comissão · ${vendedora.name} · ${formatarDia(de)} a ${formatarDia(ate)}`;
 
   // Comissão CANCELADA e gerada de novo: o único (loja, origem, origemId)
   // vale para cancelado também, então a segunda geração precisa de uma chave

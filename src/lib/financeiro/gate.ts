@@ -1,7 +1,9 @@
 import { NextResponse } from "next/server";
+import { redirect } from "next/navigation";
 import { db } from "../db";
 import { requireUser, type SessionUser } from "../auth";
 import { isManagerUp } from "../scope";
+import { autorDeGente } from "./lancamentos";
 
 /**
  * A PORTEIRA DO MÓDULO FINANCEIRO (RN-029).
@@ -51,5 +53,37 @@ export async function porteiraFinanceiro(): Promise<PorteiraFinanceiro> {
       resposta: NextResponse.json({ error: "Sem permissão" }, { status: 403 }),
     };
   }
-  return { ok: true, user };
+  /**
+   * O NOME DE QUEM FEZ sai daqui já desambiguado: "Sistema" é a identidade
+   * da baixa automática da porta única de vendas (RN-033) e está no índice
+   * único do banco. Uma vendedora chamada "Sistema" faria a baixa dela ser
+   * lida como automática — a porta a estornaria sozinha — e esbarraria no
+   * índice, devolvendo 500 em vez de frase. Tratando aqui, TODA rota do
+   * módulo fica coberta de uma vez (auditoria de 03/09/2026).
+   */
+  return { ok: true, user: { ...user, name: autorDeGente(user.name) } };
+}
+
+/**
+ * A PORTEIRA DAS TELAS (RN-029).
+ *
+ * As 13 páginas do módulo repetiam à mão as mesmas seis linhas — `requireUser`
+ * + `isManagerUp` + a consulta da chave + `financeiroLiberado` + `redirect` —
+ * e a varredura de teste só olhava as ROTAS. Uma página nova que esquecesse
+ * uma das duas chaves entrava em produção sem guarda e sem teste vermelho, e
+ * uma vendedora (ou uma loja sem o módulo) veria a tela de dinheiro. Achado
+ * da auditoria completa do módulo, 03/09/2026.
+ *
+ * Devolve o usuário, ou REDIRECIONA — nunca devolve sem as duas chaves.
+ */
+export async function porteiraFinanceiroTela(): Promise<SessionUser> {
+  const user = await requireUser();
+  if (!isManagerUp(user)) redirect("/dashboard");
+  const company = await db.company.findUnique({
+    where: { id: user.companyId },
+    select: { financeEnabled: true },
+  });
+  if (!financeiroLiberado(user, company?.financeEnabled ?? false))
+    redirect("/financeiro");
+  return { ...user, name: autorDeGente(user.name) };
 }

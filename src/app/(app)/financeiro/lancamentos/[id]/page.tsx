@@ -1,8 +1,6 @@
-import { notFound, redirect } from "next/navigation";
-import { requireUser } from "@/lib/auth";
+import { notFound } from "next/navigation";
 import { db } from "@/lib/db";
-import { isManagerUp } from "@/lib/scope";
-import { financeiroLiberado } from "@/lib/financeiro/gate";
+import { porteiraFinanceiroTela } from "@/lib/financeiro/gate";
 import { carregarFicha } from "@/lib/financeiro/consulta";
 import { notaDoLancamento } from "@/lib/financeiro/nota-do-lancamento";
 import {
@@ -24,14 +22,7 @@ export default async function LancamentoPage({
 }: {
   params: Promise<{ id: string }>;
 }) {
-  const user = await requireUser();
-  if (!isManagerUp(user)) redirect("/dashboard");
-  const company = await db.company.findUnique({
-    where: { id: user.companyId },
-    select: { financeEnabled: true },
-  });
-  if (!financeiroLiberado(user, company?.financeEnabled ?? false))
-    redirect("/financeiro");
+  const user = await porteiraFinanceiroTela();
 
   const { id } = await params;
   const l = await carregarFicha(user.companyId, id);

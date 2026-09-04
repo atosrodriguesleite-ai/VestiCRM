@@ -2,7 +2,13 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { decodificarOFX, diaDoOFX, lerOFX, valorDoOFX } from "../financeiro/ofx";
+import {
+  decimalDoExtrato,
+  decodificarOFX,
+  diaDoOFX,
+  lerOFX,
+  valorDoOFX,
+} from "../financeiro/ofx";
 import { casamentosObvios } from "../financeiro/conciliacao";
 import {
   dividirBaixaNasParcelas,
@@ -245,13 +251,16 @@ describe("as regras da conciliação (RN-037)", () => {
   it("baixa ESTORNADA solta a conciliação — nas duas portas de estorno", () => {
     // linha "conferida" contra dinheiro que voltou atrás faria a conferência
     // do mês fechar com um erro impossível de achar
-    expect(motor).toContain("export async function soltarConciliacaoDaBaixa");
-    expect(ler("src/app/api/financeiro/baixas/[id]/route.ts")).toContain(
-      "soltarConciliacaoDaBaixa"
-    );
-    expect(ler("src/lib/financeiro/porta-vendas.ts")).toContain(
-      "soltarConciliacaoDaBaixa"
-    );
+    // o guarda olha o COMPORTAMENTO (o vínculo é apagado), não o nome de uma
+    // função: as duas portas fazem isso DENTRO da transação do estorno —
+    // soltas, uma queda no meio deixava a linha do banco "conferida" contra
+    // dinheiro que voltou atrás (auditoria completa do módulo, 03/09/2026)
+    for (const porta of [
+      "src/app/api/financeiro/baixas/[id]/route.ts",
+      "src/lib/financeiro/porta-vendas.ts",
+    ]) {
+      expect(ler(porta)).toMatch(/(tx|db)\.finOfxVinculo\.deleteMany/);
+    }
   });
 
   it("os cards contam o PERÍODO INTEIRO, nunca as linhas exibidas (RN-030)", () => {
@@ -304,6 +313,34 @@ describe("as regras da conciliação (RN-037)", () => {
     expect(corpo).toContain("Esta linha já está conferida");
   });
 
+  it("a conta EM ABERTO aparece no painel (senão a lojista lança em dobro)", () => {
+    // o painel só mostrava BAIXAS: a venda de R$ 1.500 registrada e ainda
+    // não recebida ficava invisível, e o texto da tela mandava usar o
+    // "Lançar" — criando uma SEGUNDA receita do mesmo dinheiro, com a
+    // parcela original virando atrasada e a cobrança (RN-034) indo atrás de
+    // dinheiro que já entrou (auditoria completa do módulo, 03/09/2026)
+    expect(motor).toContain("export type ParcelaEmAberto");
+    expect(motor).toContain("emAberto:");
+    const view = ler("src/app/(app)/financeiro/conciliacao/conciliacao-view.tsx");
+    expect(view).toContain("Ainda em aberto na loja");
+    expect(view).toContain("não lance de novo");
+    // e o botão registra o recebimento pela porta de sempre — conferir
+    // continua sem quitar nada sozinho
+    expect(view).toContain("<BaixaModal");
+  });
+
+  it("a ficha que cobre MENOS que a linha é recusada antes de escrever", () => {
+    // criando a baixa sem vínculo, nada detectava o reenvio da mesma ficha
+    // (dinheiro em dobro) e a baixa solta virava candidata do casamento
+    // automático seguinte — carimbada contra OUTRA linha do banco
+    const corpo = corpoDe("criarLancamentoDaLinha");
+    expect(corpo).toContain("const somaDaFicha = round2(");
+    expect(corpo).toContain("if (somaDaFicha < alvo - 0.005)");
+    expect(corpo).toContain("marque todas em");
+    // e a linha de R$ 0,00 também: nenhuma ficha soma zero
+    expect(corpo).toContain("é de R$ 0,00");
+  });
+
   it("no CARTÃO a porta recusa: lá o dinheiro não anda (RN-039)", () => {
     const corpo = corpoDe("criarLancamentoDaLinha");
     expect(corpo).toContain('conta.tipo === "CARTAO"');
@@ -320,6 +357,31 @@ describe("as regras da conciliação (RN-037)", () => {
   it("só carimba conferido quando os dois lados somam IGUAL", () => {
     const corpo = corpoDe("criarLancamentoDaLinha");
     expect(corpo).toContain("Math.abs(baixado - alvo) < 0.005");
+  });
+
+  it("o valor do OFX: quem desempata as três casas é o ARQUIVO INTEIRO", () => {
+    // "-123.450" pode ser cento e vinte e três mil ou R$ 123,45 com três
+    // casas (o padrão OFX permite). Errar multiplica por MIL: a linha nunca
+    // casa, fica eternamente a conferir, e o extrato diverge do banco em
+    // três ordens de grandeza sem nenhum aviso, porque a linha foi lida "com
+    // sucesso" (auditoria completa do módulo, 03/09/2026)
+    expect(decimalDoExtrato(["-123.450", "-1200.50"])).toBe(".");
+    expect(decimalDoExtrato(["1.200,50"])).toBe(",");
+    expect(decimalDoExtrato(["1.200"])).toBeNull();
+    expect(valorDoOFX("-123.450", ".")).toBe(-123.45);
+    expect(valorDoOFX("1.200,50")).toBe(1200.5);
+    expect(valorDoOFX("1,200.50")).toBe(1200.5);
+    // sem prova no arquivo, três dígitos seguem contando como milhar
+    expect(valorDoOFX("1.200")).toBe(1200);
+  });
+
+  it("dia que não existe no calendário é DESCARTADO e contado, não 500", () => {
+    // "20260231" passava como 2026-02-31 e só era recusado na gravação,
+    // derrubando a IMPORTAÇÃO INTEIRA e deixando o registro do arquivo órfão
+    expect(diaDoOFX("20260231")).toBeNull();
+    expect(diaDoOFX("20260229")).toBeNull(); // 2026 não é bissexto
+    expect(diaDoOFX("20240229")).toBe("2024-02-29");
+    expect(diaDoOFX("20260905120000[-3:BRT]")).toBe("2026-09-05");
   });
 
   it("o dinheiro do banco baixa as parcelas em ordem, sem passar do valor de cada uma", () => {

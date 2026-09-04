@@ -43,6 +43,14 @@ export function DfcView({
         }
       />
 
+      {dfc.truncado && (
+        <p className="mb-4 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+          O período tem mais movimento do que cabe numa consulta só — os
+          números abaixo somam parte dele. Encurte as datas para a conta
+          fechar.
+        </p>
+      )}
+
       <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
         <StatTile label="Saldo no início" value={brl(dfc.saldoInicial)} />
         <StatTile

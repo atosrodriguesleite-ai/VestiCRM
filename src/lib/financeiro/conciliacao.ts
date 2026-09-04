@@ -1,15 +1,20 @@
 import { Prisma } from "@prisma/client";
 import { db } from "../db";
 import { round2 } from "../orders";
-import { dataDoDia, diaSP, valorMovimentado } from "./lancamentos";
+import {
+  dataDoDia,
+  diaSP,
+  saldoDaParcela,
+  valorMovimentado,
+} from "./lancamentos";
 import { lerOFX, type MovimentoOFX } from "./ofx";
 import {
+  combinaComALinha,
   dividirBaixaNasParcelas,
   JANELA_DIAS,
 } from "./conciliacao-tela";
 import { conferirLancamento, type LancamentoInput } from "./lancamento-form";
 
-export { JANELA_DIAS };
 
 /**
  * CONCILIAÇÃO BANCÁRIA (RN-037) — "o sistema bate com o banco?".
@@ -154,18 +159,47 @@ export function casamentosObvios(
   baixas: ParaCasar[],
   janelaDias = JANELA_DIAS
 ): { linhaId: string; baixaId: string }[] {
-  const dia = (d: string) => new Date(`${d}T12:00:00Z`).getTime();
-  const combina = (l: ParaCasar, b: ParaCasar) =>
-    Math.abs(b.valor - l.valor) < 0.005 &&
-    Math.abs(dia(b.dia) - dia(l.dia)) <= janelaDias * 86_400_000;
+  // A MESMA RÉGUA DA TELA: `combinaComALinha` é o que faz o ✨ subir as
+  // candidatas prováveis. Tendo duas cópias, afrouxar a tolerância de um
+  // lado fazia a tela prometer par que o automático não casava — e nenhum
+  // teste pegava, porque cada lado tinha o seu (auditoria de 03/09/2026).
+  const combina = (l: ParaCasar, b: ParaCasar) => combinaComALinha(b, l, janelaDias);
+
+  /**
+   * INDEXADO POR VALOR: comparar todas as linhas com todas as baixas é
+   * quadrático, e `casarSozinho` alimenta esta função com até 5.000 de cada
+   * lado — 25 milhões de comparações, cada uma construindo duas datas.
+   * A primeira importação de um extrato anual estourava os 60 segundos da
+   * função e morria no meio (auditoria de 03/09/2026). O valor tem que
+   * bater EXATO (< meio centavo), então ele é a chave natural.
+   */
+  const centavos = (v: number) => Math.round(v * 100);
+  const porValor = new Map<number, ParaCasar[]>();
+  for (const b of baixas) {
+    const k = centavos(b.valor);
+    const atual = porValor.get(k);
+    if (atual) atual.push(b);
+    else porValor.set(k, [b]);
+  }
+  const linhasPorValor = new Map<number, ParaCasar[]>();
+  for (const l of linhas) {
+    const k = centavos(l.valor);
+    const atual = linhasPorValor.get(k);
+    if (atual) atual.push(l);
+    else linhasPorValor.set(k, [l]);
+  }
 
   const pares: { linhaId: string; baixaId: string }[] = [];
   for (const linha of linhas) {
-    const candidatas = baixas.filter((b) => combina(linha, b));
+    const candidatas = (porValor.get(centavos(linha.valor)) ?? []).filter((b) =>
+      combina(linha, b)
+    );
     if (candidatas.length !== 1) continue;
     // e do outro lado? a baixa também precisa ter uma única linha possível
     const escolhida = candidatas[0];
-    const linhasQueServem = linhas.filter((l) => combina(l, escolhida));
+    const linhasQueServem = (linhasPorValor.get(centavos(escolhida.valor)) ?? []).filter(
+      (l) => combina(l, escolhida)
+    );
     if (linhasQueServem.length !== 1) continue;
     pares.push({ linhaId: linha.id, baixaId: escolhida.id });
   }
@@ -252,14 +286,6 @@ export async function casarSozinho(
   return criados.count;
 }
 
-/**
- * Solta a conciliação de uma baixa que foi ESTORNADA. Sem isso a linha do
- * banco ficaria "conferida" para sempre contra dinheiro que voltou atrás — e
- * a conferência do mês fecharia com um erro que ninguém consegue achar.
- */
-export async function soltarConciliacaoDaBaixa(baixaId: string): Promise<void> {
-  await db.finOfxVinculo.deleteMany({ where: { baixaId } });
-}
 
 /* ---- conciliar na mão --------------------------------------------------- */
 
@@ -409,23 +435,16 @@ export async function criarLancamentoDaLinha(
   if (linha.vinculos.length > 0)
     return { ok: false, erro: "Esta linha já está conferida", status: 409 };
 
-  // ONDE O DINHEIRO ANDA NÃO PODE SER CARTÃO (RN-039): o cartão não guarda
-  // dinheiro, junta compras numa fatura — baixar aqui quitaria a parcela
-  // fora de qualquer fatura. Conta arquivada também não recebe movimento
-  // novo. É a mesma trava da porta normal de baixa.
-  const conta = await db.finConta.findFirst({
-    where: { id: linha.contaId, companyId },
-    select: { tipo: true, arquivadaEm: true },
-  });
-  if (!conta) return { ok: false, erro: "Conta não encontrada", status: 404 };
-  if (conta.tipo === "CARTAO")
+
+  // linha de R$ 0,00 (estorno já casado, tarifa isenta) não vira lançamento:
+  // nenhuma ficha jamais soma zero, então ela nasceria SEM baixa nenhuma e a
+  // tela ainda diria "criado e baixado" (achado da auditoria, 03/09/2026).
+  if (Math.abs(linha.valor) < 0.005)
     return {
       ok: false,
-      erro: "No cartão de crédito o dinheiro não anda — a compra entra na fatura, e a fatura é que se paga",
+      erro: "Esta linha do banco é de R$ 0,00 — não há dinheiro para lançar. Marque como fora do sistema.",
       status: 400,
     };
-  if (conta.arquivadaEm)
-    return { ok: false, erro: "Esta conta está arquivada", status: 409 };
 
   // o LADO tem que bater com o sinal do banco: dinheiro que entrou é conta a
   // receber, dinheiro que saiu é conta a pagar. Trocado, o DRE somaria ao
@@ -450,11 +469,59 @@ export async function criarLancamentoDaLinha(
 
   const alvo = round2(Math.abs(linha.valor));
 
+  /**
+   * A FICHA TEM QUE COBRIR A LINHA INTEIRA.
+   *
+   * Cobrindo menos, a versão anterior criava a baixa e NÃO escrevia vínculo
+   * nenhum — e isso abria dois buracos de dinheiro (auditoria de 03/09/2026):
+   * sem vínculo, nada detectava o reenvio da mesma ficha (a lojista clica de
+   * novo depois de um erro de rede e o dinheiro entra duas vezes), e a baixa
+   * solta virava candidata do casamento automático da importação seguinte —
+   * carimbada contra OUTRA linha do banco, que nunca foi dela.
+   *
+   * O depósito que pagou duas contas continua tendo caminho, e é o de
+   * sempre: lançar as duas (aqui ou em Contas a Receber) e marcar as duas no
+   * "Conferir", que fecha as duas pontas de uma vez só.
+   */
+  const somaDaFicha = round2(
+    conferido.dados.parcelas.reduce((soma, p) => soma + p.valor, 0)
+  );
+  if (somaDaFicha < alvo - 0.005)
+    return {
+      ok: false,
+      erro:
+        `Esta ficha soma R$ ${somaDaFicha.toFixed(2)} e a linha do banco é de R$ ${alvo.toFixed(2)}. ` +
+        "Se este dinheiro pagou mais de uma conta, lance cada uma e depois marque todas em \"Conferir\".",
+      status: 400,
+    };
+
   try {
     return await db.$transaction(
       async (tx) => {
         // outra aba pode ter conferido esta linha enquanto a ficha estava
         // aberta: no SERIALIZÁVEL esta leitura é o que segura a corrida
+        // ONDE O DINHEIRO ANDA NÃO PODE SER CARTÃO (RN-039): o cartão não
+        // guarda dinheiro, junta compras numa fatura — baixar aqui quitaria
+        // a parcela fora de qualquer fatura. Conta arquivada também não
+        // recebe movimento novo. A conferência mora DENTRO da transação,
+        // como na porta normal de baixa: lida de fora, o admin podia
+        // converter a conta em cartão com a ficha aberta e a baixa entrava
+        // assim mesmo (auditoria de 03/09/2026).
+        const conta = await tx.finConta.findFirst({
+          where: { id: linha.contaId, companyId },
+          select: { tipo: true, arquivadaEm: true },
+        });
+        if (!conta)
+          return { ok: false as const, erro: "Conta não encontrada", status: 404 };
+        if (conta.tipo === "CARTAO")
+          return {
+            ok: false as const,
+            erro: "No cartão de crédito o dinheiro não anda — a compra entra na fatura, e a fatura é que se paga",
+            status: 400,
+          };
+        if (conta.arquivadaEm)
+          return { ok: false as const, erro: "Esta conta está arquivada", status: 409 };
+
         const jaTem = await tx.finOfxVinculo.count({ where: { linhaId: linha.id } });
         if (jaTem > 0)
           return {
@@ -513,22 +580,23 @@ export async function criarLancamentoDaLinha(
           },
         });
 
-        // só carimba "conferido" quando ESTA ficha sozinha bate com a linha.
-        // Cobrindo menos (a linha do banco pagou duas contas), a linha segue
-        // na fila e as baixas recém-criadas viram candidatas: a lojista marca
-        // as duas e fecha pelo "Conferir" de sempre (RN-037)
+        // a ficha cobre a linha (conferido lá em cima), então o dinheiro do
+        // banco vira baixa por inteiro e a linha fecha SEMPRE — nenhuma baixa
+        // nasce solta deste caminho
         const conciliada = baixaIds.length > 0 && Math.abs(baixado - alvo) < 0.005;
-        if (conciliada) {
-          await tx.finOfxVinculo.createMany({
-            data: baixaIds.map((baixaId) => ({
-              companyId,
-              linhaId: linha.id,
-              baixaId,
-              automatico: false,
-              autorNome,
-            })),
-          });
-        }
+        if (!conciliada)
+          throw new Error(
+            `[conciliacao] a ficha deveria cobrir a linha: baixado ${baixado} de ${alvo}`
+          );
+        await tx.finOfxVinculo.createMany({
+          data: baixaIds.map((baixaId) => ({
+            companyId,
+            linhaId: linha.id,
+            baixaId,
+            automatico: false,
+            autorNome,
+          })),
+        });
 
         return {
           ok: true as const,
@@ -538,12 +606,20 @@ export async function criarLancamentoDaLinha(
           falta: round2(alvo - baixado),
         };
       },
-      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }
+      {
+        isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+        // o padrão do Prisma é 5s, e aqui cabem até 60 criações de baixa
+        // (um TED único quitando um lançamento em 60×): estourando, o P2028
+        // subia como 500 depois de a lojista preencher a ficha inteira
+        timeout: 30_000,
+        maxWait: 10_000,
+      }
     );
   } catch (e) {
     // corrida de verdade no serializável (P2034) ou o único do vínculo
     const code = (e as { code?: string })?.code;
-    if (code === "P2034" || code === "P2002")
+    // P2028 = a transação estourou o tempo; P2034 = corrida no serializável
+    if (code === "P2034" || code === "P2002" || code === "P2028")
       return {
         ok: false,
         erro: "Duas pessoas mexeram nesta linha ao mesmo tempo — tente de novo",
@@ -621,9 +697,36 @@ export type BaixaCandidata = {
   valor: number;
 };
 
+/**
+ * A conta que a loja registrou e AINDA NÃO RECEBEU.
+ *
+ * Ela não pode ser conciliada (conferir carimba, nunca quita — RN-037), mas
+ * PRECISA aparecer: sem isso o painel dizia "nada registrado esperando
+ * conferência" para uma venda de R$ 1.500 que estava ali, em aberto, e o
+ * texto ainda mandava a lojista usar o "Lançar" — que criava uma SEGUNDA
+ * receita do mesmo dinheiro. Receita em dobro no DRE, a parcela original
+ * virando atrasada e a cobrança (RN-034) indo atrás de dinheiro que já
+ * entrou. Achado da auditoria completa do módulo, 03/09/2026.
+ *
+ * Aqui ela aparece com o botão de registrar o recebimento: um clique, e aí
+ * sim ela vira candidata e a linha do banco fecha.
+ */
+export type ParcelaEmAberto = {
+  parcelaId: string;
+  lancamentoId: string;
+  numero: number;
+  descricao: string;
+  pessoa: string | null;
+  vencimento: string;
+  tipo: "RECEITA" | "DESPESA";
+  /** o que ainda falta receber/pagar, com sinal (para comparar com a linha) */
+  falta: number;
+};
+
 export type PainelConciliacao = {
   linhas: LinhaDoBanco[];
   candidatas: BaixaCandidata[];
+  emAberto: ParcelaEmAberto[];
   resumo: { pendentes: number; conciliadas: number; ignoradas: number; semExtrato: number };
 };
 
@@ -647,7 +750,7 @@ export async function carregarConciliacao(
     gte: new Date(de.getTime() - folga),
     lte: new Date(ate.getTime() + folga),
   };
-  const [linhas, baixas, pendentes, conciliadas, ignoradas, semExtrato] =
+  const [linhas, baixas, abertas, pendentes, conciliadas, ignoradas, semExtrato] =
     await Promise.all([
     db.finOfxLinha.findMany({
       where: {
@@ -711,6 +814,37 @@ export async function carregarConciliacao(
       orderBy: { data: "asc" },
       take: 500,
     }),
+    // as contas EM ABERTO da janela: não se conciliam (conferir nunca quita),
+    // mas precisam APARECER — senão a lojista lança o mesmo dinheiro de novo
+    db.finParcela.findMany({
+      where: {
+        companyId,
+        vencimento: janelaCandidatas,
+        lancamento: { canceladoEm: null },
+        // a tela confere UMA conta: a parcela desta conta, ou a que ainda
+        // não tem conta prevista (o caso mais comum). Sem o filtro, as
+        // contas das outras enchiam o teto de uma tela que não é delas
+        OR: [{ contaId }, { contaId: null }],
+      },
+      select: {
+        id: true,
+        numero: true,
+        valor: true,
+        vencimento: true,
+        baixas: { select: { valor: true, estornadaEm: true } },
+        lancamento: {
+          select: {
+            id: true,
+            descricao: true,
+            tipo: true,
+            customer: { select: { name: true } },
+            fornecedor: { select: { nome: true } },
+          },
+        },
+      },
+      orderBy: { vencimento: "asc" },
+      take: 300,
+    }),
     db.finOfxLinha.count({ where: { ...daJanela, ignoradaEm: null, vinculos: { none: {} } } }),
     db.finOfxLinha.count({ where: { ...daJanela, vinculos: { some: {} } } }),
     db.finOfxLinha.count({ where: { ...daJanela, ignoradaEm: { not: null } } }),
@@ -752,6 +886,20 @@ export async function carregarConciliacao(
         valor: comSinal(v.baixa),
       })),
     })),
+    emAberto: abertas
+      .map((p) => ({ p, falta: saldoDaParcela(p) }))
+      .filter(({ falta }) => falta > 0.004)
+      .map(({ p, falta }) => ({
+        parcelaId: p.id,
+        lancamentoId: p.lancamento.id,
+        numero: p.numero,
+        descricao: p.lancamento.descricao,
+        pessoa:
+          p.lancamento.customer?.name ?? p.lancamento.fornecedor?.nome ?? null,
+        vencimento: diaSP(p.vencimento),
+        tipo: p.lancamento.tipo === "RECEITA" ? ("RECEITA" as const) : ("DESPESA" as const),
+        falta: round2((p.lancamento.tipo === "RECEITA" ? 1 : -1) * falta),
+      })),
     candidatas: baixas.map((b) => ({
       id: b.id,
       lancamentoId: b.parcela.lancamento.id,

@@ -41,6 +41,15 @@ export type FiltroMovimentacoes = {
 export const TETO_LINHAS = 500;
 /** Teto do resumo: os cards somam o período inteiro, não só a página. */
 export const TETO_RESUMO = 20_000;
+/**
+ * Quantas parcelas a lista lê quando há FILTRO DE SITUAÇÃO. A situação é
+ * calculada (sai do vencimento e das baixas), então não dá para filtrar no
+ * SQL: era preciso ler, cortar em 500 e só então filtrar — e numa loja com
+ * mais de 500 parcelas no mês a lista de "Quitado" aparecia VAZIA enquanto o
+ * card mostrava R$ 90 mil (achado da auditoria completa, 03/09/2026). Lendo
+ * mais e filtrando ANTES do corte, a lista volta a bater com o card.
+ */
+export const TETO_COM_FILTRO = 5_000;
 
 export type LinhaMovimentacao = {
   parcelaId: string;
@@ -66,6 +75,8 @@ export type ResultadoMovimentacoes = {
   linhas: LinhaMovimentacao[];
   resumo: ResumoPeriodo;
   truncado: boolean;
+  /** os CARDS não couberam no teto: o período é grande demais para somar */
+  resumoTruncado: boolean;
 };
 
 /** O que a lista e o resumo têm em comum: o recorte do período. */
@@ -101,6 +112,7 @@ export async function carregarMovimentacoes(
 ): Promise<ResultadoMovimentacoes> {
   const { base, de, ate } = filtro;
   const onde = ondeBuscar(filtro);
+  const comFiltro = Boolean(filtro.status && filtro.status !== "TODOS");
 
   // DUAS consultas de propósito (achado da revisão 31/08/2026): os CARDS
   // somam o período INTEIRO, a lista mostra as primeiras 500. Calcular o
@@ -115,7 +127,10 @@ export async function carregarMovimentacoes(
         baixas: { select: { valor: true, desconto: true, juros: true, estornadaEm: true, data: true } },
         lancamento: { select: { canceladoEm: true } },
       },
-      take: TETO_RESUMO,
+      // ordem definida: sem ela o Postgres devolve um subconjunto ARBITRÁRIO
+      // quando o teto é atingido, e os cards mudam de valor entre dois F5
+      orderBy: [{ vencimento: "asc" }, { numero: "asc" }],
+      take: TETO_RESUMO + 1,
     }),
     db.finParcela.findMany({
       where: onde,
@@ -139,40 +154,40 @@ export async function carregarMovimentacoes(
         },
       },
       orderBy: [{ vencimento: "asc" }, { numero: "asc" }],
-      take: TETO_LINHAS + 1,
+      // com filtro de situação a lista lê mais e corta DEPOIS de filtrar
+      take: (comFiltro ? TETO_COM_FILTRO : TETO_LINHAS) + 1,
     }),
   ]);
 
-  const truncado = parcelas.length > TETO_LINHAS;
-  const usadas = truncado ? parcelas.slice(0, TETO_LINHAS) : parcelas;
+  const teto = comFiltro ? TETO_COM_FILTRO : TETO_LINHAS;
+  const leuTudo = parcelas.length <= teto;
+  const usadas = leuTudo ? parcelas : parcelas.slice(0, teto);
 
-  const todas = usadas.map((p) => {
+  const todas: LinhaMovimentacao[] = usadas.map((p) => {
     const cancelado = Boolean(p.lancamento.canceladoEm);
     const ativas = p.baixas.filter((b) => !b.estornadaEm);
     const ultima = ativas[ativas.length - 1];
     return {
-      linha: {
-        parcelaId: p.id,
-        lancamentoId: p.lancamentoId,
-        numero: p.numero,
-        totalParcelas: p.lancamento._count.parcelas,
-        vencimento: diaSP(p.vencimento),
-        liquidacao: ultima ? diaSP(ultima.data) : null,
-        descricao: p.lancamento.descricao,
-        documento: p.lancamento.documento,
-        pessoa:
-          p.lancamento.customer?.name ?? p.lancamento.fornecedor?.nome ?? null,
-        categoria: p.lancamento.categoria
-          ? `${p.lancamento.categoria.codigo} · ${p.lancamento.categoria.nome}`
-          : null,
-        conta: ultima?.conta.nome ?? p.conta?.nome ?? null,
-        valor: p.valor,
-        abatido: totalAbatido(p.baixas),
-        saldo: saldoDaParcela(p),
-        status: statusDaParcela(p, hoje, cancelado),
-        diasAtraso: diasDeAtraso(p, hoje),
-        cancelado,
-      } satisfies LinhaMovimentacao,
+      parcelaId: p.id,
+      lancamentoId: p.lancamentoId,
+      numero: p.numero,
+      totalParcelas: p.lancamento._count.parcelas,
+      vencimento: diaSP(p.vencimento),
+      liquidacao: ultima ? diaSP(ultima.data) : null,
+      descricao: p.lancamento.descricao,
+      documento: p.lancamento.documento,
+      pessoa:
+        p.lancamento.customer?.name ?? p.lancamento.fornecedor?.nome ?? null,
+      categoria: p.lancamento.categoria
+        ? `${p.lancamento.categoria.codigo} · ${p.lancamento.categoria.nome}`
+        : null,
+      conta: ultima?.conta.nome ?? p.conta?.nome ?? null,
+      valor: p.valor,
+      abatido: totalAbatido(p.baixas),
+      saldo: saldoDaParcela(p),
+      status: statusDaParcela(p, hoje, cancelado),
+      diasAtraso: diasDeAtraso(p, hoje),
+      cancelado,
     };
   });
 
@@ -192,12 +207,14 @@ export async function carregarMovimentacoes(
     base === "liquidacao" ? { de, ate } : undefined
   );
 
-  const linhas =
-    filtro.status && filtro.status !== "TODOS"
-      ? todas.filter((t) => t.linha.status === filtro.status).map((t) => t.linha)
-      : todas.map((t) => t.linha);
+  // o filtro de situação vem ANTES do corte da página
+  const filtradas = comFiltro
+    ? todas.filter((l) => l.status === filtro.status)
+    : todas;
+  const linhas = filtradas.slice(0, TETO_LINHAS);
+  const truncado = !leuTudo || filtradas.length > TETO_LINHAS;
 
-  return { linhas, resumo, truncado };
+  return { linhas, resumo, truncado, resumoTruncado: paraResumo.length > TETO_RESUMO };
 }
 
 /** A ficha completa do lançamento (a janela de detalhe). */

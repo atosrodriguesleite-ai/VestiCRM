@@ -41,23 +41,33 @@ export async function POST(
     if (!lancamento)
       return NextResponse.json({ error: "Não encontrado" }, { status: 404 });
 
-    const anexo = await db.finAnexo.create({
-      data: {
-        companyId: porta.user.companyId,
-        lancamentoId: id,
-        fileName: parsed.data.fileName,
-        arquivo: parsed.data.arquivo,
-        autorNome: porta.user.name,
+    // as duas escritas andam JUNTAS, como no DELETE: o anexo é uma data-URL
+    // de alguns MB e a função pode morrer entre uma e outra — o comprovante
+    // apareceria na ficha sem nenhuma linha "Anexo adicionado" no histórico,
+    // e a RN-030 promete que anexar e remover ficam registrados com quem fez
+    const anexo = await db.$transaction(
+      async (tx) => {
+        const criado = await tx.finAnexo.create({
+          data: {
+            companyId: porta.user.companyId,
+            lancamentoId: id,
+            fileName: parsed.data.fileName,
+            arquivo: parsed.data.arquivo,
+            autorNome: porta.user.name,
+          },
+          select: { id: true, fileName: true, createdAt: true },
+        });
+        await tx.finLancamentoEvento.create({
+          data: {
+            lancamentoId: id,
+            descricao: `Anexo adicionado: ${criado.fileName}`,
+            autorNome: porta.user.name,
+          },
+        });
+        return criado;
       },
-      select: { id: true, fileName: true, createdAt: true },
-    });
-    await db.finLancamentoEvento.create({
-      data: {
-        lancamentoId: id,
-        descricao: `Anexo adicionado: ${anexo.fileName}`,
-        autorNome: porta.user.name,
-      },
-    });
+      { timeout: 30_000, maxWait: 10_000 }
+    );
     return NextResponse.json({ anexo });
   } catch (e) {
     if (e instanceof AuthError)

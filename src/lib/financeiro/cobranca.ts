@@ -135,11 +135,23 @@ export async function cobrarParcelaNoWhatsapp(
       .update({ where: { id: l.id }, data: { cobradoEm: l.cobradoEm } })
       .catch(() => {});
 
-  const conversa = await garantirConversaDaCliente(
-    companyId,
-    l.customer.id,
-    autor.id
-  );
+  // A CONVERSA TAMBÉM PODE FALHAR, e a vaga de "cobrada hoje" JÁ está
+  // tomada: sem este try, uma queda aqui subia como 500 e a conta ficava
+  // marcada como cobrada sem NENHUMA mensagem ter saído — a lojista clicava
+  // de novo, levava "já foi cobrada hoje" pelo resto do dia, riscava a
+  // cliente da lista, e a cliente nunca soube (auditoria de 03/09/2026).
+  let conversa;
+  try {
+    conversa = await garantirConversaDaCliente(companyId, l.customer.id, autor.id);
+  } catch (e) {
+    console.error("[financeiro] cobrança não achou a conversa", parcelaId, e);
+    await desmarcar();
+    return {
+      ok: false,
+      erro: "Não consegui abrir a conversa desta cliente — tente de novo",
+      status: 502,
+    };
+  }
   const conversationId = conversa.id;
 
   const dias = Math.max(

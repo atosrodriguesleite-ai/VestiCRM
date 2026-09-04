@@ -342,6 +342,12 @@ export function FormLancamento({
       setErro("Toda parcela precisa de um vencimento");
       return;
     }
+    // a data de emissão em branco saía daqui e voltava como "Dados
+    // inválidos" do servidor, sem apontar o campo
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(competencia)) {
+      setErro("Informe a data de emissão");
+      return;
+    }
     setSalvando(true);
     setErro("");
     const corpo = {

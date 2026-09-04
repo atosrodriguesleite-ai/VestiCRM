@@ -7,6 +7,8 @@ import {
   blocoDREdoCodigo,
   mesDoPrevisto,
   mesesEntre,
+  raizDoCodigo,
+  TETO_MESES,
   type AgrupamentoFluxo,
   type BlocoDRE,
   type BlocoRelatorio,
@@ -69,6 +71,28 @@ function acumular(
 const ordenarPorTotal = (linhas: LinhaRelatorio[]) =>
   [...linhas].sort((a, b) => b.total - a.total);
 
+/**
+ * Quais RAÍZES da árvore de categorias desta loja são do SISTEMA.
+ *
+ * O bloco "07 · Investimentos" fica fora do resultado (RN-036) — mas só
+ * quando ele é o nosso: a loja pode ter criado uma categoria dela que ficou
+ * com o código "07", e a despesa real dela sumia do DRE. Perguntar à FOLHA
+ * erra do outro lado: "07.01 Máquinas" criada pela lojista DENTRO do nosso
+ * bloco é investimento do mesmo jeito. Quem responde é a raiz.
+ */
+async function raizesDaArvore(companyId: string): Promise<Set<string>> {
+  const raizes = await db.finCategoria.findMany({
+    where: { companyId, sistema: true, paiId: null },
+    select: { codigo: true },
+  });
+  return new Set(raizes.map((r) => r.codigo));
+}
+
+function raizEhDoSistema(raizes: Set<string>, codigo: string | null | undefined) {
+  const raiz = raizDoCodigo(codigo);
+  return raiz === null ? true : raizes.has(raiz);
+}
+
 /* ---- DRE: a loja deu lucro? -------------------------------------------- */
 
 /**
@@ -94,15 +118,22 @@ export async function montarDRE(
       valor: true,
       tipo: true,
       competencia: true,
-      categoria: { select: { codigo: true, nome: true } },
+      categoria: { select: { codigo: true, nome: true, sistema: true } },
     },
     orderBy: { competencia: "asc" },
     take: TETO_RELATORIO,
   });
   // resultado errado com cara de certo é o pior defeito de um relatório:
   // se o teto estourou, a tela DIZ antes de a lojista tirar conclusão
-  const truncado = lancamentos.length >= TETO_RELATORIO;
+  // O CORTE DE MESES TAMBÉM CONTA. `mesesEntre` para em 24 colunas, e sem
+  // isso a lojista pedindo 2020–2026 via 24 meses desenhados, os filtros
+  // ainda mostrando o período inteiro e NENHUM aviso — concluindo que
+  // 2022–2026 não teve movimento. "Resultado errado com cara de certo" é o
+  // pior desfecho de um relatório (auditoria de 03/09/2026).
+  const cortouMeses = meses.length >= TETO_MESES && meses[meses.length - 1] < mesFinal;
+  const truncado = lancamentos.length >= TETO_RELATORIO || cortouMeses;
 
+  const raizesDoSistema = await raizesDaArvore(companyId);
   const indice = new Map(meses.map((m, i) => [m, i]));
   const porBloco = new Map<BlocoDRE, Map<string, LinhaRelatorio>>();
   const investimento = new Array(meses.length).fill(0);
@@ -111,7 +142,11 @@ export async function montarDRE(
     const i = indice.get(mesDe(l.competencia));
     if (i === undefined) continue;
     const tipo = l.tipo === "RECEITA" ? "RECEITA" : "DESPESA";
-    const bloco = blocoDREdoCodigo(l.categoria?.codigo, tipo);
+    const bloco = blocoDREdoCodigo(
+      l.categoria?.codigo,
+      tipo,
+      raizEhDoSistema(raizesDoSistema, l.categoria?.codigo)
+    );
     if (bloco === null) {
       // investimento: fora do resultado, mas DITO na tela
       investimento[i] = round2(investimento[i] + l.valor);
@@ -184,26 +219,54 @@ export async function montarDRE(
 
 type Pessoa = { nome: string } | null;
 
+type Agrupado = { chave: string; rotulo: string };
+
+/**
+ * Por onde a linha do fluxo é agrupada. A CHAVE é o id do cadastro, nunca o
+ * nome: usando o nome, as duas "Maria Silva" da loja (a RN-020 diz que isso
+ * acontece e que o sistema AVISA em vez de juntar) viravam UMA linha só de
+ * R$ 12.000, e a lojista não tinha como saber qual das duas deve o quê — o
+ * relatório juntando o que o resto do sistema decidiu nunca juntar sozinho
+ * (auditoria completa do módulo, 03/09/2026).
+ */
 function rotuloDoAgrupamento(
   agrupamento: AgrupamentoFluxo,
   l: {
     categoria: { codigo: string; nome: string } | null;
+    clienteId: string | null;
     cliente: string | null;
+    fornecedorId: string | null;
     fornecedor: Pessoa;
+    colecaoId: string | null;
     colecao: { nome: string } | null;
   }
-): string {
-  if (agrupamento === "cliente") return l.cliente ?? "Sem cliente";
-  if (agrupamento === "fornecedor") return l.fornecedor?.nome ?? "Sem fornecedor";
-  if (agrupamento === "colecao") return l.colecao?.nome ?? "Sem coleção";
-  return l.categoria ? `${l.categoria.codigo} · ${l.categoria.nome}` : "Sem categoria";
+): Agrupado {
+  if (agrupamento === "cliente")
+    return l.cliente
+      ? { chave: l.clienteId ?? l.cliente, rotulo: l.cliente }
+      : { chave: "sem-cliente", rotulo: "Sem cliente" };
+  if (agrupamento === "fornecedor")
+    return l.fornecedor
+      ? { chave: l.fornecedorId ?? l.fornecedor.nome, rotulo: l.fornecedor.nome }
+      : { chave: "sem-fornecedor", rotulo: "Sem fornecedor" };
+  if (agrupamento === "colecao")
+    return l.colecao
+      ? { chave: l.colecaoId ?? l.colecao.nome, rotulo: l.colecao.nome }
+      : { chave: "sem-colecao", rotulo: "Sem coleção" };
+  const rotulo = l.categoria
+    ? `${l.categoria.codigo} · ${l.categoria.nome}`
+    : "Sem categoria";
+  return { chave: rotulo, rotulo };
 }
 
 const SELECT_DO_LANCAMENTO = {
   tipo: true,
   categoria: { select: { codigo: true, nome: true } },
+  customerId: true,
   customer: { select: { name: true } },
+  fornecedorId: true,
   fornecedor: { select: { nome: true } },
+  colecaoId: true,
   colecao: { select: { nome: true } },
 } as const;
 
@@ -228,6 +291,7 @@ export async function montarFluxoDeCaixa(
   hoje = new Date()
 ): Promise<RelatorioFluxo> {
   const meses = mesesEntre(mesInicial, mesFinal);
+  const cortouMeses = meses.length >= TETO_MESES && meses[meses.length - 1] < mesFinal;
   const de = primeiroDiaDoMes(meses[0]);
   const ate = ultimoDiaDoMes(meses[meses.length - 1]);
   const mesDeHoje = mesDe(hoje);
@@ -323,12 +387,13 @@ export async function montarFluxoDeCaixa(
     const i = indice.get(mesDe(b.data));
     if (i === undefined) continue;
     const l = b.parcela.lancamento;
-    const rotulo = rotuloDoAgrupamento(agrupamento, {
+    const grupo = rotuloDoAgrupamento(agrupamento, {
       ...l,
+      clienteId: l.customerId,
       cliente: l.customer?.name ?? null,
     });
     const alvo = l.tipo === "RECEITA" ? entradas : saidas;
-    acumular(alvo, rotulo, rotulo, i, meses.length, valorMovimentado(b));
+    acumular(alvo, grupo.chave, grupo.rotulo, i, meses.length, valorMovimentado(b));
   }
 
   for (const p of [...parcelas, ...atrasadas]) {
@@ -341,12 +406,13 @@ export async function montarFluxoDeCaixa(
     const falta = saldoDaParcela(p);
     if (falta <= 0) continue;
     const l = p.lancamento;
-    const rotulo = rotuloDoAgrupamento(agrupamento, {
+    const grupo = rotuloDoAgrupamento(agrupamento, {
       ...l,
+      clienteId: l.customerId,
       cliente: l.customer?.name ?? null,
     });
     const alvo = l.tipo === "RECEITA" ? entradas : saidas;
-    acumular(alvo, rotulo, rotulo, i, meses.length, falta);
+    acumular(alvo, grupo.chave, grupo.rotulo, i, meses.length, falta);
   }
 
   const linhasEntradas = ordenarPorTotal([...entradas.values()]);
@@ -384,7 +450,7 @@ export async function montarFluxoDeCaixa(
     saldoFinal: mostraSaldo ? saldoFinal : [],
     mostraSaldo,
     mesDeCorte: modo === "misto" ? mesDeHoje : null,
-    truncado: cortouPeriodo || cortouAtrasado,
+    truncado: cortouPeriodo || cortouAtrasado || cortouMeses,
     motivoDoCorte: cortouPeriodo ? "periodo" : cortouAtrasado ? "atrasado" : null,
   };
 }

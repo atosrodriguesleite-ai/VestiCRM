@@ -29,10 +29,35 @@ export function CartoesView({
   const [pagando, setPagando] = useState<string | null>(null);
   const [erro, setErro] = useState("");
   const [aviso, setAviso] = useState("");
-  const [conta, setConta] = useState(contas[0]?.id ?? "");
+  /**
+   * A CONTA DE ONDE O DINHEIRO SAI é POR CARTÃO.
+   *
+   * Havia um estado só para a tela inteira, começando na primeira conta da
+   * lista (a padrão, porque a consulta ordena por `padrao desc`) e ignorando
+   * o "paga por" configurado no cartão — que a própria tela MOSTRA no
+   * cabeçalho. A loja com o Nubank configurado para sair da Caixinha via
+   * "paga por Caixinha" e as 40 baixas caíam no Banco Inter: o extrato do
+   * Inter passava a divergir do app do banco, a conciliação nunca casava, e
+   * desfazer exigia estornar 40 baixas uma a uma. Com dois cartões pagos por
+   * contas diferentes o defeito era estrutural (auditoria de 03/09/2026).
+   */
+  const [escolhida, setEscolhida] = useState<Record<string, string>>({});
+  const contaDoCartao = (c: CartaoComFaturas) => {
+    // a conta configurada no cartão pode ter sido ARQUIVADA depois: ela não
+    // está entre as opções, e o select mostraria uma coisa enquanto o clique
+    // mandava outra, falhando com uma frase que não explica nada
+    const existe = (id: string | undefined) =>
+      id && contas.some((x) => x.id === id) ? id : undefined;
+    return (
+      existe(escolhida[c.id]) ??
+      existe(c.contaPagamento?.id) ??
+      contas[0]?.id ??
+      ""
+    );
+  };
   const [data, setData] = useState(hoje);
 
-  async function pagar(cartaoId: string, mes: string) {
+  async function pagar(cartaoId: string, mes: string, conta: string) {
     if (!conta) {
       setErro("Cadastre uma conta de banco para pagar a fatura");
       return;
@@ -89,20 +114,6 @@ export function CartoesView({
       <Card className="mb-4 p-4">
         <div className="flex flex-wrap items-end gap-3">
           <label className="text-xs text-slate-500">
-            Pagar a fatura pela conta
-            <select
-              className="mt-1 block rounded-xl border border-slate-200 px-3 py-2 text-sm"
-              value={conta}
-              onChange={(e) => setConta(e.target.value)}
-            >
-              {contas.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.nome}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="text-xs text-slate-500">
             No dia
             <Input
               type="date"
@@ -134,11 +145,22 @@ export function CartoesView({
                   sem os dias da fatura — cadastre em Cadastros
                 </span>
               )}
-              {c.contaPagamento && (
-                <span className="ml-auto text-xs text-slate-400">
-                  paga por {c.contaPagamento.nome}
-                </span>
-              )}
+              <label className="ml-auto text-xs text-slate-400">
+                paga por{" "}
+                <select
+                  className="rounded-lg border border-slate-200 px-2 py-1 text-xs text-slate-600"
+                  value={contaDoCartao(c)}
+                  onChange={(e) =>
+                    setEscolhida((m) => ({ ...m, [c.id]: e.target.value }))
+                  }
+                >
+                  {contas.map((conta) => (
+                    <option key={conta.id} value={conta.id}>
+                      {conta.nome}
+                    </option>
+                  ))}
+                </select>
+              </label>
             </div>
 
             {c.faturas.length === 0 ? (
@@ -166,7 +188,7 @@ export function CartoesView({
                         </span>
                       ) : (
                         <Button
-                          onClick={() => pagar(c.id, f.mes)}
+                          onClick={() => pagar(c.id, f.mes, contaDoCartao(c))}
                           disabled={pagando === `${c.id}:${f.mes}`}
                           className="!py-1.5 text-xs"
                         >

@@ -172,6 +172,14 @@ export function conferirDocumentosFornecedor(dados: {
   cnpj?: string | null;
   cpf?: string | null;
 }): string | null {
+  // TEXTO SEM DÍGITO NENHUM não é "campo vazio": a lojista escreve "a
+  // definir" no CNPJ, a tela diz que salvou, e ao reabrir a ficha o campo
+  // está em branco sem nenhuma explicação — o documento sumiu em silêncio
+  // (auditoria completa do módulo, 03/09/2026)
+  if (dados.cnpj?.trim() && !soDigitos(dados.cnpj))
+    return "Escreva só os números do CNPJ (ou deixe em branco)";
+  if (dados.cpf?.trim() && !soDigitos(dados.cpf))
+    return "Escreva só os números do CPF (ou deixe em branco)";
   if (dados.cnpj && soDigitos(dados.cnpj) && !cnpjValido(dados.cnpj))
     return "CNPJ inválido — confira os dígitos";
   if (dados.cpf && soDigitos(dados.cpf) && !cpfValido(dados.cpf))

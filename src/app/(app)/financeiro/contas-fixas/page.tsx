@@ -1,8 +1,5 @@
-import { redirect } from "next/navigation";
-import { requireUser } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { isManagerUp } from "@/lib/scope";
-import { financeiroLiberado } from "@/lib/financeiro/gate";
+import { porteiraFinanceiroTela } from "@/lib/financeiro/gate";
 import { garantirCategoriasPadrao } from "@/lib/financeiro/cadastros";
 import { garantirRecorrencias, mesDe } from "@/lib/financeiro/recorrencia";
 import { ContasFixasView } from "./contas-fixas-view";
@@ -14,14 +11,7 @@ export const dynamic = "force-dynamic";
  * sistema lança sozinho todo mês (de carona no tráfego, sem cron novo).
  */
 export default async function ContasFixasPage() {
-  const user = await requireUser();
-  if (!isManagerUp(user)) redirect("/dashboard");
-  const company = await db.company.findUnique({
-    where: { id: user.companyId },
-    select: { financeEnabled: true },
-  });
-  if (!financeiroLiberado(user, company?.financeEnabled ?? false))
-    redirect("/financeiro");
+  const user = await porteiraFinanceiroTela();
 
   await garantirCategoriasPadrao(user.companyId);
   await garantirRecorrencias(user.companyId);

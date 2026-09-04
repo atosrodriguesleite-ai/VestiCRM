@@ -12,8 +12,8 @@ import {
   limparFuturosSemBaixa,
   mesDe,
   somarMeses,
-  vencimentoDoMes,
 } from "@/lib/financeiro/recorrencia";
+import { dataDoDia, diaSP } from "@/lib/financeiro/lancamentos";
 
 /**
  * EDITAR ou ENCERRAR a conta fixa (RN-031).
@@ -50,8 +50,19 @@ export async function PATCH(
     if (!atual)
       return NextResponse.json({ error: "Não encontrado" }, { status: 404 });
 
-    // a partir de qual mês o futuro pode ser refeito: o mês corrente
-    const inicioDoFuturo = vencimentoDoMes(mesDe(new Date()), 1);
+    /**
+     * A PARTIR DE QUANDO O FUTURO PODE SER REFEITO: do DIA SEGUINTE a hoje.
+     *
+     * Era o 1º do mês corrente, e aí a conta deste mês que já venceu (o
+     * aluguel do dia 5, ainda não pago, corrigido pela lojista no dia 20
+     * pensando no mês que vem) era apagada e recriada com o valor NOVO —
+     * mudando sozinha a conta que ela ainda deve, e levando o histórico
+     * junto. O texto da tela e o do CLAUDE.md sempre disseram "os meses que
+     * ainda não venceram" (auditoria completa do módulo, 03/09/2026).
+     */
+    const inicioDoFuturo = dataDoDia(
+      diaSP(new Date(Date.now() + 86_400_000))
+    )!;
 
     if ("ativa" in parsed.data) {
       await db.finRecorrencia.update({
@@ -72,7 +83,7 @@ export async function PATCH(
       return NextResponse.json({ ok: true });
     }
 
-    const conferido = await conferirRecorrencia(porta.user.companyId, parsed.data);
+    const conferido = await conferirRecorrencia(porta.user.companyId, parsed.data, false);
     if ("erro" in conferido)
       return NextResponse.json({ error: conferido.erro }, { status: 400 });
 

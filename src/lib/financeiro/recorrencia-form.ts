@@ -10,6 +10,9 @@ import { dataDoDia, FORMAS_PAGAMENTO } from "./lancamentos";
  * categoria de despesa, senão o DRE soma errado todo mês).
  */
 
+/** Até quanto tempo atrás uma conta fixa pode começar. */
+export const MAX_ANOS_PARA_TRAS = 2;
+
 export const recorrenciaSchema = z.object({
   tipo: z.enum(["RECEITA", "DESPESA"]),
   descricao: z.string().trim().min(1).max(160),
@@ -51,7 +54,13 @@ export type RecorrenciaData = {
 
 export async function conferirRecorrencia(
   companyId: string,
-  dados: RecorrenciaInput
+  dados: RecorrenciaInput,
+  /**
+   * É um cadastro NOVO? O limite de anos para trás só vale aqui: a edição
+   * reenvia o `inicio` original, então uma conta fixa criada hoje ficaria
+   * impossível de editar quando o mês de início passasse de dois anos.
+   */
+  criando = true
 ): Promise<{ erro: string } | { data: RecorrenciaData }> {
   const receita = dados.tipo === "RECEITA";
   const customerId = receita ? dados.customerId || null : null;
@@ -100,13 +109,37 @@ export async function conferirRecorrencia(
   if (dados.contaId) {
     const conta = await db.finConta.findFirst({
       where: { id: dados.contaId, companyId, arquivadaEm: null },
-      select: { id: true },
+      select: { id: true, tipo: true },
     });
     if (!conta) return { erro: "Conta não encontrada" };
+    // CARTÃO NÃO RECEBE CONTA FIXA (RN-039): a parcela nasceria no dia
+    // digitado, sem passar pela régua da fatura — a assinatura de R$ 55 de
+    // um cartão que fecha dia 28 caía na fatura de setembro e a de outubro
+    // fechava R$ 55 a menos do que o banco vai cobrar. Enquanto a conta
+    // fixa não montar a fatura sozinha, a porta diz não (auditoria 03/09/2026)
+    if (conta.tipo === "CARTAO")
+      return {
+        erro: "Conta fixa ainda não vai no cartão de crédito — escolha a conta do banco",
+      };
   }
 
   const inicio = dataDoDia(`${dados.inicio}-01`);
   if (!inicio) return { erro: "Mês de início inválido" };
+  /**
+   * O MÊS DE INÍCIO TEM LIMITE PARA TRÁS.
+   *
+   * Um dígito trocado ("2016" no lugar de "2026") criava 24 lançamentos
+   * vencidos de cara e mais 24 a cada abertura de tela — em poucos cliques,
+   * R$ 363 mil de dívida que nunca existiu, no card "Atrasado" e no fluxo de
+   * caixa, sem como desfazer (o módulo não tem DELETE e a limpeza só alcança
+   * o futuro). Achado da auditoria completa, 03/09/2026.
+   */
+  const limite = new Date(inicio.getTime());
+  limite.setUTCFullYear(limite.getUTCFullYear() + MAX_ANOS_PARA_TRAS);
+  if (criando && limite < new Date())
+    return {
+      erro: `A conta fixa não pode começar há mais de ${MAX_ANOS_PARA_TRAS} ano(s) — confira o mês`,
+    };
   const fim = dados.fim ? dataDoDia(`${dados.fim}-01`) : null;
   if (dados.fim && !fim) return { erro: "Mês de término inválido" };
   if (fim && fim < inicio)

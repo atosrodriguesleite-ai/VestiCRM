@@ -429,6 +429,13 @@ export async function PATCH(
       await syncOpportunityValue(user.companyId, order.opportunityId, totals.netTotal);
       // se veio SÓ a edição de itens, responde aqui
       if (!parsed.data.status && parsed.data.notes === undefined && parsed.data.sellerId === undefined && !parsed.data.customerId && !parsed.data.paymentMethod && parsed.data.trackingCode === undefined && parsed.data.shippingMethod === undefined) {
+        // PORTA ÚNICA DO FINANCEIRO (RN-033) ANTES de responder: editar os
+        // itens muda o que a cliente paga, e este caminho saía sem avisar o
+        // financeiro — o pedido de R$ 100 virava R$ 450 e o lançamento
+        // continuava R$ 100 PARA SEMPRE (a repescagem também não alcança:
+        // a parcela está quitada, sem saldo em aberto). Achado da auditoria
+        // completa do módulo, 03/09/2026.
+        sincronizarPedidoSemQuebrar(order.id);
         const updated = await db.order.findUnique({ where: { id: order.id } });
         return NextResponse.json(updated);
       }
@@ -566,6 +573,9 @@ export async function PATCH(
         parsed.data.trackingCode === undefined &&
         parsed.data.shippingMethod === undefined
       ) {
+        // mesma coisa aqui (RN-033): mexer no frete, no desconto ou no
+        // acréscimo muda o que a cliente paga e tem que chegar ao financeiro
+        sincronizarPedidoSemQuebrar(order.id);
         const updated = await db.order.findUnique({ where: { id: order.id } });
         return NextResponse.json(updated);
       }

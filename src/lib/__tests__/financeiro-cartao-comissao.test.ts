@@ -86,17 +86,22 @@ describe("o cartão não guarda dinheiro (RN-039)", () => {
   it("cartão nunca vira a conta PADRÃO (a venda paga cairia nele)", () => {
     const post = ler("src/app/api/financeiro/contas/route.ts");
     const patch = ler("src/app/api/financeiro/contas/[id]/route.ts");
-    expect(post).toContain('parsed.data.tipo === "CARTAO"');
-    expect(post).toContain("padrao: false");
+    expect(post).toContain('entrada.tipo === "CARTAO"');
     expect(patch).toContain('(campos.tipo ?? alvo.tipo) === "CARTAO"');
+    // e as MESMAS regras nas duas portas: cartão não é padrão e não carrega
+    // saldo. O PATCH não zerava o saldo, então converter uma conta de banco
+    // em cartão deixava o dinheiro dela no "saldo hoje" (auditoria 03/09)
+    for (const rota of [post, patch]) {
+      expect(rota).toContain("padrao: false, saldoInicial: 0");
+    }
   });
 
   it("a porta da fatura é gated como todas as do módulo (RN-029)", () => {
     expect(ler("src/app/api/financeiro/cartoes/[id]/fatura/route.ts")).toContain(
       "porteiraFinanceiro"
     );
-    expect(ler("src/app/(app)/financeiro/cartoes/page.tsx")).toContain(
-      "financeiroLiberado"
+    expect(ler("src/app/(app)/financeiro/cartoes/page.tsx")).toMatch(
+      /(financeiroLiberado|porteiraFinanceiroTela)/
     );
   });
 });

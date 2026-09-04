@@ -1,15 +1,15 @@
 import Link from "next/link";
-import { db } from "@/lib/db";
 import { brl } from "@/lib/format";
 import { Card, PageHeader } from "@/components/ui";
 import { StatTile } from "@/components/charts";
 import {
   carregarInadimplencia,
   conferirContaPadrao,
+  emAbertoNoPeriodo,
   preverSaldo,
 } from "@/lib/financeiro/visao";
 import { saldosPorConta } from "@/lib/financeiro/extrato";
-import { dataDoDia, diaSP, saldoDaParcela, statusDaParcela } from "@/lib/financeiro/lancamentos";
+import { dataDoDia, diaSP } from "@/lib/financeiro/lancamentos";
 import { formatarDia } from "@/lib/financeiro/dia";
 import { AvisoContaPadrao } from "./aviso-conta-padrao";
 
@@ -32,42 +32,34 @@ export async function PainelFinanceiro({
     `${hojeDia.slice(0, 7)}-${String(new Date(Date.UTC(ano, mes, 0)).getUTCDate()).padStart(2, "0")}`
   )!;
 
-  const [previsao, inad, contas, avisoConta, doMes] = await Promise.all([
-    preverSaldo(companyId, dias, hoje),
-    carregarInadimplencia(companyId, hoje),
-    saldosPorConta(companyId, dataDoDia(hojeDia)!),
-    conferirContaPadrao(companyId),
-    db.finParcela.findMany({
-      where: {
-        companyId,
-        vencimento: { gte: dataDoDia(`${hojeDia.slice(0, 7)}-01`)!, lte: fimDoMes },
-        lancamento: { canceladoEm: null },
-      },
-      select: {
-        valor: true,
-        vencimento: true,
-        baixas: { select: { valor: true, estornadaEm: true } },
-        lancamento: { select: { tipo: true } },
-      },
-    }),
-  ]);
+  const inicioDoMes = dataDoDia(`${hojeDia.slice(0, 7)}-01`)!;
+  const diaDeHoje = dataDoDia(hojeDia)!;
+
+  // OS CARDS DO MÊS SÃO SOMADOS NO BANCO. Trazer as parcelas para a memória
+  // exigia um teto, e teto sem ordem definida faz o Postgres devolver um
+  // subconjunto ARBITRÁRIO: "a receber no mês" mudava de valor entre dois F5
+  // (auditoria completa do módulo, 03/09/2026).
+  const [previsao, inad, contas, avisoConta, aReceberMes, aPagarMes, venceHoje] =
+    await Promise.all([
+      preverSaldo(companyId, dias, hoje),
+      carregarInadimplencia(companyId, hoje),
+      saldosPorConta(companyId, diaDeHoje),
+      conferirContaPadrao(companyId),
+      emAbertoNoPeriodo(companyId, "RECEITA", inicioDoMes, fimDoMes),
+      emAbertoNoPeriodo(companyId, "DESPESA", inicioDoMes, fimDoMes),
+      // a dica do card de RECEBER: o que vence hoje e ainda não entrou
+      emAbertoNoPeriodo(companyId, "RECEITA", diaDeHoje, diaDeHoje),
+    ]);
 
   // saldo de cada conta, para a lojista bater com o app do banco. A conta
   // ARQUIVADA só aparece se ainda tiver dinheiro — some da lista quando
   // zera, mas nunca some do total: as linhas têm que fechar com o card.
   const saldos = contas.filter((c) => !c.arquivada || c.saldo !== 0);
+  // UM CAMINHO SÓ para o "saldo hoje": ele já vem somado por conta aqui, e
+  // `previsao.saldoHoje` é o MESMO número por outro caminho (mais 5
+  // agregações). Duas fontes para um número só é como o card e a frase logo
+  // abaixo passariam a discordar sem ninguém perceber.
   const saldoHoje = Math.round(contas.reduce((s, c) => s + c.saldo, 0) * 100) / 100;
-
-  let aReceberMes = 0;
-  let aPagarMes = 0;
-  let venceHoje = 0;
-  for (const p of doMes) {
-    const falta = saldoDaParcela(p);
-    if (falta <= 0) continue;
-    if (p.lancamento.tipo === "RECEITA") aReceberMes += falta;
-    else aPagarMes += falta;
-    if (statusDaParcela(p, hoje) === "VENCE_HOJE") venceHoje += falta;
-  }
 
   // termômetro: o que entra cobre o que sai até a data prevista?
   const cobertura =
@@ -122,7 +114,7 @@ export async function PainelFinanceiro({
         <StatTile
           label="Atrasado"
           value={brl(inad.total)}
-          hint={`${inad.clientes} cliente(s)`}
+          hint={`${inad.clientes}${inad.truncado ? "+" : ""} cliente(s)`}
           tone={inad.total > 0 ? "bad" : "good"}
         />
       </div>

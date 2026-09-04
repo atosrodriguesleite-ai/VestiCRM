@@ -49,6 +49,8 @@ export type FiltroExtrato = {
 
 /** Teto de linhas do extrato: período grande demais avisa em vez de travar. */
 export const TETO_EXTRATO = 1000;
+/** Teto das parcelas em aberto lidas para os cards do extrato. */
+export const TETO_EM_ABERTO = 20_000;
 
 /**
  * Saldo de uma conta (ou de todas) ATÉ uma data — inclusive. É a soma que
@@ -65,7 +67,13 @@ export async function saldoAte(
   // dezenas de milhares de baixas para cá só para fechar uma conta
   const [contas, receitas, despesas, saidas, entradas] = await Promise.all([
     db.finConta.aggregate({
-      where: { companyId, ...daConta, saldoInicialEm: { lte: ate } },
+      // cartão não guarda dinheiro (RN-039): fora do saldo, sempre
+      where: {
+        companyId,
+        tipo: { not: "CARTAO" },
+        ...daConta,
+        saldoInicialEm: { lte: ate },
+      },
       _sum: { saldoInicial: true },
     }),
     db.finBaixa.aggregate({
@@ -74,6 +82,11 @@ export async function saldoAte(
         estornadaEm: null,
         data: { lte: ate },
         ...doMovimento,
+        // a MESMA base do saldo inicial acima: sem isso, uma baixa em conta
+        // de cartão (dado antigo, ou conta convertida) entrava aqui e não
+        // entrava lá, e o card "Saldo hoje" discordava do saldo previsto —
+        // dois números para a mesma pergunta (auditoria de 03/09/2026)
+        conta: { tipo: { not: "CARTAO" } },
         parcela: { lancamento: { tipo: "RECEITA" } },
       },
       _sum: { valor: true, desconto: true, juros: true },
@@ -84,6 +97,7 @@ export async function saldoAte(
         estornadaEm: null,
         data: { lte: ate },
         ...doMovimento,
+        conta: { tipo: { not: "CARTAO" } },
         parcela: { lancamento: { tipo: "DESPESA" } },
       },
       _sum: { valor: true, desconto: true, juros: true },
@@ -146,7 +160,13 @@ export async function saldosPorConta(
 ): Promise<SaldoDeConta[]> {
   const [contas, receitas, despesas, saidas, entradas] = await Promise.all([
     db.finConta.findMany({
-      where: { companyId },
+      // O CARTÃO FICA DE FORA (RN-039): ele não guarda dinheiro, junta
+      // compras numa fatura. As baixas saem da conta do BANCO, então o
+      // cartão nunca acumula movimento e aparecia no bloco "onde está o
+      // dinheiro" sempre com R$ 0,00 — no lugar em que a lojista bate com o
+      // app do banco, lendo que o sistema perdeu a fatura de R$ 8.000
+      // (auditoria completa do módulo, 03/09/2026).
+      where: { companyId, tipo: { not: "CARTAO" } },
       orderBy: [{ padrao: "desc" }, { nome: "asc" }],
       select: {
         id: true,
@@ -163,6 +183,7 @@ export async function saldosPorConta(
         companyId,
         estornadaEm: null,
         data: { lte: ate },
+        conta: { tipo: { not: "CARTAO" } },
         parcela: { lancamento: { tipo: "RECEITA" } },
       },
       _sum: { valor: true, desconto: true, juros: true },
@@ -173,6 +194,7 @@ export async function saldosPorConta(
         companyId,
         estornadaEm: null,
         data: { lte: ate },
+        conta: { tipo: { not: "CARTAO" } },
         parcela: { lancamento: { tipo: "DESPESA" } },
       },
       _sum: { valor: true, desconto: true, juros: true },
@@ -303,6 +325,11 @@ export async function carregarExtrato(filtro: FiltroExtrato): Promise<{
           baixas: { select: { valor: true, estornadaEm: true } },
           lancamento: { select: { tipo: true } },
         },
+        // o teto vale para as consultas IRMÃS também: sem ele, um período de
+        // "2000 a 2099" (as datas vêm da URL) trazia todas as parcelas da
+        // loja com todas as baixas para a memória da função só para somar
+        // dois cards — a defesa declarada acima virava letra morta
+        take: TETO_EM_ABERTO,
       }),
       // contas cujo SALDO INICIAL foi declarado DENTRO do período: ele é um
       // evento do dia em que a loja o declarou. Sem esta linha, o extrato do
@@ -311,6 +338,8 @@ export async function carregarExtrato(filtro: FiltroExtrato): Promise<{
       db.finConta.findMany({
         where: {
           companyId,
+          // cartão não guarda dinheiro (RN-039): fora do saldo e do extrato
+          tipo: { not: "CARTAO" },
           ...(contaId ? { id: contaId } : {}),
           saldoInicialEm: { gte: de, lte: ate },
         },
@@ -397,7 +426,20 @@ export async function carregarExtrato(filtro: FiltroExtrato): Promise<{
     });
   }
 
-  linhas.sort((a, b) => (a.data === b.data ? a.id.localeCompare(b.id) : a.data.localeCompare(b.data)));
+  // ABERTURA DE CONTA É EVENTO DE INÍCIO DE DIA: no desempate por id, a
+  // linha "si-" caía DEPOIS das baixas ("b-") do mesmo dia e a coluna Saldo
+  // mostrava um intermediário falso — a lojista lia "minha conta está
+  // negativa em R$ 500" num dia em que ela nunca esteve (auditoria de
+  // 03/09/2026). O total final sempre esteve certo; a coluna que ela lê, não.
+  const ordem = (l: { tipo: LinhaExtrato["tipo"] }) =>
+    l.tipo === "SALDO_INICIAL" ? 0 : 1;
+  linhas.sort((a, b) =>
+    a.data !== b.data
+      ? a.data.localeCompare(b.data)
+      : ordem(a) !== ordem(b)
+        ? ordem(a) - ordem(b)
+        : a.id.localeCompare(b.id)
+  );
 
   let acumulado = saldoInicial;
   const comSaldo: LinhaExtrato[] = linhas.map((l) => {
@@ -410,13 +452,51 @@ export async function carregarExtrato(filtro: FiltroExtrato): Promise<{
   const realizadas = comSaldo.filter(
     (l) => l.tipo === "ENTRADA" || l.tipo === "SAIDA"
   );
+  /**
+   * COM O PERÍODO TRUNCADO, OS TRÊS NÚMEROS SAEM DO BANCO.
+   *
+   * Antes só o "Saldo no fim" era somado no banco: "Entrou" e "Saiu" vinham
+   * das 1.000 linhas carregadas, então a própria aritmética da tela deixava
+   * de fechar (saldo inicial + entrou − saiu ≠ saldo no fim) — na única tela
+   * cuja função é bater com o extrato do banco, e sem nada dizendo (o aviso
+   * do rodapé fala de "movimentos", não dos cards). Achado da auditoria
+   * completa do módulo, 03/09/2026.
+   */
+  const somaNoBanco = truncado
+    ? await Promise.all([
+        db.finBaixa.aggregate({
+          where: {
+            companyId,
+            estornadaEm: null,
+            data: { gte: de, lte: ate },
+            ...(contaId ? { contaId } : {}),
+            parcela: { lancamento: { tipo: "RECEITA", canceladoEm: null } },
+          },
+          _sum: { valor: true, desconto: true, juros: true },
+        }),
+        db.finBaixa.aggregate({
+          where: {
+            companyId,
+            estornadaEm: null,
+            data: { gte: de, lte: ate },
+            ...(contaId ? { contaId } : {}),
+            parcela: { lancamento: { tipo: "DESPESA", canceladoEm: null } },
+          },
+          _sum: { valor: true, desconto: true, juros: true },
+        }),
+      ])
+    : null;
+  const somado = (a: {
+    _sum: { valor: number | null; desconto: number | null; juros: number | null };
+  }) => round2((a._sum.valor ?? 0) - (a._sum.desconto ?? 0) + (a._sum.juros ?? 0));
+
   const cards: CardsExtrato = {
-    receitasRealizadas: round2(
-      realizadas.filter((l) => l.valor > 0).reduce((s, l) => s + l.valor, 0)
-    ),
-    despesasRealizadas: round2(
-      realizadas.filter((l) => l.valor < 0).reduce((s, l) => s - l.valor, 0)
-    ),
+    receitasRealizadas: somaNoBanco
+      ? somado(somaNoBanco[0])
+      : round2(realizadas.filter((l) => l.valor > 0).reduce((s, l) => s + l.valor, 0)),
+    despesasRealizadas: somaNoBanco
+      ? somado(somaNoBanco[1])
+      : round2(realizadas.filter((l) => l.valor < 0).reduce((s, l) => s - l.valor, 0)),
     receitasEmAberto: 0,
     despesasEmAberto: 0,
     saldoInicial,

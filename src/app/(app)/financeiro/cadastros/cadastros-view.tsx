@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { Button, Card, Field, Input, PageHeader, inputCls } from "@/components/ui";
 import { brl } from "@/lib/format";
+import { formatarDia } from "@/lib/financeiro/dia";
 import { formatarCnpj, formatarCpf } from "@/lib/documento";
 import { numeroBR } from "@/lib/numero-br";
 
@@ -1004,8 +1005,9 @@ function AbaColecoes({ iniciais }: { iniciais: Colecao[] }) {
   }
 
   const periodo = (c: Colecao) => {
-    const f = (iso: string | null) =>
-      iso ? new Date(iso).toLocaleDateString("pt-BR") : null;
+    // o dia já vem pronto do servidor: passá-lo por `new Date` aplicava o
+    // fuso e mostrava 28/02 para uma coleção que começa em 01/03 (RN-030)
+    const f = (iso: string | null) => (iso ? formatarDia(iso.slice(0, 10)) : null);
     const i = f(c.inicio);
     const t = f(c.fim);
     if (i && t) return `${i} → ${t}`;

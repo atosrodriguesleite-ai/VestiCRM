@@ -2,11 +2,13 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { grupoDFCdoCodigo } from "../financeiro/dfc-tipos";
 import {
   acumularSaldo,
   blocoDREdoCodigo,
   mesDoPrevisto,
   mesesEntre,
+  raizDoCodigo,
   rotuloDoMes,
   DRE_LABEL,
   MODO_FLUXO_LABEL,
@@ -143,8 +145,9 @@ describe("as duas contas não se misturam (RN-036)", () => {
       "src/app/(app)/financeiro/fluxo-de-caixa/page.tsx",
     ]) {
       const tela = ler(p);
-      expect(tela).toContain("financeiroLiberado");
-      expect(tela).toContain("isManagerUp");
+      // a porteira de tela já traz as DUAS chaves (papel + módulo); a
+      // varredura de todas as páginas mora em financeiro-cadastros.test.ts
+      expect(tela).toContain("porteiraFinanceiroTela");
     }
   });
 });
@@ -200,5 +203,98 @@ describe("o saldo mês a mês do fluxo (RN-036)", () => {
   it("centavo não escapa no acumulado", () => {
     const s = acumularSaldo(0, [0.1, 0.2], zeros(2), zeros(2));
     expect(s.saldoFinal).toEqual([0.1, 0.3]);
+  });
+});
+
+/**
+ * A AUDITORIA COMPLETA DO MÓDULO (03/09/2026) — os guardas dos achados dos
+ * relatórios e do painel.
+ */
+describe("os achados da auditoria completa (RN-035, RN-036)", () => {
+  const lerArq = (rel: string) => readFileSync(join(process.cwd(), rel), "utf8");
+
+  it("o DFC também inverte de/ate — e o resíduo nunca sai com nome errado", () => {
+    // com de > ate as consultas vinham vazias, mas o resíduo é calculado por
+    // DIFERENÇA de saldos: a loja que movimentou R$ 45 mil via "A loja
+    // gerou: R$ 0,00" ao lado de "Transferências: −R$ 45.000,00", com o
+    // rodapé afirmando que a conta fecha
+    const tela = lerArq("src/app/(app)/financeiro/dfc/page.tsx");
+    expect(tela).toContain("cru.de <= cru.ate ? [cru.de, cru.ate] : [cru.ate, cru.de]");
+  });
+
+  it("o corte de 24 colunas é DITO na tela", () => {
+    // pedindo 2020–2026, a tela desenhava 24 meses, os filtros continuavam
+    // mostrando o período inteiro e nada avisava: a lojista concluía que
+    // 2022–2026 não teve movimento
+    const motor = lerArq("src/lib/financeiro/relatorios.ts");
+    expect(motor.match(/const cortouMeses =/g) ?? []).toHaveLength(2);
+    expect(motor).toContain("lancamentos.length >= TETO_RELATORIO || cortouMeses");
+    expect(motor).toContain("cortouPeriodo || cortouAtrasado || cortouMeses");
+  });
+
+  it("o DFC tem teto e DIZ quando faltou (era o único relatório sem)", () => {
+    const visao = lerArq("src/lib/financeiro/visao.ts");
+    expect(visao).toContain("export const TETO_DFC");
+    expect(visao).toContain("const truncado = baixas.length > TETO_DFC;");
+    expect(lerArq("src/app/(app)/financeiro/dfc/dfc-view.tsx")).toContain("dfc.truncado");
+  });
+
+  it("a previsão não perde a baixa com data futura", () => {
+    // `saldoHoje` conta baixa até HOJE; somando todas do outro lado, o
+    // cheque registrado para amanhã saía das DUAS pontas e o dinheiro
+    // desaparecia da previsão — enquanto o fluxo o mostrava como realizado
+    const visao = lerArq("src/lib/financeiro/visao.ts");
+    const corpo = visao.slice(visao.indexOf("async function emAbertoAte("));
+    expect(corpo).toContain("data: { lte: hojeDia },");
+  });
+
+  it("o fluxo agrupa por ID, nunca pelo nome (duas 'Maria Silva' são duas)", () => {
+    // a RN-020 diz que cadastro repetido acontece e que o sistema AVISA em
+    // vez de juntar; usando o nome como chave, o relatório juntava sozinho
+    const motor = lerArq("src/lib/financeiro/relatorios.ts");
+    expect(motor).toContain("type Agrupado = { chave: string; rotulo: string }");
+    expect(motor).toContain("chave: l.clienteId ?? l.cliente");
+    expect(motor).toContain("acumular(alvo, grupo.chave, grupo.rotulo,");
+  });
+
+  it("categoria '07' criada pela LOJA não é lida como investimento", () => {
+    // a despesa real dela sumia do resultado (R$ 20 mil/ano desaparecendo do
+    // "deu lucro?") e ainda caía em Investimento no DFC
+    expect(blocoDREdoCodigo("07", "DESPESA", true)).toBeNull();
+    expect(blocoDREdoCodigo("07", "DESPESA", false)).toBe("DESPESA_ADMIN");
+    expect(grupoDFCdoCodigo("07", true)).toBe("INVESTIMENTO");
+    expect(grupoDFCdoCodigo("07", false)).toBe("OPERACIONAL");
+  });
+
+  it("quem decide se o '07' é investimento é a RAIZ, não a folha", () => {
+    // olhar a folha erra dos DOIS lados: a categoria "07" criada pela loja
+    // não é investimento (a despesa real dela sumia do resultado), e a
+    // "07.01 Máquinas" que a lojista criou DENTRO do nosso bloco é
+    // (auditoria completa do módulo, 03/09/2026)
+    expect(raizDoCodigo("07.01")).toBe("07");
+    expect(raizDoCodigo("07")).toBe("07");
+    expect(raizDoCodigo(null)).toBeNull();
+    const motor = lerArq("src/lib/financeiro/relatorios.ts");
+    expect(motor).toContain("async function raizesDaArvore(");
+    expect(motor).toContain("sistema: true, paiId: null");
+    expect(motor).toContain("raizEhDoSistema(raizesDoSistema, l.categoria?.codigo)");
+    expect(lerArq("src/lib/financeiro/visao.ts")).toContain("sistema: true, paiId: null");
+  });
+
+  it("os cards do mês no painel são somados NO BANCO", () => {
+    // trazer as parcelas para a memória exigia um teto, e teto sem ordem faz
+    // o Postgres devolver um subconjunto arbitrário: "a receber no mês"
+    // mudava de valor entre dois F5
+    expect(lerArq("src/lib/financeiro/visao.ts")).toContain(
+      "export async function emAbertoNoPeriodo"
+    );
+    const painel = lerArq("src/app/(app)/financeiro/_visao/painel.tsx");
+    expect(painel).toContain('emAbertoNoPeriodo(companyId, "RECEITA", inicioDoMes, fimDoMes)');
+    expect(painel).not.toContain("take: 20_000");
+  });
+
+  it("o card Atrasado do painel não promete um número de clientes truncado", () => {
+    const painel = lerArq("src/app/(app)/financeiro/_visao/painel.tsx");
+    expect(painel).toContain('${inad.clientes}${inad.truncado ? "+" : ""}');
   });
 });

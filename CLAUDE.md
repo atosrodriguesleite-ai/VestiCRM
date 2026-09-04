@@ -686,7 +686,11 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   `lib/financeiro/gate.ts`): TODA porta do módulo (API e tela) exige a chave
   da loja E gerente/admin — vendedora e SUPORTE ficam fora (dinheiro é assunto
   comercial, mesma régua de Relatórios); sem a chave a rota responde 404 e a
-  loja **não muda em NADA** (segue a tela simples de contas a receber de
+  loja **não muda em NADA**. A porteira é UMA função para as rotas
+  (`porteiraFinanceiro`) e outra para as telas (`porteiraFinanceiroTela`) —
+  as 13 páginas repetiam as seis linhas à mão e nenhum teste as varria; hoje
+  a varredura cobre toda rota **por handler exportado** (arquivo com GET
+  protegido e POST esquecido passava verde) e toda tela (segue a tela simples de contas a receber de
   pedidos). Fase 1 (cadastros, `lib/financeiro/cadastros.ts`): contas (saldo
   inicial com data — o saldo nunca será digitado, será somado), categorias em
   árvore numerada que **nasce pronta para moda** (semeadura idempotente na
@@ -729,8 +733,22 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   dando baixa na mesma parcela ao mesmo tempo passam as duas pela conferência
   e a parcela fica paga em dobro. Categoria escolhida tem que ser do MESMO
   lado do lançamento (receita numa conta a pagar faria o DRE somar errado).
-  Anexos (boleto, comprovante) são data-URL e saem sempre como download com
-  `nosniff`; **o anexo é a ÚNICA coisa do módulo que se apaga** (anexou o
+  **Editar e cancelar conferem DENTRO da transação, em SERIALIZÁVEL**
+  (auditoria completa do módulo, 03/09/2026): conferindo de fora, a baixa que
+  chegasse no meio era apagada em cascata pela edição, ou ficava viva num
+  lançamento CANCELADO — o DRE pula a parcela, o extrato continua somando a
+  baixa, e os dois divergem para sempre sem pista de onde. E o **lado não
+  muda numa edição** (virar conta a receber em conta a pagar inverte o sinal
+  no DRE e apaga o cliente). O **estorno é uma transação só**, senão a linha
+  do banco seguia "conferida" contra dinheiro que voltou atrás. O **nome de
+  quem fez** sai da porteira já desambiguado: "Sistema" é a identidade da
+  baixa automática e está no índice único, então uma vendedora com esse nome
+  tinha a baixa dela lida como automática (a porta a estornava sozinha) e
+  levava 500 em vez de frase. O **filtro de situação vem ANTES do corte da
+  página** — lendo 500 e filtrando depois, "Quitado" aparecia VAZIO numa loja
+  com mais de 500 parcelas no mês, com o card mostrando o valor cheio — e
+  quando nem os CARDS cabem, a tela DIZ. Anexos (boleto, comprovante) são
+  data-URL e saem sempre como download com `nosniff`; **o anexo é a ÚNICA coisa do módulo que se apaga** (anexou o
   boleto errado), com registro no histórico. Lançamento com `origem` diferente
   de MANUAL (Fase 4) não aceita edição de valor — a fonte da verdade é o
   pedido, e o único (companyId, origem, origemId) garante "1 pedido = 1
@@ -766,7 +784,15 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   saiu, com o acumulado linha a linha — não existe campo "saldo atual" no
   banco para alguém corrigir na mão e a tela passar a mentir. Os cards de
   entrou/saiu contam só receitas e despesas realizadas; a transferência
-  aparece na lista mas fica FORA deles.
+  aparece na lista mas fica FORA deles. Com o período TRUNCADO os três
+  números saem do banco (auditoria de 03/09/2026): antes só o "saldo no fim"
+  era somado lá e a própria aritmética da tela deixava de fechar. A
+  **abertura da conta é evento de INÍCIO DE DIA** e vem antes dos movimentos
+  daquela data — no desempate por id ela caía depois e a coluna Saldo
+  mostrava um intermediário falso ("minha conta está negativa em R$ 500" num
+  dia em que ela nunca esteve). E a data do saldo inicial é DIA ao meio-dia
+  como todas as outras: com `z.coerce.date()` ela virava meia-noite UTC, e a
+  abertura aparecia um dia antes no extrato e um MÊS antes no fluxo.
   **RN-033 · A PORTA ÚNICA DE ENTRADA DAS VENDAS**
   (`lib/financeiro/porta-vendas.ts`): TODA venda entra no financeiro por um
   lugar só — pedido do sistema, pedido do catálogo, venda da Nuvemshop, Pix
@@ -823,8 +849,17 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   só a data da baixa é de outubro. **Unificar contatos leva o financeiro junto**: lançamentos e
   contas fixas da ficha apagada passam para a que sobrevive, senão a
   inadimplência virava "Sem cliente" e a cobrança perdia o WhatsApp.
-  A venda entra pelo `total` (o
-  que a cliente paga, **frete-ok**; faturamento continua `netTotal` por
+  **TODO caminho que muda o valor do pedido passa pela porta** (auditoria de
+  03/09/2026): o PATCH do pedido tem três respostas — "só itens", "só
+  valores" e a geral —, e duas delas saíam antes de avisar o financeiro,
+  justamente as que os editores de itens e de valores usam: o pedido de R$
+  100 virava R$ 450 e o lançamento ficava R$ 100 para sempre. Pedido que
+  passa a **não custar nada** (desconto de 100%) tem o lançamento CANCELADO,
+  em vez de o valor zero ser ignorado e a porta baixar o valor velho.
+  **ESTORNAR também é fazer na mão**: depois que a lojista estorna uma baixa
+  (o Pix voltou), a porta não repõe o dinheiro — antes bastava mudar o pedido
+  de PAGO para ENVIADO e ele reaparecia sozinho no extrato. A venda entra
+  pelo `total` (o que a cliente paga, **frete-ok**; faturamento continua `netTotal` por
   RN-002), com a categoria da origem (atacado, varejo, loja online) e as
   datas ao **meio-dia UTC** (RN-030 — carimbo cru some do filtro do mês).
   A **etiqueta do Melhor Envio vira despesa de frete já baixada**, chaveada
@@ -895,7 +930,13 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   (mesma régua do saldo previsto, RN-035) — inclusive a que venceu antes do
   período, buscada com teto próprio e só quando o mês corrente está nas
   colunas. O saldo do primeiro mês é o saldo REAL da loja (RN-032), com cada
-  mês começando onde o anterior terminou.
+  mês começando onde o anterior terminou. O agrupamento por cliente,
+  fornecedor ou coleção usa o **ID como chave, nunca o nome**: as duas "Maria
+  Silva" da loja (RN-020) viravam uma linha só. E o **corte de 24 colunas é
+  DITO na tela** — pedindo 2020–2026 a lojista via 24 meses, os filtros
+  mostrando o período inteiro e nenhum aviso, concluindo que 2022–2026 não
+  teve movimento. Categoria "07" criada pela LOJA não é investimento (só a da
+  árvore do sistema é): a despesa real dela sumia do resultado.
   **RN-037 · CONFERIR COM O BANCO** (`lib/financeiro/ofx.ts` +
   `lib/financeiro/conciliacao.ts`, tela `/financeiro/conciliacao`): o extrato
   que o banco exporta (OFX) de um lado, o que a loja registrou do outro. Três
@@ -924,10 +965,27 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   colado, o texto vem em windows-1252 quando o cabeçalho diz, e movimento sem
   FITID/data/valor é descartado e CONTADO (a tela avisa; linha ilegível calada
   faria a lojista fechar a conferência com o extrato divergindo) — 19 linhas
-  certas valem mais que 20 com uma inventada. Quem decide o acento é o
+  certas valem mais que 20 com uma inventada. **Dia que não existe no
+  calendário** ("20260231") também é descartado AQUI: antes ele passava e só
+  era recusado na gravação, derrubando a importação inteira com 500 e
+  deixando o registro do arquivo órfão. E quando o separador vem com **três
+  casas** ("123.450" pode ser cento e vinte e três mil ou R$ 123,45 — o
+  padrão OFX permite três casas), **quem desempata é o ARQUIVO INTEIRO**, a
+  mesma régua do acento: um separador com duas casas em qualquer movimento
+  prova qual é o decimal daquele banco. Errar aqui multiplicava o valor por
+  MIL, e a linha ficava eternamente a conferir sem nenhum aviso, porque tinha
+  sido lida "com sucesso". Quem decide o acento é o
   CONTEÚDO, não o cabeçalho (banco que exporta UTF-8 dizendo `CHARSET:1252`
   existe), e o valor aceita separador de milhar dos dois formatos. **O arquivo em si não é guardado** (dívida técnica nº 1): dele
   saem as linhas, que é o que a conciliação usa.
+  **A CONTA EM ABERTO APARECE NO PAINEL** (auditoria de 03/09/2026): as
+  candidatas eram só BAIXAS, então a venda de R$ 1.500 registrada e ainda não
+  recebida ficava invisível — e o texto da tela mandava usar o "Lançar",
+  criando uma SEGUNDA receita do mesmo dinheiro (receita em dobro no DRE, a
+  parcela original virando atrasada, e a cobrança da RN-034 indo atrás de
+  dinheiro que já entrou). Agora ela aparece num bloco próprio com o botão de
+  registrar o recebimento: um clique, e aí sim ela vira candidata e a linha
+  fecha. Conferir continua sem quitar nada sozinho.
   **A LINHA QUE O SISTEMA NÃO TINHA VIRA LANÇAMENTO NA HORA** (03/09/2026):
   antes a lojista tinha duas saídas ruins — marcar "fora do sistema" (e o
   dinheiro sumia do DRE e do fluxo) ou sair da conferência, abrir Contas a
@@ -942,9 +1000,14 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   bater com o sinal** do banco (entrou = conta a receber), o dinheiro vai
   baixando as parcelas em ordem sem nunca passar do valor de cada uma, e a
   transação é **SERIALIZÁVEL** — duas abas criando da mesma linha fariam o
-  mesmo dinheiro entrar dobrado. Se a ficha somar MENOS que a linha, ela
-  continua na fila com a diferença à mostra (é o mesmo caso do depósito que
-  pagou duas contas). Do outro lado, achar a venda certa entre 200 baixas era
+  mesmo dinheiro entrar dobrado. A ficha tem que **COBRIR A LINHA INTEIRA**:
+  cobrindo menos, a versão anterior criava a baixa sem vínculo nenhum, e aí
+  nada detectava o reenvio da mesma ficha (a lojista clica de novo depois de
+  um erro de rede e o dinheiro entra duas vezes) e a baixa solta virava
+  candidata do casamento automático seguinte, carimbada contra OUTRA linha do
+  banco. O depósito que pagou duas contas continua tendo caminho, e é o de
+  sempre: lançar as duas e marcar as duas no "Conferir". Linha de R$ 0,00 não
+  vira lançamento (nenhuma ficha soma zero). Do outro lado, achar a venda certa entre 200 baixas era
   o trabalho manual que sobrava: com uma linha escolhida, as que **COMBINAM**
   (mesmo valor, data pertinho) sobem para o topo com ✨ e a **busca** acha
   pelo nome da cliente ou pelo número do pedido.

@@ -28,7 +28,7 @@ export async function POST(req: NextRequest) {
     if (!porta.ok) return porta.resposta;
     const parsed = z
       .object({ nome: z.string().trim().min(1).max(80) })
-      .safeParse(await req.json());
+      .safeParse(await req.json().catch(() => null));
     if (!parsed.success)
       return NextResponse.json({ error: "Dados inválidos" }, { status: 400 });
     const centro = await db.finCentroCusto.create({

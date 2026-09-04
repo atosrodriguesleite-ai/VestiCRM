@@ -22,6 +22,7 @@ export function BaixaModal({
   tipo,
   hoje,
   contas,
+  contaInicial,
   onFechar,
   onSalvo,
 }: {
@@ -29,6 +30,13 @@ export function BaixaModal({
   tipo: "RECEITA" | "DESPESA";
   hoje: string;
   contas: { id: string; nome: string; padrao: boolean; tipo?: string }[];
+  /**
+   * Em qual conta o dinheiro andou, quando quem abre já sabe (a conciliação
+   * está conferindo o extrato de UMA conta). Sem isso o modal abria na conta
+   * padrão e a baixa caía na conta errada — e a conciliação, que só enxerga
+   * as baixas da conta conferida, nem mostrava a baixa recém-criada.
+   */
+  contaInicial?: string;
   onFechar: () => void;
   onSalvo: () => void;
 }) {
@@ -37,7 +45,10 @@ export function BaixaModal({
   // dar baixa "nele" quitaria a parcela fora de qualquer fatura
   const contasDeDinheiro = contas.filter((c) => c.tipo !== "CARTAO");
   const [contaId, setContaId] = useState(
-    contasDeDinheiro.find((c) => c.padrao)?.id ?? contasDeDinheiro[0]?.id ?? ""
+    contasDeDinheiro.find((c) => c.id === contaInicial)?.id ??
+      contasDeDinheiro.find((c) => c.padrao)?.id ??
+      contasDeDinheiro[0]?.id ??
+      ""
   );
   const [data, setData] = useState(hoje);
   const [valor, setValor] = useState(linha.saldo.toFixed(2).replace(".", ","));
@@ -54,7 +65,12 @@ export function BaixaModal({
       ),
     [valor, desconto, juros]
   );
-  const restaDepois = round2(Math.max(0, linha.saldo - (numeroBR(valor) ?? 0)));
+  const abatido = numeroBR(valor) ?? 0;
+  const restaDepois = round2(Math.max(0, linha.saldo - abatido));
+  // NÃO CABE: o Math.max escondia o excesso e a tela dizia "esta baixa quita
+  // a parcela" para R$ 1.000 numa parcela de R$ 100 — o servidor só recusava
+  // depois do clique. A régua é a mesma do servidor (auditoria de 03/09/2026)
+  const passou = round2(abatido - linha.saldo);
 
   async function salvar() {
     const v = numeroBR(valor);
@@ -180,10 +196,12 @@ export function BaixaModal({
               {receita ? "Entra" : "Sai"} da conta:{" "}
               <b className="text-slate-900">{brl(movimentado)}</b>
             </p>
-            <p className="text-slate-500">
-              {restaDepois > 0
-                ? `Depois desta baixa ainda faltam ${brl(restaDepois)} nesta parcela.`
-                : "Esta baixa quita a parcela."}
+            <p className={passou > 0 ? "text-rose-700" : "text-slate-500"}>
+              {passou > 0
+                ? `Esta parcela deve ${brl(linha.saldo)} — o valor passa em ${brl(passou)}.`
+                : restaDepois > 0
+                  ? `Depois desta baixa ainda faltam ${brl(restaDepois)} nesta parcela.`
+                  : "Esta baixa quita a parcela."}
             </p>
           </div>
 

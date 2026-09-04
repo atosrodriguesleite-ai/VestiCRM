@@ -3,6 +3,7 @@ import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
+  autorDeGente,
   conferirBaixa,
   dataDoDia,
   diaSP,
@@ -318,5 +319,129 @@ describe("data que não existe no calendário (RN-030)", () => {
     expect(dataDoDia("2026-02-28")?.toISOString()).toBe("2026-02-28T12:00:00.000Z");
     expect(dataDoDia("2028-02-29")?.toISOString()).toBe("2028-02-29T12:00:00.000Z");
     expect(dataDoDia("2026-09-05")?.toISOString()).toBe("2026-09-05T12:00:00.000Z");
+  });
+});
+
+/**
+ * A AUDITORIA COMPLETA DO MÓDULO (03/09/2026) — os guardas dos achados de
+ * lançamento, extrato e cadastros.
+ */
+describe("os achados da auditoria completa (RN-030, RN-032, RN-039)", () => {
+  const ler = (rel: string) => readFileSync(join(process.cwd(), rel), "utf8");
+
+  it("editar e cancelar conferem DENTRO da transação, e serializável", () => {
+    // conferindo de fora, uma baixa que chegasse no meio era apagada em
+    // cascata (editar) ou ficava viva num lançamento CANCELADO — o DRE pula
+    // a parcela e o extrato continua somando a baixa, e os dois divergem
+    // para sempre sem pista de onde
+    const rota = ler("src/app/api/financeiro/lancamentos/[id]/route.ts");
+    expect(rota.match(/Prisma\.TransactionIsolationLevel\.Serializable/g) ?? []).toHaveLength(2);
+    expect(rota).toContain("const trava = podeEditarValores(agora.parcelas, agora.origem);");
+    expect(rota).toContain("const impedimento = podeCancelarLancamento(agora.parcelas);");
+    // e o LADO não muda numa edição, nem se edita cancelado
+    expect(rota).toContain("Não dá para trocar o lado do lançamento");
+    expect(rota).toContain("Este lançamento está cancelado");
+  });
+
+  it("o estorno da baixa é UMA transação (três escritas soltas perdiam rastro)", () => {
+    const rota = ler("src/app/api/financeiro/baixas/[id]/route.ts");
+    const corpo = rota.slice(rota.indexOf("const estornou = await db.$transaction"));
+    expect(corpo).toContain("tx.finBaixa.updateMany");
+    expect(corpo).toContain("tx.finOfxVinculo.deleteMany");
+    expect(corpo).toContain("tx.finLancamentoEvento.create");
+  });
+
+  it("o nome da baixa automática não colide com o de uma pessoa", () => {
+    // "Sistema" é a identidade da porta e está no índice único do banco: uma
+    // vendedora com esse nome tinha a baixa lida como automática (a porta a
+    // estornava sozinha) e levava 500 em vez de frase em português
+    expect(autorDeGente("Sistema")).toBe("Sistema (usuária)");
+    expect(autorDeGente(" Sistema ")).toBe("Sistema (usuária)");
+    expect(autorDeGente("Marta")).toBe("Marta");
+    // e a porteira trata TODA rota do módulo de uma vez
+    expect(ler("src/lib/financeiro/gate.ts")).toContain("name: autorDeGente(user.name)");
+  });
+
+  it("o filtro de situação vem ANTES do corte da página", () => {
+    // lendo 500 e filtrando depois, a lista de "Quitado" aparecia VAZIA
+    // numa loja com mais de 500 parcelas no mês, enquanto o card mostrava
+    // o valor cheio
+    const consulta = ler("src/lib/financeiro/consulta.ts");
+    expect(consulta).toContain("export const TETO_COM_FILTRO");
+    expect(consulta).toContain("const filtradas = comFiltro");
+    expect(consulta.indexOf("const filtradas = comFiltro")).toBeLessThan(
+      consulta.indexOf("const linhas = filtradas.slice(0, TETO_LINHAS);")
+    );
+    // e os cards avisam quando o período não coube
+    expect(consulta).toContain("resumoTruncado");
+  });
+
+  it("nunca nasce parcela de valor ZERO", () => {
+    // R$ 0,02 em 3× dava [0, 0, 0,02] e o servidor recusava a ficha inteira
+    // com um "Dados inválidos" que não diz qual linha nem por quê
+    for (const [valor, n] of [
+      [0.02, 3],
+      [1, 12],
+      [0.01, 5],
+      [100, 3],
+    ] as [number, number][]) {
+      const p = dividirEmParcelas(valor, n);
+      expect(p.every((v) => v > 0), `${valor} em ${n}x tem parcela zerada`).toBe(true);
+      expect(Math.round(p.reduce((s, v) => s + v, 0) * 100)).toBe(Math.round(valor * 100));
+    }
+  });
+
+  it("o saldo inicial da conta é DIA ao meio-dia, e o cartão não guarda dinheiro", () => {
+    for (const rota of [
+      "src/app/api/financeiro/contas/route.ts",
+      "src/app/api/financeiro/contas/[id]/route.ts",
+    ]) {
+      const codigo = ler(rota);
+      // z.coerce.date() gravava meia-noite UTC e o dia virava o anterior em
+      // São Paulo: a abertura aparecia um dia antes no extrato e um MÊS
+      // antes no fluxo de caixa
+      expect(codigo).not.toContain("saldoInicialEm: z.coerce.date()");
+      expect(codigo).toContain("dataDoDia(");
+      expect(codigo).toContain("padrao: false, saldoInicial: 0");
+    }
+    // e o cartão fica fora de TODA soma de dinheiro (RN-039): saldo de uma
+    // conta, saldo por conta e a linha de abertura do extrato
+    const extrato = ler("src/lib/financeiro/extrato.ts");
+    expect((extrato.match(/tipo: \{ not: "CARTAO" \}/g) ?? []).length).toBeGreaterThanOrEqual(3);
+    expect(ler("src/lib/financeiro/visao.ts")).toContain('tipo: { not: "CARTAO" }');
+  });
+
+  it("converter conta COM dinheiro em cartão é RECUSADO (não zera o saldo)", () => {
+    // cartão não carrega saldo inicial (RN-039), então a conversão o
+    // ZERARIA — apagando de vez o saldo declarado, sem volta
+    const rota = ler("src/app/api/financeiro/contas/[id]/route.ts");
+    expect(rota).toContain("class ContaComDinheiro");
+    expect(rota).toContain('alvo.tipo !== "CARTAO" && campos.tipo === "CARTAO"');
+    expect(rota).toContain("não dá para transformar em cartão de crédito");
+  });
+
+  it("arquivar categoria leva as filhas; DESarquivar não ressuscita nada", () => {
+    // vale para qualquer nível (a subcategoria também tem filhas), e
+    // desarquivar a mãe não pode trazer de volta a filha que a lojista
+    // arquivou uma a uma (auditoria de 03/09/2026)
+    const rota = ler("src/app/api/financeiro/categorias/[id]/route.ts");
+    expect(rota).toContain("if (arquivar === true) {");
+    expect(rota).toContain("codigo: { startsWith: `${alvo.codigo}.` }");
+    expect(rota).not.toContain("!alvo.codigo.includes(\".\")");
+  });
+
+  it("o saldo do cartão nunca entra por uma ponta e sai pela outra", () => {
+    // o saldo inicial já excluía CARTÃO; as baixas não, e aí o card "Saldo
+    // hoje" e o saldo previsto discordavam para uma conta convertida
+    const extrato = ler("src/lib/financeiro/extrato.ts");
+    expect((extrato.match(/conta: \{ tipo: \{ not: "CARTAO" \} \}/g) ?? []).length)
+      .toBeGreaterThanOrEqual(4);
+  });
+
+  it("a abertura da conta vem ANTES dos movimentos do mesmo dia", () => {
+    // no desempate por id, a linha "si-" caía depois das baixas ("b-") e a
+    // coluna Saldo mostrava um intermediário falso
+    const extrato = ler("src/lib/financeiro/extrato.ts");
+    expect(extrato).toContain('l.tipo === "SALDO_INICIAL" ? 0 : 1');
   });
 });

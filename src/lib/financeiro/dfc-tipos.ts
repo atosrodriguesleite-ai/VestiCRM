@@ -28,9 +28,13 @@ export const DFC_LABEL: Record<GrupoDFC, string> = {
  * Categoria criada pela loja (código fora da árvore) cai em OPERACIONAL, que
  * é onde 9 em cada 10 realmente pertencem — e é o palpite que menos mente.
  */
-export function grupoDFCdoCodigo(codigo: string | null | undefined): GrupoDFC {
+export function grupoDFCdoCodigo(
+  codigo: string | null | undefined,
+  /** o bloco "07" desta loja é o do SISTEMA? (quem responde é a RAIZ) */
+  daArvore = true
+): GrupoDFC {
   if (!codigo) return "OPERACIONAL";
-  if (codigo.startsWith("07")) return "INVESTIMENTO";
+  if (daArvore && codigo.startsWith("07")) return "INVESTIMENTO";
   if (codigo.startsWith("06.03") || codigo.startsWith("05.04"))
     return "FINANCIAMENTO";
   return "OPERACIONAL";
@@ -57,5 +61,7 @@ export type RelatorioDFC = {
   geradoNoPeriodo: number;
   /** saldo inicial de conta cadastrada DENTRO do período (não é resultado) */
   saldosDeclarados: number;
+  /** o período tem mais movimento do que cabe: a tela DIZ que faltou */
+  truncado: boolean;
   transferencias: number;
 };

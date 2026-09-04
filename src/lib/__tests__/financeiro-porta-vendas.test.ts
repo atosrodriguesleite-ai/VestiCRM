@@ -30,6 +30,7 @@ const lanc = (over: Partial<EstadoDoLancamento> = {}): EstadoDoLancamento => ({
   saldo: 530,
   temBaixaManualViva: false,
   temBaixaAutomaticaViva: false,
+  temEstornoManual: false,
   ...over,
 });
 
@@ -284,12 +285,16 @@ describe("nenhum número some, venha o que vier do pedido (RN-033)", () => {
     // e o sincronizar COMUM não mexe na data de lançamento que JÁ EXISTE
     // (criar novo tem competência, claro): a venda de agosto paga em outubro
     // continua sendo competência de agosto (RN-036)
-    const depoisDoCriar = porta.slice(
-      porta.indexOf("// ---- só um aviso"),
+    // o guarda olha o COMPORTAMENTO: dentro do sincronizar comum, a data de
+    // competência é escrita UMA vez só — na criação. Ancorar num comentário
+    // fazia o teste quebrar ao renomear o comentário e passar se alguém
+    // acrescentasse uma escrita de data em outro lugar do mesmo bloco.
+    const sincronizar = porta.slice(
+      porta.indexOf("export async function sincronizarPedidoNoFinanceiro("),
       porta.indexOf("export async function corrigirDataDaVendaNoFinanceiro")
     );
-    expect(depoisDoCriar.length).toBeGreaterThan(100);
-    expect(depoisDoCriar).not.toContain("competencia:");
+    expect(sincronizar.length).toBeGreaterThan(100);
+    expect(sincronizar.match(/competencia:/g) ?? []).toHaveLength(1);
     // só a tela de corrigir data chama
     expect(ler("src/app/api/orders/[id]/data-da-venda/route.ts")).toContain(
       "corrigirDataDaVendaSemQuebrar"
@@ -440,18 +445,21 @@ describe("a conta padrão que faltava (RN-033)", () => {
     expect(porta).toContain("ultimaVarredura.delete(companyId);");
   });
 
-  it("a baixa recusada pelo índice só sai calada quando o dinheiro já está lá", () => {
-    // sinal manual estornado DEPOIS da baixa automática: ainda falta dinheiro
-    // na parcela, mas o índice recusa a segunda baixa automática — em
-    // silêncio, a parcela ficaria em aberto para sempre e sem rastro
-    // a baixa que já existe é AJUSTADA, nunca duplicada — e o quanto ajustar
-    // é lido AGORA do banco: somar um valor que envelheceu numa corrida
-    // dobraria o dinheiro
-    expect(porta).toContain("const falta = parcela ? saldoDaParcela(parcela) : 0;");
-    expect(porta).toContain("const novo = round2(viva.valor + falta);");
-    expect(porta).toContain("if (falta <= 0.005) return;");
+  it("a baixa automática é AJUSTADA, e a leitura e a escrita ficam na MESMA transação", () => {
+    // a baixa que já existe é ajustada, nunca duplicada, e o quanto ajustar
+    // é lido AGORA — somar um valor que envelheceu numa corrida dobraria o
+    // dinheiro. E tudo serializável: o Postgres não aborta uma transação
+    // serializável por causa de escrita em autocommit, então a trava da porta
+    // manual não alcançava este caminho (R$ 140 numa parcela de R$ 100)
+    const corpo = porta.slice(porta.indexOf("async function darBaixaDaPorta("));
+    expect(corpo).toContain("Prisma.TransactionIsolationLevel.Serializable");
+    expect(corpo).toContain("const falta = saldoDaParcela(parcela);");
+    expect(corpo).toContain("const novo = round2(viva.valor + falta);");
+    expect(corpo).toContain("if (falta <= 0.005) return null;");
+    // nunca mais do que a parcela deve
+    expect(corpo).toContain("round2(Math.min(valor, falta))");
     // baixa que muda de valor solta a conciliação (RN-037)
-    expect(porta).toContain("await soltarConciliacaoDaBaixa(viva.id);");
+    expect(corpo).toContain('tx.finOfxVinculo.deleteMany({ where: { baixaId: viva.id } })');
   });
 
   it("UMA PARCELA, UMA BAIXA AUTOMÁTICA VIVA — quem garante é o banco", () => {
@@ -475,8 +483,129 @@ describe("a conta padrão que faltava (RN-033)", () => {
     expect(migracoes.indexOf('DELETE FROM "FinOfxVinculo"')).toBeLessThan(
       migracoes.indexOf('UPDATE "FinBaixa"')
     );
-    // e a porta trata a recusa: o P2002 do índice nunca vira erro na venda —
-    // a corrida registrou o MESMO dinheiro, então não se soma nada
-    expect(porta).toContain('if ((e as { code?: string })?.code === "P2002") return;');
+    // e a porta trata a recusa recomeçando UMA vez: assumir que a corrida
+    // registrou o mesmo dinheiro deixava a parcela devendo para sempre
+    // quando os dois lados leram saldos diferentes
+    expect(porta).toContain(
+      "return darBaixaDaPorta(lancamentoId, parcelaId, companyId, valor, data, true);"
+    );
+  });
+});
+
+/**
+ * A AUDITORIA COMPLETA DO MÓDULO (03/09/2026). Os guardas dos achados que
+ * mexiam em dinheiro — cada um com o cenário que o criou.
+ */
+describe("os achados da auditoria completa (RN-033)", () => {
+  const ler = (rel: string) => readFileSync(join(process.cwd(), rel), "utf8");
+  const porta = ler("src/lib/financeiro/porta-vendas.ts");
+
+  it("TODO caminho que muda o valor do pedido chega ao financeiro", () => {
+    // a rota do pedido tem TRÊS respostas: "só itens", "só valores" e a
+    // geral. Duas delas saíam antes da porta, e os dois editores que mudam o
+    // que a cliente paga usam justamente essas duas — o pedido de R$ 100
+    // virava R$ 450 e o lançamento ficava R$ 100 PARA SEMPRE (a repescagem
+    // também não alcança: a parcela está quitada, sem saldo em aberto)
+    const rota = ler("src/app/api/orders/[id]/route.ts");
+    const respostas = rota.split("return NextResponse.json(updated);");
+    expect(respostas.length).toBeGreaterThanOrEqual(3);
+    for (const antes of respostas.slice(0, -1)) {
+      const ultimaChamada = antes.lastIndexOf("sincronizarPedidoSemQuebrar(order.id)");
+      expect(
+        ultimaChamada,
+        "há uma resposta do PATCH do pedido que não passa pela porta do financeiro"
+      ).toBeGreaterThan(-1);
+    }
+  });
+
+  it("pedido que passa a não custar nada não deixa dinheiro fantasma", () => {
+    // desconto de 100%: o valor zero era IGNORADO e a porta seguia baixando
+    // o valor VELHO — dinheiro que não existe entrando na conta, sem como
+    // consertar pela tela (lançamento automático não aceita edição, RN-030)
+    const zerado = decidirAcaoDaPorta(
+      { status: "PAGO", valor: 0 },
+      lanc({ valor: 100, saldo: 100 })
+    );
+    expect(zerado.darBaixa).toBeNull();
+    expect(zerado.cancelar).toBe(true);
+    // com baixa à mão a porta NÃO desfaz nada: avisa e para
+    const comManual = decidirAcaoDaPorta(
+      { status: "PAGO", valor: 0 },
+      lanc({ valor: 100, saldo: 0, temBaixaManualViva: true })
+    );
+    expect(comManual.cancelar).toBe(false);
+    expect(comManual.aviso).toContain("passou a não custar nada");
+  });
+
+  it("ESTORNAR também é 'fazer na mão': a porta não repõe o dinheiro", () => {
+    // bastava mudar o pedido de PAGO para ENVIADO e a baixa que a lojista
+    // mandou embora (o Pix voltou) reaparecia sozinha no extrato
+    const depoisDoEstorno = decidirAcaoDaPorta(
+      { status: "ENVIADO", valor: 100 },
+      lanc({ valor: 100, saldo: 100, temEstornoManual: true })
+    );
+    expect(depoisDoEstorno.darBaixa).toBeNull();
+    expect(depoisDoEstorno.aviso).toContain("estornou uma baixa aqui");
+    // e sem estorno segue baixando o que falta, como sempre
+    expect(
+      decidirAcaoDaPorta({ status: "ENVIADO", valor: 100 }, lanc({ valor: 100, saldo: 100 }))
+        .darBaixa
+    ).toBe(100);
+  });
+
+  it("o aviso ACOMPANHA as outras ações em vez de substituí-las", () => {
+    // antes o aviso saía e encerrava, e o VALOR ficava errado por causa dele
+    const mudouEEstornou = decidirAcaoDaPorta(
+      { status: "PAGO", valor: 450 },
+      lanc({ valor: 100, saldo: 100, temEstornoManual: true })
+    );
+    expect(mudouEEstornou.novoValor).toBe(450);
+    expect(mudouEEstornou.aviso).not.toBeNull();
+  });
+
+  it("com estorno à mão, a porta não estorna a PRÓPRIA baixa", () => {
+    // estornar sem poder registrar de novo faria o dinheiro que REALMENTE
+    // entrou sumir do extrato e do DRE, e a venda paga aparecer atrasada por
+    // inteiro — pior que o problema que o estorno queria evitar
+    const mudouComEstorno = decidirAcaoDaPorta(
+      { status: "PAGO", valor: 450 },
+      lanc({
+        valor: 100,
+        saldo: 0,
+        temBaixaAutomaticaViva: true,
+        temEstornoManual: true,
+      })
+    );
+    expect(mudouComEstorno.estornarAutomaticas).toBe(false);
+    expect(mudouComEstorno.darBaixa).toBeNull();
+    expect(mudouComEstorno.novoValor).toBe(450);
+  });
+
+  it("a venda SEM lançamento vem PRIMEIRO na fila da repescagem", () => {
+    // ela é a mais rara (janela de poucos dias) e a mais grave (venda paga
+    // que sumiu do financeiro): indo no fim, nunca rodava quando a outra
+    // consulta enchia o teto sozinha
+    expect(porta).toContain("...new Set([...semLancamento, ...linhas]");
+  });
+
+  it("a venda paga SEM lançamento nenhum é repescada (janela curta)", () => {
+    // o trabalho da porta vai no after(): uma queda ali e o lançamento nunca
+    // nasce. A varredura partia do lançamento, então esse pedido era
+    // invisível. A janela é curta para ligar o módulo não despejar anos de
+    // vendas antigas no financeiro sozinho.
+    expect(porta).toContain("export const DIAS_SEM_LANCAMENTO");
+    expect(porta).toContain('SELECT o."id" AS "origemId"');
+    expect(porta).toContain('COALESCE(o."paidAt", o."createdAt") >= ${desde}');
+  });
+
+  it("o valor do lançamento e o da parcela mudam JUNTOS", () => {
+    // falhando entre as duas escritas, o lançamento dizia R$ 450 e a parcela
+    // R$ 100: a parcela lia "quitada" com o lançamento em aberto, e não dava
+    // para consertar pela tela
+    const trecho = porta.slice(porta.indexOf("async function atualizarValor("));
+    expect(trecho).toContain("db.$transaction");
+    expect(trecho.indexOf("tx.finLancamento.update")).toBeLessThan(
+      trecho.indexOf("tx.finParcela.update")
+    );
   });
 });

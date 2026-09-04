@@ -35,6 +35,20 @@ export async function POST(req: NextRequest) {
         { error: "A data de pagamento não existe no calendário — confira o dia" },
         { status: 400 }
       );
+    // e o PERÍODO também: `de`/`ate` só passavam pelo formato, então um
+    // "2026-02-30" montava uma janela de tempo inválida e a geração morria
+    // com 500 sem frase — o mesmo defeito que a linha acima já consertou
+    // para o vencimento (auditoria completa do módulo, 03/09/2026)
+    if (!dataDoDia(de) || !dataDoDia(ate))
+      return NextResponse.json(
+        { error: "O período não existe no calendário — confira as datas" },
+        { status: 400 }
+      );
+    if (de > ate)
+      return NextResponse.json(
+        { error: "A data inicial não pode ser depois da final" },
+        { status: 400 }
+      );
     const r = await gerarContaDaComissao(
       porta.user.companyId,
       // o período viaja em DIA: quem transforma em janela de tempo é o motor

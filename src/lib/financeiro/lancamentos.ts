@@ -121,10 +121,15 @@ export function dataDoDia(iso: string): Date | null {
 export function dividirEmParcelas(valor: number, n: number): number[] {
   if (n < 1) return [];
   const centavos = Math.round(round2(valor) * 100);
-  const base = Math.trunc(centavos / n);
-  const parcelas = Array.from({ length: n }, () => base / 100);
-  const sobra = centavos - base * n;
-  parcelas[n - 1] = round2(parcelas[n - 1] + sobra / 100);
+  // NÃO CABE EM N PARCELAS: R$ 0,02 em 3× daria [0, 0, 0,02], e parcela de
+  // valor zero é recusada lá no servidor com um "Dados inválidos" que não
+  // diz qual linha nem por quê. Aqui ela vira o número de parcelas que
+  // CABE — cada uma com pelo menos um centavo (auditoria de 03/09/2026).
+  const cabem = Math.max(1, Math.min(n, centavos));
+  const base = Math.trunc(centavos / cabem);
+  const parcelas = Array.from({ length: cabem }, () => base / 100);
+  const sobra = centavos - base * cabem;
+  parcelas[cabem - 1] = round2(parcelas[cabem - 1] + sobra / 100);
   return parcelas;
 }
 
@@ -331,4 +336,21 @@ export function podeEditarValores(
   return teveMovimento
     ? "Este lançamento já teve baixa. Estorne e cancele-o, depois faça um novo — o histórico do dinheiro não se reescreve."
     : null;
+}
+
+/**
+ * O nome de QUEM FEZ, garantido diferente do da porta.
+ *
+ * "Sistema" é a identidade da baixa automática (RN-033) — é por ele que a
+ * porta sabe o que é dela, e é ele que está no índice único do banco. Só que
+ * `autorNome` é um campo de EXIBIÇÃO preenchido com o nome do usuário, e
+ * nada impede uma vendedora chamada "Sistema": a baixa dela passaria a ser
+ * lida como automática (a porta a estornaria sozinha, contra o "o que a
+ * lojista fez na mão é dela") e esbarraria no índice, devolvendo 500 em vez
+ * de frase em português. Achado da auditoria completa, 03/09/2026.
+ */
+export const AUTOR_DA_PORTA = "Sistema";
+
+export function autorDeGente(nome: string): string {
+  return nome.trim() === AUTOR_DA_PORTA ? `${nome.trim()} (usuária)` : nome;
 }

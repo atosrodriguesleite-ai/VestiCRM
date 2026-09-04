@@ -64,6 +64,7 @@ export function ListaMovimentacoes({
   linhas,
   resumo,
   truncado,
+  resumoTruncado,
   contas,
   categorias,
   fornecedores,
@@ -77,6 +78,7 @@ export function ListaMovimentacoes({
   linhas: LinhaMovimentacao[];
   resumo: ResumoPeriodo;
   truncado: boolean;
+  resumoTruncado: boolean;
   contas: {
     id: string;
     nome: string;
@@ -314,6 +316,12 @@ export function ListaMovimentacoes({
           <p className="border-t border-slate-100 bg-amber-50 px-4 py-2 text-xs text-amber-800">
             Mostrando as primeiras 500 parcelas do período — encurte as datas
             para ver o resto.
+          </p>
+        )}
+        {resumoTruncado && (
+          <p className="border-t border-slate-100 bg-rose-50 px-4 py-2 text-xs text-rose-800">
+            O período é grande demais e os cards acima somam só parte dele —
+            encurte as datas para os números fecharem.
           </p>
         )}
       </Card>

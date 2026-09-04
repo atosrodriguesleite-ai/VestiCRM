@@ -1,8 +1,6 @@
-import { redirect } from "next/navigation";
-import { requireUser } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { isManagerUp } from "@/lib/scope";
-import { financeiroLiberado } from "@/lib/financeiro/gate";
+import { porteiraFinanceiroTela } from "@/lib/financeiro/gate";
+import { garantirCategoriasPadrao } from "@/lib/financeiro/cadastros";
 import { carregarConciliacao } from "@/lib/financeiro/conciliacao";
 import { dataDoDia, diaSP } from "@/lib/financeiro/lancamentos";
 import { ConciliacaoView } from "./conciliacao-view";
@@ -19,22 +17,31 @@ export default async function ConciliacaoPage({
 }: {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
-  const user = await requireUser();
-  if (!isManagerUp(user)) redirect("/dashboard");
-  const company = await db.company.findUnique({
-    where: { id: user.companyId },
-    select: { financeEnabled: true },
-  });
-  if (!financeiroLiberado(user, company?.financeEnabled ?? false))
-    redirect("/financeiro");
+  const user = await porteiraFinanceiroTela();
+
+  // esta tela ABRE a ficha do lançamento (RN-030), então a árvore precisa
+  // existir: a loja cujo primeiro clique no menu foi "Conferir com o banco"
+  // via o seletor de categoria VAZIO e salvava sem categoria — o lançamento
+  // caía em "Sem categoria" no DRE e no fluxo (auditoria de 03/09/2026)
+  await garantirCategoriasPadrao(user.companyId);
 
   const sp = await searchParams;
   const texto = (k: string) => (Array.isArray(sp[k]) ? sp[k][0] : sp[k]) ?? "";
 
+  // UMA consulta de contas para as duas coisas (o seletor da tela e a ficha
+  // do lançamento): eram duas idas ao banco com o mesmo where e o mesmo
+  // orderBy, mudando só o select
   const contas = await db.finConta.findMany({
     where: { companyId: user.companyId, arquivadaEm: null },
     orderBy: [{ padrao: "desc" }, { nome: "asc" }],
-    select: { id: true, nome: true, tipo: true },
+    select: {
+      id: true,
+      nome: true,
+      tipo: true,
+      padrao: true,
+      diaFechamento: true,
+      diaVencimento: true,
+    },
   });
   if (contas.length === 0)
     return (
@@ -62,7 +69,7 @@ export default async function ConciliacaoPage({
   // as listas da ficha do lançamento (RN-030): a linha do banco pode ser dos
   // DOIS lados, então as categorias vêm inteiras e a tela mostra as do lado
   // certo conforme o sinal do movimento
-  const [categorias, fornecedores, centros, colecoes, contasDoForm] =
+  const [categorias, fornecedores, centros, colecoes, importacoes] =
     await Promise.all([
       db.finCategoria.findMany({
         where: { companyId: user.companyId, arquivadaEm: null },
@@ -84,34 +91,21 @@ export default async function ConciliacaoPage({
         orderBy: { createdAt: "desc" },
         select: { id: true, nome: true },
       }),
-      db.finConta.findMany({
-        where: { companyId: user.companyId, arquivadaEm: null },
-        orderBy: [{ padrao: "desc" }, { nome: "asc" }],
+      db.finOfxImportacao.findMany({
+        where: { companyId: user.companyId, contaId },
+        orderBy: { createdAt: "desc" },
+        take: 10,
         select: {
           id: true,
-          nome: true,
-          padrao: true,
-          tipo: true,
-          diaFechamento: true,
-          diaVencimento: true,
+          arquivo: true,
+          banco: true,
+          linhas: true,
+          novas: true,
+          createdAt: true,
+          autorNome: true,
         },
       }),
     ]);
-  const importacoes = await db.finOfxImportacao.findMany({
-    where: { companyId: user.companyId, contaId },
-    orderBy: { createdAt: "desc" },
-    take: 10,
-    select: {
-      id: true,
-      arquivo: true,
-      banco: true,
-      linhas: true,
-      novas: true,
-      createdAt: true,
-      autorNome: true,
-    },
-  });
-
   return (
     <ConciliacaoView
       contas={contas}
@@ -123,7 +117,7 @@ export default async function ConciliacaoPage({
       painel={painel}
       hoje={hoje}
       ficha={{
-        contas: contasDoForm,
+        contas,
         categorias,
         fornecedores,
         centros,

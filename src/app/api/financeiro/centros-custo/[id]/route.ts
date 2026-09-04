@@ -19,7 +19,7 @@ export async function PATCH(
     const porta = await porteiraFinanceiro();
     if (!porta.ok) return porta.resposta;
     const { id } = await params;
-    const parsed = patchSchema.safeParse(await req.json());
+    const parsed = patchSchema.safeParse(await req.json().catch(() => null));
     if (!parsed.success)
       return NextResponse.json({ error: "Dados inválidos" }, { status: 400 });
     const { arquivar, nome } = parsed.data;

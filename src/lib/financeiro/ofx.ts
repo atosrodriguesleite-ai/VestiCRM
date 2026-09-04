@@ -47,6 +47,18 @@ export function diaDoOFX(bruto: string): string | null {
   const n = Number(mes);
   const d = Number(dia);
   if (n < 1 || n > 12 || d < 1 || d > 31) return null;
+  // O DIA TEM QUE EXISTIR NO CALENDÁRIO: "20260231" passava por aqui como
+  // 2026-02-31 e só era recusado lá na frente, por `dataDoDia` — que devolve
+  // null e derrubava a IMPORTAÇÃO INTEIRA com 500, deixando o registro do
+  // arquivo órfão. A régua da RN-037 é outra: movimento ilegível é
+  // DESCARTADO e CONTADO, e a tela avisa (auditoria de 03/09/2026).
+  const conferido = new Date(Date.UTC(Number(ano), n - 1, d));
+  if (
+    conferido.getUTCFullYear() !== Number(ano) ||
+    conferido.getUTCMonth() !== n - 1 ||
+    conferido.getUTCDate() !== d
+  )
+    return null;
   return `${ano}-${mes}-${dia}`;
 }
 
@@ -59,7 +71,10 @@ export function diaDoOFX(bruto: string): string | null {
  * A regra é a posição: o ÚLTIMO separador é o decimal; o que vier antes é
  * separador de milhar e sai fora. Devolve null quando não é número.
  */
-export function valorDoOFX(bruto: string): number | null {
+export function valorDoOFX(
+  bruto: string,
+  decimalDoArquivo: "." | "," | null = null
+): number | null {
   const limpo = bruto.trim().replace(/\s/g, "");
   if (!/^[+-]?[\d.,]+$/.test(limpo) || !/\d/.test(limpo)) return null;
   const ultimoPonto = limpo.lastIndexOf(".");
@@ -71,16 +86,51 @@ export function valorDoOFX(bruto: string): number | null {
   } else {
     const inteiro = limpo.slice(0, corte).replace(/[.,]/g, "");
     const decimal = limpo.slice(corte + 1);
-    // separador com 3 dígitos depois e nenhum outro separador é MILHAR
-    // ("1.200" é mil e duzentos, não um e vinte)
-    normal =
-      decimal.length === 3 && !/[.,]/.test(limpo.slice(0, corte))
-        ? `${inteiro}${decimal}`
-        : `${inteiro}.${decimal}`;
+    const separador = limpo[corte] as "." | ",";
+    const temOutro = /[.,]/.test(limpo.slice(0, corte));
+    /**
+     * TRÊS DÍGITOS DEPOIS DO SEPARADOR é o único caso ambíguo: "123.450" pode
+     * ser cento e vinte e três mil, ou R$ 123,45 com três casas (o padrão OFX
+     * PERMITE três casas). Errar aqui multiplica o valor por MIL — a linha
+     * nunca casa com nada, fica eternamente a conferir, e o extrato da tela
+     * diverge do banco em três ordens de grandeza, sem nenhum aviso, porque a
+     * linha foi lida "com sucesso" (achado da auditoria, 03/09/2026).
+     *
+     * Quem desempata é o ARQUIVO INTEIRO, não o palpite — a mesma régua do
+     * acento, onde quem decide é o CONTEÚDO e não o cabeçalho: se em algum
+     * movimento do extrato o ponto (ou a vírgula) aparece com DUAS casas
+     * depois, aquele é o separador decimal daquele banco, e o outro é milhar.
+     * Sem nenhuma evidência no arquivo, três dígitos contam como milhar, que
+     * é o formato do banco brasileiro que escreve "1.200,00".
+     */
+    const ehMilhar =
+      decimal.length === 3 &&
+      !temOutro &&
+      (decimalDoArquivo === null ? true : decimalDoArquivo !== separador);
+    normal = ehMilhar ? `${inteiro}${decimal}` : `${inteiro}.${decimal}`;
   }
   if (!/^[+-]?\d+(\.\d+)?$/.test(normal)) return null;
   const n = Number(normal);
   return Number.isFinite(n) ? Math.round(n * 100) / 100 : null;
+}
+
+/**
+ * Qual separador é o DECIMAL neste arquivo, olhando todos os movimentos.
+ * A prova é um separador com exatamente duas casas depois — o jeito como
+ * banco nenhum escreve milhar. Sem prova, devolve null.
+ */
+export function decimalDoExtrato(valores: string[]): "." | "," | null {
+  let ponto = false;
+  let virgula = false;
+  for (const v of valores) {
+    const m = /[.,](\d{2})$/.exec(v.trim());
+    if (!m) continue;
+    if (v.trim().slice(-3, -2) === ".") ponto = true;
+    else virgula = true;
+  }
+  // os dois aparecendo com duas casas é arquivo inconsistente: não decide
+  if (ponto && virgula) return null;
+  return ponto ? "." : virgula ? "," : null;
 }
 
 /**
@@ -98,11 +148,17 @@ export function lerOFX(texto: string): ExtratoOFX {
   const movimentos: MovimentoOFX[] = [];
   let descartados = 0;
   const blocos = texto.split(/<STMTTRN>/i).slice(1);
-  for (const bruto of blocos) {
+  const crus = blocos.map(
+    (b) => valorDaTag(b.split(/<\/STMTTRN>/i)[0], "TRNAMT") ?? ""
+  );
+  // o arquivo inteiro decide qual separador é o decimal, antes de ler
+  // qualquer valor: linha a linha, "123.450" é indecidível
+  const decimal = decimalDoExtrato(crus);
+  for (const [i, bruto] of blocos.entries()) {
     const bloco = bruto.split(/<\/STMTTRN>/i)[0];
     const fitid = valorDaTag(bloco, "FITID");
     const dia = diaDoOFX(valorDaTag(bloco, "DTPOSTED") ?? "");
-    const valor = valorDoOFX(valorDaTag(bloco, "TRNAMT") ?? "");
+    const valor = valorDoOFX(crus[i], decimal);
     if (!fitid || !dia || valor === null) {
       descartados += 1;
       continue;

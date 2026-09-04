@@ -12,8 +12,13 @@ import {
   combinaComALinha,
   ordenarCandidatas,
 } from "@/lib/financeiro/conciliacao-tela";
-import type { LinhaDoBanco, PainelConciliacao } from "@/lib/financeiro/conciliacao";
+import type {
+  LinhaDoBanco,
+  PainelConciliacao,
+  ParcelaEmAberto,
+} from "@/lib/financeiro/conciliacao";
 import { FormLancamento, type Opcao } from "../_mov/form-lancamento";
+import { BaixaModal } from "../_mov/baixa-modal";
 
 type Importacao = {
   id: string;
@@ -67,6 +72,7 @@ export function ConciliacaoView({
   const [marcadas, setMarcadas] = useState<string[]>([]);
   const [busca, setBusca] = useState("");
   const [criandoDe, setCriandoDe] = useState<LinhaDoBanco | null>(null);
+  const [recebendo, setRecebendo] = useState<ParcelaEmAberto | null>(null);
   const [erro, setErro] = useState("");
   const [aviso, setAviso] = useState("");
   const [ocupado, setOcupado] = useState(false);
@@ -103,6 +109,25 @@ export function ConciliacaoView({
     linhaSelecionada ?? null,
     busca,
     marcadas
+  );
+
+  /**
+   * As contas que a loja registrou e AINDA NÃO recebeu. Elas não se
+   * conciliam (conferir carimba, nunca quita — RN-037), mas precisam
+   * aparecer: sem isso o painel dizia "nada esperando conferência" para uma
+   * venda que estava ali em aberto, e o texto mandava usar o "Lançar" — que
+   * criava uma SEGUNDA receita do mesmo dinheiro.
+   */
+  const emAberto = ordenarCandidatas(
+    painel.emAberto.map((p) => ({
+      ...p,
+      id: p.parcelaId,
+      dia: p.vencimento,
+      valor: p.falta,
+    })),
+    linhaSelecionada ?? null,
+    busca,
+    []
   );
 
   async function enviarArquivo(arquivo: File) {
@@ -450,9 +475,10 @@ export function ConciliacaoView({
           )}
           {painel.candidatas.length === 0 ? (
             <p className="text-sm text-slate-400">
-              Nada registrado nesta conta esperando conferência. Se o dinheiro
-              do banco existe mas não está aqui, abra a linha à esquerda e use
-              &quot;Lançar&quot;.
+              Nada recebido nesta conta esperando conferência.
+              {painel.emAberto.length > 0
+                ? " Veja abaixo as contas que ainda estão em aberto."
+                : " Se o dinheiro do banco existe e não está no sistema, abra a linha à esquerda e use \u201CLançar\u201D."}
             </p>
           ) : candidatas.length === 0 ? (
             <p className="text-sm text-slate-400">
@@ -512,8 +538,89 @@ export function ConciliacaoView({
               Escolha primeiro uma linha do banco, à esquerda.
             </p>
           )}
+
+          {emAberto.length > 0 && (
+            <div className="mt-5 border-t border-slate-100 pt-4">
+              <h3 className="text-sm font-semibold text-slate-800">
+                Ainda em aberto na loja
+              </h3>
+              <p className="mb-3 text-xs text-slate-400">
+                Contas registradas que ainda não foram recebidas ou pagas. Se o
+                dinheiro do banco é uma delas,{" "}
+                <b className="text-slate-500">registre o recebimento aqui</b> —
+                não lance de novo, senão o mesmo dinheiro entra duas vezes.
+              </p>
+              <ul className="divide-y divide-slate-100">
+                {emAberto.slice(0, 30).map((c) => (
+                  <li
+                    key={c.id}
+                    className="flex items-center gap-3 px-2 py-2.5"
+                  >
+                    <span className="text-xs text-slate-400 tabular-nums">
+                      {formatarDia(c.dia)}
+                    </span>
+                    <span className="min-w-0 flex-1 truncate text-sm text-slate-700">
+                      {linhaSelecionada && combinaComALinha(c, linhaSelecionada) && (
+                        <span
+                          className="mr-1 text-amber-600"
+                          title="Mesmo valor e data pertinho da linha escolhida"
+                        >
+                          ✨
+                        </span>
+                      )}
+                      {c.descricao}
+                      {c.pessoa && (
+                        <span className="text-slate-400"> · {c.pessoa}</span>
+                      )}
+                    </span>
+                    <span className="shrink-0 text-sm font-semibold tabular-nums text-slate-500">
+                      {brl(c.valor)}
+                    </span>
+                    <button
+                      onClick={() =>
+                        setRecebendo(
+                          painel.emAberto.find((p) => p.parcelaId === c.id) ?? null
+                        )
+                      }
+                      disabled={ocupado}
+                      className="shrink-0 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-medium text-brand-700 hover:bg-slate-50"
+                    >
+                      {c.valor > 0 ? "Recebi" : "Paguei"}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
         </Card>
       </div>
+
+      {recebendo && (
+        <BaixaModal
+          linha={{
+            parcelaId: recebendo.parcelaId,
+            descricao: recebendo.descricao,
+            saldo: Math.abs(recebendo.falta),
+            numero: recebendo.numero,
+          }}
+          tipo={recebendo.tipo}
+          // a data do banco já vem preenchida: é o dia em que o dinheiro andou
+          hoje={linhaSelecionada?.dia ?? hoje}
+          contas={ficha.contas}
+          // a baixa cai na conta que está sendo conferida — é ela que a
+          // conciliação enxerga
+          contaInicial={filtro.conta}
+          onFechar={() => setRecebendo(null)}
+          onSalvo={() => {
+            setRecebendo(null);
+            setErro("");
+            setAviso(
+              "Recebimento registrado. Agora ele aparece na lista de cima — marque com a linha do banco e clique em Conferir."
+            );
+            router.refresh();
+          }}
+        />
+      )}
 
       {criandoDe && (
         <FormLancamento

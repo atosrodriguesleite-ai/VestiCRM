@@ -1,8 +1,5 @@
-import { redirect } from "next/navigation";
-import { requireUser } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { isManagerUp } from "@/lib/scope";
-import { financeiroLiberado } from "@/lib/financeiro/gate";
+import { porteiraFinanceiroTela } from "@/lib/financeiro/gate";
 import { diaSP } from "@/lib/financeiro/lancamentos";
 import { TransferenciasView } from "./transferencias-view";
 
@@ -10,14 +7,7 @@ export const dynamic = "force-dynamic";
 
 /** TRANSFERÊNCIAS (RN-032) — dinheiro entre contas da própria loja. */
 export default async function TransferenciasPage() {
-  const user = await requireUser();
-  if (!isManagerUp(user)) redirect("/dashboard");
-  const company = await db.company.findUnique({
-    where: { id: user.companyId },
-    select: { financeEnabled: true },
-  });
-  if (!financeiroLiberado(user, company?.financeEnabled ?? false))
-    redirect("/financeiro");
+  const user = await porteiraFinanceiroTela();
 
   const [contas, transferencias] = await Promise.all([
     db.finConta.findMany({

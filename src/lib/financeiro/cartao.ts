@@ -131,8 +131,22 @@ export async function carregarFaturas(
     // da mais NOVA para a mais velha: se o teto estourar, quem fica de fora
     // é o passado distante, nunca a fatura que está para vencer
     orderBy: { vencimento: "desc" },
-    take: TETO_COMPRAS,
+    take: TETO_COMPRAS + 1,
   });
+  /**
+   * O CORTE PODE PARTIR A FATURA MAIS ANTIGA AO MEIO.
+   *
+   * O teto conta COMPRAS (a janela inteira), não meses: batendo nele, o mês
+   * mais velho da lista pode estar incompleto — e a tela dizia "Pagar R$
+   * 4.200" enquanto `pagarFatura` baixaria TODAS as compras daquele mês.
+   * Então esse mês sai da lista: melhor não mostrar do que mostrar um total
+   * que não é o total (auditoria completa do módulo, 03/09/2026).
+   */
+  const cortou = parcelas.length > TETO_COMPRAS;
+  if (cortou) parcelas.length = TETO_COMPRAS;
+  const mesMaisVelho = cortou
+    ? diaSP(parcelas[parcelas.length - 1].vencimento).slice(0, 7)
+    : null;
 
   const porFatura = new Map<string, Fatura>();
   for (const p of parcelas) {
@@ -162,6 +176,9 @@ export async function carregarFaturas(
   }
 
   const faturas = [...porFatura.values()]
+    // o mês mais velho pode ter vindo pela metade (o teto conta COMPRAS, não
+    // meses): melhor não mostrar do que mostrar um total que não é o total
+    .filter((f) => f.mes !== mesMaisVelho)
     .map((f) => ({
       ...f,
       paga: f.emAberto <= 0,
@@ -230,9 +247,21 @@ export async function pagarFatura(
             lancamento: { canceladoEm: null, tipo: "DESPESA" },
           },
           include: { baixas: true, lancamento: { select: { id: true } } },
+          orderBy: [{ vencimento: "asc" }, { id: "asc" }],
+          // O MESMO TETO DA TELA: `carregarFaturas` corta em TETO_COMPRAS, e
+          // sem teto aqui o botão dizia "Pagar R$ 4.200" e a baixa cobria
+          // R$ 6.800 — R$ 2.600 a mais saindo do banco do que a tela
+          // informou (auditoria completa do módulo, 03/09/2026)
+          take: TETO_COMPRAS + 1,
         });
         if (parcelas.length === 0)
           return { ok: false as const, erro: "Esta fatura não tem compras", status: 400 };
+        if (parcelas.length > TETO_COMPRAS)
+          return {
+            ok: false as const,
+            erro: `Esta fatura tem mais de ${TETO_COMPRAS} compras — pague em partes ou fale com o suporte`,
+            status: 400,
+          };
 
         let pagas = 0;
         let valor = 0;
@@ -272,14 +301,29 @@ export async function pagarFatura(
           };
         return { ok: true as const, parcelas: pagas, valor };
       },
-      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }
+      {
+        isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+        // o padrão do Prisma é 5 segundos, e aqui são DUAS escritas por
+        // compra: uma fatura com 40+ compras — o caso que a RN-039 cita como
+        // razão de existir — estourava com P2028, a rota devolvia 500 e
+        // NENHUMA compra era baixada, repetível para sempre
+        timeout: 60_000,
+        maxWait: 15_000,
+      }
     );
   } catch (e) {
-    // conflito de escrita: a outra pessoa pagou primeiro
-    if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2034")
+    const code = (e as { code?: string })?.code;
+    // conflito de escrita (a outra pessoa pagou primeiro) ou tempo estourado
+    if (code === "P2034")
       return {
         ok: false,
         erro: "Alguém pagou esta fatura agora mesmo — atualize a tela",
+        status: 409,
+      };
+    if (code === "P2028")
+      return {
+        ok: false,
+        erro: "A fatura é grande demais para pagar de uma vez — pague em partes",
         status: 409,
       };
     throw e;

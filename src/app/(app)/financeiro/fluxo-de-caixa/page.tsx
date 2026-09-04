@@ -1,8 +1,4 @@
-import { redirect } from "next/navigation";
-import { requireUser } from "@/lib/auth";
-import { db } from "@/lib/db";
-import { isManagerUp } from "@/lib/scope";
-import { financeiroLiberado } from "@/lib/financeiro/gate";
+import { porteiraFinanceiroTela } from "@/lib/financeiro/gate";
 import { montarFluxoDeCaixa } from "@/lib/financeiro/relatorios";
 import { garantirRecorrencias } from "@/lib/financeiro/recorrencia";
 import { diaSP } from "@/lib/financeiro/lancamentos";
@@ -28,14 +24,7 @@ export default async function FluxoDeCaixaPage({
 }: {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
-  const user = await requireUser();
-  if (!isManagerUp(user)) redirect("/dashboard");
-  const company = await db.company.findUnique({
-    where: { id: user.companyId },
-    select: { financeEnabled: true },
-  });
-  if (!financeiroLiberado(user, company?.financeEnabled ?? false))
-    redirect("/financeiro");
+  const user = await porteiraFinanceiroTela();
 
   await garantirRecorrencias(user.companyId);
 

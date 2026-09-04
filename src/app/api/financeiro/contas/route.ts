@@ -1,7 +1,9 @@
 import { after, NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
+import { dataDoDia } from "@/lib/financeiro/lancamentos";
 import { repescarVendasSemBaixa } from "@/lib/financeiro/porta-vendas";
+import { esquecerAvisoDaContaPadrao } from "@/lib/financeiro/visao";
 import { AuthError } from "@/lib/auth";
 import { porteiraFinanceiro } from "@/lib/financeiro/gate";
 
@@ -16,7 +18,17 @@ const contaSchema = z.object({
     .enum(["BANCO", "CAIXINHA", "DIGITAL", "POUPANCA", "CARTAO"])
     .default("BANCO"),
   saldoInicial: z.number().finite().default(0),
-  saldoInicialEm: z.coerce.date().optional(),
+  /**
+   * DATA É DIA, GUARDADO AO MEIO-DIA EM UTC (RN-030). Com `z.coerce.date()`
+   * o "2026-09-01" da tela virava meia-noite UTC, e `diaSP` devolvia
+   * 2026-08-31: a abertura da conta aparecia um dia antes no extrato e um
+   * MÊS antes no fluxo de caixa, fazendo duas telas de dinheiro discordarem
+   * (auditoria completa do módulo, 03/09/2026).
+   */
+  saldoInicialEm: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, "Data inválida")
+    .optional(),
   cor: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional(),
   padrao: z.boolean().default(false),
   // cartão de crédito (RN-039): os dias que decidem a fatura de cada compra.
@@ -66,18 +78,25 @@ export async function POST(req: NextRequest) {
   try {
     const porta = await porteiraFinanceiro();
     if (!porta.ok) return porta.resposta;
-    const parsed = contaSchema.safeParse(await req.json());
+    const parsed = contaSchema.safeParse(await req.json().catch(() => null));
     if (!parsed.success)
       return NextResponse.json({ error: "Dados inválidos" }, { status: 400 });
 
     // CARTÃO não é conta de dinheiro (RN-039): não pode ser a conta PADRÃO —
     // a porta única de entrada das vendas (RN-033) baixaria a venda paga no
     // cartão de crédito da loja — nem carrega saldo inicial.
+    // o dia vira meio-dia UTC (RN-030) antes de qualquer coisa
+    const quando = parsed.data.saldoInicialEm
+      ? dataDoDia(parsed.data.saldoInicialEm)
+      : undefined;
+    if (parsed.data.saldoInicialEm && !quando)
+      return NextResponse.json({ error: "Data inválida" }, { status: 400 });
+    const entrada = { ...parsed.data, saldoInicialEm: quando ?? undefined };
     const dados =
-      parsed.data.tipo === "CARTAO"
-        ? { ...parsed.data, padrao: false, saldoInicial: 0 }
+      entrada.tipo === "CARTAO"
+        ? { ...entrada, padrao: false, saldoInicial: 0 }
         : {
-            ...parsed.data,
+            ...entrada,
             // conta que não é cartão não guarda regra de fatura
             diaFechamento: null,
             diaVencimento: null,
@@ -110,6 +129,7 @@ export async function POST(req: NextRequest) {
       // timeout devolveria erro com a conta JÁ criada — a lojista clicaria
       // de novo e nasceria uma segunda conta com o mesmo nome. O que passar
       // do teto é repescado de carona na próxima abertura do Financeiro.
+      esquecerAvisoDaContaPadrao(porta.user.companyId);
       const repescar = conta.padrao;
       if (repescar)
         after(async () => {

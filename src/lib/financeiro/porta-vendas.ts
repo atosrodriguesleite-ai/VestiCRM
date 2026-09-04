@@ -1,7 +1,6 @@
 import { after } from "next/server";
 import { Prisma } from "@prisma/client";
 import { db } from "../db";
-import { soltarConciliacaoDaBaixa } from "./conciliacao";
 import { round2, PAID_ORDER_STATUSES, orderNumber } from "../orders";
 import { dataDoDia, diaSP, saldoDaParcela } from "./lancamentos";
 import { garantirCategoriasPadrao } from "./cadastros";
@@ -68,6 +67,11 @@ export type EstadoDoLancamento = {
   saldo: number;
   temBaixaManualViva: boolean;
   temBaixaAutomaticaViva: boolean;
+  /**
+   * Alguém (não a porta) ESTORNOU uma baixa nesta venda. É decisão da
+   * lojista — o Pix voltou, o cheque não passou — e a porta não a desfaz.
+   */
+  temEstornoManual: boolean;
 };
 
 export type AcaoDaPorta = {
@@ -138,6 +142,22 @@ export function decidirAcaoDaPorta(
     return { ...seguindo, reativar: true };
   }
 
+  // ---- o pedido deixou de custar alguma coisa ----------------------------
+  // Desconto de 100% (ou brinde): não há o que receber. Antes o valor zero
+  // era simplesmente IGNORADO (`pedido.valor > 0` abaixo) e a porta seguia
+  // baixando o valor VELHO — dinheiro que não existe entrando na conta, sem
+  // como consertar pela tela (lançamento automático não aceita edição,
+  // RN-030). Achado da auditoria completa, 03/09/2026.
+  if (round2(pedido.valor) <= 0) {
+    if (lanc.temBaixaManualViva)
+      return {
+        ...NADA,
+        aviso:
+          "O pedido passou a não custar nada, mas há baixa registrada à mão — confira este lançamento",
+      };
+    return { ...NADA, estornarAutomaticas: lanc.temBaixaAutomaticaViva, cancelar: true };
+  }
+
   // o pedido mudou de valor? o financeiro tem que acompanhar — mas nunca
   // por cima do que a lojista registrou na mão
   const mudouValor = round2(lanc.valor) !== round2(pedido.valor);
@@ -148,7 +168,7 @@ export function decidirAcaoDaPorta(
     };
   }
 
-  const novoValor = mudouValor && pedido.valor > 0 ? round2(pedido.valor) : null;
+  const novoValor = mudouValor ? round2(pedido.valor) : null;
   // trocar o valor exige refazer a baixa automática (ela era do valor velho)
   const estornarPorValor = novoValor !== null && lanc.temBaixaAutomaticaViva;
   const saldoDepois = novoValor !== null
@@ -157,6 +177,24 @@ export function decidirAcaoDaPorta(
 
   if (pago) {
     const aReceber = round2(Math.max(0, saldoDepois));
+    // O QUE A LOJISTA FEZ NA MÃO É DELA, e ESTORNAR também é fazer na mão:
+    // o Pix voltou, o cheque não passou. A porta não registra o recebimento
+    // de novo — antes bastava mudar o pedido de PAGO para ENVIADO e o
+    // dinheiro que ela mandou embora voltava sozinho ao extrato. A varredura
+    // já respeitava isso; a regra não (achado da auditoria, 03/09/2026).
+    if (aReceber > 0 && lanc.temEstornoManual) {
+      return {
+        ...NADA,
+        novoValor,
+        // E NÃO ESTORNA A PRÓPRIA BAIXA: estornar sem poder registrar de novo
+        // faria o dinheiro que REALMENTE entrou sumir do extrato e do DRE, e
+        // a venda paga aparecer atrasada por inteiro. Fica como está, com o
+        // valor acertado e o aviso — a lojista decide (auditoria 03/09/2026).
+        estornarAutomaticas: false,
+        aviso:
+          "Ainda falta receber nesta venda, mas alguém estornou uma baixa aqui — registre o recebimento à mão se o dinheiro entrou",
+      };
+    }
     return {
       ...NADA,
       novoValor,
@@ -295,11 +333,12 @@ export async function sincronizarPedidoNoFinanceiro(
 
   if (!existente) return { feito: false, motivo: "sem-dinheiro" };
 
-  // ---- só um aviso -------------------------------------------------------
-  if (acao.aviso) {
-    await avisarUmaVez(existente.id, acao.aviso, existente.eventos);
-    return { feito: true, lancamentoId: existente.id, acao: "nada" };
-  }
+  // ---- o aviso ------------------------------------------------------------
+  // Ele acompanha as outras ações em vez de substituí-las: a venda pode
+  // precisar acertar o VALOR e, ao mesmo tempo, a porta não poder registrar o
+  // recebimento (a lojista estornou uma baixa aqui). Antes o aviso saía e
+  // encerrava, e o valor ficava errado por causa dele.
+  if (acao.aviso) await avisarUmaVez(existente.id, acao.aviso, existente.eventos);
 
   let mexeu = false;
   if (acao.reativar) {
@@ -538,6 +577,7 @@ function estadoDoLancamento(
             juros: number;
             autorNome: string;
             estornadaEm: Date | null;
+            estornoAutor: string | null;
           }[];
         }[];
         eventos: { descricao: string; autorNome: string }[];
@@ -553,6 +593,7 @@ function estadoDoLancamento(
       saldo: 0,
       temBaixaManualViva: false,
       temBaixaAutomaticaViva: false,
+      temEstornoManual: false,
     };
   const vivas = l.parcelas.flatMap((p) => p.baixas.filter((b) => !b.estornadaEm));
   const abatido = round2(vivas.reduce((s, b) => s + b.valor, 0));
@@ -575,6 +616,9 @@ function estadoDoLancamento(
     saldo: round2(Math.max(0, round2(l.valor) - abatido)),
     temBaixaManualViva: vivas.some((b) => b.autorNome !== AUTOR_SISTEMA),
     temBaixaAutomaticaViva: vivas.some((b) => b.autorNome === AUTOR_SISTEMA),
+    temEstornoManual: l.parcelas.some((p) =>
+      p.baixas.some((b) => b.estornadaEm && b.estornoAutor !== AUTOR_SISTEMA)
+    ),
   };
 }
 
@@ -662,13 +706,20 @@ export async function cancelarEtiquetaNoFinanceiro(
   const chave = meOrderId ?? shippingId;
   const lanc = await db.finLancamento.findFirst({
     where: { companyId, origem: ORIGEM_ETIQUETA, origemId: chave },
-    include: { parcelas: { include: { baixas: true } } },
+    include: {
+      parcelas: { include: { baixas: true } },
+      // o histórico VAI JUNTO: sem ele o `avisarUmaVez` não tem com o que
+      // comparar e reescreve o mesmo aviso a cada clique — a lojista clica
+      // duas vezes, ou a chamada ao Melhor Envio demora e ela recarrega,
+      // e a ficha enche de avisos repetidos (achado da auditoria, 03/09/2026)
+      eventos: { orderBy: { createdAt: "desc" }, take: 20 },
+    },
   });
   if (!lanc) return { feito: false, motivo: "nao-encontrado" };
   if (lanc.canceladoEm) return { feito: true, lancamentoId: lanc.id, acao: "nada" };
 
   return cancelarLancamentoPelaPorta(
-    { ...lanc, eventos: [] },
+    lanc,
     {
       avisoComBaixaManual:
         "Etiqueta cancelada, mas há baixa registrada à mão — confira este lançamento",
@@ -706,19 +757,28 @@ async function atualizarValor(
   parcelaId: string | undefined,
   valor: number
 ) {
-  await db.finLancamento.update({
-    where: { id: lancamentoId },
-    data: {
-      valor,
-      eventos: {
-        create: {
-          descricao: `Valor acertado com o pedido: R$ ${valor.toFixed(2)}`,
-          autorNome: AUTOR_SISTEMA,
+  // NUMA TRANSAÇÃO SÓ: falhando entre as duas escritas, o lançamento diria
+  // R$ 450 e a parcela R$ 100 — o saldo sai de um, a baixa do outro, a
+  // parcela fica "quitada" com o lançamento em aberto, e não dá para
+  // consertar pela tela (lançamento automático não aceita edição, RN-030).
+  await db.$transaction(
+    async (tx) => {
+      await tx.finLancamento.update({
+        where: { id: lancamentoId },
+        data: {
+          valor,
+          eventos: {
+            create: {
+              descricao: `Valor acertado com o pedido: R$ ${valor.toFixed(2)}`,
+              autorNome: AUTOR_SISTEMA,
+            },
+          },
         },
-      },
+      });
+      if (parcelaId) await tx.finParcela.update({ where: { id: parcelaId }, data: { valor } });
     },
-  });
-  if (parcelaId) await db.finParcela.update({ where: { id: parcelaId }, data: { valor } });
+    { timeout: 20_000, maxWait: 10_000 }
+  );
 }
 
 /**
@@ -731,7 +791,8 @@ async function darBaixaDaPorta(
   parcelaId: string,
   companyId: string,
   valor: number,
-  data: Date
+  data: Date,
+  segundaVolta = false
 ) {
   const conta = await contaPadrao(companyId);
   if (!conta) {
@@ -757,59 +818,75 @@ async function darBaixaDaPorta(
    * venda DUAS VEZES (o PATCH do pedido e o aviso do gateway chegam juntos e
    * liam o mesmo saldo); e simplesmente desistir na recusa do índice deixava
    * a parcela com saldo aberto PARA SEMPRE — é o caso do sinal registrado à
-   * mão que a lojista estorna depois da baixa automática (achado da revisão,
-   * 03/09/2026).
+   * mão que a lojista estorna depois da baixa automática.
    *
-   * O quanto ajustar é lido AGORA, do banco: o valor que veio da máquina de
-   * estados pode ter envelhecido numa corrida, e somá-lo em cima de uma baixa
-   * que a outra chamada acabou de criar dobraria o dinheiro.
+   * TUDO EM TRANSAÇÃO SERIALIZÁVEL, como a porta manual de baixa. Sem isso a
+   * trava da outra porta não valia de nada: o Postgres não aborta uma
+   * transação serializável por causa de escrita feita em autocommit, então a
+   * lojista clicando "Recebi R$ 40" enquanto o gateway confirmava o resto
+   * abatia R$ 140 numa parcela de R$ 100 (achado da auditoria, 03/09/2026).
    */
-  const viva = await db.finBaixa.findFirst({
-    where: { parcelaId, estornadaEm: null, autorNome: AUTOR_SISTEMA },
-    select: { id: true, valor: true },
-  });
-  if (viva) {
-    const parcela = await db.finParcela.findUnique({
-      where: { id: parcelaId },
-      select: {
-        valor: true,
-        vencimento: true,
-        baixas: { select: { valor: true, estornadaEm: true } },
-      },
-    });
-    const falta = parcela ? saldoDaParcela(parcela) : 0;
-    if (falta <= 0.005) return; // o dinheiro já está todo lá
-    const novo = round2(viva.valor + falta);
-    await db.finBaixa.update({ where: { id: viva.id }, data: { valor: novo, data } });
-    // o valor mudou: "conferido" com a linha do banco viraria mentira (RN-037)
-    await soltarConciliacaoDaBaixa(viva.id);
-    await db.finLancamentoEvento.create({
-      data: {
-        lancamentoId,
-        descricao: `Recebimento automático acertado para R$ ${novo.toFixed(2)} em ${diaSP(data)}`,
-        autorNome: AUTOR_SISTEMA,
-      },
-    });
-    return;
-  }
-
   try {
-    await db.finBaixa.create({
-      data: { companyId, parcelaId, contaId: conta, data, valor, autorNome: AUTOR_SISTEMA },
-    });
+    const feito = await db.$transaction(
+      async (tx) => {
+        const parcela = await tx.finParcela.findUnique({
+          where: { id: parcelaId },
+          select: {
+            valor: true,
+            vencimento: true,
+            baixas: {
+              select: { id: true, valor: true, estornadaEm: true, autorNome: true },
+            },
+          },
+        });
+        if (!parcela) return null;
+        const falta = saldoDaParcela(parcela);
+        if (falta <= 0.005) return null; // o dinheiro já está todo lá
+        const viva = parcela.baixas.find(
+          (b) => !b.estornadaEm && b.autorNome === AUTOR_SISTEMA
+        );
+        if (viva) {
+          const novo = round2(viva.valor + falta);
+          await tx.finBaixa.update({ where: { id: viva.id }, data: { valor: novo, data } });
+          // o valor mudou: "conferido" com a linha do banco viraria mentira
+          await tx.finOfxVinculo.deleteMany({ where: { baixaId: viva.id } });
+          return `Recebimento automático acertado para R$ ${novo.toFixed(2)} em ${diaSP(data)}`;
+        }
+        // nunca mais do que a parcela deve: o valor que veio da máquina de
+        // estados pode ter envelhecido numa corrida
+        const quanto = round2(Math.min(valor, falta));
+        await tx.finBaixa.create({
+          data: {
+            companyId,
+            parcelaId,
+            contaId: conta,
+            data,
+            valor: quanto,
+            autorNome: AUTOR_SISTEMA,
+          },
+        });
+        return `Recebimento registrado automaticamente em ${diaSP(data)}`;
+      },
+      {
+        isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+        timeout: 20_000,
+        maxWait: 10_000,
+      }
+    );
+    if (feito)
+      await db.finLancamentoEvento.create({
+        data: { lancamentoId, descricao: feito, autorNome: AUTOR_SISTEMA },
+      });
   } catch (e) {
-    // a corrida criou a baixa entre a leitura acima e este insert: o dinheiro
-    // dela é o MESMO que este lado ia registrar, então não se soma nada
-    if ((e as { code?: string })?.code === "P2002") return;
-    throw e;
+    const code = (e as { code?: string })?.code;
+    if (code !== "P2002" && code !== "P2034") throw e;
+    // corrida de verdade: a outra chamada registrou o dinheiro. Recomeça UMA
+    // vez para conferir se ainda falta alguma coisa — assumir que era o mesmo
+    // dinheiro deixava a parcela devendo para sempre quando os dois lados
+    // leram saldos diferentes (o sinal estornado no meio).
+    if (!segundaVolta)
+      return darBaixaDaPorta(lancamentoId, parcelaId, companyId, valor, data, true);
   }
-  await db.finLancamentoEvento.create({
-    data: {
-      lancamentoId,
-      descricao: `Recebimento registrado automaticamente em ${diaSP(data)}`,
-      autorNome: AUTOR_SISTEMA,
-    },
-  });
 }
 
 /** Estorna SÓ as baixas que a porta deu — as da lojista são intocáveis. */
@@ -828,7 +905,10 @@ async function estornarBaixasDaPorta(lancamentoId: string, motivo: string) {
     data: { estornadaEm: new Date(), estornoAutor: AUTOR_SISTEMA },
   });
   // dinheiro que voltou atrás não segue "conferido" com o extrato (RN-037)
-  for (const b of paraSoltar) await soltarConciliacaoDaBaixa(b.id);
+  if (paraSoltar.length > 0)
+    await db.finOfxVinculo.deleteMany({
+      where: { baixaId: { in: paraSoltar.map((b) => b.id) } },
+    });
   if (count > 0) {
     await db.finLancamentoEvento.create({
       data: {
@@ -869,6 +949,12 @@ function rotuloDaOrigem(source: string): string {
  */
 /** Teto por rodada da repescagem: loja com anos de pedidos não trava a tela. */
 export const TETO_REPESCA = 50;
+/**
+ * Até quantos dias atrás a varredura procura venda paga SEM lançamento
+ * nenhum. Curto de propósito: sem a janela, ligar o módulo despejaria anos
+ * de vendas antigas no financeiro sozinho.
+ */
+export const DIAS_SEM_LANCAMENTO = 7;
 
 /**
  * Quais VENDAS PAGAS estão sem baixa nenhuma.
@@ -937,7 +1023,43 @@ export async function pedidosPagosSemBaixa(
            )
      ORDER BY l."createdAt" DESC
      LIMIT ${teto}`;
-  return linhas.map((l) => l.origemId);
+
+  /**
+   * E a venda paga que não tem lançamento NENHUM. O trabalho da porta vai no
+   * `after()` do Next: uma queda de conexão ali e o lançamento nunca nasce —
+   * o gateway ainda reenvia o aviso, mas `settleOrderPaid` sai pelo ramo
+   * "já-pago" e não chama a porta de novo. A varredura acima parte do
+   * lançamento, então não enxergava esse pedido: a venda paga sumia do
+   * financeiro para sempre, sem nada detectando (achado da auditoria,
+   * 03/09/2026).
+   *
+   * A JANELA É CURTA de propósito. Sem ela, a loja que acabou de ligar o
+   * módulo veria o sistema despejar anos de vendas antigas no financeiro
+   * sozinho — inflando DRE, extrato e fluxo de um passado que ela nunca
+   * lançou. Aqui a rede pega o acidente recente, não o histórico.
+   */
+  const desde = new Date(Date.now() - DIAS_SEM_LANCAMENTO * 86_400_000);
+  const semLancamento = await db.$queryRaw<{ origemId: string }[]>`
+    SELECT o."id" AS "origemId"
+      FROM "Order" o
+     WHERE o."companyId" = ${companyId}
+       AND o."status"::text = ANY(${[...PAID_ORDER_STATUSES]}::text[])
+       AND COALESCE(o."paidAt", o."createdAt") >= ${desde}
+       AND NOT EXISTS (
+             SELECT 1 FROM "FinLancamento" l
+              WHERE l."companyId" = o."companyId"
+                AND l."origem" = ${ORIGEM_PEDIDO}
+                AND l."origemId" = o."id"
+           )
+     ORDER BY o."createdAt" DESC
+     LIMIT ${teto}`;
+
+  // a venda sem lançamento NENHUM vem primeiro: é a mais rara (janela de
+  // poucos dias) e a mais grave — a venda paga que sumiu do financeiro. Indo
+  // no fim, ela nunca rodava quando a outra consulta enchia o teto sozinha.
+  return [
+    ...new Set([...semLancamento, ...linhas].map((l) => l.origemId)),
+  ].slice(0, teto);
 }
 
 /**

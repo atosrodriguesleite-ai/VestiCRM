@@ -38,13 +38,25 @@ export const DRE_LABEL: Record<BlocoDRE, string> = {
  */
 export function blocoDREdoCodigo(
   codigo: string | null | undefined,
-  tipo: "RECEITA" | "DESPESA"
+  tipo: "RECEITA" | "DESPESA",
+  /**
+   * O bloco "07" desta loja é o do SISTEMA? Quem responde é a RAIZ da árvore,
+   * nunca a folha: a loja pode ter criado uma categoria dela que ficou com o
+   * código "07" (o servidor numera na ordem), e tratá-la como investimento
+   * fazia a despesa REAL sumir do resultado — R$ 20 mil por ano desaparecendo
+   * do "deu lucro?" sem aviso. Mas olhar a folha erra do outro lado: a
+   * subcategoria "07.01 Máquinas" que a LOJISTA criou dentro do bloco de
+   * investimentos do sistema é investimento do mesmo jeito, e passaria a
+   * contar como despesa administrativa (auditoria de 03/09/2026).
+   * O padrão `true` mantém quem chama sem o dado no comportamento de antes.
+   */
+  daArvore = true
 ): BlocoDRE | null {
   // o TIPO manda antes do código: a loja pode ter criado uma categoria de
   // RECEITA que ficou com o código "07" (o servidor numera na ordem), e
   // tratá-la como investimento tiraria a venda da linha de receitas
   if (tipo === "RECEITA") return "RECEITA";
-  if (codigo?.startsWith("07")) return null; // investimento fica fora
+  if (daArvore && codigo?.startsWith("07")) return null; // investimento fica fora
   if (codigo?.startsWith("03")) return "CUSTO";
   if (codigo?.startsWith("04")) return "DESPESA_VENDAS";
   if (codigo?.startsWith("06")) return "DESPESA_FINANCEIRA";
@@ -190,12 +202,25 @@ export function rotuloDoMes(mes: string): string {
 }
 
 /** Os meses entre duas pontas, inclusive: ["2026-07", "2026-08", "2026-09"]. */
+/**
+ * A raiz do código de uma categoria: "07.01" → "07". É ela que diz em qual
+ * bloco do DRE e do DFC a categoria entra.
+ */
+export function raizDoCodigo(codigo: string | null | undefined): string | null {
+  if (!codigo) return null;
+  const raiz = codigo.split(".")[0];
+  return raiz || null;
+}
+
+/** Quantas colunas de mês cabem num relatório. */
+export const TETO_MESES = 24;
+
 export function mesesEntre(de: string, ate: string): string[] {
   const meses: string[] = [];
   let [ano, mes] = de.split("-").map(Number);
   const [anoFim, mesFim] = ate.split("-").map(Number);
   // teto de 24 colunas: relatório de 10 anos não cabe na tela nem na memória
-  while ((ano < anoFim || (ano === anoFim && mes <= mesFim)) && meses.length < 24) {
+  while ((ano < anoFim || (ano === anoFim && mes <= mesFim)) && meses.length < TETO_MESES) {
     meses.push(`${ano}-${String(mes).padStart(2, "0")}`);
     mes += 1;
     if (mes > 12) {

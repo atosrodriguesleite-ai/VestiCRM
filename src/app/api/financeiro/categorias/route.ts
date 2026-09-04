@@ -42,7 +42,7 @@ export async function POST(req: NextRequest) {
   try {
     const porta = await porteiraFinanceiro();
     if (!porta.ok) return porta.resposta;
-    const parsed = criarSchema.safeParse(await req.json());
+    const parsed = criarSchema.safeParse(await req.json().catch(() => null));
     if (!parsed.success)
       return NextResponse.json({ error: "Dados inválidos" }, { status: 400 });
     const { nome, paiId } = parsed.data;

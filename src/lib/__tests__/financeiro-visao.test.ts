@@ -87,8 +87,11 @@ describe("as travas da cobrança (RN-034)", () => {
     // a marca de cobrada é tomada ANTES do envio (é ela que impede o clique
     // duplo na janela anti-ban), então todo caminho de erro DESMARCA: o que
     // não saiu não pode ficar registrado como cobrado
+    // o guarda é a INVARIANTE, não a contagem: cada saída 502 tem o seu
+    // desmarcar. (Hoje são três: a conversa que não abre, a exceção do envio
+    // e a mensagem que volta FALHOU.)
     const saidas = motor.split("status: 502").length - 1;
-    expect(saidas).toBe(2); // a exceção e o FALHOU
+    expect(saidas).toBeGreaterThanOrEqual(3);
     expect(motor.split("await desmarcar();").length - 1).toBe(saidas);
   });
 

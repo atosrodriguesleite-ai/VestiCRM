@@ -1,7 +1,7 @@
 // Guarda RN-029
 import { describe, it, expect } from "vitest";
-import { readFileSync, readdirSync, statSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
+import { dirname, join } from "node:path";
 import {
   CATEGORIAS_PADRAO,
   conferirDocumentosFornecedor,
@@ -55,11 +55,67 @@ describe("porteira do módulo (RN-029)", () => {
     };
     varrer(raiz);
     expect(rotas.length).toBeGreaterThanOrEqual(10);
+    /**
+     * A conferência é por HANDLER EXPORTADO, não por arquivo. Olhando só o
+     * arquivo, uma rota com GET protegido e um POST novo sem porteira
+     * passava verde — e são seis arquivos com dois handlers cada. É a mesma
+     * armadilha da "regex frouxa" do guarda de faturamento (auditoria
+     * completa do módulo, 03/09/2026).
+     */
+    let handlers = 0;
     for (const rota of rotas) {
-      expect(
-        readFileSync(rota, "utf8").includes("porteiraFinanceiro("),
-        `${rota} não passa pela porteira do módulo`
-      ).toBe(true);
+      const codigo = readFileSync(rota, "utf8");
+      const partes = codigo.split(/export async function (?=GET|POST|PATCH|PUT|DELETE)/);
+      for (const parte of partes.slice(1)) {
+        handlers += 1;
+        const nome = parte.slice(0, parte.indexOf("("));
+        expect(
+          parte.includes("porteiraFinanceiro("),
+          `${rota} · ${nome} não passa pela porteira do módulo`
+        ).toBe(true);
+      }
+    }
+    expect(handlers).toBeGreaterThanOrEqual(rotas.length);
+  });
+
+  it("TODA TELA do módulo passa pela porteira (RN-029)", () => {
+    // as páginas repetiam as seis linhas da porteira à mão e NENHUM teste as
+    // varria: uma tela nova que esquecesse uma das duas chaves entrava em
+    // produção sem guarda, e uma vendedora (ou uma loja sem o módulo) veria
+    // a tela de dinheiro (auditoria completa do módulo, 03/09/2026)
+    const raiz = join(process.cwd(), "src/app/(app)/financeiro");
+    const telas: string[] = [];
+    const varrer = (dir: string) => {
+      for (const f of readdirSync(dir)) {
+        const p = join(dir, f);
+        if (statSync(p).isDirectory()) varrer(p);
+        else if (f === "page.tsx") telas.push(p);
+      }
+    };
+    varrer(raiz);
+    expect(telas.length).toBeGreaterThanOrEqual(10);
+    // a página pode passar a bola para um componente local (Contas a Pagar e
+    // Contas a Receber são a MESMA página, mudando só o tipo): a porteira
+    // vale se estiver nela ou no componente para onde ela delega
+    const guardada = (arquivo: string, seguir = true): boolean => {
+      const codigo = readFileSync(arquivo, "utf8");
+      if (codigo.includes("porteiraFinanceiroTela(")) return true;
+      // a tela raiz decide entre o painel do módulo e a lista antiga de
+      // pedidos a receber, então usa a régua pura em vez do redirect
+      if (codigo.includes("financeiroLiberado(") && codigo.includes("isManagerUp("))
+        return true;
+      if (!seguir) return false;
+      const vizinhos = [...codigo.matchAll(/from "(\.[^"]+)"/g)].map((m) => m[1]);
+      return vizinhos.some((rel) => {
+        for (const ext of [".tsx", ".ts"]) {
+          const alvo = join(dirname(arquivo), rel + ext);
+          if (existsSync(alvo) && guardada(alvo, false)) return true;
+        }
+        return false;
+      });
+    };
+    for (const tela of telas) {
+      expect(guardada(tela), `${tela} não passa pela porteira do módulo`).toBe(true);
     }
   });
 

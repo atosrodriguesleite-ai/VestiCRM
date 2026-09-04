@@ -1,8 +1,5 @@
-import { redirect } from "next/navigation";
-import { requireUser } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { isManagerUp } from "@/lib/scope";
-import { financeiroLiberado } from "@/lib/financeiro/gate";
+import { porteiraFinanceiroTela } from "@/lib/financeiro/gate";
 import { garantirRecorrencias } from "@/lib/financeiro/recorrencia";
 import { carregarExtrato } from "@/lib/financeiro/extrato";
 import { dataDoDia, diaSP } from "@/lib/financeiro/lancamentos";
@@ -19,14 +16,7 @@ export default async function ExtratoPage({
 }: {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
-  const user = await requireUser();
-  if (!isManagerUp(user)) redirect("/dashboard");
-  const company = await db.company.findUnique({
-    where: { id: user.companyId },
-    select: { financeEnabled: true },
-  });
-  if (!financeiroLiberado(user, company?.financeEnabled ?? false))
-    redirect("/financeiro");
+  const user = await porteiraFinanceiroTela();
 
   // carona no tráfego: as contas fixas do mês entram sem cron (ADR-002)
   await garantirRecorrencias(user.companyId);

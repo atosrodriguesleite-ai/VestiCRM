@@ -195,6 +195,11 @@ export async function limparFuturosSemBaixa(
       competencia: { gte: aPartirDe },
       parcelas: { every: { baixas: { none: {} } } },
       anexos: { none: {} },
+      // MÊS CANCELADO É DECISÃO DA LOJISTA e não se refaz: a loja ia fechar
+      // em dezembro, ela cancelou o aluguel daquele mês, e editar a conta
+      // fixa em outubro apagava dezembro (com o histórico do cancelamento
+      // junto) e o recriava em aberto e pagável (auditoria de 03/09/2026)
+      canceladoEm: null,
     },
     select: { id: true },
   });
