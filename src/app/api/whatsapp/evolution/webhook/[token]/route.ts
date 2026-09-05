@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
+import { registrarPrimeiraConexao } from "@/lib/comm/primeira-conexao";
 import { receiveMessage, updateDeliveryStatus, aplicarRecibosOrfaos } from "@/lib/comm/engine";
 import { jidToPhone } from "@/lib/comm/evolution";
 import {
@@ -328,6 +329,8 @@ export async function POST(
               : {}),
           },
         });
+        // a loja passou a TER WhatsApp: fica carimbado para sempre (RN-049)
+        if (state === "open") await registrarPrimeiraConexao(companyId);
         // ESTAVA conectado e caiu → avisa a loja NA HORA (sino + push).
         // "close" durante a leitura do QR não conta (não estava conectado).
         if (state === "close" && settings.evolutionStatus === "CONECTADO") {

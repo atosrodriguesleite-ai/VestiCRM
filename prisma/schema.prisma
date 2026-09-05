@@ -1049,6 +1049,13 @@ model CommSettings {
   // vigia do WhatsApp: desde quando caiu e quando o último alerta foi enviado
   evolutionDownSince    DateTime?
   evolutionAlertAt      DateTime?
+  // A LOJA JÁ TEVE WHATSAPP? (RN-049) Carimbado na PRIMEIRA conexão real
+  // (Evolution conectado ou API oficial configurada) e NUNCA apagado — o
+  // Desconectar zera instância, telefone e provedor, então só este carimbo
+  // separa "nunca conectou" (aba vira convite) de "desconectou" (histórico
+  // fica). Inferir pela mensagem com id não serve: o provedor simulado e a
+  // tela de simulação também carimbam id (achado da revisão, 05/09/2026).
+  whatsappConectadoEm   DateTime?
   // trava de segurança anti-banimento: espaçamento mínimo + teto diário
   waLastSentAt          DateTime?
   waSentDate            String? // dia (yyyy-mm-dd) do contador abaixo

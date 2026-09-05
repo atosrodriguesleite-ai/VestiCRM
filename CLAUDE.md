@@ -482,6 +482,33 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   **`ECONNRESET` fica de fora de propósito** — a conexão cair no meio pode ter
   sido depois de o servidor receber tudo, e repetir aí duplicaria a mensagem,
   que é o erro que esta regra inteira existe para evitar.
+  **RN-049 · A Central só aparece para quem JÁ TEM WhatsApp**
+  (`lib/comm/central-disponivel.ts`, 05/09/2026): relato do dono — a loja que
+  nunca conectou o WhatsApp abria a aba e via fila e chat cheios de pedidos
+  do catálogo. Não é defeito: o pedido entra pelo portão único (RN-008) e
+  nasce com conversa, funil e tarefa para nada se perder (RN-010) e para a
+  bolha já existir quando a cliente aperta enviar (RN-043). Decisão alinhada
+  com o dono: **por trás nada muda** — tudo continua nascendo, para estar lá
+  no dia em que a loja conectar; o que muda é a **tela**: sem WhatsApp, a aba
+  vira o convite "Conecte o WhatsApp da loja" (botão para quem pode conectar,
+  `podeOperarIntegracoes`; a vendedora vê a quem pedir), e os pedidos seguem
+  na tela Pedidos e no sino. **O sinal NÃO é "está conectado agora", é "esta
+  loja já teve WhatsApp"**: a prova é o **carimbo da primeira conexão**
+  (`CommSettings.whatsappConectadoEm`, gravado por `registrarPrimeiraConexao`
+  quando o Evolution vira CONECTADO — sondagem ou webhook — ou a API oficial
+  é escolhida, e **nunca apagado**: o botão Desconectar zera instância,
+  telefone e provedor, e só o carimbo separa "nunca conectou" de "desconectou
+  ontem"). Com ele, a Central FICA com a conexão caída ou desfeita — o segundo
+  pedido do dono: **histórico nunca some atrás da tela de conectar**. Inferir
+  pela mensagem com id foi tentado e **recusado na revisão**: o provedor
+  simulado (`mock.…`) e a tela de simulação (`wamid.sim.…`) também carimbam
+  id, e a loja sem WhatsApp reabria a fila por engano. As lojas que já tinham
+  conectado antes do carimbo foram preenchidas pela migração (status,
+  telefone, API oficial ou mensagem de id REAL — fora os falsos). Quem chega
+  por **link para uma conversa** (`?conv=`: ficha, Agenda, sino) vê a Central
+  mesmo sem WhatsApp — o convite no lugar seria beco sem saída. Conectado
+  agora ou com a API oficial configurada também mostra; esperando o QR ainda
+  não. A loja de demonstração sempre vê a Central (é vitrine).
   **RN-012** · Resgate manual: **"Colar pedido do WhatsApp"** na tela Pedidos
   (`lib/catalogo/ler-mensagem.ts` + `/api/orders/ler-mensagem`) — lê a
   mensagem do catálogo, casa com o catálogo da loja (nome mais longo vence
