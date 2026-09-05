@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import { itemVisivel } from "../menu-grupos";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { ALERTA_TRAVA_PCT, calcularMonitor, estadoDaTrava, mesSP } from "../ia";
@@ -162,9 +163,15 @@ describe("o módulo está amarrado (guardas de arquivo)", () => {
   });
 
   it("sem a chave, o menu não mostra e a tela expulsa", () => {
-    expect(ler("src/components/app-shell.tsx")).toContain(
-      'if ("aiOnly" in i && i.aiOnly && !user.aiSalesEnabled) return false;'
+    // o item do menu declara a chave do módulo, e a regra de quem vê é pura
+    // (`itemVisivel`): sem a chave ninguém vê, nem a admin
+    expect(ler("src/components/app-shell.tsx")).toMatch(
+      /href: "\/ia",[^}]*aiOnly: true/
     );
+    const item = { href: "/ia", managerOnly: true, aiOnly: true };
+    expect(itemVisivel(item, { role: "ADMIN", aiSalesEnabled: false })).toBe(false);
+    expect(itemVisivel(item, { role: "ADMIN", aiSalesEnabled: true })).toBe(true);
+    expect(itemVisivel(item, { role: "SELLER", aiSalesEnabled: true })).toBe(false);
     const page = ler("src/app/(app)/ia/page.tsx");
     expect(page).toContain("if (!company?.aiSalesEnabled) redirect(");
     expect(page).toContain("if (!isManagerUp(user)) redirect(");
