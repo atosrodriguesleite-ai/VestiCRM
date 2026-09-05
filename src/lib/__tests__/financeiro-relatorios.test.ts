@@ -243,9 +243,9 @@ describe("os achados da auditoria completa (RN-035, RN-036)", () => {
     // `saldoHoje` conta baixa até HOJE; somando todas do outro lado, o
     // cheque registrado para amanhã saía das DUAS pontas e o dinheiro
     // desaparecia da previsão — enquanto o fluxo o mostrava como realizado
-    const visao = lerArq("src/lib/financeiro/visao.ts");
-    const corpo = visao.slice(visao.indexOf("async function emAbertoAte("));
-    expect(corpo).toContain("data: { lte: hojeDia },");
+    const painel = lerArq("src/lib/financeiro/painel.ts");
+    const corpo = painel.slice(painel.indexOf("export async function linhasDaCurva("));
+    expect(corpo).toContain('AND b."data" <= ${hojeDia}');
   });
 
   it("o fluxo agrupa por ID, nunca pelo nome (duas 'Maria Silva' são duas)", () => {

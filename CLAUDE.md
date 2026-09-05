@@ -997,13 +997,42 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   bolha). Sem olhar o status, a cobrança se dava por enviada com o WhatsApp
   desligado — a lojista riscava da lista e a cliente nunca soube.
   **RN-035 · A VISÃO DE DONO** (`lib/financeiro/visao.ts`, `/financeiro` e
-  `/financeiro/dfc`): com o módulo ligado, a tela do Financeiro deixa de ser
-  a lista de pedidos a receber e vira o PAINEL — saldo hoje (somado por
-  conta), a receber e a pagar do mês, atrasado, e o **saldo previsto** para 7,
-  15 ou 30 dias com o termômetro de cobertura. A previsão soma só o que está
-  EM ABERTO (o já pago não pode contar duas vezes) e **o atrasado ENTRA**: a
-  conta vencida ontem continua sendo dinheiro a receber, e tirá-la faria a
-  loja se planejar com menos do que tem. O **DFC** responde "por onde o
+  `/financeiro/dfc`; `lib/financeiro/painel.ts` e `saude.ts` desde 05/09/2026):
+  a tela do Financeiro é o PAINEL DE DONO — saldo em caixa hoje (somado por
+  conta), o **saldo previsto** em 30, 60 e 90 dias com o termômetro de
+  cobertura, a **curva dia a dia** (fluxo de caixa projetado, com o dia mais
+  apertado marcado quando fica negativo), a **nota de saúde** (0–100), o
+  **resumo do mês** (entrou, saiu, resultado e ticket médio) e **para onde foi
+  o dinheiro** (saídas do mês por categoria). Redesenho pedido pelo dono em
+  05/09/2026 ("mais relevante e bonito"), com estas réguas: a previsão soma só o
+  que está EM ABERTO (o já pago não pode contar duas vezes) e **o atrasado
+  ENTRA** — a conta vencida ontem continua sendo dinheiro a receber, e tirá-la
+  faria a loja se planejar com menos do que tem; na curva ele **cai em HOJE**
+  (`GREATEST(vencimento, hoje)`); a consulta (`linhasDaCurva`) e a montagem
+  (`montarCurva`, pura e testada) são separadas, e o ponta a ponta confere o
+  último ponto contra a soma em aberto feita direto no banco. O **saldo de hoje
+  tem UM caminho**: somado por conta, e a curva PARTE dele. O **resumo do mês
+  compara com o MESMO trecho do mês anterior** (dia 1 até o dia de hoje;
+  fevereiro para no último) — comparar o dia 5 com o mês passado inteiro
+  diria "caiu 80%" toda virada de mês; entrou/saiu seguem a régua do extrato
+  (baixa viva, lançamento não cancelado, valor − desconto + juros), o
+  **ticket médio é pelo valor VENDIDO** (`netTotal`, RN-002) de pedido pago
+  (RN-001), e o **resultado não tem variação %** (negativo dos dois lados
+  confunde — mostra o valor anterior). A **nota de saúde** (`avaliarSaude`,
+  pura) é a soma de QUATRO sinais de 25 pontos, cada um com frase em
+  português dizendo o que mediu e o caminho: o saldo cobre o que vence em 7
+  dias?; saldo + a receber cobrem o que sai em 30?; quanto do que há para
+  receber já venceu? (medido como PARTE, não em reais — R$ 250 atrasados é
+  pouco para quem tem R$ 6 mil a receber e grave para quem tem R$ 600); no
+  mês entrou mais do que saiu? Nota sem explicação é adivinhação com cara de
+  ciência. "Para onde foi o dinheiro" agrupa pela categoria que a lojista
+  escolheu (não pela raiz da árvore — "Aluguel" diz mais que
+  "Administrativas"), as 5 maiores com nome e o resto em "Outras" (cinza de
+  propósito; a paleta das fatias foi validada para daltonismo). As ações do
+  dia trazem número honesto (clientes atrasados, linhas do extrato do banco
+  sem par — a MESMA conta e a MESMA janela que a tela de conferir abre, senão
+  o botão diz 12 e a tela mostra 3 —, o que vence hoje, levando para o lado
+  que tem valor). O **DFC** responde "por onde o
   dinheiro andou" com o que MOVIMENTOU nas contas, em três blocos
   (operacional / investimento / financiamento, pelo CÓDIGO da categoria — o
   código é do sistema, o nome é da loja, então renomear não quebra o

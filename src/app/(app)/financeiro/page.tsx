@@ -3,6 +3,7 @@ import { porteiraFinanceiroTela } from "@/lib/financeiro/gate";
 import { garantirCategoriasPadrao } from "@/lib/financeiro/cadastros";
 import { garantirRecorrencias } from "@/lib/financeiro/recorrencia";
 import { repescarSemQuebrar } from "@/lib/financeiro/porta-vendas";
+import { HORIZONTES } from "@/lib/financeiro/painel";
 import { PainelFinanceiro } from "./_visao/painel";
 
 export const dynamic = "force-dynamic";
@@ -32,6 +33,6 @@ export default async function FinanceiroPage({
   after(() => repescarSemQuebrar(user.companyId));
   const sp = await searchParams;
   const bruto = Number(Array.isArray(sp.dias) ? sp.dias[0] : sp.dias);
-  const dias = [7, 15, 30].includes(bruto) ? bruto : 30;
+  const dias = (HORIZONTES as readonly number[]).includes(bruto) ? bruto : 30;
   return <PainelFinanceiro companyId={user.companyId} dias={dias} />;
 }

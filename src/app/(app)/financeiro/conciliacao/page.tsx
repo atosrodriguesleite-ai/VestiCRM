@@ -2,6 +2,7 @@ import { db } from "@/lib/db";
 import { porteiraFinanceiroTela } from "@/lib/financeiro/gate";
 import { garantirCategoriasPadrao } from "@/lib/financeiro/cadastros";
 import { carregarConciliacao } from "@/lib/financeiro/conciliacao";
+import { janelaPadraoDaConciliacao } from "@/lib/financeiro/conciliacao-tela";
 import { dataDoDia, diaSP } from "@/lib/financeiro/lancamentos";
 import { ConciliacaoView } from "./conciliacao-view";
 
@@ -59,11 +60,12 @@ export default async function ConciliacaoPage({
   const contaId = contas.find((c) => c.id === texto("conta"))?.id ?? contas[0].id;
   const aba = ABAS.find((a) => a === texto("aba")) ?? "pendente";
 
+  // a janela padrão é a MESMA que o painel do Financeiro usa para contar as
+  // pendências (senão o botão diz um número e a tela abre com outro)
   const hoje = diaSP(new Date());
-  const [ano, mes] = hoje.split("-").map(Number);
-  const padraoDe = new Date(Date.UTC(ano, mes - 3, 1)).toISOString().slice(0, 10);
-  const de = dataDoDia(texto("de")) ?? dataDoDia(padraoDe)!;
-  const ate = dataDoDia(texto("ate")) ?? dataDoDia(hoje)!;
+  const padrao = janelaPadraoDaConciliacao(hoje);
+  const de = dataDoDia(texto("de")) ?? dataDoDia(padrao.de)!;
+  const ate = dataDoDia(texto("ate")) ?? dataDoDia(padrao.ate)!;
 
   const painel = await carregarConciliacao(user.companyId, contaId, aba, de, ate);
   // as listas da ficha do lançamento (RN-030): a linha do banco pode ser dos

@@ -17,7 +17,7 @@ import {
 } from "./lancamentos";
 
 /**
- * A VISÃO DE DONO (RN-035): saldo previsto e o DFC.
+ * A VISÃO DE DONO (RN-035): as contas do mês, a inadimplência e o DFC.
  *
  * As duas perguntas que a lojista faz de manhã e que nenhuma tela respondia:
  * "quanto eu vou ter no dia X?" e "para onde foi o dinheiro do mês?".
@@ -33,87 +33,10 @@ export const TETO_DFC = 20_000;
 
 /* ---- saldo previsto ----------------------------------------------------- */
 
-export type Previsao = {
-  saldoHoje: number;
-  aReceber: number;
-  aPagar: number;
-  saldoPrevisto: number;
-  ate: string;
-};
-
-/**
- * "Se tudo que vence entrar e sair, quanto eu tenho no dia X?" — saldo de
- * hoje + o que ainda falta receber − o que ainda falta pagar, até a data.
- *
- * O ATRASADO ENTRA: a conta vencida ontem continua sendo dinheiro a receber,
- * e tirá-la da previsão faria a loja se planejar com um número menor do que
- * a realidade. Cancelado fica de fora (nunca vai acontecer).
- */
-export async function preverSaldo(
-  companyId: string,
-  dias: number,
-  hoje = new Date()
-): Promise<Previsao> {
-  const ate = dataDoDia(
-    diaSP(new Date(hoje.getTime() + dias * 86_400_000))
-  )!;
-  const hojeDia = dataDoDia(diaSP(hoje))!;
-  const [saldoHoje, aReceber, aPagar] = await Promise.all([
-    saldoAte(companyId, null, hojeDia),
-    emAbertoAte(companyId, "RECEITA", ate, hojeDia),
-    emAbertoAte(companyId, "DESPESA", ate, hojeDia),
-  ]);
-  return {
-    saldoHoje,
-    aReceber,
-    aPagar,
-    saldoPrevisto: round2(saldoHoje + aReceber - aPagar),
-    ate: diaSP(ate),
-  };
-}
-
-/**
- * Quanto FALTA receber (ou pagar) até uma data — somado NO BANCO.
- *
- * A soma é "valor das parcelas − o que já foi abatido nelas": a parcela
- * quitada entra valendo zero dos dois lados, então o resultado é só o que
- * está em aberto. Carregar as parcelas para somar em memória traria a
- * história inteira da loja a cada abertura da tela (a previsão não tem
- * limite para trás: conta vencida há um ano continua sendo dinheiro).
- *
- * O abatimento nunca passa do valor da parcela (`conferirBaixa`), então a
- * conta não vira negativa por parcela paga a mais.
- */
-async function emAbertoAte(
-  companyId: string,
-  tipo: "RECEITA" | "DESPESA",
-  ate: Date,
-  hojeDia: Date
-): Promise<number> {
-  const doTipo = { lancamento: { tipo, canceladoEm: null } };
-  const [parcelas, abatido] = await Promise.all([
-    db.finParcela.aggregate({
-      where: { companyId, vencimento: { lte: ate }, ...doTipo },
-      _sum: { valor: true },
-    }),
-    db.finBaixa.aggregate({
-      where: {
-        companyId,
-        estornadaEm: null,
-        // SÓ O QUE JÁ ESTÁ NA CONTA. O `saldoHoje` conta baixa até HOJE; se
-        // aqui a soma pegasse todas, a baixa com data de AMANHÃ (o cheque
-        // que a lojista já registrou) saía das duas pontas e o dinheiro
-        // desaparecia da previsão — enquanto o fluxo de caixa, que filtra
-        // por data, mostrava o mesmo valor como realizado. Duas telas
-        // discordando (auditoria completa do módulo, 03/09/2026).
-        data: { lte: hojeDia },
-        parcela: { vencimento: { lte: ate }, ...doTipo },
-      },
-      _sum: { valor: true },
-    }),
-  ]);
-  return round2((parcelas._sum.valor ?? 0) - (abatido._sum.valor ?? 0));
-}
+// O saldo previsto (30/60/90 dias) e a curva dia a dia moram em `painel.ts`
+// (`linhasDaCurva` + `montarCurva`): o antigo `preverSaldo` somava o mesmo
+// número por outro caminho e ficou sem chamador — dois caminhos para um
+// número só é como eles passariam a discordar sem ninguém notar.
 
 /**
  * Quanto FALTA receber (ou pagar) com vencimento DENTRO de um período —

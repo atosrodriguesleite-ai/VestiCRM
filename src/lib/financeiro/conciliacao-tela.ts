@@ -95,3 +95,14 @@ export function dividirBaixaNasParcelas(
   }
   return saida;
 }
+
+/**
+ * A JANELA que a tela de conferir com o banco abre por padrão: do 1º dia de
+ * três meses atrás até hoje. Mora aqui (puro) porque o painel do Financeiro
+ * conta as pendências pela MESMA janela — número diferente do da tela de
+ * destino faz a lojista concluir que um dos dois está errado.
+ */
+export function janelaPadraoDaConciliacao(hojeDia: string): { de: string; ate: string } {
+  const [ano, mes] = hojeDia.split("-").map(Number);
+  return { de: new Date(Date.UTC(ano, mes - 3, 1)).toISOString().slice(0, 10), ate: hojeDia };
+}
