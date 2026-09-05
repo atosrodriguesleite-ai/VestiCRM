@@ -15,9 +15,12 @@ import { autorDeGente } from "./lancamentos";
  *     (suporte é operacional; dinheiro da loja é assunto comercial, mesma
  *     régua de Relatórios e Comissões).
  *
- * Loja com a chave desligada não muda em NADA: a rota responde 404 (o
- * módulo "não existe" para ela), e a tela antiga de contas a receber de
- * pedidos segue como sempre foi.
+ * Loja com a chave desligada não tem financeiro NENHUM: a rota responde 404
+ * (o módulo "não existe" para ela), a tela volta para o Dashboard e a aba
+ * nem aparece no menu (`itemVisivel`, em `lib/menu-grupos.ts`). A tela
+ * antiga de "pedidos a receber", que ficava no menu de toda loja, saiu a
+ * pedido do dono (05/09/2026): financeiro pela metade confundia mais do que
+ * ajudava.
  */
 
 /** A decisão pura, testável: pode entrar no financeiro? */
@@ -83,7 +86,10 @@ export async function porteiraFinanceiroTela(): Promise<SessionUser> {
     where: { id: user.companyId },
     select: { financeEnabled: true },
   });
+  // sem o módulo não existe "financeiro simples" para cair: volta ao
+  // Dashboard (cair em /financeiro faria a própria raiz redirecionar para
+  // cá de novo, em círculo)
   if (!financeiroLiberado(user, company?.financeEnabled ?? false))
-    redirect("/financeiro");
+    redirect("/dashboard");
   return { ...user, name: autorDeGente(user.name) };
 }

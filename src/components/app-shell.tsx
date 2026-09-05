@@ -57,7 +57,7 @@ import { Avatar } from "./ui";
 import { Logo, LogoMark } from "./logo";
 import { NotificationBell } from "./notification-bell";
 import { fileToDataUrl } from "@/lib/upload";
-import { grupoDoMenu, rotuloDoMenu } from "@/lib/menu-grupos";
+import { grupoDoMenu, itemVisivel, rotuloDoMenu } from "@/lib/menu-grupos";
 
 // supportHidden: o perfil Suporte é operacional (gestão de pedidos +
 // atendimento) — telas comerciais e de configuração ficam fora do menu dele.
@@ -90,22 +90,21 @@ const NAV = [
   { href: "/relatorios", label: "Relatórios", icon: BarChart3, group: "Análise", managerOnly: true },
   { href: "/inteligencia", label: "Inteligência", icon: Brain, group: "Análise", managerOnly: true },
   { href: "/comissoes", label: "Comissões", icon: Percent, group: "Análise", managerOnly: true },
-  // FINANCEIRO — a ordem é a ROTINA da lojista, não o alfabeto: o que ela abre
-  // todo dia em cima, o que ela abre uma vez por mês embaixo. Com o módulo
-  // ligado estes itens saem de "Análise" e ganham grupo próprio
-  // (`grupoDoItem`), senão nove linhas soltas se misturavam com Marketing e
-  // Relatórios e o dia a dia sumia no meio do mensal.
-  { href: "/financeiro", label: "Financeiro", icon: Wallet, group: "Análise", managerOnly: true },
-  // módulo Financeiro completo (RN-029/RN-030, pago à parte): sem a chave, o
-  // menu nem aparece — a loja segue com a tela simples de contas a receber
-  { href: "/financeiro/contas-a-receber", label: "Contas a Receber", icon: TrendingUp, group: "Análise", managerOnly: true, financeOnly: true },
-  { href: "/financeiro/inadimplencia", label: "Inadimplência", icon: AlertCircle, group: "Análise", managerOnly: true, financeOnly: true },
-  { href: "/financeiro/contas-a-pagar", label: "Contas a Pagar", icon: TrendingDown, group: "Análise", managerOnly: true, financeOnly: true },
-  { href: "/financeiro/cartoes", label: "Cartões", icon: CreditCard, group: "Análise", managerOnly: true, financeOnly: true },
-  { href: "/financeiro/extrato", label: "Extrato", icon: ScrollText, group: "Análise", managerOnly: true, financeOnly: true },
-  { href: "/financeiro/conciliacao", label: "Conferir com o banco", icon: Landmark, group: "Análise", managerOnly: true, financeOnly: true },
-  { href: "/financeiro/fluxo-de-caixa", label: "Fluxo de caixa", icon: LineChart, group: "Análise", managerOnly: true, financeOnly: true },
-  { href: "/financeiro/dre", label: "Deu lucro?", icon: PiggyBank, group: "Análise", managerOnly: true, financeOnly: true },
+  // FINANCEIRO (RN-029, módulo pago à parte) — só a loja com o módulo vê a
+  // aba: sem a chave, NENHUM destes itens aparece (pedido do dono,
+  // 05/09/2026 — antes o painel ficava no menu de toda loja como tela simples
+  // de pedidos a receber, e a loja sem o módulo via um financeiro pela
+  // metade). A ordem é a ROTINA da lojista, não o alfabeto: o que ela abre
+  // todo dia em cima, o que ela abre uma vez por mês embaixo.
+  { href: "/financeiro", label: "Financeiro", icon: Wallet, group: "Financeiro", managerOnly: true, financeOnly: true },
+  { href: "/financeiro/contas-a-receber", label: "Contas a Receber", icon: TrendingUp, group: "Financeiro", managerOnly: true, financeOnly: true },
+  { href: "/financeiro/inadimplencia", label: "Inadimplência", icon: AlertCircle, group: "Financeiro", managerOnly: true, financeOnly: true },
+  { href: "/financeiro/contas-a-pagar", label: "Contas a Pagar", icon: TrendingDown, group: "Financeiro", managerOnly: true, financeOnly: true },
+  { href: "/financeiro/cartoes", label: "Cartões", icon: CreditCard, group: "Financeiro", managerOnly: true, financeOnly: true },
+  { href: "/financeiro/extrato", label: "Extrato", icon: ScrollText, group: "Financeiro", managerOnly: true, financeOnly: true },
+  { href: "/financeiro/conciliacao", label: "Conferir com o banco", icon: Landmark, group: "Financeiro", managerOnly: true, financeOnly: true },
+  { href: "/financeiro/fluxo-de-caixa", label: "Fluxo de caixa", icon: LineChart, group: "Financeiro", managerOnly: true, financeOnly: true },
+  { href: "/financeiro/dre", label: "Deu lucro?", icon: PiggyBank, group: "Financeiro", managerOnly: true, financeOnly: true },
   // Conexão do WhatsApp e log de entrega: trabalho operacional, então o
   // suporte entra junto com gerente e admin (vendedora não).
   { href: "/comunicacao", label: "Comunicação", icon: Radio, group: "Sistema", operacional: true },
@@ -152,8 +151,8 @@ const GROUPS = [
   "Catálogo",
   "Relacionamento",
   "Análise",
-  // só aparece para a loja que tem o módulo (RN-029) — sem a chave, o
-  // "Financeiro" simples continua morando em Análise, como sempre morou
+  // só aparece para a loja que tem o módulo (RN-029): sem a chave nenhum
+  // item dele passa pelo `itemVisivel`, e grupo sem item não desenha
   "Financeiro",
   "Sistema",
   "Plataforma",
@@ -308,32 +307,15 @@ export function AppShell({
     });
   }
 
-  const items = NAV.filter((i) => {
-    if (user.role === "SUPPORT" && "supportHidden" in i && i.supportHidden) return false;
-    if ("superOnly" in i && i.superOnly) return user.role === "SUPERADMIN";
-    if ("productionOnly" in i && i.productionOnly) return Boolean(user.productionEnabled);
-    if ("cutPlanOnly" in i && i.cutPlanOnly) return Boolean(user.cutPlanEnabled);
-    if ("shippingOnly" in i && i.shippingOnly) return Boolean(user.shippingEnabled);
-    if ("financeOnly" in i && i.financeOnly) {
-      if (!user.financeEnabled) return false;
-    }
-    if ("marketingOnly" in i && i.marketingOnly && !user.marketingEnabled) return false;
-    if ("mediaLibraryOnly" in i && i.mediaLibraryOnly) return Boolean(user.mediaLibraryEnabled);
-    if ("aiOnly" in i && i.aiOnly && !user.aiSalesEnabled) return false;
-    if ("managerOnly" in i && i.managerOnly)
-      return ["ADMIN", "MANAGER", "SUPERADMIN"].includes(user.role);
-    // operacional = quem cuida de integração e conexão (inclui Suporte)
-    if ("operacional" in i && i.operacional)
-      return ["ADMIN", "MANAGER", "SUPERADMIN", "SUPPORT"].includes(user.role);
-    return true;
-  });
+  // quem vê o quê é regra pura (`lib/menu-grupos.ts`), testada sem desenhar
+  const items = NAV.filter((i) => itemVisivel(i, user));
   // modo plataforma: Super Admin na própria casa (fora da impersonação)
   const modoPlataforma = user.role === "SUPERADMIN" && !user.impersonating;
   const grupos = modoPlataforma ? GRUPOS_SUPER : GROUPS;
   // a decisão de grupo/rótulo é pura e mora em `lib/menu-grupos.ts`
-  const ctxMenu = { modoPlataforma, financeEnabled: Boolean(user.financeEnabled) };
+  const ctxMenu = { modoPlataforma };
   const grupoDoItem = (href: string, group: string) =>
-    grupoDoMenu(href, group, ctxMenu, GRUPO_SUPER[href] ?? GRUPO_SUPER_PADRAO);
+    grupoDoMenu(group, ctxMenu, GRUPO_SUPER[href] ?? GRUPO_SUPER_PADRAO);
   const rotuloDoItem = (href: string, label: string) =>
     rotuloDoMenu(href, label, ctxMenu);
 

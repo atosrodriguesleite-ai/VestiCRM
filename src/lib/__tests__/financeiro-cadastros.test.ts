@@ -100,10 +100,6 @@ describe("porteira do módulo (RN-029)", () => {
     const guardada = (arquivo: string, seguir = true): boolean => {
       const codigo = readFileSync(arquivo, "utf8");
       if (codigo.includes("porteiraFinanceiroTela(")) return true;
-      // a tela raiz decide entre o painel do módulo e a lista antiga de
-      // pedidos a receber, então usa a régua pura em vez do redirect
-      if (codigo.includes("financeiroLiberado(") && codigo.includes("isManagerUp("))
-        return true;
       if (!seguir) return false;
       const vizinhos = [...codigo.matchAll(/from "(\.[^"]+)"/g)].map((m) => m[1]);
       return vizinhos.some((rel) => {

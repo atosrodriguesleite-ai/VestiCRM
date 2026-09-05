@@ -732,13 +732,17 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   **RN-029 · Módulo Financeiro** (`Company.financeEnabled`, porteira em
   `lib/financeiro/gate.ts`): TODA porta do módulo (API e tela) exige a chave
   da loja E gerente/admin — vendedora e SUPORTE ficam fora (dinheiro é assunto
-  comercial, mesma régua de Relatórios); sem a chave a rota responde 404 e a
-  loja **não muda em NADA**. A porteira é UMA função para as rotas
-  (`porteiraFinanceiro`) e outra para as telas (`porteiraFinanceiroTela`) —
-  as 13 páginas repetiam as seis linhas à mão e nenhum teste as varria; hoje
-  a varredura cobre toda rota **por handler exportado** (arquivo com GET
-  protegido e POST esquecido passava verde) e toda tela (segue a tela simples de contas a receber de
-  pedidos). Fase 1 (cadastros, `lib/financeiro/cadastros.ts`): contas (saldo
+  comercial, mesma régua de Relatórios); sem a chave a rota responde 404, a
+  tela volta ao Dashboard e **a aba nem aparece no menu** (`itemVisivel` em
+  `lib/menu-grupos.ts`, regra pura). **Loja sem o módulo não tem financeiro
+  NENHUM** (pedido do dono, 05/09/2026): antes o painel "Financeiro" ficava
+  no menu de toda loja como tela simples de pedidos a receber, e a loja sem o
+  módulo via um financeiro pela metade — a tela simples SAIU. A porteira é
+  UMA função para as rotas (`porteiraFinanceiro`) e outra para as telas
+  (`porteiraFinanceiroTela`, todas as páginas, a raiz inclusive) — as 13
+  páginas repetiam as seis linhas à mão e nenhum teste as varria; hoje a
+  varredura cobre toda rota **por handler exportado** (arquivo com GET
+  protegido e POST esquecido passava verde) e toda tela. Fase 1 (cadastros, `lib/financeiro/cadastros.ts`): contas (saldo
   inicial com data — o saldo nunca será digitado, será somado), categorias em
   árvore numerada que **nasce pronta para moda** (semeadura idempotente na
   primeira abertura; o CÓDIGO é o servidor quem dá, e filha HERDA o tipo da

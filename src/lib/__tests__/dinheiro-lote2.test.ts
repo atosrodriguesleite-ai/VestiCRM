@@ -75,11 +75,6 @@ describe("MRR de módulos deixa de ser sempre R$0", () => {
 });
 
 describe("Financeiro e CSV honestos", () => {
-  it("Pix aguardando não conta pedido cancelado", () => {
-    expect(ler("src/app/(app)/financeiro/page.tsx")).toContain(
-      'status: { not: "CANCELADO" }'
-    );
-  });
   it("CSV de pedidos: coluna de acréscimo + valor vendido + neutraliza fórmula", () => {
     const csv = ler("src/app/api/export/pedidos/route.ts");
     expect(csv).toContain("Acréscimo (R$)");

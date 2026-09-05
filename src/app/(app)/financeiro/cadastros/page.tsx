@@ -1,8 +1,5 @@
-import { redirect } from "next/navigation";
-import { requireUser } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { isManagerUp } from "@/lib/scope";
-import { financeiroLiberado } from "@/lib/financeiro/gate";
+import { porteiraFinanceiroTela } from "@/lib/financeiro/gate";
 import { garantirCategoriasPadrao } from "@/lib/financeiro/cadastros";
 import { CadastrosView } from "./cadastros-view";
 
@@ -12,18 +9,10 @@ export const dynamic = "force-dynamic";
  * FINANCEIRO · CADASTROS (RN-029, Fase 1) — a fundação do módulo: contas,
  * categorias (árvore pronta para moda), centros de custo, coleções e
  * fornecedores. Porteira dupla: gerente+ E loja com a chave do módulo —
- * sem a chave, a tela "não existe" e volta para o Financeiro simples.
+ * sem a chave, a tela "não existe" (RN-029).
  */
 export default async function FinanceiroCadastrosPage() {
-  const user = await requireUser();
-  if (!isManagerUp(user)) redirect("/dashboard");
-  const company = await db.company.findUnique({
-    where: { id: user.companyId },
-    select: { financeEnabled: true },
-  });
-  // a MESMA decisão da porteira das rotas (RN-029) — nunca reimplementada
-  if (!financeiroLiberado(user, company?.financeEnabled ?? false))
-    redirect("/financeiro");
+  const user = await porteiraFinanceiroTela();
 
   // primeira abertura semeia a árvore de categorias (idempotente)
   await garantirCategoriasPadrao(user.companyId);
