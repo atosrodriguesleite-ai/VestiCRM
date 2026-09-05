@@ -32,6 +32,19 @@ export function ownedScope(user: SessionUser) {
 }
 
 /**
+ * Quem enxerga TODAS as conversas da loja (gerência/suporte, ou vendedora com
+ * a chavinha `chatVisaoTotal`). É a MESMA régua do `conversationScope`, numa
+ * função nomeada — irmã do `veTodosPedidos` — porque a busca por palavra
+ * precisa escrevê-la em SQL (`buscarMensagens` lê a maior tabela da loja e
+ * não pode filtrar DEPOIS do teto de resultados). Duas cópias da régua de
+ * visibilidade que discordem é a pior divergência possível por aqui: se a
+ * exceção mudar um dia, muda aqui e vale nos dois lugares.
+ */
+export function veTodaAConversa(user: SessionUser): boolean {
+  return canSeeAll(user) || user.chatVisaoTotal;
+}
+
+/**
  * Filtro para conversas (Central de Atendimento).
  * Vendedor enxerga os atendimentos DELE + toda a FILA (conversas sem
  * responsável) — é o modelo de fila compartilhada: um número da loja para
@@ -44,7 +57,7 @@ export function ownedScope(user: SessionUser) {
  * (a sessão relê o usuário do banco a cada requisição).
  */
 export function conversationScope(user: SessionUser) {
-  return canSeeAll(user) || user.chatVisaoTotal
+  return veTodaAConversa(user)
     ? { companyId: user.companyId }
     : {
         companyId: user.companyId,

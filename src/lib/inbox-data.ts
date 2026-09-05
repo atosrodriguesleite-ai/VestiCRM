@@ -1,5 +1,5 @@
 import { db } from "./db";
-import { conversationScope } from "./scope";
+import { conversationScope, veTodaAConversa } from "./scope";
 import { Prisma } from "@prisma/client";
 import {
   COM_ACENTO_MENSAGEM,
@@ -386,12 +386,16 @@ export async function buscarConversas(
   const peloContato = candidatas
     .filter((c) => casaCliente(c.customer, termo))
     .map((c) => c.id);
-  // `candidatas` já é tudo o que a pessoa pode ver: serve de recorte para
-  // as mensagens, sem consultar a visibilidade de novo
-  const achadas = await buscarMensagens(
-    user.companyId,
-    termo,
-    new Set(candidatas.map((c) => c.id))
+  // a busca por palavra faz o próprio recorte, DENTRO da consulta (é o que
+  // faz o teto de resultados contar o que ela pode ver)
+  const podeVer = new Set(candidatas.map((c) => c.id));
+  // ...e aqui fica a SEGUNDA tranca, de graça: `candidatas` já é tudo o que
+  // ela enxerga, e conferir contra essa lista custa nada. Isolamento é a
+  // coisa que não pode depender de um lugar só — um dia alguém mexe na
+  // consulta crua e a segunda tranca é o que impede a conversa da colega de
+  // aparecer na lupa (RN-013).
+  const achadas = (await buscarMensagens(user, termo)).filter((m) =>
+    podeVer.has(m.conversationId)
   );
 
   // contato primeiro (é o que a lupa sempre fez), depois as conversas em
@@ -422,10 +426,19 @@ export async function buscarConversas(
 /**
  * As mensagens da loja em que a palavra aparece — mais recentes primeiro.
  *
- * A consulta é por LOJA (RN-013) direto no banco, e o recorte de quem pode
- * ver cada conversa (`visiveis`: os ids que o `conversationScope` de sempre
- * devolveu — vendedora vê as dela e a fila) é aplicado em cima — a busca por
- * palavra não pode abrir a conversa da colega para quem não a veria na lista.
+ * A consulta é por LOJA (RN-013) direto no banco, e o recorte de quem pode ver
+ * cada conversa entra DENTRO dela.
+ *
+ * Estar dentro é o que faz a busca funcionar, não só uma questão de estilo:
+ * a consulta traz as `MENSAGENS_NA_BUSCA` mais recentes, e filtrar DEPOIS
+ * desse teto fazia a vendedora que vê só as conversas dela receber "Nada
+ * encontrado" numa loja movimentada — as 300 mais recentes eram todas de
+ * colegas, e sobrava zero (achado da revisão, 03/09/2026). Com o recorte
+ * dentro, o teto conta o que ELA pode ver.
+ *
+ * A régua é a MESMA do `conversationScope` (`veTodaAConversa` em scope.ts):
+ * vendedora vê as dela e a fila; gerência, suporte e quem tem a chavinha
+ * `chatVisaoTotal` veem a loja inteira.
  *
  * É O ÍNDICE QUE FAZ SER INSTANTÂNEO: `Message_busca_palavra_idx` (GIN de
  * texto, migração 20260903) indexa EXATAMENTE a expressão abaixo — o
@@ -438,33 +451,42 @@ export async function buscarConversas(
  * Mensagem apagada para todos fica de fora: o texto continua guardado, mas
  * não está mais na conversa.
  */
+/**
+ * O MESMO recorte do `conversationScope`, escrito em SQL. Quem vê tudo não
+ * ganha cláusula nenhuma (o `TRUE` some no plano); a vendedora vê as
+ * conversas dela mais a FILA (sem responsável), como na lista.
+ */
+const RECORTE_DE_QUEM_VE = (user: SessionUser): Prisma.Sql =>
+  veTodaAConversa(user)
+    ? Prisma.sql`TRUE`
+    : Prisma.sql`(c."assigneeId" = ${user.id} OR c."assigneeId" IS NULL)`;
+
 const EXPRESSAO_INDEXADA = Prisma.raw(
   `to_tsvector('simple', translate(lower(m.body), '${COM_ACENTO_MENSAGEM}', '${SEM_ACENTO_MENSAGEM}'))`
 );
 
 export async function buscarMensagens(
-  companyId: string,
-  termo: string,
-  visiveis: Set<string>
+  user: SessionUser,
+  termo: string
 ): Promise<MensagemAchada[]> {
   // sem palavra de pelo menos 3 letras não há busca (é o `palavrasDaBusca`
   // quem decide; a constante documenta a régua)
   const consulta = consultaDePalavras(termo);
-  if (!consulta || visiveis.size === 0) return [];
+  if (!consulta) return [];
   const linhas = await db.$queryRaw<
     { id: string; conversationId: string; createdAt: Date; direction: string; body: string }[]
   >`
     SELECT m.id, m."conversationId", m."createdAt", m.direction::text AS direction, m.body
     FROM "Message" m
     JOIN "Conversation" c ON c.id = m."conversationId"
-    WHERE c."companyId" = ${companyId}
+    WHERE c."companyId" = ${user.companyId}
+      AND ${RECORTE_DE_QUEM_VE(user)}
       AND m.revoked = false
       AND ${EXPRESSAO_INDEXADA} @@ to_tsquery('simple', ${consulta})
     ORDER BY m."createdAt" DESC
     LIMIT ${MENSAGENS_NA_BUSCA}`;
   const resultado: MensagemAchada[] = [];
   for (const l of linhas) {
-    if (!visiveis.has(l.conversationId)) continue;
     // o banco casa por PALAVRAS (qualquer ordem); o trecho tenta o termo
     // inteiro e, se as palavras estão separadas no texto, mostra a primeira
     // delas — se nem ela aparece (caractere fora da tabela de acentos), a
