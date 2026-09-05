@@ -156,3 +156,41 @@ testes guardiões discordarem.
 Mudança **aditiva** (coluna/tabela nova) é segura. Mudança **destrutiva**
 (renomear/remover) vai em etapas: adiciona → migra os dados → remove depois,
 em outro deploy.
+
+## Limpar a Central de UMA loja para ela "começar do zero" (05/09/2026)
+
+Caso Entre Linhas: conectou o WhatsApp uma vez por pouco tempo, acumulou ~1.000
+conversas nascidas só de pedidos do catálogo (RN-008/RN-010) e quis reconectar
+limpa. Combinado com o dono: **encerrar, nunca apagar** — Fila e Chats esvaziam,
+o histórico fica em Contatos, e a cliente antiga que escrever reabre a conversa
+dela com tudo dentro.
+
+Como foi feito e como repetir para outra loja:
+
+1. Não existe botão de propósito (decisão do dono): é uma **migração única**
+   escrita à mão, modelo em `prisma/migrations/20260905150000_entre_linhas_encerrar_conversas/`.
+   Copiar o arquivo com data nova e trocar o nome da loja.
+2. A instrução acha a loja pelo **nome exato** (sem diferença de maiúscula e
+   espaço nas pontas) **ou pelo endereço do catálogo** (slug) e exige
+   **exatamente uma**: zero ou duas, não faz nada e o deploy segue — mas
+   deixa um evento `conversas.encerradas-em-lote` com status ERRO **sem
+   loja** na Central de Comunicação da plataforma, porque a migração não
+   roda de novo e um aviso no log do deploy ninguém lê. Nunca chuta (RN-013).
+   **Antes de subir, conferir o nome e o slug no painel Lojas do Super
+   Admin; depois do deploy, conferir que o evento OK apareceu na Central da
+   loja** (sem ele, a limpeza não aconteceu).
+3. O que ela faz: `status = CLOSED` (o mesmo gesto do botão Encerrar), zera o
+   marcador de não lida da loja inteira, toca o `updatedAt` para o sync da tela
+   enxergar, e grava um `CommEvent` `conversas.encerradas-em-lote` na Central
+   de Comunicação da loja com a quantidade.
+4. Antes de subir, provar no Postgres local com `scripts/prova-limpeza-central.ts`
+   (loja alvo + vizinha + nome duplicado): a vizinha não muda, o duplicado é
+   recusado com rastro, a alvo fica com zero abertas e mensagens intactas.
+   ```
+   set -a; source .env; set +a
+   npx tsx scripts/prova-limpeza-central.ts prisma/migrations/<pasta>/migration.sql "Nome da Loja" slug-da-loja
+   ```
+
+Se um dia a loja pedir para APAGAR de vez: `Message` cai em cascata com a
+conversa, `Order.conversationId` vira nulo (o pedido fica), clientes/funil/
+tarefas não são tocados — mas é irreversível, e o dono decide.
