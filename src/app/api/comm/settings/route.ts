@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
+import { registrarPrimeiraConexao } from "@/lib/comm/primeira-conexao";
 import { requireUser, AuthError } from "@/lib/auth";
 import { isAdmin } from "@/lib/scope";
 import { encryptSecret, maskSecret } from "@/lib/crypto";
@@ -127,6 +128,9 @@ export async function PATCH(req: NextRequest) {
       update: data,
       create: { companyId: user.companyId, ...data },
     });
+    // escolher a API oficial é "a loja passou a ter WhatsApp": carimbo
+    // da primeira conexão, que nunca é apagado (RN-049)
+    if (data.activeProvider === "CLOUD_API") await registrarPrimeiraConexao(user.companyId);
 
     // auditoria: registra quem alterou e quais campos (nunca os valores)
     await db.commAudit.create({

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
+import { registrarPrimeiraConexao } from "@/lib/comm/primeira-conexao";
 import { requireUser, AuthError } from "@/lib/auth";
 import { isAdmin } from "@/lib/scope";
 import {
@@ -65,6 +66,8 @@ export async function GET() {
           data: { evolutionStatus: status, evolutionPhone: phone, activeProvider: provider },
         });
       }
+      // a loja passou a TER WhatsApp: fica carimbado para sempre (RN-049)
+      if (status === "CONECTADO") await registrarPrimeiraConexao(user.companyId);
     }
 
     const hoje = new Date().toISOString().slice(0, 10);
