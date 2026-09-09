@@ -8,20 +8,24 @@ import { parseCategoryOrder } from "@/lib/categories";
 
 export const dynamic = "force-dynamic";
 
+/** As categorias da loja: as usadas em produtos + as criadas à mão. */
+async function categoriasDaLoja(companyId: string): Promise<string[]> {
+  const [produtos, company] = await Promise.all([
+    db.product.findMany({ where: { companyId }, select: { category: true }, distinct: ["category"] }),
+    db.company.findUnique({ where: { id: companyId }, select: { extraCategories: true } }),
+  ]);
+  return [
+    ...new Set([...produtos.map((p) => p.category), ...parseCategoryOrder(company?.extraCategories)]),
+  ].sort();
+}
+
 /** Os mínimos da loja (RN-051): o da loja, os por categoria e as categorias existentes. */
 export async function GET() {
   try {
     const porta = await porteiraEstoque();
     if (!porta.ok) return porta.resposta;
     const companyId = porta.user.companyId;
-    const [minimos, produtos, company] = await Promise.all([
-      minimosDaLoja(companyId),
-      db.product.findMany({ where: { companyId }, select: { category: true }, distinct: ["category"] }),
-      db.company.findUnique({ where: { id: companyId }, select: { extraCategories: true } }),
-    ]);
-    const categorias = [
-      ...new Set([...produtos.map((p) => p.category), ...parseCategoryOrder(company?.extraCategories)]),
-    ].sort();
+    const [minimos, categorias] = await Promise.all([minimosDaLoja(companyId), categoriasDaLoja(companyId)]);
     return NextResponse.json({
       loja: minimos.loja,
       categorias: categorias.map((c) => ({ categoria: c, minimo: minimos.porCategoria.get(c) ?? null })),
@@ -59,6 +63,12 @@ export async function PATCH(req: NextRequest) {
     }
     if (categoria !== undefined) {
       if (minimo === undefined) return NextResponse.json({ error: "Dados inválidos" }, { status: 400 });
+      // só categoria que EXISTE na loja (texto exato): "vestidos" com caixa
+      // diferente gravaria um mínimo invisível que nunca valeria para ninguém
+      const existe = await categoriasDaLoja(companyId);
+      if (!existe.includes(categoria)) {
+        return NextResponse.json({ error: "Essa categoria não existe na loja." }, { status: 400 });
+      }
       await salvarMinimoDaCategoria(companyId, categoria, minimo);
     }
     return NextResponse.json({ ok: true });

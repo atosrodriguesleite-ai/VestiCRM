@@ -19,40 +19,57 @@ type Dados = {
 
 export function MinimosView() {
   const [dados, setDados] = useState<Dados | null>(null);
+  // erro de CARGA troca a tela; erro ao SALVAR aparece ao lado do botão —
+  // antes um 400 ao salvar apagava o formulário inteiro (achado da revisão)
   const [erro, setErro] = useState("");
+  const [erroAoSalvar, setErroAoSalvar] = useState("");
   const [loja, setLoja] = useState("");
   const [salvandoLoja, setSalvandoLoja] = useState(false);
   const [okLoja, setOkLoja] = useState(false);
 
-  async function carregar() {
-    const r = await fetch("/api/estoque/minimos", { cache: "no-store" });
-    const d = await r.json().catch(() => null);
-    if (!r.ok || !d) return setErro(d?.error ?? "Não foi possível carregar os mínimos.");
-    setDados(d);
-    setLoja(String(d.loja));
+  async function carregar(resetarLoja = false) {
+    try {
+      const r = await fetch("/api/estoque/minimos", { cache: "no-store" });
+      const d = await r.json().catch(() => null);
+      if (!r.ok || !d) return setErro(d?.error ?? "Não foi possível carregar os mínimos.");
+      setDados(d);
+      // o número da loja que a pessoa está digitando não some porque uma
+      // categoria foi salva no meio
+      if (resetarLoja || loja === "") setLoja(String(d.loja));
+    } catch {
+      setErro("Sem conexão com o servidor. Confira a internet e tente de novo.");
+    }
   }
   useEffect(() => {
-    carregar();
+    carregar(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   async function salvarLoja() {
     const n = parseInt(loja, 10);
     if (!Number.isInteger(n) || n < 0) return;
+    if (salvandoLoja) return;
     setSalvandoLoja(true);
-    const r = await fetch("/api/estoque/minimos", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ loja: n }),
-    });
-    setSalvandoLoja(false);
-    if (!r.ok) {
-      const d = await r.json().catch(() => ({}));
-      setErro(d.error ?? "Não foi possível salvar.");
-      return;
+    setErroAoSalvar("");
+    try {
+      const r = await fetch("/api/estoque/minimos", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ loja: n }),
+      });
+      if (!r.ok) {
+        const d = await r.json().catch(() => ({}));
+        setErroAoSalvar(d.error ?? "Não foi possível salvar.");
+        return;
+      }
+      setOkLoja(true);
+      setTimeout(() => setOkLoja(false), 1500);
+      carregar(true);
+    } catch {
+      setErroAoSalvar("Sem conexão com o servidor. Tente de novo.");
+    } finally {
+      setSalvandoLoja(false);
     }
-    setOkLoja(true);
-    setTimeout(() => setOkLoja(false), 1500);
-    carregar();
   }
 
   if (erro)
@@ -79,8 +96,8 @@ export function MinimosView() {
       <div className="rounded-2xl border border-slate-200 bg-white p-4">
         <p className="text-sm font-semibold text-slate-800">Mínimo da loja</p>
         <p className="text-xs text-slate-500 mt-0.5">
-          Vale para toda cor e tamanho que não tem mínimo próprio nem de categoria. É o mesmo número do cartão
-          &quot;Estoque baixo&quot; do Dashboard.
+          Vale para toda cor e tamanho que não tem mínimo próprio nem de categoria. O cartão &quot;Estoque
+          baixo&quot; do Dashboard conta pelo mínimo que vale para cada peça — este é só o padrão.
         </p>
         <div className="mt-3 flex items-center gap-2">
           <input
@@ -91,6 +108,7 @@ export function MinimosView() {
             className="w-24 rounded-lg border border-slate-200 px-3 py-1.5 text-sm text-right tabular-nums outline-none focus:border-brand-400 disabled:bg-slate-50"
           />
           <span className="text-xs text-slate-500">peças de cada cor/tamanho</span>
+          {erroAoSalvar && <span className="text-[11px] text-rose-600">{erroAoSalvar}</span>}
           {dados.podeAjustar && (
             <button
               type="button"
@@ -116,7 +134,7 @@ export function MinimosView() {
         ) : (
           <ul className="divide-y divide-slate-100">
             {dados.categorias.map((c) => (
-              <LinhaCategoria key={c.categoria} c={c} podeAjustar={dados.podeAjustar} onSalvo={carregar} />
+              <LinhaCategoria key={c.categoria} c={c} podeAjustar={dados.podeAjustar} onSalvo={() => carregar()} />
             ))}
           </ul>
         )}
@@ -150,22 +168,28 @@ function LinhaCategoria({
   const mudou = valor !== (c.minimo === null ? "" : String(c.minimo));
 
   async function salvar() {
+    if (salvando) return;
     setSalvando(true);
     setErro("");
-    const r = await fetch("/api/estoque/minimos", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ categoria: c.categoria, minimo: valor === "" ? null : parseInt(valor, 10) }),
-    });
-    setSalvando(false);
-    if (!r.ok) {
-      const d = await r.json().catch(() => ({}));
-      setErro(d.error ?? "Não foi possível salvar.");
-      return;
+    try {
+      const r = await fetch("/api/estoque/minimos", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ categoria: c.categoria, minimo: valor === "" ? null : parseInt(valor, 10) }),
+      });
+      if (!r.ok) {
+        const d = await r.json().catch(() => ({}));
+        setErro(d.error ?? "Não foi possível salvar.");
+        return;
+      }
+      setOk(true);
+      setTimeout(() => setOk(false), 1500);
+      onSalvo();
+    } catch {
+      setErro("Sem conexão. Tente de novo.");
+    } finally {
+      setSalvando(false);
     }
-    setOk(true);
-    setTimeout(() => setOk(false), 1500);
-    onSalvo();
   }
 
   return (

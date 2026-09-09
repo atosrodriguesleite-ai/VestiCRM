@@ -46,3 +46,6 @@ prisma/dev.db-journal
 
 !.env.example
 *.local.mjs
+
+# scripts de prova ponta a ponta (rodam contra o Postgres local; nunca sobem)
+*.tmp.ts

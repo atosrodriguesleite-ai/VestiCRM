@@ -94,9 +94,12 @@ async function enviarPara(
   await Promise.all(
     subs.map(async (s) => {
       try {
+        // teto de 5s: um endpoint de push pendurado segurava a função até o
+        // limite da Vercel (achado da revisão de performance)
         await webpush.sendNotification(
           { endpoint: s.endpoint, keys: { p256dh: s.p256dh, auth: s.auth } },
-          body
+          body,
+          { timeout: 5000 }
         );
         sent++;
       } catch (err: unknown) {

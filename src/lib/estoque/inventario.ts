@@ -55,6 +55,8 @@ export type LinhaDoInventario = {
   /** custo e preço de atacado da peça — o painel soma "valor parado" por aqui */
   custo: number;
   atacado: number;
+  /** quando o produto foi cadastrado — peça nova não é "encalhada" (RN-052) */
+  cadastradoEm: string;
 };
 
 export type Inventario = {
@@ -79,18 +81,32 @@ export type Inventario = {
 };
 
 export const TETO_DE_LINHAS = 500;
+export const TETO_DO_HISTORICO = 100;
 
-/** Quanto cada variação tem reservado em pedido que ainda está na loja. */
+/**
+ * Quanto cada variação tem reservado em pedido que ainda está na loja.
+ *
+ * Pedido cancelado com BAIXA DEFINITIVA (brinde/perda, RN-004) e depois
+ * reaberto (REANEXAR) fica de fora: a SAÍDA dele segue no livro sem
+ * devolução, mas a peça foi embora de verdade — contá-la mostraria 3
+ * "reservadas" numa arara vazia (achado da revisão). A consulta parte dos
+ * pedidos seguradores (índice `InventoryMovement_orderId_idx`).
+ */
 export async function reservadoPorVariacao(companyId: string): Promise<Map<string, number>> {
+  // parte dos PEDIDOS seguradores (índice Order(companyId,status) — o cast
+  // fica do lado do parâmetro, senão o planner ignora o índice) e vai ao
+  // livro pelo índice por pedido: lê só os movimentos dos pedidos abertos,
+  // não o livro inteiro da loja (achado da revisão de performance)
   const rows = await db.$queryRaw<{ variantId: string; reservado: number }[]>(Prisma.sql`
     SELECT m."variantId",
            SUM(CASE WHEN m."type" = 'SAIDA' THEN m."quantity" ELSE -m."quantity" END)::int AS "reservado"
-      FROM "InventoryMovement" m
-      JOIN "Order" o ON o."id" = m."orderId"
-     WHERE m."companyId" = ${companyId}
-       AND o."companyId" = ${companyId}
+      FROM "Order" o
+      JOIN "InventoryMovement" m ON m."orderId" = o."id"
+     WHERE o."companyId" = ${companyId}
+       AND o."status" = ANY(${[...STATUS_QUE_SEGURAM_NA_LOJA]}::text[]::"OrderStatus"[])
+       AND o."stockWrittenOff" = false
+       AND m."companyId" = ${companyId}
        AND m."type" IN ('SAIDA', 'ENTRADA')
-       AND o."status"::text IN (${Prisma.join([...STATUS_QUE_SEGURAM_NA_LOJA])})
      GROUP BY m."variantId"
   `);
   const m = new Map<string, number>();
@@ -109,7 +125,12 @@ export function casaBusca(
   return [p.name, p.sku, p.tags ?? "", v.sku ?? ""].some((x) => x.toLowerCase().includes(t));
 }
 
-/** A linha passa no filtro escolhido? (pura) — "baixo" é pelo mínimo DELA */
+/**
+ * A linha passa no filtro escolhido? (pura) — "baixo" é pelo mínimo DELA e
+ * INCLUI a zerada (zerada também chegou ao mínimo): o sino, o Dashboard e o
+ * painel contam assim, e a lista que o sino abre tem que mostrar o mesmo
+ * número (achado da revisão de telas). "Zeradas" é o recorte mais estreito.
+ */
 export function passaNoFiltro(
   filtro: FiltroDoInventario,
   l: Pick<LinhaDoInventario, "disponivel" | "reservado" | "dono" | "minimo">
@@ -120,7 +141,7 @@ export function passaNoFiltro(
     case "zerado":
       return l.disponivel === 0;
     case "baixo":
-      return l.disponivel > 0 && noMinimo(l.disponivel, l.minimo);
+      return noMinimo(l.disponivel, l.minimo);
     case "reservado":
       return l.reservado > 0;
     case "externo":
@@ -139,6 +160,7 @@ type ProdutoBase = {
   minStock: number | null;
   costPrice: number;
   wholesalePrice: number;
+  createdAt: Date;
   variants: { id: string; color: string; size: string; stock: number; sku: string | null; nuvemshopId: string | null }[];
 };
 
@@ -149,7 +171,7 @@ type ProdutoBase = {
  */
 export async function linhasDoEstoque(
   companyId: string,
-  opts: { incluirInativos?: boolean } = {}
+  opts: { incluirInativos?: boolean; semReservado?: boolean } = {}
 ): Promise<{ linhas: LinhaDoInventario[]; produtos: ProdutoBase[]; limiteBaixo: number }> {
   const [minimos, produtos, reservado] = await Promise.all([
     minimosDaLoja(companyId),
@@ -167,12 +189,14 @@ export async function linhasDoEstoque(
         minStock: true,
         costPrice: true,
         wholesalePrice: true,
+        createdAt: true,
         variants: {
           select: { id: true, color: true, size: true, stock: true, sku: true, nuvemshopId: true },
         },
       },
     }),
-    reservadoPorVariacao(companyId),
+    // a varredura do alerta não usa o reservado — é a consulta mais cara
+    opts.semReservado ? new Map<string, number>() : reservadoPorVariacao(companyId),
   ]);
 
   const linhas: LinhaDoInventario[] = [];
@@ -201,6 +225,7 @@ export async function linhasDoEstoque(
         origemDoMinimo: min.origem,
         custo: p.costPrice,
         atacado: p.wholesalePrice,
+        cadastradoEm: p.createdAt.toISOString(),
       });
     }
   }
@@ -211,6 +236,8 @@ export async function montarInventario(
   companyId: string,
   opts: { q?: string; categoria?: string; filtro?: FiltroDoInventario; incluirInativos?: boolean }
 ): Promise<Inventario> {
+  // (o resumo é da loja inteira e não depende da busca; a tela só o pede
+  // na primeira carga — ver `so=lista` na rota)
   const { linhas: todas, produtos, limiteBaixo } = await linhasDoEstoque(companyId, {
     incluirInativos: opts.incluirInativos,
   });
@@ -249,10 +276,32 @@ export async function montarInventario(
   };
 }
 
-/** Quantas variações de produto ativo chegaram ao mínimo (cartão do Dashboard). */
+/**
+ * Quantas variações de produto ativo chegaram ao mínimo (cartão do
+ * Dashboard). UMA SQL com a MESMA expressão de `minimoEfetivo` + `noMinimo`
+ * (peça > categoria > loja, disponível ≤ mínimo): o Dashboard é a tela mais
+ * aberta, e carregar a loja inteira para devolver um número era o item mais
+ * caro dela (achado da revisão de performance). O teste da RN-051 confere a
+ * SQL contra a função pura sobre os mesmos dados.
+ */
 export async function contarNoMinimo(companyId: string): Promise<number> {
-  const { linhas } = await linhasDoEstoque(companyId);
-  return linhas.filter((l) => noMinimo(l.disponivel, l.minimo)).length;
+  const rows = await db.$queryRaw<{ n: number }[]>(Prisma.sql`
+    SELECT COUNT(*)::int AS n
+      FROM "ProductVariant" v
+      JOIN "Product" p ON p."id" = v."productId"
+      JOIN "Company" co ON co."id" = p."companyId"
+      LEFT JOIN "EstoqueMinimoCategoria" c
+        ON c."companyId" = p."companyId" AND c."category" = p."category"
+     WHERE p."companyId" = ${companyId}
+       AND p."active" = true
+       AND v."stock" <= COALESCE(p."minStock", c."minStock", co."lowStockThreshold")
+  `);
+  return rows[0]?.n ?? 0;
+}
+
+/** "Reserva — pedido #482" vira "Reserva — pedido de colega" (RN-007). */
+export function motivoSemPedido(reason: string): string {
+  return reason.replace(/pedido\s*#?\s*\d+/gi, "pedido de colega");
 }
 
 /**
@@ -271,7 +320,7 @@ export async function historicoDaVariacao(user: SessionUser, variantId: string) 
   const movs = await db.inventoryMovement.findMany({
     where: { companyId, variantId },
     orderBy: { createdAt: "desc" },
-    take: 100,
+    take: TETO_DO_HISTORICO + 1,
     select: { id: true, type: true, quantity: true, reason: true, createdAt: true, orderId: true },
   });
   const orderIds = [...new Set(movs.flatMap((m) => (m.orderId ? [m.orderId] : [])))];
@@ -284,11 +333,15 @@ export async function historicoDaVariacao(user: SessionUser, variantId: string) 
   const numero = new Map(pedidos.map((o) => [o.id, o.number]));
   return {
     peca: v,
-    movimentos: movs.map((m) => ({
+    // o corte é DITO à tela (padrão da RN-036), nunca escondido
+    cortado: movs.length > TETO_DO_HISTORICO,
+    movimentos: movs.slice(0, TETO_DO_HISTORICO).map((m) => ({
       id: m.id,
       tipo: m.type,
       quantidade: m.quantity,
-      motivo: m.reason ?? "",
+      // o TEXTO do motivo também carrega o número ("Reserva — pedido #482"):
+      // fora do recorte ele é mascarado, senão o link some e o número fica
+      motivo: m.orderId && !numero.has(m.orderId) ? motivoSemPedido(m.reason ?? "") : m.reason ?? "",
       quando: m.createdAt.toISOString(),
       // pedido fora do recorte de quem vê: o movimento fica, o link não
       pedido:

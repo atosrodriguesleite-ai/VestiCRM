@@ -13,6 +13,7 @@ import { AlertTriangle, PackageOpen, Snowflake, TrendingUp } from "lucide-react"
 import { Alert, Spinner } from "@/components/ui";
 import { brl } from "@/lib/format";
 import type { Painel, LinhaAnalisada } from "@/lib/estoque/analise";
+import { NOME_DO_DONO } from "@/lib/estoque/dono-do-estoque";
 
 export function PainelView() {
   const [dados, setDados] = useState<Painel | null>(null);
@@ -51,8 +52,8 @@ export function PainelView() {
     <div className="space-y-5">
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5">
         <Numero rotulo="Peças na loja" valor={t.pecas.toLocaleString("pt-BR")} hint={`${t.variacoes} variações`} />
-        <Numero rotulo="Valor a custo" valor={brl(t.valorCusto)} hint="o que a loja gastou e está na arara" />
-        <Numero rotulo="Valor a atacado" valor={brl(t.valorAtacado)} hint="se vender tudo no atacado" />
+        <Numero rotulo="Valor a custo" valor={brl(t.valorCusto)} hint={`na loja, inclusive ${t.reservadas} reservadas`} />
+        <Numero rotulo="Valor a atacado" valor={brl(t.valorAtacado)} hint="se vender tudo que está na loja no atacado" />
         <Numero
           rotulo="No mínimo"
           valor={String(t.noMinimo)}
@@ -68,7 +69,7 @@ export function PainelView() {
         <Numero
           rotulo={`Vendidas em ${dados.diasDoGiro} dias`}
           valor={t.vendidos30.toLocaleString("pt-BR")}
-          hint={`giro de ${t.giroPct.toFixed(0)}% do estoque`}
+          hint={`giro de ${t.giroPct.toFixed(0)}% do que estava à venda`}
           tom="emerald"
         />
       </div>
@@ -78,7 +79,7 @@ export function PainelView() {
           titulo="O que repor"
           icon={<PackageOpen className="size-4 text-amber-600" />}
           vazio="Nada chegou ao mínimo. 👍"
-          hint={`Chegou ao mínimo. A sugestão cobre ${dados.diasDoGiro} dias no ritmo atual, nunca menos que o dobro do mínimo.`}
+          hint={`Toda peça que chegou ao mínimo (a mesma conta do card e do sino). A sugestão cobre ${dados.diasDoGiro} dias no ritmo atual, nunca menos que o dobro do mínimo; peça da Nuvemshop/Jueri se repõe lá.`}
           rodape={
             t.noMinimo > 0 ? (
               <Link href="/estoque?filtro=baixo" className="text-xs text-brand-700 hover:underline">
@@ -90,20 +91,30 @@ export function PainelView() {
           colunas={[
             { rotulo: "Disp. / mín.", valor: (l) => `${l.disponivel} / ${l.minimo}` },
             { rotulo: "Cobertura", valor: (l) => cobertura(l) },
-            { rotulo: "Repor", valor: (l) => String(l.analise.repor), destaque: true },
+            {
+              rotulo: "Repor",
+              valor: (l) =>
+                l.dono ? `na ${NOME_DO_DONO[l.dono]}` : l.analise.repor > 0 ? String(l.analise.repor) : "—",
+              destaque: true,
+            },
           ]}
         />
         <Lista
           titulo="Encalhadas"
           icon={<Snowflake className="size-4 text-sky-600" />}
           vazio="Nenhuma peça parada. 🎉"
-          hint={`Tem peça na loja e não vende há ${dados.diasParaEncalhar} dias (ou nunca vendeu). Valor a custo.`}
+          hint={`Tem peça disponível e não vende há ${dados.diasParaEncalhar} dias — ou nunca vendeu e foi cadastrada há ${dados.diasParaEncalhar}+ dias. Valor a custo.`}
           linhas={dados.encalhadas}
           colunas={[
             { rotulo: "Na loja", valor: (l) => String(l.emEstoque) },
             {
               rotulo: "Sem venda",
-              valor: (l) => (l.analise.diasSemVenda === null ? "nunca vendeu" : `${l.analise.diasSemVenda} dias`),
+              valor: (l) =>
+                l.analise.diasSemVenda === null
+                  ? l.analise.diasDeCadastro > 365
+                    ? "há mais de 1 ano"
+                    : `nunca (${l.analise.diasDeCadastro} dias de cadastro)`
+                  : `${l.analise.diasSemVenda} dias`,
             },
             { rotulo: "Parado", valor: (l) => brl(l.analise.valorParadoCusto), destaque: true },
           ]}
@@ -115,7 +126,7 @@ export function PainelView() {
           titulo={`Mais vendidas (${dados.diasDoGiro} dias)`}
           icon={<TrendingUp className="size-4 text-emerald-600" />}
           vazio="Nenhuma venda paga no período."
-          hint="Só pedido pago conta. A cobertura diz para quantos dias o disponível dá no ritmo atual."
+          hint={`Só pedido pago conta, e só item ligado a uma peça do cadastro${t.vendidasSemPeca > 0 ? ` — ${t.vendidasSemPeca} peça(s) vendida(s) no período sem peça no cadastro ficaram fora` : ""}. A cobertura diz para quantos dias o disponível dá no ritmo atual.`}
           linhas={dados.maisVendidas}
           colunas={[
             { rotulo: "Vendidas", valor: (l) => String(l.analise.vendidos30), destaque: true },
@@ -150,7 +161,9 @@ export function PainelView() {
                       <td className="px-3 py-2 text-right tabular-nums">{c.pecas}</td>
                       <td className="px-3 py-2 text-right tabular-nums">{brl(c.valorCusto)}</td>
                       <td className="px-3 py-2 text-right tabular-nums text-emerald-700">{c.vendidos30}</td>
-                      <td className={`px-3 py-2 text-right tabular-nums ${c.noMinimo ? "text-amber-700" : "text-slate-300"}`}>{c.noMinimo}</td>
+                      <td className={`px-3 py-2 text-right tabular-nums ${c.noMinimo ? "text-amber-700 font-semibold" : "text-slate-300"}`} title={c.noMinimo ? "variações que chegaram ao mínimo" : undefined}>
+                        {c.noMinimo ? `⚠ ${c.noMinimo}` : c.noMinimo}
+                      </td>
                       <td className={`px-3 py-2 text-right tabular-nums ${c.encalhadas ? "text-sky-700" : "text-slate-300"}`}>{c.encalhadas}</td>
                     </tr>
                   ))}

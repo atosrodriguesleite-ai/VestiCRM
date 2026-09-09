@@ -27,8 +27,12 @@ export async function GET(req: NextRequest) {
       filtro,
       incluirInativos: sp.get("inativos") === "1",
     });
+    // a tela pede o resumo (loja inteira) só na primeira carga; a cada tecla
+    // da busca vai só a lista — o resumo não muda com o filtro
+    const soLista = sp.get("so") === "lista";
     return NextResponse.json({
       ...inv,
+      ...(soLista ? { resumo: null, categorias: null } : {}),
       podeAjustar: podeAjustarEstoque(porta.user),
       // o botão "Sincronizar" chama a MESMA porta da tela Configurações
       podeSincronizar: podeOperarIntegracoes(porta.user),

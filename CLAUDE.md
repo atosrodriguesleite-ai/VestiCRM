@@ -802,8 +802,10 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
 - **Produção** (gated por loja): tecidos, rolos, cortes multi-cor, costura,
   lotes/facções, defeitos, simulador, etiquetas.
 - **Estoque** (gated por loja, `Company.estoqueEnabled`, porteira em
-  `lib/estoque/gate.ts`; desenhado com o dono em 09/09/2026, em fases — a
-  Fase 1 é esta): a tela **Inventário** (`/estoque`) — uma linha por cor ×
+  `lib/estoque/gate.ts`; desenhado com o dono em 09/09/2026 e entregue em
+  quatro abas — Inventário, Mínimos, Painel, Produção; **preço de tabela A
+  DEFINIR pelo dono**: está 0 no catálogo de módulos, então NÃO entra no MRR
+  até ele dizer; ADR-016): a tela **Inventário** (`/estoque`) — uma linha por cor ×
   tamanho com **na loja · reservado · disponível**, busca por nome/código/
   SKU/tag, filtros (baixo, zerada, com reserva, por integração), **ajuste na
   própria linha com motivo** e o histórico da peça. Toda a equipe entra
@@ -813,6 +815,18 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   MOVIMENTOS** dos pedidos que ainda estão dentro da loja (orçamento,
   aguardando pagamento, pago, em produção, separação — enviado/entregue já
   saíram), nunca da quantidade do item (reserva parcial segurou menos).
+  Pedido cancelado com **baixa definitiva** e reaberto (REANEXAR, RN-004)
+  NÃO conta como reservado: a peça foi embora de verdade. A ficha do pedido
+  mostra o MESMO número do livro ("o pedido tem 10 — só 4 estavam no
+  estoque"). O livro tem índice por pedido e `OrderItem` por variação/produto
+  (migrações 20260909180000 e 20260909181000 — sem eles, cancelar um pedido
+  e remover uma variação varriam a tabela da PLATAFORMA inteira).
+  **Painel e Produção são só de GERÊNCIA** (`podeVerAnaliseDoEstoque`):
+  ali estão valor a custo, a atacado, vendas da loja inteira e dinheiro em
+  tecido — a régua de Relatórios; vendedora e suporte veem só o Inventário.
+  O cartão do Dashboard conta em UMA SQL (`contarNoMinimo`) com a mesma
+  expressão do mínimo — carregar a loja inteira para devolver um número era
+  o item mais caro da tela mais aberta (achado da revisão de performance).
   **RN-050 · Sistema de fora que vende MANDA no estoque; ajuste digitado tem
   UMA porta** (`lib/estoque/dono-do-estoque.ts` + `lib/estoque/ajuste.ts`):
   pedido do dono — *"caso o cliente tenha Nuvemshop ou outro sistema de
@@ -851,10 +865,21 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   (mandar o que carregou faria a ficha ser recusada toda vez que a loja
   online vendesse entre abrir e salvar). O histórico da peça mostra o
   movimento para toda a equipe, mas o número e o link do pedido só para
-  quem enxerga aquele pedido (`orderScope`, RN-007). O botão "Sincronizar"
-  só existe para a Nuvemshop (o Jueri sincroniza sozinho, 2x/dia). Loja sem o módulo não muda em NADA na tela — mas a regra do dono
-  externo vale COM ou SEM a chave, porque o bug era de toda loja com
-  Nuvemshop.
+  quem enxerga aquele pedido (`orderScope`, RN-007) — e o TEXTO do motivo
+  ("Reserva — pedido #482") é mascarado para "pedido de colega" fora do
+  recorte (achado da revisão de segurança). O botão "Sincronizar" só existe
+  para a Nuvemshop (o Jueri sincroniza sozinho, 2x/dia). **A grade de peça
+  vinculada também se mexe LÁ**: remover variação da Nuvemshop "não pega"
+  (a sync recria com o número de lá e o livro dela some em cascata) e cor/
+  tamanho novos em produto do Jueri criam peça que ninguém sincroniza — a
+  rota recusa os dois, e variação com peça RESERVADA em pedido não se
+  remove (o pedido perderia a prova do que segurou). A restauração pós-
+  importação (`stock-restore.ts`) pula peça de dono externo pelo mesmo
+  motivo. A tela Produtos **só manda o estoque que a pessoa DIGITOU** (com
+  o número visto): mandar o carregado de todas desfazia a venda que entrou
+  enquanto a ficha estava aberta. Loja sem o módulo não muda em NADA na
+  tela — mas a regra do dono externo vale COM ou SEM a chave, porque o bug
+  era de toda loja com Nuvemshop.
   **RN-051 · Mínimo por PEÇA, por CATEGORIA e da LOJA, com alerta SEM SPAM**
   (`lib/estoque/minimos.ts` + `lib/estoque/alerta.ts`, aba Mínimos e coluna
   "Mín." do Inventário, 09/09/2026): pedido do dono — *"um alerta para cada
@@ -862,16 +887,29 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   vale o MAIS ESPECÍFICO: a peça (`Product.minStock`, vale para CADA cor ×
   tamanho do modelo) > a categoria (`EstoqueMinimoCategoria`) > a loja
   (`Company.lowStockThreshold`, o número que já existia). A régua é a de
-  sempre — **CHEGOU ao mínimo = disponível ≤ mínimo** —, e agora é UMA para
-  o Inventário, o painel, o alerta e o cartão "Estoque baixo" do Dashboard
-  (`contarNoMinimo`): antes o cartão olhava só o número da loja. O
+  sempre — **CHEGOU ao mínimo = disponível ≤ mínimo, ZERADA INCLUSA** —, e
+  é UMA para o Inventário (filtro "No mínimo", para onde o sino manda), o
+  painel ("o que repor" tem TODA peça no mínimo, com "—" quando a sugestão
+  é 0 e "na Nuvemshop" para dono externo), o alerta, o monitor da tela
+  Produtos e o cartão "Estoque baixo" do Dashboard (`contarNoMinimo`):
+  antes o cartão e o monitor olhavam só o número da loja, e a primeira
+  versão do filtro excluía as zeradas — o sino dizia 7 e a lista abria com
+  2 (achado de três revisões). O
   **alerta** chega no sino e no push da gerência, e não vira ruído por duas
   decisões: **uma variação avisa UMA vez** (carimbo
   `ProductVariant.lowStockAlertedAt`, que só zera quando ela SOBE acima do
   mínimo — a peça que a loja decidiu não repor não aparece todo dia) e **um
   aviso por rodada, em resumo** ("7 peças chegaram ao mínimo", as primeiras
   pelo nome, "e mais N", link para a lista). Produto inativo não avisa e
-  solta o carimbo. Roda **de carona** (sync da inbox e abertura do Estoque)
+  solta o carimbo. **Variação que NASCE zerada não avisa** (grade nova "vou
+  produzir", importação com 0): foi cadastrada no mínimo, não chegou nele —
+  só avisa depois que teve peça (algum movimento no livro). Carimbo e aviso
+  nascem na MESMA transação (carimbar antes e o aviso falhar deixava a peça
+  muda para sempre); falha da varredura devolve a trava e vai para o painel
+  de Saúde. A varredura não carrega o reservado (não precisa dele) e tem
+  freio em memória por instância antes da trava do banco (a batida do sync a
+  cada 3s não vai ao banco para nada). Renomear ou apagar categoria leva o
+  mínimo dela junto. Roda **de carona** (sync da inbox e abertura do Estoque)
   com trava atômica por loja (`Company.estoqueAlertaRunAt`, 30 min) — nunca
   um 3º cron (ADR-002) — e SÓ com o módulo ligado (`estoqueEnabled` entra
   na própria trava). Mínimo 0 é mínimo válido (só zerada avisa), diferente
@@ -884,19 +922,31 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   vendidas nos últimos 30 dias, **só pedido PAGO** (RN-001, `OrderItem` de
   `PAID_ORDER_STATUSES`, data = `paidAt` ou, sem ela, `createdAt`);
   **cobertura** = disponível ÷ vendas por dia, em dias inteiros — sem venda
-  no período é "sem venda", nunca "infinito"; **encalhada** = tem peça na
-  loja e não vende há 60 dias (ou nunca), com o valor parado **a CUSTO**
+  no período é "sem venda", nunca "infinito"; item vendido SEM peça no
+  cadastro (produto apagado, SKU da Nuvemshop que não casou) fica fora do
+  giro e a tela DIZ quantos; a última venda é procurada em UM ANO (pelo
+  índice de `paidAt` — a loja de cinco anos não varre a história inteira a
+  cada abertura), e "sem venda há mais de 1 ano" é dito assim; **encalhada**
+  = tem peça DISPONÍVEL (a reservada tem dono) e não vende há 60 dias — para
+  quem nunca vendeu, os 60 dias contam do CADASTRO (a coleção que entrou na
+  segunda não é "encalhada" na terça) —, com o valor parado **a CUSTO**
   (`costPrice` — é o dinheiro que a loja gastou; a atacado seria dinheiro
   que ela ainda não recebeu); **o que repor** = chegou ao mínimo (RN-051),
   e a sugestão cobre 30 dias no ritmo atual, **nunca menos que voltar ao
   DOBRO do mínimo** (repor só até o mínimo faria a peça alertar de novo na
   primeira venda). Peça de dono externo (RN-050) não entra em "repor" — quem
-  repõe lá é a loja online. Listas com teto (30) e "por categoria" com
-  peças, valor a custo, vendidas, no mínimo e encalhadas. A **aba Produção**
+  repõe lá é a loja online. Giro % = vendidos ÷ (disponível + vendidos) — a
+  peça paga esperando envio já está em "vendidos". Listas com teto (repor e
+  encalhadas 30, mais vendidas 10) e "por categoria" com peças, valor a
+  custo, vendidas, no mínimo e encalhadas. A montagem é pura
+  (`resumirPainel`) e testada. A **aba Produção**
   (só com `productionEnabled`) responde o que o Inventário não responde na
   confecção — cortado esperando costura (`SewingItem.cutPieces − donePieces`),
-  na facção (lotes não fechados, `sent − good − defect`) e tecido para cortar
-  (`FabricRoll.remainingKg > 0`, valor pelo preço pago por kg) — e **não
+  em lote de costura (TODO lote não fechado, facção e costura interna,
+  `sent − good − defect` — enviar para a costura interna também consome o
+  cortado) e tecido para cortar (rolo de tecido ATIVO com
+  `remainingKg > 0,01`, a mesma lista da tela Cortes; valor pelo preço pago
+  por kg) — e **não
   grava nada**: o caminho "cortado vira produto" continua sendo a tela
   Costura (`lancaNoEstoque`, que sobe o estoque, escreve a ENTRADA no livro
   e espelha para a Nuvemshop); a aba só dá o atalho. Balanço e IA ficaram
@@ -1428,6 +1478,10 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   na Vercel com um **valor NOVO aleatório longo (40+ caracteres)** e
   redeployar — nada quebra, e os tokens antigos migram sozinhos conforme
   os OAuth renovam. Apagar este item só depois de o Atos confirmar.
+- 🟡 **Módulo Estoque — preço de tabela a definir pelo dono** (09/09/2026):
+  está 0 no catálogo (`lib/modulos.ts`), então ligar o módulo numa loja NÃO
+  soma no MRR. Quando o Atos disser o valor, trocar o número e o teste
+  `estoque-minimos.test.ts` que o fixa.
 - WhatsApp/Evolution: operacional em produção (conexão, tempo real, mídia).
   **Pendente**: ligar `DATABASE_SAVE_DATA_HISTORIC/NEW_MESSAGE/CHATS/CONTACTS=true`
   no compose do servidor Evolution (Hostinger, via Editor .yaml) e reconectar

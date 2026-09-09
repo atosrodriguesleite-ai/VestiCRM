@@ -20,9 +20,11 @@ export type ResumoDaProducao = {
     itens: { productName: string; color: string | null; size: string | null; pendentes: number; cutCode: number | null }[];
   };
   faccao: {
-    /** peças fora, em facção, ainda não devolvidas */
+    /** peças em lote de costura ainda não devolvidas (facção OU costura interna — os dois tiram do "cortado esperando") */
     fora: number;
     lotesAbertos: number;
+    /** só os lotes de facção, para a tela dizer "N na facção · M na costura interna" */
+    naFaccao: number;
   };
   rolos: {
     quantidade: number;
@@ -41,12 +43,16 @@ export async function resumoDaProducao(companyId: string): Promise<ResumoDaProdu
       where: { companyId },
       select: { productName: true, color: true, size: true, cutPieces: true, donePieces: true, cutCode: true },
     }),
+    // TODO lote aberto, não só facção: enviar para a costura interna também
+    // consome `donePieces` do corte, e a peça sumia das duas contas
     db.sewingBatch.findMany({
-      where: { companyId, destination: "FACCAO", status: { not: "FECHADO" } },
-      select: { items: { select: { sent: true, good: true, defect: true } } },
+      where: { companyId, status: { not: "FECHADO" } },
+      select: { destination: true, items: { select: { sent: true, good: true, defect: true } } },
     }),
+    // a mesma régua da tela Cortes: tecido ATIVO e sobra de verdade (o resto
+    // de arredondamento de 4 g não é rolo para cortar)
     db.fabricRoll.findMany({
-      where: { fabric: { companyId }, remainingKg: { gt: 0 } },
+      where: { fabric: { companyId, active: true }, remainingKg: { gt: 0.01 } },
       select: { color: true, remainingKg: true, pricePerKg: true, fabric: { select: { name: true } } },
     }),
   ]);
@@ -62,10 +68,10 @@ export async function resumoDaProducao(companyId: string): Promise<ResumoDaProdu
     .filter((s) => s.pendentes > 0)
     .sort((a, b) => b.pendentes - a.pendentes);
 
-  const fora = lotes.reduce(
-    (s, b) => s + b.items.reduce((t, i) => t + Math.max(0, i.sent - i.good - i.defect), 0),
-    0
-  );
+  const pendentesDoLote = (b: { items: { sent: number; good: number; defect: number }[] }) =>
+    b.items.reduce((t, i) => t + Math.max(0, i.sent - i.good - i.defect), 0);
+  const fora = lotes.reduce((s, b) => s + pendentesDoLote(b), 0);
+  const naFaccao = lotes.filter((b) => b.destination === "FACCAO").reduce((s, b) => s + pendentesDoLote(b), 0);
 
   const porTecido = new Map<string, ResumoDaProducao["rolos"]["porTecido"][number]>();
   for (const r of rolos) {
@@ -82,7 +88,7 @@ export async function resumoDaProducao(companyId: string): Promise<ResumoDaProdu
       aguardando: itens.reduce((s, i) => s + i.pendentes, 0),
       itens: itens.slice(0, TETO_DOS_ITENS),
     },
-    faccao: { fora, lotesAbertos: lotes.length },
+    faccao: { fora, lotesAbertos: lotes.length, naFaccao },
     rolos: {
       quantidade: rolos.length,
       kg: rolos.reduce((s, r) => s + r.remainingKg, 0),

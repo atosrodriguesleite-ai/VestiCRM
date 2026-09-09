@@ -113,7 +113,7 @@ export const MODULOS: Modulo[] = [
     key: "ESTOQUE",
     nome: "Estoque",
     entrega:
-      "Inventário por cor e tamanho com edição rápida, reservado/disponível e histórico de cada peça.",
+      "Inventário por cor e tamanho com edição rápida, mínimos com alerta, painel (repor, encalhado, giro) e aba Produção.",
     flag: "estoqueEnabled",
     // preço de tabela ainda NÃO definido pelo dono (09/09/2026): fica em 0
     // (cortesia) até ele dizer — inventar número aqui entraria no MRR

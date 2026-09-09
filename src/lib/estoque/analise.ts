@@ -28,29 +28,45 @@ import { noMinimo } from "./minimos";
 
 export const DIAS_DO_GIRO = 30;
 export const DIAS_PARA_ENCALHAR = 60;
+/** a última venda é procurada até aqui — além disso é "há mais de 1 ano" */
+export const DIAS_DA_ULTIMA_VENDA = 365;
 
 export type VendaDaVariacao = { vendidos30: number; ultimaVendaEm: Date | null };
 
+export type VendasDaLoja = {
+  porVariacao: Map<string, VendaDaVariacao>;
+  /** peças vendidas no período em item SEM variação no cadastro (produto apagado, item da Nuvemshop que não casou por SKU) — ficam fora do giro e a tela DIZ */
+  vendidasSemPeca: number;
+};
+
 /** Vendas dos últimos N dias e última venda de cada variação (pedido pago). */
-export async function vendasPorVariacao(
-  companyId: string,
-  agora = new Date()
-): Promise<Map<string, VendaDaVariacao>> {
+export async function vendasPorVariacao(companyId: string, agora = new Date()): Promise<VendasDaLoja> {
   const desde = new Date(agora.getTime() - DIAS_DO_GIRO * 86_400_000);
+  const desdeUmAno = new Date(agora.getTime() - DIAS_DA_ULTIMA_VENDA * 86_400_000);
+  // pelo índice Order(companyId, paidAt): todo pedido pago tem `paidAt` (a
+  // migração 20260727 preencheu o legado). Um ano de janela — a loja de
+  // cinco anos não varre a história inteira a cada abertura do painel
+  // (achado da revisão de performance); além disso é "há mais de 1 ano".
   const rows = await db.$queryRaw<
-    { variantId: string; vendidos30: number; ultimaVendaEm: Date | null }[]
+    { variantId: string | null; vendidos30: number; ultimaVendaEm: Date | null }[]
   >(Prisma.sql`
     SELECT i."variantId",
-           COALESCE(SUM(CASE WHEN COALESCE(o."paidAt", o."createdAt") >= ${desde} THEN i."quantity" ELSE 0 END), 0)::int AS "vendidos30",
-           MAX(COALESCE(o."paidAt", o."createdAt")) AS "ultimaVendaEm"
-      FROM "OrderItem" i
-      JOIN "Order" o ON o."id" = i."orderId"
+           COALESCE(SUM(CASE WHEN o."paidAt" >= ${desde} THEN i."quantity" ELSE 0 END), 0)::int AS "vendidos30",
+           MAX(o."paidAt") AS "ultimaVendaEm"
+      FROM "Order" o
+      JOIN "OrderItem" i ON i."orderId" = o."id"
      WHERE o."companyId" = ${companyId}
-       AND i."variantId" IS NOT NULL
-       AND o."status"::text IN (${Prisma.join([...PAID_ORDER_STATUSES])})
+       AND o."paidAt" >= ${desdeUmAno}
+       AND o."status" = ANY(${[...PAID_ORDER_STATUSES]}::text[]::"OrderStatus"[])
      GROUP BY i."variantId"
   `);
-  return new Map(rows.map((r) => [r.variantId, { vendidos30: r.vendidos30, ultimaVendaEm: r.ultimaVendaEm }]));
+  const porVariacao = new Map<string, VendaDaVariacao>();
+  let vendidasSemPeca = 0;
+  for (const r of rows) {
+    if (r.variantId) porVariacao.set(r.variantId, { vendidos30: r.vendidos30, ultimaVendaEm: r.ultimaVendaEm });
+    else vendidasSemPeca += r.vendidos30;
+  }
+  return { porVariacao, vendidasSemPeca };
 }
 
 export type Situacao = "REPOR" | "ENCALHADA" | "OK" | "SEM_VENDA" | "ZERADA";
@@ -61,7 +77,10 @@ export type AnaliseDaPeca = {
   vendidos30: number;
   /** dias que o disponível cobre no ritmo atual; null = sem venda no período */
   coberturaDias: number | null;
+  /** null = nunca vendeu */
   diasSemVenda: number | null;
+  /** dias desde o cadastro do produto (é o que conta para quem nunca vendeu) */
+  diasDeCadastro: number;
   encalhada: boolean;
   /** R$ parado a custo (disponível + reservado × custo) */
   valorParadoCusto: number;
@@ -70,9 +89,17 @@ export type AnaliseDaPeca = {
   situacao: Situacao;
 };
 
-/** A conta de UMA variação (pura, testável). */
+/**
+ * A conta de UMA variação (pura, testável).
+ *
+ * ENCALHADA exige duas coisas: peça DISPONÍVEL (a reservada em pedido tem
+ * dono, não está parada) e 60 dias sem venda — contados da última venda ou,
+ * para quem nunca vendeu, do CADASTRO. Sem a segunda régua a coleção que
+ * entrou na segunda aparecia "encalhada, R$ 12.000 parados" na terça
+ * (achado da revisão de dados).
+ */
 export function analisarPeca(
-  l: Pick<LinhaDoInventario, "disponivel" | "emEstoque" | "minimo" | "custo">,
+  l: Pick<LinhaDoInventario, "disponivel" | "emEstoque" | "minimo" | "custo" | "cadastradoEm">,
   venda: VendaDaVariacao | undefined,
   agora: Date
 ): AnaliseDaPeca {
@@ -82,8 +109,9 @@ export function analisarPeca(
   const diasSemVenda = venda?.ultimaVendaEm
     ? Math.floor((agora.getTime() - venda.ultimaVendaEm.getTime()) / 86_400_000)
     : null;
-  const temPeca = l.emEstoque > 0;
-  const encalhada = temPeca && (diasSemVenda === null || diasSemVenda >= DIAS_PARA_ENCALHAR);
+  const diasDeCadastro = Math.floor((agora.getTime() - new Date(l.cadastradoEm).getTime()) / 86_400_000);
+  const diasParada = diasSemVenda ?? diasDeCadastro;
+  const encalhada = l.disponivel > 0 && diasParada >= DIAS_PARA_ENCALHAR;
   const valorParadoCusto = l.emEstoque * l.custo;
   const chegouAoMinimo = noMinimo(l.disponivel, l.minimo);
   const repor = chegouAoMinimo
@@ -99,6 +127,7 @@ export function analisarPeca(
     vendidos30,
     coberturaDias,
     diasSemVenda,
+    diasDeCadastro,
     encalhada,
     valorParadoCusto,
     repor: Math.max(0, repor),
@@ -121,9 +150,12 @@ export type Painel = {
     encalhadas: number;
     valorEncalhadoCusto: number;
     vendidos30: number;
-    /** % das peças em estoque que vendeu nos 30 dias (vendidos ÷ (estoque + vendidos)) */
+    /** peças vendidas no período sem peça no cadastro — fora do giro, e a tela diz */
+    vendidasSemPeca: number;
+    /** % do que estava à venda que saiu nos 30 dias: vendidos ÷ (disponível + vendidos) — o reservado de pedido pago JÁ está em vendidos */
     giroPct: number;
   };
+  /** TODA linha no mínimo (a mesma régua do sino e do Dashboard); a sugestão pode ser 0 e a de dono externo se repõe lá */
   repor: LinhaAnalisada[];
   encalhadas: LinhaAnalisada[];
   maisVendidas: LinhaAnalisada[];
@@ -147,14 +179,20 @@ export async function montarPainel(companyId: string, agora = new Date()): Promi
     linhasDoEstoque(companyId),
     vendasPorVariacao(companyId, agora),
   ]);
+  return resumirPainel(linhas, vendas, agora);
+}
+
+/** A montagem do painel, pura (testável sem banco). */
+export function resumirPainel(linhas: LinhaDoInventario[], vendas: VendasDaLoja, agora: Date): Painel {
   const analisadas: LinhaAnalisada[] = linhas.map((l) => ({
     ...l,
-    analise: analisarPeca(l, vendas.get(l.variantId), agora),
+    analise: analisarPeca(l, vendas.porVariacao.get(l.variantId), agora),
   }));
 
   const soma = (f: (l: LinhaAnalisada) => number) => analisadas.reduce((s, l) => s + f(l), 0);
   const vendidos30 = soma((l) => l.analise.vendidos30);
   const pecas = soma((l) => l.emEstoque);
+  const disponiveis = soma((l) => l.disponivel);
   const encalhadas = analisadas.filter((l) => l.analise.encalhada);
 
   const porCat = new Map<string, Painel["porCategoria"][number]>();
@@ -178,7 +216,7 @@ export async function montarPainel(companyId: string, agora = new Date()): Promi
   return {
     totais: {
       pecas,
-      disponiveis: soma((l) => l.disponivel),
+      disponiveis,
       reservadas: soma((l) => l.reservado),
       valorCusto: soma((l) => l.analise.valorParadoCusto),
       valorAtacado: soma((l) => l.emEstoque * l.atacado),
@@ -188,11 +226,13 @@ export async function montarPainel(companyId: string, agora = new Date()): Promi
       encalhadas: encalhadas.length,
       valorEncalhadoCusto: encalhadas.reduce((s, l) => s + l.analise.valorParadoCusto, 0),
       vendidos30,
-      giroPct: pecas + vendidos30 > 0 ? (vendidos30 / (pecas + vendidos30)) * 100 : 0,
+      vendidasSemPeca: vendas.vendidasSemPeca,
+      giroPct: disponiveis + vendidos30 > 0 ? (vendidos30 / (disponiveis + vendidos30)) * 100 : 0,
     },
-    // repor: as mais urgentes primeiro — menos cobertura, depois menos disponível
+    // repor: TODA peça no mínimo (o sino diz "veja o que repor" — a lista tem
+    // que ter o mesmo número), as mais urgentes primeiro
     repor: analisadas
-      .filter((l) => l.analise.repor > 0 && !l.dono)
+      .filter((l) => noMinimo(l.disponivel, l.minimo))
       .sort(
         (a, b) =>
           (a.analise.coberturaDias ?? 9999) - (b.analise.coberturaDias ?? 9999) ||

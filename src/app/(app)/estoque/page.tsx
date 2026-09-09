@@ -1,6 +1,6 @@
 import { PageHeader } from "@/components/ui";
 import { db } from "@/lib/db";
-import { porteiraEstoqueTela } from "@/lib/estoque/gate";
+import { porteiraEstoqueTela, podeVerAnaliseDoEstoque } from "@/lib/estoque/gate";
 import { Abas, type AbaDoEstoque } from "./abas";
 import { InventarioView } from "./inventario-view";
 import { PainelView } from "./painel-view";
@@ -30,11 +30,14 @@ export default async function EstoquePage({
     searchParams,
     db.company.findUnique({ where: { id: user.companyId }, select: { productionEnabled: true } }),
   ]);
-  const temProducao = company?.productionEnabled ?? false;
+  // Painel e Produção mostram dinheiro (custo, atacado, tecido): só gerência
+  const veAnalise = podeVerAnaliseDoEstoque(user);
+  const temProducao = (company?.productionEnabled ?? false) && veAnalise;
   let aba: AbaDoEstoque = (ABAS as string[]).includes(abaPedida ?? "")
     ? (abaPedida as AbaDoEstoque)
     : "inventario";
   if (aba === "producao" && !temProducao) aba = "inventario";
+  if (aba === "painel" && !veAnalise) aba = "inventario";
   const filtro: FiltroDoInventario = (FILTROS as string[]).includes(filtroPedido ?? "")
     ? (filtroPedido as FiltroDoInventario)
     : "todos";
@@ -50,9 +53,10 @@ export default async function EstoquePage({
   return (
     <div>
       <PageHeader title="Estoque" subtitle={subtitulo[aba]} />
-      <Abas ativa={aba} temProducao={temProducao} />
+      <Abas ativa={aba} temProducao={temProducao} veAnalise={veAnalise} />
       <div className="mt-4">
-        {aba === "inventario" && <InventarioView filtroInicial={filtro} />}
+        {/* key: o sino troca só a URL com a aba já aberta; sem remontar, o filtro novo era ignorado */}
+        {aba === "inventario" && <InventarioView key={filtro} filtroInicial={filtro} />}
         {aba === "painel" && <PainelView />}
         {aba === "minimos" && <MinimosView />}
         {aba === "producao" && <ProducaoView />}

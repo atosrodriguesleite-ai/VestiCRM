@@ -33,7 +33,7 @@ model Company {
   //   SUBTOTAL = valor das peças, ANTES do desconto
   //   VENDIDO  = peças − desconto + acréscimo (o valor realmente vendido)
   commissionBase    String   @default("SUBTOTAL")
-  lowStockThreshold Int      @default(5) // alerta de estoque: avisa quando a variação chega a X peças
+  lowStockThreshold Int      @default(5) // mínimo DA LOJA (RN-051): vale para a variação sem mínimo próprio nem de categoria
   productionEnabled Boolean  @default(false) // módulo Produção (pago à parte; super admin ativa por loja)
   marketingEnabled  Boolean  @default(false) // módulo Marketing (pago à parte; super admin ativa por loja)
   mediaLibraryEnabled Boolean @default(false) // Biblioteca de imagens (super admin ativa por loja)
@@ -57,8 +57,9 @@ model Company {
   /// pedidos — não muda em NADA. Com a chave, abre a gestão financeira
   /// completa (cadastros, contas a pagar/receber, fluxo de caixa...).
   financeEnabled    Boolean  @default(false)
-  /// MÓDULO ESTOQUE (RN-050, 09/09/2026): a tela Inventário — estoque por
-  /// variação com edição rápida, reservado/disponível e histórico. Super
+  /// MÓDULO ESTOQUE (RN-050/051/052, 09/09/2026): Inventário (estoque por
+  /// variação com edição rápida, reservado/disponível e histórico), mínimos
+  /// com alerta, painel (repor, encalhado, giro) e aba Produção. Super
   /// admin liga por loja. Sem a chave, a loja segue com o estoque dentro de
   /// Produtos, como sempre. A regra do DONO EXTERNO (peça vinculada à
   /// Nuvemshop/Jueri não se edita aqui) vale COM ou SEM a chave.
@@ -475,7 +476,7 @@ model Notification {
   company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
   userId    String // destinatário
   user      User     @relation("UserNotifications", fields: [userId], references: [id], onDelete: Cascade)
-  type      String // MENTION | ASSIGN | PEDIDO
+  type      String // MENTION | ASSIGN | PEDIDO | AGENDA | ESTOQUE (RN-051)
   title     String
   body      String   @default("")
   convId    String? // conversa relacionada (para abrir ao clicar)
@@ -1879,6 +1880,9 @@ model OrderItem {
   total     Float
 
   @@index([orderId])
+  // FKs com SetNull: sem índice, remover variação/produto varria a tabela inteira
+  @@index([variantId])
+  @@index([productId])
 }
 
 enum PaymentMethod {
@@ -2124,6 +2128,9 @@ model InventoryMovement {
   createdAt DateTime       @default(now())
 
   @@index([companyId, createdAt])
+  // livro por pedido: devolver/excluir pedido e o "reservado" do Inventário
+  // leem por orderId — sem índice era varredura da tabela inteira
+  @@index([orderId])
   @@index([variantId])
 }
 

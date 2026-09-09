@@ -145,6 +145,12 @@ export async function PATCH(req: NextRequest) {
 
     if (renomeando) {
       await db.product.updateMany({ where: { companyId, category: from }, data: { category: to } });
+      // o mínimo por categoria (RN-051) acompanha o nome — senão as peças
+      // caíam em silêncio para o mínimo da loja; se o novo nome já tem
+      // mínimo, o dele fica e o antigo some
+      const jaTem = await db.estoqueMinimoCategoria.findFirst({ where: { companyId, category: to }, select: { id: true } });
+      if (jaTem) await db.estoqueMinimoCategoria.deleteMany({ where: { companyId, category: from } });
+      else await db.estoqueMinimoCategoria.updateMany({ where: { companyId, category: from }, data: { category: to } });
       // a descrição acompanha o novo nome (senão sumia ao renomear)
       descricoes = renomearDescricao(descricoes, from, to);
       tipos = renomearTipo(tipos, from, to);
@@ -201,6 +207,8 @@ export async function DELETE(req: NextRequest) {
     const companyId = g.user.companyId;
     const name = parsed.data.name.trim();
 
+    // o mínimo da categoria apagada vai junto (RN-051)
+    await db.estoqueMinimoCategoria.deleteMany({ where: { companyId, category: name } });
     const count = await db.product.count({ where: { companyId, category: name } });
     if (count > 0) {
       if (parsed.data.moveTo) {

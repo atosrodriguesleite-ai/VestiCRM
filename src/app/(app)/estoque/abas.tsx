@@ -13,15 +13,24 @@ const ABAS: { id: AbaDoEstoque; rotulo: string; icon: React.ComponentType<{ clas
 ];
 
 /** As abas do Estoque — links de verdade (a URL diz onde a pessoa está). */
-export function Abas({ ativa, temProducao }: { ativa: AbaDoEstoque; temProducao: boolean }) {
+export function Abas({
+  ativa,
+  temProducao,
+  veAnalise,
+}: {
+  ativa: AbaDoEstoque;
+  temProducao: boolean;
+  veAnalise: boolean;
+}) {
   return (
     <nav className="flex gap-1 overflow-x-auto thin-scroll border-b border-slate-200">
-      {ABAS.filter((a) => a.id !== "producao" || temProducao).map((a) => {
+      {ABAS.filter((a) => (a.id !== "producao" || temProducao) && (a.id !== "painel" || veAnalise)).map((a) => {
         const on = a.id === ativa;
         return (
           <Link
             key={a.id}
             href={a.id === "inventario" ? "/estoque" : `/estoque?aba=${a.id}`}
+            aria-current={on ? "page" : undefined}
             className={`inline-flex items-center gap-1.5 whitespace-nowrap px-3 py-2 text-sm font-medium border-b-2 -mb-px transition ${
               on
                 ? "border-brand-600 text-brand-700"

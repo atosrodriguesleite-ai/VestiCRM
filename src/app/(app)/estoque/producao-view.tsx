@@ -49,7 +49,11 @@ export function ProducaoView() {
     <div className="space-y-5">
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5">
         <Numero rotulo="Cortadas, esperando costura" valor={dados.cortadas.aguardando.toLocaleString("pt-BR")} hint="ainda não viraram produto" tom="amber" />
-        <Numero rotulo="Na facção" valor={dados.faccao.fora.toLocaleString("pt-BR")} hint={`${dados.faccao.lotesAbertos} lote(s) aberto(s)`} />
+        <Numero
+          rotulo="Em lote de costura"
+          valor={dados.faccao.fora.toLocaleString("pt-BR")}
+          hint={`${dados.faccao.naFaccao} na facção · ${dados.faccao.fora - dados.faccao.naFaccao} na costura interna · ${dados.faccao.lotesAbertos} lote(s) aberto(s)`}
+        />
         <Numero rotulo="Tecido para cortar" valor={`${dados.rolos.kg.toFixed(1)} kg`} hint={`${dados.rolos.quantidade} rolo(s) com sobra`} />
         <Numero rotulo="Valor em tecido" valor={brl(dados.rolos.valor)} hint="pelo preço pago por kg" />
       </div>
@@ -60,7 +64,7 @@ export function ProducaoView() {
             <Shirt className="size-4 text-amber-600 mt-0.5" />
             <div className="min-w-0 flex-1">
               <p className="text-sm font-semibold text-slate-800">Cortado, esperando costura</p>
-              <p className="text-[11px] text-slate-400">Quando a peça fica pronta, lance na tela Costura — o estoque sobe por lá.</p>
+              <p className="text-[11px] text-slate-400">Cortado e ainda não lançado como produto (nem em lote de costura). Quando a peça fica pronta, lance na tela Costura — o estoque sobe por lá.</p>
             </div>
             <Link href="/producao/costura" className="inline-flex items-center gap-1 text-xs text-brand-700 hover:underline whitespace-nowrap">
               lançar <ArrowRight className="size-3" />
@@ -98,7 +102,7 @@ export function ProducaoView() {
             <Layers className="size-4 text-sky-600 mt-0.5" />
             <div className="min-w-0 flex-1">
               <p className="text-sm font-semibold text-slate-800">Tecido disponível para corte</p>
-              <p className="text-[11px] text-slate-400">Rolos com sobra, por tecido e cor.</p>
+              <p className="text-[11px] text-slate-400">Rolos de tecido ativo com sobra, por tecido e cor (a mesma lista da tela Cortes).</p>
             </div>
             <Link href="/producao/cortes" className="inline-flex items-center gap-1 text-xs text-brand-700 hover:underline whitespace-nowrap">
               <Scissors className="size-3" /> cortar

@@ -1,4 +1,5 @@
 import { db } from "./db";
+import { donoDoEstoque } from "./estoque/dono-do-estoque";
 
 /**
  * Recuperação de estoque a partir do HISTÓRICO (InventoryMovement).
@@ -28,6 +29,8 @@ export type RestoreRow = {
 export type RestorePreview = {
   rows: RestoreRow[]; // variações onde dá pra restaurar (valor != atual)
   incertas: number; // variações que não deu pra calcular (ajuste manual)
+  /** variações da Nuvemshop/Jueri, que a restauração NÃO toca (RN-050) */
+  puladas: number;
 };
 
 /** Reconstrói o estoque de antes da importação para todas as variações. */
@@ -39,7 +42,8 @@ export async function reconstructStock(companyId: string): Promise<RestorePrevie
       color: true,
       size: true,
       stock: true,
-      product: { select: { name: true } },
+      nuvemshopId: true,
+      product: { select: { name: true, jueriId: true } },
       movements: {
         orderBy: { createdAt: "asc" },
         select: { type: true, quantity: true, reason: true },
@@ -49,8 +53,16 @@ export async function reconstructStock(companyId: string): Promise<RestorePrevie
 
   const rows: RestoreRow[] = [];
   let incertas = 0;
+  let puladas = 0;
 
   for (const v of variants) {
+    // RN-050: peça vinculada à Nuvemshop/Jueri tem o número DELES — restaurar
+    // por cima seria o ajuste digitado que a regra proíbe (a sync desfaria e,
+    // no meio, o catálogo venderia peça já vendida lá)
+    if (donoDoEstoque({ nuvemshopId: v.nuvemshopId, product: v.product })) {
+      puladas++;
+      continue;
+    }
     if (v.movements.length === 0) {
       // sem histórico: não dá pra reconstruir com segurança
       if (v.stock !== 0) incertas++;
@@ -86,7 +98,7 @@ export async function reconstructStock(companyId: string): Promise<RestorePrevie
   }
 
   rows.sort((a, b) => a.product.localeCompare(b.product) || a.color.localeCompare(b.color));
-  return { rows, incertas };
+  return { rows, incertas, puladas };
 }
 
 /** Aplica a restauração: seta o estoque reconstruído e registra o AJUSTE. */

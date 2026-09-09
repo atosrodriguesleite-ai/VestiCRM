@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { AuthError } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { porteiraEstoque } from "@/lib/estoque/gate";
+import { porteiraEstoque, podeVerAnaliseDoEstoque } from "@/lib/estoque/gate";
 import { resumoDaProducao } from "@/lib/estoque/producao";
 
 export const dynamic = "force-dynamic";
@@ -11,6 +11,9 @@ export async function GET() {
   try {
     const porta = await porteiraEstoque();
     if (!porta.ok) return porta.resposta;
+    if (!podeVerAnaliseDoEstoque(porta.user)) {
+      return NextResponse.json({ error: "Sem permissão" }, { status: 403 });
+    }
     const company = await db.company.findUnique({
       where: { id: porta.user.companyId },
       select: { productionEnabled: true },

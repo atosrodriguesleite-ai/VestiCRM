@@ -1,7 +1,9 @@
 // Guarda RN-051
 import { describe, it, expect } from "vitest";
-import { minimoEfetivo, minimoValido, noMinimo, TETO_DO_MINIMO } from "../estoque/minimos";
+import { minimoEfetivo, minimoValido, noMinimo, TETO_DO_MINIMO } from "../estoque/minimos-regra";
 import { decidirAlertas, PECAS_NO_AVISO, textoDoAlerta } from "../estoque/alerta";
+import { passaNoFiltro } from "../estoque/inventario";
+import { MODULOS } from "../modulos";
 
 /**
  * MÍNIMO POR PEÇA, CATEGORIA E LOJA, COM ALERTA SEM SPAM (RN-051).
@@ -47,25 +49,50 @@ describe("o alerta avisa uma vez e só volta depois da recuperação", () => {
     ativo,
   });
 
+  const teve = new Set<string>();
+
   it("peça que chegou ao mínimo sem carimbo → avisar; com carimbo → silêncio", () => {
-    const d = decidirAlertas([l("a", 3), l("b", 3)], new Set(["b"]));
+    const d = decidirAlertas([l("a", 3), l("b", 3)], new Set(["b"]), teve);
     expect(d.avisar).toEqual(["a"]);
     expect(d.limpar).toEqual([]);
   });
 
   it("peça carimbada que voltou acima do mínimo → limpar (a próxima queda avisa de novo)", () => {
-    const d = decidirAlertas([l("a", 9)], new Set(["a"]));
+    const d = decidirAlertas([l("a", 9)], new Set(["a"]), teve);
     expect(d).toEqual({ avisar: [], limpar: ["a"] });
   });
 
   it("produto INATIVO não avisa e solta o carimbo (não está à venda)", () => {
-    const d = decidirAlertas([l("a", 1, 5, false), l("b", 1, 5, false)], new Set(["b"]));
+    const d = decidirAlertas([l("a", 1, 5, false), l("b", 1, 5, false)], new Set(["b"]), teve);
     expect(d).toEqual({ avisar: [], limpar: ["b"] });
   });
 
   it("cada peça é julgada pelo SEU mínimo", () => {
-    const d = decidirAlertas([l("a", 6, 5), l("b", 6, 8)], new Set());
+    const d = decidirAlertas([l("a", 6, 5), l("b", 6, 8)], new Set(), teve);
     expect(d.avisar).toEqual(["b"]);
+  });
+
+  it("variação que NASCE zerada não avisa (foi cadastrada no mínimo, não chegou nele); a que já teve peça avisa", () => {
+    // 'x' zerada sem nenhum movimento: cadastro de coleção "vou produzir"
+    // 'y' zerada com movimento (vendeu tudo): avisa
+    const d = decidirAlertas([l("x", 0), l("y", 0)], new Set(), new Set(["y"]));
+    expect(d.avisar).toEqual(["y"]);
+  });
+
+  it("UMA régua: o filtro que o sino abre mostra tudo que o alerta contou (zerada inclusa)", () => {
+    const linhas = [l("a", 0), l("b", 3), l("c", 9)];
+    const avisadas = decidirAlertas(linhas, new Set(), new Set(["a"])).avisar;
+    const naLista = linhas
+      .filter((x) => passaNoFiltro("baixo", { disponivel: x.disponivel, reservado: 0, dono: null, minimo: x.minimo }))
+      .map((x) => x.variantId);
+    expect(naLista).toEqual(["a", "b"]);
+    for (const id of avisadas) expect(naLista).toContain(id);
+  });
+
+  it("o módulo está no catálogo com a chave certa e preço 0 (a definir pelo dono — não entra no MRR)", () => {
+    const m = MODULOS.find((x) => x.key === "ESTOQUE")!;
+    expect(m.flag).toBe("estoqueEnabled");
+    expect(m.precoTabela).toBe(0);
   });
 
   it("o aviso é UM resumo: conta, as primeiras pelo nome e 'e mais N'", () => {

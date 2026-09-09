@@ -18,6 +18,7 @@ import {
   retratoCerto,
 } from "@/lib/religar-itens";
 import { db } from "@/lib/db";
+import { baixasLiquidasDoPedido } from "@/lib/estoque-do-pedido";
 import { brl, dateFull, dateShort, timeShort } from "@/lib/format";
 import {
   orderStatusLabel,
@@ -178,6 +179,13 @@ export default async function OrderDetailPage({
   // a chavinha nem chega aqui (o orderScope esconde o pedido → 404).
   const pedidoDeColega = user.role === "SELLER" && order.sellerId !== user.id;
 
+  // peças que o pedido de fato SEGURA, pelo livro (reserva parcial segurou
+  // menos do que o pedido diz) — o mesmo número do Inventário (RN-050)
+  const pedidas = order.items.reduce((s, i) => s + i.quantity, 0);
+  const seguradas = order.stockDeducted
+    ? [...(await baixasLiquidasDoPedido(db, order.id)).values()].reduce((s, n) => s + n, 0)
+    : 0;
+
   return (
     <div className="max-w-5xl mx-auto">
       <Link
@@ -299,10 +307,14 @@ export default async function OrderDetailPage({
               <PackageCheck className="mt-0.5 size-4 shrink-0" />
               <span>
                 <b>
-                  {order.items.reduce((s, i) => s + i.quantity, 0)}{" "}
-                  {order.items.reduce((s, i) => s + i.quantity, 0) === 1 ? "peça" : "peças"}{" "}
-                  reservadas
-                </b>{" "}
+                  {seguradas} {seguradas === 1 ? "peça" : "peças"} reservadas
+                </b>
+                {/* reserva parcial (pediu 10, havia 4): o número é o do LIVRO, o
+                    mesmo do Inventário — dizer 10 mandava a loja procurar 6
+                    peças que nunca existiram (achado da revisão de dados) */}
+                {seguradas !== pedidas && (
+                  <> (o pedido tem {pedidas} — só {seguradas} estavam no estoque)</>
+                )}{" "}
                 para esta cliente — elas estão fora do estoque e não têm prazo
                 para voltar. Se a venda não sair, <b>cancele o pedido</b> para
                 liberar.

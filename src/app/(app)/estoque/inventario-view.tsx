@@ -13,6 +13,13 @@
  * O número que se edita é o DISPONÍVEL para vender (é o `stock` da peça —
  * o mesmo que a tela Produtos e o catálogo usam). A reserva do pedido já
  * está descontada dele, então "em estoque" = disponível + reservado.
+ *
+ * DESENHO PARA O CELULAR (achados da revisão de telas, 09/09/2026): o
+ * motivo e o mínimo abrem como LINHA extra debaixo da peça — popover
+ * absoluto dentro da tabela com rolagem era cortado na última linha e
+ * sumia atrás do teclado; o histórico vai para o <Portal> (senão fica
+ * atrás da barra de baixo); só UM editor fica aberto por vez; e a tabela
+ * tem largura mínima para ROLAR de lado em vez de espremer o nome da peça.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -23,16 +30,23 @@ import {
   History,
   Lock,
   Package,
+  Pencil,
   RefreshCw,
   Search,
   X,
 } from "lucide-react";
 import { Alert, EmptyState, Spinner } from "@/components/ui";
+import { Portal } from "@/components/portal";
 import { DICA_DO_DONO, NOME_DO_DONO, type DonoExterno } from "@/lib/estoque/dono-do-estoque";
 import { ROTULO_DA_ORIGEM } from "@/lib/estoque/minimos-regra";
 import type { FiltroDoInventario, Inventario, LinhaDoInventario } from "@/lib/estoque/inventario";
 
-type Resposta = Inventario & { podeAjustar: boolean; podeSincronizar: boolean };
+type Resposta = Omit<Inventario, "resumo" | "categorias"> & {
+  resumo: Inventario["resumo"] | null;
+  categorias: string[] | null;
+  podeAjustar: boolean;
+  podeSincronizar: boolean;
+};
 
 type Movimento = {
   id: string;
@@ -54,6 +68,28 @@ const FILTROS: { id: FiltroDoInventario; rotulo: string }[] = [
 /** Motivos de um toque — o de sempre da contagem. Texto livre também vale. */
 const MOTIVOS_RAPIDOS = ["Contagem", "Avaria", "Devolução", "Entrada de mercadoria", "Brinde", "Perda"];
 
+const SEM_CONEXAO = "Sem conexão com o servidor. Confira a internet e tente de novo.";
+
+/**
+ * Uma chamada à API que NUNCA lança: rede caindo (o 4G da loja) virava
+ * spinner eterno e botão travado em "…" — achado da revisão.
+ */
+async function chamar<T = Record<string, unknown>>(
+  url: string,
+  init?: RequestInit
+): Promise<{ ok: boolean; status: number; dados: T & { error?: string } }> {
+  try {
+    const res = await fetch(url, { cache: "no-store", ...init });
+    const dados = ((await res.json().catch(() => ({}))) ?? {}) as T & { error?: string };
+    return { ok: res.ok, status: res.status, dados };
+  } catch {
+    return { ok: false, status: 0, dados: { error: SEM_CONEXAO } as T & { error?: string } };
+  }
+}
+
+/** Qual editor está aberto (um só por vez — dois abertos se tampavam). */
+type EditorAberto = { variantId: string; tipo: "estoque" | "minimo" } | null;
+
 export function InventarioView({ filtroInicial = "todos" }: { filtroInicial?: FiltroDoInventario }) {
   const [dados, setDados] = useState<Resposta | null>(null);
   const [erro, setErro] = useState("");
@@ -65,6 +101,7 @@ export function InventarioView({ filtroInicial = "todos" }: { filtroInicial?: Fi
   const [inativos, setInativos] = useState(false);
   const [historicoDe, setHistoricoDe] = useState<LinhaDoInventario | null>(null);
   const [sync, setSync] = useState<{ ocupado: boolean; msg: string }>({ ocupado: false, msg: "" });
+  const [aberto, setAberto] = useState<EditorAberto>(null);
 
   // resposta antiga não atropela a nova: cada pedido leva um número e só o
   // último vale (digitou "vestido", apagou; a busca lenta chegava depois e a
@@ -79,16 +116,32 @@ export function InventarioView({ filtroInicial = "todos" }: { filtroInicial?: Fi
     if (categoria) sp.set("categoria", categoria);
     if (filtro !== "todos") sp.set("filtro", filtro);
     if (inativos) sp.set("inativos", "1");
-    const res = await fetch(`/api/estoque/inventario?${sp}`, { cache: "no-store" });
-    const d = await res.json().catch(() => null);
+    // depois da primeira carga só a lista viaja: o resumo é da loja inteira
+    // e não muda com a busca — e é a parte cara (achado da revisão)
+    const temResumo = Boolean(dadosRef.current?.resumo) && !recarregarResumo.current;
+    if (temResumo) sp.set("so", "lista");
+    const r = await chamar<Resposta>(`/api/estoque/inventario?${sp}`);
     if (meu !== sequencia.current) return;
     setCarregando(false);
-    if (!res.ok || !d) {
-      setErro(d?.error ?? "Não foi possível carregar o inventário.");
+    if (!r.ok) {
+      setErro(r.dados.error ?? "Não foi possível carregar o inventário.");
       return;
     }
-    setDados(d);
+    recarregarResumo.current = false;
+    setDados((antes) => ({
+      ...r.dados,
+      resumo: r.dados.resumo ?? antes?.resumo ?? null,
+      categorias: r.dados.categorias ?? antes?.categorias ?? null,
+    }));
   }, [q, categoria, filtro, inativos]);
+  const dadosRef = useRef<Resposta | null>(null);
+  dadosRef.current = dados;
+  /** ajuste/mínimo salvo: o resumo mudou — a próxima carga pede ele de novo */
+  const recarregarResumo = useRef(false);
+  const recarregarTudo = useCallback(() => {
+    recarregarResumo.current = true;
+    return carregar();
+  }, [carregar]);
 
   // a busca espera a pessoa parar de digitar (300ms) — cada tecla batendo no
   // servidor numa loja com milhares de variações seria lento e inútil
@@ -116,25 +169,25 @@ export function InventarioView({ filtroInicial = "todos" }: { filtroInicial?: Fi
 
   /** Sincroniza com a Nuvemshop pela MESMA porta em etapas da tela Configurações. */
   async function sincronizar() {
+    if (sync.ocupado) return;
     setSync({ ocupado: true, msg: "Sincronizando com a Nuvemshop…" });
     let total = 0;
     for (let page = 1; page <= 200; page++) {
-      const res = await fetch("/api/nuvemshop/sync", {
+      const r = await chamar<{ produtos?: number; fim?: boolean }>("/api/nuvemshop/sync", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ page }),
       });
-      const d = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        setSync({ ocupado: false, msg: d.error ?? "A Nuvemshop não respondeu. Tente de novo em instantes." });
+      if (!r.ok) {
+        setSync({ ocupado: false, msg: r.dados.error ?? "A Nuvemshop não respondeu. Tente de novo em instantes." });
         return;
       }
-      total += d.produtos ?? 0;
+      total += r.dados.produtos ?? 0;
       setSync({ ocupado: true, msg: `Sincronizando… ${total} produtos conferidos` });
-      if (d.fim) break;
+      if (r.dados.fim) break;
     }
     setSync({ ocupado: false, msg: `Sincronizado: ${total} produtos conferidos com a Nuvemshop.` });
-    carregar();
+    recarregarTudo();
   }
 
   const resumo = dados?.resumo;
@@ -150,10 +203,10 @@ export function InventarioView({ filtroInicial = "todos" }: { filtroInicial?: Fi
           <Numero rotulo="Reservadas" valor={resumo.reservadas} hint="em pedido, ainda aqui" tom="amber" />
           <Numero rotulo="Variações" valor={resumo.variacoes} hint="cor × tamanho" />
           <Numero
-            rotulo="Zeradas"
-            valor={resumo.zeradas}
-            hint={`${resumo.baixas} no mínimo (loja: ${dados!.limiteBaixo})`}
-            tom={resumo.zeradas > 0 ? "rose" : undefined}
+            rotulo="No mínimo"
+            valor={resumo.baixas}
+            hint={`${resumo.zeradas} zeradas`}
+            tom={resumo.baixas > 0 ? "amber" : undefined}
           />
           <Numero rotulo="Por integração" valor={resumo.externas} hint="Nuvemshop / Jueri" />
         </div>
@@ -167,16 +220,18 @@ export function InventarioView({ filtroInicial = "todos" }: { filtroInicial?: Fi
             value={q}
             onChange={(e) => setQ(e.target.value)}
             placeholder="Buscar por nome, código, SKU ou tag…"
+            aria-label="Buscar peça"
             className="w-full rounded-xl border border-slate-200 bg-white pl-9 pr-3 py-2 text-sm outline-none focus:border-brand-400"
           />
         </label>
         <select
           value={categoria}
           onChange={(e) => setCategoria(e.target.value)}
+          aria-label="Categoria"
           className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none"
         >
           <option value="">Todas as categorias</option>
-          {dados?.categorias.map((c) => (
+          {(dados?.categorias ?? []).map((c) => (
             <option key={c} value={c}>
               {c}
             </option>
@@ -193,6 +248,7 @@ export function InventarioView({ filtroInicial = "todos" }: { filtroInicial?: Fi
             key={f.id}
             type="button"
             onClick={() => setFiltro(f.id)}
+            aria-pressed={filtro === f.id}
             className={`rounded-full border px-3 py-1 text-xs font-medium transition ${
               filtro === f.id
                 ? "border-brand-300 bg-brand-50 text-brand-800"
@@ -220,7 +276,10 @@ export function InventarioView({ filtroInicial = "todos" }: { filtroInicial?: Fi
 
       {erro && (
         <Alert tone="danger" icon={<AlertTriangle />}>
-          {erro}
+          {erro}{" "}
+          <button type="button" onClick={carregar} className="underline">
+            tentar de novo
+          </button>
         </Alert>
       )}
 
@@ -255,17 +314,17 @@ export function InventarioView({ filtroInicial = "todos" }: { filtroInicial?: Fi
           />
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="bg-slate-50 text-[11px] uppercase tracking-wide text-slate-500">
+            <table className="w-full min-w-[760px] text-sm">
+              <thead className="bg-slate-50 text-[11px] uppercase tracking-wide text-slate-500 whitespace-nowrap">
                 <tr>
                   <th className="text-left px-3 py-2 font-medium">Produto</th>
                   <th className="text-left px-3 py-2 font-medium">Cor</th>
                   <th className="text-left px-3 py-2 font-medium">Tam.</th>
-                  <th className="text-left px-3 py-2 font-medium hidden md:table-cell">SKU</th>
+                  <th className="text-left px-3 py-2 font-medium">SKU</th>
                   <th className="text-right px-3 py-2 font-medium" title="disponíveis + reservadas">
                     Na loja
                   </th>
-                  <th className="text-right px-3 py-2 font-medium" title="em pedido que ainda está aqui (aguardando pagamento ou separação)">
+                  <th className="text-right px-3 py-2 font-medium" title="em pedido que ainda não saiu da loja (orçamento, aguardando pagamento, pago, em produção ou separação)">
                     Reservado
                   </th>
                   <th className="text-right px-3 py-2 font-medium">Disponível</th>
@@ -280,10 +339,11 @@ export function InventarioView({ filtroInicial = "todos" }: { filtroInicial?: Fi
                   <Linha
                     key={l.variantId}
                     l={l}
-                    limiteBaixo={dados.limiteBaixo}
                     podeAjustar={dados.podeAjustar}
+                    aberto={aberto?.variantId === l.variantId ? aberto.tipo : null}
+                    onAbrir={(tipo) => setAberto(tipo ? { variantId: l.variantId, tipo } : null)}
                     onAjustado={aplicarNaLinha}
-                    onRecarregar={carregar}
+                    onRecarregar={recarregarTudo}
                     onHistorico={() => setHistoricoDe(l)}
                   />
                 ))}
@@ -330,79 +390,121 @@ function Numero({
 
 function Linha({
   l,
-  limiteBaixo,
   podeAjustar,
+  aberto,
+  onAbrir,
   onAjustado,
   onRecarregar,
   onHistorico,
 }: {
   l: LinhaDoInventario;
-  limiteBaixo: number;
   podeAjustar: boolean;
+  aberto: "estoque" | "minimo" | null;
+  onAbrir: (tipo: "estoque" | "minimo" | null) => void;
   onAjustado: (variantId: string, estoque: number) => void;
   onRecarregar: () => void;
   onHistorico: () => void;
 }) {
   const editavel = podeAjustar && !l.dono;
-  // amarelo = chegou ao mínimo DELA (peça > categoria > loja, RN-051)
+  const noMinimo = l.disponivel <= l.minimo;
+  // amarelo = chegou ao mínimo DELA (peça > categoria > loja, RN-051); o
+  // "⚠" ao lado é a pista para quem não distingue a cor
   const corDoNumero =
-    l.disponivel === 0
-      ? "text-rose-600"
-      : l.disponivel <= l.minimo
-        ? "text-amber-600"
-        : "text-slate-900";
-  void limiteBaixo;
+    l.disponivel === 0 ? "text-rose-600" : noMinimo ? "text-amber-600" : "text-slate-900";
+  const rotuloDaPeca = [l.produto, l.cor, l.tamanho].filter(Boolean).join(" · ");
 
   return (
-    <tr className="border-t border-slate-100 hover:bg-slate-50/60">
-      <td className="px-3 py-2">
-        <div className="font-medium text-slate-800 leading-tight">
-          {l.produto}
-          {!l.ativo && <span className="ml-1.5 text-[10px] text-slate-400">(inativo)</span>}
-        </div>
-        <div className="text-[11px] text-slate-400">{l.categoria}</div>
-      </td>
-      <td className="px-3 py-2 text-slate-700">{l.cor}</td>
-      <td className="px-3 py-2 text-slate-700">{l.tamanho}</td>
-      <td className="px-3 py-2 text-xs text-slate-500 hidden md:table-cell">{l.sku}</td>
-      <td className="px-3 py-2 text-right tabular-nums text-slate-700">{l.emEstoque}</td>
-      <td className="px-3 py-2 text-right tabular-nums">
-        {l.reservado > 0 ? (
-          <span className="text-amber-700">{l.reservado}</span>
-        ) : (
-          <span className="text-slate-300">0</span>
-        )}
-      </td>
-      <td className="px-3 py-2 text-right">
-        {editavel ? (
-          <EditorDeEstoque linha={l} onAjustado={onAjustado} onRecarregar={onRecarregar} corDoNumero={corDoNumero} />
-        ) : l.dono ? (
-          <span
-            className="inline-flex items-center justify-end gap-1 tabular-nums text-slate-700"
-            title={DICA_DO_DONO[l.dono]}
+    <>
+      <tr className="border-t border-slate-100 hover:bg-slate-50/60">
+        <td className="px-3 py-2 min-w-[180px]">
+          <div className="font-medium text-slate-800 leading-tight">
+            {l.produto}
+            {!l.ativo && <span className="ml-1.5 text-[10px] text-slate-400">(inativo)</span>}
+          </div>
+          <div className="text-[11px] text-slate-400">{l.categoria}</div>
+        </td>
+        <td className="px-3 py-2 text-slate-700 whitespace-nowrap">{l.cor}</td>
+        <td className="px-3 py-2 text-slate-700 whitespace-nowrap">{l.tamanho}</td>
+        <td className="px-3 py-2 text-xs text-slate-500 whitespace-nowrap">{l.sku}</td>
+        <td className="px-3 py-2 text-right tabular-nums text-slate-700">{l.emEstoque}</td>
+        <td className="px-3 py-2 text-right tabular-nums">
+          {l.reservado > 0 ? (
+            <span className="text-amber-700">{l.reservado}</span>
+          ) : (
+            <span className="text-slate-300">0</span>
+          )}
+        </td>
+        <td className="px-3 py-2 text-right whitespace-nowrap">
+          {noMinimo && <span className="mr-1 text-[10px] text-amber-600" title="chegou ao mínimo">⚠</span>}
+          {editavel ? (
+            <button
+              type="button"
+              onClick={() => onAbrir(aberto === "estoque" ? null : "estoque")}
+              aria-label={`Ajustar estoque de ${rotuloDaPeca}`}
+              title="Ajustar o disponível desta peça"
+              className={`inline-flex items-center gap-1 rounded-lg border border-dashed border-slate-300 px-2 py-0.5 tabular-nums hover:border-brand-400 hover:bg-white ${corDoNumero} ${
+                aberto === "estoque" ? "border-brand-400 bg-brand-50" : ""
+              }`}
+            >
+              {l.disponivel}
+              <Pencil className="size-3 text-slate-400" />
+            </button>
+          ) : l.dono ? (
+            <span
+              className="inline-flex items-center justify-end gap-1 tabular-nums text-slate-700"
+              title={DICA_DO_DONO[l.dono]}
+            >
+              <Lock className="size-3 text-slate-400" />
+              <span className={corDoNumero}>{l.disponivel}</span>
+              <DonoBadge dono={l.dono} />
+            </span>
+          ) : (
+            <span className={`tabular-nums ${corDoNumero}`}>{l.disponivel}</span>
+          )}
+        </td>
+        <td className="px-3 py-2 text-right whitespace-nowrap">
+          <RotuloDoMinimo
+            linha={l}
+            editavel={podeAjustar}
+            aberto={aberto === "minimo"}
+            onAbrir={() => onAbrir(aberto === "minimo" ? null : "minimo")}
+          />
+        </td>
+        <td className="px-2 py-2 text-right">
+          <button
+            type="button"
+            onClick={onHistorico}
+            className="p-1 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100"
+            title="Histórico desta peça"
+            aria-label={`Histórico de ${rotuloDaPeca}`}
           >
-            <Lock className="size-3 text-slate-400" />
-            <span className={corDoNumero}>{l.disponivel}</span>
-            <DonoBadge dono={l.dono} />
-          </span>
-        ) : (
-          <span className={`tabular-nums ${corDoNumero}`}>{l.disponivel}</span>
-        )}
-      </td>
-      <td className="px-3 py-2 text-right">
-        <EditorDeMinimo linha={l} podeAjustar={podeAjustar} onSalvo={onRecarregar} />
-      </td>
-      <td className="px-2 py-2 text-right">
-        <button
-          type="button"
-          onClick={onHistorico}
-          className="p-1 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100"
-          title="Histórico desta peça"
-        >
-          <History className="size-4" />
-        </button>
-      </td>
-    </tr>
+            <History className="size-4" />
+          </button>
+        </td>
+      </tr>
+      {aberto === "estoque" && editavel && (
+        <LinhaDeAjuste
+          linha={l}
+          rotulo={rotuloDaPeca}
+          onFechar={() => onAbrir(null)}
+          onAjustado={(estoque) => {
+            onAjustado(l.variantId, estoque);
+            onAbrir(null);
+            onRecarregar();
+          }}
+        />
+      )}
+      {aberto === "minimo" && podeAjustar && (
+        <LinhaDeMinimo
+          linha={l}
+          onFechar={() => onAbrir(null)}
+          onSalvo={() => {
+            onAbrir(null);
+            onRecarregar();
+          }}
+        />
+      )}
+    </>
   );
 }
 
@@ -414,185 +516,272 @@ function DonoBadge({ dono }: { dono: DonoExterno }) {
   );
 }
 
-/* ---------------------------------------------------- o editor */
+/* ---------------------------------------------------- o ajuste (linha extra) */
 
 /**
- * Clica → digita → confirma com motivo. Enter abre o motivo; Esc desiste.
- * O número enviado é o que a pessoa VIU (a porta grava condicional a ele):
- * se outra pessoa mexeu no meio, a resposta pede para recarregar.
+ * Digita → escolhe o motivo → salva. Abre como LINHA debaixo da peça: nunca
+ * é cortada pela rolagem da tabela e cabe em 360px. O número enviado é o
+ * que a pessoa VIU (a porta grava condicional a ele): se outra pessoa mexeu
+ * no meio, a resposta pede para conferir e a linha já mostra o atual.
  */
-function EditorDeEstoque({
+function LinhaDeAjuste({
   linha,
+  rotulo,
+  onFechar,
   onAjustado,
-  onRecarregar,
-  corDoNumero,
 }: {
   linha: LinhaDoInventario;
-  onAjustado: (variantId: string, estoque: number) => void;
-  onRecarregar: () => void;
-  corDoNumero: string;
+  rotulo: string;
+  onFechar: () => void;
+  onAjustado: (estoque: number) => void;
 }) {
-  const [editando, setEditando] = useState(false);
   const [valor, setValor] = useState(String(linha.disponivel));
   const [motivo, setMotivo] = useState("");
-  const [pedindoMotivo, setPedindoMotivo] = useState(false);
   const [salvando, setSalvando] = useState(false);
   const [erro, setErro] = useState("");
-  const [salvo, setSalvo] = useState(false);
+  const [visto, setVisto] = useState(linha.disponivel);
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    if (!editando) setValor(String(linha.disponivel));
-  }, [linha.disponivel, editando]);
+    // o clique da pessoa abriu a linha: o foco no número é o gesto esperado
+    inputRef.current?.select();
+  }, []);
 
-  const novo = parseInt(valor, 10);
-  const mudou = Number.isInteger(novo) && novo !== linha.disponivel;
-
-  function abrir() {
-    setErro("");
-    setEditando(true);
-    setTimeout(() => inputRef.current?.select(), 0);
-  }
-  function desistir() {
-    setEditando(false);
-    setPedindoMotivo(false);
-    setMotivo("");
-    setErro("");
-    setValor(String(linha.disponivel));
-  }
-  function seguirParaMotivo() {
-    if (!mudou) return desistir();
-    setPedindoMotivo(true);
-  }
+  const novo = valor === "" ? NaN : parseInt(valor, 10);
+  const valido = Number.isInteger(novo) && novo >= 0;
+  const mudou = valido && novo !== visto;
 
   async function salvar(motivoEscolhido: string) {
-    if (!mudou) return desistir();
-    setSalvando(true);
-    setErro("");
-    const res = await fetch(`/api/estoque/variacoes/${linha.variantId}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ estoque: novo, visto: linha.disponivel, motivo: motivoEscolhido }),
-    });
-    const d = await res.json().catch(() => ({}));
-    setSalvando(false);
-    if (!res.ok) {
-      setErro(d.error ?? "Não foi possível salvar.");
-      // o número já mudou no banco (colega, venda): a linha passa a mostrar o atual
-      if (res.status === 409 && typeof d.estoqueAtual === "number") onAjustado(linha.variantId, d.estoqueAtual);
+    if (salvando) return;
+    if (!valido) {
+      setErro("Digite um número (0 se zerou).");
       return;
     }
-    onAjustado(linha.variantId, d.estoque);
-    setEditando(false);
-    setPedindoMotivo(false);
-    setMotivo("");
-    setSalvo(true);
-    setTimeout(() => setSalvo(false), 1500);
-    onRecarregar();
-  }
-
-  if (!editando) {
-    return (
-      <button
-        type="button"
-        onClick={abrir}
-        className={`inline-flex items-center justify-end gap-1 rounded-lg border border-transparent px-2 py-0.5 tabular-nums hover:border-slate-200 hover:bg-white ${corDoNumero}`}
-        title="Clique para ajustar"
-      >
-        {salvo && <Check className="size-3.5 text-emerald-600" />}
-        {linha.disponivel}
-      </button>
+    if (!mudou) return onFechar();
+    setSalvando(true);
+    setErro("");
+    const r = await chamar<{ estoque: number; estoqueAtual?: number }>(
+      `/api/estoque/variacoes/${linha.variantId}`,
+      {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ estoque: novo, visto, motivo: motivoEscolhido }),
+      }
     );
+    setSalvando(false);
+    if (!r.ok) {
+      setErro(r.dados.error ?? "Não foi possível salvar.");
+      // o número já mudou no banco (colega, venda): a linha passa a mostrar o atual
+      if (r.status === 409 && typeof r.dados.estoqueAtual === "number") setVisto(r.dados.estoqueAtual);
+      return;
+    }
+    onAjustado(r.dados.estoque);
   }
 
   return (
-    <div className="relative inline-block text-left">
-      <div className="flex items-center justify-end gap-1">
-        <input
-          ref={inputRef}
-          value={valor}
-          onChange={(e) => setValor(e.target.value.replace(/\D/g, ""))}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") seguirParaMotivo();
-            if (e.key === "Escape") desistir();
-          }}
-          inputMode="numeric"
-          className="w-16 rounded-lg border border-brand-300 bg-white px-2 py-0.5 text-right text-sm tabular-nums outline-none"
-          disabled={pedindoMotivo || salvando}
-        />
-        {!pedindoMotivo && (
-          <>
-            <button
-              type="button"
-              onClick={seguirParaMotivo}
-              className="p-1 rounded-lg text-emerald-600 hover:bg-emerald-50"
-              title="Confirmar"
-            >
-              <Check className="size-4" />
-            </button>
-            <button
-              type="button"
-              onClick={desistir}
-              className="p-1 rounded-lg text-slate-400 hover:bg-slate-100"
-              title="Cancelar"
-            >
-              <X className="size-4" />
-            </button>
-          </>
-        )}
-      </div>
-      {pedindoMotivo && (
-        <div className="absolute right-0 z-20 mt-1 w-72 rounded-xl border border-slate-200 bg-white p-3 shadow-lg text-left">
-          <p className="text-xs font-medium text-slate-700">
-            {linha.disponivel} → {novo} · qual o motivo?
-          </p>
-          <div className="mt-2 flex flex-wrap gap-1">
+    <tr className="bg-brand-50/40 border-t border-brand-100">
+      <td colSpan={9} className="px-3 py-2.5">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+          <span className="text-xs font-medium text-slate-700">{rotulo}</span>
+          <span className="inline-flex items-center gap-1 text-xs text-slate-500">
+            {visto} →
+            <input
+              ref={inputRef}
+              value={valor}
+              onChange={(e) => {
+                setValor(e.target.value.replace(/\D/g, ""));
+                setErro("");
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Escape") onFechar();
+              }}
+              inputMode="numeric"
+              aria-label="Novo disponível"
+              className="w-16 rounded-lg border border-brand-300 bg-white px-2 py-0.5 text-right text-sm tabular-nums outline-none"
+              disabled={salvando}
+            />
+          </span>
+          <span className="text-xs text-slate-500">motivo:</span>
+          <div className="flex flex-wrap gap-1">
             {MOTIVOS_RAPIDOS.map((m) => (
               <button
                 key={m}
                 type="button"
-                disabled={salvando}
+                disabled={salvando || !mudou}
                 onClick={() => salvar(m)}
-                className="rounded-full border border-slate-200 px-2 py-0.5 text-[11px] hover:border-brand-300 hover:bg-brand-50"
+                className="rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[11px] hover:border-brand-300 hover:bg-brand-50 disabled:opacity-40"
               >
                 {m}
               </button>
             ))}
           </div>
-          <div className="mt-2 flex gap-1">
+          <div className="flex items-center gap-1">
             <input
               value={motivo}
               onChange={(e) => setMotivo(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === "Enter" && motivo.trim()) salvar(motivo);
-                if (e.key === "Escape") desistir();
+                if (e.key === "Escape") onFechar();
               }}
               placeholder="ou escreva o motivo…"
               maxLength={120}
-              autoFocus
-              className="flex-1 rounded-lg border border-slate-200 px-2 py-1 text-xs outline-none focus:border-brand-400"
+              aria-label="Motivo do ajuste"
+              className="w-44 rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs outline-none focus:border-brand-400"
+              disabled={salvando}
             />
             <button
               type="button"
-              disabled={salvando || !motivo.trim()}
+              disabled={salvando || !motivo.trim() || !mudou}
               onClick={() => salvar(motivo)}
               className="rounded-lg bg-brand-600 px-2.5 py-1 text-xs font-medium text-white disabled:opacity-50"
             >
               {salvando ? "…" : "Salvar"}
             </button>
+            <button
+              type="button"
+              onClick={onFechar}
+              className="p-1 rounded-lg text-slate-400 hover:bg-slate-100"
+              aria-label="Cancelar"
+              title="Cancelar"
+            >
+              <X className="size-4" />
+            </button>
           </div>
-          {erro && <p className="mt-2 text-[11px] text-rose-600">{erro}</p>}
+          {!mudou && valido && (
+            <span className="text-[11px] text-slate-400">digite um número diferente de {visto}</span>
+          )}
+          {erro && <span className="text-[11px] text-rose-600">{erro}</span>}
+        </div>
+      </td>
+    </tr>
+  );
+}
+
+/* ---------------------------------------------------- o mínimo da peça */
+
+function RotuloDoMinimo({
+  linha,
+  editavel,
+  aberto,
+  onAbrir,
+}: {
+  linha: LinhaDoInventario;
+  editavel: boolean;
+  aberto: boolean;
+  onAbrir: () => void;
+}) {
+  const rotulo = (
+    <span className="tabular-nums text-slate-600" title={`mínimo ${ROTULO_DA_ORIGEM[linha.origemDoMinimo]}`}>
+      {linha.minimo}
+      <span className="ml-1 text-[10px] text-slate-400">
+        {linha.origemDoMinimo === "PECA" ? "peça" : linha.origemDoMinimo === "CATEGORIA" ? "cat." : "loja"}
+      </span>
+    </span>
+  );
+  if (!editavel) return rotulo;
+  return (
+    <button
+      type="button"
+      onClick={onAbrir}
+      aria-label={`Definir o mínimo de ${linha.produto}`}
+      className={`inline-flex items-center gap-1 rounded-lg border border-dashed border-slate-300 px-2 py-0.5 hover:border-brand-400 hover:bg-white ${
+        aberto ? "border-brand-400 bg-brand-50" : ""
+      }`}
+      title="Definir o mínimo desta peça (vale para cada cor e tamanho do modelo)"
+    >
+      {rotulo}
+      <Pencil className="size-3 text-slate-400" />
+    </button>
+  );
+}
+
+/**
+ * O mínimo DA PEÇA (vale para cada cor × tamanho do modelo); em branco volta
+ * a valer o da categoria/loja. Também como linha extra, pelo mesmo motivo.
+ */
+function LinhaDeMinimo({
+  linha,
+  onFechar,
+  onSalvo,
+}: {
+  linha: LinhaDoInventario;
+  onFechar: () => void;
+  onSalvo: () => void;
+}) {
+  const [valor, setValor] = useState(linha.origemDoMinimo === "PECA" ? String(linha.minimo) : "");
+  const [salvando, setSalvando] = useState(false);
+  const [erro, setErro] = useState("");
+
+  async function salvar(limpar = false) {
+    if (salvando) return;
+    setSalvando(true);
+    setErro("");
+    const r = await chamar(`/api/estoque/produtos/${linha.productId}/minimo`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ minimo: limpar || valor === "" ? null : parseInt(valor, 10) }),
+    });
+    setSalvando(false);
+    if (!r.ok) {
+      setErro(r.dados.error ?? "Não foi possível salvar.");
+      return;
+    }
+    onSalvo();
+  }
+
+  return (
+    <tr className="bg-slate-50/70 border-t border-slate-100">
+      <td colSpan={9} className="px-3 py-2.5">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+          <span className="text-xs font-medium text-slate-700">Mínimo de {linha.produto}</span>
+          <span className="text-[11px] text-slate-400">
+            vale para cada cor e tamanho · em branco = usa o {ROTULO_DA_ORIGEM[linha.origemDoMinimo === "PECA" ? "CATEGORIA" : linha.origemDoMinimo]}
+          </span>
+          <input
+            value={valor}
+            onChange={(e) => setValor(e.target.value.replace(/\D/g, ""))}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") salvar();
+              if (e.key === "Escape") onFechar();
+            }}
+            inputMode="numeric"
+            aria-label="Mínimo da peça"
+            placeholder={linha.origemDoMinimo === "PECA" ? "" : String(linha.minimo)}
+            className="w-20 rounded-lg border border-slate-200 bg-white px-2 py-1 text-sm text-right tabular-nums outline-none focus:border-brand-400"
+            disabled={salvando}
+          />
           <button
             type="button"
-            onClick={desistir}
-            className="mt-2 text-[11px] text-slate-400 hover:text-slate-600"
+            disabled={salvando}
+            onClick={() => salvar()}
+            className="rounded-lg bg-brand-600 px-2.5 py-1 text-xs font-medium text-white disabled:opacity-50"
           >
-            cancelar
+            {salvando ? "…" : "Salvar"}
           </button>
+          {linha.origemDoMinimo === "PECA" && (
+            <button
+              type="button"
+              disabled={salvando}
+              onClick={() => salvar(true)}
+              className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs text-slate-600"
+              title="Voltar a usar o mínimo da categoria/loja"
+            >
+              Limpar
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={onFechar}
+            className="p-1 rounded-lg text-slate-400 hover:bg-slate-100"
+            aria-label="Cancelar"
+            title="Cancelar"
+          >
+            <X className="size-4" />
+          </button>
+          {erro && <span className="text-[11px] text-rose-600">{erro}</span>}
         </div>
-      )}
-      {erro && !pedindoMotivo && <p className="mt-1 text-[11px] text-rose-600">{erro}</p>}
-    </div>
+      </td>
+    </tr>
   );
 }
 
@@ -604,18 +793,22 @@ function Historico({ linha, onFechar }: { linha: LinhaDoInventario; onFechar: ()
 
   useEffect(() => {
     let vivo = true;
-    fetch(`/api/estoque/variacoes/${linha.variantId}/movimentos`, { cache: "no-store" })
-      .then(async (r) => {
-        const d = await r.json().catch(() => null);
-        if (!vivo) return;
-        if (!r.ok || !d) setErro(d?.error ?? "Não foi possível carregar o histórico.");
-        else setMovs(d.movimentos);
-      })
-      .catch(() => vivo && setErro("Não foi possível carregar o histórico."));
+    chamar<{ movimentos: Movimento[] }>(`/api/estoque/variacoes/${linha.variantId}/movimentos`).then((r) => {
+      if (!vivo) return;
+      if (!r.ok) setErro(r.dados.error ?? "Não foi possível carregar o histórico.");
+      else setMovs(r.dados.movimentos);
+    });
     return () => {
       vivo = false;
     };
   }, [linha.variantId]);
+
+  // Esc fecha — e o foco não fica preso atrás da janela
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onFechar();
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [onFechar]);
 
   const titulo = useMemo(
     () => [linha.produto, linha.cor, linha.tamanho].filter(Boolean).join(" · "),
@@ -623,194 +816,94 @@ function Historico({ linha, onFechar }: { linha: LinhaDoInventario; onFechar: ()
   );
 
   return (
-    <div
-      className="fixed inset-0 z-40 bg-slate-900/40 flex items-end sm:items-center justify-center p-0 sm:p-4"
-      onClick={onFechar}
-    >
+    <Portal>
       <div
-        className="w-full sm:max-w-lg max-h-[85vh] overflow-y-auto rounded-t-2xl sm:rounded-2xl bg-white shadow-xl"
-        onClick={(e) => e.stopPropagation()}
+        className="fixed inset-0 z-50 bg-slate-900/40 flex items-end sm:items-center justify-center p-0 sm:p-4"
+        onClick={onFechar}
       >
-        <div className="flex items-start justify-between gap-3 px-4 py-3 border-b border-slate-100">
-          <div>
-            <p className="text-sm font-semibold text-slate-800">{titulo}</p>
-            <p className="text-xs text-slate-500">
-              Disponível agora: <b className="tabular-nums">{linha.disponivel}</b> · reservado:{" "}
-              <b className="tabular-nums">{linha.reservado}</b>
-              {linha.dono && (
-                <>
-                  {" "}
-                  · <DonoBadge dono={linha.dono} />
-                </>
-              )}
-            </p>
-          </div>
-          <button type="button" onClick={onFechar} className="p-1 text-slate-400 hover:text-slate-700">
-            <X className="size-4" />
-          </button>
-        </div>
-        <div className="px-4 py-3">
-          {erro && <p className="text-xs text-rose-600">{erro}</p>}
-          {!movs && !erro && (
-            <div className="flex justify-center py-6 text-slate-400">
-              <Spinner />
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label={`Histórico de ${titulo}`}
+          className="w-full sm:max-w-lg max-h-[85vh] overflow-y-auto rounded-t-2xl sm:rounded-2xl bg-white shadow-xl"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="flex items-start justify-between gap-3 px-4 py-3 border-b border-slate-100">
+            <div>
+              <p className="text-sm font-semibold text-slate-800">{titulo}</p>
+              <p className="text-xs text-slate-500">
+                Disponível agora: <b className="tabular-nums">{linha.disponivel}</b> · reservado:{" "}
+                <b className="tabular-nums">{linha.reservado}</b>
+                {linha.dono && (
+                  <>
+                    {" "}
+                    · <DonoBadge dono={linha.dono} />
+                  </>
+                )}
+              </p>
             </div>
-          )}
-          {movs && movs.length === 0 && (
-            <p className="text-xs text-slate-400 py-4 text-center">Nenhum movimento registrado ainda.</p>
-          )}
-          {movs && movs.length > 0 && (
-            <ul className="divide-y divide-slate-100">
-              {movs.map((m) => (
-                <li key={m.id} className="py-2 flex items-start gap-2 text-xs">
-                  <span
-                    className={`shrink-0 rounded-md px-1.5 py-0.5 font-semibold tabular-nums ${
-                      m.tipo === "ENTRADA"
-                        ? "bg-emerald-50 text-emerald-700"
-                        : m.tipo === "SAIDA"
-                          ? "bg-rose-50 text-rose-700"
-                          : "bg-slate-100 text-slate-600"
-                    }`}
-                  >
-                    {m.tipo === "ENTRADA" ? "+" : m.tipo === "SAIDA" ? "−" : "±"}
-                    {m.quantidade}
-                  </span>
-                  <div className="min-w-0 flex-1">
-                    <p className="text-slate-700 break-words">{m.motivo || "—"}</p>
-                    <p className="text-[11px] text-slate-400">
-                      {new Date(m.quando).toLocaleString("pt-BR", {
-                        day: "2-digit",
-                        month: "2-digit",
-                        year: "2-digit",
-                        hour: "2-digit",
-                        minute: "2-digit",
-                      })}
-                      {m.pedido && (
-                        <>
-                          {" · "}
-                          <Link href={`/pedidos/${m.pedido.id}`} className="text-brand-700 hover:underline">
-                            pedido {m.pedido.numero ? `#${m.pedido.numero}` : ""}
-                          </Link>
-                        </>
-                      )}
-                    </p>
-                  </div>
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-/* ---------------------------------------------------- o mínimo da peça */
-
-/**
- * O mínimo que vale para esta linha, com a origem (peça / categoria / loja).
- * Gerência clica e define o mínimo DA PEÇA (vale para cada cor × tamanho do
- * modelo); em branco volta a valer o da categoria/loja.
- */
-function EditorDeMinimo({
-  linha,
-  podeAjustar,
-  onSalvo,
-}: {
-  linha: LinhaDoInventario;
-  podeAjustar: boolean;
-  onSalvo: () => void;
-}) {
-  const [aberto, setAberto] = useState(false);
-  const [valor, setValor] = useState(linha.origemDoMinimo === "PECA" ? String(linha.minimo) : "");
-  const [salvando, setSalvando] = useState(false);
-  const [erro, setErro] = useState("");
-
-  useEffect(() => {
-    if (!aberto) setValor(linha.origemDoMinimo === "PECA" ? String(linha.minimo) : "");
-  }, [linha.minimo, linha.origemDoMinimo, aberto]);
-
-  async function salvar(limpar = false) {
-    setSalvando(true);
-    setErro("");
-    const r = await fetch(`/api/estoque/produtos/${linha.productId}/minimo`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ minimo: limpar || valor === "" ? null : parseInt(valor, 10) }),
-    });
-    setSalvando(false);
-    if (!r.ok) {
-      const d = await r.json().catch(() => ({}));
-      setErro(d.error ?? "Não foi possível salvar.");
-      return;
-    }
-    setAberto(false);
-    onSalvo();
-  }
-
-  const rotulo = (
-    <span className="tabular-nums text-slate-600" title={`mínimo ${ROTULO_DA_ORIGEM[linha.origemDoMinimo]}`}>
-      {linha.minimo}
-      <span className="ml-1 text-[10px] text-slate-400">
-        {linha.origemDoMinimo === "PECA" ? "peça" : linha.origemDoMinimo === "CATEGORIA" ? "cat." : "loja"}
-      </span>
-    </span>
-  );
-  if (!podeAjustar) return rotulo;
-
-  return (
-    <div className="relative inline-block text-left">
-      <button
-        type="button"
-        onClick={() => setAberto((a) => !a)}
-        className="rounded-lg border border-transparent px-2 py-0.5 hover:border-slate-200 hover:bg-white"
-        title="Definir o mínimo desta peça (vale para cada cor e tamanho do modelo)"
-      >
-        {rotulo}
-      </button>
-      {aberto && (
-        <div className="absolute right-0 z-20 mt-1 w-64 rounded-xl border border-slate-200 bg-white p-3 shadow-lg text-left">
-          <p className="text-xs font-medium text-slate-700">Mínimo de {linha.produto}</p>
-          <p className="text-[11px] text-slate-400">Vale para cada cor e tamanho. Em branco = usa o da categoria/loja.</p>
-          <div className="mt-2 flex gap-1">
-            <input
-              value={valor}
-              onChange={(e) => setValor(e.target.value.replace(/\D/g, ""))}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") salvar();
-                if (e.key === "Escape") setAberto(false);
-              }}
-              inputMode="numeric"
-              autoFocus
-              placeholder={`${ROTULO_DA_ORIGEM[linha.origemDoMinimo] === "da peça" ? "" : linha.minimo}`}
-              className="w-20 rounded-lg border border-slate-200 px-2 py-1 text-sm text-right tabular-nums outline-none focus:border-brand-400"
-            />
             <button
               type="button"
-              disabled={salvando}
-              onClick={() => salvar()}
-              className="rounded-lg bg-brand-600 px-2.5 py-1 text-xs font-medium text-white disabled:opacity-50"
+              onClick={onFechar}
+              className="p-1 text-slate-400 hover:text-slate-700"
+              aria-label="Fechar"
             >
-              {salvando ? "…" : "Salvar"}
+              <X className="size-4" />
             </button>
-            {linha.origemDoMinimo === "PECA" && (
-              <button
-                type="button"
-                disabled={salvando}
-                onClick={() => salvar(true)}
-                className="rounded-lg border border-slate-200 px-2 py-1 text-xs text-slate-600"
-                title="Voltar a usar o mínimo da categoria/loja"
-              >
-                Limpar
-              </button>
+          </div>
+          <div className="px-4 py-3">
+            {erro && <p className="text-xs text-rose-600">{erro}</p>}
+            {!movs && !erro && (
+              <div className="flex justify-center py-6 text-slate-400">
+                <Spinner />
+              </div>
+            )}
+            {movs && movs.length === 0 && (
+              <p className="text-xs text-slate-400 py-4 text-center">Nenhum movimento registrado ainda.</p>
+            )}
+            {movs && movs.length > 0 && (
+              <ul className="divide-y divide-slate-100">
+                {movs.map((m) => (
+                  <li key={m.id} className="py-2 flex items-start gap-2 text-xs">
+                    <span
+                      className={`shrink-0 rounded-md px-1.5 py-0.5 font-semibold tabular-nums ${
+                        m.tipo === "ENTRADA"
+                          ? "bg-emerald-50 text-emerald-700"
+                          : m.tipo === "SAIDA"
+                            ? "bg-rose-50 text-rose-700"
+                            : "bg-slate-100 text-slate-600"
+                      }`}
+                    >
+                      {m.tipo === "ENTRADA" ? "+" : m.tipo === "SAIDA" ? "−" : "±"}
+                      {m.quantidade}
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-slate-700 break-words">{m.motivo || "—"}</p>
+                      <p className="text-[11px] text-slate-400">
+                        {new Date(m.quando).toLocaleString("pt-BR", {
+                          day: "2-digit",
+                          month: "2-digit",
+                          year: "2-digit",
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        })}
+                        {m.pedido && (
+                          <>
+                            {" · "}
+                            <Link href={`/pedidos/${m.pedido.id}`} className="text-brand-700 hover:underline">
+                              pedido {m.pedido.numero ? `#${m.pedido.numero}` : ""}
+                            </Link>
+                          </>
+                        )}
+                      </p>
+                    </div>
+                  </li>
+                ))}
+              </ul>
             )}
           </div>
-          {erro && <p className="mt-2 text-[11px] text-rose-600">{erro}</p>}
-          <button type="button" onClick={() => setAberto(false)} className="mt-2 text-[11px] text-slate-400 hover:text-slate-600">
-            cancelar
-          </button>
         </div>
-      )}
-    </div>
+      </div>
+    </Portal>
   );
 }
