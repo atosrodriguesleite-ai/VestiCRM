@@ -102,7 +102,7 @@ export function ProducaoView() {
             <Layers className="size-4 text-sky-600 mt-0.5" />
             <div className="min-w-0 flex-1">
               <p className="text-sm font-semibold text-slate-800">Tecido disponível para corte</p>
-              <p className="text-[11px] text-slate-400">Rolos de tecido ativo com sobra, por tecido e cor (a mesma lista da tela Cortes).</p>
+              <p className="text-[11px] text-slate-400">Rolos de tecido ativo com sobra, por tecido e cor — a mesma lista da tela Cortes.</p>
             </div>
             <Link href="/producao/cortes" className="inline-flex items-center gap-1 text-xs text-brand-700 hover:underline whitespace-nowrap">
               <Scissors className="size-3" /> cortar
