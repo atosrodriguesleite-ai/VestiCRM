@@ -32,6 +32,7 @@ export default async function AppLayout({
       aiSalesEnabled: true,
       shippingEnabled: true,
       financeEnabled: true,
+      estoqueEnabled: true,
     },
   });
   const dark = user.prefersDark;
@@ -51,6 +52,7 @@ export default async function AppLayout({
           cutPlanEnabled: company?.cutPlanEnabled ?? false,
           shippingEnabled: company?.shippingEnabled ?? false,
           financeEnabled: company?.financeEnabled ?? false,
+          estoqueEnabled: company?.estoqueEnabled ?? false,
           marketingEnabled: company?.marketingEnabled ?? false,
           mediaLibraryEnabled: company?.mediaLibraryEnabled ?? false,
           aiSalesEnabled: company?.aiSalesEnabled ?? false,

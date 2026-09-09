@@ -1,4 +1,5 @@
 import { ExternalLink, QrCode } from "lucide-react";
+import { donoDoEstoque } from "@/lib/estoque/dono-do-estoque";
 import { requireUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { imageHref } from "@/lib/img";
@@ -84,6 +85,7 @@ export default async function ProductsPage() {
       size: v.size,
       stock: v.stock,
       sku: v.sku,
+      dono: donoDoEstoque({ nuvemshopId: v.nuvemshopId, product: { jueriId: p.jueriId } }),
     })),
   }));
 

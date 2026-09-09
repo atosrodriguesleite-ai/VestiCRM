@@ -5,7 +5,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Portal } from "@/components/portal";
 import { useRouter } from "next/navigation";
-import { Check, History, Images, Loader2, Package, Palette, Plus, Search, Sparkles, Star, Trash2, Upload, Wand2, X } from "lucide-react";
+import { Check, History, Images, Loader2, Lock, Package, Palette, Plus, Search, Sparkles, Star, Trash2, Upload, Wand2, X } from "lucide-react";
 import { brl } from "@/lib/format";
 import { Card, EmptyState } from "@/components/ui";
 import { fileToDataUrl } from "@/lib/upload";
@@ -13,6 +13,7 @@ import { ImportCatalog } from "./import-catalog";
 import { casaTexto } from "@/lib/busca";
 import { sugerirEmLote, type SugestaoDeCategoria } from "@/lib/organizar-catalogo";
 import { motivoOculto } from "@/lib/catalogo/visibilidade";
+import { DICA_DO_DONO, type DonoExterno } from "@/lib/estoque/dono-do-estoque";
 
 type LibraryColor = { name: string; hex: string };
 
@@ -57,7 +58,15 @@ export type ProductItem = {
   nuvemshopId: string | null;
   // fotos em ordem — a primeira é a CAPA (aparece na grade e no catálogo)
   images: { id: string; url: string; color?: string | null }[];
-  variants: { id: string; color: string; size: string; stock: number; sku: string | null }[];
+  variants: {
+    id: string;
+    color: string;
+    size: string;
+    stock: number;
+    sku: string | null;
+    /** quem manda no estoque desta variação (RN-050): null = a loja, aqui */
+    dono: DonoExterno | null;
+  }[];
 };
 
 export function totalStock(p: ProductItem) {
@@ -926,7 +935,12 @@ function ProductDetailModal({
           .filter(([id]) => !removedIds.includes(id))
           .map(([id, stock]) => ({
             id,
-            stock: parseInt(stock) || 0,
+            // peça controlada pela Nuvemshop/Jueri (RN-050): o número não
+            // viaja — mandar o que a tela carregou faria a ficha ser recusada
+            // toda vez que a loja online vendesse entre abrir e salvar
+            stock: product.variants.find((v) => v.id === id)?.dono
+              ? undefined
+              : parseInt(stock) || 0,
             sku: (vskus[id] ?? "").trim() || null,
             color: vcores[id] || undefined,
           })),
@@ -1231,17 +1245,31 @@ function ProductDetailModal({
                         title="SKU da variação — usado pra vincular com a loja online (Nuvemshop)"
                         className="w-24 rounded-lg border border-gray-200 px-2 py-1 text-[11px] outline-none focus:border-brand-400"
                       />
-                      <input
-                        value={stocks[v.id]}
-                        onChange={(e) =>
-                          setStocks((s) => ({
-                            ...s,
-                            [v.id]: e.target.value.replace(/\D/g, ""),
-                          }))
-                        }
-                        inputMode="numeric"
-                        className="w-14 rounded-lg border border-gray-200 px-2 py-1 text-xs text-right outline-none focus:border-brand-400"
-                      />
+                      {v.dono ? (
+                        // RN-050: peça vinculada — o número é da Nuvemshop/Jueri.
+                        // Antes o campo aceitava, gravava aqui e a sync
+                        // seguinte voltava por cima ("o sistema perdeu meu
+                        // ajuste"). Agora ele nem abre; o caminho é lá.
+                        <span
+                          className="w-14 inline-flex items-center justify-end gap-1 text-xs tabular-nums text-gray-500"
+                          title={DICA_DO_DONO[v.dono]}
+                        >
+                          <Lock className="size-3 text-gray-400" />
+                          {v.stock}
+                        </span>
+                      ) : (
+                        <input
+                          value={stocks[v.id]}
+                          onChange={(e) =>
+                            setStocks((s) => ({
+                              ...s,
+                              [v.id]: e.target.value.replace(/\D/g, ""),
+                            }))
+                          }
+                          inputMode="numeric"
+                          className="w-14 rounded-lg border border-gray-200 px-2 py-1 text-xs text-right outline-none focus:border-brand-400"
+                        />
+                      )}
                       <button
                         type="button"
                         onClick={() =>

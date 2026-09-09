@@ -19,6 +19,7 @@ export type ItemDoMenu = {
   cutPlanOnly?: boolean;
   shippingOnly?: boolean;
   financeOnly?: boolean;
+  estoqueOnly?: boolean;
   marketingOnly?: boolean;
   mediaLibraryOnly?: boolean;
   aiOnly?: boolean;
@@ -35,6 +36,7 @@ export type QuemVeOMenu = {
   cutPlanEnabled?: boolean;
   shippingEnabled?: boolean;
   financeEnabled?: boolean;
+  estoqueEnabled?: boolean;
   marketingEnabled?: boolean;
   mediaLibraryEnabled?: boolean;
   aiSalesEnabled?: boolean;
@@ -58,6 +60,7 @@ export function itemVisivel(i: ItemDoMenu, user: QuemVeOMenu): boolean {
   if (i.cutPlanOnly && !user.cutPlanEnabled) return false;
   if (i.shippingOnly && !user.shippingEnabled) return false;
   if (i.financeOnly && !user.financeEnabled) return false;
+  if (i.estoqueOnly && !user.estoqueEnabled) return false;
   if (i.marketingOnly && !user.marketingEnabled) return false;
   if (i.mediaLibraryOnly && !user.mediaLibraryEnabled) return false;
   if (i.aiOnly && !user.aiSalesEnabled) return false;
