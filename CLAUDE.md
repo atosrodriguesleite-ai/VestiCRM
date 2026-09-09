@@ -944,13 +944,27 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   confecção — cortado esperando costura (`SewingItem.cutPieces − donePieces`),
   em lote de costura (TODO lote não fechado, facção e costura interna,
   `sent − good − defect` — enviar para a costura interna também consome o
-  cortado) e tecido para cortar (rolo de tecido ATIVO com
-  `remainingKg > 0,01`, a mesma lista da tela Cortes; valor pelo preço pago
-  por kg) — e **não
+  cortado) e tecido para cortar (rolo de tecido ATIVO com sobra — a MESMA
+  lista da tela Cortes, conferida lado a lado; valor pelo preço pago por kg)
+  — e **não
   grava nada**: o caminho "cortado vira produto" continua sendo a tela
   Costura (`lancaNoEstoque`, que sobe o estoque, escreve a ENTRADA no livro
   e espelha para a Nuvemshop); a aba só dá o atalho. Balanço e IA ficaram
   fora por decisão do dono.
+  **OS NÚMEROS BATEM COM AS OUTRAS TELAS — e existe um script que prova**
+  (`scripts/confere-numeros-estoque.ts`, pergunta do dono em 09/09/2026):
+  ele roda a conta de CADA tela lado a lado sobre os mesmos dados — Estoque ×
+  Costura, Lotes e Cortes; reservado × ficha de cada pedido (o livro); "no
+  mínimo" nas quatro telas e no sino; giro × a régua de venda paga (RN-001);
+  "na loja"/"disponível" × as "un." da tela Produtos. Achou duas divergências
+  na primeira rodada (o filtro dos rolos cortava em 0,01 kg e a tela Cortes
+  mostra qualquer sobra) — por isso ele fica. **A única diferença que
+  PERMANECE é de propósito e está dita na tela**: a tela Produtos mostra o
+  DISPONÍVEL ("20 un.") e o Estoque mostra também o reservado ("na loja" =
+  disponível + reservado); e a ficha do pedido só exibe a faixa de "peças
+  reservadas" enquanto o pedido não foi pago (ali o aviso é "cancele para
+  liberar"), embora o Estoque conte como reservada toda peça de pedido que
+  ainda não saiu da loja.
 - **Financeiro** (gated por loja, pago à parte — R$ 160 de tabela no catálogo
   de módulos): gestão financeira completa, desenhada com o dono em 31/08/2026
   (mapa em 6 fases: cadastros → contas a pagar/receber → recorrência/extrato →

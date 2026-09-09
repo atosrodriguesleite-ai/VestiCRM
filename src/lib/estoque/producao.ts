@@ -49,10 +49,12 @@ export async function resumoDaProducao(companyId: string): Promise<ResumoDaProdu
       where: { companyId, status: { not: "FECHADO" } },
       select: { destination: true, items: { select: { sent: true, good: true, defect: true } } },
     }),
-    // a mesma régua da tela Cortes: tecido ATIVO e sobra de verdade (o resto
-    // de arredondamento de 4 g não é rolo para cortar)
+    // a MESMA régua da tela Cortes (conferido lado a lado, 09/09/2026):
+    // tecido ATIVO e qualquer sobra. Cortar em 0,01 kg aqui fazia o rolo com
+    // resto de arredondamento aparecer lá e sumir daqui — dois números para
+    // a mesma pergunta.
     db.fabricRoll.findMany({
-      where: { fabric: { companyId, active: true }, remainingKg: { gt: 0.01 } },
+      where: { fabric: { companyId, active: true }, remainingKg: { gt: 0 } },
       select: { color: true, remainingKg: true, pricePerKg: true, fabric: { select: { name: true } } },
     }),
   ]);
