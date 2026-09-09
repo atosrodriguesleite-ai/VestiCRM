@@ -1,4 +1,5 @@
 import { Suspense } from "react";
+import { contarNoMinimo } from "@/lib/estoque/inventario";
 import Link from "next/link";
 import {
   Wallet,
@@ -318,12 +319,9 @@ export default async function DashboardPage({
     db.task.count({
       where: { ...taskScope(user), status: "PENDENTE", dueAt: { lt: now } },
     }),
-    db.productVariant.count({
-      where: {
-        product: { companyId: user.companyId, active: true },
-        stock: { lte: companyCfg.lowStockThreshold },
-      },
-    }),
+    // RN-051: pelo mínimo de CADA peça (peça > categoria > loja) — a mesma
+    // régua do Inventário, senão o cartão e a tela discordam sobre a mesma peça
+    contarNoMinimo(user.companyId),
   ]);
   const nomeAtual = new Map(nomesAtuais.map((p) => [p.id, p.name]));
   // A fusão final usa a chave NORMALIZADA (chaveDoNome: NFC + espaços
@@ -780,10 +778,10 @@ export default async function DashboardPage({
         <StatCard
           label="Estoque baixo"
           value={lowStockCount}
-          hint={`variações com ≤ ${companyCfg.lowStockThreshold} peças`}
+          hint={`variações no mínimo (padrão da loja: ${companyCfg.lowStockThreshold})`}
           icon={<Package />}
           tone={lowStockCount > 0 ? "warn" : "good"}
-          info="Variações (cor/tamanho) de produtos ativos com estoque no limite definido pela loja. Veja a lista e ajuste o limite na tela Produtos."
+          info="Variações (cor/tamanho) de produtos ativos que chegaram ao mínimo — o da peça, o da categoria ou, sem esses, o da loja. Veja a lista na tela Produtos ou no Estoque."
         />
       </div>
 

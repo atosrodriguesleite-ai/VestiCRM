@@ -1,9 +1,10 @@
 import { Prisma } from "@prisma/client";
 import { db } from "../db";
-import { ordenarVariantes } from "../tamanhos";
 import type { SessionUser } from "../auth";
 import { orderScope } from "../scope";
+import { ordenarVariantes } from "../tamanhos";
 import { donoDoEstoque, type DonoExterno } from "./dono-do-estoque";
+import { minimoEfetivo, minimosDaLoja, noMinimo, type OrigemDoMinimo } from "./minimos";
 
 /**
  * O INVENTÁRIO (RN-050): uma linha por variação (cor × tamanho), com os
@@ -17,6 +18,10 @@ import { donoDoEstoque, type DonoExterno } from "./dono-do-estoque";
  * na arara com etiqueta de alguém (mesma verdade de `estoque-do-pedido.ts`).
  * Pedido que já SAIU (enviado/entregue) não reserva nada: a peça foi
  * embora. Em estoque = disponível + reservado.
+ *
+ * Cada linha carrega também o MÍNIMO que vale para ela (RN-051: peça >
+ * categoria > loja) — é a mesma linha que o painel, o alerta e o Dashboard
+ * leem, para nenhum deles discordar sobre a mesma peça.
  */
 
 /** Pedido nestes status segura peça que ainda está DENTRO da loja. */
@@ -44,6 +49,12 @@ export type LinhaDoInventario = {
   reservado: number;
   emEstoque: number;
   dono: DonoExterno | null;
+  /** o mínimo que vale para ESTA variação e de onde veio (RN-051) */
+  minimo: number;
+  origemDoMinimo: OrigemDoMinimo;
+  /** custo e preço de atacado da peça — o painel soma "valor parado" por aqui */
+  custo: number;
+  atacado: number;
 };
 
 export type Inventario = {
@@ -98,11 +109,10 @@ export function casaBusca(
   return [p.name, p.sku, p.tags ?? "", v.sku ?? ""].some((x) => x.toLowerCase().includes(t));
 }
 
-/** A linha passa no filtro escolhido? (pura) */
+/** A linha passa no filtro escolhido? (pura) — "baixo" é pelo mínimo DELA */
 export function passaNoFiltro(
   filtro: FiltroDoInventario,
-  l: Pick<LinhaDoInventario, "disponivel" | "reservado" | "dono">,
-  limiteBaixo: number
+  l: Pick<LinhaDoInventario, "disponivel" | "reservado" | "dono" | "minimo">
 ): boolean {
   switch (filtro) {
     case "todos":
@@ -110,7 +120,7 @@ export function passaNoFiltro(
     case "zerado":
       return l.disponivel === 0;
     case "baixo":
-      return l.disponivel > 0 && l.disponivel <= limiteBaixo;
+      return l.disponivel > 0 && noMinimo(l.disponivel, l.minimo);
     case "reservado":
       return l.reservado > 0;
     case "externo":
@@ -118,12 +128,31 @@ export function passaNoFiltro(
   }
 }
 
-export async function montarInventario(
+type ProdutoBase = {
+  id: string;
+  name: string;
+  sku: string;
+  category: string;
+  tags: string | null;
+  active: boolean;
+  jueriId: string | null;
+  minStock: number | null;
+  costPrice: number;
+  wholesalePrice: number;
+  variants: { id: string; color: string; size: string; stock: number; sku: string | null; nuvemshopId: string | null }[];
+};
+
+/**
+ * TODAS as linhas do estoque da loja, com reservado e mínimo já casados.
+ * É a fonte única do Inventário, do painel (análise), do alerta de mínimo e
+ * do cartão do Dashboard.
+ */
+export async function linhasDoEstoque(
   companyId: string,
-  opts: { q?: string; categoria?: string; filtro?: FiltroDoInventario; incluirInativos?: boolean }
-): Promise<Inventario> {
-  const [company, produtos, reservado] = await Promise.all([
-    db.company.findUnique({ where: { id: companyId }, select: { lowStockThreshold: true } }),
+  opts: { incluirInativos?: boolean } = {}
+): Promise<{ linhas: LinhaDoInventario[]; produtos: ProdutoBase[]; limiteBaixo: number }> {
+  const [minimos, produtos, reservado] = await Promise.all([
+    minimosDaLoja(companyId),
     db.product.findMany({
       where: { companyId, ...(opts.incluirInativos ? {} : { active: true }) },
       orderBy: { name: "asc" },
@@ -135,6 +164,9 @@ export async function montarInventario(
         tags: true,
         active: true,
         jueriId: true,
+        minStock: true,
+        costPrice: true,
+        wholesalePrice: true,
         variants: {
           select: { id: true, color: true, size: true, stock: true, sku: true, nuvemshopId: true },
         },
@@ -142,15 +174,17 @@ export async function montarInventario(
     }),
     reservadoPorVariacao(companyId),
   ]);
-  const limiteBaixo = company?.lowStockThreshold ?? 5;
-  const categorias = [...new Set(produtos.map((p) => p.category))].sort();
 
-  const todas: LinhaDoInventario[] = [];
+  const linhas: LinhaDoInventario[] = [];
   for (const p of produtos) {
+    const min = minimoEfetivo({
+      peca: p.minStock,
+      categoria: minimos.porCategoria.get(p.category),
+      loja: minimos.loja,
+    });
     for (const v of ordenarVariantes(p.variants)) {
-      const disponivel = v.stock;
       const res = reservado.get(v.id) ?? 0;
-      todas.push({
+      linhas.push({
         variantId: v.id,
         productId: p.id,
         produto: p.name,
@@ -159,13 +193,28 @@ export async function montarInventario(
         tamanho: v.size,
         sku: v.sku?.trim() || p.sku,
         ativo: p.active,
-        disponivel,
+        disponivel: v.stock,
         reservado: res,
-        emEstoque: disponivel + res,
+        emEstoque: v.stock + res,
         dono: donoDoEstoque({ nuvemshopId: v.nuvemshopId, product: { jueriId: p.jueriId } }),
+        minimo: min.valor,
+        origemDoMinimo: min.origem,
+        custo: p.costPrice,
+        atacado: p.wholesalePrice,
       });
     }
   }
+  return { linhas, produtos, limiteBaixo: minimos.loja };
+}
+
+export async function montarInventario(
+  companyId: string,
+  opts: { q?: string; categoria?: string; filtro?: FiltroDoInventario; incluirInativos?: boolean }
+): Promise<Inventario> {
+  const { linhas: todas, produtos, limiteBaixo } = await linhasDoEstoque(companyId, {
+    incluirInativos: opts.incluirInativos,
+  });
+  const categorias = [...new Set(produtos.map((p) => p.category))].sort();
 
   // o resumo é da loja INTEIRA (o filtro é só da lista) — senão "peças em
   // estoque" mudaria a cada busca e ninguém confiaria no número
@@ -175,7 +224,7 @@ export async function montarInventario(
     reservadas: todas.reduce((s, l) => s + l.reservado, 0),
     variacoes: todas.length,
     zeradas: todas.filter((l) => l.disponivel === 0).length,
-    baixas: todas.filter((l) => passaNoFiltro("baixo", l, limiteBaixo)).length,
+    baixas: todas.filter((l) => passaNoFiltro("baixo", l)).length,
     externas: todas.filter((l) => l.dono !== null).length,
     nuvemshop: todas.filter((l) => l.dono === "NUVEMSHOP").length,
   };
@@ -184,7 +233,7 @@ export async function montarInventario(
   const filtro = opts.filtro ?? "todos";
   const filtradas = todas.filter((l) => {
     if (opts.categoria && l.categoria !== opts.categoria) return false;
-    if (!passaNoFiltro(filtro, l, limiteBaixo)) return false;
+    if (!passaNoFiltro(filtro, l)) return false;
     const p = porProduto.get(l.productId)!;
     const v = p.variants.find((x) => x.id === l.variantId)!;
     return casaBusca(opts.q ?? "", p, v);
@@ -198,6 +247,12 @@ export async function montarInventario(
     categorias,
     resumo,
   };
+}
+
+/** Quantas variações de produto ativo chegaram ao mínimo (cartão do Dashboard). */
+export async function contarNoMinimo(companyId: string): Promise<number> {
+  const { linhas } = await linhasDoEstoque(companyId);
+  return linhas.filter((l) => noMinimo(l.disponivel, l.minimo)).length;
 }
 
 /**

@@ -29,6 +29,7 @@ import {
 } from "lucide-react";
 import { Alert, EmptyState, Spinner } from "@/components/ui";
 import { DICA_DO_DONO, NOME_DO_DONO, type DonoExterno } from "@/lib/estoque/dono-do-estoque";
+import { ROTULO_DA_ORIGEM } from "@/lib/estoque/minimos-regra";
 import type { FiltroDoInventario, Inventario, LinhaDoInventario } from "@/lib/estoque/inventario";
 
 type Resposta = Inventario & { podeAjustar: boolean; podeSincronizar: boolean };
@@ -44,7 +45,7 @@ type Movimento = {
 
 const FILTROS: { id: FiltroDoInventario; rotulo: string }[] = [
   { id: "todos", rotulo: "Todas" },
-  { id: "baixo", rotulo: "Estoque baixo" },
+  { id: "baixo", rotulo: "No mínimo" },
   { id: "zerado", rotulo: "Zeradas" },
   { id: "reservado", rotulo: "Com reserva" },
   { id: "externo", rotulo: "Controladas por integração" },
@@ -53,13 +54,14 @@ const FILTROS: { id: FiltroDoInventario; rotulo: string }[] = [
 /** Motivos de um toque — o de sempre da contagem. Texto livre também vale. */
 const MOTIVOS_RAPIDOS = ["Contagem", "Avaria", "Devolução", "Entrada de mercadoria", "Brinde", "Perda"];
 
-export function InventarioView() {
+export function InventarioView({ filtroInicial = "todos" }: { filtroInicial?: FiltroDoInventario }) {
   const [dados, setDados] = useState<Resposta | null>(null);
   const [erro, setErro] = useState("");
   const [carregando, setCarregando] = useState(true);
   const [q, setQ] = useState("");
   const [categoria, setCategoria] = useState("");
-  const [filtro, setFiltro] = useState<FiltroDoInventario>("todos");
+  // o sino manda para cá com ?filtro=baixo (RN-051)
+  const [filtro, setFiltro] = useState<FiltroDoInventario>(filtroInicial);
   const [inativos, setInativos] = useState(false);
   const [historicoDe, setHistoricoDe] = useState<LinhaDoInventario | null>(null);
   const [sync, setSync] = useState<{ ocupado: boolean; msg: string }>({ ocupado: false, msg: "" });
@@ -150,7 +152,7 @@ export function InventarioView() {
           <Numero
             rotulo="Zeradas"
             valor={resumo.zeradas}
-            hint={`${resumo.baixas} com ≤ ${dados!.limiteBaixo} peças`}
+            hint={`${resumo.baixas} no mínimo (loja: ${dados!.limiteBaixo})`}
             tom={resumo.zeradas > 0 ? "rose" : undefined}
           />
           <Numero rotulo="Por integração" valor={resumo.externas} hint="Nuvemshop / Jueri" />
@@ -267,6 +269,9 @@ export function InventarioView() {
                     Reservado
                   </th>
                   <th className="text-right px-3 py-2 font-medium">Disponível</th>
+                  <th className="text-right px-3 py-2 font-medium" title="mínimo que vale para esta peça: da peça, da categoria ou da loja (RN-051)">
+                    Mín.
+                  </th>
                   <th className="px-2 py-2" />
                 </tr>
               </thead>
@@ -339,12 +344,14 @@ function Linha({
   onHistorico: () => void;
 }) {
   const editavel = podeAjustar && !l.dono;
+  // amarelo = chegou ao mínimo DELA (peça > categoria > loja, RN-051)
   const corDoNumero =
     l.disponivel === 0
       ? "text-rose-600"
-      : l.disponivel <= limiteBaixo
+      : l.disponivel <= l.minimo
         ? "text-amber-600"
         : "text-slate-900";
+  void limiteBaixo;
 
   return (
     <tr className="border-t border-slate-100 hover:bg-slate-50/60">
@@ -381,6 +388,9 @@ function Linha({
         ) : (
           <span className={`tabular-nums ${corDoNumero}`}>{l.disponivel}</span>
         )}
+      </td>
+      <td className="px-3 py-2 text-right">
+        <EditorDeMinimo linha={l} podeAjustar={podeAjustar} onSalvo={onRecarregar} />
       </td>
       <td className="px-2 py-2 text-right">
         <button
@@ -691,6 +701,116 @@ function Historico({ linha, onFechar }: { linha: LinhaDoInventario; onFechar: ()
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+/* ---------------------------------------------------- o mínimo da peça */
+
+/**
+ * O mínimo que vale para esta linha, com a origem (peça / categoria / loja).
+ * Gerência clica e define o mínimo DA PEÇA (vale para cada cor × tamanho do
+ * modelo); em branco volta a valer o da categoria/loja.
+ */
+function EditorDeMinimo({
+  linha,
+  podeAjustar,
+  onSalvo,
+}: {
+  linha: LinhaDoInventario;
+  podeAjustar: boolean;
+  onSalvo: () => void;
+}) {
+  const [aberto, setAberto] = useState(false);
+  const [valor, setValor] = useState(linha.origemDoMinimo === "PECA" ? String(linha.minimo) : "");
+  const [salvando, setSalvando] = useState(false);
+  const [erro, setErro] = useState("");
+
+  useEffect(() => {
+    if (!aberto) setValor(linha.origemDoMinimo === "PECA" ? String(linha.minimo) : "");
+  }, [linha.minimo, linha.origemDoMinimo, aberto]);
+
+  async function salvar(limpar = false) {
+    setSalvando(true);
+    setErro("");
+    const r = await fetch(`/api/estoque/produtos/${linha.productId}/minimo`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ minimo: limpar || valor === "" ? null : parseInt(valor, 10) }),
+    });
+    setSalvando(false);
+    if (!r.ok) {
+      const d = await r.json().catch(() => ({}));
+      setErro(d.error ?? "Não foi possível salvar.");
+      return;
+    }
+    setAberto(false);
+    onSalvo();
+  }
+
+  const rotulo = (
+    <span className="tabular-nums text-slate-600" title={`mínimo ${ROTULO_DA_ORIGEM[linha.origemDoMinimo]}`}>
+      {linha.minimo}
+      <span className="ml-1 text-[10px] text-slate-400">
+        {linha.origemDoMinimo === "PECA" ? "peça" : linha.origemDoMinimo === "CATEGORIA" ? "cat." : "loja"}
+      </span>
+    </span>
+  );
+  if (!podeAjustar) return rotulo;
+
+  return (
+    <div className="relative inline-block text-left">
+      <button
+        type="button"
+        onClick={() => setAberto((a) => !a)}
+        className="rounded-lg border border-transparent px-2 py-0.5 hover:border-slate-200 hover:bg-white"
+        title="Definir o mínimo desta peça (vale para cada cor e tamanho do modelo)"
+      >
+        {rotulo}
+      </button>
+      {aberto && (
+        <div className="absolute right-0 z-20 mt-1 w-64 rounded-xl border border-slate-200 bg-white p-3 shadow-lg text-left">
+          <p className="text-xs font-medium text-slate-700">Mínimo de {linha.produto}</p>
+          <p className="text-[11px] text-slate-400">Vale para cada cor e tamanho. Em branco = usa o da categoria/loja.</p>
+          <div className="mt-2 flex gap-1">
+            <input
+              value={valor}
+              onChange={(e) => setValor(e.target.value.replace(/\D/g, ""))}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") salvar();
+                if (e.key === "Escape") setAberto(false);
+              }}
+              inputMode="numeric"
+              autoFocus
+              placeholder={`${ROTULO_DA_ORIGEM[linha.origemDoMinimo] === "da peça" ? "" : linha.minimo}`}
+              className="w-20 rounded-lg border border-slate-200 px-2 py-1 text-sm text-right tabular-nums outline-none focus:border-brand-400"
+            />
+            <button
+              type="button"
+              disabled={salvando}
+              onClick={() => salvar()}
+              className="rounded-lg bg-brand-600 px-2.5 py-1 text-xs font-medium text-white disabled:opacity-50"
+            >
+              {salvando ? "…" : "Salvar"}
+            </button>
+            {linha.origemDoMinimo === "PECA" && (
+              <button
+                type="button"
+                disabled={salvando}
+                onClick={() => salvar(true)}
+                className="rounded-lg border border-slate-200 px-2 py-1 text-xs text-slate-600"
+                title="Voltar a usar o mínimo da categoria/loja"
+              >
+                Limpar
+              </button>
+            )}
+          </div>
+          {erro && <p className="mt-2 text-[11px] text-rose-600">{erro}</p>}
+          <button type="button" onClick={() => setAberto(false)} className="mt-2 text-[11px] text-slate-400 hover:text-slate-600">
+            cancelar
+          </button>
+        </div>
+      )}
     </div>
   );
 }

@@ -1,22 +1,62 @@
 import { PageHeader } from "@/components/ui";
+import { db } from "@/lib/db";
+import { porteiraEstoqueTela } from "@/lib/estoque/gate";
+import { Abas, type AbaDoEstoque } from "./abas";
 import { InventarioView } from "./inventario-view";
+import { PainelView } from "./painel-view";
+import { MinimosView } from "./minimos-view";
+import { ProducaoView } from "./producao-view";
+import type { FiltroDoInventario } from "@/lib/estoque/inventario";
 
 export const dynamic = "force-dynamic";
 
+const ABAS: AbaDoEstoque[] = ["inventario", "painel", "minimos", "producao"];
+const FILTROS: FiltroDoInventario[] = ["todos", "baixo", "zerado", "reservado", "externo"];
+
 /**
- * Tela ESTOQUE · Inventário (RN-050): uma linha por cor e tamanho, com o
- * que está na loja, o que já está reservado em pedido e o que sobra para
- * vender — e o ajuste rápido na própria linha, com motivo. Peça controlada
- * pela Nuvemshop/Jueri só se lê aqui. A trava do módulo está no layout.
+ * Tela ESTOQUE (RN-050/051/052): Inventário (contar e acertar), Painel (o
+ * que repor, o que encalhou, o que mais vende), Mínimos (por peça, categoria
+ * e loja) e, na confecção, Produção (cortado esperando costura e tecido para
+ * cortar). A trava do módulo está no layout; a aba Produção só existe com o
+ * módulo Produção ligado.
  */
-export default function EstoquePage() {
+export default async function EstoquePage({
+  searchParams,
+}: {
+  searchParams: Promise<{ aba?: string; filtro?: string }>;
+}) {
+  const user = await porteiraEstoqueTela();
+  const [{ aba: abaPedida, filtro: filtroPedido }, company] = await Promise.all([
+    searchParams,
+    db.company.findUnique({ where: { id: user.companyId }, select: { productionEnabled: true } }),
+  ]);
+  const temProducao = company?.productionEnabled ?? false;
+  let aba: AbaDoEstoque = (ABAS as string[]).includes(abaPedida ?? "")
+    ? (abaPedida as AbaDoEstoque)
+    : "inventario";
+  if (aba === "producao" && !temProducao) aba = "inventario";
+  const filtro: FiltroDoInventario = (FILTROS as string[]).includes(filtroPedido ?? "")
+    ? (filtroPedido as FiltroDoInventario)
+    : "todos";
+
+  const subtitulo: Record<AbaDoEstoque, string> = {
+    inventario:
+      "Cada cor e tamanho com o que está na loja, o que já está reservado em pedido e o que sobra para vender. Ajuste na própria linha — sempre com motivo.",
+    painel: "O que repor, o que encalhou e o que mais vende — contas claras, pela venda paga dos últimos 30 dias.",
+    minimos: "Quantas peças você quer ter, no mínimo, de cada modelo, categoria ou da loja inteira. Chegou lá, a gerência é avisada.",
+    producao: "O que está cortado esperando costura, o que está na facção e quanto tecido ainda dá para cortar.",
+  };
+
   return (
     <div>
-      <PageHeader
-        title="Estoque"
-        subtitle="Cada cor e tamanho com o que está na loja, o que já está reservado em pedido e o que sobra para vender. Ajuste na própria linha — sempre com motivo."
-      />
-      <InventarioView />
+      <PageHeader title="Estoque" subtitle={subtitulo[aba]} />
+      <Abas ativa={aba} temProducao={temProducao} />
+      <div className="mt-4">
+        {aba === "inventario" && <InventarioView filtroInicial={filtro} />}
+        {aba === "painel" && <PainelView />}
+        {aba === "minimos" && <MinimosView />}
+        {aba === "producao" && <ProducaoView />}
+      </div>
     </div>
   );
 }

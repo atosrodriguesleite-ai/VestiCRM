@@ -854,10 +854,53 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   quem enxerga aquele pedido (`orderScope`, RN-007). O botão "Sincronizar"
   só existe para a Nuvemshop (o Jueri sincroniza sozinho, 2x/dia). Loja sem o módulo não muda em NADA na tela — mas a regra do dono
   externo vale COM ou SEM a chave, porque o bug era de toda loja com
-  Nuvemshop. Próximas fases combinadas: mínimos por peça/categoria com
-  alerta; painel e análise por regra (giro, cobertura, encalhado, o que
-  repor); aba de Produção (cortado aguardando costura, rolos disponíveis).
-  Balanço e IA ficaram fora.
+  Nuvemshop.
+  **RN-051 · Mínimo por PEÇA, por CATEGORIA e da LOJA, com alerta SEM SPAM**
+  (`lib/estoque/minimos.ts` + `lib/estoque/alerta.ts`, aba Mínimos e coluna
+  "Mín." do Inventário, 09/09/2026): pedido do dono — *"um alerta para cada
+  peça ou categoria dizendo qual é o mínimo que posso ter"*. Três degraus e
+  vale o MAIS ESPECÍFICO: a peça (`Product.minStock`, vale para CADA cor ×
+  tamanho do modelo) > a categoria (`EstoqueMinimoCategoria`) > a loja
+  (`Company.lowStockThreshold`, o número que já existia). A régua é a de
+  sempre — **CHEGOU ao mínimo = disponível ≤ mínimo** —, e agora é UMA para
+  o Inventário, o painel, o alerta e o cartão "Estoque baixo" do Dashboard
+  (`contarNoMinimo`): antes o cartão olhava só o número da loja. O
+  **alerta** chega no sino e no push da gerência, e não vira ruído por duas
+  decisões: **uma variação avisa UMA vez** (carimbo
+  `ProductVariant.lowStockAlertedAt`, que só zera quando ela SOBE acima do
+  mínimo — a peça que a loja decidiu não repor não aparece todo dia) e **um
+  aviso por rodada, em resumo** ("7 peças chegaram ao mínimo", as primeiras
+  pelo nome, "e mais N", link para a lista). Produto inativo não avisa e
+  solta o carimbo. Roda **de carona** (sync da inbox e abertura do Estoque)
+  com trava atômica por loja (`Company.estoqueAlertaRunAt`, 30 min) — nunca
+  um 3º cron (ADR-002) — e SÓ com o módulo ligado (`estoqueEnabled` entra
+  na própria trava). Mínimo 0 é mínimo válido (só zerada avisa), diferente
+  de "sem mínimo". Quem define é gerência; todos veem.
+  **RN-052 · Análise de estoque por REGRA, e a aba Produção só LÊ**
+  (`lib/estoque/analise.ts` + `lib/estoque/producao.ts`, abas Painel e
+  Produção, 09/09/2026): o dono pediu "análise inteligente"; alinhado com
+  ele, inteligente aqui é conta que a lojista entende e confere — sem IA.
+  Quatro perguntas, cada uma com a régua dita na tela: **giro** = peças
+  vendidas nos últimos 30 dias, **só pedido PAGO** (RN-001, `OrderItem` de
+  `PAID_ORDER_STATUSES`, data = `paidAt` ou, sem ela, `createdAt`);
+  **cobertura** = disponível ÷ vendas por dia, em dias inteiros — sem venda
+  no período é "sem venda", nunca "infinito"; **encalhada** = tem peça na
+  loja e não vende há 60 dias (ou nunca), com o valor parado **a CUSTO**
+  (`costPrice` — é o dinheiro que a loja gastou; a atacado seria dinheiro
+  que ela ainda não recebeu); **o que repor** = chegou ao mínimo (RN-051),
+  e a sugestão cobre 30 dias no ritmo atual, **nunca menos que voltar ao
+  DOBRO do mínimo** (repor só até o mínimo faria a peça alertar de novo na
+  primeira venda). Peça de dono externo (RN-050) não entra em "repor" — quem
+  repõe lá é a loja online. Listas com teto (30) e "por categoria" com
+  peças, valor a custo, vendidas, no mínimo e encalhadas. A **aba Produção**
+  (só com `productionEnabled`) responde o que o Inventário não responde na
+  confecção — cortado esperando costura (`SewingItem.cutPieces − donePieces`),
+  na facção (lotes não fechados, `sent − good − defect`) e tecido para cortar
+  (`FabricRoll.remainingKg > 0`, valor pelo preço pago por kg) — e **não
+  grava nada**: o caminho "cortado vira produto" continua sendo a tela
+  Costura (`lancaNoEstoque`, que sobe o estoque, escreve a ENTRADA no livro
+  e espelha para a Nuvemshop); a aba só dá o atalho. Balanço e IA ficaram
+  fora por decisão do dono.
 - **Financeiro** (gated por loja, pago à parte — R$ 160 de tabela no catálogo
   de módulos): gestão financeira completa, desenhada com o dono em 31/08/2026
   (mapa em 6 fases: cadastros → contas a pagar/receber → recorrência/extrato →

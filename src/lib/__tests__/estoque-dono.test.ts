@@ -174,18 +174,25 @@ describe("o inventário: filtros e reserva", () => {
     ]);
   });
 
-  it("os filtros: zerada, baixa (1..limite), com reserva, controlada por integração", () => {
-    const l = (disponivel: number, reservado = 0, dono: "NUVEMSHOP" | null = null) => ({ disponivel, reservado, dono });
-    expect(passaNoFiltro("zerado", l(0), 5)).toBe(true);
-    expect(passaNoFiltro("zerado", l(1), 5)).toBe(false);
-    expect(passaNoFiltro("baixo", l(0), 5)).toBe(false); // zerada não é "baixa", é zerada
-    expect(passaNoFiltro("baixo", l(5), 5)).toBe(true);
-    expect(passaNoFiltro("baixo", l(6), 5)).toBe(false);
-    expect(passaNoFiltro("reservado", l(3, 2), 5)).toBe(true);
-    expect(passaNoFiltro("reservado", l(3, 0), 5)).toBe(false);
-    expect(passaNoFiltro("externo", l(3, 0, "NUVEMSHOP"), 5)).toBe(true);
-    expect(passaNoFiltro("externo", l(3), 5)).toBe(false);
-    expect(passaNoFiltro("todos", l(0), 5)).toBe(true);
+  it("os filtros: zerada, baixa (1..mínimo DELA), com reserva, controlada por integração", () => {
+    const l = (disponivel: number, reservado = 0, dono: "NUVEMSHOP" | null = null, minimo = 5) => ({
+      disponivel,
+      reservado,
+      dono,
+      minimo,
+    });
+    expect(passaNoFiltro("zerado", l(0))).toBe(true);
+    expect(passaNoFiltro("zerado", l(1))).toBe(false);
+    expect(passaNoFiltro("baixo", l(0))).toBe(false); // zerada não é "baixa", é zerada
+    expect(passaNoFiltro("baixo", l(5))).toBe(true);
+    expect(passaNoFiltro("baixo", l(6))).toBe(false);
+    // o mínimo é o da LINHA (peça > categoria > loja, RN-051), não um número da loja
+    expect(passaNoFiltro("baixo", l(6, 0, null, 8))).toBe(true);
+    expect(passaNoFiltro("reservado", l(3, 2))).toBe(true);
+    expect(passaNoFiltro("reservado", l(3, 0))).toBe(false);
+    expect(passaNoFiltro("externo", l(3, 0, "NUVEMSHOP"))).toBe(true);
+    expect(passaNoFiltro("externo", l(3))).toBe(false);
+    expect(passaNoFiltro("todos", l(0))).toBe(true);
   });
 
   it("a busca acha por nome, código do modelo, SKU da variação e tag — sem diferenciar maiúsculas", () => {

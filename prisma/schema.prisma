@@ -68,6 +68,9 @@ model Company {
   // motor rodar de carona no tráfego normal, no máximo uma vez por dia, sem
   // gastar uma das 2 vagas de cron da Vercel (que já estão as duas ocupadas).
   automationsRunAt  DateTime?
+  /// RN-051: última varredura do alerta de mínimo (trava atômica; roda de
+  /// carona no tráfego, nunca cron — ADR-002)
+  estoqueAlertaRunAt DateTime?
   createdAt         DateTime @default(now())
 
   // Identidade visual do catálogo público (100% personalizável pelo lojista)
@@ -126,6 +129,7 @@ model Company {
   orders         Order[]
   mediaAssets    MediaAsset[]
   inventoryMovs  InventoryMovement[]
+  estoqueMinimos EstoqueMinimoCategoria[]
   customerEvents CustomerEvent[]
   originRules    OriginRule[]
   catalogColors  CompanyColor[]
@@ -1676,6 +1680,10 @@ model Product {
   weightGrams    Int?
   nuvemshopId    String? // id do produto na Nuvemshop (loja integrada)
   jueriId        String? // id do produto no Jueri (integração)
+  /// MÍNIMO POR PEÇA (RN-051): vale para CADA cor × tamanho deste modelo
+  /// ("quero ter pelo menos 3 de cada tamanho"). Nulo = usa o mínimo da
+  /// categoria, e sem ele o da loja (`Company.lowStockThreshold`).
+  minStock       Int?
   createdAt      DateTime @default(now())
 
   variants ProductVariant[]
@@ -1701,6 +1709,11 @@ model ProductVariant {
   color              String
   size               String
   stock              Int     @default(0)
+  /// RN-051, anti-spam do alerta de mínimo: quando esta variação foi avisada
+  /// como "no mínimo". Fica preenchido até o estoque voltar acima do mínimo
+  /// — aí zera, e a próxima queda avisa de novo. Uma variação não vira
+  /// alerta todo dia enquanto a loja não repõe.
+  lowStockAlertedAt  DateTime?
 
   items     OrderItem[]
   movements InventoryMovement[]
@@ -2082,6 +2095,20 @@ enum MovementType {
   ENTRADA
   SAIDA
   AJUSTE
+}
+
+/// MÍNIMO POR CATEGORIA (RN-051): "toda calça, pelo menos 2 de cada
+/// tamanho". A categoria é o texto de `Product.category`. Vale quando a peça
+/// não tem mínimo próprio; sem os dois, vale o da loja.
+model EstoqueMinimoCategoria {
+  id        String   @id @default(cuid())
+  companyId String
+  company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  category  String
+  minStock  Int
+  updatedAt DateTime @updatedAt
+
+  @@unique([companyId, category])
 }
 
 model InventoryMovement {
