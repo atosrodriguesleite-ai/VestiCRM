@@ -795,6 +795,7 @@ function ProductDetailModal({
   >([]);
   const [form, setForm] = useState({
     name: product.name,
+    sku: product.sku,
     category: product.category,
     brand: product.brand ?? "",
     collection: product.collection ?? "",
@@ -904,6 +905,8 @@ function ProductDetailModal({
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         name: form.name,
+        // código do modelo: em branco mantém o que já tinha
+        sku: form.sku.trim() || undefined,
         category: form.category,
         brand: form.brand || null,
         collection: form.collection || null,
@@ -1059,6 +1062,16 @@ function ProductDetailModal({
             <div>
               <label className={label}>Nome</label>
               <input value={form.name} onChange={set("name")} className={input} />
+            </div>
+            <div>
+              <label className={label}>Código do modelo</label>
+              <input
+                value={form.sku}
+                onChange={set("sku")}
+                className={input}
+                placeholder="VES-021"
+                title="Código do produto (o SKU de cada cor e tamanho fica na grade abaixo)"
+              />
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
@@ -1886,7 +1899,7 @@ function NewProductModal({
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         name: fd.get("name"),
-        sku: fd.get("sku"),
+        sku: String(fd.get("sku") ?? "").trim() || undefined,
         category: fd.get("category"),
         brand: fd.get("brand") || undefined,
         collection: fd.get("collection") || undefined,
@@ -1938,8 +1951,12 @@ function NewProductModal({
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className={label}>SKU *</label>
-                <input name="sku" required className={input} placeholder="VES-021" />
+                <label className={label}>Código do modelo</label>
+                <input name="sku" className={input} placeholder="VES-021 (opcional)" />
+                <p className="mt-1 text-[11px] text-gray-400">
+                  Em branco, o sistema cria pelo nome. O SKU de cada cor e tamanho
+                  fica na grade, depois de salvar.
+                </p>
               </div>
               <div>
                 <label className={label}>Categoria *</label>

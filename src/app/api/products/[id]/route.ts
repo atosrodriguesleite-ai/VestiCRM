@@ -5,6 +5,8 @@ import { requireUser, AuthError } from "@/lib/auth";
 
 const patchSchema = z.object({
   name: z.string().min(1).optional(),
+  // código do modelo (o SKU de cada variação fica em `variantStocks`)
+  sku: z.string().trim().min(1).max(60).optional(),
   category: z.string().min(1).optional(),
   brand: z.string().nullable().optional(),
   collection: z.string().nullable().optional(),
@@ -87,6 +89,20 @@ export async function PATCH(
       removeVariantIds,
       ...data
     } = parsed.data;
+
+    // trocar o código do modelo: não pode bater com o de outro produto da loja
+    if (data.sku !== undefined && data.sku !== product.sku) {
+      const outro = await db.product.findFirst({
+        where: { companyId: user.companyId, sku: data.sku, id: { not: product.id } },
+        select: { id: true },
+      });
+      if (outro) {
+        return NextResponse.json(
+          { error: "Já existe um produto com este código" },
+          { status: 409 }
+        );
+      }
+    }
 
     // galeria completa: a lista enviada É o estado final, na ordem final
     // (posição 0 = capa). Fotos existentes chegam por id e só têm a ordem

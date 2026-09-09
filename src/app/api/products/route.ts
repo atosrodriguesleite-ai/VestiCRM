@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
+import { codigoDoModeloDisponivel } from "@/lib/sku";
 import { imageHref } from "@/lib/img";
 import { ordenarVariantes } from "@/lib/tamanhos";
 import { requireUser, AuthError } from "@/lib/auth";
@@ -15,7 +16,8 @@ const variantSchema = z.object({
 
 const createSchema = z.object({
   name: z.string().min(1),
-  sku: z.string().min(1),
+  // código do modelo: opcional — em branco, nasce do nome (lib/sku.ts)
+  sku: z.string().trim().max(60).optional(),
   category: z.string().min(1),
   brand: z.string().optional(),
   collection: z.string().optional(),
@@ -115,17 +117,25 @@ export async function POST(req: NextRequest) {
     if (!parsed.success) {
       return NextResponse.json({ error: "Dados inválidos" }, { status: 400 });
     }
-    const { images, variants, ...data } = parsed.data;
+    const { images, variants, sku: skuDigitado, ...resto } = parsed.data;
 
-    const exists = await db.product.findFirst({
-      where: { companyId: user.companyId, sku: data.sku },
-    });
-    if (exists) {
-      return NextResponse.json(
-        { error: "Já existe um produto com este SKU" },
-        { status: 409 }
-      );
+    // digitou um código? tem que ser único na loja. Deixou em branco? o
+    // sistema cria um pelo nome — o SKU que importa é o de cada variação
+    let sku = skuDigitado ?? "";
+    if (sku) {
+      const exists = await db.product.findFirst({
+        where: { companyId: user.companyId, sku },
+      });
+      if (exists) {
+        return NextResponse.json(
+          { error: "Já existe um produto com este código" },
+          { status: 409 }
+        );
+      }
+    } else {
+      sku = await codigoDoModeloDisponivel(user.companyId, resto.name);
     }
+    const data = { ...resto, sku };
 
     const product = await db.product.create({
       data: {

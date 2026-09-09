@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { db } from "./db";
-import { slugify } from "./provision";
+import { codigoDoModelo } from "./sku";
 
 /**
  * Importação de catálogo por arquivo (.json).
@@ -198,7 +198,7 @@ export async function importCatalog(
 
         // SKU único (gera a partir do nome quando ausente)
         let sku = (p.sku ?? "").trim();
-        if (!sku) sku = slugify(p.name).toUpperCase().replace(/-/g, "").slice(0, 10) || "PROD";
+        if (!sku) sku = codigoDoModelo(p.name);
         const base = sku;
         let n = 1;
         while (usedSkus.has(sku)) {
@@ -316,7 +316,7 @@ async function importPhotosOnly(
   const usedSkus = new Set<string>();
   for (const p of data.products) {
     let sku = (p.sku ?? "").trim();
-    if (!sku) sku = slugify(p.name).toUpperCase().replace(/-/g, "").slice(0, 10) || "PROD";
+    if (!sku) sku = codigoDoModelo(p.name);
     const base = sku;
     let n = 1;
     while (usedSkus.has(sku)) {
