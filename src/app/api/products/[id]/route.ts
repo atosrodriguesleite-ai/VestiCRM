@@ -3,7 +3,8 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import { requireUser, AuthError } from "@/lib/auth";
 import { ajustarEstoqueDentro } from "@/lib/estoque/ajuste";
-import { decidirAjuste, donoDoEstoque, fraseDaRecusa, rotuloDaPeca } from "@/lib/estoque/dono-do-estoque";
+import { decidirAjuste, donoDoEstoque, fraseDaRecusa, NOME_DO_DONO, rotuloDaPeca } from "@/lib/estoque/dono-do-estoque";
+import { reservadoPorVariacao } from "@/lib/estoque/inventario";
 
 const patchSchema = z.object({
   name: z.string().min(1).optional(),
@@ -42,9 +43,12 @@ const patchSchema = z.object({
     .array(
       z.object({
         id: z.string().min(1),
-        // ausente = "não mexi no estoque" (a tela não manda o número da
-        // variação que a Nuvemshop/Jueri controla, RN-050)
+        // ausente = "não mexi no estoque" — a tela só manda o número da
+        // variação que a pessoa DIGITOU (RN-050): mandar o carregado de todas
+        // desfazia a reserva da venda que entrou enquanto a ficha estava aberta
         stock: z.number().int().nonnegative().optional(),
+        /** o número que a tela mostrava — a porta recusa se já mudou */
+        visto: z.number().int().nonnegative().optional(),
         sku: z.string().max(60).nullable().optional(),
         // trocar a COR da variação já existente (reflete na hora no
         // catálogo público, sem precisar apagar e recriar a grade)
@@ -64,6 +68,10 @@ const patchSchema = z.object({
     .optional(),
   removeVariantIds: z.array(z.string()).optional(),
 });
+
+// a transação da ficha tem teto de 30s (fotos em data-URL): a função tem
+// que viver mais que ela, senão morre no meio e a conexão fica pendurada
+export const maxDuration = 60;
 
 /**
  * A tela Produtos não pergunta o motivo (a tela de CONTAGEM, com motivo de
@@ -129,6 +137,9 @@ export async function PATCH(
      * manda o estoque dela; aqui é a segunda tranca. Número IGUAL passa em
      * silêncio; `stock` ausente é "não mexi" (só SKU/cor).
      */
+    // ordem estável por id: a reserva do pedido trava as variações em outra
+    // ordem, e duas transações travando na ordem inversa é deadlock
+    variantStocks?.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
     if (variantStocks?.length) {
       for (const vs of variantStocks) {
         const variant = product.variants.find((v) => v.id === vs.id);
@@ -148,6 +159,40 @@ export async function PATCH(
           );
         }
       }
+    }
+
+    /**
+     * GRADE DE PEÇA VINCULADA NÃO SE MEXE AQUI (RN-050): remover variação da
+     * Nuvemshop "não pega" (a sync recria com o número de lá, e o livro dela
+     * some em cascata); acrescentar cor/tamanho num produto do Jueri cria uma
+     * peça que ninguém sincroniza. E variação com peça RESERVADA em pedido não
+     * se apaga — o pedido perderia a prova do que segurou.
+     */
+    if (removeVariantIds?.length) {
+      const travadas = product.variants.filter(
+        (v) => removeVariantIds.includes(v.id) && donoDoEstoque({ nuvemshopId: v.nuvemshopId, product })
+      );
+      if (travadas.length) {
+        const v = travadas[0];
+        return NextResponse.json(
+          { error: `${rotuloDaPeca({ ...v, product })} é controlada pela ${NOME_DO_DONO[donoDoEstoque({ nuvemshopId: v.nuvemshopId, product })!]}. Remova lá e sincronize aqui.` },
+          { status: 409 }
+        );
+      }
+      const reservado = await reservadoPorVariacao(user.companyId);
+      const presa = product.variants.find((v) => removeVariantIds.includes(v.id) && (reservado.get(v.id) ?? 0) > 0);
+      if (presa) {
+        return NextResponse.json(
+          { error: `${rotuloDaPeca({ ...presa, product })} tem ${reservado.get(presa.id)} peça(s) reservada(s) em pedido. Cancele ou conclua o pedido antes de remover.` },
+          { status: 409 }
+        );
+      }
+    }
+    if (addVariants?.length && product.jueriId) {
+      return NextResponse.json(
+        { error: "Este produto é controlado pelo Jueri: cor e tamanho novos entram por lá." },
+        { status: 409 }
+      );
     }
 
     /**
@@ -236,6 +281,7 @@ export async function PATCH(
               podeAjustar: true,
               variantId: variant.id,
               novoEstoque: vs.stock,
+              estoqueVisto: vs.visto,
               motivo: MOTIVO_DA_TELA_PRODUTOS,
             });
             if (!r.ok) throw new RecusaDaGrade(r.status, r.error);

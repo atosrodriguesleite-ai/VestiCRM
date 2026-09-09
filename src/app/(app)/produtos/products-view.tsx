@@ -13,7 +13,7 @@ import { ImportCatalog } from "./import-catalog";
 import { casaTexto } from "@/lib/busca";
 import { sugerirEmLote, type SugestaoDeCategoria } from "@/lib/organizar-catalogo";
 import { motivoOculto } from "@/lib/catalogo/visibilidade";
-import { DICA_DO_DONO, type DonoExterno } from "@/lib/estoque/dono-do-estoque";
+import { DICA_DO_DONO, NOME_DO_DONO, type DonoExterno } from "@/lib/estoque/dono-do-estoque";
 
 type LibraryColor = { name: string; hex: string };
 
@@ -933,17 +933,22 @@ function ProductDetailModal({
         ),
         variantStocks: Object.entries(stocks)
           .filter(([id]) => !removedIds.includes(id))
-          .map(([id, stock]) => ({
-            id,
-            // peça controlada pela Nuvemshop/Jueri (RN-050): o número não
-            // viaja — mandar o que a tela carregou faria a ficha ser recusada
-            // toda vez que a loja online vendesse entre abrir e salvar
-            stock: product.variants.find((v) => v.id === id)?.dono
-              ? undefined
-              : parseInt(stock) || 0,
-            sku: (vskus[id] ?? "").trim() || null,
-            color: vcores[id] || undefined,
-          })),
+          .map(([id, stock]) => {
+            const v = product.variants.find((x) => x.id === id);
+            // RN-050: só viaja o estoque que a pessoa DIGITOU. Mandar o número
+            // carregado de todas desfazia a venda que entrou enquanto a ficha
+            // estava aberta (trocou a foto, salvou, e a reserva da cliente
+            // sumiu); e o de peça da Nuvemshop/Jueri nunca viaja. `visto` é o
+            // número que a tela mostrava — a porta recusa se já mudou.
+            const digitou = !v?.dono && v !== undefined && String(v.stock) !== stock;
+            return {
+              id,
+              stock: digitou ? parseInt(stock) || 0 : undefined,
+              visto: digitou ? v!.stock : undefined,
+              sku: (vskus[id] ?? "").trim() || null,
+              color: vcores[id] || undefined,
+            };
+          }),
         addVariants: extras,
         removeVariantIds: removedIds,
       }),
@@ -1199,6 +1204,13 @@ function ProductDetailModal({
 
             <div>
               <label className={label}>Grade e estoque (cor · tamanho)</label>
+              {product.variants.some((v) => v.dono) && (
+                <p className="mb-1.5 text-[11px] text-sky-800 bg-sky-50 border border-sky-100 rounded-lg px-2 py-1.5">
+                  🔒 O estoque das variações com cadeado é da{" "}
+                  {NOME_DO_DONO[product.variants.find((v) => v.dono)!.dono!]}: ajuste lá e sincronize
+                  em Configurações (ou na tela Estoque). Cor e tamanho novos também entram por lá.
+                </p>
+              )}
               <div className="max-h-44 overflow-y-auto thin-scroll rounded-xl border border-gray-100 divide-y divide-gray-50">
                 {product.variants
                   .filter((v) => !removedIds.includes(v.id))
@@ -1251,11 +1263,14 @@ function ProductDetailModal({
                         // seguinte voltava por cima ("o sistema perdeu meu
                         // ajuste"). Agora ele nem abre; o caminho é lá.
                         <span
-                          className="w-14 inline-flex items-center justify-end gap-1 text-xs tabular-nums text-gray-500"
+                          className="inline-flex items-center justify-end gap-1 text-xs tabular-nums text-gray-500"
                           title={DICA_DO_DONO[v.dono]}
                         >
                           <Lock className="size-3 text-gray-400" />
                           {v.stock}
+                          <span className="rounded-full bg-sky-50 text-sky-700 ring-1 ring-inset ring-sky-100 px-1.5 py-0.5 text-[10px] font-medium">
+                            {NOME_DO_DONO[v.dono]}
+                          </span>
                         </span>
                       ) : (
                         <input
@@ -1270,16 +1285,23 @@ function ProductDetailModal({
                           className="w-14 rounded-lg border border-gray-200 px-2 py-1 text-xs text-right outline-none focus:border-brand-400"
                         />
                       )}
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setRemovedIds((prev) => [...prev, v.id])
-                        }
-                        className="text-gray-300 hover:text-rose-500 transition p-0.5"
-                        title="Remover variação"
-                      >
-                        <Trash2 className="size-3.5" />
-                      </button>
+                      {v.dono ? (
+                        // grade de peça vinculada se mexe LÁ (RN-050): remover
+                        // aqui "não pega" — a sync recria com o número de lá
+                        <span className="w-[22px]" aria-hidden />
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setRemovedIds((prev) => [...prev, v.id])
+                          }
+                          className="text-gray-300 hover:text-rose-500 transition p-0.5"
+                          title="Remover variação"
+                          aria-label={`Remover ${v.color} ${v.size}`}
+                        >
+                          <Trash2 className="size-3.5" />
+                        </button>
+                      )}
                     </div>
                   ))}
                 {pendingAdds.map((v, i) => (

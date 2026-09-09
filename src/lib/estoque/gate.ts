@@ -22,6 +22,16 @@ export function estoqueLiberado(estoqueEnabled: boolean): boolean {
   return estoqueEnabled;
 }
 
+/**
+ * Pode ver o PAINEL e a aba PRODUÇÃO? Só gerência: ali estão valor a custo,
+ * valor a atacado, vendas da loja inteira e o dinheiro em tecido — a mesma
+ * régua de Relatórios e Comissões (dinheiro da loja é assunto comercial;
+ * suporte e vendedora ficam fora). O Inventário segue para toda a equipe.
+ */
+export function podeVerAnaliseDoEstoque(user: Pick<SessionUser, "role">): boolean {
+  return isManagerUp(user as SessionUser);
+}
+
 /** Pode DIGITAR um estoque novo? (gerência) */
 export function podeAjustarEstoque(user: Pick<SessionUser, "role">): boolean {
   return isManagerUp(user as SessionUser);

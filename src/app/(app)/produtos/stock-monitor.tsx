@@ -15,6 +15,8 @@ export type LowStockRow = {
   color: string;
   size: string;
   stock: number;
+  /** mínimo da PEÇA ou da CATEGORIA (RN-051); ausente = vale o da loja, que a caixa ao lado edita ao vivo */
+  minimo?: number;
 };
 
 export function StockMonitor({
@@ -51,7 +53,7 @@ export function StockMonitor({
   const rows = useMemo(
     () =>
       variations
-        .filter((v) => v.stock <= threshold)
+        .filter((v) => v.stock <= (v.minimo ?? threshold))
         .sort((a, b) => a.stock - b.stock),
     [variations, threshold]
   );
@@ -75,7 +77,7 @@ export function StockMonitor({
       for (const r of rows) {
         const k = key(r);
         const cur = map.get(k) ?? { gap: 0, vars: 0, zerado: 0 };
-        cur.gap += Math.max(0, threshold - r.stock);
+        cur.gap += Math.max(0, (r.minimo ?? threshold) - r.stock);
         cur.vars += 1;
         if (r.stock === 0) cur.zerado += 1;
         map.set(k, cur);
@@ -145,6 +147,7 @@ export function StockMonitor({
             <b>{threshold}</b>
           )}
           peça{threshold === 1 ? "" : "s"} ou menos
+          <span className="text-gray-400"> · peça ou categoria com mínimo próprio segue o dela (tela Estoque)</span>
         </label>
       </div>
 

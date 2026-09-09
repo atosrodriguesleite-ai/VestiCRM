@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
+import { after } from "next/server";
+import { varrerMinimosSeDevido } from "@/lib/estoque/alerta";
 import { AuthError } from "@/lib/auth";
 import { porteiraEstoque, podeAjustarEstoque } from "@/lib/estoque/gate";
 import { podeOperarIntegracoes } from "@/lib/scope";
@@ -18,14 +20,19 @@ export async function GET(req: NextRequest) {
     const filtro = (FILTROS as string[]).includes(filtroPedido)
       ? (filtroPedido as FiltroDoInventario)
       : "todos";
+    after(() => varrerMinimosSeDevido(porta.user.companyId));
     const inv = await montarInventario(porta.user.companyId, {
       q: sp.get("q") ?? "",
       categoria: sp.get("categoria") ?? "",
       filtro,
       incluirInativos: sp.get("inativos") === "1",
     });
+    // a tela pede o resumo (loja inteira) só na primeira carga; a cada tecla
+    // da busca vai só a lista — o resumo não muda com o filtro
+    const soLista = sp.get("so") === "lista";
     return NextResponse.json({
       ...inv,
+      ...(soLista ? { resumo: null, categorias: null } : {}),
       podeAjustar: podeAjustarEstoque(porta.user),
       // o botão "Sincronizar" chama a MESMA porta da tela Configurações
       podeSincronizar: podeOperarIntegracoes(porta.user),

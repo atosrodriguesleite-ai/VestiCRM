@@ -10,6 +10,7 @@ import { varrerCarrinhosSeDeuAHora } from "@/lib/recuperacao";
 import { sincronizarFotosSeDevido } from "@/lib/comm/fotos";
 import { repescarMidiasPendentes } from "@/lib/comm/midia-pendente";
 import { fecharConfirmacoesSemQuebrar } from "@/lib/comm/engine";
+import { varrerMinimosSeDevido } from "@/lib/estoque/alerta";
 import { runAutomationsIfDue } from "@/lib/automations-run";
 
 /**
@@ -43,6 +44,8 @@ export async function GET(req: NextRequest) {
     // fotos das clientes: pega carona aqui, DEPOIS da resposta, e com freio
     // (uma varredura a cada 30 min por loja). A tela nunca espera por foto.
     after(() => sincronizarFotosSeDevido(user.companyId));
+    // RN-051: alerta de mínimo de estoque — de carona, com trava por loja
+    after(() => varrerMinimosSeDevido(user.companyId));
     // ARQUIVO QUE NÃO CHEGOU (RN-028): a fila é varrida aqui, na rota mais
     // movimentada do app, no máximo uma vez por minuto no sistema inteiro.
     // Sem cron novo — um 3º cron bloqueia TODOS os deploys (ADR-002).

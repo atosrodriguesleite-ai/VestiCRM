@@ -1,6 +1,6 @@
 // Guarda RN-050
 import { describe, it, expect } from "vitest";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import {
   decidirAjuste,
@@ -23,6 +23,16 @@ import { itemVisivel } from "../menu-grupos";
  * digitar por cima do número da Nuvemshop e não mandava para lá — a sync
  * seguinte desfazia o ajuste, e no meio o catálogo vendia peça já vendida.
  */
+
+function listarRotas(dir: string): string[] {
+  const out: string[] = [];
+  for (const nome of readdirSync(dir)) {
+    const p = join(dir, nome);
+    if (statSync(p).isDirectory()) out.push(...listarRotas(p));
+    else if (nome === "route.ts") out.push(p);
+  }
+  return out;
+}
 
 const local = { nuvemshopId: null, product: { jueriId: null } };
 const daNuvemshop = { nuvemshopId: "ns-1", product: { jueriId: null } };
@@ -150,15 +160,29 @@ describe("a porteira e o menu do módulo", () => {
     }
   });
 
-  it("a tela e as rotas do módulo passam pela porteira", () => {
+  it("a tela e TODA rota do módulo passam pela porteira — por handler exportado, não por arquivo", () => {
     const layout = readFileSync(join(process.cwd(), "src/app/(app)/estoque/layout.tsx"), "utf8");
     expect(layout).toContain("porteiraEstoqueTela()");
-    for (const rota of [
-      "src/app/api/estoque/inventario/route.ts",
-      "src/app/api/estoque/variacoes/[id]/route.ts",
-      "src/app/api/estoque/variacoes/[id]/movimentos/route.ts",
-    ]) {
-      expect(readFileSync(join(process.cwd(), rota), "utf8")).toContain("porteiraEstoque()");
+    // varre a pasta inteira: a rota da Fase 5 que esquecer a porteira fica vermelha aqui
+    const rotas = listarRotas(join(process.cwd(), "src/app/api/estoque"));
+    expect(rotas.length).toBeGreaterThanOrEqual(6);
+    for (const rota of rotas) {
+      const texto = readFileSync(rota, "utf8");
+      const handlers = [...texto.matchAll(/export async function (GET|POST|PATCH|PUT|DELETE)\b/g)];
+      expect(handlers.length, `${rota} sem handler`).toBeGreaterThan(0);
+      for (const h of handlers) {
+        const corpo = texto.slice(h.index!);
+        const fim = corpo.indexOf("\nexport ", 1);
+        const trecho = fim > 0 ? corpo.slice(0, fim) : corpo;
+        expect(trecho, `${rota} ${h[1]} sem porteiraEstoque()`).toContain("porteiraEstoque()");
+        // escrita exige papel (ou passa pela porta única, que confere)
+        if (h[1] !== "GET") {
+          expect(
+            /podeAjustarEstoque\(|ajustarEstoque\(/.test(trecho),
+            `${rota} ${h[1]} escreve sem conferir papel`
+          ).toBe(true);
+        }
+      }
     }
   });
 });
@@ -174,18 +198,25 @@ describe("o inventário: filtros e reserva", () => {
     ]);
   });
 
-  it("os filtros: zerada, baixa (1..limite), com reserva, controlada por integração", () => {
-    const l = (disponivel: number, reservado = 0, dono: "NUVEMSHOP" | null = null) => ({ disponivel, reservado, dono });
-    expect(passaNoFiltro("zerado", l(0), 5)).toBe(true);
-    expect(passaNoFiltro("zerado", l(1), 5)).toBe(false);
-    expect(passaNoFiltro("baixo", l(0), 5)).toBe(false); // zerada não é "baixa", é zerada
-    expect(passaNoFiltro("baixo", l(5), 5)).toBe(true);
-    expect(passaNoFiltro("baixo", l(6), 5)).toBe(false);
-    expect(passaNoFiltro("reservado", l(3, 2), 5)).toBe(true);
-    expect(passaNoFiltro("reservado", l(3, 0), 5)).toBe(false);
-    expect(passaNoFiltro("externo", l(3, 0, "NUVEMSHOP"), 5)).toBe(true);
-    expect(passaNoFiltro("externo", l(3), 5)).toBe(false);
-    expect(passaNoFiltro("todos", l(0), 5)).toBe(true);
+  it("os filtros: zerada, no mínimo (0..mínimo DELA), com reserva, controlada por integração", () => {
+    const l = (disponivel: number, reservado = 0, dono: "NUVEMSHOP" | null = null, minimo = 5) => ({
+      disponivel,
+      reservado,
+      dono,
+      minimo,
+    });
+    expect(passaNoFiltro("zerado", l(0))).toBe(true);
+    expect(passaNoFiltro("zerado", l(1))).toBe(false);
+    expect(passaNoFiltro("baixo", l(0))).toBe(true); // zerada TAMBÉM chegou ao mínimo (mesma conta do sino e do Dashboard)
+    expect(passaNoFiltro("baixo", l(5))).toBe(true);
+    expect(passaNoFiltro("baixo", l(6))).toBe(false);
+    // o mínimo é o da LINHA (peça > categoria > loja, RN-051), não um número da loja
+    expect(passaNoFiltro("baixo", l(6, 0, null, 8))).toBe(true);
+    expect(passaNoFiltro("reservado", l(3, 2))).toBe(true);
+    expect(passaNoFiltro("reservado", l(3, 0))).toBe(false);
+    expect(passaNoFiltro("externo", l(3, 0, "NUVEMSHOP"))).toBe(true);
+    expect(passaNoFiltro("externo", l(3))).toBe(false);
+    expect(passaNoFiltro("todos", l(0))).toBe(true);
   });
 
   it("a busca acha por nome, código do modelo, SKU da variação e tag — sem diferenciar maiúsculas", () => {

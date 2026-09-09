@@ -113,16 +113,29 @@ export default async function ProductsPage() {
   // limite acontece no cliente (ao vivo), pra atualizar na hora que o dono
   // muda o número — sem recarregar a página.
   const threshold = company?.lowStockThreshold ?? 5;
+  // RN-051: o monitor segue a MESMA régua do Dashboard e do Estoque —
+  // mínimo da peça > da categoria > da loja (senão o cartão dizia 7 e a
+  // lista aqui mostrava 3)
+  const minimosPorCategoria = new Map(
+    (
+      await db.estoqueMinimoCategoria.findMany({
+        where: { companyId: user.companyId },
+        select: { category: true, minStock: true },
+      })
+    ).map((m) => [m.category, m.minStock])
+  );
   const activeVariations: LowStockRow[] = products
     .filter((p) => p.active)
-    .flatMap((p) =>
-      p.variants.map((v) => ({
+    .flatMap((p) => {
+      const proprio = p.minStock ?? minimosPorCategoria.get(p.category);
+      return p.variants.map((v) => ({
         product: p.name,
         color: v.color,
         size: v.size,
         stock: v.stock,
-      }))
-    );
+        ...(proprio != null ? { minimo: proprio } : {}),
+      }));
+    });
 
   return (
     <div className="max-w-7xl mx-auto">

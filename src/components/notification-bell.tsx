@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Bell, AtSign, ArrowRightLeft, Check, Sun } from "lucide-react";
+import { Bell, AtSign, ArrowRightLeft, Check, Sun, Package } from "lucide-react";
 import { Portal } from "./portal";
 
 type Notif = {
@@ -131,6 +131,8 @@ export function NotificationBell({ dark = false }: { dark?: boolean }) {
     // que resolve (definir vendedora, cobrar, conferir estoque)
     if (n.orderId) router.push(`/pedidos/${n.orderId}`);
     else if (n.convId) router.push(`/whatsapp?conv=${n.convId}`);
+    // RN-051: aviso de mínimo abre a lista do que chegou ao mínimo
+    else if (n.type === "ESTOQUE") router.push("/estoque?filtro=baixo");
   }
 
   const iconCls = dark
@@ -191,7 +193,9 @@ export function NotificationBell({ dark = false }: { dark?: boolean }) {
                     ? AtSign
                     : n.type === "AGENDA"
                       ? Sun
-                      : ArrowRightLeft;
+                      : n.type === "ESTOQUE"
+                        ? Package
+                        : ArrowRightLeft;
                 return (
                   <button
                     key={n.id}
