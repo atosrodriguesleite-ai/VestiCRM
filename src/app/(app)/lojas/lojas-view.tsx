@@ -49,6 +49,7 @@ export type Loja = {
   priceTablesEnabled: boolean;
   aiSalesEnabled: boolean;
   financeEnabled: boolean;
+  estoqueEnabled: boolean;
   suspended: boolean;
   billing: {
     kind: string;
@@ -312,6 +313,7 @@ function NewLojaForm({
           priceTablesEnabled: false,
           aiSalesEnabled: false,
           financeEnabled: false,
+          estoqueEnabled: false,
           suspended: false,
           billing: null,
           lastActiveAt: null,
@@ -839,6 +841,8 @@ function LojaCard({ loja, catalogDomain }: { loja: Loja; catalogDomain: string |
   const [togglingTab, setTogglingTab] = useState(false);
   const [financeiro, setFinanceiro] = useState(loja.financeEnabled);
   const [togglingFin, setTogglingFin] = useState(false);
+  const [estoque, setEstoque] = useState(loja.estoqueEnabled);
+  const [togglingEst, setTogglingEst] = useState(false);
 
   // módulo Produção (pago à parte): o Super Admin liga/desliga por loja
   async function toggleProducao() {
@@ -941,6 +945,21 @@ function LojaCard({ loja, catalogDomain }: { loja: Loja; catalogDomain: string |
     setTogglingFin(false);
     if (res.ok) {
       setFinanceiro(!financeiro);
+      router.refresh();
+    }
+  }
+
+  // módulo Estoque (RN-050): idem
+  async function toggleEstoque() {
+    setTogglingEst(true);
+    const res = await fetch("/api/companies/estoque", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ companyId: loja.id, enabled: !estoque }),
+    });
+    setTogglingEst(false);
+    if (res.ok) {
+      setEstoque(!estoque);
       router.refresh();
     }
   }
@@ -1235,6 +1254,28 @@ function LojaCard({ loja, catalogDomain }: { loja: Loja; catalogDomain: string |
           }`}
         >
           {togglingFin ? "..." : financeiro ? "Desativar" : "Ativar Financeiro"}
+        </button>
+      </div>
+
+      {/* módulo Estoque (RN-050) */}
+      <div className="mt-2 flex items-center justify-between gap-2 text-[11px]">
+        <span className="text-slate-400">
+          Módulo Estoque:{" "}
+          <b className={estoque ? "text-emerald-600" : "text-slate-500"}>
+            {estoque ? "ativado" : "desativado"}
+          </b>
+        </span>
+        <button
+          type="button"
+          onClick={toggleEstoque}
+          disabled={togglingEst}
+          className={`rounded-full px-2.5 py-1 font-semibold border transition disabled:opacity-50 ${
+            estoque
+              ? "border-slate-200 text-slate-500 hover:border-rose-300 hover:text-rose-600"
+              : "border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
+          }`}
+        >
+          {togglingEst ? "..." : estoque ? "Desativar" : "Ativar Estoque"}
         </button>
       </div>
 

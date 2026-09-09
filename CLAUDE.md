@@ -801,6 +801,63 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   outro; foi a diferença de R$ 9 mil que o dono caçou em 31/08/2026).
 - **Produção** (gated por loja): tecidos, rolos, cortes multi-cor, costura,
   lotes/facções, defeitos, simulador, etiquetas.
+- **Estoque** (gated por loja, `Company.estoqueEnabled`, porteira em
+  `lib/estoque/gate.ts`; desenhado com o dono em 09/09/2026, em fases — a
+  Fase 1 é esta): a tela **Inventário** (`/estoque`) — uma linha por cor ×
+  tamanho com **na loja · reservado · disponível**, busca por nome/código/
+  SKU/tag, filtros (baixo, zerada, com reserva, por integração), **ajuste na
+  própria linha com motivo** e o histórico da peça. Toda a equipe entra
+  (conferir estoque é operação); **quem ajusta é gerência** — a porta de
+  escrita confere de novo. O número que se edita é o DISPONÍVEL (o `stock`
+  da peça, o mesmo de Produtos e do catálogo); o **reservado sai do LIVRO DE
+  MOVIMENTOS** dos pedidos que ainda estão dentro da loja (orçamento,
+  aguardando pagamento, pago, em produção, separação — enviado/entregue já
+  saíram), nunca da quantidade do item (reserva parcial segurou menos).
+  **RN-050 · Sistema de fora que vende MANDA no estoque; ajuste digitado tem
+  UMA porta** (`lib/estoque/dono-do-estoque.ts` + `lib/estoque/ajuste.ts`):
+  pedido do dono — *"caso o cliente tenha Nuvemshop ou outro sistema de
+  e-commerce ou marketplace, esse outro sistema continua mandando no estoque"*.
+  Já era a régua da RN-014, mas a tela Produtos não a respeitava: aceitava o
+  número digitado numa variação vinculada, gravava aqui e NÃO mandava para a
+  Nuvemshop — a sync seguinte voltava por cima ("o sistema perdeu meu
+  ajuste") e, no meio, o catálogo vendia peça que a loja online já tinha
+  vendido. Agora peça vinculada (`ProductVariant.nuvemshopId` — o vínculo é
+  por VARIAÇÃO, cor/tamanho que não existe lá segue nossa — ou
+  `Product.jueriId`, por produto) é **só leitura nas DUAS telas**, com
+  cadeado, o nome do dono e o botão de sincronizar (a mesma porta em etapas
+  da tela Configurações); número IGUAL passa em silêncio (a tela Produtos
+  manda a grade inteira a cada salvamento), número diferente é RECUSADO com
+  frase — a tela nem abre o campo, o servidor é a segunda tranca. Venda
+  (RN-003) e produção (`lancaNoEstoque`) continuam mexendo em peça vinculada:
+  são movimentos REAIS e o espelho para a Nuvemshop sai junto; o que a regra
+  barra é o AJUSTE DIGITADO por cima do número de outro sistema. **Todo
+  estoque digitado passa por `ajustarEstoque`**: loja (RN-013), papel (dito
+  por quem chama: gerência no Inventário; na tela Produtos quem edita o
+  produto, como sempre foi — trancar a vendedora que cadastra a grade seria
+  mudança de carona), dono, **motivo obrigatório** (no Inventário a pessoa
+  escolhe; em Produtos o livro registra "edição do produto") e a gravação
+  **condicional ao número que a pessoa VIU**: o Inventário manda o número
+  que a tela mostrava e a porta recusa se já mudou (devolvendo o atual);
+  a gravação em si é `updateMany where stock = antes`, para a corrida de
+  milissegundos. Duas pessoas contando a mesma arara, a segunda leva "o
+  estoque mudou enquanto você editava" em vez de sobrescrever a colega.
+  Número e linha do livro (`InventoryMovement` AJUSTE, "por Fulana: motivo
+  (antes → depois)") nascem na MESMA transação — um sem o outro é o
+  histórico mentindo. Na tela Produtos a conferência vem ANTES de gravar
+  qualquer coisa (foto inclusive — a capa apagada não volta) e **a ficha
+  inteira é UMA transação** (fotos, grade, estoque, dados): antes cada passo
+  gravava sozinho e a recusa no meio deixava a peça pela metade (achado da
+  revisão). A tela Produtos **não manda** o número da variação vinculada
+  (mandar o que carregou faria a ficha ser recusada toda vez que a loja
+  online vendesse entre abrir e salvar). O histórico da peça mostra o
+  movimento para toda a equipe, mas o número e o link do pedido só para
+  quem enxerga aquele pedido (`orderScope`, RN-007). O botão "Sincronizar"
+  só existe para a Nuvemshop (o Jueri sincroniza sozinho, 2x/dia). Loja sem o módulo não muda em NADA na tela — mas a regra do dono
+  externo vale COM ou SEM a chave, porque o bug era de toda loja com
+  Nuvemshop. Próximas fases combinadas: mínimos por peça/categoria com
+  alerta; painel e análise por regra (giro, cobertura, encalhado, o que
+  repor); aba de Produção (cortado aguardando costura, rolos disponíveis).
+  Balanço e IA ficaram fora.
 - **Financeiro** (gated por loja, pago à parte — R$ 160 de tabela no catálogo
   de módulos): gestão financeira completa, desenhada com o dono em 31/08/2026
   (mapa em 6 fases: cadastros → contas a pagar/receber → recorrência/extrato →

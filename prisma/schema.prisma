@@ -57,6 +57,12 @@ model Company {
   /// pedidos — não muda em NADA. Com a chave, abre a gestão financeira
   /// completa (cadastros, contas a pagar/receber, fluxo de caixa...).
   financeEnabled    Boolean  @default(false)
+  /// MÓDULO ESTOQUE (RN-050, 09/09/2026): a tela Inventário — estoque por
+  /// variação com edição rápida, reservado/disponível e histórico. Super
+  /// admin liga por loja. Sem a chave, a loja segue com o estoque dentro de
+  /// Produtos, como sempre. A regra do DONO EXTERNO (peça vinculada à
+  /// Nuvemshop/Jueri não se edita aqui) vale COM ou SEM a chave.
+  estoqueEnabled    Boolean  @default(false)
   suspended         Boolean  @default(false) // acesso bloqueado pelo super admin (ex.: inadimplência)
   // última rodada das automações desta loja. É a TRAVA ATÔMICA que faz o
   // motor rodar de carona no tráfego normal, no máximo uma vez por dia, sem

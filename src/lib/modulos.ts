@@ -22,7 +22,8 @@ export type ModuloKey =
   | "BIBLIOTECA"
   | "ENVIOS"
   | "IA_VENDAS"
-  | "FINANCEIRO";
+  | "FINANCEIRO"
+  | "ESTOQUE";
 
 export type Modulo = {
   key: ModuloKey;
@@ -107,6 +108,16 @@ export const MODULOS: Modulo[] = [
     flag: "financeEnabled",
     // preço definido pelo dono no desenho do módulo (31/08/2026)
     precoTabela: 160,
+  },
+  {
+    key: "ESTOQUE",
+    nome: "Estoque",
+    entrega:
+      "Inventário por cor e tamanho com edição rápida, reservado/disponível e histórico de cada peça.",
+    flag: "estoqueEnabled",
+    // preço de tabela ainda NÃO definido pelo dono (09/09/2026): fica em 0
+    // (cortesia) até ele dizer — inventar número aqui entraria no MRR
+    precoTabela: 0,
   },
 ];
 

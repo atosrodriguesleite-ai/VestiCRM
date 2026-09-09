@@ -47,6 +47,7 @@ import {
   LayoutPanelTop,
   Gauge,
   Boxes,
+  Warehouse,
   ChevronDown,
   ShoppingCart,
   Repeat,
@@ -77,6 +78,9 @@ const NAV = [
   // VÊ (despachar caixa é operação, não venda).
   { href: "/envios", label: "Envios", icon: Truck, group: "Catálogo", shippingOnly: true },
   { href: "/produtos", label: "Produtos", icon: Package, group: "Catálogo" },
+  // módulo Estoque (RN-050): sem a chave, o menu nem aparece. Suporte VÊ
+  // (conferir estoque é operação); quem AJUSTA é gerência, na própria tela.
+  { href: "/estoque", label: "Estoque", icon: Warehouse, group: "Catálogo", estoqueOnly: true },
   { href: "/biblioteca", label: "Biblioteca de imagens", icon: Images, group: "Catálogo", mediaLibraryOnly: true, supportHidden: true },
   { href: "/producao", label: "Produção", icon: Scissors, group: "Catálogo", productionOnly: true, supportHidden: true },
   { href: "/plano-corte", label: "Plano de Corte", icon: LayoutPanelTop, group: "Catálogo", cutPlanOnly: true, supportHidden: true },
@@ -223,6 +227,8 @@ type ShellUser = {
   shippingEnabled?: boolean;
   // módulo Financeiro (pago à parte): idem
   financeEnabled?: boolean;
+  // módulo Estoque (RN-050): idem
+  estoqueEnabled?: boolean;
   // módulo Marketing (pago à parte): idem
   marketingEnabled?: boolean;
   // Biblioteca de imagens (gated): sem a chave, o menu nem aparece
