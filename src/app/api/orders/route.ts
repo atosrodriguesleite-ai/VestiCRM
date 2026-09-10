@@ -8,7 +8,7 @@ import { requireUser, AuthError } from "@/lib/auth";
 import { isSupport } from "@/lib/scope";
 import { computeOrderTotals, orderNumber } from "@/lib/orders";
 import { espelharEstoqueSemQuebrar } from "@/lib/nuvemshop";
-import { pushStockToJueri } from "@/lib/jueri";
+import { espelharJueriSemQuebrar } from "@/lib/jueri";
 import { reservarEstoque, textoDaFalta } from "@/lib/reservations";
 import { syncOpportunityValue, garantirCartaoDoPedido } from "@/lib/opportunity-sync";
 import { comNumeroUnico } from "@/lib/numero-do-pedido";
@@ -299,7 +299,7 @@ export async function POST(req: NextRequest) {
       const changes = order.items
         .filter((i) => i.variantId)
         .map((i) => ({ variantId: i.variantId!, delta: -i.quantity }));
-      pushStockToJueri(user.companyId, changes).catch(() => {});
+      espelharJueriSemQuebrar(user.companyId, changes);
     }
 
     // registra o pedido no histórico da conversa (timeline do WhatsApp)

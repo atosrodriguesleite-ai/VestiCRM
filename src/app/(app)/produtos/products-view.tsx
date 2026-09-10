@@ -1279,7 +1279,7 @@ function ProductDetailModal({
                             // estar diferente enquanto isso. O sistema tenta
                             // de novo sozinho.
                             <span
-                              title="A baixa desta peça ainda não foi confirmada pela Nuvemshop, então o número dos dois lados pode estar diferente. O sistema tenta de novo sozinho; se o aviso ficar, veja o caso na Central de Comunicação e use o botão Sincronizar em Configurações."
+                              title="A baixa desta peça ainda não foi confirmada pela Nuvemshop, então o número dos dois lados pode estar diferente. O sistema tenta de novo sozinho; se o aviso ficar, o caso está na Central de Comunicação com o motivo."
                               className="rounded-full bg-amber-50 text-amber-700 ring-1 ring-inset ring-amber-200 px-1.5 py-0.5 text-[10px] font-medium"
                             >
                               ⚠️ enviando

@@ -31,7 +31,7 @@ import {
   type FaltaDeEstoque,
 } from "@/lib/reservations";
 import { espelharEstoqueSemQuebrar } from "@/lib/nuvemshop";
-import { pushStockToJueri } from "@/lib/jueri";
+import { espelharJueriSemQuebrar } from "@/lib/jueri";
 import { catalogPrice, orderNumber, round2 } from "@/lib/orders";
 import { modoValido, faltaParaOMinimo, textoDoMinimo } from "@/lib/catalogo/tabelas-de-preco";
 import { resolverLink } from "@/lib/catalogo/tabelas-de-preco-servidor";
@@ -910,10 +910,10 @@ export async function POST(req: NextRequest) {
     espelharEstoqueSemQuebrar(company.id, variantIds);
   }
   if (seguradas.length > 0) {
-    pushStockToJueri(
+    espelharJueriSemQuebrar(
       company.id,
       seguradas.map((s) => ({ variantId: s.variantId, delta: -s.quantity }))
-    ).catch(() => {});
+    );
   }
 
   // AVISO NA HORA: sino + push. Sem isso, o pedido do catálogo só era

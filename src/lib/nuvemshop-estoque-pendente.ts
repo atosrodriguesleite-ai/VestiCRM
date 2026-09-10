@@ -31,18 +31,22 @@ import { logServerError } from "./health";
  * envio só. Enfileirar por movimento faria a fila crescer sem necessidade e
  * mandaria números velhos por cima do certo.
  *
- * Desistir é EXPLÍCITO: sai da fila, vira linha na Central de Comunicação e
- * caso no painel de Saúde, com o nome da peça. Fila que desiste em silêncio é
- * o problema de novo, com mais código.
+ * Desistir é EXPLÍCITO: a peça PARA de ser tentada (perde a data, que é o que
+ * a repesca lê), vira linha na Central de Comunicação e caso no painel de
+ * Saúde, com o nome da peça — mas a linha FICA, senão o ⚠️ sumia da tela justo
+ * na peça que de fato ficou divergente. Qualquer movimento novo daquela peça
+ * reabre a rodada. Fila que desiste em silêncio é o problema de novo, com
+ * mais código.
  */
 
 /**
  * Quanto esperar antes de tentar de novo, por número de tentativas já feitas.
  *
  * Começa perto (a causa mais comum é oscilação de segundos) e vai afastando;
- * o total cobre ~9 horas. Insistir por dias seria teatro: passou disso, quem
- * resolve é a lojista pelo botão Sincronizar, e é por isso que a desistência
- * aparece na tela em vez de sumir.
+ * o total cobre ~9 horas. Insistir por dias seria teatro: passado isso a peça
+ * para de ser tentada, o caso vai para a Central e para a Saúde, e o ⚠️ fica
+ * na linha até o dia em que um envio dela for confirmado — o que acontece
+ * sozinho no movimento seguinte da peça, que reabre a rodada.
  */
 const ESPERA_POR_TENTATIVA_MS = [
   30_000, // 30 s
@@ -104,6 +108,15 @@ export function proximaTentativa(tentativasFeitas: number, agora = new Date()): 
  * de tentativas é da peça, não da venda.
  */
 export async function marcarEnvioPendente(companyId: string, variantId: string) {
+  // Peça que já tinha DESISTIDO (sem data) volta ao começo: um movimento novo
+  // é motivo para tentar de novo, e sem isso a peça ficava divergente PARA
+  // SEMPRE — o token vence às 9h, a peça esgota as tentativas às 18h, a
+  // lojista renova às 19h e nada mais repescava (achado da revisão). Reabrir
+  // não vira spam: o alarme só toca ao esgotar a rodada inteira de novo.
+  await db.nuvemshopEstoquePendente.updateMany({
+    where: { companyId, variantId, proximaEm: null },
+    data: { tentativas: 0, proximaEm: proximaTentativa(0) },
+  });
   await db.nuvemshopEstoquePendente.upsert({
     where: { variantId },
     create: {
@@ -117,7 +130,20 @@ export async function marcarEnvioPendente(companyId: string, variantId: string) 
 }
 
 /** Envio CONFIRMADO pela Nuvemshop: a peça sai da fila. */
-export async function confirmarEnvio(variantId: string) {
+export async function confirmarEnvio(variantId: string, stockEnviado?: number) {
+  // "Em dia" é o que a Nuvemshop recebeu ser IGUAL ao que temos agora. Se o
+  // número mudou entre a leitura e o PUT — outra venda da mesma peça no meio,
+  // e cada PUT pode levar 15s — o que chegou lá já é velho: a peça FICA na
+  // fila e a repesca manda o número certo. Sem esta conferência o caminho de
+  // sucesso com número velho era indistinguível do sucesso de verdade, e a
+  // divergência voltava calada (achado da revisão, 10/09/2026).
+  if (stockEnviado !== undefined) {
+    const atual = await db.productVariant.findUnique({
+      where: { id: variantId },
+      select: { stock: true },
+    });
+    if (!atual || atual.stock !== stockEnviado) return;
+  }
   await db.nuvemshopEstoquePendente.deleteMany({ where: { variantId } });
 }
 
@@ -200,7 +226,9 @@ export async function desistirDoEnvio(
     source: "server",
     path: "/nuvemshop/estoque",
     message: `Estoque de "${nomeDaPeca}" não chegou na Nuvemshop`,
-    detail: motivo.slice(0, 4000),
+    // o ErrorLog não tem companyId: sem isso o caso no painel de Saúde não
+    // diz de QUAL loja é (achado da revisão)
+    detail: `loja ${companyId}: ${motivo}`.slice(0, 4000),
   });
 }
 
@@ -215,11 +243,16 @@ export async function envioPendentePorVariacao(
   variantIds: string[]
 ): Promise<Set<string>> {
   if (variantIds.length === 0) return new Set();
+  // a consulta é pela LOJA, não pela lista de ids: a tela Produtos de uma
+  // loja com 500 modelos mandaria ~4.000 parâmetros para ler uma tabela que,
+  // por desenho, tem poucas linhas (só o que está esperando envio). O
+  // cruzamento sai de graça em memória (achado da revisão de performance).
   const linhas = await db.nuvemshopEstoquePendente.findMany({
-    where: { companyId, variantId: { in: variantIds } },
+    where: { companyId },
     select: { variantId: true },
   });
-  return new Set(linhas.map((l) => l.variantId));
+  const pedidos = new Set(variantIds);
+  return new Set(linhas.map((l) => l.variantId).filter((id) => pedidos.has(id)));
 }
 
 /**

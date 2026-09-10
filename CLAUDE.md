@@ -797,8 +797,20 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   trava atômica por loja (`Company.nsEstoqueRunAt`) — **nunca um 3º cron**
   (ADR-002) —, com orçamento de tempo porque cada PUT pode levar 15s. **Uma
   fila por PEÇA** (único por `variantId`): o que se manda é o estoque de
-  AGORA, lido na hora, então dez baixas seguidas da mesma variação são um
-  envio só — enfileirar por movimento mandaria número velho por cima do certo.
+  AGORA, **relido imediatamente antes do PUT**, então dez baixas seguidas da
+  mesma variação são um envio só — enfileirar por movimento mandaria número
+  velho por cima do certo. E **sucesso só conta quando o que chegou lá é o que
+  temos aqui** (`confirmarEnvio` confere o número contra o cadastro): outra
+  venda da mesma peça no meio de um PUT de 15s fazia o envio "dar certo" com o
+  número velho, e o sucesso com número velho era indistinguível do sucesso de
+  verdade — a divergência voltava calada (achado da revisão). Não bateu, a
+  peça FICA na fila e a repesca manda o certo.
+  **O botão Sincronizar NÃO passa por cima da baixa pendente**: ele PUXA o
+  número de lá, e no estado ⚠️ o mais novo é o NOSSO — a venda aconteceu aqui
+  e o aviso não chegou. Puxar devolveria as peças vendidas ao catálogo, ou
+  seja, a loja voltaria a vender o que não tem: exatamente o estrago que esta
+  regra existe para evitar (e era a saída que o próprio aviso recomendava).
+  Peça com envio pendente fica de fora da gravação de estoque da sync.
   **Loja desconectada não perde a baixa**: a peça FICA na fila e o dia da
   reconexão acerta o número. Peça que perdeu o vínculo (ou virou "infinito"
   lá) sai da fila em vez de tentar para sempre. **Desistir é explícito**:
@@ -807,8 +819,9 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   (`nuvemshop.estoque-nao-enviado`) e caso no painel de Saúde, com o nome da
   peça. **A linha não é apagada**: apagando, o ⚠️ sumia da tela justo na peça
   que de fato ficou divergente. Ela sai sozinha quando um envio daquela peça
-  for confirmado (a venda seguinte tenta de graça — é a chance de o problema
-  ter passado). E o **alarme toca UMA vez por rodada de tentativas**, nunca a
+  for confirmado, e **qualquer movimento novo da peça REABRE a rodada** — sem
+  isso ela ficava divergente para sempre: o token vence às 9h, a peça esgota
+  as tentativas às 18h, a lojista renova às 19h e nada mais repescava. E o **alarme toca UMA vez por rodada de tentativas**, nunca a
   cada venda: desistência que vira spam faz a loja parar de ler a Central. E a divergência **aparece na própria linha**
   (⚠️ no Inventário e na tela Produtos, com a frase e o caminho): antes ela só
   aparecia para quem rodasse a conferência da integração — foi assim que a

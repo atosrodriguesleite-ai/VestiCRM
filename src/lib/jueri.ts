@@ -1,3 +1,4 @@
+import { after } from "next/server";
 /**
  * Integração Jueri (ERP de semijoias/consignação) — helpers compartilhados.
  *
@@ -119,6 +120,29 @@ export function montarSku(p: JueriProduto): string {
  * recusar ou não responder, ignora em silêncio — nunca corrompe o dado dela.
  * Roda em 2º plano; erros não travam a venda no AtacadoPro.
  */
+/**
+ * O jeito CERTO de chamar o espelho do Jueri de dentro de uma rota.
+ *
+ * Mesma lição da RN-053 (e da RN-033): chamada solta é congelada pela Vercel
+ * junto com a resposta e o envio nem acontece — a divergência de estoque
+ * voltaria pelo outro dono, ao lado da linha que foi consertada. O `try/catch`
+ * cobre quem chama fora de uma requisição (script, teste).
+ */
+export function espelharJueriSemQuebrar(
+  companyId: string,
+  changes: { variantId: string; delta: number }[]
+): void {
+  const trabalho = () =>
+    pushStockToJueri(companyId, changes).catch((e) =>
+      console.error("[jueri] falhou ao espelhar o estoque", companyId, e)
+    );
+  try {
+    after(trabalho);
+  } catch {
+    void trabalho();
+  }
+}
+
 export async function pushStockToJueri(
   companyId: string,
   changes: { variantId: string; delta: number }[]

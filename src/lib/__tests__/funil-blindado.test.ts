@@ -38,7 +38,7 @@ describe("excluir oportunidade tem as MESMAS travas do excluir pedido", () => {
     // RN-053: pelo caminho do after() — chamada solta a Vercel congela junto
     // com a resposta, e o envio nem chega a acontecer
     expect(acoes).toContain("espelharEstoqueSemQuebrar");
-    expect(acoes).toContain("pushStockToJueri");
+    expect(acoes).toContain("espelharJueriSemQuebrar");
   });
   it("o DELETE de pedidos usa as mesmas travas compartilhadas (uma régua só)", () => {
     const pedidos = ler("src/app/api/orders/[id]/route.ts");

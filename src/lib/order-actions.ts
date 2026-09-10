@@ -2,7 +2,7 @@ import type { Prisma } from "@prisma/client";
 import { db } from "./db";
 import { baixasLiquidasDoPedido } from "./estoque-do-pedido";
 import { espelharEstoqueSemQuebrar } from "./nuvemshop";
-import { pushStockToJueri } from "./jueri";
+import { espelharJueriSemQuebrar } from "./jueri";
 
 /**
  * Apaga um pedido desfazendo TODO o efeito dele — como se nunca tivesse
@@ -136,10 +136,10 @@ export function avisarIntegracoesDaDevolucao(
     companyId,
     devolvidas.map((d) => d.variantId)
   );
-  pushStockToJueri(
+  espelharJueriSemQuebrar(
     companyId,
     devolvidas.map((d) => ({ variantId: d.variantId, delta: d.quantity }))
-  ).catch(() => {});
+  );
 }
 
 /**

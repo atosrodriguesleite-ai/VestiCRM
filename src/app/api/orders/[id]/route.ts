@@ -13,7 +13,7 @@ import {
 } from "@/lib/order-actions";
 import { notifySalePaid } from "@/lib/push";
 import { espelharEstoqueSemQuebrar } from "@/lib/nuvemshop";
-import { pushStockToJueri } from "@/lib/jueri";
+import { espelharJueriSemQuebrar } from "@/lib/jueri";
 import {
   orderStatusLabel,
   orderNumber,
@@ -430,11 +430,11 @@ export async function PATCH(
           user.companyId,
           efetivos.map((e) => e.variantId)
         );
-        pushStockToJueri(
+        espelharJueriSemQuebrar(
           user.companyId,
           // efetivo>0 = baixou mais no CRM → Jueri desconta; <0 devolve
           efetivos.map((e) => ({ variantId: e.variantId, delta: -e.delta }))
-        ).catch(() => {});
+        );
       }
       // o funil acompanha o VALOR VENDIDO (frete não é negociação)
       await syncOpportunityValue(user.companyId, order.opportunityId, totals.netTotal);
@@ -1190,7 +1190,7 @@ export async function PATCH(
           user.companyId,
           mexidas.map((m) => m.variantId)
         );
-        pushStockToJueri(user.companyId, mexidas).catch(() => {});
+        espelharJueriSemQuebrar(user.companyId, mexidas);
       }
     }
 

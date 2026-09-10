@@ -2,7 +2,7 @@ import { db } from "./db";
 import { orderNumber, PAID_ORDER_STATUSES } from "./orders";
 import { notifySalePaid } from "./push";
 import { espelharEstoqueSemQuebrar } from "./nuvemshop";
-import { pushStockToJueri } from "./jueri";
+import { espelharJueriSemQuebrar } from "./jueri";
 import { winLinkedOpportunity, garantirCartaoDoPedido } from "./opportunity-sync";
 import { reservarOQueTiver, textoDaFalta } from "./reservations";
 import { mpCancelPayment } from "./mercadopago";
@@ -312,10 +312,10 @@ async function liquidarUmaVez(
       pedido.companyId,
       seguradas.map((s) => s.variantId)
     );
-    pushStockToJueri(
+    espelharJueriSemQuebrar(
       pedido.companyId,
       seguradas.map((s) => ({ variantId: s.variantId, delta: -s.quantity }))
-    ).catch(() => {});
+    );
   }
 
   // 💰 o "ka-ching" no celular da loja
