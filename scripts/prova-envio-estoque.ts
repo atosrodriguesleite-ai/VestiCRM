@@ -191,7 +191,9 @@ async function main() {
   await pushStockToNuvemshop(loja.id, [gg.id]);
   for (let i = 0; i < fila.MAX_TENTATIVAS_ESTOQUE + 1; i++) {
     const linha = await naFila(gg.id);
-    if (!linha) break;
+    // já desistiu (sem data) — parar aqui; re-armar seria o teste inventando
+    // uma tentativa que a vida real não faz
+    if (!linha || linha.proximaEm === null) break;
     await db.nuvemshopEstoquePendente.update({
       where: { variantId: gg.id },
       data: { proximaEm: new Date(Date.now() - 1000) },
@@ -199,7 +201,9 @@ async function main() {
     await soltarTrava();
     await varrerEnviosDeEstoqueSeDevido(loja.id);
   }
-  ok((await naFila(gg.id)) === null, "acabadas as tentativas, a peça sai da fila (não fica para sempre)");
+  const desistida = await naFila(gg.id);
+  ok(desistida !== null && desistida.proximaEm === null,
+    "acabadas as tentativas, a peça PARA de ser tentada mas o ⚠️ continua na tela");
   const aviso = await db.commEvent.findFirst({
     where: { companyId: loja.id, type: "nuvemshop.estoque-nao-enviado" },
   });
@@ -213,6 +217,25 @@ async function main() {
     orderBy: { createdAt: "desc" },
   });
   ok(naSaude !== null, "e vai também para o painel de Saúde");
+
+  // ---- 7b. desistência NÃO vira spam: venda nova tenta, sem repetir o alarme
+  const antesDoSpam = await db.commEvent.count({
+    where: { companyId: loja.id, type: "nuvemshop.estoque-nao-enviado" },
+  });
+  await pushStockToNuvemshop(loja.id, [gg.id]);
+  await pushStockToNuvemshop(loja.id, [gg.id]);
+  const depoisDoSpam = await db.commEvent.count({
+    where: { companyId: loja.id, type: "nuvemshop.estoque-nao-enviado" },
+  });
+  ok(
+    antesDoSpam === 1 && depoisDoSpam === 1,
+    `o alarme toca UMA vez por rodada, não a cada venda (${antesDoSpam} → ${depoisDoSpam})`
+  );
+
+  // ---- 7c. …e quando a Nuvemshop volta, a peça se acerta sozinha ----------
+  modo = "aceita";
+  await pushStockToNuvemshop(loja.id, [gg.id]);
+  ok((await naFila(gg.id)) === null, "envio confirmado depois da desistência limpa o ⚠️");
 
   // ---- 8. loja DESCONECTADA não perde a baixa ----------------------------
   await db.nuvemshopConnection.update({

@@ -136,6 +136,11 @@ export async function registrarFalhaDeEnvio(
   const atual = await db.nuvemshopEstoquePendente.findUnique({ where: { variantId } });
   const feitas = (atual?.tentativas ?? 0) + 1;
   const quando = proximaTentativa(feitas);
+  // Acabaram as tentativas: quem escreve é `desistirDoEnvio`, e ele precisa
+  // encontrar a linha AINDA com data para saber que a desistência é NOVA (é
+  // assim que o alarme toca uma vez só). Zerar a data aqui apagava esse
+  // sinal e a loja nunca ficava sabendo da peça que ficou para trás.
+  if (quando === null) return false;
   await db.nuvemshopEstoquePendente.upsert({
     where: { variantId },
     create: {
@@ -147,14 +152,20 @@ export async function registrarFalhaDeEnvio(
     },
     update: { tentativas: feitas, proximaEm: quando, ultimoErro: motivo.slice(0, 300) },
   });
-  return quando !== null;
+  return true;
 }
 
 /**
- * Acabaram as tentativas: sai da fila e o caso APARECE — linha na Central de
- * Comunicação e caso no painel de Saúde, com o nome da peça. É o que separa
+ * Acabaram as tentativas: para de tentar e o caso APARECE — linha na Central
+ * de Comunicação e caso no painel de Saúde, com o nome da peça. É o que separa
  * "a loja sabe que tem uma peça para acertar" de "o número está errado e
  * ninguém faz ideia".
+ *
+ * A linha NÃO é apagada, só perde a data (`proximaEm: null`, que a repesca
+ * nunca pega): apagando, o ⚠️ sumia da tela justo na peça que de fato ficou
+ * divergente — o aviso desapareceria no pior momento. Ela sai sozinha no dia
+ * em que um envio daquela peça for confirmado (a venda seguinte, ou o acerto
+ * pela tela de Configurações), que é quando os dois lados voltam a bater.
  */
 export async function desistirDoEnvio(
   companyId: string,
@@ -162,7 +173,16 @@ export async function desistirDoEnvio(
   nomeDaPeca: string,
   motivo: string
 ) {
-  await db.nuvemshopEstoquePendente.deleteMany({ where: { variantId } });
+  // o alarme toca UMA vez por rodada de tentativas: quem já tinha desistido
+  // segue tentando de graça a cada venda nova daquela peça (é a chance de o
+  // problema ter passado), mas sem repetir o aviso a cada venda — desistência
+  // que vira spam faz a loja parar de ler a Central, e aí o aviso não vale
+  // nada. Quem conta é o próprio banco (`count`), sem uma leitura a mais.
+  const parou = await db.nuvemshopEstoquePendente.updateMany({
+    where: { companyId, variantId, proximaEm: { not: null } },
+    data: { proximaEm: null, ultimoErro: motivo.slice(0, 300) },
+  });
+  if (parou.count === 0) return;
   await db.commEvent
     .create({
       data: {

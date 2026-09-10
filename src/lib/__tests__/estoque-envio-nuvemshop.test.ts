@@ -49,6 +49,16 @@ describe("espera crescente entre as tentativas", () => {
     expect(fila).toContain("logServerError");
   });
 
+  it("desistir NÃO apaga a linha (o ⚠️ some justo na peça que ficou divergente)", () => {
+    const fila = ler("src/lib/nuvemshop-estoque-pendente.ts");
+    const trecho = fila.slice(fila.indexOf("export async function desistirDoEnvio"));
+    expect(trecho).not.toContain("deleteMany");
+    expect(trecho).toContain("proximaEm: null");
+    // e o alarme toca uma vez por rodada, não a cada venda daquela peça
+    expect(trecho).toContain("proximaEm: { not: null }");
+    expect(trecho).toContain("if (parou.count === 0) return;");
+  });
+
   it("a rodada cabe na vida da função (o PUT pode levar 15s)", () => {
     // orçamento menor que o teto da função, e teto de peças por rodada
     expect(MS_ORCAMENTO_REPESCA_ESTOQUE).toBeLessThanOrEqual(30_000);

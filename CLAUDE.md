@@ -802,9 +802,14 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   **Loja desconectada não perde a baixa**: a peça FICA na fila e o dia da
   reconexão acerta o número. Peça que perdeu o vínculo (ou virou "infinito"
   lá) sai da fila em vez de tentar para sempre. **Desistir é explícito**:
-  acabadas as tentativas a peça sai da fila e o caso APARECE — linha na
-  Central de Comunicação (`nuvemshop.estoque-nao-enviado`) e caso no painel de
-  Saúde, com o nome da peça. E a divergência **aparece na própria linha**
+  acabadas as tentativas a peça PARA de ser tentada (a linha perde a data, que
+  é o que a repesca lê) e o caso APARECE — linha na Central de Comunicação
+  (`nuvemshop.estoque-nao-enviado`) e caso no painel de Saúde, com o nome da
+  peça. **A linha não é apagada**: apagando, o ⚠️ sumia da tela justo na peça
+  que de fato ficou divergente. Ela sai sozinha quando um envio daquela peça
+  for confirmado (a venda seguinte tenta de graça — é a chance de o problema
+  ter passado). E o **alarme toca UMA vez por rodada de tentativas**, nunca a
+  cada venda: desistência que vira spam faz a loja parar de ler a Central. E a divergência **aparece na própria linha**
   (⚠️ no Inventário e na tela Produtos, com a frase e o caminho): antes ela só
   aparecia para quem rodasse a conferência da integração — foi assim que a
   peça ficou dias com o número errado de um dos lados, e divergência de
