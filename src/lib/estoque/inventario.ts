@@ -5,6 +5,7 @@ import { orderScope } from "../scope";
 import { ordenarVariantes } from "../tamanhos";
 import { donoDoEstoque, type DonoExterno } from "./dono-do-estoque";
 import { minimoEfetivo, minimosDaLoja, noMinimo, type OrigemDoMinimo } from "./minimos";
+import { envioPendentePorVariacao } from "../nuvemshop-estoque-pendente";
 
 /**
  * O INVENTÁRIO (RN-050): uma linha por variação (cor × tamanho), com os
@@ -57,6 +58,12 @@ export type LinhaDoInventario = {
   atacado: number;
   /** quando o produto foi cadastrado — peça nova não é "encalhada" (RN-052) */
   cadastradoEm: string;
+  /**
+   * RN-053: a baixa desta peça ainda não foi confirmada pela Nuvemshop. É o
+   * ⚠️ da linha — sem ele a divergência só aparecia rodando a conferência da
+   * integração, e a peça ficava dias com número errado de um dos lados.
+   */
+  envioPendente?: boolean;
 };
 
 export type Inventario = {
@@ -266,8 +273,18 @@ export async function montarInventario(
     return casaBusca(opts.q ?? "", p, v);
   });
 
+  // ⚠️ do envio que não chegou na Nuvemshop (RN-053): consultado SÓ para as
+  // linhas que a tela vai mostrar — a fila é curta, mas a lista não é
+  const visiveis = filtradas.slice(0, TETO_DE_LINHAS);
+  const pendentes = await envioPendentePorVariacao(
+    companyId,
+    visiveis.filter((l) => l.dono === "NUVEMSHOP").map((l) => l.variantId)
+  );
+
   return {
-    linhas: filtradas.slice(0, TETO_DE_LINHAS),
+    linhas: visiveis.map((l) =>
+      pendentes.has(l.variantId) ? { ...l, envioPendente: true } : l
+    ),
     total: filtradas.length,
     teto: TETO_DE_LINHAS,
     limiteBaixo,

@@ -1,7 +1,7 @@
 import { db } from "./db";
 import { orderNumber, PAID_ORDER_STATUSES } from "./orders";
 import { notifySalePaid } from "./push";
-import { pushStockToNuvemshop } from "./nuvemshop";
+import { espelharEstoqueSemQuebrar } from "./nuvemshop";
 import { pushStockToJueri } from "./jueri";
 import { winLinkedOpportunity, garantirCartaoDoPedido } from "./opportunity-sync";
 import { reservarOQueTiver, textoDaFalta } from "./reservations";
@@ -308,10 +308,10 @@ async function liquidarUmaVez(
 
   // integrações donas de estoque espelham a baixa (uma venda, uma baixa)
   if (seguradas.length > 0) {
-    pushStockToNuvemshop(
+    espelharEstoqueSemQuebrar(
       pedido.companyId,
       seguradas.map((s) => s.variantId)
-    ).catch(() => {});
+    );
     pushStockToJueri(
       pedido.companyId,
       seguradas.map((s) => ({ variantId: s.variantId, delta: -s.quantity }))

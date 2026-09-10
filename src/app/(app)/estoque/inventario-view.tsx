@@ -457,6 +457,7 @@ function Linha({
               <Lock className="size-3 text-slate-400" />
               <span className={corDoNumero}>{l.disponivel}</span>
               <DonoBadge dono={l.dono} />
+              <AvisoDeEnvio pendente={l.envioPendente} />
             </span>
           ) : (
             <span className={`tabular-nums ${corDoNumero}`}>{l.disponivel}</span>
@@ -505,6 +506,26 @@ function Linha({
         />
       )}
     </>
+  );
+}
+
+/**
+ * RN-053 · a baixa desta peça ainda não foi confirmada pela Nuvemshop.
+ *
+ * Enquanto o ⚠️ estiver aqui, o número dos dois lados PODE estar diferente —
+ * é exatamente a peça que ficou com 0 aqui e 41 lá sem ninguém saber. O
+ * sistema tenta de novo sozinho; a frase diz isso para a lojista não sair
+ * mexendo no número (que nem seria aceito: a peça é da Nuvemshop).
+ */
+function AvisoDeEnvio({ pendente }: { pendente?: boolean }) {
+  if (!pendente) return null;
+  return (
+    <span
+      title="A baixa desta peça ainda não foi confirmada pela Nuvemshop. O sistema está tentando de novo sozinho — se continuar, use o botão Sincronizar em Configurações."
+      className="ml-1 rounded-full bg-amber-50 text-amber-700 ring-1 ring-inset ring-amber-200 px-1.5 py-0.5 text-[10px] font-medium"
+    >
+      ⚠️ enviando
+    </span>
   );
 }
 

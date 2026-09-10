@@ -18,6 +18,18 @@
  * Migração antiga que falhar NUNCA é destravada por aqui: pode não ser
  * reexecutável, e re-rodar SQL não-idempotente em produção é pior que o
  * deploy parado.
+ *
+ * Existe um segundo caso, descoberto em 10/09/2026: a migração que NÃO TEM
+ * conserto por repetição — ela falha de novo toda vez. Foi o que aconteceu
+ * com `20260909181000`, que trazia dois `CREATE INDEX CONCURRENTLY` no mesmo
+ * arquivo: o Postgres executa instruções mandadas juntas dentro de uma
+ * transação implícita, e CONCURRENTLY é proibido ali (erro 25001). Tentar de
+ * novo dá o mesmo erro, para sempre, e o site fica preso na versão velha.
+ * Para essas existe a lista PULAVEIS: o que elas fariam já está REFEITO por
+ * migrações posteriores, então elas são carimbadas como aplicadas (o Postgres
+ * desfez tudo — não sobrou nada delas no banco) e a fila anda. Entrar aqui
+ * exige as duas coisas: a migração é comprovadamente impossível de repetir E
+ * o efeito dela já vem por outro caminho.
  */
 import { spawnSync } from "node:child_process";
 
@@ -33,6 +45,13 @@ const REEXECUTAVEIS = new Set([
   // no mesmo. Sem estar aqui, um lock timeout na criação do índice travaria
   // TODOS os deploys com P3009 até alguém mexer no banco à mão.
   "20260903090000_financeiro_baixa_automatica_unica",
+]);
+
+const PULAVEIS = new Map([
+  [
+    "20260909181000_order_item_variant_product_idx",
+    "os dois índices voltam em 20260910090000 e 20260910090100, um por migração",
+  ],
 ]);
 
 function rodar(args) {
@@ -53,6 +72,24 @@ if (falhada && REEXECUTAVEIS.has(falhada)) {
       `ela é reexecutável (IF NOT EXISTS), destravando e tentando de novo...`
   );
   const resolve = rodar(["prisma", "migrate", "resolve", "--rolled-back", falhada]);
+  if (resolve.status === 0) {
+    tentativa = rodar(["prisma", "migrate", "deploy"]);
+    if (tentativa.status === 0) {
+      console.log("[migrate-deploy] Destravado: migrações aplicadas na nova tentativa.");
+      process.exit(0);
+    }
+  }
+}
+
+// A que não tem conserto por repetição: carimba como aplicada (o Postgres
+// desfez tudo, não sobrou nada dela no banco) e segue — quem cria os objetos
+// dela é uma migração posterior.
+if (falhada && PULAVEIS.has(falhada)) {
+  console.log(
+    `\n[migrate-deploy] A migração ${falhada} ficou marcada como falhada e NÃO ` +
+      `pode ser repetida — ${PULAVEIS.get(falhada)}. Carimbando como aplicada e seguindo...`
+  );
+  const resolve = rodar(["prisma", "migrate", "resolve", "--applied", falhada]);
   if (resolve.status === 0) {
     tentativa = rodar(["prisma", "migrate", "deploy"]);
     if (tentativa.status === 0) {

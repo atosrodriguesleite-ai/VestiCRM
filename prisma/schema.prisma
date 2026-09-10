@@ -72,6 +72,8 @@ model Company {
   /// RN-051: última varredura do alerta de mínimo (trava atômica; roda de
   /// carona no tráfego, nunca cron — ADR-002)
   estoqueAlertaRunAt DateTime?
+  /// RN-053: última rodada de reenvio do estoque para a Nuvemshop (mesma trava)
+  nsEstoqueRunAt     DateTime?
   createdAt         DateTime @default(now())
 
   // Identidade visual do catálogo público (100% personalizável pelo lojista)
@@ -131,6 +133,7 @@ model Company {
   mediaAssets    MediaAsset[]
   inventoryMovs  InventoryMovement[]
   estoqueMinimos EstoqueMinimoCategoria[]
+  nsEstoquePend  NuvemshopEstoquePendente[]
   customerEvents CustomerEvent[]
   originRules    OriginRule[]
   catalogColors  CompanyColor[]
@@ -1718,6 +1721,7 @@ model ProductVariant {
 
   items     OrderItem[]
   movements InventoryMovement[]
+  nsEstoquePend NuvemshopEstoquePendente[]
 
   @@unique([productId, color, size])
   @@index([productId])
@@ -2113,6 +2117,33 @@ model EstoqueMinimoCategoria {
   updatedAt DateTime @updatedAt
 
   @@unique([companyId, category])
+}
+
+/// RN-053 · O ENVIO DE ESTOQUE PARA A NUVEMSHOP QUE NÃO CHEGOU.
+///
+/// Venda aqui devolve o número para a Nuvemshop (`pushStockToNuvemshop`). Esse
+/// aviso podia se perder CALADO — a chamada é solta (a Vercel congela a função
+/// junto com a resposta) e a recusa do provedor era ignorada. Os dois lados
+/// se afastavam sem ninguém saber: a peça vendida aqui continuava à venda lá.
+/// Agora a intenção de enviar NASCE no banco antes da chamada e só sai daqui
+/// quando a Nuvemshop confirma.
+model NuvemshopEstoquePendente {
+  id         String         @id @default(cuid())
+  companyId  String
+  company    Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  variantId  String
+  variant    ProductVariant @relation(fields: [variantId], references: [id], onDelete: Cascade)
+  /// quantas vezes já tentamos (define a espera da próxima)
+  tentativas Int            @default(0)
+  /// quando tentar de novo; nulo = desistiu (fica como aviso na tela)
+  proximaEm  DateTime?
+  ultimoErro String?
+  createdAt  DateTime       @default(now())
+  updatedAt  DateTime       @updatedAt
+
+  /// uma fila por peça: a venda seguinte da mesma peça atualiza, não empilha
+  @@unique([variantId])
+  @@index([companyId, proximaEm])
 }
 
 model InventoryMovement {

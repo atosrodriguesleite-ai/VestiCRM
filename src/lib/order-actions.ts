@@ -1,7 +1,7 @@
 import type { Prisma } from "@prisma/client";
 import { db } from "./db";
 import { baixasLiquidasDoPedido } from "./estoque-do-pedido";
-import { pushStockToNuvemshop } from "./nuvemshop";
+import { espelharEstoqueSemQuebrar } from "./nuvemshop";
 import { pushStockToJueri } from "./jueri";
 
 /**
@@ -124,17 +124,18 @@ export async function temPagamentoConfirmadoDeGateway(orderId: string) {
 /**
  * Integrações donas de estoque precisam saber que as peças voltaram — sem
  * isso a Nuvemshop continuava vendendo com o número velho (RN-014). Roda
- * FORA da transação e nunca derruba a rota (o push tem retry próprio).
+ * FORA da transação e nunca derruba a rota: vai pelo `after()` do Next, e
+ * envio que não chegar volta pela repesca da RN-053.
  */
 export function avisarIntegracoesDaDevolucao(
   companyId: string,
   devolvidas: { variantId: string; quantity: number }[]
 ) {
   if (devolvidas.length === 0) return;
-  pushStockToNuvemshop(
+  espelharEstoqueSemQuebrar(
     companyId,
     devolvidas.map((d) => d.variantId)
-  ).catch(() => {});
+  );
   pushStockToJueri(
     companyId,
     devolvidas.map((d) => ({ variantId: d.variantId, delta: d.quantity }))

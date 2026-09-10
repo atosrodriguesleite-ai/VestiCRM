@@ -1,4 +1,5 @@
 import crypto from "crypto";
+import { after } from "next/server";
 import { db } from "./db";
 import { encryptSecret, decryptSecret } from "./crypto";
 import { intakeLead, normalizePhone } from "./intake";
@@ -9,6 +10,17 @@ import { notifySalePaid } from "./push";
 import { winLinkedOpportunity, garantirCartaoDoPedido } from "./opportunity-sync";
 import { comNumeroUnico } from "./numero-do-pedido";
 import { limparDescricaoHtml, temEntidadeHtml } from "./descricao-limpa";
+import { logServerError } from "./health";
+import {
+  MS_ORCAMENTO_REPESCA_ESTOQUE,
+  confirmarEnvio,
+  desistirDoEnvio,
+  devolverTravaDaRepesca,
+  marcarEnvioPendente,
+  pecasParaRepescar,
+  registrarFalhaDeEnvio,
+  tomarTravaDaRepesca,
+} from "./nuvemshop-estoque-pendente";
 
 /**
  * Integração Nuvemshop — a loja online é a DONA do estoque e dos produtos;
@@ -1500,13 +1512,47 @@ export function maybeSyncNuvemshop(companyId: string) {
 
 // ---- Estoque: catálogo → Nuvemshop ----------------------------------------
 
+/** Nome da peça como a lojista vê, para as mensagens de erro. */
+function nomeDaPeca(v: { color: string | null; size: string | null; product: { name: string } }) {
+  const grade = [v.color, v.size].filter(Boolean).join(" ");
+  return grade ? `${v.product.name} · ${grade}` : v.product.name;
+}
+
+/**
+ * Manda o estoque de UMA peça e diz se a Nuvemshop CONFIRMOU.
+ *
+ * Antes o resultado do PUT era jogado fora: recusa do provedor (token
+ * vencido, 422, 500, timeout) passava como sucesso e os dois lados iam
+ * divergindo calados. Ver RN-053.
+ */
+async function enviarEstoqueDaPeca(
+  conn: Conn,
+  nsProductId: string,
+  nsVariantId: string,
+  stock: number
+): Promise<{ ok: true } | { ok: false; motivo: string }> {
+  const r = await api(conn, "PUT", `/products/${nsProductId}/variants/${nsVariantId}`, { stock });
+  if (r.ok) return { ok: true };
+  // status 0 é o `api()` engolindo a exceção do fetch: rede fora ou o timeout
+  // de 15s. Dizer isso em português é o que a lojista vai ler no painel.
+  const motivo =
+    r.status === 0
+      ? "A Nuvemshop não respondeu (rede fora ou demora demais)"
+      : `A Nuvemshop recusou o envio (código ${r.status})`;
+  return { ok: false, motivo };
+}
+
 /**
  * Baixa de estoque feita AQUI (pedido do catálogo pago) é devolvida pra
  * Nuvemshop, mantendo a dona do estoque em dia. Só variações vinculadas.
+ *
+ * RN-053: a peça entra na fila ANTES da tentativa e só sai quando a Nuvemshop
+ * CONFIRMA. Envio recusado — ou função congelada pela Vercel no meio — deixa a
+ * linha lá, e a repesca de carona no tráfego tenta de novo.
  */
 export async function pushStockToNuvemshop(companyId: string, variantIds: string[]) {
+  if (variantIds.length === 0) return;
   const conn = await loadConn(companyId);
-  if (!conn || variantIds.length === 0) return;
   const variants = await db.productVariant.findMany({
     where: { id: { in: variantIds }, nuvemshopId: { not: null }, product: { companyId } },
     include: { product: true },
@@ -1519,8 +1565,108 @@ export async function pushStockToNuvemshop(companyId: string, variantIds: string
     // empurrar 9996 para lá transformaria o "vende sempre" da loja num
     // número finito. Infinito nunca esgota; não há o que espelhar.
     if (v.stock >= ZONA_INFINITO) continue;
-    await api(conn, "PUT", `/products/${nsProductId}/variants/${v.nuvemshopId}`, {
-      stock: v.stock,
+
+    // a fila nasce antes da tentativa: se a função morrer aqui, a peça fica
+    // marcada e a repesca cuida — era exatamente esse o envio que sumia
+    await marcarEnvioPendente(companyId, v.id);
+
+    // loja desconectada não tem para onde mandar: a peça FICA na fila, e o
+    // dia em que a lojista reconectar a repesca acerta o número
+    if (!conn) continue;
+
+    const r = await enviarEstoqueDaPeca(conn, nsProductId, v.nuvemshopId!, v.stock);
+    if (r.ok) {
+      await confirmarEnvio(v.id);
+      continue;
+    }
+    const temMaisTentativas = await registrarFalhaDeEnvio(companyId, v.id, r.motivo);
+    if (!temMaisTentativas) {
+      await desistirDoEnvio(companyId, v.id, nomeDaPeca(v), r.motivo);
+    }
+  }
+}
+
+/**
+ * O jeito CERTO de chamar o espelho de estoque de dentro de uma rota (RN-053).
+ *
+ * Chamada solta (`pushStockToNuvemshop(...).catch(() => {})`) parece
+ * inofensiva e não é: a Vercel CONGELA a função assim que a resposta sai, e o
+ * trabalho que ficou pendurado simplesmente não acontece — sem erro, sem
+ * registro, sem nada. É a mesma lição da RN-033, e foi metade do sumiço do
+ * estoque da peça. Dentro do `after()` o Next segura a função até o trabalho
+ * terminar.
+ *
+ * O `try/catch` cobre quem chama fora de uma requisição (script, teste): ali
+ * o `after()` recusa, e aí a chamada solta é o que existe.
+ */
+export function espelharEstoqueSemQuebrar(companyId: string, variantIds: string[]): void {
+  const trabalho = () =>
+    pushStockToNuvemshop(companyId, variantIds).catch((e) =>
+      console.error("[nuvemshop] falhou ao espelhar o estoque", companyId, e)
+    );
+  try {
+    after(trabalho);
+  } catch {
+    void trabalho();
+  }
+}
+
+/**
+ * REPESCA dos envios de estoque que não chegaram (RN-053).
+ *
+ * Pega carona no tráfego com trava por loja — nunca um 3º cron (ADR-002) — e
+ * tem orçamento de tempo: cada PUT pode levar 15s, e a rodada roda depois da
+ * resposta, ainda dentro da vida da função.
+ */
+export async function varrerEnviosDeEstoqueSeDevido(companyId: string): Promise<void> {
+  let travaTomadaEm: Date | null = null;
+  try {
+    travaTomadaEm = await tomarTravaDaRepesca(companyId);
+    if (!travaTomadaEm) return;
+
+    const pendentes = await pecasParaRepescar(companyId);
+    if (pendentes.length === 0) return;
+
+    const conn = await loadConn(companyId);
+    if (!conn) return; // desconectada: as peças ficam esperando a reconexão
+
+    const variants = await db.productVariant.findMany({
+      where: { id: { in: pendentes.map((p) => p.variantId) } },
+      include: { product: true },
     });
+    const porId = new Map(variants.map((v) => [v.id, v]));
+    const limite = Date.now() + MS_ORCAMENTO_REPESCA_ESTOQUE;
+
+    for (const p of pendentes) {
+      // só começa um envio que ainda cabe no que sobrou do relógio
+      if (Date.now() + 15_000 > limite) break;
+      const v = porId.get(p.variantId);
+      const nsProductId = v ? (v.nuvemshopProductId ?? v.product.nuvemshopId) : null;
+      // peça que perdeu o vínculo (ou o estoque virou infinito lá) não tem o
+      // que espelhar: sai da fila em vez de tentar para sempre
+      if (!v || !v.nuvemshopId || !nsProductId || v.stock >= ZONA_INFINITO) {
+        await confirmarEnvio(p.variantId);
+        continue;
+      }
+      const r = await enviarEstoqueDaPeca(conn, nsProductId, v.nuvemshopId, v.stock);
+      if (r.ok) {
+        await confirmarEnvio(v.id);
+        continue;
+      }
+      const temMaisTentativas = await registrarFalhaDeEnvio(companyId, v.id, r.motivo);
+      if (!temMaisTentativas) {
+        await desistirDoEnvio(companyId, v.id, nomeDaPeca(v), r.motivo);
+      }
+    }
+  } catch (e) {
+    // devolve a trava para a próxima batida tentar de novo (senão a loja
+    // ficava um minuto calada) e registra no painel de Saúde
+    if (travaTomadaEm) await devolverTravaDaRepesca(companyId, travaTomadaEm);
+    await logServerError({
+      source: "server",
+      path: "/nuvemshop/estoque/repesca",
+      message: "Falha na repesca do estoque da Nuvemshop",
+      detail: e instanceof Error ? e.message : String(e),
+    }).catch(() => null);
   }
 }

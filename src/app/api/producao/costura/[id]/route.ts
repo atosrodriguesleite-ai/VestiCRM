@@ -3,7 +3,7 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import { requireProducao, producaoErro } from "@/lib/producao-auth";
 import { norm, baseNome, corDoNome } from "@/lib/nuvemshop";
-import { pushStockToNuvemshop } from "@/lib/nuvemshop";
+import { espelharEstoqueSemQuebrar } from "@/lib/nuvemshop";
 
 /**
  * Lançamento da COSTURA: a peça foi montada e conferida → dá ENTRADA no
@@ -90,7 +90,7 @@ export async function PATCH(
         },
       });
       // loja online conectada recebe o estoque novo sozinha
-      pushStockToNuvemshop(user.companyId, [alvo.variantId]).catch(() => {});
+      espelharEstoqueSemQuebrar(user.companyId, [alvo.variantId]);
       return NextResponse.json({
         ok: true,
         lancadas: parsed.data.pieces,
