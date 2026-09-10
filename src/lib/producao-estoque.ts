@@ -1,5 +1,5 @@
 import { db } from "./db";
-import { norm, baseNome, corDoNome, pushStockToNuvemshop } from "./nuvemshop";
+import { norm, baseNome, corDoNome, espelharEstoqueSemQuebrar } from "./nuvemshop";
 
 /**
  * Entrada de peças prontas no estoque REAL do catálogo, com o mesmo
@@ -44,7 +44,7 @@ export async function lancaNoEstoque(
         reason: `${motivo} por ${userName}`,
       },
     });
-    pushStockToNuvemshop(companyId, [v.id]).catch(() => {});
+    espelharEstoqueSemQuebrar(companyId, [v.id]);
     return `${p.name} · ${v.color} · ${v.size}`;
   }
   return null;

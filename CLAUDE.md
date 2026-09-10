@@ -87,6 +87,15 @@ discordarem — inclusive se o teste citado como guardião não declarar a regra
    drift; `prisma migrate dev` gera lixo (ex.: ALTER do default de
    `Customer.linkCode`, que deve ser REMOVIDO de qualquer diff). Produção
    aplica via `vercel-build` (`prisma migrate deploy`).
+   **`CREATE INDEX CONCURRENTLY` = UMA instrução por arquivo de migração**
+   (10/09/2026): várias instruções mandadas juntas rodam dentro de uma
+   transação implícita do Postgres, e CONCURRENTLY é proibido ali (erro
+   25001). A migração falha inteira, fica marcada como falhada e **PARA todos
+   os deploys seguintes** (P3009) — foi o que aconteceu com
+   `20260909181000`, que trazia dois índices no mesmo arquivo. O destravador
+   (`scripts/migrate-deploy.mjs`) cobre os dois casos: a migração
+   reexecutável ele repete; a que não tem conserto por repetição ele carimba
+   como aplicada, e só quando o efeito dela já vem por outra migração.
 3. **NUNCA rodar `db:seed` em produção** (zera/duplica dados de lojas reais).
 4. Fotos e mídias ficam como **data-URL no banco** (servidas por
    `/api/img/[id]` com cache). Funciona, mas é a dívida técnica nº 1 —
@@ -771,6 +780,54 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   "50 pontos para olhar" com 45 sendo lembrança de coisa resolvida, e as 5 de
   verdade sumiam no meio. "Já acabou" só vale quando deu para conferir: com a
   leitura incompleta a disputa continua avisando.
+  **RN-053 · O ENVIO DE ESTOQUE PARA A NUVEMSHOP NÃO SE PERDE CALADO**
+  (`lib/nuvemshop-estoque-pendente.ts` + `pushStockToNuvemshop`, 10/09/2026):
+  relato do dono — a mesma peça com **0 aqui e 41 lá**, e a conferência da
+  integração dizendo *"o vínculo está certo"*. Não era o vínculo: era o
+  **aviso da baixa que nunca chegou**. Duas causas, as duas mudas: (1) a
+  resposta do PUT era **jogada fora** — token vencido, 422, 500 ou o timeout
+  de 15s passavam como sucesso; (2) a chamada era **solta**
+  (`push(...).catch(() => {})`), e a Vercel **congela a função junto com a
+  resposta** — o envio nem chegava a acontecer. É a MESMA lição da RN-033, e
+  agora o caminho é um só: `espelharEstoqueSemQuebrar`, dentro do `after()`.
+  O desenho da fila é o da RN-028 (o arquivo do WhatsApp que não chegou), que
+  já provou funcionar: a peça é marcada **ANTES** da tentativa e só sai quando
+  a Nuvemshop **CONFIRMA**; o que sobrou é repescado **de carona no tráfego**
+  (sync da inbox e abertura do Estoque), com espera crescente (30s → 6h) e
+  trava atômica por loja (`Company.nsEstoqueRunAt`) — **nunca um 3º cron**
+  (ADR-002) —, com orçamento de tempo porque cada PUT pode levar 15s. **Uma
+  fila por PEÇA** (único por `variantId`): o que se manda é o estoque de
+  AGORA, **relido imediatamente antes do PUT**, então dez baixas seguidas da
+  mesma variação são um envio só — enfileirar por movimento mandaria número
+  velho por cima do certo. E **sucesso só conta quando o que chegou lá é o que
+  temos aqui** (`confirmarEnvio` confere o número contra o cadastro): outra
+  venda da mesma peça no meio de um PUT de 15s fazia o envio "dar certo" com o
+  número velho, e o sucesso com número velho era indistinguível do sucesso de
+  verdade — a divergência voltava calada (achado da revisão). Não bateu, a
+  peça FICA na fila e a repesca manda o certo.
+  **O botão Sincronizar NÃO passa por cima da baixa pendente**: ele PUXA o
+  número de lá, e no estado ⚠️ o mais novo é o NOSSO — a venda aconteceu aqui
+  e o aviso não chegou. Puxar devolveria as peças vendidas ao catálogo, ou
+  seja, a loja voltaria a vender o que não tem: exatamente o estrago que esta
+  regra existe para evitar (e era a saída que o próprio aviso recomendava).
+  Peça com envio pendente fica de fora da gravação de estoque da sync.
+  **Loja desconectada não perde a baixa**: a peça FICA na fila e o dia da
+  reconexão acerta o número. Peça que perdeu o vínculo (ou virou "infinito"
+  lá) sai da fila em vez de tentar para sempre. **Desistir é explícito**:
+  acabadas as tentativas a peça PARA de ser tentada (a linha perde a data, que
+  é o que a repesca lê) e o caso APARECE — linha na Central de Comunicação
+  (`nuvemshop.estoque-nao-enviado`) e caso no painel de Saúde, com o nome da
+  peça. **A linha não é apagada**: apagando, o ⚠️ sumia da tela justo na peça
+  que de fato ficou divergente. Ela sai sozinha quando um envio daquela peça
+  for confirmado, e **qualquer movimento novo da peça REABRE a rodada** — sem
+  isso ela ficava divergente para sempre: o token vence às 9h, a peça esgota
+  as tentativas às 18h, a lojista renova às 19h e nada mais repescava. E o **alarme toca UMA vez por rodada de tentativas**, nunca a
+  cada venda: desistência que vira spam faz a loja parar de ler a Central. E a divergência **aparece na própria linha**
+  (⚠️ no Inventário e na tela Produtos, com a frase e o caminho): antes ela só
+  aparecia para quem rodasse a conferência da integração — foi assim que a
+  peça ficou dias com o número errado de um dos lados, e divergência de
+  estoque ou faz a loja deixar de vender peça que tem, ou vender peça que não
+  tem.
   **Jueri** (sync 2x/dia via cron `jueri-sync`).
 - **Marketing**: Gestor de Bio (temas, cores custom, capa, QR, métricas
   BioView/BioClick com filtro de data, atribuição `utm_source=bio` no

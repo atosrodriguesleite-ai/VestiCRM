@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { after } from "next/server";
 import { varrerMinimosSeDevido } from "@/lib/estoque/alerta";
+import { varrerEnviosDeEstoqueSeDevido } from "@/lib/nuvemshop";
 import { AuthError } from "@/lib/auth";
 import { porteiraEstoque, podeAjustarEstoque } from "@/lib/estoque/gate";
 import { podeOperarIntegracoes } from "@/lib/scope";
@@ -21,6 +22,9 @@ export async function GET(req: NextRequest) {
       ? (filtroPedido as FiltroDoInventario)
       : "todos";
     after(() => varrerMinimosSeDevido(porta.user.companyId));
+    // RN-053: o envio de estoque que não chegou na Nuvemshop tenta de novo de
+    // carona no tráfego (trava por loja) — nunca um 3º cron (ADR-002)
+    after(() => varrerEnviosDeEstoqueSeDevido(porta.user.companyId));
     const inv = await montarInventario(porta.user.companyId, {
       q: sp.get("q") ?? "",
       categoria: sp.get("categoria") ?? "",

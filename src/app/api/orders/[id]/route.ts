@@ -12,8 +12,8 @@ import {
   avisarIntegracoesDaDevolucao,
 } from "@/lib/order-actions";
 import { notifySalePaid } from "@/lib/push";
-import { pushStockToNuvemshop } from "@/lib/nuvemshop";
-import { pushStockToJueri } from "@/lib/jueri";
+import { espelharEstoqueSemQuebrar } from "@/lib/nuvemshop";
+import { espelharJueriSemQuebrar } from "@/lib/jueri";
 import {
   orderStatusLabel,
   orderNumber,
@@ -426,15 +426,15 @@ export async function PATCH(
       // divergiam para sempre. Pelo delta EFETIVO (o que de fato saiu/voltou
       // do estoque), não pela diferença dos itens.
       if (efetivos.length > 0) {
-        pushStockToNuvemshop(
+        espelharEstoqueSemQuebrar(
           user.companyId,
           efetivos.map((e) => e.variantId)
-        ).catch(() => {});
-        pushStockToJueri(
+        );
+        espelharJueriSemQuebrar(
           user.companyId,
           // efetivo>0 = baixou mais no CRM → Jueri desconta; <0 devolve
           efetivos.map((e) => ({ variantId: e.variantId, delta: -e.delta }))
-        ).catch(() => {});
+        );
       }
       // o funil acompanha o VALOR VENDIDO (frete não é negociação)
       await syncOpportunityValue(user.companyId, order.opportunityId, totals.netTotal);
@@ -1186,11 +1186,11 @@ export async function PATCH(
       // Integrações espelham o que REALMENTE mexeu no estoque (uma venda,
       // uma baixa) — pelo delta efetivo, não pela quantidade do item.
       if (mexidas.length > 0) {
-        pushStockToNuvemshop(
+        espelharEstoqueSemQuebrar(
           user.companyId,
           mexidas.map((m) => m.variantId)
-        ).catch(() => {});
-        pushStockToJueri(user.companyId, mexidas).catch(() => {});
+        );
+        espelharJueriSemQuebrar(user.companyId, mexidas);
       }
     }
 

@@ -11,6 +11,7 @@ import { sincronizarFotosSeDevido } from "@/lib/comm/fotos";
 import { repescarMidiasPendentes } from "@/lib/comm/midia-pendente";
 import { fecharConfirmacoesSemQuebrar } from "@/lib/comm/engine";
 import { varrerMinimosSeDevido } from "@/lib/estoque/alerta";
+import { varrerEnviosDeEstoqueSeDevido } from "@/lib/nuvemshop";
 import { runAutomationsIfDue } from "@/lib/automations-run";
 
 /**
@@ -46,6 +47,8 @@ export async function GET(req: NextRequest) {
     after(() => sincronizarFotosSeDevido(user.companyId));
     // RN-051: alerta de mínimo de estoque — de carona, com trava por loja
     after(() => varrerMinimosSeDevido(user.companyId));
+    // RN-053: repesca do estoque que não chegou na Nuvemshop, mesma carona
+    after(() => varrerEnviosDeEstoqueSeDevido(user.companyId));
     // ARQUIVO QUE NÃO CHEGOU (RN-028): a fila é varrida aqui, na rota mais
     // movimentada do app, no máximo uma vez por minuto no sistema inteiro.
     // Sem cron novo — um 3º cron bloqueia TODOS os deploys (ADR-002).

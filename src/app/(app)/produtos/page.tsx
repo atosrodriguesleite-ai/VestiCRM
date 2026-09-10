@@ -1,5 +1,6 @@
 import { ExternalLink, QrCode } from "lucide-react";
 import { donoDoEstoque } from "@/lib/estoque/dono-do-estoque";
+import { envioPendentePorVariacao } from "@/lib/nuvemshop-estoque-pendente";
 import { requireUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { imageHref } from "@/lib/img";
@@ -62,6 +63,15 @@ export default async function ProductsPage() {
     p.variants = ordenarVariantes(p.variants);
   }
 
+  // RN-053: peças cuja baixa ainda não foi confirmada pela Nuvemshop — a
+  // lojista precisa ver isso NA LINHA, senão a divergência só aparece quando
+  // alguém roda a conferência da integração (e foi assim que a peça ficou
+  // dias com 0 aqui e 41 lá)
+  const envioPendente = await envioPendentePorVariacao(
+    user.companyId,
+    products.flatMap((p) => p.variants.filter((v) => v.nuvemshopId).map((v) => v.id))
+  );
+
   const items: ProductItem[] = products.map((p) => ({
     id: p.id,
     name: p.name,
@@ -86,6 +96,8 @@ export default async function ProductsPage() {
       stock: v.stock,
       sku: v.sku,
       dono: donoDoEstoque({ nuvemshopId: v.nuvemshopId, product: { jueriId: p.jueriId } }),
+      // RN-053: a baixa desta peça ainda não foi confirmada pela Nuvemshop
+      envioPendente: envioPendente.has(v.id),
     })),
   }));
 

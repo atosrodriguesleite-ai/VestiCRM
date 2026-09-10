@@ -66,6 +66,8 @@ export type ProductItem = {
     sku: string | null;
     /** quem manda no estoque desta variação (RN-050): null = a loja, aqui */
     dono: DonoExterno | null;
+    /** RN-053: baixa ainda não confirmada pela Nuvemshop (⚠️ na linha) */
+    envioPendente?: boolean;
   }[];
 };
 
@@ -1271,6 +1273,18 @@ function ProductDetailModal({
                           <span className="rounded-full bg-sky-50 text-sky-700 ring-1 ring-inset ring-sky-100 px-1.5 py-0.5 text-[10px] font-medium">
                             {NOME_DO_DONO[v.dono]}
                           </span>
+                          {v.envioPendente && (
+                            // RN-053: a baixa desta peça ainda não foi
+                            // confirmada lá — o número dos dois lados PODE
+                            // estar diferente enquanto isso. O sistema tenta
+                            // de novo sozinho.
+                            <span
+                              title="A baixa desta peça ainda não foi confirmada pela Nuvemshop, então o número dos dois lados pode estar diferente. O sistema tenta de novo sozinho; se o aviso ficar, o caso está na Central de Comunicação com o motivo."
+                              className="rounded-full bg-amber-50 text-amber-700 ring-1 ring-inset ring-amber-200 px-1.5 py-0.5 text-[10px] font-medium"
+                            >
+                              ⚠️ enviando
+                            </span>
+                          )}
                         </span>
                       ) : (
                         <input

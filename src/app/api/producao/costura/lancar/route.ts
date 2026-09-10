@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { requireProducao, producaoErro } from "@/lib/producao-auth";
-import { norm, baseNome, corDoNome, pushStockToNuvemshop } from "@/lib/nuvemshop";
+import { norm, baseNome, corDoNome, espelharEstoqueSemQuebrar } from "@/lib/nuvemshop";
 
 /**
  * Lançamento DIÁRIO por SKU: quem repõe o estoque conta as peças prontas
@@ -122,7 +122,7 @@ export async function POST(req: NextRequest) {
     );
 
     if (alvo) {
-      pushStockToNuvemshop(user.companyId, [alvo.variantId]).catch(() => {});
+      espelharEstoqueSemQuebrar(user.companyId, [alvo.variantId]);
       return NextResponse.json({
         ok: true,
         lancadas: d.pieces,
