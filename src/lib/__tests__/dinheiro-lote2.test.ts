@@ -17,7 +17,12 @@ describe("NF-e bate com o que a cliente paga", () => {
     // a conta virou função pura (itensDaNotaFiscal) na blindagem 09/08 —
     // os casos de centavo vivem em nfe-e-pix-blindados.test.ts
     expect(bling).toContain("netTotal / subtotal");
-    expect(bling).toContain("itensDaNotaFiscal(order.items, order.subtotal, order.netTotal)");
+    // os itens chegam com a informação fiscal resolvida (RN-055), mas a
+    // conta do centavo continua sendo a MESMA função pura sobre o subtotal e
+    // o netTotal do pedido — é isso que este guarda protege
+    expect(bling).toContain("itensDaNotaFiscal(");
+    expect(bling).toContain("order.subtotal,");
+    expect(bling).toContain("order.netTotal,");
     expect(bling).toContain("transporte: { frete:");
   });
   it("descrição do item sem 'null null'", () => {
