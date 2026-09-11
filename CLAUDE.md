@@ -1484,6 +1484,30 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   etiqueta COM a NF-e (chave de acesso); sem nota, sai com declaração de
   conteúdo (`/declaracao/[id]`). A chave é conferida no Bling ANTES de debitar
   o saldo, e a chave usada fica na própria etiqueta (`Shipping.nfeKey`).
+  **RN-054 · A NATUREZA DE OPERAÇÃO DA NOTA SEGUE O DOCUMENTO DA CLIENTE**
+  (`lib/nfe-natureza.ts`, 11/09/2026 — **EM CONSTRUÇÃO**, a regra pura está
+  pronta e testada; falta ligar no `emitirNfeDoPedido` e a tela de
+  Configurações): relato do dono ao montar a integração do Bling — a natureza
+  padrão da conta dele é *"Venda de mercadoria a não contribuinte"* e o
+  sistema não mandava natureza NENHUMA, então TODA nota sairia por essa. Só
+  que a loja de atacado vende para os dois públicos: a lojista que compra com
+  **CPF** (a maioria, segundo o dono) é consumidora final e "não
+  contribuinte" está certo para ela; a que compra com **CNPJ e inscrição
+  estadual** é CONTRIBUINTE de ICMS, com outro CFOP e outro tratamento de
+  imposto. Natureza errada não é defeito de tela: é **documento fiscal
+  emitido errado**, que a loja responde perante o fisco. Por isso quem decide
+  é o DOCUMENTO de quem compra, nota a nota. **Contribuinte exige CNPJ E
+  inscrição estadual** — só o CNPJ não basta, porque existe CNPJ isento de IE
+  (prestador de serviço, MEI) que compra como consumidor final; na dúvida cai
+  em NÃO CONTRIBUINTE, que é o caso da maioria e o que já acontecia. **Os
+  números são do CONTADOR**: a loja cadastra em Configurações → Bling qual
+  natureza vale para cada caso (as que existem no Bling dela) e o sistema só
+  escolhe entre elas — nunca inventa. **Loja que não configurar nada não muda
+  em NADA**: sem natureza cadastrada o campo não vai na nota e o Bling usa a
+  padrão da conta, exatamente como antes. E a ficha **DIZ antes de emitir** em
+  que natureza a nota vai sair e por quê (`explicarNatureza`): nota fiscal não
+  se desfaz com um clique — cancelar tem prazo e deixa rastro —, então o erro
+  tem que aparecer ANTES.
   **RN-019 · Pacote por categoria e simulador de frete**
   (`lib/envios/pacote.ts` + `lib/envios/simulador.ts`): cada categoria guarda
   o peso e as **medidas de 1 peça dobrada**
