@@ -530,6 +530,13 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
 
 - **CRM**: clientes (carteira), funil de vendas, tarefas, automações,
   campanhas de disparo, tags/interesses, notificações (sino + push PWA).
+  **Push de venda paga vai no `after()`** (`avisarVendaPagaSemQuebrar` em
+  `lib/push.ts`, 11/09/2026): chamada solta era congelada pela Vercel junto
+  com a resposta e o celular não tocava "às vezes" — mesma cura da porta do
+  Financeiro (RN-033). Dispara ao ENTRAR em qualquer status pago (RN-001),
+  pelas três portas: tela do pedido, Pix do gateway e loja online. O aparelho
+  precisa estar inscrito (Configurações → notificações de venda; iPhone só
+  com o app na tela inicial) e as chaves VAPID precisam existir na Vercel.
 - **Central de Atendimento WhatsApp** (`/whatsapp`, tela `inbox.tsx`):
   fila/chats/contatos (vendedora vê os dela + a fila; o interruptor
   **"vê todas as conversas do chat"** na tela Equipe — `User.chatVisaoTotal`,

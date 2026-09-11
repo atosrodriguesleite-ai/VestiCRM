@@ -1,4 +1,5 @@
 import webpush from "web-push";
+import { after } from "next/server";
 import { db } from "./db";
 
 /**
@@ -114,7 +115,35 @@ async function enviarPara(
   return { sent };
 }
 
-/** Notificação de venda paga (o "ka-ching" 💰). */
+/**
+ * O AVISO DE VENDA NUNCA SE PERDE NO CONGELAMENTO DA VERCEL.
+ *
+ * Relato do dono (11/09/2026): "marquei uma venda como pago e não recebi a
+ * notificação no celular". O envio era chamado SOLTO, logo antes de a rota
+ * responder — e a Vercel congela a função junto com a resposta: o pedido ao
+ * serviço de push, que é uma chamada HTTP, ficava pela metade e o celular
+ * nunca tocava. Às vezes dava tempo, às vezes não: exatamente o "às vezes
+ * chega" que ninguém consegue reproduzir. É o MESMO buraco que a porta única
+ * do Financeiro já tinha fechado (RN-033), com a mesma cura: o trabalho vai
+ * no `after()` do Next, que a Vercel espera terminar.
+ *
+ * Vale para TODA porta que fecha uma venda: marcar pago na tela, Pix
+ * confirmado pelo gateway e venda da loja online. E "pago" é QUALQUER status
+ * pago (RN-001: pago, em produção, separação, enviado, entregue) — quem
+ * decide é `enteringPaid` na rota do pedido, com a lista PAID_ORDER_STATUSES.
+ */
+export function avisarVendaPagaSemQuebrar(
+  companyId: string,
+  order: { id: string; number: number; total: number; customerName: string }
+): void {
+  after(() =>
+    notifySalePaid(companyId, order).catch((e) =>
+      console.error("[push] falhou ao avisar a venda", order.id, e)
+    )
+  );
+}
+
+/** Notificação de venda paga (o "ka-ching" 💰). Prefira `avisarVendaPagaSemQuebrar`. */
 export async function notifySalePaid(
   companyId: string,
   order: { id: string; number: number; total: number; customerName: string }

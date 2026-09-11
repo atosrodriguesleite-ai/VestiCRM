@@ -1,6 +1,6 @@
 import { db } from "./db";
 import { orderNumber, PAID_ORDER_STATUSES } from "./orders";
-import { notifySalePaid } from "./push";
+import { avisarVendaPagaSemQuebrar } from "./push";
 import { espelharEstoqueSemQuebrar } from "./nuvemshop";
 import { espelharJueriSemQuebrar } from "./jueri";
 import { winLinkedOpportunity, garantirCartaoDoPedido } from "./opportunity-sync";
@@ -327,12 +327,14 @@ async function liquidarUmaVez(
   // sozinho. Sem o módulo, sai calada; falhando, não atrapalha a venda.
   sincronizarPedidoSemQuebrar(pedido.id);
 
-  notifySalePaid(pedido.companyId, {
+  // no after(): o webhook responde ao gateway e a Vercel congela a função —
+  // chamada solta deixava o celular sem o aviso (11/09/2026)
+  avisarVendaPagaSemQuebrar(pedido.companyId, {
     id: pedido.id,
     number: pedido.number,
     total: pedido.total,
     customerName: customer?.name ?? "Cliente",
-  }).catch(() => {});
+  });
 
   return { ok: true };
 }

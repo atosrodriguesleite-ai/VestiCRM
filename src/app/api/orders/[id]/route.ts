@@ -11,7 +11,7 @@ import {
   temPagamentoConfirmadoDeGateway,
   avisarIntegracoesDaDevolucao,
 } from "@/lib/order-actions";
-import { notifySalePaid } from "@/lib/push";
+import { avisarVendaPagaSemQuebrar } from "@/lib/push";
 import { espelharEstoqueSemQuebrar } from "@/lib/nuvemshop";
 import { espelharJueriSemQuebrar } from "@/lib/jueri";
 import {
@@ -1262,19 +1262,21 @@ export async function PATCH(
       });
     }
 
-    // 💰 Notificação de venda: dispara quando o pedido ACABOU de virar pago.
-    // Fire-and-forget: nunca atrasa nem quebra a resposta do pedido.
+    // 💰 Notificação de venda: dispara quando o pedido ACABOU de virar pago —
+    // para QUALQUER status pago (PAID_ORDER_STATUSES), vindo de um não pago.
+    // Vai no after(): chamada solta era congelada pela Vercel junto com a
+    // resposta, e o celular não tocava (relato do dono, 11/09/2026).
     if (enteringPaid) {
       const customer = await db.customer.findUnique({
         where: { id: clienteFinalId },
         select: { name: true },
       });
-      notifySalePaid(user.companyId, {
+      avisarVendaPagaSemQuebrar(user.companyId, {
         id: order.id,
         number: order.number,
         total: updated.total,
         customerName: customer?.name ?? "Cliente",
-      }).catch(() => {});
+      });
     }
 
     // PORTA ÚNICA DO FINANCEIRO (RN-033): qualquer mexida no pedido põe o

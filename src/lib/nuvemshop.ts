@@ -6,7 +6,7 @@ import { intakeLead, normalizePhone } from "./intake";
 import { round2 } from "./orders";
 import { separarDocumento } from "./documento";
 import { sincronizarPedidoSemQuebrar } from "./financeiro/porta-vendas";
-import { notifySalePaid } from "./push";
+import { avisarVendaPagaSemQuebrar } from "./push";
 import { winLinkedOpportunity, garantirCartaoDoPedido } from "./opportunity-sync";
 import { comNumeroUnico } from "./numero-do-pedido";
 import { limparDescricaoHtml, temEntidadeHtml } from "./descricao-limpa";
@@ -1363,12 +1363,14 @@ export async function ingestPaidOrder(companyId: string, nsOrderId: string) {
     if (res2.ok && res2.data) await upsertProduct(companyId, res2.data);
   }
 
-  notifySalePaid(companyId, {
+  // no after(): mesma régua da porta do Financeiro logo abaixo — chamada
+  // solta era congelada com a resposta do webhook e o aviso se perdia
+  avisarVendaPagaSemQuebrar(companyId, {
     id: order.id,
     number: order.number,
     total: order.total,
     customerName: nome,
-  }).catch(() => {});
+  });
 
   // PORTA ÚNICA DO FINANCEIRO (RN-033): a venda da loja online vira
   // recebimento pela MESMA porta do pedido do sistema
