@@ -36,6 +36,9 @@ import { ShippingMethodChanger } from "./shipping-method";
 import { DeleteOrder } from "./delete-order";
 import { ResaleCatalog } from "./resale-catalog";
 import { CobrancaNfe } from "./cobranca-nfe";
+import { resolverFiscalDoPedido } from "@/lib/bling";
+import { avisoDePecasSemNcm } from "@/lib/fiscal-ncm";
+import { explicarNatureza } from "@/lib/nfe-natureza";
 import { EnvioFrete } from "./envio-frete";
 import { TransferirVenda } from "./transferir-venda";
 import { ValoresEditor } from "./valores-editor";
@@ -75,6 +78,8 @@ export default async function OrderDetailPage({
           conversation: true,
           items: {
             include: {
+              // RN-055: a informação fiscal da peça, para o aviso antes de emitir
+              product: { select: { ncm: true, category: true, name: true } },
               variant: {
                 select: {
                   stock: true,
@@ -185,6 +190,26 @@ export default async function OrderDetailPage({
   const seguradas = order.stockDeducted
     ? [...(await baixasLiquidasDoPedido(db, order.id)).values()].reduce((s, n) => s + n, 0)
     : 0;
+
+  // RN-054/RN-055 · O QUE A NOTA VAI FAZER, DITO ANTES DE EMITIR. Sai da
+  // MESMA função que a emissão usa, então nunca diverge do que vai acontecer.
+  // Só com o Bling conectado e para quem pode emitir — o resto da equipe não
+  // precisa ver configuração fiscal.
+  // `!order.nfeStatus`: com a nota já emitida a ficha mostra a situação dela,
+  // não o aviso — e as duas consultas rodariam em toda abertura de pedido
+  // antigo sem nada para desenhar (achado da revisão de performance).
+  const avisoFiscal =
+    blingConn && isManagerUp(user) && !order.nfeStatus
+      ? await (async () => {
+          const f = await resolverFiscalDoPedido(user.companyId, order.items, order.customer);
+          return {
+            // o par cru: a frase tem que dizer a verdade para a loja que
+            // cadastrou só um dos lados
+            natureza: explicarNatureza(order.customer, f.naturezas),
+            semNcm: avisoDePecasSemNcm(f.semNcm),
+          };
+        })()
+      : null;
 
   return (
     <div className="max-w-5xl mx-auto">
@@ -504,6 +529,9 @@ export default async function OrderDetailPage({
             ipConnected={Boolean(ipConn)}
             blingConnected={Boolean(blingConn)}
             canNfe={isManagerUp(user)}
+            // RN-054/RN-055: o que a nota VAI fazer, dito antes de emitir —
+            // nota fiscal não se desfaz com um clique
+            avisoFiscal={avisoFiscal}
             nfe={{ status: order.nfeStatus, number: order.nfeNumber, url: order.nfeUrl }}
           />
 

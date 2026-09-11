@@ -10,6 +10,7 @@ import {
   ShieldAlert,
   Wallet,
 } from "lucide-react";
+import { BlingFiscal } from "./bling-fiscal";
 import { Card } from "@/components/ui";
 
 /**
@@ -181,6 +182,9 @@ export function BlingConnect() {
           Conectar Bling
         </a>
       )}
+      {/* RN-055/RN-054: a parte fiscal só faz sentido com a conta conectada,
+          e o próprio bloco se esconde sozinho quando não está */}
+      <BlingFiscal />
     </Card>
   );
 }

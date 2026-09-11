@@ -134,6 +134,7 @@ model Company {
   inventoryMovs  InventoryMovement[]
   estoqueMinimos EstoqueMinimoCategoria[]
   nsEstoquePend  NuvemshopEstoquePendente[]
+  fiscalCategorias FiscalCategoria[]
   customerEvents CustomerEvent[]
   originRules    OriginRule[]
   catalogColors  CompanyColor[]
@@ -1688,6 +1689,10 @@ model Product {
   /// ("quero ter pelo menos 3 de cada tamanho"). Nulo = usa o mínimo da
   /// categoria, e sem ele o da loja (`Company.lowStockThreshold`).
   minStock       Int?
+  /// NCM DA PEÇA (RN-055): a classificação fiscal que vai na nota. É a
+  /// EXCEÇÃO — o normal é o NCM da categoria. Nulo = usa o da categoria, e
+  /// sem ele o da loja. Guardado só com dígitos; a nota formata.
+  ncm            String?
   createdAt      DateTime @default(now())
 
   variants ProductVariant[]
@@ -1977,6 +1982,23 @@ model BlingConnection {
   refreshToken String // criptografado
   expiresAt    DateTime
   connectedAt  DateTime @default(now())
+
+  /// RN-054 · naturezas de operação do Bling DESTA loja, por tipo de
+  /// compradora. São IDs (o Bling recebe `naturezaOperacao: { id }`), e quem
+  /// diz quais são é o contador. Nulo = não manda o campo, e o Bling usa a
+  /// natureza padrão da conta — exatamente como antes desta regra.
+  /// Guardados como TEXTO, como todo id do Bling neste projeto: os ids de lá
+  /// passam de 10 dígitos e estouravam o Int de 32 bits, derrubando o
+  /// salvamento com um 500 sem explicação.
+  naturezaContribuinteId    String?
+  naturezaNaoContribuinteId String?
+  /// RN-055 · origem da mercadoria no item da nota (0 = nacional, que é o
+  /// caso da confecção brasileira). Fica configurável porque quem importa
+  /// peça tem outro código, e errar isso é imposto errado.
+  origemMercadoria          Int  @default(0)
+  /// RN-055 · NCM da LOJA: o último degrau, para o atacado que vende um tipo
+  /// só de peça e não quer cadastrar categoria por categoria.
+  ncmPadrao                 String?
 }
 
 model Shipping {
@@ -2114,6 +2136,22 @@ model EstoqueMinimoCategoria {
   company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
   category  String
   minStock  Int
+  updatedAt DateTime @updatedAt
+
+  @@unique([companyId, category])
+}
+
+/// RN-055 · NCM POR CATEGORIA: a classificação fiscal de cada tipo de peça
+/// ("Regatas" = um NCM, "Baby Look" = outro). É onde a informação fiscal
+/// mora no atacado — NCM é do TIPO da peça, não de cada cor × tamanho, então
+/// cadastrar por categoria resolve o catálogo inteiro com poucos números.
+model FiscalCategoria {
+  id        String   @id @default(cuid())
+  companyId String
+  company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  category  String
+  /// só dígitos (8); a nota formata para o Bling
+  ncm       String
   updatedAt DateTime @updatedAt
 
   @@unique([companyId, category])
