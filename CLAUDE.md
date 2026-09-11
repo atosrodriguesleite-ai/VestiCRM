@@ -1485,9 +1485,9 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   conteúdo (`/declaracao/[id]`). A chave é conferida no Bling ANTES de debitar
   o saldo, e a chave usada fica na própria etiqueta (`Shipping.nfeKey`).
   **RN-054 · A NATUREZA DE OPERAÇÃO DA NOTA SEGUE O DOCUMENTO DA CLIENTE**
-  (`lib/nfe-natureza.ts`, 11/09/2026 — **EM CONSTRUÇÃO**, a regra pura está
-  pronta e testada; falta ligar no `emitirNfeDoPedido` e a tela de
-  Configurações): relato do dono ao montar a integração do Bling — a natureza
+  (`lib/nfe-natureza.ts`, 11/09/2026 — **EM CONSTRUÇÃO**: a regra e o envio na
+  nota estão prontos; falta a tela de Configurações que cadastra as duas
+  naturezas): relato do dono ao montar a integração do Bling — a natureza
   padrão da conta dele é *"Venda de mercadoria a não contribuinte"* e o
   sistema não mandava natureza NENHUMA, então TODA nota sairia por essa. Só
   que a loja de atacado vende para os dois públicos: a lojista que compra com
@@ -1507,7 +1507,34 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   padrão da conta, exatamente como antes. E a ficha **DIZ antes de emitir** em
   que natureza a nota vai sair e por quê (`explicarNatureza`): nota fiscal não
   se desfaz com um clique — cancelar tem prazo e deixa rastro —, então o erro
-  tem que aparecer ANTES.
+  tem que aparecer ANTES. A natureza viaja como **`naturezaOperacao: { id }`**
+  (o Bling recebe o ID, não o nome — confirmado na documentação da API v3), e
+  junto vão dois campos que o sistema NUNCA mandou: a **inscrição estadual**
+  (só de quem é contribuinte — IE solta numa ficha de CPF confundiria o fisco
+  sobre o tipo da venda) e o **`contribuinte`** (1 ou 9).
+  **RN-055 · A INFORMAÇÃO FISCAL DA PEÇA MORA AQUI, E VAI NA NOTA**
+  (`lib/fiscal-ncm.ts`, 11/09/2026 — **EM CONSTRUÇÃO**, falta a tela): relato
+  do dono montando o Bling — *"não quero ter que cadastrar manualmente lá
+  sendo que já tenho tudo aqui"*. Ele estava certo, e a documentação do Bling
+  deu a saída: o item da nota aceita **`classificacaoFiscal`** (o NCM) e
+  **`origem`**. Mandando os dois, a nota sai completa daqui e **a loja não
+  precisa manter um segundo catálogo no Bling** — que era o trabalho que fazia
+  a integração não valer a pena. O NCM é do TIPO da peça, não de cada cor ×
+  tamanho: uma confecção tem dezenas de modelos e 5 a 15 tipos, então a régua
+  é a MESMA da RN-051 e pelo mesmo motivo — **peça (exceção) > CATEGORIA (o
+  normal) > loja**. O degrau da LOJA existe para o atacado que vende um tipo
+  só (só regata, só moda praia): cadastra um número e acabou. **Os números são
+  do CONTADOR**: o sistema não inventa NCM, não deduz pelo nome da peça e não
+  tem lista embutida — NCM errado é imposto errado e quem responde é a loja.
+  Só 8 dígitos passam (nem 7 nem 9: número curto passaria na nossa tela para
+  morrer na SEFAZ) e o campo sai **com os pontos**, como no exemplo da API.
+  Degrau com número inválido é PULADO, não derruba a conta. Sem NCM o campo
+  **não vai** (a nota tenta pelo cadastro do Bling, como antes), mas a ficha
+  **AVISA antes de emitir**, dizendo quantas peças faltam e mandando cadastrar
+  a CATEGORIA — não peça por peça. A **origem** (0 = nacional, o caso da
+  confecção brasileira) é configurável por loja porque quem revende importado
+  tem outro código; valor fora da tabela da Receita (0 a 8) cai no nacional em
+  vez de ir torto para a nota.
   **RN-019 · Pacote por categoria e simulador de frete**
   (`lib/envios/pacote.ts` + `lib/envios/simulador.ts`): cada categoria guarda
   o peso e as **medidas de 1 peça dobrada**
