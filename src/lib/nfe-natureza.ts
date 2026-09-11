@@ -55,6 +55,29 @@ export function tipoDaCompradora(c: DocumentosParaNatureza): TipoDeCompradora {
   return "NAO_CONTRIBUINTE";
 }
 
+/**
+ * O campo `contribuinte` do contato na nota (1 = contribuinte de ICMS,
+ * 9 = não contribuinte) — ou `null` para **não mandar o campo**.
+ *
+ * O `null` não é detalhe: ele foi o achado mais perigoso da revisão desta
+ * entrega. Mandar `9` sempre que a ficha DAQUI não prova o contrário
+ * sobrescreveria o cadastro do Bling — a cliente com CNPJ e inscrição
+ * estadual registrada LÁ, mas com a IE em branco na ficha daqui, sairia como
+ * consumidora final numa venda B2B. Isso é CFOP errado numa nota já emitida.
+ *
+ * Então o sistema só afirma o que sabe:
+ *  • CNPJ **com** IE na ficha → 1, é contribuinte, e a IE vai junto;
+ *  • **CPF** na ficha → 9, porque pessoa física não é contribuinte de ICMS;
+ *  • CNPJ **sem** IE aqui → nada. Pode ser isento de verdade, pode ser IE que
+ *    só existe no Bling. Na dúvida quem decide é o cadastro de lá, que é o
+ *    que já acontecia antes desta regra.
+ */
+export function contribuinteParaNota(c: DocumentosParaNatureza): 1 | 9 | null {
+  if (tipoDaCompradora(c) === "CONTRIBUINTE") return 1;
+  if (soDigitos(c.cpf).length === 11) return 9;
+  return null;
+}
+
 export type NaturezasDaLoja = {
   /** natureza para venda a contribuinte (CNPJ + IE) */
   contribuinte?: string | null;
@@ -102,5 +125,11 @@ export function explicarNatureza(
   if (!natureza) {
     return `A nota vai sair com a natureza de operação PADRÃO da sua conta no Bling — ${porque}. Para o sistema escolher a natureza certa em cada venda, cadastre as duas em Configurações → Bling.`;
   }
-  return `A nota vai sair como "${natureza}" — ${porque}.`;
+  // A loja cadastra o ID da natureza (é o que a API do Bling recebe), não o
+  // nome. Mostrar o número entre aspas pareceria defeito de tela, então o
+  // texto o apresenta como número — e o nome, quem confere é o Bling.
+  const comoSaiu = /^\d+$/.test(natureza)
+    ? `na natureza de operação nº ${natureza}, que você cadastrou para este caso`
+    : `como "${natureza}"`;
+  return `A nota vai sair ${comoSaiu} — ${porque}.`;
 }

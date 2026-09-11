@@ -116,8 +116,12 @@ export function avisoDePecasSemNcm(
           .map((c) => `"${c}"`)
           .join(", ")}.`
       : "";
-  const nomes = pecas.slice(0, 3).map((p) => p.nome);
-  const resto = pecas.length - nomes.length;
+  // um MODELO em três cores são três linhas do pedido com o mesmo nome, e
+  // "Regata Lisa, Regata Lisa, Regata Lisa" parecia defeito de tela. A conta
+  // segue sendo de LINHAS (é o que a loja vê no pedido); só o nome não repete.
+  const distintos = [...new Set(pecas.map((p) => p.nome))];
+  const nomes = distintos.slice(0, 3);
+  const resto = distintos.length - nomes.length;
   return (
     `${pecas.length} peça${pecas.length > 1 ? "s" : ""} sem NCM (${nomes.join(", ")}` +
     `${resto > 0 ? ` e mais ${resto}` : ""}).${quais}` +

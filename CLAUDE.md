@@ -1485,9 +1485,7 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   conteúdo (`/declaracao/[id]`). A chave é conferida no Bling ANTES de debitar
   o saldo, e a chave usada fica na própria etiqueta (`Shipping.nfeKey`).
   **RN-054 · A NATUREZA DE OPERAÇÃO DA NOTA SEGUE O DOCUMENTO DA CLIENTE**
-  (`lib/nfe-natureza.ts`, 11/09/2026 — **EM CONSTRUÇÃO**: a regra e o envio na
-  nota estão prontos; falta a tela de Configurações que cadastra as duas
-  naturezas): relato do dono ao montar a integração do Bling — a natureza
+  (`lib/nfe-natureza.ts`, 11/09/2026): relato do dono ao montar a integração do Bling — a natureza
   padrão da conta dele é *"Venda de mercadoria a não contribuinte"* e o
   sistema não mandava natureza NENHUMA, então TODA nota sairia por essa. Só
   que a loja de atacado vende para os dois públicos: a lojista que compra com
@@ -1511,9 +1509,16 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   (o Bling recebe o ID, não o nome — confirmado na documentação da API v3), e
   junto vão dois campos que o sistema NUNCA mandou: a **inscrição estadual**
   (só de quem é contribuinte — IE solta numa ficha de CPF confundiria o fisco
-  sobre o tipo da venda) e o **`contribuinte`** (1 ou 9).
+  sobre o tipo da venda) e o **`contribuinte`** (1 ou 9). Mas o `contribuinte`
+  **só é afirmado quando a ficha DAQUI prova** (`contribuinteParaNota`): CNPJ
+  com IE sai 1, CPF sai 9 e **CNPJ sem IE aqui não manda o campo** — a IE pode
+  existir só no cadastro do Bling, e carimbar 9 sobrescreveria aquilo,
+  emitindo uma venda B2B como consumidor final, com o CFOP errado, numa nota
+  que não se desfaz (achado da revisão). Os ids das naturezas são guardados
+  como TEXTO, como todo id do Bling: os de lá passam de 10 dígitos e
+  estouravam o Int de 32 bits.
   **RN-055 · A INFORMAÇÃO FISCAL DA PEÇA MORA AQUI, E VAI NA NOTA**
-  (`lib/fiscal-ncm.ts`, 11/09/2026 — **EM CONSTRUÇÃO**, falta a tela): relato
+  (`lib/fiscal-ncm.ts`, 11/09/2026): relato
   do dono montando o Bling — *"não quero ter que cadastrar manualmente lá
   sendo que já tenho tudo aqui"*. Ele estava certo, e a documentação do Bling
   deu a saída: o item da nota aceita **`classificacaoFiscal`** (o NCM) e

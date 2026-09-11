@@ -12,6 +12,7 @@ import {
   Receipt,
   ExternalLink,
   RefreshCcw,
+  ShieldAlert,
   CreditCard,
   Wallet,
 } from "lucide-react";
@@ -32,6 +33,7 @@ export function CobrancaNfe({
   blingConnected,
   canNfe,
   nfe,
+  avisoFiscal,
 }: {
   orderId: string;
   total: number;
@@ -42,6 +44,12 @@ export function CobrancaNfe({
   blingConnected: boolean;
   canNfe: boolean; // gerente/admin
   nfe: { status: string | null; number: string | null; url: string | null };
+  /**
+   * RN-054/RN-055 · o que a nota VAI fazer, vindo da mesma função que a
+   * emissão usa. Nota fiscal não se desfaz com um clique — cancelar tem prazo
+   * e deixa rastro —, então o erro tem que aparecer ANTES do botão.
+   */
+  avisoFiscal?: { natureza: string; semNcm: string | null } | null;
 }) {
   const router = useRouter();
   const [busy, setBusy] = useState<"pix" | "card" | "ip" | "nfe" | "nfeStatus" | null>(null);
@@ -335,14 +343,25 @@ export function CobrancaNfe({
               </button>
             </div>
           ) : (
-            <button
-              onClick={emitirNfe}
-              disabled={busy === "nfe"}
-              className="inline-flex items-center gap-1.5 rounded-xl border border-emerald-200 text-emerald-700 hover:bg-emerald-50 text-sm font-medium px-4 py-2.5 transition disabled:opacity-50"
-            >
-              {busy === "nfe" ? <Loader2 className="size-4 animate-spin" /> : <Receipt className="size-4" />}
-              Emitir NF-e (Bling)
-            </button>
+            <>
+              {avisoFiscal?.semNcm && (
+                <p className="flex items-start gap-2 rounded-xl bg-amber-50 border border-amber-100 text-amber-800 text-xs p-3 mb-2">
+                  <ShieldAlert className="size-4 shrink-0 mt-0.5" />
+                  <span>{avisoFiscal.semNcm}</span>
+                </p>
+              )}
+              {avisoFiscal?.natureza && (
+                <p className="text-xs text-gray-500 mb-2">{avisoFiscal.natureza}</p>
+              )}
+              <button
+                onClick={emitirNfe}
+                disabled={busy === "nfe"}
+                className="inline-flex items-center gap-1.5 rounded-xl border border-emerald-200 text-emerald-700 hover:bg-emerald-50 text-sm font-medium px-4 py-2.5 transition disabled:opacity-50"
+              >
+                {busy === "nfe" ? <Loader2 className="size-4 animate-spin" /> : <Receipt className="size-4" />}
+                Emitir NF-e (Bling)
+              </button>
+            </>
           )}
         </div>
       )}

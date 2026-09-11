@@ -7,7 +7,7 @@ import { orderNumber, round2, PAID_ORDER_STATUSES } from "./orders";
 import { documentoFiscal } from "./documento";
 import { telefoneNacional } from "./format";
 import { ncmEfetivo, ncmParaNota, origemValida } from "./fiscal-ncm";
-import { naturezaDaNota, tipoDaCompradora } from "./nfe-natureza";
+import { contribuinteParaNota, naturezaDaNota, tipoDaCompradora } from "./nfe-natureza";
 
 /**
  * Bling (ERP) — emissão de NF-e a partir do pedido.
@@ -238,6 +238,89 @@ export function itensDaNotaFiscal(
   return { itens, fecha: soma() === alvo };
 }
 
+type ItemParaFiscal = {
+  name: string;
+  color: string | null;
+  size: string | null;
+  sku: string | null;
+  quantity: number;
+  unitPrice: number;
+  product?: { ncm: string | null; category: string; name: string } | null;
+};
+
+/**
+ * A INFORMAÇÃO FISCAL DO PEDIDO, EM UM LUGAR SÓ (RN-054 + RN-055).
+ *
+ * A emissão usa isto para montar a nota, e a ficha do pedido usa o MESMO para
+ * avisar antes de emitir. Duas contas separadas divergiriam um dia — e o dia
+ * em que divergissem seria o dia em que a tela diz "tudo certo" e a SEFAZ
+ * recusa.
+ */
+export async function resolverFiscalDoPedido(
+  companyId: string,
+  itens: ItemParaFiscal[],
+  cliente: { cpf: string | null; cnpj: string | null; stateRegistration: string | null }
+) {
+  const conf = await db.blingConnection.findUnique({
+    where: { companyId },
+    select: {
+      naturezaContribuinteId: true,
+      naturezaNaoContribuinteId: true,
+      origemMercadoria: true,
+      ncmPadrao: true,
+    },
+  });
+  const categorias = [
+    ...new Set(itens.map((i) => i.product?.category).filter(Boolean) as string[]),
+  ];
+  const ncmPorCategoria = new Map(
+    categorias.length === 0
+      ? []
+      : (
+          await db.fiscalCategoria.findMany({
+            where: { companyId, category: { in: categorias } },
+            select: { category: true, ncm: true },
+          })
+        ).map((c) => [c.category, c.ncm] as const)
+  );
+  const comFiscal = itens.map((i) => ({
+    ...i,
+    ncm: ncmEfetivo({
+      daPeca: i.product?.ncm,
+      daCategoria: i.product ? ncmPorCategoria.get(i.product.category) : null,
+      daLoja: conf?.ncmPadrao,
+    }).ncm,
+  }));
+  const documentos = {
+    cpf: cliente.cpf,
+    cnpj: cliente.cnpj,
+    stateRegistration: cliente.stateRegistration,
+  };
+  // as duas naturezas cadastradas, cruas: a emissão usa a ESCOLHIDA e a ficha
+  // usa o par para explicar. Devolver só a escolhida faria a tela ter que
+  // adivinhar se o outro lado está configurado — e dizer "vai sair na
+  // natureza X" para uma loja que só cadastrou metade seria mentira.
+  const naturezas = {
+    contribuinte: conf?.naturezaContribuinteId?.toString(),
+    naoContribuinte: conf?.naturezaNaoContribuinteId?.toString(),
+  };
+  return {
+    itens: comFiscal,
+    origem: conf?.origemMercadoria,
+    naturezas,
+    naturezaId: naturezaDaNota(documentos, naturezas),
+    // manda a IE junto do contato — só de quem é contribuinte, porque
+    // inscrição solta numa ficha de CPF confunde o fisco sobre a venda
+    ehContribuinte: tipoDaCompradora(documentos) === "CONTRIBUINTE",
+    /** 1, 9 ou `null` para não mandar o campo — ver `contribuinteParaNota` */
+    contribuinteDaNota: contribuinteParaNota(documentos),
+    /** peças que vão SEM NCM — é o que a ficha avisa antes de emitir */
+    semNcm: comFiscal
+      .filter((i) => !i.ncm)
+      .map((i) => ({ nome: i.product?.name ?? i.name, categoria: i.product?.category ?? "" })),
+  };
+}
+
 /**
  * Emite a NF-e do pedido: cria a nota no Bling e manda transmitir à SEFAZ.
  * Pré-requisitos (da LOJA, no cadastro do cliente): CPF/CNPJ e endereço.
@@ -317,44 +400,14 @@ export async function emitirNfeDoPedido(
   // A NOTA TEM QUE BATER COM O QUE A CLIENTE PAGA (auditoria 07/08/2026).
   // Σ itens = netTotal e Σ itens + frete = total. A conta do centavo vive em
   // `itensDaNotaFiscal` (pura, testada); se não fechar, a emissão RECUSA.
-  // RN-055: a informação fiscal de cada peça, pelos três degraus
-  // (peça > categoria > loja). Uma consulta só para as categorias do pedido.
-  const conf = await db.blingConnection.findUnique({
-    where: { companyId },
-    select: {
-      naturezaContribuinteId: true,
-      naturezaNaoContribuinteId: true,
-      origemMercadoria: true,
-      ncmPadrao: true,
-    },
-  });
-  const categorias = [
-    ...new Set(order.items.map((i) => i.product?.category).filter(Boolean) as string[]),
-  ];
-  const ncmPorCategoria = new Map(
-    categorias.length === 0
-      ? []
-      : (
-          await db.fiscalCategoria.findMany({
-            where: { companyId, category: { in: categorias } },
-            select: { category: true, ncm: true },
-          })
-        ).map((c) => [c.category, c.ncm] as const)
-  );
-  const itensComFiscal = order.items.map((i) => ({
-    ...i,
-    ncm: ncmEfetivo({
-      daPeca: i.product?.ncm,
-      daCategoria: i.product ? ncmPorCategoria.get(i.product.category) : null,
-      daLoja: conf?.ncmPadrao,
-    }).ncm,
-  }));
+  // RN-055/RN-054: a MESMA resolução que a tela mostra antes de emitir
+  const fiscalDoPedido = await resolverFiscalDoPedido(companyId, order.items, c);
 
   const conta = itensDaNotaFiscal(
-    itensComFiscal,
+    fiscalDoPedido.itens,
     order.subtotal,
     order.netTotal,
-    conf?.origemMercadoria
+    fiscalDoPedido.origem
   );
   if (!conta.fecha) {
     await soltarTrava();
@@ -366,24 +419,7 @@ export async function emitirNfeDoPedido(
   }
   const itens = conta.itens;
 
-  // RN-054: a natureza sai do DOCUMENTO de quem compra. Sem natureza
-  // cadastrada o campo não vai, e o Bling usa a padrão da conta — como antes.
-  const naturezaId = naturezaDaNota(
-    { cpf: c.cpf, cnpj: c.cnpj, stateRegistration: c.stateRegistration },
-    {
-      contribuinte: conf?.naturezaContribuinteId?.toString(),
-      naoContribuinte: conf?.naturezaNaoContribuinteId?.toString(),
-    }
-  );
-  // `contribuinte` do Bling: 1 = contribuinte de ICMS, 9 = não contribuinte.
-  // Mandar isso (e a IE) é o que faz o fisco tratar a venda pelo que ela é —
-  // antes não mandávamos nenhum dos dois.
-  const ehContribuinte =
-    tipoDaCompradora({
-      cpf: c.cpf,
-      cnpj: c.cnpj,
-      stateRegistration: c.stateRegistration,
-    }) === "CONTRIBUINTE";
+  const { naturezaId, ehContribuinte, contribuinteDaNota } = fiscalDoPedido;
 
   // monta a NF-e (modelo 55, saída) no formato da API v3 do Bling
   const payload = {
@@ -400,7 +436,10 @@ export async function emitirNfeDoPedido(
       ...(ehContribuinte && c.stateRegistration
         ? { ie: c.stateRegistration.replace(/\D/g, "") }
         : {}),
-      contribuinte: ehContribuinte ? 1 : 9,
+      // e o `contribuinte` só vai quando a ficha DAQUI prova o que ela é
+      // (`contribuinteParaNota`): CNPJ sem IE aqui pode ter IE no cadastro do
+      // Bling, e afirmar "9" apagaria isso numa venda B2B já emitida
+      ...(contribuinteDaNota !== null ? { contribuinte: contribuinteDaNota } : {}),
       ...(c.email ? { email: c.email } : {}),
       // SEM O DDI 55 (mesmo motivo da etiqueta): o sistema guarda o telefone
       // com o 55 na frente para casar com o WhatsApp, e quem lê a nota como

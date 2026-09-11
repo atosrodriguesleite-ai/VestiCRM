@@ -1,6 +1,7 @@
 // Guarda RN-054
 import { describe, it, expect } from "vitest";
 import {
+  contribuinteParaNota,
   explicarNatureza,
   naturezaDaNota,
   tipoDaCompradora,
@@ -101,9 +102,51 @@ describe("a tela DIZ antes de emitir — nota não se desfaz com um clique", () 
     expect(explicarNatureza({ cpf: "12345678909" }, NATUREZAS)).toContain("CPF");
   });
 
+  it("a loja cadastra o ID da natureza: o texto o mostra como número, não entre aspas", () => {
+    // é o ID que a API do Bling recebe; "sair como \"4826\"" pareceria defeito
+    const frase = explicarNatureza({ cpf: "12345678909" }, { naoContribuinte: "4826" });
+    expect(frase).toContain("natureza de operação nº 4826");
+    expect(frase).not.toContain('"4826"');
+  });
+
+  it("configurou só um lado: o outro lado é avisado da padrão, não do lado errado", () => {
+    // o par cru é o que a ficha recebe — com metade cadastrada, a frase para
+    // a outra metade tem que dizer PADRÃO, senão a loja emite achando que
+    // escolheu a natureza
+    const so = { naoContribuinte: "4826" };
+    expect(
+      explicarNatureza({ cnpj: "11222333000181", stateRegistration: "1" }, so)
+    ).toContain("PADRÃO");
+  });
+
   it("sem configuração, avisa que vale a padrão do Bling e diz onde configurar", () => {
     const frase = explicarNatureza({ cpf: "12345678909" }, {});
     expect(frase).toContain("PADRÃO");
     expect(frase).toContain("Configurações");
+  });
+});
+
+describe("o campo `contribuinte` da nota só afirma o que a ficha PROVA", () => {
+  it("CNPJ com IE aqui: é contribuinte (1)", () => {
+    expect(
+      contribuinteParaNota({ cnpj: "11222333000181", stateRegistration: "123456789" })
+    ).toBe(1);
+  });
+
+  it("CPF: pessoa física não é contribuinte de ICMS (9)", () => {
+    expect(contribuinteParaNota({ cpf: "12345678909" })).toBe(9);
+  });
+
+  it("CNPJ SEM IE aqui: NÃO manda o campo — a IE pode existir só no Bling", () => {
+    // mandar 9 sobrescreveria o cadastro de lá e emitiria uma venda B2B como
+    // consumidor final, com o CFOP errado, numa nota que não se desfaz
+    expect(contribuinteParaNota({ cnpj: "11222333000181" })).toBeNull();
+    expect(
+      contribuinteParaNota({ cnpj: "11222333000181", stateRegistration: "  " })
+    ).toBeNull();
+  });
+
+  it("ficha sem documento nenhum também não afirma nada", () => {
+    expect(contribuinteParaNota({})).toBeNull();
   });
 });

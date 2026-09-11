@@ -138,6 +138,20 @@ describe("o aviso ANTES de emitir (nota não se desfaz com um clique)", () => {
     expect(aviso).not.toContain("Peça 8");
   });
 
+  it("o mesmo modelo em várias cores não repete o nome", () => {
+    // três linhas do pedido, um produto só: "Regata Lisa, Regata Lisa,
+    // Regata Lisa" parecia defeito de tela
+    const aviso = avisoDePecasSemNcm([
+      { nome: "Regata Lisa", categoria: "Regatas" },
+      { nome: "Regata Lisa", categoria: "Regatas" },
+      { nome: "Regata Lisa", categoria: "Regatas" },
+    ])!;
+    expect(aviso.match(/Regata Lisa/g)).toHaveLength(1);
+    // mas a CONTA continua sendo de linhas, que é o que a loja vê no pedido
+    expect(aviso).toContain("3 peças sem NCM");
+    expect(aviso).not.toContain("e mais");
+  });
+
   it("categoria repetida aparece UMA vez (é ela que a loja vai cadastrar)", () => {
     const aviso = avisoDePecasSemNcm([
       { nome: "Regata A", categoria: "Regatas" },

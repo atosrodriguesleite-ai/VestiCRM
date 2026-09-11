@@ -1987,8 +1987,11 @@ model BlingConnection {
   /// compradora. São IDs (o Bling recebe `naturezaOperacao: { id }`), e quem
   /// diz quais são é o contador. Nulo = não manda o campo, e o Bling usa a
   /// natureza padrão da conta — exatamente como antes desta regra.
-  naturezaContribuinteId    Int?
-  naturezaNaoContribuinteId Int?
+  /// Guardados como TEXTO, como todo id do Bling neste projeto: os ids de lá
+  /// passam de 10 dígitos e estouravam o Int de 32 bits, derrubando o
+  /// salvamento com um 500 sem explicação.
+  naturezaContribuinteId    String?
+  naturezaNaoContribuinteId String?
   /// RN-055 · origem da mercadoria no item da nota (0 = nacional, que é o
   /// caso da confecção brasileira). Fica configurável porque quem importa
   /// peça tem outro código, e errar isso é imposto errado.
