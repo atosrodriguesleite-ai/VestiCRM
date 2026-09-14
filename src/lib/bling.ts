@@ -18,7 +18,30 @@ import { contribuinteParaNota, naturezaDaNota, tipoDaCompradora } from "./nfe-na
  * (access token do Bling dura ~6h; o refresh token renova sozinho).
  */
 
-const BLING = "https://www.bling.com.br/Api/v3";
+/**
+ * SÃO DOIS ENDEREÇOS, E ISSO NÃO É DETALHE (incidente 14/09/2026).
+ *
+ * A emissão do dono voltava *"Acesso não permitido"* e a causa estava aqui:
+ * as chamadas de API iam para `www.bling.com.br`, e o Bling respondeu, com
+ * todas as letras, *"A URL 'www.bling.com.br' está bloqueada para requisições
+ * de API. Por favor, utilize o endpoint oficial: 'api.bling.com.br'"*.
+ *
+ * O traiçoeiro é que a CONEXÃO continuava funcionando — a loja autorizava, o
+ * cartão dizia "Conectado" e só a emissão falhava. Por isso a investigação foi
+ * parar em escopo do aplicativo e reconexão, que não tinham nada a ver.
+ *
+ * Então:
+ *  • `BLING_WEB` — a tela de autorização (o navegador da lojista ABRE essa
+ *    página, então tem que ser o site) e a troca de token. Os dois estão
+ *    COMPROVADAMENTE funcionando: a loja conectou por aqui.
+ *  • `BLING_API` — tudo que é chamada de API (emitir, transmitir, consultar).
+ *    É o endereço que o próprio Bling mandou usar.
+ *
+ * Não mexer no `BLING_WEB` por simetria: o que está funcionando não se
+ * conserta por palpite — foi palpite que custou três tentativas neste caso.
+ */
+const BLING_WEB = "https://www.bling.com.br/Api/v3";
+const BLING_API = "https://api.bling.com.br/Api/v3";
 
 export { signState, verifyState };
 
@@ -35,7 +58,7 @@ export function blingAuthorizeUrl(companyId: string) {
     client_id: clientId ?? "",
     state: signState(companyId),
   });
-  return `${BLING}/oauth/authorize?${params}`;
+  return `${BLING_WEB}/oauth/authorize?${params}`;
 }
 
 type BlingTokens = {
@@ -47,7 +70,7 @@ type BlingTokens = {
 async function tokenRequest(body: URLSearchParams): Promise<BlingTokens | null> {
   const { clientId, clientSecret } = blingEnv();
   const basic = Buffer.from(`${clientId}:${clientSecret}`).toString("base64");
-  const res = await fetch(`${BLING}/oauth/token`, {
+  const res = await fetch(`${BLING_WEB}/oauth/token`, {
     method: "POST",
     headers: {
       "Content-Type": "application/x-www-form-urlencoded",
@@ -119,7 +142,7 @@ async function blingApi<T = unknown>(
 ): Promise<{ ok: boolean; status: number; data: T | null; raw: string }> {
   const token = await blingAccessToken(companyId);
   if (!token) return { ok: false, status: 0, data: null, raw: "sem conexão" };
-  const res = await fetch(`${BLING}${path}`, {
+  const res = await fetch(`${BLING_API}${path}`, {
     method,
     headers: {
       "Content-Type": "application/json",
