@@ -6,6 +6,7 @@ import { appBaseUrl } from "./comm/evolution";
 import { orderNumber, round2, PAID_ORDER_STATUSES } from "./orders";
 import { documentoFiscal } from "./documento";
 import { telefoneNacional } from "./format";
+import { logServerError } from "./health";
 import { ncmEfetivo, ncmParaNota, origemValida } from "./fiscal-ncm";
 import { contribuinteParaNota, naturezaDaNota, tipoDaCompradora } from "./nfe-natureza";
 
@@ -137,20 +138,54 @@ async function blingApi<T = unknown>(
   return { ok: res.ok, status: res.status, data, raw: raw.slice(0, 500) };
 }
 
-/** Erro legível a partir da resposta do Bling (validações vêm detalhadas). */
-function blingErro(raw: string, status: number): string {
+/**
+ * Erro legível a partir da resposta do Bling (validações vêm detalhadas).
+ *
+ * **A mensagem sozinha não basta** (incidente 14/09/2026): a emissão do dono
+ * voltava só *"Acesso não permitido"*, e com isso não dava para saber se o
+ * problema era o token (401 — reconectar resolve) ou permissão do aplicativo
+ * (403 — o escopo é que falta). São consertos DIFERENTES, e sem o número a
+ * lojista tenta no escuro. Agora o texto carrega `description`, `type` e o
+ * HTTP, e os casos conhecidos vêm com o CAMINHO escrito em português — erro
+ * que não ensina o que fazer é meio erro.
+ */
+export function blingErro(raw: string, status: number): string {
+  let detalhe = "";
   try {
     const j = JSON.parse(raw) as {
-      error?: { message?: string; fields?: { msg?: string }[] };
+      error?: {
+        type?: string;
+        message?: string;
+        description?: string;
+        fields?: { msg?: string; element?: string }[];
+      };
     };
-    const campos = j.error?.fields?.map((f) => f.msg).filter(Boolean).join("; ");
-    return (
-      [j.error?.message, campos].filter(Boolean).join(" — ").slice(0, 300) ||
-      `Bling recusou (HTTP ${status})`
-    );
+    const campos = j.error?.fields
+      ?.map((f) => [f.element, f.msg].filter(Boolean).join(": "))
+      .filter(Boolean)
+      .join("; ");
+    detalhe = [j.error?.message, j.error?.description, campos]
+      .filter(Boolean)
+      .join(" — ");
   } catch {
-    return `Bling recusou (HTTP ${status})`;
+    detalhe = "";
   }
+  // sem corpo legível o próprio status já é a informação — repeti-lo no fim
+  // daria "Bling recusou (HTTP 500) [HTTP 500]"
+  if (!detalhe) return `Bling recusou (HTTP ${status})${comoResolver(status)}`.slice(0, 500);
+  return `${detalhe}${comoResolver(status)} [HTTP ${status}]`.slice(0, 500);
+}
+
+/**
+ * O caminho, em português, para os dois jeitos de o Bling dizer "não".
+ * Escrito aqui e não na tela porque quem sabe o que aconteceu é esta camada.
+ */
+function comoResolver(status: number): string {
+  if (status === 401)
+    return " · A autorização do Bling venceu ou foi revogada. Em Configurações → Bling, clique em Desconectar e Conectar de novo.";
+  if (status === 403)
+    return " · O aplicativo criado no Bling não tem permissão para esta operação. No Bling, abra o aplicativo AtacadoPro, marque o escopo que falta (para emitir, é \"Emissão de Nota Fiscal Eletrônica (NF-e)\"), SALVE, e depois reconecte em Configurações → Bling — a autorização guarda as permissões de quando foi feita.";
+  return "";
 }
 
 export type NfeResult =
@@ -477,6 +512,16 @@ export async function emitirNfeDoPedido(
     const blingId = criada.data?.data?.id ? String(criada.data.data.id) : null;
     if (!criada.ok || !blingId) {
       await soltarTrava();
+      // A RESPOSTA CRUA FICA REGISTRADA (14/09/2026): a recusa do Bling chega
+      // resumida na tela, e foi por não ter o corpo inteiro que a investigação
+      // de "Acesso não permitido" virou tentativa e erro. Aqui fica o que ele
+      // realmente respondeu, para o painel de Saúde.
+      await logServerError({
+        source: "server",
+        path: "bling POST /nfe",
+        message: `Bling recusou a emissão (HTTP ${criada.status})`,
+        detail: criada.raw,
+      });
       return { ok: false, error: blingErro(criada.raw, criada.status) };
     }
     return await transmitirEGravar(companyId, order.id, blingId);
