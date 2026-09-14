@@ -88,6 +88,40 @@ export const MS_ANTEVE_FREIO = 5;
 export const MS_ATACA_FREIO = 1;
 export const MS_SOLTA_FREIO = 80;
 
+/**
+ * REDUÇÃO DE CHIADO por espectro (relato do dono, 14/09/2026: "os áudios saem
+ * com chiado no fundo — não pode"). O chiado é ruído espalhado por TODAS as
+ * frequências, presente também DURANTE a fala; o portão só cala o que fica
+ * entre as palavras. Aqui a gravação é fatiada em quadros de 512 amostras
+ * (21 ms a 24 kHz), cada quadro vira espectro, e o PERFIL do chiado é
+ * aprendido da própria gravação: em cada frequência, o nível que fica abaixo
+ * de 20% do tempo é o piso de ruído (a voz não ocupa a mesma frequência o
+ * tempo todo; o chiado, sim). Depois cada frequência de cada quadro é
+ * abaixada na proporção do quanto ela está perto desse piso — até o teto de
+ * redução —, com suavização no tempo e entre frequências vizinhas (sem isso
+ * sobra o "borbulhado" típico de redutor barato).
+ */
+export const N_FFT = 512;
+/**
+ * 20% do tempo: o que fica abaixo disso numa frequência é chiado, não voz.
+ * A voz muda de altura o tempo todo — nenhuma frequência fica ocupada por
+ * ela em mais de 80% de uma mensagem; o chiado ocupa todas, o tempo inteiro.
+ */
+export const PERCENTIL_RUIDO = 0.2;
+/**
+ * Quanto do perfil de ruído é subtraído (acima de 1 = com folga). Medido com
+ * ruído branco: o percentil 20 fica em ~0,53 do nível médio do chiado, e o
+ * chiado oscila muito de quadro para quadro — com ×2 só 60% dos quadros
+ * caíam ao piso e sobrava um "borbulhado" de −7 dB; com ×3, 86% caem e a
+ * redução medida chega a −12 dB. A voz que passa do perfil por 10 dB ou
+ * mais fica praticamente intocada (regra em potência, abaixo).
+ */
+export const FORCA_SUBTRACAO = 3;
+/** Redução máxima: -16 dB (×0,16). Mais que isso soa "debaixo d'água". */
+export const PISO_CHIADO = 0.16;
+/** Abaixo disto é zumbido de rede e tremor de mesa, nunca voz: vai embora. */
+export const HZ_CORTE_GRAVE = 70;
+
 /** Subida e descida suaves (ms): tiram o "toc" de quando o microfone abre. */
 export const MS_SUAVIZA = 25;
 
@@ -136,6 +170,127 @@ function nivelDaVoz(samples: Float32Array, taxa: number): number {
   const comSom = ordenados.filter((v) => v >= porteira);
   if (comSom.length === 0) return referencia;
   return comSom[Math.floor(comSom.length / 2)]; // mediana
+}
+
+/** FFT complexa no lugar (radix-2). `re`/`im` com tamanho potência de 2. */
+function fft(re: Float64Array, im: Float64Array, inversa = false): void {
+  const n = re.length;
+  for (let i = 1, j = 0; i < n; i++) {
+    let bit = n >> 1;
+    for (; j & bit; bit >>= 1) j ^= bit;
+    j ^= bit;
+    if (i < j) {
+      let t = re[i]; re[i] = re[j]; re[j] = t;
+      t = im[i]; im[i] = im[j]; im[j] = t;
+    }
+  }
+  for (let len = 2; len <= n; len <<= 1) {
+    const ang = ((inversa ? 2 : -2) * Math.PI) / len;
+    const wr = Math.cos(ang), wi = Math.sin(ang);
+    const meio = len >> 1;
+    for (let i = 0; i < n; i += len) {
+      let cr = 1, ci = 0;
+      for (let k = 0; k < meio; k++) {
+        const a = i + k, b = a + meio;
+        const vr = re[b] * cr - im[b] * ci;
+        const vi = re[b] * ci + im[b] * cr;
+        re[b] = re[a] - vr; im[b] = im[a] - vi;
+        re[a] += vr; im[a] += vi;
+        const ncr = cr * wr - ci * wi;
+        ci = cr * wi + ci * wr;
+        cr = ncr;
+      }
+    }
+  }
+  if (inversa) for (let i = 0; i < n; i++) { re[i] /= n; im[i] /= n; }
+}
+
+/**
+ * TIRA O CHIADO da gravação inteira (ver as constantes acima). Função pura:
+ * entra e sai o mesmo número de amostras, e o que não é chiado sai igual —
+ * a janela é raiz de Hann nas duas pontas com metade de sobreposição, que
+ * reconstrói o sinal exatamente quando o ganho é 1.
+ */
+export function reduzirChiado(samples: Float32Array, taxa: number): Float32Array {
+  const N = N_FFT, H = N >> 1, bins = H + 1;
+  // gravação curta demais não tem de onde aprender o chiado: sai como veio
+  if (samples.length < N * 8) return samples;
+  const janela = new Float64Array(N);
+  for (let i = 0; i < N; i++) janela[i] = Math.sqrt(0.5 - 0.5 * Math.cos((2 * Math.PI * i) / N));
+
+  const acolchoado = new Float64Array(H + samples.length + N);
+  for (let i = 0; i < samples.length; i++) acolchoado[H + i] = samples[i];
+  const quadros = Math.floor((acolchoado.length - N) / H) + 1;
+
+  // passo 1: espectro de cada quadro (guardado para não recalcular)
+  const espRe = new Float32Array(quadros * bins);
+  const espIm = new Float32Array(quadros * bins);
+  const mag = new Float32Array(quadros * bins);
+  const re = new Float64Array(N), im = new Float64Array(N);
+  for (let q = 0; q < quadros; q++) {
+    const base = q * H;
+    for (let i = 0; i < N; i++) { re[i] = acolchoado[base + i] * janela[i]; im[i] = 0; }
+    fft(re, im);
+    for (let k = 0; k < bins; k++) {
+      const p = q * bins + k;
+      espRe[p] = re[k]; espIm[p] = im[k];
+      mag[p] = Math.hypot(re[k], im[k]);
+    }
+  }
+
+  // passo 2: o perfil do chiado — por frequência, o nível do percentil baixo
+  const perfil = new Float64Array(bins);
+  const coluna = new Float32Array(quadros);
+  const pos = Math.min(quadros - 1, Math.floor(quadros * PERCENTIL_RUIDO));
+  for (let k = 0; k < bins; k++) {
+    for (let q = 0; q < quadros; q++) coluna[q] = mag[q * bins + k];
+    coluna.sort();
+    perfil[k] = coluna[pos] * FORCA_SUBTRACAO;
+  }
+
+  // passo 3: ganho por frequência e quadro, suavizado, e volta ao tempo
+  const saida = new Float64Array(acolchoado.length);
+  const gAnt = new Float64Array(bins).fill(1);
+  const potAnt = new Float64Array(bins);
+  const gBruto = new Float64Array(bins);
+  const gLiso = new Float64Array(bins);
+  const corteGrave = Math.ceil((HZ_CORTE_GRAVE * N) / taxa);
+  for (let q = 0; q < quadros; q++) {
+    for (let k = 0; k < bins; k++) {
+      // o nível é medido em potência suavizada com o quadro anterior: o
+      // chiado oscila de quadro para quadro, e sem a média os quadros em que
+      // ele "sobe" escapavam do piso e viravam borbulhado
+      const mq = mag[q * bins + k];
+      const pot = 0.5 * mq * mq + 0.5 * potAnt[k];
+      potAnt[k] = mq * mq;
+      const m = Math.sqrt(pot);
+      // quanto a frequência está acima do piso de ruído decide o ganho — em
+      // POTÊNCIA (raiz de 1 − (perfil/nível)²): o que está bem acima do piso
+      // (a voz) quase não é tocado, o que está no piso cai ao teto de redução
+      const razao = m > 0 ? perfil[k] / m : 2;
+      const g = razao >= 1 ? PISO_CHIADO : Math.max(PISO_CHIADO, Math.sqrt(1 - razao * razao));
+      // no tempo: metade do quadro anterior (tira o "borbulhado")
+      gBruto[k] = 0.5 * g + 0.5 * gAnt[k];
+    }
+    for (let k = 0; k < bins; k++) {
+      // entre vizinhas: média de três frequências
+      const a = gBruto[Math.max(0, k - 1)], b = gBruto[k], c = gBruto[Math.min(bins - 1, k + 1)];
+      gLiso[k] = k < corteGrave ? PISO_CHIADO : (a + b + c) / 3;
+      gAnt[k] = gBruto[k];
+    }
+    for (let k = 0; k < bins; k++) {
+      const p = q * bins + k;
+      re[k] = espRe[p] * gLiso[k]; im[k] = espIm[p] * gLiso[k];
+      if (k > 0 && k < H) { re[N - k] = re[k]; im[N - k] = -im[k]; } // simetria do sinal real
+    }
+    fft(re, im, true);
+    const base = q * H;
+    for (let i = 0; i < N; i++) saida[base + i] += re[i] * janela[i];
+  }
+
+  const resultado = new Float32Array(samples.length);
+  for (let i = 0; i < samples.length; i++) resultado[i] = saida[H + i];
+  return resultado;
 }
 
 /** Constante de suavização de um filtro de um polo para o tempo dado (ms). */
@@ -247,7 +402,10 @@ export function freioSuave(v: number): number {
  * O "toc" do microfone abrindo some com a subida suave nos primeiros 25 ms.
  */
 export function normalizarVoz(samples: Float32Array, taxa: number): Float32Array {
-  const nivel = nivelDaVoz(samples, taxa);
+  // o chiado sai PRIMEIRO: o nível da voz e o portão são medidos no sinal
+  // já limpo, senão o próprio chiado entrava na conta do que é "som"
+  const semChiado = reduzirChiado(samples, taxa);
+  const nivel = nivelDaVoz(semChiado, taxa);
   // silêncio absoluto: não há o que ajustar (e evita dividir por zero)
   if (nivel === 0) return samples;
 
@@ -257,11 +415,11 @@ export function normalizarVoz(samples: Float32Array, taxa: number): Float32Array
     Math.floor(samples.length / 2)
   );
 
-  // A ORDEM É REGRA: portão (mede contra a voz ORIGINAL) → ganho → freio de
-  // pico → curva de segurança. Ganho antes do portão faria o limiar valer
+  // A ORDEM É REGRA: chiado → portão (mede contra a voz limpa) → ganho →
+  // freio de pico → curva de segurança. Ganho antes do portão faria o limiar valer
   // sobre um sinal já multiplicado; freio antes do ganho deixaria o ganho
   // recriar o pico que o freio acabou de abaixar.
-  const limpo = portaoDeRuido(samples, taxa, nivel);
+  const limpo = portaoDeRuido(semChiado, taxa, nivel);
   const comGanho = new Float32Array(limpo.length);
   for (let i = 0; i < limpo.length; i++) comGanho[i] = limpo[i] * ganho;
   const freado = limitarPicos(comGanho, taxa);

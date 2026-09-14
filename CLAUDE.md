@@ -568,7 +568,23 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   ela ficou só como rede de segurança; (4) a **mudança de taxa é feita pelo
   DECODIFICADOR** (`decodificarNaTaxa`): tocar o buffer de 48 kHz num
   contexto de 24 kHz reamostra por interpolação linear, sem filtro, e o que
-  está acima de 12 kHz dobra para dentro como ruído áspero. E a **garantia
+  está acima de 12 kHz dobra para dentro como ruído áspero; (5) **redução
+  de chiado por espectro** (`reduzirChiado`, mesmo dia, segundo relato:
+  "os áudios saem com chiado no fundo"): o portão só cala o que fica entre
+  as palavras, e chiado está em todas as frequências, também DURANTE a
+  fala. A gravação vira quadros de 512 amostras, o PERFIL do chiado é
+  aprendido da própria gravação (por frequência, o nível que fica abaixo de
+  20% do tempo — a voz muda de altura o tempo todo, o chiado ocupa tudo o
+  tempo inteiro), e cada frequência de cada quadro é abaixada na proporção
+  do quanto está perto do perfil (regra em potência: voz 10 dB acima quase
+  não é tocada; o que está no piso cai −16 dB, o teto — mais que isso soa
+  "debaixo d'água"), com o nível suavizado entre quadros e o ganho entre
+  frequências vizinhas (sem isso sobra o "borbulhado" de redutor barato).
+  Abaixo de 70 Hz é zumbido de rede, vai embora. Medido com ruído branco:
+  silêncio −13,5 dB, agudos durante a fala −10 a −16 dB, voz em 97%. Limite
+  aceito: um som SUSTENTADO por mais de 80% da mensagem (uma nota cantada
+  sem parar) seria lido como fundo e abaixado — não acontece em mensagem
+  falada. E a **garantia
   do microfone**: o que o navegador ENTREGOU (`track.getSettings()`) é
   conferido contra o escolhido (`microfoneEntregueConfere`, aviso na hora
   se divergiu) e os filtros de fato aplicados aparecem ao passar o mouse
