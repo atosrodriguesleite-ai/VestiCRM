@@ -1621,11 +1621,23 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   automática via `lib/settle-order.ts`; taxa da plataforma 0,5% em
   `PLATFORM_FEE_PCT`/`feePercent` por loja), tela Financeiro (contas a
   receber) e NF-e via Bling (`lib/bling.ts`). PENDENTE para produção:
-  criar app no Mercado Pago (envs `MP_CLIENT_ID`/`MP_CLIENT_SECRET`) e app
-  no Bling (`BLING_CLIENT_ID`/`BLING_CLIENT_SECRET`) na Vercel.
+  criar app no Mercado Pago (envs `MP_CLIENT_ID`/`MP_CLIENT_SECRET`) na Vercel.
+- **Bling / NF-e** (14/09/2026): **EM PRODUÇÃO** — app criado, envs na Vercel,
+  Toque Leve conectada e **primeira NF-e autorizada**. Três coisas que
+  custaram caro para descobrir e não podem se perder: (1) as chamadas de API
+  vão para **`api.bling.com.br`** — o `www` é bloqueado para API e responde
+  "Acesso não permitido", enquanto a tela de autorização e a troca de token
+  seguem no `www` (por isso a loja conecta, o cartão diz "Conectado" e SÓ a
+  emissão falha); (2) **mexer nos escopos do aplicativo REVOGA a autorização
+  já concedida** — depois de qualquer mudança lá, é obrigatório Desconectar e
+  Conectar; (3) o escopo que a emissão exige é **"Emissão de Nota Fiscal
+  Eletrônica (NF-e)"**, dentro de "Notas Fiscais". A recusa do Bling chega
+  inteira na tela (status HTTP, descrição e campo) e a resposta crua fica no
+  painel de Saúde: foi a falta disso que transformou um endereço errado em
+  três tentativas de conserto no escuro.
 - **Envios** (13/08/2026): Melhor Envio **em produção** — app criado, envs na
   Vercel, primeira conta conectada e cotando. Parceria/comissão ME em
-  negociação à parte. A etiqueta com NF-e (RN-016) depende do Bling.
+  negociação à parte. A etiqueta com NF-e (RN-016) já pode sair com a chave.
 - Dívidas mapeadas: blob storage para fotos e arquivos (é ele que impõe o
   teto de ~12MB da RN-028 — a única exceção declarada ao "se a cliente
   mandou, tem que chegar"); conferir `INTAKE_SECRET` na Vercel; quebrar telas

@@ -76,3 +76,31 @@ describe("para onde cada chamada do Bling sai", () => {
     expect(url).toContain("response_type=code");
   });
 });
+
+describe("autorização que não vale mais (incidente 14/09/2026)", () => {
+  it("renovação que FALHA não manda o token velho — diz que precisa reconectar", async () => {
+    const { db } = await import("../db");
+    // conexão vencida: força o caminho da renovação
+    (db.blingConnection.findUnique as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      companyId: "loja1",
+      accessToken: "cripto",
+      refreshToken: "cripto",
+      expiresAt: new Date(Date.now() - 60_000),
+    });
+    // o Bling RECUSA a renovação (foi o que aconteceu: mexer no escopo do
+    // aplicativo revoga a autorização já concedida)
+    fetchMock.mockResolvedValueOnce({
+      ok: false,
+      status: 400,
+      json: async () => ({ error: "invalid_grant" }),
+      text: async () => "{}",
+    });
+
+    const r = await consultarNfe("loja1", "999");
+    expect(r.ok).toBe(false);
+    // o que NÃO pode acontecer: tentar a chamada com o token morto
+    const chamadas = fetchMock.mock.calls.map((c) => String(c[0]));
+    expect(chamadas.some((u) => u.includes("/nfe/999"))).toBe(false);
+    expect(chamadas.some((u) => u.includes("/oauth/token"))).toBe(true);
+  });
+});

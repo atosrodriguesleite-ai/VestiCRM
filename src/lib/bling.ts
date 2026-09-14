@@ -115,23 +115,49 @@ export async function blingSaveConnection(companyId: string, t: BlingTokens) {
   });
 }
 
-/** Token válido — renova sozinho quando falta menos de 10 min. */
-async function blingAccessToken(companyId: string): Promise<string | null> {
+type TokenDoBling =
+  | { token: string }
+  | { erro: "SEM_CONEXAO" | "RENOVACAO_FALHOU" };
+
+/**
+ * Token válido — renova sozinho quando falta menos de 10 min.
+ *
+ * **RENOVAÇÃO QUE FALHA NÃO DEVOLVE O TOKEN VELHO** (incidente 14/09/2026):
+ * antes, quando o refresh não vinha, o código caía no `return` do access token
+ * guardado — ou seja, mandava para o Bling um token que ele acabara de recusar.
+ * O que chegava na tela era `invalid_token`, que não diz o que fazer.
+ *
+ * E a causa mais comum não é o tempo: **mexer nos escopos do aplicativo no
+ * Bling REVOGA a autorização existente** (foi o que aconteceu com o dono). A
+ * conexão vira um cadáver — a linha continua no banco, o cartão segue dizendo
+ * "Conectado" — e só a emissão falha. Dizer "a autorização foi revogada,
+ * reconecte" é a única resposta útil, e agora ela sai daqui.
+ */
+async function blingAccessToken(companyId: string): Promise<TokenDoBling> {
   const conn = await db.blingConnection.findUnique({ where: { companyId } });
-  if (!conn) return null;
-  if (conn.expiresAt.getTime() - Date.now() < 10 * 60 * 1000) {
-    const novo = await tokenRequest(
-      new URLSearchParams({
-        grant_type: "refresh_token",
-        refresh_token: decryptSecret(conn.refreshToken),
-      })
-    );
-    if (novo?.access_token) {
-      await blingSaveConnection(companyId, novo);
-      return novo.access_token;
-    }
+  if (!conn) return { erro: "SEM_CONEXAO" };
+  if (conn.expiresAt.getTime() - Date.now() >= 10 * 60 * 1000) {
+    return { token: decryptSecret(conn.accessToken) };
   }
-  return decryptSecret(conn.accessToken);
+  const novo = await tokenRequest(
+    new URLSearchParams({
+      grant_type: "refresh_token",
+      refresh_token: decryptSecret(conn.refreshToken),
+    })
+  );
+  if (novo?.access_token) {
+    await blingSaveConnection(companyId, novo);
+    return { token: novo.access_token };
+  }
+  // fica registrado: é o que separa "revogaram a autorização" de "o endereço
+  // do token também mudou" na próxima vez que isso acontecer
+  await logServerError({
+    source: "server",
+    path: "bling oauth/token (refresh)",
+    message: "Renovação do token do Bling falhou — autorização revogada ou vencida",
+    detail: `companyId=${companyId}`,
+  });
+  return { erro: "RENOVACAO_FALHOU" };
 }
 
 async function blingApi<T = unknown>(
@@ -140,8 +166,25 @@ async function blingApi<T = unknown>(
   path: string,
   body?: unknown
 ): Promise<{ ok: boolean; status: number; data: T | null; raw: string }> {
-  const token = await blingAccessToken(companyId);
-  if (!token) return { ok: false, status: 0, data: null, raw: "sem conexão" };
+  const t = await blingAccessToken(companyId);
+  if ("erro" in t) {
+    // vira uma recusa com FRASE, no mesmo formato do Bling, para passar pelo
+    // `blingErro` de sempre — a tela não precisa saber que o tropeço foi aqui
+    const message =
+      t.erro === "SEM_CONEXAO"
+        ? "O Bling não está conectado nesta loja."
+        : "A autorização do Bling não vale mais — ela foi revogada ou venceu. Mexer nos escopos do aplicativo no Bling revoga a autorização já concedida.";
+    return {
+      ok: false,
+      // RENOVACAO_FALHOU é 401 de propósito: é o status que faz a frase de
+      // "desconectar e conectar" entrar. Sem conexão nenhuma não leva status,
+      // porque ali não há o que desconectar
+      status: t.erro === "RENOVACAO_FALHOU" ? 401 : 0,
+      data: null,
+      raw: JSON.stringify({ error: { message } }),
+    };
+  }
+  const token = t.token;
   const res = await fetch(`${BLING_API}${path}`, {
     method,
     headers: {
@@ -196,7 +239,10 @@ export function blingErro(raw: string, status: number): string {
   // sem corpo legível o próprio status já é a informação — repeti-lo no fim
   // daria "Bling recusou (HTTP 500) [HTTP 500]"
   if (!detalhe) return `Bling recusou (HTTP ${status})${comoResolver(status)}`.slice(0, 500);
-  return `${detalhe}${comoResolver(status)} [HTTP ${status}]`.slice(0, 500);
+  // status 0 é tropeço NOSSO (nem chegamos a falar com o Bling): "[HTTP 0]"
+  // só assustaria quem lê
+  const carimbo = status > 0 ? ` [HTTP ${status}]` : "";
+  return `${detalhe}${comoResolver(status)}${carimbo}`.slice(0, 500);
 }
 
 /**
