@@ -550,10 +550,31 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   **O volume é acertado antes de sair** (`normalizarVoz` em `lib/audio-wav.ts`):
   o nível vem da ENERGIA DA FALA — quadros de 20 ms, silêncio fora por
   porteira, mediana em cima (pico e média deixavam um estalo de 200 ms mandar
-  no áudio inteiro) — e o que passa do teto encontra um FREIO SUAVE, nunca a
-  tesoura: cortar reto é literalmente o barulho de "estourado". A gravação só
-  começa depois de `MS_ASSENTAR_MICROFONE` (0,5s), que joga a subida do ganho
-  automático para fora do arquivo — era ela o "primeiro segundo estourado".
+  no áudio inteiro). **A cadeia foi refeita em 14/09/2026** (relato do dono:
+  "microfone com anti-ruído, mas o áudio captura sons do fundo, e som que
+  nem é alto chega estourando"), na ordem portão → ganho → freio de pico →
+  curva de segurança: (1) o **ganho automático do navegador SAIU**
+  (`autoGainControl: false`) — nas pausas ele levantava o fundo que o
+  anti-ruído do microfone tinha abaixado, e som médio chegando com o ganho
+  lá em cima saturava DENTRO do navegador, antes de qualquer freio nosso;
+  o teto do nosso ganho subiu de 4× para 8× para cobrir quem fala longe;
+  (2) **portão de ruído** (`portaoDeRuido`): o que fica 18 dB abaixo da voz
+  é abaixado em curva até −20 dB, abrindo um quadro ANTES da palavra e
+  fechando em 150 ms (liga/desliga picota) — antes a porteira só decidia a
+  MEDIÇÃO e o fundo passava inteiro, multiplicado pelo ganho da voz;
+  (3) **freio de pico com antevisão** (`limitarPicos`, 10 ms à frente,
+  ataque 1 ms, solta em 80 ms): o estalo sai mais BAIXO, com a forma
+  original — a curva `freioSuave` espremia a onda e era isso o "estouro";
+  ela ficou só como rede de segurança; (4) a **mudança de taxa é feita pelo
+  DECODIFICADOR** (`decodificarNaTaxa`): tocar o buffer de 48 kHz num
+  contexto de 24 kHz reamostra por interpolação linear, sem filtro, e o que
+  está acima de 12 kHz dobra para dentro como ruído áspero. E a **garantia
+  do microfone**: o que o navegador ENTREGOU (`track.getSettings()`) é
+  conferido contra o escolhido (`microfoneEntregueConfere`, aviso na hora
+  se divergiu) e os filtros de fato aplicados aparecem ao passar o mouse
+  no nome do microfone (`descricaoDaCaptura`). A gravação só
+  começa depois de `MS_ASSENTAR_MICROFONE` (0,5s), que deixa a supressão de
+  ruído assentar fora do arquivo — era ela o "primeiro segundo estourado".
   `lib/audio-wav.ts`: a gravação vira WAV no NAVEGADOR — o webm do
   MediaRecorder não carrega a duração e o WhatsApp mostrava 0:00 — na MAIOR
   taxa que couber no envio: 24 kHz até ~65s e 16 kHz daí em diante. Com os
