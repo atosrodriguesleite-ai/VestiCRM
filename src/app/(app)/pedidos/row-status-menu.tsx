@@ -15,7 +15,7 @@ import { useRouter } from "next/navigation";
 import { Check, ChevronDown } from "lucide-react";
 import { ORDER_STATUS_FLOW, orderStatusLabel, orderStatusColor } from "@/lib/orders";
 import type { OrderStatus } from "@prisma/client";
-import { Portal } from "@/components/portal";
+import { MenuAncorado } from "@/components/menu-ancorado";
 import { CancelOrderDialog } from "./cancel-dialog";
 
 export function RowStatusMenu({
@@ -32,7 +32,6 @@ export function RowStatusMenu({
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
   // cancelamento pergunta antes: devolver as peças ao estoque ou baixar de vez?
   const [askCancel, setAskCancel] = useState(false);
 
@@ -43,8 +42,6 @@ export function RowStatusMenu({
       setOpen(false);
       return;
     }
-    const r = btnRef.current?.getBoundingClientRect();
-    if (r) setPos({ top: r.bottom + 6, left: Math.max(8, r.right - 208) });
     setError("");
     setOpen(true);
   }
@@ -80,10 +77,7 @@ export function RowStatusMenu({
       setShown(previous);
       const data = await res.json().catch(() => null);
       setError(data?.error ?? "Não foi possível mudar o status.");
-      // reabre pra mostrar o motivo
-      const r = btnRef.current?.getBoundingClientRect();
-      if (r) setPos({ top: r.bottom + 6, left: Math.max(8, r.right - 208) });
-      setOpen(true);
+      setOpen(true); // reabre pra mostrar o motivo
       return;
     }
     router.refresh();
@@ -109,45 +103,37 @@ export function RowStatusMenu({
         <ChevronDown className="size-3 opacity-60" />
       </button>
 
-      {open && pos && (
-        <Portal>
-          {/* clique fora fecha (sem navegar a linha) */}
-          <div
-            className="fixed inset-0 z-[60]"
-            onClick={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              setOpen(false);
-            }}
-          />
-          <div
-            className="fixed z-[61] w-52 overflow-hidden rounded-xl border border-gray-100 bg-white py-1 shadow-pop animate-fade-in"
-            style={{ top: pos.top, left: pos.left }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            {error && (
-              <p className="mx-1 mb-1 rounded-lg bg-rose-50 px-2.5 py-1.5 text-[11px] font-medium text-rose-600">
-                {error}
-              </p>
-            )}
-            {ORDER_STATUS_FLOW.map((s) => {
-              const on = s === shown;
-              const c = orderStatusColor[s];
-              return (
-                <button
-                  key={s}
-                  onClick={(e) => pick(e, s)}
-                  className={`flex w-full items-center gap-2 px-3 py-2 text-left text-[13px] transition hover:bg-gray-50 ${on ? "font-semibold" : "text-gray-700"}`}
-                >
-                  <span className="size-2.5 shrink-0 rounded-full" style={{ backgroundColor: c }} />
-                  <span className="min-w-0 flex-1 truncate">{orderStatusLabel[s]}</span>
-                  {on && <Check className="size-3.5 shrink-0 text-brand-600" />}
-                </button>
-              );
-            })}
-          </div>
-        </Portal>
-      )}
+      {/* São 8 status: no pé da lista o menu não cabia embaixo do selo e os
+          últimos ficavam atrás da barra de navegação (relato do dono,
+          15/09/2026). O MenuAncorado vira para cima e rola por dentro. */}
+      <MenuAncorado
+        ancora={btnRef}
+        aberto={open}
+        onFechar={() => setOpen(false)}
+        largura={208}
+        className="py-1"
+      >
+        {error && (
+          <p className="mx-1 mb-1 rounded-lg bg-rose-50 px-2.5 py-1.5 text-[11px] font-medium text-rose-600">
+            {error}
+          </p>
+        )}
+        {ORDER_STATUS_FLOW.map((s) => {
+          const on = s === shown;
+          const c = orderStatusColor[s];
+          return (
+            <button
+              key={s}
+              onClick={(e) => pick(e, s)}
+              className={`flex w-full items-center gap-2 px-3 py-2 text-left text-[13px] transition hover:bg-gray-50 ${on ? "font-semibold" : "text-gray-700"}`}
+            >
+              <span className="size-2.5 shrink-0 rounded-full" style={{ backgroundColor: c }} />
+              <span className="min-w-0 flex-1 truncate">{orderStatusLabel[s]}</span>
+              {on && <Check className="size-3.5 shrink-0 text-brand-600" />}
+            </button>
+          );
+        })}
+      </MenuAncorado>
       <CancelOrderDialog
         open={askCancel}
         onClose={() => setAskCancel(false)}

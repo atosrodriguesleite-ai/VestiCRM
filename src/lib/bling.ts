@@ -6,6 +6,7 @@ import { appBaseUrl } from "./comm/evolution";
 import { orderNumber, round2, PAID_ORDER_STATUSES } from "./orders";
 import { documentoFiscal } from "./documento";
 import { telefoneNacional } from "./format";
+import { logServerError } from "./health";
 import { ncmEfetivo, ncmParaNota, origemValida } from "./fiscal-ncm";
 import { contribuinteParaNota, naturezaDaNota, tipoDaCompradora } from "./nfe-natureza";
 
@@ -17,7 +18,30 @@ import { contribuinteParaNota, naturezaDaNota, tipoDaCompradora } from "./nfe-na
  * (access token do Bling dura ~6h; o refresh token renova sozinho).
  */
 
-const BLING = "https://www.bling.com.br/Api/v3";
+/**
+ * SÃO DOIS ENDEREÇOS, E ISSO NÃO É DETALHE (incidente 14/09/2026).
+ *
+ * A emissão do dono voltava *"Acesso não permitido"* e a causa estava aqui:
+ * as chamadas de API iam para `www.bling.com.br`, e o Bling respondeu, com
+ * todas as letras, *"A URL 'www.bling.com.br' está bloqueada para requisições
+ * de API. Por favor, utilize o endpoint oficial: 'api.bling.com.br'"*.
+ *
+ * O traiçoeiro é que a CONEXÃO continuava funcionando — a loja autorizava, o
+ * cartão dizia "Conectado" e só a emissão falhava. Por isso a investigação foi
+ * parar em escopo do aplicativo e reconexão, que não tinham nada a ver.
+ *
+ * Então:
+ *  • `BLING_WEB` — a tela de autorização (o navegador da lojista ABRE essa
+ *    página, então tem que ser o site) e a troca de token. Os dois estão
+ *    COMPROVADAMENTE funcionando: a loja conectou por aqui.
+ *  • `BLING_API` — tudo que é chamada de API (emitir, transmitir, consultar).
+ *    É o endereço que o próprio Bling mandou usar.
+ *
+ * Não mexer no `BLING_WEB` por simetria: o que está funcionando não se
+ * conserta por palpite — foi palpite que custou três tentativas neste caso.
+ */
+const BLING_WEB = "https://www.bling.com.br/Api/v3";
+const BLING_API = "https://api.bling.com.br/Api/v3";
 
 export { signState, verifyState };
 
@@ -34,7 +58,7 @@ export function blingAuthorizeUrl(companyId: string) {
     client_id: clientId ?? "",
     state: signState(companyId),
   });
-  return `${BLING}/oauth/authorize?${params}`;
+  return `${BLING_WEB}/oauth/authorize?${params}`;
 }
 
 type BlingTokens = {
@@ -46,7 +70,7 @@ type BlingTokens = {
 async function tokenRequest(body: URLSearchParams): Promise<BlingTokens | null> {
   const { clientId, clientSecret } = blingEnv();
   const basic = Buffer.from(`${clientId}:${clientSecret}`).toString("base64");
-  const res = await fetch(`${BLING}/oauth/token`, {
+  const res = await fetch(`${BLING_WEB}/oauth/token`, {
     method: "POST",
     headers: {
       "Content-Type": "application/x-www-form-urlencoded",
@@ -91,23 +115,49 @@ export async function blingSaveConnection(companyId: string, t: BlingTokens) {
   });
 }
 
-/** Token válido — renova sozinho quando falta menos de 10 min. */
-async function blingAccessToken(companyId: string): Promise<string | null> {
+type TokenDoBling =
+  | { token: string }
+  | { erro: "SEM_CONEXAO" | "RENOVACAO_FALHOU" };
+
+/**
+ * Token válido — renova sozinho quando falta menos de 10 min.
+ *
+ * **RENOVAÇÃO QUE FALHA NÃO DEVOLVE O TOKEN VELHO** (incidente 14/09/2026):
+ * antes, quando o refresh não vinha, o código caía no `return` do access token
+ * guardado — ou seja, mandava para o Bling um token que ele acabara de recusar.
+ * O que chegava na tela era `invalid_token`, que não diz o que fazer.
+ *
+ * E a causa mais comum não é o tempo: **mexer nos escopos do aplicativo no
+ * Bling REVOGA a autorização existente** (foi o que aconteceu com o dono). A
+ * conexão vira um cadáver — a linha continua no banco, o cartão segue dizendo
+ * "Conectado" — e só a emissão falha. Dizer "a autorização foi revogada,
+ * reconecte" é a única resposta útil, e agora ela sai daqui.
+ */
+async function blingAccessToken(companyId: string): Promise<TokenDoBling> {
   const conn = await db.blingConnection.findUnique({ where: { companyId } });
-  if (!conn) return null;
-  if (conn.expiresAt.getTime() - Date.now() < 10 * 60 * 1000) {
-    const novo = await tokenRequest(
-      new URLSearchParams({
-        grant_type: "refresh_token",
-        refresh_token: decryptSecret(conn.refreshToken),
-      })
-    );
-    if (novo?.access_token) {
-      await blingSaveConnection(companyId, novo);
-      return novo.access_token;
-    }
+  if (!conn) return { erro: "SEM_CONEXAO" };
+  if (conn.expiresAt.getTime() - Date.now() >= 10 * 60 * 1000) {
+    return { token: decryptSecret(conn.accessToken) };
   }
-  return decryptSecret(conn.accessToken);
+  const novo = await tokenRequest(
+    new URLSearchParams({
+      grant_type: "refresh_token",
+      refresh_token: decryptSecret(conn.refreshToken),
+    })
+  );
+  if (novo?.access_token) {
+    await blingSaveConnection(companyId, novo);
+    return { token: novo.access_token };
+  }
+  // fica registrado: é o que separa "revogaram a autorização" de "o endereço
+  // do token também mudou" na próxima vez que isso acontecer
+  await logServerError({
+    source: "server",
+    path: "bling oauth/token (refresh)",
+    message: "Renovação do token do Bling falhou — autorização revogada ou vencida",
+    detail: `companyId=${companyId}`,
+  });
+  return { erro: "RENOVACAO_FALHOU" };
 }
 
 async function blingApi<T = unknown>(
@@ -116,9 +166,26 @@ async function blingApi<T = unknown>(
   path: string,
   body?: unknown
 ): Promise<{ ok: boolean; status: number; data: T | null; raw: string }> {
-  const token = await blingAccessToken(companyId);
-  if (!token) return { ok: false, status: 0, data: null, raw: "sem conexão" };
-  const res = await fetch(`${BLING}${path}`, {
+  const t = await blingAccessToken(companyId);
+  if ("erro" in t) {
+    // vira uma recusa com FRASE, no mesmo formato do Bling, para passar pelo
+    // `blingErro` de sempre — a tela não precisa saber que o tropeço foi aqui
+    const message =
+      t.erro === "SEM_CONEXAO"
+        ? "O Bling não está conectado nesta loja."
+        : "A autorização do Bling não vale mais — ela foi revogada ou venceu. Mexer nos escopos do aplicativo no Bling revoga a autorização já concedida.";
+    return {
+      ok: false,
+      // RENOVACAO_FALHOU é 401 de propósito: é o status que faz a frase de
+      // "desconectar e conectar" entrar. Sem conexão nenhuma não leva status,
+      // porque ali não há o que desconectar
+      status: t.erro === "RENOVACAO_FALHOU" ? 401 : 0,
+      data: null,
+      raw: JSON.stringify({ error: { message } }),
+    };
+  }
+  const token = t.token;
+  const res = await fetch(`${BLING_API}${path}`, {
     method,
     headers: {
       "Content-Type": "application/json",
@@ -137,20 +204,57 @@ async function blingApi<T = unknown>(
   return { ok: res.ok, status: res.status, data, raw: raw.slice(0, 500) };
 }
 
-/** Erro legível a partir da resposta do Bling (validações vêm detalhadas). */
-function blingErro(raw: string, status: number): string {
+/**
+ * Erro legível a partir da resposta do Bling (validações vêm detalhadas).
+ *
+ * **A mensagem sozinha não basta** (incidente 14/09/2026): a emissão do dono
+ * voltava só *"Acesso não permitido"*, e com isso não dava para saber se o
+ * problema era o token (401 — reconectar resolve) ou permissão do aplicativo
+ * (403 — o escopo é que falta). São consertos DIFERENTES, e sem o número a
+ * lojista tenta no escuro. Agora o texto carrega `description`, `type` e o
+ * HTTP, e os casos conhecidos vêm com o CAMINHO escrito em português — erro
+ * que não ensina o que fazer é meio erro.
+ */
+export function blingErro(raw: string, status: number): string {
+  let detalhe = "";
   try {
     const j = JSON.parse(raw) as {
-      error?: { message?: string; fields?: { msg?: string }[] };
+      error?: {
+        type?: string;
+        message?: string;
+        description?: string;
+        fields?: { msg?: string; element?: string }[];
+      };
     };
-    const campos = j.error?.fields?.map((f) => f.msg).filter(Boolean).join("; ");
-    return (
-      [j.error?.message, campos].filter(Boolean).join(" — ").slice(0, 300) ||
-      `Bling recusou (HTTP ${status})`
-    );
+    const campos = j.error?.fields
+      ?.map((f) => [f.element, f.msg].filter(Boolean).join(": "))
+      .filter(Boolean)
+      .join("; ");
+    detalhe = [j.error?.message, j.error?.description, campos]
+      .filter(Boolean)
+      .join(" — ");
   } catch {
-    return `Bling recusou (HTTP ${status})`;
+    detalhe = "";
   }
+  // sem corpo legível o próprio status já é a informação — repeti-lo no fim
+  // daria "Bling recusou (HTTP 500) [HTTP 500]"
+  if (!detalhe) return `Bling recusou (HTTP ${status})${comoResolver(status)}`.slice(0, 500);
+  // status 0 é tropeço NOSSO (nem chegamos a falar com o Bling): "[HTTP 0]"
+  // só assustaria quem lê
+  const carimbo = status > 0 ? ` [HTTP ${status}]` : "";
+  return `${detalhe}${comoResolver(status)}${carimbo}`.slice(0, 500);
+}
+
+/**
+ * O caminho, em português, para os dois jeitos de o Bling dizer "não".
+ * Escrito aqui e não na tela porque quem sabe o que aconteceu é esta camada.
+ */
+function comoResolver(status: number): string {
+  if (status === 401)
+    return " · A autorização do Bling venceu ou foi revogada. Em Configurações → Bling, clique em Desconectar e Conectar de novo.";
+  if (status === 403)
+    return " · O aplicativo criado no Bling não tem permissão para esta operação. No Bling, abra o aplicativo AtacadoPro, marque o escopo que falta (para emitir, é \"Emissão de Nota Fiscal Eletrônica (NF-e)\"), SALVE, e depois reconecte em Configurações → Bling — a autorização guarda as permissões de quando foi feita.";
+  return "";
 }
 
 export type NfeResult =
@@ -477,6 +581,16 @@ export async function emitirNfeDoPedido(
     const blingId = criada.data?.data?.id ? String(criada.data.data.id) : null;
     if (!criada.ok || !blingId) {
       await soltarTrava();
+      // A RESPOSTA CRUA FICA REGISTRADA (14/09/2026): a recusa do Bling chega
+      // resumida na tela, e foi por não ter o corpo inteiro que a investigação
+      // de "Acesso não permitido" virou tentativa e erro. Aqui fica o que ele
+      // realmente respondeu, para o painel de Saúde.
+      await logServerError({
+        source: "server",
+        path: "bling POST /nfe",
+        message: `Bling recusou a emissão (HTTP ${criada.status})`,
+        detail: criada.raw,
+      });
       return { ok: false, error: blingErro(criada.raw, criada.status) };
     }
     return await transmitirEGravar(companyId, order.id, blingId);
