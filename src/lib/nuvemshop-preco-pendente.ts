@@ -138,6 +138,12 @@ export async function precoPendentePorProduto(
   return new Set((await estadoDoPrecoPorProduto(companyId, productIds)).keys());
 }
 
+/** TODOS os produtos da loja com varejo a caminho — a consulta única da sync. */
+export async function produtosComPrecoPendente(companyId: string): Promise<Set<string>> {
+  const linhas = await db.nuvemshopPrecoPendente.findMany({ where: { companyId }, select: { productId: true } });
+  return new Set(linhas.map((l) => l.productId));
+}
+
 /** "enviando" (ainda tentando) ou "falhou" (desistiu, com o motivo) — para a ficha dizer a verdade. */
 export type EstadoDoPrecoPendente = { estado: "enviando" | "falhou"; motivo: string | null };
 

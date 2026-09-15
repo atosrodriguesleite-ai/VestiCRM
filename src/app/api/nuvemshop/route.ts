@@ -30,6 +30,15 @@ export async function GET() {
       storeId: conn?.storeId ?? null,
       lastProductSync: conn?.lastProductSync ?? null,
       lastCheckoutSync: conn?.lastCheckoutSync ?? null,
+      // etapa em que a última rodada parou (nulo = terminou): é o que separa
+      // "nunca sincronizou" de "morreu na página 3"
+      etapaParada: (() => {
+        try {
+          return conn?.lastSyncEtapa ? JSON.parse(conn.lastSyncEtapa) : null;
+        } catch {
+          return null;
+        }
+      })(),
       produtos,
       vendas,
       report: (() => {

@@ -22,10 +22,12 @@ import {
   registrarFalhaDeEnvio,
   tomarTravaDaRepesca,
 } from "./nuvemshop-estoque-pendente";
+import { variacoesComEnvioPendente } from "./nuvemshop-estoque-pendente";
 import {
   confirmarEnvioDePreco,
   desistirDoEnvioDePreco,
   precoPendentePorProduto,
+  produtosComPrecoPendente,
   produtosParaRepescarPreco,
   registrarFalhaDePreco,
 } from "./nuvemshop-preco-pendente";
@@ -349,13 +351,6 @@ const buscarPoolProdutos = (companyId: string) =>
     // description entra para a regra "nunca sobrescrever texto editado na loja"
     select: { id: true, name: true, sku: true, nuvemshopId: true, description: true },
   });
-/** RN-057: todos os produtos da loja com varejo a caminho (uma consulta por sync). */
-const precosPendentesDaLoja = async (companyId: string) =>
-  new Set(
-    (await db.nuvemshopPrecoPendente.findMany({ where: { companyId }, select: { productId: true } })).map(
-      (l) => l.productId
-    )
-  );
 export type PoolsDeSync = {
   skuVariants: Awaited<ReturnType<typeof buscarPoolSku>>;
   allProducts: Awaited<ReturnType<typeof buscarPoolProdutos>>;
@@ -368,6 +363,8 @@ export type PoolsDeSync = {
   idxParecidos: Map<string, string>;
   /** RN-057: produtos com varejo a caminho da Nuvemshop, lidos UMA vez por sync */
   precosPendentes?: Set<string>;
+  /** RN-053: variações com baixa a caminho da Nuvemshop, lidas UMA vez por sync */
+  estoquePendente?: Set<string>;
 };
 
 export type SyncPendencia = {
@@ -639,11 +636,13 @@ export async function upsertProduct(
   );
   // RN-053: peças cuja baixa ainda não foi confirmada lá — o número de lá não
   // pode passar por cima delas (ver o comentário na gravação, abaixo)
-  const pendentesDeEnvio = await envioPendentePorVariacao(companyId, [
-    ...linkedVariants.map((x) => x.id),
-    ...skuVariants.map((x) => x.id),
-    ...targetVariants.map((x) => x.id),
-  ]);
+  const pendentesDeEnvio =
+    pools?.estoquePendente ??
+    (await envioPendentePorVariacao(companyId, [
+      ...linkedVariants.map((x) => x.id),
+      ...skuVariants.map((x) => x.id),
+      ...targetVariants.map((x) => x.id),
+    ]));
   // RN-057: produtos cujo VAREJO mudou aqui e ainda não foi confirmado lá —
   // o número de lá é o velho, e escrevê-lo por cima desfaria o reajuste
   const precosPendentes =
@@ -764,16 +763,28 @@ export async function upsertProduct(
     // vendidas ao catálogo: a loja voltaria a vender o que não tem, que é
     // exatamente o estrago que esta regra existe para evitar. E era a saída
     // que o próprio aviso da tela recomendava (achado da revisão).
-    const esperandoEnvio = pendentesDeEnvio.has(alvo.id);
-    await db.productVariant.update({
-      where: { id: alvo.id },
-      data: {
-        nuvemshopId: vId,
-        nuvemshopProductId: nsId,
-        ...(esperandoEnvio ? {} : { stock }),
-        ...(v.sku && !alvo.sku ? { sku: v.sku } : {}),
-      },
-    });
+    // o pool da rodada é o atalho barato; quando o número de lá DIFERE do
+    // nosso, reconfere na hora — uma venda entrou aqui no meio da etapa
+    // (que pode durar 25s) e a fila já tem a peça, mas o pool não sabe:
+    // gravar o número de lá desfaria a venda dos dois lados (achado da
+    // revisão)
+    const esperandoEnvio =
+      pendentesDeEnvio.has(alvo.id) ||
+      (alvo.stock !== stock && (await envioPendentePorVariacao(companyId, [alvo.id])).has(alvo.id));
+    const dadosDaVariacao = {
+      ...(alvo.nuvemshopId !== vId ? { nuvemshopId: vId } : {}),
+      ...(alvo.nuvemshopProductId !== nsId ? { nuvemshopProductId: nsId } : {}),
+      ...(esperandoEnvio || alvo.stock === stock ? {} : { stock }),
+      ...(v.sku && !alvo.sku ? { sku: v.sku } : {}),
+    };
+    // só vai ao banco quando ALGO mudou: numa página de 25 modelos já
+    // sincronizados isso eram ~100 idas ao banco para gravar o mesmo número
+    // (a sync inteira precisa caber nos 60s da Vercel, com o banco em outra
+    // região a 100 ms por consulta — achado ao investigar a sync da Entre
+    // Linhas que "parava no meio", 15/09/2026)
+    if (Object.keys(dadosDaVariacao).length > 0) {
+      await db.productVariant.update({ where: { id: alvo.id }, data: dadosDaVariacao });
+    }
     // registra o movimento — auditável e reversível (nunca sobrescreve sem
     // rastro). Estoque "infinito" fica de fora: o repor 9996 → 9999 de cada
     // sync viraria ruído sem significado no histórico.
@@ -790,7 +801,13 @@ export async function upsertProduct(
     }
     // preço de varejo acompanha a loja online (o de atacado fica intacto) —
     // salvo quando o número NOVO é o daqui e ainda está a caminho (RN-057)
-    if (preco > 0 && alvo.product.retailPrice !== preco && !precosPendentes.has(alvo.product.id)) {
+    // mesma régua de frescor do estoque: preço diferente reconfere a fila
+    if (
+      preco > 0 &&
+      alvo.product.retailPrice !== preco &&
+      !precosPendentes.has(alvo.product.id) &&
+      !(await precoPendentePorProduto(companyId, [alvo.product.id])).has(alvo.product.id)
+    ) {
       await db.product.update({
         where: { id: alvo.product.id },
         data: { retailPrice: preco },
@@ -952,7 +969,8 @@ export async function syncProducts(companyId: string) {
     skuVariants: poolSku,
     allProducts: await buscarPoolProdutos(companyId),
     idxParecidos: indiceDeSkusParecidos(poolSku),
-    precosPendentes: await precosPendentesDaLoja(companyId),
+    precosPendentes: await produtosComPrecoPendente(companyId),
+    estoquePendente: await variacoesComEnvioPendente(companyId),
   };
   let page = 1;
   let total = 0;
@@ -986,6 +1004,7 @@ export async function syncProducts(companyId: string) {
     where: { companyId },
     data: {
       lastProductSync: new Date(),
+      lastSyncEtapa: null,
       lastSyncReport: JSON.stringify({
         at: new Date().toISOString(),
         casadas: report.casadas,
@@ -1010,7 +1029,37 @@ export async function syncProducts(companyId: string) {
  * produtos. O relatório vai sendo somado no banco a cada etapa (a etapa 1
  * zera), então "Conferir integração" continua contando a história inteira.
  */
-export async function syncPaginaDeProdutos(companyId: string, page: number) {
+/**
+ * Quanto tempo uma etapa pode gastar PROCESSANDO produtos. A função da
+ * Vercel vive 60s; o que não couber volta para a tela como "parcial", e ela
+ * pede a MESMA página de novo pulando o que já foi feito. Antes, uma página
+ * lenta (banco em outra região, Nuvemshop devagar) morria nos 60s sem
+ * resposta nenhuma — a tela só dizia "interrompida no meio" e a lojista
+ * recomeçava da página 1 para morrer no mesmo lugar (Entre Linhas,
+ * 15/09/2026).
+ */
+export const MS_ORCAMENTO_DA_ETAPA = 25_000;
+
+export async function syncPaginaDeProdutos(
+  companyId: string,
+  page: number,
+  desde = 0,
+  orcamentoMs = MS_ORCAMENTO_DA_ETAPA,
+  /** id (Nuvemshop) do último produto feito na etapa anterior: se a página
+   *  mudou de ordem entre as duas chamadas, a retomada é por ele, não pela
+   *  posição */
+  apos: string | null = null
+) {
+  const inicio = Date.now();
+  // rastro de progresso na ENTRADA, antes de qualquer trabalho: se a função
+  // morrer carregando os pools ou esperando a Nuvemshop, o cartão aponta a
+  // etapa CERTA (carimbar depois apontava a anterior, já feita)
+  const rastro = (pagina: number, desdeN: number) =>
+    db.nuvemshopConnection.updateMany({
+      where: { companyId },
+      data: { lastSyncEtapa: JSON.stringify({ pagina, desde: desdeN, at: new Date().toISOString() }) },
+    });
+  await rastro(page, desde);
   const conn = await loadConn(companyId);
   if (!conn) return { ok: false as const, produtos: 0, fim: true, status: -1 };
   const report: SyncReport = { casadas: 0, criadas: 0, pendencias: [] };
@@ -1019,7 +1068,8 @@ export async function syncPaginaDeProdutos(companyId: string, page: number) {
     skuVariants: poolSku,
     allProducts: await buscarPoolProdutos(companyId),
     idxParecidos: indiceDeSkusParecidos(poolSku),
-    precosPendentes: await precosPendentesDaLoja(companyId),
+    precosPendentes: await produtosComPrecoPendente(companyId),
+    estoquePendente: await variacoesComEnvioPendente(companyId),
   };
   // 25 por etapa: margem folgada mesmo com banco/Nuvemshop num dia lento
   const POR_ETAPA = 25;
@@ -1032,8 +1082,28 @@ export async function syncPaginaDeProdutos(companyId: string, page: number) {
     return { ok: false as const, produtos: 0, fim: true, status: res.status };
   }
   const lista = res.ok ? (res.data ?? []) : [];
-  for (const p of lista) {
+  // retomada: pela POSIÇÃO, mas se o último produto feito não está mais
+  // nela (a lojista criou/apagou produto entre as duas chamadas e a página
+  // andou), acha o id e segue dali — pular um produto em silêncio é pior
+  // que refazer um
+  let comecarEm = Math.min(desde, lista.length);
+  if (apos) {
+    const i = lista.findIndex((p) => String(p.id) === apos);
+    if (i >= 0) comecarEm = i + 1;
+  }
+  let feitos = 0;
+  let parcial = false;
+  let ultimoId: string | null = null;
+  for (const p of lista.slice(comecarEm)) {
+    // SEMPRE faz pelo menos um produto por etapa: devolver "zero feitos"
+    // deixaria a tela pedindo a mesma etapa para sempre
+    if (feitos > 0 && Date.now() - inicio > orcamentoMs) {
+      parcial = true;
+      break;
+    }
     const criado = await upsertProduct(companyId, p, report, pools);
+    feitos++;
+    ultimoId = String(p.id);
     if (criado) {
       pools.allProducts.push({
         id: criado.id,
@@ -1044,7 +1114,9 @@ export async function syncPaginaDeProdutos(companyId: string, page: number) {
       });
     }
   }
-  const fim = lista.length < POR_ETAPA || page >= 100;
+  const fim = !parcial && (lista.length < POR_ETAPA || page >= 100);
+  const proximaPagina = parcial ? page : page + 1;
+  const proximoDesde = parcial ? comecarEm + feitos : 0;
 
   // soma o parcial desta etapa no relatório guardado (etapa 1 recomeça)
   const conexao = await db.nuvemshopConnection.findUnique({
@@ -1057,7 +1129,7 @@ export async function syncPaginaDeProdutos(companyId: string, page: number) {
     totalPendencias: 0,
     pendencias: [] as SyncPendencia[],
   };
-  if (page > 1 && conexao?.lastSyncReport) {
+  if ((page > 1 || comecarEm > 0) && conexao?.lastSyncReport) {
     try {
       const j = JSON.parse(conexao.lastSyncReport);
       anterior = {
@@ -1083,15 +1155,21 @@ export async function syncPaginaDeProdutos(companyId: string, page: number) {
     where: { companyId },
     data: {
       lastSyncReport: JSON.stringify(somado),
-      ...(fim ? { lastProductSync: new Date() } : {}),
+      ...(fim ? { lastProductSync: new Date(), lastSyncEtapa: null } : {}),
     },
   });
+  // etapa não-final: o rastro passa a apontar para a PRÓXIMA posição
+  if (!fim) await rastro(proximaPagina, proximoDesde);
 
   return {
     ok: true as const,
-    produtos: lista.length,
+    produtos: feitos,
     fim,
-    proximaPagina: page + 1,
+    parcial,
+    // parcial: a MESMA página, pulando o que já foi feito
+    proximaPagina,
+    desde: proximoDesde,
+    apos: parcial ? ultimoId : null,
     status: 200,
   };
 }

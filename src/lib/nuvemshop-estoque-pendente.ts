@@ -243,16 +243,24 @@ export async function envioPendentePorVariacao(
   variantIds: string[]
 ): Promise<Set<string>> {
   if (variantIds.length === 0) return new Set();
-  // a consulta é pela LOJA, não pela lista de ids: a tela Produtos de uma
-  // loja com 500 modelos mandaria ~4.000 parâmetros para ler uma tabela que,
-  // por desenho, tem poucas linhas (só o que está esperando envio). O
-  // cruzamento sai de graça em memória (achado da revisão de performance).
+  const pedidos = new Set(variantIds);
+  return new Set([...(await variacoesComEnvioPendente(companyId))].filter((id) => pedidos.has(id)));
+}
+
+/**
+ * TODAS as variações da loja com envio ainda não confirmado (inclusive as que
+ * desistiram: o número mais novo continua sendo o nosso). É a consulta ÚNICA
+ * — a tela Produtos, o Inventário e a sync leem daqui: a consulta é pela
+ * LOJA, não por lista de ids (a tela de uma loja com 500 modelos mandaria
+ * ~4.000 parâmetros para ler uma tabela que, por desenho, tem poucas
+ * linhas), e o cruzamento sai de graça em memória.
+ */
+export async function variacoesComEnvioPendente(companyId: string): Promise<Set<string>> {
   const linhas = await db.nuvemshopEstoquePendente.findMany({
     where: { companyId },
     select: { variantId: true },
   });
-  const pedidos = new Set(variantIds);
-  return new Set(linhas.map((l) => l.variantId).filter((id) => pedidos.has(id)));
+  return new Set(linhas.map((l) => l.variantId));
 }
 
 /**

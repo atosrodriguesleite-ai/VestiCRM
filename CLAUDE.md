@@ -824,6 +824,23 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   "50 pontos para olhar" com 45 sendo lembrança de coisa resolvida, e as 5 de
   verdade sumiam no meio. "Já acabou" só vale quando deu para conferir: com a
   leitura incompleta a disputa continua avisando.
+  **A SINCRONIZAÇÃO É EM ETAPAS, COM ORÇAMENTO DE TEMPO E RASTRO**
+  (`syncPaginaDeProdutos`, 15/09/2026): relato da Entre Linhas — "não está
+  fazendo sincronização", com o cartão dizendo *"interrompida no meio"*. A
+  etapa de 25 produtos faz de 200 a 450 idas ao banco (medido no Postgres
+  local), e com o banco em outra região a 100 ms cada isso passa dos 60s da
+  Vercel: a função morria SEM resposta, a tela só sabia dizer "interrompida"
+  e a lojista recomeçava da página 1 para morrer no mesmo lugar. Agora cada
+  etapa tem **orçamento de 25s** (`MS_ORCAMENTO_DA_ETAPA`): o que não coube
+  volta como **parcial** e a tela pede a MESMA página pulando o que já foi
+  feito (`desde`) — **sempre pelo menos um produto por etapa**, senão a tela
+  pediria a mesma etapa para sempre. Etapa que morre sem resposta é repetida
+  2× antes de desistir, e a mensagem diz **onde** parou (página e produto),
+  que é o que o suporte precisa; o **rastro** (`lastSyncEtapa`, gravado
+  ANTES de trabalhar e apagado no fim) faz o cartão dizer "parou na página
+  N" mesmo depois de a função morrer. Junto, a rodada ficou mais leve: baixa
+  pendente (RN-053) e preço a caminho (RN-057) são lidos **uma vez por
+  rodada** (pools), e a variação só vai ao banco quando algo mudou.
   **RN-053 · O ENVIO DE ESTOQUE PARA A NUVEMSHOP NÃO SE PERDE CALADO**
   (`lib/nuvemshop-estoque-pendente.ts` + `pushStockToNuvemshop`, 10/09/2026):
   relato do dono — a mesma peça com **0 aqui e 41 lá**, e a conferência da

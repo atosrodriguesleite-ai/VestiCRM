@@ -1091,6 +1091,8 @@ model NuvemshopConnection {
   lastProductSync  DateTime?
   lastCheckoutSync DateTime?
   lastSyncReport   String    @default("{}") // resumo + pendências de vínculo (JSON)
+  /// etapa em andamento da última sincronização ({pagina, desde, at}); nulo = terminou
+  lastSyncEtapa    String?
   createdAt        DateTime  @default(now())
 }
 
