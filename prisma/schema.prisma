@@ -134,6 +134,7 @@ model Company {
   inventoryMovs  InventoryMovement[]
   estoqueMinimos EstoqueMinimoCategoria[]
   nsEstoquePend  NuvemshopEstoquePendente[]
+  nsPrecoPend    NuvemshopPrecoPendente[]
   fiscalCategorias FiscalCategoria[]
   customerEvents CustomerEvent[]
   originRules    OriginRule[]
@@ -1698,6 +1699,7 @@ model Product {
   variants ProductVariant[]
   images   ProductImage[]
   items    OrderItem[]
+  nsPrecoPend NuvemshopPrecoPendente[]
   promoIn  PromoCatalogProduct[]
 
   @@unique([companyId, sku])
@@ -2181,6 +2183,27 @@ model NuvemshopEstoquePendente {
 
   /// uma fila por peça: a venda seguinte da mesma peça atualiza, não empilha
   @@unique([variantId])
+  @@index([companyId, proximaEm])
+}
+
+/// RN-057: preço de varejo mudado AQUI que ainda não foi confirmado na
+/// Nuvemshop (mesmo desenho da fila de estoque, RN-053). Uma linha por
+/// PRODUTO: o varejo é do modelo, e todas as variações vinculadas recebem
+/// o mesmo número.
+model NuvemshopPrecoPendente {
+  id         String    @id @default(cuid())
+  companyId  String
+  company    Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  productId  String
+  product    Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
+  tentativas Int       @default(0)
+  /// quando tentar de novo; nulo = desistiu (fica como aviso na ficha)
+  proximaEm  DateTime?
+  ultimoErro String?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  @@unique([productId])
   @@index([companyId, proximaEm])
 }
 

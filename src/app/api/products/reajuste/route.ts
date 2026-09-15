@@ -3,6 +3,8 @@ import { z } from "zod";
 import { requireUser, AuthError } from "@/lib/auth";
 import { podeReajustarPreco } from "@/lib/scope";
 import { aplicarReajuste, preverReajuste, validarReajuste } from "@/lib/reajuste-preco";
+import { varrerEnviosDeEstoqueSeDevido } from "@/lib/nuvemshop";
+import { after } from "next/server";
 
 /**
  * REAJUSTE DE PREÇO EM LOTE POR CATEGORIA (RN-056).
@@ -44,6 +46,9 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(await preverReajuste(user.companyId, { ...pedido, campos }));
     }
     const resumo = await aplicarReajuste(user.companyId, { ...pedido, campos }, user);
+    // o que não coube no envio de agora (RN-057) já está na fila: a repesca
+    // pega carona aqui também
+    after(() => varrerEnviosDeEstoqueSeDevido(user.companyId));
     return NextResponse.json({ ok: true, resumo });
   } catch (e) {
     if (e instanceof AuthError)

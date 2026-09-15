@@ -22,10 +22,9 @@ export { donoDoPreco };
  *  • preço ZERO não vira preço por percentual (10% de nada é nada, e a peça
  *    que nunca teve atacado não pode ganhar um por engano) — fica de fora e
  *    é CONTADA; valor fixo, sim, vale para ela;
- *  • quem vende fora manda no preço dele (RN-014/RN-050): peça vinculada à
- *    Nuvemshop tem o VAREJO dela lá (a sync devolveria o número de lá na
- *    hora seguinte), e a do Jueri tem os DOIS lá — esses ficam de fora, com
- *    o motivo dito na prévia; o atacado da peça Nuvemshop é daqui e muda.
+ *  • peça do Jueri tem os DOIS preços lá — ficam de fora, com o motivo dito
+ *    na prévia; peça da Nuvemshop tem o atacado daqui, e o VAREJO muda aqui
+ *    E VAI PARA LÁ (RN-057) — a prévia diz quais vão.
  */
 export type CampoDePreco = "atacado" | "varejo";
 export type ModoDeReajuste = "percentual" | "fixo";
@@ -97,6 +96,8 @@ export type LinhaDoReajuste = {
   nome: string;
   atacado?: MudancaDeCampo;
   varejo?: MudancaDeCampo;
+  /** RN-057: o varejo novo vai para a Nuvemshop também */
+  espelhaVarejo?: boolean;
   /** por que algum campo ficou de fora, em português */
   avisos: string[];
 };
@@ -107,8 +108,10 @@ export type ResumoDoReajuste = {
   alterados: number;
   /** campos que ficaram de fora por preço zero (percentual) */
   semPreco: number;
-  /** campos que ficaram de fora porque outro sistema manda neles */
-  presos: { nuvemshop: number; jueri: number };
+  /** campos que ficaram de fora porque o Jueri manda neles */
+  presos: { jueri: number };
+  /** preços de varejo que mudam aqui E vão para a Nuvemshop (RN-057) */
+  espelhados: number;
 };
 
 /** Planeja o reajuste: o que muda, o que fica de fora e por quê. Puro. */
@@ -122,7 +125,8 @@ export function planejarReajuste(
     total: produtos.length,
     alterados: 0,
     semPreco: 0,
-    presos: { nuvemshop: 0, jueri: 0 },
+    presos: { jueri: 0 },
+    espelhados: 0,
   };
   const linhas: LinhaDoReajuste[] = [];
   for (const p of produtos) {
@@ -132,9 +136,8 @@ export function planejarReajuste(
       const rotulo = campo === "atacado" ? "atacado" : "varejo";
       const quem = campo === "atacado" ? dono.atacado : dono.varejo;
       if (quem) {
-        linha.avisos.push(`${rotulo}: é da ${NOME_DO_DONO[quem]}, muda lá`);
-        if (quem === "NUVEMSHOP") resumo.presos.nuvemshop++;
-        else resumo.presos.jueri++;
+        linha.avisos.push(`${rotulo}: é do ${NOME_DO_DONO[quem]}, muda lá`);
+        resumo.presos.jueri++;
         continue;
       }
       const atual = campo === "atacado" ? p.wholesalePrice : p.retailPrice;
@@ -145,6 +148,17 @@ export function planejarReajuste(
         continue;
       }
       if (para === centavos(atual)) continue; // nada a fazer
+      if (campo === "varejo" && dono.espelhaVarejo) {
+        // zero iria para a loja online e a peça ficaria de graça lá
+        // (achado da revisão): fica de fora, dito
+        if (!(para > 0)) {
+          linha.avisos.push("varejo: peça da Nuvemshop não pode ficar zerada, fica de fora");
+          resumo.semPreco++;
+          continue;
+        }
+        linha.espelhaVarejo = true;
+        resumo.espelhados++;
+      }
       linha[campo] = { de: atual, para };
     }
     if (linha.atacado || linha.varejo) resumo.alterados++;

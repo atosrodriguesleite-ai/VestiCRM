@@ -41,6 +41,16 @@ const montar = (strings: TemplateStringsArray, values: unknown[]) => {
   return { sql: q.sql.replace(/\s+/g, " ").trim(), values: q.values };
 };
 
+// RN-057: o espelho para a Nuvemshop é chamado DEPOIS do commit; aqui só
+// se registra QUEM foi mandado (o envio em si tem teste próprio)
+const espelhados: string[][] = [];
+vi.mock("../nuvemshop", () => ({
+  espelharPrecoSemQuebrar: (_companyId: string, ids: string[]) => {
+    espelhados.push(ids);
+  },
+}));
+const filaDePreco = new Map<string, { companyId: string; productId: string; tentativas: number; proximaEm: Date | null }>();
+
 vi.mock("../db", () => ({
   db: {
     async $transaction(fn: (tx: unknown) => Promise<unknown>) {
@@ -82,6 +92,15 @@ vi.mock("../db", () => ({
           async create({ data }: { data: { companyId: string; type: string; payload: string } }) {
             eventos.push(data);
             return data;
+          },
+        },
+        nuvemshopPrecoPendente: {
+          async updateMany() {
+            return { count: 0 };
+          },
+          async createMany({ data }: { data: { companyId: string; productId: string; tentativas: number; proximaEm: Date | null }[] }) {
+            for (const d of data) if (!filaDePreco.has(d.productId)) filaDePreco.set(d.productId, { ...d });
+            return { count: data.length };
           },
         },
       };
@@ -147,19 +166,23 @@ describe("validarReajuste: erro de digitação não vira preço", () => {
 
 describe("donoDoPreco: quem vende fora manda no preço dele", () => {
   it("peça nossa: os dois são nossos", () => {
-    expect(donoDoPreco(peca())).toEqual({ atacado: null, varejo: null });
+    expect(donoDoPreco(peca())).toEqual({ atacado: null, varejo: null, espelhaVarejo: null });
   });
 
-  it("Nuvemshop (no produto ou em qualquer variação): o VAREJO é dela, o atacado é nosso", () => {
-    expect(donoDoPreco(peca({ nuvemshopId: "9" }))).toEqual({ atacado: null, varejo: "NUVEMSHOP" });
+  it("Nuvemshop (no produto ou em qualquer variação): os dois se editam aqui, e o VAREJO vai para lá (RN-057)", () => {
+    // vínculo só no PRODUTO (variações todas em pendência de SKU): a sync não
+    // lê nem escreve o varejo dele — é nosso, e não há para onde mandar
+    expect(donoDoPreco(peca({ nuvemshopId: "9", variants: [{ nuvemshopId: null }] }))).toEqual({ atacado: null, varejo: null, espelhaVarejo: null });
+    expect(donoDoPreco(peca({ nuvemshopId: "9", variants: [{ nuvemshopId: "v1" }] }))).toEqual({ atacado: null, varejo: null, espelhaVarejo: "NUVEMSHOP" });
     expect(donoDoPreco(peca({ variants: [{ nuvemshopId: null }, { nuvemshopId: "v2" }] }))).toEqual({
       atacado: null,
-      varejo: "NUVEMSHOP",
+      varejo: null,
+      espelhaVarejo: "NUVEMSHOP",
     });
   });
 
-  it("Jueri: os dois preços são de lá", () => {
-    expect(donoDoPreco(peca({ jueriId: "j1" }))).toEqual({ atacado: "JUERI", varejo: "JUERI" });
+  it("Jueri: os dois preços são de lá, e nada é espelhado", () => {
+    expect(donoDoPreco(peca({ jueriId: "j1" }))).toEqual({ atacado: "JUERI", varejo: "JUERI", espelhaVarejo: null });
   });
 });
 
@@ -168,21 +191,42 @@ describe("planejarReajuste: o que muda, o que fica de fora e por quê", () => {
     const { linhas, resumo } = planejarReajuste([peca()], ["atacado", "varejo"], "percentual", 10);
     expect(linhas[0].atacado).toEqual({ de: 79.9, para: 87.89 });
     expect(linhas[0].varejo).toEqual({ de: 129.9, para: 142.89 });
-    expect(resumo).toEqual({ total: 1, alterados: 1, semPreco: 0, presos: { nuvemshop: 0, jueri: 0 } });
+    expect(resumo).toEqual({ total: 1, alterados: 1, semPreco: 0, presos: { jueri: 0 }, espelhados: 0 });
   });
 
-  it("peça da Nuvemshop: atacado muda, varejo fica de fora com o motivo dito", () => {
+  it("peça da Nuvemshop: os dois mudam, e o varejo é marcado para ir para lá (RN-057)", () => {
     const { linhas, resumo } = planejarReajuste(
-      [peca({ nuvemshopId: "9" })],
+      [peca({ nuvemshopId: "9", variants: [{ nuvemshopId: "v1" }] })],
       ["atacado", "varejo"],
       "percentual",
       10
     );
     expect(linhas[0].atacado).toEqual({ de: 79.9, para: 87.89 });
-    expect(linhas[0].varejo).toBeUndefined();
-    expect(linhas[0].avisos).toEqual(["varejo: é da Nuvemshop, muda lá"]);
-    expect(resumo.presos.nuvemshop).toBe(1);
+    expect(linhas[0].varejo).toEqual({ de: 129.9, para: 142.89 });
+    expect(linhas[0].espelhaVarejo).toBe(true);
+    expect(linhas[0].avisos).toEqual([]);
+    expect(resumo.espelhados).toBe(1);
     expect(resumo.alterados).toBe(1);
+  });
+
+  it("peça da Nuvemshop NÃO fica zerada por valor fixo 0 (a peça ficaria de graça lá)", () => {
+    const { linhas, resumo } = planejarReajuste(
+      [peca({ nuvemshopId: "9", variants: [{ nuvemshopId: "v1" }] })],
+      ["atacado", "varejo"],
+      "fixo",
+      0
+    );
+    expect(linhas[0].atacado).toEqual({ de: 79.9, para: 0 }); // o atacado é nosso, zera se pedirem
+    expect(linhas[0].varejo).toBeUndefined();
+    expect(linhas[0].avisos).toEqual(["varejo: peça da Nuvemshop não pode ficar zerada, fica de fora"]);
+    expect(resumo.espelhados).toBe(0);
+  });
+
+  it("peça da Nuvemshop com varejo IGUAL ao pedido: nada muda, nada vai para lá", () => {
+    const { linhas, resumo } = planejarReajuste([peca({ nuvemshopId: "9", variants: [{ nuvemshopId: "v1" }] })], ["varejo"], "fixo", 129.9);
+    expect(linhas[0].varejo).toBeUndefined();
+    expect(linhas[0].espelhaVarejo).toBeUndefined();
+    expect(resumo.espelhados).toBe(0);
   });
 
   it("peça do Jueri: nada muda, os dois avisos aparecem, não conta como alterada", () => {
@@ -233,6 +277,8 @@ describe("aplicarReajuste: trava por loja e categoria, reconta, grava por loja e
     consultas.length = 0;
     gravacoes.length = 0;
     eventos.length = 0;
+    filaDePreco.clear();
+    espelhados.length = 0;
     const linha = (id: string, extra: Partial<LinhaDoBanco>): LinhaDoBanco => ({
       id,
       companyId: LOJA,
@@ -246,6 +292,7 @@ describe("aplicarReajuste: trava por loja e categoria, reconta, grava por loja e
     });
     banco.set("nossa", linha("nossa", {}));
     banco.set("da-nuvemshop", linha("da-nuvemshop", { nuvemshopId: "ns-1" }));
+    variantesNuvemshop.add("da-nuvemshop");
     banco.set("do-jueri", linha("do-jueri", { jueriId: "j-1" }));
     banco.set("sem-atacado", linha("sem-atacado", { wholesalePrice: 0 }));
     banco.set("calca", linha("calca", { category: "Calças" }));
@@ -269,8 +316,8 @@ describe("aplicarReajuste: trava por loja e categoria, reconta, grava por loja e
     }
 
     expect(banco.get("nossa")).toMatchObject({ wholesalePrice: 110, retailPrice: 220 });
-    // varejo da Nuvemshop fica de fora; o atacado é nosso e muda
-    expect(banco.get("da-nuvemshop")).toMatchObject({ wholesalePrice: 110, retailPrice: 200 });
+    // peça Nuvemshop: os dois mudam aqui, e o varejo vai para lá (RN-057)
+    expect(banco.get("da-nuvemshop")).toMatchObject({ wholesalePrice: 110, retailPrice: 220 });
     // Jueri manda nos dois
     expect(banco.get("do-jueri")).toMatchObject({ wholesalePrice: 100, retailPrice: 200 });
     // percentual não inventa preço onde está zero
@@ -283,14 +330,27 @@ describe("aplicarReajuste: trava por loja e categoria, reconta, grava por loja e
       total: 4,
       alterados: 3,
       semPreco: 1,
-      presos: { nuvemshop: 1, jueri: 2 },
+      presos: { jueri: 2 },
+      espelhados: 1,
     });
+    // a fila de envio nasce na MESMA transação, e o espelho é chamado depois
+    // do commit só com quem tem varejo novo na Nuvemshop
+    expect([...filaDePreco.keys()]).toEqual(["da-nuvemshop"]);
+    expect(filaDePreco.get("da-nuvemshop")).toMatchObject({ companyId: LOJA, tentativas: 0 });
+    expect(espelhados).toEqual([["da-nuvemshop"]]);
   });
 
-  it("Nuvemshop vinculada só na VARIAÇÃO também tranca o varejo", async () => {
+  it("Nuvemshop vinculada só na VARIAÇÃO também manda o varejo para lá", async () => {
     variantesNuvemshop.add("nossa");
     await aplicarReajuste(LOJA, pedido, quem);
-    expect(banco.get("nossa")).toMatchObject({ wholesalePrice: 110, retailPrice: 200 });
+    expect(banco.get("nossa")).toMatchObject({ wholesalePrice: 110, retailPrice: 220 });
+    expect([...filaDePreco.keys()].sort()).toEqual(["da-nuvemshop", "nossa"]);
+  });
+
+  it("reajuste SÓ de atacado em peça Nuvemshop não manda nada para lá", async () => {
+    await aplicarReajuste(LOJA, { ...pedido, campos: ["atacado"] }, quem);
+    expect(filaDePreco.size).toBe(0);
+    expect(espelhados).toEqual([[]]);
   });
 
   it("reconta com o número do BANCO na hora, não com a prévia (a ficha pode ter mudado)", async () => {
@@ -313,7 +373,7 @@ describe("aplicarReajuste: trava por loja e categoria, reconta, grava por loja e
     });
     expect(payload.mudancas.find((m: { id: string }) => m.id === "da-nuvemshop")).toMatchObject({
       atacado: { de: 100, para: 110 },
-      varejo: null,
+      varejo: { de: 200, para: 220 },
     });
   });
 
@@ -360,6 +420,6 @@ describe("a porta e a tela", () => {
     expect(tela).toContain("disabled={!!product.precoDono.atacado}");
     expect(tela).toContain("disabled={!!product.precoDono.varejo}");
     expect(tela).toContain("product.precoDono.atacado ? undefined : num(form.wholesalePrice)");
-    expect(tela).toContain("product.precoDono.varejo ? undefined : num(form.retailPrice)");
+    expect(tela).toMatch(/retailPrice: product\.precoDono\.varejo\s*\?\s*undefined/);
   });
 });

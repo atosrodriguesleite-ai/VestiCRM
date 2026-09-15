@@ -150,20 +150,50 @@ export function rotuloDaPeca(v: { color: string; size: string; product: { name: 
 }
 
 /**
- * QUEM MANDA NO PREÇO desta peça (RN-056) — a mesma régua do estoque, pelo
- * que cada sync de fato escreve: a Nuvemshop grava só o VAREJO
- * (`nuvemshop.ts`, sync de produto), o Jueri grava os DOIS
- * (`jueri-sync.ts`). Vale para o reajuste em lote E para a ficha da peça:
- * duas telas, uma régua — senão a lojista muda aqui e a sync devolve o
- * número de lá horas depois ("o sistema perdeu meu ajuste", o incidente da
- * RN-050, agora em preço).
+ * QUEM MANDA NO PREÇO desta peça (RN-056/RN-057) — uma régua para o reajuste
+ * em lote E para a ficha da peça. Pelo que cada integração faz:
+ *  • Jueri grava os DOIS preços na sync (`jueri-sync.ts`) e não tem porta de
+ *    volta: os dois ficam só leitura aqui (`atacado`/`varejo` = "JUERI");
+ *  • Nuvemshop: o atacado é nosso; o VAREJO é editável AQUI e vai para lá
+ *    (`espelhaVarejo`, RN-057) — antes ele era trancado ("é da Nuvemshop,
+ *    muda lá"), e a lojista tinha que mudar 25 preços na mão na loja online.
+ * `null` nos dois = a loja manda, e nada é espelhado.
  */
 export function donoDoPreco(p: {
   nuvemshopId: string | null;
   jueriId: string | null;
   variants: { nuvemshopId: string | null }[];
-}): { atacado: DonoExterno | null; varejo: DonoExterno | null } {
-  if (p.jueriId) return { atacado: "JUERI", varejo: "JUERI" };
-  const nuvemshop = !!p.nuvemshopId || p.variants.some((v) => !!v.nuvemshopId);
-  return { atacado: null, varejo: nuvemshop ? "NUVEMSHOP" : null };
+}): { atacado: DonoExterno | null; varejo: DonoExterno | null; espelhaVarejo: DonoExterno | null } {
+  if (p.jueriId) return { atacado: "JUERI", varejo: "JUERI", espelhaVarejo: null };
+  // só VARIAÇÃO vinculada tem para onde mandar (o PUT é por variação): o
+  // produto 1↔1 cujas variações caíram todas em pendência de SKU não tem o
+  // preço lido nem escrito pela sync — é nosso, e nada é espelhado (senão a
+  // ficha prometia "vai para a Nuvemshop" e nada ia; achado da revisão)
+  const nuvemshop = p.variants.some((v) => !!v.nuvemshopId);
+  return { atacado: null, varejo: null, espelhaVarejo: nuvemshop ? "NUVEMSHOP" : null };
 }
+
+/**
+ * A ficha salvou um varejo NOVO numa peça Nuvemshop? (RN-057)
+ *
+ * Três portas fechadas de propósito:
+ *  • campo ausente = a pessoa não mexeu (a tela só manda o varejo EDITADO —
+ *    mandar o carregado empurraria para a loja online um preço que ela já
+ *    tinha mudado lá, o incidente da RN-050 ao contrário; achado da revisão);
+ *  • número IGUAL ao de agora não é mudança;
+ *  • ZERO não vai para a loja online (a peça ficaria de graça lá) — quem
+ *    chama recusa com frase.
+ */
+export function decidirVarejoParaNuvemshop(
+  dono: { espelhaVarejo: DonoExterno | null },
+  novo: number | undefined,
+  atual: number
+): "nada" | "manda" | "recusa-zero" {
+  if (!dono.espelhaVarejo || novo === undefined) return "nada";
+  if (Math.abs(novo - atual) < 0.005) return "nada";
+  if (!(novo > 0)) return "recusa-zero";
+  return "manda";
+}
+
+export const FRASE_VAREJO_ZERO_NUVEMSHOP =
+  "Peça vinculada à Nuvemshop não pode ficar com varejo zerado: o preço iria para a loja online e a peça ficaria de graça lá.";

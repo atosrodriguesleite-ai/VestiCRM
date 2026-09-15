@@ -22,6 +22,13 @@ import {
   registrarFalhaDeEnvio,
   tomarTravaDaRepesca,
 } from "./nuvemshop-estoque-pendente";
+import {
+  confirmarEnvioDePreco,
+  desistirDoEnvioDePreco,
+  precoPendentePorProduto,
+  produtosParaRepescarPreco,
+  registrarFalhaDePreco,
+} from "./nuvemshop-preco-pendente";
 
 /**
  * Integração Nuvemshop — a loja online é a DONA do estoque e dos produtos;
@@ -342,6 +349,13 @@ const buscarPoolProdutos = (companyId: string) =>
     // description entra para a regra "nunca sobrescrever texto editado na loja"
     select: { id: true, name: true, sku: true, nuvemshopId: true, description: true },
   });
+/** RN-057: todos os produtos da loja com varejo a caminho (uma consulta por sync). */
+const precosPendentesDaLoja = async (companyId: string) =>
+  new Set(
+    (await db.nuvemshopPrecoPendente.findMany({ where: { companyId }, select: { productId: true } })).map(
+      (l) => l.productId
+    )
+  );
 export type PoolsDeSync = {
   skuVariants: Awaited<ReturnType<typeof buscarPoolSku>>;
   allProducts: Awaited<ReturnType<typeof buscarPoolProdutos>>;
@@ -352,6 +366,8 @@ export type PoolsDeSync = {
    * teto de 60s da Vercel uma vez (Entre Linhas, 03/08/2026).
    */
   idxParecidos: Map<string, string>;
+  /** RN-057: produtos com varejo a caminho da Nuvemshop, lidos UMA vez por sync */
+  precosPendentes?: Set<string>;
 };
 
 export type SyncPendencia = {
@@ -628,6 +644,15 @@ export async function upsertProduct(
     ...skuVariants.map((x) => x.id),
     ...targetVariants.map((x) => x.id),
   ]);
+  // RN-057: produtos cujo VAREJO mudou aqui e ainda não foi confirmado lá —
+  // o número de lá é o velho, e escrevê-lo por cima desfaria o reajuste
+  const precosPendentes =
+    pools?.precosPendentes ??
+    (await precoPendentePorProduto(companyId, [
+      ...linkedVariants.map((x) => x.productId),
+      ...skuVariants.map((x) => x.productId),
+      ...targetVariants.map((x) => x.productId),
+    ]));
   // SKUs que JÁ existem dentro do produto certo, pela forma "só letras e
   // números" — é o que impede a variação duplicada (achado da revisão
   // 31/08/2026): o mesmo SKU escrito de outro jeito, com a cor/tamanho
@@ -763,8 +788,9 @@ export async function upsertProduct(
         },
       });
     }
-    // preço de varejo acompanha a loja online (o de atacado fica intacto)
-    if (preco > 0 && alvo.product.retailPrice !== preco) {
+    // preço de varejo acompanha a loja online (o de atacado fica intacto) —
+    // salvo quando o número NOVO é o daqui e ainda está a caminho (RN-057)
+    if (preco > 0 && alvo.product.retailPrice !== preco && !precosPendentes.has(alvo.product.id)) {
       await db.product.update({
         where: { id: alvo.product.id },
         data: { retailPrice: preco },
@@ -926,6 +952,7 @@ export async function syncProducts(companyId: string) {
     skuVariants: poolSku,
     allProducts: await buscarPoolProdutos(companyId),
     idxParecidos: indiceDeSkusParecidos(poolSku),
+    precosPendentes: await precosPendentesDaLoja(companyId),
   };
   let page = 1;
   let total = 0;
@@ -992,6 +1019,7 @@ export async function syncPaginaDeProdutos(companyId: string, page: number) {
     skuVariants: poolSku,
     allProducts: await buscarPoolProdutos(companyId),
     idxParecidos: indiceDeSkusParecidos(poolSku),
+    precosPendentes: await precosPendentesDaLoja(companyId),
   };
   // 25 por etapa: margem folgada mesmo com banco/Nuvemshop num dia lento
   const POR_ETAPA = 25;
@@ -1620,6 +1648,161 @@ export async function pushStockToNuvemshop(companyId: string, variantIds: string
 }
 
 /**
+ * Manda o preço de varejo de UMA variação e diz se a Nuvemshop CONFIRMOU
+ * (RN-057). Mesma leitura de erro do estoque: status 0 é rede/timeout.
+ */
+async function enviarPrecoDaPeca(
+  conn: Conn,
+  nsProductId: string,
+  nsVariantId: string,
+  preco: number
+): Promise<{ ok: true } | { ok: false; motivo: string }> {
+  // a API da Nuvemshop recebe o preço como texto com duas casas
+  const r = await api(conn, "PUT", `/products/${nsProductId}/variants/${nsVariantId}`, {
+    price: preco.toFixed(2),
+  });
+  if (r.ok) return { ok: true };
+  const motivo =
+    r.status === 0
+      ? "A Nuvemshop não respondeu (rede fora ou demora demais)"
+      : `A Nuvemshop recusou o envio (código ${r.status})`;
+  return { ok: false, motivo };
+}
+
+/**
+ * Manda o varejo de UM produto para todas as variações vinculadas dele.
+ * Sucesso só quando TODAS confirmaram: pela metade, a peça fica na fila e a
+ * repesca manda de novo (o PUT é idempotente — repetir a que já foi não
+ * muda nada lá).
+ */
+async function enviarPrecoDoProduto(
+  conn: Conn,
+  produto: {
+    id: string;
+    name: string;
+    retailPrice: number;
+    nuvemshopId: string | null;
+    variants: { nuvemshopId: string | null; nuvemshopProductId: string | null }[];
+  },
+  limite: number
+): Promise<{ ok: true; preco: number } | { ok: false; motivo: string } | { ok: "sem-vinculo" } | { ok: "sem-tempo" }> {
+  const vinculadas = produto.variants.filter((v) => v.nuvemshopId && (v.nuvemshopProductId ?? produto.nuvemshopId));
+  if (vinculadas.length === 0) return { ok: "sem-vinculo" };
+  for (const v of vinculadas) {
+    // só começa um envio que ainda cabe no que sobrou do relógio
+    if (Date.now() + 15_000 > limite) return { ok: "sem-tempo" };
+    const r = await enviarPrecoDaPeca(
+      conn,
+      (v.nuvemshopProductId ?? produto.nuvemshopId)!,
+      v.nuvemshopId!,
+      produto.retailPrice
+    );
+    if (!r.ok) return r;
+  }
+  return { ok: true, preco: produto.retailPrice };
+}
+
+const selecaoDoProdutoParaPreco = {
+  id: true,
+  name: true,
+  retailPrice: true,
+  nuvemshopId: true,
+  variants: { select: { nuvemshopId: true, nuvemshopProductId: true } },
+} as const;
+
+/**
+ * Preço de varejo mudado AQUI (ficha da peça ou reajuste em lote) vai para a
+ * Nuvemshop (RN-057). Os produtos JÁ estão na fila — quem gravou o preço os
+ * marcou na mesma transação; aqui é a primeira tentativa, e o que não couber
+ * no orçamento a repesca manda.
+ */
+export async function pushPriceToNuvemshop(companyId: string, productIds: string[]) {
+  if (productIds.length === 0) return;
+  const conn = await loadConn(companyId);
+  if (!conn) return; // desconectada: os produtos ficam na fila até reconectar
+  const limite = Date.now() + MS_ORCAMENTO_REPESCA_ESTOQUE;
+  for (const id of productIds) {
+    // o reajuste em lote manda dezenas de peças de uma vez: aqui só se
+    // começa o que cabe no relógio, e o resto já está na fila — a repesca
+    // pega carona também na tela Produtos, que é onde a lojista olha o ⏳
+    if (Date.now() + 15_000 > limite) break;
+    // relido na hora: o preço pode ter mudado de novo desde a chamada
+    const produto = await db.product.findFirst({
+      where: { id, companyId },
+      select: selecaoDoProdutoParaPreco,
+    });
+    if (!produto) continue;
+    await tentarEnvioDePreco(companyId, conn, produto, limite);
+  }
+}
+
+async function tentarEnvioDePreco(
+  companyId: string,
+  conn: Conn,
+  produto: { id: string; name: string; retailPrice: number; nuvemshopId: string | null; variants: { nuvemshopId: string | null; nuvemshopProductId: string | null }[] },
+  limite: number
+) {
+  // zero NUNCA vai para a loja online (a peça ficaria de graça lá): as portas
+  // recusam antes, e esta é a segunda tranca — desiste dizendo o motivo
+  if (!(produto.retailPrice > 0)) {
+    await desistirDoEnvioDePreco(companyId, produto.id, produto.name, "Varejo zerado não é mandado para a loja online");
+    return;
+  }
+  const r = await enviarPrecoDoProduto(conn, produto, limite);
+  if (r.ok === "sem-tempo") return;
+  if (r.ok === "sem-vinculo") {
+    // perdeu o vínculo: não há o que espelhar, sai da fila
+    await confirmarEnvioDePreco(produto.id);
+    return;
+  }
+  if (r.ok === true) {
+    await confirmarEnvioDePreco(produto.id, r.preco);
+    return;
+  }
+  const temMaisTentativas = await registrarFalhaDePreco(companyId, produto.id, r.motivo);
+  if (!temMaisTentativas) {
+    await desistirDoEnvioDePreco(companyId, produto.id, produto.name, r.motivo);
+  }
+}
+
+/** O jeito CERTO de chamar o espelho de PREÇO de dentro de uma rota (RN-057). */
+export function espelharPrecoSemQuebrar(companyId: string, productIds: string[]): void {
+  if (productIds.length === 0) return;
+  const trabalho = () =>
+    pushPriceToNuvemshop(companyId, productIds).catch((e) =>
+      logServerError({
+        source: "server",
+        path: "/nuvemshop/preco",
+        message: "Falha ao espelhar o preço na Nuvemshop",
+        detail: `loja ${companyId}: ${e instanceof Error ? e.message : String(e)}`,
+      }).catch(() => null)
+    );
+  try {
+    after(trabalho);
+  } catch {
+    void trabalho();
+  }
+}
+
+/** Repesca dos PREÇOS que não chegaram (RN-057), dentro da rodada do estoque. */
+async function repescarPrecos(companyId: string, conn: Conn, limite: number) {
+  const pendentes = await produtosParaRepescarPreco(companyId);
+  for (const p of pendentes) {
+    if (Date.now() + 15_000 > limite) break;
+    // o filtro por loja é SEGUNDA tranca (RN-013)
+    const produto = await db.product.findFirst({
+      where: { id: p.productId, companyId },
+      select: selecaoDoProdutoParaPreco,
+    });
+    if (!produto) {
+      await confirmarEnvioDePreco(p.productId);
+      continue;
+    }
+    await tentarEnvioDePreco(companyId, conn, produto, limite);
+  }
+}
+
+/**
  * O jeito CERTO de chamar o espelho de estoque de dentro de uma rota (RN-053).
  *
  * Chamada solta (`pushStockToNuvemshop(...).catch(() => {})`) parece
@@ -1666,16 +1849,26 @@ export async function varrerEnviosDeEstoqueSeDevido(companyId: string): Promise<
     // a consulta cai no índice (companyId, proximaEm) e volta vazia (achado
     // da revisão de performance). O freio em memória continua segurando a
     // batida de 3s do sync.
-    if ((await pecasParaRepescar(companyId)).length === 0) return;
+    const [temEstoque, temPreco] = await Promise.all([
+      pecasParaRepescar(companyId),
+      produtosParaRepescarPreco(companyId),
+    ]);
+    if (temEstoque.length === 0 && temPreco.length === 0) return;
 
     travaTomadaEm = await tomarTravaDaRepesca(companyId);
     if (!travaTomadaEm) return;
 
-    const pendentes = await pecasParaRepescar(companyId);
-    if (pendentes.length === 0) return;
-
     const conn = await loadConn(companyId);
     if (!conn) return; // desconectada: as peças ficam esperando a reconexão
+
+    const limite = Date.now() + MS_ORCAMENTO_REPESCA_ESTOQUE;
+    // RN-057: os preços entram na MESMA rodada, com a mesma trava e o mesmo
+    // relógio — estoque primeiro (vender peça que não tem é o estrago maior)
+    const pendentes = await pecasParaRepescar(companyId);
+    if (pendentes.length === 0) {
+      await repescarPrecos(companyId, conn, limite);
+      return;
+    }
 
     const variants = await db.productVariant.findMany({
       // o filtro por loja é SEGUNDA tranca (RN-013): os ids já vêm da fila
@@ -1686,7 +1879,6 @@ export async function varrerEnviosDeEstoqueSeDevido(companyId: string): Promise<
       include: { product: true },
     });
     const porId = new Map(variants.map((v) => [v.id, v]));
-    const limite = Date.now() + MS_ORCAMENTO_REPESCA_ESTOQUE;
 
     for (const p of pendentes) {
       // só começa um envio que ainda cabe no que sobrou do relógio
@@ -1709,6 +1901,7 @@ export async function varrerEnviosDeEstoqueSeDevido(companyId: string): Promise<
         await desistirDoEnvio(companyId, v.id, nomeDaPeca(v), r.motivo);
       }
     }
+    await repescarPrecos(companyId, conn, limite);
   } catch (e) {
     // devolve a trava para a próxima batida tentar de novo (senão a loja
     // ficava um minuto calada) e registra no painel de Saúde

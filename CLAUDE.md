@@ -872,6 +872,50 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   peça ficou dias com o número errado de um dos lados, e divergência de
   estoque ou faz a loja deixar de vender peça que tem, ou vender peça que não
   tem.
+  **RN-057 · O PREÇO DE VAREJO DA PEÇA NUVEMSHOP TAMBÉM SE MUDA AQUI, E VAI
+  PARA LÁ** (`lib/nuvemshop-preco-pendente.ts` + `pushPriceToNuvemshop`,
+  15/09/2026): pedido do dono com o print da Entre Linhas — a lojista abriu
+  o reajuste em lote (RN-056) e viu *"varejo: é da Nuvemshop, muda lá"* em 25
+  peças, ou seja, mudar 25 preços na mão na loja online. Trancar era a
+  resposta errada; a certa é MANDAR o número daqui para lá. O desenho é o da
+  RN-053 (estoque), que já provou funcionar: a pendência
+  (`NuvemshopPrecoPendente`, **uma por PRODUTO** — o varejo é do modelo, e
+  todas as variações vinculadas recebem o mesmo número) nasce **na MESMA
+  transação que grava o preço** (ficha da peça e reajuste em lote — preço
+  novo aqui sem ninguém para mandá-lo é o reajuste que a sync desfaz na hora
+  seguinte) e some só quando a Nuvemshop **CONFIRMA** o preço que temos
+  AGORA (relido antes de cada PUT; sucesso com número velho não é sucesso).
+  **Enquanto ela existe, a sync NÃO escreve o varejo de lá por cima**
+  (`precosPendentes` em `upsertProduct`). O envio vai pelo `after()`
+  (`espelharPrecoSemQuebrar`, depois do commit), a API recebe o preço como
+  texto com duas casas por variação vinculada (produto inteiro só confirma
+  com TODAS), e o que sobrou é repescado **na MESMA rodada, com a MESMA trava
+  e o MESMO relógio da fila de estoque** (estoque primeiro: vender peça que
+  não tem é o estrago maior) — nunca um 3º cron (ADR-002). Loja desconectada
+  segura na fila; produto que perdeu o vínculo sai dela. Desistir é
+  explícito (`nuvemshop.preco-nao-enviado` na Central + Saúde, uma vez por
+  rodada) e a linha FICA: a ficha mostra **"⏳ enviando"** enquanto tenta e
+  **"⚠️ não chegou na Nuvemshop"** com o motivo depois de desistir (um
+  booleano só dizia "tenta sozinho" para quem já tinha parado — achado da
+  revisão); mudar o preço de novo reabre a rodada. A fila pega carona
+  **também na tela Produtos e na porta do reajuste** — loja sem a Central
+  aberta e sem o módulo Estoque não tinha outra batida, e é ali que ela olha
+  o ⏳. Quatro achados da revisão fecharam buracos que a versão trancada
+  nunca teve: (1) a ficha manda o varejo **só se a pessoa MUDOU o número**
+  — o carregado empurraria para a loja online um preço que ela já tinha
+  mudado lá (a RN-050 ao contrário); (2) **ZERO nunca vai para a loja
+  online** (a peça ficaria de graça lá): a ficha recusa com frase, o lote
+  deixa de fora e diz, e o envio desiste dizendo o motivo — três trancas
+  (`decidirVarejoParaNuvemshop`); (3) só **VARIAÇÃO vinculada** espelha
+  (o PUT é por variação; produto 1↔1 com as variações todas em pendência de
+  SKU não tem o varejo lido nem escrito pela sync — é nosso); (4) a fila é
+  marcada em **duas consultas para a lista inteira**, não duas por peça
+  (centenas de peças dentro da transação de 30s estourava o relógio e
+  desfazia o reajuste). O **Jueri continua trancando os DOIS preços** (a
+  sync dele grava os dois e não há porta de volta), e o atacado da peça
+  Nuvemshop segue só daqui, como sempre. A régua vive em `donoDoPreco`
+  (`espelhaVarejo`), uma para a ficha e para o lote — e a ficha DIZ "vai
+  para a Nuvemshop" ao lado do campo.
   **Jueri** (sync 2x/dia via cron `jueri-sync`).
 - **Marketing**: Gestor de Bio (temas, cores custom, capa, QR, métricas
   BioView/BioClick com filtro de data, atribuição `utm_source=bio` no
@@ -914,11 +958,11 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   de −90% a +500% (fora disso é dedo errado), **percentual não cria preço
   onde está ZERO** (10% de nada é nada, e a peça que nunca teve atacado não
   pode ganhar um por engano — fica de fora e é contada; valor fixo, sim,
-  vale para ela). **Quem vende fora manda no preço dele** (mesma régua da
-  RN-014/RN-050): peça vinculada à Nuvemshop tem o **varejo** dela lá (a
-  sync devolveria o número de lá na hora seguinte) e o atacado é daqui;
-  peça do Jueri tem os DOIS lá. Esses ficam de fora com o motivo dito na
-  prévia. **Gerência e SUPORTE** (`podeReajustarPreco`; decisão do dono em
+  vale para ela). **Peça do Jueri tem os DOIS preços lá** e fica de fora
+  com o motivo dito na prévia (mesma régua da RN-014/RN-050). Peça da
+  Nuvemshop: o atacado é daqui e o **varejo muda aqui E VAI PARA LÁ**
+  (RN-057; na primeira versão ele ficava trancado, e o print da Entre Linhas
+  mostrou 25 peças "muda lá" — foi trocado no mesmo dia). **Gerência e SUPORTE** (`podeReajustarPreco`; decisão do dono em
   15/09/2026 — o suporte já edita a ficha da peça, preço inclusive, e
   trancar só o lote o obrigava a mudar 80 peças uma a uma); vendedora não.
   Tudo numa transação, por loja
@@ -928,7 +972,7 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   peças da categoria (`FOR UPDATE`) e **reconta com o número do banco
   naquele instante** — a ficha salva entre a prévia e o clique não é
   sobrescrita em silêncio (achado da revisão). A mesma régua de dono vale
-  na **ficha da peça**: o preço de dono externo aparece com cadeado, não
+  na **ficha da peça**: o preço do Jueri aparece com cadeado, não
   viaja no salvamento, e o servidor (PATCH do produto) recusa número
   diferente do de lá — antes a tela aceitava e a sync devolvia o número
   de lá horas depois ("o sistema perdeu meu preço", a RN-050 em preço).

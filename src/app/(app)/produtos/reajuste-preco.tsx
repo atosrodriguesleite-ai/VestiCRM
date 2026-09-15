@@ -199,9 +199,9 @@ export function ReajustePreco({ categories }: { categories: string[] }) {
                       </label>
                     </div>
                     <p className="text-xs text-gray-500">
-                      Peça vinculada à Nuvemshop tem o varejo dela lá (a sincronização traria o
-                      número de volta), e peça do Jueri tem os dois lá: essas ficam de fora, e a
-                      prévia diz quais. Percentual não cria preço onde está zero.
+                      Peça vinculada à Nuvemshop: o varejo muda aqui e vai para lá sozinho. Peça do
+                      Jueri tem os dois preços lá e fica de fora; a prévia diz quais. Percentual não
+                      cria preço onde está zero.
                     </p>
                     {fixoNosDois && (
                       <p className="flex items-center gap-1.5 rounded-lg bg-rose-50 px-3 py-2 text-sm font-medium text-rose-700">
@@ -237,6 +237,9 @@ export function ReajustePreco({ categories }: { categories: string[] }) {
                                       {l.varejo && (
                                         <div>
                                           varejo {brl(l.varejo.de)} → <b>{brl(l.varejo.para)}</b>
+                                          {l.espelhaVarejo && (
+                                            <span className="ml-1 text-sky-700">· vai para a Nuvemshop</span>
+                                          )}
                                         </div>
                                       )}
                                       {l.avisos.map((a) => (
@@ -295,15 +298,21 @@ export function ReajustePreco({ categories }: { categories: string[] }) {
 
 function AvisosDoResumo({ resumo }: { resumo: ResumoDoReajuste }) {
   const avisos: string[] = [];
-  if (resumo.presos.nuvemshop)
-    avisos.push(`${resumo.presos.nuvemshop} preço(s) de varejo são da Nuvemshop e ficam de fora`);
   if (resumo.presos.jueri) avisos.push(`${resumo.presos.jueri} preço(s) são do Jueri e ficam de fora`);
   if (resumo.semPreco) avisos.push(`${resumo.semPreco} preço(s) estão zerados e ficam de fora`);
-  if (avisos.length === 0) return null;
+  if (avisos.length === 0 && !resumo.espelhados) return null;
   return (
-    <ul className="mt-1 space-y-0.5 text-xs text-amber-700">
+    <ul className="mt-1 space-y-0.5 text-xs">
+      {resumo.espelhados > 0 && (
+        <li className="text-sky-700">
+          • {resumo.espelhados} preço(s) de varejo mudam aqui e vão para a Nuvemshop sozinhos (a ficha
+          mostra ⏳ até ela confirmar)
+        </li>
+      )}
       {avisos.map((a) => (
-        <li key={a}>• {a}</li>
+        <li key={a} className="text-amber-700">
+          • {a}
+        </li>
       ))}
     </ul>
   );

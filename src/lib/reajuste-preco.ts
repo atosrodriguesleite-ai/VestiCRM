@@ -1,5 +1,7 @@
 import { Prisma } from "@prisma/client";
 import { db } from "./db";
+import { espelharPrecoSemQuebrar } from "./nuvemshop";
+import { marcarPrecoPendente } from "./nuvemshop-preco-pendente";
 import {
   planejarReajuste,
   type CampoDePreco,
@@ -92,7 +94,7 @@ export async function aplicarReajuste(
   pedido: PedidoDeReajuste,
   quem: { id: string; name: string }
 ): Promise<ResumoDoReajuste> {
-  return db.$transaction(
+  const { resumo, paraEspelhar } = await db.$transaction(
     async (tx) => {
       const travados = await tx.$queryRaw<
         { id: string; name: string; wholesalePrice: number; retailPrice: number; nuvemshopId: string | null; jueriId: string | null }[]
@@ -125,6 +127,12 @@ export async function aplicarReajuste(
       if (atacado.length) await gravarCampo(tx, companyId, "atacado", atacado);
       if (varejo.length) await gravarCampo(tx, companyId, "varejo", varejo);
 
+      // RN-057: o varejo de peça Nuvemshop entra na fila de envio NA MESMA
+      // transação que o grava — preço novo aqui sem ninguém para mandá-lo é
+      // o reajuste que a sync desfaz na hora seguinte
+      const paraEspelhar = mudancas.filter((l) => l.espelhaVarejo).map((l) => l.id);
+      await marcarPrecoPendente(companyId, paraEspelhar, tx);
+
       await tx.commEvent.create({
         data: {
           companyId,
@@ -148,8 +156,11 @@ export async function aplicarReajuste(
           }),
         },
       });
-      return plano.resumo;
+      return { resumo: plano.resumo, paraEspelhar };
     },
     { timeout: 30_000, maxWait: 10_000 }
   );
+  // só depois do commit: mandar antes é mandar um número que pode não existir
+  espelharPrecoSemQuebrar(companyId, paraEspelhar);
+  return resumo;
 }
