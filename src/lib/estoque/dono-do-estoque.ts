@@ -148,3 +148,22 @@ export const DICA_DO_DONO: Record<DonoExterno, string> = {
 export function rotuloDaPeca(v: { color: string; size: string; product: { name: string } }): string {
   return [v.product.name, v.color, v.size].filter((x) => x && x.trim()).join(" · ");
 }
+
+/**
+ * QUEM MANDA NO PREÇO desta peça (RN-056) — a mesma régua do estoque, pelo
+ * que cada sync de fato escreve: a Nuvemshop grava só o VAREJO
+ * (`nuvemshop.ts`, sync de produto), o Jueri grava os DOIS
+ * (`jueri-sync.ts`). Vale para o reajuste em lote E para a ficha da peça:
+ * duas telas, uma régua — senão a lojista muda aqui e a sync devolve o
+ * número de lá horas depois ("o sistema perdeu meu ajuste", o incidente da
+ * RN-050, agora em preço).
+ */
+export function donoDoPreco(p: {
+  nuvemshopId: string | null;
+  jueriId: string | null;
+  variants: { nuvemshopId: string | null }[];
+}): { atacado: DonoExterno | null; varejo: DonoExterno | null } {
+  if (p.jueriId) return { atacado: "JUERI", varejo: "JUERI" };
+  const nuvemshop = !!p.nuvemshopId || p.variants.some((v) => !!v.nuvemshopId);
+  return { atacado: null, varejo: nuvemshop ? "NUVEMSHOP" : null };
+}

@@ -3,7 +3,7 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import { requireUser, AuthError } from "@/lib/auth";
 import { ajustarEstoqueDentro } from "@/lib/estoque/ajuste";
-import { decidirAjuste, donoDoEstoque, fraseDaRecusa, NOME_DO_DONO, rotuloDaPeca } from "@/lib/estoque/dono-do-estoque";
+import { decidirAjuste, donoDoEstoque, donoDoPreco, fraseDaRecusa, NOME_DO_DONO, rotuloDaPeca } from "@/lib/estoque/dono-do-estoque";
 import { reservadoPorVariacao } from "@/lib/estoque/inventario";
 
 const patchSchema = z.object({
@@ -114,6 +114,34 @@ export async function PATCH(
       removeVariantIds,
       ...data
     } = parsed.data;
+
+    // QUEM VENDE FORA MANDA NO PREÇO DELE (RN-056, mesma régua do estoque):
+    // varejo de peça Nuvemshop e os dois preços de peça Jueri mudam LÁ — a
+    // sync devolveria o número de lá horas depois. Número IGUAL passa em
+    // silêncio (a ficha manda todos os campos a cada salvamento); número
+    // diferente é recusado com frase.
+    const donoPreco = donoDoPreco({
+      nuvemshopId: product.nuvemshopId,
+      jueriId: product.jueriId,
+      variants: product.variants,
+    });
+    for (const [campo, dono, atual, rotulo] of [
+      ["wholesalePrice", donoPreco.atacado, product.wholesalePrice, "atacado"],
+      ["retailPrice", donoPreco.varejo, product.retailPrice, "varejo"],
+    ] as const) {
+      const novo = data[campo];
+      if (novo === undefined || !dono) continue;
+      if (Math.abs(novo - atual) < 0.005) {
+        delete data[campo];
+        continue;
+      }
+      return NextResponse.json(
+        {
+          error: `O preço de ${rotulo} desta peça é da ${NOME_DO_DONO[dono]}: mude lá e sincronize. Aqui ele é só leitura.`,
+        },
+        { status: 400 }
+      );
+    }
 
     // trocar o código do modelo: não pode bater com o de outro produto da loja
     if (data.sku !== undefined && data.sku !== product.sku) {

@@ -902,6 +902,36 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   outro; foi a diferença de R$ 9 mil que o dono caçou em 31/08/2026).
 - **Produção** (gated por loja): tecidos, rolos, cortes multi-cor, costura,
   lotes/facções, defeitos, simulador, etiquetas.
+- **Produtos · RN-056 · Reajuste de preço em lote por CATEGORIA**
+  (`lib/reajuste-preco.ts`, botão "Reajustar preço" na tela Produtos,
+  15/09/2026): pedido do dono — a cliente queria mudar o preço de uma
+  categoria inteira sem abrir peça por peça. Gerência escolhe a categoria,
+  **atacado e/ou varejo**, e **percentual** (+10%, −5%) ou **valor fixo**;
+  a tela mostra a **prévia** (quantas mudam, antes → depois, o que fica de
+  fora e por quê) e só então aplica. Quem faz a conta é o SERVIDOR, nos
+  dois passos, sobre o que está no banco na hora — a tela nunca manda preço
+  pronto. Réguas: centavos (2 casas), **nunca negativo**, percentual dentro
+  de −90% a +500% (fora disso é dedo errado), **percentual não cria preço
+  onde está ZERO** (10% de nada é nada, e a peça que nunca teve atacado não
+  pode ganhar um por engano — fica de fora e é contada; valor fixo, sim,
+  vale para ela). **Quem vende fora manda no preço dele** (mesma régua da
+  RN-014/RN-050): peça vinculada à Nuvemshop tem o **varejo** dela lá (a
+  sync devolveria o número de lá na hora seguinte) e o atacado é daqui;
+  peça do Jueri tem os DOIS lá. Esses ficam de fora com o motivo dito na
+  prévia. Só **gerência** (preço é decisão comercial; Suporte organiza
+  categoria mas não mexe em dinheiro). Tudo numa transação, por loja
+  (RN-013), com registro na Central de Comunicação
+  (`produtos.reajuste-de-preco`: quem, categoria, regra e o antes/depois de
+  até 200 peças — é o que permite desfazer à mão). O aplicar **TRAVA** as
+  peças da categoria (`FOR UPDATE`) e **reconta com o número do banco
+  naquele instante** — a ficha salva entre a prévia e o clique não é
+  sobrescrita em silêncio (achado da revisão). A mesma régua de dono vale
+  na **ficha da peça**: o preço de dono externo aparece com cadeado, não
+  viaja no salvamento, e o servidor (PATCH do produto) recusa número
+  diferente do de lá — antes a tela aceitava e a sync devolvia o número
+  de lá horas depois ("o sistema perdeu meu preço", a RN-050 em preço).
+  A conta pura mora em `lib/reajuste-preco-regra.ts` (é o que a tela
+  importa; o arquivo com banco não pode chegar ao navegador).
 - **Estoque** (gated por loja, `Company.estoqueEnabled`, porteira em
   `lib/estoque/gate.ts`; desenhado com o dono em 09/09/2026 e entregue em
   quatro abas — Inventário, Mínimos, Painel, Produção; **preço de tabela A

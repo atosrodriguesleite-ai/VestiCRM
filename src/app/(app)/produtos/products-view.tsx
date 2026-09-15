@@ -56,6 +56,8 @@ export type ProductItem = {
   tags: string | null;
   /** peça espelhada da loja online — muda o conselho quando ela está inativa */
   nuvemshopId: string | null;
+  /** RN-056: quem manda em cada preço (null = a loja, aqui) */
+  precoDono: { atacado: DonoExterno | null; varejo: DonoExterno | null };
   // fotos em ordem — a primeira é a CAPA (aparece na grade e no catálogo)
   images: { id: string; url: string; color?: string | null }[];
   variants: {
@@ -923,8 +925,11 @@ function ProductDetailModal({
         collection: form.collection || null,
         description: form.description || null,
         costPrice: num(form.costPrice),
-        wholesalePrice: num(form.wholesalePrice),
-        retailPrice: num(form.retailPrice),
+        // RN-056: preço de dono externo não viaja — o servidor recusaria
+        // (e mandar o carregado faria a ficha ser recusada se a loja online
+        // mudasse o preço entre abrir e salvar, o mesmo caso do estoque)
+        wholesalePrice: product.precoDono.atacado ? undefined : num(form.wholesalePrice),
+        retailPrice: product.precoDono.varejo ? undefined : num(form.retailPrice),
         minQuantity: parseInt(form.minQuantity) || 1,
         weightGrams: parseInt(form.weightGrams) || null,
         tags: form.tags || null,
@@ -1157,12 +1162,34 @@ function ProductDetailModal({
                 <input value={form.costPrice} onChange={set("costPrice")} className={input} inputMode="decimal" />
               </div>
               <div>
-                <label className={label}>Atacado</label>
-                <input value={form.wholesalePrice} onChange={set("wholesalePrice")} className={input} inputMode="decimal" />
+                <label className={label}>Atacado{product.precoDono.atacado ? " 🔒" : ""}</label>
+                <input
+                  value={form.wholesalePrice}
+                  onChange={set("wholesalePrice")}
+                  className={input}
+                  inputMode="decimal"
+                  disabled={!!product.precoDono.atacado}
+                  title={
+                    product.precoDono.atacado
+                      ? `Preço de atacado é ${product.precoDono.atacado === "JUERI" ? "do" : "da"} ${NOME_DO_DONO[product.precoDono.atacado]}: mude lá e sincronize.`
+                      : undefined
+                  }
+                />
               </div>
               <div>
-                <label className={label}>Varejo</label>
-                <input value={form.retailPrice} onChange={set("retailPrice")} className={input} inputMode="decimal" />
+                <label className={label}>Varejo{product.precoDono.varejo ? " 🔒" : ""}</label>
+                <input
+                  value={form.retailPrice}
+                  onChange={set("retailPrice")}
+                  className={input}
+                  inputMode="decimal"
+                  disabled={!!product.precoDono.varejo}
+                  title={
+                    product.precoDono.varejo
+                      ? `Preço de varejo é ${product.precoDono.varejo === "JUERI" ? "do" : "da"} ${NOME_DO_DONO[product.precoDono.varejo]}: mude lá e sincronize.`
+                      : undefined
+                  }
+                />
               </div>
             </div>
             <div className="grid grid-cols-2 gap-3">

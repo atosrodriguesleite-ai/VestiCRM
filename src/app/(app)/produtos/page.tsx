@@ -1,5 +1,5 @@
 import { ExternalLink, QrCode } from "lucide-react";
-import { donoDoEstoque } from "@/lib/estoque/dono-do-estoque";
+import { donoDoEstoque, donoDoPreco } from "@/lib/estoque/dono-do-estoque";
 import { envioPendentePorVariacao } from "@/lib/nuvemshop-estoque-pendente";
 import { requireUser } from "@/lib/auth";
 import { db } from "@/lib/db";
@@ -13,6 +13,7 @@ import { StockMonitor, type LowStockRow } from "./stock-monitor";
 import { PhotoDoctor } from "./photo-doctor";
 import { ExportCatalog } from "./export-catalog";
 import { SkuManager } from "./sku-manager";
+import { ReajustePreco } from "./reajuste-preco";
 import { CategoryManager } from "./category-manager";
 import { ordenarVariantes, ordenarTamanhos, compararTamanhos } from "@/lib/tamanhos";
 
@@ -88,6 +89,9 @@ export default async function ProductsPage() {
     active: p.active,
     tags: p.tags,
     nuvemshopId: p.nuvemshopId,
+    // RN-056: quem manda em cada preço (varejo da Nuvemshop, os dois do Jueri)
+    // — a ficha tranca o campo, e o servidor é a segunda tranca
+    precoDono: donoDoPreco({ nuvemshopId: p.nuvemshopId, jueriId: p.jueriId, variants: p.variants }),
     images: p.images.map((i) => ({ id: i.id, url: imageHref(i.id), color: i.color })),
     variants: p.variants.map((v) => ({
       id: v.id,
@@ -159,6 +163,7 @@ export default async function ProductsPage() {
             <div className="flex flex-wrap items-center gap-2 sm:justify-end">
               {(isManagerUp(user) || isSupport(user)) && <CategoryManager />}
               {isManagerUp(user) && <SkuManager />}
+              {isManagerUp(user) && <ReajustePreco categories={categories} />}
               {isManagerUp(user) && <ExportCatalog />}
               {isManagerUp(user) && <PhotoDoctor />}
               <a
