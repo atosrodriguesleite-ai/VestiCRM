@@ -4279,7 +4279,9 @@ export function Inbox({
               )}
               {/* menção @ nas notas internas */}
               {noteMode && mention && mentionMatches.length > 0 && (
-                <div className="absolute bottom-full left-3 mb-1 w-56 bg-white rounded-xl border border-gray-100 shadow-pop z-20 p-1">
+                // teto + rolagem: a lista cresce PARA CIMA e, numa loja com
+                // equipe grande, passava do topo do chat (varredura 15/09/2026)
+                <div className="absolute bottom-full left-3 mb-1 w-56 max-h-56 overflow-y-auto bg-white rounded-xl border border-gray-100 shadow-pop z-20 p-1">
                   <p className="px-2.5 pt-1 pb-1.5 text-[10px] font-bold uppercase tracking-wide text-gray-400 flex items-center gap-1">
                     <AtSign className="size-3" /> Marcar alguém
                   </p>

@@ -73,3 +73,92 @@ describe("menu maior que a tela ganha rolagem, não sai da janela", () => {
     expect(alturaMaxima({ x: 0, y: 0 }, { largura: 100, altura: 4 })).toBe(0);
   });
 });
+
+// ---------------------------------------------------------------------------
+// MENU ANCORADO A UM BOTÃO (relato do dono, 15/09/2026): na lista de pedidos,
+// o selo de status do ÚLTIMO pedido abria o menu cortado pela borda de baixo.
+// ---------------------------------------------------------------------------
+
+import { posicaoAncorada, alturaMaximaAncorada, FOLGA_DA_ANCORA } from "../menu-flutuante";
+
+/** Celular em pé, com a barra de navegação ocupando o pé da tela. */
+const CELULAR = { largura: 390, altura: 844 };
+const BARRA = 72;
+/** o selo de status tem ~20px de altura e fica na ponta direita da linha */
+const selo = (topo: number) => ({ top: topo, bottom: topo + 20, left: 250, right: 330 });
+const MENU_STATUS = { largura: 208, altura: 300 };
+
+describe("menu ancorado: o caso que o dono relatou", () => {
+  it("selo no PÉ da lista abre para CIMA, inteiro dentro da tela", () => {
+    // o pedido está quase encostado na barra de navegação
+    const ancora = selo(700);
+    const p = posicaoAncorada(ancora, MENU_STATUS, CELULAR, { reservaEmbaixo: BARRA });
+    // abriu acima do botão, sem cobri-lo
+    expect(p.y + MENU_STATUS.altura).toBeLessThanOrEqual(ancora.top - FOLGA_DA_ANCORA);
+    expect(p.y).toBeGreaterThanOrEqual(MARGEM);
+  });
+
+  it("e o menu NUNCA invade a barra de navegação", () => {
+    const chao = CELULAR.altura - BARRA;
+    for (let topo = 0; topo <= CELULAR.altura; topo += 7) {
+      const ancora = selo(topo);
+      const janelaUtil = { ...CELULAR };
+      const max = alturaMaximaAncorada(ancora, janelaUtil, { reservaEmbaixo: BARRA });
+      const menu = { largura: 208, altura: Math.min(MENU_STATUS.altura, max) };
+      const p = posicaoAncorada(ancora, menu, janelaUtil, { reservaEmbaixo: BARRA });
+      expect(p.y).toBeGreaterThanOrEqual(MARGEM - 0.01);
+      expect(p.y + menu.altura).toBeLessThanOrEqual(chao - MARGEM + 0.01);
+    }
+  });
+
+  it("no lugar normal (meio da tela) continua abrindo para BAIXO", () => {
+    const ancora = selo(200);
+    const p = posicaoAncorada(ancora, MENU_STATUS, CELULAR, { reservaEmbaixo: BARRA });
+    expect(p.y).toBe(ancora.bottom + FOLGA_DA_ANCORA);
+  });
+
+  it("virar é abrir ACIMA do botão — nunca subir até cobri-lo", () => {
+    // é o que separa esta conta da do menu de contexto: se ele subisse até o
+    // ponto do clique, taparia o próprio selo que a pessoa tocou
+    const ancora = selo(700);
+    const p = posicaoAncorada(ancora, MENU_STATUS, CELULAR, { reservaEmbaixo: BARRA });
+    expect(p.y + MENU_STATUS.altura).toBeLessThan(ancora.top);
+  });
+});
+
+describe("menu ancorado: alinhamento e telas apertadas", () => {
+  it("a direita do menu acompanha a direita do botão", () => {
+    const ancora = selo(200);
+    const p = posicaoAncorada(ancora, MENU_STATUS, CELULAR, { reservaEmbaixo: BARRA });
+    expect(p.x + MENU_STATUS.largura).toBe(ancora.right);
+  });
+
+  it("botão colado na esquerda não empurra o menu para fora", () => {
+    const ancora = { top: 200, bottom: 220, left: 4, right: 40 };
+    const p = posicaoAncorada(ancora, MENU_STATUS, CELULAR, { reservaEmbaixo: BARRA });
+    expect(p.x).toBeGreaterThanOrEqual(MARGEM);
+    expect(p.x + MENU_STATUS.largura).toBeLessThanOrEqual(CELULAR.largura - MARGEM);
+  });
+
+  it("celular DEITADO: não cabendo em lado nenhum, vai para o mais folgado com teto", () => {
+    const deitado = { largura: 844, altura: 390 };
+    const ancora = { top: 180, bottom: 200, left: 700, right: 780 };
+    const max = alturaMaximaAncorada(ancora, deitado, { reservaEmbaixo: BARRA });
+    expect(max).toBeGreaterThan(0);
+    expect(max).toBeLessThan(MENU_STATUS.altura); // não cabe inteiro em lugar nenhum
+    const menu = { largura: 208, altura: max };
+    const p = posicaoAncorada(ancora, menu, deitado, { reservaEmbaixo: BARRA });
+    expect(p.y).toBeGreaterThanOrEqual(MARGEM);
+    expect(p.y + menu.altura).toBeLessThanOrEqual(deitado.altura - BARRA - MARGEM + 0.01);
+  });
+
+  it("no computador não há barra: o espaço ABAIXO é a tela inteira", () => {
+    // a barra só come espaço para baixo — acima do botão ela não muda nada,
+    // então a comparação tem que ser feita num selo do TOPO da tela
+    const pc = { largura: 1280, altura: 800 };
+    const ancora = selo(40);
+    const semBarra = alturaMaximaAncorada(ancora, pc);
+    const comBarra = alturaMaximaAncorada(ancora, pc, { reservaEmbaixo: BARRA });
+    expect(semBarra).toBe(comBarra + BARRA);
+  });
+});
