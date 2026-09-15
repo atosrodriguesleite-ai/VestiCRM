@@ -918,8 +918,10 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   RN-014/RN-050): peça vinculada à Nuvemshop tem o **varejo** dela lá (a
   sync devolveria o número de lá na hora seguinte) e o atacado é daqui;
   peça do Jueri tem os DOIS lá. Esses ficam de fora com o motivo dito na
-  prévia. Só **gerência** (preço é decisão comercial; Suporte organiza
-  categoria mas não mexe em dinheiro). Tudo numa transação, por loja
+  prévia. **Gerência e SUPORTE** (`podeReajustarPreco`; decisão do dono em
+  15/09/2026 — o suporte já edita a ficha da peça, preço inclusive, e
+  trancar só o lote o obrigava a mudar 80 peças uma a uma); vendedora não.
+  Tudo numa transação, por loja
   (RN-013), com registro na Central de Comunicação
   (`produtos.reajuste-de-preco`: quem, categoria, regra e o antes/depois de
   até 200 peças — é o que permite desfazer à mão). O aplicar **TRAVA** as

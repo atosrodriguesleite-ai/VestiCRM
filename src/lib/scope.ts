@@ -143,6 +143,16 @@ export function podeOperarIntegracoes(user: SessionUser) {
   return isAdmin(user) || user.role === "MANAGER" || user.role === "SUPPORT";
 }
 
+/**
+ * QUEM REAJUSTA PREÇO EM LOTE (RN-056): gerência E suporte — decisão do dono
+ * (15/09/2026). O suporte já cadastra e edita a peça (a ficha inteira, preço
+ * inclusive), então trancar só o lote o obrigava a mudar 80 peças uma a uma.
+ * Vendedora fica de fora: preço da categoria é da loja, não da carteira.
+ */
+export function podeReajustarPreco(user: SessionUser) {
+  return isManagerUp(user) || isSupport(user);
+}
+
 export function isManagerUp(user: SessionUser) {
   return (
     user.role === "ADMIN" ||

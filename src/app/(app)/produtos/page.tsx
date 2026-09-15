@@ -7,7 +7,7 @@ import { imageHref } from "@/lib/img";
 import { PageHeader } from "@/components/ui";
 import { ProductsView, type ProductItem } from "./products-view";
 import { catalogUrl } from "@/lib/catalog-url";
-import { isManagerUp, isSupport } from "@/lib/scope";
+import { isManagerUp, isSupport, podeReajustarPreco } from "@/lib/scope";
 import { parseCategoryOrder } from "@/lib/categories";
 import { StockMonitor, type LowStockRow } from "./stock-monitor";
 import { PhotoDoctor } from "./photo-doctor";
@@ -163,7 +163,7 @@ export default async function ProductsPage() {
             <div className="flex flex-wrap items-center gap-2 sm:justify-end">
               {(isManagerUp(user) || isSupport(user)) && <CategoryManager />}
               {isManagerUp(user) && <SkuManager />}
-              {isManagerUp(user) && <ReajustePreco categories={categories} />}
+              {podeReajustarPreco(user) && <ReajustePreco categories={categories} />}
               {isManagerUp(user) && <ExportCatalog />}
               {isManagerUp(user) && <PhotoDoctor />}
               <a

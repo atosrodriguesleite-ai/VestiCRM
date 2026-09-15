@@ -3,6 +3,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { Prisma } from "@prisma/client";
+import { podeReajustarPreco } from "../scope";
 import {
   aplicarReajuste,
   donoDoPreco,
@@ -327,10 +328,15 @@ describe("aplicarReajuste: trava por loja e categoria, reconta, grava por loja e
 describe("a porta e a tela", () => {
   const ler = (p: string) => readFileSync(join(process.cwd(), p), "utf8");
 
-  it("só gerência reajusta preço (preço é decisão comercial, Suporte fica fora)", () => {
+  it("gerência E suporte reajustam preço (decisão do dono, 15/09/2026); vendedora não", () => {
     const rota = ler("src/app/api/products/reajuste/route.ts");
-    expect(rota).toContain("if (!isManagerUp(user))");
-    expect(rota).not.toContain("isSupport");
+    expect(rota).toContain("if (!podeReajustarPreco(user))");
+    const papel = (role: string) =>
+      podeReajustarPreco({ role } as Parameters<typeof podeReajustarPreco>[0]);
+    expect(papel("ADMIN")).toBe(true);
+    expect(papel("MANAGER")).toBe(true);
+    expect(papel("SUPPORT")).toBe(true);
+    expect(papel("SELLER")).toBe(false);
   });
 
   it("a tela nunca manda preço pronto: prévia e aplicar passam pela MESMA conta no servidor", () => {
@@ -346,7 +352,7 @@ describe("a porta e a tela", () => {
     expect(tela).toContain("Ver prévia");
     expect(tela).toMatch(/\{!feito && previa && \(/);
     const page = ler("src/app/(app)/produtos/page.tsx");
-    expect(page).toContain("{isManagerUp(user) && <ReajustePreco categories={categories} />}");
+    expect(page).toContain("{podeReajustarPreco(user) && <ReajustePreco categories={categories} />}");
   });
 
   it("a ficha do produto TRANCA o preço de dono externo e não o manda ao servidor", () => {

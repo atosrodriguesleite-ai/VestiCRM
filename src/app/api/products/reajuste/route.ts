@@ -1,14 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { requireUser, AuthError } from "@/lib/auth";
-import { isManagerUp } from "@/lib/scope";
+import { podeReajustarPreco } from "@/lib/scope";
 import { aplicarReajuste, preverReajuste, validarReajuste } from "@/lib/reajuste-preco";
 
 /**
  * REAJUSTE DE PREÇO EM LOTE POR CATEGORIA (RN-056).
  *
- * Só gerência: preço é decisão comercial (a régua de Relatórios e do
- * Financeiro) — o Suporte organiza categoria, mas não mexe em dinheiro.
+ * Gerência e suporte (`podeReajustarPreco`, decisão do dono em 15/09/2026:
+ * o suporte já edita a ficha da peça, preço inclusive); vendedora não.
  * `aplicar: false` devolve a prévia; `true` grava. A conta é a MESMA nos
  * dois, feita aqui, sobre o que está no banco agora.
  */
@@ -25,9 +25,9 @@ export const maxDuration = 30;
 export async function POST(req: NextRequest) {
   try {
     const user = await requireUser();
-    if (!isManagerUp(user)) {
+    if (!podeReajustarPreco(user)) {
       return NextResponse.json(
-        { error: "Reajustar preço é permitido só para gerência." },
+        { error: "Reajustar preço é permitido só para gerência e suporte." },
         { status: 403 }
       );
     }
