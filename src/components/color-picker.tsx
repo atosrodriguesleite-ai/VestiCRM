@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { Check, Pipette } from "lucide-react";
 import { readableOn } from "@/lib/color";
 import { CARTELA, HEX, normalizarHex } from "@/lib/paleta";
+import { MenuAncorado } from "@/components/menu-ancorado";
 
 /**
  * ESCOLHER A COR — do jeito de quem trabalha com roupa, não com código.
@@ -32,19 +33,9 @@ export function ColorPicker({
 }) {
   const [aberto, setAberto] = useState(false);
   const [codigo, setCodigo] = useState(value);
-  const caixa = useRef<HTMLDivElement>(null);
+  const botao = useRef<HTMLButtonElement>(null);
 
   useEffect(() => setCodigo(value), [value]);
-
-  // clicar fora fecha (sem isso o painel fica preso na tela do celular)
-  useEffect(() => {
-    if (!aberto) return;
-    const fora = (e: MouseEvent) => {
-      if (caixa.current && !caixa.current.contains(e.target as Node)) setAberto(false);
-    };
-    document.addEventListener("mousedown", fora);
-    return () => document.removeEventListener("mousedown", fora);
-  }, [aberto]);
 
   function escolher(hex: string, nome?: string) {
     onChange(hex);
@@ -52,8 +43,9 @@ export function ColorPicker({
   }
 
   return (
-    <div className="relative" ref={caixa}>
+    <div className="relative">
       <button
+        ref={botao}
         type="button"
         onClick={() => setAberto((a) => !a)}
         className="flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-2.5 py-2 text-sm font-medium text-gray-700 transition hover:border-brand-300"
@@ -67,8 +59,18 @@ export function ColorPicker({
         <Pipette className="size-3.5 text-gray-400" />
       </button>
 
-      {aberto && (
-        <div className="absolute z-30 mt-2 w-[19rem] max-w-[86vw] rounded-2xl border border-gray-200 bg-white p-3 shadow-xl animate-fade-in">
+      {/* A cartela é o painel mais alto do sistema e o campo de cor costuma
+          ficar no meio de um formulário longo: abrindo sempre para baixo, as
+          últimas faixas e o campo do código hexadecimal caíam fora da tela
+          (varredura de 15/09/2026, mesma causa do menu de status). */}
+      <MenuAncorado
+        ancora={botao}
+        aberto={aberto}
+        onFechar={() => setAberto(false)}
+        largura={304}
+        className="rounded-2xl border-gray-200 p-3"
+      >
+        <div>
           {CARTELA.map((g) => (
             <div key={g.grupo} className="mb-3">
               <p className="mb-1.5 text-[10px] font-bold uppercase tracking-wide text-gray-400">
@@ -137,7 +139,7 @@ export function ColorPicker({
             </p>
           </div>
         </div>
-      )}
+      </MenuAncorado>
     </div>
   );
 }
