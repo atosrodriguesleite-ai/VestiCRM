@@ -1,6 +1,6 @@
 // Guarda RN-058
 import { describe, it, expect } from "vitest";
-import { acaoDaNota } from "../nfe-situacao";
+import { acaoDaNota, seloDaNota } from "../nfe-situacao";
 
 /**
  * "Uma nota foi rejeitada, aí atualizei os dados com a inscrição estadual —
@@ -88,5 +88,40 @@ describe("o que a ficha pode PROMETER sobre a nota que vai sair", () => {
       expect(a.aviso).toContain("REENVIA");
       expect(a.aviso).toContain("NOVA");
     }
+  });
+});
+
+describe("o selo da nota na lista de pedidos", () => {
+  it("nota autorizada mostra o NÚMERO, que é o que a lojista confere", () => {
+    expect(seloDaNota("AUTORIZADA", "000008")?.texto).toBe("NF 000008");
+  });
+
+  it("autorizada sem número ainda diz que saiu (o número chega na consulta)", () => {
+    expect(seloDaNota("AUTORIZADA", null)?.texto).toBe("NF emitida");
+  });
+
+  it("pedido SEM nota não ganha selo — marcar ausência poluiria a lista toda", () => {
+    expect(seloDaNota(null, null)).toBeNull();
+    expect(seloDaNota("", null)).toBeNull();
+  });
+
+  it("a que DEU ERRADO aparece, e é onde o selo vale mais", () => {
+    // pedido pago sem nota é pendência fiscal, e só aparecia abrindo um por um
+    for (const st of ["REJEITADA", "CANCELADA", "ERRO"]) {
+      const selo = seloDaNota(st, null)!;
+      expect(selo.texto).toContain("NF");
+      expect(selo.cor).toBe("#E11D48"); // vermelho: é problema, não informação
+      expect(selo.titulo.length).toBeGreaterThan(20); // diz o que fazer
+    }
+  });
+
+  it("em andamento vira relógio, e some sozinha quando resolver", () => {
+    expect(seloDaNota("EMITINDO", null)?.cor).toBe("#D97706");
+  });
+
+  it("a nota RECUSADA nunca mostra número de nota que não vale", () => {
+    // o número existe no banco (a SEFAZ devolve), mas anunciá-lo faria a
+    // lojista achar que tem nota
+    expect(seloDaNota("REJEITADA", "000008")?.texto).not.toContain("000008");
   });
 });
