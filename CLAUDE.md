@@ -1687,6 +1687,37 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   confecção brasileira) é configurável por loja porque quem revende importado
   tem outro código; valor fora da tabela da Receita (0 a 8) cai no nacional em
   vez de ir torto para a nota.
+  **RN-058 · Nota RECUSADA volta a ter caminho — e AUTORIZADA nunca**
+  (`lib/nfe-situacao.ts`, 16/09/2026): relato do dono — *"uma nota foi
+  rejeitada, aí atualizei os dados com a inscrição estadual; como faço para
+  tentar reemitir?"*. **Não era falta de permissão**: o servidor já aceitava
+  (a trava de `emitirNfeDoPedido` deixa passar REJEITADA e CANCELADA, e a
+  própria mensagem de erro dele mandava *"clique em emitir de novo"*) — a
+  TELA é que mostrava o selo da nota **OU** o botão, nunca os dois. Beco sem
+  saída: a ficha anunciava o problema e escondia o conserto. A régua é a do
+  fisco: **AUTORIZADA nunca** (a nota vale, e outra seria nota em dobro — o
+  caminho é cancelar no Bling, com prazo curto); **REJEITADA e CANCELADA
+  sempre** (perante o fisco elas não existem e o pedido PRECISA de nota);
+  **EMITINDO e situação desconhecida** do Bling caem no lado seguro, porque
+  o estrago aqui é documento em dobro. **Uma régua só para as duas portas**:
+  a ficha do pedido e o Financeiro (RN-038), que mantinha conta própria
+  (`!== "AUTORIZADA"`) e por isso oferecia emitir com a nota EMITINDO.
+  **O caminho de ERRO é diferente e a tela DIZ**: `retomarNfeComErro`
+  **retransmite o rascunho que já está no Bling** (não faz PUT no payload),
+  então ele NÃO incorpora correção feita no cadastro depois — por isso
+  `remontaNota: false`, e a ficha não promete ali a natureza/NCM novos.
+  Prometer seria mentira sobre documento fiscal (achado da revisão): a
+  lojista cadastraria a IE, leria "vai sair como contribuinte" e a SEFAZ
+  autorizaria com os dados antigos. Quem corrigiu o cadastro passa por ele
+  assim mesmo — a retomada descobre que a anterior foi recusada, o pedido
+  volta a REJEITADA e AÍ a nota nasce do zero, com o cadastro de agora. O
+  aviso da RN-054/RN-055 acompanha o BOTÃO, não a ausência de nota: é na
+  reemissão que conferir a natureza importa mais, porque foi justamente
+  cadastrar a inscrição estadual que transformou a compradora em
+  contribuinte. E a ficha **recarrega mesmo quando a emissão falha**: a falha
+  também muda o status (REJEITADA vira ERRO com id novo; ERRO vira REJEITADA
+  com id nulo), e sem isso o clique seguinte fazia coisa diferente do que o
+  texto prometia.
   **RN-019 · Pacote por categoria e simulador de frete**
   (`lib/envios/pacote.ts` + `lib/envios/simulador.ts`): cada categoria guarda
   o peso e as **medidas de 1 peça dobrada**
