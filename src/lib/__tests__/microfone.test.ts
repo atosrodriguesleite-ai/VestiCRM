@@ -4,6 +4,8 @@ import {
   microfoneAindaExiste,
   microfoneSumiu,
   nomeCurtoDoMicrofone,
+  descricaoDaCaptura,
+  microfoneEntregueConfere,
 } from "../microfone";
 
 /**
@@ -29,7 +31,9 @@ describe("qual microfone grava", () => {
     const r = restricoesDeAudio("abc123");
     expect(r.echoCancellation).toBe(false);
     expect(r.noiseSuppression).toBe(true);
-    expect(r.autoGainControl).toBe(true);
+    // o ganho automático do navegador SAIU (14/09/2026): levantava o fundo
+    // nas pausas e saturava som médio antes de qualquer freio nosso
+    expect(r.autoGainControl).toBe(false);
   });
 });
 
@@ -109,5 +113,36 @@ describe("nome do microfone na barra de gravação", () => {
     const n = nomeCurtoDoMicrofone("A".repeat(60));
     expect(n.length).toBeLessThanOrEqual(34);
     expect(n.endsWith("…")).toBe(true);
+  });
+});
+
+describe("garantia: o que o navegador ENTREGOU é conferido", () => {
+  it("entregou o escolhido → confere", () => {
+    expect(microfoneEntregueConfere("abc", { deviceId: "abc" })).toBe(true);
+  });
+
+  it("entregou OUTRO → avisa", () => {
+    expect(microfoneEntregueConfere("abc", { deviceId: "xyz" })).toBe(false);
+  });
+
+  it("sem escolha, ou sem id nas configurações, não há o que divergir", () => {
+    expect(microfoneEntregueConfere(null, { deviceId: "xyz" })).toBe(true);
+    expect(microfoneEntregueConfere("abc", {})).toBe(true);
+    expect(microfoneEntregueConfere("abc", null)).toBe(true);
+  });
+
+  it("a barra diz os filtros de verdade, em português", () => {
+    expect(
+      descricaoDaCaptura({
+        noiseSuppression: true,
+        autoGainControl: false,
+        echoCancellation: false,
+        sampleRate: 48000,
+      })
+    ).toBe(
+      "supressão de ruído ligado · ganho automático desligado · cancelamento de eco desligado · 48 kHz"
+    );
+    expect(descricaoDaCaptura(null)).toBe("");
+    expect(descricaoDaCaptura({})).toContain("supressão de ruído ?");
   });
 });

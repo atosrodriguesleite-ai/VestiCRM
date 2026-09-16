@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { ordenarParaSeparacao, pesoTamanho } from "../romaneio";
+import { ordenarParaSeparacao, pesoTamanho, totalPorCategoria } from "../romaneio";
 
 /**
  * ORDEM DE SEPARAÇÃO DO ROMANEIO (12/08/2026): categoria → produto → cor →
@@ -64,12 +64,53 @@ describe("o pedido bagunçado sai na ordem da prateleira", () => {
   });
 });
 
+describe("cada categoria fecha com o TOTAL de peças dela (16/09/2026)", () => {
+  const categoria = (pid: string | null) =>
+    pid === "regata" ? "Regatas" : pid === "vestido" ? "Vestidos" : "";
+
+  it("soma a QUANTIDADE por categoria (duas linhas de regata M e G são 7 peças, não 2)", () => {
+    const itens = [
+      { productId: "regata", quantity: 5 },
+      { productId: "regata", quantity: 2 },
+      { productId: "vestido", quantity: 1 },
+      { productId: null, quantity: 3 },
+    ];
+    const t = totalPorCategoria(itens, categoria);
+    expect(t.get("Regatas")).toBe(7);
+    expect(t.get("Vestidos")).toBe(1);
+    expect(t.get("")).toBe(3); // sem categoria = "Outros itens"
+  });
+
+  it("a soma das categorias é o total de peças do pedido (o rodapé não pode discordar)", () => {
+    const itens = [
+      { productId: "regata", quantity: 5 },
+      { productId: "vestido", quantity: 4 },
+      { productId: null, quantity: 1 },
+    ];
+    const t = totalPorCategoria(itens, categoria);
+    const soma = [...t.values()].reduce((a, b) => a + b, 0);
+    expect(soma).toBe(itens.reduce((a, i) => a + i.quantity, 0));
+  });
+
+  it("pedido vazio: nenhum total", () => {
+    expect(totalPorCategoria([], categoria).size).toBe(0);
+  });
+});
+
 describe("o PDF usa a ordem de separação com cabecinho por categoria", () => {
-  it("a rota ordena e agrupa", async () => {
+  it("a rota ordena, agrupa, e FECHA cada categoria com o total (a última inclusive)", async () => {
     const { readFileSync } = await import("node:fs");
     const rota = readFileSync("src/app/api/orders/[id]/pdf/route.ts", "utf8");
     expect(rota).toContain("ordenarParaSeparacao(order.items, categoriaDe)");
     expect(rota).toContain("for (const item of itensOrdenados)");
     expect(rota).toContain('cat || "Outros itens"');
+    expect(rota).toContain("totalPorCategoria(order.items, categoriaDe)");
+    expect(rota).toContain("if (categoriaAtual !== null) fecharCategoria(categoriaAtual);");
+    // fecha a anterior ao trocar de categoria E depois do laço (a última)
+    expect(rota.split("fecharCategoria(categoriaAtual)").length - 1).toBe(2);
+    // e o RESUMO no fim usa os MESMOS números dos blocos, na mesma ordem
+    expect(rota).toContain('"RESUMO POR CATEGORIA"');
+    expect(rota).toContain("const pecas = pecasPorCategoria.get(cat) ?? 0;");
+    expect(rota).toContain("for (const cat of categoriasNaOrdem)");
   });
 });

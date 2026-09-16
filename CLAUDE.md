@@ -530,6 +530,13 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
 
 - **CRM**: clientes (carteira), funil de vendas, tarefas, automações,
   campanhas de disparo, tags/interesses, notificações (sino + push PWA).
+  **Push de venda paga vai no `after()`** (`avisarVendaPagaSemQuebrar` em
+  `lib/push.ts`, 11/09/2026): chamada solta era congelada pela Vercel junto
+  com a resposta e o celular não tocava "às vezes" — mesma cura da porta do
+  Financeiro (RN-033). Dispara ao ENTRAR em qualquer status pago (RN-001),
+  pelas três portas: tela do pedido, Pix do gateway e loja online. O aparelho
+  precisa estar inscrito (Configurações → notificações de venda; iPhone só
+  com o app na tela inicial) e as chaves VAPID precisam existir na Vercel.
 - **Central de Atendimento WhatsApp** (`/whatsapp`, tela `inbox.tsx`):
   fila/chats/contatos (vendedora vê os dela + a fila; o interruptor
   **"vê todas as conversas do chat"** na tela Equipe — `User.chatVisaoTotal`,
@@ -543,10 +550,47 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   **O volume é acertado antes de sair** (`normalizarVoz` em `lib/audio-wav.ts`):
   o nível vem da ENERGIA DA FALA — quadros de 20 ms, silêncio fora por
   porteira, mediana em cima (pico e média deixavam um estalo de 200 ms mandar
-  no áudio inteiro) — e o que passa do teto encontra um FREIO SUAVE, nunca a
-  tesoura: cortar reto é literalmente o barulho de "estourado". A gravação só
-  começa depois de `MS_ASSENTAR_MICROFONE` (0,5s), que joga a subida do ganho
-  automático para fora do arquivo — era ela o "primeiro segundo estourado".
+  no áudio inteiro). **A cadeia foi refeita em 14/09/2026** (relato do dono:
+  "microfone com anti-ruído, mas o áudio captura sons do fundo, e som que
+  nem é alto chega estourando"), na ordem portão → ganho → freio de pico →
+  curva de segurança: (1) o **ganho automático do navegador SAIU**
+  (`autoGainControl: false`) — nas pausas ele levantava o fundo que o
+  anti-ruído do microfone tinha abaixado, e som médio chegando com o ganho
+  lá em cima saturava DENTRO do navegador, antes de qualquer freio nosso;
+  o teto do nosso ganho subiu de 4× para 8× para cobrir quem fala longe;
+  (2) **portão de ruído** (`portaoDeRuido`): o que fica 18 dB abaixo da voz
+  é abaixado em curva até −20 dB, abrindo um quadro ANTES da palavra e
+  fechando em 150 ms (liga/desliga picota) — antes a porteira só decidia a
+  MEDIÇÃO e o fundo passava inteiro, multiplicado pelo ganho da voz;
+  (3) **freio de pico com antevisão** (`limitarPicos`, 10 ms à frente,
+  ataque 1 ms, solta em 80 ms): o estalo sai mais BAIXO, com a forma
+  original — a curva `freioSuave` espremia a onda e era isso o "estouro";
+  ela ficou só como rede de segurança; (4) a **mudança de taxa é feita pelo
+  DECODIFICADOR** (`decodificarNaTaxa`): tocar o buffer de 48 kHz num
+  contexto de 24 kHz reamostra por interpolação linear, sem filtro, e o que
+  está acima de 12 kHz dobra para dentro como ruído áspero; (5) **redução
+  de chiado por espectro** (`reduzirChiado`, mesmo dia, segundo relato:
+  "os áudios saem com chiado no fundo"): o portão só cala o que fica entre
+  as palavras, e chiado está em todas as frequências, também DURANTE a
+  fala. A gravação vira quadros de 512 amostras, o PERFIL do chiado é
+  aprendido da própria gravação (por frequência, o nível que fica abaixo de
+  20% do tempo — a voz muda de altura o tempo todo, o chiado ocupa tudo o
+  tempo inteiro), e cada frequência de cada quadro é abaixada na proporção
+  do quanto está perto do perfil (regra em potência: voz 10 dB acima quase
+  não é tocada; o que está no piso cai −16 dB, o teto — mais que isso soa
+  "debaixo d'água"), com o nível suavizado entre quadros e o ganho entre
+  frequências vizinhas (sem isso sobra o "borbulhado" de redutor barato).
+  Abaixo de 70 Hz é zumbido de rede, vai embora. Medido com ruído branco:
+  silêncio −13,5 dB, agudos durante a fala −10 a −16 dB, voz em 97%. Limite
+  aceito: um som SUSTENTADO por mais de 80% da mensagem (uma nota cantada
+  sem parar) seria lido como fundo e abaixado — não acontece em mensagem
+  falada. E a **garantia
+  do microfone**: o que o navegador ENTREGOU (`track.getSettings()`) é
+  conferido contra o escolhido (`microfoneEntregueConfere`, aviso na hora
+  se divergiu) e os filtros de fato aplicados aparecem ao passar o mouse
+  no nome do microfone (`descricaoDaCaptura`). A gravação só
+  começa depois de `MS_ASSENTAR_MICROFONE` (0,5s), que deixa a supressão de
+  ruído assentar fora do arquivo — era ela o "primeiro segundo estourado".
   `lib/audio-wav.ts`: a gravação vira WAV no NAVEGADOR — o webm do
   MediaRecorder não carrega a duração e o WhatsApp mostrava 0:00 — na MAIOR
   taxa que couber no envio: 24 kHz até ~65s e 16 kHz daí em diante. Com os
@@ -628,6 +672,12 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   (`trechoDaBusca` em `lib/busca.ts`, posição no texto ORIGINAL) e quantas
   mensagens casaram; abrir a conversa PULA até a mensagem (carregando o
   passado página a página, com teto e aviso) e a barra ▲▼ anda entre elas.
+  **Colar imagem no campo** (`lib/colar-imagem.ts`, 16/09/2026, pedido do
+  dono: "tiro o print, clico no campo e colo, como no aplicativo"): o print
+  colado entra pelo MESMO caminho do clipe (compressão, fila, ritmo, bolha),
+  com confirmação pelo primeiro nome da cliente (Ctrl+V no campo errado
+  mandaria o print para ela); texto colado segue colando como texto, e nota
+  interna não leva imagem.
   **Emoji**: o seletor (`seletor-de-emoji.tsx`, grade em `lib/emojis.ts`)
   tem **barra de pesquisa** em português sem acento ("coracao", "caixa",
   "feliz"; Enter escolhe o primeiro) e é o MESMO na caixa de **editar
@@ -780,6 +830,23 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   "50 pontos para olhar" com 45 sendo lembrança de coisa resolvida, e as 5 de
   verdade sumiam no meio. "Já acabou" só vale quando deu para conferir: com a
   leitura incompleta a disputa continua avisando.
+  **A SINCRONIZAÇÃO É EM ETAPAS, COM ORÇAMENTO DE TEMPO E RASTRO**
+  (`syncPaginaDeProdutos`, 15/09/2026): relato da Entre Linhas — "não está
+  fazendo sincronização", com o cartão dizendo *"interrompida no meio"*. A
+  etapa de 25 produtos faz de 200 a 450 idas ao banco (medido no Postgres
+  local), e com o banco em outra região a 100 ms cada isso passa dos 60s da
+  Vercel: a função morria SEM resposta, a tela só sabia dizer "interrompida"
+  e a lojista recomeçava da página 1 para morrer no mesmo lugar. Agora cada
+  etapa tem **orçamento de 25s** (`MS_ORCAMENTO_DA_ETAPA`): o que não coube
+  volta como **parcial** e a tela pede a MESMA página pulando o que já foi
+  feito (`desde`) — **sempre pelo menos um produto por etapa**, senão a tela
+  pediria a mesma etapa para sempre. Etapa que morre sem resposta é repetida
+  2× antes de desistir, e a mensagem diz **onde** parou (página e produto),
+  que é o que o suporte precisa; o **rastro** (`lastSyncEtapa`, gravado
+  ANTES de trabalhar e apagado no fim) faz o cartão dizer "parou na página
+  N" mesmo depois de a função morrer. Junto, a rodada ficou mais leve: baixa
+  pendente (RN-053) e preço a caminho (RN-057) são lidos **uma vez por
+  rodada** (pools), e a variação só vai ao banco quando algo mudou.
   **RN-053 · O ENVIO DE ESTOQUE PARA A NUVEMSHOP NÃO SE PERDE CALADO**
   (`lib/nuvemshop-estoque-pendente.ts` + `pushStockToNuvemshop`, 10/09/2026):
   relato do dono — a mesma peça com **0 aqui e 41 lá**, e a conferência da
@@ -828,6 +895,50 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   peça ficou dias com o número errado de um dos lados, e divergência de
   estoque ou faz a loja deixar de vender peça que tem, ou vender peça que não
   tem.
+  **RN-057 · O PREÇO DE VAREJO DA PEÇA NUVEMSHOP TAMBÉM SE MUDA AQUI, E VAI
+  PARA LÁ** (`lib/nuvemshop-preco-pendente.ts` + `pushPriceToNuvemshop`,
+  15/09/2026): pedido do dono com o print da Entre Linhas — a lojista abriu
+  o reajuste em lote (RN-056) e viu *"varejo: é da Nuvemshop, muda lá"* em 25
+  peças, ou seja, mudar 25 preços na mão na loja online. Trancar era a
+  resposta errada; a certa é MANDAR o número daqui para lá. O desenho é o da
+  RN-053 (estoque), que já provou funcionar: a pendência
+  (`NuvemshopPrecoPendente`, **uma por PRODUTO** — o varejo é do modelo, e
+  todas as variações vinculadas recebem o mesmo número) nasce **na MESMA
+  transação que grava o preço** (ficha da peça e reajuste em lote — preço
+  novo aqui sem ninguém para mandá-lo é o reajuste que a sync desfaz na hora
+  seguinte) e some só quando a Nuvemshop **CONFIRMA** o preço que temos
+  AGORA (relido antes de cada PUT; sucesso com número velho não é sucesso).
+  **Enquanto ela existe, a sync NÃO escreve o varejo de lá por cima**
+  (`precosPendentes` em `upsertProduct`). O envio vai pelo `after()`
+  (`espelharPrecoSemQuebrar`, depois do commit), a API recebe o preço como
+  texto com duas casas por variação vinculada (produto inteiro só confirma
+  com TODAS), e o que sobrou é repescado **na MESMA rodada, com a MESMA trava
+  e o MESMO relógio da fila de estoque** (estoque primeiro: vender peça que
+  não tem é o estrago maior) — nunca um 3º cron (ADR-002). Loja desconectada
+  segura na fila; produto que perdeu o vínculo sai dela. Desistir é
+  explícito (`nuvemshop.preco-nao-enviado` na Central + Saúde, uma vez por
+  rodada) e a linha FICA: a ficha mostra **"⏳ enviando"** enquanto tenta e
+  **"⚠️ não chegou na Nuvemshop"** com o motivo depois de desistir (um
+  booleano só dizia "tenta sozinho" para quem já tinha parado — achado da
+  revisão); mudar o preço de novo reabre a rodada. A fila pega carona
+  **também na tela Produtos e na porta do reajuste** — loja sem a Central
+  aberta e sem o módulo Estoque não tinha outra batida, e é ali que ela olha
+  o ⏳. Quatro achados da revisão fecharam buracos que a versão trancada
+  nunca teve: (1) a ficha manda o varejo **só se a pessoa MUDOU o número**
+  — o carregado empurraria para a loja online um preço que ela já tinha
+  mudado lá (a RN-050 ao contrário); (2) **ZERO nunca vai para a loja
+  online** (a peça ficaria de graça lá): a ficha recusa com frase, o lote
+  deixa de fora e diz, e o envio desiste dizendo o motivo — três trancas
+  (`decidirVarejoParaNuvemshop`); (3) só **VARIAÇÃO vinculada** espelha
+  (o PUT é por variação; produto 1↔1 com as variações todas em pendência de
+  SKU não tem o varejo lido nem escrito pela sync — é nosso); (4) a fila é
+  marcada em **duas consultas para a lista inteira**, não duas por peça
+  (centenas de peças dentro da transação de 30s estourava o relógio e
+  desfazia o reajuste). O **Jueri continua trancando os DOIS preços** (a
+  sync dele grava os dois e não há porta de volta), e o atacado da peça
+  Nuvemshop segue só daqui, como sempre. A régua vive em `donoDoPreco`
+  (`espelhaVarejo`), uma para a ficha e para o lote — e a ficha DIZ "vai
+  para a Nuvemshop" ao lado do campo.
   **Jueri** (sync 2x/dia via cron `jueri-sync`).
 - **Marketing**: Gestor de Bio (temas, cores custom, capa, QR, métricas
   BioView/BioClick com filtro de data, atribuição `utm_source=bio` no
@@ -858,6 +969,38 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   outro; foi a diferença de R$ 9 mil que o dono caçou em 31/08/2026).
 - **Produção** (gated por loja): tecidos, rolos, cortes multi-cor, costura,
   lotes/facções, defeitos, simulador, etiquetas.
+- **Produtos · RN-056 · Reajuste de preço em lote por CATEGORIA**
+  (`lib/reajuste-preco.ts`, botão "Reajustar preço" na tela Produtos,
+  15/09/2026): pedido do dono — a cliente queria mudar o preço de uma
+  categoria inteira sem abrir peça por peça. Gerência escolhe a categoria,
+  **atacado e/ou varejo**, e **percentual** (+10%, −5%) ou **valor fixo**;
+  a tela mostra a **prévia** (quantas mudam, antes → depois, o que fica de
+  fora e por quê) e só então aplica. Quem faz a conta é o SERVIDOR, nos
+  dois passos, sobre o que está no banco na hora — a tela nunca manda preço
+  pronto. Réguas: centavos (2 casas), **nunca negativo**, percentual dentro
+  de −90% a +500% (fora disso é dedo errado), **percentual não cria preço
+  onde está ZERO** (10% de nada é nada, e a peça que nunca teve atacado não
+  pode ganhar um por engano — fica de fora e é contada; valor fixo, sim,
+  vale para ela). **Peça do Jueri tem os DOIS preços lá** e fica de fora
+  com o motivo dito na prévia (mesma régua da RN-014/RN-050). Peça da
+  Nuvemshop: o atacado é daqui e o **varejo muda aqui E VAI PARA LÁ**
+  (RN-057; na primeira versão ele ficava trancado, e o print da Entre Linhas
+  mostrou 25 peças "muda lá" — foi trocado no mesmo dia). **Gerência e SUPORTE** (`podeReajustarPreco`; decisão do dono em
+  15/09/2026 — o suporte já edita a ficha da peça, preço inclusive, e
+  trancar só o lote o obrigava a mudar 80 peças uma a uma); vendedora não.
+  Tudo numa transação, por loja
+  (RN-013), com registro na Central de Comunicação
+  (`produtos.reajuste-de-preco`: quem, categoria, regra e o antes/depois de
+  até 200 peças — é o que permite desfazer à mão). O aplicar **TRAVA** as
+  peças da categoria (`FOR UPDATE`) e **reconta com o número do banco
+  naquele instante** — a ficha salva entre a prévia e o clique não é
+  sobrescrita em silêncio (achado da revisão). A mesma régua de dono vale
+  na **ficha da peça**: o preço do Jueri aparece com cadeado, não
+  viaja no salvamento, e o servidor (PATCH do produto) recusa número
+  diferente do de lá — antes a tela aceitava e a sync devolvia o número
+  de lá horas depois ("o sistema perdeu meu preço", a RN-050 em preço).
+  A conta pura mora em `lib/reajuste-preco-regra.ts` (é o que a tela
+  importa; o arquivo com banco não pode chegar ao navegador).
 - **Estoque** (gated por loja, `Company.estoqueEnabled`, porteira em
   `lib/estoque/gate.ts`; desenhado com o dono em 09/09/2026 e entregue em
   quatro abas — Inventário, Mínimos, Painel, Produção; **preço de tabela A
@@ -1540,7 +1683,7 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   confecção brasileira) é configurável por loja porque quem revende importado
   tem outro código; valor fora da tabela da Receita (0 a 8) cai no nacional em
   vez de ir torto para a nota.
-  **RN-056 · Nota RECUSADA volta a ter caminho — e AUTORIZADA nunca**
+  **RN-058 · Nota RECUSADA volta a ter caminho — e AUTORIZADA nunca**
   (`lib/nfe-situacao.ts`, 16/09/2026): relato do dono — *"uma nota foi
   rejeitada, aí atualizei os dados com a inscrição estadual; como faço para
   tentar reemitir?"*. **Não era falta de permissão**: o servidor já aceitava

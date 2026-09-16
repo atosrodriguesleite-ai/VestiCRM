@@ -42,6 +42,8 @@ export async function POST(req: NextRequest) {
     // perto do limite de tempo. Etapa lenta fica registrada no Saúde.
     const body = (await req.json().catch(() => ({}))) as {
       page?: number;
+      desde?: number;
+      apos?: string;
       carrinhos?: boolean;
     };
     const t0 = Date.now();
@@ -69,7 +71,9 @@ export async function POST(req: NextRequest) {
 
     const page = Number(body?.page);
     if (Number.isInteger(page) && page >= 1) {
-      const etapa = await syncPaginaDeProdutos(user.companyId, page);
+      const desde = Number.isInteger(body?.desde) && Number(body?.desde) > 0 ? Number(body?.desde) : 0;
+      const apos = typeof body?.apos === "string" && body.apos ? body.apos.slice(0, 40) : null;
+      const etapa = await syncPaginaDeProdutos(user.companyId, page, desde, undefined, apos);
       if (!etapa.ok) {
         const { motivo, mensagem } =
           etapa.status === -1
@@ -88,7 +92,10 @@ export async function POST(req: NextRequest) {
         ok: true,
         produtos: etapa.produtos,
         fim: etapa.fim,
+        parcial: etapa.parcial ?? false,
         proximaPagina: etapa.proximaPagina ?? page + 1,
+        desde: etapa.desde ?? 0,
+        apos: etapa.apos ?? null,
         ms,
       });
     }

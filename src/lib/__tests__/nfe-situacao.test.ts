@@ -1,4 +1,4 @@
-// Guarda RN-056
+// Guarda RN-058
 import { describe, it, expect } from "vitest";
 import { acaoDaNota } from "../nfe-situacao";
 

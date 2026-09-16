@@ -1,18 +1,22 @@
 import { ExternalLink, QrCode } from "lucide-react";
-import { donoDoEstoque } from "@/lib/estoque/dono-do-estoque";
+import { donoDoEstoque, donoDoPreco } from "@/lib/estoque/dono-do-estoque";
 import { envioPendentePorVariacao } from "@/lib/nuvemshop-estoque-pendente";
+import { estadoDoPrecoPorProduto } from "@/lib/nuvemshop-preco-pendente";
+import { varrerEnviosDeEstoqueSeDevido } from "@/lib/nuvemshop";
+import { after } from "next/server";
 import { requireUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { imageHref } from "@/lib/img";
 import { PageHeader } from "@/components/ui";
 import { ProductsView, type ProductItem } from "./products-view";
 import { catalogUrl } from "@/lib/catalog-url";
-import { isManagerUp, isSupport } from "@/lib/scope";
+import { isManagerUp, isSupport, podeReajustarPreco } from "@/lib/scope";
 import { parseCategoryOrder } from "@/lib/categories";
 import { StockMonitor, type LowStockRow } from "./stock-monitor";
 import { PhotoDoctor } from "./photo-doctor";
 import { ExportCatalog } from "./export-catalog";
 import { SkuManager } from "./sku-manager";
+import { ReajustePreco } from "./reajuste-preco";
 import { CategoryManager } from "./category-manager";
 import { ordenarVariantes, ordenarTamanhos, compararTamanhos } from "@/lib/tamanhos";
 
@@ -72,6 +76,16 @@ export default async function ProductsPage() {
     products.flatMap((p) => p.variants.filter((v) => v.nuvemshopId).map((v) => v.id))
   );
 
+  // RN-057: varejo mudado aqui que a Nuvemshop ainda não confirmou
+  const precoPendente = await estadoDoPrecoPorProduto(
+    user.companyId,
+    products.filter((p) => p.variants.some((v) => v.nuvemshopId)).map((p) => p.id)
+  );
+  // a fila de envio (estoque e preço, RN-053/RN-057) pega carona também
+  // AQUI: é a tela onde a lojista olha o ⏳ — uma loja sem a Central aberta
+  // e sem o módulo Estoque não tinha outra batida (achado da revisão)
+  after(() => varrerEnviosDeEstoqueSeDevido(user.companyId));
+
   const items: ProductItem[] = products.map((p) => ({
     id: p.id,
     name: p.name,
@@ -88,6 +102,10 @@ export default async function ProductsPage() {
     active: p.active,
     tags: p.tags,
     nuvemshopId: p.nuvemshopId,
+    // RN-056: quem manda em cada preço (varejo da Nuvemshop, os dois do Jueri)
+    // — a ficha tranca o campo, e o servidor é a segunda tranca
+    precoDono: donoDoPreco({ nuvemshopId: p.nuvemshopId, jueriId: p.jueriId, variants: p.variants }),
+    precoPendenteNuvemshop: precoPendente.get(p.id) ?? null,
     images: p.images.map((i) => ({ id: i.id, url: imageHref(i.id), color: i.color })),
     variants: p.variants.map((v) => ({
       id: v.id,
@@ -159,6 +177,7 @@ export default async function ProductsPage() {
             <div className="flex flex-wrap items-center gap-2 sm:justify-end">
               {(isManagerUp(user) || isSupport(user)) && <CategoryManager />}
               {isManagerUp(user) && <SkuManager />}
+              {podeReajustarPreco(user) && <ReajustePreco categories={categories} />}
               {isManagerUp(user) && <ExportCatalog />}
               {isManagerUp(user) && <PhotoDoctor />}
               <a

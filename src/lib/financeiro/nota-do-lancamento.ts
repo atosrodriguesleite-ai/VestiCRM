@@ -63,7 +63,7 @@ export async function notaDoLancamento(
     nfeNumero: pedido.nfeNumber,
     url: pedido.nfeUrl,
     blingConectado: Boolean(bling),
-    // QUEM DECIDE É `acaoDaNota` (RN-056), a mesma régua da ficha do pedido.
+    // QUEM DECIDE É `acaoDaNota` (RN-058), a mesma régua da ficha do pedido.
     // A conta própria daqui já divergia: com `!== "AUTORIZADA"` esta porta
     // oferecia emitir enquanto a nota estava EMITINDO, e numa situação nova
     // do Bling que ainda não conhecêssemos — os dois casos onde o estrago é

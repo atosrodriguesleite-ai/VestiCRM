@@ -56,14 +56,17 @@ describe("sincronização EM ETAPAS — não existe catálogo que estoure o temp
 
   it("cada chamada processa UMA página e diz se acabou", () => {
     expect(lib).toContain("export async function syncPaginaDeProdutos");
-    expect(rota).toContain("syncPaginaDeProdutos(user.companyId, page)");
+    expect(rota).toContain("syncPaginaDeProdutos(user.companyId, page, desde, undefined, apos)");
     expect(rota).toContain("fim: etapa.fim");
+    expect(rota).toContain("parcial: etapa.parcial");
   });
 
   it("a tela chama etapa por etapa com progresso, e para no fim", () => {
-    expect(tela).toContain("body: JSON.stringify({ page })");
-    expect(tela).toContain("if (d.fim) break;");
+    expect(tela).toContain("body: JSON.stringify({ page, desde, apos })");
+    expect(tela).toContain("if (d.fim) {");
     expect(tela).toContain("produtos conferidos até aqui");
+    // etapa parcial: a MESMA página, pulando o que já foi feito
+    expect(tela).toContain("desde = d.parcial ? (d.desde ?? 0) : 0;");
   });
 
   it("os carrinhos abandonados têm etapa PRÓPRIA (nunca junto dos produtos)", () => {
@@ -79,7 +82,7 @@ describe("sincronização EM ETAPAS — não existe catálogo que estoure o temp
   });
 
   it("o relatório soma entre as etapas e a etapa 1 recomeça", () => {
-    expect(lib).toContain("if (page > 1 && conexao?.lastSyncReport) {");
+    expect(lib).toContain("if ((page > 1 || comecarEm > 0) && conexao?.lastSyncReport) {");
     expect(lib).toContain("casadas: anterior.casadas + report.casadas");
   });
 
@@ -87,7 +90,40 @@ describe("sincronização EM ETAPAS — não existe catálogo que estoure o temp
     expect(lib).toContain("AbortSignal.timeout(15_000)");
   });
 
-  it("quando ainda assim falhar, a tela instrui (tente de novo, é seguro)", () => {
-    expect(tela).toContain("segura de repetir");
+  it("etapa que morre sem resposta é repetida 2× antes de desistir, e a mensagem diz ONDE parou", () => {
+    expect(tela).toContain("if (!d.error && tentativa < 2) {");
+    expect(tela).toContain("ela continua de onde parou");
+    expect(tela).toContain("`página ${page}, a partir do produto ${desde + 1}`");
+  });
+
+  it("a etapa tem ORÇAMENTO de tempo no servidor e sempre faz pelo menos um produto", () => {
+    // Entre Linhas, 15/09/2026: a página lenta morria nos 60s da Vercel sem
+    // resposta, e a lojista recomeçava da 1 para morrer no mesmo lugar
+    expect(lib).toContain("export const MS_ORCAMENTO_DA_ETAPA = 25_000;");
+    expect(lib).toContain("if (feitos > 0 && Date.now() - inicio > orcamentoMs) {");
+    expect(lib).toContain("const proximaPagina = parcial ? page : page + 1;");
+    // a página pode ter mudado de ordem entre as duas chamadas: retoma pelo id
+    expect(lib).toContain("if (i >= 0) comecarEm = i + 1;");
+  });
+
+  it("deixa rastro de ONDE está antes de trabalhar, e o cartão mostra onde parou", () => {
+    expect(lib).toContain("await rastro(page, desde);");
+    expect(lib).toContain("if (!fim) await rastro(proximaPagina, proximoDesde);");
+    expect(lib).toContain("lastSyncEtapa: null");
+    expect(tela).toContain("A última sincronização não chegou ao fim: parou na página");
+    // e o botão RETOMA de lá (prometer "continua de onde parou" e recomeçar da 1 era mentira)
+    expect(tela).toContain("let page = estado?.etapaParada?.pagina ?? 1;");
+    expect(tela).toContain("if (!fim) return falhou({}, `página ${page}, a partir do produto ${desde + 1}`);");
+  });
+
+  it("baixa pendente (RN-053) e preço a caminho (RN-057) são lidos UMA vez por rodada, não por produto", () => {
+    expect(lib).toContain("estoquePendente: await variacoesComEnvioPendente(companyId),");
+    expect(lib).toContain("precosPendentes: await produtosComPrecoPendente(companyId),");
+    expect(lib).toContain("pools?.estoquePendente ??");
+    // o pool é atalho: número DIFERENTE reconfere a fila na hora (venda que
+    // entrou no meio da etapa não pode ser desfeita pelo número de lá)
+    expect(lib).toContain("(alvo.stock !== stock && (await envioPendentePorVariacao(companyId, [alvo.id])).has(alvo.id))");
+    // e a variação só vai ao banco quando algo mudou
+    expect(lib).toContain("if (Object.keys(dadosDaVariacao).length > 0) {");
   });
 });

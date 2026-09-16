@@ -56,6 +56,10 @@ export type ProductItem = {
   tags: string | null;
   /** peça espelhada da loja online — muda o conselho quando ela está inativa */
   nuvemshopId: string | null;
+  /** RN-056/RN-057: quem manda em cada preço (null = a loja, aqui); `espelhaVarejo` = o varejo daqui vai para lá */
+  precoDono: { atacado: DonoExterno | null; varejo: DonoExterno | null; espelhaVarejo: DonoExterno | null };
+  /** RN-057: varejo mudado aqui que a Nuvemshop ainda não confirmou ("enviando") ou que ela não aceitou ("falhou") */
+  precoPendenteNuvemshop: { estado: "enviando" | "falhou"; motivo: string | null } | null;
   // fotos em ordem — a primeira é a CAPA (aparece na grade e no catálogo)
   images: { id: string; url: string; color?: string | null }[];
   variants: {
@@ -923,8 +927,18 @@ function ProductDetailModal({
         collection: form.collection || null,
         description: form.description || null,
         costPrice: num(form.costPrice),
-        wholesalePrice: num(form.wholesalePrice),
-        retailPrice: num(form.retailPrice),
+        // RN-056: preço de dono externo não viaja — o servidor recusaria
+        // (e mandar o carregado faria a ficha ser recusada se a loja online
+        // mudasse o preço entre abrir e salvar, o mesmo caso do estoque)
+        wholesalePrice: product.precoDono.atacado ? undefined : num(form.wholesalePrice),
+        // RN-057: em peça Nuvemshop o varejo só viaja se a pessoa MUDOU o
+        // número — mandar o carregado empurraria para a loja online um preço
+        // que ela já tinha mudado lá (achado da revisão)
+        retailPrice: product.precoDono.varejo
+          ? undefined
+          : product.precoDono.espelhaVarejo && Math.abs(num(form.retailPrice) - product.retailPrice) < 0.005
+            ? undefined
+            : num(form.retailPrice),
         minQuantity: parseInt(form.minQuantity) || 1,
         weightGrams: parseInt(form.weightGrams) || null,
         tags: form.tags || null,
@@ -1157,12 +1171,57 @@ function ProductDetailModal({
                 <input value={form.costPrice} onChange={set("costPrice")} className={input} inputMode="decimal" />
               </div>
               <div>
-                <label className={label}>Atacado</label>
-                <input value={form.wholesalePrice} onChange={set("wholesalePrice")} className={input} inputMode="decimal" />
+                <label className={label}>Atacado{product.precoDono.atacado ? " 🔒" : ""}</label>
+                <input
+                  value={form.wholesalePrice}
+                  onChange={set("wholesalePrice")}
+                  className={input}
+                  inputMode="decimal"
+                  disabled={!!product.precoDono.atacado}
+                  title={
+                    product.precoDono.atacado
+                      ? `Preço de atacado é ${product.precoDono.atacado === "JUERI" ? "do" : "da"} ${NOME_DO_DONO[product.precoDono.atacado]}: mude lá e sincronize.`
+                      : undefined
+                  }
+                />
               </div>
               <div>
-                <label className={label}>Varejo</label>
-                <input value={form.retailPrice} onChange={set("retailPrice")} className={input} inputMode="decimal" />
+                <label className={label}>
+                  Varejo{product.precoDono.varejo ? " 🔒" : ""}
+                  {product.precoDono.espelhaVarejo && (
+                    <span
+                      className="ml-1 font-normal text-sky-700"
+                      title={`O varejo salvo aqui vai para a ${NOME_DO_DONO[product.precoDono.espelhaVarejo]} sozinho.`}
+                    >
+                      · vai para a {NOME_DO_DONO[product.precoDono.espelhaVarejo]}
+                    </span>
+                  )}
+                  {product.precoPendenteNuvemshop?.estado === "enviando" && (
+                    <span className="ml-1 font-normal text-amber-700" title="A Nuvemshop ainda não confirmou o preço novo. O sistema tenta de novo sozinho.">
+                      ⏳ enviando
+                    </span>
+                  )}
+                  {product.precoPendenteNuvemshop?.estado === "falhou" && (
+                    <span
+                      className="ml-1 font-normal text-rose-700"
+                      title={`${product.precoPendenteNuvemshop.motivo ?? "A Nuvemshop não aceitou o preço"}. Salvar o varejo de novo tenta outra vez.`}
+                    >
+                      ⚠️ não chegou na Nuvemshop
+                    </span>
+                  )}
+                </label>
+                <input
+                  value={form.retailPrice}
+                  onChange={set("retailPrice")}
+                  className={input}
+                  inputMode="decimal"
+                  disabled={!!product.precoDono.varejo}
+                  title={
+                    product.precoDono.varejo
+                      ? `Preço de varejo é ${product.precoDono.varejo === "JUERI" ? "do" : "da"} ${NOME_DO_DONO[product.precoDono.varejo]}: mude lá e sincronize.`
+                      : undefined
+                  }
+                />
               </div>
             </div>
             <div className="grid grid-cols-2 gap-3">

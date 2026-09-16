@@ -4,7 +4,7 @@ import { paginaSegura, quebrarEmLinhas } from "@/lib/pdf-texto";
 import { corIgual } from "@/lib/capa-por-cor";
 import { db } from "@/lib/db";
 import { requireUser, AuthError } from "@/lib/auth";
-import { ordenarParaSeparacao } from "@/lib/romaneio";
+import { ordenarParaSeparacao, totalPorCategoria } from "@/lib/romaneio";
 import { orderScope } from "@/lib/scope";
 import { retratoCerto } from "@/lib/religar-itens";
 import { orderNumber, orderStatusLabel, paymentMethodLabel } from "@/lib/orders";
@@ -386,9 +386,30 @@ export async function GET(
     // cabecinho de grupo a cada CATEGORIA: quem separa enxerga os blocos de
     // longe ("REGATAS", "VESTIDOS") e confere prateleira por prateleira
     let categoriaAtual: string | null = null;
+    // cada categoria FECHA com o total de peças dela (pedido do dono,
+    // 16/09/2026): quem separa confere a prateleira inteira — "regata
+    // nadador, 10 peças" — antes de passar para a próxima, e uma faixa
+    // separa os blocos para o olho não emendar um no outro
+    const pecasPorCategoria = totalPorCategoria(order.items, categoriaDe);
+    const fecharCategoria = (cat: string) => {
+      const pecas = pecasPorCategoria.get(cat) ?? 0;
+      newPageIfNeeded(30);
+      page.drawRectangle({ x: M, y: y - 4, width: width - 2 * M, height: 18, color: LIGHT });
+      page.drawRectangle({ x: M, y: y - 4, width: 4, height: 18, color: ACCENT });
+      const rotulo = `TOTAL ${(cat || "Outros itens").toUpperCase().slice(0, 40)}`;
+      page.drawText(rotulo, { x: M + 10, y: y + 1, size: 8, font: bold, color: GRAY });
+      const txt = `${pecas} ${pecas === 1 ? "peça" : "peças"}`;
+      const w = bold.widthOfTextAtSize(txt, 11);
+      page.drawText(txt, { x: cols.total - w, y, size: 11, font: bold, color: INK });
+      y -= 22;
+      // separação clara entre uma categoria e a próxima
+      page.drawLine({ start: { x: M, y: y + 4 }, end: { x: width - M, y: y + 4 }, thickness: 1.5, color: ACCENT });
+      y -= 14;
+    };
     for (const item of itensOrdenados) {
       const cat = categoriaDe(item.productId);
       if (cat !== categoriaAtual) {
+        if (categoriaAtual !== null) fecharCategoria(categoriaAtual);
         categoriaAtual = cat;
         newPageIfNeeded(ROW + 22);
         page.drawText((cat || "Outros itens").toUpperCase().slice(0, 60), {
@@ -444,6 +465,36 @@ export async function GET(
       page.drawText(totalTxt, { x: cols.total - w, y, size: 10, font: bold, color: INK });
       y -= ROW;
       page.drawLine({ start: { x: M, y: y + 8 }, end: { x: width - M, y: y + 8 }, thickness: 0.5, color: LIGHT });
+    }
+    // a última categoria também fecha com o total dela
+    if (categoriaAtual !== null) fecharCategoria(categoriaAtual);
+
+    // ---- Resumo por categoria (16/09/2026) ----
+    // depois da separação, a conferência final e o fechamento da caixa: uma
+    // linha por categoria, os MESMOS números dos blocos (nunca discordam),
+    // e o total de peças — em pedido de 3 páginas é aqui que se bate o olho
+    // em vez de folhear. Na ordem em que os blocos saíram no romaneio.
+    const categoriasNaOrdem: string[] = [];
+    for (const item of itensOrdenados) {
+      const cat = categoriaDe(item.productId);
+      if (!categoriasNaOrdem.includes(cat)) categoriasNaOrdem.push(cat);
+    }
+    if (categoriasNaOrdem.length > 0) {
+      // resumo e totais de dinheiro na MESMA página (o bloco de totais pede 110)
+      newPageIfNeeded(30 + categoriasNaOrdem.length * 14 + 16 + 110);
+      y -= 6;
+      page.drawText("RESUMO POR CATEGORIA", { x: M, y, size: 8, font: bold, color: GRAY });
+      y -= 14;
+      for (const cat of categoriasNaOrdem) {
+        const pecas = pecasPorCategoria.get(cat) ?? 0;
+        const nome = (cat || "Outros itens").slice(0, 50);
+        page.drawText(nome, { x: M + 10, y, size: 9, font, color: INK });
+        const txt = `${pecas} ${pecas === 1 ? "peça" : "peças"}`;
+        const w = font.widthOfTextAtSize(txt, 9);
+        page.drawText(txt, { x: cols.total - w, y, size: 9, font, color: INK });
+        y -= 14;
+      }
+      page.drawLine({ start: { x: M, y: y + 6 }, end: { x: width - M, y: y + 6 }, thickness: 0.5, color: LIGHT });
     }
 
     // ---- Totais ----

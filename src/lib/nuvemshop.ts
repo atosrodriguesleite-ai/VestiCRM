@@ -6,7 +6,7 @@ import { intakeLead, normalizePhone } from "./intake";
 import { round2 } from "./orders";
 import { separarDocumento } from "./documento";
 import { sincronizarPedidoSemQuebrar } from "./financeiro/porta-vendas";
-import { notifySalePaid } from "./push";
+import { avisarVendaPagaSemQuebrar } from "./push";
 import { winLinkedOpportunity, garantirCartaoDoPedido } from "./opportunity-sync";
 import { comNumeroUnico } from "./numero-do-pedido";
 import { limparDescricaoHtml, temEntidadeHtml } from "./descricao-limpa";
@@ -22,6 +22,15 @@ import {
   registrarFalhaDeEnvio,
   tomarTravaDaRepesca,
 } from "./nuvemshop-estoque-pendente";
+import { variacoesComEnvioPendente } from "./nuvemshop-estoque-pendente";
+import {
+  confirmarEnvioDePreco,
+  desistirDoEnvioDePreco,
+  precoPendentePorProduto,
+  produtosComPrecoPendente,
+  produtosParaRepescarPreco,
+  registrarFalhaDePreco,
+} from "./nuvemshop-preco-pendente";
 
 /**
  * Integração Nuvemshop — a loja online é a DONA do estoque e dos produtos;
@@ -352,6 +361,10 @@ export type PoolsDeSync = {
    * teto de 60s da Vercel uma vez (Entre Linhas, 03/08/2026).
    */
   idxParecidos: Map<string, string>;
+  /** RN-057: produtos com varejo a caminho da Nuvemshop, lidos UMA vez por sync */
+  precosPendentes?: Set<string>;
+  /** RN-053: variações com baixa a caminho da Nuvemshop, lidas UMA vez por sync */
+  estoquePendente?: Set<string>;
 };
 
 export type SyncPendencia = {
@@ -623,11 +636,22 @@ export async function upsertProduct(
   );
   // RN-053: peças cuja baixa ainda não foi confirmada lá — o número de lá não
   // pode passar por cima delas (ver o comentário na gravação, abaixo)
-  const pendentesDeEnvio = await envioPendentePorVariacao(companyId, [
-    ...linkedVariants.map((x) => x.id),
-    ...skuVariants.map((x) => x.id),
-    ...targetVariants.map((x) => x.id),
-  ]);
+  const pendentesDeEnvio =
+    pools?.estoquePendente ??
+    (await envioPendentePorVariacao(companyId, [
+      ...linkedVariants.map((x) => x.id),
+      ...skuVariants.map((x) => x.id),
+      ...targetVariants.map((x) => x.id),
+    ]));
+  // RN-057: produtos cujo VAREJO mudou aqui e ainda não foi confirmado lá —
+  // o número de lá é o velho, e escrevê-lo por cima desfaria o reajuste
+  const precosPendentes =
+    pools?.precosPendentes ??
+    (await precoPendentePorProduto(companyId, [
+      ...linkedVariants.map((x) => x.productId),
+      ...skuVariants.map((x) => x.productId),
+      ...targetVariants.map((x) => x.productId),
+    ]));
   // SKUs que JÁ existem dentro do produto certo, pela forma "só letras e
   // números" — é o que impede a variação duplicada (achado da revisão
   // 31/08/2026): o mesmo SKU escrito de outro jeito, com a cor/tamanho
@@ -739,16 +763,28 @@ export async function upsertProduct(
     // vendidas ao catálogo: a loja voltaria a vender o que não tem, que é
     // exatamente o estrago que esta regra existe para evitar. E era a saída
     // que o próprio aviso da tela recomendava (achado da revisão).
-    const esperandoEnvio = pendentesDeEnvio.has(alvo.id);
-    await db.productVariant.update({
-      where: { id: alvo.id },
-      data: {
-        nuvemshopId: vId,
-        nuvemshopProductId: nsId,
-        ...(esperandoEnvio ? {} : { stock }),
-        ...(v.sku && !alvo.sku ? { sku: v.sku } : {}),
-      },
-    });
+    // o pool da rodada é o atalho barato; quando o número de lá DIFERE do
+    // nosso, reconfere na hora — uma venda entrou aqui no meio da etapa
+    // (que pode durar 25s) e a fila já tem a peça, mas o pool não sabe:
+    // gravar o número de lá desfaria a venda dos dois lados (achado da
+    // revisão)
+    const esperandoEnvio =
+      pendentesDeEnvio.has(alvo.id) ||
+      (alvo.stock !== stock && (await envioPendentePorVariacao(companyId, [alvo.id])).has(alvo.id));
+    const dadosDaVariacao = {
+      ...(alvo.nuvemshopId !== vId ? { nuvemshopId: vId } : {}),
+      ...(alvo.nuvemshopProductId !== nsId ? { nuvemshopProductId: nsId } : {}),
+      ...(esperandoEnvio || alvo.stock === stock ? {} : { stock }),
+      ...(v.sku && !alvo.sku ? { sku: v.sku } : {}),
+    };
+    // só vai ao banco quando ALGO mudou: numa página de 25 modelos já
+    // sincronizados isso eram ~100 idas ao banco para gravar o mesmo número
+    // (a sync inteira precisa caber nos 60s da Vercel, com o banco em outra
+    // região a 100 ms por consulta — achado ao investigar a sync da Entre
+    // Linhas que "parava no meio", 15/09/2026)
+    if (Object.keys(dadosDaVariacao).length > 0) {
+      await db.productVariant.update({ where: { id: alvo.id }, data: dadosDaVariacao });
+    }
     // registra o movimento — auditável e reversível (nunca sobrescreve sem
     // rastro). Estoque "infinito" fica de fora: o repor 9996 → 9999 de cada
     // sync viraria ruído sem significado no histórico.
@@ -763,8 +799,15 @@ export async function upsertProduct(
         },
       });
     }
-    // preço de varejo acompanha a loja online (o de atacado fica intacto)
-    if (preco > 0 && alvo.product.retailPrice !== preco) {
+    // preço de varejo acompanha a loja online (o de atacado fica intacto) —
+    // salvo quando o número NOVO é o daqui e ainda está a caminho (RN-057)
+    // mesma régua de frescor do estoque: preço diferente reconfere a fila
+    if (
+      preco > 0 &&
+      alvo.product.retailPrice !== preco &&
+      !precosPendentes.has(alvo.product.id) &&
+      !(await precoPendentePorProduto(companyId, [alvo.product.id])).has(alvo.product.id)
+    ) {
       await db.product.update({
         where: { id: alvo.product.id },
         data: { retailPrice: preco },
@@ -926,6 +969,8 @@ export async function syncProducts(companyId: string) {
     skuVariants: poolSku,
     allProducts: await buscarPoolProdutos(companyId),
     idxParecidos: indiceDeSkusParecidos(poolSku),
+    precosPendentes: await produtosComPrecoPendente(companyId),
+    estoquePendente: await variacoesComEnvioPendente(companyId),
   };
   let page = 1;
   let total = 0;
@@ -959,6 +1004,7 @@ export async function syncProducts(companyId: string) {
     where: { companyId },
     data: {
       lastProductSync: new Date(),
+      lastSyncEtapa: null,
       lastSyncReport: JSON.stringify({
         at: new Date().toISOString(),
         casadas: report.casadas,
@@ -983,7 +1029,37 @@ export async function syncProducts(companyId: string) {
  * produtos. O relatório vai sendo somado no banco a cada etapa (a etapa 1
  * zera), então "Conferir integração" continua contando a história inteira.
  */
-export async function syncPaginaDeProdutos(companyId: string, page: number) {
+/**
+ * Quanto tempo uma etapa pode gastar PROCESSANDO produtos. A função da
+ * Vercel vive 60s; o que não couber volta para a tela como "parcial", e ela
+ * pede a MESMA página de novo pulando o que já foi feito. Antes, uma página
+ * lenta (banco em outra região, Nuvemshop devagar) morria nos 60s sem
+ * resposta nenhuma — a tela só dizia "interrompida no meio" e a lojista
+ * recomeçava da página 1 para morrer no mesmo lugar (Entre Linhas,
+ * 15/09/2026).
+ */
+export const MS_ORCAMENTO_DA_ETAPA = 25_000;
+
+export async function syncPaginaDeProdutos(
+  companyId: string,
+  page: number,
+  desde = 0,
+  orcamentoMs = MS_ORCAMENTO_DA_ETAPA,
+  /** id (Nuvemshop) do último produto feito na etapa anterior: se a página
+   *  mudou de ordem entre as duas chamadas, a retomada é por ele, não pela
+   *  posição */
+  apos: string | null = null
+) {
+  const inicio = Date.now();
+  // rastro de progresso na ENTRADA, antes de qualquer trabalho: se a função
+  // morrer carregando os pools ou esperando a Nuvemshop, o cartão aponta a
+  // etapa CERTA (carimbar depois apontava a anterior, já feita)
+  const rastro = (pagina: number, desdeN: number) =>
+    db.nuvemshopConnection.updateMany({
+      where: { companyId },
+      data: { lastSyncEtapa: JSON.stringify({ pagina, desde: desdeN, at: new Date().toISOString() }) },
+    });
+  await rastro(page, desde);
   const conn = await loadConn(companyId);
   if (!conn) return { ok: false as const, produtos: 0, fim: true, status: -1 };
   const report: SyncReport = { casadas: 0, criadas: 0, pendencias: [] };
@@ -992,6 +1068,8 @@ export async function syncPaginaDeProdutos(companyId: string, page: number) {
     skuVariants: poolSku,
     allProducts: await buscarPoolProdutos(companyId),
     idxParecidos: indiceDeSkusParecidos(poolSku),
+    precosPendentes: await produtosComPrecoPendente(companyId),
+    estoquePendente: await variacoesComEnvioPendente(companyId),
   };
   // 25 por etapa: margem folgada mesmo com banco/Nuvemshop num dia lento
   const POR_ETAPA = 25;
@@ -1004,8 +1082,28 @@ export async function syncPaginaDeProdutos(companyId: string, page: number) {
     return { ok: false as const, produtos: 0, fim: true, status: res.status };
   }
   const lista = res.ok ? (res.data ?? []) : [];
-  for (const p of lista) {
+  // retomada: pela POSIÇÃO, mas se o último produto feito não está mais
+  // nela (a lojista criou/apagou produto entre as duas chamadas e a página
+  // andou), acha o id e segue dali — pular um produto em silêncio é pior
+  // que refazer um
+  let comecarEm = Math.min(desde, lista.length);
+  if (apos) {
+    const i = lista.findIndex((p) => String(p.id) === apos);
+    if (i >= 0) comecarEm = i + 1;
+  }
+  let feitos = 0;
+  let parcial = false;
+  let ultimoId: string | null = null;
+  for (const p of lista.slice(comecarEm)) {
+    // SEMPRE faz pelo menos um produto por etapa: devolver "zero feitos"
+    // deixaria a tela pedindo a mesma etapa para sempre
+    if (feitos > 0 && Date.now() - inicio > orcamentoMs) {
+      parcial = true;
+      break;
+    }
     const criado = await upsertProduct(companyId, p, report, pools);
+    feitos++;
+    ultimoId = String(p.id);
     if (criado) {
       pools.allProducts.push({
         id: criado.id,
@@ -1016,7 +1114,9 @@ export async function syncPaginaDeProdutos(companyId: string, page: number) {
       });
     }
   }
-  const fim = lista.length < POR_ETAPA || page >= 100;
+  const fim = !parcial && (lista.length < POR_ETAPA || page >= 100);
+  const proximaPagina = parcial ? page : page + 1;
+  const proximoDesde = parcial ? comecarEm + feitos : 0;
 
   // soma o parcial desta etapa no relatório guardado (etapa 1 recomeça)
   const conexao = await db.nuvemshopConnection.findUnique({
@@ -1029,7 +1129,7 @@ export async function syncPaginaDeProdutos(companyId: string, page: number) {
     totalPendencias: 0,
     pendencias: [] as SyncPendencia[],
   };
-  if (page > 1 && conexao?.lastSyncReport) {
+  if ((page > 1 || comecarEm > 0) && conexao?.lastSyncReport) {
     try {
       const j = JSON.parse(conexao.lastSyncReport);
       anterior = {
@@ -1055,15 +1155,21 @@ export async function syncPaginaDeProdutos(companyId: string, page: number) {
     where: { companyId },
     data: {
       lastSyncReport: JSON.stringify(somado),
-      ...(fim ? { lastProductSync: new Date() } : {}),
+      ...(fim ? { lastProductSync: new Date(), lastSyncEtapa: null } : {}),
     },
   });
+  // etapa não-final: o rastro passa a apontar para a PRÓXIMA posição
+  if (!fim) await rastro(proximaPagina, proximoDesde);
 
   return {
     ok: true as const,
-    produtos: lista.length,
+    produtos: feitos,
     fim,
-    proximaPagina: page + 1,
+    parcial,
+    // parcial: a MESMA página, pulando o que já foi feito
+    proximaPagina,
+    desde: proximoDesde,
+    apos: parcial ? ultimoId : null,
     status: 200,
   };
 }
@@ -1363,12 +1469,14 @@ export async function ingestPaidOrder(companyId: string, nsOrderId: string) {
     if (res2.ok && res2.data) await upsertProduct(companyId, res2.data);
   }
 
-  notifySalePaid(companyId, {
+  // no after(): mesma régua da porta do Financeiro logo abaixo — chamada
+  // solta era congelada com a resposta do webhook e o aviso se perdia
+  avisarVendaPagaSemQuebrar(companyId, {
     id: order.id,
     number: order.number,
     total: order.total,
     customerName: nome,
-  }).catch(() => {});
+  });
 
   // PORTA ÚNICA DO FINANCEIRO (RN-033): a venda da loja online vira
   // recebimento pela MESMA porta do pedido do sistema
@@ -1618,6 +1726,161 @@ export async function pushStockToNuvemshop(companyId: string, variantIds: string
 }
 
 /**
+ * Manda o preço de varejo de UMA variação e diz se a Nuvemshop CONFIRMOU
+ * (RN-057). Mesma leitura de erro do estoque: status 0 é rede/timeout.
+ */
+async function enviarPrecoDaPeca(
+  conn: Conn,
+  nsProductId: string,
+  nsVariantId: string,
+  preco: number
+): Promise<{ ok: true } | { ok: false; motivo: string }> {
+  // a API da Nuvemshop recebe o preço como texto com duas casas
+  const r = await api(conn, "PUT", `/products/${nsProductId}/variants/${nsVariantId}`, {
+    price: preco.toFixed(2),
+  });
+  if (r.ok) return { ok: true };
+  const motivo =
+    r.status === 0
+      ? "A Nuvemshop não respondeu (rede fora ou demora demais)"
+      : `A Nuvemshop recusou o envio (código ${r.status})`;
+  return { ok: false, motivo };
+}
+
+/**
+ * Manda o varejo de UM produto para todas as variações vinculadas dele.
+ * Sucesso só quando TODAS confirmaram: pela metade, a peça fica na fila e a
+ * repesca manda de novo (o PUT é idempotente — repetir a que já foi não
+ * muda nada lá).
+ */
+async function enviarPrecoDoProduto(
+  conn: Conn,
+  produto: {
+    id: string;
+    name: string;
+    retailPrice: number;
+    nuvemshopId: string | null;
+    variants: { nuvemshopId: string | null; nuvemshopProductId: string | null }[];
+  },
+  limite: number
+): Promise<{ ok: true; preco: number } | { ok: false; motivo: string } | { ok: "sem-vinculo" } | { ok: "sem-tempo" }> {
+  const vinculadas = produto.variants.filter((v) => v.nuvemshopId && (v.nuvemshopProductId ?? produto.nuvemshopId));
+  if (vinculadas.length === 0) return { ok: "sem-vinculo" };
+  for (const v of vinculadas) {
+    // só começa um envio que ainda cabe no que sobrou do relógio
+    if (Date.now() + 15_000 > limite) return { ok: "sem-tempo" };
+    const r = await enviarPrecoDaPeca(
+      conn,
+      (v.nuvemshopProductId ?? produto.nuvemshopId)!,
+      v.nuvemshopId!,
+      produto.retailPrice
+    );
+    if (!r.ok) return r;
+  }
+  return { ok: true, preco: produto.retailPrice };
+}
+
+const selecaoDoProdutoParaPreco = {
+  id: true,
+  name: true,
+  retailPrice: true,
+  nuvemshopId: true,
+  variants: { select: { nuvemshopId: true, nuvemshopProductId: true } },
+} as const;
+
+/**
+ * Preço de varejo mudado AQUI (ficha da peça ou reajuste em lote) vai para a
+ * Nuvemshop (RN-057). Os produtos JÁ estão na fila — quem gravou o preço os
+ * marcou na mesma transação; aqui é a primeira tentativa, e o que não couber
+ * no orçamento a repesca manda.
+ */
+export async function pushPriceToNuvemshop(companyId: string, productIds: string[]) {
+  if (productIds.length === 0) return;
+  const conn = await loadConn(companyId);
+  if (!conn) return; // desconectada: os produtos ficam na fila até reconectar
+  const limite = Date.now() + MS_ORCAMENTO_REPESCA_ESTOQUE;
+  for (const id of productIds) {
+    // o reajuste em lote manda dezenas de peças de uma vez: aqui só se
+    // começa o que cabe no relógio, e o resto já está na fila — a repesca
+    // pega carona também na tela Produtos, que é onde a lojista olha o ⏳
+    if (Date.now() + 15_000 > limite) break;
+    // relido na hora: o preço pode ter mudado de novo desde a chamada
+    const produto = await db.product.findFirst({
+      where: { id, companyId },
+      select: selecaoDoProdutoParaPreco,
+    });
+    if (!produto) continue;
+    await tentarEnvioDePreco(companyId, conn, produto, limite);
+  }
+}
+
+async function tentarEnvioDePreco(
+  companyId: string,
+  conn: Conn,
+  produto: { id: string; name: string; retailPrice: number; nuvemshopId: string | null; variants: { nuvemshopId: string | null; nuvemshopProductId: string | null }[] },
+  limite: number
+) {
+  // zero NUNCA vai para a loja online (a peça ficaria de graça lá): as portas
+  // recusam antes, e esta é a segunda tranca — desiste dizendo o motivo
+  if (!(produto.retailPrice > 0)) {
+    await desistirDoEnvioDePreco(companyId, produto.id, produto.name, "Varejo zerado não é mandado para a loja online");
+    return;
+  }
+  const r = await enviarPrecoDoProduto(conn, produto, limite);
+  if (r.ok === "sem-tempo") return;
+  if (r.ok === "sem-vinculo") {
+    // perdeu o vínculo: não há o que espelhar, sai da fila
+    await confirmarEnvioDePreco(produto.id);
+    return;
+  }
+  if (r.ok === true) {
+    await confirmarEnvioDePreco(produto.id, r.preco);
+    return;
+  }
+  const temMaisTentativas = await registrarFalhaDePreco(companyId, produto.id, r.motivo);
+  if (!temMaisTentativas) {
+    await desistirDoEnvioDePreco(companyId, produto.id, produto.name, r.motivo);
+  }
+}
+
+/** O jeito CERTO de chamar o espelho de PREÇO de dentro de uma rota (RN-057). */
+export function espelharPrecoSemQuebrar(companyId: string, productIds: string[]): void {
+  if (productIds.length === 0) return;
+  const trabalho = () =>
+    pushPriceToNuvemshop(companyId, productIds).catch((e) =>
+      logServerError({
+        source: "server",
+        path: "/nuvemshop/preco",
+        message: "Falha ao espelhar o preço na Nuvemshop",
+        detail: `loja ${companyId}: ${e instanceof Error ? e.message : String(e)}`,
+      }).catch(() => null)
+    );
+  try {
+    after(trabalho);
+  } catch {
+    void trabalho();
+  }
+}
+
+/** Repesca dos PREÇOS que não chegaram (RN-057), dentro da rodada do estoque. */
+async function repescarPrecos(companyId: string, conn: Conn, limite: number) {
+  const pendentes = await produtosParaRepescarPreco(companyId);
+  for (const p of pendentes) {
+    if (Date.now() + 15_000 > limite) break;
+    // o filtro por loja é SEGUNDA tranca (RN-013)
+    const produto = await db.product.findFirst({
+      where: { id: p.productId, companyId },
+      select: selecaoDoProdutoParaPreco,
+    });
+    if (!produto) {
+      await confirmarEnvioDePreco(p.productId);
+      continue;
+    }
+    await tentarEnvioDePreco(companyId, conn, produto, limite);
+  }
+}
+
+/**
  * O jeito CERTO de chamar o espelho de estoque de dentro de uma rota (RN-053).
  *
  * Chamada solta (`pushStockToNuvemshop(...).catch(() => {})`) parece
@@ -1664,16 +1927,26 @@ export async function varrerEnviosDeEstoqueSeDevido(companyId: string): Promise<
     // a consulta cai no índice (companyId, proximaEm) e volta vazia (achado
     // da revisão de performance). O freio em memória continua segurando a
     // batida de 3s do sync.
-    if ((await pecasParaRepescar(companyId)).length === 0) return;
+    const [temEstoque, temPreco] = await Promise.all([
+      pecasParaRepescar(companyId),
+      produtosParaRepescarPreco(companyId),
+    ]);
+    if (temEstoque.length === 0 && temPreco.length === 0) return;
 
     travaTomadaEm = await tomarTravaDaRepesca(companyId);
     if (!travaTomadaEm) return;
 
-    const pendentes = await pecasParaRepescar(companyId);
-    if (pendentes.length === 0) return;
-
     const conn = await loadConn(companyId);
     if (!conn) return; // desconectada: as peças ficam esperando a reconexão
+
+    const limite = Date.now() + MS_ORCAMENTO_REPESCA_ESTOQUE;
+    // RN-057: os preços entram na MESMA rodada, com a mesma trava e o mesmo
+    // relógio — estoque primeiro (vender peça que não tem é o estrago maior)
+    const pendentes = await pecasParaRepescar(companyId);
+    if (pendentes.length === 0) {
+      await repescarPrecos(companyId, conn, limite);
+      return;
+    }
 
     const variants = await db.productVariant.findMany({
       // o filtro por loja é SEGUNDA tranca (RN-013): os ids já vêm da fila
@@ -1684,7 +1957,6 @@ export async function varrerEnviosDeEstoqueSeDevido(companyId: string): Promise<
       include: { product: true },
     });
     const porId = new Map(variants.map((v) => [v.id, v]));
-    const limite = Date.now() + MS_ORCAMENTO_REPESCA_ESTOQUE;
 
     for (const p of pendentes) {
       // só começa um envio que ainda cabe no que sobrou do relógio
@@ -1707,6 +1979,7 @@ export async function varrerEnviosDeEstoqueSeDevido(companyId: string): Promise<
         await desistirDoEnvio(companyId, v.id, nomeDaPeca(v), r.motivo);
       }
     }
+    await repescarPrecos(companyId, conn, limite);
   } catch (e) {
     // devolve a trava para a próxima batida tentar de novo (senão a loja
     // ficava um minuto calada) e registra no painel de Saúde

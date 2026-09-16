@@ -3,8 +3,10 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import { requireUser, AuthError } from "@/lib/auth";
 import { ajustarEstoqueDentro } from "@/lib/estoque/ajuste";
-import { decidirAjuste, donoDoEstoque, fraseDaRecusa, NOME_DO_DONO, rotuloDaPeca } from "@/lib/estoque/dono-do-estoque";
+import { decidirAjuste, decidirVarejoParaNuvemshop, donoDoEstoque, donoDoPreco, fraseDaRecusa, FRASE_VAREJO_ZERO_NUVEMSHOP, NOME_DO_DONO, rotuloDaPeca } from "@/lib/estoque/dono-do-estoque";
 import { reservadoPorVariacao } from "@/lib/estoque/inventario";
+import { espelharPrecoSemQuebrar } from "@/lib/nuvemshop";
+import { marcarPrecoPendente } from "@/lib/nuvemshop-preco-pendente";
 
 const patchSchema = z.object({
   name: z.string().min(1).optional(),
@@ -114,6 +116,41 @@ export async function PATCH(
       removeVariantIds,
       ...data
     } = parsed.data;
+
+    // QUEM VENDE FORA MANDA NO PREÇO DELE (RN-056): os dois preços de peça
+    // Jueri mudam LÁ — a sync devolveria o número de lá horas depois. Número
+    // IGUAL passa em silêncio (a ficha manda todos os campos a cada
+    // salvamento); número diferente é recusado com frase. O varejo de peça
+    // Nuvemshop muda AQUI e vai para lá (RN-057, mais abaixo).
+    const donoPreco = donoDoPreco({
+      nuvemshopId: product.nuvemshopId,
+      jueriId: product.jueriId,
+      variants: product.variants,
+    });
+    for (const [campo, dono, atual, rotulo] of [
+      ["wholesalePrice", donoPreco.atacado, product.wholesalePrice, "atacado"],
+      ["retailPrice", donoPreco.varejo, product.retailPrice, "varejo"],
+    ] as const) {
+      const novo = data[campo];
+      if (novo === undefined || !dono) continue;
+      if (Math.abs(novo - atual) < 0.005) {
+        delete data[campo];
+        continue;
+      }
+      return NextResponse.json(
+        {
+          error: `O preço de ${rotulo} desta peça é do ${NOME_DO_DONO[dono]}: mude lá e sincronize. Aqui ele é só leitura.`,
+        },
+        { status: 400 }
+      );
+    }
+
+    // RN-057: o varejo de peça Nuvemshop muda aqui E vai para lá (zero não)
+    const decisaoVarejo = decidirVarejoParaNuvemshop(donoPreco, data.retailPrice, product.retailPrice);
+    if (decisaoVarejo === "recusa-zero") {
+      return NextResponse.json({ error: FRASE_VAREJO_ZERO_NUVEMSHOP }, { status: 400 });
+    }
+    const varejoVaiParaNuvemshop = decisaoVarejo === "manda";
 
     // trocar o código do modelo: não pode bater com o de outro produto da loja
     if (data.sku !== undefined && data.sku !== product.sku) {
@@ -328,11 +365,16 @@ export async function PATCH(
           });
         }
 
-        return tx.product.update({ where: { id }, data });
+        const salvo = await tx.product.update({ where: { id }, data });
+        // RN-057: varejo novo em peça Nuvemshop entra na fila de envio na
+        // MESMA transação — e só quando de fato mudou
+        if (varejoVaiParaNuvemshop) await marcarPrecoPendente(user.companyId, [product.id], tx);
+        return salvo;
       },
       // fotos em data-URL pesam: a transação ganha folga acima dos 5s padrão
       { timeout: 30_000 }
     );
+    if (varejoVaiParaNuvemshop) espelharPrecoSemQuebrar(user.companyId, [product.id]);
     return NextResponse.json(updated);
   } catch (e) {
     if (e instanceof AuthError)

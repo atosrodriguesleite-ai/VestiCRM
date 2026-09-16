@@ -46,6 +46,8 @@ type Estado = {
   storeId: string | null;
   lastProductSync: string | null;
   lastCheckoutSync: string | null;
+  /** onde a última rodada parou (nulo = terminou) */
+  etapaParada?: { pagina: number; desde: number; at: string } | null;
   produtos: number;
   vendas: number;
   report?: {
@@ -127,33 +129,73 @@ export function NuvemshopConnect() {
     // EM ETAPAS: cada chamada processa 50 produtos e devolve se acabou.
     // Era numa tacada só, e catálogo grande estourava o tempo do servidor —
     // a sincronização morria no meio sem mensagem (incidente Entre Linhas).
-    const falhou = (d: { error?: string }) => {
+    const falhou = (d: { error?: string }, onde?: string) => {
       setMsg(
         d.error ??
-          // resposta sem explicação = o servidor foi interrompido no meio
-          "A sincronização foi interrompida no meio. Clique de novo — ela é segura de repetir. Se acontecer sempre, avise o suporte."
+          // resposta sem explicação = o servidor foi interrompido no meio.
+          // A etapa diz ONDE: é o que o suporte precisa para achar a peça
+          // que trava (Entre Linhas, 15/09/2026)
+          `A sincronização foi interrompida no meio${onde ? ` (${onde})` : ""}, mesmo depois de tentar de novo. Clique de novo — ela continua de onde parou. Se acontecer sempre, avise o suporte dizendo onde parou.`
       );
       setBusy(false);
+      carregar(); // o rastro que a rodada gravou aparece no cartão
     };
 
-    let page = 1;
+    // Cada etapa tem orçamento de tempo no servidor: o que não coube volta
+    // como "parcial" e a MESMA página é pedida de novo pulando o que já foi
+    // feito (`desde`). Etapa que morre sem resposta (a Vercel matou a
+    // função) é repetida até 2 vezes antes de desistir — antes uma página
+    // lenta fazia a lojista recomeçar da 1 para morrer no mesmo lugar.
+    // RETOMA de onde a rodada anterior parou (o rastro do cartão): sem isso
+    // a mensagem prometia "continua de onde parou" e recomeçava da página 1
+    // para morrer no mesmo lugar (achado da revisão)
+    let page = estado?.etapaParada?.pagina ?? 1;
+    let desde = estado?.etapaParada?.desde ?? 0;
+    let apos: string | null = null;
     let total = 0;
-    for (; page <= 200; page++) {
+    let tentativa = 0;
+    let fim = false;
+    for (let etapa = 0; etapa < 600; etapa++) {
       setMsg(
-        page === 1
+        page === 1 && desde === 0
           ? "Sincronizando…"
-          : `Sincronizando… ${total} produtos conferidos até aqui`
+          : `Sincronizando… ${total} produtos conferidos até aqui (página ${page})`
       );
       const res = await fetch("/api/nuvemshop/sync", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ page }),
+        body: JSON.stringify({ page, desde, apos }),
       });
-      const d = await res.json().catch(() => ({}));
-      if (!res.ok) return falhou(d);
+      const d = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        produtos?: number;
+        fim?: boolean;
+        parcial?: boolean;
+        proximaPagina?: number;
+        desde?: number;
+        apos?: string | null;
+      };
+      if (!res.ok) {
+        // sem explicação = morreu no meio: tenta a mesma etapa mais 2 vezes
+        if (!d.error && tentativa < 2) {
+          tentativa++;
+          await new Promise((ok) => setTimeout(ok, 1500));
+          continue;
+        }
+        return falhou(d, `página ${page}, a partir do produto ${desde + 1}`);
+      }
+      tentativa = 0;
       total += d.produtos ?? 0;
-      if (d.fim) break;
+      if (d.fim) {
+        fim = true;
+        break;
+      }
+      page = d.proximaPagina ?? page + 1;
+      desde = d.parcial ? (d.desde ?? 0) : 0;
+      apos = d.parcial ? (d.apos ?? null) : null;
     }
+    // teto de etapas sem chegar ao fim: é falha, não "sincronizado"
+    if (!fim) return falhou({}, `página ${page}, a partir do produto ${desde + 1}`);
 
     // carrinhos abandonados em etapa PRÓPRIA: importar carrinho cria
     // cliente/conversa — junto com os produtos já derrubou a rodada
@@ -337,6 +379,14 @@ export function NuvemshopConnect() {
       )}
 
       {/* Relatório de vínculo: o que casou e o que precisa de ajuste manual */}
+      {estado.connected && estado.etapaParada && !busy && (
+        <p className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800">
+          A última sincronização não chegou ao fim: parou na página {estado.etapaParada.pagina}
+          {estado.etapaParada.desde > 0 ? `, produto ${estado.etapaParada.desde + 1}` : ""} (
+          {new Date(estado.etapaParada.at).toLocaleString("pt-BR")}). Clique em Sincronizar agora:
+          ela continua de onde parou.
+        </p>
+      )}
       {estado.connected && estado.report?.at !== undefined && (
         <div className="mt-3 text-xs text-gray-500">
           Última conferência:{" "}
