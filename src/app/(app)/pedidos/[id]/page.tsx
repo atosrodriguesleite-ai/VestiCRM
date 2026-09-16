@@ -39,6 +39,7 @@ import { CobrancaNfe } from "./cobranca-nfe";
 import { resolverFiscalDoPedido } from "@/lib/bling";
 import { avisoDePecasSemNcm } from "@/lib/fiscal-ncm";
 import { explicarNatureza } from "@/lib/nfe-natureza";
+import { acaoDaNota } from "@/lib/nfe-situacao";
 import { EnvioFrete } from "./envio-frete";
 import { TransferirVenda } from "./transferir-venda";
 import { ValoresEditor } from "./valores-editor";
@@ -195,11 +196,14 @@ export default async function OrderDetailPage({
   // MESMA função que a emissão usa, então nunca diverge do que vai acontecer.
   // Só com o Bling conectado e para quem pode emitir — o resto da equipe não
   // precisa ver configuração fiscal.
-  // `!order.nfeStatus`: com a nota já emitida a ficha mostra a situação dela,
-  // não o aviso — e as duas consultas rodariam em toda abertura de pedido
-  // antigo sem nada para desenhar (achado da revisão de performance).
+  // O aviso acompanha o BOTÃO de emitir, não a ausência de nota (16/09/2026):
+  // a nota recusada pode virar nota nova, e é justamente aí que conferir a
+  // natureza importa mais — foi corrigindo o cadastro da cliente que ela
+  // MUDOU (cadastrar a inscrição estadual transforma a compradora em
+  // contribuinte, RN-054). Com nota AUTORIZADA ou em andamento não há botão,
+  // e aí as duas consultas seguem fora do caminho (revisão de performance).
   const avisoFiscal =
-    blingConn && isManagerUp(user) && !order.nfeStatus
+    blingConn && isManagerUp(user) && acaoDaNota(order.nfeStatus).pode
       ? await (async () => {
           const f = await resolverFiscalDoPedido(user.companyId, order.items, order.customer);
           return {

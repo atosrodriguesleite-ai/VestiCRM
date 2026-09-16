@@ -1,5 +1,6 @@
 // Guarda RN-038, RN-039
 import { describe, it, expect } from "vitest";
+import { acaoDaNota } from "../nfe-situacao";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { faturaDaCompra, ultimoDiaDoMes } from "../financeiro/cartao-fatura";
@@ -196,8 +197,16 @@ describe("a nota fiscal vista do financeiro (RN-038)", () => {
     );
   });
 
-  it("nota AUTORIZADA não se emite de novo (viraria nota em dobro)", () => {
-    expect(motor).toContain('pedido.nfeStatus !== "AUTORIZADA"');
+  it("quem decide se pode emitir é a régua ÚNICA (RN-056), não uma conta daqui", () => {
+    // o guarda anterior exigia a literal `pedido.nfeStatus !== "AUTORIZADA"`
+    // escrita neste arquivo — e era justamente ela o defeito: com a nota
+    // EMITINDO, ou numa situação nova do Bling, esta porta oferecia emitir
+    // enquanto a ficha do pedido (certa) recusava. Guarda que descreve o
+    // CÓDIGO protege o erro; este descreve o COMPORTAMENTO.
+    expect(motor).toContain("acaoDaNota(pedido.nfeStatus).pode");
+    expect(acaoDaNota("AUTORIZADA").pode).toBe(false); // nota em dobro
+    expect(acaoDaNota("EMITINDO").pode).toBe(false); // estava passando aqui
+    expect(acaoDaNota("REJEITADA").pode).toBe(true); // o pedido precisa de nota
   });
 
   it("só lançamento de PEDIDO tem nota — conta de luz não tem de onde tirar", () => {

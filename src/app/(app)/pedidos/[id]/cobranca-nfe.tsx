@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { Card } from "@/components/ui";
 import { brl } from "@/lib/format";
+import { acaoDaNota } from "@/lib/nfe-situacao";
 
 /**
  * Painel "dinheiro" do pedido: cobrança Pix (Mercado Pago, confirma sozinha)
@@ -52,6 +53,9 @@ export function CobrancaNfe({
   avisoFiscal?: { natureza: string; semNcm: string | null } | null;
 }) {
   const router = useRouter();
+  // REJEITADA/CANCELADA/ERRO continuam podendo virar nota (a regra mora em
+  // `lib/nfe-situacao.ts`); AUTORIZADA nunca, que seria nota em dobro
+  const acao = acaoDaNota(nfe.status);
   const [busy, setBusy] = useState<"pix" | "card" | "ip" | "nfe" | "nfeStatus" | null>(null);
   const [erro, setErro] = useState("");
   const [pix, setPix] = useState<{ copiaECola: string; qrBase64: string | null } | null>(null);
@@ -113,19 +117,19 @@ export function CobrancaNfe({
   }
 
   async function emitirNfe() {
-    if (
-      !window.confirm(
-        "Emitir a NF-e deste pedido via Bling? A nota vai para a Receita — confira antes os itens e o CPF/CNPJ do cliente."
-      )
-    )
-      return;
+    if (!acao.pode) return;
+    if (!window.confirm(acao.confirmacao)) return;
     setBusy("nfe");
     setErro("");
     const res = await fetch(`/api/orders/${orderId}/nfe`, { method: "POST" });
     const d = await res.json().catch(() => ({}));
     setBusy(null);
-    if (res.ok) router.refresh();
-    else setErro(d.error ?? "Não foi possível emitir a nota.");
+    if (!res.ok) setErro(d.error ?? "Não foi possível emitir a nota.");
+    // SEMPRE recarrega: a falha também mexe no status (REJEITADA vira ERRO com
+    // id novo; ERRO vira REJEITADA com id nulo). Sem isso a ficha seguia com o
+    // selo e o botão da situação antiga, e o clique seguinte fazia coisa
+    // diferente do que o texto prometia (achado da revisão).
+    router.refresh();
   }
 
   async function atualizarNfe() {
@@ -341,6 +345,41 @@ export function CobrancaNfe({
                 )}
                 atualizar
               </button>
+
+              {/* O CONSERTO FICA JUNTO DO PROBLEMA (relato do dono,
+                  16/09/2026): a nota foi recusada, ele corrigiu o cadastro da
+                  cliente e não achou como reemitir — a ficha mostrava o selo
+                  OU o botão, nunca os dois. */}
+              <div className="w-full">
+                {acao.pode ? (
+                  <div className="mt-3 rounded-xl border border-gray-100 bg-gray-50/70 p-3">
+                    <p className="text-xs text-gray-600">{acao.aviso}</p>
+                    {acao.remontaNota && avisoFiscal?.semNcm && (
+                      <p className="mt-2 flex items-start gap-2 rounded-lg bg-amber-50 border border-amber-100 p-2 text-[11px] text-amber-800">
+                        <ShieldAlert className="size-3.5 shrink-0 mt-0.5" />
+                        <span>{avisoFiscal.semNcm}</span>
+                      </p>
+                    )}
+                    {acao.remontaNota && avisoFiscal?.natureza && (
+                      <p className="mt-2 text-[11px] text-gray-500">{avisoFiscal.natureza}</p>
+                    )}
+                    <button
+                      onClick={emitirNfe}
+                      disabled={busy === "nfe"}
+                      className="mt-2.5 inline-flex items-center gap-1.5 rounded-xl border border-emerald-200 text-emerald-700 hover:bg-emerald-50 text-sm font-medium px-4 py-2.5 transition disabled:opacity-50"
+                    >
+                      {busy === "nfe" ? (
+                        <Loader2 className="size-4 animate-spin" />
+                      ) : (
+                        <Receipt className="size-4" />
+                      )}
+                      {acao.rotulo}
+                    </button>
+                  </div>
+                ) : (
+                  <p className="mt-2 text-[11px] text-gray-400">{acao.motivo}</p>
+                )}
+              </div>
             </div>
           ) : (
             <>
@@ -359,7 +398,7 @@ export function CobrancaNfe({
                 className="inline-flex items-center gap-1.5 rounded-xl border border-emerald-200 text-emerald-700 hover:bg-emerald-50 text-sm font-medium px-4 py-2.5 transition disabled:opacity-50"
               >
                 {busy === "nfe" ? <Loader2 className="size-4 animate-spin" /> : <Receipt className="size-4" />}
-                Emitir NF-e (Bling)
+                {acao.pode ? acao.rotulo : "Emitir NF-e (Bling)"}
               </button>
             </>
           )}

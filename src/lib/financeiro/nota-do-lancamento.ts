@@ -1,4 +1,5 @@
 import { db } from "../db";
+import { acaoDaNota } from "../nfe-situacao";
 import { ORIGEM_PEDIDO } from "./porta-vendas";
 
 /**
@@ -62,8 +63,11 @@ export async function notaDoLancamento(
     nfeNumero: pedido.nfeNumber,
     url: pedido.nfeUrl,
     blingConectado: Boolean(bling),
-    // nota AUTORIZADA não se emite de novo (viraria nota em dobro); a que
-    // deu ERRO pode, que é o caso de a lojista corrigir o cadastro e repetir
-    podeEmitir: Boolean(bling) && pedido.nfeStatus !== "AUTORIZADA",
+    // QUEM DECIDE É `acaoDaNota` (RN-056), a mesma régua da ficha do pedido.
+    // A conta própria daqui já divergia: com `!== "AUTORIZADA"` esta porta
+    // oferecia emitir enquanto a nota estava EMITINDO, e numa situação nova
+    // do Bling que ainda não conhecêssemos — os dois casos onde o estrago é
+    // nota em dobro (achado da revisão, 16/09/2026).
+    podeEmitir: Boolean(bling) && acaoDaNota(pedido.nfeStatus).pode,
   };
 }
