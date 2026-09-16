@@ -1,3 +1,5 @@
+import { PAID_ORDER_STATUSES } from "./orders";
+
 /**
  * QUANDO O PEDIDO PODE GANHAR UMA NOTA NOVA.
  *
@@ -154,3 +156,49 @@ export function seloDaNota(
   }
   return { texto: "NF ⏳", cor: "#D97706", titulo: "Emissão em andamento" };
 }
+
+/**
+ * O PEDIDO QUE ESTÁ ESPERANDO NOTA.
+ *
+ * Pedido do dono (16/09/2026), depois do selo: um filtro no topo da lista que
+ * junta "o que falta emitir", para a loja virar a fila de uma vez em vez de
+ * caçar linha sem selo.
+ *
+ * A definição tem duas metades, e as duas importam:
+ *
+ *  • **PAGO** (RN-001). Orçamento e aguardando pagamento não estão esperando
+ *    nota — a própria emissão os recusa ("emita só depois que estiver pago"),
+ *    e cancelado não precisa de nota. Sem esse recorte o filtro devolveria a
+ *    loja inteira e não seria fila de nada.
+ *  • **Sem nota AUTORIZADA.** Nunca emitida, recusada, cancelada ou com erro
+ *    são todas o mesmo fato para a loja: o pedido está pago e sem documento.
+ *    **EMITINDO fica DENTRO** de propósito — o selo já mostra ⏳ e a pessoa vê
+ *    que está a caminho; tirá-la sumiria com a emissão que travou, e um pedido
+ *    pago sem nota escondido é pior que uma linha a mais na fila.
+ */
+export function precisaDeNota(
+  statusDoPedido: string,
+  nfeStatus: string | null | undefined,
+  statusPagos: readonly string[]
+): boolean {
+  if (!statusPagos.includes(statusDoPedido)) return false;
+  return nfeStatus !== "AUTORIZADA";
+}
+
+/**
+ * A MESMA REGRA, do jeito que o banco entende — e ela mora AQUI, colada na
+ * função de cima, de propósito: são duas escritas da mesma coisa, e separadas
+ * em arquivos diferentes uma mudaria sem a outra (achado da revisão). Quem
+ * mexer numa vê a outra na linha seguinte, e
+ * `scripts/confere-fila-nota.ts` prova contra o Postgres que as duas
+ * concordam nas 48 combinações.
+ *
+ * **O `OR` não é estilo, é o que faz o filtro funcionar**: em SQL,
+ * `nfeStatus != 'AUTORIZADA'` **não devolve quem está NULO** — e nulo é o
+ * pedido que nunca emitiu, a maioria da fila. Sem ele, medido no banco local,
+ * a fila de 25 mostrava 20 e escondia justamente os 5 que ninguém emitiu.
+ */
+export const ONDE_FALTA_NOTA = {
+  status: { in: [...PAID_ORDER_STATUSES] },
+  OR: [{ nfeStatus: null }, { nfeStatus: { not: "AUTORIZADA" } }],
+} satisfies { status: unknown; OR: unknown[] };
