@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { copiarTexto, legendaDaMidia, textoDaMensagem,
   textoParaCopiar,
   selecaoDentroDe,
+  menuDoNavegador,
 } from "../copiar";
 
 /**
@@ -236,6 +237,32 @@ describe("copiar SÓ o trecho marcado (relato do dono, 16/09/2026)", () => {
     expect(
       textoParaCopiar(MSG, { texto: "  33999887766 \n", dentroDaBolha: true })
     ).toBe("33999887766");
+  });
+});
+
+/**
+ * CLIQUE DIREITO COM TEXTO MARCADO (relato do dono, 16/09/2026): *"quando
+ * clico com botão direito abre essas opções, e não aquela tradicional de
+ * copiar"*. O gesto de marcar e apertar o botão direito é o que todo mundo
+ * já tem nos dedos — sequestrá-lo obriga a vendedora a aprender o nosso menu
+ * no lugar do que ela conhece.
+ */
+describe("quem abre no clique direito", () => {
+  it("com trecho marcado na bolha, o menu é o do NAVEGADOR", () => {
+    expect(menuDoNavegador({ texto: "Rua B, 200", dentroDaBolha: true })).toBe(true);
+  });
+
+  it("sem marcação nenhuma, o menu é o NOSSO (responder, encaminhar, reagir)", () => {
+    expect(menuDoNavegador(null)).toBe(false);
+  });
+
+  it("clicar sem arrastar não conta como marcação", () => {
+    // deixaria a bolha sem menu nenhum no clique direito
+    expect(menuDoNavegador({ texto: "  ", dentroDaBolha: true })).toBe(false);
+  });
+
+  it("marcação em OUTRA bolha não tira o nosso menu daqui", () => {
+    expect(menuDoNavegador({ texto: "chave Pix", dentroDaBolha: false })).toBe(false);
   });
 });
 

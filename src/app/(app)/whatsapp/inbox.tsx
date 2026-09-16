@@ -60,6 +60,7 @@ import { contadorAoMarcarNaoLida } from "@/lib/comm/fila";
 import {
   copiarTexto,
   legendaDaMidia,
+  menuDoNavegador,
   selecaoDentroDe,
   textoDaMensagem,
   textoParaCopiar,
@@ -3882,6 +3883,11 @@ export function Inbox({
                         // por cima da bolha, inutilizando o modo
                         !isTemp && !editando && !marcandoTexto
                           ? (e) => {
+                              // com um trecho marcado aqui dentro, quem abre é
+                              // o NAVEGADOR: é dele que sai o "Copiar" de
+                              // sempre (`menuDoNavegador`)
+                              if (menuDoNavegador(selecaoDentroDe(e.currentTarget)))
+                                return;
                               e.preventDefault();
                               abrirMenuDaMensagem(m);
                             }

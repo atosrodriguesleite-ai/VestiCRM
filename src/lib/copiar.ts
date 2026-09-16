@@ -141,6 +141,24 @@ export function textoParaCopiar(
  * pela metade, um endereço de outra pessoa. Escorregou, vale a mensagem
  * inteira: é a falha segura.
  */
+/**
+ * COM TEXTO MARCADO, O CLIQUE DIREITO É DO NAVEGADOR (relato do dono,
+ * 16/09/2026: *"quando clico com botão direito abre essas opções, e não
+ * aquela tradicional de copiar"*).
+ *
+ * Marcar um pedaço e apertar o botão direito é o gesto que TODO MUNDO
+ * conhece: o menu do navegador aparece com "Copiar", "Pesquisar", "Imprimir".
+ * A nossa folha de ações (responder, encaminhar, reagir, apagar) é o menu da
+ * MENSAGEM — faz sentido no clique direito da bolha SEM marcação nenhuma.
+ * Sequestrar os dois casos tirava da vendedora o caminho que ela já tinha nos
+ * dedos e a obrigava a aprender o nosso no lugar dele.
+ */
+export function menuDoNavegador(
+  selecao: { texto: string; dentroDaBolha: boolean } | null
+): boolean {
+  return Boolean(selecao?.dentroDaBolha && selecao.texto.trim());
+}
+
 export function selecaoDentroDe(
   elemento: Element | null,
   janela: { getSelection?(): Selection | null } = typeof window !== "undefined"
