@@ -33,6 +33,27 @@ const alfab = (a: string, b: string) => a.localeCompare(b, "pt-BR", { sensitivit
  * categoria do cadastro (a mesma do organizador de catálogo); item sem
  * produto vinculado (linha avulsa) cai no grupo vazio, no fim.
  */
+/**
+ * TOTAL DE PEÇAS POR CATEGORIA (pedido do dono, 16/09/2026): no romaneio,
+ * cada bloco de categoria fecha com "Total: N peças" — quem separa confere
+ * a prateleira inteira antes de passar para a próxima ("regata nadador,
+ * 10 peças, confere, próxima"). Soma a QUANTIDADE, não linhas: duas linhas
+ * da mesma regata (M e G) são 7 peças, não 2. Item sem categoria cai em ""
+ * (o grupo "Outros itens"). A soma de todas as categorias é o total de
+ * peças do pedido — o mesmo número da linha "Total de peças" do rodapé.
+ */
+export function totalPorCategoria(
+  itens: readonly Pick<ItemDoRomaneio, "productId" | "quantity">[],
+  categoriaDe: (productId: string | null) => string
+): Map<string, number> {
+  const soma = new Map<string, number>();
+  for (const i of itens) {
+    const cat = categoriaDe(i.productId) || "";
+    soma.set(cat, (soma.get(cat) ?? 0) + i.quantity);
+  }
+  return soma;
+}
+
 export function ordenarParaSeparacao<T extends ItemDoRomaneio>(
   itens: readonly T[],
   categoriaDe: (productId: string | null) => string
