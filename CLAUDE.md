@@ -727,7 +727,16 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   para a área de transferência ("Trecho copiado" / "Mensagem copiada"):
   sem ele a vendedora cola sem saber o que tem na mão. Trocar de conversa
   sai do modo (a bolha marcada nem está mais na tela, e a barra esconderia
-  o compositor da conversa nova),
+  o compositor da conversa nova). **Com texto marcado, o CLIQUE DIREITO é
+  do NAVEGADOR** (`menuDoNavegador`, segundo relato do dono no mesmo dia:
+  *"quando clico com botão direito abre essas opções, e não aquela
+  tradicional de copiar"*): marcar um pedaço e apertar o botão direito é o
+  gesto que todo mundo já tem nos dedos, e sequestrá-lo obrigava a
+  vendedora a aprender o nosso menu no lugar do que ela conhece. A folha
+  de ações é o menu da MENSAGEM (responder, encaminhar, reagir, apagar) e
+  continua abrindo no clique direito da bolha SEM marcação; marcação em
+  outra bolha não tira o nosso menu daqui, e clicar sem arrastar também
+  não (senão a bolha ficaria sem menu nenhum),
   **encaminhar** para até `TETO_DESTINOS` conversas (`lib/encaminhar.ts`): os
   envios saem em FILA depois da resposta, com o ritmo anti-ban da RN-017 —
   em paralelo o ritmo não acontece, e esperar dentro do pedido estourava o
