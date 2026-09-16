@@ -97,3 +97,60 @@ export function acaoDaNota(status: string | null | undefined): AcaoDaNota {
       "A emissão está em andamento. Toque em “atualizar” para ver como ficou; o botão de emitir volta se ela for recusada.",
   };
 }
+
+/**
+ * O SELO DA NOTA NA LISTA DE PEDIDOS.
+ *
+ * Pedido do dono (16/09/2026): *"queria uma visualização na aba de pedidos,
+ * dos que estão com nota fiscal — uma caixa no canto que diz NF e o número"*.
+ *
+ * Duas decisões além do pedido:
+ *
+ *  • **A nota que DEU ERRADO também aparece, e em vermelho.** O número da
+ *    nota autorizada é conferência; a nota recusada é PROBLEMA — pedido pago
+ *    sem nota é pendência fiscal, e hoje ela só aparece abrindo o pedido um
+ *    por um. É o selo que faz a lojista ver, e é onde ele vale mais.
+ *  • **Pedido sem nota não ganha selo nenhum.** Marcar ausência em 98 linhas
+ *    polui a lista inteira para não dizer nada — quem procura "ainda não
+ *    emiti" olha o que NÃO tem selo.
+ *
+ * A nota em andamento aparece como relógio: some sozinha quando resolver, e
+ * enquanto isso explica por que o botão de emitir não está lá.
+ */
+export type SeloDaNota = { texto: string; cor: string; titulo: string };
+
+export function seloDaNota(
+  status: string | null | undefined,
+  numero: string | null | undefined
+): SeloDaNota | null {
+  if (!status) return null;
+  if (status === "AUTORIZADA") {
+    return {
+      texto: numero ? `NF ${numero}` : "NF emitida",
+      cor: "#059669",
+      titulo: "Nota fiscal autorizada",
+    };
+  }
+  if (status === "REJEITADA") {
+    return {
+      texto: "NF recusada",
+      cor: "#E11D48",
+      titulo: "A SEFAZ recusou a nota — o pedido está sem nota. Abra para corrigir e emitir de novo.",
+    };
+  }
+  if (status === "CANCELADA") {
+    return {
+      texto: "NF cancelada",
+      cor: "#E11D48",
+      titulo: "A nota foi cancelada — o pedido está sem nota.",
+    };
+  }
+  if (status === "ERRO") {
+    return {
+      texto: "NF com erro",
+      cor: "#E11D48",
+      titulo: "A emissão falhou. Abra o pedido para tentar de novo.",
+    };
+  }
+  return { texto: "NF ⏳", cor: "#D97706", titulo: "Emissão em andamento" };
+}

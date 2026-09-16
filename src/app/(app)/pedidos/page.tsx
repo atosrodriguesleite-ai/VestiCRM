@@ -4,6 +4,7 @@ import { ShoppingBag, Download, Search, X } from "lucide-react";
 import { requireUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { orderScope, veTodosPedidos, isManagerUp } from "@/lib/scope";
+import { seloDaNota } from "@/lib/nfe-situacao";
 import { brl, dateShort, timeShort } from "@/lib/format";
 import {
   orderStatusLabel,
@@ -533,7 +534,12 @@ export default async function OrdersPage({
       ) : (
         <>
         <div className="space-y-2">
-          {orders.map((o) => (
+          {orders.map((o) => {
+            // RN-058 · o selo da nota segue a MESMA régua da ficha do pedido:
+            // lá o bloco "Cobrança e Nota" é de gerência, e mostrar aqui o que
+            // a ficha esconde seria a tela contando duas histórias
+            const selo = isManagerUp(user) ? seloDaNota(o.nfeStatus, o.nfeNumber) : null;
+            return (
             <Link key={o.id} href={`/pedidos/${o.id}`} className="block">
               <Card className="p-4 hover:shadow-pop transition">
                 <div className="flex items-center gap-2.5 sm:gap-3">
@@ -562,6 +568,11 @@ export default async function OrdersPage({
                       {veLojaInteira && !o.seller && !vendaOnline(o) && (
                         <Badge color="#D97706">sem vendedora</Badge>
                       )}
+                      {selo && (
+                        <span title={selo.titulo}>
+                          <Badge color={selo.cor}>{selo.texto}</Badge>
+                        </span>
+                      )}
                       <RowStatusMenu orderId={o.id} current={o.status} />
                     </div>
                   </div>
@@ -588,6 +599,11 @@ export default async function OrdersPage({
                     ) : (
                       <Badge color="#C4622D">AtacadoPro</Badge>
                     )}
+                    {selo && (
+                      <span title={selo.titulo}>
+                        <Badge color={selo.cor}>{selo.texto}</Badge>
+                      </span>
+                    )}
                     <RowStatusMenu orderId={o.id} current={o.status} />
                   </div>
                   <span className="text-sm font-semibold tabular-nums shrink-0 w-20 sm:w-24 text-right whitespace-nowrap">
@@ -596,7 +612,8 @@ export default async function OrdersPage({
                 </div>
               </Card>
             </Link>
-          ))}
+            );
+          })}
         </div>
 
         {/* Rodapé da lista: deixa claro que o histórico está TODO aqui e dá
