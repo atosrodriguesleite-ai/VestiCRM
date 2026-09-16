@@ -1,6 +1,7 @@
 // Guarda RN-058
 import { describe, it, expect } from "vitest";
-import { acaoDaNota, seloDaNota } from "../nfe-situacao";
+import { acaoDaNota, precisaDeNota, seloDaNota } from "../nfe-situacao";
+import { PAID_ORDER_STATUSES } from "../orders";
 
 /**
  * "Uma nota foi rejeitada, aí atualizei os dados com a inscrição estadual —
@@ -123,5 +124,49 @@ describe("o selo da nota na lista de pedidos", () => {
     // o número existe no banco (a SEFAZ devolve), mas anunciá-lo faria a
     // lojista achar que tem nota
     expect(seloDaNota("REJEITADA", "000008")?.texto).not.toContain("000008");
+  });
+});
+
+describe("a fila do que ainda falta emitir", () => {
+  const falta = (st: string, nf: string | null) =>
+    precisaDeNota(st, nf, PAID_ORDER_STATUSES);
+
+  it("pedido PAGO que nunca emitiu está na fila — é o caso mais comum", () => {
+    expect(falta("PAGO", null)).toBe(true);
+  });
+
+  it("nota autorizada sai da fila", () => {
+    expect(falta("PAGO", "AUTORIZADA")).toBe(false);
+    expect(falta("ENTREGUE", "AUTORIZADA")).toBe(false);
+  });
+
+  it("recusada, cancelada e com erro VOLTAM para a fila", () => {
+    // para a loja é o mesmo fato: pago e sem documento
+    for (const nf of ["REJEITADA", "CANCELADA", "ERRO"]) {
+      expect(falta("PAGO", nf)).toBe(true);
+    }
+  });
+
+  it("a que está EMITINDO fica na fila de propósito", () => {
+    // tirá-la sumiria com a emissão travada, e pedido pago sem nota escondido
+    // é pior que uma linha a mais
+    expect(falta("PAGO", "EMITINDO")).toBe(true);
+  });
+
+  it("orçamento e aguardando pagamento NÃO estão esperando nota", () => {
+    // a própria emissão os recusa: "emita só depois que estiver pago"
+    expect(falta("ORCAMENTO", null)).toBe(false);
+    expect(falta("AGUARDANDO_PAGAMENTO", null)).toBe(false);
+  });
+
+  it("cancelado não precisa de nota", () => {
+    expect(falta("CANCELADO", null)).toBe(false);
+    expect(falta("CANCELADO", "REJEITADA")).toBe(false);
+  });
+
+  it("TODO status pago conta, não só o PAGO", () => {
+    // a venda enviada e a entregue também precisam de nota
+    for (const st of PAID_ORDER_STATUSES) expect(falta(st, null)).toBe(true);
+    expect(PAID_ORDER_STATUSES.length).toBeGreaterThan(1);
   });
 });

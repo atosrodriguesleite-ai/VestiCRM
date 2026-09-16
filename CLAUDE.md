@@ -1718,6 +1718,29 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   também muda o status (REJEITADA vira ERRO com id novo; ERRO vira REJEITADA
   com id nulo), e sem isso o clique seguinte fazia coisa diferente do que o
   texto prometia.
+  **E a LISTA de pedidos mostra a nota** (`seloDaNota`/`precisaDeNota`,
+  16/09/2026): selo com o **número** da nota autorizada — *"uma caixa no canto
+  que diz NF e o número"* — e, em vermelho, a que deu errado. O número
+  autorizado é conferência; a **recusada é PROBLEMA** (pedido pago sem nota é
+  pendência fiscal) e só aparecia abrindo pedido por pedido: é onde o selo
+  vale mais. A recusada **nunca mostra o número** (ele existe no banco, mas
+  anunciá-lo faria a loja achar que tem nota), e pedido sem nota **não ganha
+  selo** — marcar ausência em 98 linhas polui a lista para não dizer nada.
+  O chip **"Falta nota"** é a fila: **pago (RN-001) e sem nota AUTORIZADA**;
+  orçamento e aguardando pagamento ficam fora (a emissão os recusa antes de
+  pago) e cancelado não precisa de nota. **EMITINDO fica DENTRO** de
+  propósito — tirá-la sumiria com a emissão travada, e pedido pago sem nota
+  escondido é pior que uma linha a mais. Só aparece para gerência (a régua da
+  ficha) **e com o Bling conectado**: sem ele a loja nunca emite e a fila
+  seria a lista inteira. A cláusula do banco mora **colada** na função pura
+  (`ONDE_FALTA_NOTA`), porque são duas escritas da mesma regra, e
+  `scripts/confere-fila-nota.ts` prova contra o Postgres que concordam nas 48
+  combinações. **O `OR` dela não é estilo**: `nfeStatus != 'AUTORIZADA'` NÃO
+  devolve quem está NULO em SQL — e nulo é quem nunca emitiu, a maioria da
+  fila; medido, ela mostrava 20 de 25 e escondia justamente esses. Com a fila
+  ligada, **TODAS as contagens da tela entram nela** (`comFila`, irmão do
+  `comCampanha`): o chip que somava a loja inteira dizia 58 e abria 2, e a
+  paginação prometia páginas vazias (achados da revisão).
   **RN-019 · Pacote por categoria e simulador de frete**
   (`lib/envios/pacote.ts` + `lib/envios/simulador.ts`): cada categoria guarda
   o peso e as **medidas de 1 peça dobrada**

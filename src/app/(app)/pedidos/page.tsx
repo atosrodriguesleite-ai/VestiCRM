@@ -4,12 +4,13 @@ import { ShoppingBag, Download, Search, X } from "lucide-react";
 import { requireUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { orderScope, veTodosPedidos, isManagerUp } from "@/lib/scope";
-import { seloDaNota } from "@/lib/nfe-situacao";
+import { ONDE_FALTA_NOTA, seloDaNota } from "@/lib/nfe-situacao";
 import { brl, dateShort, timeShort } from "@/lib/format";
 import {
   orderStatusLabel,
   orderNumber,
   ORDER_STATUS_FLOW,
+  PAID_ORDER_STATUSES,
   vendaOnline,
 } from "@/lib/orders";
 import { Card, PageHeader, Avatar, Badge, EmptyState } from "@/components/ui";
@@ -35,10 +36,10 @@ export const dynamic = "force-dynamic";
 export default async function OrdersPage({
   searchParams,
 }: {
-  searchParams: Promise<{ status?: string; de?: string; ate?: string; canal?: string; vendedora?: string; q?: string; pagina?: string; campanha?: string }>;
+  searchParams: Promise<{ status?: string; de?: string; ate?: string; canal?: string; vendedora?: string; q?: string; pagina?: string; campanha?: string; nota?: string }>;
 }) {
   const user = await requireUser();
-  const { status, de, ate, canal: canalRaw, vendedora: vendedoraRaw, q: qRaw, pagina: paginaRaw, campanha: campanhaRaw } = await searchParams;
+  const { status, de, ate, canal: canalRaw, vendedora: vendedoraRaw, q: qRaw, pagina: paginaRaw, campanha: campanhaRaw, nota: notaRaw } = await searchParams;
   // canal da venda: nuvemshop | atacadopro (catálogo/WhatsApp/manual) | todos
   const canal = canalRaw === "nuvemshop" || canalRaw === "atacadopro" ? canalRaw : null;
   // filtro "sem vendedora": pedido pago sem dona não conta na comissão de
@@ -48,6 +49,27 @@ export default async function OrdersPage({
   // e aplicar sellerId nulo por cima furaria a RN-007).
   const veLojaInteira = veTodosPedidos(user);
   const semVendedora = vendedoraRaw === "sem" && veLojaInteira;
+  // RN-058 · fila "falta nota": pago (RN-001) e sem nota autorizada. Só para
+  // quem vê o bloco de nota na ficha (gerência) e só com o Bling conectado —
+  // sem ele a loja nunca emite e o chip mostraria a lista inteira como
+  // pendência fiscal, que é o contrário de uma fila de trabalho.
+  // a ida ao banco só acontece para quem PODE ver a fila: a vendedora pagava
+  // a consulta em série para o resultado ser descartado (achado da revisão)
+  const podeVerNota = isManagerUp(user);
+  const filaDaNota =
+    podeVerNota &&
+    Boolean(
+      await db.blingConnection.findUnique({
+        where: { companyId: user.companyId },
+        select: { id: true },
+      })
+    );
+  const semNota = notaRaw === "falta" && filaDaNota;
+  // A cláusula é ESCRITA À MÃO de propósito: `not: "AUTORIZADA"` sozinho NÃO
+  // pega quem está NULO em SQL — e nulo é o caso mais comum aqui (nunca
+  // emitiu). O `OR` explícito é o que evita a fila nascer escondendo
+  // justamente os pedidos que nunca viram nota (provado contra o Postgres).
+  const ondeFaltaNota = ONDE_FALTA_NOTA;
   // busca inteligente: número curto = código do pedido, número comprido =
   // telefone (tolerante ao 9º dígito), texto = nome da cliente (sem acento)
   const q = (qRaw ?? "").trim();
@@ -133,6 +155,28 @@ export default async function OrdersPage({
   if (canal === "nuvemshop") where.source = "NUVEMSHOP";
   if (canal === "atacadopro") where.source = { not: "NUVEMSHOP" };
   if (!buscando && semVendedora) where.sellerId = null;
+  /**
+   * A fila da nota COMPÕE, nunca sobrescreve: um `OR` solto apagaria o de
+   * `whereDaCampanha` (a lista da campanha viraria a loja inteira) e o
+   * `status` engoliria o chip de status que a pessoa escolheu. Dentro de
+   * `AND` as duas condições valem juntas — "os ENVIADOS que ainda não têm
+   * nota".
+   *
+   * E ela entra em TODAS as contagens, não só na lista: com a fila ligada, o
+   * chip que conta a loja inteira diria 58 e abriria 2 (achado da revisão).
+   * Filtro ligado é filtro em todo número da tela.
+   */
+  const comFila = (base: Prisma.OrderWhereInput): Prisma.OrderWhereInput =>
+    !buscando && semNota
+      ? {
+          ...base,
+          AND: [
+            ...(Array.isArray(base.AND) ? base.AND : base.AND ? [base.AND] : []),
+            ondeFaltaNota,
+          ],
+        }
+      : base;
+  Object.assign(where, comFila(where));
 
   // filtros cruzados: os chips de STATUS respeitam o canal escolhido e os
   // chips de CANAL respeitam o status escolhido — os números sempre batem
@@ -196,7 +240,7 @@ export default async function OrdersPage({
   // a contagem por CANAL entrou nesta mesma rodada: era uma terceira ida ao
   // banco, sozinha, lá embaixo — e não dependia de nada (velocidade, 20/08/2026)
   // eslint-disable-next-line prefer-const -- orders é reatribuído no ajuste de página abaixo
-  let [orders, counts, bySource, semDonaCount, buscaTotal] = await Promise.all([
+  let [orders, counts, bySource, semDonaCount, faltaNotaCount, buscaTotal] = await Promise.all([
     listar(pagina),
     // na busca os chips somem — as duas contagens por grupo seriam jogadas
     // fora (mesma razão do guard do semDonaCount logo abaixo)
@@ -204,14 +248,14 @@ export default async function OrdersPage({
       ? Promise.resolve([])
       : db.order.groupBy({
           by: ["status"],
-          where: comCampanha({ ...orderScope(user), ...periodoWhere, ...canalWhere, ...vendedoraWhere }),
+          where: comFila(comCampanha({ ...orderScope(user), ...periodoWhere, ...canalWhere, ...vendedoraWhere })),
           _count: true,
         }),
     buscando
       ? Promise.resolve([])
       : db.order.groupBy({
           by: ["source"],
-          where: comCampanha({ ...orderScope(user), ...periodoWhere, ...statusWhere, ...vendedoraWhere }),
+          where: comFila(comCampanha({ ...orderScope(user), ...periodoWhere, ...statusWhere, ...vendedoraWhere })),
           _count: true,
         }),
     // o número do chip "Sem vendedora" — mesma regra dos outros grupos de
@@ -219,12 +263,27 @@ export default async function OrdersPage({
     // código os chips nem aparecem: não gasta uma ida ao banco à toa.
     veLojaInteira && !buscando
       ? db.order.count({
-          where: comCampanha({
+          where: comFila(comCampanha({
             ...orderScope(user),
             ...periodoWhere,
             ...statusWhere,
             ...canalWhere,
             sellerId: null,
+          })),
+        })
+      : Promise.resolve(0),
+    // o número do chip "Falta nota" — mesma régua dos outros: respeita os
+    // filtros MENOS a própria dimensão, e não é contado quando não aparece
+    // (loja sem Bling, vendedora, ou busca por código)
+    filaDaNota && !buscando
+      ? db.order.count({
+          where: comCampanha({
+            ...orderScope(user),
+            ...periodoWhere,
+            ...statusWhere,
+            ...canalWhere,
+            ...vendedoraWhere,
+            AND: [ondeFaltaNota],
           }),
         })
       : Promise.resolve(0),
@@ -261,6 +320,7 @@ export default async function OrdersPage({
       status?: string | null;
       canal?: string | null;
       vendedora?: string | null;
+      nota?: string | null;
       semPeriodo?: boolean;
       pagina?: number;
       campanha?: string | null;
@@ -269,6 +329,7 @@ export default async function OrdersPage({
     const s = muda.status !== undefined ? muda.status : status;
     const c = muda.canal !== undefined ? muda.canal : canal;
     const v = muda.vendedora !== undefined ? muda.vendedora : semVendedora ? "sem" : null;
+    const nf = muda.nota !== undefined ? muda.nota : semNota ? "falta" : null;
     const p = muda.pagina ?? 1;
     // o filtro de campanha viaja junto: sem isso, trocar de status ou de
     // página jogava a lojista de volta na lista inteira
@@ -279,6 +340,7 @@ export default async function OrdersPage({
       !muda.semPeriodo && ate ? `ate=${ate}` : "",
       c ? `canal=${c}` : "",
       v ? `vendedora=${v}` : "",
+      nf ? `nota=${nf}` : "",
       // a busca viaja junto ao trocar de página (senão a página 2 da busca
       // por nome voltava para a lista inteira)
       buscando ? `q=${encodeURIComponent(q)}` : "",
@@ -367,6 +429,7 @@ export default async function OrdersPage({
         {status && <input type="hidden" name="status" value={status} />}
         {canal && <input type="hidden" name="canal" value={canal} />}
         {semVendedora && <input type="hidden" name="vendedora" value="sem" />}
+        {semNota && <input type="hidden" name="nota" value="falta" />}
         {campanha && <input type="hidden" name="campanha" value={campanha.slug} />}
         <div>
           <label className="block text-[11px] font-semibold text-gray-500 mb-1">De</label>
@@ -421,6 +484,21 @@ export default async function OrdersPage({
             }`}
           >
             Sem vendedora ({semDonaCount})
+          </Link>
+        )}
+        {/* a FILA da nota fiscal (RN-058): pedido pago e sem nota autorizada.
+            Só aparece com o Bling conectado e para quem vê nota — e some
+            quando não há nenhum, para não virar enfeite de loja em dia. */}
+        {filaDaNota && (faltaNotaCount > 0 || semNota) && (
+          <Link
+            href={href({ nota: semNota ? null : "falta" })}
+            className={`px-3 py-2 rounded-xl text-xs font-semibold whitespace-nowrap transition ${
+              semNota
+                ? "bg-rose-600 text-white"
+                : "bg-white border border-rose-300 text-rose-700 hover:border-rose-400"
+            }`}
+          >
+            Falta nota ({faltaNotaCount})
           </Link>
         )}
       </div>
