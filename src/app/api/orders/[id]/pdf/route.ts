@@ -469,6 +469,34 @@ export async function GET(
     // a última categoria também fecha com o total dela
     if (categoriaAtual !== null) fecharCategoria(categoriaAtual);
 
+    // ---- Resumo por categoria (16/09/2026) ----
+    // depois da separação, a conferência final e o fechamento da caixa: uma
+    // linha por categoria, os MESMOS números dos blocos (nunca discordam),
+    // e o total de peças — em pedido de 3 páginas é aqui que se bate o olho
+    // em vez de folhear. Na ordem em que os blocos saíram no romaneio.
+    const categoriasNaOrdem: string[] = [];
+    for (const item of itensOrdenados) {
+      const cat = categoriaDe(item.productId);
+      if (!categoriasNaOrdem.includes(cat)) categoriasNaOrdem.push(cat);
+    }
+    if (categoriasNaOrdem.length > 0) {
+      // resumo e totais de dinheiro na MESMA página (o bloco de totais pede 110)
+      newPageIfNeeded(30 + categoriasNaOrdem.length * 14 + 16 + 110);
+      y -= 6;
+      page.drawText("RESUMO POR CATEGORIA", { x: M, y, size: 8, font: bold, color: GRAY });
+      y -= 14;
+      for (const cat of categoriasNaOrdem) {
+        const pecas = pecasPorCategoria.get(cat) ?? 0;
+        const nome = (cat || "Outros itens").slice(0, 50);
+        page.drawText(nome, { x: M + 10, y, size: 9, font, color: INK });
+        const txt = `${pecas} ${pecas === 1 ? "peça" : "peças"}`;
+        const w = font.widthOfTextAtSize(txt, 9);
+        page.drawText(txt, { x: cols.total - w, y, size: 9, font, color: INK });
+        y -= 14;
+      }
+      page.drawLine({ start: { x: M, y: y + 6 }, end: { x: width - M, y: y + 6 }, thickness: 0.5, color: LIGHT });
+    }
+
     // ---- Totais ----
     newPageIfNeeded(110);
     y -= 8;

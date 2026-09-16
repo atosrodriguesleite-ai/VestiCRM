@@ -108,5 +108,9 @@ describe("o PDF usa a ordem de separação com cabecinho por categoria", () => {
     expect(rota).toContain("if (categoriaAtual !== null) fecharCategoria(categoriaAtual);");
     // fecha a anterior ao trocar de categoria E depois do laço (a última)
     expect(rota.split("fecharCategoria(categoriaAtual)").length - 1).toBe(2);
+    // e o RESUMO no fim usa os MESMOS números dos blocos, na mesma ordem
+    expect(rota).toContain('"RESUMO POR CATEGORIA"');
+    expect(rota).toContain("const pecas = pecasPorCategoria.get(cat) ?? 0;");
+    expect(rota).toContain("for (const cat of categoriasNaOrdem)");
   });
 });
