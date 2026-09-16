@@ -96,7 +96,7 @@ import { pausarOsOutros } from "@/lib/um-som-por-vez";
 import { Avatar, EmptyState } from "@/components/ui";
 import { gravacaoParaWav, TETO_AUDIO_BYTES } from "@/lib/audio-wav";
 import { comprimirFoto, nomeJpeg, TETO_FOTOS_DE_UMA_VEZ } from "@/lib/comprimir-foto";
-import { fraseDeConfirmacaoDaColagem, imagensColadas } from "@/lib/colar-imagem";
+import { imagensColadas, rotuloDosAnexos } from "@/lib/colar-imagem";
 import { Portal } from "@/components/portal";
 
 /**
@@ -684,6 +684,20 @@ export function Inbox({
   }, [aviso]);
   // "responder": mensagem marcada para citação (prévia acima do compositor)
   const [replyMsg, setReplyMsg] = useState<InboxMessage | null>(null);
+  // imagens COLADAS no campo (Ctrl+V do print): ficam presas na faixa acima
+  // do campo, com X, até o Enter — como no aplicativo (16/09/2026)
+  const [anexosColados, setAnexosColados] = useState<{ file: File; url: string }[]>([]);
+  const limparAnexosColados = useCallback(() => {
+    setAnexosColados((atuais) => {
+      for (const a of atuais) URL.revokeObjectURL(a.url);
+      return [];
+    });
+  }, []);
+  // trocar de conversa solta as imagens coladas: mandá-las para OUTRA
+  // cliente sem querer é pior que colar de novo
+  useEffect(() => {
+    limparAnexosColados();
+  }, [selectedId, limparAnexosColados]);
   // mensagem escolhida para ENCAMINHAR (abre a lista de destinos)
   const [encaminhando, setEncaminhando] = useState<InboxMessage | null>(null);
   // menu da CONVERSA (clique direito no computador, toque longo no celular)
@@ -1620,7 +1634,21 @@ export function Inbox({
 
   function sendMessage() {
     const body = draft.trim();
-    if (!body) return;
+    // imagens coladas no campo saem PRIMEIRO (pelo mesmo caminho do clipe:
+    // compressão, fila, ritmo, bolha), e o texto vai atrás — como legenda
+    const imagens = noteMode ? [] : anexosColados.map((a) => a.file);
+    if (!body && imagens.length === 0) return;
+    if (imagens.length > 0) {
+      // as mesmas travas do clipe: uma fila por vez, e nunca durante a gravação
+      if (filaFotos) {
+        alert("Espere as fotos atuais terminarem de sair para enviar as imagens coladas. 📷");
+        return;
+      }
+      if (recording || preparando) {
+        alert("Termine o áudio antes de enviar as imagens. 🎤");
+        return;
+      }
+    }
     const kind = noteMode ? "NOTE" : "TEXT";
     const respondendo = !noteMode ? replyMsg : null;
     // limpa o campo NA HORA — sensação de instantâneo, sem esperar o servidor
@@ -1629,11 +1657,23 @@ export function Inbox({
     setMention(null);
     setSlash(null);
     setReplyMsg(null);
-    void sendPayload({
-      body,
-      kind,
-      ...(respondendo ? { replyToId: respondendo.id } : {}),
-    });
+    if (imagens.length > 0) limparAnexosColados();
+    const mandarTexto = () =>
+      body
+        ? sendPayload({
+            body,
+            kind,
+            ...(respondendo ? { replyToId: respondendo.id } : {}),
+          })
+        : Promise.resolve(false);
+    if (imagens.length === 0) {
+      void mandarTexto();
+      return;
+    }
+    void (async () => {
+      await enviarArquivos(imagens, "IMAGE");
+      await mandarTexto();
+    })();
   }
 
   /** Começo do toque na bolha: guarda o ponto para medir o arrasto. */
@@ -2363,11 +2403,11 @@ export function Inbox({
   }
 
   /**
-   * COLAR IMAGEM NO CAMPO (pedido do dono, 16/09/2026): o print colado entra
-   * pelo MESMO caminho do clipe (compressão, fila, ritmo, bolha ⏱️ → ✓).
-   * Texto colado segue colando como sempre — só imagem vira envio. Com
-   * confirmação, porque colar acontece sem querer (Ctrl+V no campo errado
-   * mandaria o print para a cliente).
+   * COLAR IMAGEM NO CAMPO (pedido do dono, 16/09/2026): o print colado FICA
+   * no campo (miniatura com X) e só sai no Enter ou no botão — como no
+   * aplicativo. Sem pergunta: ela atrasava (relato do dono no mesmo dia), e
+   * a miniatura presa no campo já é a chance de desistir. Texto colado segue
+   * colando como sempre — só imagem fica presa.
    */
   function onColar(e: React.ClipboardEvent<HTMLTextAreaElement>) {
     const imagens = imagensColadas(e.clipboardData?.files);
@@ -2378,17 +2418,18 @@ export function Inbox({
       alert("Nota interna não leva imagem. Saia do modo de nota para enviar a foto. 📝");
       return;
     }
-    // as mesmas travas do clipe: uma fila por vez, e nunca durante a gravação
-    if (filaFotos) {
-      alert("Espere as fotos atuais terminarem de sair para colar outras. 📷");
-      return;
-    }
-    if (recording || preparando) {
-      alert("Termine o áudio antes de enviar a imagem. 🎤");
-      return;
-    }
-    if (!confirm(fraseDeConfirmacaoDaColagem(imagens.length, selected.customer.name.split(" ")[0]))) return;
-    void enviarArquivos(imagens, "IMAGE");
+    setAnexosColados((atuais) => {
+      const novos = imagens.map((file) => ({ file, url: URL.createObjectURL(file) }));
+      const todos = [...atuais, ...novos];
+      if (todos.length > TETO_FOTOS_DE_UMA_VEZ) {
+        alert(`Dá para mandar até ${TETO_FOTOS_DE_UMA_VEZ} fotos de uma vez. 📷`);
+        for (const a of todos.slice(TETO_FOTOS_DE_UMA_VEZ)) URL.revokeObjectURL(a.url);
+        return todos.slice(0, TETO_FOTOS_DE_UMA_VEZ);
+      }
+      return todos;
+    });
+    // o foco continua no campo: dá para escrever o texto que vai junto
+    taRef.current?.focus();
   }
 
   async function enviarArquivos(escolhidos: File[], kind: "IMAGE" | "VIDEO" | "DOCUMENT") {
@@ -4032,6 +4073,46 @@ export function Inbox({
 
             {/* composer */}
             <div ref={composerRef} className="p-3 border-t border-gray-100 shrink-0 relative">
+              {/* imagens coladas (Ctrl+V): presas no campo até o Enter, cada
+                  uma com X — como no aplicativo (16/09/2026) */}
+              {anexosColados.length > 0 && (
+                <div className="mb-2 rounded-xl border-l-4 border-brand-500 bg-brand-50/70 px-3 py-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-[11px] font-bold text-brand-700">{rotuloDosAnexos(anexosColados.length)}</p>
+                    <button
+                      onClick={limparAnexosColados}
+                      className="p-1 text-gray-400 hover:text-gray-600 shrink-0"
+                      title="Tirar todas as imagens"
+                    >
+                      <X className="size-3.5" />
+                    </button>
+                  </div>
+                  <div className="mt-1.5 flex flex-wrap gap-2">
+                    {anexosColados.map((a, i) => (
+                      <div key={a.url} className="relative">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src={a.url}
+                          alt={`Imagem colada ${i + 1}`}
+                          className="size-16 rounded-lg object-cover border border-brand-200 bg-white"
+                        />
+                        <button
+                          onClick={() =>
+                            setAnexosColados((atuais) => {
+                              URL.revokeObjectURL(a.url);
+                              return atuais.filter((x) => x.url !== a.url);
+                            })
+                          }
+                          className="absolute -top-1.5 -right-1.5 rounded-full bg-white border border-gray-200 shadow-sm p-0.5 text-gray-500 hover:text-rose-600"
+                          title="Tirar esta imagem"
+                        >
+                          <X className="size-3" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
               {/* respondendo mensagem específica: prévia com X para cancelar */}
               {replyMsg && (
                 <div className="mb-2 flex items-start gap-2 rounded-xl border-l-4 border-brand-500 bg-brand-50/70 px-3 py-2">
@@ -4600,7 +4681,7 @@ export function Inbox({
                 />
                 <button
                   onClick={sendMessage}
-                  disabled={!draft.trim() || sending}
+                  disabled={(!draft.trim() && anexosColados.length === 0) || sending}
                   className={`p-2.5 rounded-xl text-white transition shrink-0 disabled:opacity-40 ${
                     noteMode
                       ? "bg-amber-500 hover:bg-amber-600"

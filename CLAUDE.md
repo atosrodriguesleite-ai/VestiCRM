@@ -674,10 +674,14 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   passado página a página, com teto e aviso) e a barra ▲▼ anda entre elas.
   **Colar imagem no campo** (`lib/colar-imagem.ts`, 16/09/2026, pedido do
   dono: "tiro o print, clico no campo e colo, como no aplicativo"): o print
-  colado entra pelo MESMO caminho do clipe (compressão, fila, ritmo, bolha),
-  com confirmação pelo primeiro nome da cliente (Ctrl+V no campo errado
-  mandaria o print para ela); texto colado segue colando como texto, e nota
-  interna não leva imagem.
+  colado **fica preso no campo** (miniatura com X, faixa "1 imagem pronta
+  para enviar · Enter envia") e só sai no **Enter ou no botão**, pelo MESMO
+  caminho do clipe (compressão, fila, ritmo, bolha), com o texto digitado
+  indo atrás como legenda. **Sem pergunta** (a confirmação da primeira
+  versão atrasava, relato do dono no mesmo dia) — a miniatura presa é a
+  chance de desistir. Trocar de conversa solta as imagens (não vão para
+  outra cliente); texto colado segue colando como texto; nota interna não
+  leva imagem.
   **Emoji**: o seletor (`seletor-de-emoji.tsx`, grade em `lib/emojis.ts`)
   tem **barra de pesquisa** em português sem acento ("coracao", "caixa",
   "feliz"; Enter escolhe o primeiro) e é o MESMO na caixa de **editar
