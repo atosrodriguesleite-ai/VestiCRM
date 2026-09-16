@@ -672,6 +672,12 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   (`trechoDaBusca` em `lib/busca.ts`, posição no texto ORIGINAL) e quantas
   mensagens casaram; abrir a conversa PULA até a mensagem (carregando o
   passado página a página, com teto e aviso) e a barra ▲▼ anda entre elas.
+  **Colar imagem no campo** (`lib/colar-imagem.ts`, 16/09/2026, pedido do
+  dono: "tiro o print, clico no campo e colo, como no aplicativo"): o print
+  colado entra pelo MESMO caminho do clipe (compressão, fila, ritmo, bolha),
+  com confirmação pelo primeiro nome da cliente (Ctrl+V no campo errado
+  mandaria o print para ela); texto colado segue colando como texto, e nota
+  interna não leva imagem.
   **Emoji**: o seletor (`seletor-de-emoji.tsx`, grade em `lib/emojis.ts`)
   tem **barra de pesquisa** em português sem acento ("coracao", "caixa",
   "feliz"; Enter escolhe o primeiro) e é o MESMO na caixa de **editar

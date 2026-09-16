@@ -96,6 +96,7 @@ import { pausarOsOutros } from "@/lib/um-som-por-vez";
 import { Avatar, EmptyState } from "@/components/ui";
 import { gravacaoParaWav, TETO_AUDIO_BYTES } from "@/lib/audio-wav";
 import { comprimirFoto, nomeJpeg, TETO_FOTOS_DE_UMA_VEZ } from "@/lib/comprimir-foto";
+import { fraseDeConfirmacaoDaColagem, imagensColadas } from "@/lib/colar-imagem";
 import { Portal } from "@/components/portal";
 
 /**
@@ -2358,10 +2359,41 @@ export function Inbox({
   async function onFileChosen(e: ChangeEvent<HTMLInputElement>) {
     // a lista do seletor é viva: copiamos ANTES de qualquer espera, senão a
     // próxima escolha (que zera o campo) apagaria a fila no meio do envio
-    const escolhidos = Array.from(e.target.files ?? []);
+    await enviarArquivos(Array.from(e.target.files ?? []), fileKindRef.current);
+  }
+
+  /**
+   * COLAR IMAGEM NO CAMPO (pedido do dono, 16/09/2026): o print colado entra
+   * pelo MESMO caminho do clipe (compressão, fila, ritmo, bolha ⏱️ → ✓).
+   * Texto colado segue colando como sempre — só imagem vira envio. Com
+   * confirmação, porque colar acontece sem querer (Ctrl+V no campo errado
+   * mandaria o print para a cliente).
+   */
+  function onColar(e: React.ClipboardEvent<HTMLTextAreaElement>) {
+    const imagens = imagensColadas(e.clipboardData?.files);
+    if (imagens.length === 0) return;
+    e.preventDefault();
+    if (!selected) return;
+    if (noteMode) {
+      alert("Nota interna não leva imagem. Saia do modo de nota para enviar a foto. 📝");
+      return;
+    }
+    // as mesmas travas do clipe: uma fila por vez, e nunca durante a gravação
+    if (filaFotos) {
+      alert("Espere as fotos atuais terminarem de sair para colar outras. 📷");
+      return;
+    }
+    if (recording || preparando) {
+      alert("Termine o áudio antes de enviar a imagem. 🎤");
+      return;
+    }
+    if (!confirm(fraseDeConfirmacaoDaColagem(imagens.length, selected.customer.name.split(" ")[0]))) return;
+    void enviarArquivos(imagens, "IMAGE");
+  }
+
+  async function enviarArquivos(escolhidos: File[], kind: "IMAGE" | "VIDEO" | "DOCUMENT") {
     const file = escolhidos[0];
     if (!file || !selected) return;
-    const kind = fileKindRef.current;
 
     // FOTO É COMPRIMIDA NO APARELHO (como o WhatsApp faz): foto de celular
     // tem 4–12 MB e o teto de envio é ~4,5 MB — sem comprimir, NENHUMA foto
@@ -4534,6 +4566,7 @@ export function Inbox({
                   ref={taRef}
                   value={draft}
                   onChange={(e) => onDraftChange(e.target.value, e.target.selectionStart)}
+                  onPaste={onColar}
                   onKeyDown={(e) => {
                     if (e.key === "Escape" && (mention || slash)) {
                       setMention(null);
