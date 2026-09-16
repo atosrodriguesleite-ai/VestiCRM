@@ -697,7 +697,37 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   cheia (com zoom) — o retrato de 32px não serve para reconhecer ninguém.
   Formato da mensagem em um lugar só (`mapMessage`), envio otimista (bolha instantânea ⏱️→✓),
   **copiar mensagem** (`lib/copiar.ts`, com plano B para navegador
-  antigo; vale para os DOIS lados — pedido, Pix, endereço),
+  antigo; vale para os DOIS lados — pedido, Pix, endereço). **Copiar SÓ UM
+  TRECHO** (16/09/2026, relato do dono: *"não consigo selecionar parte do
+  texto… quando clico em copiar, copia o texto completo"*) — a cliente manda
+  o pedido inteiro e a loja quer só o endereço, ou só a chave Pix. Eram
+  DOIS problemas: o botão ignorava a marcação (mandava sempre a mensagem
+  inteira, `textoParaCopiar`/`selecaoDentroDe`) e **no celular não havia
+  como marcar** — o toque longo abre o nosso menu em 450 ms e o arrasto
+  responde a mensagem, comendo justamente o gesto que o aparelho usa para
+  marcar texto. Agora o menu tem **"Selecionar texto"** (só no celular; no
+  computador é só arrastar o mouse): aquela bolha entra em modo de marcar
+  (gestos fora do caminho, `select-text`, anel amarelo) e uma barra própria
+  no rodapé oferece **Copiar trecho / Cancelar** — sem ela o dedo marcaria
+  o trecho e não haveria onde tocar, porque o menu já fechou. A barra é
+  elemento SOLTO de propósito: a ordem das barras do compositor é regra
+  (incidente 28/08/2026) e nada aqui encosta nela. A marcação é lida no
+  **pressionar** do botão, não no clique (nos DOIS botões) — encostar nele
+  tira o foco do texto e o navegador desfaz a marcação antes de o clique
+  chegar, e o trecho voltava a ser a mensagem inteira, que é justamente o
+  defeito relatado. **As DUAS pontas da marcação têm que estar dentro da
+  bolha**: olhando só a âncora, a marcação feita de baixo para cima era
+  recusada e a que escorrega para fora era aceita levando o texto da
+  mensagem vizinha — e o que sai daqui vai para o WhatsApp da cliente.
+  Escorregou, vale a mensagem inteira (falha segura). Abrir o menu de
+  qualquer mensagem **sai do modo**: a folha de ações sobe de baixo no
+  celular e a barra cobriria os últimos itens dela; com os dois ligados, a
+  âncora da marcação era uma bolha e o texto copiado era de outra (achados
+  da revisão). O aviso do rodapé diz o que FOI
+  para a área de transferência ("Trecho copiado" / "Mensagem copiada"):
+  sem ele a vendedora cola sem saber o que tem na mão. Trocar de conversa
+  sai do modo (a bolha marcada nem está mais na tela, e a barra esconderia
+  o compositor da conversa nova),
   **encaminhar** para até `TETO_DESTINOS` conversas (`lib/encaminhar.ts`): os
   envios saem em FILA depois da resposta, com o ritmo anti-ban da RN-017 —
   em paralelo o ritmo não acontece, e esperar dentro do pedido estourava o
