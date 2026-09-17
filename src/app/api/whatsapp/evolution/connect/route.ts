@@ -3,6 +3,7 @@ import crypto from "crypto";
 import { db } from "@/lib/db";
 import { requireUser, AuthError } from "@/lib/auth";
 import { isAdmin } from "@/lib/scope";
+import { garantirEventosDoWebhook } from "@/lib/comm/garantir-webhook";
 import {
   evolutionEnv,
   evoCreateInstance,
@@ -63,6 +64,9 @@ export async function POST() {
         { status: 502 }
       );
     }
+    // instância que JÁ existia no servidor pode estar assinada na lista velha
+    // de eventos; a criada agora nasce com a atual — os dois casos carimbam
+    await garantirEventosDoWebhook(settings, { sempre: true }).catch(() => {});
 
     const qr = await evoConnect(settings.evolutionInstance!);
     if (!qr.ok || !qr.data?.base64) {

@@ -1,7 +1,8 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { acharMensagemNaResposta, lerEdicao } from "../edicao";
+import { acharMensagemNaResposta, lerEdicao, mensagensDoEventoEditado } from "../edicao";
+import { WEBHOOK_EVENTS } from "../evolution";
 
 /**
  * MENSAGEM EDITADA — incidente Toque Leve, 31/07/2026.
@@ -259,5 +260,77 @@ describe("achar a mensagem no que o servidor devolve", () => {
     for (const nada of [null, undefined, {}, [], "texto", 42, { messages: {} }]) {
       expect(acharMensagemNaResposta(nada)).toBeNull();
     }
+  });
+});
+
+/**
+ * O EVENTO PRÓPRIO DE EDIÇÃO (MESSAGES_EDITED) — print do dono, 17/09/2026.
+ *
+ * A cliente editou "Esse 1 preta g / 1 bordo g" acrescentando duas cores; a
+ * Central seguiu com o texto velho e sem "editada". O servidor Evolution v2
+ * reconhece a edição ANTES do upsert, manda só este evento e pula o resto —
+ * e ele não estava nem assinado nem lido. O payload é o protocolMessage
+ * SOLTO, com a chave da mensagem ORIGINAL.
+ */
+describe("evento MESSAGES_EDITED (o servidor v2 pula o upsert)", () => {
+  const EDITADO = "Esse 1 preta g\n1 bordo g\n1 no azul marinho g\n1 amarelo g";
+  const payloadDoServidor = {
+    key: { remoteJid: "5511999990000@s.whatsapp.net", fromMe: false, id: "ORIGINAL-1" },
+    type: "MESSAGE_EDIT",
+    editedMessage: { conversation: EDITADO },
+    timestampMs: "1758110220000",
+  };
+
+  it("o evento está ASSINADO no servidor — sem isso nada disto chega", () => {
+    expect(WEBHOOK_EVENTS).toContain("MESSAGES_EDITED");
+  });
+
+  it("o protocolMessage solto vira mensagem do upsert, com a chave da ORIGINAL", () => {
+    const lista = mensagensDoEventoEditado(payloadDoServidor);
+    expect(lista).toHaveLength(1);
+    const m = lista[0];
+    // a chave é a da original: é ela que o laço usa para telefone e dedup
+    expect((m.key as { id: string }).id).toBe("ORIGINAL-1");
+    expect((m.key as { remoteJid: string }).remoteJid).toBe("5511999990000@s.whatsapp.net");
+    // e a leitura de sempre acha alvo + texto novo
+    const e = lerEdicao(m);
+    expect(e).toEqual({ alvoId: "ORIGINAL-1", texto: EDITADO });
+  });
+
+  it("tipo numérico (14) e texto formatado também", () => {
+    const lista = mensagensDoEventoEditado({
+      key: { remoteJid: "5511999990000@s.whatsapp.net", id: "ORIGINAL-2" },
+      type: 14,
+      editedMessage: { extendedTextMessage: { text: "1 M vinho" } },
+    });
+    expect(lerEdicao(lista[0])).toEqual({ alvoId: "ORIGINAL-2", texto: "1 M vinho" });
+  });
+
+  it("lista e embrulho { messages } entram; mensagem inteira passa como está", () => {
+    const inteira = { key: { id: "X" }, message: { conversation: "oi" } };
+    expect(mensagensDoEventoEditado([payloadDoServidor, inteira])).toHaveLength(2);
+    expect(mensagensDoEventoEditado({ messages: [payloadDoServidor] })).toHaveLength(1);
+    expect(mensagensDoEventoEditado([inteira])[0]).toBe(inteira);
+  });
+
+  it("payload torto não vira mensagem (e não lança)", () => {
+    expect(mensagensDoEventoEditado(null)).toEqual([]);
+    expect(mensagensDoEventoEditado("x")).toEqual([]);
+    expect(mensagensDoEventoEditado({ sem: "chave" })).toEqual([]);
+    expect(mensagensDoEventoEditado([{ key: "nao-e-objeto", type: "MESSAGE_EDIT" }])).toEqual([]);
+  });
+
+  it("o webhook trata o evento pelo MESMO laço do upsert (nada de leitor paralelo)", () => {
+    const hook = readFileSync(
+      join(process.cwd(), "src/app/api/whatsapp/evolution/webhook/[token]/route.ts"),
+      "utf8"
+    );
+    expect(hook).toContain('if (event === "messages.upsert" || event === "messages.edited") {');
+    expect(hook).toContain("mensagensDoEventoEditado(raw)");
+    // evento que não deu para embrulhar fica registrado, nunca some calado
+    expect(hook).toContain('"evento de edição em formato desconhecido"');
+    // e a loja já conectada é reassinada de carona, DEPOIS da resposta
+    expect(hook).toContain("if (precisaReassinar(settings)) {");
+    expect(hook).toContain("after(() => garantirEventosDoWebhook(settings)");
   });
 });

@@ -109,6 +109,52 @@ export function lerEdicao(evento: unknown): Edicao | null {
 }
 
 /**
+ * O EVENTO PRÓPRIO DE EDIÇÃO (MESSAGES_EDITED) VIRA MENSAGEM DO UPSERT.
+ *
+ * Incidente (17/09/2026, print do dono): a cliente editou o pedido no
+ * WhatsApp ("1 preta g / 1 bordo g" → mais duas cores) e a Central seguiu
+ * com o texto velho, sem "editada". Não era formato desconhecido: o servidor
+ * Evolution v2 reconhece a edição ANTES de entregar o MESSAGES_UPSERT, manda
+ * só o evento MESSAGES_EDITED e pula o resto — e esse evento nunca tinha
+ * sido assinado nem lido aqui.
+ *
+ * O que chega nele é o `protocolMessage` SOLTO: `{ key: <chave da mensagem
+ * ORIGINAL>, type: "MESSAGE_EDIT", editedMessage: { conversation | extended
+ * TextMessage } }`. Em vez de um leitor novo, ele é embrulhado no formato
+ * que o laço do upsert já entende (`{ key, message: { protocolMessage } }`)
+ * — e a partir daí vale TUDO que já existe: correção pelo alvo, busca do
+ * texto no servidor quando vier cifrado, aviso honesto quando nada dá.
+ * A chave é a da original de propósito: se ela não estiver no banco, o
+ * texto novo entra como bolha com o id dela, e a reentrega não duplica.
+ *
+ * Aceita lista, item já no formato de mensagem inteira (passa como está) e
+ * o embrulho `{ messages: [...] }` de outras versões. Nunca lança.
+ */
+export function mensagensDoEventoEditado(data: unknown): Qualquer[] {
+  const raiz = obj(data);
+  const lista: unknown[] = Array.isArray(data)
+    ? data
+    : Array.isArray(raiz?.messages)
+      ? (raiz!.messages as unknown[])
+      : [data];
+  const saida: Qualquer[] = [];
+  for (const item of lista) {
+    const d = obj(item);
+    if (!d) continue;
+    // já é uma mensagem inteira (chave + conteúdo): segue como está
+    if (obj(d.key) && obj(d.message)) {
+      saida.push(d);
+      continue;
+    }
+    // o protocolMessage solto, formato do Evolution v2
+    if (obj(d.key) && (obj(d.editedMessage) || d.type !== undefined)) {
+      saida.push({ key: d.key, message: { protocolMessage: d } });
+    }
+  }
+  return saida;
+}
+
+/**
  * TEXTO ATUAL DAS ÚLTIMAS MENSAGENS DA CONVERSA, direto do servidor.
  *
  * É o plano de resgate da edição cifrada SEM alvo (incidente Giovana,

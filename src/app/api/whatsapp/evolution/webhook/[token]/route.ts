@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse, after } from "next/server";
 import { db } from "@/lib/db";
 import { registrarPrimeiraConexao } from "@/lib/comm/primeira-conexao";
 import { receiveMessage, updateDeliveryStatus, aplicarRecibosOrfaos } from "@/lib/comm/engine";
@@ -13,7 +13,13 @@ import { alertWhatsappDown, logServerError } from "@/lib/health";
 import { adCode, campanhaDoAnuncio } from "@/lib/ad-match";
 import { formatPhone } from "@/lib/format";
 import { lerMensagemWA, soRecadoDoProtocolo } from "@/lib/comm/wa-message";
-import { buscarTextoAtual, lerEdicao, textosAtuaisDaConversa } from "@/lib/comm/edicao";
+import {
+  buscarTextoAtual,
+  lerEdicao,
+  mensagensDoEventoEditado,
+  textosAtuaisDaConversa,
+} from "@/lib/comm/edicao";
+import { garantirEventosDoWebhook, precisaReassinar } from "@/lib/comm/garantir-webhook";
 import { lerContatos, nomeDeQuemMandou } from "@/lib/comm/nome-do-contato";
 import { concluirTarefasDeContato } from "@/lib/contato-feito";
 
@@ -27,6 +33,9 @@ import { concluirTarefasDeContato } from "@/lib/contato-feito";
  *                         (Lead Intake: deduplicação, vendedor, tarefa, SLA);
  *                         mensagem enviada PELO CELULAR também entra no
  *                         histórico da conversa (visão completa do cliente)
+ *  - messages.edited    → a cliente (ou a loja, pelo celular) EDITOU uma
+ *                         mensagem: o servidor v2 manda SÓ este evento e pula
+ *                         o upsert; entra no mesmo laço, já embrulhado
  *  - messages.update    → recibos de entrega/leitura nas mensagens enviadas
  *  - contacts.upsert    → o servidor descobriu o nome da cliente (às vezes
  *    contacts.update      só depois da primeira mensagem): troca o crachá
@@ -305,6 +314,14 @@ export async function POST(
   const companyId = settings.companyId;
   const event = body.event.toLowerCase().replace(/_/g, ".");
 
+  // A LOJA CONECTADA ANTES DE UM EVENTO NOVO É REASSINADA DE CARONA: depois
+  // da resposta (o servidor espera o 200 rápido), uma vez só por loja — o
+  // carimbo em dia não vai ao servidor. Sem isso, a mensagem editada só
+  // chegava para quem reconectasse ou abrisse a tela de conexão.
+  if (precisaReassinar(settings)) {
+    after(() => garantirEventosDoWebhook(settings).catch(() => {}));
+  }
+
   try {
     if (event === "connection.update") {
       const d = body.data as { state?: string; wuid?: string } | undefined;
@@ -343,11 +360,29 @@ export async function POST(
       }
     }
 
-    if (event === "messages.upsert") {
+    if (event === "messages.upsert" || event === "messages.edited") {
       const raw = body.data as EvoMessage | EvoMessage[] | { messages?: EvoMessage[] };
-      const list: EvoMessage[] = Array.isArray(raw)
-        ? raw
-        : (raw as { messages?: EvoMessage[] })?.messages ?? [raw as EvoMessage];
+      // MENSAGEM EDITADA chega em evento PRÓPRIO (o servidor v2 pula o
+      // upsert para ela): o payload é o protocolMessage solto, embrulhado
+      // aqui no formato do laço — a partir daí vale o mesmo caminho que a
+      // edição sempre teve (corrige pelo alvo, busca o texto no servidor se
+      // vier cifrado, aviso honesto se nada der).
+      const list: EvoMessage[] =
+        event === "messages.edited"
+          ? (mensagensDoEventoEditado(raw) as EvoMessage[])
+          : Array.isArray(raw)
+            ? raw
+            : (raw as { messages?: EvoMessage[] })?.messages ?? [raw as EvoMessage];
+      // evento de edição que não deu para embrulhar: fica registrado com o
+      // conteúdo bruto (é o que permite ensinar o leitor o formato novo)
+      if (event === "messages.edited" && list.length === 0) {
+        await registrarDescarte(
+          companyId,
+          "evento de edição em formato desconhecido",
+          raw as EvoMessage,
+          "wa.edicao.sem-texto"
+        ).catch(() => {});
+      }
 
       // ORÇAMENTO DE ARQUIVO DO LOTE (RN-028). A partir daqui, os downloads
       // têm um tempo total para acontecer. Estourou, as mensagens seguintes

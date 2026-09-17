@@ -1048,6 +1048,12 @@ model CommSettings {
   evolutionWebhookToken String?   @unique // identifica/autentica o webhook desta loja
   evolutionStatus       String    @default("DESCONECTADO") // DESCONECTADO | AGUARDANDO_QR | CONECTADO
   evolutionPhone        String? // número conectado (informativo)
+  // QUAIS EVENTOS o servidor Evolution está mandando para o webhook desta
+  // loja (lista gravada quando a assinatura foi confirmada). Evento novo no
+  // sistema (ex.: MESSAGES_EDITED, 17/09/2026) muda a lista esperada, e a
+  // loja JÁ CONECTADA é reassinada sozinha, de carona, sem reconectar —
+  // antes o evento novo só chegava para quem abria a tela de conexão.
+  evolutionWebhookEventos String?
   // Central de Atendimento: setor padrão dos chamados que entram por este número
   defaultSetorId        String?
   // mensagem do botão "enviar link do catálogo" ({nome} e {link} são trocados)

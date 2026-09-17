@@ -208,6 +208,12 @@ export const WEBHOOK_EVENTS = [
   "MESSAGES_UPSERT",
   "MESSAGES_UPDATE",
   "MESSAGES_DELETE", // cliente apagou uma mensagem
+  // MENSAGEM EDITADA (17/09/2026): o servidor Evolution v2 NÃO entrega a
+  // edição pelo MESSAGES_UPSERT — ele a reconhece antes, manda SÓ este
+  // evento (com o id da mensagem original e o texto novo) e pula o resto.
+  // Sem estar assinado aqui, a cliente editava o pedido no WhatsApp e a
+  // Central seguia mostrando o texto velho, sem nem dizer "editada".
+  "MESSAGES_EDITED",
   // NOME DA CLIENTE: o WhatsApp nem sempre manda o nome junto da primeira
   // mensagem — às vezes ele chega segundos depois, nestes avisos. Sem
   // escutá-los, o contato ficava "Lead 9621" para sempre (Toque Leve,
@@ -215,6 +221,14 @@ export const WEBHOOK_EVENTS = [
   "CONTACTS_UPSERT",
   "CONTACTS_UPDATE",
 ] as const;
+
+/**
+ * A lista de eventos como TEXTO, para carimbar em `CommSettings.
+ * evolutionWebhookEventos` quando a assinatura foi confirmada no servidor.
+ * Loja cujo carimbo é diferente desta lista precisa ser reassinada — é o
+ * que faz um evento novo chegar às lojas já conectadas sem reconectar.
+ */
+export const WEBHOOK_EVENTOS_ATUAIS = WEBHOOK_EVENTS.join(",");
 
 function webhookUrl(webhookToken: string) {
   return `${appBaseUrl()}/api/whatsapp/evolution/webhook/${webhookToken}`;
@@ -241,15 +255,22 @@ export async function evoCreateInstance(instance: string, webhookToken: string) 
 export async function evoSetWebhook(instance: string, webhookToken: string) {
   // mesmo formato de campos que a criação da instância aceita nesta versão
   // do servidor (byEvents/base64, dentro do wrapper "webhook")
-  return evo("POST", `/webhook/set/${instance}`, {
-    webhook: {
-      enabled: true,
-      url: webhookUrl(webhookToken),
-      byEvents: false,
-      base64: false,
-      events: [...WEBHOOK_EVENTS],
+  return evo(
+    "POST",
+    `/webhook/set/${instance}`,
+    {
+      webhook: {
+        enabled: true,
+        url: webhookUrl(webhookToken),
+        byEvents: false,
+        base64: false,
+        events: [...WEBHOOK_EVENTS],
+      },
     },
-  });
+    // roda de carona (webhook, vigia): teto curto, senão um servidor lento
+    // segurava a mensagem da cliente atrás de uma reassinatura
+    EVO_LEITURA_TIMEOUT_MS
+  );
 }
 
 /** Pede o QR Code de conexão (base64) da instância. */

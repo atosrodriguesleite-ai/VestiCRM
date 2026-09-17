@@ -1,12 +1,12 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { registrarPrimeiraConexao } from "@/lib/comm/primeira-conexao";
+import { garantirEventosDoWebhook } from "@/lib/comm/garantir-webhook";
 import { requireUser, AuthError } from "@/lib/auth";
 import { isAdmin } from "@/lib/scope";
 import {
   evolutionEnv,
   evoState,
-  evoSetWebhook,
   jidToPhone,
   TERMO_WA_TEXTO,
   TERMO_WA_VERSAO,
@@ -41,12 +41,10 @@ export async function GET() {
         status = "CONECTADO";
         phone = jidToPhone(st.data?.instance?.ownerJid ?? "") ?? phone;
         // auto-cura: garante que a instância escuta todos os eventos atuais
-        // (ex.: "cliente apagou") mesmo tendo sido criada antes — best-effort
-        if (settings.evolutionWebhookToken)
-          await evoSetWebhook(
-            settings.evolutionInstance,
-            settings.evolutionWebhookToken
-          ).catch(() => {});
+        // (ex.: "cliente apagou", "editou") mesmo tendo sido criada antes —
+        // best-effort, SEMPRE (a tela de conexão é o lugar de conferir de
+        // verdade), e carimba a lista confirmada
+        await garantirEventosDoWebhook(settings, { sempre: true }).catch(() => {});
       } else if (state === "connecting") status = "AGUARDANDO_QR";
       else if (state === "close") status = "DESCONECTADO";
       // auto-correção: conectado de verdade ⇒ provedor ativo é o Evolution

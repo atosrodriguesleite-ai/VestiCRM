@@ -722,7 +722,25 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   (`lib/menu-flutuante.ts`, teste varre a janela inteira): conversa no pé da
   lista abria um menu com metade embaixo da borda,
   recibos com horário (entregue/visto), editar (15min) e apagar para todos
-  (~2 dias), detecção de "cliente apagou" (conteúdo preservado), mensagens
+  (~2 dias), detecção de "cliente apagou" (conteúdo preservado),
+  **mensagem editada pela cliente** (`lib/comm/edicao.ts`, 17/09/2026,
+  print do dono: a cliente acrescentou duas cores ao pedido editando a
+  mensagem e a Central seguiu com o texto velho, sem "editada"): o servidor
+  Evolution v2 NÃO entrega a edição pelo `MESSAGES_UPSERT` — reconhece antes,
+  manda SÓ o evento **`MESSAGES_EDITED`** (o `protocolMessage` solto, com a
+  chave da mensagem ORIGINAL e o texto novo) e pula o resto. O evento entrou
+  na assinatura (`WEBHOOK_EVENTS`) e o webhook o embrulha no formato do laço
+  do upsert (`mensagensDoEventoEditado`) — daí vale tudo que a edição já
+  tinha: corrige pelo alvo, carimba `editedAt` (a bolha diz "editada"), toca
+  a conversa para o sync de 3s entregar, busca o texto no servidor se vier
+  cifrado, e original desconhecida vira bolha com o texto novo. **A loja já
+  conectada é reassinada SOZINHA** (`lib/comm/garantir-webhook.ts`): a lista
+  de eventos fica gravada na instância no dia da conexão, e a única auto-cura
+  rodava ao abrir a tela de conexão, que a loja conectada não abre nunca
+  mais. O carimbo `CommSettings.evolutionWebhookEventos` guarda a lista que o
+  servidor CONFIRMOU; diferente da atual, reassina de carona (no webhook,
+  depois da resposta; no vigia; na tela de conexão) e carimba — uma vez por
+  loja, com freio de 10 min após falha; nunca um 3º cron (ADR-002), mensagens
   automáticas personalizáveis (link do catálogo e confirmação de pedido, em
   `CommSettings`), unificação de contatos duplicados, importação de
   histórico de 30 dias (depende do servidor Evolution guardar histórico),

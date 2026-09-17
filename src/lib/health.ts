@@ -1,5 +1,6 @@
 import { db } from "./db";
 import { evolutionEnv, evoState } from "./comm/evolution";
+import { garantirEventosDoWebhook } from "./comm/garantir-webhook";
 import { sendToCompany } from "./push";
 
 /**
@@ -221,7 +222,12 @@ export async function runWatchdogIfDue(): Promise<void> {
     // 2) conexão de cada loja que deveria estar CONECTADA
     const stores = await db.commSettings.findMany({
       where: { evolutionStatus: "CONECTADO", evolutionInstance: { not: null } },
-      select: { companyId: true, evolutionInstance: true },
+      select: {
+        companyId: true,
+        evolutionInstance: true,
+        evolutionWebhookToken: true,
+        evolutionWebhookEventos: true,
+      },
     });
     for (const s of stores) {
       const st = await evoState(s.evolutionInstance!);
@@ -233,6 +239,9 @@ export async function runWatchdogIfDue(): Promise<void> {
           where: { companyId: s.companyId, evolutionDownSince: { not: null } },
           data: { evolutionDownSince: null, evolutionAlertAt: null },
         });
+        // e escuta os eventos ATUAIS (loja parada, sem mensagem chegando,
+        // não tem outra batida para ser reassinada)
+        await garantirEventosDoWebhook(s).catch(() => {});
         continue;
       }
       // caiu de verdade (close/apagada): marca, atualiza status e avisa
