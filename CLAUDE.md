@@ -697,7 +697,46 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   cheia (com zoom) — o retrato de 32px não serve para reconhecer ninguém.
   Formato da mensagem em um lugar só (`mapMessage`), envio otimista (bolha instantânea ⏱️→✓),
   **copiar mensagem** (`lib/copiar.ts`, com plano B para navegador
-  antigo; vale para os DOIS lados — pedido, Pix, endereço),
+  antigo; vale para os DOIS lados — pedido, Pix, endereço). **Copiar SÓ UM
+  TRECHO** (16/09/2026, relato do dono: *"não consigo selecionar parte do
+  texto… quando clico em copiar, copia o texto completo"*) — a cliente manda
+  o pedido inteiro e a loja quer só o endereço, ou só a chave Pix. Eram
+  DOIS problemas: o botão ignorava a marcação (mandava sempre a mensagem
+  inteira, `textoParaCopiar`/`selecaoDentroDe`) e **no celular não havia
+  como marcar** — o toque longo abre o nosso menu em 450 ms e o arrasto
+  responde a mensagem, comendo justamente o gesto que o aparelho usa para
+  marcar texto. Agora o menu tem **"Selecionar texto"** (só no celular; no
+  computador é só arrastar o mouse): aquela bolha entra em modo de marcar
+  (gestos fora do caminho, `select-text`, anel amarelo) e uma barra própria
+  no rodapé oferece **Copiar trecho / Cancelar** — sem ela o dedo marcaria
+  o trecho e não haveria onde tocar, porque o menu já fechou. A barra é
+  elemento SOLTO de propósito: a ordem das barras do compositor é regra
+  (incidente 28/08/2026) e nada aqui encosta nela. A marcação é lida no
+  **pressionar** do botão, não no clique (nos DOIS botões) — encostar nele
+  tira o foco do texto e o navegador desfaz a marcação antes de o clique
+  chegar, e o trecho voltava a ser a mensagem inteira, que é justamente o
+  defeito relatado. **As DUAS pontas da marcação têm que estar dentro da
+  bolha**: olhando só a âncora, a marcação feita de baixo para cima era
+  recusada e a que escorrega para fora era aceita levando o texto da
+  mensagem vizinha — e o que sai daqui vai para o WhatsApp da cliente.
+  Escorregou, vale a mensagem inteira (falha segura). Abrir o menu de
+  qualquer mensagem **sai do modo**: a folha de ações sobe de baixo no
+  celular e a barra cobriria os últimos itens dela; com os dois ligados, a
+  âncora da marcação era uma bolha e o texto copiado era de outra (achados
+  da revisão). O aviso do rodapé diz o que FOI
+  para a área de transferência ("Trecho copiado" / "Mensagem copiada"):
+  sem ele a vendedora cola sem saber o que tem na mão. Trocar de conversa
+  sai do modo (a bolha marcada nem está mais na tela, e a barra esconderia
+  o compositor da conversa nova). **Com texto marcado, o CLIQUE DIREITO é
+  do NAVEGADOR** (`menuDoNavegador`, segundo relato do dono no mesmo dia:
+  *"quando clico com botão direito abre essas opções, e não aquela
+  tradicional de copiar"*): marcar um pedaço e apertar o botão direito é o
+  gesto que todo mundo já tem nos dedos, e sequestrá-lo obrigava a
+  vendedora a aprender o nosso menu no lugar do que ela conhece. A folha
+  de ações é o menu da MENSAGEM (responder, encaminhar, reagir, apagar) e
+  continua abrindo no clique direito da bolha SEM marcação; marcação em
+  outra bolha não tira o nosso menu daqui, e clicar sem arrastar também
+  não (senão a bolha ficaria sem menu nenhum),
   **encaminhar** para até `TETO_DESTINOS` conversas (`lib/encaminhar.ts`): os
   envios saem em FILA depois da resposta, com o ritmo anti-ban da RN-017 —
   em paralelo o ritmo não acontece, e esperar dentro do pedido estourava o
@@ -1705,6 +1744,60 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   confecção brasileira) é configurável por loja porque quem revende importado
   tem outro código; valor fora da tabela da Receita (0 a 8) cai no nacional em
   vez de ir torto para a nota.
+  **RN-058 · Nota RECUSADA volta a ter caminho — e AUTORIZADA nunca**
+  (`lib/nfe-situacao.ts`, 16/09/2026): relato do dono — *"uma nota foi
+  rejeitada, aí atualizei os dados com a inscrição estadual; como faço para
+  tentar reemitir?"*. **Não era falta de permissão**: o servidor já aceitava
+  (a trava de `emitirNfeDoPedido` deixa passar REJEITADA e CANCELADA, e a
+  própria mensagem de erro dele mandava *"clique em emitir de novo"*) — a
+  TELA é que mostrava o selo da nota **OU** o botão, nunca os dois. Beco sem
+  saída: a ficha anunciava o problema e escondia o conserto. A régua é a do
+  fisco: **AUTORIZADA nunca** (a nota vale, e outra seria nota em dobro — o
+  caminho é cancelar no Bling, com prazo curto); **REJEITADA e CANCELADA
+  sempre** (perante o fisco elas não existem e o pedido PRECISA de nota);
+  **EMITINDO e situação desconhecida** do Bling caem no lado seguro, porque
+  o estrago aqui é documento em dobro. **Uma régua só para as duas portas**:
+  a ficha do pedido e o Financeiro (RN-038), que mantinha conta própria
+  (`!== "AUTORIZADA"`) e por isso oferecia emitir com a nota EMITINDO.
+  **O caminho de ERRO é diferente e a tela DIZ**: `retomarNfeComErro`
+  **retransmite o rascunho que já está no Bling** (não faz PUT no payload),
+  então ele NÃO incorpora correção feita no cadastro depois — por isso
+  `remontaNota: false`, e a ficha não promete ali a natureza/NCM novos.
+  Prometer seria mentira sobre documento fiscal (achado da revisão): a
+  lojista cadastraria a IE, leria "vai sair como contribuinte" e a SEFAZ
+  autorizaria com os dados antigos. Quem corrigiu o cadastro passa por ele
+  assim mesmo — a retomada descobre que a anterior foi recusada, o pedido
+  volta a REJEITADA e AÍ a nota nasce do zero, com o cadastro de agora. O
+  aviso da RN-054/RN-055 acompanha o BOTÃO, não a ausência de nota: é na
+  reemissão que conferir a natureza importa mais, porque foi justamente
+  cadastrar a inscrição estadual que transformou a compradora em
+  contribuinte. E a ficha **recarrega mesmo quando a emissão falha**: a falha
+  também muda o status (REJEITADA vira ERRO com id novo; ERRO vira REJEITADA
+  com id nulo), e sem isso o clique seguinte fazia coisa diferente do que o
+  texto prometia.
+  **E a LISTA de pedidos mostra a nota** (`seloDaNota`/`precisaDeNota`,
+  16/09/2026): selo com o **número** da nota autorizada — *"uma caixa no canto
+  que diz NF e o número"* — e, em vermelho, a que deu errado. O número
+  autorizado é conferência; a **recusada é PROBLEMA** (pedido pago sem nota é
+  pendência fiscal) e só aparecia abrindo pedido por pedido: é onde o selo
+  vale mais. A recusada **nunca mostra o número** (ele existe no banco, mas
+  anunciá-lo faria a loja achar que tem nota), e pedido sem nota **não ganha
+  selo** — marcar ausência em 98 linhas polui a lista para não dizer nada.
+  O chip **"Falta nota"** é a fila: **pago (RN-001) e sem nota AUTORIZADA**;
+  orçamento e aguardando pagamento ficam fora (a emissão os recusa antes de
+  pago) e cancelado não precisa de nota. **EMITINDO fica DENTRO** de
+  propósito — tirá-la sumiria com a emissão travada, e pedido pago sem nota
+  escondido é pior que uma linha a mais. Só aparece para gerência (a régua da
+  ficha) **e com o Bling conectado**: sem ele a loja nunca emite e a fila
+  seria a lista inteira. A cláusula do banco mora **colada** na função pura
+  (`ONDE_FALTA_NOTA`), porque são duas escritas da mesma regra, e
+  `scripts/confere-fila-nota.ts` prova contra o Postgres que concordam nas 48
+  combinações. **O `OR` dela não é estilo**: `nfeStatus != 'AUTORIZADA'` NÃO
+  devolve quem está NULO em SQL — e nulo é quem nunca emitiu, a maioria da
+  fila; medido, ela mostrava 20 de 25 e escondia justamente esses. Com a fila
+  ligada, **TODAS as contagens da tela entram nela** (`comFila`, irmão do
+  `comCampanha`): o chip que somava a loja inteira dizia 58 e abria 2, e a
+  paginação prometia páginas vazias (achados da revisão).
   **RN-019 · Pacote por categoria e simulador de frete**
   (`lib/envios/pacote.ts` + `lib/envios/simulador.ts`): cada categoria guarda
   o peso e as **medidas de 1 peça dobrada**

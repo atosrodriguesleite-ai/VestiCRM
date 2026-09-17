@@ -47,6 +47,7 @@ import {
   Trash2,
   Pencil,
   MoreVertical,
+  TextCursorInput,
   Pin,
   Star,
   Ban,
@@ -56,7 +57,14 @@ import {
 } from "lucide-react";
 import { OrderComposer } from "@/components/order-composer";
 import { contadorAoMarcarNaoLida } from "@/lib/comm/fila";
-import { copiarTexto, legendaDaMidia, textoDaMensagem } from "@/lib/copiar";
+import {
+  copiarTexto,
+  legendaDaMidia,
+  menuDoNavegador,
+  selecaoDentroDe,
+  textoDaMensagem,
+  textoParaCopiar,
+} from "@/lib/copiar";
 import { ContactPanel } from "./contact-panel";
 import { SeletorDeEmoji } from "./seletor-de-emoji";
 import { orderNumber } from "@/lib/orders";
@@ -622,6 +630,47 @@ export function Inbox({
   const threadsCarregadas = useRef<Set<string>>(new Set());
   const [carregandoThread, setCarregandoThread] = useState(false);
   const [actionMsg, setActionMsg] = useState<InboxMessage | null>(null);
+  /** a bolha da mensagem aberta no menu — de onde a marcação tem que vir */
+  const bolhaDoMenuRef = useRef<HTMLDivElement | null>(null);
+  /**
+   * NO CELULAR, MARCAR TEXTO PRECISA DE UM MODO (relato do dono, 16/09/2026).
+   * Tocar e segurar a bolha abre o nosso menu em 450ms, e arrastar o dedo
+   * puxa a mensagem para responder: os dois gestos comem justamente o toque
+   * longo que o celular usa para marcar texto — não havia como selecionar um
+   * pedaço. Com "Selecionar texto" a bolha ENTRA nesse modo: os gestos saem
+   * do caminho naquela mensagem e o dedo marca como em qualquer texto.
+   */
+  const [selecionando, setSelecionando] = useState<InboxMessage | null>(null);
+  /**
+   * A MARCAÇÃO É LIDA NO *PRESSIONAR*, não no clique: encostar no botão
+   * ("Copiar trecho" ou "Copiar mensagem") tira o foco do texto e o
+   * navegador desfaz a marcação antes de o clique chegar — o trecho virava
+   * mensagem inteira, que é exatamente o defeito relatado.
+   */
+  const selecaoCapturada = useRef<{ texto: string; dentroDaBolha: boolean } | null>(
+    null
+  );
+  /**
+   * A bolha que vale para copiar é UMA só: o modo de marcar, se estiver
+   * ligado, senão a do menu aberto. Abrir o menu APAGA o modo (logo abaixo),
+   * então os dois nunca estão ligados ao mesmo tempo — com os dois, a âncora
+   * era uma bolha e o texto era de outra.
+   */
+  const alvoDaCopia = selecionando ?? actionMsg;
+  /**
+   * Abrir o menu de uma mensagem sai do modo de marcar: a folha de ações
+   * sobe de baixo no celular e a barra "Copiar trecho" cobriria os últimos
+   * itens dela, roubando os toques.
+   */
+  function abrirMenuDaMensagem(m: InboxMessage) {
+    setSelecionando(null);
+    setActionMsg(m);
+  }
+  /** marcação velha não vale para outra mensagem (pressionar e escorregar o
+      dedo para fora deixa o trecho guardado sem ninguém consumir) */
+  useEffect(() => {
+    selecaoCapturada.current = null;
+  }, [alvoDaCopia]);
   /**
    * HISTÓRICO ANTIGO.
    *
@@ -682,6 +731,14 @@ export function Inbox({
     const t = setTimeout(() => setAviso(null), 2200);
     return () => clearTimeout(t);
   }, [aviso]);
+  /**
+   * Trocar de conversa sai do modo de marcar texto: a bolha marcada nem
+   * está mais na tela, e a barra continuar ali esconderia o compositor da
+   * conversa nova.
+   */
+  useEffect(() => {
+    setSelecionando(null);
+  }, [selectedId]);
   // "responder": mensagem marcada para citação (prévia acima do compositor)
   const [replyMsg, setReplyMsg] = useState<InboxMessage | null>(null);
   // imagens COLADAS no campo (Ctrl+V do print): ficam presas na faixa acima
@@ -1737,7 +1794,7 @@ export function Inbox({
   // "pressionar e segurar" (celular) abre o menu de ações da mensagem
   function startLongPress(m: InboxMessage) {
     cancelLongPress();
-    lpTimerRef.current = setTimeout(() => setActionMsg(m), 450);
+    lpTimerRef.current = setTimeout(() => abrirMenuDaMensagem(m), 450);
   }
   function cancelLongPress() {
     if (lpTimerRef.current) {
@@ -2068,10 +2125,28 @@ export function Inbox({
    * acharia que o botão não funciona. É o mesmo comportamento do WhatsApp.
    */
   /** Copia o texto da mensagem (o da cliente também — pedido, chave Pix, endereço). */
-  async function copiarMensagem(texto: string) {
+  /**
+   * COPIA O TRECHO MARCADO, se houver — e só então a mensagem inteira
+   * (relato do dono, 16/09/2026: "quando clico em copiar, copia o texto
+   * completo"). A marcação é lida ANTES de fechar o menu: fechar primeiro
+   * tira o foco e o navegador pode limpá-la.
+   */
+  async function copiarMensagem(mensagemInteira: string) {
+    const selecao =
+      selecaoCapturada.current ?? selecaoDentroDe(bolhaDoMenuRef.current);
+    selecaoCapturada.current = null;
+    const texto = textoParaCopiar(mensagemInteira, selecao);
     const ok = await copiarTexto(texto);
+    const soUmTrecho = texto !== mensagemInteira;
     setActionMsg(null);
-    setAviso(ok ? "Mensagem copiada" : "Não consegui copiar nesse navegador");
+    setSelecionando(null);
+    setAviso(
+      ok
+        ? soUmTrecho
+          ? "Trecho copiado"
+          : "Mensagem copiada"
+        : "Não consegui copiar nesse navegador"
+    );
   }
 
   async function carregarAnteriores(convId: string) {
@@ -3739,6 +3814,9 @@ export function Inbox({
                 const mine = m.direction === "OUT";
                 const isTemp = m.id.startsWith("temp-");
                 const editando = editingMsgId === m.id;
+                // esta mensagem está em modo "marcar texto" (só no celular;
+                // no computador o texto já é selecionável o tempo todo)
+                const marcandoTexto = selecionando?.id === m.id;
                 // recibo curto e detalhado (horário de entregue/visto)
                 const reciboCurto = m.readAt
                   ? `Visto ${timeShort(m.readAt)}`
@@ -3766,7 +3844,7 @@ export function Inbox({
                     {/* ⋯ no desktop (hover); no celular é "segurar" a bolha */}
                     {!isTemp && !editando && (
                       <button
-                        onClick={() => setActionMsg(m)}
+                        onClick={() => abrirMenuDaMensagem(m)}
                         className={`hidden md:block self-center p-1 rounded-full text-gray-300 opacity-0 group-hover:opacity-100 hover:text-gray-500 hover:bg-gray-100 transition ${
                           // na mensagem da CLIENTE o ⋯ vai para depois da bolha
                           // (é dela que se copia pedido, chave Pix e endereço)
@@ -3778,8 +3856,11 @@ export function Inbox({
                       </button>
                     )}
                     <div
+                      // a bolha aberta no menu é a âncora da marcação: só o
+                      // trecho marcado DENTRO dela é copiado no lugar do todo
+                      ref={alvoDaCopia?.id === m.id ? bolhaDoMenuRef : undefined}
                       onTouchStart={
-                        !isTemp && !editando
+                        !isTemp && !editando && !marcandoTexto
                           ? (e) => {
                               startLongPress(m);
                               swipeStart(m, e);
@@ -3788,22 +3869,35 @@ export function Inbox({
                       }
                       onTouchEnd={() => {
                         cancelLongPress();
-                        swipeEnd();
+                        if (!marcandoTexto) swipeEnd();
                       }}
                       onTouchMove={(e) => {
                         // mover o dedo cancela o "segurar" (é rolagem ou arrasto)
                         cancelLongPress();
-                        if (!isTemp && !editando) swipeMove(m, e);
+                        if (!isTemp && !editando && !marcandoTexto) swipeMove(m, e);
                       }}
                       onContextMenu={
-                        !isTemp && !editando
+                        // em modo de marcar texto o clique direito sai do
+                        // caminho: no Android o próprio toque longo que marca
+                        // dispara `contextmenu`, e a folha de ações reabria
+                        // por cima da bolha, inutilizando o modo
+                        !isTemp && !editando && !marcandoTexto
                           ? (e) => {
+                              // com um trecho marcado aqui dentro, quem abre é
+                              // o NAVEGADOR: é dele que sai o "Copiar" de
+                              // sempre (`menuDoNavegador`)
+                              if (menuDoNavegador(selecaoDentroDe(e.currentTarget)))
+                                return;
                               e.preventDefault();
-                              setActionMsg(m);
+                              abrirMenuDaMensagem(m);
                             }
                           : undefined
                       }
-                      className={`relative max-w-[80%] touch-pan-y rounded-2xl px-3.5 py-2 text-sm shadow-sm transition-transform duration-100 ${
+                      className={`relative max-w-[80%] rounded-2xl px-3.5 py-2 text-sm shadow-sm transition-transform duration-100 ${
+                        // `touch-pan-y` deixa o gesto na nossa mão; em modo
+                        // seleção ele sai para o dedo poder arrastar as alças
+                        marcandoTexto ? "ring-2 ring-amber-400" : "touch-pan-y"
+                      } ${
                         mine
                           ? // SELECIONAR E COPIAR TAMBÉM O QUE A LOJA MANDOU
                             // (pedido do dono, 26/08/2026). A bolha da loja
@@ -3817,7 +3911,7 @@ export function Inbox({
                             // No celular a trava fica, e copiar continua indo
                             // pelo "Copiar mensagem" do menu da bolha.
                             `bg-brand-600 text-white rounded-br-md selection:bg-white/30 selection:text-white ${
-                              noComputador ? "select-text" : "select-none"
+                              noComputador || marcandoTexto ? "select-text" : "select-none"
                             }`
                           : "bg-white text-ink rounded-bl-md"
                       } ${m.revoked ? "opacity-90" : ""} ${
@@ -4037,7 +4131,7 @@ export function Inbox({
                       {(m.reaction || m.reactionStore) && !editando && (
                         <button
                           type="button"
-                          onClick={() => setActionMsg(m)}
+                          onClick={() => abrirMenuDaMensagem(m)}
                           title={
                             [
                               m.reaction ? `Cliente reagiu ${m.reaction}` : null,
@@ -4853,8 +4947,35 @@ export function Inbox({
       </Portal>
     )}
 
-    {/* folha de ações da mensagem (segurar no celular / ⋯ no computador):
-        sobe de baixo no celular, centralizada no computador — nunca corta */}
+    {/* MODO "MARCAR TEXTO" (celular): a barra é o único caminho de volta —
+        o menu já fechou quando a pessoa escolheu "Selecionar texto", então
+        sem ela o dedo marca o trecho e não há onde tocar. É um elemento
+        SOLTO, de propósito: a ordem das barras do compositor é regra
+        (incidente 28/08/2026) e nada aqui pode encostar nela. */}
+    {selecionando && !actionMsg && (
+      <div className="fixed inset-x-0 bottom-0 z-[65] border-t border-gray-200 bg-white px-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] pt-3 shadow-pop">
+        <p className="mb-2 text-center text-[12px] text-gray-500">
+          Marque o trecho com o dedo e toque em <b>Copiar trecho</b>
+        </p>
+        <div className="flex gap-2">
+          <button
+            onClick={() => setSelecionando(null)}
+            className="flex-1 rounded-xl border border-gray-200 py-2.5 text-[14px] font-semibold text-gray-600"
+          >
+            Cancelar
+          </button>
+          <button
+            onPointerDown={() => {
+              selecaoCapturada.current = selecaoDentroDe(bolhaDoMenuRef.current);
+            }}
+            onClick={() => copiarMensagem(textoDaMensagem(selecionando))}
+            className="flex-1 rounded-xl bg-ink py-2.5 text-[14px] font-semibold text-white"
+          >
+            Copiar trecho
+          </button>
+        </div>
+      </div>
+    )}
     {aviso && (
       <div
         role="status"
@@ -4865,6 +4986,8 @@ export function Inbox({
         </span>
       </div>
     )}
+    {/* folha de ações da mensagem (segurar no celular / ⋯ no computador):
+        sobe de baixo no celular, centralizada no computador — nunca corta */}
     {actionMsg && (
       <div
         className="fixed inset-0 z-50 flex items-end justify-center sm:items-center bg-black/40 animate-fade-in"
@@ -4935,10 +5058,37 @@ export function Inbox({
               copia pedido, chave Pix e endereço */}
           {textoDaMensagem(actionMsg) && (
             <button
+              // a marcação é lida aqui, no pressionar: o mousedown do próprio
+              // botão desfaz a seleção antes do clique, e no computador a
+              // cópia voltava a ser a mensagem inteira (o defeito relatado)
+              onPointerDown={() => {
+                selecaoCapturada.current = selecaoDentroDe(bolhaDoMenuRef.current);
+              }}
               onClick={() => copiarMensagem(textoDaMensagem(actionMsg))}
               className="w-full flex items-center gap-3 rounded-xl px-3 py-3 text-left text-sm text-gray-700 hover:bg-gray-50"
             >
-              <Copy className="size-4 text-gray-400" /> Copiar mensagem
+              <Copy className="size-4 text-gray-400" />
+              {/* o rótulo é fixo, mas o aviso do rodapé conta o que FOI
+                  copiado ("Trecho copiado" / "Mensagem copiada"): com um
+                  trecho marcado é ele que vai, e sem essa confirmação a
+                  vendedora colava sem saber o que tinha na mão */}
+              Copiar mensagem
+            </button>
+          )}
+          {/* SÓ NO CELULAR (relato do dono, 16/09/2026): ali o toque longo
+              abre este menu e o arrasto responde a mensagem, então o gesto de
+              marcar texto não tem vez. Este botão tira os dois do caminho
+              naquela bolha. No computador não aparece: lá é só arrastar o
+              mouse, e um item a mais no menu seria ruído. */}
+          {!noComputador && textoDaMensagem(actionMsg) && (
+            <button
+              onClick={() => {
+                setSelecionando(actionMsg);
+                setActionMsg(null);
+              }}
+              className="w-full flex items-center gap-3 rounded-xl px-3 py-3 text-left text-sm text-gray-700 hover:bg-gray-50"
+            >
+              <TextCursorInput className="size-4 text-gray-400" /> Selecionar texto
             </button>
           )}
           {/* SALVAR O ARQUIVO — foto, vídeo, áudio ou documento, tanto o que a

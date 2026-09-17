@@ -24,7 +24,13 @@ const inbox = readFileSync(
 
 describe("selecionar e copiar a mensagem que a LOJA mandou", () => {
   it("no computador o texto da própria bolha é selecionável", () => {
-    expect(inbox).toContain('noComputador ? "select-text" : "select-none"');
+    // a trava só pode existir ATRELADA ao celular: `select-none` fixo na
+    // bolha da loja leva a cópia embora de novo. A condição pode GANHAR
+    // casos (o modo de marcar texto do celular ganhou um em 16/09/2026) —
+    // o que não pode é deixar de olhar para o `noComputador`.
+    const trava = inbox.match(/\$\{[^}]*"select-text"[^}]*"select-none"[^}]*\}/);
+    expect(trava).not.toBeNull();
+    expect(trava![0]).toContain("noComputador");
   });
 
   it("a trava do arrasto continua valendo no celular", () => {

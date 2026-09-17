@@ -1,7 +1,11 @@
 import { describe, it, expect, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { copiarTexto, legendaDaMidia, textoDaMensagem } from "../copiar";
+import { copiarTexto, legendaDaMidia, textoDaMensagem,
+  textoParaCopiar,
+  selecaoDentroDe,
+  menuDoNavegador,
+} from "../copiar";
 
 /**
  * COPIAR MENSAGEM no chat.
@@ -131,6 +135,22 @@ describe("a opção no chat", () => {
   it("no celular o caminho é segurar a bolha (já existia)", () => {
     expect(inbox).toContain("startLongPress");
   });
+
+  /**
+   * MARCAR UM TRECHO NO CELULAR (relato do dono, 16/09/2026).
+   *
+   * O toque longo abre o NOSSO menu e o arrasto responde a mensagem: os dois
+   * gestos comem justamente o toque longo que o celular usa para marcar
+   * texto. O modo tira os gestos do caminho — e precisa de VOLTA: o menu já
+   * fechou, então sem a barra de confirmação o dedo marca o trecho e não há
+   * onde tocar. As três frases são o que a vendedora VÊ; se alguma sumir, o
+   * caminho quebrou no meio.
+   */
+  it("no celular dá para marcar um trecho e copiar só ele", () => {
+    expect(inbox).toContain("Selecionar texto");
+    expect(inbox).toContain("Copiar trecho");
+    expect(inbox).toContain("Trecho copiado");
+  });
 });
 
 describe("legenda da foto (Toque Leve, 31/07/2026)", () => {
@@ -183,5 +203,124 @@ describe("a tela desenha a legenda", () => {
     expect(tela).not.toContain(
       '{(m.mediaType === "TEXT" || m.mediaType === "TEMPLATE") && (\n                            <p'
     );
+  });
+});
+
+describe("copiar SÓ o trecho marcado (relato do dono, 16/09/2026)", () => {
+  const MSG = "Oi! O Pix é 33999887766 e o endereço é Rua A, 100 — Centro";
+
+  it("com trecho marcado DENTRO da bolha, copia só ele", () => {
+    expect(
+      textoParaCopiar(MSG, { texto: "33999887766", dentroDaBolha: true })
+    ).toBe("33999887766");
+  });
+
+  it("sem marcação nenhuma, copia a mensagem inteira (como sempre)", () => {
+    expect(textoParaCopiar(MSG, null)).toBe(MSG);
+  });
+
+  it("marcação em OUTRA bolha não vale — copiaria o pedaço errado", () => {
+    // o que sai daqui vai para o WhatsApp da cliente: um Pix pela metade, ou
+    // o endereço de outra pessoa
+    expect(
+      textoParaCopiar(MSG, { texto: "Rua B, 200", dentroDaBolha: false })
+    ).toBe(MSG);
+  });
+
+  it("marcação VAZIA não conta (clicar sem arrastar)", () => {
+    // copiar "" faria o botão piscar "copiado" e o colar vir vazio
+    expect(textoParaCopiar(MSG, { texto: "   ", dentroDaBolha: true })).toBe(MSG);
+    expect(textoParaCopiar(MSG, { texto: "", dentroDaBolha: true })).toBe(MSG);
+  });
+
+  it("o trecho vem sem sobra nas pontas", () => {
+    expect(
+      textoParaCopiar(MSG, { texto: "  33999887766 \n", dentroDaBolha: true })
+    ).toBe("33999887766");
+  });
+});
+
+/**
+ * CLIQUE DIREITO COM TEXTO MARCADO (relato do dono, 16/09/2026): *"quando
+ * clico com botão direito abre essas opções, e não aquela tradicional de
+ * copiar"*. O gesto de marcar e apertar o botão direito é o que todo mundo
+ * já tem nos dedos — sequestrá-lo obriga a vendedora a aprender o nosso menu
+ * no lugar do que ela conhece.
+ */
+describe("quem abre no clique direito", () => {
+  it("com trecho marcado na bolha, o menu é o do NAVEGADOR", () => {
+    expect(menuDoNavegador({ texto: "Rua B, 200", dentroDaBolha: true })).toBe(true);
+  });
+
+  it("sem marcação nenhuma, o menu é o NOSSO (responder, encaminhar, reagir)", () => {
+    expect(menuDoNavegador(null)).toBe(false);
+  });
+
+  it("clicar sem arrastar não conta como marcação", () => {
+    // deixaria a bolha sem menu nenhum no clique direito
+    expect(menuDoNavegador({ texto: "  ", dentroDaBolha: true })).toBe(false);
+  });
+
+  it("marcação em OUTRA bolha não tira o nosso menu daqui", () => {
+    expect(menuDoNavegador({ texto: "chave Pix", dentroDaBolha: false })).toBe(false);
+  });
+});
+
+describe("de onde veio a marcação", () => {
+  /** `ancora` é onde o dedo encostou; `foco` é onde ele soltou. */
+  const selecaoFalsa = (texto: string, no: unknown, foco: unknown = no) => ({
+    getSelection: () =>
+      ({
+        rangeCount: texto ? 1 : 0,
+        toString: () => texto,
+        anchorNode: no,
+        focusNode: foco,
+      }) as unknown as Selection,
+  });
+
+  it("reconhece a marcação feita dentro do elemento", () => {
+    const filho = {};
+    const bolha = { contains: (n: unknown) => n === filho } as unknown as Element;
+    expect(selecaoDentroDe(bolha, selecaoFalsa("Pix", filho))).toEqual({
+      texto: "Pix",
+      dentroDaBolha: true,
+    });
+  });
+
+  it("marcação de fora é reconhecida como de fora", () => {
+    const bolha = { contains: () => false } as unknown as Element;
+    expect(selecaoDentroDe(bolha, selecaoFalsa("outra coisa", {}))?.dentroDaBolha).toBe(
+      false
+    );
+  });
+
+  it("marcada de baixo para cima também vale", () => {
+    // a âncora fica no FIM do trecho; olhando só ela, a marcação legítima
+    // era recusada e o botão copiava a mensagem inteira
+    const inicio = {};
+    const fim = {};
+    const bolha = {
+      contains: (n: unknown) => n === inicio || n === fim,
+    } as unknown as Element;
+    expect(
+      selecaoDentroDe(bolha, selecaoFalsa("chave Pix", fim, inicio))?.dentroDaBolha
+    ).toBe(true);
+  });
+
+  it("marcação que ESCORREGA para fora da bolha não vale", () => {
+    // arrastar passando da borda leva junto o texto da mensagem vizinha —
+    // e o que sai daqui vai para o WhatsApp da cliente
+    const dentro = {};
+    const bolha = { contains: (n: unknown) => n === dentro } as unknown as Element;
+    expect(
+      selecaoDentroDe(bolha, selecaoFalsa("Pix… e mais", dentro, {}))?.dentroDaBolha
+    ).toBe(false);
+  });
+
+  it("sem marcação devolve nulo", () => {
+    const bolha = { contains: () => true } as unknown as Element;
+    expect(selecaoDentroDe(bolha, selecaoFalsa("", null))).toBeNull();
+    expect(selecaoDentroDe(bolha, selecaoFalsa("   ", {}))).toBeNull();
+    expect(selecaoDentroDe(bolha, {})).toBeNull();
   });
 });
