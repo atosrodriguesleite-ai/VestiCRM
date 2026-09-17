@@ -1,12 +1,13 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { registrarPrimeiraConexao } from "@/lib/comm/primeira-conexao";
-import { garantirEventosDoWebhook } from "@/lib/comm/garantir-webhook";
+import { garantirEventosDoWebhook, motivoDaUltimaFalha } from "@/lib/comm/garantir-webhook";
 import { requireUser, AuthError } from "@/lib/auth";
 import { isAdmin } from "@/lib/scope";
 import {
   evolutionEnv,
   evoState,
+  evoVersao,
   jidToPhone,
   TERMO_WA_TEXTO,
   TERMO_WA_VERSAO,
@@ -34,8 +35,13 @@ export async function GET() {
     // com instância criada, confere o estado real no servidor e sincroniza
     let status = settings?.evolutionStatus ?? "DESCONECTADO";
     let phone = settings?.evolutionPhone ?? null;
+    // a tela de conexão DIZ se o servidor aceitou a lista atual de eventos
+    // (edição/apagar de mensagem dependem disso) e qual versão está instalada
+    let eventos: { emDia: boolean; erro: string | null } | null = null;
+    let servidorVersao: string | null = null;
     if (settings?.evolutionInstance && evolutionEnv().configured) {
-      const st = await evoState(settings.evolutionInstance);
+      const [st, versao] = await Promise.all([evoState(settings.evolutionInstance), evoVersao()]);
+      servidorVersao = versao;
       const state = st.data?.instance?.state;
       if (state === "open") {
         status = "CONECTADO";
@@ -44,7 +50,13 @@ export async function GET() {
         // (ex.: "cliente apagou", "editou") mesmo tendo sido criada antes —
         // best-effort, SEMPRE (a tela de conexão é o lugar de conferir de
         // verdade), e carimba a lista confirmada
-        await garantirEventosDoWebhook(settings, { sempre: true }).catch(() => {});
+        const assinatura = await garantirEventosDoWebhook(settings, { sempre: true }).catch(
+          () => "falhou" as const
+        );
+        eventos = {
+          emDia: assinatura === "reassinada" || assinatura === "em-dia",
+          erro: assinatura === "falhou" ? motivoDaUltimaFalha(settings.evolutionInstance) : null,
+        };
       } else if (state === "connecting") status = "AGUARDANDO_QR";
       else if (state === "close") status = "DESCONECTADO";
       // auto-correção: conectado de verdade ⇒ provedor ativo é o Evolution
@@ -77,6 +89,8 @@ export async function GET() {
       termo: consent ? null : { texto: TERMO_WA_TEXTO, versao: TERMO_WA_VERSAO },
       status,
       phone,
+      eventos,
+      servidorVersao,
       activeProvider: settings?.activeProvider ?? "MOCK",
       limites: {
         janelaHoras: WA_JANELA_HORAS,

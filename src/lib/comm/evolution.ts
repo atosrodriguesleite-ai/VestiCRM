@@ -278,6 +278,17 @@ export async function evoConnect(instance: string) {
   return evo<{ base64?: string; code?: string }>("GET", `/instance/connect/${instance}`);
 }
 
+/**
+ * Versão do servidor Evolution (a raiz responde `{ version }`). Serve para a
+ * tela de conexão DIZER qual versão está instalada — o evento de mensagem
+ * editada só existe a partir da 2.2, e sem saber a versão a investigação
+ * vira chute (17/09/2026).
+ */
+export async function evoVersao(): Promise<string | null> {
+  const r = await evo<{ version?: string }>("GET", "/", undefined, EVO_BUSCA_RAPIDA_MS);
+  return r.ok && typeof r.data?.version === "string" ? r.data.version : null;
+}
+
 /** Estado atual da conexão: open | connecting | close. */
 export async function evoState(instance: string) {
   return evo<{ instance?: { state?: string; ownerJid?: string } }>(

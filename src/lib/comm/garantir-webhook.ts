@@ -35,9 +35,42 @@ export function precisaReassinar(s: AssinaturaDaLoja): boolean {
   return s.evolutionWebhookEventos !== WEBHOOK_EVENTOS_ATUAIS;
 }
 
-// freio: instância → quando foi a última tentativa que FALHOU
-const ultimaFalha = new Map<string, number>();
+// freio: instância → quando foi a última tentativa que FALHOU, e por quê
+const ultimaFalha = new Map<string, { em: number; motivo: string }>();
 export const MS_FREIO_APOS_FALHA = 10 * 60 * 1000;
+
+/** O motivo da última recusa do servidor (para a tela de conexão dizer). */
+export function motivoDaUltimaFalha(instance: string | null): string | null {
+  return (instance && ultimaFalha.get(instance)?.motivo) || null;
+}
+
+function descreverRecusa(r: { status: number; data: unknown; incerto?: boolean }): string {
+  if (r.incerto) return "o servidor demorou demais para responder";
+  if (r.status === 0) return "não deu para falar com o servidor";
+  const corpo = r.data ? JSON.stringify(r.data).slice(0, 300) : "";
+  return `o servidor respondeu ${r.status}${corpo ? `: ${corpo}` : ""}`;
+}
+
+/**
+ * Recusa NÃO fica calada: vai para a Central de Comunicação com a resposta
+ * crua do servidor (é o que diz, por exemplo, que a versão instalada não
+ * conhece o evento) — uma vez por rodada de freio, nunca a cada mensagem.
+ */
+async function registrarRecusa(s: AssinaturaDaLoja, motivo: string) {
+  await db.commEvent
+    .create({
+      data: {
+        companyId: s.companyId,
+        channel: "WHATSAPP",
+        direction: "OUT",
+        type: "wa.webhook.assinatura-recusada",
+        status: "ERRO",
+        error: `O servidor do WhatsApp recusou a assinatura dos eventos atuais (${motivo}). Sem ela, edição e apagar de mensagem podem não chegar à Central.`,
+        payload: JSON.stringify({ instance: s.evolutionInstance, eventos: WEBHOOK_EVENTOS_ATUAIS }),
+      },
+    })
+    .catch(() => {});
+}
 
 export type ResultadoDaAssinatura = "em-dia" | "reassinada" | "falhou" | "sem-instancia" | "em-freio";
 
@@ -50,13 +83,15 @@ export async function garantirEventosDoWebhook(
   if (!opts.sempre && !precisaReassinar(s)) return "em-dia";
   const agora = opts.agora ?? Date.now();
   const falhouHaPouco = ultimaFalha.get(s.evolutionInstance);
-  if (!opts.sempre && falhouHaPouco && agora - falhouHaPouco < MS_FREIO_APOS_FALHA) {
+  if (!opts.sempre && falhouHaPouco && agora - falhouHaPouco.em < MS_FREIO_APOS_FALHA) {
     return "em-freio";
   }
   try {
     const r = await evoSetWebhook(s.evolutionInstance, s.evolutionWebhookToken);
     if (!r.ok) {
-      ultimaFalha.set(s.evolutionInstance, agora);
+      const motivo = descreverRecusa(r);
+      ultimaFalha.set(s.evolutionInstance, { em: agora, motivo });
+      await registrarRecusa(s, motivo);
       return "falhou";
     }
     ultimaFalha.delete(s.evolutionInstance);
@@ -67,8 +102,10 @@ export async function garantirEventosDoWebhook(
       data: { evolutionWebhookEventos: WEBHOOK_EVENTOS_ATUAIS },
     });
     return "reassinada";
-  } catch {
-    ultimaFalha.set(s.evolutionInstance, agora);
+  } catch (e) {
+    const motivo = `erro inesperado: ${e instanceof Error ? e.message : String(e)}`;
+    ultimaFalha.set(s.evolutionInstance, { em: agora, motivo });
+    await registrarRecusa(s, motivo);
     return "falhou";
   }
 }

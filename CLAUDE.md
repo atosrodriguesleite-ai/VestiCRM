@@ -779,7 +779,12 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   mais. O carimbo `CommSettings.evolutionWebhookEventos` guarda a lista que o
   servidor CONFIRMOU; diferente da atual, reassina de carona (no webhook,
   depois da resposta; no vigia; na tela de conexão) e carimba — uma vez por
-  loja, com freio de 10 min após falha; nunca um 3º cron (ADR-002), mensagens
+  loja, com freio de 10 min após falha; nunca um 3º cron (ADR-002). **Recusa
+  do servidor NÃO fica calada**: vai para a Central de Comunicação
+  (`wa.webhook.assinatura-recusada`, com a resposta crua) e a tela de conexão
+  diz se os avisos estão em dia e a **versão do servidor** (`evoVersao`) — o
+  evento de edição só existe a partir da Evolution 2.2, e sem a versão na
+  tela a investigação vira chute, mensagens
   automáticas personalizáveis (link do catálogo e confirmação de pedido, em
   `CommSettings`), unificação de contatos duplicados, importação de
   histórico de 30 dias (depende do servidor Evolution guardar histórico),

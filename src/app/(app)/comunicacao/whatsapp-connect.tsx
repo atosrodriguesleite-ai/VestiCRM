@@ -25,6 +25,9 @@ type Estado = {
   termo: { texto: string; versao: string } | null;
   status: "DESCONECTADO" | "AGUARDANDO_QR" | "CONECTADO";
   phone: string | null;
+  // o servidor aceitou a lista ATUAL de eventos? (edição/apagar dependem dela)
+  eventos?: { emDia: boolean; erro: string | null } | null;
+  servidorVersao?: string | null;
   limites: { janelaHoras: number; ritmoMinSeg: number; ritmoMaxSeg: number; enviadosHoje: number };
 };
 
@@ -181,7 +184,17 @@ export function WhatsappConnect({ canEdit }: { canEdit: boolean }) {
             {estado.limites.ritmoMinSeg}–{estado.limites.ritmoMaxSeg}s (protege
             o número, sem travar o atendimento) · termo aceito por{" "}
             {estado.consent.userName}
+            {estado.servidorVersao ? ` · servidor v${estado.servidorVersao}` : ""}
           </p>
+          {estado.eventos && (
+            <p
+              className={`w-full text-xs ${estado.eventos.emDia ? "text-emerald-700" : "text-rose-600"}`}
+            >
+              {estado.eventos.emDia
+                ? "✅ Avisos do WhatsApp em dia: mensagem editada e apagada pela cliente chegam na Central."
+                : `⚠️ O servidor do WhatsApp recusou a lista atual de avisos (${estado.eventos.erro ?? "sem detalhe"}). Mensagem editada pela cliente pode não atualizar na Central até isso ser resolvido.`}
+            </p>
+          )}
           {canEdit && (
             <button
               onClick={desconectar}

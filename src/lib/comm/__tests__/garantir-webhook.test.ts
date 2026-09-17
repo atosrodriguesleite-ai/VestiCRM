@@ -21,11 +21,12 @@ vi.mock("../evolution", () => ({
   evoSetWebhook: async (instance: string) => {
     chamadasSet.push(instance);
     if (respostaDoServidor.status === -1) throw new Error("rede");
-    return { ...respostaDoServidor, data: null };
+    return { ...respostaDoServidor, data: respostaDoServidor.ok ? null : { message: "evento desconhecido" } };
   },
 }));
 
 const carimbos: { where: unknown; data: unknown }[] = [];
+const recusas: { type: string; error: string }[] = [];
 vi.mock("../../db", () => ({
   db: {
     commSettings: {
@@ -34,12 +35,19 @@ vi.mock("../../db", () => ({
         return { count: 1 };
       },
     },
+    commEvent: {
+      create: async ({ data }: { data: { type: string; error: string } }) => {
+        recusas.push(data);
+        return data;
+      },
+    },
   },
 }));
 
 import {
   garantirEventosDoWebhook,
   precisaReassinar,
+  motivoDaUltimaFalha,
   MS_FREIO_APOS_FALHA,
   _zerarFreioDeAssinatura,
 } from "../garantir-webhook";
@@ -54,6 +62,7 @@ const loja = (eventos: string | null) => ({
 beforeEach(() => {
   chamadasSet.length = 0;
   carimbos.length = 0;
+  recusas.length = 0;
   respostaDoServidor = { ok: true, status: 200 };
   _zerarFreioDeAssinatura();
 });
@@ -93,10 +102,19 @@ describe("garantirEventosDoWebhook", () => {
     expect(chamadasSet).toEqual(["ap_loja1"]);
   });
 
-  it("servidor recusou: NÃO carimba (a próxima batida tenta de novo)", async () => {
-    respostaDoServidor = { ok: false, status: 500 };
+  it("servidor recusou: NÃO carimba (a próxima batida tenta de novo) e a recusa FICA REGISTRADA", async () => {
+    respostaDoServidor = { ok: false, status: 400 };
     expect(await garantirEventosDoWebhook(loja("A,B"))).toBe("falhou");
     expect(carimbos).toEqual([]);
+    // recusa calada era o buraco: a Central de Comunicação diz o motivo
+    expect(recusas).toHaveLength(1);
+    expect(recusas[0].type).toBe("wa.webhook.assinatura-recusada");
+    expect(recusas[0].error).toContain("respondeu 400");
+    expect(recusas[0].error).toContain("evento desconhecido");
+    expect(motivoDaUltimaFalha("ap_loja1")).toContain("respondeu 400");
+    // em freio, não registra de novo (uma vez por rodada)
+    expect(await garantirEventosDoWebhook(loja("A,B"))).toBe("em-freio");
+    expect(recusas).toHaveLength(1);
   });
 
   it("rede caiu: não lança, não carimba", async () => {
