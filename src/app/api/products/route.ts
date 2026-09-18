@@ -22,6 +22,7 @@ const createSchema = z.object({
   brand: z.string().optional(),
   collection: z.string().optional(),
   description: z.string().optional(),
+  composition: z.string().trim().max(300).optional(),
   videoUrl: z.string().optional(),
   costPrice: z.number().nonnegative().default(0),
   wholesalePrice: z.number().nonnegative().default(0),

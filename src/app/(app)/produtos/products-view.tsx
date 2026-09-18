@@ -48,6 +48,8 @@ export type ProductItem = {
   brand: string | null;
   collection: string | null;
   description: string | null;
+  /** composição (tecido) da peça — vazio usa a da categoria (etiqueta de composição, RN-059) */
+  composition: string | null;
   costPrice: number;
   wholesalePrice: number;
   retailPrice: number;
@@ -826,6 +828,7 @@ function ProductDetailModal({
     brand: product.brand ?? "",
     collection: product.collection ?? "",
     description: product.description ?? "",
+    composition: product.composition ?? "",
     costPrice: String(product.costPrice).replace(".", ","),
     wholesalePrice: String(product.wholesalePrice).replace(".", ","),
     retailPrice: String(product.retailPrice).replace(".", ","),
@@ -937,6 +940,7 @@ function ProductDetailModal({
         brand: form.brand || null,
         collection: form.collection || null,
         description: form.description || null,
+        composition: form.composition || null,
         costPrice: num(form.costPrice),
         // RN-056: preço de dono externo não viaja — o servidor recusaria
         // (e mandar o carregado faria a ficha ser recusada se a loja online
@@ -1202,6 +1206,15 @@ function ProductDetailModal({
                 rows={3}
                 className={input}
                 placeholder="Ex.: Poliamida premium • Zero transparência • Toque macio"
+              />
+            </div>
+            <div>
+              <label className={label}>Composição (tecido, para a etiqueta)</label>
+              <input
+                value={form.composition}
+                onChange={set("composition")}
+                className={input}
+                placeholder="Em branco usa a composição da categoria (Etiquetas → Modelos)"
               />
             </div>
             <div className="grid grid-cols-3 gap-3">

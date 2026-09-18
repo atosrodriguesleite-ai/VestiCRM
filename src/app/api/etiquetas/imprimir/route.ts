@@ -2,8 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { AuthError } from "@/lib/auth";
 import { porteiraEtiquetas } from "@/lib/etiquetas/gate";
-import { dadosParaImprimir, TETO_ETIQUETAS_POR_LOTE } from "@/lib/etiquetas/imprimir";
-import { modeloPadraoDaLoja } from "@/lib/etiquetas/modelos";
+import { orderScope } from "@/lib/scope";
+import { dadosDeEnvioDoPedido, dadosParaImprimir, TETO_ETIQUETAS_POR_LOTE } from "@/lib/etiquetas/imprimir";
+import { modeloDaLoja, modeloPadraoDaLoja } from "@/lib/etiquetas/modelos";
 import { pdfDoLote } from "@/lib/etiquetas/pdf";
 import { zplDoLote } from "@/lib/etiquetas/zpl";
 
@@ -16,6 +17,11 @@ import { zplDoLote } from "@/lib/etiquetas/zpl";
  */
 const schema = z.object({
   formato: z.enum(["pdf", "zpl"]),
+  /** qual modelo (ausente = o padrão de embalagem da loja) */
+  modeloId: z.string().min(1).optional(),
+  /** etiqueta de ENVIO: o pedido, e `copias` = quantas etiquetas do pacote */
+  orderId: z.string().min(1).optional(),
+  copias: z.number().int().min(1).max(50).optional(),
   itens: z
     .array(
       z.object({
@@ -23,8 +29,8 @@ const schema = z.object({
         quantidade: z.number().int().min(0).max(TETO_ETIQUETAS_POR_LOTE),
       })
     )
-    .min(1)
-    .max(2000),
+    .max(2000)
+    .optional(),
 });
 
 export async function POST(req: NextRequest) {
@@ -38,12 +44,27 @@ export async function POST(req: NextRequest) {
         { status: 400 }
       );
     }
-    const { formato, itens } = parsed.data;
-    const dados = await dadosParaImprimir(porta.user.companyId, itens);
+    const { formato, itens, modeloId, orderId, copias } = parsed.data;
+    // o modelo: o pedido explicitamente, senão o padrão de embalagem
+    const escolhido = modeloId ? await modeloDaLoja(porta.user.companyId, modeloId) : null;
+    if (modeloId && !escolhido) return NextResponse.json({ error: "Modelo de etiqueta não encontrado." }, { status: 404 });
+    const tipo = escolhido?.tipo ?? "EMBALAGEM";
+    const modelo = escolhido?.modelo ?? (await modeloPadraoDaLoja(porta.user.companyId)).modelo;
+
+    let dados: Awaited<ReturnType<typeof dadosParaImprimir>>;
+    if (tipo === "ENVIO") {
+      // etiqueta do PACOTE: uma por pedido (× cópias), com os dados da ficha
+      if (!orderId) return NextResponse.json({ error: "A etiqueta de envio precisa de um pedido." }, { status: 400 });
+      const envio = await dadosDeEnvioDoPedido(porta.user.companyId, orderId, orderScope(porta.user));
+      if (!envio.ok) return NextResponse.json({ error: envio.erro }, { status: 404 });
+      dados = { ok: true, lote: [{ dados: envio.dados, quantidade: copias ?? 1 }], total: copias ?? 1 };
+    } else {
+      if (!itens || itens.length === 0) return NextResponse.json({ error: "Escolha ao menos uma peça." }, { status: 400 });
+      dados = await dadosParaImprimir(porta.user.companyId, itens);
+    }
     if (!dados.ok) {
       return NextResponse.json({ error: dados.erro, faltando: dados.faltando ?? [] }, { status: 400 });
     }
-    const { modelo } = await modeloPadraoDaLoja(porta.user.companyId);
 
     if (formato === "zpl") {
       const zpl = zplDoLote(modelo, dados.lote);

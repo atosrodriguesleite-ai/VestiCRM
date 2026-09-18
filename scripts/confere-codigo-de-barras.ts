@@ -8,7 +8,7 @@
 import { db } from "@/lib/db";
 import { ean13Interno, ean13Valido } from "@/lib/etiquetas/ean13";
 import { dadosParaImprimir } from "@/lib/etiquetas/imprimir";
-import { modeloPadraoDaLoja, salvarOpcoesDoPadrao } from "@/lib/etiquetas/modelos";
+import { modeloPadraoDaLoja, salvarModelo, listarModelos, criarModelo, definirPadrao, arquivarModelo } from "@/lib/etiquetas/modelos";
 import { pdfDoLote } from "@/lib/etiquetas/pdf";
 import { zplDoLote } from "@/lib/etiquetas/zpl";
 import { PDFDocument } from "pdf-lib";
@@ -29,6 +29,7 @@ async function main() {
   // 2) toda variação nasce com código, por qualquer caminho (create aninhado, upsert, createMany)
   const tag = `cb-${Date.now()}`;
   const co = await db.company.create({ data: { name: tag, slug: tag, etiquetasEnabled: true } });
+  await db.composicaoCategoria.create({ data: { companyId: co.id, category: "Regata", composition: "8% elastano, 92% poliamida" } });
   const p = await db.product.create({
     data: {
       companyId: co.id, name: "Regata Nadador", sku: `RN-${tag}`, category: "Regata", wholesalePrice: 39.9, retailPrice: 79.9,
@@ -68,14 +69,25 @@ async function main() {
   const m1 = await modeloPadraoDaLoja(co.id);
   const m2 = await modeloPadraoDaLoja(co.id);
   check("o modelo padrão nasce uma vez só (idempotente)", m1.id === m2.id && m1.opcoes.larguraMm === 50);
-  const novo = await salvarOpcoesDoPadrao(co.id, { larguraMm: 40, alturaMm: 25, colunas: 2, espacoMm: 2, girar: "auto", mostrarLoja: false, mostrarSku: true, preco: "atacado" });
+  const salvo = await salvarModelo(co.id, m1.id, { larguraMm: 40, alturaMm: 25, colunas: 2, espacoMm: 2, girada: false });
   const m3 = await modeloPadraoDaLoja(co.id);
-  check("salvar opções muda o modelo padrão da loja", novo.larguraMm === 40 && m3.opcoes.alturaMm === 25 && m3.opcoes.preco === "atacado");
+  check("salvar o modelo muda o padrão da loja (tamanho e colunas)", !!salvo && m3.modelo.larguraMm === 40 && m3.modelo.colunas === 2);
+  const lista = await listarModelos(co.id);
+  check("a lista traz os três padrões (embalagem, composição, envio)", ["EMBALAGEM", "COMPOSICAO", "ENVIO"].every((t) => lista.some((l) => l.tipo === t && l.padrao)));
+  const copia = await criarModelo(co.id, { nome: "Cópia", tipo: "EMBALAGEM", copiarDe: m1.id });
+  check("copiar um modelo leva o desenho congelado (editado = true)", copia.editado && copia.larguraMm === 40);
+  check("definir a cópia como padrão troca o padrão do tipo", (await definirPadrao(co.id, copia.id)) && (await modeloPadraoDaLoja(co.id)).id === copia.id);
+  const arq = await arquivarModelo(co.id, copia.id);
+  check("o padrão do tipo NÃO se arquiva", !arq.ok);
+  await definirPadrao(co.id, m1.id);
+  check("depois de trocar o padrão, a cópia arquiva e some da lista", (await arquivarModelo(co.id, copia.id)).ok && !(await listarModelos(co.id)).some((l) => l.id === copia.id));
+  check("modelo de OUTRA loja não abre (RN-013)", (await salvarModelo(outra.id, m1.id, { nome: "x" })) === null);
 
   if (ok.ok) {
     const pdf = await PDFDocument.load(await pdfDoLote(m3.modelo, ok.lote));
     // 2 colunas: 2 etiquetas por página → metade das páginas
     check("PDF: uma página por LINHA do rolo (2 colunas × 2 de cada variação)", pdf.getPageCount() === Math.ceil((todas.length * 2) / 2));
+    check("a composição da categoria entra na etiqueta quando a peça não tem a dela", ok.lote[0].dados.composicao === "8% elastano, 92% poliamida");
     const zpl = zplDoLote(m3.modelo, ok.lote);
     check("ZPL: cada EAN aparece e as linhas iguais viram ^PQ", todas.every((v) => zpl.includes(`^FD${v.barcode!.slice(0, 12)}^FS`)) && zpl.includes("^PQ1"));
   }

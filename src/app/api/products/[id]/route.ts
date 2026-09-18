@@ -16,6 +16,8 @@ const patchSchema = z.object({
   brand: z.string().nullable().optional(),
   collection: z.string().nullable().optional(),
   description: z.string().nullable().optional(),
+  // composição (tecido) para a etiqueta de composição (RN-059); vazio = a da categoria
+  composition: z.string().trim().max(300).nullable().optional(),
   videoUrl: z.string().nullable().optional(),
   costPrice: z.number().nonnegative().optional(),
   wholesalePrice: z.number().nonnegative().optional(),

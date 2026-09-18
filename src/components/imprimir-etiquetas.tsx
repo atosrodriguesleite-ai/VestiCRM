@@ -33,10 +33,16 @@ export type ItemParaEtiqueta = {
 export function ImprimirEtiquetas({
   titulo,
   itens,
+  modeloId,
+  envio,
   onClose,
 }: {
   titulo: string;
   itens: ItemParaEtiqueta[];
+  /** qual modelo (ausente = o padrão de embalagem da loja) */
+  modeloId?: string;
+  /** etiqueta de ENVIO: o pedido; a lista de peças não se aplica, só as cópias */
+  envio?: { orderId: string };
   onClose: () => void;
 }) {
   // a sugestão respeita o teto por linha: estoque de 600 abria com 600 e o
@@ -64,9 +70,10 @@ export function ImprimirEtiquetas({
   }, []);
 
   const mult = Math.max(1, Math.min(TETO_POR_LINHA, Math.floor(repetir) || 1));
+  const [copiasEnvio, setCopiasEnvio] = useState(1);
   const total = useMemo(
-    () => Object.values(qtd).reduce((s, n) => s + (n || 0), 0) * mult,
-    [qtd, mult]
+    () => (envio ? copiasEnvio : Object.values(qtd).reduce((s, n) => s + (n || 0), 0) * mult),
+    [qtd, mult, envio, copiasEnvio]
   );
   const linhaEstourada = useMemo(
     () => Object.values(qtd).some((n) => (n || 0) * mult > TETO_POR_LINHA),
@@ -87,7 +94,11 @@ export function ImprimirEtiquetas({
     const r = await fetch("/api/etiquetas/imprimir", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ formato, itens: lote() }),
+      body: JSON.stringify(
+        envio
+          ? { formato, modeloId, orderId: envio.orderId, copias: copiasEnvio }
+          : { formato, modeloId, itens: lote() }
+      ),
     });
     if (!r.ok) {
       const d = await r.json().catch(() => null);
@@ -187,6 +198,20 @@ export function ImprimirEtiquetas({
             </button>
           </div>
 
+          {envio ? (
+            <label className="flex items-center gap-2 text-sm text-gray-700 mb-3">
+              Etiquetas do pacote:
+              <input
+                type="number"
+                min={1}
+                max={50}
+                inputMode="numeric"
+                value={copiasEnvio}
+                onChange={(e) => setCopiasEnvio(Math.max(1, Math.min(50, Math.floor(Number(e.target.value) || 1))))}
+                className="w-16 rounded-lg border border-gray-200 px-2 py-1 text-sm text-right tabular-nums outline-none focus:border-brand-400"
+              />
+            </label>
+          ) : (
           <div className="max-h-64 overflow-y-auto thin-scroll rounded-xl border border-gray-100 divide-y divide-gray-50 mb-3">
             {itens.map((i) => (
               <div
@@ -220,6 +245,8 @@ export function ImprimirEtiquetas({
               </div>
             ))}
           </div>
+          )}
+          {!envio && (
           <div className="flex flex-wrap items-center gap-x-4 gap-y-2 mb-3 text-xs text-gray-600">
             <label className="flex items-center gap-1.5">
               Cópias de cada:
@@ -253,11 +280,12 @@ export function ImprimirEtiquetas({
               />
             </label>
           </div>
+          )}
           <p className="text-xs text-gray-500 mb-3">
             Total: <b>{total}</b> etiqueta{total === 1 ? "" : "s"}
             {total > TETO_POR_LOTE && <span className="text-rose-600"> (máximo {TETO_POR_LOTE} por vez)</span>}
-            {linhaEstourada && <span className="text-rose-600"> (uma linha passa de {TETO_POR_LINHA})</span>}. O tamanho,
-            as colunas do rolo e os campos são os de Configurações → Etiquetas.
+            {linhaEstourada && <span className="text-rose-600"> (uma linha passa de {TETO_POR_LINHA})</span>}. O desenho é
+            o do modelo escolhido (área Etiquetas → Modelos).
           </p>
 
           {erro && <p className="mb-3 text-sm text-rose-600">{erro}</p>}

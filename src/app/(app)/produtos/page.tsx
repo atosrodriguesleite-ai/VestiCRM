@@ -95,6 +95,7 @@ export default async function ProductsPage() {
     brand: p.brand,
     collection: p.collection,
     description: p.description,
+    composition: p.composition,
     costPrice: p.costPrice,
     wholesalePrice: p.wholesalePrice,
     retailPrice: p.retailPrice,

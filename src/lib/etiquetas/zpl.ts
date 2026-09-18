@@ -8,7 +8,8 @@
  * O código de barras usa o `^BE` (EAN-13 nativo): recebe os 12 dígitos e a
  * própria impressora calcula o verificador; o número embaixo é desenhado
  * por nós (a linha de interpretação da impressora tem altura própria e
- * invadia o rodapé).
+ * invadia o rodapé). Imagem vai como `^GF` (bitmap preto e branco que o
+ * navegador rasterizou ao salvar o modelo — no servidor não há canvas).
  *
  * ROLO COM COLUNAS: uma "etiqueta" ZPL é uma LINHA do rolo (`^PW` = largura
  * de todas as colunas), e cada coluna recebe os campos deslocados. Linhas
@@ -21,14 +22,14 @@
  */
 
 import {
+  alturaDaLinhaMm,
   areaDeDesenho,
-  encaixarTexto,
   estimarLarguraMm,
   expandirLote,
   larguraDaLinha,
+  linhasDoElemento,
   linhasDoRolo,
   paraFisico,
-  valorDoCampo,
   xDaColuna,
   MM_POR_PT,
   type DadosEtiqueta,
@@ -75,12 +76,25 @@ function camposDaEtiqueta(modelo: Modelo, dados: DadosEtiqueta, c: number, dpi: 
   };
   for (const el of modelo.elementos) {
     if (el.tipo === "texto") {
-      const bruto = valorDoCampo(el, dados);
-      if (!bruto) continue;
-      const { texto: t, pt } = encaixarTexto(bruto, el.w, el.pt, estimarLarguraMm);
+      const { linhas, pt } = linhasDoElemento(el, dados, estimarLarguraMm);
+      const alinhar = el.alinhar === "centro" ? "C" : el.alinhar === "dir" ? "R" : "L";
       // A Zebra tem UMA fonte escalável embutida (^A0): não existe par
       // regular/negrito. Posição, tamanho e corte são os do PDF e da prévia.
-      partes.push(texto(el, t, pt, el.alinhar === "centro" ? "C" : el.alinhar === "dir" ? "R" : "L"));
+      // Uma linha por campo: as quebras são as MESMAS do PDF e da prévia.
+      linhas.forEach((t, i) =>
+        partes.push(texto({ x: el.x, y: el.y + i * alturaDaLinhaMm(pt), w: el.w, h: alturaDaLinhaMm(pt) }, t, pt, alinhar))
+      );
+      continue;
+    }
+    if (el.tipo === "imagem") {
+      if (!el.bitmap) continue;
+      const f = paraFisico(modelo, el);
+      const porLinha = Math.ceil(el.bitmap.w / 8);
+      const total = porLinha * el.bitmap.h;
+      // o bitmap já vem na orientação FÍSICA (o navegador gira ao rasterizar
+      // quando a etiqueta é girada, `bitmapDaImagem`): a caixa física é onde
+      // ele entra, e o ^GF não precisa girar nada
+      partes.push(`^FO${dots(x0 + f.x, dpi)},${dots(f.y, dpi)}^GFA,${total},${total},${porLinha},${el.bitmap.hex}^FS`);
       continue;
     }
     if (!ean13Valido(dados.codigo)) continue;
@@ -139,14 +153,13 @@ export function zplDoLote(
   const blocos: string[] = [];
   let i = 0;
   while (i < linhas.length) {
-    const chave = linhas[i].map((d) => d.codigo).join("|");
+    const chave = linhas[i].map((d) => JSON.stringify(d)).join("|");
     let n = 1;
-    while (i + n < linhas.length && linhas[i + n].map((d) => d.codigo).join("|") === chave) n++;
+    while (i + n < linhas.length && linhas[i + n].map((d) => JSON.stringify(d)).join("|") === chave) n++;
     blocos.push(zplDaLinha(modelo, linhas[i], n, dpi));
     i += n;
   }
   return blocos.join("\n");
 }
 
-/** A mesma área de desenho que o PDF e a prévia usam (para teste e conferência). */
 export { areaDeDesenho };

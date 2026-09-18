@@ -141,6 +141,7 @@ model Company {
   estoqueMinimos EstoqueMinimoCategoria[]
   nsEstoquePend  NuvemshopEstoquePendente[]
   etiquetaModelos EtiquetaModelo[]
+  composicoes    ComposicaoCategoria[]
   nsPrecoPend    NuvemshopPrecoPendente[]
   fiscalCategorias FiscalCategoria[]
   customerEvents CustomerEvent[]
@@ -1709,6 +1710,11 @@ model Product {
   /// EXCEÇÃO — o normal é o NCM da categoria. Nulo = usa o da categoria, e
   /// sem ele o da loja. Guardado só com dígitos; a nota formata.
   ncm            String?
+  /// COMPOSIÇÃO DA PEÇA (módulo Etiquetas, RN-059): "8% elastano, 92%
+  /// poliamida". É do TIPO da peça, então a categoria tem um padrão
+  /// (`ComposicaoCategoria`) e a peça só preenche quando difere — a mesma
+  /// régua do NCM (RN-055).
+  composition    String?
   createdAt      DateTime @default(now())
 
   variants ProductVariant[]
@@ -1769,12 +1775,35 @@ model EtiquetaModelo {
   tipo      String   @default("EMBALAGEM")
   larguraMm Float
   alturaMm  Float
+  /// rolo: etiquetas lado a lado e espaço entre elas; girada = desenho deitado
+  colunas   Int      @default(1)
+  espacoMm  Float    @default(2)
+  girada    Boolean  @default(false)
   padrao    Boolean  @default(false)
+  /// opções da versão "por regra" (tamanho e campos) — vale quando `elementos` é nulo
   opcoes    String   @default("{}")
+  /// o desenho feito no EDITOR (JSON da lista de elementos); nulo = desenho por regra
+  elementos String?
+  /// arquivado sai da lista e não imprime; nunca é apagado (histórico)
+  arquivadoEm DateTime?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@index([companyId, tipo])
+}
+
+/// COMPOSIÇÃO POR CATEGORIA (módulo Etiquetas): o tecido do tipo de peça,
+/// que a etiqueta de composição imprime. A peça só preenche a dela quando
+/// difere da categoria — a mesma régua do NCM (RN-055).
+model ComposicaoCategoria {
+  id          String   @id @default(cuid())
+  companyId   String
+  company     Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  category    String
+  composition String
+  updatedAt   DateTime @updatedAt
+
+  @@unique([companyId, category])
 }
 
 model ProductImage {

@@ -1,11 +1,31 @@
 import { Prisma } from "@prisma/client";
 import { db } from "../db";
-import type { DadosEtiqueta } from "./modelo";
+import { formatPhone } from "../format";
+import { orderNumber } from "../orders";
+import { DADOS_VAZIOS, type DadosEtiqueta } from "./modelo";
 
 /** Teto de etiquetas num pedido de impressão (um rolo; acima disso é dedo errado). */
 export const TETO_ETIQUETAS_POR_LOTE = 500;
 
 export type ItemDeImpressao = { variantId: string; quantidade: number };
+
+/**
+ * A COMPOSIÇÃO DE UMA PEÇA: a dela, senão a da categoria (a mesma régua do
+ * NCM, RN-055 — o tecido é do tipo da peça, a peça só preenche se difere).
+ */
+export function composicaoEfetiva(
+  peca: string | null | undefined,
+  porCategoria: Map<string, string>,
+  categoria: string
+): string {
+  return peca?.trim() || porCategoria.get(categoria) || "";
+}
+
+/** O remetente da etiqueta de envio: nome da loja e o WhatsApp dela. */
+export function remetenteDaLoja(loja: { name: string; whatsapp: string | null }): string {
+  const tel = loja.whatsapp ? formatPhone(loja.whatsapp) : "";
+  return tel ? `${loja.name} · ${tel}` : loja.name;
+}
 
 /**
  * OS DADOS DE CADA PEÇA A IMPRIMIR, recortados pela loja (RN-013).
@@ -28,8 +48,8 @@ export async function dadosParaImprimir(
     return { ok: false, erro: `Máximo de ${TETO_ETIQUETAS_POR_LOTE} etiquetas por vez (você pediu ${total}).` };
   }
   const ids = [...new Set(itens.map((i) => i.variantId))];
-  const [loja, variacoes] = await Promise.all([
-    db.company.findUnique({ where: { id: companyId }, select: { name: true } }),
+  const [loja, variacoes, composicoes] = await Promise.all([
+    db.company.findUnique({ where: { id: companyId }, select: { name: true, whatsapp: true } }),
     db.productVariant.findMany({
       where: { id: { in: ids }, product: { companyId } },
       select: {
@@ -38,10 +58,14 @@ export async function dadosParaImprimir(
         size: true,
         sku: true,
         barcode: true,
-        product: { select: { name: true, sku: true, category: true, wholesalePrice: true, retailPrice: true } },
+        product: {
+          select: { name: true, sku: true, category: true, composition: true, wholesalePrice: true, retailPrice: true },
+        },
       },
     }),
+    db.composicaoCategoria.findMany({ where: { companyId }, select: { category: true, composition: true } }),
   ]);
+  const porCategoria = new Map(composicoes.map((c) => [c.category, c.composition]));
   const porId = new Map(variacoes.map((v) => [v.id, v]));
   const faltando = ids.filter((id) => !porId.has(id));
   if (faltando.length > 0) {
@@ -72,6 +96,7 @@ export async function dadosParaImprimir(
       return { ok: false, erro: "Uma das peças ficou sem código de barras e o sistema não conseguiu gerar. Avise o suporte." };
     }
   }
+  const remetente = loja ? remetenteDaLoja(loja) : "";
   const lote = itens
     .filter((i) => i.quantidade > 0)
     .map((i) => {
@@ -79,6 +104,7 @@ export async function dadosParaImprimir(
       return {
         quantidade: i.quantidade,
         dados: {
+          ...DADOS_VAZIOS,
           loja: loja?.name ?? "",
           produto: v.product.name,
           cor: v.color,
@@ -86,10 +112,66 @@ export async function dadosParaImprimir(
           sku: v.sku?.trim() || v.product.sku,
           codigo: v.barcode!,
           categoria: v.product.category,
+          composicao: composicaoEfetiva(v.product.composition, porCategoria, v.product.category),
           precoAtacado: v.product.wholesalePrice,
           precoVarejo: v.product.retailPrice,
+          remetente,
         } satisfies DadosEtiqueta,
       };
     });
   return { ok: true, lote, total };
+}
+
+/**
+ * A ETIQUETA DE ENVIO DE UM PEDIDO: cliente e endereço da ficha (a cópia do
+ * pedido envelhece — corrigir a UF na ficha tem que chegar à etiqueta, a
+ * régua da RN-022), número do pedido e o remetente. Recorte pela loja; quem
+ * chama já passou pelo `orderScope` (RN-007).
+ */
+export async function dadosDeEnvioDoPedido(
+  companyId: string,
+  orderId: string,
+  /** o recorte de quem vê o pedido (`orderScope`, RN-007) entra na consulta */
+  escopo: Prisma.OrderWhereInput = {}
+): Promise<{ ok: true; dados: DadosEtiqueta } | { ok: false; erro: string }> {
+  const [loja, pedido] = await Promise.all([
+    db.company.findUnique({ where: { id: companyId }, select: { name: true, whatsapp: true } }),
+    db.order.findFirst({
+      where: { ...escopo, id: orderId, companyId },
+      select: {
+        number: true,
+        customer: {
+          select: {
+            name: true,
+            phone: true,
+            zip: true,
+            street: true,
+            streetNumber: true,
+            complement: true,
+            district: true,
+            city: true,
+            state: true,
+          },
+        },
+      },
+    }),
+  ]);
+  if (!pedido || !loja) return { ok: false, erro: "Pedido não encontrado." };
+  const c = pedido.customer;
+  const endereco = [c.street, c.streetNumber].filter(Boolean).join(", ") + (c.complement ? `, ${c.complement}` : "");
+  const bairroCidade = [c.district, [c.city, c.state].filter(Boolean).join(" – ")].filter(Boolean).join(", ");
+  return {
+    ok: true,
+    dados: {
+      ...DADOS_VAZIOS,
+      loja: loja.name,
+      pedido: orderNumber(pedido.number),
+      cliente: c.name,
+      endereco,
+      bairroCidade,
+      cep: c.zip ?? "",
+      telefone: c.phone ? formatPhone(c.phone) : "",
+      remetente: remetenteDaLoja(loja),
+    },
+  };
 }

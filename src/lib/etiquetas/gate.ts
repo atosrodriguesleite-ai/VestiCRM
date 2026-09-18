@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { redirect } from "next/navigation";
 import { db } from "../db";
 import { requireUser, type SessionUser } from "../auth";
 
@@ -37,4 +38,15 @@ export async function porteiraEtiquetas(): Promise<PorteiraEtiquetas> {
     };
   }
   return { ok: true, user };
+}
+
+/** Porteira das TELAS: sem a chave, volta ao Dashboard. */
+export async function porteiraEtiquetasTela(): Promise<SessionUser> {
+  const user = await requireUser();
+  const company = await db.company.findUnique({
+    where: { id: user.companyId },
+    select: { etiquetasEnabled: true },
+  });
+  if (!etiquetasLiberado(company?.etiquetasEnabled ?? false)) redirect("/dashboard");
+  return user;
 }

@@ -22,9 +22,48 @@ export type Campo =
   | "codigo"
   | "loja"
   | "categoria"
+  | "composicao"
   | "preco_atacado"
   | "preco_varejo"
+  // etiqueta de ENVIO (dados do pedido)
+  | "pedido"
+  | "cliente"
+  | "endereco"
+  | "bairro_cidade"
+  | "cep"
+  | "telefone"
+  | "remetente"
   | "texto";
+
+/** Os campos que o editor oferece, com o nome que a lojista lê e em que tipo de etiqueta fazem sentido. */
+export const CAMPOS: { campo: Campo; rotulo: string; tipos: TipoDeEtiqueta[] }[] = [
+  { campo: "produto", rotulo: "Nome da peça", tipos: ["EMBALAGEM", "COMPOSICAO"] },
+  { campo: "cor_tamanho", rotulo: "Cor · tamanho", tipos: ["EMBALAGEM", "COMPOSICAO"] },
+  { campo: "cor", rotulo: "Cor", tipos: ["EMBALAGEM", "COMPOSICAO"] },
+  { campo: "tamanho", rotulo: "Tamanho", tipos: ["EMBALAGEM", "COMPOSICAO"] },
+  { campo: "composicao", rotulo: "Composição (tecido)", tipos: ["EMBALAGEM", "COMPOSICAO"] },
+  { campo: "sku", rotulo: "SKU", tipos: ["EMBALAGEM", "COMPOSICAO"] },
+  { campo: "codigo", rotulo: "Número do código de barras", tipos: ["EMBALAGEM", "COMPOSICAO"] },
+  { campo: "categoria", rotulo: "Categoria", tipos: ["EMBALAGEM", "COMPOSICAO"] },
+  { campo: "preco_atacado", rotulo: "Preço atacado", tipos: ["EMBALAGEM", "COMPOSICAO"] },
+  { campo: "preco_varejo", rotulo: "Preço varejo", tipos: ["EMBALAGEM", "COMPOSICAO"] },
+  { campo: "loja", rotulo: "Nome da loja", tipos: ["EMBALAGEM", "COMPOSICAO", "ENVIO"] },
+  { campo: "pedido", rotulo: "Número do pedido", tipos: ["ENVIO"] },
+  { campo: "cliente", rotulo: "Nome da cliente", tipos: ["ENVIO"] },
+  { campo: "endereco", rotulo: "Rua, número e complemento", tipos: ["ENVIO"] },
+  { campo: "bairro_cidade", rotulo: "Bairro, cidade e UF", tipos: ["ENVIO"] },
+  { campo: "cep", rotulo: "CEP", tipos: ["ENVIO"] },
+  { campo: "telefone", rotulo: "Telefone da cliente", tipos: ["ENVIO"] },
+  { campo: "remetente", rotulo: "Remetente (loja e WhatsApp)", tipos: ["ENVIO"] },
+  { campo: "texto", rotulo: "Texto fixo", tipos: ["EMBALAGEM", "COMPOSICAO", "ENVIO"] },
+];
+
+export type TipoDeEtiqueta = "EMBALAGEM" | "COMPOSICAO" | "ENVIO";
+export const TIPOS: { tipo: TipoDeEtiqueta; rotulo: string; descricao: string }[] = [
+  { tipo: "EMBALAGEM", rotulo: "Embalagem", descricao: "Cola na embalagem da peça, com o código de barras que o leitor bipa na separação." },
+  { tipo: "COMPOSICAO", rotulo: "Composição", descricao: "A etiqueta da peça: tecido, tamanho, cuidados e nome da loja." },
+  { tipo: "ENVIO", rotulo: "Envio", descricao: "Endereço da cliente e número do pedido, para colar no pacote." },
+];
 
 export type ElementoTexto = {
   tipo: "texto";
@@ -34,12 +73,30 @@ export type ElementoTexto = {
   x: number;
   y: number;
   w: number;
-  /** altura da linha em mm (o texto é UMA linha; o que não cabe encolhe e depois corta) */
+  /** altura da caixa em mm; com `linhas` > 1 o texto quebra por palavra até esse tanto de linhas */
   h: number;
   /** tamanho da fonte em pontos */
   pt: number;
   negrito?: boolean;
   alinhar?: "esq" | "centro" | "dir";
+  /** máximo de linhas (1 = uma linha: encolhe e corta) */
+  linhas?: number;
+};
+
+export type ElementoImagem = {
+  tipo: "imagem";
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  /** a imagem como data-URL (PNG ou JPEG), para o PDF e a prévia */
+  src: string;
+  /**
+   * A MESMA imagem em preto e branco, 8 pontos por mm, para a Zebra (`^GF`):
+   * o navegador rasteriza ao salvar o modelo, porque no servidor não há
+   * canvas. `linhas` são as fileiras de bits em hexadecimal (1 = preto).
+   */
+  bitmap?: { w: number; h: number; hex: string };
 };
 
 export type ElementoBarras = {
@@ -52,7 +109,12 @@ export type ElementoBarras = {
   numero: boolean;
 };
 
-export type Elemento = ElementoTexto | ElementoBarras;
+export type Elemento = ElementoTexto | ElementoBarras | ElementoImagem;
+
+/** Teto do tamanho de uma imagem dentro do modelo (data-URL) e do modelo inteiro. */
+export const TETO_IMAGEM_BYTES = 400_000;
+export const TETO_MODELO_BYTES = 1_500_000;
+export const TETO_ELEMENTOS = 60;
 
 export type Modelo = {
   /** medidas FÍSICAS de UMA etiqueta no rolo */
@@ -103,7 +165,7 @@ export function paraFisico(
   return { x: m.larguraMm - r.y - r.h, y: r.x, w: r.h, h: r.w };
 }
 
-/** O que a etiqueta de embalagem sabe de cada peça. */
+/** O que a etiqueta sabe de cada peça (e, na de envio, do pedido). */
 export type DadosEtiqueta = {
   loja: string;
   produto: string;
@@ -112,11 +174,40 @@ export type DadosEtiqueta = {
   sku: string;
   codigo: string;
   categoria: string;
+  composicao: string;
   precoAtacado: number;
   precoVarejo: number;
+  pedido: string;
+  cliente: string;
+  endereco: string;
+  bairroCidade: string;
+  cep: string;
+  telefone: string;
+  remetente: string;
+};
+
+export const DADOS_VAZIOS: DadosEtiqueta = {
+  loja: "",
+  produto: "",
+  cor: "",
+  tamanho: "",
+  sku: "",
+  codigo: "",
+  categoria: "",
+  composicao: "",
+  precoAtacado: 0,
+  precoVarejo: 0,
+  pedido: "",
+  cliente: "",
+  endereco: "",
+  bairroCidade: "",
+  cep: "",
+  telefone: "",
+  remetente: "",
 };
 
 export const DADOS_DE_EXEMPLO: DadosEtiqueta = {
+  ...DADOS_VAZIOS,
   loja: "Toque Leve",
   produto: "Regata Nadador Poliamida",
   cor: "Preto",
@@ -124,8 +215,16 @@ export const DADOS_DE_EXEMPLO: DadosEtiqueta = {
   sku: "RN-PRE-G",
   codigo: "2000000000015",
   categoria: "Regata",
+  composicao: "8% elastano, 92% poliamida",
   precoAtacado: 39.9,
   precoVarejo: 79.9,
+  pedido: "#110",
+  cliente: "Maria da Silva",
+  endereco: "Rua das Flores, 123, apto 4",
+  bairroCidade: "Centro, Fortaleza – CE",
+  cep: "60000-000",
+  telefone: "(85) 99999-0000",
+  remetente: "Toque Leve · (85) 98888-0000",
 };
 
 export type OpcoesEmbalagem = {
@@ -197,6 +296,22 @@ export function valorDoCampo(el: ElementoTexto, d: DadosEtiqueta): string {
       return d.loja;
     case "categoria":
       return d.categoria;
+    case "composicao":
+      return d.composicao;
+    case "pedido":
+      return d.pedido;
+    case "cliente":
+      return d.cliente;
+    case "endereco":
+      return d.endereco;
+    case "bairro_cidade":
+      return d.bairroCidade;
+    case "cep":
+      return d.cep;
+    case "telefone":
+      return d.telefone;
+    case "remetente":
+      return d.remetente;
     case "preco_atacado":
       return brl(d.precoAtacado);
     case "preco_varejo":
@@ -248,7 +363,7 @@ export function layoutEmbalagem(op: OpcoesEmbalagem): Modelo {
   const larguraUtil = W - 2 * m;
   // fonte proporcional à etiqueta: 50 mm → 8 pt; nunca abaixo de 5
   const base = Math.max(5, Math.min(10, Math.round((W / 50) * 8)));
-  const linha = (pt: number) => pt * 0.42; // altura de uma linha em mm (~pt × 0,3528 × 1,2)
+  const linha = alturaDaLinhaMm;
 
   const elementos: Elemento[] = [];
   let y = m;
@@ -384,4 +499,244 @@ export function encaixarTexto(
 /** Estimativa de largura (Helvetica: ~0,52 em por letra). Para SVG e ZPL. */
 export function estimarLarguraMm(t: string, pt: number): number {
   return t.length * pt * MM_POR_PT * 0.52;
+}
+
+/** Altura de uma linha de texto em mm para um tamanho em pontos (~pt × 0,3528 × 1,2). */
+export function alturaDaLinhaMm(pt: number): number {
+  return pt * 0.42;
+}
+
+/**
+ * TEXTO EM VÁRIAS LINHAS: quebra por palavra até `maxLinhas`; a última que
+ * não coube ganha "…". Palavra maior que a linha é cortada no meio (nome de
+ * tecido comprido não pode derrubar a etiqueta).
+ */
+export function quebrarTexto(
+  texto: string,
+  larguraMm: number,
+  pt: number,
+  maxLinhas: number,
+  medirMm: (t: string, pt: number) => number
+): string[] {
+  const palavras = texto.trim().split(/\s+/).filter(Boolean);
+  const linhas: string[] = [];
+  let atual = "";
+  for (const p of palavras) {
+    const tentativa = atual ? `${atual} ${p}` : p;
+    if (medirMm(tentativa, pt) <= larguraMm) {
+      atual = tentativa;
+      continue;
+    }
+    if (atual) linhas.push(atual);
+    // palavra que sozinha não cabe: corta no meio
+    let resto = p;
+    while (medirMm(resto, pt) > larguraMm && resto.length > 1) {
+      let corte = resto.length - 1;
+      while (corte > 1 && medirMm(resto.slice(0, corte), pt) > larguraMm) corte--;
+      linhas.push(resto.slice(0, corte));
+      resto = resto.slice(corte);
+    }
+    atual = resto;
+  }
+  if (atual) linhas.push(atual);
+  if (linhas.length <= maxLinhas) return linhas;
+  const cabem = linhas.slice(0, maxLinhas);
+  let ultima = cabem[maxLinhas - 1];
+  while (ultima.length > 1 && medirMm(ultima + "…", pt) > larguraMm) ultima = ultima.slice(0, -1);
+  cabem[maxLinhas - 1] = ultima + "…";
+  return cabem;
+}
+
+/**
+ * As linhas de um elemento de texto, prontas para desenhar: uma linha
+ * (encolhe e corta) ou várias (quebra por palavra). Regra única para as
+ * três saídas; cada uma passa o seu jeito de medir.
+ */
+export function linhasDoElemento(
+  el: ElementoTexto,
+  dados: DadosEtiqueta,
+  medirMm: (t: string, pt: number) => number
+): { linhas: string[]; pt: number } {
+  const bruto = valorDoCampo(el, dados);
+  if (!bruto) return { linhas: [], pt: el.pt };
+  const max = Math.max(1, Math.floor(el.linhas ?? 1));
+  if (max === 1) {
+    const r = encaixarTexto(bruto, el.w, el.pt, medirMm);
+    return { linhas: r.texto ? [r.texto] : [], pt: r.pt };
+  }
+  // quantas linhas cabem na caixa, respeitando o máximo pedido
+  const cabem = Math.max(1, Math.min(max, Math.floor(el.h / alturaDaLinhaMm(el.pt))));
+  return { linhas: quebrarTexto(bruto, el.w, el.pt, cabem, medirMm), pt: el.pt };
+}
+
+/**
+ * ETIQUETA DE COMPOSIÇÃO por regra (o padrão que a loja edita depois): o
+ * tecido em cima (até 3 linhas), o tamanho GRANDE no meio, a linha de
+ * cuidados e o nome da loja embaixo — o desenho da etiqueta que a Toque Leve
+ * já imprime no OpenLabel, girado quando o rolo é estreito e alto.
+ */
+export function layoutComposicao(op: OpcoesEmbalagem): Modelo {
+  const girada = decidirGiro(op);
+  const area = areaDeDesenho({ larguraMm: op.larguraMm, alturaMm: op.alturaMm, girada });
+  const W = area.w;
+  const H = area.h;
+  const m = 1.5;
+  const larguraUtil = W - 2 * m;
+  const base = Math.max(4, Math.min(8, Math.round((W / 48) * 6)));
+  const elementos: Elemento[] = [];
+  let y = m;
+  const alturaComposicao = alturaDaLinhaMm(base) * 3;
+  elementos.push({ tipo: "texto", campo: "composicao", x: m, y, w: larguraUtil, h: alturaComposicao, pt: base, alinhar: "centro", linhas: 3 });
+  y += alturaComposicao + 0.5;
+  const ptTamanho = Math.max(10, Math.min(26, Math.round(H * 0.9)));
+  const alturaTamanho = alturaDaLinhaMm(ptTamanho);
+  elementos.push({ tipo: "texto", campo: "tamanho", x: m, y, w: larguraUtil, h: alturaTamanho, pt: ptTamanho, negrito: true, alinhar: "centro" });
+  y += alturaTamanho;
+  const ptRodape = Math.max(4, base - 1);
+  let fundo = H - m;
+  if (op.mostrarLoja) {
+    fundo -= alturaDaLinhaMm(ptRodape);
+    elementos.push({ tipo: "texto", campo: "loja", x: m, y: fundo, w: larguraUtil, h: alturaDaLinhaMm(ptRodape), pt: ptRodape, negrito: true, alinhar: "centro" });
+  }
+  // instrução de cuidado (lavar, alvejante, ferro) NÃO é inventada pelo
+  // sistema: é informação da etiqueta legal da peça e quem responde é a
+  // loja — ela acrescenta como texto fixo no editor (achado da revisão,
+  // mesma régua do NCM: o sistema não inventa dado que a loja assina)
+  void y;
+  return { larguraMm: op.larguraMm, alturaMm: op.alturaMm, colunas: Math.max(1, Math.min(COLUNAS_MAX, Math.floor(op.colunas))), espacoMm: Math.max(0, op.espacoMm), girada, elementos };
+}
+
+/**
+ * ETIQUETA DE ENVIO por regra: número do pedido e cliente em destaque, o
+ * endereço em duas linhas, CEP e telefone, e o remetente no rodapé.
+ */
+export function layoutEnvio(op: OpcoesEmbalagem): Modelo {
+  const girada = decidirGiro(op);
+  const area = areaDeDesenho({ larguraMm: op.larguraMm, alturaMm: op.alturaMm, girada });
+  const W = area.w;
+  const H = area.h;
+  const m = 2;
+  const larguraUtil = W - 2 * m;
+  const base = Math.max(6, Math.min(11, Math.round((W / 100) * 10)));
+  const elementos: Elemento[] = [];
+  let y = m;
+  const l = (pt: number) => alturaDaLinhaMm(pt);
+  elementos.push({ tipo: "texto", campo: "pedido", x: m, y, w: larguraUtil / 3, h: l(base + 2), pt: base + 2, negrito: true });
+  elementos.push({ tipo: "texto", campo: "loja", x: m + larguraUtil / 3, y, w: (larguraUtil * 2) / 3, h: l(base), pt: base, alinhar: "dir" });
+  y += l(base + 2) + 1;
+  elementos.push({ tipo: "texto", campo: "cliente", x: m, y, w: larguraUtil, h: l(base + 1), pt: base + 1, negrito: true });
+  y += l(base + 1);
+  elementos.push({ tipo: "texto", campo: "endereco", x: m, y, w: larguraUtil, h: l(base) * 2, pt: base, linhas: 2 });
+  y += l(base) * 2;
+  elementos.push({ tipo: "texto", campo: "bairro_cidade", x: m, y, w: larguraUtil, h: l(base), pt: base });
+  y += l(base);
+  elementos.push({ tipo: "texto", campo: "cep", x: m, y, w: larguraUtil / 2, h: l(base), pt: base, negrito: true });
+  elementos.push({ tipo: "texto", campo: "telefone", x: m + larguraUtil / 2, y, w: larguraUtil / 2, h: l(base), pt: base, alinhar: "dir" });
+  const ptRodape = Math.max(5, base - 2);
+  elementos.push({ tipo: "texto", campo: "remetente", x: m, y: H - m - l(ptRodape), w: larguraUtil, h: l(ptRodape), pt: ptRodape });
+  return { larguraMm: op.larguraMm, alturaMm: op.alturaMm, colunas: Math.max(1, Math.min(COLUNAS_MAX, Math.floor(op.colunas))), espacoMm: Math.max(0, op.espacoMm), girada, elementos };
+}
+
+/** O desenho por regra do tipo pedido (o que um modelo novo recebe ao nascer). */
+export function layoutPorTipo(tipo: TipoDeEtiqueta, op: OpcoesEmbalagem): Modelo {
+  if (tipo === "COMPOSICAO") return layoutComposicao(op);
+  if (tipo === "ENVIO") return layoutEnvio(op);
+  return layoutEmbalagem(op);
+}
+
+/** Tamanhos de partida por tipo (a loja muda no editor). */
+export function opcoesIniciais(tipo: TipoDeEtiqueta): OpcoesEmbalagem {
+  if (tipo === "COMPOSICAO") return { ...OPCOES_PADRAO, larguraMm: 23, alturaMm: 48, colunas: 4, espacoMm: 2, mostrarLoja: true };
+  if (tipo === "ENVIO") return { ...OPCOES_PADRAO, larguraMm: 100, alturaMm: 60, mostrarLoja: true };
+  return OPCOES_PADRAO;
+}
+
+const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : null);
+
+/**
+ * LÊ A LISTA DE ELEMENTOS GRAVADA (JSON do editor) — devolve só o que é
+ * válido, campo a campo; elemento torto cai fora em vez de derrubar a
+ * impressão. `null` quando o JSON não é uma lista.
+ */
+export function lerElementos(json: string | null | undefined): Elemento[] | null {
+  if (!json) return null;
+  let lido: unknown;
+  try {
+    lido = JSON.parse(json);
+  } catch {
+    return null;
+  }
+  if (!Array.isArray(lido)) return null;
+  const saida: Elemento[] = [];
+  const campos = new Set(CAMPOS.map((c) => c.campo));
+  for (const e of lido.slice(0, TETO_ELEMENTOS)) {
+    if (!e || typeof e !== "object") continue;
+    const o = e as Record<string, unknown>;
+    const x = num(o.x), y = num(o.y), w = num(o.w), h = num(o.h);
+    if (x === null || y === null || w === null || h === null || w <= 0 || h <= 0 || x < 0 || y < 0) continue;
+    if (o.tipo === "texto") {
+      const campo = typeof o.campo === "string" && campos.has(o.campo as Campo) ? (o.campo as Campo) : null;
+      const pt = num(o.pt);
+      if (!campo || pt === null || pt < 3 || pt > 72) continue;
+      saida.push({
+        tipo: "texto",
+        campo,
+        ...(campo === "texto" ? { texto: typeof o.texto === "string" ? o.texto.slice(0, 300) : "" } : {}),
+        x, y, w, h, pt,
+        ...(o.negrito === true ? { negrito: true } : {}),
+        ...(o.alinhar === "centro" || o.alinhar === "dir" ? { alinhar: o.alinhar } : {}),
+        ...(num(o.linhas) && (o.linhas as number) > 1 ? { linhas: Math.min(10, Math.floor(o.linhas as number)) } : {}),
+      });
+    } else if (o.tipo === "barras") {
+      saida.push({ tipo: "barras", x, y, w, h, numero: o.numero !== false });
+    } else if (o.tipo === "imagem") {
+      const src = typeof o.src === "string" && /^data:image\/(png|jpeg);base64,/.test(o.src) && o.src.length <= TETO_IMAGEM_BYTES ? o.src : null;
+      if (!src) continue;
+      const b = o.bitmap && typeof o.bitmap === "object" ? (o.bitmap as Record<string, unknown>) : null;
+      const bw = b ? num(b.w) : null;
+      const bh = b ? num(b.h) : null;
+      const bitmap =
+        b && bw && bh && typeof b.hex === "string" && /^[0-9A-Fa-f]*$/.test(b.hex) && b.hex.length === Math.ceil(bw / 8) * 2 * bh
+          ? { w: Math.floor(bw), h: Math.floor(bh), hex: b.hex.toUpperCase() }
+          : undefined;
+      saida.push({ tipo: "imagem", x, y, w, h, src, ...(bitmap ? { bitmap } : {}) });
+    }
+  }
+  return saida;
+}
+
+/** O modelo pronto para desenhar, a partir da linha gravada: o desenho do editor quando existe, senão o desenho por regra do tipo. */
+export function modeloDaLinhaGravada(linha: {
+  tipo: string;
+  larguraMm: number;
+  alturaMm: number;
+  colunas: number;
+  espacoMm: number;
+  girada: boolean;
+  opcoes: string | null;
+  elementos: string | null;
+}): Modelo {
+  const elementos = lerElementos(linha.elementos);
+  if (elementos) {
+    return {
+      larguraMm: linha.larguraMm,
+      alturaMm: linha.alturaMm,
+      colunas: Math.max(1, Math.min(COLUNAS_MAX, linha.colunas)),
+      espacoMm: Math.max(0, linha.espacoMm),
+      girada: linha.girada,
+      elementos,
+    };
+  }
+  const tipo: TipoDeEtiqueta = linha.tipo === "COMPOSICAO" || linha.tipo === "ENVIO" ? linha.tipo : "EMBALAGEM";
+  // tamanho, colunas e giro são os da LINHA (o editor grava lá); `opcoes` só
+  // diz quais campos o desenho por regra mostra
+  const op: OpcoesEmbalagem = {
+    ...lerOpcoes(linha.opcoes),
+    larguraMm: linha.larguraMm,
+    alturaMm: linha.alturaMm,
+    colunas: Math.max(1, Math.min(COLUNAS_MAX, linha.colunas)),
+    espacoMm: Math.max(0, linha.espacoMm),
+    girar: linha.girada ? "sim" : "nao",
+  };
+  return layoutPorTipo(tipo, op);
 }

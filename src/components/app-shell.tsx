@@ -48,6 +48,7 @@ import {
   Gauge,
   Boxes,
   Warehouse,
+  Tag,
   ChevronDown,
   ShoppingCart,
   Repeat,
@@ -81,6 +82,9 @@ const NAV = [
   // módulo Estoque (RN-050): sem a chave, o menu nem aparece. Suporte VÊ
   // (conferir estoque é operação); quem AJUSTA é gerência, na própria tela.
   { href: "/estoque", label: "Estoque", icon: Warehouse, group: "Catálogo", estoqueOnly: true },
+  // módulo Etiquetas (RN-059): modelos, impressão e separação por leitor.
+  // Toda a equipe entra (é operação de quem está na arara).
+  { href: "/etiquetas", label: "Etiquetas", icon: Tag, group: "Catálogo", etiquetasOnly: true },
   { href: "/biblioteca", label: "Biblioteca de imagens", icon: Images, group: "Catálogo", mediaLibraryOnly: true, supportHidden: true },
   { href: "/producao", label: "Produção", icon: Scissors, group: "Catálogo", productionOnly: true, supportHidden: true },
   { href: "/plano-corte", label: "Plano de Corte", icon: LayoutPanelTop, group: "Catálogo", cutPlanOnly: true, supportHidden: true },
@@ -229,6 +233,8 @@ type ShellUser = {
   financeEnabled?: boolean;
   // módulo Estoque (RN-050): idem
   estoqueEnabled?: boolean;
+  // módulo Etiquetas (RN-059): idem
+  etiquetasEnabled?: boolean;
   // módulo Marketing (pago à parte): idem
   marketingEnabled?: boolean;
   // Biblioteca de imagens (gated): sem a chave, o menu nem aparece

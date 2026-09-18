@@ -1070,8 +1070,47 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
 - **Etiquetas** (gated por loja, `Company.etiquetasEnabled`, porteira em
   `lib/etiquetas/gate.ts`; desenhado com o dono em 18/09/2026, em quatro
   etapas — código por variação, etiqueta de embalagem com impressão em lote,
-  separação de pedido por leitor, editor de modelos; **preço de tabela A
-  DEFINIR pelo dono**, 0 no catálogo de módulos até lá; ADR-017):
+  editor de modelos, separação de pedido por leitor; **preço de tabela A
+  DEFINIR pelo dono**, 0 no catálogo de módulos até lá; ADR-017). **Área
+  própria no menu** (`/etiquetas`, item gated; pedido do dono: "não deveria
+  ficar em Configurações, precisa ser bem completo"), com as abas
+  **Modelos** e **Imprimir**; a Separação (etapa 4) entra como terceira aba.
+  **Modelos** (`lib/etiquetas/modelos.ts`, rotas `/api/etiquetas/modelos`):
+  três TIPOS — embalagem (com o código de barras), composição (tecido,
+  tamanho grande, cuidados, loja: a etiqueta que a Toque Leve imprime no
+  OpenLabel) e envio (endereço da cliente e número do pedido, dados da
+  FICHA, régua da RN-022) —, cada um com UM **padrão** por loja (índice
+  parcial único, semeado na primeira abertura com o desenho por regra do
+  tipo, `layoutPorTipo`), e quantos modelos a loja quiser: criar, duplicar
+  (leva o desenho congelado), definir como padrão (transação), arquivar (o
+  padrão não se arquiva; a linha nunca é apagada). **O editor**
+  (`editor-de-modelo.tsx`): tamanho do rolo, colunas, espaço, girar;
+  elementos de **texto fixo**, **campo da peça/pedido** (`CAMPOS`, por
+  tipo), **código de barras** e **imagem**; arraste e redimensionamento na
+  área de desenho (escala em px/mm, passo de meio milímetro), ordem,
+  propriedades (letra, negrito, alinhamento, **várias linhas** com quebra
+  por palavra — `quebrarTexto`/`linhasDoElemento`, regra única para as
+  três saídas), e "como sai no rolo" pela mesma função que imprime. O
+  desenho gravado é uma lista de elementos (`EtiquetaModelo.elementos`,
+  JSON) que o servidor **lê campo a campo** (`lerElementos`: elemento
+  torto cai fora, imagem só PNG/JPEG em data-URL com teto, bitmap só em
+  hexadecimal do tamanho certo) e confere que cabe (`elementosCabem`) antes
+  de gravar; sem elementos vale o desenho por regra, e tamanho/colunas/giro
+  são os da LINHA (o JSON de opções só diz quais campos o desenho por regra
+  mostra). **Imagem** vai nas três saídas: PDF embute PNG/JPEG uma vez, SVG
+  usa `<image>`, e a Zebra recebe `^GF` com o **bitmap preto e branco que o
+  NAVEGADOR rasterizou ao salvar** (`lib/etiquetas/rasterizar.ts`, 8 pontos
+  por mm no tamanho em que a imagem está — no servidor não há canvas; a
+  parte pura, `empacotarBits`/`pretosDoRgba`, é testada). **Composição da
+  peça** (`Product.composition`, na ficha) com **padrão por categoria**
+  (`ComposicaoCategoria`, painel na aba Modelos): a peça só preenche quando
+  difere — a régua do NCM (RN-055); `composicaoEfetiva` decide. **Imprimir**
+  (`imprimir-view.tsx`): escolhe o modelo; por peça (busca, a grade inteira
+  com uma etiqueta por peça em estoque) ou por pedido pelo número
+  (`/api/etiquetas/pedido`, respeita RN-007) — com modelo de envio vira a
+  etiqueta do pacote × cópias (`orderId`/`copias` na rota de impressão). Os
+  botões da ficha da peça e do pedido continuam usando o padrão de
+  embalagem.
   **RN-059 · O CÓDIGO DE BARRAS DA VARIAÇÃO NASCE COM A PEÇA E NUNCA MUDA**
   (`lib/etiquetas/ean13.ts`, migração `20260918100000`): cada cor × tamanho
   tem um **EAN-13 interno** (prefixo 2, faixa de uso interno do GS1 — nunca
