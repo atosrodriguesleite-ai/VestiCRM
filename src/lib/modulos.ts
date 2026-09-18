@@ -23,7 +23,8 @@ export type ModuloKey =
   | "ENVIOS"
   | "IA_VENDAS"
   | "FINANCEIRO"
-  | "ESTOQUE";
+  | "ESTOQUE"
+  | "ETIQUETAS";
 
 export type Modulo = {
   key: ModuloKey;
@@ -117,6 +118,16 @@ export const MODULOS: Modulo[] = [
     flag: "estoqueEnabled",
     // preço de tabela ainda NÃO definido pelo dono (09/09/2026): fica em 0
     // (cortesia) até ele dizer — inventar número aqui entraria no MRR
+    precoTabela: 0,
+  },
+  {
+    key: "ETIQUETAS",
+    nome: "Etiquetas",
+    entrega:
+      "Etiqueta de embalagem com código de barras, impressão em lote (Zebra e PDF) e separação de pedido por leitor.",
+    flag: "etiquetasEnabled",
+    // preço de tabela ainda NÃO definido pelo dono (18/09/2026): 0 até ele
+    // dizer — mesma régua do Estoque
     precoTabela: 0,
   },
 ];

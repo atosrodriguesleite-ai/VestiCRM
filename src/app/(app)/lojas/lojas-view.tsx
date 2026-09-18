@@ -50,6 +50,7 @@ export type Loja = {
   aiSalesEnabled: boolean;
   financeEnabled: boolean;
   estoqueEnabled: boolean;
+  etiquetasEnabled: boolean;
   suspended: boolean;
   billing: {
     kind: string;
@@ -314,6 +315,7 @@ function NewLojaForm({
           aiSalesEnabled: false,
           financeEnabled: false,
           estoqueEnabled: false,
+          etiquetasEnabled: false,
           suspended: false,
           billing: null,
           lastActiveAt: null,
@@ -843,6 +845,23 @@ function LojaCard({ loja, catalogDomain }: { loja: Loja; catalogDomain: string |
   const [togglingFin, setTogglingFin] = useState(false);
   const [estoque, setEstoque] = useState(loja.estoqueEnabled);
   const [togglingEst, setTogglingEst] = useState(false);
+  const [etiquetas, setEtiquetas] = useState(loja.etiquetasEnabled);
+  const [togglingEtq, setTogglingEtq] = useState(false);
+
+  // módulo Etiquetas (RN-059): idem
+  async function toggleEtiquetas() {
+    setTogglingEtq(true);
+    const res = await fetch("/api/companies/etiquetas", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ companyId: loja.id, enabled: !etiquetas }),
+    });
+    setTogglingEtq(false);
+    if (res.ok) {
+      setEtiquetas(!etiquetas);
+      router.refresh();
+    }
+  }
 
   // módulo Produção (pago à parte): o Super Admin liga/desliga por loja
   async function toggleProducao() {
@@ -1276,6 +1295,28 @@ function LojaCard({ loja, catalogDomain }: { loja: Loja; catalogDomain: string |
           }`}
         >
           {togglingEst ? "..." : estoque ? "Desativar" : "Ativar Estoque"}
+        </button>
+      </div>
+
+      {/* módulo Etiquetas (RN-059) */}
+      <div className="mt-2 flex items-center justify-between gap-2 text-[11px]">
+        <span className="text-slate-400">
+          Módulo Etiquetas:{" "}
+          <b className={etiquetas ? "text-emerald-600" : "text-slate-500"}>
+            {etiquetas ? "ativado" : "desativado"}
+          </b>
+        </span>
+        <button
+          type="button"
+          onClick={toggleEtiquetas}
+          disabled={togglingEtq}
+          className={`rounded-full px-2.5 py-1 font-semibold border transition disabled:opacity-50 ${
+            etiquetas
+              ? "border-slate-200 text-slate-500 hover:border-rose-300 hover:text-rose-600"
+              : "border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
+          }`}
+        >
+          {togglingEtq ? "..." : etiquetas ? "Desativar" : "Ativar Etiquetas"}
         </button>
       </div>
 

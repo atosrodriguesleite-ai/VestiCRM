@@ -27,7 +27,8 @@ import { NuvemshopConnect } from "./nuvemshop-connect";
 import { JueriConnect } from "./jueri-connect";
 import { MercadoPagoConnect, InfinitePayConnect, BlingConnect } from "./pagamentos-connect";
 import { MelhorEnvioConnect } from "./envios-connect";
-import { isAdmin, isSupport, podeOperarIntegracoes } from "@/lib/scope";
+import { isAdmin, isManagerUp, isSupport, podeOperarIntegracoes } from "@/lib/scope";
+import { EtiquetasSettings } from "./etiquetas-settings";
 import type { Origin } from "@prisma/client";
 import { lerCamposDaLoja } from "@/lib/catalogo/campos-do-pedido";
 
@@ -189,6 +190,11 @@ export default async function SettingsPage({
             />
           </div>
         </>
+      )}
+
+      {/* módulo Etiquetas (RN-059): tamanho e campos da etiqueta de embalagem */}
+      {company?.etiquetasEnabled && (
+        <EtiquetasSettings canEdit={isManagerUp(user) || isSupport(user)} />
       )}
 
       {company && (

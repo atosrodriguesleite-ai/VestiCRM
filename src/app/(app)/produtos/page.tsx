@@ -39,6 +39,7 @@ export default async function ProductsPage() {
         catalogHideColors: true,
         catalogHideOutOfStock: true,
         mediaLibraryEnabled: true,
+        etiquetasEnabled: true,
       },
     }),
     db.companyColor.findMany({
@@ -113,6 +114,8 @@ export default async function ProductsPage() {
       size: v.size,
       stock: v.stock,
       sku: v.sku,
+      // RN-059: o código de barras da etiqueta (nasce no banco com a variação)
+      barcode: v.barcode,
       dono: donoDoEstoque({ nuvemshopId: v.nuvemshopId, product: { jueriId: p.jueriId } }),
       // RN-053: a baixa desta peça ainda não foi confirmada pela Nuvemshop
       envioPendente: envioPendente.has(v.id),
@@ -229,6 +232,8 @@ export default async function ProductsPage() {
         semCores={company?.catalogHideColors ?? false}
         // o crachá do card diz POR QUE a peça está fora do catálogo
         ocultaSemEstoque={company?.catalogHideOutOfStock ?? false}
+        // módulo Etiquetas (RN-059): botão de imprimir a grade e o código na ficha
+        etiquetas={company?.etiquetasEnabled ?? false}
       />
     </div>
   );

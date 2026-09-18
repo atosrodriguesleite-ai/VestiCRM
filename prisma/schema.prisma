@@ -64,6 +64,12 @@ model Company {
   /// Produtos, como sempre. A regra do DONO EXTERNO (peça vinculada à
   /// Nuvemshop/Jueri não se edita aqui) vale COM ou SEM a chave.
   estoqueEnabled    Boolean  @default(false)
+  /// MÓDULO ETIQUETAS (RN-059, pago à parte; super admin ativa por loja):
+  /// etiqueta de embalagem com código de barras, impressão em lote (Zebra e
+  /// PDF) e, adiante, separação de pedido por leitor. Sem a chave, nada
+  /// muda em tela nenhuma — o código de barras da variação existe do mesmo
+  /// jeito (nasce no banco), só não há onde imprimi-lo.
+  etiquetasEnabled  Boolean  @default(false)
   suspended         Boolean  @default(false) // acesso bloqueado pelo super admin (ex.: inadimplência)
   // última rodada das automações desta loja. É a TRAVA ATÔMICA que faz o
   // motor rodar de carona no tráfego normal, no máximo uma vez por dia, sem
@@ -134,6 +140,7 @@ model Company {
   inventoryMovs  InventoryMovement[]
   estoqueMinimos EstoqueMinimoCategoria[]
   nsEstoquePend  NuvemshopEstoquePendente[]
+  etiquetaModelos EtiquetaModelo[]
   nsPrecoPend    NuvemshopPrecoPendente[]
   fiscalCategorias FiscalCategoria[]
   customerEvents CustomerEvent[]
@@ -1733,6 +1740,13 @@ model ProductVariant {
   /// — aí zera, e a próxima queda avisa de novo. Uma variação não vira
   /// alerta todo dia enquanto a loja não repõe.
   lowStockAlertedAt  DateTime?
+  /// CÓDIGO DE BARRAS DA VARIAÇÃO (RN-059, ADR-017): EAN-13 interno (prefixo
+  /// 2, faixa de uso interno do GS1), gerado pelo BANCO num gatilho BEFORE
+  /// INSERT a partir de uma sequência única — toda variação nasce com código,
+  /// venha de onde vier (ficha, Nuvemshop, Jueri, importação), e o código
+  /// NUNCA muda depois (etiqueta colada na peça tem que continuar valendo).
+  /// Único na plataforma inteira; a leitura no bipe filtra pela loja (RN-013).
+  barcode            String? @unique
 
   items     OrderItem[]
   movements InventoryMovement[]
@@ -1740,6 +1754,27 @@ model ProductVariant {
 
   @@unique([productId, color, size])
   @@index([productId])
+}
+
+/// MODELO DE ETIQUETA (módulo Etiquetas, RN-059). Um por tipo e por loja no
+/// começo (o "padrão"); o editor de modelos virá em cima desta mesma linha.
+/// `opcoes` é JSON com o que a loja escolheu (tamanho e campos mostrados);
+/// o desenho em si nasce da regra pura `layoutEmbalagem` a partir dele.
+model EtiquetaModelo {
+  id        String   @id @default(cuid())
+  companyId String
+  company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  nome      String
+  /// EMBALAGEM | COMPOSICAO | ENVIO
+  tipo      String   @default("EMBALAGEM")
+  larguraMm Float
+  alturaMm  Float
+  padrao    Boolean  @default(false)
+  opcoes    String   @default("{}")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([companyId, tipo])
 }
 
 model ProductImage {

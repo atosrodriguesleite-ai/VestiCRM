@@ -46,6 +46,7 @@ import { ValoresEditor } from "./valores-editor";
 import { ObservacoesEditor } from "./observacoes-editor";
 import { DataDaVenda } from "./data-da-venda";
 import { podeTransferirVenda, vendaOnline } from "@/lib/orders";
+import { EtiquetasDoPedido } from "./etiquetas-do-pedido";
 
 export const dynamic = "force-dynamic";
 
@@ -135,7 +136,7 @@ export default async function OrderDetailPage({
       }),
       db.company.findUnique({
         where: { id: user.companyId },
-        select: { shippingEnabled: true, catalogPriceMode: true },
+        select: { shippingEnabled: true, catalogPriceMode: true, etiquetasEnabled: true },
       }),
     ]);
   // A RÉGUA DE VISIBILIDADE CONTINUA VALENDO ANTES DE QUALQUER ESCRITA: a
@@ -302,6 +303,21 @@ export default async function OrderDetailPage({
               <FileText className="size-4" />
               Romaneio em PDF
             </Link>
+            {/* módulo Etiquetas (RN-059): as etiquetas de embalagem só das
+                peças deste pedido, já com a quantidade de cada linha */}
+            {company?.etiquetasEnabled && (
+              <EtiquetasDoPedido
+                numero={orderNumber(order.number)}
+                itens={order.items
+                  .filter((i) => i.variantId)
+                  .map((i) => ({
+                    variantId: i.variantId!,
+                    rotulo: i.name,
+                    detalhe: [i.color, i.size].filter(Boolean).join(" · ") || undefined,
+                    quantidade: i.quantity,
+                  }))}
+              />
+            )}
             {(PAID_ORDER_STATUSES as readonly string[]).includes(order.status) && (
               <ResaleCatalog
                 orderId={order.id}

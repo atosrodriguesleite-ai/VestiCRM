@@ -1067,6 +1067,55 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   de lá horas depois ("o sistema perdeu meu preço", a RN-050 em preço).
   A conta pura mora em `lib/reajuste-preco-regra.ts` (é o que a tela
   importa; o arquivo com banco não pode chegar ao navegador).
+- **Etiquetas** (gated por loja, `Company.etiquetasEnabled`, porteira em
+  `lib/etiquetas/gate.ts`; desenhado com o dono em 18/09/2026, em quatro
+  etapas — código por variação, etiqueta de embalagem com impressão em lote,
+  separação de pedido por leitor, editor de modelos; **preço de tabela A
+  DEFINIR pelo dono**, 0 no catálogo de módulos até lá; ADR-017):
+  **RN-059 · O CÓDIGO DE BARRAS DA VARIAÇÃO NASCE COM A PEÇA E NUNCA MUDA**
+  (`lib/etiquetas/ean13.ts`, migração `20260918100000`): cada cor × tamanho
+  tem um **EAN-13 interno** (prefixo 2, faixa de uso interno do GS1 — nunca
+  colide com produto de mercado; é o formato que todo leitor lê de fábrica e
+  que a Zebra desenha nativo) gerado pelo **BANCO num gatilho BEFORE INSERT**
+  a partir de uma sequência única da plataforma — toda variação nasce com
+  código, venha da ficha, da Nuvemshop, do Jueri, da importação ou da
+  produção. Regra no banco de propósito (ADR-017): são cinco caminhos de
+  criação no código e "esqueceu um" é a classe de defeito que mais custou
+  aqui. O código é **único na plataforma** e **nunca reescrito** (etiqueta
+  colada na peça tem que continuar valendo); a leitura no bipe recorta pela
+  loja (RN-013). A conta do dígito verificador existe em SQL e em TypeScript
+  e `scripts/confere-codigo-de-barras.ts` prova que concordam. **O código
+  existe com ou sem a chave do módulo**: a chave só abre as portas de
+  imprimir e bipar. **A etiqueta de embalagem** (`lib/etiquetas/modelo.ts`,
+  `zpl.ts`, `pdf.ts`, `svg.ts`): UMA lista de elementos em milímetros,
+  montada por regra a partir das opções da loja (tamanho, nome da loja, SKU,
+  preço — Configurações → Etiquetas, gerência e suporte editam), desenhada
+  por três saídas que leem a MESMA lista — ZPL para a Zebra 220 (203 dpi,
+  `^CI28` + escape hexadecimal, `^BE` nativo com 12 dígitos), PDF na medida
+  exata (uma página por etiqueta, para qualquer impressora pelo driver) e
+  SVG para a prévia — então o que a lojista vê em Configurações é o que
+  sai (posição, tamanho e corte do texto; o **peso da letra é o de cada
+  saída** — a Zebra só tem UMA fonte escalável embutida, sem par
+  regular/negrito, limite aceito). O número embaixo das barras é desenhado
+  por nós nas três saídas (a linha de interpretação da própria Zebra tinha
+  altura que ela decide e invadia o rodapé, achado da revisão). Texto que não cabe **encolhe até 60% e só então corta** com "…"
+  (`encaixarTexto`, regra única; o PDF mede com a fonte de verdade). Quem
+  monta nome, código e preço é o **SERVIDOR**, do cadastro, recortado pela
+  loja — a tela manda só (variação, quantidade); peça de outra loja ou
+  apagada recusa o lote inteiro com frase E diz QUAIS (o modal marca as
+  linhas), nunca imprime metade calado; teto de 500 etiquetas por vez.
+  Variação sem código (só possível se alguém inserir com o gatilho fora)
+  ganha um na hora de imprimir, pela mesma função do banco e só onde está
+  nulo — código existente nunca é reescrito. O modelo padrão da loja é UM
+  por (loja, tipo) no banco (índice parcial, P2002 tratado, régua da
+  RN-031). Impressão **em lote** pela ficha da peça
+  (a grade inteira, sugerindo uma etiqueta por peça em estoque) e pelo
+  pedido (só as peças dele, na quantidade de cada linha). **Zebra direto
+  pelo navegador** (`lib/etiquetas/browser-print.ts`): o Zebra Browser Print
+  instalado no computador da loja escuta em `localhost:9100` e o modal manda
+  o ZPL para ele quando o encontra; sem ele, PDF ou arquivo ZPL. **Toda a
+  equipe imprime** (decisão do dono: operação de quem está na arara). Etapa
+  3 (separação por bipe) e 4 (editor de modelos) ainda não existem.
 - **Estoque** (gated por loja, `Company.estoqueEnabled`, porteira em
   `lib/estoque/gate.ts`; desenhado com o dono em 09/09/2026 e entregue em
   quatro abas — Inventário, Mínimos, Painel, Produção; **preço de tabela A

@@ -5,7 +5,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Portal } from "@/components/portal";
 import { useRouter } from "next/navigation";
-import { Check, History, Images, Loader2, Lock, Package, Palette, Plus, Search, Sparkles, Star, Trash2, Upload, Wand2, X } from "lucide-react";
+import { Check, History, Images, Loader2, Lock, Package, Palette, Plus, Printer, Search, Sparkles, Star, Trash2, Upload, Wand2, X } from "lucide-react";
 import { brl } from "@/lib/format";
 import { Card, EmptyState } from "@/components/ui";
 import { fileToDataUrl } from "@/lib/upload";
@@ -14,6 +14,7 @@ import { casaTexto } from "@/lib/busca";
 import { sugerirEmLote, type SugestaoDeCategoria } from "@/lib/organizar-catalogo";
 import { motivoOculto } from "@/lib/catalogo/visibilidade";
 import { DICA_DO_DONO, NOME_DO_DONO, type DonoExterno } from "@/lib/estoque/dono-do-estoque";
+import { ImprimirEtiquetas } from "@/components/imprimir-etiquetas";
 
 type LibraryColor = { name: string; hex: string };
 
@@ -68,6 +69,8 @@ export type ProductItem = {
     size: string;
     stock: number;
     sku: string | null;
+    /** RN-059: código de barras da etiqueta de embalagem (EAN-13 interno, nasce no banco) */
+    barcode: string | null;
     /** quem manda no estoque desta variação (RN-050): null = a loja, aqui */
     dono: DonoExterno | null;
     /** RN-053: baixa ainda não confirmada pela Nuvemshop (⚠️ na linha) */
@@ -98,6 +101,7 @@ export function ProductsView({
   canOrganize = false,
   semCores = false,
   ocultaSemEstoque = false,
+  etiquetas = false,
 }: {
   initial: ProductItem[];
   categories: string[];
@@ -114,6 +118,8 @@ export function ProductsView({
   semCores?: boolean;
   /** chave "esconder sem estoque" ligada: o crachá do card explica o sumiço */
   ocultaSemEstoque?: boolean;
+  /** módulo Etiquetas ligado (RN-059): imprimir a grade e ver o código na ficha */
+  etiquetas?: boolean;
 }) {
   const router = useRouter();
   const [q, setQ] = useState("");
@@ -568,6 +574,7 @@ export function ProductsView({
           mediaLibrary={mediaLibrary}
           semCores={semCores}
           ocultaSemEstoque={ocultaSemEstoque}
+          etiquetas={etiquetas}
           onClose={() => setDetail(null)}
           onChanged={() => {
             setDetail(null);
@@ -777,6 +784,7 @@ function ProductDetailModal({
   mediaLibrary = false,
   semCores = false,
   ocultaSemEstoque = false,
+  etiquetas = false,
   onClose,
   onChanged,
 }: {
@@ -789,11 +797,14 @@ function ProductDetailModal({
   mediaLibrary?: boolean;
   semCores?: boolean;
   ocultaSemEstoque?: boolean;
+  etiquetas?: boolean;
   onClose: () => void;
   onChanged: () => void;
 }) {
   const [busy, setBusy] = useState(false);
   const [removedIds, setRemovedIds] = useState<string[]>([]);
+  // RN-059: modal de impressão das etiquetas da grade inteira
+  const [imprimindo, setImprimindo] = useState(false);
   const [newVariant, setNewVariant] = useState({
     // loja sem cores (semijoias): a cor não é pedida — nasce "Único"
     color: semCores ? "Único" : libraryColors[0]?.name ?? "",
@@ -1073,10 +1084,38 @@ function ProductDetailModal({
               {product.sku} · alterações aparecem na hora no catálogo geral
             </p>
           </div>
-          <button onClick={onClose} className="text-gray-400 p-1 shrink-0">
-            <X className="size-5" />
-          </button>
+          <div className="flex items-center gap-1 shrink-0">
+            {etiquetas && product.variants.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setImprimindo(true)}
+                title="Imprimir etiquetas de embalagem desta peça (todas as cores e tamanhos)"
+                className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 hover:border-brand-300 text-gray-600 text-xs font-medium px-2.5 py-1.5 transition"
+              >
+                <Printer className="size-3.5" />
+                Etiquetas
+              </button>
+            )}
+            <button onClick={onClose} className="text-gray-400 p-1 shrink-0">
+              <X className="size-5" />
+            </button>
+          </div>
         </div>
+        {imprimindo && (
+          <ImprimirEtiquetas
+            titulo={product.name}
+            itens={product.variants
+              .filter((v) => !removedIds.includes(v.id))
+              .map((v) => ({
+                variantId: v.id,
+                rotulo: semCores ? v.size : `${v.color} · ${v.size}`,
+                detalhe: v.barcode ?? undefined,
+                // sugestão: uma etiqueta por peça em estoque (a lojista ajusta)
+                quantidade: Math.max(0, v.stock),
+              }))}
+            onClose={() => setImprimindo(false)}
+          />
+        )}
 
         {/* A CLIENTE NÃO ESTÁ VENDO ESTA PEÇA — e por quê. Sem isto, a lojista
             só descobria abrindo o catálogo e procurando peça por peça. */}
@@ -1318,6 +1357,15 @@ function ProductDetailModal({
                         title="SKU da variação — usado pra vincular com a loja online (Nuvemshop)"
                         className="w-24 rounded-lg border border-gray-200 px-2 py-1 text-[11px] outline-none focus:border-brand-400"
                       />
+                      {etiquetas && v.barcode && (
+                        // RN-059: o código que sai na etiqueta (só leitura; nunca muda)
+                        <span
+                          className="hidden sm:inline text-[10px] text-gray-400 tabular-nums shrink-0"
+                          title="Código de barras da etiqueta de embalagem (gerado pelo sistema, não muda)"
+                        >
+                          {v.barcode}
+                        </span>
+                      )}
                       {v.dono ? (
                         // RN-050: peça vinculada — o número é da Nuvemshop/Jueri.
                         // Antes o campo aceitava, gravava aqui e a sync
