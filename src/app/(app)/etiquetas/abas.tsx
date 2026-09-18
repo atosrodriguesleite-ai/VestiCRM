@@ -1,13 +1,14 @@
 "use client";
 
 import Link from "next/link";
-import { LayoutTemplate, Printer } from "lucide-react";
+import { LayoutTemplate, Printer, ScanBarcode } from "lucide-react";
 
-export type AbaDeEtiquetas = "modelos" | "imprimir";
+export type AbaDeEtiquetas = "modelos" | "imprimir" | "separacao";
 
 const ABAS: { id: AbaDeEtiquetas; rotulo: string; icon: React.ComponentType<{ className?: string }> }[] = [
   { id: "modelos", rotulo: "Modelos", icon: LayoutTemplate },
   { id: "imprimir", rotulo: "Imprimir", icon: Printer },
+  { id: "separacao", rotulo: "Separação", icon: ScanBarcode },
 ];
 
 /** As abas da área Etiquetas — links de verdade (a URL diz onde a pessoa está). */

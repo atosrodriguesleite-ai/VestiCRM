@@ -1165,8 +1165,75 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   pelo navegador** (`lib/etiquetas/browser-print.ts`): o Zebra Browser Print
   instalado no computador da loja escuta em `localhost:9100` e o modal manda
   o ZPL para ele quando o encontra; sem ele, PDF ou arquivo ZPL. **Toda a
-  equipe imprime** (decisão do dono: operação de quem está na arara). Etapa
-  3 (separação por bipe) e 4 (editor de modelos) ainda não existem.
+  equipe imprime** (decisão do dono: operação de quem está na arara).
+  **RN-060 · SEPARAÇÃO DE PEDIDO POR LEITOR: O BIPE SÓ ACEITA O QUE ESTÁ
+  NO PEDIDO, NA QUANTIDADE DO PEDIDO, E FICA REGISTRADO QUEM SEPAROU**
+  (`lib/etiquetas/separacao-regra.ts` + `separacao.ts`, aba **Separação**
+  em `/etiquetas` e tela `/etiquetas/separar/[pedido]`, 18/09/2026): o
+  pedido do dono — *"vou separar o pedido #110 bipando; o sistema só
+  permite o registro se for a peça que realmente está no pedido, respeita
+  a quantidade; tem que ser rápido e seguro"*. A **fila** é todo pedido
+  **PAGO (RN-001) que ainda está na loja** (pago, em produção, separação —
+  enviado/entregue já saíram), do mais antigo para o mais novo, recortada
+  pela visibilidade de pedidos (RN-007), com **quem está separando** na
+  linha (duas pessoas não pegam o mesmo pedido sem saber; pedido sem
+  nenhuma peça fica fora; acima de 500 a tela DIZ que cortou). Abrir a tela
+  **não cria nada** — a separação ativa nasce no **primeiro bipe** (a
+  gerente que abre só para olhar não vira "em separação por" na fila de
+  todo mundo). O leitor é um
+  teclado (digita o código e aperta Enter), e **a regra é PURA e a MESMA
+  nos dois lados**: o navegador responde na hora (verde e bip agudo aceita;
+  vermelho e bip grave recusa — *peça errada* quando o código não é de
+  nenhuma linha do pedido, *peça a mais* quando a linha já está completa,
+  *ilegível* quando o EAN não fecha) e manda o bipe aceito para o
+  servidor em segundo plano, que é a **segunda tranca**: aplica a mesma
+  regra sobre o que está gravado, sob **trava por pedido**
+  (`pg_advisory_xact_lock`), e quem bipa **assume** a separação. **Uma
+  separação ativa por pedido** (índice parcial único; a segunda aba relê).
+  A mesma variação em duas linhas do pedido é UMA na separação (soma), e
+  peça sem código (apagada do cadastro) aparece à parte para conferir na
+  mão. **Concluir só libera com TODA linha fechada** — bipada ou declarada
+  em **FALTA** ("não tem na arara", nunca além do que sobrou). **A contagem
+  que vale é a do SERVIDOR**, bipe a bipe: o número que o navegador manda
+  não sobe contagem nenhuma (a primeira versão aceitava o maior dos dois e
+  concluía "4 de 4 bipadas" sem um bipe confirmado — achado da revisão);
+  bipe que ficou sem conexão é mandado de novo ANTES de concluir, e se não
+  chega, não conclui. Do navegador entra só a falta declarada. **O servidor
+  lê o pedido de AGORA a cada bipe** (`mesclarComGravado`: o pedido manda
+  em quantidade e código, o gravado manda na contagem) — a lojista que
+  acrescenta peça no meio tem a peça aceita no bipe seguinte; a foto de
+  quando abriu recusava a peça nova como "errada". E **confere o status
+  dentro da transação**: pedido cancelado ou devolvido a orçamento no meio
+  não aceita bipe nem conclusão. Concluir carimba `Order.separadoEm` **no
+  mesmo comando que confere o status** (a tela do pedido não passa pela
+  trava desta separação: cancelou entre a leitura e a escrita, zero linhas
+  e nada fica gravado), muda o status para **SEPARAÇÃO** só de PAGO/EM
+  PRODUÇÃO (condicionado — nunca por cima de um ENVIADO gravado no meio; a
+  troca entra no histórico como toda troca), escreve no histórico do pedido
+  *"Separado com leitor por Fulana: N de M peças bipadas. FALTOU: …"* e,
+  com falta, avisa no sino a vendedora do pedido
+  (sem dona, a gerência): o pacote sai incompleto e alguém precisa falar
+  com a cliente. A transição passa pela porta do Financeiro (RN-033), como
+  toda transição. **Pedido que muda depois de separado VOLTA para a fila**
+  (`desfazerCarimboDeSeparacao`, chamado pela porta de edição do pedido
+  quando o **PACOTE** muda — variação × quantidade, `pacoteMudou`; só
+  preço não conta, senão a equipe conferia de novo o que já estava pronto
+  — e pelas portas que o fazem voltar a ser pago: reaberto de cancelado na
+  tela e Pix do gateway): o pacote de ontem não é o pedido de hoje, e sem
+  isso ele sumia da fila como se estivesse pronto. A tela que fica aberta
+  enquanto OUTRA conclui não bipa por cima: ao recarregar vê "concluído em
+  outra tela". A lista de status da fila é **derivada** da lista de venda
+  (RN-001) menos quem já saiu, e o teste a confere contra a lista do
+  Estoque — três listas à mão é onde um status novo se perde. Pedido **sem nenhuma peça com
+  código** (item da loja online que não casou por SKU, item de texto
+  livre) conclui como **"conferido na mão"** e o histórico diz — senão
+  ficava na cabeça da fila para sempre. Pago sem data de pagamento (pedido
+  antigo) é o mais antigo da fila, não o último. Pedido já separado pode
+  ser separado de novo (a tela avisa; vira nova conferência no histórico).
+  **Toda a equipe separa** (decisão do dono: "todos usuários, desde que
+  fique registrado o usuário que separou"). O que não se prova sem banco
+  (trava, status na transação, histórico, aviso) está em
+  `scripts/confere-separacao.ts`, contra o Postgres local.
 - **Estoque** (gated por loja, `Company.estoqueEnabled`, porteira em
   `lib/estoque/gate.ts`; desenhado com o dono em 09/09/2026 e entregue em
   quatro abas — Inventário, Mínimos, Painel, Produção; **preço de tabela A

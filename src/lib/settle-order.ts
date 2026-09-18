@@ -132,8 +132,9 @@ async function liquidarUmaVez(
       // volta zero linhas e o rollback desfaz tudo desta tentativa.
       const trava = await tx.order.updateMany({
         where: { id: order.id, status: order.status },
-        // paidAt = data do dinheiro (é por ela que o faturamento do mês soma)
-        data: { status: "PAGO", stockDeducted: true, paidAt: agora },
+        // paidAt = data do dinheiro (é por ela que o faturamento do mês soma);
+        // separadoEm zera: voltou a ser pago, a separação de antes não vale (RN-060)
+        data: { status: "PAGO", stockDeducted: true, paidAt: agora, separadoEm: null },
       });
       if (trava.count === 0) throw new CorridaNoSettle();
 

@@ -47,6 +47,7 @@ import { ObservacoesEditor } from "./observacoes-editor";
 import { DataDaVenda } from "./data-da-venda";
 import { podeTransferirVenda, vendaOnline } from "@/lib/orders";
 import { EtiquetasDoPedido } from "./etiquetas-do-pedido";
+import { STATUS_NA_FILA } from "@/lib/etiquetas/separacao-regra";
 
 export const dynamic = "force-dynamic";
 
@@ -308,6 +309,7 @@ export default async function OrderDetailPage({
             {company?.etiquetasEnabled && (
               <EtiquetasDoPedido
                 numero={orderNumber(order.number)}
+                separar={(STATUS_NA_FILA as readonly string[]).includes(order.status) ? `/etiquetas/separar/${order.id}` : null}
                 itens={order.items
                   .filter((i) => i.variantId)
                   .map((i) => ({

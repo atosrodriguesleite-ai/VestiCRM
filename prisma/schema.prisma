@@ -142,6 +142,7 @@ model Company {
   nsEstoquePend  NuvemshopEstoquePendente[]
   etiquetaModelos EtiquetaModelo[]
   composicoes    ComposicaoCategoria[]
+  separacoes     Separacao[]
   nsPrecoPend    NuvemshopPrecoPendente[]
   fiscalCategorias FiscalCategoria[]
   customerEvents CustomerEvent[]
@@ -479,6 +480,7 @@ model User {
   loginCodes    LoginCode[]
 
   @@index([companyId])
+  separacoes     Separacao[]
 }
 
 // Notificação interna (sino do topo): menção em nota interna, chamado
@@ -1792,6 +1794,27 @@ model EtiquetaModelo {
   @@index([companyId, tipo])
 }
 
+/// SEPARAÇÃO DE PEDIDO POR LEITOR (RN-060): quem separou, quando, e o que
+/// foi bipado peça a peça (`itens` é JSON: variantId, pedida, bipada, falta).
+/// Uma separação ATIVA por pedido (índice parcial); a concluída fica como
+/// prova. Nunca é apagada.
+model Separacao {
+  id          String    @id @default(cuid())
+  companyId   String
+  company     Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  orderId     String
+  order       Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  userId      String?
+  user        User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
+  iniciadaEm  DateTime  @default(now())
+  concluidaEm DateTime?
+  itens       String    @default("[]")
+  faltas      Int       @default(0)
+
+  @@index([companyId, orderId])
+  @@index([companyId, concluidaEm])
+}
+
 /// COMPOSIÇÃO POR CATEGORIA (módulo Etiquetas): o tecido do tipo de peça,
 /// que a etiqueta de composição imprime. A peça só preenche a dela quando
 /// difere da categoria — a mesma régua do NCM (RN-055).
@@ -1928,11 +1951,16 @@ model Order {
   // assim o mês bate com o extrato e um mês fechado nunca mais muda de valor.
   // Carimbada na transição para PAGO e limpa se o pedido voltar atrás.
   paidAt         DateTime?
+  /// SEPARAÇÃO POR LEITOR (RN-060): quando a última separação foi concluída
+  /// (a fila mostra o que ainda não foi separado). O registro de quem bipou
+  /// o quê mora em `Separacao`; o histórico do pedido ganha o evento.
+  separadoEm     DateTime?
 
   items    OrderItem[]
   payments Payment[]
   shipping Shipping?
   events   OrderEvent[]
+  separacoes Separacao[]
   sales    Sale[]
 
   @@unique([companyId, number])

@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
+import { desfazerCarimboDeSeparacao } from "@/lib/etiquetas/separacao";
+import { pacoteMudou } from "@/lib/etiquetas/separacao-regra";
 import { imageHref } from "@/lib/img";
 import { corIgual } from "@/lib/capa-por-cor";
 import { logServerError } from "@/lib/health";
@@ -294,6 +296,9 @@ export async function PATCH(
             total: totals.total,
           },
         });
+        // o PACOTE mudou (variação × quantidade; só preço não conta): o
+        // separado antes não é mais este pedido — volta para a fila (RN-060)
+        if (pacoteMudou(order.items, parsed.data.items!)) await desfazerCarimboDeSeparacao(tx, user.companyId, order.id);
         // ajuste de estoque (só quando o pedido já estava com baixa).
         // A DEVOLUÇÃO é limitada ao que o LIVRO DE MOVIMENTOS diz que o
         // pedido segurou de verdade: reserva parcial do catálogo (pediu 10,
@@ -825,6 +830,9 @@ export async function PATCH(
                 // DATA DO DINHEIRO: carimba quando virou pago; sai ao voltar
                 ...(enteringPaid ? { paidAt: order.paidAt ?? new Date() } : {}),
                 ...(leavingPaid ? { paidAt: null } : {}),
+                // voltou a ser pago (reaberto de cancelado/orçamento): a
+                // separação de antes não vale mais — volta para a fila (RN-060)
+                ...(enteringPaid ? { separadoEm: null } : {}),
                 ...(needStockDeduct ? { stockDeducted: true } : {}),
                 ...(needStockReturn ? { stockDeducted: false } : {}),
                 // baixa definitiva liga a marca; reanexar (ou devolver) limpa
