@@ -1,5 +1,5 @@
 /**
- * ETIQUETAS EM PDF, uma página por etiqueta, na MEDIDA exata (RN-059).
+ * ETIQUETAS EM PDF, uma página por LINHA do rolo, na MEDIDA exata (RN-059).
  *
  * É o caminho que serve para QUALQUER impressora de etiqueta pelo driver do
  * sistema (Zebra pelo ZDesigner, Elgin pelo driver dela) e para conferir na
@@ -7,24 +7,45 @@
  * com a fonte de verdade, então este é o desenho mais fiel.
  *
  * O PLANO de cada peça (textos já encaixados, retângulos das barras) é
- * montado UMA vez; as cópias só desenham — 500 etiquetas iguais não refazem
- * 500 vezes a conta (achado da revisão).
+ * montado UMA vez; cada coluna/cópia só desenha, deslocada pela matriz de
+ * transformação da página (e girada, quando a etiqueta é girada).
  */
 
-import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from "pdf-lib";
+import {
+  PDFDocument,
+  StandardFonts,
+  rgb,
+  concatTransformationMatrix,
+  popGraphicsState,
+  pushGraphicsState,
+  type PDFFont,
+  type PDFPage,
+} from "pdf-lib";
 import { textoPdf } from "@/lib/pdf-texto";
 import { barrasEan13, ean13Valido } from "./ean13";
-import { encaixarTexto, valorDoCampo, type DadosEtiqueta, type Modelo } from "./modelo";
+import {
+  areaDeDesenho,
+  encaixarTexto,
+  expandirLote,
+  larguraDaLinha,
+  linhasDoRolo,
+  valorDoCampo,
+  xDaColuna,
+  type DadosEtiqueta,
+  type Modelo,
+} from "./modelo";
 
 const PT_POR_MM = 72 / 25.4;
-/** teto de páginas num PDF só (500 etiquetas já é um rolo) */
+/** teto de etiquetas num PDF só (500 já é um rolo) */
 export const TETO_ETIQUETAS_POR_PDF = 500;
 
 type Op =
   | { tipo: "texto"; texto: string; x: number; y: number; pt: number; fonte: PDFFont }
   | { tipo: "rect"; x: number; y: number; w: number; h: number };
 
-function planoDaPeca(modelo: Modelo, dados: DadosEtiqueta, normal: PDFFont, negrito: PDFFont, Hpt: number): Op[] {
+/** O plano de UMA peça, em pontos, no espaço do DESENHO (origem embaixo à esquerda, altura = área de desenho). */
+function planoDaPeca(modelo: Modelo, dados: DadosEtiqueta, normal: PDFFont, negrito: PDFFont): Op[] {
+  const Hpt = areaDeDesenho(modelo).h * PT_POR_MM;
   const ops: Op[] = [];
   for (const el of modelo.elementos) {
     if (el.tipo === "texto") {
@@ -71,12 +92,27 @@ function planoDaPeca(modelo: Modelo, dados: DadosEtiqueta, normal: PDFFont, negr
   return ops;
 }
 
-function desenhar(page: PDFPage, ops: Op[]) {
+/**
+ * Desenha o plano de uma peça na coluna `c` da página. A matriz leva o
+ * espaço do desenho para o espaço da página: deslocamento da coluna e, na
+ * etiqueta girada, rotação de 90° no sentido horário (o eixo x do desenho
+ * passa a descer pela etiqueta; o topo do desenho vira a borda direita).
+ */
+function desenharColuna(page: PDFPage, modelo: Modelo, c: number, ops: Op[]) {
   const preto = rgb(0.07, 0.07, 0.07);
+  const x0 = xDaColuna(modelo, c) * PT_POR_MM;
+  const Hpt = modelo.alturaMm * PT_POR_MM;
+  page.pushOperators(
+    pushGraphicsState(),
+    modelo.girada
+      ? concatTransformationMatrix(0, -1, 1, 0, x0, Hpt)
+      : concatTransformationMatrix(1, 0, 0, 1, x0, 0)
+  );
   for (const op of ops) {
     if (op.tipo === "texto") page.drawText(op.texto, { x: op.x, y: op.y, size: op.pt, font: op.fonte, color: preto });
     else page.drawRectangle({ x: op.x, y: op.y, width: op.w, height: op.h, color: preto });
   }
+  page.pushOperators(popGraphicsState());
 }
 
 export async function pdfDoLote(
@@ -86,17 +122,24 @@ export async function pdfDoLote(
   const doc = await PDFDocument.create();
   const normal = await doc.embedFont(StandardFonts.Helvetica);
   const negrito = await doc.embedFont(StandardFonts.HelveticaBold);
-  const Wpt = modelo.larguraMm * PT_POR_MM;
+  const Wpt = larguraDaLinha(modelo) * PT_POR_MM;
   const Hpt = modelo.alturaMm * PT_POR_MM;
-  let total = 0;
 
-  for (const item of lote) {
-    if (item.quantidade <= 0) continue;
-    const plano = planoDaPeca(modelo, item.dados, normal, negrito, Hpt);
-    for (let c = 0; c < item.quantidade && total < TETO_ETIQUETAS_POR_PDF; c++) {
-      total++;
-      desenhar(doc.addPage([Wpt, Hpt]), plano);
+  // o plano é por PEÇA (mesmo código = mesmo desenho), montado uma vez
+  const planos = new Map<string, Op[]>();
+  const planoDe = (d: DadosEtiqueta) => {
+    const chave = JSON.stringify(d);
+    let p = planos.get(chave);
+    if (!p) {
+      p = planoDaPeca(modelo, d, normal, negrito);
+      planos.set(chave, p);
     }
+    return p;
+  };
+
+  for (const linha of linhasDoRolo(expandirLote(lote, TETO_ETIQUETAS_POR_PDF), modelo.colunas)) {
+    const page = doc.addPage([Wpt, Hpt]);
+    linha.forEach((dados, c) => desenharColuna(page, modelo, c, planoDe(dados)));
   }
   return doc.save();
 }

@@ -1088,8 +1088,20 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   existe com ou sem a chave do módulo**: a chave só abre as portas de
   imprimir e bipar. **A etiqueta de embalagem** (`lib/etiquetas/modelo.ts`,
   `zpl.ts`, `pdf.ts`, `svg.ts`): UMA lista de elementos em milímetros,
-  montada por regra a partir das opções da loja (tamanho, nome da loja, SKU,
-  preço — Configurações → Etiquetas, gerência e suporte editam), desenhada
+  montada por regra a partir das opções da loja (tamanho, **colunas do rolo
+  e espaço entre elas** — o rolo da Toque Leve tem 4 etiquetas de 23 × 48 mm
+  lado a lado —, **girar** (automático: etiqueta mais alta que larga sai com
+  o desenho deitado, girado 90° horário, senão o EAN teria barra de 0,125 mm
+  que muito leitor não lê), nome da loja, SKU, preço — Configurações →
+  Etiquetas, gerência e suporte editam). Uma "página" (PDF) ou "etiqueta"
+  (ZPL, `^PW` = largura de todas as colunas) é UMA LINHA do rolo, e o lote
+  é expandido por quantidade e agrupado de `colunas` em `colunas`
+  (`expandirLote`/`linhasDoRolo`; linhas iguais em sequência viram `^PQ`).
+  A rotação em ZPL usa orientação R com `^FO` no canto superior esquerdo da
+  caixa girada — o visualizador externo é bloqueado pela rede da sessão,
+  então o ajuste fino se confere na impressão de teste; PDF e prévia são
+  exatos (matriz `0 -1 1 0`). O modal tem **"cópias de cada"** (um número
+  para todas as linhas) e **"repetir o lote ×N"**. Desenhada
   por três saídas que leem a MESMA lista — ZPL para a Zebra 220 (203 dpi,
   `^CI28` + escape hexadecimal, `^BE` nativo com 12 dígitos), PDF na medida
   exata (uma página por etiqueta, para qualquer impressora pelo driver) e

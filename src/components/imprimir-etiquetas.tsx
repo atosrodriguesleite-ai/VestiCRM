@@ -5,8 +5,9 @@ import { Loader2, Printer, X } from "lucide-react";
 import { Portal } from "@/components/portal";
 import { imprimirNaZebra, zebraDisponivel, type ImpressoraZebra } from "@/lib/etiquetas/browser-print";
 
-/** o mesmo teto da rota (TETO_ETIQUETAS_POR_LOTE), por linha */
+/** o mesmo teto da rota (TETO_ETIQUETAS_POR_LOTE), por linha e no total */
 const TETO_POR_LINHA = 500;
+const TETO_POR_LOTE = 500;
 
 /** solta a URL do blob depois que o navegador já a usou (senão vaza uma por impressão) */
 function soltarDepois(url: string) {
@@ -44,6 +45,11 @@ export function ImprimirEtiquetas({
     Object.fromEntries(itens.map((i) => [i.variantId, Math.max(0, Math.min(TETO_POR_LINHA, i.quantidade))]))
   );
   const [faltando, setFaltando] = useState<string[]>([]);
+  // "cópias de cada": um número para todas as linhas de uma vez; "repetir o
+  // lote": multiplica tudo (pedido do dono, 18/09/2026 — o OpenLabel tem um
+  // "Copies" e a lojista não quer digitar linha por linha)
+  const [deCada, setDeCada] = useState<number>(1);
+  const [repetir, setRepetir] = useState<number>(1);
   const [zebra, setZebra] = useState<ImpressoraZebra | null | "procurando">("procurando");
   const [busy, setBusy] = useState<"" | "pdf" | "zebra" | "zpl">("");
   const [erro, setErro] = useState("");
@@ -57,10 +63,25 @@ export function ImprimirEtiquetas({
     };
   }, []);
 
-  const total = useMemo(() => Object.values(qtd).reduce((s, n) => s + (n || 0), 0), [qtd]);
+  const mult = Math.max(1, Math.min(TETO_POR_LINHA, Math.floor(repetir) || 1));
+  const total = useMemo(
+    () => Object.values(qtd).reduce((s, n) => s + (n || 0), 0) * mult,
+    [qtd, mult]
+  );
+  const linhaEstourada = useMemo(
+    () => Object.values(qtd).some((n) => (n || 0) * mult > TETO_POR_LINHA),
+    [qtd, mult]
+  );
 
   const lote = () =>
-    itens.map((i) => ({ variantId: i.variantId, quantidade: qtd[i.variantId] || 0 })).filter((i) => i.quantidade > 0);
+    itens
+      .map((i) => ({ variantId: i.variantId, quantidade: (qtd[i.variantId] || 0) * mult }))
+      .filter((i) => i.quantidade > 0);
+
+  function aplicarATodas() {
+    const n = Math.max(0, Math.min(TETO_POR_LINHA, Math.floor(deCada) || 0));
+    setQtd(Object.fromEntries(itens.map((i) => [i.variantId, n])));
+  }
 
   async function pedir(formato: "pdf" | "zpl") {
     const r = await fetch("/api/etiquetas/imprimir", {
@@ -146,6 +167,7 @@ export function ImprimirEtiquetas({
 
   const botao =
     "inline-flex items-center justify-center gap-1.5 rounded-xl text-sm font-medium px-4 py-2.5 transition disabled:opacity-50";
+  const bloqueado = busy !== "" || total === 0 || total > TETO_POR_LOTE || linhaEstourada;
 
   return (
     <Portal>
@@ -198,9 +220,44 @@ export function ImprimirEtiquetas({
               </div>
             ))}
           </div>
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-2 mb-3 text-xs text-gray-600">
+            <label className="flex items-center gap-1.5">
+              Cópias de cada:
+              <input
+                type="number"
+                min={0}
+                max={TETO_POR_LINHA}
+                inputMode="numeric"
+                value={deCada}
+                onChange={(e) => setDeCada(Math.max(0, Math.min(TETO_POR_LINHA, Math.floor(Number(e.target.value) || 0))))}
+                className="w-14 rounded-lg border border-gray-200 px-2 py-1 text-right tabular-nums outline-none focus:border-brand-400"
+              />
+              <button
+                type="button"
+                onClick={aplicarATodas}
+                className="rounded-lg border border-gray-200 hover:border-brand-300 px-2 py-1 font-medium"
+              >
+                aplicar a todas
+              </button>
+            </label>
+            <label className="flex items-center gap-1.5" title="Multiplica todas as quantidades (ex.: 3 = imprime o lote inteiro três vezes)">
+              Repetir o lote ×
+              <input
+                type="number"
+                min={1}
+                max={TETO_POR_LINHA}
+                inputMode="numeric"
+                value={repetir}
+                onChange={(e) => setRepetir(Math.max(1, Math.min(TETO_POR_LINHA, Math.floor(Number(e.target.value) || 1))))}
+                className="w-14 rounded-lg border border-gray-200 px-2 py-1 text-right tabular-nums outline-none focus:border-brand-400"
+              />
+            </label>
+          </div>
           <p className="text-xs text-gray-500 mb-3">
-            Total: <b>{total}</b> etiqueta{total === 1 ? "" : "s"}. O tamanho e os campos são os de
-            Configurações → Etiquetas.
+            Total: <b>{total}</b> etiqueta{total === 1 ? "" : "s"}
+            {total > TETO_POR_LOTE && <span className="text-rose-600"> (máximo {TETO_POR_LOTE} por vez)</span>}
+            {linhaEstourada && <span className="text-rose-600"> (uma linha passa de {TETO_POR_LINHA})</span>}. O tamanho,
+            as colunas do rolo e os campos são os de Configurações → Etiquetas.
           </p>
 
           {erro && <p className="mb-3 text-sm text-rose-600">{erro}</p>}
@@ -214,7 +271,7 @@ export function ImprimirEtiquetas({
             ) : zebra ? (
               <button
                 onClick={naZebra}
-                disabled={busy !== "" || total === 0}
+                disabled={bloqueado}
                 className={`${botao} bg-brand-600 hover:bg-brand-700 text-white`}
               >
                 {busy === "zebra" ? <Loader2 className="size-4 animate-spin" /> : <Printer className="size-4" />}
@@ -228,7 +285,7 @@ export function ImprimirEtiquetas({
             )}
             <button
               onClick={pdf}
-              disabled={busy !== "" || total === 0}
+              disabled={bloqueado}
               className={`${botao} ${zebra && zebra !== "procurando" ? "border border-gray-200 hover:border-brand-300 text-gray-700" : "bg-brand-600 hover:bg-brand-700 text-white"}`}
             >
               {busy === "pdf" ? <Loader2 className="size-4 animate-spin" /> : <Printer className="size-4" />}
@@ -236,7 +293,7 @@ export function ImprimirEtiquetas({
             </button>
             <button
               onClick={zpl}
-              disabled={busy !== "" || total === 0}
+              disabled={bloqueado}
               className={`${botao} border border-gray-200 hover:border-gray-300 text-gray-500 text-xs py-2`}
             >
               Baixar arquivo ZPL (Zebra)

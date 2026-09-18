@@ -6,18 +6,36 @@
  * fora do ASCII escapados em hexadecimal (`^FH_`) — é o jeito que funciona em
  * qualquer firmware; mandar "ç" cru dependia da configuração da impressora.
  * O código de barras usa o `^BE` (EAN-13 nativo): recebe os 12 dígitos e a
- * própria impressora calcula e imprime o verificador.
+ * própria impressora calcula o verificador; o número embaixo é desenhado
+ * por nós (a linha de interpretação da impressora tem altura própria e
+ * invadia o rodapé).
+ *
+ * ROLO COM COLUNAS: uma "etiqueta" ZPL é uma LINHA do rolo (`^PW` = largura
+ * de todas as colunas), e cada coluna recebe os campos deslocados. Linhas
+ * iguais em sequência viram uma só com `^PQ` (cópias).
+ *
+ * ETIQUETA GIRADA: os campos saem com orientação R (90° horário) e o `^FO`
+ * é o canto superior esquerdo da caixa já girada — é a convenção do `^FO`
+ * documentada para campos rotacionados; a prévia e o PDF são exatos, e o
+ * ajuste fino da Zebra se confere na impressão de teste.
  */
 
 import {
+  areaDeDesenho,
   encaixarTexto,
   estimarLarguraMm,
+  expandirLote,
+  larguraDaLinha,
+  linhasDoRolo,
+  paraFisico,
   valorDoCampo,
+  xDaColuna,
   MM_POR_PT,
   type DadosEtiqueta,
   type Modelo,
 } from "./modelo";
 import { MODULOS_EAN13, ean13Valido } from "./ean13";
+import { TETO_ETIQUETAS_POR_PDF } from "./pdf";
 
 export const DPI_ZEBRA_220 = 203;
 
@@ -40,75 +58,95 @@ export function escaparZpl(texto: string): string {
   return saida;
 }
 
-/** Uma etiqueta (com N cópias iguais) em ZPL. */
-export function zplDaEtiqueta(
-  modelo: Modelo,
-  dados: DadosEtiqueta,
-  copias = 1,
-  dpi = DPI_ZEBRA_220
-): string {
-  const W = dots(modelo.larguraMm, dpi);
-  const H = dots(modelo.alturaMm, dpi);
-  const partes: string[] = [`^XA`, `^CI28`, `^PW${W}`, `^LL${H}`, `^LH0,0`];
+/** Os campos de UMA etiqueta, deslocados para a coluna `c`. */
+function camposDaEtiqueta(modelo: Modelo, dados: DadosEtiqueta, c: number, dpi: number): string[] {
+  const partes: string[] = [];
+  const x0 = xDaColuna(modelo, c);
+  const orient = modelo.girada ? "R" : "N";
+  const texto = (r: { x: number; y: number; w: number; h: number }, t: string, pt: number, alinhar: "L" | "C" | "R") => {
+    const f = paraFisico(modelo, r);
+    const altura = dots(pt * MM_POR_PT, dpi);
+    return (
+      `^FO${dots(x0 + f.x, dpi)},${dots(f.y, dpi)}` +
+      `^A0${orient},${altura},${altura}` +
+      `^FB${dots(r.w, dpi)},1,0,${alinhar},0` +
+      `^FH_^FD${escaparZpl(t)}^FS`
+    );
+  };
   for (const el of modelo.elementos) {
     if (el.tipo === "texto") {
       const bruto = valorDoCampo(el, dados);
       if (!bruto) continue;
-      const { texto, pt } = encaixarTexto(bruto, el.w, el.pt, estimarLarguraMm);
-      const altura = dots(pt * MM_POR_PT, dpi);
-      const alinhar = el.alinhar === "centro" ? "C" : el.alinhar === "dir" ? "R" : "L";
-      // A Zebra tem UMA fonte escalável embutida (^A0, CG Triumvirate Bold
-      // Condensed): não existe par regular/negrito. Posição, tamanho e corte
-      // do texto são os mesmos do PDF e da prévia; o peso da letra é o da
-      // impressora. Limite aceito e dito na documentação.
-      partes.push(
-        `^FO${dots(el.x, dpi)},${dots(el.y, dpi)}` +
-          `^A0N,${altura},${altura}` +
-          `^FB${dots(el.w, dpi)},1,0,${alinhar},0` +
-          `^FH_^FD${escaparZpl(texto)}^FS`
-      );
+      const { texto: t, pt } = encaixarTexto(bruto, el.w, el.pt, estimarLarguraMm);
+      // A Zebra tem UMA fonte escalável embutida (^A0): não existe par
+      // regular/negrito. Posição, tamanho e corte são os do PDF e da prévia.
+      partes.push(texto(el, t, pt, el.alinhar === "centro" ? "C" : el.alinhar === "dir" ? "R" : "L"));
       continue;
     }
     if (!ean13Valido(dados.codigo)) continue;
     // módulo inteiro em pontos (a Zebra não desenha meio ponto): o código
-    // fica com 95 módulos e é centrado na área reservada
+    // fica com 95 módulos e é centrado na área reservada. 1 ponto (0,125 mm)
+    // só quando não cabe mais — é o limite do que um leitor comum lê.
     const larguraDots = dots(el.w, dpi);
-    const modulo = Math.max(2, Math.min(4, Math.floor(larguraDots / (MODULOS_EAN13 + 18))));
-    const larguraCodigo = modulo * MODULOS_EAN13;
-    const x = dots(el.x, dpi) + Math.max(0, Math.round((larguraDots - larguraCodigo) / 2));
+    const modulo = Math.max(1, Math.min(4, Math.floor(larguraDots / (MODULOS_EAN13 + 18))));
+    const larguraCodigoMm = ((modulo * MODULOS_EAN13) / dpi) * 25.4;
+    const caixa = { x: el.x + Math.max(0, (el.w - larguraCodigoMm) / 2), y: el.y, w: larguraCodigoMm, h: el.h };
+    const f = paraFisico(modelo, caixa);
     const alturaBarras = dots(el.h, dpi);
-    // a linha de interpretação da própria impressora (`Y`) tem altura que
-    // ela decide e invadia o rodapé (achado da revisão): as barras saem sem
-    // número (`N`) e o número é desenhado por nós, na MESMA posição e
-    // tamanho do PDF e da prévia
     partes.push(
-      `^FO${x},${dots(el.y, dpi)}` +
+      `^FO${dots(x0 + f.x, dpi)},${dots(f.y, dpi)}` +
         `^BY${modulo},2,${alturaBarras}` +
-        `^BEN,${alturaBarras},N,N` +
+        `^BE${orient},${alturaBarras},N,N` +
         `^FD${dados.codigo.slice(0, 12)}^FS`
     );
     if (el.numero) {
-      const alturaNumero = dots(Math.min(2.2, (el.w / 13) * 0.9), dpi);
-      partes.push(
-        `^FO${dots(el.x, dpi)},${dots(el.y + el.h + 0.3, dpi)}` +
-          `^A0N,${alturaNumero},${alturaNumero}` +
-          `^FB${larguraDots},1,0,C,0` +
-          `^FD${dados.codigo}^FS`
-      );
+      const ptNumero = Math.min(2.2, (el.w / 13) * 0.9) / MM_POR_PT;
+      partes.push(texto({ x: el.x, y: el.y + el.h + 0.3, w: el.w, h: 2.2 }, dados.codigo, ptNumero, "C"));
     }
   }
+  return partes;
+}
+
+/** Uma LINHA do rolo (até `colunas` etiquetas), com N cópias iguais. */
+export function zplDaLinha(modelo: Modelo, linha: DadosEtiqueta[], copias = 1, dpi = DPI_ZEBRA_220): string {
+  const partes: string[] = [
+    `^XA`,
+    `^CI28`,
+    `^PW${dots(larguraDaLinha(modelo), dpi)}`,
+    `^LL${dots(modelo.alturaMm, dpi)}`,
+    `^LH0,0`,
+  ];
+  linha.slice(0, modelo.colunas).forEach((dados, c) => partes.push(...camposDaEtiqueta(modelo, dados, c, dpi)));
   partes.push(`^PQ${Math.max(1, Math.min(999, Math.floor(copias)))}`, `^XZ`);
   return partes.join("\n");
 }
 
-/** Várias peças, cada uma com sua quantidade, num único envio para a impressora. */
+/** Uma etiqueta sozinha (rolo de uma coluna), com N cópias. */
+export function zplDaEtiqueta(modelo: Modelo, dados: DadosEtiqueta, copias = 1, dpi = DPI_ZEBRA_220): string {
+  return zplDaLinha({ ...modelo, colunas: 1 }, [dados], copias, dpi);
+}
+
+/**
+ * O lote inteiro: cada peça pela quantidade, agrupado em linhas do rolo;
+ * linhas iguais em sequência saem uma vez com `^PQ`.
+ */
 export function zplDoLote(
   modelo: Modelo,
   lote: { dados: DadosEtiqueta; quantidade: number }[],
   dpi = DPI_ZEBRA_220
 ): string {
-  return lote
-    .filter((l) => l.quantidade > 0)
-    .map((l) => zplDaEtiqueta(modelo, l.dados, l.quantidade, dpi))
-    .join("\n");
+  const linhas = linhasDoRolo(expandirLote(lote, TETO_ETIQUETAS_POR_PDF), modelo.colunas);
+  const blocos: string[] = [];
+  let i = 0;
+  while (i < linhas.length) {
+    const chave = linhas[i].map((d) => d.codigo).join("|");
+    let n = 1;
+    while (i + n < linhas.length && linhas[i + n].map((d) => d.codigo).join("|") === chave) n++;
+    blocos.push(zplDaLinha(modelo, linhas[i], n, dpi));
+    i += n;
+  }
+  return blocos.join("\n");
 }
+
+/** A mesma área de desenho que o PDF e a prévia usam (para teste e conferência). */
+export { areaDeDesenho };

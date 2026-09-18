@@ -14,7 +14,8 @@ import {
   elementosCabem,
   type OpcoesEmbalagem,
 } from "@/lib/etiquetas/modelo";
-import { svgDaEtiqueta } from "@/lib/etiquetas/svg";
+import { svgDaLinha } from "@/lib/etiquetas/svg";
+import { COLUNAS_MAX, ESPACO_MAX_MM, larguraDaLinha } from "@/lib/etiquetas/modelo";
 
 /**
  * CONFIGURAÇÕES → ETIQUETAS (RN-059): tamanho da etiqueta de embalagem e
@@ -39,7 +40,11 @@ export function EtiquetasSettings({ canEdit }: { canEdit: boolean }) {
 
   const modelo = useMemo(() => layoutEmbalagem(op), [op]);
   const cabe = useMemo(() => elementosCabem(modelo), [modelo]);
-  const svg = useMemo(() => svgDaEtiqueta(modelo, DADOS_DE_EXEMPLO), [modelo]);
+  // a prévia é UMA LINHA do rolo, com todas as colunas (é o que a impressora cospe)
+  const svg = useMemo(
+    () => svgDaLinha(modelo, Array.from({ length: modelo.colunas }, () => DADOS_DE_EXEMPLO)),
+    [modelo]
+  );
 
   async function salvar() {
     setBusy(true);
@@ -58,7 +63,7 @@ export function EtiquetasSettings({ canEdit }: { canEdit: boolean }) {
     );
   }
 
-  const num = (k: "larguraMm" | "alturaMm") => (e: React.ChangeEvent<HTMLInputElement>) =>
+  const num = (k: "larguraMm" | "alturaMm" | "colunas" | "espacoMm") => (e: React.ChangeEvent<HTMLInputElement>) =>
     setOp((o) => ({ ...o, [k]: Number(e.target.value) || 0 }));
   const campo = "w-24 rounded-lg border border-gray-200 px-2 py-1.5 text-sm outline-none focus:border-brand-400 disabled:bg-gray-50";
 
@@ -74,6 +79,7 @@ export function EtiquetasSettings({ canEdit }: { canEdit: boolean }) {
       </p>
       <div className="grid md:grid-cols-2 gap-5">
         <div className="space-y-3">
+          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Rolo</p>
           <div className="flex items-center gap-3">
             <label className="text-sm text-gray-600 w-20">Largura</label>
             <input type="number" min={LARGURA_MIN_MM} max={LARGURA_MAX_MM} step={1} value={op.larguraMm} onChange={num("larguraMm")} disabled={!canEdit} className={campo} />
@@ -84,6 +90,32 @@ export function EtiquetasSettings({ canEdit }: { canEdit: boolean }) {
             <input type="number" min={ALTURA_MIN_MM} max={ALTURA_MAX_MM} step={1} value={op.alturaMm} onChange={num("alturaMm")} disabled={!canEdit} className={campo} />
             <span className="text-xs text-gray-400">mm</span>
           </div>
+          <div className="flex items-center gap-3">
+            <label className="text-sm text-gray-600 w-20" title="Quantas etiquetas ficam lado a lado no rolo">Colunas</label>
+            <input type="number" min={1} max={COLUNAS_MAX} step={1} value={op.colunas} onChange={num("colunas")} disabled={!canEdit} className={campo} />
+            <span className="text-xs text-gray-400">lado a lado</span>
+          </div>
+          {op.colunas > 1 && (
+            <div className="flex items-center gap-3">
+              <label className="text-sm text-gray-600 w-20">Espaço</label>
+              <input type="number" min={0} max={ESPACO_MAX_MM} step={0.5} value={op.espacoMm} onChange={num("espacoMm")} disabled={!canEdit} className={campo} />
+              <span className="text-xs text-gray-400">mm entre colunas · linha de {larguraDaLinha(modelo)} mm</span>
+            </div>
+          )}
+          <div className="flex items-center gap-3">
+            <label className="text-sm text-gray-600 w-20" title="Etiqueta estreita e alta: o desenho sai deitado, girado 90°, para o código de barras caber grande">Girar</label>
+            <select
+              value={op.girar}
+              disabled={!canEdit}
+              onChange={(e) => setOp((o) => ({ ...o, girar: e.target.value as OpcoesEmbalagem["girar"] }))}
+              className="rounded-lg border border-gray-200 px-2 py-1.5 text-sm outline-none focus:border-brand-400 disabled:bg-gray-50"
+            >
+              <option value="auto">automático (gira se for mais alta que larga)</option>
+              <option value="sim">sempre girada</option>
+              <option value="nao">nunca</option>
+            </select>
+          </div>
+          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide pt-1">Campos</p>
           <label className="flex items-center gap-2 text-sm text-gray-700">
             <input type="checkbox" checked={op.mostrarLoja} disabled={!canEdit} onChange={(e) => setOp((o) => ({ ...o, mostrarLoja: e.target.checked }))} />
             Nome da loja no rodapé
@@ -107,7 +139,8 @@ export function EtiquetasSettings({ canEdit }: { canEdit: boolean }) {
           </div>
           {!cabe && (
             <p className="text-xs text-rose-600">
-              Nesse tamanho não cabe tudo: aumente a altura ou tire um campo do rodapé.
+              Não cabe: ou a linha inteira (colunas + espaços) passa do que a impressora imprime, ou a
+              etiqueta é baixa demais para o rodapé pedido. Ajuste o tamanho, as colunas ou tire um campo.
             </p>
           )}
           {msg && (
@@ -126,10 +159,13 @@ export function EtiquetasSettings({ canEdit }: { canEdit: boolean }) {
           )}
         </div>
         <div>
-          <p className="text-xs text-gray-400 mb-2">Prévia (peça de exemplo, em tamanho aproximado):</p>
+          <p className="text-xs text-gray-400 mb-2">
+            Prévia de uma linha do rolo (peça de exemplo, em tamanho aproximado
+            {modelo.girada ? ", etiqueta girada" : ""}):
+          </p>
           <div
             className="inline-block rounded-lg bg-gray-50 p-3 [&>svg]:max-w-full [&>svg]:h-auto"
-            style={{ width: `min(100%, ${op.larguraMm * 4}px)` }}
+            style={{ width: `min(100%, ${larguraDaLinha(modelo) * 4 + 24}px)` }}
             // SVG gerado pelo próprio sistema a partir do modelo (sem entrada de usuário livre)
             dangerouslySetInnerHTML={{ __html: svg }}
           />

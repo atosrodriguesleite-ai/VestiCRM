@@ -55,10 +55,53 @@ export type ElementoBarras = {
 export type Elemento = ElementoTexto | ElementoBarras;
 
 export type Modelo = {
+  /** medidas FÍSICAS de UMA etiqueta no rolo */
   larguraMm: number;
   alturaMm: number;
+  /** etiquetas lado a lado no rolo (o rolo da Toque Leve tem 4 de 23 mm) */
+  colunas: number;
+  /** espaço entre uma coluna e outra, em mm */
+  espacoMm: number;
+  /**
+   * ETIQUETA GIRADA (rolo estreito e alto): o desenho é feito "deitado"
+   * (largura = altura física) e impresso girado 90° no sentido horário — o
+   * topo do desenho fica na borda direita da etiqueta. É o que faz nome e
+   * código caberem numa etiqueta de 23 × 48 mm; sem girar, o EAN teria que
+   * sair com barra de 0,125 mm, que muito leitor não lê.
+   */
+  girada: boolean;
+  /** elementos em coordenadas do DESENHO (ver `areaDeDesenho`) */
   elementos: Elemento[];
 };
+
+/** A área onde os elementos são posicionados: a etiqueta em pé, ou deitada quando girada. */
+export function areaDeDesenho(m: Pick<Modelo, "larguraMm" | "alturaMm" | "girada">): { w: number; h: number } {
+  return m.girada ? { w: m.alturaMm, h: m.larguraMm } : { w: m.larguraMm, h: m.alturaMm };
+}
+
+/** Largura total de uma LINHA do rolo (todas as colunas e os espaços). */
+export function larguraDaLinha(m: Pick<Modelo, "larguraMm" | "colunas" | "espacoMm">): number {
+  return m.colunas * m.larguraMm + (m.colunas - 1) * m.espacoMm;
+}
+
+/** Onde começa a coluna `c` (0 = primeira), em mm a partir da borda esquerda do rolo. */
+export function xDaColuna(m: Pick<Modelo, "larguraMm" | "espacoMm">, c: number): number {
+  return c * (m.larguraMm + m.espacoMm);
+}
+
+/**
+ * Um retângulo do desenho vira retângulo na etiqueta FÍSICA (mm, origem no
+ * canto superior esquerdo da etiqueta). Girada: rotação de 90° no sentido
+ * horário — o eixo x do desenho desce pela etiqueta, o eixo y do desenho
+ * corre da direita para a esquerda.
+ */
+export function paraFisico(
+  m: Pick<Modelo, "larguraMm" | "girada">,
+  r: { x: number; y: number; w: number; h: number }
+): { x: number; y: number; w: number; h: number } {
+  if (!m.girada) return r;
+  return { x: m.larguraMm - r.y - r.h, y: r.x, w: r.h, h: r.w };
+}
 
 /** O que a etiqueta de embalagem sabe de cada peça. */
 export type DadosEtiqueta = {
@@ -88,26 +131,46 @@ export const DADOS_DE_EXEMPLO: DadosEtiqueta = {
 export type OpcoesEmbalagem = {
   larguraMm: number;
   alturaMm: number;
+  /** etiquetas lado a lado no rolo (1 a 6) */
+  colunas: number;
+  /** espaço entre colunas, em mm (0 a 10) */
+  espacoMm: number;
+  /** girar 90°: "auto" gira quando a etiqueta é mais alta que larga */
+  girar: "auto" | "sim" | "nao";
   mostrarLoja: boolean;
   mostrarSku: boolean;
   /** null = sem preço; "atacado" | "varejo" */
   preco: null | "atacado" | "varejo";
 };
 
-/** Padrão: 50 × 30 mm, o rolo mais comum nas Zebra e Elgin de bancada. */
+/** Padrão: 50 × 30 mm, uma coluna, o rolo mais comum nas Zebra e Elgin de bancada. */
 export const OPCOES_PADRAO: OpcoesEmbalagem = {
   larguraMm: 50,
   alturaMm: 30,
+  colunas: 1,
+  espacoMm: 2,
+  girar: "auto",
   mostrarLoja: true,
   mostrarSku: false,
   preco: null,
 };
 
-/** Limites do que a impressora de etiqueta imprime (Zebra 220: até 56 mm de largura). */
-export const LARGURA_MIN_MM = 20;
+/** Limites do que a impressora de etiqueta imprime (Zebra 220: rolo de até 104 mm de largura útil). */
+export const LARGURA_MIN_MM = 15;
 export const LARGURA_MAX_MM = 110;
 export const ALTURA_MIN_MM = 12;
 export const ALTURA_MAX_MM = 150;
+export const COLUNAS_MAX = 6;
+export const ESPACO_MAX_MM = 10;
+/** a linha inteira (colunas + espaços) tem que caber na impressora */
+export const LARGURA_LINHA_MAX_MM = 110;
+
+/** Girar ou não, resolvido a partir da opção e do formato da etiqueta. */
+export function decidirGiro(op: Pick<OpcoesEmbalagem, "larguraMm" | "alturaMm" | "girar">): boolean {
+  if (op.girar === "sim") return true;
+  if (op.girar === "nao") return false;
+  return op.alturaMm > op.larguraMm;
+}
 
 const brl = (v: number) =>
   "R$ " + v.toFixed(2).replace(".", ",").replace(/\B(?=(\d{3})+(?!\d))/g, ".");
@@ -154,9 +217,13 @@ export function lerOpcoes(json: string | null | undefined): OpcoesEmbalagem {
   }
   const num = (v: unknown, min: number, max: number, padrao: number) =>
     typeof v === "number" && Number.isFinite(v) && v >= min && v <= max ? v : padrao;
+  const colunas = Math.floor(num(o.colunas, 1, COLUNAS_MAX, OPCOES_PADRAO.colunas));
   return {
     larguraMm: num(o.larguraMm, LARGURA_MIN_MM, LARGURA_MAX_MM, OPCOES_PADRAO.larguraMm),
     alturaMm: num(o.alturaMm, ALTURA_MIN_MM, ALTURA_MAX_MM, OPCOES_PADRAO.alturaMm),
+    colunas,
+    espacoMm: num(o.espacoMm, 0, ESPACO_MAX_MM, OPCOES_PADRAO.espacoMm),
+    girar: o.girar === "sim" || o.girar === "nao" ? o.girar : "auto",
     mostrarLoja: typeof o.mostrarLoja === "boolean" ? o.mostrarLoja : OPCOES_PADRAO.mostrarLoja,
     mostrarSku: typeof o.mostrarSku === "boolean" ? o.mostrarSku : OPCOES_PADRAO.mostrarSku,
     preco: o.preco === "atacado" || o.preco === "varejo" ? o.preco : null,
@@ -173,8 +240,10 @@ export function lerOpcoes(json: string | null | undefined): OpcoesEmbalagem {
  * borda e a etiqueta descolada meio milímetro ainda sai inteira.
  */
 export function layoutEmbalagem(op: OpcoesEmbalagem): Modelo {
-  const W = op.larguraMm;
-  const H = op.alturaMm;
+  const girada = decidirGiro(op);
+  const area = areaDeDesenho({ larguraMm: op.larguraMm, alturaMm: op.alturaMm, girada });
+  const W = area.w;
+  const H = area.h;
   const m = 1.5;
   const larguraUtil = W - 2 * m;
   // fonte proporcional à etiqueta: 50 mm → 8 pt; nunca abaixo de 5
@@ -235,15 +304,53 @@ export function layoutEmbalagem(op: OpcoesEmbalagem): Modelo {
     numero: true,
   });
 
-  return { larguraMm: W, alturaMm: H, elementos };
+  return {
+    larguraMm: op.larguraMm,
+    alturaMm: op.alturaMm,
+    colunas: Math.max(1, Math.min(COLUNAS_MAX, Math.floor(op.colunas))),
+    espacoMm: Math.max(0, op.espacoMm),
+    girada,
+    elementos,
+  };
 }
 
-/** Todo elemento cabe dentro da etiqueta? (o que sai é o que a impressora corta) */
+/** Todo elemento cabe dentro da área de desenho? (o que sai é o que a impressora corta) */
 export function elementosCabem(modelo: Modelo): boolean {
-  return modelo.elementos.every((e) => {
-    const h = e.tipo === "barras" ? e.h + (e.numero ? 2.5 : 0) : e.h;
-    return e.x >= 0 && e.y >= 0 && e.x + e.w <= modelo.larguraMm + 0.01 && e.y + h <= modelo.alturaMm + 0.01;
-  });
+  const { w, h: alt } = areaDeDesenho(modelo);
+  return (
+    larguraDaLinha(modelo) <= LARGURA_LINHA_MAX_MM + 0.01 &&
+    modelo.elementos.every((e) => {
+      const h = e.tipo === "barras" ? e.h + (e.numero ? 2.5 : 0) : e.h;
+      return e.x >= 0 && e.y >= 0 && e.x + e.w <= w + 0.01 && e.y + h <= alt + 0.01;
+    })
+  );
+}
+
+/**
+ * O LOTE VIRA LINHAS DO ROLO: cada peça repetida pela quantidade, na ordem
+ * pedida, e depois agrupada de `colunas` em `colunas`. A última linha pode
+ * sair incompleta (a coluna vazia fica em branco — nunca repete uma peça
+ * para "completar", senão sobra etiqueta que ninguém pediu).
+ */
+export function expandirLote(
+  lote: { dados: DadosEtiqueta; quantidade: number }[],
+  teto: number
+): DadosEtiqueta[] {
+  const saida: DadosEtiqueta[] = [];
+  for (const item of lote) {
+    for (let c = 0; c < item.quantidade; c++) {
+      if (saida.length >= teto) return saida;
+      saida.push(item.dados);
+    }
+  }
+  return saida;
+}
+
+export function linhasDoRolo(etiquetas: DadosEtiqueta[], colunas: number): DadosEtiqueta[][] {
+  const n = Math.max(1, Math.floor(colunas));
+  const linhas: DadosEtiqueta[][] = [];
+  for (let i = 0; i < etiquetas.length; i += n) linhas.push(etiquetas.slice(i, i + n));
+  return linhas;
 }
 
 /** mm por ponto tipográfico */

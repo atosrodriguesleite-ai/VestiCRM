@@ -68,15 +68,16 @@ async function main() {
   const m1 = await modeloPadraoDaLoja(co.id);
   const m2 = await modeloPadraoDaLoja(co.id);
   check("o modelo padrão nasce uma vez só (idempotente)", m1.id === m2.id && m1.opcoes.larguraMm === 50);
-  const novo = await salvarOpcoesDoPadrao(co.id, { larguraMm: 40, alturaMm: 25, mostrarLoja: false, mostrarSku: true, preco: "atacado" });
+  const novo = await salvarOpcoesDoPadrao(co.id, { larguraMm: 40, alturaMm: 25, colunas: 2, espacoMm: 2, girar: "auto", mostrarLoja: false, mostrarSku: true, preco: "atacado" });
   const m3 = await modeloPadraoDaLoja(co.id);
   check("salvar opções muda o modelo padrão da loja", novo.larguraMm === 40 && m3.opcoes.alturaMm === 25 && m3.opcoes.preco === "atacado");
 
   if (ok.ok) {
     const pdf = await PDFDocument.load(await pdfDoLote(m3.modelo, ok.lote));
-    check("PDF: uma página por etiqueta (2 × cada variação)", pdf.getPageCount() === todas.length * 2);
+    // 2 colunas: 2 etiquetas por página → metade das páginas
+    check("PDF: uma página por LINHA do rolo (2 colunas × 2 de cada variação)", pdf.getPageCount() === Math.ceil((todas.length * 2) / 2));
     const zpl = zplDoLote(m3.modelo, ok.lote);
-    check("ZPL: um bloco por variação, com o EAN de cada uma", (zpl.match(/\^XA/g) ?? []).length === todas.length && todas.every((v) => zpl.includes(`^FD${v.barcode!.slice(0, 12)}^FS`)));
+    check("ZPL: cada EAN aparece e as linhas iguais viram ^PQ", todas.every((v) => zpl.includes(`^FD${v.barcode!.slice(0, 12)}^FS`)) && zpl.includes("^PQ1"));
   }
 
   await db.company.delete({ where: { id: co.id } });

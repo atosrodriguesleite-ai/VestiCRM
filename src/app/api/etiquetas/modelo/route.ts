@@ -7,6 +7,9 @@ import { modeloPadraoDaLoja, salvarOpcoesDoPadrao } from "@/lib/etiquetas/modelo
 import {
   ALTURA_MAX_MM,
   ALTURA_MIN_MM,
+  COLUNAS_MAX,
+  ESPACO_MAX_MM,
+  LARGURA_LINHA_MAX_MM,
   LARGURA_MAX_MM,
   LARGURA_MIN_MM,
   layoutEmbalagem,
@@ -30,6 +33,9 @@ export async function GET() {
 const schema = z.object({
   larguraMm: z.number().min(LARGURA_MIN_MM).max(LARGURA_MAX_MM),
   alturaMm: z.number().min(ALTURA_MIN_MM).max(ALTURA_MAX_MM),
+  colunas: z.number().int().min(1).max(COLUNAS_MAX),
+  espacoMm: z.number().min(0).max(ESPACO_MAX_MM),
+  girar: z.enum(["auto", "sim", "nao"]),
   mostrarLoja: z.boolean(),
   mostrarSku: z.boolean(),
   preco: z.enum(["atacado", "varejo"]).nullable(),
@@ -46,14 +52,14 @@ export async function PATCH(req: NextRequest) {
     const parsed = schema.safeParse(await req.json().catch(() => null));
     if (!parsed.success) {
       return NextResponse.json(
-        { error: `Tamanho fora do que a impressora imprime (largura ${LARGURA_MIN_MM}–${LARGURA_MAX_MM} mm, altura ${ALTURA_MIN_MM}–${ALTURA_MAX_MM} mm).` },
+        { error: `Fora do que a impressora imprime (largura ${LARGURA_MIN_MM}–${LARGURA_MAX_MM} mm, altura ${ALTURA_MIN_MM}–${ALTURA_MAX_MM} mm, até ${COLUNAS_MAX} colunas com espaço de até ${ESPACO_MAX_MM} mm).` },
         { status: 400 }
       );
     }
     // o desenho tem que caber: etiqueta baixa demais para o rodapé pedido é recusada com frase
     if (!elementosCabem(layoutEmbalagem(parsed.data))) {
       return NextResponse.json(
-        { error: "Nesse tamanho não cabe tudo o que foi pedido. Aumente a altura ou tire um campo do rodapé." },
+        { error: `Não cabe: ou a linha inteira passa de ${LARGURA_LINHA_MAX_MM} mm (colunas + espaços), ou a etiqueta é baixa demais para o rodapé pedido. Ajuste o tamanho, as colunas ou tire um campo.` },
         { status: 400 }
       );
     }
