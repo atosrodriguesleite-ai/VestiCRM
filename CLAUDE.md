@@ -1079,7 +1079,8 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   três TIPOS — embalagem (com o código de barras), composição (tecido,
   tamanho grande, cuidados, loja: a etiqueta que a Toque Leve imprime no
   OpenLabel) e envio (endereço da cliente e número do pedido, dados da
-  FICHA, régua da RN-022) —, cada um com UM **padrão** por loja (índice
+  FICHA, régua da RN-022; o NOME é o de documento, `nomeParaDocumentos` —
+  CNPJ com razão social sai pela razão, RN-024) —, cada um com UM **padrão** por loja (índice
   parcial único, semeado na primeira abertura com o desenho por regra do
   tipo, `layoutPorTipo`), e quantos modelos a loja quiser: criar, duplicar
   (leva o desenho congelado), definir como padrão (transação), arquivar (o
@@ -1178,9 +1179,11 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   pela visibilidade de pedidos (RN-007), com **quem está separando** na
   linha (duas pessoas não pegam o mesmo pedido sem saber; pedido sem
   nenhuma peça fica fora; acima de 500 a tela DIZ que cortou). Abrir a tela
-  **não cria nada** — a separação ativa nasce no **primeiro bipe** (a
-  gerente que abre só para olhar não vira "em separação por" na fila de
-  todo mundo). O leitor é um
+  **não cria nada** — a separação ativa nasce no **primeiro bipe ACEITO**
+  (a gerente que abre só para olhar, ou um bipe errado, não vira "em
+  separação por" na fila de todo mundo; a versão que criava a linha antes
+  de avaliar deixava uma separação viva por um bipe recusado — reproduzido
+  no Postgres na revisão). O leitor é um
   teclado (digita o código e aperta Enter), e **a regra é PURA e a MESMA
   nos dois lados**: o navegador responde na hora (verde e bip agudo aceita;
   vermelho e bip grave recusa — *peça errada* quando o código não é de
@@ -1220,9 +1223,15 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   preço não conta, senão a equipe conferia de novo o que já estava pronto
   — e pelas portas que o fazem voltar a ser pago: reaberto de cancelado na
   tela e Pix do gateway): o pacote de ontem não é o pedido de hoje, e sem
-  isso ele sumia da fila como se estivesse pronto. A tela que fica aberta
-  enquanto OUTRA conclui não bipa por cima: ao recarregar vê "concluído em
-  outra tela". A lista de status da fila é **derivada** da lista de venda
+  isso ele sumia da fila como se estivesse pronto. **A tela que fica aberta
+  enquanto OUTRA conclui não bipa por cima**: cada bipe, falta e conclusão
+  leva o **carimbo visto** (`Order.separadoEm` que a tela carregou, `carimbo`
+  na rota), e carimbo diferente do banco é recusado com
+  `motivo: "concluida-fora"` — a tela vira "concluído em outra tela" (sem
+  o carimbo, a aba velha abria uma segunda separação por cima da concluída,
+  achado reproduzido na revisão). A lista "separados nos últimos 7 dias" é
+  SÓ pelo carimbo: o pedido separado de manhã e enviado à tarde continua na
+  conferência. A lista de status da fila é **derivada** da lista de venda
   (RN-001) menos quem já saiu, e o teste a confere contra a lista do
   Estoque — três listas à mão é onde um status novo se perde. Pedido **sem nenhuma peça com
   código** (item da loja online que não casou por SKU, item de texto

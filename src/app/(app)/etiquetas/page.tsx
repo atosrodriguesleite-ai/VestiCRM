@@ -38,10 +38,12 @@ export default async function EtiquetasPage({ searchParams }: { searchParams: Pr
   const podeEditar = isManagerUp(user) || isSupport(user);
 
   const [company, modelos, composicoes, catRows, produtos, fila] = await Promise.all([
-    db.company.findUnique({ where: { id: user.companyId }, select: { extraCategories: true, categoryOrder: true } }),
-    listarModelos(user.companyId),
-    composicoesPorCategoria(user.companyId),
-    db.product.findMany({ where: { companyId: user.companyId }, select: { category: true }, distinct: ["category"] }),
+    // cada aba carrega só o que usa: a separadora recarrega a fila a cada
+    // pedido, e pagar modelos e composições ali era peso sem uso
+    aba === "modelos" ? db.company.findUnique({ where: { id: user.companyId }, select: { extraCategories: true, categoryOrder: true } }) : Promise.resolve(null),
+    aba !== "separacao" ? listarModelos(user.companyId) : Promise.resolve([]),
+    aba === "modelos" ? composicoesPorCategoria(user.companyId) : Promise.resolve([]),
+    aba === "modelos" ? db.product.findMany({ where: { companyId: user.companyId }, select: { category: true }, distinct: ["category"] }) : Promise.resolve([]),
     aba === "imprimir"
       ? db.product.findMany({
           where: { companyId: user.companyId, active: true },

@@ -9,11 +9,12 @@ import { db } from "@/lib/db";
 import type { SessionUser } from "@/lib/auth";
 import { estadoDaSeparacao as abrirSeparacao, concluirSeparacao as concluirDeVerdade, desfazerCarimboDeSeparacao, filaDeSeparacao, registrarBipe, registrarFalta } from "@/lib/etiquetas/separacao";
 import { pacoteMudou } from "@/lib/etiquetas/separacao-regra";
+import { dadosDeEnvioDoPedido } from "@/lib/etiquetas/imprimir";
 import { sincronizarPedidoNoFinanceiro } from "@/lib/financeiro/porta-vendas";
 
 // fora de um request do Next não existe `after()`: a porta do Financeiro é chamada direto
-const concluirSeparacao = (u: SessionUser, o: string, c: { variantId: string; falta: number }[]) =>
-  concluirDeVerdade(u, o, c, (id) => void sincronizarPedidoNoFinanceiro(id).catch(() => {}));
+const concluirSeparacao = (u: SessionUser, o: string, c: { variantId: string; falta: number }[], carimbo?: string | null) =>
+  concluirDeVerdade(u, o, c, carimbo, (id) => void sincronizarPedidoNoFinanceiro(id).catch(() => {}));
 
 const check = (n: string, ok: boolean) => console.log(ok ? "✅" : "❌", n);
 const tag = `sep-${Date.now()}`;
@@ -76,6 +77,8 @@ async function main() {
   check("fila: sem bipe, ninguém aparece separando", (await filaDeSeparacao(sAdmin)).aSeparar[0].emAndamento === null);
 
   // 3) bipes
+  const bAntes = await registrarBipe(sLara, pago.id, vR.barcode!);
+  check("bipe RECUSADO como primeiro não cria separação ativa (ninguém vira 'em separação por' por um bipe errado)", "aceito" in bAntes && !bAntes.aceito && (await db.separacao.count({ where: { orderId: pago.id } })) === 0);
   const b1 = await registrarBipe(sLara, pago.id, vM.barcode!);
   check("bipe: peça do pedido é aceita (1/3)", "aceito" in b1 && b1.aceito && b1.item.bipada === 1);
   const ativas = await db.separacao.count({ where: { orderId: pago.id, concluidaEm: null } });
@@ -114,6 +117,21 @@ async function main() {
   check("concluir: sem falta, ninguém é avisado", (await db.notification.count({ where: { companyId: loja.id } })) === 0);
   const f3 = await filaDeSeparacao(sAdmin);
   check("fila: o pedido separado sai de 'a separar' e entra em 'separados'", !f3.aSeparar.some((l) => l.id === pago.id) && f3.separados.some((l) => l.id === pago.id));
+  // ABA VELHA: carregou com carimbo null, outra tela concluiu → bipe, falta e concluir recusam e NÃO criam separação nova
+  const velhaB = await registrarBipe(sLara, pago.id, vM.barcode!, null);
+  const velhaF = await registrarFalta(sLara, pago.id, vM.id, 1, null);
+  const velhaC = await concluirSeparacao(sLara, pago.id, [], null);
+  check("aba velha (carimbo diferente): bipe, falta e concluir recusam com motivo 'concluida-fora'", [velhaB, velhaF, velhaC].every((r) => "erro" in r && r.motivo === "concluida-fora"));
+  check("aba velha: nenhuma separação nova nasceu por cima da concluída", (await db.separacao.count({ where: { orderId: pago.id, concluidaEm: null } })) === 0);
+  // a aba que carregou DEPOIS (carimbo igual ao do banco) pode separar de novo
+  const carimboAtual = dep!.separadoEm!.toISOString();
+  const deNovo = await registrarBipe(sLara, pago.id, vM.barcode!, carimboAtual);
+  check("aba nova (carimbo igual): separar de novo é permitido", "aceito" in deNovo && deNovo.aceito);
+  await db.separacao.deleteMany({ where: { orderId: pago.id, concluidaEm: null } });
+  // separado de manhã e ENVIADO à tarde continua na conferência dos últimos 7 dias
+  await db.order.update({ where: { id: pago.id }, data: { status: "ENVIADO" } });
+  check("separados: pedido enviado depois de separado continua na lista de conferência", (await filaDeSeparacao(sAdmin)).separados.some((l) => l.id === pago.id));
+  await db.order.update({ where: { id: pago.id }, data: { status: "SEPARACAO" } });
 
   // 5) falta, no pedido sem dona (aviso vai para a gerência) e em EM_PRODUCAO
   const semDona = await mk(5, "EM_PRODUCAO", { paidAt: new Date(), sellerId: null });
@@ -180,6 +198,12 @@ async function main() {
   const o9 = await db.order.findUnique({ where: { id: semCod.id } });
   const f9 = await filaDeSeparacao(sAdmin);
   check("carimbo desfeito: o pedido volta para 'a separar'", !o9?.separadoEm && f9.aSeparar.some((l) => l.id === semCod.id));
+
+  // 10b) etiqueta de ENVIO: CNPJ com razão social sai pela razão (RN-024)
+  await db.customer.update({ where: { id: cli.id }, data: { cnpj: "12345678000195", legalName: "MARIA MODAS LTDA", city: "Fortaleza", state: "CE" } });
+  const envio = await dadosDeEnvioDoPedido(loja.id, pago.id);
+  check("etiqueta de envio: cliente com CNPJ e razão social sai pela razão social", envio.ok && envio.dados.cliente === "MARIA MODAS LTDA");
+  await db.customer.update({ where: { id: cli.id }, data: { cnpj: null, legalName: null } });
 
   // 10) pedido pago SEM nenhuma peça não entra na fila (não há o que separar)
   const vazio = await mk(10, "PAGO", { paidAt: new Date() });

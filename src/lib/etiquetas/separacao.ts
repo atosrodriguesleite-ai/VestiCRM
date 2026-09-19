@@ -75,8 +75,10 @@ export async function filaDeSeparacao(
       take: TETO_DA_FILA,
     }),
     db.order.count({ where: { ...baseWhere, separadoEm: null } }),
+    // separados: SÓ pelo carimbo — o pedido separado de manhã e enviado à
+    // tarde continua na conferência (o filtro de status o sumia)
     db.order.findMany({
-      where: { ...baseWhere, separadoEm: { gte: desde } },
+      where: { ...orderScope(user), separadoEm: { gte: desde } },
       select: selecao,
       orderBy: { separadoEm: "desc" },
       take: 100,
@@ -193,30 +195,58 @@ async function travarPedido(tx: Prisma.TransactionClient, orderId: string) {
  * A SEPARAÇÃO EM ANDAMENTO, lida DENTRO da transação e da trava: o pedido
  * tem que continuar na fila (cancelado ou devolvido a orçamento no meio
  * não aceita bipe nem conclusão — achado da revisão), e as peças são as de
- * AGORA do pedido, mescladas com a contagem gravada. Sem separação ativa,
- * ela NASCE aqui (é o primeiro bipe) — sob a trava do pedido, então duas
- * telas não criam duas; o índice parcial é a segunda tranca.
+ * AGORA do pedido, mescladas com a contagem gravada. NÃO cria nada: a
+ * separação ativa nasce só no primeiro bipe ACEITO (`garantirAtiva`) — a
+ * criada aqui ficava viva quando o bipe era recusado, e uma aba velha
+ * abria uma separação nova por cima da concluída (achado da revisão,
+ * reproduzido no Postgres).
+ *
+ * O CARIMBO VISTO: a tela manda o `separadoEm` que carregou; se o do banco
+ * é outro, alguém concluiu em outra tela — esta não bipa por cima, e a
+ * resposta diz isso (`motivo: "concluida-fora"`).
  */
+export type RecusaDaSeparacao = { erro: string; motivo?: "concluida-fora" };
 type SeparacaoAberta =
-  | { erro: string }
-  | { ativa: { id: string; userId: string | null; itens: string }; itens: ItemDaSeparacao[]; semCodigo: EstadoDaSeparacao["semCodigo"] };
-async function separacaoAberta(tx: Prisma.TransactionClient, user: SessionUser, orderId: string): Promise<SeparacaoAberta> {
-  const pedido = await tx.order.findFirst({ where: { id: orderId, companyId: user.companyId }, select: { status: true } });
+  | RecusaDaSeparacao
+  | {
+      ativa: { id: string; userId: string | null; itens: string } | null;
+      doPedido: ItemDaSeparacao[];
+      itens: ItemDaSeparacao[];
+      semCodigo: EstadoDaSeparacao["semCodigo"];
+    };
+async function separacaoAberta(
+  tx: Prisma.TransactionClient,
+  user: SessionUser,
+  orderId: string,
+  carimboVisto: string | null | undefined
+): Promise<SeparacaoAberta> {
+  const pedido = await tx.order.findFirst({ where: { id: orderId, companyId: user.companyId }, select: { status: true, separadoEm: true } });
   if (!pedido || !(STATUS_NA_FILA as readonly string[]).includes(pedido.status)) {
     return { erro: `Este pedido não está mais na fila (está "${pedido ? orderStatusLabel[pedido.status] ?? pedido.status : "apagado"}"). Nada foi registrado.` };
   }
+  if (carimboVisto !== undefined && (pedido.separadoEm?.toISOString() ?? null) !== carimboVisto) {
+    return { erro: "Este pedido já foi concluído em outra tela. Nada daqui foi registrado por cima.", motivo: "concluida-fora" };
+  }
   const { itens: doPedido, semCodigo } = await itensDoPedido(tx, orderId);
-  let ativa = await tx.separacao.findFirst({
+  const ativa = await tx.separacao.findFirst({
     where: { companyId: user.companyId, orderId, concluidaEm: null },
     select: { id: true, userId: true, itens: true },
   });
-  if (!ativa) {
-    ativa = await tx.separacao.create({
-      data: { companyId: user.companyId, orderId, userId: user.id, itens: JSON.stringify(doPedido) },
-      select: { id: true, userId: true, itens: true },
-    });
-  }
-  return { ativa, itens: mesclarComGravado(doPedido, lerItensDaSeparacao(ativa.itens)), semCodigo };
+  return { ativa, doPedido, itens: ativa ? mesclarComGravado(doPedido, lerItensDaSeparacao(ativa.itens)) : doPedido, semCodigo };
+}
+
+/** A separação ativa nasce aqui, sob a trava do pedido (o índice parcial é a segunda tranca). */
+async function garantirAtiva(
+  tx: Prisma.TransactionClient,
+  user: SessionUser,
+  orderId: string,
+  aberta: Exclude<SeparacaoAberta, RecusaDaSeparacao>
+): Promise<{ id: string }> {
+  if (aberta.ativa) return aberta.ativa;
+  return tx.separacao.create({
+    data: { companyId: user.companyId, orderId, userId: user.id, itens: JSON.stringify(aberta.doPedido) },
+    select: { id: true },
+  });
 }
 
 /**
@@ -224,17 +254,23 @@ async function separacaoAberta(tx: Prisma.TransactionClient, user: SessionUser, 
  * do navegador, sobre o que está gravado. Quem bipa vira o responsável da
  * separação ativa (assume).
  */
-export async function registrarBipe(user: SessionUser, orderId: string, codigo: string): Promise<ResultadoDoBipe | { erro: string }> {
+export async function registrarBipe(
+  user: SessionUser,
+  orderId: string,
+  codigo: string,
+  carimboVisto?: string | null
+): Promise<ResultadoDoBipe | RecusaDaSeparacao> {
   const pedido = await db.order.findFirst({ where: { ...orderScope(user), id: orderId }, select: { id: true } });
   if (!pedido) return { erro: "Pedido não encontrado." };
   return db.$transaction(async (tx) => {
     await travarPedido(tx, orderId);
-    const aberta = await separacaoAberta(tx, user, orderId);
-    if ("erro" in aberta) return { erro: aberta.erro };
+    const aberta = await separacaoAberta(tx, user, orderId, carimboVisto);
+    if ("erro" in aberta) return aberta;
     const r = avaliarBipe(aberta.itens, codigo);
     if (r.aceito) {
+      const ativa = await garantirAtiva(tx, user, orderId, aberta);
       await tx.separacao.update({
-        where: { id: aberta.ativa.id },
+        where: { id: ativa.id },
         data: { itens: JSON.stringify(aplicarBipe(aberta.itens, r)), userId: user.id },
       });
     }
@@ -243,15 +279,23 @@ export async function registrarBipe(user: SessionUser, orderId: string, codigo: 
 }
 
 /** Declarar FALTA numa linha (não tinha a peça): fica gravado e a conclusão passa a ser possível. */
-export async function registrarFalta(user: SessionUser, orderId: string, variantId: string, falta: number): Promise<{ ok: true } | { erro: string }> {
+export async function registrarFalta(
+  user: SessionUser,
+  orderId: string,
+  variantId: string,
+  falta: number,
+  carimboVisto?: string | null
+): Promise<{ ok: true } | RecusaDaSeparacao> {
   const pedido = await db.order.findFirst({ where: { ...orderScope(user), id: orderId }, select: { id: true } });
   if (!pedido) return { erro: "Pedido não encontrado." };
   return db.$transaction(async (tx) => {
     await travarPedido(tx, orderId);
-    const aberta = await separacaoAberta(tx, user, orderId);
-    if ("erro" in aberta) return { erro: aberta.erro };
+    const aberta = await separacaoAberta(tx, user, orderId, carimboVisto);
+    if ("erro" in aberta) return aberta;
+    if (!aberta.itens.some((i) => i.variantId === variantId)) return { erro: "Essa peça não está no pedido." };
     const itens = declararFalta(aberta.itens, variantId, falta);
-    await tx.separacao.update({ where: { id: aberta.ativa.id }, data: { itens: JSON.stringify(itens), userId: user.id } });
+    const ativa = await garantirAtiva(tx, user, orderId, aberta);
+    await tx.separacao.update({ where: { id: ativa.id }, data: { itens: JSON.stringify(itens), userId: user.id } });
     return { ok: true };
   });
 }
@@ -269,9 +313,10 @@ export async function concluirSeparacao(
   user: SessionUser,
   orderId: string,
   faltas: { variantId: string; falta: number }[],
+  carimboVisto?: string | null,
   /** a porta do Financeiro roda no `after()` do Next; o script de prova (fora de request) passa a dele */
   avisarFinanceiro: (orderId: string) => void = sincronizarPedidoSemQuebrar
-): Promise<{ ok: true; faltas: number; pecas: number } | { erro: string }> {
+): Promise<{ ok: true; faltas: number; pecas: number } | RecusaDaSeparacao> {
   const pedido = await db.order.findFirst({
     where: { ...orderScope(user), id: orderId },
     select: { id: true, number: true, status: true, sellerId: true, companyId: true, customer: { select: { name: true } } },
@@ -279,9 +324,9 @@ export async function concluirSeparacao(
   if (!pedido) return { erro: "Pedido não encontrado." };
   const resultado = await db.$transaction(async (tx) => {
     await travarPedido(tx, orderId);
-    const aberta = await separacaoAberta(tx, user, orderId);
-    if ("erro" in aberta) return { erro: aberta.erro };
-    const { ativa, semCodigo } = aberta;
+    const aberta = await separacaoAberta(tx, user, orderId, carimboVisto);
+    if ("erro" in aberta) return aberta;
+    const { semCodigo } = aberta;
     const itens = conciliarContagens(aberta.itens, faltas);
     if (!podeConcluir(itens, semCodigo.length)) {
       const r = resumoDaSeparacao(itens);
@@ -304,6 +349,8 @@ export async function concluirSeparacao(
       data: { separadoEm: agora },
     });
     if (carimbo.count === 0) return { erro: "O pedido saiu da fila enquanto você separava (cancelado ou enviado). Nada foi registrado." } as const;
+    // sem bipe nenhum (pedido conferido na mão) a separação nasce e fecha aqui
+    const ativa = await garantirAtiva(tx, user, orderId, aberta);
     await tx.separacao.update({
       where: { id: ativa.id },
       data: { itens: JSON.stringify(itens), faltas: r.faltas, concluidaEm: agora, userId: user.id },

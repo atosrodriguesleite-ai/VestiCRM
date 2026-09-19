@@ -16,6 +16,8 @@ export async function GET(req: NextRequest) {
     if (!porta.ok) return porta.resposta;
     const numero = Number((req.nextUrl.searchParams.get("numero") ?? "").replace(/\D/g, ""));
     if (!Number.isInteger(numero) || numero <= 0) return NextResponse.json({ error: "Digite o número do pedido." }, { status: 400 });
+    // um telefone colado no campo passa de 2 bilhões e estourava o inteiro do banco (500)
+    if (numero > 2_147_483_647) return NextResponse.json({ error: "Pedido não encontrado." }, { status: 404 });
     const pedido = await db.order.findFirst({
       where: { ...orderScope(porta.user), number: numero },
       select: {

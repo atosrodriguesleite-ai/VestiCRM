@@ -1,5 +1,6 @@
 import { Prisma } from "@prisma/client";
 import { db } from "../db";
+import { nomeParaDocumentos } from "../dados-envio";
 import { formatPhone } from "../format";
 import { orderNumber } from "../orders";
 import { DADOS_VAZIOS, type DadosEtiqueta } from "./modelo";
@@ -143,6 +144,8 @@ export async function dadosDeEnvioDoPedido(
         customer: {
           select: {
             name: true,
+            cnpj: true,
+            legalName: true,
             phone: true,
             zip: true,
             street: true,
@@ -166,7 +169,8 @@ export async function dadosDeEnvioDoPedido(
       ...DADOS_VAZIOS,
       loja: loja.name,
       pedido: orderNumber(pedido.number),
-      cliente: c.name,
+      // a etiqueta é DOCUMENTO: CNPJ com razão social sai pela razão (RN-024)
+      cliente: nomeParaDocumentos(c),
       endereco,
       bairroCidade,
       cep: c.zip ?? "",

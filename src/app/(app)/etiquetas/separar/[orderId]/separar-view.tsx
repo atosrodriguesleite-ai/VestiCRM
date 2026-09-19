@@ -65,7 +65,15 @@ function tocar(aceito: boolean) {
  * com toda linha fechada: bipada ou declarada em FALTA.
  */
 export function SepararView({ inicial, meuId }: { inicial: Estado; meuId: string }) {
-  const [itens, setItens] = useState<ItemDaSeparacao[]>(inicial.itens);
+  const [itens, setItensEstado] = useState<ItemDaSeparacao[]>(inicial.itens);
+  /** a lista de AGORA, fora do ciclo de render: dois Enter do leitor no mesmo
+   *  instante eram avaliados sobre a mesma lista velha e os dois saíam para o
+   *  servidor (achado da revisão) */
+  const itensRef = useRef<ItemDaSeparacao[]>(inicial.itens);
+  const setItens = useCallback((novos: ItemDaSeparacao[]) => {
+    itensRef.current = novos;
+    setItensEstado(novos);
+  }, []);
   /** quem está separando e o carimbo — atualizados ao bipar e ao recarregar (banner nunca fica velho) */
   const [quem, setQuem] = useState(inicial.quem);
   const [jaSeparadoEm, setJaSeparadoEm] = useState(inicial.jaSeparadoEm);
@@ -117,9 +125,9 @@ export function SepararView({ inicial, meuId }: { inicial: Estado; meuId: string
         setErroServidor(d?.error ?? "Este pedido não está mais na fila.");
         return;
       }
-      // sem separação ativa e com carimbo NOVO: outra tela concluiu — esta
-      // não pode seguir bipando por cima como se fosse do zero
-      if (!d.quem && d.jaSeparadoEm && d.jaSeparadoEm !== inicial.jaSeparadoEm) {
+      // carimbo diferente do que esta tela carregou: outra tela concluiu —
+      // esta não pode seguir bipando por cima como se fosse do zero
+      if (d.jaSeparadoEm !== inicial.jaSeparadoEm) {
         setEncerradaFora(true);
         return;
       }
@@ -130,7 +138,7 @@ export function SepararView({ inicial, meuId }: { inicial: Estado; meuId: string
     } catch {
       setErroServidor("Sem conexão para atualizar a tela.");
     }
-  }, [inicial.orderId, inicial.jaSeparadoEm]);
+  }, [inicial.orderId, inicial.jaSeparadoEm, setItens]);
 
   /** Manda UM bipe ao servidor; devolve false quando não chegou (sem conexão). */
   const postarBipe = useCallback(
@@ -140,14 +148,19 @@ export function SepararView({ inicial, meuId }: { inicial: Estado; meuId: string
         r = await fetch(`/api/etiquetas/separacao/${inicial.orderId}/bipe`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ codigo }),
+          body: JSON.stringify({ codigo, carimbo: inicial.jaSeparadoEm }),
         });
       } catch {
         return false;
       }
-      const d = (await r.json().catch(() => null)) as (ResultadoDoBipe & { error?: string }) | null;
+      const d = (await r.json().catch(() => null)) as (ResultadoDoBipe & { error?: string; motivo?: string | null }) | null;
       if (!r.ok) {
-        // pedido saiu da fila (cancelado no meio) ou a separação fechou em outra tela
+        // outra tela concluiu este pedido: nada daqui vale mais
+        if (d?.motivo === "concluida-fora") {
+          setEncerradaFora(true);
+          return true;
+        }
+        // pedido saiu da fila (cancelado no meio)
         setErroServidor(d?.error ?? "O servidor não registrou o bipe.");
         void recarregar();
         return true;
@@ -160,7 +173,7 @@ export function SepararView({ inicial, meuId }: { inicial: Estado; meuId: string
       }
       return true;
     },
-    [inicial.orderId, recarregar]
+    [inicial.orderId, inicial.jaSeparadoEm, recarregar]
   );
 
   /** Manda o bipe em ordem, em segundo plano; o que não chegou fica guardado para tentar de novo. */
@@ -181,11 +194,12 @@ export function SepararView({ inicial, meuId }: { inicial: Estado; meuId: string
   function bipar(texto: string) {
     const codigo = texto.trim();
     if (!codigo) return;
-    const r = avaliarBipe(itens, codigo);
+    // avaliado UMA vez, sobre a lista de agora; só o que foi aplicado aqui vai ao servidor
+    const r = avaliarBipe(itensRef.current, codigo);
     tocar(r.aceito);
     setUltimo(r.indice != null ? { indice: r.indice, aceito: r.aceito } : null);
     if (r.aceito) {
-      setItens((atual) => aplicarBipe(atual, avaliarBipe(atual, codigo)));
+      setItens(aplicarBipe(itensRef.current, r));
       // quem bipa assume: o banner "Fulana começou" sai daqui
       setQuem((q) => (q && q.id === meuId ? q : { id: meuId, nome: "você", desde: new Date().toISOString() }));
       setAviso({ tom: "ok", texto: `✓ ${r.item.rotulo} ${r.item.detalhe} (${r.item.bipada}/${r.item.pedida})`, em: Date.now() });
@@ -199,7 +213,7 @@ export function SepararView({ inicial, meuId }: { inicial: Estado; meuId: string
   async function salvarFalta() {
     if (!faltaDe) return;
     const n = Math.max(0, Math.floor(Number(faltaDe.valor) || 0));
-    const novos = declararFalta(itens, faltaDe.variantId, n);
+    const novos = declararFalta(itensRef.current, faltaDe.variantId, n);
     setItens(novos);
     setFaltaDe(null);
     campo.current?.focus();
@@ -208,10 +222,14 @@ export function SepararView({ inicial, meuId }: { inicial: Estado; meuId: string
       const r = await fetch(`/api/etiquetas/separacao/${inicial.orderId}/falta`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ variantId: faltaDe.variantId, falta: linha?.falta ?? n }),
+        body: JSON.stringify({ variantId: faltaDe.variantId, falta: linha?.falta ?? n, carimbo: inicial.jaSeparadoEm }),
       });
       if (!r.ok) {
         const d = await r.json().catch(() => null);
+        if (d?.motivo === "concluida-fora") {
+          setEncerradaFora(true);
+          return;
+        }
         setErroServidor(d?.error ?? "Não deu para registrar a falta. Recarregue a tela.");
       }
     } catch {
@@ -239,10 +257,17 @@ export function SepararView({ inicial, meuId }: { inicial: Estado; meuId: string
       const r = await fetch(`/api/etiquetas/separacao/${inicial.orderId}/concluir`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ faltas: itens.map((i) => ({ variantId: i.variantId, falta: i.falta })) }),
+        body: JSON.stringify({
+          faltas: itensRef.current.map((i) => ({ variantId: i.variantId, falta: i.falta })),
+          carimbo: inicial.jaSeparadoEm,
+        }),
       });
       const d = await r.json().catch(() => null);
       if (!r.ok) {
+        if (d?.motivo === "concluida-fora") {
+          setEncerradaFora(true);
+          return;
+        }
         setErroServidor(d?.error ?? "Não deu para concluir. Tente de novo.");
         void recarregar();
         return;

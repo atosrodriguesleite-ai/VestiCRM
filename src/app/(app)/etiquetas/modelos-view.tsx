@@ -233,11 +233,15 @@ function ComposicaoPorCategoria({
   const [valores, setValores] = useState<Record<string, string>>(() =>
     Object.fromEntries(composicoes.map((c) => [c.category, c.composition]))
   );
+  /** o último valor que o servidor confirmou: só o que MUDOU vai ao servidor no blur */
+  const [salvos, setSalvos] = useState<Record<string, string>>(() => ({ ...valores }));
   const [salvando, setSalvando] = useState<string>("");
   const [ok, setOk] = useState<string>("");
   const [erro, setErro] = useState<string>("");
 
   async function salvar(category: string) {
+    // tabular pelos campos sem digitar nada disparava um PATCH por campo
+    if ((valores[category] ?? "") === (salvos[category] ?? "")) return;
     setSalvando(category);
     setOk("");
     setErro("");
@@ -249,8 +253,10 @@ function ComposicaoPorCategoria({
     const d = await r.json().catch(() => null);
     setSalvando("");
     // falha calada aqui é a etiqueta saindo com o tecido velho: sempre diz
-    if (r.ok) setOk(category);
-    else setErro(`"${category}": ${d?.error ?? "não foi possível salvar (sessão vencida?)"}`);
+    if (r.ok) {
+      setOk(category);
+      setSalvos((v) => ({ ...v, [category]: valores[category] ?? "" }));
+    } else setErro(`"${category}": ${d?.error ?? "não foi possível salvar (sessão vencida?)"}`);
   }
 
   return (
