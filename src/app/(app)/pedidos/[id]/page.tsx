@@ -309,7 +309,7 @@ export default async function OrderDetailPage({
             {company?.etiquetasEnabled && (
               <EtiquetasDoPedido
                 numero={orderNumber(order.number)}
-                separar={(STATUS_NA_FILA as readonly string[]).includes(order.status) ? `/etiquetas/separar/${order.id}` : null}
+                separar={(STATUS_NA_FILA as readonly string[]).includes(order.status) ? `/separacao/${order.id}` : null}
                 itens={order.items
                   .filter((i) => i.variantId)
                   .map((i) => ({

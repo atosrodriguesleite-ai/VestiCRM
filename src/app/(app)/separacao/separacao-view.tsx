@@ -52,7 +52,7 @@ export function SeparacaoView({ aSeparar, separados, cortada }: { aSeparar: Linh
           </div>
           {primeiro && (
             <Link
-              href={`/etiquetas/separar/${primeiro.id}`}
+              href={`/separacao/${primeiro.id}`}
               className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium px-4 py-2 transition"
             >
               <ScanBarcode className="size-4" />
@@ -84,7 +84,7 @@ export function SeparacaoView({ aSeparar, separados, cortada }: { aSeparar: Linh
           <ul className="divide-y divide-gray-100">
             {fila.map((l) => (
               <li key={l.id}>
-                <Link href={`/etiquetas/separar/${l.id}`} className="flex items-center gap-3 px-5 py-3 hover:bg-gray-50 transition">
+                <Link href={`/separacao/${l.id}`} className="flex items-center gap-3 px-5 py-3 hover:bg-gray-50 transition">
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className="font-semibold text-sm">{l.numero}</span>

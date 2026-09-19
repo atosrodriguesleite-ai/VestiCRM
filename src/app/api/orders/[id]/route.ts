@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
-import { desfazerCarimboDeSeparacao } from "@/lib/etiquetas/separacao";
-import { pacoteMudou } from "@/lib/etiquetas/separacao-regra";
+import { descartarSeparacaoAtiva, desfazerCarimboDeSeparacao, travarPedido } from "@/lib/etiquetas/separacao";
+import { pacoteMudou, saiuDaFila } from "@/lib/etiquetas/separacao-regra";
 import { imageHref } from "@/lib/img";
 import { corIgual } from "@/lib/capa-por-cor";
 import { logServerError } from "@/lib/health";
@@ -823,6 +823,9 @@ export async function PATCH(
       try {
         mexidas = await db.$transaction(
           async (tx) => {
+            // a mesma trava por pedido da separação (RN-060): o descarte do
+            // rascunho e o primeiro bipe não se cruzam
+            await travarPedido(tx, order.id);
             const trava = await tx.order.updateMany({
               where: { id: order.id, status: order.status },
               data: {
@@ -843,6 +846,8 @@ export async function PATCH(
               },
             });
             if (trava.count === 0) throw new StatusMudou();
+            // saiu da fila de separação (RN-060): o rascunho em andamento não vale mais
+            if (saiuDaFila(order.status, newStatus!)) await descartarSeparacaoAtiva(tx, user.companyId, order.id);
 
             await tx.orderEvent.create({
               data: {

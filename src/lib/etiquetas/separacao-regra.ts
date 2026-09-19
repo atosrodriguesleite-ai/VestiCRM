@@ -28,6 +28,17 @@ const SAIU_DA_LOJA = new Set<string>(["ENVIADO", "ENTREGUE"]);
 export const STATUS_NA_FILA = PAID_ORDER_STATUSES.filter((s) => !SAIU_DA_LOJA.has(s));
 
 /**
+ * O pedido SAIU da fila nesta troca de status? (estava em status de fila e
+ * o novo não é) — é quando o rascunho da separação é descartado. Uma
+ * função só para as duas portas que tiram pedido da fila: a tela do pedido
+ * e o cancelamento vindo da Nuvemshop.
+ */
+export function saiuDaFila(de: string, para: string): boolean {
+  const fila = STATUS_NA_FILA as readonly string[];
+  return fila.includes(de) && !fila.includes(para);
+}
+
+/**
  * O PACOTE mudou? Compara o que o pedido pedia (variação × quantidade) com
  * o que passa a pedir. Editar só preço ou desconto não muda o pacote — e
  * mandar de volta para a fila um pedido já separado por causa de um

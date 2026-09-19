@@ -10,6 +10,7 @@ import {
   mesclarComGravado,
   pacoteMudou,
   podeConcluir,
+  saiuDaFila,
   resumoDaSeparacao,
   STATUS_NA_FILA,
   type ItemDaSeparacao,
@@ -198,6 +199,17 @@ describe("RN-060: a fila e o registro", () => {
     expect(STATUS_NA_FILA).toEqual(["PAGO", "EM_PRODUCAO", "SEPARACAO"]);
   });
 
+  it("o rascunho é descartado quando o pedido SAI da fila — e só aí", () => {
+    expect(saiuDaFila("PAGO", "CANCELADO")).toBe(true);
+    expect(saiuDaFila("PAGO", "ORCAMENTO")).toBe(true);
+    expect(saiuDaFila("EM_PRODUCAO", "AGUARDANDO_PAGAMENTO")).toBe(true);
+    expect(saiuDaFila("SEPARACAO", "ENVIADO")).toBe(true); // saiu da loja: o rascunho (se houver) também não vale
+    expect(saiuDaFila("PAGO", "EM_PRODUCAO")).toBe(false);
+    expect(saiuDaFila("PAGO", "SEPARACAO")).toBe(false);
+    expect(saiuDaFila("ORCAMENTO", "PAGO")).toBe(false);
+    expect(saiuDaFila("ORCAMENTO", "CANCELADO")).toBe(false);
+  });
+
   it("pedido editado depois de separado volta para a fila SÓ se o pacote mudou (preço não conta)", () => {
     const antes = [{ variantId: "a", quantity: 2 }, { variantId: "b", quantity: 1 }];
     expect(pacoteMudou(antes, [{ variantId: "b", quantity: 1 }, { variantId: "a", quantity: 2 }])).toBe(false);
@@ -222,9 +234,14 @@ describe("RN-060: a fila e o registro", () => {
   });
 
   it("uma separação ativa por pedido no banco (índice parcial) e a tela do bipe usa a regra pura, sem banco", () => {
-    const mig = ler("prisma/migrations/20260918160000_etiquetas_separacao/migration.sql");
-    expect(mig).toContain('CREATE UNIQUE INDEX "Separacao_ativa_key" ON "Separacao"("orderId") WHERE "concluidaEm" IS NULL');
-    const tela = ler("src/app/(app)/etiquetas/separar/[orderId]/separar-view.tsx");
+    // "ativa" = nem concluída nem DESCARTADA: o índice e os filtros do código dizem o mesmo
+    const mig = ler("prisma/migrations/20260919100000_separacao_descartada/migration.sql");
+    expect(mig).toContain('CREATE UNIQUE INDEX "Separacao_ativa_key" ON "Separacao"("orderId") WHERE "concluidaEm" IS NULL AND "descartadaEm" IS NULL');
+    const src = ler("src/lib/etiquetas/separacao.ts");
+    expect(src.match(/concluidaEm: null/g)?.length).toBe(src.match(/descartadaEm: null/g)?.length);
+    // a área própria tem a porteira do módulo no layout
+    expect(ler("src/app/(app)/separacao/layout.tsx")).toContain("porteiraEtiquetasTela()");
+    const tela = ler("src/app/(app)/separacao/[orderId]/separar-view.tsx");
     expect(tela).toContain('from "@/lib/etiquetas/separacao-regra"');
     expect(tela).not.toContain('from "@/lib/etiquetas/separacao"');
     // as rotas passam pela porteira do módulo (toda a equipe, com a chave)

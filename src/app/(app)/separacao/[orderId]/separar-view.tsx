@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { AlertTriangle, ArrowLeft, Check, CheckCircle2, Loader2, ScanBarcode, User, X } from "lucide-react";
 import { Card } from "@/components/ui";
@@ -84,7 +85,48 @@ export function SepararView({ inicial, meuId }: { inicial: Estado; meuId: string
   const [ultimo, setUltimo] = useState<{ indice: number; aceito: boolean } | null>(null);
   const [faltaDe, setFaltaDe] = useState<{ variantId: string; valor: string } | null>(null);
   const [concluindo, setConcluindo] = useState(false);
-  const [concluido, setConcluido] = useState<{ faltas: number; pecas: number } | null>(null);
+  type Proximo = { id: string; numero: string; cliente: string } | null;
+  const [concluido, setConcluido] = useState<{ faltas: number; pecas: number; proximo: Proximo } | null>(null);
+  const router = useRouter();
+  /**
+   * MODO BANCADA (pedido do dono, 19/09/2026): ao concluir, o próximo pedido
+   * da fila abre sozinho depois de uma contagem curta — quem separa 40
+   * pedidos por dia não volta para a lista a cada um. Preferência do
+   * aparelho (localStorage): a bancada liga uma vez e fica.
+   */
+  const [bancada, setBancada] = useState(false);
+  const [contagem, setContagem] = useState<number | null>(null);
+  useEffect(() => {
+    try {
+      setBancada(localStorage.getItem("separacao:bancada") === "1");
+    } catch {
+      /* sem storage */
+    }
+  }, []);
+  function alternarBancada() {
+    const novo = !bancada;
+    setBancada(novo);
+    try {
+      localStorage.setItem("separacao:bancada", novo ? "1" : "0");
+    } catch {
+      /* sem storage */
+    }
+  }
+  // a contagem só CONTA; quem navega é o efeito de baixo, uma vez, quando
+  // ela chega a zero (navegar de dentro do updater rodava em dobro no
+  // StrictMode — achado da revisão). Cancelar zera para null e para o relógio.
+  useEffect(() => {
+    if (!concluido?.proximo || !bancada) return;
+    setContagem(3);
+  }, [concluido, bancada]);
+  useEffect(() => {
+    if (contagem == null || contagem <= 0) return;
+    const t = setTimeout(() => setContagem((c) => (c == null ? c : c - 1)), 1000);
+    return () => clearTimeout(t);
+  }, [contagem]);
+  useEffect(() => {
+    if (contagem === 0 && concluido?.proximo) router.push(`/separacao/${concluido.proximo.id}`);
+  }, [contagem, concluido, router]);
   const [erroServidor, setErroServidor] = useState("");
   const campo = useRef<HTMLInputElement>(null);
   const fila = useRef<Promise<void>>(Promise.resolve());
@@ -272,7 +314,7 @@ export function SepararView({ inicial, meuId }: { inicial: Estado; meuId: string
         void recarregar();
         return;
       }
-      setConcluido({ faltas: d.faltas, pecas: d.pecas });
+      setConcluido({ faltas: d.faltas, pecas: d.pecas, proximo: d.proximo ?? null });
     } catch {
       setErroServidor("Sem conexão. Tente de novo.");
     } finally {
@@ -287,7 +329,7 @@ export function SepararView({ inicial, meuId }: { inicial: Estado; meuId: string
         <h1 className="text-xl font-bold mt-3">Pedido {inicial.numero} já foi concluído em outra tela</h1>
         <p className="text-sm text-gray-600 mt-1">Alguém da equipe concluiu esta separação enquanto esta tela estava aberta. Nada daqui foi registrado por cima.</p>
         <div className="flex flex-col sm:flex-row gap-2 justify-center mt-6">
-          <Link href="/etiquetas?aba=separacao" className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium px-4 py-2.5">
+          <Link href="/separacao" className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium px-4 py-2.5">
             <ScanBarcode className="size-4" /> Voltar para a fila
           </Link>
           <Link href={`/pedidos/${inicial.orderId}`} className="inline-flex items-center justify-center gap-1.5 rounded-xl border border-gray-200 text-gray-700 text-sm font-medium px-4 py-2.5 hover:border-brand-300">
@@ -314,13 +356,28 @@ export function SepararView({ inicial, meuId }: { inicial: Estado; meuId: string
         </p>
         <p className="text-xs text-gray-500 mt-2">O pedido passou para &ldquo;Separação&rdquo; e o histórico dele registra quem separou.</p>
         <div className="flex flex-col sm:flex-row gap-2 justify-center mt-6">
-          <Link href="/etiquetas?aba=separacao" className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium px-4 py-2.5">
-            <ScanBarcode className="size-4" /> Próximo pedido
-          </Link>
+          {concluido.proximo ? (
+            <Link
+              href={`/separacao/${concluido.proximo.id}`}
+              className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium px-4 py-2.5"
+            >
+              <ScanBarcode className="size-4" /> Próximo: {concluido.proximo.numero} · {concluido.proximo.cliente}
+              {contagem != null && contagem > 0 && <span className="ml-1 text-white/80">({contagem}s)</span>}
+            </Link>
+          ) : (
+            <Link href="/separacao" className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium px-4 py-2.5">
+              <ScanBarcode className="size-4" /> Voltar para a fila
+            </Link>
+          )}
           <Link href={`/pedidos/${inicial.orderId}`} className="inline-flex items-center justify-center gap-1.5 rounded-xl border border-gray-200 text-gray-700 text-sm font-medium px-4 py-2.5 hover:border-brand-300">
             Ver o pedido
           </Link>
         </div>
+        {concluido.proximo && contagem != null && contagem > 0 && (
+          <button type="button" onClick={() => setContagem(null)} className="mt-3 text-xs text-gray-500 hover:underline">
+            Não abrir o próximo sozinho desta vez
+          </button>
+        )}
       </div>
     );
   }
@@ -331,7 +388,7 @@ export function SepararView({ inicial, meuId }: { inicial: Estado; meuId: string
     <div className="space-y-4">
       <div className="flex items-start justify-between gap-3 flex-wrap">
         <div>
-          <Link href="/etiquetas?aba=separacao" className="inline-flex items-center gap-1 text-xs text-gray-500 hover:text-brand-700">
+          <Link href="/separacao" className="inline-flex items-center gap-1 text-xs text-gray-500 hover:text-brand-700">
             <ArrowLeft className="size-3.5" /> Fila de separação
           </Link>
           <h1 className="text-xl font-bold mt-1">
@@ -339,6 +396,10 @@ export function SepararView({ inicial, meuId }: { inicial: Estado; meuId: string
           </h1>
         </div>
         <div className="text-right">
+          <label className="inline-flex items-center gap-1.5 text-[11px] text-gray-500 cursor-pointer mb-1 select-none" title="Ao concluir, abre o próximo pedido da fila sozinho">
+            <input type="checkbox" checked={bancada} onChange={alternarBancada} className="accent-brand-600" />
+            modo bancada
+          </label>
           <div className="text-2xl font-bold tabular-nums">
             {resumo.bipadas}
             <span className="text-gray-400 text-base font-normal"> / {resumo.pedidas}</span>

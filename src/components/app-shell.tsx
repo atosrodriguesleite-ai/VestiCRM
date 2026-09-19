@@ -49,6 +49,7 @@ import {
   Boxes,
   Warehouse,
   Tag,
+  ScanBarcode,
   ChevronDown,
   ShoppingCart,
   Repeat,
@@ -85,6 +86,9 @@ const NAV = [
   // módulo Etiquetas (RN-059): modelos, impressão e separação por leitor.
   // Toda a equipe entra (é operação de quem está na arara).
   { href: "/etiquetas", label: "Etiquetas", icon: Tag, group: "Catálogo", etiquetasOnly: true },
+  // separação por leitor (RN-060): item próprio — quem separa é quem está
+  // na arara, e não passa por Modelos/Imprimir para chegar na fila
+  { href: "/separacao", label: "Separação", icon: ScanBarcode, group: "Catálogo", etiquetasOnly: true },
   { href: "/biblioteca", label: "Biblioteca de imagens", icon: Images, group: "Catálogo", mediaLibraryOnly: true, supportHidden: true },
   { href: "/producao", label: "Produção", icon: Scissors, group: "Catálogo", productionOnly: true, supportHidden: true },
   { href: "/plano-corte", label: "Plano de Corte", icon: LayoutPanelTop, group: "Catálogo", cutPlanOnly: true, supportHidden: true },

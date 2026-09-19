@@ -4,6 +4,8 @@ import { db } from "./db";
 import { encryptSecret, decryptSecret } from "./crypto";
 import { intakeLead, normalizePhone } from "./intake";
 import { round2 } from "./orders";
+import { descartarSeparacaoAtiva, travarPedido } from "./etiquetas/separacao";
+import { saiuDaFila } from "./etiquetas/separacao-regra";
 import { separarDocumento } from "./documento";
 import { sincronizarPedidoSemQuebrar } from "./financeiro/porta-vendas";
 import { avisarVendaPagaSemQuebrar } from "./push";
@@ -1491,7 +1493,13 @@ export async function ingestCancelledOrder(companyId: string, nsOrderId: string)
     where: { companyId_nuvemshopId: { companyId, nuvemshopId: String(nsOrderId) } },
   });
   if (!order || order.status === "CANCELADO") return;
-  await db.order.update({ where: { id: order.id }, data: { status: "CANCELADO" } });
+  await db.$transaction(async (tx) => {
+    await travarPedido(tx, order.id);
+    await tx.order.update({ where: { id: order.id }, data: { status: "CANCELADO" } });
+    // saiu da fila de separação (RN-060): o rascunho em andamento é descartado,
+    // como na tela do pedido — a cliente cancelou na loja online no meio do bipe
+    if (saiuDaFila(order.status, "CANCELADO")) await descartarSeparacaoAtiva(tx, companyId, order.id);
+  });
   // o cancelamento da loja online também passa pela porta (RN-033): o
   // recebimento automático é estornado e o lançamento, cancelado
   sincronizarPedidoSemQuebrar(order.id);

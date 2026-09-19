@@ -7,7 +7,7 @@
  */
 import { db } from "@/lib/db";
 import type { SessionUser } from "@/lib/auth";
-import { estadoDaSeparacao as abrirSeparacao, concluirSeparacao as concluirDeVerdade, desfazerCarimboDeSeparacao, filaDeSeparacao, registrarBipe, registrarFalta } from "@/lib/etiquetas/separacao";
+import { estadoDaSeparacao as abrirSeparacao, concluirSeparacao as concluirDeVerdade, descartarSeparacaoAtiva, desfazerCarimboDeSeparacao, filaDeSeparacao, registrarBipe, registrarFalta } from "@/lib/etiquetas/separacao";
 import { pacoteMudou } from "@/lib/etiquetas/separacao-regra";
 import { dadosDeEnvioDoPedido } from "@/lib/etiquetas/imprimir";
 import { sincronizarPedidoNoFinanceiro } from "@/lib/financeiro/porta-vendas";
@@ -109,6 +109,7 @@ async function main() {
   check("concluir: pedido fora do recorte não conclui", "erro" in semAbrir);
   const ok = await concluirSeparacao(sLara, pago.id, []);
   check("concluir: com toda linha fechada, conclui e devolve a contagem", "ok" in ok && ok.pecas === 4 && ok.faltas === 0);
+  check("concluir: a resposta diz o PRÓXIMO da fila (modo bancada) — o pedido da colega, para a gerência… mas Lara só vê os dela: null", "ok" in ok && ok.proximo === null);
   const dep = await db.order.findUnique({ where: { id: pago.id }, include: { events: true } });
   check("concluir: pedido vira SEPARACAO com carimbo separadoEm", dep?.status === "SEPARACAO" && !!dep.separadoEm);
   check("concluir: o histórico do pedido diz QUEM separou", dep!.events.some((e) => e.type === "SEPARACAO" && e.description.includes("Separado com leitor por Lara") && e.userId === vend.id));
@@ -210,6 +211,38 @@ async function main() {
   const f10 = await filaDeSeparacao(sAdmin);
   const e10 = await abrirSeparacao(sAdmin, vazio.id);
   check("fila: pedido sem peça fica fora, e abrir recusa com frase", !f10.aSeparar.some((l) => l.id === vazio.id) && "erro" in e10 && !f10.cortada);
+
+  // 11) pago → orçamento com separação em andamento → pago de novo: o rascunho é descartado, recomeça do zero, nunca duplica
+  const vaiEVolta = await mk(11, "PAGO", { paidAt: new Date() });
+  await item(vaiEVolta.id, vG.id, 2);
+  await registrarBipe(sAdmin, vaiEVolta.id, vG.barcode!);
+  check("vai-e-volta: um bipe gravado (1/2) com separação ativa", (await db.separacao.count({ where: { orderId: vaiEVolta.id, concluidaEm: null, descartadaEm: null } })) === 1);
+  // a porta de edição do pedido faz isto ao sair da fila (aqui, direto na função)
+  await db.order.update({ where: { id: vaiEVolta.id }, data: { status: "ORCAMENTO", paidAt: null } });
+  await descartarSeparacaoAtiva(db, loja.id, vaiEVolta.id);
+  check("vai-e-volta: saiu da fila → rascunho DESCARTADO (linha fica, carimbada)", (await db.separacao.count({ where: { orderId: vaiEVolta.id, descartadaEm: { not: null } } })) === 1 && !(await filaDeSeparacao(sAdmin)).aSeparar.some((l) => l.id === vaiEVolta.id));
+  const bOrc = await registrarBipe(sAdmin, vaiEVolta.id, vG.barcode!);
+  check("vai-e-volta: em orçamento o bipe é recusado", "erro" in bOrc);
+  await db.order.update({ where: { id: vaiEVolta.id }, data: { status: "PAGO", paidAt: new Date() } });
+  const f11 = await filaDeSeparacao(sAdmin);
+  const e11 = await abrirSeparacao(sAdmin, vaiEVolta.id);
+  check("vai-e-volta: pago de novo → UMA linha na fila, do zero (0/2), sem o rascunho velho", f11.aSeparar.filter((l) => l.id === vaiEVolta.id).length === 1 && !("erro" in e11) && e11.itens[0].bipada === 0 && e11.quem === null);
+  const b11 = await registrarBipe(sAdmin, vaiEVolta.id, vG.barcode!);
+  check("vai-e-volta: bipar de novo cria uma separação ativa NOVA (o índice parcial ignora a descartada)", "aceito" in b11 && b11.aceito && (await db.separacao.count({ where: { orderId: vaiEVolta.id } })) === 2 && (await db.separacao.count({ where: { orderId: vaiEVolta.id, concluidaEm: null, descartadaEm: null } })) === 1);
+  const c11 = await concluirSeparacao(sAdmin, vaiEVolta.id, [{ variantId: vG.id, falta: 1 }]);
+  check("vai-e-volta: conclui e a resposta traz o próximo da fila para a gerência", "ok" in c11 && c11.proximo !== null && c11.proximo.id !== vaiEVolta.id);
+
+  // 12) modo bancada: o próximo NUNCA é o pedido que uma colega está separando
+  const meu = await mk(12, "PAGO", { paidAt: new Date(Date.now() - 10 * 3600_000) });
+  await item(meu.id, vG.id, 1);
+  const daColega = await mk(13, "PAGO", { paidAt: new Date(Date.now() - 9 * 3600_000) });
+  await item(daColega.id, vG.id, 1);
+  const livre = await mk(14, "PAGO", { paidAt: new Date(Date.now() - 8 * 3600_000) });
+  await item(livre.id, vG.id, 1);
+  await registrarBipe(sLara, daColega.id, vG.barcode!); // Lara começou o #13
+  await registrarBipe(sAdmin, meu.id, vG.barcode!);
+  const c12 = await concluirSeparacao(sAdmin, meu.id, []);
+  check("bancada: o próximo pula o pedido em andamento da colega e cai no livre mais antigo", "ok" in c12 && c12.proximo?.id === livre.id);
 
   await db.company.delete({ where: { id: loja.id } });
 }

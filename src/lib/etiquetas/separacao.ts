@@ -59,7 +59,7 @@ export async function filaDeSeparacao(
     seller: { select: { name: true } },
     items: { select: { quantity: true } },
     separacoes: {
-      where: { concluidaEm: null },
+      where: { concluidaEm: null, descartadaEm: null },
       select: { iniciadaEm: true, user: { select: { name: true } } },
       take: 1,
     },
@@ -172,7 +172,7 @@ export async function estadoDaSeparacao(user: SessionUser, orderId: string): Pro
   const { itens, semCodigo } = await itensDoPedido(db, orderId);
   if (itens.length === 0 && semCodigo.length === 0) return { erro: "Este pedido não tem nenhuma peça — não há o que separar." };
   const ativa = await db.separacao.findFirst({
-    where: { companyId: user.companyId, orderId, concluidaEm: null },
+    where: { companyId: user.companyId, orderId, concluidaEm: null, descartadaEm: null },
     select: { userId: true, iniciadaEm: true, itens: true, user: { select: { name: true } } },
   });
   return {
@@ -186,8 +186,14 @@ export async function estadoDaSeparacao(user: SessionUser, orderId: string): Pro
   };
 }
 
-/** Trava por pedido dentro da transação: dois bipes ao mesmo tempo entram um de cada vez. */
-async function travarPedido(tx: Prisma.TransactionClient, orderId: string) {
+/**
+ * Trava por pedido dentro da transação: dois bipes ao mesmo tempo entram um
+ * de cada vez. A porta de edição do pedido toma a MESMA trava ao trocar o
+ * status — sem isso o primeiro bipe (que ainda vai criar a separação) e o
+ * descarte do rascunho se cruzavam, e o rascunho nascia depois do descarte
+ * (achado da revisão).
+ */
+export async function travarPedido(tx: Prisma.TransactionClient, orderId: string) {
   await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${orderId}))`;
 }
 
@@ -229,7 +235,7 @@ async function separacaoAberta(
   }
   const { itens: doPedido, semCodigo } = await itensDoPedido(tx, orderId);
   const ativa = await tx.separacao.findFirst({
-    where: { companyId: user.companyId, orderId, concluidaEm: null },
+    where: { companyId: user.companyId, orderId, concluidaEm: null, descartadaEm: null },
     select: { id: true, userId: true, itens: true },
   });
   return { ativa, doPedido, itens: ativa ? mesclarComGravado(doPedido, lerItensDaSeparacao(ativa.itens)) : doPedido, semCodigo };
@@ -316,7 +322,7 @@ export async function concluirSeparacao(
   carimboVisto?: string | null,
   /** a porta do Financeiro roda no `after()` do Next; o script de prova (fora de request) passa a dele */
   avisarFinanceiro: (orderId: string) => void = sincronizarPedidoSemQuebrar
-): Promise<{ ok: true; faltas: number; pecas: number } | RecusaDaSeparacao> {
+): Promise<{ ok: true; faltas: number; pecas: number; proximo: { id: string; numero: string; cliente: string } | null } | RecusaDaSeparacao> {
   const pedido = await db.order.findFirst({
     where: { ...orderScope(user), id: orderId },
     select: { id: true, number: true, status: true, sellerId: true, companyId: true, customer: { select: { name: true } } },
@@ -402,10 +408,29 @@ export async function concluirSeparacao(
     }
     return { ok: true, faltas: r.faltas, pecas: r.bipadas } as const;
   }, { timeout: 15_000 });
+  if (!("ok" in resultado)) return resultado;
+  // MODO BANCADA: quem separa 40 pedidos por dia não volta para a lista a
+  // cada um — a resposta já diz qual é o próximo da fila: o mais antigo que
+  // NINGUÉM MAIS está separando (abrir sozinho o pedido da colega faria o
+  // primeiro bipe assumir a separação dela — achado da revisão). Uma
+  // consulta só, com o recorte de quem vê (RN-007).
+  const proximo = await db.order.findFirst({
+    where: {
+      ...orderScope(user),
+      id: { not: orderId },
+      status: { in: [...STATUS_NA_FILA] },
+      separadoEm: null,
+      items: { some: {} },
+      separacoes: { none: { concluidaEm: null, descartadaEm: null, userId: { not: user.id } } },
+    },
+    select: { id: true, number: true, customer: { select: { name: true } } },
+    orderBy: [{ paidAt: { sort: "asc", nulls: "first" } }, { createdAt: "asc" }],
+  });
+  const saida = { ...resultado, proximo: proximo ? { id: proximo.id, numero: orderNumber(proximo.number), cliente: proximo.customer.name } : null };
   // toda transição de status passa pela porta do Financeiro (RN-033) — de
   // pago para separação ela não muda dinheiro, mas a régua é "toda"
-  if ("ok" in resultado) avisarFinanceiro(orderId);
-  return resultado;
+  avisarFinanceiro(orderId);
+  return saida;
 }
 
 /**
@@ -419,4 +444,20 @@ export async function concluirSeparacao(
  */
 export async function desfazerCarimboDeSeparacao(tx: Prisma.TransactionClient | typeof db, companyId: string, orderId: string): Promise<void> {
   await tx.order.updateMany({ where: { id: orderId, companyId, separadoEm: { not: null } }, data: { separadoEm: null } });
+}
+
+/**
+ * O PEDIDO SAIU DA FILA com a separação em andamento (cancelado, devolvido
+ * a orçamento ou a aguardando pagamento): o rascunho é DESCARTADO — as
+ * peças voltaram para a arara e "2 de 5 bipadas" não vale mais. Ao voltar
+ * a pago, a separação recomeça do zero (pergunta do dono, 19/09/2026:
+ * "pago → orçamento → pago de novo não pode duplicar" — não duplica: a
+ * fila é derivada do pedido, uma linha por pedido; o que muda é que o
+ * rascunho velho não volta). A linha fica, carimbada, para o histórico.
+ */
+export async function descartarSeparacaoAtiva(tx: Prisma.TransactionClient | typeof db, companyId: string, orderId: string): Promise<void> {
+  await tx.separacao.updateMany({
+    where: { companyId, orderId, concluidaEm: null, descartadaEm: null },
+    data: { descartadaEm: new Date() },
+  });
 }

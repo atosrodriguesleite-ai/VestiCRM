@@ -1808,6 +1808,10 @@ model Separacao {
   user        User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
   iniciadaEm  DateTime  @default(now())
   concluidaEm DateTime?
+  /// rascunho DESCARTADO: o pedido saiu da fila (cancelado, devolvido a
+  /// orçamento) com a separação em andamento — as peças voltaram para a
+  /// arara e a contagem não vale mais; ao voltar a pago, recomeça do zero
+  descartadaEm DateTime?
   itens       String    @default("[]")
   faltas      Int       @default(0)
 

@@ -1074,7 +1074,9 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   DEFINIR pelo dono**, 0 no catálogo de módulos até lá; ADR-017). **Área
   própria no menu** (`/etiquetas`, item gated; pedido do dono: "não deveria
   ficar em Configurações, precisa ser bem completo"), com as abas
-  **Modelos** e **Imprimir**; a Separação (etapa 4) entra como terceira aba.
+  **Modelos** e **Imprimir**; a **Separação** é área própria no menu
+  (`/separacao`, decisão do dono em 19/09/2026: quem separa está na arara e
+  não passa por Modelos/Imprimir — a mesma chave do módulo abre as duas).
   **Modelos** (`lib/etiquetas/modelos.ts`, rotas `/api/etiquetas/modelos`):
   três TIPOS — embalagem (com o código de barras), composição (tecido,
   tamanho grande, cuidados, loja: a etiqueta que a Toque Leve imprime no
@@ -1169,8 +1171,9 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   equipe imprime** (decisão do dono: operação de quem está na arara).
   **RN-060 · SEPARAÇÃO DE PEDIDO POR LEITOR: O BIPE SÓ ACEITA O QUE ESTÁ
   NO PEDIDO, NA QUANTIDADE DO PEDIDO, E FICA REGISTRADO QUEM SEPAROU**
-  (`lib/etiquetas/separacao-regra.ts` + `separacao.ts`, aba **Separação**
-  em `/etiquetas` e tela `/etiquetas/separar/[pedido]`, 18/09/2026): o
+  (`lib/etiquetas/separacao-regra.ts` + `separacao.ts`, item **Separação**
+  no menu — `/separacao` e a tela do bipe `/separacao/[pedido]` —,
+  18/09/2026): o
   pedido do dono — *"vou separar o pedido #110 bipando; o sistema só
   permite o registro se for a peça que realmente está no pedido, respeita
   a quantidade; tem que ser rápido e seguro"*. A **fila** é todo pedido
@@ -1231,7 +1234,25 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   o carimbo, a aba velha abria uma segunda separação por cima da concluída,
   achado reproduzido na revisão). A lista "separados nos últimos 7 dias" é
   SÓ pelo carimbo: o pedido separado de manhã e enviado à tarde continua na
-  conferência. A lista de status da fila é **derivada** da lista de venda
+  conferência. **Pedido que SAI da fila com separação em andamento**
+  (cancelado, devolvido a orçamento ou a aguardando pagamento) tem o
+  rascunho **DESCARTADO** (`Separacao.descartadaEm`, `descartarSeparacaoAtiva`
+  nas DUAS portas que tiram pedido da fila — a edição do pedido e o
+  cancelamento vindo da Nuvemshop —, decididas pela mesma função pura
+  `saiuDaFila`; as duas tomam a MESMA trava por pedido do bipe, senão o
+  primeiro bipe, que ainda vai criar a separação, se cruzava com o descarte
+  e o rascunho nascia depois dele — achado da revisão): as peças voltaram para a arara e "2 de 5
+  bipadas" não vale mais — ao voltar a pago, recomeça do zero, numa linha
+  nova (o índice parcial de "uma ativa por pedido" ignora a descartada).
+  Pergunta do dono (19/09/2026): pago → orçamento → pago de novo **não
+  duplica** — a fila é derivada do pedido, uma linha por pedido; o que se
+  repete é só o registro no histórico, que é o correto. **Modo bancada**
+  (chavinha na tela do bipe, preferência do aparelho): a resposta de
+  concluir já traz o **próximo** da fila — o mais antigo que **ninguém mais
+  está separando** (abrir sozinho o pedido da colega faria o primeiro bipe
+  assumir a separação dela) — e a tela o abre sozinha em 3s (com "não abrir
+  desta vez") — quem separa 40 pedidos por dia não volta para a lista a cada
+  um. O endereço antigo da aba e da tela do bipe redireciona para cá. A lista de status da fila é **derivada** da lista de venda
   (RN-001) menos quem já saiu, e o teste a confere contra a lista do
   Estoque — três listas à mão é onde um status novo se perde. Pedido **sem nenhuma peça com
   código** (item da loja online que não casou por SKU, item de texto
