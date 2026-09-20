@@ -109,7 +109,7 @@ export function DemoModal({
 
   return (
     <div
-      className="fixed inset-0 z-[70] flex items-end justify-center sm:items-center sm:p-4 pb-[var(--kb,0px)]"
+      className="fixed inset-0 z-[70] flex items-end justify-center sm:items-center sm:p-4 pb-[var(--kb,0px)] translate-y-[var(--kbtop,0px)]"
       role="dialog"
       aria-modal="true"
       aria-labelledby="demo-title"

@@ -598,6 +598,21 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   a recalcular a escada**, que ele ignorava desde sempre: descer de 6 para 5
   numa peça com mínimo 6 deixava as cinco no preço de atacado e o pedido
   fechava mais barato do que a regra da loja.
+  **A JANELA NÃO FOGE COM O TECLADO** (`--kbtop` em `keyboard-inset.tsx`,
+  21/09/2026, relato do dono digitando quantidade no celular: *"o teclado
+  aparece e joga o campo lá pra cima"*): são DUAS medidas diferentes e o app
+  só tinha uma. `--kb` é o quanto o teclado OCUPA (já existia); `--kbtop` é o
+  quanto o iOS EMPURRA a tela visível para baixo ao focar o campo — e como a
+  janela é presa no topo da PÁGINA, ela saía por cima da borda. Quem desce a
+  janela pelo mesmo tanto a mantém colada no que a pessoa vê, e a conta
+  fecha exata: `innerHeight − kb + kbtop` é o fim da área visível. **As duas
+  andam juntas ou nenhuma anda**: `--kbtop` só existe quando `--kb` existe,
+  senão o campo de ESCOLHA do iPhone (a roletinha encolhe a tela sem ser
+  teclado) empurraria a janela para baixo sem encolher nada e o botão de
+  salvar sairia da tela (achado da revisão). Vale para **todas as 26 janelas
+  do app** que descontavam o teclado, com varredura que derruba o build se
+  uma nova esquecer. As gavetas do catálogo público são presas no rodapé, uma
+  conta diferente, e **ainda não têm** a compensação.
 
 ## Módulos
 

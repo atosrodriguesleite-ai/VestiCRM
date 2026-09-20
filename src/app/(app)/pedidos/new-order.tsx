@@ -262,7 +262,11 @@ export function NewOrderButton() {
 
       {open && (
         <Portal>
-          <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center pb-[var(--kb,0px)]">
+          {/* `--kbtop`: o iOS empurra a tela visível para baixo ao abrir o
+              teclado e a janela, que é presa no topo da página, saía por
+              cima da borda (print do dono, 21/09/2026) — descer pelo mesmo
+              tanto a mantém colada no que a pessoa está vendo */}
+          <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center pb-[var(--kb,0px)] translate-y-[var(--kbtop,0px)]">
             <div className="absolute inset-0 bg-black/40 animate-fade-in" onClick={fechar} />
             <div className="relative bg-white rounded-t-2xl md:rounded-2xl shadow-pop w-full md:max-w-3xl h-[calc(100dvh_-_var(--kb,0px)_-_1rem)] md:h-[88dvh] flex flex-col overflow-hidden animate-fade-up">
               {/* CABEÇALHO: os três passos, com o cliente sempre à vista */}

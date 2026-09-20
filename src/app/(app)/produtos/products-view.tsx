@@ -1076,7 +1076,7 @@ function ProductDetailModal({
   const oculto = motivoOculto(product, { esconderSemEstoque: ocultaSemEstoque });
 
   return (
-    <Portal><div className="fixed inset-0 z-50 flex items-end md:items-center justify-center pb-[var(--kb,0px)]">
+    <Portal><div className="fixed inset-0 z-50 flex items-end md:items-center justify-center pb-[var(--kb,0px)] translate-y-[var(--kbtop,0px)]">
       <div className="absolute inset-0 bg-black/30 animate-fade-in" onClick={onClose} />
       <div className="relative bg-white rounded-t-2xl md:rounded-2xl shadow-pop w-full md:max-w-3xl max-h-[calc(100dvh_-_var(--kb,0px)_-_1.5rem)] overflow-y-auto thin-scroll animate-fade-up p-6">
         <div className="flex items-start justify-between gap-2 mb-4">
@@ -2114,7 +2114,7 @@ function NewProductModal({
   const label = "block text-sm font-medium mb-1.5";
 
   return (
-    <Portal><div className="fixed inset-0 z-50 flex items-end md:items-center justify-center pb-[var(--kb,0px)]">
+    <Portal><div className="fixed inset-0 z-50 flex items-end md:items-center justify-center pb-[var(--kb,0px)] translate-y-[var(--kbtop,0px)]">
       <div className="absolute inset-0 bg-black/30 animate-fade-in" onClick={onClose} />
       <form
         onSubmit={submit}

@@ -87,7 +87,7 @@ export function ReajustePreco({ categories }: { categories: string[] }) {
       </button>
       {open && (
         <Portal>
-          <div className="fixed inset-0 z-50 flex items-end justify-center pb-[var(--kb,0px)] md:items-center">
+          <div className="fixed inset-0 z-50 flex items-end justify-center pb-[var(--kb,0px)] translate-y-[var(--kbtop,0px)] md:items-center">
             <div className="absolute inset-0 bg-black/40" onClick={fechar} />
             <div className="relative flex max-h-[calc(100dvh_-_var(--kb,0px)_-_1.5rem)] w-full flex-col overflow-hidden rounded-t-2xl bg-white shadow-pop md:max-w-2xl md:rounded-2xl">
               <div className="flex items-center justify-between border-b border-gray-100 px-5 py-4">

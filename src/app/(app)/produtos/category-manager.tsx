@@ -202,7 +202,7 @@ export function CategoryManager() {
 
       {open && (
         <Portal>
-          <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center pb-[var(--kb,0px)]">
+          <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center pb-[var(--kb,0px)] translate-y-[var(--kbtop,0px)]">
             <div className="absolute inset-0 bg-black/30 animate-fade-in" onClick={fechar} />
             <div className="relative flex max-h-[calc(100dvh_-_var(--kb,0px)_-_1.5rem)] w-full flex-col rounded-t-2xl bg-white shadow-pop animate-fade-up md:max-w-md md:rounded-2xl md:max-h-[85dvh]">
               <div className="border-b border-gray-100 p-5 pb-3">

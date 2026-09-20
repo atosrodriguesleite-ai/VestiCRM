@@ -1,7 +1,8 @@
 import { describe, it, expect } from "vitest";
+import { execSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { alturaDoTeclado } from "../../components/keyboard-inset";
+import { alturaDoTeclado, deslocamentoDaTela } from "../../components/keyboard-inset";
 
 /**
  * A GAVETA PRESA NO MEIO DA TELA (incidente da loja Entre Linhas, 17/08/2026).
@@ -91,5 +92,88 @@ describe("gaveta fechada é gaveta INVISÍVEL (catálogo público)", () => {
   });
   it("a descida continua animada (visibility acompanha a transição)", () => {
     expect(cat).toContain('transition: "transform .3s, visibility .3s"');
+  });
+});
+
+/**
+ * A JANELA QUE SOBE COM O TECLADO (relato do dono, 21/09/2026, montando
+ * pedido no celular): *"quando eu clico para colocar a quantidade, o teclado
+ * aparece e joga o campo lá pra cima"*. O iOS empurra a TELA VISÍVEL para
+ * baixo ao focar o campo; a janela é presa no topo da PÁGINA, então ela sai
+ * por cima da borda. `--kbtop` é esse empurrão, para a janela descer junto.
+ */
+describe("o empurrão da tela (--kbtop) é medido à parte da altura do teclado", () => {
+  /** celular com o teclado aberto: é o único estado em que a janela desce */
+  const comTeclado = { innerHeight: 900, viewportHeight: 550, scale: 1, temCampoFocado: true };
+
+  it("tela parada não desloca nada", () => {
+    expect(deslocamentoDaTela({ ...comTeclado, offsetTop: 0 })).toBe(0);
+  });
+
+  it("iOS empurrando a tela ao abrir o teclado: a janela desce o mesmo tanto", () => {
+    expect(deslocamentoDaTela({ ...comTeclado, offsetTop: 118 })).toBe(118);
+    expect(deslocamentoDaTela({ ...comTeclado, offsetTop: 87.6 })).toBe(88);
+  });
+
+  it("zoom de pinça NÃO desloca: ali quem manda na posição é o dedo", () => {
+    expect(deslocamentoDaTela({ ...comTeclado, scale: 1.5, offsetTop: 300 })).toBe(0);
+  });
+
+  it("valor negativo (rolagem elástica) não empurra a janela para cima", () => {
+    expect(deslocamentoDaTela({ ...comTeclado, offsetTop: -40 })).toBe(0);
+  });
+
+  it("as duas janelas de montar pedido acompanham o empurrão", () => {
+    for (const arquivo of ["src/app/(app)/pedidos/new-order.tsx", "src/components/order-composer.tsx"]) {
+      expect(ler(arquivo), arquivo).toContain("translate-y-[var(--kbtop,0px)]");
+    }
+  });
+
+  it("empurrão e teclado andam JUNTOS: sem teclado, nenhum dos dois desloca", () => {
+    const semTeclado = { innerHeight: 900, viewportHeight: 900, scale: 1, temCampoFocado: false };
+    // roletinha de escolha no iPhone: encolhe a tela sem ser teclado
+    const roletinha = { innerHeight: 900, viewportHeight: 640, scale: 1, temCampoFocado: false };
+    for (const m of [semTeclado, roletinha]) {
+      expect(alturaDoTeclado(m)).toBe(0);
+      expect(deslocamentoDaTela({ ...m, offsetTop: 120 })).toBe(0);
+    }
+    // com campo de digitação focado, os dois existem e se cancelam na conta
+    const digitando = { innerHeight: 900, viewportHeight: 550, scale: 1, temCampoFocado: true };
+    expect(alturaDoTeclado(digitando)).toBe(350);
+    expect(deslocamentoDaTela({ ...digitando, offsetTop: 120 })).toBe(120);
+    const fundoDaJanela = digitando.innerHeight - alturaDoTeclado(digitando) + 120;
+    expect(fundoDaJanela).toBe(120 + digitando.viewportHeight); // exatamente o fim da área visível
+  });
+
+  /**
+   * Varredura das JANELAS do app (as `fixed inset-0` que descontam o
+   * teclado): quem desconta `--kb` tem que acompanhar `--kbtop` — são as
+   * duas metades do mesmo problema, e a janela nova que esquecer a segunda
+   * volta a sumir por cima da borda no iPhone.
+   *
+   * O que ela NÃO cobre, de propósito: as gavetas do catálogo público, que
+   * são presas no rodapé (`bottom: var(--kb)`) em vez de ocuparem a tela
+   * inteira — ali a compensação é outra conta e ainda não foi feita.
+   */
+  it("toda JANELA que desconta o teclado também acompanha o empurrão da tela", () => {
+    const arquivos = execSync(
+      'grep -rl "pb-\\[var(--kb,0px)\\]" src --include=*.tsx',
+      { encoding: "utf8" }
+    )
+      .split("\n")
+      .filter((f) => f && !f.endsWith("keyboard-inset.tsx"));
+    expect(arquivos.length).toBeGreaterThan(20); // a varredura está achando as janelas
+    const esquecidas: string[] = [];
+    for (const arquivo of arquivos) {
+      // o className pode estar quebrado em várias linhas: a varredura lê
+      // cada um INTEIRO, senão bastava quebrar a linha para passar verde
+      for (const [, classes] of ler(arquivo).matchAll(/className=\{?"([^"]*)"/g)) {
+        const junto = classes.replace(/\s+/g, " ");
+        if (junto.includes("fixed inset-0") && junto.includes("pb-[var(--kb,0px)]")) {
+          if (!junto.includes("translate-y-[var(--kbtop,0px)]")) esquecidas.push(`${arquivo}: ${junto}`);
+        }
+      }
+    }
+    expect(esquecidas).toEqual([]);
   });
 });

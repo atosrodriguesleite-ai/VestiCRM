@@ -425,7 +425,7 @@ export function NuvemshopConnect() {
 
       {restore && (
         <Portal>
-          <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center pb-[var(--kb,0px)]">
+          <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center pb-[var(--kb,0px)] translate-y-[var(--kbtop,0px)]">
             <div className="absolute inset-0 bg-black/30 animate-fade-in" onClick={() => setRestore(null)} />
             <div className="relative flex max-h-[calc(100dvh_-_2rem)] w-full max-w-lg flex-col rounded-t-2xl bg-white shadow-pop animate-fade-up md:rounded-2xl">
               <div className="flex items-center justify-between border-b border-gray-100 p-5 pb-3">

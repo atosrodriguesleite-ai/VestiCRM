@@ -157,7 +157,7 @@ export function ImportCatalog() {
       </button>
 
       {open && (
-        <Portal><div className="fixed inset-0 z-[70] flex items-end sm:items-center justify-center sm:p-4 pb-[var(--kb,0px)]">
+        <Portal><div className="fixed inset-0 z-[70] flex items-end sm:items-center justify-center sm:p-4 pb-[var(--kb,0px)] translate-y-[var(--kbtop,0px)]">
           <button
             aria-label="Fechar"
             onClick={close}

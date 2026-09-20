@@ -1008,7 +1008,7 @@ function LinkEditor({
 
   return (
     <Portal>
-      <div className="fixed inset-0 z-50 flex items-end justify-center md:items-center pb-[var(--kb,0px)]">
+      <div className="fixed inset-0 z-50 flex items-end justify-center md:items-center pb-[var(--kb,0px)] translate-y-[var(--kbtop,0px)]">
         <div className="absolute inset-0 bg-black/30 animate-fade-in" onClick={onClose} />
         <div className="relative max-h-[calc(100dvh_-_var(--kb,0px)_-_1.5rem)] w-full max-w-md overflow-y-auto rounded-t-2xl bg-white px-5 pt-3 pb-[max(1.25rem,env(safe-area-inset-bottom))] shadow-pop animate-fade-up sm:px-6 md:rounded-2xl">
           <div className="md:hidden mx-auto mb-3 h-1.5 w-10 rounded-full bg-slate-200" />

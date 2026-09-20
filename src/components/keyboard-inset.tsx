@@ -15,6 +15,17 @@ import { useEffect } from "react";
  * ESTÁVEL (`innerHeight - visualViewport.height`), independente da rolagem.
  *
  * Sem teclado, `--kb` = 0px e nada muda. Renderiza nada.
+ *
+ * E expõe TAMBÉM `--kbtop` (21/09/2026, relato do dono montando pedido no
+ * celular: *"quando eu clico para colocar a quantidade, o teclado aparece e
+ * joga o campo lá pra cima"*). São duas coisas diferentes: `--kb` é o quanto
+ * o teclado OCUPA, e `--kbtop` é o quanto o iOS EMPURROU a tela visível para
+ * baixo ao focar o campo. A janela é `position: fixed`, presa no topo da
+ * página — quando o Safari desliza a tela visível, ela sai por cima da
+ * borda, que é o que o print mostrava. Quem usa `--kbtop` desce a janela
+ * pelo mesmo tanto e ela fica colada na área que a pessoa está vendo.
+ * O valor mora à PARTE de propósito: entrar na conta do `--kb` faria a
+ * altura do teclado encolher durante a rolagem, que é o bug descrito acima.
  */
 
 type MedidaDaTela = {
@@ -49,6 +60,24 @@ export function alturaDoTeclado(m: MedidaDaTela): number {
   return kb > 80 ? kb : 0;
 }
 
+/**
+ * Quanto a tela visível foi empurrada para baixo (o `offsetTop` do visual
+ * viewport) — o tanto que a janela precisa descer para continuar colada no
+ * que a pessoa vê.
+ *
+ * **Só vale quando há teclado** (a MESMA conta do `--kb`), e isso não é
+ * detalhe: as duas medidas se cancelam na conta da janela
+ * (`fundo = innerHeight − kb + kbtop`). Se uma existisse sem a outra, o
+ * rodapé sairia da tela — é o que aconteceria ao tocar num campo de
+ * ESCOLHA no iPhone, onde a roletinha encolhe a tela sem ser teclado:
+ * `--kb` daria 0 (não é campo de digitação) e o empurrão sozinho jogaria o
+ * botão de salvar para baixo da borda (achado da revisão).
+ */
+export function deslocamentoDaTela(m: MedidaDaTela & { offsetTop: number }): number {
+  if (alturaDoTeclado(m) <= 0) return 0;
+  return Math.max(0, Math.round(m.offsetTop));
+}
+
 /** O elemento com o foco aceita digitação (é o que faz o teclado subir)? */
 function campoDeDigitacaoFocado(): boolean {
   const el = document.activeElement as HTMLElement | null;
@@ -77,6 +106,23 @@ export function KeyboardInset() {
         temCampoFocado: campoDeDigitacaoFocado(),
       });
     const aplicar = (kb: number) => root.style.setProperty("--kb", `${kb}px`);
+    /**
+     * O deslocamento é pura geometria da tela: vale na hora, subindo E
+     * descendo. Não entra no atraso de 150ms do `--kb` (que existe para a
+     * gaveta não fugir do dedo entre o apertar e o soltar) — atrasar aqui
+     * deixaria a janela fora do lugar justamente durante a rolagem.
+     */
+    const aplicarTopo = () =>
+      root.style.setProperty(
+        "--kbtop",
+        `${deslocamentoDaTela({
+          innerHeight: window.innerHeight,
+          viewportHeight: vv.height,
+          scale: vv.scale ?? 1,
+          temCampoFocado: campoDeDigitacaoFocado(),
+          offsetTop: vv.offsetTop,
+        })}px`
+      );
 
     /**
      * SUBIR é imediato; BAIXAR espera um instante.
@@ -89,6 +135,7 @@ export function KeyboardInset() {
      * pode fazer a janela pular.
      */
     const update = () => {
+      aplicarTopo();
       const kb = medir();
       if (baixarDepois) {
         clearTimeout(baixarDepois);
@@ -102,6 +149,7 @@ export function KeyboardInset() {
     };
 
     aplicar(medir());
+    aplicarTopo();
     vv.addEventListener("resize", update);
     vv.addEventListener("scroll", update);
     // o teclado nasce e morre com o foco do campo: sem ouvir isso, `--kb`
@@ -115,6 +163,7 @@ export function KeyboardInset() {
       window.removeEventListener("focusin", update);
       window.removeEventListener("focusout", update);
       root.style.removeProperty("--kb");
+      root.style.removeProperty("--kbtop");
     };
   }, []);
   return null;

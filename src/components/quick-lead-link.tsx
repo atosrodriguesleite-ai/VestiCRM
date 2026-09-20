@@ -105,7 +105,7 @@ export function QuickLeadLink({
 
       {open && (
         <Portal>
-        <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center pb-[var(--kb,0px)]">
+        <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center pb-[var(--kb,0px)] translate-y-[var(--kbtop,0px)]">
           <div className="absolute inset-0 bg-black/30 animate-fade-in" onClick={reset} />
           <div className="relative bg-white rounded-t-2xl md:rounded-2xl shadow-pop w-full md:max-w-sm max-w-[100vw] overflow-x-hidden pt-3 px-5 sm:px-6 pb-[max(1.25rem,env(safe-area-inset-bottom))] max-h-[calc(100dvh_-_var(--kb,0px)_-_1.5rem)] overflow-y-auto animate-fade-up">
             {/* puxador do bottom sheet (só no celular) */}
