@@ -525,6 +525,54 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   gravar nada e criação pelo caminho normal (`POST /api/orders`). Serve para
   a venda que só existe na conversa; linha sem cadastro ou sem estoque fica
   de fora e é anotada no pedido.
+  **RN-062 · MONTAR PEDIDO É PREENCHER A GRADE (cor × tamanho)**
+  (`lib/pedido-grade.ts` + `components/pedido/grade-de-pecas.tsx`,
+  20/09/2026): pedido do dono com o print do celular — *"quando eu vou
+  montar um pedido para o cliente no celular ou no computador, queria uma
+  forma mais funcional e prática, pensando na experiência"*. No print, a
+  busca devolvia QUATRO linhas escritas **"Baby Look · R$ 34"**, só o SKU
+  mudando: numa confecção o nome sozinho não distingue modelo nenhum. E
+  cada variação era uma ida à busca, que **fechava e apagava o termo** a
+  cada peça — a grade de 3 cores × 3 tamanhos custava nove buscas e nove
+  vezes digitando "baby look", no pedido mais comum do atacado. Agora a
+  tela tem **três passos com um assunto cada** (cliente → peças →
+  conferir), em vez de um formulário comprido com o total no fim do rolar,
+  e no meio está a **GRADE**: linhas de cor, colunas de tamanho na ordem da
+  arara (PP < P < M < G), quantidade digitada em cada cruzamento, totais
+  por cor e por tamanho e o atalho **"repetir"** ("3 de cada tamanho").
+  Cruzamento que a loja não cadastrou fica **vazio, não zero** — é "não
+  existe", e oferecê-lo seria vender o que não há como separar. O resultado
+  da busca passa a DIZER qual peça é qual (foto, código, categoria, cores e
+  estoque) e carrega o selo **"N no pedido"**; a busca **não fecha** ao
+  adicionar, porque o modelo seguinte costuma ser vizinho deste. **Dinheiro
+  não muda de dono**: a grade recebe o preço como função de quem chama
+  (RN-041 na tela de Pedidos, `unitPriceFor` na Central) com a quantidade
+  DAQUELA célula — a mesma conta de antes, então nenhum preço muda de valor
+  por causa da tela nova. Três decisões protegem o que já foi feito: a
+  grade **abre preenchida** com o que está no pedido e **SUBSTITUI** aquela
+  peça (somar faria "3" virar "6" só por abrir e confirmar), **célula
+  zerada SAI** (é como se remove pela grade), e **preço editado à mão nunca
+  é reescrito** — só célula NOVA nasce com o sugerido, senão o desconto
+  combinado sumia ao voltar na grade para acrescentar um tamanho. A ordem
+  das linhas é preservada (as que ficam seguem no lugar, as novas entram no
+  fim) para a conferência não se reorganizar a cada ida. A conferência é
+  **por MODELO**, não por cor × tamanho: no atacado o preço é um só para a
+  peça inteira, e repetir "R$ 34" nove vezes é o que faz a lojista desistir
+  de conferir no celular — preço divergente entre variações é **dito**, não
+  escondido atrás de um número qualquer. **A quantidade PARA no estoque**
+  (`quantidadeDigitada`, achado da revisão): a porta de criação recusa o
+  pedido INTEIRO quando falta peça (*"Estoque insuficiente de X (Cor Tam):
+  restam N"*, 409), então oferecer 12 com 2 na arara levaria a lojista a um
+  beco no último clique — a célula para no teto e **diz "máx N"**, e
+  variação sem estoque nem aceita digitação. A primeira versão prometia o
+  contrário ("o pedido entra do mesmo jeito") e teria feito a venda falhar
+  no fim. Sobra a rede de segurança: estoque que **cai enquanto o pedido é
+  montado** (a loja online vendeu no meio) aparece na conferência dizendo
+  qual peça e quanto restou. **Fechar GUARDA o rascunho** — um toque fora do
+  quadro apagava cliente, grade e observações sem confirmação —, o preço
+  digitado à mão morre junto com a peça que sai (senão o campo mostrava R$
+  30 e o pedido nascia com o sugerido), e o total fica **sempre no rodapé**,
+  junto do passo seguinte.
 
 ## Módulos
 

@@ -78,9 +78,13 @@ export function InstallPrompt() {
   if (!show || typeof document === "undefined") return null;
 
   // Portal para o body: evita ancestrais com transform/overflow que quebram o
-  // position:fixed. Fica ACIMA da barra de navegação inferior do celular.
+  // position:fixed. Fica ACIMA da barra de navegação inferior do celular
+  // (z-40) e ABAIXO das janelas (z-50): em z-60 este convite cobria o rodapé
+  // de todo modal no celular — inclusive o botão de criar o pedido (achado
+  // ao testar o montador novo no celular, 20/09/2026). Convite de instalar
+  // nunca pode ficar na frente do trabalho.
   return createPortal(
-    <div className="fixed inset-x-2 bottom-[76px] z-[60] md:hidden animate-fade-up">
+    <div className="fixed inset-x-2 bottom-[76px] z-[45] md:hidden animate-fade-up">
       <div className="rounded-2xl bg-white shadow-pop border border-gray-100 p-4">
         <div className="flex items-start gap-3">
           {/* eslint-disable-next-line @next/next/no-img-element */}
