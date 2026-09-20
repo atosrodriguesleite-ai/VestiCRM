@@ -10,11 +10,13 @@ import {
   categoryStats,
   colorStats,
   sizeStats,
+  curvaAbcStats,
 } from "@/lib/tracking/insights";
+import { lerBaseAbc } from "@/lib/tracking/curva-abc";
 
 /**
  * Exportação CSV (abre no Excel; para PDF use imprimir → salvar como PDF).
- * ?relatorio=canais|vendedores|campanhas|produtos|categorias|cores|tamanhos
+ * ?relatorio=canais|vendedores|campanhas|produtos|categorias|cores|tamanhos|abc
  */
 export async function GET(req: NextRequest) {
   try {
@@ -71,6 +73,14 @@ export async function GET(req: NextRequest) {
         rows = data
           .sort((a, b) => b.revenue - a.revenue || b.views - a.views)
           .map((r) => [r.key, r.views, r.adds, r.removes, r.sold, r.revenue, r.conversion, r.abandonRate]);
+        break;
+      }
+      case "abc": {
+        // curva ABC por peça (RN-061): a mesma base que a tela está mostrando
+        const base = lerBaseAbc(req.nextUrl.searchParams.get("abc") ?? undefined);
+        const { linhas } = await curvaAbcStats(c, period, base);
+        headers = ["Peça", "Produto", "Cor", "Tamanho", "Classe", "Unidades", base === "unidades" ? "% unidades" : "% faturamento", "% acumulado", "Faturamento"];
+        rows = linhas.map((l) => [l.rotulo, l.produto, l.cor, l.tamanho, l.classe, l.unidades, l.parte, l.acumulado, l.faturamento]);
         break;
       }
       default:

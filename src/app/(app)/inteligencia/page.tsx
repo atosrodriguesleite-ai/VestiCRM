@@ -35,7 +35,9 @@ import {
   heatmaps,
   recovery,
   alerts,
+  curvaAbcStats,
 } from "@/lib/tracking/insights";
+import { lerBaseAbc, CORTE_A, CORTE_B, type ClasseAbc } from "@/lib/tracking/curva-abc";
 import { Card, PageHeader, Avatar, Badge, EmptyState } from "@/components/ui";
 import { FunnelBars } from "@/components/charts";
 import { LinksManager } from "./links-manager";
@@ -216,6 +218,9 @@ export default async function IntelligencePage({
     de?: string;
     ate?: string;
     recuperacao?: string;
+    /** curva ABC: base da classificação (unidades | faturamento) e "ver todas" */
+    abc?: string;
+    abcTudo?: string;
   }>;
 }) {
   const user = await requireUser();
@@ -234,6 +239,8 @@ export default async function IntelligencePage({
   const prev = previousPeriod(period);
   // "ver todas" as oportunidades de recuperação (a lista nasce curta)
   const verTodaRecuperacao = sp.recuperacao === "tudo";
+  const baseAbc = lerBaseAbc(sp.abc);
+  const verTodaAbc = sp.abcTudo === "1";
   const c = user.companyId;
 
   // Vendas por ORIGEM (pedidos pagos no período): separa o resultado do
@@ -263,12 +270,12 @@ export default async function IntelligencePage({
     .sort((a, b) => b.totalVendido - a.totalVendido);
   const totalOrigens = porOrigem.reduce((a, r) => a + r.totalVendido, 0);
 
-  const [now, before, funil, canais, vendedores, campanhas, produtos, categorias, cores, tamanhos, mapas, recuperacao, avisos, company, team] =
+  const [now, before, funil, canais, vendedores, campanhas, produtos, categorias, cores, tamanhos, mapas, recuperacao, avisos, abc, company, team] =
     await Promise.all([
       overview(c, period), overview(c, prev), funnel(c, period),
       channelRanking(c, period), sellerRanking(c, period), campaignRanking(c, period),
       productStats(c, period), categoryStats(c, period), colorStats(c, period), sizeStats(c, period),
-      heatmaps(c, period), recovery(c, period), alerts(c),
+      heatmaps(c, period), recovery(c, period), alerts(c), curvaAbcStats(c, period, baseAbc),
       db.company.findUnique({ where: { id: c } }),
       db.user.findMany({ where: { companyId: c, active: true, role: { not: "SUPERADMIN" } }, select: { id: true, name: true } }),
     ]);
@@ -279,6 +286,16 @@ export default async function IntelligencePage({
   const topTamanhos = [...tamanhos].sort((a, b) => b.sold - a.sold || b.views - a.views).slice(0, 6);
   const exportar = (rel: string) =>
     `/api/intelligence/export?relatorio=${rel}&${paramsDoPeriodo(filtro)}`;
+  // a curva ABC (RN-061): as 25 primeiras cabem na tela; "ver todas" abre o resto
+  const TETO_ABC = 25;
+  const linhasAbc = verTodaAbc ? abc.linhas : abc.linhas.slice(0, TETO_ABC);
+  // os links da curva levam o estado da Recuperação junto (e vice-versa) e
+  // voltam para o cartão pela âncora — sem isso cada clique recarregava no
+  // topo da página e encolhia o outro cartão
+  const linkAbc = (extra: string) =>
+    `/inteligencia?${paramsDoPeriodo(filtro)}&${extra}${verTodaRecuperacao ? "&recuperacao=tudo" : ""}#abc`;
+  const estadoAbc = `&abc=${baseAbc}${verTodaAbc ? "&abcTudo=1" : ""}`;
+  const COR_CLASSE: Record<ClasseAbc, string> = { A: "#059669", B: "#d97706", C: "#94a3b8" };
 
   return (
     <div className="max-w-7xl mx-auto">
@@ -519,6 +536,81 @@ export default async function IntelligencePage({
         </Card>
       </div>
 
+      {/* CURVA ABC POR PEÇA (RN-061): qual variação exata mais sai, em
+          unidades, e quem carrega a loja (A), quem acompanha (B) e quem
+          encalha (C). Obedece o período escolhido lá em cima. */}
+      <div id="abc" className="scroll-mt-20" />
+      <Card className="p-5 mb-6">
+        <div className="flex flex-wrap items-start justify-between gap-3 mb-3">
+          <div>
+            <h2 className="font-semibold flex items-center gap-2">
+              Curva ABC — peça por peça
+              <InfoTip text={`Cada linha é uma peça exata (produto, cor e tamanho), das que mais vendem para as que menos vendem, no período escolhido. Classe A: as peças que, juntas, fazem ${CORTE_A}% ${baseAbc === "unidades" ? "das unidades vendidas" : "do faturamento"}. B: as que completam ${CORTE_B}%. C: o resto. Só pedido pago conta.`} />
+            </h2>
+            <p className="text-xs text-gray-500 mt-0.5">
+              {abc.totalUnidades.toLocaleString("pt-BR")} peças vendidas em {abc.linhas.length} variações · {periodoPorExtenso(filtro)}
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="inline-flex rounded-xl border border-gray-200 overflow-hidden text-xs font-medium">
+              {(["unidades", "faturamento"] as const).map((b) => (
+                <Link
+                  key={b}
+                  href={linkAbc(`abc=${b}${verTodaAbc ? "&abcTudo=1" : ""}`)}
+                  className={`px-3 py-1.5 ${baseAbc === b ? "bg-brand-600 text-white" : "bg-white text-gray-500 hover:text-gray-800"}`}
+                >
+                  {b === "unidades" ? "Por unidades" : "Por faturamento"}
+                </Link>
+              ))}
+            </div>
+            <a href={exportar(`abc&abc=${baseAbc}`)} className="flex items-center gap-1 text-xs font-medium text-brand-600 hover:text-brand-700">
+              <Download className="size-3.5" /> CSV
+            </a>
+          </div>
+        </div>
+        {abc.linhas.length === 0 ? (
+          <EmptyState title="Nenhuma peça vendida no período" hint="A curva conta só pedidos pagos, pela data do pagamento." />
+        ) : (
+          <>
+            <div className="grid grid-cols-3 gap-2 mb-4">
+              {(["A", "B", "C"] as const).map((cl) => {
+                const r = abc.resumo[cl];
+                return (
+                  <div key={cl} className="rounded-xl border border-gray-100 px-3 py-2.5">
+                    <div className="flex items-center gap-2">
+                      <Badge color={COR_CLASSE[cl]}>Classe {cl}</Badge>
+                      <span className="text-xs text-gray-500">{r.itens} peça{r.itens === 1 ? "" : "s"} ({r.parteItens.toFixed(0)}%)</span>
+                    </div>
+                    <div className="mt-1 text-sm font-semibold tabular-nums">
+                      {r.unidades.toLocaleString("pt-BR")} un. <span className="text-gray-400 font-normal">· {brl(r.faturamento)}</span>
+                    </div>
+                    <div className="text-[11px] text-gray-500">{r.parteBase.toFixed(0)}% {baseAbc === "unidades" ? "das unidades" : "do faturamento"}</div>
+                  </div>
+                );
+              })}
+            </div>
+            <RankTable
+              headers={["Peça", "Classe", "Unidades", baseAbc === "unidades" ? "% un." : "% R$", "Acumulado", "Faturamento"]}
+              rows={linhasAbc.map((l, i) => [
+                <span key="n"><span className="text-gray-400 tabular-nums mr-2">{i + 1}.</span>{l.rotulo}</span>,
+                <Badge key="c" color={COR_CLASSE[l.classe]}>{l.classe}</Badge>,
+                `${l.unidades} un.`,
+                `${l.parte.toFixed(1)}%`,
+                `${l.acumulado.toFixed(1)}%`,
+                brl(l.faturamento),
+              ])}
+            />
+            {abc.linhas.length > TETO_ABC && (
+              <div className="mt-3 text-center">
+                <Link href={linkAbc(`abc=${baseAbc}${verTodaAbc ? "" : "&abcTudo=1"}`)} className="text-xs font-medium text-brand-600 hover:underline">
+                  {verTodaAbc ? `Mostrar só as ${TETO_ABC} primeiras` : `Ver todas as ${abc.linhas.length} peças`}
+                </Link>
+              </div>
+            )}
+          </>
+        )}
+      </Card>
+
       {/* Produtos / categorias / cores / tamanhos */}
       <div className="grid lg:grid-cols-2 gap-4 md:gap-6 mb-6">
         <Card className="p-5">
@@ -603,7 +695,7 @@ export default async function IntelligencePage({
         </h2>
         {recuperacao.length > RECUPERACAO_NA_TELA && (
           <Link
-            href={`/inteligencia?${paramsDoPeriodo(filtro)}${
+            href={`/inteligencia?${paramsDoPeriodo(filtro)}${estadoAbc}${
               verTodaRecuperacao ? "" : "&recuperacao=tudo"
             }#recuperar`}
             className="text-xs font-semibold text-brand-600 hover:text-brand-700"

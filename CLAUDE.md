@@ -1010,7 +1010,32 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   BioView/BioClick com filtro de data, atribuição `utm_source=bio` no
   catálogo), campanhas de aquisição, tracking do catálogo
   (TrackSession/TrackEvent + `lib/tracking/insights.ts` → tela
-  Inteligência), afiliados (só empresa-plataforma). Anúncio → campanha
+  Inteligência), afiliados (só empresa-plataforma).
+  **RN-061 · CURVA ABC POR PEÇA na Inteligência** (`lib/tracking/curva-abc.ts`
+  + `curvaAbcStats`, 20/09/2026): pedido do dono — *"quero entender quais
+  produtos mais vendem, peça por peça (regata alça preta M), e a quantidade
+  em unidades, ligado ao filtro de período"*. A tela já dizia qual COR e
+  qual CATEGORIA mais saem; a curva desce até a **variação exata** (produto
+  × cor × tamanho), que é o que se repõe, corta e separa. Cada linha traz
+  **unidades**, % do total, acumulado e faturamento (fatia do `netTotal`,
+  RN-002), no **período da tela** (só pedido pago, pela data do pagamento,
+  RN-001 — a MESMA régua dos quadros de cor/categoria, e o teste prende
+  isso). **A classe é pelo acumulado**: A são as peças que, juntas, fecham
+  80%; B as que completam 95%; C o resto — por **unidades** (padrão, o que o
+  dono pediu) ou por **faturamento** (chavinha na tela e no CSV; a mesma
+  peça pode ser A em unidade e B em dinheiro, e a tela diz qual base está
+  olhando). O rótulo é o do **cadastro de hoje** quando a variação existe
+  (renomear a peça ou a cor não a divide em duas) — **diferença dita** em
+  relação ao quadro de Cores, que agrupa pela cor CONGELADA no item ("Preto"
+  renomeado para "Preta" são duas linhas lá e uma aqui; o que é igual é QUAIS
+  peças contam e quanto valem); peça apagada agrupa pelo nome congelado,
+  normalizado (a régua do `chaveDoNome`). Quem cruza os 80% ainda é A (folga
+  de ponto flutuante, não arredondamento); sem base — todo mundo faturou
+  zero — ninguém é A; rateio negativo não entra. Regra pura e testada
+  (`curva-abc.test.ts`; `scripts/confere-curva-abc.ts` prova contra o
+  Postgres que unidades e faturamento batem com Cores e Visão Geral); as 25
+  primeiras na tela e "ver todas" para o resto, com o estado da Recuperação
+  preservado nos links. Anúncio → campanha
   (`lib/ad-match.ts`): a prévia do Click-to-WhatsApp vira código estável
   (`adRef`) e o vínculo pode ser feito **direto do chat** (bloco "Veio de
   anúncio" na ficha do contato, gerente+). O vínculo é RETROATIVO para quem

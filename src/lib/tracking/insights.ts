@@ -2,6 +2,8 @@ import { db } from "../db";
 import { ehDaCampanha } from "../campanha-pedidos";
 import { PAID_ORDER_STATUSES } from "../orders";
 import { lerItens } from "../recuperacao";
+import { chaveDoNome, r2, pct } from "./insights-puro";
+import { montarCurvaAbc, type BaseAbc } from "./curva-abc";
 
 /**
  * API de leitura da Tracking Engine.
@@ -43,8 +45,6 @@ export function previousPeriod(p: Period): Period {
   return { from: new Date(p.from.getTime() - len), to: new Date(p.from.getTime() - 1) };
 }
 
-const r2 = (v: number) => Math.round(v * 100) / 100;
-const pct = (num: number, den: number) => (den > 0 ? (num / den) * 100 : 0);
 
 /**
  * SESSÃO RESOLVIDA — a cliente já decidiu, ninguém mais a cutuca.
@@ -572,18 +572,7 @@ export async function campaignRanking(companyId: string, p: Period) {
 
 type Dim = "productName" | "category" | "color" | "size";
 
-/**
- * Nomes "iguais" que diferem no invisível — espaço sobrando no fim, acento
- * gravado de outro jeito (ç composto × ç decomposto), caixa diferente —
- * viravam LINHAS DUPLICADAS no ranking: "Regata Alça" aparecia duas vezes na
- * tela Inteligência (relato do dono, 22/08/2026). A identidade da linha é o
- * nome normalizado em minúsculas; o texto EXIBIDO é a primeira forma vista
- * (a grafia do CADASTRO atual
- * vence quando existe; entre nomes só congelados, vale a primeira na ordem
- * estável de leitura).
- */
-export const chaveDoNome = (s: string) =>
-  s.normalize("NFC").replace(/\s+/g, " ").trim();
+export { chaveDoNome };
 
 type EventoDoRanking = {
   type: string;
@@ -780,6 +769,54 @@ async function dimensionStats(companyId: string, p: Period, dim: Dim) {
         })
       : [];
   return montarRanking(events, orderItems, products, dim);
+}
+
+/**
+ * CURVA ABC POR PEÇA (RN-061): os itens vendidos no período — a MESMA
+ * régua dos quadros de cor/categoria (pedido pago, RN-001, pela data do
+ * pagamento; valor = fatia do netTotal, RN-002) — agrupados pela variação
+ * exata, com o cadastro de hoje mandando no rótulo.
+ */
+export async function curvaAbcStats(companyId: string, p: Period, base: BaseAbc = "unidades") {
+  const itens = await db.orderItem.findMany({
+    where: { order: { companyId, paidAt: { gte: p.from, lte: p.to }, status: { in: PAID_ORDER_STATUSES } } },
+    // frete-ok: o `total` puxado é do ITEM (preço × quantidade da linha, sem
+    // frete) e vira a fatia do netTotal em valorVendidoDoItem — régua da RN-002
+    select: {
+      variantId: true,
+      name: true,
+      color: true,
+      size: true,
+      quantity: true,
+      total: true,
+      order: { select: { subtotal: true, netTotal: true } },
+    },
+    orderBy: { id: "asc" },
+  });
+  // o cadastro de HOJE das variações vendidas: uma ida ao banco pelos ids
+  // distintos (embutir produto e cor em cada um dos milhares de itens
+  // repetia o mesmo cadastro milhares de vezes)
+  const ids = [...new Set(itens.map((i) => i.variantId).filter((v): v is string => !!v))];
+  const variacoes = ids.length
+    ? await db.productVariant.findMany({
+        where: { id: { in: ids }, product: { companyId } },
+        select: { id: true, color: true, size: true, product: { select: { name: true } } },
+      })
+    : [];
+  const atual = new Map(variacoes.map((v) => [v.id, { produto: v.product.name, cor: v.color, tamanho: v.size }]));
+  return montarCurvaAbc(
+    itens.map((it) => ({
+      variantId: it.variantId,
+      nome: it.name,
+      cor: it.color,
+      tamanho: it.size,
+      quantidade: it.quantity,
+      // frete-ok: total do item rateado pelo netTotal do pedido (RN-002)
+      valorVendido: valorVendidoDoItem(it.total, it.order.subtotal, it.order.netTotal),
+      atual: it.variantId ? atual.get(it.variantId) : undefined,
+    })),
+    base
+  );
 }
 
 export const productStats = (c: string, p: Period) => dimensionStats(c, p, "productName");
