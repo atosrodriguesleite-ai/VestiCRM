@@ -15,8 +15,9 @@
  * itens) e tudo que é navegação acontece aqui, sem ir ao servidor: trocar a
  * base, filtrar por classe (tocando no cartão da classe ou no chip), buscar
  * uma peça pelo nome, e "mostrar mais" em blocos. O endereço da página é
- * atualizado por baixo (`history.replaceState`) para o CSV e o link
- * compartilhado continuarem apontando para a base que está na tela.
+ * atualizado por baixo (`history.replaceState`, com o estado do próprio
+ * Next para ele NÃO redesenhar a página — ver `trocarBase`) para os atalhos
+ * de período e o link compartilhado continuarem na base que está na tela.
  */
 
 import { useMemo, useState } from "react";
@@ -97,13 +98,21 @@ export function CurvaAbcView({
 
   const trocarBase = (b: BaseAbc) => {
     setBase(b);
-    // o endereço acompanha, sem recarregar: o CSV e o link compartilhado
-    // apontam para a base que está na tela
+    // O endereço acompanha (os atalhos de período e o link compartilhado
+    // levam a base), mas SEM o roteador do Next perceber: o `replaceState`
+    // é interceptado por ele e dispara um ACTION_RESTORE que redesenha a
+    // Inteligência INTEIRA (gráficos, mapas, recuperação) — no celular era
+    // o "trava" ao trocar de faturamento para unidades (relato do dono,
+    // 20/09/2026). O Next só deixa passar sem redesenhar quando o estado do
+    // histórico é o dele mesmo (`__NA`), então reaproveitamos o estado
+    // atual; se ele não for do Next, o endereço fica como está — a tela
+    // já trocou e é isso que importa.
     try {
+      const estado = window.history.state as { __NA?: boolean } | null;
+      if (!estado?.__NA) return;
       const url = new URL(window.location.href);
       url.searchParams.set("abc", b);
-      url.hash = "abc";
-      window.history.replaceState(null, "", url.toString());
+      window.history.replaceState(estado, "", url.toString());
     } catch {
       /* navegador sem history: a tela segue funcionando */
     }
@@ -211,7 +220,8 @@ export function CurvaAbcView({
             <label className="relative flex-1 min-w-[160px]">
               <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-gray-400" />
               <input
-                type="search"
+                type="text"
+                inputMode="search"
                 value={busca}
                 onChange={(e) => {
                   setBusca(e.target.value);
