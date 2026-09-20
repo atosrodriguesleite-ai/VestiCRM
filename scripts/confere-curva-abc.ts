@@ -56,10 +56,21 @@ async function main() {
   check("ordem e classes: Preta M (75%) A, Preta G (cruza 80→95%) A, Branca M (começa em 95%) C", abc.linhas.map((l) => l.classe).join("") === "AAC" && abc.linhas[1].rotulo === "Regata Alça · Preta · G");
   const somaLinhas = abc.linhas.reduce((s, l) => s + l.faturamento, 0);
   check("a soma das linhas fecha com o total (rateio do desconto sem perder centavo)", Math.abs(somaLinhas - abc.totalFaturamento) < 0.02);
+  const r2 = (n: number) => Math.round(n * 100) / 100;
+  check("o resumo A + B + C fecha EXATAMENTE com o total", r2(abc.resumo.A.faturamento + abc.resumo.B.faturamento + abc.resumo.C.faturamento) === abc.totalFaturamento);
   // renomear a peça não divide a linha
   await db.product.update({ where: { id: p.id }, data: { name: "Regata Nadador" } });
   const abc2 = await curvaAbcStats(loja.id, periodo);
   check("renomear o produto: a linha segue UMA, com o nome de hoje", abc2.linhas.length === 3 && abc2.linhas[0].rotulo === "Regata Nadador · Preta · M");
+  // variação apagada e RECRIADA (grade refeita): os itens antigos ficam sem
+  // variantId e a peça tem que continuar sendo UMA linha
+  await db.productVariant.delete({ where: { id: pretaG.id } });
+  const pretaG2 = await db.productVariant.create({ data: { productId: p.id, color: "Preta", size: "G", stock: 10 } });
+  await mk(7, "PAGO", hoje, [{ v: pretaG2, q: 1, preco: 20 }]);
+  const abc3 = await curvaAbcStats(loja.id, periodo);
+  const pretaGLinha = abc3.linhas.find((l) => l.rotulo === "Regata Nadador · Preta · G");
+  check("variação apagada e recriada: a peça segue UMA linha (8 antigas + 1 nova = 9 un.)", abc3.linhas.length === 3 && pretaGLinha?.unidades === 9);
+  check("unidades continuam batendo com o quadro de Cores depois disso", (await colorStats(loja.id, periodo)).reduce((s, c) => s + c.sold, 0) === abc3.totalUnidades);
   // base por faturamento
   const porValor = await curvaAbcStats(loja.id, periodo, "faturamento");
   check("por faturamento: a mesma peça continua no topo e a soma das partes fecha 100", porValor.linhas[0].rotulo.includes("Preta · M") && Math.abs(porValor.linhas.at(-1)!.acumulado - 100) < 0.01);

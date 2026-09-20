@@ -13,6 +13,7 @@ import {
   categoryStats,
   colorStats,
   sizeStats,
+  itensVendidosNoPeriodo,
   heatmaps,
   recovery,
   alerts,
@@ -33,6 +34,8 @@ export async function GET(req: NextRequest) {
     const period = periodFromDays([1, 7, 30, 90, 365].includes(days) ? days : 30);
     const prev = previousPeriod(period);
     const companyId = user.companyId;
+    // itens vendidos lidos UMA vez para os quatro quadros de dimensão
+    const itens = itensVendidosNoPeriodo(companyId, period);
 
     const [now, before, funil, canais, vendedores, campanhas, produtos, categorias, cores, tamanhos, mapas, recuperacao, alertas] =
       await Promise.all([
@@ -42,10 +45,10 @@ export async function GET(req: NextRequest) {
         channelRanking(companyId, period),
         sellerRanking(companyId, period),
         campaignRanking(companyId, period),
-        productStats(companyId, period),
-        categoryStats(companyId, period),
-        colorStats(companyId, period),
-        sizeStats(companyId, period),
+        productStats(companyId, period, itens),
+        categoryStats(companyId, period, itens),
+        colorStats(companyId, period, itens),
+        sizeStats(companyId, period, itens),
         heatmaps(companyId, period),
         recovery(companyId, period),
         alerts(companyId),

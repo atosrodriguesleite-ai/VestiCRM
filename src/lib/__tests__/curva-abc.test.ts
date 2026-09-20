@@ -1,7 +1,44 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { CORTE_A, CORTE_B, lerBaseAbc, montarCurvaAbc, type ItemVendido } from "../tracking/curva-abc";
+import { PAID_ORDER_STATUSES } from "../orders";
+
+// BANCO SIMULADO para o guarda de comportamento da consulta (a régua da
+// venda paga e o rateio do netTotal têm que valer no que vai ao banco, não
+// só na função pura)
+type Chamada = { modelo: string; args: Record<string, unknown> };
+const chamadas: Chamada[] = [];
+const banco = {
+  orderItem: [] as Record<string, unknown>[],
+  product: [] as { id: string; name: string; companyId: string }[],
+  productVariant: [] as { id: string; color: string; size: string; companyId: string }[],
+};
+vi.mock("../db", () => ({
+  db: {
+    orderItem: {
+      async findMany(args: Record<string, unknown>) {
+        chamadas.push({ modelo: "orderItem", args });
+        return banco.orderItem;
+      },
+    },
+    product: {
+      async findMany(args: { where: { id: { in: string[] }; companyId: string } }) {
+        chamadas.push({ modelo: "product", args });
+        return banco.product.filter((p) => args.where.id.in.includes(p.id) && p.companyId === args.where.companyId).map(({ id, name }) => ({ id, name }));
+      },
+    },
+    productVariant: {
+      async findMany(args: { where: { id: { in: string[] }; product: { companyId: string } } }) {
+        chamadas.push({ modelo: "productVariant", args });
+        return banco.productVariant
+          .filter((v) => args.where.id.in.includes(v.id) && v.companyId === args.where.product.companyId)
+          .map(({ id, color, size }) => ({ id, color, size }));
+      },
+    },
+    trackEvent: { async findMany() { return []; } },
+  },
+}));
 
 // Guarda RN-061
 /**
@@ -14,6 +51,7 @@ const ler = (p: string) => readFileSync(join(raiz, p), "utf8");
 
 const item = (over: Partial<ItemVendido>): ItemVendido => ({
   variantId: null,
+  productId: null,
   nome: "Regata Alça",
   cor: "Preta",
   tamanho: "M",
@@ -34,6 +72,27 @@ describe("RN-061: a linha é a PEÇA exata", () => {
     expect(linhas).toHaveLength(2);
     expect(linhas[0]).toMatchObject({ rotulo: "Regata Alça · Preta · M", unidades: 5, faturamento: 30 });
     expect(linhas[1]).toMatchObject({ rotulo: "Regata Alça · Preta · G", unidades: 1 });
+  });
+
+  it("variação apagada e RECRIADA (grade refeita) é a MESMA peça: agrupa pelo produto + cor/tamanho", () => {
+    // os itens antigos ficaram sem variantId (SetNull), os novos apontam para a
+    // variação nova — a primeira versão (chave pela variação) mostrava duas
+    // linhas da mesma peça, uma com o nome de hoje e outra com o congelado
+    const { linhas } = montarCurvaAbc([
+      item({ productId: "p1", variantId: null, nome: "Regata Alca", cor: "Preta", tamanho: "M", quantidade: 4, atual: { produto: "Regata Nadador" } }),
+      item({ productId: "p1", variantId: "v-nova", nome: "Regata Alca", cor: "Preta", tamanho: "M", quantidade: 2, atual: { produto: "Regata Nadador", cor: "Preta", tamanho: "M" } }),
+      item({ productId: "p1", variantId: "v-g", nome: "Regata Alca", cor: "Preta", tamanho: "G", quantidade: 1, atual: { produto: "Regata Nadador", cor: "Preta", tamanho: "G" } }),
+    ]);
+    expect(linhas.map((l) => [l.rotulo, l.unidades])).toEqual([
+      ["Regata Nadador · Preta · M", 6],
+      ["Regata Nadador · Preta · G", 1],
+    ]);
+    // produtos DIFERENTES com a mesma cor e tamanho continuam separados
+    const r = montarCurvaAbc([
+      item({ productId: "p1", quantidade: 1, atual: { produto: "Regata" } }),
+      item({ productId: "p2", quantidade: 1, atual: { produto: "Regata" } }),
+    ]);
+    expect(r.linhas).toHaveLength(2);
   });
 
   it("peça apagada do cadastro (sem variação) agrupa pelo nome congelado, sem xará invisível", () => {
@@ -132,6 +191,23 @@ describe("RN-061: a classe pelo acumulado", () => {
     expect(linhas.every((l) => l.parte >= 0)).toBe(true);
   });
 
+  it("o resumo A + B + C fecha EXATAMENTE com o total — a sobra do centavo vai para a última classe com peça", () => {
+    // valores com meio centavo em todas as linhas: somar as linhas já
+    // arredondadas divergia do total por centavos (achado da revisão)
+    const itens = Array.from({ length: 40 }, (_, i) => item({ variantId: `v${i}`, quantidade: 40 - i, valorVendido: 10.005 + i * 0.001 }));
+    for (const base of ["unidades", "faturamento"] as const) {
+      const { resumo, totalFaturamento, linhas } = montarCurvaAbc(itens, base);
+      expect(r2(resumo.A.faturamento + resumo.B.faturamento + resumo.C.faturamento)).toBe(totalFaturamento);
+      expect(resumo.A.unidades + resumo.B.unidades + resumo.C.unidades).toBe(linhas.reduce((s, l) => s + l.unidades, 0));
+      expect(resumo.A.itens + resumo.B.itens + resumo.C.itens).toBe(linhas.length);
+    }
+    // classe vazia fica em zero (a sobra nunca cai numa classe sem peça)
+    const um = montarCurvaAbc([item({ variantId: "a", quantidade: 1, valorVendido: 10.005 })]);
+    expect(um.resumo.A.faturamento).toBe(um.totalFaturamento);
+    expect(um.resumo.B.faturamento).toBe(0);
+    expect(um.resumo.C.faturamento).toBe(0);
+  });
+
   it("acumulado nunca passa de 100 por arredondamento", () => {
     const { linhas } = montarCurvaAbc([1, 1, 1].map((q, i) => item({ variantId: `v${i}`, quantidade: q })));
     expect(linhas.at(-1)?.acumulado).toBe(100);
@@ -145,18 +221,62 @@ describe("RN-061: a classe pelo acumulado", () => {
   });
 });
 
-describe("RN-061: a consulta usa a MESMA régua dos outros quadros", () => {
-  it("só pedido pago (RN-001) pela data do pagamento, valor pela fatia do netTotal (RN-002)", () => {
-    const src = ler("src/lib/tracking/insights.ts");
-    const fn = src.slice(src.indexOf("export async function curvaAbcStats"), src.indexOf("export const productStats"));
-    expect(fn).toContain("status: { in: PAID_ORDER_STATUSES }");
-    expect(fn).toContain("paidAt: { gte: p.from, lte: p.to }");
-    expect(fn).toContain("valorVendidoDoItem(it.total, it.order.subtotal, it.order.netTotal)");
-    // a tela e o CSV obedecem o período e a base escolhidos
+const r2 = (n: number) => Math.round(n * 100) / 100;
+
+describe("RN-061: a consulta usa a MESMA régua dos outros quadros (banco simulado)", () => {
+  const periodo = { from: new Date("2026-09-01T00:00:00Z"), to: new Date("2026-09-30T23:59:59Z") };
+  beforeEach(() => {
+    chamadas.length = 0;
+    banco.orderItem = [
+      // item de R$ 50 num pedido de subtotal 100 que vendeu por 80 (desconto): vale 40
+      { productId: "p1", variantId: "v1", name: "Regata Alca", color: "preto", size: "M", quantity: 5, total: 50, order: { subtotal: 100, netTotal: 80 } },
+      // a variação antiga foi apagada (SetNull) e o produto ficou: é a MESMA peça
+      { productId: "p1", variantId: null, name: "Regata Alca", color: "Preta", size: "M", quantity: 1, total: 10, order: { subtotal: 10, netTotal: 10 } },
+      // peça de produto apagado: nome congelado
+      { productId: null, variantId: null, name: "Blusa Antiga", color: "Azul", size: "P", quantity: 2, total: 20, order: { subtotal: 20, netTotal: 20 } },
+    ];
+    banco.product = [{ id: "p1", name: "Regata Nadador", companyId: "loja" }, { id: "p1", name: "Regata de OUTRA loja", companyId: "outra" }];
+    banco.productVariant = [{ id: "v1", color: "Preta", size: "M", companyId: "loja" }];
+  });
+
+  it("só pedido pago (RN-001) pela data do pagamento, valor pela fatia do netTotal (RN-002), rótulo do cadastro de hoje", async () => {
+    const { curvaAbcStats } = await import("../tracking/insights");
+    const abc = await curvaAbcStats("loja", periodo);
+    const consulta = chamadas.find((c) => c.modelo === "orderItem")!.args as { where: { order: Record<string, unknown> } };
+    expect(consulta.where.order).toMatchObject({
+      companyId: "loja",
+      status: { in: PAID_ORDER_STATUSES },
+      paidAt: { gte: periodo.from, lte: periodo.to },
+    });
+    expect(abc.linhas.map((l) => [l.rotulo, l.unidades, l.faturamento])).toEqual([
+      ["Regata Nadador · Preta · M", 6, 50], // 40 (rateado) + 10, UMA linha apesar da variação apagada
+      ["Blusa Antiga · Azul · P", 2, 20],
+    ]);
+    expect(abc.totalFaturamento).toBe(70);
+    // o cadastro é lido recortado pela loja (RN-013): o "p1" da outra loja não rotula nada
+    const cadastro = chamadas.find((c) => c.modelo === "product")!.args as { where: { companyId: string } };
+    expect(cadastro.where.companyId).toBe("loja");
+    expect((chamadas.find((c) => c.modelo === "productVariant")!.args as { where: { product: { companyId: string } } }).where.product.companyId).toBe("loja");
+  });
+
+  it("os itens pré-carregados pela tela são reaproveitados — a curva não varre a tabela de novo", async () => {
+    const { curvaAbcStats, itensVendidosNoPeriodo, colorStats } = await import("../tracking/insights");
+    const itens = itensVendidosNoPeriodo("loja", periodo);
+    const [abc, cores] = await Promise.all([curvaAbcStats("loja", periodo, "unidades", itens), colorStats("loja", periodo, itens)]);
+    expect(chamadas.filter((c) => c.modelo === "orderItem")).toHaveLength(1);
+    // e os dois quadros contam as MESMAS unidades
+    expect(cores.reduce((s, c) => s + c.sold, 0)).toBe(abc.totalUnidades);
+  });
+
+  it("a tela e o CSV obedecem o período e a base escolhidos", () => {
     const tela = ler("src/app/(app)/inteligencia/page.tsx");
-    expect(tela).toContain("curvaAbcStats(c, period, baseAbc)");
+    expect(tela).toContain("curvaAbcStats(c, period, baseAbc, itensDoPeriodo)");
     // o cabeçalho da coluna de % muda com a base (por faturamento não é "% un.")
     expect(tela).toContain('baseAbc === "unidades" ? "% un." : "% R$"');
+    // trocar o período (atalhos, Limpar e o formulário) não devolve a curva ao padrão
+    expect(tela).toContain("href={`/inteligencia?dias=${p.d}${estadoAbc}`}");
+    expect(tela).toContain("href={`/inteligencia?dias=30${estadoAbc}`}");
+    expect(tela).toContain('<input type="hidden" name="abc" value={baseAbc} />');
     expect(ler("src/app/api/intelligence/export/route.ts")).toContain('case "abc"');
   });
 });

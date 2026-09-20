@@ -1024,18 +1024,29 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   80%; B as que completam 95%; C o resto — por **unidades** (padrão, o que o
   dono pediu) ou por **faturamento** (chavinha na tela e no CSV; a mesma
   peça pode ser A em unidade e B em dinheiro, e a tela diz qual base está
-  olhando). O rótulo é o do **cadastro de hoje** quando a variação existe
-  (renomear a peça ou a cor não a divide em duas) — **diferença dita** em
-  relação ao quadro de Cores, que agrupa pela cor CONGELADA no item ("Preto"
-  renomeado para "Preta" são duas linhas lá e uma aqui; o que é igual é QUAIS
-  peças contam e quanto valem); peça apagada agrupa pelo nome congelado,
-  normalizado (a régua do `chaveDoNome`). Quem cruza os 80% ainda é A (folga
-  de ponto flutuante, não arredondamento); sem base — todo mundo faturou
-  zero — ninguém é A; rateio negativo não entra. Regra pura e testada
-  (`curva-abc.test.ts`; `scripts/confere-curva-abc.ts` prova contra o
-  Postgres que unidades e faturamento batem com Cores e Visão Geral); as 25
-  primeiras na tela e "ver todas" para o resto, com o estado da Recuperação
-  preservado nos links. Anúncio → campanha
+  olhando). **A chave da peça é o PRODUTO (pelo id) × cor × tamanho**, com o
+  rótulo do **cadastro de hoje** no que ainda existe (renomear a peça ou a
+  cor não a divide em duas) — agrupar pela VARIAÇÃO foi a primeira versão e
+  a revisão achou o buraco: a variação apagada e recriada com a mesma cor e
+  tamanho (a lojista refaz a grade) deixa os itens antigos sem variação
+  (SetNull) e a mesma peça virava duas linhas; pelo produto são uma.
+  **Diferença dita** em relação ao quadro de Cores, que agrupa pela cor
+  CONGELADA no item ("Preto" renomeado para "Preta" são duas linhas lá e uma
+  aqui; o que é igual é QUAIS peças contam e quanto valem); produto apagado
+  agrupa pelo nome congelado, normalizado (a régua do `chaveDoNome`). Quem
+  cruza os 80% ainda é A (folga de ponto flutuante, não arredondamento); sem
+  base — todo mundo faturou zero — ninguém é A; rateio negativo não entra; o
+  resumo por classe soma o valor CRU e a última classe com peça leva a sobra
+  do centavo (A + B + C fecha EXATAMENTE com o total, régua da RN-030). Os
+  itens vendidos do período são lidos **UMA vez** para os quatro quadros de
+  dimensão e a curva (`itensVendidosNoPeriodo`; eram cinco varreduras da
+  mesma tabela). Regra pura e testada (`curva-abc.test.ts`, com o banco
+  simulado prendendo a régua da consulta; `scripts/confere-curva-abc.ts`
+  prova contra o Postgres que unidades e faturamento batem com Cores e Visão
+  Geral, inclusive depois de apagar e recriar a variação); as 25 primeiras
+  na tela e "ver todas" para o resto; a base e o "ver todas" são preferência
+  de leitura, preservada ao trocar o período (atalhos, Limpar, formulário) e
+  nos links da Recuperação — e vice-versa. Anúncio → campanha
   (`lib/ad-match.ts`): a prévia do Click-to-WhatsApp vira código estável
   (`adRef`) e o vínculo pode ser feito **direto do chat** (bloco "Veio de
   anúncio" na ficha do contato, gerente+). O vínculo é RETROATIVO para quem

@@ -36,6 +36,7 @@ import {
   recovery,
   alerts,
   curvaAbcStats,
+  itensVendidosNoPeriodo,
 } from "@/lib/tracking/insights";
 import { lerBaseAbc, CORTE_A, CORTE_B, type ClasseAbc } from "@/lib/tracking/curva-abc";
 import { Card, PageHeader, Avatar, Badge, EmptyState } from "@/components/ui";
@@ -270,12 +271,15 @@ export default async function IntelligencePage({
     .sort((a, b) => b.totalVendido - a.totalVendido);
   const totalOrigens = porOrigem.reduce((a, r) => a + r.totalVendido, 0);
 
+  // os itens vendidos no período são lidos UMA vez e servem aos quatro quadros
+  // de dimensão e à curva ABC (cinco varreduras da mesma tabela antes)
+  const itensDoPeriodo = itensVendidosNoPeriodo(c, period);
   const [now, before, funil, canais, vendedores, campanhas, produtos, categorias, cores, tamanhos, mapas, recuperacao, avisos, abc, company, team] =
     await Promise.all([
       overview(c, period), overview(c, prev), funnel(c, period),
       channelRanking(c, period), sellerRanking(c, period), campaignRanking(c, period),
-      productStats(c, period), categoryStats(c, period), colorStats(c, period), sizeStats(c, period),
-      heatmaps(c, period), recovery(c, period), alerts(c), curvaAbcStats(c, period, baseAbc),
+      productStats(c, period, itensDoPeriodo), categoryStats(c, period, itensDoPeriodo), colorStats(c, period, itensDoPeriodo), sizeStats(c, period, itensDoPeriodo),
+      heatmaps(c, period), recovery(c, period), alerts(c), curvaAbcStats(c, period, baseAbc, itensDoPeriodo),
       db.company.findUnique({ where: { id: c } }),
       db.user.findMany({ where: { companyId: c, active: true, role: { not: "SUPERADMIN" } }, select: { id: true, name: true } }),
     ]);
@@ -307,7 +311,7 @@ export default async function IntelligencePage({
             {PERIODS.map((p) => (
               <Link
                 key={p.d}
-                href={`/inteligencia?dias=${p.d}`}
+                href={`/inteligencia?dias=${p.d}${estadoAbc}`}
                 className={`px-3 py-2 rounded-xl text-xs font-medium transition ${
                   days === p.d
                     ? "bg-brand-600 text-white"
@@ -326,6 +330,10 @@ export default async function IntelligencePage({
           faz de verdade: "quanto vendi na Black Friday?", "como fechou o mês
           passado?". Aqui ela escolhe o começo e o fim. */}
       <form method="GET" className="flex flex-wrap items-end gap-2 mb-5">
+        {/* a base da curva ABC e o "ver todas" são preferência de leitura, não
+            filtro: trocar o período não pode devolver a curva ao padrão */}
+        <input type="hidden" name="abc" value={baseAbc} />
+        {verTodaAbc && <input type="hidden" name="abcTudo" value="1" />}
         <div>
           <label className="block text-[11px] font-semibold text-gray-500 mb-1">De</label>
           <input
@@ -353,7 +361,7 @@ export default async function IntelligencePage({
               Período: {periodoPorExtenso(filtro)}
             </span>
             <Link
-              href="/inteligencia?dias=30"
+              href={`/inteligencia?dias=30${estadoAbc}`}
               className="text-xs font-medium text-gray-400 hover:text-gray-600 px-2 py-2.5"
             >
               Limpar
@@ -403,7 +411,7 @@ export default async function IntelligencePage({
             estão em aberto AGORA" — no período antigo quase todas já foram
             recuperadas ou perdidas, então comparar os dois sempre "subia" e
             punia justamente a loja que trabalha a esteira */}
-        <Kpi label="Carrinhos abandonados" value={String(now.abandonedCarts)} hint={`${brl(now.abandonedValue)} parados`} icon={<AlertTriangle />} info="Sacolas abandonadas ainda em aberto no período — a MESMA conta da tela Recuperação (inclui os checkouts da Nuvemshop). Quem pediu depois (por qualquer canal) ou foi marcada como perdida sai sozinha. 'Parados' = valor somado dessas sacolas." href={`/inteligencia?${paramsDoPeriodo(filtro)}&recuperacao=tudo#recuperar`} />
+        <Kpi label="Carrinhos abandonados" value={String(now.abandonedCarts)} hint={`${brl(now.abandonedValue)} parados`} icon={<AlertTriangle />} info="Sacolas abandonadas ainda em aberto no período — a MESMA conta da tela Recuperação (inclui os checkouts da Nuvemshop). Quem pediu depois (por qualquer canal) ou foi marcada como perdida sai sozinha. 'Parados' = valor somado dessas sacolas." href={`/inteligencia?${paramsDoPeriodo(filtro)}${estadoAbc}&recuperacao=tudo#recuperar`} />
         <Kpi label="Tempo de sessão total" value={`${Math.round(now.totalSessionSeconds / 60)} min`} hint="navegação somada" info="Soma REAL do tempo de navegação de todas as sessões no período." />
         <Kpi label="Identificados" value={String(now.identifiedCustomers)} hint="visitas com nome" info="Visitantes ligados a um cliente da base — pelo telefone informado OU por já terem chegado pelo link rastreado da cliente (?c=). Inclui quem já era cliente antes de visitar." />
       </div>
@@ -548,7 +556,7 @@ export default async function IntelligencePage({
               <InfoTip text={`Cada linha é uma peça exata (produto, cor e tamanho), das que mais vendem para as que menos vendem, no período escolhido. Classe A: as peças que, juntas, fazem ${CORTE_A}% ${baseAbc === "unidades" ? "das unidades vendidas" : "do faturamento"}. B: as que completam ${CORTE_B}%. C: o resto. Só pedido pago conta.`} />
             </h2>
             <p className="text-xs text-gray-500 mt-0.5">
-              {abc.totalUnidades.toLocaleString("pt-BR")} peças vendidas em {abc.linhas.length} variações · {periodoPorExtenso(filtro)}
+              {abc.totalUnidades.toLocaleString("pt-BR")} unidades vendidas em {abc.linhas.length} variaç{abc.linhas.length === 1 ? "ão" : "ões"} (peça exata) · {periodoPorExtenso(filtro)}
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -572,14 +580,14 @@ export default async function IntelligencePage({
           <EmptyState title="Nenhuma peça vendida no período" hint="A curva conta só pedidos pagos, pela data do pagamento." />
         ) : (
           <>
-            <div className="grid grid-cols-3 gap-2 mb-4">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mb-4">
               {(["A", "B", "C"] as const).map((cl) => {
                 const r = abc.resumo[cl];
                 return (
                   <div key={cl} className="rounded-xl border border-gray-100 px-3 py-2.5">
                     <div className="flex items-center gap-2">
                       <Badge color={COR_CLASSE[cl]}>Classe {cl}</Badge>
-                      <span className="text-xs text-gray-500">{r.itens} peça{r.itens === 1 ? "" : "s"} ({r.parteItens.toFixed(0)}%)</span>
+                      <span className="text-xs text-gray-500">{r.itens} variaç{r.itens === 1 ? "ão" : "ões"} ({r.parteItens.toFixed(0)}%)</span>
                     </div>
                     <div className="mt-1 text-sm font-semibold tabular-nums">
                       {r.unidades.toLocaleString("pt-BR")} un. <span className="text-gray-400 font-normal">· {brl(r.faturamento)}</span>
@@ -603,7 +611,7 @@ export default async function IntelligencePage({
             {abc.linhas.length > TETO_ABC && (
               <div className="mt-3 text-center">
                 <Link href={linkAbc(`abc=${baseAbc}${verTodaAbc ? "" : "&abcTudo=1"}`)} className="text-xs font-medium text-brand-600 hover:underline">
-                  {verTodaAbc ? `Mostrar só as ${TETO_ABC} primeiras` : `Ver todas as ${abc.linhas.length} peças`}
+                  {verTodaAbc ? `Mostrar só as ${TETO_ABC} primeiras` : `Ver todas as ${abc.linhas.length} variações`}
                 </Link>
               </div>
             )}

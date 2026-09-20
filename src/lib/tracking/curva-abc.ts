@@ -24,6 +24,8 @@ export type ClasseAbc = "A" | "B" | "C";
 
 export type ItemVendido = {
   variantId: string | null;
+  /** o produto de que a variação faz parte (fica mesmo quando a variação é apagada — SetNull só nela) */
+  productId: string | null;
   /** nome do produto, cor e tamanho DA ÉPOCA (congelados no item do pedido) */
   nome: string;
   cor: string | null;
@@ -31,8 +33,12 @@ export type ItemVendido = {
   quantidade: number;
   /** o que o item vendeu de verdade (fatia do netTotal, RN-002) */
   valorVendido: number;
-  /** o cadastro de HOJE da variação, quando ela ainda existe: manda no rótulo */
-  atual?: { produto: string; cor: string; tamanho: string };
+  /**
+   * O cadastro de HOJE, no que ainda existe: o nome do PRODUTO (quando ele
+   * ainda existe) e a cor/tamanho da VARIAÇÃO (quando ela ainda existe).
+   * O que existe manda no rótulo; o que sumiu cai no congelado do item.
+   */
+  atual?: { produto?: string; cor?: string; tamanho?: string };
 };
 
 export type LinhaAbc = {
@@ -73,9 +79,17 @@ function classeDo(acumuladoAntes: number): ClasseAbc {
 }
 
 /**
- * Agrupa por PEÇA (a variação, quando o item ainda aponta para uma; senão o
- * nome × cor × tamanho da época, normalizados — dois "Preto " com espaço não
- * viram duas linhas), soma unidades e faturamento, ordena e classifica.
+ * Agrupa por PEÇA, soma unidades e faturamento, ordena e classifica.
+ *
+ * A chave da peça é PRODUTO × cor × tamanho — o produto pelo id (renomear
+ * não divide a linha), cor e tamanho pelo cadastro de hoje quando a variação
+ * ainda existe e pelo congelado do item quando não. Agrupar pela VARIAÇÃO
+ * (id) foi a primeira versão e a revisão achou o buraco: a variação apagada e
+ * recriada com a mesma cor e tamanho (a lojista refaz a grade) deixava os
+ * itens antigos sem `variantId` (SetNull) e a MESMA peça virava duas linhas
+ * — uma com o nome de hoje, outra com o congelado. Pelo produto, as duas são
+ * uma. Sem produto (apagado do cadastro) vale o nome × cor × tamanho da
+ * época, normalizados — dois "Preto " com espaço não viram duas linhas.
  */
 export function montarCurvaAbc(
   itens: ItemVendido[],
@@ -89,7 +103,12 @@ export function montarCurvaAbc(
     const produto = chaveDoNome(atual?.produto ?? it.nome) || "Sem nome";
     const cor = chaveDoNome(atual?.cor ?? it.cor ?? "") || "Sem cor";
     const tamanho = chaveDoNome(atual?.tamanho ?? it.tamanho ?? "") || "Sem tamanho";
-    const chave = it.variantId ? `v:${it.variantId}` : `n:${[produto, cor, tamanho].join("|").toLowerCase()}`;
+    const grade = `${cor}|${tamanho}`.toLowerCase();
+    const chave = it.productId
+      ? `p:${it.productId}|${grade}`
+      : it.variantId
+        ? `v:${it.variantId}`
+        : `n:${produto.toLowerCase()}|${grade}`;
     const linha = grupos.get(chave) ?? {
       chave,
       produto,
@@ -115,6 +134,11 @@ export function montarCurvaAbc(
   const outra = (l: LinhaAbc) => (base === "unidades" ? l.faturamento : l.unidades);
   linhas.sort((a, b) => medida(b) - medida(a) || outra(b) - outra(a) || a.rotulo.localeCompare(b.rotulo, "pt-BR"));
   const totalBase = base === "unidades" ? totalUnidades : totalFaturamento;
+  const resumo: ResumoAbc = {
+    A: { itens: 0, unidades: 0, faturamento: 0, parteItens: 0, parteBase: 0 },
+    B: { itens: 0, unidades: 0, faturamento: 0, parteItens: 0, parteBase: 0 },
+    C: { itens: 0, unidades: 0, faturamento: 0, parteItens: 0, parteBase: 0 },
+  };
   let acumulado = 0;
   for (const l of linhas) {
     const parte = totalBase > 0 ? (medida(l) / totalBase) * 100 : 0;
@@ -125,22 +149,30 @@ export function montarCurvaAbc(
     l.parte = r2(parte);
     // o teto em 100 só apara o fio do ponto flutuante no fim da lista
     l.acumulado = r2(Math.min(100, acumulado));
-    l.faturamento = r2(l.faturamento);
-  }
-  const resumo: ResumoAbc = {
-    A: { itens: 0, unidades: 0, faturamento: 0, parteItens: 0, parteBase: 0 },
-    B: { itens: 0, unidades: 0, faturamento: 0, parteItens: 0, parteBase: 0 },
-    C: { itens: 0, unidades: 0, faturamento: 0, parteItens: 0, parteBase: 0 },
-  };
-  for (const l of linhas) {
+    // o resumo soma o valor CRU da linha (antes do arredondamento): somar as
+    // linhas já arredondadas fazia A + B + C divergir do total por centavos
+    // (achado da revisão)
     const r = resumo[l.classe];
     r.itens += 1;
     r.unidades += l.unidades;
-    r.faturamento = r2(r.faturamento + l.faturamento);
+    r.faturamento += l.faturamento;
+    l.faturamento = r2(l.faturamento);
   }
+  // arredonda cada classe uma vez e a ÚLTIMA classe com peça leva a sobra do
+  // centavo (a régua da RN-030: 33,33 + 33,33 + 33,34) — A + B + C fecha
+  // EXATAMENTE com o total, que é o número que a tela mostra ao lado
+  let somaClasses = 0;
+  let ultimaComPeca: ClasseAbc | null = null;
   for (const c of ["A", "B", "C"] as const) {
     const r = resumo[c];
+    r.faturamento = r2(r.faturamento);
+    somaClasses = r2(somaClasses + r.faturamento);
+    if (r.itens > 0) ultimaComPeca = c;
     r.parteItens = linhas.length > 0 ? r2((r.itens / linhas.length) * 100) : 0;
+  }
+  if (ultimaComPeca) resumo[ultimaComPeca].faturamento = r2(resumo[ultimaComPeca].faturamento + (totalFaturamento - somaClasses));
+  for (const c of ["A", "B", "C"] as const) {
+    const r = resumo[c];
     const daBase = base === "unidades" ? r.unidades : r.faturamento;
     r.parteBase = totalBase > 0 ? r2((daBase / totalBase) * 100) : 0;
   }

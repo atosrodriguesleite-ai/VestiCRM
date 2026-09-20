@@ -745,20 +745,45 @@ export function valorVendidoDoItem(
   return (itemTotal * orderNetTotal) / orderSubtotal;
 }
 
-async function dimensionStats(companyId: string, p: Period, dim: Dim) {
-  const events = await loadEvents(companyId, p);
-  const itensCrus = await db.orderItem.findMany({
+/**
+ * OS ITENS VENDIDOS NO PERÍODO — a leitura que os quadros de produto,
+ * categoria, cor, tamanho e a curva ABC (RN-061) compartilham: só VENDA DE
+ * VERDADE (pedido pago, RN-001, pela data do pagamento), com o valor de cada
+ * item já rateado pelo netTotal do pedido (RN-002). A tela carrega os cinco
+ * quadros de uma vez e cada um lia a tabela inteira por conta própria — cinco
+ * varreduras dos mesmos itens (achado da revisão). Quem chama os cinco lê
+ * UMA vez e passa a promessa; chamado sozinho, cada quadro lê a sua.
+ */
+export type ItensDoPeriodo = Awaited<ReturnType<typeof itensVendidosNoPeriodo>>;
+export async function itensVendidosNoPeriodo(companyId: string, p: Period) {
+  const itens = await db.orderItem.findMany({
     where: {
       // conta só VENDA DE VERDADE (paga): fora orçamento, aguardando e cancelado
       order: { companyId, paidAt: { gte: p.from, lte: p.to }, status: { in: PAID_ORDER_STATUSES } },
     },
-    include: { order: { select: { subtotal: true, netTotal: true } } },
+    // frete-ok: o `total` puxado é do ITEM (preço × quantidade da linha, sem
+    // frete) e vira a fatia do netTotal logo abaixo — régua da RN-002
+    select: {
+      productId: true,
+      variantId: true,
+      name: true,
+      color: true,
+      size: true,
+      quantity: true,
+      total: true,
+      order: { select: { subtotal: true, netTotal: true } },
+    },
     orderBy: { id: "asc" }, // mesma razão da ordem estável dos eventos
   });
-  const orderItems = itensCrus.map((item) => ({
+  return itens.map((item) => ({
     ...item,
+    // frete-ok: total do item rateado pelo netTotal do pedido (RN-002)
     total: valorVendidoDoItem(item.total, item.order.subtotal, item.order.netTotal),
   }));
+}
+
+async function dimensionStats(companyId: string, p: Period, dim: Dim, itens?: Promise<ItensDoPeriodo>) {
+  const [events, orderItems] = await Promise.all([loadEvents(companyId, p), itens ?? itensVendidosNoPeriodo(companyId, p)]);
   const precisaCadastro = dim === "productName" || dim === "category";
   const products =
     precisaCadastro && (events.length > 0 || orderItems.length > 0)
@@ -773,56 +798,52 @@ async function dimensionStats(companyId: string, p: Period, dim: Dim) {
 
 /**
  * CURVA ABC POR PEÇA (RN-061): os itens vendidos no período — a MESMA
- * régua dos quadros de cor/categoria (pedido pago, RN-001, pela data do
- * pagamento; valor = fatia do netTotal, RN-002) — agrupados pela variação
- * exata, com o cadastro de hoje mandando no rótulo.
+ * leitura dos quadros de cor/categoria (pedido pago, RN-001, pela data do
+ * pagamento; valor = fatia do netTotal, RN-002) — agrupados pela peça exata
+ * (produto × cor × tamanho), com o cadastro de hoje mandando no rótulo.
  */
-export async function curvaAbcStats(companyId: string, p: Period, base: BaseAbc = "unidades") {
-  const itens = await db.orderItem.findMany({
-    where: { order: { companyId, paidAt: { gte: p.from, lte: p.to }, status: { in: PAID_ORDER_STATUSES } } },
-    // frete-ok: o `total` puxado é do ITEM (preço × quantidade da linha, sem
-    // frete) e vira a fatia do netTotal em valorVendidoDoItem — régua da RN-002
-    select: {
-      variantId: true,
-      name: true,
-      color: true,
-      size: true,
-      quantity: true,
-      total: true,
-      order: { select: { subtotal: true, netTotal: true } },
-    },
-    orderBy: { id: "asc" },
-  });
-  // o cadastro de HOJE das variações vendidas: uma ida ao banco pelos ids
-  // distintos (embutir produto e cor em cada um dos milhares de itens
-  // repetia o mesmo cadastro milhares de vezes)
-  const ids = [...new Set(itens.map((i) => i.variantId).filter((v): v is string => !!v))];
-  const variacoes = ids.length
-    ? await db.productVariant.findMany({
-        where: { id: { in: ids }, product: { companyId } },
-        select: { id: true, color: true, size: true, product: { select: { name: true } } },
-      })
-    : [];
-  const atual = new Map(variacoes.map((v) => [v.id, { produto: v.product.name, cor: v.color, tamanho: v.size }]));
+export async function curvaAbcStats(companyId: string, p: Period, base: BaseAbc = "unidades", preCarregados?: Promise<ItensDoPeriodo>) {
+  const itens = await (preCarregados ?? itensVendidosNoPeriodo(companyId, p));
+  // o cadastro de HOJE: produtos e variações vendidos, uma ida ao banco cada,
+  // pelos ids distintos (embutir produto e cor em cada um dos milhares de
+  // itens repetia o mesmo cadastro milhares de vezes). O produto vai à parte
+  // da variação porque a variação apagada e recriada (SetNull no item) deixa
+  // o item SEM variação e COM produto — e é o produto que mantém a peça numa
+  // linha só (achado da revisão). Recorte por loja nas duas (RN-013).
+  const distintos = (xs: (string | null)[]) => [...new Set(xs.filter((v): v is string => !!v))];
+  const idsProduto = distintos(itens.map((i) => i.productId));
+  const idsVariacao = distintos(itens.map((i) => i.variantId));
+  const [produtos, variacoes] = await Promise.all([
+    idsProduto.length ? db.product.findMany({ where: { id: { in: idsProduto }, companyId }, select: { id: true, name: true } }) : [],
+    idsVariacao.length
+      ? db.productVariant.findMany({ where: { id: { in: idsVariacao }, product: { companyId } }, select: { id: true, color: true, size: true } })
+      : [],
+  ]);
+  const nomeAtual = new Map(produtos.map((p) => [p.id, p.name]));
+  const gradeAtual = new Map(variacoes.map((v) => [v.id, { cor: v.color, tamanho: v.size }]));
   return montarCurvaAbc(
-    itens.map((it) => ({
-      variantId: it.variantId,
-      nome: it.name,
-      cor: it.color,
-      tamanho: it.size,
-      quantidade: it.quantity,
-      // frete-ok: total do item rateado pelo netTotal do pedido (RN-002)
-      valorVendido: valorVendidoDoItem(it.total, it.order.subtotal, it.order.netTotal),
-      atual: it.variantId ? atual.get(it.variantId) : undefined,
-    })),
+    itens.map((it) => {
+      const produto = it.productId ? nomeAtual.get(it.productId) : undefined;
+      const grade = it.variantId ? gradeAtual.get(it.variantId) : undefined;
+      return {
+        variantId: it.variantId,
+        productId: it.productId,
+        nome: it.name,
+        cor: it.color,
+        tamanho: it.size,
+        quantidade: it.quantity,
+        valorVendido: it.total, // já é a fatia do netTotal (itensVendidosNoPeriodo)
+        atual: produto !== undefined || grade ? { produto, ...grade } : undefined,
+      };
+    }),
     base
   );
 }
 
-export const productStats = (c: string, p: Period) => dimensionStats(c, p, "productName");
-export const categoryStats = (c: string, p: Period) => dimensionStats(c, p, "category");
-export const colorStats = (c: string, p: Period) => dimensionStats(c, p, "color");
-export const sizeStats = (c: string, p: Period) => dimensionStats(c, p, "size");
+export const productStats = (c: string, p: Period, itens?: Promise<ItensDoPeriodo>) => dimensionStats(c, p, "productName", itens);
+export const categoryStats = (c: string, p: Period, itens?: Promise<ItensDoPeriodo>) => dimensionStats(c, p, "category", itens);
+export const colorStats = (c: string, p: Period, itens?: Promise<ItensDoPeriodo>) => dimensionStats(c, p, "color", itens);
+export const sizeStats = (c: string, p: Period, itens?: Promise<ItensDoPeriodo>) => dimensionStats(c, p, "size", itens);
 
 // ---- Heatmaps (dia da semana × hora) -----------------------------------------
 
