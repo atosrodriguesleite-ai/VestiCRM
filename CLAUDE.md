@@ -573,6 +573,31 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   digitado à mão morre junto com a peça que sai (senão o campo mostrava R$
   30 e o pedido nascia com o sugerido), e o total fica **sempre no rodapé**,
   junto do passo seguinte.
+  **A MESMA grade vale no montador da Central de WhatsApp** (21/09/2026): lá
+  o seletor pedia cor, tamanho e quantidade um por um, com o mesmo custo de
+  nove idas para a grade de um modelo. O que muda entre as duas telas é UMA
+  decisão, e ela é de dinheiro: na tela Pedidos o preço é DIGITADO, então a
+  linha que já existe **preserva** o dela; na Central o preço não é editável
+  e segue a escada do atacado (`unitPriceFor` vira atacado a partir do
+  mínimo do modelo), então a linha que cresce **recalcula** —
+  `precoDasExistentes` diz qual das duas, e "recalcular" é exatamente o que o
+  seletor antigo fazia ao somar peças numa variação já no carrinho. Nada
+  mais de dinheiro mudou ali: o preço continua saindo de `unitPriceFor` com
+  a quantidade **da própria linha** (o mínimo por modelo da RN-018 é outra
+  régua, do catálogo, e não foi trazida para cá). A foto saiu da linha do
+  carrinho e virou cache por PEÇA — junto com o cadastro dela, que é de onde
+  sai a régua do preço —, e a vitrine de fotos ganhou o selo **"N no
+  pedido"** e o código embaixo do nome. Três correções de dinheiro da
+  revisão fecham a adoção: (1) o **cabeçalho da grade** dizia o preço do
+  TOTAL somado — grade 2+2+2 com mínimo 6 anunciava "R$ 30 · atacado" e o
+  pedido nascia a R$ 40, porque a escada é da LINHA; agora ele diz o que as
+  células cobram, e **faixa** quando elas divergem (`precoDoCabecalho`);
+  (2) o **"−" do carrinho** zerava a linha cuja peça tinha esgotado no meio
+  (o teto do estoque estava sendo aplicado também na descida) e a peça sumia
+  do pedido sem aviso — o teto agora só vale para SUBIR; (3) o **+/− passou
+  a recalcular a escada**, que ele ignorava desde sempre: descer de 6 para 5
+  numa peça com mínimo 6 deixava as cinco no preço de atacado e o pedido
+  fechava mais barato do que a regra da loja.
 
 ## Módulos
 

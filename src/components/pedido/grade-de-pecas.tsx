@@ -24,6 +24,7 @@ import { brl } from "@/lib/format";
 import {
   chaveDaCelula,
   montarGrade,
+  precoDoCabecalho,
   quantidadeDigitada,
   repetirNaLinha as repetirNaLinhaDaGrade,
   resumoDaGrade,
@@ -98,7 +99,9 @@ export function GradeDePecas({
       return s + (v ? quantidades.get(v.id) ?? 0 : 0);
     }, 0);
 
-  const precoDaVitrine = precoUnitario(Math.max(1, resumo.pecas));
+  // o preço é POR CÉLULA onde ele depende da quantidade: o cabeçalho diz o
+  // que as células cobram (ou a faixa), nunca o preço do total somado
+  const vitrine = useMemo(() => precoDoCabecalho(quantidades, precoUnitario), [quantidades, precoUnitario]);
 
   return (
     <div className="absolute inset-0 z-20 flex items-end md:items-center justify-center">
@@ -115,7 +118,7 @@ export function GradeDePecas({
             <p className="font-semibold text-sm leading-tight">{produto.name}</p>
             <p className="text-xs text-gray-400 mt-0.5">{produto.sku}</p>
             <p className="text-sm font-semibold text-brand-700 mt-1 tabular-nums">
-              {brl(precoDaVitrine)}
+              {vitrine.min === vitrine.max ? brl(vitrine.min) : `${brl(vitrine.min)} a ${brl(vitrine.max)}`}
               {(produto.minQuantity ?? 1) > 1 && (produto.wholesalePrice ?? 0) > 0 && (
                 <span className="text-[10px] text-gray-400 font-normal"> · atacado a partir de {produto.minQuantity} un.</span>
               )}

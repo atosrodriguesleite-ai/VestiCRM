@@ -7,6 +7,7 @@ import {
   montarGrade,
   pecasAcimaDoEstoque,
   pecasNoPedido,
+  precoDoCabecalho,
   quantidadeDigitada,
   quantidadesNoPedido,
   repetirNaLinha,
@@ -117,6 +118,17 @@ describe("RN-062: aplicar a grade no pedido", () => {
     ]);
   });
 
+  it("onde o preço NÃO é editável (Central), a linha que cresce recalcula pela escada do atacado", () => {
+    // unitPriceFor de verdade: vira atacado a partir do mínimo do modelo
+    const escada = (q: number) => (q >= 5 ? 30 : 40);
+    const antes = [linha({ variantId: "v1", quantity: 2, unitPrice: 40 })];
+    const depois = aplicarGradeNoPedido(antes, produto, variantes, new Map([["v1", 6]]), escada, "recalcular");
+    expect(depois.map((l) => [l.quantity, l.unitPrice])).toEqual([[6, 30]]);
+    // e o padrão continua sendo PRESERVAR: na tela de Pedidos o preço é digitado
+    const preservado = aplicarGradeNoPedido(antes, produto, variantes, new Map([["v1", 6]]), escada);
+    expect(preservado.map((l) => [l.quantity, l.unitPrice])).toEqual([[6, 40]]);
+  });
+
   it("célula zerada SAI do pedido e as outras peças ficam intocadas, na mesma ordem", () => {
     const antes = [
       linha({ productId: "p0", variantId: "a", name: "Antes" }),
@@ -196,6 +208,30 @@ describe("RN-062: o resumo do que está preenchido", () => {
 
   it("grade vazia é zero em tudo (o botão de adicionar fica desligado)", () => {
     expect(resumoDaGrade(new Map(), () => 34)).toEqual({ pecas: 0, variacoes: 0, valor: 0 });
+  });
+});
+
+describe("RN-062: o cabeçalho da grade não promete preço que as células não cobram", () => {
+  // escada de atacado de verdade: a partir de 6 peças NA LINHA sai a 30
+  const escada = (q: number) => (q >= 6 ? 30 : 40);
+
+  it("grade vazia mostra o preço de UMA peça (o 'a partir de')", () => {
+    expect(precoDoCabecalho(new Map(), escada)).toEqual({ min: 40, max: 40 });
+  });
+
+  it("2+2+2 com mínimo 6 é VAREJO nas três linhas — somar seis peças não vira atacado", () => {
+    const q = new Map([["a", 2], ["b", 2], ["c", 2]]);
+    expect(precoDoCabecalho(q, escada)).toEqual({ min: 40, max: 40 });
+    // e o total bate com o que as células cobram
+    expect(resumoDaGrade(q, escada)).toMatchObject({ pecas: 6, valor: 240 });
+  });
+
+  it("células com preços diferentes viram FAIXA, nunca um número só", () => {
+    expect(precoDoCabecalho(new Map([["a", 8], ["b", 2]]), escada)).toEqual({ min: 30, max: 40 });
+  });
+
+  it("onde o preço não depende da quantidade (tela Pedidos), é sempre o mesmo número", () => {
+    expect(precoDoCabecalho(new Map([["a", 1], ["b", 90]]), () => 34)).toEqual({ min: 34, max: 34 });
   });
 });
 

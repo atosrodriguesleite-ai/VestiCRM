@@ -108,6 +108,34 @@ export function pecasNoPedido(linhas: readonly LinhaDoPedido[], productId: strin
 export type ResumoDaGrade = { pecas: number; valor: number; variacoes: number };
 
 /**
+ * O preço que o CABEÇALHO da grade pode afirmar.
+ *
+ * Onde o preço depende da quantidade (`unitPriceFor` da Central vira atacado
+ * a partir do mínimo do modelo), cada célula tem o SEU: uma grade de 2+2+2
+ * com mínimo 6 sai a varejo nas três linhas, mesmo somando seis peças.
+ * Anunciar no topo o preço do TOTAL dizia "R$ 30 · atacado" com o pedido
+ * nascendo a R$ 40 — mentira sobre dinheiro (achado da revisão). Então: sem
+ * nada preenchido vale o preço de UMA peça (o "a partir de"); preenchido,
+ * vale o que as células de fato cobram — e quando elas divergem, a faixa,
+ * nunca um número só.
+ */
+export function precoDoCabecalho(
+  quantidades: ReadonlyMap<string, number>,
+  precoUnitario: (quantidadeDaCelula: number) => number
+): { min: number; max: number } {
+  const precos: number[] = [];
+  for (const [, qtd] of quantidades) {
+    const q = Math.max(0, Math.floor(qtd));
+    if (q > 0) precos.push(precoUnitario(q));
+  }
+  if (precos.length === 0) {
+    const base = precoUnitario(1);
+    return { min: base, max: base };
+  }
+  return { min: Math.min(...precos), max: Math.max(...precos) };
+}
+
+/**
  * Quantas peças e quanto dá o que está preenchido na grade. O preço vem de
  * QUEM CHAMA (`precoUnitario`), com a quantidade DAQUELA célula — é a mesma
  * conta que o montador antigo fazia ao adicionar uma variação com N peças,
@@ -147,13 +175,23 @@ export function resumoDaGrade(
  *    ida à grade e a lojista perdia o lugar ao conferir.
  *
  * Célula zerada SAI do pedido (é como se remove pela grade).
+ *
+ * A decisão 2 vale para a tela em que a lojista DIGITA preço (a tela
+ * Pedidos). Onde o preço não é editável e sobe/desce com a quantidade — o
+ * montador da Central de WhatsApp, cujo `unitPriceFor` vira atacado a partir
+ * do mínimo do modelo — preservar seria congelar o varejo numa linha que
+ * cresceu: ali quem chama pede `"recalcular"`, que é exatamente o que o
+ * montador antigo fazia ao somar peças numa variação já no carrinho.
  */
+export type PrecoDasLinhasExistentes = "preservar" | "recalcular";
+
 export function aplicarGradeNoPedido(
   linhas: readonly LinhaDoPedido[],
   produto: { id: string; name: string },
   variantes: readonly VariacaoDaGrade[],
   quantidades: ReadonlyMap<string, number>,
-  precoSugerido: (quantidadeDaCelula: number) => number
+  precoSugerido: (quantidadeDaCelula: number) => number,
+  precoDasExistentes: PrecoDasLinhasExistentes = "preservar"
 ): LinhaDoPedido[] {
   const porId = new Map(variantes.map((v) => [v.id, v]));
   const usados = new Set<string>();
@@ -171,6 +209,7 @@ export function aplicarGradeNoPedido(
     resultado.push({
       ...linha,
       quantity: q,
+      unitPrice: precoDasExistentes === "recalcular" ? precoSugerido(q) : linha.unitPrice,
       // o estoque acompanha a leitura mais nova (a grade acabou de vir do servidor)
       stock: v ? v.stock : linha.stock,
     });

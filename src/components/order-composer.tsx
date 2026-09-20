@@ -15,6 +15,13 @@ import {
 } from "lucide-react";
 import { brl, numeroBR } from "@/lib/format";
 import { computeOrderTotals, unitPriceFor } from "@/lib/orders";
+import {
+  aplicarGradeNoPedido,
+  pecasNoPedido,
+  quantidadesNoPedido,
+  type LinhaDoPedido,
+} from "@/lib/pedido-grade";
+import { GradeDePecas } from "@/components/pedido/grade-de-pecas";
 
 type ApiProduct = {
   id: string;
@@ -28,17 +35,12 @@ type ApiProduct = {
   variants: { id: string; color: string; size: string; stock: number }[];
 };
 
-export type CartLine = {
-  productId: string;
-  variantId: string;
-  name: string;
-  imageUrl: string | null;
-  color: string;
-  size: string;
-  quantity: number;
-  unitPrice: number;
-  maxStock: number;
-};
+/**
+ * A linha do carrinho é a MESMA do montador da tela Pedidos (RN-062). A foto
+ * não mora nela: ela é do PRODUTO, e fica no cache `fotos` — assim a grade
+ * pode montar linhas novas sem saber de imagem.
+ */
+export type CartLine = LinhaDoPedido;
 
 /**
  * Fluxo "pedido em menos de 60s": busca → variação → carrinho → finalizar,
@@ -65,6 +67,12 @@ export function OrderComposer({
   const [loading, setLoading] = useState(true);
   const [picking, setPicking] = useState<ApiProduct | null>(null);
   const [cart, setCart] = useState<CartLine[]>([]);
+  /**
+   * O cadastro das peças que entraram no carrinho. A linha guarda só o que é
+   * dela; foto e a régua de preço (`unitPriceFor` precisa de varejo, atacado
+   * e mínimo) vêm daqui.
+   */
+  const [usadas, setUsadas] = useState<Record<string, ApiProduct>>({});
   const [discount, setDiscount] = useState("");
   const [surcharge, setSurcharge] = useState("");
   const [shipping, setShipping] = useState("");
@@ -104,59 +112,55 @@ export function OrderComposer({
   );
   const itemCount = cart.reduce((s, c) => s + c.quantity, 0);
 
-  function addLine(product: ApiProduct, variantId: string, quantity: number) {
-    const variant = product.variants.find((v) => v.id === variantId);
-    if (!variant) return;
-    const unitPrice = unitPriceFor(product, quantity, wholesaleCustomer);
-    setCart((prev) => {
-      const existing = prev.find((l) => l.variantId === variantId);
-      if (existing) {
-        return prev.map((l) =>
-          l.variantId === variantId
-            ? {
-                ...l,
-                quantity: Math.min(l.quantity + quantity, l.maxStock),
-                unitPrice: unitPriceFor(
-                  product,
-                  l.quantity + quantity,
-                  wholesaleCustomer
-                ),
-              }
-            : l
-        );
-      }
-      return [
-        ...prev,
-        {
-          productId: product.id,
-          variantId,
-          name: product.name,
-          imageUrl: product.images[0]?.url ?? null,
-          color: variant.color,
-          size: variant.size,
-          quantity,
-          unitPrice,
-          maxStock: variant.stock,
-        },
-      ];
-    });
+  /**
+   * A grade fechou: o carrinho passa a ser o que ela mostrava daquela peça
+   * (RN-062). O PREÇO segue a régua desta tela — `unitPriceFor` com a
+   * quantidade da própria linha, que vira atacado a partir do mínimo do
+   * modelo —, então a linha que cresce recalcula, igualzinho ao que o
+   * seletor antigo fazia ao somar peças numa variação já no carrinho.
+   */
+  function aplicarGrade(product: ApiProduct, quantidades: Map<string, number>) {
+    setCart((prev) =>
+      aplicarGradeNoPedido(
+        prev,
+        product,
+        product.variants,
+        quantidades,
+        (q) => unitPriceFor(product, q, wholesaleCustomer),
+        "recalcular"
+      )
+    );
+    setUsadas((prev) => ({ ...prev, [product.id]: product }));
     setPicking(null);
   }
 
+  /**
+   * O +/− do carrinho segue a MESMA régua da grade (RN-062).
+   *
+   * Duas correções da revisão moram aqui: (1) o teto do estoque só vale para
+   * SUBIR — descendo, uma linha cuja peça esgotou no meio (a loja online
+   * vendeu) era zerada e SUMIA do pedido com um toque no "−"; (2) o preço
+   * acompanha a quantidade, como `unitPriceFor` manda: descer de 6 para 5
+   * numa peça com mínimo 6 deixava as 5 no preço de atacado e o pedido saía
+   * mais barato do que a regra da loja diz.
+   */
   function changeQty(variantId: string, delta: number) {
     setCart((prev) =>
       prev
-        .map((l) =>
-          l.variantId === variantId
-            ? {
-                ...l,
-                quantity: Math.max(
-                  0,
-                  Math.min(l.quantity + delta, l.maxStock)
-                ),
-              }
-            : l
-        )
+        .map((l) => {
+          if (l.variantId !== variantId) return l;
+          const alvo = delta > 0 ? Math.min(l.quantity + delta, l.stock) : l.quantity + delta;
+          const quantity = Math.max(0, alvo);
+          const produto = usadas[l.productId];
+          return {
+            ...l,
+            quantity,
+            unitPrice:
+              produto && quantity > 0
+                ? unitPriceFor(produto, quantity, wholesaleCustomer)
+                : l.unitPrice,
+          };
+        })
         .filter((l) => l.quantity > 0)
     );
   }
@@ -220,9 +224,9 @@ export function OrderComposer({
             key={l.variantId}
             className="flex gap-2.5 items-center bg-gray-50 rounded-xl p-2"
           >
-            {l.imageUrl ? (
+            {usadas[l.productId]?.images[0]?.url ? (
               <img
-                src={l.imageUrl}
+                src={usadas[l.productId].images[0].url}
                 alt=""
                 className="size-11 rounded-lg object-cover shrink-0"
               />
@@ -246,7 +250,7 @@ export function OrderComposer({
                 </span>
                 <button
                   onClick={() => changeQty(l.variantId, 1)}
-                  disabled={l.quantity >= l.maxStock}
+                  disabled={l.quantity >= l.stock}
                   className="size-5 rounded-md bg-white border border-gray-200 flex items-center justify-center text-gray-500 hover:border-brand-300 disabled:opacity-40"
                 >
                   <Plus className="size-3" />
@@ -438,35 +442,50 @@ export function OrderComposer({
               </div>
             ) : (
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                {products.map((p) => (
-                  <button
-                    key={p.id}
-                    onClick={() => setPicking(p)}
-                    className="text-left rounded-xl border border-gray-100 hover:border-brand-300 hover:shadow-card transition overflow-hidden"
-                  >
-                    <div className="aspect-square bg-gray-50">
-                      {p.images[0] && (
-                        <img
-                          src={p.images[0].url}
-                          alt={p.name}
-                          className="w-full h-full object-cover"
-                        />
-                      )}
-                    </div>
-                    <div className="p-2">
-                      <p className="text-xs font-semibold leading-tight line-clamp-2">
-                        {p.name}
-                      </p>
-                      <p className="text-[11px] text-brand-700 font-semibold mt-1">
-                        {brl(
-                          wholesaleCustomer && p.wholesalePrice > 0
-                            ? p.wholesalePrice
-                            : p.retailPrice
+                {products.map((p) => {
+                  // quantas peças deste modelo já estão no carrinho: sem o
+                  // selo, a vendedora reabre a grade sem saber o que já pôs
+                  const noPedido = pecasNoPedido(cart, p.id);
+                  return (
+                    <button
+                      key={p.id}
+                      onClick={() => setPicking(p)}
+                      className={`text-left rounded-xl border transition overflow-hidden ${
+                        noPedido > 0
+                          ? "border-brand-300 bg-brand-50/40"
+                          : "border-gray-100 hover:border-brand-300 hover:shadow-card"
+                      }`}
+                    >
+                      <div className="aspect-square bg-gray-50 relative">
+                        {p.images[0] && (
+                          <img
+                            src={p.images[0].url}
+                            alt={p.name}
+                            className="w-full h-full object-cover"
+                          />
                         )}
-                      </p>
-                    </div>
-                  </button>
-                ))}
+                        {noPedido > 0 && (
+                          <span className="absolute top-1 right-1 rounded-full bg-brand-600 text-white text-[10px] font-bold px-1.5 py-0.5 tabular-nums shadow">
+                            {noPedido}
+                          </span>
+                        )}
+                      </div>
+                      <div className="p-2">
+                        <p className="text-xs font-semibold leading-tight line-clamp-2">
+                          {p.name}
+                        </p>
+                        <p className="text-[10px] text-gray-400 truncate">{p.sku}</p>
+                        <p className="text-[11px] text-brand-700 font-semibold mt-0.5">
+                          {brl(
+                            wholesaleCustomer && p.wholesalePrice > 0
+                              ? p.wholesalePrice
+                              : p.retailPrice
+                          )}
+                        </p>
+                      </div>
+                    </button>
+                  );
+                })}
               </div>
             )}
           </div>
@@ -491,150 +510,19 @@ export function OrderComposer({
           </div>
         )}
 
-        {/* seletor de variação */}
+        {/* grade de cor × tamanho (RN-062): o pedido inteiro daquele modelo
+            sai de uma tela só, em vez de uma variação por vez */}
         {picking && (
-          <VariantPicker
-            product={picking}
-            wholesaleCustomer={wholesaleCustomer}
-            onCancel={() => setPicking(null)}
-            onAdd={addLine}
+          <GradeDePecas
+            produto={picking}
+            quantidadesIniciais={quantidadesNoPedido(cart, picking.id)}
+            precoUnitario={(q) => unitPriceFor(picking, q, wholesaleCustomer)}
+            jaNoPedido={pecasNoPedido(cart, picking.id) > 0}
+            onCancelar={() => setPicking(null)}
+            onAplicar={(q) => aplicarGrade(picking, q)}
           />
         )}
       </div>
     </div></Portal>
-  );
-}
-
-function VariantPicker({
-  product,
-  wholesaleCustomer,
-  onCancel,
-  onAdd,
-}: {
-  product: ApiProduct;
-  wholesaleCustomer: boolean;
-  onCancel: () => void;
-  onAdd: (product: ApiProduct, variantId: string, quantity: number) => void;
-}) {
-  const colors = [...new Set(product.variants.map((v) => v.color))];
-  const [color, setColor] = useState(colors[0]);
-  const sizes = product.variants.filter((v) => v.color === color);
-  const [variantId, setVariantId] = useState(
-    sizes.find((v) => v.stock > 0)?.id ?? sizes[0]?.id
-  );
-  const [qty, setQty] = useState(1);
-
-  const variant = product.variants.find((v) => v.id === variantId);
-  const price = unitPriceFor(product, qty, wholesaleCustomer);
-
-  return (
-    <div className="absolute inset-0 z-10 flex items-end md:items-center justify-center">
-      <div className="absolute inset-0 bg-black/30 animate-fade-in" onClick={onCancel} />
-      <div className="relative bg-white rounded-t-2xl md:rounded-2xl shadow-pop w-full md:max-w-sm p-5 animate-fade-up">
-        <div className="flex gap-3 mb-4">
-          {product.images[0] && (
-            <img
-              src={product.images[0].url}
-              alt=""
-              className="size-16 rounded-xl object-cover shrink-0"
-            />
-          )}
-          <div className="min-w-0">
-            <p className="font-semibold text-sm leading-tight">{product.name}</p>
-            <p className="text-xs text-gray-400 mt-0.5">{product.sku}</p>
-            <p className="text-sm font-semibold text-brand-700 mt-1">
-              {brl(price)}
-              {product.minQuantity > 1 && product.wholesalePrice > 0 && (
-                <span className="text-[10px] text-gray-400 font-normal">
-                  {" "}
-                  · atacado a partir de {product.minQuantity} un.
-                </span>
-              )}
-            </p>
-          </div>
-        </div>
-
-        <p className="text-xs font-medium text-gray-500 mb-1.5">Cor</p>
-        <div className="flex flex-wrap gap-1.5 mb-3">
-          {colors.map((c) => (
-            <button
-              key={c}
-              onClick={() => {
-                setColor(c);
-                const first = product.variants.find(
-                  (v) => v.color === c && v.stock > 0
-                );
-                if (first) setVariantId(first.id);
-              }}
-              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition ${
-                color === c
-                  ? "bg-brand-600 text-white"
-                  : "bg-gray-100 text-gray-600 hover:bg-gray-200"
-              }`}
-            >
-              {c}
-            </button>
-          ))}
-        </div>
-
-        <p className="text-xs font-medium text-gray-500 mb-1.5">Tamanho</p>
-        <div className="flex flex-wrap gap-1.5 mb-3">
-          {sizes.map((v) => (
-            <button
-              key={v.id}
-              onClick={() => setVariantId(v.id)}
-              disabled={v.stock === 0}
-              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition disabled:opacity-40 disabled:line-through ${
-                variantId === v.id
-                  ? "bg-brand-600 text-white"
-                  : "bg-gray-100 text-gray-600 hover:bg-gray-200"
-              }`}
-            >
-              {v.size}
-            </button>
-          ))}
-        </div>
-
-        <p className="text-xs font-medium text-gray-500 mb-1.5">
-          Quantidade{" "}
-          <span className="text-gray-300">
-            (estoque: {variant?.stock ?? 0})
-          </span>
-        </p>
-        <div className="flex items-center gap-2 mb-4">
-          <button
-            onClick={() => setQty((v) => Math.max(1, v - 1))}
-            className="size-8 rounded-lg border border-gray-200 flex items-center justify-center text-gray-500 hover:border-brand-300"
-          >
-            <Minus className="size-3.5" />
-          </button>
-          <span className="font-semibold tabular-nums w-8 text-center">{qty}</span>
-          <button
-            onClick={() =>
-              setQty((v) => Math.min(variant?.stock ?? 1, v + 1))
-            }
-            className="size-8 rounded-lg border border-gray-200 flex items-center justify-center text-gray-500 hover:border-brand-300"
-          >
-            <Plus className="size-3.5" />
-          </button>
-        </div>
-
-        <div className="grid grid-cols-2 gap-2">
-          <button
-            onClick={onCancel}
-            className="rounded-xl border border-gray-200 text-gray-500 text-sm font-medium py-2.5 hover:border-gray-300 transition"
-          >
-            Cancelar
-          </button>
-          <button
-            onClick={() => variant && onAdd(product, variant.id, qty)}
-            disabled={!variant || variant.stock === 0}
-            className="rounded-xl bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium py-2.5 transition disabled:opacity-50"
-          >
-            Adicionar · {brl(price * qty)}
-          </button>
-        </div>
-      </div>
-    </div>
   );
 }
