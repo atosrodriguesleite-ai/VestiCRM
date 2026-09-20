@@ -3,7 +3,7 @@ import { ehDaCampanha } from "../campanha-pedidos";
 import { PAID_ORDER_STATUSES } from "../orders";
 import { lerItens } from "../recuperacao";
 import { chaveDoNome, r2, pct } from "./insights-puro";
-import { montarCurvaAbc, type BaseAbc } from "./curva-abc";
+import { montarCurvaAbc, type BaseAbc, type ItemVendido } from "./curva-abc";
 
 /**
  * API de leitura da Tracking Engine.
@@ -803,6 +803,16 @@ async function dimensionStats(companyId: string, p: Period, dim: Dim, itens?: Pr
  * (produto × cor × tamanho), com o cadastro de hoje mandando no rótulo.
  */
 export async function curvaAbcStats(companyId: string, p: Period, base: BaseAbc = "unidades", preCarregados?: Promise<ItensDoPeriodo>) {
+  return montarCurvaAbc(await itensParaCurvaAbc(companyId, p, preCarregados), base);
+}
+
+/**
+ * Os itens do período já com o cadastro de hoje colado, prontos para a
+ * conta pura — a tela monta a curva nas DUAS bases (unidades e faturamento)
+ * a partir do mesmo resultado, e a troca de base acontece no navegador sem
+ * voltar ao servidor.
+ */
+export async function itensParaCurvaAbc(companyId: string, p: Period, preCarregados?: Promise<ItensDoPeriodo>): Promise<ItemVendido[]> {
   const itens = await (preCarregados ?? itensVendidosNoPeriodo(companyId, p));
   // o cadastro de HOJE: produtos e variações vendidos, uma ida ao banco cada,
   // pelos ids distintos (embutir produto e cor em cada um dos milhares de
@@ -821,23 +831,20 @@ export async function curvaAbcStats(companyId: string, p: Period, base: BaseAbc 
   ]);
   const nomeAtual = new Map(produtos.map((p) => [p.id, p.name]));
   const gradeAtual = new Map(variacoes.map((v) => [v.id, { cor: v.color, tamanho: v.size }]));
-  return montarCurvaAbc(
-    itens.map((it) => {
-      const produto = it.productId ? nomeAtual.get(it.productId) : undefined;
-      const grade = it.variantId ? gradeAtual.get(it.variantId) : undefined;
-      return {
-        variantId: it.variantId,
-        productId: it.productId,
-        nome: it.name,
-        cor: it.color,
-        tamanho: it.size,
-        quantidade: it.quantity,
-        valorVendido: it.total, // já é a fatia do netTotal (itensVendidosNoPeriodo)
-        atual: produto !== undefined || grade ? { produto, ...grade } : undefined,
-      };
-    }),
-    base
-  );
+  return itens.map((it) => {
+    const produto = it.productId ? nomeAtual.get(it.productId) : undefined;
+    const grade = it.variantId ? gradeAtual.get(it.variantId) : undefined;
+    return {
+      variantId: it.variantId,
+      productId: it.productId,
+      nome: it.name,
+      cor: it.color,
+      tamanho: it.size,
+      quantidade: it.quantity,
+      valorVendido: it.total, // já é a fatia do netTotal (itensVendidosNoPeriodo)
+      atual: produto !== undefined || grade ? { produto, ...grade } : undefined,
+    };
+  });
 }
 
 export const productStats = (c: string, p: Period, itens?: Promise<ItensDoPeriodo>) => dimensionStats(c, p, "productName", itens);

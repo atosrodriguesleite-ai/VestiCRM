@@ -270,13 +270,37 @@ describe("RN-061: a consulta usa a MESMA régua dos outros quadros (banco simula
 
   it("a tela e o CSV obedecem o período e a base escolhidos", () => {
     const tela = ler("src/app/(app)/inteligencia/page.tsx");
-    expect(tela).toContain("curvaAbcStats(c, period, baseAbc, itensDoPeriodo)");
+    // a tela monta a curva nas DUAS bases sobre os MESMOS itens do período
+    expect(tela).toContain("itensParaCurvaAbc(c, period, itensDoPeriodo)");
+    expect(tela).toContain('montarCurvaAbc(itensAbc, "unidades")');
+    expect(tela).toContain('montarCurvaAbc(itensAbc, "faturamento")');
     // o cabeçalho da coluna de % muda com a base (por faturamento não é "% un.")
-    expect(tela).toContain('baseAbc === "unidades" ? "% un." : "% R$"');
+    expect(ler("src/app/(app)/inteligencia/curva-abc-view.tsx")).toContain('base === "unidades" ? "% un." : "% R$"');
     // trocar o período (atalhos, Limpar e o formulário) não devolve a curva ao padrão
     expect(tela).toContain("href={`/inteligencia?dias=${p.d}${estadoAbc}`}");
     expect(tela).toContain("href={`/inteligencia?dias=30${estadoAbc}`}");
     expect(tela).toContain('<input type="hidden" name="abc" value={baseAbc} />');
     expect(ler("src/app/api/intelligence/export/route.ts")).toContain('case "abc"');
+  });
+});
+
+describe("RN-061: navegar pela curva sem recarregar (filtro por classe e busca)", () => {
+  it("filtrar mantém a POSIÇÃO da peça na curva inteira e a busca ignora acento e caixa", async () => {
+    const { filtrarLinhas } = await import("../../app/(app)/inteligencia/curva-abc-view");
+    const { linhas } = montarCurvaAbc(
+      [
+        item({ variantId: "a", nome: "Regata Alça", cor: "Preta", tamanho: "M", quantidade: 70 }),
+        item({ variantId: "b", nome: "Regata Quadrada", cor: "Café", tamanho: "G", quantidade: 20 }),
+        item({ variantId: "c", nome: "Blusa", cor: "Azul", tamanho: "P", quantidade: 6 }),
+        item({ variantId: "d", nome: "Blusa", cor: "Azul", tamanho: "M", quantidade: 4 }),
+      ]
+    );
+    expect(linhas.map((l) => l.classe)).toEqual(["A", "A", "B", "C"]);
+    expect(filtrarLinhas(linhas, "todas", "").map((x) => x.posicao)).toEqual([1, 2, 3, 4]);
+    // a 3ª peça que mais vende continua sendo a 3ª quando se olha só a classe B
+    expect(filtrarLinhas(linhas, "B", "").map((x) => [x.posicao, x.linha.rotulo])).toEqual([[3, "Blusa · Azul · P"]]);
+    expect(filtrarLinhas(linhas, "A", "cafe").map((x) => x.linha.rotulo)).toEqual(["Regata Quadrada · Café · G"]);
+    expect(filtrarLinhas(linhas, "todas", "ALÇA preta").map((x) => x.posicao)).toEqual([1]);
+    expect(filtrarLinhas(linhas, "C", "regata")).toEqual([]);
   });
 });

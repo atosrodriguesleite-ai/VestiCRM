@@ -1043,10 +1043,21 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   mesma tabela). Regra pura e testada (`curva-abc.test.ts`, com o banco
   simulado prendendo a régua da consulta; `scripts/confere-curva-abc.ts`
   prova contra o Postgres que unidades e faturamento batem com Cores e Visão
-  Geral, inclusive depois de apagar e recriar a variação); as 25 primeiras
-  na tela e "ver todas" para o resto; a base e o "ver todas" são preferência
-  de leitura, preservada ao trocar o período (atalhos, Limpar, formulário) e
-  nos links da Recuperação — e vice-versa. Anúncio → campanha
+  Geral, inclusive depois de apagar e recriar a variação). **Navegar pela
+  curva não recarrega a página** (`curva-abc-view.tsx`, pedido do dono pelo
+  celular em 20/09/2026: "uma forma mais fluida de navegar pelas classes" e
+  "quando clico para ver mais ela chega a travar" — cada clique era um link
+  que refazia as quinze consultas da Inteligência): o servidor manda a curva
+  PRONTA nas duas bases e o navegador troca a base, **filtra por classe**
+  (tocando no cartão da classe ou nos chips Todas/A/B/C, mantendo a POSIÇÃO
+  da peça na curva inteira — filtrar por B mostra "90.", não "1."), **busca
+  por palavras** sem acento (a régua da lupa da Central) e **mostra mais em
+  blocos** de 50 sobre as 25 primeiras; o endereço acompanha a base por baixo
+  (`replaceState`) para o CSV e o link compartilhado; acima de 3.000 peças
+  o resto fica no CSV e a tela diz. A base é preferência de leitura,
+  preservada ao trocar o período (atalhos, Limpar, formulário) e nos links da
+  Recuperação — e vice-versa. No celular cada peça é um cartão de duas linhas
+  (nome e classe; "un. · % · acum." e faturamento). Anúncio → campanha
   (`lib/ad-match.ts`): a prévia do Click-to-WhatsApp vira código estável
   (`adRef`) e o vínculo pode ser feito **direto do chat** (bloco "Veio de
   anúncio" na ficha do contato, gerente+). O vínculo é RETROATIVO para quem

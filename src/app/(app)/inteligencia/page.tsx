@@ -35,10 +35,11 @@ import {
   heatmaps,
   recovery,
   alerts,
-  curvaAbcStats,
+  itensParaCurvaAbc,
   itensVendidosNoPeriodo,
 } from "@/lib/tracking/insights";
-import { lerBaseAbc, CORTE_A, CORTE_B, type ClasseAbc } from "@/lib/tracking/curva-abc";
+import { lerBaseAbc, montarCurvaAbc, CORTE_A, CORTE_B } from "@/lib/tracking/curva-abc";
+import { CurvaAbcView } from "./curva-abc-view";
 import { Card, PageHeader, Avatar, Badge, EmptyState } from "@/components/ui";
 import { FunnelBars } from "@/components/charts";
 import { LinksManager } from "./links-manager";
@@ -112,17 +113,7 @@ function Kpi({ label, value, hint, delta, icon, info, href }: {
   );
 }
 
-function RankTable({
-  headers,
-  rows,
-  celular,
-}: {
-  headers: string[];
-  rows: (string | React.ReactNode)[][];
-  /** desenho PRÓPRIO de cada linha no celular — quando o cartão genérico
-   *  (rótulo + valor, um por par) não cabe bem, como na curva ABC */
-  celular?: React.ReactNode[];
-}) {
+function RankTable({ headers, rows }: { headers: string[]; rows: (string | React.ReactNode)[][] }) {
   return (
     <>
       {/* Computador: tabela (inalterada) */}
@@ -153,8 +144,6 @@ function RankTable({
       <div className="md:hidden space-y-1.5">
         {rows.length === 0 ? (
           <p className="text-xs text-gray-400 py-2">Sem dados no período.</p>
-        ) : celular ? (
-          celular
         ) : (
           rows.map((r, i) => (
             <div key={i} className="rounded-xl border border-gray-100 px-3 py-2.5">
@@ -231,9 +220,8 @@ export default async function IntelligencePage({
     de?: string;
     ate?: string;
     recuperacao?: string;
-    /** curva ABC: base da classificação (unidades | faturamento) e "ver todas" */
+    /** curva ABC: base da classificação (unidades | faturamento) */
     abc?: string;
-    abcTudo?: string;
   }>;
 }) {
   const user = await requireUser();
@@ -253,7 +241,6 @@ export default async function IntelligencePage({
   // "ver todas" as oportunidades de recuperação (a lista nasce curta)
   const verTodaRecuperacao = sp.recuperacao === "tudo";
   const baseAbc = lerBaseAbc(sp.abc);
-  const verTodaAbc = sp.abcTudo === "1";
   const c = user.companyId;
 
   // Vendas por ORIGEM (pedidos pagos no período): separa o resultado do
@@ -286,12 +273,12 @@ export default async function IntelligencePage({
   // os itens vendidos no período são lidos UMA vez e servem aos quatro quadros
   // de dimensão e à curva ABC (cinco varreduras da mesma tabela antes)
   const itensDoPeriodo = itensVendidosNoPeriodo(c, period);
-  const [now, before, funil, canais, vendedores, campanhas, produtos, categorias, cores, tamanhos, mapas, recuperacao, avisos, abc, company, team] =
+  const [now, before, funil, canais, vendedores, campanhas, produtos, categorias, cores, tamanhos, mapas, recuperacao, avisos, itensAbc, company, team] =
     await Promise.all([
       overview(c, period), overview(c, prev), funnel(c, period),
       channelRanking(c, period), sellerRanking(c, period), campaignRanking(c, period),
       productStats(c, period, itensDoPeriodo), categoryStats(c, period, itensDoPeriodo), colorStats(c, period, itensDoPeriodo), sizeStats(c, period, itensDoPeriodo),
-      heatmaps(c, period), recovery(c, period), alerts(c), curvaAbcStats(c, period, baseAbc, itensDoPeriodo),
+      heatmaps(c, period), recovery(c, period), alerts(c), itensParaCurvaAbc(c, period, itensDoPeriodo),
       db.company.findUnique({ where: { id: c } }),
       db.user.findMany({ where: { companyId: c, active: true, role: { not: "SUPERADMIN" } }, select: { id: true, name: true } }),
     ]);
@@ -302,18 +289,17 @@ export default async function IntelligencePage({
   const topTamanhos = [...tamanhos].sort((a, b) => b.sold - a.sold || b.views - a.views).slice(0, 6);
   const exportar = (rel: string) =>
     `/api/intelligence/export?relatorio=${rel}&${paramsDoPeriodo(filtro)}`;
-  // a curva ABC (RN-061): as 25 primeiras cabem na tela; "ver todas" abre o resto
-  const TETO_ABC = 25;
-  const linhasAbc = verTodaAbc ? abc.linhas : abc.linhas.slice(0, TETO_ABC);
-  // os links da curva levam o estado da Recuperação junto (e vice-versa) e
-  // voltam para o cartão pela âncora — sem isso cada clique recarregava no
-  // topo da página e encolhia o outro cartão
-  const linkAbc = (extra: string) =>
-    `/inteligencia?${paramsDoPeriodo(filtro)}&${extra}${verTodaRecuperacao ? "&recuperacao=tudo" : ""}#abc`;
-  const estadoAbc = `&abc=${baseAbc}${verTodaAbc ? "&abcTudo=1" : ""}`;
-  const COR_CLASSE: Record<ClasseAbc, string> = { A: "#059669", B: "#d97706", C: "#94a3b8" };
-  // porcentagem com UMA casa e vírgula, como a lojista lê ("3,0%", não "3.0%")
-  const pct1 = (n: number) => `${n.toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%`;
+  // a curva ABC (RN-061) vai PRONTA nas duas bases: trocar de base, filtrar
+  // por classe e "mostrar mais" acontecem no navegador, sem recarregar a
+  // página (que refaz todas estas consultas) — era o "trava" do celular
+  const TETO_ABC_NA_TELA = 3000; // loja gigante: o resto fica no CSV, e a tela diz
+  const abcCheia = montarCurvaAbc(itensAbc, "unidades");
+  const cortada = (r: typeof abcCheia) => ({ ...r, linhas: r.linhas.slice(0, TETO_ABC_NA_TELA) });
+  const abcPorUnidades = cortada(abcCheia);
+  const abcPorFaturamento = cortada(montarCurvaAbc(itensAbc, "faturamento"));
+  const abcCortadaEm = Math.max(0, abcCheia.linhas.length - TETO_ABC_NA_TELA);
+  // o estado da curva viaja nos links da tela: trocar o período não devolve a curva ao padrão
+  const estadoAbc = `&abc=${baseAbc}`;
 
   return (
     <div className="max-w-7xl mx-auto">
@@ -347,7 +333,6 @@ export default async function IntelligencePage({
         {/* a base da curva ABC e o "ver todas" são preferência de leitura, não
             filtro: trocar o período não pode devolver a curva ao padrão */}
         <input type="hidden" name="abc" value={baseAbc} />
-        {verTodaAbc && <input type="hidden" name="abcTudo" value="1" />}
         <div>
           <label className="block text-[11px] font-semibold text-gray-500 mb-1">De</label>
           <input
@@ -563,99 +548,18 @@ export default async function IntelligencePage({
           encalha (C). Obedece o período escolhido lá em cima. */}
       <div id="abc" className="scroll-mt-20" />
       <Card className="p-5 mb-6">
-        <div className="flex flex-wrap items-start justify-between gap-3 mb-3">
-          <div>
-            <h2 className="font-semibold flex items-center gap-2">
-              Curva ABC — peça por peça
-              <InfoTip text={`Cada linha é uma peça exata (produto, cor e tamanho), das que mais vendem para as que menos vendem, no período escolhido. Classe A: as peças que, juntas, fazem ${CORTE_A}% ${baseAbc === "unidades" ? "das unidades vendidas" : "do faturamento"}. B: as que completam ${CORTE_B}%. C: o resto. Só pedido pago conta.`} />
-            </h2>
-            <p className="text-xs text-gray-500 mt-0.5">
-              {abc.totalUnidades.toLocaleString("pt-BR")} unidades vendidas em {abc.linhas.length} variaç{abc.linhas.length === 1 ? "ão" : "ões"} (peça exata) · {periodoPorExtenso(filtro)}
-            </p>
-          </div>
-          <div className="flex items-center gap-2">
-            <div className="inline-flex rounded-xl border border-gray-200 overflow-hidden text-xs font-medium">
-              {(["unidades", "faturamento"] as const).map((b) => (
-                <Link
-                  key={b}
-                  href={linkAbc(`abc=${b}${verTodaAbc ? "&abcTudo=1" : ""}`)}
-                  className={`px-3 py-1.5 ${baseAbc === b ? "bg-brand-600 text-white" : "bg-white text-gray-500 hover:text-gray-800"}`}
-                >
-                  {b === "unidades" ? "Por unidades" : "Por faturamento"}
-                </Link>
-              ))}
-            </div>
-            <a href={exportar(`abc&abc=${baseAbc}`)} className="flex items-center gap-1 text-xs font-medium text-brand-600 hover:text-brand-700">
-              <Download className="size-3.5" /> CSV
-            </a>
-          </div>
-        </div>
-        {abc.linhas.length === 0 ? (
-          <EmptyState title="Nenhuma peça vendida no período" hint="A curva conta só pedidos pagos, pela data do pagamento." />
-        ) : (
-          <>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mb-4">
-              {(["A", "B", "C"] as const).map((cl) => {
-                const r = abc.resumo[cl];
-                return (
-                  <div key={cl} className="rounded-xl border border-gray-100 px-3 py-2.5">
-                    <div className="flex items-center justify-between gap-2">
-                      <Badge color={COR_CLASSE[cl]}>Classe {cl}</Badge>
-                      <span className="text-xs text-gray-500 tabular-nums">{r.itens} variaç{r.itens === 1 ? "ão" : "ões"} · {r.parteItens.toFixed(0)}%</span>
-                    </div>
-                    <div className="mt-1 flex items-baseline justify-between gap-2 text-sm font-semibold tabular-nums">
-                      <span>{r.unidades.toLocaleString("pt-BR")} un.</span>
-                      <span className="text-gray-500 font-normal">{brl(r.faturamento)}</span>
-                    </div>
-                    <div className="text-[11px] text-gray-500">{r.parteBase.toFixed(0)}% {baseAbc === "unidades" ? "das unidades vendidas" : "do faturamento"}</div>
-                  </div>
-                );
-              })}
-            </div>
-            <RankTable
-              headers={["Peça", "Classe", "Unidades", baseAbc === "unidades" ? "% un." : "% R$", "Acumulado", "Faturamento"]}
-              rows={linhasAbc.map((l, i) => [
-                <span key="n"><span className="text-gray-400 tabular-nums mr-2">{i + 1}.</span>{l.rotulo}</span>,
-                <Badge key="c" color={COR_CLASSE[l.classe]}>{l.classe}</Badge>,
-                `${l.unidades} un.`,
-                pct1(l.parte),
-                pct1(l.acumulado),
-                brl(l.faturamento),
-              ])}
-              // no celular a linha é UM cartão de duas linhas: nome + classe em
-              // cima, os quatro números embaixo numa frase — o cartão genérico
-              // espalhava "Classe / Unidades / % un. / Acumulado / Faturamento"
-              // com rótulo e valor em seis pedaços que quebravam torto (print
-              // do dono, 20/09/2026)
-              celular={linhasAbc.map((l, i) => (
-                <div key={l.chave} className="rounded-xl border border-gray-100 px-3 py-2">
-                  <div className="flex items-start gap-2">
-                    <span className="min-w-0 flex-1 text-sm font-medium text-gray-800 leading-snug">
-                      <span className="text-gray-400 tabular-nums mr-1.5">{i + 1}.</span>
-                      {l.rotulo}
-                    </span>
-                    <span className="shrink-0"><Badge color={COR_CLASSE[l.classe]}>{l.classe}</Badge></span>
-                  </div>
-                  <div className="mt-1 flex items-baseline justify-between gap-3 text-xs tabular-nums">
-                    <span className="text-gray-500">
-                      <span className="font-semibold text-gray-700">{l.unidades} un.</span>
-                      {" · "}{pct1(l.parte)} {baseAbc === "unidades" ? "das un." : "do R$"}
-                      {" · "}acum. {pct1(l.acumulado)}
-                    </span>
-                    <span className="shrink-0 font-semibold text-gray-700">{brl(l.faturamento)}</span>
-                  </div>
-                </div>
-              ))}
-            />
-            {abc.linhas.length > TETO_ABC && (
-              <div className="mt-3 text-center">
-                <Link href={linkAbc(`abc=${baseAbc}${verTodaAbc ? "" : "&abcTudo=1"}`)} className="text-xs font-medium text-brand-600 hover:underline">
-                  {verTodaAbc ? `Mostrar só as ${TETO_ABC} primeiras` : `Ver todas as ${abc.linhas.length} variações`}
-                </Link>
-              </div>
-            )}
-          </>
-        )}
+        <h2 className="font-semibold flex items-center gap-2 mb-1">
+          Curva ABC — peça por peça
+          <InfoTip text={`Cada linha é uma peça exata (produto, cor e tamanho), das que mais vendem para as que menos vendem, no período escolhido. Classe A: as peças que, juntas, fazem ${CORTE_A}% da base escolhida (unidades vendidas ou faturamento). B: as que completam ${CORTE_B}%. C: o resto. Só pedido pago conta. Toque numa classe para ver só as peças dela.`} />
+        </h2>
+        <CurvaAbcView
+          porUnidades={abcPorUnidades}
+          porFaturamento={abcPorFaturamento}
+          baseInicial={baseAbc}
+          periodoTexto={filtro.personalizado ? periodoPorExtenso(filtro) : `últimos ${days} dias`}
+          csvPrefixo={exportar("abc")}
+          cortadaEm={abcCortadaEm}
+        />
       </Card>
 
       {/* Produtos / categorias / cores / tamanhos */}
