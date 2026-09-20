@@ -112,7 +112,17 @@ function Kpi({ label, value, hint, delta, icon, info, href }: {
   );
 }
 
-function RankTable({ headers, rows }: { headers: string[]; rows: (string | React.ReactNode)[][] }) {
+function RankTable({
+  headers,
+  rows,
+  celular,
+}: {
+  headers: string[];
+  rows: (string | React.ReactNode)[][];
+  /** desenho PRÓPRIO de cada linha no celular — quando o cartão genérico
+   *  (rótulo + valor, um por par) não cabe bem, como na curva ABC */
+  celular?: React.ReactNode[];
+}) {
   return (
     <>
       {/* Computador: tabela (inalterada) */}
@@ -143,6 +153,8 @@ function RankTable({ headers, rows }: { headers: string[]; rows: (string | React
       <div className="md:hidden space-y-1.5">
         {rows.length === 0 ? (
           <p className="text-xs text-gray-400 py-2">Sem dados no período.</p>
+        ) : celular ? (
+          celular
         ) : (
           rows.map((r, i) => (
             <div key={i} className="rounded-xl border border-gray-100 px-3 py-2.5">
@@ -300,6 +312,8 @@ export default async function IntelligencePage({
     `/inteligencia?${paramsDoPeriodo(filtro)}&${extra}${verTodaRecuperacao ? "&recuperacao=tudo" : ""}#abc`;
   const estadoAbc = `&abc=${baseAbc}${verTodaAbc ? "&abcTudo=1" : ""}`;
   const COR_CLASSE: Record<ClasseAbc, string> = { A: "#059669", B: "#d97706", C: "#94a3b8" };
+  // porcentagem com UMA casa e vírgula, como a lojista lê ("3,0%", não "3.0%")
+  const pct1 = (n: number) => `${n.toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%`;
 
   return (
     <div className="max-w-7xl mx-auto">
@@ -585,14 +599,15 @@ export default async function IntelligencePage({
                 const r = abc.resumo[cl];
                 return (
                   <div key={cl} className="rounded-xl border border-gray-100 px-3 py-2.5">
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center justify-between gap-2">
                       <Badge color={COR_CLASSE[cl]}>Classe {cl}</Badge>
-                      <span className="text-xs text-gray-500">{r.itens} variaç{r.itens === 1 ? "ão" : "ões"} ({r.parteItens.toFixed(0)}%)</span>
+                      <span className="text-xs text-gray-500 tabular-nums">{r.itens} variaç{r.itens === 1 ? "ão" : "ões"} · {r.parteItens.toFixed(0)}%</span>
                     </div>
-                    <div className="mt-1 text-sm font-semibold tabular-nums">
-                      {r.unidades.toLocaleString("pt-BR")} un. <span className="text-gray-400 font-normal">· {brl(r.faturamento)}</span>
+                    <div className="mt-1 flex items-baseline justify-between gap-2 text-sm font-semibold tabular-nums">
+                      <span>{r.unidades.toLocaleString("pt-BR")} un.</span>
+                      <span className="text-gray-500 font-normal">{brl(r.faturamento)}</span>
                     </div>
-                    <div className="text-[11px] text-gray-500">{r.parteBase.toFixed(0)}% {baseAbc === "unidades" ? "das unidades" : "do faturamento"}</div>
+                    <div className="text-[11px] text-gray-500">{r.parteBase.toFixed(0)}% {baseAbc === "unidades" ? "das unidades vendidas" : "do faturamento"}</div>
                   </div>
                 );
               })}
@@ -603,10 +618,34 @@ export default async function IntelligencePage({
                 <span key="n"><span className="text-gray-400 tabular-nums mr-2">{i + 1}.</span>{l.rotulo}</span>,
                 <Badge key="c" color={COR_CLASSE[l.classe]}>{l.classe}</Badge>,
                 `${l.unidades} un.`,
-                `${l.parte.toFixed(1)}%`,
-                `${l.acumulado.toFixed(1)}%`,
+                pct1(l.parte),
+                pct1(l.acumulado),
                 brl(l.faturamento),
               ])}
+              // no celular a linha é UM cartão de duas linhas: nome + classe em
+              // cima, os quatro números embaixo numa frase — o cartão genérico
+              // espalhava "Classe / Unidades / % un. / Acumulado / Faturamento"
+              // com rótulo e valor em seis pedaços que quebravam torto (print
+              // do dono, 20/09/2026)
+              celular={linhasAbc.map((l, i) => (
+                <div key={l.chave} className="rounded-xl border border-gray-100 px-3 py-2">
+                  <div className="flex items-start gap-2">
+                    <span className="min-w-0 flex-1 text-sm font-medium text-gray-800 leading-snug">
+                      <span className="text-gray-400 tabular-nums mr-1.5">{i + 1}.</span>
+                      {l.rotulo}
+                    </span>
+                    <span className="shrink-0"><Badge color={COR_CLASSE[l.classe]}>{l.classe}</Badge></span>
+                  </div>
+                  <div className="mt-1 flex items-baseline justify-between gap-3 text-xs tabular-nums">
+                    <span className="text-gray-500">
+                      <span className="font-semibold text-gray-700">{l.unidades} un.</span>
+                      {" · "}{pct1(l.parte)} {baseAbc === "unidades" ? "das un." : "do R$"}
+                      {" · "}acum. {pct1(l.acumulado)}
+                    </span>
+                    <span className="shrink-0 font-semibold text-gray-700">{brl(l.faturamento)}</span>
+                  </div>
+                </div>
+              ))}
             />
             {abc.linhas.length > TETO_ABC && (
               <div className="mt-3 text-center">
