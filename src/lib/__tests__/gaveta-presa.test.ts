@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { execSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { alturaDoTeclado, deslocamentoDaTela } from "../../components/keyboard-inset";
+import { alturaDoTeclado, areaVisivel, deslocamentoDaTela } from "../../components/keyboard-inset";
 
 /**
  * A GAVETA PRESA NO MEIO DA TELA (incidente da loja Entre Linhas, 17/08/2026).
@@ -123,10 +123,34 @@ describe("o empurrão da tela (--kbtop) é medido à parte da altura do teclado"
     expect(deslocamentoDaTela({ ...comTeclado, offsetTop: -40 })).toBe(0);
   });
 
-  it("as duas janelas de montar pedido acompanham o empurrão", () => {
+  /**
+   * As janelas de montar pedido não CALCULAM a área visível: elas usam a que
+   * o navegador mede (`--vvh`/`--vvtop`) e travam a página de trás. Foi a
+   * segunda tentativa, depois de o dono dizer que a janela continuava
+   * subindo — a conta a partir do `innerHeight` não sobrevive ao iPhone.
+   */
+  it("as janelas de montar pedido se apoiam na área visível MEDIDA e travam a página", () => {
     for (const arquivo of ["src/app/(app)/pedidos/new-order.tsx", "src/components/order-composer.tsx"]) {
-      expect(ler(arquivo), arquivo).toContain("translate-y-[var(--kbtop,0px)]");
+      const src = ler(arquivo);
+      expect(src, arquivo).toContain("var(--vvh, 100dvh)");
+      expect(src, arquivo).toContain("translateY(var(--vvtop, 0px))");
+      expect(src, arquivo).toContain("useTravarFundo");
+      // a conta antiga não pode voltar por engano
+      expect(src, arquivo).not.toContain("100dvh_-_var(--kb");
     }
+  });
+
+  it("a área visível é o número cru do navegador, sem conta e sem sumir", () => {
+    expect(areaVisivel({ height: 524.4, offsetTop: 0 })).toEqual({ altura: 524, topo: 0 });
+    expect(areaVisivel({ height: 844, offsetTop: 118.6 })).toEqual({ altura: 844, topo: 119 });
+    // rolagem elástica (valores negativos) não faz a janela desaparecer
+    expect(areaVisivel({ height: 0, offsetTop: -30 })).toEqual({ altura: 1, topo: 0 });
+  });
+
+  it("a trava da página devolve o lugar em que a pessoa estava", () => {
+    const src = ler("src/components/travar-fundo.ts");
+    expect(src).toContain('body.style.position = "fixed"'); // overflow:hidden não trava o iOS
+    expect(src).toContain("window.scrollTo(0, y)");
   });
 
   it("empurrão e teclado andam JUNTOS: sem teclado, nenhum dos dois desloca", () => {

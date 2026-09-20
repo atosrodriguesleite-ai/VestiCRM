@@ -78,6 +78,20 @@ export function deslocamentoDaTela(m: MedidaDaTela & { offsetTop: number }): num
   return Math.max(0, Math.round(m.offsetTop));
 }
 
+/**
+ * A área visível como o navegador a AFIRMA: altura e onde ela começa.
+ * Números crus, sem conta nenhuma — é justamente por não depender do
+ * `innerHeight` (que muda sozinho no iPhone) que a janela para de fugir.
+ * Altura nunca é zero ou negativa, e topo nunca é negativo (rolagem
+ * elástica), para a janela não desaparecer por um instante de medição.
+ */
+export function areaVisivel(m: { height: number; offsetTop: number }): { altura: number; topo: number } {
+  return {
+    altura: Math.max(1, Math.round(m.height)),
+    topo: Math.max(0, Math.round(m.offsetTop)),
+  };
+}
+
 /** O elemento com o foco aceita digitação (é o que faz o teclado subir)? */
 function campoDeDigitacaoFocado(): boolean {
   const el = document.activeElement as HTMLElement | null;
@@ -97,6 +111,22 @@ export function KeyboardInset() {
     const vv = window.visualViewport;
     if (!vv) return;
     const root = document.documentElement;
+    /**
+     * A ÁREA VISÍVEL, MEDIDA — não calculada (21/09/2026, segundo relato do
+     * dono: a janela continuava subindo mesmo depois da primeira tentativa).
+     *
+     * `--kb` e `--kbtop` são CONTAS a partir do `innerHeight`, e no iPhone
+     * esse número muda sozinho (barra do Safari que some, teclado, roletinha)
+     * — conta errada empurra a janela para um lugar que não existe. `--vvh` e
+     * `--vvtop` são o que o navegador AFIRMA estar visível: a altura e onde
+     * ela começa. Janela que se apoia nos dois fica exatamente em cima da
+     * área visível, aconteça o que acontecer com o teclado.
+     */
+    const aplicarAreaVisivel = () => {
+      const a = areaVisivel({ height: vv.height, offsetTop: vv.offsetTop });
+      root.style.setProperty("--vvh", `${a.altura}px`);
+      root.style.setProperty("--vvtop", `${a.topo}px`);
+    };
     let baixarDepois: ReturnType<typeof setTimeout> | null = null;
     const medir = () =>
       alturaDoTeclado({
@@ -135,6 +165,7 @@ export function KeyboardInset() {
      * pode fazer a janela pular.
      */
     const update = () => {
+      aplicarAreaVisivel();
       aplicarTopo();
       const kb = medir();
       if (baixarDepois) {
@@ -150,6 +181,7 @@ export function KeyboardInset() {
 
     aplicar(medir());
     aplicarTopo();
+    aplicarAreaVisivel();
     vv.addEventListener("resize", update);
     vv.addEventListener("scroll", update);
     // o teclado nasce e morre com o foco do campo: sem ouvir isso, `--kb`
@@ -164,6 +196,8 @@ export function KeyboardInset() {
       window.removeEventListener("focusout", update);
       root.style.removeProperty("--kb");
       root.style.removeProperty("--kbtop");
+      root.style.removeProperty("--vvh");
+      root.style.removeProperty("--vvtop");
     };
   }, []);
   return null;

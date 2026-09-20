@@ -33,6 +33,7 @@ import {
   type LinhaDoPedido,
 } from "@/lib/pedido-grade";
 import { GradeDePecas, type ProdutoDaGrade } from "@/components/pedido/grade-de-pecas";
+import { useTravarFundo } from "@/components/travar-fundo";
 
 type CustomerHit = { id: string; name: string; phone: string; city: string | null; state: string | null };
 type ApiVariant = { id: string; color: string; size: string; stock: number };
@@ -85,6 +86,9 @@ export function NewOrderButton() {
   const [precoTexto, setPrecoTexto] = useState<Record<string, string>>({});
 
   const buscaPecasRef = useRef<HTMLInputElement>(null);
+  // a página de trás não rola: é ela que o Safari usava para "acomodar" o
+  // campo e levava a janela junto
+  useTravarFundo(open);
 
   useEffect(() => {
     if (!open || customer || newCustomer || custQuery.trim().length < 2) {
@@ -262,13 +266,17 @@ export function NewOrderButton() {
 
       {open && (
         <Portal>
-          {/* `--kbtop`: o iOS empurra a tela visível para baixo ao abrir o
-              teclado e a janela, que é presa no topo da página, saía por
-              cima da borda (print do dono, 21/09/2026) — descer pelo mesmo
-              tanto a mantém colada no que a pessoa está vendo */}
-          <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center pb-[var(--kb,0px)] translate-y-[var(--kbtop,0px)]">
+          {/* A janela ocupa EXATAMENTE a área visível MEDIDA pelo navegador
+              (`--vvh`/`--vvtop`), em vez de descontar o teclado de uma conta
+              — no iPhone o `innerHeight` muda sozinho e a conta jogava a
+              janela para fora da tela (relato do dono, 21/09/2026). Sem
+              medida (computador antigo), cai no `100dvh` de sempre. */}
+          <div
+            className="fixed inset-x-0 top-0 z-50 flex items-end md:items-center justify-center"
+            style={{ height: "var(--vvh, 100dvh)", transform: "translateY(var(--vvtop, 0px))" }}
+          >
             <div className="absolute inset-0 bg-black/40 animate-fade-in" onClick={fechar} />
-            <div className="relative bg-white rounded-t-2xl md:rounded-2xl shadow-pop w-full md:max-w-3xl h-[calc(100dvh_-_var(--kb,0px)_-_1rem)] md:h-[88dvh] flex flex-col overflow-hidden animate-fade-up">
+            <div className="relative bg-white rounded-t-2xl md:rounded-2xl shadow-pop w-full md:max-w-3xl h-[calc(100%_-_1rem)] md:h-[88dvh] flex flex-col overflow-hidden animate-fade-up">
               {/* CABEÇALHO: os três passos, com o cliente sempre à vista */}
               <div className="shrink-0 border-b border-gray-100">
                 <div className="flex items-center justify-between px-4 pt-3.5 pb-2">

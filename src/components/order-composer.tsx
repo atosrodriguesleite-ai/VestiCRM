@@ -22,6 +22,7 @@ import {
   type LinhaDoPedido,
 } from "@/lib/pedido-grade";
 import { GradeDePecas } from "@/components/pedido/grade-de-pecas";
+import { useTravarFundo } from "@/components/travar-fundo";
 
 type ApiProduct = {
   id: string;
@@ -81,6 +82,8 @@ export function OrderComposer({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [mobileCart, setMobileCart] = useState(false);
+  // a página de trás não rola enquanto o montador está aberto
+  useTravarFundo(true);
 
   useEffect(() => {
     setLoading(true);
@@ -396,9 +399,12 @@ export function OrderComposer({
   );
 
   return (
-    <Portal><div className="fixed inset-0 z-50 flex items-end md:items-center justify-center pb-[var(--kb,0px)] translate-y-[var(--kbtop,0px)]">
+    <Portal><div
+      className="fixed inset-x-0 top-0 z-50 flex items-end md:items-center justify-center"
+      style={{ height: "var(--vvh, 100dvh)", transform: "translateY(var(--vvtop, 0px))" }}
+    >
       <div className="absolute inset-0 bg-black/40 animate-fade-in" onClick={onClose} />
-      <div className="relative bg-white rounded-t-2xl md:rounded-2xl shadow-pop w-full md:max-w-4xl h-[calc(100dvh_-_var(--kb,0px))] md:h-[80dvh] flex flex-col md:flex-row overflow-hidden animate-fade-up">
+      <div className="relative bg-white rounded-t-2xl md:rounded-2xl shadow-pop w-full md:max-w-4xl h-full md:h-[80dvh] flex flex-col md:flex-row overflow-hidden animate-fade-up">
         {/* busca + resultados */}
         <div className="flex-1 flex flex-col min-w-0 border-r border-gray-100">
           <div className="p-4 pb-2 shrink-0">
