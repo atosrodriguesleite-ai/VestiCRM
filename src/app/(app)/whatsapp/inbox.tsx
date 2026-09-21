@@ -97,6 +97,8 @@ import {
   vaiGuardarOLugar,
 } from "@/lib/lugar-na-lista";
 import { linkParaSalvar } from "@/lib/midia-arquivo";
+import { ehPdf } from "@/lib/documento-no-chat";
+import { VisorDeDocumento } from "@/components/visor-de-documento";
 import { EncaminharMensagem } from "./encaminhar";
 import { MenuDaConversa } from "./menu-da-conversa";
 import {
@@ -286,10 +288,13 @@ function umSomPorVez(e: React.SyntheticEvent<HTMLMediaElement>) {
 function MediaContent({
   m,
   aoAbrirFoto,
+  aoAbrirDocumento,
 }: {
   m: InboxMessage;
   /** clique na foto abre o visor em tela cheia (com zoom) */
   aoAbrirFoto?: (src: string) => void;
+  /** clique no PDF abre o visor de documento (com X) — nunca navega */
+  aoAbrirDocumento?: (src: string, nome: string) => void;
 }) {
   // ARQUIVO A CAMINHO OU QUE NÃO CHEGOU (RN-028).
   //
@@ -366,22 +371,31 @@ function MediaContent({
         </span>
       </span>
     );
-    return m.mediaUrl ? (
-      // target="_blank": no aplicativo instalado (PWA), abrir o PDF na mesma
-      // tela ENGOLIA o app — o documento tomava tudo, sem botão de voltar, e
-      // só fechando o aplicativo inteiro se saía (relato de 06/08/2026).
-      // Em janela própria o celular mostra o "Concluído"/X do sistema.
-      <a
-        href={m.mediaUrl}
-        target="_blank"
-        rel="noopener"
-        download={m.fileName ?? "arquivo"}
-        className="block"
-      >
+    if (!m.mediaUrl) return inner;
+    // PDF ABRE NO NOSSO VISOR, NUNCA NAVEGA. A versão de 06/08 abria "em
+    // outra aba" (alvo _blank), e no aplicativo instalado isso não
+    // abre aba nenhuma: o PDF tomava a tela do app sem botão de voltar, e
+    // só fechando o aplicativo se saía (relato do dono, 06/08 e de novo em
+    // 21/09/2026). Detalhe em `lib/documento-no-chat.ts`.
+    if (ehPdf(m.fileName) && aoAbrirDocumento) {
+      const src = m.mediaUrl;
+      return (
+        <button
+          type="button"
+          onClick={() => aoAbrirDocumento(src, m.fileName ?? "documento.pdf")}
+          className="block w-full text-left"
+          title="Abrir o PDF"
+        >
+          {inner}
+        </button>
+      );
+    }
+    // outro documento (planilha, docx…): o navegador não desenha, então
+    // vai como ARQUIVO para salvar — o servidor já entrega como download
+    return (
+      <a href={linkParaSalvar(m.mediaUrl)} download={m.fileName ?? "arquivo"} className="block">
         {inner}
       </a>
-    ) : (
-      inner
     );
   }
   return null;
@@ -786,6 +800,8 @@ export function Inbox({
   const inicioDoToque = useRef<{ x: number; y: number } | null>(null);
   // foto aberta no visor de tela cheia (com zoom)
   const [fotoAberta, setFotoAberta] = useState<{ src: string; legenda: string } | null>(null);
+  // PDF aberto no visor de documento (com X — nunca navega para fora)
+  const [documentoAberto, setDocumentoAberto] = useState<{ src: string; nome: string } | null>(null);
   // ARRASTAR PARA RESPONDER (celular): igual ao aplicativo do WhatsApp —
   // desliza a bolha para o lado e ela vira resposta marcada
   const swipeRef = useRef<{
@@ -4135,6 +4151,7 @@ export function Inbox({
                             aoAbrirFoto={(src) =>
                               setFotoAberta({ src, legenda: legendaDaMidia(m) })
                             }
+                            aoAbrirDocumento={(src, nome) => setDocumentoAberto({ src, nome })}
                           />
                           {/* LEGENDA DA MÍDIA: o texto que a cliente escreveu
                               junto da foto. Antes a tela só desenhava texto
@@ -5018,6 +5035,18 @@ export function Inbox({
           src={fotoAberta.src}
           legenda={fotoAberta.legenda}
           onClose={() => setFotoAberta(null)}
+        />
+      </Portal>
+    )}
+
+    {/* visor de PDF por cima da conversa (o romaneio, o orçamento): o X
+        fecha — abrir "fora" no app instalado engolia a tela (21/09/2026) */}
+    {documentoAberto && (
+      <Portal>
+        <VisorDeDocumento
+          src={documentoAberto.src}
+          nome={documentoAberto.nome}
+          onClose={() => setDocumentoAberto(null)}
         />
       </Portal>
     )}
