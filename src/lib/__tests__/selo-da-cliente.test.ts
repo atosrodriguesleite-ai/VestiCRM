@@ -312,3 +312,16 @@ describe("o selo chega à tela e muda SOZINHO", () => {
     expect(pill).toContain('aria-label="recompra"');
   });
 });
+
+describe("os filtros do sistema e as etiquetas da loja ficam em linhas separadas", () => {
+  it("as etiquetas têm linha própria, com o ícone na frente, só quando existem (pedido do dono, 21/09/2026)", () => {
+    const tela = ler("src/app/(app)/whatsapp/inbox.tsx");
+    const linha = tela.indexOf("data-linha-etiquetas");
+    expect(linha).toBeGreaterThan(0);
+    // a linha das etiquetas vem DEPOIS dos chips de selo, num contêiner próprio
+    expect(linha).toBeGreaterThan(tela.indexOf('["PEDIDO", "Com pedido"'));
+    const trecho = tela.slice(linha, linha + 400);
+    expect(trecho).toContain("<TagIcon");
+    expect(tela.slice(linha - 200, linha)).toContain("tags.length > 0 && (");
+  });
+});

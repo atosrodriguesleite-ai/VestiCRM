@@ -3054,7 +3054,8 @@ export function Inbox({
             })}
           </div>
 
-          {/* filtros: "Não lidas" (igual WhatsApp) + etiquetas (tags) */}
+          {/* filtros do SISTEMA: "Não lidas" (igual WhatsApp), favoritas e os selos
+              da RN-063 — as etiquetas da loja ficam na linha de baixo */}
           <div className="flex gap-1.5 overflow-x-auto thin-scroll mt-2 pb-0.5">
             <button
               onClick={() => setSoNaoLidas((v) => !v)}
@@ -3150,8 +3151,20 @@ export function Inbox({
                 </button>
               );
             })}
-            {tags.length > 0 && (
-              <>
+          </div>
+          {/* LINHA PRÓPRIA PARA AS ETIQUETAS DA LOJA (pedido do dono,
+              21/09/2026): a linha de cima é do SISTEMA (não lidas,
+              favoritas e os selos calculados da RN-063); esta é o que a loja
+              colocou à mão. Misturadas, a etiqueta manual "Cliente" ficava
+              colada no selo "Clientes" e ninguém distinguia. O ícone na
+              frente diz "estas são as suas"; sem etiqueta, a linha nem
+              aparece. */}
+          {tags.length > 0 && (
+            <div
+              data-linha-etiquetas
+              className="flex items-center gap-1.5 overflow-x-auto thin-scroll mt-1.5 pb-0.5"
+            >
+              <TagIcon className="size-3.5 text-gray-300 shrink-0" />
               {tagFilter && (
                 <button
                   onClick={() => setTagFilter(null)}
@@ -3180,9 +3193,8 @@ export function Inbox({
                   </button>
                 );
               })}
-              </>
-            )}
-          </div>
+            </div>
+          )}
         </div>
 
         <div

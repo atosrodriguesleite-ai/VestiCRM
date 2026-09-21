@@ -559,7 +559,11 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   distinta, não conversa — a cliente com duas conversas é uma) na aba/busca
   atual pela MESMA régua da lista (`passaFiltrosBase`, uma função para as
   duas contas), visíveis só quando há alguém com o selo (ou enquanto
-  ligados). **Toda a equipe vê** (o selo diz "é cliente da loja", sem valor
+  ligados) — e **as etiquetas da loja ficam em linha própria**, embaixo,
+  com o ícone 🏷️ na frente (pedido do dono, 21/09/2026: misturadas, a
+  etiqueta manual "Cliente" ficava colada no selo "Clientes" e ninguém
+  distinguia o que é do sistema do que é da loja). **Toda a equipe vê** (o
+  selo diz "é cliente da loja", sem valor
   e sem de quem foi a venda — não fere a RN-007). Limite aceito e dito:
   recompra conta PEDIDOS pagos, não dias (dois pedidos pagos no mesmo dia
   são recompra). Provado no navegador contra o Postgres local: pedido
