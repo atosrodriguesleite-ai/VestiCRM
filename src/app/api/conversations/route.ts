@@ -4,6 +4,7 @@ import { z } from "zod";
 import { requireUser, AuthError } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { buscarConversas, loadInboxConversations } from "@/lib/inbox-data";
+import { selosMexidosDesde } from "@/lib/selo-da-cliente-data";
 import { runWatchdogIfDue } from "@/lib/health";
 import { atualizarRastreiosSeDevido } from "@/lib/rastreio";
 import { varrerCarrinhosSeDeuAHora } from "@/lib/recuperacao";
@@ -90,11 +91,16 @@ export async function GET(req: NextRequest) {
     // Marcando antes, a próxima busca REPETE essa fatia de tempo. Repetir é
     // inofensivo (a tela recebe a conversa inteira e substitui); perder não.
     const agora = new Date().toISOString();
-    const conversations = await loadInboxConversations(
-      user,
-      since && !isNaN(since.getTime()) ? since : undefined
-    );
-    return NextResponse.json({ now: agora, conversations });
+    const desde = since && !isNaN(since.getTime()) ? since : undefined;
+    // RN-063: no sync, o selo de quem teve PEDIDO mexido desde a última
+    // batida vai junto — a conversa não muda quando o pedido vira pago, e
+    // sem isto o "Pedido" só virava "Cliente" no F5. Calculado, nunca
+    // carimbado: é o `updatedAt` do pedido que diz de quem recalcular.
+    const [conversations, selos] = await Promise.all([
+      loadInboxConversations(user, desde),
+      desde ? selosMexidosDesde(user, desde) : Promise.resolve([]),
+    ]);
+    return NextResponse.json({ now: agora, conversations, selos });
   } catch (e) {
     if (e instanceof AuthError)
       return NextResponse.json({ error: "Não autenticado" }, { status: 401 });

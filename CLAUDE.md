@@ -518,6 +518,53 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   mesmo sem WhatsApp — o convite no lugar seria beco sem saída. Conectado
   agora ou com a API oficial configurada também mostra; esperando o QR ainda
   não. A loja de demonstração sempre vê a Central (é vitrine).
+  **RN-063 · SELO DA CLIENTE NA CENTRAL: CALCULADO DOS PEDIDOS, NUNCA
+  COLOCADO NA MÃO** (`lib/selo-da-cliente.ts` + `selo-da-cliente-data.ts`,
+  21/09/2026): pedido do dono — *"bater o olho no WhatsApp e saber, de forma
+  destacada, quem já fez pedido e quem de fato é cliente (já pagou)"*, e
+  *"quem tem duas compras pagas ganha um selo de recompra"*. Três degraus, o
+  maior vence: 🟡 **Pedido** (tem pedido em aberto — orçamento/aguardando —
+  e nenhum pago), 🟢 **Cliente** (1 pedido pago, RN-001) e 🟢🔁 **Recompra**
+  (2 ou mais pagos; o selo "Cliente · N compras" com as setinhas); sem
+  pedido, sem selo — e a ausência é informação (é lead). **Não é etiqueta**:
+  etiqueta manual esquece, erra e envelhece (a "Pago" colocada à mão ficava lá
+  depois do cancelamento e nunca virava recompra). E **não é carimbo**:
+  gravar "quando o pedido vira pago" exigiria lembrar de gravar nos cinco
+  caminhos por onde pedido nasce e muda (tela, catálogo, colar do WhatsApp,
+  Nuvemshop, Pix) — a classe de defeito da RN-059. Calculado dos pedidos, o
+  selo muda no mesmo instante por qualquer caminho, inclusive cancelar e
+  apagar, e **ninguém tira nem põe** (o desenho é diferente das etiquetas:
+  cheio, com ícone, sem "×"; se está errado, o pedido está). Cancelado não
+  conta para nada; "em aberto" é **derivado** do enum (tudo que não é pago
+  nem cancelado — lista à mão é onde status novo se perde). **Uma consulta
+  para a lista inteira** (`groupBy` cliente × status, recortado pela loja,
+  RN-013, pelo índice `(companyId, customerId)` — migração 20260921100100;
+  sem ele o Postgres varria todo pedido da loja a cada abertura, achado da
+  revisão), no mesmo mapeamento por onde passam lista, sync, busca e
+  abertura. **Muda sozinho na tela aberta**: o sync de 3s devolve o selo
+  fresco de quem teve **pedido mexido** desde a última batida
+  (`Order.updatedAt`, índice `(companyId, updatedAt)`, migração
+  20260921100000) — a conversa não muda quando o pedido vira pago, e sem
+  isso "Pedido" só virava "Cliente" no F5; o "de quem" é DISTINCT no banco
+  (`groupBy`, com teto de 500 por batida — `distinct`+`take` do Prisma corta
+  linhas antes de deduplicar) e **recortado por quem vê** (`conversationScope`:
+  a vendedora não recebe contagem de cliente fora do recorte dela); a tela
+  aplica a TODAS as conversas daquela cliente, antes do atalho "nada mudou",
+  e só redesenha se algum selo de fato mudou. **Pedido apagado ou
+  transferido para outra cliente** não deixa `updatedAt` na cliente antiga:
+  o funil único de exclusão (`reverseAndDeleteOrder`) e o PATCH que troca a
+  cliente tocam as conversas dela (`tocarConversasDaCliente`), e elas voltam
+  pelo sync normal. **Filtros** ao lado de "Não lidas": **Clientes** (inclui
+  recompra), **Recompra** e **Com pedido**, contando PESSOAS (cliente
+  distinta, não conversa — a cliente com duas conversas é uma) na aba/busca
+  atual pela MESMA régua da lista (`passaFiltrosBase`, uma função para as
+  duas contas), visíveis só quando há alguém com o selo (ou enquanto
+  ligados). **Toda a equipe vê** (o selo diz "é cliente da loja", sem valor
+  e sem de quem foi a venda — não fere a RN-007). Limite aceito e dito:
+  recompra conta PEDIDOS pagos, não dias (dois pedidos pagos no mesmo dia
+  são recompra). Provado no navegador contra o Postgres local: pedido
+  criado → 🟡 em 2s, pago → 🟢 em 4s, segundo pago → 🟢🔁 "2 compras",
+  apagados → desce e some, tudo sem recarregar.
   **RN-012** · Resgate manual: **"Colar pedido do WhatsApp"** na tela Pedidos
   (`lib/catalogo/ler-mensagem.ts` + `/api/orders/ler-mensagem`) — lê a
   mensagem do catálogo, casa com o catálogo da loja (nome mais longo vence

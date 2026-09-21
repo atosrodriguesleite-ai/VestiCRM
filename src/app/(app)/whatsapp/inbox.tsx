@@ -51,6 +51,8 @@ import {
   Pin,
   Star,
   Ban,
+  Repeat,
+  BadgeCheck,
   MailOpen,
   Copy,
   PackageOpen,
@@ -79,6 +81,13 @@ import {
 import { autoriaDaMensagem, prefixoDaPrevia } from "@/lib/comm/autoria";
 import { abaDaConversa } from "@/lib/comm/fila";
 import { casaCliente, type MensagemAchada } from "@/lib/busca";
+import {
+  casaFiltroDeSelo,
+  type FiltroDeSelo,
+  type SeloDaCliente,
+  type SeloInfo,
+} from "@/lib/selo-da-cliente";
+import { SeloDaClientePill } from "@/components/selo-da-cliente";
 import {
   listaEstaEscondida,
   lugarParaVoltar,
@@ -170,6 +179,10 @@ export type InboxConversation = {
     wholesale: boolean;
     catalogLink: string;
     tags: { id: string; name: string; color: string }[];
+    /** RN-063: Pedido / Cliente / Recompra, calculado dos pedidos */
+    selo: SeloDaCliente | null;
+    pagos: number;
+    abertos: number;
   };
   assignee: { id: string; name: string; color: string } | null;
   setor: { id: string; name: string; color: string } | null;
@@ -549,6 +562,8 @@ export function Inbox({
   const [tab, setTab] = useState<Tab>("fila");
   const [search, setSearch] = useState("");
   const [tagFilter, setTagFilter] = useState<string | null>(null);
+  // RN-063: filtro pelo selo calculado (Clientes / Recompra / Com pedido)
+  const [seloFilter, setSeloFilter] = useState<FiltroDeSelo | null>(null);
   /**
    * CONTATO PARECIDO (incidente Toque Leve, 20/08/2026): a mesma cliente
    * cadastrada duas vezes — um dígito trocado no telefone — fazia duas
@@ -1121,19 +1136,27 @@ export function Inbox({
 
   // a lista com TODOS os filtros MENOS o "Não lidas": é ela que alimenta o
   // filtro e o número do botãozinho — mesma régua, o contador nunca mente
+  // O RECORTE BASE (aba, etiqueta, busca) mora numa função só: a lista e os
+  // contadores dos chips de selo leem a MESMA régua — dois trechos copiados
+  // é como o chip passa a dizer 12 e a lista abrir 4 (lição da RN-058).
+  const passaFiltrosBase = (c: InboxConversation, q: string) => {
+    // BUSCANDO? procura em TODAS as abas.
+    //
+    // Antes a lupa só olhava a aba aberta: a cliente estava em Contatos
+    // (atendimento encerrado) e a busca em Chats não achava nada — parecia
+    // que a lupa não funcionava. Quem digita um nome quer a pessoa, não a
+    // gaveta em que ela está.
+    if (!q && bucketOf(c) !== tab) return false;
+    if (tagFilter && !c.customer.tags.some((t) => t.id === tagFilter)) return false;
+    // a conversa fica se o CONTATO casa ou se a PALAVRA apareceu nela
+    if (!casaCliente(c.customer, q) && !achados[c.id]) return false;
+    return true;
+  };
   const filtradasBase = useMemo(() => {
     const q = search.trim();
     const list = convs.filter((c) => {
-      // BUSCANDO? procura em TODAS as abas.
-      //
-      // Antes a lupa só olhava a aba aberta: a cliente estava em Contatos
-      // (atendimento encerrado) e a busca em Chats não achava nada — parecia
-      // que a lupa não funcionava. Quem digita um nome quer a pessoa, não a
-      // gaveta em que ela está.
-      if (!q && bucketOf(c) !== tab) return false;
-      if (tagFilter && !c.customer.tags.some((t) => t.id === tagFilter)) return false;
-      // a conversa fica se o CONTATO casa ou se a PALAVRA apareceu nela
-      if (!casaCliente(c.customer, q) && !achados[c.id]) return false;
+      if (!passaFiltrosBase(c, q)) return false;
+      if (seloFilter && !casaFiltroDeSelo(c.customer.selo, seloFilter)) return false;
       return true;
     });
     // Fila: mais antigo primeiro (quem espera há mais tempo no topo).
@@ -1150,6 +1173,22 @@ export function Inbox({
         new Date(b.lastMessageAt).getTime() - new Date(a.lastMessageAt).getTime()
       );
     });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [convs, tab, search, tagFilter, seloFilter, achados]);
+
+  // contagem dos chips de selo (RN-063) na aba/busca atual, SEM o próprio
+  // filtro de selo — senão ligar "Recompra" zerava o número de "Clientes".
+  // Conta PESSOAS (cliente distinta), não conversas: a cliente com duas
+  // conversas (RN-020) é uma cliente só — o chip fala de gente
+  const selosNaLista = useMemo(() => {
+    const q = search.trim();
+    const vistos = { CLIENTES: new Set<string>(), RECOMPRA: new Set<string>(), PEDIDO: new Set<string>() };
+    for (const c of convs) {
+      if (!passaFiltrosBase(c, q)) continue;
+      for (const f of ["CLIENTES", "RECOMPRA", "PEDIDO"] as const)
+        if (casaFiltroDeSelo(c.customer.selo, f)) vistos[f].add(c.customer.id);
+    }
+    return { CLIENTES: vistos.CLIENTES.size, RECOMPRA: vistos.RECOMPRA.size, PEDIDO: vistos.PEDIDO.size };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [convs, tab, search, tagFilter, achados]);
 
@@ -1355,14 +1394,43 @@ export function Inbox({
           `/api/conversations?since=${encodeURIComponent(lastSyncRef.current)}`
         );
         if (!res.ok) return;
-        const d: { now?: string; conversations?: InboxConversation[] } =
-          await res.json();
+        const d: {
+          now?: string;
+          conversations?: InboxConversation[];
+          selos?: ({ customerId: string } & SeloInfo)[];
+        } = await res.json();
         if (!alive || !d.conversations) return;
         // próxima busca ancorada no relógio do servidor, com folga de 10s
         if (d.now)
           lastSyncRef.current = new Date(
             new Date(d.now).getTime() - 10_000
           ).toISOString();
+        // RN-063: selo fresco de quem teve pedido mexido — vale para TODAS
+        // as conversas daquela cliente, mesmo as que o sync não trouxe
+        if (d.selos && d.selos.length > 0) {
+          const porCliente = new Map(d.selos.map((s) => [s.customerId, s]));
+          setConvs((prev) => {
+            // só devolve lista nova se algum selo de fato mudou — senão cada
+            // batida com pedido mexido em OUTRA cliente redesenhava a lista
+            // inteira à toa (achado da revisão)
+            let mudou = false;
+            const nova = prev.map((c) => {
+              const s = porCliente.get(c.customer.id);
+              if (!s) return c;
+              if (
+                s.selo === c.customer.selo &&
+                s.pagos === c.customer.pagos &&
+                s.abertos === c.customer.abertos
+              )
+                return c;
+              mudou = true;
+              const { customerId: _id, ...info } = s;
+              void _id;
+              return { ...c, customer: { ...c.customer, ...info } };
+            });
+            return mudou ? nova : prev;
+          });
+        }
         if (d.conversations.length === 0) return;
         const fresh = d.conversations;
         const selId = selectedIdRef.current;
@@ -3021,6 +3089,51 @@ export function Inbox({
                 </span>
               </button>
             )}
+            {/* RN-063: selo calculado dos pedidos — o chip só aparece quando
+                há alguém com ele na lista (ou enquanto está ligado, senão a
+                lista fica vazia sem como desligar) */}
+            {(
+              [
+                ["CLIENTES", "Clientes", "Só quem já tem pedido pago (inclui recompra)"],
+                ["RECOMPRA", "Recompra", "Só quem tem 2 ou mais pedidos pagos"],
+                ["PEDIDO", "Com pedido", "Tem pedido em aberto e ainda não pagou nenhum"],
+              ] as const
+            ).map(([f, rotulo, dica]) => {
+              const on = seloFilter === f;
+              const n = selosNaLista[f];
+              if (n === 0 && !on) return null;
+              const verde = f !== "PEDIDO";
+              return (
+                <button
+                  key={f}
+                  onClick={() => setSeloFilter(on ? null : f)}
+                  title={dica}
+                  className={`shrink-0 inline-flex items-center gap-1 rounded-full px-2 py-1 text-[11px] font-semibold transition ${
+                    on
+                      ? verde ? "bg-emerald-600 text-white" : "bg-amber-500 text-white"
+                      : verde
+                        ? "bg-emerald-50 text-emerald-800 hover:bg-emerald-100 ring-1 ring-inset ring-emerald-200"
+                        : "bg-amber-50 text-amber-800 hover:bg-amber-100 ring-1 ring-inset ring-amber-200"
+                  }`}
+                >
+                  {f === "PEDIDO" ? (
+                    <ShoppingBag className="size-3" />
+                  ) : f === "RECOMPRA" ? (
+                    <Repeat className="size-3" />
+                  ) : (
+                    <BadgeCheck className="size-3" />
+                  )}
+                  {rotulo}
+                  <span
+                    className={`min-w-4 px-1 rounded-full text-[10px] font-bold ${
+                      on ? "bg-white/25 text-white" : verde ? "bg-emerald-600 text-white" : "bg-amber-500 text-white"
+                    }`}
+                  >
+                    {n}
+                  </span>
+                </button>
+              );
+            })}
             {tags.length > 0 && (
               <>
               {tagFilter && (
@@ -3201,6 +3314,8 @@ export function Inbox({
                     </p>
                   )}
                   <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
+                    {/* RN-063: primeiro o selo do sistema, depois o resto */}
+                    <SeloDaClientePill info={c.customer} />
                     <SetorPill setor={c.setor} />
                     {c.customer.tags.map((t) => (
                       <span
@@ -3660,6 +3775,9 @@ export function Inbox({
                 ser cortado por ela (flutua por cima da conversa). */}
             <div ref={tagPickerRef} className="relative border-b border-gray-50 shrink-0">
               <div className="flex items-center gap-1.5 px-4 py-2 overflow-x-auto thin-scroll">
+                {/* RN-063: o selo do sistema vem antes das etiquetas manuais e
+                    não tem "×" — não se tira na mão */}
+                <SeloDaClientePill info={selected.customer} tamanho="md" />
                 <TagIcon className="size-3.5 text-gray-300 shrink-0" />
                 {selected.customer.tags.map((t) => (
                   <button

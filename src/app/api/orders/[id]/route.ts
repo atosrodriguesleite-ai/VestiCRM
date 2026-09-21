@@ -1,3 +1,4 @@
+import { tocarConversasDaCliente } from "@/lib/selo-da-cliente-data";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
@@ -1266,6 +1267,13 @@ export async function PATCH(
     const updated = Object.keys(data).length
       ? await db.order.update({ where: { id }, data })
       : (await db.order.findUnique({ where: { id } }))!;
+    // RN-063: pedido TRANSFERIDO para outra cliente deixa `updatedAt` só na
+    // nova; a antiga perde o pedido sem rastro e o selo dela ficava "Cliente"
+    // na Central aberta até o F5 (achado da revisão). Tocar as conversas dela
+    // faz o sync recalcular — mesma porta do pedido apagado.
+    if (data.customerId && data.customerId !== order.customerId) {
+      await tocarConversasDaCliente(db, user.companyId, order.customerId);
+    }
 
     // linha do tempo SÓ do que aconteceu de verdade: os eventos de troca de
     // vendedor/cliente são gravados depois que a alteração salvou

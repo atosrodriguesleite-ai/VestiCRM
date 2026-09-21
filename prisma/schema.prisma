@@ -1974,6 +1974,10 @@ model Order {
   @@index([companyId, createdAt])
   @@index([companyId, paidAt])
   @@index([companyId, trackSessionId])
+  // RN-063: "de quem mexeram no pedido desde o último sync" (selo da Central)
+  @@index([companyId, updatedAt])
+  // RN-063: pedidos de UMA cliente (selo da Central, ficha, transferência)
+  @@index([companyId, customerId])
 }
 
 model OrderItem {

@@ -1,4 +1,5 @@
 import type { Prisma } from "@prisma/client";
+import { tocarConversasDaCliente } from "./selo-da-cliente-data";
 import { db } from "./db";
 import { baixasLiquidasDoPedido } from "./estoque-do-pedido";
 import { espelharEstoqueSemQuebrar } from "./nuvemshop";
@@ -66,6 +67,15 @@ export async function reverseAndDeleteOrder(
   }
   // Apaga o pedido; itens/pagamentos/envio/eventos caem por cascata.
   await tx.order.delete({ where: { id: order.id } });
+
+  // O SELO DA CENTRAL ACOMPANHA (RN-063): o selo Pedido/Cliente/Recompra é
+  // calculado dos pedidos e o sync da inbox descobre "de quem recalcular"
+  // pelo `updatedAt` do pedido — mas pedido APAGADO não deixa `updatedAt`
+  // para trás. Tocar as conversas da cliente (é o que o sync já lê) faz a
+  // tela aberta receber o selo fresco em segundos, em vez de só no F5. Fica
+  // aqui, no funil ÚNICO de exclusão, pelo mesmo motivo do desmarcar da
+  // visita logo abaixo.
+  await tocarConversasDaCliente(tx, order.companyId, order.customerId);
 
   // A VISITA DEIXA DE CONTAR COMO VENDA (relato do dono, 01/09/2026: "fala
   // que tem um pedido, mas esse pedido não chegou aqui"). O pedido do

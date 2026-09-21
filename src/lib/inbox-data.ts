@@ -1,4 +1,6 @@
 import { db } from "./db";
+import { selosDosClientes } from "./selo-da-cliente-data";
+import { infoDoSelo } from "./selo-da-cliente";
 import { conversationScope, veTodaAConversa } from "./scope";
 import { Prisma } from "@prisma/client";
 import {
@@ -139,11 +141,19 @@ export async function loadInboxConversations(
   ) => trackedCatalogLink(catalogBase, refDaConversa(c), linkCode ?? id);
 
   // presença de mídia em lote (uma consulta para todas as mensagens da carga)
-  const comMidia = await idsComMidia(
-    conversations.flatMap((c) =>
-      c.messages.filter((m) => m.mediaType !== "TEXT").map((m) => m.id)
-    )
-  );
+  // e o SELO da cliente (RN-063: Pedido / Cliente / Recompra, calculado dos
+  // pedidos — uma consulta para a lista inteira), lado a lado
+  const [comMidia, selos] = await Promise.all([
+    idsComMidia(
+      conversations.flatMap((c) =>
+        c.messages.filter((m) => m.mediaType !== "TEXT").map((m) => m.id)
+      )
+    ),
+    selosDosClientes(
+      user.companyId,
+      conversations.map((c) => c.customerId)
+    ),
+  ]);
 
   return conversations.map((c) => ({
     id: c.id,
@@ -172,6 +182,9 @@ export async function loadInboxConversations(
       waName: c.customer.waName ?? null,
       wholesale: c.customer.type !== "VAREJO",
       catalogLink: linkForCustomer(c.customer.linkCode, c.customer.id, c),
+      // RN-063: o selo vem SEMPRE calculado (nunca gravado) — lista, sync,
+      // busca e abertura da conversa passam todos por aqui
+      ...(selos.get(c.customer.id) ?? infoDoSelo(undefined)),
       tags: c.customer.tags.map((t) => ({
         id: t.tag.id,
         name: t.tag.name,
