@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 
 /**
@@ -11,6 +11,17 @@ import { join } from "node:path";
  */
 
 const ler = (p: string) => readFileSync(join(process.cwd(), p), "utf8");
+
+/** Todos os .tsx abaixo de uma pasta (varredura, para a regra não escapar
+ *  em tela nova). */
+function varrerTsx(dir: string, achados: string[] = []): string[] {
+  for (const e of readdirSync(join(process.cwd(), dir), { withFileTypes: true })) {
+    const caminho = `${dir}/${e.name}`;
+    if (e.isDirectory()) varrerTsx(caminho, achados);
+    else if (e.name.endsWith(".tsx")) achados.push(caminho);
+  }
+  return achados;
+}
 
 describe("o botão da Agenda abre a conversa DENTRO da Central", () => {
   const board = ler("src/app/(app)/tarefas/task-board.tsx");
@@ -77,5 +88,39 @@ describe("sugestão cumprida some sozinha — em TODAS as listas", () => {
     expect(ler("src/app/api/conversations/[id]/messages/route.ts")).toContain(
       'if (parsed.data.kind !== "NOTE") {'
     );
+  });
+});
+
+/**
+ * VER CONVERSA ABRE DENTRO DA CONVERSA — relato do dono (21/09/2026):
+ * "quando estou em pedidos e clico em ver conversa, ele abre o WhatsApp,
+ * mas não dentro da conversa".
+ *
+ * Quem já tem o id da conversa na mão (a ficha do pedido, a ficha da
+ * cliente) tem que mandar `?conv=` — a Central sem id abre na lista e a
+ * lojista procura a pessoa de novo, que é o trabalho que o botão deveria
+ * poupar. Vale no celular e no computador: é o MESMO endereço.
+ */
+describe("quem tem o id da conversa na mão abre DENTRO dela", () => {
+  it("o botão 'Ver conversa' do pedido leva o id", () => {
+    const pedido = ler("src/app/(app)/pedidos/[id]/page.tsx");
+    expect(pedido).toContain("`/whatsapp?conv=${order.conversationId}`");
+  });
+
+  it("'Abrir no atendimento' da ficha da cliente leva o id DAQUELA conversa", () => {
+    const ficha = ler("src/app/(app)/clientes/[id]/page.tsx");
+    expect(ficha).toContain("`/whatsapp?conv=${c.id}`");
+  });
+
+  it("nenhuma tela manda para a Central genérica tendo a conversa na mão", () => {
+    // varredura: link cru para /whatsapp só é legítimo no MENU (ali não
+    // existe conversa escolhida). Em tela de pedido/cliente ele é o defeito.
+    const arquivos = varrerTsx("src/app");
+    const cruas = arquivos.filter(
+      (p) =>
+        !p.includes("menu") &&
+        /href=\{?["'`]\/whatsapp["'`]/.test(ler(p))
+    );
+    expect(cruas).toEqual([]);
   });
 });

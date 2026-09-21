@@ -515,8 +515,10 @@ export default async function CustomerDetailPage({
                         {m.body}
                       </p>
                     ))}
+                  {/* a conversa DAQUELA linha, não a Central genérica: o
+                      link sem o id fazia a lojista procurar a cliente de novo */}
                   <Link
-                    href="/whatsapp"
+                    href={`/whatsapp?conv=${c.id}`}
                     className="text-[11px] font-medium text-brand-600 hover:text-brand-700 mt-1.5 inline-block"
                   >
                     Abrir no atendimento →

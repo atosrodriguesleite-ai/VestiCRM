@@ -330,8 +330,14 @@ export default async function OrderDetailPage({
               />
             )}
             {order.conversationId && (
+              /* Abre DENTRO da conversa desta cliente (`?conv=`), não na
+                 Central genérica: sem o id, a lojista caía na lista e tinha
+                 que procurar a pessoa de novo (relato do dono, 21/09/2026).
+                 É o mesmo caminho do sino, da Agenda e da ficha — e ele
+                 também passa pela porteira da RN-049, então a loja que ainda
+                 não conectou o WhatsApp vê a conversa em vez do convite. */
               <Link
-                href="/whatsapp"
+                href={`/whatsapp?conv=${order.conversationId}`}
                 className="flex items-center justify-center gap-1.5 rounded-xl border border-gray-200 hover:border-emerald-300 text-gray-600 text-sm font-medium px-4 py-2.5 transition"
               >
                 <MessageCircle className="size-4 text-emerald-500" />
