@@ -13,6 +13,7 @@ import {
   Clock,
   CheckCircle2,
   Wallet,
+  HandCoins,
   AlertTriangle,
   ExternalLink,
 } from "lucide-react";
@@ -20,6 +21,7 @@ import { Alert, Badge, Button, Card, EmptyState, Input, Spinner } from "@/compon
 import { copiarTexto } from "@/lib/copiar";
 import { MapaEnvios, type MapaDeEnvios } from "./mapa-envios";
 import { AGUARDANDO_POSTAGEM, estaParado, lerValorBR } from "@/lib/envios/painel";
+import type { ResumoEnvios } from "@/lib/envios/painel";
 import type { MeQuote, MeRecusa, VolumePacote } from "@/lib/melhorenvio-tipos";
 
 /**
@@ -53,15 +55,7 @@ type Envio = {
   comNota: boolean;
 };
 
-type Painel = {
-  gastoMes: number;
-  aguardandoPostagem: number;
-  emTransito: number;
-  entregues: number;
-  devolvidos: number;
-  parados: number;
-  mediaEntregaDias: number | null;
-};
+type Painel = ResumoEnvios;
 
 type Dados = {
   lista: Envio[];
@@ -199,12 +193,25 @@ export function EnviosView() {
       {dados && (
         <>
           {/* ---- Painel ---------------------------------------------- */}
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+          <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 [&>*:last-child]:col-span-2 lg:[&>*:last-child]:col-span-1">
             <CardDoPainel
               icone={<Wallet />}
               titulo="Gasto com frete no mês"
               valor={brl(dados.painel.gastoMes)}
               detalhe="etiquetas compradas"
+            />
+            {/* o outro lado da conta (RN-065, pedido do dono, 23/09/2026):
+                quanto a loja COBROU de frete das clientes nos pedidos pagos
+                do mês. O saldo compara os MESMOS pedidos — só os que têm
+                etiqueta daqui: frete cobrado neles menos o custo das
+                etiquetas deles (achado da revisão: comparar com o "gasto do
+                mês" misturava populações e acusava falta que não existia) */}
+            <CardDoPainel
+              icone={<HandCoins />}
+              titulo="Frete recebido no mês"
+              valor={brl(dados.painel.freteRecebidoMes)}
+              detalhe={detalheDoFreteRecebido(dados.painel)}
+              alerta={dados.painel.saldoFreteMes != null && dados.painel.saldoFreteMes < 0}
             />
             <CardDoPainel
               icone={<Package />}
@@ -430,6 +437,26 @@ export function EnviosView() {
       )}
     </div>
   );
+}
+
+/**
+ * Legenda do cartão de frete recebido (RN-065): quantos pedidos cobraram
+ * frete e, quando há pedido com etiqueta daqui, o saldo DESSES pedidos —
+ * curto, porque o cartão do celular tem uma linha (achado da revisão).
+ */
+export function detalheDoFreteRecebido(p: {
+  pedidosComFreteMes: number;
+  saldoFreteMes: number | null;
+}): string {
+  const pedidos =
+    p.pedidosComFreteMes === 0
+      ? "nenhum pedido pago cobrou frete"
+      : p.pedidosComFreteMes === 1
+        ? "1 pedido cobrou frete"
+        : `${p.pedidosComFreteMes} pedidos cobraram frete`;
+  if (p.saldoFreteMes == null) return pedidos;
+  const saldo = `${p.saldoFreteMes < 0 ? "−" : "+"}${brl(Math.abs(p.saldoFreteMes))}`;
+  return `${pedidos} · vs. etiquetas ${saldo}`;
 }
 
 function CardDoPainel({

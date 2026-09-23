@@ -6,7 +6,7 @@ import { CHAVE_RELATO_PENDENTE, EVENTO_RELATO_GUARDADO } from "@/lib/erro-da-tel
 
 /**
  * O RELATO GUARDADO CHEGA AO SERVIDOR — e só sai do aparelho quando é a
- * hora (RN-065). Quem quebrou com a sessão vencida só consegue mandar depois
+ * hora (RN-066). Quem quebrou com a sessão vencida só consegue mandar depois
  * do login: o 401 NÃO pode apagar o relato, senão justamente esse caso
  * nunca chegaria ao painel.
  */

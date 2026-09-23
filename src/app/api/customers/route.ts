@@ -7,7 +7,11 @@ import { conferirDocumentos, guardarDocumento, soDigitos } from "@/lib/documento
 import type { Origin } from "@prisma/client";
 
 const schema = z.object({
-  name: z.string().min(1),
+  // nome OPCIONAL (23/09/2026): a vendedora às vezes tem só o número. Sem
+  // nome, o intake dá o crachá provisório "Contato (82) 9…" e o nome que a
+  // cliente usa no WhatsApp o substitui sozinho quando ela responder
+  // (`nomeProvisorio`) — nome digitado por gente nunca é sobrescrito
+  name: z.string().trim().max(120).optional(),
   phone: z.string().min(8),
   // CPF e CNPJ SEPARADOS: a cliente lojista tem os dois e cada transportadora
   // pede um deles (ver src/lib/documento.ts)

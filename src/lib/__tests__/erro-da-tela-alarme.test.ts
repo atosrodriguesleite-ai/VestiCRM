@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 /**
- * O ALARME DO "🚨 ERRO EM PRODUÇÃO" (`logServerError`) — RN-065.
+ * O ALARME DO "🚨 ERRO EM PRODUÇÃO" (`logServerError`) — RN-066.
  *
  * O alarme é o canal ÚNICO das emergências do servidor e do WhatsApp, com um
  * intervalo de 15 min compartilhado: o relato de tela (vindo do aparelho,

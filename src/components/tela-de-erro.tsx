@@ -16,7 +16,7 @@ import {
 } from "@/lib/erro-da-tela";
 
 /**
- * RN-065 · A tela que aparece quando algo quebra no navegador — no lugar da
+ * RN-066 · A tela que aparece quando algo quebra no navegador — no lugar da
  * frase crua do Next em inglês ("Application error: a client-side exception
  * has occurred"), que deixava a lojista num beco sem botão.
  *

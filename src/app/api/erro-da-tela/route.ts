@@ -21,7 +21,7 @@ import {
 export const dynamic = "force-dynamic";
 
 /**
- * RN-065 · O relato da tela que quebrou no navegador, levado ao painel de
+ * RN-066 · O relato da tela que quebrou no navegador, levado ao painel de
  * Saúde (`ErrorLog`, fonte "client" — ela já existia no coletor e nunca
  * tinha tido quem a usasse).
  *

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { after } from "next/server";
 import { z } from "zod";
 import { requireUser, AuthError } from "@/lib/auth";
+import { veTodaAConversa } from "@/lib/scope";
 import { db } from "@/lib/db";
 import { buscarConversas, loadInboxConversations } from "@/lib/inbox-data";
 import { selosMexidosDesde } from "@/lib/selo-da-cliente-data";
@@ -142,6 +143,26 @@ export async function POST(req: NextRequest) {
       orderBy: { lastMessageAt: "desc" },
     });
     if (aberta) {
+      // A CONVERSA ABERTA DE UMA COLEGA NÃO É DEVOLVIDA para quem não a
+      // enxerga (a régua do chat, `veTodaAConversa`): devolver o id fazia a
+      // tela buscar a conversa, levar 404 do recorte e ficar muda — a
+      // vendedora com um contato salvo e nada na tela (achado da revisão,
+      // 23/09/2026). Atendimento em curso é de quem está atendendo; a
+      // resposta DIZ com quem falar, em vez de abrir por cima.
+      if (aberta.assigneeId && aberta.assigneeId !== user.id && !veTodaAConversa(user)) {
+        const colega = await db.user.findUnique({
+          where: { id: aberta.assigneeId },
+          select: { name: true },
+        });
+        return NextResponse.json(
+          {
+            error: `Essa cliente já está em atendimento com ${
+              colega?.name ?? "outra pessoa da equipe"
+            }. Fale com ela ou com a gerência para transferir.`,
+          },
+          { status: 409 }
+        );
+      }
       // sem dona ainda? quem abriu assume — ninguém fica esperando na fila
       if (!aberta.assigneeId) {
         await db.conversation.update({
@@ -157,9 +178,15 @@ export async function POST(req: NextRequest) {
       orderBy: { lastMessageAt: "desc" },
     });
     if (encerrada) {
+      // reabre no nome de QUEM ABRIU — é a promessa desta porta ("o
+      // atendimento nasce no nome de quem abriu"). Manter a dona antiga
+      // jogava a conversa reaberta na lista de uma colega que não pediu
+      // nada e, para a vendedora do recorte normal, num lugar que ela nem
+      // enxerga (achado da revisão, 23/09/2026). Atendimento ENCERRADO não
+      // é de ninguém — encerrou, devolveu.
       await db.conversation.update({
         where: { id: encerrada.id },
-        data: { status: "OPEN", assigneeId: encerrada.assigneeId ?? user.id },
+        data: { status: "OPEN", assigneeId: user.id },
       });
       return NextResponse.json({ id: encerrada.id });
     }

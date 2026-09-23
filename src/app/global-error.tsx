@@ -3,7 +3,7 @@
 import { TelaDeErro } from "@/components/tela-de-erro";
 
 /**
- * RN-065 · Quebra no ESQUELETO do app (o layout raiz): aqui o Next troca a
+ * RN-066 · Quebra no ESQUELETO do app (o layout raiz): aqui o Next troca a
  * página inteira, então este arquivo precisa trazer o próprio `<html>`,
  * `<head>` e `<body>`. O `viewport` vai escrito à mão: o do layout raiz
  * pode não valer quando é justamente ele que caiu, e sem ele o iPhone

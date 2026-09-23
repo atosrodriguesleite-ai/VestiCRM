@@ -46,14 +46,14 @@ async function platformCompanyId(): Promise<string | null> {
 export async function logServerError(input: {
   // wa.webhook: falha ao gravar mensagem que chegou do WhatsApp — a mais
   // grave de todas, porque significa conversa que a loja não vai ver
-  // client / tela.versao: tela que quebrou no NAVEGADOR (RN-065)
+  // client / tela.versao: tela que quebrou no NAVEGADOR (RN-066)
   source: "server" | "watchdog" | "client" | "tela.versao" | "wa.webhook";
   path?: string | null;
   message: string;
   detail?: string | null;
   /**
    * `false` = grava no painel sem tocar o "🚨 Erro em produção". É o caso da
-   * tela quebrada no navegador (RN-065): o alarme é o canal ÚNICO das
+   * tela quebrada no navegador (RN-066): o alarme é o canal ÚNICO das
    * emergências do servidor e do WhatsApp, com um intervalo de 15 min
    * compartilhado — um relato de tela ganharia esse intervalo e calaria o
    * alarme de uma mensagem de cliente perdida; e o texto vem do aparelho,

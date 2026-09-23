@@ -8,7 +8,7 @@ import {
 } from "@/lib/erro-da-tela";
 
 /**
- * RN-065 · Manda ao painel de Saúde o relato da última tela que quebrou
+ * RN-066 · Manda ao painel de Saúde o relato da última tela que quebrou
  * neste aparelho (guardado pela `TelaDeErro`): ao montar — o que ficou de
  * uma quebra anterior, de antes do login ou de antes de uma recarga — e NA
  * HORA em que uma tela do app quebra sem recarregar (o evento), porque o app

@@ -98,7 +98,7 @@ Se voltar a faltar transportadora, o motivo está escrito ali.
 ## 🟠 "Application error: a client-side exception…" (ou a tela "Algo deu errado")
 
 É uma tela que quebrou **no navegador**, não no servidor. Desde 23/09/2026
-(RN-065) a lojista vê a nossa tela de socorro em português, com o botão de
+(RN-066) a lojista vê a nossa tela de socorro em português, com o botão de
 recarregar — a frase crua em inglês só aparece em versão anterior a isso.
 
 **Onde está a causa:** no painel **`/saude`**, nas linhas que começam com

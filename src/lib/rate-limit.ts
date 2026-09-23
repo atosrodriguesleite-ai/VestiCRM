@@ -119,7 +119,7 @@ export function chavesDeChuteDeCodigo(ip: string | null): string[] {
 }
 
 /**
- * RN-065: relato de tela quebrada (`/api/erro-da-tela`). O aparelho manda no
+ * RN-066: relato de tela quebrada (`/api/erro-da-tela`). O aparelho manda no
  * máximo UM por carregamento, mas um defeito que quebra a tela em toda
  * abertura, somado a quem abre o app o dia todo, encheria o painel de Saúde
  * com a mesma linha — dez por pessoa a cada 15 min contam a história inteira.

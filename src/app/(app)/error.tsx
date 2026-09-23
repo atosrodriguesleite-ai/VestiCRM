@@ -3,7 +3,7 @@
 import { TelaDeErro } from "@/components/tela-de-erro";
 
 /**
- * RN-065 · Quebra numa TELA do app (pedidos, chat, produtos…): este
+ * RN-066 · Quebra numa TELA do app (pedidos, chat, produtos…): este
  * boundary fica DENTRO do layout do app, então o menu continua de pé — é
  * ele a saída quando a quebra se repete a cada recarga (achado da revisão:
  * com o boundary só na raiz, o menu sumia e o único botão levava de volta à

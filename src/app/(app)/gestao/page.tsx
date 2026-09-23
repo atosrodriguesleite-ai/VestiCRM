@@ -71,7 +71,7 @@ export default async function GestaoPage() {
     db.company.findUnique({ where: { slug: PLATFORM_SLUG }, select: { id: true } }),
     // a lista mostra as 40 mais recentes; "auditoria" são ações do próprio
     // Super Admin (ex.: exclusão de loja) — ficam registradas, mas não são
-    // defeito do sistema. "Versão velha" de tela (RN-065) também não: é o
+    // defeito do sistema. "Versão velha" de tela (RN-066) também não: é o
     // esperado depois de cada entrega, e se cura sozinho
     db.errorLog.findMany({
       where: { source: { notIn: [FONTE_AUDITORIA, FONTE_TELA_VERSAO_VELHA] } },

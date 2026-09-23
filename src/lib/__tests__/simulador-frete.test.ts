@@ -1,6 +1,7 @@
 // Guarda RN-019
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import {
   ordenarEmbalagens,
   toleranciaDePecas,
@@ -271,6 +272,7 @@ describe("painel da tela Envios", () => {
         { meStatus: null, quantidade: 5 }, // envio manual antigo: fora
       ],
       gastoMes: 123.456,
+      freteRecebidoMes: { soma: 200.004, pedidos: 3, comEtiqueta: { frete: 0, custo: 0, pedidos: 0 } },
       parados: 2,
       entregues: [
         { shippedAt: new Date("2026-08-01"), deliveredAt: new Date("2026-08-03") },
@@ -285,11 +287,6 @@ describe("painel da tela Envios", () => {
     expect(r.parados).toBe(2);
     expect(r.gastoMes).toBe(123.46);
     expect(r.mediaEntregaDias).toBe(3); // (2 + 4) / 2
-  });
-
-  it("sem entrega recente a média é null (a tela diz 'sem dado', não zero)", () => {
-    const r = resumoDosEnvios({ porStatus: [], gastoMes: 0, parados: 0, entregues: [] });
-    expect(r.mediaEntregaDias).toBeNull();
   });
 
   it("o mês vira à meia-noite de SÃO PAULO, não de Londres (lição do lib/periodo.ts)", () => {

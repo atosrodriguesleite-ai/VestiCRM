@@ -74,7 +74,7 @@ export default async function HealthPage() {
         evolutionDownSince: true,
       },
     }),
-    // RN-065: "versão velha" é esperado depois de cada entrega e se cura
+    // RN-066: "versão velha" é esperado depois de cada entrega e se cura
     // sozinho — fora da lista e da conta, senão enterrava os erros de verdade
     db.errorLog.findMany({
       where: { source: { not: FONTE_TELA_VERSAO_VELHA } },

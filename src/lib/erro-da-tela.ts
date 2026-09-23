@@ -1,5 +1,5 @@
 /**
- * RN-065 · A TELA QUE QUEBROU SE RECUPERA — E CONTA O QUE HOUVE.
+ * RN-066 · A TELA QUE QUEBROU SE RECUPERA — E CONTA O QUE HOUVE.
  *
  * Relato do dono (20/09/2026, print do iPhone): *"quando o aplicativo fica
  * muito tempo aberto e volto nele dá esse erro"* — a tela crua do Next,

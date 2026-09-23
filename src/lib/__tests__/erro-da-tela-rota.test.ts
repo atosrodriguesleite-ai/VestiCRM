@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 /**
- * A PORTA DO RELATO (`/api/erro-da-tela`, RN-065).
+ * A PORTA DO RELATO (`/api/erro-da-tela`, RN-066).
  *
  * Ela escreve no painel de Saúde com texto que vem do aparelho, então os
  * limites são provados aqui: sem login não entra, quem é a pessoa sai da

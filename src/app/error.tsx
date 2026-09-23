@@ -3,7 +3,7 @@
 import { TelaDeErro } from "@/components/tela-de-erro";
 
 /**
- * RN-065 · Quebra ABAIXO do layout raiz que não tem boundary mais perto:
+ * RN-066 · Quebra ABAIXO do layout raiz que não tem boundary mais perto:
  * o catálogo público, a bio, as páginas públicas — e o próprio esqueleto do
  * app (o layout com o menu), que está DENTRO deste boundary e por isso some
  * junto. Só o layout raiz fica de pé. As telas do app têm boundary próprio

@@ -19,7 +19,7 @@ import {
   soOCaminho,
 } from "../erro-da-tela";
 
-// Guarda RN-065
+// Guarda RN-066
 /**
  * A TELA QUE QUEBROU SE RECUPERA — E CONTA O QUE HOUVE.
  *

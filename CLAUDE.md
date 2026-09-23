@@ -147,7 +147,7 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   navegador inteiro e o digitado não se perde); o 401 SEM a marca (usuária
   desativada, loja suspensa) diz para falar com quem administra — mandar
   essa pessoa para a outra aba seria um beco (achado da revisão).
-  **RN-065 · A TELA QUE QUEBROU SE RECUPERA — E CONTA O QUE HOUVE**
+  **RN-066 · A TELA QUE QUEBROU SE RECUPERA — E CONTA O QUE HOUVE**
   (`lib/erro-da-tela.ts` + `components/tela-de-erro.tsx`, `app/error.tsx`,
   `app/(app)/error.tsx` e `app/global-error.tsx`, 23/09/2026): relato do
   dono com print do iPhone — o app aberto por muito tempo voltava com a
@@ -793,7 +793,24 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   fila/chats/contatos (vendedora vê os dela + a fila; o interruptor
   **"vê todas as conversas do chat"** na tela Equipe — `User.chatVisaoTotal`,
   `conversationScope` — abre a Central inteira para uma vendedora específica
-  SEM mexer em carteira/pedidos/comissão), setores, assumir/transferir/encerrar, notas internas
+  SEM mexer em carteira/pedidos/comissão), setores, assumir/transferir/encerrar.
+  **Novo contato no topo da lista** (23/09/2026, pedido do dono: *"quando
+  recebo um número novo, não consigo adicionar no sistema — somente se o
+  cliente me chamar primeiro"*): a vendedora digita nome e telefone e a
+  conversa abre pronta para a primeira mensagem, pelas DUAS portas de sempre
+  — o cadastro manual (`POST /api/customers`, portão único da RN-008: número
+  já cadastrado NUNCA vira segunda ficha, e a janela DIZ de quem é a ficha e
+  pede confirmação antes de abrir conversa com outro nome) e o "Conversar no
+  WhatsApp" da ficha (`POST /api/conversations`: conversa nasce ASSUMIDA por
+  quem abriu, nunca na fila; devolve a aberta se já existe — a de COLEGA
+  fora do recorte NÃO abre por cima: a porta responde com quem está o
+  atendimento, senão a tela levava 404 do recorte e ficava muda — e reabre
+  a encerrada NO NOME DE QUEM ABRIU, com o histórico inteiro; manter a dona
+  antiga jogava a conversa na lista de quem não pediu nada — achados da
+  revisão). A janela só FECHA quando a conversa abriu de fato. **O nome é OPCIONAL** (pergunta do dono no mesmo dia: "às vezes consigo o número sem o nome"): sem nome o contato nasce com o crachá provisório (`Contato (82) 9…`, `nomeProvisorio`) e o nome que a cliente usa no WhatsApp o SUBSTITUI sozinho quando ela responder — nome digitado por gente nunca é sobrescrito; e número já cadastrado com o nome em branco abre direto (não há nome para divergir). Cliente novo entra na CARTEIRA de quem
+  cadastrou (a régua de sempre do cadastro manual). A conversa recém-criada
+  é buscada INTEIRA no servidor antes de abrir (o caminho do `?conv=` da
+  Agenda), notas internas
   com @menção, respostas rápidas (criáveis por qualquer um), mídia + **áudio
   de voz** (a vendedora **escolhe o microfone** na engrenagem ao lado do botão
   de gravar, `lib/microfone.ts` — antes quem mandava era o padrão do Windows e
@@ -2145,7 +2162,8 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   crédito da loja. E o cartão **não aparece onde o dinheiro anda** — baixa e
   transferência —, senão daria para quitar a parcela fora de qualquer fatura.
 - **Envios** (gated por loja, `shippingEnabled`, pago à parte): tela própria
-  no menu (`/envios`): painel (gasto do mês, aguardando postagem, em
+  no menu (`/envios`): painel (gasto do mês, frete recebido no mês — RN-065,
+  abaixo —, aguardando postagem, em
   trânsito com alerta de **parado há 7+ dias**, entregues com tempo médio) +
   lista de tudo que saiu (transportadora, destinatária, rastreio com copiar
   código/link público, status vivo) — a lista respeita RN-007 (`orderScope`)
@@ -2156,6 +2174,27 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   contornos e coordenadas dos 5.570 municípios foram gerados uma vez
   (`scripts/gerar-mapa-envios.mjs`) e commitados; cidade que não casa com a
   base vira ponto no centro do estado (envio nunca some do mapa).
+  **RN-065 · FRETE RECEBIDO NO MÊS, E O SALDO COMPARA OS MESMOS PEDIDOS**
+  (`resumoDosEnvios` em `lib/envios/painel.ts`, 23/09/2026): pedido do dono
+  — *"temos o gasto com frete no mês, que é das etiquetas; queria o quanto
+  recebi de frete, o que colocamos no campo de frete do pedido"*. O cartão
+  soma o campo de frete (`Order.shippingFee`) dos pedidos **PAGOS** (RN-001)
+  pela **data do pagamento** (a régua do faturamento), no recorte de quem
+  vê (RN-007), **todos os canais** — a loja online também cobrou frete; soma
+  `shippingFee`, **nunca `total`** (RN-002), e "N pedidos" conta só quem
+  cobrou frete (retirada e motoboy por fora ficam de fora). **O saldo NÃO é
+  "recebido − gasto do mês"** (achado da revisão): são populações
+  diferentes — o gasto conta etiquetas COMPRADAS no mês, de pedido em
+  qualquer status (RN-022); pedido pago dia 30 com etiqueta comprada dia 1º
+  virava "faltou R$ 35" em vermelho num frete coberto, e pedido da Nuvemshop
+  (frete cobrado lá, etiqueta comprada lá) inflava a sobra. O saldo compara,
+  **dentro dos pedidos pagos do mês, só os que têm etiqueta comprada aqui**
+  (não cancelada): frete cobrado neles − custo dessas etiquetas — a mesma
+  turma dos dois lados, e frete zero ENTRA nessa turma (a loja mandou de
+  graça e pagou etiqueta). Sem pedido com etiqueta, não há saldo (null, não
+  zero), e a legenda diz só quantos cobraram frete. A rota está na varredura
+  de dinheiro (`faturamento-data.test.ts`), e o número foi conferido contra
+  a soma direta no Postgres local.
   **RN-022 · Dois recortes** (21/08/2026): **"Todos os pedidos pagos"**
   (padrão) conta TODO pedido pago (RN-001) com endereço — a loja também
   despacha por motoboy, transportadora própria e retirada, e esses pedidos

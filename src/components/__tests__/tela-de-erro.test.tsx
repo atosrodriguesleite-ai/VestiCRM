@@ -4,7 +4,7 @@ import { render, screen, cleanup, fireEvent, act } from "@testing-library/react"
 import { CHAVE_RECARGAS, CHAVE_RELATO_PENDENTE, EVENTO_RELATO_GUARDADO } from "@/lib/erro-da-tela";
 
 /**
- * A TELA DE SOCORRO, RENDERIZADA DE VERDADE (RN-065).
+ * A TELA DE SOCORRO, RENDERIZADA DE VERDADE (RN-066).
  *
  * A regra da trava já é guardada pela função pura. Aqui se prova a
  * APLICAÇÃO dela — o lugar onde um descuido vira a página que recarrega
