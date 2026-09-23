@@ -118,6 +118,18 @@ export function chavesDeChuteDeCodigo(ip: string | null): string[] {
   return ip ? [`codip:${ip}`] : [];
 }
 
+/**
+ * RN-066: relato de tela quebrada (`/api/erro-da-tela`). O aparelho manda no
+ * máximo UM por carregamento, mas um defeito que quebra a tela em toda
+ * abertura, somado a quem abre o app o dia todo, encheria o painel de Saúde
+ * com a mesma linha — dez por pessoa a cada 15 min contam a história inteira.
+ */
+export const LIMITE_RELATO_ERRO_POR_USUARIO = 10;
+
+export function chavesDoRelatoDeErro(userId: string): string[] {
+  return [`errotela:${userId}`];
+}
+
 /** Chaves do pedido do catálogo. Sem IP identificável, não trava (RN-010). */
 export function chavesDoPedidoCatalogo(companyId: string, ip: string | null): string[] {
   if (!ip) return [];
@@ -145,6 +157,7 @@ function limiteDa(chave: string): number {
   if (chave.startsWith("demo:")) return LIMITE_DEMO_POR_IP;
   if (chave.startsWith("codigo:")) return LIMITE_CODIGOS_POR_USUARIO;
   if (chave.startsWith("codip:")) return LIMITE_CODIGO_POR_IP;
+  if (chave.startsWith("errotela:")) return LIMITE_RELATO_ERRO_POR_USUARIO;
   return LIMITE_POR_LOGIN;
 }
 

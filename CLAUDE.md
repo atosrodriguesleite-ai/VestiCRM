@@ -147,6 +147,76 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   navegador inteiro e o digitado não se perde); o 401 SEM a marca (usuária
   desativada, loja suspensa) diz para falar com quem administra — mandar
   essa pessoa para a outra aba seria um beco (achado da revisão).
+  **RN-066 · A TELA QUE QUEBROU SE RECUPERA — E CONTA O QUE HOUVE**
+  (`lib/erro-da-tela.ts` + `components/tela-de-erro.tsx`, `app/error.tsx`,
+  `app/(app)/error.tsx` e `app/global-error.tsx`, 23/09/2026): relato do
+  dono com print do iPhone — o app aberto por muito tempo voltava com a
+  frase crua do Next em inglês ("Application error: a client-side exception
+  has occurred"), sem botão. O app **não tinha tela de erro nenhuma**.
+  Agora tem, em quatro decisões (duas revisões, 18 achados): (1) **"versão
+  velha" recarrega SOZINHA, com trava** — o pedaço de código que só existia
+  na versão aberta no aparelho não está mais no servidor (`ChunkLoadError`
+  e as frases de carregamento de cada navegador, o Safari incluso;
+  `pareceVersaoVelha` olha SÓ isso, erro comum que cite "chunk" não conta).
+  A trava é **por aba, em dois degraus**: no máximo uma recarga por minuto
+  E no máximo 3 em meia hora (só o primeiro degrau recarregava a cada
+  minuto para sempre quando a peça faltava de verdade), gravada e **lida de
+  volta antes** de recarregar — sem conseguir gravar, NÃO recarrega; carimbo
+  no FUTURO é descartado (o iPhone que dormiu acerta o relógio para trás ao
+  acordar, e o carimbo travava a aba para sempre). **Sem internet não
+  recarrega**: no app instalado do iPhone, recarregar offline dá a tela
+  branca do sistema, sem botão — a tela diz "sem conexão", recarrega quando
+  o evento `online` chega e mostra o botão mesmo assim (se o evento nunca
+  vier, não vira beco); (2) **qualquer outro erro NUNCA recarrega
+  sozinho**: mostra em português que algo deu errado, que o salvo continua
+  salvo, o botão (com aviso se estiver sem internet) e o detalhe técnico
+  miúdo — é o que chega no print. Recarregar às escondidas sumiria com
+  defeito de verdade, e quem acabou de clicar "salvar" precisa saber;
+  (3) **dentro do app o menu FICA** (`(app)/error.tsx`): com o boundary só
+  na raiz, o menu sumia e o único botão levava de volta à mesma tela
+  quebrada. A raiz (`app/error.tsx`) pega o catálogo, a bio e o próprio
+  esqueleto do app; o `global-error` traz `<head>` com o viewport escrito à
+  mão (sem ele o iPhone desenharia a tela de socorro miúda) e os estilos da
+  tela são escritos nela, com a cor de reserva — o CSS do app pode não
+  estar de pé; (4) **o erro é CONTADO ao painel de Saúde**
+  (`/api/erro-da-tela` → `ErrorLog`). Não é enfeite: o Next 15 **já
+  recarrega sozinho** quando a NAVEGAÇÃO encontra versão nova (conferido
+  em `fetch-server-response.js`), então "versão velha" é suspeita, não
+  certeza — e consertar no escuro já custou caro (Bling, três tentativas).
+  O relato é montado DEPOIS da decisão e diz se a recarga **aconteceu**:
+  só a versão velha que recarregou é o caso esperado (fonte `tela.versao`,
+  **fora da lista e da conta de erros** da Saúde e da Gestão — a Saúde
+  mostra uma linha cinza com quantas foram); a que a **trava barrou** é
+  peça faltando de verdade e entra como quebra (`[tela · peça que não
+  carregou]`) — arquivá-la como "se curou" escondia justamente o defeito
+  que a trava existe para expor. Erro que veio do **servidor** (tem
+  `digest`) não é relatado de novo: o `onRequestError` já o registrou. O
+  relato fica no aparelho (localStorage, um só, vale 7 dias) e sai **só com
+  login** (`EnviarRelatoDeErro`, no layout da área logada): ao montar e
+  **na hora** em que uma tela do app quebra sem recarregar (evento — o app
+  instalado fica aberto por dias sem carregamento completo, e a quebra
+  seguinte apagava a anterior). Quem quebrou com a sessão vencida recarrega,
+  entra, e aí ele sai — o 401 NÃO apaga o relato, e a porta não vira
+  escrita pública no banco. O envio usa `keepalive` (a página pode estar
+  recarregando) e cada relato tem um **id sorteado**: o servidor não grava o
+  mesmo id duas vezes. **Limite aceito**: quebra do catálogo no celular da
+  CLIENTE final nunca chega ao painel (ela não tem login). **Os códigos de
+  acesso moram no CAMINHO**, não só na busca — `/dados/<token>` escreve na
+  ficha da cliente, `/ficha/<código>` abre o RH, `/catalogo/<loja>/l/<código>`
+  é o link de atacado sorteado —, então TODO parâmetro dinâmico da rota
+  vira o nome dele (`/dados/[token]`, `caminhoSemCodigos`, com os
+  parâmetros dados pelo próprio Next em `useParams`; sem eles, fica só o
+  primeiro pedaço); busca e `#` saem no aparelho E de novo no servidor.
+  Quem é a pessoa e a loja vem da SESSÃO, nunca do corpo; ritmo de 10
+  relatos por pessoa a cada 15 min (`errotela:`). **Tela quebrada NÃO toca
+  o alarme "🚨 Erro em produção"** (`logServerError` com `alarme: false`):
+  ele é o canal ÚNICO das emergências do servidor e do WhatsApp, com um
+  intervalo de 15 min compartilhado — um relato de tela ganharia esse
+  intervalo e calaria o alarme de uma mensagem de cliente perdida, e o
+  texto vem do aparelho, digitável por quem estiver logado em qualquer
+  loja. A quebra aparece na conta de erros da Saúde. A cura de raiz do
+  caso "versão velha" é a **Skew Protection da Vercel** (Settings →
+  Advanced, plano Pro) — é um botão do dono; o código só se recupera.
   **RN-045 · Código de login pelo WhatsApp em aparelho novo**
   (`lib/auth-codigo.ts`, 02/09/2026): segundo fator do jeito deste público —
   nada de app autenticador; o código de 6 dígitos chega no WhatsApp da

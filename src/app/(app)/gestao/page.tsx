@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import { FONTE_TELA_VERSAO_VELHA } from "@/lib/erro-da-tela";
 import { requireUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { isSuperAdmin } from "@/lib/scope";
@@ -70,16 +71,17 @@ export default async function GestaoPage() {
     db.company.findUnique({ where: { slug: PLATFORM_SLUG }, select: { id: true } }),
     // a lista mostra as 40 mais recentes; "auditoria" são ações do próprio
     // Super Admin (ex.: exclusão de loja) — ficam registradas, mas não são
-    // defeito do sistema
+    // defeito do sistema. "Versão velha" de tela (RN-066) também não: é o
+    // esperado depois de cada entrega, e se cura sozinho
     db.errorLog.findMany({
-      where: { source: { not: FONTE_AUDITORIA } },
+      where: { source: { notIn: [FONTE_AUDITORIA, FONTE_TELA_VERSAO_VELHA] } },
       orderBy: { createdAt: "desc" },
       take: 40,
     }),
     // o indicador conta de VERDADE (últimos 7 dias) — antes ele travava em 40
     // por causa do `take`, e 40 erros pareciam iguais a 4.000
     db.errorLog.count({
-      where: { source: { not: FONTE_AUDITORIA }, createdAt: { gte: dias7 } },
+      where: { source: { notIn: [FONTE_AUDITORIA, FONTE_TELA_VERSAO_VELHA] }, createdAt: { gte: dias7 } },
     }),
   ]);
 

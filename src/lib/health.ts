@@ -46,10 +46,20 @@ async function platformCompanyId(): Promise<string | null> {
 export async function logServerError(input: {
   // wa.webhook: falha ao gravar mensagem que chegou do WhatsApp — a mais
   // grave de todas, porque significa conversa que a loja não vai ver
-  source: "server" | "watchdog" | "client" | "wa.webhook";
+  // client / tela.versao: tela que quebrou no NAVEGADOR (RN-066)
+  source: "server" | "watchdog" | "client" | "tela.versao" | "wa.webhook";
   path?: string | null;
   message: string;
   detail?: string | null;
+  /**
+   * `false` = grava no painel sem tocar o "🚨 Erro em produção". É o caso da
+   * tela quebrada no navegador (RN-066): o alarme é o canal ÚNICO das
+   * emergências do servidor e do WhatsApp, com um intervalo de 15 min
+   * compartilhado — um relato de tela ganharia esse intervalo e calaria o
+   * alarme de uma mensagem de cliente perdida; e o texto vem do aparelho,
+   * digitável por quem estiver logado em qualquer loja (achados da revisão).
+   */
+  alarme?: false;
 }) {
   try {
     await db.errorLog.create({
@@ -60,6 +70,7 @@ export async function logServerError(input: {
         detail: input.detail?.slice(0, 4000) ?? null,
       },
     });
+    if (input.alarme === false) return;
     // anti-spam atômico: só quem "ganhar" o update manda o push
     const now = new Date();
     const claimed = await db.systemHealth.updateMany({

@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { roleLabel } from "@/lib/format";
 import { AppShell } from "@/components/app-shell";
 import { InstallPrompt } from "./install-prompt";
+import { EnviarRelatoDeErro } from "@/components/enviar-relato-de-erro";
 
 export default async function AppLayout({
   children,
@@ -63,6 +64,7 @@ export default async function AppLayout({
       >
         {children}
         <InstallPrompt />
+        <EnviarRelatoDeErro />
       </AppShell>
     </div>
   );
