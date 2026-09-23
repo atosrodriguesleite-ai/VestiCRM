@@ -120,6 +120,33 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   carteira), SUPPORT (operacional, sem poderes comerciais).
 - Auth: JWT em cookie httpOnly (`lib/auth.ts`); Super Admin pode "acessar
   como loja" (impersonação com faixa amarela).
+  **RN-064 · A sessão RENOVA sozinha enquanto a pessoa USA o sistema**
+  (`lib/sessao.ts` + porteiro global, 23/09/2026): o login valia 7 dias
+  CRAVADOS e vencia no meio do trabalho — relato da Entre Linhas cadastrando
+  produtos: tudo preenchido e o salvar respondendo "Não autenticado" (a tela
+  de Produtos vive no navegador, então o salvar é a PRIMEIRA ida ao
+  servidor; a pessoa descobre que caiu na hora que mais custa). Agora o
+  porteiro REASSINA o cookie quando o crachá passa de 1 dia de idade, com os
+  mesmos 7 dias: quem usa não é derrubada; a sessão vence com 7 dias PARADA
+  ou no **teto de 30 dias desde o login** (carimbo `auth`, que a renovação
+  preserva — sem o teto, cookie roubado ou a aba esquecida na loja, que o
+  sync de 3s mantém "em uso", virava sessão eterna, achado da revisão). As
+  outras travas: **impersonação não renova** (a sessão de suporte do Super
+  Admin vence em 7 dias como sempre); **logout e impersonação não recebem
+  renovação por cima** (`rotaMexeNaSessao` — dois Set-Cookie da mesma sessão
+  na mesma resposta têm vencedor dependente da plataforma, e o "Sair" podia
+  sair sem sair, achado da revisão); **renovar não reabre porta nenhuma** (o
+  cookie só prova quem é — usuária desativada e loja suspensa seguem
+  barradas no `getSessionUser`, a cada requisição); **crachá torto não
+  renova** (sem `sub`, sem `iat` ou com `iat` no futuro fica como está).
+  Assinatura e atributos do cookie têm UMA função (login e renovação): claim
+  novo de sessão entra lá, senão a primeira renovação o apagaria. E o 401 na
+  área de Produtos fala português (`avisoDaRecusa`), distinguindo os dois
+  casos: o 401 do porteiro leva a marca `sessao: "vencida"` e vira "entre em
+  OUTRA aba e volte para salvar" (o login em outra aba renova o cookie do
+  navegador inteiro e o digitado não se perde); o 401 SEM a marca (usuária
+  desativada, loja suspensa) diz para falar com quem administra — mandar
+  essa pessoa para a outra aba seria um beco (achado da revisão).
   **RN-045 · Código de login pelo WhatsApp em aparelho novo**
   (`lib/auth-codigo.ts`, 02/09/2026): segundo fator do jeito deste público —
   nada de app autenticador; o código de 6 dígitos chega no WhatsApp da
@@ -280,7 +307,15 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   configurou. **Obrigatório trava só o navegador** — o servidor aceita o
   pedido sem o campo, porque pedido do catálogo não pode se perder (RN-010)
   e o reenvio automático guarda payload antigo. Loja que não configurar
-  nada não muda em NADA.
+  nada não muda em NADA. **"Nome da loja" também é opção do cardápio, e a
+  ÚNICA sem coluna na ficha** (23/09/2026, pedido do dono): era campo FIXO
+  do formulário ("Loja") e a maioria das lojas não o usa — agora só aparece
+  para quem o marcar. A casa dele segue a de sempre — a nota do pedido
+  ("Loja: X") e o nome de apresentação quando a cliente não diz o próprio
+  nome —, NUNCA a ficha (`legalName` é razão social: anda com o CNPJ e sai
+  em documento fiscal, RN-024). O payload continua `store` e o servidor
+  continua aceitando e anotando SEMPRE (rascunho e reenvio antigos valem); o
+  "Colar pedido do WhatsApp" lê o rótulo novo ("Nome da loja:") e o antigo.
   **RN-040 · Condições do LINK DE CAMPANHA, editáveis sem trocar o endereço**
   (`lib/catalogo/condicoes-da-campanha.ts`, 01/09/2026): o link de campanha
   da tela Inteligência (`?ref=`) deixou de só rastrear — a loja define nele um
@@ -688,7 +723,24 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   fila/chats/contatos (vendedora vê os dela + a fila; o interruptor
   **"vê todas as conversas do chat"** na tela Equipe — `User.chatVisaoTotal`,
   `conversationScope` — abre a Central inteira para uma vendedora específica
-  SEM mexer em carteira/pedidos/comissão), setores, assumir/transferir/encerrar, notas internas
+  SEM mexer em carteira/pedidos/comissão), setores, assumir/transferir/encerrar.
+  **Novo contato no topo da lista** (23/09/2026, pedido do dono: *"quando
+  recebo um número novo, não consigo adicionar no sistema — somente se o
+  cliente me chamar primeiro"*): a vendedora digita nome e telefone e a
+  conversa abre pronta para a primeira mensagem, pelas DUAS portas de sempre
+  — o cadastro manual (`POST /api/customers`, portão único da RN-008: número
+  já cadastrado NUNCA vira segunda ficha, e a janela DIZ de quem é a ficha e
+  pede confirmação antes de abrir conversa com outro nome) e o "Conversar no
+  WhatsApp" da ficha (`POST /api/conversations`: conversa nasce ASSUMIDA por
+  quem abriu, nunca na fila; devolve a aberta se já existe — a de COLEGA
+  fora do recorte NÃO abre por cima: a porta responde com quem está o
+  atendimento, senão a tela levava 404 do recorte e ficava muda — e reabre
+  a encerrada NO NOME DE QUEM ABRIU, com o histórico inteiro; manter a dona
+  antiga jogava a conversa na lista de quem não pediu nada — achados da
+  revisão). A janela só FECHA quando a conversa abriu de fato. Cliente novo entra na CARTEIRA de quem
+  cadastrou (a régua de sempre do cadastro manual). A conversa recém-criada
+  é buscada INTEIRA no servidor antes de abrir (o caminho do `?conv=` da
+  Agenda), notas internas
   com @menção, respostas rápidas (criáveis por qualquer um), mídia + **áudio
   de voz** (a vendedora **escolhe o microfone** na engrenagem ao lado do botão
   de gravar, `lib/microfone.ts` — antes quem mandava era o padrão do Windows e
@@ -2040,7 +2092,7 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   crédito da loja. E o cartão **não aparece onde o dinheiro anda** — baixa e
   transferência —, senão daria para quitar a parcela fora de qualquer fatura.
 - **Envios** (gated por loja, `shippingEnabled`, pago à parte): tela própria
-  no menu (`/envios`): painel (gasto do mês, frete recebido no mês — RN-064,
+  no menu (`/envios`): painel (gasto do mês, frete recebido no mês — RN-065,
   abaixo —, aguardando postagem, em
   trânsito com alerta de **parado há 7+ dias**, entregues com tempo médio) +
   lista de tudo que saiu (transportadora, destinatária, rastreio com copiar
@@ -2052,7 +2104,7 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   contornos e coordenadas dos 5.570 municípios foram gerados uma vez
   (`scripts/gerar-mapa-envios.mjs`) e commitados; cidade que não casa com a
   base vira ponto no centro do estado (envio nunca some do mapa).
-  **RN-064 · FRETE RECEBIDO NO MÊS, E O SALDO COMPARA OS MESMOS PEDIDOS**
+  **RN-065 · FRETE RECEBIDO NO MÊS, E O SALDO COMPARA OS MESMOS PEDIDOS**
   (`resumoDosEnvios` em `lib/envios/painel.ts`, 23/09/2026): pedido do dono
   — *"temos o gasto com frete no mês, que é das etiquetas; queria o quanto
   recebi de frete, o que colocamos no campo de frete do pedido"*. O cartão

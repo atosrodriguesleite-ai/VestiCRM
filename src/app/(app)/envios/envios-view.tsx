@@ -200,7 +200,7 @@ export function EnviosView() {
               valor={brl(dados.painel.gastoMes)}
               detalhe="etiquetas compradas"
             />
-            {/* o outro lado da conta (RN-064, pedido do dono, 23/09/2026):
+            {/* o outro lado da conta (RN-065, pedido do dono, 23/09/2026):
                 quanto a loja COBROU de frete das clientes nos pedidos pagos
                 do mês. O saldo compara os MESMOS pedidos — só os que têm
                 etiqueta daqui: frete cobrado neles menos o custo das
@@ -440,7 +440,7 @@ export function EnviosView() {
 }
 
 /**
- * Legenda do cartão de frete recebido (RN-064): quantos pedidos cobraram
+ * Legenda do cartão de frete recebido (RN-065): quantos pedidos cobraram
  * frete e, quando há pedido com etiqueta daqui, o saldo DESSES pedidos —
  * curto, porque o cartão do celular tem uma linha (achado da revisão).
  */

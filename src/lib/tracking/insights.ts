@@ -2,7 +2,7 @@ import { db } from "../db";
 import { ehDaCampanha } from "../campanha-pedidos";
 import { PAID_ORDER_STATUSES } from "../orders";
 import { lerItens } from "../recuperacao";
-import { chaveDoNome, r2, pct } from "./insights-puro";
+import { chaveDoNome, chaveDeGrupo, melhorRotulo, r2, pct } from "./insights-puro";
 import { montarCurvaAbc, type BaseAbc, type ItemVendido } from "./curva-abc";
 
 /**
@@ -633,11 +633,14 @@ export function montarRanking(
     if (!key) return;
     const exibir = chaveDoNome(key);
     if (!exibir) return;
-    const id = exibir.toLowerCase();
+    // a IDENTIDADE ignora caixa E acento: "cafe" e "Café" eram duas linhas
+    // no quadro de Cores da Toque Leve (print do dono, 21/09/2026)
+    const id = chaveDeGrupo(exibir);
     const row =
       map.get(id) ??
       { key: exibir, views: 0, adds: 0, addEvents: 0, removes: 0, sold: 0, revenue: 0 };
-    if (doCadastro) row.key = exibir;
+    // grafia do CADASTRO manda; entre congeladas, vence a mais caprichada
+    row.key = doCadastro ? exibir : melhorRotulo(row.key, exibir);
     row[field] += n;
     row.revenue += revenue;
     map.set(id, row);

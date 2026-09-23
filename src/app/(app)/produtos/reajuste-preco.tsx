@@ -7,6 +7,7 @@
  * antes e o depois, e o que fica de fora (peça da Nuvemshop, sem preço)
  * ANTES de gravar. Quem faz a conta é o servidor, nos dois passos.
  */
+import { avisoDaRecusa } from "@/lib/sessao";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Portal } from "@/components/portal";
@@ -54,7 +55,7 @@ export function ReajustePreco({ categories }: { categories: string[] }) {
       });
       const d = await r.json().catch(() => ({}));
       if (!r.ok) {
-        setErro(d.error ?? "Não foi possível calcular o reajuste.");
+        setErro(avisoDaRecusa(r.status, d, "Não foi possível calcular o reajuste."));
         return;
       }
       if (aplicar) {

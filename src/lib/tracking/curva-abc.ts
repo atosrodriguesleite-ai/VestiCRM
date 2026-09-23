@@ -17,7 +17,7 @@
  * diz qual está olhando).
  */
 
-import { chaveDoNome, r2 } from "./insights-puro";
+import { chaveDoNome, chaveDeGrupo, melhorRotulo, r2 } from "./insights-puro";
 
 export type BaseAbc = "unidades" | "faturamento";
 export type ClasseAbc = "A" | "B" | "C";
@@ -103,12 +103,15 @@ export function montarCurvaAbc(
     const produto = chaveDoNome(atual?.produto ?? it.nome) || "Sem nome";
     const cor = chaveDoNome(atual?.cor ?? it.cor ?? "") || "Sem cor";
     const tamanho = chaveDoNome(atual?.tamanho ?? it.tamanho ?? "") || "Sem tamanho";
-    const grade = `${cor}|${tamanho}`.toLowerCase();
+    // a identidade da grade ignora caixa E acento (chaveDeGrupo): "cafe" e
+    // "Café" congelados em épocas diferentes são a MESMA peça — sem isso a
+    // curva dividia as unidades dela em duas linhas (print do dono, 21/09)
+    const grade = `${chaveDeGrupo(cor)}|${chaveDeGrupo(tamanho)}`;
     const chave = it.productId
       ? `p:${it.productId}|${grade}`
       : it.variantId
         ? `v:${it.variantId}`
-        : `n:${produto.toLowerCase()}|${grade}`;
+        : `n:${chaveDeGrupo(produto)}|${grade}`;
     const linha = grupos.get(chave) ?? {
       chave,
       produto,
@@ -121,6 +124,12 @@ export function montarCurvaAbc(
       acumulado: 0,
       classe: "C" as ClasseAbc,
     };
+    // o RÓTULO da linha juntada: cadastro de hoje manda; entre grafias
+    // congeladas, vence a mais caprichada (com acento, maiúscula)
+    linha.produto = atual?.produto != null ? produto : melhorRotulo(linha.produto, produto);
+    linha.cor = atual?.cor != null ? cor : melhorRotulo(linha.cor, cor);
+    linha.tamanho = atual?.tamanho != null ? tamanho : melhorRotulo(linha.tamanho, tamanho);
+    linha.rotulo = `${linha.produto} · ${linha.cor} · ${linha.tamanho}`;
     linha.unidades += q;
     // rateio NEGATIVO (desconto acima do subtotal) não entra: faria o
     // acumulado passar de 100 escondido pelo teto (achado da revisão)

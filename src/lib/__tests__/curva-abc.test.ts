@@ -304,3 +304,25 @@ describe("RN-061: navegar pela curva sem recarregar (filtro por classe e busca)"
     expect(filtrarLinhas(linhas, "C", "regata")).toEqual([]);
   });
 });
+
+describe("acento e caixa não dividem a peça na curva", () => {
+  // a mesma lição do quadro de Cores (print da Toque Leve, 21/09/2026):
+  // "cafe" congelado numa época e "Café" na outra são a MESMA peça
+  it('"cafe M" e "Café M" do mesmo produto somam numa linha, rótulo com acento', () => {
+    const { linhas } = montarCurvaAbc([
+      item({ productId: "p1", variantId: null, nome: "Blusa", cor: "cafe", tamanho: "M", quantidade: 68 }),
+      item({ productId: "p1", variantId: null, nome: "Blusa", cor: "Café", tamanho: "M", quantidade: 62 }),
+    ]);
+    expect(linhas).toHaveLength(1);
+    expect(linhas[0].unidades).toBe(130);
+    expect(linhas[0].cor).toBe("Café");
+  });
+
+  it("a grafia do CADASTRO DE HOJE manda no rótulo, mesmo sem acento", () => {
+    // a lojista padronizou o cadastro como "Cafe" — é a grafia dela que vale
+    const { linhas } = montarCurvaAbc([
+      item({ productId: "p1", variantId: "v1", nome: "Blusa", cor: "Café", tamanho: "M", quantidade: 2, atual: { produto: "Blusa", cor: "Cafe", tamanho: "M" } }),
+    ]);
+    expect(linhas[0].cor).toBe("Cafe");
+  });
+});

@@ -228,3 +228,37 @@ describe("previousPeriod — comparativo sem venda contada em dobro", () => {
     expect(prev.to.getTime()).toBe(p.to.getTime() - DIA);
   });
 });
+
+describe('a mesma cor com e sem acento é UMA linha ("cafe" × "Café")', () => {
+  // print da Toque Leve (21/09/2026): o quadro de Cores mostrava café duas
+  // vezes — 68 un. sem acento e 62 un. com — porque a grafia congelada em
+  // cada venda mudou ao longo do tempo. Corrigir o cadastro não resolveria:
+  // a cor da venda antiga fica congelada no item para sempre.
+  it("as vendas somam numa linha só, com a grafia caprichada no rótulo", () => {
+    const linhas = montarRanking(
+      [],
+      [
+        { productId: "p1", name: "Blusa", color: "cafe", size: "M", quantity: 68, total: 680 },
+        { productId: "p1", name: "Blusa", color: "Café", size: "M", quantity: 62, total: 620 },
+      ],
+      [{ id: "p1", name: "Blusa", category: "Blusas" }],
+      "color"
+    );
+    expect(linhas).toHaveLength(1);
+    expect(linhas[0].sold).toBe(130);
+    expect(linhas[0].key).toBe("Café");
+  });
+
+  it("cores DIFERENTES de verdade continuam duas linhas (Preto × Preta)", () => {
+    const linhas = montarRanking(
+      [],
+      [
+        { productId: "p1", name: "Blusa", color: "Preto", size: "M", quantity: 3, total: 30 },
+        { productId: "p1", name: "Blusa", color: "Preta", size: "M", quantity: 2, total: 20 },
+      ],
+      [{ id: "p1", name: "Blusa", category: "Blusas" }],
+      "color"
+    );
+    expect(linhas).toHaveLength(2);
+  });
+});

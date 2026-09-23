@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { resumoDosEnvios } from "../envios/painel";
 import { detalheDoFreteRecebido } from "../../app/(app)/envios/envios-view";
 
-// Guarda RN-064
+// Guarda RN-065
 //
 // FRETE RECEBIDO NO MÊS (pedido do dono, 23/09/2026): o campo de frete dos
 // pedidos PAGOS do mês, pela data do pagamento, todos os canais — e o saldo

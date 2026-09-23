@@ -139,7 +139,7 @@ export async function GET(req: NextRequest) {
         : []),
     ];
 
-    // RN-064: os pedidos PAGOS (RN-001) do mês, pela data do pagamento, no
+    // RN-065: os pedidos PAGOS (RN-001) do mês, pela data do pagamento, no
     // recorte de quem vê (RN-007) — a turma do "frete recebido"
     const pagosDoMes = {
       ...escopoDoUsuario,
@@ -178,7 +178,7 @@ export async function GET(req: NextRequest) {
         },
         _sum: { mePrice: true },
       }),
-      // FRETE RECEBIDO NO MÊS (RN-064): o campo de frete dos pedidos pagos
+      // FRETE RECEBIDO NO MÊS (RN-065): o campo de frete dos pedidos pagos
       // do mês, todos os canais. Soma `shippingFee`, nunca `total` — o total
       // tem as peças dentro (RN-002). Só pedido com frete cobrado conta no
       // "N pedidos"; frete zero (retirada, motoboy por fora) fica de fora.

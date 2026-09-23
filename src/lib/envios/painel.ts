@@ -60,7 +60,7 @@ export type ResumoEnvios = {
   /** custo das etiquetas compradas no mês (etiqueta cancelada fica de fora) */
   gastoMes: number;
   /**
-   * FRETE COBRADO DAS CLIENTES no mês — RN-064 (pedido do dono, 23/09/2026:
+   * FRETE COBRADO DAS CLIENTES no mês — RN-065 (pedido do dono, 23/09/2026:
    * "temos o gasto com as etiquetas, queria o quanto recebi de frete"). É a
    * soma do campo de frete (`Order.shippingFee`) dos pedidos PAGOS (RN-001)
    * pela data do pagamento — a mesma régua do faturamento —, não do `total`

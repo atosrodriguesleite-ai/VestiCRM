@@ -1,5 +1,6 @@
 "use client";
 
+import { avisoDaRecusa } from "@/lib/sessao";
 import { useRef, useState } from "react";
 import { Portal } from "@/components/portal";
 import { useRouter } from "next/navigation";
@@ -133,7 +134,7 @@ export function ImportCatalog() {
       );
       const data = await res.json();
       if (!res.ok) {
-        setError(data.error ?? "Falha ao importar o catálogo.");
+        setError(avisoDaRecusa(res.status, data, "Falha ao importar o catálogo."));
         return;
       }
       setResult(data.summary);

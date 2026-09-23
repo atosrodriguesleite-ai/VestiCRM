@@ -6,6 +6,7 @@
  * online (Nuvemshop) — SKU igual dos dois lados = casamento garantido.
  */
 
+import { avisoDaRecusa } from "@/lib/sessao";
 import { useEffect, useMemo, useState } from "react";
 import { Portal } from "@/components/portal";
 import { useRouter } from "next/navigation";
@@ -89,7 +90,7 @@ export function SkuManager() {
       router.refresh();
     } else {
       const d = await res.json().catch(() => ({}));
-      setMsg(d.error ?? "Não foi possível salvar. Tente de novo.");
+      setMsg(avisoDaRecusa(res.status, d, "Não foi possível salvar. Tente de novo."));
     }
   }
 

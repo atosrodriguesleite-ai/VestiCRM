@@ -297,7 +297,7 @@ export function PublicCatalog({
   minOrder: number;
   minOrderMode: "NONE" | "PECAS" | "VALOR";
   minOrderValue: number;
-  /** campos extras do pedido, escolhidos pela loja (RN-027); vazio = só nome/telefone/loja */
+  /** campos extras do pedido, escolhidos pela loja (RN-027); vazio = só nome/telefone */
   formFields?: ConfigCampo[];
   products: CatalogProduct[];
   categoryOrder?: string[];
@@ -471,7 +471,12 @@ export function PublicCatalog({
   const [draft, setDraft] = useState<Record<string, number>>({});
   const [bagOpen, setBagOpen] = useState(false);
   const [toast, setToast] = useState("");
-  const [client, setClient] = useState({ loja: "", nome: "", fone: "" });
+  // "Nome da loja" saiu daqui (23/09/2026): era campo fixo e virou opção do
+  // cardápio da RN-027 (campo LOJA) — só aparece para a loja que o marcar
+  const [client, setClient] = useState({ nome: "", fone: "" });
+  // a loja digitada num rascunho de ANTES da mudança, preservada enquanto a
+  // loja não pede o campo (o rascunho é reescrito a cada tecla)
+  const lojaLegadaRef = useRef("");
   // campos extras que ESTA loja pediu (RN-027) — ex.: { CEP: "57000-000" }
   const [extras, setExtras] = useState<Record<string, string>>({});
 
@@ -531,15 +536,27 @@ export function PublicCatalog({
           fone?: string;
           extras?: Record<string, string>;
         };
-        setClient({ loja: c.loja ?? "", nome: c.nome ?? "", fone: c.fone ?? "" });
+        setClient({ nome: c.nome ?? "", fone: c.fone ?? "" });
         // volta só o que a loja AINDA pede (configuração pode ter mudado)
-        if (c.extras) {
+        if (c.extras || c.loja) {
           const volta: Record<string, string> = {};
           for (const f of formFields) {
-            const v = c.extras[f.campo];
+            // rascunho antigo guardava a loja FORA dos extras (era campo
+            // fixo): quem pede LOJA hoje aproveita o que já foi digitado
+            const v =
+              f.campo === "LOJA"
+                ? (c.extras?.[f.campo] ?? c.loja)
+                : c.extras?.[f.campo];
             if (typeof v === "string" && v) volta[f.campo] = v;
           }
           if (Object.keys(volta).length) setExtras(volta);
+        }
+        // loja digitada num rascunho ANTIGO, numa loja que (ainda) não pede
+        // LOJA: fica guardada de lado — sem isto, o salvamento logo abaixo
+        // reescrevia o rascunho sem ela e, quando a loja ligasse a opção,
+        // não haveria mais o que aproveitar (achado da revisão, 23/09/2026)
+        if (c.loja && !formFields.some((f) => f.campo === "LOJA")) {
+          lojaLegadaRef.current = c.loja;
         }
       }
     } catch {}
@@ -611,8 +628,17 @@ export function PublicCatalog({
   useEffect(() => {
     if (!cartLoadedRef.current) return;
     try {
-      if (client.loja || client.nome || client.fone || Object.keys(extras).length)
-        localStorage.setItem(clientKey, JSON.stringify({ ...client, extras }));
+      if (client.nome || client.fone || Object.keys(extras).length || lojaLegadaRef.current)
+        localStorage.setItem(
+          clientKey,
+          JSON.stringify({
+            ...client,
+            // a loja do rascunho antigo continua guardada até a loja pedir o
+            // campo (aí ela migra para os extras na restauração)
+            ...(lojaLegadaRef.current ? { loja: lojaLegadaRef.current } : {}),
+            extras,
+          })
+        );
     } catch {}
   }, [client, extras, clientKey]);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -971,9 +997,8 @@ export function PublicCatalog({
       msg += "\n";
     }
     msg += `*Total:* ${totalPieces} peças · ${fmt(totalValue)}\n`;
-    if (client.loja || client.nome || client.fone) {
+    if (client.nome || client.fone || formFields.some((f) => (extras[f.campo] ?? "").trim())) {
       msg += "\n*Cliente*\n";
-      if (client.loja) msg += `Loja: ${client.loja}\n`;
       if (client.nome) msg += `Nome: ${client.nome}\n`;
       if (client.fone) msg += `Telefone: ${client.fone}\n`;
       // os campos extras da loja também vão na mensagem: é onde a vendedora
@@ -1020,14 +1045,19 @@ export function PublicCatalog({
         customer: {
           name: client.nome || undefined,
           phone: client.fone || undefined,
-          store: client.loja || undefined,
           // campos extras (RN-027): a chave do payload vem do cardápio — o
           // mesmo lugar que o servidor lê, para nada se perder no caminho
+          // (a loja, quando pedida, viaja daqui como `store` — a chave de
+          // sempre, que o servidor escreve na nota do pedido)
           ...Object.fromEntries(
             formFields
               .map(({ campo }) => [
                 CAMPOS_DO_PEDIDO[campo].payload,
-                (extras[campo] ?? "").trim() || undefined,
+                // o teto do cardápio vale também para valor RESTAURADO de
+                // rascunho (o maxLength do campo só limita o que se digita):
+                // sem ele, um valor comprido de antes derrubava o pedido
+                // INTEIRO na validação da rota (achado da revisão)
+                (extras[campo] ?? "").trim().slice(0, CAMPOS_DO_PEDIDO[campo].max) || undefined,
               ])
               .filter(([, v]) => v !== undefined)
           ),
@@ -2139,7 +2169,6 @@ export function PublicCatalog({
                   [
                     ["nome", "Nome *", "Seu nome"],
                     ["fone", "Telefone *", "(00) 00000-0000"],
-                    ["loja", "Loja", "Nome da loja (opcional)"],
                   ] as const
                 ).map(([key, label, ph]) => (
                   <div key={key} className="mb-[11px]">

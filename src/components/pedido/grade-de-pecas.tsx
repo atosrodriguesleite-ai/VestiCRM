@@ -152,7 +152,7 @@ export function GradeDePecas({
           ) : (
             <>
               <p className="text-[11px] text-gray-400 mb-2">
-                Digite quantas peças de cada cor e tamanho. O que ficar em branco não entra.
+                Toque em − e + (ou digite) as peças de cada cor e tamanho. O que ficar em branco não entra.
               </p>
               <div className="-mx-1 overflow-x-auto thin-scroll">
                 <table className="border-separate border-spacing-1">
@@ -160,7 +160,7 @@ export function GradeDePecas({
                     <tr>
                       <th className="sticky left-0 bg-white z-10" />
                       {grade.tamanhos.map((t) => (
-                        <th key={t} className="text-[11px] font-semibold text-gray-500 px-1 pb-0.5 min-w-14">
+                        <th key={t} className="text-[11px] font-semibold text-gray-500 px-1 pb-0.5 min-w-[5.75rem]">
                           {t}
                         </th>
                       ))}
@@ -292,27 +292,59 @@ function CampoDaCelula({
   const digitado = parseInt(valor, 10) || 0;
   const semEstoque = estoque <= 0;
   const noTeto = !semEstoque && digitado >= estoque;
+  // − e + para montar sem teclado (pedido do dono, 21/09/2026: no celular e
+  // no tablet o teclado cobre a grade). Os dois passam pelo MESMO funil da
+  // digitação (quantidadeDigitada): o + para no estoque; o − nunca é travado
+  // pelo teto (a lição do carrinho da Central — descer sempre pode) e para
+  // no zero, que é como a célula sai do pedido.
+  const passo = (delta: number) => onChange(String(Math.max(0, digitado + delta)));
+  const btn = `${grande ? "w-11 h-12 text-xl" : "w-6 h-11 text-base"} rounded-lg border font-semibold transition select-none shrink-0`;
+  const btnVivo = "border-gray-200 bg-white text-gray-500 hover:border-brand-300 hover:text-brand-700 active:bg-brand-50";
+  const btnMorto = "border-gray-100 bg-gray-50 text-gray-200 cursor-not-allowed";
   return (
     <span className="block">
-      <input
-        type="text"
-        inputMode="numeric"
-        pattern="[0-9]*"
-        value={semEstoque ? "" : valor}
-        disabled={semEstoque}
-        aria-label={rotulo ? `Quantidade ${rotulo}` : "Quantidade"}
-        title={semEstoque ? "Sem estoque desta peça" : undefined}
-        onChange={(e) => onChange(e.target.value)}
-        onFocus={(e) => e.currentTarget.select()}
-        placeholder={semEstoque ? "—" : "0"}
-        className={`${grande ? "w-24 h-12 text-lg" : "w-14 h-11 text-sm"} rounded-xl border text-center font-semibold tabular-nums outline-none transition ${
-          semEstoque
-            ? "border-gray-100 bg-gray-50 text-gray-300 placeholder:text-gray-300 cursor-not-allowed"
-            : digitado > 0
-              ? "border-brand-400 bg-brand-50 text-brand-800"
-              : "border-gray-200 text-gray-700 placeholder:font-normal placeholder:text-gray-200 focus:border-brand-400"
-        }`}
-      />
+      <span className="inline-flex items-center gap-0.5">
+        <button
+          type="button"
+          tabIndex={-1}
+          disabled={semEstoque || digitado === 0}
+          onClick={() => passo(-1)}
+          aria-label={rotulo ? `Tirar 1 de ${rotulo}` : "Tirar 1"}
+          className={`${btn} ${semEstoque || digitado === 0 ? btnMorto : btnVivo}`}
+        >
+          −
+        </button>
+        <input
+          type="text"
+          inputMode="numeric"
+          pattern="[0-9]*"
+          value={semEstoque ? "" : valor}
+          disabled={semEstoque}
+          aria-label={rotulo ? `Quantidade ${rotulo}` : "Quantidade"}
+          title={semEstoque ? "Sem estoque desta peça" : undefined}
+          onChange={(e) => onChange(e.target.value)}
+          onFocus={(e) => e.currentTarget.select()}
+          placeholder={semEstoque ? "—" : "0"}
+          className={`${grande ? "w-16 h-12 text-lg" : "w-9 h-11 text-sm"} rounded-lg border text-center font-semibold tabular-nums outline-none transition ${
+            semEstoque
+              ? "border-gray-100 bg-gray-50 text-gray-300 placeholder:text-gray-300 cursor-not-allowed"
+              : digitado > 0
+                ? "border-brand-400 bg-brand-50 text-brand-800"
+                : "border-gray-200 text-gray-700 placeholder:font-normal placeholder:text-gray-200 focus:border-brand-400"
+          }`}
+        />
+        <button
+          type="button"
+          tabIndex={-1}
+          disabled={semEstoque || noTeto}
+          onClick={() => passo(1)}
+          aria-label={rotulo ? `Somar 1 em ${rotulo}` : "Somar 1"}
+          title={noTeto ? `Só há ${estoque} em estoque` : undefined}
+          className={`${btn} ${semEstoque || noTeto ? btnMorto : btnVivo}`}
+        >
+          +
+        </button>
+      </span>
       {/* embaixo de cada célula, o que existe na arara — e "máx" quando a
           quantidade bate no teto, para o número que parou de subir não
           parecer defeito do campo */}

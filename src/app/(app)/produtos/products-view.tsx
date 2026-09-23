@@ -11,6 +11,7 @@ import { Card, EmptyState } from "@/components/ui";
 import { fileToDataUrl } from "@/lib/upload";
 import { ImportCatalog } from "./import-catalog";
 import { casaTexto } from "@/lib/busca";
+import { avisoDaRecusa } from "@/lib/sessao";
 import { sugerirEmLote, type SugestaoDeCategoria } from "@/lib/organizar-catalogo";
 import { motivoOculto } from "@/lib/catalogo/visibilidade";
 import { DICA_DO_DONO, NOME_DO_DONO, type DonoExterno } from "@/lib/estoque/dono-do-estoque";
@@ -191,7 +192,7 @@ export function ProductsView({
       router.refresh();
     } else {
       const data = await res.json().catch(() => null);
-      alert(data?.error ?? "Não foi possível aplicar. Tente de novo.");
+      alert(avisoDaRecusa(res.status, data, "Não foi possível aplicar. Tente de novo."));
     }
   }
 
@@ -660,7 +661,7 @@ function SugestoesModal({
     if (res.ok) onDone();
     else {
       const data = await res.json().catch(() => null);
-      alert(data?.error ?? "Não foi possível aplicar. Tente de novo.");
+      alert(avisoDaRecusa(res.status, data, "Não foi possível aplicar. Tente de novo."));
     }
   }
 
@@ -988,7 +989,7 @@ function ProductDetailModal({
     if (!res.ok) {
       // sem silêncio: se a API recusou (ex.: permissão), a pessoa fica sabendo
       const data = await res.json().catch(() => null);
-      alert(data?.error ?? "Não foi possível salvar. Tente novamente.");
+      alert(avisoDaRecusa(res.status, data, "Não foi possível salvar. Tente novamente."));
       return;
     }
     onChanged();
@@ -1004,7 +1005,7 @@ function ProductDetailModal({
     setBusy(false);
     if (!res.ok) {
       const data = await res.json().catch(() => null);
-      alert(data?.error ?? "Não foi possível salvar. Tente novamente.");
+      alert(avisoDaRecusa(res.status, data, "Não foi possível salvar. Tente novamente."));
       return;
     }
     onChanged();
@@ -1022,7 +1023,7 @@ function ProductDetailModal({
     setBusy(false);
     if (!res.ok) {
       const data = await res.json().catch(() => null);
-      alert(data?.error ?? "Não foi possível excluir. Tente novamente.");
+      alert(avisoDaRecusa(res.status, data, "Não foi possível excluir. Tente novamente."));
       return;
     }
     onChanged();
@@ -2105,7 +2106,7 @@ function NewProductModal({
     if (res.ok) onCreated();
     else {
       const data = await res.json().catch(() => ({}));
-      setError(data.error ?? "Erro ao salvar produto");
+      setError(avisoDaRecusa(res.status, data, "Erro ao salvar produto"));
     }
   }
 
