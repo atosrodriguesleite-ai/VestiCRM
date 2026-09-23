@@ -56,6 +56,7 @@ import {
   MailOpen,
   Copy,
   PackageOpen,
+  UserPlus,
 } from "lucide-react";
 import { OrderComposer } from "@/components/order-composer";
 import { contadorAoMarcarNaoLida } from "@/lib/comm/fila";
@@ -68,6 +69,7 @@ import {
   textoParaCopiar,
 } from "@/lib/copiar";
 import { ContactPanel } from "./contact-panel";
+import { NovoContato } from "./novo-contato";
 import { SeletorDeEmoji } from "./seletor-de-emoji";
 import { orderNumber } from "@/lib/orders";
 import {
@@ -638,6 +640,10 @@ export function Inbox({
   const [showTransfer, setShowTransfer] = useState(false);
   const [showContact, setShowContact] = useState(false);
   const [showBackup, setShowBackup] = useState(false);
+  // "Novo contato": digitar o número de quem AINDA não chamou e já abrir a
+  // conversa (pedido do dono, 23/09/2026 — antes só existia conversa de quem
+  // mandava mensagem primeiro)
+  const [showNovoContato, setShowNovoContato] = useState(false);
   const [slash, setSlash] = useState<{ query: string; at: number } | null>(null);
   const [sending, setSending] = useState(false);
   // respostas rápidas (qualquer um da equipe cria pela própria tela)
@@ -1329,27 +1335,9 @@ export function Inbox({
         // conversa recém-criada pela Agenda: a lista ainda não a conhece —
         // busca inteira no servidor (mesma porta do sync parcial)
         convDoLink.current = cid;
-        fetch(`/api/conversations/${cid}`)
-          .then((r) => (r.ok ? r.json() : null))
-          .then((d) => {
-            if (!d?.conversation) return;
-            // o histórico completo veio junto: marca como carregada (senão o
-            // sync reduzia à prévia) e SUBSTITUI se o sync tiver chegado
-            // primeiro com a versão de 1 mensagem
-            threadsCarregadas.current.add(cid);
-            setConvs((prev) =>
-              prev.some((c) => c.id === cid)
-                ? prev.map((c) =>
-                    c.id === cid ? { ...d.conversation, unreadCount: 0 } : c
-                  )
-                : [d.conversation, ...prev]
-            );
-            setSelectedId(cid);
-            setTab(abaDaConversa(d.conversation));
-          })
-          .catch(() => {
-            convDoLink.current = null; // rede oscilou: tenta de novo
-          });
+        void abrirConversaForaDaLista(cid).then((ok) => {
+          if (!ok) convDoLink.current = null; // rede oscilou: tenta de novo
+        });
       }
     }
     if (texto && !prefillFeito.current) {
@@ -1358,6 +1346,61 @@ export function Inbox({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams, convs.length]);
+
+  /**
+   * Abre uma conversa que a LISTA pode não conhecer: busca INTEIRA no
+   * servidor (o histórico vem junto — abrir sem carregar deixava o sync
+   * reduzir a conversa aberta à prévia de 1 mensagem). Serve o `?conv=` da
+   * Agenda/sino e a janela "Novo contato": UMA cópia da regra (a segunda já
+   * tinha nascido divergindo, achado da revisão), com o markRead do clique
+   * normal — sem ele o contador de não lida errado voltava a cada sync.
+   * Devolve false quando não conseguiu (rede, recorte): quem chama decide o
+   * aviso.
+   */
+  async function abrirConversaForaDaLista(cid: string): Promise<boolean> {
+    const conhecida = convs.find((x) => x.id === cid);
+    if (conhecida) {
+      selectConv(cid);
+      setTab(abaDaConversa(conhecida));
+      return true;
+    }
+    try {
+      const r = await fetch(`/api/conversations/${cid}`);
+      const d = r.ok ? await r.json() : null;
+      if (!d?.conversation) return false;
+      // o histórico completo veio junto: marca como carregada (senão o
+      // sync reduzia à prévia) e SUBSTITUI se o sync tiver chegado
+      // primeiro com a versão de 1 mensagem
+      threadsCarregadas.current.add(cid);
+      setConvs((prev) =>
+        prev.some((c) => c.id === cid)
+          ? prev.map((c) =>
+              c.id === cid ? { ...d.conversation, unreadCount: 0 } : c
+            )
+          : [{ ...d.conversation, unreadCount: 0 }, ...prev]
+      );
+      setSelectedId(cid);
+      setTab(abaDaConversa(d.conversation));
+      // como no clique da lista (selectConv): avisa o servidor que foi lida
+      fetch(`/api/conversations/${cid}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ markRead: true }),
+      }).catch(() => {});
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  // "Novo contato": a janela só fecha quando a conversa ABRIU de fato —
+  // fechar antes e engolir a falha deixava a vendedora com o contato salvo
+  // e nada na tela (achado da revisão, 23/09/2026)
+  async function abrirConversaDoContato(cid: string): Promise<boolean> {
+    const ok = await abrirConversaForaDaLista(cid);
+    if (ok) setShowNovoContato(false);
+    return ok;
+  }
 
   // --- Tempo real: consulta o servidor a cada 4s e traz só o que mudou ---
   // (mensagem nova do cliente, recibos ✓✓, transferências...). Aba em segundo
@@ -2955,7 +2998,16 @@ export function Inbox({
               <MessageCircle className="size-5 text-emerald-500" />
               Atendimento
             </h1>
-            <div className="relative shrink-0">
+            <div className="flex items-center gap-1.5 shrink-0">
+              <button
+                onClick={() => setShowNovoContato(true)}
+                className="inline-flex items-center gap-1 rounded-lg border border-gray-200 text-[11px] font-semibold px-2 py-1.5 text-gray-500 hover:text-emerald-600 hover:border-emerald-300 transition"
+                title="Cadastrar um número novo e já abrir a conversa"
+              >
+                <UserPlus className="size-3.5" />
+                Novo contato
+              </button>
+              <div className="relative shrink-0">
               <button
                 onClick={() => setShowBackup((v) => !v)}
                 className={`inline-flex items-center gap-1 rounded-lg border text-[11px] font-semibold px-2 py-1.5 transition ${
@@ -2988,6 +3040,7 @@ export function Inbox({
                   </a>
                 </div>
               )}
+              </div>
             </div>
           </div>
           <div className="relative mb-2.5">
@@ -5310,6 +5363,12 @@ export function Inbox({
           </button>
         </div>
       </div>
+    )}
+    {showNovoContato && (
+      <NovoContato
+        onClose={() => setShowNovoContato(false)}
+        onAbrir={abrirConversaDoContato}
+      />
     )}
     </>
   );

@@ -723,7 +723,24 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   fila/chats/contatos (vendedora vê os dela + a fila; o interruptor
   **"vê todas as conversas do chat"** na tela Equipe — `User.chatVisaoTotal`,
   `conversationScope` — abre a Central inteira para uma vendedora específica
-  SEM mexer em carteira/pedidos/comissão), setores, assumir/transferir/encerrar, notas internas
+  SEM mexer em carteira/pedidos/comissão), setores, assumir/transferir/encerrar.
+  **Novo contato no topo da lista** (23/09/2026, pedido do dono: *"quando
+  recebo um número novo, não consigo adicionar no sistema — somente se o
+  cliente me chamar primeiro"*): a vendedora digita nome e telefone e a
+  conversa abre pronta para a primeira mensagem, pelas DUAS portas de sempre
+  — o cadastro manual (`POST /api/customers`, portão único da RN-008: número
+  já cadastrado NUNCA vira segunda ficha, e a janela DIZ de quem é a ficha e
+  pede confirmação antes de abrir conversa com outro nome) e o "Conversar no
+  WhatsApp" da ficha (`POST /api/conversations`: conversa nasce ASSUMIDA por
+  quem abriu, nunca na fila; devolve a aberta se já existe — a de COLEGA
+  fora do recorte NÃO abre por cima: a porta responde com quem está o
+  atendimento, senão a tela levava 404 do recorte e ficava muda — e reabre
+  a encerrada NO NOME DE QUEM ABRIU, com o histórico inteiro; manter a dona
+  antiga jogava a conversa na lista de quem não pediu nada — achados da
+  revisão). A janela só FECHA quando a conversa abriu de fato. Cliente novo entra na CARTEIRA de quem
+  cadastrou (a régua de sempre do cadastro manual). A conversa recém-criada
+  é buscada INTEIRA no servidor antes de abrir (o caminho do `?conv=` da
+  Agenda), notas internas
   com @menção, respostas rápidas (criáveis por qualquer um), mídia + **áudio
   de voz** (a vendedora **escolhe o microfone** na engrenagem ao lado do botão
   de gravar, `lib/microfone.ts` — antes quem mandava era o padrão do Windows e
