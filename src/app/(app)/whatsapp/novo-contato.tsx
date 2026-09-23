@@ -83,10 +83,6 @@ export function NovoContato({
 
   async function salvar() {
     if (salvando) return;
-    if (!nome.trim()) {
-      setErro("Escreva o nome do contato.");
-      return;
-    }
     const digitos = digitosDoTelefone(fone);
     if (!telefoneCompleto(digitos)) {
       setErro("Telefone incompleto: escreva o DDD e o número todo.");
@@ -98,7 +94,13 @@ export function NovoContato({
       const res = await fetch("/api/customers", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: nome.trim(), phone: digitos, origin: "MANUAL" }),
+        // sem nome, o campo nem viaja: o servidor dá o crachá provisório,
+        // que o nome do WhatsApp da cliente substitui quando ela responder
+        body: JSON.stringify({
+          ...(nome.trim() ? { name: nome.trim() } : {}),
+          phone: digitos,
+          origin: "MANUAL",
+        }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data.id) {
@@ -176,11 +178,13 @@ export function NovoContato({
               }}
             >
               <div>
-                <label className="block text-sm font-medium mb-1.5">Nome</label>
+                <label className="block text-sm font-medium mb-1.5">
+                  Nome <span className="text-gray-400 font-normal">(opcional)</span>
+                </label>
                 <input
                   value={nome}
                   onChange={(e) => setNome(e.target.value)}
-                  placeholder="Nome da cliente"
+                  placeholder="Nome da cliente, se souber"
                   autoFocus
                   className="w-full rounded-xl border border-gray-200 px-3 py-2.5 text-sm outline-none focus:border-brand-400 transition"
                 />
@@ -199,6 +203,9 @@ export function NovoContato({
               <p className="text-[11px] text-gray-400 leading-snug">
                 O contato entra no cadastro de clientes na sua carteira e a
                 conversa abre em seguida, pronta para a primeira mensagem.
+                Só tem o número? Pode deixar o nome em branco: o contato
+                aparece com o telefone e o nome que ela usa no WhatsApp entra
+                sozinho quando ela responder.
               </p>
               {erro && <p className="text-xs font-medium text-rose-600">{erro}</p>}
               <button

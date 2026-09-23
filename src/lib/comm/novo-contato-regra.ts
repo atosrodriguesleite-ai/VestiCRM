@@ -37,5 +37,8 @@ export function precisaConfirmarFicha(
   if (!jaExistia) return false;
   const daFicha = (nomeDaFicha ?? "").trim().toLowerCase();
   const digitado = nomeDigitado.trim().toLowerCase();
+  // sem nome digitado (só o número em mãos) não há nome para divergir: é
+  // abrir a conversa de quem é dono daquele número
+  if (!digitado) return false;
   return daFicha !== "" && daFicha !== digitado;
 }

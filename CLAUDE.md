@@ -737,7 +737,7 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   atendimento, senão a tela levava 404 do recorte e ficava muda — e reabre
   a encerrada NO NOME DE QUEM ABRIU, com o histórico inteiro; manter a dona
   antiga jogava a conversa na lista de quem não pediu nada — achados da
-  revisão). A janela só FECHA quando a conversa abriu de fato. Cliente novo entra na CARTEIRA de quem
+  revisão). A janela só FECHA quando a conversa abriu de fato. **O nome é OPCIONAL** (pergunta do dono no mesmo dia: "às vezes consigo o número sem o nome"): sem nome o contato nasce com o crachá provisório (`Contato (82) 9…`, `nomeProvisorio`) e o nome que a cliente usa no WhatsApp o SUBSTITUI sozinho quando ela responder — nome digitado por gente nunca é sobrescrito; e número já cadastrado com o nome em branco abre direto (não há nome para divergir). Cliente novo entra na CARTEIRA de quem
   cadastrou (a régua de sempre do cadastro manual). A conversa recém-criada
   é buscada INTEIRA no servidor antes de abrir (o caminho do `?conv=` da
   Agenda), notas internas

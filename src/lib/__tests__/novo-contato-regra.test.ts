@@ -34,6 +34,13 @@ describe("Novo contato — quando o dedup pede confirmação", () => {
     expect(precisaConfirmarFicha(true, "Maria Silva", "  maria silva ")).toBe(false);
   });
 
+  it("só com o NÚMERO (nome em branco) abre direto: não há nome para divergir", () => {
+    // a vendedora às vezes tem só o telefone — a ficha existente é de quem é
+    // dono daquele número, e perguntar "é a Maria?" não ajudaria em nada
+    expect(precisaConfirmarFicha(true, "Maria Silva", "")).toBe(false);
+    expect(precisaConfirmarFicha(true, "Maria Silva", "   ")).toBe(false);
+  });
+
   it("cadastro novo nunca pede confirmação; ficha sem nome também não", () => {
     expect(precisaConfirmarFicha(false, "Maria Silva", "Ana")).toBe(false);
     expect(precisaConfirmarFicha(true, "", "Ana")).toBe(false);
