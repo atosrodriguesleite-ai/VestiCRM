@@ -44,6 +44,9 @@ const TELAS_DE_DINHEIRO = [
   "app/api/export/clientes/route.ts",
   // o "mês fechado em planilha" dos Relatórios: mesmas contas da tela
   "app/api/export/relatorio/route.ts",
+  // o painel de Envios soma o FRETE dos pedidos pagos do mês (RN-065): é
+  // dinheiro de pedido por data de pagamento, então a varredura é dona dele
+  "app/api/envios/route.ts",
 ];
 
 /**

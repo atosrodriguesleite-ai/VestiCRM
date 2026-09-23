@@ -139,7 +139,21 @@ export async function GET(req: NextRequest) {
         : []),
     ];
 
-    const [linhas, porStatus, gasto, entreguesRecentes, parados, linhasParadas, porCidade, porEndereco] =
+    // RN-065: os pedidos PAGOS (RN-001) do mês, pela data do pagamento, no
+    // recorte de quem vê (RN-007) — a turma do "frete recebido"
+    const pagosDoMes = {
+      ...escopoDoUsuario,
+      status: { in: PAID_ORDER_STATUSES },
+      paidAt: { gte: inicioDoMes },
+    };
+    // etiqueta comprada AQUI e não cancelada (`not` do Prisma exclui NULL
+    // junto: sem o OR, etiqueta antiga sem status sumia — mesma proteção
+    // do gasto do mês)
+    const etiquetaViva = {
+      meOrderId: { not: null },
+      OR: [{ meStatus: null }, { meStatus: { not: "CANCELADO" as const } }],
+    };
+    const [linhas, porStatus, gasto, freteRecebido, freteComEtiqueta, custoDasEtiquetas, entreguesRecentes, parados, linhasParadas, porCidade, porEndereco] =
       await Promise.all([
       db.shipping.findMany({
         where: { ...escopo, ...filtroBusca },
@@ -162,6 +176,28 @@ export async function GET(req: NextRequest) {
           OR: [{ meStatus: null }, { meStatus: { not: "CANCELADO" } }],
           meCompradoEm: { gte: inicioDoMes },
         },
+        _sum: { mePrice: true },
+      }),
+      // FRETE RECEBIDO NO MÊS (RN-065): o campo de frete dos pedidos pagos
+      // do mês, todos os canais. Soma `shippingFee`, nunca `total` — o total
+      // tem as peças dentro (RN-002). Só pedido com frete cobrado conta no
+      // "N pedidos"; frete zero (retirada, motoboy por fora) fica de fora.
+      db.order.aggregate({
+        where: { ...pagosDoMes, shippingFee: { gt: 0 } },
+        _sum: { shippingFee: true },
+        _count: { _all: true },
+      }),
+      // O SALDO COMPARA OS MESMOS PEDIDOS (achado da revisão): dentro dos
+      // pagos do mês, só os que têm etiqueta comprada aqui — o frete cobrado
+      // neles (frete zero entra: a loja mandou de graça e pagou etiqueta)...
+      db.order.aggregate({
+        where: { ...pagosDoMes, shipping: { is: etiquetaViva } },
+        _sum: { shippingFee: true },
+        _count: { _all: true },
+      }),
+      // ...contra o que as etiquetas DESSES pedidos custaram
+      db.shipping.aggregate({
+        where: { ...etiquetaViva, order: pagosDoMes },
         _sum: { mePrice: true },
       }),
       // tempo médio de entrega: só os desfechos dos últimos 90 dias — a
@@ -257,6 +293,15 @@ export async function GET(req: NextRequest) {
         quantidade: s._count._all,
       })),
       gastoMes: gasto._sum.mePrice ?? 0,
+      freteRecebidoMes: {
+        soma: freteRecebido._sum.shippingFee ?? 0,
+        pedidos: freteRecebido._count._all,
+        comEtiqueta: {
+          frete: freteComEtiqueta._sum.shippingFee ?? 0,
+          custo: custoDasEtiquetas._sum.mePrice ?? 0,
+          pedidos: freteComEtiqueta._count._all,
+        },
+      },
       parados,
       entregues: entreguesRecentes,
     });
