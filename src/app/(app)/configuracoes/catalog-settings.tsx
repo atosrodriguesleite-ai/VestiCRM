@@ -259,7 +259,8 @@ export function CatalogSettings({
           <label className={label}>O que o pedido pergunta ao cliente</label>
           <p className="mb-2 text-xs text-gray-400 leading-snug">
             Nome e telefone são sempre pedidos. Marque o que mais a sua loja
-            precisa — o que o cliente preencher entra direto no cadastro dele.
+            precisa — o que o cliente preencher entra direto no cadastro dele
+            (o nome da loja fica escrito no pedido).
           </p>
           <div className="space-y-2">
             {(Object.keys(CAMPOS_DO_PEDIDO) as CampoDoPedido[]).map((campo) => {
@@ -283,7 +284,14 @@ export function CatalogSettings({
                       }
                       className="size-4 accent-brand-600"
                     />
-                    {CAMPOS_DO_PEDIDO[campo].rotulo}
+                    <span>
+                      {CAMPOS_DO_PEDIDO[campo].rotulo}
+                      {CAMPOS_DO_PEDIDO[campo].dica && (
+                        <span className="block text-[11px] text-gray-400 font-normal leading-snug">
+                          {CAMPOS_DO_PEDIDO[campo].dica}
+                        </span>
+                      )}
+                    </span>
                   </label>
                   {cfg && (
                     <label className="flex items-center gap-1.5 text-xs text-gray-500">

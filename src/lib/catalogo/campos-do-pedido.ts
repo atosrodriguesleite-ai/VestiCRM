@@ -10,7 +10,13 @@
  * Três decisões que não podem se perder:
  * - **Cardápio fechado**: os campos possíveis são os daqui, cada um caindo
  *   numa coluna da ficha da cliente (`Customer`). Campo livre viraria dado
- *   sem casa — não entra em etiqueta, mapa nem exportação.
+ *   sem casa — não entra em etiqueta, mapa nem exportação. A ÚNICA exceção
+ *   é LOJA (`ficha: null`): ele era campo FIXO do formulário até 23/09/2026
+ *   e virou opção daqui a pedido do dono (a maioria das lojas não usa). A
+ *   casa dele sempre foi outra — a nota do pedido ("Loja: X") e o nome de
+ *   apresentação quando a cliente não diz o próprio nome — e NÃO pode virar
+ *   `Customer.legalName`: razão social anda com o CNPJ e sai em documento
+ *   fiscal (RN-024); "Modas da Vila" dito num pedido não é prova de nada.
  * - **Recorte por lista no servidor** (mesmo padrão da RN-025): a rota do
  *   pedido só aceita os campos que a LOJA configurou. O que vier a mais no
  *   payload é descartado — o navegador não decide o que entra na ficha.
@@ -24,21 +30,33 @@
 
 import { siglaDoEstado } from "../envios/estados";
 
-export type CampoDoPedido = "CEP" | "ENDERECO" | "BAIRRO" | "CIDADE" | "ESTADO";
+export type CampoDoPedido = "LOJA" | "CEP" | "ENDERECO" | "BAIRRO" | "CIDADE" | "ESTADO";
 
 /** Colunas da ficha da cliente que este formulário alcança. */
 export type FichaCampo = "zip" | "street" | "streetNumber" | "district" | "city" | "state";
 
 /**
  * O cardápio, num lugar só: rótulo na tela e na mensagem, exemplo, a coluna
- * da ficha onde o dado mora e a CHAVE DO PAYLOAD (`payload`) que viaja do
- * formulário até a rota — derivar tudo daqui é o que impede um campo novo
- * de existir na tela e ser descartado em silêncio no servidor.
+ * da ficha onde o dado mora (`null` = não escreve na ficha; a casa é a nota
+ * do pedido) e a CHAVE DO PAYLOAD (`payload`) que viaja do formulário até a
+ * rota — derivar tudo daqui é o que impede um campo novo de existir na tela
+ * e ser descartado em silêncio no servidor. `dica` aparece só na tela de
+ * Configurações, para dizer a quem o campo serve.
  */
 export const CAMPOS_DO_PEDIDO: Record<
   CampoDoPedido,
-  { rotulo: string; exemplo: string; ficha: FichaCampo; payload: string; max: number }
+  { rotulo: string; exemplo: string; ficha: FichaCampo | null; payload: string; max: number; dica?: string }
 > = {
+  // payload "store": é a chave que o servidor SEMPRE aceitou (o campo era
+  // fixo) — rascunho guardado e reenvio automático (RN-010) seguem valendo
+  LOJA: {
+    rotulo: "Nome da loja",
+    exemplo: "Nome da sua loja",
+    ficha: null,
+    payload: "store",
+    max: 120,
+    dica: "Para quem vende para lojista: a cliente diz de qual loja ela compra",
+  },
   CEP: { rotulo: "CEP", exemplo: "00000-000", ficha: "zip", payload: "cep", max: 20 },
   ENDERECO: { rotulo: "Endereço (rua e número)", exemplo: "Rua das Flores, 123", ficha: "street", payload: "endereco", max: 200 },
   BAIRRO: { rotulo: "Bairro", exemplo: "Centro", ficha: "district", payload: "bairro", max: 120 },
@@ -87,6 +105,9 @@ export function dadosAceitos(
   const out: Partial<Record<FichaCampo, string>> = {};
   for (const { campo } of config) {
     const def = CAMPOS_DO_PEDIDO[campo];
+    // campo sem coluna (LOJA) nunca escreve na ficha — a casa dele é a nota
+    // do pedido, que a rota preenche por conta própria
+    if (!def.ficha) continue;
     const bruto = (digitado[campo] ?? "").trim().replace(/\s+/g, " ").slice(0, def.max);
     if (!bruto) continue;
     if (campo === "ESTADO") {

@@ -161,7 +161,10 @@ export function desachatarMensagem(texto: string): string {
       // sem eles aqui, o CEP colado na linha do telefone virava dígito de
       // telefone na mensagem achatada do navegador do Instagram
       .replace(
-        /\s+(Loja|Nome|Telefone|Fone|Whatsapp|CEP|Endere[çc]o(?:\s*\(rua e n[úu]mero\))?|Bairro|Cidade|Estado(?:\s*\(UF\))?)\s*:\s*/gi,
+        // "Nome da loja" vem ANTES de "Loja" e "Nome" de propósito: a
+        // alternativa curta casaria no meio do rótulo comprido e partiria
+        // "Nome da loja: X" em duas linhas erradas
+        /\s+(Nome da loja|Loja|Nome|Telefone|Fone|Whatsapp|CEP|Endere[çc]o(?:\s*\(rua e n[úu]mero\))?|Bairro|Cidade|Estado(?:\s*\(UF\))?)\s*:\s*/gi,
         "\n$1: "
       )
       .replace(/\n{2,}/g, "\n")
@@ -215,12 +218,14 @@ export function lerMensagemDePedido(texto: string): PedidoLido {
       continue;
     }
 
-    // bloco do cliente
-    const dado = linha.match(/^(loja|nome|telefone|fone|whats?app)\s*:\s*(.+)$/i);
+    // bloco do cliente — "nome da loja" antes de "loja"/"nome": o rótulo do
+    // campo LOJA da RN-027 é "Nome da loja", e a alternativa curta não casa
+    // (o formato antigo "Loja:" continua valendo — o servidor escreve assim)
+    const dado = linha.match(/^(nome da loja|loja|nome|telefone|fone|whats?app)\s*:\s*(.+)$/i);
     if (dado) {
       const chave = normalizar(dado[1]);
       const valor = dado[2].trim();
-      if (chave === "loja") cliente.loja = valor;
+      if (chave === "loja" || chave === "nome da loja") cliente.loja = valor;
       else if (chave === "nome") cliente.nome = valor;
       else cliente.telefone = valor.replace(/\D/g, "") || null;
       continue;

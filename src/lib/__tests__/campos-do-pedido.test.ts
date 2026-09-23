@@ -44,11 +44,24 @@ describe("RN-027 — campos do pedido do catálogo escolhidos por loja", () => {
     expect(dadosAceitos(config, {})).toEqual({});
   });
 
+  it("LOJA é a exceção sem coluna: configurada ou não, nunca escreve na ficha", () => {
+    // a casa do nome da loja é a NOTA do pedido (o servidor escreve "Loja: X"
+    // do payload `store`, como quando o campo era fixo) — nunca a ficha, e
+    // nunca `legalName`: razão social anda com o CNPJ e sai em documento
+    // fiscal (RN-024)
+    expect(CAMPOS_DO_PEDIDO.LOJA.ficha).toBeNull();
+    expect(dadosAceitos([{ campo: "LOJA", obrigatorio: true }], { LOJA: "Modas da Vila" })).toEqual({});
+    // a chave do payload é a de SEMPRE: rascunho guardado no aparelho e
+    // reenvio automático (RN-010) de antes da mudança continuam chegando
+    expect(CAMPOS_DO_PEDIDO.LOJA.payload).toBe("store");
+  });
+
   it("cada campo cai na coluna certa da ficha, com limpeza e UF traduzida", () => {
     const config: ConfigCampo[] = (Object.keys(CAMPOS_DO_PEDIDO) as (keyof typeof CAMPOS_DO_PEDIDO)[]).map(
       (campo) => ({ campo, obrigatorio: false })
     );
     const aceito = dadosAceitos(config, {
+      LOJA: "Modas da Vila", // com TODOS configurados, a loja segue fora da ficha
       CEP: " 57000-000 ",
       ENDERECO: "Rua  das   Flores, 123",
       BAIRRO: "Centro",

@@ -11,6 +11,7 @@ import {
   pecasLidas,
   separarProdutoECor,
 } from "../catalogo/ler-mensagem";
+import { CAMPOS_DO_PEDIDO } from "../catalogo/campos-do-pedido";
 
 // Guarda RN-012 (índice em docs/regras.md; texto no CLAUDE.md).
 
@@ -49,6 +50,47 @@ describe("lendo a mensagem que a cliente mandou", () => {
     expect(lido.cliente.nome).toBe("Gabriela Cabral Silva");
     expect(lido.cliente.loja).toBe("LOJA DA GABI");
     expect(lido.cliente.telefone).toBe("31997441595");
+  });
+
+  it('entende o rótulo novo "Nome da loja:" (campo LOJA da RN-027) sem confundir com "Nome:"', () => {
+    // desde 23/09/2026 o campo deixou de ser fixo e a mensagem usa o rótulo
+    // do cardápio; o formato antigo ("Loja:") segue valendo — o servidor
+    // ainda escreve assim na nota do pedido
+    const novo = lerMensagemDePedido(
+      MENSAGEM.replace("Loja: LOJA DA GABI", "Nome da loja: LOJA DA GABI")
+    );
+    expect(novo.cliente.loja).toBe("LOJA DA GABI");
+    expect(novo.cliente.nome).toBe("Gabriela Cabral Silva");
+    // e na mensagem ACHATADA o rótulo comprido vira linha própria INTEIRO —
+    // se "Loja"/"Nome" casassem primeiro, "Nome da loja: X" partia no meio
+    const achatada = desachatarMensagem(
+      "*Novo pedido — Entre Linhas* • Calça Azul — P ×2 (2 peças · R$ 100,00) • Cropped Preto — M ×1 (1 peça · R$ 50,00) Total: 3 peças Nome da loja: LOJA DA GABI Nome: Gabriela Telefone: 31997441595"
+    );
+    expect(achatada).toContain("Nome da loja: LOJA DA GABI\n");
+    const daAchatada = lerMensagemDePedido(achatada);
+    expect(daAchatada.cliente.loja).toBe("LOJA DA GABI");
+    expect(daAchatada.cliente.nome).toBe("Gabriela");
+  });
+
+  it("TODO rótulo do cardápio da RN-027 vira linha própria na mensagem achatada", () => {
+    // o formulário imprime `rotulo: valor` para cada campo configurado, e o
+    // desachatador mantém a lista de rótulos À MÃO — este teste é o que
+    // prende as duas pontas: campo novo no cardápio sem o desachatador
+    // aprender o rótulo falha AQUI, não colado na linha do telefone da
+    // cliente no navegador do Instagram (achado da revisão, 23/09/2026)
+    const dados = Object.values(CAMPOS_DO_PEDIDO)
+      .map((def, i) => `${def.rotulo}: VALOR${i}`)
+      .join(" ");
+    const achatada = desachatarMensagem(
+      `*Novo pedido — Loja* • Calça Azul — P ×1 (1 peça · R$ 10,00) • Blusa Preta — M ×1 (1 peça · R$ 10,00) Total: 2 peças ${dados}`
+    );
+    const linhas = achatada.split("\n");
+    Object.values(CAMPOS_DO_PEDIDO).forEach((def, i) => {
+      expect(
+        linhas.some((l) => l.trim() === `${def.rotulo}: VALOR${i}`),
+        `rótulo "${def.rotulo}" não virou linha própria — ensine o desachatarMensagem`
+      ).toBe(true);
+    });
   });
 
   it("lê todas as peças, com tamanho e quantidade", () => {

@@ -280,7 +280,15 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   configurou. **Obrigatório trava só o navegador** — o servidor aceita o
   pedido sem o campo, porque pedido do catálogo não pode se perder (RN-010)
   e o reenvio automático guarda payload antigo. Loja que não configurar
-  nada não muda em NADA.
+  nada não muda em NADA. **"Nome da loja" também é opção do cardápio, e a
+  ÚNICA sem coluna na ficha** (23/09/2026, pedido do dono): era campo FIXO
+  do formulário ("Loja") e a maioria das lojas não o usa — agora só aparece
+  para quem o marcar. A casa dele segue a de sempre — a nota do pedido
+  ("Loja: X") e o nome de apresentação quando a cliente não diz o próprio
+  nome —, NUNCA a ficha (`legalName` é razão social: anda com o CNPJ e sai
+  em documento fiscal, RN-024). O payload continua `store` e o servidor
+  continua aceitando e anotando SEMPRE (rascunho e reenvio antigos valem); o
+  "Colar pedido do WhatsApp" lê o rótulo novo ("Nome da loja:") e o antigo.
   **RN-040 · Condições do LINK DE CAMPANHA, editáveis sem trocar o endereço**
   (`lib/catalogo/condicoes-da-campanha.ts`, 01/09/2026): o link de campanha
   da tela Inteligência (`?ref=`) deixou de só rastrear — a loja define nele um
