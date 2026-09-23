@@ -95,10 +95,43 @@ Se voltar a faltar transportadora, o motivo está escrito ali.
 
 ---
 
+## 🟠 "Application error: a client-side exception…" (ou a tela "Algo deu errado")
+
+É uma tela que quebrou **no navegador**, não no servidor. Desde 23/09/2026
+(RN-065) a lojista vê a nossa tela de socorro em português, com o botão de
+recarregar — a frase crua em inglês só aparece em versão anterior a isso.
+
+**Onde está a causa:** no painel **`/saude`**, nas linhas que começam com
+**`[tela]`** — nome e mensagem do erro, o TIPO de tela (os códigos do caminho
+viram `[token]`, `[id]`…), a loja, a pessoa, o navegador e a pilha. O relato
+só chega depois que a pessoa **entra no app com login** naquele aparelho
+(sessão vencida espera o próximo login; quebra no celular da cliente final,
+sem login, não chega).
+
+- **`[tela]`**: defeito de verdade numa tela. Entra na conta de erros da
+  Saúde, mas **não toca o alarme** "🚨 Erro em produção" (ele é reservado
+  às emergências do servidor e do WhatsApp) — olhe o painel. O caminho e a
+  pilha dizem onde; conserte ali. Ninguém recarrega isso sozinho de
+  propósito — a lojista precisa saber que falhou.
+- **`[tela · peça que não carregou]`**: parecia versão velha, mas a trava já
+  tinha recarregado e a peça continuou faltando — é defeito de verdade
+  (build com arquivo faltando, algo bloqueando um arquivo). Trate como o de
+  cima.
+- **Versão velha**: o aparelho estava numa versão antiga do app depois de uma
+  entrega e recarregou sozinho. É esperado: fica FORA da lista e da conta de
+  erros, sem alarme — só a linha cinza "+N tela(s) em versão velha" no card
+  de erros. Se esse número for alto e frequente, ligar a **Skew Protection**
+  na Vercel (projeto → Settings → Advanced → Skew Protection; incluída no
+  plano Pro) — é a cura de raiz. Para ver as linhas: `ErrorLog` com
+  `source = 'tela.versao'`.
+
+---
+
 ## 🔵 Erro de produção que ninguém entende
 
 `src/instrumentation.ts` captura os erros (`onRequestError`) e joga no painel
-**`/saude`** (Super Admin), com `ErrorLog` no banco.
+**`/saude`** (Super Admin), com `ErrorLog` no banco. Os erros de TELA (do
+navegador) chegam no mesmo painel, marcados `[tela]` — ver a seção acima.
 
 ---
 

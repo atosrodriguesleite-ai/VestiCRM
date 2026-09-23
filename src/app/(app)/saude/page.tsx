@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import { FONTE_TELA_VERSAO_VELHA } from "@/lib/erro-da-tela";
 import {
   Activity,
   CheckCircle2,
@@ -62,7 +63,7 @@ export default async function HealthPage() {
   const d7 = new Date(agora.getTime() - 7 * 24 * 60 * 60 * 1000);
   const presaCorte = new Date(agora.getTime() - MINUTOS_PRESA * 60 * 1000);
 
-  const [health, storesRaw, errors, errors24, errosWebhook24, trafego] = await Promise.all([
+  const [health, storesRaw, errors, errors24, errosWebhook24, trafego, telasVersaoVelha24] = await Promise.all([
     db.systemHealth.findUnique({ where: { id: "main" } }),
     db.commSettings.findMany({
       where: { evolutionInstance: { not: null } },
@@ -73,8 +74,16 @@ export default async function HealthPage() {
         evolutionDownSince: true,
       },
     }),
-    db.errorLog.findMany({ orderBy: { createdAt: "desc" }, take: 30 }),
-    db.errorLog.count({ where: { createdAt: { gte: h24 } } }),
+    // RN-065: "versão velha" é esperado depois de cada entrega e se cura
+    // sozinho — fora da lista e da conta, senão enterrava os erros de verdade
+    db.errorLog.findMany({
+      where: { source: { not: FONTE_TELA_VERSAO_VELHA } },
+      orderBy: { createdAt: "desc" },
+      take: 30,
+    }),
+    db.errorLog.count({
+      where: { source: { not: FONTE_TELA_VERSAO_VELHA }, createdAt: { gte: h24 } },
+    }),
     // erro ao GRAVAR mensagem recebida: o mais grave de todos, porque é
     // conversa de cliente que a loja nunca vai ver
     db.errorLog.count({ where: { source: "wa.webhook", createdAt: { gte: h24 } } }),
@@ -95,6 +104,7 @@ export default async function HealthPage() {
       WHERE m.kind <> 'NOTE'
       GROUP BY cv."companyId"
     `,
+    db.errorLog.count({ where: { source: FONTE_TELA_VERSAO_VELHA, createdAt: { gte: h24 } } }),
   ]);
 
   const companies = await db.company.findMany({
@@ -262,6 +272,11 @@ export default async function HealthPage() {
           >
             {errors24}
           </p>
+          {telasVersaoVelha24 > 0 && (
+            <p className="text-[11px] text-gray-400">
+              +{telasVersaoVelha24} tela(s) em versão velha que recarregaram sozinhas
+            </p>
+          )}
           {errosWebhook24 > 0 ? (
             <p className="text-[11px] font-semibold text-rose-600">
               {errosWebhook24} ao gravar mensagem recebida
