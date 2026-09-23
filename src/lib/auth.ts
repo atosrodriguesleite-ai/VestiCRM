@@ -1,12 +1,17 @@
 import { cache } from "react";
 import { cookies } from "next/headers";
 import { after } from "next/server";
-import { SignJWT, jwtVerify } from "jose";
+import { jwtVerify } from "jose";
 import { db } from "./db";
 import { AUTH_SECRET } from "./env";
+import {
+  assinarCrachaDeSessao,
+  atributosDoCookieDeSessao,
+  COOKIE_SESSAO,
+} from "./sessao";
 import type { Role } from "@prisma/client";
 
-const COOKIE = "vesticrm_session";
+const COOKIE = COOKIE_SESSAO;
 const secret = new TextEncoder().encode(AUTH_SECRET);
 
 export type SessionUser = {
@@ -34,21 +39,16 @@ export type SessionUser = {
  * assinada quem é o Super Admin por trás — permitindo voltar depois.
  */
 export async function createSession(userId: string, impersonatorId?: string) {
-  const token = await new SignJWT(
-    impersonatorId ? { sub: userId, imp: impersonatorId } : { sub: userId }
-  )
-    .setProtectedHeader({ alg: "HS256" })
-    .setIssuedAt()
-    .setExpirationTime("7d")
-    .sign(secret);
-  const store = await cookies();
-  store.set(COOKIE, token, {
-    httpOnly: true,
-    sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
-    maxAge: 60 * 60 * 24 * 7,
-    path: "/",
+  // assinatura e atributos do cookie moram em `lib/sessao.ts`, os MESMOS da
+  // renovação do porteiro (RN-064): 7 dias, renovados enquanto a pessoa usa,
+  // com teto de 30 dias desde este login (o carimbo `authTime` daqui)
+  const token = await assinarCrachaDeSessao(secret, {
+    sub: userId,
+    authTime: Math.floor(Date.now() / 1000),
+    imp: impersonatorId,
   });
+  const store = await cookies();
+  store.set(COOKIE, token, atributosDoCookieDeSessao());
 }
 
 export async function destroySession() {

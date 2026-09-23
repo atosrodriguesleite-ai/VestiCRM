@@ -1,7 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
-import { jwtVerify } from "jose";
+import { jwtVerify, type JWTPayload } from "jose";
 import { AUTH_SECRET } from "./lib/env";
 import { ehArquivoEstatico } from "./lib/porteiro";
+import {
+  assinarCrachaDeSessao,
+  atributosDoCookieDeSessao,
+  COOKIE_SESSAO,
+  deveRenovarSessao,
+  inicioDaSessao,
+  rotaMexeNaSessao,
+} from "./lib/sessao";
 
 const secret = new TextEncoder().encode(AUTH_SECRET);
 
@@ -128,27 +136,56 @@ export async function middleware(req: NextRequest) {
     return NextResponse.next();
   }
 
-  const token = req.cookies.get("vesticrm_session")?.value;
-  let valid = false;
+  const token = req.cookies.get(COOKIE_SESSAO)?.value;
+  let payload: JWTPayload | null = null;
   if (token) {
     try {
-      await jwtVerify(token, secret);
-      valid = true;
+      payload = (await jwtVerify(token, secret)).payload;
     } catch {
-      valid = false;
+      payload = null;
     }
   }
 
-  if (!valid) {
+  if (!payload) {
     if (pathname.startsWith("/api")) {
-      return NextResponse.json({ error: "Não autenticado" }, { status: 401 });
+      // a marca `sessao: "vencida"` diz às telas que entrar de novo RESOLVE
+      // (cookie ausente/vencido/inválido) — o 401 de dentro das rotas, sem a
+      // marca, é outra conversa (usuária desativada, loja suspensa; RN-064)
+      return NextResponse.json(
+        { error: "Não autenticado", sessao: "vencida" },
+        { status: 401 }
+      );
     }
     const url = req.nextUrl.clone();
     url.pathname = "/login";
     return NextResponse.redirect(url);
   }
 
-  return NextResponse.next();
+  const res = NextResponse.next();
+
+  // RN-064 · SESSÃO DESLIZANTE: crachá com mais de 1 dia é reassinado aqui,
+  // com os MESMOS 7 dias do login — quem usa o sistema não é derrubada no
+  // meio do trabalho (o "Não autenticado" no salvar da Entre Linhas). A
+  // régua inteira (teto de 30 dias desde o login, impersonação e crachá
+  // torto não renovam, logout/impersonação não recebem renovação por cima)
+  // mora em `lib/sessao.ts`, pura e testada. Renovar não reabre porta
+  // nenhuma: o cookie só prova quem é — usuária desativada e loja suspensa
+  // continuam barradas no `getSessionUser`, a cada requisição.
+  if (!rotaMexeNaSessao(pathname) && deveRenovarSessao(payload, Date.now())) {
+    try {
+      const novo = await assinarCrachaDeSessao(secret, {
+        sub: payload.sub as string,
+        // o carimbo do LOGIN viaja adiante — é ele que faz o teto valer
+        authTime: inicioDaSessao(payload)!,
+      });
+      res.cookies.set(COOKIE_SESSAO, novo, atributosDoCookieDeSessao());
+    } catch {
+      // reassinar falhou: segue com o cookie atual, que ainda vale — a
+      // renovação é conveniência e nunca pode derrubar uma requisição boa
+    }
+  }
+
+  return res;
 }
 
 export const config = {

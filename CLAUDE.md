@@ -120,6 +120,33 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   carteira), SUPPORT (operacional, sem poderes comerciais).
 - Auth: JWT em cookie httpOnly (`lib/auth.ts`); Super Admin pode "acessar
   como loja" (impersonação com faixa amarela).
+  **RN-064 · A sessão RENOVA sozinha enquanto a pessoa USA o sistema**
+  (`lib/sessao.ts` + porteiro global, 23/09/2026): o login valia 7 dias
+  CRAVADOS e vencia no meio do trabalho — relato da Entre Linhas cadastrando
+  produtos: tudo preenchido e o salvar respondendo "Não autenticado" (a tela
+  de Produtos vive no navegador, então o salvar é a PRIMEIRA ida ao
+  servidor; a pessoa descobre que caiu na hora que mais custa). Agora o
+  porteiro REASSINA o cookie quando o crachá passa de 1 dia de idade, com os
+  mesmos 7 dias: quem usa não é derrubada; a sessão vence com 7 dias PARADA
+  ou no **teto de 30 dias desde o login** (carimbo `auth`, que a renovação
+  preserva — sem o teto, cookie roubado ou a aba esquecida na loja, que o
+  sync de 3s mantém "em uso", virava sessão eterna, achado da revisão). As
+  outras travas: **impersonação não renova** (a sessão de suporte do Super
+  Admin vence em 7 dias como sempre); **logout e impersonação não recebem
+  renovação por cima** (`rotaMexeNaSessao` — dois Set-Cookie da mesma sessão
+  na mesma resposta têm vencedor dependente da plataforma, e o "Sair" podia
+  sair sem sair, achado da revisão); **renovar não reabre porta nenhuma** (o
+  cookie só prova quem é — usuária desativada e loja suspensa seguem
+  barradas no `getSessionUser`, a cada requisição); **crachá torto não
+  renova** (sem `sub`, sem `iat` ou com `iat` no futuro fica como está).
+  Assinatura e atributos do cookie têm UMA função (login e renovação): claim
+  novo de sessão entra lá, senão a primeira renovação o apagaria. E o 401 na
+  área de Produtos fala português (`avisoDaRecusa`), distinguindo os dois
+  casos: o 401 do porteiro leva a marca `sessao: "vencida"` e vira "entre em
+  OUTRA aba e volte para salvar" (o login em outra aba renova o cookie do
+  navegador inteiro e o digitado não se perde); o 401 SEM a marca (usuária
+  desativada, loja suspensa) diz para falar com quem administra — mandar
+  essa pessoa para a outra aba seria um beco (achado da revisão).
   **RN-045 · Código de login pelo WhatsApp em aparelho novo**
   (`lib/auth-codigo.ts`, 02/09/2026): segundo fator do jeito deste público —
   nada de app autenticador; o código de 6 dígitos chega no WhatsApp da

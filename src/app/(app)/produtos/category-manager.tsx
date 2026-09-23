@@ -7,6 +7,7 @@
  * para o perfil Suporte.
  */
 
+import { avisoDaRecusa } from "@/lib/sessao";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Portal } from "@/components/portal";
@@ -62,7 +63,7 @@ export function CategoryManager() {
     } else {
       const d = await r.json().catch(() => ({}));
       setMsgOk(false);
-      setMsg(d.error ?? "Não foi possível salvar a descrição.");
+      setMsg(avisoDaRecusa(r.status, d, "Não foi possível salvar a descrição."));
     }
   }
 
@@ -94,7 +95,7 @@ export function CategoryManager() {
     } else {
       const d = await r.json().catch(() => ({}));
       setMsgOk(false);
-      setMsg(d.error ?? "Não foi possível salvar o tipo.");
+      setMsg(avisoDaRecusa(r.status, d, "Não foi possível salvar o tipo."));
     }
   }
 
@@ -127,7 +128,7 @@ export function CategoryManager() {
     } else {
       const d = await r.json().catch(() => ({}));
       setMsgOk(false);
-      setMsg(d.error ?? "Não foi possível criar.");
+      setMsg(avisoDaRecusa(r.status, d, "Não foi possível criar."));
     }
   }
 
@@ -151,7 +152,7 @@ export function CategoryManager() {
     } else {
       const d = await r.json().catch(() => ({}));
       setMsgOk(false);
-      setMsg(d.error ?? "Não foi possível renomear.");
+      setMsg(avisoDaRecusa(r.status, d, "Não foi possível renomear."));
     }
   }
 
@@ -172,7 +173,7 @@ export function CategoryManager() {
     } else {
       const d = await r.json().catch(() => ({}));
       setMsgOk(false);
-      setMsg(d.error ?? "Não foi possível apagar.");
+      setMsg(avisoDaRecusa(r.status, d, "Não foi possível apagar."));
     }
   }
 
