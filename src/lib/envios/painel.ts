@@ -59,6 +59,34 @@ export function estaParado(
 export type ResumoEnvios = {
   /** custo das etiquetas compradas no mês (etiqueta cancelada fica de fora) */
   gastoMes: number;
+  /**
+   * FRETE COBRADO DAS CLIENTES no mês — RN-064 (pedido do dono, 23/09/2026:
+   * "temos o gasto com as etiquetas, queria o quanto recebi de frete"). É a
+   * soma do campo de frete (`Order.shippingFee`) dos pedidos PAGOS (RN-001)
+   * pela data do pagamento — a mesma régua do faturamento —, não do `total`
+   * (que teria o valor das peças junto). Frete é receita à parte do valor
+   * vendido (RN-002), por isso tem número próprio e não entra em nenhum
+   * faturamento. Todos os canais: pedido da loja online também cobrou frete.
+   */
+  freteRecebidoMes: number;
+  /** quantos pedidos pagos no mês tinham frete cobrado (> 0) */
+  pedidosComFreteMes: number;
+  /**
+   * O SALDO É SOBRE OS MESMOS PEDIDOS (achado da revisão, 23/09/2026): a
+   * primeira versão subtraía o "gasto do mês" (etiquetas COMPRADAS no mês,
+   * de qualquer pedido) do frete dos pedidos PAGOS no mês — duas populações.
+   * Pedido pago dia 30 com etiqueta comprada dia 1º do mês seguinte virava
+   * "faltou R$ 35" em vermelho num frete totalmente coberto; e pedido da
+   * Nuvemshop (frete cobrado lá, etiqueta comprada lá) inflava a sobra.
+   * Agora o saldo compara, DENTRO dos pedidos pagos no mês, só os que têm
+   * etiqueta comprada AQUI (não cancelada): o frete cobrado neles menos o
+   * que essas etiquetas custaram. Mesma turma dos dois lados.
+   */
+  freteComEtiquetaMes: number;
+  /** o que as etiquetas DESSES pedidos custaram (não canceladas) */
+  custoDasEtiquetasMes: number;
+  /** freteComEtiquetaMes − custoDasEtiquetasMes; null = nenhum pedido pago do mês tem etiqueta daqui */
+  saldoFreteMes: number | null;
   /** etiqueta comprada, caixa ainda na loja */
   aguardandoPostagem: number;
   /** na estrada (postado, sem desfecho) */
@@ -74,6 +102,12 @@ export type ResumoEnvios = {
 export function resumoDosEnvios(dados: {
   porStatus: { meStatus: string | null; quantidade: number }[];
   gastoMes: number;
+  freteRecebidoMes: {
+    soma: number;
+    pedidos: number;
+    /** só os pedidos pagos do mês COM etiqueta daqui: frete cobrado e custo */
+    comEtiqueta: { frete: number; custo: number; pedidos: number };
+  };
   parados: number;
   entregues: { shippedAt: Date | null; deliveredAt: Date | null }[];
 }): ResumoEnvios {
@@ -96,8 +130,20 @@ export function resumoDosEnvios(dados: {
       ? Math.round((duracoes.reduce((s, d) => s + d, 0) / duracoes.length) * 10) / 10
       : null;
 
+  const centavos = (n: number) => Math.round(n * 100) / 100;
+  const { comEtiqueta } = dados.freteRecebidoMes;
+  const freteComEtiquetaMes = centavos(comEtiqueta.frete);
+  const custoDasEtiquetasMes = centavos(comEtiqueta.custo);
   return {
-    gastoMes: Math.round(dados.gastoMes * 100) / 100,
+    gastoMes: centavos(dados.gastoMes),
+    freteRecebidoMes: centavos(dados.freteRecebidoMes.soma),
+    pedidosComFreteMes: dados.freteRecebidoMes.pedidos,
+    freteComEtiquetaMes,
+    custoDasEtiquetasMes,
+    // em centavos, senão 0,1 + 0,2 vira 0,30000000000000004 na tela; sem
+    // pedido com etiqueta não há saldo a dizer (null, não zero)
+    saldoFreteMes:
+      comEtiqueta.pedidos > 0 ? centavos(freteComEtiquetaMes - custoDasEtiquetasMes) : null,
     aguardandoPostagem: conta(AGUARDANDO_POSTAGEM),
     emTransito: conta(["POSTADO"]),
     entregues: conta(["ENTREGUE"]),

@@ -2040,7 +2040,8 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   crédito da loja. E o cartão **não aparece onde o dinheiro anda** — baixa e
   transferência —, senão daria para quitar a parcela fora de qualquer fatura.
 - **Envios** (gated por loja, `shippingEnabled`, pago à parte): tela própria
-  no menu (`/envios`): painel (gasto do mês, aguardando postagem, em
+  no menu (`/envios`): painel (gasto do mês, frete recebido no mês — RN-064,
+  abaixo —, aguardando postagem, em
   trânsito com alerta de **parado há 7+ dias**, entregues com tempo médio) +
   lista de tudo que saiu (transportadora, destinatária, rastreio com copiar
   código/link público, status vivo) — a lista respeita RN-007 (`orderScope`)
@@ -2051,6 +2052,27 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   contornos e coordenadas dos 5.570 municípios foram gerados uma vez
   (`scripts/gerar-mapa-envios.mjs`) e commitados; cidade que não casa com a
   base vira ponto no centro do estado (envio nunca some do mapa).
+  **RN-064 · FRETE RECEBIDO NO MÊS, E O SALDO COMPARA OS MESMOS PEDIDOS**
+  (`resumoDosEnvios` em `lib/envios/painel.ts`, 23/09/2026): pedido do dono
+  — *"temos o gasto com frete no mês, que é das etiquetas; queria o quanto
+  recebi de frete, o que colocamos no campo de frete do pedido"*. O cartão
+  soma o campo de frete (`Order.shippingFee`) dos pedidos **PAGOS** (RN-001)
+  pela **data do pagamento** (a régua do faturamento), no recorte de quem
+  vê (RN-007), **todos os canais** — a loja online também cobrou frete; soma
+  `shippingFee`, **nunca `total`** (RN-002), e "N pedidos" conta só quem
+  cobrou frete (retirada e motoboy por fora ficam de fora). **O saldo NÃO é
+  "recebido − gasto do mês"** (achado da revisão): são populações
+  diferentes — o gasto conta etiquetas COMPRADAS no mês, de pedido em
+  qualquer status (RN-022); pedido pago dia 30 com etiqueta comprada dia 1º
+  virava "faltou R$ 35" em vermelho num frete coberto, e pedido da Nuvemshop
+  (frete cobrado lá, etiqueta comprada lá) inflava a sobra. O saldo compara,
+  **dentro dos pedidos pagos do mês, só os que têm etiqueta comprada aqui**
+  (não cancelada): frete cobrado neles − custo dessas etiquetas — a mesma
+  turma dos dois lados, e frete zero ENTRA nessa turma (a loja mandou de
+  graça e pagou etiqueta). Sem pedido com etiqueta, não há saldo (null, não
+  zero), e a legenda diz só quantos cobraram frete. A rota está na varredura
+  de dinheiro (`faturamento-data.test.ts`), e o número foi conferido contra
+  a soma direta no Postgres local.
   **RN-022 · Dois recortes** (21/08/2026): **"Todos os pedidos pagos"**
   (padrão) conta TODO pedido pago (RN-001) com endereço — a loja também
   despacha por motoboy, transportadora própria e retirada, e esses pedidos
