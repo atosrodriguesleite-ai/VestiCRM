@@ -1680,13 +1680,30 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   vinculada também se mexe LÁ**: remover variação da Nuvemshop "não pega"
   (a sync recria com o número de lá e o livro dela some em cascata) e cor/
   tamanho novos em produto do Jueri criam peça que ninguém sincroniza — a
-  rota recusa os dois, e variação com peça RESERVADA em pedido não se
-  remove (o pedido perderia a prova do que segurou) — e a recusa **diz QUAL
-  pedido segura** (`fraseDaPecaPresa` + `pedidosQueSeguram`, 25/09/2026,
-  print de uma lojista com vários pedidos abertos: "cancele o pedido" sem
-  número era beco sem saída): número, cliente, situação e peças de cada um,
-  pela MESMA régua do reservado (a soma fecha com o número anunciado); o de
-  colega fora do recorte entra só como "pedido de colega" (RN-007). A restauração pós-
+  rota recusa os dois, e variação com peça RESERVADA em pedido **que ainda
+  não é venda** (orçamento, aguardando pagamento) não se remove (o pedido
+  perderia a prova do que segurou) — e a recusa **diz QUAL pedido segura**
+  (`fraseDaPecaPresa` + `pedidosQueSeguram`, 25/09/2026, print de uma
+  lojista com vários pedidos abertos: "cancele o pedido" sem número era beco
+  sem saída): número, cliente, situação e peças de cada um, pela MESMA régua
+  do reservado; o de colega fora do recorte entra só como "pedido de colega"
+  (RN-007). **Pedido PAGO não trava** (`travaARemocao`, derivado da lista de
+  venda da RN-001; mesmo dia, o dono com o print: os dois pedidos eram de
+  SEPARAÇÃO — *"separação já vendeu, então não pode segurar"*): a peça já é
+  da cliente, e o item guarda nome, cor e tamanho congelados — perde só o
+  vínculo, e com ele o código de barras (na Separação ela aparece "sem
+  código, conferir na mão", RN-060). **Ninguém fica no escuro**
+  (`lib/estoque/remover-variacoes.ts`): todo pedido EM ABERTO que tinha a
+  peça — o pago e também o orçamento que não chegou a reservar (falta) —
+  ganha no histórico a nota de quem removeu, e quem removeu recebe na hora
+  o aviso com os números (`avisoDaRemocao`), dizendo também que, se o
+  pedido for cancelado, a peça não volta sozinha ao estoque (a variação não
+  existe mais). A conferência roda no COMEÇO da transação, antes de gravar
+  foto, travando **os pedidos e depois as variações** (as que a ficha vai
+  ajustar entram no mesmo passe, senão é deadlock com a reserva): o pedido
+  pago que volta a orçamento no meio, e a reserva nova, esperam —
+  reproduzido no Postgres local, e sem a trava do pedido a remoção passava
+  por cima do orçamento. A restauração pós-
   importação (`stock-restore.ts`) pula peça de dono externo pelo mesmo
   motivo. A tela Produtos **só manda o estoque que a pessoa DIGITOU** (com
   o número visto): mandar o carregado de todas desfazia a venda que entrou

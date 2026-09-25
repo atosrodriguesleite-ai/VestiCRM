@@ -123,22 +123,28 @@ export async function reservadoPorVariacao(companyId: string): Promise<Map<strin
 }
 
 /**
- * QUAIS pedidos seguram esta variação, e quantas peças cada um (RN-050: a
+ * QUAIS pedidos seguram estas variações, e quantas peças cada um (RN-050: a
  * recusa de remover a variação diz o número — "cancele o pedido" sem dizer
  * qual era beco sem saída numa loja cheia de pedidos). A MESMA régua do
  * `reservadoPorVariacao` (status que seguram, sem baixa definitiva, saldo do
- * livro), então a soma por pedido fecha com o número que a recusa anuncia.
- * `visivel` segue o recorte de quem pergunta (RN-007).
+ * livro), então a soma por pedido fecha com o número do Inventário.
+ * `visivel` segue o recorte de quem pergunta (RN-007). Quem decide se o
+ * pedido TRAVA a remoção é `travaARemocao` (peca-presa.ts) — o pago não.
+ *
+ * Aceita a transação (`cliente`): a rota relê DENTRO dela, com as variações
+ * travadas, para a reserva que chega no meio não passar batida.
  */
 export async function pedidosQueSeguram(
   user: SessionUser,
-  variantId: string
-): Promise<PedidoQueSegura[]> {
+  variantIds: string[],
+  cliente: Prisma.TransactionClient | typeof db = db
+): Promise<(PedidoQueSegura & { orderId: string; variantId: string })[]> {
+  if (variantIds.length === 0) return [];
   const companyId = user.companyId;
-  const rows = await db.$queryRaw<
-    { id: string; numero: number; status: OrderStatus; cliente: string; pecas: number }[]
+  const rows = await cliente.$queryRaw<
+    { id: string; variantId: string; numero: number; status: OrderStatus; cliente: string; pecas: number }[]
   >(Prisma.sql`
-    SELECT o."id", o."number" AS "numero", o."status", c."name" AS "cliente",
+    SELECT o."id", m."variantId", o."number" AS "numero", o."status", c."name" AS "cliente",
            SUM(CASE WHEN m."type" = 'SAIDA' THEN m."quantity" ELSE -m."quantity" END)::int AS "pecas"
       FROM "Order" o
       JOIN "InventoryMovement" m ON m."orderId" = o."id"
@@ -147,18 +153,20 @@ export async function pedidosQueSeguram(
        AND o."status" = ANY(${[...STATUS_QUE_SEGURAM_NA_LOJA]}::text[]::"OrderStatus"[])
        AND o."stockWrittenOff" = false
        AND m."companyId" = ${companyId}
-       AND m."variantId" = ${variantId}
+       AND m."variantId" = ANY(${variantIds}::text[])
        AND m."type" IN ('SAIDA', 'ENTRADA')
-     GROUP BY o."id", o."number", o."status", c."name"
+     GROUP BY o."id", m."variantId", o."number", o."status", c."name"
     HAVING SUM(CASE WHEN m."type" = 'SAIDA' THEN m."quantity" ELSE -m."quantity" END) > 0
   `);
   if (rows.length === 0) return [];
-  const veem = await db.order.findMany({
-    where: { AND: [orderScope(user), { id: { in: rows.map((r) => r.id) } }] },
+  const veem = await cliente.order.findMany({
+    where: { AND: [orderScope(user), { id: { in: [...new Set(rows.map((r) => r.id))] } }] },
     select: { id: true },
   });
   const visiveis = new Set(veem.map((o) => o.id));
   return rows.map((r) => ({
+    orderId: r.id,
+    variantId: r.variantId,
     numero: r.numero,
     status: r.status,
     cliente: r.cliente,

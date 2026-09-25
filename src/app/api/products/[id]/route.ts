@@ -4,8 +4,7 @@ import { db } from "@/lib/db";
 import { requireUser, AuthError } from "@/lib/auth";
 import { ajustarEstoqueDentro } from "@/lib/estoque/ajuste";
 import { decidirAjuste, decidirVarejoParaNuvemshop, donoDoEstoque, donoDoPreco, fraseDaRecusa, FRASE_VAREJO_ZERO_NUVEMSHOP, NOME_DO_DONO, rotuloDaPeca } from "@/lib/estoque/dono-do-estoque";
-import { pedidosQueSeguram, reservadoPorVariacao } from "@/lib/estoque/inventario";
-import { fraseDaPecaPresa } from "@/lib/estoque/peca-presa";
+import { conferirRemocaoDeVariacoes } from "@/lib/estoque/remover-variacoes";
 import { espelharPrecoSemQuebrar } from "@/lib/nuvemshop";
 import { marcarPrecoPendente } from "@/lib/nuvemshop-preco-pendente";
 
@@ -205,8 +204,9 @@ export async function PATCH(
      * GRADE DE PEÇA VINCULADA NÃO SE MEXE AQUI (RN-050): remover variação da
      * Nuvemshop "não pega" (a sync recria com o número de lá, e o livro dela
      * some em cascata); acrescentar cor/tamanho num produto do Jueri cria uma
-     * peça que ninguém sincroniza. E variação com peça RESERVADA em pedido não
-     * se apaga — o pedido perderia a prova do que segurou.
+     * peça que ninguém sincroniza. E variação com peça RESERVADA em pedido que
+     * ainda não é venda (orçamento, aguardando pagamento) não se apaga — o
+     * pedido perderia a prova do que segurou. Pedido PAGO não trava.
      */
     if (removeVariantIds?.length) {
       const travadas = product.variants.filter(
@@ -219,23 +219,8 @@ export async function PATCH(
           { status: 409 }
         );
       }
-      const reservado = await reservadoPorVariacao(user.companyId);
-      const presa = product.variants.find((v) => removeVariantIds.includes(v.id) && (reservado.get(v.id) ?? 0) > 0);
-      if (presa) {
-        // diz QUAIS pedidos seguram a peça — "cancele o pedido" sem número
-        // era beco sem saída numa loja cheia de pedidos (relato 25/09/2026)
-        const pedidos = await pedidosQueSeguram(user, presa.id).catch(() => []);
-        return NextResponse.json(
-          {
-            error: fraseDaPecaPresa(
-              rotuloDaPeca({ ...presa, product }),
-              reservado.get(presa.id) ?? 0,
-              pedidos
-            ),
-          },
-          { status: 409 }
-        );
-      }
+      // a trava por pedido (qual segura, se é venda ou não) é conferida
+      // DENTRO da transação, com pedidos e variações travados — no começo dela
     }
     if (addVariants?.length && product.jueriId) {
       return NextResponse.json(
@@ -251,8 +236,22 @@ export async function PATCH(
      * grade) deixava a ficha pela metade — duas linhas novas, uma velha,
      * nome e preço antigos, e a foto de capa já apagada.
      */
-    const updated = await db.$transaction(
+    const { salvo: updated, aviso: avisoDaRemocao } = await db.$transaction(
       async (tx) => {
+        // RN-050: a conferência de quem segura a variação vem ANTES de
+        // qualquer escrita — a recusa não joga fora fotos já gravadas
+        let aviso: string | null = null;
+        if (removeVariantIds?.length) {
+          const r = await conferirRemocaoDeVariacoes(
+            tx,
+            user,
+            product,
+            removeVariantIds,
+            (variantStocks ?? []).map((vs) => vs.id).filter((vid) => product.variants.some((v) => v.id === vid))
+          );
+          if ("recusa" in r) throw new RecusaDaGrade(409, r.recusa);
+          aviso = r.aviso;
+        }
         // galeria completa: a lista enviada É o estado final, na ordem final
         // (posição 0 = capa). Fotos existentes chegam por id e só têm a ordem
         // atualizada — o conteúdo não muda, então o cache imutável de
@@ -370,7 +369,7 @@ export async function PATCH(
           }
         }
 
-        // remoção de variações da grade
+        // remoção de variações da grade (a conferência já rodou no começo)
         if (removeVariantIds?.length) {
           await tx.productVariant.deleteMany({
             where: { id: { in: removeVariantIds }, productId: product.id },
@@ -381,13 +380,14 @@ export async function PATCH(
         // RN-057: varejo novo em peça Nuvemshop entra na fila de envio na
         // MESMA transação — e só quando de fato mudou
         if (varejoVaiParaNuvemshop) await marcarPrecoPendente(user.companyId, [product.id], tx);
-        return salvo;
+        return { salvo, aviso };
       },
       // fotos em data-URL pesam: a transação ganha folga acima dos 5s padrão
       { timeout: 30_000 }
     );
     if (varejoVaiParaNuvemshop) espelharPrecoSemQuebrar(user.companyId, [product.id]);
-    return NextResponse.json(updated);
+    // pedido em aberto que tinha a peça removida: quem removeu fica sabendo
+    return NextResponse.json(avisoDaRemocao ? { ...updated, avisoDaRemocao } : updated);
   } catch (e) {
     if (e instanceof AuthError)
       return NextResponse.json({ error: "Não autenticado" }, { status: 401 });
