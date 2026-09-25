@@ -992,6 +992,12 @@ function ProductDetailModal({
       alert(avisoDaRecusa(res.status, data, "Não foi possível salvar. Tente novamente."));
       return;
     }
+    // RN-050: variação removida que estava em pedido em aberto (pago não
+    // trava) — a pessoa fica sabendo quais pedidos e o que muda neles
+    if (removedIds.length) {
+      const data = await res.json().catch(() => null);
+      if (typeof data?.avisoDaRemocao === "string") alert(data.avisoDaRemocao);
+    }
     onChanged();
   }
 
