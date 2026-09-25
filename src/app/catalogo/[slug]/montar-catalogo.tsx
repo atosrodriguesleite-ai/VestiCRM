@@ -9,6 +9,7 @@ import {
   parseCategoryTypes,
 } from "@/lib/categories";
 import { type LinkDeCatalogo } from "@/lib/catalogo/tabelas-de-preco";
+import { disponivelNaVitrine } from "@/lib/catalogo/teto-do-estoque";
 import { lerCamposDaLoja } from "@/lib/catalogo/campos-do-pedido";
 import { resolverLink } from "@/lib/catalogo/tabelas-de-preco-servidor";
 import { condicoesDoLink, precoComDesconto } from "@/lib/catalogo/condicoes-da-campanha";
@@ -104,7 +105,9 @@ export async function montarCatalogo({
     variants: ordenarVariantes(p.variants).map((v) => ({
       color: v.color,
       size: v.size,
-      available: v.stock > 0,
+      // QUANTAS há (RN-067): a vitrine para a quantidade neste teto — só o
+      // "tem/não tem" deixava a cliente pedir 8 de uma peça com 1
+      disponivel: disponivelNaVitrine(v.stock),
     })),
   }));
 

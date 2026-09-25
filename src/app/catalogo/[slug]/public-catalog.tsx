@@ -50,6 +50,12 @@ import {
   setConsent,
 } from "@/lib/tracking/client";
 import { lembrarOrigem } from "@/lib/catalogo/origem";
+import {
+  avisoDoMinimoSemEstoque,
+  limitarQuantidade,
+  limitarSacola,
+} from "@/lib/catalogo/teto-do-estoque";
+import { LinhaDeTamanho } from "./linha-de-tamanho";
 
 const montserrat = Montserrat({ subsets: ["latin"], weight: ["400", "500", "600", "700", "800"] });
 const inter = Inter({ subsets: ["latin"], weight: ["400", "500", "600", "700", "800"] });
@@ -91,7 +97,10 @@ export type CatalogProduct = {
   // cada foto pode vir etiquetada com a cor que mostra (capa por cor):
   // o card da Avelã usa a foto avelã; sem etiqueta, cai na capa geral
   images: { url: string; color: string | null }[];
-  variants: { color: string; size: string; available: boolean }[];
+  // `disponivel` = QUANTAS há daquela cor × tamanho (RN-067): a quantidade
+  // da vitrine para nesse teto. "Tem/não tem" é derivado daqui, uma vez só
+  // (dois campos para o mesmo fato desencontram — achado da revisão)
+  variants: { color: string; size: string; disponivel: number }[];
 };
 
 /* nome da cor → bolinha do catálogo: a cor cadastrada pela LOJA manda.
@@ -114,7 +123,7 @@ type CardItem = {
   key: string;
   product: CatalogProduct;
   color: string;
-  sizes: { size: string; available: boolean }[];
+  sizes: { size: string; available: boolean; disponivel: number }[];
 };
 
 type Cart = Record<string, Record<string, number>>; // key -> size -> qty
@@ -394,7 +403,7 @@ export function PublicCatalog({
       for (const color of colors) {
         const sizes = p.variants
           .filter((v) => v.color === color)
-          .map((v) => ({ size: v.size, available: v.available }))
+          .map((v) => ({ size: v.size, available: v.disponivel > 0, disponivel: v.disponivel }))
           // tamanhos sempre do menor para o maior (P, M, G, GG / 36, 38, 40)
           .sort((a, b) => compareSizes(a.size, b.size));
         // Chavinha "esconder sem estoque" vale POR COR: o filtro do servidor
@@ -419,6 +428,19 @@ export function PublicCatalog({
     () => [...cardsByCategory.values()].flat(),
     [cardsByCategory]
   );
+  // quantas há de cada card × tamanho HOJE (RN-067); undefined = não está
+  // mais na vitrine (produto saiu, cor sumiu, tamanho apagado). Mapa, não
+  // busca linear: a vitrine é feita para milhares de cards
+  const disponivelPorCard = useMemo(() => {
+    const m = new Map<string, Map<string, number>>();
+    for (const c of allCards) m.set(c.key, new Map(c.sizes.map((sz) => [sz.size, sz.disponivel])));
+    return m;
+  }, [allCards]);
+  const disponivelDe = (chave: string, tamanho: string) =>
+    disponivelPorCard.get(chave)?.get(tamanho);
+  // a sacola que voltou foi ENCOLHIDA pelo estoque de hoje: fica dito na
+  // sacola até o pedido sair (a cliente precisa saber que não é o que deixou)
+  const [avisoDaSacola, setAvisoDaSacola] = useState<string | null>(null);
 
   const [cart, setCart] = useState<Cart>({});
   const [activeCat, setActiveCat] = useState(0);
@@ -525,7 +547,12 @@ export function PublicCatalog({
             );
             if (Object.keys(clean).length) restored[key] = clean as Record<string, number>;
           }
-          if (Object.keys(restored).length) setCart(restored);
+          // a sacola de ONTEM passa pelo estoque de HOJE (RN-067): peça que
+          // zerou sai, quantidade acima do disponível desce até ele — senão a
+          // cliente confirmava 8 de uma peça que já só tinha 1
+          const { sacola, ajustou } = limitarSacola(restored, disponivelDe);
+          if (Object.keys(sacola).length) setCart(sacola);
+          if (ajustou) avisarSacolaAjustada();
         }
       }
       const rawClient = localStorage.getItem(clientKey);
@@ -586,25 +613,24 @@ export function PublicCatalog({
                     (!item.productId && c.product.name === item.name)
                 );
                 if (!card || !item.size || item.qty <= 0) continue;
-                // SÓ tamanho que ainda existe e com estoque volta à sacola —
-                // sem esta peneira, peça esgotada voltava, a cliente
-                // confirmava e a loja só descobria na separação
-                const tamanho = card.sizes.find(
-                  (sz) => sz.size === item.size && sz.available
-                );
-                if (!tamanho) continue;
                 restaurada[card.key] = {
                   ...(restaurada[card.key] ?? {}),
                   [item.size]: item.qty,
                 };
               }
-              if (Object.keys(restaurada).length) {
+              // SÓ tamanho que ainda existe, com estoque e até o que há HOJE
+              // volta à sacola (RN-067, a MESMA régua da sacola do aparelho)
+              // — sem esta peneira, peça esgotada voltava, a cliente
+              // confirmava e a loja só descobria na separação
+              const { sacola: restauradaQueCabe, ajustou } = limitarSacola(restaurada, disponivelDe);
+              if (ajustou) avisarSacolaAjustada();
+              if (Object.keys(restauradaQueCabe).length) {
                 // mescla POR TAMANHO: o que a cliente já tinha na sacola
                 // deste aparelho não pode sumir (sobrescrever o card inteiro
                 // apagava o "M:2" local quando a abandonada só tinha "G:1")
                 setCart((atual) => {
                   const proximo = { ...atual };
-                  for (const [key, sizes] of Object.entries(restaurada)) {
+                  for (const [key, sizes] of Object.entries(restauradaQueCabe)) {
                     proximo[key] = { ...(proximo[key] ?? {}), ...sizes };
                   }
                   return proximo;
@@ -860,7 +886,8 @@ export function PublicCatalog({
     t({ type: "color_select", color: card.color, productId: card.product.id });
     const existing = cart[card.key] ?? {};
     const d: Record<string, number> = {};
-    for (const s of card.sizes) d[s.size] = existing[s.size] ?? 0;
+    // o que já está na sacola volta para a grade JÁ no teto de hoje (RN-067)
+    for (const s of card.sizes) d[s.size] = limitarQuantidade(existing[s.size] ?? 0, s.disponivel);
     setDraft(d);
     setSheet(card);
   }
@@ -880,12 +907,22 @@ export function PublicCatalog({
     if (toastTimer.current) clearTimeout(toastTimer.current);
     toastTimer.current = setTimeout(() => setToast(""), 1900);
   }
+  /** a sacola que voltou não é a que a cliente deixou: avisa na hora e na sacola */
+  function avisarSacolaAjustada() {
+    const msg = "Ajustamos as quantidades da sua sacola ao estoque de hoje.";
+    setAvisoDaSacola(msg);
+    showToast(msg);
+  }
 
   function addToBag() {
     if (!sheet) return;
     const clean: Record<string, number> = {};
     for (const [size, qty] of Object.entries(draft)) {
-      if (qty > 0) clean[size] = qty;
+      // segunda passada pelo teto (RN-067): o `+` já para nele, mas a sacola
+      // nunca recebe mais do que a vitrine sabe que existe
+      const teto = sheet.sizes.find((s) => s.size === size)?.disponivel ?? 0;
+      const cabe = limitarQuantidade(qty, teto);
+      if (cabe > 0) clean[size] = cabe;
     }
     const price = precoDe(sheet.product);
     const prevQty = cart[sheet.key] ? sum(cart[sheet.key]) : 0;
@@ -1125,6 +1162,7 @@ export function PublicCatalog({
       // mexer em nada — a cliente não enviou coisa alguma.
       try {
         localStorage.removeItem(storeKey);
+        setAvisoDaSacola(null);
       } catch {}
 
       // Tracking Engine: conversão + unificação do visitante anônimo
@@ -1196,6 +1234,11 @@ export function PublicCatalog({
     return faltaParaOMinimo(linhas, produtos, "ATACADO");
   }, [tabela?.mode, allCards, cart, products]);
   const atacadoBloqueado = faltasDoAtacado.length > 0;
+  /** quantas peças há do MODELO inteiro (todas as cores e tamanhos) hoje */
+  const disponivelDoModelo = (productId: string) =>
+    allCards
+      .filter((c) => c.product.id === productId)
+      .reduce((soma, c) => soma + c.sizes.reduce((a, sz) => a + sz.disponivel, 0), 0);
 
   const minActive = minOrderMode === "PECAS" || minOrderMode === "VALOR";
   const minTarget = minOrderMode === "VALOR" ? minOrderValue : minOrder;
@@ -1942,54 +1985,27 @@ export function PublicCatalog({
                 Tamanhos · quantidade
               </p>
               <div className="flex flex-col gap-[9px]">
-                {sheet.sizes.map(({ size, available }) => (
-                  <div
-                    key={size}
-                    className="flex items-center justify-between rounded-xl border py-[9px] pl-3.5 pr-2.5"
-                    style={{ borderColor: T.line, opacity: available ? 1 : 0.45 }}
-                  >
-                    <span className="font-bold text-[15px] min-w-[46px]">
-                      {size}
-                      {!available && (
-                        <small className="block text-[10px] font-semibold" style={{ color: "#B33939" }}>
-                          esgotado
-                        </small>
-                      )}
-                    </span>
-                    <div className="flex items-center gap-0.5 rounded-[10px] p-[3px]" style={{ background: T.soft }}>
-                      <button
-                        disabled={!available}
-                        onClick={() => {
-                          t({ type: "qty_change", size, qty: Math.max(0, (draft[size] ?? 0) - 1), productId: sheet.product.id });
-                          setDraft((d) => ({ ...d, [size]: Math.max(0, (d[size] ?? 0) - 1) }));
-                        }}
-                        className="size-[38px] rounded-lg text-xl font-semibold flex items-center justify-center bg-white border"
-                        style={{ borderColor: T.line, color: T.primary }}
-                      >
-                        −
-                      </button>
-                      <span className="min-w-[34px] text-center font-bold text-base tabular-nums">
-                        {draft[size] ?? 0}
-                      </span>
-                      <button
-                        disabled={!available}
-                        onClick={() => {
-                          t({
-                            type: (draft[size] ?? 0) === 0 ? "size_select" : "qty_change",
-                            size,
-                            qty: (draft[size] ?? 0) + 1,
-                            productId: sheet.product.id,
-                          });
-                          setDraft((d) => ({ ...d, [size]: (d[size] ?? 0) + 1 }));
-                        }}
-                        className="size-[38px] rounded-lg text-xl font-semibold flex items-center justify-center bg-white border"
-                        style={{ borderColor: T.line, color: T.primary }}
-                      >
-                        +
-                      </button>
-                    </div>
-                  </div>
-                ))}
+                {sheet.sizes.map(({ size, disponivel }) => {
+                  const atual = draft[size] ?? 0;
+                  return (
+                    <LinhaDeTamanho
+                      key={size}
+                      size={size}
+                      disponivel={disponivel}
+                      qty={atual}
+                      cores={T}
+                      onChange={(proxima) => {
+                        t({
+                          type: proxima > atual && atual === 0 ? "size_select" : "qty_change",
+                          size,
+                          qty: proxima,
+                          productId: sheet.product.id,
+                        });
+                        setDraft((d) => ({ ...d, [size]: proxima }));
+                      }}
+                    />
+                  );
+                })}
               </div>
             </div>
             <div
@@ -2314,17 +2330,32 @@ export function PublicCatalog({
                 {erroDoEnvio}
               </div>
             )}
+            {avisoDaSacola && (
+              <div
+                className="mb-2.5 rounded-[14px] px-3.5 py-2.5 text-[12px] leading-snug"
+                style={{ background: "#FEF3C7", color: "#92400E" }}
+              >
+                {avisoDaSacola}
+              </div>
+            )}
             {atacadoBloqueado && (
               <div
                 className="mb-2.5 rounded-[14px] px-3.5 py-2.5 text-[12px] leading-snug"
                 style={{ background: "#FEF3C7", color: "#92400E" }}
               >
                 <p className="m-0 font-bold">Quantidade mínima do atacado</p>
-                {faltasDoAtacado.map((f) => (
-                  <p key={f.productId} className="m-0 mt-0.5">
-                    {f.nome}: {f.pedido} de {f.minimo} {f.minimo === 1 ? "peça" : "peças"}
-                  </p>
-                ))}
+                {faltasDoAtacado.map((f) => {
+                  // o estoque não alcança o mínimo: o `+` para antes (RN-067)
+                  // e sem esta frase a sacola pedia para "completar" o que a
+                  // vitrine recusa — beco sem saída (achado da revisão)
+                  const semEstoque = avisoDoMinimoSemEstoque(f.minimo, disponivelDoModelo(f.productId));
+                  return (
+                    <p key={f.productId} className="m-0 mt-0.5">
+                      {f.nome}: {f.pedido} de {f.minimo} {f.minimo === 1 ? "peça" : "peças"}
+                      {semEstoque && <span className="block font-semibold">{semEstoque}</span>}
+                    </p>
+                  );
+                })}
               </div>
             )}
             {/* CONFERE O NÚMERO ANTES DE MANDAR. É o último instante em que a

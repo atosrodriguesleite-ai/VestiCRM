@@ -285,6 +285,35 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   **RN-011** · Todo pedido do catálogo AVISA na hora (`notifyNovoPedido`): com vendedora
   no link, só ela; sem vendedora, gerência/admin (nunca uma vendedora
   qualquer — a separação por link vale também para o aviso).
+  **RN-067 · A QUANTIDADE NO CATÁLOGO PÚBLICO PARA NO ESTOQUE DISPONÍVEL**
+  (`lib/catalogo/teto-do-estoque.ts`, 25/09/2026): relato do dono com o
+  print da Entre Linhas — *"esse produto tem apenas um em estoque, porém a
+  cliente consegue adicionar o quanto quiser no carrinho e ainda enviar o
+  pedido"*. O servidor já fazia a parte dele (RN-003: reservou a única peça
+  e anotou a falta no pedido e no histórico; RN-010: pedido do catálogo não
+  se recusa), mas a vitrine só recebia **"tem / não tem"** por tamanho
+  (`available`), e o `+` aceitava qualquer número enquanto houvesse uma
+  peça: a cliente mandava 8 no WhatsApp achando que vinham 8 e a loja
+  descobria a diferença na hora de cobrar. Agora a vitrine recebe **QUANTAS
+  há** de cada cor × tamanho (`disponivel` — o `stock` da peça, que já é o
+  disponível descontada a reserva, RN-003/RN-050, nunca negativo e no teto
+  que a rota aceita numa linha) e a quantidade **PARA nesse teto**, dizendo
+  **"só N disponíveis"** — a mesma régua da grade de montar pedido (RN-062,
+  "máx N"). A frase aparece quando a quantidade encosta no teto e, para peça
+  quase acabando (até 3), desde o começo — "só 1 disponível" antes do
+  primeiro toque. **Três caminhos, uma régua** (`limitarQuantidade`/
+  `limitarSacola`): o `+` da folha da peça, a sacola que volta do aparelho
+  (localStorage) e a sacola abandonada que volta pelo link passam pelo
+  estoque de HOJE — peça que zerou sai, quantidade acima do disponível
+  desce até ele; a grade abre com o que já está na sacola JÁ no teto. Vale
+  no catálogo geral, no link de tabela e no catálogo de campanha (os dois
+  produtores mandam o número, e o teste confere). **O servidor continua
+  sendo a segunda tranca**: estoque que cai entre montar a sacola e enviar
+  (outra cliente comprou, a loja online vendeu) segue reservando o que há e
+  gritando a falta no pedido — o teto aqui é o que impede a cliente de pedir
+  o que a vitrine já sabia que não existe. Limite aceito e dito: a
+  quantidade exata viaja para o navegador (é o que permite o teto), como em
+  qualquer loja online.
   **RN-018 · Tabelas de preço por link** (`lib/catalogo/tabelas-de-preco.ts`,
   gated por `Company.priceTablesEnabled`, DESLIGADO por padrão): a loja que
   atende lojista E cliente final gera links do MESMO catálogo com tabelas

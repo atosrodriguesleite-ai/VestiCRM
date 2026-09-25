@@ -8,6 +8,7 @@ import {
   parseCategoryOrder,
   parseCategoryTypes,
 } from "@/lib/categories";
+import { disponivelNaVitrine } from "@/lib/catalogo/teto-do-estoque";
 import { PublicCatalog, type CatalogProduct } from "../../public-catalog";
 
 export const dynamic = "force-dynamic";
@@ -106,7 +107,8 @@ export default async function PromoCatalogPage({
     variants: p.variants.map((v) => ({
       color: v.color,
       size: v.size,
-      available: v.stock > 0,
+      // QUANTAS há (RN-067): a quantidade da vitrine para neste teto
+      disponivel: disponivelNaVitrine(v.stock),
     })),
   }));
 

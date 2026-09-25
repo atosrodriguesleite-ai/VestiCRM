@@ -229,7 +229,9 @@ describe("auditoria 01/08: cintos do motor", () => {
       join(process.cwd(), "src/app/catalogo/[slug]/public-catalog.tsx"),
       "utf8"
     );
-    expect(cat).toContain("sz.size === item.size && sz.available");
+    // desde a RN-067 a peneira de estoque é a MESMA da sacola do aparelho:
+    // tamanho que sumiu ou zerou sai, quantidade acima do disponível desce
+    expect(cat).toContain("limitarSacola(restaurada, disponivelDe)");
     expect(cat).toContain("...(proximo[key] ?? {}), ...sizes");
   });
 });
