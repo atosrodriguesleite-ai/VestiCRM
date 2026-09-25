@@ -4,7 +4,8 @@ import { db } from "@/lib/db";
 import { requireUser, AuthError } from "@/lib/auth";
 import { ajustarEstoqueDentro } from "@/lib/estoque/ajuste";
 import { decidirAjuste, decidirVarejoParaNuvemshop, donoDoEstoque, donoDoPreco, fraseDaRecusa, FRASE_VAREJO_ZERO_NUVEMSHOP, NOME_DO_DONO, rotuloDaPeca } from "@/lib/estoque/dono-do-estoque";
-import { reservadoPorVariacao } from "@/lib/estoque/inventario";
+import { pedidosQueSeguram, reservadoPorVariacao } from "@/lib/estoque/inventario";
+import { fraseDaPecaPresa } from "@/lib/estoque/peca-presa";
 import { espelharPrecoSemQuebrar } from "@/lib/nuvemshop";
 import { marcarPrecoPendente } from "@/lib/nuvemshop-preco-pendente";
 
@@ -221,8 +222,17 @@ export async function PATCH(
       const reservado = await reservadoPorVariacao(user.companyId);
       const presa = product.variants.find((v) => removeVariantIds.includes(v.id) && (reservado.get(v.id) ?? 0) > 0);
       if (presa) {
+        // diz QUAIS pedidos seguram a peça — "cancele o pedido" sem número
+        // era beco sem saída numa loja cheia de pedidos (relato 25/09/2026)
+        const pedidos = await pedidosQueSeguram(user, presa.id).catch(() => []);
         return NextResponse.json(
-          { error: `${rotuloDaPeca({ ...presa, product })} tem ${reservado.get(presa.id)} peça(s) reservada(s) em pedido. Cancele ou conclua o pedido antes de remover.` },
+          {
+            error: fraseDaPecaPresa(
+              rotuloDaPeca({ ...presa, product }),
+              reservado.get(presa.id) ?? 0,
+              pedidos
+            ),
+          },
           { status: 409 }
         );
       }

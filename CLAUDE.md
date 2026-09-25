@@ -1681,7 +1681,12 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   (a sync recria com o número de lá e o livro dela some em cascata) e cor/
   tamanho novos em produto do Jueri criam peça que ninguém sincroniza — a
   rota recusa os dois, e variação com peça RESERVADA em pedido não se
-  remove (o pedido perderia a prova do que segurou). A restauração pós-
+  remove (o pedido perderia a prova do que segurou) — e a recusa **diz QUAL
+  pedido segura** (`fraseDaPecaPresa` + `pedidosQueSeguram`, 25/09/2026,
+  print de uma lojista com vários pedidos abertos: "cancele o pedido" sem
+  número era beco sem saída): número, cliente, situação e peças de cada um,
+  pela MESMA régua do reservado (a soma fecha com o número anunciado); o de
+  colega fora do recorte entra só como "pedido de colega" (RN-007). A restauração pós-
   importação (`stock-restore.ts`) pula peça de dono externo pelo mesmo
   motivo. A tela Produtos **só manda o estoque que a pessoa DIGITOU** (com
   o número visto): mandar o carregado de todas desfazia a venda que entrou
