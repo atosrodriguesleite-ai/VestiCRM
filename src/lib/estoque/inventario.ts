@@ -1,4 +1,4 @@
-import { Prisma } from "@prisma/client";
+import { Prisma, type OrderStatus } from "@prisma/client";
 import { db } from "../db";
 import type { SessionUser } from "../auth";
 import { orderScope } from "../scope";
@@ -6,6 +6,7 @@ import { ordenarVariantes } from "../tamanhos";
 import { donoDoEstoque, type DonoExterno } from "./dono-do-estoque";
 import { minimoEfetivo, minimosDaLoja, noMinimo, type OrigemDoMinimo } from "./minimos";
 import { envioPendentePorVariacao } from "../nuvemshop-estoque-pendente";
+import type { PedidoQueSegura } from "./peca-presa";
 
 /**
  * O INVENTÁRIO (RN-050): uma linha por variação (cor × tamanho), com os
@@ -119,6 +120,51 @@ export async function reservadoPorVariacao(companyId: string): Promise<Map<strin
   const m = new Map<string, number>();
   for (const r of rows) if (r.reservado > 0) m.set(r.variantId, r.reservado);
   return m;
+}
+
+/**
+ * QUAIS pedidos seguram esta variação, e quantas peças cada um (RN-050: a
+ * recusa de remover a variação diz o número — "cancele o pedido" sem dizer
+ * qual era beco sem saída numa loja cheia de pedidos). A MESMA régua do
+ * `reservadoPorVariacao` (status que seguram, sem baixa definitiva, saldo do
+ * livro), então a soma por pedido fecha com o número que a recusa anuncia.
+ * `visivel` segue o recorte de quem pergunta (RN-007).
+ */
+export async function pedidosQueSeguram(
+  user: SessionUser,
+  variantId: string
+): Promise<PedidoQueSegura[]> {
+  const companyId = user.companyId;
+  const rows = await db.$queryRaw<
+    { id: string; numero: number; status: OrderStatus; cliente: string; pecas: number }[]
+  >(Prisma.sql`
+    SELECT o."id", o."number" AS "numero", o."status", c."name" AS "cliente",
+           SUM(CASE WHEN m."type" = 'SAIDA' THEN m."quantity" ELSE -m."quantity" END)::int AS "pecas"
+      FROM "Order" o
+      JOIN "InventoryMovement" m ON m."orderId" = o."id"
+      JOIN "Customer" c ON c."id" = o."customerId"
+     WHERE o."companyId" = ${companyId}
+       AND o."status" = ANY(${[...STATUS_QUE_SEGURAM_NA_LOJA]}::text[]::"OrderStatus"[])
+       AND o."stockWrittenOff" = false
+       AND m."companyId" = ${companyId}
+       AND m."variantId" = ${variantId}
+       AND m."type" IN ('SAIDA', 'ENTRADA')
+     GROUP BY o."id", o."number", o."status", c."name"
+    HAVING SUM(CASE WHEN m."type" = 'SAIDA' THEN m."quantity" ELSE -m."quantity" END) > 0
+  `);
+  if (rows.length === 0) return [];
+  const veem = await db.order.findMany({
+    where: { AND: [orderScope(user), { id: { in: rows.map((r) => r.id) } }] },
+    select: { id: true },
+  });
+  const visiveis = new Set(veem.map((o) => o.id));
+  return rows.map((r) => ({
+    numero: r.numero,
+    status: r.status,
+    cliente: r.cliente,
+    pecas: r.pecas,
+    visivel: visiveis.has(r.id),
+  }));
 }
 
 /** O texto da busca casa com nome, código, SKU da variação ou tag? (pura) */
