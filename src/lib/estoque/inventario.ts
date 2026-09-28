@@ -348,6 +348,31 @@ export async function montarInventario(
 }
 
 /**
+ * As linhas da FOLHA DE CONTAGEM (`lib/estoque/contagem.ts`): a loja
+ * inteira — sem o teto de 500 da tela, a folha é para contar tudo —, com o
+ * MESMO recorte de categoria e busca do Inventário, para a folha impressa
+ * bater com a lista em que a contagem volta a ser digitada.
+ */
+export async function linhasDaContagem(
+  companyId: string,
+  opts: { q?: string; categoria?: string; incluirInativos?: boolean }
+): Promise<{ linhas: LinhaDoInventario[]; categorias: string[] }> {
+  const { linhas, produtos } = await linhasDoEstoque(companyId, {
+    incluirInativos: opts.incluirInativos,
+  });
+  const porProduto = new Map(produtos.map((p) => [p.id, p]));
+  return {
+    linhas: linhas.filter((l) => {
+      if (opts.categoria && l.categoria !== opts.categoria) return false;
+      const p = porProduto.get(l.productId)!;
+      const v = p.variants.find((x) => x.id === l.variantId)!;
+      return casaBusca(opts.q ?? "", p, v);
+    }),
+    categorias: [...new Set(produtos.map((p) => p.category))].sort(),
+  };
+}
+
+/**
  * Quantas variações de produto ativo chegaram ao mínimo (cartão do
  * Dashboard). UMA SQL com a MESMA expressão de `minimoEfetivo` + `noMinimo`
  * (peça > categoria > loja, disponível ≤ mínimo): o Dashboard é a tela mais

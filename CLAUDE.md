@@ -1616,7 +1616,16 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   até ele dizer; ADR-016): a tela **Inventário** (`/estoque`) — uma linha por cor ×
   tamanho com **na loja · reservado · disponível**, busca por nome/código/
   SKU/tag, filtros (baixo, zerada, com reserva, por integração), **ajuste na
-  própria linha com motivo** e o histórico da peça. Toda a equipe entra
+  própria linha com motivo** e o histórico da peça. **Folha de contagem**
+  (`/contagem-de-estoque`, botão "Imprimir contagem", `lib/estoque/contagem.ts`,
+  pedido do dono em 28/09/2026): A4 para contar na arara, agrupada por
+  CATEGORIA e modelo na ordem da tela, no MESMO recorte da lista (categoria,
+  busca, inativos) e sem o teto de 500 — é no Inventário filtrado que a
+  contagem volta a ser digitada. Compara com o **na loja** (a peça separada
+  para pedido ainda está fisicamente lá) e mostra o reservado, porque o
+  número que se digita é o disponível (contado − reservado); opções de
+  **contagem às cegas** (sem o número do sistema) e **uma categoria por
+  folha**; peça de dono externo sai marcada (o acerto é lá, RN-050). Só lê. Toda a equipe entra
   (conferir estoque é operação); **quem ajusta é gerência** — a porta de
   escrita confere de novo. O número que se edita é o DISPONÍVEL (o `stock`
   da peça, o mesmo de Produtos e do catálogo); o **reservado sai do LIVRO DE
