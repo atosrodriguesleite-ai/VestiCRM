@@ -31,6 +31,7 @@ import {
   Lock,
   Package,
   Pencil,
+  Printer,
   RefreshCw,
   Search,
   X,
@@ -99,6 +100,13 @@ export function InventarioView({ filtroInicial = "todos" }: { filtroInicial?: Fi
   // o sino manda para cá com ?filtro=baixo (RN-051)
   const [filtro, setFiltro] = useState<FiltroDoInventario>(filtroInicial);
   const [inativos, setInativos] = useState(false);
+  const linkDaContagem = useMemo(() => {
+    const sp = new URLSearchParams();
+    if (q.trim()) sp.set("q", q.trim());
+    if (categoria) sp.set("categoria", categoria);
+    if (inativos) sp.set("inativos", "1");
+    return sp.toString();
+  }, [q, categoria, inativos]);
   const [historicoDe, setHistoricoDe] = useState<LinhaDoInventario | null>(null);
   const [sync, setSync] = useState<{ ocupado: boolean; msg: string }>({ ocupado: false, msg: "" });
   const [aberto, setAberto] = useState<EditorAberto>(null);
@@ -258,19 +266,33 @@ export function InventarioView({ filtroInicial = "todos" }: { filtroInicial?: Fi
             {f.rotulo}
           </button>
         ))}
+        <div className="ml-auto flex flex-wrap gap-1.5">
+        {/* folha para contar na arara, no MESMO recorte da lista (categoria,
+            busca, inativos) — é aqui que a contagem volta a ser digitada */}
+        <a
+          href={`/contagem-de-estoque${linkDaContagem ? `?${linkDaContagem}` : ""}`}
+          target="_blank"
+          rel="noopener"
+          className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-medium text-slate-700 hover:border-slate-300"
+          title="Abre a folha de contagem para imprimir, com as peças do recorte atual"
+        >
+          <Printer className="size-3.5" />
+          Imprimir contagem
+        </a>
         {/* só a Nuvemshop tem sync sob demanda; o Jueri roda sozinho (cron) */}
         {dados?.podeSincronizar && (resumo?.nuvemshop ?? 0) > 0 && (
           <button
             type="button"
             onClick={sincronizar}
             disabled={sync.ocupado}
-            className="ml-auto inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-medium text-slate-700 hover:border-slate-300 disabled:opacity-50"
+            className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-medium text-slate-700 hover:border-slate-300 disabled:opacity-50"
             title="Busca na Nuvemshop o estoque das peças que ela controla"
           >
             <RefreshCw className={`size-3.5 ${sync.ocupado ? "animate-spin" : ""}`} />
             Sincronizar com a Nuvemshop
           </button>
         )}
+        </div>
       </div>
       {sync.msg && <p className="text-xs text-slate-500">{sync.msg}</p>}
 
