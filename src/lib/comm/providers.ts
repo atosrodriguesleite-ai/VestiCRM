@@ -1,4 +1,5 @@
 import type { Channel } from "@prisma/client";
+import { fraseNumeroSemWhatsapp, respostaDizSemWhatsapp } from "./numero-sem-whatsapp";
 import type { CommProvider, OutboundPayload, SendResult, ProviderCredentials } from "./types";
 import {
   evolutionEnv,
@@ -174,6 +175,11 @@ export class EvolutionProvider implements CommProvider {
       if (!res.ok && res.status > 0 && citacao) {
         res = await evoSendText(this.instance!, number, payload.text ?? "");
       }
+    }
+    // o WhatsApp respondeu que o número não tem conta: o problema é o
+    // NÚMERO, e a vendedora precisa ler isso em português (relato 29/09/2026)
+    if (!res.ok && res.status > 0 && respostaDizSemWhatsapp(res.data)) {
+      return { ok: false, error: fraseNumeroSemWhatsapp(number) };
     }
     if (!res.ok) {
       // devolve o motivo que o servidor deu (encurtado) — sem ele, todo erro

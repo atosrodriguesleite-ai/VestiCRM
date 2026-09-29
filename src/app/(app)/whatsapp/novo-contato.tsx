@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { Loader2, MessageCircle, UserPlus, X } from "lucide-react";
 import { Portal } from "@/components/portal";
-import { mascaraTelefoneBR } from "@/lib/format";
+import { celularSemONove, mascaraTelefoneBR } from "@/lib/format";
 import { avisoDaRecusa } from "@/lib/sessao";
 import {
   digitosDoTelefone,
@@ -86,6 +86,13 @@ export function NovoContato({
     const digitos = digitosDoTelefone(fone);
     if (!telefoneCompleto(digitos)) {
       setErro("Telefone incompleto: escreva o DDD e o número todo.");
+      return;
+    }
+    // celular sem o 9 não tem WhatsApp: a conversa abriria para um número
+    // que não existe (relato 29/09/2026)
+    const comNove = celularSemONove(digitos);
+    if (comNove) {
+      setErro(`Celular tem 9 números depois do DDD — faltou o 9? Ex.: ${mascaraTelefoneBR(comNove)}`);
       return;
     }
     setSalvando(true);
