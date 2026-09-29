@@ -343,6 +343,17 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   palpite e não inventa mais cadastro. O que ela digitou fica anotado no
   pedido com aviso, para a loja conferir. **Sem link pessoal** (link geral,
   bio, catálogo aberto) nada muda: o digitado é a única informação que existe.
+  **Celular sem o 9 é recusado no formulário** (`celularSemONove` em
+  `lib/format.ts`, 29/09/2026, relato do dono: pedido com "(35) 9971-3320",
+  a Central tentou responder duas vezes e o WhatsApp disse que o número não
+  existe): oito números depois do DDD começando com 6–9 não existem desde
+  2016 (fixo começa com 2–5), e o formulário aceitava porque dez dígitos é o
+  formato do fixo. O catálogo e o "Novo contato" da Central param e sugerem o
+  número com o 9; o servidor segue aceitando (RN-010). E quando o WhatsApp
+  responde que o número **não tem conta** (`"exists": false`), a bolha diz
+  isso em português, com a sugestão do 9 quando cabe
+  (`lib/comm/numero-sem-whatsapp.ts`) — antes mostrava o JSON cru do
+  servidor e duas vendedoras reenviaram achando que era falha de envio.
 - **RN-009 · Catálogo público**: preço/total SEMPRE recalculado no servidor; links
   rastreados `?ref=` (vendedora) e `?c=` (cliente) alimentam a atribuição.
 - **RN-010 · O pedido do catálogo NÃO PODE SE PERDER** (`lib/catalogo/envio-pedido.ts`):

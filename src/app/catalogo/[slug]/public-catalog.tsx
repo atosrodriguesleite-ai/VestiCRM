@@ -34,7 +34,7 @@ import {
   marcarRegistrado,
 } from "@/lib/catalogo/envio-pedido";
 import { compareSizes } from "@/lib/sizes";
-import { mascaraTelefoneBR } from "@/lib/format";
+import { celularSemONove, mascaraTelefoneBR } from "@/lib/format";
 import { fotoDaCor, ordenarFotosDaCor } from "@/lib/capa-por-cor";
 import {
   agruparPorTipo,
@@ -1000,6 +1000,15 @@ export function PublicCatalog({
           ? "O telefone tem dígitos demais — confira o número com DDD"
           : "Telefone incompleto: escreva o DDD e o número todo"
       );
+      return;
+    }
+    // CELULAR SEM O 9 (relato 29/09/2026): "(35) 9971-3320" passava como se
+    // fosse fixo, a loja respondia num número que não existe e a venda morria
+    // em silêncio. Oito números começando com 6–9 não existem mais.
+    const comNove = foneInternacional ? null : celularSemONove(client.fone);
+    if (comNove) {
+      openBag();
+      showToast(`Celular tem 9 números depois do DDD — faltou o 9? Ex.: ${mascaraTelefoneBR(comNove)}`);
       return;
     }
     // campos extras que ESTA loja marcou como obrigatórios (RN-027) — a
@@ -2362,6 +2371,13 @@ export function PublicCatalog({
                 cliente pode ver que errou — depois disso a loja responde num
                 número que não existe e a venda morre em silêncio (incidente
                 Toque Leve: duas clientes seguidas com o último dígito errado). */}
+            {!client.fone.trim().startsWith("+") && celularSemONove(client.fone) && (
+              <p className="mb-[11px] text-center text-[12.5px] leading-snug m-0 font-semibold text-red-600">
+                Celular tem 9 números depois do DDD — faltou o 9?
+                <br />
+                Ex.: {mascaraTelefoneBR(celularSemONove(client.fone)!)}
+              </p>
+            )}
             {client.fone.replace(/\D/g, "").length >= 10 && (
               <p
                 className="mb-[11px] text-center text-[12.5px] leading-snug m-0"

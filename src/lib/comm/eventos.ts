@@ -80,6 +80,12 @@ const CAUSAS: {
     oQueFazer: "Confira o número da cliente no cadastro e tente por outro contato.",
   },
   {
+    casa: (e) => /não tem WhatsApp/i.test(e),
+    porque: "O WhatsApp respondeu que este número não tem conta — em geral telefone digitado errado.",
+    oQueFazer:
+      "Confira o número com a cliente por outro caminho. Celular tem 9 números depois do DDD: se faltar o 9, corrija o cadastro.",
+  },
+  {
     casa: (e) => /HTTP 4\d\d/i.test(e),
     porque: "O WhatsApp recusou esta mensagem (formato do número ou do arquivo).",
     oQueFazer:

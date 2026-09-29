@@ -131,6 +131,26 @@ export function telefoneNacional(raw: string | null | undefined): string {
     : d;
 }
 
+/**
+ * CELULAR SEM O 9 (relato do dono, 29/09/2026: pedido do catálogo com
+ * "(35) 9971-3320" — a Central tentou responder duas vezes e o WhatsApp
+ * disse que o número não existe). Desde 2016 TODO celular brasileiro tem 9
+ * números depois do DDD, começando com 9; oito números começando com 6, 7, 8
+ * ou 9 não existem mais (telefone fixo começa com 2 a 5). É o erro mais comum
+ * de quem digita o próprio número de cabeça, e o formulário aceitava porque
+ * dez dígitos é o formato do fixo.
+ *
+ * Devolve o número COM o 9 (onze dígitos, sem o 55) — a sugestão a mostrar —
+ * ou `null` quando o número não tem essa cara. Aceita máscara e DDI 55.
+ */
+export function celularSemONove(raw: string | null | undefined): string | null {
+  const d = telefoneNacional(raw);
+  if (d.length !== 10) return null;
+  const local = d.slice(2);
+  if (!/^[6-9]/.test(local)) return null;
+  return `${d.slice(0, 2)}9${local}`;
+}
+
 export function formatPhone(p: string): string {
   const digits = telefoneNacional(p);
   if (digits.length === 11)
