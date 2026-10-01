@@ -1,5 +1,5 @@
 import { ExternalLink, QrCode } from "lucide-react";
-import { donoDoEstoque, donoDoPreco } from "@/lib/estoque/dono-do-estoque";
+import { gruposParaSeparar, donoDoEstoque, donoDoPreco } from "@/lib/estoque/dono-do-estoque";
 import { envioPendentePorVariacao } from "@/lib/nuvemshop-estoque-pendente";
 import { estadoDoPrecoPorProduto } from "@/lib/nuvemshop-preco-pendente";
 import { varrerEnviosDeEstoqueSeDevido } from "@/lib/nuvemshop";
@@ -109,6 +109,13 @@ export default async function ProductsPage() {
     precoDono: donoDoPreco({ nuvemshopId: p.nuvemshopId, jueriId: p.jueriId, variants: p.variants }),
     precoPendenteNuvemshop: precoPendente.get(p.id) ?? null,
     images: p.images.map((i) => ({ id: i.id, url: imageHref(i.id), color: i.color })),
+    // RN-050: cores que já são de OUTRO produto na Nuvemshop — a ficha
+    // oferece separá-las em produto próprio (move, nunca apaga)
+    separaveis: gruposParaSeparar(p, p.variants).map((g) => ({
+      nsProdutoId: g.nsProdutoId,
+      variantIds: g.variantes.map((v) => v.id),
+      rotulo: g.variantes.map((v) => [v.color, v.size].filter(Boolean).join(" · ")).join(", "),
+    })),
     variants: p.variants.map((v) => ({
       id: v.id,
       color: v.color,

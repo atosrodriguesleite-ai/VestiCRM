@@ -126,7 +126,9 @@ export async function POST(req: NextRequest) {
     const variantById = new Map(variants.map((v) => [v.id, v]));
     for (const item of input.items) {
       const v = variantById.get(item.variantId);
-      if (!v || v.productId !== item.productId) {
+      // a cor SEPARADA em produto próprio (RN-050) ainda vale pelo produto
+      // de antes: o rascunho guardado na tela aponta para ele
+      if (!v || (v.productId !== item.productId && v.separadaDeId !== item.productId)) {
         return NextResponse.json({ error: "Produto inválido" }, { status: 404 });
       }
       if (v.stock < item.quantity) {

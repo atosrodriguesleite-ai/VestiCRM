@@ -206,7 +206,9 @@ export async function PATCH(
       const variantById = new Map(variants.map((v) => [v.id, v]));
       for (const item of parsed.data.items) {
         const v = variantById.get(item.variantId);
-        if (!v || v.productId !== item.productId) {
+        // a cor SEPARADA em produto próprio (RN-050) ainda vale pelo
+        // produto de antes (tela aberta antes da separação)
+        if (!v || (v.productId !== item.productId && v.separadaDeId !== item.productId)) {
           return NextResponse.json({ error: "Produto inválido no pedido" }, { status: 404 });
         }
       }

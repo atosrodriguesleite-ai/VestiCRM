@@ -197,3 +197,55 @@ export function decidirVarejoParaNuvemshop(
 
 export const FRASE_VAREJO_ZERO_NUVEMSHOP =
   "Peça vinculada à Nuvemshop não pode ficar com varejo zerado: o preço iria para a loja online e a peça ficaria de graça lá.";
+
+/**
+ * A COR QUE JÁ É DE OUTRO PRODUTO NA NUVEMSHOP SE SEPARA EM PRODUTO PRÓPRIO
+ * (RN-050, relato da Entre Linhas em 01/10/2026). A peça tinha "Azul" e
+ * "Laranja" num produto só lá; a lojista criou um produto SÓ para a Azul e a
+ * sincronização, casando pelo SKU, religou a variação que JÁ existia aqui —
+ * que ficou dentro da peça antiga. A trava de sempre ("é controlada pela
+ * Nuvemshop — remova lá") virava beco: lá ela já não estava nesta peça.
+ *
+ * A saída é MOVER, nunca apagar: a variação vai inteira (mesmo id, mesmo
+ * código de barras já impresso — RN-059 —, mesmo livro de estoque, mesmos
+ * pedidos) para um produto daqui ligado ao produto de lá dela. Apagar e
+ * deixar a sync recriar foi a primeira ideia, recusada na revisão: a peça
+ * nova nascia com outro código (etiqueta colada virava "peça errada" na
+ * Separação), sem histórico e sem preço de atacado.
+ *
+ * Os grupos saem pelo produto de lá (`nuvemshopProductId`, ou o da peça
+ * quando a variação não tem o próprio). Separável é o grupo cujo produto
+ * de lá NÃO é o que a peça espelha; na peça montada aqui (sem produto de
+ * lá), quando ela junta mais de um. Variação vinculada com produto de lá
+ * DESCONHECIDO (vínculo antigo) trava tudo: não dá para saber de que grupo
+ * ela é, e a próxima sincronização preenche. Peça do Jueri não entra.
+ */
+export type VariacaoNs = { id: string; nuvemshopId: string | null; nuvemshopProductId: string | null };
+
+/** O produto da Nuvemshop a que esta variação pertence. */
+export function produtoNsDaVariacao(
+  v: Pick<VariacaoNs, "nuvemshopProductId">,
+  produto: { nuvemshopId: string | null }
+): string | null {
+  return v.nuvemshopProductId ?? produto.nuvemshopId ?? null;
+}
+
+/** Os grupos de cores desta peça que podem virar produto próprio. (pura) */
+export function gruposParaSeparar<T extends VariacaoNs>(
+  produto: { nuvemshopId: string | null; jueriId: string | null },
+  variantes: T[]
+): { nsProdutoId: string; variantes: T[] }[] {
+  if (produto.jueriId) return [];
+  const vinculadas = variantes.filter((v) => v.nuvemshopId);
+  if (vinculadas.some((v) => !produtoNsDaVariacao(v, produto))) return [];
+  const grupos = new Map<string, T[]>();
+  for (const v of vinculadas) {
+    const la = produtoNsDaVariacao(v, produto)!;
+    grupos.set(la, [...(grupos.get(la) ?? []), v]);
+  }
+  // sem produto de lá, a peça só "junta" produtos quando há mais de um grupo
+  if (!produto.nuvemshopId && grupos.size < 2) return [];
+  return [...grupos]
+    .filter(([la, vs]) => la !== produto.nuvemshopId && vs.length < variantes.length)
+    .map(([nsProdutoId, vs]) => ({ nsProdutoId, variantes: vs }));
+}

@@ -1739,6 +1739,11 @@ model ProductVariant {
   product            Product @relation(fields: [productId], references: [id], onDelete: Cascade)
   nuvemshopId        String? // id da variação na Nuvemshop
   nuvemshopProductId String? // id do PRODUTO na Nuvemshop (modo produto-por-cor)
+  /// RN-050 · de qual produto daqui esta variação foi SEPARADA ("Separar em
+  /// produto próprio"): pedido do catálogo, sacola e rascunho antigos apontam
+  /// para o produto de antes + cor, e é por aqui que eles ainda a encontram.
+  /// Índice PARCIAL na migração 20261001120100 (fora do Prisma de propósito).
+  separadaDeId       String?
   sku                String? // SKU da variação — chave universal de vínculo com a loja online
   color              String
   size               String
