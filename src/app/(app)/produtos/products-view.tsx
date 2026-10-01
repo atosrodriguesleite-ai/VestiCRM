@@ -5,7 +5,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Portal } from "@/components/portal";
 import { useRouter } from "next/navigation";
-import { Check, History, Images, Loader2, Lock, Package, Palette, Plus, Printer, Search, Sparkles, Star, Trash2, Upload, Wand2, X } from "lucide-react";
+import { Split, Check, History, Images, Loader2, Lock, Package, Palette, Plus, Printer, Search, Sparkles, Star, Trash2, Upload, Wand2, X } from "lucide-react";
 import { brl } from "@/lib/format";
 import { Card, EmptyState } from "@/components/ui";
 import { fileToDataUrl } from "@/lib/upload";
@@ -66,6 +66,8 @@ export type ProductItem = {
   precoPendenteNuvemshop: { estado: "enviando" | "falhou"; motivo: string | null } | null;
   // fotos em ordem — a primeira é a CAPA (aparece na grade e no catálogo)
   images: { id: string; url: string; color?: string | null }[];
+  /** RN-050: cores que já são de OUTRO produto na Nuvemshop (separáveis em produto próprio) */
+  separaveis?: { nsProdutoId: string; variantIds: string[]; rotulo: string }[];
   variants: {
     id: string;
     color: string;
@@ -1001,6 +1003,36 @@ function ProductDetailModal({
     onChanged();
   }
 
+  async function separar(g: { nsProdutoId: string; variantIds: string[]; rotulo: string }) {
+    if (
+      !window.confirm(
+        `Separar ${g.rotulo} em produto próprio?\n\nNa Nuvemshop essa cor já é outro produto. Ela sai desta peça ` +
+          `e vai inteira (código de barras, estoque, histórico e pedidos) para um produto daqui ligado ao dela lá.` +
+          (g.variantIds.length > 1 ? ` As ${g.variantIds.length} variações desse produto saem juntas.` : "") +
+          `\n\nMudanças não salvas nesta ficha se perdem.`
+      )
+    )
+      return;
+    setBusy(true);
+    const res = await fetch(`/api/products/${product.id}/separar`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ nsProdutoId: g.nsProdutoId }),
+    });
+    setBusy(false);
+    const data = await res.json().catch(() => null);
+    if (!res.ok) {
+      alert(avisoDaRecusa(res.status, data, "Não foi possível separar. Tente de novo."));
+      return;
+    }
+    alert(
+      data?.criado
+        ? `Pronto! ${g.rotulo} agora é o produto "${data.nome}". Confira o nome e as fotos dele.`
+        : `Pronto! ${g.rotulo} foi para o produto "${data?.nome}", que já era o dela na Nuvemshop.`
+    );
+    onChanged();
+  }
+
   async function toggleActive() {
     setBusy(true);
     const res = await fetch(`/api/products/${product.id}`, {
@@ -1426,7 +1458,23 @@ function ProductDetailModal({
                           className="w-14 rounded-lg border border-gray-200 px-2 py-1 text-xs text-right outline-none focus:border-brand-400"
                         />
                       )}
-                      {v.dono ? (
+                      {v.dono && product.separaveis?.some((g) => g.variantIds.includes(v.id)) ? (
+                        // RN-050: a cor já é de OUTRO produto na Nuvemshop (a
+                        // sync a religou aqui pelo SKU). Remover não pega;
+                        // SEPARAR move a variação inteira — código de barras,
+                        // histórico, pedidos. Botão discreto de propósito: há
+                        // loja que agrupa cores de produtos de lá de propósito
+                        <button
+                          type="button"
+                          disabled={busy}
+                          onClick={() => separar(product.separaveis!.find((g) => g.variantIds.includes(v.id))!)}
+                          className="text-gray-300 hover:text-amber-600 transition p-0.5 disabled:opacity-40"
+                          title="Esta cor já é outro produto na Nuvemshop — separar em produto próprio"
+                          aria-label={`Separar ${v.color} ${v.size} em produto próprio`}
+                        >
+                          <Split className="size-3.5" />
+                        </button>
+                      ) : v.dono ? (
                         // grade de peça vinculada se mexe LÁ (RN-050): remover
                         // aqui "não pega" — a sync recria com o número de lá
                         <span className="w-[22px]" aria-hidden />

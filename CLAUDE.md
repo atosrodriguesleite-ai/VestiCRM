@@ -1723,7 +1723,54 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   ajustar entram no mesmo passe, senão é deadlock com a reserva): o pedido
   pago que volta a orçamento no meio, e a reserva nova, esperam —
   reproduzido no Postgres local, e sem a trava do pedido a remoção passava
-  por cima do orçamento. A restauração pós-
+  por cima do orçamento. **A cor que já é de OUTRO produto na Nuvemshop se
+  SEPARA em produto próprio** (`gruposParaSeparar` +
+  `lib/estoque/separar-variacoes.ts`, ícone na linha da cor na ficha da
+  peça, 01/10/2026, relato da Entre Linhas): a peça tinha "Azul" e
+  "Laranja" num produto só; a lojista criou lá um produto para a Azul, a
+  sync casou o SKU e RELIGOU a variação que já existia aqui — dentro da peça
+  antiga —, e o "remova lá" virou beco. **Move, nunca apaga**: a variação
+  vai inteira (mesmo id, **mesmo código de barras** — etiqueta colada segue
+  valendo, RN-059 —, mesmo livro, mesma fila de envio) para o produto daqui
+  ligado ao produto de lá dela (o que já existir, recusando cor × tamanho
+  repetida pela régua da sync; ou um novo, "Base — Cor" como no padrão
+  produto-por-cor, com preços, custo, categoria, NCM, composição, mínimo e
+  catálogo de campanha da peça; destino INATIVO é recusado — a cor sumiria
+  do catálogo), as fotos etiquetadas só com aquela cor vão junto, os
+  **itens de pedido acompanham** (`OrderItem.productId` — a porta de edição
+  do pedido confere variação × produto), o catálogo de campanha da peça vale
+  também no destino e o varejo a caminho da Nuvemshop (RN-057) ganha fila no
+  produto NOVO (o que já existia tem o preço dele, e reenviar o dele não
+  levaria o reajuste junto). Apagar e deixar a sync recriar
+  foi a primeira versão, recusada na revisão: código novo (o bipe da
+  Separação dizia "peça errada"), histórico perdido e atacado zerado.
+  **O pedido que já apontava para a peça antiga não se perde**
+  (`ProductVariant.separadaDeId`, migrações 20261001120000 e o índice
+  parcial 20261001120100): o pedido do catálogo que estava no aparelho
+  (RN-010) e o rascunho de pedido guardam produto antigo + cor, e as três
+  portas de pedido (catálogo, criação e edição) ainda acham a variação por
+  esse rastro — sem ele, a linha não achava a peça e o catálogo recusava o
+  pedido INTEIRO, que o reenvio descartava. Separável é o grupo cujo produto de lá
+  (`nuvemshopProductId`, ou o da peça) não é o que a peça espelha, e o grupo
+  sai INTEIRO (irmã deixada para trás faria a sync voltar a achar a peça);
+  vínculo antigo sem produto de lá conhecido trava tudo até a próxima sync.
+  O botão é **discreto, na linha** (não uma faixa de alerta): existe loja
+  que agrupa aqui, de propósito, cores que lá são produtos separados. Tudo
+  numa transação com as variações TRAVADAS e relidas, fila por produto de
+  lá (`pg_advisory_xact_lock` — duas separações para o mesmo destino viram
+  uma só) e registro na Central de Comunicação (`produtos.cor-separada`).
+  Provado no Postgres local com o `upsertProduct` e a rota do catálogo de
+  verdade: a sync do produto novo atualiza a cor no lugar novo (tamanho
+  novo lá entra nele), a do antigo não devolve nada, e o pedido antigo do
+  aparelho entra com a Azul no produto novo. **Limites aceitos e ditos**:
+  uma etapa de sincronização que já estava rodando no instante da
+  separação pode ainda gravar uma vez na peça antiga (ela leu antes; a
+  próxima acerta); a **sacola** guardada no aparelho perde a cor separada
+  (a vitrine confere o estoque de hoje por produto + cor, RN-067, e a
+  cliente vê o aviso de ajuste); só o ÚLTIMO salto de separação é lembrado;
+  e a separação que cruza, no mesmo segundo, com a edição de um pedido
+  daquela cor pode ser abortada pelo banco (impasse) — volta frase e nada
+  fica pela metade. A restauração pós-
   importação (`stock-restore.ts`) pula peça de dono externo pelo mesmo
   motivo. A tela Produtos **só manda o estoque que a pessoa DIGITOU** (com
   o número visto): mandar o carregado de todas desfazia a venda que entrou

@@ -352,6 +352,29 @@ export async function POST(req: NextRequest) {
     },
   });
   const productById = new Map(products.map((p) => [p.id, p]));
+  // A COR SEPARADA EM PRODUTO PRÓPRIO (RN-050): o pedido que estava no
+  // aparelho da cliente (RN-010) aponta para o produto de ANTES + cor. Sem
+  // este caminho, a linha não achava a variação, o pedido INTEIRO voltava
+  // 404 e o reenvio o descartava — o pedido perdido que a RN-010 proíbe.
+  const faltam = input.items.filter(
+    (i) => !productById.get(i.productId)?.variants.some((v) => v.color === i.color && v.size === i.size)
+  );
+  const separadas = faltam.length
+    ? await db.productVariant.findMany({
+        where: {
+          separadaDeId: { in: [...new Set(faltam.map((i) => i.productId))] },
+          product: { companyId: company.id, active: true },
+        },
+        include: {
+          product: {
+            include: {
+              images: { orderBy: { order: "asc" }, select: { id: true, color: true } },
+              variants: true,
+            },
+          },
+        },
+      })
+    : [];
 
   type Line = {
     productId: string;
@@ -367,10 +390,14 @@ export async function POST(req: NextRequest) {
   };
   const lines: Line[] = [];
   for (const item of input.items) {
-    const product = productById.get(item.productId);
-    const variant = product?.variants.find(
-      (v) => v.color === item.color && v.size === item.size
+    const separada = separadas.find(
+      (v) => v.separadaDeId === item.productId && v.color === item.color && v.size === item.size
     );
+    const noProduto = productById
+      .get(item.productId)
+      ?.variants.find((v) => v.color === item.color && v.size === item.size);
+    const product = noProduto ? productById.get(item.productId) : separada?.product;
+    const variant = noProduto ?? separada;
     if (!product || !variant) {
       return NextResponse.json({ error: "Produto inválido" }, { status: 404 });
     }
