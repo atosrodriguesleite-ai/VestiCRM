@@ -308,3 +308,43 @@ describe("painel da tela Envios", () => {
     expect(lerValorBR("")).toBeNaN();
   });
 });
+
+/**
+ * As medidas aparecem em DUAS telas — o formulário do pedido (onde a lojista
+ * digita) e a memória de embalagens do simulador (onde ela reconhece a caixa
+ * que já usou). Elas mostravam os mesmos três números em ORDENS DIFERENTES, e
+ * a do simulador não dizia qual número era qual: "30×44×14 cm" e escolhe no
+ * chute (pedido do dono, 02/10/2026). Escolhido o volume errado, o frete
+ * simulado é de outra caixa — e é com ele que a loja fecha preço com a
+ * cliente.
+ */
+describe("as medidas do pacote dizem qual número é qual", () => {
+  const ler = (rel: string) => readFileSync(join(process.cwd(), rel), "utf8");
+  const simulador = ler("src/app/(app)/envios/envios-view.tsx");
+  const formulario = ler("src/app/(app)/pedidos/[id]/envio-frete.tsx");
+
+  const ordemDe = (texto: string) =>
+    (texto.match(/\b(altura|alt|largura|larg|comprimento|compr?)\b/gi) ?? []).map((p) =>
+      p.toLowerCase().startsWith("alt")
+        ? "altura"
+        : p.toLowerCase().startsWith("larg")
+          ? "largura"
+          : "comprimento"
+    );
+
+  it("cada número da memória de embalagens vem com o nome dele", () => {
+    const linha = simulador.match(/const medidas = \(v: VolumePacote\) =>\s*`([^`]*)`/)![1];
+    expect(ordemDe(linha)).toEqual(["altura", "largura", "comprimento"]);
+  });
+
+  it("a ordem é a MESMA do formulário onde a lojista digita as medidas", () => {
+    // os rótulos dos campos: ["altura", "Altura (cm)"], ["largura", …], …
+    // — só a CHAVE conta (o rótulo repetiria o nome e dobraria a lista)
+    const campos = [
+      ...formulario.matchAll(/\["(altura|largura|comprimento)", "[^"]+"\]/g),
+    ].map((m) => m[1]);
+    expect(campos).toEqual(["altura", "largura", "comprimento"]);
+    const linha = simulador.match(/const medidas = \(v: VolumePacote\) =>\s*`([^`]*)`/)![1];
+    expect(ordemDe(linha)).toEqual(campos);
+  });
+});

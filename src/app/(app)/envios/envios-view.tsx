@@ -118,8 +118,23 @@ const dataCurta = (v: string | null) =>
   v
     ? new Date(v).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" })
     : "—";
+/**
+ * As medidas do volume COM O NOME DE CADA UMA.
+ *
+ * Saía "30×44×14 cm" e não havia como saber qual número era qual (pedido do
+ * dono, 02/10/2026). Na hora de escolher o envio parecido, a lojista está
+ * tentando RECONHECER a caixa que usou — e três números soltos não ajudam a
+ * reconhecer nada; ela escolhe no chute, e o frete simulado sai do tamanho
+ * errado.
+ *
+ * A ordem é a MESMA do formulário de medidas do pedido (altura, largura,
+ * comprimento), que é a ordem que o Melhor Envio usa. Antes esta linha
+ * mostrava largura, comprimento e altura, e a outra tela pedia na ordem
+ * inversa: duas ordens diferentes para os mesmos três números é exatamente
+ * onde o engano começa.
+ */
 const medidas = (v: VolumePacote) =>
-  `${v.larguraCm}×${v.comprimentoCm}×${v.alturaCm} cm`;
+  `alt ${v.alturaCm} × larg ${v.larguraCm} × comp ${v.comprimentoCm} cm`;
 
 export function EnviosView() {
   const [dados, setDados] = useState<Dados | null>(null);
