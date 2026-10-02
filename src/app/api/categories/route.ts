@@ -17,6 +17,14 @@ import {
   renomearTipo,
   tipoDaCategoria,
 } from "@/lib/categories";
+import {
+  definirUnidade,
+  lerUnidade,
+  parseCategoryUnits,
+  removerUnidade,
+  renomearUnidade,
+  unidadeDaCategoria,
+} from "@/lib/catalogo/unidade";
 
 /**
  * Categorias do catálogo. As categorias "vivem" nos produtos (campo category);
@@ -45,6 +53,7 @@ export async function GET() {
           extraCategories: true,
           categoryDescriptions: true,
           categoryTypes: true,
+          categoryUnits: true,
         },
       }),
       db.product.groupBy({ by: ["category"], where: { companyId }, _count: { _all: true } }),
@@ -53,6 +62,7 @@ export async function GET() {
     const extras = parseCategoryOrder(company?.extraCategories);
     const descricoes = parseCategoryDescriptions(company?.categoryDescriptions);
     const tipos = parseCategoryTypes(company?.categoryTypes);
+    const unidades = parseCategoryUnits(company?.categoryUnits);
     const nomes = new Set<string>([...counts.keys(), ...extras]);
     const categories = [...nomes]
       .map((name) => ({
@@ -60,6 +70,8 @@ export async function GET() {
         count: counts.get(name) ?? 0,
         description: descricaoDaCategoria(descricoes, name),
         type: tipoDaCategoria(tipos, name),
+        // como chamar a unidade no catálogo (RN-068); null = segue a loja
+        unit: unidadeDaCategoria(unidades, name),
       }))
       .sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
     return NextResponse.json({ categories });
@@ -107,6 +119,9 @@ const patchSchema = z.object({
   description: z.string().max(LIMITE_DESCRICAO).optional(),
   // guarda-chuva da categoria no catálogo ("Blusas"). Vazio = tirar.
   type: z.string().max(40).optional(),
+  // como chamar a unidade (RN-068): par singular/plural; os dois vazios = tirar
+  unitSingular: z.string().max(60).optional(),
+  unitPlural: z.string().max(60).optional(),
 });
 
 /**
@@ -123,12 +138,23 @@ export async function PATCH(req: NextRequest) {
     const from = parsed.data.from.trim();
     const to = (parsed.data.to ?? from).trim();
     const renomeando = from !== to;
+    const mexeNaUnidade =
+      parsed.data.unitSingular !== undefined || parsed.data.unitPlural !== undefined;
     if (
       !renomeando &&
       parsed.data.description === undefined &&
-      parsed.data.type === undefined
+      parsed.data.type === undefined &&
+      !mexeNaUnidade
     ) {
       return NextResponse.json({ ok: true, name: to });
+    }
+    // o par da unidade é conferido ANTES de qualquer gravação: metade
+    // preenchida deixaria "3 conjunto" na vitrine (RN-068)
+    const unidadeLida = mexeNaUnidade
+      ? lerUnidade(parsed.data.unitSingular, parsed.data.unitPlural)
+      : null;
+    if (unidadeLida && !unidadeLida.ok) {
+      return NextResponse.json({ error: unidadeLida.erro }, { status: 400 });
     }
 
     const company = await db.company.findUnique({
@@ -138,10 +164,12 @@ export async function PATCH(req: NextRequest) {
         categoryOrder: true,
         categoryDescriptions: true,
         categoryTypes: true,
+        categoryUnits: true,
       },
     });
     let descricoes = parseCategoryDescriptions(company?.categoryDescriptions);
     let tipos = parseCategoryTypes(company?.categoryTypes);
+    let unidades = parseCategoryUnits(company?.categoryUnits);
 
     if (renomeando) {
       await db.product.updateMany({ where: { companyId, category: from }, data: { category: to } });
@@ -154,12 +182,16 @@ export async function PATCH(req: NextRequest) {
       // a descrição acompanha o novo nome (senão sumia ao renomear)
       descricoes = renomearDescricao(descricoes, from, to);
       tipos = renomearTipo(tipos, from, to);
+      unidades = renomearUnidade(unidades, from, to);
     }
     if (parsed.data.description !== undefined) {
       descricoes = definirDescricao(descricoes, to, parsed.data.description);
     }
     if (parsed.data.type !== undefined) {
       tipos = definirTipo(tipos, to, parsed.data.type);
+    }
+    if (unidadeLida?.ok) {
+      unidades = definirUnidade(unidades, to, unidadeLida.unidade);
     }
 
     const swap = (list: string[]) => {
@@ -177,6 +209,7 @@ export async function PATCH(req: NextRequest) {
           : {}),
         categoryDescriptions: JSON.stringify(descricoes),
         categoryTypes: JSON.stringify(tipos),
+        categoryUnits: JSON.stringify(unidades),
       },
     });
     return NextResponse.json({
@@ -184,6 +217,7 @@ export async function PATCH(req: NextRequest) {
       name: to,
       description: descricaoDaCategoria(descricoes, to),
       type: tipoDaCategoria(tipos, to),
+      unit: unidadeDaCategoria(unidades, to),
     });
   } catch (e) {
     if (e instanceof AuthError) return NextResponse.json({ error: "Não autenticado" }, { status: 401 });
@@ -231,6 +265,7 @@ export async function DELETE(req: NextRequest) {
         categoryOrder: true,
         categoryDescriptions: true,
         categoryTypes: true,
+        categoryUnits: true,
       },
     });
     const drop = (list: string[]) => list.filter((c) => c !== name);
@@ -243,6 +278,10 @@ export async function DELETE(req: NextRequest) {
         ),
         categoryTypes: JSON.stringify(
           removerTipo(parseCategoryTypes(company?.categoryTypes), name)
+        ),
+        // a unidade da categoria apagada vai junto (RN-068)
+        categoryUnits: JSON.stringify(
+          removerUnidade(parseCategoryUnits(company?.categoryUnits), name)
         ),
         extraCategories: JSON.stringify(drop(parseCategoryOrder(company?.extraCategories))),
         categoryOrder: JSON.stringify(drop(parseCategoryOrder(company?.categoryOrder))),

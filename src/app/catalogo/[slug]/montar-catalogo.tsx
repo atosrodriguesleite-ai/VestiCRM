@@ -11,6 +11,7 @@ import {
 import { type LinkDeCatalogo } from "@/lib/catalogo/tabelas-de-preco";
 import { disponivelNaVitrine } from "@/lib/catalogo/teto-do-estoque";
 import { lerCamposDaLoja } from "@/lib/catalogo/campos-do-pedido";
+import { parseCategoryUnits, unidadeDaLoja, unidadeDaPeca } from "@/lib/catalogo/unidade";
 import { resolverLink } from "@/lib/catalogo/tabelas-de-preco-servidor";
 import { condicoesDoLink, precoComDesconto } from "@/lib/catalogo/condicoes-da-campanha";
 import { resolverCampanhaDoLink } from "@/lib/catalogo/condicoes-da-campanha-servidor";
@@ -83,6 +84,10 @@ export async function montarCatalogo({
     }),
   ]);
 
+  // a escada da unidade (RN-068): loja e categorias lidas uma vez para todas
+  const unidadeLoja = unidadeDaLoja(company);
+  const unidadesPorCategoria = parseCategoryUnits(company.categoryUnits);
+
   const items: CatalogProduct[] = products.map((p) => ({
     id: p.id,
     name: p.name,
@@ -98,6 +103,8 @@ export async function montarCatalogo({
     originalRetailPrice: cond.desconto > 0 ? catalogPrice(p, modo) : undefined,
     minQuantity: p.minQuantity,
     tags: p.tags,
+    // "peça", "conjunto", "kit"… resolvido AQUI, no servidor (RN-068)
+    unidade: unidadeDaPeca(p, unidadesPorCategoria, unidadeLoja),
     // url + cor etiquetada: o card de cada cor usa a foto DAQUELA cor
     images: p.images.map((i) => ({ url: imageHref(i.id), color: i.color })),
     // ordem de ROUPA (PP, P, M, G, GG / numeração crescente): as bolinhas de
@@ -126,6 +133,7 @@ export async function montarCatalogo({
       categoryOrder={parseCategoryOrder(company.categoryOrder)}
       categoryDescriptions={parseCategoryDescriptions(company.categoryDescriptions)}
       categoryTypes={parseCategoryTypes(company.categoryTypes)}
+      unidadeDaLoja={unidadeLoja}
       logoSize={company.catalogLogoSize as "normal" | "grande"}
       // a chavinha vale por COR: o card da cor esgotada some da vitrine
       hideSoldOut={company.catalogHideOutOfStock}

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
+import { aplicarParDaUnidade } from "@/lib/catalogo/unidade";
 import { codigoDoModeloDisponivel } from "@/lib/sku";
 import { imageHref } from "@/lib/img";
 import { ordenarVariantes } from "@/lib/tamanhos";
@@ -23,6 +24,9 @@ const createSchema = z.object({
   collection: z.string().optional(),
   description: z.string().optional(),
   composition: z.string().trim().max(300).optional(),
+  // como chamar a unidade DESTA peça no catálogo (RN-068); vazio = segue a categoria/loja
+  unidadeSingular: z.string().max(60).nullable().optional(),
+  unidadePlural: z.string().max(60).nullable().optional(),
   videoUrl: z.string().optional(),
   costPrice: z.number().nonnegative().default(0),
   wholesalePrice: z.number().nonnegative().default(0),
@@ -118,6 +122,11 @@ export async function POST(req: NextRequest) {
     if (!parsed.success) {
       return NextResponse.json({ error: "Dados inválidos" }, { status: 400 });
     }
+
+    // RN-068: o par da unidade é conferido pela MESMA régua da vitrine (uma
+    // função para as três portas) — metade preenchida deixaria "3 conjunto"
+    const erroUnidade = aplicarParDaUnidade(parsed.data);
+    if (erroUnidade) return NextResponse.json({ error: erroUnidade }, { status: 400 });
     const { images, variants, sku: skuDigitado, ...resto } = parsed.data;
 
     // digitou um código? tem que ser único na loja. Deixou em branco? o

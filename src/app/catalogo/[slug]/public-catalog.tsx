@@ -24,6 +24,7 @@ import {
 } from "next/font/google";
 import { makeSwatch, mixHex, readableOn } from "@/lib/color";
 import { faltaParaOMinimo } from "@/lib/catalogo/tabelas-de-preco";
+import { contar, UNIDADE_PADRAO, type Unidade } from "@/lib/catalogo/unidade";
 import { CAMPOS_DO_PEDIDO, type ConfigCampo } from "@/lib/catalogo/campos-do-pedido";
 import {
   guardarPendente,
@@ -94,6 +95,9 @@ export type CatalogProduct = {
   originalRetailPrice?: number | null;
   minQuantity: number;
   tags: string | null;
+  // como chamar a unidade DESTA peça (RN-068): "peça", "conjunto", "kit" —
+  // já resolvida no servidor pela escada peça > categoria > loja
+  unidade: Unidade;
   // cada foto pode vir etiquetada com a cor que mostra (capa por cor):
   // o card da Avelã usa a foto avelã; sem etiqueta, cai na capa geral
   images: { url: string; color: string | null }[];
@@ -298,6 +302,7 @@ export function PublicCatalog({
   tracking,
   hideSoldOut = false,
   hideColors = false,
+  unidadeDaLoja = UNIDADE_PADRAO,
 }: {
   storeSlug: string;
   storeName: string;
@@ -314,6 +319,12 @@ export function PublicCatalog({
   categoryDescriptions?: Record<string, string>;
   /** guarda-chuva de cada categoria ("Regata Alça" → "Blusas") */
   categoryTypes?: Record<string, string>;
+  /**
+   * A palavra da LOJA para a unidade (RN-068). É a que vale nos textos sobre
+   * o PEDIDO INTEIRO (mínimo da sacola), porque a sacola mistura categorias —
+   * cada peça carrega a própria em `unidade`.
+   */
+  unidadeDaLoja?: Unidade;
   // catálogo de campanha: nome + % de desconto (preços já vêm com desconto)
   promo?: { name: string; slug: string; discount: number } | null;
   /**
@@ -961,7 +972,7 @@ export function PublicCatalog({
     t({ type: "checkout_start", value: totalValue, qty: totalPieces });
     if (minOrderMode === "PECAS" && totalPieces < minOrder) {
       const falta = minOrder - totalPieces;
-      showToast(`Faltam ${falta} ${falta === 1 ? "peça" : "peças"} para o mínimo de ${minOrder}`);
+      showToast(`Faltam ${contar(falta, unidadeDaLoja)} para o mínimo de ${minOrder}`);
       return;
     }
     if (atacadoBloqueado) {
@@ -1038,11 +1049,11 @@ export function PublicCatalog({
           .map(([t, n]) => `${t} ×${n}`)
           .join(", ");
         // loja sem cores: a mensagem também não fala em cor
-        msg += `• ${c.product.name}${hideColors ? "" : ` ${c.color}`} — ${sizeStr}  (${q} ${q > 1 ? "peças" : "peça"} · ${fmt(q * precoDe(c.product))})\n`;
+        msg += `• ${c.product.name}${hideColors ? "" : ` ${c.color}`} — ${sizeStr}  (${contar(q, c.product.unidade)} · ${fmt(q * precoDe(c.product))})\n`;
       }
       msg += "\n";
     }
-    msg += `*Total:* ${totalPieces} peças · ${fmt(totalValue)}\n`;
+    msg += `*Total:* ${contar(totalPieces, unidadeDaLoja)} · ${fmt(totalValue)}\n`;
     if (client.nome || client.fone || formFields.some((f) => (extras[f.campo] ?? "").trim())) {
       msg += "\n*Cliente*\n";
       if (client.nome) msg += `Nome: ${client.nome}\n`;
@@ -1243,6 +1254,9 @@ export function PublicCatalog({
     return faltaParaOMinimo(linhas, produtos, "ATACADO");
   }, [tabela?.mode, allCards, cart, products]);
   const atacadoBloqueado = faltasDoAtacado.length > 0;
+  /** a palavra do modelo (RN-068) — o aviso do mínimo é por modelo, então é a dele */
+  const unidadeDoModelo = (productId: string) =>
+    products.find((p) => p.id === productId)?.unidade ?? unidadeDaLoja;
   /** quantas peças há do MODELO inteiro (todas as cores e tamanhos) hoje */
   const disponivelDoModelo = (productId: string) =>
     allCards
@@ -1257,11 +1271,11 @@ export function PublicCatalog({
   const minRemainingLabel =
     minOrderMode === "VALOR"
       ? `Faltam ${fmt(minTarget - minCurrent)} para fechar seu pedido`
-      : `Faltam ${minTarget - minCurrent} ${minTarget - minCurrent === 1 ? "peça" : "peças"} para fechar seu pedido`;
+      : `Faltam ${contar(minTarget - minCurrent, unidadeDaLoja)} para fechar seu pedido`;
   const minStatusLabel =
     minOrderMode === "VALOR"
       ? `${fmt(minCurrent)} de ${fmt(minTarget)} · pedido mínimo`
-      : `${minCurrent} de ${minTarget} peças · pedido mínimo`;
+      : `${minCurrent} de ${contar(minTarget, unidadeDaLoja)} · pedido mínimo`;
 
   /**
    * O CARD DA PEÇA — um desenho só, usado pelas seções e pela lupa.
@@ -1339,7 +1353,7 @@ export function PublicCatalog({
               fmt(precoDe(card.product))
             )}{" "}
             <small className="text-[11px] font-medium" style={{ color: T.muted }}>
-              / peça
+              / {card.product.unidade.singular}
             </small>
           </p>
           {soldOut && (
@@ -1972,7 +1986,7 @@ export function PublicCatalog({
                 ) : (
                   fmt(precoDe(sheet.product))
                 )}{" "}
-                <small className="text-xs font-medium" style={{ color: T.muted }}>/ peça</small>
+                <small className="text-xs font-medium" style={{ color: T.muted }}>/ {sheet.product.unidade.singular}</small>
               </p>
               {/* MÍNIMO SEM PREÇO DE ATACADO (caso clássico de semijoias): a
                   trava existe mesmo assim, então a vitrine precisa dizer —
@@ -1982,12 +1996,12 @@ export function PublicCatalog({
                 sheet.product.wholesalePrice <= 0 &&
                 sheet.product.minQuantity > 1 && (
                   <p className="text-[12px] font-semibold mt-1.5 m-0" style={{ color: T.muted }}>
-                    📦 Mínimo de {sheet.product.minQuantity} peças deste modelo
+                    📦 Mínimo de {contar(sheet.product.minQuantity, sheet.product.unidade)} deste modelo
                   </p>
                 )}
               {sheet.product.wholesalePrice > 0 && sheet.product.minQuantity > 1 && (
                 <p className="text-xs font-semibold -mt-2 mb-3.5" style={{ color: T.muted }}>
-                  💼 Atacado: {fmt(sheet.product.wholesalePrice)} / peça a partir de {sheet.product.minQuantity} unidades
+                  💼 Atacado: {fmt(sheet.product.wholesalePrice)} / {sheet.product.unidade.singular} a partir de {contar(sheet.product.minQuantity, sheet.product.unidade)}
                 </p>
               )}
               <p className="text-[11px] uppercase font-bold mb-2.5" style={{ color: T.muted, letterSpacing: ".14em" }}>
@@ -2029,7 +2043,7 @@ export function PublicCatalog({
               >
                 {sum(draft) === 0
                   ? "Selecione os tamanhos"
-                  : `Adicionar ${sum(draft)} ${sum(draft) > 1 ? "peças" : "peça"} ao pedido`}
+                  : `Adicionar ${contar(sum(draft), sheet.product.unidade)} ao pedido`}
               </button>
             </div>
           </>
@@ -2177,7 +2191,7 @@ export function PublicCatalog({
 
               <div className="mt-4 pt-3.5" style={{ borderTop: `1.5px solid ${T.primary}` }}>
                 <div className="flex justify-between text-sm mb-1.5 font-medium" style={{ color: T.muted }}>
-                  <span>Total de peças</span>
+                  <span>Total de {unidadeDaLoja.plural}</span>
                   <span>{totalPieces}</span>
                 </div>
                 <div className="flex justify-between font-extrabold text-lg mt-2">
@@ -2360,7 +2374,7 @@ export function PublicCatalog({
                   const semEstoque = avisoDoMinimoSemEstoque(f.minimo, disponivelDoModelo(f.productId));
                   return (
                     <p key={f.productId} className="m-0 mt-0.5">
-                      {f.nome}: {f.pedido} de {f.minimo} {f.minimo === 1 ? "peça" : "peças"}
+                      {f.nome}: {f.pedido} de {contar(f.minimo, unidadeDoModelo(f.productId))}
                       {semEstoque && <span className="block font-semibold">{semEstoque}</span>}
                     </p>
                   );

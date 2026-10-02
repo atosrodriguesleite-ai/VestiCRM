@@ -209,9 +209,12 @@ export function lerMensagemDePedido(texto: string): PedidoLido {
       }
     }
 
-    // "Total: 31 peças · R$ 1.234,50"
+    // "Total: 31 peças · R$ 1.234,50" — ou "31 conjuntos", "31 kits": a loja
+    // escolhe como chamar a unidade (RN-068), então o número é lido pela
+    // POSIÇÃO (o primeiro depois de "Total:"), nunca pela palavra. Procurar
+    // "peça" deixava a conferência do total vazia na loja de conjuntos.
     if (norm.startsWith("total:")) {
-      const p = linha.match(/(\d+)\s*pe[çc]a/i);
+      const p = linha.match(/total\W*(\d+)/i);
       totalPecas = p ? parseInt(p[1], 10) : null;
       const idx = linha.search(/R\$/i);
       totalValor = idx >= 0 ? lerDinheiro(linha.slice(idx)) : null;
@@ -248,7 +251,9 @@ export function lerMensagemDePedido(texto: string): PedidoLido {
       let pecas: number | null = null;
       let valor: number | null = null;
       if (paren) {
-        const p = paren[1].match(/(\d+)\s*pe[çc]a/i);
+        // "(2 peças · …)", "(2 conjuntos · …)": o número vem primeiro, a
+        // palavra é a que a loja escolheu (RN-068) — nunca procurar "peça"
+        const p = paren[1].match(/^\s*(\d+)/);
         pecas = p ? parseInt(p[1], 10) : null;
         const idx = paren[1].search(/R\$/i);
         valor = idx >= 0 ? lerDinheiro(paren[1].slice(idx)) : null;

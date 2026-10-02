@@ -51,6 +51,9 @@ export type ProductItem = {
   description: string | null;
   /** composição (tecido) da peça — vazio usa a da categoria (etiqueta de composição, RN-059) */
   composition: string | null;
+  /** como chamar a unidade DESTA peça no catálogo (RN-068) — vazio segue categoria/loja */
+  unidadeSingular: string | null;
+  unidadePlural: string | null;
   costPrice: number;
   wholesalePrice: number;
   retailPrice: number;
@@ -832,6 +835,8 @@ function ProductDetailModal({
     collection: product.collection ?? "",
     description: product.description ?? "",
     composition: product.composition ?? "",
+    unidadeSingular: product.unidadeSingular ?? "",
+    unidadePlural: product.unidadePlural ?? "",
     costPrice: String(product.costPrice).replace(".", ","),
     wholesalePrice: String(product.wholesalePrice).replace(".", ","),
     retailPrice: String(product.retailPrice).replace(".", ","),
@@ -944,6 +949,8 @@ function ProductDetailModal({
         collection: form.collection || null,
         description: form.description || null,
         composition: form.composition || null,
+        unidadeSingular: form.unidadeSingular || null,
+        unidadePlural: form.unidadePlural || null,
         costPrice: num(form.costPrice),
         // RN-056: preço de dono externo não viaja — o servidor recusaria
         // (e mandar o carregado faria a ficha ser recusada se a loja online
@@ -1255,6 +1262,26 @@ function ProductDetailModal({
                 className={input}
                 placeholder="Em branco usa a composição da categoria (Etiquetas → Modelos)"
               />
+            </div>
+            {/* RN-068: a exceção da escada — só quando ESTA peça difere da categoria */}
+            <div>
+              <label className={label}>Como chamar a unidade no catálogo (singular · plural)</label>
+              <div className="grid grid-cols-2 gap-3">
+                <input
+                  value={form.unidadeSingular}
+                  onChange={set("unidadeSingular")}
+                  className={input}
+                  maxLength={20}
+                  placeholder="Em branco segue a categoria"
+                />
+                <input
+                  value={form.unidadePlural}
+                  onChange={set("unidadePlural")}
+                  className={input}
+                  maxLength={20}
+                  placeholder="ex.: conjuntos"
+                />
+              </div>
             </div>
             <div className="grid grid-cols-3 gap-3">
               <div>

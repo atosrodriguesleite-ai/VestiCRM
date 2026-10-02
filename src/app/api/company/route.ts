@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
+import { aplicarParDaUnidade } from "@/lib/catalogo/unidade";
 import { requireUser, AuthError } from "@/lib/auth";
 import { isAdmin, isSupport } from "@/lib/scope";
 import { CAMPOS_DO_PEDIDO, type CampoDoPedido } from "@/lib/catalogo/campos-do-pedido";
@@ -24,6 +25,10 @@ const schema = z.object({
   catalogHideOutOfStock: z.boolean().optional(),
   // loja sem variação de cor (semijoias): esconde a bolinha/nome da cor
   catalogHideColors: z.boolean().optional(),
+  // como chamar a unidade no catálogo (RN-068): par singular/plural; os dois
+  // vazios voltam a "peça". Conferido junto, abaixo (um só preenchido recusa).
+  unidadeSingular: z.string().max(60).nullable().optional(),
+  unidadePlural: z.string().max(60).nullable().optional(),
   // ordem das categorias no catálogo (lista de nomes, na ordem desejada)
   categoryOrder: z.array(z.string().min(1).max(60)).max(200).optional(),
   // identidade visual do catálogo
@@ -60,6 +65,7 @@ export async function PATCH(req: NextRequest) {
     if (!parsed.success) {
       return NextResponse.json({ error: "Dados inválidos" }, { status: 400 });
     }
+
     // Suporte organiza o catálogo: pode alterar SÓ a ordem das categorias.
     // A chavinha "esconder sem estoque" é liberada para todos os perfis
     // (inclusive suporte e vendedor). Qualquer outro campo da loja (nome,
@@ -70,6 +76,12 @@ export async function PATCH(req: NextRequest) {
     if (!isAdmin(user) && !(isSupport(user) && soOrdem) && !soVitrineEstoque) {
       return NextResponse.json({ error: "Sem permissão" }, { status: 403 });
     }
+    // RN-068 (depois do portão: quem não pode gravar o campo não recebe
+    // conferência dele — a ordem permissão → validação é a da rota).
+    // RN-068: o par da unidade é conferido pela MESMA régua da vitrine (uma
+    // função para as três portas) — metade preenchida deixaria "3 conjunto"
+    const erroUnidade = aplicarParDaUnidade(parsed.data);
+    if (erroUnidade) return NextResponse.json({ error: erroUnidade }, { status: 400 });
     const { categoryOrder, catalogFormFields, ...data } = parsed.data;
     if (data.whatsapp) data.whatsapp = data.whatsapp.replace(/\D/g, "");
 
@@ -133,6 +145,8 @@ export async function PATCH(req: NextRequest) {
       catalogLogoSize: updated.catalogLogoSize,
       catalogHideOutOfStock: updated.catalogHideOutOfStock,
       catalogHideColors: updated.catalogHideColors,
+      unidadeSingular: updated.unidadeSingular,
+      unidadePlural: updated.unidadePlural,
     });
   } catch (e) {
     if (e instanceof AuthError)

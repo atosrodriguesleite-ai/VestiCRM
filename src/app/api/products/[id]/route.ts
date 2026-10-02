@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
+import { aplicarParDaUnidade } from "@/lib/catalogo/unidade";
 import { requireUser, AuthError } from "@/lib/auth";
 import { ajustarEstoqueDentro } from "@/lib/estoque/ajuste";
 import { decidirAjuste, decidirVarejoParaNuvemshop, donoDoEstoque, donoDoPreco, fraseDaRecusa, FRASE_VAREJO_ZERO_NUVEMSHOP, NOME_DO_DONO, rotuloDaPeca } from "@/lib/estoque/dono-do-estoque";
@@ -18,6 +19,9 @@ const patchSchema = z.object({
   description: z.string().nullable().optional(),
   // composição (tecido) para a etiqueta de composição (RN-059); vazio = a da categoria
   composition: z.string().trim().max(300).nullable().optional(),
+  // como chamar a unidade DESTA peça no catálogo (RN-068); vazio = segue a categoria/loja
+  unidadeSingular: z.string().max(60).nullable().optional(),
+  unidadePlural: z.string().max(60).nullable().optional(),
   videoUrl: z.string().nullable().optional(),
   costPrice: z.number().nonnegative().optional(),
   wholesalePrice: z.number().nonnegative().optional(),
@@ -101,6 +105,11 @@ export async function PATCH(
     if (!parsed.success) {
       return NextResponse.json({ error: "Dados inválidos" }, { status: 400 });
     }
+
+    // RN-068: o par da unidade é conferido pela MESMA régua da vitrine (uma
+    // função para as três portas) — metade preenchida deixaria "3 conjunto"
+    const erroUnidade = aplicarParDaUnidade(parsed.data);
+    if (erroUnidade) return NextResponse.json({ error: erroUnidade }, { status: 400 });
 
     const product = await db.product.findFirst({
       where: { id, companyId: user.companyId },

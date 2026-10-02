@@ -114,6 +114,15 @@ model Company {
   // nova já nasce no guarda-chuva certo. A ORDEM dos tipos sai da ordem das
   // categorias (categoryOrder) — uma régua só, nada para sincronizar.
   categoryTypes        String @default("{}")
+  // COMO CHAMAR A UNIDADE no catálogo público (RN-068): "peça" não serve para
+  // quem vende conjunto, kit, par. É um PAR singular/plural, porque o
+  // catálogo também escreve "faltam 3 peças" e a mensagem do pedido — só o
+  // singular deixaria a cliente lendo "3 conjunto". Vale a escada peça >
+  // categoria > loja (a mesma do mínimo e do NCM). Nulo = "peça"/"peças".
+  unidadeSingular      String?
+  unidadePlural        String?
+  // a unidade de cada categoria (JSON objeto categoria→{singular, plural})
+  categoryUnits        String @default("{}")
 
   // Lead Intake Engine — configuração de entrada de leads
   intakeDistribution  String  @default("ROUND_ROBIN") // ROUND_ROBIN | FIXED
@@ -1717,6 +1726,10 @@ model Product {
   /// (`ComposicaoCategoria`) e a peça só preenche quando difere — a mesma
   /// régua do NCM (RN-055).
   composition    String?
+  /// Como chamar a unidade DESTA peça no catálogo (RN-068) — a exceção na
+  /// escada peça > categoria > loja. Nulo = segue a categoria/loja.
+  unidadeSingular String?
+  unidadePlural   String?
   createdAt      DateTime @default(now())
 
   variants ProductVariant[]

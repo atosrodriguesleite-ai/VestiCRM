@@ -395,6 +395,34 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   o que a vitrine já sabia que não existe. Limite aceito e dito: a
   quantidade exata viaja para o navegador (é o que permite o teto), como em
   qualquer loja online.
+  **RN-068 · COMO CHAMAR A UNIDADE NO CATÁLOGO PÚBLICO**
+  (`lib/catalogo/unidade.ts`, 02/10/2026): pedido do dono com o print da
+  cliente — *"quer trocar esse 'peça' por 'conjunto'"*. O catálogo escrevia
+  "R$ 86,90 / peça" para tudo, e quem vende conjunto, kit ou par não tinha
+  onde mudar. Três decisões: (1) **é um PAR, singular e plural** — o "/ peça"
+  do card é só o lugar mais visível; o catálogo também escreve "faltam 3
+  peças", "adicionar 2 peças ao pedido" e a **mensagem do pedido** ("2 peças ·
+  R$ 173,80"), e trocar só o singular deixaria a cliente lendo "3 conjunto";
+  um só preenchido é RECUSADO nas três portas. (2) **A escada é peça >
+  categoria > loja**, a mesma do mínimo (RN-051) e do NCM (RN-055), pelo mesmo
+  motivo: a loja que vende só conjunto configura uma vez (Configurações →
+  Catálogo); a que tem a categoria "Conjuntos" configura lá (Produtos →
+  Categorias, ícone 📦, JSON `categoryUnits` no padrão das descrições — renomear
+  leva junto, apagar não deixa órfã); o kit solto dentro de "Conjuntos" se
+  corrige na ficha dele. Resolvida **no servidor**, nos DOIS produtores da
+  vitrine (`montar-catalogo` e o catálogo de campanha), e a vitrine só recebe
+  a palavra pronta. (3) **A fronteira**: texto sobre UM produto (preço do
+  card, ficha, atacado, "adicionar N", a linha dele na mensagem, o mínimo por
+  modelo do atacado) usa a palavra **dele**; texto sobre o **pedido inteiro**
+  (mínimo da sacola, que mistura categorias) usa a palavra da **loja**; e as
+  **telas internas não mudam** — Separação, Estoque, relatórios: ali um pedido
+  mistura tudo e "4 de 4 peças bipadas" precisa ser uma palavra só. Só letra
+  (com acento), espaço e hífen, até 20 — a palavra vai para a vitrine pública
+  e para o WhatsApp. **Loja que não configurar nada não muda em NADA.** O
+  leitor do "Colar pedido do WhatsApp" (RN-012) passou a ler o **Total** pelo
+  NÚMERO depois de "Total:", não pela palavra "peça" (era assim, e a mensagem
+  de uma loja de conjuntos perderia a conferência do total); os itens já eram
+  lidos pela posição.
   **RN-018 · Tabelas de preço por link** (`lib/catalogo/tabelas-de-preco.ts`,
   gated por `Company.priceTablesEnabled`, DESLIGADO por padrão): a loja que
   atende lojista E cliente final gera links do MESMO catálogo com tabelas

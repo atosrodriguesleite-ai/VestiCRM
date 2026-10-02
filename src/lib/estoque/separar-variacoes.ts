@@ -142,6 +142,11 @@ export async function separarEmProdutoProprio(
             minStock: p.minStock,
             ncm: p.ncm,
             composition: p.composition,
+            // como chamar a unidade (RN-068): a exceção da peça acompanha a
+            // cor separada, senão a Azul virava "/ peça" ao lado das irmãs
+            // "/ conjunto" (achado da revisão)
+            unidadeSingular: p.unidadeSingular,
+            unidadePlural: p.unidadePlural,
           },
           select: { id: true, name: true },
         });

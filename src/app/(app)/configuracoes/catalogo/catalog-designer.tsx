@@ -65,6 +65,8 @@ export function CatalogDesigner({
     catalogFont: string;
     catalogLogoSize: string;
     catalogHideColors: boolean;
+    unidadeSingular: string | null;
+    unidadePlural: string | null;
   };
   colors: ColorItem[];
   sizes: SizeItem[];
@@ -86,6 +88,10 @@ export function CatalogDesigner({
   const [logoSize, setLogoSize] = useState(initial.catalogLogoSize);
   // loja sem variação de cor (semijoias): esconde bolinha/nome de cor
   const [hideColors, setHideColors] = useState(initial.catalogHideColors);
+  // como chamar a unidade no catálogo (RN-068): o degrau da LOJA
+  const [unidadeSing, setUnidadeSing] = useState(initial.unidadeSingular ?? "");
+  const [unidadePlu, setUnidadePlu] = useState(initial.unidadePlural ?? "");
+  const [erroSalvar, setErroSalvar] = useState("");
   const [colors, setColors] = useState(initialColors);
   const [sizes, setSizes] = useState(initialSizes);
   const [newColor, setNewColor] = useState({ name: "", hex: "#c94f7c" });
@@ -158,10 +164,18 @@ export function CatalogDesigner({
         catalogFont: font,
         catalogLogoSize: logoSize,
         catalogHideColors: hideColors,
+        unidadeSingular: unidadeSing,
+        unidadePlural: unidadePlu,
       }),
     });
     setSaving(false);
-    if (res.ok) {
+    if (!res.ok) {
+      // a recusa do servidor (ex.: só o singular da unidade preenchido) tem
+      // que aparecer — antes o botão só "não salvava", sem dizer por quê
+      const d = await res.json().catch(() => ({}));
+      setErroSalvar(d?.error ?? "Não foi possível salvar.");
+    } else {
+      setErroSalvar("");
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
       router.refresh();
@@ -455,6 +469,40 @@ export function CatalogDesigner({
               </button>
             </div>
 
+            {/* Como chamar a unidade (RN-068): "peça" não serve para quem
+                vende conjunto, kit, par. É o degrau da LOJA; categoria e peça
+                podem ter o seu (Produtos → Categorias e a ficha da peça). */}
+            <div className="rounded-xl border border-gray-200 px-3 py-2.5">
+              <p className="text-sm">
+                Como chamar a <b>unidade</b> no catálogo
+                <span className="block text-[11px] text-gray-400">
+                  Aparece no preço (&quot;R$ 86,90 / peça&quot;) e no pedido (&quot;faltam 3 peças&quot;).
+                  Em branco fica &quot;peça&quot;. Categoria ou peça podem ter a sua própria.
+                </span>
+              </p>
+              <div className="mt-2 grid grid-cols-2 gap-2">
+                <input
+                  value={unidadeSing}
+                  onChange={(e) => setUnidadeSing(e.target.value)}
+                  disabled={!canEditIdentity}
+                  maxLength={20}
+                  placeholder="peça"
+                  aria-label="Unidade no singular"
+                  className="rounded-lg border border-gray-200 px-2.5 py-1.5 text-sm outline-none focus:border-brand-400 disabled:opacity-50"
+                />
+                <input
+                  value={unidadePlu}
+                  onChange={(e) => setUnidadePlu(e.target.value)}
+                  disabled={!canEditIdentity}
+                  maxLength={20}
+                  placeholder="peças"
+                  aria-label="Unidade no plural"
+                  className="rounded-lg border border-gray-200 px-2.5 py-1.5 text-sm outline-none focus:border-brand-400 disabled:opacity-50"
+                />
+              </div>
+              <p className="mt-1 text-[11px] text-gray-400">singular · plural (ex.: conjunto · conjuntos)</p>
+            </div>
+
             <div>
               <p className="text-sm font-medium mb-2 flex items-center gap-1.5">
                 <Type className="size-3.5 text-gray-400" />
@@ -485,13 +533,18 @@ export function CatalogDesigner({
             </div>
 
             {canEditIdentity && (
-              <button
-                onClick={saveIdentity}
-                disabled={saving}
-                className="rounded-xl bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium px-5 py-2.5 transition disabled:opacity-60"
-              >
-                {saving ? "Salvando..." : saved ? "Salvo ✓" : "Salvar identidade"}
-              </button>
+              <div>
+                <button
+                  onClick={saveIdentity}
+                  disabled={saving}
+                  className="rounded-xl bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium px-5 py-2.5 transition disabled:opacity-60"
+                >
+                  {saving ? "Salvando..." : saved ? "Salvo ✓" : "Salvar identidade"}
+                </button>
+                {/* a recusa do servidor aparece AQUI, junto do botão — não
+                    embaixo de um campo específico (achado da revisão) */}
+                {erroSalvar && <p className="mt-2 text-xs text-rose-600">{erroSalvar}</p>}
+              </div>
             )}
           </div>
 

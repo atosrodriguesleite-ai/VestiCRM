@@ -9,6 +9,7 @@ import {
   parseCategoryTypes,
 } from "@/lib/categories";
 import { disponivelNaVitrine } from "@/lib/catalogo/teto-do-estoque";
+import { parseCategoryUnits, unidadeDaLoja, unidadeDaPeca } from "@/lib/catalogo/unidade";
 import { PublicCatalog, type CatalogProduct } from "../../public-catalog";
 
 export const dynamic = "force-dynamic";
@@ -40,7 +41,9 @@ export async function generateMetadata({
       company && pc
         ? `${pc.name} — ${company.name}`
         : "Catálogo de campanha",
-    description: pc ? `${pc.discount}% OFF em peças selecionadas` : undefined,
+    // a prévia do link no WhatsApp fala a língua da loja (RN-068)
+    description:
+      pc && company ? `${pc.discount}% OFF em ${unidadeDaLoja(company).plural} selecionadas` : undefined,
   };
 }
 
@@ -88,6 +91,10 @@ export default async function PromoCatalogPage({
   ]);
   if (products.length === 0) notFound();
 
+  // a escada da unidade (RN-068): loja e categorias lidas uma vez para todas
+  const unidadeLoja = unidadeDaLoja(company);
+  const unidadesPorCategoria = parseCategoryUnits(company.categoryUnits);
+
   const items: CatalogProduct[] = products.map((p) => ({
     id: p.id,
     name: p.name,
@@ -103,6 +110,8 @@ export default async function PromoCatalogPage({
     originalRetailPrice: p.retailPrice,
     minQuantity: p.minQuantity,
     tags: p.tags,
+    // "peça", "conjunto", "kit"… resolvido AQUI, no servidor (RN-068)
+    unidade: unidadeDaPeca(p, unidadesPorCategoria, unidadeLoja),
     images: p.images.map((i) => ({ url: imageHref(i.id), color: i.color })),
     variants: p.variants.map((v) => ({
       color: v.color,
@@ -125,6 +134,7 @@ export default async function PromoCatalogPage({
       categoryOrder={parseCategoryOrder(company.categoryOrder)}
       categoryDescriptions={parseCategoryDescriptions(company.categoryDescriptions)}
       categoryTypes={parseCategoryTypes(company.categoryTypes)}
+      unidadeDaLoja={unidadeLoja}
       promo={{ name: pc.name, slug: pc.slug, discount: pc.discount }}
       logoSize={company.catalogLogoSize as "normal" | "grande"}
       // mesma régua do catálogo geral: cor esgotada some quando a chave está ligada

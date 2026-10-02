@@ -182,7 +182,9 @@ describe("a vitrine e a tela contam a verdade (revisão 18/08/2026)", () => {
   it("mínimo SEM preço de atacado também avisa (o caso das semijoias)", () => {
     const cat = ler("src/app/catalogo/[slug]/public-catalog.tsx");
     expect(cat).toContain("sheet.product.wholesalePrice <= 0 &&");
-    expect(cat).toContain("Mínimo de {sheet.product.minQuantity} peças deste modelo");
+    // RN-068: a palavra ("peças", "conjuntos") vem da unidade da peça — o que
+    // este guarda defende é que o mínimo DESTE modelo continue sendo dito
+    expect(cat).toContain("Mínimo de {contar(sheet.product.minQuantity, sheet.product.unidade)} deste modelo");
   });
   it("vendedora LÊ os links (só criar/desativar é de gerente)", () => {
     const rota = ler("src/app/api/catalog-links/route.ts");

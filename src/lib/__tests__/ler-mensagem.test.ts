@@ -424,3 +424,20 @@ describe("mensagem ACHATADA pelo navegador do anúncio (Entre Linhas, 04/08/2026
     expect(rota).toContain("separarProdutoECor(`${item.categoria} ${item.descricao}`");
   });
 });
+
+/**
+ * RN-068: a loja escolhe como chamar a unidade ("conjunto", "kit"), e a
+ * mensagem do pedido passa a dizer isso. O leitor não pode depender da
+ * palavra "peça" — o Total era lido assim, e a loja de conjuntos perderia a
+ * conferência do total sem nenhum aviso.
+ */
+describe("mensagem de loja que vende conjunto (RN-068)", () => {
+  it("lê o total e os itens pelo NÚMERO, seja qual for a palavra", () => {
+    const lido = lerMensagemDePedido(
+      "*Novo pedido — Fit Store*\n\n• Bermuda + Top Azul — M ×2  (2 conjuntos · R$ 173,80)\n• Legging Preta — P ×1  (1 kit · R$ 99,90)\n*Total:* 3 conjuntos · R$ 273,70\n\nNome: Samira\nTelefone: 31997441595"
+    );
+    expect(lido.totalPecas).toBe(3);
+    expect(pecasLidas(lido)).toBe(3);
+    expect(lido.itens).toHaveLength(2);
+  });
+});

@@ -11,9 +11,16 @@ import { avisoDaRecusa } from "@/lib/sessao";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Portal } from "@/components/portal";
-import { Tags, Plus, Pencil, Trash2, X, Check, Loader2, ArrowRight, AlertTriangle, AlignLeft, Layers } from "lucide-react";
+import { Tags, Plus, Pencil, Trash2, X, Check, Loader2, ArrowRight, AlertTriangle, AlignLeft, Layers, Package } from "lucide-react";
 
-type Cat = { name: string; count: number; description?: string; type?: string };
+type Cat = {
+  name: string;
+  count: number;
+  description?: string;
+  type?: string;
+  /** como chamar a unidade no catálogo (RN-068); null = segue a loja */
+  unit?: { singular: string; plural: string } | null;
+};
 
 export function CategoryManager() {
   const router = useRouter();
@@ -31,6 +38,42 @@ export function CategoryManager() {
   const [tipando, setTipando] = useState<string | null>(null);
   const [tipoTexto, setTipoTexto] = useState("");
   const [criandoTipo, setCriandoTipo] = useState(false);
+  // unidade da categoria (RN-068): "conjunto / conjuntos"
+  const [unidadeEm, setUnidadeEm] = useState<string | null>(null);
+  const [unidSing, setUnidSing] = useState("");
+  const [unidPlu, setUnidPlu] = useState("");
+
+  /**
+   * Como chamar a unidade das peças desta categoria no catálogo (RN-068):
+   * "R$ 86,90 / conjunto", "faltam 2 conjuntos". Em branco, a categoria segue
+   * a palavra da loja. O servidor confere o par (os dois ou nenhum).
+   */
+  async function salvarUnidade(name: string) {
+    if (busy) return;
+    setBusy(true);
+    setMsg("");
+    const r = await fetch("/api/categories", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ from: name, unitSingular: unidSing, unitPlural: unidPlu }),
+    });
+    setBusy(false);
+    if (r.ok) {
+      setUnidadeEm(null);
+      setMsgOk(true);
+      setMsg(
+        unidSing.trim()
+          ? `Pronto — as peças de ${name} aparecem como "${unidSing.trim().toLowerCase()}" no catálogo.`
+          : `${name} volta a usar a palavra da loja.`
+      );
+      await carregar();
+      router.refresh();
+    } else {
+      const d = await r.json().catch(() => ({}));
+      setMsgOk(false);
+      setMsg(avisoDaRecusa(r.status, d, "Não foi possível salvar a unidade."));
+    }
+  }
   // `msg` nasceu só para erro (sai em vermelho); o aviso de "salvou" precisa
   // sair em verde, senão parece que deu problema quando deu certo.
   const [msgOk, setMsgOk] = useState(false);
@@ -298,6 +341,7 @@ export function CategoryManager() {
                                   setApagando(null);
                                   setEditando(null);
                                   setDescrevendo(null);
+                                  setUnidadeEm(null);
                                 }}
                                 className={`grid size-8 place-items-center rounded-lg hover:bg-gray-100 hover:text-brand-600 ${
                                   c.type ? "text-brand-600" : "text-gray-400"
@@ -311,6 +355,7 @@ export function CategoryManager() {
                                   setEditando(c.name);
                                   setEditNome(c.name);
                                   setApagando(null);
+                                  setUnidadeEm(null);
                                 }}
                                 className="grid size-8 place-items-center rounded-lg text-gray-400 hover:bg-gray-100 hover:text-brand-600"
                                 title="Renomear"
@@ -323,6 +368,7 @@ export function CategoryManager() {
                                   setDescTexto(c.description ?? "");
                                   setApagando(null);
                                   setEditando(null);
+                                  setUnidadeEm(null);
                                 }}
                                 className={`grid size-8 place-items-center rounded-lg hover:bg-gray-100 hover:text-brand-600 ${
                                   c.description ? "text-brand-600" : "text-gray-400"
@@ -333,10 +379,27 @@ export function CategoryManager() {
                               </button>
                               <button
                                 onClick={() => {
+                                  setUnidadeEm(unidadeEm === c.name ? null : c.name);
+                                  setUnidSing(c.unit?.singular ?? "");
+                                  setUnidPlu(c.unit?.plural ?? "");
+                                  setApagando(null);
+                                  setEditando(null);
+                                  setDescrevendo(null);
+                                }}
+                                className={`grid size-8 place-items-center rounded-lg hover:bg-gray-100 hover:text-brand-600 ${
+                                  c.unit ? "text-brand-600" : "text-gray-400"
+                                }`}
+                                title={c.unit ? `Unidade: ${c.unit.singular} / ${c.unit.plural}` : "Como chamar a unidade no catálogo (peça, conjunto, kit…)"}
+                              >
+                                <Package className="size-4" />
+                              </button>
+                              <button
+                                onClick={() => {
                                   setApagando(apagando?.name === c.name ? null : c);
                                   setMoverPara("");
                                   setEditando(null);
                                   setDescrevendo(null);
+                                  setUnidadeEm(null);
                                 }}
                                 className="grid size-8 place-items-center rounded-lg text-gray-400 hover:bg-rose-50 hover:text-rose-500"
                                 title="Apagar"
@@ -455,6 +518,52 @@ export function CategoryManager() {
                                 </button>
                                 <button
                                   onClick={() => salvarDescricao(c.name)}
+                                  disabled={busy}
+                                  className="rounded-lg bg-brand-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-brand-700 disabled:opacity-50"
+                                >
+                                  {busy ? "Salvando…" : "Salvar"}
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* unidade da categoria: "/ conjunto" em vez de "/ peça" (RN-068) */}
+                        {unidadeEm === c.name && (
+                          <div className="border-t border-gray-100 bg-brand-50/40 p-3">
+                            <p className="mb-1.5 text-xs font-semibold text-gray-700">
+                              Como chamar a unidade das peças de <b>{c.name}</b> no catálogo
+                            </p>
+                            <div className="grid grid-cols-2 gap-2">
+                              <input
+                                autoFocus
+                                value={unidSing}
+                                onChange={(e) => setUnidSing(e.target.value)}
+                                maxLength={20}
+                                placeholder="singular — ex.: conjunto"
+                                className="w-full rounded-lg border border-brand-200 px-2.5 py-2 text-sm outline-none focus:border-brand-400"
+                              />
+                              <input
+                                value={unidPlu}
+                                onChange={(e) => setUnidPlu(e.target.value)}
+                                maxLength={20}
+                                placeholder="plural — ex.: conjuntos"
+                                className="w-full rounded-lg border border-brand-200 px-2.5 py-2 text-sm outline-none focus:border-brand-400"
+                              />
+                            </div>
+                            <div className="mt-2 flex items-center justify-between gap-2">
+                              <span className="text-[11px] text-gray-400">
+                                Vira &quot;R$ 86,90 / {unidSing.trim() || "peça"}&quot; e &quot;faltam 3 {unidPlu.trim() || "peças"}&quot; · deixe vazio para seguir a loja
+                              </span>
+                              <div className="flex gap-2">
+                                <button
+                                  onClick={() => setUnidadeEm(null)}
+                                  className="rounded-lg px-3 py-1.5 text-xs font-medium text-gray-500 hover:bg-gray-100"
+                                >
+                                  Cancelar
+                                </button>
+                                <button
+                                  onClick={() => salvarUnidade(c.name)}
                                   disabled={busy}
                                   className="rounded-lg bg-brand-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-brand-700 disabled:opacity-50"
                                 >

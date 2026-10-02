@@ -96,6 +96,8 @@ export default async function ProductsPage() {
     collection: p.collection,
     description: p.description,
     composition: p.composition,
+    unidadeSingular: p.unidadeSingular,
+    unidadePlural: p.unidadePlural,
     costPrice: p.costPrice,
     wholesalePrice: p.wholesalePrice,
     retailPrice: p.retailPrice,
