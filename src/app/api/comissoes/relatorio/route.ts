@@ -13,7 +13,7 @@ import { paginaSegura } from "@/lib/pdf-texto";
 import { db } from "@/lib/db";
 import { requireUser, AuthError } from "@/lib/auth";
 import { isManagerUp } from "@/lib/scope";
-import { orderNumber, orderStatusLabel, round2, PAID_ORDER_STATUSES } from "@/lib/orders";
+import { orderNumber, orderStatusLabel, round2, whereComissaoNoPeriodo } from "@/lib/orders";
 import { appBaseUrl } from "@/lib/comm/evolution";
 
 /**
@@ -94,10 +94,9 @@ export async function GET(req: NextRequest) {
       where: {
         companyId: user.companyId,
         sellerId: seller.id,
-        status: { in: PAID_ORDER_STATUSES },
-        paidAt: { gte: from, lte: to },
+        // RN-069: a venda a prazo entra pela data da entrega
+        ...whereComissaoNoPeriodo(from, to),
       },
-      orderBy: { paidAt: "asc" },
       select: {
         id: true,
         number: true,
@@ -107,9 +106,16 @@ export async function GET(req: NextRequest) {
         netTotal: true,
         createdAt: true,
         paidAt: true,
+        entregueAReceberEm: true,
         customer: { select: { name: true } },
       },
     });
+    // em ordem CRONOLÓGICA pela data que contou: ordenar pelas duas colunas
+    // no banco pondo NULL por último jogava toda venda a prazo antes de toda
+    // venda paga comum, e a tabela deixava de bater com o mês (achado da revisão)
+    const dataQueContou = (o: { entregueAReceberEm: Date | null; paidAt: Date | null }) =>
+      o.entregueAReceberEm ?? o.paidAt;
+    orders.sort((a, b) => (dataQueContou(a)?.getTime() ?? 0) - (dataQueContou(b)?.getTime() ?? 0));
 
     const valorBase = (o: { subtotal: number; netTotal: number }) =>
       base === "VENDIDO" ? o.netTotal : o.subtotal;
@@ -156,7 +162,7 @@ export async function GET(req: NextRequest) {
       page.drawText("PEDIDO", { x: cols.pedido + 4, y, size: 8, font: bold, color: GRAY });
       page.drawText("CLIENTE", { x: cols.cliente, y, size: 8, font: bold, color: GRAY });
       page.drawText("ORÇAMENTO", { x: cols.orc, y, size: 8, font: bold, color: GRAY });
-      page.drawText("PAGO EM", { x: cols.pago, y, size: 8, font: bold, color: GRAY });
+      page.drawText("CONTOU EM", { x: cols.pago, y, size: 8, font: bold, color: GRAY });
       const bw = bold.widthOfTextAtSize("BASE", 8);
       page.drawText("BASE", { x: cols.basex - bw, y, size: 8, font: bold, color: GRAY });
       const cw = bold.widthOfTextAtSize("COMISSÃO", 8);
@@ -203,8 +209,9 @@ export async function GET(req: NextRequest) {
     const regras = [
       `Comissão = ${base === "VENDIDO" ? "valor VENDIDO (produtos − desconto + acréscimo)" : "valor dos PRODUTOS (antes do desconto)"} × ${String(taxa).replace(".", ",")}%.`,
       "O FRETE nunca entra na comissão — é valor da transportadora, não venda.",
-      "Só entra pedido PAGO (orçamento, aguardando pagamento e cancelado ficam de fora).",
-      "O pedido conta no período pela DATA DO PAGAMENTO — não pela data do orçamento.",
+      "Entra pedido PAGO e a venda a prazo (Entregue · a receber); orçamento, aguardando pagamento e cancelado ficam de fora.",
+      "O pedido conta no período pela DATA DO PAGAMENTO — ou, na venda a prazo, pela DATA DA ENTREGA (uma vez só, mesmo depois de pago).",
+      "A coluna CONTOU EM é essa data; o ✱ marca a venda a prazo (contou na entrega).",
       "Pedido do catálogo é de quem MANDOU O LINK (?ref da vendedora); sem link de vendedora, nasce sem dona (é da loja).",
       "Troca de vendedor fica registrada no histórico do pedido.",
     ];
@@ -238,7 +245,11 @@ export async function GET(req: NextRequest) {
         x: cols.cliente, y: y - 10, size: 7, font, color: GRAY,
       });
       page.drawText(dia(o.createdAt), { x: cols.orc, y, size: 9, font, color: GRAY });
-      page.drawText(dia(o.paidAt), { x: cols.pago, y, size: 9, font: bold, color: INK });
+      // a data que DECIDIU o período: a entrega na venda a prazo, o pagamento
+      // nas demais (RN-069) — com o ✱ para a leitora saber qual foi
+      page.drawText(dia(dataQueContou(o)) + (o.entregueAReceberEm ? " ✱" : ""), {
+        x: cols.pago, y, size: 9, font: bold, color: INK,
+      });
       const bTxt = money(valorBase(o));
       page.drawText(bTxt, {
         x: cols.basex - font.widthOfTextAtSize(bTxt, 9), y, size: 9, font, color: INK,
@@ -251,7 +262,7 @@ export async function GET(req: NextRequest) {
       page.drawLine({ start: { x: M, y: y + 8 }, end: { x: width - M, y: y + 8 }, thickness: 0.5, color: LIGHT });
     }
     if (orders.length === 0) {
-      page.drawText("Nenhum pedido pago deste vendedor no período.", {
+      page.drawText("Nenhum pedido com comissão deste vendedor no período.", {
         x: M + 4, y, size: 10, font, color: GRAY,
       });
       y -= 22;
@@ -261,7 +272,7 @@ export async function GET(req: NextRequest) {
     newPageIfNeeded(120, false);
     y -= 6;
     const linhas: [string, string, boolean][] = [
-      [`Pedidos pagos (${orders.length})`, money(totalBase), false],
+      [`Pedidos com comissão (${orders.length})`, money(totalBase), false],
       [`Comissão a pagar (${String(taxa).replace(".", ",")}%)`, money(totalComissao), true],
     ];
     for (const [label, value, strong] of linhas) {

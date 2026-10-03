@@ -23,6 +23,7 @@ import {
   paymentMethodLabel,
   round2,
   PAID_ORDER_STATUSES,
+  COMMISSION_ORDER_STATUSES,
   ORDER_STATUS_FLOW,
   podeTransferirVenda,
   vendaOnline,
@@ -72,6 +73,7 @@ const patchSchema = z.object({
     .enum([
       "ORCAMENTO",
       "AGUARDANDO_PAGAMENTO",
+      "ENTREGUE_A_RECEBER",
       "PAGO",
       "EM_PRODUCAO",
       "SEPARACAO",
@@ -636,19 +638,32 @@ export async function PATCH(
       willChangeStatus && PAID_STATUSES.has(newStatus!) && !PAID_STATUSES.has(order.status);
     const leavingPaid =
       willChangeStatus && !PAID_STATUSES.has(newStatus!) && PAID_STATUSES.has(order.status);
+    // COMISSÃO: a venda a prazo (RN-069) paga comissão na entrega, então a
+    // régua "define a dona antes" vale para ela também — sem isso o pedido
+    // entregue sem dona em setembro só ganhava vendedora ao virar pago em
+    // outubro, e a comissão caía num mês já fechado e lançado (achado da
+    // revisão)
+    const COMISSAO_STATUSES = new Set<string>(COMMISSION_ORDER_STATUSES);
+    const enteringComissao =
+      willChangeStatus &&
+      COMISSAO_STATUSES.has(newStatus!) &&
+      !COMISSAO_STATUSES.has(order.status);
 
-    // Regra: um pedido só pode virar PAGO com um vendedor atribuído (RN-006).
-    // EXCEÇÃO: venda da loja online (Nuvemshop) não tem vendedora por regra
-    // (RN-005) — sem a exceção, um pedido Nuvemshop cancelado nunca mais
-    // poderia reabrir: exigiria a vendedora que ele não pode ter.
-    if (enteringPaid && !vendaOnline(order)) {
+    // Regra: um pedido só pode virar PAGO (ou entregue a receber) com um
+    // vendedor atribuído (RN-006). EXCEÇÃO: venda da loja online (Nuvemshop)
+    // não tem vendedora por regra (RN-005) — sem a exceção, um pedido
+    // Nuvemshop cancelado nunca mais poderia reabrir: exigiria a vendedora
+    // que ele não pode ter.
+    if (enteringComissao && !vendaOnline(order)) {
       const effectiveSeller =
         parsed.data.sellerId !== undefined ? parsed.data.sellerId : order.sellerId;
       if (!effectiveSeller) {
         return NextResponse.json(
           {
             error:
-              "Atribua um vendedor ao pedido antes de marcá-lo como pago (em \"Editar dados\").",
+              newStatus === "ENTREGUE_A_RECEBER"
+                ? "Atribua um vendedor ao pedido antes de marcá-lo como entregue a receber (em \"Editar dados\") — a comissão conta na entrega."
+                : "Atribua um vendedor ao pedido antes de marcá-lo como pago (em \"Editar dados\").",
           },
           { status: 409 }
         );
@@ -759,7 +774,8 @@ export async function PATCH(
         }
         newSellerName = seller.name;
       } else if (
-        PAID_STATUSES.has(parsed.data.status ?? order.status) &&
+        // pago E a venda a prazo (RN-069): os dois contam comissão
+        COMISSAO_STATUSES.has(parsed.data.status ?? order.status) &&
         // exceção RN-005: a venda online É paga e sem dona — inclusive quando
         // a gerência REMOVE a vendedora legada de antes da regra
         !vendaOnline(order)
@@ -767,7 +783,7 @@ export async function PATCH(
         // a regra que obriga vendedor para faturar vale também ao EDITAR:
         // sem isso dava para tirar a dona de um pedido já pago
         return NextResponse.json(
-          { error: "Pedido pago precisa de um vendedor. Transfira a venda em vez de deixá-la sem dona." },
+          { error: "Pedido pago (ou entregue a receber) precisa de um vendedor. Transfira a venda em vez de deixá-la sem dona." },
           { status: 409 }
         );
       }
@@ -836,6 +852,16 @@ export async function PATCH(
                 // DATA DO DINHEIRO: carimba quando virou pago; sai ao voltar
                 ...(enteringPaid ? { paidAt: order.paidAt ?? new Date() } : {}),
                 ...(leavingPaid ? { paidAt: null } : {}),
+                // VENDA A PRAZO (RN-069): carimba QUANDO a cliente levou — é a
+                // data da comissão e a base do vencimento (+30 dias). Nunca é
+                // apagado depois: a comissão contou no mês da entrega e não pode
+                // contar de novo quando virar pago. E o pedido que JÁ ERA PAGO
+                // (o Pix voltou) leva a data do pagamento, não a de hoje: a
+                // comissão dele já contou naquele mês — carimbar hoje a faria
+                // contar de novo no mês da volta (achado da revisão).
+                ...(newStatus === "ENTREGUE_A_RECEBER"
+                  ? { entregueAReceberEm: order.entregueAReceberEm ?? order.paidAt ?? new Date() }
+                  : {}),
                 // voltou a ser pago (reaberto de cancelado/orçamento): a
                 // separação de antes não vale mais — volta para a fila (RN-060)
                 ...(enteringPaid ? { separadoEm: null } : {}),
@@ -981,7 +1007,7 @@ export async function PATCH(
               });
             }
             // Voltar para antes do envio (ou cancelar) limpa as marcas
-            if (["ORCAMENTO", "AGUARDANDO_PAGAMENTO", "PAGO", "EM_PRODUCAO", "SEPARACAO", "CANCELADO"].includes(newStatus)) {
+            if (["ORCAMENTO", "AGUARDANDO_PAGAMENTO", "ENTREGUE_A_RECEBER", "PAGO", "EM_PRODUCAO", "SEPARACAO", "CANCELADO"].includes(newStatus)) {
               await tx.shipping.updateMany({
                 where: { orderId: order.id },
                 data: { shippedAt: null, deliveredAt: null },

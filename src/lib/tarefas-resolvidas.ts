@@ -1,5 +1,5 @@
 import { db } from "./db";
-import { PAID_ORDER_STATUSES } from "./orders";
+import { PAID_ORDER_STATUSES, A_RECEBER_STATUSES } from "./orders";
 import { fimDeHojeSP } from "./contato-feito";
 
 /**
@@ -239,7 +239,8 @@ export async function fecharTarefasResolvidas(companyId: string): Promise<number
       if (o.status === "CANCELADO") r.canceladoEm = maisNovo(r.canceladoEm, o.updatedAt);
       // pendências que SEGURAM a tarefa aberta (o que impede o pagamento do
       // pedido B de esconder a dívida do pedido A)
-      if (o.status === "AGUARDANDO_PAGAMENTO") r.aindaDevendo = true;
+      // aguardando pagamento OU entregue a receber (RN-069): dinheiro ainda não entrou
+      if ((A_RECEBER_STATUSES as string[]).includes(o.status)) r.aindaDevendo = true;
       if (o.status === "ENVIADO") r.aindaACaminho = true;
     }
 

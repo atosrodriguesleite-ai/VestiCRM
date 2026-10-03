@@ -1,7 +1,13 @@
 import { after } from "next/server";
 import { Prisma } from "@prisma/client";
 import { db } from "../db";
-import { round2, PAID_ORDER_STATUSES, orderNumber } from "../orders";
+import {
+  round2,
+  PAID_ORDER_STATUSES,
+  A_RECEBER_STATUSES,
+  orderNumber,
+  vencimentoDaVendaAPrazo,
+} from "../orders";
 import { dataDoDia, diaSP, saldoDaParcela } from "./lancamentos";
 import { garantirCategoriasPadrao } from "./cadastros";
 
@@ -83,6 +89,13 @@ export type AcaoDaPorta = {
   estornarAutomaticas: boolean;
   cancelar: boolean;
   reativar: boolean;
+  /**
+   * VENDA A PRAZO (RN-069): o vencimento da parcela vai para o combinado
+   * (+30 dias da entrega). Só quando nenhuma baixa VIVA sobra na parcela —
+   * dinheiro que já andou não muda de data; a baixa automática que esta
+   * mesma ação estorna não conta como viva.
+   */
+  moverVencimento: boolean;
   /** aviso para o histórico quando a porta decide NÃO mexer */
   aviso: string | null;
 };
@@ -94,8 +107,18 @@ const NADA: AcaoDaPorta = {
   estornarAutomaticas: false,
   cancelar: false,
   reativar: false,
+  moverVencimento: false,
   aviso: null,
 };
+
+/**
+ * Vencimento da conta a receber de uma VENDA A PRAZO (RN-069): 30 dias depois
+ * da entrega, no dia-do-dinheiro. Nulo para qualquer outro status.
+ */
+function vencimentoAlvo(pedido: { status: string; entregueAReceberEm: Date | null }): Date | null {
+  if (pedido.status !== "ENTREGUE_A_RECEBER" || !pedido.entregueAReceberEm) return null;
+  return diaDoDinheiro(vencimentoDaVendaAPrazo(pedido.entregueAReceberEm));
+}
 
 /**
  * O que a porta faz, dado o estado do pedido e o do lançamento. Toda a
@@ -107,7 +130,9 @@ export function decidirAcaoDaPorta(
   lanc: EstadoDoLancamento
 ): AcaoDaPorta {
   const pago = (PAID_ORDER_STATUSES as string[]).includes(pedido.status);
-  const aguardando = pedido.status === "AGUARDANDO_PAGAMENTO";
+  // "vale dinheiro, não recebido": aguardando pagamento E a venda a prazo
+  // (RN-069) — a conta a receber existe e fica em aberto, sem baixa
+  const aguardando = (A_RECEBER_STATUSES as string[]).includes(pedido.status);
   const valeDinheiro = pago || aguardando;
 
   // ---- o pedido não é mais dinheiro (cancelado ou voltou a orçamento) ----
@@ -202,8 +227,18 @@ export function decidirAcaoDaPorta(
       darBaixa: aReceber > 0 ? aReceber : null,
     };
   }
-  // aguardando pagamento: o que a porta baixou sozinha volta a ser dívida
-  return { ...NADA, novoValor, estornarAutomaticas: lanc.temBaixaAutomaticaViva };
+  // aguardando pagamento: o que a porta baixou sozinha volta a ser dívida.
+  // Na venda a prazo (RN-069) o vencimento vai para o combinado — e a
+  // decisão é tomada AQUI, olhando a baixa que esta mesma ação estorna: a
+  // primeira versão decidia depois, com a foto de ANTES do estorno, e a
+  // transição pago → a prazo deixava a parcela vencendo no dia da venda
+  // (a cliente caía na Inadimplência no mesmo dia; achado da revisão).
+  return {
+    ...NADA,
+    novoValor,
+    estornarAutomaticas: lanc.temBaixaAutomaticaViva,
+    moverVencimento: pedido.status === "ENTREGUE_A_RECEBER" && !lanc.temBaixaManualViva,
+  };
 }
 
 /** Quanto das baixas VIVAS é da porta (o que volta ao estornar). */
@@ -240,6 +275,7 @@ export async function sincronizarPedidoNoFinanceiro(
       total: true,
       paidAt: true,
       createdAt: true,
+      entregueAReceberEm: true,
       source: true,
       priceMode: true,
       company: { select: { financeEnabled: true } },
@@ -284,6 +320,11 @@ export async function sincronizarPedidoNoFinanceiro(
     );
     const conta = await contaPadrao(pedido.companyId);
     const quando = diaDoDinheiro(pedido.paidAt ?? pedido.createdAt);
+    // VENDA A PRAZO (RN-069): a competência é a da venda (hoje), mas o
+    // vencimento é o combinado — 30 dias depois da entrega. Sem isso a conta
+    // nascia "vencida hoje" e a cliente caía na Inadimplência no mesmo dia em
+    // que levou a mercadoria.
+    const vencimento = vencimentoAlvo(pedido) ?? quando;
     const valor = round2(pedido.total);
     let criado;
     try {
@@ -304,7 +345,7 @@ export async function sincronizarPedidoNoFinanceiro(
           create: {
             companyId: pedido.companyId,
             numero: 1,
-            vencimento: quando,
+            vencimento,
             valor,
             contaId: conta,
           },
@@ -380,6 +421,29 @@ export async function sincronizarPedidoNoFinanceiro(
       },
     });
     return { feito: true, lancamentoId: existente.id, acao: "cancelado" };
+  }
+  // VENDA A PRAZO (RN-069): o pedido que estava "aguardando pagamento" (ou
+  // pago, com o Pix que voltou) e virou "entregue · a receber" já tinha a
+  // conta a receber — vencendo no dia da venda. O vencimento passa a ser o
+  // combinado (+30 dias). QUEM decide é a máquina pura (`moverVencimento`);
+  // aqui só se aplica. É idempotente: o alvo é fixo, então a varredura de
+  // carona não empurra o vencimento para a frente a cada rodada.
+  const alvo = vencimentoAlvo(pedido);
+  const parcela = existente.parcelas[0];
+  if (acao.moverVencimento && alvo && parcela && parcela.vencimento.getTime() !== alvo.getTime()) {
+    await db.finParcela.update({ where: { id: parcela.id }, data: { vencimento: alvo } });
+    await db.finLancamento.update({
+      where: { id: existente.id },
+      data: {
+        eventos: {
+          create: {
+            descricao: `Venda a prazo: vencimento em ${alvo.toLocaleDateString("pt-BR")}`,
+            autorNome: AUTOR_SISTEMA,
+          },
+        },
+      },
+    });
+    mexeu = true;
   }
 
   return { feito: true, lancamentoId: existente.id, acao: mexeu ? "atualizado" : "nada" };
@@ -1092,7 +1156,9 @@ export async function vendasComValorDivergente(
        AND l."canceladoEm" IS NULL
        AND (
              o."status"::text = ANY(${[...PAID_ORDER_STATUSES]}::text[])
-             OR o."status"::text = 'AGUARDANDO_PAGAMENTO'
+             -- a conta em aberto também acompanha o pedido: aguardando
+             -- pagamento e a venda a prazo (RN-069)
+             OR o."status"::text = ANY(${[...A_RECEBER_STATUSES]}::text[])
            )
        AND ABS(l."valor" - o."total") > 0.005
        -- pedido que virou ZERO (brinde, 100% de desconto) NÃO entra: a porta

@@ -20,9 +20,12 @@ import { CancelOrderDialog } from "../cancel-dialog";
 export function StatusChanger({
   orderId,
   current,
+  passouPorAReceber = false,
 }: {
   orderId: string;
   current: OrderStatus;
+  /** o pedido passou por "Entregue · a receber" (carimbo RN-069) */
+  passouPorAReceber?: boolean;
 }) {
   const router = useRouter();
   // estado otimista: reflete o clique imediatamente e re-sincroniza quando
@@ -70,7 +73,15 @@ export function StatusChanger({
       <div className="flex gap-1.5 overflow-x-auto thin-scroll pb-1">
         {ORDER_STATUS_FLOW.map((s, i) => {
           const active = s === shown;
-          const done = !cancelled && i < currentIdx && s !== "CANCELADO";
+          // "Entregue · a receber" é caminho ALTERNATIVO, não etapa: o pedido
+          // comum (aguardando → pago) nunca passou por ele, e pintá-lo com ✓
+          // diria que a cliente levou a mercadoria antes de pagar (RN-069,
+          // achado da revisão). Só vira "feito" em quem de fato passou por lá.
+          const done =
+            !cancelled &&
+            i < currentIdx &&
+            s !== "CANCELADO" &&
+            (s !== "ENTREGUE_A_RECEBER" || passouPorAReceber);
           return (
             <button
               key={s}

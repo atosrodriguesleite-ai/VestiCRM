@@ -303,7 +303,7 @@ export default async function DashboardPage({
   // saem todas juntas. (As fichas de "quem chamar hoje" e os textos das
   // mensagens saíram daqui em 25/08/2026: foram para `chamadas-do-dia.tsx`,
   // que carrega à parte.)
-  const [nomesAtuais, buyerNames, overdue, lowStockCount] = await Promise.all([
+  const [nomesAtuais, buyerNames, overdue, lowStockCount, aReceber] = await Promise.all([
     idsVendidos.length
       ? db.product.findMany({
           where: { id: { in: idsVendidos } },
@@ -322,6 +322,17 @@ export default async function DashboardPage({
     // RN-051: pelo mínimo de CADA peça (peça > categoria > loja) — a mesma
     // régua do Inventário, senão o cartão e a tela discordam sobre a mesma peça
     contarNoMinimo(user.companyId),
+    // VENDA A PRAZO (RN-069): dinheiro que está NA RUA — entregue, ainda não
+    // recebido. Fica fora do faturamento de propósito, então precisa de um
+    // lugar próprio na tela, senão R$ 10 mil entregues somem da vista. É um
+    // ESTOQUE de recebíveis, não um fluxo: não respeita o período.
+    db.order.aggregate({
+      where: { ...saleScope, status: "ENTREGUE_A_RECEBER" },
+      // frete-ok: a receber é o que a cliente vai PAGAR — frete incluído, a
+      // mesma régua da conta a receber (RN-033); faturamento segue netTotal.
+      _sum: { total: true },
+      _count: true,
+    }),
   ]);
   const nomeAtual = new Map(nomesAtuais.map((p) => [p.id, p.name]));
   // A fusão final usa a chave NORMALIZADA (chaveDoNome: NFC + espaços
@@ -747,7 +758,20 @@ export default async function DashboardPage({
           Ver pedidos
         </Link>
       </div>
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4 mb-6">
+      <div className={`grid grid-cols-2 gap-3 md:gap-4 mb-6 ${aReceber._count > 0 ? "lg:grid-cols-5" : "lg:grid-cols-4"}`}>
+        {/* RN-069: só aparece quando há venda a prazo em aberto — loja que
+            não usa o status não ganha um cartão zerado ocupando espaço */}
+        {aReceber._count > 0 && (
+          <StatCard
+            label="Entregue · a receber"
+            value={aReceber._sum.total ?? 0}
+            format="brl"
+            hint={`${aReceber._count} pedido${aReceber._count === 1 ? "" : "s"} na rua`}
+            icon={<Wallet />}
+            tone="warn"
+            info="Vendas a prazo: a cliente já levou a mercadoria e ainda não pagou. Esse valor NÃO está em 'Vendas' — entra lá só quando o pedido virar Pago. A conta a receber de cada um está no Financeiro, e a vencida cai na Inadimplência."
+          />
+        )}
         <StatCard
           label="Pedidos pagos hoje"
           value={ordersToday._count}

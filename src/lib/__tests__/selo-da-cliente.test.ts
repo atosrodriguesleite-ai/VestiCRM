@@ -115,8 +115,10 @@ describe("o selo é calculado dos pedidos (RN-001 decide o que é pago)", () => 
       (s) => s !== "CANCELADO" && !PAID_ORDER_STATUSES.includes(s)
     );
     expect(STATUS_EM_ABERTO).toEqual(esperado);
-    // e hoje isso é exatamente orçamento + aguardando pagamento
-    expect(STATUS_EM_ABERTO).toEqual(["ORCAMENTO", "AGUARDANDO_PAGAMENTO"]);
+    // e hoje isso é orçamento + aguardando pagamento + a venda a prazo
+    // (RN-069: a cliente levou, mas "Cliente" é quem já PAGOU — até pagar,
+    // o selo dela é 🟡 Pedido)
+    expect(STATUS_EM_ABERTO).toEqual(["ORCAMENTO", "AGUARDANDO_PAGAMENTO", "ENTREGUE_A_RECEBER"]);
     // nenhum status do enum fica sem casa (pago, aberto ou cancelado)
     for (const s of Object.values(OrderStatus)) {
       const casas = [

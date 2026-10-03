@@ -2,7 +2,7 @@ import { redirect } from "next/navigation";
 import { requireUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { isManagerUp, isAdmin } from "@/lib/scope";
-import { PAID_ORDER_STATUSES } from "@/lib/orders";
+import { whereComissaoNoPeriodo } from "@/lib/orders";
 import { financeiroLiberado } from "@/lib/financeiro/gate";
 import { comissoesJaGeradas } from "@/lib/financeiro/comissoes";
 import { diaSP } from "@/lib/financeiro/lancamentos";
@@ -62,12 +62,13 @@ export default async function CommissionsPage({
       },
       orderBy: { name: "asc" },
     }),
-    // pedidos PAGOS no período (fonte única = igual ao faturamento)
+    // pedidos que PAGAM COMISSÃO no período: pagos pela data do pagamento e
+    // a venda a prazo pela data da entrega (RN-069) — a mesma régua da conta
+    // a pagar e do relatório, numa função só
     db.order.findMany({
       where: {
         companyId: user.companyId,
-        status: { in: PAID_ORDER_STATUSES },
-        paidAt: { gte: from, lte: to },
+        ...whereComissaoNoPeriodo(from, to),
       },
       select: { sellerId: true, subtotal: true, netTotal: true },
     }),
@@ -115,7 +116,7 @@ export default async function CommissionsPage({
     <div className="max-w-5xl mx-auto">
       <PageHeader
         title="Comissões"
-        subtitle="Comissão dos vendedores sobre os pedidos pagos no período."
+        subtitle="Comissão dos vendedores sobre os pedidos pagos no período — e sobre a venda a prazo (Entregue · a receber), que conta no mês da entrega."
       />
       <CommissionsView
         rows={rows}

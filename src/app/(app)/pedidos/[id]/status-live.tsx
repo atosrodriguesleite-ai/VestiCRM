@@ -33,7 +33,12 @@ export function StatusLive({
   const atual = useRef(statusInicial);
 
   useEffect(() => {
-    const AGUARDANDO = statusInicial === "ORCAMENTO" || statusInicial === "AGUARDANDO_PAGAMENTO";
+    // a venda a prazo (RN-069) também espera o dinheiro: o Pix do gateway
+    // pode fazê-la virar paga sozinha, e a tela aberta tem que acompanhar
+    const AGUARDANDO =
+      statusInicial === "ORCAMENTO" ||
+      statusInicial === "AGUARDANDO_PAGAMENTO" ||
+      statusInicial === "ENTREGUE_A_RECEBER";
     // pago e ainda a caminho: o rastreio pode fazer o pedido andar sozinho
     const PODE_ANDAR =
       statusInicial === "PAGO" ||

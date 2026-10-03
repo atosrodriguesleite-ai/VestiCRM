@@ -25,6 +25,7 @@ import {
   orderStatusColor,
   orderNumber,
   PAID_ORDER_STATUSES,
+  vencimentoDaVendaAPrazo,
 } from "@/lib/orders";
 import { Card, Badge } from "@/components/ui";
 import { StatusChanger } from "./status-changer";
@@ -353,8 +354,31 @@ export default async function OrderDetailPage({
         {/* PEÇAS SEGURADAS: a reserva não tem prazo — some do estoque no
             orçamento e só volta no cancelamento. Sem este aviso, orçamento
             esquecido vira peça sumida do estoque sem ninguém entender. */}
+        {/* VENDA A PRAZO (RN-069): a peça SAIU com a cliente — a faixa de
+            "reservadas, cancele para liberar" aqui mandaria a lojista cancelar
+            um pedido já entregue para liberar peças que não estão na arara
+            (achado da revisão). O que ela precisa saber é quando vence. */}
+        {order.status === "ENTREGUE_A_RECEBER" && (
+          <p className="mt-4 flex items-start gap-2 rounded-xl border border-teal-100 bg-teal-50 px-3 py-2.5 text-xs text-teal-800">
+            <PackageCheck className="mt-0.5 size-4 shrink-0" />
+            <span>
+              <b>Entregue à cliente, a receber.</b> A mercadoria já saiu com ela e
+              o pedido ainda não conta como venda — entra no faturamento quando
+              virar <b>Pago</b>.
+              {order.entregueAReceberEm && (
+                <>
+                  {" "}
+                  Vencimento combinado:{" "}
+                  <b>{dateShort(vencimentoDaVendaAPrazo(order.entregueAReceberEm))}</b>{" "}
+                  (30 dias da entrega, em {dateShort(order.entregueAReceberEm)}).
+                </>
+              )}
+            </span>
+          </p>
+        )}
         {order.stockDeducted &&
           !(PAID_ORDER_STATUSES as readonly string[]).includes(order.status) &&
+          order.status !== "ENTREGUE_A_RECEBER" &&
           order.status !== "CANCELADO" && (
             <p className="mt-4 flex items-start gap-2 rounded-xl border border-amber-100 bg-amber-50 px-3 py-2.5 text-xs text-amber-800">
               <PackageCheck className="mt-0.5 size-4 shrink-0" />
@@ -376,7 +400,11 @@ export default async function OrderDetailPage({
           )}
 
         <div className="mt-5 pt-5 border-t border-gray-50 min-w-0 overflow-hidden">
-          <StatusChanger orderId={order.id} current={order.status} />
+          <StatusChanger
+            orderId={order.id}
+            current={order.status}
+            passouPorAReceber={order.entregueAReceberEm !== null}
+          />
         </div>
         {pedidoDeColega && (
           <p className="mt-3 text-xs text-amber-600">

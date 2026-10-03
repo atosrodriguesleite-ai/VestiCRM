@@ -246,6 +246,67 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   declara com o marcador **`frete-ok`** e o motivo, na linha ou nas duas
   acima. A versão anterior do guarda tinha regex frouxa e deixou passar seis
   somas com frete no Dashboard — guarda que não pega nada é pior que nenhum.
+- **RN-069 · VENDA A PRAZO — "ENTREGUE · A RECEBER"** (`OrderStatus.ENTREGUE_A_RECEBER`,
+  `lib/orders.ts`, 03/10/2026): pedido do dono — *"tem gente que compra hoje e
+  só paga mês que vem, mas já está com o produto"*. Decidido com ele: é
+  **venda a prazo** (comprou, não devolve — "condicional", que permite
+  devolução, é outra coisa e NÃO é isto), **comissão na entrega**, e **não é
+  faturamento até virar pago** (não contar dinheiro que não entrou). Então:
+  (1) o status fica **FORA de `PAID_ORDER_STATUSES` de propósito** — RN-001
+  intocada; a venda entra em Vendas/Relatórios no mês em que virar PAGO (pela
+  data do pagamento), enquanto o DRE do Financeiro a mostra por competência
+  no mês da venda — os dois números são verdadeiros, respondem perguntas
+  diferentes; (2) **estoque**: segura/baixa como todo pedido (RN-003) e conta
+  como **"saiu da loja"** no Estoque (fora de `STATUS_QUE_SEGURAM_NA_LOJA`) e
+  da fila da Separação; (3) **financeiro**: é irmão do "aguardando pagamento"
+  na porta única (`A_RECEBER_STATUSES` — "vale dinheiro, não recebido"):
+  nasce **conta a receber em aberto, sem baixa**, com **vencimento 30 dias
+  depois da entrega** (`vencimentoDaVendaAPrazo`; sem isso nascia "vencida
+  hoje" e a cliente caía na Inadimplência no dia em que levou) — aparece em
+  Contas a Receber, no Fluxo previsto e, vencida, na Inadimplência com a
+  cobrança pelo WhatsApp (RN-034); o pedido que já estava "aguardando" e
+  virou a prazo tem o vencimento movido para o combinado (só a parcela sem
+  baixa viva, de forma idempotente); virar PAGO dá a baixa automática do que
+  falta; voltar de pago para a prazo estorna só a baixa automática;
+  (4) **comissão NA ENTREGA** pela lista `COMMISSION_ORDER_STATUSES`
+  (faturamento + este status — a ÚNICA lista que difere da de faturamento, de
+  propósito), com **data ESTÁVEL**: `Order.entregueAReceberEm` é carimbado ao
+  entrar no status e **nunca apagado** — a venda entregue em setembro e paga
+  em outubro conta comissão em setembro, e NÃO de novo em outubro
+  (`whereComissaoNoPeriodo`, uma régua para a tela, a conta a pagar e o
+  relatório); (5) **Dashboard** ganha o cartão "Entregue · a receber" (soma do
+  `total`, frete-ok — é o que a cliente vai pagar), só quando há venda a prazo
+  em aberto — dinheiro na rua fora de "Vendas" precisa de um lugar próprio;
+  (6) o funil põe a venda a prazo na etapa Pagamento e as tarefas a tratam
+  como "ainda devendo", pelas listas derivadas (a casa já aprendeu que lista
+  à mão é onde status novo se perde). **Cinco achados da revisão fecharam a
+  regra** (03/10/2026): (a) **exige vendedora para entrar**, e não deixa
+  tirá-la depois — a RN-006 ("define a dona antes de faturar") vale para
+  "antes de contar comissão", senão o pedido entregue sem dona em setembro só
+  ganhava vendedora ao virar pago em outubro e a comissão caía num mês já
+  fechado e lançado (RN-038); (b) o pedido **que já era PAGO** e volta para a
+  prazo (o Pix voltou) leva no carimbo a **data do pagamento**, não a de hoje
+  — a comissão dele já contou naquele mês, e carimbar hoje a faria contar de
+  novo; (c) a decisão de **mover o vencimento mora na máquina pura**
+  (`moverVencimento` em `decidirAcaoDaPorta`), olhando a baixa que a MESMA
+  ação estorna — decidida depois, com a foto de antes do estorno, a transição
+  pago → a prazo deixava a parcela vencendo no dia da venda; (d) a **ficha do
+  pedido** troca a faixa "reservadas, cancele para liberar" (a peça saiu com a
+  cliente; cancelar não a traria de volta) pela faixa "entregue à cliente, a
+  receber — vence em dd/mm", e a **trilha de status** só pinta a etapa como
+  feita em quem passou por ela (é caminho alternativo, não etapa do pedido
+  comum); (e) o **extrato de comissão em PDF** explica a venda a prazo, a
+  coluna "contou em" mostra a data que decidiu o período (✱ na entrega) e a
+  tabela é cronológica por ela. **Provado pelas rotas de verdade contra o
+  Postgres local** (`scripts/e2e-entregue-a-receber.ts`, 7 cenários):
+  estoque, financeiro no `after()`, comissão uma vez só, os dois caminhos de
+  entrada no status, cancelamento e a trava da vendedora. **Risco aceito e
+  dito**: comissão paga na entrega de venda que a cliente nunca pagar.
+  **Limites**: prazo fixo de 30 dias (configurável é entrega futura); o status
+  só se escolhe na ficha do pedido (o pedido não NASCE a prazo — nasce
+  orçamento/aguardando e a vendedora o muda ao entregar); nota fiscal segue
+  exigindo pedido pago — a saída a prazo deveria ter nota na entrega, decisão
+  pendente do dono com o contador.
 - **RN-003 · Estoque**: orçamento RESERVA (todos os status exceto CANCELADO seguram
   estoque) — vale para o pedido montado no sistema E para o do catálogo
   público (`lib/reservations.ts`, baixa condicionada: nunca negativa, nunca

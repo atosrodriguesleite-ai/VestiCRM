@@ -1,9 +1,10 @@
 import { precoComDesconto } from "./catalogo/condicoes-da-campanha";
-import type { OrderStatus, PaymentMethod } from "@prisma/client";
+import type { OrderStatus, PaymentMethod, Prisma } from "@prisma/client";
 
 export const orderStatusLabel: Record<OrderStatus, string> = {
   ORCAMENTO: "Orçamento",
   AGUARDANDO_PAGAMENTO: "Aguardando pagamento",
+  ENTREGUE_A_RECEBER: "Entregue · a receber",
   PAGO: "Pago",
   EM_PRODUCAO: "Em produção",
   SEPARACAO: "Separação",
@@ -15,6 +16,7 @@ export const orderStatusLabel: Record<OrderStatus, string> = {
 export const orderStatusColor: Record<OrderStatus, string> = {
   ORCAMENTO: "#64748b",
   AGUARDANDO_PAGAMENTO: "#d97706",
+  ENTREGUE_A_RECEBER: "#0f766e",
   PAGO: "#059669",
   EM_PRODUCAO: "#c4622d",
   SEPARACAO: "#5c5636",
@@ -35,6 +37,65 @@ export const PAID_ORDER_STATUSES: OrderStatus[] = [
   "ENVIADO",
   "ENTREGUE",
 ];
+
+/**
+ * RN-069 · VENDA A PRAZO — "Entregue · a receber".
+ *
+ * A cliente levou a mercadoria e paga depois ("compra hoje, paga mês que
+ * vem"). Pedido do dono (02/10/2026): não contar dinheiro que não entrou —
+ * então este status fica FORA da lista de faturamento acima, de propósito, e
+ * só entra quando virar PAGO. O que ele faz enquanto isso:
+ *
+ *  • estoque: segura/baixa como todo pedido (RN-003) e conta como "saiu da
+ *    loja" no Estoque (não está mais na arara);
+ *  • financeiro: vira CONTA A RECEBER em aberto com vencimento (+30 dias),
+ *    sem baixa — aparece em Contas a Receber, no Fluxo previsto e, vencida,
+ *    na Inadimplência com a cobrança pelo WhatsApp (RN-034);
+ *  • comissão: conta NA ENTREGA (decisão do dono), pela lista abaixo.
+ *
+ * "Condicional" (levou para ver, pode devolver) é OUTRA coisa e não é isto.
+ */
+
+/**
+ * "Vale dinheiro, mas ainda não recebido": a conta a receber existe e está
+ * em aberto. É a lista que a porta do Financeiro, as tarefas ("ainda
+ * devendo") e o funil (etapa Pagamento) usam — derivada, para o status novo
+ * não se perder numa lista escrita à mão.
+ */
+export const A_RECEBER_STATUSES: OrderStatus[] = ["AGUARDANDO_PAGAMENTO", "ENTREGUE_A_RECEBER"];
+
+/** Prazo padrão da venda a prazo: a conta a receber vence 30 dias depois da entrega. */
+export const PRAZO_ENTREGUE_A_RECEBER_DIAS = 30;
+
+/**
+ * COMISSÃO CONTA NA ENTREGA (RN-069, decisão do dono): a lista do faturamento
+ * mais a venda a prazo. É a ÚNICA lista que difere da de faturamento — e
+ * difere de propósito.
+ */
+export const COMMISSION_ORDER_STATUSES: OrderStatus[] = [
+  ...PAID_ORDER_STATUSES,
+  "ENTREGUE_A_RECEBER",
+];
+
+/**
+ * A DATA DA COMISSÃO é ESTÁVEL: o pedido que passou por "Entregue · a
+ * receber" conta no mês da ENTREGA — e continua contando ali quando virar
+ * pago meses depois (senão a mesma venda pagaria comissão em dois meses).
+ * Quem nunca passou por lá conta pela data do pagamento, como sempre.
+ */
+export function whereComissaoNoPeriodo(de: Date, ate: Date): Prisma.OrderWhereInput {
+  return {
+    OR: [
+      { entregueAReceberEm: null, status: { in: PAID_ORDER_STATUSES }, paidAt: { gte: de, lte: ate } },
+      { entregueAReceberEm: { gte: de, lte: ate }, status: { in: COMMISSION_ORDER_STATUSES } },
+    ],
+  };
+}
+
+/** Vencimento da conta a receber da venda a prazo. */
+export function vencimentoDaVendaAPrazo(entregueEm: Date): Date {
+  return new Date(entregueEm.getTime() + PRAZO_ENTREGUE_A_RECEBER_DIAS * 86_400_000);
+}
 
 /**
  * DATA DO DINHEIRO — decide em qual mês a venda entra.
@@ -99,6 +160,7 @@ export function podeTransferirVenda(
 export const ORDER_STATUS_FLOW: OrderStatus[] = [
   "ORCAMENTO",
   "AGUARDANDO_PAGAMENTO",
+  "ENTREGUE_A_RECEBER",
   "PAGO",
   "EM_PRODUCAO",
   "SEPARACAO",

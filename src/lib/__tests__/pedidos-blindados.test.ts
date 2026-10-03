@@ -269,7 +269,7 @@ describe("vendedor da venda: ativo, comercial e nunca ausente em pedido pago (M1
   });
 
   it("não dá para tirar a dona de um pedido pago", () => {
-    expect(rota).toContain("Pedido pago precisa de um vendedor");
+    expect(rota).toContain("Pedido pago (ou entregue a receber) precisa de um vendedor");
   });
 
   it("perfil Suporte não cria pedido (venda é ato comercial)", () => {

@@ -1884,6 +1884,11 @@ model MediaAsset {
 enum OrderStatus {
   ORCAMENTO
   AGUARDANDO_PAGAMENTO
+  // VENDA A PRAZO (RN-069): a cliente LEVOU a mercadoria e paga depois.
+  // Segura/baixa estoque como qualquer pedido, vira conta a receber com
+  // vencimento, conta comissão na entrega — mas NÃO é faturamento até virar
+  // PAGO (fora de PAID_ORDER_STATUSES de propósito).
+  ENTREGUE_A_RECEBER
   PAGO
   EM_PRODUCAO
   SEPARACAO
@@ -1973,6 +1978,11 @@ model Order {
   // assim o mês bate com o extrato e um mês fechado nunca mais muda de valor.
   // Carimbada na transição para PAGO e limpa se o pedido voltar atrás.
   paidAt         DateTime?
+  /// RN-069: quando o pedido virou "Entregue · a receber" (venda a prazo).
+  /// É a data da COMISSÃO (na entrega, decisão do dono) e a base do
+  /// vencimento da conta a receber (+30 dias). Nunca é apagado ao virar pago:
+  /// a comissão já contou no mês da entrega e não pode contar de novo.
+  entregueAReceberEm DateTime?
   /// SEPARAÇÃO POR LEITOR (RN-060): quando a última separação foi concluída
   /// (a fila mostra o que ainda não foi separado). O registro de quem bipou
   /// o quê mora em `Separacao`; o histórico do pedido ganha o evento.

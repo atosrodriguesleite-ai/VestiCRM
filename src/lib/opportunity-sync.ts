@@ -1,5 +1,5 @@
 import { db } from "./db";
-import { PAID_ORDER_STATUSES, orderNumber } from "./orders";
+import { PAID_ORDER_STATUSES, orderNumber, A_RECEBER_STATUSES } from "./orders";
 import { nomeCasaComEtapa } from "./funil-auto";
 
 /**
@@ -248,7 +248,7 @@ export async function garantirCartaoDoPedido(
       : (etapas.find((s) =>
           nomeCasaComEtapa(
             s.name,
-            order.status === "AGUARDANDO_PAGAMENTO" ? "PAGAMENTO" : "NEGOCIACAO"
+            (A_RECEBER_STATUSES as string[]).includes(order.status) ? "PAGAMENTO" : "NEGOCIACAO"
           )
         ) ?? etapas.find((s) => !s.isWon && !s.isLost));
     if (!stage) return null;

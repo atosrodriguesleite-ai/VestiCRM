@@ -169,7 +169,9 @@ describe("comissão vira conta a pagar (RN-038)", () => {
   it("a conta da comissão é a MESMA da tela (nunca soma frete)", () => {
     // dois números diferentes para a mesma comissão começam uma discussão
     // com a equipe — e frete não é venda (RN-002)
-    expect(motor).toContain("PAID_ORDER_STATUSES");
+    // a régua de QUAIS pedidos entram é a mesma função da tela (RN-069: pago
+    // pela data do pagamento, venda a prazo pela data da entrega)
+    expect(motor).toContain("whereComissaoNoPeriodo(");
     expect(motor).toContain("commissionBase");
     expect(motor).toContain("usaVendido ? o.netTotal : o.subtotal");
     expect(motor).not.toMatch(/o\.total/);

@@ -1,7 +1,7 @@
 import { Prisma } from "@prisma/client";
 import { db } from "../db";
 import { formatarDia } from "./dia";
-import { PAID_ORDER_STATUSES, round2 } from "../orders";
+import { round2, whereComissaoNoPeriodo } from "../orders";
 import { dataDoDia, diaSP } from "./lancamentos";
 
 /**
@@ -12,7 +12,8 @@ import { dataDoDia, diaSP } from "./lancamentos";
  * "sobra R$ 4.000 no mês" sem lembrar das comissões que ainda vai pagar — e
  * comissão é a segunda maior despesa de uma loja de atacado.
  *
- * A conta a pagar nasce da MESMA fonte da tela (pedidos pagos no período,
+ * A conta a pagar nasce da MESMA fonte da tela (pedidos pagos no período e a
+ * venda a prazo pela data da entrega — RN-069 —,
  * `commissionBase` da loja, percentual da vendedora): dois números diferentes
  * para a mesma comissão é o começo de uma discussão com a equipe.
  *
@@ -191,7 +192,7 @@ export async function gerarContaDaComissao(
         competencia: dataDoDia(ate)!,
         origem: ORIGEM_COMISSAO,
         origemId,
-        observacoes: `${pedidos} pedido(s) pagos, base de R$ ${base.toFixed(2)} × ${vendedora.commissionRate}%`,
+        observacoes: `${pedidos} pedido(s) com comissão no período, base de R$ ${base.toFixed(2)} × ${vendedora.commissionRate}%`,
         parcelas: {
           create: [
             { companyId, numero: 1, valor: comissao, vencimento },
@@ -199,7 +200,7 @@ export async function gerarContaDaComissao(
         },
         eventos: {
           create: {
-            descricao: `Comissão gerada a partir de ${pedidos} pedido(s) pagos por ${autorNome}`,
+            descricao: `Comissão gerada a partir de ${pedidos} pedido(s) com comissão no período por ${autorNome}`,
             autorNome,
           },
         },
@@ -242,8 +243,9 @@ async function calcularComissao(
       where: {
         companyId,
         sellerId: p.sellerId,
-        status: { in: PAID_ORDER_STATUSES },
-        paidAt: { gte: p.de, lte: p.ate },
+        // RN-069: comissão conta na entrega — a venda a prazo entra pela
+        // data em que a cliente levou, e o resto pela data do pagamento
+        ...whereComissaoNoPeriodo(p.de, p.ate),
       },
       // frete-ok: comissão nunca soma frete — a base é subtotal ou netTotal,
       // exatamente como na tela de Comissões (nenhum `total` entra aqui)

@@ -118,7 +118,9 @@ describe("a tela do pedido se atualiza sozinha quando o pagamento cai", () => {
   });
   it("o poller só observa enquanto o pedido pode virar pago sozinho", () => {
     const live = ler("src/app/(app)/pedidos/[id]/status-live.tsx");
-    expect(live).toContain('statusInicial === "ORCAMENTO" || statusInicial === "AGUARDANDO_PAGAMENTO"');
+    // orçamento, aguardando pagamento e a venda a prazo (RN-069) esperam o
+    // dinheiro: o Pix pode fazê-los virar pagos sozinhos
+    expect(live).toMatch(/statusInicial === "ORCAMENTO" \|\|\s*statusInicial === "AGUARDANDO_PAGAMENTO" \|\|\s*statusInicial === "ENTREGUE_A_RECEBER"/);
     expect(live).toContain("router.refresh()");
   });
 });

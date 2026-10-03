@@ -124,7 +124,9 @@ describe("venda da Nuvemshop não tem vendedora — e não pode ganhar uma", () 
     expect(transferir).toContain("não gera comissão — não dá para transferir");
     // sem a exceção, pedido Nuvemshop cancelado nunca mais reabriria (a trava
     // do PAGO exigiria a vendedora que ele não pode ter)
-    expect(patch).toContain("enteringPaid && !vendaOnline(order)");
+    // RN-069: a trava vale para entrar em pago E em "entregue · a receber"
+    // (os dois contam comissão) — a exceção da loja online segue a mesma
+    expect(patch).toContain("enteringComissao && !vendaOnline(order)");
   });
 
   it("o legado NÃO fica preso: gerência pode REMOVER a vendedora atribuída antes da regra", () => {
@@ -136,7 +138,7 @@ describe("venda da Nuvemshop não tem vendedora — e não pode ganhar uma", () 
     );
     expect(patch).toContain("Remover a vendedora de uma venda da loja online é da gerência");
     // e a trava "pago precisa de vendedor" não pode barrar essa remoção
-    expect(patch).toMatch(/PAID_STATUSES\.has\(parsed\.data\.status \?\? order\.status\) &&\s*\n[^\n]*\n[^\n]*\n\s*!vendaOnline\(order\)/);
+    expect(patch).toMatch(/COMISSAO_STATUSES\.has\(parsed\.data\.status \?\? order\.status\) &&\s*\n[^\n]*\n[^\n]*\n\s*!vendaOnline\(order\)/);
   });
 
   it("a pergunta \"é venda online?\" tem um dono só (vendaOnline em lib/orders)", () => {
