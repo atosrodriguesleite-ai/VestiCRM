@@ -359,7 +359,7 @@ export default async function OrderDetailPage({
             um pedido já entregue para liberar peças que não estão na arara
             (achado da revisão). O que ela precisa saber é quando vence. */}
         {order.status === "ENTREGUE_A_RECEBER" && (
-          <p className="mt-4 flex items-start gap-2 rounded-xl border border-teal-100 bg-teal-50 px-3 py-2.5 text-xs text-teal-800">
+          <p className="mt-4 flex items-start gap-2 rounded-xl border border-orange-200 bg-orange-50 px-3 py-2.5 text-xs text-orange-900">
             <PackageCheck className="mt-0.5 size-4 shrink-0" />
             <span>
               <b>Entregue à cliente, a receber.</b> A mercadoria já saiu com ela e

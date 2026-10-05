@@ -16,7 +16,9 @@ export const orderStatusLabel: Record<OrderStatus, string> = {
 export const orderStatusColor: Record<OrderStatus, string> = {
   ORCAMENTO: "#64748b",
   AGUARDANDO_PAGAMENTO: "#d97706",
-  ENTREGUE_A_RECEBER: "#0f766e",
+  // laranja de ALERTA, de propósito (pedido do dono, 05/10/2026): o verde-água
+  // lia como "concluído", e aqui a cliente levou a mercadoria SEM pagar
+  ENTREGUE_A_RECEBER: "#ea580c",
   PAGO: "#059669",
   EM_PRODUCAO: "#c4622d",
   SEPARACAO: "#5c5636",
