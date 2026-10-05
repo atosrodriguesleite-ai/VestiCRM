@@ -4,7 +4,8 @@ import { paginaSegura, quebrarEmLinhas } from "@/lib/pdf-texto";
 import { corIgual } from "@/lib/capa-por-cor";
 import { db } from "@/lib/db";
 import { requireUser, AuthError } from "@/lib/auth";
-import { ordenarParaSeparacao, separarNotaDoCatalogo, totalPorCategoria } from "@/lib/romaneio";
+import { ordenarParaSeparacao, totalPorCategoria } from "@/lib/romaneio";
+import { separarNotaDoPedido } from "@/lib/nota-do-pedido";
 import { orderScope } from "@/lib/scope";
 import { retratoCerto } from "@/lib/religar-itens";
 import { orderNumber, orderStatusLabel, paymentMethodLabel } from "@/lib/orders";
@@ -293,7 +294,9 @@ export async function GET(
     // ---- O que a cliente informou no pedido do catálogo (pedido do dono,
     // 05/10/2026): nome, telefone, CEP… ficam AQUI, junto da ficha — dentro
     // do quadro de observações eles tiravam o foco do recado de verdade.
-    const nota = separarNotaDoCatalogo(order.notes);
+    // O quadro "Observações" fica SÓ com o recado da vendedora (pedido do
+    // dono, 05/10/2026): dados e avisos do sistema saem em blocos próprios.
+    const nota = separarNotaDoPedido(order.notes);
     if (nota.dados.length) {
       y -= 6;
       newPageIfNeeded(14 + nota.dados.length * 12);
@@ -301,6 +304,23 @@ export async function GET(
       y -= 13;
       for (const linha of nota.dados) {
         page.drawText(linha.slice(0, 100), { x: M, y, size: 9, font, color: GRAY });
+        y -= 12;
+      }
+    }
+    // Os avisos do sistema (falta de estoque, telefone divergente, desconto
+    // do link) continuam chegando a quem separa — só não dentro do quadro da
+    // vendedora. Quebrados por palavra: são frases compridas.
+    if (nota.avisos.length) {
+      const larguraAviso = width - 2 * M;
+      const linhasDeAviso = nota.avisos.flatMap((a) =>
+        quebrarEmLinhas(a, (t) => font.widthOfTextAtSize(t, 9), larguraAviso, 10_000)
+      );
+      y -= 6;
+      newPageIfNeeded(14 + linhasDeAviso.length * 12);
+      page.drawText("AVISOS DO SISTEMA", { x: M, y, size: 8, font: bold, color: GRAY });
+      y -= 13;
+      for (const linha of linhasDeAviso) {
+        page.drawText(linha, { x: M, y, size: 9, font, color: INK });
         y -= 12;
       }
     }
@@ -329,7 +349,12 @@ export async function GET(
     // é instrução de SEPARAÇÃO: escondido lá embaixo, depois dos totais, quem
     // separava só via depois de fechar a caixa. Agora é uma faixa com a cor
     // da loja, antes da lista de peças.
-    if (nota.observacao) {
+    // O QUADRO EXISTE SEMPRE (pedido do dono, 05/10/2026): sem recado ele
+    // sumia, e quem separa precisa de um lugar fixo para olhar — e para
+    // anotar à mão quando a observação chega depois de impresso. Dentro dele
+    // só o que a VENDEDORA escreveu (`nota.observacao`); o resto está acima.
+    const semObservacao = !nota.observacao;
+    {
       y -= 16;
       const padding = 10;
       const larguraTexto = width - 2 * M - 2 * padding;
@@ -338,13 +363,16 @@ export async function GET(
       // do bilhete — a tela aceitava a observação inteira e o romaneio
       // entregava pela metade (relato Entre Linhas, 02/09/2026). Bilhete
       // maior que a página continua num quadro na página seguinte.
-      let restantes = nota.observacao
-        .split("\n")
-        .flatMap((l) =>
-          l.trim()
-            ? quebrarEmLinhas(l, (t) => bold.widthOfTextAtSize(t, 10), larguraTexto, 10_000)
-            : [""]
-        );
+      let restantes = semObservacao
+        // sem recado: a frase em cinza e duas linhas em branco para anotar
+        ? ["Nenhuma observação neste pedido.", "", ""]
+        : nota.observacao
+            .split("\n")
+            .flatMap((l) =>
+              l.trim()
+                ? quebrarEmLinhas(l, (t) => bold.widthOfTextAtSize(t, 10), larguraTexto, 10_000)
+                : [""]
+            );
       let primeira = true;
       while (restantes.length > 0) {
         // garante espaço para o quadro abrir com ao menos 3 linhas de texto
@@ -375,7 +403,11 @@ export async function GET(
         let yTexto = y - 20;
         for (const linha of bloco) {
           if (linha)
-            page.drawText(linha, { x: M + padding + 2, y: yTexto, size: 10, font: bold, color: INK });
+            page.drawText(linha, {
+              x: M + padding + 2, y: yTexto, size: 10,
+              font: semObservacao ? font : bold,
+              color: semObservacao ? GRAY : INK,
+            });
           yTexto -= 13;
         }
         y = y - alturaCaixa + 12 - 6;

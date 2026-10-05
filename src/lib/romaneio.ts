@@ -74,36 +74,6 @@ export function ordenarParaSeparacao<T extends ItemDoRomaneio>(
 
 /* ---- a nota do catálogo: dados da cliente × observação de fato ---------- */
 
-/**
- * O pedido do catálogo nasce com uma nota em duas partes (RN-010/RN-027):
- * o CABEÇALHO que o sistema escreve ("Pedido recebido pelo catálogo
- * público.", "Nome: …", "Telefone: …", "CEP: …") e o que a CLIENTE digitou
- * no campo de observação ("pegou um GG quadrada verde no lugar da branca").
- *
- * No romaneio tudo saía junto no quadro "Observações do pedido", e os dados
- * tiravam o foco do recado que importa para quem separa (pedido do dono,
- * 05/10/2026). Aqui a nota é separada: as linhas rotuladas vão para um bloco
- * de dados, e só o recado sobra no quadro. A nota gravada NÃO muda — é só a
- * leitura para o papel.
- */
-const CABECALHO_DO_CATALOGO = /^pedido recebido pelo cat[áa]logo p[úu]blico\.?$/i;
-const LINHA_ROTULADA =
-  /^(nome da loja|loja|nome|telefone|fone|whatsapp|cep|endere[çc]o(?:\s*\(rua e n[úu]mero\))?|bairro|cidade|estado(?:\s*\(uf\))?)\s*:/i;
-const AVISO_DE_TELEFONE = /^⚠️\s*a cliente digitou um telefone diferente/i;
-
-export function separarNotaDoCatalogo(notes: string | null | undefined): {
-  /** as linhas de dados, sem o cabeçalho ("Nome: …", "CEP: …", o aviso do telefone) */
-  dados: string[];
-  /** o que sobra: a observação de fato, com as quebras de linha da pessoa */
-  observacao: string;
-} {
-  const dados: string[] = [];
-  const resto: string[] = [];
-  for (const linha of (notes ?? "").split("\n")) {
-    const t = linha.trim();
-    if (CABECALHO_DO_CATALOGO.test(t)) continue;
-    if (LINHA_ROTULADA.test(t) || AVISO_DE_TELEFONE.test(t)) dados.push(t);
-    else resto.push(linha);
-  }
-  return { dados, observacao: resto.join("\n").trim() };
-}
+// A régua mora em lib/nota-do-pedido.ts (ficha e romaneio leem a MESMA);
+// aqui fica o nome antigo, para quem já importava daqui.
+export { separarNotaDoPedido as separarNotaDoCatalogo } from "./nota-do-pedido";
