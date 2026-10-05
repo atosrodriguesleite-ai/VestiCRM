@@ -130,7 +130,11 @@ describe("o empurrão da tela (--kbtop) é medido à parte da altura do teclado"
    * subindo — a conta a partir do `innerHeight` não sobrevive ao iPhone.
    */
   it("as janelas de montar pedido se apoiam na área visível MEDIDA e travam a página", () => {
-    for (const arquivo of ["src/app/(app)/pedidos/new-order.tsx", "src/components/order-composer.tsx"]) {
+    for (const arquivo of [
+      "src/app/(app)/pedidos/new-order.tsx",
+      "src/components/order-composer.tsx",
+      "src/app/(app)/pedidos/[id]/items-editor.tsx",
+    ]) {
       const src = ler(arquivo);
       expect(src, arquivo).toContain("var(--vvh, 100dvh)");
       expect(src, arquivo).toContain("translateY(var(--vvtop, 0px))");

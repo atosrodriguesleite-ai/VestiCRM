@@ -333,3 +333,57 @@ export function repetirNaLinha(
 export function pecasAcimaDoEstoque(linhas: readonly LinhaDoPedido[]): LinhaDoPedido[] {
   return linhas.filter((l) => l.quantity > l.stock);
 }
+
+/**
+ * O TETO de uma variação quando se EDITA um pedido que já segura peças
+ * (RN-003): o `stock` do cadastro é o disponível JÁ DESCONTADA a reserva
+ * deste mesmo pedido, então a linha que segura 10 via "estoque 0" e o − a
+ * derrubava para 1 (achado da revisão, 05/10/2026). O servidor só confere o
+ * AUMENTO (avail < delta): manter ou baixar o que já está seguro é sempre
+ * legal, e o que a tela pode oferecer é disponível + o que o pedido segura.
+ */
+export function somarOQueOPedidoSegura<V extends { id: string; stock: number }>(
+  variantes: readonly V[],
+  seguradas: ReadonlyMap<string, number>
+): V[] {
+  return variantes.map((v) => {
+    const s = seguradas.get(v.id) ?? 0;
+    return s > 0 ? { ...v, stock: Math.max(0, v.stock) + s } : v;
+  });
+}
+
+/**
+ * O que cada variação já tem SEGURO por este pedido, a partir das linhas
+ * gravadas. O número que a ficha põe em cada linha é o do LIVRO da variação
+ * (o mesmo para as duas linhas da mesma variação), então vale UMA vez —
+ * somar por linha oferecia o dobro (achado da revisão). Limite aceito: com
+ * a mesma variação em duas linhas, cada linha ganha o teto inteiro e a soma
+ * das duas pode passar; o servidor é a segunda tranca (409 com a frase).
+ */
+export function seguradasPorVariacao(
+  linhas: readonly { variantId: string; segurado?: number }[]
+): Map<string, number> {
+  const mapa = new Map<string, number>();
+  for (const l of linhas) {
+    if (!l.variantId || !l.segurado || l.segurado <= 0) continue;
+    mapa.set(l.variantId, Math.max(mapa.get(l.variantId) ?? 0, l.segurado));
+  }
+  return mapa;
+}
+
+/**
+ * O preço que um MODELO já tem no pedido, quando todas as linhas dele
+ * cobram o mesmo; null se o modelo não está no pedido ou se as variações
+ * divergem. Na EDIÇÃO de um pedido a grade fala esse preço (é o combinado
+ * com a cliente, e a célula nova nasce nele) — o sugerido só vale para o
+ * modelo que ainda não está no pedido.
+ */
+export function precoUnicoDoModelo(
+  linhas: readonly { productId: string; variantId: string; unitPrice: number }[],
+  productId: string
+): number | null {
+  const precos = new Set(
+    linhas.filter((l) => l.productId === productId && l.variantId).map((l) => l.unitPrice)
+  );
+  return precos.size === 1 ? [...precos][0] : null;
+}

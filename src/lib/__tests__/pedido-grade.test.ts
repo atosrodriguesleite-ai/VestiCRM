@@ -16,6 +16,9 @@ import {
   SEM_TAMANHO,
   type LinhaDoPedido,
   type VariacaoDaGrade,
+  precoUnicoDoModelo,
+  seguradasPorVariacao,
+  somarOQueOPedidoSegura,
 } from "../pedido-grade";
 
 // Guarda RN-062
@@ -301,5 +304,46 @@ describe("RN-062: a quantidade PARA no estoque", () => {
       linha({ variantId: "v3", quantity: 1, stock: 0 }),
     ]);
     expect(acima.map((l) => l.variantId)).toEqual(["v1", "v3"]);
+  });
+});
+
+describe("editar um pedido que JÁ segura peças: o teto soma o que ele segura (05/10/2026)", () => {
+  it("a variação que o pedido segura ganha o teto disponível + segurado; as outras ficam", () => {
+    const variantes = [
+      { id: "v1", color: "Preto", size: "M", stock: 0 },
+      { id: "v2", color: "Preto", size: "G", stock: 2 },
+      { id: "v3", color: "Rosa", size: "M", stock: 4 },
+    ];
+    const seguradas = seguradasPorVariacao([
+      { variantId: "v1", segurado: 10 },
+      { variantId: "v2", segurado: 1 },
+      { variantId: "", segurado: 3 }, // sem vínculo: não tem variação para somar
+    ]);
+    const r = somarOQueOPedidoSegura(variantes, seguradas);
+    // a linha que segura 10 via "estoque 0" e o − a derrubava para 1
+    expect(r.map((v) => v.stock)).toEqual([10, 3, 4]);
+    // não muda a lista original
+    expect(variantes[0].stock).toBe(0);
+  });
+
+  it("a mesma variação em duas linhas NÃO soma: o número do livro é um só por variação", () => {
+    // a ficha põe em cada linha o total do livro daquela variação (5 e 5):
+    // somar oferecia 10, o dobro do que o pedido segura
+    expect(seguradasPorVariacao([{ variantId: "v1", segurado: 5 }, { variantId: "v1", segurado: 5 }]).get("v1")).toBe(5);
+  });
+});
+
+describe("na edição, a grade fala o preço que o modelo JÁ tem no pedido", () => {
+  it("um preço só → esse; divergente ou fora do pedido → null (vale o sugerido)", () => {
+    const linhas = [
+      { productId: "p1", variantId: "v1", unitPrice: 32 },
+      { productId: "p1", variantId: "v2", unitPrice: 32 },
+      { productId: "p1", variantId: "", unitPrice: 99 }, // sem vínculo não conta
+      { productId: "p2", variantId: "v3", unitPrice: 40 },
+      { productId: "p2", variantId: "v4", unitPrice: 45 },
+    ];
+    expect(precoUnicoDoModelo(linhas, "p1")).toBe(32);
+    expect(precoUnicoDoModelo(linhas, "p2")).toBeNull();
+    expect(precoUnicoDoModelo(linhas, "p3")).toBeNull();
   });
 });

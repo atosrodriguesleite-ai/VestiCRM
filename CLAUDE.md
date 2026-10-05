@@ -879,6 +879,28 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   digitado à mão morre junto com a peça que sai (senão o campo mostrava R$
   30 e o pedido nascia com o sugerido), e o total fica **sempre no rodapé**,
   junto do passo seguinte.
+  **A MESMA grade vale em EDITAR ITENS do pedido** (`items-editor.tsx`,
+  05/10/2026, pedido do dono com o print do iPhone: a busca antiga numa
+  listinha apertada, o teclado por cima e "Regata Alça · R$ 32" quatro
+  vezes): duas telas dentro da janela — as peças do pedido agrupadas por
+  modelo, com − e + grandes por cor × tamanho, preço por modelo (a leitura
+  de `numeroBR`, a mesma do Novo pedido) e a grade a um toque; e "Adicionar
+  peça" com os cartões da busca. A janela é a da grade (`--vvh`/`--vvtop`,
+  página de trás travada), fechar GUARDA o rascunho, e a busca repetida não
+  vai ao servidor de novo. Duas réguas próprias da edição (achados da
+  revisão): (1) **o teto soma o que o pedido já SEGURA** — o `stock` da
+  peça é o disponível já descontada a reserva deste mesmo pedido (RN-003),
+  então a linha que segura 10 via "estoque 0" e o − a derrubava para 1;
+  o servidor só confere o AUMENTO, e a tela oferece disponível + segurado
+  (`somarOQueOPedidoSegura`, também na grade aberta de um modelo que já
+  está no pedido, pela porta `?id=` da busca de produtos); (2) **a linha
+  sem vínculo** (variação apagada do cadastro) não passa pela grade — ela
+  não tem célula lá e seria zerada em silêncio; só a lixeira a tira, e cada
+  uma é grupo próprio, pela posição. E a grade de um modelo que já está no
+  pedido **fala o preço que o modelo tem no pedido** (o combinado; a célula
+  nova nasce nele, `precoUnicoDoModelo`) — o sugerido da RN-041 só vale para
+  o modelo que ainda não está nele; a grade anunciava R$ 49,90 com as linhas
+  a R$ 32 (prova no celular).
   **A MESMA grade vale no montador da Central de WhatsApp** (21/09/2026): lá
   o seletor pedia cor, tamanho e quantidade um por um, com o mesmo custo de
   nove idas para a grade de um modelo. O que muda entre as duas telas é UMA

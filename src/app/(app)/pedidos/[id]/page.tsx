@@ -193,9 +193,10 @@ export default async function OrderDetailPage({
   // peças que o pedido de fato SEGURA, pelo livro (reserva parcial segurou
   // menos do que o pedido diz) — o mesmo número do Inventário (RN-050)
   const pedidas = order.items.reduce((s, i) => s + i.quantity, 0);
-  const seguradas = order.stockDeducted
-    ? [...(await baixasLiquidasDoPedido(db, order.id)).values()].reduce((s, n) => s + n, 0)
-    : 0;
+  const livroDoPedido = order.stockDeducted
+    ? await baixasLiquidasDoPedido(db, order.id)
+    : new Map<string, number>();
+  const seguradas = [...livroDoPedido.values()].reduce((s, n) => s + n, 0);
 
   // RN-054/RN-055 · O QUE A NOTA VAI FAZER, DITO ANTES DE EMITIR. Sai da
   // MESMA função que a emissão usa, então nunca diverge do que vai acontecer.
@@ -454,8 +455,12 @@ export default async function OrderDetailPage({
                   productId: i.productId ?? "",
                   variantId: i.variantId ?? "",
                   name: i.name,
-                  variant: [i.color, i.size].filter(Boolean).join(" · "),
+                  color: i.color ?? "",
+                  size: i.size ?? "",
                   stock: i.variant?.stock ?? 0,
+                  // o que ESTE pedido já segura da peça (RN-003): o `stock`
+                  // acima é o disponível já sem isso — o editor soma de volta
+                  segurado: i.variantId ? (livroDoPedido.get(i.variantId) ?? 0) : 0,
                   quantity: i.quantity,
                   unitPrice: i.unitPrice,
                 }))}

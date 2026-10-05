@@ -54,7 +54,15 @@ export async function GET(req: NextRequest) {
     const inStock = sp.get("comEstoque") === "1";
     const onlyActive = sp.get("inativos") !== "1";
 
+    // peça(s) pelo ID: a edição de itens do pedido abre a GRADE de uma peça
+    // que já está no pedido sem precisar da busca por nome (RN-062, 05/10/2026)
+    const ids = sp.get("id")?.split(",").map((x) => x.trim()).filter(Boolean).slice(0, 50) ?? [];
+
     const where: Prisma.ProductWhereInput = { companyId: user.companyId };
+    if (ids.length) where.id = { in: ids };
+    // inativa não volta nem pelo id: a grade de uma peça que o catálogo não
+    // vende mais não se abre (achado da revisão) — a tela diz "não está mais
+    // no catálogo" e a linha antiga segue editável pelas quantidades
     if (onlyActive) where.active = true;
     if (category) where.category = category;
     if (collection) where.collection = collection;
