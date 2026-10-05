@@ -1762,9 +1762,15 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   própria linha com motivo** e o histórico da peça. **Folha de contagem**
   (`/contagem-de-estoque`, botão "Imprimir contagem", `lib/estoque/contagem.ts`,
   pedido do dono em 28/09/2026): A4 para contar na arara, agrupada por
-  CATEGORIA e modelo na ordem da tela, no MESMO recorte da lista (categoria,
-  busca, inativos) e sem o teto de 500 — é no Inventário filtrado que a
-  contagem volta a ser digitada. Compara com o **na loja** (a peça separada
+  CATEGORIA e modelo, no MESMO recorte da lista (categoria, busca,
+  inativos) e sem o teto de 500 — é no Inventário filtrado que a contagem
+  volta a ser digitada. **As cores de cada categoria saem em ORDEM
+  ALFABÉTICA** (pedido do dono, 05/10/2026, print da Toque Leve: a folha
+  seguia a ordem do cadastro — "Off-white, Azul Marinho, Preto…" — e
+  repetia o cabeçalho "Baby Look" a cada cor, porque a loja cadastra um
+  produto por cor): o modelo da folha é o NOME do produto (mesmo nome na
+  mesma categoria = um grupo só), as cores de A a Z e, dentro da cor, os
+  tamanhos na ordem da arara. Compara com o **na loja** (a peça separada
   para pedido ainda está fisicamente lá) e mostra o reservado, porque o
   número que se digita é o disponível (contado − reservado); opções de
   **contagem às cegas** (sem o número do sistema) e **uma categoria por

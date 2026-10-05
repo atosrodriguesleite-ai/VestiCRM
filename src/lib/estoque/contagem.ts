@@ -1,4 +1,5 @@
 import type { DonoExterno } from "./dono-do-estoque";
+import { compararTamanhos } from "../tamanhos";
 
 /**
  * FOLHA DE CONTAGEM DE ESTOQUE (pedido do dono, 28/09/2026: *"uma opção de
@@ -6,9 +7,19 @@ import type { DonoExterno } from "./dono-do-estoque";
  * contagem de estoque"*).
  *
  * A folha é para a ARARA: quem conta anda categoria por categoria, então
- * ela sai agrupada por CATEGORIA e, dentro dela, por MODELO, com as cores e
- * tamanhos na ordem da tela (a mesma ordem do Inventário filtrado pela
- * categoria — é lá que a contagem volta a ser digitada, linha a linha).
+ * ela sai agrupada por CATEGORIA e, dentro dela, por MODELO, com as CORES EM
+ * ORDEM ALFABÉTICA e os tamanhos na ordem da arara (PP < P < M < G).
+ *
+ * AS CORES DA CATEGORIA SEMPRE EM ORDEM ALFABÉTICA (pedido do dono,
+ * 05/10/2026, com o print da Toque Leve): a folha saía "Off-white, Azul
+ * Marinho, Preto, Terracota, Branco" — a ordem em que os produtos foram
+ * cadastrados, que na arara não quer dizer nada. E cada cor vinha debaixo de
+ * um cabeçalho "Baby Look" repetido, porque a loja cadastra UM PRODUTO POR
+ * COR (padrão da Nuvemshop). Então o modelo da folha é o NOME do produto:
+ * produtos com o mesmo nome na mesma categoria viram um grupo só, e dentro
+ * dele as cores saem de A a Z, cada cor com os tamanhos na ordem da arara.
+ * Os modelos também saem em ordem alfabética — é a mesma ordem do Inventário
+ * filtrado pela categoria, onde a contagem volta a ser digitada.
  *
  * O número de comparação é o NA LOJA (disponível + reservado): a peça
  * separada para um pedido ainda está fisicamente na loja e entra na
@@ -32,6 +43,7 @@ export type LinhaDaFolha = {
 };
 
 export type ModeloDaFolha = {
+  /** o id do PRIMEIRO produto do grupo (chave de desenho; o grupo pode juntar vários) */
   productId: string;
   produto: string;
   linhas: LinhaDaFolha[];
@@ -46,11 +58,18 @@ export type CategoriaDaFolha = {
   variacoes: number;
 };
 
+const comparar = new Intl.Collator("pt-BR", { sensitivity: "base", numeric: true }).compare;
+
+/** a chave do modelo é o NOME, sem ligar para acento, caixa e espaço sobrando */
+const chaveDoModelo = (produto: string) =>
+  produto.trim().toLocaleLowerCase("pt-BR").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, " ");
+
 /**
  * Agrupa por categoria (ordem alfabética, sem ligar para acento e caixa) e
- * por modelo, PRESERVANDO a ordem das linhas que chegam (nome do produto e,
- * dentro dele, cor × tamanho na ordem da arara — `ordenarVariantes`).
- * Categoria em branco vai para o fim, como "Sem categoria".
+ * por MODELO (o nome do produto — produtos de mesmo nome são um grupo só).
+ * Dentro do modelo as cores saem em ordem alfabética e, dentro da cor, os
+ * tamanhos na ordem da arara. Categoria em branco vai para o fim, como
+ * "Sem categoria".
  */
 export function agruparParaContagem(linhas: LinhaDaFolha[]): CategoriaDaFolha[] {
   const porCategoria = new Map<string, Map<string, ModeloDaFolha>>();
@@ -58,12 +77,12 @@ export function agruparParaContagem(linhas: LinhaDaFolha[]): CategoriaDaFolha[] 
     const cat = l.categoria.trim() || "Sem categoria";
     const modelos = porCategoria.get(cat) ?? new Map<string, ModeloDaFolha>();
     porCategoria.set(cat, modelos);
-    const m = modelos.get(l.productId) ?? { productId: l.productId, produto: l.produto, linhas: [], total: 0 };
-    modelos.set(l.productId, m);
+    const chave = chaveDoModelo(l.produto);
+    const m = modelos.get(chave) ?? { productId: l.productId, produto: l.produto.trim(), linhas: [], total: 0 };
+    modelos.set(chave, m);
     m.linhas.push(l);
     m.total += l.emEstoque;
   }
-  const comparar = new Intl.Collator("pt-BR", { sensitivity: "base", numeric: true }).compare;
   return [...porCategoria.entries()]
     .sort(([a], [b]) => {
       if (a === "Sem categoria") return 1;
@@ -71,7 +90,15 @@ export function agruparParaContagem(linhas: LinhaDaFolha[]): CategoriaDaFolha[] 
       return comparar(a, b);
     })
     .map(([categoria, modelos]) => {
-      const lista = [...modelos.values()];
+      const lista = [...modelos.values()].sort((a, b) => comparar(a.produto, b.produto));
+      for (const m of lista) {
+        m.linhas.sort(
+          (a, b) =>
+            comparar(a.cor.trim(), b.cor.trim()) ||
+            compararTamanhos(a.tamanho, b.tamanho) ||
+            comparar(a.sku, b.sku)
+        );
+      }
       return {
         categoria,
         modelos: lista,
