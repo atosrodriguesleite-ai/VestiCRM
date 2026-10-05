@@ -114,3 +114,41 @@ describe("o PDF usa a ordem de separação com cabecinho por categoria", () => {
     expect(rota).toContain("for (const cat of categoriasNaOrdem)");
   });
 });
+
+describe("a nota do catálogo se separa: dados da cliente × recado de verdade (05/10/2026)", () => {
+  it("as linhas rotuladas e o cabeçalho saem do quadro de observações", async () => {
+    const { separarNotaDoCatalogo } = await import("../romaneio");
+    const nota = [
+      "Pedido recebido pelo catálogo público.",
+      "Nome: Ivyne Chrystina Rocha de Oliveira",
+      "Telefone: (33) 99828-0839",
+      "CEP: 35280000",
+      "pegou um GG quadrada verde no lugar da branca",
+    ].join("\n");
+    const r = separarNotaDoCatalogo(nota);
+    expect(r.dados).toEqual([
+      "Nome: Ivyne Chrystina Rocha de Oliveira",
+      "Telefone: (33) 99828-0839",
+      "CEP: 35280000",
+    ]);
+    expect(r.observacao).toBe("pegou um GG quadrada verde no lugar da branca");
+  });
+
+  it("o aviso de telefone divergente e os campos extras (RN-027) são DADOS; o bilhete da lojista fica inteiro", async () => {
+    const { separarNotaDoCatalogo } = await import("../romaneio");
+    const r = separarNotaDoCatalogo(
+      "Pedido recebido pelo catálogo público.\nNome da loja: Loja da Gabi\nEndereço (rua e número): Rua A, 1\nEstado (UF): MG\n⚠️ A cliente digitou um telefone diferente do WhatsApp dela (5533999). confira.\n\nReservar até sexta.\nEntregar na portaria: Nome do porteiro é João"
+    );
+    expect(r.dados).toHaveLength(4);
+    expect(r.observacao).toBe("Reservar até sexta.\nEntregar na portaria: Nome do porteiro é João");
+  });
+
+  it("pedido montado na mão (sem cabeçalho) não muda em nada", async () => {
+    const { separarNotaDoCatalogo } = await import("../romaneio");
+    expect(separarNotaDoCatalogo("todas entregues, exceto a regata")).toEqual({
+      dados: [],
+      observacao: "todas entregues, exceto a regata",
+    });
+    expect(separarNotaDoCatalogo(null)).toEqual({ dados: [], observacao: "" });
+  });
+});

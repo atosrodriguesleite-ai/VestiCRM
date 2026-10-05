@@ -4,7 +4,7 @@ import { paginaSegura, quebrarEmLinhas } from "@/lib/pdf-texto";
 import { corIgual } from "@/lib/capa-por-cor";
 import { db } from "@/lib/db";
 import { requireUser, AuthError } from "@/lib/auth";
-import { ordenarParaSeparacao, totalPorCategoria } from "@/lib/romaneio";
+import { ordenarParaSeparacao, separarNotaDoCatalogo, totalPorCategoria } from "@/lib/romaneio";
 import { orderScope } from "@/lib/scope";
 import { retratoCerto } from "@/lib/religar-itens";
 import { orderNumber, orderStatusLabel, paymentMethodLabel } from "@/lib/orders";
@@ -290,6 +290,21 @@ export async function GET(
       y -= 12;
     }
 
+    // ---- O que a cliente informou no pedido do catálogo (pedido do dono,
+    // 05/10/2026): nome, telefone, CEP… ficam AQUI, junto da ficha — dentro
+    // do quadro de observações eles tiravam o foco do recado de verdade.
+    const nota = separarNotaDoCatalogo(order.notes);
+    if (nota.dados.length) {
+      y -= 6;
+      newPageIfNeeded(14 + nota.dados.length * 12);
+      page.drawText("INFORMADO NO PEDIDO (CATÁLOGO)", { x: M, y, size: 8, font: bold, color: GRAY });
+      y -= 13;
+      for (const linha of nota.dados) {
+        page.drawText(linha.slice(0, 100), { x: M, y, size: 9, font, color: GRAY });
+        y -= 12;
+      }
+    }
+
     // ---- Forma de pagamento e forma de envio (no topo, para a expedição) ----
     y -= 16;
     const col2 = width / 2 + 40;
@@ -314,7 +329,7 @@ export async function GET(
     // é instrução de SEPARAÇÃO: escondido lá embaixo, depois dos totais, quem
     // separava só via depois de fechar a caixa. Agora é uma faixa com a cor
     // da loja, antes da lista de peças.
-    if (order.notes?.trim()) {
+    if (nota.observacao) {
       y -= 16;
       const padding = 10;
       const larguraTexto = width - 2 * M - 2 * padding;
@@ -323,8 +338,7 @@ export async function GET(
       // do bilhete — a tela aceitava a observação inteira e o romaneio
       // entregava pela metade (relato Entre Linhas, 02/09/2026). Bilhete
       // maior que a página continua num quadro na página seguinte.
-      let restantes = order.notes
-        .trim()
+      let restantes = nota.observacao
         .split("\n")
         .flatMap((l) =>
           l.trim()
