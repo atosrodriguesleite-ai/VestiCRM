@@ -7,12 +7,14 @@ import {
   ORDER_STATUS_FLOW,
   PAID_ORDER_STATUSES,
   PRAZO_ENTREGUE_A_RECEBER_DIAS,
+  TETO_PREVISAO_DIAS,
+  lerPrevisaoDeRecebimento,
   orderStatusColor,
   orderStatusLabel,
   vencimentoDaVendaAPrazo,
   whereComissaoNoPeriodo,
 } from "../orders";
-import { decidirAcaoDaPorta } from "../financeiro/porta-vendas";
+import { decidirAcaoDaPorta, vencimentoAlvo } from "../financeiro/porta-vendas";
 import { STATUS_QUE_SEGURAM_NA_LOJA } from "../estoque/inventario";
 
 /**
@@ -101,13 +103,22 @@ describe("o financeiro (porta única, RN-033)", () => {
     expect(a.moverVencimento).toBe(true);
   });
 
-  it("baixa registrada À MÃO segura o vencimento: dinheiro que já andou não muda de data", () => {
+  it("baixa registrada À MÃO fica com a data dela, mas o vencimento (que é do pedido) vai para o combinado", () => {
+    // o sinal de R$ 200 à mão deixava a cliente "atrasada" numa data que
+    // ninguém combinou (achado da revisão)
     const a = decidirAcaoDaPorta(
       { status: "ENTREGUE_A_RECEBER", valor: 530 },
-      { ...semLancamento, existe: true, valor: 530, saldo: 230, temBaixaManualViva: true }
+      { ...semLancamento, existe: true, valor: 530, saldo: 330, temBaixaManualViva: true }
     );
-    expect(a.moverVencimento).toBe(false);
+    expect(a.moverVencimento).toBe(true);
     expect(a.estornarAutomaticas).toBe(false);
+    // e também quando o valor mudou com baixa à mão (a porta só avisa do valor)
+    const b = decidirAcaoDaPorta(
+      { status: "ENTREGUE_A_RECEBER", valor: 600 },
+      { ...semLancamento, existe: true, valor: 530, saldo: 330, temBaixaManualViva: true }
+    );
+    expect(b.aviso).toMatch(/baixa registrada à mão/);
+    expect(b.moverVencimento).toBe(true);
   });
 
   it("os outros status nunca movem o vencimento", () => {
@@ -118,6 +129,71 @@ describe("o financeiro (porta única, RN-033)", () => {
       );
       expect(a.moverVencimento, status).toBe(false);
     }
+  });
+
+  it("a previsão combinada com a cliente MANDA no vencimento; sem ela, os 30 dias", () => {
+    const entrega = new Date("2026-10-05T15:00:00Z");
+    const combinada = new Date("2026-10-20T12:00:00Z");
+    expect(vencimentoDaVendaAPrazo(entrega, combinada)).toEqual(combinada);
+    expect(vencimentoDaVendaAPrazo(entrega, null)).toEqual(vencimentoDaVendaAPrazo(entrega));
+  });
+
+  it("a previsão digitada é lida como DIA ao meio-dia UTC; vazio tira; o que não faz sentido é recusado", () => {
+    const entrega = new Date("2026-10-05T15:00:00Z");
+    expect(lerPrevisaoDeRecebimento("2026-10-20", entrega)).toEqual({
+      ok: true,
+      data: new Date("2026-10-20T12:00:00.000Z"),
+    });
+    expect(lerPrevisaoDeRecebimento("", entrega)).toEqual({ ok: true, data: null });
+    expect(lerPrevisaoDeRecebimento(null, entrega)).toEqual({ ok: true, data: null });
+    // o próprio dia da entrega vale ("paga hoje à noite")
+    expect(lerPrevisaoDeRecebimento("2026-10-05", entrega).ok).toBe(true);
+    // antes da entrega não é previsão
+    expect(lerPrevisaoDeRecebimento("2026-10-04", entrega).ok).toBe(false);
+    // dia que não existe
+    expect(lerPrevisaoDeRecebimento("2026-02-30", entrega).ok).toBe(false);
+    // formato torto
+    expect(lerPrevisaoDeRecebimento("20/10/2026", entrega).ok).toBe(false);
+    // mais de um ano depois é dedo errado
+    const longe = new Date(entrega.getTime() + (TETO_PREVISAO_DIAS + 2) * 86_400_000)
+      .toISOString()
+      .slice(0, 10);
+    expect(lerPrevisaoDeRecebimento(longe, entrega).ok).toBe(false);
+  });
+
+  it("o alvo do vencimento na porta: a previsão combinada; sem ela, 30 dias; fora do status, nada", () => {
+    const entrega = new Date("2026-10-05T15:00:00Z");
+    const previsao = new Date("2026-10-20T12:00:00.000Z");
+    expect(
+      vencimentoAlvo({ status: "ENTREGUE_A_RECEBER", entregueAReceberEm: entrega, previsaoRecebimentoEm: previsao })
+    ).toEqual(previsao);
+    const padrao = vencimentoAlvo({
+      status: "ENTREGUE_A_RECEBER",
+      entregueAReceberEm: entrega,
+      previsaoRecebimentoEm: null,
+    });
+    // 30 dias depois, no DIA (meio-dia UTC, RN-030)
+    expect(padrao?.toISOString()).toBe("2026-11-04T12:00:00.000Z");
+    expect(
+      vencimentoAlvo({ status: "PAGO", entregueAReceberEm: entrega, previsaoRecebimentoEm: previsao })
+    ).toBeNull();
+    expect(
+      vencimentoAlvo({ status: "ENTREGUE_A_RECEBER", entregueAReceberEm: null, previsaoRecebimentoEm: previsao })
+    ).toBeNull();
+  });
+
+  it("a rota só aceita a previsão no status a receber, a apaga ao virar pago e a trava para o suporte", () => {
+    const rota = readFileSync("src/app/api/orders/[id]/route.ts", "utf8");
+    expect(rota).toMatch(/enteringPaid \? \{ previsaoRecebimentoEm: null \}/);
+    expect(rota).toMatch(/Combinar a previsão de recebimento é permitido só para a equipe comercial/);
+    // os dois atalhos do PATCH (só itens, só valores) não podem engolir a previsão
+    expect(rota.match(/parsed\.data\.previsaoRecebimentoEm === undefined/g)?.length).toBe(2);
+    expect(rota).toMatch(/previsaoRecebimentoEm: z\.string\(\)\.max\(10\)\.nullable\(\)\.optional\(\)/);
+    expect(rota).toMatch(/statusFinal !== "ENTREGUE_A_RECEBER"/);
+    expect(rota).toMatch(/lerPrevisaoDeRecebimento\(parsed\.data\.previsaoRecebimentoEm/);
+    // toda mudança fica na história do pedido
+    expect(rota).toMatch(/Previsão de recebimento combinada/);
+    expect(rota).toMatch(/Previsão de recebimento removida/);
   });
 
   it("o vencimento é 30 dias depois da entrega — não 'vencida hoje'", () => {

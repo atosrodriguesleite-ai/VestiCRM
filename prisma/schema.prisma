@@ -1983,6 +1983,12 @@ model Order {
   /// vencimento da conta a receber (+30 dias). Nunca é apagado ao virar pago:
   /// a comissão já contou no mês da entrega e não pode contar de novo.
   entregueAReceberEm DateTime?
+  /// VENDA A PRAZO (RN-069): a data que a vendedora COMBINOU com a cliente
+  /// para receber (dia ao meio-dia UTC). Nula = vale o padrão, 30 dias da
+  /// entrega. É o vencimento da conta a receber enquanto o pedido está a
+  /// receber; ao virar pago é APAGADA (cumpriu-se; a história do pedido
+  /// guarda o que foi combinado) — voltar a prazo recomeça nos 30 dias.
+  previsaoRecebimentoEm DateTime?
   /// SEPARAÇÃO POR LEITOR (RN-060): quando a última separação foi concluída
   /// (a fila mostra o que ainda não foi separado). O registro de quem bipou
   /// o quê mora em `Separacao`; o histórico do pedido ganha o evento.

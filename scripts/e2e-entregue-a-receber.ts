@@ -300,6 +300,80 @@ async function main() {
   // o primeiro pedido foi cancelado no passo 5: sobra só este
   conferir((await comissao()) === 1, "comissão do mês: 1 pedido (o cancelado saiu), nenhum em dobro");
 
+  // ---- 6b. previsão de recebimento combinada com a cliente ---------------------
+  console.log("\n6b) Previsão de recebimento combinada (no pedido a receber)");
+  const diaPrevisto = new Date(oB2.entregueAReceberEm!.getTime() + 15 * 86_400_000)
+    .toISOString()
+    .slice(0, 10);
+  const rP1 = await api("PATCH", `/api/orders/${orderB}`, { previsaoRecebimentoEm: diaPrevisto });
+  conferir(rP1.status === 200, `previsão aceita (${rP1.status})`);
+  await dormir(1500);
+  const lancP1 = await db.finLancamento.findFirstOrThrow({
+    where: { companyId: company.id, origem: "PEDIDO", origemId: orderB },
+    include: { parcelas: true, eventos: { orderBy: { createdAt: "desc" }, take: 1 } },
+  });
+  conferir(
+    lancP1.parcelas[0].vencimento.toISOString().slice(0, 10) === diaPrevisto,
+    `vencimento da conta a receber = previsão (${diaPrevisto})`
+  );
+  conferir(/previsão combinada/.test(lancP1.eventos[0]?.descricao ?? ""), "o lançamento diz que foi a previsão combinada");
+  const histP = await db.orderEvent.findFirst({
+    where: { orderId: orderB, description: { contains: "Previsão de recebimento combinada" } },
+  });
+  conferir(!!histP, "a história do pedido registra quem combinou");
+
+  const rP2 = await api("PATCH", `/api/orders/${orderB}`, { previsaoRecebimentoEm: null });
+  conferir(rP2.status === 200, `tirar a previsão aceita (${rP2.status})`);
+  await dormir(1500);
+  const lancP2 = await db.finLancamento.findFirstOrThrow({
+    where: { companyId: company.id, origem: "PEDIDO", origemId: orderB },
+    include: { parcelas: true },
+  });
+  const diasP2 = Math.round((diaSP(lancP2.parcelas[0].vencimento) - diaSP(oB2.entregueAReceberEm!)) / 86_400_000);
+  conferir(diasP2 === PRAZO_ENTREGUE_A_RECEBER_DIAS, `sem previsão volta aos ${PRAZO_ENTREGUE_A_RECEBER_DIAS} dias (${diasP2})`);
+
+  // sinal registrado À MÃO não segura o vencimento combinado (achado da revisão)
+  await db.finBaixa.create({
+    data: {
+      companyId: company.id,
+      parcelaId: lancP2.parcelas[0].id,
+      contaId: conta.id,
+      valor: 50,
+      data: new Date(),
+      autorNome: "Gerente",
+    },
+  });
+  const rP2b = await api("PATCH", `/api/orders/${orderB}`, { previsaoRecebimentoEm: diaPrevisto });
+  conferir(rP2b.status === 200, `previsão com sinal à mão aceita (${rP2b.status})`);
+  await dormir(1500);
+  const lancP2b = await db.finLancamento.findFirstOrThrow({
+    where: { companyId: company.id, origem: "PEDIDO", origemId: orderB },
+    include: { parcelas: { include: { baixas: true } } },
+  });
+  conferir(
+    lancP2b.parcelas[0].vencimento.toISOString().slice(0, 10) === diaPrevisto,
+    "vencimento foi para a previsão mesmo com baixa à mão viva"
+  );
+  conferir(
+    lancP2b.parcelas[0].baixas.some((b) => b.autorNome === "Gerente" && !b.estornadaEm),
+    "e o sinal à mão continua intocado"
+  );
+  await db.finBaixa.deleteMany({ where: { parcelaId: lancP2.parcelas[0].id, autorNome: "Gerente" } });
+
+  const antes = new Date(oB2.entregueAReceberEm!.getTime() - 3 * 86_400_000).toISOString().slice(0, 10);
+  const rP3 = await api("PATCH", `/api/orders/${orderB}`, { previsaoRecebimentoEm: antes });
+  conferir(rP3.status === 400, `previsão antes da entrega recusada (${rP3.status})`);
+  // em pedido PAGO não há conta em aberto para vencer: recusa
+  const rP4 = await api("PATCH", `/api/orders/${orderB}`, { status: "PAGO" });
+  conferir(rP4.status === 200, `volta a PAGO (${rP4.status})`);
+  await dormir(1200);
+  const rP5 = await api("PATCH", `/api/orders/${orderB}`, { previsaoRecebimentoEm: diaPrevisto });
+  conferir(rP5.status === 409, `previsão em pedido pago recusada (${rP5.status})`);
+  conferir(
+    (await db.order.findUniqueOrThrow({ where: { id: orderB } })).previsaoRecebimentoEm === null,
+    "ao virar pago a previsão combinada foi apagada (voltar a prazo recomeça nos 30 dias)"
+  );
+
   // ---- 7. sem vendedora não entra (RN-006 vale para comissão) ------------------
   console.log("\n7) Pedido sem dona não vira a receber");
   const criadoC = await api("POST", "/api/orders", {

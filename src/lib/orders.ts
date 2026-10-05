@@ -1,5 +1,6 @@
 import { precoComDesconto } from "./catalogo/condicoes-da-campanha";
 import type { OrderStatus, PaymentMethod, Prisma } from "@prisma/client";
+import { dataDoDia, diaSP } from "./dia";
 
 export const orderStatusLabel: Record<OrderStatus, string> = {
   ORCAMENTO: "Orçamento",
@@ -94,9 +95,46 @@ export function whereComissaoNoPeriodo(de: Date, ate: Date): Prisma.OrderWhereIn
   };
 }
 
-/** Vencimento da conta a receber da venda a prazo. */
-export function vencimentoDaVendaAPrazo(entregueEm: Date): Date {
+/**
+ * Vencimento da conta a receber da venda a prazo: a PREVISÃO combinada com a
+ * cliente, quando a vendedora a registrou; sem ela, 30 dias da entrega.
+ */
+export function vencimentoDaVendaAPrazo(entregueEm: Date, previsao?: Date | null): Date {
+  if (previsao) return previsao;
   return new Date(entregueEm.getTime() + PRAZO_ENTREGUE_A_RECEBER_DIAS * 86_400_000);
+}
+
+/** Teto da previsão: um ano depois da entrega — além disso é dedo errado. */
+export const TETO_PREVISAO_DIAS = 365;
+
+/**
+ * Lê a previsão de recebimento que a vendedora digitou ("AAAA-MM-DD", o que
+ * o campo de data manda). Vazio ou nulo = tirar a previsão (volta ao padrão
+ * de 30 dias). Guardada ao MEIO-DIA em UTC (régua da RN-030: meia-noite UTC
+ * é o dia anterior em São Paulo). Recusa data que não existe ("2026-02-30"),
+ * anterior ao dia da entrega (receber antes de entregar não é previsão) e
+ * mais de um ano depois dela.
+ */
+export function lerPrevisaoDeRecebimento(
+  iso: string | null | undefined,
+  entregueEm: Date
+): { ok: true; data: Date | null } | { ok: false; erro: string } {
+  const texto = (iso ?? "").trim();
+  if (!texto) return { ok: true, data: null };
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(texto)) {
+    return { ok: false, erro: "Data inválida — use o campo de data." };
+  }
+  const d = dataDoDia(texto);
+  if (!d) return { ok: false, erro: "Essa data não existe no calendário." };
+  const diaEntrega = diaSP(entregueEm);
+  if (texto < diaEntrega) {
+    return { ok: false, erro: "A previsão não pode ser antes do dia da entrega." };
+  }
+  const tetoMs = entregueEm.getTime() + TETO_PREVISAO_DIAS * 86_400_000;
+  if (d.getTime() > tetoMs) {
+    return { ok: false, erro: "A previsão não pode passar de um ano depois da entrega." };
+  }
+  return { ok: true, data: d };
 }
 
 /**

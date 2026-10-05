@@ -27,6 +27,7 @@ import {
   PAID_ORDER_STATUSES,
   vencimentoDaVendaAPrazo,
 } from "@/lib/orders";
+import { diaSP } from "@/lib/dia";
 import { Card, Badge } from "@/components/ui";
 import { StatusChanger } from "./status-changer";
 import { StatusLive } from "./status-live";
@@ -46,6 +47,7 @@ import { TransferirVenda } from "./transferir-venda";
 import { ValoresEditor } from "./valores-editor";
 import { ObservacoesEditor } from "./observacoes-editor";
 import { DataDaVenda } from "./data-da-venda";
+import { PrevisaoRecebimento } from "./previsao-recebimento";
 import { podeTransferirVenda, vendaOnline } from "@/lib/orders";
 import { EtiquetasDoPedido } from "./etiquetas-do-pedido";
 import { STATUS_NA_FILA } from "@/lib/etiquetas/separacao-regra";
@@ -361,17 +363,22 @@ export default async function OrderDetailPage({
         {order.status === "ENTREGUE_A_RECEBER" && (
           <p className="mt-4 flex items-start gap-2 rounded-xl border border-orange-200 bg-orange-50 px-3 py-2.5 text-xs text-orange-900">
             <PackageCheck className="mt-0.5 size-4 shrink-0" />
-            <span>
-              <b>Entregue à cliente, a receber.</b> A mercadoria já saiu com ela e
-              o pedido ainda não conta como venda — entra no faturamento quando
-              virar <b>Pago</b>.
+            <span className="flex flex-col">
+              <span>
+                <b>Entregue à cliente, a receber.</b> A mercadoria já saiu com ela
+                {order.entregueAReceberEm ? ` em ${dateShort(order.entregueAReceberEm)}` : ""} e
+                o pedido ainda não conta como venda — entra no faturamento quando
+                virar <b>Pago</b>.
+              </span>
               {order.entregueAReceberEm && (
-                <>
-                  {" "}
-                  Vencimento combinado:{" "}
-                  <b>{dateShort(vencimentoDaVendaAPrazo(order.entregueAReceberEm))}</b>{" "}
-                  (30 dias da entrega, em {dateShort(order.entregueAReceberEm)}).
-                </>
+                <PrevisaoRecebimento
+                  orderId={order.id}
+                  previsaoISO={
+                    order.previsaoRecebimentoEm ? diaSP(order.previsaoRecebimentoEm) : null
+                  }
+                  padraoTexto={dateShort(vencimentoDaVendaAPrazo(order.entregueAReceberEm))}
+                  podeEditar={user.role !== "SUPPORT"}
+                />
               )}
             </span>
           </p>

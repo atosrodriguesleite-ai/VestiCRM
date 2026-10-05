@@ -91,9 +91,11 @@ export type AcaoDaPorta = {
   reativar: boolean;
   /**
    * VENDA A PRAZO (RN-069): o vencimento da parcela vai para o combinado
-   * (+30 dias da entrega). Só quando nenhuma baixa VIVA sobra na parcela —
-   * dinheiro que já andou não muda de data; a baixa automática que esta
-   * mesma ação estorna não conta como viva.
+   * (a previsão da vendedora ou +30 dias da entrega). O vencimento é do
+   * PEDIDO, não da baixa: a baixa que a lojista registrou à mão fica com a
+   * data dela, e a parcela passa a vencer no dia combinado mesmo assim —
+   * senão o sinal de R$ 200 deixava a cliente "atrasada" numa data que
+   * ninguém combinou (achado da revisão).
    */
   moverVencimento: boolean;
   /** aviso para o histórico quando a porta decide NÃO mexer */
@@ -112,12 +114,19 @@ const NADA: AcaoDaPorta = {
 };
 
 /**
- * Vencimento da conta a receber de uma VENDA A PRAZO (RN-069): 30 dias depois
- * da entrega, no dia-do-dinheiro. Nulo para qualquer outro status.
+ * Vencimento da conta a receber de uma VENDA A PRAZO (RN-069): a previsão
+ * combinada com a cliente ou, sem ela, 30 dias depois da entrega — no
+ * dia-do-dinheiro. Nulo para qualquer outro status.
  */
-function vencimentoAlvo(pedido: { status: string; entregueAReceberEm: Date | null }): Date | null {
+export function vencimentoAlvo(pedido: {
+  status: string;
+  entregueAReceberEm: Date | null;
+  previsaoRecebimentoEm: Date | null;
+}): Date | null {
   if (pedido.status !== "ENTREGUE_A_RECEBER" || !pedido.entregueAReceberEm) return null;
-  return diaDoDinheiro(vencimentoDaVendaAPrazo(pedido.entregueAReceberEm));
+  return diaDoDinheiro(
+    vencimentoDaVendaAPrazo(pedido.entregueAReceberEm, pedido.previsaoRecebimentoEm)
+  );
 }
 
 /**
@@ -186,9 +195,13 @@ export function decidirAcaoDaPorta(
   // o pedido mudou de valor? o financeiro tem que acompanhar — mas nunca
   // por cima do que a lojista registrou na mão
   const mudouValor = round2(lanc.valor) !== round2(pedido.valor);
+  // a venda a prazo (RN-069) tem vencimento combinado, e ele vale em todo
+  // ramo que não cancela: a baixa à mão é da lojista, o vencimento é do pedido
+  const moverVencimento = pedido.status === "ENTREGUE_A_RECEBER";
   if (mudouValor && lanc.temBaixaManualViva) {
     return {
       ...NADA,
+      moverVencimento,
       aviso: `O pedido passou a valer R$ ${pedido.valor.toFixed(2)}, mas há baixa registrada à mão — ajuste este lançamento`,
     };
   }
@@ -229,15 +242,15 @@ export function decidirAcaoDaPorta(
   }
   // aguardando pagamento: o que a porta baixou sozinha volta a ser dívida.
   // Na venda a prazo (RN-069) o vencimento vai para o combinado — e a
-  // decisão é tomada AQUI, olhando a baixa que esta mesma ação estorna: a
-  // primeira versão decidia depois, com a foto de ANTES do estorno, e a
+  // decisão é tomada AQUI, na máquina pura: a primeira versão decidia
+  // depois, com a foto de ANTES do estorno da baixa automática, e a
   // transição pago → a prazo deixava a parcela vencendo no dia da venda
   // (a cliente caía na Inadimplência no mesmo dia; achado da revisão).
   return {
     ...NADA,
     novoValor,
     estornarAutomaticas: lanc.temBaixaAutomaticaViva,
-    moverVencimento: pedido.status === "ENTREGUE_A_RECEBER" && !lanc.temBaixaManualViva,
+    moverVencimento,
   };
 }
 
@@ -276,6 +289,7 @@ export async function sincronizarPedidoNoFinanceiro(
       paidAt: true,
       createdAt: true,
       entregueAReceberEm: true,
+      previsaoRecebimentoEm: true,
       source: true,
       priceMode: true,
       company: { select: { financeEnabled: true } },
@@ -437,7 +451,9 @@ export async function sincronizarPedidoNoFinanceiro(
       data: {
         eventos: {
           create: {
-            descricao: `Venda a prazo: vencimento em ${alvo.toLocaleDateString("pt-BR")}`,
+            descricao: `Venda a prazo: vencimento em ${alvo.toLocaleDateString("pt-BR")}${
+              pedido.previsaoRecebimentoEm ? " (previsão combinada com a cliente)" : " (30 dias da entrega)"
+            }`,
             autorNome: AUTOR_SISTEMA,
           },
         },
@@ -470,8 +486,11 @@ export async function corrigirDataDaVendaNoFinanceiro(
     select: {
       id: true,
       companyId: true,
+      status: true,
       paidAt: true,
       createdAt: true,
+      entregueAReceberEm: true,
+      previsaoRecebimentoEm: true,
       company: { select: { financeEnabled: true } },
     },
   });
@@ -494,11 +513,16 @@ export async function corrigirDataDaVendaNoFinanceiro(
     .filter((b) => !b.estornadaEm && b.autorNome === AUTOR_SISTEMA)
     .map((b) => b.id);
 
+  // VENDA A PRAZO (RN-069): o vencimento dela é o combinado (previsão ou
+  // +30 da entrega), não a data da venda — corrigir a data da venda movia
+  // a parcela para o passado e a cliente caía na Inadimplência (achado da
+  // revisão). A competência segue a data da venda, como em toda venda.
+  const vencimento = vencimentoAlvo(pedido) ?? quando;
   await db.$transaction(async (tx) => {
     for (const parcela of lanc.parcelas) {
       await tx.finParcela.update({
         where: { id: parcela.id },
-        data: { vencimento: quando },
+        data: { vencimento },
       });
     }
     await tx.finBaixa.updateMany({

@@ -302,7 +302,28 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   estoque, financeiro no `after()`, comissão uma vez só, os dois caminhos de
   entrada no status, cancelamento e a trava da vendedora. **Risco aceito e
   dito**: comissão paga na entrega de venda que a cliente nunca pagar.
-  **Limites**: prazo fixo de 30 dias (configurável é entrega futura); o status
+  **A previsão de recebimento é COMBINADA, com o padrão de 30 dias**
+  (`Order.previsaoRecebimentoEm` + `lerPrevisaoDeRecebimento`, pedido do dono
+  em 05/10/2026: *"em algum lugar colocar uma previsão de recebimento; caso
+  não coloque nada, mantém os 30 dias"*): na faixa laranja da ficha a
+  vendedora combina a data ("ela paga dia 20") e o **vencimento da conta a
+  receber passa a ser esse dia** — gravado pela porta do pedido (PATCH, só
+  no status a receber; fora dele não há conta em aberto para vencer), como
+  DIA ao meio-dia UTC (RN-030), com registro na história do pedido, e o
+  financeiro acompanha pela porta única (`vencimentoAlvo` lê a previsão;
+  `moverVencimento` move a parcela — **o vencimento é do PEDIDO, a baixa à
+  mão é da lojista**: o sinal registrado à mão fica com a data dele e a
+  parcela vence no dia combinado mesmo assim, senão a cliente ficava
+  "atrasada" numa data que ninguém combinou). Tirar a previsão volta aos 30
+  dias. Recusado: data antes do dia da entrega, dia que não existe e mais de
+  um ano depois. **Ao virar PAGO a previsão é apagada** (cumpriu-se; a
+  história do pedido guarda o que foi) — a venda que volta a prazo recomeça
+  nos 30 dias, em vez de reaplicar uma data velha e já vencida. **Corrigir a
+  data da venda** move competência e baixa automática, mas o vencimento da
+  venda a prazo segue o combinado (`corrigirDataDaVendaNoFinanceiro`). Só a
+  equipe comercial combina (suporte é barrado no servidor). A régua do dia
+  (`diaSP`/`dataDoDia`) mora em `lib/dia.ts`, pura, para a ficha e o
+  Financeiro lerem a mesma data. **Limites**: o status
   só se escolhe na ficha do pedido (o pedido não NASCE a prazo — nasce
   orçamento/aguardando e a vendedora o muda ao entregar); nota fiscal segue
   exigindo pedido pago — a saída a prazo deveria ter nota na entrega, decisão

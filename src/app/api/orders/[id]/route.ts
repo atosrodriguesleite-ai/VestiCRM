@@ -25,6 +25,7 @@ import {
   PAID_ORDER_STATUSES,
   COMMISSION_ORDER_STATUSES,
   ORDER_STATUS_FLOW,
+  lerPrevisaoDeRecebimento,
   podeTransferirVenda,
   vendaOnline,
   resolveCancelStock,
@@ -87,6 +88,9 @@ const patchSchema = z.object({
   // fora do cancelamento ou quando o pedido não segura estoque.
   restock: z.boolean().optional(),
   notes: z.string().nullable().optional(),
+  // VENDA A PRAZO (RN-069): "AAAA-MM-DD" combinado com a cliente; null tira
+  // (volta ao padrão de 30 dias). Só vale no status "Entregue · a receber".
+  previsaoRecebimentoEm: z.string().max(10).nullable().optional(),
   trackingCode: z.string().nullable().optional(),
   shippingMethod: z.string().nullable().optional(),
   sellerId: z.string().nullable().optional(), // vendedor responsável pela venda
@@ -164,6 +168,15 @@ export async function PATCH(
     // Perfil Suporte: gerencia o pedido (status, rastreio, pagamento), mas
     // cancelamento e desconto são decisões comerciais — gerente pra cima.
     if (isSupport(user)) {
+      // a previsão de recebimento (RN-069) muda o vencimento da conta a
+      // receber — decisão comercial; a tela esconde o botão e o servidor é a
+      // segunda tranca (achado da revisão)
+      if (parsed.data.previsaoRecebimentoEm !== undefined) {
+        return NextResponse.json(
+          { error: "Combinar a previsão de recebimento é permitido só para a equipe comercial." },
+          { status: 403 }
+        );
+      }
       if (parsed.data.status === "CANCELADO" && order.status !== "CANCELADO") {
         return NextResponse.json(
           { error: "Cancelar pedido é permitido só para gerente ou admin." },
@@ -449,7 +462,7 @@ export async function PATCH(
       // o funil acompanha o VALOR VENDIDO (frete não é negociação)
       await syncOpportunityValue(user.companyId, order.opportunityId, totals.netTotal);
       // se veio SÓ a edição de itens, responde aqui
-      if (!parsed.data.status && parsed.data.notes === undefined && parsed.data.sellerId === undefined && !parsed.data.customerId && !parsed.data.paymentMethod && parsed.data.trackingCode === undefined && parsed.data.shippingMethod === undefined) {
+      if (!parsed.data.status && parsed.data.notes === undefined && parsed.data.sellerId === undefined && !parsed.data.customerId && !parsed.data.paymentMethod && parsed.data.trackingCode === undefined && parsed.data.shippingMethod === undefined && parsed.data.previsaoRecebimentoEm === undefined) {
         // PORTA ÚNICA DO FINANCEIRO (RN-033) ANTES de responder: editar os
         // itens muda o que a cliente paga, e este caminho saía sem avisar o
         // financeiro — o pedido de R$ 100 virava R$ 450 e o lançamento
@@ -600,7 +613,8 @@ export async function PATCH(
         !parsed.data.customerId &&
         !parsed.data.paymentMethod &&
         parsed.data.trackingCode === undefined &&
-        parsed.data.shippingMethod === undefined
+        parsed.data.shippingMethod === undefined &&
+        parsed.data.previsaoRecebimentoEm === undefined
       ) {
         // mesma coisa aqui (RN-033): mexer no frete, no desconto ou no
         // acréscimo muda o que a cliente paga e tem que chegar ao financeiro
@@ -714,6 +728,32 @@ export async function PATCH(
       // edita) — sem isto dava para reescrever o bilhete do pedido em silêncio
       if ((parsed.data.notes ?? "") !== (order.notes ?? "")) {
         eventosPendentes.push(`Observações do pedido atualizadas por ${user.name}`);
+      }
+    }
+    if (parsed.data.previsaoRecebimentoEm !== undefined) {
+      // PREVISÃO DE RECEBIMENTO (RN-069): só tem sentido enquanto o pedido
+      // está a receber — fora dele não há conta em aberto para vencer
+      const statusFinal = parsed.data.status ?? order.status;
+      if (statusFinal !== "ENTREGUE_A_RECEBER") {
+        return NextResponse.json(
+          { error: "A previsão de recebimento só vale no status \"Entregue · a receber\"." },
+          { status: 409 }
+        );
+      }
+      // a entrega pode estar acontecendo NESTA chamada (status junto): aí o
+      // carimbo ainda não existe e a referência é agora
+      const entregueEm = order.entregueAReceberEm ?? order.paidAt ?? new Date();
+      const lida = lerPrevisaoDeRecebimento(parsed.data.previsaoRecebimentoEm, entregueEm);
+      if (!lida.ok) return NextResponse.json({ error: lida.erro }, { status: 400 });
+      const atual = order.previsaoRecebimentoEm?.getTime() ?? null;
+      const nova = lida.data?.getTime() ?? null;
+      if (atual !== nova) {
+        data.previsaoRecebimentoEm = lida.data;
+        eventosPendentes.push(
+          lida.data
+            ? `Previsão de recebimento combinada: ${lida.data.toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo" })} (por ${user.name})`
+            : `Previsão de recebimento removida por ${user.name} — volta aos 30 dias da entrega`
+        );
       }
     }
     if (parsed.data.sellerId !== undefined && parsed.data.sellerId !== order.sellerId) {
@@ -862,6 +902,12 @@ export async function PATCH(
                 ...(newStatus === "ENTREGUE_A_RECEBER"
                   ? { entregueAReceberEm: order.entregueAReceberEm ?? order.paidAt ?? new Date() }
                   : {}),
+                // a previsão combinada é da conta em aberto: ao receber, ela
+                // se cumpriu e sai — se a venda voltar a prazo (o Pix voltou),
+                // vale o padrão de 30 dias até a vendedora combinar de novo;
+                // reaplicar uma data velha punha a cliente atrasada na hora
+                // (achado da revisão). A história do pedido guarda o que foi.
+                ...(enteringPaid ? { previsaoRecebimentoEm: null } : {}),
                 // voltou a ser pago (reaberto de cancelado/orçamento): a
                 // separação de antes não vale mais — volta para a fila (RN-060)
                 ...(enteringPaid ? { separadoEm: null } : {}),
