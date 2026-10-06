@@ -105,6 +105,26 @@ export function soRecadoDoProtocolo(entrada: { message?: Conteudo } | undefined)
   return chaves.every((k) => RECADOS_DO_PROTOCOLO.has(k));
 }
 
+/**
+ * A MENSAGEM CITADA (pedido do dono, 06/10/2026, com o print da Livia
+ * respondendo "2 m e 2g" em cima de cada foto): no aplicativo cada resposta
+ * mostra a foto que ela está respondendo; na Central as bolhas chegavam
+ * soltas — a Central MANDAVA citação (quando a vendedora responde) mas não
+ * LIA a que chegava. O WhatsApp diz qual mensagem foi citada no
+ * `contextInfo.stanzaId` do conteúdo (texto, foto, áudio…, e também dentro
+ * dos embrulhos de mensagem temporária). Devolve o id da citada no
+ * WhatsApp, para o webhook ligar a bolha à mensagem que já temos gravada.
+ */
+export function citacaoWA(entrada: { message?: Conteudo } | undefined): string | null {
+  const msg = desembrulhar(entrada?.message);
+  for (const valor of Object.values(msg ?? {})) {
+    const ctx = (valor as { contextInfo?: { stanzaId?: unknown } } | null)?.contextInfo;
+    const id = texto(ctx?.stanzaId);
+    if (id) return id;
+  }
+  return null;
+}
+
 /** Nome legível do tipo, para a bolha de aviso do que não foi reconhecido. */
 function nomeDoTipo(msg: Conteudo): string | null {
   const chaves = Object.keys(msg).filter((k) => !RECADOS_DO_PROTOCOLO.has(k));
@@ -252,4 +272,25 @@ export function lerMensagemWA(entrada: { message?: Conteudo } | undefined): Leit
     fileName: null,
     desconhecida: true,
   };
+}
+
+/**
+ * O TEXTO DA CAIXINHA DA CITADA: "[foto]"/"[áudio]" é o corpo que o leitor
+ * grava quando não há legenda — na caixinha vale o rótulo com ícone, como no
+ * aplicativo; arquivo guarda o NOME depois do marcador, e é o nome que diz
+ * qual é. Legenda e texto comum passam como estão.
+ */
+const ROTULO_DA_MIDIA: Record<string, string> = {
+  foto: "📷 Foto",
+  "vídeo": "🎬 Vídeo",
+  "áudio": "🎙️ Áudio",
+  figurinha: "🖼️ Figurinha",
+};
+export function corpoDaCitada(body: string): string {
+  const t = body.trim();
+  const marcador = /^\[(foto|vídeo|áudio|figurinha)\]$/.exec(t);
+  if (marcador) return ROTULO_DA_MIDIA[marcador[1]];
+  const arquivo = /^\[arquivo\]\s*(.*)$/.exec(t);
+  if (arquivo) return `📄 ${arquivo[1] || "Arquivo"}`;
+  return body;
 }

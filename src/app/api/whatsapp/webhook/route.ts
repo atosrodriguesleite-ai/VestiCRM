@@ -109,6 +109,8 @@ async function handleMetaPayload(raw: string, signature: string | null) {
             image?: { caption?: string };
             video?: { caption?: string };
             document?: { filename?: string; caption?: string };
+            /** resposta a outra mensagem: o id da citada */
+            context?: { id?: string };
           }[];
           statuses?: { id?: string; status?: string; errors?: { message?: string }[] }[];
         };
@@ -217,6 +219,7 @@ async function handleMetaPayload(raw: string, signature: string | null) {
             mediaType,
             fileName: msg.document?.filename,
             externalId: msg.id,
+            replyToExternalId: msg.context?.id,
           });
         } catch {
           // nunca derruba o webhook — a Meta reenvia se responder erro

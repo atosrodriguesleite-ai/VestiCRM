@@ -118,6 +118,7 @@ import { Avatar, EmptyState } from "@/components/ui";
 import { gravacaoParaWav, TETO_AUDIO_BYTES } from "@/lib/audio-wav";
 import { comprimirFoto, nomeJpeg, TETO_FOTOS_DE_UMA_VEZ } from "@/lib/comprimir-foto";
 import { imagensColadas, rotuloDosAnexos } from "@/lib/colar-imagem";
+import { corpoDaCitada } from "@/lib/comm/wa-message";
 import { Portal } from "@/components/portal";
 
 /**
@@ -139,8 +140,16 @@ export type InboxMessage = {
   error: string | null;
   body: string;
   authorName: string | null;
-  // resposta a mensagem específica (prévia da citada)
-  replyTo?: { id: string; body: string; direction: string } | null;
+  // resposta a mensagem específica (prévia da citada — com a miniatura da
+  // foto, quando a citada é foto, e a data para pular até ela)
+  replyTo?: {
+    id: string;
+    body: string;
+    direction: string;
+    mediaType?: string | null;
+    mediaUrl?: string | null;
+    createdAt?: string | null;
+  } | null;
   createdAt: string;
   deliveredAt: string | null;
   readAt: string | null;
@@ -284,6 +293,60 @@ function umSomPorVez(e: React.SyntheticEvent<HTMLMediaElement>) {
   pausarOsOutros(
     e.currentTarget,
     document.querySelectorAll<HTMLMediaElement>("audio, video")
+  );
+}
+
+/**
+ * A CAIXINHA DA MENSAGEM CITADA — o mesmo desenho do aplicativo do WhatsApp
+ * (pedido do dono, 06/10/2026, com o print da cliente respondendo "2 m e 2g"
+ * em cima de cada foto): quem respondeu, o texto da citada e, quando a
+ * citada é FOTO, a miniatura dela à direita — "2 m e 2g" sem a foto não diz
+ * de qual peça é. Um toque pula até a mensagem original (o mesmo caminho da
+ * lupa). Miniatura que não carrega some (a citada pode ter o arquivo ainda
+ * a caminho, RN-028) e a caixinha segue com o texto.
+ */
+function CaixinhaDaCitada({
+  replyTo,
+  mine,
+  nomeDaCliente,
+  onClick,
+}: {
+  replyTo: NonNullable<InboxMessage["replyTo"]>;
+  mine: boolean;
+  nomeDaCliente: string;
+  onClick: () => void;
+}) {
+  const [semMiniatura, setSemMiniatura] = useState(false);
+  // miniatura pequena de propósito (`?mini=1`): a foto original pode ter
+  // 2 MB, e a caixinha tem 48px — vinte respostas citando foto no celular
+  // não podem baixar vinte fotos inteiras
+  const foto = replyTo.mediaUrl && !semMiniatura ? `${replyTo.mediaUrl}?mini=1` : null;
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title="Ver a mensagem citada"
+      className={`mb-1.5 flex w-full items-stretch gap-2 overflow-hidden rounded-lg border-l-[3px] text-left text-[11px] leading-snug transition ${
+        mine
+          ? "bg-white/15 border-white/60 text-white/85 hover:bg-white/25"
+          : "bg-gray-100 border-brand-400 text-gray-500 hover:bg-gray-200/80"
+      }`}
+    >
+      <div className="min-w-0 flex-1 px-2 py-1">
+        <p className="font-bold">{replyTo.direction === "OUT" ? "Você" : nomeDaCliente}</p>
+        <p className="line-clamp-2 break-words">{corpoDaCitada(replyTo.body)}</p>
+      </div>
+      {foto && (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={foto}
+          alt=""
+          loading="lazy"
+          onError={() => setSemMiniatura(true)}
+          className="h-12 w-12 shrink-0 object-cover"
+        />
+      )}
+    </button>
   );
 }
 
@@ -1720,7 +1783,14 @@ export function Inbox({
       ? selected.messages.find((x) => x.id === payload.replyToId)
       : null;
     const replyPreview = citada
-      ? { id: citada.id, body: citada.body.slice(0, 140), direction: citada.direction }
+      ? {
+          id: citada.id,
+          body: citada.body.slice(0, 140),
+          direction: citada.direction,
+          mediaType: citada.mediaType,
+          mediaUrl: citada.mediaType === "IMAGE" ? citada.mediaUrl : null,
+          createdAt: citada.createdAt,
+        }
       : null;
 
     // 1) mostra a bolha imediatamente (status ENVIANDO)
@@ -4192,24 +4262,28 @@ export function Inbox({
                         </div>
                       ) : (
                         <>
-                          {/* caixinha da mensagem citada (resposta específica) */}
+                          {/* caixinha da mensagem citada (resposta específica).
+                              Como no aplicativo: miniatura da foto citada e um
+                              toque leva até a mensagem original (06/10/2026) */}
                           {m.replyTo && (
-                            <div
-                              className={`mb-1.5 rounded-lg border-l-[3px] px-2 py-1 text-[11px] leading-snug ${
-                                mine
-                                  ? "bg-white/15 border-white/60 text-white/85"
-                                  : "bg-gray-100 border-brand-400 text-gray-500"
-                              }`}
-                            >
-                              <p className="font-bold">
-                                {m.replyTo.direction === "OUT"
-                                  ? "Você"
-                                  : selected.customer.name.split(" ")[0]}
-                              </p>
-                              <p className="line-clamp-2 break-words">
-                                {m.replyTo.body}
-                              </p>
-                            </div>
+                            <CaixinhaDaCitada
+                              replyTo={m.replyTo}
+                              mine={mine}
+                              nomeDaCliente={selected.customer.name.split(" ")[0]}
+                              onClick={() => {
+                                // o mesmo caminho da lupa: acha a bolha na
+                                // tela ou carrega o passado até ela aparecer
+                                // (zerando o orçamento de páginas, como a lupa)
+                                paginasDoPulo.current = 0;
+                                setPulo({
+                                  conversationId: selected.id,
+                                  id: m.replyTo!.id,
+                                  createdAt: m.replyTo!.createdAt ?? m.createdAt,
+                                  direction: m.replyTo!.direction === "OUT" ? "OUT" : "IN",
+                                  trecho: { antes: "", casa: "", depois: "" },
+                                });
+                              }}
+                            />
                           )}
                           <MediaContent
                             m={m}

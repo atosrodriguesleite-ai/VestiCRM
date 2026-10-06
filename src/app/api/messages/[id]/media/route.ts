@@ -56,8 +56,19 @@ export async function GET(
     }
     let buf: Buffer = decoded.buf;
     let mime = decoded.mime;
-    // imagem pesada demais para a resposta do serverless: comprime na entrega
-    if (buf.byteLength > 3 * 1024 * 1024 && mime.startsWith("image/")) {
+    // MINIATURA (`?mini=1`, caixinha da mensagem citada): a foto inteira
+    // para 48px é desperdício no celular — sai pequena. Não deu, sai inteira.
+    const mini = req.nextUrl.searchParams.get("mini") === "1";
+    if (mini && mime.startsWith("image/")) {
+      try {
+        const small = await shrinkImage(buf, 160);
+        buf = small.buf;
+        mime = small.mime;
+      } catch {
+        /* sem miniatura: segue com o original */
+      }
+    } else if (buf.byteLength > 3 * 1024 * 1024 && mime.startsWith("image/")) {
+      // imagem pesada demais para a resposta do serverless: comprime na entrega
       try {
         const small = await shrinkImage(buf);
         buf = small.buf;

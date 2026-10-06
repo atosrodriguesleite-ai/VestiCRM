@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse, after } from "next/server";
 import { db } from "@/lib/db";
 import { registrarPrimeiraConexao } from "@/lib/comm/primeira-conexao";
-import { receiveMessage, updateDeliveryStatus, aplicarRecibosOrfaos } from "@/lib/comm/engine";
+import { receiveMessage, updateDeliveryStatus, aplicarRecibosOrfaos, idDaMensagemCitada } from "@/lib/comm/engine";
 import { jidToPhone } from "@/lib/comm/evolution";
 import {
   completarMidia,
@@ -12,7 +12,7 @@ import { findCustomerByPhone, nomeProvisorio } from "@/lib/intake";
 import { alertWhatsappDown, logServerError } from "@/lib/health";
 import { adCode, campanhaDoAnuncio } from "@/lib/ad-match";
 import { formatPhone } from "@/lib/format";
-import { lerMensagemWA, soRecadoDoProtocolo } from "@/lib/comm/wa-message";
+import { citacaoWA, lerMensagemWA, soRecadoDoProtocolo } from "@/lib/comm/wa-message";
 import {
   buscarTextoAtual,
   lerEdicao,
@@ -601,6 +601,12 @@ export async function POST(
         // orçamento de tempo. O que não chegar fica na fila e é repescado.
         const temArquivo = mediaType !== "TEXT";
         const textoFinal = text;
+        // RESPOSTA A UMA MENSAGEM (citação): o id da citada no WhatsApp, para
+        // a bolha nascer ligada a ela — "2 m e 2g" em cima da foto certa.
+        // Limite aceito: a ligação é feita UMA vez, ao gravar; se a citada
+        // ainda não estava gravada neste instante (duas entregas em paralelo,
+        // a foto e a resposta no mesmo segundo), a bolha fica solta.
+        const citadaExternalId = citacaoWA(m);
 
         /** Busca o arquivo agora, se ainda houver tempo no lote. */
         const buscarArquivoAgora = async (messageId: string) => {
@@ -633,6 +639,7 @@ export async function POST(
               ? { mediaType, fileName: fileName ?? undefined, mediaPending: true }
               : {}),
             externalId: m.key?.id,
+            replyToExternalId: citadaExternalId ?? undefined,
           });
 
           // agora sim, o arquivo (com o orçamento de tempo do lote)
@@ -900,6 +907,9 @@ export async function POST(
             // (duas execuções em paralelo passaram pela checagem acima). Não é
             // erro: a mensagem já está gravada, seguimos em frente.
             let criada: { id: string };
+            // a loja respondeu citando uma mensagem pelo CELULAR: a bolha
+            // do eco também nasce ligada à citada
+            const replyToId = await idDaMensagemCitada(companyId, conv.id, citadaExternalId);
             try {
               criada = await db.message.create({
                 data: {
@@ -912,6 +922,7 @@ export async function POST(
                   ...(temArquivo ? { mediaType, fileName, mediaPending: true } : {}),
                   externalId: m.key?.id,
                   status: "ENVIADA",
+                  ...(replyToId ? { replyToId } : {}),
                 },
               });
             } catch (e) {

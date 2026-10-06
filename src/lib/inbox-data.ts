@@ -247,7 +247,9 @@ export const MENSAGEM_LEVE = {
   reaction: true,
   reactionStore: true,
   author: { select: { name: true } },
-  replyTo: { select: { id: true, body: true, direction: true } },
+  // a citada leva o tipo de mídia (miniatura da foto na caixinha) e a data
+  // (para a tela conseguir pular até ela, carregando o passado se preciso)
+  replyTo: { select: { id: true, body: true, direction: true, mediaType: true, createdAt: true } },
 } as const;
 
 /**
@@ -286,7 +288,13 @@ export function mapMessage(m: {
   error: string | null;
   body: string;
   author?: { name: string } | null;
-  replyTo?: { id: string; body: string; direction: string } | null;
+  replyTo?: {
+    id: string;
+    body: string;
+    direction: string;
+    mediaType?: string | null;
+    createdAt?: Date;
+  } | null;
   createdAt: Date;
   deliveredAt: Date | null;
   readAt: Date | null;
@@ -326,6 +334,12 @@ export function mapMessage(m: {
           id: m.replyTo.id,
           body: m.replyTo.body.slice(0, 140),
           direction: m.replyTo.direction,
+          mediaType: m.replyTo.mediaType ?? "TEXT",
+          // MINIATURA DA FOTO CITADA (06/10/2026): como no aplicativo, a
+          // caixinha mostra a foto que a cliente está respondendo. Só o
+          // link — a rota da mídia resolve (e 404 vira caixinha sem foto)
+          mediaUrl: m.replyTo.mediaType === "IMAGE" ? `/api/messages/${m.replyTo.id}/media` : null,
+          createdAt: m.replyTo.createdAt?.toISOString() ?? null,
         }
       : null,
     createdAt: m.createdAt.toISOString(),

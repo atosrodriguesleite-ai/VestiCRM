@@ -11,11 +11,13 @@ import sharp from "sharp";
 export const HEAVY_BYTES = 900 * 1024;
 
 export async function shrinkImage(
-  input: Buffer
+  input: Buffer,
+  /** lado maior em px (1400 = tela; 160 = miniatura da citação) */
+  lado = 1400
 ): Promise<{ buf: Buffer; mime: string }> {
   const buf = await sharp(input)
     .rotate() // respeita a orientação EXIF (foto de celular)
-    .resize({ width: 1400, height: 1400, fit: "inside", withoutEnlargement: true })
+    .resize({ width: lado, height: lado, fit: "inside", withoutEnlargement: true })
     .jpeg({ quality: 78, mozjpeg: true })
     .toBuffer();
   return { buf, mime: "image/jpeg" };

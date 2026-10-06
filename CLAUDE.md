@@ -1127,6 +1127,20 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   tem **barra de pesquisa** em português sem acento ("coracao", "caixa",
   "feliz"; Enter escolhe o primeiro) e é o MESMO na caixa de **editar
   mensagem** — antes não dava para pôr emoji na mensagem editada.
+  **Resposta CITANDO uma mensagem aparece como no aplicativo** (06/10/2026,
+  pedido do dono com o print da cliente respondendo "2 m e 2g" em cima de
+  cada foto): a Central já MANDAVA citação (botão Responder) mas não LIA a
+  que chegava — o webhook ignorava o `contextInfo.stanzaId` e as bolhas
+  nasciam soltas, sem dizer de qual foto era o "2 m e 2g". Agora `citacaoWA`
+  (`lib/comm/wa-message.ts`, também dentro dos embrulhos) lê o id da citada,
+  `idDaMensagemCitada` acha a nossa mensagem com aquele `externalId`
+  (recortado pela loja, RN-013) e a bolha nasce com `replyToId` — a da
+  cliente e o ECO da loja respondendo pelo celular; na API oficial é o
+  `context.id`. A caixinha (`CaixinhaDaCitada`) mostra quem, o texto e a
+  **miniatura** quando a citada é foto (link da mídia dela; não carregou,
+  some e fica o texto), e um toque **pula até a mensagem original** pelo
+  mesmo caminho da lupa (carrega o passado se preciso). Citada que não temos
+  (anterior ao sistema, apagada) deixa a bolha solta, como sempre foi.
   **Reagir com emoji** (25/08/2026): o mesmo gesto do aplicativo — o emoji
   fica GRUDADO na mensagem (uma reação de cada lado: `Message.reaction` da
   cliente, `Message.reactionStore` da loja), nunca vira bolha nova. A reação

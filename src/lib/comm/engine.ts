@@ -676,7 +676,41 @@ export type ReceiveMessageInput = {
    * download e um lote pesado levava as mensagens seguintes embora.
    */
   mediaPending?: boolean;
+  /**
+   * Id, no WhatsApp, da mensagem que esta RESPONDE (o `stanzaId` do
+   * contextInfo). A bolha nasce ligada à citada, como no aplicativo.
+   */
+  replyToExternalId?: string;
 };
+
+/**
+ * Qual mensagem NOSSA é a citada pelo WhatsApp? O id de lá é o `externalId`
+ * de cá — tanto o que a loja mandou pela Central (gravado na resposta do
+ * envio ou pelo eco) quanto o que a cliente mandou. Recortado pela loja
+ * (RN-013) E pela CONVERSA, a mesma régua do envio (`sendMessage` só cita
+ * dentro da conversa): citada de outra conversa faria o toque na caixinha
+ * procurar no histórico errado. Não achou — anterior ao sistema, apagada,
+ * ou ainda não gravada quando a resposta chegou — devolve null e a bolha
+ * nasce solta, como sempre foi. E NUNCA lança: um erro aqui não pode
+ * impedir a mensagem da cliente de ganhar o id do WhatsApp (sem ele a
+ * reentrega do servidor viraria bolha duplicada).
+ */
+export async function idDaMensagemCitada(
+  companyId: string,
+  conversationId: string,
+  externalId: string | null | undefined
+): Promise<string | null> {
+  if (!externalId) return null;
+  try {
+    const citada = await db.message.findFirst({
+      where: { externalId, conversationId, conversation: { companyId } },
+      select: { id: true },
+    });
+    return citada?.id ?? null;
+  } catch {
+    return null;
+  }
+}
 
 /** Entrada de mensagem (webhook) — delega ao Lead Intake Engine. */
 export async function receiveMessage(
@@ -714,6 +748,12 @@ export async function receiveMessage(
   // reentrega do servidor.
   if (result.conversation) {
     if (result.message) {
+      // a mensagem que a cliente está RESPONDENDO (citação), se a temos
+      const replyToId = await idDaMensagemCitada(
+        companyId,
+        result.conversation.id,
+        input.replyToExternalId
+      );
       await db.message.update({
         where: { id: result.message.id },
         data: {
@@ -724,6 +764,7 @@ export async function receiveMessage(
           externalId: input.externalId,
           mediaPending: input.mediaPending ?? false,
           status: "RECEBIDA",
+          ...(replyToId ? { replyToId } : {}),
         },
       });
     }
