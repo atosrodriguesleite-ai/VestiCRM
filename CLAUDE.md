@@ -517,6 +517,50 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   NÚMERO depois de "Total:", não pela palavra "peça" (era assim, e a mensagem
   de uma loja de conjuntos perderia a conferência do total); os itens já eram
   lidos pela posição.
+  **RN-070 · FOTOS PARA A CLIENTE: LINK DE 7 DIAS, GALERIA SEM PREÇO,
+  DOWNLOAD FOTO A FOTO** (`lib/fotos/link.ts`, página
+  `/catalogo/<loja>/fotos/<código>` — curta em `catalago.net/<loja>/fotos/…`
+  —, botão 📸 na Central, 07/10/2026): pedido do dono — *"a cliente sempre
+  fica me pedindo foto das blusas; pensei num drive onde todas as fotos do
+  catálogo ficam, e dentro do WhatsApp eu mando o link"*. Decidido com ele:
+  (1) **não é drive, é FILTRO**: nenhuma foto é copiada — o link guarda só
+  código, categorias, vendedora e dois contadores, e a galeria mostra o
+  acervo de **hoje** (peça inativa ou zerada some sozinha; nada engorda o
+  banco além de uma linha por link); (2) **só a foto**: sem preço (a
+  revendedora reposta com o preço dela) e sem marca d'água (ela usa nas
+  redes sociais dela); (3) **sem ZIP** — "muita gente tem dificuldade de
+  abrir": cada foto tem o seu **Salvar** (`/api/img/<id>?baixar=1&nome=…`
+  entrega a MESMA foto como arquivo com nome legível, "Regata Alça -
+  Preto.jpg", **com a extensão do tipo real** — png não vira .jpg — e o
+  nome simples do cabeçalho em ASCII: emoji ou travessão no nome da peça
+  derrubava o download inteiro com 500, achado da revisão; o nome completo
+  vai no `filename*`), e **"Salvar todas" tem dois caminhos** porque os
+  aparelhos são diferentes: Android/computador baixa **uma a uma em
+  sequência**; **iPhone** vai pela folha de compartilhar do aparelho
+  (`navigator.share` com arquivos → "Salvar imagens" na galeria de fotos,
+  teto de 40 por vez) — o Safari só honra o download disparado pelo TOQUE e
+  a tela anunciaria 20/20 com uma foto salva; se o aparelho não deixar, a
+  tela DIZ para salvar uma a uma; (4) **link aberto, válido por 7 dias**:
+  quem tem o link entra — depois de baixar a foto já está no celular dela,
+  senha não protegeria nada; venceu, a página explica e aponta o WhatsApp da
+  loja (`waLink`, a régua da bio — nunca 404 seco), e a cliente pede outro.
+  A vendedora escolhe as **categorias** (ou todas) e se entram **só peças
+  com estoque** (padrão: sim — a cliente não posta o que a loja não tem), e
+  isso vale **por COR**: a regata com Preto em estoque e Branco zerado
+  mostra a foto do Preto e esconde a do Branco (foto sem cor marcada é da
+  peça e fica; peça que ficou sem foto some). O link carrega a
+  **vendedora** (quem gera; suporte gera sem dona) e a galeria tem o botão
+  **"Ver catálogo"** com o `?ref=` dela (`trackedLinkParts`, a régua do
+  link rastreado) — a cliente que gostou da foto e pede cai na comissão de
+  quem mandou (RN-005). Quem envia é sempre a vendedora: a mensagem pronta
+  volta para o campo (RN-017; cliente com crachá provisório é saudada sem
+  nome, nunca "Oi, Contato!"). **Aberturas** são somadas no `after()` (a
+  chamada solta era congelada pela Vercel, RN-033/RN-053) e **downloads**
+  pela porta pública mínima `/api/catalogo/fotos/evento` (só incrementa um
+  contador de link que existe e ainda vale, **com ritmo por IP** — RN-044,
+  chave `fotosev:`). Limite aceito: a galeria lê as fotos do banco
+  (dívida nº 1) — a migração para armazenamento de arquivos ganha mais um
+  motivo, pelos downloads.
   **RN-018 · Tabelas de preço por link** (`lib/catalogo/tabelas-de-preco.ts`,
   gated por `Company.priceTablesEnabled`, DESLIGADO por padrão): a loja que
   atende lojista E cliente final gera links do MESMO catálogo com tabelas

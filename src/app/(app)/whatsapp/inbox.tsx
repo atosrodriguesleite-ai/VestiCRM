@@ -18,6 +18,7 @@ import {
   ShoppingBag,
   Paperclip,
   Image as ImageIcon,
+  Images,
   Mic,
   File,
   Check,
@@ -119,6 +120,9 @@ import { gravacaoParaWav, TETO_AUDIO_BYTES } from "@/lib/audio-wav";
 import { comprimirFoto, nomeJpeg, TETO_FOTOS_DE_UMA_VEZ } from "@/lib/comprimir-foto";
 import { imagensColadas, rotuloDosAnexos } from "@/lib/colar-imagem";
 import { corpoDaCitada } from "@/lib/comm/wa-message";
+import { EnviarFotosDialog } from "./enviar-fotos";
+import { mensagemDoLinkDeFotos } from "@/lib/fotos/regra";
+import { nomeProvisorio } from "@/lib/nome-provisorio";
 import { Portal } from "@/components/portal";
 
 /**
@@ -2616,6 +2620,25 @@ export function Inbox({
     }
   }
 
+  // ---- Link "Fotos para a cliente" (RN-070) ----
+  // A janelinha escolhe as categorias e gera o link; a mensagem volta para
+  // o rascunho — quem envia é a vendedora, nunca o sistema (RN-017).
+  const [showFotos, setShowFotos] = useState(false);
+  function linkDeFotosGerado(r: { url: string; categorias: string[] }) {
+    setShowFotos(false);
+    if (!selected) return;
+    const msg = draft.trim()
+      ? `${draft.trim()}\n${r.url}`
+      : mensagemDoLinkDeFotos({
+          // crachá provisório ("Contato (82) 9…") não é nome para saudar
+          nomeDaCliente: nomeProvisorio(selected.customer.name) ? "" : selected.customer.name,
+          url: r.url,
+          categorias: r.categorias,
+        });
+    setDraft(msg);
+    taRef.current?.focus();
+  }
+
   // ---- Envio de mídia real (imagem/vídeo/documento) ----
   function pickFile(kind: "IMAGE" | "VIDEO" | "DOCUMENT") {
     setShowAttach(false);
@@ -4857,6 +4880,17 @@ export function Inbox({
                 >
                   <PackageOpen className="size-4.5" />
                 </button>
+                <button
+                  onClick={() => {
+                    setShowFotos(true);
+                    setShowTemplates(false);
+                    setShowAttach(false);
+                  }}
+                  className="p-2 text-gray-400 hover:text-brand-600 transition shrink-0"
+                  title="Enviar fotos: link com as fotos do catálogo (sem preço) para a cliente baixar"
+                >
+                  <Images className="size-4.5" />
+                </button>
                 {canEditCatalogMsg && (
                   <button
                     onClick={() => {
@@ -5189,6 +5223,13 @@ export function Inbox({
         />
       </Portal>
     )}
+
+    <EnviarFotosDialog
+      open={showFotos}
+      customerId={selected?.customer.id ?? null}
+      onClose={() => setShowFotos(false)}
+      onGerado={linkDeFotosGerado}
+    />
 
     {menuConv && (
       <Portal>

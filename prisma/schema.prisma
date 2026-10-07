@@ -184,6 +184,7 @@ model Company {
   aiSettings     AiSettings?
   aiUsage        AiUsage[]
   dadosEnvioLinks DadosEnvioLink[]
+  fotosLinks     FotosLink[]
   funcionarios  Funcionario[]
   fichaFormLinks FichaFormLink[]
   finContas      FinConta[]
@@ -2196,6 +2197,34 @@ model Shipping {
 // da URL deixava o link com ~200 caracteres — feio e assustador no WhatsApp.
 // Aqui o link vira /dados/<código de 11 caracteres sorteados>; o resto
 // (cliente, loja, validade) mora nesta tabela. Vence em 7 dias, como antes.
+/**
+ * LINK DE FOTOS PARA A CLIENTE (RN-070, 07/10/2026): a vendedora escolhe as
+ * categorias e manda um link; a cliente abre uma galeria SEM preço e baixa
+ * as fotos uma a uma (para postar nas redes dela). Vale 7 dias. O link é um
+ * FILTRO sobre as fotos do catálogo — nenhuma foto é copiada para cá.
+ */
+model FotosLink {
+  id           String   @id @default(cuid())
+  companyId    String
+  company      Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  code         String   @unique // sorteado (64 bits) — não se adivinha
+  /** categorias escolhidas; vazio = todas */
+  categorias   String[] @default([])
+  /** só peças com estoque disponível (padrão) */
+  soComEstoque Boolean  @default(true)
+  /** vendedora do link (comissão/atribuição, RN-005); null = da loja */
+  sellerId     String?
+  criadoPorId  String
+  /** para quem foi mandado, quando foi gerado de dentro de uma conversa */
+  customerId   String?
+  aberturas    Int      @default(0)
+  downloads    Int      @default(0)
+  createdAt    DateTime @default(now())
+  expiresAt    DateTime
+
+  @@index([companyId, createdAt])
+}
+
 model DadosEnvioLink {
   id         String   @id @default(cuid())
   companyId  String

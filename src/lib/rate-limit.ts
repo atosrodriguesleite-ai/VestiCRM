@@ -136,6 +136,16 @@ export function chavesDoPedidoCatalogo(companyId: string, ip: string | null): st
   return [`cat:${companyId}|${ip}`, `catip:${ip}`];
 }
 
+/**
+ * Chave do beacon "baixou uma foto" da galeria (RN-070, porta pública de
+ * escrita mínima — RN-044: sem ritmo, um laço inflava o contador do link
+ * com um UPDATE por batida). Sem IP identificável não trava.
+ */
+export const LIMITE_EVENTO_FOTOS_POR_IP = 120;
+export function chavesDoEventoDeFotos(ip: string | null): string[] {
+  return ip ? [`fotosev:${ip}`] : [];
+}
+
 /** Chave do formulário de demonstração da landing page. */
 export function chavesDoDemo(ip: string | null): string[] {
   return ip ? [`demo:${ip}`] : [];
@@ -155,6 +165,7 @@ function limiteDa(chave: string): number {
   if (chave.startsWith("cat:")) return LIMITE_CATALOGO_POR_PAR;
   if (chave.startsWith("catip:")) return LIMITE_CATALOGO_POR_IP;
   if (chave.startsWith("demo:")) return LIMITE_DEMO_POR_IP;
+  if (chave.startsWith("fotosev:")) return LIMITE_EVENTO_FOTOS_POR_IP;
   if (chave.startsWith("codigo:")) return LIMITE_CODIGOS_POR_USUARIO;
   if (chave.startsWith("codip:")) return LIMITE_CODIGO_POR_IP;
   if (chave.startsWith("errotela:")) return LIMITE_RELATO_ERRO_POR_USUARIO;

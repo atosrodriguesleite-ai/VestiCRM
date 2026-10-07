@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createHash } from "crypto";
 import { db } from "@/lib/db";
 import { shrinkImage, dataUrlToBuffer, bufferToDataUrl } from "@/lib/img-server";
+import { disposicaoDoDownload, nomeDoDownload } from "@/lib/img";
 
 /** Identificação do ambiente (para diagnóstico): banco e versão do código. */
 const DB_FP = createHash("sha256")
@@ -24,15 +25,24 @@ const DEPLOY = process.env.VERCEL_GIT_COMMIT_SHA?.slice(0, 7) ?? "local";
  */
 
 const MAX_EXTERNAL_BYTES = 8 * 1024 * 1024; // 8 MB por foto
+
 // Acima disso a resposta corre risco de estourar o limite do serverless
 // (~4,5 MB) e a foto quebra no catálogo: comprime antes de entregar.
 const SAFE_RESPONSE_BYTES = 3 * 1024 * 1024;
 
-function serveBuffer(body: Buffer, mime: string): NextResponse {
+/**
+ * `?baixar=1&nome=…` (RN-070, galeria de fotos): a MESMA foto sai como
+ * arquivo para salvar, com nome legível — no celular, abrir a foto numa aba
+ * não é "baixar", e a cliente não acha onde ela foi parar. O nome é lido
+ * por requisição (a URL com `?baixar` é outra entrada no cache) e a
+ * extensão é a do tipo REAL da foto.
+ */
+function serveBuffer(body: Buffer, mime: string, nomeDownload: string | null = null): NextResponse {
   return new NextResponse(new Uint8Array(body), {
     headers: {
       "Content-Type": mime || "image/jpeg",
       "Content-Length": String(body.byteLength),
+      ...(nomeDownload ? { "Content-Disposition": disposicaoDoDownload(nomeDownload, mime || "image/jpeg") } : {}),
       // foto de produto não muda (editar = nova imagem/id): cache imutável.
       // s-maxage faz a CDN da Vercel guardar a foto — o banco só é
       // consultado UMA vez por foto, não uma vez por visitante.
@@ -42,7 +52,7 @@ function serveBuffer(body: Buffer, mime: string): NextResponse {
   });
 }
 
-async function serveDataUrl(id: string, dataUrl: string): Promise<NextResponse> {
+async function serveDataUrl(id: string, dataUrl: string, nomeDownload: string | null = null): Promise<NextResponse> {
   const decoded = dataUrlToBuffer(dataUrl);
   if (!decoded) {
     return NextResponse.json(
@@ -68,14 +78,15 @@ async function serveDataUrl(id: string, dataUrl: string): Promise<NextResponse> 
       // não há alternativa melhor aqui)
     }
   }
-  return serveBuffer(buf, mime);
+  return serveBuffer(buf, mime, nomeDownload);
 }
 
 export async function GET(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
+  const nomeDownload = nomeDoDownload(req.nextUrl.searchParams);
   const img = await db.productImage.findUnique({
     where: { id },
     select: { url: true },
@@ -95,7 +106,7 @@ export async function GET(
   }
 
   if (img.url.startsWith("data:")) {
-    return serveDataUrl(id, img.url);
+    return serveDataUrl(id, img.url, nomeDownload);
   }
 
   // ATALHO INTERNO (/api/img/<outroId>): herança de importação que gravou a
@@ -113,7 +124,7 @@ export async function GET(
       db.productImage
         .update({ where: { id }, data: { url: target.url } })
         .catch(() => {});
-      return serveDataUrl(id, target.url);
+      return serveDataUrl(id, target.url, nomeDownload);
     }
     return NextResponse.json(
       { error: "Não encontrada", ref: ref[1], db: DB_FP, dep: DEPLOY },
@@ -151,7 +162,7 @@ export async function GET(
           db.productImage
             .update({ where: { id }, data: { url: bufferToDataUrl(buf, mime) } })
             .catch(() => {});
-          return serveBuffer(buf, mime);
+          return serveBuffer(buf, mime, nomeDownload);
         }
       }
     } catch {
@@ -163,7 +174,7 @@ export async function GET(
   }
 
   // Caminho interno (/products/x.svg): redireciona com base na requisição.
-  return NextResponse.redirect(new URL(img.url, _req.url), {
+  return NextResponse.redirect(new URL(img.url, req.url), {
     headers: { "Cache-Control": "public, max-age=86400" },
   });
 }
