@@ -5,7 +5,7 @@ import { db } from "@/lib/db";
 import { criarLinkDeFotos, normalizarCategorias, urlDoLinkDeFotos } from "@/lib/fotos/link";
 
 /**
- * RN-070 · Link de fotos para a cliente.
+ * RN-071 · Link de fotos para a cliente.
  *  GET  → as categorias da loja com quantas peças têm foto (e quantas com
  *         estoque), para a janelinha da Central montar as caixinhas.
  *  POST → gera o link (código sorteado, 7 dias) e devolve a URL pública.

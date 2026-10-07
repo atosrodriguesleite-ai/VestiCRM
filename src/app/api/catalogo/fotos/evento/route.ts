@@ -3,7 +3,7 @@ import { db } from "@/lib/db";
 import { chavesDoEventoDeFotos, ipDaRequisicao, registrarTentativa, segundosDeBloqueio } from "@/lib/rate-limit";
 
 /**
- * RN-070 · a galeria avisa "baixou N fotos" (beacon, sem login). Porta
+ * RN-071 · a galeria avisa "baixou N fotos" (beacon, sem login). Porta
  * pública de escrita mínima: só soma num contador do link que EXISTE e
  * ainda vale — código desconhecido ou vencido não grava nada. O corpo não
  * é guardado, então não há o que inflar além do número — e o número tem

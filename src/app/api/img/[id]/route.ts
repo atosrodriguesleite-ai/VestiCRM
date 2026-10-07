@@ -31,7 +31,7 @@ const MAX_EXTERNAL_BYTES = 8 * 1024 * 1024; // 8 MB por foto
 const SAFE_RESPONSE_BYTES = 3 * 1024 * 1024;
 
 /**
- * `?baixar=1&nome=…` (RN-070, galeria de fotos): a MESMA foto sai como
+ * `?baixar=1&nome=…` (RN-071, galeria de fotos): a MESMA foto sai como
  * arquivo para salvar, com nome legível — no celular, abrir a foto numa aba
  * não é "baixar", e a cliente não acha onde ela foi parar. O nome é lido
  * por requisição (a URL com `?baixar` é outra entrada no cache) e a

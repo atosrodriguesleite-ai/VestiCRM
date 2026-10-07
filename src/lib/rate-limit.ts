@@ -137,7 +137,7 @@ export function chavesDoPedidoCatalogo(companyId: string, ip: string | null): st
 }
 
 /**
- * Chave do beacon "baixou uma foto" da galeria (RN-070, porta pública de
+ * Chave do beacon "baixou uma foto" da galeria (RN-071, porta pública de
  * escrita mínima — RN-044: sem ritmo, um laço inflava o contador do link
  * com um UPDATE por batida). Sem IP identificável não trava.
  */

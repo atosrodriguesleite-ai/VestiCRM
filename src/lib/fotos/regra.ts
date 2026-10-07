@@ -1,8 +1,8 @@
 /**
- * RN-070 · FOTOS PARA A CLIENTE — A RÉGUA PURA (o que a tela e a galeria
+ * RN-071 · FOTOS PARA A CLIENTE — A RÉGUA PURA (o que a tela e a galeria
  * importam; o arquivo com banco é `link.ts` e não pode chegar ao navegador)
  *
- * RN-070 · FOTOS PARA A CLIENTE (pedido do dono, 07/10/2026): *"a cliente
+ * RN-071 · FOTOS PARA A CLIENTE (pedido do dono, 07/10/2026): *"a cliente
  * sempre fica me pedindo foto das blusas"*. A vendedora escolhe as
  * categorias (ou todas) na Central e manda um link; a cliente abre uma
  * galeria no celular e baixa as fotos que quiser, UMA A UMA.

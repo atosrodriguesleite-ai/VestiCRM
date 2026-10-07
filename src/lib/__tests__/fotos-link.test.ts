@@ -1,4 +1,4 @@
-// Guarda RN-070
+// Guarda RN-071
 import { describe, it, expect } from "vitest";
 import {
   VALIDADE_DO_LINK_DE_FOTOS_MS,
@@ -14,7 +14,7 @@ import { disposicaoDoDownload, downloadHref, extensaoDaImagem, nomeDoDownload } 
 import { chavesDoEventoDeFotos } from "../rate-limit";
 
 /**
- * RN-070 · FOTOS PARA A CLIENTE: link de 7 dias, galeria SEM preço, download
+ * RN-071 · FOTOS PARA A CLIENTE: link de 7 dias, galeria SEM preço, download
  * foto a foto (sem ZIP), filtro vivo sobre as fotos do catálogo.
  */
 

@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * RN-070 · a galeria que a cliente abre no celular: categorias em chips,
+ * RN-071 · a galeria que a cliente abre no celular: categorias em chips,
  * grade de fotos, toque abre a foto grande e cada foto tem o seu BAIXAR
  * (sem ZIP — decisão do dono: "muitas pessoas têm dificuldade de abrir").
  * Sem preço e sem marca: a foto é para ela repostar.

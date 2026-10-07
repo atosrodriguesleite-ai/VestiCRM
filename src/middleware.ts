@@ -42,7 +42,7 @@ const PUBLIC_PATHS = [
   // linha o porteiro devolvia 401 e o link chegava vazio (o token da URL —
   // id não adivinhável — é quem autentica; a rota só devolve itens)
   "/api/catalogo/sacola",
-  "/api/catalogo/fotos/evento", // a galeria de fotos (RN-070) conta o download
+  "/api/catalogo/fotos/evento", // a galeria de fotos (RN-071) conta o download
   "/api/img", // fotos de produto (catálogo público carrega daqui)
   "/api/cron/", // tarefas agendadas do Vercel (protegidas por CRON_SECRET)
   // A CLIENTE preenche os dados de envio pelo link do chat (RN-024) — página
@@ -98,7 +98,7 @@ export async function middleware(req: NextRequest) {
         url.pathname = `/catalogo/${segs[0]}/c/${segs[2]}`;
         return NextResponse.rewrite(url);
       }
-      // galeria de FOTOS para a cliente (RN-070): catalago.net/<loja>/fotos/<código>
+      // galeria de FOTOS para a cliente (RN-071): catalago.net/<loja>/fotos/<código>
       if (segs.length === 3 && segs[1] === "fotos") {
         const url = req.nextUrl.clone();
         url.pathname = `/catalogo/${segs[0]}/fotos/${segs[2]}`;

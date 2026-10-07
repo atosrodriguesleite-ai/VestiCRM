@@ -27,7 +27,7 @@ export function imageHref(id: string): string {
 }
 
 /**
- * RN-070 (galeria de fotos): `?baixar=1&nome=…` faz a MESMA foto sair como
+ * RN-071 (galeria de fotos): `?baixar=1&nome=…` faz a MESMA foto sair como
  * arquivo para salvar, com nome legível — no celular, abrir a foto numa aba
  * não é "baixar", e a cliente não acha onde ela foi parar. A URL com
  * `?baixar` é outra entrada no cache, então a foto inline segue imutável.
@@ -74,7 +74,7 @@ export function disposicaoDoDownload(nome: string, mime: string): string {
   return `attachment; filename="${simples}.${ext}"; filename*=UTF-8''${encodeURIComponent(nome)}.${ext}`;
 }
 
-/** link da foto para SALVAR (RN-070) */
+/** link da foto para SALVAR (RN-071) */
 export function downloadHref(id: string, nome: string): string {
   return `/api/img/${id}?v=${IMG_V}&baixar=1&nome=${encodeURIComponent(nome)}`;
 }

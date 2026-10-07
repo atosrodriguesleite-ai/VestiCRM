@@ -1,5 +1,5 @@
 /**
- * RN-070 · FOTOS PARA A CLIENTE — a parte com BANCO (criar e ler o link).
+ * RN-071 · FOTOS PARA A CLIENTE — a parte com BANCO (criar e ler o link).
  * A régua pura mora em `regra.ts` e é reexportada daqui para o servidor.
  */
 import crypto from "crypto";

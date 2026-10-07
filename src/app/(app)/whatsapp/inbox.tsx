@@ -2620,7 +2620,7 @@ export function Inbox({
     }
   }
 
-  // ---- Link "Fotos para a cliente" (RN-070) ----
+  // ---- Link "Fotos para a cliente" (RN-071) ----
   // A janelinha escolhe as categorias e gera o link; a mensagem volta para
   // o rascunho — quem envia é a vendedora, nunca o sistema (RN-017).
   const [showFotos, setShowFotos] = useState(false);

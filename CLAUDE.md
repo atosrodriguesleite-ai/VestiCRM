@@ -517,7 +517,7 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   NÚMERO depois de "Total:", não pela palavra "peça" (era assim, e a mensagem
   de uma loja de conjuntos perderia a conferência do total); os itens já eram
   lidos pela posição.
-  **RN-070 · FOTOS PARA A CLIENTE: LINK DE 7 DIAS, GALERIA SEM PREÇO,
+  **RN-071 · FOTOS PARA A CLIENTE: LINK DE 7 DIAS, GALERIA SEM PREÇO,
   DOWNLOAD FOTO A FOTO** (`lib/fotos/link.ts`, página
   `/catalogo/<loja>/fotos/<código>` — curta em `catalago.net/<loja>/fotos/…`
   —, botão 📸 na Central, 07/10/2026): pedido do dono — *"a cliente sempre

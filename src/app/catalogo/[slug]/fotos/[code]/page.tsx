@@ -7,7 +7,7 @@ import { lerLinkDeFotos, linkDeFotosVivo, montarGaleria, urlDoCatalogoDoLink } f
 import { GaleriaDeFotos } from "./galeria";
 
 /**
- * RN-070 · GALERIA DE FOTOS PARA A CLIENTE (pública, sem login).
+ * RN-071 · GALERIA DE FOTOS PARA A CLIENTE (pública, sem login).
  *
  * O link é um filtro sobre as fotos do catálogo: a página monta a galeria
  * com o acervo de HOJE (peça inativa ou zerada some sozinha), sem preço.

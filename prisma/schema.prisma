@@ -2198,7 +2198,7 @@ model Shipping {
 // Aqui o link vira /dados/<código de 11 caracteres sorteados>; o resto
 // (cliente, loja, validade) mora nesta tabela. Vence em 7 dias, como antes.
 /**
- * LINK DE FOTOS PARA A CLIENTE (RN-070, 07/10/2026): a vendedora escolhe as
+ * LINK DE FOTOS PARA A CLIENTE (RN-071, 07/10/2026): a vendedora escolhe as
  * categorias e manda um link; a cliente abre uma galeria SEM preço e baixa
  * as fotos uma a uma (para postar nas redes dela). Vale 7 dias. O link é um
  * FILTRO sobre as fotos do catálogo — nenhuma foto é copiada para cá.

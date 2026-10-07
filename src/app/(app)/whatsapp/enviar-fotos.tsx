@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * RN-070 · a janelinha "Enviar fotos" da Central: a vendedora marca as
+ * RN-071 · a janelinha "Enviar fotos" da Central: a vendedora marca as
  * categorias (ou Todas), escolhe se entram só peças com estoque, e o
  * sistema gera o link de 7 dias — a mensagem pronta volta para o campo de
  * digitação (quem envia é a vendedora, nunca o sistema: RN-017).
