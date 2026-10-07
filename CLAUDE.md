@@ -340,7 +340,19 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   volta, nada é empurrado às integrações). Reabrir pedido baixado NÃO
   desconta de novo (`resolveCancelStock`/`resolveReopenStock` em
   lib/orders.ts). Integrações donas de estoque (Nuvemshop) espelham — uma
-  venda, uma baixa.
+  venda, uma baixa. **Pedido cancelado tem dois botões na lista**
+  (`pedidos/acoes-cancelado.tsx`, pedido do dono em 07/10/2026): **"Restaurar
+  como orçamento"** passa pela porta de sempre do pedido — volta a SEGURAR o
+  estoque como pedido novo (recusa com frase se a peça já foi vendida para
+  outra cliente), e cancelar de novo volta a perguntar se devolve ou baixa de
+  vez; o cancelado com baixa definitiva não desconta de novo. **"Recuperar
+  venda"** abre a conversa da cliente na Central com a mensagem sugerida já
+  no campo (`mensagemDeRecuperacao` em `lib/recuperar-venda.ts`, o mesmo
+  caminho do "Conversar" da Agenda) — a vendedora revisa e manda, nada sai
+  sozinho. Provado contra o Postgres local: 8 → 5 (criou) → 8 (cancelou
+  devolvendo) → 5 (restaurou) → 5 (cancelou baixando) → 5 (restaurou, sem
+  descontar de novo) → 8 (cancelou devolvendo) → 409 ao restaurar com a peça
+  vendida no meio.
 - **RN-005 · Comissão e painel de pedidos** (`Order.sellerId`): pedido montado no
   sistema → quem montou; pedido do catálogo público → **QUEM MANDOU O LINK
   LEVA A VENDA, e SÓ ele** (`?ref=`) — a cliente chega no WhatsApp, a

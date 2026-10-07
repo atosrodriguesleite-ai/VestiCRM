@@ -17,6 +17,7 @@ import { Card, PageHeader, Avatar, Badge, EmptyState } from "@/components/ui";
 import { NewOrderButton } from "./new-order";
 import { ImportarMensagemButton } from "./importar-mensagem";
 import { RowStatusMenu } from "./row-status-menu";
+import { AcoesDoCancelado } from "./acoes-cancelado";
 import type { OrderStatus, Prisma } from "@prisma/client";
 import { classificarBusca, clientesDaBusca } from "@/lib/busca-de-pedidos";
 
@@ -688,6 +689,18 @@ export default async function OrdersPage({
                     {brl(o.total)}
                   </span>
                 </div>
+                {/* pedido CANCELADO: restaurar como orçamento (volta a segurar
+                    o estoque) ou abrir a conversa para recuperar a venda */}
+                {o.status === "CANCELADO" && (
+                  <AcoesDoCancelado
+                    orderId={o.id}
+                    customerId={o.customerId}
+                    nomeDaCliente={o.customer.name}
+                    numero={orderNumber(o.number)}
+                    totalDePecas={o._count.items}
+                    pecas={o.items.map((i) => i.name)}
+                  />
+                )}
               </Card>
             </Link>
             );
