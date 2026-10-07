@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { catalogPrice } from "@/lib/orders";
 import { db } from "@/lib/db";
+import { enderecoDaLogo } from "@/lib/catalogo/logo-da-loja";
 import { imageHref } from "@/lib/img";
 import { ordenarVariantes } from "@/lib/tamanhos";
 import {
@@ -157,7 +158,9 @@ export async function montarCatalogo({
           : null
       }
       identity={{
-        logoUrl: company.logoUrl,
+        // a logo vai por ENDEREÇO, nunca dentro da página (RN-070): embutida,
+        // ela segurava a primeira pintura e o catálogo abria em tela preta
+        logoUrl: enderecoDaLogo(company),
         primary: company.catalogPrimary,
         secondary: company.catalogSecondary,
         bg: company.catalogBg,
