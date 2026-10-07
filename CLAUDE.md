@@ -517,6 +517,44 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   NÚMERO depois de "Total:", não pela palavra "peça" (era assim, e a mensagem
   de uma loja de conjuntos perderia a conferência do total); os itens já eram
   lidos pela posição.
+  **RN-070 · A LOGO DA LOJA NA VITRINE PÚBLICA VAI POR ENDEREÇO, NUNCA
+  DENTRO DA PÁGINA** (`lib/catalogo/logo-da-loja.ts` + rota
+  `app/api/img/logo/[slug]`, 07/10/2026): relato do dono com o print do
+  iPhone — a cliente abria o link do catálogo pelo WhatsApp e via só a **tela
+  preta**, com a barrinha de carregamento parada no começo. A logo mora no
+  banco como data-URL (dívida nº 1) e ia embutida na página **três vezes**
+  (cabeçalho, rodapé e os dados do React); a primeira cópia fica no topo do
+  `<body>`, e o navegador precisa baixar o bloco inteiro antes de desenhar
+  qualquer coisa. Medido com uma logo pesada: a página foi de 1,2 MB para
+  12,4 MB, e num 4G fraco a primeira pintura saiu de 1,7 s para **18 s** — o
+  "não abre" de quem está com sinal ruim, enquanto quem está no Wi-Fi não
+  percebe nada. Depois do conserto, a mesma loja: 1,2 MB e 1,7 s. As fotos dos
+  produtos já tinham aprendido isso (`/api/img/<id>`, o catálogo da Entre
+  Linhas chegava a 19 MB); a logo ficou para trás. Agora os dois produtores da
+  vitrine (o catálogo normal/tabela e o de campanha) mandam só
+  `enderecoDaLogo`: `/api/img/logo/<loja>?v=<impressão digital do
+  conteúdo>` — trocar a logo muda o endereço na hora. Com a versão certa o
+  cache é forte (um ano no navegador, **um dia na CDN**, para a loja suspensa
+  sair da borda no dia seguinte); sem versão ou com uma velha, 1 minuto. A
+  rota é **pública e só de leitura** (`/api/img` já é público no porteiro),
+  responde 404 para loja suspensa ou inexistente (régua do catálogo) e **só
+  entrega imagem de verdade**: PNG, JPEG, WebP ou GIF conferidos pelo
+  CONTEÚDO (`lerImagem`, a mesma régua do `isRealImage`), nunca pelo rótulo —
+  a logo é gravada por uma rota que aceita qualquer texto, e um SVG com
+  script servido no endereço do app rodaria com a sessão de quem abrisse —,
+  com `nosniff`; valor torto vira 415, nunca 500. Logo acima de 300 KB sai a
+  800 px no lado maior, com a orientação da câmera aplicada: JPEG e WebP no
+  formato deles, PNG e GIF como PNG (a transparência do "remover fundo"
+  continua; o GIF perde a animação) — e se não sair menor, vale o original.
+  **Logo de outro tipo (SVG que veio por importação, BMP) segue EMBUTIDA**,
+  como sempre foi: mandá-la para a rota trocaria uma logo que funcionava por
+  imagem quebrada, e SVG de logo costuma ser pequeno. Logo gravada como link
+  externo passa como está. **Limites ditos**: a página ainda LÊ a logo do
+  banco a cada visita (já lia antes — o que saiu foi o peso na página da
+  cliente); a bio pública (`/bio/[slug]`) ainda embute avatar, capa e
+  imagens dos links do mesmo jeito — é entrega própria; e o ícone da aba do
+  catálogo (`icon.tsx`) continua lendo a data-URL, mas é outro pedido, que
+  não segura a página.
   **RN-018 · Tabelas de preço por link** (`lib/catalogo/tabelas-de-preco.ts`,
   gated por `Company.priceTablesEnabled`, DESLIGADO por padrão): a loja que
   atende lojista E cliente final gera links do MESMO catálogo com tabelas

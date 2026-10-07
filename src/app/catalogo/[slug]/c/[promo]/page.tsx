@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import type { Metadata } from "next";
 import { catalogPrice } from "@/lib/orders";
 import { db } from "@/lib/db";
+import { enderecoDaLogo } from "@/lib/catalogo/logo-da-loja";
 import { imageHref } from "@/lib/img";
 import {
   parseCategoryDescriptions,
@@ -141,7 +142,9 @@ export default async function PromoCatalogPage({
       hideSoldOut={company.catalogHideOutOfStock}
       hideColors={company.catalogHideColors}
       identity={{
-        logoUrl: company.logoUrl,
+        // a logo vai por ENDEREÇO, nunca dentro da página (RN-070): embutida,
+        // ela segurava a primeira pintura e o catálogo abria em tela preta
+        logoUrl: enderecoDaLogo(company),
         primary: company.catalogPrimary,
         secondary: company.catalogSecondary,
         bg: company.catalogBg,

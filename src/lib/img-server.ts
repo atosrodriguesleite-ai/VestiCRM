@@ -47,10 +47,23 @@ export function bufferToDataUrl(buf: Buffer, mime: string): string {
  * navegador. O sharp lê só o cabeçalho: rápido e definitivo.
  */
 export async function isRealImage(buf: Buffer): Promise<boolean> {
+  return (await lerImagem(buf)) !== null;
+}
+
+/**
+ * O formato e o tamanho de uma imagem DE VERDADE, lidos do conteúdo (null se
+ * o sharp não a decodifica). É a mesma régua do `isRealImage`, devolvendo o
+ * formato — a rota da logo pública decide por ele, nunca pelo rótulo da
+ * data-URL (RN-070).
+ */
+export async function lerImagem(
+  buf: Buffer
+): Promise<{ format: string; width: number; height: number } | null> {
   try {
     const meta = await sharp(buf).metadata();
-    return Boolean(meta.format && (meta.width ?? 0) > 0 && (meta.height ?? 0) > 0);
+    if (!meta.format || !meta.width || !meta.height) return null;
+    return { format: meta.format, width: meta.width, height: meta.height };
   } catch {
-    return false;
+    return null;
   }
 }
