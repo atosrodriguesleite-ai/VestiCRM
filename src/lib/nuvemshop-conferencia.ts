@@ -4,6 +4,7 @@ import {
   lerVariacoesNuvemshop,
   mesmaCor,
   norm,
+  skusRepetidos,
   type VariacaoNs,
 } from "./nuvemshop";
 
@@ -137,6 +138,14 @@ export function conferirComHistorico(
   //      conferência da Toque Leve isso sozinho dobrava o tamanho da lista).
   const dupAqui = new Map([...porSku(aqui)].filter(([, l]) => l.length > 1));
   const dupLa = new Map([...porSku(la)].filter(([, l]) => l.length > 1));
+  // SKU repetido DENTRO de cada produto de lá — a régua da sincronização
+  // (`skusRepetidos`, RN-072), produto por produto
+  const laPorProduto = new Map<string, VariacaoNs[]>();
+  for (const v of la) laPorProduto.set(v.prodId, [...(laPorProduto.get(v.prodId) ?? []), v]);
+  const repetidoNoProdutoLa = new Set<string>();
+  for (const [prodId, vs] of laPorProduto) {
+    for (const k of skusRepetidos(vs)) repetidoNoProdutoLa.add(`${prodId}|${k}`);
+  }
 
   // PEÇAS COM A CAUSA AINDA VIVA. A pergunta "esta disputa ainda acontece?"
   // não se faz ao relógio (rodada longa e sync que não mexe em nada enganam
@@ -233,7 +242,20 @@ export function conferirComHistorico(
     // 4. CARIMBO CRUZADO — o achado que pega o caso do SKU duplicado: o
     //    vínculo diz uma coisa e o SKU diz outra. Como o vínculo manda, o
     //    estoque está vindo da peça ERRADA.
-    if (v.sku && par.sku && norm(v.sku) !== norm(par.sku)) {
+    //    SKU REPETIDO lá não diz qual peça é qual (RN-072): ali a
+    //    sincronização casa pela cor × tamanho, e o SKU diferente do daqui é o
+    //    esperado — o aviso certo é o do SKU repetido, já dado acima. Chamar
+    //    de "vínculo errado" mandaria o botão soltar justamente os certos.
+    //    (Repetido DENTRO do mesmo produto de lá — é o recorte da
+    //    sincronização. Repetido em produtos diferentes ela casa pelo SKU, e
+    //    aí o vínculo para outro SKU segue sendo cruzado de verdade.)
+    //    Só vale quando o par é o da MESMA cor × tamanho (é como a
+    //    sincronização casa ali): o G daqui ligado à M de lá continua errado.
+    const parPelaCorETamanho =
+      repetidoNoProdutoLa.has(`${par.prodId}|${norm(par.sku)}`) &&
+      norm(v.cor) === norm(par.cor) &&
+      norm(v.tamanho) === norm(par.tamanho);
+    if (v.sku && par.sku && norm(v.sku) !== norm(par.sku) && !parPelaCorETamanho) {
       causaViva.add(v.id);
       achados.push({
         tipo: "CARIMBO_CRUZADO",

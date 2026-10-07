@@ -1,5 +1,12 @@
 import { db } from "./db";
-import { norm, indiceDeSkusParecidos, skuParecidoNoCadastro, pistaDoSku, type SyncPendencia } from "./nuvemshop";
+import {
+  norm,
+  indiceDeSkusParecidos,
+  skuParecidoNoCadastro,
+  pistaDoSku,
+  skusRepetidos,
+  type SyncPendencia,
+} from "./nuvemshop";
 
 /**
  * Relatório PRÉ-CONEXÃO: o lojista exporta a planilha de produtos da
@@ -171,11 +178,11 @@ export async function simularVinculo(
   for (const lp of locais)
     for (const v of lp.variants)
       if (v.sku) vezesPorSku.set(norm(v.sku), (vezesPorSku.get(norm(v.sku)) ?? 0) + 1);
-  const skuMap = new Map<string, { productName: string }>();
+  const skuMap = new Map<string, { productName: string; productId: string; variantId: string }>();
   for (const lp of locais) {
     for (const v of lp.variants) {
       if (v.sku && vezesPorSku.get(norm(v.sku)) === 1) {
-        skuMap.set(norm(v.sku), { productName: lp.name });
+        skuMap.set(norm(v.sku), { productName: lp.name, productId: lp.id, variantId: v.id });
       }
     }
   }
@@ -236,9 +243,35 @@ export async function simularVinculo(
 
     // Produto será VINCULADO por SKU. Cada variação COM SKU entra sozinha:
     // ou casa pelo próprio SKU, ou (sendo variação nova) é adicionada ao
-    // produto já identificado. Só variação SEM SKU vira pendência.
+    // produto já identificado. Variação SEM SKU vira pendência.
+    // RN-072: SKU repetido DENTRO do produto de lá não casa por SKU nem
+    // identifica o produto — casa pela cor × tamanho do produto identificado
+    // por OUTRO SKU, e sem isso vira pendência "repetido LÁ"
+    const repetidos = skusRepetidos(p.variants);
+    const pelaSkuUnica = p.variants
+      .map((v) => (v.sku && !repetidos.has(norm(v.sku)) ? skuMap.get(norm(v.sku)) : undefined))
+      .filter((x): x is NonNullable<typeof x> => !!x);
+    const alvo = locais.find((lp) => lp.id === pelaSkuUnica[0]?.productId);
+    const ocupadas = new Set(pelaSkuUnica.map((x) => x.variantId));
     for (const v of p.variants) {
-      if ((v.sku ?? "").trim()) report.casariam++;
+      const temSku = !!(v.sku ?? "").trim();
+      if (temSku && repetidos.has(norm(v.sku))) {
+        const mesma = alvo?.variants.find(
+          (lv) => norm(lv.color) === norm(v.color) && norm(lv.size) === norm(v.size)
+        );
+        if (mesma && !ocupadas.has(mesma.id)) {
+          ocupadas.add(mesma.id);
+          report.casariam++;
+        } else {
+          report.pendencias.push({
+            produtoNs: p.name,
+            cor: v.color,
+            tamanho: v.size,
+            sku: v.sku,
+            repetidoLa: true,
+          });
+        }
+      } else if (temSku && (alvo || skuMap.has(norm(v.sku)))) report.casariam++;
       else
         report.pendencias.push({
           produtoNs: p.name,

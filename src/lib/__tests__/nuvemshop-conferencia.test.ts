@@ -486,9 +486,12 @@ describe("a trava na sincronização", () => {
 
   it("cor nova em produto que declara cor NÃO é criada — vira pendência", () => {
     expect(fonte).toContain("TRAVA DA COR");
-    expect(fonte).toContain("corDoProduto && !mesmaCor(color, corDoProduto)");
+    // a régua mora numa função só, que vale também para a cor × tamanho da
+    // RN-072 (SKU repetido lá não casa por cor de fora do produto)
+    expect(fonte).toContain("!!corDoProdutoAlvo && !mesmaCor(cor, corDoProdutoAlvo)");
+    expect(fonte).toContain("if (corForaDoProduto(color)) {");
     // a trava tem que ficar ANTES da criação da variação
-    expect(fonte.indexOf("TRAVA DA COR")).toBeLessThan(
+    expect(fonte.indexOf("if (corForaDoProduto(color)) {")).toBeLessThan(
       fonte.indexOf("const nova = await db.productVariant.create")
     );
   });

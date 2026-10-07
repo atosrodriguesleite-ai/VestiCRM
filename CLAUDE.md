@@ -1510,6 +1510,58 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   peça ficou dias com o número errado de um dos lados, e divergência de
   estoque ou faz a loja deixar de vender peça que tem, ou vender peça que não
   tem.
+  **RN-072 · UMA PEÇA DAQUI ESPELHA UMA VARIAÇÃO DE LÁ — E SKU REPETIDO
+  LÁ NÃO CASA POR SKU** (`escolherAlvos` em `lib/nuvemshop.ts`, 07/10/2026):
+  relato do dono com o print da Regata Quadrada — *"aqui consta 50, e no
+  nuvem 4"*. Na Nuvemshop, P, M, G e GG da Azul Marinho estavam todos com o
+  SKU "RQD-MAR-P" (a Nuvemshop copia o SKU ao montar a grade). A trava de
+  ambiguidade da Toque Leve só olhava SKU repetido AQUI; repetido LÁ, as
+  quatro variações casavam com a nossa P, uma depois da outra, e **a última
+  lida ganhava** — a P mostrava o número de outro tamanho, os outros ficavam
+  zerados e sem vínculo, e toda venda da P daqui avisava a Nuvemshop na peça
+  ERRADA (RN-053). E corrigir o SKU lá **não bastava**: o mapa de vínculos é
+  a foto do começo da rodada, e a P que casava com a P de lá pelo SKU voltava
+  para a M pelo vínculo velho no mesmo laço. Agora a escolha é feita ANTES do
+  laço e **cada peça daqui é alvo de UMA variação de lá por rodada**, nesta
+  ordem de confiança: (1) vínculo que um SKU confiável confirma; (2) SKU que
+  aparece uma vez só no produto de lá (sem tirar de outro produto de lá a
+  peça dele quando a variação de lá já tem vínculo próprio — era assim
+  antes); (3) para SKU **repetido** lá, a **cor × tamanho do produto já
+  identificado** — SKU repetido não confirma nada, então não casa por SKU nem
+  segura vínculo velho, e a cor × tamanho nunca toma peça que espelha OUTRO
+  produto de lá (a cópia do produto feita lá não arrasta a grade do
+  original) nem passa por cima da trava da cor; (4) o vínculo que sobrou,
+  se a peça ficou livre (quem trocou o SKU só lá segue espelhado, como
+  sempre). SKU repetido também **não identifica o produto daqui** (a cópia
+  do produto feita lá arrastaria a grade do original): sem vínculo nenhum,
+  nada é escrito e tudo vira pendência. Com isso **o estado torto se desfaz
+  sozinho na sincronização seguinte**, mesmo antes de a lojista corrigir o
+  SKU, a ordem em que a Nuvemshop devolve as variações não muda o resultado,
+  e **religar tira o carimbo de quem o tinha** — duas peças daqui ligadas à
+  mesma de lá fariam a venda da antiga avisar a Nuvemshop na peça errada. O que a cor × tamanho
+  não resolve vira **pendência "repetido LÁ"** (a tela diz que o conserto é
+  na Nuvemshop: cada variação com o seu SKU) — nunca variação nova com SKU
+  ambíguo, nunca segunda escritora na mesma peça (nem peça que espelha
+  outro produto de lá), e o SKU repetido **não é copiado** para a ficha daqui
+  — nem no produto novo espelhado, que nasce ligado pelo vínculo e ganha o
+  SKU quando ele for corrigido lá. As pendências do laço vão também para o
+  relatório guardado quando quem chama é o webhook (antes sumiam), sem
+  repetir a mesma (a mesma peça com conselho novo troca o conselho). E a
+  **conferência não chama de "vínculo cruzado"** o par cujo SKU é repetido
+  DENTRO do mesmo produto de lá e que tem a MESMA cor × tamanho — ali o SKU
+  diferente do daqui é o esperado, e o botão "soltar" desfaria justamente os
+  vínculos certos; o G daqui ligado à M de lá segue sendo cruzado. A conta
+  do "repetido" é UMA função (`skusRepetidos`) para a sincronização, o
+  produto espelhado, a conferência e a **prévia antes de conectar**
+  (`nuvemshop-simulacao.ts`), que passou a seguir a mesma regra — a prévia
+  nunca engana. Provado contra o Postgres local
+  (`scripts/confere-sku-repetido-la.ts`, 14 conferências: o código antigo
+  deixava a P com o número do GG e os outros três zerados; o novo põe cada
+  tamanho no seu, desfaz o vínculo errado sozinho em qualquer ordem da API,
+  mantém o produto de lá gravado na peça religada — sem ele a venda não
+  avisaria a Nuvemshop —, respeita a trava da cor e não se repete). **Limite**: SKU repetido
+  em produtos DIFERENTES da Nuvemshop não é visto pela rodada (ela olha um
+  produto por vez) — a conferência da integração pega (`SKU_DUPLICADO_LA`).
   **RN-057 · O PREÇO DE VAREJO DA PEÇA NUVEMSHOP TAMBÉM SE MUDA AQUI, E VAI
   PARA LÁ** (`lib/nuvemshop-preco-pendente.ts` + `pushPriceToNuvemshop`,
   15/09/2026): pedido do dono com o print da Entre Linhas — a lojista abriu

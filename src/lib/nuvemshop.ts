@@ -390,6 +390,11 @@ export type SyncPendencia = {
    * outro: deixar o SKU único, não "igualar os dois".
    */
   repetido?: boolean;
+  /**
+   * O SKU está repetido em mais de uma variação do MESMO produto na
+   * Nuvemshop (RN-072) — o conserto é lá: cada tamanho com o seu SKU.
+   */
+  repetidoLa?: boolean;
 };
 export type SyncReport = {
   casadas: number;
@@ -449,6 +454,140 @@ export function pistaDoSku(
   };
 }
 
+/**
+ * QUEM DE LÁ FICA COM QUAL PEÇA DAQUI — UMA PEÇA DAQUI ESPELHA UMA DE LÁ
+ * (RN-072, 07/10/2026). Regra pura, testada sem banco.
+ *
+ * Relato do dono com o print da Regata Quadrada: na Nuvemshop, os tamanhos
+ * P, M, G e GG da Azul Marinho estavam TODOS com o SKU "RQD-MAR-P" (a
+ * Nuvemshop copia o SKU ao montar a grade, e ninguém percebe). Aqui só a P
+ * tinha esse SKU, então as quatro de lá casavam com ela, uma depois da outra,
+ * na MESMA rodada — a última lida ganhava: a P daqui mostrava o estoque de
+ * outro tamanho, os outros ficavam zerados, e toda venda da P daqui ia avisar
+ * a Nuvemshop na peça ERRADA (RN-053).
+ *
+ * A escolha é feita ANTES do laço, de uma vez, e cada peça daqui é alvo de
+ * UMA variação de lá por rodada, nesta ordem de confiança:
+ *  1. o VÍNCULO que um SKU confiável confirma (ou que nenhum SKU contradiz);
+ *  2. o SKU que aparece UMA vez só no produto de lá — mas sem tirar de outro
+ *     produto de lá a peça que é dele, quando a variação de lá já tem vínculo
+ *     próprio (era assim antes: o vínculo vinha primeiro);
+ *  3. para SKU REPETIDO lá, a COR × TAMANHO do produto já identificado — SKU
+ *     repetido não confirma nada, então nem casa por SKU nem segura vínculo
+ *     velho; nunca toma peça que é de OUTRO produto de lá;
+ *  4. o vínculo que sobrou (contradito pelo SKU ou apoiado num SKU
+ *     repetido), se a peça ficou livre — quem trocou o SKU só lá segue com o
+ *     estoque espelhado, como sempre foi.
+ *
+ * Sem essa ordem, o mapa de vínculos (a foto do começo da rodada) puxava de
+ * volta a peça que outro par já tinha levado — e corrigir o SKU lá não
+ * bastava: a P casava com a P de lá pelo SKU e voltava para a M pelo vínculo
+ * velho no mesmo laço. A ordem em que a Nuvemshop devolve as variações não
+ * muda mais o resultado.
+ */
+export type VariacaoDeLaParaCasar = {
+  id: string;
+  sku?: string | null;
+  /** cor × tamanho normalizados, ou null quando a trava da cor barra */
+  corTam: string | null;
+};
+export type PecaDaquiParaCasar = {
+  id: string;
+  sku: string | null;
+  nuvemshopId: string | null;
+  nuvemshopProductId: string | null;
+};
+
+/**
+ * Os SKUs (normalizados) que aparecem em MAIS DE UMA variação da lista — a
+ * régua única do "SKU repetido lá" (RN-072): a sincronização, o produto
+ * espelhado e a conferência contam pelo mesmo lugar.
+ */
+export function skusRepetidos(variacoes: { sku?: string | null }[]): Set<string> {
+  const vezes = new Map<string, number>();
+  for (const v of variacoes) {
+    const k = norm(v.sku);
+    if (k) vezes.set(k, (vezes.get(k) ?? 0) + 1);
+  }
+  return new Set([...vezes].filter(([, n]) => n > 1).map(([k]) => k));
+}
+
+/**
+ * A peça daqui já espelha OUTRO produto de lá (vínculo vivo que não é desta
+ * rodada)? Tomá-la faria os dois produtos de lá escreverem nela, um em cada
+ * sincronização. Vínculo antigo sem o produto de lá conhecido não conta
+ * (era assim antes: sem saber, o casamento segue).
+ */
+export function espelhaOutroProduto(
+  p: Pick<PecaDaquiParaCasar, "nuvemshopId" | "nuvemshopProductId">,
+  nsProductId: string,
+  idsDaRodada: Set<string>
+): boolean {
+  return (
+    !!p.nuvemshopId &&
+    !idsDaRodada.has(p.nuvemshopId) &&
+    !!p.nuvemshopProductId &&
+    p.nuvemshopProductId !== nsProductId
+  );
+}
+
+export function escolherAlvos<T extends PecaDaquiParaCasar>(entrada: {
+  nsProductId: string;
+  variacoesDeLa: VariacaoDeLaParaCasar[];
+  vinculadas: Map<string | null, T>;
+  porSku: Map<string, T>;
+  /** as variações do produto daqui já identificado, por cor × tamanho */
+  porCorTam: Map<string, T>;
+}): { alvos: Map<string, T>; ocupadas: Set<string>; skuRepetidoLa: Set<string> } {
+  const { nsProductId, variacoesDeLa, vinculadas, porSku, porCorTam } = entrada;
+  const skuRepetidoLa = skusRepetidos(variacoesDeLa);
+  const repetido = (v: VariacaoDeLaParaCasar) => skuRepetidoLa.has(norm(v.sku));
+  // a peça daqui que já espelha OUTRO produto de lá (vínculo vivo de fora
+  // desta rodada) — tomá-la faria os dois produtos de lá brigarem por ela
+  const idsDaRodada = new Set(variacoesDeLa.map((v) => v.id));
+  const deOutroProduto = (p: T) => espelhaOutroProduto(p, nsProductId, idsDaRodada);
+
+  const alvos = new Map<string, T>();
+  const ocupadas = new Set<string>();
+  const ocupar = (v: VariacaoDeLaParaCasar, peca: T | undefined) => {
+    if (!peca || alvos.has(v.id) || ocupadas.has(peca.id)) return;
+    alvos.set(v.id, peca);
+    ocupadas.add(peca.id);
+  };
+  const confirma = (v: VariacaoDeLaParaCasar, peca: T) => {
+    // SKU repetido lá não confirma vínculo nenhum — nem quando a peça daqui
+    // não tem SKU (senão o vínculo velho passava na frente da cor × tamanho)
+    if (repetido(v)) return false;
+    const a = norm(v.sku);
+    const b = norm(peca.sku);
+    return !a || !b || a === b;
+  };
+
+  // 1º o vínculo confirmado
+  for (const v of variacoesDeLa) {
+    const peca = vinculadas.get(v.id);
+    if (peca && confirma(v, peca)) ocupar(v, peca);
+  }
+  // 2º o SKU único no produto de lá
+  for (const v of variacoesDeLa) {
+    const k = norm(v.sku);
+    if (!k || repetido(v)) continue;
+    const peca = porSku.get(k);
+    if (peca && deOutroProduto(peca) && vinculadas.has(v.id)) continue;
+    ocupar(v, peca);
+  }
+  // 3º SKU repetido lá: a cor × tamanho do produto identificado
+  for (const v of variacoesDeLa) {
+    if (!repetido(v) || !v.corTam) continue;
+    const peca = porCorTam.get(v.corTam);
+    if (peca && !deOutroProduto(peca)) ocupar(v, peca);
+  }
+  // 4º o vínculo que sobrou
+  for (const v of variacoesDeLa) ocupar(v, vinculadas.get(v.id));
+
+  return { alvos, ocupadas, skuRepetidoLa };
+}
+
 export function skuParecidoNoCadastro(
   skuDaNuvemshop: string | null | undefined,
   poolOuIndice: { sku: string | null }[] | Map<string, string>
@@ -495,6 +634,21 @@ async function registrarPendenciasAvulsas(
     /* relatório antigo ilegível: recomeça deste */
   }
   const antes = Array.isArray(atual.pendencias) ? atual.pendencias : [];
+  // o webhook chega a cada mudança do produto lá: a mesma pendência não entra
+  // duas vezes (senão a lista enchia de cópias e o total crescia sem fim)
+  // A MESMA peça com conselho novo (ex.: "repetido LÁ" no lugar do antigo
+  // "repetido aqui") TROCA o conselho, em vez de ser barrada pela antiga
+  const chave = (x: SyncPendencia) => [x.produtoNs, x.cor, x.tamanho, x.sku ?? ""].join("|");
+  const novaPorChave = new Map(novas.map((x) => [chave(x), x]));
+  const atualizadas = antes.map((x) => novaPorChave.get(chave(x)) ?? x);
+  const jaListadas = new Set(antes.map(chave));
+  const ineditas = novas.filter((x) => !jaListadas.has(chave(x)));
+  const mudou = atualizadas.some((x, i) => x !== antes[i] && JSON.stringify(x) !== JSON.stringify(antes[i]));
+  // lista cheia: não dá para saber se a nova já está entre as que ficaram de
+  // fora, e somar no total a cada aviso o faria crescer sem fim — a próxima
+  // sincronização completa refaz a conta inteira
+  const entram = antes.length >= 100 ? [] : ineditas;
+  if (entram.length === 0 && !mudou) return;
   await db.nuvemshopConnection
     .update({
       where: { companyId },
@@ -503,8 +657,8 @@ async function registrarPendenciasAvulsas(
           ...atual,
           // `at`, `casadas` e `criadas` NÃO mudam: a conferência foi a de
           // antes — quem mudou foi a lista de pendências
-          totalPendencias: (atual.totalPendencias ?? antes.length) + novas.length,
-          pendencias: [...antes, ...novas].slice(0, 100),
+          totalPendencias: (atual.totalPendencias ?? antes.length) + entram.length,
+          pendencias: [...atualizadas, ...entram].slice(0, 100),
         }),
       },
     })
@@ -620,11 +774,15 @@ export async function upsertProduct(
   // SOZINHO — assim a lojista fica independente: cria a variação na Nuvemshop
   // e ela aparece aqui, sem virar pendência. Seguro porque o produto já está
   // 100% identificado (nunca cria PRODUTO por conta própria, só variação).
+  // SKU repetido no produto de lá não identifica produto nenhum (RN-072): a
+  // cópia de um produto feita lá, com o SKU do original em toda a grade,
+  // arrastaria a grade inteira do original para si pela cor × tamanho
+  const repetidosLa = skusRepetidos(variants);
   const targetProductId =
     um2um?.id ??
     linkedVariants[0]?.productId ??
     variants
-      .map((v) => (v.sku ? skuMap.get(norm(v.sku)) : undefined))
+      .map((v) => (v.sku && !repetidosLa.has(norm(v.sku)) ? skuMap.get(norm(v.sku)) : undefined))
       .find((x): x is NonNullable<typeof x> => !!x)?.productId ??
     null;
   const targetVariants = targetProductId
@@ -636,6 +794,45 @@ export async function upsertProduct(
   const targetByCorTam = new Map(
     targetVariants.map((x) => [`${norm(x.color)}|${norm(x.size)}`, x])
   );
+  // TRAVA DA COR (incidente Toque Leve, 30/07/2026), lida uma vez: num
+  // catálogo produto-por-cor ("Baby Look — Branco"), variação de OUTRA cor
+  // não entra no produto (ver o laço, abaixo)
+  const nomeAlvo = targetProductId
+    ? allProducts.find((x) => x.id === targetProductId)?.name ?? ""
+    : "";
+  const corDoProdutoAlvo = corDoNome(nomeAlvo);
+  const corForaDoProduto = (cor: string) => !!corDoProdutoAlvo && !mesmaCor(cor, corDoProdutoAlvo);
+  // RN-072: cada variação de lá com a sua peça daqui, decidido ANTES do laço
+  // e sem repetir peça — SKU repetido lá não casa por SKU (resolve pela cor ×
+  // tamanho), e o vínculo da foto do começo não puxa de volta a peça que
+  // outro par já levou
+  const { alvos: alvosDaRodada, ocupadas, skuRepetidoLa } = escolherAlvos({
+    nsProductId: nsId,
+    variacoesDeLa: variants.map((v) => {
+      const { color, size } = corETamanho(p, v);
+      return {
+        id: String(v.id),
+        sku: v.sku,
+        corTam: corForaDoProduto(color) ? null : `${norm(color)}|${norm(size)}`,
+      };
+    }),
+    vinculadas: linkedByNsVar,
+    porSku: skuMap,
+    porCorTam: targetByCorTam,
+  });
+  const repetidoLa = (sku: string | null | undefined) => skuRepetidoLa.has(norm(sku));
+  const idsDaRodada = new Set(variants.map((v) => String(v.id)));
+  // carimbo de lá que está em mais de uma peça daqui (o mapa acima guarda só
+  // uma delas): religar limpa as outras
+  const vezesDoCarimbo = new Map<string, number>();
+  for (const x of linkedVariants) {
+    if (x.nuvemshopId) vezesDoCarimbo.set(x.nuvemshopId, (vezesDoCarimbo.get(x.nuvemshopId) ?? 0) + 1);
+  }
+  const carimbosEmDobro = new Set([...vezesDoCarimbo].filter(([, n]) => n > 1).map(([k]) => k));
+  // pendências do laço: com relatório em curso vão nele; no webhook e na
+  // baixa da venda paga (sem relatório) vão para o relatório guardado — sem
+  // isso, a variação barrada não aparecia em lugar nenhum
+  const pendenciasDoLaco: SyncPendencia[] = [];
   // RN-053: peças cuja baixa ainda não foi confirmada lá — o número de lá não
   // pode passar por cima delas (ver o comentário na gravação, abaixo)
   const pendentesDeEnvio =
@@ -667,11 +864,31 @@ export async function upsertProduct(
     const stock = estoqueNs(v);
     const preco = num(v.price);
 
-    // só casa por vínculo anterior OU por SKU (nunca por nome/cor)
-    let alvo =
-      linkedByNsVar.get(vId) ??
-      (v.sku ? skuMap.get(norm(v.sku)) : undefined) ??
-      null;
+    // só casa por vínculo anterior OU por SKU (nunca por nome/cor) — quem
+    // decidiu foi o `escolherAlvos` (RN-072)
+    let alvo = alvosDaRodada.get(vId) ?? null;
+
+    const pendencia = (
+      pista: Pick<SyncPendencia, "sku" | "skuParecido" | "repetido">,
+      produtoNs = nsName
+    ) =>
+      pendenciasDoLaco.push({
+        produtoNs,
+        cor: color,
+        tamanho: size,
+        ...pista,
+        // repetido LÁ: a pista do cadastro daqui ("SKU igual, repetido
+        // aqui") seria falsa — o SKU daqui pode ser único
+        ...(repetidoLa(v.sku) ? { skuParecido: null, repetido: false, repetidoLa: true } : {}),
+      });
+
+    // SKU REPETIDO lá que a cor × tamanho não resolveu (RN-072): não cria
+    // variação com SKU ambíguo (qual dos tamanhos viraria a peça dependeria
+    // da ordem da API) e não tenta outro caminho — o conserto é lá
+    if (!alvo && repetidoLa(v.sku)) {
+      pendencia(pistaDoSku(v.sku, idxParecidos));
+      continue;
+    }
 
     // Variação NOVA (com SKU) num produto JÁ vinculado: entra sozinha no
     // produto certo. Se a cor+tamanho já existir nele, vincula; senão, cria.
@@ -683,33 +900,31 @@ export async function upsertProduct(
       // quando a cor nova "Café" entrou dentro do produto Branco (o SKU estava
       // duplicado e apontou pra lá). Cor nova em produto que declara cor no
       // nome NUNCA é criada: vira pendência pra lojista criar o produto certo.
-      const nomeAlvo = allProducts.find((x) => x.id === targetProductId)?.name ?? "";
-      const corDoProduto = corDoNome(nomeAlvo);
-      if (corDoProduto && !mesmaCor(color, corDoProduto)) {
-        if (report) {
-          report.pendencias.push({
-            produtoNs: `${nsName} (cor “${color}” não pertence a “${nomeAlvo}”)`,
-            cor: color,
-            tamanho: size,
-            sku: v.sku ?? null,
-          });
-        }
+      if (corForaDoProduto(color)) {
+        pendencia(
+          { sku: v.sku ?? null },
+          `${nsName} (cor “${color}” não pertence a “${nomeAlvo}”)`
+        );
         continue;
       }
       const existente = targetByCorTam.get(`${norm(color)}|${norm(size)}`);
-      if (existente) {
+      if (
+        existente &&
+        (ocupadas.has(existente.id) || espelhaOutroProduto(existente, nsId, idsDaRodada))
+      ) {
+        // a cor × tamanho daqui já é o par de OUTRA variação de lá — nesta
+        // rodada ou de outro produto de lá (RN-072): casar de novo faria as
+        // duas escreverem na mesma peça, uma em cada sincronização. Vira
+        // pendência.
+        pendencia(pistaDoSku(v.sku, idxParecidos));
+        continue;
+      } else if (existente) {
         alvo = existente;
+        ocupadas.add(existente.id);
       } else if (skuParecidoNoCadastro(v.sku, idxDoProduto)) {
         // o SKU já vive neste produto, escrito de outro jeito: criar aqui
         // duplicaria a variação e mandaria o estoque para a cópia
-        if (report) {
-          report.pendencias.push({
-            produtoNs: nsName,
-            cor: color,
-            tamanho: size,
-            ...pistaDoSku(v.sku, idxDoProduto),
-          });
-        }
+        pendencia(pistaDoSku(v.sku, idxDoProduto));
         continue;
       } else {
         const nova = await db.productVariant.create({
@@ -741,20 +956,14 @@ export async function upsertProduct(
           });
         }
         targetByCorTam.set(`${norm(color)}|${norm(size)}`, nova);
+        ocupadas.add(nova.id);
         if (report) report.casadas++;
         continue;
       }
     }
 
     if (!alvo) {
-      if (report) {
-        report.pendencias.push({
-          produtoNs: nsName,
-          cor: color,
-          tamanho: size,
-          ...pistaDoSku(v.sku, idxParecidos),
-        });
-      }
+      pendencia(pistaDoSku(v.sku, idxParecidos));
       continue;
     }
 
@@ -773,17 +982,42 @@ export async function upsertProduct(
     const esperandoEnvio =
       pendentesDeEnvio.has(alvo.id) ||
       (alvo.stock !== stock && (await envioPendentePorVariacao(companyId, [alvo.id])).has(alvo.id));
+    // RELIGAR grava os DOIS carimbos: o objeto em memória é a foto do começo
+    // da rodada, e a limpeza abaixo pode ter zerado no banco o produto de lá
+    // desta mesma peça — sem ele, o envio de estoque da venda (RN-053) pula
+    // a peça calado (achado da revisão)
+    const religa = alvo.nuvemshopId !== vId;
     const dadosDaVariacao = {
-      ...(alvo.nuvemshopId !== vId ? { nuvemshopId: vId } : {}),
-      ...(alvo.nuvemshopProductId !== nsId ? { nuvemshopProductId: nsId } : {}),
+      ...(religa ? { nuvemshopId: vId, nuvemshopProductId: nsId } : {}),
+      ...(!religa && alvo.nuvemshopProductId !== nsId ? { nuvemshopProductId: nsId } : {}),
       ...(esperandoEnvio || alvo.stock === stock ? {} : { stock }),
-      ...(v.sku && !alvo.sku ? { sku: v.sku } : {}),
+      // SKU repetido lá não é copiado para cá: espalharia o SKU ambíguo pelo
+      // cadastro, e a trava daqui tiraria do casamento até a peça certa (RN-072)
+      ...(v.sku && !alvo.sku && !repetidoLa(v.sku) ? { sku: v.sku } : {}),
     };
     // só vai ao banco quando ALGO mudou: numa página de 25 modelos já
     // sincronizados isso eram ~100 idas ao banco para gravar o mesmo número
     // (a sync inteira precisa caber nos 60s da Vercel, com o banco em outra
     // região a 100 ms por consulta — achado ao investigar a sync da Entre
     // Linhas que "parava no meio", 15/09/2026)
+    // RELIGOU (RN-072): a peça daqui que segurava este vínculo antes perde o
+    // carimbo — senão duas peças daqui ficavam ligadas à mesma de lá, e a
+    // venda da antiga ia avisar a Nuvemshop nesta (RN-053)
+    // (também quando o carimbo já estava em DUAS peças daqui — resíduo de
+    // estado torto antigo)
+    if (religa || carimbosEmDobro.has(vId)) {
+      await db.productVariant.updateMany({
+        where: { product: { companyId }, nuvemshopId: vId, id: { not: alvo.id } },
+        data: { nuvemshopId: null, nuvemshopProductId: null },
+      });
+      // o pool da sincronização é compartilhado entre os produtos da rodada:
+      // ele acompanha o banco, senão o produto seguinte decidia com o
+      // carimbo velho
+      for (const x of skuVariants) {
+        if (x.id === alvo.id) Object.assign(x, { nuvemshopId: vId, nuvemshopProductId: nsId });
+        else if (x.nuvemshopId === vId) Object.assign(x, { nuvemshopId: null, nuvemshopProductId: null });
+      }
+    }
     if (Object.keys(dadosDaVariacao).length > 0) {
       await db.productVariant.update({ where: { id: alvo.id }, data: dadosDaVariacao });
     }
@@ -827,6 +1061,8 @@ export async function upsertProduct(
     }
     if (report) report.casadas++;
   }
+  if (report) report.pendencias.push(...pendenciasDoLaco);
+  else await registrarPendenciasAvulsas(companyId, pendenciasDoLaco);
 
   // modo 1↔1: mantém também os dados do produto sincronizados
   if (um2um) {
@@ -925,6 +1161,9 @@ async function criarProdutoEspelhado(companyId: string, p: NsProduct) {
   }
 
   // grade: SÓ as variações COM SKU (sem SKU não integra); estoque da loja é a verdade
+  // SKU repetido em mais de uma variação lá não é copiado (RN-072): a peça
+  // nasce ligada pelo vínculo e ganha o SKU quando ele for corrigido lá
+  const repetidosLa = skusRepetidos(variants);
   for (const v of variants) {
     if (!(v.sku ?? "").trim()) continue;
     const vId = String(v.id);
@@ -935,7 +1174,7 @@ async function criarProdutoEspelhado(companyId: string, p: NsProduct) {
         productId: product.id,
         nuvemshopId: vId,
         nuvemshopProductId: nsId,
-        sku: v.sku ?? null,
+        sku: repetidosLa.has(norm(v.sku)) ? null : v.sku ?? null,
         color,
         size,
         stock,
