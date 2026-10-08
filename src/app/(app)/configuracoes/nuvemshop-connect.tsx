@@ -32,6 +32,8 @@ type Pendencia = {
   sku: string | null;
   skuParecido?: string | null;
   repetido?: boolean;
+  /** repetido em mais de uma variação do mesmo produto NA NUVEMSHOP (RN-072) */
+  repetidoLa?: boolean;
 };
 type Simulacao = {
   produtosNs: number;
@@ -808,7 +810,16 @@ function ListaPendencias({
             {/* o quase-igual do cadastro: é o que mostra à lojista O QUE
                 difere — sem isso ela via "não casou" e não tinha como
                 descobrir o porquê (relato de 31/08/2026) */}
-            {p.skuParecido && !p.repetido && (
+            {/* repetido LÁ (RN-072): o conserto é na Nuvemshop, e é ele
+                que vem primeiro — os outros conselhos ficam para depois */}
+            {p.repetidoLa && (
+              <div className="ml-3 text-amber-800">
+                ↳ este SKU está <b>repetido em mais de um tamanho/cor deste
+                produto na Nuvemshop</b>. Lá, deixe cada variação com um SKU
+                só dela e sincronize de novo.
+              </div>
+            )}
+            {p.skuParecido && !p.repetido && !p.repetidoLa && (
               <div className="ml-3 text-amber-800">
                 ↳ no seu cadastro existe <b>{p.skuParecido}</b> — quase igual.
                 Deixe os dois <b>exatamente</b> iguais (confira espaços e
@@ -818,7 +829,7 @@ function ListaPendencias({
             {/* SKU igual que mesmo assim não casou = repetido aqui dentro; o
                 conselho é outro (deixar único), senão a lojista tenta
                 "igualar" dois textos que já são iguais */}
-            {p.skuParecido && p.repetido && (
+            {p.skuParecido && p.repetido && !p.repetidoLa && (
               <div className="ml-3 text-amber-800">
                 ↳ este SKU está <b>repetido</b> em mais de uma variação do seu
                 cadastro. Deixe cada peça com um SKU só dela que o estoque
