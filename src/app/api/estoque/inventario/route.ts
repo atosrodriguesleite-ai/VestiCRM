@@ -25,12 +25,16 @@ export async function GET(req: NextRequest) {
     // RN-053: o envio de estoque que não chegou na Nuvemshop tenta de novo de
     // carona no tráfego (trava por loja) — nunca um 3º cron (ADR-002)
     after(() => varrerEnviosDeEstoqueSeDevido(porta.user.companyId));
-    const inv = await montarInventario(porta.user.companyId, {
-      q: sp.get("q") ?? "",
-      categoria: sp.get("categoria") ?? "",
-      filtro,
-      incluirInativos: sp.get("inativos") === "1",
-    });
+    const inv = await montarInventario(
+      porta.user.companyId,
+      {
+        q: sp.get("q") ?? "",
+        categoria: sp.get("categoria") ?? "",
+        filtro,
+        incluirInativos: sp.get("inativos") === "1",
+      },
+      porta.user
+    );
     // a tela pede o resumo na primeira carga e quando a CATEGORIA muda (os
     // cartões seguem a categoria); a cada tecla da busca vai só a lista — o
     // resumo não muda com a busca nem com os chips

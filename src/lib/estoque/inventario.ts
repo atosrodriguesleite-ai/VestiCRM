@@ -65,7 +65,49 @@ export type LinhaDoInventario = {
    * integração, e a peça ficava dias com número errado de um dos lados.
    */
   envioPendente?: boolean;
+  /**
+   * QUEM segura a reserva (pedido do dono, 08/10/2026: "na aba Com reserva,
+   * o status do pedido e o número dele"). Só nas linhas com reservado > 0.
+   * Pedido fora do recorte de quem vê (RN-007) entra SEM número e sem id —
+   * só a situação e quantas peças —, como no "pedido de colega" da RN-050.
+   */
+  pedidos?: PedidoNaLinha[];
 };
+
+export type PedidoNaLinha = {
+  orderId: string | null;
+  numero: number | null;
+  status: OrderStatus;
+  pecas: number;
+};
+
+/**
+ * Pendura em cada linha os pedidos que seguram a peça dela (pura). O número
+ * e o id do pedido de colega NÃO viajam para o navegador — a régua da
+ * RN-007 vale no servidor, não na tela. Ordem: pedido mais antigo primeiro.
+ */
+export function anexarPedidosQueSeguram<T extends Pick<LinhaDoInventario, "variantId" | "reservado">>(
+  linhas: readonly T[],
+  rows: readonly (PedidoQueSegura & { orderId: string; variantId: string })[]
+): (T & { pedidos?: PedidoNaLinha[] })[] {
+  const porVariacao = new Map<string, PedidoNaLinha[]>();
+  for (const r of rows) {
+    const lista = porVariacao.get(r.variantId) ?? [];
+    lista.push(
+      r.visivel
+        ? { orderId: r.orderId, numero: r.numero, status: r.status, pecas: r.pecas }
+        : { orderId: null, numero: null, status: r.status, pecas: r.pecas }
+    );
+    porVariacao.set(r.variantId, lista);
+  }
+  return linhas.map((l) => {
+    if (l.reservado <= 0) return l;
+    const pedidos = porVariacao.get(l.variantId);
+    if (!pedidos) return l;
+    pedidos.sort((a, b) => (a.numero ?? Number.MAX_SAFE_INTEGER) - (b.numero ?? Number.MAX_SAFE_INTEGER));
+    return { ...l, pedidos };
+  });
+}
 
 export type Inventario = {
   linhas: LinhaDoInventario[];
@@ -320,7 +362,9 @@ export function resumirLinhas(
 
 export async function montarInventario(
   companyId: string,
-  opts: { q?: string; categoria?: string; filtro?: FiltroDoInventario; incluirInativos?: boolean }
+  opts: { q?: string; categoria?: string; filtro?: FiltroDoInventario; incluirInativos?: boolean },
+  /** quem está vendo: com ele, as linhas reservadas dizem QUAL pedido segura (recorte RN-007) */
+  user?: SessionUser
 ): Promise<Inventario> {
   // (o resumo segue só a CATEGORIA, não a busca nem os chips; a tela só o
   // pede de novo quando a categoria muda — ver `so=lista` na rota)
@@ -348,9 +392,15 @@ export async function montarInventario(
     visiveis.filter((l) => l.dono === "NUVEMSHOP").map((l) => l.variantId)
   );
 
+  // quem segura cada reserva: SÓ das linhas visíveis com reservado > 0 (a
+  // mesma consulta da recusa de remover variação, RN-050) — uma ida ao banco
+  const comReserva = visiveis.filter((l) => l.reservado > 0).map((l) => l.variantId);
+  const seguradores = user && comReserva.length ? await pedidosQueSeguram(user, comReserva) : [];
+
   return {
-    linhas: visiveis.map((l) =>
-      pendentes.has(l.variantId) ? { ...l, envioPendente: true } : l
+    linhas: anexarPedidosQueSeguram(
+      visiveis.map((l) => (pendentes.has(l.variantId) ? { ...l, envioPendente: true } : l)),
+      seguradores
     ),
     total: filtradas.length,
     teto: TETO_DE_LINHAS,

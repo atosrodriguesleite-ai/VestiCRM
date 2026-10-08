@@ -40,6 +40,7 @@ import { Alert, EmptyState, Spinner } from "@/components/ui";
 import { Portal } from "@/components/portal";
 import { DICA_DO_DONO, NOME_DO_DONO, type DonoExterno } from "@/lib/estoque/dono-do-estoque";
 import { ROTULO_DA_ORIGEM } from "@/lib/estoque/minimos-regra";
+import { orderStatusLabel } from "@/lib/orders";
 import type { FiltroDoInventario, Inventario, LinhaDoInventario } from "@/lib/estoque/inventario";
 
 type Resposta = Omit<Inventario, "resumo" | "categorias"> & {
@@ -466,7 +467,28 @@ function Linha({
         <td className="px-3 py-2 text-right tabular-nums text-slate-700">{l.emEstoque}</td>
         <td className="px-3 py-2 text-right tabular-nums">
           {l.reservado > 0 ? (
-            <span className="text-amber-700">{l.reservado}</span>
+            <>
+              <span className="text-amber-700">{l.reservado}</span>
+              {/* qual pedido segura e em que situação (pedido do dono, 08/10/2026);
+                  o de colega vem sem número do servidor (RN-007) */}
+              {l.pedidos && l.pedidos.length > 0 && (
+                <ul className="mt-0.5 space-y-0.5 text-[11px] leading-tight text-slate-500">
+                  {l.pedidos.map((p, i) => (
+                    <li key={p.orderId ?? `colega-${i}`} className="whitespace-nowrap">
+                      {p.orderId && p.numero !== null ? (
+                        <Link href={`/pedidos/${p.orderId}`} className="font-medium text-brand-700 hover:underline">
+                          #{String(p.numero).padStart(4, "0")}
+                        </Link>
+                      ) : (
+                        <span className="italic">pedido de colega</span>
+                      )}
+                      <span className="text-slate-400"> · {orderStatusLabel[p.status]}</span>
+                      {l.pedidos!.length > 1 && <span className="text-slate-400"> · {p.pecas}</span>}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </>
           ) : (
             <span className="text-slate-300">0</span>
           )}

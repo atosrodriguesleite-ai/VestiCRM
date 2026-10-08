@@ -10,7 +10,7 @@ import {
   rotuloDaPeca,
   TETO_DO_MOTIVO,
 } from "../estoque/dono-do-estoque";
-import { casaBusca, passaNoFiltro, resumirLinhas, STATUS_QUE_SEGURAM_NA_LOJA, type LinhaDoInventario } from "../estoque/inventario";
+import { anexarPedidosQueSeguram, casaBusca, passaNoFiltro, resumirLinhas, STATUS_QUE_SEGURAM_NA_LOJA, type LinhaDoInventario } from "../estoque/inventario";
 import { estoqueLiberado, podeAjustarEstoque } from "../estoque/gate";
 import { itemVisivel } from "../menu-grupos";
 
@@ -247,5 +247,34 @@ describe("os cartões do Inventário seguem a CATEGORIA escolhida (pedido do don
     const r = resumirLinhas(linhas, "Regata Nadador");
     expect(r).toMatchObject({ pecas: 53, disponiveis: 50, reservadas: 3, variacoes: 2, zeradas: 1, baixas: 1, externas: 0 });
     expect(resumirLinhas(linhas, "Vestidos").variacoes).toBe(0);
+  });
+});
+
+describe("a linha reservada diz QUAL pedido segura e em que situação (pedido do dono, 08/10/2026)", () => {
+  const linhas = [
+    { variantId: "v1", reservado: 3 },
+    { variantId: "v2", reservado: 0 },
+    { variantId: "v3", reservado: 2 },
+  ];
+  const rows = [
+    { orderId: "o2", variantId: "v1", numero: 182, status: "AGUARDANDO_PAGAMENTO" as const, cliente: "Fafá", pecas: 1, visivel: true },
+    { orderId: "o1", variantId: "v1", numero: 174, status: "PAGO" as const, cliente: "Nátaly", pecas: 2, visivel: true },
+    { orderId: "o9", variantId: "v3", numero: 199, status: "EM_PRODUCAO" as const, cliente: "Colega", pecas: 2, visivel: false },
+  ];
+
+  it("pendura os pedidos na linha, do mais antigo para o mais novo, só onde há reserva", () => {
+    const r = anexarPedidosQueSeguram(linhas, rows);
+    expect(r[0].pedidos).toEqual([
+      { orderId: "o1", numero: 174, status: "PAGO", pecas: 2 },
+      { orderId: "o2", numero: 182, status: "AGUARDANDO_PAGAMENTO", pecas: 1 },
+    ]);
+    expect(r[1].pedidos).toBeUndefined();
+  });
+
+  it("pedido de colega (RN-007) vai SEM número e sem id — a situação e a quantidade ficam", () => {
+    const r = anexarPedidosQueSeguram(linhas, rows);
+    expect(r[2].pedidos).toEqual([{ orderId: null, numero: null, status: "EM_PRODUCAO", pecas: 2 }]);
+    expect(JSON.stringify(r[2])).not.toContain("199");
+    expect(JSON.stringify(r[2])).not.toContain("o9");
   });
 });

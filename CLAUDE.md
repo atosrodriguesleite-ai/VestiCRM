@@ -1924,7 +1924,13 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   08/10/2026: *"quando seleciono uma categoria quero ver o estoque total
   daquela categoria; em Todas, o total de todas"*) — a busca e os chips não
   mexem neles (número que muda a cada tecla não merece confiança), e a tela
-  diz de qual categoria são os totais. **Folha de contagem**
+  diz de qual categoria são os totais. **A linha reservada diz QUAL pedido
+  segura** (`anexarPedidosQueSeguram`, mesmo dia, pedido do dono: *"na aba
+  Com reserva, o status do pedido e o número dele"*): embaixo do número
+  reservado, cada pedido com número (link), situação e quantas peças — a
+  MESMA consulta da recusa de remover variação (RN-050); o pedido de colega
+  fora do recorte (RN-007) chega do servidor sem número e sem id, só com a
+  situação e a quantidade. **Folha de contagem**
   (`/contagem-de-estoque`, botão "Imprimir contagem", `lib/estoque/contagem.ts`,
   pedido do dono em 28/09/2026): A4 para contar na arara, agrupada por
   CATEGORIA e modelo, no MESMO recorte da lista (categoria, busca,
