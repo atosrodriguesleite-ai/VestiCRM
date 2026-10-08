@@ -413,12 +413,12 @@ export async function montarInventario(
 /**
  * As linhas da FOLHA DE CONTAGEM (`lib/estoque/contagem.ts`): a loja
  * inteira — sem o teto de 500 da tela, a folha é para contar tudo —, com o
- * MESMO recorte de categoria e busca do Inventário, para a folha impressa
- * bater com a lista em que a contagem volta a ser digitada.
+ * MESMO recorte de categoria, busca e chip do Inventário, para a folha
+ * impressa bater com a lista em que a contagem volta a ser digitada.
  */
 export async function linhasDaContagem(
   companyId: string,
-  opts: { q?: string; categoria?: string; incluirInativos?: boolean }
+  opts: { q?: string; categoria?: string; incluirInativos?: boolean; filtro?: FiltroDoInventario }
 ): Promise<{ linhas: LinhaDoInventario[]; categorias: string[] }> {
   const { linhas, produtos } = await linhasDoEstoque(companyId, {
     incluirInativos: opts.incluirInativos,
@@ -427,6 +427,9 @@ export async function linhasDaContagem(
   return {
     linhas: linhas.filter((l) => {
       if (opts.categoria && l.categoria !== opts.categoria) return false;
+      // o chip da tela (No mínimo, Zeradas…) vale na folha também: é a lista
+      // que vai para a produção (pedido do dono, 08/10/2026)
+      if (!passaNoFiltro(opts.filtro ?? "todos", l)) return false;
       const p = porProduto.get(l.productId)!;
       const v = p.variants.find((x) => x.id === l.variantId)!;
       return casaBusca(opts.q ?? "", p, v);

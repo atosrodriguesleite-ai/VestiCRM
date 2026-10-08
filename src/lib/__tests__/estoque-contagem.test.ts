@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { agruparParaContagem, recorteDaFolha, type LinhaDaFolha } from "../estoque/contagem";
+import { agruparParaContagem, ehListaDeProducao, faltaParaOMinimo, recorteDaFolha, type LinhaDaFolha } from "../estoque/contagem";
 
 /**
  * A FOLHA DE CONTAGEM DE ESTOQUE (pedido do dono, 28/09/2026): agrupa por
@@ -18,6 +18,8 @@ const l = (x: Partial<LinhaDaFolha>): LinhaDaFolha => ({
   sku: "BBL-AZ-P",
   emEstoque: 10,
   reservado: 0,
+  disponivel: 10,
+  minimo: 2,
   dono: null,
   ...x,
 });
@@ -118,5 +120,28 @@ describe("folha de contagem", () => {
     expect(recorteDaFolha({ categoria: "Blusas", q: " azul ", inativos: true })).toBe(
       'Categoria: Blusas · busca "azul" · com produtos inativos'
     );
+  });
+});
+
+describe("a folha segue o chip do Inventário e vira lista de produção (pedido do dono, 08/10/2026)", () => {
+  it("'No mínimo' e 'Zeradas' são lista de produção; os outros chips seguem sendo contagem", () => {
+    expect(ehListaDeProducao("baixo")).toBe(true);
+    expect(ehListaDeProducao("zerado")).toBe(true);
+    expect(ehListaDeProducao("reservado")).toBe(false);
+    expect(ehListaDeProducao("todos")).toBe(false);
+    expect(ehListaDeProducao(undefined)).toBe(false);
+  });
+
+  it("quanto falta é mínimo − disponível, nunca negativo", () => {
+    expect(faltaParaOMinimo({ disponivel: 0, minimo: 5 })).toBe(5);
+    expect(faltaParaOMinimo({ disponivel: 5, minimo: 5 })).toBe(0);
+    expect(faltaParaOMinimo({ disponivel: 9, minimo: 5 })).toBe(0);
+  });
+
+  it("o cabeçalho diz qual chip recortou a folha", () => {
+    expect(recorteDaFolha({ categoria: "Regata Alça", filtro: "baixo" })).toBe(
+      'Categoria: Regata Alça · filtro "No mínimo" · só produtos ativos'
+    );
+    expect(recorteDaFolha({ filtro: "todos" })).toBe("Todas as categorias · só produtos ativos");
   });
 });

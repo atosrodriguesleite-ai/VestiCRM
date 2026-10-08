@@ -1,4 +1,5 @@
 import type { DonoExterno } from "./dono-do-estoque";
+import type { FiltroDoInventario } from "./inventario";
 import { compararTamanhos } from "../tamanhos";
 
 /**
@@ -40,6 +41,9 @@ export type LinhaDaFolha = {
   emEstoque: number;
   reservado: number;
   dono: DonoExterno | null;
+  /** o disponível e o mínimo da peça — a lista de produção precisa deles */
+  disponivel: number;
+  minimo: number;
 };
 
 export type ModeloDaFolha = {
@@ -108,10 +112,42 @@ export function agruparParaContagem(linhas: LinhaDaFolha[]): CategoriaDaFolha[] 
     });
 }
 
+/** Como cada chip do Inventário se chama na folha (a MESMA lista da tela). */
+export const ROTULO_DO_FILTRO: Record<FiltroDoInventario, string> = {
+  todos: "",
+  baixo: "No mínimo",
+  zerado: "Zeradas",
+  reservado: "Com reserva",
+  externo: "Controladas por integração",
+};
+
+/**
+ * A FOLHA SEGUE O CHIP DO INVENTÁRIO (pedido do dono, 08/10/2026: *"eu faço
+ * o filtro para saber quais peças estão baixas, porém não tem como
+ * imprimir — preciso passar para a produção"*). Com "No mínimo" ou
+ * "Zeradas" a folha deixa de ser de CONTAGEM e vira LISTA DE PRODUÇÃO: em
+ * vez de "contado / diferença", mostra disponível, mínimo, quanto falta
+ * para voltar ao mínimo e uma coluna em branco para anotar quanto produzir.
+ */
+export function ehListaDeProducao(filtro: FiltroDoInventario | undefined): boolean {
+  return filtro === "baixo" || filtro === "zerado";
+}
+
+/** Quantas peças faltam para a variação VOLTAR ao mínimo (nunca negativo). */
+export function faltaParaOMinimo(l: Pick<LinhaDaFolha, "disponivel" | "minimo">): number {
+  return Math.max(0, l.minimo - l.disponivel);
+}
+
 /** O que a folha diz no cabeçalho sobre o recorte (para ninguém achar que é a loja inteira). */
-export function recorteDaFolha(opts: { categoria?: string; q?: string; inativos?: boolean }): string {
+export function recorteDaFolha(opts: {
+  categoria?: string;
+  q?: string;
+  inativos?: boolean;
+  filtro?: FiltroDoInventario;
+}): string {
   const partes: string[] = [];
   partes.push(opts.categoria ? `Categoria: ${opts.categoria}` : "Todas as categorias");
+  if (opts.filtro && opts.filtro !== "todos") partes.push(`filtro "${ROTULO_DO_FILTRO[opts.filtro]}"`);
   if (opts.q?.trim()) partes.push(`busca "${opts.q.trim()}"`);
   partes.push(opts.inativos ? "com produtos inativos" : "só produtos ativos");
   return partes.join(" · ");

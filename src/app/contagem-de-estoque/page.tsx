@@ -1,8 +1,8 @@
 import Link from "next/link";
 import { db } from "@/lib/db";
 import { porteiraEstoqueTela } from "@/lib/estoque/gate";
-import { linhasDaContagem } from "@/lib/estoque/inventario";
-import { agruparParaContagem, recorteDaFolha } from "@/lib/estoque/contagem";
+import { linhasDaContagem, type FiltroDoInventario } from "@/lib/estoque/inventario";
+import { agruparParaContagem, ehListaDeProducao, faltaParaOMinimo, recorteDaFolha } from "@/lib/estoque/contagem";
 import { NOME_DO_DONO } from "@/lib/estoque/dono-do-estoque";
 import { BotaoImprimir } from "./botao-imprimir";
 
@@ -19,22 +19,30 @@ export const dynamic = "force-dynamic";
  * número do sistema — quem conta sem ver o esperado não "acerta" para
  * bater) e **uma categoria por folha** (`quebra=1`, para dividir as araras
  * entre as pessoas).
+ *
+ * O CHIP do Inventário vem junto (`filtro=`): com "No mínimo" ou "Zeradas"
+ * a folha vira LISTA DE PRODUÇÃO (pedido do dono, 08/10/2026) — disponível,
+ * mínimo, quanto falta e uma coluna para anotar quanto produzir.
  */
+const FILTROS: FiltroDoInventario[] = ["todos", "baixo", "zerado", "reservado", "externo"];
 export default async function ContagemDeEstoquePage({
   searchParams,
 }: {
-  searchParams: Promise<{ categoria?: string; q?: string; inativos?: string; cega?: string; quebra?: string }>;
+  searchParams: Promise<{ categoria?: string; q?: string; inativos?: string; cega?: string; quebra?: string; filtro?: string }>;
 }) {
   const user = await porteiraEstoqueTela();
   const sp = await searchParams;
   const categoria = sp.categoria?.trim() || "";
   const q = sp.q?.trim() || "";
   const inativos = sp.inativos === "1";
-  const cega = sp.cega === "1";
   const quebra = sp.quebra === "1";
+  const filtro = (FILTROS as string[]).includes(sp.filtro ?? "") ? (sp.filtro as FiltroDoInventario) : "todos";
+  const producao = ehListaDeProducao(filtro);
+  // a lista de produção precisa dos números; às cegas não faz sentido nela
+  const cega = sp.cega === "1" && !producao;
 
   const [{ linhas, categorias }, company] = await Promise.all([
-    linhasDaContagem(user.companyId, { q, categoria: categoria || undefined, incluirInativos: inativos }),
+    linhasDaContagem(user.companyId, { q, categoria: categoria || undefined, incluirInativos: inativos, filtro }),
     db.company.findUnique({ where: { id: user.companyId }, select: { name: true } }),
   ]);
   const grupos = agruparParaContagem(linhas);
@@ -48,7 +56,8 @@ export default async function ContagemDeEstoquePage({
 
   const th = "border border-gray-700 px-2 py-1 text-left text-[10px] font-bold uppercase";
   const td = "border border-gray-700 px-2 py-1 text-[11px]";
-  const colunas = cega ? 5 : 7;
+  const colunas = producao ? 7 : cega ? 5 : 7;
+  const totalFalta = producao ? linhas.reduce((s, l) => s + faltaParaOMinimo(l), 0) : 0;
 
   return (
     <div className="mx-auto max-w-[210mm] bg-white p-8 text-gray-900 print:p-0">
@@ -66,10 +75,13 @@ export default async function ContagemDeEstoquePage({
             ))}
           </select>
           {q && <input type="hidden" name="q" value={q} />}
-          <label className="flex items-center gap-1.5">
-            <input type="checkbox" name="cega" value="1" defaultChecked={cega} />
-            contagem às cegas (sem o número do sistema)
-          </label>
+          {filtro !== "todos" && <input type="hidden" name="filtro" value={filtro} />}
+          {!producao && (
+            <label className="flex items-center gap-1.5">
+              <input type="checkbox" name="cega" value="1" defaultChecked={cega} />
+              contagem às cegas (sem o número do sistema)
+            </label>
+          )}
           <label className="flex items-center gap-1.5">
             <input type="checkbox" name="quebra" value="1" defaultChecked={quebra} />
             uma categoria por folha
@@ -89,8 +101,16 @@ export default async function ContagemDeEstoquePage({
           </Link>
         </div>
         <p className="mt-3 text-xs text-gray-500">
-          Conte <b>todas</b> as peças que estão na loja, inclusive as já separadas para pedidos.
-          {!cega && (
+          {producao ? (
+            <>
+              Esta é a lista das peças que chegaram ao mínimo, para passar à produção. &quot;Falta&quot; é
+              quanto a peça precisa para <b>voltar ao mínimo</b>; anote em &quot;Produzir&quot; quanto vai
+              ser feito.
+            </>
+          ) : (
+            <>Conte <b>todas</b> as peças que estão na loja, inclusive as já separadas para pedidos.</>
+          )}
+          {!cega && !producao && (
             <>
               {" "}
               &quot;Na loja&quot; é o que o sistema espera encontrar (disponível + reservado). Para
@@ -102,17 +122,28 @@ export default async function ContagemDeEstoquePage({
 
       <header className="mb-3 border-b-2 border-gray-900 pb-2">
         <div className="flex items-baseline justify-between gap-4">
-          <h1 className="text-lg font-bold">Contagem de estoque{company?.name ? ` — ${company.name}` : ""}</h1>
+          <h1 className="text-lg font-bold">
+            {producao ? "Peças para produção" : "Contagem de estoque"}
+            {company?.name ? ` — ${company.name}` : ""}
+          </h1>
           <span className="text-[11px] text-gray-600">emitida em {emitidaEm}</span>
         </div>
         <p className="text-[11px] text-gray-600">
-          {recorteDaFolha({ categoria, q, inativos })} · {totalVariacoes}{" "}
+          {recorteDaFolha({ categoria, q, inativos, filtro })} · {totalVariacoes}{" "}
           {totalVariacoes === 1 ? "variação" : "variações"}
-          {!cega && ` · ${totalPecas} ${totalPecas === 1 ? "peça" : "peças"} no sistema`}
+          {producao
+            ? ` · faltam ${totalFalta} ${totalFalta === 1 ? "peça" : "peças"} para voltar ao mínimo`
+            : !cega && ` · ${totalPecas} ${totalPecas === 1 ? "peça" : "peças"} no sistema`}
         </p>
         <p className="mt-2 text-[11px]">
-          Contado por: ______________________ &nbsp; Data: ___/___/______ &nbsp; Conferido por:
-          ______________________
+          {producao ? (
+            <>Pedido por: ______________________ &nbsp; Data: ___/___/______ &nbsp; Entregar até: ___/___/______</>
+          ) : (
+            <>
+              Contado por: ______________________ &nbsp; Data: ___/___/______ &nbsp; Conferido por:
+              ______________________
+            </>
+          )}
         </p>
       </header>
 
@@ -136,7 +167,7 @@ export default async function ContagemDeEstoquePage({
                     <span>{g.categoria}</span>
                     <span className="text-[10px] font-normal normal-case text-gray-600">
                       {g.variacoes} {g.variacoes === 1 ? "variação" : "variações"}
-                      {!cega && ` · ${g.total} ${g.total === 1 ? "peça" : "peças"}`}
+                      {!cega && !producao && ` · ${g.total} ${g.total === 1 ? "peça" : "peças"}`}
                     </span>
                   </div>
                 </th>
@@ -145,10 +176,21 @@ export default async function ContagemDeEstoquePage({
                 <th className={th}>Cor</th>
                 <th className={`${th} w-14`}>Tam.</th>
                 <th className={`${th} w-36`}>Código</th>
-                {!cega && <th className={`${th} w-16 text-right`}>Na loja</th>}
-                {!cega && <th className={`${th} w-16 text-right`}>Reserv.</th>}
-                <th className={`${th} w-20 text-center`}>Contado</th>
-                <th className={`${th} w-20 text-center`}>Diferença</th>
+                {producao ? (
+                  <>
+                    <th className={`${th} w-16 text-right`}>Dispon.</th>
+                    <th className={`${th} w-14 text-right`}>Mín.</th>
+                    <th className={`${th} w-14 text-right`}>Falta</th>
+                    <th className={`${th} w-24 text-center`}>Produzir</th>
+                  </>
+                ) : (
+                  <>
+                    {!cega && <th className={`${th} w-16 text-right`}>Na loja</th>}
+                    {!cega && <th className={`${th} w-16 text-right`}>Reserv.</th>}
+                    <th className={`${th} w-20 text-center`}>Contado</th>
+                    <th className={`${th} w-20 text-center`}>Diferença</th>
+                  </>
+                )}
               </tr>
             </thead>
             {g.modelos.map((m) => (
@@ -157,7 +199,7 @@ export default async function ContagemDeEstoquePage({
                 <tr className="bg-gray-100 print:bg-gray-100">
                   <td className={`${td} font-bold`} colSpan={colunas}>
                     {m.produto}
-                    {!cega && (
+                    {!cega && !producao && (
                       <span className="ml-2 font-normal text-gray-600">
                         · {m.total} {m.total === 1 ? "peça" : "peças"}
                       </span>
@@ -177,14 +219,25 @@ export default async function ContagemDeEstoquePage({
                         </span>
                       )}
                     </td>
-                    {!cega && <td className={`${td} text-right tabular-nums`}>{l.emEstoque}</td>}
-                    {!cega && (
-                      <td className={`${td} text-right tabular-nums text-gray-600`}>
-                        {l.reservado > 0 ? l.reservado : ""}
-                      </td>
+                    {producao ? (
+                      <>
+                        <td className={`${td} text-right tabular-nums`}>{l.disponivel}</td>
+                        <td className={`${td} text-right tabular-nums text-gray-600`}>{l.minimo}</td>
+                        <td className={`${td} text-right tabular-nums font-bold`}>{faltaParaOMinimo(l)}</td>
+                        <td className={td}>&nbsp;</td>
+                      </>
+                    ) : (
+                      <>
+                        {!cega && <td className={`${td} text-right tabular-nums`}>{l.emEstoque}</td>}
+                        {!cega && (
+                          <td className={`${td} text-right tabular-nums text-gray-600`}>
+                            {l.reservado > 0 ? l.reservado : ""}
+                          </td>
+                        )}
+                        <td className={td}>&nbsp;</td>
+                        <td className={td}>&nbsp;</td>
+                      </>
                     )}
-                    <td className={td}>&nbsp;</td>
-                    <td className={td}>&nbsp;</td>
                   </tr>
                 ))}
               </tbody>

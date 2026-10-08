@@ -106,8 +106,10 @@ export function InventarioView({ filtroInicial = "todos" }: { filtroInicial?: Fi
     if (q.trim()) sp.set("q", q.trim());
     if (categoria) sp.set("categoria", categoria);
     if (inativos) sp.set("inativos", "1");
+    // o chip vai junto: "No mínimo" impresso é a lista que vai para a produção
+    if (filtro !== "todos") sp.set("filtro", filtro);
     return sp.toString();
-  }, [q, categoria, inativos]);
+  }, [q, categoria, inativos, filtro]);
   const [historicoDe, setHistoricoDe] = useState<LinhaDoInventario | null>(null);
   const [sync, setSync] = useState<{ ocupado: boolean; msg: string }>({ ocupado: false, msg: "" });
   const [aberto, setAberto] = useState<EditorAberto>(null);
@@ -293,7 +295,7 @@ export function InventarioView({ filtroInicial = "todos" }: { filtroInicial?: Fi
           title="Abre a folha de contagem para imprimir, com as peças do recorte atual"
         >
           <Printer className="size-3.5" />
-          Imprimir contagem
+          {filtro === "baixo" || filtro === "zerado" ? "Imprimir lista para produção" : "Imprimir contagem"}
         </a>
         {/* só a Nuvemshop tem sync sob demanda; o Jueri roda sozinho (cron) */}
         {dados?.podeSincronizar && (resumo?.nuvemshop ?? 0) > 0 && (

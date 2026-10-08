@@ -1945,7 +1945,15 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   para pedido ainda está fisicamente lá) e mostra o reservado, porque o
   número que se digita é o disponível (contado − reservado); opções de
   **contagem às cegas** (sem o número do sistema) e **uma categoria por
-  folha**; peça de dono externo sai marcada (o acerto é lá, RN-050). Só lê. Toda a equipe entra
+  folha**; peça de dono externo sai marcada (o acerto é lá, RN-050). Só lê.
+  **A folha segue também o CHIP** (`filtro=`, pedido do dono em 08/10/2026:
+  *"faço o filtro para saber quais peças estão baixas, mas não tem como
+  imprimir — preciso passar para a produção"*): com **No mínimo** ou
+  **Zeradas** ela vira **lista de produção** (`ehListaDeProducao`) — título
+  "Peças para produção", colunas disponível, mínimo, **falta** (quanto
+  precisa para voltar ao mínimo, `faltaParaOMinimo`) e "Produzir" em branco
+  para anotar, sem a contagem às cegas (ali o número é o assunto); o botão
+  do Inventário passa a dizer "Imprimir lista para produção". Toda a equipe entra
   (conferir estoque é operação); **quem ajusta é gerência** — a porta de
   escrita confere de novo. O número que se edita é o DISPONÍVEL (o `stock`
   da peça, o mesmo de Produtos e do catálogo); o **reservado sai do LIVRO DE
