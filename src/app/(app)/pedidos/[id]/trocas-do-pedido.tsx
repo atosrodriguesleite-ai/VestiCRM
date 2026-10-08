@@ -33,8 +33,10 @@ import { Portal } from "@/components/portal";
 import { useTravarFundo } from "@/components/travar-fundo";
 import { GradeDePecas, type ProdutoDaGrade } from "@/components/pedido/grade-de-pecas";
 import {
+  MOTIVOS_DA_TROCA,
   ROTULO_DESTINO,
   ROTULO_RESOLUCAO,
+  textoDoMotivo,
   juntarSaidas,
   juntarVoltas,
   resolucoesPermitidas,
@@ -97,7 +99,7 @@ export function precoDigitado(texto: string): number | null {
   return numeroBR(limpo);
 }
 
-const MOTIVOS = ["Tamanho", "Cor", "Modelo", "Defeito", "Outro"];
+const MOTIVOS = MOTIVOS_DA_TROCA;
 
 export function TrocasDoPedido({
   orderId,
@@ -174,12 +176,8 @@ export function TrocasDoPedido({
   const sai: PecaQueSai[] = useMemo(() => juntarSaidas(saidas.map(({ variantId, quantity, unitPrice }) => ({ variantId, quantity, unitPrice }))), [saidas]);
   const totais = useMemo(() => somarTroca(linhas, volta, sai), [linhas, volta, sai]);
   const permitidas = useMemo(() => resolucoesPermitidas(totais.diferenca), [totais.diferenca]);
-  const motivo = useMemo(() => {
-    const texto = motivoTexto.trim();
-    if (!motivoChip) return texto;
-    if (motivoChip === "Outro") return texto;
-    return texto ? `${motivoChip} — ${texto}` : motivoChip;
-  }, [motivoChip, motivoTexto]);
+  // "Chip — detalhe": o relatório conta pelo chip (sem chip, é "Outro")
+  const motivo = useMemo(() => textoDoMotivo(motivoChip, motivoTexto), [motivoChip, motivoTexto]);
 
   // a resolução acompanha a diferença: mudou o sinal, a escolha anterior não vale
   useEffect(() => {

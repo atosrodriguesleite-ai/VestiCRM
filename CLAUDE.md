@@ -436,12 +436,26 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   ditos**: a grade da peça que sai usa o estoque de agora (devolver e levar
   a MESMA cor × tamanho com estoque zerado não passa na tela — o servidor
   aceitaria); o dinheiro da troca (crédito usado num pedido novo e o
-  acerto no Financeiro) é a RN-074, e o relatório de trocas é entrega
-  própria, na sequência.
+  acerto no Financeiro) é a RN-074. **O relatório** é a aba **Trocas** do
+  Estoque (`lib/troca/relatorio.ts`, gerência — mostra dinheiro, a régua do
+  Painel): no período escolhido (7, 30, 90 dias ou 1 ano, pela data da
+  TROCA), quantas trocas, peças que voltaram (com defeito) e que saíram, o
+  dinheiro separado pelo que andou (recebido, devolvido, a confirmar,
+  crédito dado — a troca de pedido depois CANCELADO conta nas peças mas
+  fica fora do dinheiro, que foi desfeito com a venda, e a tela diz),
+  **por que trocaram** (pelo chip do motivo — o motivo é gravado "Chip —
+  detalhe", e frase solta conta como "Outro", nunca uma linha por frase;
+  as porcentagens fecham 100) e **as peças que mais voltam** (produto ×
+  cor × tamanho, pela régua de agrupar nome da curva ABC, pelo retrato da
+  troca — peça apagada não some da conta; mostra as 30 primeiras e diz de
+  quantas), mais as últimas trocas com link para o pedido; acima de 2.000
+  trocas no período a tela diz que cortou. **Limite dito**: a aba vive no
+  módulo Estoque (decisão do dono) — loja sem o módulo registra trocas e
+  vê cada uma na ficha do pedido, mas não o relatório.
   **RN-074 · O CRÉDITO DA TROCA VIRA DESCONTO NO PEDIDO NOVO, E O DINHEIRO
   QUE ANDOU NA TROCA ENTRA NO FINANCEIRO** (`lib/troca/credito-no-pedido.ts`
   + `lib/troca/credito.ts` + `registrarAcertoDaTrocaNoFinanceiro` em
-  `lib/financeiro/porta-vendas.ts`, 09/10/2026): a segunda parte da troca,
+  `lib/financeiro/porta-vendas.ts`, 08/10/2026): a segunda parte da troca,
   combinada com o dono. **Usar o crédito**: na ficha de um pedido AINDA NÃO
   PAGO NEM ENTREGUE (orçamento ou aguardando pagamento — a venda a prazo
   entregue já contou comissão na entrega, RN-069, e abater depois mexeria
@@ -2062,7 +2076,8 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   `scripts/confere-separacao.ts`, contra o Postgres local.
 - **Estoque** (gated por loja, `Company.estoqueEnabled`, porteira em
   `lib/estoque/gate.ts`; desenhado com o dono em 09/09/2026 e entregue em
-  quatro abas — Inventário, Mínimos, Painel, Produção; **preço de tabela A
+  quatro abas — Inventário, Mínimos, Painel, Produção (e, desde 08/10/2026,
+  Trocas, RN-073); **preço de tabela A
   DEFINIR pelo dono**: está 0 no catálogo de módulos, então NÃO entra no MRR
   até ele dizer; ADR-016): a tela **Inventário** (`/estoque`) — uma linha por cor ×
   tamanho com **na loja · reservado · disponível**, busca por nome/código/

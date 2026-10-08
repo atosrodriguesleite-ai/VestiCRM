@@ -6,11 +6,12 @@ import { InventarioView } from "./inventario-view";
 import { PainelView } from "./painel-view";
 import { MinimosView } from "./minimos-view";
 import { ProducaoView } from "./producao-view";
+import { TrocasView } from "./trocas-view";
 import type { FiltroDoInventario } from "@/lib/estoque/inventario";
 
 export const dynamic = "force-dynamic";
 
-const ABAS: AbaDoEstoque[] = ["inventario", "painel", "minimos", "producao"];
+const ABAS: AbaDoEstoque[] = ["inventario", "painel", "minimos", "producao", "trocas"];
 const FILTROS: FiltroDoInventario[] = ["todos", "baixo", "zerado", "reservado", "externo"];
 
 /**
@@ -38,6 +39,8 @@ export default async function EstoquePage({
     : "inventario";
   if (aba === "producao" && !temProducao) aba = "inventario";
   if (aba === "painel" && !veAnalise) aba = "inventario";
+  // trocas mostram dinheiro (diferença, devolução, crédito): gerência
+  if (aba === "trocas" && !veAnalise) aba = "inventario";
   const filtro: FiltroDoInventario = (FILTROS as string[]).includes(filtroPedido ?? "")
     ? (filtroPedido as FiltroDoInventario)
     : "todos";
@@ -48,6 +51,7 @@ export default async function EstoquePage({
     painel: "O que repor, o que encalhou e o que mais vende — contas claras, pela venda paga dos últimos 30 dias.",
     minimos: "Quantas peças você quer ter, no mínimo, de cada modelo, categoria ou da loja inteira. Chegou lá, a gerência é avisada.",
     producao: "O que está cortado esperando costura, o que está na facção e quanto tecido ainda dá para cortar.",
+    trocas: "Quais peças voltam, por quê, e quanto as trocas mexeram em dinheiro — para corrigir a grade, a modelagem ou o acabamento.",
   };
 
   return (
@@ -60,6 +64,7 @@ export default async function EstoquePage({
         {aba === "painel" && <PainelView />}
         {aba === "minimos" && <MinimosView />}
         {aba === "producao" && <ProducaoView />}
+        {aba === "trocas" && <TrocasView />}
       </div>
     </div>
   );

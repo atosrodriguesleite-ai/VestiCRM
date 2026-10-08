@@ -502,3 +502,18 @@ export function creditoAUsar(saldo: number, valorAntesDoCredito: number, jaAbati
   const espaco = round2(Math.max(0, valorAntesDoCredito - jaAbatido));
   return round2(Math.max(0, Math.min(saldo, espaco)));
 }
+
+/**
+ * Os motivos da troca são um CARDÁPIO (os chips da tela), com o detalhe
+ * opcional depois do travessão — é o que deixa o relatório contar por
+ * motivo em vez de uma linha por frase digitada.
+ */
+export const MOTIVOS_DA_TROCA = ["Tamanho", "Cor", "Modelo", "Defeito", "Outro"] as const;
+
+/** O texto gravado: "Chip — detalhe". Sem chip, o detalhe é "Outro". */
+export function textoDoMotivo(chip: string, detalhe: string): string {
+  const d = detalhe.trim();
+  const c = chip.trim() || (d ? "Outro" : "");
+  if (!c) return "";
+  return d ? `${c} — ${d}` : c;
+}
