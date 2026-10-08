@@ -4,6 +4,7 @@ import { db } from "./db";
 import { baixasLiquidasDoPedido } from "./estoque-do-pedido";
 import { espelharEstoqueSemQuebrar } from "./nuvemshop";
 import { espelharJueriSemQuebrar } from "./jueri";
+import { desfazerCreditoDasTrocas } from "./troca/credito";
 
 /**
  * Apaga um pedido desfazendo TODO o efeito dele — como se nunca tivesse
@@ -42,6 +43,10 @@ export async function reverseAndDeleteOrder(
   // as peças NÃO voltam (perda/brinde/defeito). Excluir o pedido não pode
   // ressuscitá-las: nada é devolvido, e os movimentos ficam (desvinculados)
   // como única explicação de por que o estoque está mais baixo.
+  // a mesma trava por pedido da troca e da mudança de status (RN-073): sem
+  // ela, apagar os movimentos enquanto uma troca commita deixava os
+  // movimentos novos órfãos, apontando para um pedido que não existe
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${order.id}))`;
   const liquido = order.stockWrittenOff
     ? new Map<string, number>()
     : await baixasLiquidasDoPedido(tx, order.id);
@@ -65,6 +70,10 @@ export async function reverseAndDeleteOrder(
   } else {
     await tx.inventoryMovement.deleteMany({ where: { orderId: order.id } });
   }
+  // RN-073: a troca cai por cascata com o pedido, mas o crédito que ela deu
+  // à cliente mora no livro dela (sem FK) — estornado aqui, senão ficava
+  // órfão para sempre, pagando uma diferença de uma venda que não existe
+  await desfazerCreditoDasTrocas(tx, { companyId: order.companyId, orderId: order.id, autorNome: "Sistema", motivo: "apagado" });
   // Apaga o pedido; itens/pagamentos/envio/eventos caem por cascata.
   await tx.order.delete({ where: { id: order.id } });
 

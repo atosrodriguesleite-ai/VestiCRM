@@ -188,6 +188,11 @@ export async function repointCustomer(
   await tx.task.updateMany({ where: { customerId: dupeId }, data: { customerId: primaryId } });
   await tx.sale.updateMany({ where: { customerId: dupeId }, data: { customerId: primaryId } });
   await tx.order.updateMany({ where: { customerId: dupeId }, data: { customerId: primaryId } });
+  // RN-073: a TROCA e o CRÉDITO da cliente viajam com o pedido — os dois
+  // apontam para a cliente em cascata, e apagar a duplicada os levaria junto
+  // (a troca sumia da ficha e a cliente perdia o crédito, achado da revisão)
+  await tx.troca.updateMany({ where: { customerId: dupeId }, data: { customerId: primaryId } });
+  await tx.customerCredit.updateMany({ where: { customerId: dupeId }, data: { customerId: primaryId } });
   // o FINANCEIRO viaja junto (RN-033/RN-038): a conta a receber e a conta
   // fixa da cliente apagada iam ficar "Sem cliente" (o vínculo é SetNull) —
   // a inadimplência perderia o nome e a cobrança pelo WhatsApp o telefone

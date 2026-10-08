@@ -44,3 +44,4 @@ Não escreva para decisão trivial ou reversível em cinco minutos.
 | [ADR-015](ADR-015-mensagem-antes-do-arquivo.md) | A mensagem do WhatsApp nasce antes do arquivo; o que não chegou fica na fila e é repescado | aceita |
 | [ADR-016](ADR-016-quem-manda-no-estoque.md) | A integração que vende é dona do número; todo ajuste digitado passa por uma porta só; mínimos e análise por regra | aceita |
 | [ADR-017](ADR-017-codigo-de-barras-no-banco.md) | O código de barras da variação é gerado pelo banco (gatilho), nunca pelo código da aplicação; EAN-13 interno; uma lista de elementos para três impressoras | aceita |
+| [ADR-018](ADR-018-troca-nao-reescreve-o-pedido.md) | Troca de peças é registro próprio: o pedido pago não é reescrito; o estoque anda pelo livro e a diferença de dinheiro fica na troca | aceita |

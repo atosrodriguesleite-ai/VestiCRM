@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { saldoDeCredito } from "@/lib/troca/regra";
 import { notFound } from "next/navigation";
 import {
   ArrowLeft,
@@ -122,6 +123,8 @@ export default async function CustomerDetailPage({
           orderBy: { createdAt: "desc" },
           include: { _count: { select: { items: true } } },
         },
+        // RN-073: o livro de crédito (troca com diferença a favor dela)
+        creditos: { select: { valor: true } },
         opportunities: {
           orderBy: { createdAt: "desc" },
           include: { stage: true },
@@ -191,6 +194,8 @@ export default async function CustomerDetailPage({
     null
   );
   const ticket = paidOrders.length ? totalSpent / paidOrders.length : 0;
+  // RN-073: saldo de crédito de troca — soma do livro, nunca digitado
+  const creditoDaCliente = saldoDeCredito(customer.creditos);
 
   // link para chamar o cliente direto no WhatsApp
   const waDigits = customer.phone.replace(/\D/g, "");
@@ -274,6 +279,11 @@ export default async function CustomerDetailPage({
             <p className="text-xs text-gray-400 mt-1">
               {paidOrders.length} compras · ticket {brl(ticket)}
             </p>
+            {creditoDaCliente > 0.005 && (
+              <p className="text-xs font-medium text-emerald-700 mt-1" title="Crédito de troca: abate no próximo pedido">
+                Crédito na ficha: {brl(creditoDaCliente)}
+              </p>
+            )}
             <div className="mt-3 flex flex-col gap-2 sm:items-end">
               {/* CONVERSAR PELO SISTEMA é o caminho principal: o atendimento
                   fica registrado, com nome de quem falou, e não cai na fila.

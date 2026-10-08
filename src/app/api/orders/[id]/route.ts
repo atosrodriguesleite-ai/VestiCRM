@@ -17,6 +17,8 @@ import {
 import { avisarVendaPagaSemQuebrar } from "@/lib/push";
 import { espelharEstoqueSemQuebrar } from "@/lib/nuvemshop";
 import { espelharJueriSemQuebrar } from "@/lib/jueri";
+import { ajusteDasTrocasPorVariacao, pacoteEfetivo } from "@/lib/troca/regra";
+import { desfazerCreditoDasTrocas, reporCreditoDasTrocas } from "@/lib/troca/credito";
 import {
   orderStatusLabel,
   orderNumber,
@@ -139,7 +141,12 @@ export async function PATCH(
 
     const order = await db.order.findFirst({
       where: { id, ...orderScope(user) },
-      include: { items: true, payments: true },
+      include: {
+        items: true,
+        payments: true,
+        // RN-073: as trocas entram na conta do pacote efetivo (itens ± trocas)
+        trocas: { include: { itens: { select: { sentido: true, variantId: true, quantity: true, name: true, color: true, size: true } } } },
+      },
     });
     if (!order) {
       return NextResponse.json({ error: "Não encontrado" }, { status: 404 });
@@ -201,6 +208,16 @@ export async function PATCH(
       if (order.status === "CANCELADO") {
         return NextResponse.json(
           { error: "Pedido cancelado não pode ser editado. Reabra mudando o status antes." },
+          { status: 409 }
+        );
+      }
+      // RN-073: pedido com TROCA registrada não edita itens — os itens são o
+      // retrato da venda e o que a cliente tem é itens ± trocas; "ajustar os
+      // itens para refletir a troca" devolveria ao estoque a peça devolvida e
+      // baixaria de novo a levada (achado da revisão)
+      if (order.trocas.length > 0) {
+        return NextResponse.json(
+          { error: "Este pedido tem troca registrada: os itens ficam como foram vendidos. Para mudar o que a cliente tem, registre outra troca; para desfazer a venda, cancele o pedido." },
           { status: 409 }
         );
       }
@@ -278,6 +295,9 @@ export async function PATCH(
       // limite padrão de 5s o banco na nuvem fechava a transação NO MEIO
       // ("Transaction not found") e a edição não salvava.
       await db.$transaction(async (tx) => {
+        // a mesma trava da troca e do cancelamento: a edição lê o livro do
+        // pedido e uma troca commitando no meio deixava a devolução em dobro
+        await travarPedido(tx, order.id);
         await tx.orderItem.deleteMany({ where: { orderId: order.id } });
         await tx.orderItem.createMany({
           data: parsed.data.items!.map((i) => {
@@ -326,14 +346,22 @@ export async function PATCH(
         // estoque); a falta antiga do pedido parcial permanece só anotada.
         if (reconciliaEstoque) {
           const seguradasNoLivro = await baixasLiquidasDoPedido(tx, order.id);
+          // RN-073: o livro do pedido já conta as TROCAS (a peça devolvida
+          // voltou, a levada saiu) e os itens não — comparar livro × itens
+          // sem isso "devolvia" ao estoque a peça que a cliente levou na
+          // troca e baixava de novo a que ela devolveu (achado da revisão).
+          // O pacote que a cliente TEM é itens ± trocas, nunca negativo.
+          const ajusteTrocas = ajusteDasTrocasPorVariacao(order.trocas);
           const variantesTocadas = new Set([
             ...pedidoAntigo.keys(),
             ...pedidoNovo.keys(),
             ...seguradasNoLivro.keys(),
+            ...ajusteTrocas.keys(),
           ]);
           for (const variantId of variantesTocadas) {
-            const antes = pedidoAntigo.get(variantId) ?? 0;
-            const agora = pedidoNovo.get(variantId) ?? 0;
+            const troca = ajusteTrocas.get(variantId) ?? 0;
+            const antes = Math.max(0, (pedidoAntigo.get(variantId) ?? 0) + troca);
+            const agora = Math.max(0, (pedidoNovo.get(variantId) ?? 0) + troca);
             const segurado = seguradasNoLivro.get(variantId) ?? 0;
             // baixa a MAIS que o pedido passou a pedir (mesma régua de antes)
             const baixar = Math.max(0, agora - antes);
@@ -687,12 +715,19 @@ export async function PATCH(
     // ITENS ATUAIS para a régua de estoque: se os itens foram editados NESTA
     // MESMA chamada, `order.items` (lido no começo) está velho — a baixa
     // reservava as peças antigas (auditoria 05/08/2026).
-    const itensParaEstoque = parsed.data.items
-      ? await db.orderItem.findMany({
-          where: { orderId: order.id },
-          select: { variantId: true, quantity: true, name: true, color: true, size: true },
-        })
-      : order.items;
+    // RN-073: o que o pedido volta a segurar é o PACOTE EFETIVO (itens ±
+    // trocas) — restaurar um pedido cancelado que teve troca reservava as
+    // peças originais, que pela troca já tinham voltado todas, e deixava fora
+    // as que a cliente de fato levou (achado da revisão)
+    const itensParaEstoque = pacoteEfetivo(
+      parsed.data.items
+        ? await db.orderItem.findMany({
+            where: { orderId: order.id },
+            select: { variantId: true, quantity: true, name: true, color: true, size: true },
+          })
+        : order.items,
+      order.trocas
+    );
 
     // Antes de escrever: se o pedido vai segurar estoque agora (reserva/baixa),
     // confere disponibilidade e bloqueia se faltar. Reanexar não desconta
@@ -1153,6 +1188,15 @@ export async function PATCH(
               efeitos.push(
                 ...devolvidas.map((d) => ({ variantId: d.variantId, delta: d.quantity }))
               );
+            }
+
+            // RN-073: cancelar desfaz o crédito que as trocas deram à cliente
+            // (a venda inteira está sendo devolvida) e DIZ na história a
+            // diferença ainda não acertada; restaurar repõe o crédito
+            if (willChangeStatus && newStatus === "CANCELADO") {
+              await desfazerCreditoDasTrocas(tx, { companyId: user.companyId, orderId: order.id, autorNome: user.name, motivo: "cancelado" });
+            } else if (willChangeStatus && order.status === "CANCELADO") {
+              await reporCreditoDasTrocas(tx, { companyId: user.companyId, orderId: order.id, autorNome: user.name });
             }
 
             // FATURAMENTO: sair de etapa paga estorna o pagamento e tira a

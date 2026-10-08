@@ -51,6 +51,9 @@ import { PrevisaoRecebimento } from "./previsao-recebimento";
 import { podeTransferirVenda, vendaOnline } from "@/lib/orders";
 import { EtiquetasDoPedido } from "./etiquetas-do-pedido";
 import { STATUS_NA_FILA } from "@/lib/etiquetas/separacao-regra";
+import { TrocasDoPedido } from "./trocas-do-pedido";
+import { aceitaTroca, linhasParaTroca, saldoDeCredito } from "@/lib/troca/regra";
+import { podeRegistrarTroca } from "@/lib/troca/registrar";
 
 export const dynamic = "force-dynamic";
 
@@ -79,7 +82,8 @@ export default async function OrderDetailPage({
     db.order.findFirst({
       where: { id, ...orderScope(user) },
       include: {
-          customer: true,
+          // o livro de crédito da cliente (RN-073): o saldo é a soma das linhas
+          customer: { include: { creditos: { select: { valor: true } } } },
           seller: true,
           conversation: true,
           items: {
@@ -109,6 +113,9 @@ export default async function OrderDetailPage({
         payments: { orderBy: { createdAt: "asc" } },
         shipping: true,
         events: { orderBy: { createdAt: "desc" }, include: { user: true } },
+        // RN-073: as trocas do pedido (bloco "Trocas") e o crédito da cliente
+        // — na MESMA viagem ao banco (velocidade, 20/08/2026)
+        trocas: { orderBy: { numero: "asc" }, include: { itens: true } },
       },
     });
 
@@ -189,6 +196,9 @@ export default async function OrderDetailPage({
   // própria. Não existe mais estado "só leitura" nesta tela: vendedora SEM
   // a chavinha nem chega aqui (o orderScope esconde o pedido → 404).
   const pedidoDeColega = user.role === "SELLER" && order.sellerId !== user.id;
+  // RN-073: as peças do pedido agrupadas por variação, com o que já voltou
+  // em trocas anteriores (teto do que ainda pode voltar)
+  const linhasDaTroca = linhasParaTroca(order.items, order.trocas);
 
   // peças que o pedido de fato SEGURA, pelo livro (reserva parcial segurou
   // menos do que o pedido diz) — o mesmo número do Inventário (RN-050)
@@ -439,7 +449,12 @@ export default async function OrderDetailPage({
                 {order.items.reduce((a, i) => a + i.quantity, 0) === 1 ? "peça" : "peças"}
               </span>
             </h2>
-            {order.status !== "CANCELADO" && (
+            {order.status !== "CANCELADO" && order.trocas.length > 0 ? (
+              // RN-073: depois da troca os itens são o retrato da venda
+              <span className="text-[11px] text-gray-400 text-right max-w-[14rem]">
+                Itens travados: o pedido tem troca registrada
+              </span>
+            ) : order.status !== "CANCELADO" && (
               <ItemsEditor
                 orderId={order.id}
                 // peça acrescentada depois segue o MESMO preço do pedido: a
@@ -580,6 +595,64 @@ export default async function OrderDetailPage({
             orderId={order.id}
             notes={order.notes}
             bloqueado={order.status === "CANCELADO"}
+          />
+        </Card>
+
+        {/* TROCAS (RN-073): registro próprio, pendurado no pedido — o pedido
+            não muda, o estoque anda pelo livro e a diferença fica aqui.
+            Aparece sob os itens porque o assunto é a PEÇA. */}
+        <Card className="p-5 md:col-span-2 min-w-0">
+          <TrocasDoPedido
+            orderId={order.id}
+            numeroDoPedido={orderNumber(order.number)}
+            linhas={linhasDaTroca}
+            trocas={order.trocas.map((t) => ({
+              id: t.id,
+              numero: t.numero,
+              createdAt: t.createdAt.toISOString(),
+              registradaPorNome: t.registradaPorNome,
+              motivo: t.motivo,
+              freteCombinado: t.freteCombinado,
+              valorVolta: t.valorVolta,
+              valorSai: t.valorSai,
+              diferenca: t.diferenca,
+              resolucao: t.resolucao,
+              resolvidaEm: t.resolvidaEm?.toISOString() ?? null,
+              resolvidaPorNome: t.resolvidaPorNome,
+              observacoes: t.observacoes,
+              itens: t.itens.map((i) => ({
+                sentido: i.sentido,
+                name: i.name,
+                color: i.color,
+                size: i.size,
+                quantity: i.quantity,
+                unitPrice: i.unitPrice,
+                destino: i.destino,
+              })),
+            }))}
+            podeRegistrar={aceitaTroca(order.status) && podeRegistrarTroca(user)}
+            // confirmar o acerto independe do status: a cobrança pendente de
+            // um pedido depois cancelado ainda precisa de onde ser registrada
+            podeAcertar={podeRegistrarTroca(user)}
+            motivoBloqueio={
+              !aceitaTroca(order.status)
+                ? order.status === "CANCELADO"
+                  ? "Pedido cancelado não tem o que trocar."
+                  : (STATUS_NA_FILA as readonly string[]).includes(order.status)
+                    ? "Troca só depois de enviado/entregue — se a peça já foi com a cliente, marque o pedido como entregue."
+                    : "Troca só em pedido enviado ou entregue — antes disso, edite os itens."
+                : !podeRegistrarTroca(user)
+                  ? "Registrar troca é da equipe comercial."
+                  : null
+            }
+            lojaOnline={Boolean(order.nuvemshopId)}
+            preco={{
+              priceMode: order.priceMode,
+              source: order.source,
+              catalogPriceMode: company?.catalogPriceMode,
+              campaignDiscount: order.campaignDiscount,
+            }}
+            saldoCredito={saldoDeCredito(order.customer.creditos)}
           />
         </Card>
 

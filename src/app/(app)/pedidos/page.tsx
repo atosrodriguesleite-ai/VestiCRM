@@ -230,7 +230,8 @@ export default async function OrdersPage({
         customer: true,
         seller: true,
         items: { take: 3 },
-        _count: { select: { items: true } },
+        // RN-073: "N trocas" na linha — a troca é a exceção que a loja quer ver
+        _count: { select: { items: true, trocas: true } },
       },
       orderBy: ordenacao,
       skip: (p - 1) * POR_PAGINA,
@@ -652,6 +653,9 @@ export default async function OrdersPage({
                           <Badge color={selo.cor}>{selo.texto}</Badge>
                         </span>
                       )}
+                      {o._count.trocas > 0 && (
+                        <Badge color="#7C3AED">{o._count.trocas === 1 ? "1 troca" : `${o._count.trocas} trocas`}</Badge>
+                      )}
                       <RowStatusMenu orderId={o.id} current={o.status} />
                     </div>
                   </div>
@@ -682,6 +686,9 @@ export default async function OrdersPage({
                       <span title={selo.titulo}>
                         <Badge color={selo.cor}>{selo.texto}</Badge>
                       </span>
+                    )}
+                    {o._count.trocas > 0 && (
+                      <Badge color="#7C3AED">{o._count.trocas === 1 ? "1 troca" : `${o._count.trocas} trocas`}</Badge>
                     )}
                     <RowStatusMenu orderId={o.id} current={o.status} />
                   </div>

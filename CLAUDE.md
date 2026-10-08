@@ -353,6 +353,93 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   devolvendo) → 5 (restaurou) → 5 (cancelou baixando) → 5 (restaurou, sem
   descontar de novo) → 8 (cancelou devolvendo) → 409 ao restaurar com a peça
   vendida no meio.
+  **RN-073 · TROCA DE PEÇAS É REGISTRO PRÓPRIO — O PEDIDO NÃO MUDA**
+  (`lib/troca/regra.ts` + `lib/troca/registrar.ts` + `lib/troca/credito.ts`,
+  bloco "Trocas" na ficha do pedido, 08/10/2026): pedido do dono — *"estou
+  tendo muita troca nos produtos; como realizar essas trocas de forma mais
+  simples no sistema, levando em conta a integração com a Nuvemshop"*.
+  Decidido com ele: frete **combinado** (texto livre, fora da conta);
+  diferença a favor da cliente vira **crédito OU devolução** ("os dois");
+  troca por **modelo diferente** permitida; **a vendedora registra** (sem
+  link para a cliente); e *"no pedido do cliente deve haver o registro de
+  trocas como histórico"*. Então a troca é uma **linha própria pendurada no
+  pedido** (`Troca` + `TrocaItem`, com retratos das peças), em três passos —
+  o que VOLTA (por peça do pedido, com destino **estoque** ou **defeito**),
+  o que SAI (pela grade cor × tamanho da RN-062; o preço sugerido é o que o
+  MESMO modelo custou no pedido — a troca mais comum é de tamanho — e, para
+  modelo novo, o da origem do pedido, RN-041; editável; **campo vazio não
+  vira zero**, zero só explícito) e a CONFERÊNCIA (diferença, como acertar,
+  frete combinado). **O pedido original não é tocado**: valor vendido,
+  status, data da venda, comissão, nota e o carimbo da Separação são
+  história (reescrevê-los mexeria em mês já fechado e lançado, RN-038) — por
+  isso o Financeiro e o Dashboard **não mudam** com a troca (ADR-018). **Só
+  pedido cuja peça JÁ SAIU troca**: enviado, entregue ou a prazo entregue
+  (RN-069) — derivado das listas. Pago/em produção/separação é recusado
+  (409) com o caminho: *se a peça já foi com a cliente, marque o pedido como
+  entregue e registre; se não foi, edite os itens* — ali a Separação lê os
+  itens e o Inventário o livro, e uma troca deixava os dois contando a peça
+  de jeitos opostos (achado da revisão). **Depois da primeira troca os
+  itens TRAVAM** (a porta de edição recusa, a ficha diz): os itens são o
+  retrato da venda e o que a cliente tem é **itens ± trocas** — "ajustar
+  os itens para refletir a troca" devolveria à arara a peça devolvida e
+  baixaria de novo a levada; o reconciliador da edição ainda conhece as
+  trocas (`ajusteDasTrocasPorVariacao`) como segunda tranca. **O estoque
+  anda pelo livro** (RN-003): peça boa que volta é ENTRADA (sobe), peça que
+  sai é SAÍDA condicional (nunca negativa, nunca a mesma peça para duas
+  clientes — faltou, a troca inteira é recusada com a frase da falta), e
+  **defeito é ENTRADA + SAÍDA solta ("baixa por defeito")**: o estoque não
+  muda, mas o livro conta que voltou e foi baixada. Os movimentos levam o
+  `orderId` quando o estoque do pedido é daqui — assim o pedido passa a
+  "segurar" o que a cliente tem AGORA: **cancelar depois da troca devolve a
+  peça nova, não a antiga**, e **restaurar o cancelado reserva o pacote
+  efetivo** (`pacoteEfetivo`, itens ± trocas — reservar os itens originais
+  traria peças que já voltaram todas); a venda da loja online (Nuvemshop)
+  move o estoque **sem** o pedido (o livro daqui nunca teve a saída dela) e
+  a tela diz que o pedido lá não muda. O espelho para a Nuvemshop/Jueri sai
+  pela fila de sempre (RN-053), depois do commit. **O teto do que volta é
+  por VARIAÇÃO + preço pago** (ou pelo retrato nome|cor|tamanho|preço da
+  peça apagada, `chaveDaPeca`), comprado − já devolvido: a porta de edição
+  recria as linhas com ids novos, então um teto preso ao id da linha zerava
+  a cada edição; e a mesma peça a dois preços (uma promocional) são dois
+  grupos — devolver cada uma vale o que ela custou. **A conta**: o que
+  volta vale o preço PAGO no pedido (a cliente não paga mais caro pela peça
+  que já era dela), o que sai vale o combinado; a diferença decide o que se
+  pode fazer — zero: nada; cliente devendo: **cobrar** (ela paga por fora;
+  alguém confirma "recebi", com nome e data, em qualquer status do pedido,
+  uma vez só mesmo com duas abas); loja devendo: **crédito** (linha
+  positiva no livro `CustomerCredit`; o saldo é a SOMA, nunca digitado, e
+  aparece na ficha da cliente e no bloco de trocas) ou **devolução** (alguém
+  confirma "devolvi"). Sem diferença e crédito nascem acertados. O servidor
+  recusa resolução que não combina com o sinal. **O dinheiro da troca
+  acompanha o pedido**: cancelar **estorna** o crédito que as trocas dele
+  deram (a venda inteira está sendo devolvida — manter os R$ 12 pagaria a
+  mesma diferença duas vezes) e DIZ na história o que ainda falta acertar
+  E o que já andou por fora (os R$ 16 recebidos na troca 2 têm que voltar
+  com a devolução do pedido; os R$ 10 já devolvidos se abatem); restaurar
+  **repõe** o crédito; apagar estorna de vez (a troca cai em cascata, o
+  livro fica). Tudo pelo saldo daquela troca no livro
+  (`TROCA`/`TROCA_ESTORNO`/`TROCA_REPOSICAO`), idempotente. **Unificar
+  contatos leva troca e crédito** para a ficha que sobrevive. **Trava por
+  pedido** (`pg_advisory_xact_lock`) na troca, na edição de itens, na
+  mudança de status e na exclusão — a mesma fila, senão a edição lia o
+  livro antes de a troca commitar. **Réguas**: devolução sem peça nova **não
+  é troca** (é cancelamento ou edição de itens); peça inativa não sai;
+  suporte não registra (mexe em dinheiro, régua dos valores do pedido); o
+  único (pedido, número) é a segunda tranca contra a troca em dobro. **Fica
+  registrado**: a história do pedido ganha a frase inteira (quem, o que
+  voltou — defeito marcado —, o que levou, o dinheiro, motivo e frete), a
+  lista de Pedidos mostra o selo **"N trocas"**, e o bloco "Trocas" na
+  ficha lista cada uma com o botão de confirmar o acerto. Provado pelas
+  rotas de verdade contra o Postgres local (`scripts/e2e-troca.ts`, 13
+  cenários: status, papel, estoque, defeito, falta, itens travados, teto,
+  crédito, acerto, cancelar/restaurar/apagar, loja online). **Limites
+  ditos**: a grade da peça que sai usa o estoque de agora (devolver e levar
+  a MESMA cor × tamanho com estoque zerado não passa na tela — o servidor
+  aceitaria); abater o crédito num pedido novo, o lançamento da diferença
+  no Financeiro (a cobrança/devolução hoje é confirmada à mão na troca) e o
+  relatório de trocas no Estoque são entregas próprias, na sequência — e o
+  estorno do crédito ao cancelar vai precisar de teto pelo saldo total da
+  cliente quando o consumo existir.
 - **RN-005 · Comissão e painel de pedidos** (`Order.sellerId`): pedido montado no
   sistema → quem montou; pedido do catálogo público → **QUEM MANDOU O LINK
   LEVA A VENDA, e SÓ ele** (`?ref=`) — a cliente chega no WhatsApp, a

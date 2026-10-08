@@ -185,6 +185,8 @@ model Company {
   aiUsage        AiUsage[]
   dadosEnvioLinks DadosEnvioLink[]
   fotosLinks     FotosLink[]
+  trocas         Troca[]
+  creditosDeCliente CustomerCredit[]
   funcionarios  Funcionario[]
   fichaFormLinks FichaFormLink[]
   finContas      FinConta[]
@@ -490,6 +492,7 @@ model User {
   loginCodes    LoginCode[]
 
   @@index([companyId])
+  trocasRegistradas Troca[] @relation("TrocaRegistradaPor")
   separacoes     Separacao[]
 }
 
@@ -693,6 +696,8 @@ model Customer {
   sales         Sale[]
   orders        Order[]
   events        CustomerEvent[]
+  trocas        Troca[]
+  creditos      CustomerCredit[]
 
   @@index([companyId])
   @@index([companyId, ownerId])
@@ -1736,6 +1741,7 @@ model Product {
   variants ProductVariant[]
   images   ProductImage[]
   items    OrderItem[]
+  trocaItens TrocaItem[]
   nsPrecoPend NuvemshopPrecoPendente[]
   promoIn  PromoCatalogProduct[]
 
@@ -1777,6 +1783,7 @@ model ProductVariant {
 
   items     OrderItem[]
   movements InventoryMovement[]
+  trocaItens TrocaItem[]
   nsEstoquePend NuvemshopEstoquePendente[]
 
   @@unique([productId, color, size])
@@ -2001,6 +2008,7 @@ model Order {
   events   OrderEvent[]
   separacoes Separacao[]
   sales    Sale[]
+  trocas   Troca[]
 
   @@unique([companyId, number])
   @@unique([companyId, nuvemshopId])
@@ -2032,6 +2040,8 @@ model OrderItem {
   quantity  Int
   unitPrice Float
   total     Float
+  // RN-073: o que já voltou desta linha em trocas (teto do que ainda pode voltar)
+  trocas    TrocaItem[]
 
   @@index([orderId])
   // FKs com SetNull: sem índice, remover variação/produto varria a tabela inteira
@@ -2395,6 +2405,124 @@ model InventoryMovement {
   // leem por orderId — sem índice era varredura da tabela inteira
   @@index([orderId])
   @@index([variantId])
+}
+
+/// TROCA DE PEÇAS (RN-073) — a cliente devolve peças de um pedido PAGO e leva
+/// outras. É REGISTRO PRÓPRIO: o pedido original não muda (valor, status,
+/// data da venda, comissão e nota são história), o estoque anda pelo livro
+/// de movimentos (ENTRADA do que volta bom, SAÍDA do que sai; defeito não
+/// volta para a arara) e a diferença de dinheiro fica aqui, com a resolução
+/// escolhida pela vendedora.
+enum TrocaSentido {
+  VOLTA
+  SAI
+}
+
+/// Para onde vai a peça que voltou: ESTOQUE (volta para a arara, boa) ou
+/// DEFEITO (não volta — baixa definitiva, registrada no livro).
+enum TrocaDestino {
+  ESTOQUE
+  DEFEITO
+}
+
+/// O que fazer com a diferença: nada (zero), COBRAR da cliente (ela leva
+/// mais caro), CREDITO na ficha dela (abate no próximo pedido) ou DEVOLUCAO
+/// do dinheiro (a loja devolve).
+enum TrocaResolucao {
+  SEM_DIFERENCA
+  COBRAR
+  CREDITO
+  DEVOLUCAO
+}
+
+model Troca {
+  id                String         @id @default(cuid())
+  companyId         String
+  company           Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  orderId           String
+  order             Order          @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  customerId        String
+  customer          Customer       @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  /// sequencial dentro do pedido: "Troca 1", "Troca 2"
+  numero            Int
+  registradaPorId   String?
+  registradaPor     User?          @relation("TrocaRegistradaPor", fields: [registradaPorId], references: [id], onDelete: SetNull)
+  /// retrato do nome: a pessoa pode ser desativada e a história continua legível
+  registradaPorNome String
+  /// por que a cliente trocou (tamanho, cor, defeito, modelo…), texto livre
+  motivo            String?
+  /// frete da troca é COMBINADO fora da conta (decisão do dono): texto livre
+  freteCombinado    String?
+  /// soma do que voltou, pelo preço que a cliente PAGOU no pedido
+  valorVolta        Float
+  /// soma do que saiu, pelo preço combinado na troca
+  valorSai          Float
+  /// valorSai − valorVolta: positivo = a cliente deve; negativo = a loja deve
+  diferenca         Float
+  resolucao         TrocaResolucao
+  /// quando o dinheiro da diferença foi ACERTADO (cobrança recebida ou
+  /// devolução feita). Sem diferença e crédito nascem acertados.
+  resolvidaEm       DateTime?
+  resolvidaPorNome  String?
+  observacoes       String?
+  createdAt         DateTime       @default(now())
+
+  itens TrocaItem[]
+
+  @@unique([orderId, numero])
+  @@index([companyId, createdAt])
+  @@index([companyId, customerId])
+}
+
+model TrocaItem {
+  id          String          @id @default(cuid())
+  trocaId     String
+  troca       Troca           @relation(fields: [trocaId], references: [id], onDelete: Cascade)
+  sentido     TrocaSentido
+  /// VOLTA: de qual linha do pedido a peça saiu (teto do que ainda pode voltar)
+  orderItemId String?
+  orderItem   OrderItem?      @relation(fields: [orderItemId], references: [id], onDelete: SetNull)
+  productId   String?
+  product     Product?        @relation(fields: [productId], references: [id], onDelete: SetNull)
+  variantId   String?
+  variant     ProductVariant? @relation(fields: [variantId], references: [id], onDelete: SetNull)
+  // retrato no momento da troca (a peça pode mudar depois)
+  name        String
+  sku         String?
+  color       String?
+  size        String?
+  quantity    Int
+  unitPrice   Float
+  total       Float
+  /// só na VOLTA: para onde foi a peça
+  destino     TrocaDestino?
+
+  @@index([trocaId])
+  @@index([orderItemId])
+  @@index([variantId])
+  @@index([productId])
+}
+
+/// CRÉDITO DA CLIENTE (RN-073): livro de crédito — positivo concede (troca
+/// com diferença a favor dela), negativo consome (abatido num pedido). O
+/// saldo NUNCA é digitado: é a soma das linhas.
+model CustomerCredit {
+  id            String   @id @default(cuid())
+  companyId     String
+  company       Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  customerId    String
+  customer      Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  valor         Float
+  /// TROCA | PEDIDO | MANUAL — de onde veio a linha
+  origem        String
+  origemId      String?
+  descricao     String
+  criadoPorNome String
+  createdAt     DateTime @default(now())
+
+  // a ficha lê pela relação (só customerId); o estorno lê pela troca (origemId)
+  @@index([customerId])
+  @@index([companyId, origemId])
 }
 
 // Inscrição de notificação push (Web Push) — o celular do lojista recebe um
