@@ -31,8 +31,9 @@ export async function GET(req: NextRequest) {
       filtro,
       incluirInativos: sp.get("inativos") === "1",
     });
-    // a tela pede o resumo (loja inteira) só na primeira carga; a cada tecla
-    // da busca vai só a lista — o resumo não muda com o filtro
+    // a tela pede o resumo na primeira carga e quando a CATEGORIA muda (os
+    // cartões seguem a categoria); a cada tecla da busca vai só a lista — o
+    // resumo não muda com a busca nem com os chips
     const soLista = sp.get("so") === "lista";
     return NextResponse.json({
       ...inv,

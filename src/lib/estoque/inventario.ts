@@ -293,20 +293,20 @@ export async function linhasDoEstoque(
   return { linhas, produtos, limiteBaixo: minimos.loja };
 }
 
-export async function montarInventario(
-  companyId: string,
-  opts: { q?: string; categoria?: string; filtro?: FiltroDoInventario; incluirInativos?: boolean }
-): Promise<Inventario> {
-  // (o resumo é da loja inteira e não depende da busca; a tela só o pede
-  // na primeira carga — ver `so=lista` na rota)
-  const { linhas: todas, produtos, limiteBaixo } = await linhasDoEstoque(companyId, {
-    incluirInativos: opts.incluirInativos,
-  });
-  const categorias = [...new Set(produtos.map((p) => p.category))].sort();
-
-  // o resumo é da loja INTEIRA (o filtro é só da lista) — senão "peças em
-  // estoque" mudaria a cada busca e ninguém confiaria no número
-  const resumo = {
+/**
+ * Os cartões do topo do Inventário (pura). Somam a LOJA INTEIRA ou, com a
+ * categoria escolhida, SÓ ELA (pedido do dono, 08/10/2026: *"quando
+ * seleciono uma categoria quero ver o estoque total daquela categoria; em
+ * Todas, o total de todas"*). A busca e os chips (No mínimo, Zeradas…) NÃO
+ * entram: são recorte da lista — "peças na loja" mudando a cada tecla
+ * digitada faria ninguém confiar no número.
+ */
+export function resumirLinhas(
+  linhas: readonly LinhaDoInventario[],
+  categoria?: string | null
+): Inventario["resumo"] {
+  const todas = categoria ? linhas.filter((l) => l.categoria === categoria) : linhas;
+  return {
     pecas: todas.reduce((s, l) => s + l.emEstoque, 0),
     disponiveis: todas.reduce((s, l) => s + l.disponivel, 0),
     reservadas: todas.reduce((s, l) => s + l.reservado, 0),
@@ -316,6 +316,19 @@ export async function montarInventario(
     externas: todas.filter((l) => l.dono !== null).length,
     nuvemshop: todas.filter((l) => l.dono === "NUVEMSHOP").length,
   };
+}
+
+export async function montarInventario(
+  companyId: string,
+  opts: { q?: string; categoria?: string; filtro?: FiltroDoInventario; incluirInativos?: boolean }
+): Promise<Inventario> {
+  // (o resumo segue só a CATEGORIA, não a busca nem os chips; a tela só o
+  // pede de novo quando a categoria muda — ver `so=lista` na rota)
+  const { linhas: todas, produtos, limiteBaixo } = await linhasDoEstoque(companyId, {
+    incluirInativos: opts.incluirInativos,
+  });
+  const categorias = [...new Set(produtos.map((p) => p.category))].sort();
+  const resumo = resumirLinhas(todas, opts.categoria);
 
   const porProduto = new Map(produtos.map((p) => [p.id, p]));
   const filtro = opts.filtro ?? "todos";

@@ -124,9 +124,14 @@ export function InventarioView({ filtroInicial = "todos" }: { filtroInicial?: Fi
     if (categoria) sp.set("categoria", categoria);
     if (filtro !== "todos") sp.set("filtro", filtro);
     if (inativos) sp.set("inativos", "1");
-    // depois da primeira carga só a lista viaja: o resumo é da loja inteira
-    // e não muda com a busca — e é a parte cara (achado da revisão)
-    const temResumo = Boolean(dadosRef.current?.resumo) && !recarregarResumo.current;
+    // depois da primeira carga só a lista viaja: o resumo não muda com a
+    // busca nem com os chips — é a parte cara (achado da revisão). Ele
+    // SEGUE a categoria (pedido do dono, 08/10/2026), então categoria nova
+    // pede o resumo de novo.
+    const temResumo =
+      Boolean(dadosRef.current?.resumo) &&
+      !recarregarResumo.current &&
+      categoriaDoResumo.current === categoria;
     if (temResumo) sp.set("so", "lista");
     const r = await chamar<Resposta>(`/api/estoque/inventario?${sp}`);
     if (meu !== sequencia.current) return;
@@ -136,6 +141,7 @@ export function InventarioView({ filtroInicial = "todos" }: { filtroInicial?: Fi
       return;
     }
     recarregarResumo.current = false;
+    if (r.dados.resumo) categoriaDoResumo.current = categoria;
     setDados((antes) => ({
       ...r.dados,
       resumo: r.dados.resumo ?? antes?.resumo ?? null,
@@ -146,6 +152,8 @@ export function InventarioView({ filtroInicial = "todos" }: { filtroInicial?: Fi
   dadosRef.current = dados;
   /** ajuste/mínimo salvo: o resumo mudou — a próxima carga pede ele de novo */
   const recarregarResumo = useRef(false);
+  /** de qual categoria é o resumo que está na tela ("" = loja inteira) */
+  const categoriaDoResumo = useRef<string | null>(null);
   const recarregarTudo = useCallback(() => {
     recarregarResumo.current = true;
     return carregar();
@@ -203,8 +211,14 @@ export function InventarioView({ filtroInicial = "todos" }: { filtroInicial?: Fi
 
   return (
     <div className="space-y-4">
-      {/* resumo da loja inteira — não muda com o filtro */}
+      {/* resumo da loja inteira ou da CATEGORIA escolhida — a busca e os chips não mexem nele */}
       {resumo && (
+        <div className="space-y-1.5">
+          {categoria && (
+            <p className="text-xs text-slate-500">
+              Totais de <b className="text-slate-700">{categoria}</b> · escolha “Todas as categorias” para ver a loja inteira
+            </p>
+          )}
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5">
           <Numero rotulo="Peças na loja" valor={resumo.pecas} hint="disponíveis + reservadas" />
           <Numero rotulo="Disponíveis" valor={resumo.disponiveis} hint="para vender agora" tom="emerald" />
@@ -217,6 +231,7 @@ export function InventarioView({ filtroInicial = "todos" }: { filtroInicial?: Fi
             tom={resumo.baixas > 0 ? "amber" : undefined}
           />
           <Numero rotulo="Por integração" valor={resumo.externas} hint="Nuvemshop / Jueri" />
+        </div>
         </div>
       )}
 

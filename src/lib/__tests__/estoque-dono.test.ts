@@ -10,7 +10,7 @@ import {
   rotuloDaPeca,
   TETO_DO_MOTIVO,
 } from "../estoque/dono-do-estoque";
-import { casaBusca, passaNoFiltro, STATUS_QUE_SEGURAM_NA_LOJA } from "../estoque/inventario";
+import { casaBusca, passaNoFiltro, resumirLinhas, STATUS_QUE_SEGURAM_NA_LOJA, type LinhaDoInventario } from "../estoque/inventario";
 import { estoqueLiberado, podeAjustarEstoque } from "../estoque/gate";
 import { itemVisivel } from "../menu-grupos";
 
@@ -227,5 +227,25 @@ describe("o inventário: filtros e reserva", () => {
     expect(casaBusca("festa", p, { sku: null })).toBe(true);
     expect(casaBusca("saia", p, { sku: null })).toBe(false);
     expect(casaBusca("   ", p, { sku: null })).toBe(true);
+  });
+});
+
+describe("os cartões do Inventário seguem a CATEGORIA escolhida (pedido do dono, 08/10/2026)", () => {
+  const linha = (categoria: string, disponivel: number, reservado = 0, dono: LinhaDoInventario["dono"] = null): LinhaDoInventario => ({
+    variantId: `${categoria}-${disponivel}-${reservado}`, productId: "p", produto: "x", categoria, cor: "c", tamanho: "M", sku: "s",
+    ativo: true, disponivel, reservado, emEstoque: disponivel + reservado, dono, minimo: 2, origemDoMinimo: "LOJA",
+    custo: 0, atacado: 0, cadastradoEm: "2026-01-01T00:00:00.000Z",
+  });
+  const linhas = [linha("Regata Nadador", 50, 3), linha("Regata Nadador", 0), linha("Baby Look", 10, 1, "NUVEMSHOP")];
+
+  it("sem categoria soma a loja inteira", () => {
+    const r = resumirLinhas(linhas, "");
+    expect(r).toMatchObject({ pecas: 64, disponiveis: 60, reservadas: 4, variacoes: 3, zeradas: 1, baixas: 1, externas: 1, nuvemshop: 1 });
+  });
+
+  it("com categoria soma SÓ ela — é o total que a lojista quer ver ao escolher 'Regata Nadador'", () => {
+    const r = resumirLinhas(linhas, "Regata Nadador");
+    expect(r).toMatchObject({ pecas: 53, disponiveis: 50, reservadas: 3, variacoes: 2, zeradas: 1, baixas: 1, externas: 0 });
+    expect(resumirLinhas(linhas, "Vestidos").variacoes).toBe(0);
   });
 });

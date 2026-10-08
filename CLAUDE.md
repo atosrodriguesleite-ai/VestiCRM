@@ -1867,7 +1867,12 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   até ele dizer; ADR-016): a tela **Inventário** (`/estoque`) — uma linha por cor ×
   tamanho com **na loja · reservado · disponível**, busca por nome/código/
   SKU/tag, filtros (baixo, zerada, com reserva, por integração), **ajuste na
-  própria linha com motivo** e o histórico da peça. **Folha de contagem**
+  própria linha com motivo** e o histórico da peça. **Os cartões do topo
+  seguem a CATEGORIA escolhida** (`resumirLinhas`, pedido do dono em
+  08/10/2026: *"quando seleciono uma categoria quero ver o estoque total
+  daquela categoria; em Todas, o total de todas"*) — a busca e os chips não
+  mexem neles (número que muda a cada tecla não merece confiança), e a tela
+  diz de qual categoria são os totais. **Folha de contagem**
   (`/contagem-de-estoque`, botão "Imprimir contagem", `lib/estoque/contagem.ts`,
   pedido do dono em 28/09/2026): A4 para contar na arara, agrupada por
   CATEGORIA e modelo, no MESMO recorte da lista (categoria, busca,
