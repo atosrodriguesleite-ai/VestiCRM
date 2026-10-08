@@ -175,7 +175,10 @@ export async function POST(
     // reduzir — MAS com NF-e o valor da nota manda (transportadora confere)
     const valorPecas = Math.max(0, order.subtotal - order.discount);
     const notaAtiva = order.nfeStatus === "AUTORIZADA" && Boolean(order.nfeKey);
-    const seguro = notaAtiva ? valorPecas : (parsed.data.seguroValor ?? valorPecas);
+    // com NF-e o seguro é o VALOR DA NOTA, que é o valor vendido (Σ itens =
+    // netTotal, com acréscimo e o crédito de troca — RN-074): a transportadora
+    // confere o seguro contra a nota
+    const seguro = notaAtiva ? Math.max(0, order.netTotal) : (parsed.data.seguroValor ?? valorPecas);
 
     if (action === "cotar") {
       if (destZip.length !== 8)

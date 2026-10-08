@@ -52,7 +52,8 @@ import { podeTransferirVenda, vendaOnline } from "@/lib/orders";
 import { EtiquetasDoPedido } from "./etiquetas-do-pedido";
 import { STATUS_NA_FILA } from "@/lib/etiquetas/separacao-regra";
 import { TrocasDoPedido } from "./trocas-do-pedido";
-import { aceitaTroca, linhasParaTroca, saldoDeCredito } from "@/lib/troca/regra";
+import { aceitaTroca, linhasParaTroca, recusaDoCredito, saldoDeCredito } from "@/lib/troca/regra";
+import { CreditoNoPedido } from "./credito-no-pedido";
 import { podeRegistrarTroca } from "@/lib/troca/registrar";
 
 export const dynamic = "force-dynamic";
@@ -465,6 +466,8 @@ export default async function OrderDetailPage({
                 campaignDiscount={order.campaignDiscount}
                 discount={order.discount}
                 shippingFee={order.shippingFee}
+                surcharge={order.surcharge}
+                creditoTroca={order.creditoTroca}
                 alreadyPaid={order.stockDeducted}
                 initialItems={order.items.map((i) => ({
                   productId: i.productId ?? "",
@@ -550,6 +553,13 @@ export default async function OrderDetailPage({
                 <span className="tabular-nums">− {brl(order.discount)}</span>
               </div>
             )}
+            {/* RN-074: o crédito de troca é desconto — sai antes do valor vendido */}
+            {order.creditoTroca > 0 && (
+              <div className="flex justify-between text-emerald-600">
+                <span>Crédito de troca</span>
+                <span className="tabular-nums">− {brl(order.creditoTroca)}</span>
+              </div>
+            )}
             {/*
               DOIS totais, de propósito: o de cima é o que a loja faturou (e a
               base da comissão); o de baixo é o que a cliente paga. Sem essa
@@ -577,6 +587,14 @@ export default async function OrderDetailPage({
               </p>
             )}
           </div>
+          <CreditoNoPedido
+            orderId={order.id}
+            saldoCliente={saldoDeCredito(order.customer.creditos)}
+            abatido={order.creditoTroca}
+            valorVendido={order.netTotal}
+            podeMexer={!recusaDoCredito(order) && user.role !== "SUPPORT"}
+            motivoBloqueio={recusaDoCredito(order) ?? (user.role === "SUPPORT" ? "Usar crédito é da equipe comercial." : null)}
+          />
           <ValoresEditor
             orderId={order.id}
             subtotal={order.subtotal}
@@ -585,6 +603,7 @@ export default async function OrderDetailPage({
             surcharge={order.surcharge}
             surchargePct={order.surchargePct}
             shippingFee={order.shippingFee}
+            creditoTroca={order.creditoTroca}
             podeEditar={user.role !== "SUPPORT"}
             bloqueado={order.status === "CANCELADO"}
           />

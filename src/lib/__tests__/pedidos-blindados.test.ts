@@ -437,7 +437,11 @@ describe("desconto global (ADR-013) não reescreve pedido antigo de carona", () 
   it("ajustes enviados iguais aos gravados → dinheiro gravado fica intacto", () => {
     expect(rota).toContain("descontoIntacto");
     expect(rota).toContain("acrescimoIntacto");
-    expect(rota).toContain("netTotal: order.netTotal");
+    // RN-074: o atalho parte do valor ANTES do crédito de troca (gravado +
+    // crédito) e o crédito sai de novo sob a trava — o valor vendido volta
+    // exatamente o gravado; nada é recalculado pela regra nova
+    expect(rota).toContain("netTotal: round2(order.netTotal + order.creditoTroca)");
+    expect(ler("src/lib/troca/credito.ts")).toContain("const netTotal = round2(t.netTotal - credito)");
   });
   it("a fórmula nova mora só no computeOrderTotals (base do desconto = produtos + acréscimo)", () => {
     expect(ler("src/lib/orders.ts")).toContain("baseDesconto");

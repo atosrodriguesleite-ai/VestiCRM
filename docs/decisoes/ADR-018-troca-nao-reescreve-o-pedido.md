@@ -63,7 +63,7 @@ movimentos de estoque e a própria conta de dinheiro.
    cancelar estorna o crédito das trocas (a venda inteira está sendo
    devolvida), restaurar repõe, apagar estorna de vez — pelo saldo do
    livro, idempotente. O Financeiro e o Dashboard NÃO mudam
-   com a troca nesta entrega — a diferença não é venda nova (RN-001) e
+   na hora da troca — a diferença não é venda nova (RN-001) e
    lançá-la por conta própria furaria a porta única (RN-033). Abater o
    crédito num pedido novo e lançar a diferença no Financeiro são entregas
    seguintes, ditas na RN.
@@ -90,6 +90,12 @@ movimentos de estoque e a própria conta de dinheiro.
 - A tela de Pedidos ganha o selo "N trocas"; a ficha do pedido, o bloco
   "Trocas"; a ficha da cliente, o saldo de crédito. Nenhuma métrica de
   faturamento, comissão ou DRE muda por causa de uma troca.
+- **O crédito é DESCONTO no pedido em que for usado, nunca pagamento**
+  (RN-074): a diferença que a troca devolveu à cliente é venda que voltou;
+  como desconto no pedido novo, a soma das duas vendas bate com o caixa.
+  O dinheiro que de fato andou (cliente pagou a diferença, loja devolveu)
+  entra no Financeiro quando confirmado — receita de venda ou despesa
+  "Devoluções e trocas".
 - Relatório de trocas (quantas, por que, qual peça volta mais) sai dos
   registros `Troca`/`TrocaItem` — entrega própria.
 - Limite aceito: a troca de uma venda da loja online acerta só o estoque;

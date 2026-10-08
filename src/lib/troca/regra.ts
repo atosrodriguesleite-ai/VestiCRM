@@ -470,3 +470,35 @@ export function textoDoAcerto(entrada: { numero: number; autor: string; resoluca
 export function saldoDeCredito(linhas: { valor: number }[]): number {
   return round2(linhas.reduce((s, l) => s + l.valor, 0));
 }
+
+/**
+ * RN-074 · USAR O CRÉDITO NUM PEDIDO NOVO. Em quais pedidos: os que ainda
+ * NÃO FORAM PAGOS NEM ENTREGUES (orçamento, aguardando) — no pago o dinheiro
+ * já entrou, e abater depois faria a loja "devolver" pelo livro o que a
+ * cliente já pagou; e a venda a prazo ENTREGUE já contou comissão no dia da
+ * entrega (RN-069) — abater ali baixaria o valor de um mês já fechado e
+ * lançado (achado da revisão). O crédito usado antes de entregar segue
+ * valendo quando o pedido anda. E nunca na venda da loja online: o valor dela é o
+ * da Nuvemshop, que não fica sabendo do crédito.
+ */
+export const STATUS_QUE_USAM_CREDITO: readonly string[] = ["ORCAMENTO", "AGUARDANDO_PAGAMENTO"];
+
+export function recusaDoCredito(pedido: { status: string; source: string | null; nuvemshopId: string | null }): string | null {
+  if (pedido.source === "NUVEMSHOP" || pedido.nuvemshopId)
+    return "Venda da loja online não usa crédito daqui — o valor dela é o da Nuvemshop.";
+  if (!STATUS_QUE_USAM_CREDITO.includes(pedido.status))
+    return pedido.status === "CANCELADO"
+      ? "Pedido cancelado não usa crédito."
+      : "O crédito só se usa em pedido que ainda não foi pago nem entregue — orçamento ou aguardando pagamento.";
+  return null;
+}
+
+/**
+ * Quanto do crédito entra: tudo o que a cliente tem, até o valor do pedido
+ * (produtos − desconto + acréscimo, ANTES do crédito). O frete não é coberto
+ * por crédito de troca: ele não é venda (RN-002) e vai para a transportadora.
+ */
+export function creditoAUsar(saldo: number, valorAntesDoCredito: number, jaAbatido: number): number {
+  const espaco = round2(Math.max(0, valorAntesDoCredito - jaAbatido));
+  return round2(Math.max(0, Math.min(saldo, espaco)));
+}

@@ -435,11 +435,72 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   crédito, acerto, cancelar/restaurar/apagar, loja online). **Limites
   ditos**: a grade da peça que sai usa o estoque de agora (devolver e levar
   a MESMA cor × tamanho com estoque zerado não passa na tela — o servidor
-  aceitaria); abater o crédito num pedido novo, o lançamento da diferença
-  no Financeiro (a cobrança/devolução hoje é confirmada à mão na troca) e o
-  relatório de trocas no Estoque são entregas próprias, na sequência — e o
-  estorno do crédito ao cancelar vai precisar de teto pelo saldo total da
-  cliente quando o consumo existir.
+  aceitaria); o dinheiro da troca (crédito usado num pedido novo e o
+  acerto no Financeiro) é a RN-074, e o relatório de trocas é entrega
+  própria, na sequência.
+  **RN-074 · O CRÉDITO DA TROCA VIRA DESCONTO NO PEDIDO NOVO, E O DINHEIRO
+  QUE ANDOU NA TROCA ENTRA NO FINANCEIRO** (`lib/troca/credito-no-pedido.ts`
+  + `lib/troca/credito.ts` + `registrarAcertoDaTrocaNoFinanceiro` em
+  `lib/financeiro/porta-vendas.ts`, 09/10/2026): a segunda parte da troca,
+  combinada com o dono. **Usar o crédito**: na ficha de um pedido AINDA NÃO
+  PAGO NEM ENTREGUE (orçamento ou aguardando pagamento — a venda a prazo
+  entregue já contou comissão na entrega, RN-069, e abater depois mexeria
+  num mês fechado) a faixa verde diz quanto a
+  cliente tem e oferece **"Usar neste pedido"** (e "Tirar o crédito"). Entra
+  tudo o que ela tem, até o valor do pedido antes do crédito — **o frete
+  não é coberto** (não é venda, RN-002). O crédito é **DESCONTO, não
+  pagamento** (`Order.creditoTroca`, 5º termo de `computeOrderTotals`,
+  depois do desconto e do acréscimo): os R$ 12 já tinham voltado para a
+  cliente na troca — contados como pagamento, a loja faturaria e pagaria
+  comissão sobre dinheiro que não entrou; como desconto, a soma das duas
+  vendas bate com o que entrou no caixa. **Nunca no pedido pago** (o
+  dinheiro já entrou) **nem na venda da loja online** (o valor é o da
+  Nuvemshop). O livro da cliente (`CustomerCredit`) ganha a linha negativa
+  presa ao pedido, e o pedido, a linha "Crédito de troca −R$ 12" na ficha,
+  no PDF e no CSV; a cobrança pendente acompanha o total novo (o Pix/link
+  antigo expira, a régua da edição de valores) e o lançamento do Financeiro
+  acompanha pela porta única (RN-033). **O crédito nunca some**: editar os
+  itens ou o desconto até o pedido ficar menor que o crédito devolve a
+  sobra ao livro; **cancelar** devolve tudo (e o pedido restaurado NÃO
+  reaplica — toca "Usar" de novo); **apagar** devolve tudo. O crédito é
+  **relido sob a trava do pedido** em toda porta que o toca
+  (`aplicarCreditoAtual` na edição de itens e de valores, o cancelamento e a
+  exclusão): com o número lido antes da transação, um "Usar" no meio era
+  sobrescrito e a cliente perdia o crédito (achado da revisão). **Trocar a
+  cliente do pedido com crédito abatido é recusado** ("tire o crédito
+  antes") — senão o crédito de uma voltava para a ficha da outra. E o
+  estorno do crédito de uma troca cujo pedido é cancelado tem **teto no
+  saldo de hoje**: se o crédito já foi usado em outro pedido, a ficha não
+  fica negativa — o que já tinha sido usado é DITO na história ("abater da
+  devolução do pedido") e ANOTADO na troca (`creditoAbatidoNaDevolucao`),
+  senão o crédito "vigente" dela reaparecia e um cancelamento seguinte
+  estornaria de novo. No cancelamento e na exclusão, **primeiro volta o
+  crédito que o pedido USOU, depois sai o que as trocas DELE deram** — na
+  ordem inversa, o pedido que usou o crédito da própria troca deixava a
+  cliente com ele. **Fila por pedido E por cliente** (as duas
+  `pg_advisory_xact_lock`, sempre nesta ordem): duas abas usando o mesmo
+  crédito em dois pedidos não o gastam duas vezes. **O dinheiro que ANDOU** na troca entra
+  no Financeiro **quando alguém confirma** ("recebi" / "devolvi") e já
+  baixado na conta padrão: a diferença que a cliente pagou é **RECEITA na
+  categoria de venda do pedido** (é venda a mais) e a que a loja devolveu é
+  **DESPESA em "04.06 Devoluções e trocas"** (é venda que voltou; a
+  semeadura completa a categoria nas lojas antigas, e a porta só usa a
+  categoria DO SISTEMA — a loja que já tinha uma categoria dela no 04.06
+  não vê devolução caindo em "Brindes"; sem a nossa, nasce sem categoria).
+  1 troca = 1 lançamento (o único do banco), sem módulo a porta sai calada,
+  e o crédito não passa por ali — dinheiro nenhum andou. **Sem conta
+  padrão** o lançamento nasce em aberto dizendo por quê, **fica fora da
+  Inadimplência** (cobrar pelo WhatsApp um dinheiro que a loja confirmou
+  ter recebido seria o pior erro possível) e é **repescado** quando a conta
+  padrão for escolhida (a mesma varredura de carona das vendas, só parcela
+  que nunca teve baixa). A cobrança Pix/link do valor antigo expira e a
+  ficha diz para gerar outra; o funil acompanha o valor vendido; e o
+  seguro do frete com NF-e passou a ser o valor da NOTA (`netTotal`, com
+  acréscimo e crédito), não "peças − desconto". **Limites ditos**: o desconto do crédito
+  reduz a comissão de quem vendeu o pedido NOVO (a diferença nasceu no
+  pedido da troca); o Dashboard não vê a diferença cobrada na troca (ele
+  soma pedidos, RN-001) — o Financeiro vê. Provado pelas rotas de verdade
+  contra o Postgres local (`scripts/e2e-credito-troca.ts`).
 - **RN-005 · Comissão e painel de pedidos** (`Order.sellerId`): pedido montado no
   sistema → quem montou; pedido do catálogo público → **QUEM MANDOU O LINK
   LEVA A VENDA, e SÓ ele** (`?ref=`) — a cliente chega no WhatsApp, a

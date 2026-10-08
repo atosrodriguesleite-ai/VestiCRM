@@ -71,6 +71,8 @@ export function ItemsEditor({
   initialItems,
   discount,
   shippingFee,
+  surcharge = 0,
+  creditoTroca = 0,
   alreadyPaid = false,
   priceMode = null,
   campaignDiscount = 0,
@@ -81,6 +83,10 @@ export function ItemsEditor({
   initialItems: Line[];
   discount: number;
   shippingFee: number;
+  /** acréscimo do pedido (a prévia do total o soma, como o servidor) */
+  surcharge?: number;
+  /** RN-074: crédito de troca abatido — a prévia mostra o total já com ele */
+  creditoTroca?: number;
   alreadyPaid?: boolean;
   /**
    * TABELA que precificou o pedido (do link de atacado/varejo). O item
@@ -264,7 +270,9 @@ export function ItemsEditor({
 
   const pecas = lines.reduce((s, l) => s + l.quantity, 0);
   const subtotal = lines.reduce((s, l) => s + l.quantity * l.unitPrice, 0);
-  const total = subtotal - discount + shippingFee;
+  // RN-074: o crédito abatido sai depois do desconto, limitado ao valor
+  const antesDoCredito = Math.max(0, subtotal - discount + surcharge);
+  const total = antesDoCredito - Math.min(creditoTroca, antesDoCredito) + shippingFee;
 
   /** Descartar: volta ao que está salvo no pedido (o X e a faixa escura só fecham). */
   function descartar() {

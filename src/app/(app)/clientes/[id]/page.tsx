@@ -124,7 +124,10 @@ export default async function CustomerDetailPage({
           include: { _count: { select: { items: true } } },
         },
         // RN-073: o livro de crédito (troca com diferença a favor dela)
-        creditos: { select: { valor: true } },
+        creditos: {
+          orderBy: { createdAt: "desc" },
+          select: { id: true, valor: true, descricao: true, createdAt: true, criadoPorNome: true },
+        },
         opportunities: {
           orderBy: { createdAt: "desc" },
           include: { stage: true },
@@ -279,10 +282,26 @@ export default async function CustomerDetailPage({
             <p className="text-xs text-gray-400 mt-1">
               {paidOrders.length} compras · ticket {brl(ticket)}
             </p>
-            {creditoDaCliente > 0.005 && (
-              <p className="text-xs font-medium text-emerald-700 mt-1" title="Crédito de troca: abate no próximo pedido">
-                Crédito na ficha: {brl(creditoDaCliente)}
-              </p>
+            {customer.creditos.length > 0 && (
+              // RN-074: o livro do crédito, legível — de onde veio e onde foi usado
+              <details className="mt-1 text-xs sm:ml-auto max-w-xs">
+                <summary className="cursor-pointer font-medium text-emerald-700 list-none">
+                  Crédito de troca na ficha: {brl(Math.max(0, creditoDaCliente))}
+                </summary>
+                <ul className="mt-1.5 space-y-0.5 text-left text-gray-500">
+                  {customer.creditos.slice(0, 20).map((c) => (
+                    <li key={c.id} className="flex justify-between gap-3">
+                      <span className="min-w-0 truncate" title={`${c.descricao} · ${c.criadoPorNome}`}>
+                        {dateShort(c.createdAt)} · {c.descricao}
+                      </span>
+                      <span className={`tabular-nums shrink-0 ${c.valor >= 0 ? "text-emerald-600" : "text-rose-500"}`}>
+                        {c.valor >= 0 ? "+" : "−"} {brl(Math.abs(c.valor))}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+                <p className="mt-1 text-[11px] text-gray-400">Abate num pedido ainda não pago, pela ficha do pedido.</p>
+              </details>
             )}
             <div className="mt-3 flex flex-col gap-2 sm:items-end">
               {/* CONVERSAR PELO SISTEMA é o caminho principal: o atendimento

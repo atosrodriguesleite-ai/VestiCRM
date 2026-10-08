@@ -18,7 +18,7 @@ import { avisarVendaPagaSemQuebrar } from "@/lib/push";
 import { espelharEstoqueSemQuebrar } from "@/lib/nuvemshop";
 import { espelharJueriSemQuebrar } from "@/lib/jueri";
 import { ajusteDasTrocasPorVariacao, pacoteEfetivo } from "@/lib/troca/regra";
-import { desfazerCreditoDasTrocas, reporCreditoDasTrocas } from "@/lib/troca/credito";
+import { aplicarCreditoAtual, desfazerCreditoDasTrocas, devolverCreditoDoPedido, reporCreditoDasTrocas, travarCreditoDaCliente } from "@/lib/troca/credito";
 import {
   orderStatusLabel,
   orderNumber,
@@ -281,7 +281,9 @@ export async function PATCH(
         }
       }
 
-      const totals = computeOrderTotals(
+      // SEM o crédito de troca aqui: ele é relido DENTRO da transação, sob a
+      // trava do pedido (RN-074, `aplicarCreditoAtual`)
+      let totals = computeOrderTotals(
         parsed.data.items,
         ajusteAtual(parsed.data.discount, parsed.data.discountPct, order.discount, order.discountPct),
         parsed.data.shippingFee ?? order.shippingFee,
@@ -298,6 +300,15 @@ export async function PATCH(
         // a mesma trava da troca e do cancelamento: a edição lê o livro do
         // pedido e uma troca commitando no meio deixava a devolução em dobro
         await travarPedido(tx, order.id);
+        // RN-074: o crédito de troca segue abatido — relido sob a trava e
+        // limitado ao valor novo; a sobra volta à ficha da cliente
+        totals = await aplicarCreditoAtual(tx, {
+          companyId: user.companyId,
+          orderId: order.id,
+          numeroDoPedido: orderNumber(order.number),
+          autorNome: user.name,
+          totais: totals,
+        });
         await tx.orderItem.deleteMany({ where: { orderId: order.id } });
         await tx.orderItem.createMany({
           data: parsed.data.items!.map((i) => {
@@ -332,6 +343,7 @@ export async function PATCH(
             shippingFee: totals.shippingFee,
             netTotal: totals.netTotal,
             total: totals.total,
+            creditoTroca: totals.credito,
           },
         });
         // o PACOTE mudou (variação × quantidade; só preço não conta): o
@@ -541,16 +553,19 @@ export async function PATCH(
       const freteNovo = round2(
         Math.max(parsed.data.shippingFee ?? order.shippingFee, 0)
       );
-      const totals =
+      // SEM o crédito de troca: ele é relido dentro da transação (RN-074)
+      let totals =
         descontoIntacto && acrescimoIntacto
           ? {
               // só o frete muda: valor vendido e ajustes ficam como estão
+              // (o valor de ANTES do crédito; o crédito volta a sair lá dentro)
               subtotal: order.subtotal,
               discount: order.discount,
               surcharge: order.surcharge,
               shippingFee: freteNovo,
-              netTotal: order.netTotal,
-              total: round2(order.netTotal + freteNovo),
+              netTotal: round2(order.netTotal + order.creditoTroca),
+              total: round2(order.netTotal + order.creditoTroca + freteNovo),
+              credito: 0,
             }
           : computeOrderTotals(
               order.items.map((i) => ({ quantity: i.quantity, unitPrice: i.unitPrice })),
@@ -571,6 +586,16 @@ export async function PATCH(
         mudancas.push(`frete ${brl(order.shippingFee)} → ${brl(totals.shippingFee)}`);
 
       await db.$transaction(async (tx) => {
+        // a mesma fila do pedido (troca, crédito, status): sem ela, um "Usar
+        // crédito" no meio era sobrescrito por esta gravação (RN-074)
+        await travarPedido(tx, order.id);
+        totals = await aplicarCreditoAtual(tx, {
+          companyId: user.companyId,
+          orderId: order.id,
+          numeroDoPedido: orderNumber(order.number),
+          autorNome: user.name,
+          totais: totals,
+        });
         await tx.order.update({
           where: { id: order.id },
           data: {
@@ -581,6 +606,7 @@ export async function PATCH(
             shippingFee: totals.shippingFee,
             netTotal: totals.netTotal,
             total: totals.total,
+            creditoTroca: totals.credito,
           },
         });
         // o painel de Envio lê o custo daqui — sem isso o frete editado não
@@ -881,6 +907,15 @@ export async function PATCH(
           `Vendedor alterado de ${oldSeller?.name ?? "(sem vendedor)"} para ${newSellerName ?? "(sem vendedor)"} por ${user.name}`
         );
       }
+    }
+    // RN-074: o crédito abatido é DA cliente do pedido — trocar a cliente com
+    // ele no pedido mandaria o crédito de uma para a ficha da outra no
+    // cancelamento (achado da revisão)
+    if (parsed.data.customerId && parsed.data.customerId !== order.customerId && order.creditoTroca > 0.005) {
+      return NextResponse.json(
+        { error: "Este pedido usa crédito de troca da cliente. Tire o crédito antes de trocar a cliente do pedido." },
+        { status: 409 }
+      );
     }
     if (parsed.data.customerId && parsed.data.customerId !== order.customerId) {
       const customer = await db.customer.findFirst({
@@ -1194,6 +1229,45 @@ export async function PATCH(
             // (a venda inteira está sendo devolvida) e DIZ na história a
             // diferença ainda não acertada; restaurar repõe o crédito
             if (willChangeStatus && newStatus === "CANCELADO") {
+              // RN-074: PRIMEIRO o crédito que ESTE pedido usou volta para a
+              // ficha (a venda não aconteceu, o crédito continua sendo dela);
+              // DEPOIS o crédito que as trocas DELE deram é estornado, com o
+              // saldo já de volta — na ordem inversa, o pedido que usou o
+              // crédito da própria troca devolvia o crédito por cima do
+              // estorno e a cliente ficava com ele (achado da revisão). O
+              // número é RELIDO sob a trava; restaurar o pedido NÃO reaplica.
+              const agora = await tx.order.findUnique({
+                where: { id: order.id },
+                select: { creditoTroca: true, netTotal: true, total: true, customerId: true },
+              });
+              if (agora && agora.creditoTroca > 0.005) {
+                await travarCreditoDaCliente(tx, agora.customerId);
+                const devolvido = await devolverCreditoDoPedido(tx, {
+                  companyId: user.companyId,
+                  customerId: agora.customerId,
+                  orderId: order.id,
+                  numeroDoPedido: orderNumber(order.number),
+                  valor: agora.creditoTroca,
+                  autorNome: user.name,
+                  motivo: "cancelado",
+                });
+                await tx.order.update({
+                  where: { id: order.id },
+                  data: {
+                    creditoTroca: 0,
+                    netTotal: round2(agora.netTotal + devolvido),
+                    total: round2(agora.total + devolvido),
+                  },
+                });
+                await tx.orderEvent.create({
+                  data: {
+                    orderId: order.id,
+                    type: "NOTA",
+                    description: `Crédito de troca de R$ ${devolvido.toFixed(2).replace(".", ",")} devolvido à ficha da cliente com o cancelamento.`,
+                    userId: user.id,
+                  },
+                });
+              }
               await desfazerCreditoDasTrocas(tx, { companyId: user.companyId, orderId: order.id, autorNome: user.name, motivo: "cancelado" });
             } else if (willChangeStatus && order.status === "CANCELADO") {
               await reporCreditoDasTrocas(tx, { companyId: user.companyId, orderId: order.id, autorNome: user.name });

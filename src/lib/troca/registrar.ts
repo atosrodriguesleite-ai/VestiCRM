@@ -22,6 +22,7 @@ import { reservarEstoque, textoDaFalta } from "@/lib/reservations";
 import { travarPedido } from "@/lib/etiquetas/separacao";
 import { espelharEstoqueSemQuebrar } from "@/lib/nuvemshop";
 import { espelharJueriSemQuebrar } from "@/lib/jueri";
+import { registrarAcertoDaTrocaSemQuebrar } from "@/lib/financeiro/porta-vendas";
 import {
   RECUSA_TROCA_POR_STATUS,
   aceitaTroca,
@@ -334,14 +335,14 @@ export async function acertarTroca(
     return { ok: false, erro: "Esta troca não tem dinheiro para acertar.", status: 409 };
   if (troca.resolvidaEm) return { ok: true, trocaId: troca.id, numero: troca.numero }; // já estava: idempotente
 
-  await db.$transaction(async (tx) => {
+  const acertouAgora = await db.$transaction(async (tx) => {
     // condicional: a outra aba que confirmou primeiro ganha, e a história
     // registra UM acerto — o evento só nasce quando a gravação pegou
     const gravou = await tx.troca.updateMany({
       where: { id: troca.id, resolvidaEm: null },
       data: { resolvidaEm: new Date(), resolvidaPorNome: user.name },
     });
-    if (gravou.count === 0) return;
+    if (gravou.count === 0) return false;
     await tx.orderEvent.create({
       data: {
         orderId,
@@ -350,6 +351,10 @@ export async function acertarTroca(
         userId: user.id,
       },
     });
+    return true;
   });
+  // RN-074: o dinheiro que andou entra no financeiro pela porta única, já
+  // baixado (loja sem o módulo: a porta sai calada)
+  if (acertouAgora) registrarAcertoDaTrocaSemQuebrar(troca.id);
   return { ok: true, trocaId: troca.id, numero: troca.numero };
 }

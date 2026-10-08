@@ -561,6 +561,10 @@ export async function GET(
       ...(order.discount > 0
         ? ([["Desconto", `- ${money(order.discount)}`, false]] as [string, string, boolean][])
         : []),
+      // RN-074: o crédito de troca abatido, senão a soma impressa não fecha
+      ...(order.creditoTroca > 0
+        ? ([["Crédito de troca", `- ${money(order.creditoTroca)}`, false]] as [string, string, boolean][])
+        : []),
       ...(order.shippingFee > 0
         ? ([["Frete", money(order.shippingFee), false]] as [string, string, boolean][])
         : []),

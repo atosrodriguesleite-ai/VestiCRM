@@ -36,6 +36,8 @@ import { garantirCategoriasPadrao } from "./cadastros";
 
 export const ORIGEM_PEDIDO = "PEDIDO";
 export const ORIGEM_ETIQUETA = "ETIQUETA";
+/** RN-074: o acerto em dinheiro da diferença de uma troca (RN-073) */
+export const ORIGEM_TROCA = "TROCA";
 /** Autor das baixas e dos cancelamentos que a PORTA faz sozinha. */
 export const AUTOR_SISTEMA = "Sistema";
 /** Marca do cancelamento feito pela porta — é como ela reconhece o seu. */
@@ -783,6 +785,127 @@ export async function registrarEtiquetaNoFinanceiro(
 }
 
 /**
+ * RN-074 · A DIFERENÇA DA TROCA QUE ANDOU EM DINHEIRO entra no financeiro
+ * pela porta única (RN-033), já baixada — só quando alguém CONFIRMOU que o
+ * dinheiro andou (é o "recebi"/"devolvi" da troca):
+ *  - a cliente PAGOU a diferença (levou peça mais cara) → RECEITA na
+ *    categoria de venda do pedido: é venda a mais, do mesmo jeito que a
+ *    original (atacado, varejo ou loja online);
+ *  - a loja DEVOLVEU dinheiro (peça nova mais barata) → DESPESA em
+ *    "Devoluções e trocas" (04.06): é venda que voltou.
+ * O CRÉDITO na ficha não passa por aqui — dinheiro nenhum andou; ele vira
+ * desconto no pedido em que for usado. 1 troca = 1 lançamento (o único
+ * (loja, origem, origemId) do banco), então confirmar duas vezes não dobra.
+ */
+export async function registrarAcertoDaTrocaNoFinanceiro(trocaId: string): Promise<Resultado> {
+  const troca = await db.troca.findUnique({
+    where: { id: trocaId },
+    select: {
+      id: true,
+      numero: true,
+      companyId: true,
+      customerId: true,
+      resolucao: true,
+      diferenca: true,
+      resolvidaEm: true,
+      order: { select: { number: true, source: true, priceMode: true, company: { select: { financeEnabled: true } } } },
+    },
+  });
+  if (!troca) return { feito: false, motivo: "nao-encontrado" };
+  if (!troca.order.company.financeEnabled) return { feito: false, motivo: "modulo-desligado" };
+  if (!troca.resolvidaEm || (troca.resolucao !== "COBRAR" && troca.resolucao !== "DEVOLUCAO"))
+    return { feito: false, motivo: "sem-dinheiro" };
+  const valor = round2(Math.abs(troca.diferenca));
+  if (!(valor > 0)) return { feito: false, motivo: "sem-dinheiro" };
+
+  const companyId = troca.companyId;
+  const jaTem = await db.finLancamento.findFirst({
+    where: { companyId, origem: ORIGEM_TROCA, origemId: troca.id },
+    select: { id: true },
+  });
+  if (jaTem) return { feito: true, lancamentoId: jaTem.id, acao: "nada" };
+
+  const recebeu = troca.resolucao === "COBRAR";
+  await garantirCategoriasPadrao(companyId);
+  const quando = diaDoDinheiro(troca.resolvidaEm);
+  // a devolução vai para a categoria DO SISTEMA: a loja pode ter criado uma
+  // categoria dela que ficou com o código 04.06 antes desta entrega, e a
+  // devolução cairia em "Brindes" no DRE (achado da revisão) — sem a nossa,
+  // o lançamento nasce sem categoria, que é honesto
+  const categoria = recebeu
+    ? await categoriaPorCodigo(companyId, codigoDaCategoriaDeVenda(troca.order.source, troca.order.priceMode))
+    : ((
+        await db.finCategoria.findFirst({
+          where: { companyId, codigo: "04.06", sistema: true, tipo: "DESPESA", arquivadaEm: null },
+          select: { id: true },
+        })
+      )?.id ?? null);
+  const conta = await contaPadrao(companyId);
+  const pedido = orderNumber(troca.order.number);
+  let criado;
+  try {
+    criado = await db.finLancamento.create({
+      data: {
+        companyId,
+        tipo: recebeu ? "RECEITA" : "DESPESA",
+        descricao: recebeu
+          ? `Diferença da troca ${troca.numero} — venda ${pedido}`
+          : `Devolução da troca ${troca.numero} — venda ${pedido}`,
+        competencia: quando,
+        categoriaId: categoria,
+        customerId: troca.customerId,
+        valor,
+        origem: ORIGEM_TROCA,
+        origemId: troca.id,
+        parcelas: { create: { companyId, numero: 1, vencimento: quando, valor, contaId: conta } },
+        eventos: {
+          create: {
+            descricao: recebeu
+              ? "Criado quando a diferença da troca foi confirmada como recebida"
+              : "Criado quando a devolução da troca foi confirmada",
+            autorNome: AUTOR_SISTEMA,
+          },
+        },
+      },
+      include: { parcelas: true },
+    });
+  } catch (e) {
+    // duas confirmações correram juntas: o único do banco segurou a segunda
+    if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") {
+      const existente = await db.finLancamento.findFirst({
+        where: { companyId, origem: ORIGEM_TROCA, origemId: troca.id },
+        select: { id: true },
+      });
+      if (existente) return { feito: true, lancamentoId: existente.id, acao: "nada" };
+    }
+    throw e;
+  }
+  // sem conta padrão a baixa não acontece e o lançamento fica EM ABERTO,
+  // dizendo por quê — a lojista dá a baixa na mão (a repescagem automática
+  // é só das vendas)
+  await darBaixaDaPorta(
+    criado.id,
+    criado.parcelas[0].id,
+    companyId,
+    valor,
+    quando,
+    false,
+    recebeu
+      ? "Diferença da troca recebida, mas a loja não tem conta padrão — dê a baixa na mão (ou defina a conta padrão em Cadastros)"
+      : "Devolução da troca feita, mas a loja não tem conta padrão — dê a baixa na mão (ou defina a conta padrão em Cadastros)"
+  );
+  return { feito: true, lancamentoId: criado.id, acao: "criado" };
+}
+
+export function registrarAcertoDaTrocaSemQuebrar(trocaId: string): void {
+  after(() =>
+    registrarAcertoDaTrocaNoFinanceiro(trocaId).catch((e) =>
+      console.error("[financeiro] falhou ao registrar o acerto da troca", trocaId, e)
+    )
+  );
+}
+
+/**
  * ETIQUETA CANCELADA: o valor volta para a carteira do Melhor Envio, então a
  * despesa some — estornada e cancelada, com rastro, nunca apagada.
  */
@@ -880,7 +1003,8 @@ async function darBaixaDaPorta(
   companyId: string,
   valor: number,
   data: Date,
-  segundaVolta = false
+  segundaVolta = false,
+  semContaAviso = "Venda paga, mas a loja não tem conta padrão — marque a baixa na mão (ou defina a conta padrão em Cadastros)"
 ) {
   const conta = await contaPadrao(companyId);
   if (!conta) {
@@ -892,7 +1016,7 @@ async function darBaixaDaPorta(
     });
     await avisarUmaVez(
       lancamentoId,
-      "Venda paga, mas a loja não tem conta padrão — marque a baixa na mão (ou defina a conta padrão em Cadastros)",
+      semContaAviso,
       eventos
     );
     return;
@@ -1246,6 +1370,28 @@ export async function repescarVendasSemBaixa(
   for (const id of ids) {
     const r = await sincronizarPedidoNoFinanceiro(id);
     if (r.feito && r.acao !== "nada") acertadas++;
+  }
+  // RN-074: o acerto de troca que nasceu sem conta padrão também é
+  // repescado — dinheiro que a loja confirmou não pode ficar "em aberto"
+  // para sempre. Só a parcela que NUNCA teve baixa (estorno à mão é da
+  // lojista, régua desta mesma varredura)
+  if (acertadas < teto && (await contaPadrao(companyId))) {
+    const trocas = await db.finLancamento.findMany({
+      where: {
+        companyId,
+        origem: ORIGEM_TROCA,
+        canceladoEm: null,
+        parcelas: { some: { baixas: { none: {} } } },
+      },
+      select: { id: true, parcelas: { select: { id: true, valor: true, vencimento: true, baixas: { select: { id: true } } } } },
+      take: teto - acertadas,
+    });
+    for (const l of trocas)
+      for (const p of l.parcelas)
+        if (p.baixas.length === 0) {
+          await darBaixaDaPorta(l.id, p.id, companyId, round2(p.valor), p.vencimento);
+          acertadas++;
+        }
   }
   return acertadas;
 }

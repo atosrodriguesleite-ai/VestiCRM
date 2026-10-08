@@ -2001,6 +2001,10 @@ model Order {
   /// (a fila mostra o que ainda não foi separado). O registro de quem bipou
   /// o quê mora em `Separacao`; o histórico do pedido ganha o evento.
   separadoEm     DateTime?
+  /// CRÉDITO DE TROCA abatido neste pedido (RN-074): sai do livro
+  /// `CustomerCredit` da cliente e REDUZ o valor vendido (é desconto, não
+  /// pagamento — o dinheiro já tinha voltado para ela na troca).
+  creditoTroca   Float         @default(0)
 
   items    OrderItem[]
   payments Payment[]
@@ -2464,6 +2468,11 @@ model Troca {
   /// devolução feita). Sem diferença e crédito nascem acertados.
   resolvidaEm       DateTime?
   resolvidaPorNome  String?
+  /// RN-074: parte do crédito desta troca que JÁ TINHA SIDO USADA em outro
+  /// pedido quando este foi cancelado — não dá para estornar do livro (a
+  /// ficha ficaria negativa), então foi abatida na devolução do pedido. Conta
+  /// como estornada: sem isto, o crédito "vigente" da troca reaparecia.
+  creditoAbatidoNaDevolucao Float @default(0)
   observacoes       String?
   createdAt         DateTime       @default(now())
 

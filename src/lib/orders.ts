@@ -268,6 +268,11 @@ export type OrderTotals = {
   netTotal: number;
   /** o que a cliente paga: valor vendido + frete */
   total: number;
+  /**
+   * CRÉDITO DE TROCA abatido (RN-074): o que de fato entrou, já limitado ao
+   * valor do pedido — nunca existe pedido negativo por causa de crédito.
+   */
+  credito: number;
 };
 
 /**
@@ -320,7 +325,15 @@ export function computeOrderTotals(
   items: CartItemInput[],
   discount: number | AjusteInput = 0,
   shippingFee = 0,
-  surcharge: number | AjusteInput = 0
+  surcharge: number | AjusteInput = 0,
+  /**
+   * RN-074 · crédito de troca da cliente abatido NESTE pedido. Entra DEPOIS
+   * do desconto e do acréscimo e REDUZ o valor vendido: a diferença que a
+   * troca devolveu à cliente é dinheiro que a loja não recebeu — contado
+   * como pagamento, a venda inflaria o faturamento e a comissão pelos R$ 12
+   * que já tinham voltado para ela. Limitado ao valor do pedido.
+   */
+  credito = 0
 ): OrderTotals {
   const subtotal = round2(items.reduce((s, i) => s + i.quantity * i.unitPrice, 0));
 
@@ -336,7 +349,9 @@ export function computeOrderTotals(
   );
   const safeShipping = round2(Math.max(shippingFee, 0));
 
-  const netTotal = round2(subtotal - safeDiscount + safeSurcharge);
+  const antesDoCredito = round2(subtotal - safeDiscount + safeSurcharge);
+  const safeCredito = round2(Math.min(Math.max(credito, 0), Math.max(antesDoCredito, 0)));
+  const netTotal = round2(antesDoCredito - safeCredito);
   return {
     subtotal,
     discount: safeDiscount,
@@ -344,6 +359,7 @@ export function computeOrderTotals(
     shippingFee: safeShipping,
     netTotal,
     total: round2(netTotal + safeShipping),
+    credito: safeCredito,
   };
 }
 

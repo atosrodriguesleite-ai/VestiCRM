@@ -31,6 +31,7 @@ export function ValoresEditor({
   surcharge,
   surchargePct,
   shippingFee,
+  creditoTroca = 0,
   podeEditar,
   bloqueado,
 }: {
@@ -41,6 +42,8 @@ export function ValoresEditor({
   surcharge: number;
   surchargePct: number | null;
   shippingFee: number;
+  /** RN-074: crédito de troca abatido — a prévia e o "fechar por" o levam em conta */
+  creditoTroca?: number;
   /** desconto/acréscimo são decisão comercial: Suporte não mexe */
   podeEditar: boolean;
   /** pedido cancelado não se edita */
@@ -72,15 +75,18 @@ export function ValoresEditor({
       itensFicticios,
       descModo === "PCT" ? { pct: numero(descTexto) } : { valor: numero(descTexto) },
       numero(freteTexto),
-      acrModo === "PCT" ? { pct: numero(acrTexto) } : { valor: numero(acrTexto) }
+      acrModo === "PCT" ? { pct: numero(acrTexto) } : { valor: numero(acrTexto) },
+      creditoTroca
     );
-  }, [subtotal, descModo, descTexto, acrModo, acrTexto, freteTexto]);
+  }, [subtotal, descModo, descTexto, acrModo, acrTexto, freteTexto, creditoTroca]);
 
   /** "fechar por": preenche desconto ou acréscimo a partir do total desejado */
   function aplicarFecharPor() {
     const alvo = numero(fecharPor);
     if (!alvo) return;
-    const r = ajusteParaFecharPor(subtotal, alvo, numero(freteTexto));
+    // o total que a cliente paga já desconta o crédito de troca (RN-074): o
+    // ajuste tem que chegar no valor ANTES dele, senão o crédito sai duas vezes
+    const r = ajusteParaFecharPor(subtotal, alvo + creditoTroca, numero(freteTexto));
     setDescModo("VALOR");
     setDescTexto(r.discount ? String(r.discount) : "");
     setAcrModo("VALOR");
@@ -269,6 +275,12 @@ export function ValoresEditor({
           <div className="flex justify-between text-rose-600">
             <span>Desconto{descModo === "PCT" ? " (sobre o total com acréscimo)" : ""}</span>
             <span className="tabular-nums">− {brl(previa.discount)}</span>
+          </div>
+        )}
+        {previa.credito > 0 && (
+          <div className="flex justify-between text-emerald-600">
+            <span>Crédito de troca</span>
+            <span className="tabular-nums">− {brl(previa.credito)}</span>
           </div>
         )}
         <div className="flex justify-between border-t border-slate-100 pt-1 font-semibold text-slate-800">

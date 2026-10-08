@@ -54,6 +54,9 @@ export const CATEGORIAS_PADRAO: CategoriaPadrao[] = [
   { codigo: "04.03", nome: "Taxas de maquininha e Pix", tipo: "DESPESA" },
   { codigo: "04.04", nome: "Taxas de marketplace", tipo: "DESPESA" },
   { codigo: "04.05", nome: "Anúncios e marketing", tipo: "DESPESA" },
+  // RN-074: o dinheiro DEVOLVIDO à cliente numa troca (a peça nova saiu mais
+  // barata) — é venda que voltou, não custo de mercadoria nem administrativo
+  { codigo: "04.06", nome: "Devoluções e trocas", tipo: "DESPESA" },
   // ---- despesas administrativas ------------------------------------------
   { codigo: "05", nome: "Despesas Administrativas", tipo: "DESPESA" },
   { codigo: "05.01", nome: "Aluguel e condomínio", tipo: "DESPESA" },

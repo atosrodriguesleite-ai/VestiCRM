@@ -42,7 +42,7 @@ export async function GET() {
     const header = [
       "Pedido", "Criado em", "Pago em", "Cliente", "Telefone", "Vendedor", "Status",
       "Pagamento", "Peças", "Subtotal (R$)", "Desconto (R$)", "Acréscimo (R$)",
-      "Frete (R$)", "Valor vendido (R$)", "Total a pagar (R$)",
+      "Frete (R$)", "Crédito de troca (R$)", "Valor vendido (R$)", "Total a pagar (R$)",
     ];
     const rows = orders.map((o) => [
       orderNumber(o.number),
@@ -58,6 +58,7 @@ export async function GET() {
       brlNum(o.discount),
       brlNum(o.surcharge),
       brlNum(o.shippingFee),
+      brlNum(o.creditoTroca), // RN-074: desconto que veio de troca
       brlNum(o.netTotal), // valor vendido (sem frete) — a régua do faturamento
       // frete-ok: Total a pagar é o que a cliente paga (com frete)
       brlNum(o.total),

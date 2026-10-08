@@ -1,6 +1,6 @@
 import { db } from "../db";
 import { round2 } from "../orders";
-import { pedidosPagosSemBaixa } from "./porta-vendas";
+import { ORIGEM_TROCA, pedidosPagosSemBaixa } from "./porta-vendas";
 import { saldoAte } from "./extrato";
 import {
   grupoDFCdoCodigo,
@@ -254,7 +254,10 @@ export async function carregarInadimplencia(
   const vencidasEmAberto = {
     companyId,
     vencimento: { lt: limite },
-    lancamento: { tipo: "RECEITA", canceladoEm: null },
+    // RN-074: o acerto da troca é dinheiro que a loja JÁ CONFIRMOU ter
+    // recebido — sem conta padrão ele fica sem baixa, e cobrá-lo pelo
+    // WhatsApp seria cobrar o que a cliente já pagou (achado da revisão)
+    lancamento: { tipo: "RECEITA", canceladoEm: null, origem: { not: ORIGEM_TROCA } },
   } as const;
   const [somaParcelas, somaAbatido] = await Promise.all([
     db.finParcela.aggregate({ where: vencidasEmAberto, _sum: { valor: true } }),
@@ -277,6 +280,7 @@ export async function carregarInadimplencia(
        AND p."vencimento" < ${limite}
        AND l."tipo" = 'RECEITA'
        AND l."canceladoEm" IS NULL
+       AND l."origem" <> ${ORIGEM_TROCA}
        AND p."valor" > COALESCE((
              SELECT SUM(b."valor") FROM "FinBaixa" b
               WHERE b."parcelaId" = p."id" AND b."estornadaEm" IS NULL

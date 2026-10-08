@@ -4,7 +4,8 @@ import { db } from "./db";
 import { baixasLiquidasDoPedido } from "./estoque-do-pedido";
 import { espelharEstoqueSemQuebrar } from "./nuvemshop";
 import { espelharJueriSemQuebrar } from "./jueri";
-import { desfazerCreditoDasTrocas } from "./troca/credito";
+import { desfazerCreditoDasTrocas, devolverCreditoDoPedido, travarCreditoDaCliente } from "./troca/credito";
+import { orderNumber } from "./orders";
 
 /**
  * Apaga um pedido desfazendo TODO o efeito dele — como se nunca tivesse
@@ -73,6 +74,26 @@ export async function reverseAndDeleteOrder(
   // RN-073: a troca cai por cascata com o pedido, mas o crédito que ela deu
   // à cliente mora no livro dela (sem FK) — estornado aqui, senão ficava
   // órfão para sempre, pagando uma diferença de uma venda que não existe
+  // RN-074: PRIMEIRO o crédito que este pedido USOU volta para a ficha
+  // (relido sob a trava — o número que veio de fora pode ter envelhecido);
+  // DEPOIS o crédito que as trocas dele deram é estornado — a ordem inversa
+  // deixava a cliente com o crédito da própria troca (achado da revisão)
+  const agora = await tx.order.findUnique({
+    where: { id: order.id },
+    select: { creditoTroca: true, customerId: true, number: true },
+  });
+  if (agora && agora.creditoTroca > 0.005) {
+    await travarCreditoDaCliente(tx, agora.customerId);
+    await devolverCreditoDoPedido(tx, {
+      companyId: order.companyId,
+      customerId: agora.customerId,
+      orderId: order.id,
+      numeroDoPedido: orderNumber(agora.number),
+      valor: agora.creditoTroca,
+      autorNome: "Sistema",
+      motivo: "apagado",
+    });
+  }
   await desfazerCreditoDasTrocas(tx, { companyId: order.companyId, orderId: order.id, autorNome: "Sistema", motivo: "apagado" });
   // Apaga o pedido; itens/pagamentos/envio/eventos caem por cascata.
   await tx.order.delete({ where: { id: order.id } });
