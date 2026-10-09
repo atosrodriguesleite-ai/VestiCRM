@@ -1,4 +1,5 @@
 import { db } from "./db";
+import { corOuUnica, SEM_COR } from "./cor-da-peca";
 import { decryptSecret } from "./crypto";
 import { logServerError } from "./health";
 import {
@@ -275,7 +276,9 @@ export async function syncJueriPage(
             images: { create: fotos.map((url, i) => ({ url, order: i, source: ORIGEM_JUERI })) },
             jueriFotos: JSON.stringify(fotos),
             variants: {
-              create: [{ color: cor, size: "Único", stock: estoque, sku }],
+              // sem cor lá é "Único" aqui (RN-078): cor vazia derrubava o
+              // pedido do catálogo e o salvamento da ficha
+              create: [{ color: corOuUnica(cor), size: "Único", stock: estoque, sku }],
             },
           },
           include: { variants: true, images: { select: { id: true, order: true, source: true } } },
@@ -341,10 +344,23 @@ export async function syncJueriPage(
           }
         }
         const variante = existente.variants[0];
+        // a peça que nasceu com cor VAZIA (antes da RN-078, ou criada pelo
+        // código velho durante o deploy, depois de a migração rodar) se
+        // cura aqui — só se não colidir com uma "Único" do mesmo tamanho
+        const curarCor =
+          !!variante &&
+          corOuUnica(variante.color) === SEM_COR &&
+          variante.color !== SEM_COR &&
+          !existente.variants.some(
+            (o) => o.id !== variante.id && o.color === SEM_COR && o.size === variante.size
+          );
+        if (variante && curarCor && variante.stock === estoque) {
+          await db.productVariant.update({ where: { id: variante.id }, data: { color: SEM_COR } });
+        }
         if (variante && variante.stock !== estoque) {
           await db.productVariant.update({
             where: { id: variante.id },
-            data: { stock: estoque },
+            data: { stock: estoque, ...(curarCor ? { color: SEM_COR } : {}) },
           });
           await db.inventoryMovement.create({
             data: {

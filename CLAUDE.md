@@ -646,6 +646,35 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   sem rastro no servidor, por definição, é o aparelho que nunca conseguiu
   chegar nele (sem internet) — esse fica na fila do aparelho (acima).
   Provado contra o Postgres local (`scripts/e2e-pedido-catalogo-sem-cores.ts`).
+  **RN-078 · PEÇA SEM COR SE CHAMA "Único"** (`lib/cor-da-peca.ts`,
+  09/10/2026): a causa provável do relato da Sutilli, achada lendo o código —
+  a sincronização da Jueri gravava a variação de peça SEM COR com a cor
+  **VAZIA** (`""`), a vitrine mandava `color: ""` e a porta do pedido recusava
+  o pedido INTEIRO como "dados inválidos" (400): a cliente via o erro, a
+  mensagem ia para o WhatsApp e o pedido não existia. A mesma cor vazia
+  impedia salvar a ficha da peça. "Único" é o nome que a casa já usava para
+  "não tem cor" (Nuvemshop sem atributo de cor, importação de catálogo), então:
+  a sync da Jueri passa a gravar "Único" (`corOuUnica`) e **CURA** a peça
+  que ainda estiver vazia a cada rodada (o código velho segue no ar durante
+  o build, DEPOIS de a migração rodar, e podia criar uma vazia nesse
+  intervalo); a migração `20261009150000` renomeia as que já existem — "vazia"
+  inclui tab e o espaço invisível, a mesma régua do trim —, **uma por produto
+  × tamanho e só onde não há "Único"**, porque migração que colide no único
+  de produto × cor × tamanho falha e PARA todos os deploys (P3009); e a porta
+  do pedido **aceita cor vazia** e acha a variação por `acharVariacao`:
+  **o EXATO primeiro** (com "" e "Único" na mesma peça, a ordem de leitura
+  não escolhe a errada; "Preto" e "Preto " seguem cores diferentes) e só a
+  cor vazia faz a **ponte para "Único"** — o pedido que ficou na fila do
+  aparelho com `color: ""` (RN-010) casa com a peça renomeada em vez de ser
+  recusado. A sacola guardada no aparelho com a chave antiga (`produto|`)
+  volta como `produto|Único` (`limitarSacola`). O rastro da recusa mostra a
+  cor que CHEGOU ("(cor vazia)"), não a traduzida. A linha do pedido grava a
+  cor do cadastro ("Único"). Provado contra o Postgres local (mesmo script,
+  cenários 6 e 7: o código antigo responde 400, o novo 201, e a migração
+  atravessa as duas colisões) e no `e2e-jueri-sync.ts` (2d: nasce "Único" e
+  a vazia se cura). **Limite**: a peça que a migração deixou vazia por
+  colisão (só existe se alguém criou "Único" à mão no mesmo produto e
+  tamanho) segue sem salvar a ficha até alguém apagar uma das duas.
   **RN-011** · Todo pedido do catálogo AVISA na hora (`notifyNovoPedido`): com vendedora
   no link, só ela; sem vendedora, gerência/admin (nunca uma vendedora
   qualquer — a separação por link vale também para o aviso).

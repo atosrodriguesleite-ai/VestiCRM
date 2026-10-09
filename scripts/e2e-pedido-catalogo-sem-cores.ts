@@ -138,6 +138,53 @@ async function main() {
     "nenhum rastro novo nasceu"
   );
 
+  console.log("6) peça SEM COR (cor \"\", como a Jueri gravava) — o pedido ENTRA (RN-078)");
+  const semCor = await db.product.create({
+    data: {
+      companyId: company.id,
+      name: "Colar Jueri sem cor",
+      sku: `SEMCOR-${marca}`,
+      category: "Colar",
+      retailPrice: 59.9,
+      wholesalePrice: 40,
+      variants: { create: [{ color: "", size: "Único", stock: 5 }] },
+    },
+    include: { variants: true },
+  });
+  const itemSemCor = { productId: semCor.id, color: "", size: "Único", quantity: 2 };
+  const r6 = await mandar({ ...base, items: [itemSemCor], clientRef: `cat-${marca.toString(36)}-eeeeeeeeeeeeeeee` });
+  conferir(r6.status === 201, `cor vazia: rota respondeu 201 (veio ${r6.status} ${JSON.stringify(r6.corpo)})`);
+
+  console.log("7) a migração renomeia a cor vazia para \"Único\" sem colidir, e o pedido antigo da fila (cor \"\") ainda casa");
+  // colisões que a migração tem de atravessar sem falhar (migração que falha PARA todos os deploys)
+  const duasVazias = await db.product.create({
+    data: {
+      companyId: company.id, name: "Duas vazias", sku: `DV-${marca}`, category: "Colar", retailPrice: 10, wholesalePrice: 5,
+      variants: { create: [{ color: "", size: "Único", stock: 1 }, { color: " ", size: "Único", stock: 1 }] },
+    },
+  });
+  const jaTemUnico = await db.product.create({
+    data: {
+      companyId: company.id, name: "Já tem Único", sku: `JU-${marca}`, category: "Colar", retailPrice: 10, wholesalePrice: 5,
+      variants: { create: [{ color: "Único", size: "Único", stock: 1 }, { color: "", size: "Único", stock: 1 }] },
+    },
+  });
+  const fs = await import("node:fs");
+  const sql = fs.readFileSync("prisma/migrations/20261009150000_cor_vazia_vira_unico/migration.sql", "utf8");
+  await db.$executeRawUnsafe(sql);
+  const renomeada = await db.productVariant.findUniqueOrThrow({ where: { id: semCor.variants[0].id } });
+  conferir(renomeada.color === "Único", `a peça sem cor virou "Único" (veio "${renomeada.color}")`);
+  const dv = await db.productVariant.findMany({ where: { productId: duasVazias.id }, select: { color: true } });
+  conferir(dv.filter((v) => v.color === "Único").length === 1, "duas vazias no mesmo produto: uma vira Único, a outra fica (sem colidir)");
+  const ju = await db.productVariant.findMany({ where: { productId: jaTemUnico.id }, select: { color: true } });
+  conferir(ju.some((v) => v.color === "") && ju.some((v) => v.color === "Único"), "produto que já tinha Único: a vazia fica como estava (sem colidir)");
+  const r7 = await mandar({ ...base, items: [itemSemCor], clientRef: `cat-${marca.toString(36)}-ffffffffffffffff` });
+  conferir(r7.status === 201, `pedido antigo da fila (cor "") casou com a peça renomeada: 201 (veio ${r7.status})`);
+  const linha = await db.orderItem.findFirst({ where: { order: { companyId: company.id, clientRef: { endsWith: "ffffffffffffffff" } } } });
+  conferir(linha?.color === "Único" && linha?.variantId === semCor.variants[0].id, "a linha do pedido aponta para a peça certa, com a cor \"Único\"");
+  const posEstoque = await db.productVariant.findUniqueOrThrow({ where: { id: semCor.variants[0].id } });
+  conferir(posEstoque.stock === 1, `estoque segurou 2 + 2 (5 → 1; veio ${posEstoque.stock})`);
+
   await db.errorLog.deleteMany({ where: { detail: { contains: company.id } } });
   await db.company.delete({ where: { id: company.id } });
   await db.$disconnect();

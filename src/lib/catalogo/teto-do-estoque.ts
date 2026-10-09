@@ -21,6 +21,8 @@
  * link — três caminhos, uma régua.
  */
 
+import { SEM_COR } from "@/lib/cor-da-peca";
+
 /** sacola da vitrine: chave do card (produto|cor) → tamanho → quantidade */
 export type SacolaDaVitrine = Record<string, Record<string, number>>;
 
@@ -79,8 +81,16 @@ export function limitarSacola(
 ): { sacola: SacolaDaVitrine; ajustou: boolean } {
   const limpa: SacolaDaVitrine = {};
   let ajustou = false;
-  for (const [chave, tamanhos] of Object.entries(sacola)) {
-    const porTamanho: Record<string, number> = {};
+  for (const [chaveGuardada, tamanhos] of Object.entries(sacola)) {
+    // a peça SEM COR guardada antes da RN-078 tem a chave "produto|" (cor
+    // vazia); a vitrine de hoje a chama "produto|Único". Sem esta ponte a
+    // sacola perdia a peça ao voltar — só quando a chave antiga sumiu de vez
+    const ponte = chaveGuardada.endsWith("|") ? chaveGuardada + SEM_COR : null;
+    const chave =
+      ponte && Object.keys(tamanhos).every((t) => disponivelDe(chaveGuardada, t) === undefined)
+        ? ponte
+        : chaveGuardada;
+    const porTamanho: Record<string, number> = { ...(limpa[chave] ?? {}) };
     for (const [tamanho, qty] of Object.entries(tamanhos)) {
       const disponivel = disponivelDe(chave, tamanho);
       if (disponivel === undefined) {

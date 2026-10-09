@@ -44,6 +44,7 @@ import { syncOpportunityValue, garantirCartaoDoPedido } from "@/lib/opportunity-
 import { avancarFunil } from "@/lib/funil-auto";
 import { notifyNovoPedido } from "@/lib/notify";
 import { brl } from "@/lib/format";
+import { acharVariacao } from "@/lib/cor-da-peca";
 import { sincronizarPedidoSemQuebrar } from "@/lib/financeiro/porta-vendas";
 import {
   descreverCampoRecusado,
@@ -82,7 +83,11 @@ export const maxDuration = 60;
 
 const itemSchema = z.object({
   productId: z.string().min(1),
-  color: z.string().min(1),
+  // cor VAZIA é aceita e lida como "Único" (RN-078): a peça sem cor da
+  // Jueri era gravada com cor "" e o pedido dela era recusado inteiro como
+  // "dados inválidos" — e o pedido antigo na fila do aparelho (RN-010) ainda
+  // chega assim, depois de a peça ser renomeada
+  color: z.string().max(200),
   size: z.string().min(1),
   quantity: z.number().int().positive().max(9999),
 });
@@ -436,8 +441,10 @@ export async function POST(req: NextRequest) {
   // aparelho da cliente (RN-010) aponta para o produto de ANTES + cor. Sem
   // este caminho, a linha não achava a variação, o pedido INTEIRO voltava
   // 404 e o reenvio o descartava — o pedido perdido que a RN-010 proíbe.
+  // a variação pela régua da peça sem cor (RN-078): exata primeiro, e só a
+  // cor vazia faz a ponte para "Único"
   const faltam = input.items.filter(
-    (i) => !productById.get(i.productId)?.variants.some((v) => v.color === i.color && v.size === i.size)
+    (i) => !acharVariacao(productById.get(i.productId)?.variants ?? [], i.color, i.size)
   );
   const separadas = faltam.length
     ? await db.productVariant.findMany({
@@ -472,12 +479,12 @@ export async function POST(req: NextRequest) {
   };
   const lines: Line[] = [];
   for (const item of input.items) {
-    const separada = separadas.find(
-      (v) => v.separadaDeId === item.productId && v.color === item.color && v.size === item.size
+    const separada = acharVariacao(
+      separadas.filter((v) => v.separadaDeId === item.productId),
+      item.color,
+      item.size
     );
-    const noProduto = productById
-      .get(item.productId)
-      ?.variants.find((v) => v.color === item.color && v.size === item.size);
+    const noProduto = acharVariacao(productById.get(item.productId)?.variants ?? [], item.color, item.size);
     const product = noProduto ? productById.get(item.productId) : separada?.product;
     const variant = noProduto ?? separada;
     if (!product || !variant) {
@@ -485,7 +492,8 @@ export async function POST(req: NextRequest) {
       // (desativada, apagada, cor/tamanho renomeados, ou de outra loja). O
       // rastro diz QUAL — é a única forma de a loja descobrir
       const cadastrado = productById.get(item.productId);
-      const pedida = `${item.color.slice(0, 40)} / ${item.size.slice(0, 40)}`;
+      // o rastro mostra a cor que CHEGOU (vazia é dito, não traduzido)
+      const pedida = `${item.color.trim() ? item.color.slice(0, 40) : "(cor vazia)"} / ${item.size.slice(0, 40)}`;
       return recusar(
         company,
         404,

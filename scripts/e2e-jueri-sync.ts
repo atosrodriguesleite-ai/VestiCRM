@@ -131,6 +131,24 @@ async function main() {
   conferir(out.ok === true, `a rodada passou (veio ${out.error ?? "ok"})`);
   conferir((await db.product.count({ where: { companyId: company.id, sku: "REF-IGUAL" } })) === 1, "um produto só com esse SKU");
 
+  console.log("2d) peça SEM cor na Jueri nasce com a cor \"Único\" (RN-078) — cor vazia derrubava o pedido do catálogo");
+  jueri.produtos = [[produto(9, { referencia: "REF-SEM-COR", cor: "" }), produto(10, { referencia: "REF-COR-NULA", cor: null })]];
+  out = await rodarSyncJueriDoCron(company.id, prazoLongo());
+  const semCor = await db.productVariant.findMany({
+    where: { product: { companyId: company.id, jueriId: { in: ["9", "10"] } } },
+    select: { color: true },
+  });
+  conferir(semCor.length === 2 && semCor.every((v) => v.color === "Único"), `as duas nasceram "Único" (vieram ${JSON.stringify(semCor.map((v) => v.color))})`);
+  // a peça que ficou com a cor vazia (código velho rodando durante o deploy) se cura na rodada seguinte
+  await db.productVariant.updateMany({ where: { product: { companyId: company.id, jueriId: { in: ["9", "10"] } } }, data: { color: "" } });
+  jueri.produtos = [[produto(9, { referencia: "REF-SEM-COR", cor: "" }), produto(10, { referencia: "REF-COR-NULA", cor: null, quantidade: 1 })]];
+  out = await rodarSyncJueriDoCron(company.id, prazoLongo());
+  const curadas = await db.productVariant.findMany({
+    where: { product: { companyId: company.id, jueriId: { in: ["9", "10"] } } },
+    select: { color: true },
+  });
+  conferir(curadas.every((v) => v.color === "Único"), `a cor vazia se curou na sync, com e sem mudança de estoque (vieram ${JSON.stringify(curadas.map((v) => v.color))})`);
+
   console.log("3) catálogo grande com prazo curto: para entre páginas e RETOMA na rodada seguinte");
   jueri.produtos = [[produto(1, { quantidade: 2 })], [produto(3)], [produto(4)]];
   out = await rodarSyncJueriDoCron(company.id, Date.now() - 1);
