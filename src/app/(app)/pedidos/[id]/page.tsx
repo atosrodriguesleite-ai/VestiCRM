@@ -531,11 +531,17 @@ export default async function OrderDetailPage({
       </Card>
 
       <div className="grid md:grid-cols-3 gap-4">
+        {/* COLUNA DA ESQUERDA: itens e trocas, um embaixo do outro. Eram dois
+            itens de grade de 2 colunas cada, e o segundo (Trocas) não cabia na
+            linha dos itens — descia para a linha seguinte e levava junto a
+            coluna da direita (Cobrança e Nota, Envio), deixando um vazio ao
+            lado dos itens (print do dono, 09/10/2026). */}
+        <div className="md:col-span-2 min-w-0 space-y-4">
         {/* Itens */}
         {/* min-w-0: item de grid não encolhe sozinho — sem isso um nome de peça
             longo (ou a régua de status) faz o cartão passar da largura do
             celular e a tela inteira anda para o lado */}
-        <Card className="p-5 md:col-span-2 min-w-0">
+        <Card className="p-5 min-w-0">
           <div className="flex items-center justify-between mb-4">
             <h2 className="font-semibold">
               Itens do pedido
@@ -717,7 +723,7 @@ export default async function OrderDetailPage({
         {/* TROCAS (RN-073): registro próprio, pendurado no pedido — o pedido
             não muda, o estoque anda pelo livro e a diferença fica aqui.
             Aparece sob os itens porque o assunto é a PEÇA. */}
-        <Card className="p-5 md:col-span-2 min-w-0">
+        <Card className="p-5 min-w-0">
           <TrocasDoPedido
             orderId={order.id}
             numeroDoPedido={orderNumber(order.number)}
@@ -771,6 +777,7 @@ export default async function OrderDetailPage({
             saldoCredito={saldoDeCredito(order.customer.creditos)}
           />
         </Card>
+        </div>
 
         {/* min-w-0: mesma proteção do cartão de Itens — sem ela, o link da
             InfinitePay (comprido e sem espaços) alarga esta coluna além da
