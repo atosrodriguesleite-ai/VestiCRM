@@ -142,8 +142,8 @@ describe("as portas estão ligadas", () => {
     const tela = ler("src/app/(app)/pedidos/[id]/items-editor.tsx");
     expect(tela).toContain("peça não está mais no catálogo");
     expect(tela).toContain("const semVinculo = !l.variantId");
-    // "insuficiente" só quando existe vínculo de verdade
-    expect(tela).toContain("const falta = !semVinculo && l.quantity > l.stock");
+    // "extra" (RN-075) só quando existe vínculo de verdade
+    expect(tela).toContain("const extra = semVinculo ? 0 :");
   });
 
   it("cada linha é ela mesma: nada mais é mexido PELO VÍNCULO", () => {

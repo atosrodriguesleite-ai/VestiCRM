@@ -35,10 +35,12 @@ import {
   quantidadesNoPedido,
   seguradasPorVariacao,
   somarOQueOPedidoSegura,
+  TETO_COM_EXTRA,
   type LinhaDoPedido,
 } from "@/lib/pedido-grade";
 import { GradeDePecas, type ProdutoDaGrade } from "@/components/pedido/grade-de-pecas";
 import { useTravarFundo } from "@/components/travar-fundo";
+import { useConfirmarExtras } from "@/components/pedido/confirmar-extras";
 
 type ApiVariant = { id: string; color: string; size: string; stock: number };
 type ApiProduct = ProdutoDaGrade & {
@@ -129,6 +131,8 @@ export function ItemsEditor({
   const [error, setError] = useState("");
   const buscaRef = useRef<HTMLInputElement>(null);
   const ultimaBusca = useRef<string | null>(null);
+  // RN-075: o que passa do estoque vira EXTRA, confirmado numa janela antes de gravar
+  const extras = useConfirmarExtras();
 
   useTravarFundo(open);
 
@@ -294,19 +298,24 @@ export function ItemsEditor({
       );
     }
     setSaving(true);
-    const res = await fetch(`/api/orders/${orderId}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        items: lines.map((l) => ({
-          productId: l.productId, variantId: l.variantId,
-          quantity: l.quantity, unitPrice: l.unitPrice,
-        })),
-      }),
-    });
+    const enviado = await extras.enviar((extrasConfirmados) =>
+      fetch(`/api/orders/${orderId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          items: lines.map((l) => ({
+            productId: l.productId, variantId: l.variantId,
+            quantity: l.quantity, unitPrice: l.unitPrice,
+          })),
+          extrasConfirmados,
+        }),
+      })
+    );
     setSaving(false);
-    if (!res.ok) {
-      const d = await res.json().catch(() => null);
+    // voltou da janela sem confirmar: nada foi gravado, o rascunho fica
+    if (!enviado) return;
+    if (!enviado.res.ok) {
+      const d = enviado.data as { error?: string } | null;
       return setError(d?.error ?? "Não foi possível salvar os itens.");
     }
     // o que ficou salvo passa a ser o rascunho (a próxima abertura parte dele);
@@ -424,33 +433,30 @@ export function ItemsEditor({
                           // (insuficiente)" aqui já quase fez a loja desistir de uma venda
                           // com a peça cheia na Nuvemshop. Fala a verdade: perdeu o vínculo.
                           const semVinculo = !l.variantId;
-                          const falta = !semVinculo && l.quantity > l.stock;
-                          const noTeto = !semVinculo && l.quantity >= l.stock;
+                          // acima do que o pedido segura + o disponível: EXTRA
+                          // (RN-075), feito para o pedido — não trava mais
+                          const extra = semVinculo ? 0 : Math.max(0, l.quantity - Math.max(0, l.stock));
                           const trocar = (mudanca: Partial<Line>) =>
                             setLines((prev) => prev.map((x, xi) => (xi === i ? { ...x, ...mudanca } : x)));
                           const passo = (delta: number) => {
-                            // o + para no estoque (o servidor recusa o pedido inteiro
-                            // com falta, 409); o − NUNCA é travado pelo teto (descer
-                            // sempre pode — a lição do carrinho da Central) e para em
-                            // 1: remover é a lixeira
+                            // o + passa do estoque (o que sobra vira EXTRA, confirmado
+                            // ao salvar, RN-075); o − para em 1: remover é a lixeira
                             const alvo = l.quantity + delta;
                             if (alvo < 1) return;
                             const texto =
-                              delta < 0 || semVinculo ? String(alvo) : quantidadeDigitada(String(alvo), l.stock);
+                              delta < 0 || semVinculo ? String(alvo) : quantidadeDigitada(String(alvo), TETO_COM_EXTRA);
                             trocar({ quantity: Math.max(1, parseInt(texto, 10) || 1) });
                           };
                           return (
                             <div key={l.variantId || `sem-vinculo-${i}`} className="flex items-center gap-2 py-2">
                               <div className="flex-1 min-w-0">
                                 <p className="text-sm text-gray-700 truncate">{[l.color, l.size].filter(Boolean).join(" · ") || "Único"}</p>
-                                <p className={`text-[11px] ${falta ? "text-rose-500" : semVinculo ? "text-amber-600" : "text-gray-400"}`}>
+                                <p className={`text-[11px] ${extra > 0 ? "text-violet-700 font-medium" : semVinculo ? "text-amber-600" : "text-gray-400"}`}>
                                   {semVinculo
                                     ? "peça não está mais no catálogo (apague a linha e adicione de novo)"
-                                    : falta
-                                      ? `estoque ${l.stock} (insuficiente)`
-                                      : noTeto
-                                        ? `máx ${l.stock}`
-                                        : `estoque ${l.stock}`}
+                                    : extra > 0
+                                      ? `${Math.max(0, l.stock)} do estoque + ${extra} extra`
+                                      : `estoque ${l.stock}`}
                                 </p>
                               </div>
                               <span className="inline-flex items-center gap-0.5 shrink-0">
@@ -470,18 +476,16 @@ export function ItemsEditor({
                                   value={l.quantity}
                                   onFocus={(e) => e.currentTarget.select()}
                                   onChange={(e) => {
-                                    const t = semVinculo ? e.target.value.replace(/\D/g, "") : quantidadeDigitada(e.target.value, l.stock);
+                                    const t = semVinculo ? e.target.value.replace(/\D/g, "") : quantidadeDigitada(e.target.value, TETO_COM_EXTRA);
                                     trocar({ quantity: Math.max(1, parseInt(t, 10) || 1) });
                                   }}
                                   aria-label={`Quantidade ${l.color} ${l.size}`}
-                                  className={`w-12 h-10 rounded-lg border text-center text-sm font-semibold tabular-nums outline-none ${falta ? "border-rose-300 text-rose-600" : "border-gray-200 focus:border-brand-400"}`}
+                                  className={`w-12 h-10 rounded-lg border text-center text-sm font-semibold tabular-nums outline-none ${extra > 0 ? "border-violet-300 text-violet-700" : "border-gray-200 focus:border-brand-400"}`}
                                 />
                                 <button
                                   type="button"
                                   onClick={() => passo(1)}
-                                  disabled={noTeto}
                                   aria-label="Somar 1"
-                                  title={noTeto ? `Só há ${l.stock} em estoque` : undefined}
                                   className="w-10 h-10 rounded-lg border border-gray-200 text-lg font-semibold text-gray-600 active:bg-brand-50 disabled:text-gray-200 disabled:border-gray-100"
                                 >
                                   +
@@ -632,10 +636,12 @@ export function ItemsEditor({
               quantidadesIniciais={quantidadesNoPedido(lines, picking.id)}
               precoUnitario={precoUnitarioDaGrade}
               jaNoPedido={pecasNoPedido(lines, picking.id) > 0}
+              permiteExtra
               onCancelar={() => setPicking(null)}
               onAplicar={(q) => aplicarGrade(picking, q)}
             />
           )}
+          {extras.janela}
         </div>
       </div>
     </Portal>

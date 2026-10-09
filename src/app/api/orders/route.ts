@@ -9,7 +9,15 @@ import { isSupport } from "@/lib/scope";
 import { computeOrderTotals, orderNumber } from "@/lib/orders";
 import { espelharEstoqueSemQuebrar } from "@/lib/nuvemshop";
 import { espelharJueriSemQuebrar } from "@/lib/jueri";
-import { reservarEstoque, textoDaFalta } from "@/lib/reservations";
+import { juntarPorVariacao, reservarComExtras } from "@/lib/reservations";
+import {
+  ExtrasSemCiencia,
+  extrasConfirmadosSchema,
+  extrasPrevistos,
+  extrasSemCiencia,
+  respostaDeExtras,
+  textoDosExtras,
+} from "@/lib/pedido-extras";
 import { syncOpportunityValue, garantirCartaoDoPedido } from "@/lib/opportunity-sync";
 import { comNumeroUnico } from "@/lib/numero-do-pedido";
 import { sincronizarPedidoSemQuebrar } from "@/lib/financeiro/porta-vendas";
@@ -19,9 +27,6 @@ import { sincronizarPedidoSemQuebrar } from "@/lib/financeiro/porta-vendas";
  * folga: em produção o banco fica na nuvem e cada consulta é uma viagem.
  */
 export const maxDuration = 60;
-
-/** Peça que se foi entre a conferência e a baixa (duas vendas simultâneas). */
-class SemEstoque extends Error {}
 
 const itemSchema = z.object({
   productId: z.string().min(1),
@@ -52,6 +57,10 @@ const createSchema = z.object({
   // itens passava a sugerir toda peça nova a 10% do preço (achado da revisão
   // de 01/09/2026). Em toda esta entrega quem calcula desconto é o servidor.
   campaignRef: z.string().max(120).nullish(),
+  // PEÇAS EXTRAS (RN-075): o que a pessoa viu na janela e confirmou, por
+  // peça. Sem isto, faltar estoque continua recusando o pedido (a Central e
+  // o "Colar pedido do WhatsApp" não oferecem extra).
+  extrasConfirmados: extrasConfirmadosSchema,
 });
 
 export async function POST(req: NextRequest) {
@@ -131,14 +140,25 @@ export async function POST(req: NextRequest) {
       if (!v || (v.productId !== item.productId && v.separadaDeId !== item.productId)) {
         return NextResponse.json({ error: "Produto inválido" }, { status: 404 });
       }
-      if (v.stock < item.quantity) {
-        return NextResponse.json(
-          {
-            error: `Estoque insuficiente de ${v.product.name} (${v.color} ${v.size}): restam ${v.stock}`,
-          },
-          { status: 409 }
-        );
-      }
+    }
+    // O ESTOQUE COBRE? Conferido pela SOMA de cada peça (a mesma peça em duas
+    // linhas é uma conta só). O que passar do estoque só entra como EXTRA,
+    // com a ciência da pessoa (RN-075) — sem ela, a resposta é o 409 de
+    // sempre, agora com a lista para a tela perguntar.
+    const itensDeEstoque = input.items.map((it) => {
+      const v = variantById.get(it.variantId)!;
+      return {
+        variantId: it.variantId,
+        quantity: it.quantity,
+        label: `${v.product.name} (${v.color} ${v.size})`,
+      };
+    });
+    const previstos = extrasPrevistos(
+      juntarPorVariacao(itensDeEstoque).map((p) => ({ ...p, precisa: p.quantity })),
+      new Map(variants.map((v) => [v.id, v.stock]))
+    );
+    if (extrasSemCiencia(previstos, input.extrasConfirmados).length > 0) {
+      return NextResponse.json(respostaDeExtras(previstos), { status: 409 });
     }
 
     const totals = computeOrderTotals(
@@ -150,6 +170,9 @@ export async function POST(req: NextRequest) {
 
     // comNumeroUnico: dois pedidos no mesmo instante (painel + catálogo +
     // Nuvemshop) disputam o mesmo número; quem perde tenta de novo do zero
+    // o que a reserva DE FATO segurou (o extra fica de fora) — é só isso que
+    // as integrações espelham depois da transação
+    let seguradasDoPedido: { variantId: string; quantity: number }[] = [];
     const order = await comNumeroUnico(() => db.$transaction(async (tx) => {
       const last = await tx.order.findFirst({
         where: { companyId: user.companyId },
@@ -255,31 +278,38 @@ export async function POST(req: NextRequest) {
       // A baixa é CONDICIONADA ao estoque existente (não é um decremento
       // cego): a conferência lá em cima e a baixa aqui são dois momentos, e
       // duas vendedoras fechando a última peça no mesmo segundo passavam as
-      // duas. Se a peça se foi no meio, a transação inteira é desfeita.
-      const faltas = await reservarEstoque(
-        tx,
-        input.items.map((it) => {
-          const v = variantById.get(it.variantId)!;
-          return {
-            variantId: it.variantId,
-            quantity: it.quantity,
-            label: `${v.product.name} (${v.color} ${v.size})`,
-          };
-        })
-      );
-      if (faltas.length > 0) throw new SemEstoque(textoDaFalta(faltas));
-      await tx.inventoryMovement.createMany({
-        data: created.items
-          .filter((i) => i.variantId)
-          .map((i) => ({
+      // duas. O que não coube vira EXTRA (RN-075) — e só fica se a pessoa
+      // confirmou AQUELA quantidade; senão a transação inteira é desfeita e
+      // a tela pergunta de novo, com os números de agora.
+      const reserva = await reservarComExtras(tx, itensDeEstoque);
+      const semCiencia = extrasSemCiencia(reserva.extras, input.extrasConfirmados);
+      if (semCiencia.length > 0) throw new ExtrasSemCiencia(reserva.extras);
+      // o livro guarda o que SAIU de verdade, por peça — é dele que o
+      // cancelamento devolve e é por ele que o extra se conta (nunca pela
+      // quantidade do item: o extra não saiu de estoque nenhum)
+      if (reserva.seguradas.length > 0) {
+        await tx.inventoryMovement.createMany({
+          data: reserva.seguradas.map((s) => ({
             companyId: user.companyId,
-            variantId: i.variantId!,
+            variantId: s.variantId,
             orderId: created.id,
             type: "SAIDA" as const,
-            quantity: i.quantity,
+            quantity: s.quantity,
             reason: `Reserva — pedido ${orderNumber(created.number)}`,
           })),
-      });
+        });
+      }
+      if (reserva.extras.length > 0) {
+        await tx.orderEvent.create({
+          data: {
+            orderId: created.id,
+            type: "NOTA",
+            description: textoDosExtras(reserva.extras, user.name),
+            userId: user.id,
+          },
+        });
+      }
+      seguradasDoPedido = reserva.seguradas;
       await tx.order.update({ where: { id: created.id }, data: { stockDeducted: true } });
 
       return created;
@@ -293,15 +323,17 @@ export async function POST(req: NextRequest) {
     // Integrações: a reserva feita AQUI é refletida na ORIGEM do estoque
     // (Nuvemshop/Jueri) — a peça reservada some do estoque dos outros canais
     // no mesmo instante, então ninguém vende a mesma peça em dois lugares.
-    const reservedVariantIds = order.items
-      .map((i) => i.variantId)
-      .filter((v): v is string => !!v);
-    if (reservedVariantIds.length > 0) {
-      espelharEstoqueSemQuebrar(user.companyId, reservedVariantIds);
-      const changes = order.items
-        .filter((i) => i.variantId)
-        .map((i) => ({ variantId: i.variantId!, delta: -i.quantity }));
-      espelharJueriSemQuebrar(user.companyId, changes);
+    // Só o que SAIU daqui: a peça EXTRA não mexeu em estoque nenhum e não
+    // vai para a Nuvemshop nem para o Jueri (RN-075).
+    if (seguradasDoPedido.length > 0) {
+      espelharEstoqueSemQuebrar(
+        user.companyId,
+        seguradasDoPedido.map((s) => s.variantId)
+      );
+      espelharJueriSemQuebrar(
+        user.companyId,
+        seguradasDoPedido.map((s) => ({ variantId: s.variantId, delta: -s.quantity }))
+      );
     }
 
     // registra o pedido no histórico da conversa (timeline do WhatsApp)
@@ -352,13 +384,11 @@ export async function POST(req: NextRequest) {
   } catch (e) {
     if (e instanceof AuthError)
       return NextResponse.json({ error: "Não autenticado" }, { status: 401 });
-    // a peça acabou no meio do caminho: nada foi criado, e a vendedora
-    // recebe na hora qual peça e quanto restou
-    if (e instanceof SemEstoque)
-      return NextResponse.json(
-        { error: `Estoque insuficiente — ${e.message}. Ajuste as quantidades.` },
-        { status: 409 }
-      );
+    // a peça acabou no meio do caminho: nada foi criado, e a tela recebe
+    // na hora qual peça e quanto restou — a que oferece extra pergunta de
+    // novo com os números de agora (RN-075)
+    if (e instanceof ExtrasSemCiencia)
+      return NextResponse.json(respostaDeExtras(e.extras), { status: 409 });
     // Erro inesperado: a vendedora precisa de UMA frase que ajude, e o time
     // precisa do erro no painel Saúde. Antes a rota estourava sem resposta
     // JSON e a tela mostrava só "não foi possível criar o pedido".

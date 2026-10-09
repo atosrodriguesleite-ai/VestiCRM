@@ -91,7 +91,7 @@ describe("reserva parcial: o movimento gravado é o que FOI segurado", () => {
     ]);
     expect(r.seguradas).toEqual([{ variantId: "v1", quantity: 4 }]);
     expect(r.faltas).toEqual([
-      { label: "Blusa (Preto M)", pedido: 10, disponivel: 4 },
+      { variantId: "v1", label: "Blusa (Preto M)", pedido: 10, disponivel: 4 },
     ]);
     expect(estoque.v1).toBe(0);
   });
@@ -109,7 +109,7 @@ describe("reserva parcial: o movimento gravado é o que FOI segurado", () => {
       { variantId: "v1", quantity: 3, label: "Blusa" },
     ]);
     expect(r.seguradas).toEqual([]);
-    expect(r.faltas).toEqual([{ label: "Blusa", pedido: 3, disponivel: 0 }]);
+    expect(r.faltas).toEqual([{ variantId: "v1", label: "Blusa", pedido: 3, disponivel: 0 }]);
   });
 
   it("catálogo e liquidação de Pix gravam movimento pelas SEGURADAS", () => {
@@ -251,8 +251,13 @@ describe("edição de pedido: corrida não deixa estoque negativo (M7/M8)", () =
   const rota = ler("src/app/api/orders/[id]/route.ts");
 
   it("baixar MAIS estoque na edição é condicionado ao saldo (gte)", () => {
-    expect(rota).toContain("EstoqueAcabou");
-    expect(rota).toContain("stock: { gte: baixar }");
+    // pela reserva condicional (`reservarOQueTiver`: `stock >= pedido`, e a
+    // parcial também condicionada) — nunca um decremento cego
+    expect(rota).toContain("await reservarOQueTiver(tx, [{ variantId, quantity: baixar, label }])");
+    expect(rota).not.toMatch(/stock: \{ decrement: baixar \}/);
+    // a corrida (a peça acabou entre a janela e o clique) desfaz a edição e
+    // pergunta de novo, com os números de agora (RN-075)
+    expect(rota).toContain("throw new ExtrasSemCiencia([");
   });
 
   it("a mudança de status usa os itens ATUAIS (editados na mesma chamada)", () => {

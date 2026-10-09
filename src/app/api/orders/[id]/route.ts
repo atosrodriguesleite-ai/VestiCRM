@@ -35,7 +35,16 @@ import {
   escolherCobrancaAConfirmar,
 } from "@/lib/orders";
 import { computeOrderTotals } from "@/lib/orders";
-import { reservarOQueTiver, textoDaFalta } from "@/lib/reservations";
+import { juntarPorVariacao, reservarComExtras, reservarOQueTiver } from "@/lib/reservations";
+import {
+  ExtrasSemCiencia,
+  extrasConfirmadosSchema,
+  extrasPrevistos,
+  extrasSemCiencia,
+  respostaDeExtras,
+  textoDosExtras,
+  type ExtraDaPeca,
+} from "@/lib/pedido-extras";
 import { mpCancelPayment } from "@/lib/mercadopago";
 import { baixasLiquidasDoPedido, devolverEstoqueDoPedido } from "@/lib/estoque-do-pedido";
 
@@ -45,8 +54,6 @@ export const maxDuration = 60;
 
 /** A trava de corrida pegou: o pedido mudou entre a leitura e a gravação. */
 class StatusMudou extends Error {}
-/** A peça acabou ENTRE a conferência e a baixa (outra venda levou). */
-class EstoqueAcabou extends Error {}
 import {
   winLinkedOpportunity,
   loseLinkedOpportunity,
@@ -106,6 +113,10 @@ const patchSchema = z.object({
   surcharge: z.number().nonnegative().optional(),
   surchargePct: z.number().min(0).max(100).nullish(),
   shippingFee: z.number().nonnegative().optional(),
+  // PEÇAS EXTRAS (RN-075): o que a pessoa viu na janela e confirmou, por
+  // peça — vale para acrescentar peça (edição dos itens) e para reabrir
+  // pedido cancelado (o que voltar a faltar vira extra de novo)
+  extrasConfirmados: extrasConfirmadosSchema,
 });
 
 /**
@@ -126,6 +137,19 @@ function ajusteAtual(
 
 const pctResolvida = (nova: number | null | undefined, atual: number | null) =>
   nova !== undefined ? nova : atual;
+
+/** O item do pedido como a reserva de estoque o lê (nome legível para as frases). */
+const itemDeEstoque = (i: {
+  variantId: string | null;
+  quantity: number;
+  name: string;
+  color: string | null;
+  size: string | null;
+}) => ({
+  variantId: i.variantId,
+  quantity: i.quantity,
+  label: `${i.name}${i.color || i.size ? ` (${[i.color, i.size].filter(Boolean).join(" ")})` : ""}`,
+});
 
 export async function PATCH(
   req: NextRequest,
@@ -254,6 +278,9 @@ export async function PATCH(
       const deltas = new Map<string, number>(); // variantId → variação (novo - antigo)
       const pedidoAntigo = new Map<string, number>(); // variantId → qtde nos itens antigos
       const pedidoNovo = new Map<string, number>(); // variantId → qtde nos itens novos
+      // os extras que a conferência previu (RN-075): na corrida, a janela
+      // reabre com TODOS eles, não só com a peça que acabou no meio
+      let previstosDaEdicao: ExtraDaPeca[] = [];
       if (reconciliaEstoque) {
         for (const old of order.items) {
           if (old.variantId)
@@ -265,19 +292,25 @@ export async function PATCH(
         for (const [variantId, q] of pedidoNovo) deltas.set(variantId, q);
         for (const [variantId, q] of pedidoAntigo)
           deltas.set(variantId, (deltas.get(variantId) ?? 0) - q);
-        // valida disponibilidade para os itens que vão baixar MAIS estoque
-        for (const [variantId, delta] of deltas) {
-          if (delta > 0) {
-            const v = variantById.get(variantId);
-            const avail = v?.stock ?? 0;
-            if (avail < delta) {
-              const label = v ? `${v.product.name} (${v.color} ${v.size})` : "item";
-              return NextResponse.json(
-                { error: `Estoque insuficiente de ${label}: faltam ${delta - avail}. Ajuste a quantidade.` },
-                { status: 409 }
-              );
-            }
-          }
+        // valida disponibilidade para os itens que vão baixar MAIS estoque: o
+        // que passar do estoque só entra como EXTRA, com a ciência da pessoa
+        // (RN-075); sem ela, o 409 de sempre — agora com a lista para a tela
+        // perguntar
+        const previstos = (previstosDaEdicao = extrasPrevistos(
+          [...deltas]
+            .filter(([, delta]) => delta > 0)
+            .map(([variantId, delta]) => {
+              const v = variantById.get(variantId);
+              return {
+                variantId,
+                label: v ? `${v.product.name} (${v.color} ${v.size})` : "item",
+                precisa: delta,
+              };
+            }),
+          new Map(variants.map((v) => [v.id, v.stock]))
+        ));
+        if (extrasSemCiencia(previstos, parsed.data.extrasConfirmados).length > 0) {
+          return NextResponse.json(respostaDeExtras(previstos), { status: 409 });
         }
       }
 
@@ -292,6 +325,8 @@ export async function PATCH(
       // o que a edição REALMENTE mexeu no estoque (baixa − devolução), por
       // variação — é o que as integrações espelham depois da transação
       const efetivos: { variantId: string; delta: number }[] = [];
+      // as peças que esta edição acrescentou como EXTRA (RN-075)
+      const extrasDaEdicao: ExtraDaPeca[] = [];
       // FOLGA DE TEMPO (incidente Entre Linhas, 05/08/2026): pedido pago com
       // vários itens ajusta estoque peça a peça dentro da transação; no
       // limite padrão de 5s o banco na nuvem fechava a transação NO MEIO
@@ -377,30 +412,51 @@ export async function PATCH(
             const segurado = seguradasNoLivro.get(variantId) ?? 0;
             // baixa a MAIS que o pedido passou a pedir (mesma régua de antes)
             const baixar = Math.max(0, agora - antes);
-            // devolve só o que está segurado ALÉM do que o pedido ainda pede
-            const devolver = Math.max(0, segurado + baixar - agora);
+            // o que de fato saiu agora: tudo, ou — com extra confirmado — o
+            // que havia (o resto é EXTRA e não sai de estoque nenhum, RN-075)
+            let baixou = 0;
             if (baixar > 0) {
               // baixa CONDICIONADA: a conferência lá em cima e a baixa aqui
               // são dois momentos — outra venda pode levar a peça no meio.
               // Sem a condição, o estoque ficava negativo na corrida.
-              const baixou = await tx.productVariant.updateMany({
-                where: { id: variantId, stock: { gte: baixar } },
-                data: { stock: { decrement: baixar } },
-              });
-              if (baixou.count === 0) {
-                const v = variantById.get(variantId);
-                throw new EstoqueAcabou(
-                  v ? `${v.product.name} (${v.color} ${v.size})` : "uma das peças"
-                );
+              // (a reserva parcial tenta a quantidade inteira primeiro, numa
+              // ida só; só a peça curta faz a segunda)
+              const v = variantById.get(variantId);
+              const label = v ? `${v.product.name} (${v.color} ${v.size})` : "uma das peças";
+              const reserva = await reservarOQueTiver(tx, [{ variantId, quantity: baixar, label }]);
+              baixou = reserva.seguradas.reduce((s, x) => s + x.quantity, 0);
+              if (baixou < baixar) {
+                const extra: ExtraDaPeca = {
+                  variantId,
+                  label,
+                  precisa: baixar,
+                  doEstoque: baixou,
+                  extra: baixar - baixou,
+                };
+                // extra que ninguém confirmou (a peça acabou entre a janela
+                // e o clique): desfaz tudo e a janela reabre com a lista
+                // INTEIRA desta edição — só a peça da corrida faria a
+                // confirmação de volta perder as outras (achado da revisão)
+                if (extrasSemCiencia([extra], parsed.data.extrasConfirmados).length > 0) {
+                  throw new ExtrasSemCiencia([
+                    ...previstosDaEdicao.filter((p) => p.variantId !== variantId),
+                    extra,
+                  ]);
+                }
+                extrasDaEdicao.push(extra);
               }
             }
+            // devolve só o que está segurado ALÉM do que o pedido ainda pede
+            // (diminuir tira primeiro do EXTRA: ele não saiu do estoque, então
+            // não há o que devolver por ele)
+            const devolver = Math.max(0, segurado + baixou - agora);
             if (devolver > 0) {
               await tx.productVariant.update({
                 where: { id: variantId },
                 data: { stock: { increment: devolver } },
               });
             }
-            const efetivo = baixar - devolver; // >0 saiu do estoque, <0 voltou
+            const efetivo = baixou - devolver; // >0 saiu do estoque, <0 voltou
             if (efetivo !== 0) {
               await tx.inventoryMovement.create({
                 data: {
@@ -473,6 +529,16 @@ export async function PATCH(
             userId: user.id,
           },
         });
+        if (extrasDaEdicao.length > 0) {
+          await tx.orderEvent.create({
+            data: {
+              orderId: order.id,
+              type: "NOTA",
+              description: textoDosExtras(extrasDaEdicao, user.name),
+              userId: user.id,
+            },
+          });
+        }
       }, { timeout: 30_000, maxWait: 10_000 });
 
       // PORTA ÚNICA DO FINANCEIRO (RN-033): editar itens/valores MUDA o que a
@@ -766,17 +832,19 @@ export async function PATCH(
         where: { id: { in: variantIds } },
       });
       const stockById = new Map(variants.map((v) => [v.id, v.stock]));
-      for (const item of itensParaEstoque) {
-        if (!item.variantId) continue;
-        const avail = stockById.get(item.variantId) ?? 0;
-        if (avail < item.quantity) {
-          return NextResponse.json(
-            {
-              error: `Estoque insuficiente de ${item.name} (${item.color} ${item.size}): restam ${avail}`,
-            },
-            { status: 409 }
-          );
-        }
+      // pela SOMA de cada peça (duas linhas da mesma peça passavam uma a uma
+      // com estoque para só uma delas). O que faltar volta a ser EXTRA, com a
+      // ciência da pessoa (RN-075) — sem ela, a recusa de sempre: a peça foi
+      // vendida para outra cliente enquanto o pedido estava cancelado.
+      const previstos = extrasPrevistos(
+        juntarPorVariacao(itensParaEstoque.map(itemDeEstoque)).map((p) => ({
+          ...p,
+          precisa: p.quantity,
+        })),
+        stockById
+      );
+      if (extrasSemCiencia(previstos, parsed.data.extrasConfirmados).length > 0) {
+        return NextResponse.json(respostaDeExtras(previstos), { status: 409 });
       }
     }
 
@@ -1146,38 +1214,26 @@ export async function PATCH(
                 },
               });
             } else if (needStockDeduct) {
-              // Baixa condicionada: segura o que existe, nunca negativa. Se
-              // faltar peça, o pedido não trava — mas a falta fica escrita e
-              // a gerência é avisada.
-              const reserva = await reservarOQueTiver(
-                tx,
-                itensParaEstoque.map((i) => ({
-                  variantId: i.variantId,
-                  quantity: i.quantity,
-                  label: `${i.name}${i.color || i.size ? ` (${[i.color, i.size].filter(Boolean).join(" ")})` : ""}`,
-                }))
-              );
-              if (reserva.faltas.length > 0) {
-                const aviso = `⚠️ Baixa de estoque incompleta — ${textoDaFalta(reserva.faltas)}. Confira o estoque físico.`;
+              // Baixa condicionada, em lote (a mesma reserva da criação):
+              // segura o que existe, nunca negativa. O que faltar só fica
+              // como EXTRA se a pessoa confirmou AQUELA quantidade (RN-075);
+              // a peça que acabou entre a janela e o clique desfaz a
+              // transação e a janela reabre com os números de agora — antes,
+              // essa falta entrava calada (com aviso à gerência) e o pedido
+              // voltava devendo peça que ninguém viu (achado da revisão).
+              const reserva = await reservarComExtras(tx, itensParaEstoque.map(itemDeEstoque));
+              if (extrasSemCiencia(reserva.extras, parsed.data.extrasConfirmados).length > 0) {
+                throw new ExtrasSemCiencia(reserva.extras);
+              }
+              if (reserva.extras.length > 0) {
                 await tx.orderEvent.create({
-                  data: { orderId: order.id, type: "NOTA", description: aviso, userId: user.id },
+                  data: {
+                    orderId: order.id,
+                    type: "NOTA",
+                    description: textoDosExtras(reserva.extras, user.name),
+                    userId: user.id,
+                  },
                 });
-                const equipe = await tx.user.findMany({
-                  where: { companyId: user.companyId, active: true, role: { in: ["ADMIN", "MANAGER"] } },
-                  select: { id: true },
-                });
-                if (equipe.length > 0) {
-                  await tx.notification.createMany({
-                    data: equipe.map((u) => ({
-                      companyId: user.companyId,
-                      userId: u.id,
-                      type: "ASSIGN",
-                      title: `Estoque faltou no pedido ${orderNumber(order.number)}`,
-                      body: aviso.slice(0, 160),
-                      actorName: user.name,
-                    })),
-                  });
-                }
               }
               // movimento pelo que foi DE FATO segurado (não pela quantidade
               // pedida) — é o que a devolução vai ler no cancelamento
@@ -1501,14 +1557,8 @@ export async function PATCH(
   } catch (e) {
     if (e instanceof AuthError)
       return NextResponse.json({ error: "Não autenticado" }, { status: 401 });
-    if (e instanceof EstoqueAcabou) {
-      // corrida real: outra venda levou a peça entre a conferência e a baixa
-      return NextResponse.json(
-        {
-          error: `${e.message} acabou de ser vendida em outro pedido — o estoque não cobre a edição. Recarregue e ajuste a quantidade.`,
-        },
-        { status: 409 }
-      );
+    if (e instanceof ExtrasSemCiencia) {
+      return NextResponse.json(respostaDeExtras(e.extras), { status: 409 });
     }
     // ERRO INESPERADO NÃO PODE SER MUDO (incidente Entre Linhas, 05/08/2026):
     // a tela mostrava só "Não foi possível salvar os itens" e ninguém sabia o

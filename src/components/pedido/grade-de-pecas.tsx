@@ -15,7 +15,10 @@
  * número e nunca decide dinheiro (RN-041). E a quantidade PARA no estoque:
  * a porta de criação recusa o pedido inteiro quando falta peça (409), então
  * oferecer mais do que existe seria levar a lojista a um beco no último
- * clique (achado da revisão).
+ * clique (achado da revisão) — SALVO onde a tela oferece PEÇA EXTRA
+ * (`permiteExtra`, RN-075: Novo pedido e Editar itens): ali a célula passa
+ * do estoque, diz quantas viram extra, e a confirmação vem antes de gravar.
+ * O "repetir" continua parando no estoque: extra é decisão, não atalho.
  */
 
 import { useMemo, useState } from "react";
@@ -28,6 +31,7 @@ import {
   quantidadeDigitada,
   repetirNaLinha as repetirNaLinhaDaGrade,
   resumoDaGrade,
+  TETO_COM_EXTRA,
   type VariacaoDaGrade,
 } from "@/lib/pedido-grade";
 
@@ -46,6 +50,7 @@ export function GradeDePecas({
   quantidadesIniciais,
   precoUnitario,
   jaNoPedido,
+  permiteExtra = false,
   onCancelar,
   onAplicar,
 }: {
@@ -54,6 +59,8 @@ export function GradeDePecas({
   quantidadesIniciais: ReadonlyMap<string, number>;
   precoUnitario: (quantidadeDaCelula: number) => number;
   jaNoPedido: boolean;
+  /** RN-075: a quantidade pode passar do estoque (o resto vira EXTRA, confirmado ao salvar) */
+  permiteExtra?: boolean;
   onCancelar: () => void;
   onAplicar: (quantidades: Map<string, number>) => void;
 }) {
@@ -77,7 +84,10 @@ export function GradeDePecas({
   const umaCelulaSo = grade.cores.length === 1 && grade.tamanhos.length === 1;
 
   const escrever = (variantId: string, valor: string, estoque: number) => {
-    setTexto((prev) => ({ ...prev, [variantId]: quantidadeDigitada(valor, estoque) }));
+    setTexto((prev) => ({
+      ...prev,
+      [variantId]: quantidadeDigitada(valor, permiteExtra ? TETO_COM_EXTRA : estoque),
+    }));
   };
 
   /** "3 de cada tamanho": preenche só as células VAZIAS daquela cor. */
@@ -143,6 +153,7 @@ export function GradeDePecas({
                   <CampoDaCelula
                     valor={texto[v.id] ?? ""}
                     estoque={v.stock}
+                    permiteExtra={permiteExtra}
                     grande
                     onChange={(t) => escrever(v.id, t, v.stock)}
                   />
@@ -203,6 +214,7 @@ export function GradeDePecas({
                                 <CampoDaCelula
                                   valor={texto[v.id] ?? ""}
                                   estoque={v.stock}
+                                  permiteExtra={permiteExtra}
                                   rotulo={`${cor} ${t}`}
                                   onChange={(novo) => escrever(v.id, novo, v.stock)}
                                 />
@@ -256,7 +268,9 @@ export function GradeDePecas({
                 ? jaNoPedido
                   ? "Zerar tudo remove a peça do pedido."
                   : "Preencha ao menos uma quantidade."
-                : "A quantidade para no que há em estoque."}
+                : permiteExtra
+                  ? "Acima do estoque vira EXTRA — você confirma ao salvar."
+                  : "A quantidade para no que há em estoque."}
             </p>
           </div>
           <button
@@ -279,19 +293,24 @@ const rotuloEstoque = (estoque: number) => (estoque > 0 ? `${estoque} em estoque
 function CampoDaCelula({
   valor,
   estoque,
+  permiteExtra = false,
   rotulo,
   grande,
   onChange,
 }: {
   valor: string;
   estoque: number;
+  permiteExtra?: boolean;
   rotulo?: string;
   grande?: boolean;
   onChange: (valor: string) => void;
 }) {
   const digitado = parseInt(valor, 10) || 0;
-  const semEstoque = estoque <= 0;
-  const noTeto = !semEstoque && digitado >= estoque;
+  // com extra liberado (RN-075) a célula sem estoque também aceita número:
+  // é a peça que a confecção vai fazer para este pedido
+  const semEstoque = estoque <= 0 && !permiteExtra;
+  const noTeto = !permiteExtra && !semEstoque && digitado >= estoque;
+  const extra = permiteExtra ? Math.max(0, digitado - Math.max(0, estoque)) : 0;
   // − e + para montar sem teclado (pedido do dono, 21/09/2026: no celular e
   // no tablet o teclado cobre a grade). Os dois passam pelo MESMO funil da
   // digitação (quantidadeDigitada): o + para no estoque; o − nunca é travado
@@ -329,7 +348,9 @@ function CampoDaCelula({
             semEstoque
               ? "border-gray-100 bg-gray-50 text-gray-300 placeholder:text-gray-300 cursor-not-allowed"
               : digitado > 0
-                ? "border-brand-400 bg-brand-50 text-brand-800"
+                ? extra > 0
+                  ? "border-violet-400 bg-violet-50 text-violet-800"
+                  : "border-brand-400 bg-brand-50 text-brand-800"
                 : "border-gray-200 text-gray-700 placeholder:font-normal placeholder:text-gray-200 focus:border-brand-400"
           }`}
         />
@@ -348,8 +369,12 @@ function CampoDaCelula({
       {/* embaixo de cada célula, o que existe na arara — e "máx" quando a
           quantidade bate no teto, para o número que parou de subir não
           parecer defeito do campo */}
-      <span className={`block text-[10px] mt-0.5 ${noTeto ? "text-amber-600 font-medium" : "text-gray-400"}`}>
-        {semEstoque ? "—" : noTeto ? `máx ${estoque}` : estoque}
+      <span
+        className={`block text-[10px] mt-0.5 ${
+          extra > 0 ? "text-violet-700 font-semibold" : noTeto ? "text-amber-600 font-medium" : "text-gray-400"
+        }`}
+      >
+        {semEstoque ? "—" : extra > 0 ? `+${extra} extra` : noTeto ? `máx ${estoque}` : Math.max(0, estoque)}
       </span>
     </span>
   );

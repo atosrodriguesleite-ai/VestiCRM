@@ -34,6 +34,7 @@ import {
 } from "@/lib/pedido-grade";
 import { GradeDePecas, type ProdutoDaGrade } from "@/components/pedido/grade-de-pecas";
 import { useTravarFundo } from "@/components/travar-fundo";
+import { useConfirmarExtras } from "@/components/pedido/confirmar-extras";
 
 type CustomerHit = { id: string; name: string; phone: string; city: string | null; state: string | null };
 type ApiVariant = { id: string; color: string; size: string; stock: number };
@@ -86,6 +87,8 @@ export function NewOrderButton() {
   const [precoTexto, setPrecoTexto] = useState<Record<string, string>>({});
 
   const buscaPecasRef = useRef<HTMLInputElement>(null);
+  // RN-075: o que passa do estoque vira EXTRA, confirmado numa janela antes de gravar
+  const extras = useConfirmarExtras();
   // a página de trás não rola: é ela que o Safari usava para "acomodar" o
   // campo e levava a janela junto
   useTravarFundo(open);
@@ -219,31 +222,38 @@ export function NewOrderButton() {
       return setError("Escolha um cliente (ou cadastre um novo).");
     }
 
-    const res = await fetch("/api/orders", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        customerId,
-        items: lines.map((l) => ({
-          productId: l.productId,
-          variantId: l.variantId,
-          quantity: l.quantity,
-          unitPrice: l.unitPrice,
-        })),
-        discount: numeroBR(discount),
-        surcharge: numeroBR(surcharge),
-        shippingFee: numeroBR(shipping),
-        paymentMethod: payment,
-        status,
-        notes: notes.trim() || undefined,
-      }),
-    });
+    // a peça que passou do estoque: o servidor responde com a lista e a
+    // janela "estou ciente" pergunta antes de gravar (RN-075)
+    const enviado = await extras.enviar((extrasConfirmados) =>
+      fetch("/api/orders", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          customerId,
+          items: lines.map((l) => ({
+            productId: l.productId,
+            variantId: l.variantId,
+            quantity: l.quantity,
+            unitPrice: l.unitPrice,
+          })),
+          discount: numeroBR(discount),
+          surcharge: numeroBR(surcharge),
+          shippingFee: numeroBR(shipping),
+          paymentMethod: payment,
+          status,
+          notes: notes.trim() || undefined,
+          extrasConfirmados,
+        }),
+      })
+    );
     setSaving(false);
-    if (!res.ok) {
-      const data = await res.json().catch(() => null);
+    // voltou da janela sem confirmar: nada foi criado, o rascunho fica
+    if (!enviado) return;
+    if (!enviado.res.ok) {
+      const data = enviado.data as { error?: string } | null;
       return setError(data?.error ?? "Não foi possível criar o pedido.");
     }
-    const order = await res.json();
+    const order = enviado.data as { id: string };
     setOpen(false);
     reiniciar();
     router.push(`/pedidos/${order.id}`);
@@ -463,11 +473,14 @@ export function NewOrderButton() {
                                   <span
                                     key={l.variantId}
                                     className={`inline-flex items-center gap-1 rounded-lg px-2 py-1 text-[11px] font-medium ${
-                                      l.quantity > l.stock ? "bg-amber-50 text-amber-700" : "bg-gray-100 text-gray-600"
+                                      l.quantity > l.stock ? "bg-violet-50 text-violet-700" : "bg-gray-100 text-gray-600"
                                     }`}
                                   >
                                     {l.color} {l.size}
                                     <span className="tabular-nums font-semibold">×{l.quantity}</span>
+                                    {l.quantity > l.stock && (
+                                      <span className="tabular-nums">({l.quantity - Math.max(0, l.stock)} extra)</span>
+                                    )}
                                   </span>
                                 ))}
                               </div>
@@ -497,13 +510,14 @@ export function NewOrderButton() {
                       </div>
                     )}
 
+                    {/* RN-075: acima do estoque não trava mais — vira EXTRA,
+                        e a janela de confirmação abre ao criar */}
                     {acimaDoEstoque.length > 0 && (
-                      <p className="text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2">
-                        {acimaDoEstoque.length === 1 ? "1 peça ficou" : `${acimaDoEstoque.length} peças ficaram`} acima do estoque
-                        {" "}— alguém vendeu enquanto você montava. Abra a grade e ajuste: o pedido é recusado enquanto faltar peça
+                      <p className="text-xs text-violet-800 bg-violet-50 border border-violet-100 rounded-lg px-3 py-2">
+                        🧵 {acimaDoEstoque.length === 1 ? "1 variação passa" : `${acimaDoEstoque.length} variações passam`} do estoque
                         {" ("}
-                        {acimaDoEstoque.map((l) => `${l.color} ${l.size}: restam ${l.stock}`).join("; ")}
-                        {")."}
+                        {acimaDoEstoque.map((l) => `${l.color} ${l.size}: ${Math.max(0, l.stock)} no estoque`).join("; ")}
+                        {")"}. O que faltar entra como <b>extra</b>, feito para este pedido — você confirma ao criar.
                       </p>
                     )}
 
@@ -648,12 +662,14 @@ export function NewOrderButton() {
                   quantidadesIniciais={quantidadesNoPedido(lines, picking.id)}
                   precoUnitario={() => precoSugeridoNoPedido(picking)}
                   jaNoPedido={pecasNoPedido(lines, picking.id) > 0}
+                  permiteExtra
                   onCancelar={() => setPicking(null)}
                   onAplicar={(q) => aplicarGrade(picking, q)}
                 />
               )}
             </div>
           </div>
+          {extras.janela}
         </Portal>
       )}
     </>

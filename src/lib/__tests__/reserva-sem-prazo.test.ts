@@ -28,6 +28,7 @@ describe("nada solta reserva por tempo", () => {
     expect(Object.keys(reservas).sort()).toEqual([
       "juntarPorVariacao",
       "reservarCom",
+      "reservarComExtras",
       "reservarEstoque",
       "reservarOQueTiver",
       "textoDaFalta",

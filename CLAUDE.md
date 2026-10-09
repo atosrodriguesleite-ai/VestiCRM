@@ -1122,7 +1122,8 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   peça inteira, e repetir "R$ 34" nove vezes é o que faz a lojista desistir
   de conferir no celular — preço divergente entre variações é **dito**, não
   escondido atrás de um número qualquer. **A quantidade PARA no estoque**
-  (`quantidadeDigitada`, achado da revisão): a porta de criação recusa o
+  (`quantidadeDigitada`, achado da revisão — salvo a **peça extra**
+  da RN-075, que no Novo pedido e na Editar itens deixa passar com ciência): a porta de criação recusa o
   pedido INTEIRO quando falta peça (*"Estoque insuficiente de X (Cor Tam):
   restam N"*, 409), então oferecer 12 com 2 na arara levaria a lojista a um
   beco no último clique — a célula para no teto e **diz "máx N"**, e
@@ -1205,6 +1206,68 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   empurrão), com varredura que derruba o build se uma nova esquecer o par. As
   gavetas do catálogo público são presas no rodapé, uma conta diferente, e
   seguem como estavam.
+  **RN-075 · PEÇA EXTRA: O PEDIDO PODE PEDIR MAIS DO QUE O ESTOQUE TEM, COM
+  CIÊNCIA** (`lib/pedido-extras.ts` + `reservarComExtras` em
+  `lib/reservations.ts`, janela `components/pedido/confirmar-extras.tsx`,
+  09/10/2026): pedido do dono — *"quando a vendedora está montando um pedido
+  e não tem a peça em estoque, ela é impedida de lançar"* — e, desenhado com
+  ele, a peça que falta numa confecção é **EXTRA: feita para aquele pedido**.
+  Então: o que existe no estoque fica **segurado** como sempre (RN-003); o
+  que passa disso é extra e **não mexe em estoque nenhum** — não reserva, não
+  baixa, nunca fica negativo, **não vai para a Nuvemshop nem para o Jueri**
+  (só o que de fato saiu daqui é espelhado; a peça da Nuvemshop também pode
+  ter extra). **A pessoa confirma antes de gravar**: a porta responde 409 com
+  a lista (`extras`: peça, quanto precisa, quanto o estoque cobre, quanto é
+  extra), a janela "🧵 Estou ciente" mostra, e o MESMO envio volta com
+  `extrasConfirmados` — **quem conta é o servidor**, na transação, e o extra
+  MAIOR que o confirmado (a peça acabou entre a janela e o clique) desfaz
+  tudo e a janela reabre com os números de agora; ninguém confirma extra que
+  não viu. O histórico do pedido diz **quem confirmou e quais peças**.
+  **O extra não tem coluna no banco**: é o que o pedido pede além do que o
+  LIVRO DE MOVIMENTOS diz que ele segura (`extrasDoPedido`, com as trocas da
+  RN-073 no ajuste — o livro já as tem). Assim os caminhos que já respeitam o
+  livro acertam o extra sozinhos: **diminuir tira primeiro do extra** (nada
+  volta ao estoque por ele), **cancelar devolve só o que saiu**, reabrir
+  pedido baixado não desconta de novo — um número à parte teria de ser
+  lembrado em cada porta (a classe de defeito da RN-059). **Onde vale**:
+  **Novo pedido** e **Editar itens** (a grade passa do estoque com
+  `permiteExtra`, a célula diz "+N extra"; o "repetir" segue parando no
+  estoque — extra é decisão, não atalho) e o **restaurar/reabrir pedido
+  cancelado** (botão da lista, menu de status e trilha da ficha): o que a
+  peça vendida no meio deixou faltando volta a ser extra, com a mesma janela.
+  A **Central de WhatsApp** e o **"Colar pedido do WhatsApp"** não oferecem
+  extra (decisão do dono): continuam recebendo o 409 com a frase de sempre.
+  **O selo "🧵 N extras"** aparece na lista e a ficha diz quais peças —
+  consultas para a página inteira (`extrasDosPedidos`), só em pedido que
+  segura estoque AQUI e **ainda está na loja** (`STATUS_COM_EXTRA_PENDENTE`,
+  conferida contra a lista do reservado do Estoque; enviado e entregue saem
+  do selo, senão o pedido de meses atrás seguia marcado). **Extra
+  CONFIRMADO ≠ falta**: o pedido que pede mais do que segura SEM ninguém ter
+  confirmado (o do catálogo que entrou com estoque a menos, RN-067; o Pix
+  que liquidou sem peça) não é compromisso de produção — o selo diz "N sem
+  estoque" em âmbar e a ficha manda produzir, trocar ou combinar com a
+  cliente; o violeta "🧵 extras" é só de quem tem a linha de confirmação no
+  histórico (`MARCA_DOS_EXTRAS`, achado da revisão). **Lançar a peça no
+  estoque depois NÃO a segura para o pedido** (decisão do dono: é peça que a
+  confecção faz, não estoque esquecido; o extra fica anotado) — e por isso a
+  ficha DIZ para não lançar a peça extra pronta no estoque: lançada, ela fica
+  livre para outra venda. **Toda a equipe** confirma extra onde já pode
+  agir: vendedora e gerência ao montar e editar; o suporte, que não monta
+  pedido, ao editar e restaurar. **Restaurar também reabre a janela na
+  corrida** (a peça acabou entre a conferência e a transação): antes de a
+  revisão pegar, a falta entrava calada com aviso à gerência e o pedido
+  voltava devendo peça que ninguém viu; e a edição, na corrida, reabre com
+  TODAS as peças dela, não só a que acabou. **Limites ditos**: pedido antigo
+  (antes de 08/10/2026) sem nenhum movimento no livro não mostra extra — não
+  dá para saber se ele nasceu antes de o livro registrar o pedido; e a
+  separação por leitor (RN-060) aceita bipar o extra quando ele fica pronto
+  (é a mesma variação), ou ele é declarado em falta.
+  Provado pelas rotas de verdade contra o Postgres local
+  (`scripts/e2e-pecas-extras.ts`, 35 conferências): recusa sem ciência,
+  criar segurando o que há, corrida, editar para mais e para menos, ficha e
+  lista, cancelar devolvendo, restaurar, cancelar baixando e reabrir, o
+  pedido todo de peça sem estoque, o selo que some ao enviar e a falta sem
+  confirmação dita como falta.
 
 ## Módulos
 

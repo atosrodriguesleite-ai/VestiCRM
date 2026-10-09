@@ -294,6 +294,12 @@ export function aplicarPrecoNoProduto(
  * fecharia a tela num beco, com a lojista descobrindo só no último clique.
  * O número para no estoque e a célula DIZ que parou (achado da revisão).
  */
+/**
+ * O teto da célula onde a tela oferece PEÇA EXTRA (RN-075): a quantidade não
+ * para no estoque, só no corte de 4 dígitos da própria digitação.
+ */
+export const TETO_COM_EXTRA = 9999;
+
 export function quantidadeDigitada(texto: string, estoque: number): string {
   const limpo = texto.replace(/\D/g, "").replace(/^0+(?=\d)/, "").slice(0, 4);
   if (!limpo) return "";

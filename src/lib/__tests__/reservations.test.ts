@@ -82,7 +82,7 @@ describe("reserva do pedido da vendedora (tudo ou nada)", () => {
     const faltas = await reservarEstoque(bancoFake(estoque), [
       { variantId: "v1", quantity: 5, label: "Vestido (Rosa M)" },
     ], estoque);
-    expect(faltas).toEqual([{ label: "Vestido (Rosa M)", pedido: 5, disponivel: 2 }]);
+    expect(faltas).toEqual([{ variantId: "v1", label: "Vestido (Rosa M)", pedido: 5, disponivel: 2 }]);
     expect(estoque.v1).toBe(2); // intacto: quem chama decide o que fazer
   });
 
@@ -130,7 +130,7 @@ describe("reserva do pedido do catálogo (segura o que tiver)", () => {
     expect(estoque.v1).toBe(0); // segurou as 2 que havia
     // o movimento gravado é o que FOI segurado (2), não o pedido (5)
     expect(seguradas).toEqual([{ variantId: "v1", quantity: 2 }]);
-    expect(faltas).toEqual([{ label: "Blusa (Off-white P)", pedido: 5, disponivel: 2 }]);
+    expect(faltas).toEqual([{ variantId: "v1", label: "Blusa (Off-white P)", pedido: 5, disponivel: 2 }]);
   });
 
   it("peça esgotada não deixa o estoque negativo", async () => {
@@ -170,7 +170,9 @@ describe("todo caminho que cria pedido segura o estoque", () => {
   });
 
   it("pedido da VENDEDORA reserva de forma atômica", () => {
-    expect(vendedora).toContain("reservarEstoque");
+    // RN-075: pela reserva com extras, que usa o MESMO lote atômico
+    // (`reservarEstoque`) para tudo o que cabe inteiro
+    expect(vendedora).toContain("reservarComExtras");
   });
 });
 
@@ -206,7 +208,7 @@ describe("mesma peça repetida no pedido", () => {
         { variantId: "v1", quantity: 1, label: "Última peça" },
       ]
     );
-    expect(faltas).toEqual([{ label: "Última peça", pedido: 2, disponivel: 1 }]);
+    expect(faltas).toEqual([{ variantId: "v1", label: "Última peça", pedido: 2, disponivel: 1 }]);
     expect(estoque.v1).toBe(1); // intacto — nada de negativo
   });
 
