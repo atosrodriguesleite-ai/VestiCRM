@@ -272,7 +272,8 @@ describe("quem manda no preço é o servidor", () => {
   });
   it("o mínimo é conferido no SERVIDOR (a tela é só gentileza)", () => {
     expect(rota).toContain("faltaParaOMinimo(");
-    expect(rota).toContain("status: 409");
+    // a recusa passa pelo `recusar` (que deixa rastro, RN-010) e continua 409
+    expect(rota).toMatch(/faltasDoMinimo\.length > 0\) \{\s*return recusar\(\s*company,\s*409,/);
   });
   /**
    * O carimbo vale SÓ para o link de tabela, e isso é decisão, não descuido

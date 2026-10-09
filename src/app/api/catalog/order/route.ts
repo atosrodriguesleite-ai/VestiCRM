@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse, after } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { imageHref } from "@/lib/img";
@@ -13,6 +13,7 @@ import { intakeLead, normalizePhone } from "@/lib/intake";
 import { telefoneDoPedido } from "@/lib/catalogo/telefone-do-pedido";
 import {
   chavesDoPedidoCatalogo,
+  chavesDoRastroDeRecusa,
   ipDaRequisicao,
   registrarTentativa,
   segundosDeBloqueio,
@@ -41,6 +42,15 @@ import { avancarFunil } from "@/lib/funil-auto";
 import { notifyNovoPedido } from "@/lib/notify";
 import { brl } from "@/lib/format";
 import { sincronizarPedidoSemQuebrar } from "@/lib/financeiro/porta-vendas";
+import {
+  descreverCampoRecusado,
+  gravarRastroDoCatalogo,
+  listarVariacoes,
+  registrarRecusaDoPedido,
+  TIPO_FLOOD,
+  type LojaDoRastro,
+  type RecusaDoPedido,
+} from "@/lib/catalogo/recusa-do-pedido";
 
 /**
  * Pedido vindo do catálogo público — POST /api/catalog/order
@@ -186,9 +196,70 @@ async function aplicarCamposExtras(
 }
 
 export async function POST(req: NextRequest) {
-  const parsed = schema.safeParse(await req.json().catch(() => null));
+  const bruto: unknown = await req.json().catch(() => null);
+  const parsed = schema.safeParse(bruto);
+  const ip = ipDaRequisicao(req.headers);
+  // RECUSA DEIXA RASTRO (RN-010): toda recusa decidida AQUI é registrada na
+  // Central de Comunicação da loja e no painel de Saúde — a cliente vê a
+  // frase no celular, mas era a loja que ficava sem saber por que a mensagem
+  // chegou no WhatsApp e o pedido não (relato Sutilli, 09/10/2026). O
+  // registro NUNCA muda a resposta e vai no `after()`: a vitrine espera esta
+  // resposta para abrir o WhatsApp, e o rastro não pode atrasá-la. Teto por
+  // IP + loja (RN-044): esta recusa vem ANTES da trava do pedido, e sem teto
+  // um script encheria a Central e a Saúde; por loja, não só por IP, senão a
+  // operadora (CGNAT) de um bairro inteiro calava o rastro da loja ao lado.
+  const recusar = (
+    loja: LojaDoRastro | (() => Promise<LojaDoRastro>),
+    status: number,
+    corpo: Record<string, unknown> & { error: string },
+    detalhe?: string | null
+  ) => {
+    const b = (typeof bruto === "object" && bruto !== null ? bruto : {}) as {
+      clientRef?: unknown;
+      items?: unknown;
+      customer?: { name?: unknown; phone?: unknown };
+    };
+    const r: RecusaDoPedido = {
+      status,
+      motivo: corpo.error,
+      detalhe,
+      clientRef: typeof b.clientRef === "string" ? b.clientRef : null,
+      itens: Array.isArray(b.items) ? b.items.length : null,
+      cliente: {
+        nome: typeof b.customer?.name === "string" ? b.customer.name : null,
+        telefone: typeof b.customer?.phone === "string" ? b.customer.phone : null,
+      },
+    };
+    after(async () => {
+      try {
+        const resolvida = typeof loja === "function" ? await loja() : loja;
+        const chaves = chavesDoRastroDeRecusa(resolvida?.id ?? null, ip);
+        if (chaves.length > 0) {
+          if ((await segundosDeBloqueio(chaves)) !== null) return;
+          // conta esta recusa (a que fecha o teto ainda é registrada; a seguinte não)
+          await registrarTentativa(chaves);
+        }
+        await registrarRecusaDoPedido(resolvida, r);
+      } catch {
+        // o rastro é aviso: nunca vira erro
+      }
+    });
+    return NextResponse.json(corpo, { status });
+  };
   if (!parsed.success) {
-    return NextResponse.json({ error: "Dados inválidos" }, { status: 400 });
+    // a loja só se descobre pelo texto do corpo (o esquema recusou) — e o
+    // campo que falhou, em português, é o que diz à lojista o que consertar
+    const slug = (bruto as { company?: unknown } | null)?.company;
+    const campos = parsed.error.issues.slice(0, 5).map(descreverCampoRecusado).join("; ");
+    return recusar(
+      () =>
+        typeof slug === "string" && slug
+          ? db.company.findUnique({ where: { slug }, select: { id: true, name: true } })
+          : Promise.resolve(null),
+      400,
+      { error: "Dados inválidos" },
+      `campos recusados — ${campos}`
+    );
   }
   const input = parsed.data;
 
@@ -198,39 +269,22 @@ export async function POST(req: NextRequest) {
   // Loja suspensa não recebe pedido novo — trava no servidor, para não
   // depender só da página ter sumido (link antigo, cache, app do cliente).
   if (!company || company.suspended) {
-    return NextResponse.json({ error: "Loja não encontrada" }, { status: 404 });
-  }
-  // TABELA DE PREÇO DO LINK (recurso gated). O navegador diz por qual link
-  // entrou; QUEM DECIDE O PREÇO É AQUI. Link de loja que não ativou o recurso
-  // (ou desativado) não vale, e a vitrine volta à tabela padrão da loja.
-  const tabela = await resolverLink(company.id, input.link, company.priceTablesEnabled);
-  // A CLIENTE VEIO POR UM LINK QUE NÃO VALE MAIS (desativado, ou o recurso
-  // saiu do ar): NÃO cobrar pela tabela padrão. Ela viu preço de atacado na
-  // tela; cair no varejo em silêncio cobraria a mais e ainda faria a
-  // exigência de quantidade mínima sumir sem ninguém perceber.
-  if (input.link && !tabela) {
-    return NextResponse.json(
-      {
-        error:
-          "Este link de preço não está mais valendo. Peça o link atualizado para a loja antes de enviar o pedido.",
-        linkInvalido: true,
-      },
-      { status: 409 }
+    return recusar(
+      company ?? null,
+      404,
+      { error: "Loja não encontrada" },
+      company ? "loja suspensa" : `nenhuma loja com o endereço "${input.company.slice(0, 80)}"`
     );
   }
-  // campanha e tabela de preço não se somam: são endereços diferentes, e um
-  // pedido que chegasse com os dois teria desconto sobre atacado — valor que
-  // nenhuma tela mostrou. Manda a tabela do link.
-  const modoDePreco = tabela?.priceMode ?? modoValido(company.catalogPriceMode);
-  // MESMO preço que a vitrine mostrou: a cliente não pode ver um valor na
-  // tela e receber outro na confirmação do pedido
-  const precoVitrine = (p: { retailPrice: number; wholesalePrice: number }) =>
-    catalogPrice(p, modoDePreco);
 
   // JÁ ENTROU? A cliente (ou o próprio catálogo, insistindo) pode mandar o
   // mesmo pedido mais de uma vez. Devolvemos o pedido que já existe em vez
   // de criar outro — a loja não pode receber a mesma venda em duplicidade,
-  // nem segurar a peça duas vezes no estoque.
+  // nem segurar a peça duas vezes no estoque. Vem ANTES de qualquer recusa
+  // (link de tabela vencido inclusive): o reenvio da fila do aparelho
+  // (RN-010) de um pedido que JÁ ENTROU tem que responder "já registrado",
+  // senão virava uma recusa falsa no rastro, mandando a lojista colar de novo
+  // um pedido que existe (achado da revisão).
   if (input.clientRef) {
     const jaExiste = await db.order.findUnique({
       where: {
@@ -250,6 +304,34 @@ export async function POST(req: NextRequest) {
       );
     }
   }
+  // TABELA DE PREÇO DO LINK (recurso gated). O navegador diz por qual link
+  // entrou; QUEM DECIDE O PREÇO É AQUI. Link de loja que não ativou o recurso
+  // (ou desativado) não vale, e a vitrine volta à tabela padrão da loja.
+  const tabela = await resolverLink(company.id, input.link, company.priceTablesEnabled);
+  // A CLIENTE VEIO POR UM LINK QUE NÃO VALE MAIS (desativado, ou o recurso
+  // saiu do ar): NÃO cobrar pela tabela padrão. Ela viu preço de atacado na
+  // tela; cair no varejo em silêncio cobraria a mais e ainda faria a
+  // exigência de quantidade mínima sumir sem ninguém perceber.
+  if (input.link && !tabela) {
+    return recusar(
+      company,
+      409,
+      {
+        error:
+          "Este link de preço não está mais valendo. Peça o link atualizado para a loja antes de enviar o pedido.",
+        linkInvalido: true,
+      },
+      `link de tabela de preço "${input.link.slice(0, 60)}" desativado, inexistente ou recurso desligado na loja`
+    );
+  }
+  // campanha e tabela de preço não se somam: são endereços diferentes, e um
+  // pedido que chegasse com os dois teria desconto sobre atacado — valor que
+  // nenhuma tela mostrou. Manda a tabela do link.
+  const modoDePreco = tabela?.priceMode ?? modoValido(company.catalogPriceMode);
+  // MESMO preço que a vitrine mostrou: a cliente não pode ver um valor na
+  // tela e receber outro na confirmação do pedido
+  const precoVitrine = (p: { retailPrice: number; wholesalePrice: number }) =>
+    catalogPrice(p, modoDePreco);
 
   // ---- RITMO (RN-044): pedido NOVO tem teto por IP ----
   //
@@ -260,7 +342,6 @@ export async function POST(req: NextRequest) {
   // pedido do catálogo não pode se perder (RN-010). E quem está bloqueado
   // NÃO conta de novo: o reenvio automático insistindo não pode esticar o
   // próprio bloqueio para sempre.
-  const ip = ipDaRequisicao(req.headers);
   const chavesRitmo = chavesDoPedidoCatalogo(company.id, ip);
   const recusaDeRitmo = NextResponse.json(
     {
@@ -275,20 +356,16 @@ export async function POST(req: NextRequest) {
     const travouAgora = await registrarTentativa(chavesRitmo);
     if (travouAgora !== null) {
       // a trava fechou NESTE pedido: recusa e deixa rastro para a loja e a
-      // plataforma verem (Central de Comunicação) — trava muda nunca
-      await db.commEvent
-        .create({
-          data: {
-            companyId: company.id,
-            direction: "IN",
-            type: "catalogo.flood",
-            status: "ERRO",
-            error: `Enxurrada de pedidos do catálogo de um mesmo endereço (IP ${ip}): a trava de ritmo fechou por ${Math.ceil(travouAgora / 60)} min. Pedido legítimo reenvia sozinho depois.`,
-          },
+      // plataforma verem (Central de Comunicação + Saúde) — trava muda nunca
+      const minutos = Math.ceil(travouAgora / 60);
+      after(() =>
+        gravarRastroDoCatalogo({
+          loja: company,
+          tipo: TIPO_FLOOD,
+          texto: `Enxurrada de pedidos do catálogo de um mesmo endereço (IP ${ip}): a trava de ritmo fechou por ${minutos} min. Pedido legítimo reenvia sozinho depois.`,
+          resumo: `trava de ritmo do catálogo fechou por ${minutos} min (IP ${ip})`,
         })
-        .catch(() => {
-          // o registro é aviso; falhar aqui não pode derrubar a recusa
-        });
+      );
       return recusaDeRitmo;
     }
   }
@@ -399,7 +476,22 @@ export async function POST(req: NextRequest) {
     const product = noProduto ? productById.get(item.productId) : separada?.product;
     const variant = noProduto ?? separada;
     if (!product || !variant) {
-      return NextResponse.json({ error: "Produto inválido" }, { status: 404 });
+      // a peça que a vitrine mostrou não existe mais do jeito que foi pedida
+      // (desativada, apagada, cor/tamanho renomeados, ou de outra loja). O
+      // rastro diz QUAL — é a única forma de a loja descobrir
+      const cadastrado = productById.get(item.productId);
+      const pedida = `${item.color.slice(0, 40)} / ${item.size.slice(0, 40)}`;
+      return recusar(
+        company,
+        404,
+        {
+          error:
+            "Uma das peças deste pedido não está mais disponível no catálogo da loja. Atualize a página e monte o pedido de novo.",
+        },
+        cadastrado
+          ? `a peça "${cadastrado.name}" existe, mas não tem a variação ${pedida} (tem: ${listarVariacoes(cadastrado.variants)})`
+          : `peça ${item.productId.slice(0, 40)} (${pedida}) não existe, está inativa ou é de outra loja`
+      );
     }
     // SKU da VARIAÇÃO escolhida (o do produto é o da 1ª variação importada —
     // mostrava o SKU da Preta num item Azul Serenity); foto DA COR escolhida
@@ -430,9 +522,11 @@ export async function POST(req: NextRequest) {
     modoDePreco === "ATACADO" && tabela ? "ATACADO" : "VAREJO"
   );
   if (faltasDoMinimo.length > 0) {
-    return NextResponse.json(
+    return recusar(
+      company,
+      409,
       { error: textoDoMinimo(faltasDoMinimo), minimoAtacado: faltasDoMinimo },
-      { status: 409 }
+      "quantidade mínima do atacado não atingida (link de tabela ATACADO)"
     );
   }
 

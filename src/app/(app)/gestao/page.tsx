@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { FONTE_TELA_VERSAO_VELHA } from "@/lib/erro-da-tela";
+import { FONTE_RECUSA_CATALOGO } from "@/lib/catalogo/recusa-do-pedido";
 import { requireUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { isSuperAdmin } from "@/lib/scope";
@@ -72,16 +73,17 @@ export default async function GestaoPage() {
     // a lista mostra as 40 mais recentes; "auditoria" são ações do próprio
     // Super Admin (ex.: exclusão de loja) — ficam registradas, mas não são
     // defeito do sistema. "Versão velha" de tela (RN-066) também não: é o
-    // esperado depois de cada entrega, e se cura sozinho
+    // esperado depois de cada entrega, e se cura sozinho. Pedido do catálogo
+    // RECUSADO (RN-010) idem: resposta decidida, visível na Saúde em bloco próprio
     db.errorLog.findMany({
-      where: { source: { notIn: [FONTE_AUDITORIA, FONTE_TELA_VERSAO_VELHA] } },
+      where: { source: { notIn: [FONTE_AUDITORIA, FONTE_TELA_VERSAO_VELHA, FONTE_RECUSA_CATALOGO] } },
       orderBy: { createdAt: "desc" },
       take: 40,
     }),
     // o indicador conta de VERDADE (últimos 7 dias) — antes ele travava em 40
     // por causa do `take`, e 40 erros pareciam iguais a 4.000
     db.errorLog.count({
-      where: { source: { notIn: [FONTE_AUDITORIA, FONTE_TELA_VERSAO_VELHA] }, createdAt: { gte: dias7 } },
+      where: { source: { notIn: [FONTE_AUDITORIA, FONTE_TELA_VERSAO_VELHA, FONTE_RECUSA_CATALOGO] }, createdAt: { gte: dias7 } },
     }),
   ]);
 

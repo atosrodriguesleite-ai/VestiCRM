@@ -619,6 +619,33 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   no índice único → P2002 tratado). A cliente vê o recibo do registro na
   tela. Já causou incidente real: `.catch(() => {})` engolia a falha, a
   mensagem chegava no WhatsApp da vendedora e o pedido não existia.
+  **Recusa do servidor deixa RASTRO** (`lib/catalogo/recusa-do-pedido.ts`,
+  09/10/2026, relato da Sutilli Semijoias: *"a mensagem chega no WhatsApp,
+  mas o pedido não entra na aba Pedidos — e acontece sempre"*): a rota recusa
+  em quatro situações (dados inválidos, loja/peça que não existe, link de
+  tabela vencido, mínimo do atacado) e a recusa só aparecia no celular da
+  CLIENTE — a loja ficava sem pedido e sem pista. Agora toda recusa decidida
+  pela rota grava uma linha na Central de Comunicação da loja
+  (`catalogo.pedido-recusado`: quem pediu, quantas linhas, a frase dita à
+  cliente, o detalhe — QUAL peça/variação ou QUAL campo, em português — e o
+  protocolo) e uma no painel de Saúde com **fonte própria**
+  (`catalogo.recusa`): **fora da lista e da conta de erros**, em bloco
+  próprio com as últimas, pela régua da "versão velha" da RN-066 — recusa é
+  resposta decidida, e porta pública recebe lixo de robô; contá-la como erro
+  enterraria os erros de verdade. A trava de ritmo (`catalogo.flood`) passa
+  pelo mesmo caminho. Quatro réguas da revisão: o registro vai no `after()`
+  (a vitrine espera a resposta para abrir o WhatsApp); tem **teto por IP +
+  loja** (`catrec:`, 10 por 15 min, RN-044 — por loja, senão a operadora de
+  um bairro inteiro calava o rastro da loja ao lado; fechou o teto, a
+  resposta é a mesma e só o registro para); o que vem do corpo é CORTADO
+  (nome de 3 KB não engole motivo e protocolo); e **o reenvio de pedido que
+  JÁ ENTROU responde "já registrado" ANTES de qualquer recusa** (o link de
+  tabela que venceu entre o envio e o reenvio da fila virava recusa FALSA no
+  rastro, mandando a lojista colar de novo um pedido que existe). Erro
+  inesperado (500) já ia para a Saúde pelo `onRequestError`. O que continua
+  sem rastro no servidor, por definição, é o aparelho que nunca conseguiu
+  chegar nele (sem internet) — esse fica na fila do aparelho (acima).
+  Provado contra o Postgres local (`scripts/e2e-pedido-catalogo-sem-cores.ts`).
   **RN-011** · Todo pedido do catálogo AVISA na hora (`notifyNovoPedido`): com vendedora
   no link, só ela; sem vendedora, gerência/admin (nunca uma vendedora
   qualquer — a separação por link vale também para o aviso).

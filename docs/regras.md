@@ -36,7 +36,7 @@ sem ambiguidade.
 | RN-007 | Vendedora vê só os pedidos dela; gerente/admin/suporte veem a loja — em toda porta (exceção por pessoa: `pedidosVisaoTotal` — vê e, desde 18/08/2026, EDITA com tudo no histórico; comissão/transferência/exportação seguem regras próprias) | `lib/scope.ts` | `escopo-apis-lote1.test.ts` |
 | RN-008 | Lead entra só pelo `lib/intake.ts`; dedup tolerante ao 9º dígito; conversa nasce na fila | `lib/intake.ts` | `intake.test.ts` |
 | RN-009 | Preço e total do catálogo são SEMPRE recalculados no servidor | `lib/orders.ts` (`/api/catalog/order`) | `orders.test.ts` |
-| RN-010 | O pedido do catálogo não pode se perder: protocolo `clientRef` + rota idempotente | `lib/catalogo/envio-pedido.ts` | `envio-pedido.test.ts` |
+| RN-010 | O pedido do catálogo não pode se perder: protocolo `clientRef` + rota idempotente; recusa decidida pela rota (dados inválidos, loja/peça inexistente, link de tabela vencido, mínimo do atacado) deixa rastro na Central de Comunicação da loja (`catalogo.pedido-recusado`, com qual peça/campo) e na Saúde em fonte própria fora da conta de erros (`catalogo.recusa`), no `after()`, com teto por IP+loja; reenvio de pedido que já entrou responde "já registrado" antes de qualquer recusa (`lib/catalogo/recusa-do-pedido.ts`) | `lib/catalogo/envio-pedido.ts` | `envio-pedido.test.ts` |
 | RN-011 | O aviso de pedido novo segue a separação por link: com `ref`, só ela; sem, gerência | `notifyNovoPedido` | `envio-pedido.test.ts` |
 | RN-012 | "Colar pedido do WhatsApp": preço sempre do nosso cadastro; linha sem cadastro fica de fora | `lib/catalogo/ler-mensagem.ts` | `ler-mensagem.test.ts` |
 | RN-013 | Toda query filtra por `companyId`, pelos helpers de `lib/scope.ts` | `lib/scope.ts` | `escopo-apis-lote1.test.ts` |
