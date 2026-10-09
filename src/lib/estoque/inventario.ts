@@ -361,7 +361,6 @@ export async function linhasDoEstoque(
         sobEncomenda: vendeSobEncomenda({
           peca: p.sobEncomenda,
           categoria: catsSobEncomenda.has(p.category),
-          nuvemshopId: v.nuvemshopId,
           jueriId: p.jueriId,
         }),
         custo: p.costPrice,
@@ -503,9 +502,9 @@ export async function contarNoMinimo(companyId: string): Promise<number> {
        AND p."active" = true
        AND v."stock" <= COALESCE(p."minStock", c."minStock", co."lowStockThreshold")
        -- a peça que vende SOB ENCOMENDA fica fora do mínimo (RN-076), pela
-       -- MESMA escada da regra pura: peça > categoria, e vinculada nunca
+       -- MESMA escada da regra pura: peça > categoria, e Jueri nunca
        AND NOT (
-         v."nuvemshopId" IS NULL AND p."jueriId" IS NULL
+         p."jueriId" IS NULL
          AND COALESCE(p."sobEncomenda", s."id" IS NOT NULL)
        )
   `);

@@ -131,7 +131,6 @@ export async function montarCatalogo({
         vendeSobEncomenda({
           peca: p.sobEncomenda,
           categoria: catsSobEncomenda.has(p.category),
-          nuvemshopId: v.nuvemshopId,
           jueriId: p.jueriId,
         })
       ),

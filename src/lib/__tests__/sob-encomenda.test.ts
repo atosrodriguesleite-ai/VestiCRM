@@ -5,8 +5,10 @@ import { join } from "node:path";
 import type { Prisma } from "@prisma/client";
 import {
   aProduzir,
+  estoqueDaSincronizacao,
+  estoqueParaANuvemshop,
   origemDaEncomenda,
-  pecaVinculada,
+  pecaDoJueri,
   variacoesSobEncomenda,
   vendeSobEncomenda,
 } from "../sob-encomenda";
@@ -54,21 +56,21 @@ describe("a escada: peça > categoria, e a peça vinculada nunca", () => {
     expect(origemDaEncomenda({ peca: false, categoria: true })).toBeNull();
   });
 
-  it("peça da Nuvemshop (vínculo na VARIAÇÃO) ou do Jueri (no produto) nunca vende sob encomenda", () => {
-    expect(pecaVinculada({ nuvemshopId: "9", jueriId: null })).toBe(true);
-    expect(pecaVinculada({ nuvemshopId: null, jueriId: "7" })).toBe(true);
-    expect(vendeSobEncomenda({ peca: true, categoria: true, nuvemshopId: "9" })).toBe(false);
+  it("peça da NUVEMSHOP vende sob encomenda (pedido do dono); a do JUERI nunca", () => {
+    expect(pecaDoJueri({ jueriId: "7" })).toBe(true);
+    expect(pecaDoJueri({ jueriId: null })).toBe(false);
     expect(vendeSobEncomenda({ peca: true, categoria: true, jueriId: "7" })).toBe(false);
+    expect(vendeSobEncomenda({ peca: null, categoria: true, jueriId: null })).toBe(true);
   });
 
-  it("o conjunto de variações livres sai da MESMA escada, por variação", () => {
+  it("o conjunto de variações livres sai da MESMA escada, por variação (a da Nuvemshop entra)", () => {
     const livres = variacoesSobEncomenda(
       [
-        { id: "a", nuvemshopId: null, product: { sobEncomenda: null, category: "Conjuntos", jueriId: null } },
-        { id: "b", nuvemshopId: "ns", product: { sobEncomenda: null, category: "Conjuntos", jueriId: null } },
-        { id: "c", nuvemshopId: null, product: { sobEncomenda: false, category: "Conjuntos", jueriId: null } },
-        { id: "d", nuvemshopId: null, product: { sobEncomenda: true, category: "Regatas", jueriId: null } },
-        { id: "e", nuvemshopId: null, product: { sobEncomenda: null, category: "Regatas", jueriId: null } },
+        { id: "a", product: { sobEncomenda: null, category: "Conjuntos", jueriId: null } },
+        { id: "b", product: { sobEncomenda: null, category: "Conjuntos", jueriId: "j1" } },
+        { id: "c", product: { sobEncomenda: false, category: "Conjuntos", jueriId: null } },
+        { id: "d", product: { sobEncomenda: true, category: "Regatas", jueriId: null } },
+        { id: "e", product: { sobEncomenda: null, category: "Regatas", jueriId: null } },
       ],
       new Set(["Conjuntos"])
     );
@@ -204,8 +206,8 @@ describe("a vitrine: a peça não some ao zerar e a quantidade não para", () =>
   });
 
   it("'esconder sem estoque' não esconde a peça ligada nem a de categoria ligada (salvo a desligada na ficha)", () => {
-    // e só a peça que pode ser livre: fora do Jueri, com alguma variação fora da Nuvemshop
-    const livre = { jueriId: null, variants: { some: { nuvemshopId: null } } };
+    // e só o produto que pode ser livre: fora do Jueri (a peça da Nuvemshop entra)
+    const livre = { jueriId: null };
     expect(ondeNaoEscondePorEstoque(new Set(["Conjuntos"]))).toEqual({
       OR: [
         { variants: { some: { stock: { gt: 0 } } } },
@@ -327,7 +329,8 @@ describe("o Estoque: fora do mínimo, dentro de 'A produzir'", () => {
     const sql = ler("src/lib/estoque/inventario.ts");
     expect(sql).toContain('LEFT JOIN "SobEncomendaCategoria" s');
     expect(sql).toContain('COALESCE(p."sobEncomenda", s."id" IS NOT NULL)');
-    expect(sql).toContain('v."nuvemshopId" IS NULL AND p."jueriId" IS NULL');
+    expect(sql).toContain('p."jueriId" IS NULL');
+    expect(sql).not.toContain('v."nuvemshopId" IS NULL');
     // monitor da tela Produtos
     expect(ler("src/app/(app)/produtos/stock-monitor.tsx")).toContain("!v.sobEncomenda &&");
   });
@@ -370,10 +373,45 @@ describe("quem liga: gerência; a peça vinculada recusa", () => {
     expect(rota).toContain("db.sobEncomendaCategoria.deleteMany({ where: { companyId, category: name } })");
   });
 
-  it("peça: só gerência muda, e a vinculada não liga", () => {
+  it("peça: só gerência muda, e a do Jueri não liga (a da Nuvemshop liga)", () => {
     const rota = ler("src/app/api/products/[id]/route.ts");
     expect(rota).toContain("data.sobEncomenda !== undefined && data.sobEncomenda !== product.sobEncomenda");
-    expect(rota).toContain("product.variants.some((v) => !!v.nuvemshopId)");
+    expect(rota).toContain("data.sobEncomenda === true && product.jueriId");
     expect(rota).toContain("não vende sob encomenda");
+  });
+});
+
+describe("a peça da NUVEMSHOP devendo: lá vai zero, e a sincronização não apaga a dívida", () => {
+  it("o que vai para lá nunca é negativo", () => {
+    expect(estoqueParaANuvemshop(-3)).toBe(0);
+    expect(estoqueParaANuvemshop(0)).toBe(0);
+    expect(estoqueParaANuvemshop(7)).toBe(7);
+  });
+
+  it("sem dívida, vale o número de lá (RN-050, a Nuvemshop é a dona)", () => {
+    expect(estoqueDaSincronizacao(5, 8)).toBe(8);
+    expect(estoqueDaSincronizacao(0, 3)).toBe(3);
+  });
+
+  it("com dívida, o zero de lá não apaga o −3; o que entrou lá cobre a dívida primeiro", () => {
+    expect(estoqueDaSincronizacao(-3, 0)).toBe(-3);
+    expect(estoqueDaSincronizacao(-3, 10)).toBe(7);
+    expect(estoqueDaSincronizacao(-3, 2)).toBe(-1);
+  });
+
+  it("os dois envios para lá cortam em zero, e a sync grava pela regra (com fila de volta)", () => {
+    const ns = ler("src/lib/nuvemshop.ts");
+    expect(ns.match(/estoqueParaANuvemshop\((agora\.stock|v\.stock)\)/g)?.length).toBe(2);
+    // a dívida só vale com o vínculo de sempre e número de verdade lá (achados da revisão)
+    expect(ns).toContain("const cobreADivida = atual < 0 && !religa && v.stock != null;");
+    expect(ns).toContain("const novo = cobreADivida ? estoqueDaSincronizacao(atual, stock) : stock;");
+    // gravada condicionada ao número que decidiu (venda ou outra sync no meio não é atropelada)
+    expect(ns).toContain("where: { id: alvo.id, stock: atual },");
+    // e o número devolvido sai na hora, não só na repesca
+    expect(ns).toMatch(/marcarEnvioPendente\(companyId, alvo\.id\);\s*espelharEstoqueSemQuebrar\(companyId, \[alvo\.id\]\);/);
+  });
+
+  it("a conferência da integração não chama de divergência o negativo daqui com o zero de lá", () => {
+    expect(ler("src/lib/nuvemshop-conferencia.ts")).toContain("Math.max(0, v.estoque) !== par.estoque");
   });
 });

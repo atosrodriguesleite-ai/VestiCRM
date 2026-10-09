@@ -64,7 +64,7 @@ export default async function PaginaDeFotos({ params }: { params: Promise<{ slug
         sobEncomenda: true,
         jueriId: true,
         images: { select: { id: true, color: true, order: true } },
-        variants: { select: { id: true, color: true, stock: true, nuvemshopId: true } },
+        variants: { select: { id: true, color: true, stock: true } },
       },
     }),
     categoriasSobEncomenda(company.id),
@@ -73,7 +73,7 @@ export default async function PaginaDeFotos({ params }: { params: Promise<{ slug
   // galeria — a mesma régua da vitrine, resolvida por variação
   const produtos = lidos.map((p) => {
     const livres = variacoesSobEncomenda(
-      p.variants.map((v) => ({ id: v.id, nuvemshopId: v.nuvemshopId, product: p })),
+      p.variants.map((v) => ({ id: v.id, product: p })),
       catsSobEncomenda
     );
     return { ...p, variants: p.variants.map((v) => ({ ...v, sobEncomenda: livres.has(v.id) })) };

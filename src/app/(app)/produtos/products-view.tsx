@@ -63,10 +63,12 @@ export type ProductItem = {
   tags: string | null;
   /** peça espelhada da loja online — muda o conselho quando ela está inativa */
   nuvemshopId: string | null;
-  /** RN-076: a chavinha da peça (null = segue a categoria), se a categoria está ligada e se a peça é de dono externo */
+  /** RN-076: a chavinha da peça (null = segue a categoria), se a categoria está ligada e se a peça é do Jueri (não aceita) */
   sobEncomenda: boolean | null;
   categoriaSobEncomenda: boolean;
   vinculada: boolean;
+  /** alguma variação espelha a Nuvemshop (a ficha avisa que lá vai zero quando dever) */
+  temVariacaoNaNuvemshop: boolean;
   /** RN-056/RN-057: quem manda em cada preço (null = a loja, aqui); `espelhaVarejo` = o varejo daqui vai para lá */
   precoDono: { atacado: DonoExterno | null; varejo: DonoExterno | null; espelhaVarejo: DonoExterno | null };
   /** RN-057: varejo mudado aqui que a Nuvemshop ainda não confirmou ("enviando") ou que ela não aceitou ("falhou") */
@@ -1365,12 +1367,13 @@ function ProductDetailModal({
             </div>
             {/* RN-076: vende sob encomenda — a peça passa do estoque (fica
                 negativo = a produzir). A categoria é o normal; aqui é a
-                exceção. Peça de dono externo não aceita: o estoque é de lá. */}
+                exceção. Peça do Jueri não aceita; a da Nuvemshop aceita, e
+                lá vai zero enquanto ela estiver devendo. */}
             <div>
               <label className={label}>Vende sob encomenda (pode vender além do estoque)</label>
               {product.vinculada ? (
                 <p className="rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-xs text-gray-500">
-                  Peça controlada pela Nuvemshop/Jueri: o estoque é de lá, então ela não vende sob encomenda.
+                  Peça controlada pelo Jueri: o estoque é de lá, então ela não vende sob encomenda.
                 </p>
               ) : (
                 <>
@@ -1387,6 +1390,9 @@ function ProductDetailModal({
                   </select>
                   <p className="mt-1 text-[11px] text-gray-400">
                     Só a gerência muda. A categoria inteira se liga em Categorias (ícone de tesoura).
+                    {product.nuvemshopId || product.temVariacaoNaNuvemshop
+                      ? " Peça da Nuvemshop: enquanto estiver devendo, a loja online recebe 0."
+                      : ""}
                   </p>
                 </>
               )}

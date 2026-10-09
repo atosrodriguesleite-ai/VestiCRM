@@ -54,7 +54,7 @@ export async function GET(
           category: true,
           sobEncomenda: true,
           images: { select: { id: true } },
-          variants: { select: { id: true, color: true, size: true, stock: true, nuvemshopId: true } },
+          variants: { select: { id: true, color: true, size: true, stock: true } },
         },
       }),
       categoriasSobEncomenda(user.companyId),
@@ -88,7 +88,7 @@ export async function GET(
      */
     // a variação que vende sob encomenda (RN-076) nunca é "esgotada" na vitrine
     const livres = variacoesSobEncomenda(
-      produto.variants.map((v) => ({ id: v.id, nuvemshopId: v.nuvemshopId, product: produto })),
+      produto.variants.map((v) => ({ id: v.id, product: produto })),
       catsSobEncomenda
     );
     const cores = [...new Set(produto.variants.map((v) => v.color))].map((cor) => {

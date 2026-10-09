@@ -109,8 +109,6 @@ export default async function OrderDetailPage({
               variant: {
                 select: {
                   stock: true,
-                  // vínculo com a Nuvemshop: a peça vinculada nunca vende sob encomenda (RN-076)
-                  nuvemshopId: true,
                   // o que o conserto de retrato precisa para decidir o SKU e a
                   // foto certos — vem junto, sem consulta extra
                   sku: true,
@@ -232,7 +230,7 @@ export default async function OrderDetailPage({
   const livres = variacoesSobEncomenda(
     order.items.flatMap((i) =>
       i.variantId && i.variant
-        ? [{ id: i.variantId, nuvemshopId: i.variant.nuvemshopId, product: i.variant.product }]
+        ? [{ id: i.variantId, product: i.variant.product }]
         : []
     ),
     await categoriasSobEncomenda(user.companyId)

@@ -118,9 +118,9 @@ export async function GET(req: NextRequest) {
       products.map((p) => {
         // a peça que vende SOB ENCOMENDA (RN-076) chega RESOLVIDA por
         // variação: a grade e o carrinho deixam a quantidade passar do estoque
-        // sem perguntar, e a peça vinculada (Nuvemshop/Jueri) nunca é
+        // sem perguntar, e a peça do Jueri nunca é
         const livres = variacoesSobEncomenda(
-          p.variants.map((v) => ({ id: v.id, nuvemshopId: v.nuvemshopId, product: p })),
+          p.variants.map((v) => ({ id: v.id, product: p })),
           catsSobEncomenda
         );
         return {

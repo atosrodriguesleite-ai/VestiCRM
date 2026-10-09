@@ -15,6 +15,7 @@ import bcrypt from "bcryptjs";
 import { db } from "@/lib/db";
 import { contarNoMinimo, linhasDoEstoque, resumirLinhas } from "@/lib/estoque/inventario";
 import { extrasDosPedidos } from "@/lib/pedido-extras-data";
+import { upsertProduct } from "@/lib/nuvemshop";
 
 if (!/(localhost|127\.0\.0\.1):5433\b/.test(process.env.DATABASE_URL ?? "")) throw new Error("só local (porta 5433)");
 
@@ -96,7 +97,22 @@ async function main() {
         retailPrice: 120,
         wholesalePrice: 80,
         images: { create: [{ url: "data:image/png;base64,iVBORw0KGgo=", order: 0 }] },
-        variants: { create: [{ color: "Azul", size: "M", stock: 0, nuvemshopId: `nsv-${marca}` }] },
+        variants: { create: [{ color: "Azul", size: "M", stock: 0, nuvemshopId: `nsv-${marca}`, sku: `CJN-AZ-M-${marca}` }] },
+      },
+      include: { variants: true },
+    });
+    // peça do JUERI na mesma categoria: a chavinha nunca a alcança
+    const doJueri = await db.product.create({
+      data: {
+        companyId: company.id,
+        name: "Conjunto do Jueri",
+        sku: `CJJ-${marca}`,
+        category: "Conjuntos",
+        jueriId: `ju-${marca}`,
+        retailPrice: 120,
+        wholesalePrice: 80,
+        images: { create: [{ url: "data:image/png;base64,iVBORw0KGgo=", order: 0 }] },
+        variants: { create: [{ color: "Verde", size: "M", stock: 0 }] },
       },
       include: { variants: true },
     });
@@ -147,8 +163,8 @@ async function main() {
     conferir(r2a.status === 403, `suporte não liga a categoria (${r2a.status})`);
     const r2b = await api(cookieVend, "PATCH", `/api/products/${conjunto.id}`, { sobEncomenda: true });
     conferir(r2b.status === 403, `vendedora não liga a peça (${r2b.status} ${r2b.json?.error ?? ""})`);
-    const r2c = await api(cookieGer, "PATCH", `/api/products/${vinculada.id}`, { sobEncomenda: true });
-    conferir(r2c.status === 409, `peça da Nuvemshop recusa a chavinha (${r2c.status} ${r2c.json?.error ?? ""})`);
+    const r2c = await api(cookieGer, "PATCH", `/api/products/${doJueri.id}`, { sobEncomenda: true });
+    conferir(r2c.status === 409, `peça do Jueri recusa a chavinha (${r2c.status} ${r2c.json?.error ?? ""})`);
     const r2d = await api(cookieGer, "PATCH", "/api/categories", { from: "Conjuntos", sobEncomenda: true });
     conferir(r2d.status === 200 && r2d.json?.sobEncomenda === true, `gerência liga a categoria (${r2d.status})`);
     const cats = await api(cookieGer, "GET", "/api/categories");
@@ -165,7 +181,9 @@ async function main() {
     const pl = lidos.find((p) => p.id === conjunto.id);
     const pv = lidos.find((p) => p.id === vinculada.id);
     conferir(pl?.variants.every((v) => v.sobEncomenda === true) === true, "Conjunto Linho: todas as variações livres");
-    conferir(pv?.variants.every((v) => v.sobEncomenda === false) === true, "Conjunto da loja online: nenhuma (vinculada)");
+    conferir(pv?.variants.every((v) => v.sobEncomenda === true) === true, "Conjunto da loja online: livre também (pedido do dono)");
+    const pj = lidos.find((p) => p.id === doJueri.id);
+    conferir(pj?.variants.every((v) => v.sobEncomenda === false) === true, "Conjunto do Jueri: nenhuma");
 
     // ---- 4. Novo pedido passa do estoque, sem extra -------------------------
     console.log("\n4) Novo pedido: 5 do M (tem 2) e 3 do G (tem 0), sem 'estou ciente'");
@@ -188,7 +206,8 @@ async function main() {
     const cat5 = await api(null, "GET", `/catalogo/${slug}`);
     conferir(cat5.texto.includes("Conjunto Linho"), "o conjunto negativo continua na vitrine");
     conferir(disp("Preto", "G", 9999).test(cat5.texto), "o G recebe o teto da linha (9999)");
-    conferir(!cat5.texto.includes("Conjunto da Loja Online"), "a peça vinculada zerada nem é lida (a chavinha não vale nela)");
+    conferir(disp("Azul", "M", 9999).test(cat5.texto), "a peça da Nuvemshop zerada também fica à venda (teto da linha)");
+    conferir(!cat5.texto.includes("Conjunto do Jueri"), "a peça do Jueri zerada some (a chavinha não vale nela)");
     conferir(!/sob encomenda/i.test(cat5.texto), "a vitrine não diz nada para a cliente");
     const r5 = await api(null, "POST", "/api/catalog/order", {
       company: slug,
@@ -208,12 +227,13 @@ async function main() {
     const lM = linhas.find((l) => l.variantId === cM.id)!;
     const lR = linhas.find((l) => l.variantId === rM.id)!;
     const lV = linhas.find((l) => l.variantId === vinculada.variants[0].id)!;
-    conferir(lM.sobEncomenda && !lR.sobEncomenda && !lV.sobEncomenda, "linhas: conjunto livre; regata e vinculada não");
+    const lJ = linhas.find((l) => l.variantId === doJueri.variants[0].id)!;
+    conferir(lM.sobEncomenda && lV.sobEncomenda && !lR.sobEncomenda && !lJ.sobEncomenda, "linhas: conjunto e Nuvemshop livres; regata e Jueri não");
     conferir(lM.disponivel === -3 && lM.reservado === 5 && lM.emEstoque === 2, `M: −3 disponível, 5 reservadas, 2 na loja (${lM.disponivel}/${lM.reservado}/${lM.emEstoque})`);
     const resumo = resumirLinhas(linhas);
     conferir(resumo.aProduzir === 10 && resumo.disponiveis === 1, `a produzir 10 (3+7), disponíveis 1 (${resumo.aProduzir}/${resumo.disponiveis})`);
     // no mínimo: a regata (1 ≤ 5) e a vinculada (0 ≤ 5); o conjunto NÃO
-    conferir(resumo.baixas === 2, `'no mínimo' conta 2 (regata e vinculada), não o conjunto (${resumo.baixas})`);
+    conferir(resumo.baixas === 2, `'no mínimo' conta 2 (regata e Jueri), não o conjunto nem a Nuvemshop (${resumo.baixas})`);
     conferir((await contarNoMinimo(company.id)) === 2, `a SQL do Dashboard concorda: 2 (${await contarNoMinimo(company.id)})`);
     const inv = await api(cookieGer, "GET", `/api/estoque/inventario?filtro=produzir`);
     const invLinhas = (inv.json?.linhas as { variantId: string }[]) ?? [];
@@ -267,6 +287,67 @@ async function main() {
     conferir(telaPedido.status === 200, `a ficha do pedido abre (${telaPedido.status})`);
     const telaDash = await api(cookieGer, "GET", "/dashboard");
     conferir(telaDash.status === 200, `o Dashboard abre (${telaDash.status})`);
+
+    // ---- 10c. a peça da NUVEMSHOP devendo: a sync não apaga a dívida ------
+    console.log("\n10c) Peça da Nuvemshop vendida sob encomenda e a sincronização");
+    const vNs = vinculada.variants[0];
+    const r10c = await api(cookieVend, "POST", "/api/orders", { customerId: cliente.id, items: [item(vNs, 3)] });
+    conferir(r10c.status === 201, `pedido com a peça da Nuvemshop zerada entra (${r10c.status} ${r10c.status !== 201 ? r10c.texto.slice(0, 200) : ""})`);
+    conferir((await estoque(vNs.id)) === -3, `fica −3 aqui (${await estoque(vNs.id)})`);
+    // o envio sai no after() da rota, depois da resposta: espera ele chegar
+    let naFila = 0;
+    for (let i = 0; i < 40 && naFila === 0; i++) {
+      naFila = await db.nuvemshopEstoquePendente.count({ where: { variantId: vNs.id } });
+      if (naFila === 0) await new Promise((r) => setTimeout(r, 250));
+    }
+    conferir(naFila === 1, "a baixa entrou na fila de envio para a Nuvemshop");
+    // a loja online confirmou o zero que mandamos: a fila esvazia
+    await db.nuvemshopEstoquePendente.deleteMany({ where: { variantId: vNs.id } });
+    const daLa = (n: number) => ({
+      id: `ns-${marca}`,
+      name: { pt: "Conjunto da Loja Online" },
+      attributes: [{ pt: "Cor" }, { pt: "Tamanho" }],
+      variants: [{ id: `nsv-${marca}`, sku: `CJN-AZ-M-${marca}`, price: "120", stock: n, values: [{ pt: "Azul" }, { pt: "M" }] }],
+    });
+    await upsertProduct(company.id, daLa(0) as never, { casadas: 0, criadas: 0, pendencias: [] });
+    conferir((await estoque(vNs.id)) === -3, `sync com 0 lá NÃO apaga o −3 (${await estoque(vNs.id)})`);
+    conferir((await db.nuvemshopEstoquePendente.count({ where: { variantId: vNs.id } })) === 0, "e não pede reenvio (lá já está em 0)");
+    await upsertProduct(company.id, daLa(10) as never, { casadas: 0, criadas: 0, pendencias: [] });
+    conferir((await estoque(vNs.id)) === 7, `10 lançadas lá cobrem a dívida: −3 + 10 = 7 (${await estoque(vNs.id)})`);
+    conferir((await db.nuvemshopEstoquePendente.count({ where: { variantId: vNs.id } })) === 1, "e o 7 entra na fila para voltar à Nuvemshop");
+    const mov = await db.inventoryMovement.findFirst({ where: { variantId: vNs.id, type: "AJUSTE" }, orderBy: { createdAt: "desc" } });
+    conferir(mov?.reason === "Sincronização Nuvemshop (-3 → 7)" && mov.quantity === 10, `o livro conta a entrada de 10 (${mov?.reason} / ${mov?.quantity})`);
+    // enquanto o 7 não chega lá, a sync seguinte (que ainda lê 10) não grava por cima
+    await upsertProduct(company.id, daLa(10) as never, { casadas: 0, criadas: 0, pendencias: [] });
+    conferir((await estoque(vNs.id)) === 7, `sync com o envio pendente não mexe (${await estoque(vNs.id)})`);
+
+    // peça devendo que é ligada à Nuvemshop AGORA (primeira vez): lá nunca
+    // recebeu o nosso zero, então o número de lá é dela — vale o de lá
+    // (RN-050), sem descontar a dívida de peças reais da loja online
+    const solta = await db.product.create({
+      data: {
+        companyId: company.id,
+        name: "Conjunto Novo Vínculo",
+        sku: `CNV-${marca}`,
+        category: "Conjuntos",
+        retailPrice: 120,
+        wholesalePrice: 80,
+        variants: { create: [{ color: "Rosa", size: "M", stock: -2, sku: `CNV-RS-M-${marca}` }] },
+      },
+      include: { variants: true },
+    });
+    await upsertProduct(
+      company.id,
+      {
+        id: `ns2-${marca}`,
+        name: { pt: "Conjunto Novo Vínculo" },
+        attributes: [{ pt: "Cor" }, { pt: "Tamanho" }],
+        variants: [{ id: `nsv2-${marca}`, sku: `CNV-RS-M-${marca}`, price: "120", stock: 5, values: [{ pt: "Rosa" }, { pt: "M" }] }],
+      } as never,
+      { casadas: 0, criadas: 0, pendencias: [] }
+    );
+    const sv = await db.productVariant.findUniqueOrThrow({ where: { id: solta.variants[0].id } });
+    conferir(sv.nuvemshopId === `nsv2-${marca}` && sv.stock === 5, `ligada agora: vale o número de lá, 5 (${sv.nuvemshopId} / ${sv.stock})`);
 
     // ---- 11. renomear a categoria leva a chavinha ---------------------------
     console.log("\n11) Renomear a categoria leva a chavinha junto");

@@ -390,8 +390,7 @@ export async function POST(req: NextRequest) {
     quantity: number;
     unitPrice: number;
     total: number;
-    /** vínculo da variação com a Nuvemshop e o que decide "sob encomenda" (RN-076) */
-    variantNuvemshopId: string | null;
+    /** o que decide "sob encomenda" (RN-076) */
     product: { sobEncomenda: boolean | null; category: string; jueriId: string | null };
   };
   const lines: Line[] = [];
@@ -425,7 +424,6 @@ export async function POST(req: NextRequest) {
       // round2: 3 × 19,90 em float dá 59.699999… — o gravado tem que ser 59,70
       unitPrice: promoPrice(product.id, precoVitrine(product)),
       total: round2(item.quantity * promoPrice(product.id, precoVitrine(product))),
-      variantNuvemshopId: variant.nuvemshopId,
       product: { sobEncomenda: product.sobEncomenda, category: product.category, jueriId: product.jueriId },
     });
   }
@@ -766,11 +764,7 @@ export async function POST(req: NextRequest) {
   // a peça que vende SOB ENCOMENDA (RN-076): a sacola passa do estoque e a
   // baixa não para nele — nunca "faltou", fica negativa (a produzir)
   const livres: PecasLivres = variacoesSobEncomenda(
-    lines.map((l) => ({
-      id: l.variantId,
-      nuvemshopId: l.variantNuvemshopId,
-      product: l.product,
-    })),
+    lines.map((l) => ({ id: l.variantId, product: l.product })),
     await categoriasSobEncomenda(company.id)
   );
   let faltas: FaltaDeEstoque[] = [];
@@ -843,7 +837,7 @@ export async function POST(req: NextRequest) {
       ].join("\n"),
         // só as colunas do item: o que decide "sob encomenda" (RN-076) viajou
         // na linha para a reserva, e não é coluna do OrderItem
-        items: { create: lines.map(({ variantNuvemshopId: _ns, product: _p, ...l }) => l) },
+        items: { create: lines.map(({ product: _p, ...l }) => l) },
         payments: {
           create: { method: "PIX", amount: subtotal, status: "PENDENTE" },
         },

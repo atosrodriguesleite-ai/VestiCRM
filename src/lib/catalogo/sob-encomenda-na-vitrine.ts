@@ -7,18 +7,16 @@ import type { Prisma } from "@prisma/client";
  * contrário do que a chavinha promete. A peça entra quando tem estoque, OU
  * está ligada na ficha, OU segue uma categoria ligada (a ficha não a
  * desligou). É a escada peça > categoria escrita como filtro do banco; a
- * exceção da peça vinculada (Nuvemshop/Jueri) é decidida depois, por
- * variação, pela regra pura — aqui o produto só deixa de ser escondido.
+ * exceção do Jueri entra aqui também (ela é do produto).
  */
 export function ondeNaoEscondePorEstoque(
   categoriasSobEncomenda: ReadonlySet<string>
 ): Prisma.ProductWhereInput {
   const cats = [...categoriasSobEncomenda];
-  // a chavinha só alcança a peça que NÃO é de dono externo (RN-050): produto
-  // do Jueri, ou cujas variações estão todas na Nuvemshop, segue escondido
-  // quando zera — senão ele era lido e serializado na página (o peso da
-  // RN-070) para o navegador esconder o card depois (achado da revisão)
-  const podeSerLivre = { jueriId: null, variants: { some: { nuvemshopId: null } } };
+  // a chavinha não alcança o produto do Jueri (a sync dele apagaria o
+  // negativo): zerado, ele segue escondido — senão era lido e serializado na
+  // página (o peso da RN-070) para o navegador esconder o card depois
+  const podeSerLivre = { jueriId: null };
   return {
     OR: [
       { variants: { some: { stock: { gt: 0 } } } },

@@ -114,8 +114,9 @@ export default async function ProductsPage() {
     // RN-076: a chavinha da peça (nulo segue a categoria) e se a categoria está ligada
     sobEncomenda: p.sobEncomenda,
     categoriaSobEncomenda: catsSobEncomenda.has(p.category),
-    // peça de dono externo (Jueri no produto, Nuvemshop em alguma variação) não aceita a chavinha
-    vinculada: !!p.jueriId || !!p.nuvemshopId || p.variants.some((v) => !!v.nuvemshopId),
+    // peça do Jueri não aceita a chavinha (a da Nuvemshop aceita: lá vai zero)
+    vinculada: !!p.jueriId,
+    temVariacaoNaNuvemshop: p.variants.some((v) => !!v.nuvemshopId),
     // RN-056: quem manda em cada preço (varejo da Nuvemshop, os dois do Jueri)
     // — a ficha tranca o campo, e o servidor é a segunda tranca
     precoDono: donoDoPreco({ nuvemshopId: p.nuvemshopId, jueriId: p.jueriId, variants: p.variants }),
@@ -192,7 +193,6 @@ export default async function ProductsPage() {
         sobEncomenda: vendeSobEncomenda({
           peca: p.sobEncomenda,
           categoria: catsSobEncomenda.has(p.category),
-          nuvemshopId: v.nuvemshopId,
           jueriId: p.jueriId,
         }),
       }));

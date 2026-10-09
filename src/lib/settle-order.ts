@@ -151,7 +151,6 @@ async function liquidarUmaVez(
                 where: { id: { in: variantIds } },
                 select: {
                   id: true,
-                  nuvemshopId: true,
                   product: { select: { sobEncomenda: true, category: true, jueriId: true } },
                 },
               })

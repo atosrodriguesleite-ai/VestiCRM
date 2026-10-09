@@ -115,7 +115,7 @@ export async function POST(req: NextRequest) {
         category: true,
         sobEncomenda: true,
         jueriId: true,
-        variants: { select: { id: true, color: true, size: true, stock: true, nuvemshopId: true } },
+        variants: { select: { id: true, color: true, size: true, stock: true } },
       },
     });
     const catsSobEncomenda = await categoriasSobEncomenda(user.companyId);
@@ -195,7 +195,6 @@ export async function POST(req: NextRequest) {
               !vendeSobEncomenda({
                 peca: produto.sobEncomenda,
                 categoria: catsSobEncomenda.has(produto.category),
-                nuvemshopId: variante.nuvemshopId,
                 jueriId: produto.jueriId,
               })
               ? `Estoque insuficiente (tem ${variante.stock})`

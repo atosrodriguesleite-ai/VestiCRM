@@ -133,10 +133,10 @@ export async function PATCH(
 
     // A CHAVINHA "VENDE SOB ENCOMENDA" (RN-076) é regra de venda — o estoque
     // passa a poder ficar negativo —, então só a gerência a muda (a
-    // vendedora que edita a ficha manda o valor carregado; igual passa). E a
-    // peça de dono externo (Jueri no produto, Nuvemshop em qualquer
-    // variação) nunca a aceita: o estoque é de lá (RN-050), e um negativo
-    // daqui viraria zero lá por cima do número da loja online.
+    // vendedora que edita a ficha manda o valor carregado; igual passa). A
+    // peça da Nuvemshop aceita (o negativo fica aqui, lá vai zero); a do
+    // JUERI não: a sync dele grava o número de lá duas vezes por dia, sem
+    // porta de volta, e o "a produzir" sumiria na rodada seguinte.
     if (data.sobEncomenda !== undefined && data.sobEncomenda !== product.sobEncomenda) {
       if (!isManagerUp(user)) {
         return NextResponse.json(
@@ -144,11 +144,9 @@ export async function PATCH(
           { status: 403 }
         );
       }
-      const vinculada =
-        !!product.jueriId || !!product.nuvemshopId || product.variants.some((v) => !!v.nuvemshopId);
-      if (data.sobEncomenda === true && vinculada) {
+      if (data.sobEncomenda === true && product.jueriId) {
         return NextResponse.json(
-          { error: "Esta peça é controlada pela Nuvemshop/Jueri: o estoque é de lá, e ela não vende sob encomenda." },
+          { error: "Esta peça é controlada pelo Jueri: o estoque é de lá, e ela não vende sob encomenda." },
           { status: 409 }
         );
       }
