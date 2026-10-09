@@ -36,6 +36,8 @@ import {
 } from "@/lib/orders";
 import { computeOrderTotals } from "@/lib/orders";
 import { juntarPorVariacao, reservarComExtras, reservarOQueTiver } from "@/lib/reservations";
+import { variacoesSobEncomenda } from "@/lib/sob-encomenda";
+import { categoriasSobEncomenda } from "@/lib/sob-encomenda-data";
 import {
   ExtrasSemCiencia,
   extrasConfirmadosSchema,
@@ -246,6 +248,8 @@ export async function PATCH(
         );
       }
       const variantIds = parsed.data.items.map((i) => i.variantId);
+      // as categorias que vendem sob encomenda (RN-076) vêm junto, não em série
+      const catsSobEncomenda = categoriasSobEncomenda(user.companyId);
       const variants = await db.productVariant.findMany({
         where: { id: { in: variantIds }, product: { companyId: user.companyId } },
         // SÓ id+cor DA FOTO (o base64 fica no banco). Todas as fotos: o item
@@ -260,6 +264,9 @@ export async function PATCH(
         },
       });
       const variantById = new Map(variants.map((v) => [v.id, v]));
+      // a peça que vende SOB ENCOMENDA (RN-076) passa livre nesta edição:
+      // não vira extra e a baixa dela não para no estoque
+      const livres = variacoesSobEncomenda(variants, await catsSobEncomenda);
       for (const item of parsed.data.items) {
         const v = variantById.get(item.variantId);
         // a cor SEPARADA em produto próprio (RN-050) ainda vale pelo
@@ -307,7 +314,8 @@ export async function PATCH(
                 precisa: delta,
               };
             }),
-          new Map(variants.map((v) => [v.id, v.stock]))
+          new Map(variants.map((v) => [v.id, v.stock])),
+          livres
         ));
         if (extrasSemCiencia(previstos, parsed.data.extrasConfirmados).length > 0) {
           return NextResponse.json(respostaDeExtras(previstos), { status: 409 });
@@ -423,7 +431,7 @@ export async function PATCH(
               // ida só; só a peça curta faz a segunda)
               const v = variantById.get(variantId);
               const label = v ? `${v.product.name} (${v.color} ${v.size})` : "uma das peças";
-              const reserva = await reservarOQueTiver(tx, [{ variantId, quantity: baixar, label }]);
+              const reserva = await reservarOQueTiver(tx, [{ variantId, quantity: baixar, label }], livres);
               baixou = reserva.seguradas.reduce((s, x) => s + x.quantity, 0);
               if (baixou < baixar) {
                 const extra: ExtraDaPeca = {
@@ -824,14 +832,22 @@ export async function PATCH(
     // Antes de escrever: se o pedido vai segurar estoque agora (reserva/baixa),
     // confere disponibilidade e bloqueia se faltar. Reanexar não desconta
     // nada, então não há disponibilidade a conferir.
+    // as peças que vendem SOB ENCOMENDA (RN-076) entre as do pedido que
+    // volta a segurar estoque: baixa sem condição, nunca extra
+    let livresDoRestauro: ReadonlySet<string> = new Set();
     if (needStockDeduct && reopenStock !== "REANEXAR") {
       const variantIds = itensParaEstoque
         .map((i) => i.variantId)
         .filter((v): v is string => !!v);
-      const variants = await db.productVariant.findMany({
-        where: { id: { in: variantIds } },
-      });
+      const [variants, catsSobEncomenda] = await Promise.all([
+        db.productVariant.findMany({
+          where: { id: { in: variantIds } },
+          include: { product: { select: { sobEncomenda: true, category: true, jueriId: true } } },
+        }),
+        categoriasSobEncomenda(user.companyId),
+      ]);
       const stockById = new Map(variants.map((v) => [v.id, v.stock]));
+      livresDoRestauro = variacoesSobEncomenda(variants, catsSobEncomenda);
       // pela SOMA de cada peça (duas linhas da mesma peça passavam uma a uma
       // com estoque para só uma delas). O que faltar volta a ser EXTRA, com a
       // ciência da pessoa (RN-075) — sem ela, a recusa de sempre: a peça foi
@@ -841,7 +857,8 @@ export async function PATCH(
           ...p,
           precisa: p.quantity,
         })),
-        stockById
+        stockById,
+        livresDoRestauro
       );
       if (extrasSemCiencia(previstos, parsed.data.extrasConfirmados).length > 0) {
         return NextResponse.json(respostaDeExtras(previstos), { status: 409 });
@@ -1221,7 +1238,7 @@ export async function PATCH(
               // transação e a janela reabre com os números de agora — antes,
               // essa falta entrava calada (com aviso à gerência) e o pedido
               // voltava devendo peça que ninguém viu (achado da revisão).
-              const reserva = await reservarComExtras(tx, itensParaEstoque.map(itemDeEstoque));
+              const reserva = await reservarComExtras(tx, itensParaEstoque.map(itemDeEstoque), livresDoRestauro);
               if (extrasSemCiencia(reserva.extras, parsed.data.extrasConfirmados).length > 0) {
                 throw new ExtrasSemCiencia(reserva.extras);
               }

@@ -23,11 +23,11 @@ function bancoFake(estoque: Record<string, number>) {
         where,
         data,
       }: {
-        where: { id: string; stock: { gte: number } };
+        where: { id: string; stock?: { gte: number } };
         data: { stock: { decrement: number } };
       }) {
         const atual = estoque[where.id] ?? 0;
-        if (atual < where.stock.gte) return { count: 0 };
+        if (where.stock && atual < where.stock.gte) return { count: 0 };
         estoque[where.id] = atual - data.stock.decrement;
         return { count: 1 };
       },

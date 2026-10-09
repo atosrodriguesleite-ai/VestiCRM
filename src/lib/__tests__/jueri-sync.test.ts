@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-// Guarda RN-076 (índice em docs/regras.md; texto no CLAUDE.md).
+// Guarda RN-077 (índice em docs/regras.md; texto no CLAUDE.md).
 
 /**
  * A SINCRONIZAÇÃO AUTOMÁTICA DA JUERI ACOMPANHA A JUERI — E DEIXA RASTRO.

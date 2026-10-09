@@ -148,6 +148,7 @@ model Company {
   mediaAssets    MediaAsset[]
   inventoryMovs  InventoryMovement[]
   estoqueMinimos EstoqueMinimoCategoria[]
+  sobEncomendaCats SobEncomendaCategoria[]
   nsEstoquePend  NuvemshopEstoquePendente[]
   etiquetaModelos EtiquetaModelo[]
   composicoes    ComposicaoCategoria[]
@@ -1137,7 +1138,7 @@ model JueriConnection {
   clienteSistema String // ID do cliente no sistema Jueri
   token          String // Bearer token de integração
   lastSyncAt     DateTime?
-  // RN-076: rastro da rodada automática — quando tentou, em que página a
+  // RN-077: rastro da rodada automática — quando tentou, em que página a
   // próxima rodada continua (catálogo grande vai em etapas) e o último erro
   lastSyncTentativaEm DateTime?
   lastSyncPagina      Int?
@@ -1728,6 +1729,12 @@ model Product {
   /// ("quero ter pelo menos 3 de cada tamanho"). Nulo = usa o mínimo da
   /// categoria, e sem ele o da loja (`Company.lowStockThreshold`).
   minStock       Int?
+  /// VENDE SOB ENCOMENDA (RN-076): a peça pode ser vendida além do estoque, e
+  /// o estoque fica NEGATIVO ("−3" = 3 a produzir) — é a confecção que faz a
+  /// peça depois de vendida. Escada peça > categoria (`SobEncomendaCategoria`):
+  /// nulo = segue a categoria; true/false = a peça manda. Peça vinculada à
+  /// Nuvemshop/Jueri nunca vende sob encomenda (o estoque é de lá, RN-050).
+  sobEncomenda   Boolean?
   /// NCM DA PEÇA (RN-055): a classificação fiscal que vai na nota. É a
   /// EXCEÇÃO — o normal é o NCM da categoria. Nulo = usa o da categoria, e
   /// sem ele o da loja. Guardado só com dígitos; a nota formata.
@@ -1742,7 +1749,7 @@ model Product {
   unidadeSingular String?
   unidadePlural   String?
   // a lista de fotos (links) da Jueri na última sincronização, em JSON
-  // (RN-076): só quando a Jueri MUDA a lista as fotos daqui são trocadas —
+  // (RN-077): só quando a Jueri MUDA a lista as fotos daqui são trocadas —
   // o que a loja fez nelas entre uma rodada e outra fica
   jueriFotos     String?
   createdAt      DateTime @default(now())
@@ -1880,7 +1887,7 @@ model ProductImage {
   // Vem sozinha da Nuvemshop (variant.image_id) ou da etiqueta no editor.
   color     String?
   // de onde a foto veio ("JUERI"): é o que separa a foto da Jueri da que a
-  // loja subiu — ou da Nuvemshop, que também é link (RN-076)
+  // loja subiu — ou da Nuvemshop, que também é link (RN-077)
   source    String?
 
   @@index([productId])
@@ -2335,6 +2342,20 @@ model EstoqueMinimoCategoria {
   company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
   category  String
   minStock  Int
+  updatedAt DateTime @updatedAt
+
+  @@unique([companyId, category])
+}
+
+/// RN-076 · VENDE SOB ENCOMENDA POR CATEGORIA: a linha EXISTE = a categoria
+/// vende além do estoque (a peça pode desligar com `Product.sobEncomenda =
+/// false`). Presença em vez de booleano para a SQL do Dashboard casar por
+/// LEFT JOIN, como o mínimo da categoria. Renomear/apagar categoria acompanha.
+model SobEncomendaCategoria {
+  id        String   @id @default(cuid())
+  companyId String
+  company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  category  String
   updatedAt DateTime @updatedAt
 
   @@unique([companyId, category])

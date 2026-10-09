@@ -12,7 +12,7 @@ export const JUERI_BASE =
   process.env.JUERI_API_BASE ?? "https://jueri.com.br/sis/api/v1";
 
 /**
- * Tempo limite de cada chamada à Jueri (RN-076): a rodada automática confere
+ * Tempo limite de cada chamada à Jueri (RN-077): a rodada automática confere
  * o prazo ENTRE páginas, e uma chamada que pendura passaria dos 300 s da
  * Vercel sem gravar rastro nenhum — o cenário que a regra existe para fechar.
  */

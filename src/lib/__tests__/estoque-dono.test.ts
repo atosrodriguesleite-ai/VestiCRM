@@ -233,7 +233,7 @@ describe("o inventário: filtros e reserva", () => {
 describe("os cartões do Inventário seguem a CATEGORIA escolhida (pedido do dono, 08/10/2026)", () => {
   const linha = (categoria: string, disponivel: number, reservado = 0, dono: LinhaDoInventario["dono"] = null): LinhaDoInventario => ({
     variantId: `${categoria}-${disponivel}-${reservado}`, productId: "p", produto: "x", categoria, cor: "c", tamanho: "M", sku: "s",
-    ativo: true, disponivel, reservado, emEstoque: disponivel + reservado, dono, minimo: 2, origemDoMinimo: "LOJA",
+    ativo: true, disponivel, reservado, emEstoque: disponivel + reservado, dono, minimo: 2, origemDoMinimo: "LOJA", sobEncomenda: false,
     custo: 0, atacado: 0, cadastradoEm: "2026-01-01T00:00:00.000Z",
   });
   const linhas = [linha("Regata Nadador", 50, 3), linha("Regata Nadador", 0), linha("Baby Look", 10, 1, "NUVEMSHOP")];

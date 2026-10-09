@@ -11,6 +11,9 @@ import {
 } from "@/lib/categories";
 import { type LinkDeCatalogo } from "@/lib/catalogo/tabelas-de-preco";
 import { disponivelNaVitrine } from "@/lib/catalogo/teto-do-estoque";
+import { vendeSobEncomenda } from "@/lib/sob-encomenda";
+import { categoriasSobEncomenda } from "@/lib/sob-encomenda-data";
+import { ondeNaoEscondePorEstoque } from "@/lib/catalogo/sob-encomenda-na-vitrine";
 import { lerCamposDaLoja } from "@/lib/catalogo/campos-do-pedido";
 import { parseCategoryUnits, unidadeDaLoja, unidadeDaPeca } from "@/lib/catalogo/unidade";
 import { resolverLink } from "@/lib/catalogo/tabelas-de-preco-servidor";
@@ -62,26 +65,33 @@ export async function montarCatalogo({
   const cond = condicoesDoLink(campanha, company, !!tabela);
   const comDesconto = (v: number) => precoComDesconto(v, cond.desconto);
 
-  const [products, customColors] = await Promise.all([
+  // as categorias que vendem SOB ENCOMENDA (RN-076): a peça delas não some
+  // ao zerar e a quantidade não para no estoque. O filtro da vitrine precisa
+  // delas, então a leitura vai na frente — junto das cores, não em série
+  const [catsSobEncomenda, customColors] = await Promise.all([
+    categoriasSobEncomenda(company.id),
+    db.companyColor.findMany({
+      where: { companyId: company.id },
+      select: { name: true, hex: true },
+    }),
+  ]);
+  const [products] = await Promise.all([
     db.product.findMany({
       // vitrine pública: só produtos COM foto (item sem foto fica oculto até
       // ganhar imagem — aparece sozinho assim que uma foto for adicionada).
-      // Se a loja escolher, esconde também os sem estoque (indisponíveis).
+      // Se a loja escolher, esconde também os sem estoque (indisponíveis) —
+      // menos a peça que vende sob encomenda (RN-076)
       where: {
         companyId: company.id,
         active: true,
         images: { some: {} },
-        ...(company.catalogHideOutOfStock ? { variants: { some: { stock: { gt: 0 } } } } : {}),
+        ...(company.catalogHideOutOfStock ? ondeNaoEscondePorEstoque(catsSobEncomenda) : {}),
       },
       include: {
         images: { orderBy: { order: "asc" }, select: { id: true, color: true } },
         variants: { orderBy: [{ color: "asc" }, { size: "asc" }] },
       },
       orderBy: [{ collection: "desc" }, { name: "asc" }],
-    }),
-    db.companyColor.findMany({
-      where: { companyId: company.id },
-      select: { name: true, hex: true },
     }),
   ]);
 
@@ -114,8 +124,16 @@ export async function montarCatalogo({
       color: v.color,
       size: v.size,
       // QUANTAS há (RN-067): a vitrine para a quantidade neste teto — só o
-      // "tem/não tem" deixava a cliente pedir 8 de uma peça com 1
-      disponivel: disponivelNaVitrine(v.stock),
+      // "tem/não tem" deixava a cliente pedir 8 de uma peça com 1. A peça
+      // sob encomenda (RN-076) recebe o teto da linha: não para no estoque
+      disponivel: disponivelNaVitrine(
+        v.stock,
+        vendeSobEncomenda({
+          peca: p.sobEncomenda,
+          categoria: catsSobEncomenda.has(p.category),
+          jueriId: p.jueriId,
+        })
+      ),
     })),
   }));
 

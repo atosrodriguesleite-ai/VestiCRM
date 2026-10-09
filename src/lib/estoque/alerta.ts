@@ -2,7 +2,7 @@ import { db } from "../db";
 import { sendToUser } from "../push";
 import { logServerError } from "../health";
 import { linhasDoEstoque, type LinhaDoInventario } from "./inventario";
-import { noMinimo } from "./minimos";
+import { chegouAoMinimo, type ComEncomenda } from "./inventario";
 
 /**
  * O ALERTA DE MÍNIMO, SEM SPAM (RN-051).
@@ -55,14 +55,15 @@ export type DecisaoDoAlerta = {
  * entra peça e sai.
  */
 export function decidirAlertas(
-  linhas: Pick<LinhaDoInventario, "variantId" | "disponivel" | "minimo" | "ativo">[],
+  linhas: (Pick<LinhaDoInventario, "variantId" | "disponivel" | "minimo" | "ativo"> & ComEncomenda)[],
   carimbadas: Set<string>,
   jaTeveEstoque: Set<string>
 ): DecisaoDoAlerta {
   const avisar: string[] = [];
   const limpar: string[] = [];
   for (const l of linhas) {
-    const no = noMinimo(l.disponivel, l.minimo);
+    // a peça sob encomenda (RN-076) não chega ao mínimo: negativo é esperado
+    const no = chegouAoMinimo(l);
     const carimbada = carimbadas.has(l.variantId);
     const teveEstoque = l.disponivel > 0 || jaTeveEstoque.has(l.variantId);
     // produto inativo não avisa (não está à venda); se estava carimbado, solta

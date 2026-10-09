@@ -7,6 +7,8 @@ import { imageHref } from "@/lib/img";
 import { ordenarVariantes } from "@/lib/tamanhos";
 import { requireUser, AuthError } from "@/lib/auth";
 import { filtrarProdutos } from "@/lib/busca";
+import { variacoesSobEncomenda } from "@/lib/sob-encomenda";
+import { categoriasSobEncomenda } from "@/lib/sob-encomenda-data";
 import type { Prisma } from "@prisma/client";
 
 const variantSchema = z.object({
@@ -93,15 +95,18 @@ export async function GET(req: NextRequest) {
       where.id = { in: rankIds };
     }
 
-    const products = await db.product.findMany({
-      where,
-      include: {
-        variants: { orderBy: [{ color: "asc" }, { size: "asc" }] },
-        images: { orderBy: { order: "asc" }, select: { id: true, order: true } },
-      },
-      orderBy: { name: "asc" },
-      take: 60,
-    });
+    const [products, catsSobEncomenda] = await Promise.all([
+      db.product.findMany({
+        where,
+        include: {
+          variants: { orderBy: [{ color: "asc" }, { size: "asc" }] },
+          images: { orderBy: { order: "asc" }, select: { id: true, order: true } },
+        },
+        orderBy: { name: "asc" },
+        take: 60,
+      }),
+      categoriasSobEncomenda(user.companyId),
+    ]);
     if (rankIds) {
       const posicao = new Map(rankIds.map((id, i) => [id, i]));
       products.sort((a, b) => (posicao.get(a.id) ?? 0) - (posicao.get(b.id) ?? 0));
@@ -110,11 +115,20 @@ export async function GET(req: NextRequest) {
     // A grade sai na ordem de ROUPA (PP, P, M, G, GG / numeração): é o que os
     // seletores de novo pedido / editar itens mostram
     return NextResponse.json(
-      products.map((p) => ({
-        ...p,
-        variants: ordenarVariantes(p.variants),
-        images: p.images.map((i) => ({ ...i, url: imageHref(i.id) })),
-      }))
+      products.map((p) => {
+        // a peça que vende SOB ENCOMENDA (RN-076) chega RESOLVIDA por
+        // variação: a grade e o carrinho deixam a quantidade passar do estoque
+        // sem perguntar, e a peça do Jueri nunca é
+        const livres = variacoesSobEncomenda(
+          p.variants.map((v) => ({ id: v.id, product: p })),
+          catsSobEncomenda
+        );
+        return {
+          ...p,
+          variants: ordenarVariantes(p.variants).map((v) => ({ ...v, sobEncomenda: livres.has(v.id) })),
+          images: p.images.map((i) => ({ ...i, url: imageHref(i.id) })),
+        };
+      })
     );
   } catch (e) {
     if (e instanceof AuthError)

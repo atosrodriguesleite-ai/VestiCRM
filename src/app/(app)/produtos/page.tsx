@@ -19,6 +19,8 @@ import { SkuManager } from "./sku-manager";
 import { ReajustePreco } from "./reajuste-preco";
 import { CategoryManager } from "./category-manager";
 import { ordenarVariantes, ordenarTamanhos, compararTamanhos } from "@/lib/tamanhos";
+import { vendeSobEncomenda } from "@/lib/sob-encomenda";
+import { categoriasSobEncomenda } from "@/lib/sob-encomenda-data";
 
 export const dynamic = "force-dynamic";
 
@@ -87,6 +89,9 @@ export default async function ProductsPage() {
   // e sem o módulo Estoque não tinha outra batida (achado da revisão)
   after(() => varrerEnviosDeEstoqueSeDevido(user.companyId));
 
+  // as categorias que vendem SOB ENCOMENDA (RN-076): lidas UMA vez, antes da
+  // lista (a ficha diz se a categoria está ligada) e do monitor de mínimo
+  const catsSobEncomenda = await categoriasSobEncomenda(user.companyId);
   const items: ProductItem[] = products.map((p) => ({
     id: p.id,
     name: p.name,
@@ -106,6 +111,12 @@ export default async function ProductsPage() {
     active: p.active,
     tags: p.tags,
     nuvemshopId: p.nuvemshopId,
+    // RN-076: a chavinha da peça (nulo segue a categoria) e se a categoria está ligada
+    sobEncomenda: p.sobEncomenda,
+    categoriaSobEncomenda: catsSobEncomenda.has(p.category),
+    // peça do Jueri não aceita a chavinha (a da Nuvemshop aceita: lá vai zero)
+    vinculada: !!p.jueriId,
+    temVariacaoNaNuvemshop: p.variants.some((v) => !!v.nuvemshopId),
     // RN-056: quem manda em cada preço (varejo da Nuvemshop, os dois do Jueri)
     // — a ficha tranca o campo, e o servidor é a segunda tranca
     precoDono: donoDoPreco({ nuvemshopId: p.nuvemshopId, jueriId: p.jueriId, variants: p.variants }),
@@ -167,6 +178,8 @@ export default async function ProductsPage() {
       })
     ).map((m) => [m.category, m.minStock])
   );
+  // a peça que vende sob encomenda (RN-076) fica fora do monitor — a MESMA
+  // régua do Estoque e do Dashboard (negativo nela é esperado)
   const activeVariations: LowStockRow[] = products
     .filter((p) => p.active)
     .flatMap((p) => {
@@ -177,6 +190,11 @@ export default async function ProductsPage() {
         size: v.size,
         stock: v.stock,
         ...(proprio != null ? { minimo: proprio } : {}),
+        sobEncomenda: vendeSobEncomenda({
+          peca: p.sobEncomenda,
+          categoria: catsSobEncomenda.has(p.category),
+          jueriId: p.jueriId,
+        }),
       }));
     });
 

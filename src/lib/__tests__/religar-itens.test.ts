@@ -143,7 +143,7 @@ describe("as portas estão ligadas", () => {
     expect(tela).toContain("peça não está mais no catálogo");
     expect(tela).toContain("const semVinculo = !l.variantId");
     // "extra" (RN-075) só quando existe vínculo de verdade
-    expect(tela).toContain("const extra = semVinculo ? 0 :");
+    expect(tela).toContain("const extra = semVinculo || l.sobEncomenda ? 0 :");
   });
 
   it("cada linha é ela mesma: nada mais é mexido PELO VÍNCULO", () => {

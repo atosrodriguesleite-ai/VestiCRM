@@ -109,9 +109,11 @@ describe("o diagnóstico segue a regra REAL da vitrine", () => {
     expect(/active:\s*true/.test(catalogo)).toBe(true);
     expect(/images:\s*\{\s*some:\s*\{\s*\}\s*\}/.test(catalogo)).toBe(true);
     expect(/catalogHideOutOfStock/.test(catalogo)).toBe(true);
-    expect(/variants:\s*\{\s*some:\s*\{\s*stock:\s*\{\s*gt:\s*0\s*\}/.test(catalogo)).toBe(
-      true
-    );
+    // o filtro de estoque mora numa função só (a peça sob encomenda fica
+    // fora dele, RN-076) — a vitrine e o diagnóstico chamam a mesma
+    expect(/ondeNaoEscondePorEstoque\(/.test(catalogo)).toBe(true);
+    const filtro = readFileSync(join(process.cwd(), "src/lib/catalogo/sob-encomenda-na-vitrine.ts"), "utf8");
+    expect(/variants:\s*\{\s*some:\s*\{\s*stock:\s*\{\s*gt:\s*0\s*\}/.test(filtro)).toBe(true);
   });
 
   it("a vitrine continua desenhando um card POR COR (é o que derruba a peça sem grade)", () => {

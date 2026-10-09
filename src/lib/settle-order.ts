@@ -5,6 +5,7 @@ import { espelharEstoqueSemQuebrar } from "./nuvemshop";
 import { espelharJueriSemQuebrar } from "./jueri";
 import { winLinkedOpportunity, garantirCartaoDoPedido } from "./opportunity-sync";
 import { reservarOQueTiver, textoDaFalta } from "./reservations";
+import { variacoesSobEncomenda } from "./sob-encomenda";
 import { mpCancelPayment } from "./mercadopago";
 import { sincronizarPedidoSemQuebrar } from "./financeiro/porta-vendas";
 
@@ -141,13 +142,33 @@ async function liquidarUmaVez(
       // ---- Estoque: baixa se ainda não estava reservado/baixado ----
       let seguradas: { variantId: string; quantity: number }[] = [];
       if (!order.stockDeducted) {
+        // a peça que vende SOB ENCOMENDA (RN-076) baixa inteira, negativa se
+        // preciso — o Pix da peça a produzir não é "estoque insuficiente"
+        const variantIds = order.items.flatMap((i) => (i.variantId ? [i.variantId] : []));
+        const [variantes, categorias] = await Promise.all([
+          variantIds.length
+            ? tx.productVariant.findMany({
+                where: { id: { in: variantIds } },
+                select: {
+                  id: true,
+                  product: { select: { sobEncomenda: true, category: true, jueriId: true } },
+                },
+              })
+            : [],
+          tx.sobEncomendaCategoria.findMany({
+            where: { companyId: order.companyId },
+            select: { category: true },
+          }),
+        ]);
+        const livres = variacoesSobEncomenda(variantes, new Set(categorias.map((c) => c.category)));
         const reserva = await reservarOQueTiver(
           tx,
           order.items.map((i) => ({
             variantId: i.variantId,
             quantity: i.quantity,
             label: `${i.name}${i.color || i.size ? ` (${[i.color, i.size].filter(Boolean).join(" ")})` : ""}`,
-          }))
+          })),
+          livres
         );
         seguradas = reserva.seguradas;
         // movimento = o que SAIU de verdade (é dele que o cancelamento devolve)

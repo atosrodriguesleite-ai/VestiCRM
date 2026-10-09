@@ -18,7 +18,7 @@ import {
  *
  * simular=true: NADA é gravado — só o relatório do que aconteceria.
  *
- * RN-076 (09/10/2026, relato do dono: "a cliente mudou as fotos lá na Jueri
+ * RN-077 (09/10/2026, relato do dono: "a cliente mudou as fotos lá na Jueri
  * e não atualiza; ela vende na Jueri e o estoque aqui não muda"). O cartão
  * dizia "última importação 06/10, 11:13" — horário de clique, não de cron
  * (03:00 e 12:00). Três defeitos no automático: (1) as FOTOS nunca eram
@@ -41,7 +41,7 @@ export type JueriResumo = {
   comFoto: number;
   semFoto: number;
   coresNovas: number;
-  /** produtos cujas fotos da Jueri mudaram e foram trocadas aqui (RN-076) */
+  /** produtos cujas fotos da Jueri mudaram e foram trocadas aqui (RN-077) */
   fotosTrocadas: number;
 };
 
@@ -83,7 +83,7 @@ export type DecisaoDeFotos = {
 };
 
 /**
- * FOTOS ACOMPANHAM A JUERI (RN-076).
+ * FOTOS ACOMPANHAM A JUERI (RN-077).
  *
  * A foto da Jueri carrega a marca `source = "JUERI"`; a que a loja subiu
  * (ou a que veio da Nuvemshop, que também é link) não. E o produto guarda a
@@ -302,7 +302,7 @@ export async function syncJueriPage(
     } else {
       resumo.atualizados += 1;
       if (exemplos.length < 5) exemplos.push({ descricao: nome, sku, acao: "atualizar" });
-      // FOTOS (RN-076): as da Jueri acompanham a Jueri; as da loja ficam
+      // FOTOS (RN-077): as da Jueri acompanham a Jueri; as da loja ficam
       const fotosAFazer = decidirFotos(existente.images, lerListaDeFotos(existente.jueriFotos), fotos);
       const trocaFotos = !!fotosAFazer && (fotosAFazer.apagarIds.length > 0 || fotosAFazer.criar.length > 0);
       if (trocaFotos) resumo.fotosTrocadas += 1;
@@ -412,7 +412,7 @@ export type ResultadoDaLoja = {
  * gravadas ficam (o sync é idempotente). Se falhar de novo, devolve o erro
  * DIZENDO a página, e `lastSyncAt` não é marcado.
  *
- * ORÇAMENTO DE TEMPO (RN-076): `prazo` é o instante em que a rodada tem
+ * ORÇAMENTO DE TEMPO (RN-077): `prazo` é o instante em que a rodada tem
  * que parar; a loja grande para por conta própria entre uma página e outra
  * e devolve `parcial` com a página seguinte — a próxima rodada começa de
  * lá (`paginaInicial`), em vez de recomeçar da primeira e morrer no mesmo
@@ -459,7 +459,7 @@ export async function syncJueriCompany(
 }
 
 /**
- * A rodada AUTOMÁTICA de uma loja, com rastro (RN-076): retoma da página em
+ * A rodada AUTOMÁTICA de uma loja, com rastro (RN-077): retoma da página em
  * que a rodada anterior parou, grava no cartão da conexão a tentativa, o
  * erro e a página pendente, e deixa uma linha na Central de Comunicação da
  * loja — e, quando falha, uma no painel de Saúde. Nunca lança: a fila do

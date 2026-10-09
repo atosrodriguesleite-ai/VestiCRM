@@ -38,9 +38,9 @@ import {
 function bancoFake(estoque: Record<string, number>) {
   return {
     productVariant: {
-      async updateMany({ where, data }: { where: { id: string; stock: { gte: number } }; data: { stock: { decrement: number } } }) {
+      async updateMany({ where, data }: { where: { id: string; stock?: { gte: number } }; data: { stock: { decrement: number } } }) {
         const atual = estoque[where.id] ?? 0;
-        if (atual < where.stock.gte) return { count: 0 };
+        if (where.stock && atual < where.stock.gte) return { count: 0 };
         estoque[where.id] = atual - data.stock.decrement;
         return { count: 1 };
       },
@@ -52,13 +52,16 @@ function bancoFake(estoque: Record<string, number>) {
       },
     },
     async $queryRaw(sql: Prisma.Sql) {
-      // os valores do lote vêm em pares (peça, quantidade)
-      const v = sql.values as (string | number)[];
+      // os valores do lote vêm em trios (peça, quantidade, livre) — a peça
+      // livre (RN-076) baixa sem condição e fica negativa
+      const v = sql.values as (string | number | boolean)[];
       const ok: { id: string }[] = [];
-      for (let i = 0; i < v.length; i += 2) {
+      for (let i = 0; i < v.length; i += 3) {
         const id = String(v[i]);
         const q = Number(v[i + 1]);
-        if ((estoque[id] ?? 0) >= q) {
+        const livre = v[i + 2] === true;
+        if (livre || (estoque[id] ?? 0) >= q) {
+          estoque[id] = estoque[id] ?? 0;
           estoque[id] -= q;
           ok.push({ id });
         }

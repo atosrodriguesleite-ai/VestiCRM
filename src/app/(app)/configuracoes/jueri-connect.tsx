@@ -162,7 +162,7 @@ export function JueriConnect() {
               </span>
             )}
           </p>
-          {/* rastro da rodada automática (RN-076): 2x por dia, 03:00 e 12:00 */}
+          {/* rastro da rodada automática (RN-077): 2x por dia, 03:00 e 12:00 */}
           {estado.lastSyncErro ? (
             <p className="text-xs text-rose-700 bg-rose-50 border border-rose-100 rounded-xl px-3 py-2">
               ⚠️ A sincronização automática falhou

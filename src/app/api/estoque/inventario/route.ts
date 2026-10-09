@@ -5,11 +5,10 @@ import { varrerEnviosDeEstoqueSeDevido } from "@/lib/nuvemshop";
 import { AuthError } from "@/lib/auth";
 import { porteiraEstoque, podeAjustarEstoque } from "@/lib/estoque/gate";
 import { podeOperarIntegracoes } from "@/lib/scope";
-import { montarInventario, type FiltroDoInventario } from "@/lib/estoque/inventario";
+import { FILTROS_DO_INVENTARIO, montarInventario, type FiltroDoInventario } from "@/lib/estoque/inventario";
 
 export const dynamic = "force-dynamic";
 
-const FILTROS: FiltroDoInventario[] = ["todos", "baixo", "zerado", "reservado", "externo"];
 
 /** O Inventário da loja (RN-050): uma linha por variação, com o filtro pedido. */
 export async function GET(req: NextRequest) {
@@ -18,7 +17,7 @@ export async function GET(req: NextRequest) {
     if (!porta.ok) return porta.resposta;
     const sp = req.nextUrl.searchParams;
     const filtroPedido = sp.get("filtro") ?? "todos";
-    const filtro = (FILTROS as string[]).includes(filtroPedido)
+    const filtro = (FILTROS_DO_INVENTARIO as readonly string[]).includes(filtroPedido)
       ? (filtroPedido as FiltroDoInventario)
       : "todos";
     after(() => varrerMinimosSeDevido(porta.user.companyId));

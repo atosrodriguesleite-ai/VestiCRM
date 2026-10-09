@@ -3,6 +3,7 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import { requireUser, AuthError } from "@/lib/auth";
 import { isManagerUp, isSupport } from "@/lib/scope";
+import { categoriasSobEncomenda, salvarEncomendaDaCategoria } from "@/lib/sob-encomenda-data";
 import {
   LIMITE_DESCRICAO,
   definirDescricao,
@@ -46,7 +47,7 @@ export async function GET() {
     const g = await gate();
     if (!g.ok) return g.res;
     const companyId = g.user.companyId;
-    const [company, grouped] = await Promise.all([
+    const [company, grouped, sobEncomenda] = await Promise.all([
       db.company.findUnique({
         where: { id: companyId },
         select: {
@@ -57,6 +58,7 @@ export async function GET() {
         },
       }),
       db.product.groupBy({ by: ["category"], where: { companyId }, _count: { _all: true } }),
+      categoriasSobEncomenda(companyId),
     ]);
     const counts = new Map(grouped.map((g) => [g.category, g._count._all]));
     const extras = parseCategoryOrder(company?.extraCategories);
@@ -72,6 +74,8 @@ export async function GET() {
         type: tipoDaCategoria(tipos, name),
         // como chamar a unidade no catálogo (RN-068); null = segue a loja
         unit: unidadeDaCategoria(unidades, name),
+        // vende sob encomenda (RN-076): a categoria inteira passa do estoque
+        sobEncomenda: sobEncomenda.has(name),
       }))
       .sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
     return NextResponse.json({ categories });
@@ -122,6 +126,8 @@ const patchSchema = z.object({
   // como chamar a unidade (RN-068): par singular/plural; os dois vazios = tirar
   unitSingular: z.string().max(60).optional(),
   unitPlural: z.string().max(60).optional(),
+  // vende sob encomenda (RN-076): liga/desliga a categoria inteira
+  sobEncomenda: z.boolean().optional(),
 });
 
 /**
@@ -140,11 +146,20 @@ export async function PATCH(req: NextRequest) {
     const renomeando = from !== to;
     const mexeNaUnidade =
       parsed.data.unitSingular !== undefined || parsed.data.unitPlural !== undefined;
+    // a chavinha "sob encomenda" é regra de VENDA (o estoque pode ficar
+    // negativo): só a gerência liga — o suporte edita categoria, não isso
+    if (parsed.data.sobEncomenda !== undefined && !isManagerUp(g.user)) {
+      return NextResponse.json(
+        { error: "Só a gerência liga a venda sob encomenda." },
+        { status: 403 }
+      );
+    }
     if (
       !renomeando &&
       parsed.data.description === undefined &&
       parsed.data.type === undefined &&
-      !mexeNaUnidade
+      !mexeNaUnidade &&
+      parsed.data.sobEncomenda === undefined
     ) {
       return NextResponse.json({ ok: true, name: to });
     }
@@ -179,6 +194,10 @@ export async function PATCH(req: NextRequest) {
       const jaTem = await db.estoqueMinimoCategoria.findFirst({ where: { companyId, category: to }, select: { id: true } });
       if (jaTem) await db.estoqueMinimoCategoria.deleteMany({ where: { companyId, category: from } });
       else await db.estoqueMinimoCategoria.updateMany({ where: { companyId, category: from }, data: { category: to } });
+      // a chavinha "sob encomenda" (RN-076) acompanha pelo mesmo motivo
+      const jaEncomenda = await db.sobEncomendaCategoria.findFirst({ where: { companyId, category: to }, select: { id: true } });
+      if (jaEncomenda) await db.sobEncomendaCategoria.deleteMany({ where: { companyId, category: from } });
+      else await db.sobEncomendaCategoria.updateMany({ where: { companyId, category: from }, data: { category: to } });
       // a descrição acompanha o novo nome (senão sumia ao renomear)
       descricoes = renomearDescricao(descricoes, from, to);
       tipos = renomearTipo(tipos, from, to);
@@ -192,6 +211,9 @@ export async function PATCH(req: NextRequest) {
     }
     if (unidadeLida?.ok) {
       unidades = definirUnidade(unidades, to, unidadeLida.unidade);
+    }
+    if (parsed.data.sobEncomenda !== undefined) {
+      await salvarEncomendaDaCategoria(companyId, to, parsed.data.sobEncomenda);
     }
 
     const swap = (list: string[]) => {
@@ -218,6 +240,7 @@ export async function PATCH(req: NextRequest) {
       description: descricaoDaCategoria(descricoes, to),
       type: tipoDaCategoria(tipos, to),
       unit: unidadeDaCategoria(unidades, to),
+      sobEncomenda: (await categoriasSobEncomenda(companyId)).has(to),
     });
   } catch (e) {
     if (e instanceof AuthError) return NextResponse.json({ error: "Não autenticado" }, { status: 401 });
@@ -243,6 +266,7 @@ export async function DELETE(req: NextRequest) {
 
     // o mínimo da categoria apagada vai junto (RN-051)
     await db.estoqueMinimoCategoria.deleteMany({ where: { companyId, category: name } });
+    await db.sobEncomendaCategoria.deleteMany({ where: { companyId, category: name } });
     const count = await db.product.count({ where: { companyId, category: name } });
     if (count > 0) {
       if (parsed.data.moveTo) {

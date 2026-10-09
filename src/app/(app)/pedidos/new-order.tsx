@@ -37,7 +37,7 @@ import { useTravarFundo } from "@/components/travar-fundo";
 import { useConfirmarExtras } from "@/components/pedido/confirmar-extras";
 
 type CustomerHit = { id: string; name: string; phone: string; city: string | null; state: string | null };
-type ApiVariant = { id: string; color: string; size: string; stock: number };
+type ApiVariant = { id: string; color: string; size: string; stock: number; sobEncomenda?: boolean };
 type ApiProduct = ProdutoDaGrade & {
   category?: string;
   wholesalePrice: number;

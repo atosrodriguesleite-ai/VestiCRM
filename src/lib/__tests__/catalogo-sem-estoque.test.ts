@@ -29,8 +29,11 @@ describe("catálogo: chave 'esconder sem estoque' esconde a COR esgotada", () =>
     );
   });
 
-  it("o filtro do servidor continua tirando o produto todo zerado", () => {
+  it("o filtro do servidor continua tirando o produto todo zerado (salvo a peça sob encomenda, RN-076)", () => {
     expect(ler("src/app/catalogo/[slug]/montar-catalogo.tsx")).toContain(
+      "ondeNaoEscondePorEstoque(catsSobEncomenda)"
+    );
+    expect(ler("src/lib/catalogo/sob-encomenda-na-vitrine.ts")).toContain(
       "variants: { some: { stock: { gt: 0 } } }"
     );
   });

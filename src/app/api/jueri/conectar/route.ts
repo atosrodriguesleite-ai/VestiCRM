@@ -25,7 +25,7 @@ export async function GET() {
         clienteSistema: true,
         lastSyncAt: true,
         createdAt: true,
-        // rastro da rodada automática (RN-076): o cartão diz quando tentou,
+        // rastro da rodada automática (RN-077): o cartão diz quando tentou,
         // se parou numa página e qual foi o erro
         lastSyncTentativaEm: true,
         lastSyncPagina: true,
@@ -73,7 +73,7 @@ export async function POST(req: NextRequest) {
       where: { companyId: user.companyId },
       // reconectar (token novo, ou outro cliente) zera a página pendente e o
       // erro: a rodada seguinte começa do começo, e o cartão não mostra a
-      // falha velha (achado da revisão, RN-076)
+      // falha velha (achado da revisão, RN-077)
       update: { token: tokenSeguro, clienteSistema, lastSyncPagina: null, lastSyncErro: null },
       create: { companyId: user.companyId, token: tokenSeguro, clienteSistema },
     });

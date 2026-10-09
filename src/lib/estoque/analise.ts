@@ -1,8 +1,7 @@
 import { Prisma } from "@prisma/client";
 import { db } from "../db";
 import { PAID_ORDER_STATUSES } from "../orders";
-import { linhasDoEstoque, type LinhaDoInventario } from "./inventario";
-import { noMinimo } from "./minimos";
+import { chegouAoMinimo, linhasDoEstoque, type ComEncomenda, type LinhaDoInventario } from "./inventario";
 
 /**
  * ANÁLISE DE ESTOQUE POR REGRA (RN-052) — sem IA, de propósito.
@@ -69,7 +68,7 @@ export async function vendasPorVariacao(companyId: string, agora = new Date()): 
   return { porVariacao, vendidasSemPeca };
 }
 
-export type Situacao = "REPOR" | "ENCALHADA" | "OK" | "SEM_VENDA" | "ZERADA";
+export type Situacao = "REPOR" | "ENCALHADA" | "OK" | "SEM_VENDA" | "ZERADA" | "A_PRODUZIR";
 
 export type AnaliseDaPeca = {
   /** peças por dia nos últimos 30 dias */
@@ -99,27 +98,31 @@ export type AnaliseDaPeca = {
  * (achado da revisão de dados).
  */
 export function analisarPeca(
-  l: Pick<LinhaDoInventario, "disponivel" | "emEstoque" | "minimo" | "custo" | "cadastradoEm">,
+  l: Pick<LinhaDoInventario, "disponivel" | "emEstoque" | "minimo" | "custo" | "cadastradoEm"> & ComEncomenda,
   venda: VendaDaVariacao | undefined,
   agora: Date
 ): AnaliseDaPeca {
   const vendidos30 = venda?.vendidos30 ?? 0;
   const giroDia = vendidos30 / DIAS_DO_GIRO;
-  const coberturaDias = giroDia > 0 ? Math.floor(l.disponivel / giroDia) : null;
+  // disponível negativo (sob encomenda, RN-076) cobre zero dias, não "−6"
+  const coberturaDias = giroDia > 0 ? Math.max(0, Math.floor(l.disponivel / giroDia)) : null;
   const diasSemVenda = venda?.ultimaVendaEm
     ? Math.floor((agora.getTime() - venda.ultimaVendaEm.getTime()) / 86_400_000)
     : null;
   const diasDeCadastro = Math.floor((agora.getTime() - new Date(l.cadastradoEm).getTime()) / 86_400_000);
   const diasParada = diasSemVenda ?? diasDeCadastro;
   const encalhada = l.disponivel > 0 && diasParada >= DIAS_PARA_ENCALHAR;
-  const valorParadoCusto = l.emEstoque * l.custo;
-  const chegouAoMinimo = noMinimo(l.disponivel, l.minimo);
-  const repor = chegouAoMinimo
+  // dinheiro parado nunca é negativo: a peça devendo (RN-076) não é "menos
+  // R$ 40 na arara"
+  const valorParadoCusto = Math.max(0, l.emEstoque) * l.custo;
+  const noMinimo = chegouAoMinimo(l);
+  const repor = noMinimo
     ? Math.max(Math.ceil(giroDia * DIAS_DO_GIRO), l.minimo * 2) - l.disponivel
     : 0;
   let situacao: Situacao = "OK";
-  if (l.disponivel === 0) situacao = "ZERADA";
-  else if (chegouAoMinimo) situacao = "REPOR";
+  if (l.sobEncomenda && l.disponivel < 0) situacao = "A_PRODUZIR";
+  else if (l.disponivel === 0) situacao = "ZERADA";
+  else if (noMinimo) situacao = "REPOR";
   else if (encalhada) situacao = "ENCALHADA";
   else if (vendidos30 === 0) situacao = "SEM_VENDA";
   return {
@@ -208,7 +211,7 @@ export function resumirPainel(linhas: LinhaDoInventario[], vendas: VendasDaLoja,
     c.pecas += l.emEstoque;
     c.valorCusto += l.analise.valorParadoCusto;
     c.vendidos30 += l.analise.vendidos30;
-    if (noMinimo(l.disponivel, l.minimo)) c.noMinimo++;
+    if (chegouAoMinimo(l)) c.noMinimo++;
     if (l.analise.encalhada) c.encalhadas++;
     porCat.set(l.categoria, c);
   }
@@ -219,9 +222,9 @@ export function resumirPainel(linhas: LinhaDoInventario[], vendas: VendasDaLoja,
       disponiveis,
       reservadas: soma((l) => l.reservado),
       valorCusto: soma((l) => l.analise.valorParadoCusto),
-      valorAtacado: soma((l) => l.emEstoque * l.atacado),
+      valorAtacado: soma((l) => Math.max(0, l.emEstoque) * l.atacado),
       variacoes: analisadas.length,
-      noMinimo: analisadas.filter((l) => noMinimo(l.disponivel, l.minimo)).length,
+      noMinimo: analisadas.filter((l) => chegouAoMinimo(l)).length,
       zeradas: analisadas.filter((l) => l.disponivel === 0).length,
       encalhadas: encalhadas.length,
       valorEncalhadoCusto: encalhadas.reduce((s, l) => s + l.analise.valorParadoCusto, 0),
@@ -232,7 +235,7 @@ export function resumirPainel(linhas: LinhaDoInventario[], vendas: VendasDaLoja,
     // repor: TODA peça no mínimo (o sino diz "veja o que repor" — a lista tem
     // que ter o mesmo número), as mais urgentes primeiro
     repor: analisadas
-      .filter((l) => noMinimo(l.disponivel, l.minimo))
+      .filter((l) => chegouAoMinimo(l))
       .sort(
         (a, b) =>
           (a.analise.coberturaDias ?? 9999) - (b.analise.coberturaDias ?? 9999) ||

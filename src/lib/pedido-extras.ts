@@ -56,11 +56,17 @@ export type ExtrasConfirmados = z.infer<typeof extrasConfirmadosSchema>;
  */
 export function extrasPrevistos(
   pedidos: readonly { variantId: string; label: string; precisa: number }[],
-  disponivel: ReadonlyMap<string, number>
+  disponivel: ReadonlyMap<string, number>,
+  /**
+   * As peças que vendem SOB ENCOMENDA (RN-076): nunca viram extra — a baixa
+   * delas não para no estoque, fica negativa. Perguntar "estou ciente" por
+   * elas seria pedir duas vezes a ciência que a gerência já deu na chavinha.
+   */
+  livres: ReadonlySet<string> = new Set()
 ): ExtraDaPeca[] {
   const extras: ExtraDaPeca[] = [];
   for (const p of pedidos) {
-    if (p.precisa <= 0) continue;
+    if (p.precisa <= 0 || livres.has(p.variantId)) continue;
     const doEstoque = Math.min(p.precisa, Math.max(0, disponivel.get(p.variantId) ?? 0));
     const extra = p.precisa - doEstoque;
     if (extra > 0) extras.push({ variantId: p.variantId, label: p.label, precisa: p.precisa, doEstoque, extra });

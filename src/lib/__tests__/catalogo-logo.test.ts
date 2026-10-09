@@ -62,6 +62,7 @@ vi.mock("@/lib/db", () => ({
       }),
     },
     companyColor: { findMany: async () => [] },
+    sobEncomendaCategoria: { findMany: async () => [] },
   },
 }));
 

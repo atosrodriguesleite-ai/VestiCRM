@@ -117,7 +117,9 @@ describe("RN-067 · a vitrine RECEBE a quantidade e USA o teto", () => {
   it("catálogo geral E catálogo de campanha mandam o disponível por variação (e só ele)", () => {
     for (const rel of ["src/app/catalogo/[slug]/montar-catalogo.tsx", "src/app/catalogo/[slug]/c/[promo]/page.tsx"]) {
       const fonte = ler(rel);
-      expect(fonte).toContain("disponivel: disponivelNaVitrine(v.stock)");
+      expect(fonte).toContain("disponivel: disponivelNaVitrine(");
+      // a peça sob encomenda (RN-076) recebe o teto da linha, resolvida no servidor
+      expect(fonte).toContain("vendeSobEncomenda({");
       // "tem/não tem" é derivado do número, uma vez, na vitrine
       expect(fonte).not.toContain("available: v.stock > 0");
     }

@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse, after } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
+import { variacoesSobEncomenda } from "@/lib/sob-encomenda";
+import { categoriasSobEncomenda } from "@/lib/sob-encomenda-data";
 import { imageHref } from "@/lib/img";
 import {
   condicoesDoLink,
@@ -29,6 +31,7 @@ import { atribuirCampanhaPorUtm, resolveRef } from "@/lib/tracking/engine";
 import {
   reservarOQueTiver,
   textoDaFalta,
+  type PecasLivres,
   type FaltaDeEstoque,
 } from "@/lib/reservations";
 import { espelharEstoqueSemQuebrar } from "@/lib/nuvemshop";
@@ -464,6 +467,8 @@ export async function POST(req: NextRequest) {
     quantity: number;
     unitPrice: number;
     total: number;
+    /** o que decide "sob encomenda" (RN-076) */
+    product: { sobEncomenda: boolean | null; category: string; jueriId: string | null };
   };
   const lines: Line[] = [];
   for (const item of input.items) {
@@ -511,6 +516,7 @@ export async function POST(req: NextRequest) {
       // round2: 3 × 19,90 em float dá 59.699999… — o gravado tem que ser 59,70
       unitPrice: promoPrice(product.id, precoVitrine(product)),
       total: round2(item.quantity * promoPrice(product.id, precoVitrine(product))),
+      product: { sobEncomenda: product.sobEncomenda, category: product.category, jueriId: product.jueriId },
     });
   }
   // QUANTIDADE MÍNIMA DO ATACADO: a tela já avisa e desabilita o botão, mas
@@ -849,6 +855,12 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  // a peça que vende SOB ENCOMENDA (RN-076): a sacola passa do estoque e a
+  // baixa não para nele — nunca "faltou", fica negativa (a produzir)
+  const livres: PecasLivres = variacoesSobEncomenda(
+    lines.map((l) => ({ id: l.variantId, product: l.product })),
+    await categoriasSobEncomenda(company.id)
+  );
   let faltas: FaltaDeEstoque[] = [];
   // o que foi DE FATO segurado — é isso (e não a quantidade pedida) que a
   // Jueri desconta; com reserva parcial, mandar o pedido inteiro deixava o
@@ -862,7 +874,8 @@ export async function POST(req: NextRequest) {
         variantId: l.variantId,
         quantity: l.quantity,
         label: `${l.name} (${l.color} ${l.size})`,
-      }))
+      })),
+      livres
     );
     faltas = reserva.faltas;
     seguradas = reserva.seguradas;
@@ -916,7 +929,9 @@ export async function POST(req: NextRequest) {
           ? [`⚠️ Sem estoque para parte do pedido — ${textoDaFalta(faltas)}.`]
           : []),
       ].join("\n"),
-        items: { create: lines },
+        // só as colunas do item: o que decide "sob encomenda" (RN-076) viajou
+        // na linha para a reserva, e não é coluna do OrderItem
+        items: { create: lines.map(({ product: _p, ...l }) => l) },
         payments: {
           create: { method: "PIX", amount: subtotal, status: "PENDENTE" },
         },

@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { requireUser, AuthError } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { vendeSobEncomenda } from "@/lib/sob-encomenda";
+import { categoriasSobEncomenda } from "@/lib/sob-encomenda-data";
 import {
   campanhaNoTexto,
   descontoNoTexto,
@@ -108,9 +110,15 @@ export async function POST(req: NextRequest) {
         // ou atacado, conforme a escolha da loja em Personalizar catálogo
         retailPrice: true,
         wholesalePrice: true, // pro preço seguir a escolha do catálogo
+        // o que decide "vende sob encomenda" (RN-076): a linha colada não
+        // trava no estoque dessa peça
+        category: true,
+        sobEncomenda: true,
+        jueriId: true,
         variants: { select: { id: true, color: true, size: true, stock: true } },
       },
     });
+    const catsSobEncomenda = await categoriasSobEncomenda(user.companyId);
 
     type LinhaPrevia = {
       descricao: string;
@@ -183,7 +191,12 @@ export async function POST(req: NextRequest) {
           unitPrice: precoComDesconto(catalogPrice(produto, modoPreco), descontoDaMensagem),
           estoque: variante?.stock ?? null,
           problema: variante
-            ? variante.stock < t.quantidade
+            ? variante.stock < t.quantidade &&
+              !vendeSobEncomenda({
+                peca: produto.sobEncomenda,
+                categoria: catsSobEncomenda.has(produto.category),
+                jueriId: produto.jueriId,
+              })
               ? `Estoque insuficiente (tem ${variante.stock})`
               : null
             : `Sem essa variação${cor ? ` (${cor} ${t.tamanho})` : ` (tamanho ${t.tamanho})`}`,

@@ -31,7 +31,7 @@ import {
   quantidadeDigitada,
   repetirNaLinha as repetirNaLinhaDaGrade,
   resumoDaGrade,
-  TETO_COM_EXTRA,
+  tetoDaVariacao,
   type VariacaoDaGrade,
 } from "@/lib/pedido-grade";
 
@@ -83,10 +83,10 @@ export function GradeDePecas({
   const resumo = useMemo(() => resumoDaGrade(quantidades, precoUnitario), [quantidades, precoUnitario]);
   const umaCelulaSo = grade.cores.length === 1 && grade.tamanhos.length === 1;
 
-  const escrever = (variantId: string, valor: string, estoque: number) => {
+  const escrever = (v: VariacaoDaGrade, valor: string) => {
     setTexto((prev) => ({
       ...prev,
-      [variantId]: quantidadeDigitada(valor, permiteExtra ? TETO_COM_EXTRA : estoque),
+      [v.id]: quantidadeDigitada(valor, tetoDaVariacao(v, permiteExtra)),
     }));
   };
 
@@ -154,8 +154,9 @@ export function GradeDePecas({
                     valor={texto[v.id] ?? ""}
                     estoque={v.stock}
                     permiteExtra={permiteExtra}
+                    sobEncomenda={v.sobEncomenda}
                     grande
-                    onChange={(t) => escrever(v.id, t, v.stock)}
+                    onChange={(t) => escrever(v, t)}
                   />
                 </div>
               );
@@ -215,8 +216,9 @@ export function GradeDePecas({
                                   valor={texto[v.id] ?? ""}
                                   estoque={v.stock}
                                   permiteExtra={permiteExtra}
+                                  sobEncomenda={v.sobEncomenda}
                                   rotulo={`${cor} ${t}`}
-                                  onChange={(novo) => escrever(v.id, novo, v.stock)}
+                                  onChange={(novo) => escrever(v, novo)}
                                 />
                               </td>
                             );
@@ -294,6 +296,7 @@ function CampoDaCelula({
   valor,
   estoque,
   permiteExtra = false,
+  sobEncomenda = false,
   rotulo,
   grande,
   onChange,
@@ -301,16 +304,19 @@ function CampoDaCelula({
   valor: string;
   estoque: number;
   permiteExtra?: boolean;
+  /** RN-076: a peça vende sob encomenda — passa do estoque sem virar extra */
+  sobEncomenda?: boolean;
   rotulo?: string;
   grande?: boolean;
   onChange: (valor: string) => void;
 }) {
   const digitado = parseInt(valor, 10) || 0;
   // com extra liberado (RN-075) a célula sem estoque também aceita número:
-  // é a peça que a confecção vai fazer para este pedido
-  const semEstoque = estoque <= 0 && !permiteExtra;
-  const noTeto = !permiteExtra && !semEstoque && digitado >= estoque;
-  const extra = permiteExtra ? Math.max(0, digitado - Math.max(0, estoque)) : 0;
+  // é a peça que a confecção vai fazer para este pedido; a peça sob
+  // encomenda (RN-076) idem, sem extra nenhum — o que passar fica negativo
+  const semEstoque = estoque <= 0 && !permiteExtra && !sobEncomenda;
+  const noTeto = !permiteExtra && !sobEncomenda && !semEstoque && digitado >= estoque;
+  const extra = permiteExtra && !sobEncomenda ? Math.max(0, digitado - Math.max(0, estoque)) : 0;
   // − e + para montar sem teclado (pedido do dono, 21/09/2026: no celular e
   // no tablet o teclado cobre a grade). Os dois passam pelo MESMO funil da
   // digitação (quantidadeDigitada): o + para no estoque; o − nunca é travado
@@ -374,7 +380,15 @@ function CampoDaCelula({
           extra > 0 ? "text-violet-700 font-semibold" : noTeto ? "text-amber-600 font-medium" : "text-gray-400"
         }`}
       >
-        {semEstoque ? "—" : extra > 0 ? `+${extra} extra` : noTeto ? `máx ${estoque}` : Math.max(0, estoque)}
+        {semEstoque
+          ? "—"
+          : extra > 0
+            ? `+${extra} extra`
+            : noTeto
+              ? `máx ${estoque}`
+              : sobEncomenda
+                ? `${estoque} · encomenda`
+                : Math.max(0, estoque)}
       </span>
     </span>
   );

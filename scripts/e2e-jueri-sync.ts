@@ -1,5 +1,5 @@
 /**
- * PROVA DE PONTA A PONTA — a sincronização automática da Jueri (RN-076).
+ * PROVA DE PONTA A PONTA — a sincronização automática da Jueri (RN-077).
  *
  * Roda contra um Postgres DE VERDADE (nunca o de produção) com uma Jueri de
  * mentira subida aqui mesmo (porta 4599). Prova: estoque e fotos acompanham

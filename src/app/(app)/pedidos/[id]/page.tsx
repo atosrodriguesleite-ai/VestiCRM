@@ -61,6 +61,8 @@ import {
 } from "@/lib/troca/regra";
 import { CreditoNoPedido } from "./credito-no-pedido";
 import { podeRegistrarTroca } from "@/lib/troca/registrar";
+import { variacoesSobEncomenda } from "@/lib/sob-encomenda";
+import { categoriasSobEncomenda } from "@/lib/sob-encomenda-data";
 import {
   INICIO_DOS_EXTRAS,
   MARCA_DOS_EXTRAS,
@@ -114,6 +116,9 @@ export default async function OrderDetailPage({
                   product: {
                     select: {
                       sku: true,
+                      sobEncomenda: true,
+                      category: true,
+                      jueriId: true,
                       images: {
                         orderBy: { order: "asc" },
                         select: { id: true, color: true },
@@ -220,6 +225,16 @@ export default async function OrderDetailPage({
   const livroDoPedido = order.stockDeducted
     ? await baixasLiquidasDoPedido(db, order.id)
     : new Map<string, number>();
+  // as peças do pedido que VENDEM SOB ENCOMENDA (RN-076): o editor de itens
+  // deixa a quantidade passar do estoque sem chamar de extra
+  const livres = variacoesSobEncomenda(
+    order.items.flatMap((i) =>
+      i.variantId && i.variant
+        ? [{ id: i.variantId, product: i.variant.product }]
+        : []
+    ),
+    await categoriasSobEncomenda(user.companyId)
+  );
   const seguradas = [...livroDoPedido.values()].reduce((s, n) => s + n, 0);
   // RN-075 · PEÇAS EXTRAS: o que o pedido pede além do que segura — feitas
   // para este pedido, fora do estoque. Pela MESMA régua do selo da lista.
@@ -557,6 +572,7 @@ export default async function OrderDetailPage({
                   color: i.color ?? "",
                   size: i.size ?? "",
                   stock: i.variant?.stock ?? 0,
+                  sobEncomenda: i.variantId ? livres.has(i.variantId) : false,
                   // o que ESTE pedido já segura da peça (RN-003): o `stock`
                   // acima é o disponível já sem isso — o editor soma de volta
                   segurado: i.variantId ? (livroDoPedido.get(i.variantId) ?? 0) : 0,

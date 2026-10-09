@@ -35,7 +35,7 @@ export async function GET(req: NextRequest) {
   // função acabar no meio da fila, a loja que ficou de fora é priorizada na
   // próxima rodada, em vez de ficar para trás em silêncio para sempre
   // (auditoria 07/08/2026). Pela TENTATIVA, não pela importação completa
-  // (`lastSyncAt`): a loja grande, que vai em etapas (RN-076), nunca a
+  // (`lastSyncAt`): a loja grande, que vai em etapas (RN-077), nunca a
   // completa numa rodada só e iria primeiro para sempre, comendo o prazo
   // das outras rodada após rodada (achado da revisão)
   const conns = await db.jueriConnection.findMany({
@@ -57,7 +57,7 @@ export async function GET(req: NextRequest) {
   // fim da fila ela queimaria a vaga da madrugada — justo quando não há
   // ninguém na inbox para dar a carona.
   await atualizarRastreiosSeDevido();
-  // ORÇAMENTO DA RODADA (RN-076): o prazo é um só para a fila inteira, e
+  // ORÇAMENTO DA RODADA (RN-077): o prazo é um só para a fila inteira, e
   // cada loja para por conta própria entre uma página e outra quando ele
   // chega — e RETOMA da página seguinte na próxima rodada. Antes a loja
   // grande rodava sem prazo, a Vercel a cortava no meio sem rastro nenhum,

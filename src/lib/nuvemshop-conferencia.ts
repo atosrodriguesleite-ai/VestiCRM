@@ -271,7 +271,9 @@ export function conferirComHistorico(
 
     // 5. Estoque diferente com vínculo saudável: pode ser só uma venda no meio
     //    do caminho, mas logo depois de sincronizar deveria estar igual.
-    if (v.estoque !== par.estoque) {
+    // a peça sob encomenda devendo (RN-076) está negativa aqui e em ZERO lá
+    // de propósito — é o que mandamos; isso não é divergência
+    if (Math.max(0, v.estoque) !== par.estoque) {
       achados.push({
         tipo: "ESTOQUE_DIFERENTE",
         gravidade: "MEDIA",

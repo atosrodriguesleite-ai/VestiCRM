@@ -26,6 +26,7 @@ describe("nada solta reserva por tempo", () => {
     // a lista é fechada de propósito: qualquer porta nova de soltura
     // automática aparece aqui antes de chegar em produção
     expect(Object.keys(reservas).sort()).toEqual([
+      "NENHUMA_LIVRE",
       "juntarPorVariacao",
       "reservarCom",
       "reservarComExtras",

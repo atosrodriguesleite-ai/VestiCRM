@@ -31,7 +31,16 @@ export type SacolaDaVitrine = Record<string, Record<string, number>>;
  * limitado ao que a rota do pedido aceita numa linha.
  */
 export const TETO_POR_LINHA = 9999;
-export function disponivelNaVitrine(stock: number | null | undefined): number {
+export function disponivelNaVitrine(
+  stock: number | null | undefined,
+  /**
+   * A peça VENDE SOB ENCOMENDA (RN-076): a vitrine não para no estoque — o
+   * teto é o da linha, e a peça zerada (ou negativa) continua à venda. Para
+   * a cliente nada muda de cara (sem selo, sem prazo, decisão do dono).
+   */
+  sobEncomenda = false
+): number {
+  if (sobEncomenda) return TETO_POR_LINHA;
   if (typeof stock !== "number" || !Number.isFinite(stock)) return 0;
   return Math.max(0, Math.min(TETO_POR_LINHA, Math.floor(stock)));
 }

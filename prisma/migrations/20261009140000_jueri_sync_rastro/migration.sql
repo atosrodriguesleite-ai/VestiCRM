@@ -1,4 +1,4 @@
--- RN-076: a sincronização automática da Jueri deixa rastro e retoma de onde
+-- RN-077: a sincronização automática da Jueri deixa rastro e retoma de onde
 -- parou — quando tentou, a página pendente (catálogo grande vai em etapas)
 -- e o último erro. Escrita à mão (ADR-001); colunas opcionais, só metadado.
 ALTER TABLE "JueriConnection" ADD COLUMN "lastSyncTentativaEm" TIMESTAMP(3);

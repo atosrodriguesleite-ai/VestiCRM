@@ -33,7 +33,7 @@ type ApiProduct = {
   wholesalePrice: number;
   minQuantity: number;
   images: { url: string }[];
-  variants: { id: string; color: string; size: string; stock: number }[];
+  variants: { id: string; color: string; size: string; stock: number; sobEncomenda?: boolean }[];
 };
 
 /**
@@ -152,7 +152,9 @@ export function OrderComposer({
       prev
         .map((l) => {
           if (l.variantId !== variantId) return l;
-          const alvo = delta > 0 ? Math.min(l.quantity + delta, l.stock) : l.quantity + delta;
+          // a peça sob encomenda (RN-076) não para no estoque
+          const alvo =
+            delta > 0 && !l.sobEncomenda ? Math.min(l.quantity + delta, l.stock) : l.quantity + delta;
           const quantity = Math.max(0, alvo);
           const produto = usadas[l.productId];
           return {
@@ -253,7 +255,7 @@ export function OrderComposer({
                 </span>
                 <button
                   onClick={() => changeQty(l.variantId, 1)}
-                  disabled={l.quantity >= l.stock}
+                  disabled={l.quantity >= l.stock && !l.sobEncomenda}
                   className="size-5 rounded-md bg-white border border-gray-200 flex items-center justify-center text-gray-500 hover:border-brand-300 disabled:opacity-40"
                 >
                   <Plus className="size-3" />
