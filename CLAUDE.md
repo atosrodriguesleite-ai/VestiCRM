@@ -1870,7 +1870,61 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   Nuvemshop segue só daqui, como sempre. A régua vive em `donoDoPreco`
   (`espelhaVarejo`), uma para a ficha e para o lote — e a ficha DIZ "vai
   para a Nuvemshop" ao lado do campo.
-  **Jueri** (sync 2x/dia via cron `jueri-sync`).
+  **Jueri** (sync 2x/dia via cron `jueri-sync`, 03:00 e 12:00 de Brasília).
+  **RN-076 · A SINCRONIZAÇÃO AUTOMÁTICA DA JUERI ACOMPANHA A JUERI — FOTOS
+  INCLUSIVE — E DEIXA RASTRO** (`lib/jueri-sync.ts`, 09/10/2026): relato do
+  dono — *"a cliente mudou as fotos lá na Jueri e não atualiza no sistema;
+  ela vende na Jueri e o estoque aqui não muda"*. O cartão dizia "última
+  importação 06/10, 11:13" — hora de clique no botão, não de cron. Três
+  defeitos no automático: (1) as **fotos nunca eram trocadas** depois da
+  primeira importação, por regra escrita no sync ("nunca sobrescreve fotos
+  que a loja já cuidou aqui"); (2) o cron **não tinha orçamento de tempo**:
+  a loja rodava página a página até a Vercel cortar a função (300 s) sem
+  rastro nenhum — `lastSyncAt` só é marcado na última página, nunca
+  chegava, e a loja "mais atrasada" ia PRIMEIRO na rodada seguinte para
+  morrer no mesmo lugar (cada página custava 40 `findFirst` + 40 `update`,
+  ~15 s com o banco em outra região); (3) o resultado voltava num JSON que
+  ninguém lê. Agora: **as fotos da Jueri acompanham a Jueri** (`decidirFotos`
+  — a foto da Jueri leva a marca `ProductImage.source = "JUERI"` e o produto
+  guarda a LISTA da Jueri na última sincronização, `Product.jueriFotos`;
+  "começa com http" não serve de marca porque a foto da Nuvemshop também é
+  link, achado da revisão. Só quando a Jueri MUDA a lista — foto nova,
+  tirada, ordem — as marcadas são trocadas pelas de agora, **no lugar em
+  que as antigas estavam** (a capa da loja continua capa); a foto da loja e
+  a da Nuvemshop ficam, e o que a loja fez nas fotos da Jueri entre uma
+  rodada e outra, tirar uma ruim ou mudar a capa, fica até a Jueri mudar de
+  novo. Produto que nunca sincronizou fotos: sem foto nenhuma ganha as da
+  Jueri, como sempre; com fotos de outra origem nada é tocado, só a lista é
+  anotada. A migração marca as fotos-link dos produtos que são da Jueri e
+  não da Nuvemshop, e anota a lista; o produto das duas fica sem marca);
+  **chamada à Jueri com tempo limite** (20 s — o prazo só é conferido entre
+  páginas, e uma chamada pendurada passaria do corte sem rastro); **a fila
+  do cron é ordenada pela TENTATIVA** (`lastSyncTentativaEm`), não pela
+  importação completa — a loja grande em etapas iria primeiro para sempre e
+  comeria o prazo das outras; **reconectar zera** a página pendente e o
+  erro; **SKU repetido na mesma página** (referência igual em duas cores)
+  acha o produto recém-criado em vez de estourar o único e travar a
+  página; **uma consulta por página** em vez
+  de quarenta, e produto igual em preço, custo, ativo e vínculo **não vai ao
+  banco** (`produtoMudou`); o cron tem **prazo único para a fila** (240 s) e
+  cada loja **para por conta própria entre páginas** quando ele chega,
+  gravando a página seguinte (`JueriConnection.lastSyncPagina`) — a próxima
+  rodada **RETOMA de lá**, sempre pelo menos uma página por rodada, e
+  `lastSyncAt` segue sendo a importação COMPLETA; página que falha ganha
+  uma nova tentativa e, falhando de novo, o erro diz a página e a rodada
+  seguinte volta nela; **cada rodada deixa rastro**: no cartão da conexão
+  (quando tentou, página pendente, último erro em vermelho com o caminho
+  "o botão faz o mesmo agora"), na Central de Comunicação da loja
+  (`jueri.sync`, OK com a contagem ou ERRO) e, na falha, na Saúde (sem
+  alarme — o token vencido falharia duas vezes por dia e calaria o canal
+  das emergências, régua da RN-066). Nome e categoria continuam da loja
+  (auditoria 07/08/2026); estoque, preço, custo e ativo continuam da Jueri.
+  **Limites ditos**: foto que a loja subiu aqui num produto da Jueri fica
+  (ela é da loja), a Jueri que apagar todas as fotos deixa o produto só
+  com as da loja, e a foto da Jueri trocada pela legada "foto principal"
+  do editor (que apaga e recria a linha) perde a marca e vira foto da loja. Provado contra o Postgres local com uma Jueri de mentira
+  (`scripts/e2e-jueri-sync.ts`): estoque e fotos acompanham, foto da loja
+  fica, rodada parcial retoma, falha deixa rastro.
 - **Marketing**: Gestor de Bio (temas, cores custom, capa, QR, métricas
   BioView/BioClick com filtro de data, atribuição `utm_source=bio` no
   catálogo), campanhas de aquisição, tracking do catálogo

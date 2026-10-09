@@ -32,6 +32,9 @@ export function JueriConnect() {
     conectado: boolean;
     clienteSistema?: string;
     lastSyncAt?: string | null;
+    lastSyncTentativaEm?: string | null;
+    lastSyncPagina?: number | null;
+    lastSyncErro?: string | null;
   } | null>(null);
   const [token, setToken] = useState("");
   const [clienteSistema, setClienteSistema] = useState("");
@@ -155,10 +158,36 @@ export function JueriConnect() {
             🟢 Conectada — cliente <b className="font-mono">{estado.clienteSistema}</b>
             {estado.lastSyncAt && (
               <span className="text-gray-400 text-xs">
-                {" "}· última importação {new Date(estado.lastSyncAt).toLocaleString("pt-BR")}
+                {" "}· última importação completa {new Date(estado.lastSyncAt).toLocaleString("pt-BR")}
               </span>
             )}
           </p>
+          {/* rastro da rodada automática (RN-076): 2x por dia, 03:00 e 12:00 */}
+          {estado.lastSyncErro ? (
+            <p className="text-xs text-rose-700 bg-rose-50 border border-rose-100 rounded-xl px-3 py-2">
+              ⚠️ A sincronização automática falhou
+              {estado.lastSyncTentativaEm
+                ? ` em ${new Date(estado.lastSyncTentativaEm).toLocaleString("pt-BR")}`
+                : ""}
+              : {estado.lastSyncErro}
+              {estado.lastSyncPagina ? ` A próxima rodada tenta de novo da página ${estado.lastSyncPagina}.` : ""}
+              {" "}Enquanto isso, o botão “Importar / atualizar catálogo” faz o mesmo trabalho agora.
+            </p>
+          ) : estado.lastSyncPagina ? (
+            <p className="text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded-xl px-3 py-2">
+              ⏳ Catálogo grande: a sincronização automática vai em etapas e a próxima rodada continua da página{" "}
+              {estado.lastSyncPagina}
+              {estado.lastSyncTentativaEm
+                ? ` (última rodada ${new Date(estado.lastSyncTentativaEm).toLocaleString("pt-BR")})`
+                : ""}
+              .
+            </p>
+          ) : estado.lastSyncTentativaEm ? (
+            <p className="text-xs text-gray-400">
+              Sincronização automática 2× por dia (03:00 e 12:00) · última rodada{" "}
+              {new Date(estado.lastSyncTentativaEm).toLocaleString("pt-BR")}
+            </p>
+          ) : null}
           <div className="flex gap-2 flex-wrap">
             <button
               onClick={() => sincronizar(true)}

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { syncJueriCompany } from "@/lib/jueri-sync";
+import { rodarSyncJueriDoCron } from "@/lib/jueri-sync";
 import { runWatchdogIfDue } from "@/lib/health";
 import { atualizarRastreiosSeDevido } from "@/lib/rastreio";
 
@@ -31,15 +31,18 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Não autorizado" }, { status: 401 });
   }
 
-  // quem sincronizou há mais tempo (ou nunca/falhou — lastSyncAt não marcado)
-  // vai PRIMEIRO: se o tempo da função acabar no meio da fila, a loja que
-  // ficou de fora é priorizada na próxima rodada, em vez de ficar para trás
-  // em silêncio para sempre (auditoria 07/08/2026)
+  // quem foi TENTADO há mais tempo (ou nunca) vai PRIMEIRO: se o tempo da
+  // função acabar no meio da fila, a loja que ficou de fora é priorizada na
+  // próxima rodada, em vez de ficar para trás em silêncio para sempre
+  // (auditoria 07/08/2026). Pela TENTATIVA, não pela importação completa
+  // (`lastSyncAt`): a loja grande, que vai em etapas (RN-076), nunca a
+  // completa numa rodada só e iria primeiro para sempre, comendo o prazo
+  // das outras rodada após rodada (achado da revisão)
   const conns = await db.jueriConnection.findMany({
     // loja suspensa fica fora da fila do cron (não gasta o tempo da rodada)
     where: { company: { suspended: false } },
     select: { companyId: true },
-    orderBy: { lastSyncAt: { sort: "asc", nulls: "first" } },
+    orderBy: { lastSyncTentativaEm: { sort: "asc", nulls: "first" } },
   });
   const results: { companyId: string; ok: boolean; resumo?: unknown; error?: string }[] = [];
 
@@ -54,23 +57,23 @@ export async function GET(req: NextRequest) {
   // fim da fila ela queimaria a vaga da madrugada — justo quando não há
   // ninguém na inbox para dar a carona.
   await atualizarRastreiosSeDevido();
+  // ORÇAMENTO DA RODADA (RN-076): o prazo é um só para a fila inteira, e
+  // cada loja para por conta própria entre uma página e outra quando ele
+  // chega — e RETOMA da página seguinte na próxima rodada. Antes a loja
+  // grande rodava sem prazo, a Vercel a cortava no meio sem rastro nenhum,
+  // `lastSyncAt` nunca era marcado e, "mais atrasada", ela ia primeiro de
+  // novo para morrer no mesmo lugar. Cada rodada deixa rastro no cartão da
+  // conexão, na Central de Comunicação da loja e, se falhar, na Saúde.
+  const prazo = inicio + 240_000;
   for (const c of conns) {
     // folga de ~1 min antes do teto: parar por conta própria deixa registro
     // (cortadas) — o corte da Vercel matava a função sem rastro nenhum
-    if (Date.now() - inicio > 240_000) {
+    if (Date.now() >= prazo) {
       results.push({ companyId: c.companyId, ok: false, error: "sem tempo nesta rodada (vai primeiro na próxima)" });
       continue;
     }
-    try {
-      const out = await syncJueriCompany(c.companyId);
-      results.push({ companyId: c.companyId, ok: out.ok, resumo: out.resumo, error: out.error });
-    } catch (e) {
-      results.push({
-        companyId: c.companyId,
-        ok: false,
-        error: e instanceof Error ? e.message : "falha",
-      });
-    }
+    const out = await rodarSyncJueriDoCron(c.companyId, prazo);
+    results.push({ companyId: c.companyId, ok: out.ok, resumo: out.resumo, error: out.error });
   }
 
   // vigia do sistema também roda aqui — garante checagem mesmo em período

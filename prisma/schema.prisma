@@ -1137,6 +1137,11 @@ model JueriConnection {
   clienteSistema String // ID do cliente no sistema Jueri
   token          String // Bearer token de integração
   lastSyncAt     DateTime?
+  // RN-076: rastro da rodada automática — quando tentou, em que página a
+  // próxima rodada continua (catálogo grande vai em etapas) e o último erro
+  lastSyncTentativaEm DateTime?
+  lastSyncPagina      Int?
+  lastSyncErro        String?
   createdAt      DateTime  @default(now())
 }
 
@@ -1736,6 +1741,10 @@ model Product {
   /// escada peça > categoria > loja. Nulo = segue a categoria/loja.
   unidadeSingular String?
   unidadePlural   String?
+  // a lista de fotos (links) da Jueri na última sincronização, em JSON
+  // (RN-076): só quando a Jueri MUDA a lista as fotos daqui são trocadas —
+  // o que a loja fez nelas entre uma rodada e outra fica
+  jueriFotos     String?
   createdAt      DateTime @default(now())
 
   variants ProductVariant[]
@@ -1870,6 +1879,9 @@ model ProductImage {
   // a foto DAQUELA cor (sem etiqueta, cai na capa geral — nada quebra).
   // Vem sozinha da Nuvemshop (variant.image_id) ou da etiqueta no editor.
   color     String?
+  // de onde a foto veio ("JUERI"): é o que separa a foto da Jueri da que a
+  // loja subiu — ou da Nuvemshop, que também é link (RN-076)
+  source    String?
 
   @@index([productId])
 }

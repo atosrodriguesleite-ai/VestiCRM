@@ -21,7 +21,16 @@ export async function GET() {
     const user = await requireUser();
     const conn = await db.jueriConnection.findUnique({
       where: { companyId: user.companyId },
-      select: { clienteSistema: true, lastSyncAt: true, createdAt: true },
+      select: {
+        clienteSistema: true,
+        lastSyncAt: true,
+        createdAt: true,
+        // rastro da rodada automática (RN-076): o cartão diz quando tentou,
+        // se parou numa página e qual foi o erro
+        lastSyncTentativaEm: true,
+        lastSyncPagina: true,
+        lastSyncErro: true,
+      },
     });
     return NextResponse.json({ conectado: Boolean(conn), ...conn });
   } catch (e) {
@@ -62,7 +71,10 @@ export async function POST(req: NextRequest) {
     const tokenSeguro = encryptSecret(token);
     await db.jueriConnection.upsert({
       where: { companyId: user.companyId },
-      update: { token: tokenSeguro, clienteSistema },
+      // reconectar (token novo, ou outro cliente) zera a página pendente e o
+      // erro: a rodada seguinte começa do começo, e o cartão não mostra a
+      // falha velha (achado da revisão, RN-076)
+      update: { token: tokenSeguro, clienteSistema, lastSyncPagina: null, lastSyncErro: null },
       create: { companyId: user.companyId, token: tokenSeguro, clienteSistema },
     });
     return NextResponse.json({ ok: true });

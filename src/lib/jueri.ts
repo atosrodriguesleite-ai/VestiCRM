@@ -11,6 +11,13 @@ import { after } from "next/server";
 export const JUERI_BASE =
   process.env.JUERI_API_BASE ?? "https://jueri.com.br/sis/api/v1";
 
+/**
+ * Tempo limite de cada chamada à Jueri (RN-076): a rodada automática confere
+ * o prazo ENTRE páginas, e uma chamada que pendura passaria dos 300 s da
+ * Vercel sem gravar rastro nenhum — o cenário que a regra existe para fechar.
+ */
+export const MS_TEMPO_LIMITE_JUERI = 20_000;
+
 export async function jueriGet(token: string, path: string) {
   const res = await fetch(`${JUERI_BASE}${path}`, {
     headers: {
@@ -19,6 +26,7 @@ export async function jueriGet(token: string, path: string) {
       "Content-Type": "application/json",
     },
     cache: "no-store",
+    signal: AbortSignal.timeout(MS_TEMPO_LIMITE_JUERI),
   });
   let body: unknown = null;
   try {
@@ -39,6 +47,7 @@ export async function jueriPut(token: string, path: string, data: unknown) {
     },
     cache: "no-store",
     body: JSON.stringify(data),
+    signal: AbortSignal.timeout(MS_TEMPO_LIMITE_JUERI),
   });
   let body: unknown = null;
   try {
