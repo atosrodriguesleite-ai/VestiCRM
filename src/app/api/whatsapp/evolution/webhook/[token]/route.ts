@@ -206,6 +206,9 @@ type CtxInfo = { contextInfo?: { externalAdReply?: AdReply } };
 type EvoMessage = {
   key?: EvoKey;
   pushName?: string;
+  // a Evolution v2 põe aqui (na RAIZ) a cópia do contextInfo — é onde a
+  // citação sobrevive depois que ela reescreve o texto (citacaoWA)
+  contextInfo?: unknown;
   message?: {
     conversation?: string;
     extendedTextMessage?: { text?: string } & CtxInfo;

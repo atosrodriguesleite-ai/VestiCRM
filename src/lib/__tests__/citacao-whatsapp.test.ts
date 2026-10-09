@@ -45,6 +45,29 @@ describe("citacaoWA: lê qual mensagem a cliente está respondendo", () => {
     expect(citacaoWA(m)).toBe("EPH1");
   });
 
+  it("formato REAL da Evolution v2: texto reescrito para conversation, citação SÓ na raiz", () => {
+    // é assim que o aviso chega: o extendedTextMessage foi apagado pelo
+    // servidor e o contextInfo ficou solto em data.contextInfo — era aqui
+    // que a citação se perdia (09/10/2026)
+    const m = {
+      key: { id: "RESP1", fromMe: false, remoteJid: "5565999@s.whatsapp.net" },
+      message: { conversation: "2 m e 2g", messageContextInfo: { deviceListMetadata: {} } },
+      contextInfo: { stanzaId: "FOTO1", participant: "5565888@s.whatsapp.net", quotedMessage: {} },
+      messageType: "conversation",
+    };
+    expect(citacaoWA(m)).toBe("FOTO1");
+  });
+
+  it("raiz sem citação (só anúncio) não atrapalha a procura dentro do conteúdo", () => {
+    expect(
+      citacaoWA({
+        contextInfo: { externalAdReply: { title: "x" } },
+        message: { imageMessage: { contextInfo: { stanzaId: "DENTRO" } } },
+      })
+    ).toBe("DENTRO");
+    expect(citacaoWA({ contextInfo: null, message: { conversation: "oi" } })).toBeNull();
+  });
+
   it("mensagem comum (sem citação) devolve null — a bolha nasce solta, como sempre", () => {
     expect(citacaoWA({ message: { conversation: "oi" } })).toBeNull();
     // contextInfo de anúncio não é citação

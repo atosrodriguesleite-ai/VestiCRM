@@ -1397,6 +1397,18 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   some e fica o texto), e um toque **pula até a mensagem original** pelo
   mesmo caminho da lupa (carrega o passado se preciso). Citada que não temos
   (anterior ao sistema, apagada) deixa a bolha solta, como sempre foi.
+  **A citação mora na RAIZ do aviso da Evolution** (09/10/2026, o dono: *"acredito
+  que ainda não está funcionando"*): a Evolution v2 reescreve o texto com
+  citação (`extendedTextMessage` vira `conversation`) e APAGA o original —
+  o `contextInfo` de dentro vai junto, e o que sobra é a cópia solta em
+  `data.contextInfo`. A primeira versão só procurava dentro do conteúdo, e
+  a resposta mais comum (texto em cima da foto) nunca ligava; foto e vídeo
+  respondendo ligavam, porque esses ela não reescreve. Agora `citacaoWA`
+  olha a raiz primeiro. Provado pelo webhook de verdade contra o Postgres
+  local (`scripts/e2e-citacao.ts`, com o aviso no formato da Evolution: o
+  código antigo deixava solto, o novo liga — inclusive o eco do celular).
+  **Limite**: as respostas que chegaram antes do conserto ficam soltas (o
+  aviso não é guardado, não há de onde reler a citação).
   **Reagir com emoji** (25/08/2026): o mesmo gesto do aplicativo — o emoji
   fica GRUDADO na mensagem (uma reação de cada lado: `Message.reaction` da
   cliente, `Message.reactionStore` da loja), nunca vira bolha nova. A reação

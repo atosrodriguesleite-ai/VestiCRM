@@ -115,7 +115,20 @@ export function soRecadoDoProtocolo(entrada: { message?: Conteudo } | undefined)
  * dos embrulhos de mensagem temporária). Devolve o id da citada no
  * WhatsApp, para o webhook ligar a bolha à mensagem que já temos gravada.
  */
-export function citacaoWA(entrada: { message?: Conteudo } | undefined): string | null {
+export function citacaoWA(
+  entrada: { message?: Conteudo; contextInfo?: unknown } | undefined
+): string | null {
+  // NA RAIZ PRIMEIRO (09/10/2026, o dono: "acredito que ainda não está
+  // funcionando"). O servidor Evolution v2 reescreve a mensagem antes de
+  // mandar o aviso: o texto com citação (`extendedTextMessage`) vira
+  // `conversation` — e o `extendedTextMessage` é APAGADO, levando junto o
+  // `contextInfo` que estava dentro dele. O que sobra é a cópia que ele
+  // põe SOLTA na raiz do aviso (`data.contextInfo`). Olhando só dentro do
+  // conteúdo, a resposta mais comum — texto em cima da foto — nunca era
+  // ligada. A procura dentro do conteúdo continua para a API oficial, os
+  // embrulhos e o servidor que não reescreve.
+  const raiz = texto((entrada?.contextInfo as { stanzaId?: unknown } | null | undefined)?.stanzaId);
+  if (raiz) return raiz;
   const msg = desembrulhar(entrada?.message);
   for (const valor of Object.values(msg ?? {})) {
     const ctx = (valor as { contextInfo?: { stanzaId?: unknown } } | null)?.contextInfo;
