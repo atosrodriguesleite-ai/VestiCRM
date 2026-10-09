@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
+import { isManagerUp } from "@/lib/scope";
 import { aplicarParDaUnidade } from "@/lib/catalogo/unidade";
 import { requireUser, AuthError } from "@/lib/auth";
 import { ajustarEstoqueDentro } from "@/lib/estoque/ajuste";
@@ -19,6 +20,8 @@ const patchSchema = z.object({
   description: z.string().nullable().optional(),
   // composição (tecido) para a etiqueta de composição (RN-059); vazio = a da categoria
   composition: z.string().trim().max(300).nullable().optional(),
+  // vende sob encomenda (RN-076): null segue a categoria; true/false a peça manda
+  sobEncomenda: z.boolean().nullable().optional(),
   // como chamar a unidade DESTA peça no catálogo (RN-068); vazio = segue a categoria/loja
   unidadeSingular: z.string().max(60).nullable().optional(),
   unidadePlural: z.string().max(60).nullable().optional(),
@@ -127,6 +130,29 @@ export async function PATCH(
       removeVariantIds,
       ...data
     } = parsed.data;
+
+    // A CHAVINHA "VENDE SOB ENCOMENDA" (RN-076) é regra de venda — o estoque
+    // passa a poder ficar negativo —, então só a gerência a muda (a
+    // vendedora que edita a ficha manda o valor carregado; igual passa). E a
+    // peça de dono externo (Jueri no produto, Nuvemshop em qualquer
+    // variação) nunca a aceita: o estoque é de lá (RN-050), e um negativo
+    // daqui viraria zero lá por cima do número da loja online.
+    if (data.sobEncomenda !== undefined && data.sobEncomenda !== product.sobEncomenda) {
+      if (!isManagerUp(user)) {
+        return NextResponse.json(
+          { error: "Só a gerência liga ou desliga a venda sob encomenda." },
+          { status: 403 }
+        );
+      }
+      const vinculada =
+        !!product.jueriId || !!product.nuvemshopId || product.variants.some((v) => !!v.nuvemshopId);
+      if (data.sobEncomenda === true && vinculada) {
+        return NextResponse.json(
+          { error: "Esta peça é controlada pela Nuvemshop/Jueri: o estoque é de lá, e ela não vende sob encomenda." },
+          { status: 409 }
+        );
+      }
+    }
 
     // QUEM VENDE FORA MANDA NO PREÇO DELE (RN-056): os dois preços de peça
     // Jueri mudam LÁ — a sync devolveria o número de lá horas depois. Número

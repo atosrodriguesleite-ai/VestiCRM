@@ -28,6 +28,8 @@ export type VariacaoDaGrade = {
   color: string | null;
   size: string | null;
   stock: number;
+  /** RN-076: vende sob encomenda — a quantidade não para no estoque (resolvido no servidor) */
+  sobEncomenda?: boolean;
 };
 
 export type LinhaDoPedido = {
@@ -39,7 +41,18 @@ export type LinhaDoPedido = {
   quantity: number;
   unitPrice: number;
   stock: number;
+  /** RN-076: vende sob encomenda — a linha nunca é "acima do estoque" */
+  sobEncomenda?: boolean;
 };
+
+/**
+ * O teto que a célula aceita (RN-062/RN-075/RN-076): o estoque, salvo onde a
+ * tela oferece EXTRA ou a peça vende SOB ENCOMENDA — aí só o corte da
+ * digitação. Uma régua para a grade, o "repetir" e o +/− da edição.
+ */
+export function tetoDaVariacao(v: Pick<VariacaoDaGrade, "stock" | "sobEncomenda">, permiteExtra = false): number {
+  return permiteExtra || v.sobEncomenda ? TETO_COM_EXTRA : v.stock;
+}
 
 const alfab = (a: string, b: string) => a.localeCompare(b, "pt-BR", { sensitivity: "base" });
 
@@ -212,6 +225,7 @@ export function aplicarGradeNoPedido(
       unitPrice: precoDasExistentes === "recalcular" ? precoSugerido(q) : linha.unitPrice,
       // o estoque acompanha a leitura mais nova (a grade acabou de vir do servidor)
       stock: v ? v.stock : linha.stock,
+      sobEncomenda: v ? v.sobEncomenda : linha.sobEncomenda,
     });
   }
 
@@ -231,6 +245,7 @@ export function aplicarGradeNoPedido(
       quantity: q,
       unitPrice: precoSugerido(q),
       stock: v.stock,
+      sobEncomenda: v.sobEncomenda,
     });
   }
   return resultado;
@@ -324,8 +339,11 @@ export function repetirNaLinha(
   const novo = { ...textos };
   for (const v of celulas) {
     if ((parseInt(novo[v.id] ?? "", 10) || 0) > 0) continue;
-    if (v.stock <= 0) continue;
-    novo[v.id] = quantidadeDigitada(valor, v.stock);
+    // o "repetir" PARA no estoque (extra é decisão, não atalho — RN-075),
+    // mas a peça sob encomenda (RN-076) não tem onde parar
+    const teto = tetoDaVariacao(v);
+    if (teto <= 0) continue;
+    novo[v.id] = quantidadeDigitada(valor, teto);
   }
   return novo;
 }
@@ -337,7 +355,8 @@ export function repetirNaLinha(
  * verdade: o servidor vai recusar.
  */
 export function pecasAcimaDoEstoque(linhas: readonly LinhaDoPedido[]): LinhaDoPedido[] {
-  return linhas.filter((l) => l.quantity > l.stock);
+  // a peça sob encomenda (RN-076) passa do estoque por regra: não é aviso
+  return linhas.filter((l) => l.quantity > l.stock && !l.sobEncomenda);
 }
 
 /**
@@ -348,13 +367,15 @@ export function pecasAcimaDoEstoque(linhas: readonly LinhaDoPedido[]): LinhaDoPe
  * AUMENTO (avail < delta): manter ou baixar o que já está seguro é sempre
  * legal, e o que a tela pode oferecer é disponível + o que o pedido segura.
  */
-export function somarOQueOPedidoSegura<V extends { id: string; stock: number }>(
+export function somarOQueOPedidoSegura<V extends { id: string; stock: number; sobEncomenda?: boolean }>(
   variantes: readonly V[],
   seguradas: ReadonlyMap<string, number>
 ): V[] {
   return variantes.map((v) => {
     const s = seguradas.get(v.id) ?? 0;
-    return s > 0 ? { ...v, stock: Math.max(0, v.stock) + s } : v;
+    // a peça sob encomenda (RN-076) pode estar NEGATIVA: −3 com 5 seguradas
+    // são 2 na arara — cortar o negativo em zero diria 5 (achado da revisão)
+    return s > 0 ? { ...v, stock: (v.sobEncomenda ? v.stock : Math.max(0, v.stock)) + s } : v;
   });
 }
 

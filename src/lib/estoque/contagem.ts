@@ -1,6 +1,7 @@
 import type { DonoExterno } from "./dono-do-estoque";
 import type { FiltroDoInventario } from "./inventario";
 import { compararTamanhos } from "../tamanhos";
+import { aProduzir } from "../sob-encomenda";
 
 /**
  * FOLHA DE CONTAGEM DE ESTOQUE (pedido do dono, 28/09/2026: *"uma opção de
@@ -44,6 +45,8 @@ export type LinhaDaFolha = {
   /** o disponível e o mínimo da peça — a lista de produção precisa deles */
   disponivel: number;
   minimo: number;
+  /** RN-076: vende sob encomenda — na folha, o que falta é o negativo */
+  sobEncomenda?: boolean;
 };
 
 export type ModeloDaFolha = {
@@ -117,6 +120,7 @@ export const ROTULO_DO_FILTRO: Record<FiltroDoInventario, string> = {
   todos: "",
   baixo: "No mínimo",
   zerado: "Zeradas",
+  produzir: "A produzir",
   reservado: "Com reserva",
   externo: "Controladas por integração",
 };
@@ -130,11 +134,16 @@ export const ROTULO_DO_FILTRO: Record<FiltroDoInventario, string> = {
  * para voltar ao mínimo e uma coluna em branco para anotar quanto produzir.
  */
 export function ehListaDeProducao(filtro: FiltroDoInventario | undefined): boolean {
-  return filtro === "baixo" || filtro === "zerado";
+  return filtro === "baixo" || filtro === "zerado" || filtro === "produzir";
 }
 
-/** Quantas peças faltam para a variação VOLTAR ao mínimo (nunca negativo). */
-export function faltaParaOMinimo(l: Pick<LinhaDaFolha, "disponivel" | "minimo">): number {
+/**
+ * Quantas peças faltam para a variação VOLTAR ao mínimo (nunca negativo). A
+ * peça sob encomenda (RN-076) não tem mínimo: o que falta é o que ela está
+ * DEVENDO — o negativo, que é a conta dos pedidos já vendidos.
+ */
+export function faltaParaOMinimo(l: Pick<LinhaDaFolha, "disponivel" | "minimo" | "sobEncomenda">): number {
+  if (l.sobEncomenda) return aProduzir(l.disponivel);
   return Math.max(0, l.minimo - l.disponivel);
 }
 

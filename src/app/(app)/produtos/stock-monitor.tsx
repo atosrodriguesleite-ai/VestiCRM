@@ -17,6 +17,8 @@ export type LowStockRow = {
   stock: number;
   /** mínimo da PEÇA ou da CATEGORIA (RN-051); ausente = vale o da loja, que a caixa ao lado edita ao vivo */
   minimo?: number;
+  /** RN-076: vende sob encomenda — fica fora do monitor (negativo é esperado) */
+  sobEncomenda?: boolean;
 };
 
 export function StockMonitor({
@@ -53,7 +55,7 @@ export function StockMonitor({
   const rows = useMemo(
     () =>
       variations
-        .filter((v) => v.stock <= (v.minimo ?? threshold))
+        .filter((v) => !v.sobEncomenda && v.stock <= (v.minimo ?? threshold))
         .sort((a, b) => a.stock - b.stock),
     [variations, threshold]
   );

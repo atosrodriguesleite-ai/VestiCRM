@@ -42,6 +42,7 @@ import { DICA_DO_DONO, NOME_DO_DONO, type DonoExterno } from "@/lib/estoque/dono
 import { ROTULO_DA_ORIGEM } from "@/lib/estoque/minimos-regra";
 import { orderStatusLabel } from "@/lib/orders";
 import type { FiltroDoInventario, Inventario, LinhaDoInventario } from "@/lib/estoque/inventario";
+import { ehListaDeProducao } from "@/lib/estoque/contagem";
 
 type Resposta = Omit<Inventario, "resumo" | "categorias"> & {
   resumo: Inventario["resumo"] | null;
@@ -63,6 +64,7 @@ const FILTROS: { id: FiltroDoInventario; rotulo: string }[] = [
   { id: "todos", rotulo: "Todas" },
   { id: "baixo", rotulo: "No mínimo" },
   { id: "zerado", rotulo: "Zeradas" },
+  { id: "produzir", rotulo: "A produzir" },
   { id: "reservado", rotulo: "Com reserva" },
   { id: "externo", rotulo: "Controladas por integração" },
 ];
@@ -224,7 +226,12 @@ export function InventarioView({ filtroInicial = "todos" }: { filtroInicial?: Fi
           )}
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5">
           <Numero rotulo="Peças na loja" valor={resumo.pecas} hint="disponíveis + reservadas" />
-          <Numero rotulo="Disponíveis" valor={resumo.disponiveis} hint="para vender agora" tom="emerald" />
+          <Numero
+            rotulo="Disponíveis"
+            valor={resumo.disponiveis}
+            hint={resumo.aProduzir > 0 ? `${resumo.aProduzir} a produzir (sob encomenda)` : "para vender agora"}
+            tom="emerald"
+          />
           <Numero rotulo="Reservadas" valor={resumo.reservadas} hint="em pedido, ainda aqui" tom="amber" />
           <Numero rotulo="Variações" valor={resumo.variacoes} hint="cor × tamanho" />
           <Numero
@@ -295,7 +302,7 @@ export function InventarioView({ filtroInicial = "todos" }: { filtroInicial?: Fi
           title="Abre a folha de contagem para imprimir, com as peças do recorte atual"
         >
           <Printer className="size-3.5" />
-          {filtro === "baixo" || filtro === "zerado" ? "Imprimir lista para produção" : "Imprimir contagem"}
+          {ehListaDeProducao(filtro) ? "Imprimir lista para produção" : "Imprimir contagem"}
         </a>
         {/* só a Nuvemshop tem sync sob demanda; o Jueri roda sozinho (cron) */}
         {dados?.podeSincronizar && (resumo?.nuvemshop ?? 0) > 0 && (
@@ -446,11 +453,19 @@ function Linha({
   onHistorico: () => void;
 }) {
   const editavel = podeAjustar && !l.dono;
-  const noMinimo = l.disponivel <= l.minimo;
+  // a peça sob encomenda (RN-076) não "chega ao mínimo": negativo é a conta
+  // do que há para produzir, em violeta
+  const noMinimo = !l.sobEncomenda && l.disponivel <= l.minimo;
+  const devendo = l.sobEncomenda && l.disponivel < 0;
   // amarelo = chegou ao mínimo DELA (peça > categoria > loja, RN-051); o
   // "⚠" ao lado é a pista para quem não distingue a cor
-  const corDoNumero =
-    l.disponivel === 0 ? "text-rose-600" : noMinimo ? "text-amber-600" : "text-slate-900";
+  const corDoNumero = devendo
+    ? "text-violet-700"
+    : l.disponivel === 0
+      ? "text-rose-600"
+      : noMinimo
+        ? "text-amber-600"
+        : "text-slate-900";
   const rotuloDaPeca = [l.produto, l.cor, l.tamanho].filter(Boolean).join(" · ");
 
   return (
@@ -497,6 +512,11 @@ function Linha({
         </td>
         <td className="px-3 py-2 text-right whitespace-nowrap">
           {noMinimo && <span className="mr-1 text-[10px] text-amber-600" title="chegou ao mínimo">⚠</span>}
+          {devendo && (
+            <span className="mr-1 text-[10px] font-medium text-violet-700" title="vendida sob encomenda: peças a produzir">
+              {-l.disponivel} a produzir
+            </span>
+          )}
           {editavel ? (
             <button
               type="button"
@@ -632,6 +652,10 @@ function LinhaDeAjuste({
   const novo = valor === "" ? NaN : parseInt(valor, 10);
   const valido = Number.isInteger(novo) && novo >= 0;
   const mudou = valido && novo !== visto;
+  // a peça sob encomenda devendo (RN-076): o ajuste digitado só aceita de 0
+  // para cima, e gravar a contagem apaga a conta do que havia para produzir
+  // — a pessoa precisa saber ANTES de salvar
+  const apagaAProduzir = visto < 0;
 
   async function salvar(motivoEscolhido: string) {
     if (salvando) return;
@@ -663,6 +687,12 @@ function LinhaDeAjuste({
   return (
     <tr className="bg-brand-50/40 border-t border-brand-100">
       <td colSpan={9} className="px-3 py-2.5">
+        {apagaAProduzir && (
+          <p className="mb-2 rounded-lg border border-violet-200 bg-violet-50 px-2.5 py-1.5 text-xs text-violet-800">
+            Esta peça vende sob encomenda e está com <b>{-visto} a produzir</b> de pedidos já
+            vendidos. Ao gravar a contagem, essa conta some: anote antes o que ainda vai ser feito.
+          </p>
+        )}
         <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
           <span className="text-xs font-medium text-slate-700">{rotulo}</span>
           <span className="inline-flex items-center gap-1 text-xs text-slate-500">
@@ -760,6 +790,15 @@ function RotuloDoMinimo({
       </span>
     </span>
   );
+  // a peça sob encomenda (RN-076) não tem mínimo que valha: o alerta não
+  // toca para ela, e dizer um número aqui prometeria um aviso que não vem
+  if (linha.sobEncomenda) {
+    return (
+      <span className="text-[11px] text-violet-700" title="Vende sob encomenda: o mínimo não vale para esta peça (o estoque pode ficar negativo)">
+        sob encomenda
+      </span>
+    );
+  }
   if (!editavel) return rotulo;
   return (
     <button

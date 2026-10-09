@@ -69,11 +69,11 @@ describe("reserva parcial: o movimento gravado é o que FOI segurado", () => {
     return {
       productVariant: {
         updateMany: async (args: {
-          where: { id: string; stock: { gte: number } };
+          where: { id: string; stock?: { gte: number } };
           data: { stock: { decrement: number } };
         }) => {
           const atual = estoque[args.where.id] ?? 0;
-          if (atual < args.where.stock.gte) return { count: 0 };
+          if (args.where.stock && atual < args.where.stock.gte) return { count: 0 };
           estoque[args.where.id] = atual - args.data.stock.decrement;
           return { count: 1 };
         },
@@ -253,7 +253,7 @@ describe("edição de pedido: corrida não deixa estoque negativo (M7/M8)", () =
   it("baixar MAIS estoque na edição é condicionado ao saldo (gte)", () => {
     // pela reserva condicional (`reservarOQueTiver`: `stock >= pedido`, e a
     // parcial também condicionada) — nunca um decremento cego
-    expect(rota).toContain("await reservarOQueTiver(tx, [{ variantId, quantity: baixar, label }])");
+    expect(rota).toContain("await reservarOQueTiver(tx, [{ variantId, quantity: baixar, label }], livres)");
     expect(rota).not.toMatch(/stock: \{ decrement: baixar \}/);
     // a corrida (a peça acabou entre a janela e o clique) desfaz a edição e
     // pergunta de novo, com os números de agora (RN-075)

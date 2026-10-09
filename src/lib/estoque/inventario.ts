@@ -7,6 +7,8 @@ import { donoDoEstoque, type DonoExterno } from "./dono-do-estoque";
 import { minimoEfetivo, minimosDaLoja, noMinimo, type OrigemDoMinimo } from "./minimos";
 import { envioPendentePorVariacao } from "../nuvemshop-estoque-pendente";
 import type { PedidoQueSegura } from "./peca-presa";
+import { aProduzir, vendeSobEncomenda } from "../sob-encomenda";
+import { categoriasSobEncomenda } from "../sob-encomenda-data";
 
 /**
  * O INVENTÁRIO (RN-050): uma linha por variação (cor × tamanho), com os
@@ -35,7 +37,9 @@ export const STATUS_QUE_SEGURAM_NA_LOJA = [
   "SEPARACAO",
 ] as const;
 
-export type FiltroDoInventario = "todos" | "baixo" | "zerado" | "reservado" | "externo";
+export type FiltroDoInventario = "todos" | "baixo" | "zerado" | "produzir" | "reservado" | "externo";
+/** A lista dos chips, UMA para a tela, a rota, a página e a folha (lista à mão é onde chip novo se perde). */
+export const FILTROS_DO_INVENTARIO: readonly FiltroDoInventario[] = ["todos", "baixo", "zerado", "produzir", "reservado", "externo"];
 
 export type LinhaDoInventario = {
   variantId: string;
@@ -54,6 +58,12 @@ export type LinhaDoInventario = {
   /** o mínimo que vale para ESTA variação e de onde veio (RN-051) */
   minimo: number;
   origemDoMinimo: OrigemDoMinimo;
+  /**
+   * RN-076: a peça VENDE SOB ENCOMENDA — o disponível pode ser negativo
+   * ("−3" = 3 a produzir) e o mínimo não vale para ela (negativo é esperado,
+   * alerta todo dia vira barulho; o recorte dela é "A produzir").
+   */
+  sobEncomenda: boolean;
   /** custo e preço de atacado da peça — o painel soma "valor parado" por aqui */
   custo: number;
   atacado: number;
@@ -124,6 +134,8 @@ export type Inventario = {
     variacoes: number;
     zeradas: number;
     baixas: number;
+    /** peças devendo em variações que vendem sob encomenda (RN-076): a soma do negativo */
+    aProduzir: number;
     externas: number;
     /** só as da Nuvemshop — é para elas que o botão de sincronizar existe */
     nuvemshop: number;
@@ -234,9 +246,23 @@ export function casaBusca(
  * painel contam assim, e a lista que o sino abre tem que mostrar o mesmo
  * número (achado da revisão de telas). "Zeradas" é o recorte mais estreito.
  */
+/**
+ * Chegou ao mínimo? A régua da RN-051 — MENOS para a peça que vende sob
+ * encomenda (RN-076): nela o negativo é esperado, e "no mínimo" nos cinco
+ * lugares (filtro, painel, alerta, monitor, Dashboard) tem que concordar.
+ */
+/** O que as réguas puras precisam saber da encomenda (ausente = não vende sob encomenda). */
+export type ComEncomenda = { sobEncomenda?: boolean };
+
+export function chegouAoMinimo(
+  l: Pick<LinhaDoInventario, "disponivel" | "minimo"> & ComEncomenda
+): boolean {
+  return !l.sobEncomenda && noMinimo(l.disponivel, l.minimo);
+}
+
 export function passaNoFiltro(
   filtro: FiltroDoInventario,
-  l: Pick<LinhaDoInventario, "disponivel" | "reservado" | "dono" | "minimo">
+  l: Pick<LinhaDoInventario, "disponivel" | "reservado" | "dono" | "minimo"> & ComEncomenda
 ): boolean {
   switch (filtro) {
     case "todos":
@@ -244,7 +270,10 @@ export function passaNoFiltro(
     case "zerado":
       return l.disponivel === 0;
     case "baixo":
-      return noMinimo(l.disponivel, l.minimo);
+      return chegouAoMinimo(l);
+    case "produzir":
+      // peça sob encomenda devendo: o negativo é o que a confecção deve fazer
+      return !!l.sobEncomenda && l.disponivel < 0;
     case "reservado":
       return l.reservado > 0;
     case "externo":
@@ -261,6 +290,7 @@ type ProdutoBase = {
   active: boolean;
   jueriId: string | null;
   minStock: number | null;
+  sobEncomenda: boolean | null;
   costPrice: number;
   wholesalePrice: number;
   createdAt: Date;
@@ -276,7 +306,7 @@ export async function linhasDoEstoque(
   companyId: string,
   opts: { incluirInativos?: boolean; semReservado?: boolean } = {}
 ): Promise<{ linhas: LinhaDoInventario[]; produtos: ProdutoBase[]; limiteBaixo: number }> {
-  const [minimos, produtos, reservado] = await Promise.all([
+  const [minimos, produtos, reservado, catsSobEncomenda] = await Promise.all([
     minimosDaLoja(companyId),
     db.product.findMany({
       where: { companyId, ...(opts.incluirInativos ? {} : { active: true }) },
@@ -290,6 +320,7 @@ export async function linhasDoEstoque(
         active: true,
         jueriId: true,
         minStock: true,
+        sobEncomenda: true,
         costPrice: true,
         wholesalePrice: true,
         createdAt: true,
@@ -300,6 +331,7 @@ export async function linhasDoEstoque(
     }),
     // a varredura do alerta não usa o reservado — é a consulta mais cara
     opts.semReservado ? new Map<string, number>() : reservadoPorVariacao(companyId),
+    categoriasSobEncomenda(companyId),
   ]);
 
   const linhas: LinhaDoInventario[] = [];
@@ -326,6 +358,12 @@ export async function linhasDoEstoque(
         dono: donoDoEstoque({ nuvemshopId: v.nuvemshopId, product: { jueriId: p.jueriId } }),
         minimo: min.valor,
         origemDoMinimo: min.origem,
+        sobEncomenda: vendeSobEncomenda({
+          peca: p.sobEncomenda,
+          categoria: catsSobEncomenda.has(p.category),
+          nuvemshopId: v.nuvemshopId,
+          jueriId: p.jueriId,
+        }),
         custo: p.costPrice,
         atacado: p.wholesalePrice,
         cadastradoEm: p.createdAt.toISOString(),
@@ -349,12 +387,17 @@ export function resumirLinhas(
 ): Inventario["resumo"] {
   const todas = categoria ? linhas.filter((l) => l.categoria === categoria) : linhas;
   return {
+    // "na loja" = disponível + reservado fecha mesmo com negativo: a peça sob
+    // encomenda com 2 na arara e 5 vendidas está em −3 e segura 5 → 2 na loja
     pecas: todas.reduce((s, l) => s + l.emEstoque, 0),
-    disponiveis: todas.reduce((s, l) => s + l.disponivel, 0),
+    // "disponíveis para vender" não desce de zero: o negativo é dívida de
+    // produção, contada à parte (RN-076)
+    disponiveis: todas.reduce((s, l) => s + Math.max(0, l.disponivel), 0),
     reservadas: todas.reduce((s, l) => s + l.reservado, 0),
     variacoes: todas.length,
     zeradas: todas.filter((l) => l.disponivel === 0).length,
     baixas: todas.filter((l) => passaNoFiltro("baixo", l)).length,
+    aProduzir: todas.reduce((s, l) => s + (l.sobEncomenda ? aProduzir(l.disponivel) : 0), 0),
     externas: todas.filter((l) => l.dono !== null).length,
     nuvemshop: todas.filter((l) => l.dono === "NUVEMSHOP").length,
   };
@@ -454,9 +497,17 @@ export async function contarNoMinimo(companyId: string): Promise<number> {
       JOIN "Company" co ON co."id" = p."companyId"
       LEFT JOIN "EstoqueMinimoCategoria" c
         ON c."companyId" = p."companyId" AND c."category" = p."category"
+      LEFT JOIN "SobEncomendaCategoria" s
+        ON s."companyId" = p."companyId" AND s."category" = p."category"
      WHERE p."companyId" = ${companyId}
        AND p."active" = true
        AND v."stock" <= COALESCE(p."minStock", c."minStock", co."lowStockThreshold")
+       -- a peça que vende SOB ENCOMENDA fica fora do mínimo (RN-076), pela
+       -- MESMA escada da regra pura: peça > categoria, e vinculada nunca
+       AND NOT (
+         v."nuvemshopId" IS NULL AND p."jueriId" IS NULL
+         AND COALESCE(p."sobEncomenda", s."id" IS NOT NULL)
+       )
   `);
   return rows[0]?.n ?? 0;
 }

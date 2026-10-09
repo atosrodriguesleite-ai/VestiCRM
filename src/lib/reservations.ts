@@ -36,7 +36,8 @@ export type FaltaDeEstoque = {
 type ClientePrisma = {
   productVariant: {
     updateMany: (args: {
-      where: { id: string; stock: { gte: number } };
+      // sem `stock` = baixa SEM condição (peça que vende sob encomenda, RN-076)
+      where: { id: string; stock?: { gte: number } };
       data: { stock: { decrement: number } };
     }) => Promise<{ count: number }>;
     findUnique: (args: {
@@ -102,8 +103,17 @@ export function juntarPorVariacao(itens: ItemDeEstoque[]): {
  * sem banco, e trocar o jeito de falar com o banco sem tocar na regra.
  */
 export type BaixaCondicional = (
-  pedidos: { variantId: string; quantity: number }[]
+  pedidos: { variantId: string; quantity: number; livre: boolean }[]
 ) => Promise<string[]>;
+
+/**
+ * As peças LIVRES (RN-076, "vende sob encomenda"): para elas a baixa não é
+ * condicionada ao saldo — o estoque fica negativo, e o negativo é a conta do
+ * que há para produzir. Toda função de reserva recebe o conjunto; vazio é
+ * a regra de sempre (RN-003: nunca negativo).
+ */
+export type PecasLivres = ReadonlySet<string>;
+export const NENHUMA_LIVRE: PecasLivres = new Set();
 
 /** Quanto ainda existe de cada peça (só consultado quando algo faltou). */
 export type ConsultaEstoque = (ids: string[]) => Promise<Map<string, number>>;
@@ -115,13 +125,16 @@ export type ConsultaEstoque = (ids: string[]) => Promise<Map<string, number>>;
 export async function reservarCom(
   baixar: BaixaCondicional,
   consultar: ConsultaEstoque,
-  itens: ItemDeEstoque[]
+  itens: ItemDeEstoque[],
+  livres: PecasLivres = NENHUMA_LIVRE
 ): Promise<FaltaDeEstoque[]> {
   const pedidos = juntarPorVariacao(itens);
   if (pedidos.length === 0) return [];
 
   const reservadas = new Set(
-    await baixar(pedidos.map((p) => ({ variantId: p.variantId, quantity: p.quantity })))
+    await baixar(
+      pedidos.map((p) => ({ variantId: p.variantId, quantity: p.quantity, livre: livres.has(p.variantId) }))
+    )
   );
   const faltando = pedidos.filter((p) => !reservadas.has(p.variantId));
   if (faltando.length === 0) return [];
@@ -151,19 +164,24 @@ export async function reservarCom(
  */
 export async function reservarEstoque(
   tx: ClienteEmLote,
-  itens: ItemDeEstoque[]
+  itens: ItemDeEstoque[],
+  livres: PecasLivres = NENHUMA_LIVRE
 ): Promise<FaltaDeEstoque[]> {
   return reservarCom(
     async (pedidos) => {
+      // a terceira coluna é a peça LIVRE (RN-076): para ela a condição
+      // "stock >= qty" não vale e o estoque pode ficar negativo
       const linhas = Prisma.join(
-        pedidos.map((p) => Prisma.sql`(${p.variantId}::text, ${p.quantity}::int)`)
+        pedidos.map(
+          (p) => Prisma.sql`(${p.variantId}::text, ${p.quantity}::int, ${p.livre}::boolean)`
+        )
       );
       const ok = (await tx.$queryRaw(
         Prisma.sql`
           UPDATE "ProductVariant" AS v
              SET stock = v.stock - d.qty
-            FROM (VALUES ${linhas}) AS d(id, qty)
-           WHERE v.id = d.id AND v.stock >= d.qty
+            FROM (VALUES ${linhas}) AS d(id, qty, livre)
+           WHERE v.id = d.id AND (d.livre OR v.stock >= d.qty)
           RETURNING v.id
         ` as never
       )) as { id: string }[];
@@ -176,7 +194,8 @@ export async function reservarEstoque(
       });
       return new Map(atuais.map((a) => [a.id, a.stock]));
     },
-    itens
+    itens,
+    livres
   );
 }
 
@@ -205,14 +224,19 @@ export type ReservaParcial = {
 
 export async function reservarOQueTiver(
   tx: ClientePrisma,
-  itens: ItemDeEstoque[]
+  itens: ItemDeEstoque[],
+  livres: PecasLivres = NENHUMA_LIVRE
 ): Promise<ReservaParcial> {
   const faltas: FaltaDeEstoque[] = [];
   const seguradas: { variantId: string; quantity: number }[] = [];
   for (const item of itens) {
     if (!item.variantId || item.quantity <= 0) continue;
+    // peça que vende sob encomenda (RN-076): baixa inteira, sem condição —
+    // o negativo é o que fica para produzir
     const cheio = await tx.productVariant.updateMany({
-      where: { id: item.variantId, stock: { gte: item.quantity } },
+      where: livres.has(item.variantId)
+        ? { id: item.variantId }
+        : { id: item.variantId, stock: { gte: item.quantity } },
       data: { stock: { decrement: item.quantity } },
     });
     if (cheio.count > 0) {
@@ -266,17 +290,21 @@ export function textoDaFalta(faltas: FaltaDeEstoque[]): string {
  */
 export async function reservarComExtras(
   tx: ClienteEmLote & ClientePrisma,
-  itens: ItemDeEstoque[]
+  itens: ItemDeEstoque[],
+  livres: PecasLivres = NENHUMA_LIVRE
 ): Promise<{ seguradas: { variantId: string; quantity: number }[]; extras: ExtraDaPeca[] }> {
   const pedidos = juntarPorVariacao(itens);
-  const faltas = await reservarEstoque(tx, pedidos);
+  // a peça livre (RN-076) sai inteira no lote e nunca fica "curta" — extra é
+  // da peça que PARA no estoque; a que vende sob encomenda só fica negativa
+  const faltas = await reservarEstoque(tx, pedidos, livres);
   const curtas = new Set(faltas.map((f) => f.variantId));
   const seguradas = pedidos
     .filter((p) => !curtas.has(p.variantId))
     .map((p) => ({ variantId: p.variantId, quantity: p.quantity }));
   const parcial = await reservarOQueTiver(
     tx,
-    pedidos.filter((p) => curtas.has(p.variantId))
+    pedidos.filter((p) => curtas.has(p.variantId)),
+    livres
   );
   seguradas.push(...parcial.seguradas);
   const seguradoPorPeca = new Map(parcial.seguradas.map((s) => [s.variantId, s.quantity]));

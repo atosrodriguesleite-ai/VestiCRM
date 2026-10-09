@@ -10,6 +10,8 @@ import { computeOrderTotals, orderNumber } from "@/lib/orders";
 import { espelharEstoqueSemQuebrar } from "@/lib/nuvemshop";
 import { espelharJueriSemQuebrar } from "@/lib/jueri";
 import { juntarPorVariacao, reservarComExtras } from "@/lib/reservations";
+import { variacoesSobEncomenda } from "@/lib/sob-encomenda";
+import { categoriasSobEncomenda } from "@/lib/sob-encomenda-data";
 import {
   ExtrasSemCiencia,
   extrasConfirmadosSchema,
@@ -113,6 +115,8 @@ export async function POST(req: NextRequest) {
 
     // carrega variantes (com produto) garantindo tenant e monta snapshot
     const variantIds = input.items.map((i) => i.variantId);
+    // as categorias que vendem sob encomenda (RN-076) vêm junto, não em série
+    const catsSobEncomenda = categoriasSobEncomenda(user.companyId);
     const variants = await db.productVariant.findMany({
       where: {
         id: { in: variantIds },
@@ -153,9 +157,13 @@ export async function POST(req: NextRequest) {
         label: `${v.product.name} (${v.color} ${v.size})`,
       };
     });
+    // a peça que VENDE SOB ENCOMENDA (RN-076) passa livre: não vira extra
+    // nem para no estoque — fica negativa, e o negativo é o que produzir
+    const livres = variacoesSobEncomenda(variants, await catsSobEncomenda);
     const previstos = extrasPrevistos(
       juntarPorVariacao(itensDeEstoque).map((p) => ({ ...p, precisa: p.quantity })),
-      new Map(variants.map((v) => [v.id, v.stock]))
+      new Map(variants.map((v) => [v.id, v.stock])),
+      livres
     );
     if (extrasSemCiencia(previstos, input.extrasConfirmados).length > 0) {
       return NextResponse.json(respostaDeExtras(previstos), { status: 409 });
@@ -281,7 +289,7 @@ export async function POST(req: NextRequest) {
       // duas. O que não coube vira EXTRA (RN-075) — e só fica se a pessoa
       // confirmou AQUELA quantidade; senão a transação inteira é desfeita e
       // a tela pergunta de novo, com os números de agora.
-      const reserva = await reservarComExtras(tx, itensDeEstoque);
+      const reserva = await reservarComExtras(tx, itensDeEstoque, livres);
       const semCiencia = extrasSemCiencia(reserva.extras, input.extrasConfirmados);
       if (semCiencia.length > 0) throw new ExtrasSemCiencia(reserva.extras);
       // o livro guarda o que SAIU de verdade, por peça — é dele que o

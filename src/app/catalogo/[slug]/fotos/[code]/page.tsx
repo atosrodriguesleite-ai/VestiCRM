@@ -2,6 +2,8 @@ import type { Metadata } from "next";
 import { after } from "next/server";
 import { notFound } from "next/navigation";
 import { db } from "@/lib/db";
+import { variacoesSobEncomenda } from "@/lib/sob-encomenda";
+import { categoriasSobEncomenda } from "@/lib/sob-encomenda-data";
 import { trackedLinkParts } from "@/lib/catalog-url";
 import { lerLinkDeFotos, linkDeFotosVivo, montarGaleria, urlDoCatalogoDoLink } from "@/lib/fotos/link";
 import { GaleriaDeFotos } from "./galeria";
@@ -52,15 +54,29 @@ export default async function PaginaDeFotos({ params }: { params: Promise<{ slug
   const partes = vendedora ? trackedLinkParts(vendedora, slug) : trackedLinkParts({ role: "SUPPORT", name: "" }, slug);
   const catalogo = urlDoCatalogoDoLink(partes.base, partes.sellerRef);
 
-  const produtos = await db.product.findMany({
-    where: { companyId: company.id, active: true, images: { some: {} } },
-    select: {
-      id: true,
-      name: true,
-      category: true,
-      images: { select: { id: true, color: true, order: true } },
-      variants: { select: { color: true, stock: true } },
-    },
+  const [lidos, catsSobEncomenda] = await Promise.all([
+    db.product.findMany({
+      where: { companyId: company.id, active: true, images: { some: {} } },
+      select: {
+        id: true,
+        name: true,
+        category: true,
+        sobEncomenda: true,
+        jueriId: true,
+        images: { select: { id: true, color: true, order: true } },
+        variants: { select: { id: true, color: true, stock: true, nuvemshopId: true } },
+      },
+    }),
+    categoriasSobEncomenda(company.id),
+  ]);
+  // a peça que vende sob encomenda (RN-076) conta como "com estoque" na
+  // galeria — a mesma régua da vitrine, resolvida por variação
+  const produtos = lidos.map((p) => {
+    const livres = variacoesSobEncomenda(
+      p.variants.map((v) => ({ id: v.id, nuvemshopId: v.nuvemshopId, product: p })),
+      catsSobEncomenda
+    );
+    return { ...p, variants: p.variants.map((v) => ({ ...v, sobEncomenda: livres.has(v.id) })) };
   });
   const categorias = montarGaleria(produtos, { categorias: link.categorias, soComEstoque: link.soComEstoque });
 

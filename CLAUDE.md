@@ -1268,6 +1268,71 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   lista, cancelar devolvendo, restaurar, cancelar baixando e reabrir, o
   pedido todo de peça sem estoque, o selo que some ao enviar e a falta sem
   confirmação dita como falta.
+  **RN-076 · VENDE SOB ENCOMENDA: A CHAVINHA QUE DEIXA O ESTOQUE FICAR
+  NEGATIVO** (`lib/sob-encomenda.ts` + `lib/sob-encomenda-data.ts`,
+  `Product.sobEncomenda` e `SobEncomendaCategoria`, 09/10/2026): pedido do
+  dono — *"tenho clientes de confecção: às vezes não tem pronto, mas pode
+  produzir. Em cada produto ou categoria uma chavinha para vender
+  infinitamente, mesmo que o estoque fique negativo; nasce desligada para
+  todos"*. É o irmão da peça extra (RN-075) para quem produz SEMPRE: lá a
+  ciência é dada pedido a pedido, aqui uma vez, pela gerência. Decidido com
+  ele: (1) **a chavinha mora na CATEGORIA e na PEÇA, e a peça manda mais**
+  (`Product.sobEncomenda`: nulo segue a categoria; true/false decide) — a
+  escada da RN-051/RN-055: liga em "Conjuntos" (Produtos → Categorias,
+  ícone de tesoura) e desliga só no kit que não se produz (ficha da peça);
+  **nasce desligada**, e **só a gerência** liga (o servidor recusa o suporte
+  e a vendedora com frase; a ficha só manda o campo quando a pessoa MUDOU,
+  senão a vendedora que salva a ficha levava 403). (2) **O estoque fica
+  NEGATIVO**: "−3" = 3 a produzir. A baixa deixa de ser condicionada SÓ para
+  a peça livre (`PecasLivres` em `reservations.ts`: o lote ganha a terceira
+  coluna `livre`, `WHERE (d.livre OR v.stock >= d.qty)`; a unitária tira o
+  `gte`) — a RN-003 segue intacta para todas as outras, e o conjunto vazio é
+  o padrão. **Nada mais muda de conta**: cancelar devolve pelo livro (−3
+  volta a 0), a produção lançada (`lancaNoEstoque`) cobre o negativo
+  primeiro porque é soma, o livro guarda a quantidade INTEIRA (a peça livre
+  nunca é extra — `extrasPrevistos` a pula, `reservarComExtras` a tira das
+  "curtas") e o reservado do Estoque fecha: 2 na arara + 5 vendidas = −3
+  disponível, 5 seguradas, 2 na loja. (3) **Vale em TODA porta de venda**,
+  com o conjunto calculado por quem carrega as variações
+  (`variacoesSobEncomenda`, que precisa de `nuvemshopId` da variação e
+  `sobEncomenda`/`category`/`jueriId` do produto): catálogo público (os DOIS
+  produtores, mais o diagnóstico da ficha que espelha o filtro da vitrine),
+  Novo pedido, Central, Colar pedido (a linha não trava no estoque dessa
+  peça), Editar itens, restaurar cancelado e o Pix do gateway. Nas telas a
+  API de produtos manda `sobEncomenda` RESOLVIDO por variação, e a grade, o
+  "repetir", o +/− do carrinho e o editor passam do estoque **sem a janela
+  "estou ciente"** (`tetoDaVariacao`; a célula diz "N · encomenda", nunca
+  "+N extra"). (4) **A vitrine não muda NADA para a cliente** (decisão do
+  dono: sem selo, sem prazo): a peça só não some ao zerar e a quantidade não
+  para (RN-067 — `disponivelNaVitrine(stock, true)` devolve o teto da
+  linha), e "esconder sem estoque" não a esconde
+  (`ondeNaoEscondePorEstoque`: tem estoque OU ficha ligada OU categoria
+  ligada com a ficha em "segue"). (5) **Peça vinculada à Nuvemshop (na
+  variação) ou ao Jueri (no produto) NUNCA vende sob encomenda** (RN-050: o
+  estoque é de lá, e o `pushStock` manda `max(0, stock)` — negativo daqui
+  viraria zero lá por cima do número da loja online): a ficha nem oferece, a
+  categoria ligada não a alcança, a porta recusa com 409. (6) **No Estoque a
+  peça livre sai do MÍNIMO** (`chegouAoMinimo`: a régua da RN-051 menos ela)
+  **nos cinco lugares** — filtro "No mínimo", painel "o que repor", alerta
+  (solta o carimbo de quem tinha), monitor da tela Produtos e a SQL do
+  Dashboard (`LEFT JOIN "SobEncomendaCategoria"`, com a exceção da
+  vinculada escrita em SQL) — porque negativo nela é esperado e alerta todo
+  dia vira barulho; ganha o recorte próprio **"A produzir"** (chip, só a
+  livre devendo), que também **vira lista de produção** na folha (a coluna
+  "Falta" é o negativo, "Mín." diz "enc."); a linha mostra "N a produzir" em
+  violeta e "sob encomenda" no lugar do mínimo; os cartões: "na loja" fecha
+  com o negativo, "disponíveis" não desce de zero e diz quantas há a
+  produzir, dinheiro parado nunca é negativo (`max(0, emEstoque) × custo`),
+  cobertura negativa é zero. (7) **O ajuste digitado continua só de 0 para
+  cima** — gravar a contagem apaga a conta do que havia a produzir, e a
+  linha de ajuste AVISA antes (a porta aceita `visto` negativo para a
+  gravação condicional continuar valendo). **Limites ditos**: a troca
+  (RN-073) segue baixa condicional — peça que sai na troca para no estoque
+  mesmo sob encomenda; desligar a chavinha com a peça negativa deixa o
+  número como está (as vendas seguintes travam até repor); a soma do
+  "disponíveis" com peça negativa e os relatórios de giro leem o número
+  cru. Provado pelas rotas de verdade contra o Postgres local
+  (`scripts/e2e-sob-encomenda.ts`, 47 conferências: quem liga, a vitrine, o pedido, a edição, o cancelamento, a produção, o Estoque e o Dashboard).
 
 ## Módulos
 

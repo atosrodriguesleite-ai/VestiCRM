@@ -42,7 +42,7 @@ import { GradeDePecas, type ProdutoDaGrade } from "@/components/pedido/grade-de-
 import { useTravarFundo } from "@/components/travar-fundo";
 import { useConfirmarExtras } from "@/components/pedido/confirmar-extras";
 
-type ApiVariant = { id: string; color: string; size: string; stock: number };
+type ApiVariant = { id: string; color: string; size: string; stock: number; sobEncomenda?: boolean };
 type ApiProduct = ProdutoDaGrade & {
   category?: string;
   wholesalePrice: number;
@@ -66,7 +66,9 @@ const chaveDaLinha = (l: { variantId: string }, i: number) => l.variantId || `se
 
 /** as linhas como a tela as edita: o teto já somando o que o pedido segura (RN-003) */
 const linhasIniciais = (itens: Line[]): Line[] =>
-  itens.map((l) => (l.segurado ? { ...l, stock: Math.max(0, l.stock) + l.segurado } : l));
+  itens.map((l) =>
+    l.segurado ? { ...l, stock: (l.sobEncomenda ? l.stock : Math.max(0, l.stock)) + l.segurado } : l
+  );
 
 export function ItemsEditor({
   orderId,
@@ -435,7 +437,8 @@ export function ItemsEditor({
                           const semVinculo = !l.variantId;
                           // acima do que o pedido segura + o disponível: EXTRA
                           // (RN-075), feito para o pedido — não trava mais
-                          const extra = semVinculo ? 0 : Math.max(0, l.quantity - Math.max(0, l.stock));
+                          // a peça sob encomenda (RN-076) passa do estoque sem extra
+                          const extra = semVinculo || l.sobEncomenda ? 0 : Math.max(0, l.quantity - Math.max(0, l.stock));
                           const trocar = (mudanca: Partial<Line>) =>
                             setLines((prev) => prev.map((x, xi) => (xi === i ? { ...x, ...mudanca } : x)));
                           const passo = (delta: number) => {
@@ -456,7 +459,9 @@ export function ItemsEditor({
                                     ? "peça não está mais no catálogo (apague a linha e adicione de novo)"
                                     : extra > 0
                                       ? `${Math.max(0, l.stock)} do estoque + ${extra} extra`
-                                      : `estoque ${l.stock}`}
+                                      : l.sobEncomenda
+                                        ? `estoque ${l.stock} · sob encomenda`
+                                        : `estoque ${l.stock}`}
                                 </p>
                               </div>
                               <span className="inline-flex items-center gap-0.5 shrink-0">

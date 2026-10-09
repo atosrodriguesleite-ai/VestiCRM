@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { requireUser, AuthError } from "@/lib/auth";
 import { motivoOculto } from "@/lib/catalogo/visibilidade";
+import { ondeNaoEscondePorEstoque } from "@/lib/catalogo/sob-encomenda-na-vitrine";
+import { variacoesSobEncomenda } from "@/lib/sob-encomenda";
+import { categoriasSobEncomenda } from "@/lib/sob-encomenda-data";
 
 /**
  * CONFERIDOR DE CATÁLOGO — "por que essa peça não aparece pra cliente?"
@@ -38,17 +41,24 @@ export async function GET(
       return NextResponse.json({ error: "Loja não encontrada" }, { status: 404 });
     }
 
-    const produto = await db.product.findFirst({
-      where: { id, companyId: user.companyId },
-      select: {
-        id: true,
-        name: true,
-        active: true,
-        nuvemshopId: true,
-        images: { select: { id: true } },
-        variants: { select: { color: true, size: true, stock: true } },
-      },
-    });
+    const [produto, catsSobEncomenda] = await Promise.all([
+      db.product.findFirst({
+        where: { id, companyId: user.companyId },
+        select: {
+          id: true,
+          name: true,
+          active: true,
+          nuvemshopId: true,
+          // o que decide "vende sob encomenda" (RN-076)
+          jueriId: true,
+          category: true,
+          sobEncomenda: true,
+          images: { select: { id: true } },
+          variants: { select: { id: true, color: true, size: true, stock: true, nuvemshopId: true } },
+        },
+      }),
+      categoriasSobEncomenda(user.companyId),
+    ]);
     if (!produto) {
       return NextResponse.json({ error: "Produto não encontrado" }, { status: 404 });
     }
@@ -64,9 +74,9 @@ export async function GET(
         companyId: user.companyId,
         active: true,
         images: { some: {} },
-        ...(company.catalogHideOutOfStock
-          ? { variants: { some: { stock: { gt: 0 } } } }
-          : {}),
+        // o MESMO filtro da vitrine, com a peça sob encomenda (RN-076) fora
+        // do "esconder sem estoque" — senão o diagnóstico mentia para ela
+        ...(company.catalogHideOutOfStock ? ondeNaoEscondePorEstoque(catsSobEncomenda) : {}),
       },
       select: { id: true },
     });
@@ -76,9 +86,14 @@ export async function GET(
      * cor esgotada. Peça que passa no filtro mas não gera nenhum card some
      * do mesmo jeito, e era o caso mais silencioso de todos.
      */
+    // a variação que vende sob encomenda (RN-076) nunca é "esgotada" na vitrine
+    const livres = variacoesSobEncomenda(
+      produto.variants.map((v) => ({ id: v.id, nuvemshopId: v.nuvemshopId, product: produto })),
+      catsSobEncomenda
+    );
     const cores = [...new Set(produto.variants.map((v) => v.color))].map((cor) => {
       const doGrupo = produto.variants.filter((v) => v.color === cor);
-      const temPeca = doGrupo.some((v) => v.stock > 0);
+      const temPeca = doGrupo.some((v) => v.stock > 0 || livres.has(v.id));
       return {
         cor,
         pecas: doGrupo.reduce((s, v) => s + Math.max(0, v.stock), 0),
@@ -110,7 +125,8 @@ export async function GET(
         variants: produto.variants,
         nuvemshopId: produto.nuvemshopId,
       },
-      { esconderSemEstoque: company.catalogHideOutOfStock }
+      // com alguma variação sob encomenda a peça não se esconde por estoque
+      { esconderSemEstoque: company.catalogHideOutOfStock && livres.size === 0 }
     );
 
     return NextResponse.json({
