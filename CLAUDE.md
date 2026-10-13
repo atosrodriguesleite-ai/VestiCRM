@@ -385,8 +385,27 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   baixaria de novo a levada; o reconciliador da edição ainda conhece as
   trocas (`ajusteDasTrocasPorVariacao`) como segunda tranca. **O estoque
   anda pelo livro** (RN-003): peça boa que volta é ENTRADA (sobe), peça que
-  sai é SAÍDA condicional (nunca negativa, nunca a mesma peça para duas
-  clientes — faltou, a troca inteira é recusada com a frase da falta), e
+  sai é SAÍDA **mesmo sem estoque** (pedido do dono, 13/10/2026: *"o
+  sistema deve permitir mesmo que esteja zerado; ele pode ficar negativo e
+  informar o vendedor"* — a cliente já está com a peça na mão, e recusar
+  só deixava a troca sem registro): as peças que saem são TRAVADAS e descem
+  SEM condição, o número fica negativo (= o que a loja deve repor) e
+  **quem registra é AVISADA três vezes** — a célula da grade
+  diz "N sem estoque" (`permiteNegativo`, sem a janela "estou ciente":
+  não é extra, não há pedido para produzir), a conferência diz "zerada no
+  estoque — vai ficar −1" antes de registrar (contando a peça boa da mesma
+  cor × tamanho que volta — a grade também a soma), e depois o servidor
+  devolve as peças que ESTA troca deixou abaixo de zero ou mais fundas
+  (`semEstoque`, conta exata sob a trava: antes + o que volta boa − o que
+  sai — `pecasQueFicaramNegativas`; a peça que já devia e a troca não
+  mexeu não entra), que viram faixa no bloco Trocas e nota própria na
+  história do pedido (`textoDaSaidaSemEstoque`). **A peça do Jueri é a
+  exceção** e é recusada com frase: lá o estoque não desce de zero e a
+  sincronização grava o número de lá por cima (RN-050) — o −1 viraria 0 e
+  o cancelamento seguinte devolveria uma peça que nunca existiu, aqui E lá
+  (a razão da RN-076 deixá-la de fora). No Inventário a peça comum
+  negativa conta como **zerada** (a sob encomenda devendo é "A
+  produzir") e a linha de ajuste diz que ela saiu sem estoque; e
   **defeito é ENTRADA + SAÍDA solta ("baixa por defeito")**: o estoque não
   muda, mas o livro conta que voltou e foi baixada. Os movimentos levam o
   `orderId` quando o estoque do pedido é daqui — assim o pedido passa a
@@ -431,11 +450,12 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   lista de Pedidos mostra o selo **"N trocas"**, e o bloco "Trocas" na
   ficha lista cada uma com o botão de confirmar o acerto. Provado pelas
   rotas de verdade contra o Postgres local (`scripts/e2e-troca.ts`, 13
-  cenários: status, papel, estoque, defeito, falta, itens travados, teto,
-  crédito, acerto, cancelar/restaurar/apagar, loja online). **Limites
-  ditos**: a grade da peça que sai usa o estoque de agora (devolver e levar
-  a MESMA cor × tamanho com estoque zerado não passa na tela — o servidor
-  aceitaria); o dinheiro da troca (crédito usado num pedido novo e o
+  cenários: status, papel, estoque, defeito, peça que sai sem estoque
+  (fica −1, avisa, cancelar devolve a 0; a do Jueri é recusada), itens travados, teto, crédito,
+  acerto, cancelar/restaurar/apagar, loja online). **Limites ditos**: a
+  Nuvemshop recebe zero da peça negativa (RN-076); restaurar o pedido cancelado depois de
+  uma troca sem estoque reserva o pacote efetivo e a peça que falta volta
+  como extra, com a janela de sempre (RN-075); o dinheiro da troca (crédito usado num pedido novo e o
   acerto no Financeiro) é a RN-074. **O relatório** é a aba **Trocas** do
   Estoque (`lib/troca/relatorio.ts`, gerência — mostra dinheiro, a régua do
   Painel): no período escolhido (7, 30, 90 dias ou 1 ano, pela data da
@@ -1405,9 +1425,8 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   cobertura negativa é zero. (7) **O ajuste digitado continua só de 0 para
   cima** — gravar a contagem apaga a conta do que havia a produzir, e a
   linha de ajuste AVISA antes (a porta aceita `visto` negativo para a
-  gravação condicional continuar valendo). **Limites ditos**: a troca
-  (RN-073) segue baixa condicional — peça que sai na troca para no estoque
-  mesmo sob encomenda; desligar a chavinha com a peça negativa deixa o
+  gravação condicional continuar valendo). A troca (RN-073) também
+  passa do estoque, para toda peça fora a do Jueri (13/10/2026). **Limites ditos**: desligar a chavinha com a peça negativa deixa o
   número como está (as vendas seguintes travam até repor); a soma do
   "disponíveis" com peça negativa e os relatórios de giro leem o número
   cru. Provado pelas rotas de verdade contra o Postgres local

@@ -145,6 +145,7 @@ async function main() {
     freteCombinado: "cliente traz na loja",
   });
   conferir(t1.status === 200, `registrada (${t1.status}) ${t1.texto.slice(0, 80)}`);
+  conferir(Array.isArray(t1.json?.semEstoque) && (t1.json!.semEstoque as unknown[]).length === 0, "com estoque, nenhum aviso de peça sem estoque");
   conferir((await estoque(pretoP.id)) === 8, "Preto P subiu para 8 (voltou 1)");
   conferir((await estoque(pretoM.id)) === 1, "Preto M desceu para 1 (saiu 1)");
   const ordem1 = await db.order.findUniqueOrThrow({ where: { id: orderId }, include: { items: true, trocas: { include: { itens: true } }, events: true } });
@@ -198,16 +199,9 @@ async function main() {
     "livro: ENTRADA (com pedido) + SAÍDA solta (baixa por defeito)"
   );
 
-  // ---- 6. sem estoque: Cropped zerou ---------------------------------------
-  console.log("\n6) Peça que sai sem estoque é recusada inteira");
-  const semEstoque = await api("POST", `/api/orders/${orderId}/troca`, {
-    volta: [{ chave: chaveP, quantity: 1, destino: "ESTOQUE" }],
-    sai: [{ variantId: azulG.id, quantity: 1, unitPrice: 48 }],
-    resolucao: "COBRAR",
-  });
-  conferir(semEstoque.status === 409, `409 sem estoque (${semEstoque.status}): ${String(semEstoque.json?.error ?? "").slice(0, 70)}`);
-  conferir((await estoque(pretoP.id)) === 8, "a ENTRADA da peça devolvida foi desfeita junto (transação inteira)");
-  conferir((await db.troca.count({ where: { orderId } })) === 2, "nenhuma troca a mais");
+  // ---- 6. (a peça que sai SEM estoque mudou de regra em 13/10/2026: agora
+  //          passa e o estoque fica negativo — provado no cenário 12, num
+  //          pedido próprio, para não mexer na conta dos cenários seguintes)
 
   // ---- 7. teto do que volta: já voltaram 2 das 3 ----------------------------
   console.log("\n7) Teto do que volta");
@@ -290,6 +284,63 @@ async function main() {
   conferir(tNs.status === 200, `registrada (${tNs.status})`);
   conferir((await estoque(pretoP.id)) === 10 && (await estoque(pretoM.id)) === 1, "estoque andou (P 10, M 1)");
   conferir((await db.inventoryMovement.count({ where: { orderId: ns.id } })) === 0, "nenhum movimento preso ao pedido da loja online");
+
+  // ---- 12. peça que sai SEM estoque: passa, fica negativo e avisa ------------
+  console.log("\n12) Peça que sai sem estoque: a troca passa, o estoque fica negativo e a vendedora é avisada");
+  const body = await db.product.create({
+    data: {
+      companyId: company.id, name: "Regata Nadador", sku: `NAD-${marca}`, category: "Regatas",
+      retailPrice: 50, wholesalePrice: 32,
+      variants: { create: [{ color: "Café", size: "G", stock: 0 }, { color: "Café", size: "M", stock: 1 }] },
+    },
+    include: { variants: true },
+  });
+  const cafeG = body.variants.find((v) => v.size === "G")!;
+  const cafeM = body.variants.find((v) => v.size === "M")!;
+  const p12 = await api("POST", "/api/orders", {
+    customerId: cliente.id,
+    status: "AGUARDANDO_PAGAMENTO",
+    items: [{ productId: body.id, variantId: cafeM.id, quantity: 1, unitPrice: 32 }],
+  });
+  const id12 = (p12.json as { id?: string })?.id;
+  if (!id12) throw new Error(`POST /api/orders (12): ${p12.status} ${p12.texto}`);
+  await api("PATCH", `/api/orders/${id12}`, { status: "PAGO" });
+  await api("PATCH", `/api/orders/${id12}`, { status: "ENTREGUE" });
+  conferir((await estoque(cafeM.id)) === 0 && (await estoque(cafeG.id)) === 0, "Café M vendida (0) e Café G zerada (0)");
+  // a peça do JUERI não fica negativa (lá não desce de zero e a sync
+  // grava o número de lá por cima): recusa com a frase, nada se move
+  const jueri = await db.product.create({
+    data: {
+      companyId: company.id, name: "Saia Jueri", sku: `JUE-${marca}`, category: "Saias", jueriId: `j-${marca}`,
+      retailPrice: 50, wholesalePrice: 32,
+      variants: { create: [{ color: "Preto", size: "U", stock: 0 }] },
+    },
+    include: { variants: true },
+  });
+  const tJ = await api("POST", `/api/orders/${id12}/troca`, {
+    volta: [{ chave: `v:${cafeM.id}|32.00`, quantity: 1, destino: "ESTOQUE" }],
+    sai: [{ variantId: jueri.variants[0].id, quantity: 1, unitPrice: 32 }],
+    resolucao: "SEM_DIFERENCA",
+  });
+  conferir(tJ.status === 409 && /Jueri/.test(String(tJ.json?.error)), `peça do Jueri sem estoque é recusada (${tJ.status}): ${String(tJ.json?.error ?? "").slice(0, 70)}`);
+  conferir((await estoque(jueri.variants[0].id)) === 0 && (await db.troca.count({ where: { orderId: id12 } })) === 0 && (await estoque(cafeM.id)) === 0, "nada se moveu (Jueri 0, Café M 0, nenhuma troca)");
+  const t12 = await api("POST", `/api/orders/${id12}/troca`, {
+    volta: [{ chave: `v:${cafeM.id}|32.00`, quantity: 1, destino: "DEFEITO" }],
+    sai: [{ variantId: cafeG.id, quantity: 1, unitPrice: 32 }],
+    resolucao: "SEM_DIFERENCA",
+  });
+  conferir(t12.status === 200, `registrada mesmo sem estoque (${t12.status}) ${t12.texto.slice(0, 80)}`);
+  const aviso12 = (t12.json?.semEstoque ?? []) as { nome: string; estoque: number }[];
+  conferir(aviso12.length === 1 && aviso12[0].estoque === -1 && /Café G/.test(aviso12[0].nome), `a resposta avisa: ${JSON.stringify(aviso12)}`);
+  conferir((await estoque(cafeG.id)) === -1, "Café G ficou −1 (o que falta repor)");
+  conferir((await estoque(cafeM.id)) === 0, "Café M com defeito não volta para a arara (0)");
+  const ev12 = await db.orderEvent.findMany({ where: { orderId: id12 } });
+  conferir(ev12.some((e) => /Troca 1: ⚠️ Saiu sem estoque: Regata Nadador \(Café G\) ficou −1/.test(e.description)), "a história do pedido diz que saiu sem estoque");
+  const saidaG = await db.inventoryMovement.findFirst({ where: { variantId: cafeG.id, type: "SAIDA", orderId: id12 } });
+  conferir(saidaG?.quantity === 1, "livro: a SAÍDA da Café G está presa ao pedido");
+  // cancelar o pedido devolve a peça que a cliente tem: −1 volta a 0
+  const can12 = await api("PATCH", `/api/orders/${id12}`, { status: "CANCELADO", restock: true });
+  conferir(can12.status === 200 && (await estoque(cafeG.id)) === 0, `cancelar devolve a Café G: −1 → ${await estoque(cafeG.id)}`);
 
   // ---- limpeza ----------------------------------------------------------------
   await db.company.delete({ where: { id: company.id } });

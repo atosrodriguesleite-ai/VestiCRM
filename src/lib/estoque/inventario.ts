@@ -268,7 +268,10 @@ export function passaNoFiltro(
     case "todos":
       return true;
     case "zerado":
-      return l.disponivel === 0;
+      // zerada inclui a peça comum que ficou NEGATIVA (a troca deixa sair
+      // sem estoque, RN-073): ela também acabou, e é aqui que a loja procura
+      // o que repor. A sob encomenda devendo fica em "A produzir"
+      return l.disponivel === 0 || (!l.sobEncomenda && l.disponivel < 0);
     case "baixo":
       return chegouAoMinimo(l);
     case "produzir":
@@ -394,7 +397,7 @@ export function resumirLinhas(
     disponiveis: todas.reduce((s, l) => s + Math.max(0, l.disponivel), 0),
     reservadas: todas.reduce((s, l) => s + l.reservado, 0),
     variacoes: todas.length,
-    zeradas: todas.filter((l) => l.disponivel === 0).length,
+    zeradas: todas.filter((l) => passaNoFiltro("zerado", l)).length,
     baixas: todas.filter((l) => passaNoFiltro("baixo", l)).length,
     aProduzir: todas.reduce((s, l) => s + (l.sobEncomenda ? aProduzir(l.disponivel) : 0), 0),
     externas: todas.filter((l) => l.dono !== null).length,

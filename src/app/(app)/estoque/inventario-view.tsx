@@ -655,7 +655,10 @@ function LinhaDeAjuste({
   // a peça sob encomenda devendo (RN-076): o ajuste digitado só aceita de 0
   // para cima, e gravar a contagem apaga a conta do que havia para produzir
   // — a pessoa precisa saber ANTES de salvar
-  const apagaAProduzir = visto < 0;
+  const apagaAProduzir = visto < 0 && !!linha.sobEncomenda;
+  // a peça comum também pode estar negativa: saiu numa troca sem estoque
+  // (RN-073) — gravar a contagem acerta o número, sem conta a produzir
+  const negativaComum = visto < 0 && !linha.sobEncomenda;
 
   async function salvar(motivoEscolhido: string) {
     if (salvando) return;
@@ -691,6 +694,12 @@ function LinhaDeAjuste({
           <p className="mb-2 rounded-lg border border-violet-200 bg-violet-50 px-2.5 py-1.5 text-xs text-violet-800">
             Esta peça vende sob encomenda e está com <b>{-visto} a produzir</b> de pedidos já
             vendidos. Ao gravar a contagem, essa conta some: anote antes o que ainda vai ser feito.
+          </p>
+        )}
+        {negativaComum && (
+          <p className="mb-2 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-xs text-amber-800">
+            O estoque desta peça está em <b>{visto}</b>: saiu sem estoque (numa troca). Conte o que há na
+            arara e grave — o número volta a ser o de verdade.
           </p>
         )}
         <div className="flex flex-wrap items-center gap-x-3 gap-y-2">

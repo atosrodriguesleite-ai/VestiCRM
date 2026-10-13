@@ -17,6 +17,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   ArrowLeft,
+  AlertTriangle,
   ArrowLeftRight,
   Check,
   Loader2,
@@ -39,6 +40,7 @@ import {
   textoDoMotivo,
   juntarSaidas,
   juntarVoltas,
+  numeroComSinal,
   resolucoesPermitidas,
   restanteDaLinha,
   rotuloDaPeca,
@@ -47,6 +49,7 @@ import {
   type LinhaParaTroca,
   type PecaQueSai,
   type PecaQueVolta,
+  type PecaSemEstoqueNaTroca,
   type TrocaDestino,
   type TrocaResolucao,
 } from "@/lib/troca/regra";
@@ -86,8 +89,12 @@ type ApiProduct = ProdutoDaGrade & {
   variants: ApiVariant[];
 };
 
-/** uma peça que SAI, como a tela a guarda (com o retrato para mostrar) */
-type SaidaDaTela = PecaQueSai & { productId: string; name: string; color: string; size: string };
+/**
+ * uma peça que SAI, como a tela a guarda (com o retrato para mostrar e o
+ * estoque de quando a grade foi aberta — é ele que avisa "está zerada" antes
+ * de registrar; quem decide de verdade é o servidor, no aviso da resposta)
+ */
+type SaidaDaTela = PecaQueSai & { productId: string; name: string; color: string; size: string; estoque: number };
 
 type Passo = 1 | 2 | 3;
 
@@ -139,6 +146,8 @@ export function TrocasDoPedido({
   const [passo, setPasso] = useState<Passo>(1);
   const [salvando, setSalvando] = useState(false);
   const [erro, setErro] = useState("");
+  // depois de registrar: as peças que saíram sem estoque (o servidor diz)
+  const [avisoSemEstoque, setAvisoSemEstoque] = useState<{ numero: number; pecas: PecaSemEstoqueNaTroca[] } | null>(null);
 
   // passo 1
   const [qtdVolta, setQtdVolta] = useState<Record<string, number>>({});
@@ -176,6 +185,30 @@ export function TrocasDoPedido({
   const sai: PecaQueSai[] = useMemo(() => juntarSaidas(saidas.map(({ variantId, quantity, unitPrice }) => ({ variantId, quantity, unitPrice }))), [saidas]);
   const totais = useMemo(() => somarTroca(linhas, volta, sai), [linhas, volta, sai]);
   const permitidas = useMemo(() => resolucoesPermitidas(totais.diferenca), [totais.diferenca]);
+  /**
+   * PEÇA QUE SAI SEM ESTOQUE (pedido do dono, 13/10/2026): a troca passa e
+   * o estoque fica negativo — a tela AVISA antes de registrar. A peça boa
+   * que volta da MESMA cor × tamanho entra antes da saída e conta.
+   */
+  const voltaBoaPorVariacao = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const v of volta) {
+      const id = v.destino === "ESTOQUE" ? porChave.get(v.chave)?.variantId : null;
+      if (id) m.set(id, (m.get(id) ?? 0) + v.quantity);
+    }
+    return m;
+  }, [volta, porChave]);
+  const saemSemEstoque = useMemo(
+    () =>
+      saidas.flatMap((s) => {
+        const antes = s.estoque;
+        const fica = antes + (voltaBoaPorVariacao.get(s.variantId) ?? 0) - s.quantity;
+        // a mesma régua do servidor (`pecasQueFicaramNegativas`): só o que
+        // ESTA troca deixa abaixo de zero ou mais fundo
+        return fica < 0 && fica < antes ? [{ variantId: s.variantId, nome: rotuloDaPeca(s), estoque: antes, fica }] : [];
+      }),
+    [saidas, voltaBoaPorVariacao]
+  );
   // "Chip — detalhe": o relatório conta pelo chip (sem chip, é "Outro")
   const motivo = useMemo(() => textoDoMotivo(motivoChip, motivoTexto), [motivoChip, motivoTexto]);
 
@@ -213,6 +246,7 @@ export function TrocasDoPedido({
 
   function abrir() {
     setPasso(1);
+    setAvisoSemEstoque(null);
     setErro("");
     setOpen(true);
   }
@@ -250,6 +284,16 @@ export function TrocasDoPedido({
     );
     return noPedido ?? precoSugerido(p);
   };
+  // a grade da troca conta a peça BOA da mesma cor × tamanho que volta (ela
+  // entra antes da saída): devolver M e levar outra M com o estoque zerado
+  // não é "sem estoque"
+  const gradeComVolta = useMemo(
+    () =>
+      grade
+        ? { ...grade, variants: grade.variants.map((v) => ({ ...v, stock: v.stock + (voltaBoaPorVariacao.get(v.id) ?? 0) })) }
+        : null,
+    [grade, voltaBoaPorVariacao]
+  );
   const precoDaGradeAberta = useMemo(() => (grade ? precoDoModelo(grade) : 0), [grade, saidas]); // eslint-disable-line react-hooks/exhaustive-deps
   const precoUnitarioDaGrade = useCallback(() => precoDaGradeAberta, [precoDaGradeAberta]);
 
@@ -265,7 +309,7 @@ export function TrocasDoPedido({
       for (const v of p.variants) {
         const n = q.get(v.id) ?? 0;
         if (n <= 0) continue;
-        novas.push({ variantId: v.id, quantity: n, unitPrice: precoLinha, productId: p.id, name: p.name, color: v.color ?? "", size: v.size ?? "" });
+        novas.push({ variantId: v.id, quantity: n, unitPrice: precoLinha, productId: p.id, name: p.name, color: v.color ?? "", size: v.size ?? "", estoque: v.stock });
       }
       return [...outras, ...novas];
     });
@@ -366,6 +410,8 @@ export function TrocasDoPedido({
         setErro(d.error ?? "Não deu para registrar a troca.");
         return;
       }
+      const semEstoque = Array.isArray(d.semEstoque) ? (d.semEstoque as PecaSemEstoqueNaTroca[]) : [];
+      setAvisoSemEstoque(semEstoque.length > 0 ? { numero: Number(d.numero) || 0, pecas: semEstoque } : null);
       limpar();
       setOpen(false);
       router.refresh();
@@ -406,6 +452,28 @@ export function TrocasDoPedido({
           <span className="text-[11px] text-gray-400 text-right max-w-[14rem]">{motivoBloqueio}</span>
         ) : null}
       </div>
+
+      {avisoSemEstoque && (
+        <div className="mb-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900 flex gap-2">
+          <AlertTriangle className="size-4 shrink-0 text-amber-600 mt-0.5" />
+          <div className="flex-1 min-w-0">
+            <p className="font-semibold">
+              Troca {avisoSemEstoque.numero} registrada — {avisoSemEstoque.pecas.length === 1 ? "uma peça saiu" : "peças saíram"} sem estoque
+            </p>
+            <ul className="mt-1 space-y-0.5">
+              {avisoSemEstoque.pecas.map((p) => (
+                <li key={p.variantId}>
+                  {p.nome}: o estoque ficou <strong className="tabular-nums">{numeroComSinal(p.estoque)}</strong>
+                </li>
+              ))}
+            </ul>
+            <p className="mt-1 text-amber-800">O número negativo é quanto falta repor. Ficou anotado na história do pedido.</p>
+          </div>
+          <button onClick={() => setAvisoSemEstoque(null)} aria-label="Fechar aviso" className="shrink-0 text-amber-700 hover:text-amber-900">
+            <X className="size-4" />
+          </button>
+        </div>
+      )}
 
       {trocas.length === 0 ? (
         <p className="text-sm text-gray-400">Nenhuma troca registrada neste pedido.</p>
@@ -738,6 +806,26 @@ export function TrocasDoPedido({
                       />
                     </div>
 
+                    {saemSemEstoque.length > 0 && (
+                      <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900 flex gap-2">
+                        <AlertTriangle className="size-4 shrink-0 text-amber-600 mt-0.5" />
+                        <div className="min-w-0">
+                          <p className="font-semibold">
+                            {saemSemEstoque.length === 1 ? "Uma peça que sai está" : "Peças que saem estão"} sem estoque
+                          </p>
+                          <ul className="mt-1 space-y-0.5">
+                            {saemSemEstoque.map((p) => (
+                              <li key={p.variantId}>
+                                {p.nome}: {p.estoque > 0 ? `só ${p.estoque} no estoque` : p.estoque === 0 ? "zerada no estoque" : `já em ${numeroComSinal(p.estoque)} no estoque`} — vai ficar{" "}
+                                <strong className="tabular-nums">{numeroComSinal(p.fica)}</strong>
+                              </li>
+                            ))}
+                          </ul>
+                          <p className="mt-1 text-amber-800">A troca é registrada assim mesmo; o negativo é o que a loja precisa repor.</p>
+                        </div>
+                      </div>
+                    )}
+
                     <div className="rounded-lg bg-gray-50 border border-gray-100 p-3 text-[11px] text-gray-500 space-y-1">
                       <p>• O pedido {numeroDoPedido} <strong>não muda</strong>: valor, data da venda, comissão e nota ficam como estão. A troca fica registrada abaixo dos itens e na história do pedido.</p>
                       <p>• O estoque anda sozinho: a peça devolvida boa volta para a arara, a com defeito é baixada, e a peça levada sai{lojaOnline ? " — a Nuvemshop recebe o estoque novo, mas o pedido lá não muda" : " (e a loja online recebe o número novo, se a peça for vinculada)"}.</p>
@@ -781,10 +869,11 @@ export function TrocasDoPedido({
 
               {grade && (
                 <GradeDePecas
-                  produto={grade}
+                  produto={gradeComVolta ?? grade}
                   quantidadesIniciais={quantidadesNaTroca(grade.id)}
                   precoUnitario={precoUnitarioDaGrade}
                   jaNoPedido={quantidadesNaTroca(grade.id).size > 0}
+                  permiteNegativo
                   onCancelar={() => setGrade(null)}
                   onAplicar={(q) => aplicarGrade(grade, q)}
                 />

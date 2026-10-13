@@ -207,6 +207,11 @@ describe("o inventário: filtros e reserva", () => {
     });
     expect(passaNoFiltro("zerado", l(0))).toBe(true);
     expect(passaNoFiltro("zerado", l(1))).toBe(false);
+    // a peça comum que ficou negativa numa troca (RN-073) também acabou;
+    // a sob encomenda devendo é "A produzir", não "Zerada"
+    expect(passaNoFiltro("zerado", l(-1))).toBe(true);
+    expect(passaNoFiltro("zerado", { ...l(-1), sobEncomenda: true })).toBe(false);
+    expect(passaNoFiltro("produzir", { ...l(-1), sobEncomenda: true })).toBe(true);
     expect(passaNoFiltro("baixo", l(0))).toBe(true); // zerada TAMBÉM chegou ao mínimo (mesma conta do sino e do Dashboard)
     expect(passaNoFiltro("baixo", l(5))).toBe(true);
     expect(passaNoFiltro("baixo", l(6))).toBe(false);
