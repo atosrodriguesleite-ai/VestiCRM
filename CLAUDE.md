@@ -1779,6 +1779,46 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   INSTRUMENTAÇÃO: nada mostra ainda — a tela do BI vem na Fase 1, sobre
   dados que já estarão sendo contados certos (coleta para todas as lojas,
   tela só para quem tem a chave, ADR-019).
+- **RN-080 · MENSAGEM DE ROBÔ NUNCA É RESPOSTA — E A ESPERA DA CLIENTE É
+  PAREADA COM A PRIMEIRA RESPOSTA HUMANA** (`Message.automatica` +
+  `lib/bi/tempo-de-resposta.ts`, 13/10/2026): segunda peça do BI (ADR-019).
+  O tempo de resposta mede "quanto a cliente esperou por uma PESSOA", então
+  (1) todo envio que ninguém digitou leva a marca `automatica` — e **no
+  motor a mensagem SEM `authorId` é de robô por padrão** (`input.automatica
+  ?? !input.authorId`): toda porta humana assina (tela, cobrança, rastreio,
+  encaminhar), só a recuperação automática não, e a porta automática nova
+  que esquecer a marca cai do lado certo (opt-in era o "esqueceu um" da
+  RN-059, achado da revisão); o eco da mensagem mandada pelo celular da
+  loja não passa pelo motor (nasce no webhook, sem autor, e É humana);
+  **o robô não é "primeiro contato"**: não avança o funil, e o eco dele não
+  conclui a tarefa de primeiro atendimento (ninguém falou com a cliente) —
+  e o eco do robô tem janela de adoção de um dia (o envio cadenciado pode
+  ficar ENVIANDO além dos 10 min; perdido, renascia como humano); (2) a
+  ESPERA começa na primeira mensagem de texto da cliente sem resposta (as
+  seguintes não zeram o cronômetro — a cliente manda cinco de uma vez) e
+  fecha na primeira mensagem HUMANA da loja depois dela: texto, não nota
+  interna, não robô (`respostaHumana`); respondida, a próxima mensagem da
+  cliente abre espera nova; abordagem da loja sem pergunta não vira espera;
+  (3) os minutos são DE ATENDIMENTO (RN-079) e o prazo é o
+  `intakeSlaMinutes`: a espera aberta conta até agora e diz se o prazo **já
+  estourou** (`noPrazo: false`, o que o painel vai gritar) ou se ainda dá
+  tempo (`null` — não decide); a espera aberta numa conversa que a loja
+  **ENCERROU** (o "obrigada!" do fim) não é cliente esperando
+  (`encerradas`, conta à parte) — sem isso cada venda fechada virava espera
+  eterna fora do prazo; (4) o resumo (`resumirEsperas`) traz respondidas,
+  sem resposta, encerradas sem resposta, no prazo, fora do prazo, % no
+  prazo (só das decididas), mediana, média e p90 — e **sem espera nenhuma
+  os números são nulos**, nunca zero disfarçado de "ótimo". **A régua "que
+  mensagem conta" é escrita UMA vez** (`ONDE_MENSAGEM_CONTA`, texto e não
+  robô): o BI a usa em memória e o monitor da IA de Vendas (`lib/ia.ts`) a
+  espalha no `where`, com teste de que concordam em toda combinação; o
+  monitor segue com a régua dele no resto (relógio de parede, teto de 24h,
+  atribuição à dona da conversa — é termômetro de equipe). **Limites
+  ditos**: o histórico anterior à marca conta a recuperação automática
+  antiga como resposta humana — só o que nasce daqui em diante é exato; e
+  o robô ainda carimba `lastOutboundAt` (a aba Fila da Central o trata como
+  "a loja falou"), decisão de tela que fica para a Fase 1. Entrega de INSTRUMENTAÇÃO: a conta existe
+  e está provada; a tela que a mostra vem na Fase 1.
 - **Communication Engine** (`lib/comm/`): camada única de envio/recebimento,
   agnóstica de provedor. `EvolutionProvider` = WhatsApp NÃO-oficial via
   Evolution API **self-hosted** (VPS Hostinger srv1853369.hstgr.cloud,
@@ -3339,8 +3379,8 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   módulo novo com chave liga/desliga, para as lojas da assessoria de
   processo comercial (preço a definir). **Fase 0 (instrumentação, coleta
   para TODAS as lojas)**: horário de atendimento (RN-079 ✅), marca de
-  mensagem automática + conta pura do tempo de resposta, motivo de perda com
-  lista fixa. **Fase 1**: fatos diários de carona (sem cron) + painel do
+  mensagem automática + conta pura do tempo de resposta (RN-080 ✅), motivo
+  de perda com lista fixa. **Fase 1**: fatos diários de carona (sem cron) + painel do
   dono (leads/dia, resposta no prazo, funil por fatos, vendas × meta, metas
   personalizáveis). **Fase 2**: vendedoras, carteira RFM, ROI de anúncio
   (gasto por mês). **Fase 3**: modo TV, benchmark entre lojas (Super

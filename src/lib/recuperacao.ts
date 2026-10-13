@@ -651,6 +651,8 @@ async function enviarPrimeiraMensagem(companyId: string, slug: string): Promise<
       kind: "TEXT",
       mediaType: "TEXT",
       authorName: "Recuperação automática",
+      // RN-080: é robô — nunca conta como resposta à cliente no BI
+      automatica: true,
       background: true,
     }).catch(async () => {
       // envio falhou de verdade: devolve o carrinho para a fila humana

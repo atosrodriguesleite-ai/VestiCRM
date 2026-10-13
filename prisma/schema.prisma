@@ -934,6 +934,12 @@ model Message {
   error          String?
   authorId       String?
   author         User?            @relation(fields: [authorId], references: [id], onDelete: SetNull)
+  // MENSAGEM DE ROBÔ (RN-080): recuperação automática de sacola e todo envio
+  // que nenhuma pessoa digitou. Nunca conta como resposta à cliente no BI —
+  // sem a marca, o robô virava "resposta humana em 0 min". `authorId` nulo
+  // não serve de marca: o eco da mensagem mandada pelo celular da loja
+  // também chega sem autor, e essa é humana.
+  automatica     Boolean          @default(false)
   createdAt      DateTime         @default(now())
   // QUANDO ESTA MENSAGEM MUDOU pela última vez (recibo ✓✓, edição,
   // apagada). É o que permite o sync incremental mandar só o que mudou

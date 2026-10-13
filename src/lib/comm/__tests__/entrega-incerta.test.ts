@@ -168,7 +168,9 @@ describe("quem chama a regra", () => {
     // e o resgate do eco alcança o reenvio pela mesma régua
     const webhook = ler("src/app/api/whatsapp/evolution/webhook/[token]/route.ts");
     const resgate = webhook.indexOf("RESGATE: o eco pode ser uma mensagem");
-    expect(webhook.slice(resgate, resgate + 1200)).toContain("updatedAt: { gt:");
+    // (janela maior que a de antes: a RN-080 pôs o comentário da mensagem de
+    // robô no meio do bloco, e a régua continua lá, dentro do OR)
+    expect(webhook.slice(resgate, resgate + 2000)).toContain("updatedAt: { gt:");
   });
 
   /**

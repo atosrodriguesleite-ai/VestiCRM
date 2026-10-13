@@ -1,4 +1,5 @@
 import { db } from "./db";
+import { ONDE_MENSAGEM_CONTA } from "./bi/tempo-de-resposta";
 import { PAID_ORDER_STATUSES } from "./orders";
 import { inicioDoMesSP } from "./recompra-painel";
 import type { SessionUser } from "./auth";
@@ -330,7 +331,9 @@ export async function monitorDeEquipe(user: SessionUser, agora = new Date()) {
     db.message.findMany({
       where: {
         conversation: { companyId },
-        kind: "TEXT",
+        // RN-080: só texto, e a mensagem de robô não é resposta de ninguém —
+        // a MESMA régua do BI, num lugar só
+        ...ONDE_MENSAGEM_CONTA,
         createdAt: { gte: inicioMes },
       },
       select: { conversationId: true, direction: true, createdAt: true, authorId: true },
