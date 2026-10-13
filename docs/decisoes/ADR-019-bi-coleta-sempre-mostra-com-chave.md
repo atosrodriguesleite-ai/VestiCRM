@@ -1,7 +1,9 @@
 # ADR-019 — BI de vendas do WhatsApp: coleta sempre, mostra com a chave, números prontos de carona
 
 - **Situação:** aceita
-- **Regras ligadas:** RN-079 (horário de atendimento, a primeira peça);
+- **Regras ligadas:** RN-079 (horário de atendimento), RN-080 (mensagem
+  de robô e a espera pareada) e RN-081 (motivo de perda em lista fechada) —
+  as três peças da Fase 0, concluída em 13/10/2026;
   RN-001/RN-002 (venda é pedido pago, por `netTotal`); RN-005/RN-007
   (comissão e visibilidade por vendedora); RN-008 (origem do lead no portão
   único); RN-063 (selo calculado dos pedidos, nunca colocado à mão — o
@@ -19,11 +21,14 @@ unificam as principais informações do sistema".
 
 Três fatos do código pesaram na decisão:
 
-1. **Metade do que se quer medir ainda não é gravado.** Não havia horário
-   de atendimento em lugar nenhum; o tempo de resposta existia só no monitor
-   da IA de Vendas (`lib/ia.ts`), pelo relógio de parede; a origem do lead só
-   diz o canal (e qual anúncio, só quando ele chega por link rastreado); o
-   motivo de perda da oportunidade é texto livre.
+1. **Metade do que se quer medir ainda não era gravado** (situação em
+   13/10/2026, antes da Fase 0). Não havia horário de atendimento em lugar
+   nenhum (→ RN-079); o tempo de resposta existia só no monitor da IA de
+   Vendas (`lib/ia.ts`), pelo relógio de parede, e a mensagem de robô não
+   se distinguia da humana (→ RN-080); a origem do lead só diz o canal (e
+   qual anúncio, só quando ele chega por link rastreado — fica assim, por
+   decisão do dono); o motivo de perda da oportunidade era texto livre na
+   porta (→ RN-081).
 2. **A tabela de mensagens é a maior do banco** (120 mil linhas numa loja
    de 2 mil conversas) e o Postgres fica em outra região. Calcular tempo de
    resposta varrendo-a a cada abertura do painel estouraria o tempo da

@@ -1819,6 +1819,33 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   o robô ainda carimba `lastOutboundAt` (a aba Fila da Central o trata como
   "a loja falou"), decisão de tela que fica para a Fase 1. Entrega de INSTRUMENTAÇÃO: a conta existe
   e está provada; a tela que a mostra vem na Fase 1.
+- **RN-081 · MOTIVO DE PERDA É LISTA FECHADA, GRAVADO COMO "CHIP — DETALHE"**
+  (`lib/funil/motivos-de-perda.ts`, 13/10/2026): terceira peça do BI
+  (ADR-019). "Por que não fechou?" é a pergunta número um de quem organiza
+  processo comercial, e só serve se der para CONTAR. O funil já perguntava
+  numa lista (o `window.prompt` não abria no celular; texto livre virava
+  "preço", "Preço" e "achou caro" em três barras), mas a lista morava
+  dentro da tela, **a porta aceitava qualquer texto** e o relatório agrupava
+  por texto normalizado. Agora: (1) a lista é **fonte única na lib**
+  (`MOTIVOS_DE_PERDA`: achou caro, não fechou o mínimo, prazo, frete, não
+  tinha a grade, comprou de outro, sumiu, só pesquisando, outro) e a tela a
+  importa — teste derruba a cópia; (2) o texto gravado segue o padrão das
+  trocas (RN-073): **"Chip — detalhe"** (`textoDoMotivoDePerda`), o "Outro"
+  da tela leva o que a vendedora escreveu como detalhe; (3) **a porta recusa
+  motivo fora da lista** (`validarMotivoDePerda`, 400 com frase; detalhe até
+  120 letras) — o sistema também grava motivo próprio ("Pedido cancelado",
+  `MOTIVOS_DO_SISTEMA`, chip à parte, e o teste prende a sincronização a
+  ele); (4) **quem conta, conta pelo CHIP** (`contarPorMotivo`, Relatórios
+  hoje, o BI amanhã): texto antigo que só difere em caixa, acento ou
+  espaço cai no chip certo (`chaveDoMotivo`, só na LEITURA — a porta exige
+  o chip como está escrito), frase livre cai em "Outro" em vez de virar uma
+  barra por frase, a barra "Outro" lista embaixo os detalhes mais repetidos
+  ("pediu boleto ×12" — uma barra por chip sem perder o que foi escrito), e
+  "Sem motivo registrado" fica por último. A porta grava a forma CANÔNICA
+  (`lerMotivoDePerda`: espaços arrumados, travessão único) e o teto do
+  detalhe é um só para tela e porta (`TETO_DO_DETALHE`). Nada é migrado: o
+  que já está gravado continua legível e só o que nasce daqui em diante é
+  exato.
 - **Communication Engine** (`lib/comm/`): camada única de envio/recebimento,
   agnóstica de provedor. `EvolutionProvider` = WhatsApp NÃO-oficial via
   Evolution API **self-hosted** (VPS Hostinger srv1853369.hstgr.cloud,
@@ -3380,7 +3407,7 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   processo comercial (preço a definir). **Fase 0 (instrumentação, coleta
   para TODAS as lojas)**: horário de atendimento (RN-079 ✅), marca de
   mensagem automática + conta pura do tempo de resposta (RN-080 ✅), motivo
-  de perda com lista fixa. **Fase 1**: fatos diários de carona (sem cron) + painel do
+  de perda com lista fixa (RN-081 ✅) — **Fase 0 concluída**. **Fase 1**: fatos diários de carona (sem cron) + painel do
   dono (leads/dia, resposta no prazo, funil por fatos, vendas × meta, metas
   personalizáveis). **Fase 2**: vendedoras, carteira RFM, ROI de anúncio
   (gasto por mês). **Fase 3**: modo TV, benchmark entre lojas (Super

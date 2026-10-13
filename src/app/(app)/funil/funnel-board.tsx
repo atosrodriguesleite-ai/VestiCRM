@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
+import { MOTIVOS_DA_TELA, OUTRO, TETO_DO_DETALHE, textoDoMotivoDePerda } from "@/lib/funil/motivos-de-perda";
 import { Portal } from "@/components/portal";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -876,16 +877,7 @@ function NewOpportunityModal({
  * Os motivos são os do atacado de moda, na linguagem da loja. "Cancelar"
  * cancela o movimento inteiro: o cartão fica onde estava.
  */
-const MOTIVOS_DE_PERDA = [
-  "Achou caro",
-  "Não fechou o pedido mínimo",
-  "Prazo de entrega",
-  "Frete caro",
-  "Não tinha a grade/tamanho",
-  "Comprou de outro fornecedor",
-  "Sumiu / não respondeu",
-  "Só estava pesquisando",
-];
+// RN-081: a lista é a da lib — fonte única para tela, porta e relatório
 
 function MotivoDaPerda({
   onEscolher,
@@ -913,7 +905,7 @@ function MotivoDaPerda({
         </p>
 
         <div className="grid gap-2">
-          {MOTIVOS_DE_PERDA.map((m) => (
+          {MOTIVOS_DA_TELA.map((m) => (
             <button
               key={m}
               onClick={() => onEscolher(m)}
@@ -937,11 +929,11 @@ function MotivoDaPerda({
                 value={outro}
                 onChange={(e) => setOutro(e.target.value)}
                 placeholder="Escreva o motivo"
-                maxLength={80}
+                maxLength={TETO_DO_DETALHE}
                 className="flex-1 rounded-xl border border-gray-200 px-3 py-2.5 text-sm outline-none focus:border-brand-400"
               />
               <button
-                onClick={() => onEscolher(outro.trim() || "Outro")}
+                onClick={() => onEscolher(textoDoMotivoDePerda(OUTRO, outro))}
                 className="shrink-0 rounded-xl bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium px-4 transition"
               >
                 Salvar
