@@ -1,4 +1,5 @@
 import { db } from "./db";
+import { lerHorarioComercial, prazoNoHorario } from "./bi/horario-comercial";
 import { formatPhone, originLabel } from "./format";
 import { consolidateOpenConversations } from "./merge-contacts";
 import { Prisma } from "@prisma/client";
@@ -523,7 +524,13 @@ export async function intakeLead(
         title: `Primeiro atendimento — ${customer.name}`,
         type: "LIGAR",
         priority: "ALTA",
-        dueAt: new Date(Date.now() + company.intakeSlaMinutes * 60 * 1000),
+        // RN-079: o prazo é em minutos COM A LOJA ABERTA — o lead da
+        // madrugada vence depois de abrir, não antes de a vendedora chegar
+        dueAt: prazoNoHorario(
+          new Date(),
+          company.intakeSlaMinutes,
+          lerHorarioComercial(company.horarioComercial)
+        ),
         assigneeId: customer.ownerId,
         autoRule: `intake:${customer.id}`,
       },

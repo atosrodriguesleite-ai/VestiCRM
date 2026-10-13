@@ -130,6 +130,10 @@ model Company {
   intakeLastUserId    String? // ponteiro do rodízio
   intakeSlaMinutes    Int     @default(60) // prazo do primeiro atendimento
   intakeOppPolicy     String  @default("SE_NAO_HOUVER_ABERTA") // SEMPRE | SE_NAO_HOUVER_ABERTA | NUNCA
+  // HORÁRIO DE ATENDIMENTO DA LOJA (RN-079): JSON {"dias":[[{de,ate}],…]} com
+  // 7 posições (0 = domingo). Nulo = sem horário cadastrado → o tempo de
+  // resposta do BI conta o dia inteiro. O PRAZO é o intakeSlaMinutes acima.
+  horarioComercial    String?
 
   users          User[]
   customers      Customer[]

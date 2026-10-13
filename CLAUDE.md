@@ -1741,6 +1741,44 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   WhatsApp — nunca a imagem —, revalida a cada 7 dias, busca em lote com teto
   por rodada e cai nas iniciais coloridas quando a cliente esconde a foto ou
   o link vence).
+- **RN-079 · HORÁRIO DE ATENDIMENTO DA LOJA: O TEMPO DE RESPOSTA CONTA SÓ
+  COM A PORTA ABERTA** (`lib/bi/horario-comercial.ts`, card "Horário de
+  atendimento" em Configurações, 13/10/2026): primeira peça do **BI de
+  vendas do WhatsApp** (ADR-019), desenhado com o dono para as lojas que
+  contratam a assessoria de processo comercial. A cliente que escreve às
+  22h e recebe resposta às 8h05 esperou **5 minutos de atendimento**, não
+  10 horas — medir pelo relógio de parede faria a vendedora que respondeu
+  ao chegar aparecer como a mais lenta da equipe. Decidido: (1) o horário é
+  **da loja**, por dia da semana, com até **dois períodos** (manhã e tarde:
+  a pausa de almoço da confecção é real), gravado como JSON em
+  `Company.horarioComercial` e conferido na porta pela MESMA régua que a
+  leitura usa (`validarHorarioComercial`: hora que não existe, fim antes do
+  início, períodos sobrepostos e loja que nunca abre são recusados com a
+  frase dizendo QUAL dia); (2) **sem horário cadastrado conta o dia
+  inteiro**, madrugada inclusa (`null` = "não sei quando abre"; inventar um
+  horário mentiria para o lado bom) — a tela diz isso e oferece o padrão
+  seg–sex 8h–18h, sáb 8h–12h com um clique; leitura torta vira `null`,
+  nunca derruba tela nem conta; (3) **o PRAZO de resposta é o que a loja já
+  tinha**, `Company.intakeSlaMinutes` ("SLA do 1º atendimento", Entrada de
+  leads) — um segundo campo com o mesmo significado é onde dois números um
+  dia discordam; o prazo passa a valer em **minutos de atendimento**
+  (`respondeuNoPrazo`: prazo de 30 min, cliente das 22h, resposta até 8h30
+  do dia seguinte está no prazo) — e **a tarefa de primeiro atendimento
+  (RN-008) vence pela mesma régua** (`prazoNoHorario`: o lead das 22h vence
+  às 8h30, não às 22h30; antes a tarefa amanhecia atrasada para quem nem
+  tinha chegado, enquanto a conta dizia "no prazo" — achado da revisão);
+  (5) a **recuperação automática** de sacola passa a respeitar o horário da
+  loja (`podeMandarAutomatica`: a loja que fecha sábado não manda sábado à
+  tarde; sem cadastro segue o 8h–20h de sempre); (6) a conta (`minutosDeAtendimentoEntre`)
+  soma só a sobreposição do intervalo com os períodos abertos, dia a dia,
+  no **relógio de São Paulo** (UTC−3, a régua de `diaSP` e do Financeiro) —
+  limite dito: loja fora desse fuso cadastra o horário em hora de Brasília;
+  fim antes do início é zero; "24:00" é o fim do dia (a tela o mostra como
+  23:59, porque o campo de hora do navegador não desenha 24:00). Gerência
+  grava, toda a equipe vê. Entrega de
+  INSTRUMENTAÇÃO: nada mostra ainda — a tela do BI vem na Fase 1, sobre
+  dados que já estarão sendo contados certos (coleta para todas as lojas,
+  tela só para quem tem a chave, ADR-019).
 - **Communication Engine** (`lib/comm/`): camada única de envio/recebimento,
   agnóstica de provedor. `EvolutionProvider` = WhatsApp NÃO-oficial via
   Evolution API **self-hosted** (VPS Hostinger srv1853369.hstgr.cloud,
@@ -3297,6 +3335,18 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   está 0 no catálogo (`lib/modulos.ts`), então ligar o módulo numa loja NÃO
   soma no MRR. Quando o Atos disser o valor, trocar o número e o teste
   `estoque-minimos.test.ts` que o fixa.
+- 🟡 **BI de vendas do WhatsApp — em construção** (ADR-019, 13/10/2026):
+  módulo novo com chave liga/desliga, para as lojas da assessoria de
+  processo comercial (preço a definir). **Fase 0 (instrumentação, coleta
+  para TODAS as lojas)**: horário de atendimento (RN-079 ✅), marca de
+  mensagem automática + conta pura do tempo de resposta, motivo de perda com
+  lista fixa. **Fase 1**: fatos diários de carona (sem cron) + painel do
+  dono (leads/dia, resposta no prazo, funil por fatos, vendas × meta, metas
+  personalizáveis). **Fase 2**: vendedoras, carteira RFM, ROI de anúncio
+  (gasto por mês). **Fase 3**: modo TV, benchmark entre lojas (Super
+  Admin), resumo semanal no WhatsApp do dono. Decisões do dono: só gerência
+  vê; origem do lead segue automática (sem marcação manual); metas de
+  qualquer tipo, a loja escolhe; prazo dentro do horário comercial.
 - WhatsApp/Evolution: operacional em produção (conexão, tempo real, mídia).
   **Pendente**: ligar `DATABASE_SAVE_DATA_HISTORIC/NEW_MESSAGE/CHATS/CONTACTS=true`
   no compose do servidor Evolution (Hostinger, via Editor .yaml) e reconectar
