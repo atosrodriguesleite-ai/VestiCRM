@@ -1,4 +1,5 @@
 import { db } from "./db";
+import { inicioDoMesSP } from "./dia";
 import { PAID_ORDER_STATUSES } from "./orders";
 import { brl } from "./format";
 import type { SessionUser } from "./auth";
@@ -65,14 +66,8 @@ export type PainelDeRecompra = {
 
 const DIA_MS = 24 * 60 * 60 * 1000;
 
-/** Início do mês atual e do anterior, no calendário de São Paulo. */
-export function inicioDoMesSP(agora = new Date(), mesesAtras = 0): Date {
-  const sp = new Date(agora.getTime() - 3 * 60 * 60 * 1000);
-  // meia-noite de SP = 03:00 UTC
-  return new Date(
-    Date.UTC(sp.getUTCFullYear(), sp.getUTCMonth() - mesesAtras, 1, 3, 0, 0)
-  );
-}
+/** Início do mês, no calendário de São Paulo — a régua mora em lib/dia.ts. */
+export { inicioDoMesSP };
 
 /**
  * O MONITOR IA: lê os números e escreve as conclusões. Puro de propósito —

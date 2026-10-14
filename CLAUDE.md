@@ -1846,6 +1846,67 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   detalhe é um só para tela e porta (`TETO_DO_DETALHE`). Nada é migrado: o
   que já está gravado continua legível e só o que nasce daqui em diante é
   exato.
+- **RN-082 · BI DE VENDAS: FATOS DIÁRIOS PRONTOS, PAINEL DO DONO, CHAVE SÓ
+  NA TELA** (`lib/bi/fatos.ts` + `lib/bi/painel.ts` + `lib/bi/metas.ts`,
+  porteira `lib/bi/gate.ts`, tela `/bi`, 14/10/2026): a Fase 1 do BI
+  (ADR-019). **Módulo com chave** (`Company.biEnabled`, Super Admin liga por
+  loja no painel Lojas, catálogo `BI` com preço de tabela 0 até o dono
+  definir) e **só gerência** vê (decisão do dono) — a aba "BI de Vendas"
+  nem aparece sem os dois. **Os números nascem em `BiDia`**, uma linha por
+  loja × dia (calendário de SP): contatos novos e por origem, quantos
+  tiveram resposta humana, as esperas da cliente que COMEÇARAM no dia e
+  como terminaram (respondida no prazo / fora / sem resposta / encerrada),
+  mediana e p90 em minutos de atendimento (RN-079/RN-080), a distribuição
+  em 7 baldes (até 5, 15, 30, 60, 120, 240 min e acima — **mediana de
+  medianas não é mediana**; o período soma baldes), pedidos criados (fora
+  cancelados), pedidos pagos e valor vendido (RN-001/RN-002). **De carona**
+  no sync da inbox e na abertura do painel, com trava de 30 min por loja
+  (`biFatosRunAt`, freio em memória antes do banco, a régua da RN-051),
+  **para TODA loja** — a chave abre a tela, a coleta é de todas (o motor
+  nunca filtra por `biEnabled`, e o teste prende isso). **Janela**: hoje e
+  os 7 dias anteriores são REFEITOS a cada rodada (a espera de ontem é
+  respondida hoje; o lead de anteontem vira resposta amanhã) e o passado é
+  congelado; dias que faltam nos últimos 90 entram 22 por rodada — a loja
+  que contratar o BI daqui a três meses encontra três meses de história.
+  A leitura começa **7 dias ANTES do primeiro dia calculado** (a espera que
+  começou num dia congelado não renasce pela mensagem seguinte da cliente, e
+  a resposta de hoje à pergunta de ontem vê a pergunta), lê as mensagens
+  **mais novas primeiro** com teto de 60 mil e, se o teto cortar, grava só
+  os dias com janela completa (`diasComJanelaCompleta`) e anota na Saúde
+  sem alarme; a gravação é uma transação; a rodada que falha **mantém a
+  trava** (o sync de 3s não repete a consulta mais pesada do app) e vai para
+  a Saúde sem alarme — achados da revisão. A abertura do painel roda só os
+  dias vivos (`soVivos`); o histórico é da carona. **A conta é pura** (`calcularFatos`) e a espera conta no dia da
+  CHEGADA da cliente, nunca duas vezes. **O painel** (`montarPainel`) soma
+  as linhas do período e do período anterior e junta três números vivos
+  baratos: quem está esperando AGORA (UMA contagem em SQL: última fala é da
+  cliente, conversa não encerrada), vendas do mês (pedidos pagos, `netTotal`)
+  e recompra (clientes com 2+ compras pagas, a régua do Dashboard). O
+  período tem teto de um ano (`encaixarPeriodo`, o mesmo recorte para somas
+  e séries) e o dia da URL é conferido pela régua de `lib/dia.ts`
+  (`dataDoDia`; "2026-02-30" não vira 2 de março). `mesSP` e
+  `inicioDoMesSP` passaram a morar em `lib/dia.ts` (um relógio só; `ia.ts`
+  e `recompra-painel.ts` reexportam). Mostra
+  a faixa "Hoje", os seis números (novos contatos, % respondidos no prazo,
+  sem resposta, vendido, ticket, recompra — com a comparação do período
+  anterior), **metas do mês** (cardápio fechado em `TIPOS_DE_META`:
+  faturamento, pedidos pagos, novos contatos, % no prazo, ticket, recompra;
+  a loja preenche as que quiser, mês a mês, `BiMeta`; realizado × meta em
+  barra), **funil por fatos** (contatos novos do período → respondidos por
+  pessoa → fizeram pedido → pagaram, as quatro barras da MESMA fonte, os
+  fatos — `leadsComPedido`/`leadsPagaram` —, com horizonte de 7 dias depois
+  do cadastro; nada de etapa arrastada), contatos e
+  vendido por dia, a distribuição do tempo de resposta, de onde vieram e
+  por que não fechou (RN-081). Avisa quando a loja não tem horário
+  cadastrado (a conta está contando a madrugada) e quantos dias do período
+  ainda não têm fato. Provado contra o Postgres local
+  (`scripts/e2e-bi.ts`: dois dias, robô no meio, conversa encerrada, pedido
+  pago no dia seguinte, cancelado fora, trava da carona). **Limites ditos**:
+  o funil tem horizonte de 7 dias (o lead que responde, pede ou paga depois
+  disso fica fora, porque o dia congelou); "esperando agora" lê
+  `lastOutboundAt`, que o robô ainda carimba (RN-080); a origem só diz o
+  canal (qual anúncio, só com link rastreado); loja fora do fuso de SP conta
+  o dia em hora de Brasília.
 - **Communication Engine** (`lib/comm/`): camada única de envio/recebimento,
   agnóstica de provedor. `EvolutionProvider` = WhatsApp NÃO-oficial via
   Evolution API **self-hosted** (VPS Hostinger srv1853369.hstgr.cloud,
@@ -3407,9 +3468,12 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   processo comercial (preço a definir). **Fase 0 (instrumentação, coleta
   para TODAS as lojas)**: horário de atendimento (RN-079 ✅), marca de
   mensagem automática + conta pura do tempo de resposta (RN-080 ✅), motivo
-  de perda com lista fixa (RN-081 ✅) — **Fase 0 concluída**. **Fase 1**: fatos diários de carona (sem cron) + painel do
-  dono (leads/dia, resposta no prazo, funil por fatos, vendas × meta, metas
-  personalizáveis). **Fase 2**: vendedoras, carteira RFM, ROI de anúncio
+  de perda com lista fixa (RN-081 ✅) — **Fase 0 concluída**. **Fase 1 ✅
+  (RN-082, 14/10/2026)**: módulo com chave, fatos diários de carona (sem
+  cron) e o painel do dono em `/bi` (leads/dia, resposta no prazo, funil por
+  fatos, vendas × meta, metas personalizáveis). **Pendente do dono**: o
+  preço de tabela (0 no catálogo) e ligar a chave nas lojas da assessoria.
+  **Fase 2**: vendedoras, carteira RFM, ROI de anúncio
   (gasto por mês). **Fase 3**: modo TV, benchmark entre lojas (Super
   Admin), resumo semanal no WhatsApp do dono. Decisões do dono: só gerência
   vê; origem do lead segue automática (sem marcação manual); metas de

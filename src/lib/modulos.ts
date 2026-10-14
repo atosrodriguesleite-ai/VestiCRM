@@ -24,7 +24,8 @@ export type ModuloKey =
   | "IA_VENDAS"
   | "FINANCEIRO"
   | "ESTOQUE"
-  | "ETIQUETAS";
+  | "ETIQUETAS"
+  | "BI";
 
 export type Modulo = {
   key: ModuloKey;
@@ -128,6 +129,15 @@ export const MODULOS: Modulo[] = [
     flag: "etiquetasEnabled",
     // preço de tabela ainda NÃO definido pelo dono (18/09/2026): 0 até ele
     // dizer — mesma régua do Estoque
+    precoTabela: 0,
+  },
+  {
+    key: "BI",
+    nome: "BI de Vendas",
+    entrega:
+      "Painel do dono: leads por dia, tempo de resposta no horário da loja, funil por fatos, vendas × meta, motivos de perda.",
+    flag: "biEnabled",
+    // preço de tabela A DEFINIR pelo dono (ADR-019): 0 até lá, fora do MRR
     precoTabela: 0,
   },
 ];

@@ -101,6 +101,8 @@ const NAV = [
   { href: "/recompra", label: "Recompra", icon: Repeat, group: "Relacionamento", supportHidden: true },
   { href: "/relatorios", label: "Relatórios", icon: BarChart3, group: "Análise", managerOnly: true },
   { href: "/inteligencia", label: "Inteligência", icon: Brain, group: "Análise", managerOnly: true },
+  // módulo BI de Vendas (RN-082): só com a chave da loja, e só gerência
+  { href: "/bi", label: "BI de Vendas", icon: Gauge, group: "Análise", biOnly: true, managerOnly: true },
   { href: "/comissoes", label: "Comissões", icon: Percent, group: "Análise", managerOnly: true },
   // FINANCEIRO (RN-029, módulo pago à parte) — só a loja com o módulo vê a
   // aba: sem a chave, NENHUM destes itens aparece (pedido do dono,
@@ -245,6 +247,8 @@ type ShellUser = {
   mediaLibraryEnabled?: boolean;
   // módulo IA de Vendas (pago à parte): idem
   aiSalesEnabled?: boolean;
+  // módulo BI de Vendas (RN-082): idem
+  biEnabled?: boolean;
   // modo escuro — preferência individual do usuário
   prefersDark?: boolean;
 };

@@ -3,7 +3,8 @@
 - **Situação:** aceita
 - **Regras ligadas:** RN-079 (horário de atendimento), RN-080 (mensagem
   de robô e a espera pareada) e RN-081 (motivo de perda em lista fechada) —
-  as três peças da Fase 0, concluída em 13/10/2026;
+  as três peças da Fase 0, concluída em 13/10/2026; RN-082 (fatos diários,
+  painel e chave — a Fase 1, 14/10/2026);
   RN-001/RN-002 (venda é pedido pago, por `netTotal`); RN-005/RN-007
   (comissão e visibilidade por vendedora); RN-008 (origem do lead no portão
   único); RN-063 (selo calculado dos pedidos, nunca colocado à mão — o

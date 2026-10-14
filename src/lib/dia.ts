@@ -38,3 +38,15 @@ export function dataDoDia(iso: string): Date | null {
     return null;
   return d;
 }
+
+/** "2026-08": o MÊS de um instante no calendário de São Paulo. */
+export function mesSP(d = new Date()): string {
+  return diaSP(d).slice(0, 7);
+}
+
+/** Início do mês atual (ou de `mesesAtras` meses antes), à 0h de São Paulo. */
+export function inicioDoMesSP(agora = new Date(), mesesAtras = 0): Date {
+  const sp = new Date(agora.getTime() - 3 * 60 * 60 * 1000);
+  // meia-noite de SP = 03:00 UTC
+  return new Date(Date.UTC(sp.getUTCFullYear(), sp.getUTCMonth() - mesesAtras, 1, 3, 0, 0));
+}

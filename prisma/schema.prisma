@@ -70,6 +70,11 @@ model Company {
   /// muda em tela nenhuma — o código de barras da variação existe do mesmo
   /// jeito (nasce no banco), só não há onde imprimi-lo.
   etiquetasEnabled  Boolean  @default(false)
+  // módulo BI de Vendas (ADR-019): a CHAVE só abre a tela — os fatos diários
+  // são calculados para toda loja (coleta sempre, mostra com a chave)
+  biEnabled         Boolean  @default(false)
+  // trava da rodada de fatos do BI (carona no tráfego, nunca cron — ADR-002)
+  biFatosRunAt      DateTime?
   suspended         Boolean  @default(false) // acesso bloqueado pelo super admin (ex.: inadimplência)
   // última rodada das automações desta loja. É a TRAVA ATÔMICA que faz o
   // motor rodar de carona no tráfego normal, no máximo uma vez por dia, sem
@@ -136,6 +141,8 @@ model Company {
   horarioComercial    String?
 
   users          User[]
+  biDias         BiDia[]
+  biMetas        BiMeta[]
   customers      Customer[]
   abandonedCarts AbandonedCart[]
   tags           Tag[]
@@ -3625,4 +3632,61 @@ model FinOfxVinculo {
 
   @@unique([companyId, baixaId])
   @@index([linhaId])
+}
+
+/// FATOS DIÁRIOS DO BI DE VENDAS (RN-082, ADR-019): uma linha por loja × dia
+/// (calendário de SP), preenchida de carona no tráfego. O painel lê linhas
+/// prontas — nunca varre a tabela de mensagens a cada abertura.
+model BiDia {
+  id         String   @id @default(cuid())
+  companyId  String
+  company    Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  /// "2026-10-13" (calendário de São Paulo)
+  dia        String
+  /// contatos novos cadastrados no dia (qualquer origem — o portão único)
+  leads      Int      @default(0)
+  /// JSON {"WHATSAPP": 3, "CATALOGO_PUBLICO": 2, …}: de onde vieram
+  origens    String   @default("{}")
+  /// dos contatos novos do dia, quantos receberam resposta HUMANA (RN-080)
+  leadsRespondidos Int @default(0)
+  /// dos contatos novos do dia, quantos fizeram pedido (fora cancelado) e quantos pagaram
+  leadsComPedido Int @default(0)
+  leadsPagaram   Int @default(0)
+  /// esperas da cliente que COMEÇARAM no dia (RN-080), e como terminaram
+  esperas    Int      @default(0)
+  respondidas Int     @default(0)
+  noPrazo    Int      @default(0)
+  foraDoPrazo Int     @default(0)
+  semResposta Int     @default(0)
+  encerradasSemResposta Int @default(0)
+  /// minutos de atendimento (RN-079) das respondidas: mediana e p90
+  medianaMin Float?
+  p90Min     Float?
+  /// JSON [n≤5, n≤15, n≤30, n≤60, n≤120, n≤240, n>240] — a distribuição
+  /// permite somar dias (mediana de medianas não é mediana)
+  hist       String   @default("[0,0,0,0,0,0,0]")
+  /// pedidos CRIADOS no dia (fora os cancelados) e pedidos PAGOS no dia
+  pedidos    Int      @default(0)
+  pedidosPagos Int    @default(0)
+  /// valor vendido dos pagos no dia (netTotal, RN-002)
+  vendido    Float    @default(0)
+  atualizadoEm DateTime @default(now()) @updatedAt
+
+  @@unique([companyId, dia])
+}
+
+/// METAS DO MÊS DO BI (RN-082): a loja escolhe quais metas quer, por mês.
+/// `tipo` é um da lista fechada em lib/bi/metas.ts; `valor` na unidade do tipo
+/// (R$, unidades ou %).
+model BiMeta {
+  id        String   @id @default(cuid())
+  companyId String
+  company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  /// "2026-10" (calendário de SP)
+  mes       String
+  tipo      String
+  valor     Float
+  updatedAt DateTime @default(now()) @updatedAt
+
+  @@unique([companyId, mes, tipo])
 }
