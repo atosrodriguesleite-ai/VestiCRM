@@ -15,6 +15,7 @@ import { Abas, lerAba } from "./abas";
 import { VendedorasView } from "./vendedoras-view";
 import { CarteiraView } from "./carteira-view";
 import { montarCarteira } from "@/lib/bi/carteira";
+import { hrefDaLista } from "@/lib/bi/listas";
 import { montarAnuncios } from "@/lib/bi/anuncios";
 import { AnunciosView } from "./anuncios-view";
 import type { Origin } from "@prisma/client";
@@ -115,6 +116,8 @@ export default async function BiPage({
 
   const painel = await montarPainel(user.companyId, periodo, agora);
   const { atual, passado, hoje: h, funil, serie } = painel;
+  // CLICAR E CAVAR (RN-086): o número leva à lista de quem está por trás dele
+  const lista = (tipo: "sem-resposta" | "contatos" | "vendas") => hrefDaLista({ tipo, de: painel.periodo.de, ate: painel.periodo.ate, aba: "painel" });
   const dias = serie.length;
   const rotuloDoMes = new Intl.DateTimeFormat("pt-BR", { month: "long", year: "numeric", timeZone: "America/Sao_Paulo" }).format(agora);
   const totalRespondidas = atual.hist.reduce((a, b) => a + b, 0);
@@ -133,13 +136,14 @@ export default async function BiPage({
             valor={String(h.esperandoAgora)}
             icone={<MessageSquareWarning className="size-4" />}
             tom={h.esperandoAgora > 0 ? "warn" : "ok"}
+            href={hrefDaLista({ tipo: "esperando-agora", de: painel.periodo.de, ate: painel.periodo.ate, aba: "painel" })}
           />
           <Vivo rotulo="Pedidos pagos" valor={String(h.pedidosPagos)} icone={<ShoppingBag className="size-4" />} />
           <Vivo rotulo="Vendido" valor={brl(h.vendido)} icone={<Wallet className="size-4" />} />
         </div>
         <p className="text-[11px] text-slate-400 mt-3">
-          Prazo de resposta da loja: {company?.intakeSlaMinutes ?? 60} min com a loja aberta. Quem está esperando
-          aparece na aba Fila da Central.
+          Prazo de resposta da loja: {company?.intakeSlaMinutes ?? 60} min com a loja aberta. Toque num número para
+          ver quem está por trás dele.
           {painel.atualizadoEm && (
             <> Fatos atualizados {new Intl.DateTimeFormat("pt-BR", { timeStyle: "short", timeZone: "America/Sao_Paulo" }).format(painel.atualizadoEm)}.</>
           )}
@@ -148,14 +152,16 @@ export default async function BiPage({
 
       {/* OS SEIS NÚMEROS DO PERÍODO */}
       <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4 mt-4">
-        <StatCard
-          label="Novos contatos"
-          value={atual.leads}
-          delta={variacao(atual.leads, passado.leads)}
-          hint={`${dias} dias · ${Object.keys(atual.origens).length} origens`}
-          icon={<Users className="size-4" />}
-          series={serie.map((s) => s.leads)}
-        />
+        <Cavar href={lista("contatos")}>
+          <StatCard
+            label="Novos contatos"
+            value={atual.leads}
+            delta={variacao(atual.leads, passado.leads)}
+            hint={`${dias} dias · ${Object.keys(atual.origens).length} origens · toque para ver quem`}
+            icon={<Users className="size-4" />}
+            series={serie.map((s) => s.leads)}
+          />
+        </Cavar>
         <StatCard
           label="Respondidos no prazo"
           value={atual.pctNoPrazo}
@@ -173,22 +179,26 @@ export default async function BiPage({
           info="Esperas da cliente que começaram no período e foram respondidas por uma pessoa da loja dentro do prazo, em minutos com a loja aberta. Mensagem automática não conta."
           icon={<Clock className="size-4" />}
         />
-        <StatCard
-          label="Sem resposta"
-          value={atual.semResposta}
-          tone={atual.semResposta > 0 ? "bad" : "good"}
-          hint="clientes que escreveram e ninguém da loja respondeu"
-          icon={<Inbox className="size-4" />}
-        />
-        <StatCard
-          label="Vendido no período"
-          value={atual.vendido}
-          format="brl"
-          delta={variacao(atual.vendido, passado.vendido)}
-          hint={`${atual.pedidosPagos} pedidos pagos`}
-          icon={<Wallet className="size-4" />}
-          series={serie.map((s) => s.vendido)}
-        />
+        <Cavar href={lista("sem-resposta")}>
+          <StatCard
+            label="Sem resposta"
+            value={atual.semResposta}
+            tone={atual.semResposta > 0 ? "bad" : "good"}
+            hint="clientes que escreveram e ninguém da loja respondeu · toque para ver quem"
+            icon={<Inbox className="size-4" />}
+          />
+        </Cavar>
+        <Cavar href={lista("vendas")}>
+          <StatCard
+            label="Vendido no período"
+            value={atual.vendido}
+            format="brl"
+            delta={variacao(atual.vendido, passado.vendido)}
+            hint={`${atual.pedidosPagos} pedidos pagos · toque para ver quais`}
+            icon={<Wallet className="size-4" />}
+            series={serie.map((s) => s.vendido)}
+          />
+        </Cavar>
         <StatCard
           label="Ticket médio"
           value={atual.ticket}
@@ -297,25 +307,43 @@ export default async function BiPage({
   );
 }
 
+/** o cartão vira link para a lista por trás do número (RN-086) */
+function Cavar({ href, children }: { href: string; children: React.ReactNode }) {
+  return (
+    <Link href={href} className="block rounded-2xl ring-brand-300 hover:ring-2 transition" title="Ver a lista">
+      {children}
+    </Link>
+  );
+}
+
 function Vivo({
   rotulo,
   valor,
   icone,
   tom = "neutro",
+  href,
 }: {
   rotulo: string;
   valor: string;
   icone: React.ReactNode;
   tom?: "neutro" | "warn" | "ok";
+  href?: string;
 }) {
   const cor = tom === "warn" ? "text-amber-300" : tom === "ok" ? "text-emerald-300" : "text-white";
-  return (
-    <div>
+  const corpo = (
+    <>
       <p className="text-xs text-slate-300 flex items-center gap-1.5">
         {icone}
         {rotulo}
       </p>
       <p className={`text-3xl font-semibold tabular-nums mt-1 ${cor}`}>{valor}</p>
-    </div>
+    </>
+  );
+  return href ? (
+    <Link href={href} className="block rounded-xl -m-2 p-2 hover:bg-white/10 transition" title="Ver quem">
+      {corpo}
+    </Link>
+  ) : (
+    <div>{corpo}</div>
   );
 }

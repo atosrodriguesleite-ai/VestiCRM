@@ -3,19 +3,16 @@
 import Link from "next/link";
 import { Gauge, Heart, Megaphone, Users } from "lucide-react";
 
-export type AbaDoBi = "painel" | "vendedoras" | "clientes" | "anuncios";
+import { ABAS_DO_BI, type AbaDoBi } from "@/lib/bi/abas";
+export { lerAba, type AbaDoBi } from "@/lib/bi/abas";
 
-const ABAS: { id: AbaDoBi; rotulo: string; icon: React.ComponentType<{ className?: string }> }[] = [
-  { id: "painel", rotulo: "Painel", icon: Gauge },
-  { id: "vendedoras", rotulo: "Vendedoras", icon: Users },
-  { id: "clientes", rotulo: "Clientes", icon: Heart },
-  { id: "anuncios", rotulo: "Anúncios", icon: Megaphone },
-];
-
-/** A aba pedida na URL — uma fonte só com a lista (aba nova entra aqui e na página de uma vez). */
-export function lerAba(pedida: string | undefined): AbaDoBi {
-  return ABAS.some((a) => a.id === pedida) ? (pedida as AbaDoBi) : "painel";
-}
+const ROTULO: Record<AbaDoBi, { rotulo: string; icon: React.ComponentType<{ className?: string }> }> = {
+  painel: { rotulo: "Painel", icon: Gauge },
+  vendedoras: { rotulo: "Vendedoras", icon: Users },
+  clientes: { rotulo: "Clientes", icon: Heart },
+  anuncios: { rotulo: "Anúncios", icon: Megaphone },
+};
+const ABAS = ABAS_DO_BI.map((id) => ({ id, ...ROTULO[id] }));
 
 /** As abas do BI — links de verdade (a URL diz onde a pessoa está), levando o período junto. */
 export function Abas({ ativa, de, ate }: { ativa: AbaDoBi; de?: string; ate?: string }) {

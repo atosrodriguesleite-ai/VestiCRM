@@ -175,8 +175,8 @@ describe("a porta e a aba", () => {
     expect(rota).toMatch(/valor === null \|\| valor === 0/);
   });
   it("a aba Anúncios existe no BI e o editor remonta por período", () => {
-    const abas = readFileSync(join(__dirname, "../../app/(app)/bi/abas.tsx"), "utf8");
-    expect(abas).toMatch(/id: "anuncios"/);
+    const abas = readFileSync(join(__dirname, "../bi/abas.ts"), "utf8");
+    expect(abas).toMatch(/"anuncios"/);
     const page = readFileSync(join(__dirname, "../../app/(app)/bi/page.tsx"), "utf8");
     expect(page).toMatch(/montarAnuncios\(user\.companyId, periodo\)/);
     const view = readFileSync(join(__dirname, "../../app/(app)/bi/anuncios-view.tsx"), "utf8");

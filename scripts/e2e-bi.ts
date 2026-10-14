@@ -203,6 +203,29 @@ async function main() {
   const anSet = await montarAnuncios(company.id, { de: "2026-09-01", ate: "2026-09-30" });
   igual([anSet.linhas[0]?.gasto, anSet.linhas[0]?.leads, anSet.linhas[0]?.vendido, anSet.linhas[0]?.retorno], [999, 1, 0, 0], "setembro: gasto 999, coorte k1, nada vendido, retorno 0");
 
+  console.log("\n7) Clicar e cavar (RN-086): as listas por trás dos números");
+  const { montarLista } = await import("@/lib/bi/listas");
+  const esperando = await montarLista(sessao, { tipo: "esperando-agora" }, agora);
+  igual(esperando.linhas.map((l) => [l.titulo, l.href]), [["K3", `/whatsapp?conv=${c3.id}`]], "esperando agora: só K3 (c4 está encerrada), levando à conversa");
+  const semResp = await montarLista(sessao, { tipo: "sem-resposta", de: "2026-10-12", ate: "2026-10-13" }, agora);
+  igual(semResp.linhas.map((l) => l.titulo), ["K3"], "sem resposta no período: K3 (a espera aberta e não encerrada)");
+  const semRespAna = await montarLista(sessao, { tipo: "sem-resposta", de: "2026-10-12", ate: "2026-10-13", vendedora: ana.id }, agora);
+  igual(semRespAna.linhas.length, 1, "sem resposta da Ana: c3 é dela");
+  const semRespBia = await montarLista(sessao, { tipo: "sem-resposta", de: "2026-10-12", ate: "2026-10-13", vendedora: bia.id }, agora);
+  igual(semRespBia.linhas.length, 0, "sem resposta da Bia: nenhuma");
+  const contatos = await montarLista(sessao, { tipo: "contatos", de: "2026-10-12", ate: "2026-10-13" }, agora);
+  igual(contatos.total, 3, "contatos novos do período: 3 (k1 virou de setembro no bloco 6)");
+  const contatosAna = await montarLista(sessao, { tipo: "contatos", de: "2026-10-12", ate: "2026-10-13", vendedora: ana.id }, agora);
+  igual(contatosAna.linhas.map((l) => l.titulo), ["K3"], "carteira da Ana no período: K3 (k1 saiu do período)");
+  const vendas = await montarLista(sessao, { tipo: "vendas", de: "2026-10-12", ate: "2026-10-13" }, agora);
+  igual(vendas.linhas.map((l) => l.titulo.split(" · ")[1]), ["K2", "K4"], "vendas do período: K2 e K4 (o pedido 1 foi cancelado), pela data do pagamento");
+  const vendasBia = await montarLista(sessao, { tipo: "vendas", de: "2026-10-12", ate: "2026-10-13", vendedora: bia.id }, agora);
+  igual([vendasBia.linhas.length, vendasBia.linhas[0]?.destaque?.replace(/\u00a0/g, " ")], [1, "R$ 200"], "vendas da Bia: o pedido de R$ 200");
+  const vendasCamp = await montarLista(sessao, { tipo: "vendas", de: "2026-10-12", ate: "2026-10-13", campanha: camp.id }, agora);
+  igual(vendasCamp.linhas.length, 1, "vendas das clientes do anúncio: só K2");
+  const celula = await montarLista(sessao, { tipo: "carteira", freq: "UMA" }, agora);
+  igual(celula.total, 2, "carteira, 1 compra: K2 e K4");
+
   await db.company.delete({ where: { id: company.id } });
   console.log(process.exitCode ? "\n❌ Falhou" : "\n✅ Tudo conferido");
 }

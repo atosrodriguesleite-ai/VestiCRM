@@ -1,5 +1,7 @@
+import Link from "next/link";
 import { Card, Avatar, EmptyState } from "@/components/ui";
 import { brl } from "@/lib/format";
+import { hrefDaLista } from "@/lib/bi/listas";
 import type { Vendedoras } from "@/lib/bi/painel";
 
 const pct = (v: number | null) => (v == null ? "—" : `${v}%`);
@@ -13,6 +15,14 @@ const minutos = (v: number | null) => (v == null ? "—" : v === Infinity ? "> 4
  */
 export function VendedorasView({ dados, dias }: { dados: Vendedoras; dias: number }) {
   const { pessoas, loja, semVendedora, diasSemVendedoras } = dados;
+  // CLICAR E CAVAR (RN-086): a célula leva à lista daquela pessoa no período
+  const lista = (tipo: "sem-resposta" | "contatos" | "vendas", vendedora?: string) =>
+    hrefDaLista({ tipo, de: dados.periodo.de, ate: dados.periodo.ate, vendedora, aba: "vendedoras" });
+  const cel = (href: string, texto: React.ReactNode, cls = "") => (
+    <Link href={href} className={`underline decoration-dotted underline-offset-2 hover:text-brand-700 ${cls}`}>
+      {texto}
+    </Link>
+  );
   // a linha da loja na tabela responde a MESMA pergunta das pessoas: das que
   // ALGUÉM respondeu, quantas no prazo (a aberta estourada fica em "sem
   // resposta"); o número do painel inclui a aberta, e é outra pergunta
@@ -105,7 +115,7 @@ export function VendedorasView({ dados, dias }: { dados: Vendedoras; dias: numbe
                           <span className="font-medium">{p.nome}</span>
                         </span>
                       </td>
-                      <td className="px-3 py-2.5 text-right tabular-nums">{p.leads}</td>
+                      <td className="px-3 py-2.5 text-right tabular-nums">{cel(lista("contatos", p.userId), p.leads)}</td>
                       <td className="px-3 py-2.5 text-right tabular-nums">
                         {p.leadsPagaram}
                         <span className="text-gray-400 text-xs"> ({pct(p.conversaoPct)})</span>
@@ -113,9 +123,11 @@ export function VendedorasView({ dados, dias }: { dados: Vendedoras; dias: numbe
                       <td className="px-3 py-2.5 text-right tabular-nums">{p.respondidas}</td>
                       <td className="px-3 py-2.5 text-right tabular-nums">{pct(p.pctNoPrazo)}</td>
                       <td className="px-3 py-2.5 text-right tabular-nums">{minutos(p.medianaAproxMin)}</td>
-                      <td className={`px-3 py-2.5 text-right tabular-nums ${p.semResposta > 0 ? "text-rose-600 font-medium" : ""}`}>{p.semResposta}</td>
+                      <td className="px-3 py-2.5 text-right tabular-nums">
+                        {p.semResposta > 0 ? cel(lista("sem-resposta", p.userId), p.semResposta, "text-rose-600 font-medium") : p.semResposta}
+                      </td>
                       <td className="px-3 py-2.5 text-right tabular-nums">{p.pedidosPagos}</td>
-                      <td className="px-3 py-2.5 text-right tabular-nums font-medium">{brl(p.vendido)}</td>
+                      <td className="px-3 py-2.5 text-right tabular-nums font-medium">{cel(lista("vendas", p.userId), brl(p.vendido))}</td>
                       <td className="px-3 py-2.5 text-right tabular-nums">{p.ticket == null ? "—" : brl(p.ticket)}</td>
                     </tr>
                   ))}
@@ -138,14 +150,14 @@ export function VendedorasView({ dados, dias }: { dados: Vendedoras; dias: numbe
                   )}
                   <tr className="border-t-2 border-gray-200 font-semibold bg-gray-50/50">
                     <td className="px-4 py-2.5">Loja</td>
-                    <td className="px-3 py-2.5 text-right tabular-nums">{loja.leads}</td>
+                    <td className="px-3 py-2.5 text-right tabular-nums">{cel(lista("contatos"), loja.leads)}</td>
                     <td className="px-3 py-2.5 text-right tabular-nums">{loja.leadsPagaram}</td>
                     <td className="px-3 py-2.5 text-right tabular-nums">{loja.respondidas}</td>
                     <td className="px-3 py-2.5 text-right tabular-nums">{pct(lojaNoPrazoDasRespondidas)}</td>
                     <td className="px-3 py-2.5 text-right tabular-nums">{minutos(loja.medianaAproxMin)}</td>
-                    <td className="px-3 py-2.5 text-right tabular-nums">{loja.semResposta}</td>
+                    <td className="px-3 py-2.5 text-right tabular-nums">{cel(lista("sem-resposta"), loja.semResposta)}</td>
                     <td className="px-3 py-2.5 text-right tabular-nums">{loja.pedidosPagos}</td>
-                    <td className="px-3 py-2.5 text-right tabular-nums">{brl(loja.vendido)}</td>
+                    <td className="px-3 py-2.5 text-right tabular-nums">{cel(lista("vendas"), brl(loja.vendido))}</td>
                     <td className="px-3 py-2.5 text-right tabular-nums">{loja.ticket == null ? "—" : brl(loja.ticket)}</td>
                   </tr>
                 </tbody>
@@ -158,7 +170,7 @@ export function VendedorasView({ dados, dias }: { dados: Vendedoras; dias: numbe
             estourada como fora do prazo). «Pagaram» é quantos dos contatos novos da carteira dela pagaram um pedido
             em até 7 dias (o funil por fatos). «Metade em» é o tempo em que metade das clientes que ela respondeu já
             tinha resposta, em minutos com a loja aberta. A linha «Loja» é o painel inteiro — a diferença para a soma
-            das pessoas é o que não tem dona.
+            das pessoas é o que não tem dona. Os números sublinhados abrem a lista de quem está por trás deles.
           </p>
         </>
       )}

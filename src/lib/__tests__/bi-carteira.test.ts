@@ -139,8 +139,8 @@ describe("fonte única", () => {
     expect((rec.match(/where: ONDE_PEDIDO_PAGO/g) ?? []).length).toBe(2);
   });
   it("a aba Clientes existe no BI", () => {
-    const abas = readFileSync(join(__dirname, "../../app/(app)/bi/abas.tsx"), "utf8");
-    expect(abas).toMatch(/id: "clientes"/);
+    const abas = readFileSync(join(__dirname, "../bi/abas.ts"), "utf8");
+    expect(abas).toMatch(/"clientes"/);
     const page = readFileSync(join(__dirname, "../../app/(app)/bi/page.tsx"), "utf8");
     expect(page).toMatch(/montarCarteira\(user, periodo\)/);
   });

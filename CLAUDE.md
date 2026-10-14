@@ -2047,6 +2047,41 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   decidir se o total vira a soma dos meses; os links de campanha da
   Inteligência (`TrackCampaign`, cliques e meta) não entram aqui — são
   links do catálogo, não anúncios pagos.
+- **RN-086 · CLICAR E CAVAR: TODO NÚMERO DO BI ABRE A LISTA DE QUEM ESTÁ
+  POR TRÁS DELE** (`lib/bi/listas.ts` + página `/bi/lista`, 14/10/2026): a
+  primeira das cinco recomendações que o dono aceitou para o BI virar
+  "completo e dinâmico" (as outras: linha de 12 meses, faixa "hoje" viva,
+  visual, exportar PDF). "12 sem resposta" não serve para nada se o dono não
+  consegue ver QUEM são as doze — é a diferença entre relatório e BI. Então
+  os números viram link: no Painel (esperando agora, novos contatos, sem
+  resposta, vendido), em Vendedoras (contatos, sem resposta e vendido de
+  cada pessoa e da loja), em Anúncios (contatos e vendas de cada campanha) e
+  em Clientes (cada célula da matriz e o total da faixa). **A régua da lista
+  é a MESMA do número que a abriu**, escrita uma vez em `montarLista`:
+  esperando agora pela SQL do painel (RN-082), **desde a PRIMEIRA mensagem
+  sem resposta** (RN-080 — pela última, a cliente que insiste "oi?" parecia
+  recém-chegada; achado da revisão) e vermelho pelo prazo da loja; sem
+  resposta pelo motor das esperas (`parearEsperas`, RN-080) **lendo só as
+  conversas que estão esperando agora** (a espera ainda aberta mora numa
+  delas — ler a loja inteira era a consulta mais pesada do app a cada
+  clique, achado da revisão; em lotes de ids, com teto de conversas dito),
+  por vendedora as das conversas que ela assumiu (RN-083); contatos por cadastro no período, por carteira ou por campanha
+  de anúncio (RN-085); vendas por pagamento no período, `netTotal`
+  (RN-001/RN-002), por vendedora (RN-005) ou por cliente da campanha;
+  carteira pela lista leve da Recompra (RN-084). Toda lista é recortada
+  pela loja (RN-013), tem teto (`TETO_DA_LISTA`, 300) e diz quantas havia;
+  cada linha leva ao caminho de sempre — a conversa (`/whatsapp?conv=`, a
+  única forma de link para a Central, régua do teste de agenda), a ficha da
+  cliente ou a ficha do pedido — e o "voltar" devolve à aba e ao período de
+  onde a pessoa veio. O endereço é montado por `hrefDaLista` e lido por
+  `lerFiltro` (tipo fora da lista, dia que não existe, faixa torta ou
+  parâmetro repetido na URL recusam a lista inteira, nunca mostram a loja
+  disfarçada de resultado); a lista das abas mora em `lib/bi/abas.ts`, uma
+  para a tela e as listas. Só gerência, pela porteira do BI. **Limite dito
+  NA TELA**: o número do BI vem dos fatos do dia (o passado congela,
+  RN-082) e a lista é de AGORA — a espera respondida depois de o dia
+  congelar, o pedido cancelado hoje, estão no número e não na lista; a
+  página escreve isso embaixo do total.
 - **Communication Engine** (`lib/comm/`): camada única de envio/recebimento,
   agnóstica de provedor. `EvolutionProvider` = WhatsApp NÃO-oficial via
   Evolution API **self-hosted** (VPS Hostinger srv1853369.hstgr.cloud,
@@ -3616,8 +3651,11 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   **Fase 2a ✅ (RN-083, 14/10/2026)**: aba Vendedoras (fatos por pessoa).
   **Fase 2b ✅ (RN-084, 14/10/2026)**: aba Clientes (a carteira da Recompra
   em R × F × M). **Fase 2c ✅ (RN-085, 14/10/2026)**: aba Anúncios (gasto
-  por mês × contatos × vendas) — **Fase 2 concluída**. **Fase 3**: modo TV, benchmark entre lojas (Super
-  Admin), resumo semanal no WhatsApp do dono. Decisões do dono: só gerência
+  por mês × contatos × vendas) — **Fase 2 concluída**. **Fase 3 ("completo
+  e dinâmico", ordem aceita pelo dono em 14/10/2026)**: clicar e cavar
+  (RN-086 ✅) → linha de 12 meses → faixa "hoje" viva → visual → exportar
+  PDF; depois, benchmark entre lojas (Super Admin) e resumo semanal no
+  WhatsApp do dono. **Modo TV adiado** pelo dono. Decisões do dono: só gerência
   vê; origem do lead segue automática (sem marcação manual); metas de
   qualquer tipo, a loja escolhe; prazo dentro do horário comercial.
 - WhatsApp/Evolution: operacional em produção (conexão, tempo real, mídia).

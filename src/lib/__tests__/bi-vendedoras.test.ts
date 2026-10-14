@@ -193,8 +193,8 @@ describe("o motor grava as linhas por vendedora na mesma rodada, derivadas", () 
     expect(src).toMatch(/db\.user\.findMany\(\{ where: \{ companyId \}, select: \{ id: true \} \}\)/);
   });
   it("a aba Vendedoras existe no BI e leva o período junto", () => {
-    const abas = readFileSync(join(__dirname, "../../app/(app)/bi/abas.tsx"), "utf8");
-    expect(abas).toMatch(/id: "vendedoras"/);
+    const abas = readFileSync(join(__dirname, "../bi/abas.ts"), "utf8");
+    expect(abas).toMatch(/"vendedoras"/);
     const page = readFileSync(join(__dirname, "../../app/(app)/bi/page.tsx"), "utf8");
     expect(page).toMatch(/montarVendedoras\(user\.companyId, periodo\)/);
   });

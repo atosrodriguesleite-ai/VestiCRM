@@ -2,6 +2,7 @@ import Link from "next/link";
 import { Card, Avatar, EmptyState } from "@/components/ui";
 import { brl } from "@/lib/format";
 import { FAIXAS, FREQUENCIAS, totalDaFaixa, type Carteira } from "@/lib/bi/carteira";
+import { hrefDaLista } from "@/lib/bi/listas";
 
 const pct = (v: number | null) => (v == null ? "—" : `${v}%`);
 
@@ -60,7 +61,7 @@ export function CarteiraView({ dados, dias }: { dados: Carteira; dias: number })
         <p className="text-xs text-gray-400 mb-3">
           Linha: há quanto tempo comprou pela última vez. Coluna: quantas compras na vida. Em cada célula, quantas
           clientes, o total que compraram e o valor médio por compra. A que comprou uma vez e sumiu é a mais barata de
-          recuperar; a fiel que esfriou é a mais cara de perder.
+          recuperar; a fiel que esfriou é a mais cara de perder. Toque no número para ver quem.
         </p>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
@@ -90,7 +91,13 @@ export function CarteiraView({ dados, dias }: { dados: Carteira; dias: number })
                           <span className="text-gray-300">—</span>
                         ) : (
                           <>
-                            <span className="font-semibold">{cel.clientes}</span>
+                            <Link
+                              href={hrefDaLista({ tipo: "carteira", faixa: f.id, freq: q.id, aba: "clientes", de: dados.periodo.de, ate: dados.periodo.ate })}
+                              className="font-semibold underline decoration-dotted underline-offset-2 hover:text-brand-700"
+                              title="Ver quem"
+                            >
+                              {cel.clientes}
+                            </Link>
                             <span className="block text-[11px] text-gray-400">
                               {brl(cel.total)} · {cel.mediaPorCompra == null ? "—" : brl(cel.mediaPorCompra)}/compra
                             </span>
@@ -100,7 +107,13 @@ export function CarteiraView({ dados, dias }: { dados: Carteira; dias: number })
                     );
                   })}
                   <td className="px-3 py-2.5 text-right tabular-nums align-top">
-                    <span className="font-semibold">{resumo.porFaixa[f.id].clientes}</span>
+                    <Link
+                      href={hrefDaLista({ tipo: "carteira", faixa: f.id, aba: "clientes", de: dados.periodo.de, ate: dados.periodo.ate })}
+                      className="font-semibold underline decoration-dotted underline-offset-2 hover:text-brand-700"
+                      title="Ver quem"
+                    >
+                      {resumo.porFaixa[f.id].clientes}
+                    </Link>
                     <span className="block text-[11px] text-gray-400">{brl(totalDaFaixa(matriz, f.id))}</span>
                   </td>
                 </tr>

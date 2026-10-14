@@ -1,5 +1,7 @@
+import Link from "next/link";
 import { Card, EmptyState } from "@/components/ui";
 import { brl } from "@/lib/format";
+import { hrefDaLista } from "@/lib/bi/listas";
 import { rotuloDoCanal, type Anuncios } from "@/lib/bi/anuncios";
 import { GastosDeAnuncio } from "./gastos-de-anuncio";
 
@@ -15,6 +17,14 @@ const pct = (v: number | null) => (v == null ? "—" : `${v}%`);
  */
 export function AnunciosView({ dados, dias }: { dados: Anuncios; dias: number }) {
   const { linhas, totais, meses } = dados;
+  // CLICAR E CAVAR (RN-086): contatos e vendas da campanha no período
+  const lista = (tipo: "contatos" | "vendas", campanha: string) =>
+    hrefDaLista({ tipo, de: dados.periodo.de, ate: dados.periodo.ate, campanha, aba: "anuncios" });
+  const cel = (href: string, texto: React.ReactNode) => (
+    <Link href={href} className="underline decoration-dotted underline-offset-2 hover:text-brand-700">
+      {texto}
+    </Link>
+  );
   const rotuloDosMeses = meses.length === 1 ? "o mês" : `os ${meses.length} meses`;
   return (
     <div className="space-y-4">
@@ -86,14 +96,14 @@ export function AnunciosView({ dados, dias }: { dados: Anuncios; dias: number })
                         </span>
                       </td>
                       <td className="px-3 py-2.5 text-right tabular-nums">{l.gasto ? brl(l.gasto) : <span className="text-gray-300">—</span>}</td>
-                      <td className="px-3 py-2.5 text-right tabular-nums">{l.leads}</td>
+                      <td className="px-3 py-2.5 text-right tabular-nums">{cel(lista("contatos", l.id), l.leads)}</td>
                       <td className="px-3 py-2.5 text-right tabular-nums">{dinheiro(l.cac)}</td>
                       <td className="px-3 py-2.5 text-right tabular-nums">
                         {l.pagaram}
                         <span className="text-gray-400 text-xs"> ({pct(l.conversaoPct)})</span>
                       </td>
                       <td className="px-3 py-2.5 text-right tabular-nums">{dinheiro(l.custoPorVenda)}</td>
-                      <td className="px-3 py-2.5 text-right tabular-nums font-medium">{brl(l.vendido)}</td>
+                      <td className="px-3 py-2.5 text-right tabular-nums font-medium">{cel(lista("vendas", l.id), brl(l.vendido))}</td>
                       <td className={`px-3 py-2.5 text-right tabular-nums font-semibold ${l.retorno == null ? "text-gray-400" : l.retorno >= 1 ? "text-emerald-600" : "text-rose-600"}`}>{vezes(l.retorno)}</td>
                     </tr>
                   ))}
