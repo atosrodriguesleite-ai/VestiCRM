@@ -2100,6 +2100,33 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   diz a partir de que mês o tempo de resposta é contado. O cartão fica fora
   do filtro de período (é a tendência da loja). Ticket = vendido ÷ pedidos
   pagos do mês. **Limite dito**: o mês corrente conta até hoje.
+- **RN-088 · A FAIXA "HOJE" É AO VIVO E SE ATUALIZA SOZINHA** (`lib/bi/hoje.ts`
+  + rota `/api/bi/hoje` + `faixa-de-hoje.tsx`, 14/10/2026): a terceira
+  recomendação aceita pelo dono. Os quatro números de hoje (contatos novos,
+  esperando agora, pedidos pagos, vendido) deixam de vir do fato do dia
+  (refeito a cada 30 min pela carona) e passam a ser **calculados na hora**,
+  por três consultas pequenas (o índice `Customer(companyId, createdAt)`
+  nasceu aqui, migração 20261014190000 — a conta de "contatos de hoje"
+  varria a loja; e o painel deixou de repetir a consulta do "esperando
+  agora", que agora tem UM lugar), pelas réguas de sempre —
+  cliente cadastrada hoje (0h de SP), pedido pago hoje pela data do
+  pagamento com `netTotal` (RN-001/RN-002), a cláusula do "esperando agora"
+  (RN-082). A tela **pede de novo a cada 30 s enquanto a aba está visível**
+  (escondida, para — ninguém olha, e cada pedido é banco; ao voltar para a
+  aba pede na hora), mostra "ao vivo · atualizado há N s" (o relógio é
+  componente próprio: só ele redesenha a cada segundo, e o leitor de tela
+  anuncia só a falha, não os segundos), e se um pedido falhar **mantém o
+  último número bom** e diz O QUE foi — 401 "sua sessão venceu, entre em
+  outra aba" (RN-064), 403/404 "o BI não está mais disponível", o resto
+  "sem conexão" — nunca pisca zero. A parte pura mora em `hoje-regra.ts`
+  (o navegador não pode importar o motor com Prisma; o guarda
+  `navegador-sem-servidor` derruba). Provado com a tela de verdade em
+  jsdom (`faixa-de-hoje.test.tsx`: escondida não pede, ao voltar pede,
+  401 mantém o número e diz). A rota passa pela porteira do BI (gerência,
+  com a chave). O rodapé
+  continua dizendo quando os fatos do PERÍODO foram atualizados — são dois
+  relógios, e a faixa diz qual é o dela. **Limite dito**: "esperando agora"
+  segue lendo `lastOutboundAt`, que o robô ainda carimba (RN-080).
 - **Communication Engine** (`lib/comm/`): camada única de envio/recebimento,
   agnóstica de provedor. `EvolutionProvider` = WhatsApp NÃO-oficial via
   Evolution API **self-hosted** (VPS Hostinger srv1853369.hstgr.cloud,
@@ -3671,8 +3698,8 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   em R × F × M). **Fase 2c ✅ (RN-085, 14/10/2026)**: aba Anúncios (gasto
   por mês × contatos × vendas) — **Fase 2 concluída**. **Fase 3 ("completo
   e dinâmico", ordem aceita pelo dono em 14/10/2026)**: clicar e cavar
-  (RN-086 ✅) → linha de 12 meses (RN-087 ✅) → faixa "hoje" viva → visual
-  → exportar PDF; depois, benchmark entre lojas (Super Admin) e resumo semanal no
+  (RN-086 ✅) → linha de 12 meses (RN-087 ✅) → faixa "hoje" viva (RN-088
+  ✅) → visual → exportar PDF; depois, benchmark entre lojas (Super Admin) e resumo semanal no
   WhatsApp do dono. **Modo TV adiado** pelo dono. Decisões do dono: só gerência
   vê; origem do lead segue automática (sem marcação manual); metas de
   qualquer tipo, a loja escolhe; prazo dentro do horário comercial.

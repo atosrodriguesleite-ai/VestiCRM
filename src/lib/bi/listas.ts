@@ -337,6 +337,8 @@ export async function montarLista(user: SessionUser, f: FiltroDaLista, agora = n
 
   // carteira: a célula da matriz R × F, pela MESMA lista da Recompra (RN-084)
   const aba = await dadosDaAbaRecompra(user, { leve: true });
+  // frete-ok: `ClienteDeRecompra.total` é o total COMPRADO na vida (soma de
+  // netTotal, a régua da Recompra), não o `total` do pedido com frete
   const clientes = aba.clientes
     .filter((c) => (!f.faixa || c.faixa === f.faixa) && (!f.freq || frequenciaDe(c.compras) === f.freq))
     .sort((a, b) => b.total - a.total);
@@ -350,6 +352,7 @@ export async function montarLista(user: SessionUser, f: FiltroDaLista, agora = n
       id: c.id,
       titulo: `${c.name}${c.vip != null ? ` · VIP #${c.vip}` : ""}`,
       subtitulo: `${c.compras} compra${c.compras === 1 ? "" : "s"} · última há ${c.diasDesde} dias${c.passouDoPonto ? " · passou do ritmo" : ""}`,
+      // frete-ok: idem, o total comprado da cliente (netTotal somado)
       destaque: brl(c.total),
       href: `/clientes/${c.id}`,
       tom: c.passouDoPonto ? "warn" : "neutro",

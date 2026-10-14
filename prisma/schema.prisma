@@ -715,6 +715,7 @@ model Customer {
   creditos      CustomerCredit[]
 
   @@index([companyId])
+  @@index([companyId, createdAt]) // RN-088/RN-087: "contatos de hoje" e por mês, sem varrer a loja
   @@index([companyId, ownerId])
   @@index([companyId, adRef])
   // varredura diária de aniversariantes

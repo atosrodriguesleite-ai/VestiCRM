@@ -117,7 +117,6 @@ async function main() {
   igual(painel.atual.leads, 4, "período: 4 contatos");
   igual(painel.atual.pctNoPrazo, 33, "período: 1 de 3 decididas no prazo = 33%");
   igual([painel.atual.pedidosPagos, painel.atual.vendido, painel.atual.ticket], [3, 370.5, 123.5], "período: 3 pagos, R$ 370,50, ticket R$ 123,50");
-  igual(painel.hoje.esperandoAgora, 1, "esperando agora: só c3 (c4 está encerrada)");
   igual(painel.funil, { leads: 4, respondidos: 2, comPedido: 3, pagaram: 3 }, "funil por fatos: 4 → 2 → 3 → 3 (o cancelado de k3 não é pedido; k4 pagou na loja online)");
   igual(painel.realizado.FATURAMENTO, 370.5, "realizado do mês: faturamento R$ 370,50");
   igual(painel.realizado.NOVOS_CONTATOS, 4, "realizado do mês: 4 contatos");
@@ -240,6 +239,11 @@ async function main() {
   igual([out.leads, out.pedidosPagos, out.vendido, out.ticket], [3, 2, 270, 135], "outubro: 3 contatos (k1 foi para setembro), 2 pagos, R$ 270, ticket R$ 135");
   igual([set.leads, set.pedidosPagos, set.vendido, set.pctNoPrazo], [2, 1, 40, null], "setembro: k1 e a cliente das 22:30 de 30/09 (SP), a venda dela de R$ 40, sem fato de atendimento (nulo)");
   conferir(out.diasComFato >= 2 && out.pctNoPrazo != null, `outubro tem fato de atendimento (${out.diasComFato} dias, no prazo ${out.pctNoPrazo}%)`);
+
+  console.log("\n9) A faixa 'hoje' ao vivo (RN-088)");
+  const { numerosDeHoje } = await import("@/lib/bi/hoje");
+  const hoje = await numerosDeHoje(company.id, agora);
+  igual([hoje.dia, hoje.leads, hoje.pedidosPagos, hoje.vendido, hoje.esperandoAgora], ["2026-10-13", 0, 1, 200, 1], "terça: nenhum contato novo, 1 pago (K2, R$ 200), 1 esperando (c3)");
 
   await db.company.delete({ where: { id: company.id } });
   console.log(process.exitCode ? "\n❌ Falhou" : "\n✅ Tudo conferido");

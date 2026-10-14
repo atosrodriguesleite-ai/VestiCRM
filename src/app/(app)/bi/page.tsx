@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Clock, Inbox, MessageSquareWarning, Repeat, ShoppingBag, Users, Wallet } from "lucide-react";
+import { Clock, Inbox, Repeat, ShoppingBag, Users, Wallet } from "lucide-react";
 import { Card, PageHeader, EmptyState } from "@/components/ui";
 import { StatCard } from "@/components/dash";
 import { AreaChart, BarList, FunnelBars } from "@/components/charts";
@@ -18,6 +18,8 @@ import { montarCarteira } from "@/lib/bi/carteira";
 import { hrefDaLista } from "@/lib/bi/listas";
 import { montarTendencia } from "@/lib/bi/tendencia";
 import { TendenciaCard } from "./tendencia-card";
+import { numerosDeHoje } from "@/lib/bi/hoje";
+import { FaixaDeHoje } from "./faixa-de-hoje";
 import { montarAnuncios } from "@/lib/bi/anuncios";
 import { AnunciosView } from "./anuncios-view";
 import type { Origin } from "@prisma/client";
@@ -116,8 +118,12 @@ export default async function BiPage({
     );
   }
 
-  const [painel, tendencia] = await Promise.all([montarPainel(user.companyId, periodo, agora), montarTendencia(user.companyId, agora)]);
-  const { atual, passado, hoje: h, funil, serie } = painel;
+  const [painel, tendencia, deHoje] = await Promise.all([
+    montarPainel(user.companyId, periodo, agora),
+    montarTendencia(user.companyId, agora),
+    numerosDeHoje(user.companyId, agora),
+  ]);
+  const { atual, passado, funil, serie } = painel;
   // CLICAR E CAVAR (RN-086): o número leva à lista de quem está por trás dele
   const lista = (tipo: "sem-resposta" | "contatos" | "vendas") => hrefDaLista({ tipo, de: painel.periodo.de, ate: painel.periodo.ate, aba: "painel" });
   const dias = serie.length;
@@ -128,29 +134,17 @@ export default async function BiPage({
     <div className="max-w-6xl mx-auto">
       {cabecalho}
 
-      {/* HOJE — a faixa viva */}
-      <Card className="mt-4 p-5 bg-gradient-to-br from-slate-900 to-slate-800 text-white">
-        <p className="text-xs uppercase tracking-wide text-slate-300 mb-3">Hoje · {hoje.split("-").reverse().join("/")}</p>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <Vivo rotulo="Novos contatos" valor={String(h.leads)} icone={<Users className="size-4" />} />
-          <Vivo
-            rotulo="Esperando resposta agora"
-            valor={String(h.esperandoAgora)}
-            icone={<MessageSquareWarning className="size-4" />}
-            tom={h.esperandoAgora > 0 ? "warn" : "ok"}
-            href={hrefDaLista({ tipo: "esperando-agora", de: painel.periodo.de, ate: painel.periodo.ate, aba: "painel" })}
-          />
-          <Vivo rotulo="Pedidos pagos" valor={String(h.pedidosPagos)} icone={<ShoppingBag className="size-4" />} />
-          <Vivo rotulo="Vendido" valor={brl(h.vendido)} icone={<Wallet className="size-4" />} />
-        </div>
-        <p className="text-[11px] text-slate-400 mt-3">
-          Prazo de resposta da loja: {company?.intakeSlaMinutes ?? 60} min com a loja aberta. Toque num número para
-          ver quem está por trás dele.
-          {painel.atualizadoEm && (
-            <> Fatos atualizados {new Intl.DateTimeFormat("pt-BR", { timeStyle: "short", timeZone: "America/Sao_Paulo" }).format(painel.atualizadoEm)}.</>
-          )}
-        </p>
-      </Card>
+      {/* HOJE — a faixa viva (RN-088): calculada na hora e atualizada sozinha */}
+      <FaixaDeHoje
+        inicial={deHoje}
+        prazoMin={company?.intakeSlaMinutes ?? 60}
+        hrefEsperando={hrefDaLista({ tipo: "esperando-agora", de: painel.periodo.de, ate: painel.periodo.ate, aba: "painel" })}
+        rodape={
+          painel.atualizadoEm
+            ? `Fatos do período atualizados ${new Intl.DateTimeFormat("pt-BR", { timeStyle: "short", timeZone: "America/Sao_Paulo" }).format(painel.atualizadoEm)}.`
+            : undefined
+        }
+      />
 
       {/* OS SEIS NÚMEROS DO PERÍODO */}
       <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4 mt-4">
@@ -319,37 +313,5 @@ function Cavar({ href, children }: { href: string; children: React.ReactNode }) 
     <Link href={href} className="block rounded-2xl ring-brand-300 hover:ring-2 transition" title="Ver a lista">
       {children}
     </Link>
-  );
-}
-
-function Vivo({
-  rotulo,
-  valor,
-  icone,
-  tom = "neutro",
-  href,
-}: {
-  rotulo: string;
-  valor: string;
-  icone: React.ReactNode;
-  tom?: "neutro" | "warn" | "ok";
-  href?: string;
-}) {
-  const cor = tom === "warn" ? "text-amber-300" : tom === "ok" ? "text-emerald-300" : "text-white";
-  const corpo = (
-    <>
-      <p className="text-xs text-slate-300 flex items-center gap-1.5">
-        {icone}
-        {rotulo}
-      </p>
-      <p className={`text-3xl font-semibold tabular-nums mt-1 ${cor}`}>{valor}</p>
-    </>
-  );
-  return href ? (
-    <Link href={href} className="block rounded-xl -m-2 p-2 hover:bg-white/10 transition" title="Ver quem">
-      {corpo}
-    </Link>
-  ) : (
-    <div>{corpo}</div>
   );
 }

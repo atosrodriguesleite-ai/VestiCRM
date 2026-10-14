@@ -1,7 +1,8 @@
 /**
  * O PAINEL DO DONO (RN-082): lê os fatos diários prontos (`BiDia`) e soma
- * três números vivos baratos — quem está esperando AGORA, as vendas do mês
- * e a recompra — que vêm de colunas indexadas, nunca da tabela de mensagens.
+ * dois números vivos baratos — as vendas do mês e a recompra — que vêm de
+ * colunas indexadas, nunca da tabela de mensagens. Os números de HOJE
+ * (esperando agora inclusive) são da faixa viva, `hoje.ts` (RN-088).
  *
  * Toda régua de dinheiro é a de sempre: venda = pedido pago (RN-001), valor
  * = `netTotal` (RN-002); o mês é o de São Paulo.
@@ -202,7 +203,6 @@ export type Painel = {
   passado: SomaDoPeriodo;
   /** por dia, na ordem do período (dias sem fato vêm zerados) */
   serie: { dia: string; leads: number; vendido: number; pedidosPagos: number; pctNoPrazo: number | null }[];
-  hoje: { leads: number; vendido: number; pedidosPagos: number; esperandoAgora: number };
   funil: { leads: number; respondidos: number; comPedido: number; pagaram: number };
   motivos: { label: string; value: number; sub?: string }[];
   mes: string;
@@ -226,22 +226,13 @@ export async function montarPainel(companyId: string, pedido: Periodo, agora = n
   const inicioPeriodo = inicioDoDiaSP(periodo.de);
   const fimPeriodo = new Date(inicioDoDiaSP(periodo.ate).getTime() + 86_400_000);
 
-  const [linhasAtual, linhasPassado, linhasMes, linhaHoje, esperandoRaw, vendasMes, compradoras, perdidas, metasMes, novosNoMes] =
+  // os números de HOJE (contatos, esperando agora, pagos, vendido) moram em
+  // `hoje.ts` (RN-088), ao vivo — aqui só o período, o mês e a recompra
+  const [linhasAtual, linhasPassado, linhasMes, vendasMes, compradoras, perdidas, metasMes, novosNoMes] =
     await Promise.all([
       db.biDia.findMany({ where: { companyId, dia: { gte: periodo.de, lte: periodo.ate } }, orderBy: { dia: "asc" } }),
       db.biDia.findMany({ where: { companyId, dia: { gte: anterior.de, lte: anterior.ate } } }),
       db.biDia.findMany({ where: { companyId, dia: { gte: mes + "-01", lte: hoje } } }),
-      db.biDia.findUnique({ where: { companyId_dia: { companyId, dia: hoje } } }),
-      // quem está esperando AGORA: a última fala é da cliente, conversa não
-      // encerrada — UMA contagem no banco (duas colunas comparadas, que o
-      // Prisma não escreve; carregar as conversas para contar não escala)
-      db.$queryRaw<{ n: bigint }[]>`
-        SELECT COUNT(*)::bigint AS n FROM "Conversation"
-        WHERE "companyId" = ${companyId}
-          AND "status" <> 'CLOSED'
-          AND "lastInboundAt" IS NOT NULL
-          AND "lastInboundAt" > COALESCE("lastOutboundAt", '-infinity'::timestamp)
-      `,
       db.order.aggregate({
         where: { companyId, status: { in: PAGOS }, paidAt: { gte: inicioMes } },
         _sum: { netTotal: true },
@@ -276,7 +267,6 @@ export async function montarPainel(companyId: string, pedido: Periodo, agora = n
     };
   });
 
-  const esperandoAgora = Number(esperandoRaw[0]?.n ?? 0);
   const compradorasTotal = compradoras.length;
   const recompraPct = compradorasTotal
     ? Math.round((compradoras.filter((c) => c._count >= 2).length / compradorasTotal) * 100)
@@ -305,12 +295,6 @@ export async function montarPainel(companyId: string, pedido: Periodo, agora = n
     atual,
     passado,
     serie,
-    hoje: {
-      leads: linhaHoje?.leads ?? 0,
-      vendido: linhaHoje?.vendido ?? 0,
-      pedidosPagos: linhaHoje?.pedidosPagos ?? 0,
-      esperandoAgora,
-    },
     // o funil inteiro vem dos FATOS (uma fonte só; barra de baixo nunca passa a de cima)
     funil: {
       leads: atual.leads,
