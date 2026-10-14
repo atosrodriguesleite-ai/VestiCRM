@@ -16,6 +16,8 @@ import { VendedorasView } from "./vendedoras-view";
 import { CarteiraView } from "./carteira-view";
 import { montarCarteira } from "@/lib/bi/carteira";
 import { hrefDaLista } from "@/lib/bi/listas";
+import { montarTendencia } from "@/lib/bi/tendencia";
+import { TendenciaCard } from "./tendencia-card";
 import { montarAnuncios } from "@/lib/bi/anuncios";
 import { AnunciosView } from "./anuncios-view";
 import type { Origin } from "@prisma/client";
@@ -114,7 +116,7 @@ export default async function BiPage({
     );
   }
 
-  const painel = await montarPainel(user.companyId, periodo, agora);
+  const [painel, tendencia] = await Promise.all([montarPainel(user.companyId, periodo, agora), montarTendencia(user.companyId, agora)]);
   const { atual, passado, hoje: h, funil, serie } = painel;
   // CLICAR E CAVAR (RN-086): o número leva à lista de quem está por trás dele
   const lista = (tipo: "sem-resposta" | "contatos" | "vendas") => hrefDaLista({ tipo, de: painel.periodo.de, ate: painel.periodo.ate, aba: "painel" });
@@ -295,6 +297,10 @@ export default async function BiPage({
             <BarList data={painel.motivos} color="#e34948" formatValue={(v) => `${v}`} />
           )}
         </Card>
+      </div>
+
+      <div className="mt-4">
+        <TendenciaCard meses={tendencia} />
       </div>
 
       {painel.diasSemFato > 0 && (

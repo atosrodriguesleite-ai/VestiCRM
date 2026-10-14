@@ -2082,6 +2082,24 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   RN-082) e a lista é de AGORA — a espera respondida depois de o dia
   congelar, o pedido cancelado hoje, estão no número e não na lista; a
   página escreve isso embaixo do total.
+- **RN-087 · A LINHA DE 12 MESES: DUAS FONTES, UMA RÉGUA** (`lib/bi/tendencia.ts`
+  + cartão "Últimos 12 meses" no Painel do BI, 14/10/2026): a segunda
+  recomendação aceita pelo dono — tendência mês a mês, não só "este período
+  contra o anterior". Os fatos diários cobrem 90 dias (RN-082) e esticá-los
+  para um ano faria cada rodada ler o ano inteiro de mensagens; então
+  **contatos e vendas por mês saem direto das tabelas de origem**, pela
+  MESMA régua dos fatos — cliente cadastrada no mês (calendário de SP: no
+  SQL é `carimbo − 3 horas`, a conta exata do `diaSP`; o `AT TIME ZONE` numa
+  coluna sem fuso converte no sentido ERRADO e jogava o cadastro das 22h do
+  dia 30 no mês seguinte, achado da revisão, provado na virada do mês contra
+  o Postgres local) e pedido pago pela data do pagamento, `netTotal`
+  (RN-001/RN-002) —, agregados no banco numa linha por mês; e **o
+  atendimento (% no prazo, sem resposta) só onde há fato**: o mês soma os
+  `BiDia` que tem, mostra "—" sem fato (nunca zero disfarçado), diz
+  "atendimento em N de M dias" quando o mês veio pela metade, e a legenda
+  diz a partir de que mês o tempo de resposta é contado. O cartão fica fora
+  do filtro de período (é a tendência da loja). Ticket = vendido ÷ pedidos
+  pagos do mês. **Limite dito**: o mês corrente conta até hoje.
 - **Communication Engine** (`lib/comm/`): camada única de envio/recebimento,
   agnóstica de provedor. `EvolutionProvider` = WhatsApp NÃO-oficial via
   Evolution API **self-hosted** (VPS Hostinger srv1853369.hstgr.cloud,
@@ -3653,8 +3671,8 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   em R × F × M). **Fase 2c ✅ (RN-085, 14/10/2026)**: aba Anúncios (gasto
   por mês × contatos × vendas) — **Fase 2 concluída**. **Fase 3 ("completo
   e dinâmico", ordem aceita pelo dono em 14/10/2026)**: clicar e cavar
-  (RN-086 ✅) → linha de 12 meses → faixa "hoje" viva → visual → exportar
-  PDF; depois, benchmark entre lojas (Super Admin) e resumo semanal no
+  (RN-086 ✅) → linha de 12 meses (RN-087 ✅) → faixa "hoje" viva → visual
+  → exportar PDF; depois, benchmark entre lojas (Super Admin) e resumo semanal no
   WhatsApp do dono. **Modo TV adiado** pelo dono. Decisões do dono: só gerência
   vê; origem do lead segue automática (sem marcação manual); metas de
   qualquer tipo, a loja escolhe; prazo dentro do horário comercial.

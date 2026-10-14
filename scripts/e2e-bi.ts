@@ -226,6 +226,21 @@ async function main() {
   const celula = await montarLista(sessao, { tipo: "carteira", freq: "UMA" }, agora);
   igual(celula.total, 2, "carteira, 1 compra: K2 e K4");
 
+  console.log("\n8) A linha de 12 meses (RN-087)");
+  const { montarTendencia } = await import("@/lib/bi/tendencia");
+  // A VIRADA DO MÊS NO FUSO DE SP: cadastro e pagamento às 22:30 de 30/09 em SP
+  // (01:30 UTC de 1º/10) são de SETEMBRO — a conversão errada os jogaria em outubro
+  const virada = new Date("2026-09-30T22:30:00-03:00");
+  const kVirada = await cliente("K-virada", virada, "WHATSAPP", null);
+  await db.order.create({ data: { companyId: company.id, customerId: kVirada.id, number: 9, status: "PAGO", total: 40, netTotal: 40, subtotal: 40, createdAt: virada, paidAt: virada, sellerId: ana.id } });
+  const tend = await montarTendencia(company.id, agora);
+  igual(tend.length, 12, "12 meses");
+  const out = tend.find((m) => m.mes === "2026-10")!;
+  const set = tend.find((m) => m.mes === "2026-09")!;
+  igual([out.leads, out.pedidosPagos, out.vendido, out.ticket], [3, 2, 270, 135], "outubro: 3 contatos (k1 foi para setembro), 2 pagos, R$ 270, ticket R$ 135");
+  igual([set.leads, set.pedidosPagos, set.vendido, set.pctNoPrazo], [2, 1, 40, null], "setembro: k1 e a cliente das 22:30 de 30/09 (SP), a venda dela de R$ 40, sem fato de atendimento (nulo)");
+  conferir(out.diasComFato >= 2 && out.pctNoPrazo != null, `outubro tem fato de atendimento (${out.diasComFato} dias, no prazo ${out.pctNoPrazo}%)`);
+
   await db.company.delete({ where: { id: company.id } });
   console.log(process.exitCode ? "\n❌ Falhou" : "\n✅ Tudo conferido");
 }
