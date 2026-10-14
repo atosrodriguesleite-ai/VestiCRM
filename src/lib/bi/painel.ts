@@ -247,8 +247,11 @@ export async function montarPainel(companyId: string, pedido: Periodo, agora = n
         _sum: { netTotal: true },
         _count: true,
       }),
-      // recompra: clientes com 2+ pedidos pagos entre quem já pagou (a régua do Dashboard)
-      db.order.groupBy({ by: ["customerId"], where: { companyId, status: { in: PAGOS } }, _count: true }),
+      // recompra: clientes com 2+ pedidos pagos entre quem já pagou — pedido pago
+      // COM data de pagamento, a régua da carteira da Recompra (RN-084): as duas
+      // abas do BI dizem o mesmo número (achado da revisão; o pago sem data é
+      // só o pedido antigo, e o Dashboard ainda o conta)
+      db.order.groupBy({ by: ["customerId"], where: { companyId, status: { in: PAGOS }, paidAt: { not: null } }, _count: true }),
       db.opportunity.findMany({
         where: { companyId, status: "LOST", closedAt: { gte: inicioPeriodo, lt: fimPeriodo } },
         select: { lostReason: true },

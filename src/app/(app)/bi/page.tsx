@@ -11,8 +11,10 @@ import { porteiraBiTela } from "@/lib/bi/gate";
 import { atualizarFatosDoBiSeDevido, BALDES_MIN, ultimosDias } from "@/lib/bi/fatos";
 import { diasDoPeriodo, montarPainel, montarVendedoras, variacao } from "@/lib/bi/painel";
 import { MetasCard } from "./metas-card";
-import { Abas, type AbaDoBi } from "./abas";
+import { Abas, lerAba } from "./abas";
 import { VendedorasView } from "./vendedoras-view";
+import { CarteiraView } from "./carteira-view";
+import { montarCarteira } from "@/lib/bi/carteira";
 import type { Origin } from "@prisma/client";
 
 export const dynamic = "force-dynamic";
@@ -32,7 +34,7 @@ export default async function BiPage({
 }) {
   const user = await porteiraBiTela();
   const { de, ate, aba: abaPedida } = await searchParams;
-  const aba: AbaDoBi = abaPedida === "vendedoras" ? "vendedoras" : "painel";
+  const aba = lerAba(abaPedida);
   const agora = new Date();
   const hoje = diaSP(agora);
   // dia que existe no calendário (a régua de lib/dia: "2026-02-30" é recusado, não vira 2 de março)
@@ -80,6 +82,18 @@ export default async function BiPage({
         {cabecalho}
         <div className="mt-4">
           <VendedorasView dados={dados} dias={nDias} />
+        </div>
+      </div>
+    );
+  }
+
+  if (aba === "clientes") {
+    const dados = await montarCarteira(user, periodo);
+    return (
+      <div className="max-w-6xl mx-auto">
+        {cabecalho}
+        <div className="mt-4">
+          <CarteiraView dados={dados} dias={diasDoPeriodo(dados.periodo).length} />
         </div>
       </div>
     );

@@ -1961,6 +1961,44 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   robô (RN-080) é exato. Provado contra o Postgres local
   (`scripts/e2e-bi.ts`, bloco 4: duas vendedoras, loja online sem dona, a
   resposta no dia da chegada, o cancelamento que tira a venda da pessoa).
+- **RN-084 · A ABA CLIENTES DO BI É A CARTEIRA DA RECOMPRA, LIDA EM R × F ×
+  M** (`lib/bi/carteira.ts`, aba **Clientes** em `/bi`, 14/10/2026): a
+  Fase 2b do BI (ADR-019). O dono pediu "recompras, melhores clientes"; a
+  casa JÁ tinha a carteira inteira na aba Recompra (`dadosDaAbaRecompra`:
+  faixa pela última compra — ativa < 30 dias, esfriando < 60, em risco <
+  90, sumida —, o ritmo de cada cliente, o Top 20 VIP) e o painel de
+  Recompra com a regra de ouro "este painel não faz conta própria". A
+  régua vale aqui: **a aba lê a carteira da fonte única e NUNCA decide
+  faixa, ritmo ou VIP por conta própria** (o teste proíbe `faixaFixa`,
+  `passouDoRitmo`, `cicloEntreCompras` e `TOP_VIPS` no arquivo) — se o BI
+  dissesse "40 ativas" e a Recompra "38", a loja pararia de confiar nas
+  duas. **O que o BI acrescenta** é a leitura cruzada: (1) a **matriz R ×
+  F** — recência (a faixa) × frequência (1 compra, 2 a 4, 5 ou mais na
+  vida; `frequenciaDe`) —, com o **M em cada célula** (quantas clientes,
+  total comprado e o valor médio POR COMPRA, nulo na célula vazia): a que
+  comprou uma vez e sumiu é a classe mais comum e a mais barata de
+  recuperar, a fiel que esfriou é a mais cara de perder; (2) **as VIPs que
+  esfriaram** (Top 20 fora da faixa Ativa, pela posição) — o alarme de
+  verdade da carteira, com link para a ficha (a mensagem pronta mora na
+  Recompra); (3) os números da carteira pela MESMA conta do painel de
+  Recompra (recompra = 2+ compras ÷ compradoras, quem passou do próprio
+  ritmo, o valor na mesa = uma compra média de cada atrasada, a
+  concentração do Top 20 no total histórico); (4) **as melhores clientes
+  DO PERÍODO** — a única parte que olha o período da tela: pedidos pagos
+  pela data do pagamento, `netTotal` (RN-001/RN-002), Top 20 por `groupBy`
+  no banco, nome recortado pela loja (RN-013), com a faixa de HOJE e o selo
+  VIP ao lado. **Quatro achados da revisão**: a carteira é lida na forma
+  **LEVE** (`dadosDaAbaRecompra(user, { leve: true })` — a mesma régua e a
+  mesma lista, sem os itens de cada pedido nem as novidades, que só a aba
+  Recompra mostra); o nome das melhores vem da carteira (quem pagou no
+  período está nela), sem quarta ida ao banco; **a recompra do painel do BI
+  passou a seguir a régua da carteira** — pedido pago COM data de pagamento
+  — para as duas abas dizerem o mesmo número (o Dashboard ainda conta o
+  pago sem data, que é só o pedido antigo; limite dito); e o total da linha
+  da matriz é a soma das células já arredondadas (o centavo fecha, RN-030).
+  **Limites ditos**: as faixas são fixas (30/60/90 dias, decisão antiga da
+  Recompra), não por loja; a legenda não repete o número — diz "fora da
+  faixa Ativa".
 - **Communication Engine** (`lib/comm/`): camada única de envio/recebimento,
   agnóstica de provedor. `EvolutionProvider` = WhatsApp NÃO-oficial via
   Evolution API **self-hosted** (VPS Hostinger srv1853369.hstgr.cloud,
@@ -3528,7 +3566,8 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   fatos, vendas × meta, metas personalizáveis). **Pendente do dono**: o
   preço de tabela (0 no catálogo) e ligar a chave nas lojas da assessoria.
   **Fase 2a ✅ (RN-083, 14/10/2026)**: aba Vendedoras (fatos por pessoa).
-  **Fase 2b/2c**: carteira RFM, ROI de anúncio (gasto por mês). **Fase 3**: modo TV, benchmark entre lojas (Super
+  **Fase 2b ✅ (RN-084, 14/10/2026)**: aba Clientes (a carteira da Recompra
+  em R × F × M). **Fase 2c**: ROI de anúncio (gasto por mês). **Fase 3**: modo TV, benchmark entre lojas (Super
   Admin), resumo semanal no WhatsApp do dono. Decisões do dono: só gerência
   vê; origem do lead segue automática (sem marcação manual); metas de
   qualquer tipo, a loja escolhe; prazo dentro do horário comercial.

@@ -169,6 +169,20 @@ async function main() {
   const anaDepois = await db.biDiaVendedora.findUnique({ where: { companyId_dia_userId: { companyId: company.id, dia: "2026-10-12", userId: ana.id } } });
   igual([anaDepois?.pedidos, anaDepois?.pedidosPagos, anaDepois?.vendido], [0, 0, 0], "cancelado o pedido, a venda sai da linha da Ana na rodada seguinte");
 
+  console.log("\n5) A carteira (RN-084): a fonte única da Recompra, as melhores do período");
+  const { montarCarteira } = await import("@/lib/bi/carteira");
+  const gerente = await db.user.create({
+    data: { companyId: company.id, name: "Gerente", email: `ger-${marca}@x.com`, passwordHash: "x", role: "MANAGER" },
+  });
+  const sessao = { id: gerente.id, companyId: company.id, name: "Gerente", email: gerente.email ?? "", role: "MANAGER" as const, color: "#000", chatVisaoTotal: false, pedidosVisaoTotal: false, prefersDark: false, avatarUrl: null };
+  const cart = await montarCarteira(sessao, { de: "2026-10-12", ate: "2026-10-13" });
+  // compradoras: k2 (R$ 200, pago terça) e k4 (loja online, R$ 70) — o pedido 1 de k1 foi cancelado no bloco 4
+  igual([cart.resumo.compradoras, cart.resumo.recorrentes, cart.resumo.taxaRecompraPct], [2, 0, 0], "carteira: 2 compradoras, nenhuma recorrente");
+  igual(cart.matriz.ATIVA.UMA.clientes + cart.matriz.ESFRIANDO.UMA.clientes + cart.matriz.RISCO.UMA.clientes + cart.matriz.SUMIDA.UMA.clientes, 2, "as duas estão na coluna de 1 compra");
+  igual(cart.melhoresDoPeriodo.map((m) => [m.nome, m.total, m.pedidos]), [["K2", 200, 1], ["K4", 70, 1]], "melhores do período: K2 (R$ 200) e K4 (R$ 70), pela data do pagamento");
+  igual(cart.vendidoNoPeriodo, 270, "vendido no período R$ 270 (sem o cancelado, sem o frete)");
+  conferir(cart.melhoresDoPeriodo.every((m) => m.vip != null), "as duas são VIP (Top 20 de uma carteira de 2)");
+
   await db.company.delete({ where: { id: company.id } });
   console.log(process.exitCode ? "\n❌ Falhou" : "\n✅ Tudo conferido");
 }
