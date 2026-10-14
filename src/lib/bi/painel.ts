@@ -6,11 +6,12 @@
  * Toda régua de dinheiro é a de sempre: venda = pedido pago (RN-001), valor
  * = `netTotal` (RN-002); o mês é o de São Paulo.
  */
+import type { BiDiaVendedora } from "@prisma/client";
 import { db } from "../db";
 import { PAID_ORDER_STATUSES } from "../orders";
 import { diaSP, inicioDoMesSP, mesSP } from "../dia";
 import { contarPorMotivo } from "../funil/motivos-de-perda";
-import { BALDES_MIN, inicioDoDiaSP, ultimosDias } from "./fatos";
+import { BALDES_MIN, VERSAO_DOS_FATOS, inicioDoDiaSP, ultimosDias } from "./fatos";
 import { TIPOS_DE_META, type TipoDeMeta } from "./metas";
 
 export type Periodo = { de: string; ate: string };
@@ -94,14 +95,32 @@ export type SomaDoPeriodo = {
   diasComFato: number;
 };
 
-/** Soma as linhas de um período (pura). */
-export function somarDias(linhas: LinhaDia[]): SomaDoPeriodo {
-  const s: SomaDoPeriodo = {
+/** O que a loja e a pessoa somam DO MESMO JEITO (uma régua para as duas tabelas). */
+type SomaComum = {
+  leads: number;
+  leadsRespondidos: number;
+  leadsComPedido: number;
+  leadsPagaram: number;
+  respondidas: number;
+  noPrazo: number;
+  foraDoPrazo: number;
+  semResposta: number;
+  pctNoPrazo: number | null;
+  hist: number[];
+  medianaAproxMin: number | null;
+  pedidos: number;
+  pedidosPagos: number;
+  vendido: number;
+  ticket: number | null;
+};
+type LinhaComum = Omit<SomaComum, "pctNoPrazo" | "hist" | "medianaAproxMin" | "ticket"> & { hist: string };
+
+function somaVazia(): SomaComum {
+  return {
     leads: 0,
     leadsRespondidos: 0,
     leadsComPedido: 0,
     leadsPagaram: 0,
-    esperas: 0,
     respondidas: 0,
     noPrazo: 0,
     foraDoPrazo: 0,
@@ -113,28 +132,44 @@ export function somarDias(linhas: LinhaDia[]): SomaDoPeriodo {
     pedidosPagos: 0,
     vendido: 0,
     ticket: null,
-    origens: {},
-    diasComFato: linhas.length,
   };
+}
+
+function acumular(s: SomaComum, l: LinhaComum): void {
+  s.leads += l.leads;
+  s.leadsRespondidos += l.leadsRespondidos;
+  s.leadsComPedido += l.leadsComPedido;
+  s.leadsPagaram += l.leadsPagaram;
+  s.respondidas += l.respondidas;
+  s.noPrazo += l.noPrazo;
+  s.foraDoPrazo += l.foraDoPrazo;
+  s.semResposta += l.semResposta;
+  s.pedidos += l.pedidos;
+  s.pedidosPagos += l.pedidosPagos;
+  s.vendido += l.vendido;
+  try {
+    const h = JSON.parse(l.hist) as number[];
+    h.forEach((n, i) => (s.hist[i] = (s.hist[i] ?? 0) + (n || 0)));
+  } catch {
+    /* linha torta não derruba o painel */
+  }
+}
+
+/** os derivados: % no prazo das decididas, ticket, arredondamento e a mediana pelos baldes */
+function derivar(s: SomaComum): void {
+  const decididas = s.noPrazo + s.foraDoPrazo;
+  s.pctNoPrazo = decididas ? Math.round((s.noPrazo / decididas) * 100) : null;
+  s.ticket = s.pedidosPagos ? Math.round((s.vendido / s.pedidosPagos) * 100) / 100 : null;
+  s.vendido = Math.round(s.vendido * 100) / 100;
+  s.medianaAproxMin = medianaDaDistribuicao(s.hist);
+}
+
+/** Soma as linhas de um período (pura). */
+export function somarDias(linhas: LinhaDia[]): SomaDoPeriodo {
+  const s: SomaDoPeriodo = { ...somaVazia(), esperas: 0, origens: {}, diasComFato: linhas.length };
   for (const l of linhas) {
-    s.leads += l.leads;
-    s.leadsRespondidos += l.leadsRespondidos;
-    s.leadsComPedido += l.leadsComPedido;
-    s.leadsPagaram += l.leadsPagaram;
+    acumular(s, l);
     s.esperas += l.esperas;
-    s.respondidas += l.respondidas;
-    s.noPrazo += l.noPrazo;
-    s.foraDoPrazo += l.foraDoPrazo;
-    s.semResposta += l.semResposta;
-    s.pedidos += l.pedidos;
-    s.pedidosPagos += l.pedidosPagos;
-    s.vendido += l.vendido;
-    try {
-      const h = JSON.parse(l.hist) as number[];
-      h.forEach((n, i) => (s.hist[i] = (s.hist[i] ?? 0) + (n || 0)));
-    } catch {
-      /* linha torta não derruba o painel */
-    }
     try {
       const o = JSON.parse(l.origens) as Record<string, number>;
       for (const [k, v] of Object.entries(o)) s.origens[k] = (s.origens[k] ?? 0) + v;
@@ -142,11 +177,7 @@ export function somarDias(linhas: LinhaDia[]): SomaDoPeriodo {
       /* idem */
     }
   }
-  const decididas = s.noPrazo + s.foraDoPrazo;
-  s.pctNoPrazo = decididas ? Math.round((s.noPrazo / decididas) * 100) : null;
-  s.ticket = s.pedidosPagos ? Math.round((s.vendido / s.pedidosPagos) * 100) / 100 : null;
-  s.vendido = Math.round(s.vendido * 100) / 100;
-  s.medianaAproxMin = medianaDaDistribuicao(s.hist);
+  derivar(s);
   return s;
 }
 
@@ -291,5 +322,105 @@ export async function montarPainel(companyId: string, pedido: Periodo, agora = n
     recompraPct,
     atualizadoEm,
     diasSemFato: Math.max(0, dias.length - linhasAtual.length),
+  };
+}
+
+/* ───────────────────────── POR VENDEDORA (RN-083) ───────────────────────── */
+
+/** a linha do banco, pelo tipo do Prisma: coluna nova chega aqui sem cópia à mão */
+type LinhaVendedora = Pick<BiDiaVendedora, keyof LinhaComum | "userId">;
+
+export type SomaDaVendedora = SomaComum & {
+  userId: string;
+  nome: string;
+  cor: string;
+  ativa: boolean;
+  /** leads da carteira que pagaram ÷ leads (nulo sem lead) */
+  conversaoPct: number | null;
+};
+
+export type Vendedoras = {
+  periodo: Periodo;
+  /** quem teve algum número no período, do maior vendido para o menor */
+  pessoas: SomaDaVendedora[];
+  /** o total da loja (a mesma soma do painel) — a régua do "sem vendedora" */
+  loja: SomaDoPeriodo;
+  /**
+   * O que sobra entre a loja e a soma das pessoas: respostas pelo celular da
+   * loja (eco sem autora), leads sem dona (da loja, RN-005), vendas sem
+   * vendedora (loja online, pedido sem dona) e esperas abertas na fila.
+   */
+  semVendedora: { respondidas: number; leads: number; pedidosPagos: number; vendido: number; semResposta: number };
+  /**
+   * Dias do período cujo fato da loja foi gravado ANTES de existirem as linhas
+   * por vendedora (versão velha): o número deles está na loja e ainda não nas
+   * pessoas — a aba DIZ, em vez de deixar cair em "sem vendedora".
+   */
+  diasSemVendedoras: number;
+};
+
+/** Soma as linhas de uma pessoa (pura). */
+export function somarVendedora(
+  pessoa: { id: string; name: string; color: string; active: boolean },
+  linhas: LinhaVendedora[]
+): SomaDaVendedora {
+  const s: SomaDaVendedora = {
+    ...somaVazia(),
+    userId: pessoa.id,
+    nome: pessoa.name,
+    cor: pessoa.color,
+    ativa: pessoa.active,
+    conversaoPct: null,
+  };
+  for (const l of linhas) acumular(s, l);
+  // na pessoa, decididas = só as que ELA respondeu (a aberta é "sem resposta", RN-083)
+  derivar(s);
+  s.conversaoPct = s.leads ? Math.round((s.leadsPagaram / s.leads) * 100) : null;
+  return s;
+}
+
+/** A pessoa teve algum número no período? (quem não teve não vira linha na aba) */
+export function teveNumero(s: SomaDaVendedora): boolean {
+  return s.leads + s.respondidas + s.semResposta + s.pedidos + s.pedidosPagos > 0;
+}
+
+/** Ordena do maior vendido para o menor; empate pelo que respondeu, depois pelo nome. */
+export function ordenarVendedoras(pessoas: SomaDaVendedora[]): SomaDaVendedora[] {
+  return [...pessoas].sort(
+    (a, b) => b.vendido - a.vendido || b.respondidas - a.respondidas || a.nome.localeCompare(b.nome, "pt-BR")
+  );
+}
+
+export async function montarVendedoras(companyId: string, pedido: Periodo): Promise<Vendedoras> {
+  const periodo = encaixarPeriodo(pedido);
+  const [linhas, linhasDaLoja, pessoas] = await Promise.all([
+    db.biDiaVendedora.findMany({ where: { companyId, dia: { gte: periodo.de, lte: periodo.ate } } }),
+    db.biDia.findMany({ where: { companyId, dia: { gte: periodo.de, lte: periodo.ate } } }),
+    db.user.findMany({ where: { companyId }, select: { id: true, name: true, color: true, active: true } }),
+  ]);
+  const porPessoa = new Map<string, LinhaVendedora[]>();
+  for (const l of linhas) {
+    let lista = porPessoa.get(l.userId);
+    if (!lista) porPessoa.set(l.userId, (lista = []));
+    lista.push(l);
+  }
+  const somas = ordenarVendedoras(
+    pessoas.map((p) => somarVendedora(p, porPessoa.get(p.id) ?? [])).filter(teveNumero)
+  );
+  const loja = somarDias(linhasDaLoja);
+  const soma = (k: "respondidas" | "leads" | "pedidosPagos" | "vendido" | "semResposta") =>
+    somas.reduce((a, s) => a + s[k], 0);
+  return {
+    periodo,
+    pessoas: somas,
+    loja,
+    semVendedora: {
+      respondidas: Math.max(0, loja.respondidas - soma("respondidas")),
+      leads: Math.max(0, loja.leads - soma("leads")),
+      pedidosPagos: Math.max(0, loja.pedidosPagos - soma("pedidosPagos")),
+      vendido: Math.max(0, Math.round((loja.vendido - soma("vendido")) * 100) / 100),
+      semResposta: Math.max(0, loja.semResposta - soma("semResposta")),
+    },
+    diasSemVendedoras: linhasDaLoja.filter((l) => l.versao < VERSAO_DOS_FATOS).length,
   };
 }

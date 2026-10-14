@@ -142,6 +142,7 @@ model Company {
 
   users          User[]
   biDias         BiDia[]
+  biDiasVendedora BiDiaVendedora[]
   biMetas        BiMeta[]
   customers      Customer[]
   abandonedCarts AbandonedCart[]
@@ -505,6 +506,7 @@ model User {
 
   @@index([companyId])
   trocasRegistradas Troca[] @relation("TrocaRegistradaPor")
+  biDiasVendedora BiDiaVendedora[] // RN-083: os fatos diários do BI por vendedora
   separacoes     Separacao[]
 }
 
@@ -3670,9 +3672,52 @@ model BiDia {
   pedidosPagos Int    @default(0)
   /// valor vendido dos pagos no dia (netTotal, RN-002)
   vendido    Float    @default(0)
+  /// versão da conta que gravou a linha (RN-083): uma linha de versão velha
+  /// conta como "dia que falta" para a rodada, que a refaz com as tabelas
+  /// derivadas novas (por vendedora) — sem isso o histórico já gravado nunca
+  /// ganharia as linhas por pessoa
+  versao     Int      @default(0)
   atualizadoEm DateTime @default(now()) @updatedAt
 
   @@unique([companyId, dia])
+}
+
+/// FATOS DIÁRIOS DO BI POR VENDEDORA (RN-083): a mesma conta da `BiDia`,
+/// recortada por PESSOA — leads da carteira dela (`Customer.ownerId`), as
+/// esperas que ELA respondeu (`Message.authorId`), as sem resposta nas
+/// conversas assumidas por ela (`Conversation.assigneeId`) e as vendas dela
+/// (`Order.sellerId`, RN-005). Linha derivada: apagada e refeita a cada rodada
+/// nos dias vivos; só existe para quem teve algum número no dia.
+model BiDiaVendedora {
+  id         String   @id @default(cuid())
+  companyId  String
+  company    Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  /// "2026-10-13" (calendário de São Paulo)
+  dia        String
+  /// contatos novos do dia que entraram na CARTEIRA dela, e o funil deles
+  leads      Int      @default(0)
+  leadsRespondidos Int @default(0)
+  leadsComPedido Int @default(0)
+  leadsPagaram   Int @default(0)
+  /// esperas (RN-080) que começaram no dia e ELA fechou — no prazo ou fora
+  respondidas Int     @default(0)
+  noPrazo    Int      @default(0)
+  foraDoPrazo Int     @default(0)
+  /// esperas abertas (sem resposta) nas conversas assumidas por ela
+  semResposta Int     @default(0)
+  medianaMin Float?
+  p90Min     Float?
+  hist       String   @default("[0,0,0,0,0,0,0]")
+  /// pedidos dela: criados no dia (fora cancelados), pagos no dia e o vendido (netTotal)
+  pedidos    Int      @default(0)
+  pedidosPagos Int    @default(0)
+  vendido    Float    @default(0)
+  atualizadoEm DateTime @default(now()) @updatedAt
+
+  @@unique([companyId, dia, userId])
+  @@index([companyId, userId, dia])
 }
 
 /// METAS DO MÊS DO BI (RN-082): a loja escolhe quais metas quer, por mês.

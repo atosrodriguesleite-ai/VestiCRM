@@ -9,8 +9,10 @@ import { brl, originLabel } from "@/lib/format";
 import { dataDoDia, diaSP } from "@/lib/dia";
 import { porteiraBiTela } from "@/lib/bi/gate";
 import { atualizarFatosDoBiSeDevido, BALDES_MIN, ultimosDias } from "@/lib/bi/fatos";
-import { montarPainel, variacao } from "@/lib/bi/painel";
+import { diasDoPeriodo, montarPainel, montarVendedoras, variacao } from "@/lib/bi/painel";
 import { MetasCard } from "./metas-card";
+import { Abas, type AbaDoBi } from "./abas";
+import { VendedorasView } from "./vendedoras-view";
 import type { Origin } from "@prisma/client";
 
 export const dynamic = "force-dynamic";
@@ -26,10 +28,11 @@ const ROTULO_DO_BALDE = ["até 5 min", "até 15 min", "até 30 min", "até 1 h",
 export default async function BiPage({
   searchParams,
 }: {
-  searchParams: Promise<{ de?: string; ate?: string }>;
+  searchParams: Promise<{ de?: string; ate?: string; aba?: string }>;
 }) {
   const user = await porteiraBiTela();
-  const { de, ate } = await searchParams;
+  const { de, ate, aba: abaPedida } = await searchParams;
+  const aba: AbaDoBi = abaPedida === "vendedoras" ? "vendedoras" : "painel";
   const agora = new Date();
   const hoje = diaSP(agora);
   // dia que existe no calendário (a régua de lib/dia: "2026-02-30" é recusado, não vira 2 de março)
@@ -43,28 +46,19 @@ export default async function BiPage({
   // os dias VIVOS antes de ler (trava de 30 min: barata quando já rodou);
   // o histórico entra de carona no sync da inbox, nunca segurando a tela
   await atualizarFatosDoBiSeDevido(user.companyId, { soVivos: true });
-  const [painel, company] = await Promise.all([
-    montarPainel(user.companyId, periodo, agora),
-    db.company.findUnique({
-      where: { id: user.companyId },
-      select: { intakeSlaMinutes: true, horarioComercial: true },
-    }),
-  ]);
-  const { atual, passado, hoje: h, funil, serie } = painel;
-  const dias = serie.length;
-  const rotuloDoMes = new Intl.DateTimeFormat("pt-BR", { month: "long", year: "numeric", timeZone: "America/Sao_Paulo" }).format(agora);
+  const company = await db.company.findUnique({
+    where: { id: user.companyId },
+    select: { intakeSlaMinutes: true, horarioComercial: true },
+  });
   const semHorario = !company?.horarioComercial;
-  const totalRespondidas = atual.hist.reduce((a, b) => a + b, 0);
-
-  return (
-    <div className="max-w-6xl mx-auto">
+  const cabecalho = (
+    <>
       <PageHeader
         title="BI de Vendas"
         subtitle="Leads, resposta no prazo, funil por fatos, vendas e metas — os números do processo comercial, prontos para a reunião."
       />
-
-      <PeriodChips pathname="/bi" de={de} ate={ate} />
-
+      <Abas ativa={aba} de={ehDia(de) ? de : undefined} ate={ehDia(ate) ? ate : undefined} />
+      <PeriodChips pathname="/bi" de={de} ate={ate} extra={aba === "painel" ? undefined : { aba }} />
       {semHorario && (
         <p className="mt-3 text-xs rounded-xl bg-amber-50 border border-amber-200 text-amber-800 px-3 py-2">
           Sem horário de atendimento cadastrado: o tempo de resposta está contando o dia inteiro, madrugada
@@ -75,6 +69,31 @@ export default async function BiPage({
           .
         </p>
       )}
+    </>
+  );
+
+  if (aba === "vendedoras") {
+    const dados = await montarVendedoras(user.companyId, periodo);
+    const nDias = diasDoPeriodo(dados.periodo).length;
+    return (
+      <div className="max-w-6xl mx-auto">
+        {cabecalho}
+        <div className="mt-4">
+          <VendedorasView dados={dados} dias={nDias} />
+        </div>
+      </div>
+    );
+  }
+
+  const painel = await montarPainel(user.companyId, periodo, agora);
+  const { atual, passado, hoje: h, funil, serie } = painel;
+  const dias = serie.length;
+  const rotuloDoMes = new Intl.DateTimeFormat("pt-BR", { month: "long", year: "numeric", timeZone: "America/Sao_Paulo" }).format(agora);
+  const totalRespondidas = atual.hist.reduce((a, b) => a + b, 0);
+
+  return (
+    <div className="max-w-6xl mx-auto">
+      {cabecalho}
 
       {/* HOJE — a faixa viva */}
       <Card className="mt-4 p-5 bg-gradient-to-br from-slate-900 to-slate-800 text-white">

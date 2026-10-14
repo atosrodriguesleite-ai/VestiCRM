@@ -1907,6 +1907,60 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   `lastOutboundAt`, que o robô ainda carimba (RN-080); a origem só diz o
   canal (qual anúncio, só com link rastreado); loja fora do fuso de SP conta
   o dia em hora de Brasília.
+- **RN-083 · BI POR VENDEDORA: A MESMA CONTA DA LOJA, RECORTADA POR QUEM
+  FEZ** (`calcularFatosPorVendedora` em `lib/bi/fatos.ts` + `BiDiaVendedora`
+  + `montarVendedoras` em `lib/bi/painel.ts`, aba **Vendedoras** em `/bi`,
+  14/10/2026): a Fase 2a do BI (ADR-019). A pergunta de quem organiza o
+  processo comercial é "quem responde rápido, quem deixa cliente sem
+  resposta, quem converte, quem vende" — e a resposta tem que vir dos
+  MESMOS fatos do painel, não de uma segunda conta. Então a rodada de carona
+  (RN-082) grava, na MESMA transação, uma linha por loja × dia × pessoa, e
+  cada número tem UM dono, dito: (1) a **espera respondida é de quem
+  RESPONDEU** (`Espera.autoraId`, o `authorId` da mensagem) — a Ana que
+  responde a conversa da Bia leva a resposta, porque foi ela quem atendeu;
+  o eco do celular da loja não tem autora e fica só no total — e **o "no
+  prazo" da pessoa é só das que ELA respondeu** (achado da revisão: contar a
+  fila parada enquanto ela está de folga como "fora do prazo" dela diria que
+  ela responde atrasado; a loja segue contando a aberta estourada como fora
+  do prazo, RN-082, que é a pergunta da loja, e a tabela diz por que os dois
+  números diferem); (2) a **espera sem resposta é de quem ASSUMIU a
+  conversa** (`Conversation.assigneeId`), só como "sem resposta"; na fila, é
+  de ninguém — fica no total, e a aba diz; (3) o **contato novo é
+  da dona da CARTEIRA** (`Customer.ownerId`), com o funil dele (respondido
+  por alguém, fez pedido, pagou — a régua de 7 dias do painel), o que dá a
+  **conversão por vendedora** (pagaram ÷ leads da carteira); (4) o **pedido
+  é da vendedora dele** (`Order.sellerId`, RN-005): criados fora cancelado,
+  pagos pela data do pagamento, `netTotal` (RN-002) — a loja online não tem
+  dona e fica só no total. **Só gente DA LOJA vira linha** (RN-013: a lista
+  de `User` da loja é a peneira; o Super Admin acessando como loja responde
+  e vende, e isso fica no total, nunca numa linha de pessoa), e **só quem
+  teve algum número no dia**. **A linha é DERIVADA, apagada e refeita** nos
+  dias da rodada (`deleteMany` + `createMany`, nunca upsert): o pedido
+  cancelado hoje tira a venda de ontem da pessoa — provado contra o
+  Postgres local —, e um upsert deixaria a linha velha de pé. **A soma das
+  pessoas nunca passa do total da loja, e a diferença é "Sem vendedora"**
+  (celular da loja, lead da loja, loja online, fila), uma linha cinza na
+  tabela em vez de um número que não bate com o painel. **O histórico
+  gravado ANTES desta aba ganha as pessoas sozinho**: cada `BiDia` leva a
+  `versao` da conta que a gravou (`VERSAO_DOS_FATOS`), a rodada só conta
+  como "já gravado" o dia da versão atual, e a linha velha é refeita de
+  carona, 22 por rodada, com as duas tabelas — sem isso os 82 dias
+  congelados da Fase 1 ficariam para sempre com o total da loja e zero por
+  pessoa, caindo todos em "Sem vendedora" (achado da revisão); enquanto
+  isso, a aba DIZ quantos dias do período ainda não têm a conta por pessoa
+  (`diasSemVendedoras`). A aba mostra o
+  ranking por vendido (empate pelo que respondeu), com no prazo, sem
+  resposta e conversão por pessoa, a tabela completa com a linha da loja, e
+  a pessoa desativada aparece marcada enquanto tiver número no período (a
+  história não some com o desligamento). As abas levam o período junto e os
+  atalhos de período levam a aba (`extra`). **Limites ditos**: a dona da
+  conversa e da carteira são as de HOJE (a conversa transferida depois de o
+  dia congelar fica com quem a tinha ao congelar; a carteira transferida
+  move os leads nos dias ainda vivos); o eco do celular da loja não tem
+  dona por definição; e, como no painel, só o que nasceu depois da marca de
+  robô (RN-080) é exato. Provado contra o Postgres local
+  (`scripts/e2e-bi.ts`, bloco 4: duas vendedoras, loja online sem dona, a
+  resposta no dia da chegada, o cancelamento que tira a venda da pessoa).
 - **Communication Engine** (`lib/comm/`): camada única de envio/recebimento,
   agnóstica de provedor. `EvolutionProvider` = WhatsApp NÃO-oficial via
   Evolution API **self-hosted** (VPS Hostinger srv1853369.hstgr.cloud,
@@ -3473,8 +3527,8 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   cron) e o painel do dono em `/bi` (leads/dia, resposta no prazo, funil por
   fatos, vendas × meta, metas personalizáveis). **Pendente do dono**: o
   preço de tabela (0 no catálogo) e ligar a chave nas lojas da assessoria.
-  **Fase 2**: vendedoras, carteira RFM, ROI de anúncio
-  (gasto por mês). **Fase 3**: modo TV, benchmark entre lojas (Super
+  **Fase 2a ✅ (RN-083, 14/10/2026)**: aba Vendedoras (fatos por pessoa).
+  **Fase 2b/2c**: carteira RFM, ROI de anúncio (gasto por mês). **Fase 3**: modo TV, benchmark entre lojas (Super
   Admin), resumo semanal no WhatsApp do dono. Decisões do dono: só gerência
   vê; origem do lead segue automática (sem marcação manual); metas de
   qualquer tipo, a loja escolhe; prazo dentro do horário comercial.

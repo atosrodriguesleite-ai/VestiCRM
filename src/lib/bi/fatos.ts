@@ -48,6 +48,14 @@ export const TETO_DE_MENSAGENS = 60_000;
  * dias pedidos são contadas.
  */
 export const DIAS_DE_LEITURA_ANTES = 7;
+/**
+ * A VERSÃO DA CONTA gravada em cada `BiDia`. Sobe quando a rodada passa a
+ * gravar algo novo por dia (a linha por vendedora, RN-083): a linha de versão
+ * menor conta como "dia que falta" e é refeita de carona, 22 por rodada —
+ * senão o histórico gravado antes nunca ganharia as linhas novas (achado da
+ * revisão). Os totais da loja na linha velha continuam valendo para o painel.
+ */
+export const VERSAO_DOS_FATOS = 1;
 /** teto de ids por consulta IN (o Postgres aceita 32.767 parâmetros) */
 const LOTE_DE_IDS = 5_000;
 /** limites dos baldes da distribuição do tempo de resposta (min de atendimento) */
@@ -69,14 +77,18 @@ export function ultimosDias(hoje: string, n: number): string[] {
   return out;
 }
 
-export type ContatoLeve = { id: string; createdAt: Date; origin: string };
-export type ConversaLeve = { id: string; customerId: string; status: string };
+/** `ownerId`: a dona da carteira (RN-083; ausente = da loja) */
+export type ContatoLeve = { id: string; createdAt: Date; origin: string; ownerId?: string | null };
+/** `assigneeId`: quem assumiu a conversa (RN-083; ausente = na fila) */
+export type ConversaLeve = { id: string; customerId: string; status: string; assigneeId?: string | null };
+/** `sellerId`: a vendedora do pedido (RN-005; ausente = sem dona) */
 export type PedidoLeve = {
   customerId: string | null;
   createdAt: Date;
   paidAt: Date | null;
   status: string;
   netTotal: number;
+  sellerId?: string | null;
 };
 
 export type EntradaDosFatos = {
@@ -141,6 +153,46 @@ function vazio(dia: string): FatoDoDia {
 
 const r1 = (n: number) => Math.round(n * 10) / 10;
 
+/** mediana e p90 de uma lista de minutos (nulos sem tempos) */
+function estatisticasDeTempo(tempos: number[]): { medianaMin: number | null; p90Min: number | null } {
+  if (!tempos.length) return { medianaMin: null, p90Min: null };
+  tempos.sort((a, b) => a - b);
+  const meio = Math.floor(tempos.length / 2);
+  return {
+    medianaMin: r1(tempos.length % 2 ? tempos[meio] : (tempos[meio - 1] + tempos[meio]) / 2),
+    p90Min: r1(tempos[Math.max(1, Math.ceil(0.9 * tempos.length)) - 1]),
+  };
+}
+
+/** quando foi a última resposta HUMANA de cada cliente (pela conversa dela) */
+function ultimaRespostaHumanaPorCliente(entrada: Pick<EntradaDosFatos, "mensagens" | "conversas">): Map<string, number> {
+  const porConversa = new Map<string, number>();
+  for (const m of entrada.mensagens) {
+    if (!respostaHumana(m)) continue;
+    const t = m.createdAt.getTime();
+    if ((porConversa.get(m.conversationId) ?? -1) < t) porConversa.set(m.conversationId, t);
+  }
+  const porCliente = new Map<string, number>();
+  for (const c of entrada.conversas) {
+    const t = porConversa.get(c.id);
+    if (t == null) continue;
+    if ((porCliente.get(c.customerId) ?? -1) < t) porCliente.set(c.customerId, t);
+  }
+  return porCliente;
+}
+
+/** o funil por fatos: quem fez pedido (fora cancelado) e quem pagou */
+function clientesComPedido(pedidos: PedidoLeve[]): { comPedido: Set<string>; pagaram: Set<string> } {
+  const comPedido = new Set<string>();
+  const pagaram = new Set<string>();
+  for (const p of pedidos) {
+    if (!p.customerId || p.status === "CANCELADO") continue;
+    comPedido.add(p.customerId);
+    if (PAGOS.includes(p.status)) pagaram.add(p.customerId);
+  }
+  return { comPedido, pagaram };
+}
+
 /**
  * A CONTA. `dias` são os dias a devolver (AAAA-MM-DD de SP); tudo que cair
  * fora deles é ignorado. As mensagens devem cobrir do primeiro dia até agora
@@ -173,36 +225,12 @@ export function calcularFatos(entrada: EntradaDosFatos, dias: string[]): FatoDoD
       if (e.noPrazo === false) f.foraDoPrazo += 1;
     }
   }
-  for (const [dia, tempos] of temposPorDia) {
-    const f = porDia.get(dia)!;
-    tempos.sort((a, b) => a - b);
-    const meio = Math.floor(tempos.length / 2);
-    f.medianaMin = r1(tempos.length % 2 ? tempos[meio] : (tempos[meio - 1] + tempos[meio]) / 2);
-    f.p90Min = r1(tempos[Math.max(1, Math.ceil(0.9 * tempos.length)) - 1]);
-  }
+  for (const [dia, tempos] of temposPorDia) Object.assign(porDia.get(dia)!, estatisticasDeTempo(tempos));
 
-  // leads: contatos novos do dia, por origem, e quantos tiveram resposta humana
-  const ultimaHumanaPorConversa = new Map<string, number>();
-  for (const m of entrada.mensagens) {
-    if (!respostaHumana(m)) continue;
-    const t = m.createdAt.getTime();
-    if ((ultimaHumanaPorConversa.get(m.conversationId) ?? -1) < t)
-      ultimaHumanaPorConversa.set(m.conversationId, t);
-  }
-  const ultimaHumanaPorCliente = new Map<string, number>();
-  for (const c of entrada.conversas) {
-    const t = ultimaHumanaPorConversa.get(c.id);
-    if (t == null) continue;
-    if ((ultimaHumanaPorCliente.get(c.customerId) ?? -1) < t) ultimaHumanaPorCliente.set(c.customerId, t);
-  }
+  // leads: contatos novos do dia, por origem, e quantos tiveram resposta humana;
   // funil por fatos: o contato novo fez pedido? pagou? (pedido cancelado não conta)
-  const comPedido = new Set<string>();
-  const pagaram = new Set<string>();
-  for (const p of entrada.pedidos) {
-    if (!p.customerId || p.status === "CANCELADO") continue;
-    comPedido.add(p.customerId);
-    if (PAGOS.includes(p.status)) pagaram.add(p.customerId);
-  }
+  const ultimaHumanaPorCliente = ultimaRespostaHumanaPorCliente(entrada);
+  const { comPedido, pagaram } = clientesComPedido(entrada.pedidos);
   for (const c of entrada.contatos) {
     const f = pega(c.createdAt);
     if (!f) continue;
@@ -230,6 +258,132 @@ export function calcularFatos(entrada: EntradaDosFatos, dias: string[]): FatoDoD
   }
   for (const f of porDia.values()) f.vendido = Math.round(f.vendido * 100) / 100;
   return dias.map((d) => porDia.get(d)!);
+}
+
+export type FatoDaVendedora = {
+  dia: string;
+  userId: string;
+  leads: number;
+  leadsRespondidos: number;
+  leadsComPedido: number;
+  leadsPagaram: number;
+  respondidas: number;
+  noPrazo: number;
+  foraDoPrazo: number;
+  semResposta: number;
+  medianaMin: number | null;
+  p90Min: number | null;
+  hist: number[];
+  pedidos: number;
+  pedidosPagos: number;
+  vendido: number;
+};
+
+function vazioDaVendedora(dia: string, userId: string): FatoDaVendedora {
+  return {
+    dia,
+    userId,
+    leads: 0,
+    leadsRespondidos: 0,
+    leadsComPedido: 0,
+    leadsPagaram: 0,
+    respondidas: 0,
+    noPrazo: 0,
+    foraDoPrazo: 0,
+    semResposta: 0,
+    medianaMin: null,
+    p90Min: null,
+    hist: Array(BALDES_MIN.length + 1).fill(0),
+    pedidos: 0,
+    pedidosPagos: 0,
+    vendido: 0,
+  };
+}
+
+/**
+ * A MESMA CONTA, POR VENDEDORA (RN-083). Cada número é recortado por quem
+ * fez: a espera conta para quem a RESPONDEU (`autoraId`, o eco do celular da
+ * loja não tem autora e fica só no total da loja) — e no prazo/fora do prazo
+ * são só das respondidas; a espera sem resposta conta para quem ASSUMIU a
+ * conversa (na fila, é de ninguém), só como "sem resposta"; o lead conta
+ * para a dona da CARTEIRA; o pedido para a VENDEDORA dele (RN-005 — a venda
+ * da loja online não tem dona e fica só no total). `vendedoras` é a lista de
+ * pessoas DA LOJA (RN-013): id de fora (o Super Admin acessando como loja)
+ * não vira linha. Só sai linha para quem teve algum número no dia — e o que
+ * sobra entre o total da loja e a soma das pessoas é "sem vendedora", que a
+ * tela DIZ em vez de esconder. Puro.
+ */
+export function calcularFatosPorVendedora(
+  entrada: EntradaDosFatos,
+  dias: string[],
+  vendedoras: ReadonlySet<string>
+): FatoDaVendedora[] {
+  const diasPedidos = new Set(dias);
+  const linhas = new Map<string, FatoDaVendedora>();
+  const pega = (instante: Date, userId: string | null | undefined): FatoDaVendedora | null => {
+    if (!userId || !vendedoras.has(userId)) return null;
+    const dia = diaSP(instante);
+    if (!diasPedidos.has(dia)) return null;
+    const chave = `${dia}|${userId}`;
+    let f = linhas.get(chave);
+    if (!f) linhas.set(chave, (f = vazioDaVendedora(dia, userId)));
+    return f;
+  };
+
+  const encerradas = new Set(entrada.conversas.filter((c) => c.status === "CLOSED").map((c) => c.id));
+  const assumidaPor = new Map(entrada.conversas.map((c) => [c.id, c.assigneeId ?? null]));
+  const esperas = parearEsperas(entrada.mensagens, { ...entrada.regua, encerradas });
+  const tempos = new Map<string, number[]>();
+  for (const e of esperas) {
+    if (e.respostaEm) {
+      const f = pega(e.chegadaEm, e.autoraId);
+      if (!f) continue;
+      f.respondidas += 1;
+      if (e.noPrazo) f.noPrazo += 1;
+      else f.foraDoPrazo += 1;
+      f.hist[baldeDoTempo(e.minutos)] += 1;
+      const chave = `${f.dia}|${f.userId}`;
+      let lista = tempos.get(chave);
+      if (!lista) tempos.set(chave, (lista = []));
+      lista.push(e.minutos);
+    } else if (!e.encerrada) {
+      // a espera ABERTA na conversa dela é "sem resposta", e só isso: no
+      // prazo/fora do prazo da pessoa são SÓ das que ela respondeu — senão a
+      // fila parada enquanto ela está de folga virava "ela responde atrasado"
+      // (achado da revisão). O total da loja segue contando a aberta
+      // estourada como fora do prazo (RN-082), que é a pergunta da loja.
+      const f = pega(e.chegadaEm, assumidaPor.get(e.conversationId));
+      if (f) f.semResposta += 1;
+    }
+  }
+  for (const [chave, lista] of tempos) Object.assign(linhas.get(chave)!, estatisticasDeTempo(lista));
+
+  const ultimaHumanaPorCliente = ultimaRespostaHumanaPorCliente(entrada);
+  const { comPedido, pagaram } = clientesComPedido(entrada.pedidos);
+  for (const c of entrada.contatos) {
+    const f = pega(c.createdAt, c.ownerId);
+    if (!f) continue;
+    f.leads += 1;
+    const t = ultimaHumanaPorCliente.get(c.id);
+    if (t != null && t >= c.createdAt.getTime()) f.leadsRespondidos += 1;
+    if (comPedido.has(c.id)) f.leadsComPedido += 1;
+    if (pagaram.has(c.id)) f.leadsPagaram += 1;
+  }
+  for (const p of entrada.pedidos) {
+    if (p.status !== "CANCELADO") {
+      const f = pega(p.createdAt, p.sellerId);
+      if (f) f.pedidos += 1;
+    }
+    if (p.paidAt && PAGOS.includes(p.status)) {
+      const f = pega(p.paidAt, p.sellerId);
+      if (f) {
+        f.pedidosPagos += 1;
+        f.vendido += p.netTotal;
+      }
+    }
+  }
+  for (const f of linhas.values()) f.vendido = Math.round(f.vendido * 100) / 100;
+  return [...linhas.values()].sort((a, b) => (a.dia === b.dia ? a.userId.localeCompare(b.userId) : a.dia.localeCompare(b.dia)));
 }
 
 /**
@@ -279,7 +433,7 @@ export async function atualizarFatosDoBi(
     dias = ultimosDias(hoje, DIAS_VIVOS);
   } else {
     const gravados = await db.biDia.findMany({
-      where: { companyId, dia: { gte: ultimosDias(hoje, DIAS_DE_HISTORICO)[0] } },
+      where: { companyId, dia: { gte: ultimosDias(hoje, DIAS_DE_HISTORICO)[0] }, versao: { gte: VERSAO_DOS_FATOS } },
       select: { dia: true },
     });
     dias = diasDaRodada(hoje, new Set(gravados.map((g) => g.dia)));
@@ -308,38 +462,48 @@ export async function atualizarFatosDoBi(
     conversas.push(
       ...(await db.conversation.findMany({
         where: { id: { in: idsDeConversa.slice(i, i + LOTE_DE_IDS) }, companyId },
-        select: { id: true, customerId: true, status: true },
+        select: { id: true, customerId: true, status: true, assigneeId: true },
       }))
     );
   }
-  const [contatos, pedidos] = await Promise.all([
+  const [contatos, pedidos, pessoas] = await Promise.all([
     db.customer.findMany({
       where: { companyId, createdAt: { gte: inicio } },
-      select: { id: true, createdAt: true, origin: true },
+      select: { id: true, createdAt: true, origin: true, ownerId: true },
     }),
     db.order.findMany({
       where: { companyId, OR: [{ createdAt: { gte: inicio } }, { paidAt: { gte: inicio } }] },
-      select: { customerId: true, createdAt: true, paidAt: true, status: true, netTotal: true },
+      select: { customerId: true, createdAt: true, paidAt: true, status: true, netTotal: true, sellerId: true },
     }),
+    // as pessoas DA LOJA (RN-013): quem está fora não vira linha por vendedora
+    db.user.findMany({ where: { companyId }, select: { id: true } }),
   ]);
 
-  const fatos = calcularFatos(
-    {
-      mensagens: mensagens as MensagemLeve[],
-      conversas,
-      contatos,
-      pedidos,
-      regua: {
-        horario: lerHorarioComercial(company.horarioComercial),
-        prazoMin: company.intakeSlaMinutes,
-        agora,
-      },
+  const entrada: EntradaDosFatos = {
+    mensagens: mensagens as MensagemLeve[],
+    conversas,
+    contatos,
+    pedidos,
+    regua: {
+      horario: lerHorarioComercial(company.horarioComercial),
+      prazoMin: company.intakeSlaMinutes,
+      agora,
     },
-    dias
-  );
-  // tudo numa transação: metade dos dias gravada seria um painel mentindo
-  await db.$transaction(
-    fatos.map((f) => {
+  };
+  const fatos = calcularFatos(entrada, dias);
+  const porVendedora = calcularFatosPorVendedora(entrada, dias, new Set(pessoas.map((u) => u.id)));
+  // tudo numa transação: metade dos dias gravada seria um painel mentindo.
+  // As linhas por vendedora são DERIVADAS: apagadas e refeitas nos dias da
+  // rodada (o pedido cancelado hoje tira a venda de ontem da pessoa — um
+  // upsert deixaria a linha velha de pé).
+  await db.$transaction([
+    db.biDiaVendedora.deleteMany({ where: { companyId, dia: { in: dias } } }),
+    // o fato inteiro vai para a linha (campo novo no tipo chega à coluna sem
+    // passar por uma lista à mão — a classe de defeito da RN-059)
+    db.biDiaVendedora.createMany({
+      data: porVendedora.map((f) => ({ companyId, ...f, hist: JSON.stringify(f.hist) })),
+    }),
+    ...fatos.map((f) => {
       const data = {
         leads: f.leads,
         origens: JSON.stringify(f.origens),
@@ -358,14 +522,15 @@ export async function atualizarFatosDoBi(
         pedidos: f.pedidos,
         pedidosPagos: f.pedidosPagos,
         vendido: f.vendido,
+        versao: VERSAO_DOS_FATOS,
       };
       return db.biDia.upsert({
         where: { companyId_dia: { companyId, dia: f.dia } },
         create: { companyId, dia: f.dia, ...data },
         update: data,
       });
-    })
-  );
+    }),
+  ]);
   if (cortou) {
     await logServerError({
       source: "server",
