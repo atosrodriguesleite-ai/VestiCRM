@@ -183,6 +183,26 @@ async function main() {
   igual(cart.vendidoNoPeriodo, 270, "vendido no período R$ 270 (sem o cancelado, sem o frete)");
   conferir(cart.melhoresDoPeriodo.every((m) => m.vip != null), "as duas são VIP (Top 20 de uma carteira de 2)");
 
+  console.log("\n6) Anúncios (RN-085): gasto do mês × coorte × caixa");
+  const { montarAnuncios } = await import("@/lib/bi/anuncios");
+  const camp = await db.marketingCampaign.create({ data: { companyId: company.id, name: "Story outubro", channel: "INSTAGRAM", utmKey: `story-${marca}` } });
+  // k2 (cadastrada segunda, pagou R$ 200 terça) e k3 (cadastrada segunda, só cancelado) chegaram pelo anúncio;
+  // k1 chegou pelo anúncio em SETEMBRO (fora da coorte) e não tem venda viva
+  await db.customer.update({ where: { id: k2.id }, data: { campaignId: camp.id } });
+  await db.customer.update({ where: { id: k3.id }, data: { campaignId: camp.id } });
+  await db.customer.update({ where: { id: k1.id }, data: { campaignId: camp.id, createdAt: new Date("2026-09-10T12:00:00-03:00") } });
+  await db.biGastoDeAnuncio.create({ data: { companyId: company.id, campanhaId: camp.id, mes: "2026-10", valor: 100 } });
+  await db.biGastoDeAnuncio.create({ data: { companyId: company.id, campanhaId: camp.id, mes: "2026-09", valor: 999 } });
+  const an = await montarAnuncios(company.id, { de: "2026-10-12", ate: "2026-10-13" });
+  igual(an.meses, ["2026-10"], "o período toca só outubro");
+  igual(an.linhas.length, 1, "uma campanha com número");
+  const l = an.linhas[0];
+  igual([l.gasto, l.leads, l.pagaram, l.vendido], [100, 2, 1, 200], "gasto de outubro R$ 100 (setembro fica fora); coorte k2 e k3, k2 pagou; vendido no período R$ 200");
+  igual([l.cac, l.custoPorVenda, l.retorno, l.conversaoPct], [50, 100, 2, 50], "CAC R$ 50, custo por venda R$ 100, retorno 2×, conversão 50%");
+  igual(an.semAnuncio, 1, "k4 chegou no período sem anúncio (k1 é de setembro)");
+  const anSet = await montarAnuncios(company.id, { de: "2026-09-01", ate: "2026-09-30" });
+  igual([anSet.linhas[0]?.gasto, anSet.linhas[0]?.leads, anSet.linhas[0]?.vendido, anSet.linhas[0]?.retorno], [999, 1, 0, 0], "setembro: gasto 999, coorte k1, nada vendido, retorno 0");
+
   await db.company.delete({ where: { id: company.id } });
   console.log(process.exitCode ? "\n❌ Falhou" : "\n✅ Tudo conferido");
 }

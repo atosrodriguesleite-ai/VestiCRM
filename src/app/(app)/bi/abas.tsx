@@ -1,14 +1,15 @@
 "use client";
 
 import Link from "next/link";
-import { Gauge, Heart, Users } from "lucide-react";
+import { Gauge, Heart, Megaphone, Users } from "lucide-react";
 
-export type AbaDoBi = "painel" | "vendedoras" | "clientes";
+export type AbaDoBi = "painel" | "vendedoras" | "clientes" | "anuncios";
 
 const ABAS: { id: AbaDoBi; rotulo: string; icon: React.ComponentType<{ className?: string }> }[] = [
   { id: "painel", rotulo: "Painel", icon: Gauge },
   { id: "vendedoras", rotulo: "Vendedoras", icon: Users },
   { id: "clientes", rotulo: "Clientes", icon: Heart },
+  { id: "anuncios", rotulo: "Anúncios", icon: Megaphone },
 ];
 
 /** A aba pedida na URL — uma fonte só com a lista (aba nova entra aqui e na página de uma vez). */

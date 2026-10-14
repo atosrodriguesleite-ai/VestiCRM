@@ -1999,6 +1999,54 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   **Limites ditos**: as faixas são fixas (30/60/90 dias, decisão antiga da
   Recompra), não por loja; a legenda não repete o número — diz "fora da
   faixa Ativa".
+- **RN-085 · ROI DE ANÚNCIO: GASTO POR MÊS, E AS DUAS PONTAS NA RÉGUA DO
+  PERÍODO** (`lib/bi/anuncios.ts` + `BiGastoDeAnuncio` + rota
+  `/api/bi/anuncios/gastos`, aba **Anúncios** em `/bi`, 14/10/2026): a
+  Fase 2c do BI (ADR-019), fechando a Fase 2. O dono pediu "de qual
+  anúncio ele vem" e aceitou "gasto de anúncio pode ser colocado". A
+  atribuição já era automática e assim fica (RN-015: o link do anúncio
+  Click-to-WhatsApp vira `Customer.campaignId` numa `MarketingCampaign`;
+  sem marcação manual, decisão do dono). O que faltava era o **gasto POR
+  MÊS**: a tela Marketing guarda o investimento de TODA A VIDA e compara
+  com o faturamento de toda a vida — conta verdadeira, mas que não
+  responde "outubro valeu a pena?". Agora a gerência informa, na própria
+  aba, quanto gastou em cada campanha em cada mês (`BiGastoDeAnuncio`,
+  único por loja × campanha × mês; em branco ou zero apaga; a rota confere
+  que a campanha é DA LOJA, RN-013), e a aba compara, **no período da
+  tela**: (1) **gasto** = soma dos meses INTEIROS que o período toca (o
+  período de 1 a 15 usa o mês inteiro — ratear por dia seria precisão de
+  mentira, a loja não gasta igual todo dia; a tela diz); (2) **contatos
+  novos** = a coorte, clientes cadastradas no período com a campanha
+  atribuída, e **pagaram** = quantas dessas já têm pedido pago, em
+  qualquer data (a cliente que chegou dia 28 e pagou dia 3 conta para o
+  anúncio que a trouxe); (3) **vendido** = caixa, o que entrou no período
+  de QUALQUER cliente da campanha (pedido pago pela data do pagamento,
+  `netTotal`, RN-001/RN-002) — o anúncio de março que ainda traz recompra
+  aparece em outubro, e a tela diz que coorte e caixa são duas perguntas.
+  Daí **CAC** = gasto ÷ contatos, **custo por venda** = gasto ÷ pagaram,
+  **retorno** = vendido ÷ gasto (em "×", verde a partir de 1), **conversão**
+  = pagaram ÷ contatos; **sem base, nulo** — nunca zero disfarçado
+  (`calcularRetorno`). Só campanha com algum número vira linha, a parada
+  com número aparece marcada, o total refaz as contas sobre a SOMA (não é
+  média das linhas), e a aba diz quantos contatos novos do período chegaram
+  **sem anúncio identificado**. **Cinco achados da revisão fecharam a
+  entrega**: o editor manda **só as células que mudaram, com o valor
+  VISTO** (régua da RN-050 — a grade inteira apagava o mês que outra aba
+  ou outra gerente tinha gravado, e o estado preso ao primeiro período
+  fazia o salvar apagar o mês do período seguinte; o editor remonta por
+  período, `key` pelos meses) e a rota recusa com 409 quando o número
+  mudou por baixo; **centavos** na rota e valor escrito em pt-BR no campo
+  ("12,345" gravado cru voltava como "12.345" e virava 12 mil); a leitura
+  é **toda recortada pelo período** (a coorte, e o caixa agregado no
+  banco, uma linha por cliente que pagou — nunca a vida inteira das
+  clientes); a lista de canais mora em `lib/canais-de-anuncio.ts`, uma
+  para o formulário da campanha e o BI; e o teste prende a régua das
+  consultas com banco simulado, não com regex do texto. **Limites ditos**: o "retorno por R$ 1" da
+  tela Marketing é OUTRA conta (toda a vida ÷ investimento total) e a tela
+  diz — dois lugares para digitar gasto é um risco aceito até o dono
+  decidir se o total vira a soma dos meses; os links de campanha da
+  Inteligência (`TrackCampaign`, cliques e meta) não entram aqui — são
+  links do catálogo, não anúncios pagos.
 - **Communication Engine** (`lib/comm/`): camada única de envio/recebimento,
   agnóstica de provedor. `EvolutionProvider` = WhatsApp NÃO-oficial via
   Evolution API **self-hosted** (VPS Hostinger srv1853369.hstgr.cloud,
@@ -3567,7 +3615,8 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   preço de tabela (0 no catálogo) e ligar a chave nas lojas da assessoria.
   **Fase 2a ✅ (RN-083, 14/10/2026)**: aba Vendedoras (fatos por pessoa).
   **Fase 2b ✅ (RN-084, 14/10/2026)**: aba Clientes (a carteira da Recompra
-  em R × F × M). **Fase 2c**: ROI de anúncio (gasto por mês). **Fase 3**: modo TV, benchmark entre lojas (Super
+  em R × F × M). **Fase 2c ✅ (RN-085, 14/10/2026)**: aba Anúncios (gasto
+  por mês × contatos × vendas) — **Fase 2 concluída**. **Fase 3**: modo TV, benchmark entre lojas (Super
   Admin), resumo semanal no WhatsApp do dono. Decisões do dono: só gerência
   vê; origem do lead segue automática (sem marcação manual); metas de
   qualquer tipo, a loja escolhe; prazo dentro do horário comercial.

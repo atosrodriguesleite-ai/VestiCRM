@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { CANAIS_DE_ANUNCIO, rotuloDoCanal } from "@/lib/canais-de-anuncio";
 import { useRouter } from "next/navigation";
 import { Plus, Target, Trash2, Power, Megaphone, Link2, ExternalLink, Wallet } from "lucide-react";
 import { Button, Card, Field, inputCls, EmptyState, Badge } from "@/components/ui";
@@ -32,15 +33,9 @@ export type AnuncioDetectado = {
   texto: string | null;
 };
 
-const CHANNELS: { value: string; label: string }[] = [
-  { value: "INSTAGRAM", label: "Instagram" },
-  { value: "FACEBOOK", label: "Facebook" },
-  { value: "GOOGLE", label: "Google" },
-  { value: "WHATSAPP", label: "WhatsApp" },
-  { value: "TIKTOK", label: "TikTok" },
-  { value: "OUTRO", label: "Outro" },
-];
-const channelLabel = (v: string) => CHANNELS.find((c) => c.value === v)?.label ?? v;
+// a lista de canais é UMA (lib/canais-de-anuncio.ts): o BI mostra o mesmo rótulo
+const CHANNELS = CANAIS_DE_ANUNCIO;
+const channelLabel = rotuloDoCanal;
 
 /** Quantos anúncios estão cadastrados nesta campanha. */
 const refsCount = (c: { adRefs: string | null }) =>

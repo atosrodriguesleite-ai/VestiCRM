@@ -144,6 +144,7 @@ model Company {
   biDias         BiDia[]
   biDiasVendedora BiDiaVendedora[]
   biMetas        BiMeta[]
+  biGastosDeAnuncio BiGastoDeAnuncio[]
   customers      Customer[]
   abandonedCarts AbandonedCart[]
   tags           Tag[]
@@ -1576,6 +1577,8 @@ model MarketingCampaign {
   createdAt DateTime @default(now())
 
   customers Customer[]
+  /// RN-085: o gasto desta campanha, mês a mês (o BI)
+  gastosDoBi BiGastoDeAnuncio[]
 
   @@unique([companyId, utmKey])
   @@index([companyId, active])
@@ -3718,6 +3721,26 @@ model BiDiaVendedora {
 
   @@unique([companyId, dia, userId])
   @@index([companyId, userId, dia])
+}
+
+/// GASTO DE ANÚNCIO POR MÊS (RN-085): quanto a loja gastou em cada campanha
+/// de anúncio (`MarketingCampaign`) em cada mês — é o que faz o retorno do
+/// período ser uma conta de verdade (gasto do mês × o que o mês trouxe). O
+/// `MarketingCampaign.investment` segue sendo o total de toda a vida (tela
+/// Marketing); aqui é o recorte mensal que o BI compara com o período.
+model BiGastoDeAnuncio {
+  id         String   @id @default(cuid())
+  companyId  String
+  company    Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  campanhaId String
+  campanha   MarketingCampaign @relation(fields: [campanhaId], references: [id], onDelete: Cascade)
+  /// "2026-10" (calendário de SP)
+  mes        String
+  valor      Float
+  updatedAt  DateTime @default(now()) @updatedAt
+
+  @@unique([companyId, campanhaId, mes])
+  @@index([companyId, mes])
 }
 
 /// METAS DO MÊS DO BI (RN-082): a loja escolhe quais metas quer, por mês.

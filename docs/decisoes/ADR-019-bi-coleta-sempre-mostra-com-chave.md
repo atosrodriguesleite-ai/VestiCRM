@@ -6,7 +6,8 @@
   as três peças da Fase 0, concluída em 13/10/2026; RN-082 (fatos diários,
   painel e chave — a Fase 1, 14/10/2026); RN-083 (os mesmos fatos por
   vendedora — a Fase 2a, 14/10/2026); RN-084 (a carteira da Recompra em
-  R × F × M — a Fase 2b, 14/10/2026);
+  R × F × M — a Fase 2b, 14/10/2026); RN-085 (ROI de anúncio com gasto por
+  mês — a Fase 2c, 14/10/2026);
   RN-001/RN-002 (venda é pedido pago, por `netTotal`); RN-005/RN-007
   (comissão e visibilidade por vendedora); RN-008 (origem do lead no portão
   único); RN-063 (selo calculado dos pedidos, nunca colocado à mão — o

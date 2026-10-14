@@ -15,6 +15,8 @@ import { Abas, lerAba } from "./abas";
 import { VendedorasView } from "./vendedoras-view";
 import { CarteiraView } from "./carteira-view";
 import { montarCarteira } from "@/lib/bi/carteira";
+import { montarAnuncios } from "@/lib/bi/anuncios";
+import { AnunciosView } from "./anuncios-view";
 import type { Origin } from "@prisma/client";
 
 export const dynamic = "force-dynamic";
@@ -94,6 +96,18 @@ export default async function BiPage({
         {cabecalho}
         <div className="mt-4">
           <CarteiraView dados={dados} dias={diasDoPeriodo(dados.periodo).length} />
+        </div>
+      </div>
+    );
+  }
+
+  if (aba === "anuncios") {
+    const dados = await montarAnuncios(user.companyId, periodo);
+    return (
+      <div className="max-w-6xl mx-auto">
+        {cabecalho}
+        <div className="mt-4">
+          <AnunciosView dados={dados} dias={diasDoPeriodo(dados.periodo).length} />
         </div>
       </div>
     );
