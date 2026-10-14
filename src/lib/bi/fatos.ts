@@ -60,6 +60,11 @@ export const VERSAO_DOS_FATOS = 1;
 const LOTE_DE_IDS = 5_000;
 /** limites dos baldes da distribuição do tempo de resposta (min de atendimento) */
 export const BALDES_MIN = [5, 15, 30, 60, 120, 240] as const;
+/** os rótulos dos baldes, DERIVADOS dos limites — uma lista só, lida pela tela e pelo PDF (RN-090) */
+export const ROTULO_DO_BALDE: readonly string[] = [
+  ...BALDES_MIN.map((m) => (m < 60 ? `até ${m} min` : `até ${m / 60} h`)),
+  `mais de ${BALDES_MIN[BALDES_MIN.length - 1] / 60} h`,
+];
 
 const SP_OFFSET_MS = 3 * 60 * 60 * 1000;
 const DIA_MS = 24 * 60 * 60 * 1000;

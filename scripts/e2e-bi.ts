@@ -245,6 +245,25 @@ async function main() {
   const hoje = await numerosDeHoje(company.id, agora);
   igual([hoje.dia, hoje.leads, hoje.pedidosPagos, hoje.vendido, hoje.esperandoAgora], ["2026-10-13", 0, 1, 200, 1], "terça: nenhum contato novo, 1 pago (K2, R$ 200), 1 esperando (c3)");
 
+  console.log("\n10) O relatório do período em PDF (RN-090): os mesmos números da tela, em papel");
+  const { secoesDoRelatorio, gerarPdfDoRelatorio } = await import("@/lib/bi/relatorio");
+  const { montarPainel: montarPainelPdf, montarVendedoras: montarVendedorasPdf } = await import("@/lib/bi/painel");
+  const periodoPdf = { de: "2026-10-01", ate: "2026-10-13" };
+  const [painelPdf, vendedorasPdf] = await Promise.all([montarPainelPdf(company.id, periodoPdf, agora), montarVendedorasPdf(company.id, periodoPdf)]);
+  const dadosPdf = { loja: "Loja E2E", geradoPor: "Teste", geradoEm: agora, prazoMin: 30, semHorario: false, painel: painelPdf, vendedoras: vendedorasPdf, tendencia: tend };
+  const secoes = secoesDoRelatorio(dadosPdf);
+  const numeros = secoes[0].blocos[0];
+  if (numeros.tipo !== "numeros") throw new Error("primeiro bloco não é de números");
+  igual(numeros.itens[0].valor, String(painelPdf.atual.leads), "o PDF diz os contatos novos que o painel diz");
+  igual(numeros.itens[3].valor, `R$ ${painelPdf.atual.vendido}`, `o PDF diz o vendido que o painel diz (R$ ${painelPdf.atual.vendido})`);
+  const porVendedora = secoes.find((x) => x.titulo === "Por vendedora")!.blocos[0];
+  if (porVendedora.tipo !== "tabela") throw new Error("por vendedora não é tabela");
+  igual(porVendedora.rodape?.[7], `R$ ${vendedorasPdf.loja.vendido}`, "a loja inteira no rodapé é a soma do painel");
+  const linhaAna = porVendedora.linhas.find((l) => l[0] === "Ana");
+  conferir(!!linhaAna && linhaAna[7] === `R$ ${vendedorasPdf.pessoas.find((p) => p.nome === "Ana")!.vendido}`, "a linha da Ana leva o vendido dela");
+  const bytes = await gerarPdfDoRelatorio(dadosPdf);
+  conferir(bytes.length > 2000 && String.fromCharCode(...bytes.slice(0, 5)) === "%PDF-", `o PDF nasceu (${bytes.length} bytes)`);
+
   await db.company.delete({ where: { id: company.id } });
   console.log(process.exitCode ? "\n❌ Falhou" : "\n✅ Tudo conferido");
 }

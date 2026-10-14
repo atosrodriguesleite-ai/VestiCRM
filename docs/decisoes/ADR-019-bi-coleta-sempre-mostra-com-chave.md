@@ -10,6 +10,7 @@
   mês — a Fase 2c, 14/10/2026); RN-086 (clicar e cavar — a primeira peça
   da Fase 3, 14/10/2026); RN-087 (a linha de 12 meses, 14/10/2026); RN-088 (a faixa "hoje" ao
   vivo, 14/10/2026); RN-089 (gráficos vivos e paleta validada, 14/10/2026);
+  RN-090 (o relatório do período em PDF, sem conta própria, 14/10/2026);
   RN-001/RN-002 (venda é pedido pago, por `netTotal`); RN-005/RN-007
   (comissão e visibilidade por vendedora); RN-008 (origem do lead no portão
   único); RN-063 (selo calculado dos pedidos, nunca colocado à mão — o

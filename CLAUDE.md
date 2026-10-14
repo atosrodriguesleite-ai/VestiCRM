@@ -2222,6 +2222,57 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   de servidor — só a cor mudou de dono. **Limite dito**: os cinzas de grade
   e texto dos gráficos são os tokens das outras telas (o tema escuro os
   inverte); só a cor de DADO foi validada nas duas superfícies.
+- **RN-090 · O RELATÓRIO DO PERÍODO EM PDF NÃO FAZ CONTA PRÓPRIA**
+  (`lib/bi/relatorio.ts` + rota `/api/bi/relatorio`, botão "Baixar PDF do
+  período" no `/bi`, 14/10/2026): a quinta recomendação aceita pelo dono —
+  o período que está na tela, em papel, para a reunião com a assessoria,
+  para o grupo da gerência, para guardar o mês. Duas decisões: (1) **o
+  papel lê os MESMOS objetos que a tela** (`montarPainel`,
+  `montarVendedoras`, `montarTendencia`, com o mesmo recorte de `de`/`ate`
+  e a régua de dia de `lib/dia`) e o conteúdo é uma função PURA
+  (`secoesDoRelatorio`: cada número, cada frase, cada linha de tabela —
+  testável sem abrir PDF); se o papel dissesse "R$ 1.200" e a tela
+  "R$ 1.234", a loja pararia de confiar nos dois — a régua do painel de
+  Recompra ("este painel não faz conta própria", RN-084). O que a tela
+  mostra o papel mostra: os seis números com a comparação do período
+  anterior **em palavras** ("+12% vs. período anterior"; "sem base de
+  comparação", nunca zero disfarçado), as metas do mês (só as preenchidas,
+  com o atingido), o funil com a conversão de cada etapa, contatos e
+  vendido por dia (linha com total e maior dia), quanto a cliente esperou
+  (com %), de onde vieram, por que não fechou (chip e detalhe), **por
+  vendedora** (uma linha por pessoa, a desativada marcada, "Sem vendedora" e
+  a loja inteira no rodapé — a mesma soma do painel) e os últimos 12 meses;
+  e a seção **"Como ler"** diz os limites (robô não é resposta; sem horário
+  cadastrado conta a madrugada; dias sem fato). (2) **O desenho é o
+  pdf-lib da casa** (a peça do extrato de comissão, RN-038, e das etiquetas,
+  RN-059), sem navegador — roda na função da Vercel, com `maxDuration` de
+  60 s; todo texto passa por `paginaSegura` (o emoji do motivo de perda não
+  derruba o PDF, a lição do romaneio); a série é desenhada ponto a ponto
+  com o pico rotulado e o eixo de até 6 datas (o vizinho que colaria no
+  último sai), o funil usa a rampa validada da RN-089 e as barras o cobre;
+  a página abre sozinha quando a seção não cabe e o rodapé numera. Período
+  vazio vira "nenhum contato novo" em cada seção, nunca erro. **Gerência,
+  com a chave do módulo** (`porteiraBi`, a mesma das outras rotas do BI);
+  o arquivo baixa como `bi-<loja>-<de>-a-<ate>.pdf` (nome limpo: só letra,
+  número e hífen). **Dez achados da revisão fecharam a entrega**: o sinal
+  de menos é o hífen ASCII (o "−" tipográfico não existe na WinAnsi e o
+  papel dizia "+12%" onde a tela dizia "−12%"); o texto é MEDIDO já filtrado
+  (medir o cru com emoji no nome de quem gerou derrubava a rota com 500);
+  o resumo da série fica acima da área (o pico no fim do mês caía em cima
+  dele); o título reserva a altura do primeiro bloco (sem isso ficava órfão
+  no pé da página); a tabela que vira página **repete o cabeçalho**; os 12
+  meses levam as ressalvas do cartão da tendência ("75% (11 de 30 dias)" e
+  "contado a partir de set/26"); "Por vendedora" usa a MESMA régua de vazio
+  da aba (`temNumeroNaLoja`); o texto da ponta das barras e as células da
+  tabela são medidos (colunas de número com a largura do maior valor, o
+  nome com o resto; o que não cabe encolhe e só então corta); e os rótulos
+  dos baldes são UMA lista derivada dos limites (`ROTULO_DO_BALDE` em
+  `lib/bi/fatos.ts`, lida pela tela e pelo PDF — antes a tela importava do
+  módulo do PDF). **Limites ditos**: o PDF é do Painel e das Vendedoras —
+  a carteira R × F × M (RN-084) e os anúncios (RN-085) não entram nesta
+  versão; e o relatório é gerado na hora, a cada clique (não é guardado —
+  o período de ontem gerado hoje pode diferir do gerado ontem, porque os
+  dias vivos são refeitos, RN-082).
 - **Communication Engine** (`lib/comm/`): camada única de envio/recebimento,
   agnóstica de provedor. `EvolutionProvider` = WhatsApp NÃO-oficial via
   Evolution API **self-hosted** (VPS Hostinger srv1853369.hstgr.cloud,
@@ -3794,7 +3845,7 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   por mês × contatos × vendas) — **Fase 2 concluída**. **Fase 3 ("completo
   e dinâmico", ordem aceita pelo dono em 14/10/2026)**: clicar e cavar
   (RN-086 ✅) → linha de 12 meses (RN-087 ✅) → faixa "hoje" viva (RN-088
-  ✅) → visual (RN-089 ✅) → exportar PDF; depois, benchmark entre lojas (Super Admin) e resumo semanal no
+  ✅) → visual (RN-089 ✅) → exportar PDF (RN-090 ✅); depois, benchmark entre lojas (Super Admin) e resumo semanal no
   WhatsApp do dono. **Modo TV adiado** pelo dono. Decisões do dono: só gerência
   vê; origem do lead segue automática (sem marcação manual); metas de
   qualquer tipo, a loja escolhe; prazo dentro do horário comercial.

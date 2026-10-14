@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Clock, Inbox, Repeat, ShoppingBag, Users, Wallet } from "lucide-react";
+import { Clock, FileDown, Inbox, Repeat, ShoppingBag, Users, Wallet } from "lucide-react";
 import { Card, PageHeader, EmptyState } from "@/components/ui";
 import { StatCard } from "@/components/dash";
 import { BarrasVivas, FunilVivo, SerieViva } from "@/components/grafico-vivo";
@@ -8,7 +8,7 @@ import { db } from "@/lib/db";
 import { originLabel } from "@/lib/format";
 import { dataDoDia, diaSP } from "@/lib/dia";
 import { porteiraBiTela } from "@/lib/bi/gate";
-import { atualizarFatosDoBiSeDevido, BALDES_MIN, ultimosDias } from "@/lib/bi/fatos";
+import { atualizarFatosDoBiSeDevido, ROTULO_DO_BALDE, ultimosDias } from "@/lib/bi/fatos";
 import { diasDoPeriodo, montarPainel, montarVendedoras, variacao } from "@/lib/bi/painel";
 import { MetasCard } from "./metas-card";
 import { Abas, lerAba } from "./abas";
@@ -26,7 +26,6 @@ import type { Origin } from "@prisma/client";
 
 export const dynamic = "force-dynamic";
 
-const ROTULO_DO_BALDE = ["até 5 min", "até 15 min", "até 30 min", "até 1 h", "até 2 h", "até 4 h", "mais de 4 h"];
 
 /**
  * BI DE VENDAS — o painel do dono (RN-082, ADR-019). Lê fatos diários
@@ -68,6 +67,18 @@ export default async function BiPage({
       />
       <Abas ativa={aba} de={ehDia(de) ? de : undefined} ate={ehDia(ate) ? ate : undefined} />
       <PeriodChips pathname="/bi" de={de} ate={ate} extra={aba === "painel" ? undefined : { aba }} />
+      {/* EXPORTAR PDF (RN-090): o mesmo período, os mesmos motores — o papel não diz número diferente da tela */}
+      <div className="mt-2 flex justify-end">
+        <a
+          href={`/api/bi/relatorio?de=${periodo.de}&ate=${periodo.ate}`}
+          download
+          className="inline-flex items-center gap-1.5 text-xs font-medium rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-slate-600 hover:bg-slate-50 transition"
+          title="Baixa o relatório do período em PDF: números, funil, vendedoras e os últimos 12 meses"
+        >
+          <FileDown className="size-3.5" />
+          Baixar PDF do período
+        </a>
+      </div>
       {semHorario && (
         <p className="mt-3 text-xs rounded-xl bg-amber-50 border border-amber-200 text-amber-800 px-3 py-2">
           Sem horário de atendimento cadastrado: o tempo de resposta está contando o dia inteiro, madrugada
@@ -264,7 +275,7 @@ export default async function BiPage({
             <EmptyState title="Sem respostas no período" />
           ) : (
             <BarrasVivas
-              data={atual.hist.map((n, i) => ({ label: ROTULO_DO_BALDE[i] ?? `> ${BALDES_MIN[BALDES_MIN.length - 1]} min`, value: n }))}
+              data={atual.hist.map((n, i) => ({ label: ROTULO_DO_BALDE[i] ?? ROTULO_DO_BALDE[ROTULO_DO_BALDE.length - 1], value: n }))}
               formato={{ pctDe: totalRespondidas }}
             />
           )}
