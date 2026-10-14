@@ -30,3 +30,16 @@ export function avisoDaFalha(status: number | null): string {
   if (status === 403 || status === 404) return "o BI não está mais disponível para você";
   return "sem conexão — mostrando o último número";
 }
+
+/**
+ * O texto de um número que está ANIMANDO até `valor`: a largura não pode
+ * pular no fim. O `brl` da casa tira os centavos do inteiro ("R$ 1.234") —
+ * então, enquanto a contagem anda, o quadro intermediário com centavos
+ * encolheria 3 letras no último quadro. A régua: se o valor FINAL tem
+ * centavos, todo quadro mostra 2 casas; se não tem, nenhum mostra.
+ */
+export function textoDaContagem(mostrado: number, valor: number, formato: "int" | "brl" = "int"): string {
+  if (formato !== "brl") return String(Math.round(mostrado));
+  const casas = Math.round(valor * 100) % 100 === 0 ? 0 : 2;
+  return mostrado.toLocaleString("pt-BR", { style: "currency", currency: "BRL", minimumFractionDigits: casas, maximumFractionDigits: casas });
+}

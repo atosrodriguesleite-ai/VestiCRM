@@ -1,4 +1,5 @@
 // Guarda RN-088
+// Guarda RN-089
 import { describe, it, expect, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -29,7 +30,7 @@ vi.mock("../db", () => ({
 }));
 
 import { numerosDeHoje } from "../bi/hoje";
-import { INTERVALO_DA_FAIXA_MS, avisoDaFalha, textoDeAtualizado } from "../bi/hoje-regra";
+import { INTERVALO_DA_FAIXA_MS, avisoDaFalha, textoDeAtualizado, textoDaContagem } from "../bi/hoje-regra";
 
 describe("os números de hoje", () => {
   it("contatos de hoje (0h de SP), pagos de hoje por paidAt com netTotal, esperando agora pela cláusula do painel", async () => {
@@ -56,5 +57,21 @@ describe("os números de hoje", () => {
   it("a rota passa pela porteira do BI", () => {
     const rota = readFileSync(join(__dirname, "../../app/api/bi/hoje/route.ts"), "utf8");
     expect(rota).toMatch(/porteiraBi\(\)/);
+  });
+});
+
+describe("o número que anima (textoDaContagem)", () => {
+  const limpo = (t: string) => t.replace(/\u00a0/g, " ");
+  it("valor final sem centavos: nenhum quadro mostra centavos — a largura não pula no fim", () => {
+    expect(limpo(textoDaContagem(1233.98, 1234, "brl"))).toBe("R$ 1.234");
+    expect(limpo(textoDaContagem(0, 1234, "brl"))).toBe("R$ 0");
+    expect(limpo(textoDaContagem(1234, 1234, "brl"))).toBe("R$ 1.234");
+  });
+  it("valor final com centavos: todo quadro mostra 2 casas, e o último é o `brl` da casa", () => {
+    expect(limpo(textoDaContagem(100, 1234.57, "brl"))).toBe("R$ 100,00");
+    expect(limpo(textoDaContagem(1234.57, 1234.57, "brl"))).toBe("R$ 1.234,57");
+  });
+  it("inteiro: arredonda", () => {
+    expect(textoDaContagem(2.6, 3)).toBe("3");
   });
 });

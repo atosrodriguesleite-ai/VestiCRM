@@ -4,9 +4,9 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { MessageSquareWarning, ShoppingBag, Users, Wallet } from "lucide-react";
 import { Card } from "@/components/ui";
-import { brl } from "@/lib/format";
+import { useContagem } from "@/components/dash";
 // SÓ a parte pura: o motor com Prisma não pode chegar ao navegador
-import { INTERVALO_DA_FAIXA_MS, avisoDaFalha, textoDeAtualizado, type NumerosDeHoje } from "@/lib/bi/hoje-regra";
+import { INTERVALO_DA_FAIXA_MS, avisoDaFalha, textoDaContagem, textoDeAtualizado, type NumerosDeHoje } from "@/lib/bi/hoje-regra";
 
 type Props = {
   inicial: NumerosDeHoje;
@@ -76,16 +76,16 @@ export function FaixaDeHoje({ inicial, prazoMin, hrefEsperando, rodape }: Props)
         </p>
       </div>
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <Vivo rotulo="Novos contatos" valor={String(n.leads)} icone={<Users className="size-4" />} />
+        <Vivo rotulo="Novos contatos" valor={n.leads} icone={<Users className="size-4" />} />
         <Vivo
           rotulo="Esperando resposta agora"
-          valor={String(n.esperandoAgora)}
+          valor={n.esperandoAgora}
           icone={<MessageSquareWarning className="size-4" />}
           tom={n.esperandoAgora > 0 ? "warn" : "ok"}
           href={hrefEsperando}
         />
-        <Vivo rotulo="Pedidos pagos" valor={String(n.pedidosPagos)} icone={<ShoppingBag className="size-4" />} />
-        <Vivo rotulo="Vendido" valor={brl(n.vendido)} icone={<Wallet className="size-4" />} />
+        <Vivo rotulo="Pedidos pagos" valor={n.pedidosPagos} icone={<ShoppingBag className="size-4" />} />
+        <Vivo rotulo="Vendido" valor={n.vendido} formato="brl" icone={<Wallet className="size-4" />} />
       </div>
       <p className="text-[11px] text-slate-400 mt-3">
         Prazo de resposta da loja: {prazoMin} min com a loja aberta. Toque num número para ver quem está por trás dele.
@@ -111,19 +111,24 @@ function Relogio({ desde }: { desde: number }) {
   return <>{textoDeAtualizado(segundos)}</>;
 }
 
+/** o número ANIMA quando muda (a contagem do Dashboard, que respeita "reduzir movimento") */
 function Vivo({
   rotulo,
   valor,
+  formato = "int",
   icone,
   tom = "neutro",
   href,
 }: {
   rotulo: string;
-  valor: string;
+  valor: number;
+  formato?: "int" | "brl";
   icone: React.ReactNode;
   tom?: "neutro" | "warn" | "ok";
   href?: string;
 }) {
+  const mostrado = useContagem(valor);
+  const texto = textoDaContagem(mostrado, valor, formato);
   const cor = tom === "warn" ? "text-amber-300" : tom === "ok" ? "text-emerald-300" : "text-white";
   const corpo = (
     <>
@@ -131,7 +136,8 @@ function Vivo({
         {icone}
         {rotulo}
       </p>
-      <p className={`text-3xl font-semibold tabular-nums mt-1 ${cor}`}>{valor}</p>
+      {/* tabular-nums: o número anima, e dígito de largura fixa não balança a linha */}
+      <p className={`text-3xl font-semibold tabular-nums mt-1 ${cor}`}>{texto}</p>
     </>
   );
   return href ? (

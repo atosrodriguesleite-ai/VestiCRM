@@ -2,10 +2,10 @@ import Link from "next/link";
 import { Clock, Inbox, Repeat, ShoppingBag, Users, Wallet } from "lucide-react";
 import { Card, PageHeader, EmptyState } from "@/components/ui";
 import { StatCard } from "@/components/dash";
-import { AreaChart, BarList, FunnelBars } from "@/components/charts";
+import { BarrasVivas, FunilVivo, SerieViva } from "@/components/grafico-vivo";
 import { PeriodChips } from "@/components/period-chips";
 import { db } from "@/lib/db";
-import { brl, originLabel } from "@/lib/format";
+import { originLabel } from "@/lib/format";
 import { dataDoDia, diaSP } from "@/lib/dia";
 import { porteiraBiTela } from "@/lib/bi/gate";
 import { atualizarFatosDoBiSeDevido, BALDES_MIN, ultimosDias } from "@/lib/bi/fatos";
@@ -147,7 +147,7 @@ export default async function BiPage({
       />
 
       {/* OS SEIS NÚMEROS DO PERÍODO */}
-      <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4 mt-4">
+      <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4 mt-4 animate-fade-up">
         <Cavar href={lista("contatos")}>
           <StatCard
             label="Novos contatos"
@@ -212,7 +212,7 @@ export default async function BiPage({
         />
       </div>
 
-      <div className="grid lg:grid-cols-2 gap-4 mt-4">
+      <div className="grid lg:grid-cols-2 gap-4 mt-4 animate-fade-up [animation-delay:80ms]">
         <MetasCard mes={painel.mes} rotuloDoMes={rotuloDoMes} metas={painel.metas} realizado={painel.realizado} />
 
         <Card className="p-5">
@@ -224,7 +224,7 @@ export default async function BiPage({
           {funil.leads === 0 ? (
             <EmptyState title="Nenhum contato novo no período" />
           ) : (
-            <FunnelBars
+            <FunilVivo
               data={[
                 { label: "Contatos novos", value: funil.leads },
                 { label: "Respondidos por uma pessoa", value: funil.respondidos },
@@ -236,24 +236,25 @@ export default async function BiPage({
         </Card>
       </div>
 
-      <div className="grid lg:grid-cols-2 gap-4 mt-4">
+      <div className="grid lg:grid-cols-2 gap-4 mt-4 animate-fade-up [animation-delay:160ms]">
         <Card className="p-5">
           <h2 className="font-semibold mb-1">Novos contatos por dia</h2>
           <p className="text-xs text-gray-400 mb-3">{dias} dias no período.</p>
-          <AreaChart points={serie.map((s) => s.leads)} labels={serie.map((s) => s.dia.slice(8, 10) + "/" + s.dia.slice(5, 7))} />
+          <SerieViva titulo="Novos contatos por dia" points={serie.map((s) => s.leads)} labels={serie.map((s) => s.dia.slice(8, 10) + "/" + s.dia.slice(5, 7))} />
         </Card>
         <Card className="p-5">
           <h2 className="font-semibold mb-1">Vendido por dia</h2>
           <p className="text-xs text-gray-400 mb-3">Pela data do pagamento, valor vendido sem o frete.</p>
-          <AreaChart
+          <SerieViva
+            titulo="Vendido por dia"
             points={serie.map((s) => s.vendido)}
             labels={serie.map((s) => s.dia.slice(8, 10) + "/" + s.dia.slice(5, 7))}
-            formatValue={(v) => brl(v)}
+            formato="brl"
           />
         </Card>
       </div>
 
-      <div className="grid lg:grid-cols-3 gap-4 mt-4">
+      <div className="grid lg:grid-cols-3 gap-4 mt-4 animate-fade-up [animation-delay:240ms]">
         <Card className="p-5">
           <h2 className="font-semibold mb-1">Quanto a cliente esperou</h2>
           <p className="text-xs text-gray-400 mb-3">
@@ -262,10 +263,9 @@ export default async function BiPage({
           {totalRespondidas === 0 ? (
             <EmptyState title="Sem respostas no período" />
           ) : (
-            <BarList
+            <BarrasVivas
               data={atual.hist.map((n, i) => ({ label: ROTULO_DO_BALDE[i] ?? `> ${BALDES_MIN[BALDES_MIN.length - 1]} min`, value: n }))}
-              color="#0f766e"
-              formatValue={(v) => `${v} (${Math.round((v / totalRespondidas) * 100)}%)`}
+              formato={{ pctDe: totalRespondidas }}
             />
           )}
         </Card>
@@ -275,7 +275,7 @@ export default async function BiPage({
           {atual.leads === 0 ? (
             <EmptyState title="Nenhum contato novo" />
           ) : (
-            <BarList
+            <BarrasVivas
               data={Object.entries(atual.origens)
                 .map(([k, v]) => ({ label: originLabel[k as Origin] ?? k, value: v }))
                 .sort((a, b) => b.value - a.value)}
@@ -285,10 +285,11 @@ export default async function BiPage({
         <Card className="p-5">
           <h2 className="font-semibold mb-1">Por que não fechou</h2>
           <p className="text-xs text-gray-400 mb-3">Negociações perdidas no período, pelo motivo escolhido no funil.</p>
+          {/* motivo de perda é CATEGORIA, não status: uma cor só (o vermelho é do prazo e do sem resposta) */}
           {painel.motivos.length === 0 ? (
             <EmptyState title="Nenhuma negociação perdida 🎉" />
           ) : (
-            <BarList data={painel.motivos} color="#e34948" formatValue={(v) => `${v}`} />
+            <BarrasVivas data={painel.motivos} />
           )}
         </Card>
       </div>

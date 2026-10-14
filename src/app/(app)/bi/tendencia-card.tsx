@@ -1,5 +1,5 @@
 import { Card } from "@/components/ui";
-import { AreaChart } from "@/components/charts";
+import { SerieViva } from "@/components/grafico-vivo";
 import { brl } from "@/lib/format";
 import type { MesDaTendencia } from "@/lib/bi/tendencia";
 
@@ -24,11 +24,11 @@ export function TendenciaCard({ meses }: { meses: MesDaTendencia[] }) {
       <div className="grid md:grid-cols-2 gap-4 mb-4">
         <div>
           <p className="text-xs font-medium text-gray-500 mb-1">Contatos novos por mês</p>
-          <AreaChart points={meses.map((m) => m.leads)} labels={labels} height={140} />
+          <SerieViva titulo="Contatos novos por mês" points={meses.map((m) => m.leads)} labels={labels} height={140} />
         </div>
         <div>
           <p className="text-xs font-medium text-gray-500 mb-1">Vendido por mês</p>
-          <AreaChart points={meses.map((m) => m.vendido)} labels={labels} height={140} formatValue={(v) => brl(v)} />
+          <SerieViva titulo="Vendido por mês" points={meses.map((m) => m.vendido)} labels={labels} height={140} formato="brl" />
         </div>
       </div>
       <div className="overflow-x-auto">

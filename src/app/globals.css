@@ -136,6 +136,11 @@
   --color-canvas: #1a140d; /* fundo do app (espresso suave) */
   --color-white: #241c13; /* cards ("branco" vira superfície quente) */
   --color-surface: #241c13;
+  /* a rampa do funil no escuro é PRÓPRIA (RAMPA_ORDINAL_ESCURA, validada sobre #241c13): o espresso da clara sumia aqui */
+  --gv-funil-1: #ebcdb2;
+  --gv-funil-2: #dfab80;
+  --gv-funil-3: #d28655;
+  --gv-funil-4: #c4622d;
   --color-ink: #f2e8dc; /* texto forte = creme */
   --color-sidebar: #120d08; /* sidebar um tom abaixo do canvas */
   --color-sidebar-hover: #2b2117;
@@ -386,7 +391,66 @@ h3 {
   *::before,
   *::after {
     animation-duration: 0.01ms !important;
+    animation-delay: 0ms !important; /* a entrada escalonada do BI não pode "pipocar" atrasada */
     transition-duration: 0.01ms !important;
+  }
+}
+
+/* GRÁFICOS VIVOS DO BI (RN-089): o estado FINAL vem do servidor (a tela é
+   legível antes do JavaScript — a linha dashada "entrando" só no navegador);
+   a entrada é uma transição a partir de @starting-style, que o navegador
+   antigo simplesmente ignora, sem esconder nada. */
+.gv-linha {
+  transition: stroke-dashoffset 0.9s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.gv-area {
+  transition: opacity 0.6s ease;
+}
+/* a reserva da cor do funil: o navegador que não entende o color-mix inline cai aqui (um degrau inteiro) */
+.gv-funil {
+  background-color: var(--gv-funil-base, var(--gv-funil-2));
+}
+/* o balão dos gráficos vivos: escuro no claro e CLARO no escuro — o bg-slate-900 do tema escuro vira creme
+   e o text-white forçado ficaria branco sobre creme */
+.gv-balao {
+  background-color: #0f172a;
+  color: #ffffff;
+}
+.theme-dark .gv-balao {
+  background-color: #f2e8dc;
+  color: #1d1710;
+}
+.theme-dark .gv-balao .gv-balao-sub {
+  color: #5c4a38;
+}
+.gv-balao-sub {
+  color: #cbd5e1;
+}
+.gv-barra {
+  /* a largura vem por variável: um `width` inline venceria o @starting-style e a barra nunca crescia */
+  width: var(--gv-w, 0%);
+  transition:
+    width 0.7s cubic-bezier(0.16, 1, 0.3, 1),
+    opacity 0.2s ease;
+}
+/* a rampa ordinal do funil (lib/bi/paleta.ts RAMPA_ORDINAL, validada sobre #fffdf9).
+   Fora do @theme de propósito: só é lida por `var()` em estilo inline, e o
+   Tailwind pode descartar variável do tema que nenhuma classe usa. */
+:root {
+  --gv-funil-1: #c99b5f;
+  --gv-funil-2: #c4622d;
+  --gv-funil-3: #8a4420;
+  --gv-funil-4: #3a2a1e;
+}
+@starting-style {
+  .gv-linha {
+    stroke-dashoffset: 100;
+  }
+  .gv-area {
+    opacity: 0;
+  }
+  .gv-barra {
+    width: 0%;
   }
 }
 

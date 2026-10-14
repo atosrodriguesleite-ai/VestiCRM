@@ -2127,6 +2127,101 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   continua dizendo quando os fatos do PERÍODO foram atualizados — são dois
   relógios, e a faixa diz qual é o dela. **Limite dito**: "esperando agora"
   segue lendo `lastOutboundAt`, que o robô ainda carimba (RN-080).
+- **RN-089 · OS GRÁFICOS DO BI SÃO VIVOS, E A COR É VALIDADA — NUNCA A OLHO**
+  (`lib/bi/paleta.ts` + `components/grafico-vivo.tsx`, 14/10/2026): a quarta
+  recomendação aceita pelo dono ("magnético"). Pela disciplina de
+  visualização da casa (skill dataviz), em três decisões: (1) **a camada de
+  interação faz parte do gráfico**: na série de tempo a MIRA acha a data pela
+  posição do dedo (ninguém precisa acertar uma linha de 2 px), o balão mostra
+  o valor, o teclado anda pelos pontos (setas, Esc), e o rótulo direto é só
+  no pico e no último ponto — número em todo ponto vira barulho; o funil diz
+  a **conversão de cada etapa** (% da anterior; ao passar, % do começo); as
+  barras têm o valor na ponta e escurecem as vizinhas ao passar; a entrada é
+  animada (linha que se desenha, barra que cresce), e a regra global de
+  "reduzir movimento" zera tudo; (2) **a cor faz um trabalho só por
+  gráfico**: série de tempo = UMA cor (o cobre da marca, 4,03:1 sobre a
+  superfície dos cartões; série única não tem legenda, o título diz o que
+  é); funil = rampa ORDINAL de um matiz em 4 degraus, clara → escura; barras
+  de categoria = a mesma cor em todas (colorir por valor gastaria a cor para
+  repetir o que o comprimento já diz); **vermelho, âmbar e verde são
+  STATUS** (prazo, sem resposta) e nunca cor de série — "por que não fechou"
+  deixou de ser vermelho, "quanto esperou" deixou de ser verde-água; (3)
+  **a paleta é VALIDADA pelo validador da disciplina, não a olho**: a rampa
+  ordinal antiga começava num ocre a 1,81:1 sobre a superfície (reprovado —
+  abaixo do piso de 2:1), então o funil do BI começa no ocre médio (2,48:1);
+  o teste guarda o contraste e a monotonia por conta própria, para a
+  regra não depender de rodar o validador. Os números da faixa "hoje"
+  **animam ao mudar** (a contagem do Dashboard, `useContagem`, com
+  `tabular-nums` para o dígito não balançar a linha). **Achados da revisão
+  fecharam a entrega**: (a) **função não atravessa a fronteira servidor →
+  navegador** — a página do BI é componente de servidor e os gráficos são
+  do navegador; passar `formatValue={(v) => …}` quebrava a página inteira
+  em tempo de execução, e nem o build nem o teste do componente pegam; o
+  formato é um valor serializável (`FormatoDoValor`: "int", "brl" ou
+  `{ pctDe }`); (b) **o estado final vem do servidor**: a primeira versão
+  nascia invisível (linha dashada, barra a 0%) até o JavaScript montar — no
+  4G fraco da RN-070 o dono veria cartões vazios; a entrada passou a ser
+  transição CSS a partir de `@starting-style` (navegador antigo ignora e vê
+  o gráfico pronto), e "reduzir movimento" zera também o atraso escalonado
+  (`animation-delay`); (c) **toque no celular**: a seleção por dedo FICA
+  até o próximo toque (por mouse, sai ao sair) — antes o balão sumia ao
+  levantar o dedo; (d) o balão é anunciado pelo leitor de tela (`group` +
+  `aria-roledescription`, `aria-live` fora do SVG decorativo — dentro de
+  `role="img"` o `status` era descartado); (e) o rótulo do último ponto sai
+  quando colide com o do pico; série vazia diz "sem dados" em vez de quebrar;
+  (f) **a paleta tem UM dono** (`lib/bi/paleta.ts`): `charts.tsx` e o
+  sparkline do Dashboard importam o cobre de lá, e o funil de
+  Relatórios/Inteligência passou a usar a rampa validada (a de 5 degraus
+  começava no ocre reprovado); (g) a geometria da série é pura e testada
+  (`geometriaDaSerie`). **Segunda rodada da revisão** (mesmo dia): (h) **a
+  animação das barras nunca rodava** — o `width` inline vence o
+  `@starting-style`, então a barra nascia pronta e a transição não tinha de
+  onde partir; a largura vai por variável CSS (`--gv-w`) e a classe
+  `.gv-barra` lê `width: var(--gv-w)`, que o `@starting-style` pode zerar;
+  (i) **o tema escuro tem rampa PRÓPRIA** (`RAMPA_ORDINAL_ESCURA`, creme →
+  cobre, validada sobre `#241c13`): o espresso da rampa clara sumia no
+  escuro (1,22:1) — a rampa clara invertida não serve, é seleção; os degraus
+  moram em tokens CSS (`:root` e `.theme-dark { --gv-funil-N }`, fora do
+  `@theme` porque só o `var()` do estilo inline os lê) e o funil pinta por
+  `corDoFunil`, que devolve o token — o componente não sabe de tema; o
+  teste lê o `globals.css` e confere que os tokens são os valores da lib;
+  (j) **rótulo, balão e eixo não colidem**: o rótulo direto é preso dentro
+  da área (o pico no primeiro ponto saía pela esquerda), a colisão é pela
+  posição PRESA (os dois escorregando para a mesma borda viravam um só
+  borrão), o balão perto das bordas se ancora pelo lado de dentro
+  (`posicaoDoBalao`), e o rótulo de eixo vizinho do último sai quando
+  encostaria nele (12 pontos numa largura curta: "10" colado no "11");
+  (k) **dinheiro tem UM formatador** (o `brl` da casa: "R$ 200" sem centavos
+  à toa) — a paleta tinha um `toLocaleString` próprio; (l) a região viva do
+  leitor de tela é **permanente** nos três gráficos (a que nasce junto com o
+  balão não é anunciada), a geometria é memorizada (`useMemo`: não se refaz
+  a cada passada do mouse) e o nome antigo `ORDINAL_RAMP` saiu — a rampa tem
+  um nome e um dono. **Terceira rodada** (mesmo dia): (m) **o balão era
+  invisível no tema escuro** — o `bg-slate-900` vira creme lá e o
+  `text-white` é forçado a branco: branco sobre creme (1,1:1), justamente o
+  contraste que a rodada anterior consertou nas barras; o balão tem classe
+  própria (`.gv-balao`, escuro no claro e claro no escuro); (n) **a seleção
+  que sobrevive a uma série mais curta** (toque no 30 dias, voltar para o 7
+  com o gesto do navegador) indexava fora da série e derrubava a tela
+  inteira na RN-066 — fora da série, não vale; (o) **funil com mais de 4
+  etapas** (Relatórios tem 9) ganhava três etapas seguidas da MESMA cor, que
+  leem como um grupo e não como progressão: a cor é interpolada entre os
+  degraus vizinhos (`color-mix` no mesmo matiz — segue ordinal e monótona),
+  com **reserva** para o navegador que não entende `color-mix` (a classe
+  `.gv-funil` pinta pelo degrau inteiro, `estiloDoFunil`); (p) **a contagem
+  animada do dinheiro pulava de largura no fim**: o `brl` tira os centavos
+  do inteiro, então os quadros intermediários tinham centavos e o último
+  não (`textoDaContagem`: o valor FINAL decide se todo quadro tem 2 casas
+  ou nenhum); (q) o balão do funil saía da tela no celular estreito (uma
+  linha, preso à esquerda da barra): fica preso ao cartão e quebra linha;
+  (r) **`touch-action: pan-y`** no gráfico de série — sem ele o navegador
+  toma o arrasto do dedo como rolagem e a mira congela no primeiro ponto;
+  (s) **um foco por gráfico**: cada barra era uma parada de Tab (vinte por
+  painel, só para mostrar um balão), agora a lista é o foco e as setas
+  andam, como na série. O Dashboard e as outras telas seguem com os gráficos
+  de servidor — só a cor mudou de dono. **Limite dito**: os cinzas de grade
+  e texto dos gráficos são os tokens das outras telas (o tema escuro os
+  inverte); só a cor de DADO foi validada nas duas superfícies.
 - **Communication Engine** (`lib/comm/`): camada única de envio/recebimento,
   agnóstica de provedor. `EvolutionProvider` = WhatsApp NÃO-oficial via
   Evolution API **self-hosted** (VPS Hostinger srv1853369.hstgr.cloud,
@@ -3699,7 +3794,7 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   por mês × contatos × vendas) — **Fase 2 concluída**. **Fase 3 ("completo
   e dinâmico", ordem aceita pelo dono em 14/10/2026)**: clicar e cavar
   (RN-086 ✅) → linha de 12 meses (RN-087 ✅) → faixa "hoje" viva (RN-088
-  ✅) → visual → exportar PDF; depois, benchmark entre lojas (Super Admin) e resumo semanal no
+  ✅) → visual (RN-089 ✅) → exportar PDF; depois, benchmark entre lojas (Super Admin) e resumo semanal no
   WhatsApp do dono. **Modo TV adiado** pelo dono. Decisões do dono: só gerência
   vê; origem do lead segue automática (sem marcação manual); metas de
   qualquer tipo, a loja escolhe; prazo dentro do horário comercial.
