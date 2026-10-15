@@ -608,7 +608,7 @@ export function AppShell({
         )}
 
         {/* Header mobile */}
-        <header className="md:hidden sticky top-0 z-40 bg-surface/80 backdrop-blur-xl border-b border-brand-900/10 flex items-center justify-between px-4 h-14">
+        <header className="cabecalho-celular md:hidden sticky top-0 z-40 bg-surface/80 backdrop-blur-xl border-b border-brand-900/10 flex items-center justify-between px-4 h-14">
           <button
             onClick={() => setDrawerOpen(true)}
             className="p-2 -ml-2 text-slate-600"

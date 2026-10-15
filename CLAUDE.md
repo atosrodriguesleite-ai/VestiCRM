@@ -1613,6 +1613,15 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   chance de desistir. Trocar de conversa solta as imagens (não vão para
   outra cliente); texto colado segue colando como texto; nota interna não
   leva imagem.
+  **Digitando no celular, a conversa não foge** (15/10/2026, print do dono:
+  tocar no campo sumia com o nome da cliente e com o ← Voltar): o iPhone
+  ROLA A PÁGINA ao focar o campo e o cabeçalho da conversa saía por cima da
+  borda. Com o teclado aberto, a Central vira camada presa à área que a
+  pessoa VÊ (`--vvtop`/`--vvh`, a cura da janela da grade, RN-062; regra em
+  `globals.css`, `body.teclado-aberto .inbox-raiz`): nome e ← Voltar no
+  topo, campo colado no teclado; a barra do app sai de vista só enquanto se
+  digita. E a barra de ícones do campo cabe em 390px (o botão de fechar o
+  teclado ficava cortado).
   **Emoji**: o seletor (`seletor-de-emoji.tsx`, grade em `lib/emojis.ts`)
   tem **barra de pesquisa** em português sem acento ("coracao", "caixa",
   "feliz"; Enter escolhe o primeiro) e é o MESMO na caixa de **editar

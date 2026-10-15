@@ -4809,7 +4809,7 @@ export function Inbox({
                 }`}
               >
                 {/* no celular a barra de ícones vai para baixo do campo de texto */}
-                <div className="flex items-center gap-0.5 order-2 sm:order-none shrink-0">
+                <div className="barra-de-icones flex items-center gap-0.5 order-2 sm:order-none shrink-0">
                 <button
                   onClick={() => {
                     setShowEmoji((v) => !v);
@@ -4937,13 +4937,10 @@ export function Inbox({
                   title="Fechar o teclado"
                   aria-label="Fechar o teclado"
                 >
+                  {/* só a seta, em TODA largura: com o rótulo "teclado" a
+                      barra de ícones estourava a tela até em iPhone de 390px
+                      (print do dono, 15/10/2026, o botão cortado em "tec") */}
                   <ChevronDown className="size-4.5" />
-                  {/* em tela bem estreita fica só a seta: com o rótulo, a
-                      barra de ícones estourava a largura e o botão saía da
-                      tela justamente quando é necessário */}
-                  <span className="hidden min-[380px]:inline text-[11px] font-medium">
-                    teclado
-                  </span>
                 </button>
                 </div>
                 <div className="flex items-end gap-1.5 order-1 sm:order-none sm:flex-1 min-w-0">
