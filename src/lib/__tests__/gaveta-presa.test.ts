@@ -80,10 +80,27 @@ describe("medir o teclado: só quando existe teclado", () => {
 describe("gaveta fechada é gaveta INVISÍVEL (catálogo público)", () => {
   const cat = ler("src/app/catalogo/[slug]/public-catalog.tsx");
 
-  it("ao fechar, o deslocamento do teclado desce junto (não sobra na tela)", () => {
-    const n = cat.split('translateY(calc(100% + var(--kb, 0px)))').length - 1;
+  /**
+   * Desde 15/10/2026 (print do dono: com o teclado aberto no iPhone a sacola
+   * virava uma tira e o campo digitado sumia) as duas gavetas moram num
+   * contêiner que É a área visível medida (`--vvh`/`--vvtop`, a régua das
+   * janelas de montar pedido) — nunca mais `bottom: var(--kb)`, a conta a
+   * partir do innerHeight que o iPhone muda sozinho. Fechada, a gaveta desce
+   * a própria altura a partir do fim da área visível: sai inteira dela.
+   */
+  it("as duas gavetas se apoiam na área visível MEDIDA, não na conta do teclado", () => {
+    const n = cat.split('style={{ height: "var(--vvh, 100dvh)", transform: "translateY(var(--vvtop, 0px))" }}').length - 1;
     expect(n).toBe(2); // a gaveta do produto E a da sacola
-    expect(cat).not.toContain('"translateY(100%)"'); // o jeito antigo, que sobrava
+    expect(cat).not.toContain('bottom: "var(--kb, 0px)"');
+    expect(cat).not.toContain("88dvh - var(--kb");
+    expect(cat).toContain('transform: sheet ? "translateY(0)" : "translateY(100%)"');
+    expect(cat).toContain('transform: bagOpen ? "translateY(0)" : "translateY(100%)"');
+    // o miolo é quem encolhe com o teclado (senão o campo digitado some)
+    expect(cat.split("flex-1 min-h-0 overflow-y-auto").length - 1).toBe(2);
+  });
+  it("digitando na sacola, a gaveta ocupa a área visível e o rodapé encolhe ao botão", () => {
+    expect(cat).toContain('maxHeight: digitandoNaSacola ? "100%" : "88%"');
+    expect(cat).toContain("minActive && minTarget > 0 && !digitandoNaSacola");
   });
   it("fechada não fica visível nem rouba clique", () => {
     expect(cat).toContain('visibility: sheet ? "visible" : "hidden"');

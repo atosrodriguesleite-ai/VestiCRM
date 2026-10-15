@@ -1279,9 +1279,17 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   fundo da janela fica em 520px cravado; a página de trás não rola; ao fechar,
   a lista volta para onde estava. `--kb` e `--kbtop` continuam servindo as
   outras 24 janelas do app (comportamento de antes, mais a compensação do
-  empurrão), com varredura que derruba o build se uma nova esquecer o par. As
-  gavetas do catálogo público são presas no rodapé, uma conta diferente, e
-  seguem como estavam.
+  empurrão), com varredura que derruba o build se uma nova esquecer o par.
+  **As gavetas do catálogo público (ficha da peça e sacola) passaram para a
+  MESMA régua em 15/10/2026** (print do dono no iPhone: com o teclado aberto,
+  a sacola virava uma tira com o cabeçalho e o botão, e o campo digitado
+  sumia): elas moram num contêiner que É a área visível medida
+  (`--vvh`/`--vvtop`) em vez de `bottom: var(--kb)`, o miolo é quem encolhe
+  (`flex-1 min-h-0`) e, **enquanto a cliente digita na sacola**, a gaveta
+  ocupa a área visível inteira e o rodapé fica só com o botão (a barra do
+  mínimo e a conferência do telefone voltam quando o teclado fecha, com um
+  respiro de 200 ms para trocar de campo não piscar). Fechada, desce a
+  própria altura a partir do fim da área visível e some (`visibility`).
   **RN-075 · PEÇA EXTRA: O PEDIDO PODE PEDIR MAIS DO QUE O ESTOQUE TEM, COM
   CIÊNCIA** (`lib/pedido-extras.ts` + `reservarComExtras` em
   `lib/reservations.ts`, janela `components/pedido/confirmar-extras.tsx`,

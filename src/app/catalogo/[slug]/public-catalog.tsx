@@ -880,6 +880,23 @@ export function PublicCatalog({
   // das janelas do app — era uma cópia deste mesmo truque de iOS, sem o
   // reflow que devolve o lugar da lista ao fechar).
   useTravarFundo(bagOpen || !!sheet);
+
+  /**
+   * A CLIENTE ESTÁ DIGITANDO NA SACOLA (teclado aberto): a gaveta ocupa a
+   * área visível inteira e o rodapé encolhe ao botão — a barra do mínimo e a
+   * conferência do telefone voltam quando o teclado fecha. Sem isso, num
+   * iPhone com o teclado aberto, cabeçalho + rodapé ocupavam a sobra toda e
+   * o campo digitado sumia (print do dono, 15/10/2026). O soltar espera um
+   * instante: trocar de campo não pode fazer o rodapé piscar.
+   */
+  const sacolaRef = useRef<HTMLElement>(null);
+  const [digitandoNaSacola, setDigitandoNaSacola] = useState(false);
+  const soltouCampoDaSacola = () => {
+    setTimeout(() => {
+      const ativo = document.activeElement;
+      setDigitandoNaSacola(!!ativo && ativo.tagName === "INPUT" && !!sacolaRef.current?.contains(ativo));
+    }, 200);
+  };
   const scrollCats = (dir: 1 | -1) => {
     const el = catNavRef.current;
     if (!el) return;
@@ -1894,24 +1911,30 @@ export function PublicCatalog({
         }}
         onClick={closeSheet}
       />
+      {/* A GAVETA FICA EM CIMA DA ÁREA VISÍVEL MEDIDA (--vvh/--vvtop), a
+          mesma régua das janelas de montar pedido (RN-062, relato do dono
+          com o print do iPhone em 15/10/2026: com o teclado aberto, a sacola
+          virava uma tira com o cabeçalho e o botão, e o campo que a cliente
+          digitava sumia). Presa em `bottom: var(--kb)`, ela dependia de uma
+          CONTA a partir do innerHeight que o iPhone muda sozinho; aqui o
+          contêiner É a área que o navegador diz estar visível. */}
+      <div
+        className="fixed inset-x-0 top-0 z-[60] flex items-end justify-center pointer-events-none"
+        style={{ height: "var(--vvh, 100dvh)", transform: "translateY(var(--vvtop, 0px))" }}
+      >
       <section
         role="dialog"
         aria-modal="true"
-        className="fixed inset-x-0 bottom-0 z-[60] mx-auto flex flex-col max-w-[680px] transition-transform duration-300"
+        className="relative w-full mx-auto flex flex-col max-w-[680px] transition-transform duration-300"
         style={{
           background: T.bg,
           borderRadius: "22px 22px 0 0",
-          maxHeight: "calc(88dvh - var(--kb, 0px))",
-          bottom: "var(--kb, 0px)", // sobe acima do teclado no celular
+          maxHeight: "88%",
           boxShadow: "0 -10px 40px rgba(0,0,0,.22)",
-          // FECHADA É FECHADA (incidente Entre Linhas, 17/08/2026): o
-          // deslocamento some junto com a gaveta. Antes ela descia só a
-          // própria altura e, se `--kb` estivesse errado (zoom de pinça no
-          // notebook media "teclado" que não existe), ficava PENDURADA no
-          // meio da tela — e o ✕ não fazia nada, porque para o sistema já
-          // estava fechada. `visibility` fecha o resto: nada de gaveta
-          // invisível roubando clique.
-          transform: sheet ? "translateY(0)" : "translateY(calc(100% + var(--kb, 0px)))",
+          // FECHADA É FECHADA (incidente Entre Linhas, 17/08/2026): a
+          // gaveta desce a própria altura e some (`visibility`) — nada de
+          // gaveta invisível pendurada no meio da tela roubando clique.
+          transform: sheet ? "translateY(0)" : "translateY(100%)",
           visibility: sheet ? "visible" : "hidden",
           pointerEvents: sheet ? "auto" : "none",
           // `visibility` acompanha a descida: o navegador mantém visível
@@ -1935,7 +1958,7 @@ export function PublicCatalog({
                 ✕
               </button>
             </div>
-            <div className="overflow-y-auto p-[18px]">
+            <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain p-[18px]">
               {sheet.product.images[0] && (
                 <PhotoCarousel
                   key={sheet.key}
@@ -2049,6 +2072,7 @@ export function PublicCatalog({
           </>
         )}
       </section>
+      </div>
 
       {/* SHEET SACOLA */}
       <div
@@ -2060,24 +2084,35 @@ export function PublicCatalog({
         }}
         onClick={closeBag}
       />
+      {/* A GAVETA FICA EM CIMA DA ÁREA VISÍVEL MEDIDA (--vvh/--vvtop), a
+          mesma régua das janelas de montar pedido (RN-062, relato do dono
+          com o print do iPhone em 15/10/2026: com o teclado aberto, a sacola
+          virava uma tira com o cabeçalho e o botão, e o campo que a cliente
+          digitava sumia). Presa em `bottom: var(--kb)`, ela dependia de uma
+          CONTA a partir do innerHeight que o iPhone muda sozinho; aqui o
+          contêiner É a área que o navegador diz estar visível. */}
+      <div
+        className="fixed inset-x-0 top-0 z-[60] flex items-end justify-center pointer-events-none"
+        style={{ height: "var(--vvh, 100dvh)", transform: "translateY(var(--vvtop, 0px))" }}
+      >
       <section
         role="dialog"
         aria-modal="true"
-        className="fixed inset-x-0 bottom-0 z-[60] mx-auto flex flex-col max-w-[680px] transition-transform duration-300"
+        ref={sacolaRef}
+        onFocusCapture={(e) => {
+          if (e.target instanceof HTMLInputElement) setDigitandoNaSacola(true);
+        }}
+        onBlurCapture={soltouCampoDaSacola}
+        className="relative w-full mx-auto flex flex-col max-w-[680px] transition-transform duration-300"
         style={{
           background: T.bg,
           borderRadius: "22px 22px 0 0",
-          maxHeight: "calc(88dvh - var(--kb, 0px))",
-          bottom: "var(--kb, 0px)", // sobe acima do teclado no celular
+          maxHeight: digitandoNaSacola ? "100%" : "88%",
           boxShadow: "0 -10px 40px rgba(0,0,0,.22)",
-          // FECHADA É FECHADA (incidente Entre Linhas, 17/08/2026): o
-          // deslocamento some junto com a gaveta. Antes ela descia só a
-          // própria altura e, se `--kb` estivesse errado (zoom de pinça no
-          // notebook media "teclado" que não existe), ficava PENDURADA no
-          // meio da tela — e o ✕ não fazia nada, porque para o sistema já
-          // estava fechada. `visibility` fecha o resto: nada de gaveta
-          // invisível roubando clique.
-          transform: bagOpen ? "translateY(0)" : "translateY(calc(100% + var(--kb, 0px)))",
+          // FECHADA É FECHADA (incidente Entre Linhas, 17/08/2026): a
+          // gaveta desce a própria altura e some (`visibility`) — nada de
+          // gaveta invisível pendurada no meio da tela roubando clique.
+          transform: bagOpen ? "translateY(0)" : "translateY(100%)",
           visibility: bagOpen ? "visible" : "hidden",
           pointerEvents: bagOpen ? "auto" : "none",
           // `visibility` acompanha a descida: o navegador mantém visível
@@ -2099,7 +2134,7 @@ export function PublicCatalog({
             ✕
           </button>
         </div>
-        <div className="overflow-y-auto p-[18px]">
+        <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain p-[18px]">
           {totalPieces === 0 ? (
             <p className="text-center text-sm font-medium py-10" style={{ color: T.muted }}>
               Seu pedido está vazio.
@@ -2323,7 +2358,7 @@ export function PublicCatalog({
             className="border-t px-[18px] pt-3.5"
             style={{ borderColor: T.line, background: T.bg, paddingBottom: "calc(16px + env(safe-area-inset-bottom,0))" }}
           >
-            {minActive && minTarget > 0 && (
+            {minActive && minTarget > 0 && !digitandoNaSacola && (
               <div className="mb-[13px]">
                 <p
                   className="flex items-center gap-2 text-[13.5px] font-bold mb-[9px] m-0"
@@ -2392,7 +2427,7 @@ export function PublicCatalog({
                 Ex.: {mascaraTelefoneBR(celularSemONove(client.fone)!)}
               </p>
             )}
-            {client.fone.replace(/\D/g, "").length >= 10 && (
+            {client.fone.replace(/\D/g, "").length >= 10 && !digitandoNaSacola && (
               <p
                 className="mb-[11px] text-center text-[12.5px] leading-snug m-0"
                 style={{ color: T.muted }}
@@ -2415,6 +2450,7 @@ export function PublicCatalog({
           </div>
         )}
       </section>
+      </div>
     </div>
   );
 }
