@@ -434,6 +434,48 @@ body.teclado-aberto .inbox-raiz {
   margin-bottom: 0 !important;
 }
 
+/* ---- A CONVERSA FICA PRESA NA ÁREA VISÍVEL com o teclado aberto ----------
+   Relato do dono (15/10/2026, print do iPhone): tocar no campo de escrever
+   sumia com o NOME da cliente e com o ← Voltar. O teclado sobe e o iPhone
+   ROLA A PÁGINA para mostrar o campo — o cabeçalho da conversa ia junto, por
+   cima da borda. Calcular a altura (a conta antiga, com `--kb`) acertava o
+   tamanho, mas não impedia o deslize. Agora, só no celular e só enquanto o
+   teclado está aberto, a Central inteira vira uma camada presa à área que a
+   pessoa ESTÁ VENDO — `--vvtop` (onde ela começa) e `--vvh` (a altura), que
+   o navegador MEDE (keyboard-inset.tsx), a mesma cura da janela da grade
+   (RN-062). Rolar a página por baixo deixa de importar: o cabeçalho fica no
+   topo do que se vê e o campo, colado no teclado. A barra do app (menu, sino)
+   fica coberta só enquanto se digita — fechou o teclado, tudo volta ao lugar. */
+@media (max-width: 767px) {
+  body.teclado-aberto .inbox-raiz {
+    position: fixed;
+    top: var(--vvtop, 0px);
+    left: 0;
+    right: 0;
+    height: var(--vvh, 100dvh) !important;
+    margin: 0 !important;
+    z-index: 45;
+  }
+  /* a barra do app é `sticky` com z-40 FORA da área principal — e a área
+     principal é um contexto de empilhamento próprio (a animação de entrada),
+     então nenhum z-index da conversa passa por cima dela: medido no
+     navegador, ela ficava transparente por cima do nome da cliente. Enquanto
+     a conversa está presa, ela sai de vista (o espaço continua, nada pula). */
+  body.teclado-aberto:has(.inbox-raiz) .cabecalho-celular {
+    visibility: hidden;
+  }
+}
+
+/* A BARRA DE ÍCONES DO CAMPO DE ESCREVER CABE NA TELA do celular: com o
+   respiro de 8px por ícone ela passava de 390px, e o último botão — o que
+   FECHA O TECLADO — ficava cortado fora da tela (print do dono, 15/10/2026).
+   6px ainda deixa cada ícone com 30px de alvo para o dedo. */
+@media (max-width: 480px) {
+  .barra-de-icones button.p-2 {
+    padding: 6px;
+  }
+}
+
 /* ---- Saída visível quando o teclado do celular está aberto ---------------
    Com o teclado aberto some a barra de baixo (regra acima) e o cabeçalho do
    chat — onde fica o ← Voltar — é empurrado para fora da área visível pelo

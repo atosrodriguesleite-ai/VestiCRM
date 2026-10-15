@@ -164,6 +164,21 @@ describe("chat no celular: sempre existe saída com o teclado aberto", () => {
     // iPhone às vezes deixa a página rolada depois do teclado
     expect(inbox).toContain("window.scrollTo({ top: 0 })");
   });
+  it("com o teclado aberto a conversa fica PRESA na área visível (nome e ← Voltar à vista)", () => {
+    // print do dono (15/10/2026): o iPhone rola a página ao focar o campo e
+    // o cabeçalho da conversa saía por cima da borda — só calcular a altura
+    // não impede o deslize; prender na área medida (--vvtop/--vvh) impede
+    const bloco = css.slice(css.indexOf("A CONVERSA FICA PRESA"));
+    expect(bloco).toMatch(/body\.teclado-aberto \.inbox-raiz \{\s*position: fixed;\s*top: var\(--vvtop, 0px\);/);
+    expect(bloco).toContain("height: var(--vvh, 100dvh) !important;");
+    // a barra do app não passa por cima do nome da cliente
+    expect(bloco).toContain("body.teclado-aberto:has(.inbox-raiz) .cabecalho-celular");
+    expect(ler("src/components/app-shell.tsx")).toContain('className="cabecalho-celular md:hidden');
+  });
+  it("a barra de ícones cabe no celular (o botão de fechar o teclado não fica cortado)", () => {
+    expect(inbox).toContain('className="barra-de-icones ');
+    expect(css).toMatch(/@media \(max-width: 480px\) \{\s*\.barra-de-icones button\.p-2/);
+  });
   it("o botão só existe no celular e só com o teclado aberto", () => {
     expect(inbox).toContain("so-com-teclado");
     expect(css).toContain("body.teclado-aberto .so-com-teclado");
