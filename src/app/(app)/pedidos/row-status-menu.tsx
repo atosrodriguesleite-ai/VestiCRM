@@ -17,6 +17,7 @@ import { ORDER_STATUS_FLOW, orderStatusLabel, orderStatusColor } from "@/lib/ord
 import type { OrderStatus } from "@prisma/client";
 import { MenuAncorado } from "@/components/menu-ancorado";
 import { CancelOrderDialog } from "./cancel-dialog";
+import { useConfirmarExtras } from "@/components/pedido/confirmar-extras";
 
 export function RowStatusMenu({
   orderId,
@@ -32,6 +33,8 @@ export function RowStatusMenu({
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  // reabrir pedido cancelado com peça que acabou: o resto vira EXTRA (RN-075)
+  const extras = useConfirmarExtras();
   // cancelamento pergunta antes: devolver as peças ao estoque ou baixar de vez?
   const [askCancel, setAskCancel] = useState(false);
 
@@ -67,15 +70,21 @@ export function RowStatusMenu({
     setOpen(false);
     setBusy(true);
     setError("");
-    const res = await fetch(`/api/orders/${orderId}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ status, ...(restock !== undefined ? { restock } : {}) }),
-    });
+    const enviado = await extras.enviar((extrasConfirmados) =>
+      fetch(`/api/orders/${orderId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status, ...(restock !== undefined ? { restock } : {}), extrasConfirmados }),
+      })
+    );
     setBusy(false);
-    if (!res.ok) {
+    if (!enviado) {
+      setShown(previous); // voltou da janela de extras sem confirmar
+      return;
+    }
+    if (!enviado.res.ok) {
       setShown(previous);
-      const data = await res.json().catch(() => null);
+      const data = enviado.data as { error?: string } | null;
       setError(data?.error ?? "Não foi possível mudar o status.");
       setOpen(true); // reabre pra mostrar o motivo
       return;
@@ -134,6 +143,7 @@ export function RowStatusMenu({
           );
         })}
       </MenuAncorado>
+      {extras.janela}
       <CancelOrderDialog
         open={askCancel}
         onClose={() => setAskCancel(false)}

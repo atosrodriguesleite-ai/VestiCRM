@@ -11,6 +11,7 @@ import {
 } from "@/lib/order-actions";
 import { apagarPedidoDoFinanceiroSemQuebrar } from "@/lib/financeiro/porta-vendas";
 import { orderNumber } from "@/lib/orders";
+import { lerMotivoDePerda } from "@/lib/funil/motivos-de-perda";
 
 const patchSchema = z.object({
   stageId: z.string().optional(),
@@ -47,8 +48,15 @@ export async function PATCH(
     };
     if (parsed.data.title) data.title = parsed.data.title;
     if (parsed.data.value !== undefined) data.value = parsed.data.value;
-    if (parsed.data.lostReason !== undefined)
-      data.lostReason = parsed.data.lostReason;
+    if (parsed.data.lostReason !== undefined) {
+      // RN-081: o motivo é um chip da lista ("Chip — detalhe"); texto solto
+      // não entra mais — era o que fazia o relatório de perdas não contar nada
+      const lido = lerMotivoDePerda(parsed.data.lostReason);
+      if (!lido.ok) return NextResponse.json({ error: lido.erro }, { status: 400 });
+      // grava a forma CANÔNICA (espaços arrumados, travessão único) — o que
+      // o cartão mostra e o relatório lê é o mesmo texto para todo mundo
+      data.lostReason = lido.texto;
+    }
 
     if (parsed.data.stageId) {
       const stage = await db.stage.findFirst({
@@ -77,7 +85,9 @@ export async function PATCH(
         }
         // motivo obrigatório também no servidor: sem ele o relatório de
         // perdas não diz nada (a tela já pergunta; isto segura outros clientes)
-        if (!parsed.data.lostReason?.trim() && !opp.lostReason) {
+        // (motivo mandado e vazio já foi recusado acima; aqui é o caso de
+        // ninguém ter mandado motivo nenhum e o cartão não ter um)
+        if (parsed.data.lostReason === undefined && !opp.lostReason) {
           return NextResponse.json(
             { error: "Informe o motivo da perda." },
             { status: 400 }

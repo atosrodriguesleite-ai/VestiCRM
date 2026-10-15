@@ -247,35 +247,66 @@ export type DadosDaAbaRecompra = {
 };
 
 /** Monta tudo que a aba Recompra mostra (carteira da vendedora; loja p/ gerente). */
-export async function dadosDaAbaRecompra(user: SessionUser): Promise<DadosDaAbaRecompra> {
+type ClienteRaw = {
+  id: string;
+  name: string;
+  phone: string;
+  birthDate: Date | null;
+  orders: {
+    netTotal: number;
+    paidAt: Date | null;
+    /** ausente na leitura LEVE (o BI não usa a categoria preferida nem as novidades) */
+    items?: { quantity: number; product: { category: string | null } | null }[];
+  }[];
+};
+
+const ONDE_PEDIDO_PAGO = { status: { in: PAID_ORDER_STATUSES }, paidAt: { not: null } } as const;
+
+export async function dadosDaAbaRecompra(
+  user: SessionUser,
+  opcoes: {
+    /**
+     * Leitura LEVE (a aba Clientes do BI, RN-084): a MESMA carteira — faixa,
+     * ritmo, VIP, total —, sem carregar os itens de cada pedido (que só
+     * servem à categoria preferida) nem as novidades. A loja de dezenas de
+     * milhares de pedidos não paga o peso do que a tela não mostra.
+     */
+    leve?: boolean;
+  } = {}
+): Promise<DadosDaAbaRecompra> {
   const agora = new Date();
+  const base = { id: true, name: true, phone: true, birthDate: true } as const;
   const [clientesRaw, company, novidadesRaw] = await Promise.all([
-    db.customer.findMany({
-      where: { ...ownedScope(user) },
-      select: {
-        id: true,
-        name: true,
-        phone: true,
-        birthDate: true,
-        orders: {
-          where: { status: { in: PAID_ORDER_STATUSES }, paidAt: { not: null } },
+    opcoes.leve
+      ? (db.customer.findMany({
+          where: { ...ownedScope(user) },
+          select: { ...base, orders: { where: ONDE_PEDIDO_PAGO, select: { netTotal: true, paidAt: true } } },
+        }) as Promise<ClienteRaw[]>)
+      : (db.customer.findMany({
+          where: { ...ownedScope(user) },
           select: {
-            netTotal: true,
-            paidAt: true,
-            items: { select: { quantity: true, product: { select: { category: true } } } },
+            ...base,
+            orders: {
+              where: ONDE_PEDIDO_PAGO,
+              select: {
+                netTotal: true,
+                paidAt: true,
+                items: { select: { quantity: true, product: { select: { category: true } } } },
+              },
+            },
           },
-        },
-      },
-    }),
+        }) as Promise<ClienteRaw[]>),
     db.company.findUnique({ where: { id: user.companyId }, select: { slug: true } }),
-    db.product.findMany({
-      where: {
-        companyId: user.companyId,
-        active: true,
-        createdAt: { gt: new Date(agora.getTime() - NOVIDADE_DIAS * DIA_MS) },
-      },
-      select: { category: true },
-    }),
+    opcoes.leve
+      ? Promise.resolve([] as { category: string | null }[])
+      : db.product.findMany({
+          where: {
+            companyId: user.companyId,
+            active: true,
+            createdAt: { gt: new Date(agora.getTime() - NOVIDADE_DIAS * DIA_MS) },
+          },
+          select: { category: true },
+        }),
   ]);
 
   const mesAtual = agora.toLocaleDateString("pt-BR", {
@@ -302,7 +333,7 @@ export async function dadosDaAbaRecompra(user: SessionUser): Promise<DadosDaAbaR
       const ciclo = cicloEntreCompras(datas[0], ultima, datas.length);
       const porCategoria = new Map<string, number>();
       for (const o of c.orders)
-        for (const i of o.items) {
+        for (const i of o.items ?? []) {
           const cat = i.product?.category?.trim();
           if (cat) porCategoria.set(cat, (porCategoria.get(cat) ?? 0) + i.quantity);
         }

@@ -122,7 +122,7 @@ describe("sincronização EM ETAPAS — não existe catálogo que estoure o temp
     expect(lib).toContain("pools?.estoquePendente ??");
     // o pool é atalho: número DIFERENTE reconfere a fila na hora (venda que
     // entrou no meio da etapa não pode ser desfeita pelo número de lá)
-    expect(lib).toContain("(alvo.stock !== stock && (await envioPendentePorVariacao(companyId, [alvo.id])).has(alvo.id))");
+    expect(lib).toContain("(atual !== novo && (await envioPendentePorVariacao(companyId, [alvo.id])).has(alvo.id))");
     // e a variação só vai ao banco quando algo mudou
     expect(lib).toContain("if (Object.keys(dadosDaVariacao).length > 0) {");
   });

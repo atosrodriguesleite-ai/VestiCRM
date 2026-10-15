@@ -103,7 +103,7 @@ export function IntakeSettings({ canEdit, sellers, stages, initial }: Props) {
           </select>
         </div>
         <div>
-          <label className={label}>SLA do 1º atendimento (min)</label>
+          <label className={label}>Prazo do 1º atendimento (min)</label>
           <input
             disabled={!canEdit}
             value={slaMinutes}
@@ -111,6 +111,9 @@ export function IntakeSettings({ canEdit, sellers, stages, initial }: Props) {
             inputMode="numeric"
             className={select}
           />
+          <p className="text-[11px] text-gray-400 mt-1">
+            Minutos com a loja aberta (horário de atendimento, abaixo).
+          </p>
         </div>
         <div>
           <label className={label}>Nova oportunidade</label>

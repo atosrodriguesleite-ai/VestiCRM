@@ -1,4 +1,6 @@
 import { db } from "./db";
+import { mesSP } from "./dia";
+import { ONDE_MENSAGEM_CONTA } from "./bi/tempo-de-resposta";
 import { PAID_ORDER_STATUSES } from "./orders";
 import { inicioDoMesSP } from "./recompra-painel";
 import type { SessionUser } from "./auth";
@@ -24,14 +26,8 @@ import type { SessionUser } from "./auth";
 // Mês no calendário de São Paulo — a mesma régua das telas de dinheiro.
 // ---------------------------------------------------------------------------
 
-/** "2026-08" no fuso de SP (o servidor roda em UTC). */
-export function mesSP(d = new Date()): string {
-  return new Intl.DateTimeFormat("en-CA", {
-    timeZone: "America/Sao_Paulo",
-    year: "numeric",
-    month: "2-digit",
-  }).format(d);
-}
+/** "2026-08" no fuso de SP — a régua mora em lib/dia.ts (um relógio só). */
+export { mesSP };
 
 // ---------------------------------------------------------------------------
 // O cérebro (configuração da loja)
@@ -330,7 +326,9 @@ export async function monitorDeEquipe(user: SessionUser, agora = new Date()) {
     db.message.findMany({
       where: {
         conversation: { companyId },
-        kind: "TEXT",
+        // RN-080: só texto, e a mensagem de robô não é resposta de ninguém —
+        // a MESMA régua do BI, num lugar só
+        ...ONDE_MENSAGEM_CONTA,
         createdAt: { gte: inicioMes },
       },
       select: { conversationId: true, direction: true, createdAt: true, authorId: true },

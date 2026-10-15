@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   horarioComercialSP,
+  podeMandarAutomatica,
   sacolaDaFoto,
   itensDoCheckoutNS,
   lerItens,
@@ -121,6 +122,19 @@ describe("mensagem automática só em horário decente", () => {
     expect(horarioComercialSP(new Date("2026-08-01T15:00:00Z"))).toBe(true);
     // 06h UTC = 03h em SP → não
     expect(horarioComercialSP(new Date("2026-08-01T06:00:00Z"))).toBe(false);
+  });
+  it("com horário da loja cadastrado (RN-079) vale o da loja; sem ele, 8h–20h", () => {
+    // seg–sex 8h–22h, sábado e domingo fechados
+    const loja = JSON.stringify({
+      dias: [[], ...Array(5).fill([{ de: "08:00", ate: "22:00" }]), []],
+    });
+    const sabadoTarde = new Date("2026-10-17T15:00:00-03:00");
+    const segunda21h = new Date("2026-10-12T21:00:00-03:00");
+    expect(podeMandarAutomatica(sabadoTarde, loja)).toBe(false); // a loja fecha sábado
+    expect(podeMandarAutomatica(segunda21h, loja)).toBe(true); // abre até 22h
+    expect(podeMandarAutomatica(sabadoTarde, null)).toBe(true); // sem cadastro: 8h–20h
+    expect(podeMandarAutomatica(segunda21h, null)).toBe(false);
+    expect(podeMandarAutomatica(segunda21h, "{torto")).toBe(false); // torto = sem cadastro
   });
 });
 

@@ -24,6 +24,9 @@ import {
 const raiz = join(process.cwd(), "src");
 
 const TELAS_DE_DINHEIRO = [
+  "lib/bi/hoje.ts",
+  "lib/bi/tendencia.ts",
+  "lib/bi/listas.ts",
   "app/(app)/dashboard/page.tsx",
   "app/(app)/relatorios/page.tsx",
   "app/(app)/comissoes/page.tsx",

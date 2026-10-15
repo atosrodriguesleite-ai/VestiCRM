@@ -1,4 +1,5 @@
 import { Prisma } from "@prisma/client";
+import type { ExtraDaPeca } from "./pedido-extras";
 
 /**
  * RESERVA DE ESTOQUE — a peça sai do estoque quando o orçamento é montado.
@@ -23,13 +24,20 @@ export type ItemDeEstoque = {
   label: string;
 };
 
-export type FaltaDeEstoque = { label: string; pedido: number; disponivel: number };
+export type FaltaDeEstoque = {
+  label: string;
+  pedido: number;
+  disponivel: number;
+  /** a peça que faltou — é por ela que a confirmação de extras é conferida (RN-075) */
+  variantId?: string;
+};
 
 /** O que a reserva PARCIAL (catálogo) precisa do banco. */
 type ClientePrisma = {
   productVariant: {
     updateMany: (args: {
-      where: { id: string; stock: { gte: number } };
+      // sem `stock` = baixa SEM condição (peça que vende sob encomenda, RN-076)
+      where: { id: string; stock?: { gte: number } };
       data: { stock: { decrement: number } };
     }) => Promise<{ count: number }>;
     findUnique: (args: {
@@ -95,8 +103,17 @@ export function juntarPorVariacao(itens: ItemDeEstoque[]): {
  * sem banco, e trocar o jeito de falar com o banco sem tocar na regra.
  */
 export type BaixaCondicional = (
-  pedidos: { variantId: string; quantity: number }[]
+  pedidos: { variantId: string; quantity: number; livre: boolean }[]
 ) => Promise<string[]>;
+
+/**
+ * As peças LIVRES (RN-076, "vende sob encomenda"): para elas a baixa não é
+ * condicionada ao saldo — o estoque fica negativo, e o negativo é a conta do
+ * que há para produzir. Toda função de reserva recebe o conjunto; vazio é
+ * a regra de sempre (RN-003: nunca negativo).
+ */
+export type PecasLivres = ReadonlySet<string>;
+export const NENHUMA_LIVRE: PecasLivres = new Set();
 
 /** Quanto ainda existe de cada peça (só consultado quando algo faltou). */
 export type ConsultaEstoque = (ids: string[]) => Promise<Map<string, number>>;
@@ -108,19 +125,23 @@ export type ConsultaEstoque = (ids: string[]) => Promise<Map<string, number>>;
 export async function reservarCom(
   baixar: BaixaCondicional,
   consultar: ConsultaEstoque,
-  itens: ItemDeEstoque[]
+  itens: ItemDeEstoque[],
+  livres: PecasLivres = NENHUMA_LIVRE
 ): Promise<FaltaDeEstoque[]> {
   const pedidos = juntarPorVariacao(itens);
   if (pedidos.length === 0) return [];
 
   const reservadas = new Set(
-    await baixar(pedidos.map((p) => ({ variantId: p.variantId, quantity: p.quantity })))
+    await baixar(
+      pedidos.map((p) => ({ variantId: p.variantId, quantity: p.quantity, livre: livres.has(p.variantId) }))
+    )
   );
   const faltando = pedidos.filter((p) => !reservadas.has(p.variantId));
   if (faltando.length === 0) return [];
 
   const estoque = await consultar(faltando.map((f) => f.variantId));
   return faltando.map((f) => ({
+    variantId: f.variantId,
     label: f.label,
     pedido: f.quantity,
     disponivel: Math.max(estoque.get(f.variantId) ?? 0, 0),
@@ -143,19 +164,24 @@ export async function reservarCom(
  */
 export async function reservarEstoque(
   tx: ClienteEmLote,
-  itens: ItemDeEstoque[]
+  itens: ItemDeEstoque[],
+  livres: PecasLivres = NENHUMA_LIVRE
 ): Promise<FaltaDeEstoque[]> {
   return reservarCom(
     async (pedidos) => {
+      // a terceira coluna é a peça LIVRE (RN-076): para ela a condição
+      // "stock >= qty" não vale e o estoque pode ficar negativo
       const linhas = Prisma.join(
-        pedidos.map((p) => Prisma.sql`(${p.variantId}::text, ${p.quantity}::int)`)
+        pedidos.map(
+          (p) => Prisma.sql`(${p.variantId}::text, ${p.quantity}::int, ${p.livre}::boolean)`
+        )
       );
       const ok = (await tx.$queryRaw(
         Prisma.sql`
           UPDATE "ProductVariant" AS v
              SET stock = v.stock - d.qty
-            FROM (VALUES ${linhas}) AS d(id, qty)
-           WHERE v.id = d.id AND v.stock >= d.qty
+            FROM (VALUES ${linhas}) AS d(id, qty, livre)
+           WHERE v.id = d.id AND (d.livre OR v.stock >= d.qty)
           RETURNING v.id
         ` as never
       )) as { id: string }[];
@@ -168,7 +194,8 @@ export async function reservarEstoque(
       });
       return new Map(atuais.map((a) => [a.id, a.stock]));
     },
-    itens
+    itens,
+    livres
   );
 }
 
@@ -197,14 +224,19 @@ export type ReservaParcial = {
 
 export async function reservarOQueTiver(
   tx: ClientePrisma,
-  itens: ItemDeEstoque[]
+  itens: ItemDeEstoque[],
+  livres: PecasLivres = NENHUMA_LIVRE
 ): Promise<ReservaParcial> {
   const faltas: FaltaDeEstoque[] = [];
   const seguradas: { variantId: string; quantity: number }[] = [];
   for (const item of itens) {
     if (!item.variantId || item.quantity <= 0) continue;
+    // peça que vende sob encomenda (RN-076): baixa inteira, sem condição —
+    // o negativo é o que fica para produzir
     const cheio = await tx.productVariant.updateMany({
-      where: { id: item.variantId, stock: { gte: item.quantity } },
+      where: livres.has(item.variantId)
+        ? { id: item.variantId }
+        : { id: item.variantId, stock: { gte: item.quantity } },
       data: { stock: { decrement: item.quantity } },
     });
     if (cheio.count > 0) {
@@ -227,7 +259,7 @@ export async function reservarOQueTiver(
         seguradas.push({ variantId: item.variantId, quantity: disponivel });
       }
     }
-    faltas.push({ label: item.label, pedido: item.quantity, disponivel });
+    faltas.push({ variantId: item.variantId, label: item.label, pedido: item.quantity, disponivel });
   }
   return { faltas, seguradas };
 }
@@ -243,3 +275,51 @@ export function textoDaFalta(faltas: FaltaDeEstoque[]): string {
     .join("; ");
 }
 
+
+/**
+ * RESERVA COM EXTRAS (RN-075) — o pedido montado pela vendedora.
+ *
+ * Segura TUDO o que cabe numa ida só ao banco (o lote da `reservarEstoque`,
+ * que é o que deixa o pedido de 30 linhas caber no tempo) e, só para as
+ * peças que não couberam inteiras, segura o que ainda há — o resto é EXTRA.
+ * Quem chama decide o que fazer com os extras: gravar (a pessoa confirmou)
+ * ou desfazer a transação e perguntar.
+ *
+ * Devolve o que foi DE FATO segurado, por peça (é o que vira SAÍDA no livro
+ * de movimentos), e os extras, por peça.
+ */
+export async function reservarComExtras(
+  tx: ClienteEmLote & ClientePrisma,
+  itens: ItemDeEstoque[],
+  livres: PecasLivres = NENHUMA_LIVRE
+): Promise<{ seguradas: { variantId: string; quantity: number }[]; extras: ExtraDaPeca[] }> {
+  const pedidos = juntarPorVariacao(itens);
+  // a peça livre (RN-076) sai inteira no lote e nunca fica "curta" — extra é
+  // da peça que PARA no estoque; a que vende sob encomenda só fica negativa
+  const faltas = await reservarEstoque(tx, pedidos, livres);
+  const curtas = new Set(faltas.map((f) => f.variantId));
+  const seguradas = pedidos
+    .filter((p) => !curtas.has(p.variantId))
+    .map((p) => ({ variantId: p.variantId, quantity: p.quantity }));
+  const parcial = await reservarOQueTiver(
+    tx,
+    pedidos.filter((p) => curtas.has(p.variantId)),
+    livres
+  );
+  seguradas.push(...parcial.seguradas);
+  const seguradoPorPeca = new Map(parcial.seguradas.map((s) => [s.variantId, s.quantity]));
+  const extras: ExtraDaPeca[] = pedidos
+    .filter((p) => curtas.has(p.variantId))
+    .map((p) => {
+      const doEstoque = seguradoPorPeca.get(p.variantId) ?? 0;
+      return {
+        variantId: p.variantId,
+        label: p.label,
+        precisa: p.quantity,
+        doEstoque,
+        extra: p.quantity - doEstoque,
+      };
+    })
+    .filter((e) => e.extra > 0);
+  return { seguradas, extras };
+}

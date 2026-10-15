@@ -10,6 +10,9 @@ import {
   parseCategoryTypes,
 } from "@/lib/categories";
 import { disponivelNaVitrine } from "@/lib/catalogo/teto-do-estoque";
+import { vendeSobEncomenda } from "@/lib/sob-encomenda";
+import { categoriasSobEncomenda } from "@/lib/sob-encomenda-data";
+import { ondeNaoEscondePorEstoque } from "@/lib/catalogo/sob-encomenda-na-vitrine";
 import { parseCategoryUnits, unidadeDaLoja, unidadeDaPeca } from "@/lib/catalogo/unidade";
 import { PublicCatalog, type CatalogProduct } from "../../public-catalog";
 
@@ -68,26 +71,32 @@ export default async function PromoCatalogPage({
   if (!pc || !pc.active || pc.products.length === 0) notFound();
   const selected = pc.products.map((p) => p.productId);
 
-  const [products, customColors] = await Promise.all([
+  // as categorias que vendem SOB ENCOMENDA (RN-076) — a mesma régua do
+  // catálogo normal, nos dois produtores da vitrine (lida junto das cores)
+  const [catsSobEncomenda, customColors] = await Promise.all([
+    categoriasSobEncomenda(company.id),
+    db.companyColor.findMany({
+      where: { companyId: company.id },
+      select: { name: true, hex: true },
+    }),
+  ]);
+  const [products] = await Promise.all([
     db.product.findMany({
       // vitrine da campanha: também só com foto (item sem foto fica oculto);
-      // e esconde os sem estoque quando a loja ativa essa opção
+      // e esconde os sem estoque quando a loja ativa essa opção (menos a
+      // peça sob encomenda, RN-076)
       where: {
         companyId: company.id,
         active: true,
         id: { in: selected },
         images: { some: {} },
-        ...(company.catalogHideOutOfStock ? { variants: { some: { stock: { gt: 0 } } } } : {}),
+        ...(company.catalogHideOutOfStock ? ondeNaoEscondePorEstoque(catsSobEncomenda) : {}),
       },
       include: {
         images: { orderBy: { order: "asc" }, select: { id: true, color: true } },
         variants: { orderBy: [{ color: "asc" }, { size: "asc" }] },
       },
       orderBy: [{ collection: "desc" }, { name: "asc" }],
-    }),
-    db.companyColor.findMany({
-      where: { companyId: company.id },
-      select: { name: true, hex: true },
     }),
   ]);
   if (products.length === 0) notFound();
@@ -117,8 +126,16 @@ export default async function PromoCatalogPage({
     variants: p.variants.map((v) => ({
       color: v.color,
       size: v.size,
-      // QUANTAS há (RN-067): a quantidade da vitrine para neste teto
-      disponivel: disponivelNaVitrine(v.stock),
+      // QUANTAS há (RN-067): a quantidade da vitrine para neste teto — salvo
+      // a peça sob encomenda (RN-076), que recebe o teto da linha
+      disponivel: disponivelNaVitrine(
+        v.stock,
+        vendeSobEncomenda({
+          peca: p.sobEncomenda,
+          categoria: catsSobEncomenda.has(p.category),
+          jueriId: p.jueriId,
+        })
+      ),
     })),
   }));
 

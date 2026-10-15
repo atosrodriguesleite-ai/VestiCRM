@@ -207,6 +207,11 @@ describe("o inventário: filtros e reserva", () => {
     });
     expect(passaNoFiltro("zerado", l(0))).toBe(true);
     expect(passaNoFiltro("zerado", l(1))).toBe(false);
+    // a peça comum que ficou negativa numa troca (RN-073) também acabou;
+    // a sob encomenda devendo é "A produzir", não "Zerada"
+    expect(passaNoFiltro("zerado", l(-1))).toBe(true);
+    expect(passaNoFiltro("zerado", { ...l(-1), sobEncomenda: true })).toBe(false);
+    expect(passaNoFiltro("produzir", { ...l(-1), sobEncomenda: true })).toBe(true);
     expect(passaNoFiltro("baixo", l(0))).toBe(true); // zerada TAMBÉM chegou ao mínimo (mesma conta do sino e do Dashboard)
     expect(passaNoFiltro("baixo", l(5))).toBe(true);
     expect(passaNoFiltro("baixo", l(6))).toBe(false);
@@ -233,7 +238,7 @@ describe("o inventário: filtros e reserva", () => {
 describe("os cartões do Inventário seguem a CATEGORIA escolhida (pedido do dono, 08/10/2026)", () => {
   const linha = (categoria: string, disponivel: number, reservado = 0, dono: LinhaDoInventario["dono"] = null): LinhaDoInventario => ({
     variantId: `${categoria}-${disponivel}-${reservado}`, productId: "p", produto: "x", categoria, cor: "c", tamanho: "M", sku: "s",
-    ativo: true, disponivel, reservado, emEstoque: disponivel + reservado, dono, minimo: 2, origemDoMinimo: "LOJA",
+    ativo: true, disponivel, reservado, emEstoque: disponivel + reservado, dono, minimo: 2, origemDoMinimo: "LOJA", sobEncomenda: false,
     custo: 0, atacado: 0, cadastradoEm: "2026-01-01T00:00:00.000Z",
   });
   const linhas = [linha("Regata Nadador", 50, 3), linha("Regata Nadador", 0), linha("Baby Look", 10, 1, "NUVEMSHOP")];

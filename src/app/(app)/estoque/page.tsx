@@ -7,12 +7,11 @@ import { PainelView } from "./painel-view";
 import { MinimosView } from "./minimos-view";
 import { ProducaoView } from "./producao-view";
 import { TrocasView } from "./trocas-view";
-import type { FiltroDoInventario } from "@/lib/estoque/inventario";
+import { FILTROS_DO_INVENTARIO, type FiltroDoInventario } from "@/lib/estoque/inventario";
 
 export const dynamic = "force-dynamic";
 
 const ABAS: AbaDoEstoque[] = ["inventario", "painel", "minimos", "producao", "trocas"];
-const FILTROS: FiltroDoInventario[] = ["todos", "baixo", "zerado", "reservado", "externo"];
 
 /**
  * Tela ESTOQUE (RN-050/051/052): Inventário (contar e acertar), Painel (o
@@ -41,7 +40,7 @@ export default async function EstoquePage({
   if (aba === "painel" && !veAnalise) aba = "inventario";
   // trocas mostram dinheiro (diferença, devolução, crédito): gerência
   if (aba === "trocas" && !veAnalise) aba = "inventario";
-  const filtro: FiltroDoInventario = (FILTROS as string[]).includes(filtroPedido ?? "")
+  const filtro: FiltroDoInventario = (FILTROS_DO_INVENTARIO as readonly string[]).includes(filtroPedido ?? "")
     ? (filtroPedido as FiltroDoInventario)
     : "todos";
 

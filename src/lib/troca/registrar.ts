@@ -1,9 +1,10 @@
 /**
  * TROCA DE PEÇAS — A PORTA QUE GRAVA (RN-073).
  *
- * Uma transação só: estoque (livro de movimentos, reserva condicional da
- * peça que sai — RN-003), a troca com os retratos das peças, o crédito da
- * cliente quando a resolução é crédito e a história do pedido. Depois do
+ * Uma transação só: estoque (livro de movimentos; a peça que sai passa
+ * mesmo sem estoque e o número fica negativo, com aviso — salvo a do
+ * Jueri), a troca com os retratos das peças, o crédito da cliente quando a
+ * resolução é crédito e a história do pedido. Depois do
  * commit, o espelho do estoque para a Nuvemshop (RN-053) e o Jueri — a
  * troca é um movimento REAL, como a venda.
  *
@@ -18,7 +19,6 @@ import { db } from "@/lib/db";
 import type { SessionUser } from "@/lib/auth";
 import { orderScope } from "@/lib/scope";
 import { orderNumber, round2 } from "@/lib/orders";
-import { reservarEstoque, textoDaFalta } from "@/lib/reservations";
 import { travarPedido } from "@/lib/etiquetas/separacao";
 import { espelharEstoqueSemQuebrar } from "@/lib/nuvemshop";
 import { espelharJueriSemQuebrar } from "@/lib/jueri";
@@ -32,14 +32,17 @@ import {
   linhasParaTroca,
   movimentosDaTroca,
   nasceAcertada,
+  pecasQueFicaramNegativas,
   resolucaoValida,
   rotuloDaPeca,
   somarTroca,
+  textoDaSaidaSemEstoque,
   textoDaTroca,
   textoDoAcerto,
   validarTroca,
   type PecaQueSai,
   type PecaQueVolta,
+  type PecaSemEstoqueNaTroca,
   type TrocaResolucao,
 } from "./regra";
 import { ORIGEM_CREDITO_TROCA } from "./credito";
@@ -54,7 +57,13 @@ export type EntradaDaTroca = {
 };
 
 export type ResultadoDaTroca =
-  | { ok: true; trocaId: string; numero: number }
+  | {
+      ok: true;
+      trocaId: string;
+      numero: number;
+      /** peças que saíram sem estoque e deixaram o número negativo */
+      semEstoque: PecaSemEstoqueNaTroca[];
+    }
   | { ok: false; erro: string; status: 400 | 403 | 404 | 409 };
 
 class RecusaDaTroca extends Error {
@@ -97,14 +106,15 @@ export async function registrarTroca(
 
   let efeitos: { variantId: string; delta: number }[] = [];
   let variantIds: string[] = [];
+  let semEstoque: PecaSemEstoqueNaTroca[] = [];
 
   try {
     const criada = await db.$transaction(
       async (tx) => {
         // duas trocas do mesmo pedido ao mesmo tempo (duas abas, dois
         // cliques) entram em fila: a segunda relê o que a primeira devolveu.
-        // É a MESMA trava da edição de itens e do cancelamento? Não — mas a
-        // reserva da peça que sai é condicional e o teto é relido aqui.
+        // A peça que sai é baixada sob a trava da linha e o teto do que
+        // volta é relido aqui.
         await travarPedido(tx, orderId);
 
         const order = await tx.order.findFirst({
@@ -134,7 +144,7 @@ export async function registrarTroca(
             size: true,
             sku: true,
             productId: true,
-            product: { select: { name: true, sku: true, active: true } },
+            product: { select: { name: true, sku: true, active: true, jueriId: true } },
           },
         });
         const porVariacao = new Map(variacoes.map((v) => [v.id, v]));
@@ -156,10 +166,43 @@ export async function registrarTroca(
         const estoqueDoPedidoEDaqui = order.stockDeducted && !order.nuvemshopId;
         const movs = movimentosDaTroca(linhas, volta, sai, { numeroDaTroca: numero, pedido: pedidoRotulo, estoqueDoPedidoEDaqui });
 
-        // 1) a peça que VOLTA boa sobe o estoque (defeito não) — ANTES da
-        //    saída: a cliente que devolve a peça com defeito e leva outra da
-        //    mesma cor × tamanho precisa de outra na arara, mas a que volta
-        //    boa e sai de novo (raro) não deve bater em "sem estoque"
+        // 0) as peças que SAEM ficam TRAVADAS (em ordem de id, a mesma em
+        //    toda porta que trava várias), e o número de ANTES é lido sob a
+        //    trava: com elas presas, o "depois" é conta exata — antes +
+        //    o que volta boa − o que sai —, sem reler o banco
+        const idsQueSaem = [...sai.map((s) => s.variantId)].sort();
+        const travadas = await tx.$queryRaw<{ id: string; stock: number }[]>(
+          Prisma.sql`SELECT id, stock FROM "ProductVariant" WHERE id IN (${Prisma.join(idsQueSaem)}) ORDER BY id FOR UPDATE`
+        );
+        const antes = new Map(travadas.map((t) => [t.id, t.stock]));
+        if (antes.size !== idsQueSaem.length)
+          throw new RecusaDaTroca("Uma das peças que saem não está mais no catálogo.", 400);
+        const delta = new Map(deltasPorVariacao(movs).map((d) => [d.variantId, d.delta]));
+        const rotulos = new Map(
+          variacoes.map((v) => [v.id, rotuloDaPeca({ name: v.product.name, color: v.color, size: v.size })])
+        );
+        const contas = sai.map((s) => {
+          const a = antes.get(s.variantId)!;
+          return { variantId: s.variantId, nome: rotulos.get(s.variantId)!, antes: a, depois: a + (delta.get(s.variantId) ?? 0) };
+        });
+        semEstoque = pecasQueFicaramNegativas(contas);
+
+        // a peça que SAI passa MESMO SEM ESTOQUE (pedido do dono,
+        // 13/10/2026): a cliente já está com ela na mão, e recusar só
+        // deixaria a troca sem registro — o número fica negativo (o que a
+        // loja deve repor) e quem registrou é avisada. EXCEÇÃO: a peça do
+        // JUERI. Lá o estoque não desce de zero e a sincronização grava o
+        // número de lá por cima do nosso (RN-050): o −1 viraria 0, e o
+        // cancelamento seguinte devolveria +1 aqui E lá — uma peça que nunca
+        // existiu (a mesma razão da RN-076 deixá-la de fora)
+        const jueriSemEstoque = semEstoque.filter((p) => porVariacao.get(p.variantId)?.product.jueriId);
+        if (jueriSemEstoque.length > 0)
+          throw new RecusaDaTroca(
+            `${jueriSemEstoque.map((p) => p.nome).join(", ")}: sem estoque — a peça é do Jueri, que não aceita estoque negativo. Lance a peça no Jueri (ou escolha outra) e registre de novo.`,
+            409
+          );
+
+        // 1) a peça que VOLTA boa sobe o estoque (defeito não)
         for (const mv of movs) {
           if (mv.type === "ENTRADA" && mv.deltaEstoque > 0) {
             await tx.productVariant.update({
@@ -169,17 +212,16 @@ export async function registrarTroca(
           }
         }
 
-        // 2) a peça que SAI é reservada de forma CONDICIONAL (RN-003): nunca
-        //    negativa, nunca a mesma peça para duas clientes — faltou, a
-        //    transação inteira volta atrás (a entrada acima inclusive)
-        const faltas = await reservarEstoque(
-          tx,
-          sai.map((s) => {
-            const v = porVariacao.get(s.variantId)!;
-            return { variantId: s.variantId, quantity: s.quantity, label: rotuloDaPeca({ name: v.product.name, color: v.color, size: v.size }) };
-          })
+        // 2) a peça que SAI desce sem condição (as linhas estão travadas
+        //    desde o passo 0; `sai` já vem uma linha por variação)
+        await tx.$executeRaw(
+          Prisma.sql`
+            UPDATE "ProductVariant" AS v
+               SET stock = v.stock - d.qty
+              FROM (VALUES ${Prisma.join(sai.map((s) => Prisma.sql`(${s.variantId}::text, ${s.quantity}::int)`))}) AS d(id, qty)
+             WHERE v.id = d.id
+          `
         );
-        if (faltas.length > 0) throw new RecusaDaTroca(textoDaFalta(faltas), 409);
 
         // 3) o livro conta tudo: entrada, baixa por defeito e saída
         await tx.inventoryMovement.createMany({
@@ -275,10 +317,7 @@ export async function registrarTroca(
               numero,
               autor: user.name,
               volta: volta.map((v) => ({ nome: rotuloDaPeca(porChave.get(v.chave)!), quantity: v.quantity, destino: v.destino })),
-              sai: sai.map((s) => {
-                const v = porVariacao.get(s.variantId)!;
-                return { nome: rotuloDaPeca({ name: v.product.name, color: v.color, size: v.size }), quantity: s.quantity };
-              }),
+              sai: sai.map((s) => ({ nome: rotulos.get(s.variantId)!, quantity: s.quantity })),
               diferenca: totais.diferenca,
               resolucao: entrada.resolucao,
               freteCombinado: entrada.freteCombinado,
@@ -287,6 +326,12 @@ export async function registrarTroca(
             userId: user.id,
           },
         });
+        const aviso = textoDaSaidaSemEstoque(semEstoque);
+        if (aviso) {
+          await tx.orderEvent.create({
+            data: { orderId: order.id, type: "NOTA", description: `Troca ${numero}: ${aviso}`, userId: user.id },
+          });
+        }
 
         efeitos = deltasPorVariacao(movs);
         variantIds = [...new Set(movs.map((m) => m.variantId))];
@@ -300,7 +345,7 @@ export async function registrarTroca(
     if (variantIds.length > 0) espelharEstoqueSemQuebrar(user.companyId, variantIds);
     if (efeitos.length > 0) espelharJueriSemQuebrar(user.companyId, efeitos);
 
-    return { ok: true, trocaId: criada.id, numero: criada.numero };
+    return { ok: true, trocaId: criada.id, numero: criada.numero, semEstoque };
   } catch (e) {
     if (e instanceof RecusaDaTroca) return { ok: false, erro: e.message, status: e.status };
     // duas trocas cruzaram apesar da trava (não deveria): o único (pedido,
@@ -333,7 +378,7 @@ export async function acertarTroca(
   if (!troca) return { ok: false, erro: "Troca não encontrada.", status: 404 };
   if (troca.resolucao !== "COBRAR" && troca.resolucao !== "DEVOLUCAO")
     return { ok: false, erro: "Esta troca não tem dinheiro para acertar.", status: 409 };
-  if (troca.resolvidaEm) return { ok: true, trocaId: troca.id, numero: troca.numero }; // já estava: idempotente
+  if (troca.resolvidaEm) return { ok: true, trocaId: troca.id, numero: troca.numero, semEstoque: [] }; // já estava: idempotente
 
   const acertouAgora = await db.$transaction(async (tx) => {
     // condicional: a outra aba que confirmou primeiro ganha, e a história
@@ -356,5 +401,5 @@ export async function acertarTroca(
   // RN-074: o dinheiro que andou entra no financeiro pela porta única, já
   // baixado (loja sem o módulo: a porta sai calada)
   if (acertouAgora) registrarAcertoDaTrocaSemQuebrar(troca.id);
-  return { ok: true, trocaId: troca.id, numero: troca.numero };
+  return { ok: true, trocaId: troca.id, numero: troca.numero, semEstoque: [] };
 }

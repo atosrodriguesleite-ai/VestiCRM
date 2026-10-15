@@ -52,9 +52,24 @@ import { podeTransferirVenda, vendaOnline } from "@/lib/orders";
 import { EtiquetasDoPedido } from "./etiquetas-do-pedido";
 import { STATUS_NA_FILA } from "@/lib/etiquetas/separacao-regra";
 import { TrocasDoPedido } from "./trocas-do-pedido";
-import { aceitaTroca, linhasParaTroca, recusaDoCredito, saldoDeCredito } from "@/lib/troca/regra";
+import {
+  aceitaTroca,
+  ajusteDasTrocasPorVariacao,
+  linhasParaTroca,
+  recusaDoCredito,
+  saldoDeCredito,
+} from "@/lib/troca/regra";
 import { CreditoNoPedido } from "./credito-no-pedido";
 import { podeRegistrarTroca } from "@/lib/troca/registrar";
+import { variacoesSobEncomenda } from "@/lib/sob-encomenda";
+import { categoriasSobEncomenda } from "@/lib/sob-encomenda-data";
+import {
+  INICIO_DOS_EXTRAS,
+  MARCA_DOS_EXTRAS,
+  extrasDoPedido,
+  pedidoMostraExtras,
+  totalDeExtras,
+} from "@/lib/pedido-extras";
 
 export const dynamic = "force-dynamic";
 
@@ -101,6 +116,9 @@ export default async function OrderDetailPage({
                   product: {
                     select: {
                       sku: true,
+                      sobEncomenda: true,
+                      category: true,
+                      jueriId: true,
                       images: {
                         orderBy: { order: "asc" },
                         select: { id: true, color: true },
@@ -207,7 +225,51 @@ export default async function OrderDetailPage({
   const livroDoPedido = order.stockDeducted
     ? await baixasLiquidasDoPedido(db, order.id)
     : new Map<string, number>();
+  // as peças do pedido que VENDEM SOB ENCOMENDA (RN-076): o editor de itens
+  // deixa a quantidade passar do estoque sem chamar de extra
+  const livres = variacoesSobEncomenda(
+    order.items.flatMap((i) =>
+      i.variantId && i.variant
+        ? [{ id: i.variantId, product: i.variant.product }]
+        : []
+    ),
+    await categoriasSobEncomenda(user.companyId)
+  );
   const seguradas = [...livroDoPedido.values()].reduce((s, n) => s + n, 0);
+  // RN-075 · PEÇAS EXTRAS: o que o pedido pede além do que segura — feitas
+  // para este pedido, fora do estoque. Pela MESMA régua do selo da lista.
+  const extrasPorPeca = pedidoMostraExtras({
+    status: order.status,
+    stockDeducted: order.stockDeducted,
+    nuvemshopId: order.nuvemshopId,
+    createdAt: order.createdAt,
+    // o livro só é consultado de novo no caso raro (pedido antigo que
+    // devolveu tudo): o líquido zerado não diz se houve movimento
+    temMovimento:
+      livroDoPedido.size > 0 ||
+      (order.stockDeducted &&
+        order.createdAt < INICIO_DOS_EXTRAS &&
+        !!(await db.inventoryMovement.findFirst({ where: { orderId: order.id }, select: { id: true } }))),
+  })
+    ? extrasDoPedido(order.items, livroDoPedido, ajusteDasTrocasPorVariacao(order.trocas))
+    : new Map<string, number>();
+  const extrasTotal = totalDeExtras(extrasPorPeca);
+  // confirmado = a confecção vai fazer; sem a confirmação é falta de estoque
+  // que alguém resolve com a cliente (o pedido do catálogo que entrou com
+  // estoque a menos) — a ficha fala diferente das duas
+  const extrasConfirmados =
+    extrasTotal > 0 &&
+    !!(await db.orderEvent.findFirst({
+      where: { orderId: order.id, description: { startsWith: MARCA_DOS_EXTRAS } },
+      select: { id: true },
+    }));
+  const extrasLista = [...extrasPorPeca].map(([variantId, n]) => {
+    const item = order.items.find((i) => i.variantId === variantId);
+    const rotulo = item
+      ? `${item.name}${item.color || item.size ? ` · ${[item.color, item.size].filter(Boolean).join(" ")}` : ""}`
+      : "peça";
+    return `${rotulo}: ${n}`;
+  });
 
   // RN-054/RN-055 · O QUE A NOTA VAI FAZER, DITO ANTES DE EMITIR. Sai da
   // MESMA função que a emissão usa, então nunca diverge do que vai acontecer.
@@ -408,8 +470,12 @@ export default async function OrderDetailPage({
                 {/* reserva parcial (pediu 10, havia 4): o número é o do LIVRO, o
                     mesmo do Inventário — dizer 10 mandava a loja procurar 6
                     peças que nunca existiram (achado da revisão de dados) */}
-                {seguradas !== pedidas && (
+                {seguradas !== pedidas && !extrasConfirmados && (
                   <> (o pedido tem {pedidas} — só {seguradas} estavam no estoque)</>
+                )}
+                {/* RN-075: a diferença tem nome — são as extras, logo abaixo */}
+                {seguradas !== pedidas && extrasConfirmados && (
+                  <> (as outras {extrasTotal} são extras, logo abaixo)</>
                 )}{" "}
                 para esta cliente — elas estão fora do estoque e não têm prazo
                 para voltar. Se a venda não sair, <b>cancele o pedido</b> para
@@ -417,6 +483,36 @@ export default async function OrderDetailPage({
               </span>
             </p>
           )}
+        {/* RN-075 · peças EXTRAS: sem estoque, feitas para este pedido. Ficam
+            só anotadas — lançar a peça no estoque depois NÃO a segura para
+            cá, e cancelar não a devolve (ela nunca saiu do estoque) */}
+        {extrasTotal > 0 && extrasConfirmados && (
+          <p className="mt-3 flex items-start gap-2 rounded-xl border border-violet-100 bg-violet-50 px-3 py-2.5 text-xs text-violet-800">
+            <span className="shrink-0" aria-hidden>🧵</span>
+            <span>
+              <b>
+                {extrasTotal} {extrasTotal === 1 ? "peça extra" : "peças extras"}
+              </b>{" "}
+              — sem estoque, feitas para este pedido ({extrasLista.join("; ")}).
+              Quando ficarem prontas, vão <b>direto para o pacote da cliente</b>:
+              não lance essas peças no estoque, senão elas ficam livres para
+              outra venda.
+            </span>
+          </p>
+        )}
+        {extrasTotal > 0 && !extrasConfirmados && (
+          <p className="mt-3 flex items-start gap-2 rounded-xl border border-amber-100 bg-amber-50 px-3 py-2.5 text-xs text-amber-800">
+            <span className="shrink-0" aria-hidden>⚠️</span>
+            <span>
+              <b>
+                {extrasTotal} {extrasTotal === 1 ? "peça sem estoque" : "peças sem estoque"}
+              </b>{" "}
+              ({extrasLista.join("; ")}) — o pedido entrou com o estoque a menos
+              e ninguém confirmou extra. Produza, troque por outra peça ou
+              combine com a cliente.
+            </span>
+          </p>
+        )}
 
         <div className="mt-5 pt-5 border-t border-gray-50 min-w-0 overflow-hidden">
           <StatusChanger
@@ -435,11 +531,17 @@ export default async function OrderDetailPage({
       </Card>
 
       <div className="grid md:grid-cols-3 gap-4">
+        {/* COLUNA DA ESQUERDA: itens e trocas, um embaixo do outro. Eram dois
+            itens de grade de 2 colunas cada, e o segundo (Trocas) não cabia na
+            linha dos itens — descia para a linha seguinte e levava junto a
+            coluna da direita (Cobrança e Nota, Envio), deixando um vazio ao
+            lado dos itens (print do dono, 09/10/2026). */}
+        <div className="md:col-span-2 min-w-0 space-y-4">
         {/* Itens */}
         {/* min-w-0: item de grid não encolhe sozinho — sem isso um nome de peça
             longo (ou a régua de status) faz o cartão passar da largura do
             celular e a tela inteira anda para o lado */}
-        <Card className="p-5 md:col-span-2 min-w-0">
+        <Card className="p-5 min-w-0">
           <div className="flex items-center justify-between mb-4">
             <h2 className="font-semibold">
               Itens do pedido
@@ -476,6 +578,7 @@ export default async function OrderDetailPage({
                   color: i.color ?? "",
                   size: i.size ?? "",
                   stock: i.variant?.stock ?? 0,
+                  sobEncomenda: i.variantId ? livres.has(i.variantId) : false,
                   // o que ESTE pedido já segura da peça (RN-003): o `stock`
                   // acima é o disponível já sem isso — o editor soma de volta
                   segurado: i.variantId ? (livroDoPedido.get(i.variantId) ?? 0) : 0,
@@ -620,7 +723,7 @@ export default async function OrderDetailPage({
         {/* TROCAS (RN-073): registro próprio, pendurado no pedido — o pedido
             não muda, o estoque anda pelo livro e a diferença fica aqui.
             Aparece sob os itens porque o assunto é a PEÇA. */}
-        <Card className="p-5 md:col-span-2 min-w-0">
+        <Card className="p-5 min-w-0">
           <TrocasDoPedido
             orderId={order.id}
             numeroDoPedido={orderNumber(order.number)}
@@ -674,6 +777,7 @@ export default async function OrderDetailPage({
             saldoCredito={saldoDeCredito(order.customer.creditos)}
           />
         </Card>
+        </div>
 
         {/* min-w-0: mesma proteção do cartão de Itens — sem ela, o link da
             InfinitePay (comprido e sem espaços) alarga esta coluna além da

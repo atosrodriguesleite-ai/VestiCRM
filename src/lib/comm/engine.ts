@@ -106,6 +106,13 @@ export type SendMessageInput = {
   authorId?: string;
   authorName?: string;
   /**
+   * MENSAGEM DE ROBÔ (RN-080): quem manda sem uma pessoa digitar (recuperação
+   * automática de sacola) marca aqui. O BI nunca a conta como resposta à
+   * cliente. Porta nova de envio automático TEM que marcar — é o custo dito
+   * no ADR-019.
+   */
+  automatica?: boolean;
+  /**
    * Envio em SEGUNDO PLANO: a chamada devolve a mensagem ENVIANDO na hora e o
    * provedor trabalha depois da resposta (after). Usado para mídia (áudio/
    * foto/vídeo), que demora — segurar a resposta até o fim era o que fazia a
@@ -124,6 +131,12 @@ export async function sendMessage(input: SendMessageInput): Promise<Message> {
 
   const kind = input.kind ?? "TEXT";
   const isNote = kind === "NOTE";
+  // RN-080: mensagem que NINGUÉM assina é de robô, salvo quem disser o
+  // contrário. Toda porta humana passa `authorId` (tela, cobrança, rastreio,
+  // encaminhar); só a recuperação automática não — e a porta automática
+  // nova que esquecer a marca cai do lado certo em vez de virar "resposta
+  // humana em 0 min" (achado da revisão: opt-in era o "esqueceu um" da RN-059).
+  const automatica = input.automatica ?? !input.authorId;
 
   // registra a mensagem primeiro (fila: status ENVIANDO)
   let message = await db.message.create({
@@ -139,6 +152,7 @@ export async function sendMessage(input: SendMessageInput): Promise<Message> {
       replyToId: input.replyToId,
       status: isNote ? "ENVIADA" : "ENVIANDO",
       authorId: input.authorId,
+      automatica,
     },
   });
 
@@ -323,7 +337,9 @@ export async function sendMessage(input: SendMessageInput): Promise<Message> {
   // PRIMEIRA RESPOSTA DA LOJA → o cartão avança para "Primeiro contato".
   // `conv.lastOutboundAt` ainda é o valor de ANTES desta mensagem: nulo
   // significa que a loja nunca tinha falado com ela.
-  if (!isNote && !conv.lastOutboundAt && message.status !== "FALHOU") {
+  // Robô não é "primeiro contato" (RN-080): a recuperação automática que
+  // chega antes da vendedora não move o cartão da cliente.
+  if (!isNote && !automatica && !conv.lastOutboundAt && message.status !== "FALHOU") {
     await avancarFunil(input.companyId, conv.customerId, "PRIMEIRO_CONTATO");
   }
 

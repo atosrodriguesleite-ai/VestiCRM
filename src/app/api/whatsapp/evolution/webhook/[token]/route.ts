@@ -871,7 +871,14 @@ export async function POST(
                 // REENVIO de uma mensagem antiga também precisa ser adotado
                 // pelo eco, senão o WhatsApp criava uma bolha nova ao lado da
                 // que a vendedora acabou de reenviar (revisão, 03/09/2026)
-                updatedAt: { gt: new Date(Date.now() - 10 * 60 * 1000) },
+                // A MENSAGEM DE ROBÔ (RN-080) tem janela de um dia: o envio
+                // proativo é cadenciado e a linha pode ficar ENVIANDO além dos
+                // 10 min; perder a adoção faria o eco renascer como mensagem
+                // HUMANA e fechar a espera da cliente (achado da revisão).
+                OR: [
+                  { updatedAt: { gt: new Date(Date.now() - 10 * 60 * 1000) } },
+                  { automatica: true, createdAt: { gt: new Date(Date.now() - 24 * 60 * 60 * 1000) } },
+                ],
                 ...(mediaType !== "TEXT" ? { mediaType } : { mediaType: "TEXT", body: textoFinal }),
               },
               // MAIS ANTIGA primeiro: os ecos chegam na ordem em que foram
@@ -901,7 +908,11 @@ export async function POST(
                   unreadCount: 0,
                 },
               });
-              await concluirTarefasDeContato(companyId, customer.id).catch(() => 0);
+              // o eco do ROBÔ não conclui a tarefa de primeiro atendimento:
+              // ninguém falou com a cliente ainda (RN-080)
+              if (!pendente.automatica) {
+                await concluirTarefasDeContato(companyId, customer.id).catch(() => 0);
+              }
               continue;
             }
           }

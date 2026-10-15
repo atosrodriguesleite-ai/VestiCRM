@@ -28,7 +28,8 @@ describe("edição de pedido devolve pelo LIVRO DE MOVIMENTOS", () => {
   const rota = ler("src/app/api/orders/[id]/route.ts");
   it("lê o que o pedido segurou de verdade antes de devolver", () => {
     expect(rota).toContain("baixasLiquidasDoPedido(tx, order.id)");
-    expect(rota).toContain("segurado + baixar - agora");
+    // pelo que de fato saiu agora (o EXTRA não sai do estoque, RN-075)
+    expect(rota).toContain("segurado + baixou - agora");
   });
   it("as integrações espelham o delta EFETIVO da edição", () => {
     expect(rota).toContain("efetivos.map((e) => ({ variantId: e.variantId, delta: -e.delta }))");

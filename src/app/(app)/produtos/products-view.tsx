@@ -63,6 +63,12 @@ export type ProductItem = {
   tags: string | null;
   /** peça espelhada da loja online — muda o conselho quando ela está inativa */
   nuvemshopId: string | null;
+  /** RN-076: a chavinha da peça (null = segue a categoria), se a categoria está ligada e se a peça é do Jueri (não aceita) */
+  sobEncomenda: boolean | null;
+  categoriaSobEncomenda: boolean;
+  vinculada: boolean;
+  /** alguma variação espelha a Nuvemshop (a ficha avisa que lá vai zero quando dever) */
+  temVariacaoNaNuvemshop: boolean;
   /** RN-056/RN-057: quem manda em cada preço (null = a loja, aqui); `espelhaVarejo` = o varejo daqui vai para lá */
   precoDono: { atacado: DonoExterno | null; varejo: DonoExterno | null; espelhaVarejo: DonoExterno | null };
   /** RN-057: varejo mudado aqui que a Nuvemshop ainda não confirmou ("enviando") ou que ela não aceitou ("falhou") */
@@ -843,6 +849,8 @@ function ProductDetailModal({
     minQuantity: String(product.minQuantity),
     weightGrams: product.weightGrams ? String(product.weightGrams) : "",
     tags: product.tags ?? "",
+    // RN-076: "" segue a categoria; "sim"/"nao" a peça manda
+    sobEncomenda: product.sobEncomenda === null ? "" : product.sobEncomenda ? "sim" : "nao",
   });
   // galeria em ordem — a posição 0 é a capa; a lista final vai inteira no save
   const [photos, setPhotos] = useState<
@@ -937,6 +945,8 @@ function ProductDetailModal({
     }
 
     setBusy(true);
+    const encomendaEscolhida: boolean | null =
+      form.sobEncomenda === "" ? null : form.sobEncomenda === "sim";
     const res = await fetch(`/api/products/${product.id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
@@ -967,6 +977,9 @@ function ProductDetailModal({
         minQuantity: parseInt(form.minQuantity) || 1,
         weightGrams: parseInt(form.weightGrams) || null,
         tags: form.tags || null,
+        // RN-076: só viaja quando a pessoa MUDOU (é regra da gerência; a
+        // vendedora que edita a ficha não manda nada e o servidor não recusa)
+        ...(encomendaEscolhida !== product.sobEncomenda ? { sobEncomenda: encomendaEscolhida } : {}),
         images: photos.map((ph) =>
           ph.id
             ? { id: ph.id, color: ph.color ?? null }
@@ -1351,6 +1364,38 @@ function ProductDetailModal({
                 <label className={label}>Tags</label>
                 <input value={form.tags} onChange={set("tags")} className={input} placeholder="lançamento, festa" />
               </div>
+            </div>
+            {/* RN-076: vende sob encomenda — a peça passa do estoque (fica
+                negativo = a produzir). A categoria é o normal; aqui é a
+                exceção. Peça do Jueri não aceita; a da Nuvemshop aceita, e
+                lá vai zero enquanto ela estiver devendo. */}
+            <div>
+              <label className={label}>Vende sob encomenda (pode vender além do estoque)</label>
+              {product.vinculada ? (
+                <p className="rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-xs text-gray-500">
+                  Peça controlada pelo Jueri: o estoque é de lá, então ela não vende sob encomenda.
+                </p>
+              ) : (
+                <>
+                  <select
+                    value={form.sobEncomenda}
+                    onChange={(e) => setForm((f) => ({ ...f, sobEncomenda: e.target.value }))}
+                    className={input}
+                  >
+                    <option value="">
+                      Segue a categoria ({product.categoriaSobEncomenda ? "ligada: vende sob encomenda" : "desligada: para no estoque"})
+                    </option>
+                    <option value="sim">Sim — vende além do estoque (fica negativo = a produzir)</option>
+                    <option value="nao">Não — a venda para no estoque</option>
+                  </select>
+                  <p className="mt-1 text-[11px] text-gray-400">
+                    Só a gerência muda. A categoria inteira se liga em Categorias (ícone de tesoura).
+                    {product.nuvemshopId || product.temVariacaoNaNuvemshop
+                      ? " Peça da Nuvemshop: enquanto estiver devendo, a loja online recebe 0."
+                      : ""}
+                  </p>
+                </>
+              )}
             </div>
             <div>
               <label className={label}>Peso da peça (g) — para cotar frete</label>

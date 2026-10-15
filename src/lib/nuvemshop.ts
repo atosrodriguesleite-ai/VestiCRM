@@ -25,6 +25,7 @@ import {
   tomarTravaDaRepesca,
 } from "./nuvemshop-estoque-pendente";
 import { variacoesComEnvioPendente } from "./nuvemshop-estoque-pendente";
+import { estoqueDaSincronizacao, estoqueParaANuvemshop } from "./sob-encomenda";
 import {
   confirmarEnvioDePreco,
   desistirDoEnvioDePreco,
@@ -967,7 +968,30 @@ export async function upsertProduct(
       continue;
     }
 
-    const antes = alvo.stock;
+    // RELIGAR (RN-072) grava os DOIS carimbos — ver abaixo; aqui decide também
+    // se a dívida da RN-076 vale: ela supõe que o número de lá é o que entrou
+    // DEPOIS do zero que nós mandamos, e isso só é verdade com o vínculo de
+    // sempre. Peça recém-ligada (ou religada) nunca recebeu o nosso zero: o
+    // número de lá é dela, e descontar a dívida tiraria peças de verdade da
+    // loja online (achado da revisão) — ali vale o de lá (RN-050)
+    const religa = alvo.nuvemshopId !== vId;
+    // o número DAQUI que decide: o da foto da rodada pode ter envelhecido (uma
+    // venda ou uma produção no meio da etapa, que dura até 25s). Relido só
+    // quando importa — o número de lá difere, ou a peça está devendo —, para
+    // a rodada sem mudança não ir ao banco à toa
+    const atual =
+      alvo.stock !== stock || alvo.stock < 0
+        ? ((await db.productVariant.findUnique({ where: { id: alvo.id }, select: { stock: true } }))?.stock ??
+          alvo.stock)
+        : alvo.stock;
+    const antes = atual;
+    // o número que fica AQUI: o de lá — salvo a peça que está DEVENDO (RN-076,
+    // estoque negativo de venda sob encomenda) com o vínculo de sempre, em que
+    // o de lá é o que entrou depois e cobre primeiro a dívida: o 0 de lá
+    // nunca apaga o "a produzir". "Infinito" lá (null) vale o de lá: a loja
+    // deixou de controlar a quantidade daquela peça
+    const cobreADivida = atual < 0 && !religa && v.stock != null;
+    const novo = cobreADivida ? estoqueDaSincronizacao(atual, stock) : stock;
     // RN-053: peça com BAIXA AINDA NÃO CONFIRMADA lá não recebe o número de
     // lá por cima. Aqui o mais novo é o NOSSO — a venda aconteceu aqui e o
     // aviso não chegou —, e puxar o número antigo devolveria as peças
@@ -981,16 +1005,16 @@ export async function upsertProduct(
     // revisão)
     const esperandoEnvio =
       pendentesDeEnvio.has(alvo.id) ||
-      (alvo.stock !== stock && (await envioPendentePorVariacao(companyId, [alvo.id])).has(alvo.id));
+      (atual !== novo && (await envioPendentePorVariacao(companyId, [alvo.id])).has(alvo.id));
     // RELIGAR grava os DOIS carimbos: o objeto em memória é a foto do começo
     // da rodada, e a limpeza abaixo pode ter zerado no banco o produto de lá
     // desta mesma peça — sem ele, o envio de estoque da venda (RN-053) pula
     // a peça calado (achado da revisão)
-    const religa = alvo.nuvemshopId !== vId;
     const dadosDaVariacao = {
       ...(religa ? { nuvemshopId: vId, nuvemshopProductId: nsId } : {}),
       ...(!religa && alvo.nuvemshopProductId !== nsId ? { nuvemshopProductId: nsId } : {}),
-      ...(esperandoEnvio || alvo.stock === stock ? {} : { stock }),
+      // o estoque NÃO vai aqui: ele é gravado à parte, condicionado ao número
+      // que decidiu (abaixo)
       // SKU repetido lá não é copiado para cá: espalharia o SKU ambíguo pelo
       // cadastro, e a trava daqui tiraria do casamento até a peça certa (RN-072)
       ...(v.sku && !alvo.sku && !repetidoLa(v.sku) ? { sku: v.sku } : {}),
@@ -1021,17 +1045,41 @@ export async function upsertProduct(
     if (Object.keys(dadosDaVariacao).length > 0) {
       await db.productVariant.update({ where: { id: alvo.id }, data: dadosDaVariacao });
     }
+    // O ESTOQUE, condicionado ao número que DECIDIU: com a regra da dívida
+    // (RN-076) o resultado depende do nosso número, e uma venda aqui no meio
+    // — ou outra sincronização da mesma peça ao mesmo tempo (o webhook e o
+    // botão) — mudaria a base da conta; gravar por cima desfaria a venda ou
+    // descontaria a dívida duas vezes. Mudou no meio: não grava; a próxima
+    // rodada decide com o número de agora
+    let gravouEstoque = false;
+    if (!esperandoEnvio && atual !== novo) {
+      const r = await db.productVariant.updateMany({
+        where: { id: alvo.id, stock: atual },
+        data: { stock: novo },
+      });
+      gravouEstoque = r.count > 0;
+    }
+    // a peça que devia e recebeu peças lá (−3 aqui, 10 lá → 7) devolve o
+    // número para a Nuvemshop, que ainda diz 10. Entra na fila ANTES (a sync
+    // seguinte não grava o número de lá por cima enquanto ela estiver lá) e
+    // sai na hora pelo `after()`, como toda baixa (RN-053) — esperar a
+    // repesca de carona deixava minutos de janela para uma venda de lá ser
+    // apagada pelo número velho (achado da revisão)
+    if (gravouEstoque && cobreADivida && stock > 0) {
+      await marcarEnvioPendente(companyId, alvo.id);
+      espelharEstoqueSemQuebrar(companyId, [alvo.id]);
+    }
     // registra o movimento — auditável e reversível (nunca sobrescreve sem
     // rastro). Estoque "infinito" fica de fora: o repor 9996 → 9999 de cada
     // sync viraria ruído sem significado no histórico.
-    if (!esperandoEnvio && antes !== stock && v.stock != null) {
+    if (gravouEstoque && v.stock != null) {
       await db.inventoryMovement.create({
         data: {
           companyId,
           variantId: alvo.id,
           type: "AJUSTE",
-          quantity: Math.abs(stock - antes),
-          reason: `Sincronização Nuvemshop (${antes} → ${stock})`,
+          quantity: Math.abs(novo - antes),
+          reason: `Sincronização Nuvemshop (${antes} → ${novo})`,
         },
       });
     }
@@ -1960,7 +2008,10 @@ export async function pushStockToNuvemshop(companyId: string, variantIds: string
     });
     if (!agora || agora.stock >= ZONA_INFINITO) continue;
 
-    const r = await enviarEstoqueDaPeca(conn, nsProductId, v.nuvemshopId!, agora.stock);
+    // peça sob encomenda devendo (RN-076): lá vai ZERO — a Nuvemshop não
+    // aceita negativo, e não há o que vender lá. A confirmação continua
+    // conferindo o número DAQUI (o lido), que é o que pode ter mudado no meio
+    const r = await enviarEstoqueDaPeca(conn, nsProductId, v.nuvemshopId!, estoqueParaANuvemshop(agora.stock));
     if (r.ok) {
       await confirmarEnvio(v.id, agora.stock);
       continue;
@@ -2216,7 +2267,7 @@ export async function varrerEnviosDeEstoqueSeDevido(companyId: string): Promise<
         await confirmarEnvio(p.variantId);
         continue;
       }
-      const r = await enviarEstoqueDaPeca(conn, nsProductId, v.nuvemshopId, v.stock);
+      const r = await enviarEstoqueDaPeca(conn, nsProductId, v.nuvemshopId, estoqueParaANuvemshop(v.stock));
       if (r.ok) {
         await confirmarEnvio(v.id, v.stock);
         continue;

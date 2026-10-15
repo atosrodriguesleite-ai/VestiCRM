@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { db } from "@/lib/db";
 import { porteiraEstoqueTela } from "@/lib/estoque/gate";
-import { linhasDaContagem, type FiltroDoInventario } from "@/lib/estoque/inventario";
+import { FILTROS_DO_INVENTARIO, linhasDaContagem, type FiltroDoInventario } from "@/lib/estoque/inventario";
 import { agruparParaContagem, ehListaDeProducao, faltaParaOMinimo, recorteDaFolha } from "@/lib/estoque/contagem";
 import { NOME_DO_DONO } from "@/lib/estoque/dono-do-estoque";
 import { BotaoImprimir } from "./botao-imprimir";
@@ -24,7 +24,6 @@ export const dynamic = "force-dynamic";
  * a folha vira LISTA DE PRODUÇÃO (pedido do dono, 08/10/2026) — disponível,
  * mínimo, quanto falta e uma coluna para anotar quanto produzir.
  */
-const FILTROS: FiltroDoInventario[] = ["todos", "baixo", "zerado", "reservado", "externo"];
 export default async function ContagemDeEstoquePage({
   searchParams,
 }: {
@@ -36,7 +35,7 @@ export default async function ContagemDeEstoquePage({
   const q = sp.q?.trim() || "";
   const inativos = sp.inativos === "1";
   const quebra = sp.quebra === "1";
-  const filtro = (FILTROS as string[]).includes(sp.filtro ?? "") ? (sp.filtro as FiltroDoInventario) : "todos";
+  const filtro = (FILTROS_DO_INVENTARIO as readonly string[]).includes(sp.filtro ?? "") ? (sp.filtro as FiltroDoInventario) : "todos";
   const producao = ehListaDeProducao(filtro);
   // a lista de produção precisa dos números; às cegas não faz sentido nela
   const cega = sp.cega === "1" && !producao;
@@ -132,7 +131,9 @@ export default async function ContagemDeEstoquePage({
           {recorteDaFolha({ categoria, q, inativos, filtro })} · {totalVariacoes}{" "}
           {totalVariacoes === 1 ? "variação" : "variações"}
           {producao
-            ? ` · faltam ${totalFalta} ${totalFalta === 1 ? "peça" : "peças"} para voltar ao mínimo`
+            ? filtro === "produzir"
+              ? ` · ${totalFalta} ${totalFalta === 1 ? "peça vendida" : "peças vendidas"} sob encomenda a produzir`
+              : ` · faltam ${totalFalta} ${totalFalta === 1 ? "peça" : "peças"} para voltar ao mínimo`
             : !cega && ` · ${totalPecas} ${totalPecas === 1 ? "peça" : "peças"} no sistema`}
         </p>
         <p className="mt-2 text-[11px]">
@@ -222,7 +223,10 @@ export default async function ContagemDeEstoquePage({
                     {producao ? (
                       <>
                         <td className={`${td} text-right tabular-nums`}>{l.disponivel}</td>
-                        <td className={`${td} text-right tabular-nums text-gray-600`}>{l.minimo}</td>
+                        <td className={`${td} text-right tabular-nums text-gray-600`}>
+                          {/* a peça sob encomenda (RN-076) não tem mínimo: o que falta é o negativo */}
+                          {l.sobEncomenda ? "enc." : l.minimo}
+                        </td>
                         <td className={`${td} text-right tabular-nums font-bold`}>{faltaParaOMinimo(l)}</td>
                         <td className={td}>&nbsp;</td>
                       </>

@@ -11,7 +11,7 @@ import { avisoDaRecusa } from "@/lib/sessao";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Portal } from "@/components/portal";
-import { Tags, Plus, Pencil, Trash2, X, Check, Loader2, ArrowRight, AlertTriangle, AlignLeft, Layers, Package } from "lucide-react";
+import { Tags, Plus, Pencil, Trash2, X, Check, Loader2, ArrowRight, AlertTriangle, AlignLeft, Layers, Package, Scissors } from "lucide-react";
 
 type Cat = {
   name: string;
@@ -20,6 +20,8 @@ type Cat = {
   type?: string;
   /** como chamar a unidade no catálogo (RN-068); null = segue a loja */
   unit?: { singular: string; plural: string } | null;
+  /** RN-076: a categoria vende sob encomenda (o estoque pode ficar negativo) */
+  sobEncomenda?: boolean;
 };
 
 export function CategoryManager() {
@@ -42,6 +44,38 @@ export function CategoryManager() {
   const [unidadeEm, setUnidadeEm] = useState<string | null>(null);
   const [unidSing, setUnidSing] = useState("");
   const [unidPlu, setUnidPlu] = useState("");
+
+  /**
+   * Liga/desliga "vende sob encomenda" da categoria inteira (RN-076): a peça
+   * passa do estoque e fica negativa (a produzir). Só a gerência — o servidor
+   * recusa o suporte com frase, e a frase aparece aqui.
+   */
+  async function alternarEncomenda(c: Cat) {
+    if (busy) return;
+    setBusy(true);
+    setMsg("");
+    const ligar = !c.sobEncomenda;
+    const r = await fetch("/api/categories", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ from: c.name, sobEncomenda: ligar }),
+    });
+    setBusy(false);
+    if (r.ok) {
+      setMsgOk(true);
+      setMsg(
+        ligar
+          ? `${c.name} agora vende sob encomenda: o catálogo e os pedidos passam do estoque, e o negativo vira "a produzir" no Estoque.`
+          : `${c.name} voltou a parar no estoque.`
+      );
+      await carregar();
+      router.refresh();
+    } else {
+      const d = await r.json().catch(() => ({}));
+      setMsgOk(false);
+      setMsg(avisoDaRecusa(r.status, d, "Não foi possível mudar a venda sob encomenda."));
+    }
+  }
 
   /**
    * Como chamar a unidade das peças desta categoria no catálogo (RN-068):
@@ -392,6 +426,21 @@ export function CategoryManager() {
                                 title={c.unit ? `Unidade: ${c.unit.singular} / ${c.unit.plural}` : "Como chamar a unidade no catálogo (peça, conjunto, kit…)"}
                               >
                                 <Package className="size-4" />
+                              </button>
+                              <button
+                                onClick={() => alternarEncomenda(c)}
+                                disabled={busy}
+                                aria-pressed={!!c.sobEncomenda}
+                                className={`grid size-8 place-items-center rounded-lg hover:bg-gray-100 hover:text-violet-700 ${
+                                  c.sobEncomenda ? "text-violet-700" : "text-gray-400"
+                                }`}
+                                title={
+                                  c.sobEncomenda
+                                    ? "Vende sob encomenda: as peças passam do estoque (clique para desligar)"
+                                    : "Vender sob encomenda: as peças desta categoria podem vender além do estoque (clique para ligar)"
+                                }
+                              >
+                                <Scissors className="size-4" />
                               </button>
                               <button
                                 onClick={() => {

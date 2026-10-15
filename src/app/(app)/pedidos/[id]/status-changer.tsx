@@ -10,6 +10,7 @@ import {
 } from "@/lib/orders";
 import type { OrderStatus } from "@prisma/client";
 import { CancelOrderDialog } from "../cancel-dialog";
+import { useConfirmarExtras } from "@/components/pedido/confirmar-extras";
 
 /**
  * Trilha de status clicável — muda o status do pedido com um toque.
@@ -37,6 +38,8 @@ export function StatusChanger({
   // cancelamento pergunta antes: devolver as peças ao estoque ou baixar de vez?
   const [askCancel, setAskCancel] = useState(false);
   const currentIdx = ORDER_STATUS_FLOW.indexOf(shown);
+  // reabrir pedido cancelado com peça que acabou: o resto vira EXTRA (RN-075)
+  const extras = useConfirmarExtras();
 
   async function setStatus(status: OrderStatus, restock?: boolean) {
     if (busy || status === shown) return;
@@ -48,16 +51,19 @@ export function StatusChanger({
     setShown(status); // resposta visual imediata
     setBusy(true);
     setError("");
-    const res = await fetch(`/api/orders/${orderId}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ status, ...(restock !== undefined ? { restock } : {}) }),
-    });
+    const enviado = await extras.enviar((extrasConfirmados) =>
+      fetch(`/api/orders/${orderId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status, ...(restock !== undefined ? { restock } : {}), extrasConfirmados }),
+      })
+    );
     setBusy(false);
-    if (!res.ok) {
+    if (!enviado || !enviado.res.ok) {
       setShown(previous); // volta ao que era e mostra o motivo
-      const data = await res.json().catch(() => null);
-      setError(data?.error ?? "Não foi possível mudar o status. Tente de novo.");
+      const data = enviado?.data as { error?: string } | null | undefined;
+      // voltou da janela de extras sem confirmar: não é erro, só não mudou
+      if (enviado) setError(data?.error ?? "Não foi possível mudar o status. Tente de novo.");
       return;
     }
     router.refresh();
@@ -109,6 +115,7 @@ export function StatusChanger({
           {error}
         </p>
       )}
+      {extras.janela}
       <CancelOrderDialog
         open={askCancel}
         onClose={() => setAskCancel(false)}

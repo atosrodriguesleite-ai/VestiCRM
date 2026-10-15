@@ -18,7 +18,7 @@ import { canalDaOrigem, labelDoCanal } from "@/lib/canais";
 import { Card, PageHeader, EmptyState } from "@/components/ui";
 import { AreaChart, BarList, FunnelBars, PeriodChips, StatTile } from "@/components/charts";
 import { lerPeriodo, periodoPorExtenso, ultimosDiasSP } from "@/lib/periodo";
-import { chaveDoNome } from "@/lib/tracking/insights";
+import { contarPorMotivo } from "@/lib/funil/motivos-de-perda";
 
 export const dynamic = "force-dynamic";
 
@@ -285,17 +285,9 @@ export default async function ReportsPage({
     value: s._count.opportunities,
   }));
 
-  // motivos de perda — texto digitado: "Preço alto" com ç/espaço gravado
-  // diferente fundem numa barra só (mesma régua dos rankings, chaveDoNome)
-  const lostReasons = new Map<string, { label: string; value: number }>();
-  for (const o of opps.filter((o) => o.status === "LOST")) {
-    const reason = chaveDoNome(o.lostReason ?? "") || "Sem motivo registrado";
-    const k = reason.toLowerCase();
-    const cur = lostReasons.get(k) ?? { label: reason, value: 0 };
-    cur.value += 1;
-    lostReasons.set(k, cur);
-  }
-  const lossData = [...lostReasons.values()].sort((a, b) => b.value - a.value);
+  // motivos de perda — uma barra por CHIP da lista (RN-081); o texto antigo,
+  // de antes da lista, cai em "Outro" em vez de virar uma barra por frase
+  const lossData = contarPorMotivo(opps.filter((o) => o.status === "LOST"));
 
   // origem dos clientes (base inteira)
   const byOrigin = new Map<string, number>();

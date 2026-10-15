@@ -13,11 +13,13 @@ import {
   juntarVoltas,
   movimentosDaTroca,
   nasceAcertada,
+  pecasQueFicaramNegativas,
   resolucaoValida,
   resolucoesPermitidas,
   restanteDaLinha,
   saldoDeCredito,
   somarTroca,
+  textoDaSaidaSemEstoque,
   textoDaTroca,
   textoDoAcerto,
   validarTroca,
@@ -345,5 +347,39 @@ describe("RN-073 · a história do pedido conta a troca", () => {
       "Troca 1: diferença de R$ 10,00 recebida da cliente — confirmado por Ana."
     );
     expect(textoDoAcerto({ numero: 1, autor: "Ana", resolucao: "DEVOLUCAO", diferenca: -10 })).toContain("devolução de R$ 10,00 feita à cliente");
+  });
+});
+
+describe("RN-073 · a peça que sai SEM estoque passa, fica negativa e AVISA (13/10/2026)", () => {
+  it("entra no aviso quem ESTA troca deixou abaixo de zero (ou mais fundo); zero exato é a última peça, não falta", () => {
+    expect(
+      pecasQueFicaramNegativas([
+        { variantId: "g", nome: "Regata Nadador (Café G)", antes: 0, depois: -1 },
+        { variantId: "m", nome: "Regata Alça (Preto M)", antes: 1, depois: 0 },
+        { variantId: "a", nome: "Cropped (Azul G)", antes: 5, depois: 4 },
+        { variantId: "e", nome: "Body (Preto P)", antes: -3, depois: -4 },
+      ])
+    ).toEqual([
+      { variantId: "g", nome: "Regata Nadador (Café G)", estoque: -1 },
+      { variantId: "e", nome: "Body (Preto P)", estoque: -4 },
+    ]);
+  });
+
+  it("a peça que já devia e a troca não mexeu (devolveu uma boa e levou outra igual) não é notícia", () => {
+    expect(pecasQueFicaramNegativas([{ variantId: "e", nome: "Body (Preto P)", antes: -3, depois: -3 }])).toEqual([]);
+  });
+
+  it("a frase diz a peça e o número que ficou, com o sinal de menos legível", () => {
+    const t = textoDaSaidaSemEstoque([
+      { variantId: "g", nome: "Regata Nadador (Café G)", estoque: -1 },
+      { variantId: "e", nome: "Body (Preto P)", estoque: -3 },
+    ]);
+    expect(t).toContain("Regata Nadador (Café G) ficou −1");
+    expect(t).toContain("Body (Preto P) ficou −3");
+    expect(t).toMatch(/repor ou produzir/);
+  });
+
+  it("sem peça negativa, nada a dizer", () => {
+    expect(textoDaSaidaSemEstoque([])).toBeNull();
   });
 });

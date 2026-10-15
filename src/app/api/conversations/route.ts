@@ -13,6 +13,7 @@ import { sincronizarFotosSeDevido } from "@/lib/comm/fotos";
 import { repescarMidiasPendentes } from "@/lib/comm/midia-pendente";
 import { fecharConfirmacoesSemQuebrar } from "@/lib/comm/engine";
 import { varrerMinimosSeDevido } from "@/lib/estoque/alerta";
+import { atualizarFatosDoBiSeDevido } from "@/lib/bi/fatos";
 import { varrerEnviosDeEstoqueSeDevido } from "@/lib/nuvemshop";
 import { runAutomationsIfDue } from "@/lib/automations-run";
 
@@ -49,6 +50,8 @@ export async function GET(req: NextRequest) {
     after(() => sincronizarFotosSeDevido(user.companyId));
     // RN-051: alerta de mínimo de estoque — de carona, com trava por loja
     after(() => varrerMinimosSeDevido(user.companyId));
+    // fatos diários do BI (RN-082): coleta para toda loja, trava de 30 min
+    after(() => atualizarFatosDoBiSeDevido(user.companyId));
     // RN-053: repesca do estoque que não chegou na Nuvemshop, mesma carona
     after(() => varrerEnviosDeEstoqueSeDevido(user.companyId));
     // ARQUIVO QUE NÃO CHEGOU (RN-028): a fila é varrida aqui, na rota mais

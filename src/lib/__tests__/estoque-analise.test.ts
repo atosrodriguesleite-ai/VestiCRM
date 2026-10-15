@@ -110,6 +110,7 @@ describe("o painel inteiro (resumo puro)", () => {
     dono: null,
     minimo: 5,
     origemDoMinimo: "LOJA",
+    sobEncomenda: false,
     custo: 10,
     atacado: 30,
     cadastradoEm: diasAtras(400).toISOString(),

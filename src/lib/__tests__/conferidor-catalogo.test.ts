@@ -28,13 +28,16 @@ describe("o conferidor usa o filtro REAL da vitrine", () => {
     }
   });
 
-  it("respeita a chavinha 'esconder sem estoque' da loja", () => {
+  it("respeita a chavinha 'esconder sem estoque' da loja (pela MESMA função da vitrine, RN-076)", () => {
     for (const fonte of [rota, vitrine]) {
       expect(/catalogHideOutOfStock/.test(fonte)).toBe(true);
-      expect(
-        /variants:\s*\{\s*some:\s*\{\s*stock:\s*\{\s*gt:\s*0\s*\}/.test(fonte)
-      ).toBe(true);
+      expect(/ondeNaoEscondePorEstoque\(catsSobEncomenda\)/.test(fonte)).toBe(true);
     }
+    expect(
+      /variants:\s*\{\s*some:\s*\{\s*stock:\s*\{\s*gt:\s*0\s*\}/.test(
+        ler("src/lib/catalogo/sob-encomenda-na-vitrine.ts")
+      )
+    ).toBe(true);
   });
 
   it("nunca sai da loja de quem perguntou (multi-tenant)", () => {

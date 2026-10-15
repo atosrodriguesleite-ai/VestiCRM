@@ -460,6 +460,41 @@ export function textoDaTroca(entrada: {
   return partes.join(" ");
 }
 
+/**
+ * A PEÇA QUE SAI SEM ESTOQUE (pedido do dono, 13/10/2026: *"o sistema deve
+ * permitir mesmo que esteja zerado; ele pode ficar negativo e informar o
+ * vendedor que está zerado"*). A cliente já está com a peça na mão quando a
+ * troca é registrada — recusar não devolve a peça à arara, só deixa a troca
+ * sem registro. Então a saída passa, o estoque fica negativo (= peça que a
+ * loja deve repor) e quem registrou é AVISADA, na tela e na história do
+ * pedido. Recebe o estoque de cada peça DEPOIS da saída, lido na transação.
+ */
+export type PecaSemEstoqueNaTroca = { variantId: string; nome: string; estoque: number };
+
+/**
+ * Quem entra no aviso: a peça que ESTA troca deixou abaixo de zero ou mais
+ * funda no negativo. A que já estava devendo e a troca não mexeu (devolveu
+ * uma boa e levou outra igual: −3 continua −3) não é notícia — avisar ali
+ * mandaria repor o que esta troca não tirou.
+ */
+export function pecasQueFicaramNegativas(
+  pecas: { variantId: string; nome: string; antes: number; depois: number }[]
+): PecaSemEstoqueNaTroca[] {
+  return pecas
+    .filter((p) => p.depois < 0 && p.depois < p.antes)
+    .map((p) => ({ variantId: p.variantId, nome: p.nome, estoque: p.depois }));
+}
+
+/** O sinal de menos que se lê ("−1", não o hífen "-1"). */
+export const numeroComSinal = (n: number) => String(n).replace("-", "−");
+
+/** "⚠️ Saiu sem estoque: Regata Nadador (Café G) ficou −1 no estoque…" */
+export function textoDaSaidaSemEstoque(pecas: PecaSemEstoqueNaTroca[]): string | null {
+  if (pecas.length === 0) return null;
+  const lista = pecas.map((p) => `${p.nome} ficou ${numeroComSinal(p.estoque)}`).join(", ");
+  return `⚠️ Saiu sem estoque: ${lista} no estoque (o negativo é o que falta repor ou produzir).`;
+}
+
 export function textoDoAcerto(entrada: { numero: number; autor: string; resolucao: TrocaResolucao; diferenca: number }): string {
   return entrada.resolucao === "COBRAR"
     ? `Troca ${entrada.numero}: diferença de ${brlSimples(entrada.diferenca)} recebida da cliente — confirmado por ${entrada.autor}.`

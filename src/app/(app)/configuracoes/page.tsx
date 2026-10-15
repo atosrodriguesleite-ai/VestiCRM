@@ -27,7 +27,9 @@ import { NuvemshopConnect } from "./nuvemshop-connect";
 import { JueriConnect } from "./jueri-connect";
 import { MercadoPagoConnect, InfinitePayConnect, BlingConnect } from "./pagamentos-connect";
 import { MelhorEnvioConnect } from "./envios-connect";
-import { isAdmin, isSupport, podeOperarIntegracoes } from "@/lib/scope";
+import { isAdmin, isManagerUp, isSupport, podeOperarIntegracoes } from "@/lib/scope";
+import { HorarioComercialCard } from "./horario-comercial";
+import { lerHorarioComercial } from "@/lib/bi/horario-comercial";
 import type { Origin } from "@prisma/client";
 import { lerCamposDaLoja } from "@/lib/catalogo/campos-do-pedido";
 
@@ -206,6 +208,20 @@ export default async function SettingsPage({
                 oppPolicy: company.intakeOppPolicy,
                 rules: rulesByOrigin,
               }}
+            />
+          </div>
+        </>
+      )}
+
+      {company && (
+        <>
+          <h2 className="font-semibold mb-3">Horário de atendimento</h2>
+          <div className="mb-6">
+            {/* RN-079: o relógio do tempo de resposta do BI */}
+            <HorarioComercialCard
+              canEdit={isManagerUp(user)}
+              initial={lerHorarioComercial(company.horarioComercial)}
+              prazoMin={company.intakeSlaMinutes}
             />
           </div>
         </>

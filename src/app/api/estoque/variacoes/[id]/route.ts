@@ -8,8 +8,9 @@ import { TETO_DO_MOTIVO } from "@/lib/estoque/dono-do-estoque";
 const schema = z.object({
   /** o número novo */
   estoque: z.number().int().min(0).max(1_000_000),
-  /** o número que a tela mostrava — a porta recusa se já mudou */
-  visto: z.number().int().min(0).optional(),
+  /** o número que a tela mostrava — a porta recusa se já mudou (pode ser
+   * negativo: a peça que vende sob encomenda fica devendo, RN-076) */
+  visto: z.number().int().min(-1_000_000).optional(),
   motivo: z.string().max(TETO_DO_MOTIVO * 2),
 });
 

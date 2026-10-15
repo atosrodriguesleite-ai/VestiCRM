@@ -385,8 +385,27 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   baixaria de novo a levada; o reconciliador da edição ainda conhece as
   trocas (`ajusteDasTrocasPorVariacao`) como segunda tranca. **O estoque
   anda pelo livro** (RN-003): peça boa que volta é ENTRADA (sobe), peça que
-  sai é SAÍDA condicional (nunca negativa, nunca a mesma peça para duas
-  clientes — faltou, a troca inteira é recusada com a frase da falta), e
+  sai é SAÍDA **mesmo sem estoque** (pedido do dono, 13/10/2026: *"o
+  sistema deve permitir mesmo que esteja zerado; ele pode ficar negativo e
+  informar o vendedor"* — a cliente já está com a peça na mão, e recusar
+  só deixava a troca sem registro): as peças que saem são TRAVADAS e descem
+  SEM condição, o número fica negativo (= o que a loja deve repor) e
+  **quem registra é AVISADA três vezes** — a célula da grade
+  diz "N sem estoque" (`permiteNegativo`, sem a janela "estou ciente":
+  não é extra, não há pedido para produzir), a conferência diz "zerada no
+  estoque — vai ficar −1" antes de registrar (contando a peça boa da mesma
+  cor × tamanho que volta — a grade também a soma), e depois o servidor
+  devolve as peças que ESTA troca deixou abaixo de zero ou mais fundas
+  (`semEstoque`, conta exata sob a trava: antes + o que volta boa − o que
+  sai — `pecasQueFicaramNegativas`; a peça que já devia e a troca não
+  mexeu não entra), que viram faixa no bloco Trocas e nota própria na
+  história do pedido (`textoDaSaidaSemEstoque`). **A peça do Jueri é a
+  exceção** e é recusada com frase: lá o estoque não desce de zero e a
+  sincronização grava o número de lá por cima (RN-050) — o −1 viraria 0 e
+  o cancelamento seguinte devolveria uma peça que nunca existiu, aqui E lá
+  (a razão da RN-076 deixá-la de fora). No Inventário a peça comum
+  negativa conta como **zerada** (a sob encomenda devendo é "A
+  produzir") e a linha de ajuste diz que ela saiu sem estoque; e
   **defeito é ENTRADA + SAÍDA solta ("baixa por defeito")**: o estoque não
   muda, mas o livro conta que voltou e foi baixada. Os movimentos levam o
   `orderId` quando o estoque do pedido é daqui — assim o pedido passa a
@@ -431,11 +450,12 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   lista de Pedidos mostra o selo **"N trocas"**, e o bloco "Trocas" na
   ficha lista cada uma com o botão de confirmar o acerto. Provado pelas
   rotas de verdade contra o Postgres local (`scripts/e2e-troca.ts`, 13
-  cenários: status, papel, estoque, defeito, falta, itens travados, teto,
-  crédito, acerto, cancelar/restaurar/apagar, loja online). **Limites
-  ditos**: a grade da peça que sai usa o estoque de agora (devolver e levar
-  a MESMA cor × tamanho com estoque zerado não passa na tela — o servidor
-  aceitaria); o dinheiro da troca (crédito usado num pedido novo e o
+  cenários: status, papel, estoque, defeito, peça que sai sem estoque
+  (fica −1, avisa, cancelar devolve a 0; a do Jueri é recusada), itens travados, teto, crédito,
+  acerto, cancelar/restaurar/apagar, loja online). **Limites ditos**: a
+  Nuvemshop recebe zero da peça negativa (RN-076); restaurar o pedido cancelado depois de
+  uma troca sem estoque reserva o pacote efetivo e a peça que falta volta
+  como extra, com a janela de sempre (RN-075); o dinheiro da troca (crédito usado num pedido novo e o
   acerto no Financeiro) é a RN-074. **O relatório** é a aba **Trocas** do
   Estoque (`lib/troca/relatorio.ts`, gerência — mostra dinheiro, a régua do
   Painel): no período escolhido (7, 30, 90 dias ou 1 ano, pela data da
@@ -619,6 +639,62 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   no índice único → P2002 tratado). A cliente vê o recibo do registro na
   tela. Já causou incidente real: `.catch(() => {})` engolia a falha, a
   mensagem chegava no WhatsApp da vendedora e o pedido não existia.
+  **Recusa do servidor deixa RASTRO** (`lib/catalogo/recusa-do-pedido.ts`,
+  09/10/2026, relato da Sutilli Semijoias: *"a mensagem chega no WhatsApp,
+  mas o pedido não entra na aba Pedidos — e acontece sempre"*): a rota recusa
+  em quatro situações (dados inválidos, loja/peça que não existe, link de
+  tabela vencido, mínimo do atacado) e a recusa só aparecia no celular da
+  CLIENTE — a loja ficava sem pedido e sem pista. Agora toda recusa decidida
+  pela rota grava uma linha na Central de Comunicação da loja
+  (`catalogo.pedido-recusado`: quem pediu, quantas linhas, a frase dita à
+  cliente, o detalhe — QUAL peça/variação ou QUAL campo, em português — e o
+  protocolo) e uma no painel de Saúde com **fonte própria**
+  (`catalogo.recusa`): **fora da lista e da conta de erros**, em bloco
+  próprio com as últimas, pela régua da "versão velha" da RN-066 — recusa é
+  resposta decidida, e porta pública recebe lixo de robô; contá-la como erro
+  enterraria os erros de verdade. A trava de ritmo (`catalogo.flood`) passa
+  pelo mesmo caminho. Quatro réguas da revisão: o registro vai no `after()`
+  (a vitrine espera a resposta para abrir o WhatsApp); tem **teto por IP +
+  loja** (`catrec:`, 10 por 15 min, RN-044 — por loja, senão a operadora de
+  um bairro inteiro calava o rastro da loja ao lado; fechou o teto, a
+  resposta é a mesma e só o registro para); o que vem do corpo é CORTADO
+  (nome de 3 KB não engole motivo e protocolo); e **o reenvio de pedido que
+  JÁ ENTROU responde "já registrado" ANTES de qualquer recusa** (o link de
+  tabela que venceu entre o envio e o reenvio da fila virava recusa FALSA no
+  rastro, mandando a lojista colar de novo um pedido que existe). Erro
+  inesperado (500) já ia para a Saúde pelo `onRequestError`. O que continua
+  sem rastro no servidor, por definição, é o aparelho que nunca conseguiu
+  chegar nele (sem internet) — esse fica na fila do aparelho (acima).
+  Provado contra o Postgres local (`scripts/e2e-pedido-catalogo-sem-cores.ts`).
+  **RN-078 · PEÇA SEM COR SE CHAMA "Único"** (`lib/cor-da-peca.ts`,
+  09/10/2026): a causa provável do relato da Sutilli, achada lendo o código —
+  a sincronização da Jueri gravava a variação de peça SEM COR com a cor
+  **VAZIA** (`""`), a vitrine mandava `color: ""` e a porta do pedido recusava
+  o pedido INTEIRO como "dados inválidos" (400): a cliente via o erro, a
+  mensagem ia para o WhatsApp e o pedido não existia. A mesma cor vazia
+  impedia salvar a ficha da peça. "Único" é o nome que a casa já usava para
+  "não tem cor" (Nuvemshop sem atributo de cor, importação de catálogo), então:
+  a sync da Jueri passa a gravar "Único" (`corOuUnica`) e **CURA** a peça
+  que ainda estiver vazia a cada rodada (o código velho segue no ar durante
+  o build, DEPOIS de a migração rodar, e podia criar uma vazia nesse
+  intervalo); a migração `20261009150000` renomeia as que já existem — "vazia"
+  inclui tab e o espaço invisível, a mesma régua do trim —, **uma por produto
+  × tamanho e só onde não há "Único"**, porque migração que colide no único
+  de produto × cor × tamanho falha e PARA todos os deploys (P3009); e a porta
+  do pedido **aceita cor vazia** e acha a variação por `acharVariacao`:
+  **o EXATO primeiro** (com "" e "Único" na mesma peça, a ordem de leitura
+  não escolhe a errada; "Preto" e "Preto " seguem cores diferentes) e só a
+  cor vazia faz a **ponte para "Único"** — o pedido que ficou na fila do
+  aparelho com `color: ""` (RN-010) casa com a peça renomeada em vez de ser
+  recusado. A sacola guardada no aparelho com a chave antiga (`produto|`)
+  volta como `produto|Único` (`limitarSacola`). O rastro da recusa mostra a
+  cor que CHEGOU ("(cor vazia)"), não a traduzida. A linha do pedido grava a
+  cor do cadastro ("Único"). Provado contra o Postgres local (mesmo script,
+  cenários 6 e 7: o código antigo responde 400, o novo 201, e a migração
+  atravessa as duas colisões) e no `e2e-jueri-sync.ts` (2d: nasce "Único" e
+  a vazia se cura). **Limite**: a peça que a migração deixou vazia por
+  colisão (só existe se alguém criou "Único" à mão no mesmo produto e
+  tamanho) segue sem salvar a ficha até alguém apagar uma das duas.
   **RN-011** · Todo pedido do catálogo AVISA na hora (`notifyNovoPedido`): com vendedora
   no link, só ela; sem vendedora, gerência/admin (nunca uma vendedora
   qualquer — a separação por link vale também para o aviso).
@@ -1122,7 +1198,8 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   peça inteira, e repetir "R$ 34" nove vezes é o que faz a lojista desistir
   de conferir no celular — preço divergente entre variações é **dito**, não
   escondido atrás de um número qualquer. **A quantidade PARA no estoque**
-  (`quantidadeDigitada`, achado da revisão): a porta de criação recusa o
+  (`quantidadeDigitada`, achado da revisão — salvo a **peça extra**
+  da RN-075, que no Novo pedido e na Editar itens deixa passar com ciência): a porta de criação recusa o
   pedido INTEIRO quando falta peça (*"Estoque insuficiente de X (Cor Tam):
   restam N"*, 409), então oferecer 12 com 2 na arara levaria a lojista a um
   beco no último clique — a célula para no teto e **diz "máx N"**, e
@@ -1205,6 +1282,155 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   empurrão), com varredura que derruba o build se uma nova esquecer o par. As
   gavetas do catálogo público são presas no rodapé, uma conta diferente, e
   seguem como estavam.
+  **RN-075 · PEÇA EXTRA: O PEDIDO PODE PEDIR MAIS DO QUE O ESTOQUE TEM, COM
+  CIÊNCIA** (`lib/pedido-extras.ts` + `reservarComExtras` em
+  `lib/reservations.ts`, janela `components/pedido/confirmar-extras.tsx`,
+  09/10/2026): pedido do dono — *"quando a vendedora está montando um pedido
+  e não tem a peça em estoque, ela é impedida de lançar"* — e, desenhado com
+  ele, a peça que falta numa confecção é **EXTRA: feita para aquele pedido**.
+  Então: o que existe no estoque fica **segurado** como sempre (RN-003); o
+  que passa disso é extra e **não mexe em estoque nenhum** — não reserva, não
+  baixa, nunca fica negativo, **não vai para a Nuvemshop nem para o Jueri**
+  (só o que de fato saiu daqui é espelhado; a peça da Nuvemshop também pode
+  ter extra). **A pessoa confirma antes de gravar**: a porta responde 409 com
+  a lista (`extras`: peça, quanto precisa, quanto o estoque cobre, quanto é
+  extra), a janela "🧵 Estou ciente" mostra, e o MESMO envio volta com
+  `extrasConfirmados` — **quem conta é o servidor**, na transação, e o extra
+  MAIOR que o confirmado (a peça acabou entre a janela e o clique) desfaz
+  tudo e a janela reabre com os números de agora; ninguém confirma extra que
+  não viu. O histórico do pedido diz **quem confirmou e quais peças**.
+  **O extra não tem coluna no banco**: é o que o pedido pede além do que o
+  LIVRO DE MOVIMENTOS diz que ele segura (`extrasDoPedido`, com as trocas da
+  RN-073 no ajuste — o livro já as tem). Assim os caminhos que já respeitam o
+  livro acertam o extra sozinhos: **diminuir tira primeiro do extra** (nada
+  volta ao estoque por ele), **cancelar devolve só o que saiu**, reabrir
+  pedido baixado não desconta de novo — um número à parte teria de ser
+  lembrado em cada porta (a classe de defeito da RN-059). **Onde vale**:
+  **Novo pedido** e **Editar itens** (a grade passa do estoque com
+  `permiteExtra`, a célula diz "+N extra"; o "repetir" segue parando no
+  estoque — extra é decisão, não atalho) e o **restaurar/reabrir pedido
+  cancelado** (botão da lista, menu de status e trilha da ficha): o que a
+  peça vendida no meio deixou faltando volta a ser extra, com a mesma janela.
+  A **Central de WhatsApp** e o **"Colar pedido do WhatsApp"** não oferecem
+  extra (decisão do dono): continuam recebendo o 409 com a frase de sempre.
+  **O selo "🧵 N extras"** aparece na lista e a ficha diz quais peças —
+  consultas para a página inteira (`extrasDosPedidos`), só em pedido que
+  segura estoque AQUI e **ainda está na loja** (`STATUS_COM_EXTRA_PENDENTE`,
+  conferida contra a lista do reservado do Estoque; enviado e entregue saem
+  do selo, senão o pedido de meses atrás seguia marcado). **Extra
+  CONFIRMADO ≠ falta**: o pedido que pede mais do que segura SEM ninguém ter
+  confirmado (o do catálogo que entrou com estoque a menos, RN-067; o Pix
+  que liquidou sem peça) não é compromisso de produção — o selo diz "N sem
+  estoque" em âmbar e a ficha manda produzir, trocar ou combinar com a
+  cliente; o violeta "🧵 extras" é só de quem tem a linha de confirmação no
+  histórico (`MARCA_DOS_EXTRAS`, achado da revisão). **Lançar a peça no
+  estoque depois NÃO a segura para o pedido** (decisão do dono: é peça que a
+  confecção faz, não estoque esquecido; o extra fica anotado) — e por isso a
+  ficha DIZ para não lançar a peça extra pronta no estoque: lançada, ela fica
+  livre para outra venda. **Toda a equipe** confirma extra onde já pode
+  agir: vendedora e gerência ao montar e editar; o suporte, que não monta
+  pedido, ao editar e restaurar. **Restaurar também reabre a janela na
+  corrida** (a peça acabou entre a conferência e a transação): antes de a
+  revisão pegar, a falta entrava calada com aviso à gerência e o pedido
+  voltava devendo peça que ninguém viu; e a edição, na corrida, reabre com
+  TODAS as peças dela, não só a que acabou. **Limites ditos**: pedido antigo
+  (antes de 08/10/2026) sem nenhum movimento no livro não mostra extra — não
+  dá para saber se ele nasceu antes de o livro registrar o pedido; e a
+  separação por leitor (RN-060) aceita bipar o extra quando ele fica pronto
+  (é a mesma variação), ou ele é declarado em falta.
+  Provado pelas rotas de verdade contra o Postgres local
+  (`scripts/e2e-pecas-extras.ts`, 35 conferências): recusa sem ciência,
+  criar segurando o que há, corrida, editar para mais e para menos, ficha e
+  lista, cancelar devolvendo, restaurar, cancelar baixando e reabrir, o
+  pedido todo de peça sem estoque, o selo que some ao enviar e a falta sem
+  confirmação dita como falta.
+  **RN-076 · VENDE SOB ENCOMENDA: A CHAVINHA QUE DEIXA O ESTOQUE FICAR
+  NEGATIVO** (`lib/sob-encomenda.ts` + `lib/sob-encomenda-data.ts`,
+  `Product.sobEncomenda` e `SobEncomendaCategoria`, 09/10/2026): pedido do
+  dono — *"tenho clientes de confecção: às vezes não tem pronto, mas pode
+  produzir. Em cada produto ou categoria uma chavinha para vender
+  infinitamente, mesmo que o estoque fique negativo; nasce desligada para
+  todos"*. É o irmão da peça extra (RN-075) para quem produz SEMPRE: lá a
+  ciência é dada pedido a pedido, aqui uma vez, pela gerência. Decidido com
+  ele: (1) **a chavinha mora na CATEGORIA e na PEÇA, e a peça manda mais**
+  (`Product.sobEncomenda`: nulo segue a categoria; true/false decide) — a
+  escada da RN-051/RN-055: liga em "Conjuntos" (Produtos → Categorias,
+  ícone de tesoura) e desliga só no kit que não se produz (ficha da peça);
+  **nasce desligada**, e **só a gerência** liga (o servidor recusa o suporte
+  e a vendedora com frase; a ficha só manda o campo quando a pessoa MUDOU,
+  senão a vendedora que salva a ficha levava 403). (2) **O estoque fica
+  NEGATIVO**: "−3" = 3 a produzir. A baixa deixa de ser condicionada SÓ para
+  a peça livre (`PecasLivres` em `reservations.ts`: o lote ganha a terceira
+  coluna `livre`, `WHERE (d.livre OR v.stock >= d.qty)`; a unitária tira o
+  `gte`) — a RN-003 segue intacta para todas as outras, e o conjunto vazio é
+  o padrão. **Nada mais muda de conta**: cancelar devolve pelo livro (−3
+  volta a 0), a produção lançada (`lancaNoEstoque`) cobre o negativo
+  primeiro porque é soma, o livro guarda a quantidade INTEIRA (a peça livre
+  nunca é extra — `extrasPrevistos` a pula, `reservarComExtras` a tira das
+  "curtas") e o reservado do Estoque fecha: 2 na arara + 5 vendidas = −3
+  disponível, 5 seguradas, 2 na loja. (3) **Vale em TODA porta de venda**,
+  com o conjunto calculado por quem carrega as variações
+  (`variacoesSobEncomenda`, que precisa de `nuvemshopId` da variação e
+  `sobEncomenda`/`category`/`jueriId` do produto): catálogo público (os DOIS
+  produtores, mais o diagnóstico da ficha que espelha o filtro da vitrine),
+  Novo pedido, Central, Colar pedido (a linha não trava no estoque dessa
+  peça), Editar itens, restaurar cancelado e o Pix do gateway. Nas telas a
+  API de produtos manda `sobEncomenda` RESOLVIDO por variação, e a grade, o
+  "repetir", o +/− do carrinho e o editor passam do estoque **sem a janela
+  "estou ciente"** (`tetoDaVariacao`; a célula diz "N · encomenda", nunca
+  "+N extra"). (4) **A vitrine não muda NADA para a cliente** (decisão do
+  dono: sem selo, sem prazo): a peça só não some ao zerar e a quantidade não
+  para (RN-067 — `disponivelNaVitrine(stock, true)` devolve o teto da
+  linha), e "esconder sem estoque" não a esconde
+  (`ondeNaoEscondePorEstoque`: tem estoque OU ficha ligada OU categoria
+  ligada com a ficha em "segue"). (5) **A peça da NUVEMSHOP também vende
+  sob encomenda** (pedido do dono no mesmo dia, com o print da Regata Alça
+  esgotada: *"mesmo sendo Nuvemshop, se a chave estiver ligada, pode estar
+  disponível para venda"*): o negativo fica AQUI e **lá vai ZERO**
+  (`estoqueParaANuvemshop`, nos dois envios da RN-053 — a loja online não
+  aceita negativo, e a peça devendo não tem o que vender lá); a confirmação
+  segue conferindo o número daqui. **A sincronização não apaga a dívida**
+  (`estoqueDaSincronizacao`): com negativo aqui, o número de lá é o que
+  ENTROU depois (peças prontas lançadas na Nuvemshop) e cobre primeiro o que
+  se deve — −3 aqui e 0 lá ficam −3; 10 lá viram 7, que entram na fila da
+  RN-053 e saem NA HORA pelo `after()` (esperar a repesca deixava minutos
+  para uma venda de lá ser apagada pelo número velho), e enquanto estão na
+  fila a sync não grava por cima. Gravar o 0 de lá por cima do −3 apagaria o
+  "a produzir" e o cancelamento seguinte devolveria peças que nunca
+  existiram. Quatro achados da revisão fecharam a conta: o número daqui que
+  decide é **relido** (a foto da rodada envelhece numa etapa de 25s) e a
+  gravação é **condicionada a ele** (venda no meio, ou o webhook e o botão
+  sincronizando juntos, não descontam a dívida duas vezes nem desfazem a
+  venda — mudou, a próxima rodada decide); a dívida só vale com o **vínculo
+  de sempre** (peça ligada ou religada agora nunca recebeu o nosso zero: o
+  número de lá é dela, RN-050) e com **número de verdade lá** ("infinito"
+  vale o de lá).
+  Vale com ou sem a chavinha (o negativo é dívida dos pedidos), e a
+  conferência da integração não chama de divergência o negativo daqui com o
+  zero de lá. **A peça do JUERI segue de fora** (`pecaDoJueri`): a sync dele
+  grava o número de lá duas vezes por dia, sem porta de volta, e o "a
+  produzir" sumiria na rodada seguinte — a ficha nem oferece, a categoria
+  ligada não a alcança, a porta recusa com 409. (6) **No Estoque a
+  peça livre sai do MÍNIMO** (`chegouAoMinimo`: a régua da RN-051 menos ela)
+  **nos cinco lugares** — filtro "No mínimo", painel "o que repor", alerta
+  (solta o carimbo de quem tinha), monitor da tela Produtos e a SQL do
+  Dashboard (`LEFT JOIN "SobEncomendaCategoria"`, com a exceção da
+  vinculada escrita em SQL) — porque negativo nela é esperado e alerta todo
+  dia vira barulho (a exceção que sobra na SQL é só a do Jueri); ganha o recorte próprio **"A produzir"** (chip, só a
+  livre devendo), que também **vira lista de produção** na folha (a coluna
+  "Falta" é o negativo, "Mín." diz "enc."); a linha mostra "N a produzir" em
+  violeta e "sob encomenda" no lugar do mínimo; os cartões: "na loja" fecha
+  com o negativo, "disponíveis" não desce de zero e diz quantas há a
+  produzir, dinheiro parado nunca é negativo (`max(0, emEstoque) × custo`),
+  cobertura negativa é zero. (7) **O ajuste digitado continua só de 0 para
+  cima** — gravar a contagem apaga a conta do que havia a produzir, e a
+  linha de ajuste AVISA antes (a porta aceita `visto` negativo para a
+  gravação condicional continuar valendo). A troca (RN-073) também
+  passa do estoque, para toda peça fora a do Jueri (13/10/2026). **Limites ditos**: desligar a chavinha com a peça negativa deixa o
+  número como está (as vendas seguintes travam até repor); a soma do
+  "disponíveis" com peça negativa e os relatórios de giro leem o número
+  cru. Provado pelas rotas de verdade contra o Postgres local
+  (`scripts/e2e-sob-encomenda.ts`, 59 conferências: quem liga, a vitrine, o pedido, a edição, o cancelamento, a produção, o Estoque, o Dashboard e a peça da Nuvemshop pela sincronização de verdade — o 0 de lá não apaga o −3, 10 lançadas lá viram 7 e voltam pela fila, a peça ligada agora fica com o número de lá).
 
 ## Módulos
 
@@ -1524,6 +1750,538 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   WhatsApp — nunca a imagem —, revalida a cada 7 dias, busca em lote com teto
   por rodada e cai nas iniciais coloridas quando a cliente esconde a foto ou
   o link vence).
+- **RN-079 · HORÁRIO DE ATENDIMENTO DA LOJA: O TEMPO DE RESPOSTA CONTA SÓ
+  COM A PORTA ABERTA** (`lib/bi/horario-comercial.ts`, card "Horário de
+  atendimento" em Configurações, 13/10/2026): primeira peça do **BI de
+  vendas do WhatsApp** (ADR-019), desenhado com o dono para as lojas que
+  contratam a assessoria de processo comercial. A cliente que escreve às
+  22h e recebe resposta às 8h05 esperou **5 minutos de atendimento**, não
+  10 horas — medir pelo relógio de parede faria a vendedora que respondeu
+  ao chegar aparecer como a mais lenta da equipe. Decidido: (1) o horário é
+  **da loja**, por dia da semana, com até **dois períodos** (manhã e tarde:
+  a pausa de almoço da confecção é real), gravado como JSON em
+  `Company.horarioComercial` e conferido na porta pela MESMA régua que a
+  leitura usa (`validarHorarioComercial`: hora que não existe, fim antes do
+  início, períodos sobrepostos e loja que nunca abre são recusados com a
+  frase dizendo QUAL dia); (2) **sem horário cadastrado conta o dia
+  inteiro**, madrugada inclusa (`null` = "não sei quando abre"; inventar um
+  horário mentiria para o lado bom) — a tela diz isso e oferece o padrão
+  seg–sex 8h–18h, sáb 8h–12h com um clique; leitura torta vira `null`,
+  nunca derruba tela nem conta; (3) **o PRAZO de resposta é o que a loja já
+  tinha**, `Company.intakeSlaMinutes` ("SLA do 1º atendimento", Entrada de
+  leads) — um segundo campo com o mesmo significado é onde dois números um
+  dia discordam; o prazo passa a valer em **minutos de atendimento**
+  (`respondeuNoPrazo`: prazo de 30 min, cliente das 22h, resposta até 8h30
+  do dia seguinte está no prazo) — e **a tarefa de primeiro atendimento
+  (RN-008) vence pela mesma régua** (`prazoNoHorario`: o lead das 22h vence
+  às 8h30, não às 22h30; antes a tarefa amanhecia atrasada para quem nem
+  tinha chegado, enquanto a conta dizia "no prazo" — achado da revisão);
+  (5) a **recuperação automática** de sacola passa a respeitar o horário da
+  loja (`podeMandarAutomatica`: a loja que fecha sábado não manda sábado à
+  tarde; sem cadastro segue o 8h–20h de sempre); (6) a conta (`minutosDeAtendimentoEntre`)
+  soma só a sobreposição do intervalo com os períodos abertos, dia a dia,
+  no **relógio de São Paulo** (UTC−3, a régua de `diaSP` e do Financeiro) —
+  limite dito: loja fora desse fuso cadastra o horário em hora de Brasília;
+  fim antes do início é zero; "24:00" é o fim do dia (a tela o mostra como
+  23:59, porque o campo de hora do navegador não desenha 24:00). Gerência
+  grava, toda a equipe vê. Entrega de
+  INSTRUMENTAÇÃO: nada mostra ainda — a tela do BI vem na Fase 1, sobre
+  dados que já estarão sendo contados certos (coleta para todas as lojas,
+  tela só para quem tem a chave, ADR-019).
+- **RN-080 · MENSAGEM DE ROBÔ NUNCA É RESPOSTA — E A ESPERA DA CLIENTE É
+  PAREADA COM A PRIMEIRA RESPOSTA HUMANA** (`Message.automatica` +
+  `lib/bi/tempo-de-resposta.ts`, 13/10/2026): segunda peça do BI (ADR-019).
+  O tempo de resposta mede "quanto a cliente esperou por uma PESSOA", então
+  (1) todo envio que ninguém digitou leva a marca `automatica` — e **no
+  motor a mensagem SEM `authorId` é de robô por padrão** (`input.automatica
+  ?? !input.authorId`): toda porta humana assina (tela, cobrança, rastreio,
+  encaminhar), só a recuperação automática não, e a porta automática nova
+  que esquecer a marca cai do lado certo (opt-in era o "esqueceu um" da
+  RN-059, achado da revisão); o eco da mensagem mandada pelo celular da
+  loja não passa pelo motor (nasce no webhook, sem autor, e É humana);
+  **o robô não é "primeiro contato"**: não avança o funil, e o eco dele não
+  conclui a tarefa de primeiro atendimento (ninguém falou com a cliente) —
+  e o eco do robô tem janela de adoção de um dia (o envio cadenciado pode
+  ficar ENVIANDO além dos 10 min; perdido, renascia como humano); (2) a
+  ESPERA começa na primeira mensagem de texto da cliente sem resposta (as
+  seguintes não zeram o cronômetro — a cliente manda cinco de uma vez) e
+  fecha na primeira mensagem HUMANA da loja depois dela: texto, não nota
+  interna, não robô (`respostaHumana`); respondida, a próxima mensagem da
+  cliente abre espera nova; abordagem da loja sem pergunta não vira espera;
+  (3) os minutos são DE ATENDIMENTO (RN-079) e o prazo é o
+  `intakeSlaMinutes`: a espera aberta conta até agora e diz se o prazo **já
+  estourou** (`noPrazo: false`, o que o painel vai gritar) ou se ainda dá
+  tempo (`null` — não decide); a espera aberta numa conversa que a loja
+  **ENCERROU** (o "obrigada!" do fim) não é cliente esperando
+  (`encerradas`, conta à parte) — sem isso cada venda fechada virava espera
+  eterna fora do prazo; (4) o resumo (`resumirEsperas`) traz respondidas,
+  sem resposta, encerradas sem resposta, no prazo, fora do prazo, % no
+  prazo (só das decididas), mediana, média e p90 — e **sem espera nenhuma
+  os números são nulos**, nunca zero disfarçado de "ótimo". **A régua "que
+  mensagem conta" é escrita UMA vez** (`ONDE_MENSAGEM_CONTA`, texto e não
+  robô): o BI a usa em memória e o monitor da IA de Vendas (`lib/ia.ts`) a
+  espalha no `where`, com teste de que concordam em toda combinação; o
+  monitor segue com a régua dele no resto (relógio de parede, teto de 24h,
+  atribuição à dona da conversa — é termômetro de equipe). **Limites
+  ditos**: o histórico anterior à marca conta a recuperação automática
+  antiga como resposta humana — só o que nasce daqui em diante é exato; e
+  o robô ainda carimba `lastOutboundAt` (a aba Fila da Central o trata como
+  "a loja falou"), decisão de tela que fica para a Fase 1. Entrega de INSTRUMENTAÇÃO: a conta existe
+  e está provada; a tela que a mostra vem na Fase 1.
+- **RN-081 · MOTIVO DE PERDA É LISTA FECHADA, GRAVADO COMO "CHIP — DETALHE"**
+  (`lib/funil/motivos-de-perda.ts`, 13/10/2026): terceira peça do BI
+  (ADR-019). "Por que não fechou?" é a pergunta número um de quem organiza
+  processo comercial, e só serve se der para CONTAR. O funil já perguntava
+  numa lista (o `window.prompt` não abria no celular; texto livre virava
+  "preço", "Preço" e "achou caro" em três barras), mas a lista morava
+  dentro da tela, **a porta aceitava qualquer texto** e o relatório agrupava
+  por texto normalizado. Agora: (1) a lista é **fonte única na lib**
+  (`MOTIVOS_DE_PERDA`: achou caro, não fechou o mínimo, prazo, frete, não
+  tinha a grade, comprou de outro, sumiu, só pesquisando, outro) e a tela a
+  importa — teste derruba a cópia; (2) o texto gravado segue o padrão das
+  trocas (RN-073): **"Chip — detalhe"** (`textoDoMotivoDePerda`), o "Outro"
+  da tela leva o que a vendedora escreveu como detalhe; (3) **a porta recusa
+  motivo fora da lista** (`validarMotivoDePerda`, 400 com frase; detalhe até
+  120 letras) — o sistema também grava motivo próprio ("Pedido cancelado",
+  `MOTIVOS_DO_SISTEMA`, chip à parte, e o teste prende a sincronização a
+  ele); (4) **quem conta, conta pelo CHIP** (`contarPorMotivo`, Relatórios
+  hoje, o BI amanhã): texto antigo que só difere em caixa, acento ou
+  espaço cai no chip certo (`chaveDoMotivo`, só na LEITURA — a porta exige
+  o chip como está escrito), frase livre cai em "Outro" em vez de virar uma
+  barra por frase, a barra "Outro" lista embaixo os detalhes mais repetidos
+  ("pediu boleto ×12" — uma barra por chip sem perder o que foi escrito), e
+  "Sem motivo registrado" fica por último. A porta grava a forma CANÔNICA
+  (`lerMotivoDePerda`: espaços arrumados, travessão único) e o teto do
+  detalhe é um só para tela e porta (`TETO_DO_DETALHE`). Nada é migrado: o
+  que já está gravado continua legível e só o que nasce daqui em diante é
+  exato.
+- **RN-082 · BI DE VENDAS: FATOS DIÁRIOS PRONTOS, PAINEL DO DONO, CHAVE SÓ
+  NA TELA** (`lib/bi/fatos.ts` + `lib/bi/painel.ts` + `lib/bi/metas.ts`,
+  porteira `lib/bi/gate.ts`, tela `/bi`, 14/10/2026): a Fase 1 do BI
+  (ADR-019). **Módulo com chave** (`Company.biEnabled`, Super Admin liga por
+  loja no painel Lojas, catálogo `BI` com preço de tabela 0 até o dono
+  definir) e **só gerência** vê (decisão do dono) — a aba "BI de Vendas"
+  nem aparece sem os dois. **Os números nascem em `BiDia`**, uma linha por
+  loja × dia (calendário de SP): contatos novos e por origem, quantos
+  tiveram resposta humana, as esperas da cliente que COMEÇARAM no dia e
+  como terminaram (respondida no prazo / fora / sem resposta / encerrada),
+  mediana e p90 em minutos de atendimento (RN-079/RN-080), a distribuição
+  em 7 baldes (até 5, 15, 30, 60, 120, 240 min e acima — **mediana de
+  medianas não é mediana**; o período soma baldes), pedidos criados (fora
+  cancelados), pedidos pagos e valor vendido (RN-001/RN-002). **De carona**
+  no sync da inbox e na abertura do painel, com trava de 30 min por loja
+  (`biFatosRunAt`, freio em memória antes do banco, a régua da RN-051),
+  **para TODA loja** — a chave abre a tela, a coleta é de todas (o motor
+  nunca filtra por `biEnabled`, e o teste prende isso). **Janela**: hoje e
+  os 7 dias anteriores são REFEITOS a cada rodada (a espera de ontem é
+  respondida hoje; o lead de anteontem vira resposta amanhã) e o passado é
+  congelado; dias que faltam nos últimos 90 entram 22 por rodada — a loja
+  que contratar o BI daqui a três meses encontra três meses de história.
+  A leitura começa **7 dias ANTES do primeiro dia calculado** (a espera que
+  começou num dia congelado não renasce pela mensagem seguinte da cliente, e
+  a resposta de hoje à pergunta de ontem vê a pergunta), lê as mensagens
+  **mais novas primeiro** com teto de 60 mil e, se o teto cortar, grava só
+  os dias com janela completa (`diasComJanelaCompleta`) e anota na Saúde
+  sem alarme; a gravação é uma transação; a rodada que falha **mantém a
+  trava** (o sync de 3s não repete a consulta mais pesada do app) e vai para
+  a Saúde sem alarme — achados da revisão. A abertura do painel roda só os
+  dias vivos (`soVivos`); o histórico é da carona. **A conta é pura** (`calcularFatos`) e a espera conta no dia da
+  CHEGADA da cliente, nunca duas vezes. **O painel** (`montarPainel`) soma
+  as linhas do período e do período anterior e junta três números vivos
+  baratos: quem está esperando AGORA (UMA contagem em SQL: última fala é da
+  cliente, conversa não encerrada), vendas do mês (pedidos pagos, `netTotal`)
+  e recompra (clientes com 2+ compras pagas, a régua do Dashboard). O
+  período tem teto de um ano (`encaixarPeriodo`, o mesmo recorte para somas
+  e séries) e o dia da URL é conferido pela régua de `lib/dia.ts`
+  (`dataDoDia`; "2026-02-30" não vira 2 de março). `mesSP` e
+  `inicioDoMesSP` passaram a morar em `lib/dia.ts` (um relógio só; `ia.ts`
+  e `recompra-painel.ts` reexportam). Mostra
+  a faixa "Hoje", os seis números (novos contatos, % respondidos no prazo,
+  sem resposta, vendido, ticket, recompra — com a comparação do período
+  anterior), **metas do mês** (cardápio fechado em `TIPOS_DE_META`:
+  faturamento, pedidos pagos, novos contatos, % no prazo, ticket, recompra;
+  a loja preenche as que quiser, mês a mês, `BiMeta`; realizado × meta em
+  barra), **funil por fatos** (contatos novos do período → respondidos por
+  pessoa → fizeram pedido → pagaram, as quatro barras da MESMA fonte, os
+  fatos — `leadsComPedido`/`leadsPagaram` —, com horizonte de 7 dias depois
+  do cadastro; nada de etapa arrastada), contatos e
+  vendido por dia, a distribuição do tempo de resposta, de onde vieram e
+  por que não fechou (RN-081). Avisa quando a loja não tem horário
+  cadastrado (a conta está contando a madrugada) e quantos dias do período
+  ainda não têm fato. Provado contra o Postgres local
+  (`scripts/e2e-bi.ts`: dois dias, robô no meio, conversa encerrada, pedido
+  pago no dia seguinte, cancelado fora, trava da carona). **Limites ditos**:
+  o funil tem horizonte de 7 dias (o lead que responde, pede ou paga depois
+  disso fica fora, porque o dia congelou); "esperando agora" lê
+  `lastOutboundAt`, que o robô ainda carimba (RN-080); a origem só diz o
+  canal (qual anúncio, só com link rastreado); loja fora do fuso de SP conta
+  o dia em hora de Brasília.
+- **RN-083 · BI POR VENDEDORA: A MESMA CONTA DA LOJA, RECORTADA POR QUEM
+  FEZ** (`calcularFatosPorVendedora` em `lib/bi/fatos.ts` + `BiDiaVendedora`
+  + `montarVendedoras` em `lib/bi/painel.ts`, aba **Vendedoras** em `/bi`,
+  14/10/2026): a Fase 2a do BI (ADR-019). A pergunta de quem organiza o
+  processo comercial é "quem responde rápido, quem deixa cliente sem
+  resposta, quem converte, quem vende" — e a resposta tem que vir dos
+  MESMOS fatos do painel, não de uma segunda conta. Então a rodada de carona
+  (RN-082) grava, na MESMA transação, uma linha por loja × dia × pessoa, e
+  cada número tem UM dono, dito: (1) a **espera respondida é de quem
+  RESPONDEU** (`Espera.autoraId`, o `authorId` da mensagem) — a Ana que
+  responde a conversa da Bia leva a resposta, porque foi ela quem atendeu;
+  o eco do celular da loja não tem autora e fica só no total — e **o "no
+  prazo" da pessoa é só das que ELA respondeu** (achado da revisão: contar a
+  fila parada enquanto ela está de folga como "fora do prazo" dela diria que
+  ela responde atrasado; a loja segue contando a aberta estourada como fora
+  do prazo, RN-082, que é a pergunta da loja, e a tabela diz por que os dois
+  números diferem); (2) a **espera sem resposta é de quem ASSUMIU a
+  conversa** (`Conversation.assigneeId`), só como "sem resposta"; na fila, é
+  de ninguém — fica no total, e a aba diz; (3) o **contato novo é
+  da dona da CARTEIRA** (`Customer.ownerId`), com o funil dele (respondido
+  por alguém, fez pedido, pagou — a régua de 7 dias do painel), o que dá a
+  **conversão por vendedora** (pagaram ÷ leads da carteira); (4) o **pedido
+  é da vendedora dele** (`Order.sellerId`, RN-005): criados fora cancelado,
+  pagos pela data do pagamento, `netTotal` (RN-002) — a loja online não tem
+  dona e fica só no total. **Só gente DA LOJA vira linha** (RN-013: a lista
+  de `User` da loja é a peneira; o Super Admin acessando como loja responde
+  e vende, e isso fica no total, nunca numa linha de pessoa), e **só quem
+  teve algum número no dia**. **A linha é DERIVADA, apagada e refeita** nos
+  dias da rodada (`deleteMany` + `createMany`, nunca upsert): o pedido
+  cancelado hoje tira a venda de ontem da pessoa — provado contra o
+  Postgres local —, e um upsert deixaria a linha velha de pé. **A soma das
+  pessoas nunca passa do total da loja, e a diferença é "Sem vendedora"**
+  (celular da loja, lead da loja, loja online, fila), uma linha cinza na
+  tabela em vez de um número que não bate com o painel. **O histórico
+  gravado ANTES desta aba ganha as pessoas sozinho**: cada `BiDia` leva a
+  `versao` da conta que a gravou (`VERSAO_DOS_FATOS`), a rodada só conta
+  como "já gravado" o dia da versão atual, e a linha velha é refeita de
+  carona, 22 por rodada, com as duas tabelas — sem isso os 82 dias
+  congelados da Fase 1 ficariam para sempre com o total da loja e zero por
+  pessoa, caindo todos em "Sem vendedora" (achado da revisão); enquanto
+  isso, a aba DIZ quantos dias do período ainda não têm a conta por pessoa
+  (`diasSemVendedoras`). A aba mostra o
+  ranking por vendido (empate pelo que respondeu), com no prazo, sem
+  resposta e conversão por pessoa, a tabela completa com a linha da loja, e
+  a pessoa desativada aparece marcada enquanto tiver número no período (a
+  história não some com o desligamento). As abas levam o período junto e os
+  atalhos de período levam a aba (`extra`). **Limites ditos**: a dona da
+  conversa e da carteira são as de HOJE (a conversa transferida depois de o
+  dia congelar fica com quem a tinha ao congelar; a carteira transferida
+  move os leads nos dias ainda vivos); o eco do celular da loja não tem
+  dona por definição; e, como no painel, só o que nasceu depois da marca de
+  robô (RN-080) é exato. Provado contra o Postgres local
+  (`scripts/e2e-bi.ts`, bloco 4: duas vendedoras, loja online sem dona, a
+  resposta no dia da chegada, o cancelamento que tira a venda da pessoa).
+- **RN-084 · A ABA CLIENTES DO BI É A CARTEIRA DA RECOMPRA, LIDA EM R × F ×
+  M** (`lib/bi/carteira.ts`, aba **Clientes** em `/bi`, 14/10/2026): a
+  Fase 2b do BI (ADR-019). O dono pediu "recompras, melhores clientes"; a
+  casa JÁ tinha a carteira inteira na aba Recompra (`dadosDaAbaRecompra`:
+  faixa pela última compra — ativa < 30 dias, esfriando < 60, em risco <
+  90, sumida —, o ritmo de cada cliente, o Top 20 VIP) e o painel de
+  Recompra com a regra de ouro "este painel não faz conta própria". A
+  régua vale aqui: **a aba lê a carteira da fonte única e NUNCA decide
+  faixa, ritmo ou VIP por conta própria** (o teste proíbe `faixaFixa`,
+  `passouDoRitmo`, `cicloEntreCompras` e `TOP_VIPS` no arquivo) — se o BI
+  dissesse "40 ativas" e a Recompra "38", a loja pararia de confiar nas
+  duas. **O que o BI acrescenta** é a leitura cruzada: (1) a **matriz R ×
+  F** — recência (a faixa) × frequência (1 compra, 2 a 4, 5 ou mais na
+  vida; `frequenciaDe`) —, com o **M em cada célula** (quantas clientes,
+  total comprado e o valor médio POR COMPRA, nulo na célula vazia): a que
+  comprou uma vez e sumiu é a classe mais comum e a mais barata de
+  recuperar, a fiel que esfriou é a mais cara de perder; (2) **as VIPs que
+  esfriaram** (Top 20 fora da faixa Ativa, pela posição) — o alarme de
+  verdade da carteira, com link para a ficha (a mensagem pronta mora na
+  Recompra); (3) os números da carteira pela MESMA conta do painel de
+  Recompra (recompra = 2+ compras ÷ compradoras, quem passou do próprio
+  ritmo, o valor na mesa = uma compra média de cada atrasada, a
+  concentração do Top 20 no total histórico); (4) **as melhores clientes
+  DO PERÍODO** — a única parte que olha o período da tela: pedidos pagos
+  pela data do pagamento, `netTotal` (RN-001/RN-002), Top 20 por `groupBy`
+  no banco, nome recortado pela loja (RN-013), com a faixa de HOJE e o selo
+  VIP ao lado. **Quatro achados da revisão**: a carteira é lida na forma
+  **LEVE** (`dadosDaAbaRecompra(user, { leve: true })` — a mesma régua e a
+  mesma lista, sem os itens de cada pedido nem as novidades, que só a aba
+  Recompra mostra); o nome das melhores vem da carteira (quem pagou no
+  período está nela), sem quarta ida ao banco; **a recompra do painel do BI
+  passou a seguir a régua da carteira** — pedido pago COM data de pagamento
+  — para as duas abas dizerem o mesmo número (o Dashboard ainda conta o
+  pago sem data, que é só o pedido antigo; limite dito); e o total da linha
+  da matriz é a soma das células já arredondadas (o centavo fecha, RN-030).
+  **Limites ditos**: as faixas são fixas (30/60/90 dias, decisão antiga da
+  Recompra), não por loja; a legenda não repete o número — diz "fora da
+  faixa Ativa".
+- **RN-085 · ROI DE ANÚNCIO: GASTO POR MÊS, E AS DUAS PONTAS NA RÉGUA DO
+  PERÍODO** (`lib/bi/anuncios.ts` + `BiGastoDeAnuncio` + rota
+  `/api/bi/anuncios/gastos`, aba **Anúncios** em `/bi`, 14/10/2026): a
+  Fase 2c do BI (ADR-019), fechando a Fase 2. O dono pediu "de qual
+  anúncio ele vem" e aceitou "gasto de anúncio pode ser colocado". A
+  atribuição já era automática e assim fica (RN-015: o link do anúncio
+  Click-to-WhatsApp vira `Customer.campaignId` numa `MarketingCampaign`;
+  sem marcação manual, decisão do dono). O que faltava era o **gasto POR
+  MÊS**: a tela Marketing guarda o investimento de TODA A VIDA e compara
+  com o faturamento de toda a vida — conta verdadeira, mas que não
+  responde "outubro valeu a pena?". Agora a gerência informa, na própria
+  aba, quanto gastou em cada campanha em cada mês (`BiGastoDeAnuncio`,
+  único por loja × campanha × mês; em branco ou zero apaga; a rota confere
+  que a campanha é DA LOJA, RN-013), e a aba compara, **no período da
+  tela**: (1) **gasto** = soma dos meses INTEIROS que o período toca (o
+  período de 1 a 15 usa o mês inteiro — ratear por dia seria precisão de
+  mentira, a loja não gasta igual todo dia; a tela diz); (2) **contatos
+  novos** = a coorte, clientes cadastradas no período com a campanha
+  atribuída, e **pagaram** = quantas dessas já têm pedido pago, em
+  qualquer data (a cliente que chegou dia 28 e pagou dia 3 conta para o
+  anúncio que a trouxe); (3) **vendido** = caixa, o que entrou no período
+  de QUALQUER cliente da campanha (pedido pago pela data do pagamento,
+  `netTotal`, RN-001/RN-002) — o anúncio de março que ainda traz recompra
+  aparece em outubro, e a tela diz que coorte e caixa são duas perguntas.
+  Daí **CAC** = gasto ÷ contatos, **custo por venda** = gasto ÷ pagaram,
+  **retorno** = vendido ÷ gasto (em "×", verde a partir de 1), **conversão**
+  = pagaram ÷ contatos; **sem base, nulo** — nunca zero disfarçado
+  (`calcularRetorno`). Só campanha com algum número vira linha, a parada
+  com número aparece marcada, o total refaz as contas sobre a SOMA (não é
+  média das linhas), e a aba diz quantos contatos novos do período chegaram
+  **sem anúncio identificado**. **Cinco achados da revisão fecharam a
+  entrega**: o editor manda **só as células que mudaram, com o valor
+  VISTO** (régua da RN-050 — a grade inteira apagava o mês que outra aba
+  ou outra gerente tinha gravado, e o estado preso ao primeiro período
+  fazia o salvar apagar o mês do período seguinte; o editor remonta por
+  período, `key` pelos meses) e a rota recusa com 409 quando o número
+  mudou por baixo; **centavos** na rota e valor escrito em pt-BR no campo
+  ("12,345" gravado cru voltava como "12.345" e virava 12 mil); a leitura
+  é **toda recortada pelo período** (a coorte, e o caixa agregado no
+  banco, uma linha por cliente que pagou — nunca a vida inteira das
+  clientes); a lista de canais mora em `lib/canais-de-anuncio.ts`, uma
+  para o formulário da campanha e o BI; e o teste prende a régua das
+  consultas com banco simulado, não com regex do texto. **Limites ditos**: o "retorno por R$ 1" da
+  tela Marketing é OUTRA conta (toda a vida ÷ investimento total) e a tela
+  diz — dois lugares para digitar gasto é um risco aceito até o dono
+  decidir se o total vira a soma dos meses; os links de campanha da
+  Inteligência (`TrackCampaign`, cliques e meta) não entram aqui — são
+  links do catálogo, não anúncios pagos.
+- **RN-086 · CLICAR E CAVAR: TODO NÚMERO DO BI ABRE A LISTA DE QUEM ESTÁ
+  POR TRÁS DELE** (`lib/bi/listas.ts` + página `/bi/lista`, 14/10/2026): a
+  primeira das cinco recomendações que o dono aceitou para o BI virar
+  "completo e dinâmico" (as outras: linha de 12 meses, faixa "hoje" viva,
+  visual, exportar PDF). "12 sem resposta" não serve para nada se o dono não
+  consegue ver QUEM são as doze — é a diferença entre relatório e BI. Então
+  os números viram link: no Painel (esperando agora, novos contatos, sem
+  resposta, vendido), em Vendedoras (contatos, sem resposta e vendido de
+  cada pessoa e da loja), em Anúncios (contatos e vendas de cada campanha) e
+  em Clientes (cada célula da matriz e o total da faixa). **A régua da lista
+  é a MESMA do número que a abriu**, escrita uma vez em `montarLista`:
+  esperando agora pela SQL do painel (RN-082), **desde a PRIMEIRA mensagem
+  sem resposta** (RN-080 — pela última, a cliente que insiste "oi?" parecia
+  recém-chegada; achado da revisão) e vermelho pelo prazo da loja; sem
+  resposta pelo motor das esperas (`parearEsperas`, RN-080) **lendo só as
+  conversas que estão esperando agora** (a espera ainda aberta mora numa
+  delas — ler a loja inteira era a consulta mais pesada do app a cada
+  clique, achado da revisão; em lotes de ids, com teto de conversas dito),
+  por vendedora as das conversas que ela assumiu (RN-083); contatos por cadastro no período, por carteira ou por campanha
+  de anúncio (RN-085); vendas por pagamento no período, `netTotal`
+  (RN-001/RN-002), por vendedora (RN-005) ou por cliente da campanha;
+  carteira pela lista leve da Recompra (RN-084). Toda lista é recortada
+  pela loja (RN-013), tem teto (`TETO_DA_LISTA`, 300) e diz quantas havia;
+  cada linha leva ao caminho de sempre — a conversa (`/whatsapp?conv=`, a
+  única forma de link para a Central, régua do teste de agenda), a ficha da
+  cliente ou a ficha do pedido — e o "voltar" devolve à aba e ao período de
+  onde a pessoa veio. O endereço é montado por `hrefDaLista` e lido por
+  `lerFiltro` (tipo fora da lista, dia que não existe, faixa torta ou
+  parâmetro repetido na URL recusam a lista inteira, nunca mostram a loja
+  disfarçada de resultado); a lista das abas mora em `lib/bi/abas.ts`, uma
+  para a tela e as listas. Só gerência, pela porteira do BI. **Limite dito
+  NA TELA**: o número do BI vem dos fatos do dia (o passado congela,
+  RN-082) e a lista é de AGORA — a espera respondida depois de o dia
+  congelar, o pedido cancelado hoje, estão no número e não na lista; a
+  página escreve isso embaixo do total.
+- **RN-087 · A LINHA DE 12 MESES: DUAS FONTES, UMA RÉGUA** (`lib/bi/tendencia.ts`
+  + cartão "Últimos 12 meses" no Painel do BI, 14/10/2026): a segunda
+  recomendação aceita pelo dono — tendência mês a mês, não só "este período
+  contra o anterior". Os fatos diários cobrem 90 dias (RN-082) e esticá-los
+  para um ano faria cada rodada ler o ano inteiro de mensagens; então
+  **contatos e vendas por mês saem direto das tabelas de origem**, pela
+  MESMA régua dos fatos — cliente cadastrada no mês (calendário de SP: no
+  SQL é `carimbo − 3 horas`, a conta exata do `diaSP`; o `AT TIME ZONE` numa
+  coluna sem fuso converte no sentido ERRADO e jogava o cadastro das 22h do
+  dia 30 no mês seguinte, achado da revisão, provado na virada do mês contra
+  o Postgres local) e pedido pago pela data do pagamento, `netTotal`
+  (RN-001/RN-002) —, agregados no banco numa linha por mês; e **o
+  atendimento (% no prazo, sem resposta) só onde há fato**: o mês soma os
+  `BiDia` que tem, mostra "—" sem fato (nunca zero disfarçado), diz
+  "atendimento em N de M dias" quando o mês veio pela metade, e a legenda
+  diz a partir de que mês o tempo de resposta é contado. O cartão fica fora
+  do filtro de período (é a tendência da loja). Ticket = vendido ÷ pedidos
+  pagos do mês. **Limite dito**: o mês corrente conta até hoje.
+- **RN-088 · A FAIXA "HOJE" É AO VIVO E SE ATUALIZA SOZINHA** (`lib/bi/hoje.ts`
+  + rota `/api/bi/hoje` + `faixa-de-hoje.tsx`, 14/10/2026): a terceira
+  recomendação aceita pelo dono. Os quatro números de hoje (contatos novos,
+  esperando agora, pedidos pagos, vendido) deixam de vir do fato do dia
+  (refeito a cada 30 min pela carona) e passam a ser **calculados na hora**,
+  por três consultas pequenas (o índice `Customer(companyId, createdAt)`
+  nasceu aqui, migração 20261014190000 — a conta de "contatos de hoje"
+  varria a loja; e o painel deixou de repetir a consulta do "esperando
+  agora", que agora tem UM lugar), pelas réguas de sempre —
+  cliente cadastrada hoje (0h de SP), pedido pago hoje pela data do
+  pagamento com `netTotal` (RN-001/RN-002), a cláusula do "esperando agora"
+  (RN-082). A tela **pede de novo a cada 30 s enquanto a aba está visível**
+  (escondida, para — ninguém olha, e cada pedido é banco; ao voltar para a
+  aba pede na hora), mostra "ao vivo · atualizado há N s" (o relógio é
+  componente próprio: só ele redesenha a cada segundo, e o leitor de tela
+  anuncia só a falha, não os segundos), e se um pedido falhar **mantém o
+  último número bom** e diz O QUE foi — 401 "sua sessão venceu, entre em
+  outra aba" (RN-064), 403/404 "o BI não está mais disponível", o resto
+  "sem conexão" — nunca pisca zero. A parte pura mora em `hoje-regra.ts`
+  (o navegador não pode importar o motor com Prisma; o guarda
+  `navegador-sem-servidor` derruba). Provado com a tela de verdade em
+  jsdom (`faixa-de-hoje.test.tsx`: escondida não pede, ao voltar pede,
+  401 mantém o número e diz). A rota passa pela porteira do BI (gerência,
+  com a chave). O rodapé
+  continua dizendo quando os fatos do PERÍODO foram atualizados — são dois
+  relógios, e a faixa diz qual é o dela. **Limite dito**: "esperando agora"
+  segue lendo `lastOutboundAt`, que o robô ainda carimba (RN-080).
+- **RN-089 · OS GRÁFICOS DO BI SÃO VIVOS, E A COR É VALIDADA — NUNCA A OLHO**
+  (`lib/bi/paleta.ts` + `components/grafico-vivo.tsx`, 14/10/2026): a quarta
+  recomendação aceita pelo dono ("magnético"). Pela disciplina de
+  visualização da casa (skill dataviz), em três decisões: (1) **a camada de
+  interação faz parte do gráfico**: na série de tempo a MIRA acha a data pela
+  posição do dedo (ninguém precisa acertar uma linha de 2 px), o balão mostra
+  o valor, o teclado anda pelos pontos (setas, Esc), e o rótulo direto é só
+  no pico e no último ponto — número em todo ponto vira barulho; o funil diz
+  a **conversão de cada etapa** (% da anterior; ao passar, % do começo); as
+  barras têm o valor na ponta e escurecem as vizinhas ao passar; a entrada é
+  animada (linha que se desenha, barra que cresce), e a regra global de
+  "reduzir movimento" zera tudo; (2) **a cor faz um trabalho só por
+  gráfico**: série de tempo = UMA cor (o cobre da marca, 4,03:1 sobre a
+  superfície dos cartões; série única não tem legenda, o título diz o que
+  é); funil = rampa ORDINAL de um matiz em 4 degraus, clara → escura; barras
+  de categoria = a mesma cor em todas (colorir por valor gastaria a cor para
+  repetir o que o comprimento já diz); **vermelho, âmbar e verde são
+  STATUS** (prazo, sem resposta) e nunca cor de série — "por que não fechou"
+  deixou de ser vermelho, "quanto esperou" deixou de ser verde-água; (3)
+  **a paleta é VALIDADA pelo validador da disciplina, não a olho**: a rampa
+  ordinal antiga começava num ocre a 1,81:1 sobre a superfície (reprovado —
+  abaixo do piso de 2:1), então o funil do BI começa no ocre médio (2,48:1);
+  o teste guarda o contraste e a monotonia por conta própria, para a
+  regra não depender de rodar o validador. Os números da faixa "hoje"
+  **animam ao mudar** (a contagem do Dashboard, `useContagem`, com
+  `tabular-nums` para o dígito não balançar a linha). **Achados da revisão
+  fecharam a entrega**: (a) **função não atravessa a fronteira servidor →
+  navegador** — a página do BI é componente de servidor e os gráficos são
+  do navegador; passar `formatValue={(v) => …}` quebrava a página inteira
+  em tempo de execução, e nem o build nem o teste do componente pegam; o
+  formato é um valor serializável (`FormatoDoValor`: "int", "brl" ou
+  `{ pctDe }`); (b) **o estado final vem do servidor**: a primeira versão
+  nascia invisível (linha dashada, barra a 0%) até o JavaScript montar — no
+  4G fraco da RN-070 o dono veria cartões vazios; a entrada passou a ser
+  transição CSS a partir de `@starting-style` (navegador antigo ignora e vê
+  o gráfico pronto), e "reduzir movimento" zera também o atraso escalonado
+  (`animation-delay`); (c) **toque no celular**: a seleção por dedo FICA
+  até o próximo toque (por mouse, sai ao sair) — antes o balão sumia ao
+  levantar o dedo; (d) o balão é anunciado pelo leitor de tela (`group` +
+  `aria-roledescription`, `aria-live` fora do SVG decorativo — dentro de
+  `role="img"` o `status` era descartado); (e) o rótulo do último ponto sai
+  quando colide com o do pico; série vazia diz "sem dados" em vez de quebrar;
+  (f) **a paleta tem UM dono** (`lib/bi/paleta.ts`): `charts.tsx` e o
+  sparkline do Dashboard importam o cobre de lá, e o funil de
+  Relatórios/Inteligência passou a usar a rampa validada (a de 5 degraus
+  começava no ocre reprovado); (g) a geometria da série é pura e testada
+  (`geometriaDaSerie`). **Segunda rodada da revisão** (mesmo dia): (h) **a
+  animação das barras nunca rodava** — o `width` inline vence o
+  `@starting-style`, então a barra nascia pronta e a transição não tinha de
+  onde partir; a largura vai por variável CSS (`--gv-w`) e a classe
+  `.gv-barra` lê `width: var(--gv-w)`, que o `@starting-style` pode zerar;
+  (i) **o tema escuro tem rampa PRÓPRIA** (`RAMPA_ORDINAL_ESCURA`, creme →
+  cobre, validada sobre `#241c13`): o espresso da rampa clara sumia no
+  escuro (1,22:1) — a rampa clara invertida não serve, é seleção; os degraus
+  moram em tokens CSS (`:root` e `.theme-dark { --gv-funil-N }`, fora do
+  `@theme` porque só o `var()` do estilo inline os lê) e o funil pinta por
+  `corDoFunil`, que devolve o token — o componente não sabe de tema; o
+  teste lê o `globals.css` e confere que os tokens são os valores da lib;
+  (j) **rótulo, balão e eixo não colidem**: o rótulo direto é preso dentro
+  da área (o pico no primeiro ponto saía pela esquerda), a colisão é pela
+  posição PRESA (os dois escorregando para a mesma borda viravam um só
+  borrão), o balão perto das bordas se ancora pelo lado de dentro
+  (`posicaoDoBalao`), e o rótulo de eixo vizinho do último sai quando
+  encostaria nele (12 pontos numa largura curta: "10" colado no "11");
+  (k) **dinheiro tem UM formatador** (o `brl` da casa: "R$ 200" sem centavos
+  à toa) — a paleta tinha um `toLocaleString` próprio; (l) a região viva do
+  leitor de tela é **permanente** nos três gráficos (a que nasce junto com o
+  balão não é anunciada), a geometria é memorizada (`useMemo`: não se refaz
+  a cada passada do mouse) e o nome antigo `ORDINAL_RAMP` saiu — a rampa tem
+  um nome e um dono. **Terceira rodada** (mesmo dia): (m) **o balão era
+  invisível no tema escuro** — o `bg-slate-900` vira creme lá e o
+  `text-white` é forçado a branco: branco sobre creme (1,1:1), justamente o
+  contraste que a rodada anterior consertou nas barras; o balão tem classe
+  própria (`.gv-balao`, escuro no claro e claro no escuro); (n) **a seleção
+  que sobrevive a uma série mais curta** (toque no 30 dias, voltar para o 7
+  com o gesto do navegador) indexava fora da série e derrubava a tela
+  inteira na RN-066 — fora da série, não vale; (o) **funil com mais de 4
+  etapas** (Relatórios tem 9) ganhava três etapas seguidas da MESMA cor, que
+  leem como um grupo e não como progressão: a cor é interpolada entre os
+  degraus vizinhos (`color-mix` no mesmo matiz — segue ordinal e monótona),
+  com **reserva** para o navegador que não entende `color-mix` (a classe
+  `.gv-funil` pinta pelo degrau inteiro, `estiloDoFunil`); (p) **a contagem
+  animada do dinheiro pulava de largura no fim**: o `brl` tira os centavos
+  do inteiro, então os quadros intermediários tinham centavos e o último
+  não (`textoDaContagem`: o valor FINAL decide se todo quadro tem 2 casas
+  ou nenhum); (q) o balão do funil saía da tela no celular estreito (uma
+  linha, preso à esquerda da barra): fica preso ao cartão e quebra linha;
+  (r) **`touch-action: pan-y`** no gráfico de série — sem ele o navegador
+  toma o arrasto do dedo como rolagem e a mira congela no primeiro ponto;
+  (s) **um foco por gráfico**: cada barra era uma parada de Tab (vinte por
+  painel, só para mostrar um balão), agora a lista é o foco e as setas
+  andam, como na série. O Dashboard e as outras telas seguem com os gráficos
+  de servidor — só a cor mudou de dono. **Limite dito**: os cinzas de grade
+  e texto dos gráficos são os tokens das outras telas (o tema escuro os
+  inverte); só a cor de DADO foi validada nas duas superfícies.
+- **RN-090 · O RELATÓRIO DO PERÍODO EM PDF NÃO FAZ CONTA PRÓPRIA**
+  (`lib/bi/relatorio.ts` + rota `/api/bi/relatorio`, botão "Baixar PDF do
+  período" no `/bi`, 14/10/2026): a quinta recomendação aceita pelo dono —
+  o período que está na tela, em papel, para a reunião com a assessoria,
+  para o grupo da gerência, para guardar o mês. Duas decisões: (1) **o
+  papel lê os MESMOS objetos que a tela** (`montarPainel`,
+  `montarVendedoras`, `montarTendencia`, com o mesmo recorte de `de`/`ate`
+  e a régua de dia de `lib/dia`) e o conteúdo é uma função PURA
+  (`secoesDoRelatorio`: cada número, cada frase, cada linha de tabela —
+  testável sem abrir PDF); se o papel dissesse "R$ 1.200" e a tela
+  "R$ 1.234", a loja pararia de confiar nos dois — a régua do painel de
+  Recompra ("este painel não faz conta própria", RN-084). O que a tela
+  mostra o papel mostra: os seis números com a comparação do período
+  anterior **em palavras** ("+12% vs. período anterior"; "sem base de
+  comparação", nunca zero disfarçado), as metas do mês (só as preenchidas,
+  com o atingido), o funil com a conversão de cada etapa, contatos e
+  vendido por dia (linha com total e maior dia), quanto a cliente esperou
+  (com %), de onde vieram, por que não fechou (chip e detalhe), **por
+  vendedora** (uma linha por pessoa, a desativada marcada, "Sem vendedora" e
+  a loja inteira no rodapé — a mesma soma do painel) e os últimos 12 meses;
+  e a seção **"Como ler"** diz os limites (robô não é resposta; sem horário
+  cadastrado conta a madrugada; dias sem fato). (2) **O desenho é o
+  pdf-lib da casa** (a peça do extrato de comissão, RN-038, e das etiquetas,
+  RN-059), sem navegador — roda na função da Vercel, com `maxDuration` de
+  60 s; todo texto passa por `paginaSegura` (o emoji do motivo de perda não
+  derruba o PDF, a lição do romaneio); a série é desenhada ponto a ponto
+  com o pico rotulado e o eixo de até 6 datas (o vizinho que colaria no
+  último sai), o funil usa a rampa validada da RN-089 e as barras o cobre;
+  a página abre sozinha quando a seção não cabe e o rodapé numera. Período
+  vazio vira "nenhum contato novo" em cada seção, nunca erro. **Gerência,
+  com a chave do módulo** (`porteiraBi`, a mesma das outras rotas do BI);
+  o arquivo baixa como `bi-<loja>-<de>-a-<ate>.pdf` (nome limpo: só letra,
+  número e hífen). **Dez achados da revisão fecharam a entrega**: o sinal
+  de menos é o hífen ASCII (o "−" tipográfico não existe na WinAnsi e o
+  papel dizia "+12%" onde a tela dizia "−12%"); o texto é MEDIDO já filtrado
+  (medir o cru com emoji no nome de quem gerou derrubava a rota com 500);
+  o resumo da série fica acima da área (o pico no fim do mês caía em cima
+  dele); o título reserva a altura do primeiro bloco (sem isso ficava órfão
+  no pé da página); a tabela que vira página **repete o cabeçalho**; os 12
+  meses levam as ressalvas do cartão da tendência ("75% (11 de 30 dias)" e
+  "contado a partir de set/26"); "Por vendedora" usa a MESMA régua de vazio
+  da aba (`temNumeroNaLoja`); o texto da ponta das barras e as células da
+  tabela são medidos (colunas de número com a largura do maior valor, o
+  nome com o resto; o que não cabe encolhe e só então corta); e os rótulos
+  dos baldes são UMA lista derivada dos limites (`ROTULO_DO_BALDE` em
+  `lib/bi/fatos.ts`, lida pela tela e pelo PDF — antes a tela importava do
+  módulo do PDF). **Limites ditos**: o PDF é do Painel e das Vendedoras —
+  a carteira R × F × M (RN-084) e os anúncios (RN-085) não entram nesta
+  versão; e o relatório é gerado na hora, a cada clique (não é guardado —
+  o período de ontem gerado hoje pode diferir do gerado ontem, porque os
+  dias vivos são refeitos, RN-082).
 - **Communication Engine** (`lib/comm/`): camada única de envio/recebimento,
   agnóstica de provedor. `EvolutionProvider` = WhatsApp NÃO-oficial via
   Evolution API **self-hosted** (VPS Hostinger srv1853369.hstgr.cloud,
@@ -1789,7 +2547,61 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   Nuvemshop segue só daqui, como sempre. A régua vive em `donoDoPreco`
   (`espelhaVarejo`), uma para a ficha e para o lote — e a ficha DIZ "vai
   para a Nuvemshop" ao lado do campo.
-  **Jueri** (sync 2x/dia via cron `jueri-sync`).
+  **Jueri** (sync 2x/dia via cron `jueri-sync`, 03:00 e 12:00 de Brasília).
+  **RN-077 · A SINCRONIZAÇÃO AUTOMÁTICA DA JUERI ACOMPANHA A JUERI — FOTOS
+  INCLUSIVE — E DEIXA RASTRO** (`lib/jueri-sync.ts`, 09/10/2026): relato do
+  dono — *"a cliente mudou as fotos lá na Jueri e não atualiza no sistema;
+  ela vende na Jueri e o estoque aqui não muda"*. O cartão dizia "última
+  importação 06/10, 11:13" — hora de clique no botão, não de cron. Três
+  defeitos no automático: (1) as **fotos nunca eram trocadas** depois da
+  primeira importação, por regra escrita no sync ("nunca sobrescreve fotos
+  que a loja já cuidou aqui"); (2) o cron **não tinha orçamento de tempo**:
+  a loja rodava página a página até a Vercel cortar a função (300 s) sem
+  rastro nenhum — `lastSyncAt` só é marcado na última página, nunca
+  chegava, e a loja "mais atrasada" ia PRIMEIRO na rodada seguinte para
+  morrer no mesmo lugar (cada página custava 40 `findFirst` + 40 `update`,
+  ~15 s com o banco em outra região); (3) o resultado voltava num JSON que
+  ninguém lê. Agora: **as fotos da Jueri acompanham a Jueri** (`decidirFotos`
+  — a foto da Jueri leva a marca `ProductImage.source = "JUERI"` e o produto
+  guarda a LISTA da Jueri na última sincronização, `Product.jueriFotos`;
+  "começa com http" não serve de marca porque a foto da Nuvemshop também é
+  link, achado da revisão. Só quando a Jueri MUDA a lista — foto nova,
+  tirada, ordem — as marcadas são trocadas pelas de agora, **no lugar em
+  que as antigas estavam** (a capa da loja continua capa); a foto da loja e
+  a da Nuvemshop ficam, e o que a loja fez nas fotos da Jueri entre uma
+  rodada e outra, tirar uma ruim ou mudar a capa, fica até a Jueri mudar de
+  novo. Produto que nunca sincronizou fotos: sem foto nenhuma ganha as da
+  Jueri, como sempre; com fotos de outra origem nada é tocado, só a lista é
+  anotada. A migração marca as fotos-link dos produtos que são da Jueri e
+  não da Nuvemshop, e anota a lista; o produto das duas fica sem marca);
+  **chamada à Jueri com tempo limite** (20 s — o prazo só é conferido entre
+  páginas, e uma chamada pendurada passaria do corte sem rastro); **a fila
+  do cron é ordenada pela TENTATIVA** (`lastSyncTentativaEm`), não pela
+  importação completa — a loja grande em etapas iria primeiro para sempre e
+  comeria o prazo das outras; **reconectar zera** a página pendente e o
+  erro; **SKU repetido na mesma página** (referência igual em duas cores)
+  acha o produto recém-criado em vez de estourar o único e travar a
+  página; **uma consulta por página** em vez
+  de quarenta, e produto igual em preço, custo, ativo e vínculo **não vai ao
+  banco** (`produtoMudou`); o cron tem **prazo único para a fila** (240 s) e
+  cada loja **para por conta própria entre páginas** quando ele chega,
+  gravando a página seguinte (`JueriConnection.lastSyncPagina`) — a próxima
+  rodada **RETOMA de lá**, sempre pelo menos uma página por rodada, e
+  `lastSyncAt` segue sendo a importação COMPLETA; página que falha ganha
+  uma nova tentativa e, falhando de novo, o erro diz a página e a rodada
+  seguinte volta nela; **cada rodada deixa rastro**: no cartão da conexão
+  (quando tentou, página pendente, último erro em vermelho com o caminho
+  "o botão faz o mesmo agora"), na Central de Comunicação da loja
+  (`jueri.sync`, OK com a contagem ou ERRO) e, na falha, na Saúde (sem
+  alarme — o token vencido falharia duas vezes por dia e calaria o canal
+  das emergências, régua da RN-066). Nome e categoria continuam da loja
+  (auditoria 07/08/2026); estoque, preço, custo e ativo continuam da Jueri.
+  **Limites ditos**: foto que a loja subiu aqui num produto da Jueri fica
+  (ela é da loja), a Jueri que apagar todas as fotos deixa o produto só
+  com as da loja, e a foto da Jueri trocada pela legada "foto principal"
+  do editor (que apaga e recria a linha) perde a marca e vira foto da loja. Provado contra o Postgres local com uma Jueri de mentira
+  (`scripts/e2e-jueri-sync.ts`): estoque e fotos acompanham, foto da loja
+  fica, rodada parcial retoma, falha deixa rastro.
 - **Marketing**: Gestor de Bio (temas, cores custom, capa, QR, métricas
   BioView/BioClick com filtro de data, atribuição `utm_source=bio` no
   catálogo), campanhas de aquisição, tracking do catálogo
@@ -3026,6 +3838,26 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   está 0 no catálogo (`lib/modulos.ts`), então ligar o módulo numa loja NÃO
   soma no MRR. Quando o Atos disser o valor, trocar o número e o teste
   `estoque-minimos.test.ts` que o fixa.
+- 🟡 **BI de vendas do WhatsApp — em construção** (ADR-019, 13/10/2026):
+  módulo novo com chave liga/desliga, para as lojas da assessoria de
+  processo comercial (preço a definir). **Fase 0 (instrumentação, coleta
+  para TODAS as lojas)**: horário de atendimento (RN-079 ✅), marca de
+  mensagem automática + conta pura do tempo de resposta (RN-080 ✅), motivo
+  de perda com lista fixa (RN-081 ✅) — **Fase 0 concluída**. **Fase 1 ✅
+  (RN-082, 14/10/2026)**: módulo com chave, fatos diários de carona (sem
+  cron) e o painel do dono em `/bi` (leads/dia, resposta no prazo, funil por
+  fatos, vendas × meta, metas personalizáveis). **Pendente do dono**: o
+  preço de tabela (0 no catálogo) e ligar a chave nas lojas da assessoria.
+  **Fase 2a ✅ (RN-083, 14/10/2026)**: aba Vendedoras (fatos por pessoa).
+  **Fase 2b ✅ (RN-084, 14/10/2026)**: aba Clientes (a carteira da Recompra
+  em R × F × M). **Fase 2c ✅ (RN-085, 14/10/2026)**: aba Anúncios (gasto
+  por mês × contatos × vendas) — **Fase 2 concluída**. **Fase 3 ("completo
+  e dinâmico", ordem aceita pelo dono em 14/10/2026)**: clicar e cavar
+  (RN-086 ✅) → linha de 12 meses (RN-087 ✅) → faixa "hoje" viva (RN-088
+  ✅) → visual (RN-089 ✅) → exportar PDF (RN-090 ✅); depois, benchmark entre lojas (Super Admin) e resumo semanal no
+  WhatsApp do dono. **Modo TV adiado** pelo dono. Decisões do dono: só gerência
+  vê; origem do lead segue automática (sem marcação manual); metas de
+  qualquer tipo, a loja escolhe; prazo dentro do horário comercial.
 - WhatsApp/Evolution: operacional em produção (conexão, tempo real, mídia).
   **Pendente**: ligar `DATABASE_SAVE_DATA_HISTORIC/NEW_MESSAGE/CHATS/CONTACTS=true`
   no compose do servidor Evolution (Hostinger, via Editor .yaml) e reconectar

@@ -1,4 +1,5 @@
 import { db } from "./db";
+import { estaNoHorario, lerHorarioComercial } from "./bi/horario-comercial";
 import { PAID_ORDER_STATUSES } from "./orders";
 import { findCustomerByPhone } from "./intake";
 import { sendMessage } from "./comm/engine";
@@ -48,7 +49,11 @@ const JANELA_DIAS = 14;
 /** a varredura roda no máximo a cada 10 min */
 const VARREDURA_INTERVAL_MS = 10 * 60_000;
 
-/** Horário decente para mensagem automática (8h–20h de São Paulo). */
+/**
+ * Horário decente para mensagem automática quando a loja NÃO cadastrou o
+ * dela (8h–20h de São Paulo). Com horário cadastrado (RN-079) vale o da
+ * loja — ver `podeMandarAutomatica`.
+ */
 export function horarioComercialSP(agora = new Date()): boolean {
   const hora = Number(
     new Intl.DateTimeFormat("pt-BR", {
@@ -58,6 +63,16 @@ export function horarioComercialSP(agora = new Date()): boolean {
     }).format(agora)
   );
   return hora >= 8 && hora < 20;
+}
+
+/**
+ * A mensagem automática pode sair AGORA? Pelo horário da loja (RN-079) quando
+ * ela cadastrou um — a loja que fecha sábado não manda recuperação sábado à
+ * tarde, e a que abre até 22h não para às 20h —; sem cadastro, 8h–20h.
+ */
+export function podeMandarAutomatica(agora: Date, horarioComercial: string | null): boolean {
+  const horario = lerHorarioComercial(horarioComercial);
+  return horario ? estaNoHorario(agora, horario) : horarioComercialSP(agora);
 }
 
 /**
@@ -209,13 +224,13 @@ export async function varrerCarrinhosSeDeuAHora(): Promise<void> {
     if (!(await pegouAVez(agora))) return;
 
     const empresas = await db.company.findMany({
-      select: { id: true, slug: true, recoveryAuto: true },
+      select: { id: true, slug: true, recoveryAuto: true, horarioComercial: true },
     });
     for (const c of empresas) {
       await carrinhosDoCatalogo(c.id).catch(() => {});
       await carrinhosDaNuvemshop(c.id).catch(() => {});
       await marcarRecuperados(c.id).catch(() => {});
-      if (c.recoveryAuto && horarioComercialSP(agora)) {
+      if (c.recoveryAuto && podeMandarAutomatica(agora, c.horarioComercial)) {
         await enviarPrimeiraMensagem(c.id, c.slug).catch(() => {});
       }
     }
@@ -636,6 +651,8 @@ async function enviarPrimeiraMensagem(companyId: string, slug: string): Promise<
       kind: "TEXT",
       mediaType: "TEXT",
       authorName: "Recuperação automática",
+      // RN-080: é robô — nunca conta como resposta à cliente no BI
+      automatica: true,
       background: true,
     }).catch(async () => {
       // envio falhou de verdade: devolve o carrinho para a fila humana

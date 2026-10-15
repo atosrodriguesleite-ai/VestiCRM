@@ -51,6 +51,7 @@ export type Loja = {
   financeEnabled: boolean;
   estoqueEnabled: boolean;
   etiquetasEnabled: boolean;
+  biEnabled: boolean;
   suspended: boolean;
   billing: {
     kind: string;
@@ -316,6 +317,7 @@ function NewLojaForm({
           financeEnabled: false,
           estoqueEnabled: false,
           etiquetasEnabled: false,
+          biEnabled: false,
           suspended: false,
           billing: null,
           lastActiveAt: null,
@@ -847,6 +849,23 @@ function LojaCard({ loja, catalogDomain }: { loja: Loja; catalogDomain: string |
   const [togglingEst, setTogglingEst] = useState(false);
   const [etiquetas, setEtiquetas] = useState(loja.etiquetasEnabled);
   const [togglingEtq, setTogglingEtq] = useState(false);
+  const [bi, setBi] = useState(loja.biEnabled);
+  const [togglingBi, setTogglingBi] = useState(false);
+
+  // módulo BI de Vendas (RN-082): a chave abre a tela; os fatos são de toda loja
+  async function toggleBi() {
+    setTogglingBi(true);
+    const res = await fetch("/api/companies/bi", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ companyId: loja.id, enabled: !bi }),
+    });
+    setTogglingBi(false);
+    if (res.ok) {
+      setBi(!bi);
+      router.refresh();
+    }
+  }
 
   // módulo Etiquetas (RN-059): idem
   async function toggleEtiquetas() {
@@ -1295,6 +1314,28 @@ function LojaCard({ loja, catalogDomain }: { loja: Loja; catalogDomain: string |
           }`}
         >
           {togglingEst ? "..." : estoque ? "Desativar" : "Ativar Estoque"}
+        </button>
+      </div>
+
+      {/* módulo BI de Vendas (RN-082) */}
+      <div className="mt-2 flex items-center justify-between gap-2 text-[11px]">
+        <span className="text-slate-400">
+          Módulo BI de Vendas:{" "}
+          <b className={bi ? "text-emerald-600" : "text-slate-500"}>
+            {bi ? "ativado" : "desativado"}
+          </b>
+        </span>
+        <button
+          type="button"
+          onClick={toggleBi}
+          disabled={togglingBi}
+          className={`rounded-full px-2.5 py-1 font-semibold border transition disabled:opacity-50 ${
+            bi
+              ? "border-slate-200 text-slate-500 hover:border-rose-300 hover:text-rose-600"
+              : "border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
+          }`}
+        >
+          {togglingBi ? "..." : bi ? "Desativar" : "Ativar BI"}
         </button>
       </div>
 

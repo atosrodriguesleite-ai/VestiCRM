@@ -7,8 +7,10 @@
  * recuperar a venda perdida".
  *
  * - RESTAURAR vai pela porta de sempre do pedido (PATCH status → ORÇAMENTO):
- *   é ela que volta a SEGURAR o estoque como pedido novo (RN-003) — e recusa,
- *   com frase, se a peça já foi vendida para outra cliente no meio. Cancelar
+ *   é ela que volta a SEGURAR o estoque como pedido novo (RN-003). Se a peça
+ *   foi vendida para outra cliente no meio, a janela de PEÇAS EXTRAS pergunta
+ *   (RN-075): o que existe volta a ser segurado e o resto vira extra, com
+ *   ciência registrada — ou a pessoa volta e nada muda. Cancelar
  *   de novo passa pelo diálogo de sempre (devolver ou baixar, RN-004).
  * - RECUPERAR abre a conversa da cliente na Central com a mensagem sugerida
  *   já no campo (o mesmo caminho do "Conversar" da Agenda): a vendedora lê,
@@ -21,6 +23,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Loader2, MessageCircle, RotateCcw } from "lucide-react";
 import { mensagemDeRecuperacao } from "@/lib/recuperar-venda";
+import { useConfirmarExtras } from "@/components/pedido/confirmar-extras";
 
 export function AcoesDoCancelado({
   orderId,
@@ -40,6 +43,7 @@ export function AcoesDoCancelado({
   const router = useRouter();
   const [ocupado, setOcupado] = useState<"restaurar" | "recuperar" | null>(null);
   const [erro, setErro] = useState("");
+  const extras = useConfirmarExtras();
 
   function parar(e: React.MouseEvent) {
     e.preventDefault();
@@ -51,14 +55,18 @@ export function AcoesDoCancelado({
     if (ocupado) return;
     setOcupado("restaurar");
     setErro("");
-    const res = await fetch(`/api/orders/${orderId}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ status: "ORCAMENTO" }),
-    });
+    const enviado = await extras.enviar((extrasConfirmados) =>
+      fetch(`/api/orders/${orderId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: "ORCAMENTO", extrasConfirmados }),
+      })
+    );
     setOcupado(null);
-    if (!res.ok) {
-      const d = await res.json().catch(() => null);
+    // voltou da janela de extras sem confirmar: nada mudou
+    if (!enviado) return;
+    if (!enviado.res.ok) {
+      const d = enviado.data as { error?: string } | null;
       setErro(d?.error ?? "Não foi possível restaurar o pedido.");
       return;
     }
@@ -110,6 +118,7 @@ export function AcoesDoCancelado({
         </button>
       </div>
       {erro && <p className="mt-1.5 text-xs font-medium text-rose-600">{erro}</p>}
+      {extras.janela}
     </div>
   );
 }

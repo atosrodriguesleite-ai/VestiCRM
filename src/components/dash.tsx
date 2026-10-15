@@ -11,6 +11,7 @@
 
 import { useEffect, useId, useRef, useState } from "react";
 import { InfoTip } from "./info-tip";
+import { COR_DA_SERIE } from "@/lib/bi/paleta";
 
 type Fmt = "brl" | "int" | "pct" | "kg" | "num";
 
@@ -32,14 +33,16 @@ function exibe(v: number, format: Fmt, decimals?: number, suffix?: string) {
 }
 
 /** Anima a contagem de 0 (ou do valor anterior) até `value` em ~700ms. */
-function useContagem(value: number) {
+export function useContagem(value: number) {
   const [display, setDisplay] = useState(value);
   const atual = useRef(value);
   const primeira = useRef(true);
 
   useEffect(() => {
+    // jsdom (os testes) não tem matchMedia: sem ele, sem animação
     const reduz =
-      typeof window !== "undefined" &&
+      typeof window === "undefined" ||
+      typeof window.matchMedia !== "function" ||
       window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     const de = primeira.current ? 0 : atual.current;
     primeira.current = false;
@@ -85,15 +88,15 @@ function Sparkline({ series }: { series: number[] }) {
     >
       <defs>
         <linearGradient id={gid} x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="#c4622d" stopOpacity="0.25" />
-          <stop offset="100%" stopColor="#c4622d" stopOpacity="0.02" />
+          <stop offset="0%" stopColor={COR_DA_SERIE} stopOpacity="0.25" />
+          <stop offset="100%" stopColor={COR_DA_SERIE} stopOpacity="0.02" />
         </linearGradient>
       </defs>
       <path d={area} fill={`url(#${gid})`} />
       <path
         d={line}
         fill="none"
-        stroke="#c4622d"
+        stroke={COR_DA_SERIE}
         strokeWidth="1.75"
         strokeLinejoin="round"
         strokeLinecap="round"

@@ -18,6 +18,7 @@ import { NewOrderButton } from "./new-order";
 import { ImportarMensagemButton } from "./importar-mensagem";
 import { RowStatusMenu } from "./row-status-menu";
 import { AcoesDoCancelado } from "./acoes-cancelado";
+import { extrasDosPedidos } from "@/lib/pedido-extras-data";
 import type { OrderStatus, Prisma } from "@prisma/client";
 import { classificarBusca, clientesDaBusca } from "@/lib/busca-de-pedidos";
 
@@ -310,6 +311,9 @@ export default async function OrdersPage({
     pagina = ultimaPagina;
     orders = await listar(pagina);
   }
+  // RN-075 · peças EXTRAS (feitas para o pedido, sem estoque): o selo diz
+  // quantas — duas consultas para a página inteira, nunca uma por pedido
+  const extrasPorPedido = await extrasDosPedidos(db, orders);
 
   const nsCount = bySource.find((r) => r.source === "NUVEMSHOP")?._count ?? 0;
   const apCount = bySource.filter((r) => r.source !== "NUVEMSHOP").reduce((a, r) => a + r._count, 0);
@@ -619,6 +623,20 @@ export default async function OrdersPage({
             // lá o bloco "Cobrança e Nota" é de gerência, e mostrar aqui o que
             // a ficha esconde seria a tela contando duas histórias
             const selo = isManagerUp(user) ? seloDaNota(o.nfeStatus, o.nfeNumber) : null;
+            const extras = extrasPorPedido.get(o.id);
+            // confirmado = a confecção vai fazer; sem confirmação é falta de
+            // estoque que alguém precisa resolver com a cliente (RN-075)
+            const seloExtras = !extras ? null : extras.confirmados ? (
+              <span title="Peças sem estoque, feitas para este pedido (não saíram do estoque)">
+                <Badge color="#6D28D9">
+                  🧵 {extras.total} {extras.total === 1 ? "extra" : "extras"}
+                </Badge>
+              </span>
+            ) : (
+              <span title="O pedido entrou com estoque a menos e ninguém confirmou extra: produza ou combine com a cliente">
+                <Badge color="#D97706">{extras.total} sem estoque</Badge>
+              </span>
+            );
             return (
             <Link key={o.id} href={`/pedidos/${o.id}`} className="block">
               <Card className="p-4 hover:shadow-pop transition">
@@ -656,6 +674,7 @@ export default async function OrdersPage({
                       {o._count.trocas > 0 && (
                         <Badge color="#7C3AED">{o._count.trocas === 1 ? "1 troca" : `${o._count.trocas} trocas`}</Badge>
                       )}
+                      {seloExtras}
                       <RowStatusMenu orderId={o.id} current={o.status} />
                     </div>
                   </div>
@@ -690,6 +709,7 @@ export default async function OrdersPage({
                     {o._count.trocas > 0 && (
                       <Badge color="#7C3AED">{o._count.trocas === 1 ? "1 troca" : `${o._count.trocas} trocas`}</Badge>
                     )}
+                    {seloExtras}
                     <RowStatusMenu orderId={o.id} current={o.status} />
                   </div>
                   <span className="text-sm font-semibold tabular-nums shrink-0 w-20 sm:w-24 text-right whitespace-nowrap">

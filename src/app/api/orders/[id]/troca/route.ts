@@ -41,7 +41,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     if (!parsed.success) return NextResponse.json({ error: "Dados inválidos" }, { status: 400 });
     const r = await registrarTroca(user, id, parsed.data);
     if (!r.ok) return NextResponse.json({ error: r.erro }, { status: r.status });
-    return NextResponse.json({ ok: true, trocaId: r.trocaId, numero: r.numero });
+    return NextResponse.json({ ok: true, trocaId: r.trocaId, numero: r.numero, semEstoque: r.semEstoque });
   } catch (e) {
     if (e instanceof AuthError) return NextResponse.json({ error: "Não autenticado" }, { status: 401 });
     throw e;

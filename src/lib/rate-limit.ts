@@ -137,6 +137,24 @@ export function chavesDoPedidoCatalogo(companyId: string, ip: string | null): st
 }
 
 /**
+ * RN-010: o RASTRO da recusa do pedido do catálogo (Central de Comunicação +
+ * Saúde). A recusa acontece ANTES da trava de ritmo do pedido (dados
+ * inválidos e loja inexistente nem chegam nela), então sem um teto próprio
+ * um script encheria os dois painéis com uma linha por batida. Dez recusas
+ * por IP a cada 15 min contam a história inteira — mesma régua do relato de
+ * tela quebrada (RN-066). Por IP + LOJA, não só por IP: a operadora de
+ * celular (CGNAT) põe um bairro inteiro no mesmo endereço, e dez recusas em
+ * outras lojas calariam o rastro desta. A RESPOSTA à cliente não muda com
+ * esta trava; só o registro é que para.
+ */
+export const LIMITE_RASTRO_RECUSA_POR_IP = 10;
+/** Por IP + loja (como `cat:`); sem loja conhecida (dados inválidos sem endereço), só por IP. */
+export function chavesDoRastroDeRecusa(companyId: string | null, ip: string | null): string[] {
+  if (!ip) return [];
+  return [`catrec:${companyId ?? "?"}|${ip}`];
+}
+
+/**
  * Chave do beacon "baixou uma foto" da galeria (RN-071, porta pública de
  * escrita mínima — RN-044: sem ritmo, um laço inflava o contador do link
  * com um UPDATE por batida). Sem IP identificável não trava.
@@ -169,6 +187,7 @@ function limiteDa(chave: string): number {
   if (chave.startsWith("codigo:")) return LIMITE_CODIGOS_POR_USUARIO;
   if (chave.startsWith("codip:")) return LIMITE_CODIGO_POR_IP;
   if (chave.startsWith("errotela:")) return LIMITE_RELATO_ERRO_POR_USUARIO;
+  if (chave.startsWith("catrec:")) return LIMITE_RASTRO_RECUSA_POR_IP;
   return LIMITE_POR_LOGIN;
 }
 

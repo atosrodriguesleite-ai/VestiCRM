@@ -47,7 +47,9 @@ export async function logServerError(input: {
   // wa.webhook: falha ao gravar mensagem que chegou do WhatsApp — a mais
   // grave de todas, porque significa conversa que a loja não vai ver
   // client / tela.versao: tela que quebrou no NAVEGADOR (RN-066)
-  source: "server" | "watchdog" | "client" | "tela.versao" | "wa.webhook";
+  // catalogo.recusa: pedido do catálogo RECUSADO pela rota (RN-010) — fora
+  // da lista e da conta de erros da Saúde, como a tela.versao
+  source: "server" | "watchdog" | "client" | "tela.versao" | "wa.webhook" | "catalogo.recusa";
   path?: string | null;
   message: string;
   detail?: string | null;

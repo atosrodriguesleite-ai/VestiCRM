@@ -64,7 +64,8 @@ type ProdutoParaGaleria = {
   name: string;
   category: string;
   images: { id: string; color: string | null; order: number }[];
-  variants: { color: string | null; stock: number }[];
+  /** `sobEncomenda` (RN-076): a peça vende além do estoque — para a galeria, "tem estoque" */
+  variants: { color: string | null; stock: number; sobEncomenda?: boolean }[];
 };
 
 const comparar = new Intl.Collator("pt-BR", { sensitivity: "base", numeric: true }).compare;
@@ -91,7 +92,9 @@ export function montarGaleria(
     if (p.images.length === 0) continue;
     const cat = p.category.trim() || "Outros";
     if (escolhidas.size && !escolhidas.has(cat.toLocaleLowerCase("pt-BR"))) continue;
-    const variantes = opts.soComEstoque ? p.variants.filter((v) => v.stock > 0) : p.variants;
+    // a peça sob encomenda (RN-076) está à venda mesmo zerada ou negativa: a
+    // vitrine a mostra, e a galeria não pode esconder o que a loja vende
+    const variantes = opts.soComEstoque ? p.variants.filter((v) => v.stock > 0 || v.sobEncomenda) : p.variants;
     if (opts.soComEstoque && variantes.length === 0) continue;
     const coresVivas = new Set(variantes.map((v) => chaveDaCor(v.color)).filter(Boolean));
     const fotos = [...p.images]

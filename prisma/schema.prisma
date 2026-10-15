@@ -70,6 +70,11 @@ model Company {
   /// muda em tela nenhuma — o código de barras da variação existe do mesmo
   /// jeito (nasce no banco), só não há onde imprimi-lo.
   etiquetasEnabled  Boolean  @default(false)
+  // módulo BI de Vendas (ADR-019): a CHAVE só abre a tela — os fatos diários
+  // são calculados para toda loja (coleta sempre, mostra com a chave)
+  biEnabled         Boolean  @default(false)
+  // trava da rodada de fatos do BI (carona no tráfego, nunca cron — ADR-002)
+  biFatosRunAt      DateTime?
   suspended         Boolean  @default(false) // acesso bloqueado pelo super admin (ex.: inadimplência)
   // última rodada das automações desta loja. É a TRAVA ATÔMICA que faz o
   // motor rodar de carona no tráfego normal, no máximo uma vez por dia, sem
@@ -130,8 +135,16 @@ model Company {
   intakeLastUserId    String? // ponteiro do rodízio
   intakeSlaMinutes    Int     @default(60) // prazo do primeiro atendimento
   intakeOppPolicy     String  @default("SE_NAO_HOUVER_ABERTA") // SEMPRE | SE_NAO_HOUVER_ABERTA | NUNCA
+  // HORÁRIO DE ATENDIMENTO DA LOJA (RN-079): JSON {"dias":[[{de,ate}],…]} com
+  // 7 posições (0 = domingo). Nulo = sem horário cadastrado → o tempo de
+  // resposta do BI conta o dia inteiro. O PRAZO é o intakeSlaMinutes acima.
+  horarioComercial    String?
 
   users          User[]
+  biDias         BiDia[]
+  biDiasVendedora BiDiaVendedora[]
+  biMetas        BiMeta[]
+  biGastosDeAnuncio BiGastoDeAnuncio[]
   customers      Customer[]
   abandonedCarts AbandonedCart[]
   tags           Tag[]
@@ -148,6 +161,7 @@ model Company {
   mediaAssets    MediaAsset[]
   inventoryMovs  InventoryMovement[]
   estoqueMinimos EstoqueMinimoCategoria[]
+  sobEncomendaCats SobEncomendaCategoria[]
   nsEstoquePend  NuvemshopEstoquePendente[]
   etiquetaModelos EtiquetaModelo[]
   composicoes    ComposicaoCategoria[]
@@ -493,6 +507,7 @@ model User {
 
   @@index([companyId])
   trocasRegistradas Troca[] @relation("TrocaRegistradaPor")
+  biDiasVendedora BiDiaVendedora[] // RN-083: os fatos diários do BI por vendedora
   separacoes     Separacao[]
 }
 
@@ -700,6 +715,7 @@ model Customer {
   creditos      CustomerCredit[]
 
   @@index([companyId])
+  @@index([companyId, createdAt]) // RN-088/RN-087: "contatos de hoje" e por mês, sem varrer a loja
   @@index([companyId, ownerId])
   @@index([companyId, adRef])
   // varredura diária de aniversariantes
@@ -929,6 +945,12 @@ model Message {
   error          String?
   authorId       String?
   author         User?            @relation(fields: [authorId], references: [id], onDelete: SetNull)
+  // MENSAGEM DE ROBÔ (RN-080): recuperação automática de sacola e todo envio
+  // que nenhuma pessoa digitou. Nunca conta como resposta à cliente no BI —
+  // sem a marca, o robô virava "resposta humana em 0 min". `authorId` nulo
+  // não serve de marca: o eco da mensagem mandada pelo celular da loja
+  // também chega sem autor, e essa é humana.
+  automatica     Boolean          @default(false)
   createdAt      DateTime         @default(now())
   // QUANDO ESTA MENSAGEM MUDOU pela última vez (recibo ✓✓, edição,
   // apagada). É o que permite o sync incremental mandar só o que mudou
@@ -1137,6 +1159,11 @@ model JueriConnection {
   clienteSistema String // ID do cliente no sistema Jueri
   token          String // Bearer token de integração
   lastSyncAt     DateTime?
+  // RN-077: rastro da rodada automática — quando tentou, em que página a
+  // próxima rodada continua (catálogo grande vai em etapas) e o último erro
+  lastSyncTentativaEm DateTime?
+  lastSyncPagina      Int?
+  lastSyncErro        String?
   createdAt      DateTime  @default(now())
 }
 
@@ -1551,6 +1578,8 @@ model MarketingCampaign {
   createdAt DateTime @default(now())
 
   customers Customer[]
+  /// RN-085: o gasto desta campanha, mês a mês (o BI)
+  gastosDoBi BiGastoDeAnuncio[]
 
   @@unique([companyId, utmKey])
   @@index([companyId, active])
@@ -1723,6 +1752,12 @@ model Product {
   /// ("quero ter pelo menos 3 de cada tamanho"). Nulo = usa o mínimo da
   /// categoria, e sem ele o da loja (`Company.lowStockThreshold`).
   minStock       Int?
+  /// VENDE SOB ENCOMENDA (RN-076): a peça pode ser vendida além do estoque, e
+  /// o estoque fica NEGATIVO ("−3" = 3 a produzir) — é a confecção que faz a
+  /// peça depois de vendida. Escada peça > categoria (`SobEncomendaCategoria`):
+  /// nulo = segue a categoria; true/false = a peça manda. Peça vinculada à
+  /// Nuvemshop/Jueri nunca vende sob encomenda (o estoque é de lá, RN-050).
+  sobEncomenda   Boolean?
   /// NCM DA PEÇA (RN-055): a classificação fiscal que vai na nota. É a
   /// EXCEÇÃO — o normal é o NCM da categoria. Nulo = usa o da categoria, e
   /// sem ele o da loja. Guardado só com dígitos; a nota formata.
@@ -1736,6 +1771,10 @@ model Product {
   /// escada peça > categoria > loja. Nulo = segue a categoria/loja.
   unidadeSingular String?
   unidadePlural   String?
+  // a lista de fotos (links) da Jueri na última sincronização, em JSON
+  // (RN-077): só quando a Jueri MUDA a lista as fotos daqui são trocadas —
+  // o que a loja fez nelas entre uma rodada e outra fica
+  jueriFotos     String?
   createdAt      DateTime @default(now())
 
   variants ProductVariant[]
@@ -1870,6 +1909,9 @@ model ProductImage {
   // a foto DAQUELA cor (sem etiqueta, cai na capa geral — nada quebra).
   // Vem sozinha da Nuvemshop (variant.image_id) ou da etiqueta no editor.
   color     String?
+  // de onde a foto veio ("JUERI"): é o que separa a foto da Jueri da que a
+  // loja subiu — ou da Nuvemshop, que também é link (RN-077)
+  source    String?
 
   @@index([productId])
 }
@@ -2323,6 +2365,20 @@ model EstoqueMinimoCategoria {
   company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
   category  String
   minStock  Int
+  updatedAt DateTime @updatedAt
+
+  @@unique([companyId, category])
+}
+
+/// RN-076 · VENDE SOB ENCOMENDA POR CATEGORIA: a linha EXISTE = a categoria
+/// vende além do estoque (a peça pode desligar com `Product.sobEncomenda =
+/// false`). Presença em vez de booleano para a SQL do Dashboard casar por
+/// LEFT JOIN, como o mínimo da categoria. Renomear/apagar categoria acompanha.
+model SobEncomendaCategoria {
+  id        String   @id @default(cuid())
+  companyId String
+  company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  category  String
   updatedAt DateTime @updatedAt
 
   @@unique([companyId, category])
@@ -3582,4 +3638,124 @@ model FinOfxVinculo {
 
   @@unique([companyId, baixaId])
   @@index([linhaId])
+}
+
+/// FATOS DIÁRIOS DO BI DE VENDAS (RN-082, ADR-019): uma linha por loja × dia
+/// (calendário de SP), preenchida de carona no tráfego. O painel lê linhas
+/// prontas — nunca varre a tabela de mensagens a cada abertura.
+model BiDia {
+  id         String   @id @default(cuid())
+  companyId  String
+  company    Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  /// "2026-10-13" (calendário de São Paulo)
+  dia        String
+  /// contatos novos cadastrados no dia (qualquer origem — o portão único)
+  leads      Int      @default(0)
+  /// JSON {"WHATSAPP": 3, "CATALOGO_PUBLICO": 2, …}: de onde vieram
+  origens    String   @default("{}")
+  /// dos contatos novos do dia, quantos receberam resposta HUMANA (RN-080)
+  leadsRespondidos Int @default(0)
+  /// dos contatos novos do dia, quantos fizeram pedido (fora cancelado) e quantos pagaram
+  leadsComPedido Int @default(0)
+  leadsPagaram   Int @default(0)
+  /// esperas da cliente que COMEÇARAM no dia (RN-080), e como terminaram
+  esperas    Int      @default(0)
+  respondidas Int     @default(0)
+  noPrazo    Int      @default(0)
+  foraDoPrazo Int     @default(0)
+  semResposta Int     @default(0)
+  encerradasSemResposta Int @default(0)
+  /// minutos de atendimento (RN-079) das respondidas: mediana e p90
+  medianaMin Float?
+  p90Min     Float?
+  /// JSON [n≤5, n≤15, n≤30, n≤60, n≤120, n≤240, n>240] — a distribuição
+  /// permite somar dias (mediana de medianas não é mediana)
+  hist       String   @default("[0,0,0,0,0,0,0]")
+  /// pedidos CRIADOS no dia (fora os cancelados) e pedidos PAGOS no dia
+  pedidos    Int      @default(0)
+  pedidosPagos Int    @default(0)
+  /// valor vendido dos pagos no dia (netTotal, RN-002)
+  vendido    Float    @default(0)
+  /// versão da conta que gravou a linha (RN-083): uma linha de versão velha
+  /// conta como "dia que falta" para a rodada, que a refaz com as tabelas
+  /// derivadas novas (por vendedora) — sem isso o histórico já gravado nunca
+  /// ganharia as linhas por pessoa
+  versao     Int      @default(0)
+  atualizadoEm DateTime @default(now()) @updatedAt
+
+  @@unique([companyId, dia])
+}
+
+/// FATOS DIÁRIOS DO BI POR VENDEDORA (RN-083): a mesma conta da `BiDia`,
+/// recortada por PESSOA — leads da carteira dela (`Customer.ownerId`), as
+/// esperas que ELA respondeu (`Message.authorId`), as sem resposta nas
+/// conversas assumidas por ela (`Conversation.assigneeId`) e as vendas dela
+/// (`Order.sellerId`, RN-005). Linha derivada: apagada e refeita a cada rodada
+/// nos dias vivos; só existe para quem teve algum número no dia.
+model BiDiaVendedora {
+  id         String   @id @default(cuid())
+  companyId  String
+  company    Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  /// "2026-10-13" (calendário de São Paulo)
+  dia        String
+  /// contatos novos do dia que entraram na CARTEIRA dela, e o funil deles
+  leads      Int      @default(0)
+  leadsRespondidos Int @default(0)
+  leadsComPedido Int @default(0)
+  leadsPagaram   Int @default(0)
+  /// esperas (RN-080) que começaram no dia e ELA fechou — no prazo ou fora
+  respondidas Int     @default(0)
+  noPrazo    Int      @default(0)
+  foraDoPrazo Int     @default(0)
+  /// esperas abertas (sem resposta) nas conversas assumidas por ela
+  semResposta Int     @default(0)
+  medianaMin Float?
+  p90Min     Float?
+  hist       String   @default("[0,0,0,0,0,0,0]")
+  /// pedidos dela: criados no dia (fora cancelados), pagos no dia e o vendido (netTotal)
+  pedidos    Int      @default(0)
+  pedidosPagos Int    @default(0)
+  vendido    Float    @default(0)
+  atualizadoEm DateTime @default(now()) @updatedAt
+
+  @@unique([companyId, dia, userId])
+  @@index([companyId, userId, dia])
+}
+
+/// GASTO DE ANÚNCIO POR MÊS (RN-085): quanto a loja gastou em cada campanha
+/// de anúncio (`MarketingCampaign`) em cada mês — é o que faz o retorno do
+/// período ser uma conta de verdade (gasto do mês × o que o mês trouxe). O
+/// `MarketingCampaign.investment` segue sendo o total de toda a vida (tela
+/// Marketing); aqui é o recorte mensal que o BI compara com o período.
+model BiGastoDeAnuncio {
+  id         String   @id @default(cuid())
+  companyId  String
+  company    Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  campanhaId String
+  campanha   MarketingCampaign @relation(fields: [campanhaId], references: [id], onDelete: Cascade)
+  /// "2026-10" (calendário de SP)
+  mes        String
+  valor      Float
+  updatedAt  DateTime @default(now()) @updatedAt
+
+  @@unique([companyId, campanhaId, mes])
+  @@index([companyId, mes])
+}
+
+/// METAS DO MÊS DO BI (RN-082): a loja escolhe quais metas quer, por mês.
+/// `tipo` é um da lista fechada em lib/bi/metas.ts; `valor` na unidade do tipo
+/// (R$, unidades ou %).
+model BiMeta {
+  id        String   @id @default(cuid())
+  companyId String
+  company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  /// "2026-10" (calendário de SP)
+  mes       String
+  tipo      String
+  valor     Float
+  updatedAt DateTime @default(now()) @updatedAt
+
+  @@unique([companyId, mes, tipo])
 }

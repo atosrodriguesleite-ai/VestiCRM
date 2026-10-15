@@ -1,17 +1,11 @@
 /**
  * Gráficos leves renderizados no servidor (sem lib externa).
- * Rampa ordinal quente (manual da marca, light→dark):
- * ocre claro → ocre → cobre → cobre escuro → espresso
+ * As cores vêm de UM lugar, validado (lib/bi/paleta.ts, RN-089): a série é
+ * o cobre da marca e a rampa ordinal vai do ocre médio ao espresso.
  * Barras têm rótulo direto (valor visível) — nunca só cor.
  */
 
-export const ORDINAL_RAMP = [
-  "#dbba8b",
-  "#c99b5f",
-  "#c4622d",
-  "#8a4420",
-  "#3a2a1e",
-];
+import { COR_DA_SERIE, estiloDoFunil } from "@/lib/bi/paleta";
 
 import { InfoTip } from "./info-tip";
 
@@ -116,7 +110,7 @@ export function StatTile({
 
 export function BarList({
   data,
-  color = "#c4622d",
+  color = COR_DA_SERIE,
   formatValue = (v) => String(v),
 }: {
   data: { label: string; value: number; sub?: string }[];
@@ -161,13 +155,6 @@ export function FunnelBars({
   return (
     <div className="space-y-2">
       {data.map((d, i) => {
-        const color =
-          ORDINAL_RAMP[
-            Math.min(
-              Math.floor((i / Math.max(data.length - 1, 1)) * (ORDINAL_RAMP.length - 1)),
-              ORDINAL_RAMP.length - 1
-            )
-          ];
         return (
           <div key={d.label} className="flex items-center gap-3">
             <span className="w-40 md:w-48 text-xs text-slate-600 truncate shrink-0">
@@ -175,10 +162,11 @@ export function FunnelBars({
             </span>
             <div className="flex-1 h-6 flex items-center">
               <div
-                className="h-6 rounded-lg min-w-1 transition-all"
+                className="h-6 rounded-lg min-w-1 transition-all gv-funil"
+                /* a rampa validada mora em lib/bi/paleta.ts (RN-089) e troca com o tema pelo token */
                 style={{
                   width: `${(d.value / max) * 100}%`,
-                  backgroundColor: color,
+                  ...estiloDoFunil(i, data.length),
                 }}
                 title={`${d.label}: ${d.value}`}
               />
@@ -229,8 +217,8 @@ export function AreaChart({
     >
       <defs>
         <linearGradient id="areaFill" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="#c4622d" stopOpacity="0.22" />
-          <stop offset="100%" stopColor="#c4622d" stopOpacity="0.02" />
+          <stop offset="0%" stopColor={COR_DA_SERIE} stopOpacity="0.22" />
+          <stop offset="100%" stopColor={COR_DA_SERIE} stopOpacity="0.02" />
         </linearGradient>
       </defs>
       {[0.25, 0.5, 0.75].map((f) => (
@@ -248,7 +236,7 @@ export function AreaChart({
       <path
         d={line}
         fill="none"
-        stroke="#c4622d"
+        stroke={COR_DA_SERIE}
         strokeWidth="2.25"
         strokeLinejoin="round"
         strokeLinecap="round"
@@ -262,7 +250,7 @@ export function AreaChart({
             cx={x}
             cy={y}
             r={i === maxIdx ? 4 : 3}
-            fill="#c4622d"
+            fill={COR_DA_SERIE}
             className="stroke-white"
             strokeWidth="2"
           />
@@ -345,8 +333,8 @@ export function AreaCompare({
     >
       <defs>
         <linearGradient id="areaCompareFill" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="#c4622d" stopOpacity="0.22" />
-          <stop offset="100%" stopColor="#c4622d" stopOpacity="0.02" />
+          <stop offset="0%" stopColor={COR_DA_SERIE} stopOpacity="0.22" />
+          <stop offset="100%" stopColor={COR_DA_SERIE} stopOpacity="0.02" />
         </linearGradient>
       </defs>
       {[0.25, 0.5, 0.75].map((f) => (
@@ -376,7 +364,7 @@ export function AreaCompare({
       <path
         d={line}
         fill="none"
-        stroke="#c4622d"
+        stroke={COR_DA_SERIE}
         strokeWidth="2.25"
         strokeLinejoin="round"
         strokeLinecap="round"
@@ -390,7 +378,7 @@ export function AreaCompare({
             cx={x}
             cy={y}
             r={i === maxIdx ? 4 : 2.5}
-            fill="#c4622d"
+            fill={COR_DA_SERIE}
             className="stroke-white"
             strokeWidth="2"
           />
