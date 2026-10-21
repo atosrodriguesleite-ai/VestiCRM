@@ -126,7 +126,7 @@ describe("funil vivo: pedido sem cartão ganha um", () => {
     expect(fonte("lib/tracking/engine.ts")).toContain("nascerCartaoDoCatalogo");
     const auto = fonte("lib/funil-auto.ts");
     expect(auto).toContain("export async function nascerCartaoDoCatalogo");
-    expect(auto).toContain('nomeCasaComEtapa(e.name, "CATALOGO_ENVIADO")');
+    expect(auto).toContain('etapaDoMarco(companyId, "CATALOGO_ENVIADO")');
     expect(auto).toContain("if (aberta) return"); // com negociação aberta, não duplica
   });
   it("abrir catálogo respeita a política da loja e a corrida do clique duplo", () => {

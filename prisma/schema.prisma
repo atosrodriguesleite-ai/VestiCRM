@@ -75,6 +75,12 @@ model Company {
   biEnabled         Boolean  @default(false)
   // trava da rodada de fatos do BI (carona no tráfego, nunca cron — ADR-002)
   biFatosRunAt      DateTime?
+  /// FUNIL EDITÁVEL (RN-091, 21/10/2026): com a chave, a gerência da loja
+  /// cria, renomeia, reordena e apaga etapas do funil e escolhe para qual
+  /// etapa o sistema move o cartão sozinho. Super admin liga por loja, sem
+  /// custo. DESLIGAR só esconde o editor: o funil fica como a loja deixou
+  /// (voltar ao padrão sozinho mexeria em cartão de cliente).
+  funilEditavelEnabled Boolean @default(false)
   suspended         Boolean  @default(false) // acesso bloqueado pelo super admin (ex.: inadimplência)
   // última rodada das automações desta loja. É a TRAVA ATÔMICA que faz o
   // motor rodar de carona no tráfego normal, no máximo uma vez por dia, sem
@@ -775,6 +781,8 @@ model Pipeline {
   name      String  @default("Funil de vendas")
 
   stages Stage[]
+  /// para qual etapa o sistema move o cartão sozinho em cada marco (RN-091)
+  etapasAutomaticas EtapaAutomatica[]
 
   @@index([companyId])
 }
@@ -791,8 +799,29 @@ model Stage {
 
   opportunities Opportunity[]
   originRules   OriginRule[]
+  marcos        EtapaAutomatica[]
 
   @@index([pipelineId])
+}
+
+/// RN-091 · O CARTÃO ANDA SOZINHO PELA ETAPA ESCOLHIDA, NUNCA PELO NOME.
+/// Cada marco que o sistema já sabe reconhecer (a vendedora respondeu, a
+/// cliente abriu o catálogo, virou orçamento, aguardando pagamento) aponta
+/// para UMA etapa do funil. Antes a etapa era achada pelo NOME, e renomear
+/// "Catálogo enviado" fazia o funil parar de andar em silêncio. Sem linha =
+/// "não mover". Várias marcos podem apontar para a mesma etapa (a loja que
+/// juntou "Primeiro contato" e "Catálogo enviado" numa coluna só).
+/// marco: PRIMEIRO_CONTATO | CATALOGO_ENVIADO | NEGOCIACAO | PAGAMENTO
+model EtapaAutomatica {
+  id         String   @id @default(cuid())
+  pipelineId String
+  pipeline   Pipeline @relation(fields: [pipelineId], references: [id], onDelete: Cascade)
+  marco      String
+  stageId    String
+  stage      Stage    @relation(fields: [stageId], references: [id], onDelete: Cascade)
+
+  @@unique([pipelineId, marco])
+  @@index([stageId])
 }
 
 enum OppStatus {

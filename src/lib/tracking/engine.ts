@@ -243,7 +243,8 @@ export async function startSession(input: StartSessionInput) {
     }
     // A CLIENTE ABRIU O CATÁLOGO → o cartão avança sozinho — e se ela não
     // tinha negociação nenhuma (recompra, cartão anterior já fechado), o
-    // cartão NASCE em "Catálogo enviado". Melhor sinal que "mandei o
+    // cartão NASCE em "Catálogo enviado" (ou na etapa que a loja ligou a
+    // esse marco, RN-091). Melhor sinal que "mandei o
     // catálogo": mandar não prova nada, abrir prova interesse.
     if (customer) {
       await avancarFunil(input.companyId, customer.id, "CATALOGO_ENVIADO");

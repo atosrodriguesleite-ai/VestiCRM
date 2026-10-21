@@ -8,6 +8,9 @@ import { PageHeader } from "@/components/ui";
 import { FunnelBoard, type BoardStage } from "./funnel-board";
 import { QuickLeadLink } from "@/components/quick-lead-link";
 import { trackedLinkParts } from "@/lib/catalog-url";
+import { podeEditarFunil } from "@/lib/funil/editor";
+import { garantirMarcosIniciais } from "@/lib/funil/marcos";
+import { BotaoEditarFunil } from "./editor-de-etapas";
 
 export const dynamic = "force-dynamic";
 
@@ -45,11 +48,13 @@ export default async function FunnelPage({
   // Rodada 1 — nada aqui depende de nada: a conciliação do funil (que grava
   // e por isso tem de terminar antes de LER as oportunidades), o slug da
   // loja, o funil com suas etapas e a lista de clientes.
-  const [, funnelCompany, pipeline, customers] = await Promise.all([
+  const [, , funnelCompany, pipeline, customers] = await Promise.all([
     conciliarFunilComPedidos(user.companyId),
+    // RN-091: funil que nasceu sem os vínculos de "anda sozinho" ganha os seus
+    garantirMarcosIniciais(user.companyId),
     db.company.findUnique({
       where: { id: user.companyId },
-      select: { slug: true },
+      select: { slug: true, funilEditavelEnabled: true },
     }),
     db.pipeline.findFirst({
       where: { companyId: user.companyId },
@@ -265,6 +270,11 @@ export default async function FunnelPage({
         action={
           <div className="flex items-end gap-2 flex-wrap">
             <QuickLeadLink {...trackedLinkParts(user, funnelCompany?.slug ?? "")} />
+            {/* RN-091: com a chave da loja, só para a gerência; o estado do
+                editor é buscado ao abrir (a tela do Funil abre o tempo todo) */}
+            {funnelCompany?.funilEditavelEnabled && podeEditarFunil(user) && (
+              <BotaoEditarFunil pipelineId={pipeline.id} />
+            )}
           <form className="flex flex-1 flex-wrap items-end gap-2 sm:flex-none" method="GET">
             <div className="flex-1 min-w-0 sm:flex-none">
               <label className="block text-[11px] font-semibold text-gray-500 mb-1">De</label>

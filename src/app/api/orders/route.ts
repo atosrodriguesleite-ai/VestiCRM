@@ -372,6 +372,7 @@ export async function POST(req: NextRequest) {
     // O CARTÃO ANDA SOZINHO: montou orçamento → "Pedido em negociação";
     // já foi para aguardando pagamento → "Pagamento pendente". Antes essas
     // duas etapas do meio só existiam se alguém arrastasse o cartão à mão.
+    // (Nomes do funil padrão: a etapa é a que a loja ligou ao marco, RN-091.)
     await avancarFunil(
       user.companyId,
       input.customerId,

@@ -236,6 +236,18 @@ async function main() {
     );
   }
   const stageByName = (n: string) => stages.find((s) => s.name === n)!;
+  // para onde o sistema move o cartão sozinho (RN-091) — sem isso o funil
+  // da loja de exemplo ficaria parado
+  await db.etapaAutomatica.createMany({
+    data: (
+      [
+        ["PRIMEIRO_CONTATO", "Primeiro contato"],
+        ["CATALOGO_ENVIADO", "Catálogo enviado"],
+        ["NEGOCIACAO", "Pedido em negociação"],
+        ["PAGAMENTO", "Pagamento pendente"],
+      ] as const
+    ).map(([marco, nome]) => ({ pipelineId: pipeline.id, marco, stageId: stageByName(nome).id })),
+  });
 
   // ---- clientes ----
   type C = {

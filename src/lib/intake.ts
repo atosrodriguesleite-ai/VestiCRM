@@ -1,3 +1,4 @@
+import { naEtapaViva } from "./funil/etapa-viva";
 import { db } from "./db";
 import { lerHorarioComercial, prazoNoHorario } from "./bi/horario-comercial";
 import { formatPhone, originLabel } from "./format";
@@ -486,28 +487,34 @@ export async function intakeLead(
     !payload.skipOpportunity &&
     (policy === "SEMPRE" || (policy === "SE_NAO_HOUVER_ABERTA" && !hasOpen));
   if (shouldCreateOpp) {
-    const stage = await resolveStage(companyId, payload.origin);
-    if (stage) {
-      opportunity = await db.opportunity.create({
-        data: {
-          companyId,
-          customerId: customer.id,
-          stageId: stage.id,
-          title:
-            payload.opportunityTitle ??
-            `Novo contato via ${channelLabel}`,
-          value: payload.value ?? 0,
-          ownerId: customer.ownerId,
-          status: stage.isWon ? "WON" : stage.isLost ? "LOST" : "OPEN",
-        },
-      });
+    // naEtapaViva: a etapa pode ser apagada pelo editor do funil (RN-091)
+    // entre a leitura e a criação — tenta de novo em vez de perder o lead
+    const nasceu = await naEtapaViva(
+      () => resolveStage(companyId, payload.origin),
+      (stage) =>
+        db.opportunity.create({
+          data: {
+            companyId,
+            customerId: customer.id,
+            stageId: stage.id,
+            title:
+              payload.opportunityTitle ??
+              `Novo contato via ${channelLabel}`,
+            value: payload.value ?? 0,
+            ownerId: customer.ownerId,
+            status: stage.isWon ? "WON" : stage.isLost ? "LOST" : "OPEN",
+          },
+        })
+    );
+    if (nasceu) {
+      opportunity = nasceu.criado;
       await db.customerEvent.create({
         data: {
           companyId,
           customerId: customer.id,
           type: "OPORTUNIDADE",
           channel: payload.origin,
-          description: `Oportunidade criada na etapa "${stage.name}"`,
+          description: `Oportunidade criada na etapa "${nasceu.etapa.name}"`,
         },
       });
     }

@@ -1451,6 +1451,47 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   pelas três portas: tela do pedido, Pix do gateway e loja online. O aparelho
   precisa estar inscrito (Configurações → notificações de venda; iPhone só
   com o app na tela inicial) e as chaves VAPID precisam existir na Vercel.
+  **RN-091 · FUNIL EDITÁVEL — O CARTÃO ANDA PELA ETAPA ESCOLHIDA, NUNCA PELO
+  NOME** (`lib/funil/etapas-regra.ts` + `lib/funil/editor.ts`, botão
+  "Editar etapas" na tela Funil, 21/10/2026, ADR-020): pedido da Sutilli
+  Semijoias — criar, renomear e apagar etapas. **Chave por loja**
+  (`Company.funilEditavelEnabled`, o Super Admin liga no painel Lojas, sem
+  custo) e **só gerência edita** (admin/gerente; vendedora e suporte não —
+  uma etapa apagada com 30 cartões bagunça a loja inteira). **Desligar só
+  esconde o editor**: o funil fica como a loja deixou (voltar ao padrão
+  sozinho mexeria em cartão de cliente). O defeito que impedia isso: o
+  sistema achava as etapas automáticas pelo NOME ("Catálogo enviado"...) e
+  renomear fazia o funil parar de andar em silêncio. Agora cada marco que o
+  sistema reconhece — a vendedora respondeu, a cliente abriu o catálogo,
+  virou orçamento, aguardando pagamento — aponta para uma etapa por id
+  (`EtapaAutomatica`; vários marcos podem ir para a mesma etapa; sem linha =
+  **"não mover"**), escolhida no próprio editor. A migração ligou os funis
+  existentes pela MESMA régua do nome (sem acento/caixa, etapa aberta de
+  menor ordem) e todo lugar que cria funil cria os vínculos junto — nenhuma
+  loja percebe a troca. O "só avança" segue pela ORDEM das etapas, e o
+  editor diz isso. Travas: **ganho e perdido não se apagam** (renomeiam —
+  pedido pago e cancelado levam o cartão para lá), **a primeira etapa é
+  sempre aberta** (porta de entrada do lead), sempre sobra uma aberta, marco
+  só em etapa aberta E ANTES do ganho (depois dele — o "Pós-venda" do
+  padrão — a coluna quer dizer "já vendi", e um pedido aguardando pagamento
+  cairia lá; é também o que segura o ganho no fim: reabrir pedido estornado
+  e o "em fechamento" do Dashboard contam as etapas antes dele, achado da
+  revisão), nome único (sem caixa/acento), teto de 15 etapas.
+  **Apagar exige destino aberto** e leva TUDO junto — cartões, a regra de
+  "em qual etapa cada origem entra" e os marcos ("o que ia para X vai para
+  Y", dito antes do clique). Cada mudança é UMA transação com o funil
+  TRAVADO (`FOR UPDATE`), conferida sobre o banco naquele instante, e fica
+  na Central de Comunicação (`funil.editado`, com quem fez); cartão novo
+  entrando na etapa no segundo da exclusão faz a transação voltar inteira
+  (409, "tente de novo"); e quem CRIA cartão (intake e pedido do catálogo)
+  lendo a etapa um instante antes de ela sumir tenta de novo uma vez
+  (`naEtapaViva`) — o lead e o pedido nunca quebram por causa do editor.
+  Funil SEM nenhum vínculo numa loja SEM o editor (a criada pelo código
+  antigo na janela do deploy) é religado pela régua do nome de carona ao
+  abrir o Funil (`garantirMarcosIniciais`); com o editor ligado, nenhum
+  vínculo é escolha da loja e fica. O estado do editor é buscado ao ABRIR
+  (a tela do Funil abre o tempo todo). Provado contra o Postgres local
+  (`scripts/confere-funil-editavel.ts`).
 - **Central de Atendimento WhatsApp** (`/whatsapp`, tela `inbox.tsx`):
   fila/chats/contatos (vendedora vê os dela + a fila; o interruptor
   **"vê todas as conversas do chat"** na tela Equipe — `User.chatVisaoTotal`,

@@ -186,6 +186,12 @@ async function main() {
     );
   }
   const salesStage = (n: string) => salesStages.find((s) => s.name === n)!;
+  await db.etapaAutomatica.createMany({
+    data: [
+      { pipelineId: salesPipeline.id, marco: "PRIMEIRO_CONTATO", stageId: salesStage("Contato realizado").id },
+      { pipelineId: salesPipeline.id, marco: "NEGOCIACAO", stageId: salesStage("Negociação").id },
+    ],
+  });
 
   // Leads de exemplo da Landing Page (para o pipeline não nascer vazio)
   type DemoLead = {
@@ -329,6 +335,18 @@ async function main() {
     );
   }
   const stageByName = (n: string) => stages.find((s) => s.name === n)!;
+  // para onde o sistema move o cartão sozinho (RN-091) — sem isso o funil
+  // da loja de exemplo ficaria parado
+  await db.etapaAutomatica.createMany({
+    data: (
+      [
+        ["PRIMEIRO_CONTATO", "Primeiro contato"],
+        ["CATALOGO_ENVIADO", "Catálogo enviado"],
+        ["NEGOCIACAO", "Pedido em negociação"],
+        ["PAGAMENTO", "Pagamento pendente"],
+      ] as const
+    ).map(([marco, nome]) => ({ pipelineId: pipeline.id, marco, stageId: stageByName(nome).id })),
+  });
 
   type C = {
     name: string; phone: string; city: string; state: string;

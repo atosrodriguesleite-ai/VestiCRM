@@ -128,11 +128,12 @@ describe("funil: automações certeiras", () => {
   it("avancarFunil não move o cartão de OUTRO pedido", () => {
     const f = ler("src/lib/funil-auto.ts");
     expect(f).toContain('status: "OPEN", order: null');
-    expect(f).toContain("nomeCasaComEtapa");
+    // a etapa é a LIGADA ao marco (RN-091), nunca achada pelo nome
+    expect(f).toContain("etapaDoMarco(companyId, etapa");
   });
-  it("a Regra 2 casa a etapa pelas variantes (não pelo nome exato)", () => {
+  it("a Regra 2 usa a etapa ligada ao marco (não o nome)", () => {
     expect(ler("src/lib/automations.ts")).toContain(
-      'nomeCasaComEtapa(s.name, "CATALOGO_ENVIADO")'
+      'idsDasEtapasDoMarco(user.companyId, "CATALOGO_ENVIADO")'
     );
   });
   it("contato feito só conclui tarefa automática DE CONTATO (lista fechada)", () => {

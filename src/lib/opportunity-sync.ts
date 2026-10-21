@@ -1,6 +1,6 @@
 import { db } from "./db";
 import { PAID_ORDER_STATUSES, orderNumber, A_RECEBER_STATUSES } from "./orders";
-import { nomeCasaComEtapa } from "./funil-auto";
+import { etapaDoMarco } from "./funil/marcos";
 
 /**
  * Sincroniza a oportunidade do funil com o PEDIDO ligado a ela.
@@ -243,14 +243,18 @@ export async function garantirCartaoDoPedido(
       orderBy: { order: "asc" },
       select: { id: true, name: true, isWon: true, isLost: true },
     });
+    // aberto: a etapa que a loja ligou ao marco (RN-091); "não mover" ou
+    // vínculo para etapa fechada caem na primeira aberta
+    const doMarco = pago
+      ? null
+      : await etapaDoMarco(
+          companyId,
+          (A_RECEBER_STATUSES as string[]).includes(order.status) ? "PAGAMENTO" : "NEGOCIACAO"
+        );
     const stage = pago
       ? etapas.find((s) => s.isWon)
-      : (etapas.find((s) =>
-          nomeCasaComEtapa(
-            s.name,
-            (A_RECEBER_STATUSES as string[]).includes(order.status) ? "PAGAMENTO" : "NEGOCIACAO"
-          )
-        ) ?? etapas.find((s) => !s.isWon && !s.isLost));
+      : ((doMarco && !doMarco.isWon && !doMarco.isLost ? doMarco : null) ??
+        etapas.find((s) => !s.isWon && !s.isLost));
     if (!stage) return null;
 
     const dono =

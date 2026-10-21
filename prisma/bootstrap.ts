@@ -66,7 +66,7 @@ async function main() {
   // Pipeline de vendas "Leads do Site"
   const pipeline = await db.pipeline.findFirst({ where: { companyId: company.id } });
   if (!pipeline) {
-    await db.pipeline.create({
+    const criado = await db.pipeline.create({
       data: {
         companyId: company.id,
         name: "Leads do Site",
@@ -80,6 +80,16 @@ async function main() {
           })),
         },
       },
+      include: { stages: { select: { id: true, name: true } } },
+    });
+    // para onde o funil anda sozinho (RN-091): o mesmo que o NOME dava
+    // antes da troca — "Contato realizado" e "Negociação"
+    const ligar = (marco: string, nome: string) => {
+      const etapa = criado.stages.find((st) => st.name === nome);
+      return etapa ? [{ pipelineId: criado.id, marco, stageId: etapa.id }] : [];
+    };
+    await db.etapaAutomatica.createMany({
+      data: [...ligar("PRIMEIRO_CONTATO", "Contato realizado"), ...ligar("NEGOCIACAO", "Negociação")],
     });
     console.log("[bootstrap] Pipeline 'Leads do Site' criado.");
   }

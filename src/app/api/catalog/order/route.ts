@@ -42,6 +42,7 @@ import { resolverLink } from "@/lib/catalogo/tabelas-de-preco-servidor";
 import { comNumeroUnico } from "@/lib/numero-do-pedido";
 import { syncOpportunityValue, garantirCartaoDoPedido } from "@/lib/opportunity-sync";
 import { avancarFunil } from "@/lib/funil-auto";
+import { naEtapaViva } from "@/lib/funil/etapa-viva";
 import { notifyNovoPedido } from "@/lib/notify";
 import { brl } from "@/lib/format";
 import { acharVariacao } from "@/lib/cor-da-peca";
@@ -687,35 +688,38 @@ export async function POST(req: NextRequest) {
     customerCity = linkCustomer.city;
     customerState = linkCustomer.state;
     // pedido do catálogo também vira card no funil
-    const stage =
-      (
-        await db.originRule.findUnique({
-          where: {
-            companyId_origin: {
-              companyId: company.id,
-              origin: "CATALOGO_PUBLICO",
+    // naEtapaViva: a etapa pode ser apagada pelo editor do funil (RN-091)
+    // no meio — tenta de novo em vez de derrubar o pedido
+    const cartao = await naEtapaViva(
+      async () =>
+        (
+          await db.originRule.findUnique({
+            where: {
+              companyId_origin: {
+                companyId: company.id,
+                origin: "CATALOGO_PUBLICO",
+              },
             },
+            include: { stage: true },
+          })
+        )?.stage ??
+        (await db.stage.findFirst({
+          where: { pipeline: { companyId: company.id } },
+          orderBy: { order: "asc" },
+        })),
+      (stage) =>
+        db.opportunity.create({
+          data: {
+            companyId: company.id,
+            customerId: linkCustomer.id,
+            stageId: stage.id,
+            title: `Pedido do catálogo — ${totalPieces} ${totalPieces === 1 ? "peça" : "peças"}`,
+            value: subtotal,
+            status: stage.isWon ? "WON" : stage.isLost ? "LOST" : "OPEN",
           },
-          include: { stage: true },
         })
-      )?.stage ??
-      (await db.stage.findFirst({
-        where: { pipeline: { companyId: company.id } },
-        orderBy: { order: "asc" },
-      }));
-    if (stage) {
-      const opp = await db.opportunity.create({
-        data: {
-          companyId: company.id,
-          customerId: linkCustomer.id,
-          stageId: stage.id,
-          title: `Pedido do catálogo — ${totalPieces} ${totalPieces === 1 ? "peça" : "peças"}`,
-          value: subtotal,
-          status: stage.isWon ? "WON" : stage.isLost ? "LOST" : "OPEN",
-        },
-      });
-      opportunityId = opp.id;
-    }
+    );
+    if (cartao) opportunityId = cartao.criado.id;
   } else {
     // Sem dados: cria um cliente próprio do pedido para o vendedor
     // completar manualmente na tela do pedido.
@@ -740,35 +744,38 @@ export async function POST(req: NextRequest) {
 
     // Cria a oportunidade no Funil mesmo sem telefone — todo pedido do
     // catálogo deve aparecer no funil de vendas para acompanhamento.
-    const stage =
-      (
-        await db.originRule.findUnique({
-          where: {
-            companyId_origin: {
-              companyId: company.id,
-              origin: "CATALOGO_PUBLICO",
+    // naEtapaViva: a etapa pode ser apagada pelo editor do funil (RN-091)
+    // no meio — tenta de novo em vez de derrubar o pedido
+    const cartao = await naEtapaViva(
+      async () =>
+        (
+          await db.originRule.findUnique({
+            where: {
+              companyId_origin: {
+                companyId: company.id,
+                origin: "CATALOGO_PUBLICO",
+              },
             },
+            include: { stage: true },
+          })
+        )?.stage ??
+        (await db.stage.findFirst({
+          where: { pipeline: { companyId: company.id } },
+          orderBy: { order: "asc" },
+        })),
+      (stage) =>
+        db.opportunity.create({
+          data: {
+            companyId: company.id,
+            customerId: anon.id,
+            stageId: stage.id,
+            title: `Pedido do catálogo — ${totalPieces} ${totalPieces === 1 ? "peça" : "peças"}`,
+            value: subtotal,
+            status: stage.isWon ? "WON" : stage.isLost ? "LOST" : "OPEN",
           },
-          include: { stage: true },
         })
-      )?.stage ??
-      (await db.stage.findFirst({
-        where: { pipeline: { companyId: company.id } },
-        orderBy: { order: "asc" },
-      }));
-    if (stage) {
-      const opp = await db.opportunity.create({
-        data: {
-          companyId: company.id,
-          customerId: anon.id,
-          stageId: stage.id,
-          title: `Pedido do catálogo — ${totalPieces} ${totalPieces === 1 ? "peça" : "peças"}`,
-          value: subtotal,
-          status: stage.isWon ? "WON" : stage.isLost ? "LOST" : "OPEN",
-        },
-      });
-      opportunityId = opp.id;
-    }
+    );
+    if (cartao) opportunityId = cartao.criado.id;
   }
 
   // ---- Campos extras do formulário (RN-027) ----

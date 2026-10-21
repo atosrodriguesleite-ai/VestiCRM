@@ -1,3 +1,4 @@
+import type { Marco } from "./funil/etapas-regra";
 import bcrypt from "bcryptjs";
 import { db } from "./db";
 
@@ -15,17 +16,19 @@ import { db } from "./db";
  * auto-contratação amanhã). Diferente do seed, este helper JAMAIS apaga dados.
  */
 
-/** Etapas padrão do funil de moda (nome, cor, ganho, perdido). */
-const DEFAULT_STAGES: [string, string, boolean, boolean][] = [
-  ["Novo lead", "#94a3b8", false, false],
-  ["Primeiro contato", "#38bdf8", false, false],
-  ["Interesse identificado", "#818cf8", false, false],
-  ["Catálogo enviado", "#dbba8b", false, false],
-  ["Pedido em negociação", "#f59e0b", false, false],
-  ["Pagamento pendente", "#fb923c", false, false],
-  ["Pedido fechado", "#10b981", true, false],
-  ["Pós-venda", "#14b8a6", false, false],
-  ["Perdido", "#f43f5e", false, true],
+/** Etapas padrão do funil de moda (nome, cor, ganho, perdido, marco).
+ *  O marco é para onde o sistema move o cartão sozinho (RN-091): o vínculo
+ *  nasce JUNTO com o funil — sem ele, a loja nova teria um funil parado. */
+const DEFAULT_STAGES: [string, string, boolean, boolean, Marco | null][] = [
+  ["Novo lead", "#94a3b8", false, false, null],
+  ["Primeiro contato", "#38bdf8", false, false, "PRIMEIRO_CONTATO"],
+  ["Interesse identificado", "#818cf8", false, false, null],
+  ["Catálogo enviado", "#dbba8b", false, false, "CATALOGO_ENVIADO"],
+  ["Pedido em negociação", "#f59e0b", false, false, "NEGOCIACAO"],
+  ["Pagamento pendente", "#fb923c", false, false, "PAGAMENTO"],
+  ["Pedido fechado", "#10b981", true, false, null],
+  ["Pós-venda", "#14b8a6", false, false, null],
+  ["Perdido", "#f43f5e", false, true, null],
 ];
 
 /** Paleta inicial do catálogo (o lojista personaliza depois). */
@@ -127,7 +130,7 @@ export async function provisionCompany(
       },
     });
 
-    await tx.pipeline.create({
+    const funil = await tx.pipeline.create({
       data: {
         companyId: company.id,
         name: "Funil de vendas",
@@ -141,6 +144,15 @@ export async function provisionCompany(
           })),
         },
       },
+      include: { stages: { select: { id: true, order: true } } },
+    });
+    await tx.etapaAutomatica.createMany({
+      data: DEFAULT_STAGES.flatMap(([, , , , marco], i) => {
+        const etapa = funil.stages.find((st) => st.order === i);
+        return marco && etapa
+          ? [{ pipelineId: funil.id, marco, stageId: etapa.id }]
+          : [];
+      }),
     });
 
     await tx.companyColor.createMany({

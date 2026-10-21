@@ -52,6 +52,7 @@ export type Loja = {
   estoqueEnabled: boolean;
   etiquetasEnabled: boolean;
   biEnabled: boolean;
+  funilEditavelEnabled: boolean;
   suspended: boolean;
   billing: {
     kind: string;
@@ -318,6 +319,7 @@ function NewLojaForm({
           estoqueEnabled: false,
           etiquetasEnabled: false,
           biEnabled: false,
+          funilEditavelEnabled: false,
           suspended: false,
           billing: null,
           lastActiveAt: null,
@@ -867,6 +869,33 @@ function LojaCard({ loja, catalogDomain }: { loja: Loja; catalogDomain: string |
     }
   }
 
+  const [funilEditavel, setFunilEditavel] = useState(loja.funilEditavelEnabled);
+  const [togglingFunil, setTogglingFunil] = useState(false);
+
+  // FUNIL EDITÁVEL (RN-091, sem custo): a gerência da loja edita as etapas.
+  // Desligar só esconde o editor — o funil fica como a loja deixou.
+  async function toggleFunilEditavel() {
+    setTogglingFunil(true);
+    try {
+      const res = await fetch("/api/companies/funil-editavel", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ companyId: loja.id, enabled: !funilEditavel }),
+      });
+      if (res.ok) {
+        setFunilEditavel(!funilEditavel);
+        router.refresh();
+      } else {
+        const d = await res.json().catch(() => null);
+        window.alert(d?.error ?? "Não foi possível mudar o funil editável desta loja.");
+      }
+    } catch {
+      window.alert("Sem conexão. Confira a internet e tente de novo.");
+    } finally {
+      setTogglingFunil(false);
+    }
+  }
+
   // módulo Etiquetas (RN-059): idem
   async function toggleEtiquetas() {
     setTogglingEtq(true);
@@ -1358,6 +1387,29 @@ function LojaCard({ loja, catalogDomain }: { loja: Loja; catalogDomain: string |
           }`}
         >
           {togglingEtq ? "..." : etiquetas ? "Desativar" : "Ativar Etiquetas"}
+        </button>
+      </div>
+
+      {/* funil editável (RN-091) */}
+      <div className="mt-2 flex items-center justify-between gap-2 text-xs">
+        <span className="text-slate-500">
+          Funil editável:{" "}
+          <b className={funilEditavel ? "text-emerald-600" : "text-slate-400"}>
+            {funilEditavel ? "ativado" : "desativado"}
+          </b>
+        </span>
+        <button
+          type="button"
+          onClick={toggleFunilEditavel}
+          disabled={togglingFunil}
+          title={funilEditavel ? "Desligar só esconde o editor: o funil da loja fica como está." : undefined}
+          className={`rounded-full px-2.5 py-1 font-semibold border transition disabled:opacity-50 ${
+            funilEditavel
+              ? "border-slate-200 text-slate-500 hover:border-rose-300 hover:text-rose-600"
+              : "border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
+          }`}
+        >
+          {togglingFunil ? "..." : funilEditavel ? "Desativar" : "Ativar funil editável"}
         </button>
       </div>
 
