@@ -59,6 +59,7 @@ import {
 import { Avatar } from "./ui";
 import { Logo, LogoMark } from "./logo";
 import { NotificationBell } from "./notification-bell";
+import { SinalDeNavegacao } from "./sinal-de-navegacao";
 import { fileToDataUrl } from "@/lib/upload";
 import { grupoDoMenu, itemVisivel, rotuloDoMenu } from "@/lib/menu-grupos";
 
@@ -474,6 +475,13 @@ export function AppShell({
                       className={`size-[18px] shrink-0 transition ${active ? "text-ocre" : "text-creme/40 group-hover:text-creme/80"}`}
                     />
                     {showLabels && rotuloDoItem(item.href, item.label)}
+                    <SinalDeNavegacao
+                      marca={
+                        active
+                          ? undefined
+                          : "absolute left-0 top-1/2 -translate-y-1/2 h-5 w-1 rounded-r-full bg-cobre/60"
+                      }
+                    />
                   </Link>
                 );
               })}
@@ -638,7 +646,7 @@ export function AppShell({
               <Link
                 key={item.href}
                 href={item.href}
-                className={`relative flex flex-col items-center gap-0.5 py-2.5 px-3 text-[10px] font-medium transition ${
+                className={`relative flex flex-col items-center gap-0.5 py-2.5 px-3 text-[10px] font-medium transition active:scale-95 active:opacity-70 ${
                   active ? "text-brand-600" : "text-slate-400"
                 }`}
               >
@@ -647,6 +655,13 @@ export function AppShell({
                 )}
                 <Icon className="size-5" />
                 {item.label}
+                <SinalDeNavegacao
+                  marca={
+                    active
+                      ? undefined
+                      : "absolute top-0 left-1/2 -translate-x-1/2 h-0.5 w-8 rounded-full bg-brand-600/60"
+                  }
+                />
               </Link>
             );
           })}

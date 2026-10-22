@@ -3915,6 +3915,19 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   tráfego (SEM cron novo!) — checa servidor Evolution + conexão por loja,
   alerta sino/push com anti-spam; erros de produção capturados por
   `src/instrumentation.ts` (onRequestError) → painel `/saude` (Super Admin).
+  **Velocidade das telas** (22/10/2026, relato do dono: *"clico numa tela
+  pelo celular e demora uns 3 segundos"*): medido contra o Postgres local
+  com atraso de rede simulado, o tempo de uma tela é quase só (idas ao banco
+  EM FILA) × (quanto custa UMA ida) — com o servidor e o banco em regiões
+  diferentes, ~120 ms cada; na mesma, 1–2 ms. O painel `/saude` mede e DIZ
+  (`lib/velocidade-do-banco.ts`): região do servidor (`VERCEL_REGION`),
+  região do banco (lida do endereço — só região e bandeiras, nunca o
+  segredo), o tempo de uma ida e o conselho; `pgbouncer=true` no endereço é
+  alarme próprio (o Prisma faz BEGIN/DEALLOCATE/COMMIT em volta de CADA
+  consulta: 5 idas em vez de 1, medido). Do lado do código: as regras do
+  "quem chamar hoje" (`computeAutomations`) consultam juntas, e o toque no
+  menu mostra NA HORA a barrinha cobre no topo (`sinal-de-navegacao.tsx`,
+  `useLinkStatus`) — sem ela a tela parecia travada e a pessoa tocava de novo.
 - **Dinheiro** (25/07/2026): Mercado Pago marketplace (Pix com confirmação
   automática via `lib/settle-order.ts`; taxa da plataforma 0,5% em
   `PLATFORM_FEE_PCT`/`feePercent` por loja), tela Financeiro (contas a

@@ -32,16 +32,22 @@ export async function computeAutomations(
   const now = Date.now();
   const days = (n: number) => new Date(now - n * 24 * 60 * 60 * 1000);
 
+  // AS REGRAS SÃO INDEPENDENTES: as consultas saem TODAS JUNTAS ao banco, e
+  // só a montagem da lista segue a ordem das regras. Uma depois da outra,
+  // eram ~16 idas em fila — com o banco a 100 ms, quase 2 s parados antes de
+  // a tela de Tarefas (e o "quem chamar hoje") aparecer.
+  const {
+    staleConvs,
+    catalogOpps,
+    naHora,
+    semNegociacaoAberta,
+    fazendoAniversario,
+    lostOpps,
+    newCustomers,
+    wonOpps,
+  } = await consultarRegras(user, scope, days);
+
   // Regra 1 — cliente sem resposta há 2+ dias em conversa aguardando cliente
-  const staleConvs = await db.conversation.findMany({
-    where: {
-      companyId: user.companyId,
-      status: "WAITING_CLIENT",
-      lastMessageAt: { lt: days(2) },
-      ...(scope.ownerId ? { assigneeId: user.id } : {}),
-    },
-    include: { customer: true },
-  });
   for (const c of staleConvs) {
     suggestions.push({
       key: `sem-resposta:${c.id}`,
@@ -58,18 +64,6 @@ export async function computeAutomations(
   // Regra 2 — catálogo enviado e sem avanço há 3+ dias.
   // A etapa é a que a loja ligou ao marco "abriu o catálogo" (RN-091) — pelo
   // nome, a regra sumia em silêncio quando a etapa era renomeada.
-  const etapasCatalogo = await idsDasEtapasDoMarco(user.companyId, "CATALOGO_ENVIADO");
-  const catalogOpps = etapasCatalogo.length
-    ? await db.opportunity.findMany({
-        where: {
-          ...scope,
-          status: "OPEN",
-          stageId: { in: etapasCatalogo },
-          lastInteractionAt: { lt: days(3) },
-        },
-        include: { customer: true },
-      })
-    : [];
   for (const o of catalogOpps) {
     suggestions.push({
       key: `catalogo-parado:${o.id}`,
@@ -90,18 +84,7 @@ export async function computeAutomations(
   // 3 semanas era chamada tarde (a concorrente já vendeu) e a que compra de 3
   // em 3 meses era incomodada cedo — jeito mais rápido de queimar a relação.
   // Agora o ritmo sai do histórico de compras de cada uma.
-  const naHora = await clientesNaHoraDeComprar(user.companyId, {
-    ownerId: scope.ownerId ?? null,
-  });
   if (naHora.length) {
-    const semNegociacaoAberta = await db.customer.findMany({
-      where: {
-        ...scope,
-        id: { in: naHora.map((c) => c.customerId) },
-        opportunities: { none: { status: "OPEN" } },
-      },
-      select: { id: true, name: true },
-    });
     const nomePorId = new Map(semNegociacaoAberta.map((c) => [c.id, c.name]));
     for (const c of naHora) {
       const nome = nomePorId.get(c.customerId);
@@ -124,10 +107,6 @@ export async function computeAutomations(
   // Regra 7 — ANIVERSÁRIO (hoje e nos próximos 3 dias).
   // É o disparo de maior conversão do ano numa loja de moda, e o campo nem
   // existia. Prioridade máxima: data que passou não volta.
-  const fazendoAniversario = await aniversariantes(user.companyId, {
-    ownerId: scope.ownerId ?? null,
-    ateDias: 3,
-  });
   for (const a of fazendoAniversario) {
     const quando =
       a.emQuantosDias === 0
@@ -151,14 +130,6 @@ export async function computeAutomations(
   // (Antes pegava perdas dos ÚLTIMOS 60 dias — sugeria "reativar" cliente
   // que acabou de dizer não, e parava de sugerir justamente quando o tempo
   // de reaproximação chegava.)
-  const lostOpps = await db.opportunity.findMany({
-    where: {
-      ...scope,
-      status: "LOST",
-      closedAt: { lt: days(30), gt: days(180) },
-    },
-    include: { customer: true },
-  });
   for (const o of lostOpps) {
     suggestions.push({
       key: `reativar-perdido:${o.id}`,
@@ -174,14 +145,6 @@ export async function computeAutomations(
   }
 
   // Regra 5 — cliente novo sem primeiro contato
-  const newCustomers = await db.customer.findMany({
-    where: {
-      ...scope,
-      createdAt: { gt: days(3) },
-      lastContactAt: null,
-      tasks: { none: {} },
-    },
-  });
   for (const c of newCustomers) {
     suggestions.push({
       key: `primeiro-contato:${c.id}`,
@@ -201,15 +164,6 @@ export async function computeAutomations(
   // "confirme se chegou bem" no mesmo dia não fazia sentido nenhum (a
   // lojista estranhou, com razão). A janela é 5–14 dias após o fechamento:
   // tempo de o pedido chegar, e ainda quente para pedir o feedback.
-  const wonOpps = await db.opportunity.findMany({
-    where: {
-      ...scope,
-      status: "WON",
-      closedAt: { gt: days(14), lt: days(5) },
-      tasks: { none: { type: "POS_VENDA" } },
-    },
-    include: { customer: true },
-  });
   for (const o of wonOpps) {
     suggestions.push({
       key: `pos-venda:${o.id}`,
@@ -277,4 +231,93 @@ export async function computeAutomations(
   });
   const jaChamadas = new Set(chamadasHoje.map((c) => c.customerId));
   return vivas.filter((s) => !jaChamadas.has(s.customerId));
+}
+
+/**
+ * As consultas das regras, todas de uma vez. Cada uma é exatamente a que a
+ * regra fazia antes, no lugar dela — só deixaram de esperar a anterior. A
+ * única que depende de outra é a da recompra (precisa da lista de quem está
+ * na hora), e ela anda na própria fila, em paralelo com as demais.
+ */
+async function consultarRegras(
+  user: SessionUser,
+  scope: ReturnType<typeof ownedScope>,
+  days: (n: number) => Date
+) {
+  const [staleConvs, catalogOpps, recompra, fazendoAniversario, lostOpps, newCustomers, wonOpps] =
+    await Promise.all([
+      db.conversation.findMany({
+        where: {
+          companyId: user.companyId,
+          status: "WAITING_CLIENT",
+          lastMessageAt: { lt: days(2) },
+          ...(scope.ownerId ? { assigneeId: user.id } : {}),
+        },
+        include: { customer: true },
+      }),
+      idsDasEtapasDoMarco(user.companyId, "CATALOGO_ENVIADO").then((etapasCatalogo) =>
+        etapasCatalogo.length
+          ? db.opportunity.findMany({
+              where: {
+                ...scope,
+                status: "OPEN",
+                stageId: { in: etapasCatalogo },
+                lastInteractionAt: { lt: days(3) },
+              },
+              include: { customer: true },
+            })
+          : []
+      ),
+      clientesNaHoraDeComprar(user.companyId, { ownerId: scope.ownerId ?? null }).then(
+        async (naHora) => ({
+          naHora,
+          semNegociacaoAberta: naHora.length
+            ? await db.customer.findMany({
+                where: {
+                  ...scope,
+                  id: { in: naHora.map((c) => c.customerId) },
+                  opportunities: { none: { status: "OPEN" } },
+                },
+                select: { id: true, name: true },
+              })
+            : [],
+        })
+      ),
+      aniversariantes(user.companyId, { ownerId: scope.ownerId ?? null, ateDias: 3 }),
+      db.opportunity.findMany({
+        where: {
+          ...scope,
+          status: "LOST",
+          closedAt: { lt: days(30), gt: days(180) },
+        },
+        include: { customer: true },
+      }),
+      db.customer.findMany({
+        where: {
+          ...scope,
+          createdAt: { gt: days(3) },
+          lastContactAt: null,
+          tasks: { none: {} },
+        },
+      }),
+      db.opportunity.findMany({
+        where: {
+          ...scope,
+          status: "WON",
+          closedAt: { gt: days(14), lt: days(5) },
+          tasks: { none: { type: "POS_VENDA" } },
+        },
+        include: { customer: true },
+      }),
+    ]);
+  return {
+    staleConvs,
+    catalogOpps,
+    naHora: recompra.naHora,
+    semNegociacaoAberta: recompra.semNegociacaoAberta,
+    fazendoAniversario,
+    lostOpps,
+    newCustomers,
+    wonOpps,
+  };
 }

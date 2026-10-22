@@ -18,6 +18,13 @@ import { db } from "@/lib/db";
 import { isSuperAdmin } from "@/lib/scope";
 import { evolutionEnv } from "@/lib/comm/evolution";
 import { Card, PageHeader } from "@/components/ui";
+import {
+  diagnosticarVelocidade,
+  lerEnderecoDoBanco,
+  medirIdaAoBanco,
+  nomeDaRegiaoAws,
+  nomeDaRegiaoVercel,
+} from "@/lib/velocidade-do-banco";
 import { dateShort, timeShort } from "@/lib/format";
 import {
   diagnosticoLoja,
@@ -63,6 +70,13 @@ export default async function HealthPage() {
   const h24 = new Date(agora.getTime() - 24 * 60 * 60 * 1000);
   const d7 = new Date(agora.getTime() - 7 * 24 * 60 * 60 * 1000);
   const presaCorte = new Date(agora.getTime() - MINUTOS_PRESA * 60 * 1000);
+
+  // velocidade: medida ANTES das outras consultas, sozinha — com elas
+  // correndo junto, a medida diria o tempo da fila, não o da distância
+  const banco = lerEnderecoDoBanco(process.env.DATABASE_URL);
+  const regiaoServidor = process.env.VERCEL_REGION ?? null;
+  const idaMs = await medirIdaAoBanco(() => db.$queryRaw`SELECT 1`);
+  const velocidade = diagnosticarVelocidade({ regiaoServidor, banco, idaMs });
 
   const [health, storesRaw, errors, errors24, errosWebhook24, trafego, telasVersaoVelha24, recusasCatalogo] = await Promise.all([
     db.systemHealth.findUnique({ where: { id: "main" } }),
@@ -225,6 +239,33 @@ export default async function HealthPage() {
           </p>
         )}
       </div>
+
+      {/* ---- Velocidade: onde moram o servidor e o banco ---- */}
+      <Card className={`mb-6 p-4 border ${tomNivel[velocidade.nivel]}`}>
+        <p className="text-[11px] font-bold uppercase tracking-wide opacity-70">
+          Velocidade das telas
+        </p>
+        <div className="mt-2 grid gap-2 sm:grid-cols-3 text-sm">
+          <p>
+            <span className="opacity-70">Servidor: </span>
+            <b>{nomeDaRegiaoVercel(regiaoServidor)}</b>
+          </p>
+          <p>
+            <span className="opacity-70">Banco: </span>
+            <b>{nomeDaRegiaoAws(banco.regiao)}</b>
+            {banco.pooler && <span className="opacity-70"> · pooler</span>}
+          </p>
+          <p>
+            <span className="opacity-70">Uma ida ao banco: </span>
+            <b>{idaMs == null ? "não medida" : `${idaMs} ms`}</b>
+          </p>
+        </div>
+        <ul className="mt-2 space-y-1 text-sm">
+          {velocidade.frases.map((f, i) => (
+            <li key={i}>• {f}</li>
+          ))}
+        </ul>
+      </Card>
 
       {/* ---- Números da plataforma ---- */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
