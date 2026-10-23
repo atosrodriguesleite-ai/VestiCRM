@@ -217,6 +217,78 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   loja. A quebra aparece na conta de erros da Saúde. A cura de raiz do
   caso "versão velha" é a **Skew Protection da Vercel** (Settings →
   Advanced, plano Pro) — é um botão do dono; o código só se recupera.
+  **RN-095 · A ABERTURA QUE NÃO TERMINA NÃO FICA BRANCA**
+  (`lib/vigia-da-abertura.ts` no `<body>` do layout raiz, `public/sw.js` +
+  `components/registrar-sw.tsx`, 23/10/2026, ADR-022): relato do dono —
+  *"outra cliente foi tentar acessar o aplicativo pelo celular, pela
+  Starlink do carro, e a tela fica toda branca… já é o segundo cliente"*. A
+  RN-066 não alcança esse caso, e a bancada mostrou por quê
+  (`scripts/bancada-tela-branca.mjs`, Chromium com prints): em TODO cenário
+  em que a página CHEGA — sem JavaScript, sem CSS, sem os pedaços de código
+  — há algo na tela; o branco total só aparece quando a página **não chega
+  ou chega CORTADA**. E cortada é fácil: no celular, o primeiro pedaço
+  visível (o esqueleto de carregamento) só vem por volta de **25% do
+  arquivo** — tudo antes dele é o menu lateral, escondido no celular. A
+  conexão que cai entre 3% e 25% (troca de satélite, túnel) deixa o
+  navegador com o fundo e nada mais, **para sempre, sem erro e sem botão**
+  — a tela de socorro é JavaScript, e o JavaScript nunca chegou. Três
+  peças: (1) **o vigia viaja nos PRIMEIROS bytes**: script miúdo em
+  JavaScript antigo, primeiro filho do `<body>` (chega junto com o `<head>`,
+  a ~3%), sem dependência nenhuma, que observa o **marcador** que o layout
+  raiz põe como ÚLTIMO filho do `<body>` (`ID_FIM_DA_PAGINA` — o esqueleto
+  da página chegou inteiro). **Só fala com CERTEZA**: a página terminou
+  (`load`) sem o marcador e sem nada visível → aviso na hora; o download
+  **PAROU** — nenhum nó novo chegou, medido pela contagem de nós, não pelo
+  relógio: num link de 15 kbps a página demora mas anda, e um aviso ali
+  faria a pessoa recomeçar do zero (achado da revisão) — por 12 s sem nada
+  visível, ou por 40 s mesmo com algo na tela → aviso; presa no esqueleto
+  `aria-busy` do app por 40 s **depois de ele aparecer** → aviso; 60 s sem a
+  página inteira, mesmo andando → aviso. "Visível" é texto, imagem, botão ou
+  caixa pintada — um contêiner vazio com altura NÃO conta, é a própria tela
+  branca (a primeira versão contava, e o aviso nunca saía). O aviso é em
+  português, com o botão "Tentar de novo", e **nunca recarrega sozinho com
+  internet** (a régua da RN-066); **sem internet** diz "sem conexão", mostra
+  o botão e recarrega UMA vez no evento `online` (o caso do app instalado do
+  iPhone, que offline mostra branco sem botão). Se a página terminar de
+  chegar depois do aviso, ele some. **Depois que a página chegou inteira, o
+  vigia se cala para sempre**: a navegação seguinte dentro do app (mesmo
+  esqueleto) e a tela de socorro da RN-066 (troca o corpo e leva o marcador)
+  não são assunto dele — sem isso, a navegação lenta aos 45 s ganhava o
+  aviso errado (achado da revisão). Um laço só, a cada 2 s (o `load` confere
+  na hora, sem abrir um segundo relógio). (2) **O service worker passa a
+  existir em todo aparelho logado** (antes só quem ligava as notificações de
+  venda o tinha) e ganha UMA tarefa nova: quando a **navegação não alcança o
+  servidor** (a promessa do `fetch` rejeita — sem internet, rede caída),
+  responde a página "Sem conexão" **escrita no próprio arquivo**, com o botão
+  e a volta automática no `online` em HTML puro. **Rede primeiro, sempre, e
+  NENHUM cache**: resposta do servidor (200, 404, 500) passa como veio —
+  assim não existe "versão velha servida pelo service worker", o defeito
+  clássico de app instalado (ADR-022); e a página de reserva não é guardada
+  do app porque, guardada, ela precisaria do código do React para o botão
+  funcionar, e offline esse código não vem — a primeira versão tinha uma
+  página `/offline` em cache com botão morto (achado da revisão). Só
+  navegação, só a própria origem; API, fotos e código seguem direto; e a
+  navegação sai em paralelo com a partida do worker (`navigationPreload`),
+  senão cada abertura esperaria o worker acordar. O catálogo público NÃO
+  registra o service worker (o navegador de dentro do WhatsApp muitas vezes
+  nem tem) — lá quem segura a tela branca é o vigia. (3) **Fica CONTADO**: o
+  vigia guarda o relato no aparelho pelo MESMO caminho da RN-066
+  (`CHAVE_RELATO_PENDENTE`, com a marca `abertura: true`; não sobrescreve um
+  relato de quebra de código que espera para sair) e o `EnviarRelatoDeErro`
+  o manda no próximo carregamento que der certo, com login. A fonte é
+  própria (`tela.abertura`): é a conexão da pessoa, não o código — **fora da
+  conta de erros** da Saúde e da Gestão, mas em **bloco próprio** na Saúde
+  ("Telas que não terminaram de carregar", 7 dias, com caminho, navegador e
+  se tinha internet), para se SABER quantas aberturas falham e de onde —
+  muitas da mesma loja ou do mesmo navegador são pista. **Limites ditos**: o
+  vigia só vê a página que CHEGOU em parte; a que não chegou nada é do
+  service worker (só em aparelho que já abriu o app logado uma vez e tem
+  suporte) ou do navegador; o relato da cliente final do catálogo nunca
+  chega (não tem login, a régua da RN-066); e a causa de REDE da cliente
+  (Starlink em movimento, bloqueio por navegador) não se conserta daqui — o
+  que se conserta é a tela muda. Provado pelo script em jsdom
+  (`vigia-da-abertura.test.ts`, o script de verdade com relógio falso) e
+  pela bancada no Chromium contra o build de produção local.
   **RN-045 · Código de login pelo WhatsApp em aparelho novo**
   (`lib/auth-codigo.ts`, 02/09/2026): segundo fator do jeito deste público —
   nada de app autenticador; o código de 6 dígitos chega no WhatsApp da
@@ -4146,6 +4218,18 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   número e o teste `calendario-comercial.test.ts` que o fixa. A lista de
   segmentos e datas de oportunidade (`lib/calendario/datas.ts`) foi montada
   para o dono revisar.
+- 🟡 **Tela branca na abertura (RN-095, 23/10/2026)**: a tela muda virou
+  aviso com botão, e o painel de Saúde passou a CONTAR as aberturas que não
+  terminam (bloco "Telas que não terminaram de carregar"). A causa de rede
+  das duas clientes segue em aberto — olhar esse bloco na semana seguinte à
+  entrega (qual loja, qual navegador, com ou sem internet). Próximo passo
+  possível, não feito: no celular o cabeçalho (`md:hidden`) chega DEPOIS do
+  menu lateral de computador no HTML (`app-shell.tsx`), então a primeira
+  coisa visível só vem a ~25% do arquivo; desenhar o cabeçalho do celular
+  antes do menu traria o primeiro pixel para ~5% (mexe na ordem de foco do
+  teclado no computador — decidir antes). Botões do dono na Vercel:
+  Firewall (modo "challenge" barra o navegador de dentro do WhatsApp) e Skew
+  Protection (RN-066).
 - WhatsApp/Evolution: operacional em produção (conexão, tempo real, mídia).
   **Pendente**: ligar `DATABASE_SAVE_DATA_HISTORIC/NEW_MESSAGE/CHATS/CONTACTS=true`
   no compose do servidor Evolution (Hostinger, via Editor .yaml) e reconectar

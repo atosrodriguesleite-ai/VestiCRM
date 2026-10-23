@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Archivo, Spline_Sans_Mono } from "next/font/google";
 import "./globals.css";
 import { KeyboardInset } from "@/components/keyboard-inset";
+import { ID_FIM_DA_PAGINA, SCRIPT_DO_VIGIA } from "@/lib/vigia-da-abertura";
 
 // Tipografia do manual da marca: Archivo é a voz (títulos e corpo);
 // Spline Sans Mono entra apenas em rótulos, dados e legendas.
@@ -44,8 +45,16 @@ export default function RootLayout({
   return (
     <html lang="pt-BR">
       <body className={`${archivo.variable} ${splineMono.variable} font-sans antialiased`}>
+        {/* RN-095 · o vigia da abertura é o PRIMEIRO filho do body: chega
+            junto com o <head>, antes de qualquer tela, e sem depender de
+            nada — é ele que troca a tela branca de uma página que chegou
+            cortada pelo aviso com o botão (`lib/vigia-da-abertura.ts`) */}
+        <script dangerouslySetInnerHTML={{ __html: SCRIPT_DO_VIGIA }} />
         <KeyboardInset />
         {children}
+        {/* …e o marcador é o ÚLTIMO: quando ele existe, o esqueleto da
+            página chegou inteiro */}
+        <span id={ID_FIM_DA_PAGINA} hidden />
       </body>
     </html>
   );

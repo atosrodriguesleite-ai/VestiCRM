@@ -5,6 +5,7 @@ import { roleLabel } from "@/lib/format";
 import { AppShell } from "@/components/app-shell";
 import { InstallPrompt } from "./install-prompt";
 import { EnviarRelatoDeErro } from "@/components/enviar-relato-de-erro";
+import { RegistrarServiceWorker } from "@/components/registrar-sw";
 
 export default async function AppLayout({
   children,
@@ -69,6 +70,7 @@ export default async function AppLayout({
         {children}
         <InstallPrompt />
         <EnviarRelatoDeErro />
+        <RegistrarServiceWorker />
       </AppShell>
     </div>
   );
