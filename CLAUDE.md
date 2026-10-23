@@ -2637,7 +2637,32 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
 - **Integrações de produto/estoque**: **RN-014 · Nuvemshop** (OAuth com state
   assinado, webhooks HMAC; a Nuvemshop é a DONA do estoque; casamento de
   produtos SÓ por SKU; venda paga → `ingestPaidOrder` cria Order PAGO
-  direto). O SKU é comparado pelo que a lojista VÊ (`norm`): acento, caixa e
+  direto). **A venda paga chega em AVISOS IRMÃOS e nasce UMA VEZ SÓ**
+  (`lib/nuvemshop-aviso-irmao.ts`, 23/10/2026): a Nuvemshop manda
+  `order/paid` + `order/updated` no mesmo segundo para o MESMO pedido, cada um
+  numa execução própria. O índice único `(companyId, nuvemshopId)` sempre
+  barrou a cópia, mas o aviso perdedor respondia 500 e tocava o alarme "🚨
+  Erro em produção" a cada venda da loja online — e o alarme tem o intervalo
+  de 15 min compartilhado com as emergências de verdade (régua da RN-066);
+  a venda SEM telefone ainda deixava uma cliente órfã por aviso. Agora é o
+  padrão da casa (RN-043/RN-073): **fila por (loja, pedido de lá)**
+  (`pg_advisory_xact_lock` numa transação curta, com "já existe?", a cliente
+  sem telefone — reaproveitada se já existe, o telefone é único por loja — e
+  a criação lá dentro) — o irmão ESPERA, encontra o pedido pronto e devolve
+  o dele sem criar pedido nem cliente, e sem repetir o pós-venda; e, como
+  segunda tranca, criação que falhou por QUALQUER motivo relê o pedido — a
+  prova de que o irmão criou é ele existir, não o nome do índice que barrou
+  (no carrinho abandonado quem barra primeiro é o `opportunityId`). A corrida
+  de NÚMERO com o pedido do painel segue na régua dela (`comNumeroUnico`) e
+  qualquer outro erro continua subindo como 500, porque a Nuvemshop só
+  reenvia quando recebe erro. **Limites ditos**: o intake da cliente COM
+  telefone roda nos dois avisos, antes da fila (ele tem o dedup e a trava
+  dele; o que sobra é a linha "Nova interação" em dobro na linha do tempo);
+  e, como já era no atalho "já existe", se quem criou morreu DEPOIS de
+  gravar, o reenvio devolve o pedido sem refazer o pós-venda. Provado contra
+  o Postgres local (`scripts/e2e-nuvemshop-aviso-irmao.ts`). O SKU é
+  comparado pelo que a lojista VÊ
+  (`norm`): acento, caixa e
   **espaço** não contam — o espaço dobrado sem querer e o INVISÍVEL colado da
   planilha (nbsp) travavam o estoque em silêncio (31/08/2026). Diferença de
   verdade (pontuação, sufixo) segue NÃO casando — afrouxar aqui joga o

@@ -1,5 +1,6 @@
 import crypto from "crypto";
 import { after } from "next/server";
+import type { Prisma } from "@prisma/client";
 import { db } from "./db";
 import { encryptSecret, decryptSecret } from "./crypto";
 import { intakeLead, normalizePhone } from "./intake";
@@ -11,6 +12,7 @@ import { sincronizarPedidoSemQuebrar } from "./financeiro/porta-vendas";
 import { avisarVendaPagaSemQuebrar } from "./push";
 import { winLinkedOpportunity, garantirCartaoDoPedido } from "./opportunity-sync";
 import { comNumeroUnico } from "./numero-do-pedido";
+import { criarVendaDaNuvemshopUmaVez, travarVendaDaNuvemshop } from "./nuvemshop-aviso-irmao";
 import { limparDescricaoHtml, temEntidadeHtml } from "./descricao-limpa";
 import { logServerError } from "./health";
 import {
@@ -1576,16 +1578,22 @@ export async function ingestPaidOrder(companyId: string, nsOrderId: string) {
   if (!res.ok || !o) return null;
 
   const nsId = String(o.id);
-  const done = await db.order.findUnique({
-    where: { companyId_nuvemshopId: { companyId, nuvemshopId: nsId } },
-  });
+  // UMA leitura para o atalho e para a fila: duas cópias da mesma consulta
+  // um dia divergem (achado da revisão)
+  const relerExistente = (tx: Prisma.TransactionClient | null) =>
+    (tx ?? db).order.findUnique({
+      where: { companyId_nuvemshopId: { companyId, nuvemshopId: nsId } },
+    });
+  const done = await relerExistente(null);
   if (done) return done; // idempotente: webhook repetido não duplica
 
-  // cliente no CRM (deduplicado por telefone; sem telefone usa e-mail no nome)
+  // cliente no CRM (deduplicado por telefone — o intake tem a trava dele);
+  // SEM telefone a cliente nasce dentro da fila da venda, mais abaixo: aqui
+  // fora, cada aviso irmão criava a sua e uma ficava órfã (achado da revisão)
   const nome = o.customer?.name || o.contact_name || "Cliente da loja online";
   const fone = o.customer?.phone || o.contact_phone || "";
   const email = o.customer?.email || o.contact_email || undefined;
-  let customerId: string;
+  let customerId: string | null = null;
   if (fone.replace(/\D/g, "").length >= 8) {
     const lead = await intakeLead(companyId, {
       phone: fone,
@@ -1597,43 +1605,7 @@ export async function ingestPaidOrder(companyId: string, nsOrderId: string) {
       skipOpportunity: true,
     });
     customerId = lead.customer.id;
-  } else {
-    const c = await db.customer.create({
-      data: {
-        companyId,
-        name: nome,
-        phone: `ns-${nsId}`,
-        origin: "NUVEMSHOP",
-      },
-    });
-    customerId = c.id;
   }
-  // ficha completa: e-mail, CPF/CNPJ e endereço inteiro (sem apagar o que já
-  // estiver preenchido na ficha)
-  const atual = await db.customer.findUnique({ where: { id: customerId } });
-  const end = o.shipping_address ?? {};
-  await db.customer.update({
-    where: { id: customerId },
-    data: {
-      ...(email && !atual?.email ? { email } : {}),
-      // a Nuvemshop manda UM campo "identification": 14 dígitos é CNPJ, 11 é
-      // CPF — cada um vai para a sua coluna, sem apagar o que já existe
-      ...(() => {
-        const d = separarDocumento(o.customer?.identification);
-        return {
-          ...(d.cpf && !atual?.cpf ? { cpf: d.cpf } : {}),
-          ...(d.cnpj && !atual?.cnpj ? { cnpj: d.cnpj } : {}),
-        };
-      })(),
-      ...(end.zipcode && !atual?.zip ? { zip: end.zipcode } : {}),
-      ...(end.address && !atual?.street ? { street: end.address } : {}),
-      ...(end.number && !atual?.streetNumber ? { streetNumber: end.number } : {}),
-      ...(end.floor && !atual?.complement ? { complement: end.floor } : {}),
-      ...(end.locality && !atual?.district ? { district: end.locality } : {}),
-      ...(end.city && !atual?.city ? { city: end.city } : {}),
-      ...(end.province && !atual?.state ? { state: end.province } : {}),
-    },
-  });
 
   // itens ligados às variações espelhadas (vínculo por id da Nuvemshop)
   const lines: {
@@ -1678,58 +1650,122 @@ export async function ingestPaidOrder(companyId: string, nsOrderId: string) {
   // o cartão continuava aberto e a vendedora ia cobrar quem já tinha pagado.
   // Mesma regra do pedido montado no sistema: negociação aberta mais recente
   // da cliente que ainda não tem pedido (o vínculo é 1-para-1).
-  const negociacaoAberta = await db.opportunity.findFirst({
-    where: { companyId, customerId, status: "OPEN", order: null },
-    orderBy: { createdAt: "desc" },
-    select: { id: true },
-  });
-  // comNumeroUnico: a venda online chega junto com pedido do painel/catálogo
-  // e disputa o mesmo número — quem perde a corrida lê de novo e insiste
-  const order = await comNumeroUnico(async () => {
-    const last = await db.order.findFirst({
-      where: { companyId },
-      orderBy: { number: "desc" },
-      select: { number: true },
-    });
-    return db.order.create({
-    data: {
-      companyId,
-      number: (last?.number ?? 0) + 1,
-      customerId,
-      opportunityId: negociacaoAberta?.id ?? null,
-      status: "PAGO",
-      source: "NUVEMSHOP",
-      nuvemshopId: nsId,
-      subtotal,
-      shippingFee,
-      netTotal,
-      total,
-      // já nasce pago: a data do dinheiro é agora (é ela que conta no mês)
-      paidAt: new Date(),
-      // estoque NÃO baixa aqui: a Nuvemshop já baixou (é a dona) — o espelho
-      // chega pelo refresh abaixo. Uma venda, uma baixa.
-      stockDeducted: true,
-      notes: `Venda da loja online (Nuvemshop #${o.number ?? nsId})`,
-      items: {
-        create: lines.map((l) => ({
-          productId: l.productId,
-          variantId: l.variantId,
-          name: l.name,
-          sku: l.sku,
-          color: l.color,
-          size: l.size,
-          quantity: l.quantity,
-          unitPrice: l.unitPrice,
-          total: round2(l.quantity * l.unitPrice),
-        })),
+  //
+  // A FILA DOS AVISOS IRMÃOS (`nuvemshop-aviso-irmao.ts`): a Nuvemshop manda
+  // paid + updated no mesmo segundo para o MESMO pedido. Trava por (loja,
+  // pedido de lá), "já existe?" e a criação na mesma transação curta — o
+  // irmão espera, encontra o pedido pronto e devolve o dele, em vez de 500 +
+  // alarme (painel de Saúde, 23/10/2026). comNumeroUnico por fora: a venda
+  // online também disputa o NÚMERO com o pedido do painel/catálogo — quem
+  // perde essa corrida lê de novo e insiste.
+  const { pedido: order, criadoPeloIrmao } = await comNumeroUnico(() =>
+    criarVendaDaNuvemshopUmaVez({
+      emTransacao: (fn) => db.$transaction(fn, { maxWait: 10_000, timeout: 20_000 }),
+      travar: (tx: Prisma.TransactionClient) => travarVendaDaNuvemshop(tx, companyId, nsId),
+      relerExistente,
+      criar: async (tx) => {
+        // sem telefone a cliente é "ns-<id>" — e o telefone é único por loja:
+        // o pedido apagado aqui e reenviado pela Nuvemshop reaproveita a ficha
+        // (criar de novo batia no índice e virava 500 para sempre, achado da
+        // revisão)
+        const cid =
+          customerId ??
+          (
+            await tx.customer.findFirst({
+              where: { companyId, phone: `ns-${nsId}` },
+              select: { id: true },
+            })
+          )?.id ??
+          (
+            await tx.customer.create({
+              data: { companyId, name: nome, phone: `ns-${nsId}`, origin: "NUVEMSHOP" },
+            })
+          ).id;
+        const negociacaoAberta = await tx.opportunity.findFirst({
+          where: { companyId, customerId: cid, status: "OPEN", order: null },
+          orderBy: { createdAt: "desc" },
+          select: { id: true },
+        });
+        const last = await tx.order.findFirst({
+          where: { companyId },
+          orderBy: { number: "desc" },
+          select: { number: true },
+        });
+        return tx.order.create({
+          data: {
+            companyId,
+            number: (last?.number ?? 0) + 1,
+            customerId: cid,
+            opportunityId: negociacaoAberta?.id ?? null,
+            status: "PAGO",
+            source: "NUVEMSHOP",
+            nuvemshopId: nsId,
+            subtotal,
+            shippingFee,
+            netTotal,
+            total,
+            // já nasce pago: a data do dinheiro é agora (é ela que conta no mês)
+            paidAt: new Date(),
+            // estoque NÃO baixa aqui: a Nuvemshop já baixou (é a dona) — o espelho
+            // chega pelo refresh abaixo. Uma venda, uma baixa.
+            stockDeducted: true,
+            notes: `Venda da loja online (Nuvemshop #${o.number ?? nsId})`,
+            items: {
+              create: lines.map((l) => ({
+                productId: l.productId,
+                variantId: l.variantId,
+                name: l.name,
+                sku: l.sku,
+                color: l.color,
+                size: l.size,
+                quantity: l.quantity,
+                unitPrice: l.unitPrice,
+                total: round2(l.quantity * l.unitPrice),
+              })),
+            },
+          },
+        });
       },
+    })
+  );
+  // o irmão criou: o pós-venda (ficha, evento, funil, estoque, aviso,
+  // financeiro) é dele — repetir aqui gravaria o evento da cliente em dobro.
+  // Limite que já era do atalho `done` acima: se quem criou morreu DEPOIS de
+  // gravar, o reenvio da Nuvemshop cai aqui e o pós-venda não é refeito
+  if (criadoPeloIrmao) return order;
+  const clienteId = order.customerId;
+
+  // ficha completa: e-mail, CPF/CNPJ e endereço inteiro (sem apagar o que já
+  // estiver preenchido na ficha)
+  const atual = await db.customer.findUnique({ where: { id: clienteId } });
+  const end = o.shipping_address ?? {};
+  await db.customer.update({
+    where: { id: clienteId },
+    data: {
+      ...(email && !atual?.email ? { email } : {}),
+      // a Nuvemshop manda UM campo "identification": 14 dígitos é CNPJ, 11 é
+      // CPF — cada um vai para a sua coluna, sem apagar o que já existe
+      ...(() => {
+        const d = separarDocumento(o.customer?.identification);
+        return {
+          ...(d.cpf && !atual?.cpf ? { cpf: d.cpf } : {}),
+          ...(d.cnpj && !atual?.cnpj ? { cnpj: d.cnpj } : {}),
+        };
+      })(),
+      ...(end.zipcode && !atual?.zip ? { zip: end.zipcode } : {}),
+      ...(end.address && !atual?.street ? { street: end.address } : {}),
+      ...(end.number && !atual?.streetNumber ? { streetNumber: end.number } : {}),
+      ...(end.floor && !atual?.complement ? { complement: end.floor } : {}),
+      ...(end.locality && !atual?.district ? { district: end.locality } : {}),
+      ...(end.city && !atual?.city ? { city: end.city } : {}),
+      ...(end.province && !atual?.state ? { state: end.province } : {}),
     },
-    });
   });
+
   await db.customerEvent.create({
     data: {
       companyId,
-      customerId,
+      customerId: clienteId,
       type: "PEDIDO",
       channel: "NUVEMSHOP",
       description: `Compra na loja online — R$ ${total.toFixed(2).replace(".", ",")}`,
@@ -1738,7 +1774,7 @@ export async function ingestPaidOrder(companyId: string, nsOrderId: string) {
   // marca a última compra do cliente (alimenta "inativos" e segmentação),
   // igual ao fluxo manual de pedido pago
   await db.customer.update({
-    where: { id: customerId },
+    where: { id: clienteId },
     data: { lastPurchaseAt: new Date(), lastContactAt: new Date() },
   });
 
