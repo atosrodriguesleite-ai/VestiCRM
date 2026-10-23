@@ -1492,6 +1492,68 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   vínculo é escolha da loja e fica. O estado do editor é buscado ao ABRIR
   (a tela do Funil abre o tempo todo). Provado contra o Postgres local
   (`scripts/confere-funil-editavel.ts`).
+- **RN-092 · CALENDÁRIO COMERCIAL: DATAS DO SISTEMA CALCULADAS, ANTECEDÊNCIA
+  DA LOJA, LEMBRETE UMA VEZ POR DATA** (`lib/calendario/datas.ts` +
+  `dados.ts` + `lembrete.ts`, aba `/calendario`, 23/10/2026): pedido do dono
+  — uma aba com chave com **três categorias**: datas comerciais, datas de
+  oportunidade (pelo nicho e segmento do público) e lançamentos (coleção ou
+  modelo novo). Decidido com ele: (1) **módulo com chave**
+  (`Company.calendarioEnabled`, o Super Admin liga por loja no painel
+  Lojas; catálogo `CALENDARIO` com preço de tabela 0 até o dono definir) e
+  **só a gerência vê e edita** (porteira `lib/calendario/gate.ts`, rotas
+  por `comPorteira`, handler por handler — o teste varre); desligar só
+  esconde a aba, as datas e anotações ficam. (2) **As datas do sistema são
+  CALCULADAS, nunca gravadas ano a ano**: Páscoa (algoritmo gregoriano),
+  Carnaval (Páscoa − 47), Mães e Pais (2º domingo de maio e de agosto) e
+  Black Friday (a sexta depois da 4ª quinta de novembro) mudam de dia
+  sozinhas — digitadas, um dia faltaria o ano seguinte. As **comerciais**
+  valem para toda loja (Carnaval, Dia da Mulher, Consumidor, Páscoa, Mães,
+  Namorados, São João, Pais, Cliente, Crianças, Black Friday, Natal,
+  Réveillon); as de **oportunidade** entram pelos **segmentos** que a loja
+  marca (`calendarioSegmentos`), numa **lista FECHADA mantida no código** e
+  revisada com o dono — sem inteligência artificial, a régua do Estoque
+  (RN-052): só entra data conhecida (estações, volta às aulas, metas de
+  janeiro, projeto verão, formaturas, Dia do Jeans, Dia da Gestante, ciclo
+  junino…); a mesma data em dois segmentos é UMA (mesma chave) com os dois
+  nomes; segmento que não existe é ignorado. A loja **esconde** a data do
+  sistema que não serve (`calendarioOcultas`, some de todos os anos, volta
+  em Preferências). (3) **"Quando começar" é da LOJA** — o sistema atende
+  atacado e varejo: a antecedência padrão (`calendarioAntecedenciaDias`,
+  nasce 45) e a de cada data (`CalendarioEvento.antecedenciaDias`, nulo =
+  segue a loja); começar = data − antecedência, e a tela diz "começar em
+  DD/MM", "hora de começar" (a janela de trabalho), "é hoje" ou "já passou".
+  (4) **Lançamentos e datas da loja são anotação com tarefas**: nome, dia,
+  tipo, notas e uma lista de tarefas "para a data acontecer" (marcar como
+  feita registra quem e quando); a data do sistema também recebe notas,
+  tarefas e antecedência própria — a linha dela (`chaveSistema` + `ano`,
+  único por loja) só nasce quando alguém anota ou quando o lembrete sai, e
+  nela o nome e o dia NÃO mudam (são da regra). (5) **O lembrete "é hora de
+  começar"** sai no sino e no celular da gerência quando a data entra na
+  antecedência, **uma vez por data** (carimbo `avisadoEm`; mudar o dia ou a
+  antecedência da data apaga o carimbo, mudar a antecedência PADRÃO não —
+  senão um ajuste viraria uma enxurrada de avisos) e **em resumo por
+  rodada**, a régua do alerta de estoque (RN-051); roda **de carona** (sync
+  da inbox e abertura do Calendário), com trava atômica por loja a cada 6 h
+  (`calendarioAvisoRunAt`) e freio em memória — nunca um 3º cron (ADR-002)
+  —, só com a chave ligada (ela entra na própria trava); carimbo e aviso
+  nascem na mesma transação; **rodada que falha MANTÉM a trava** (devolvê-la
+  fazia o sync de 3 s repetir a rodada e encher a Saúde — a lição da
+  RN-082) e vai para a Saúde sem alarme; **sem gerência ativa nada é
+  carimbado** (carimbar sem ninguém receber calava o aviso para sempre); o
+  freio em memória é curto e a **abertura da tela passa por cima dele**
+  (ligar a chave e abrir o Calendário avisa na hora). A tela mostra do começo do mês corrente até 12 meses à frente,
+  agrupada por mês, com filtro por categoria e o bloco "É hora de começar"
+  com o andamento das tarefas. **A data da loja cabe nessa janela** —
+  criada fora dela sumia ao salvar e a pessoa criava de novo
+  (`foraDaJanela`, tela e porta) —, o lembrete olha a MESMA janela (nunca
+  aponta para data que a tela não mostra) e o teto de 500 datas conta só as
+  da janela (as antigas não teriam como ser apagadas). Esconder/mostrar data
+  é gravação atômica no banco (duas abas não apagam uma a escolha da outra)
+  e marcar tarefa já feita não troca quem fez. Tudo recortado pela loja
+  (RN-013: tarefa só é achada pela data da loja). **Limites ditos**: as datas de referência
+  (volta às aulas, estações) são aproximadas e a loja ajusta pela
+  antecedência ou cria a dela; o lançamento é só anotação por enquanto
+  (ligar às peças da coleção ficou para depois, decisão do dono).
 - **Central de Atendimento WhatsApp** (`/whatsapp`, tela `inbox.tsx`):
   fila/chats/contatos (vendedora vê os dela + a fila; o interruptor
   **"vê todas as conversas do chat"** na tela Equipe — `User.chatVisaoTotal`,
@@ -2032,7 +2094,7 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   dissesse "40 ativas" e a Recompra "38", a loja pararia de confiar nas
   duas. **O que o BI acrescenta** é a leitura cruzada: (1) a matriz R × F
   (faixa × quantas compras na vida) — **substituída em 23/10/2026 pelo
-  RFM de verdade (RN-092)**, que ocupa o topo da aba; (2) **as VIPs que
+  RFM de verdade (RN-093)**, que ocupa o topo da aba; (2) **as VIPs que
   esfriaram** (Top 20 fora da faixa Ativa, pela posição) — o alarme de
   verdade da carteira, com link para a ficha (a mensagem pronta mora na
   Recompra); (3) os números da carteira pela MESMA conta do painel de
@@ -2110,7 +2172,7 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   os números viram link: no Painel (esperando agora, novos contatos, sem
   resposta, vendido), em Vendedoras (contatos, sem resposta e vendido de
   cada pessoa e da loja), em Anúncios (contatos e vendas de cada campanha) e
-  em Clientes (cada grupo e cada célula da matriz do RFM, RN-092). **A régua da lista
+  em Clientes (cada grupo e cada célula da matriz do RFM, RN-093). **A régua da lista
   é a MESMA do número que a abriu**, escrita uma vez em `montarLista`:
   esperando agora pela SQL do painel (RN-082), **desde a PRIMEIRA mensagem
   sem resposta** (RN-080 — pela última, a cliente que insiste "oi?" parecia
@@ -2122,7 +2184,7 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   por vendedora as das conversas que ela assumiu (RN-083); contatos por cadastro no período, por carteira ou por campanha
   de anúncio (RN-085); vendas por pagamento no período, `netTotal`
   (RN-001/RN-002), por vendedora (RN-005) ou por cliente da campanha;
-  RFM pela MESMA conta da aba (RN-092), com o botão de chamar. Toda lista é recortada
+  RFM pela MESMA conta da aba (RN-093), com o botão de chamar. Toda lista é recortada
   pela loja (RN-013), tem teto (`TETO_DA_LISTA`, 300) e diz quantas havia;
   cada linha leva ao caminho de sempre — a conversa (`/whatsapp?conv=`, a
   única forma de link para a Central, régua do teste de agenda), a ficha da
@@ -2323,11 +2385,11 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   dos baldes são UMA lista derivada dos limites (`ROTULO_DO_BALDE` em
   `lib/bi/fatos.ts`, lida pela tela e pelo PDF — antes a tela importava do
   módulo do PDF). **Limites ditos**: o PDF é do Painel e das Vendedoras —
-  a carteira e o RFM (RN-084/RN-092) e os anúncios (RN-085) não entram nesta
+  a carteira e o RFM (RN-084/RN-093) e os anúncios (RN-085) não entram nesta
   versão; e o relatório é gerado na hora, a cada clique (não é guardado —
   o período de ontem gerado hoje pode diferir do gerado ontem, porque os
   dias vivos são refeitos, RN-082).
-- **RN-092 · O RFM DO BI: NOTAS DA PRÓPRIA LOJA, OITO GRUPOS, E CADA GRUPO
+- **RN-093 · O RFM DO BI: NOTAS DA PRÓPRIA LOJA, OITO GRUPOS, E CADA GRUPO
   TEM O BOTÃO DE CHAMAR** (`lib/bi/rfm-regra.ts` pura + `lib/bi/rfm.ts`, topo
   da aba **Clientes** em `/bi`, lista `tipo=rfm`, 23/10/2026): pedido do dono
   — *"todos os CRMs bons têm essa matriz de RFM, e no nosso não tem"* —, para
@@ -3975,12 +4037,18 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   (RN-086 ✅) → linha de 12 meses (RN-087 ✅) → faixa "hoje" viva (RN-088
   ✅) → visual (RN-089 ✅) → exportar PDF (RN-090 ✅); depois, benchmark entre lojas (Super Admin) e resumo semanal no
   WhatsApp do dono. **RFM (pedido do dono, 22/10/2026)**: Etapa 1 ✅
-  (RN-092, 23/10/2026: notas, oito grupos, matriz e o Chamar na aba
+  (RN-093, 23/10/2026: notas, oito grupos, matriz e o Chamar na aba
   Clientes); faltam a Etapa 2 (grupo no filtro das campanhas, gerência), a 3
   (tarefa para a vendedora quando a cliente cai de grupo) e a 4 (retrato
   mensal de quem subiu e caiu). **Modo TV adiado** pelo dono. Decisões do dono: só gerência
   vê; origem do lead segue automática (sem marcação manual); metas de
   qualquer tipo, a loja escolhe; prazo dentro do horário comercial.
+- 🟡 **Calendário comercial — preço de tabela a definir pelo dono**
+  (RN-092, 23/10/2026): está 0 no catálogo (`lib/modulos.ts`), então ligar o
+  módulo numa loja NÃO soma no MRR. Quando o Atos disser o valor, trocar o
+  número e o teste `calendario-comercial.test.ts` que o fixa. A lista de
+  segmentos e datas de oportunidade (`lib/calendario/datas.ts`) foi montada
+  para o dono revisar.
 - WhatsApp/Evolution: operacional em produção (conexão, tempo real, mídia).
   **Pendente**: ligar `DATABASE_SAVE_DATA_HISTORIC/NEW_MESSAGE/CHATS/CONTACTS=true`
   no compose do servidor Evolution (Hostinger, via Editor .yaml) e reconectar

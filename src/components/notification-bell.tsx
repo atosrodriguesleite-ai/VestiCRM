@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Bell, AtSign, ArrowRightLeft, Check, Sun, Package } from "lucide-react";
+import { Bell, AtSign, ArrowRightLeft, Check, Sun, Package, CalendarDays } from "lucide-react";
 import { Portal } from "./portal";
 
 type Notif = {
@@ -133,6 +133,8 @@ export function NotificationBell({ dark = false }: { dark?: boolean }) {
     else if (n.convId) router.push(`/whatsapp?conv=${n.convId}`);
     // RN-051: aviso de mínimo abre a lista do que chegou ao mínimo
     else if (n.type === "ESTOQUE") router.push("/estoque?filtro=baixo");
+    // RN-092: lembrete "é hora de começar" abre o Calendário comercial
+    else if (n.type === "CALENDARIO") router.push("/calendario");
   }
 
   const iconCls = dark
@@ -195,7 +197,9 @@ export function NotificationBell({ dark = false }: { dark?: boolean }) {
                       ? Sun
                       : n.type === "ESTOQUE"
                         ? Package
-                        : ArrowRightLeft;
+                        : n.type === "CALENDARIO"
+                          ? CalendarDays
+                          : ArrowRightLeft;
                 return (
                   <button
                     key={n.id}

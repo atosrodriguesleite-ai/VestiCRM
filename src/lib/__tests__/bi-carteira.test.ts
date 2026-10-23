@@ -10,7 +10,7 @@ import type { ClienteDeRecompra } from "../recompra";
  * faixa, ritmo e VIP vêm de `dadosDaAbaRecompra` (fonte única — a aba nunca
  * decide sozinha quem é ativa, esfriando ou VIP); o BI acrescenta as VIPs
  * que esfriaram e as melhores clientes DO PERÍODO. A antiga matriz faixa ×
- * compras saiu: o RFM (RN-092, `bi-rfm.test.ts`) ocupa o lugar dela.
+ * compras saiu: o RFM (RN-093, `bi-rfm.test.ts`) ocupa o lugar dela.
  */
 
 const cliente = (extra: Partial<ClienteDeRecompra>): ClienteDeRecompra => ({

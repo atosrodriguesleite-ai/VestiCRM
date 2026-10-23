@@ -1,5 +1,5 @@
 /**
- * O RFM DO BI — a regra PURA (RN-092, ADR-019). Sem banco: a tela do
+ * O RFM DO BI — a regra PURA (RN-093, ADR-019). Sem banco: a tela do
  * navegador importa os grupos e as mensagens daqui, e o teste prova a conta
  * sem Postgres.
  *

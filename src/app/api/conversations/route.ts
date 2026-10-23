@@ -14,6 +14,7 @@ import { repescarMidiasPendentes } from "@/lib/comm/midia-pendente";
 import { fecharConfirmacoesSemQuebrar } from "@/lib/comm/engine";
 import { varrerMinimosSeDevido } from "@/lib/estoque/alerta";
 import { atualizarFatosDoBiSeDevido } from "@/lib/bi/fatos";
+import { avisarCalendarioSeDevido } from "@/lib/calendario/lembrete";
 import { varrerEnviosDeEstoqueSeDevido } from "@/lib/nuvemshop";
 import { runAutomationsIfDue } from "@/lib/automations-run";
 
@@ -52,6 +53,8 @@ export async function GET(req: NextRequest) {
     after(() => varrerMinimosSeDevido(user.companyId));
     // fatos diários do BI (RN-082): coleta para toda loja, trava de 30 min
     after(() => atualizarFatosDoBiSeDevido(user.companyId));
+    // lembrete do Calendário comercial (RN-092): trava de 6 h, só com a chave
+    after(() => avisarCalendarioSeDevido(user.companyId));
     // RN-053: repesca do estoque que não chegou na Nuvemshop, mesma carona
     after(() => varrerEnviosDeEstoqueSeDevido(user.companyId));
     // ARQUIVO QUE NÃO CHEGOU (RN-028): a fila é varrida aqui, na rota mais

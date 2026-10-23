@@ -1,5 +1,5 @@
 /**
- * O RFM DO BI — a leitura do banco (RN-092). A regra mora em `rfm-regra.ts`
+ * O RFM DO BI — a leitura do banco (RN-093). A regra mora em `rfm-regra.ts`
  * (pura); aqui só se busca o que ela precisa, UMA consulta agregada no banco
  * para a loja inteira — uma linha por cliente, nunca os pedidos um a um.
  *

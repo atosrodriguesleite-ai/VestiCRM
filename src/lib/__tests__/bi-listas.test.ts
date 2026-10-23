@@ -62,7 +62,7 @@ describe("o endereço e a leitura do filtro", () => {
     expect(lerFiltro({ tipo: "tudo" })).toBeNull();
     expect(lerFiltro({ tipo: "vendas", de: ["2026-10-01", "2026-10-02"] })).toBeNull();
     expect(lerFiltro({ tipo: "contatos", de: "2026-02-30" })).toBeNull();
-    // RFM (RN-092): grupo da lista, nota de 1 a 5, e a célula só inteira
+    // RFM (RN-093): grupo da lista, nota de 1 a 5, e a célula só inteira
     expect(lerFiltro({ tipo: "rfm", grupo: "QUENTES" })).toBeNull();
     expect(lerFiltro({ tipo: "rfm", grupo: "CAMPEAS" })).toEqual({ tipo: "rfm", grupo: "CAMPEAS" });
     expect(lerFiltro({ tipo: "rfm", r: "5", fv: "3" })).toEqual({ tipo: "rfm", r: 5, fv: 3 });

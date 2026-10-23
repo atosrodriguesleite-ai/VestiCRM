@@ -1,5 +1,5 @@
 /**
- * A CARTEIRA NO BI (RN-084, ADR-019) — e, ao lado dela, o RFM (RN-092, em
+ * A CARTEIRA NO BI (RN-084, ADR-019) — e, ao lado dela, o RFM (RN-093, em
  * `rfm-regra.ts`/`rfm.ts`), que substituiu a antiga matriz faixa × compras.
  *
  * REGRA DE OURO (a mesma do painel de Recompra): esta aba NÃO faz conta

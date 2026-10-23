@@ -11,7 +11,7 @@ export const dynamic = "force-dynamic";
  * A LISTA POR TRÁS DO NÚMERO (RN-086): quem está esperando, quem ficou sem
  * resposta, quem chegou, quem comprou, quem está em cada grupo do RFM.
  * Cada linha leva ao lugar de sempre (conversa, ficha da cliente, pedido);
- * a do RFM tem também o botão de chamar com a mensagem do grupo (RN-092).
+ * a do RFM tem também o botão de chamar com a mensagem do grupo (RN-093).
  */
 export default async function ListaDoBiPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const user = await porteiraBiTela();

@@ -121,6 +121,7 @@ export default async function LojasPage() {
     etiquetasEnabled: c.etiquetasEnabled,
     biEnabled: c.biEnabled,
     funilEditavelEnabled: c.funilEditavelEnabled,
+    calendarioEnabled: c.calendarioEnabled,
     suspended: c.suspended,
     billing: c.billing
       ? {

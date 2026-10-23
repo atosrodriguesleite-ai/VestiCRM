@@ -13,7 +13,7 @@ import {
   type BaseDoRfm,
 } from "../bi/rfm-regra";
 
-// Guarda RN-092
+// Guarda RN-093
 /**
  * O RFM DO BI (pedido do dono, 22/10/2026): notas de 1 a 5 comparando com
  * a PRÓPRIA loja, Frequência e Valor nos últimos 12 meses, oito grupos.

@@ -46,7 +46,7 @@ function token(bloco: string, nome: string): string | undefined {
   return undefined;
 }
 
-describe("o mapa de calor do RFM (RN-092)", () => {
+describe("o mapa de calor do RFM (RN-093)", () => {
   it("um matiz, mais clientes = mais longe da superfície, e o degrau mais perto dela ainda ≥ 2:1 — nos dois temas", () => {
     const claro = RAMPA_DO_CALOR.map((c) => contraste(c, SUPERFICIE));
     const escuro = RAMPA_DO_CALOR_ESCURA.map((c) => contraste(c, SUPERFICIE_ESCURA));

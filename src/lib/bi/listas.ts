@@ -13,7 +13,7 @@
  *   campanha de anúncio (RN-085);
  * - vendas: pedidos pagos pela data do pagamento, `netTotal`
  *   (RN-001/RN-002) — por vendedora (RN-005) ou por cliente da campanha;
- * - RFM: as clientes de um grupo, ou de uma célula da matriz R × FV (RN-092),
+ * - RFM: as clientes de um grupo, ou de uma célula da matriz R × FV (RN-093),
  *   pela MESMA conta da aba Clientes, cada uma com o botão de chamar e a
  *   mensagem pronta do grupo.
  *
@@ -346,7 +346,7 @@ export async function montarLista(user: SessionUser, f: FiltroDaLista, agora = n
     };
   }
 
-  // RFM: um grupo, ou uma célula da matriz, pela MESMA conta da aba Clientes (RN-092)
+  // RFM: um grupo, ou uma célula da matriz, pela MESMA conta da aba Clientes (RN-093)
   if (!f.grupo && f.r == null) return vazia("RFM", "Escolha um grupo ou uma célula da matriz.");
   const [todas, company] = await Promise.all([
     clientesDoRfm(companyId, agora),

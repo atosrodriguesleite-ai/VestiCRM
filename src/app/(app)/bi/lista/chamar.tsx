@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { Loader2, MessageCircle } from "lucide-react";
 
 /**
- * CHAMAR NO WHATSAPP, a partir da lista do RFM (RN-092): abre (ou cria) a
+ * CHAMAR NO WHATSAPP, a partir da lista do RFM (RN-093): abre (ou cria) a
  * conversa da cliente na Central e leva a mensagem do grupo JÁ NO CAMPO — o
  * mesmo caminho do "Recuperar venda" (`POST /api/conversations` e
  * `/whatsapp?conv=…&texto=`). A pessoa revisa e manda: nada sai sozinho

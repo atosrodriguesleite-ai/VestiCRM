@@ -81,6 +81,22 @@ model Company {
   /// custo. DESLIGAR só esconde o editor: o funil fica como a loja deixou
   /// (voltar ao padrão sozinho mexeria em cartão de cliente).
   funilEditavelEnabled Boolean @default(false)
+  /// CALENDÁRIO COMERCIAL (RN-092, 23/10/2026): módulo com chave, o Super
+  /// Admin liga por loja (preço de tabela a definir pelo dono, 0 até lá).
+  /// Só a gerência vê e edita. As datas do sistema (comerciais e de
+  /// oportunidade) são CALCULADAS por regra — nunca gravadas ano a ano.
+  calendarioEnabled Boolean @default(false)
+  /// quantos dias ANTES de cada data a loja quer começar (preparar,
+  /// produzir, oferecer): 45 para uma, 60 para outra, menos para quem vende
+  /// varejo. Cada data pode ter a sua (CalendarioEvento.antecedenciaDias).
+  calendarioAntecedenciaDias Int @default(45)
+  /// segmentos que a loja escolheu (lista FECHADA em lib/calendario/datas.ts)
+  /// — é por eles que entram as datas de oportunidade
+  calendarioSegmentos String[] @default([])
+  /// datas do sistema que a loja escondeu (pela chave estável da data)
+  calendarioOcultas String[] @default([])
+  /// trava da rodada de lembretes (carona no tráfego, nunca cron — ADR-002)
+  calendarioAvisoRunAt DateTime?
   suspended         Boolean  @default(false) // acesso bloqueado pelo super admin (ex.: inadimplência)
   // última rodada das automações desta loja. É a TRAVA ATÔMICA que faz o
   // motor rodar de carona no tráfego normal, no máximo uma vez por dia, sem
@@ -150,6 +166,7 @@ model Company {
   biDias         BiDia[]
   biDiasVendedora BiDiaVendedora[]
   biMetas        BiMeta[]
+  calendarioEventos CalendarioEvento[] // RN-092
   biGastosDeAnuncio BiGastoDeAnuncio[]
   customers      Customer[]
   abandonedCarts AbandonedCart[]
@@ -525,7 +542,7 @@ model Notification {
   company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
   userId    String // destinatário
   user      User     @relation("UserNotifications", fields: [userId], references: [id], onDelete: Cascade)
-  type      String // MENTION | ASSIGN | PEDIDO | AGENDA | ESTOQUE (RN-051)
+  type      String // MENTION | ASSIGN | PEDIDO | AGENDA | ESTOQUE (RN-051) | CALENDARIO (RN-092)
   title     String
   body      String   @default("")
   convId    String? // conversa relacionada (para abrir ao clicar)
@@ -3787,4 +3804,59 @@ model BiMeta {
   updatedAt DateTime @default(now()) @updatedAt
 
   @@unique([companyId, mes, tipo])
+}
+
+/// CALENDÁRIO COMERCIAL (RN-092). Três tipos de data: COMERCIAL (as
+/// nacionais), OPORTUNIDADE (as do segmento da loja) e LANCAMENTO (coleção
+/// ou modelo novo). As datas do SISTEMA não moram aqui — são calculadas por
+/// regra (lib/calendario/datas.ts). Esta tabela guarda:
+///  - as datas que a LOJA criou (chaveSistema nulo);
+///  - a ANOTAÇÃO de uma data do sistema num ano (chaveSistema + ano): notas,
+///    tarefas, antecedência própria e o carimbo do lembrete. Nasce só quando
+///    alguém anota ou quando o lembrete sai.
+enum CalendarioTipo {
+  COMERCIAL
+  OPORTUNIDADE
+  LANCAMENTO
+}
+
+model CalendarioEvento {
+  id               String         @id @default(cuid())
+  companyId        String
+  company          Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  tipo             CalendarioTipo
+  titulo           String
+  /// o DIA da data, ao meio-dia UTC (régua de lib/dia.ts). Na anotação de
+  /// data do sistema é só cópia: quem manda é a regra.
+  data             DateTime
+  /// nulo = segue a antecedência da loja
+  antecedenciaDias Int?
+  notas            String         @default("")
+  /// data do sistema anotada (ex.: "dia-das-maes") e o ano dela
+  chaveSistema     String?
+  ano              Int?
+  /// quando o lembrete "é hora de começar" saiu (uma vez por data)
+  avisadoEm        DateTime?
+  criadoPorNome    String?
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @default(now()) @updatedAt
+
+  tarefas CalendarioTarefa[]
+
+  @@unique([companyId, chaveSistema, ano])
+  @@index([companyId, data])
+}
+
+model CalendarioTarefa {
+  id           String           @id @default(cuid())
+  eventoId     String
+  evento       CalendarioEvento @relation(fields: [eventoId], references: [id], onDelete: Cascade)
+  texto        String
+  feita        Boolean          @default(false)
+  ordem        Int              @default(0)
+  feitaPorNome String?
+  feitaEm      DateTime?
+  createdAt    DateTime         @default(now())
+
+  @@index([eventoId])
 }

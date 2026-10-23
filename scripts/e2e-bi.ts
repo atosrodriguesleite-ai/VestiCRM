@@ -177,7 +177,7 @@ async function main() {
   const cart = await montarCarteira(sessao, { de: "2026-10-12", ate: "2026-10-13" });
   // compradoras: k2 (R$ 200, pago terça) e k4 (loja online, R$ 70) — o pedido 1 de k1 foi cancelado no bloco 4
   igual([cart.resumo.compradoras, cart.resumo.recorrentes, cart.resumo.taxaRecompraPct], [2, 0, 0], "carteira: 2 compradoras, nenhuma recorrente");
-  // o RFM (RN-092) conta a MESMA população da carteira
+  // o RFM (RN-093) conta a MESMA população da carteira
   const { montarRfm } = await import("@/lib/bi/rfm");
   const rfm = await montarRfm(company.id, agora);
   igual([rfm.resumo.clientes, rfm.resumo.ativas], [2, 2], "RFM: as mesmas 2 compradoras da carteira, as duas com nota");

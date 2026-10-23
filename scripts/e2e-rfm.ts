@@ -1,5 +1,5 @@
 /**
- * PROVA DE PONTA A PONTA — o RFM do BI (RN-092).
+ * PROVA DE PONTA A PONTA — o RFM do BI (RN-093).
  *
  * Roda contra um Postgres DE VERDADE (nunca o de produção): cria uma loja
  * com clientes de perfis conhecidos (a campeã, a novata, a que parou, a

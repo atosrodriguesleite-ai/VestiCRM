@@ -26,6 +26,8 @@ export type ItemDoMenu = {
   aiOnly?: boolean;
   /** módulo BI de Vendas (RN-082): sem a chave da loja o item nem aparece */
   biOnly?: boolean;
+  /** módulo Calendário comercial (RN-092): sem a chave da loja o item nem aparece */
+  calendarioOnly?: boolean;
   /** gerente, admin e super admin */
   managerOnly?: boolean;
   /** quem cuida de integração e conexão — inclui Suporte */
@@ -45,6 +47,7 @@ export type QuemVeOMenu = {
   mediaLibraryEnabled?: boolean;
   aiSalesEnabled?: boolean;
   biEnabled?: boolean;
+  calendarioEnabled?: boolean;
 };
 
 const GERENCIA = ["ADMIN", "MANAGER", "SUPERADMIN"];
@@ -71,6 +74,7 @@ export function itemVisivel(i: ItemDoMenu, user: QuemVeOMenu): boolean {
   if (i.mediaLibraryOnly && !user.mediaLibraryEnabled) return false;
   if (i.aiOnly && !user.aiSalesEnabled) return false;
   if (i.biOnly && !user.biEnabled) return false;
+  if (i.calendarioOnly && !user.calendarioEnabled) return false;
   if (i.managerOnly) return GERENCIA.includes(user.role);
   if (i.operacional) return [...GERENCIA, "SUPPORT"].includes(user.role);
   return true;

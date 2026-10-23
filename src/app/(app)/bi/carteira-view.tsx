@@ -8,7 +8,7 @@ import { RfmView } from "./rfm-view";
 const pct = (v: number | null) => (v == null ? "—" : `${v}%`);
 
 /**
- * A ABA CLIENTES: o RFM da loja (RN-092) em cima — os oito grupos e a matriz
+ * A ABA CLIENTES: o RFM da loja (RN-093) em cima — os oito grupos e a matriz
  * —, e embaixo a carteira pela MESMA régua da aba Recompra (RN-084: faixa,
  * ritmo, VIP), as VIPs que esfriaram e as melhores clientes do período.
  */

@@ -12,7 +12,7 @@ const LINHAS = [5, 4, 3, 2, 1];
 const COLUNAS = [1, 2, 3, 4, 5];
 
 /**
- * O RFM NA ABA CLIENTES (RN-092): os oito grupos — quantas, quanto valem,
+ * O RFM NA ABA CLIENTES (RN-093): os oito grupos — quantas, quanto valem,
  * de quanto da receita vêm, o LTV médio e o que fazer — e a matriz clássica
  * recência × (frequência + valor). Cada número abre a lista de quem é, com o
  * botão de chamar no WhatsApp e a mensagem do grupo pronta.

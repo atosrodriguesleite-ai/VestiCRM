@@ -43,7 +43,7 @@ export const RAMPA_ORDINAL = ["#c99b5f", "#c4622d", "#8a4420", "#3a2a1e"] as con
 export const RAMPA_ORDINAL_ESCURA = ["#ebcdb2", "#dfab80", "#d28655", "#c4622d"] as const;
 
 /**
- * O MAPA DE CALOR DO RFM (RN-092): quantas clientes em cada célula R × FV,
+ * O MAPA DE CALOR DO RFM (RN-093): quantas clientes em cada célula R × FV,
  * em quatro degraus de UM matiz (o cobre), validados com
  * `validate_palette.js --ordinal` nas duas superfícies — o degrau mais claro
  * passa de 2:1 sobre a superfície — e com a TINTA do número escolhida por
