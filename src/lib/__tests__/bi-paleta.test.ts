@@ -6,6 +6,11 @@ import {
   COR_DA_SERIE,
   RAMPA_ORDINAL,
   RAMPA_ORDINAL_ESCURA,
+  RAMPA_DO_CALOR,
+  RAMPA_DO_CALOR_ESCURA,
+  TINTA_DO_CALOR,
+  TINTA_DO_CALOR_ESCURA,
+  degrauDoCalor,
   SUPERFICIE,
   SUPERFICIE_ESCURA,
   LARGURA_DO_EIXO,
@@ -40,6 +45,34 @@ function token(bloco: string, nome: string): string | undefined {
   }
   return undefined;
 }
+
+describe("o mapa de calor do RFM (RN-092)", () => {
+  it("um matiz, mais clientes = mais longe da superfície, e o degrau mais perto dela ainda ≥ 2:1 — nos dois temas", () => {
+    const claro = RAMPA_DO_CALOR.map((c) => contraste(c, SUPERFICIE));
+    const escuro = RAMPA_DO_CALOR_ESCURA.map((c) => contraste(c, SUPERFICIE_ESCURA));
+    for (const lista of [claro, escuro]) {
+      for (let i = 1; i < lista.length; i++) expect(lista[i]).toBeGreaterThan(lista[i - 1]);
+      expect(lista[0]).toBeGreaterThanOrEqual(2);
+    }
+  });
+  it("o número dentro de cada célula é legível (≥ 4,5:1) com a tinta do degrau", () => {
+    RAMPA_DO_CALOR.forEach((c, i) => expect(contraste(c, TINTA_DO_CALOR[i])).toBeGreaterThanOrEqual(4.5));
+    RAMPA_DO_CALOR_ESCURA.forEach((c, i) => expect(contraste(c, TINTA_DO_CALOR_ESCURA[i])).toBeGreaterThanOrEqual(4.5));
+  });
+  it("os tokens do CSS são os da lib", () => {
+    RAMPA_DO_CALOR.forEach((c, i) => expect(token(":root", `--rfm-calor-${i + 1}`)).toBe(c));
+    TINTA_DO_CALOR.forEach((c, i) => expect(token(":root", `--rfm-tinta-${i + 1}`)).toBe(c));
+    RAMPA_DO_CALOR_ESCURA.forEach((c, i) => expect(token(".theme-dark", `--rfm-calor-${i + 1}`)).toBe(c));
+    TINTA_DO_CALOR_ESCURA.forEach((c, i) => expect(token(".theme-dark", `--rfm-tinta-${i + 1}`)).toBe(c));
+  });
+  it("o degrau da célula: vazia é 0, a maior é 4, e qualquer cliente já pinta", () => {
+    expect(degrauDoCalor(0, 10)).toBe(0);
+    expect(degrauDoCalor(1, 100)).toBe(1);
+    expect(degrauDoCalor(10, 10)).toBe(4);
+    expect(degrauDoCalor(6, 10)).toBe(3);
+    expect(degrauDoCalor(5, 0)).toBe(0);
+  });
+});
 
 describe("a paleta", () => {
   it("a cor da série tem contraste ≥ 3:1 sobre a superfície clara E a escura", () => {

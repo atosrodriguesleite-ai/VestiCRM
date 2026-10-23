@@ -42,6 +42,27 @@ export const RAMPA_ORDINAL = ["#c99b5f", "#c4622d", "#8a4420", "#3a2a1e"] as con
  */
 export const RAMPA_ORDINAL_ESCURA = ["#ebcdb2", "#dfab80", "#d28655", "#c4622d"] as const;
 
+/**
+ * O MAPA DE CALOR DO RFM (RN-092): quantas clientes em cada célula R × FV,
+ * em quatro degraus de UM matiz (o cobre), validados com
+ * `validate_palette.js --ordinal` nas duas superfícies — o degrau mais claro
+ * passa de 2:1 sobre a superfície — e com a TINTA do número escolhida por
+ * degrau (≥ 4,5:1 em todos: o cobre puro dava 4,27:1 com preto e 4,09:1 com
+ * branco, então ele não é degrau). No escuro, mais clientes = mais longe da
+ * superfície (clareia). Os mesmos valores estão em `globals.css`
+ * (`--rfm-calor-N`/`--rfm-tinta-N`); o teste confere.
+ */
+export const RAMPA_DO_CALOR = ["#dfa889", "#d38960", "#9e5026", "#6f3a1d"] as const;
+export const TINTA_DO_CALOR = ["#1c1917", "#1c1917", "#ffffff", "#ffffff"] as const;
+export const RAMPA_DO_CALOR_ESCURA = ["#7e4322", "#9e5026", "#d68e66", "#e7ba9e"] as const;
+export const TINTA_DO_CALOR_ESCURA = ["#ffffff", "#ffffff", "#1c1917", "#1c1917"] as const;
+
+/** o degrau (0 = vazia, 1..4) de uma célula com `n` clientes quando a maior tem `maior` */
+export function degrauDoCalor(n: number, maior: number): number {
+  if (n <= 0 || maior <= 0) return 0;
+  return Math.min(4, Math.max(1, Math.ceil((n / maior) * 4)));
+}
+
 /** o degrau (1..4) de RESERVA da etapa `i` de um funil com `n` etapas: o token inteiro mais perto, por baixo */
 export function degrauDoFunil(i: number, n: number): number {
   const degraus = RAMPA_ORDINAL.length;

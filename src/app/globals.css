@@ -173,6 +173,15 @@
   --gv-funil-2: #dfab80;
   --gv-funil-3: #d28655;
   --gv-funil-4: #c4622d;
+  /* o mapa de calor do RFM no escuro (RAMPA_DO_CALOR_ESCURA): mais clientes = mais longe da superfície */
+  --rfm-calor-1: #7e4322;
+  --rfm-calor-2: #9e5026;
+  --rfm-calor-3: #d68e66;
+  --rfm-calor-4: #e7ba9e;
+  --rfm-tinta-1: #ffffff;
+  --rfm-tinta-2: #ffffff;
+  --rfm-tinta-3: #1c1917;
+  --rfm-tinta-4: #1c1917;
   --color-ink: #f2e8dc; /* texto forte = creme */
   --color-sidebar: #120d08; /* sidebar um tom abaixo do canvas */
   --color-sidebar-hover: #2b2117;
@@ -473,6 +482,32 @@ h3 {
   --gv-funil-2: #c4622d;
   --gv-funil-3: #8a4420;
   --gv-funil-4: #3a2a1e;
+  /* o mapa de calor do RFM (lib/bi/paleta.ts RAMPA_DO_CALOR, validada sobre
+     #fffdf9) e a tinta do número em cada degrau (≥ 4,5:1 em todos) */
+  --rfm-calor-1: #dfa889;
+  --rfm-calor-2: #d38960;
+  --rfm-calor-3: #9e5026;
+  --rfm-calor-4: #6f3a1d;
+  --rfm-tinta-1: #1c1917;
+  --rfm-tinta-2: #1c1917;
+  --rfm-tinta-3: #ffffff;
+  --rfm-tinta-4: #ffffff;
+}
+.rfm-calor-1 {
+  background-color: var(--rfm-calor-1);
+  color: var(--rfm-tinta-1);
+}
+.rfm-calor-2 {
+  background-color: var(--rfm-calor-2);
+  color: var(--rfm-tinta-2);
+}
+.rfm-calor-3 {
+  background-color: var(--rfm-calor-3);
+  color: var(--rfm-tinta-3);
+}
+.rfm-calor-4 {
+  background-color: var(--rfm-calor-4);
+  color: var(--rfm-tinta-4);
 }
 @starting-style {
   .gv-linha {

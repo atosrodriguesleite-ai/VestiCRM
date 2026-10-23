@@ -62,8 +62,13 @@ describe("o endereço e a leitura do filtro", () => {
     expect(lerFiltro({ tipo: "tudo" })).toBeNull();
     expect(lerFiltro({ tipo: "vendas", de: ["2026-10-01", "2026-10-02"] })).toBeNull();
     expect(lerFiltro({ tipo: "contatos", de: "2026-02-30" })).toBeNull();
-    expect(lerFiltro({ tipo: "carteira", faixa: "QUENTE" })).toBeNull();
-    expect(lerFiltro({ tipo: "carteira", faixa: "ATIVA", freq: "FIEL" })).toEqual({ tipo: "carteira", faixa: "ATIVA", freq: "FIEL" });
+    // RFM (RN-092): grupo da lista, nota de 1 a 5, e a célula só inteira
+    expect(lerFiltro({ tipo: "rfm", grupo: "QUENTES" })).toBeNull();
+    expect(lerFiltro({ tipo: "rfm", grupo: "CAMPEAS" })).toEqual({ tipo: "rfm", grupo: "CAMPEAS" });
+    expect(lerFiltro({ tipo: "rfm", r: "5", fv: "3" })).toEqual({ tipo: "rfm", r: 5, fv: 3 });
+    expect(lerFiltro({ tipo: "rfm", r: "6", fv: "3" })).toBeNull();
+    expect(lerFiltro({ tipo: "rfm", r: "4" })).toBeNull();
+    expect(lerFiltro({ tipo: "carteira", faixa: "ATIVA" })).toBeNull();
   });
 });
 
@@ -126,7 +131,16 @@ describe("os números do BI apontam para as listas", () => {
   it("vendedoras, anúncios e carteira", () => {
     expect(ler("vendedoras-view.tsx")).toMatch(/lista\("sem-resposta", p\.userId\)/);
     expect(ler("anuncios-view.tsx")).toMatch(/lista\("vendas", l\.id\)/);
-    expect(ler("carteira-view.tsx")).toMatch(/tipo: "carteira", faixa: f\.id, freq: q\.id/);
+    expect(ler("rfm-view.tsx")).toMatch(/hrefDaLista\(\{ tipo: "rfm", grupo: g\.id/);
+    expect(ler("rfm-view.tsx")).toMatch(/hrefDaLista\(\{ tipo: "rfm", r, fv/);
+  });
+  it("a página do BI não chama função do abas.tsx (é do navegador): lerAba vem da lib pura", () => {
+    // importada do arquivo "use client", lerAba chegava ao servidor como
+    // referência de cliente e a página inteira caía (achado ao montar o RFM)
+    expect(ler("abas.tsx").startsWith('"use client"')).toBe(true);
+    const page = ler("page.tsx");
+    expect(page).not.toMatch(/lerAba[^\n]*from "\.\/abas"/);
+    expect(page).toMatch(/import \{ lerAba \} from "@\/lib\/bi\/abas"/);
   });
   it("a página da lista passa pela porteira do BI e DIZ que o número é congelado e a lista é de agora", () => {
     const page = ler("lista/page.tsx");

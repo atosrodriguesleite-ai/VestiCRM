@@ -2030,12 +2030,9 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   faixa, ritmo ou VIP por conta própria** (o teste proíbe `faixaFixa`,
   `passouDoRitmo`, `cicloEntreCompras` e `TOP_VIPS` no arquivo) — se o BI
   dissesse "40 ativas" e a Recompra "38", a loja pararia de confiar nas
-  duas. **O que o BI acrescenta** é a leitura cruzada: (1) a **matriz R ×
-  F** — recência (a faixa) × frequência (1 compra, 2 a 4, 5 ou mais na
-  vida; `frequenciaDe`) —, com o **M em cada célula** (quantas clientes,
-  total comprado e o valor médio POR COMPRA, nulo na célula vazia): a que
-  comprou uma vez e sumiu é a classe mais comum e a mais barata de
-  recuperar, a fiel que esfriou é a mais cara de perder; (2) **as VIPs que
+  duas. **O que o BI acrescenta** é a leitura cruzada: (1) a matriz R × F
+  (faixa × quantas compras na vida) — **substituída em 23/10/2026 pelo
+  RFM de verdade (RN-092)**, que ocupa o topo da aba; (2) **as VIPs que
   esfriaram** (Top 20 fora da faixa Ativa, pela posição) — o alarme de
   verdade da carteira, com link para a ficha (a mensagem pronta mora na
   Recompra); (3) os números da carteira pela MESMA conta do painel de
@@ -2052,8 +2049,7 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   período está nela), sem quarta ida ao banco; **a recompra do painel do BI
   passou a seguir a régua da carteira** — pedido pago COM data de pagamento
   — para as duas abas dizerem o mesmo número (o Dashboard ainda conta o
-  pago sem data, que é só o pedido antigo; limite dito); e o total da linha
-  da matriz é a soma das células já arredondadas (o centavo fecha, RN-030).
+  pago sem data, que é só o pedido antigo; limite dito).
   **Limites ditos**: as faixas são fixas (30/60/90 dias, decisão antiga da
   Recompra), não por loja; a legenda não repete o número — diz "fora da
   faixa Ativa".
@@ -2114,7 +2110,7 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   os números viram link: no Painel (esperando agora, novos contatos, sem
   resposta, vendido), em Vendedoras (contatos, sem resposta e vendido de
   cada pessoa e da loja), em Anúncios (contatos e vendas de cada campanha) e
-  em Clientes (cada célula da matriz e o total da faixa). **A régua da lista
+  em Clientes (cada grupo e cada célula da matriz do RFM, RN-092). **A régua da lista
   é a MESMA do número que a abriu**, escrita uma vez em `montarLista`:
   esperando agora pela SQL do painel (RN-082), **desde a PRIMEIRA mensagem
   sem resposta** (RN-080 — pela última, a cliente que insiste "oi?" parecia
@@ -2126,7 +2122,7 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   por vendedora as das conversas que ela assumiu (RN-083); contatos por cadastro no período, por carteira ou por campanha
   de anúncio (RN-085); vendas por pagamento no período, `netTotal`
   (RN-001/RN-002), por vendedora (RN-005) ou por cliente da campanha;
-  carteira pela lista leve da Recompra (RN-084). Toda lista é recortada
+  RFM pela MESMA conta da aba (RN-092), com o botão de chamar. Toda lista é recortada
   pela loja (RN-013), tem teto (`TETO_DA_LISTA`, 300) e diz quantas havia;
   cada linha leva ao caminho de sempre — a conversa (`/whatsapp?conv=`, a
   única forma de link para a Central, régua do teste de agenda), a ficha da
@@ -2327,10 +2323,84 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   dos baldes são UMA lista derivada dos limites (`ROTULO_DO_BALDE` em
   `lib/bi/fatos.ts`, lida pela tela e pelo PDF — antes a tela importava do
   módulo do PDF). **Limites ditos**: o PDF é do Painel e das Vendedoras —
-  a carteira R × F × M (RN-084) e os anúncios (RN-085) não entram nesta
+  a carteira e o RFM (RN-084/RN-092) e os anúncios (RN-085) não entram nesta
   versão; e o relatório é gerado na hora, a cada clique (não é guardado —
   o período de ontem gerado hoje pode diferir do gerado ontem, porque os
   dias vivos são refeitos, RN-082).
+- **RN-092 · O RFM DO BI: NOTAS DA PRÓPRIA LOJA, OITO GRUPOS, E CADA GRUPO
+  TEM O BOTÃO DE CHAMAR** (`lib/bi/rfm-regra.ts` pura + `lib/bi/rfm.ts`, topo
+  da aba **Clientes** em `/bi`, lista `tipo=rfm`, 23/10/2026): pedido do dono
+  — *"todos os CRMs bons têm essa matriz de RFM, e no nosso não tem"* —, para
+  enxergar os números E agir: chamar no WhatsApp, campanha e fluxos de
+  recompra, aumentando o LTV. Decidido com ele, em quatro respostas: (1) **as
+  notas de 1 a 5 são da PRÓPRIA loja**, por percentil de 20 em 20%
+  (`notasPorPercentil`) — dias fixos seriam injustos entre a loja que repõe
+  a cada 15 dias e a que compra por coleção; empate leva a MESMA nota (a
+  ordem de leitura não decide), e o lado do empate é o que não engana
+  (achado da revisão): em F e V o bloco empatado leva a nota do **pé** —
+  "comprou uma vez" é o bloco enorme de quase toda loja e não sobe por ser
+  comum (pelo meio do bloco, quem tinha 2 compras levava a mesma nota de
+  quem tem 10) —, e em R a do **topo** (quem comprou no mesmo dia é
+  igualmente recente; a loja que vendeu para todas hoje não vê todas
+  Perdidas); R pelos dias desde a última compra (menos dias, nota maior);
+  (2) **Frequência e Valor contam os ÚLTIMOS 12 MESES** — o RFM diz quanto a
+  cliente vale HOJE; quem não compra há mais de 12 meses é **Perdida, sem
+  nota**, e as notas comparam só quem comprou nos 12 meses (a sumida de três
+  anos não empurra todo mundo para cima); (3) os **oito grupos saem de R ×
+  FV** (FV = a média de F e V, o meio arredondado para cima; `grupoDe`):
+  🏆 Campeãs (R ≥ 4 e FV ≥ 4), 💚 Fiéis (R 3 e FV ≥ 4), ✨ Promissoras (R ≥ 4
+  e FV ≤ 3), 🌱 Novatas (R ≥ 4 e PRIMEIRA compra da vida), 👀 Precisam de
+  atenção (R 3 e FV ≤ 3), 🚨 Não posso perder (R ≤ 2 e FV ≥ 4), 😴
+  Hibernando (R 2 e FV ≤ 3) e 👋 Perdidas (R 1 e FV ≤ 3, ou sem compra nos 12
+  meses) — **nenhum se chama "Em risco"**: é a faixa da aba Recompra (dias
+  fixos, RN-084), e a mesma palavra com outra régua faria a loja ver dois
+  números para o mesmo nome; (4) **só gerência vê**, só nas lojas com o BI
+  (a porteira de sempre, RN-082). **A população é a da carteira**: pedido
+  pago COM data de pagamento (RN-001), valor `netTotal` sem frete (RN-002),
+  cliente da loja (RN-013), agregada no banco numa linha por cliente — o e2e
+  confere que RFM e carteira contam as mesmas compradoras e o mesmo total.
+  **É calculado, nunca gravado**: cancelar a venda tira a cliente do grupo na
+  hora (a régua do selo, RN-063). Cada grupo mostra quantas são (% das
+  clientes), quanto venderam em 12 meses e **% da receita** (as oito fecham
+  100, `porcentagensQueFecham`, que passou a morar em `insights-puro`), o
+  **LTV médio** (vendido na vida ÷ clientes) e a ação sugerida; a loja tem o
+  LTV médio dela, e com menos de 20 clientes com nota a tela diz que o
+  percentil oscila. **A matriz clássica** R (5 → 1) × FV (1 → 5) é um mapa de
+  calor de **um matiz em quatro degraus**, com a cor fazendo UM trabalho
+  (quantas clientes) e o grupo dito por emoji e nome (RN-089): degraus
+  validados com o validador da casa nas duas superfícies (o mais perto da
+  superfície ≥ 2:1) e com a **tinta do número escolhida por degrau** (≥ 4,5:1
+  em todos — o cobre puro dá 4,27:1 com preto e 4,09:1 com branco, então não
+  é degrau), em tokens CSS (`--rfm-calor-N`/`--rfm-tinta-N`) que o teste
+  confere contra `paleta.ts`; no escuro, mais clientes clareia. A Novata mora
+  nas células de cima e a legenda diz. **Cada número abre a lista** (RN-086)
+  — por grupo ou por célula, da que mais comprou na vida para a que menos —
+  e cada linha tem **"Chamar"**: abre a conversa pelo caminho do "Recuperar
+  venda" (`POST /api/conversations` + `?texto=`) com a **mensagem do grupo**
+  já no campo (`mensagemDoGrupo`: uma por grupo, o primeiro nome, nunca "Oi,
+  Contato!" para o crachá provisório) — quem envia é a pessoa, pelo número
+  da loja, com registro (RN-017). **O link da mensagem é rastreado**
+  (achados da revisão): leva o código pessoal da cliente (`?c=`, RN-021 —
+  sem ele um dígito errado no catálogo criava cadastro novo) e, se ela tem
+  **dona ATIVA na carteira, a ref DELA** (RN-005): a gerência chamando a
+  cliente da Ana não toma a venda nem a carteira; **sem dona, sem ref** — a
+  venda é da loja e a carteira não muda para quem clicou. A linha diz de
+  quem é a carteira, e cliente **bloqueada ou sem celular** não ganha o
+  botão (a linha diz por quê). Nome, telefone, bloqueio, código e dona vêm
+  na MESMA consulta agregada (a lista nunca conta uma linha que não mostra).
+  Junto, dois
+  defeitos achados ao montar a tela: a página do BI importava `lerAba` do
+  `abas.tsx` (arquivo do navegador) e **caía ao abrir** — passou a vir da lib
+  pura, com teste; e no celular a aba Clientes ficava mais larga que a tela
+  (os cartões das VIPs sem `min-w-0`). Provado contra o Postgres local
+  (`scripts/e2e-rfm.ts`: campeã, novata, a que parou, a sumida de mais de um
+  ano, cancelado/orçamento/pago sem data/outra loja fora, somas contra o
+  banco e contra a carteira, as oito listas com o Chamar). **Próximas
+  etapas combinadas** (uma de cada vez, com revisão): o grupo no filtro das
+  campanhas (gerência); tarefa para a vendedora dona da cliente quando ela
+  CAI de grupo; o retrato mensal de quem subiu e quem caiu. **Limite dito**:
+  o "Chamar" da gerência numa conversa encerrada a reabre no nome de quem
+  abriu (a régua do "Conversar no WhatsApp").
 - **Communication Engine** (`lib/comm/`): camada única de envio/recebimento,
   agnóstica de provedor. `EvolutionProvider` = WhatsApp NÃO-oficial via
   Evolution API **self-hosted** (VPS Hostinger srv1853369.hstgr.cloud,
@@ -3904,7 +3974,11 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   e dinâmico", ordem aceita pelo dono em 14/10/2026)**: clicar e cavar
   (RN-086 ✅) → linha de 12 meses (RN-087 ✅) → faixa "hoje" viva (RN-088
   ✅) → visual (RN-089 ✅) → exportar PDF (RN-090 ✅); depois, benchmark entre lojas (Super Admin) e resumo semanal no
-  WhatsApp do dono. **Modo TV adiado** pelo dono. Decisões do dono: só gerência
+  WhatsApp do dono. **RFM (pedido do dono, 22/10/2026)**: Etapa 1 ✅
+  (RN-092, 23/10/2026: notas, oito grupos, matriz e o Chamar na aba
+  Clientes); faltam a Etapa 2 (grupo no filtro das campanhas, gerência), a 3
+  (tarefa para a vendedora quando a cliente cai de grupo) e a 4 (retrato
+  mensal de quem subiu e caiu). **Modo TV adiado** pelo dono. Decisões do dono: só gerência
   vê; origem do lead segue automática (sem marcação manual); metas de
   qualquer tipo, a loja escolhe; prazo dentro do horário comercial.
 - WhatsApp/Evolution: operacional em produção (conexão, tempo real, mídia).

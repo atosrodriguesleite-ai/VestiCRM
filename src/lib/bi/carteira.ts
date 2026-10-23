@@ -1,5 +1,6 @@
 /**
- * A CARTEIRA NO BI — a leitura RFM (RN-084, ADR-019).
+ * A CARTEIRA NO BI (RN-084, ADR-019) — e, ao lado dela, o RFM (RN-092, em
+ * `rfm-regra.ts`/`rfm.ts`), que substituiu a antiga matriz faixa × compras.
  *
  * REGRA DE OURO (a mesma do painel de Recompra): esta aba NÃO faz conta
  * própria de quem é cliente, em que estágio está nem quem é VIP. Tudo vem
@@ -8,11 +9,7 @@
  * VIP, o total comprado. Se o BI dissesse "40 clientes ativas" e a aba
  * Recompra "38", a loja pararia de confiar nas duas.
  *
- * O que o BI ACRESCENTA é a leitura cruzada que faltava:
- * - R × F: a faixa (recência) cruzada com a frequência (quantas compras) —
- *   a cliente que comprou UMA vez e sumiu é a classe mais comum e a mais
- *   barata de recuperar; a recorrente que esfriou é a mais cara de perder;
- * - M: quanto cada célula vale (total e o valor médio por compra);
+ * O que o BI ACRESCENTA aqui:
  * - as VIPs que esfriaram — o alarme de verdade da carteira;
  * - as melhores clientes DO PERÍODO escolhido (pela data do pagamento,
  *   `netTotal` — RN-001/RN-002), que a aba Recompra não responde (ela olha
@@ -29,53 +26,6 @@ import { inicioDoDiaSP } from "./fatos";
 
 export { FAIXAS };
 export type { Faixa };
-
-/** as faixas de FREQUÊNCIA (quantas compras pagas na vida) */
-export type Frequencia = "UMA" | "POUCAS" | "FIEL";
-export const FREQUENCIAS: { id: Frequencia; rotulo: string; de: number; ate: number | null }[] = [
-  { id: "UMA", rotulo: "1 compra", de: 1, ate: 1 },
-  { id: "POUCAS", rotulo: "2 a 4 compras", de: 2, ate: 4 },
-  { id: "FIEL", rotulo: "5 ou mais", de: 5, ate: null },
-];
-
-export function frequenciaDe(compras: number): Frequencia {
-  if (compras >= 5) return "FIEL";
-  if (compras >= 2) return "POUCAS";
-  return "UMA";
-}
-
-export type Celula = { clientes: number; total: number; mediaPorCompra: number | null };
-
-export type MatrizRfm = Record<Faixa, Record<Frequencia, Celula>>;
-
-function celulaVazia(): Celula {
-  return { clientes: 0, total: 0, mediaPorCompra: null };
-}
-
-/** R × F, com o M em cada célula (pura). */
-export function matrizRfm(clientes: Pick<ClienteDeRecompra, "faixa" | "compras" | "total">[]): MatrizRfm {
-  const m = {} as MatrizRfm;
-  const compras = new Map<Celula, number>();
-  for (const f of FAIXAS) {
-    m[f.id] = { UMA: celulaVazia(), POUCAS: celulaVazia(), FIEL: celulaVazia() };
-  }
-  for (const c of clientes) {
-    const cel = m[c.faixa][frequenciaDe(c.compras)];
-    cel.clientes += 1;
-    cel.total += c.total;
-    compras.set(cel, (compras.get(cel) ?? 0) + c.compras);
-  }
-  for (const [cel, n] of compras) {
-    cel.total = r2(cel.total);
-    cel.mediaPorCompra = n ? r2(cel.total / n) : null;
-  }
-  return m;
-}
-
-/** o total de uma linha da matriz = a soma das células JÁ arredondadas (o centavo fecha, RN-030) */
-export function totalDaFaixa(m: MatrizRfm, faixa: Faixa): number {
-  return r2(FREQUENCIAS.reduce((s, q) => s + m[faixa][q.id].total, 0));
-}
 
 export type ResumoDaCarteira = {
   compradoras: number;
@@ -133,7 +83,6 @@ export type MelhorDoPeriodo = {
 export type Carteira = {
   periodo: Periodo;
   resumo: ResumoDaCarteira;
-  matriz: MatrizRfm;
   /** as 20 que mais compraram NO PERÍODO (pagamento no período, netTotal) */
   melhoresDoPeriodo: MelhorDoPeriodo[];
   vendidoNoPeriodo: number;
@@ -184,7 +133,6 @@ export async function montarCarteira(user: SessionUser, pedido: Periodo): Promis
   return {
     periodo,
     resumo: resumirCarteira(aba.clientes),
-    matriz: matrizRfm(aba.clientes),
     melhoresDoPeriodo,
     vendidoNoPeriodo: r2(vendas._sum.netTotal ?? 0),
   };

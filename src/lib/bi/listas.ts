@@ -13,7 +13,9 @@
  *   campanha de anúncio (RN-085);
  * - vendas: pedidos pagos pela data do pagamento, `netTotal`
  *   (RN-001/RN-002) — por vendedora (RN-005) ou por cliente da campanha;
- * - carteira: a célula da matriz R × F (RN-084), pela mesma lista da Recompra.
+ * - RFM: as clientes de um grupo, ou de uma célula da matriz R × FV (RN-092),
+ *   pela MESMA conta da aba Clientes, cada uma com o botão de chamar e a
+ *   mensagem pronta do grupo.
  *
  * Toda lista é recortada pela loja (RN-013), tem teto e DIZ quando cortou.
  * O caminho de cada linha é o de sempre: a conversa (`/whatsapp?conv=`), a
@@ -30,16 +32,17 @@ import type { SessionUser } from "../auth";
 import { PAID_ORDER_STATUSES } from "../orders";
 import { dataDoDia, diaSP } from "../dia";
 import { brl, originLabel } from "../format";
-import { dadosDaAbaRecompra } from "../recompra";
+import { catalogUrl, trackedCatalogLink, trackedLinkParts } from "../catalog-url";
 import { r2 } from "../tracking/insights-puro";
 import { lerHorarioComercial, minutosDeAtendimentoEntre } from "./horario-comercial";
 import { parearEsperas, type MensagemLeve } from "./tempo-de-resposta";
 import { DIAS_DE_LEITURA_ANTES, inicioDoDiaSP } from "./fatos";
 import { encaixarPeriodo, type Periodo } from "./painel";
-import { FAIXAS, FREQUENCIAS, frequenciaDe, type Faixa, type Frequencia } from "./carteira";
+import { clientesDoRfm } from "./rfm";
+import { IDS_DOS_GRUPOS, grupoRfm, mensagemDoGrupo, type GrupoRfm } from "./rfm-regra";
 import { ABAS_DO_BI, type AbaDoBi } from "./abas";
 
-export const TIPOS_DE_LISTA = ["esperando-agora", "sem-resposta", "contatos", "vendas", "carteira"] as const;
+export const TIPOS_DE_LISTA = ["esperando-agora", "sem-resposta", "contatos", "vendas", "rfm"] as const;
 export type TipoDeLista = (typeof TIPOS_DE_LISTA)[number];
 
 export type FiltroDaLista = {
@@ -48,8 +51,10 @@ export type FiltroDaLista = {
   ate?: string;
   vendedora?: string;
   campanha?: string;
-  faixa?: Faixa;
-  freq?: Frequencia;
+  /** RFM: o grupo, ou a célula (nota de recência × nota de frequência e valor) */
+  grupo?: GrupoRfm;
+  r?: number;
+  fv?: number;
   /** a aba de onde a pessoa veio (o "voltar") */
   aba?: AbaDoBi;
 };
@@ -85,14 +90,18 @@ export function lerFiltro(bruto: Record<string, string | string[] | undefined>):
   }
   if (p.vendedora) f.vendedora = p.vendedora.slice(0, 64);
   if (p.campanha) f.campanha = p.campanha.slice(0, 64);
-  if (p.faixa) {
-    if (!FAIXAS.some((x) => x.id === p.faixa)) return null;
-    f.faixa = p.faixa as Faixa;
+  if (p.grupo) {
+    if (!IDS_DOS_GRUPOS.includes(p.grupo as GrupoRfm)) return null;
+    f.grupo = p.grupo as GrupoRfm;
   }
-  if (p.freq) {
-    if (!FREQUENCIAS.some((x) => x.id === p.freq)) return null;
-    f.freq = p.freq as Frequencia;
+  for (const k of ["r", "fv"] as const) {
+    const v = p[k];
+    if (v == null || v === "") continue;
+    if (!/^[1-5]$/.test(v)) return null;
+    f[k] = Number(v);
   }
+  // a célula só vale inteira: nota de recência sem a outra (ou vice-versa) é endereço torto
+  if ((f.r == null) !== (f.fv == null)) return null;
   if (p.aba && ABAS_DO_BI.includes(p.aba as AbaDoBi)) f.aba = p.aba as AbaDoBi;
   return f;
 }
@@ -105,6 +114,8 @@ export type LinhaDaLista = {
   destaque?: string;
   href: string;
   tom?: "neutro" | "warn" | "bad";
+  /** o botão "Chamar no WhatsApp" com a mensagem pronta (RFM) */
+  chamar?: { customerId: string; mensagem: string };
 };
 
 export type Lista = {
@@ -335,28 +346,44 @@ export async function montarLista(user: SessionUser, f: FiltroDaLista, agora = n
     };
   }
 
-  // carteira: a célula da matriz R × F, pela MESMA lista da Recompra (RN-084)
-  const aba = await dadosDaAbaRecompra(user, { leve: true });
-  // frete-ok: `ClienteDeRecompra.total` é o total COMPRADO na vida (soma de
-  // netTotal, a régua da Recompra), não o `total` do pedido com frete
-  const clientes = aba.clientes
-    .filter((c) => (!f.faixa || c.faixa === f.faixa) && (!f.freq || frequenciaDe(c.compras) === f.freq))
-    .sort((a, b) => b.total - a.total);
-  const rotuloFaixa = FAIXAS.find((x) => x.id === f.faixa)?.rotulo;
-  const rotuloFreq = FREQUENCIAS.find((x) => x.id === f.freq)?.rotulo;
-  const { linhas, total, cortou } = cortar(clientes);
+  // RFM: um grupo, ou uma célula da matriz, pela MESMA conta da aba Clientes (RN-092)
+  if (!f.grupo && f.r == null) return vazia("RFM", "Escolha um grupo ou uma célula da matriz.");
+  const [todas, company] = await Promise.all([
+    clientesDoRfm(companyId, agora),
+    db.company.findUnique({ where: { id: companyId }, select: { slug: true } }),
+  ]);
+  const escolhidas = todas
+    .filter((c) => (f.grupo ? c.grupo === f.grupo : true) && (f.r != null ? c.r === f.r && c.fv === f.fv : true))
+    // quem chamar primeiro: quem mais vale na vida (o LTV)
+    .sort((a, b) => b.ltv - a.ltv || a.diasDesde - b.diasDesde);
+  const { linhas: corte, total, cortou } = cortar(escolhidas);
+  const base = catalogUrl(company?.slug ?? "");
+  const g = f.grupo ? grupoRfm(f.grupo) : null;
   return {
-    titulo: `Carteira${rotuloFaixa ? ` · ${rotuloFaixa}` : ""}${rotuloFreq ? ` · ${rotuloFreq}` : ""}`,
-    descricao: "Clientes dessa célula da matriz, da que mais comprou na vida para a que menos. A faixa é a da última compra (a régua da aba Recompra).",
-    linhas: linhas.map((c) => ({
-      id: c.id,
-      titulo: `${c.name}${c.vip != null ? ` · VIP #${c.vip}` : ""}`,
-      subtitulo: `${c.compras} compra${c.compras === 1 ? "" : "s"} · última há ${c.diasDesde} dias${c.passouDoPonto ? " · passou do ritmo" : ""}`,
-      // frete-ok: idem, o total comprado da cliente (netTotal somado)
-      destaque: brl(c.total),
-      href: `/clientes/${c.id}`,
-      tom: c.passouDoPonto ? "warn" : "neutro",
-    })),
+    titulo: g ? `${g.emoji} ${g.rotulo}` : `RFM · recência ${f.r} × frequência e valor ${f.fv}`,
+    descricao: `${g ? `${g.quem}. Ação sugerida: ${g.acao}. ` : ""}Da que mais comprou na vida para a que menos (o valor à direita é esse total, o LTV dela). Notas de 1 a 5 comparando com as clientes da própria loja; frequência e valor dos últimos 12 meses. "Chamar" abre a conversa com a mensagem do grupo já no campo — você revisa e manda; o link vai com o código da cliente e, se ela tem dona na carteira, com o da vendedora (a venda é dela).`,
+    linhas: corte.map((c) => {
+      const notas = c.r == null ? "sem compra nos 12 meses" : `R${c.r} · F${c.f} · V${c.v}`;
+      // o link pessoal da cliente (`?c=`, RN-021) e, se ela tem dona ativa na
+      // carteira, o da dona (`?ref=`): a gerência chamando a cliente da Ana
+      // não toma a venda nem a carteira dela (RN-005). Sem dona, sem ref — a
+      // venda é da loja, e a carteira não muda para quem clicou.
+      const ref = c.dona ? trackedLinkParts({ name: c.dona.nome, role: c.dona.role }, company?.slug ?? "").sellerRef : null;
+      const link = trackedCatalogLink(base, ref, c.codigo);
+      // cliente bloqueada ou sem celular não ganha o botão (a mensagem não sairia)
+      const semTelefone = c.telefone.replace(/\D/g, "").length < 10;
+      const aviso = c.bloqueada ? " · bloqueada" : semTelefone ? " · sem telefone" : "";
+      return {
+        id: c.id,
+        titulo: g ? c.nome : `${c.nome} · ${grupoRfm(c.grupo).emoji} ${grupoRfm(c.grupo).rotulo}`,
+        subtitulo: `${notas} · última compra há ${c.diasDesde} dias · ${c.compras12} compra${c.compras12 === 1 ? "" : "s"} e ${brl(c.valor12)} em 12 meses${c.dona ? ` · carteira de ${c.dona.nome}` : ""}${aviso}`,
+        // o LTV: o valor vendido na vida (netTotal somado, sem frete)
+        destaque: brl(c.ltv),
+        href: `/clientes/${c.id}`,
+        tom: c.grupo === "NAO_PERDER" ? "warn" : "neutro",
+        ...(c.bloqueada || semTelefone ? {} : { chamar: { customerId: c.id, mensagem: mensagemDoGrupo(c.grupo, c.nome, link) } }),
+      };
+    }),
     total,
     cortou,
     periodo: null,

@@ -37,3 +37,22 @@ export const melhorRotulo = (atual: string, novo: string) => {
     (/^\p{Lu}/u.test(s) ? 1 : 0);
   return pontos(novo) > pontos(atual) ? novo : atual;
 };
+
+/**
+ * Porcentagens inteiras que FECHAM 100 (a sobra vai para quem tem o maior
+ * resto — a régua da RN-030/RN-061: as partes somam o todo, nunca 99%).
+ */
+export function porcentagensQueFecham(contagens: number[]): number[] {
+  const total = contagens.reduce((s, n) => s + n, 0);
+  if (total <= 0) return contagens.map(() => 0);
+  const brutas = contagens.map((n) => (n / total) * 100);
+  const base = brutas.map(Math.floor);
+  let falta = 100 - base.reduce((s, n) => s + n, 0);
+  const ordem = brutas.map((b, i) => ({ i, resto: b - Math.floor(b) })).sort((a, b) => b.resto - a.resto || a.i - b.i);
+  for (const { i } of ordem) {
+    if (falta <= 0) break;
+    base[i]++;
+    falta--;
+  }
+  return base;
+}

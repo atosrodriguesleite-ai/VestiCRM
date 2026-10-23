@@ -11,10 +11,15 @@ import { porteiraBiTela } from "@/lib/bi/gate";
 import { atualizarFatosDoBiSeDevido, ROTULO_DO_BALDE, ultimosDias } from "@/lib/bi/fatos";
 import { diasDoPeriodo, montarPainel, montarVendedoras, variacao } from "@/lib/bi/painel";
 import { MetasCard } from "./metas-card";
-import { Abas, lerAba } from "./abas";
+import { Abas } from "./abas";
+// lerAba mora na lib PURA: o abas.tsx é do navegador ("use client"), e função
+// importada de lá chega ao servidor como referência de cliente — chamá-la
+// derrubava a página inteira ("Attempted to call lerAba() from the server")
+import { lerAba } from "@/lib/bi/abas";
 import { VendedorasView } from "./vendedoras-view";
 import { CarteiraView } from "./carteira-view";
 import { montarCarteira } from "@/lib/bi/carteira";
+import { montarRfm } from "@/lib/bi/rfm";
 import { hrefDaLista } from "@/lib/bi/listas";
 import { montarTendencia } from "@/lib/bi/tendencia";
 import { TendenciaCard } from "./tendencia-card";
@@ -106,12 +111,12 @@ export default async function BiPage({
   }
 
   if (aba === "clientes") {
-    const dados = await montarCarteira(user, periodo);
+    const [dados, rfm] = await Promise.all([montarCarteira(user, periodo), montarRfm(user.companyId)]);
     return (
       <div className="max-w-6xl mx-auto">
         {cabecalho}
         <div className="mt-4">
-          <CarteiraView dados={dados} dias={diasDoPeriodo(dados.periodo).length} />
+          <CarteiraView dados={dados} rfm={rfm} dias={diasDoPeriodo(dados.periodo).length} />
         </div>
       </div>
     );

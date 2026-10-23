@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { janelaDeDias, montarRelatorioDeTrocas, motivoDoChip, porcentagensQueFecham, type TrocaParaRelatorio } from "../troca/relatorio";
+import { janelaDeDias, montarRelatorioDeTrocas, motivoDoChip, type TrocaParaRelatorio } from "../troca/relatorio";
+import { porcentagensQueFecham } from "../tracking/insights-puro";
 import { textoDoMotivo } from "../troca/regra";
 
 /**

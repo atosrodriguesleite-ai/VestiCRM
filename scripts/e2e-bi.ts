@@ -177,7 +177,10 @@ async function main() {
   const cart = await montarCarteira(sessao, { de: "2026-10-12", ate: "2026-10-13" });
   // compradoras: k2 (R$ 200, pago terça) e k4 (loja online, R$ 70) — o pedido 1 de k1 foi cancelado no bloco 4
   igual([cart.resumo.compradoras, cart.resumo.recorrentes, cart.resumo.taxaRecompraPct], [2, 0, 0], "carteira: 2 compradoras, nenhuma recorrente");
-  igual(cart.matriz.ATIVA.UMA.clientes + cart.matriz.ESFRIANDO.UMA.clientes + cart.matriz.RISCO.UMA.clientes + cart.matriz.SUMIDA.UMA.clientes, 2, "as duas estão na coluna de 1 compra");
+  // o RFM (RN-092) conta a MESMA população da carteira
+  const { montarRfm } = await import("@/lib/bi/rfm");
+  const rfm = await montarRfm(company.id, agora);
+  igual([rfm.resumo.clientes, rfm.resumo.ativas], [2, 2], "RFM: as mesmas 2 compradoras da carteira, as duas com nota");
   igual(cart.melhoresDoPeriodo.map((m) => [m.nome, m.total, m.pedidos]), [["K2", 200, 1], ["K4", 70, 1]], "melhores do período: K2 (R$ 200) e K4 (R$ 70), pela data do pagamento");
   igual(cart.vendidoNoPeriodo, 270, "vendido no período R$ 270 (sem o cancelado, sem o frete)");
   conferir(cart.melhoresDoPeriodo.every((m) => m.vip != null), "as duas são VIP (Top 20 de uma carteira de 2)");
@@ -222,8 +225,14 @@ async function main() {
   igual([vendasBia.linhas.length, vendasBia.linhas[0]?.destaque?.replace(/\u00a0/g, " ")], [1, "R$ 200"], "vendas da Bia: o pedido de R$ 200");
   const vendasCamp = await montarLista(sessao, { tipo: "vendas", de: "2026-10-12", ate: "2026-10-13", campanha: camp.id }, agora);
   igual(vendasCamp.linhas.length, 1, "vendas das clientes do anúncio: só K2");
-  const celula = await montarLista(sessao, { tipo: "carteira", freq: "UMA" }, agora);
-  igual(celula.total, 2, "carteira, 1 compra: K2 e K4");
+  const { IDS_DOS_GRUPOS } = await import("@/lib/bi/rfm-regra");
+  let noRfm = 0;
+  for (const grupo of IDS_DOS_GRUPOS) {
+    const lista = await montarLista(sessao, { tipo: "rfm", grupo }, agora);
+    noRfm += lista.total;
+    conferir(lista.linhas.every((l) => l.chamar?.customerId === l.id && l.chamar.mensagem.includes("/")), `RFM ${grupo}: toda linha tem o Chamar com a mensagem e o link`);
+  }
+  igual(noRfm, 2, "as listas do RFM, somadas, são as 2 compradoras");
 
   console.log("\n8) A linha de 12 meses (RN-087)");
   const { montarTendencia } = await import("@/lib/bi/tendencia");

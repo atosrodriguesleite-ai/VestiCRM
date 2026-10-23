@@ -3,13 +3,15 @@ import { ArrowLeft } from "lucide-react";
 import { Card, PageHeader, EmptyState } from "@/components/ui";
 import { porteiraBiTela } from "@/lib/bi/gate";
 import { lerFiltro, montarLista } from "@/lib/bi/listas";
+import { Chamar } from "./chamar";
 
 export const dynamic = "force-dynamic";
 
 /**
  * A LISTA POR TRÁS DO NÚMERO (RN-086): quem está esperando, quem ficou sem
- * resposta, quem chegou, quem comprou, quem está em cada célula da carteira.
- * Cada linha leva ao lugar de sempre (conversa, ficha da cliente, pedido).
+ * resposta, quem chegou, quem comprou, quem está em cada grupo do RFM.
+ * Cada linha leva ao lugar de sempre (conversa, ficha da cliente, pedido);
+ * a do RFM tem também o botão de chamar com a mensagem do grupo (RN-092).
  */
 export default async function ListaDoBiPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const user = await porteiraBiTela();
@@ -53,14 +55,15 @@ export default async function ListaDoBiPage({ searchParams }: { searchParams: Pr
             <Card className="overflow-hidden">
               <ul className="divide-y divide-gray-100">
                 {lista.linhas.map((l) => (
-                  <li key={l.id}>
-                    <Link href={l.href} className="flex items-center gap-3 px-4 py-3 hover:bg-gray-50 transition">
+                  <li key={l.id} className="flex items-center gap-2 pr-3 hover:bg-gray-50 transition">
+                    <Link href={l.href} className="flex flex-1 min-w-0 items-center gap-3 px-4 py-3">
                       <div className="min-w-0 flex-1">
                         <p className="font-medium truncate">{l.titulo}</p>
-                        {l.subtitulo && <p className="text-xs text-gray-400 truncate">{l.subtitulo}</p>}
+                        {l.subtitulo && <p className="text-xs text-gray-400 line-clamp-2 sm:truncate">{l.subtitulo}</p>}
                       </div>
                       {l.destaque && <span className={`text-sm font-semibold tabular-nums shrink-0 ${tom(l.tom)}`}>{l.destaque}</span>}
                     </Link>
+                    {l.chamar && <Chamar customerId={l.chamar.customerId} mensagem={l.chamar.mensagem} />}
                   </li>
                 ))}
               </ul>
