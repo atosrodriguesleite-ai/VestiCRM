@@ -9,6 +9,7 @@ import {
   MessageCircle,
   Users,
   CheckSquare,
+  CalendarDays,
   Zap,
   Megaphone,
   BarChart3,
@@ -76,6 +77,8 @@ const NAV = [
   // virou a lista de quem precisa de contato hoje. O nome antigo fazia
   // parecer trabalho burocrático — e era o que ninguém abria.
   { href: "/tarefas", label: "Minha agenda", icon: CheckSquare, group: "Comercial" },
+  // módulo Calendário comercial (RN-092): só com a chave da loja, só gerência
+  { href: "/calendario", label: "Calendário comercial", icon: CalendarDays, group: "Comercial", calendarioOnly: true, managerOnly: true },
   { href: "/pedidos", label: "Pedidos", icon: ShoppingBag, group: "Catálogo" },
   // módulo Envios (pago à parte): sem a chave, o menu nem aparece. Suporte
   // VÊ (despachar caixa é operação, não venda).
@@ -250,6 +253,8 @@ type ShellUser = {
   aiSalesEnabled?: boolean;
   // módulo BI de Vendas (RN-082): idem
   biEnabled?: boolean;
+  // módulo Calendário comercial (RN-092): idem
+  calendarioEnabled?: boolean;
   // modo escuro — preferência individual do usuário
   prefersDark?: boolean;
 };

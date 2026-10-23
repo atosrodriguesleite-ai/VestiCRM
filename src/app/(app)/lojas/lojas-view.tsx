@@ -53,6 +53,7 @@ export type Loja = {
   etiquetasEnabled: boolean;
   biEnabled: boolean;
   funilEditavelEnabled: boolean;
+  calendarioEnabled: boolean;
   suspended: boolean;
   billing: {
     kind: string;
@@ -320,6 +321,7 @@ function NewLojaForm({
           etiquetasEnabled: false,
           biEnabled: false,
           funilEditavelEnabled: false,
+          calendarioEnabled: false,
           suspended: false,
           billing: null,
           lastActiveAt: null,
@@ -869,6 +871,33 @@ function LojaCard({ loja, catalogDomain }: { loja: Loja; catalogDomain: string |
     }
   }
 
+  const [calendario, setCalendario] = useState(loja.calendarioEnabled);
+  const [togglingCal, setTogglingCal] = useState(false);
+
+  // CALENDÁRIO COMERCIAL (RN-092): só a gerência da loja vê e edita.
+  // Desligar só esconde a aba — as datas e anotações ficam guardadas.
+  async function toggleCalendario() {
+    setTogglingCal(true);
+    try {
+      const res = await fetch("/api/companies/calendario", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ companyId: loja.id, enabled: !calendario }),
+      });
+      if (res.ok) {
+        setCalendario(!calendario);
+        router.refresh();
+      } else {
+        const d = await res.json().catch(() => null);
+        window.alert(d?.error ?? "Não foi possível mudar o calendário desta loja.");
+      }
+    } catch {
+      window.alert("Sem conexão. Confira a internet e tente de novo.");
+    } finally {
+      setTogglingCal(false);
+    }
+  }
+
   const [funilEditavel, setFunilEditavel] = useState(loja.funilEditavelEnabled);
   const [togglingFunil, setTogglingFunil] = useState(false);
 
@@ -1387,6 +1416,29 @@ function LojaCard({ loja, catalogDomain }: { loja: Loja; catalogDomain: string |
           }`}
         >
           {togglingEtq ? "..." : etiquetas ? "Desativar" : "Ativar Etiquetas"}
+        </button>
+      </div>
+
+      {/* calendário comercial (RN-092) */}
+      <div className="mt-2 flex items-center justify-between gap-2 text-xs">
+        <span className="text-slate-500">
+          Calendário comercial:{" "}
+          <b className={calendario ? "text-emerald-600" : "text-slate-400"}>
+            {calendario ? "ativado" : "desativado"}
+          </b>
+        </span>
+        <button
+          type="button"
+          onClick={toggleCalendario}
+          disabled={togglingCal}
+          title={calendario ? "Desligar só esconde a aba: as datas e anotações da loja ficam guardadas." : undefined}
+          className={`rounded-full px-2.5 py-1 font-semibold border transition disabled:opacity-50 ${
+            calendario
+              ? "border-slate-200 text-slate-500 hover:border-rose-300 hover:text-rose-600"
+              : "border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
+          }`}
+        >
+          {togglingCal ? "..." : calendario ? "Desativar" : "Ativar calendário"}
         </button>
       </div>
 

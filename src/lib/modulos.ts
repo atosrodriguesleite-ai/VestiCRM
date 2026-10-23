@@ -25,7 +25,8 @@ export type ModuloKey =
   | "FINANCEIRO"
   | "ESTOQUE"
   | "ETIQUETAS"
-  | "BI";
+  | "BI"
+  | "CALENDARIO";
 
 export type Modulo = {
   key: ModuloKey;
@@ -138,6 +139,15 @@ export const MODULOS: Modulo[] = [
       "Painel do dono: leads por dia, tempo de resposta no horário da loja, funil por fatos, vendas × meta, motivos de perda.",
     flag: "biEnabled",
     // preço de tabela A DEFINIR pelo dono (ADR-019): 0 até lá, fora do MRR
+    precoTabela: 0,
+  },
+  {
+    key: "CALENDARIO",
+    nome: "Calendário comercial",
+    entrega:
+      "Datas comerciais, de oportunidade do segmento e lançamentos, com a antecedência da loja, tarefas e lembrete.",
+    flag: "calendarioEnabled",
+    // preço de tabela A DEFINIR pelo dono (RN-092, 23/10/2026): 0 até lá
     precoTabela: 0,
   },
 ];

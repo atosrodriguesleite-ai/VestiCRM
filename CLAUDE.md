@@ -1492,6 +1492,68 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   vínculo é escolha da loja e fica. O estado do editor é buscado ao ABRIR
   (a tela do Funil abre o tempo todo). Provado contra o Postgres local
   (`scripts/confere-funil-editavel.ts`).
+- **RN-092 · CALENDÁRIO COMERCIAL: DATAS DO SISTEMA CALCULADAS, ANTECEDÊNCIA
+  DA LOJA, LEMBRETE UMA VEZ POR DATA** (`lib/calendario/datas.ts` +
+  `dados.ts` + `lembrete.ts`, aba `/calendario`, 23/10/2026): pedido do dono
+  — uma aba com chave com **três categorias**: datas comerciais, datas de
+  oportunidade (pelo nicho e segmento do público) e lançamentos (coleção ou
+  modelo novo). Decidido com ele: (1) **módulo com chave**
+  (`Company.calendarioEnabled`, o Super Admin liga por loja no painel
+  Lojas; catálogo `CALENDARIO` com preço de tabela 0 até o dono definir) e
+  **só a gerência vê e edita** (porteira `lib/calendario/gate.ts`, rotas
+  por `comPorteira`, handler por handler — o teste varre); desligar só
+  esconde a aba, as datas e anotações ficam. (2) **As datas do sistema são
+  CALCULADAS, nunca gravadas ano a ano**: Páscoa (algoritmo gregoriano),
+  Carnaval (Páscoa − 47), Mães e Pais (2º domingo de maio e de agosto) e
+  Black Friday (a sexta depois da 4ª quinta de novembro) mudam de dia
+  sozinhas — digitadas, um dia faltaria o ano seguinte. As **comerciais**
+  valem para toda loja (Carnaval, Dia da Mulher, Consumidor, Páscoa, Mães,
+  Namorados, São João, Pais, Cliente, Crianças, Black Friday, Natal,
+  Réveillon); as de **oportunidade** entram pelos **segmentos** que a loja
+  marca (`calendarioSegmentos`), numa **lista FECHADA mantida no código** e
+  revisada com o dono — sem inteligência artificial, a régua do Estoque
+  (RN-052): só entra data conhecida (estações, volta às aulas, metas de
+  janeiro, projeto verão, formaturas, Dia do Jeans, Dia da Gestante, ciclo
+  junino…); a mesma data em dois segmentos é UMA (mesma chave) com os dois
+  nomes; segmento que não existe é ignorado. A loja **esconde** a data do
+  sistema que não serve (`calendarioOcultas`, some de todos os anos, volta
+  em Preferências). (3) **"Quando começar" é da LOJA** — o sistema atende
+  atacado e varejo: a antecedência padrão (`calendarioAntecedenciaDias`,
+  nasce 45) e a de cada data (`CalendarioEvento.antecedenciaDias`, nulo =
+  segue a loja); começar = data − antecedência, e a tela diz "começar em
+  DD/MM", "hora de começar" (a janela de trabalho), "é hoje" ou "já passou".
+  (4) **Lançamentos e datas da loja são anotação com tarefas**: nome, dia,
+  tipo, notas e uma lista de tarefas "para a data acontecer" (marcar como
+  feita registra quem e quando); a data do sistema também recebe notas,
+  tarefas e antecedência própria — a linha dela (`chaveSistema` + `ano`,
+  único por loja) só nasce quando alguém anota ou quando o lembrete sai, e
+  nela o nome e o dia NÃO mudam (são da regra). (5) **O lembrete "é hora de
+  começar"** sai no sino e no celular da gerência quando a data entra na
+  antecedência, **uma vez por data** (carimbo `avisadoEm`; mudar o dia ou a
+  antecedência da data apaga o carimbo, mudar a antecedência PADRÃO não —
+  senão um ajuste viraria uma enxurrada de avisos) e **em resumo por
+  rodada**, a régua do alerta de estoque (RN-051); roda **de carona** (sync
+  da inbox e abertura do Calendário), com trava atômica por loja a cada 6 h
+  (`calendarioAvisoRunAt`) e freio em memória — nunca um 3º cron (ADR-002)
+  —, só com a chave ligada (ela entra na própria trava); carimbo e aviso
+  nascem na mesma transação; **rodada que falha MANTÉM a trava** (devolvê-la
+  fazia o sync de 3 s repetir a rodada e encher a Saúde — a lição da
+  RN-082) e vai para a Saúde sem alarme; **sem gerência ativa nada é
+  carimbado** (carimbar sem ninguém receber calava o aviso para sempre); o
+  freio em memória é curto e a **abertura da tela passa por cima dele**
+  (ligar a chave e abrir o Calendário avisa na hora). A tela mostra do começo do mês corrente até 12 meses à frente,
+  agrupada por mês, com filtro por categoria e o bloco "É hora de começar"
+  com o andamento das tarefas. **A data da loja cabe nessa janela** —
+  criada fora dela sumia ao salvar e a pessoa criava de novo
+  (`foraDaJanela`, tela e porta) —, o lembrete olha a MESMA janela (nunca
+  aponta para data que a tela não mostra) e o teto de 500 datas conta só as
+  da janela (as antigas não teriam como ser apagadas). Esconder/mostrar data
+  é gravação atômica no banco (duas abas não apagam uma a escolha da outra)
+  e marcar tarefa já feita não troca quem fez. Tudo recortado pela loja
+  (RN-013: tarefa só é achada pela data da loja). **Limites ditos**: as datas de referência
+  (volta às aulas, estações) são aproximadas e a loja ajusta pela
+  antecedência ou cria a dela; o lançamento é só anotação por enquanto
+  (ligar às peças da coleção ficou para depois, decisão do dono).
 - **Central de Atendimento WhatsApp** (`/whatsapp`, tela `inbox.tsx`):
   fila/chats/contatos (vendedora vê os dela + a fila; o interruptor
   **"vê todas as conversas do chat"** na tela Equipe — `User.chatVisaoTotal`,
@@ -3907,6 +3969,12 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   WhatsApp do dono. **Modo TV adiado** pelo dono. Decisões do dono: só gerência
   vê; origem do lead segue automática (sem marcação manual); metas de
   qualquer tipo, a loja escolhe; prazo dentro do horário comercial.
+- 🟡 **Calendário comercial — preço de tabela a definir pelo dono**
+  (RN-092, 23/10/2026): está 0 no catálogo (`lib/modulos.ts`), então ligar o
+  módulo numa loja NÃO soma no MRR. Quando o Atos disser o valor, trocar o
+  número e o teste `calendario-comercial.test.ts` que o fixa. A lista de
+  segmentos e datas de oportunidade (`lib/calendario/datas.ts`) foi montada
+  para o dono revisar.
 - WhatsApp/Evolution: operacional em produção (conexão, tempo real, mídia).
   **Pendente**: ligar `DATABASE_SAVE_DATA_HISTORIC/NEW_MESSAGE/CHATS/CONTACTS=true`
   no compose do servidor Evolution (Hostinger, via Editor .yaml) e reconectar

@@ -36,6 +36,7 @@ export default async function AppLayout({
       estoqueEnabled: true,
       etiquetasEnabled: true,
       biEnabled: true,
+      calendarioEnabled: true,
     },
   });
   const dark = user.prefersDark;
@@ -61,6 +62,7 @@ export default async function AppLayout({
           mediaLibraryEnabled: company?.mediaLibraryEnabled ?? false,
           aiSalesEnabled: company?.aiSalesEnabled ?? false,
           biEnabled: company?.biEnabled ?? false,
+          calendarioEnabled: company?.calendarioEnabled ?? false,
           prefersDark: dark,
         }}
       >
