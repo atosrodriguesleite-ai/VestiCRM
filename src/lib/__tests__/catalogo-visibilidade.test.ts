@@ -95,14 +95,10 @@ describe("por que a peça não aparece no catálogo", () => {
 });
 
 describe("o diagnóstico segue a regra REAL da vitrine", () => {
-  const catalogo = readFileSync(
-    join(process.cwd(), "src/app/catalogo/[slug]/montar-catalogo.tsx"),
-    "utf8"
-  );
-  const vitrine = readFileSync(
-    join(process.cwd(), "src/app/catalogo/[slug]/public-catalog.tsx"),
-    "utf8"
-  );
+  // a leitura do acervo e a régua do card por cor moram na lib desde a
+  // RN-094 — a vitrine e o catálogo em PDF chamam as MESMAS
+  const catalogo = readFileSync(join(process.cwd(), "src/lib/catalogo/acervo.ts"), "utf8");
+  const vitrine = readFileSync(join(process.cwd(), "src/lib/catalogo/secoes.ts"), "utf8");
 
   it("o catálogo filtra por ativo, foto e (opcional) estoque", () => {
     // se algum destes sair/mudar, o diagnóstico passa a mentir para a lojista
@@ -117,7 +113,7 @@ describe("o diagnóstico segue a regra REAL da vitrine", () => {
   });
 
   it("a vitrine continua desenhando um card POR COR (é o que derruba a peça sem grade)", () => {
-    expect(/new Set\(p\.variants\.map\(\(v\) => v\.color\)\)/.test(vitrine)).toBe(true);
+    expect(/new Set\(peca\.variants\.map\(\(v\) => v\.color\)\)/.test(vitrine)).toBe(true);
   });
 });
 

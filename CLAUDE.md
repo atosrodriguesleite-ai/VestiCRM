@@ -837,6 +837,89 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   chave `fotosev:`). Limite aceito: a galeria lê as fotos do banco
   (dívida nº 1) — a migração para armazenamento de arquivos ganha mais um
   motivo, pelos downloads.
+  **RN-094 · O CATÁLOGO EM PDF: UM ARQUIVO SÓ, DA MESMA FONTE DA VITRINE, E
+  É UMA FOTOGRAFIA DO MOMENTO** (`lib/catalogo/pdf.ts` + `pdf-layout.ts` +
+  `foto-do-pdf.ts`, sobre `lib/catalogo/acervo.ts` e `secoes.ts`, rota
+  `/api/catalogo/pdf`, botão em Configurações → Catálogo, 23/10/2026,
+  ADR-021): relato recorrente do dono — *"alguns clientes estão reclamando
+  que o catálogo não tá abrindo… converter o catálogo que a gente tem online
+  em PDF, como se fosse a página mesmo do website, só que estático"*.
+  **O PDF não é mais leve que a página** (medido: 243 peças = 29 páginas =
+  2,2 MB; a página está em ~1,2 MB desde a RN-070) — e não é por isso que
+  ele existe: é **UM arquivo**, que baixa de uma vez, fica no aparelho e abre
+  **sem internet, sem navegador e sem JavaScript**, e a cliente repassa para
+  a amiga. A vitrine são dezenas de idas à internet (uma por foto) e basta
+  uma falhar para dar tela branca. É paliativo assumido: não substitui achar
+  a causa do "não abre". **(1) Sai da MESMA fonte da vitrine**, e por isso a
+  vitrine foi refatorada primeiro: a leitura do acervo virou
+  `acervoDaVitrine` (quais peças, qual preço) e a régua "um card por COR,
+  nesta ordem" virou `secoesDaVitrine`/`cardsDaPeca` — os dois caminhos as
+  importam. Mesmas peças, mesma ordem de categorias e TIPOS (RN-068/a causa
+  do "o short não aparece"), mesmo `precoCatalogo` (RN-018/RN-041, com o
+  preço cheio riscado quando há campanha, RN-040), mesma chavinha "esconder
+  sem estoque" valendo **por cor**, e a foto de cada cor é a do site
+  (`fotoDaCor`). Copiar a regra faria o papel mostrar peça — ou **preço** —
+  que o site não mostra, e dinheiro não diverge entre telas (a régua da
+  RN-084 e da RN-090). O **catálogo de campanha** segue com a leitura dele
+  (o acervo é outro, recortado pela campanha) e com os mesmos guardas.
+  **(2) É fotografia do momento, dito no arquivo**: a capa leva a DATA
+  ("preços e disponibilidade de 23/10/2026") e "confirme com a loja antes de
+  fechar o pedido", e a resposta vai `no-store` — sem isso a cliente pede
+  pelo preço de dois meses atrás e a loja descobre no fechamento. A data é a
+  de São Paulo (`diaSP`, RN-030): pelo relógio do servidor, o catálogo
+  gerado às 22h sairia com a data de amanhã. **(3) O desenho é pdf-lib, sem
+  navegador** (a peça do extrato de comissão, RN-038, e das etiquetas,
+  RN-059): capa com a cor e a logo da loja mais três peças do acervo, e
+  páginas de **3 × 3** com nome, cor (com a bolinha da loja), preço `/
+  unidade` e os **tamanhos escritos** — o card do site não os mostra porque
+  lá a cliente TOCA para abrir a grade, e no papel não há toque. A
+  paginação é pura e testada (`paginar`): categoria começa em fileira nova,
+  **título nunca fica órfão** no pé da página, nada invade o rodapé e seção
+  vazia não vira página em branco. As medidas saíram de OLHAR as páginas
+  renderizadas, e três defeitos só apareceram ali: com a foto a 184 cabiam
+  duas fileiras e sobrava um TERÇO da folha (42 páginas viraram 29 a 162);
+  o bloco de texto ocupava 62pt com 56 reservados e a última fileira
+  encostava no rodapé (tamanhos e mínimo passaram a dividir uma linha); e o
+  `paginaSegura` **apara as pontas** de tudo que escreve (ele existe para
+  limpar emoji), então o espaço de " / peça" sumia e saía colado — o
+  respiro virou afastamento. **(4) Nada derruba a geração**: as fotos moram
+  no banco como data-URL (dívida nº 1) e podem ser link externo, e a função
+  morre em 60s — então há orçamento de tempo, as fotos são lidas em lote e
+  em blocos, **deduplicadas** (o modelo de 4 cores com uma foto só entra uma
+  vez) e **recortadas pelo sharp** na proporção da moldura, porque o pdf-lib
+  não recorta (desenhar maior e tapar a sobra foi a primeira versão e
+  invadia o card vizinho). O que não couber no tempo **sai sem foto e é
+  CONTADO**, e a tela diz; acima de **600 peças** o arquivo corta e a última
+  página explica o caminho. **A leitura também é em blocos**: uma consulta
+  só traria as 600 data-URLs para a memória de uma vez e mataria a função
+  antes de qualquer orçamento valer (achado da revisão). **Quatro achados
+  da revisão fecharam a entrega**: (a) a **logo vai como PNG**, nunca pelo
+  `shrinkImage` — ele devolve JPEG, que não tem transparência, e a logo de
+  fundo transparente (o normal) virava uma **caixa preta** de 280 × 110 pt
+  no meio da capa colorida; achatar para branco seria um retângulo branco,
+  igualmente errado; (b) o **tamanho esgotado NÃO entra na linha** de
+  tamanhos: no papel não há como apagá-lo, e listá-lo faria a cliente pedir
+  o M que não existe — a RN-067 ao contrário (sem nenhum disponível, o card
+  já diz "Indisponível"); (c) a loja que **esconde as cores**
+  (`catalogHideColors`, semijoias) inverte o destaque no card como no site —
+  o nome em negrito, a cor fora —, senão o PDF dela destacava "Único" e
+  deixava o nome da peça no texto miúdo; (d) o gerador recebia o acervo
+  inteiro sem nunca lê-lo. **(5) Toda a equipe baixa** (material de venda,
+  a régua das etiquetas e da galeria de fotos; o conteúdo é o que o catálogo
+  público já mostra a quem tem o link), sempre recortado pelo `companyId` da
+  SESSÃO (RN-013) — nunca por id vindo da URL. `?l=` gera pela tabela de
+  preço do link (RN-018: o de atacado para a lojista, o de varejo para a
+  cliente final), e **código que não vale é RECUSADO** — cair no varejo
+  calado seria mandar o preço de cliente final para a lojista; `?cat=`
+  recorta por categoria, que é a saída da loja grande. **Ficou de fora de
+  propósito**: mandar o PDF pela Central do WhatsApp — 2 MB por envio
+  guardados como data-URL no banco; a vendedora baixa e encaminha pelo
+  aparelho dela, que é o que o dono descreveu. Provado contra o Postgres
+  local (`scripts/confere-catalogo-pdf.ts`, 12 conferências: ordem das
+  seções, peso e tempo de verdade, a chavinha por cor, atacado × varejo, o
+  teto que corta e conta, o orçamento esgotado devolvendo PDF em vez de erro
+  e — medindo o PIXEL da capa renderizada — a logo transparente que não
+  vira caixa preta).
   **RN-018 · Tabelas de preço por link** (`lib/catalogo/tabelas-de-preco.ts`,
   gated por `Company.priceTablesEnabled`, DESLIGADO por padrão): a loja que
   atende lojista E cliente final gera links do MESMO catálogo com tabelas

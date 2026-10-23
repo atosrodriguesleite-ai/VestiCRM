@@ -14,7 +14,17 @@ describe("a tela de ordem lista TODAS as categorias da loja", () => {
   );
 
   it("sem filtro de ativo (produto pausado também conta)", () => {
-    expect(page).not.toContain("companyId: user.companyId, active: true");
+    /*
+     * A régua é da consulta de PRODUTOS. Checar só "não existe `active:
+     * true` na página" era frouxo demais: ele acusava qualquer OUTRA
+     * consulta que filtrasse por ativo com razão — foi o que aconteceu
+     * quando a página passou a listar os links de tabela de preço vivos
+     * para o catálogo em PDF (RN-094). Agora a guarda olha a consulta
+     * certa, pelo bloco dela.
+     */
+    const produtos = page.match(/db\.product\.findMany\(\{[\s\S]*?\}\),/)?.[0] ?? "";
+    expect(produtos).toContain("companyId: user.companyId");
+    expect(produtos).not.toContain("active: true");
   });
 
   it("categoria criada à mão (extraCategories) entra na lista", () => {

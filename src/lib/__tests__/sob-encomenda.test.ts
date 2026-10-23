@@ -223,7 +223,8 @@ describe("a vitrine: a peça não some ao zerar e a quantidade não para", () =>
 
   it("os dois produtores da vitrine e a API de produtos resolvem a chavinha no SERVIDOR", () => {
     for (const rel of [
-      "src/app/catalogo/[slug]/montar-catalogo.tsx",
+      // o catálogo normal (e o PDF da RN-094) leem o acervo por esta lib
+      "src/lib/catalogo/acervo.ts",
       "src/app/catalogo/[slug]/c/[promo]/page.tsx",
       "src/app/api/products/route.ts",
     ]) {

@@ -55,7 +55,8 @@ describe("as telas usam a régua", () => {
     expect(pg).toContain("compararTamanhos(a.name, b.name)");
   });
   it("catálogo público: bolinhas de tamanho na ordem da arara", () => {
-    expect(ler("src/app/catalogo/[slug]/montar-catalogo.tsx")).toContain("ordenarVariantes(p.variants)");
+    // a leitura do acervo (que o catálogo em PDF também usa, RN-094)
+    expect(ler("src/lib/catalogo/acervo.ts")).toContain("ordenarVariantes(p.variants)");
   });
   it("seletores de pedido (API de produtos)", () => {
     expect(ler("src/app/api/products/route.ts")).toContain("ordenarVariantes(p.variants)");

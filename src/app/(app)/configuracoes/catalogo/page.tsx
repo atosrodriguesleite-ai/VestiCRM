@@ -10,13 +10,14 @@ import { CatalogDesigner } from "./catalog-designer";
 import { catalogUrl } from "@/lib/catalog-url";
 import { platformUrl } from "@/lib/site";
 import { LinksDePreco } from "./links-de-preco";
+import { BaixarCatalogoPdf } from "./baixar-pdf";
 
 export const dynamic = "force-dynamic";
 
 export default async function CatalogCustomizePage() {
   const user = await requireUser();
 
-  const [company, colors, sizes, catRows] = await Promise.all([
+  const [company, colors, sizes, catRows, tabelas] = await Promise.all([
     db.company.findUnique({ where: { id: user.companyId } }),
     db.companyColor.findMany({
       where: { companyId: user.companyId },
@@ -36,6 +37,13 @@ export default async function CatalogCustomizePage() {
       where: { companyId: user.companyId },
       select: { category: true },
       orderBy: [{ collection: "desc" }, { name: "asc" }],
+    }),
+    // os links de tabela servem ao PDF (RN-094): a loja manda o de atacado
+    // para a lojista e o de varejo para a cliente final
+    db.catalogLink.findMany({
+      where: { companyId: user.companyId, active: true },
+      select: { code: true, name: true, priceMode: true },
+      orderBy: { createdAt: "asc" },
     }),
   ]);
   if (!company) return null;
@@ -95,6 +103,17 @@ export default async function CatalogCustomizePage() {
         colors={colors.map((c) => ({ id: c.id, name: c.name, hex: c.hex }))}
         sizes={sizes.map((s) => ({ id: s.id, name: s.name }))}
         categories={categories}
+      />
+      {/* O CATÁLOGO EM PDF (RN-094), para a cliente que não abre o link.
+          Toda a equipe baixa: é material de venda, e o conteúdo é o mesmo
+          que o catálogo público já mostra a quem tem o endereço. */}
+      <BaixarCatalogoPdf
+        categorias={categories}
+        tabelas={
+          company.priceTablesEnabled
+            ? tabelas.map((t) => ({ code: t.code, name: t.name, mode: t.priceMode }))
+            : []
+        }
       />
       {/* recurso gated: quem não ativou não vê nada aqui */}
       {company.priceTablesEnabled && (

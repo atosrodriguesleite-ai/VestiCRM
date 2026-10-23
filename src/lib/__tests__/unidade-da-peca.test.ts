@@ -190,13 +190,21 @@ describe("a fronteira: onde a palavra muda e onde NÃO muda", () => {
   });
 
   it("os DOIS produtores da vitrine resolvem a unidade no servidor", () => {
+    // a palavra de cada PEÇA sai da escada peça > categoria > loja: no
+    // catálogo normal isso mora na lib do acervo (RN-094, a mesma que o
+    // catálogo em PDF usa); o de campanha tem a leitura dele
+    for (const p of [
+      "src/lib/catalogo/acervo.ts",
+      "src/app/catalogo/[slug]/c/[promo]/page.tsx",
+    ]) {
+      expect(readFileSync(p, "utf8"), p).toMatch(/unidade: unidadeDaPeca\(/);
+    }
+    // a palavra da LOJA (texto do pedido inteiro) continua descendo da tela
     for (const p of [
       "src/app/catalogo/[slug]/montar-catalogo.tsx",
       "src/app/catalogo/[slug]/c/[promo]/page.tsx",
     ]) {
-      const fonte = readFileSync(p, "utf8");
-      expect(fonte, p).toMatch(/unidade: unidadeDaPeca\(/);
-      expect(fonte, p).toMatch(/unidadeDaLoja=\{unidadeLoja\}/);
+      expect(readFileSync(p, "utf8"), p).toMatch(/unidadeDaLoja=\{unidadeLoja\}/);
     }
   });
 

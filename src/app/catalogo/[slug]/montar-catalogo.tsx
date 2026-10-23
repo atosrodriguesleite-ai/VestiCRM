@@ -1,23 +1,18 @@
 import { notFound } from "next/navigation";
-import { catalogPrice } from "@/lib/orders";
 import { db } from "@/lib/db";
 import { enderecoDaLogo } from "@/lib/catalogo/logo-da-loja";
 import { imageHref } from "@/lib/img";
-import { ordenarVariantes } from "@/lib/tamanhos";
 import {
   parseCategoryDescriptions,
   parseCategoryOrder,
   parseCategoryTypes,
 } from "@/lib/categories";
 import { type LinkDeCatalogo } from "@/lib/catalogo/tabelas-de-preco";
-import { disponivelNaVitrine } from "@/lib/catalogo/teto-do-estoque";
-import { vendeSobEncomenda } from "@/lib/sob-encomenda";
-import { categoriasSobEncomenda } from "@/lib/sob-encomenda-data";
-import { ondeNaoEscondePorEstoque } from "@/lib/catalogo/sob-encomenda-na-vitrine";
+import { acervoDaVitrine } from "@/lib/catalogo/acervo";
 import { lerCamposDaLoja } from "@/lib/catalogo/campos-do-pedido";
-import { parseCategoryUnits, unidadeDaLoja, unidadeDaPeca } from "@/lib/catalogo/unidade";
+import { unidadeDaLoja } from "@/lib/catalogo/unidade";
 import { resolverLink } from "@/lib/catalogo/tabelas-de-preco-servidor";
-import { condicoesDoLink, precoComDesconto } from "@/lib/catalogo/condicoes-da-campanha";
+import { condicoesDoLink } from "@/lib/catalogo/condicoes-da-campanha";
 import { resolverCampanhaDoLink } from "@/lib/catalogo/condicoes-da-campanha-servidor";
 import { PublicCatalog, type CatalogProduct } from "./public-catalog";
 
@@ -63,78 +58,24 @@ export async function montarCatalogo({
   // dariam um valor que nenhuma tela mostrou.
   const campanha = tabela ? null : await resolverCampanhaDoLink(company.id, sp.ref);
   const cond = condicoesDoLink(campanha, company, !!tabela);
-  const comDesconto = (v: number) => precoComDesconto(v, cond.desconto);
 
-  // as categorias que vendem SOB ENCOMENDA (RN-076): a peça delas não some
-  // ao zerar e a quantidade não para no estoque. O filtro da vitrine precisa
-  // delas, então a leitura vai na frente — junto das cores, não em série
-  const [catsSobEncomenda, customColors] = await Promise.all([
-    categoriasSobEncomenda(company.id),
+  // O ACERVO vem da fonte única (RN-094): a MESMA leitura que o catálogo em
+  // PDF usa. Duas cópias da regra envelheceriam separadas e o papel passaria
+  // a mostrar peça (ou preço) que o site não mostra.
+  const [acervo, customColors] = await Promise.all([
+    acervoDaVitrine(company, { modo, desconto: cond.desconto }),
     db.companyColor.findMany({
       where: { companyId: company.id },
       select: { name: true, hex: true },
     }),
   ]);
-  const [products] = await Promise.all([
-    db.product.findMany({
-      // vitrine pública: só produtos COM foto (item sem foto fica oculto até
-      // ganhar imagem — aparece sozinho assim que uma foto for adicionada).
-      // Se a loja escolher, esconde também os sem estoque (indisponíveis) —
-      // menos a peça que vende sob encomenda (RN-076)
-      where: {
-        companyId: company.id,
-        active: true,
-        images: { some: {} },
-        ...(company.catalogHideOutOfStock ? ondeNaoEscondePorEstoque(catsSobEncomenda) : {}),
-      },
-      include: {
-        images: { orderBy: { order: "asc" }, select: { id: true, color: true } },
-        variants: { orderBy: [{ color: "asc" }, { size: "asc" }] },
-      },
-      orderBy: [{ collection: "desc" }, { name: "asc" }],
-    }),
-  ]);
 
-  // a escada da unidade (RN-068): loja e categorias lidas uma vez para todas
   const unidadeLoja = unidadeDaLoja(company);
-  const unidadesPorCategoria = parseCategoryUnits(company.categoryUnits);
 
-  const items: CatalogProduct[] = products.map((p) => ({
-    id: p.id,
-    name: p.name,
-    sku: p.sku,
-    category: p.category,
-    collection: p.collection,
-    description: p.description,
-    // preços JÁ com o desconto do link (o original vai riscado ao lado)
-    retailPrice: comDesconto(p.retailPrice),
-    wholesalePrice: comDesconto(p.wholesalePrice),
-    // preço da TABELA desta visita (o link manda; sem link, o padrão da loja)
-    precoCatalogo: comDesconto(catalogPrice(p, modo)),
-    originalRetailPrice: cond.desconto > 0 ? catalogPrice(p, modo) : undefined,
-    minQuantity: p.minQuantity,
-    tags: p.tags,
-    // "peça", "conjunto", "kit"… resolvido AQUI, no servidor (RN-068)
-    unidade: unidadeDaPeca(p, unidadesPorCategoria, unidadeLoja),
-    // url + cor etiquetada: o card de cada cor usa a foto DAQUELA cor
+  const items: CatalogProduct[] = acervo.map((p) => ({
+    ...p,
+    // a tela recebe o ENDEREÇO da foto (RN-070); o PDF lê o conteúdo
     images: p.images.map((i) => ({ url: imageHref(i.id), color: i.color })),
-    // ordem de ROUPA (PP, P, M, G, GG / numeração crescente): as bolinhas de
-    // tamanho do catálogo seguem a arara, não o alfabeto
-    variants: ordenarVariantes(p.variants).map((v) => ({
-      color: v.color,
-      size: v.size,
-      // QUANTAS há (RN-067): a vitrine para a quantidade neste teto — só o
-      // "tem/não tem" deixava a cliente pedir 8 de uma peça com 1. A peça
-      // sob encomenda (RN-076) recebe o teto da linha: não para no estoque
-      disponivel: disponivelNaVitrine(
-        v.stock,
-        vendeSobEncomenda({
-          peca: p.sobEncomenda,
-          categoria: catsSobEncomenda.has(p.category),
-          jueriId: p.jueriId,
-        })
-      ),
-    })),
   }));
 
   return (

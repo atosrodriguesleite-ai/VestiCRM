@@ -34,16 +34,15 @@ import {
   sacolaJaEnviada,
   marcarRegistrado,
 } from "@/lib/catalogo/envio-pedido";
-import { compareSizes } from "@/lib/sizes";
 import { celularSemONove, mascaraTelefoneBR } from "@/lib/format";
 import { fotoDaCor, ordenarFotosDaCor } from "@/lib/capa-por-cor";
 import {
   agruparPorTipo,
   chaveDeCategoria,
   descricaoDaCategoria,
-  rotuloDeCategoria,
   sortCategories,
 } from "@/lib/categories";
+import { cardsDaPeca, rotulosCanonicos } from "@/lib/catalogo/secoes";
 import { procurarPecas } from "@/lib/catalogo/procurar-peca";
 import {
   CatalogTracker,
@@ -367,14 +366,7 @@ export function PublicCatalog({
   // nomes byte-diferentes que renderizam IGUAIS (ç decomposto do iOS/Nuvemshop,
   // espaço no fim, NBSP) viravam duas seções e duas abas gêmeas — junta pela
   // chave normalizada e exibe a primeira grafia vista (limpa)
-  const rotuloCanonico = useMemo(() => {
-    const m = new Map<string, string>();
-    for (const p of products) {
-      const k = chaveDeCategoria(p.category);
-      if (!m.has(k)) m.set(k, rotuloDeCategoria(p.category));
-    }
-    return m;
-  }, [products]);
+  const rotuloCanonico = useMemo(() => rotulosCanonicos(products), [products]);
   const categoriasBrutas = useMemo(
     () => sortCategories([...rotuloCanonico.values()], categoryOrder),
     [rotuloCanonico, categoryOrder]
@@ -409,27 +401,14 @@ export function PublicCatalog({
   const cardsByCategory = useMemo(() => {
     const map = new Map<string, CardItem[]>();
     for (const cat of categories) map.set(cat, []);
+    // um card por COR, com a chavinha "esconder sem estoque" valendo por cor:
+    // a régua mora na lib (RN-094) e o catálogo em PDF usa a MESMA — senão o
+    // papel mostraria peça que o site não mostra
     for (const p of products) {
-      const colors = [...new Set(p.variants.map((v) => v.color))];
-      for (const color of colors) {
-        const sizes = p.variants
-          .filter((v) => v.color === color)
-          .map((v) => ({ size: v.size, available: v.disponivel > 0, disponivel: v.disponivel }))
-          // tamanhos sempre do menor para o maior (P, M, G, GG / 36, 38, 40)
-          .sort((a, b) => compareSizes(a.size, b.size));
-        // Chavinha "esconder sem estoque" vale POR COR: o filtro do servidor
-        // só tira o produto quando TODAS as cores zeram — mas o catálogo
-        // mostra um card por cor, e o card da cor esgotada continuava na
-        // vitrine enquanto outra cor tivesse peça (relato da Entre Linhas).
-        if (hideSoldOut && sizes.every((s) => !s.available)) continue;
+      for (const card of cardsDaPeca(p, hideSoldOut)) {
         // a seção da peça é a canônica — sem isso a variante byte-diferente
         // não achava a própria seção
-        map.get(rotuloCanonico.get(chaveDeCategoria(p.category)) ?? p.category)?.push({
-          key: `${p.id}|${color}`,
-          product: p,
-          color,
-          sizes,
-        });
+        map.get(rotuloCanonico.get(chaveDeCategoria(p.category)) ?? p.category)?.push(card);
       }
     }
     return map;

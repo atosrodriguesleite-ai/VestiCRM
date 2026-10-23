@@ -16,8 +16,12 @@ const ler = (rel: string) => readFileSync(join(raiz, rel), "utf8");
 
 describe("catálogo: chave 'esconder sem estoque' esconde a COR esgotada", () => {
   it("o card da cor esgotada é pulado quando a chave está ligada", () => {
-    const catalogo = ler("src/app/catalogo/[slug]/public-catalog.tsx");
-    expect(catalogo).toContain("hideSoldOut && sizes.every((s) => !s.available)");
+    // a régua do card por cor mora na lib desde a RN-094 (o catálogo em PDF
+    // usa a MESMA), e a vitrine a importa — duas cópias envelheceriam
+    expect(ler("src/lib/catalogo/secoes.ts")).toContain(
+      "hideSoldOut && sizes.every((s) => !s.available)"
+    );
+    expect(ler("src/app/catalogo/[slug]/public-catalog.tsx")).toContain("cardsDaPeca(p, hideSoldOut)");
   });
 
   it("catálogo geral E catálogo de campanha passam a chave da loja", () => {
@@ -30,7 +34,8 @@ describe("catálogo: chave 'esconder sem estoque' esconde a COR esgotada", () =>
   });
 
   it("o filtro do servidor continua tirando o produto todo zerado (salvo a peça sob encomenda, RN-076)", () => {
-    expect(ler("src/app/catalogo/[slug]/montar-catalogo.tsx")).toContain(
+    // a leitura do acervo mora na lib desde a RN-094 (vitrine e PDF a chamam)
+    expect(ler("src/lib/catalogo/acervo.ts")).toContain(
       "ondeNaoEscondePorEstoque(catsSobEncomenda)"
     );
     expect(ler("src/lib/catalogo/sob-encomenda-na-vitrine.ts")).toContain(

@@ -16,7 +16,9 @@ import { join } from "node:path";
 
 const ler = (rel: string) => readFileSync(join(process.cwd(), rel), "utf8");
 const rota = ler("src/app/api/products/[id]/catalogo/route.ts");
-const vitrine = ler("src/app/catalogo/[slug]/montar-catalogo.tsx");
+// a leitura do acervo da vitrine mora na lib desde a RN-094 (o catálogo em
+// PDF usa a MESMA) — é contra ela que o conferidor tem que concordar
+const vitrine = ler("src/lib/catalogo/acervo.ts");
 const campanha = ler("src/app/catalogo/[slug]/c/[promo]/page.tsx");
 const tela = ler("src/app/(app)/produtos/products-view.tsx");
 
@@ -64,7 +66,14 @@ describe("o conferidor responde o caso 'está tudo certo e ela não vê'", () =>
 
   it("avisa quando a loja inteira está suspensa", () => {
     expect(/lojaSuspensa/.test(rota)).toBe(true);
-    expect(/suspended/.test(vitrine)).toBe(true);
+    /*
+     * A suspensão barra a PÁGINA pública, não a leitura do acervo (RN-094:
+     * a lib serve a vitrine e o catálogo em PDF). No PDF quem barra é o
+     * porteiro da sessão: usuária de loja suspensa não autentica
+     * (`getSessionUser` devolve nulo), então a rota responde 401.
+     */
+    expect(/suspended/.test(ler("src/app/catalogo/[slug]/montar-catalogo.tsx"))).toBe(true);
+    expect(/user\.company\.suspended/.test(ler("src/lib/auth.ts"))).toBe(true);
   });
 
   it("responde cor por cor (a vitrine desenha um card por COR)", () => {

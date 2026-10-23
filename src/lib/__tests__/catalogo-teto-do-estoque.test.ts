@@ -115,7 +115,9 @@ describe("RN-067 · a vitrine RECEBE a quantidade e USA o teto", () => {
   // `linha-de-tamanho.test.tsx`; aqui só se confere a LIGAÇÃO: quem manda
   // o número e quem o usa (a linha, e as duas sacolas que voltam)
   it("catálogo geral E catálogo de campanha mandam o disponível por variação (e só ele)", () => {
-    for (const rel of ["src/app/catalogo/[slug]/montar-catalogo.tsx", "src/app/catalogo/[slug]/c/[promo]/page.tsx"]) {
+    // o catálogo normal lê o acervo pela lib (RN-094, a mesma que o PDF usa);
+    // o de campanha tem a leitura dele, com o recorte da campanha
+    for (const rel of ["src/lib/catalogo/acervo.ts", "src/app/catalogo/[slug]/c/[promo]/page.tsx"]) {
       const fonte = ler(rel);
       expect(fonte).toContain("disponivel: disponivelNaVitrine(");
       // a peça sob encomenda (RN-076) recebe o teto da linha, resolvida no servidor
