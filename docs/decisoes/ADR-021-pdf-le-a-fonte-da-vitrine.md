@@ -25,7 +25,7 @@ foto): basta uma falhar para a cliente ver tela branca.
 ## Decisão
 
 1. **O PDF não é mais leve que a página, e não é por isso que ele existe.**
-   Medido: 243 peças = 29 páginas = 2,2 MB. A página hoje está em ~1,2 MB.
+   Medido: 243 peças = 22 páginas = 2,3 MB. A página hoje está em ~1,2 MB.
    O que o PDF resolve é outra coisa, e é mais forte: é **UM arquivo**, que
    baixa de uma vez, fica no aparelho, abre sem internet, sem navegador e
    sem JavaScript, e a cliente repassa para a amiga. É paliativo assumido —
@@ -64,6 +64,23 @@ foto): basta uma falhar para a cliente ver tela branca.
    sem foto e é contado** — o resultado diz quantas. Acima de 600 peças o
    arquivo corta e a última página explica o caminho (gerar por categoria).
    Catálogo com uma foto faltando é melhor que função morta sem resposta.
+
+5. **O papel é o PRINT da tela, não uma revista inspirada nela.** A primeira
+   versão tinha identidade própria (creme editorial, serifa) e o dono foi
+   direto: *"a qualidade desse PDF tem que ser a mesma da experiência de
+   quem abre na web; como se fosse um print dele mesmo"*. Então as cores
+   derivadas saíram do componente da vitrine para `lib/catalogo/tema.ts`
+   (`temaDoCatalogo`) e os dois a importam — trocar a cor da loja muda a
+   tela e o papel juntos. A página reproduz a barra da marca com a logo, o
+   título de seção em caixa alta com a contagem e a linha pontilhada, e os
+   cards brancos arredondados em quatro colunas.
+
+   A única diferença aceita é os **tamanhos escritos** no card: na tela a
+   cliente toca no card para abrir a grade, no papel não há toque. Qualquer
+   outra diferença entre o PDF e a vitrine é defeito, não decisão.
+
+   O que NÃO vai para o papel é o que só existe para ser tocado: a busca,
+   os chips de categoria, a sacola, o passo a passo do topo.
 
 ## Consequências
 

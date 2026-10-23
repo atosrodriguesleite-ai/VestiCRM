@@ -48,10 +48,13 @@ import { diaSP } from "@/lib/dia";
 import { fotoDaCor } from "@/lib/capa-por-cor";
 import { contar } from "@/lib/catalogo/unidade";
 import { lerFotosParaPdf } from "@/lib/catalogo/foto-do-pdf";
+import { temaDoCatalogo } from "@/lib/catalogo/tema";
 import {
   A4_ALTURA,
   A4_LARGURA,
   LAYOUT,
+  alturaDaFoto,
+  alturaDoCard,
   larguraDoCard,
   paginar,
   textoDosTamanhos,
@@ -71,9 +74,10 @@ export type IdentidadeDaLoja = {
   nome: string;
   tagline: string | null;
   whatsapp: string | null;
-  /** cor principal do catálogo da loja (hex) — a mesma do site */
+  /** as TRÊS cores do catálogo da loja (hex) — as mesmas do site */
   primary: string;
   secondary: string;
+  bg: string;
   /** a logo, já lida e encolhida por quem chama (PNG ou JPEG) */
   logo?: { bytes: Buffer; png: boolean } | null;
   /** cores cadastradas pela loja: nome → hex, para a bolinha da cor */
@@ -103,25 +107,86 @@ export type ResultadoDoPdf = {
   semFoto: number;
 };
 
-/* ── paleta ─────────────────────────────────────────────────────────────── */
+/* ── as cores: as MESMAS da tela ─────────────────────────────────────────── */
 
-const CREME = rgb(0.98, 0.965, 0.945);
-const TINTA = rgb(0.169, 0.141, 0.125);
-const SUAVE = rgb(0.52, 0.47, 0.43);
-const LINHA = rgb(0.88, 0.85, 0.81);
-const MOLDURA = rgb(0.93, 0.915, 0.895);
+const BRANCO = rgb(1, 1, 1);
 
-/** hex da loja → cor do pdf-lib; hex torto não derruba o arquivo */
+/** hex → cor do pdf-lib; hex torto não derruba o arquivo */
 function corDaLoja(hex: string | null | undefined, reserva: RGB): RGB {
   if (!hex || !/^#?[0-9a-f]{6}$/i.test(hex.trim())) return reserva;
   const [r, g, b] = hexToRgb(hex.trim());
   return rgb(r / 255, g / 255, b / 255);
 }
 
-/** preto ou branco por cima de uma cor — a mesma régua de legibilidade do app */
+/**
+ * A paleta da página, derivada das três cores da loja pela MESMA conta da
+ * vitrine (`temaDoCatalogo`) — o PDF é o print do catálogo, então a cor dele
+ * é a cor dela.
+ */
+type Paleta = ReturnType<typeof paletaDoPdf>;
+function paletaDoPdf(cores: { primary: string; secondary: string; bg: string }) {
+  const t = temaDoCatalogo(cores);
+  const c = (hex: string, reserva: RGB) => corDaLoja(hex, reserva);
+  return {
+    primary: c(t.primary, rgb(0.584, 0.267, 0.098)),
+    bg: c(t.bg, rgb(0.984, 0.969, 0.949)),
+    ink: c(t.ink, rgb(0.102, 0.082, 0.137)),
+    line: c(t.line, rgb(0.88, 0.85, 0.81)),
+    soft: c(t.soft, rgb(0.93, 0.915, 0.895)),
+    muted: c(t.muted, rgb(0.52, 0.47, 0.43)),
+  };
+}
+
+/** preto ou branco por cima de uma cor — a régua de legibilidade do app */
 function tintaSobre(c: RGB): RGB {
   const lum = 0.299 * c.red + 0.587 * c.green + 0.114 * c.blue;
-  return lum > 0.6 ? TINTA : rgb(1, 1, 1);
+  return lum > 0.6 ? rgb(0.102, 0.082, 0.137) : BRANCO;
+}
+
+/**
+ * Retângulo de cantos arredondados — os cards da tela têm raio, e sem ele o
+ * papel vira uma planilha. O pdf-lib não tem borda arredondada, então o card
+ * é um caminho SVG.
+ */
+function caminhoArredondado(w: number, h: number, r: number): string {
+  const raio = Math.min(r, w / 2, h / 2);
+  return [
+    `M ${raio} 0`,
+    `H ${w - raio}`,
+    `A ${raio} ${raio} 0 0 1 ${w} ${raio}`,
+    `V ${h - raio}`,
+    `A ${raio} ${raio} 0 0 1 ${w - raio} ${h}`,
+    `H ${raio}`,
+    `A ${raio} ${raio} 0 0 1 0 ${h - raio}`,
+    `V ${raio}`,
+    `A ${raio} ${raio} 0 0 1 ${raio} 0`,
+    "Z",
+  ].join(" ");
+}
+
+/**
+ * A pontinha entre o canto quadrado e o arco. É ela que é repintada com o
+ * fundo da página por cima da foto, para o card com foto também ter o topo
+ * arredondado (o pdf-lib não recorta imagem).
+ */
+function caminhoDoCanto(r: number, direito = false): string {
+  return direito
+    ? [`M ${r} 0`, `V ${r}`, `A ${r} ${r} 0 0 0 0 0`, "Z"].join(" ")
+    : [`M 0 0`, `V ${r}`, `A ${r} ${r} 0 0 1 ${r} 0`, "Z"].join(" ");
+}
+
+/** só os cantos de cima arredondados: a área da foto, que encosta no texto */
+function caminhoTopoArredondado(w: number, h: number, r: number): string {
+  const raio = Math.min(r, w / 2, h);
+  return [
+    `M 0 ${h}`,
+    `V ${raio}`,
+    `A ${raio} ${raio} 0 0 1 ${raio} 0`,
+    `H ${w - raio}`,
+    `A ${raio} ${raio} 0 0 1 ${w} ${raio}`,
+    `V ${h}`,
+    "Z",
+  ].join(" ");
 }
 
 /* ── o arquivo ──────────────────────────────────────────────────────────── */
@@ -163,11 +228,7 @@ export async function gerarCatalogoPdf(
       if (url) idPorCard.set(c.key, url);
     }
   }
-  const fotos = await lerFotosParaPdf(
-    [...idPorCard.values()],
-    restante,
-    LAYOUT.fotoAltura / larguraDoCard()
-  );
+  const fotos = await lerFotosParaPdf([...idPorCard.values()], restante, LAYOUT.fotoProporcao);
 
   const pdf = await PDFDocument.create();
   pdf.setTitle(textoPdf(`Catálogo ${identidade.nome}`));
@@ -179,7 +240,8 @@ export async function gerarCatalogoPdf(
   const serif = await pdf.embedFont(StandardFonts.TimesRoman);
   const serifIt = await pdf.embedFont(StandardFonts.TimesRomanItalic);
 
-  const primaria = corDaLoja(identidade.primary, rgb(0.584, 0.267, 0.098));
+  // a paleta é a DA LOJA, derivada como na tela (o PDF é o print dela)
+  const P = paletaDoPdf(identidade);
   const swatch = makeSwatch(identidade.cores);
 
   // as fotos entram no documento UMA vez cada, mesmo usadas em vários cards
@@ -208,12 +270,29 @@ export async function gerarCatalogoPdf(
     if (id && foto) escolhidas.push(await embutir(id, foto.jpeg));
   }
 
+  /*
+   * A LOGO entra no documento UMA vez e é desenhada na barra de TODAS as
+   * páginas (é a topbar do site). Embutir por página multiplicaria o peso
+   * dela por 30.
+   */
+  let logoDaBarra: PDFImage | null = null;
+  if (identidade.logo) {
+    try {
+      logoDaBarra = identidade.logo.png
+        ? await pdf.embedPng(identidade.logo.bytes)
+        : await pdf.embedJpg(identidade.logo.bytes);
+    } catch {
+      // logo ilegível: a barra mostra o NOME da loja, nunca um buraco
+    }
+  }
+
   await desenharCapa(pdf, {
+    logoDaBarra,
     identidade,
     geradoEm,
     pecas: total,
     vitrine: [...new Set(escolhidas)],
-    primaria,
+    P,
     serif,
     serifIt,
     fonte,
@@ -223,18 +302,13 @@ export async function gerarCatalogoPdf(
   let semFoto = 0;
   for (const [i, pag] of paginas.entries()) {
     const page = paginaSegura(pdf.addPage([A4_LARGURA, A4_ALTURA]));
-    page.drawRectangle({
-      x: 0,
-      y: 0,
-      width: A4_LARGURA,
-      height: A4_ALTURA,
-      color: CREME,
-    });
-    cabecalhoCorrido(page, identidade.nome, pag.categoria, fonte, primaria);
-    rodape(page, i + 2, identidade.whatsapp, fonte);
+    // o FUNDO da loja, como na tela
+    page.drawRectangle({ x: 0, y: 0, width: A4_LARGURA, height: A4_ALTURA, color: P.bg });
+    barraDaLoja(page, identidade, logoDaBarra, pag.categoria, P, serif, fonte);
+    rodape(page, i + 2, identidade.whatsapp, fonte, P);
 
     for (const linha of pag.linhas) {
-      if (linha.titulo) tituloDaCategoria(page, linha.titulo, linha.topoY, serif, fonte);
+      if (linha.titulo) tituloDaCategoria(page, linha.titulo, linha.topoY, negrito, fonte, P);
       for (const [coluna, card] of linha.cards.entries()) {
         const id = idPorCard.get(card.key);
         const foto = id ? fotos.get(id) : undefined;
@@ -246,7 +320,7 @@ export async function gerarCatalogoPdf(
           imagem: id && foto ? await embutir(id, foto.jpeg) : null,
           fonte,
           negrito,
-          primaria,
+          P,
           swatch,
           semCores,
         });
@@ -255,7 +329,7 @@ export async function gerarCatalogoPdf(
   }
 
   if (cortadas > 0) {
-    paginaDoCorte(paginaSegura(pdf.addPage([A4_LARGURA, A4_ALTURA])), cortadas, serif, fonte);
+    paginaDoCorte(paginaSegura(pdf.addPage([A4_LARGURA, A4_ALTURA])), cortadas, serif, fonte, P);
   }
 
   return {
@@ -277,92 +351,119 @@ async function desenharCapa(
     pecas: number;
     /** até três peças do acervo, para a capa mostrar o que tem dentro */
     vitrine: PDFImage[];
-    primaria: RGB;
+    /** a logo já embutida (a mesma da barra de todas as páginas) */
+    logoDaBarra: PDFImage | null;
+    P: Paleta;
     serif: PDFFont;
     serifIt: PDFFont;
     fonte: PDFFont;
     negrito: PDFFont;
   }
 ) {
-  const { identidade, geradoEm, pecas, vitrine, primaria, serif, serifIt, fonte, negrito } = o;
+  const { identidade, geradoEm, pecas, vitrine, logoDaBarra, P, serif, serifIt, fonte, negrito } = o;
   const page = paginaSegura(pdf.addPage([A4_LARGURA, A4_ALTURA]));
-  const tinta = tintaSobre(primaria);
-  page.drawRectangle({ x: 0, y: 0, width: A4_LARGURA, height: A4_ALTURA, color: primaria });
+  const tinta = tintaSobre(P.primary);
+  page.drawRectangle({ x: 0, y: 0, width: A4_LARGURA, height: A4_ALTURA, color: P.primary });
 
-  // começa mais baixo para o bloco inteiro (nome → peças → data) cair perto
-  // do meio da folha: a 150 ele ficava todo na metade de cima, com um vazio
-  // grande embaixo (visto na capa renderizada)
-  let y = A4_ALTURA - 196;
+  /*
+   * O BLOCO DA CAPA É MEDIDO ANTES DE SER DESENHADO.
+   *
+   * Ele muda de altura conforme a loja: com logo ou sem, com frase ou sem,
+   * com fotos ou sem. Desenhar a partir de um ponto fixo deixava a capa da
+   * loja COM logo empurrada para baixo, colando o "N opções" no aviso da
+   * data (visto na capa renderizada). Medindo primeiro, o bloco fica
+   * centrado em qualquer combinação.
+   */
+  const tamanhoDoNome = escalaQueCabe(
+    textoPdf(identidade.nome),
+    serif,
+    44,
+    A4_LARGURA - 120
+  );
+  const tamanhoDaFrase = identidade.tagline
+    ? escalaQueCabe(textoPdf(identidade.tagline), serifIt, 14, A4_LARGURA - 140)
+    : 0;
+  const largDaFoto = 148;
+  const altDaFoto = Math.round(largDaFoto * LAYOUT.fotoProporcao);
 
-  // A LOGO, quando a loja tem uma que o servidor conseguiu ler. Loja sem logo
-  // (ou com uma que não abre) mostra o NOME grande — nunca um buraco
-  if (identidade.logo) {
-    try {
-      const img = identidade.logo.png
-        ? await pdf.embedPng(identidade.logo.bytes)
-        : await pdf.embedJpg(identidade.logo.bytes);
-      const cabe = img.scaleToFit(280, 110);
-      page.drawImage(img, {
-        x: (A4_LARGURA - cabe.width) / 2,
-        y: y - cabe.height,
-        width: cabe.width,
-        height: cabe.height,
-      });
-      y -= cabe.height + 34;
-    } catch {
-      // logo ilegível: segue sem ela
-    }
+  // a LOGO já é o nome da loja desenhado: escrever o nome embaixo dela fazia
+  // "Toque Leve" aparecer DUAS vezes na capa (visto na capa renderizada)
+  const cabeDaLogo = logoDaBarra ? logoDaBarra.scaleToFit(300, 110) : null;
+  // só serve para dar um respiro a mais na capa enxuta (sem foto nenhuma)
+  const alturaDoBloco =
+    (cabeDaLogo ? cabeDaLogo.height : tamanhoDoNome) +
+    (identidade.tagline ? tamanhoDaFrase + 14 : 0) +
+    22 + // a réguazinha
+    (vitrine.length ? altDaFoto + 34 : 0);
+
+  /*
+   * O bloco desce de um ponto fixo. Dá certo porque a logo SUBSTITUI o nome
+   * (não empilha com ele): a altura muda pouco entre uma loja e outra.
+   * Centrar o bloco na folha foi tentado e saiu pior — com as fotos ele
+   * descia até o pé e vazava (visto na capa renderizada).
+   */
+  let y = A4_ALTURA - 190 + (alturaDoBloco < 300 ? 40 : 0);
+
+  if (cabeDaLogo && logoDaBarra) {
+    y -= cabeDaLogo.height;
+    page.drawImage(logoDaBarra, {
+      x: (A4_LARGURA - cabeDaLogo.width) / 2,
+      y,
+      width: cabeDaLogo.width,
+      height: cabeDaLogo.height,
+    });
+  } else {
+    const nome = textoPdf(identidade.nome);
+    y -= tamanhoDoNome;
+    page.drawText(nome, {
+      x: (A4_LARGURA - serif.widthOfTextAtSize(nome, tamanhoDoNome)) / 2,
+      y,
+      size: tamanhoDoNome,
+      font: serif,
+      color: tinta,
+    });
   }
-
-  const nome = textoPdf(identidade.nome);
-  const tamanhoDoNome = escalaQueCabe(nome, serif, 44, A4_LARGURA - 120);
-  page.drawText(nome, {
-    x: (A4_LARGURA - serif.widthOfTextAtSize(nome, tamanhoDoNome)) / 2,
-    y,
-    size: tamanhoDoNome,
-    font: serif,
-    color: tinta,
-  });
-  y -= 30;
 
   if (identidade.tagline) {
     const t = textoPdf(identidade.tagline);
-    const tam = escalaQueCabe(t, serifIt, 14, A4_LARGURA - 140);
+    y -= tamanhoDaFrase + 14;
     page.drawText(t, {
-      x: (A4_LARGURA - serifIt.widthOfTextAtSize(t, tam)) / 2,
+      x: (A4_LARGURA - serifIt.widthOfTextAtSize(t, tamanhoDaFrase)) / 2,
       y,
-      size: tam,
+      size: tamanhoDaFrase,
       font: serifIt,
       color: tinta,
       opacity: 0.85,
     });
-    y -= 26;
   }
 
-  page.drawRectangle({ x: A4_LARGURA / 2 - 36, y: y - 6, width: 72, height: 2, color: tinta, opacity: 0.5 });
-  y -= 40;
+  y -= 22;
+  page.drawRectangle({
+    x: A4_LARGURA / 2 - 36,
+    y,
+    width: 72,
+    height: 1.6,
+    color: tinta,
+    opacity: 0.5,
+  });
 
   // AS PEÇAS: lado a lado, no mesmo recorte do card (já vêm cortadas)
   if (vitrine.length) {
-    const larg = 148;
-    const alt = Math.round(larg * (LAYOUT.fotoAltura / larguraDoCard()));
     const calha = 14;
-    const total = vitrine.length * larg + (vitrine.length - 1) * calha;
+    const total = vitrine.length * largDaFoto + (vitrine.length - 1) * calha;
     let x = (A4_LARGURA - total) / 2;
+    y -= altDaFoto + 34;
     for (const img of vitrine) {
-      page.drawImage(img, { x, y: y - alt, width: larg, height: alt });
-      x += larg + calha;
+      page.drawImage(img, { x, y, width: largDaFoto, height: altDaFoto });
+      x += largDaFoto + calha;
     }
-    y -= alt + 46;
-  } else {
-    y -= 60;
   }
 
   // o miolo: o que o catálogo tem
   const linhaDoMeio = `CATÁLOGO · ${mesPorExtenso(geradoEm).toUpperCase()}`;
   page.drawText(linhaDoMeio, {
     x: (A4_LARGURA - negrito.widthOfTextAtSize(linhaDoMeio, 12)) / 2,
-    y,
+    y: y - 40,
     size: 12,
     font: negrito,
     color: tinta,
@@ -371,7 +472,7 @@ async function desenharCapa(
   const quantas = `${pecas} ${pecas === 1 ? "opção" : "opções"}`;
   page.drawText(quantas, {
     x: (A4_LARGURA - fonte.widthOfTextAtSize(quantas, 11)) / 2,
-    y: y - 20,
+    y: y - 58,
     size: 11,
     font: fonte,
     color: tinta,
@@ -386,7 +487,7 @@ async function desenharCapa(
   const aviso = `Preços e disponibilidade de ${diaMesAno(geradoEm)}.`;
   page.drawText(aviso, {
     x: (A4_LARGURA - fonte.widthOfTextAtSize(aviso, 10)) / 2,
-    y: 148,
+    y: 132,
     size: 10,
     font: fonte,
     color: tinta,
@@ -395,7 +496,7 @@ async function desenharCapa(
   const confirme = "Confirme com a loja antes de fechar o pedido.";
   page.drawText(confirme, {
     x: (A4_LARGURA - fonte.widthOfTextAtSize(confirme, 10)) / 2,
-    y: 134,
+    y: 118,
     size: 10,
     font: fonte,
     color: tinta,
@@ -406,7 +507,7 @@ async function desenharCapa(
     const zap = `Pedidos pelo WhatsApp ${identidade.whatsapp}`;
     page.drawText(zap, {
       x: (A4_LARGURA - negrito.widthOfTextAtSize(zap, 11)) / 2,
-      y: 98,
+      y: 82,
       size: 11,
       font: negrito,
       color: tinta,
@@ -416,47 +517,89 @@ async function desenharCapa(
 
 /* ── páginas de peças ───────────────────────────────────────────────────── */
 
-function cabecalhoCorrido(
+/**
+ * A BARRA DA LOJA — a topbar do site, em toda página.
+ *
+ * No catálogo web ela fica grudada no alto, na cor da marca, com a logo à
+ * esquerda. É o primeiro sinal de "isto é da loja X", e sem ela o papel
+ * virava um relatório qualquer (pedido do dono: o PDF tem que parecer um
+ * print do catálogo).
+ */
+function barraDaLoja(
   page: PDFPage,
-  loja: string,
+  identidade: IdentidadeDaLoja,
+  logo: PDFImage | null,
+  /**
+   * A categoria desta página. Vai na barra porque a seção só escreve o nome
+   * dela na PRIMEIRA fileira: uma categoria de 40 peças ocupa quatro folhas,
+   * e sem isto as três seguintes não diziam de que categoria eram (achado da
+   * revisão). Na tela quem faz esse papel são os chips fixos no alto.
+   */
   categoria: string,
-  fonte: PDFFont,
-  primaria: RGB
+  P: Paleta,
+  serif: PDFFont,
+  fonte: PDFFont
 ) {
-  const y = A4_ALTURA - 40;
-  page.drawText(loja.toUpperCase(), {
-    x: LAYOUT.margem,
-    y,
-    size: 7.5,
-    font: fonte,
-    color: SUAVE,
-  });
-  const dir = categoria.toUpperCase();
-  const larg = fonte.widthOfTextAtSize(textoPdf(dir), 7.5);
-  page.drawText(dir, {
-    x: A4_LARGURA - LAYOUT.margem - larg,
-    y,
-    size: 7.5,
-    font: fonte,
-    color: primaria,
-  });
+  const alt = LAYOUT.barraAltura;
   page.drawRectangle({
+    x: 0,
+    y: A4_ALTURA - alt,
+    width: A4_LARGURA,
+    height: alt,
+    color: P.primary,
+  });
+  const tinta = tintaSobre(P.primary);
+  const meio = A4_ALTURA - alt / 2;
+
+  // a categoria à direita, como o chip aceso da barra do site
+  const cat = textoPdf(categoria.toUpperCase());
+  const largCat = fonte.widthOfTextAtSize(cat, 7.5);
+  page.drawText(cat, {
+    x: A4_LARGURA - LAYOUT.margem - largCat,
+    y: meio - 2.6,
+    size: 7.5,
+    font: fonte,
+    color: tinta,
+    opacity: 0.82,
+  });
+
+  const espacoDaEsquerda = A4_LARGURA - LAYOUT.margem * 2 - largCat - 20;
+  if (logo) {
+    // a logo ocupa a barra como na tela, sem encostar nas bordas
+    const cabe = logo.scaleToFit(Math.min(190, espacoDaEsquerda), alt - 16);
+    page.drawImage(logo, {
+      x: LAYOUT.margem,
+      y: A4_ALTURA - alt + (alt - cabe.height) / 2,
+      width: cabe.width,
+      height: cabe.height,
+    });
+    return;
+  }
+  const nome = textoPdf(identidade.nome);
+  const tam = escalaQueCabe(nome, serif, 17, espacoDaEsquerda);
+  page.drawText(nome, {
     x: LAYOUT.margem,
-    y: y - 9,
-    width: A4_LARGURA - LAYOUT.margem * 2,
-    height: 0.6,
-    color: LINHA,
+    y: meio - tam * 0.34,
+    size: tam,
+    font: serif,
+    color: tinta,
   });
 }
 
-function rodape(page: PDFPage, numero: number, whatsapp: string | null, fonte: PDFFont) {
+function rodape(
+  page: PDFPage,
+  numero: number,
+  whatsapp: string | null,
+  fonte: PDFFont,
+  P: Paleta
+) {
   if (whatsapp) {
     page.drawText(`pedidos pelo WhatsApp ${whatsapp}`, {
       x: LAYOUT.margem,
-      y: 28,
+      y: 24,
       size: 7.5,
       font: fonte,
-      color: SUAVE,
+      color: P.muted,
     });
   }
   /*
@@ -467,39 +610,65 @@ function rodape(page: PDFPage, numero: number, whatsapp: string | null, fonte: P
   const n = String(numero);
   page.drawText(n, {
     x: (A4_LARGURA - fonte.widthOfTextAtSize(n, 8)) / 2,
-    y: 28,
+    y: 24,
     size: 8,
     font: fonte,
-    color: SUAVE,
+    color: P.muted,
   });
 }
 
+/**
+ * O TÍTULO DA SEÇÃO, como no site: o nome da categoria em CAIXA ALTA e
+ * negrito, "18 opções" na cor da marca à direita, e a linha PONTILHADA
+ * embaixo — os três detalhes que fazem a página ser reconhecida como a
+ * mesma do catálogo.
+ */
 function tituloDaCategoria(
   page: PDFPage,
   titulo: { categoria: string; totalDeCards: number },
   topoY: number,
-  serif: PDFFont,
-  fonte: PDFFont
+  negrito: PDFFont,
+  fonte: PDFFont,
+  P: Paleta
 ) {
   // o título fica ACIMA da linha de cards: `topoY` já desceu a altura dele
-  const y = topoY + LAYOUT.tituloAltura - 26;
-  const nome = textoPdf(titulo.categoria);
-  const tam = escalaQueCabe(nome, serif, 20, A4_LARGURA - LAYOUT.margem * 2 - 90);
-  page.drawText(nome, { x: LAYOUT.margem, y, size: tam, font: serif, color: TINTA });
-
-  // "6 opções" — a mesma palavra que o site usa na seção
+  const y = topoY + LAYOUT.tituloAltura - 22;
   const n = titulo.totalDeCards;
-  const texto = `${n} ${n === 1 ? "opção" : "opções"}`;
-  const larg = fonte.widthOfTextAtSize(texto, 9);
-  page.drawText(texto, {
-    x: A4_LARGURA - LAYOUT.margem - larg,
-    y: y + 3,
-    size: 9,
-    font: fonte,
-    color: SUAVE,
+  const contagem = `${n} ${n === 1 ? "opção" : "opções"}`;
+  const largContagem = negrito.widthOfTextAtSize(textoPdf(contagem), 8);
+
+  const nome = titulo.categoria.toUpperCase();
+  const tam = escalaQueCabe(
+    nome,
+    negrito,
+    15,
+    A4_LARGURA - LAYOUT.margem * 2 - largContagem - 16
+  );
+  page.drawText(nome, { x: LAYOUT.margem, y, size: tam, font: negrito, color: P.ink });
+  page.drawText(contagem, {
+    x: A4_LARGURA - LAYOUT.margem - largContagem,
+    y: y + 2,
+    size: 8,
+    font: negrito,
+    color: P.primary,
+  });
+  page.drawLine({
+    start: { x: LAYOUT.margem, y: y - 10 },
+    end: { x: A4_LARGURA - LAYOUT.margem, y: y - 10 },
+    thickness: 0.8,
+    color: P.line,
+    dashArray: [1.6, 2.4],
   });
 }
 
+/**
+ * O CARD DA PEÇA — o do site, levado para a folha.
+ *
+ * Na tela ele é um retângulo do FUNDO DA LOJA com cantos arredondados e uma
+ * borda fina: em cima a foto num fundo suave, embaixo o nome em maiúsculas
+ * miúdas, a cor com a bolinha e o preço na cor da marca com "/ peça" ao
+ * lado. Aqui é a mesma coisa, nas mesmas cores.
+ */
 function desenharCard(
   page: PDFPage,
   o: {
@@ -509,171 +678,236 @@ function desenharCard(
     imagem: PDFImage | null;
     fonte: PDFFont;
     negrito: PDFFont;
-    primaria: RGB;
+    P: Paleta;
     swatch: (cor: string) => string;
     semCores: boolean;
   }
 ) {
-  const { card, x, topoY, imagem, fonte, negrito, primaria, swatch, semCores } = o;
+  const { card, x, topoY, imagem, fonte, negrito, P, swatch, semCores } = o;
   const larg = larguraDoCard();
-  const fotoTopo = topoY;
-  const fotoBase = fotoTopo - LAYOUT.fotoAltura;
+  const fotoAlt = alturaDaFoto();
+  const altura = alturaDoCard();
 
-  // moldura da foto: existe mesmo sem imagem, para a grade não "furar"
-  page.drawRectangle({
+  /*
+   * O CARD É DO FUNDO DA LOJA, não branco — é o que a tela faz
+   * (`background: T.bg`). Branco fixo quebrava a loja de fundo ESCURO: a
+   * tinta do texto é `readableOn(bg)`, ou seja branca, e dava branco sobre
+   * branco (achado da revisão, reproduzido gerando o PDF com bg #101010).
+   */
+  page.drawSvgPath(caminhoArredondado(larg, altura, LAYOUT.raio), {
     x,
-    y: fotoBase,
-    width: larg,
-    height: LAYOUT.fotoAltura,
-    color: MOLDURA,
+    y: topoY,
+    color: P.bg,
+  });
+  // a área da foto, no fundo suave (cantos de cima arredondados, como lá)
+  page.drawSvgPath(caminhoTopoArredondado(larg, fotoAlt, LAYOUT.raio), {
+    x,
+    y: topoY,
+    color: P.soft,
   });
 
+  const fotoBase = topoY - fotoAlt;
   if (imagem) {
+    // a foto já chega recortada na proporção da moldura (`lerFotosParaPdf`):
+    // o `object-cover object-top` da tela, feito pelo sharp — o pdf-lib não
+    // recorta, e desenhar maior invadiria o card vizinho
+    page.drawImage(imagem, { x, y: fotoBase, width: larg, height: fotoAlt });
     /*
-     * A foto já CHEGA recortada na proporção da moldura (o `object-cover
-     * object-top` do site, feito pelo sharp em `lerFotosParaPdf`) — numa foto
-     * de corpo inteiro o corte come o pé, nunca o rosto e a peça. Desenhar
-     * maior que a moldura e tapar as sobras foi a primeira versão e estava
-     * errada: a sobra lateral invadia o card vizinho.
+     * A foto é um RETÂNGULO e cobria os cantos arredondados de cima: todo
+     * card com foto saía com o topo quadrado e o pé redondo (achado da
+     * revisão). O pdf-lib não recorta, então as duas pontinhas voltam a ser
+     * pintadas com o fundo da PÁGINA, e a borda é redesenhada por cima.
      */
-    page.drawImage(imagem, { x, y: fotoBase, width: larg, height: LAYOUT.fotoAltura });
+    page.drawSvgPath(caminhoDoCanto(LAYOUT.raio), { x, y: topoY, color: P.bg });
+    page.drawSvgPath(caminhoDoCanto(LAYOUT.raio, true), {
+      x: x + larg - LAYOUT.raio,
+      y: topoY,
+      color: P.bg,
+    });
   }
 
+  // a borda fina da tela, desenhada POR CIMA de tudo para fechar o contorno
+  page.drawSvgPath(caminhoArredondado(larg, altura, LAYOUT.raio), {
+    x,
+    y: topoY,
+    borderColor: P.line,
+    borderWidth: 0.7,
+  });
+
   const esgotado = card.sizes.every((s) => !s.available);
+  if (esgotado) {
+    // a tarja "Indisponível" do site, por cima da foto
+    const texto = "INDISPONÍVEL";
+    const w = negrito.widthOfTextAtSize(texto, 7);
+    const alturaTarja = 15;
+    page.drawRectangle({
+      x,
+      y: fotoBase + fotoAlt / 2 - alturaTarja / 2,
+      width: larg,
+      height: alturaTarja,
+      color: rgb(0.17, 0.16, 0.15),
+      opacity: 0.74,
+    });
+    page.drawText(texto, {
+      x: x + (larg - w) / 2,
+      y: fotoBase + fotoAlt / 2 - 2.4,
+      size: 7,
+      font: negrito,
+      color: BRANCO,
+    });
+  }
+
+  const pad = 7;
+  const util = larg - pad * 2;
   let y = fotoBase - 12;
 
   /*
-   * NOME E COR, com o MESMO destaque do site: normalmente o nome é a linha
-   * miúda em maiúsculas e a COR é o negrito com a bolinha. A loja que
-   * escondeu as cores (semijoias, `catalogHideColors`) inverte: lá o NOME
-   * assume o negrito e a cor não aparece — sem isso o PDF dela destacava
-   * "Único" e deixava o nome da peça no texto miúdo (achado da revisão).
+   * NOME E COR, com o MESMO destaque do site: o nome é a linha miúda em
+   * maiúsculas e a COR é o negrito com a bolinha. A loja que escondeu as
+   * cores (semijoias, `catalogHideColors`) inverte — lá o NOME assume o
+   * negrito e a cor não aparece.
    */
   if (semCores) {
     const [linha] = quebrarEmLinhas(
       card.product.name,
-      (t) => negrito.widthOfTextAtSize(t, 9.5),
-      larg,
+      (t) => negrito.widthOfTextAtSize(t, 8.5),
+      util,
       1
     );
-    page.drawText(linha, { x, y: y - 4, size: 9.5, font: negrito, color: TINTA });
-    y -= 24;
+    page.drawText(linha, { x: x + pad, y: y - 3, size: 8.5, font: negrito, color: P.ink });
+    y -= 21;
   } else {
-    const nome = card.product.name.toUpperCase();
     const [linhaDoNome] = quebrarEmLinhas(
-      nome,
-      (t) => fonte.widthOfTextAtSize(t, 6.8),
-      larg,
+      card.product.name.toUpperCase(),
+      (t) => fonte.widthOfTextAtSize(t, 6.2),
+      util,
       1
     );
-    page.drawText(linhaDoNome, { x, y, size: 6.8, font: fonte, color: SUAVE });
+    page.drawText(linhaDoNome, { x: x + pad, y, size: 6.2, font: fonte, color: P.muted });
     y -= 11;
 
-    const raio = 3.4;
-    const cor = corDaLoja(swatch(card.color), rgb(0.79, 0.75, 0.69));
+    const raio = 3.1;
     page.drawCircle({
-      x: x + raio,
-      y: y + 3,
+      x: x + pad + raio,
+      y: y + 2.8,
       size: raio,
-      color: cor,
-      borderColor: LINHA,
+      color: corDaLoja(swatch(card.color), P.soft),
+      borderColor: P.line,
       borderWidth: 0.4,
     });
     const [linhaDaCor] = quebrarEmLinhas(
       card.color,
-      (t) => negrito.widthOfTextAtSize(t, 9.5),
-      larg - raio * 2 - 5,
+      (t) => negrito.widthOfTextAtSize(t, 8.5),
+      util - raio * 2 - 4,
       1
     );
     page.drawText(linhaDaCor, {
-      x: x + raio * 2 + 5,
+      x: x + pad + raio * 2 + 4,
       y,
-      size: 9.5,
+      size: 8.5,
       font: negrito,
-      color: TINTA,
+      color: P.ink,
     });
     y -= 13;
   }
 
-  // PREÇO — o da vitrine desta loja (RN-018/RN-041), com a unidade dela
-  // (RN-068). Preço cheio riscado quando um desconto de campanha está valendo
-  let px = x;
+  /*
+   * PREÇO — o da vitrine desta loja (RN-018/RN-041), com a unidade dela
+   * (RN-068); preço cheio riscado quando um desconto de campanha está
+   * valendo.
+   *
+   * A linha é MEDIDA INTEIRA antes de ser escrita, e encolhe até caber no
+   * card. Era o único texto do card sem corte por largura, e com a coluna
+   * mais estreita (quatro por folha) um preço riscado mais uma unidade
+   * comprida — a RN-068 aceita 20 letras — passava da borda e escrevia por
+   * cima do card vizinho (achado da revisão).
+   */
   const cheio = card.product.originalRetailPrice;
-  if (cheio && cheio > card.product.precoCatalogo) {
-    const t = brl(cheio);
-    const w = fonte.widthOfTextAtSize(t, 7.5);
-    page.drawText(t, { x: px, y: y + 1, size: 7.5, font: fonte, color: SUAVE });
-    page.drawRectangle({ x: px, y: y + 3.6, width: w, height: 0.5, color: SUAVE });
-    px += w + 5;
-  }
+  const riscado = cheio && cheio > card.product.precoCatalogo ? brl(cheio) : "";
   const preco = brl(card.product.precoCatalogo);
-  page.drawText(preco, { x: px, y, size: 11, font: negrito, color: primaria });
+  const unidade = `/ ${card.product.unidade.singular}`;
+  const medir = (e: number) =>
+    (riscado ? fonte.widthOfTextAtSize(textoPdf(riscado), 6.5 * e) + 4 : 0) +
+    negrito.widthOfTextAtSize(textoPdf(preco), 9.5 * e) +
+    3 +
+    fonte.widthOfTextAtSize(textoPdf(unidade), 6.2 * e);
+  // nunca abaixo de 70%: menor que isso o preço deixa de ser legível, e aí
+  // é melhor a unidade sair cortada pelo `quebrarEmLinhas` do que o número
+  let escala = 1;
+  if (medir(1) > util) escala = Math.max(0.7, util / medir(1));
+
+  let px = x + pad;
+  if (riscado) {
+    const w = fonte.widthOfTextAtSize(textoPdf(riscado), 6.5 * escala);
+    page.drawText(riscado, { x: px, y: y + 0.8, size: 6.5 * escala, font: fonte, color: P.muted });
+    page.drawRectangle({ x: px, y: y + 3, width: w, height: 0.45, color: P.muted });
+    px += w + 4;
+  }
+  page.drawText(preco, { x: px, y, size: 9.5 * escala, font: negrito, color: P.primary });
+  px += negrito.widthOfTextAtSize(textoPdf(preco), 9.5 * escala) + 3;
   /*
    * O respiro antes de "/ peça" é um AFASTAMENTO, nunca um espaço no texto:
    * o `paginaSegura` apara as pontas de tudo que é escrito (ele existe para
-   * limpar emoji, RN-038) e comia o espaço — saía "R$ 44,90/ peça" colado,
-   * visto na página renderizada.
+   * limpar emoji, RN-038) e comia o espaço — saía "R$ 44,90/ peça" colado.
    */
-  page.drawText(`/ ${card.product.unidade.singular}`, {
-    x: px + negrito.widthOfTextAtSize(preco, 11) + 4,
-    y: y + 0.5,
-    size: 7.5,
+  const [linhaDaUnidade] = quebrarEmLinhas(
+    unidade,
+    (t) => fonte.widthOfTextAtSize(t, 6.2 * escala),
+    Math.max(0, x + larg - pad - px),
+    1
+  );
+  page.drawText(linhaDaUnidade, {
+    x: px,
+    y: y + 0.4,
+    size: 6.2 * escala,
     font: fonte,
-    color: SUAVE,
+    color: P.muted,
   });
-  y -= 11;
+  y -= 10;
 
   /*
-   * TAMANHOS E MÍNIMO NA MESMA LINHA.
-   *
-   * Os tamanhos são o que o PDF ganha e o site não tem no card: lá a cliente
-   * TOCA no card para abrir a grade, no papel não há toque — sem eles ela
-   * pergunta "tem no M?" peça por peça. O mínimo vem junto porque numa linha
-   * própria o bloco de texto passava da altura reservada e a última fileira
-   * encostava no rodapé (visto na página renderizada).
+   * TAMANHOS E MÍNIMO — a ÚNICA coisa que o papel tem e o card da tela não.
+   * Lá a cliente TOCA no card para abrir a grade; no papel não há toque, e
+   * sem esta linha ela teria que perguntar "tem no M?" peça por peça. O
+   * esgotado não entra: listá-lo faria ela pedir o que não existe (RN-067).
    */
-  if (esgotado) {
-    page.drawText("Indisponível — consulte reposição", {
-      x,
-      y,
-      size: 7,
-      font: negrito,
-      color: rgb(0.7, 0.22, 0.22),
-    });
-    return;
-  }
+  if (esgotado) return;
   const tamanhos = textoDosTamanhos(card.sizes);
   const minimo = card.product.minQuantity;
   const direita = minimo > 1 ? `mín. ${contar(minimo, card.product.unidade)}` : "";
+  let espacoDosTamanhos = util;
   if (direita) {
-    const w = fonte.widthOfTextAtSize(textoPdf(direita), 7);
-    page.drawText(direita, { x: x + larg - w, y, size: 7, font: fonte, color: SUAVE });
-    // os tamanhos param antes do mínimo: sobrepor os dois seria ilegível
-    if (tamanhos) {
-      const [linha] = quebrarEmLinhas(
-        tamanhos,
-        (t) => fonte.widthOfTextAtSize(t, 7.5),
-        larg - w - 8,
-        1
-      );
-      page.drawText(linha, { x, y, size: 7.5, font: fonte, color: SUAVE });
-    }
-  } else if (tamanhos) {
-    const [linha] = quebrarEmLinhas(tamanhos, (t) => fonte.widthOfTextAtSize(t, 7.5), larg, 1);
-    page.drawText(linha, { x, y, size: 7.5, font: fonte, color: SUAVE });
+    const w = fonte.widthOfTextAtSize(textoPdf(direita), 6);
+    page.drawText(direita, { x: x + larg - pad - w, y, size: 6, font: fonte, color: P.muted });
+    espacoDosTamanhos = util - w - 6;
+  }
+  if (tamanhos) {
+    const [linha] = quebrarEmLinhas(
+      tamanhos,
+      (t) => fonte.widthOfTextAtSize(t, 6.4),
+      espacoDosTamanhos,
+      1
+    );
+    page.drawText(linha, { x: x + pad, y, size: 6.4, font: fonte, color: P.muted });
   }
 }
 
 /** A página final, quando o acervo não coube inteiro. */
-function paginaDoCorte(page: PDFPage, cortadas: number, serif: PDFFont, fonte: PDFFont) {
-  page.drawRectangle({ x: 0, y: 0, width: A4_LARGURA, height: A4_ALTURA, color: CREME });
+function paginaDoCorte(
+  page: PDFPage,
+  cortadas: number,
+  serif: PDFFont,
+  fonte: PDFFont,
+  P: Paleta
+) {
+  page.drawRectangle({ x: 0, y: 0, width: A4_LARGURA, height: A4_ALTURA, color: P.bg });
   const titulo = "Tem mais no catálogo";
   page.drawText(titulo, {
     x: (A4_LARGURA - serif.widthOfTextAtSize(titulo, 22)) / 2,
     y: A4_ALTURA / 2 + 20,
     size: 22,
     font: serif,
-    color: TINTA,
+    color: P.ink,
   });
   const texto = `Outras ${cortadas} ${cortadas === 1 ? "opção não coube" : "opções não couberam"} neste arquivo.`;
   page.drawText(texto, {
@@ -681,7 +915,7 @@ function paginaDoCorte(page: PDFPage, cortadas: number, serif: PDFFont, fonte: P
     y: A4_ALTURA / 2 - 8,
     size: 11,
     font: fonte,
-    color: SUAVE,
+    color: P.muted,
   });
   const caminho = "Peça à loja o catálogo da categoria que você procura.";
   page.drawText(caminho, {
@@ -689,7 +923,7 @@ function paginaDoCorte(page: PDFPage, cortadas: number, serif: PDFFont, fonte: P
     y: A4_ALTURA / 2 - 26,
     size: 11,
     font: fonte,
-    color: SUAVE,
+    color: P.muted,
   });
 }
 

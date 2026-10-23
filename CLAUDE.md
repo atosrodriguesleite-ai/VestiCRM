@@ -844,8 +844,8 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   ADR-021): relato recorrente do dono — *"alguns clientes estão reclamando
   que o catálogo não tá abrindo… converter o catálogo que a gente tem online
   em PDF, como se fosse a página mesmo do website, só que estático"*.
-  **O PDF não é mais leve que a página** (medido: 243 peças = 29 páginas =
-  2,2 MB; a página está em ~1,2 MB desde a RN-070) — e não é por isso que
+  **O PDF não é mais leve que a página** (medido: 243 peças = 22 páginas =
+  2,3 MB; a página está em ~1,2 MB desde a RN-070) — e não é por isso que
   ele existe: é **UM arquivo**, que baixa de uma vez, fica no aparelho e abre
   **sem internet, sem navegador e sem JavaScript**, e a cliente repassa para
   a amiga. A vitrine são dezenas de idas à internet (uma por foto) e basta
@@ -867,22 +867,36 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   fechar o pedido", e a resposta vai `no-store` — sem isso a cliente pede
   pelo preço de dois meses atrás e a loja descobre no fechamento. A data é a
   de São Paulo (`diaSP`, RN-030): pelo relógio do servidor, o catálogo
-  gerado às 22h sairia com a data de amanhã. **(3) O desenho é pdf-lib, sem
-  navegador** (a peça do extrato de comissão, RN-038, e das etiquetas,
-  RN-059): capa com a cor e a logo da loja mais três peças do acervo, e
-  páginas de **3 × 3** com nome, cor (com a bolinha da loja), preço `/
-  unidade` e os **tamanhos escritos** — o card do site não os mostra porque
-  lá a cliente TOCA para abrir a grade, e no papel não há toque. A
-  paginação é pura e testada (`paginar`): categoria começa em fileira nova,
-  **título nunca fica órfão** no pé da página, nada invade o rodapé e seção
-  vazia não vira página em branco. As medidas saíram de OLHAR as páginas
-  renderizadas, e três defeitos só apareceram ali: com a foto a 184 cabiam
-  duas fileiras e sobrava um TERÇO da folha (42 páginas viraram 29 a 162);
-  o bloco de texto ocupava 62pt com 56 reservados e a última fileira
-  encostava no rodapé (tamanhos e mínimo passaram a dividir uma linha); e o
-  `paginaSegura` **apara as pontas** de tudo que escreve (ele existe para
-  limpar emoji), então o espaço de " / peça" sumia e saía colado — o
-  respiro virou afastamento. **(4) Nada derruba a geração**: as fotos moram
+  gerado às 22h sairia com a data de amanhã. **(3) O PAPEL É O PRINT DA TELA**
+  (pedido do dono, 23/10/2026: *"a qualidade desse PDF tem que ser a mesma
+  da experiência de quem abre na web; como se fosse um print dele mesmo"*).
+  A primeira versão tinha identidade PRÓPRIA — creme editorial, serifa — e
+  parecia uma revista inspirada no catálogo, não o catálogo. Agora: as
+  **cores são as da loja**, derivadas pela MESMA conta da vitrine
+  (`temaDoCatalogo`, que a tela passou a importar: fundo, tinta, linha,
+  suave e o cinza dos detalhes saem das três cores que a loja escolheu);
+  toda página abre com a **barra da marca e a logo**, como a topbar do
+  site; o título da seção é a categoria em CAIXA ALTA com "18 opções" na
+  cor da marca e a **linha pontilhada** embaixo; e as peças são **cards
+  BRANCOS de cantos arredondados** (caminho SVG — o pdf-lib não tem borda
+  arredondada) com a foto num fundo suave, o nome em maiúsculas miúdas, a
+  cor em negrito com a bolinha e o preço na cor da marca com `/ unidade`
+  ao lado. **Quatro colunas por três fileiras**, como o catálogo no
+  computador. A ÚNICA diferença para a tela são os **tamanhos escritos**
+  no card: lá a cliente TOCA para abrir a grade, no papel não há toque. O
+  desenho é pdf-lib, sem navegador (a peça do extrato de comissão, RN-038,
+  e das etiquetas, RN-059). A paginação é pura e testada (`paginar`):
+  categoria começa em fileira nova, **título nunca fica órfão** no pé da
+  página, nada invade o rodapé e seção vazia não vira página em branco.
+  **As medidas saíram de MEDIR o print da tela e OLHAR as páginas
+  renderizadas**, e quatro defeitos só apareceram ali: a foto alta demais
+  deixava um TERÇO da folha vazio; o bloco de texto ocupava mais do que o
+  reservado e a última fileira encostava no rodapé; o `paginaSegura`
+  **apara as pontas** de tudo que escreve (ele existe para limpar emoji),
+  então o espaço de " / peça" sumia e saía colado — o respiro virou
+  afastamento; e na capa a logo aparecia JUNTO do nome escrito, então
+  "Toque Leve" saía duas vezes (a logo já É o nome: agora ela o
+  substitui). **(4) Nada derruba a geração**: as fotos moram
   no banco como data-URL (dívida nº 1) e podem ser link externo, e a função
   morre em 60s — então há orçamento de tempo, as fotos são lidas em lote e
   em blocos, **deduplicadas** (o modelo de 4 cores com uma foto só entra uma

@@ -111,6 +111,7 @@ export async function GET(req: NextRequest) {
       whatsapp: company.whatsapp,
       primary: company.catalogPrimary,
       secondary: company.catalogSecondary,
+      bg: company.catalogBg,
       logo,
       cores,
     },

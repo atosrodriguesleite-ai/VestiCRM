@@ -69,9 +69,16 @@ describe("a regra vive num lugar só", () => {
       join(process.cwd(), "src/app/catalogo/[slug]/public-catalog.tsx"),
       "utf8"
     );
-    expect(cat).toContain('import { makeSwatch, mixHex, readableOn } from "@/lib/color"');
+    // a bolinha de cor vem do `makeSwatch` da lib, e as cores derivadas do
+    // tema (RN-094: a MESMA conta que o catálogo em PDF usa) — nenhuma das
+    // duas é calculada aqui dentro
+    expect(cat).toContain('makeSwatch } from "@/lib/color"');
+    expect(cat).toContain('import { temaDoCatalogo } from "@/lib/catalogo/tema"');
+    expect(cat).toContain("temaDoCatalogo(identity)");
     // a cópia antiga (com o hack "lilás"/"lilas" lado a lado) saiu de cena
     expect(cat).not.toContain("const COLOR_HEX");
     expect(cat).not.toContain('lilás: "#B49BD6", lilas:');
+    // e a derivação não voltou a ser escrita à mão na tela
+    expect(cat).not.toContain("readableOn(identity.bg)");
   });
 });

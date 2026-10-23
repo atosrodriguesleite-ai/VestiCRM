@@ -14,39 +14,39 @@
 export const A4_LARGURA = 595;
 export const A4_ALTURA = 842;
 
+/**
+ * As medidas saíram de MEDIR o catálogo web (print em 1040px de largura) e
+ * levá-lo para a folha: quatro colunas, cards brancos arredondados sobre o
+ * fundo da loja e a foto em pé na mesma proporção de lá (≈ 4:3 de altura).
+ */
 export const LAYOUT = {
-  margem: 42,
-  colunas: 3,
+  margem: 30,
+  /** quatro, como o catálogo no computador */
+  colunas: 4,
   /** respiro entre colunas */
-  calha: 17,
-  /**
-   * Altura da foto do card.
-   *
-   * O número saiu de OLHAR a página renderizada: com 184 cabiam só DUAS
-   * fileiras e sobrava um terço da folha em branco no pé — 42 páginas para
-   * 243 peças, com a página parecendo inacabada. Em 168 cabem TRÊS fileiras
-   * (9 peças por folha) e a foto continua em pé (168 × 159), que é o formato
-   * de foto de roupa. Mexer aqui mexe em tudo: a proporção do recorte da
-   * foto sai daqui (`lerFotosParaPdf`).
-   */
-  fotoAltura: 162,
+  calha: 11,
+  /** cantos arredondados do card, como na tela */
+  raio: 9,
+  /** a foto, na proporção da tela (altura ÷ largura) */
+  fotoProporcao: 1.33,
   /**
    * Altura do texto embaixo da foto: nome, cor, preço e a linha de tamanhos.
    *
-   * Tem que ser o que o texto OCUPA DE VERDADE — as linhas descem 12 + 11 +
-   * 13 + 11 a partir do pé da foto, mais o descendente. Reservar menos foi o
-   * defeito que apareceu na página renderizada: na última fileira o "mínimo
-   * 4 peças" encostava no rodapé.
+   * Tem que ser o que o texto OCUPA DE VERDADE — reservar menos foi o
+   * defeito que apareceu na página renderizada: na última fileira o texto
+   * encostava no rodapé.
    */
-  textoAltura: 58,
+  textoAltura: 54,
   /** respiro entre uma linha de cards e a seguinte */
   entreLinhas: 12,
-  /** da margem de cima até o começo do conteúdo (cabeçalho corrido) */
-  topo: 58,
+  /** a barra da loja no topo de cada página (a topbar do site) */
+  barraAltura: 44,
+  /** da margem de cima até o começo do conteúdo (abaixo da barra) */
+  topo: 70,
   /** do pé da página até o fim do conteúdo (rodapé com página e WhatsApp) */
-  rodape: 50,
-  /** altura do título da categoria ("Conjuntos de short · 6 opções") */
-  tituloAltura: 40,
+  rodape: 42,
+  /** altura do título da categoria ("CONJUNTOS · 18 opções" + linha) */
+  tituloAltura: 38,
 } as const;
 
 export type Layout = typeof LAYOUT;
@@ -57,9 +57,14 @@ export function larguraDoCard(l: Layout = LAYOUT): number {
   return util / l.colunas;
 }
 
+/** Altura da foto do card — derivada da largura, na proporção da tela. */
+export function alturaDaFoto(l: Layout = LAYOUT): number {
+  return Math.round(larguraDoCard(l) * l.fotoProporcao);
+}
+
 /** Altura total de um card (foto + texto). */
 export function alturaDoCard(l: Layout = LAYOUT): number {
-  return l.fotoAltura + l.textoAltura;
+  return alturaDaFoto(l) + l.textoAltura;
 }
 
 /** O x da coluna `i` (0-based). */

@@ -5,6 +5,7 @@ import {
   A4_ALTURA,
   A4_LARGURA,
   LAYOUT,
+  alturaDaFoto,
   alturaDoCard,
   alturaUtil,
   larguraDoCard,
@@ -20,6 +21,7 @@ import {
   secoesDaVitrine,
 } from "@/lib/catalogo/secoes";
 import { nomeDoArquivo } from "@/lib/catalogo/pdf";
+import { temaDoCatalogo } from "@/lib/catalogo/tema";
 
 // Guarda RN-094
 
@@ -119,16 +121,23 @@ describe("RN-094 · a paginação do PDF", () => {
 
   it("as medidas fecham dentro da folha A4", () => {
     const larg = larguraDoCard();
-    // três colunas + duas calhas + duas margens = a largura da folha
-    expect(larg * LAYOUT.colunas + LAYOUT.calha * 2 + LAYOUT.margem * 2).toBeCloseTo(
+    const cols = LAYOUT.colunas;
+    // as colunas + as calhas entre elas + as duas margens = a folha inteira
+    expect(larg * cols + LAYOUT.calha * (cols - 1) + LAYOUT.margem * 2).toBeCloseTo(
       A4_LARGURA,
       6
     );
     expect(xDaColuna(0)).toBe(LAYOUT.margem);
-    expect(xDaColuna(2) + larg).toBeCloseTo(A4_LARGURA - LAYOUT.margem, 6);
+    expect(xDaColuna(cols - 1) + larg).toBeCloseTo(A4_LARGURA - LAYOUT.margem, 6);
   });
 
-  it("cabem TRÊS fileiras por página, com o título — o que matou o terço vazio", () => {
+  it("a foto sai na proporção da tela (o PDF é o print do catálogo)", () => {
+    expect(alturaDaFoto() / larguraDoCard()).toBeCloseTo(LAYOUT.fotoProporcao, 1);
+    // em pé, como a foto de roupa do site
+    expect(alturaDaFoto()).toBeGreaterThan(larguraDoCard());
+  });
+
+  it("cabem três fileiras por página com o título — e não sobra folha para uma quarta", () => {
     const precisa = LAYOUT.tituloAltura + 3 * alturaDoCard() + 2 * LAYOUT.entreLinhas;
     expect(precisa).toBeLessThanOrEqual(alturaUtil());
     // e QUATRO não cabem (se coubessem, o layout estaria desperdiçando folha)
@@ -148,13 +157,14 @@ describe("RN-094 · a paginação do PDF", () => {
   });
 
   it("cada categoria começa em fileira nova (nunca duas na mesma linha)", () => {
+    const cols = LAYOUT.colunas;
+    // uma categoria com uma fileira cheia + sobra, e outra com meia fileira
     const paginas = paginar([
-      { categoria: "Blusas", cards: cards(4) },
+      { categoria: "Blusas", cards: cards(cols + 1) },
       { categoria: "Shorts", cards: cards(2) },
     ]);
     const linhas = paginas.flatMap((p) => p.linhas);
-    // 4 blusas = 2 fileiras (3 + 1); 2 shorts = 1 fileira
-    expect(linhas.map((l) => l.cards.length)).toEqual([3, 1, 2]);
+    expect(linhas.map((l) => l.cards.length)).toEqual([cols, 1, 2]);
     expect(linhas.filter((l) => l.titulo).map((l) => l.titulo!.categoria)).toEqual([
       "Blusas",
       "Shorts",
@@ -164,7 +174,7 @@ describe("RN-094 · a paginação do PDF", () => {
   it("o TÍTULO nunca fica órfão no pé da página", () => {
     // uma categoria que enche a página e outra que começaria no finalzinho
     const paginas = paginar([
-      { categoria: "Blusas", cards: cards(9) },
+      { categoria: "Blusas", cards: cards(LAYOUT.colunas * 3) },
       { categoria: "Shorts", cards: cards(3) },
     ]);
     for (const p of paginas) {
@@ -213,6 +223,41 @@ describe("RN-094 · a linha de tamanhos do card", () => {
 
   it("sem nenhum tamanho disponível a linha some (o card diz 'Indisponível')", () => {
     expect(textoDosTamanhos([{ size: "P", available: false }])).toBe("");
+  });
+});
+
+describe("RN-094 · o PDF é o PRINT do catálogo, com as cores da loja", () => {
+  it("as cores derivadas têm UM dono, e a vitrine e o PDF o usam", () => {
+    expect(ler("src/app/catalogo/[slug]/public-catalog.tsx")).toContain(
+      "temaDoCatalogo(identity)"
+    );
+    expect(ler("src/lib/catalogo/pdf.ts")).toContain("temaDoCatalogo(cores)");
+  });
+
+  it("a paleta do papel sai das TRÊS cores da loja, nunca de uma fixa", () => {
+    const fonte = ler("src/lib/catalogo/pdf.ts");
+    for (const campo of ["primary", "bg", "ink", "line", "soft", "muted"]) {
+      expect(fonte, campo).toMatch(new RegExp(`${campo}: c\\(t\\.${campo},`));
+    }
+    // a paleta creme editorial que o PDF tinha antes não existe mais
+    expect(fonte).not.toContain("const CREME");
+    expect(fonte).not.toContain("const TINTA");
+  });
+
+  it("o tema é o MESMO cálculo em qualquer ordem de leitura", () => {
+    const cores = { primary: "#95442A", secondary: "#F3E9DD", bg: "#FBF7F2" };
+    expect(temaDoCatalogo(cores)).toEqual(temaDoCatalogo({ ...cores }));
+    // o texto é escolhido pelo fundo (claro → tinta escura)
+    expect(temaDoCatalogo(cores).ink).toBe("#1a1523");
+    expect(temaDoCatalogo({ ...cores, bg: "#101010" }).ink).toBe("#ffffff");
+  });
+
+  it("a página desenha a barra da loja e o fundo dela, como na tela", () => {
+    const fonte = ler("src/lib/catalogo/pdf.ts");
+    expect(fonte).toContain("barraDaLoja(page,");
+    expect(fonte).toContain("height: A4_ALTURA, color: P.bg");
+    // os cards são arredondados como os da tela (o pdf-lib pede caminho SVG)
+    expect(fonte).toContain("caminhoArredondado(larg, altura, LAYOUT.raio)");
   });
 });
 

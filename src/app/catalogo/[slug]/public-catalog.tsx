@@ -22,7 +22,8 @@ import {
   Playfair_Display,
   Lora,
 } from "next/font/google";
-import { makeSwatch, mixHex, readableOn } from "@/lib/color";
+import { makeSwatch } from "@/lib/color";
+import { temaDoCatalogo } from "@/lib/catalogo/tema";
 import { faltaParaOMinimo } from "@/lib/catalogo/tabelas-de-preco";
 import { contar, UNIDADE_PADRAO, type Unidade } from "@/lib/catalogo/unidade";
 import { CAMPOS_DO_PEDIDO, type ConfigCampo } from "@/lib/catalogo/campos-do-pedido";
@@ -348,16 +349,9 @@ export function PublicCatalog({
   hideColors?: boolean;
 }) {
   // Tema 100% personalizável pelo lojista: 3 cores base + derivadas
-  const T = {
-    primary: identity.primary,
-    secondary: identity.secondary,
-    bg: identity.bg,
-    ink: readableOn(identity.bg),
-    line: mixHex(identity.secondary, identity.primary, 0.06),
-    soft: mixHex(identity.secondary, identity.bg, 0.55),
-    muted: mixHex(identity.primary, identity.bg, 0.38),
-    dark: mixHex(identity.primary, "#000000", 0.45),
-  };
+  // as cores derivadas moram na lib (RN-094): o catálogo em PDF é o print
+  // desta tela e usa as MESMAS — trocar a cor da loja muda as duas juntas
+  const T = temaDoCatalogo(identity);
   const swatch = makeSwatch(customColors);
   const fontClass = FONT_CLASS[identity.font] ?? FONT_CLASS.montserrat;
 
