@@ -50,16 +50,18 @@ export const JANELA_DA_BOLHA_MS = 30 * 60 * 1000;
  * fim, quebra de linha dobrada, acento composto de outro jeito. Não tolera
  * diferença de conteúdo — uma peça a mais é outro pedido.
  */
+export function textoLimpo(s: string): string {
+  return (s ?? "")
+    .normalize("NFC")
+    .replace(/\r\n/g, "\n")
+    .replace(/[ \t]+/g, " ")
+    .replace(/\n{2,}/g, "\n")
+    .trim();
+}
+
 export function mesmoTexto(a: string, b: string): boolean {
-  const limpa = (s: string) =>
-    (s ?? "")
-      .normalize("NFC")
-      .replace(/\r\n/g, "\n")
-      .replace(/[ \t]+/g, " ")
-      .replace(/\n{2,}/g, "\n")
-      .trim();
-  const x = limpa(a);
-  return x.length > 0 && x === limpa(b);
+  const x = textoLimpo(a);
+  return x.length > 0 && x === textoLimpo(b);
 }
 
 export type BolhaCandidata = {

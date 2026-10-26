@@ -679,6 +679,12 @@ export async function reagirNaMensagem(
 export type ReceiveMessageInput = {
   channel: Channel;
   phone: string;
+  /**
+   * RN-096: o número veio do PRÓPRIO WhatsApp (webhook), sempre com o DDI —
+   * a certeza que cura o cadastro antigo com o 55 colado. A simulação e o
+   * teste manual mandam número digitado e não marcam.
+   */
+  telefoneVerificado?: boolean;
   name?: string;
   text: string;
   mediaType?: MessageMedia;
@@ -736,6 +742,9 @@ export async function receiveMessage(
   const started = Date.now();
   const result = await intakeLead(companyId, {
     phone: input.phone,
+    // só o WEBHOOK diz que o número é verificado (RN-096); a tela de
+    // simulação e o teste manual passam número digitado, sem certeza
+    telefoneVerificado: input.telefoneVerificado === true,
     name: input.name,
     origin: input.channel, // Channel ⊂ Origin (todo canal é uma origem)
     message: input.text,

@@ -702,6 +702,90 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   isso em português, com a sugestão do 9 quando cabe
   (`lib/comm/numero-sem-whatsapp.ts`) — antes mostrava o JSON cru do
   servidor e duas vendedoras reenviaram achando que era falha de envio.
+  **RN-096 · NÚMERO DE FORA DO BRASIL NÃO GANHA 55 — E O NÚMERO DO WHATSAPP
+  JÁ VEM COM O DDI** (`lib/telefone.ts`, puro; `normalizePhone`,
+  `phoneMatchVariants` e `formatPhone` passam por ele, 26/10/2026): relato do
+  dono com o print da Toque Leve — a cliente Rafaela aparecia como
+  "(17) 81408-6755", numa conversa "na fila" que ninguém conseguia responder
+  (o WhatsApp dizia que o número não existe). Não existe mesmo: o que chegou
+  foi `17814086755`, **+1 781 408-6755**, um número dos EUA; o sistema via
+  onze dígitos, concluía "brasileiro sem DDI" e colava o 55 — nascia o
+  cadastro `5517814086755`, a resposta da loja ia para o nada e a cliente que
+  escrevia do exterior ficava sem resposta. Duas réguas: (1) **o número que
+  vem do WhatsApp já tem o DDI** — os dois webhooks (Evolution e API
+  oficial) e a importação de histórico o passam adiante com o `+` na frente
+  (`declaraDdi`; o "00" de discar para fora também declara), e aí nada se
+  adivinha;
+  (2) **o digitado só ganha 55 se tiver CARA de brasileiro**
+  (`pareceNumeroBrasileiroSemDdi`: DDD que existe e, com onze dígitos, o 9
+  na terceira posição; com dez, fixo ou o celular antigo sem o 9, que o
+  cadastro tolera). Na tela, número de fora sai como "+1 781 408-6755"
+  (`formatarInternacional`, DDI de 1, 2 ou 3 dígitos pela lista da UIT) e
+  nunca mais como um DDD; a sugestão "faltou o 9" só vale para DDD que
+  existe. **O cadastro antigo com o 55 colado se cura sozinho**: as variantes
+  de busca incluem a forma antiga (`55` + o número — também para o número
+  de fora com cara de brasileiro, o +51 9… do Peru, quando o DDI veio dito),
+  o cadastro com o número EXATO vence o antigo só quando o antigo é o do 55
+  colado (para o brasileiro com dois cadastros legados, com e sem o 9, segue
+  valendo o mais antigo — senão cada canal caía num cadastro), e a primeira
+  mensagem da cliente corrige o número no intake
+  (`guardadoComCinquentaECincoPorEngano`), com a linha do tempo dizendo —
+  **só com o número VERIFICADO pelo webhook** (`telefoneVerificado`, que só
+  os dois webhooks marcam): o `+` digitado num formulário não é certeza,
+  "+11 99876-1001" é um brasileiro com o DDI esquecido e a cura tiraria o 55
+  de um cadastro certo; a migração `20261026120000` tira o 55 de todo "55 +
+  onze dígitos" sem o 9 na terceira posição ou com DDD que não existe (a
+  mesma lista da lib — nunca é número brasileiro), só onde não há colisão. **Limite dito**: número de fora DIGITADO sem o `+` e com a cara
+  exata de um celular brasileiro (um +1 de área 29x, o +51 9… do Peru) segue
+  lido como brasileiro — vindo do WhatsApp nunca há dúvida, e é de lá que
+  vem a cliente de fora. Provado contra o Postgres local
+  (`scripts/e2e-pedido-de-outro-numero.ts`, cenários 1–2).
+  **RN-097 · O MESMO PEDIDO DO CATÁLOGO CHEGANDO DE OUTRO WHATSAPP: O
+  WHATSAPP É O NÚMERO VERIFICADO** (`lib/comm/pedido-de-outro-numero.ts`,
+  chamado pelo intake e pela porta do pedido, 26/10/2026, ADR-023): relato do
+  dono — *"quando a pessoa manda o pedido e coloca um número diferente do
+  dela, o sistema abre outra conversa e duplica"* e *"o pedido chega duas
+  vezes no WhatsApp (não duplica na aba Pedidos, mas duplica nas
+  mensagens)"*. É um defeito só: a cliente preenche o pedido com o telefone
+  Y (o catálogo cria o cadastro Y, a bolha do pedido, abre o wa.me) e a
+  mensagem de verdade sai do WhatsApp do APARELHO, o número X — o webhook
+  cria outro cadastro, outra conversa na fila e outra bolha com o mesmo
+  texto (a RN-043 só junta a MESMA cliente; a RN-021 só vale pelo link
+  pessoal). Régua, que estende a RN-021: **o WhatsApp por onde a mensagem do
+  pedido chegou é o número verificado** (foi o aparelho que montou o pedido
+  que a mandou); o digitado é palpite e fica anotado. Como juntar cadastro
+  sozinho é o que a RN-020 proíbe, a prova exigida é FORTE, as três: o
+  texto é o do pedido, idêntico, dentro da meia hora da bolha; o cadastro do
+  digitado **NASCEU DESTE PEDIDO** (`nasceuDoPedido`: origem catálogo,
+  criado na janela, nunca recebeu mensagem pelo WhatsApp — se o número
+  digitado é de uma cliente de verdade, nada é tocado e vale o aviso
+  "parece a mesma pessoa" de sempre); e, para FUNDIR, o pedido já existe (a
+  porta cria o pedido DEPOIS do intake, e apagar o cadastro no meio
+  quebraria a criação — RN-010). Três saídas (`decidirAdocao`, pura): X
+  ainda não é cliente → o cadastro nascido do pedido **LEVA o número X**
+  (nada se apaga; pedido, conversa e bolha ficam, e a bolha é reaproveitada
+  pelo caminho de sempre); X já é cliente e o pedido existe → o cadastro do
+  digitado é **FUNDIDO no de X** pelo caminho da unificação de contatos
+  (`repointCustomer`: pedido, conversa, histórico e bolha vão para X, as
+  conversas abertas viram uma); o webhook chegou PRIMEIRO → a porta do
+  catálogo **adota X antes de criar qualquer coisa**
+  (`telefoneDoWhatsAppDoPedido` → `telefoneDoPedido` com `doWhatsApp`, que
+  vence até o link pessoal). A corrida (o webhook vê a bolha mas o pedido
+  ainda não existe) é fechada pela própria porta do pedido, que no FIM, com
+  o pedido criado, procura a mensagem de verdade e funde
+  (`juntarDepoisDoPedido`, tirando a bolha sem id — a mensagem de verdade
+  fica); os dois lados tomam a MESMA trava, pelo texto limpo do pedido
+  (`pg_advisory_xact_lock(hashtext(...))`). Tudo fica dito: nota 📱 na
+  conversa e linha do tempo da cliente com os dois números, e a observação
+  do pedido diz que o digitado era outro. Falha aqui nunca derruba a
+  mensagem nem o pedido (vai para a Saúde sem alarme, régua da RN-066).
+  **Limite dito**: quando o número digitado é de uma cliente de verdade da
+  loja (a sócia, a irmã), continuam dois cadastros e a bolha aparece nas
+  duas conversas — para o sistema são duas pessoas, e a gerência unifica
+  pelo aviso. Provado pelas rotas de verdade contra o Postgres local
+  (`scripts/e2e-pedido-de-outro-numero.ts`, cenários 3–7: X desconhecido, X
+  já cliente, webhook primeiro, cliente de verdade intocada, e a corrida
+  fechada no fim da rota, idempotente).
 - **RN-009 · Catálogo público**: preço/total SEMPRE recalculado no servidor; links
   rastreados `?ref=` (vendedora) e `?c=` (cliente) alimentam a atribuição.
 - **RN-010 · O pedido do catálogo NÃO PODE SE PERDER** (`lib/catalogo/envio-pedido.ts`):

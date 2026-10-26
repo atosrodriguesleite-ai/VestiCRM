@@ -14,6 +14,10 @@ import { corIgual } from "@/lib/capa-por-cor";
 import { intakeLead, normalizePhone } from "@/lib/intake";
 import { telefoneDoPedido } from "@/lib/catalogo/telefone-do-pedido";
 import {
+  telefoneDoWhatsAppDoPedido,
+  juntarDepoisDoPedido,
+} from "@/lib/comm/pedido-de-outro-numero";
+import {
   chavesDoPedidoCatalogo,
   chavesDoRastroDeRecusa,
   ipDaRequisicao,
@@ -44,7 +48,7 @@ import { syncOpportunityValue, garantirCartaoDoPedido } from "@/lib/opportunity-
 import { avancarFunil } from "@/lib/funil-auto";
 import { naEtapaViva } from "@/lib/funil/etapa-viva";
 import { notifyNovoPedido } from "@/lib/notify";
-import { brl } from "@/lib/format";
+import { brl, formatPhone } from "@/lib/format";
 import { acharVariacao } from "@/lib/cor-da-peca";
 import { sincronizarPedidoSemQuebrar } from "@/lib/financeiro/porta-vendas";
 import {
@@ -615,15 +619,25 @@ export async function POST(req: NextRequest) {
   // verificado: ela está falando dele. O digitado é palpite. Então o link
   // manda, e o que ela digitou fica anotado no pedido para a loja conferir.
   const telefoneDoLink = linkCustomer?.phone ?? "";
+  // O WEBHOOK CHEGOU PRIMEIRO? (RN-097) Se a mensagem DESTE pedido já está
+  // numa conversa da loja, o WhatsApp de quem a mandou é o número verificado
+  // — o aparelho que montou o pedido —, e o pedido nasce nesse cadastro em
+  // vez de inventar outro com o telefone digitado.
+  const peloWhatsApp = await telefoneDoWhatsAppDoPedido(company.id, input.message);
   const escolha = telefoneDoPedido({
     digitado: rawPhone,
     doLink: telefoneDoLink,
+    doWhatsApp: peloWhatsApp?.telefone,
   });
   const telefoneDivergente = escolha.divergente;
+  // a bolha que o intake do catálogo criar (RN-043) — a junção no fim da
+  // rota (RN-097) precisa saber qual é para tirá-la quando a mensagem de
+  // verdade chegou de outro número no meio do caminho
+  let bolhaDoCatalogoId: string | null = null;
 
   // (sem telefone digitado, o caminho do link continua sendo o de baixo —
   // esta trava só decide QUAL telefone vale quando a cliente digitou um)
-  if (hasPhone) {
+  if (hasPhone || escolha.fonte === "whatsapp") {
     // Com telefone: entra pelo Lead Intake Engine (deduplica, cria
     // conversa e oportunidade — nenhum contato se perde).
     const result = await intakeLead(company.id, {
@@ -648,6 +662,7 @@ export async function POST(req: NextRequest) {
     conversationId = result.conversation?.id ?? null;
     customerCity = result.customer.city;
     customerState = result.customer.state;
+    bolhaDoCatalogoId = result.mensagemReaproveitada ? null : (result.message?.id ?? null);
     // a carteira segue a venda: quem vendeu passa a cuidar da cliente. Fica
     // registrado na linha do tempo dela (troca de carteira mexe em dinheiro).
     if (linkSellerId && result.customer.ownerId !== linkSellerId) {
@@ -799,7 +814,9 @@ export async function POST(req: NextRequest) {
     // os campos extras que a loja pediu ficam escritos no pedido (RN-027)
     ...linhasDosExtras,
     telefoneDivergente
-      ? `⚠️ A cliente digitou um telefone diferente do WhatsApp dela (${telefoneDoLink}). O pedido ficou no cadastro do WhatsApp, que é o número por onde ela fala — confira qual está certo.`
+      ? escolha.fonte === "whatsapp"
+        ? `⚠️ A cliente digitou um telefone diferente do WhatsApp de onde mandou o pedido (${formatPhone(escolha.telefone)}). O pedido ficou no cadastro do WhatsApp, que é o número por onde ela fala — confira qual está certo.`
+        : `⚠️ A cliente digitou um telefone diferente do WhatsApp dela (${telefoneDoLink}). O pedido ficou no cadastro do WhatsApp, que é o número por onde ela fala — confira qual está certo.`
       : null,
   ].filter(Boolean);
 
@@ -1084,6 +1101,21 @@ export async function POST(req: NextRequest) {
   // PORTA ÚNICA DO FINANCEIRO (RN-033): pedido do catálogo aguardando
   // pagamento já nasce como conta a receber (orçamento não vira nada)
   sincronizarPedidoSemQuebrar(order.id);
+
+  // A MENSAGEM DE VERDADE CHEGOU DE OUTRO WHATSAPP ENQUANTO O PEDIDO NASCIA?
+  // (RN-097) O webhook viu a bolha do catálogo, mas o pedido ainda não
+  // existia e ele não pôde fundir. Agora existe: o cadastro que nasceu com o
+  // telefone digitado é juntado no do WhatsApp — DEPOIS da resposta (a
+  // vitrine espera este 201 para abrir o wa.me, RN-010, e a trava pelo texto
+  // pode estar com o webhook), e sem nunca derrubar o pedido.
+  after(() =>
+    juntarDepoisDoPedido({
+      companyId: company.id,
+      customerId,
+      texto: input.message,
+      bolhaDoCatalogoId,
+    })
+  );
 
   return NextResponse.json(
     { ok: true, orderId: order.id, number: order.number },

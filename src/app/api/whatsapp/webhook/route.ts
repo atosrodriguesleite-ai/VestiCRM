@@ -213,7 +213,9 @@ async function handleMetaPayload(raw: string, signature: string | null) {
         try {
           await receiveMessage(settings.companyId, {
             channel: "WHATSAPP",
-            phone: msg.from,
+            // o número do WhatsApp já tem o DDI (RN-096): o "+" impede o 55 de carona
+            phone: `+${msg.from}`,
+            telefoneVerificado: true,
             name: contactName,
             text: text ?? "(mensagem)",
             mediaType,

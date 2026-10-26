@@ -1,4 +1,4 @@
-import { normalizePhone } from "./intake";
+import { normalizePhone } from "./telefone";
 
 /**
  * CONTATO PARECIDO — "é a mesma pessoa cadastrada duas vezes?"

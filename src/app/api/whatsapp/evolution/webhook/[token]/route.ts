@@ -8,7 +8,7 @@ import {
   MS_BUSCA_MIDIA,
   MS_ORCAMENTO_MIDIA_WEBHOOK,
 } from "@/lib/comm/midia-pendente";
-import { findCustomerByPhone, nomeProvisorio } from "@/lib/intake";
+import { findCustomerByPhone, nomeProvisorio, normalizePhone } from "@/lib/intake";
 import { alertWhatsappDown, logServerError } from "@/lib/health";
 import { adCode, campanhaDoAnuncio } from "@/lib/ad-match";
 import { formatPhone } from "@/lib/format";
@@ -409,11 +409,16 @@ export async function POST(
         try {
         const jid = m.key?.remoteJid ?? "";
         // grupos/status ficam de fora; contato @lid usa o número do senderPn
-        let phone = jidToPhone(jid);
-        if (!phone && jid.endsWith("@lid")) {
+        let digitosDoJid = jidToPhone(jid);
+        if (!digitosDoJid && jid.endsWith("@lid")) {
           const pn = (m.key?.senderPn ?? "").split("@")[0].replace(/\D/g, "");
-          if (/^\d{8,15}$/.test(pn)) phone = pn;
+          if (/^\d{8,15}$/.test(pn)) digitosDoJid = pn;
         }
+        // O NÚMERO DO WHATSAPP JÁ TEM O DDI (RN-096): vai com o "+" na frente
+        // para ninguém no caminho "adivinhar" um 55 — `17814086755` é
+        // +1 781 408-6755 (EUA), e colar o 55 criava um cadastro que não é
+        // de ninguém, com a resposta da loja indo para o nada.
+        const phone = digitosDoJid ? `+${digitosDoJid}` : null;
         if (!phone) {
           // grupo/status/broadcast é descarte legítimo e silencioso. Mensagem
           // de gente com telefone que não deu para ler, NÃO: fica registrada
@@ -631,6 +636,7 @@ export async function POST(
           const result = await receiveMessage(companyId, {
             channel: "WHATSAPP",
             phone,
+            telefoneVerificado: true, // veio do próprio WhatsApp (RN-096)
             // o nome vem em campos diferentes conforme a versão do servidor
             // e o tipo de conta (empresa manda em `verifiedBizName`) — ler só
             // `m.pushName` foi o que fez nascer a conversa "Lead 9621"
@@ -788,7 +794,7 @@ export async function POST(
               data: {
                 companyId,
                 name: `Contato ${formatPhone(phone)}`,
-                phone,
+                phone: normalizePhone(phone),
                 origin: "WHATSAPP",
               },
             });
