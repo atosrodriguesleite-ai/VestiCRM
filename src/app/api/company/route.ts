@@ -5,6 +5,15 @@ import { aplicarParDaUnidade } from "@/lib/catalogo/unidade";
 import { requireUser, AuthError } from "@/lib/auth";
 import { isAdmin, isSupport } from "@/lib/scope";
 import { CAMPOS_DO_PEDIDO, type CampoDoPedido } from "@/lib/catalogo/campos-do-pedido";
+import { prepararCapaEnviada } from "@/lib/catalogo/capa-pdf";
+import {
+  TETO_FOTOS_DA_CAPA,
+  TETO_SUBTITULO,
+  TETO_TITULO,
+  lerFotosDaCapa,
+  normalizarFotosDaCapa,
+  textoDaCapa,
+} from "@/lib/catalogo/capa-pdf-regra";
 
 const hexColor = z.string().regex(/^#[0-9a-fA-F]{6}$/, "Cor inválida");
 
@@ -43,6 +52,16 @@ const schema = z.object({
     .optional(),
   // código de login por WhatsApp em aparelho novo (RN-045) — só admin liga
   loginCodeEnabled: z.boolean().optional(),
+  // A CAPA DO CATÁLOGO EM PDF (RN-094, item 6): a imagem da loja (data-URL,
+  // conferida e recomprimida no servidor; nula apaga), a faixa com a data,
+  // e os ajustes da capa automática (título, linha, peças)
+  // (sem `.max` aqui: o teto é conferido em `prepararCapaEnviada`, que
+  // responde a frase em português — a zod respondia só "Dados inválidos")
+  catalogPdfCapa: z.string().nullable().optional(),
+  catalogPdfCapaFaixa: z.boolean().optional(),
+  catalogPdfTitulo: z.string().max(TETO_TITULO).nullable().optional(),
+  catalogPdfSubtitulo: z.string().max(TETO_SUBTITULO).nullable().optional(),
+  catalogPdfCapaFotos: z.array(z.string().min(1).max(60)).max(TETO_FOTOS_DA_CAPA).optional(),
   // campos EXTRAS do pedido do catálogo (RN-027): cardápio fechado, cada um
   // com a chavinha de obrigatório; lista vazia = formulário de sempre
   catalogFormFields: z
@@ -82,8 +101,40 @@ export async function PATCH(req: NextRequest) {
     // função para as três portas) — metade preenchida deixaria "3 conjunto"
     const erroUnidade = aplicarParDaUnidade(parsed.data);
     if (erroUnidade) return NextResponse.json({ error: erroUnidade }, { status: 400 });
-    const { categoryOrder, catalogFormFields, ...data } = parsed.data;
+    const { categoryOrder, catalogFormFields, catalogPdfCapaFotos, catalogPdfCapa, ...data } =
+      parsed.data;
     if (data.whatsapp) data.whatsapp = data.whatsapp.replace(/\D/g, "");
+
+    // A CAPA ENVIADA é conferida pelo CONTEÚDO e recomprimida no A4 (RN-094,
+    // item 6) — o que fica no banco é sempre o JPEG pronto para o PDF, em
+    // tabela PRÓPRIA (`CatalogoCapa`: a Company é lida inteira na vitrine e
+    // no webhook, e a capa pesa meio megabyte); a recusa volta em português
+    let capaPronta: { imagem: string; miniatura: string } | null | undefined;
+    if (typeof catalogPdfCapa === "string") {
+      const pronta = await prepararCapaEnviada(catalogPdfCapa);
+      if (!pronta.ok) return NextResponse.json({ error: pronta.erro }, { status: 400 });
+      capaPronta = { imagem: pronta.imagem, miniatura: pronta.miniatura };
+    } else if (catalogPdfCapa === null) {
+      capaPronta = null;
+    }
+    if (data.catalogPdfTitulo !== undefined) {
+      data.catalogPdfTitulo = textoDaCapa(data.catalogPdfTitulo, TETO_TITULO);
+    }
+    if (data.catalogPdfSubtitulo !== undefined) {
+      data.catalogPdfSubtitulo = textoDaCapa(data.catalogPdfSubtitulo, TETO_SUBTITULO);
+    }
+    // as peças da capa têm que ser DA LOJA (RN-013): id de fora é recusado
+    let fotosDaCapa: string | undefined;
+    if (catalogPdfCapaFotos !== undefined) {
+      const ids = normalizarFotosDaCapa(catalogPdfCapaFotos);
+      if (ids.length) {
+        const daLoja = await db.product.count({ where: { id: { in: ids }, companyId: user.companyId } });
+        if (daLoja !== ids.length) {
+          return NextResponse.json({ error: "Uma das peças escolhidas não é desta loja." }, { status: 400 });
+        }
+      }
+      fotosDaCapa = JSON.stringify(ids);
+    }
 
     if (data.slug !== undefined) {
       const clean = data.slug
@@ -114,6 +165,13 @@ export async function PATCH(req: NextRequest) {
       data.slug = clean;
     }
 
+    // tirar a capa é idempotente: a segunda aba que clica "Tirar" depois da
+    // primeira não pode levar 500 (o `delete` aninhado do Prisma recusa a
+    // linha que já não existe — achado da revisão)
+    if (capaPronta === null) {
+      await db.catalogoCapa.deleteMany({ where: { companyId: user.companyId } });
+    }
+
     const updated = await db.company.update({
       where: { id: user.companyId },
       data: {
@@ -125,7 +183,17 @@ export async function PATCH(req: NextRequest) {
         ...(catalogFormFields !== undefined
           ? { catalogFormFields: JSON.stringify(catalogFormFields) }
           : {}),
+        ...(fotosDaCapa !== undefined ? { catalogPdfCapaFotos: fotosDaCapa } : {}),
+        // a capa: grava/troca a linha própria, ou apaga (nulo = capa automática)
+        ...(capaPronta
+          ? {
+              catalogoCapa: {
+                upsert: { create: capaPronta, update: capaPronta },
+              },
+            }
+          : {}),
       },
+      include: { catalogoCapa: { select: { companyId: true } } },
     });
     return NextResponse.json({
       id: updated.id,
@@ -147,6 +215,12 @@ export async function PATCH(req: NextRequest) {
       catalogHideColors: updated.catalogHideColors,
       unidadeSingular: updated.unidadeSingular,
       unidadePlural: updated.unidadePlural,
+      // a capa volta como "tem/não tem" (o data-URL inteiro pesaria a resposta)
+      catalogPdfCapaTem: Boolean(updated.catalogoCapa),
+      catalogPdfCapaFaixa: updated.catalogPdfCapaFaixa,
+      catalogPdfTitulo: updated.catalogPdfTitulo,
+      catalogPdfSubtitulo: updated.catalogPdfSubtitulo,
+      catalogPdfCapaFotos: lerFotosDaCapa(updated.catalogPdfCapaFotos),
     });
   } catch (e) {
     if (e instanceof AuthError)

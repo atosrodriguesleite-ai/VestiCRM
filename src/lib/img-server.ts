@@ -58,11 +58,14 @@ export async function isRealImage(buf: Buffer): Promise<boolean> {
  */
 export async function lerImagem(
   buf: Buffer
-): Promise<{ format: string; width: number; height: number } | null> {
+): Promise<{ format: string; width: number; height: number; girada: boolean } | null> {
   try {
     const meta = await sharp(buf).metadata();
     if (!meta.format || !meta.width || !meta.height) return null;
-    return { format: meta.format, width: meta.width, height: meta.height };
+    // EXIF com giro de 90°/270° (orientações 5 a 8): a foto "deitada na
+    // gaveta, em pé na etiqueta" — quem mede largura × altura precisa saber
+    const girada = (meta.orientation ?? 1) >= 5;
+    return { format: meta.format, width: meta.width, height: meta.height, girada };
   } catch {
     return null;
   }

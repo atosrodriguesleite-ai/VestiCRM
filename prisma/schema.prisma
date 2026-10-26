@@ -123,6 +123,17 @@ model Company {
   // Loja SEM variação de cor (semijoias, acessórios): o catálogo esconde a
   // bolinha e o nome da cor — por loja, desligado por padrão (ninguém muda)
   catalogHideColors Boolean @default(false)
+  /// A CAPA DO CATÁLOGO EM PDF É DA LOJA (RN-094, item 6). A IMAGEM mora em
+  /// tabela própria (`CatalogoCapa`, 1:1) — aqui só as chavinhas leves.
+  /// Com a capa da loja, mostrar a faixa do sistema com a DATA e o WhatsApp
+  /// (a fotografia do momento, RN-094) — a loja pode tirar
+  catalogPdfCapaFaixa Boolean @default(true)
+  /// ajustes da capa AUTOMÁTICA: o título no lugar de "CATÁLOGO · MÊS ANO",
+  /// uma linha abaixo dele e as peças da capa (ids de produto, JSON, até 3;
+  /// vazio = uma do começo, uma do meio e uma do fim do acervo)
+  catalogPdfTitulo    String?
+  catalogPdfSubtitulo String?
+  catalogPdfCapaFotos String  @default("[]")
   categoryOrder    String  @default("") // ordem das categorias no catálogo (JSON array); vazio = ordem natural
   // Campos EXTRAS que o pedido do catálogo pergunta (RN-027): JSON array de
   // {campo, obrigatorio}, cardápio fechado em lib/catalogo/campos-do-pedido.ts.
@@ -207,6 +218,7 @@ model Company {
   adCreatives    AdCreative[]
   promoCatalogs  PromoCatalog[]
   catalogLinks   CatalogLink[]
+  catalogoCapa   CatalogoCapa?
   fabrics        Fabric[]
   cutTickets     CutTicket[]
   fabricScraps   FabricScrap[]
@@ -1942,6 +1954,21 @@ model ComposicaoCategoria {
   updatedAt   DateTime @updatedAt
 
   @@unique([companyId, category])
+}
+
+/// RN-094 (item 6): a capa do catálogo em PDF enviada pela loja. Tabela
+/// PRÓPRIA, nunca coluna na Company: a Company é lida INTEIRA em dezenas de
+/// caminhos quentes (toda visita à vitrine, toda mensagem do webhook, a
+/// lista de lojas do Super Admin) e a capa pesa ~500 KB — a lição da logo
+/// (RN-070). Só o PDF e a tela de Configurações leem esta tabela.
+model CatalogoCapa {
+  companyId String  @id
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  /// JPEG no A4 exato (1240 × 1754), já conferido e recomprimido (data-URL, dívida nº 1)
+  imagem    String
+  /// a prévia de ~10 KB para a tela, gravada JUNTO (não se refaz a cada abertura)
+  miniatura String
+  updatedAt DateTime @updatedAt
 }
 
 model ProductImage {

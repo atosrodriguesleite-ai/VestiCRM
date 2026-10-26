@@ -8,6 +8,9 @@ import { secoesDaVitrine } from "@/lib/catalogo/secoes";
 import { resolverLink } from "@/lib/catalogo/tabelas-de-preco-servidor";
 import { parseCategoryOrder, parseCategoryTypes, chaveDeCategoria } from "@/lib/categories";
 import { gerarCatalogoPdf, nomeDoArquivo } from "@/lib/catalogo/pdf";
+import { capaGuardadaParaOPdf } from "@/lib/catalogo/capa-pdf";
+import { lerFotosDaCapa } from "@/lib/catalogo/capa-pdf-regra";
+import { fotoDaCor } from "@/lib/capa-por-cor";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -95,16 +98,35 @@ export async function GET(req: NextRequest) {
     );
   }
 
-  const [cores, logo] = await Promise.all([
+  // a imagem da capa mora em tabela própria (só o PDF e a tela a leem)
+  const capaDaLoja = await db.catalogoCapa.findUnique({
+    where: { companyId: company.id },
+    select: { imagem: true },
+  });
+  const imagemDaCapa = capaGuardadaParaOPdf(capaDaLoja?.imagem);
+  const [cores, logo, fotoIdsDaCapa] = await Promise.all([
     db.companyColor.findMany({
       where: { companyId: company.id },
       select: { name: true, hex: true },
     }),
     logoParaCapa(company.logoUrl),
+    // as peças da capa automática só são buscadas quando ela vai sair
+    imagemDaCapa
+      ? Promise.resolve([] as string[])
+      : fotosDaCapaAutomatica(company.id, lerFotosDaCapa(company.catalogPdfCapaFotos)),
   ]);
 
   const geradoEm = new Date();
   const resultado = await gerarCatalogoPdf(secoes, {
+    // A CAPA É DA LOJA (RN-094, item 6): a imagem que ela subiu, ou a
+    // automática com o título, a linha e as peças que ela escolheu
+    capa: {
+      imagem: imagemDaCapa,
+      faixa: company.catalogPdfCapaFaixa,
+      titulo: company.catalogPdfTitulo,
+      subtitulo: company.catalogPdfSubtitulo,
+      fotoIds: fotoIdsDaCapa,
+    },
     identidade: {
       nome: company.name,
       tagline: company.tagline,
@@ -134,6 +156,35 @@ export async function GET(req: NextRequest) {
       "X-Catalogo-Sem-Foto": String(resultado.semFoto),
     },
   });
+}
+
+/**
+ * AS PEÇAS QUE A LOJA ESCOLHEU PARA A CAPA AUTOMÁTICA (RN-094, item 6):
+ * ids de PRODUTO gravados na loja → o id da foto de capa de cada um (a
+ * mesma escolha do site, `fotoDaCor` sem cor = a capa geral), na ordem
+ * escolhida. Só peça DA LOJA (RN-013), ATIVA (a pausada saiu do catálogo e
+ * não pode estampar a capa dele — o papel não mostra peça que o site não
+ * mostra) e com foto; o que sumiu fica de fora e o PDF completa com a
+ * amostra automática.
+ */
+async function fotosDaCapaAutomatica(companyId: string, produtoIds: string[]): Promise<string[]> {
+  if (produtoIds.length === 0) return [];
+  const produtos = await db.product.findMany({
+    where: { id: { in: produtoIds }, companyId, active: true },
+    select: {
+      id: true,
+      images: { orderBy: { order: "asc" }, select: { id: true, color: true } },
+    },
+  });
+  const porId = new Map(produtos.map((p) => [p.id, p]));
+  const ids: string[] = [];
+  for (const id of produtoIds) {
+    const p = porId.get(id);
+    if (!p) continue;
+    const foto = fotoDaCor(p.images.map((i) => ({ url: i.id, color: i.color })), "");
+    if (foto) ids.push(foto);
+  }
+  return ids;
 }
 
 /**

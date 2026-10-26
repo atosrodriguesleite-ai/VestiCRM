@@ -49,6 +49,7 @@ import { fotoDaCor } from "@/lib/capa-por-cor";
 import { contar } from "@/lib/catalogo/unidade";
 import { lerFotosParaPdf } from "@/lib/catalogo/foto-do-pdf";
 import { temaDoCatalogo } from "@/lib/catalogo/tema";
+import { tituloDaCapa } from "@/lib/catalogo/capa-pdf-regra";
 import {
   A4_ALTURA,
   A4_LARGURA,
@@ -84,10 +85,27 @@ export type IdentidadeDaLoja = {
   cores: { name: string; hex: string }[];
 };
 
+/**
+ * A CAPA É DA LOJA (RN-094, item 6). Com `imagem`, a página 1 é a imagem
+ * que a loja subiu (já no A4, JPEG) e os outros campos da capa automática
+ * não aparecem; sem ela, a capa automática lê título, linha abaixo e as
+ * peças escolhidas (`fotoIds`: ids de FOTO, já resolvidos por quem chama).
+ */
+export type CapaDoPdf = {
+  imagem?: Buffer | null;
+  /** com a imagem da loja: a faixa do sistema com a data e o WhatsApp */
+  faixa: boolean;
+  titulo?: string | null;
+  subtitulo?: string | null;
+  fotoIds?: string[];
+};
+
 export type OpcoesDoPdf = {
   identidade: IdentidadeDaLoja;
   /** o dia em que o catálogo foi gerado (a capa o escreve) */
   geradoEm: Date;
+  /** a capa da loja (RN-094, item 6); sem ela, a automática de sempre */
+  capa?: CapaDoPdf;
   /**
    * `Company.catalogHideColors` — a loja sem variação de cor (semijoias).
    * O card inverte o destaque, como no site.
@@ -196,6 +214,7 @@ export async function gerarCatalogoPdf(
   opcoes: OpcoesDoPdf
 ): Promise<ResultadoDoPdf> {
   const { identidade, geradoEm, semCores, restante } = opcoes;
+  const capa: CapaDoPdf = opcoes.capa ?? { faixa: true };
 
   // TETO: corta pelas últimas seções (a loja ordena o catálogo por
   // importância, então o começo é o que ela quer mostrar primeiro)
@@ -228,12 +247,36 @@ export async function gerarCatalogoPdf(
       if (url) idPorCard.set(c.key, url);
     }
   }
-  const fotos = await lerFotosParaPdf([...idPorCard.values()], restante, LAYOUT.fotoProporcao);
-
   const pdf = await PDFDocument.create();
   pdf.setTitle(textoPdf(`Catálogo ${identidade.nome}`));
   pdf.setProducer("AtacadoPro");
   pdf.setCreationDate(geradoEm);
+
+  /*
+   * A CAPA DA LOJA (RN-094, item 6) é embutida ANTES de ler as fotos: se ela
+   * abre, as peças escolhidas para a capa automática nem são lidas (três
+   * fotos a menos no orçamento de tempo e no arquivo — achado da revisão);
+   * se não abre (capa guardada torta), a automática sai com as peças que a
+   * loja escolheu, não com a amostra. Capa errada nunca derruba o catálogo.
+   */
+  let capaDaLoja: PDFImage | null = null;
+  if (capa.imagem) {
+    try {
+      capaDaLoja = await pdf.embedJpg(capa.imagem);
+    } catch {
+      capaDaLoja = null;
+    }
+  }
+
+  // as peças que a loja escolheu para a capa entram na mesma leitura (podem
+  // não estar no acervo deste PDF — um recorte por categoria — e valem assim
+  // mesmo: a capa é da loja)
+  const fotoIdsDaCapa = capaDaLoja ? [] : (capa.fotoIds ?? []);
+  const fotos = await lerFotosParaPdf(
+    [...new Set([...fotoIdsDaCapa, ...idPorCard.values()])],
+    restante,
+    LAYOUT.fotoProporcao
+  );
 
   const fonte = await pdf.embedFont(StandardFonts.Helvetica);
   const negrito = await pdf.embedFont(StandardFonts.HelveticaBold);
@@ -263,11 +306,19 @@ export async function gerarCatalogoPdf(
    */
   const todosOsCards = dentro.flatMap((s) => s.cards);
   const escolhidas: PDFImage[] = [];
-  for (const i of [0, Math.floor(todosOsCards.length / 2), todosOsCards.length - 1]) {
-    const card = todosOsCards[i];
-    const id = card ? idPorCard.get(card.key) : undefined;
-    const foto = id ? fotos.get(id) : undefined;
-    if (id && foto) escolhidas.push(await embutir(id, foto.jpeg));
+  // as peças ESCOLHIDAS pela loja mandam (na ordem dela); a que não abriu
+  // fica de fora — e sem nenhuma, vale a amostra automática
+  for (const id of fotoIdsDaCapa) {
+    const foto = fotos.get(id);
+    if (foto) escolhidas.push(await embutir(id, foto.jpeg));
+  }
+  if (escolhidas.length === 0) {
+    for (const i of [0, Math.floor(todosOsCards.length / 2), todosOsCards.length - 1]) {
+      const card = todosOsCards[i];
+      const id = card ? idPorCard.get(card.key) : undefined;
+      const foto = id ? fotos.get(id) : undefined;
+      if (id && foto) escolhidas.push(await embutir(id, foto.jpeg));
+    }
   }
 
   /*
@@ -286,18 +337,29 @@ export async function gerarCatalogoPdf(
     }
   }
 
-  await desenharCapa(pdf, {
-    logoDaBarra,
-    identidade,
-    geradoEm,
-    pecas: total,
-    vitrine: [...new Set(escolhidas)],
-    P,
-    serif,
-    serifIt,
-    fonte,
-    negrito,
-  });
+  /*
+   * A CAPA DA LOJA (RN-094, item 6): a imagem que ela subiu ocupa a página
+   * inteira; a capa automática só entra sem imagem — ou se a imagem
+   * guardada não abrir (capa errada nunca derruba o catálogo).
+   */
+  if (capaDaLoja) {
+    desenharCapaDaLoja(pdf, { img: capaDaLoja, faixa: capa.faixa, identidade, geradoEm, P, fonte, negrito });
+  } else {
+    await desenharCapa(pdf, {
+      logoDaBarra,
+      identidade,
+      geradoEm,
+      pecas: total,
+      vitrine: [...new Set(escolhidas)],
+      titulo: capa.titulo ?? null,
+      subtitulo: capa.subtitulo ?? null,
+      P,
+      serif,
+      serifIt,
+      fonte,
+      negrito,
+    });
+  }
 
   let semFoto = 0;
   for (const [i, pag] of paginas.entries()) {
@@ -343,6 +405,67 @@ export async function gerarCatalogoPdf(
 
 /* ── capa ───────────────────────────────────────────────────────────────── */
 
+/** a altura da faixa do sistema sobre a capa da loja (data + WhatsApp) */
+export const ALTURA_DA_FAIXA = 54;
+
+/**
+ * A CAPA QUE A LOJA SUBIU (RN-094, item 6): a imagem na folha inteira.
+ *
+ * Ela já chega no A4 exato (recortada pelo servidor ao gravar), então é
+ * desenhada de ponta a ponta sem conta nenhuma. Em cima dela, se a loja
+ * quiser, a FAIXA do sistema no pé: a data da fotografia do momento e o
+ * WhatsApp — é o que faz a cliente de daqui a dois meses não pedir pelo
+ * preço velho. Sem a faixa, a capa é 100% da loja (ela sabe o que pôs lá).
+ */
+function desenharCapaDaLoja(
+  pdf: PDFDocument,
+  o: {
+    img: PDFImage;
+    faixa: boolean;
+    identidade: IdentidadeDaLoja;
+    geradoEm: Date;
+    P: Paleta;
+    fonte: PDFFont;
+    negrito: PDFFont;
+  }
+) {
+  const { img, faixa, identidade, geradoEm, P, fonte, negrito } = o;
+  const page = paginaSegura(pdf.addPage([A4_LARGURA, A4_ALTURA]));
+  page.drawImage(img, { x: 0, y: 0, width: A4_LARGURA, height: A4_ALTURA });
+  if (!faixa) return;
+
+  const tinta = tintaSobre(P.primary);
+  page.drawRectangle({
+    x: 0,
+    y: 0,
+    width: A4_LARGURA,
+    height: ALTURA_DA_FAIXA,
+    color: P.primary,
+    opacity: 0.92,
+  });
+  const aviso = `Preços e disponibilidade de ${diaMesAno(geradoEm)} · confirme com a loja antes de fechar o pedido.`;
+  const tamanhoDoAviso = escalaQueCabe(aviso, fonte, 9, A4_LARGURA - 48);
+  const zap = identidade.whatsapp ? `Pedidos pelo WhatsApp ${identidade.whatsapp}` : null;
+  // com WhatsApp são duas linhas; sem, o aviso fica no meio da faixa
+  page.drawText(aviso, {
+    x: (A4_LARGURA - fonte.widthOfTextAtSize(aviso, tamanhoDoAviso)) / 2,
+    y: zap ? 31 : (ALTURA_DA_FAIXA - tamanhoDoAviso) / 2 + 2,
+    size: tamanhoDoAviso,
+    font: fonte,
+    color: tinta,
+    opacity: 0.9,
+  });
+  if (zap) {
+    page.drawText(zap, {
+      x: (A4_LARGURA - negrito.widthOfTextAtSize(zap, 10.5)) / 2,
+      y: 13,
+      size: 10.5,
+      font: negrito,
+      color: tinta,
+    });
+  }
+}
+
 async function desenharCapa(
   pdf: PDFDocument,
   o: {
@@ -351,6 +474,10 @@ async function desenharCapa(
     pecas: number;
     /** até três peças do acervo, para a capa mostrar o que tem dentro */
     vitrine: PDFImage[];
+    /** o título que a loja escolheu (nulo = "CATÁLOGO · MÊS ANO") */
+    titulo: string | null;
+    /** uma linha abaixo do título, da loja ("Lançamentos de verão") */
+    subtitulo: string | null;
     /** a logo já embutida (a mesma da barra de todas as páginas) */
     logoDaBarra: PDFImage | null;
     P: Paleta;
@@ -360,7 +487,8 @@ async function desenharCapa(
     negrito: PDFFont;
   }
 ) {
-  const { identidade, geradoEm, pecas, vitrine, logoDaBarra, P, serif, serifIt, fonte, negrito } = o;
+  const { identidade, geradoEm, pecas, vitrine, logoDaBarra, titulo, subtitulo, P, serif, serifIt, fonte, negrito } =
+    o;
   const page = paginaSegura(pdf.addPage([A4_LARGURA, A4_ALTURA]));
   const tinta = tintaSobre(P.primary);
   page.drawRectangle({ x: 0, y: 0, width: A4_LARGURA, height: A4_ALTURA, color: P.primary });
@@ -459,20 +587,38 @@ async function desenharCapa(
     }
   }
 
-  // o miolo: o que o catálogo tem
-  const linhaDoMeio = `CATÁLOGO · ${mesPorExtenso(geradoEm).toUpperCase()}`;
+  // o miolo: o que o catálogo tem — o título é da loja quando ela escolheu
+  // um (RN-094, item 6); a linha abaixo é opcional e vem antes da contagem
+  // o filtro de emoji vem ANTES da escolha: o título só de emoji ficava vazio
+  // em vez de cair no de sempre (achado da revisão)
+  const linhaDoMeio = tituloDaCapa(titulo ? textoPdf(titulo) : null, mesPorExtenso(geradoEm));
+  const tamanhoDoTitulo = escalaQueCabe(linhaDoMeio, negrito, 12, A4_LARGURA - 120);
   page.drawText(linhaDoMeio, {
-    x: (A4_LARGURA - negrito.widthOfTextAtSize(linhaDoMeio, 12)) / 2,
+    x: (A4_LARGURA - negrito.widthOfTextAtSize(linhaDoMeio, tamanhoDoTitulo)) / 2,
     y: y - 40,
-    size: 12,
+    size: tamanhoDoTitulo,
     font: negrito,
     color: tinta,
     opacity: 0.9,
   });
+  let yDaContagem = y - 58;
+  const sub = subtitulo ? textoPdf(subtitulo) : "";
+  if (sub) {
+    const tamanhoDoSub = escalaQueCabe(sub, fonte, 11, A4_LARGURA - 120);
+    page.drawText(sub, {
+      x: (A4_LARGURA - fonte.widthOfTextAtSize(sub, tamanhoDoSub)) / 2,
+      y: yDaContagem,
+      size: tamanhoDoSub,
+      font: fonte,
+      color: tinta,
+      opacity: 0.85,
+    });
+    yDaContagem -= 17;
+  }
   const quantas = `${pecas} ${pecas === 1 ? "opção" : "opções"}`;
   page.drawText(quantas, {
     x: (A4_LARGURA - fonte.widthOfTextAtSize(quantas, 11)) / 2,
-    y: y - 58,
+    y: yDaContagem,
     size: 11,
     font: fonte,
     color: tinta,

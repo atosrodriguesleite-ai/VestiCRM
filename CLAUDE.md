@@ -1005,7 +1005,50 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   seções, peso e tempo de verdade, a chavinha por cor, atacado × varejo, o
   teto que corta e conta, o orçamento esgotado devolvendo PDF em vez de erro
   e — medindo o PIXEL da capa renderizada — a logo transparente que não
-  vira caixa preta).
+  vira caixa preta). **(6) A CAPA É DA LOJA** (`lib/catalogo/capa-pdf-regra.ts`
+  pura + `capa-pdf.ts` no servidor + `capa-no-navegador.ts`, seção "Capa do
+  catálogo em PDF" em Configurações → Catálogo, 26/10/2026; pedido do dono:
+  *"a opção de editar a capa, o layout dela completo, ou fazer ela tipo em
+  Canva e subir"*). Decidido com ele: **a capa feita FORA (Canva) e subida
+  aqui**, mais ajustes pequenos na automática — um editor de layout dentro
+  do sistema seria obra de semanas que nunca chegaria perto do Canva, que a
+  lojista já usa. (a) **A imagem**: a tela DIZ o formato (A4 em pé, 21 ×
+  29,7 cm; 1240 × 1754 px ou mais, 2480 × 3508 a 300 dpi; JPG ou PNG; até
+  20 MB; "no Canva: Documento A4, baixar como JPG") por UMA constante
+  (`FORMATO_RECOMENDADO`); o **navegador recorta e encolhe antes de mandar**
+  (a porta recebe no máximo 4,5 MB, limite da Vercel — o JPG do Canva a 300
+  dpi tem 3 a 8 MB): confere a proporção, apara a borda fina pelo CENTRO até
+  o A4 exato (tolerância de 8%; fora disso é outro formato — quadrado, story
+  — e cortar levaria o título embora: recusa com a frase dizendo os
+  pixels), avisa quanto aparou, e entrega JPEG de 1240 × 1754; o **servidor
+  confere de novo pelo CONTEÚDO** (`lerImagem`, a régua da RN-070 — o rótulo
+  da data-URL é digitável), pela MESMA régua (`motivoDaRecusa`, uma para os
+  dois lados), e grava **sempre o JPEG recomprimido no A4** (data-URL,
+  dívida nº 1, ~300–600 KB; PNG transparente ganha fundo branco; o giro da
+  câmera vale) **em tabela PRÓPRIA** (`CatalogoCapa`, 1:1 — a `Company` é
+  lida INTEIRA em dezenas de caminhos quentes, toda visita à vitrine e toda
+  mensagem do webhook, e meio megabyte ali seria a logo da RN-070 de novo;
+  achado da revisão), com a **miniatura gravada junto** (a tela não refaz o
+  encolhimento a cada abertura, nem recebe o data-URL inteiro). A imagem é
+  **salva na hora** em que sobe. (b) **A faixa do sistema fica por padrão**
+  (`catalogPdfCapaFaixa`): uma faixa fina no pé, na cor da loja, com "Preços
+  e disponibilidade de dd/mm/aaaa · confirme com a loja" e o WhatsApp — é a
+  fotografia do momento (item 2); a loja pode tirar, e aí a capa é 100%
+  dela (a data segue no rodapé das páginas). (c) **A capa automática ganha
+  ajustes**: título no lugar de "CATÁLOGO · MÊS ANO" (`tituloDaCapa`), uma
+  linha abaixo, e **as três peças** (ids de produto, até 3, só DA LOJA —
+  RN-013, a porta recusa id de fora — e só peça ATIVA: a pausada saiu do
+  catálogo e não estampa a capa dele, achado da revisão; a foto é a MESMA
+  escolha do site, `fotoDaCor`), escolhidas pela busca de produtos; sem
+  nenhuma, a amostra de sempre (começo, meio, fim). As peças escolhidas
+  valem mesmo fora do recorte por categoria, e são lidas mesmo com a imagem
+  da loja — se ela não abrir, a automática sai com as peças escolhidas. (d) **Capa torta nunca derruba o catálogo**: só o
+  JPEG gravado pela porta é embutido (`capaGuardadaParaOPdf`, assinatura FF
+  D8), e a imagem que não abre cai na automática. Só admin edita
+  (identidade visual). Provado no `confere-catalogo-pdf.ts` (cenários 13–17,
+  medindo o PIXEL: o meio da página 1 é a imagem enviada, o pé é a cor da
+  loja com a faixa e a imagem sem ela, a imagem quebrada vira automática) e
+  em `catalogo-pdf-capa.test.ts` (a régua e o preparo com o sharp).
   **RN-018 · Tabelas de preço por link** (`lib/catalogo/tabelas-de-preco.ts`,
   gated por `Company.priceTablesEnabled`, DESLIGADO por padrão): a loja que
   atende lojista E cliente final gera links do MESMO catálogo com tabelas
