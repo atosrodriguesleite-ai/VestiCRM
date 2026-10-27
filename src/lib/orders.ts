@@ -321,6 +321,39 @@ export function valorDoAjuste(ajuste: AjusteInput | undefined, base: number): nu
  * O desconto é limitado ao subtotal + acréscimo: nunca existe pedido de valor
  * negativo — 100% de desconto zera o pedido inteiro, acréscimo incluído.
  */
+/**
+ * FRETE GRÁTIS É MARCA EXPLÍCITA, NÃO FRETE ZERO (RN-098, 27/10/2026).
+ *
+ * Pedido do dono: "pode ser colocado pelo vendedor na tela de pedidos a opção
+ * de frete grátis e isso sair no romaneio". Frete zero sozinho não diz nada
+ * (retirada na loja, frete a combinar, pedido do catálogo que ainda não foi
+ * cotado); a MARCA diz que a loja decidiu pagar o frete — e é só ela que o
+ * romaneio destaca. As duas informações não podem discordar:
+ *  - marcar grátis ZERA o frete (não existe "grátis por R$ 20");
+ *  - informar um frete maior que zero DESMARCA (o número é a decisão mais
+ *    recente — e a vendedora que digita R$ 20 não quer que o papel diga grátis).
+ * Função pura: a porta do pedido (criação e edição) decide por aqui, e a tela
+ * só mostra o que ela devolve.
+ */
+export function resolverFreteDoPedido(
+  atual: { shippingFee: number; freteGratis: boolean },
+  mudanca: { shippingFee?: number | null; freteGratis?: boolean | null }
+): { shippingFee: number; freteGratis: boolean } {
+  const feeInformado =
+    typeof mudanca.shippingFee === "number" && Number.isFinite(mudanca.shippingFee);
+  let shippingFee = round2(Math.max(feeInformado ? mudanca.shippingFee! : atual.shippingFee, 0));
+  let freteGratis =
+    typeof mudanca.freteGratis === "boolean" ? mudanca.freteGratis : atual.freteGratis;
+  if (mudanca.freteGratis === true) {
+    // a marca é a decisão desta mexida: zera o que vier junto ou o que havia
+    shippingFee = 0;
+  } else if (shippingFee > 0) {
+    // frete com valor (digitado agora ou já gravado) não combina com a marca
+    freteGratis = false;
+  }
+  return { shippingFee, freteGratis };
+}
+
 export function computeOrderTotals(
   items: CartItemInput[],
   discount: number | AjusteInput = 0,

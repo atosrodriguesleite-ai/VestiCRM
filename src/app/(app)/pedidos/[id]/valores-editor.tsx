@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Percent, DollarSign, Truck, Tag, Plus, Check, X } from "lucide-react";
 import { brl, numeroBR } from "@/lib/format";
 import { computeOrderTotals, ajusteParaFecharPor } from "@/lib/orders";
+import { CaixaFreteGratis, LinhaFreteGratis, CAMPO_DO_FRETE_MARCADO } from "@/components/pedido/frete-gratis";
 
 /**
  * VALORES DO PEDIDO — desconto, acréscimo e frete.
@@ -31,6 +32,8 @@ export function ValoresEditor({
   surcharge,
   surchargePct,
   shippingFee,
+  freteGratis: freteGratisInicial = false,
+  vendaOnline = false,
   creditoTroca = 0,
   podeEditar,
   bloqueado,
@@ -42,6 +45,10 @@ export function ValoresEditor({
   surcharge: number;
   surchargePct: number | null;
   shippingFee: number;
+  /** RN-098: a marca explícita de frete por conta da loja (o romaneio destaca) */
+  freteGratis?: boolean;
+  /** venda da loja online: o frete é o de lá, a caixinha não aparece (RN-098) */
+  vendaOnline?: boolean;
   /** RN-074: crédito de troca abatido — a prévia e o "fechar por" o levam em conta */
   creditoTroca?: number;
   /** desconto/acréscimo são decisão comercial: Suporte não mexe */
@@ -63,6 +70,10 @@ export function ValoresEditor({
     surchargePct != null ? String(surchargePct) : surcharge ? String(surcharge) : ""
   );
   const [freteTexto, setFreteTexto] = useState(shippingFee ? String(shippingFee) : "");
+  // RN-098: marcar grátis zera o frete; digitar frete desmarca — a mesma
+  // régua do servidor (`resolverFreteDoPedido`), aqui só para a prévia
+  const [freteGratis, setFreteGratis] = useState(freteGratisInicial);
+  const freteNumero = freteGratis ? 0 : numeroBR(freteTexto);
   const [fecharPor, setFecharPor] = useState("");
 
   // leitura à brasileira num lugar só ("1.000,50" = mil reais e cinquenta)
@@ -74,11 +85,11 @@ export function ValoresEditor({
     return computeOrderTotals(
       itensFicticios,
       descModo === "PCT" ? { pct: numero(descTexto) } : { valor: numero(descTexto) },
-      numero(freteTexto),
+      freteNumero,
       acrModo === "PCT" ? { pct: numero(acrTexto) } : { valor: numero(acrTexto) },
       creditoTroca
     );
-  }, [subtotal, descModo, descTexto, acrModo, acrTexto, freteTexto, creditoTroca]);
+  }, [subtotal, descModo, descTexto, acrModo, acrTexto, freteNumero, creditoTroca]);
 
   /** "fechar por": preenche desconto ou acréscimo a partir do total desejado */
   function aplicarFecharPor() {
@@ -86,7 +97,7 @@ export function ValoresEditor({
     if (!alvo) return;
     // o total que a cliente paga já desconta o crédito de troca (RN-074): o
     // ajuste tem que chegar no valor ANTES dele, senão o crédito sai duas vezes
-    const r = ajusteParaFecharPor(subtotal, alvo + creditoTroca, numero(freteTexto));
+    const r = ajusteParaFecharPor(subtotal, alvo + creditoTroca, freteNumero);
     setDescModo("VALOR");
     setDescTexto(r.discount ? String(r.discount) : "");
     setAcrModo("VALOR");
@@ -97,8 +108,9 @@ export function ValoresEditor({
   async function salvar() {
     setSalvando(true);
     setErro("");
-    const corpo: Record<string, number | null> = {
-      shippingFee: numero(freteTexto),
+    const corpo: Record<string, number | boolean | null> = {
+      shippingFee: freteNumero,
+      freteGratis,
       ...(descModo === "PCT"
         ? { discountPct: numero(descTexto), discount: 0 }
         : { discount: numero(descTexto), discountPct: null }),
@@ -221,12 +233,22 @@ export function ValoresEditor({
           Frete
         </label>
         <input
-          value={freteTexto}
+          value={freteGratis ? "" : freteTexto}
           onChange={(e) => setFreteTexto(e.target.value)}
           inputMode="decimal"
-          placeholder="0"
-          className="w-full rounded-lg border border-slate-200 px-2.5 py-1.5 text-sm tabular-nums outline-none focus:border-brand-400"
+          placeholder={freteGratis ? CAMPO_DO_FRETE_MARCADO.placeholder : "0"}
+          disabled={freteGratis}
+          className={`w-full rounded-lg border border-slate-200 px-2.5 py-1.5 text-sm tabular-nums outline-none focus:border-brand-400 ${CAMPO_DO_FRETE_MARCADO.className}`}
         />
+        {/* RN-098: a marca explícita — é ela que o romaneio destaca em negrito.
+            O digitado fica guardado: desmarcar devolve o número. */}
+        {!vendaOnline && (
+          <CaixaFreteGratis
+            marcado={freteGratis}
+            aoMudar={setFreteGratis}
+            detalhe="— sai em destaque no romaneio"
+          />
+        )}
         <p className="mt-1 text-[11px] leading-snug text-slate-400">
           A cliente paga o frete, mas ele <b>não conta como faturamento</b> da loja nem entra na
           comissão da vendedora.
@@ -287,6 +309,7 @@ export function ValoresEditor({
           <span>Valor vendido</span>
           <span className="tabular-nums">{brl(previa.netTotal)}</span>
         </div>
+        {freteGratis && <LinhaFreteGratis />}
         {previa.shippingFee > 0 && (
           <div className="flex justify-between text-slate-500">
             <span>Frete</span>

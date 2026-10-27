@@ -23,6 +23,7 @@ import { useRouter } from "next/navigation";
 import { ArrowLeft, Check, ChevronRight, Package, Pencil, Plus, Search, ShoppingBag, Trash2, UserPlus, X } from "lucide-react";
 import { brl, formatPhone, numeroBR } from "@/lib/format";
 import { precoSugeridoNoPedido, paymentMethodLabel, computeOrderTotals } from "@/lib/orders";
+import { CaixaFreteGratis, LinhaFreteGratis, CAMPO_DO_FRETE_MARCADO } from "@/components/pedido/frete-gratis";
 import {
   agruparPorProduto,
   aplicarGradeNoPedido,
@@ -80,6 +81,8 @@ export function NewOrderButton() {
   const [discount, setDiscount] = useState("");
   const [surcharge, setSurcharge] = useState("");
   const [shipping, setShipping] = useState("");
+  // RN-098: frete por conta da loja — marcar zera o campo do frete
+  const [freteGratis, setFreteGratis] = useState(false);
   const [payment, setPayment] = useState("PIX");
   const [status, setStatus] = useState<"ORCAMENTO" | "AGUARDANDO_PAGAMENTO">("ORCAMENTO");
   const [notes, setNotes] = useState("");
@@ -137,7 +140,7 @@ export function NewOrderButton() {
     setCustomer(null); setCustQuery(""); setCustResults([]);
     setNewCustomer(false); setNewName(""); setNewPhone("");
     setProdQuery(""); setPicking(null); setLines([]); setUsados({});
-    setDiscount(""); setSurcharge(""); setShipping(""); setPayment("PIX");
+    setDiscount(""); setSurcharge(""); setShipping(""); setFreteGratis(false); setPayment("PIX");
     setStatus("ORCAMENTO"); setNotes(""); setPrecoTexto({}); setError("");
   }
 
@@ -181,7 +184,7 @@ export function NewOrderButton() {
     // deste, e reescrever o termo a cada peça era a reclamação do dono
   }
 
-  const totals = computeOrderTotals(lines, numeroBR(discount), numeroBR(shipping), numeroBR(surcharge));
+  const totals = computeOrderTotals(lines, numeroBR(discount), freteGratis ? 0 : numeroBR(shipping), numeroBR(surcharge));
   const pecas = lines.reduce((s, l) => s + l.quantity, 0);
   const grupos = useMemo(() => agruparPorProduto(lines), [lines]);
   const acimaDoEstoque = useMemo(() => pecasAcimaDoEstoque(lines), [lines]);
@@ -238,7 +241,8 @@ export function NewOrderButton() {
           })),
           discount: numeroBR(discount),
           surcharge: numeroBR(surcharge),
-          shippingFee: numeroBR(shipping),
+          shippingFee: freteGratis ? 0 : numeroBR(shipping),
+          freteGratis,
           paymentMethod: payment,
           status,
           notes: notes.trim() || undefined,
@@ -532,7 +536,16 @@ export function NewOrderButton() {
                       </div>
                       <div>
                         <label className={label}>Frete (R$)</label>
-                        <input value={shipping} onChange={(e) => setShipping(e.target.value)} placeholder="0,00" inputMode="decimal" className={input} />
+                        <input
+                          value={freteGratis ? "" : shipping}
+                          onChange={(e) => setShipping(e.target.value)}
+                          placeholder={freteGratis ? CAMPO_DO_FRETE_MARCADO.placeholder : "0,00"}
+                          inputMode="decimal"
+                          disabled={freteGratis}
+                          className={`${input} ${CAMPO_DO_FRETE_MARCADO.className}`}
+                        />
+                        {/* RN-098: a marca explícita — é ela que o romaneio destaca */}
+                        <CaixaFreteGratis marcado={freteGratis} aoMudar={setFreteGratis} />
                       </div>
                       <div>
                         <label className={label}>Pagamento</label>
@@ -576,6 +589,7 @@ export function NewOrderButton() {
                           <span className="tabular-nums">+ {brl(totals.surcharge)}</span>
                         </div>
                       )}
+                      {freteGratis && <LinhaFreteGratis />}
                       {/* frete separado do valor vendido: ele não fatura nem comissiona (RN-002) */}
                       {totals.shippingFee > 0 && (
                         <>

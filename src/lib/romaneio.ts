@@ -81,23 +81,29 @@ export { separarNotaDoPedido as separarNotaDoCatalogo } from "./nota-do-pedido";
 /* ---- a linha do frete no resumo de valores -------------------------------- */
 
 /**
- * FRETE GRÁTIS EM DESTAQUE (pedido do dono, 27/10/2026): no resumo do
- * romaneio a linha "Frete" só saía quando havia valor — e, na casa, frete não
- * informado É frete grátis. Quem separa e embala precisa ver isso escrito,
- * porque é a diferença entre cobrar e não cobrar na hora de fechar a caixa.
- * Então a linha SEMPRE sai: com valor, como as outras; sem valor, "FRETE
- * GRÁTIS" em negrito e na cor de destaque (`gratis: true` é o que o PDF lê
- * para trocar fonte e cor). Zero, nulo ou lixo (negativo, NaN) contam como
- * grátis — é a mesma régua de antes para esconder a linha, só que agora dita.
+ * FRETE GRÁTIS EM DESTAQUE (RN-098, pedido do dono em 27/10/2026): no resumo
+ * do romaneio a linha "Frete" saía só com valor. Agora há TRÊS casos, e quem
+ * decide é a MARCA do pedido (`Order.freteGratis`, `resolverFreteDoPedido`),
+ * não o número:
+ *  - marcado como grátis → "Frete · GRÁTIS", em negrito e na cor de destaque
+ *    (`gratis: true` é o que o PDF lê para trocar fonte e cor) — quem embala
+ *    precisa ler isso antes de fechar a caixa;
+ *  - frete com valor → a linha comum, com o valor;
+ *  - zero SEM a marca → nenhuma linha (frete não informado: retirada, a
+ *    combinar — anunciar "grátis" aí prometeria o que ninguém decidiu).
+ * A primeira versão (mesmo dia) tratava todo zero como grátis; o dono preferiu
+ * a marca explícita da vendedora, e esta é a régua que ficou.
  */
 export type LinhaDoFrete = { rotulo: string; valor: string; gratis: boolean };
 
 export function linhaDoFrete(
-  shippingFee: number | null | undefined,
+  pedido: { shippingFee: number | null | undefined; freteGratis?: boolean | null },
   formatar: (valor: number) => string
-): LinhaDoFrete {
-  const cobrado = typeof shippingFee === "number" && Number.isFinite(shippingFee) && shippingFee > 0;
-  return cobrado
-    ? { rotulo: "Frete", valor: formatar(shippingFee), gratis: false }
-    : { rotulo: "Frete", valor: "GRÁTIS", gratis: true };
+): LinhaDoFrete | null {
+  if (pedido.freteGratis) return { rotulo: "Frete", valor: "GRÁTIS", gratis: true };
+  const fee = pedido.shippingFee;
+  if (typeof fee === "number" && Number.isFinite(fee) && fee > 0) {
+    return { rotulo: "Frete", valor: formatar(fee), gratis: false };
+  }
+  return null;
 }

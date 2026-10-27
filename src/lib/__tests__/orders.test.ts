@@ -211,3 +211,46 @@ describe("catalogPrice", () => {
     expect(catalogPrice({ retailPrice: 49.9, wholesalePrice: 0 }, "ATACADO")).toBe(49.9);
   });
 });
+
+describe("RN-098 · frete grátis é marca explícita: marcar zera, informar valor desmarca (o guardião do índice é romaneio.test.ts)", () => {
+  it("marcar grátis zera o frete, mesmo que venha um valor junto ou já houvesse um gravado", async () => {
+    const { resolverFreteDoPedido } = await import("../orders");
+    expect(resolverFreteDoPedido({ shippingFee: 20, freteGratis: false }, { freteGratis: true })).toEqual({
+      shippingFee: 0,
+      freteGratis: true,
+    });
+    expect(resolverFreteDoPedido({ shippingFee: 0, freteGratis: false }, { freteGratis: true, shippingFee: 15 })).toEqual({
+      shippingFee: 0,
+      freteGratis: true,
+    });
+  });
+
+  it("informar frete maior que zero desmarca a marca antiga", async () => {
+    const { resolverFreteDoPedido } = await import("../orders");
+    expect(resolverFreteDoPedido({ shippingFee: 0, freteGratis: true }, { shippingFee: 12.5 })).toEqual({
+      shippingFee: 12.5,
+      freteGratis: false,
+    });
+  });
+
+  it("sem mexida, o pedido fica como está (marca e zero; ou valor e sem marca)", async () => {
+    const { resolverFreteDoPedido } = await import("../orders");
+    expect(resolverFreteDoPedido({ shippingFee: 0, freteGratis: true }, {})).toEqual({ shippingFee: 0, freteGratis: true });
+    expect(resolverFreteDoPedido({ shippingFee: 30, freteGratis: false }, {})).toEqual({ shippingFee: 30, freteGratis: false });
+    // frete zero digitado num pedido marcado não desmarca (zero combina com grátis)
+    expect(resolverFreteDoPedido({ shippingFee: 0, freteGratis: true }, { shippingFee: 0 })).toEqual({ shippingFee: 0, freteGratis: true });
+  });
+
+  it("desmarcar explicitamente deixa o frete em zero, sem marca (não informado)", async () => {
+    const { resolverFreteDoPedido } = await import("../orders");
+    expect(resolverFreteDoPedido({ shippingFee: 0, freteGratis: true }, { freteGratis: false })).toEqual({
+      shippingFee: 0,
+      freteGratis: false,
+    });
+  });
+
+  it("marca gravada com valor gravado (dado torto) resolve para o valor — o número é o que a cliente paga", async () => {
+    const { resolverFreteDoPedido } = await import("../orders");
+    expect(resolverFreteDoPedido({ shippingFee: 9, freteGratis: true }, {})).toEqual({ shippingFee: 9, freteGratis: false });
+  });
+});

@@ -400,6 +400,45 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   orçamento/aguardando e a vendedora o muda ao entregar); nota fiscal segue
   exigindo pedido pago — a saída a prazo deveria ter nota na entrega, decisão
   pendente do dono com o contador.
+- **RN-098 · FRETE GRÁTIS É MARCA EXPLÍCITA DA VENDEDORA, NUNCA FRETE ZERO**
+  (`Order.freteGratis` + `resolverFreteDoPedido` em `lib/orders.ts` +
+  `linhaDoFrete` em `lib/romaneio.ts`, 27/10/2026): pedido do dono — no
+  romaneio, *"quando o frete não é colocado, ele é grátis; queria que ficasse
+  como frete grátis, destacado e em negrito"* e, no mesmo dia, *"pode ser
+  colocado pelo vendedor na tela de pedidos a opção de frete grátis e isso sair
+  no romaneio"*. A primeira versão tratou TODO frete zero como grátis e foi
+  trocada no mesmo dia: zero sozinho não diz nada (retirada na loja, frete a
+  combinar, pedido do catálogo ainda não cotado), e anunciar "GRÁTIS" aí
+  prometia o que ninguém decidiu. Agora a caixinha **"Frete grátis (por conta
+  da loja)"** existe nas três portas de montar/editar valores (Novo pedido,
+  montador da Central e "Desconto, acréscimo e frete" da ficha), e as duas
+  informações nunca discordam: **marcar ZERA o frete** (não existe "grátis por
+  R$ 20"), **informar frete maior que zero DESMARCA** (o número é a decisão
+  mais recente), e quem decide é o servidor, pela mesma função nas duas portas
+  (POST e PATCH, inclusive na edição de itens). Só o pedido MARCADO sai
+  **"Frete · GRÁTIS"** em negrito e na cor de destaque da loja no romaneio
+  (`gratis: true` troca fonte e cor) e em verde na ficha; frete com valor sai
+  como sempre; zero sem a marca não vira linha, como antes. A mexida entra no
+  histórico do pedido ("frete grátis marcado/desmarcado"), na mesma linha de
+  auditoria dos valores; a edição de ITENS que não fala de frete deixa marca
+  e valor como estão (resolver sempre podia virar a marca sem linha no
+  histórico, achado da revisão). Marcar grátis num pedido que tinha frete muda
+  o total a pagar, e isso passa pelo caminho de sempre dos valores (cobrança
+  pendente acompanha, Pix/link antigo expira, porta do Financeiro — RN-033;
+  provado contra o Postgres local com o módulo ligado: o lançamento acompanha
+  R$ 558 → 573 → 558). **Quem marca**: vendedora e gerência; o **suporte é
+  barrado no SERVIDOR** para frete e marca (antes só a tela escondia o editor
+  e a porta deixava o suporte mudar o frete — achado da revisão; a mesma
+  frase dos valores, 403). A caixinha e a linha "Frete · GRÁTIS" moram num
+  componente só (`components/pedido/frete-gratis.tsx`) para as três telas, e
+  **o número digitado não é apagado ao marcar** — a caixinha tocada sem
+  querer e desmarcada devolve o frete (apagar fazia R$ 25 sumirem calados,
+  sem marca e sem rastro). A exportação CSV de pedidos ganhou a coluna
+  "Frete grátis" (Sim), para separar o grátis do "não informado". **Limites
+  ditos**: o pedido do catálogo nasce sem a marca (a vendedora marca ao
+  conferir); a **loja online (Nuvemshop) traz o frete de lá** — a ficha
+  esconde a caixinha e o servidor recusa marcar (409): zerar um frete que a
+  cliente pagou lá faria o romaneio mentir.
 - **RN-003 · Estoque**: orçamento RESERVA (todos os status exceto CANCELADO seguram
   estoque) — vale para o pedido montado no sistema E para o do catálogo
   público (`lib/reservations.ts`, baixa condicionada: nunca negativa, nunca

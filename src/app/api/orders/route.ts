@@ -6,7 +6,7 @@ import { corIgual } from "@/lib/capa-por-cor";
 import { avancarFunil } from "@/lib/funil-auto";
 import { requireUser, AuthError } from "@/lib/auth";
 import { isSupport } from "@/lib/scope";
-import { computeOrderTotals, orderNumber } from "@/lib/orders";
+import { computeOrderTotals, orderNumber, resolverFreteDoPedido } from "@/lib/orders";
 import { espelharEstoqueSemQuebrar } from "@/lib/nuvemshop";
 import { espelharJueriSemQuebrar } from "@/lib/jueri";
 import { juntarPorVariacao, reservarComExtras } from "@/lib/reservations";
@@ -47,6 +47,9 @@ const createSchema = z.object({
   surcharge: z.number().nonnegative().default(0),
   surchargePct: z.number().min(0).max(100).nullish(),
   shippingFee: z.number().nonnegative().default(0),
+  // RN-098: frete por conta da loja, marca explícita da vendedora (marcar
+  // zera o frete; frete com valor desmarca — `resolverFreteDoPedido`)
+  freteGratis: z.boolean().default(false),
   notes: z.string().optional(),
   paymentMethod: z.enum(["PIX", "CARTAO", "BOLETO", "CHEQUE", "DINHEIRO", "OUTRO"]).default("PIX"),
   status: z.enum(["ORCAMENTO", "AGUARDANDO_PAGAMENTO"]).default("ORCAMENTO"),
@@ -169,10 +172,11 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(respostaDeExtras(previstos), { status: 409 });
     }
 
+    const frete = resolverFreteDoPedido({ shippingFee: 0, freteGratis: false }, input);
     const totals = computeOrderTotals(
       input.items,
       { valor: input.discount, pct: input.discountPct },
-      input.shippingFee,
+      frete.shippingFee,
       { valor: input.surcharge, pct: input.surchargePct }
     );
 
@@ -226,6 +230,7 @@ export async function POST(req: NextRequest) {
           surcharge: totals.surcharge,
           surchargePct: input.surchargePct ?? null,
           shippingFee: totals.shippingFee,
+          freteGratis: frete.freteGratis,
           netTotal: totals.netTotal,
           total: totals.total,
           notes: input.notes,

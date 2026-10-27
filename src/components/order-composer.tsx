@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { brl, numeroBR } from "@/lib/format";
 import { computeOrderTotals, unitPriceFor } from "@/lib/orders";
+import { CaixaFreteGratis, LinhaFreteGratis, CAMPO_DO_FRETE_MARCADO } from "@/components/pedido/frete-gratis";
 import {
   aplicarGradeNoPedido,
   pecasNoPedido,
@@ -77,6 +78,8 @@ export function OrderComposer({
   const [discount, setDiscount] = useState("");
   const [surcharge, setSurcharge] = useState("");
   const [shipping, setShipping] = useState("");
+  // RN-098: frete por conta da loja — marcar zera o campo do frete
+  const [freteGratis, setFreteGratis] = useState(false);
   const [notes, setNotes] = useState("");
   const [payment, setPayment] = useState("PIX");
   const [saving, setSaving] = useState(false);
@@ -108,10 +111,11 @@ export function OrderComposer({
       computeOrderTotals(
         cart,
         numeroBR(discount),
-        numeroBR(shipping),
+        // RN-098: marcado, o frete é zero na conta (o digitado fica guardado)
+        freteGratis ? 0 : numeroBR(shipping),
         numeroBR(surcharge)
       ),
-    [cart, discount, shipping, surcharge]
+    [cart, discount, shipping, surcharge, freteGratis]
   );
   const itemCount = cart.reduce((s, c) => s + c.quantity, 0);
 
@@ -188,7 +192,8 @@ export function OrderComposer({
         })),
         discount: numeroBR(discount),
         surcharge: numeroBR(surcharge),
-        shippingFee: numeroBR(shipping),
+        shippingFee: freteGratis ? 0 : numeroBR(shipping),
+        freteGratis,
         notes: notes || undefined,
         paymentMethod: payment,
         status,
@@ -309,12 +314,15 @@ export function OrderComposer({
               Frete (R$)
             </label>
             <input
-              value={shipping}
+              value={freteGratis ? "" : shipping}
               onChange={(e) => setShipping(e.target.value)}
-              placeholder="0,00"
+              placeholder={freteGratis ? CAMPO_DO_FRETE_MARCADO.placeholder : "0,00"}
               inputMode="decimal"
-              className="w-full rounded-lg border border-gray-200 px-2 py-1.5 text-xs outline-none focus:border-brand-400"
+              disabled={freteGratis}
+              className={`w-full rounded-lg border border-gray-200 px-2 py-1.5 text-xs outline-none focus:border-brand-400 ${CAMPO_DO_FRETE_MARCADO.className}`}
             />
+            {/* RN-098: a marca explícita — é ela que o romaneio destaca */}
+            <CaixaFreteGratis marcado={freteGratis} aoMudar={setFreteGratis} compacto />
           </div>
         </div>
         <div className="grid grid-cols-2 gap-2">
@@ -354,6 +362,7 @@ export function OrderComposer({
               <span className="tabular-nums">+ {brl(totals.surcharge)}</span>
             </div>
           )}
+          {freteGratis && <LinhaFreteGratis />}
           {/* frete separado do valor vendido: ele não fatura nem comissiona */}
           {totals.shippingFee > 0 && (
             <>

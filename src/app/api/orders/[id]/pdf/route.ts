@@ -549,7 +549,7 @@ export async function GET(
     const totalPieces = order.items.reduce((a, i) => a + i.quantity, 0);
     // a conta de peças em linha PRÓPRIA: quem separa confere o total físico
     // antes de fechar a caixa — escondida no rótulo do subtotal, passava batida
-    const frete = linhaDoFrete(order.shippingFee, money);
+    const frete = linhaDoFrete(order, money);
     // o terceiro campo: `true` é o TOTAL (grande), "destaque" é o frete grátis
     // (negrito na cor da loja, no tamanho das outras linhas), `false` é comum
     const totals: [string, string, boolean | "destaque"][] = [
@@ -568,10 +568,12 @@ export async function GET(
       ...(order.creditoTroca > 0
         ? ([["Crédito de troca", `- ${money(order.creditoTroca)}`, false]] as [string, string, boolean | "destaque"][])
         : []),
-      // a linha do frete SEMPRE sai: sem valor é "FRETE GRÁTIS", em negrito e
-      // na cor de destaque (pedido do dono, 27/10/2026 — frete não informado
-      // é grátis, e quem embala precisa ler isso antes de fechar a caixa)
-      [frete.rotulo, frete.valor, frete.gratis ? "destaque" : false],
+      // RN-098: pedido MARCADO como frete grátis sai "Frete · GRÁTIS" em
+      // negrito e na cor de destaque (quem embala lê antes de fechar a
+      // caixa); com valor, a linha comum; zero sem a marca, nenhuma linha
+      ...(frete
+        ? ([[frete.rotulo, frete.valor, frete.gratis ? "destaque" : false]] as [string, string, boolean | "destaque"][])
+        : []),
       ["TOTAL", money(order.total), true],
     ];
     for (const [label, value, strong] of totals) {

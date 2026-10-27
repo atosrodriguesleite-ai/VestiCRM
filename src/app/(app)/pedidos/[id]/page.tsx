@@ -45,6 +45,7 @@ import { acaoDaNota } from "@/lib/nfe-situacao";
 import { EnvioFrete } from "./envio-frete";
 import { TransferirVenda } from "./transferir-venda";
 import { ValoresEditor } from "./valores-editor";
+import { LinhaFreteGratis } from "@/components/pedido/frete-gratis";
 import { ObservacoesEditor } from "./observacoes-editor";
 import { DataDaVenda } from "./data-da-venda";
 import { PrevisaoRecebimento } from "./previsao-recebimento";
@@ -672,6 +673,8 @@ export default async function OrderDetailPage({
               <span>Valor vendido</span>
               <span className="tabular-nums">{brl(order.netTotal)}</span>
             </div>
+            {/* RN-098: a marca explícita de frete grátis — a mesma que o romaneio destaca */}
+            {order.freteGratis && <LinhaFreteGratis />}
             {order.shippingFee > 0 && (
               <div className="flex justify-between text-gray-500">
                 <span>Frete</span>
@@ -706,6 +709,8 @@ export default async function OrderDetailPage({
             surcharge={order.surcharge}
             surchargePct={order.surchargePct}
             shippingFee={order.shippingFee}
+            freteGratis={order.freteGratis}
+            vendaOnline={vendaOnline(order)}
             creditoTroca={order.creditoTroca}
             podeEditar={user.role !== "SUPPORT"}
             bloqueado={order.status === "CANCELADO"}

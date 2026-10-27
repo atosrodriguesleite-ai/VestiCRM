@@ -2048,6 +2048,12 @@ model Order {
   surcharge      Float         @default(0)
   surchargePct   Float?
   shippingFee    Float         @default(0)
+  // FRETE GRÁTIS É MARCA EXPLÍCITA, NÃO FRETE ZERO (RN-098, 27/10/2026):
+  // a vendedora marca no pedido que o frete é por conta da loja, e só então
+  // o romaneio e a ficha dizem "FRETE GRÁTIS" em destaque. Frete zero sem a
+  // marca é "não informado" (retirada, a combinar) e não anuncia nada.
+  // Marcar zera o frete; informar frete desmarca (`resolverFreteDoPedido`).
+  freteGratis    Boolean       @default(false)
   // VALOR VENDIDO = subtotal − desconto + acréscimo. É a coluna que TODA
   // métrica de faturamento soma, e a base da comissão. O frete fica de fora
   // de propósito: é dinheiro da transportadora atravessando a loja.
