@@ -15,6 +15,7 @@ import { montarRfm, clientesDoRfm } from "@/lib/bi/rfm";
 import { IDS_DOS_GRUPOS } from "@/lib/bi/rfm-regra";
 import { montarLista } from "@/lib/bi/listas";
 import { dadosDaAbaRecompra } from "@/lib/recompra";
+import { evaluateSegment } from "@/lib/segments";
 
 const ok = (t: string) => console.log(`  ✅ ${t}`);
 const falha = (t: string) => {
@@ -184,6 +185,29 @@ async function main() {
   conferir(!bloqueada.chamar && (bloqueada.subtitulo?.includes("bloqueada") ?? false), "cliente bloqueada: sem botão, e a linha diz por quê");
   const semFone = (await montarLista(sessao, { tipo: "rfm", grupo: de(comuns[0].id).grupo }, agora)).linhas.find((l) => l.id === comuns[0].id)!;
   conferir(!semFone.chamar && (semFone.subtitulo?.includes("sem telefone") ?? false), "cliente sem telefone: sem botão, e a linha diz por quê");
+
+  console.log("\n4c) A campanha pelo grupo do RFM (RN-098)");
+  await db.customer.update({ where: { id: parou.id }, data: { blockedAt: null } });
+  for (const grupo of IDS_DOS_GRUPOS) {
+    const publico = await evaluateSegment(sessao, { rfmGrupo: grupo });
+    igual(publico.length, rfm.resumo.porGrupo[grupo].clientes, `campanha ${grupo}: o público é o grupo do BI`);
+  }
+  const naoPerder = await evaluateSegment(sessao, { rfmGrupo: "NAO_PERDER" });
+  conferir(naoPerder.some((x) => x.id === parou.id), "a Paula está na campanha do Não posso perder");
+  // o "sem compra há" deixa de fora quem ENTROU depois do corte: a Paula é cliente antiga
+  await db.customer.updateMany({ where: { companyId: loja.id }, data: { createdAt: ha(600) } });
+  const cruzado = await evaluateSegment(sessao, { rfmGrupo: "NAO_PERDER", inactiveDays: 30 });
+  conferir(cruzado.every((x) => naoPerder.some((y) => y.id === x.id)) && cruzado.some((x) => x.id === parou.id), "cruzado com 'sem compra há 30 dias' é um recorte do grupo (a Paula fica)");
+  await db.customer.update({ where: { id: parou.id }, data: { blockedAt: new Date() } });
+  conferir(!(await evaluateSegment(sessao, { rfmGrupo: "NAO_PERDER" })).some((x) => x.id === parou.id), "bloqueada, a Paula sai da campanha (e de qualquer outra)");
+  conferir(!(await evaluateSegment(sessao, {})).some((x) => x.id === parou.id), "nem a campanha sem filtro a alcança");
+  await db.customer.update({ where: { id: parou.id }, data: { blockedAt: null } });
+  const sessaoAna = { ...sessao, id: ana.id, name: "Ana Souza", role: "SELLER" as const };
+  igual((await evaluateSegment(sessaoAna, { rfmGrupo: "NAO_PERDER" })).length, 0, "a vendedora com o grupo do RFM: público VAZIO, nunca a loja inteira");
+  igual((await evaluateSegment(sessaoAna, {})).length, (await evaluateSegment(sessao, {})).length, "sem o grupo, a campanha da vendedora segue como sempre");
+  await db.company.update({ where: { id: loja.id }, data: { biEnabled: false } });
+  igual((await evaluateSegment(sessao, { rfmGrupo: "NAO_PERDER" })).length, 0, "BI desligado: público VAZIO também para a gerência");
+  await db.company.update({ where: { id: loja.id }, data: { biEnabled: true } });
 
   console.log("\n5) Cancelar a venda muda o grupo na hora (é calculado, não gravado)");
   await db.order.updateMany({ where: { customerId: novata.id }, data: { status: "CANCELADO" } });

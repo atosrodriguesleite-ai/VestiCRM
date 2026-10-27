@@ -39,7 +39,7 @@ import { parearEsperas, type MensagemLeve } from "./tempo-de-resposta";
 import { DIAS_DE_LEITURA_ANTES, inicioDoDiaSP } from "./fatos";
 import { encaixarPeriodo, type Periodo } from "./painel";
 import { clientesDoRfm } from "./rfm";
-import { IDS_DOS_GRUPOS, grupoRfm, mensagemDoGrupo, type GrupoRfm } from "./rfm-regra";
+import { ehGrupoRfm, grupoRfm, mensagemDoGrupo, type GrupoRfm } from "./rfm-regra";
 import { ABAS_DO_BI, type AbaDoBi } from "./abas";
 
 export const TIPOS_DE_LISTA = ["esperando-agora", "sem-resposta", "contatos", "vendas", "rfm"] as const;
@@ -91,7 +91,7 @@ export function lerFiltro(bruto: Record<string, string | string[] | undefined>):
   if (p.vendedora) f.vendedora = p.vendedora.slice(0, 64);
   if (p.campanha) f.campanha = p.campanha.slice(0, 64);
   if (p.grupo) {
-    if (!IDS_DOS_GRUPOS.includes(p.grupo as GrupoRfm)) return null;
+    if (!ehGrupoRfm(p.grupo)) return null;
     f.grupo = p.grupo as GrupoRfm;
   }
   for (const k of ["r", "fv"] as const) {

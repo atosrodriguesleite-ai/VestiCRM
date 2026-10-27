@@ -2755,10 +2755,60 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   ano, cancelado/orçamento/pago sem data/outra loja fora, somas contra o
   banco e contra a carteira, as oito listas com o Chamar). **Próximas
   etapas combinadas** (uma de cada vez, com revisão): o grupo no filtro das
-  campanhas (gerência); tarefa para a vendedora dona da cliente quando ela
+  campanhas (gerência — feito, RN-098); tarefa para a vendedora dona da cliente quando ela
   CAI de grupo; o retrato mensal de quem subiu e quem caiu. **Limite dito**:
   o "Chamar" da gerência numa conversa encerrada a reabre no nome de quem
   abriu (a régua do "Conversar no WhatsApp").
+- **RN-098 · O GRUPO DO RFM NO FILTRO DAS CAMPANHAS: SÓ A GERÊNCIA, E SEM
+  PERMISSÃO O PÚBLICO É VAZIO** (`rfmGrupo` em `lib/segments.ts` +
+  `modeloDeCampanhaDoGrupo` em `lib/bi/rfm-regra.ts` +
+  `lib/campanha-mensagem.ts`, tela Campanhas, 27/10/2026): a Etapa 2 do RFM
+  (RN-093) — *"criar campanha e fluxos voltados à recompra"*. A campanha
+  ganha o filtro **"Grupo do RFM"**, cruzado com os de sempre (sem compra há,
+  tipo, cidade, tag…), e o público é o grupo de **HOJE**, pela MESMA conta
+  da aba Clientes (`clientesDoRfm`; o público da campanha já era dinâmico —
+  quem muda de grupo entra ou sai sozinha). **A porteira é a do BI**
+  (`rfmLiberadoPara` = `podeVerBi` + `biEnabled`, RN-082): gerência, na loja
+  com a chave — a campanha não vira porta dos fundos para a vendedora, ou a
+  loja sem o módulo, saber quem é "Não posso perder". O servidor confere em
+  TODA porta — criar (403 com frase), prever (403) e o disparo (ler o
+  público e marcar enviado, 403) — e, por baixo delas, **`evaluateSegment`
+  devolve público VAZIO** para quem não pode, para grupo fora da lista e
+  para grupo sem ninguém hoje: ignorar o filtro que a pessoa não pode usar
+  mandaria o "sentimos sua falta" para a loja inteira. A campanha de RFM
+  vista por quem não pode aparece **sem o número e sem o Disparar**, com o
+  motivo certo (`barreiraDoRfm`: "só a gerência" para a vendedora; "o BI
+  está desligado" para a gerente da loja que desligou o módulo). **Filtro
+  salvo que não se lê é RECUSADO** (`lerFiltroDaCampanha` devolve `null`,
+  o disparo responde 422 e a tela diz "crie de novo"): antes ele virava
+  `{}`, e filtro vazio é "todas as clientes" — o JSON cortado de uma
+  campanha "Não posso perder" virava disparo para a loja inteira (achado
+  da revisão). E **cliente BLOQUEADA não entra em campanha nenhuma**
+  (`blockedAt: null` no público de TODA campanha, com ou sem o grupo): o
+  bloqueio é o de verdade no WhatsApp, e a lista do BI já não lhe
+  oferecia o "Chamar" (achado da revisão). O grupo é conferido **em
+  memória** depois da consulta (a régua do gasto mínimo — uma lista de ids
+  no `IN` esbarraria no teto de parâmetros do Postgres), e a tela calcula o
+  RFM **uma vez** para todas as campanhas (`gruposDoRfmUmaVez`, com a
+  permissão lida da loja que a tela já carrega — sem ida extra ao banco).
+  **A
+  mensagem pronta** do grupo entra ao escolhê-lo (enquanto ninguém mexeu no
+  texto): é a MESMA do "Chamar" do BI com a saudação "Oi {{nome}}!"
+  (`modeloDeCampanhaDoGrupo`, o teste prende que, personalizada, ela é
+  igual), com o link do catálogo da loja. **O atalho "Criar campanha"** em
+  cada grupo do BI abre a janela com o grupo, o nome e a mensagem prontos
+  (`/campanhas?rfm=<grupo>`). Dois consertos do disparo, que a campanha de
+  RFM ia usar: o `{{nome}}` do crachá provisório ou do nome em branco some
+  junto com o espaço (`personalizarCampanha`: "Oi!", nunca "Oi Contato!") e
+  o número do wa.me sai pela régua da casa (`normalizePhone` — número de
+  fora não ganha 55, RN-096); a vírgula de "Olá, {{nome}}!" sai junto
+  ("Olá!", nunca "Olá,!"). **Limites ditos**: marcar "enviado" refaz o
+  público da campanha (é assim que ela se conclui sozinha) e, com o grupo,
+  o RFM da loja a cada clique — uma consulta agregada por clique; o disparo da campanha
+  segue abrindo o WhatsApp do aparelho (wa.me), não a Central — o link da
+  mensagem é o do catálogo da loja, sem a ref da dona nem o código da
+  cliente (para isso, o "Chamar" da lista do BI, RN-093); e a vendedora
+  continua criando campanha sem o grupo, como sempre.
 - **Communication Engine** (`lib/comm/`): camada única de envio/recebimento,
   agnóstica de provedor. `EvolutionProvider` = WhatsApp NÃO-oficial via
   Evolution API **self-hosted** (VPS Hostinger srv1853369.hstgr.cloud,
@@ -4334,9 +4384,9 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   ✅) → visual (RN-089 ✅) → exportar PDF (RN-090 ✅); depois, benchmark entre lojas (Super Admin) e resumo semanal no
   WhatsApp do dono. **RFM (pedido do dono, 22/10/2026)**: Etapa 1 ✅
   (RN-093, 23/10/2026: notas, oito grupos, matriz e o Chamar na aba
-  Clientes); faltam a Etapa 2 (grupo no filtro das campanhas, gerência), a 3
-  (tarefa para a vendedora quando a cliente cai de grupo) e a 4 (retrato
-  mensal de quem subiu e caiu). **Modo TV adiado** pelo dono. Decisões do dono: só gerência
+  Clientes); Etapa 2 ✅ (RN-098, 27/10/2026: grupo no filtro das campanhas,
+  gerência); faltam a 3 (tarefa para a vendedora quando a cliente cai de
+  grupo) e a 4 (retrato mensal de quem subiu e caiu). **Modo TV adiado** pelo dono. Decisões do dono: só gerência
   vê; origem do lead segue automática (sem marcação manual); metas de
   qualquer tipo, a loja escolhe; prazo dentro do horário comercial.
 - 🟡 **Calendário comercial — preço de tabela a definir pelo dono**

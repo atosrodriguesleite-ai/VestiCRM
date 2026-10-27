@@ -64,6 +64,9 @@ export const IDS_DOS_GRUPOS = GRUPOS_RFM.map((g) => g.id);
 
 export const grupoRfm = (id: GrupoRfm) => GRUPOS_RFM.find((g) => g.id === id)!;
 
+/** O texto é um grupo da lista fechada? (o JSON salvo e a URL são digitáveis) — a régua de toda porta que recebe um grupo */
+export const ehGrupoRfm = (x: unknown): x is GrupoRfm => typeof x === "string" && (IDS_DOS_GRUPOS as string[]).includes(x);
+
 /** a janela de Frequência e Valor */
 export const DIAS_DA_JANELA = 365;
 /** abaixo disso, as notas por percentil mudam muito de um dia para o outro (a tela avisa) */
@@ -256,7 +259,19 @@ function saudacao(nome: string): string {
 
 /** A mensagem sugerida para chamar uma cliente do grupo (pura). */
 export function mensagemDoGrupo(grupo: GrupoRfm, nome: string, link: string): string {
-  const oi = saudacao(nome);
+  return textoDoGrupo(grupo, saudacao(nome), link);
+}
+
+/**
+ * O MESMO texto como modelo de CAMPANHA (RN-098): a saudação fica
+ * "Oi {{nome}}!", que o disparo troca pelo primeiro nome de cada cliente —
+ * uma mensagem por grupo, nunca duas versões dela para manter.
+ */
+export function modeloDeCampanhaDoGrupo(grupo: GrupoRfm, link: string): string {
+  return textoDoGrupo(grupo, "Oi {{nome}}!", link);
+}
+
+function textoDoGrupo(grupo: GrupoRfm, oi: string, link: string): string {
   switch (grupo) {
     case "CAMPEAS":
       return `${oi} 💎 Você é uma das nossas clientes mais especiais, então quis te mostrar primeiro o que acabou de chegar:\n${link}\n\nQuer que eu separe as peças do seu estilo antes de as grades quebrarem?`;
