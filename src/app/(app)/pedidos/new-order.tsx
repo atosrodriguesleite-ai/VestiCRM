@@ -81,7 +81,7 @@ export function NewOrderButton() {
   const [discount, setDiscount] = useState("");
   const [surcharge, setSurcharge] = useState("");
   const [shipping, setShipping] = useState("");
-  // RN-098: frete por conta da loja — marcar zera o campo do frete
+  // RN-099: frete por conta da loja — marcar zera o campo do frete
   const [freteGratis, setFreteGratis] = useState(false);
   const [payment, setPayment] = useState("PIX");
   const [status, setStatus] = useState<"ORCAMENTO" | "AGUARDANDO_PAGAMENTO">("ORCAMENTO");
@@ -544,7 +544,7 @@ export function NewOrderButton() {
                           disabled={freteGratis}
                           className={`${input} ${CAMPO_DO_FRETE_MARCADO.className}`}
                         />
-                        {/* RN-098: a marca explícita — é ela que o romaneio destaca */}
+                        {/* RN-099: a marca explícita — é ela que o romaneio destaca */}
                         <CaixaFreteGratis marcado={freteGratis} aoMudar={setFreteGratis} />
                       </div>
                       <div>

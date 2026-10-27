@@ -212,7 +212,7 @@ describe("catalogPrice", () => {
   });
 });
 
-describe("RN-098 · frete grátis é marca explícita: marcar zera, informar valor desmarca (o guardião do índice é romaneio.test.ts)", () => {
+describe("RN-099 · frete grátis é marca explícita: marcar zera, informar valor desmarca (o guardião do índice é romaneio.test.ts)", () => {
   it("marcar grátis zera o frete, mesmo que venha um valor junto ou já houvesse um gravado", async () => {
     const { resolverFreteDoPedido } = await import("../orders");
     expect(resolverFreteDoPedido({ shippingFee: 20, freteGratis: false }, { freteGratis: true })).toEqual({

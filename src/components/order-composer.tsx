@@ -78,7 +78,7 @@ export function OrderComposer({
   const [discount, setDiscount] = useState("");
   const [surcharge, setSurcharge] = useState("");
   const [shipping, setShipping] = useState("");
-  // RN-098: frete por conta da loja — marcar zera o campo do frete
+  // RN-099: frete por conta da loja — marcar zera o campo do frete
   const [freteGratis, setFreteGratis] = useState(false);
   const [notes, setNotes] = useState("");
   const [payment, setPayment] = useState("PIX");
@@ -111,7 +111,7 @@ export function OrderComposer({
       computeOrderTotals(
         cart,
         numeroBR(discount),
-        // RN-098: marcado, o frete é zero na conta (o digitado fica guardado)
+        // RN-099: marcado, o frete é zero na conta (o digitado fica guardado)
         freteGratis ? 0 : numeroBR(shipping),
         numeroBR(surcharge)
       ),
@@ -321,7 +321,7 @@ export function OrderComposer({
               disabled={freteGratis}
               className={`w-full rounded-lg border border-gray-200 px-2 py-1.5 text-xs outline-none focus:border-brand-400 ${CAMPO_DO_FRETE_MARCADO.className}`}
             />
-            {/* RN-098: a marca explícita — é ela que o romaneio destaca */}
+            {/* RN-099: a marca explícita — é ela que o romaneio destaca */}
             <CaixaFreteGratis marcado={freteGratis} aoMudar={setFreteGratis} compacto />
           </div>
         </div>

@@ -322,7 +322,7 @@ export function valorDoAjuste(ajuste: AjusteInput | undefined, base: number): nu
  * negativo — 100% de desconto zera o pedido inteiro, acréscimo incluído.
  */
 /**
- * FRETE GRÁTIS É MARCA EXPLÍCITA, NÃO FRETE ZERO (RN-098, 27/10/2026).
+ * FRETE GRÁTIS É MARCA EXPLÍCITA, NÃO FRETE ZERO (RN-099, 27/10/2026).
  *
  * Pedido do dono: "pode ser colocado pelo vendedor na tela de pedidos a opção
  * de frete grátis e isso sair no romaneio". Frete zero sozinho não diz nada

@@ -45,9 +45,9 @@ export function ValoresEditor({
   surcharge: number;
   surchargePct: number | null;
   shippingFee: number;
-  /** RN-098: a marca explícita de frete por conta da loja (o romaneio destaca) */
+  /** RN-099: a marca explícita de frete por conta da loja (o romaneio destaca) */
   freteGratis?: boolean;
-  /** venda da loja online: o frete é o de lá, a caixinha não aparece (RN-098) */
+  /** venda da loja online: o frete é o de lá, a caixinha não aparece (RN-099) */
   vendaOnline?: boolean;
   /** RN-074: crédito de troca abatido — a prévia e o "fechar por" o levam em conta */
   creditoTroca?: number;
@@ -70,7 +70,7 @@ export function ValoresEditor({
     surchargePct != null ? String(surchargePct) : surcharge ? String(surcharge) : ""
   );
   const [freteTexto, setFreteTexto] = useState(shippingFee ? String(shippingFee) : "");
-  // RN-098: marcar grátis zera o frete; digitar frete desmarca — a mesma
+  // RN-099: marcar grátis zera o frete; digitar frete desmarca — a mesma
   // régua do servidor (`resolverFreteDoPedido`), aqui só para a prévia
   const [freteGratis, setFreteGratis] = useState(freteGratisInicial);
   const freteNumero = freteGratis ? 0 : numeroBR(freteTexto);
@@ -240,7 +240,7 @@ export function ValoresEditor({
           disabled={freteGratis}
           className={`w-full rounded-lg border border-slate-200 px-2.5 py-1.5 text-sm tabular-nums outline-none focus:border-brand-400 ${CAMPO_DO_FRETE_MARCADO.className}`}
         />
-        {/* RN-098: a marca explícita — é ela que o romaneio destaca em negrito.
+        {/* RN-099: a marca explícita — é ela que o romaneio destaca em negrito.
             O digitado fica guardado: desmarcar devolve o número. */}
         {!vendaOnline && (
           <CaixaFreteGratis

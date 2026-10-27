@@ -114,7 +114,7 @@ const patchSchema = z.object({
   surcharge: z.number().nonnegative().optional(),
   surchargePct: z.number().min(0).max(100).nullish(),
   shippingFee: z.number().nonnegative().optional(),
-  // RN-098: frete por conta da loja — marca explícita; marcar zera o frete
+  // RN-099: frete por conta da loja — marca explícita; marcar zera o frete
   freteGratis: z.boolean().optional(),
   // PEÇAS EXTRAS (RN-075): o que a pessoa viu na janela e confirmou, por
   // peça — vale para acrescentar peça (edição dos itens) e para reabrir
@@ -222,7 +222,7 @@ export async function PATCH(
         parsed.data.discountPct !== undefined ||
         (parsed.data.surcharge !== undefined && parsed.data.surcharge !== order.surcharge) ||
         parsed.data.surchargePct !== undefined ||
-        // RN-098: o frete e a marca de grátis mudam o total a pagar — a tela
+        // RN-099: o frete e a marca de grátis mudam o total a pagar — a tela
         // já escondia o editor do suporte; o servidor é a segunda tranca
         // (achado da revisão: só a UI barrava)
         (parsed.data.shippingFee !== undefined && round2(parsed.data.shippingFee) !== order.shippingFee) ||
@@ -235,7 +235,7 @@ export async function PATCH(
       }
     }
 
-    // RN-098: a venda da loja online traz o frete de LÁ (o que a cliente pagou
+    // RN-099: a venda da loja online traz o frete de LÁ (o que a cliente pagou
     // na Nuvemshop) — marcar grátis aqui zeraria um frete que foi pago, e o
     // romaneio mentiria. A ficha esconde a caixinha; o servidor recusa.
     if (parsed.data.freteGratis === true && vendaOnline(order) && !order.freteGratis) {
@@ -340,7 +340,7 @@ export async function PATCH(
 
       // SEM o crédito de troca aqui: ele é relido DENTRO da transação, sob a
       // trava do pedido (RN-074, `aplicarCreditoAtual`)
-      // RN-098: o frete e a marca de grátis andam juntos (marcar zera;
+      // RN-099: o frete e a marca de grátis andam juntos (marcar zera;
       // informar valor desmarca) — e SÓ quando a edição mexeu neles: a
       // edição de itens que não fala de frete deixa marca e valor como estão
       // (resolver sempre podia virar a marca sem linha no histórico, achado
@@ -651,7 +651,7 @@ export async function PATCH(
         (pctAcrFinal != null ||
           (parsed.data.surcharge ?? order.surcharge) === order.surcharge);
 
-      // RN-098: marcar "frete grátis" zera o frete; informar frete desmarca
+      // RN-099: marcar "frete grátis" zera o frete; informar frete desmarca
       const freteResolvido = resolverFreteDoPedido(order, parsed.data);
       const freteNovo = freteResolvido.shippingFee;
       // SEM o crédito de troca: ele é relido dentro da transação (RN-074)

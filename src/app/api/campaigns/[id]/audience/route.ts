@@ -1,9 +1,37 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
-import { requireUser, AuthError } from "@/lib/auth";
+import { requireUser, AuthError, type SessionUser } from "@/lib/auth";
 import { isSupport } from "@/lib/scope";
-import { evaluateSegment, type SegmentFilter } from "@/lib/segments";
+import { evaluateSegment, gruposDoRfmUmaVez, lerFiltroDaCampanha, rfmLiberadoPara } from "@/lib/segments";
+
+/**
+ * O filtro da campanha e a permissão, lidos UMA vez (RN-098): filtro que não
+ * se lê é recusado (nunca vira "todas as clientes"), e campanha pelo grupo do
+ * RFM só a gerência dispara, na loja com o BI ligado.
+ */
+async function publicoDaCampanha(filterJson: string | null, user: SessionUser) {
+  const filter = lerFiltroDaCampanha(filterJson);
+  if (!filter) {
+    return {
+      recusa: NextResponse.json(
+        { error: "O filtro desta campanha não se lê — crie a campanha de novo." },
+        { status: 422 }
+      ),
+    } as const;
+  }
+  if (filter.rfmGrupo == null) return { avaliar: () => evaluateSegment(user, filter) } as const;
+  const liberado = await rfmLiberadoPara(user);
+  if (!liberado) {
+    return {
+      recusa: NextResponse.json(
+        { error: "Esta campanha usa o grupo do RFM — só a gerência dispara, nas lojas com o BI de Vendas." },
+        { status: 403 }
+      ),
+    } as const;
+  }
+  return { avaliar: () => evaluateSegment(user, filter, { gruposDoRfm: gruposDoRfmUmaVez(user, true) }) } as const;
+}
 
 /**
  * Público de uma campanha + progresso do disparo.
@@ -31,8 +59,9 @@ export async function GET(
     if (!campaign) {
       return NextResponse.json({ error: "Não encontrada" }, { status: 404 });
     }
-    const filter = JSON.parse(campaign.filterJson || "{}") as SegmentFilter;
-    const customers = await evaluateSegment(user, filter);
+    const publico = await publicoDaCampanha(campaign.filterJson, user);
+    if ("recusa" in publico) return publico.recusa;
+    const customers = await publico.avaliar();
     const sent = new Set(campaign.sends.map((s) => s.customerId));
     return NextResponse.json({
       message: campaign.message,
@@ -73,6 +102,8 @@ export async function POST(
     if (!campaign) {
       return NextResponse.json({ error: "Não encontrada" }, { status: 404 });
     }
+    const publico = await publicoDaCampanha(campaign.filterJson, user);
+    if ("recusa" in publico) return publico.recusa;
     // o cliente marcado tem que ser DESTA loja (CampaignSend não tem
     // companyId; sem isto dava para amarrar id de outra loja — auditoria)
     const cliente = await db.customer.findFirst({
@@ -102,9 +133,8 @@ export async function POST(
     // roda de novo a cada consulta), então a conta certa é a INTERSEÇÃO:
     // quantos do público ATUAL já receberam — não o total bruto de envios
     // (que pode incluir gente que saiu do filtro e mascarar pendentes).
-    const filter = JSON.parse(campaign.filterJson || "{}") as SegmentFilter;
     const [audience, sends] = await Promise.all([
-      evaluateSegment(user, filter),
+      publico.avaliar(),
       db.campaignSend.findMany({
         where: { campaignId: id },
         select: { customerId: true },

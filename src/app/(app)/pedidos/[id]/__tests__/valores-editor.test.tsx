@@ -8,7 +8,7 @@ import { ValoresEditor } from "../valores-editor";
 import { brl } from "@/lib/format";
 
 /**
- * A CAIXINHA DE FRETE GRÁTIS NA FICHA (RN-098), renderizada de verdade: marcar
+ * A CAIXINHA DE FRETE GRÁTIS NA FICHA (RN-099), renderizada de verdade: marcar
  * zera o frete da prévia e mostra "Frete · GRÁTIS"; desmarcar DEVOLVE o número
  * digitado (apagar ao marcar fazia um toque errado sumir com R$ 25 de frete,
  * sem marca e sem rastro — achado da revisão); e o que vai para o servidor é
@@ -42,7 +42,7 @@ const campoDoFrete = () =>
   screen.getByText("Frete", { selector: "label" }).parentElement!.querySelector("input") as HTMLInputElement;
 const caixinha = () => screen.getByLabelText(/Frete grátis/) as HTMLInputElement;
 
-describe("frete grátis na ficha do pedido (RN-098)", () => {
+describe("frete grátis na ficha do pedido (RN-099)", () => {
   it("marcar zera o frete na prévia e mostra GRÁTIS; desmarcar devolve o número digitado", () => {
     abrir();
     fireEvent.change(campoDoFrete(), { target: { value: "25" } });

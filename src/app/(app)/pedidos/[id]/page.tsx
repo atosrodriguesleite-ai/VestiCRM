@@ -673,7 +673,7 @@ export default async function OrderDetailPage({
               <span>Valor vendido</span>
               <span className="tabular-nums">{brl(order.netTotal)}</span>
             </div>
-            {/* RN-098: a marca explícita de frete grátis — a mesma que o romaneio destaca */}
+            {/* RN-099: a marca explícita de frete grátis — a mesma que o romaneio destaca */}
             {order.freteGratis && <LinhaFreteGratis />}
             {order.shippingFee > 0 && (
               <div className="flex justify-between text-gray-500">

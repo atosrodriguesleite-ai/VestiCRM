@@ -58,7 +58,7 @@ export async function GET() {
       brlNum(o.discount),
       brlNum(o.surcharge),
       brlNum(o.shippingFee),
-      o.freteGratis ? "Sim" : "", // RN-098: a marca separa "grátis" de "não informado"
+      o.freteGratis ? "Sim" : "", // RN-099: a marca separa "grátis" de "não informado"
       brlNum(o.creditoTroca), // RN-074: desconto que veio de troca
       brlNum(o.netTotal), // valor vendido (sem frete) — a régua do faturamento
       // frete-ok: Total a pagar é o que a cliente paga (com frete)

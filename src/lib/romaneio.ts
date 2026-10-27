@@ -81,7 +81,7 @@ export { separarNotaDoPedido as separarNotaDoCatalogo } from "./nota-do-pedido";
 /* ---- a linha do frete no resumo de valores -------------------------------- */
 
 /**
- * FRETE GRÁTIS EM DESTAQUE (RN-098, pedido do dono em 27/10/2026): no resumo
+ * FRETE GRÁTIS EM DESTAQUE (RN-099, pedido do dono em 27/10/2026): no resumo
  * do romaneio a linha "Frete" saía só com valor. Agora há TRÊS casos, e quem
  * decide é a MARCA do pedido (`Order.freteGratis`, `resolverFreteDoPedido`),
  * não o número:

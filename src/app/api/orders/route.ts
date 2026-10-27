@@ -47,7 +47,7 @@ const createSchema = z.object({
   surcharge: z.number().nonnegative().default(0),
   surchargePct: z.number().min(0).max(100).nullish(),
   shippingFee: z.number().nonnegative().default(0),
-  // RN-098: frete por conta da loja, marca explícita da vendedora (marcar
+  // RN-099: frete por conta da loja, marca explícita da vendedora (marcar
   // zera o frete; frete com valor desmarca — `resolverFreteDoPedido`)
   freteGratis: z.boolean().default(false),
   notes: z.string().optional(),

@@ -568,7 +568,7 @@ export async function GET(
       ...(order.creditoTroca > 0
         ? ([["Crédito de troca", `- ${money(order.creditoTroca)}`, false]] as [string, string, boolean | "destaque"][])
         : []),
-      // RN-098: pedido MARCADO como frete grátis sai "Frete · GRÁTIS" em
+      // RN-099: pedido MARCADO como frete grátis sai "Frete · GRÁTIS" em
       // negrito e na cor de destaque (quem embala lê antes de fechar a
       // caixa); com valor, a linha comum; zero sem a marca, nenhuma linha
       ...(frete

@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { linhaDoFrete, ordenarParaSeparacao, pesoTamanho, totalPorCategoria } from "../romaneio";
 
-// Guarda RN-098 (índice em docs/regras.md; texto no CLAUDE.md): a marca de
+// Guarda RN-099 (índice em docs/regras.md; texto no CLAUDE.md): a marca de
 // frete grátis é o que o romaneio destaca — zero sem marca não vira linha.
 
 /**
