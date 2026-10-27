@@ -4,7 +4,7 @@ import { paginaSegura, quebrarEmLinhas } from "@/lib/pdf-texto";
 import { corIgual } from "@/lib/capa-por-cor";
 import { db } from "@/lib/db";
 import { requireUser, AuthError } from "@/lib/auth";
-import { ordenarParaSeparacao, totalPorCategoria } from "@/lib/romaneio";
+import { linhaDoFrete, ordenarParaSeparacao, totalPorCategoria } from "@/lib/romaneio";
 import { separarNotaDoPedido } from "@/lib/nota-do-pedido";
 import { orderScope } from "@/lib/scope";
 import { retratoCerto } from "@/lib/religar-itens";
@@ -549,30 +549,35 @@ export async function GET(
     const totalPieces = order.items.reduce((a, i) => a + i.quantity, 0);
     // a conta de peças em linha PRÓPRIA: quem separa confere o total físico
     // antes de fechar a caixa — escondida no rótulo do subtotal, passava batida
-    const totals: [string, string, boolean][] = [
+    const frete = linhaDoFrete(order.shippingFee, money);
+    // o terceiro campo: `true` é o TOTAL (grande), "destaque" é o frete grátis
+    // (negrito na cor da loja, no tamanho das outras linhas), `false` é comum
+    const totals: [string, string, boolean | "destaque"][] = [
       ["Total de peças", String(totalPieces), false],
       ["Subtotal", money(order.subtotal), false],
       // ordem da conta: acréscimo entra antes do desconto (que é global) —
       // e a linha do acréscimo FALTAVA: com ela ausente, a soma impressa
       // não fechava com o TOTAL e o desconto parecia maior que o combinado
       ...(order.surcharge > 0
-        ? ([["Acréscimo", `+ ${money(order.surcharge)}`, false]] as [string, string, boolean][])
+        ? ([["Acréscimo", `+ ${money(order.surcharge)}`, false]] as [string, string, boolean | "destaque"][])
         : []),
       ...(order.discount > 0
-        ? ([["Desconto", `- ${money(order.discount)}`, false]] as [string, string, boolean][])
+        ? ([["Desconto", `- ${money(order.discount)}`, false]] as [string, string, boolean | "destaque"][])
         : []),
       // RN-074: o crédito de troca abatido, senão a soma impressa não fecha
       ...(order.creditoTroca > 0
-        ? ([["Crédito de troca", `- ${money(order.creditoTroca)}`, false]] as [string, string, boolean][])
+        ? ([["Crédito de troca", `- ${money(order.creditoTroca)}`, false]] as [string, string, boolean | "destaque"][])
         : []),
-      ...(order.shippingFee > 0
-        ? ([["Frete", money(order.shippingFee), false]] as [string, string, boolean][])
-        : []),
+      // a linha do frete SEMPRE sai: sem valor é "FRETE GRÁTIS", em negrito e
+      // na cor de destaque (pedido do dono, 27/10/2026 — frete não informado
+      // é grátis, e quem embala precisa ler isso antes de fechar a caixa)
+      [frete.rotulo, frete.valor, frete.gratis ? "destaque" : false],
       ["TOTAL", money(order.total), true],
     ];
     for (const [label, value, strong] of totals) {
+      const destaque = strong === "destaque";
       const f = strong ? bold : font;
-      const size = strong ? 13 : 10;
+      const size = strong === true ? 13 : destaque ? 11 : 10;
       const lw = f.widthOfTextAtSize(label, size);
       const vw = f.widthOfTextAtSize(value, size);
       page.drawText(label, {
@@ -581,7 +586,7 @@ export async function GET(
       page.drawText(value, {
         x: cols.total - vw, y, size, font: f, color: strong ? ACCENT : INK,
       });
-      y -= strong ? 22 : 16;
+      y -= strong === true ? 22 : 16;
     }
 
     // (as observações agora abrem o romaneio, em destaque no cabeçalho)

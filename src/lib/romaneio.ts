@@ -77,3 +77,27 @@ export function ordenarParaSeparacao<T extends ItemDoRomaneio>(
 // A régua mora em lib/nota-do-pedido.ts (ficha e romaneio leem a MESMA);
 // aqui fica o nome antigo, para quem já importava daqui.
 export { separarNotaDoPedido as separarNotaDoCatalogo } from "./nota-do-pedido";
+
+/* ---- a linha do frete no resumo de valores -------------------------------- */
+
+/**
+ * FRETE GRÁTIS EM DESTAQUE (pedido do dono, 27/10/2026): no resumo do
+ * romaneio a linha "Frete" só saía quando havia valor — e, na casa, frete não
+ * informado É frete grátis. Quem separa e embala precisa ver isso escrito,
+ * porque é a diferença entre cobrar e não cobrar na hora de fechar a caixa.
+ * Então a linha SEMPRE sai: com valor, como as outras; sem valor, "FRETE
+ * GRÁTIS" em negrito e na cor de destaque (`gratis: true` é o que o PDF lê
+ * para trocar fonte e cor). Zero, nulo ou lixo (negativo, NaN) contam como
+ * grátis — é a mesma régua de antes para esconder a linha, só que agora dita.
+ */
+export type LinhaDoFrete = { rotulo: string; valor: string; gratis: boolean };
+
+export function linhaDoFrete(
+  shippingFee: number | null | undefined,
+  formatar: (valor: number) => string
+): LinhaDoFrete {
+  const cobrado = typeof shippingFee === "number" && Number.isFinite(shippingFee) && shippingFee > 0;
+  return cobrado
+    ? { rotulo: "Frete", valor: formatar(shippingFee), gratis: false }
+    : { rotulo: "Frete", valor: "GRÁTIS", gratis: true };
+}

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { ordenarParaSeparacao, pesoTamanho, totalPorCategoria } from "../romaneio";
+import { linhaDoFrete, ordenarParaSeparacao, pesoTamanho, totalPorCategoria } from "../romaneio";
 
 /**
  * ORDEM DE SEPARAÇÃO DO ROMANEIO (12/08/2026): categoria → produto → cor →
@@ -152,5 +152,23 @@ describe("a nota do catálogo se separa: dados da cliente × recado de verdade (
       observacao: "todas entregues, exceto a regata",
     });
     expect(separarNotaDoCatalogo(null)).toEqual({ dados: [], avisos: [], observacao: "" });
+  });
+});
+
+describe("a linha do frete no resumo: sem valor é FRETE GRÁTIS em destaque (27/10/2026)", () => {
+  const money = (v: number) => `R$ ${v.toFixed(2).replace(".", ",")}`;
+
+  it("frete informado sai como as outras linhas, com o valor", () => {
+    expect(linhaDoFrete(25, money)).toEqual({ rotulo: "Frete", valor: "R$ 25,00", gratis: false });
+  });
+
+  it("frete zero, nulo ou lixo é GRÁTIS, marcado para o PDF destacar", () => {
+    for (const fee of [0, null, undefined, -3, Number.NaN]) {
+      expect(linhaDoFrete(fee, money)).toEqual({ rotulo: "Frete", valor: "GRÁTIS", gratis: true });
+    }
+  });
+
+  it("centavo cobrado já não é grátis", () => {
+    expect(linhaDoFrete(0.01, money).gratis).toBe(false);
   });
 });
