@@ -39,9 +39,19 @@ export type ClienteDaLista = ClienteRfm & ContatoDoRfm;
 /**
  * Por cliente: compras e valor da vida, a última compra e os últimos 12
  * meses — agregado no banco —, com o contato e a dona na MESMA consulta (a
- * lista não faz segunda ida e não perde linha entre uma e outra).
+ * lista não faz segunda ida e não perde linha entre uma e outra). Tudo
+ * medido em `agora`: com o relógio no passado, é o RFM daquele instante.
  */
-export async function carregarBaseDoRfm(companyId: string, agora = new Date()): Promise<(BaseDoRfm & ContatoDoRfm)[]> {
+export async function carregarBaseDoRfm(
+  companyId: string,
+  agora = new Date(),
+  /**
+   * O RFM de um instante do PASSADO (RN-101): só o pago antes dele. Fica
+   * desligado para o RFM de agora — o pagamento com o relógio do aparelho
+   * uns minutos à frente sumiria da aba e das campanhas (achado da revisão).
+   */
+  { soPagoAntes = false }: { soPagoAntes?: boolean } = {}
+): Promise<(BaseDoRfm & ContatoDoRfm)[]> {
   const desde = new Date(agora.getTime() - DIAS_DA_JANELA * DIA_MS);
   const linhas = await db.$queryRaw<
     {
@@ -78,6 +88,9 @@ export async function carregarBaseDoRfm(companyId: string, agora = new Date()): 
     LEFT JOIN "User" u ON u."id" = c."ownerId" AND u."companyId" = ${companyId} AND u."active"
     WHERE o."companyId" = ${companyId}
       AND o."paidAt" IS NOT NULL
+      -- o RFM de um INSTANTE do passado (RN-101): só o que estava pago até
+      -- ali — é o que deixa recalcular "como estava no dia 1º" sem foto gravada
+      AND (${!soPagoAntes} OR o."paidAt" < ${agora})
       AND o."status" = ANY(${[...PAID_ORDER_STATUSES]}::text[]::"OrderStatus"[])
     GROUP BY o."customerId", c."id", u."id"
   `;
@@ -103,7 +116,11 @@ export type Rfm = {
 
 /** O RFM da loja: o resumo por grupo e a matriz (a lista de clientes fica para a lista do BI). */
 export async function montarRfm(companyId: string, agora = new Date()): Promise<Rfm> {
-  const clientes = calcularRfm(await carregarBaseDoRfm(companyId, agora), agora);
+  return rfmDasClientes(calcularRfm(await carregarBaseDoRfm(companyId, agora), agora));
+}
+
+/** O resumo e a matriz de clientes já calculadas (a aba reaproveita o retrato do mês em curso, sem segunda consulta). */
+export function rfmDasClientes(clientes: ClienteRfm[]): Rfm {
   return { resumo: resumirRfm(clientes), matriz: matrizDoRfm(clientes) };
 }
 

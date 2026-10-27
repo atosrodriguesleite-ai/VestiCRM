@@ -4,15 +4,30 @@ import { brl } from "@/lib/format";
 import { FAIXAS, type Carteira } from "@/lib/bi/carteira";
 import type { Rfm } from "@/lib/bi/rfm";
 import { RfmView } from "./rfm-view";
+import { RetratoView } from "./retrato-view";
+import type { RetratoDoMes } from "@/lib/bi/rfm-movimento-regra";
 
 const pct = (v: number | null) => (v == null ? "—" : `${v}%`);
 
 /**
  * A ABA CLIENTES: o RFM da loja (RN-093) em cima — os oito grupos e a matriz
- * —, e embaixo a carteira pela MESMA régua da aba Recompra (RN-084: faixa,
+ * —, o retrato do mês (quem caiu, subiu e chegou, RN-101), e embaixo a carteira pela MESMA régua da aba Recompra (RN-084: faixa,
  * ritmo, VIP), as VIPs que esfriaram e as melhores clientes do período.
  */
-export function CarteiraView({ dados, rfm, dias }: { dados: Carteira; rfm: Rfm; dias: number }) {
+export function CarteiraView({
+  dados,
+  rfm,
+  retrato,
+  meses,
+  dias,
+}: {
+  dados: Carteira;
+  rfm: Rfm;
+  /** o retrato do mês no RFM (RN-101) e os meses que dá para escolher */
+  retrato: RetratoDoMes;
+  meses: string[];
+  dias: number;
+}) {
   const { resumo, melhoresDoPeriodo } = dados;
   const faixaDe = (id: string | null) => FAIXAS.find((f) => f.id === id);
   const maiorDoPeriodo = Math.max(...melhoresDoPeriodo.map((m) => m.total), 1);
@@ -28,6 +43,7 @@ export function CarteiraView({ dados, rfm, dias }: { dados: Carteira; rfm: Rfm; 
   return (
     <div className="space-y-4">
       <RfmView rfm={rfm} periodo={dados.periodo} />
+      <RetratoView retrato={retrato} meses={meses} periodo={dados.periodo} />
 
       <h2 className="font-semibold pt-2">A carteira</h2>
       <p className="text-xs text-gray-400 -mt-3">

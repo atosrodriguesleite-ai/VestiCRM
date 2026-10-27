@@ -17,7 +17,7 @@ export default async function ListaDoBiPage({ searchParams }: { searchParams: Pr
   const user = await porteiraBiTela();
   const filtro = lerFiltro(await searchParams);
   const voltar = filtro
-    ? `/bi?${[filtro.aba && filtro.aba !== "painel" ? `aba=${filtro.aba}` : "", filtro.de ? `de=${filtro.de}` : "", filtro.ate ? `ate=${filtro.ate}` : ""].filter(Boolean).join("&")}`
+    ? `/bi?${[filtro.aba && filtro.aba !== "painel" ? `aba=${filtro.aba}` : "", filtro.de ? `de=${filtro.de}` : "", filtro.ate ? `ate=${filtro.ate}` : "", filtro.mes ? `mesRfm=${filtro.mes}` : ""].filter(Boolean).join("&")}${filtro.mes ? "#retrato" : ""}`
     : "/bi";
   const lista = filtro ? await montarLista(user, filtro) : null;
   const tom = (t?: string) => (t === "bad" ? "text-rose-600" : t === "warn" ? "text-amber-600" : "text-slate-700");

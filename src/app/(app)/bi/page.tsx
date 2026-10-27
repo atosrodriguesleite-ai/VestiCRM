@@ -6,7 +6,7 @@ import { BarrasVivas, FunilVivo, SerieViva } from "@/components/grafico-vivo";
 import { PeriodChips } from "@/components/period-chips";
 import { db } from "@/lib/db";
 import { originLabel } from "@/lib/format";
-import { dataDoDia, diaSP } from "@/lib/dia";
+import { dataDoDia, diaSP, mesSP } from "@/lib/dia";
 import { porteiraBiTela } from "@/lib/bi/gate";
 import { atualizarFatosDoBiSeDevido, ROTULO_DO_BALDE, ultimosDias } from "@/lib/bi/fatos";
 import { quedasDoRfmSeDevido } from "@/lib/bi/rfm-quedas";
@@ -21,7 +21,9 @@ import { lerAba } from "@/lib/bi/abas";
 import { VendedorasView } from "./vendedoras-view";
 import { CarteiraView } from "./carteira-view";
 import { montarCarteira } from "@/lib/bi/carteira";
-import { montarRfm } from "@/lib/bi/rfm";
+import { montarRfm, rfmDasClientes } from "@/lib/bi/rfm";
+import { lerRetratoDoMes } from "@/lib/bi/rfm-movimento";
+import { lerMesDoRetrato, mesesDoRetrato } from "@/lib/bi/rfm-movimento-regra";
 import { hrefDaLista } from "@/lib/bi/listas";
 import { montarTendencia } from "@/lib/bi/tendencia";
 import { TendenciaCard } from "./tendencia-card";
@@ -43,12 +45,13 @@ export const dynamic = "force-dynamic";
 export default async function BiPage({
   searchParams,
 }: {
-  searchParams: Promise<{ de?: string; ate?: string; aba?: string }>;
+  searchParams: Promise<{ de?: string; ate?: string; aba?: string; mesRfm?: string }>;
 }) {
   const user = await porteiraBiTela();
-  const { de, ate, aba: abaPedida } = await searchParams;
+  const { de, ate, aba: abaPedida, mesRfm } = await searchParams;
   const aba = lerAba(abaPedida);
   const agora = new Date();
+  const mesRfmValido = lerMesDoRetrato(mesRfm, mesSP(agora));
   const hoje = diaSP(agora);
   // dia que existe no calendário (a régua de lib/dia: "2026-02-30" é recusado, não vira 2 de março)
   const ehDia = (d?: string): d is string => !!d && dataDoDia(d) !== null;
@@ -75,7 +78,13 @@ export default async function BiPage({
         subtitle="Leads, resposta no prazo, funil por fatos, vendas e metas — os números do processo comercial, prontos para a reunião."
       />
       <Abas ativa={aba} de={ehDia(de) ? de : undefined} ate={ehDia(ate) ? ate : undefined} />
-      <PeriodChips pathname="/bi" de={de} ate={ate} extra={aba === "painel" ? undefined : { aba }} />
+      <PeriodChips
+        pathname="/bi"
+        de={de}
+        ate={ate}
+        // o mês escolhido no retrato do RFM (RN-101) não se perde ao trocar o período
+        extra={aba === "painel" ? undefined : { aba, ...(aba === "clientes" && mesRfmValido ? { mesRfm: mesRfmValido } : {}) }}
+      />
       {/* EXPORTAR PDF (RN-090): o mesmo período, os mesmos motores — o papel não diz número diferente da tela */}
       <div className="mt-2 flex justify-end">
         <a
@@ -115,12 +124,28 @@ export default async function BiPage({
   }
 
   if (aba === "clientes") {
-    const [dados, rfm] = await Promise.all([montarCarteira(user, periodo), montarRfm(user.companyId)]);
+    // o retrato do mês (RN-101): o mês corrente, ou um dos 12 anteriores escolhido no cartão
+    const mesAtual = mesSP(agora);
+    const mesDoRetrato = mesRfmValido ?? mesAtual;
+    const [dados, lido, rfmDeHoje] = await Promise.all([
+      montarCarteira(user, periodo),
+      lerRetratoDoMes(user.companyId, mesDoRetrato, agora),
+      // no mês em curso o "fim" do retrato JÁ É o RFM de hoje: reaproveitado, sem consulta a mais
+      mesDoRetrato === mesAtual ? null : montarRfm(user.companyId, agora),
+    ]);
+    const rfm = rfmDeHoje ?? rfmDasClientes(lido.depois);
+    const { retrato } = lido;
     return (
       <div className="max-w-6xl mx-auto">
         {cabecalho}
         <div className="mt-4">
-          <CarteiraView dados={dados} rfm={rfm} dias={diasDoPeriodo(dados.periodo).length} />
+          <CarteiraView
+            dados={dados}
+            rfm={rfm}
+            retrato={retrato}
+            meses={mesesDoRetrato(mesAtual, 6, mesDoRetrato)}
+            dias={diasDoPeriodo(dados.periodo).length}
+          />
         </div>
       </div>
     );

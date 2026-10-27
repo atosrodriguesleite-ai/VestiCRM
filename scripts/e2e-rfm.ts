@@ -11,11 +11,14 @@
  *   DATABASE_URL="postgresql://…" npx tsx scripts/e2e-rfm.ts
  */
 import { db } from "@/lib/db";
-import { montarRfm, clientesDoRfm } from "@/lib/bi/rfm";
-import { IDS_DOS_GRUPOS } from "@/lib/bi/rfm-regra";
+import { montarRfm, clientesDoRfm, carregarBaseDoRfm } from "@/lib/bi/rfm";
+import { IDS_DOS_GRUPOS, calcularRfm } from "@/lib/bi/rfm-regra";
 import { montarLista } from "@/lib/bi/listas";
 import { dadosDaAbaRecompra } from "@/lib/recompra";
 import { evaluateSegment } from "@/lib/segments";
+import { lerRetratoDoMes } from "@/lib/bi/rfm-movimento";
+import { inicioDoMes, mesesDoRetrato, NOVA } from "@/lib/bi/rfm-movimento-regra";
+import { mesSP } from "@/lib/dia";
 
 const ok = (t: string) => console.log(`  ✅ ${t}`);
 const falha = (t: string) => {
@@ -208,6 +211,53 @@ async function main() {
   await db.company.update({ where: { id: loja.id }, data: { biEnabled: false } });
   igual((await evaluateSegment(sessao, { rfmGrupo: "NAO_PERDER" })).length, 0, "BI desligado: público VAZIO também para a gerência");
   await db.company.update({ where: { id: loja.id }, data: { biEnabled: true } });
+
+  console.log("\n4d) O retrato do mês (RN-101): recalculado, bate com o RFM do dia 1º e com o de hoje");
+  const mes = mesSP(agora);
+  const inicio = inicioDoMes(mes);
+  const lido = await lerRetratoDoMes(loja.id, mes, agora);
+  // o RFM do dia 1º: a mesma conta, com o relógio no dia 1º e só o pago ANTES dele
+  const noDia1 = calcularRfm(await carregarBaseDoRfm(loja.id, inicio, { soPagoAntes: true }), inicio);
+  const hoje = await clientesDoRfm(loja.id, agora);
+  igual(
+    [...lido.antes].sort(([a], [b]) => (a < b ? -1 : 1)),
+    noDia1.map((c) => [c.id, c.grupo]).sort(([a], [b]) => (a! < b! ? -1 : 1)),
+    "o começo do mês é o RFM calculado com o relógio no dia 1º"
+  );
+  igual(lido.depois.map((c) => c.grupo).sort(), hoje.map((c) => c.grupo).sort(), "e o fim (mês em curso) é o RFM de hoje");
+  conferir(lido.retrato.emCurso, "o mês corrente está em curso");
+  const r = lido.retrato;
+  if (ha(2) > inicio) {
+    const chegaram = await montarLista(sessao, { tipo: "rfm-mov", mes, mov: "chegou" }, agora);
+    conferir(!lido.antes.has(novata.id) && chegaram.linhas.some((l) => l.id === novata.id), "a Nina, primeira compra no mês, está na lista de quem CHEGOU (não estava no dia 1º)");
+    conferir(
+      r.caminhos.some((c) => c.antes === NOVA && c.depois === de(novata.id).grupo && c.clientes >= 1),
+      "e o cartão tem o caminho 🆕 primeira compra → o grupo dela"
+    );
+  }
+  const comecoCamila = noDia1.find((c) => c.id === campea.id);
+  conferir(!!comecoCamila && comecoCamila.ultimaCompra < inicio, "no dia 1º a última compra da Camila é a de antes do dia 1º (o pago depois não entra no passado)");
+  igual(r.contagem.caiu + r.contagem.subiu + r.contagem.chegou + r.contagem.ficou, hoje.length, "toda cliente de hoje tem um movimento");
+  for (const mov of ["caiu", "subiu", "chegou"] as const) {
+    const l = await montarLista(sessao, { tipo: "rfm-mov", mes, mov }, agora);
+    igual(l.total, r.contagem[mov], `lista "${mov}": o mesmo número do cartão`);
+  }
+  for (const cam of r.caminhos.slice(0, 4)) {
+    const l = await montarLista(sessao, { tipo: "rfm-mov", mes, mov: cam.movimento, antes: cam.antes, depois: cam.depois }, agora);
+    igual(l.total, cam.clientes, `caminho ${cam.antes} → ${cam.depois}: a lista tem o número do cartão`);
+  }
+  const passado = mesesDoRetrato(mes)[1];
+  const lidoPassado = await lerRetratoDoMes(loja.id, passado, agora);
+  conferir(!lidoPassado.retrato.emCurso, `o mês passado (${passado}) está fechado`);
+  // a venda paga AGORA (com o relógio do aparelho uns minutos à frente) segue no RFM de hoje — o corte é só do passado
+  const adiantada = await pedido(loja.id, comuns[1].id, 50, new Date(Date.now() + 3 * 60_000));
+  conferir((await clientesDoRfm(loja.id)).find((c) => c.id === comuns[1].id)!.compras === 2, "o pago com o relógio uns minutos à frente conta no RFM de hoje");
+  await db.order.delete({ where: { id: adiantada.id } });
+  igual(
+    lidoPassado.depois.map((c) => c.id).sort(),
+    noDia1.map((c) => c.id).sort(),
+    "o fim do mês passado é o começo deste (as mesmas compradoras)"
+  );
 
   console.log("\n5) Cancelar a venda muda o grupo na hora (é calculado, não gravado)");
   await db.order.updateMany({ where: { customerId: novata.id }, data: { status: "CANCELADO" } });

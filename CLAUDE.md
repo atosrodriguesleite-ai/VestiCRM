@@ -2795,7 +2795,8 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   banco e contra a carteira, as oito listas com o Chamar). **Próximas
   etapas combinadas** (uma de cada vez, com revisão): o grupo no filtro das
   campanhas (gerência — feito, RN-098); tarefa para a vendedora dona da cliente quando ela
-  CAI de grupo (feito, RN-100); o retrato mensal de quem subiu e quem caiu. **Limite dito**:
+  CAI de grupo (feito, RN-100); o retrato mensal de quem subiu e quem caiu
+  (feito, RN-101). **Limite dito**:
   o "Chamar" da gerência numa conversa encerrada a reabre no nome de quem
   abriu (a régua do "Conversar no WhatsApp").
 - **RN-098 · O GRUPO DO RFM NO FILTRO DAS CAMPANHAS: SÓ A GERÊNCIA, E SEM
@@ -2903,6 +2904,50 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   da própria loja, uma cliente pode cair só porque as outras compraram mais
   (o teto segura o barulho); a cliente que esfria sem passar por um grupo de
   alerta (Campeã → Fiel) não gera tarefa — ela aparece no retrato do mês.
+- **RN-101 · O RETRATO DO MÊS NO RFM É RECALCULADO, NUNCA GRAVADO — QUEM
+  CAIU, QUEM SUBIU E QUEM CHEGOU** (`lib/bi/rfm-movimento-regra.ts` pura +
+  `lib/bi/rfm-movimento.ts`, cartão "O mês no RFM" na aba Clientes do BI,
+  lista `tipo=rfm-mov`, 27/10/2026): a Etapa 4 do RFM (RN-093) — o dono quer
+  ver, mês a mês, quem subiu e quem caiu. **A decisão que sustenta tudo**: o
+  RFM de qualquer instante sai dos pedidos pagos ATÉ aquele instante
+  (`carregarBaseDoRfm(companyId, instante, { soPagoAntes: true })` corta
+  `paidAt < instante` — e SÓ quando pedido: no RFM de agora, o pagamento com
+  o relógio do aparelho uns minutos à frente sumiria da aba, das campanhas e
+  das quedas, achado da revisão), então "como estava no dia 1º" é a MESMA conta da aba com o relógio no dia
+  1º à 0h de SP (`inicioDoMes`), e o fim é o dia 1º do mês seguinte — ou
+  AGORA, no mês em curso. Nada é gravado: a loja vê os meses de trás no
+  primeiro dia em que abre a tela (uma foto gravada só teria história de
+  hoje em diante), e a venda cancelada depois sai também do passado — o
+  retrato diz a verdade de hoje sobre aquele mês. **A régua do movimento**
+  (`movimentoDe`) é a ordem da tela (`GRUPOS_RFM`, do melhor ao mais
+  distante), a MESMA das quedas (RN-100): ir para um grupo melhor é SUBIR
+  (a Perdida que volta a comprar sobe), para um pior é CAIR, e quem não
+  tinha compra paga no dia 1º e comprou no mês **CHEGOU**. O cartão mostra os
+  três números (caíram, subiram, primeira compra — cada um abre a lista), os
+  que ficaram e os que **não têm mais compra paga hoje** (venda cancelada ou
+  devolvida a orçamento, ou contato unificado — dizer só "cancelada" mandava
+  procurar um cancelamento que não houve), **os caminhos mais
+  comuns** ("🏆 Campeãs → 🚨 Não posso perder: 3" — as quedas primeiro, pelo
+  tamanho; cada caminho abre a lista) e, por grupo, quantas no dia 1º,
+  quantas agora e o saldo (a conta fecha: fim = começo + entraram −
+  saíram, e o teste prende). Os meses são o corrente e os cinco anteriores
+  (`mesesDoRetrato`; a URL aceita os últimos 12, `lerMesDoRetrato` — o futuro
+  e o texto torto são recusados —, e o escolhido mais velho que os seis
+  ganha o seu botão); trocar o período da aba **não perde o mês escolhido**
+  e voltar da lista cai no cartão (`#retrato`). **A lista** é a do BI
+  (RN-086) com o caminho escrito em cada linha — no mês fechado, as notas e
+  a última compra da linha são as do **fim daquele mês** (ditas assim) e só
+  o "Chamar" fala com a cliente de **HOJE** (mensagem do grupo de hoje; a que
+  não tem mais compra paga não ganha o botão) —, pelo mesmo `linhaDoRfm` da
+  lista dos grupos; o nome da origem é UM (`rotuloDaOrigem`, cartão e lista
+  dizem o mesmo). A cor
+  faz um trabalho (RN-089): o sentido, com a seta e a palavra dizendo o
+  mesmo. **Limites ditos**: como as notas são da própria loja, a cliente pode
+  subir ou cair só porque as outras compraram (o cartão diz); a aba faz duas
+  contas agregadas do RFM no mês em curso (o dia 1º e agora — e o "agora" é
+  reaproveitado para os grupos e a matriz, `rfmDasClientes`), três num mês
+  fechado; a lista de um mês fechado também faz três (o grupo de hoje
+  precisa da loja inteira, as notas são relativas).
 - **Communication Engine** (`lib/comm/`): camada única de envio/recebimento,
   agnóstica de provedor. `EvolutionProvider` = WhatsApp NÃO-oficial via
   Evolution API **self-hosted** (VPS Hostinger srv1853369.hstgr.cloud,
@@ -4480,8 +4525,8 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   (RN-093, 23/10/2026: notas, oito grupos, matriz e o Chamar na aba
   Clientes); Etapa 2 ✅ (RN-098, 27/10/2026: grupo no filtro das campanhas,
   gerência); Etapa 3 ✅ (RN-100, 27/10/2026: tarefa para a dona quando a
-  cliente cai para um grupo de alerta); falta a 4 (retrato mensal de quem
-  subiu e caiu). **Modo TV adiado** pelo dono. Decisões do dono: só gerência
+  cliente cai para um grupo de alerta); Etapa 4 ✅ (RN-101, 27/10/2026: o
+  retrato do mês — quem caiu, subiu e chegou) — **RFM concluído**. **Modo TV adiado** pelo dono. Decisões do dono: só gerência
   vê; origem do lead segue automática (sem marcação manual); metas de
   qualquer tipo, a loja escolhe; prazo dentro do horário comercial.
 - 🟡 **Calendário comercial — preço de tabela a definir pelo dono**

@@ -30,7 +30,7 @@ import { Prisma } from "@prisma/client";
 import { db } from "../db";
 import type { SessionUser } from "../auth";
 import { PAID_ORDER_STATUSES } from "../orders";
-import { dataDoDia, diaSP } from "../dia";
+import { dataDoDia, diaSP, mesSP } from "../dia";
 import { brl, originLabel } from "../format";
 import { r2 } from "../tracking/insights-puro";
 import { lerHorarioComercial, minutosDeAtendimentoEntre } from "./horario-comercial";
@@ -40,9 +40,12 @@ import { encaixarPeriodo, type Periodo } from "./painel";
 import { clientesDoRfm } from "./rfm";
 import { ehGrupoRfm, grupoRfm, mensagemDoGrupo, type GrupoRfm } from "./rfm-regra";
 import { linkDaClienteDoRfm } from "./rfm-link";
+import { lerRetratoDoMes } from "./rfm-movimento";
+import { MOVIMENTOS, NOVA, lerMesDoRetrato, movimentoDe, nomeDoMes, rotuloDaOrigem, type Movimento, type Origem } from "./rfm-movimento-regra";
+import type { ClienteDaLista } from "./rfm";
 import { ABAS_DO_BI, type AbaDoBi } from "./abas";
 
-export const TIPOS_DE_LISTA = ["esperando-agora", "sem-resposta", "contatos", "vendas", "rfm"] as const;
+export const TIPOS_DE_LISTA = ["esperando-agora", "sem-resposta", "contatos", "vendas", "rfm", "rfm-mov"] as const;
 export type TipoDeLista = (typeof TIPOS_DE_LISTA)[number];
 
 export type FiltroDaLista = {
@@ -55,6 +58,11 @@ export type FiltroDaLista = {
   grupo?: GrupoRfm;
   r?: number;
   fv?: number;
+  /** RETRATO DO MÊS (RN-101): o mês, o movimento e o caminho (de que grupo para qual) */
+  mes?: string;
+  mov?: Movimento;
+  antes?: Origem;
+  depois?: GrupoRfm;
   /** a aba de onde a pessoa veio (o "voltar") */
   aba?: AbaDoBi;
 };
@@ -102,6 +110,25 @@ export function lerFiltro(bruto: Record<string, string | string[] | undefined>):
   }
   // a célula só vale inteira: nota de recência sem a outra (ou vice-versa) é endereço torto
   if ((f.r == null) !== (f.fv == null)) return null;
+  if (p.mes) {
+    const mes = lerMesDoRetrato(p.mes, mesSP());
+    if (!mes) return null;
+    f.mes = mes;
+  }
+  if (p.mov) {
+    if (!(MOVIMENTOS as readonly string[]).includes(p.mov)) return null;
+    f.mov = p.mov as Movimento;
+  }
+  if (p.antes) {
+    if (p.antes !== NOVA && !ehGrupoRfm(p.antes)) return null;
+    f.antes = p.antes as Origem;
+  }
+  if (p.depois) {
+    if (!ehGrupoRfm(p.depois)) return null;
+    f.depois = p.depois;
+  }
+  // o retrato do mês precisa do mês
+  if (f.tipo === "rfm-mov" && !f.mes) return null;
   if (p.aba && ABAS_DO_BI.includes(p.aba as AbaDoBi)) f.aba = p.aba as AbaDoBi;
   return f;
 }
@@ -346,6 +373,60 @@ export async function montarLista(user: SessionUser, f: FiltroDaLista, agora = n
     };
   }
 
+  // RETRATO DO MÊS (RN-101): quem caiu, subiu ou chegou no mês, pela MESMA
+  // conta do cartão (o RFM do dia 1º × o do fim do mês, ou de agora)
+  if (f.tipo === "rfm-mov") {
+    const mesAtual = mesSP(agora);
+    const [lido, company, hoje] = await Promise.all([
+      lerRetratoDoMes(companyId, f.mes!, agora),
+      db.company.findUnique({ where: { id: companyId }, select: { slug: true } }),
+      // o "Chamar" fala com a cliente de HOJE: no mês que já fechou, o grupo dela pode ser outro
+      f.mes === mesAtual ? null : clientesDoRfm(companyId, agora),
+    ]);
+    const deHoje = new Map((hoje ?? lido.depois).map((c) => [c.id, c]));
+    const escolhidas = lido.depois
+      .map((c) => {
+        const de: Origem = lido.antes.get(c.id) ?? NOVA;
+        return { c, de, mov: movimentoDe(de, c.grupo) };
+      })
+      .filter((x) => (f.mov ? x.mov === f.mov : x.mov !== "ficou") && (!f.antes || x.de === f.antes) && (!f.depois || x.c.grupo === f.depois))
+      .sort((a, b) => b.c.ltv - a.c.ltv || a.c.diasDesde - b.c.diasDesde);
+    const { linhas: corte, total, cortou } = cortar(escolhidas);
+    const doMes = nomeDoMes(f.mes!);
+    const titulo =
+      f.antes && f.depois
+        ? `${rotuloDaOrigem(f.antes)} → ${rotuloDaOrigem(f.depois)}`
+        : f.mov === "caiu"
+          ? "📉 Caíram de grupo"
+          : f.mov === "subiu"
+            ? "📈 Subiram de grupo"
+            : f.mov === "chegou"
+              ? "🆕 Primeira compra"
+              : f.mov === "ficou"
+                ? "Ficaram no mesmo grupo"
+                : "Mudaram de grupo";
+    const emCurso = lido.retrato.emCurso;
+    return {
+      titulo: `${titulo} · ${doMes}`,
+      descricao: `Do RFM do dia 1º ao ${emCurso ? "de hoje" : "do fim do mês"}, pela mesma conta da aba Clientes (notas da própria loja; subir é ir para um grupo melhor). Da que mais comprou na vida para a que menos.${emCurso ? "" : " As notas e a última compra de cada linha são as do FIM do mês."} "Chamar" usa a mensagem do grupo em que ela está HOJE.`,
+      linhas: corte.map(({ c, de }) => {
+        const atual = deHoje.get(c.id);
+        // a linha mostra o retrato (o fim do mês); só o "Chamar" fala com a
+        // cliente de HOJE — misturar os dois na mesma linha diria "caiu para
+        // Não posso perder" ao lado de "última compra há 3 dias" (achado da revisão)
+        return linhaDoRfm(c, company?.slug ?? "", {
+          titulo: c.nome,
+          caminho: `${rotuloDaOrigem(de)} → ${rotuloDaOrigem(c.grupo)}${emCurso ? "" : " · no fim do mês:"}`,
+          // venda cancelada depois: ela nem está mais no RFM de hoje — sem botão
+          chamarCom: atual ?? null,
+        });
+      }),
+      total,
+      cortou,
+      periodo: null,
+    };
+  }
+
   // RFM: um grupo, ou uma célula da matriz, pela MESMA conta da aba Clientes (RN-093)
   if (!f.grupo && f.r == null) return vazia("RFM", "Escolha um grupo ou uma célula da matriz.");
   const [todas, company] = await Promise.all([
@@ -361,30 +442,44 @@ export async function montarLista(user: SessionUser, f: FiltroDaLista, agora = n
   return {
     titulo: g ? `${g.emoji} ${g.rotulo}` : `RFM · recência ${f.r} × frequência e valor ${f.fv}`,
     descricao: `${g ? `${g.quem}. Ação sugerida: ${g.acao}. ` : ""}Da que mais comprou na vida para a que menos (o valor à direita é esse total, o LTV dela). Notas de 1 a 5 comparando com as clientes da própria loja; frequência e valor dos últimos 12 meses. "Chamar" abre a conversa com a mensagem do grupo já no campo — você revisa e manda; o link vai com o código da cliente e, se ela tem dona na carteira, com o da vendedora (a venda é dela).`,
-    linhas: corte.map((c) => {
-      const notas = c.r == null ? "sem compra nos 12 meses" : `R${c.r} · F${c.f} · V${c.v}`;
-      // o link pessoal da cliente (`?c=`, RN-021) e, se ela tem dona ativa na
-      // carteira, o da dona (`?ref=`): a gerência chamando a cliente da Ana
-      // não toma a venda nem a carteira dela (RN-005). Sem dona, sem ref — a
-      // venda é da loja, e a carteira não muda para quem clicou.
-      const link = linkDaClienteDoRfm(company?.slug ?? "", c.dona, c.codigo);
-      // cliente bloqueada ou sem celular não ganha o botão (a mensagem não sairia)
-      const semTelefone = c.telefone.replace(/\D/g, "").length < 10;
-      const aviso = c.bloqueada ? " · bloqueada" : semTelefone ? " · sem telefone" : "";
-      return {
-        id: c.id,
-        titulo: g ? c.nome : `${c.nome} · ${grupoRfm(c.grupo).emoji} ${grupoRfm(c.grupo).rotulo}`,
-        subtitulo: `${notas} · última compra há ${c.diasDesde} dias · ${c.compras12} compra${c.compras12 === 1 ? "" : "s"} e ${brl(c.valor12)} em 12 meses${c.dona ? ` · carteira de ${c.dona.nome}` : ""}${aviso}`,
-        // o LTV: o valor vendido na vida (netTotal somado, sem frete)
-        destaque: brl(c.ltv),
-        href: `/clientes/${c.id}`,
-        tom: c.grupo === "NAO_PERDER" ? "warn" : "neutro",
-        ...(c.bloqueada || semTelefone ? {} : { chamar: { customerId: c.id, mensagem: mensagemDoGrupo(c.grupo, c.nome, link) } }),
-      };
-    }),
+    linhas: corte.map((c) => linhaDoRfm(c, company?.slug ?? "", { titulo: g ? c.nome : `${c.nome} · ${grupoRfm(c.grupo).emoji} ${grupoRfm(c.grupo).rotulo}` })),
     total,
     cortou,
     periodo: null,
+  };
+}
+
+/**
+ * Uma linha do RFM com o "Chamar" (RN-093): a mensagem do grupo da cliente e
+ * o link com o código pessoal dela (`?c=`, RN-021) e, se ela tem dona ativa
+ * na carteira, a ref da dona (RN-005) — a gerência chamando a cliente da Ana
+ * não toma a venda nem a carteira dela. Sem dona, sem ref. Cliente bloqueada
+ * ou sem celular não ganha o botão (a mensagem não sairia).
+ */
+function linhaDoRfm(
+  c: ClienteDaLista,
+  slug: string,
+  o: {
+    titulo: string;
+    caminho?: string;
+    /** a cliente de HOJE para o "Chamar", quando a linha mostra outro instante (null = sem botão) */
+    chamarCom?: ClienteDaLista | null;
+  }
+): LinhaDaLista {
+  const notas = c.r == null ? "sem compra nos 12 meses" : `R${c.r} · F${c.f} · V${c.v}`;
+  const hoje = o.chamarCom === undefined ? c : o.chamarCom;
+  const link = hoje ? linkDaClienteDoRfm(slug, hoje.dona, hoje.codigo) : "";
+  const semTelefone = c.telefone.replace(/\D/g, "").length < 10;
+  const aviso = c.bloqueada ? " · bloqueada" : semTelefone ? " · sem telefone" : "";
+  return {
+    id: c.id,
+    titulo: o.titulo,
+    subtitulo: `${o.caminho ? `${o.caminho}${o.caminho.endsWith(":") ? " " : " · "}` : ""}${notas} · última compra há ${c.diasDesde} dias · ${c.compras12} compra${c.compras12 === 1 ? "" : "s"} e ${brl(c.valor12)} em 12 meses${c.dona ? ` · carteira de ${c.dona.nome}` : ""}${aviso}`,
+    // o LTV: o valor vendido na vida (netTotal somado, sem frete)
+    destaque: brl(c.ltv),
+    href: `/clientes/${c.id}`,
+    tom: c.grupo === "NAO_PERDER" ? "warn" : "neutro",
+    ...(!hoje || c.bloqueada || semTelefone ? {} : { chamar: { customerId: c.id, mensagem: mensagemDoGrupo(hoje.grupo, c.nome, link) } }),
   };
 }
 
