@@ -214,21 +214,21 @@ describe("as portas conferem a permissão (o servidor é a tranca, a tela só es
 
   it("disparar: ler o público e marcar enviado são da gerência; nada é marcado pela vendedora", async () => {
     banco.user = vendedora;
-    expect((await rotaPublico.GET(req({}), params)).status).toBe(403);
-    expect((await rotaPublico.POST(req({ customerId: "ana" }), params)).status).toBe(403);
+    expect((await rotaPublico.GET(req({}), params))!.status).toBe(403);
+    expect((await rotaPublico.POST(req({ customerId: "ana" }), params))!.status).toBe(403);
     expect(banco.enviados).toBe(0);
     banco.user = gerente;
-    const r = await rotaPublico.GET(req({}), params);
+    const r = (await rotaPublico.GET(req({}), params))!;
     expect((await r.json()).customers.map((c: { id: string }) => c.id).sort()).toEqual(["ana", "cris"]);
-    expect((await rotaPublico.POST(req({ customerId: "ana" }), params)).status).toBe(200);
+    expect((await rotaPublico.POST(req({ customerId: "ana" }), params))!.status).toBe(200);
     expect(banco.enviados).toBe(1);
   });
 
   it("filtro salvo que não se lê é RECUSADO — nunca vira 'todas as clientes'", async () => {
     banco.user = gerente;
     banco.campanha!.filterJson = '{"rfmGrupo":"NAO_PER';
-    expect((await rotaPublico.GET(req({}), params)).status).toBe(422);
-    expect((await rotaPublico.POST(req({ customerId: "ana" }), params)).status).toBe(422);
+    expect((await rotaPublico.GET(req({}), params))!.status).toBe(422);
+    expect((await rotaPublico.POST(req({ customerId: "ana" }), params))!.status).toBe(422);
     expect(banco.enviados).toBe(0);
     expect(chamadas).not.toContain("customer.findMany");
     expect(lerFiltroDaCampanha("null")).toBeNull();

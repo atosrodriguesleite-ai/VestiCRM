@@ -2795,7 +2795,7 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   banco e contra a carteira, as oito listas com o Chamar). **Próximas
   etapas combinadas** (uma de cada vez, com revisão): o grupo no filtro das
   campanhas (gerência — feito, RN-098); tarefa para a vendedora dona da cliente quando ela
-  CAI de grupo; o retrato mensal de quem subiu e quem caiu. **Limite dito**:
+  CAI de grupo (feito, RN-100); o retrato mensal de quem subiu e quem caiu. **Limite dito**:
   o "Chamar" da gerência numa conversa encerrada a reabre no nome de quem
   abriu (a régua do "Conversar no WhatsApp").
 - **RN-098 · O GRUPO DO RFM NO FILTRO DAS CAMPANHAS: SÓ A GERÊNCIA, E SEM
@@ -2848,6 +2848,61 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   mensagem é o do catálogo da loja, sem a ref da dona nem o código da
   cliente (para isso, o "Chamar" da lista do BI, RN-093); e a vendedora
   continua criando campanha sem o grupo, como sempre.
+- **RN-100 · QUANDO A CLIENTE CAI PARA UM GRUPO DE ALERTA DO RFM, A DONA DA
+  CARTEIRA RECEBE UMA TAREFA** (`lib/bi/rfm-quedas-regra.ts` pura +
+  `lib/bi/rfm-quedas.ts` + `RfmEstado`, 27/10/2026): a Etapa 3 do RFM
+  (RN-093), decidida com o dono — *"tarefa para a vendedora; só a gerência
+  vê o RFM, a vendedora recebe a tarefa"*. Como o RFM é calculado e as notas
+  são relativas à loja (mexem todo dia), saber que alguém CAIU exige
+  memória: `RfmEstado` guarda, por cliente, o grupo da **última rodada** (não
+  é o grupo dela — é a lembrança; a tela segue calculando). **A régua da
+  queda** (`caiuParaAlerta`): a ordem é a da tela (`GRUPOS_RFM`, do melhor ao
+  mais distante — uma ordem só) e só vira tarefa a queda que **ENTRA num
+  grupo de alerta** — Precisam de atenção, Não posso perder, Hibernando,
+  Perdidas; Campeã que vira Fiel continua comprando, é movimento, não
+  alarme. **Só cliente com dona ATIVA** ganha tarefa; a queda da cliente da
+  loja (sem dona) **ESPERA** — a memória não anda — e a tarefa nasce na
+  rodada em que a gerência a der a uma vendedora (gravar a memória ali
+  calaria a queda para sempre, achado da revisão). A tarefa é da dona
+  (`assigneeId`), **vence às 23:59 de hoje em SP** (`vencimentoDaQueda` —
+  na meia-noite exata ela caía em "Próximas" e não fechava sozinha no mesmo
+  dia, achado da revisão), "Não posso perder" é prioridade ALTA, e o tipo é sempre de CONTATO
+  (FOLLOW_UP/REATIVAR) — então **falar com a cliente ou ela comprar de novo
+  fecha a tarefa sozinha** pelos caminhos de sempre (`contato-feito`,
+  `fecharTarefasResolvidas`). **Uma tarefa de queda aberta por cliente**: cair
+  de novo antes de alguém chamá-la ATUALIZA a mesma (`rfm-queda:<grupo>:<id>`),
+  nunca empilha — e a atualização **não conta no teto, não toca a data** (a
+  vendedora pode ter adiado para o dia que a cliente pediu) e não gera aviso.
+  **Sem enxurrada**: a primeira vez que a cliente aparece é o ponto de
+  partida (ligar o BI numa loja de 800 clientes não cria 800 tarefas), e o
+  mesmo vale para a **memória com mais de 7 dias sem rodada fechada**
+  (`Company.rfmQuedasOkEm` — o BI desligado e religado não vira meses de
+  quedas "de hoje", achado da revisão); há **teto de `TETO_POR_DONA` (10)
+  tarefas NOVAS por vendedora por rodada** — as que passaram do teto ficam
+  **seguradas** com a memória antiga, marcadas com `seguradaDesde`, e **vão
+  na frente** na rodada seguinte (quem espera há mais tempo primeiro, depois
+  o maior LTV — só por LTV, a cliente de pouco valor perdia a vez para
+  sempre, achado da revisão). Memória e tarefas nascem
+  na **MESMA transação** (tarefa sem memória repetiria amanhã; memória sem
+  tarefa calaria a queda para sempre, a lição da RN-092), só para cliente
+  que ainda existe na loja (RN-013), e quem saiu do RFM (venda cancelada)
+  tem a memória apagada. **Roda de carona** (sync da inbox e abertura do BI,
+  `quedasDoRfmSeDevido`): trava atômica por loja, **uma rodada por DIA de
+  São Paulo** (`ondeDaTrava`, `Company.rfmQuedasRunAt` — um intervalo em
+  horas escorregava e punha duas rodadas no mesmo dia, dobrando o teto,
+  achado da revisão), **só com a chave do BI** — nunca um 3º cron
+  (ADR-002); rodada que falha mantém a trava e vai para a Saúde sem alarme
+  (a régua da RN-082) — nada se perde, porque a memória só anda quando a
+  transação fecha. Depois do commit, **um aviso por vendedora** no celular
+  ("📉 N clientes suas esfriaram"), contando só as tarefas NOVAS de fato
+  gravadas. **Na Agenda**, o "Conversar" da tarefa de queda abre com a
+  **mensagem do grupo** e o link com o código da cliente e a ref da dona
+  (`linkDaClienteDoRfm`, o mesmo caminho do "Chamar" do BI — e a dona vale
+  só se ativa E da loja, a régua da consulta do RFM), nunca a genérica de
+  conversa parada. **Limites ditos**: como as notas são
+  da própria loja, uma cliente pode cair só porque as outras compraram mais
+  (o teto segura o barulho); a cliente que esfria sem passar por um grupo de
+  alerta (Campeã → Fiel) não gera tarefa — ela aparece no retrato do mês.
 - **Communication Engine** (`lib/comm/`): camada única de envio/recebimento,
   agnóstica de provedor. `EvolutionProvider` = WhatsApp NÃO-oficial via
   Evolution API **self-hosted** (VPS Hostinger srv1853369.hstgr.cloud,
@@ -4424,8 +4479,9 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   WhatsApp do dono. **RFM (pedido do dono, 22/10/2026)**: Etapa 1 ✅
   (RN-093, 23/10/2026: notas, oito grupos, matriz e o Chamar na aba
   Clientes); Etapa 2 ✅ (RN-098, 27/10/2026: grupo no filtro das campanhas,
-  gerência); faltam a 3 (tarefa para a vendedora quando a cliente cai de
-  grupo) e a 4 (retrato mensal de quem subiu e caiu). **Modo TV adiado** pelo dono. Decisões do dono: só gerência
+  gerência); Etapa 3 ✅ (RN-100, 27/10/2026: tarefa para a dona quando a
+  cliente cai para um grupo de alerta); falta a 4 (retrato mensal de quem
+  subiu e caiu). **Modo TV adiado** pelo dono. Decisões do dono: só gerência
   vê; origem do lead segue automática (sem marcação manual); metas de
   qualquer tipo, a loja escolhe; prazo dentro do horário comercial.
 - 🟡 **Calendário comercial — preço de tabela a definir pelo dono**

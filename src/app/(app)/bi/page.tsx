@@ -9,6 +9,8 @@ import { originLabel } from "@/lib/format";
 import { dataDoDia, diaSP } from "@/lib/dia";
 import { porteiraBiTela } from "@/lib/bi/gate";
 import { atualizarFatosDoBiSeDevido, ROTULO_DO_BALDE, ultimosDias } from "@/lib/bi/fatos";
+import { quedasDoRfmSeDevido } from "@/lib/bi/rfm-quedas";
+import { after } from "next/server";
 import { diasDoPeriodo, montarPainel, montarVendedoras, variacao } from "@/lib/bi/painel";
 import { MetasCard } from "./metas-card";
 import { Abas } from "./abas";
@@ -59,6 +61,8 @@ export default async function BiPage({
   // os dias VIVOS antes de ler (trava de 30 min: barata quando já rodou);
   // o histórico entra de carona no sync da inbox, nunca segurando a tela
   await atualizarFatosDoBiSeDevido(user.companyId, { soVivos: true });
+  // as quedas do RFM (RN-100): depois da resposta, a tela não espera por elas
+  after(() => quedasDoRfmSeDevido(user.companyId));
   const company = await db.company.findUnique({
     where: { id: user.companyId },
     select: { intakeSlaMinutes: true, horarioComercial: true },

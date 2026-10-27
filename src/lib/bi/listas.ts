@@ -32,7 +32,6 @@ import type { SessionUser } from "../auth";
 import { PAID_ORDER_STATUSES } from "../orders";
 import { dataDoDia, diaSP } from "../dia";
 import { brl, originLabel } from "../format";
-import { catalogUrl, trackedCatalogLink, trackedLinkParts } from "../catalog-url";
 import { r2 } from "../tracking/insights-puro";
 import { lerHorarioComercial, minutosDeAtendimentoEntre } from "./horario-comercial";
 import { parearEsperas, type MensagemLeve } from "./tempo-de-resposta";
@@ -40,6 +39,7 @@ import { DIAS_DE_LEITURA_ANTES, inicioDoDiaSP } from "./fatos";
 import { encaixarPeriodo, type Periodo } from "./painel";
 import { clientesDoRfm } from "./rfm";
 import { ehGrupoRfm, grupoRfm, mensagemDoGrupo, type GrupoRfm } from "./rfm-regra";
+import { linkDaClienteDoRfm } from "./rfm-link";
 import { ABAS_DO_BI, type AbaDoBi } from "./abas";
 
 export const TIPOS_DE_LISTA = ["esperando-agora", "sem-resposta", "contatos", "vendas", "rfm"] as const;
@@ -357,7 +357,6 @@ export async function montarLista(user: SessionUser, f: FiltroDaLista, agora = n
     // quem chamar primeiro: quem mais vale na vida (o LTV)
     .sort((a, b) => b.ltv - a.ltv || a.diasDesde - b.diasDesde);
   const { linhas: corte, total, cortou } = cortar(escolhidas);
-  const base = catalogUrl(company?.slug ?? "");
   const g = f.grupo ? grupoRfm(f.grupo) : null;
   return {
     titulo: g ? `${g.emoji} ${g.rotulo}` : `RFM · recência ${f.r} × frequência e valor ${f.fv}`,
@@ -368,8 +367,7 @@ export async function montarLista(user: SessionUser, f: FiltroDaLista, agora = n
       // carteira, o da dona (`?ref=`): a gerência chamando a cliente da Ana
       // não toma a venda nem a carteira dela (RN-005). Sem dona, sem ref — a
       // venda é da loja, e a carteira não muda para quem clicou.
-      const ref = c.dona ? trackedLinkParts({ name: c.dona.nome, role: c.dona.role }, company?.slug ?? "").sellerRef : null;
-      const link = trackedCatalogLink(base, ref, c.codigo);
+      const link = linkDaClienteDoRfm(company?.slug ?? "", c.dona, c.codigo);
       // cliente bloqueada ou sem celular não ganha o botão (a mensagem não sairia)
       const semTelefone = c.telefone.replace(/\D/g, "").length < 10;
       const aviso = c.bloqueada ? " · bloqueada" : semTelefone ? " · sem telefone" : "";

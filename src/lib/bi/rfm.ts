@@ -31,7 +31,7 @@ export type ContatoDoRfm = {
   /** o código curto do link pessoal (`?c=`), ou o id */
   codigo: string;
   /** a dona da carteira, se ativa (a venda pelo link da mensagem é dela, RN-005) */
-  dona: { nome: string; role: string } | null;
+  dona: { id: string; nome: string; role: string } | null;
 };
 
 export type ClienteDaLista = ClienteRfm & ContatoDoRfm;
@@ -55,6 +55,7 @@ export async function carregarBaseDoRfm(companyId: string, agora = new Date()): 
       telefone: string | null;
       bloqueada: Date | null;
       codigo: string | null;
+      donaId: string | null;
       donaNome: string | null;
       donaRole: string | null;
     }[]
@@ -64,6 +65,7 @@ export async function carregarBaseDoRfm(companyId: string, agora = new Date()): 
            c."phone" AS telefone,
            c."blockedAt" AS bloqueada,
            c."linkCode" AS codigo,
+           u."id" AS "donaId",
            u."name" AS "donaNome",
            u."role"::text AS "donaRole",
            COUNT(*)::int AS compras,
@@ -90,7 +92,7 @@ export async function carregarBaseDoRfm(companyId: string, agora = new Date()): 
     telefone: l.telefone ?? "",
     bloqueada: !!l.bloqueada,
     codigo: l.codigo ?? l.id,
-    dona: l.donaNome && l.donaRole ? { nome: l.donaNome, role: l.donaRole } : null,
+    dona: l.donaId && l.donaNome && l.donaRole ? { id: l.donaId, nome: l.donaNome, role: l.donaRole } : null,
   }));
 }
 

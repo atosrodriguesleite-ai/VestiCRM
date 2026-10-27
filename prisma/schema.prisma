@@ -75,6 +75,11 @@ model Company {
   biEnabled         Boolean  @default(false)
   // trava da rodada de fatos do BI (carona no tráfego, nunca cron — ADR-002)
   biFatosRunAt      DateTime?
+  /// trava da rodada das QUEDAS do RFM (RN-100): uma por dia de SP, de carona
+  rfmQuedasRunAt    DateTime?
+  /// quando a última rodada das quedas FECHOU — memória mais velha que uma
+  /// semana (o BI desligado e religado) vira ponto de partida, nunca tarefa
+  rfmQuedasOkEm     DateTime?
   /// FUNIL EDITÁVEL (RN-091, 21/10/2026): com a chave, a gerência da loja
   /// cria, renomeia, reordena e apaga etapas do funil e escolhe para qual
   /// etapa o sistema move o cartão sozinho. Super admin liga por loja, sem
@@ -177,6 +182,7 @@ model Company {
   biDias         BiDia[]
   biDiasVendedora BiDiaVendedora[]
   biMetas        BiMeta[]
+  rfmEstados     RfmEstado[] // RN-100
   calendarioEventos CalendarioEvento[] // RN-092
   biGastosDeAnuncio BiGastoDeAnuncio[]
   customers      Customer[]
@@ -743,6 +749,7 @@ model Customer {
   opportunities Opportunity[]
   conversations Conversation[]
   tasks         Task[]
+  rfmEstado     RfmEstado? // a memória do grupo do RFM (RN-100)
   sales         Sale[]
   orders        Order[]
   events        CustomerEvent[]
@@ -3837,6 +3844,29 @@ model BiMeta {
   updatedAt DateTime @default(now()) @updatedAt
 
   @@unique([companyId, mes, tipo])
+}
+
+/// O GRUPO DO RFM QUE A CLIENTE TINHA NA ÚLTIMA RODADA (RN-100). O RFM é
+/// calculado, nunca gravado (RN-093) — esta linha NÃO é o grupo dela, é a
+/// MEMÓRIA da rodada anterior: sem ela não há como saber que a cliente CAIU
+/// (as notas são relativas à loja e mudam todo dia). `desde` é quando ela
+/// entrou neste grupo. A cliente que a rodada segurou pelo teto de tarefas
+/// fica com o grupo antigo até a vez dela.
+model RfmEstado {
+  id           String   @id @default(cuid())
+  companyId    String
+  company      Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  customerId   String   @unique
+  customer     Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  /// um dos oito grupos de lib/bi/rfm-regra.ts
+  grupo        String
+  desde        DateTime @default(now())
+  /// a queda que espera a vez (teto da vendedora, ou cliente sem dona): na
+  /// rodada seguinte ela vai na frente — a fila anda
+  seguradaDesde DateTime?
+  atualizadoEm DateTime @default(now()) @updatedAt
+
+  @@index([companyId])
 }
 
 /// CALENDÁRIO COMERCIAL (RN-092). Três tipos de data: COMERCIAL (as
