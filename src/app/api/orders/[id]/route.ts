@@ -1246,7 +1246,11 @@ export async function PATCH(
               await tx.shipping.updateMany({
                 where: { orderId: order.id },
                 // a previsão de entrega vai junto (RN-102): sem postagem não
-                // há o que vencer, e a linha órfã contaria como atrasada
+                // há o que vencer, e a linha órfã contaria como atrasada. O
+                // carimbo do aviso de atraso FICA (RN-103): a etiqueta é a
+                // mesma viagem — o rastreio vai recarimbar a postagem com a
+                // data ORIGINAL da transportadora, e zerar aqui mandava o
+                // mesmo aviso de novo (achado da revisão); só etiqueta nova zera
                 data: { shippedAt: null, deliveredAt: null, previstoAte: null },
               });
             }

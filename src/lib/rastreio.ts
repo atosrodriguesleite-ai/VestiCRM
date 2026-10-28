@@ -2,7 +2,7 @@ import { randomBytes } from "node:crypto";
 import { db } from "./db";
 import { meTracking } from "./melhorenvio";
 import { orderNumber, PAID_ORDER_STATUSES } from "./orders";
-import { carimboDaPostagem } from "./envios/painel";
+import { atrasoDoEnvio, avisoDeAtraso, carimboDaPostagem, ondeAtrasado } from "./envios/painel";
 import { sendToUser } from "./push";
 import { platformUrl } from "./site";
 
@@ -262,6 +262,32 @@ const MARCA_AUTO: Record<"ENVIADO" | "ENTREGUE", string> = {
  * outras e, ao tocar, caía numa página "não encontrada" (o `orderScope` já
  * barra pedido de colega) — e nada ficava no sino.
  */
+/** a gerência ATIVA da loja (admin e gerente) — quem recebe o aviso sem dona */
+async function gerenciaDaLoja(companyId: string): Promise<string[]> {
+  return (
+    await db.user.findMany({
+      where: { companyId, role: { in: ["ADMIN", "MANAGER"] }, active: true },
+      select: { id: true },
+    })
+  ).map((u) => u.id);
+}
+
+/**
+ * Quem recebe o aviso de um pedido: a vendedora dona, se ainda estiver ATIVA
+ * (a desativada tem um sino que ninguém lê — o aviso ia para lá e se perdia,
+ * achado da revisão); senão, ou com `soGerencia`, a gerência da loja.
+ */
+async function destinosDoAviso(companyId: string, pedido: PedidoDoRastreio, soGerencia: boolean): Promise<string[]> {
+  if (!soGerencia && pedido.sellerId) {
+    const dona = await db.user.findFirst({
+      where: { id: pedido.sellerId, companyId, active: true },
+      select: { id: true },
+    });
+    if (dona) return [dona.id];
+  }
+  return gerenciaDaLoja(companyId);
+}
+
 async function avisarPedido(
   companyId: string,
   pedido: PedidoDoRastreio,
@@ -270,15 +296,7 @@ async function avisarPedido(
   await db.orderEvent
     .create({ data: { orderId: pedido.id, type: "ENVIO", description: aviso.evento } })
     .catch(() => {});
-  const gerencia = async () =>
-    (
-      await db.user.findMany({
-        where: { companyId, role: { in: ["ADMIN", "MANAGER"] }, active: true },
-        select: { id: true },
-      })
-    ).map((u) => u.id);
-  const destinos =
-    aviso.soGerencia || !pedido.sellerId ? await gerencia() : [pedido.sellerId];
+  const destinos = await destinosDoAviso(companyId, pedido, aviso.soGerencia);
   if (destinos.length === 0) return;
   await db.notification
     .createMany({
@@ -511,7 +529,138 @@ export async function atualizarRastreiosSeDevido(): Promise<void> {
         })
       );
     }
+
+    // DEPOIS dos status frescos, o aviso de quem atrasou (RN-103) — na mesma
+    // rodada e sob a mesma trava: nunca um 3º cron (ADR-002)
+    await avisarAtrasados(new Date()).catch(() => {});
   } catch {
     /* varredura nunca derruba a tela que a chamou */
   }
+}
+
+/** quantos avisos de atraso saem por rodada (a rodada é de carona e tem relógio curto) */
+const AVISOS_POR_RODADA = 50;
+
+/**
+ * O AVISO DE PACOTE ATRASADO, UMA VEZ POR PACOTE (RN-103): todo envio que a
+ * régua da RN-102 diz atrasado (`ondeAtrasado`, a MESMA cláusula do cartão e
+ * da aba Atenção) e ainda não avisou ganha UMA linha no sino de quem é dono
+ * do pedido (sem dona, ou dona desativada, a gerência — a régua do "pacote
+ * voltando"), a nota no histórico do pedido e o push no celular.
+ *
+ * Carimbo, nota e sino nascem na MESMA transação (a régua da casa, RN-051 e
+ * RN-100: carimbar antes e o aviso falhar deixava o pacote mudo para sempre
+ * — achado da revisão), com o carimbo tomado de forma atômica (`updateMany
+ * … WHERE null`): duas rodadas que se cruzem não mandam o mesmo aviso. O
+ * push sai DEPOIS do commit, de uma vez para todos (é o melhor esforço; o
+ * sino é o registro). Quem recebe é lido UMA vez para o lote inteiro, não
+ * uma consulta por pacote. Só envio de pedido ainda vivo para a varredura
+ * (`DESISTE_EM_TRANSITO_MS`): o pacote que ela aposentou não ganha aviso
+ * meses depois. Pedido cancelado, loja suspensa e loja sem o módulo ficam
+ * de fora, como na varredura. Volta quantos avisou.
+ */
+export async function avisarAtrasados(agora: Date = new Date()): Promise<number> {
+  const envios = await db.shipping.findMany({
+    where: {
+      ...ondeAtrasado(agora),
+      atrasoAvisadoEm: null,
+      meOrderId: { not: null },
+      order: {
+        status: { not: "CANCELADO" as never },
+        createdAt: { gt: new Date(agora.getTime() - DESISTE_EM_TRANSITO_MS) },
+        company: { suspended: false, shippingEnabled: true },
+      },
+    },
+    orderBy: { shippedAt: "asc" }, // o mais antigo primeiro
+    take: AVISOS_POR_RODADA,
+    select: {
+      id: true,
+      meStatus: true,
+      meCarrier: true,
+      shippedAt: true,
+      previstoAte: true,
+      order: {
+        select: {
+          id: true,
+          number: true,
+          status: true,
+          sellerId: true,
+          companyId: true,
+          customer: { select: { name: true } },
+        },
+      },
+    },
+  });
+  if (envios.length === 0) return 0;
+
+  // QUEM RECEBE, numa consulta só para o lote: a gerência ativa de cada loja
+  // e as donas ativas dos pedidos (a desativada cai na gerência)
+  const lojas = [...new Set(envios.map((e) => e.order.companyId))];
+  const donas = [...new Set(envios.map((e) => e.order.sellerId).filter((id): id is string => Boolean(id)))];
+  const pessoas = await db.user.findMany({
+    where: {
+      active: true,
+      OR: [
+        { companyId: { in: lojas }, role: { in: ["ADMIN", "MANAGER"] } },
+        ...(donas.length ? [{ id: { in: donas } }] : []),
+      ],
+    },
+    select: { id: true, companyId: true, role: true },
+  });
+  const gerencia = new Map<string, string[]>();
+  const ativas = new Set<string>();
+  for (const u of pessoas) {
+    if (u.role === "ADMIN" || u.role === "MANAGER") gerencia.set(u.companyId, [...(gerencia.get(u.companyId) ?? []), u.id]);
+    ativas.add(u.id);
+  }
+  const destinosDe = (e: (typeof envios)[number]) => {
+    const dona = e.order.sellerId;
+    // a dona tem que ser da MESMA loja (RN-013) e estar ativa
+    if (dona && ativas.has(dona) && pessoas.some((u) => u.id === dona && u.companyId === e.order.companyId)) return [dona];
+    return gerencia.get(e.order.companyId) ?? [];
+  };
+
+  const pushes: { userId: string; titulo: string; corpo: string; orderId: string }[] = [];
+  let avisados = 0;
+  for (const e of envios) {
+    const aviso = avisoDeAtraso(
+      { pedido: orderNumber(e.order.number), cliente: e.order.customer.name, transportadora: e.meCarrier },
+      atrasoDoEnvio({ meStatus: e.meStatus, postadoEm: e.shippedAt, previstoAte: e.previstoAte }, agora)
+    );
+    if (!aviso) continue;
+    const destinos = destinosDe(e);
+    const gravou = await db
+      .$transaction(async (tx) => {
+        const pegou = await tx.shipping.updateMany({
+          where: { id: e.id, atrasoAvisadoEm: null },
+          data: { atrasoAvisadoEm: agora },
+        });
+        if (pegou.count === 0) return false; // outra rodada avisou no meio
+        await tx.orderEvent.create({ data: { orderId: e.order.id, type: "ENVIO", description: aviso.evento } });
+        if (destinos.length)
+          await tx.notification.createMany({
+            data: destinos.map((userId) => ({
+              companyId: e.order.companyId,
+              userId,
+              type: "PEDIDO",
+              title: aviso.titulo,
+              body: aviso.corpo,
+              orderId: e.order.id,
+            })),
+          });
+        return true;
+      })
+      .catch(() => false);
+    if (!gravou) continue;
+    avisados += 1;
+    for (const userId of destinos) pushes.push({ userId, titulo: aviso.titulo, corpo: aviso.corpo, orderId: e.order.id });
+  }
+
+  // o celular por último, tudo junto: o que está gravado já vale
+  await Promise.allSettled(
+    pushes.map((p) =>
+      sendToUser(p.userId, { title: p.titulo, body: p.corpo, url: `/pedidos/${p.orderId}`, tag: `rastreio-${p.orderId}-${p.titulo}` })
+    )
+  );
+  return avisados;
 }

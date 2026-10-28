@@ -15,6 +15,7 @@
  * da transportadora, quem decide é `atrasoDoEnvio`.
  */
 import { diaSP } from "../dia";
+import { TIMEZONE } from "../format";
 
 export const DIAS_PARA_PARADO = 7;
 /**
@@ -137,13 +138,19 @@ export type AtrasoDoEnvio = {
  * banco (`ondeAtrasado`) têm que concordar, e o teste prende.
  */
 export function atrasoDoEnvio(
-  envio: { meStatus: string | null; postadoEm: Date | string | null; previstoAte?: Date | string | null },
+  envio: {
+    meStatus: string | null;
+    postadoEm: Date | string | null;
+    previstoAte?: Date | string | null;
+    /** a entrega marcada À MÃO na ficha (o pedido virou Entregue antes de a transportadora dizer): chegou, não há atraso */
+    entregueEm?: Date | string | null;
+  },
   agora: Date = new Date()
 ): AtrasoDoEnvio {
   const postou = aData(envio.postadoEm);
   const previsto = aData(envio.previstoAte);
   const nada: AtrasoDoEnvio = { atrasado: false, previstoAte: previsto, diasAlem: 0, pelaReguaAntiga: false };
-  if (envio.meStatus !== "POSTADO" || !postou) return nada;
+  if (envio.meStatus !== "POSTADO" || !postou || aData(envio.entregueEm)) return nada;
   if (previsto) {
     const alem = (agora.getTime() - previsto.getTime()) / DIA_MS;
     return { atrasado: alem > FOLGA_DIAS, previstoAte: previsto, diasAlem: Math.max(0, Math.floor(alem)), pelaReguaAntiga: false };
@@ -154,22 +161,59 @@ export function atrasoDoEnvio(
 
 /**
  * A MESMA régua de `atrasoDoEnvio`, escrita para o banco (o `where` do
- * Prisma): postado, COM data de postagem, E (previsão vencida com a folga OU,
- * sem previsão, postado há mais de 7 dias). Uma cláusula só para a contagem e
- * a lista dos atrasados — e o e2e confere, linha a linha, que ela e a função
- * pura concordam. O `shippedAt` não nulo entra nos dois ramos de propósito:
- * voltar o pedido para antes do envio limpa a postagem (e a previsão), e a
- * linha que só tivesse a previsão contaria no cartão sem aparecer na aba
- * (achado da revisão).
+ * Prisma): postado, COM data de postagem, SEM entrega marcada, E (previsão
+ * vencida com a folga OU, sem previsão, postado há mais de 7 dias). Uma
+ * cláusula só para a contagem e a lista dos atrasados — e o e2e confere,
+ * linha a linha, que ela e a função pura concordam. O `shippedAt` não nulo
+ * entra nos dois ramos de propósito: voltar o pedido para antes do envio
+ * limpa a postagem (e a previsão), e a linha que só tivesse a previsão
+ * contaria no cartão sem aparecer na aba (achado da revisão). E
+ * `deliveredAt` nulo: a entrega marcada À MÃO na ficha ("a cliente avisou
+ * que chegou") deixa o `meStatus` em POSTADO até a transportadora dizer —
+ * sem isso o pacote entregue virava "atrasado" no mapa e no sino (achado da
+ * revisão).
  */
 export function ondeAtrasado(agora: Date = new Date()) {
   return {
     meStatus: "POSTADO" as const,
     shippedAt: { not: null },
+    deliveredAt: null,
     OR: [
       { previstoAte: { lt: new Date(agora.getTime() - FOLGA_DIAS * DIA_MS) } },
       { previstoAte: null, shippedAt: { lt: new Date(agora.getTime() - DIAS_PARA_PARADO * DIA_MS) } },
     ],
+  };
+}
+
+/** dd/mm no calendário de São Paulo, para o texto do aviso */
+const ddmm = (d: Date) => d.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", timeZone: TIMEZONE });
+
+/**
+ * O TEXTO DO AVISO quando o pacote atrasa (RN-103) — função pura, uma para o
+ * sino, o push e a linha no histórico do pedido. Com previsão: diz a data
+ * prometida e quantos dias já passaram, e manda cobrar a transportadora e
+ * avisar a cliente. Sem previsão (régua antiga): diz "parado", nunca
+ * "atrasado" — a mesma honestidade do chip da tela. Sem atraso, `null`.
+ */
+export function avisoDeAtraso(
+  envio: { pedido: string; cliente: string; transportadora?: string | null },
+  atraso: AtrasoDoEnvio
+): { titulo: string; corpo: string; evento: string } | null {
+  if (!atraso.atrasado) return null;
+  const quem = `${envio.pedido} · ${envio.cliente}`;
+  const transp = envio.transportadora ? ` (${envio.transportadora})` : "";
+  if (atraso.pelaReguaAntiga || !atraso.previstoAte) {
+    return {
+      titulo: "📦 Pacote parado no caminho",
+      corpo: `${quem} — postado há mais de ${DIAS_PARA_PARADO} dias e ainda não chegou${transp}. Confira o rastreio.`,
+      evento: `📦 Pacote parado no caminho: postado há mais de ${DIAS_PARA_PARADO} dias sem entrega${transp}. Aviso automático, uma vez por pacote.`,
+    };
+  }
+  const dias = `${atraso.diasAlem} dia${atraso.diasAlem === 1 ? "" : "s"}`;
+  return {
+    titulo: "⏰ Pacote atrasado",
+    corpo: `${quem} — a transportadora${transp} prometeu entregar até ${ddmm(atraso.previstoAte)} e já passaram ${dias}. Vale cobrar a transportadora e avisar a cliente.`,
+    evento: `⏰ Pacote atrasado: a transportadora${transp} prometeu até ${ddmm(atraso.previstoAte)} e já passaram ${dias}. Aviso automático, uma vez por pacote.`,
   };
 }
 

@@ -91,6 +91,14 @@ describe("atrasoDoEnvio: com previsão, atrasado é passar dela mais a folga", (
       expect(atrasoDoEnvio({ meStatus: st, postadoEm: postou, previstoAte: previsto }, muitoDepois).atrasado).toBe(false);
   });
 
+  it("a entrega marcada À MÃO (POSTADO para a transportadora, entregue na ficha) também não é atraso — e a cláusula do banco concorda", () => {
+    const muitoDepois = new Date(previsto.getTime() + 30 * DIA);
+    expect(
+      atrasoDoEnvio({ meStatus: "POSTADO", postadoEm: postou, previstoAte: previsto, entregueEm: new Date("2026-10-28T12:00:00Z") }, muitoDepois).atrasado
+    ).toBe(false);
+    expect(ondeAtrasado(muitoDepois).deliveredAt).toBeNull();
+  });
+
   it("sem previsão vale a régua antiga dos 7 dias — e a resposta DIZ que foi ela", () => {
     const agora = new Date("2026-11-10T12:00:00-03:00");
     const r = atrasoDoEnvio({ meStatus: "POSTADO", postadoEm: new Date(agora.getTime() - (DIAS_PARA_PARADO + 1) * DIA) }, agora);

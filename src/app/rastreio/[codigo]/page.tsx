@@ -107,7 +107,7 @@ export default async function RastreioPublicoPage({
     ? null
     : envio.order.customer.name.trim().split(/\s+/)[0];
   const datas = [null, dataBr(envio.shippedAt), dataBr(envio.deliveredAt)];
-  const atraso = atrasoDoEnvio({ meStatus: envio.meStatus, postadoEm: envio.shippedAt, previstoAte: envio.previstoAte });
+  const atraso = atrasoDoEnvio({ meStatus: envio.meStatus, postadoEm: envio.shippedAt, previstoAte: envio.previstoAte, entregueEm: envio.deliveredAt });
 
   return (
     <main className="min-h-screen bg-gray-50 px-4 py-8">

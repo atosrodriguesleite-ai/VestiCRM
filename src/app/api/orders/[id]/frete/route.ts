@@ -422,6 +422,7 @@ export async function POST(
           // Etiqueta nova apaga a previsão da anterior (cancelada)
           prazoDias: normalizarPrazoDias(parsed.data.prazoDias),
           previstoAte: null,
+          atrasoAvisadoEm: null,
           // registra a chave USADA nesta etiqueta (null = declaração de
           // conteúdo) — é o que a tela lê depois, e não o estado atual da nota
           nfeKey: r.nfeKey,

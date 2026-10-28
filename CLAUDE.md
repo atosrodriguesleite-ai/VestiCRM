@@ -4348,6 +4348,68 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   combinadas com o dono. Provado contra o Postgres local
   (`scripts/e2e-envios-prazo.ts`: cinco envios, banco × régua pura, a
   postagem de verdade carimbando a previsão uma vez só).
+  **RN-103 · NA ESTRADA: O MAPA MOSTRA O QUE ESTÁ A CAMINHO, E O ATRASO
+  AVISA UMA VEZ POR PACOTE** (`montarNaEstrada` em `lib/envios/mapa.ts` +
+  modo "Na estrada" em `mapa-envios.tsx`; `avisoDeAtraso` em
+  `lib/envios/painel.ts` + `avisarAtrasados` em `lib/rastreio.ts` +
+  `Shipping.atrasoAvisadoEm`, 28/10/2026): a segunda peça do monitoramento
+  dos pacotes, pedida pelo dono — *"pedido enviado na estrada, a gente
+  monitora; pedido parado, o mapa acusa; vemos em tempo real quantos estão
+  na estrada"*. (1) **O mapa ganhou o modo "Na estrada"**, e abre nele
+  quando há pacote a caminho: só o que está POSTADO e ainda não chegou
+  (nem pela transportadora, nem pela entrega marcada à mão na ficha —
+  `deliveredAt` entrou na régua da RN-102, `atrasoDoEnvio`/`ondeAtrasado`:
+  o pedido que a cliente confirmou no WhatsApp ficava "a caminho" e
+  "atrasado" até a transportadora dizer, achado da revisão), um **arco
+  animado da loja até cada cidade** (a origem é o remetente cadastrado no
+  Melhor Envio; sem UF dele o mapa diz e desenha só as cidades), a bolinha
+  e o arco em **vermelho onde há pacote atrasado**, **âmbar onde só há
+  "parado"** (sem prazo, há mais de 7 dias — o mapa NUNCA o chama de
+  atrasado, a régua da RN-102) e cobre no prazo — a cor faz UM trabalho, o
+  status (RN-089); o cabeçalho diz "N pacotes a caminho agora · N atrasados
+  · N parados", a lista por estado separa os dois, e o movimento respeita
+  "reduzir movimento". A camada lê os pacotes um a um (precisa da previsão
+  de cada um), **os mais antigos primeiro com teto de 2.000** — é o que
+  está na rua agora, não a história da loja; bateu no teto, a tela DIZ que
+  mostra os mais antigos (quem fica de fora é o recém-postado, nunca o que
+  pode estar atrasado); cidade que não casa vai para o centro do estado e
+  pacote sem UF é contado, a régua do mapa de sempre. (2) **O atraso vira
+  aviso no sino e no celular, UMA vez por pacote**, para quem é dona do
+  pedido — **se ainda estiver ativa** (a desativada tem um sino que ninguém
+  lê; `destinosDoAviso`, que vale para todos os avisos do rastreio, achado
+  da revisão); sem dona, a gerência —, com a nota no histórico do pedido:
+  com previsão, "⏰ Pacote atrasado — prometeu até dd/mm, já passaram N
+  dias, vale cobrar a transportadora e avisar a cliente"; sem prazo, "📦
+  Pacote parado no caminho", nunca "atrasado". Roda **de carona na
+  varredura de rastreio** (`atualizarRastreiosSeDevido`, depois dos status
+  frescos, sob a mesma trava de 20 min — nunca um 3º cron, ADR-002), lê
+  pela MESMA cláusula do cartão e da aba Atenção (`ondeAtrasado`), 50 por
+  rodada, e **carimbo, nota no histórico e sino nascem na MESMA
+  transação** (a régua da casa, RN-051/RN-100 — a primeira versão
+  carimbava antes e aceitava perder o aviso se a função fosse cortada,
+  achado da revisão), com o carimbo `atrasoAvisadoEm` tomado de forma
+  atômica (`updateMany … WHERE null`): duas rodadas que se cruzem não
+  mandam o mesmo aviso; o push no celular sai DEPOIS do commit, de uma vez
+  para todos, e quem recebe é lido UMA vez para o lote (não uma consulta
+  por pacote). **O carimbo é da ETIQUETA, não do status**: voltar o pedido
+  para antes do envio limpa postagem e previsão mas NÃO o carimbo — é a
+  mesma viagem, e o rastreio recarimba a postagem com a data original da
+  transportadora, o que mandaria o mesmo aviso de novo (achado da revisão);
+  só a **etiqueta nova** zera. **O que já estava atrasado no dia do deploy
+  é ponto de partida, não aviso** (a migração carimba o que já estava
+  "parado" há mais de 7 dias — a lição da RN-100: ligar a regra numa loja
+  grande não cria uma enxurrada), e só pedido ainda vivo para a varredura
+  (60 dias, `DESISTE_EM_TRANSITO_MS`) ganha aviso — o pacote que ela
+  aposentou não acorda meses depois. Pedido cancelado, loja suspensa e loja
+  sem o módulo Envios ficam de fora, como na varredura. **Limites ditos**:
+  o aviso sai na rodada de carona (quem abre a Central ou o Envios a
+  dispara; sem tráfego nenhum, espera o próximo), e o mapa é o da abertura
+  da tela — a camada não se atualiza sozinha (a visão ao vivo é a peça
+  seguinte, o Modo TV, decisão do dono). Provado contra o Postgres local
+  (`scripts/e2e-envios-prazo.ts`, parte 4: dois avisos, nenhum repetido, a
+  etiqueta recarimbada que não avisa de novo e a nova que avisa, a dona
+  desativada caindo na gerência, o pedido aposentado e a loja sem o módulo)
+  e em `envios-na-estrada.test.ts`.
   **RN-022 · Dois recortes** (21/08/2026): **"Todos os pedidos pagos"**
   (padrão) conta TODO pedido pago (RN-001) com endereço — a loja também
   despacha por motoboy, transportadora própria e retirada, e esses pedidos

@@ -131,6 +131,22 @@
     animation: none;
   }
 }
+/* RN-103: o arco do pacote na estrada "anda" — tracinhos correndo da loja
+   para a cidade; com "reduzir movimento" fica parado */
+.rota-viva {
+  stroke-dasharray: 5 7;
+  animation: rota-anda 1.4s linear infinite;
+}
+@keyframes rota-anda {
+  to {
+    stroke-dashoffset: -12;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .rota-viva {
+    animation: none;
+  }
+}
 @keyframes navegando {
   0% {
     transform: scaleX(0.05);

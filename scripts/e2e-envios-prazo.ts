@@ -7,13 +7,15 @@
  * entregue com prazo vencido (não). A cláusula do banco (`ondeAtrasado`) e a
  * função pura (`atrasoDoEnvio`) têm que concordar linha a linha. Depois, a
  * postagem de verdade (`aplicarRastreio`) carimba a previsão a partir do
- * prazo — uma vez só. Apaga a loja no fim.
+ * prazo — uma vez só. E o aviso de atraso (RN-103): um por pacote, para a
+ * gerência (pedido sem dona), que não repete, zera com a postagem nova e não
+ * sai na loja sem o módulo. Apaga a loja no fim.
  *
  *   DATABASE_URL="postgresql://…" npx tsx scripts/e2e-envios-prazo.ts
  */
 import { db } from "@/lib/db";
 import { atrasoDoEnvio, carimboDaPostagem, ondeAtrasado, previsaoDeEntrega } from "@/lib/envios/painel";
-import { aplicarRastreio } from "@/lib/rastreio";
+import { aplicarRastreio, avisarAtrasados } from "@/lib/rastreio";
 
 const ok = (t: string) => console.log(`  ✅ ${t}`);
 const falha = (t: string) => {
@@ -100,13 +102,21 @@ async function main() {
       prazoDias: 2,
       previstoAte: previsaoDeEntrega(ha(12), 2),
     }),
+    // entregue À MÃO na ficha (a transportadora ainda diz "postado"): chegou
+    await envio("POSTADO com entrega marcada à mão, previsão vencida → não é atraso", {
+      meStatus: "POSTADO",
+      shippedAt: ha(12),
+      deliveredAt: ha(1),
+      prazoDias: 2,
+      previstoAte: previsaoDeEntrega(ha(12), 2),
+    }),
   ];
-  const esperado = [true, false, true, false, false, false];
+  const esperado = [true, false, true, false, false, false, false];
   const atrasadosNoBanco = new Set(
     (await db.shipping.findMany({ where: { order: { companyId: loja.id }, ...ondeAtrasado(agora) }, select: { id: true } })).map((s) => s.id)
   );
   envios.forEach((e, i) => {
-    const pura = atrasoDoEnvio({ meStatus: e.meStatus, postadoEm: e.shippedAt, previstoAte: e.previstoAte }, agora);
+    const pura = atrasoDoEnvio({ meStatus: e.meStatus, postadoEm: e.shippedAt, previstoAte: e.previstoAte, entregueEm: e.deliveredAt }, agora);
     igual(pura.atrasado, esperado[i], `pura: ${e.rotulo}`);
     igual(atrasadosNoBanco.has(e.id), esperado[i], `banco: ${e.rotulo}`);
   });
@@ -194,6 +204,53 @@ async function main() {
   });
   const sp = await db.shipping.findUnique({ where: { id: semPrazo.id } });
   igual([sp?.meStatus, sp?.previstoAte], ["POSTADO", null], "postado sem previsão");
+
+  console.log("\n4) O aviso de atraso: um por pacote, para quem é dono do pedido (RN-103)");
+  const gerente = await db.user.create({
+    data: { companyId: loja.id, name: "Gerente Prazo", email: `gerente-prazo-${marca}@x.com`, passwordHash: "x", role: "MANAGER" },
+  });
+  const avisos = () => db.notification.count({ where: { userId: gerente.id, type: "PEDIDO" } });
+  const primeira = await avisarAtrasados(agora);
+  igual(primeira, 2, "a rodada avisa os DOIS atrasados da parte 1 (o com prazo e o parado sem prazo)");
+  igual(await avisos(), 2, "a gerente recebeu dois avisos (pedido sem dona → gerência)");
+  const marcados = await db.shipping.findMany({ where: { order: { companyId: loja.id }, atrasoAvisadoEm: { not: null } }, select: { id: true } });
+  igual(marcados.map((m) => m.id).sort(), [envios[0].id, envios[2].id].sort(), "só os dois ganharam o carimbo");
+  const eventos = await db.orderEvent.findMany({ where: { orderId: { in: [envios[0].orderId, envios[2].orderId] }, type: "ENVIO" } });
+  conferir(eventos.some((e) => e.description.startsWith("⏰ Pacote atrasado")), "o histórico do pedido com prazo diz 'atrasado' com a data prometida");
+  conferir(eventos.some((e) => e.description.startsWith("📦 Pacote parado")), "o do sem prazo diz 'parado', nunca 'atrasado'");
+  igual(await avisarAtrasados(agora), 0, "a rodada seguinte não repete");
+  igual(await avisos(), 2, "e o sino continua com dois");
+  // o pedido que volta para antes do envio limpa postagem e previsão, mas o
+  // carimbo FICA (é a mesma etiqueta, a mesma viagem — o rastreio recarimba
+  // a postagem com a data original e avisaria de novo)
+  await db.shipping.update({ where: { id: envios[0].id }, data: { shippedAt: null, previstoAte: null } });
+  igual(await avisarAtrasados(agora), 0, "sem postagem não é atraso, nada sai");
+  await db.shipping.update({ where: { id: envios[0].id }, data: { shippedAt: ha(8), previstoAte: previsaoDeEntrega(ha(8), 3) } });
+  igual(await avisarAtrasados(agora), 0, "a mesma etiqueta recarimbada pelo rastreio NÃO avisa de novo");
+  // etiqueta NOVA (a porta do frete zera o carimbo): outra viagem, avisa de novo
+  await db.shipping.update({ where: { id: envios[0].id }, data: { atrasoAvisadoEm: null, meOrderId: `me-${marca}-nova` } });
+  igual(await avisarAtrasados(agora), 1, "etiqueta nova, atrasada de novo: um aviso novo");
+  // a dona DESATIVADA não recebe: cai na gerência
+  const vendedora = await db.user.create({
+    data: { companyId: loja.id, name: "Vendedora Fora", email: `vend-prazo-${marca}@x.com`, passwordHash: "x", role: "SELLER", active: false },
+  });
+  await db.order.update({ where: { id: envios[2].orderId }, data: { sellerId: vendedora.id } });
+  await db.shipping.update({ where: { id: envios[2].id }, data: { atrasoAvisadoEm: null } });
+  const antesDaGerente = await avisos();
+  igual(await avisarAtrasados(agora), 1, "pedido de vendedora desativada: avisa");
+  igual((await avisos()) - antesDaGerente, 1, "…e o aviso vai para a gerência, não para o sino que ninguém lê");
+  igual(await db.notification.count({ where: { userId: vendedora.id } }), 0, "a desativada não recebe nada");
+  await db.order.update({ where: { id: envios[2].orderId }, data: { sellerId: null } });
+  // pedido velho demais (a varredura já o aposentou): sem aviso
+  await db.shipping.update({ where: { id: envios[2].id }, data: { atrasoAvisadoEm: null } });
+  await db.order.update({ where: { id: envios[2].orderId }, data: { createdAt: ha(70) } });
+  igual(await avisarAtrasados(agora), 0, "pedido de 70 dias (fora da varredura) não ganha aviso meses depois");
+  await db.order.update({ where: { id: envios[2].orderId }, data: { createdAt: ha(10) } });
+  // loja sem o módulo: o atraso existe, o aviso não sai
+  await db.company.update({ where: { id: loja.id }, data: { shippingEnabled: false } });
+  igual(await avisarAtrasados(agora), 0, "loja sem o módulo Envios não recebe aviso");
+  await db.company.update({ where: { id: loja.id }, data: { shippingEnabled: true } });
+  igual(await avisarAtrasados(agora), 1, "religado, o pacote sem carimbo é avisado");
 
   await db.company.delete({ where: { id: loja.id } });
   console.log(process.exitCode ? "\n❌ FALHOU" : "\n✅ TUDO CERTO");

@@ -2334,6 +2334,9 @@ model Shipping {
   /// postagem (dias úteis a partir dela, fim do dia em SP). Nulo = sem prazo
   /// (etiqueta de antes da coluna) → vale a régua antiga dos 7 dias.
   previstoAte  DateTime?
+  /// quando o aviso "pacote atrasado/parado" saiu no sino (RN-103): uma vez
+  /// por pacote; zera com a postagem (pedido que volta) e com etiqueta nova
+  atrasoAvisadoEm DateTime?
   // Código do LINK PÚBLICO de rastreio que a vendedora manda para a cliente:
   // /rastreio/<publicCode>. Sorteado na compra da etiqueta — não expõe o id
   // do pedido nem exige login.

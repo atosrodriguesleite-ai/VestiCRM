@@ -4,8 +4,8 @@ import { db } from "@/lib/db";
 import { requireUser, AuthError } from "@/lib/auth";
 import { isManagerUp, orderScope } from "@/lib/scope";
 import { atualizarRastreiosSeDevido } from "@/lib/rastreio";
-import { DIAS_PARA_PARADO, inicioDoMesSP, ondeAtrasado, resumoDosEnvios } from "@/lib/envios/painel";
-import { enderecoDoPedido, montarMapaEnvios } from "@/lib/envios/mapa";
+import { DIAS_PARA_PARADO, atrasoDoEnvio, inicioDoMesSP, ondeAtrasado, resumoDosEnvios } from "@/lib/envios/painel";
+import { enderecoDoPedido, montarMapaEnvios, montarNaEstrada } from "@/lib/envios/mapa";
 import { PAID_ORDER_STATUSES } from "@/lib/orders";
 import { casaTexto, soDigitos } from "@/lib/busca";
 import { Prisma } from "@prisma/client";
@@ -14,6 +14,8 @@ export const dynamic = "force-dynamic";
 
 /** Quantos envios a lupa varre em memória (do mais recente para trás). */
 const TETO_DA_BUSCA = 20_000;
+/** Quantos pacotes a caminho a camada "na estrada" do mapa lê (RN-103). */
+const TETO_NA_ESTRADA = 2_000;
 
 /** O que cada linha da lista precisa (usado na lista e nos parados). */
 const CAMPOS_DA_LISTA = {
@@ -157,7 +159,7 @@ export async function GET(req: NextRequest) {
       meOrderId: { not: null },
       OR: [{ meStatus: null }, { meStatus: { not: "CANCELADO" as const } }],
     };
-    const [linhas, porStatus, gasto, freteRecebido, freteComEtiqueta, custoDasEtiquetas, entreguesRecentes, parados, linhasParadas, porCidade, porEndereco] =
+    const [linhas, porStatus, gasto, freteRecebido, freteComEtiqueta, custoDasEtiquetas, entreguesRecentes, parados, linhasParadas, porCidade, porEndereco, naEstrada, remetente] =
       await Promise.all([
       db.shipping.findMany({
         where: { ...escopo, ...filtroBusca },
@@ -273,6 +275,29 @@ export async function GET(req: NextRequest) {
         WHERE ${Prisma.join(filtrosDoEscopo, " AND ")}
         GROUP BY 1, 2, 3, 4, 5
       `,
+      // MAPA 3 — NA ESTRADA (RN-103): só o que está POSTADO e ainda não
+      // chegou, um por um (precisa da previsão de cada pacote para dizer se
+      // atrasou, RN-102). Teto largo: é o que está na rua AGORA, nunca a
+      // história da loja.
+      q
+        ? null
+        : db.shipping.findMany({
+            // a mesma régua de "a caminho" da RN-102: postado, sem entrega
+            // (nem a marcada à mão na ficha)
+            where: { ...escopo, meStatus: "POSTADO", shippedAt: { not: null }, deliveredAt: null },
+            select: { city: true, state: true, shippedAt: true, previstoAte: true },
+            // os mais antigos primeiro: se o teto cortar, quem fica de fora é
+            // o recém-postado, nunca o que pode estar atrasado
+            orderBy: { shippedAt: "asc" },
+            take: TETO_NA_ESTRADA,
+          }),
+      // de onde os pacotes saem: o remetente cadastrado no Melhor Envio
+      q
+        ? null
+        : db.melhorEnvioConnection.findUnique({
+            where: { companyId: user.companyId },
+            select: { fromCity: true, fromState: true },
+          }),
     ]);
 
     // a lista da tela = os 300 mais recentes + TODOS os parados (sem repetir)
@@ -332,6 +357,23 @@ export async function GET(req: NextRequest) {
                   uf: c.state,
                   quantidade: c._count._all,
                 }))
+              ),
+              estrada: montarNaEstrada(
+                (naEstrada ?? []).map((e) => {
+                  const a = atrasoDoEnvio(
+                    { meStatus: "POSTADO", postadoEm: e.shippedAt, previstoAte: e.previstoAte },
+                    agora
+                  );
+                  return {
+                    cidade: e.city,
+                    uf: e.state,
+                    // "parado" é o sem prazo na régua antiga: o mapa diz
+                    // parado, nunca atrasado (RN-102)
+                    situacao: !a.atrasado ? "no-prazo" : a.pelaReguaAntiga ? "parado" : "atrasado",
+                  };
+                }),
+                remetente ? { cidade: remetente.fromCity, uf: remetente.fromState } : null,
+                { cortado: (naEstrada?.length ?? 0) >= TETO_NA_ESTRADA }
               ),
               todos: montarMapaEnvios(
                 porEndereco.map((l) => ({

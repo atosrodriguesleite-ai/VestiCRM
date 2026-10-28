@@ -111,7 +111,7 @@ function abaDoEnvio(e: Envio, atraso: AtrasoDoEnvio): Aba {
 const atrasosDaLista = (lista: Envio[]): Map<string, AtrasoDoEnvio> => {
   const agora = new Date();
   return new Map(
-    lista.map((e) => [e.id, atrasoDoEnvio({ meStatus: e.status, postadoEm: e.postadoEm, previstoAte: e.previstoAte }, agora)])
+    lista.map((e) => [e.id, atrasoDoEnvio({ meStatus: e.status, postadoEm: e.postadoEm, previstoAte: e.previstoAte, entregueEm: e.entregueEm }, agora)])
   );
 };
 
@@ -207,7 +207,7 @@ export function EnviosView() {
   // o texto da lupa é filtrado NO SERVIDOR (a lista já vem só com o que
   // casa); aqui só resta separar por aba
   const atrasos = useMemo(() => atrasosDaLista(dados?.lista ?? []), [dados]);
-  const atrasoDe = (e: Envio) => atrasos.get(e.id) ?? atrasoDoEnvio({ meStatus: e.status, postadoEm: e.postadoEm, previstoAte: e.previstoAte });
+  const atrasoDe = (e: Envio) => atrasos.get(e.id) ?? atrasoDoEnvio({ meStatus: e.status, postadoEm: e.postadoEm, previstoAte: e.previstoAte, entregueEm: e.entregueEm });
   const lista = useMemo(() => {
     if (!dados) return [];
     return dados.lista.filter((e) => aba === "todos" || abaDoEnvio(e, atrasoDe(e)) === aba);
