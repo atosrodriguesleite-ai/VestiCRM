@@ -22,6 +22,7 @@ import type { VolumePacote } from "@/lib/melhorenvio-tipos";
 import { brl } from "@/lib/format";
 import { copiarTexto } from "@/lib/copiar";
 import { nomeProvisorio } from "@/lib/nome-provisorio";
+import { normalizarPrazoDias } from "@/lib/envios/painel";
 
 /**
  * Painel de Envio do pedido (módulo Envios / Melhor Envio):
@@ -59,6 +60,8 @@ type Ship = {
   trackingCode: string | null;
   weightKg: number | null;
   nfeKey: string | null;
+  /** até quando a transportadora prometeu entregar (RN-102); só depois da postagem */
+  previstoAte?: string | null;
 } | null;
 
 const statusLabel: Record<string, string> = {
@@ -314,6 +317,9 @@ export function EnvioFrete({
       serviceId: q.serviceId,
       service: q.service,
       carrier: q.carrier,
+      // o prazo prometido desta cotação (dias úteis): é ele que diz depois
+      // "atrasado" na tela Envios (RN-102)
+      ...(normalizarPrazoDias(q.days) != null ? { prazoDias: normalizarPrazoDias(q.days) } : {}),
       // os MESMOS volumes e seguro da cotação aceita — o servidor usa o
       // seguro ENVIADO (preso), nunca um recálculo; com NF-e ele confere
       ...(volsCotados ? { volumes: volsCotados } : {}),
@@ -479,6 +485,11 @@ export function EnvioFrete({
             >
               {statusLabel[ship?.meStatus ?? ""] ?? ship?.meStatus}
             </span>
+            {ship?.meStatus === "POSTADO" && ship.previstoAte && (
+              <span className="text-xs text-gray-500">
+                previsão até {new Date(ship.previstoAte).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", timeZone: "America/Sao_Paulo" })}
+              </span>
+            )}
             <button
               onClick={atualizarRastreio}
               disabled={busy === "rastreio"}

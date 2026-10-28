@@ -4292,6 +4292,62 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   zero), e a legenda diz só quantos cobraram frete. A rota está na varredura
   de dinheiro (`faturamento-data.test.ts`), e o número foi conferido contra
   a soma direta no Postgres local.
+  **RN-102 · ATRASADO DE VERDADE: O PRAZO PROMETIDO PELA TRANSPORTADORA, NÃO
+  UM CHUTE DE 7 DIAS** (`Shipping.prazoDias` + `Shipping.previstoAte`,
+  `previsaoDeEntrega`/`atrasoDoEnvio`/`ondeAtrasado` em
+  `lib/envios/painel.ts`, 28/10/2026): primeira peça do monitoramento dos
+  pacotes na estrada, decidida com o dono — *"pedido parado, o mapa acusa;
+  vemos em tempo real quantos pedidos estão na estrada"*. A tela Envios
+  chamava de "parado" todo pacote postado há mais de 7 dias — um número que
+  não era de ninguém: o PAC de 12 dias úteis para o Norte aparecia "parado"
+  no 8º dia andando normalmente, e o SEDEX de 2 dias passava 6 dias sumido
+  sem a tela dizer nada. Agora: (1) **o prazo vem da cotação aceita** — o
+  Melhor Envio devolve os dias úteis de cada serviço (`days`) e, ao comprar
+  a etiqueta, a tela manda o prazo do serviço escolhido com os MESMOS
+  volumes e seguro (presos à cotação que a pessoa viu); **é informação, não
+  trava** (`normalizarPrazoDias`, 1 a 60, uma régua para a tela e a porta):
+  número torto vira "sem prazo" e a compra da etiqueta NUNCA é recusada por
+  ele (achado da revisão — o serviço de área remota que diz 65 dias
+  derrubaria a compra inteira); etiqueta nova apaga a previsão da anterior.
+  (2) **A previsão nasce na POSTAGEM, uma vez, pelos DOIS caminhos que
+  marcam a saída** (`carimboDaPostagem`): o rastreio da transportadora
+  (`aplicarRastreio`, primeiro POSTADO) e o **"Enviado" marcado à mão** na
+  ficha do pedido — a vendedora costuma marcar ao deixar a caixa no
+  correio, horas antes do "postado" da transportadora, e só o rastreio
+  carimbar deixava o fluxo mais comum na régua antiga (achado da revisão);
+  a base é a saída que já está gravada. `previstoAte` = saída + prazo em
+  **dias úteis** (segunda a sexta, no calendário de São Paulo pela régua
+  `diaSP` de `lib/dia.ts`, o dia da postagem não conta, fim do dia) —
+  carimbada, não recalculada: a régua lê o carimbo, e a cláusula do banco
+  fica simples. **Voltar o pedido para antes do envio limpa a previsão junto
+  com a postagem** (a linha só com a previsão contaria no cartão sem
+  aparecer na aba, achado da revisão — e a cláusula exige a postagem nos
+  dois ramos). (3) **Atrasado = passou da previsão mais
+  UM dia de folga** (`FOLGA_DIAS` — a transportadora que entrega na manhã
+  seguinte ao prazo não vira alarme vermelho), e **a régua é UMA**: a
+  função pura (`atrasoDoEnvio`, que a tela importa e calcula uma vez por
+  lista, com um relógio) e o `where` do Prisma (`ondeAtrasado`, que a
+  contagem do cartão e a lista da aba Atenção usam) são escritas lado a
+  lado e o e2e confere linha a linha que concordam. O
+  chip diz **"Atrasado · N dias além do prazo"**, a linha mostra "previsão
+  até dd/mm" (em vermelho quando venceu), a ficha do pedido mostra a
+  previsão ao lado do status e **a página pública de rastreio diz à cliente
+  "Previsão de entrega: até dd de mês"** enquanto está a caminho — e,
+  vencida, diz que **passou do prazo** e manda falar com a loja (mostrar
+  uma data de ontem como promessa faria a cliente achar a página quebrada,
+  achado da revisão). (4) **O
+  envio SEM prazo não mente**: etiqueta comprada antes da coluna (ou
+  serviço que não informou prazo) segue na régua antiga dos 7 dias
+  (`DIAS_PARA_PARADO`), e aí a tela escreve **"Parado no caminho"**, nunca
+  "atrasado" (`pelaReguaAntiga` — prometer um prazo que ninguém deu seria
+  o erro de antes com outra palavra). Entregue, devolvido e cancelado nunca
+  são atraso, mesmo com a previsão vencida. **Limites ditos**: o prazo é o
+  da transportadora na cotação (feriado não conta como não útil — é uma
+  conta de dias úteis, não o calendário dela), e o aviso no sino quando o
+  pacote atrasa e a camada "na estrada" do mapa são as peças seguintes,
+  combinadas com o dono. Provado contra o Postgres local
+  (`scripts/e2e-envios-prazo.ts`: cinco envios, banco × régua pura, a
+  postagem de verdade carimbando a previsão uma vez só).
   **RN-022 · Dois recortes** (21/08/2026): **"Todos os pedidos pagos"**
   (padrão) conta TODO pedido pago (RN-001) com endereço — a loja também
   despacha por motoboy, transportadora própria e retirada, e esses pedidos

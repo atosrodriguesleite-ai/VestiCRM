@@ -3,6 +3,7 @@ import { Package, Truck, CheckCircle2, Clock, MapPin } from "lucide-react";
 import { db } from "@/lib/db";
 import { orderNumber } from "@/lib/orders";
 import { nomeProvisorio } from "@/lib/nome-provisorio";
+import { atrasoDoEnvio } from "@/lib/envios/painel";
 
 export const dynamic = "force-dynamic";
 
@@ -71,6 +72,7 @@ export default async function RastreioPublicoPage({
       meService: true,
       trackingCode: true,
       shippedAt: true,
+      previstoAte: true,
       deliveredAt: true,
       order: {
         select: {
@@ -105,6 +107,7 @@ export default async function RastreioPublicoPage({
     ? null
     : envio.order.customer.name.trim().split(/\s+/)[0];
   const datas = [null, dataBr(envio.shippedAt), dataBr(envio.deliveredAt)];
+  const atraso = atrasoDoEnvio({ meStatus: envio.meStatus, postadoEm: envio.shippedAt, previstoAte: envio.previstoAte });
 
   return (
     <main className="min-h-screen bg-gray-50 px-4 py-8">
@@ -140,6 +143,16 @@ export default async function RastreioPublicoPage({
             <div className="min-w-0">
               <p className="font-semibold">{PASSOS[passoAtual].titulo}</p>
               <p className="text-sm opacity-80">{PASSOS[passoAtual].texto}</p>
+              {/* a previsão da transportadora, só enquanto está a caminho
+                  (RN-102) — e, vencida, a página DIZ que passou, em vez de
+                  mostrar uma data de ontem como promessa */}
+              {passoAtual === 1 && envio.previstoAte && (
+                <p className="mt-1 text-sm font-medium">
+                  {atraso.atrasado
+                    ? `Previsto para ${dataBr(envio.previstoAte)} — passou do prazo da transportadora. Se precisar, fale com a loja.`
+                    : `Previsão de entrega: até ${dataBr(envio.previstoAte)}`}
+                </p>
+              )}
             </div>
           </div>
 

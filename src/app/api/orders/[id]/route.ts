@@ -34,6 +34,7 @@ import {
   resolveReopenStock,
   escolherCobrancaAConfirmar, resolverFreteDoPedido } from "@/lib/orders";
 import { computeOrderTotals } from "@/lib/orders";
+import { carimboDaPostagem } from "@/lib/envios/painel";
 import { juntarPorVariacao, reservarComExtras, reservarOQueTiver } from "@/lib/reservations";
 import { variacoesSobEncomenda } from "@/lib/sob-encomenda";
 import { categoriasSobEncomenda } from "@/lib/sob-encomenda-data";
@@ -1226,13 +1227,16 @@ export async function PATCH(
               // tela Envios saía pela metade (achado da revisão).
               const envioAtual = await tx.shipping.findUnique({
                 where: { orderId: order.id },
-                select: { shippedAt: true },
+                select: { shippedAt: true, prazoDias: true, previstoAte: true },
               });
               await tx.shipping.upsert({
                 where: { orderId: order.id },
                 update: {
                   ...(newStatus === "ENTREGUE" ? { deliveredAt: now } : {}),
                   ...(envioAtual?.shippedAt ? {} : { shippedAt: now }),
+                  // a saída marcada à mão também carimba a previsão de
+                  // entrega da etiqueta (RN-102) — a mesma função do rastreio
+                  ...(envioAtual && newStatus === "ENVIADO" ? carimboDaPostagem(envioAtual, now) : {}),
                 },
                 create: { orderId: order.id, cost: order.shippingFee, ...shipData },
               });
@@ -1241,7 +1245,9 @@ export async function PATCH(
             if (["ORCAMENTO", "AGUARDANDO_PAGAMENTO", "ENTREGUE_A_RECEBER", "PAGO", "EM_PRODUCAO", "SEPARACAO", "CANCELADO"].includes(newStatus)) {
               await tx.shipping.updateMany({
                 where: { orderId: order.id },
-                data: { shippedAt: null, deliveredAt: null },
+                // a previsão de entrega vai junto (RN-102): sem postagem não
+                // há o que vencer, e a linha órfã contaria como atrasada
+                data: { shippedAt: null, deliveredAt: null, previstoAte: null },
               });
             }
 

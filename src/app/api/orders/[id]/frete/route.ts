@@ -17,6 +17,7 @@ import {
   volumesDoEnvio,
 } from "@/lib/melhorenvio";
 import { aplicarRastreio, novoCodigoPublico } from "@/lib/rastreio";
+import { normalizarPrazoDias } from "@/lib/envios/painel";
 import {
   lerMedidasPorCategoria,
   montarPacote,
@@ -127,6 +128,12 @@ const postSchema = z.object({
   // pedido (Bling fora do ar, nota que sumiu de lá). É escolha da loja, nunca
   // do sistema — despachar com o documento errado é problema fiscal dela.
   semNota: z.boolean().optional(),
+  // PRAZO PROMETIDO da cotação aceita, em dias úteis (RN-102): a tela manda
+  // o número que o Melhor Envio devolveu para o serviço escolhido — a mesma
+  // régua do seguro e do nome do serviço, presos à cotação que a pessoa viu.
+  // É informação, não trava: número torto vira "sem prazo"
+  // (`normalizarPrazoDias`), NUNCA recusa a compra da etiqueta.
+  prazoDias: z.number().optional(),
 });
 
 export async function POST(
@@ -411,6 +418,10 @@ export async function POST(
           volumesJson: volumesDaEtiqueta,
           pieces: pecasDoPedido,
           meCompradoEm: new Date(),
+          // o prazo da cotação aceita; a previsão nasce na postagem (RN-102).
+          // Etiqueta nova apaga a previsão da anterior (cancelada)
+          prazoDias: normalizarPrazoDias(parsed.data.prazoDias),
+          previstoAte: null,
           // registra a chave USADA nesta etiqueta (null = declaração de
           // conteúdo) — é o que a tela lê depois, e não o estado atual da nota
           nfeKey: r.nfeKey,
@@ -434,6 +445,7 @@ export async function POST(
           volumesJson: volumesDaEtiqueta,
           pieces: pecasDoPedido,
           meCompradoEm: new Date(),
+          prazoDias: normalizarPrazoDias(parsed.data.prazoDias),
           nfeKey: r.nfeKey,
           trackingCode: r.tracking,
           zip: destZip,

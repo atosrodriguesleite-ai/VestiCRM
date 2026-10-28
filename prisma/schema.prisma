@@ -2327,6 +2327,13 @@ model Shipping {
   // Última consulta ao rastreio (a varredura de carona pega os mais
   // esquecidos primeiro; ver lib/rastreio.ts)
   trackedAt    DateTime?
+  /// PRAZO PROMETIDO pela transportadora na cotação aceita, em DIAS ÚTEIS
+  /// (RN-102). É o que separa "atrasado de verdade" do chute de 7 dias.
+  prazoDias    Int?
+  /// até quando a transportadora prometeu entregar: calculado UMA vez, na
+  /// postagem (dias úteis a partir dela, fim do dia em SP). Nulo = sem prazo
+  /// (etiqueta de antes da coluna) → vale a régua antiga dos 7 dias.
+  previstoAte  DateTime?
   // Código do LINK PÚBLICO de rastreio que a vendedora manda para a cliente:
   // /rastreio/<publicCode>. Sorteado na compra da etiqueta — não expõe o id
   // do pedido nem exige login.

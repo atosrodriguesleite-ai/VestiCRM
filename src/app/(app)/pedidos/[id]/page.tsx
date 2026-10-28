@@ -832,6 +832,7 @@ export default async function OrderDetailPage({
                       trackingCode: order.shipping.trackingCode,
                       weightKg: order.shipping.weightKg,
                       nfeKey: order.shipping.nfeKey,
+                      previstoAte: order.shipping.previstoAte?.toISOString() ?? null,
                     }
                   : null
               }

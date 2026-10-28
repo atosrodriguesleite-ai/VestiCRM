@@ -2,6 +2,7 @@ import { randomBytes } from "node:crypto";
 import { db } from "./db";
 import { meTracking } from "./melhorenvio";
 import { orderNumber, PAID_ORDER_STATUSES } from "./orders";
+import { carimboDaPostagem } from "./envios/painel";
 import { sendToUser } from "./push";
 import { platformUrl } from "./site";
 
@@ -127,6 +128,9 @@ type EnvioParaAtualizar = {
   shippedAt: Date | null;
   deliveredAt: Date | null;
   publicCode: string | null;
+  /** prazo prometido na cotação (dias úteis) e a previsão já carimbada (RN-102) */
+  prazoDias?: number | null;
+  previstoAte?: Date | null;
 };
 
 /**
@@ -188,6 +192,10 @@ export async function aplicarRastreio(args: {
         // limpa shippedAt/deliveredAt e a varredura regravava, fazendo a tela
         // exibir "Entregue em..." num pedido morto (revisão 14/08/2026)
         ...(situacao === "POSTADO" && !envio.shippedAt && !cancelado ? { shippedAt: postou } : {}),
+        // na POSTAGEM nasce a previsão de entrega (RN-102), uma vez só — e
+        // mesmo quando a saída já foi marcada à mão ("Enviado" na ficha),
+        // caso em que a base é essa data; a régua de "atrasado" lê o carimbo
+        ...(situacao === "POSTADO" && !cancelado ? carimboDaPostagem(envio, postou) : {}),
         ...(situacao === "ENTREGUE" && !envio.deliveredAt && !cancelado
           ? { deliveredAt: entregou, ...(envio.shippedAt ? {} : { shippedAt: postou }) }
           : {}),
@@ -480,6 +488,8 @@ export async function atualizarRastreiosSeDevido(): Promise<void> {
         shippedAt: true,
         deliveredAt: true,
         publicCode: true,
+        prazoDias: true,
+        previstoAte: true,
         order: { select: { companyId: true } },
       },
     });

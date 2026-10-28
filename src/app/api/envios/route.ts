@@ -4,7 +4,7 @@ import { db } from "@/lib/db";
 import { requireUser, AuthError } from "@/lib/auth";
 import { isManagerUp, orderScope } from "@/lib/scope";
 import { atualizarRastreiosSeDevido } from "@/lib/rastreio";
-import { DIAS_PARA_PARADO, inicioDoMesSP, resumoDosEnvios } from "@/lib/envios/painel";
+import { DIAS_PARA_PARADO, inicioDoMesSP, ondeAtrasado, resumoDosEnvios } from "@/lib/envios/painel";
 import { enderecoDoPedido, montarMapaEnvios } from "@/lib/envios/mapa";
 import { PAID_ORDER_STATUSES } from "@/lib/orders";
 import { casaTexto, soDigitos } from "@/lib/busca";
@@ -31,6 +31,8 @@ const CAMPOS_DA_LISTA = {
   meCompradoEm: true,
   shippedAt: true,
   deliveredAt: true,
+  prazoDias: true,
+  previstoAte: true,
   city: true,
   state: true,
   nfeKey: true,
@@ -76,6 +78,8 @@ export async function GET(req: NextRequest) {
     after(() => atualizarRastreiosSeDevido());
 
     const escopo = { meOrderId: { not: null }, order: orderScope(user) };
+    // UM relógio para a contagem e a lista dos atrasados (RN-102)
+    const agora = new Date();
     // fronteira do mês NO FUSO DE SÃO PAULO (mesma lição do lib/periodo.ts:
     // em UTC cru o "gasto do mês" zerava às 21h do dia 31 na frente da lojista)
     const inicioDoMes = inicioDoMesSP();
@@ -218,28 +222,16 @@ export async function GET(req: NextRequest) {
       // parados: contados no banco, sobre o escopo INTEIRO — se saísse da
       // lista (300 mais recentes), o envio esquecido de dois meses atrás,
       // que é justamente o alerta, ficava de fora da conta
-      db.shipping.count({
-        where: {
-          ...escopo,
-          meStatus: "POSTADO",
-          shippedAt: {
-            lt: new Date(Date.now() - DIAS_PARA_PARADO * 24 * 60 * 60 * 1000),
-          },
-        },
-      }),
+      // ATRASADO DE VERDADE (RN-102): passou da previsão da transportadora
+      // (ou dos 7 dias, no envio sem prazo) — a MESMA cláusula da lista e
+      // da régua pura da tela
+      db.shipping.count({ where: { ...escopo, ...ondeAtrasado(agora) } }),
       // OS PARADOS EM SI, fora da fila dos 300: o alerta "1 parado há +7 dias"
       // mandava a lojista para a aba Atenção e lá não havia nada — o envio
       // esquecido é justamente o mais ANTIGO, o primeiro a cair fora da lista.
       // São poucos por definição (é um alerta), então cabem inteiros.
       db.shipping.findMany({
-        where: {
-          ...escopo,
-          ...filtroBusca,
-          meStatus: "POSTADO",
-          shippedAt: {
-            lt: new Date(Date.now() - DIAS_PARA_PARADO * 24 * 60 * 60 * 1000),
-          },
-        },
+        where: { ...escopo, ...filtroBusca, ...ondeAtrasado(agora) },
         orderBy: { shippedAt: "asc" }, // o mais esquecido primeiro
         take: 300,
         select: CAMPOS_DA_LISTA,
@@ -324,6 +316,8 @@ export async function GET(req: NextRequest) {
         compradoEm: l.meCompradoEm,
         postadoEm: l.shippedAt,
         entregueEm: l.deliveredAt,
+        prazoDias: l.prazoDias,
+        previstoAte: l.previstoAte,
         cidade: l.city,
         uf: l.state,
         comNota: Boolean(l.nfeKey),
