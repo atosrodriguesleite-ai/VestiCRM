@@ -108,7 +108,7 @@ const textoNaEstrada = (total: number, atrasados: number, parados: number) => {
   return partes.join(" · ");
 };
 
-export function MapaEnvios({ mapa }: { mapa: MapaDeEnvios }) {
+export function MapaEnvios({ mapa, aoAbrirTv }: { mapa: MapaDeEnvios; aoAbrirTv?: () => void }) {
   const [dica, setDica] = useState<{ x: number; y: number; titulo: string; texto: string } | null>(null);
   // abre em "NA ESTRADA" quando há pacote a caminho (é o que o dono pediu
   // para monitorar: quantos estão na rua e qual atrasou); sem nenhum, no
@@ -215,6 +215,15 @@ export function MapaEnvios({ mapa }: { mapa: MapaDeEnvios }) {
           </p>
         </div>
         <div className="ms-auto flex flex-wrap gap-1.5">
+          {aoAbrirTv && (
+            <button
+              onClick={aoAbrirTv}
+              className="rounded-full border border-slate-900 bg-white px-3 py-1.5 text-xs font-medium text-slate-900 transition hover:bg-slate-50"
+              title="Tela cheia com o mapa 3D dos pacotes a caminho, para deixar na TV da loja"
+            >
+              📺 Modo TV
+            </button>
+          )}
           {(
             [
               { key: "estrada", rotulo: comProblema > 0 ? `Na estrada · ${comProblema} ⚠️` : "Na estrada" },

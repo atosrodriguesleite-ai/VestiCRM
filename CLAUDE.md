@@ -4410,6 +4410,47 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   etiqueta recarimbada que não avisa de novo e a nova que avisa, a dona
   desativada caindo na gerência, o pedido aposentado e a loja sem o módulo)
   e em `envios-na-estrada.test.ts`.
+  **RN-104 · MODO TV DOS ENVIOS: A TELA CHEIA QUE FICA LIGADA NA LOJA, SEM
+  CONTA PRÓPRIA** (`lib/envios/tv-regra.ts` pura + rota `/api/envios/tv` +
+  `app/(app)/envios/modo-tv.tsx` + `mapa-3d.tsx`, botão "📺 Modo TV" no
+  mapa de Envios e `?tv=1`, 28/10/2026): a terceira peça do monitoramento
+  dos pacotes, decidida com o dono — *"vemos em tempo real quantos pedidos
+  estão na estrada"* —, a visão ao vivo que a RN-103 deixou dita como peça
+  seguinte. (1) **É a MESMA camada "na estrada" (RN-103) e a MESMA régua de
+  atraso (RN-102)**: a porta leve da TV lê o POSTADO sem entrega (os mais
+  antigos primeiro, teto de 2.000), passa cada pacote por `atrasoDoEnvio` e
+  monta a camada por `montarNaEstrada` — a TV só TRADUZ para desenho e texto
+  (`tv-regra.ts`: do viewBox 2D ao chão 3D com o centro do Brasil na
+  origem, coluna de luz que cresce com a raiz do número, cor de STATUS pelo
+  pior caso da cidade — vermelho atrasado, âmbar "parado", cobre no prazo,
+  RN-089 —, rótulos com o problema primeiro e teto de 6 no computador e 3 no
+  celular, e o placar). Nunca decide atraso por conta própria, e "parado"
+  nunca vira "atrasado" na TV também. (2) **O placar do dia**: a caminho,
+  atrasados, parados, postados hoje, entregues hoje (pela postagem e pela
+  entrega gravadas, dia de São Paulo — `inicioDoDiaSP`) e aguardando
+  postagem, com a frase do que precisa de ação ("2 atrasados — passou do
+  prazo da transportadora") ou "Tudo no prazo". (3) **O mapa é 3D e VIVO**
+  (three.js, carregado por `import("three")` só quando a TV abre — a tela
+  de Envios não paga por ele): as placas dos estados extrudadas do mesmo
+  `mapa-brasil.json`, uma coluna de luz por cidade de destino, a sede (o
+  remetente do Melhor Envio) com o anel, um arco por cidade com uma luz que
+  viaja da loja até ela, câmera que balança devagar (botão Girar/Pausar;
+  "reduzir movimento" para tudo) e os rótulos em HTML presos ao ponto
+  projetado. Aparelho sem WebGL não fica em branco: a tela DIZ e o placar e
+  a lista por estado seguem ao vivo. (4) **Atualiza sozinha a cada minuto,
+  só com a aba visível** (a TV apagada não gasta banco), com "ao vivo ·
+  atualizado há N s"; se um pedido falhar **mantém o último número bom e
+  diz o que foi** (`avisoDaFalha`, a régua da faixa "hoje" do BI, RN-088).
+  A porta pega carona na varredura de rastreio (`after()`), então a TV que
+  fica ligada mantém os status e os avisos de atraso (RN-103) frescos.
+  (5) **Quem vê Envios abre a TV** (a porta exige o módulo e recorta pelo
+  `orderScope`, RN-007/RN-013; a TV não mostra dinheiro), por botão ou por
+  `?tv=1` — o endereço que fica salvo na TV da loja; Esc fecha, "Tela
+  cheia" é o do navegador. **Limites ditos**: a lista por estado só no
+  computador/TV (no celular o mapa ocupa a tela); o giro é a câmera, não o
+  globo; e a cidade que não casa com a base vai para o centro do estado,
+  com o rótulo dizendo "(cidade não identificada)", a régua do mapa de
+  sempre. Guardas: `envios-tv.test.ts` (a regra pura e a porta, com banco de mentira) e `modo-tv.test.tsx` (a tela em jsdom).
   **RN-022 · Dois recortes** (21/08/2026): **"Todos os pedidos pagos"**
   (padrão) conta TODO pedido pago (RN-001) com endereço — a loja também
   despacha por motoboy, transportadora própria e retirada, e esses pedidos
@@ -4644,7 +4685,7 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   Clientes); Etapa 2 ✅ (RN-098, 27/10/2026: grupo no filtro das campanhas,
   gerência); Etapa 3 ✅ (RN-100, 27/10/2026: tarefa para a dona quando a
   cliente cai para um grupo de alerta); Etapa 4 ✅ (RN-101, 27/10/2026: o
-  retrato do mês — quem caiu, subiu e chegou) — **RFM concluído**. **Modo TV adiado** pelo dono. Decisões do dono: só gerência
+  retrato do mês — quem caiu, subiu e chegou) — **RFM concluído**. **Modo TV do BI adiado** pelo dono (o dos Envios saiu, RN-104). Decisões do dono: só gerência
   vê; origem do lead segue automática (sem marcação manual); metas de
   qualquer tipo, a loja escolhe; prazo dentro do horário comercial.
 - 🟡 **Calendário comercial — preço de tabela a definir pelo dono**

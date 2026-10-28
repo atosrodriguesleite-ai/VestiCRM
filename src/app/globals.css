@@ -147,6 +147,64 @@
     animation: none;
   }
 }
+/* RN-104: o Modo TV dos envios — fundo noturno próprio (a TV fica ligada
+   na loja, longe do tema do app), rótulos presos ao mapa 3D e o pulso do
+   "ao vivo" */
+.tv-raiz {
+  background: radial-gradient(ellipse at 50% 0%, #2a1c12 0%, #15100b 55%, #0b0805 100%);
+  font-family: var(--font-sans, ui-sans-serif, system-ui, sans-serif);
+}
+.tv-botao {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.25rem;
+  height: 2.25rem;
+  border-radius: 9999px;
+  border: 1px solid #3a2a1c;
+  background: #1c1510;
+  color: #f6ead9;
+}
+.tv-botao:hover {
+  background: #2a1f17;
+}
+.tv-rotulo {
+  position: absolute;
+  transform: translate(-50%, -100%);
+  white-space: nowrap;
+  padding: 2px 8px;
+  border-radius: 9999px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #f6ead9;
+  background: rgba(20, 14, 9, 0.75);
+  border: 1px solid rgba(224, 128, 63, 0.45);
+  transition: opacity 0.3s;
+}
+.tv-rotulo[data-situacao="atrasado"] {
+  border-color: #ff3b5c;
+  color: #ffd4db;
+}
+.tv-rotulo[data-situacao="parado"] {
+  border-color: #ffb020;
+  color: #ffe9bd;
+}
+.tv-rotulo-sede {
+  border-color: rgba(255, 255, 255, 0.6);
+}
+.tv-pulso {
+  animation: tv-pulso 1.6s ease-in-out infinite;
+}
+@keyframes tv-pulso {
+  50% {
+    opacity: 0.35;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .tv-pulso {
+    animation: none;
+  }
+}
 @keyframes navegando {
   0% {
     transform: scaleX(0.05);

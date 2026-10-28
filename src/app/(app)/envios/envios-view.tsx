@@ -20,6 +20,8 @@ import {
 import { Alert, Badge, Button, Card, EmptyState, Input, Spinner } from "@/components/ui";
 import { copiarTexto } from "@/lib/copiar";
 import { MapaEnvios, type MapaDeEnvios } from "./mapa-envios";
+import { ModoTv } from "./modo-tv";
+import { deveAbrirTv } from "@/lib/envios/tv-regra";
 import { AGUARDANDO_POSTAGEM, atrasoDoEnvio, lerValorBR, type AtrasoDoEnvio } from "@/lib/envios/painel";
 import type { ResumoEnvios } from "@/lib/envios/painel";
 import type { MeQuote, MeRecusa, VolumePacote } from "@/lib/melhorenvio-tipos";
@@ -160,6 +162,11 @@ export function EnviosView() {
   const [aba, setAba] = useState<Aba>("todos");
   const [busca, setBusca] = useState("");
   const [copiado, setCopiado] = useState("");
+  // MODO TV (RN-104): abre pelo botão ou por `?tv=1` (o endereço salvo na TV da loja)
+  const [tv, setTv] = useState(false);
+  useEffect(() => {
+    if (deveAbrirTv(window.location.search)) setTv(true);
+  }, []);
 
   const carregar = useCallback(async (q = "") => {
     setAtualizando(true);
@@ -214,16 +221,23 @@ export function EnviosView() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dados, aba, atrasos]);
 
+  // a TV tem a porta leve dela: abre por `?tv=1` mesmo que a leitura pesada
+  // da tela ainda não tenha voltado (ou tenha falhado) — a TV da loja
+  // reinicia sozinha e ninguém está lá para clicar de novo
+  const modoTv = tv && <ModoTv aoFechar={() => setTv(false)} />;
+
   if (!dados && !erro)
     return (
       <div className="flex justify-center py-16 text-slate-400">
         <Spinner className="size-6" />
+        {modoTv}
       </div>
     );
 
   return (
     <div className="space-y-5">
       {erro && <Alert tone="danger">{erro}</Alert>}
+      {modoTv}
 
       {dados && (
         <>
@@ -278,7 +292,7 @@ export function EnviosView() {
           </div>
 
           {/* ---- Mapa de envios --------------------------------------- */}
-          {dados.mapa && <MapaEnvios mapa={dados.mapa} />}
+          {dados.mapa && <MapaEnvios mapa={dados.mapa} aoAbrirTv={() => setTv(true)} />}
 
           {/* ---- Simulador (RN-019) ----------------------------------- */}
           <Simulador
