@@ -40,7 +40,13 @@ export type OutboundPayload = {
  */
 export type SendResult =
   | { ok: true; externalId?: string }
-  | { ok: false; error: string; incerto?: boolean };
+  | {
+      ok: false;
+      error: string;
+      incerto?: boolean;
+      /** o servidor disse que a conexão com o WhatsApp está fechada (RN-105) */
+      conexaoFechada?: boolean;
+    };
 
 export interface CommProvider {
   readonly name: string;

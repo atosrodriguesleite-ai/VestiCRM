@@ -220,6 +220,8 @@ describe("as duas portas de entrada leem pela MESMA chave", () => {
 const evo = vi.hoisted(() => ({
   restart: vi.fn(),
   state: vi.fn(),
+  sonda: vi.fn(),
+  sendText: vi.fn(),
   configured: true,
 }));
 const eventos = vi.hoisted(
@@ -231,6 +233,8 @@ const settings = vi.hoisted(() => ({
   evolutionWebhookToken: "tok",
   evolutionWebhookEventos: null as string | null,
   reinicioPedidoEm: null as Date | null,
+  evolutionPhone: null as string | null,
+  evolutionStatus: "CONECTADO",
 }));
 const garantir = vi.hoisted(() => vi.fn());
 const vigia = vi.hoisted(() => ({
@@ -303,6 +307,10 @@ vi.mock("../comm/evolution", () => ({
   evolutionEnv: () => ({ configured: evo.configured }),
   evoRestart: (...a: unknown[]) => evo.restart(...a),
   evoState: (...a: unknown[]) => evo.state(...a),
+  evoSondarSessao: (...a: unknown[]) => evo.sonda(...a),
+  evoSendText: (...a: unknown[]) => evo.sendText(...a),
+  jidDeNumero: (n: string) => `${n}@s.whatsapp.net`,
+  jidToPhone: (jid: string) => jid.match(/^(\d{8,15})@s\.whatsapp\.net$/)?.[1] ?? null,
 }));
 vi.mock("../comm/garantir-webhook", () => ({
   garantirEventosDoWebhook: (...a: unknown[]) => garantir(...a),
@@ -310,6 +318,14 @@ vi.mock("../comm/garantir-webhook", () => ({
 }));
 
 import { reiniciarConexaoDaLoja, fraseDoReinicio, reinicioEmCurso } from "../comm/reiniciar-conexao";
+import { confirmarConexaoFechada } from "../comm/sessao-viva";
+import { EvolutionProvider } from "../comm/providers";
+import {
+  FRASE_CONEXAO_FECHADA,
+  lerSonda,
+  respostaDizConexaoFechada,
+  veredictoDasSondas,
+} from "../comm/conexao-fechada";
 import { avisarLojasMudas } from "../health";
 
 describe("reiniciarConexaoDaLoja — registra o pedido, reinicia, reaplica os avisos, lê o estado e deixa rastro", () => {
@@ -549,5 +565,148 @@ describe("avisarLojasMudas — o vigia avisa a loja muda (banco e celular fingid
     expect(vigia.claims).toHaveLength(1);
     expect(vigia.sinos).toHaveLength(0);
     expect(vigia.pushes).toHaveLength(0);
+  });
+});
+
+
+// ---------------------------------------------------------------------------
+// O "CONECTADO" QUE MENTIA (02/11/2026): o reinício disse "reiniciada" e o
+// envio seguinte voltou "Connection Closed". A sonda é a prova da sessão viva.
+const CONEXAO_FECHADA = { status: 400, error: "Bad Request", response: { message: ["Error: Connection Closed"] } };
+
+describe("conexão fechada — a regra pura", () => {
+  it("reconhece a resposta do servidor com a conexão fechada (a do print) e só ela", () => {
+    expect(respostaDizConexaoFechada(CONEXAO_FECHADA)).toBe(true);
+    expect(respostaDizConexaoFechada({ response: { message: ["Error: Connection Terminated"] } })).toBe(true);
+    expect(respostaDizConexaoFechada({ response: { message: [{ exists: false, jid: "x" }] } })).toBe(false);
+    expect(respostaDizConexaoFechada(null)).toBe(false);
+  });
+  it("a sonda só diz 'morta' quando o servidor RESPONDE conexão fechada; tempo esgotado ou rota ausente não decide", () => {
+    expect(lerSonda({ ok: true, status: 201, data: {} })).toBe("viva");
+    expect(lerSonda({ ok: false, status: 400, data: CONEXAO_FECHADA })).toBe("morta");
+    expect(lerSonda({ ok: false, status: 0, data: null })).toBe("sem-resposta");
+    expect(lerSonda({ ok: false, status: 404, data: { message: "Cannot POST" } })).toBe("sem-resposta");
+    expect(lerSonda(null)).toBe("sem-resposta");
+  });
+  it("o veredito: qualquer 'viva' decide viva; 'sem-resposta' não decide; só é 'morta' se TODAS bateram no muro", () => {
+    expect(veredictoDasSondas(["morta", "viva"])).toBe("viva");
+    expect(veredictoDasSondas(["morta", "sem-resposta"])).toBe("sem-resposta");
+    expect(veredictoDasSondas(["morta", "morta"])).toBe("morta");
+    expect(veredictoDasSondas([])).toBe("sem-resposta");
+  });
+  it("com a conexão fechada a resposta citando NÃO repete o envio sem a citação (bateria no mesmo muro)", async () => {
+    evo.sendText.mockReset();
+    evo.sendText.mockResolvedValue({ ok: false, status: 400, data: CONEXAO_FECHADA });
+    await new EvolutionProvider("inst-1").send({
+      to: "5533988585607",
+      text: "Olá",
+      replyTo: { externalId: "ABC", fromMe: false, texto: "oi" },
+    });
+    expect(evo.sendText).toHaveBeenCalledTimes(1);
+  });
+  it("o envio que bate na conexão fechada vira frase em português, com a bandeira para o motor conferir", async () => {
+    evo.sendText.mockResolvedValueOnce({ ok: false, status: 400, data: CONEXAO_FECHADA });
+    const r = await new EvolutionProvider("inst-1").send({ to: "5533988585607", text: "Olá" });
+    expect(r).toEqual({ ok: false, error: FRASE_CONEXAO_FECHADA, conexaoFechada: true });
+    // não afirma a queda (um "Connection Closed" pode ser o soluço da reconexão)
+    expect(FRASE_CONEXAO_FECHADA).toContain("Tente reenviar em 1 minuto");
+  });
+});
+
+describe("o reinício não diz 'reiniciada' com a sessão morta", () => {
+  beforeEach(() => {
+    eventos.length = 0;
+    settings.reinicioPedidoEm = null;
+    settings.evolutionPhone = "553398618915";
+    vigia.claims.length = 0;
+    evo.restart.mockReset();
+    evo.state.mockReset();
+    evo.sonda.mockReset();
+    garantir.mockReset();
+  });
+
+  it("estado 'open' + sonda bate na conexão fechada → NÃO é sucesso: grava DESCONECTADO e manda ler o QR Code", async () => {
+    evo.restart.mockResolvedValue({ ok: true, status: 200, data: {} });
+    garantir.mockResolvedValue("reassinada");
+    evo.state.mockResolvedValue({ ok: true, status: 200, data: { instance: { state: "open" } } });
+    evo.sonda.mockResolvedValue({ ok: false, status: 400, data: CONEXAO_FECHADA });
+    const r = await reiniciarConexaoDaLoja("loja1", { nome: "Atos" }, { esperarMs: 0 });
+    expect(r.ok).toBe(false);
+    expect(r.sonda).toBe("morta");
+    expect(r.mensagem).toContain("o reinício não resolveu");
+    expect(r.mensagem).toContain("QR Code");
+    expect(r.mensagem).not.toContain("Conexão reiniciada");
+    expect(evo.sonda).toHaveBeenCalledWith("inst-1", "553398618915");
+    // três tentativas: a sessão recém-reiniciada ainda assenta
+    expect(evo.sonda).toHaveBeenCalledTimes(3);
+    expect(vigia.claims.at(-1)).toMatchObject({ data: { evolutionStatus: "DESCONECTADO" } });
+    expect(eventos.at(-1)).toMatchObject({ type: "wa.conexao.reiniciada", status: "ERRO" });
+  });
+
+  it("estado 'open' + sonda viva → reiniciada de verdade", async () => {
+    evo.restart.mockResolvedValue({ ok: true, status: 200, data: {} });
+    garantir.mockResolvedValue("reassinada");
+    evo.state.mockResolvedValue({ ok: true, status: 200, data: { instance: { state: "open" } } });
+    evo.sonda.mockResolvedValue({ ok: true, status: 201, data: {} });
+    const r = await reiniciarConexaoDaLoja("loja1", { nome: "Atos" }, { esperarMs: 0 });
+    expect(r.ok).toBe(true);
+    expect(r.sonda).toBe("viva");
+    expect(r.mensagem).toContain("Conexão reiniciada");
+  });
+});
+
+describe("o envio que volta 'conexão fechada' marca a loja desconectada — só com a sonda confirmando", () => {
+  beforeEach(() => {
+    eventos.length = 0;
+    settings.reinicioPedidoEm = null;
+    settings.evolutionPhone = "553398618915";
+    settings.evolutionStatus = "CONECTADO";
+    vigia.claims.length = 0;
+    vigia.claimCount = 1;
+    vigia.sinos.length = 0;
+    evo.sonda.mockReset();
+  });
+
+  it("sonda morta nas DUAS tentativas → DESCONECTADO, registro na Central e o aviso de queda; a conferência seguinte é freada", async () => {
+    evo.sonda.mockResolvedValue({ ok: false, status: 400, data: CONEXAO_FECHADA });
+    const agora = new Date("2026-11-02T22:35:00Z");
+    vi.useFakeTimers();
+    const p = confirmarConexaoFechada("loja-morta", agora);
+    await vi.runAllTimersAsync();
+    vi.useRealTimers();
+    expect(await p).toBe(true);
+    expect(vigia.claims[0]).toMatchObject({
+      where: { companyId: "loja-morta", evolutionStatus: { not: "DESCONECTADO" } },
+      data: { evolutionStatus: "DESCONECTADO" },
+    });
+    expect(eventos.map((e) => e.type)).toContain("wa.conexao.fechada");
+    // dez envios falhando juntos sondam uma vez
+    expect(await confirmarConexaoFechada("loja-morta", new Date(agora.getTime() + 30_000))).toBe(false);
+    expect(evo.sonda).toHaveBeenCalledTimes(2);
+  });
+
+  it("soluço (morta e depois viva), viva ou sem resposta → nada é marcado", async () => {
+    evo.sonda
+      .mockResolvedValueOnce({ ok: false, status: 400, data: CONEXAO_FECHADA })
+      .mockResolvedValueOnce({ ok: true, status: 201, data: {} });
+    vi.useFakeTimers();
+    const p = confirmarConexaoFechada("loja-soluco", new Date());
+    await vi.runAllTimersAsync();
+    vi.useRealTimers();
+    expect(await p).toBe(false);
+    evo.sonda.mockResolvedValueOnce({ ok: true, status: 201, data: {} });
+    expect(await confirmarConexaoFechada("loja-viva", new Date())).toBe(false);
+    evo.sonda.mockResolvedValueOnce({ ok: false, status: 0, data: null });
+    expect(await confirmarConexaoFechada("loja-muda", new Date())).toBe(false);
+    expect(vigia.claims).toHaveLength(0);
+  });
+
+  it("reinício pedido há pouco não é queda; loja que não estava conectada não é tocada", async () => {
+    settings.reinicioPedidoEm = new Date();
+    expect(await confirmarConexaoFechada("loja-reiniciando", new Date())).toBe(false);
+    settings.reinicioPedidoEm = null;
+    settings.evolutionStatus = "DESCONECTADO";
+    expect(await confirmarConexaoFechada("loja-desligada", new Date())).toBe(false);
+    expect(evo.sonda).not.toHaveBeenCalled();
   });
 });

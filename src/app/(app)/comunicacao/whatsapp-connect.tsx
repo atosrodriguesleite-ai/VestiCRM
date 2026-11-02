@@ -30,6 +30,8 @@ type Estado = {
   // o servidor aceitou a lista ATUAL de eventos? (edição/apagar dependem dela)
   eventos?: { emDia: boolean; erro: string | null } | null;
   servidorVersao?: string | null;
+  // RN-105: o servidor diz "conectado", mas a conexão com o celular caiu
+  sessaoCaida?: boolean;
   limites: { janelaHoras: number; ritmoMinSeg: number; ritmoMaxSeg: number; enviadosHoje: number };
 };
 
@@ -83,14 +85,28 @@ export function WhatsappConnect({ canEdit }: { canEdit: boolean }) {
     else setErro((await res.json().catch(() => ({}))).error ?? "Não foi possível registrar o aceite.");
   }
 
-  async function conectar() {
+  async function conectar(recriar = false) {
     setBusy(true);
     setErro("");
-    const res = await fetch("/api/whatsapp/evolution/connect", { method: "POST" });
+    const res = await fetch("/api/whatsapp/evolution/connect", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ recriar }),
+    });
     const d = await res.json().catch(() => ({}));
     setBusy(false);
     if (res.ok && d.qr) setQr(d.qr);
-    else setErro(d.error ?? "Não foi possível gerar o QR Code.");
+    else if (d.perguntarRecriar && !recriar) {
+      // RN-105: sem prova de que a sessão está viva ou morta, quem decide
+      // derrubá-la é a pessoa — avisada de que vai pedir o QR Code de novo
+      if (window.confirm(`${d.error}\n\nRecriar a conexão agora?`)) await conectar(true);
+      else setErro(d.error);
+    } else {
+      setErro(d.error ?? "Não foi possível gerar o QR Code.");
+      // já conectada (RN-105): a tela volta ao ramo "Conectado", com o
+      // Reiniciar e o Desconectar — senão o Conectar virava beco
+      if (d.jaConectado) await carregar();
+    }
   }
 
   // RN-105: a loja "conectada, mas muda" se reinicia daqui — a sessão salva
@@ -156,6 +172,13 @@ export function WhatsappConnect({ canEdit }: { canEdit: boolean }) {
           role="status"
         >
           {reinicio.mensagem}
+        </p>
+      )}
+      {estado.sessaoCaida && (
+        <p className="mb-3 rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700" role="alert">
+          O servidor diz que está conectado, mas a conexão com o celular da loja caiu: as mensagens não
+          entram nem saem. Toque em <b>Conectar WhatsApp (QR Code)</b> e leia o código com o celular da
+          loja. As conversas antigas continuam aqui.
         </p>
       )}
       <p className="text-sm text-gray-500 mb-4">
@@ -270,7 +293,7 @@ export function WhatsappConnect({ canEdit }: { canEdit: boolean }) {
           ) : (
             canEdit && (
               <button
-                onClick={conectar}
+                onClick={() => conectar()}
                 disabled={busy}
                 className="inline-flex items-center gap-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium px-5 py-2.5 transition disabled:opacity-50"
               >

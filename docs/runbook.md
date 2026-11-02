@@ -54,6 +54,13 @@ produção (zera/duplica dados de lojas reais).
    Comunicação) e testar com um "teste" de outro celular. Não voltou → logs
    do contêiner da API na Hostinger (procurar "webhook") e Restart do
    projeto. **Não reenviar** as mensagens da vendedora: elas saíram.
+   **"Conectado", mas o envio volta "Connection Closed"** (02/11/2026): o
+   servidor diz "open" com a conexão com o celular morta. O sistema agora
+   confere com a sonda e marca a loja como desconectada; o caminho é
+   Comunicação → "Conectar WhatsApp (QR Code)" — com a sessão morta, o botão
+   a derruba e recria sozinho — e ler o QR com o celular da loja. Se várias
+   lojas caíram juntas, reiniciar primeiro o projeto do Evolution na
+   Hostinger.
 
 ---
 

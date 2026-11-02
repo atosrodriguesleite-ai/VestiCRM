@@ -3061,7 +3061,74 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   ou loja suspensa manda falar com quem administra) e
   o resultado fica FORA do ramo de status da tela (o reinício que deixa a
   sessão em "connecting" troca o ramo, e a frase que manda ler o QR sumiria).
-  **Loja suspensa** segue com a conexão vigiada, mas fora da conta de muda. (3) **O
+  **Loja suspensa** segue com a conexão vigiada, mas fora da conta de muda.
+  **"Open" NÃO é prova de conexão viva** (mesmo dia, segundo relato do dono:
+  o botão disse "Conexão reiniciada", o "teste" não entrou e o envio
+  seguinte voltou `Error: Connection Closed`): a leitura do estado devolve o
+  que o servidor GUARDA na memória e segue "open" com a conexão com o
+  celular morta. A prova é a **sonda** (`evoSondarSessao`/`sondarSessao`):
+  o aviso de presença "pausado" mandado ao PRÓPRIO número da loja, que só
+  passa com a conexão viva (conferido no código do Evolution); `lerSonda`
+  (pura, `lib/comm/conexao-fechada.ts`) só diz "morta" quando o servidor
+  RESPONDE conexão fechada — tempo esgotado, rota ausente ou loja sem
+  número é "sem-resposta" e não decide nada. **Uma sonda só não decide**: o
+  servidor devolve "Connection Closed" por um instante quando se reconecta
+  sozinho, então o veredito (`veredictoDaSessao` → `veredictoDasSondas`, puro)
+  repete a sonda morta com espera — qualquer "viva" decide viva, só é "morta"
+  quando TODAS bateram no muro (duas tentativas; três logo depois de um
+  reinício, que ainda assenta) —, e a escrita da queda é UMA
+  (`marcarSessaoMorta` em `lib/comm/sessao-viva.ts`: DESCONECTADO com o
+  "desde quando", só se ainda não estava desconectada, registro
+  `wa.conexao.fechada` na Central e, quando pedido, o aviso de queda; o
+  provedor NÃO vira o simulado, senão os envios "dariam certo" sem sair) —
+  a mesma resposta do servidor não vira desfechos diferentes por botão. O
+  veredito entra em cinco lugares: (a) o **reinício** que lê "open" só diz
+  "reiniciada" com a sessão viva — morta, diz que o reinício NÃO resolveu,
+  com o caminho do QR Code (sem alarme: a pessoa está olhando); (b) o
+  **envio** que volta "Connection Closed" vira frase em português que NÃO
+  afirma a queda ("tente reenviar em 1 minuto; se falhar de novo, reconecte
+  em Comunicação", `FRASE_CONEXAO_FECHADA` — o JSON cru em inglês fazia
+  reenviar à toa, e a primeira versão dizia "reenviar não adianta" num
+  soluço), a resposta citando não repete o envio sem a citação (bateria no
+  mesmo muro), e o motor confere DEPOIS da resposta (`after`, no envio e no
+  reenvio; `confirmarConexaoFechada`, freio de 2 min por loja, reinício
+  pedido há pouco não é queda) — morta, marca e toca o aviso de queda;
+  (c) a **tela Comunicação** relê com o veredito e, morta, marca com aviso e
+  mostra "o servidor diz conectado, mas a conexão com o celular caiu" com o
+  botão do QR Code; recém-pareada pelo QR vale o "open" sem sondar (a sessão
+  ainda sincroniza, e um soluço ali tocaria "WhatsApp caiu" segundos depois
+  de conectar); durante um reinício pedido, ou sem prova, a loja que o
+  SISTEMA marcou desconectada CONTINUA desconectada (ler "open" e gravar
+  conectada desfazia o veredito do reinício na própria recarga da tela,
+  achado da revisão), e provada viva volta inteira; (d) o
+  **Conectar** que não recebe QR Code porque o servidor acha a sessão
+  "open" sonda pelo número que o PRÓPRIO servidor informa (`veredictoDoOpen`,
+  a mesma regra do reinício, da tela e do vigia — o reinício sondava só pelo
+  número gravado, vazio em loja antiga, achado da revisão) — morta, grava a
+  loja desconectada ANTES de derrubar (cortada no meio, a tela mostra o
+  Conectar, nunca "Conectado" para uma sessão já apagada) e recria a sessão
+  (o Desconectar + Conectar da loja, sem perder histórico, RN-049,
+  `wa.conexao.recriada`, com teto curto por chamada, uma segunda tentativa
+  se o servidor ainda estiver apagando a antiga e 300 s na rota, como nas
+  duas de reinício); viva, grava
+  CONECTADO com o provedor do WhatsApp e a tela volta ao ramo "Conectado";
+  **sem prova nenhuma, pergunta antes** ("recriar a conexão vai pedir o QR
+  Code de novo") e só derruba com a confirmação da pessoa — nunca no
+  escuro; (e) o **vigia** devolve sozinho a CONECTADO (com o provedor do
+  WhatsApp) a loja que o sistema marcou desconectada quando a sessão volta
+  — "open" E sonda viva —, senão ninguém mais olharia por ela (o laço só vê
+  as conectadas, e o "open" do webhook não vem se o servidor nunca mudou de
+  estado), registrando `wa.conexao.voltou`; roda DEPOIS do alarme da loja
+  muda (que não pode ficar sem tempo), as 5 mais recentes da última semana
+  por rodada, com leitura de 8 s — a loja perdida de vez não come o tempo
+  das outras. O envio em segundo plano confere no FIM dele, depois de
+  devolver a cliente à fila e acordar o sync (antes, a bolha ficava ⏱️ pela
+  duração das sondas). Provado pelas portas de verdade
+  com o servidor fingido (`sessao-viva-rotas.test.ts`: morta nas duas
+  sondas, o soluço que passa na segunda, o reinício em curso, recriar,
+  viva e a pergunta antes de derrubar). **Limite dito**: a sonda não roda a
+  cada 5 min nas lojas conectadas (a queda silenciosa de quem nem envia nem
+  recebe é coberta pelo alarme da loja muda). (3) **O
   telefone do contato LID tem UM leitor** (`telefoneDaChave`): o WhatsApp vem
   trocando a identidade de alguns contatos por um código (`@lid`) e o
   telefone real viaja em outro campo da chave, cujo NOME mudou com a versão do

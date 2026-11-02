@@ -4,7 +4,7 @@ import { registrarPrimeiraConexao } from "@/lib/comm/primeira-conexao";
 import { receiveMessage, updateDeliveryStatus, aplicarRecibosOrfaos, idDaMensagemCitada } from "@/lib/comm/engine";
 import { jidToPhone } from "@/lib/comm/evolution";
 import { telefoneDaChave } from "@/lib/comm/lid";
-import { reinicioEmCurso } from "@/lib/comm/reiniciar-conexao";
+import { reinicioEmCurso } from "@/lib/comm/conexao-fechada";
 import {
   completarMidia,
   MS_BUSCA_MIDIA,

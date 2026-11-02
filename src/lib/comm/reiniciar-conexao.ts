@@ -1,5 +1,10 @@
 import { db } from "../db";
 import { evolutionEnv, evoRestart, evoState } from "./evolution";
+import { MS_JANELA_DO_REINICIO, reinicioEmCurso, type ResultadoDaSonda } from "./conexao-fechada";
+import { marcarSessaoMorta, veredictoDoOpen } from "./sessao-viva";
+
+// a régua da janela mora na regra pura; reexportada para quem já a importa daqui
+export { MS_JANELA_DO_REINICIO, reinicioEmCurso };
 import {
   descreverRecusa,
   garantirEventosDoWebhook,
@@ -25,20 +30,10 @@ import {
  * quem pediu — reiniciar conexão é ato que precisa de rastro.
  */
 
-/** O "fechou" do servidor dentro desta janela depois de um reinício pedido é do reinício, não queda. */
-export const MS_JANELA_DO_REINICIO = 3 * 60_000;
 export const TIPO_REINICIO_PEDIDO = "wa.conexao.reinicio-pedido";
 /** Depois de a sessão voltar "open", quanto da janela ainda vale (eventos atrasados). */
 const MS_SOBRA_DEPOIS_DE_ABRIR = 15_000;
 export const TIPO_REINICIO_FEITO = "wa.conexao.reiniciada";
-
-/**
- * Alguém pediu reinício desta loja há menos de 3 minutos? Puro: lê o carimbo
- * `CommSettings.reinicioPedidoEm`, que o webhook e o vigia já têm na mão.
- */
-export function reinicioEmCurso(pedidoEm: Date | null | undefined, agora = new Date()): boolean {
-  return !!pedidoEm && agora.getTime() - pedidoEm.getTime() < MS_JANELA_DO_REINICIO;
-}
 
 /** Quantas leituras do estado depois do reinício, e o intervalo entre elas. */
 const LEITURAS_DO_ESTADO = 3;
@@ -50,13 +45,15 @@ export type ResultadoDoReinicio = {
   /** estado lido do servidor depois do reinício: open | connecting | close | null */
   estado: string | null;
   avisos: ResultadoDaAssinatura | null;
+  /** a sonda da sessão depois do reinício (RN-105): "morta" = o "open" mentia */
+  sonda?: ResultadoDaSonda;
 };
 
 /** O pedaço puro: o que dizer à pessoa pelo estado que o servidor devolveu. */
 export function fraseDoReinicio(
   estado: string | null,
   avisos: ResultadoDaAssinatura | null,
-  opts: { demorou?: boolean } = {}
+  opts: { demorou?: boolean; sessaoMorta?: boolean } = {}
 ): string {
   // o reinício que só DEMOROU a responder (RN-048: incerto não é recusa)
   // provavelmente aconteceu — a pessoa confere o estado em vez de ir à Hostinger
@@ -69,6 +66,13 @@ export function fraseDoReinicio(
       : "";
   // "avisos reaplicados" só quando o servidor CONFIRMOU (senão a frase se contradizia)
   const reaplicados = avisos === "reassinada" || avisos === "em-dia";
+  // o servidor diz "open", mas a sonda bateu na conexão fechada: o reinício
+  // NÃO resolveu, e dizer "reiniciada" foi o erro do incidente de 02/11/2026
+  if (opts.sessaoMorta)
+    return (
+      prefixo +
+      'O servidor diz "conectado", mas a conexão com o celular continua fechada: o reinício não resolveu. Toque em "Conectar WhatsApp (QR Code)" em Comunicação e leia o código com o celular da loja. Se o QR Code não aparecer, o caminho é reiniciar o projeto do Evolution na Hostinger.'
+    );
   if (estado === "open")
     return (
       prefixo +
@@ -177,6 +181,7 @@ export async function reiniciarConexaoDaLoja(
   // pessoa ler o QR de uma conexão que voltaria sozinha (achado da revisão).
   // Para em "open", ou quando a leitura falha (não insiste num servidor mudo).
   let estado: string | null = null;
+  let ownerJid: string | null = null;
   for (let i = 0; i < LEITURAS_DO_ESTADO; i++) {
     if (i > 0) await new Promise((resolve) => setTimeout(resolve, opts.esperarMs ?? 2000));
     const st = await evoState(s.evolutionInstance);
@@ -185,6 +190,7 @@ export async function reiniciarConexaoDaLoja(
       break;
     }
     estado = st.data?.instance?.state ?? null;
+    ownerJid = st.data?.instance?.ownerJid ?? null;
     if (estado === "open") break;
   }
   // O webhook cala o "close"/"connecting" deste reinício (é o que evita o
@@ -192,6 +198,34 @@ export async function reiniciarConexaoDaLoja(
   // tela recarregava "conectada" sem o botão do QR que a frase manda ler, ou
   // ficava "aguardando QR" (pelo "connecting" irmão) com a sessão aberta e a
   // loja fora do vigia (achados da revisão). Sem alarme: a pessoa está olhando.
+  // "open" na leitura não é prova (RN-105): a sonda confere com uma chamada
+  // que só passa com a conexão viva. Morta = o reinício não resolveu, e a
+  // loja passa a aparecer DESCONECTADA, com o botão do QR Code na tela
+  // (três tentativas espaçadas: a sessão recém-reiniciada ainda assenta)
+  const sonda: ResultadoDaSonda | undefined =
+    estado === "open"
+      ? await veredictoDoOpen(s.evolutionInstance, ownerJid, s.evolutionPhone, {
+          tentativas: 3,
+          esperaMs: opts.esperarMs ?? 3000,
+        })
+      : undefined;
+  if (sonda === "morta") {
+    // sem alarme: a pessoa está olhando a frase
+    await marcarSessaoMorta(companyId, { instance: s.evolutionInstance, origem: "reinicio", alarme: false });
+    await registrar(
+      TIPO_REINICIO_FEITO,
+      "ERRO",
+      'O servidor respondeu "open", mas a sonda bateu na conexão fechada: o reinício não resolveu.',
+      { estado, avisos, demorou, sonda }
+    );
+    return {
+      ok: false,
+      mensagem: fraseDoReinicio(estado, avisos, { demorou, sessaoMorta: true }),
+      estado,
+      avisos,
+      sonda,
+    };
+  }
   if (estado === "open") {
     await db.commSettings.updateMany({
       where: { companyId, evolutionStatus: { not: "CONECTADO" } },
@@ -211,6 +245,6 @@ export async function reiniciarConexaoDaLoja(
       data: { evolutionStatus: "DESCONECTADO", evolutionDownSince: new Date() },
     });
   }
-  await registrar(TIPO_REINICIO_FEITO, "OK", null, { estado, avisos, demorou });
-  return { ok: true, mensagem: fraseDoReinicio(estado, avisos, { demorou }), estado, avisos };
+  await registrar(TIPO_REINICIO_FEITO, "OK", null, { estado, avisos, demorou, sonda });
+  return { ok: true, mensagem: fraseDoReinicio(estado, avisos, { demorou }), estado, avisos, sonda };
 }

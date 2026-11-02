@@ -1,5 +1,6 @@
 import type { Channel } from "@prisma/client";
 import { fraseNumeroSemWhatsapp, respostaDizSemWhatsapp } from "./numero-sem-whatsapp";
+import { FRASE_CONEXAO_FECHADA, respostaDizConexaoFechada } from "./conexao-fechada";
 import type { CommProvider, OutboundPayload, SendResult, ProviderCredentials } from "./types";
 import {
   evolutionEnv,
@@ -172,7 +173,8 @@ export class EvolutionProvider implements CommProvider {
       // tempo estourou (status 0), a mensagem provavelmente FOI entregue e a
       // resposta é que não voltou — reenviar aí fazia a cliente receber duas
       // vezes. Incidente real: era a causa da mensagem duplicada.
-      if (!res.ok && res.status > 0 && citacao) {
+      // (não com a conexão fechada: a segunda tentativa bateria no mesmo muro)
+      if (!res.ok && res.status > 0 && citacao && !respostaDizConexaoFechada(res.data)) {
         res = await evoSendText(this.instance!, number, payload.text ?? "");
       }
     }
@@ -180,6 +182,12 @@ export class EvolutionProvider implements CommProvider {
     // NÚMERO, e a vendedora precisa ler isso em português (relato 29/09/2026)
     if (!res.ok && res.status > 0 && respostaDizSemWhatsapp(res.data)) {
       return { ok: false, error: fraseNumeroSemWhatsapp(number) };
+    }
+    // a conexão com o celular caiu (RN-105): o JSON cru em inglês com
+    // "Reenviar" do lado fazia a vendedora reenviar à toa — a frase diz o que
+    // houve, e a bandeira faz o motor conferir e avisar a loja
+    if (!res.ok && res.status > 0 && respostaDizConexaoFechada(res.data)) {
+      return { ok: false, error: FRASE_CONEXAO_FECHADA, conexaoFechada: true };
     }
     if (!res.ok) {
       // devolve o motivo que o servidor deu (encurtado) — sem ele, todo erro

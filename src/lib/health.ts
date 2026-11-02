@@ -1,7 +1,8 @@
 import { db } from "./db";
 import { evolutionEnv, evoState } from "./comm/evolution";
+import { veredictoDoOpen } from "./comm/sessao-viva";
 import { garantirEventosDoWebhook } from "./comm/garantir-webhook";
-import { reinicioEmCurso } from "./comm/reiniciar-conexao";
+import { reinicioEmCurso } from "./comm/conexao-fechada";
 import { sendToCompany, sendToUser } from "./push";
 import {
   deveAvisarSilencio,
@@ -480,6 +481,55 @@ export async function runWatchdogIfDue(): Promise<void> {
     // 3) conectada, mas MUDA (RN-105): a conexão de pé e nada entrando é a
     // falha mais perigosa — a loja acha que está tudo bem
     await avisarLojasMudas(conectadas, now);
+    // 4) a loja que o SISTEMA marcou desconectada volta sozinha quando a sessão
+    // volta (RN-105): ninguém mais olharia por ela — este laço só vê as
+    // CONECTADAS, e o "open" do webhook não vem se a sessão nunca mudou de
+    // estado no servidor (o soluço que enganou a sonda). Só a marcada pelo
+    // sistema (instância de pé; o Desconectar da loja a zera, RN-049), e só
+    // com a sonda provando viva — a leitura "open" sozinha já mentiu uma vez.
+    const marcadas = await db.commSettings.findMany({
+      // DEPOIS do alarme da loja muda (que não pode ficar sem tempo), as mais
+      // recentes primeiro, só da última semana e poucas por rodada, com teto
+      // curto por leitura: a perdida de vez não come o tempo das outras
+      where: {
+        evolutionStatus: "DESCONECTADO",
+        evolutionInstance: { not: null },
+        evolutionDownSince: { gte: new Date(now.getTime() - 7 * 24 * 60 * 60_000) },
+      },
+      orderBy: { evolutionDownSince: "desc" },
+      select: { companyId: true, evolutionInstance: true, evolutionPhone: true },
+      take: 5,
+    });
+    for (const m of marcadas) {
+      const st = await evoState(m.evolutionInstance!, 8_000);
+      if (!st.ok || st.data?.instance?.state !== "open") continue;
+      if ((await veredictoDoOpen(m.evolutionInstance, st.data?.instance?.ownerJid, m.evolutionPhone)) !== "viva")
+        continue;
+      const voltou = await db.commSettings.updateMany({
+        where: { companyId: m.companyId, evolutionStatus: "DESCONECTADO" },
+        data: { evolutionStatus: "CONECTADO", evolutionDownSince: null, evolutionAlertAt: null },
+      });
+      if (voltou.count > 0) {
+        // a tela de conexão troca para o simulado quando lê "fechada" de
+        // verdade; voltando, os envios têm que sair pelo WhatsApp outra vez
+        await db.commSettings.updateMany({
+          where: { companyId: m.companyId, activeProvider: "MOCK" },
+          data: { activeProvider: "EVOLUTION" },
+        });
+        await db.commEvent
+          .create({
+            data: {
+              companyId: m.companyId,
+              channel: "WHATSAPP",
+              direction: "IN",
+              type: "wa.conexao.voltou",
+              status: "OK",
+              payload: JSON.stringify({ instance: m.evolutionInstance }),
+            },
+          })
+          .catch(() => {});
+      }
+    }
   } catch (e) {
     await logServerError({
       source: "watchdog",

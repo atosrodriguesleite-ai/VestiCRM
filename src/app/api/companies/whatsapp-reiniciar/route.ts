@@ -8,9 +8,10 @@ import { reiniciarConexaoDaLoja } from "@/lib/comm/reiniciar-conexao";
  * Admin, pelo painel de Saúde: é ali que a loja muda aparece, e quem a vê
  * precisa poder agir sem entrar na loja nem na Hostinger.
  */
-// reiniciar (15 s, mais 15 do PUT de reserva) + reaplicar avisos (15 s) + ler o
-// estado (15 s, até 3 leituras curtas) + as esperas: 60 s não cobriam o pior caso
-export const maxDuration = 90;
+// reiniciar (15 s, mais 15 do PUT de reserva) + reaplicar avisos + ler o
+// estado (até 3 leituras) + a sonda (até 3 tentativas com espera): folga para
+// o pior caso — cortada no meio, a pessoa não saberia o que houve
+export const maxDuration = 300;
 
 export async function POST(req: NextRequest) {
   try {

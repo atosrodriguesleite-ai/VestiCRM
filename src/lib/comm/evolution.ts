@@ -236,7 +236,7 @@ function webhookUrl(webhookToken: string) {
 }
 
 /** Cria (ou garante) a instância da loja, já apontando o webhook pra cá. */
-export async function evoCreateInstance(instance: string, webhookToken: string) {
+export async function evoCreateInstance(instance: string, webhookToken: string, timeoutMs?: number) {
   return evo("POST", "/instance/create", {
     instanceName: instance,
     integration: "WHATSAPP-BAILEYS",
@@ -246,7 +246,7 @@ export async function evoCreateInstance(instance: string, webhookToken: string) 
       byEvents: false,
       events: [...WEBHOOK_EVENTS],
     },
-  });
+  }, timeoutMs);
 }
 
 /**
@@ -275,8 +275,8 @@ export async function evoSetWebhook(instance: string, webhookToken: string) {
 }
 
 /** Pede o QR Code de conexão (base64) da instância. */
-export async function evoConnect(instance: string) {
-  return evo<{ base64?: string; code?: string }>("GET", `/instance/connect/${instance}`);
+export async function evoConnect(instance: string, timeoutMs?: number) {
+  return evo<{ base64?: string; code?: string }>("GET", `/instance/connect/${instance}`, undefined, timeoutMs);
 }
 
 /**
@@ -305,11 +305,32 @@ export async function evoRestart(instance: string) {
   return r;
 }
 
+/**
+ * SONDA DA SESSÃO (RN-105): uma chamada que só funciona com a conexão com o
+ * WhatsApp VIVA. A leitura do estado (abaixo) devolve o que o servidor guarda
+ * na memória e pode dizer "open" com a conexão morta — foi o incidente de
+ * 02/11/2026. Aqui o servidor manda o aviso de presença "pausado" para o
+ * PRÓPRIO número da loja (ninguém vê; nada aparece no celular de cliente):
+ * com a conexão morta ele responde "Connection Closed" (conferido no código
+ * do Evolution: a rota passa por `presenceSubscribe`, que exige a conexão
+ * aberta). Teto curto: é diagnóstico, não envio.
+ */
+export async function evoSondarSessao(instance: string, numeroDaLoja: string) {
+  return evo(
+    "POST",
+    `/chat/sendPresence/${instance}`,
+    { number: numeroDaLoja.replace(/\D/g, ""), presence: "paused", delay: 0 },
+    EVO_BUSCA_RAPIDA_MS
+  );
+}
+
 /** Estado atual da conexão: open | connecting | close. */
-export async function evoState(instance: string) {
+export async function evoState(instance: string, timeoutMs?: number) {
   return evo<{ instance?: { state?: string; ownerJid?: string } }>(
     "GET",
-    `/instance/connectionState/${instance}`
+    `/instance/connectionState/${instance}`,
+    undefined,
+    timeoutMs
   );
 }
 
@@ -451,9 +472,9 @@ export async function evoGetMediaBase64(
 }
 
 /** Desconecta e remove a instância (o número volta a ser só do celular). */
-export async function evoLogout(instance: string) {
-  await evo("DELETE", `/instance/logout/${instance}`);
-  return evo("DELETE", `/instance/delete/${instance}`);
+export async function evoLogout(instance: string, timeoutMs?: number) {
+  await evo("DELETE", `/instance/logout/${instance}`, undefined, timeoutMs);
+  return evo("DELETE", `/instance/delete/${instance}`, undefined, timeoutMs);
 }
 
 /** JID de contato (1:1) a partir de um telefone BR (assume 55 sem DDI). */

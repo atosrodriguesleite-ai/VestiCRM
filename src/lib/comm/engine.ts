@@ -4,6 +4,7 @@ import { avancarFunil } from "../funil-auto";
 import { decryptSecret } from "../crypto";
 import { intakeLead } from "../intake";
 import { resolveProvider } from "./providers";
+import { confirmarConexaoFechada } from "./sessao-viva";
 import {
   paceProactiveSend,
   WA_JANELA_HORAS,
@@ -170,6 +171,8 @@ export async function sendMessage(input: SendMessageInput): Promise<Message> {
 
   if (!isNote) {
     const messageId = message.id;
+    // RN-105: o envio em segundo plano confere a "conexão fechada" no FIM
+    let conferirNoFim = false;
     const doSend = async (): Promise<Message> => {
       const started = Date.now();
       const { activeProvider, creds } = await loadCredentials(input.companyId);
@@ -251,6 +254,16 @@ export async function sendMessage(input: SendMessageInput): Promise<Message> {
           where: { id: messageId, status: "ENVIANDO" },
           data: { status: "FALHOU", error: result.error },
         });
+        // o servidor disse "conexão fechada" (RN-105): confere com a sonda e,
+        // se for verdade, a loja aparece desconectada e é avisada — senão a
+        // queda só existia na bolha vermelha de cada mensagem
+        if (result.conexaoFechada) {
+          // em segundo plano, a conferência vai para o FIM do envio: antes
+          // dela vêm a cliente de volta à fila e o "acorda" do sync, senão a
+          // bolha ficava ⏱️ pela duração das sondas (achado da revisão)
+          if (input.background) conferirNoFim = true;
+          else await conferirDepois(input.companyId);
+        }
       }
       const updated = (await db.message.findUnique({ where: { id: messageId } }))!;
 
@@ -308,6 +321,7 @@ export async function sendMessage(input: SendMessageInput): Promise<Message> {
         await db.conversation
           .update({ where: { id: conv.id }, data: { updatedAt: new Date() } })
           .catch(() => {});
+        if (conferirNoFim) await confirmarConexaoFechada(input.companyId);
       });
     } else {
       // Envio direto (texto): sem esta proteção, qualquer exceção deixava a
@@ -408,12 +422,29 @@ export async function resendMessage(
 
   // O REENVIO SEGUE A MESMA RÉGUA (RN-048): estourou o tempo, volta para
   // "confirmando" — nunca para o vermelho que convida a um terceiro envio.
+  if (!result.ok && result.conexaoFechada) await conferirDepois(companyId);
   const dados = result.ok
     ? { status: "REENVIADA" as const, externalId: result.externalId, error: null }
     : situacaoDoEnvio(result) === "confirmando"
       ? { status: "ENVIANDO" as const, error: result.error }
       : { status: "FALHOU" as const, error: result.error };
   return db.message.update({ where: { id: message.id }, data: dados });
+}
+
+/**
+ * A conferência da "conexão fechada" (RN-105) não segura a resposta da
+ * vendedora: ela repete a sonda com espera e toca os avisos — no envio direto
+ * e no reenvio vai para depois da resposta (`after`). O envio em segundo plano
+ * já roda depois da resposta e confere no FIM dele (`conferirNoFim`). Fora de
+ * uma requisição (o `after` não existe), confere na hora.
+ */
+async function conferirDepois(companyId: string): Promise<void> {
+  try {
+    after(() => confirmarConexaoFechada(companyId));
+  } catch {
+    // sem requisição em volta: confere na hora
+    await confirmarConexaoFechada(companyId);
+  }
 }
 
 /* ---- a janela de confirmação tem fim (RN-048) -------------------------- */
