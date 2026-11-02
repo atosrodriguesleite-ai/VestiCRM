@@ -11,13 +11,16 @@ import { catalogUrl } from "@/lib/catalog-url";
 import { platformUrl } from "@/lib/site";
 import { LinksDePreco } from "./links-de-preco";
 import { BaixarCatalogoPdf } from "./baixar-pdf";
+import { CapaDoPdf } from "./capa-do-pdf";
+import { lerFotosDaCapa } from "@/lib/catalogo/capa-pdf-regra";
+import { imageHref } from "@/lib/img";
 
 export const dynamic = "force-dynamic";
 
 export default async function CatalogCustomizePage() {
   const user = await requireUser();
 
-  const [company, colors, sizes, catRows, tabelas] = await Promise.all([
+  const [company, colors, sizes, catRows, tabelas, capaDaLoja] = await Promise.all([
     db.company.findUnique({ where: { id: user.companyId } }),
     db.companyColor.findMany({
       where: { companyId: user.companyId },
@@ -45,8 +48,41 @@ export default async function CatalogCustomizePage() {
       select: { code: true, name: true, priceMode: true },
       orderBy: { createdAt: "asc" },
     }),
+    // a capa do PDF (RN-094, item 6) não depende da loja: vai na mesma ida
+    db.catalogoCapa.findUnique({
+      where: { companyId: user.companyId },
+      select: { miniatura: true },
+    }),
   ]);
   if (!company) return null;
+
+  // A CAPA DO PDF (RN-094, item 6): a miniatura do que está salvo e as peças
+  // escolhidas com nome e foto — resolvidas no servidor, recortadas pela loja
+  // A peça PAUSADA continua na lista (marcada): o PDF a pula enquanto estiver
+  // pausada e ela volta sozinha ao reativar — tirá-la daqui faria "salvar o
+  // título" apagá-la da capa para sempre (achado da revisão). Só a apagada
+  // de vez some.
+  const idsDaCapa = lerFotosDaCapa(company.catalogPdfCapaFotos);
+  const pecasDaCapa = idsDaCapa.length
+    ? await db.product.findMany({
+        where: { id: { in: idsDaCapa }, companyId: user.companyId },
+        select: {
+          id: true,
+          name: true,
+          active: true,
+          images: { orderBy: { order: "asc" }, take: 1, select: { id: true } },
+        },
+      })
+    : [];
+  const pecasEscolhidas = idsDaCapa
+    .map((id) => pecasDaCapa.find((p) => p.id === id))
+    .filter((p): p is NonNullable<typeof p> => Boolean(p))
+    .map((p) => ({
+      id: p.id,
+      nome: p.name,
+      ativa: p.active,
+      foto: p.images[0] ? imageHref(p.images[0].id) : null,
+    }));
 
   // gêmeas byte-diferentes (ç decomposto, espaço no fim) fundem numa linha
   // só — senão a lojista via e arrastava DUAS "Regata Alça", e salvar
@@ -114,6 +150,19 @@ export default async function CatalogCustomizePage() {
             ? tabelas.map((t) => ({ code: t.code, name: t.name, mode: t.priceMode }))
             : []
         }
+      />
+      {/* A CAPA é da loja (RN-094, item 6): a imagem feita fora (Canva) ou os
+          ajustes da capa automática. Identidade visual: só admin edita. */}
+      <CapaDoPdf
+        canEdit={isAdmin(user)}
+        initial={{
+          miniatura: capaDaLoja?.miniatura ?? null,
+          capaTem: Boolean(capaDaLoja),
+          faixa: company.catalogPdfCapaFaixa,
+          titulo: company.catalogPdfTitulo ?? "",
+          subtitulo: company.catalogPdfSubtitulo ?? "",
+          pecas: pecasEscolhidas,
+        }}
       />
       {/* recurso gated: quem não ativou não vê nada aqui */}
       {company.priceTablesEnabled && (

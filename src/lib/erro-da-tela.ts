@@ -155,6 +155,12 @@ export type RelatoDoErro = {
   versaoVelha: boolean;
   /** a recarga automática ACONTECEU — só então é o caso que se cura sozinho */
   recarregouSozinho: boolean;
+  /**
+   * RN-095 · a página NÃO terminou de chegar (o vigia da abertura, em
+   * `lib/vigia-da-abertura.ts`) — não é quebra de código, é a conexão;
+   * fonte própria no painel (`FONTE_TELA_ABERTURA`)
+   */
+  abertura?: boolean;
   quando: string;
 };
 

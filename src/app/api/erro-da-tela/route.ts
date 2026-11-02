@@ -17,6 +17,7 @@ import {
   TETO_DETALHE,
   TETO_MENSAGEM,
 } from "@/lib/erro-da-tela";
+import { FONTE_TELA_ABERTURA } from "@/lib/vigia-da-abertura";
 
 export const dynamic = "force-dynamic";
 
@@ -41,6 +42,12 @@ export const dynamic = "force-dynamic";
  * "Versão velha" que DE FATO recarregou é o esperado depois de cada
  * entrega: fonte própria, fora da conta. A que a trava barrou é peça
  * faltando de verdade e entra como quebra.
+ *
+ * RN-095: a página que NÃO TERMINOU DE CHEGAR (`abertura: true`, guardada
+ * pelo vigia da abertura) é a conexão da pessoa, não o código — fonte
+ * própria (`tela.abertura`), fora da conta de erros, em bloco próprio da
+ * Saúde. A marca manda sobre as outras: um relato de abertura nunca vira
+ * "versão velha" nem quebra.
  */
 const relatoSchema = z.object({
   id: z.string().min(8).max(64),
@@ -49,6 +56,7 @@ const relatoSchema = z.object({
   caminho: z.string().max(TETO_CAMINHO),
   versaoVelha: z.boolean(),
   recarregouSozinho: z.boolean(),
+  abertura: z.boolean().optional(),
   quando: z.string().max(40),
 });
 
@@ -75,7 +83,7 @@ export async function POST(req: NextRequest) {
     // já gravado (a resposta se perdeu numa recarga e o aparelho reenviou)
     const jaTem = await db.errorLog.findFirst({
       where: {
-        source: { in: ["client", FONTE_TELA_VERSAO_VELHA] },
+        source: { in: ["client", FONTE_TELA_VERSAO_VELHA, FONTE_TELA_ABERTURA] },
         createdAt: { gte: new Date(Date.now() - MS_VALIDADE_DO_RELATO - 86_400_000) },
         detail: { contains: marcaDoRelato },
       },
@@ -83,16 +91,19 @@ export async function POST(req: NextRequest) {
     });
     if (jaTem) return NextResponse.json({ ok: true });
 
-    const esperado = relatoEsperado(r);
+    const abertura = r.abertura === true;
+    const esperado = !abertura && relatoEsperado(r);
     // a marca diz na lista do painel, sem abrir, qual caso foi
-    const marca = esperado
-      ? "[tela · versão velha] "
-      : r.versaoVelha
-        ? "[tela · peça que não carregou] "
-        : "[tela] ";
+    const marca = abertura
+      ? "[tela · abertura incompleta] "
+      : esperado
+        ? "[tela · versão velha] "
+        : r.versaoVelha
+          ? "[tela · peça que não carregou] "
+          : "[tela] ";
 
     await logServerError({
-      source: esperado ? FONTE_TELA_VERSAO_VELHA : "client",
+      source: abertura ? FONTE_TELA_ABERTURA : esperado ? FONTE_TELA_VERSAO_VELHA : "client",
       alarme: false,
       path: soOCaminho(r.caminho),
       message: `${marca}${r.mensagem}`,

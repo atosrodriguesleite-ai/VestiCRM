@@ -19,6 +19,8 @@ import { secoesDaVitrine, contarCards } from "../src/lib/catalogo/secoes";
 import { gerarCatalogoPdf, TETO_DE_CARDS } from "../src/lib/catalogo/pdf";
 import { parseCategoryOrder, parseCategoryTypes } from "../src/lib/categories";
 import { bufferToDataUrl } from "../src/lib/img-server";
+import { capaGuardadaParaOPdf, prepararCapaEnviada } from "../src/lib/catalogo/capa-pdf";
+import { ALTURA_DA_FAIXA } from "../src/lib/catalogo/pdf";
 
 const SAIDA = process.env.SAIDA_PDF ?? "/tmp/catalogo.pdf";
 
@@ -348,6 +350,78 @@ async function main() {
       vr > 60 && vr > vb,
       `pixel rgb(${vr},${vg},${vb}) — a loja é ${company.catalogPrimary}`
     );
+
+    // ── 13 · a CAPA DA LOJA ocupa a folha inteira, com a faixa no pé ──────
+    /*
+     * RN-094, item 6: a imagem que a loja subiu (Canva) vira a página 1. A
+     * prova é medir o PIXEL da página renderizada: o meio da folha tem a cor
+     * da imagem enviada (verde), e o pé tem a cor da LOJA (a faixa com a data
+     * e o WhatsApp). Sem a faixa, o pé é verde também.
+     */
+    const enviada = await sharp({
+      create: { width: 2480, height: 3508, channels: 3, background: { r: 30, g: 140, b: 60 } },
+    })
+      .jpeg()
+      .toBuffer();
+    const pronta = await prepararCapaEnviada(bufferToDataUrl(enviada, "image/jpeg"));
+    if (!pronta.ok) throw new Error(pronta.erro);
+    const identidadeComCapa = {
+      nome: company.name,
+      tagline: null,
+      whatsapp: "5533999990000",
+      primary: company.catalogPrimary,
+      secondary: company.catalogSecondary,
+      bg: company.catalogBg,
+      logo: null,
+      cores: [],
+    };
+    const pixelDaCapa = async (faixa: boolean, rotulo: string) => {
+      const doc = await gerarCatalogoPdf(secoes.slice(0, 1), {
+        identidade: identidadeComCapa,
+        capa: { imagem: capaGuardadaParaOPdf(pronta.imagem), faixa },
+        geradoEm: new Date(),
+        semCores: false,
+        restante: () => 45_000,
+      });
+      const base = `${SAIDA.replace(/\.pdf$/, "")}-${rotulo}`;
+      writeFileSync(`${base}.pdf`, doc.bytes);
+      execFileSync("pdftoppm", ["-png", "-r", "72", "-f", "1", "-l", "1", "-singlefile", `${base}.pdf`, `${base}-img`]);
+      const { data, info } = await sharp(`${base}-img.png`).raw().toBuffer({ resolveWithObject: true });
+      const em = (xi: number, yi: number) => {
+        const i = (yi * info.width + xi) * info.channels;
+        return [data[i], data[i + 1], data[i + 2]] as const;
+      };
+      return {
+        meio: em(Math.round(info.width / 2), Math.round(info.height / 2)),
+        pe: em(Math.round(info.width / 4), info.height - Math.round(ALTURA_DA_FAIXA / 2)),
+        paginas: doc.paginas,
+      };
+    };
+    const comFaixa = await pixelDaCapa(true, "capa-loja");
+    const verde = (p: readonly [number, number, number]) => p[1] > p[0] + 40 && p[1] > p[2] + 40;
+    confere(
+      "13 · a capa da loja ocupa a folha (o meio da página 1 é a imagem enviada)",
+      verde(comFaixa.meio),
+      `pixel rgb(${comFaixa.meio.join(",")})`
+    );
+    confere(
+      "14 · com a faixa ligada, o pé da capa tem a cor da LOJA (data + WhatsApp)",
+      !verde(comFaixa.pe),
+      `pixel rgb(${comFaixa.pe.join(",")}) — a loja é ${company.catalogPrimary}`
+    );
+    const semFaixa = await pixelDaCapa(false, "capa-loja-sem-faixa");
+    confere("15 · sem a faixa, a capa é 100% da loja até o pé", verde(semFaixa.pe), `pixel rgb(${semFaixa.pe.join(",")})`);
+    confere("16 · a capa da loja não acrescenta página (continua 1 capa + as peças)", semFaixa.paginas === comLogo.paginas);
+
+    // ── 17 · capa guardada torta cai na automática, nunca em erro ─────────
+    const torta = await gerarCatalogoPdf(secoes.slice(0, 1), {
+      identidade: identidadeComCapa,
+      capa: { imagem: Buffer.from([0xff, 0xd8, 1, 2, 3, 4, 5, 6, 7, 8, 9]), faixa: true, titulo: "Coleção Verão 27" },
+      geradoEm: new Date(),
+      semCores: false,
+      restante: () => 45_000,
+    });
+    confere("17 · imagem de capa que não abre vira capa automática (o PDF sai)", torta.paginas === comLogo.paginas);
 
     console.log(`\nArquivo em ${SAIDA}`);
   } finally {

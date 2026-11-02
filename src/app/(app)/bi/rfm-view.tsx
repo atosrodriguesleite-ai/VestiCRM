@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ArrowRight } from "lucide-react";
+import { ArrowRight, Megaphone } from "lucide-react";
 import { Card } from "@/components/ui";
 import { brl } from "@/lib/format";
 import type { Rfm } from "@/lib/bi/rfm";
@@ -89,12 +89,21 @@ export function RfmView({ rfm, periodo }: { rfm: Rfm; periodo: { de: string; ate
                 <span className="font-medium text-gray-600">Ação:</span> {g.acao}
               </p>
               {!vazio && (
-                <Link
-                  href={hrefDaLista({ tipo: "rfm", grupo: g.id, ...volta })}
-                  className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-brand-700 hover:underline"
-                >
-                  Ver e chamar <ArrowRight className="size-3.5" />
-                </Link>
+                <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1">
+                  <Link
+                    href={hrefDaLista({ tipo: "rfm", grupo: g.id, ...volta })}
+                    className="inline-flex items-center gap-1 text-xs font-medium text-brand-700 hover:underline"
+                  >
+                    Ver e chamar <ArrowRight className="size-3.5" />
+                  </Link>
+                  {/* RN-098: a campanha com o grupo já escolhido e a mensagem dele pronta */}
+                  <Link
+                    href={`/campanhas?rfm=${g.id}`}
+                    className="inline-flex items-center gap-1 text-xs font-medium text-gray-500 hover:text-brand-700 hover:underline"
+                  >
+                    <Megaphone className="size-3.5" /> Criar campanha
+                  </Link>
+                </div>
               )}
             </Card>
           );

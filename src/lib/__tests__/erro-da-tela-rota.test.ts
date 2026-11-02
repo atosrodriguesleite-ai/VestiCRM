@@ -131,6 +131,28 @@ describe("a porta do relato de tela quebrada", () => {
     expect(g.message).toBe("[tela · peça que não carregou] ChunkLoadError: Loading chunk 1 failed.");
   });
 
+  it("abertura que não terminou (RN-095): fonte própria, fora da conta — e a marca manda sobre as outras", async () => {
+    await POST(
+      pedido(
+        relato({
+          abertura: true,
+          versaoVelha: true,
+          recarregouSozinho: true,
+          mensagem: "Abertura não terminou: a página chegou cortada (2s, com internet)",
+        })
+      )
+    );
+    const g = estado.gravados[0];
+    expect(g.source).toBe("tela.abertura");
+    expect(g.alarme).toBe(false);
+    expect(g.message).toBe("[tela · abertura incompleta] Abertura não terminou: a página chegou cortada (2s, com internet)");
+  });
+
+  it("relato antigo sem a marca de abertura segue entrando como sempre", async () => {
+    await POST(pedido(relato({ abertura: undefined })));
+    expect(estado.gravados[0].source).toBe("client");
+  });
+
   it("o mesmo relato (mesmo id) reenviado depois de uma recarga não entra duas vezes", async () => {
     const r = relato();
     expect((await POST(pedido(r))).status).toBe(200);

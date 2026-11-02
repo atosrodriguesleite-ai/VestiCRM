@@ -20,7 +20,9 @@ import {
 import { Alert, Badge, Button, Card, EmptyState, Input, Spinner } from "@/components/ui";
 import { copiarTexto } from "@/lib/copiar";
 import { MapaEnvios, type MapaDeEnvios } from "./mapa-envios";
-import { AGUARDANDO_POSTAGEM, estaParado, lerValorBR } from "@/lib/envios/painel";
+import { ModoTv } from "./modo-tv";
+import { deveAbrirTv } from "@/lib/envios/tv-regra";
+import { AGUARDANDO_POSTAGEM, atrasoDoEnvio, lerValorBR, type AtrasoDoEnvio } from "@/lib/envios/painel";
 import type { ResumoEnvios } from "@/lib/envios/painel";
 import type { MeQuote, MeRecusa, VolumePacote } from "@/lib/melhorenvio-tipos";
 
@@ -50,6 +52,10 @@ type Envio = {
   compradoEm: string | null;
   postadoEm: string | null;
   entregueEm: string | null;
+  /** prazo prometido pela transportadora na cotação aceita (dias úteis) — RN-102 */
+  prazoDias: number | null;
+  /** até quando ela prometeu entregar (carimbado na postagem); nulo = régua dos 7 dias */
+  previstoAte: string | null;
   cidade: string | null;
   uf: string | null;
   comNota: boolean;
@@ -90,25 +96,38 @@ const ABAS = [
 ] as const;
 type Aba = (typeof ABAS)[number]["key"];
 
-function abaDoEnvio(e: Envio): Aba {
+function abaDoEnvio(e: Envio, atraso: AtrasoDoEnvio): Aba {
   if (e.status === "DEVOLVIDO" || e.status === "CANCELADO") return "atencao";
   if (e.status === "ENTREGUE") return "entregues";
-  if (e.status === "POSTADO")
-    return estaParado(e.status, e.postadoEm) ? "atencao" : "transito";
+  if (e.status === "POSTADO") return atraso.atrasado ? "atencao" : "transito";
   // fonte única com o painel: os dois números da mesma página não podem divergir
   if (e.status && (AGUARDANDO_POSTAGEM as readonly string[]).includes(e.status))
     return "aguardando";
   return "todos";
 }
 
-function chipDoStatus(e: Envio): { texto: string; cor: string } {
+// ATRASADO DE VERDADE (RN-102): a mesma régua pura do servidor — passou da
+// previsão da transportadora; sem previsão (etiqueta antiga), os 7 dias.
+// Calculada UMA vez por envio, com UM relógio (`atrasosDaLista`): a aba, o
+// chip e a linha leem o mesmo resultado
+const atrasosDaLista = (lista: Envio[]): Map<string, AtrasoDoEnvio> => {
+  const agora = new Date();
+  return new Map(
+    lista.map((e) => [e.id, atrasoDoEnvio({ meStatus: e.status, postadoEm: e.postadoEm, previstoAte: e.previstoAte, entregueEm: e.entregueEm }, agora)])
+  );
+};
+
+function chipDoStatus(e: Envio, a: AtrasoDoEnvio): { texto: string; cor: string } {
   if (e.status === "ENTREGUE") return { texto: "Entregue", cor: "#059669" };
   if (e.status === "DEVOLVIDO") return { texto: "Devolvido", cor: "#e11d48" };
   if (e.status === "CANCELADO") return { texto: "Cancelada", cor: "#64748b" };
-  if (e.status === "POSTADO")
-    return estaParado(e.status, e.postadoEm)
-      ? { texto: "Parado no caminho", cor: "#e11d48" }
-      : { texto: "Em trânsito", cor: "#2563eb" };
+  if (e.status === "POSTADO") {
+    if (!a.atrasado) return { texto: "Em trânsito", cor: "#2563eb" };
+    // sem prazo gravado a tela não promete "atrasado": só diz que parou
+    if (a.pelaReguaAntiga) return { texto: "Parado no caminho", cor: "#e11d48" };
+    // atrasado só depois da folga de 1 dia, então aqui diasAlem é sempre ≥ 1
+    return { texto: `Atrasado · ${a.diasAlem} dia${a.diasAlem > 1 ? "s" : ""} além do prazo`, cor: "#e11d48" };
+  }
   return { texto: "Aguardando postagem", cor: "#d97706" };
 }
 
@@ -143,6 +162,11 @@ export function EnviosView() {
   const [aba, setAba] = useState<Aba>("todos");
   const [busca, setBusca] = useState("");
   const [copiado, setCopiado] = useState("");
+  // MODO TV (RN-104): abre pelo botão ou por `?tv=1` (o endereço salvo na TV da loja)
+  const [tv, setTv] = useState(false);
+  useEffect(() => {
+    if (deveAbrirTv(window.location.search)) setTv(true);
+  }, []);
 
   const carregar = useCallback(async (q = "") => {
     setAtualizando(true);
@@ -189,21 +213,31 @@ export function EnviosView() {
 
   // o texto da lupa é filtrado NO SERVIDOR (a lista já vem só com o que
   // casa); aqui só resta separar por aba
+  const atrasos = useMemo(() => atrasosDaLista(dados?.lista ?? []), [dados]);
+  const atrasoDe = (e: Envio) => atrasos.get(e.id) ?? atrasoDoEnvio({ meStatus: e.status, postadoEm: e.postadoEm, previstoAte: e.previstoAte, entregueEm: e.entregueEm });
   const lista = useMemo(() => {
     if (!dados) return [];
-    return dados.lista.filter((e) => aba === "todos" || abaDoEnvio(e) === aba);
-  }, [dados, aba]);
+    return dados.lista.filter((e) => aba === "todos" || abaDoEnvio(e, atrasoDe(e)) === aba);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dados, aba, atrasos]);
+
+  // a TV tem a porta leve dela: abre por `?tv=1` mesmo que a leitura pesada
+  // da tela ainda não tenha voltado (ou tenha falhado) — a TV da loja
+  // reinicia sozinha e ninguém está lá para clicar de novo
+  const modoTv = tv && <ModoTv aoFechar={() => setTv(false)} />;
 
   if (!dados && !erro)
     return (
       <div className="flex justify-center py-16 text-slate-400">
         <Spinner className="size-6" />
+        {modoTv}
       </div>
     );
 
   return (
     <div className="space-y-5">
       {erro && <Alert tone="danger">{erro}</Alert>}
+      {modoTv}
 
       {dados && (
         <>
@@ -240,8 +274,8 @@ export function EnviosView() {
               valor={String(dados.painel.emTransito)}
               detalhe={
                 dados.painel.parados > 0
-                  ? `${dados.painel.parados} deles parado${dados.painel.parados > 1 ? "s" : ""} há +${dados.diasParaParado} dias (veja em Atenção)`
-                  : "tudo andando"
+                  ? `${dados.painel.parados} deles atrasado${dados.painel.parados > 1 ? "s" : ""} — passou do prazo da transportadora (ou +${dados.diasParaParado} dias sem prazo). Veja em Atenção`
+                  : "tudo dentro do prazo"
               }
               alerta={dados.painel.parados > 0}
             />
@@ -258,7 +292,7 @@ export function EnviosView() {
           </div>
 
           {/* ---- Mapa de envios --------------------------------------- */}
-          {dados.mapa && <MapaEnvios mapa={dados.mapa} />}
+          {dados.mapa && <MapaEnvios mapa={dados.mapa} aoAbrirTv={() => setTv(true)} />}
 
           {/* ---- Simulador (RN-019) ----------------------------------- */}
           <Simulador
@@ -344,7 +378,7 @@ export function EnviosView() {
                   </thead>
                   <tbody>
                     {lista.map((e) => {
-                      const chip = chipDoStatus(e);
+                      const chip = chipDoStatus(e, atrasoDe(e));
                       return (
                         <tr
                           key={e.id}
@@ -422,6 +456,14 @@ export function EnviosView() {
                             {e.status === "POSTADO" && e.postadoEm && (
                               <p className="mt-0.5 text-[11px] text-slate-400">
                                 postado em {dataCurta(e.postadoEm)}
+                                {e.previstoAte && (
+                                  <>
+                                    {" · "}
+                                    <span className={atrasoDe(e).atrasado ? "text-rose-600" : ""}>
+                                      previsão até {dataCurta(e.previstoAte)}
+                                    </span>
+                                  </>
+                                )}
                               </p>
                             )}
                           </td>

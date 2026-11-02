@@ -259,10 +259,11 @@ describe("as portas do mapa", () => {
     expect(rota).toContain("...(envioAtual?.shippedAt ? {} : { shippedAt: now })");
   });
 
-  it("a tela oferece os dois recortes e abre no mais completo", () => {
+  it("a tela oferece os três recortes; abre em 'Na estrada' quando há pacote a caminho (RN-103), senão no mais completo", () => {
     const tela = ler("src/app/(app)/envios/mapa-envios.tsx");
     expect(tela).toContain("Todos os pedidos pagos");
     expect(tela).toContain("Melhor Envio");
-    expect(tela).toContain('useState<Modo>("todos")');
+    expect(tela).toContain('"Na estrada"');
+    expect(tela).toContain('useState<Modo>(mapa.estrada.total > 0 ? "estrada" : "todos")');
   });
 });

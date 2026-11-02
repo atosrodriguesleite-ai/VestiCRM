@@ -16,6 +16,9 @@ import {
   type MotivoResolvido,
 } from "@/lib/tarefas-resolvidas";
 import type { TaskType } from "@prisma/client";
+import { grupoDaChave } from "@/lib/bi/rfm-quedas-regra";
+import { mensagemDoGrupo } from "@/lib/bi/rfm-regra";
+import { linkDaClienteDoRfm } from "@/lib/bi/rfm-link";
 
 export const dynamic = "force-dynamic";
 
@@ -58,7 +61,11 @@ export default async function TasksPage() {
       // CANCELADA fica fora da tela: não é trabalho pendente nem concluído —
       // sem o filtro ela aparecia em "Atrasadas" como se estivesse aberta
       where: { ...taskScope(user), status: { not: "CANCELADA" } },
-      include: { customer: true, assignee: true },
+      include: {
+        // a dona da carteira entra para o link da mensagem do RFM (RN-100)
+        customer: { include: { owner: { select: { name: true, role: true, active: true, companyId: true } } } },
+        assignee: true,
+      },
       orderBy: { dueAt: "asc" },
     }),
     db.customer.findMany({
@@ -87,6 +94,14 @@ export default async function TasksPage() {
     }),
   ]);
 
+  // a tarefa de QUEDA DO RFM (RN-100) conversa com a mensagem do grupo, com o
+  // link da cliente e a ref da dona — a mesma do "Chamar" do BI, nunca a
+  // genérica de "conversa parada"
+  const temQueda = tasks.some((t) => grupoDaChave(t.autoRule));
+  const loja = temQueda
+    ? await db.company.findUnique({ where: { id: user.companyId }, select: { slug: true } })
+    : null;
+
   const textoDe = (tipo: TipoChamada, nome: string) =>
     montarMensagem(
       tipo,
@@ -108,6 +123,16 @@ export default async function TasksPage() {
       })
     : [];
   const telefoneDe = new Map(fichas.map((f) => [f.id, f.phone]));
+
+  const mensagemDaTarefa = (t: (typeof tasks)[number], tipo: TipoChamada) => {
+    const c = t.customer!;
+    const grupo = grupoDaChave(t.autoRule);
+    if (!grupo || !loja) return textoDe(tipo, c.name);
+    // a dona vale só se é ATIVA e DESTA loja — a régua da consulta do RFM
+    // (`carregarBaseDoRfm`); a ref de outra loja levaria a venda para lá (RN-013)
+    const dona = c.owner?.active && c.owner.companyId === user.companyId ? { nome: c.owner.name, role: c.owner.role } : null;
+    return mensagemDoGrupo(grupo, c.name, linkDaClienteDoRfm(loja.slug, dona, c.linkCode ?? c.id));
+  };
 
   const items: TaskItem[] = tasks.map((t) => {
     const tipo = t.autoRule
@@ -131,7 +156,7 @@ export default async function TasksPage() {
             id: t.customer.id,
             name: t.customer.name,
             phone: telefoneDe.get(t.customer.id) ?? "",
-            mensagem: textoDe(tipo, t.customer.name),
+            mensagem: mensagemDaTarefa(t, tipo),
           }
         : null,
       assignee: t.assignee

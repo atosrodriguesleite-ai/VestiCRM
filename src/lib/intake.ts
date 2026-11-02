@@ -40,6 +40,12 @@ export type IntakePayload = {
    * id da primeira.
    */
   externalId?: string;
+  /**
+   * RN-096: o número veio do PRÓPRIO WhatsApp (webhook), que sempre manda o
+   * DDI — é a certeza que permite curar o cadastro antigo com o 55 colado.
+   * O "+" digitado num formulário não vale como certeza.
+   */
+  telefoneVerificado?: boolean;
   city?: string;
   state?: string;
   opportunityTitle?: string;
@@ -67,39 +73,19 @@ export type IntakeResult = {
   mensagemReaproveitada: boolean;
 };
 
-/** Normaliza telefone para o formato de armazenamento (dígitos, com DDI 55). */
-export function normalizePhone(raw: string): string {
-  let digits = raw.replace(/\D/g, "");
-  if (digits.length === 10 || digits.length === 11) digits = "55" + digits;
-  return digits;
-}
-
-/**
- * Variações do MESMO número brasileiro para dedup, tolerando o "9º dígito":
- * um celular pode aparecer com 9 (55 DD 9XXXXXXXX) ou sem (55 DD XXXXXXXX) —
- * o WhatsApp costuma mandar com 9, e cadastros antigos ficam sem. Assim a
- * mesma pessoa não vira dois contatos/duas conversas.
- */
+// A régua do telefone (normalizar, variações do mesmo número, brasileiro ou
+// de fora — RN-008/RN-096) mora em `lib/telefone.ts`, pura: a tela do
+// catálogo e a Central a leem sem trazer o banco junto. Reexportada aqui
+// porque é daqui que todo mundo sempre importou.
+import {
+  normalizePhone,
+  phoneMatchVariants,
+  guardadoComCinquentaECincoPorEngano,
+} from "./telefone";
 import { nomeProvisorio } from "./nome-provisorio";
 import { escolherBolha, JANELA_DA_BOLHA_MS, type BolhaAlvo } from "./comm/bolha-do-pedido";
-export { nomeProvisorio };
-
-export function phoneMatchVariants(raw: string): string[] {
-  const d = normalizePhone(raw);
-  const set = new Set<string>([d]);
-  if (d.startsWith("55") && d.length >= 12) {
-    const ddd = d.slice(2, 4);
-    const sub = d.slice(4); // parte após DDI+DDD
-    const subs = new Set<string>([sub]);
-    if (sub.length === 9 && sub.startsWith("9")) subs.add(sub.slice(1)); // tira o 9
-    if (sub.length === 8) subs.add(`9${sub}`); // põe o 9
-    for (const s of subs) {
-      set.add(`55${ddd}${s}`);
-      set.add(`${ddd}${s}`); // cadastros legados salvos SEM o DDI 55
-    }
-  }
-  return [...set];
-}
+import { adotarPedidoDeOutroNumero } from "./comm/pedido-de-outro-numero";
+export { nomeProvisorio, normalizePhone, phoneMatchVariants };
 
 /**
  * Encontra o cliente pelo telefone tolerando TODAS as formas já vistas em
@@ -122,11 +108,23 @@ export async function findCustomerByPhone(
   raw: string
 ): Promise<Customer | null> {
   const variants = phoneMatchVariants(raw);
-  const direto = await db.customer.findFirst({
+  const diretos = await db.customer.findMany({
     where: { companyId, phone: { in: variants } },
     orderBy: { createdAt: "asc" },
+    take: 5,
   });
-  if (direto) return direto;
+  // vale o mais ANTIGO, como sempre — com UMA exceção (RN-096): quando o mais
+  // antigo é o cadastro com o 55 colado por engano e já existe o cadastro
+  // com o número EXATO, vale o exato (a cliente de fora não pode cair no
+  // antigo, e curar o antigo esbarraria no único). Para o brasileiro com dois
+  // cadastros legados (com e sem o 9) continua valendo o mais antigo, senão
+  // cada canal caía num cadastro diferente.
+  const maisAntigo = diretos[0];
+  if (maisAntigo) {
+    const d = variants[0];
+    const exato = diretos.find((c) => c.phone === d);
+    return exato && maisAntigo.phone === `55${d}` ? exato : maisAntigo;
+  }
   const rows = await db.$queryRaw<{ id: string }[]>`
     SELECT id FROM "Customer"
     WHERE "companyId" = ${companyId}
@@ -200,7 +198,23 @@ export async function intakeLead(
   if (!company) throw new Error("Empresa não encontrada");
 
   // dedup tolerante a 9º dígito, DDI e formatação — evita cliente/conversa duplicados
-  const existing = await findCustomerByPhone(companyId, payload.phone);
+  let existing = await findCustomerByPhone(companyId, payload.phone);
+
+  // O MESMO PEDIDO DO CATÁLOGO, VINDO DE OUTRO NÚMERO (RN-097): a mensagem
+  // de verdade do pedido chegou de um WhatsApp diferente do telefone que a
+  // cliente digitou no formulário. Quem decide é a lib — aqui só se troca o
+  // cadastro em mãos pelo que ficou com o pedido (o que digitou passou a ter
+  // este WhatsApp, ou foi juntado no cadastro deste WhatsApp). Com o cadastro
+  // certo em mãos, a bolha do catálogo é reaproveitada logo abaixo (RN-043).
+  if (payload.reaproveitarBolha === "do-catalogo" && payload.message) {
+    const adocao = await adotarPedidoDeOutroNumero({
+      companyId,
+      telefone: phone,
+      texto: payload.message,
+      existente: existing,
+    });
+    if (adocao) existing = adocao.customer;
+  }
 
   const channelLabel = originLabel[payload.origin];
   let customer: Customer;
@@ -208,10 +222,19 @@ export async function intakeLead(
 
   if (existing) {
     // ---- Cliente já existe: reutiliza cadastro e registra a interação ----
+    // CURA DE CARONA (RN-096): a cliente de fora cujo número foi guardado
+    // com o 55 colado antes da regra ganha o número certo na primeira
+    // mensagem que mandar — é por ele que a resposta da loja vai chegar.
+    const telefoneCurado = guardadoComCinquentaECincoPorEngano(
+      existing.phone,
+      phone,
+      payload.telefoneVerificado === true
+    );
     customer = await db.customer.update({
       where: { id: existing.id },
       data: {
         lastContactAt: new Date(),
+        ...(telefoneCurado ? { phone } : {}),
         // NOME DE VERDADE SUBSTITUI O PROVISÓRIO — e só ele.
         //
         // Antes a condição era `!existing.name`, que NUNCA é verdade: o nome
@@ -244,6 +267,17 @@ export async function intakeLead(
         description: `Nova interação via ${channelLabel}`,
       },
     });
+    if (telefoneCurado) {
+      await db.customerEvent.create({
+        data: {
+          companyId,
+          customerId: customer.id,
+          type: "OUTRO",
+          channel: payload.origin,
+          description: `Telefone corrigido: ${formatPhone(phone)} é um número de fora do Brasil e estava guardado como brasileiro (${existing.phone}). A partir de agora as respostas saem para o número certo.`,
+        },
+      });
+    }
   } else {
     // ---- Lead novo: cria com origem e responsável distribuído ----
     isNewLead = true;

@@ -10,7 +10,7 @@ import {
   type EmbalagemCandidata,
 } from "../envios/simulador";
 import {
-  estaParado,
+  atrasoDoEnvio,
   resumoDosEnvios,
   DIAS_PARA_PARADO,
   inicioDoMesSP,
@@ -254,10 +254,12 @@ describe("painel da tela Envios", () => {
   it("envio postado há mais que o prazo, sem entregar, está parado", () => {
     const agora = new Date("2026-08-19T12:00:00");
     const antes = new Date(agora.getTime() - (DIAS_PARA_PARADO + 1) * 24 * 60 * 60 * 1000);
-    expect(estaParado("POSTADO", antes, agora)).toBe(true);
-    expect(estaParado("POSTADO", agora, agora)).toBe(false);
-    expect(estaParado("ENTREGUE", antes, agora)).toBe(false);
-    expect(estaParado("POSTADO", null, agora)).toBe(false);
+    const parado = (meStatus: string | null, postadoEm: Date | null) =>
+      atrasoDoEnvio({ meStatus, postadoEm }, agora).atrasado;
+    expect(parado("POSTADO", antes)).toBe(true);
+    expect(parado("POSTADO", agora)).toBe(false);
+    expect(parado("ENTREGUE", antes)).toBe(false);
+    expect(parado("POSTADO", null)).toBe(false);
   });
 
   it("o resumo soma cada situação no balde certo e tira a média de entrega", () => {

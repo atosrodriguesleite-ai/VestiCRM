@@ -77,3 +77,33 @@ export function ordenarParaSeparacao<T extends ItemDoRomaneio>(
 // A régua mora em lib/nota-do-pedido.ts (ficha e romaneio leem a MESMA);
 // aqui fica o nome antigo, para quem já importava daqui.
 export { separarNotaDoPedido as separarNotaDoCatalogo } from "./nota-do-pedido";
+
+/* ---- a linha do frete no resumo de valores -------------------------------- */
+
+/**
+ * FRETE GRÁTIS EM DESTAQUE (RN-099, pedido do dono em 27/10/2026): no resumo
+ * do romaneio a linha "Frete" saía só com valor. Agora há TRÊS casos, e quem
+ * decide é a MARCA do pedido (`Order.freteGratis`, `resolverFreteDoPedido`),
+ * não o número:
+ *  - marcado como grátis → "Frete · GRÁTIS", em negrito e na cor de destaque
+ *    (`gratis: true` é o que o PDF lê para trocar fonte e cor) — quem embala
+ *    precisa ler isso antes de fechar a caixa;
+ *  - frete com valor → a linha comum, com o valor;
+ *  - zero SEM a marca → nenhuma linha (frete não informado: retirada, a
+ *    combinar — anunciar "grátis" aí prometeria o que ninguém decidiu).
+ * A primeira versão (mesmo dia) tratava todo zero como grátis; o dono preferiu
+ * a marca explícita da vendedora, e esta é a régua que ficou.
+ */
+export type LinhaDoFrete = { rotulo: string; valor: string; gratis: boolean };
+
+export function linhaDoFrete(
+  pedido: { shippingFee: number | null | undefined; freteGratis?: boolean | null },
+  formatar: (valor: number) => string
+): LinhaDoFrete | null {
+  if (pedido.freteGratis) return { rotulo: "Frete", valor: "GRÁTIS", gratis: true };
+  const fee = pedido.shippingFee;
+  if (typeof fee === "number" && Number.isFinite(fee) && fee > 0) {
+    return { rotulo: "Frete", valor: formatar(fee), gratis: false };
+  }
+  return null;
+}

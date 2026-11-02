@@ -32,9 +32,9 @@ import {
   vendaOnline,
   resolveCancelStock,
   resolveReopenStock,
-  escolherCobrancaAConfirmar,
-} from "@/lib/orders";
+  escolherCobrancaAConfirmar, resolverFreteDoPedido } from "@/lib/orders";
 import { computeOrderTotals } from "@/lib/orders";
+import { carimboDaPostagem } from "@/lib/envios/painel";
 import { juntarPorVariacao, reservarComExtras, reservarOQueTiver } from "@/lib/reservations";
 import { variacoesSobEncomenda } from "@/lib/sob-encomenda";
 import { categoriasSobEncomenda } from "@/lib/sob-encomenda-data";
@@ -115,6 +115,8 @@ const patchSchema = z.object({
   surcharge: z.number().nonnegative().optional(),
   surchargePct: z.number().min(0).max(100).nullish(),
   shippingFee: z.number().nonnegative().optional(),
+  // RN-099: frete por conta da loja — marca explícita; marcar zera o frete
+  freteGratis: z.boolean().optional(),
   // PEÇAS EXTRAS (RN-075): o que a pessoa viu na janela e confirmou, por
   // peça — vale para acrescentar peça (edição dos itens) e para reabrir
   // pedido cancelado (o que voltar a faltar vira extra de novo)
@@ -220,13 +222,28 @@ export async function PATCH(
         (parsed.data.discount !== undefined && parsed.data.discount !== order.discount) ||
         parsed.data.discountPct !== undefined ||
         (parsed.data.surcharge !== undefined && parsed.data.surcharge !== order.surcharge) ||
-        parsed.data.surchargePct !== undefined;
+        parsed.data.surchargePct !== undefined ||
+        // RN-099: o frete e a marca de grátis mudam o total a pagar — a tela
+        // já escondia o editor do suporte; o servidor é a segunda tranca
+        // (achado da revisão: só a UI barrava)
+        (parsed.data.shippingFee !== undefined && round2(parsed.data.shippingFee) !== order.shippingFee) ||
+        (parsed.data.freteGratis !== undefined && parsed.data.freteGratis !== order.freteGratis);
       if (mexeuNoValor) {
         return NextResponse.json(
-          { error: "Alterar desconto ou acréscimo é permitido só para gerente ou admin." },
+          { error: "Alterar desconto, acréscimo ou frete é permitido só para gerente ou admin." },
           { status: 403 }
         );
       }
+    }
+
+    // RN-099: a venda da loja online traz o frete de LÁ (o que a cliente pagou
+    // na Nuvemshop) — marcar grátis aqui zeraria um frete que foi pago, e o
+    // romaneio mentiria. A ficha esconde a caixinha; o servidor recusa.
+    if (parsed.data.freteGratis === true && vendaOnline(order) && !order.freteGratis) {
+      return NextResponse.json(
+        { error: "O frete da venda da loja online é o de lá — não se marca frete grátis aqui." },
+        { status: 409 }
+      );
     }
 
     // ---- Edição dos itens (permitida a qualquer momento, exceto cancelado) ----
@@ -324,10 +341,19 @@ export async function PATCH(
 
       // SEM o crédito de troca aqui: ele é relido DENTRO da transação, sob a
       // trava do pedido (RN-074, `aplicarCreditoAtual`)
+      // RN-099: o frete e a marca de grátis andam juntos (marcar zera;
+      // informar valor desmarca) — e SÓ quando a edição mexeu neles: a
+      // edição de itens que não fala de frete deixa marca e valor como estão
+      // (resolver sempre podia virar a marca sem linha no histórico, achado
+      // da revisão)
+      const freteDosItens =
+        parsed.data.shippingFee !== undefined || parsed.data.freteGratis !== undefined
+          ? resolverFreteDoPedido(order, parsed.data)
+          : { shippingFee: order.shippingFee, freteGratis: order.freteGratis };
       let totals = computeOrderTotals(
         parsed.data.items,
         ajusteAtual(parsed.data.discount, parsed.data.discountPct, order.discount, order.discountPct),
-        parsed.data.shippingFee ?? order.shippingFee,
+        freteDosItens.shippingFee,
         ajusteAtual(parsed.data.surcharge, parsed.data.surchargePct, order.surcharge, order.surchargePct)
       );
       // o que a edição REALMENTE mexeu no estoque (baixa − devolução), por
@@ -384,6 +410,7 @@ export async function PATCH(
             surcharge: totals.surcharge,
             surchargePct: pctResolvida(parsed.data.surchargePct, order.surchargePct),
             shippingFee: totals.shippingFee,
+            freteGratis: freteDosItens.freteGratis,
             netTotal: totals.netTotal,
             total: totals.total,
             creditoTroca: totals.credito,
@@ -598,7 +625,8 @@ export async function PATCH(
         parsed.data.discountPct !== undefined ||
         parsed.data.surcharge !== undefined ||
         parsed.data.surchargePct !== undefined ||
-        parsed.data.shippingFee !== undefined);
+        parsed.data.shippingFee !== undefined ||
+        parsed.data.freteGratis !== undefined);
 
     if (mexeuSoNosValores) {
       if (order.status === "CANCELADO") {
@@ -624,9 +652,9 @@ export async function PATCH(
         (pctAcrFinal != null ||
           (parsed.data.surcharge ?? order.surcharge) === order.surcharge);
 
-      const freteNovo = round2(
-        Math.max(parsed.data.shippingFee ?? order.shippingFee, 0)
-      );
+      // RN-099: marcar "frete grátis" zera o frete; informar frete desmarca
+      const freteResolvido = resolverFreteDoPedido(order, parsed.data);
+      const freteNovo = freteResolvido.shippingFee;
       // SEM o crédito de troca: ele é relido dentro da transação (RN-074)
       let totals =
         descontoIntacto && acrescimoIntacto
@@ -644,7 +672,7 @@ export async function PATCH(
           : computeOrderTotals(
               order.items.map((i) => ({ quantity: i.quantity, unitPrice: i.unitPrice })),
               ajusteAtual(parsed.data.discount, parsed.data.discountPct, order.discount, order.discountPct),
-              parsed.data.shippingFee ?? order.shippingFee,
+              freteNovo,
               ajusteAtual(parsed.data.surcharge, parsed.data.surchargePct, order.surcharge, order.surchargePct)
             );
 
@@ -658,6 +686,8 @@ export async function PATCH(
         mudancas.push(`acréscimo ${brl(order.surcharge)} → ${brl(totals.surcharge)}`);
       if (totals.shippingFee !== order.shippingFee)
         mudancas.push(`frete ${brl(order.shippingFee)} → ${brl(totals.shippingFee)}`);
+      if (freteResolvido.freteGratis !== order.freteGratis)
+        mudancas.push(freteResolvido.freteGratis ? "frete grátis marcado" : "frete grátis desmarcado");
 
       await db.$transaction(async (tx) => {
         // a mesma fila do pedido (troca, crédito, status): sem ela, um "Usar
@@ -678,6 +708,7 @@ export async function PATCH(
             surcharge: totals.surcharge,
             surchargePct: pctResolvida(parsed.data.surchargePct, order.surchargePct),
             shippingFee: totals.shippingFee,
+            freteGratis: freteResolvido.freteGratis,
             netTotal: totals.netTotal,
             total: totals.total,
             creditoTroca: totals.credito,
@@ -1196,13 +1227,16 @@ export async function PATCH(
               // tela Envios saía pela metade (achado da revisão).
               const envioAtual = await tx.shipping.findUnique({
                 where: { orderId: order.id },
-                select: { shippedAt: true },
+                select: { shippedAt: true, prazoDias: true, previstoAte: true },
               });
               await tx.shipping.upsert({
                 where: { orderId: order.id },
                 update: {
                   ...(newStatus === "ENTREGUE" ? { deliveredAt: now } : {}),
                   ...(envioAtual?.shippedAt ? {} : { shippedAt: now }),
+                  // a saída marcada à mão também carimba a previsão de
+                  // entrega da etiqueta (RN-102) — a mesma função do rastreio
+                  ...(envioAtual && newStatus === "ENVIADO" ? carimboDaPostagem(envioAtual, now) : {}),
                 },
                 create: { orderId: order.id, cost: order.shippingFee, ...shipData },
               });
@@ -1211,7 +1245,13 @@ export async function PATCH(
             if (["ORCAMENTO", "AGUARDANDO_PAGAMENTO", "ENTREGUE_A_RECEBER", "PAGO", "EM_PRODUCAO", "SEPARACAO", "CANCELADO"].includes(newStatus)) {
               await tx.shipping.updateMany({
                 where: { orderId: order.id },
-                data: { shippedAt: null, deliveredAt: null },
+                // a previsão de entrega vai junto (RN-102): sem postagem não
+                // há o que vencer, e a linha órfã contaria como atrasada. O
+                // carimbo do aviso de atraso FICA (RN-103): a etiqueta é a
+                // mesma viagem — o rastreio vai recarimbar a postagem com a
+                // data ORIGINAL da transportadora, e zerar aqui mandava o
+                // mesmo aviso de novo (achado da revisão); só etiqueta nova zera
+                data: { shippedAt: null, deliveredAt: null, previstoAte: null },
               });
             }
 

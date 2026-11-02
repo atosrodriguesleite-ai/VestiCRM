@@ -257,12 +257,14 @@ export async function importRecentHistory(
     if (Date.now() - inicio > ORCAMENTO_TOTAL_MS) break; // devolve o que já gravou
     // grupos/status ficam de fora; contato @lid usa o número real do senderPn
     const jid = r.key?.remoteJid ?? "";
-    let phone = jidToPhone(jid);
-    if (!phone && jid.endsWith("@lid")) {
+    let digitosDoJid = jidToPhone(jid);
+    if (!digitosDoJid && jid.endsWith("@lid")) {
       const pn = (r.key?.senderPn ?? "").split("@")[0].replace(/\D/g, "");
-      if (/^\d{8,15}$/.test(pn)) phone = pn;
+      if (/^\d{8,15}$/.test(pn)) digitosDoJid = pn;
     }
-    if (!phone) continue;
+    if (!digitosDoJid) continue;
+    // o número do WhatsApp já tem o DDI (RN-096): o "+" impede o 55 de carona
+    const phone = `+${digitosDoJid}`;
     // REAÇÃO NÃO VIRA BOLHA aqui também. No caminho ao vivo o emoji gruda na
     // mensagem reagida; na importação a mensagem alvo pode nem ter vindo no
     // lote, e o "[reagiu 👍]" solto no meio do histórico não diz a QUE ela

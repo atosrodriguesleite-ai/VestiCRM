@@ -152,3 +152,121 @@ export function enderecoDoPedido(pedido: {
   if (doEnvio) return { cidade: pedido.shipping?.city ?? null, uf: doEnvio };
   return { cidade: null, uf: null };
 }
+
+/** Um pacote a caminho, para a camada "na estrada" (RN-103). */
+export type PacoteNaEstrada = {
+  cidade: string | null;
+  uf: string | null;
+  /**
+   * a situação pela régua da RN-102: "atrasado" = passou da previsão da
+   * transportadora; "parado" = sem prazo e postado há mais de 7 dias (a tela
+   * NUNCA chama este de atrasado — não há prazo que ele tenha furado)
+   */
+  situacao: "no-prazo" | "atrasado" | "parado";
+};
+
+export type PontoNaEstrada = {
+  x: number;
+  y: number;
+  cidade: string | null;
+  uf: string;
+  noPrazo: number;
+  atrasados: number;
+  parados: number;
+};
+
+export type MapaNaEstrada = {
+  /** de onde os pacotes saem: o remetente do Melhor Envio (sem UF válida, nulo — e sem arco) */
+  origem: { x: number; y: number; cidade: string | null; uf: string } | null;
+  /** um ponto por cidade de destino, com quantos estão no prazo, atrasados e parados */
+  pontos: PontoNaEstrada[];
+  porUf: { uf: string; nome: string; quantidade: number; atrasados: number; parados: number }[];
+  total: number;
+  atrasados: number;
+  parados: number;
+  /** pacotes sem UF válida — contados e ditos, nunca sumidos (a régua do mapa) */
+  semEndereco: number;
+  /** a leitura bateu no teto: o mapa mostra os mais antigos e a tela diz */
+  cortado: boolean;
+};
+
+/**
+ * A CAMADA "NA ESTRADA" (RN-103): só o que está POSTADO e ainda não chegou,
+ * agregado por cidade de destino com a situação de cada pacote (no prazo ×
+ * atrasado × parado, decidida por quem chama, pela régua da RN-102). A tela
+ * desenha um arco do remetente até cada cidade e pinta de vermelho a que tem
+ * pacote atrasado e de âmbar a que só tem parado — a cor faz UM trabalho: o
+ * status (RN-089). A cidade que não casa com a base vai para o centro do
+ * estado, como no mapa de sempre.
+ */
+export function montarNaEstrada(
+  pacotes: PacoteNaEstrada[],
+  remetente: { cidade: string | null; uf: string | null } | null,
+  opcoes: { cortado?: boolean } = {}
+): MapaNaEstrada {
+  const pontos = new Map<string, PontoNaEstrada>();
+  const porUf = new Map<string, { quantidade: number; atrasados: number; parados: number }>();
+  let semEndereco = 0;
+  let atrasados = 0;
+  let parados = 0;
+  for (const p of pacotes) {
+    const uf = siglaDoEstado(p.uf);
+    if (!uf) {
+      semEndereco += 1;
+      continue;
+    }
+    if (p.situacao === "atrasado") atrasados += 1;
+    if (p.situacao === "parado") parados += 1;
+    const acc = porUf.get(uf) ?? { quantidade: 0, atrasados: 0, parados: 0 };
+    acc.quantidade += 1;
+    if (p.situacao === "atrasado") acc.atrasados += 1;
+    if (p.situacao === "parado") acc.parados += 1;
+    porUf.set(uf, acc);
+
+    const cidade = (p.cidade ?? "").trim();
+    const xy = cidade ? XY.get(chaveCidade(cidade, uf)) : undefined;
+    const chave = xy ? chaveCidade(cidade, uf) : `~centro|${uf}`;
+    const ponto = pontos.get(chave) ?? {
+      x: (xy ?? UFS[uf].centro)[0],
+      y: (xy ?? UFS[uf].centro)[1],
+      cidade: xy ? cidade : null,
+      uf,
+      noPrazo: 0,
+      atrasados: 0,
+      parados: 0,
+    };
+    if (p.situacao === "atrasado") ponto.atrasados += 1;
+    else if (p.situacao === "parado") ponto.parados += 1;
+    else ponto.noPrazo += 1;
+    pontos.set(chave, ponto);
+  }
+
+  let origem: MapaNaEstrada["origem"] = null;
+  const ufOrigem = siglaDoEstado(remetente?.uf ?? null);
+  if (ufOrigem) {
+    const cidade = (remetente?.cidade ?? "").trim();
+    const xy = cidade ? XY.get(chaveCidade(cidade, ufOrigem)) : undefined;
+    const [x, y] = xy ?? UFS[ufOrigem].centro;
+    origem = { x, y, cidade: xy ? cidade : null, uf: ufOrigem };
+  }
+
+  const lista = [...porUf.entries()]
+    .map(([uf, v]) => ({ uf, nome: NOME_DO_ESTADO[uf] ?? uf, ...v }))
+    .sort((a, b) => b.atrasados - a.atrasados || b.parados - a.parados || b.quantidade - a.quantidade || a.nome.localeCompare(b.nome));
+
+  // ordem de desenho: no prazo embaixo, parado no meio, atrasado por cima —
+  // o que precisa de ação nunca some embaixo de uma bolinha maior
+  const peso = (p: PontoNaEstrada) => (p.atrasados > 0 ? 2 : p.parados > 0 ? 1 : 0);
+  return {
+    origem,
+    pontos: [...pontos.values()].sort(
+      (a, b) => peso(a) - peso(b) || b.noPrazo + b.atrasados + b.parados - (a.noPrazo + a.atrasados + a.parados)
+    ),
+    porUf: lista,
+    total: lista.reduce((s, e) => s + e.quantidade, 0),
+    atrasados,
+    parados,
+    semEndereco,
+    cortado: Boolean(opcoes.cortado),
+  };
+}

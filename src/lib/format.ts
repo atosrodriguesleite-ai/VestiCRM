@@ -9,6 +9,7 @@ import type {
   MessageStatus,
   Channel,
 } from "@prisma/client";
+import { DDDS_DO_BRASIL, declaraDdi, ehNumeroBrasileiro, formatarInternacional } from "./telefone";
 
 export const brl = (v: number) =>
   v.toLocaleString("pt-BR", {
@@ -146,13 +147,33 @@ export function telefoneNacional(raw: string | null | undefined): string {
 export function celularSemONove(raw: string | null | undefined): string | null {
   const d = telefoneNacional(raw);
   if (d.length !== 10) return null;
+  // DDD que não existe não é celular brasileiro sem o 9 — é número de fora
+  // (RN-096), e sugerir "faltou o 9" nele mandaria a loja para um número
+  // inventado
+  if (!DDDS_DO_BRASIL.has(d.slice(0, 2))) return null;
   const local = d.slice(2);
   if (!/^[6-9]/.test(local)) return null;
   return `${d.slice(0, 2)}9${local}`;
 }
 
+/**
+ * "(11) 99876-1001" para número brasileiro; "+1 781 408-6755" para número
+ * de fora (RN-096). Antes TODO número de onze dígitos era desenhado como
+ * brasileiro, e o +1 781 408-6755 da cliente dos EUA virava "(17)
+ * 81408-6755" — um DDD de verdade com um celular que não existe, e ninguém
+ * desconfiava. O que não é número nenhum (marcador "ns-123", lixo) volta
+ * como veio.
+ */
 export function formatPhone(p: string): string {
-  const digits = telefoneNacional(p);
+  const texto = p ?? "";
+  const digits = telefoneNacional(texto);
+  // de fora: não é brasileiro E o DDI foi dito ("+…") ou são onze dígitos ou
+  // mais. Dez dígitos ou menos seguem desenhados como sempre — "(10)
+  // 9876-5432" com DDD errado é cadastro para corrigir, não um "+1 09…"
+  // inventado
+  if (!ehNumeroBrasileiro(texto) && (declaraDdi(texto) || digits.length >= 11)) {
+    return formatarInternacional(texto.replace(/\D/g, "")) ?? p;
+  }
   if (digits.length === 11)
     return `(${digits.slice(0, 2)}) ${digits.slice(2, 7)}-${digits.slice(7)}`;
   if (digits.length === 10)

@@ -1,4 +1,4 @@
-import { normalizePhone, phoneMatchVariants } from "../intake";
+import { mesmoNumero } from "../telefone";
 import { telefoneParecido } from "../contatos-parecidos";
 
 /**
@@ -33,6 +33,8 @@ export type TelefoneDoPedido = {
   telefone: string;
   /** a cliente digitou um número diferente do WhatsApp dela? */
   divergente: boolean;
+  /** de onde veio o número que valeu */
+  fonte: "digitado" | "link" | "whatsapp";
 };
 
 export function telefoneDoPedido(input: {
@@ -40,30 +42,39 @@ export function telefoneDoPedido(input: {
   digitado: string;
   /** o telefone do cadastro do link pessoal (?c=), quando houver */
   doLink?: string | null;
+  /**
+   * RN-097: o WhatsApp de onde a mensagem DESTE pedido já chegou (o webhook
+   * venceu a corrida). É o aparelho que montou o pedido falando — vence
+   * qualquer digitado, por mais diferente que seja; a diferença fica anotada.
+   */
+  doWhatsApp?: string | null;
 }): TelefoneDoPedido {
   const digitado = (input.digitado ?? "").trim();
   const doLink = (input.doLink ?? "").trim();
+  const doWhatsApp = (input.doWhatsApp ?? "").trim();
   const vale = (t: string) => t.replace(/\D/g, "").length >= 8;
   const temDigitado = vale(digitado);
   // cadastro com telefone incompleto/bagunçado não pode vencer um celular
   // válido digitado: seria mandar o pedido para um número inalcançável
   const temDoLink = vale(doLink);
 
-  if (!temDoLink) return { telefone: digitado, divergente: false };
-  if (!temDigitado) return { telefone: doLink, divergente: false };
+  if (vale(doWhatsApp)) {
+    const divergente = temDigitado && !mesmoNumero(digitado, doWhatsApp);
+    return { telefone: doWhatsApp, divergente, fonte: "whatsapp" };
+  }
 
-  // mesmo número escrito de outro jeito (com/sem 9º dígito, com/sem DDI) não
-  // é divergência — é a mesma pessoa. A conferência é nos DOIS sentidos:
-  // olhar só as variantes de um lado deixa passar forma gravada diferente.
-  const mesma =
-    phoneMatchVariants(digitado).includes(normalizePhone(doLink)) ||
-    phoneMatchVariants(doLink).includes(normalizePhone(digitado));
-  if (mesma) return { telefone: doLink, divergente: false };
+  if (!temDoLink) return { telefone: digitado, divergente: false, fonte: "digitado" };
+  if (!temDigitado) return { telefone: doLink, divergente: false, fonte: "link" };
+
+  // mesmo número escrito de outro jeito não é divergência — é a mesma pessoa
+  if (mesmoNumero(digitado, doLink)) {
+    return { telefone: doLink, divergente: false, fonte: "link" };
+  }
 
   // erro de digitação (mesmo DDD, um dígito) → o WhatsApp dela manda.
   // Diferente demais → é outra pessoa (link encaminhado): vale o digitado.
   if (telefoneParecido(digitado, doLink)) {
-    return { telefone: doLink, divergente: true };
+    return { telefone: doLink, divergente: true, fonte: "link" };
   }
-  return { telefone: digitado, divergente: false };
+  return { telefone: digitado, divergente: false, fonte: "digitado" };
 }

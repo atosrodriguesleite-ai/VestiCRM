@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { FONTE_TELA_VERSAO_VELHA } from "@/lib/erro-da-tela";
 import { FONTE_RECUSA_CATALOGO } from "@/lib/catalogo/recusa-do-pedido";
+import { FONTE_TELA_ABERTURA } from "@/lib/vigia-da-abertura";
 import {
   Activity,
   CheckCircle2,
@@ -78,7 +79,17 @@ export default async function HealthPage() {
   const idaMs = await medirIdaAoBanco(() => db.$queryRaw`SELECT 1`);
   const velocidade = diagnosticarVelocidade({ regiaoServidor, banco, idaMs });
 
-  const [health, storesRaw, errors, errors24, errosWebhook24, trafego, telasVersaoVelha24, recusasCatalogo] = await Promise.all([
+  const [
+    health,
+    storesRaw,
+    errors,
+    errors24,
+    errosWebhook24,
+    trafego,
+    telasVersaoVelha24,
+    recusasCatalogo,
+    aberturasIncompletas,
+  ] = await Promise.all([
     db.systemHealth.findUnique({ where: { id: "main" } }),
     db.commSettings.findMany({
       where: { evolutionInstance: { not: null } },
@@ -94,14 +105,16 @@ export default async function HealthPage() {
     // RN-010: pedido do catálogo RECUSADO pela rota também fica fora da lista
     // e da conta (é resposta decidida, e porta pública recebe lixo de robô);
     // as últimas aparecem em bloco próprio, abaixo
+    // RN-095: a página que NÃO terminou de chegar no aparelho também fica
+    // fora da conta (é a conexão da pessoa, não o código) e em bloco próprio
     db.errorLog.findMany({
-      where: { source: { notIn: [FONTE_TELA_VERSAO_VELHA, FONTE_RECUSA_CATALOGO] } },
+      where: { source: { notIn: [FONTE_TELA_VERSAO_VELHA, FONTE_RECUSA_CATALOGO, FONTE_TELA_ABERTURA] } },
       orderBy: { createdAt: "desc" },
       take: 30,
     }),
     db.errorLog.count({
       where: {
-        source: { notIn: [FONTE_TELA_VERSAO_VELHA, FONTE_RECUSA_CATALOGO] },
+        source: { notIn: [FONTE_TELA_VERSAO_VELHA, FONTE_RECUSA_CATALOGO, FONTE_TELA_ABERTURA] },
         createdAt: { gte: h24 },
       },
     }),
@@ -131,6 +144,12 @@ export default async function HealthPage() {
       orderBy: { createdAt: "desc" },
       take: 20,
       select: { id: true, createdAt: true, message: true, detail: true },
+    }),
+    db.errorLog.findMany({
+      where: { source: FONTE_TELA_ABERTURA, createdAt: { gte: d7 } },
+      orderBy: { createdAt: "desc" },
+      take: 20,
+      select: { id: true, createdAt: true, path: true, message: true, detail: true },
     }),
   ]);
 
@@ -337,6 +356,12 @@ export default async function HealthPage() {
               {recusasCatalogo.length >= 20 ? " ou mais" : ""} pedido(s) do catálogo recusado(s) em 7 dias (bloco abaixo)
             </p>
           )}
+          {aberturasIncompletas.length > 0 && (
+            <p className="text-[11px] text-gray-400">
+              +{aberturasIncompletas.length}
+              {aberturasIncompletas.length >= 20 ? " ou mais" : ""} abertura(s) que não terminaram de carregar em 7 dias (bloco abaixo)
+            </p>
+          )}
           {errosWebhook24 > 0 ? (
             <p className="text-[11px] font-semibold text-rose-600">
               {errosWebhook24} ao gravar mensagem recebida
@@ -486,6 +511,42 @@ export default async function HealthPage() {
                 <summary className="cursor-pointer list-none">
                   <div className="flex items-center justify-between gap-3">
                     <p className="text-sm font-medium truncate">{e.message}</p>
+                    <span className="shrink-0 text-[11px] text-gray-400">{fmt(e.createdAt)}</span>
+                  </div>
+                </summary>
+                {e.detail && (
+                  <pre className="mt-2 whitespace-pre-wrap break-all rounded-lg bg-gray-900 text-gray-100 text-[11px] p-3 max-h-48 overflow-y-auto thin-scroll">
+                    {e.detail}
+                  </pre>
+                )}
+              </details>
+            ))}
+          </div>
+        </Card>
+      )}
+
+      {/* ---- Aberturas que não terminaram (RN-095) ---- */}
+      {aberturasIncompletas.length > 0 && (
+        <Card className="p-5 mb-6">
+          <h2 className="font-semibold flex items-center gap-2 mb-1">
+            <Activity className="size-4 text-amber-600" />
+            Telas que não terminaram de carregar (7 dias)
+          </h2>
+          <p className="text-xs text-gray-500 mb-3">
+            A página chegou cortada ou o download parou no aparelho da pessoa — ela viu o aviso
+            &quot;não terminou de carregar&quot; com o botão, em vez da tela branca. É a conexão, não
+            o código: não entra na conta de erros. Muitas da mesma loja ou do mesmo navegador são
+            pista (rede fraca, bloqueio, app instalado com versão velha).
+          </p>
+          <div className="space-y-1.5">
+            {aberturasIncompletas.map((e) => (
+              <details key={e.id} className="rounded-xl border border-amber-100 bg-amber-50/30 px-3.5 py-2.5">
+                <summary className="cursor-pointer list-none">
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="text-sm font-medium truncate">
+                      {e.message}
+                      {e.path && <span className="text-gray-400 font-normal"> · {e.path}</span>}
+                    </p>
                     <span className="shrink-0 text-[11px] text-gray-400">{fmt(e.createdAt)}</span>
                   </div>
                 </summary>

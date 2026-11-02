@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireUser, AuthError } from "@/lib/auth";
 import { isSupport } from "@/lib/scope";
-import { evaluateSegment, type SegmentFilter } from "@/lib/segments";
+import { evaluateSegment, rfmLiberadoPara, type SegmentFilter } from "@/lib/segments";
 
 /** Retorna quantos (e quais) clientes um filtro de campanha alcança. */
 export async function POST(req: NextRequest) {
@@ -12,6 +12,14 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Sem permissão" }, { status: 403 });
     }
     const filter = (await req.json().catch(() => ({}))) as SegmentFilter;
+    // RN-098: a prévia não vira porta dos fundos do RFM (o público seria
+    // vazio de qualquer jeito; a recusa diz por quê)
+    if (filter?.rfmGrupo != null && !(await rfmLiberadoPara(user))) {
+      return NextResponse.json(
+        { error: "O grupo do RFM é da gerência, nas lojas com o BI de Vendas." },
+        { status: 403 }
+      );
+    }
     const customers = await evaluateSegment(user, filter);
     return NextResponse.json({
       count: customers.length,

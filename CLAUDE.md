@@ -217,6 +217,78 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   loja. A quebra aparece na conta de erros da Saúde. A cura de raiz do
   caso "versão velha" é a **Skew Protection da Vercel** (Settings →
   Advanced, plano Pro) — é um botão do dono; o código só se recupera.
+  **RN-095 · A ABERTURA QUE NÃO TERMINA NÃO FICA BRANCA**
+  (`lib/vigia-da-abertura.ts` no `<body>` do layout raiz, `public/sw.js` +
+  `components/registrar-sw.tsx`, 23/10/2026, ADR-022): relato do dono —
+  *"outra cliente foi tentar acessar o aplicativo pelo celular, pela
+  Starlink do carro, e a tela fica toda branca… já é o segundo cliente"*. A
+  RN-066 não alcança esse caso, e a bancada mostrou por quê
+  (`scripts/bancada-tela-branca.mjs`, Chromium com prints): em TODO cenário
+  em que a página CHEGA — sem JavaScript, sem CSS, sem os pedaços de código
+  — há algo na tela; o branco total só aparece quando a página **não chega
+  ou chega CORTADA**. E cortada é fácil: no celular, o primeiro pedaço
+  visível (o esqueleto de carregamento) só vem por volta de **25% do
+  arquivo** — tudo antes dele é o menu lateral, escondido no celular. A
+  conexão que cai entre 3% e 25% (troca de satélite, túnel) deixa o
+  navegador com o fundo e nada mais, **para sempre, sem erro e sem botão**
+  — a tela de socorro é JavaScript, e o JavaScript nunca chegou. Três
+  peças: (1) **o vigia viaja nos PRIMEIROS bytes**: script miúdo em
+  JavaScript antigo, primeiro filho do `<body>` (chega junto com o `<head>`,
+  a ~3%), sem dependência nenhuma, que observa o **marcador** que o layout
+  raiz põe como ÚLTIMO filho do `<body>` (`ID_FIM_DA_PAGINA` — o esqueleto
+  da página chegou inteiro). **Só fala com CERTEZA**: a página terminou
+  (`load`) sem o marcador e sem nada visível → aviso na hora; o download
+  **PAROU** — nenhum nó novo chegou, medido pela contagem de nós, não pelo
+  relógio: num link de 15 kbps a página demora mas anda, e um aviso ali
+  faria a pessoa recomeçar do zero (achado da revisão) — por 12 s sem nada
+  visível, ou por 40 s mesmo com algo na tela → aviso; presa no esqueleto
+  `aria-busy` do app por 40 s **depois de ele aparecer** → aviso; 60 s sem a
+  página inteira, mesmo andando → aviso. "Visível" é texto, imagem, botão ou
+  caixa pintada — um contêiner vazio com altura NÃO conta, é a própria tela
+  branca (a primeira versão contava, e o aviso nunca saía). O aviso é em
+  português, com o botão "Tentar de novo", e **nunca recarrega sozinho com
+  internet** (a régua da RN-066); **sem internet** diz "sem conexão", mostra
+  o botão e recarrega UMA vez no evento `online` (o caso do app instalado do
+  iPhone, que offline mostra branco sem botão). Se a página terminar de
+  chegar depois do aviso, ele some. **Depois que a página chegou inteira, o
+  vigia se cala para sempre**: a navegação seguinte dentro do app (mesmo
+  esqueleto) e a tela de socorro da RN-066 (troca o corpo e leva o marcador)
+  não são assunto dele — sem isso, a navegação lenta aos 45 s ganhava o
+  aviso errado (achado da revisão). Um laço só, a cada 2 s (o `load` confere
+  na hora, sem abrir um segundo relógio). (2) **O service worker passa a
+  existir em todo aparelho logado** (antes só quem ligava as notificações de
+  venda o tinha) e ganha UMA tarefa nova: quando a **navegação não alcança o
+  servidor** (a promessa do `fetch` rejeita — sem internet, rede caída),
+  responde a página "Sem conexão" **escrita no próprio arquivo**, com o botão
+  e a volta automática no `online` em HTML puro. **Rede primeiro, sempre, e
+  NENHUM cache**: resposta do servidor (200, 404, 500) passa como veio —
+  assim não existe "versão velha servida pelo service worker", o defeito
+  clássico de app instalado (ADR-022); e a página de reserva não é guardada
+  do app porque, guardada, ela precisaria do código do React para o botão
+  funcionar, e offline esse código não vem — a primeira versão tinha uma
+  página `/offline` em cache com botão morto (achado da revisão). Só
+  navegação, só a própria origem; API, fotos e código seguem direto; e a
+  navegação sai em paralelo com a partida do worker (`navigationPreload`),
+  senão cada abertura esperaria o worker acordar. O catálogo público NÃO
+  registra o service worker (o navegador de dentro do WhatsApp muitas vezes
+  nem tem) — lá quem segura a tela branca é o vigia. (3) **Fica CONTADO**: o
+  vigia guarda o relato no aparelho pelo MESMO caminho da RN-066
+  (`CHAVE_RELATO_PENDENTE`, com a marca `abertura: true`; não sobrescreve um
+  relato de quebra de código que espera para sair) e o `EnviarRelatoDeErro`
+  o manda no próximo carregamento que der certo, com login. A fonte é
+  própria (`tela.abertura`): é a conexão da pessoa, não o código — **fora da
+  conta de erros** da Saúde e da Gestão, mas em **bloco próprio** na Saúde
+  ("Telas que não terminaram de carregar", 7 dias, com caminho, navegador e
+  se tinha internet), para se SABER quantas aberturas falham e de onde —
+  muitas da mesma loja ou do mesmo navegador são pista. **Limites ditos**: o
+  vigia só vê a página que CHEGOU em parte; a que não chegou nada é do
+  service worker (só em aparelho que já abriu o app logado uma vez e tem
+  suporte) ou do navegador; o relato da cliente final do catálogo nunca
+  chega (não tem login, a régua da RN-066); e a causa de REDE da cliente
+  (Starlink em movimento, bloqueio por navegador) não se conserta daqui — o
+  que se conserta é a tela muda. Provado pelo script em jsdom
+  (`vigia-da-abertura.test.ts`, o script de verdade com relógio falso) e
+  pela bancada no Chromium contra o build de produção local.
   **RN-045 · Código de login pelo WhatsApp em aparelho novo**
   (`lib/auth-codigo.ts`, 02/09/2026): segundo fator do jeito deste público —
   nada de app autenticador; o código de 6 dígitos chega no WhatsApp da
@@ -328,6 +400,45 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   orçamento/aguardando e a vendedora o muda ao entregar); nota fiscal segue
   exigindo pedido pago — a saída a prazo deveria ter nota na entrega, decisão
   pendente do dono com o contador.
+- **RN-099 · FRETE GRÁTIS É MARCA EXPLÍCITA DA VENDEDORA, NUNCA FRETE ZERO**
+  (`Order.freteGratis` + `resolverFreteDoPedido` em `lib/orders.ts` +
+  `linhaDoFrete` em `lib/romaneio.ts`, 27/10/2026): pedido do dono — no
+  romaneio, *"quando o frete não é colocado, ele é grátis; queria que ficasse
+  como frete grátis, destacado e em negrito"* e, no mesmo dia, *"pode ser
+  colocado pelo vendedor na tela de pedidos a opção de frete grátis e isso sair
+  no romaneio"*. A primeira versão tratou TODO frete zero como grátis e foi
+  trocada no mesmo dia: zero sozinho não diz nada (retirada na loja, frete a
+  combinar, pedido do catálogo ainda não cotado), e anunciar "GRÁTIS" aí
+  prometia o que ninguém decidiu. Agora a caixinha **"Frete grátis (por conta
+  da loja)"** existe nas três portas de montar/editar valores (Novo pedido,
+  montador da Central e "Desconto, acréscimo e frete" da ficha), e as duas
+  informações nunca discordam: **marcar ZERA o frete** (não existe "grátis por
+  R$ 20"), **informar frete maior que zero DESMARCA** (o número é a decisão
+  mais recente), e quem decide é o servidor, pela mesma função nas duas portas
+  (POST e PATCH, inclusive na edição de itens). Só o pedido MARCADO sai
+  **"Frete · GRÁTIS"** em negrito e na cor de destaque da loja no romaneio
+  (`gratis: true` troca fonte e cor) e em verde na ficha; frete com valor sai
+  como sempre; zero sem a marca não vira linha, como antes. A mexida entra no
+  histórico do pedido ("frete grátis marcado/desmarcado"), na mesma linha de
+  auditoria dos valores; a edição de ITENS que não fala de frete deixa marca
+  e valor como estão (resolver sempre podia virar a marca sem linha no
+  histórico, achado da revisão). Marcar grátis num pedido que tinha frete muda
+  o total a pagar, e isso passa pelo caminho de sempre dos valores (cobrança
+  pendente acompanha, Pix/link antigo expira, porta do Financeiro — RN-033;
+  provado contra o Postgres local com o módulo ligado: o lançamento acompanha
+  R$ 558 → 573 → 558). **Quem marca**: vendedora e gerência; o **suporte é
+  barrado no SERVIDOR** para frete e marca (antes só a tela escondia o editor
+  e a porta deixava o suporte mudar o frete — achado da revisão; a mesma
+  frase dos valores, 403). A caixinha e a linha "Frete · GRÁTIS" moram num
+  componente só (`components/pedido/frete-gratis.tsx`) para as três telas, e
+  **o número digitado não é apagado ao marcar** — a caixinha tocada sem
+  querer e desmarcada devolve o frete (apagar fazia R$ 25 sumirem calados,
+  sem marca e sem rastro). A exportação CSV de pedidos ganhou a coluna
+  "Frete grátis" (Sim), para separar o grátis do "não informado". **Limites
+  ditos**: o pedido do catálogo nasce sem a marca (a vendedora marca ao
+  conferir); a **loja online (Nuvemshop) traz o frete de lá** — a ficha
+  esconde a caixinha e o servidor recusa marcar (409): zerar um frete que a
+  cliente pagou lá faria o romaneio mentir.
 - **RN-003 · Estoque**: orçamento RESERVA (todos os status exceto CANCELADO seguram
   estoque) — vale para o pedido montado no sistema E para o do catálogo
   público (`lib/reservations.ts`, baixa condicionada: nunca negativa, nunca
@@ -630,6 +741,90 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   isso em português, com a sugestão do 9 quando cabe
   (`lib/comm/numero-sem-whatsapp.ts`) — antes mostrava o JSON cru do
   servidor e duas vendedoras reenviaram achando que era falha de envio.
+  **RN-096 · NÚMERO DE FORA DO BRASIL NÃO GANHA 55 — E O NÚMERO DO WHATSAPP
+  JÁ VEM COM O DDI** (`lib/telefone.ts`, puro; `normalizePhone`,
+  `phoneMatchVariants` e `formatPhone` passam por ele, 26/10/2026): relato do
+  dono com o print da Toque Leve — a cliente Rafaela aparecia como
+  "(17) 81408-6755", numa conversa "na fila" que ninguém conseguia responder
+  (o WhatsApp dizia que o número não existe). Não existe mesmo: o que chegou
+  foi `17814086755`, **+1 781 408-6755**, um número dos EUA; o sistema via
+  onze dígitos, concluía "brasileiro sem DDI" e colava o 55 — nascia o
+  cadastro `5517814086755`, a resposta da loja ia para o nada e a cliente que
+  escrevia do exterior ficava sem resposta. Duas réguas: (1) **o número que
+  vem do WhatsApp já tem o DDI** — os dois webhooks (Evolution e API
+  oficial) e a importação de histórico o passam adiante com o `+` na frente
+  (`declaraDdi`; o "00" de discar para fora também declara), e aí nada se
+  adivinha;
+  (2) **o digitado só ganha 55 se tiver CARA de brasileiro**
+  (`pareceNumeroBrasileiroSemDdi`: DDD que existe e, com onze dígitos, o 9
+  na terceira posição; com dez, fixo ou o celular antigo sem o 9, que o
+  cadastro tolera). Na tela, número de fora sai como "+1 781 408-6755"
+  (`formatarInternacional`, DDI de 1, 2 ou 3 dígitos pela lista da UIT) e
+  nunca mais como um DDD; a sugestão "faltou o 9" só vale para DDD que
+  existe. **O cadastro antigo com o 55 colado se cura sozinho**: as variantes
+  de busca incluem a forma antiga (`55` + o número — também para o número
+  de fora com cara de brasileiro, o +51 9… do Peru, quando o DDI veio dito),
+  o cadastro com o número EXATO vence o antigo só quando o antigo é o do 55
+  colado (para o brasileiro com dois cadastros legados, com e sem o 9, segue
+  valendo o mais antigo — senão cada canal caía num cadastro), e a primeira
+  mensagem da cliente corrige o número no intake
+  (`guardadoComCinquentaECincoPorEngano`), com a linha do tempo dizendo —
+  **só com o número VERIFICADO pelo webhook** (`telefoneVerificado`, que só
+  os dois webhooks marcam): o `+` digitado num formulário não é certeza,
+  "+11 99876-1001" é um brasileiro com o DDI esquecido e a cura tiraria o 55
+  de um cadastro certo; a migração `20261026120000` tira o 55 de todo "55 +
+  onze dígitos" sem o 9 na terceira posição ou com DDD que não existe (a
+  mesma lista da lib — nunca é número brasileiro), só onde não há colisão. **Limite dito**: número de fora DIGITADO sem o `+` e com a cara
+  exata de um celular brasileiro (um +1 de área 29x, o +51 9… do Peru) segue
+  lido como brasileiro — vindo do WhatsApp nunca há dúvida, e é de lá que
+  vem a cliente de fora. Provado contra o Postgres local
+  (`scripts/e2e-pedido-de-outro-numero.ts`, cenários 1–2).
+  **RN-097 · O MESMO PEDIDO DO CATÁLOGO CHEGANDO DE OUTRO WHATSAPP: O
+  WHATSAPP É O NÚMERO VERIFICADO** (`lib/comm/pedido-de-outro-numero.ts`,
+  chamado pelo intake e pela porta do pedido, 26/10/2026, ADR-023): relato do
+  dono — *"quando a pessoa manda o pedido e coloca um número diferente do
+  dela, o sistema abre outra conversa e duplica"* e *"o pedido chega duas
+  vezes no WhatsApp (não duplica na aba Pedidos, mas duplica nas
+  mensagens)"*. É um defeito só: a cliente preenche o pedido com o telefone
+  Y (o catálogo cria o cadastro Y, a bolha do pedido, abre o wa.me) e a
+  mensagem de verdade sai do WhatsApp do APARELHO, o número X — o webhook
+  cria outro cadastro, outra conversa na fila e outra bolha com o mesmo
+  texto (a RN-043 só junta a MESMA cliente; a RN-021 só vale pelo link
+  pessoal). Régua, que estende a RN-021: **o WhatsApp por onde a mensagem do
+  pedido chegou é o número verificado** (foi o aparelho que montou o pedido
+  que a mandou); o digitado é palpite e fica anotado. Como juntar cadastro
+  sozinho é o que a RN-020 proíbe, a prova exigida é FORTE, as três: o
+  texto é o do pedido, idêntico, dentro da meia hora da bolha; o cadastro do
+  digitado **NASCEU DESTE PEDIDO** (`nasceuDoPedido`: origem catálogo,
+  criado na janela, nunca recebeu mensagem pelo WhatsApp — se o número
+  digitado é de uma cliente de verdade, nada é tocado e vale o aviso
+  "parece a mesma pessoa" de sempre); e, para FUNDIR, o pedido já existe (a
+  porta cria o pedido DEPOIS do intake, e apagar o cadastro no meio
+  quebraria a criação — RN-010). Três saídas (`decidirAdocao`, pura): X
+  ainda não é cliente → o cadastro nascido do pedido **LEVA o número X**
+  (nada se apaga; pedido, conversa e bolha ficam, e a bolha é reaproveitada
+  pelo caminho de sempre); X já é cliente e o pedido existe → o cadastro do
+  digitado é **FUNDIDO no de X** pelo caminho da unificação de contatos
+  (`repointCustomer`: pedido, conversa, histórico e bolha vão para X, as
+  conversas abertas viram uma); o webhook chegou PRIMEIRO → a porta do
+  catálogo **adota X antes de criar qualquer coisa**
+  (`telefoneDoWhatsAppDoPedido` → `telefoneDoPedido` com `doWhatsApp`, que
+  vence até o link pessoal). A corrida (o webhook vê a bolha mas o pedido
+  ainda não existe) é fechada pela própria porta do pedido, que no FIM, com
+  o pedido criado, procura a mensagem de verdade e funde
+  (`juntarDepoisDoPedido`, tirando a bolha sem id — a mensagem de verdade
+  fica); os dois lados tomam a MESMA trava, pelo texto limpo do pedido
+  (`pg_advisory_xact_lock(hashtext(...))`). Tudo fica dito: nota 📱 na
+  conversa e linha do tempo da cliente com os dois números, e a observação
+  do pedido diz que o digitado era outro. Falha aqui nunca derruba a
+  mensagem nem o pedido (vai para a Saúde sem alarme, régua da RN-066).
+  **Limite dito**: quando o número digitado é de uma cliente de verdade da
+  loja (a sócia, a irmã), continuam dois cadastros e a bolha aparece nas
+  duas conversas — para o sistema são duas pessoas, e a gerência unifica
+  pelo aviso. Provado pelas rotas de verdade contra o Postgres local
+  (`scripts/e2e-pedido-de-outro-numero.ts`, cenários 3–7: X desconhecido, X
+  já cliente, webhook primeiro, cliente de verdade intocada, e a corrida
+  fechada no fim da rota, idempotente).
 - **RN-009 · Catálogo público**: preço/total SEMPRE recalculado no servidor; links
   rastreados `?ref=` (vendedora) e `?c=` (cliente) alimentam a atribuição.
 - **RN-010 · O pedido do catálogo NÃO PODE SE PERDER** (`lib/catalogo/envio-pedido.ts`):
@@ -933,7 +1128,50 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   seções, peso e tempo de verdade, a chavinha por cor, atacado × varejo, o
   teto que corta e conta, o orçamento esgotado devolvendo PDF em vez de erro
   e — medindo o PIXEL da capa renderizada — a logo transparente que não
-  vira caixa preta).
+  vira caixa preta). **(6) A CAPA É DA LOJA** (`lib/catalogo/capa-pdf-regra.ts`
+  pura + `capa-pdf.ts` no servidor + `capa-no-navegador.ts`, seção "Capa do
+  catálogo em PDF" em Configurações → Catálogo, 26/10/2026; pedido do dono:
+  *"a opção de editar a capa, o layout dela completo, ou fazer ela tipo em
+  Canva e subir"*). Decidido com ele: **a capa feita FORA (Canva) e subida
+  aqui**, mais ajustes pequenos na automática — um editor de layout dentro
+  do sistema seria obra de semanas que nunca chegaria perto do Canva, que a
+  lojista já usa. (a) **A imagem**: a tela DIZ o formato (A4 em pé, 21 ×
+  29,7 cm; 1240 × 1754 px ou mais, 2480 × 3508 a 300 dpi; JPG ou PNG; até
+  20 MB; "no Canva: Documento A4, baixar como JPG") por UMA constante
+  (`FORMATO_RECOMENDADO`); o **navegador recorta e encolhe antes de mandar**
+  (a porta recebe no máximo 4,5 MB, limite da Vercel — o JPG do Canva a 300
+  dpi tem 3 a 8 MB): confere a proporção, apara a borda fina pelo CENTRO até
+  o A4 exato (tolerância de 8%; fora disso é outro formato — quadrado, story
+  — e cortar levaria o título embora: recusa com a frase dizendo os
+  pixels), avisa quanto aparou, e entrega JPEG de 1240 × 1754; o **servidor
+  confere de novo pelo CONTEÚDO** (`lerImagem`, a régua da RN-070 — o rótulo
+  da data-URL é digitável), pela MESMA régua (`motivoDaRecusa`, uma para os
+  dois lados), e grava **sempre o JPEG recomprimido no A4** (data-URL,
+  dívida nº 1, ~300–600 KB; PNG transparente ganha fundo branco; o giro da
+  câmera vale) **em tabela PRÓPRIA** (`CatalogoCapa`, 1:1 — a `Company` é
+  lida INTEIRA em dezenas de caminhos quentes, toda visita à vitrine e toda
+  mensagem do webhook, e meio megabyte ali seria a logo da RN-070 de novo;
+  achado da revisão), com a **miniatura gravada junto** (a tela não refaz o
+  encolhimento a cada abertura, nem recebe o data-URL inteiro). A imagem é
+  **salva na hora** em que sobe. (b) **A faixa do sistema fica por padrão**
+  (`catalogPdfCapaFaixa`): uma faixa fina no pé, na cor da loja, com "Preços
+  e disponibilidade de dd/mm/aaaa · confirme com a loja" e o WhatsApp — é a
+  fotografia do momento (item 2); a loja pode tirar, e aí a capa é 100%
+  dela (a data segue no rodapé das páginas). (c) **A capa automática ganha
+  ajustes**: título no lugar de "CATÁLOGO · MÊS ANO" (`tituloDaCapa`), uma
+  linha abaixo, e **as três peças** (ids de produto, até 3, só DA LOJA —
+  RN-013, a porta recusa id de fora — e só peça ATIVA: a pausada saiu do
+  catálogo e não estampa a capa dele, achado da revisão; a foto é a MESMA
+  escolha do site, `fotoDaCor`), escolhidas pela busca de produtos; sem
+  nenhuma, a amostra de sempre (começo, meio, fim). As peças escolhidas
+  valem mesmo fora do recorte por categoria, e são lidas mesmo com a imagem
+  da loja — se ela não abrir, a automática sai com as peças escolhidas. (d) **Capa torta nunca derruba o catálogo**: só o
+  JPEG gravado pela porta é embutido (`capaGuardadaParaOPdf`, assinatura FF
+  D8), e a imagem que não abre cai na automática. Só admin edita
+  (identidade visual). Provado no `confere-catalogo-pdf.ts` (cenários 13–17,
+  medindo o PIXEL: o meio da página 1 é a imagem enviada, o pé é a cor da
+  loja com a faixa e a imagem sem ela, a imagem quebrada vira automática) e
+  em `catalogo-pdf-capa.test.ts` (a régua e o preparo com o sharp).
   **RN-018 · Tabelas de preço por link** (`lib/catalogo/tabelas-de-preco.ts`,
   gated por `Company.priceTablesEnabled`, DESLIGADO por padrão): a loja que
   atende lojista E cliente final gera links do MESMO catálogo com tabelas
@@ -2556,10 +2794,160 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   ano, cancelado/orçamento/pago sem data/outra loja fora, somas contra o
   banco e contra a carteira, as oito listas com o Chamar). **Próximas
   etapas combinadas** (uma de cada vez, com revisão): o grupo no filtro das
-  campanhas (gerência); tarefa para a vendedora dona da cliente quando ela
-  CAI de grupo; o retrato mensal de quem subiu e quem caiu. **Limite dito**:
+  campanhas (gerência — feito, RN-098); tarefa para a vendedora dona da cliente quando ela
+  CAI de grupo (feito, RN-100); o retrato mensal de quem subiu e quem caiu
+  (feito, RN-101). **Limite dito**:
   o "Chamar" da gerência numa conversa encerrada a reabre no nome de quem
   abriu (a régua do "Conversar no WhatsApp").
+- **RN-098 · O GRUPO DO RFM NO FILTRO DAS CAMPANHAS: SÓ A GERÊNCIA, E SEM
+  PERMISSÃO O PÚBLICO É VAZIO** (`rfmGrupo` em `lib/segments.ts` +
+  `modeloDeCampanhaDoGrupo` em `lib/bi/rfm-regra.ts` +
+  `lib/campanha-mensagem.ts`, tela Campanhas, 27/10/2026): a Etapa 2 do RFM
+  (RN-093) — *"criar campanha e fluxos voltados à recompra"*. A campanha
+  ganha o filtro **"Grupo do RFM"**, cruzado com os de sempre (sem compra há,
+  tipo, cidade, tag…), e o público é o grupo de **HOJE**, pela MESMA conta
+  da aba Clientes (`clientesDoRfm`; o público da campanha já era dinâmico —
+  quem muda de grupo entra ou sai sozinha). **A porteira é a do BI**
+  (`rfmLiberadoPara` = `podeVerBi` + `biEnabled`, RN-082): gerência, na loja
+  com a chave — a campanha não vira porta dos fundos para a vendedora, ou a
+  loja sem o módulo, saber quem é "Não posso perder". O servidor confere em
+  TODA porta — criar (403 com frase), prever (403) e o disparo (ler o
+  público e marcar enviado, 403) — e, por baixo delas, **`evaluateSegment`
+  devolve público VAZIO** para quem não pode, para grupo fora da lista e
+  para grupo sem ninguém hoje: ignorar o filtro que a pessoa não pode usar
+  mandaria o "sentimos sua falta" para a loja inteira. A campanha de RFM
+  vista por quem não pode aparece **sem o número e sem o Disparar**, com o
+  motivo certo (`barreiraDoRfm`: "só a gerência" para a vendedora; "o BI
+  está desligado" para a gerente da loja que desligou o módulo). **Filtro
+  salvo que não se lê é RECUSADO** (`lerFiltroDaCampanha` devolve `null`,
+  o disparo responde 422 e a tela diz "crie de novo"): antes ele virava
+  `{}`, e filtro vazio é "todas as clientes" — o JSON cortado de uma
+  campanha "Não posso perder" virava disparo para a loja inteira (achado
+  da revisão). E **cliente BLOQUEADA não entra em campanha nenhuma**
+  (`blockedAt: null` no público de TODA campanha, com ou sem o grupo): o
+  bloqueio é o de verdade no WhatsApp, e a lista do BI já não lhe
+  oferecia o "Chamar" (achado da revisão). O grupo é conferido **em
+  memória** depois da consulta (a régua do gasto mínimo — uma lista de ids
+  no `IN` esbarraria no teto de parâmetros do Postgres), e a tela calcula o
+  RFM **uma vez** para todas as campanhas (`gruposDoRfmUmaVez`, com a
+  permissão lida da loja que a tela já carrega — sem ida extra ao banco).
+  **A
+  mensagem pronta** do grupo entra ao escolhê-lo (enquanto ninguém mexeu no
+  texto): é a MESMA do "Chamar" do BI com a saudação "Oi {{nome}}!"
+  (`modeloDeCampanhaDoGrupo`, o teste prende que, personalizada, ela é
+  igual), com o link do catálogo da loja. **O atalho "Criar campanha"** em
+  cada grupo do BI abre a janela com o grupo, o nome e a mensagem prontos
+  (`/campanhas?rfm=<grupo>`). Dois consertos do disparo, que a campanha de
+  RFM ia usar: o `{{nome}}` do crachá provisório ou do nome em branco some
+  junto com o espaço (`personalizarCampanha`: "Oi!", nunca "Oi Contato!") e
+  o número do wa.me sai pela régua da casa (`normalizePhone` — número de
+  fora não ganha 55, RN-096); a vírgula de "Olá, {{nome}}!" sai junto
+  ("Olá!", nunca "Olá,!"). **Limites ditos**: marcar "enviado" refaz o
+  público da campanha (é assim que ela se conclui sozinha) e, com o grupo,
+  o RFM da loja a cada clique — uma consulta agregada por clique; o disparo da campanha
+  segue abrindo o WhatsApp do aparelho (wa.me), não a Central — o link da
+  mensagem é o do catálogo da loja, sem a ref da dona nem o código da
+  cliente (para isso, o "Chamar" da lista do BI, RN-093); e a vendedora
+  continua criando campanha sem o grupo, como sempre.
+- **RN-100 · QUANDO A CLIENTE CAI PARA UM GRUPO DE ALERTA DO RFM, A DONA DA
+  CARTEIRA RECEBE UMA TAREFA** (`lib/bi/rfm-quedas-regra.ts` pura +
+  `lib/bi/rfm-quedas.ts` + `RfmEstado`, 27/10/2026): a Etapa 3 do RFM
+  (RN-093), decidida com o dono — *"tarefa para a vendedora; só a gerência
+  vê o RFM, a vendedora recebe a tarefa"*. Como o RFM é calculado e as notas
+  são relativas à loja (mexem todo dia), saber que alguém CAIU exige
+  memória: `RfmEstado` guarda, por cliente, o grupo da **última rodada** (não
+  é o grupo dela — é a lembrança; a tela segue calculando). **A régua da
+  queda** (`caiuParaAlerta`): a ordem é a da tela (`GRUPOS_RFM`, do melhor ao
+  mais distante — uma ordem só) e só vira tarefa a queda que **ENTRA num
+  grupo de alerta** — Precisam de atenção, Não posso perder, Hibernando,
+  Perdidas; Campeã que vira Fiel continua comprando, é movimento, não
+  alarme. **Só cliente com dona ATIVA** ganha tarefa; a queda da cliente da
+  loja (sem dona) **ESPERA** — a memória não anda — e a tarefa nasce na
+  rodada em que a gerência a der a uma vendedora (gravar a memória ali
+  calaria a queda para sempre, achado da revisão). A tarefa é da dona
+  (`assigneeId`), **vence às 23:59 de hoje em SP** (`vencimentoDaQueda` —
+  na meia-noite exata ela caía em "Próximas" e não fechava sozinha no mesmo
+  dia, achado da revisão), "Não posso perder" é prioridade ALTA, e o tipo é sempre de CONTATO
+  (FOLLOW_UP/REATIVAR) — então **falar com a cliente ou ela comprar de novo
+  fecha a tarefa sozinha** pelos caminhos de sempre (`contato-feito`,
+  `fecharTarefasResolvidas`). **Uma tarefa de queda aberta por cliente**: cair
+  de novo antes de alguém chamá-la ATUALIZA a mesma (`rfm-queda:<grupo>:<id>`),
+  nunca empilha — e a atualização **não conta no teto, não toca a data** (a
+  vendedora pode ter adiado para o dia que a cliente pediu) e não gera aviso.
+  **Sem enxurrada**: a primeira vez que a cliente aparece é o ponto de
+  partida (ligar o BI numa loja de 800 clientes não cria 800 tarefas), e o
+  mesmo vale para a **memória com mais de 7 dias sem rodada fechada**
+  (`Company.rfmQuedasOkEm` — o BI desligado e religado não vira meses de
+  quedas "de hoje", achado da revisão); há **teto de `TETO_POR_DONA` (10)
+  tarefas NOVAS por vendedora por rodada** — as que passaram do teto ficam
+  **seguradas** com a memória antiga, marcadas com `seguradaDesde`, e **vão
+  na frente** na rodada seguinte (quem espera há mais tempo primeiro, depois
+  o maior LTV — só por LTV, a cliente de pouco valor perdia a vez para
+  sempre, achado da revisão). Memória e tarefas nascem
+  na **MESMA transação** (tarefa sem memória repetiria amanhã; memória sem
+  tarefa calaria a queda para sempre, a lição da RN-092), só para cliente
+  que ainda existe na loja (RN-013), e quem saiu do RFM (venda cancelada)
+  tem a memória apagada. **Roda de carona** (sync da inbox e abertura do BI,
+  `quedasDoRfmSeDevido`): trava atômica por loja, **uma rodada por DIA de
+  São Paulo** (`ondeDaTrava`, `Company.rfmQuedasRunAt` — um intervalo em
+  horas escorregava e punha duas rodadas no mesmo dia, dobrando o teto,
+  achado da revisão), **só com a chave do BI** — nunca um 3º cron
+  (ADR-002); rodada que falha mantém a trava e vai para a Saúde sem alarme
+  (a régua da RN-082) — nada se perde, porque a memória só anda quando a
+  transação fecha. Depois do commit, **um aviso por vendedora** no celular
+  ("📉 N clientes suas esfriaram"), contando só as tarefas NOVAS de fato
+  gravadas. **Na Agenda**, o "Conversar" da tarefa de queda abre com a
+  **mensagem do grupo** e o link com o código da cliente e a ref da dona
+  (`linkDaClienteDoRfm`, o mesmo caminho do "Chamar" do BI — e a dona vale
+  só se ativa E da loja, a régua da consulta do RFM), nunca a genérica de
+  conversa parada. **Limites ditos**: como as notas são
+  da própria loja, uma cliente pode cair só porque as outras compraram mais
+  (o teto segura o barulho); a cliente que esfria sem passar por um grupo de
+  alerta (Campeã → Fiel) não gera tarefa — ela aparece no retrato do mês.
+- **RN-101 · O RETRATO DO MÊS NO RFM É RECALCULADO, NUNCA GRAVADO — QUEM
+  CAIU, QUEM SUBIU E QUEM CHEGOU** (`lib/bi/rfm-movimento-regra.ts` pura +
+  `lib/bi/rfm-movimento.ts`, cartão "O mês no RFM" na aba Clientes do BI,
+  lista `tipo=rfm-mov`, 27/10/2026): a Etapa 4 do RFM (RN-093) — o dono quer
+  ver, mês a mês, quem subiu e quem caiu. **A decisão que sustenta tudo**: o
+  RFM de qualquer instante sai dos pedidos pagos ATÉ aquele instante
+  (`carregarBaseDoRfm(companyId, instante, { soPagoAntes: true })` corta
+  `paidAt < instante` — e SÓ quando pedido: no RFM de agora, o pagamento com
+  o relógio do aparelho uns minutos à frente sumiria da aba, das campanhas e
+  das quedas, achado da revisão), então "como estava no dia 1º" é a MESMA conta da aba com o relógio no dia
+  1º à 0h de SP (`inicioDoMes`), e o fim é o dia 1º do mês seguinte — ou
+  AGORA, no mês em curso. Nada é gravado: a loja vê os meses de trás no
+  primeiro dia em que abre a tela (uma foto gravada só teria história de
+  hoje em diante), e a venda cancelada depois sai também do passado — o
+  retrato diz a verdade de hoje sobre aquele mês. **A régua do movimento**
+  (`movimentoDe`) é a ordem da tela (`GRUPOS_RFM`, do melhor ao mais
+  distante), a MESMA das quedas (RN-100): ir para um grupo melhor é SUBIR
+  (a Perdida que volta a comprar sobe), para um pior é CAIR, e quem não
+  tinha compra paga no dia 1º e comprou no mês **CHEGOU**. O cartão mostra os
+  três números (caíram, subiram, primeira compra — cada um abre a lista), os
+  que ficaram e os que **não têm mais compra paga hoje** (venda cancelada ou
+  devolvida a orçamento, ou contato unificado — dizer só "cancelada" mandava
+  procurar um cancelamento que não houve), **os caminhos mais
+  comuns** ("🏆 Campeãs → 🚨 Não posso perder: 3" — as quedas primeiro, pelo
+  tamanho; cada caminho abre a lista) e, por grupo, quantas no dia 1º,
+  quantas agora e o saldo (a conta fecha: fim = começo + entraram −
+  saíram, e o teste prende). Os meses são o corrente e os cinco anteriores
+  (`mesesDoRetrato`; a URL aceita os últimos 12, `lerMesDoRetrato` — o futuro
+  e o texto torto são recusados —, e o escolhido mais velho que os seis
+  ganha o seu botão); trocar o período da aba **não perde o mês escolhido**
+  e voltar da lista cai no cartão (`#retrato`). **A lista** é a do BI
+  (RN-086) com o caminho escrito em cada linha — no mês fechado, as notas e
+  a última compra da linha são as do **fim daquele mês** (ditas assim) e só
+  o "Chamar" fala com a cliente de **HOJE** (mensagem do grupo de hoje; a que
+  não tem mais compra paga não ganha o botão) —, pelo mesmo `linhaDoRfm` da
+  lista dos grupos; o nome da origem é UM (`rotuloDaOrigem`, cartão e lista
+  dizem o mesmo). A cor
+  faz um trabalho (RN-089): o sentido, com a seta e a palavra dizendo o
+  mesmo. **Limites ditos**: como as notas são da própria loja, a cliente pode
+  subir ou cair só porque as outras compraram (o cartão diz); a aba faz duas
+  contas agregadas do RFM no mês em curso (o dia 1º e agora — e o "agora" é
+  reaproveitado para os grupos e a matriz, `rfmDasClientes`), três num mês
+  fechado; a lista de um mês fechado também faz três (o grupo de hoje
+  precisa da loja inteira, as notas são relativas).
 - **Communication Engine** (`lib/comm/`): camada única de envio/recebimento,
   agnóstica de provedor. `EvolutionProvider` = WhatsApp NÃO-oficial via
   Evolution API **self-hosted** (VPS Hostinger srv1853369.hstgr.cloud,
@@ -3929,6 +4317,165 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   zero), e a legenda diz só quantos cobraram frete. A rota está na varredura
   de dinheiro (`faturamento-data.test.ts`), e o número foi conferido contra
   a soma direta no Postgres local.
+  **RN-102 · ATRASADO DE VERDADE: O PRAZO PROMETIDO PELA TRANSPORTADORA, NÃO
+  UM CHUTE DE 7 DIAS** (`Shipping.prazoDias` + `Shipping.previstoAte`,
+  `previsaoDeEntrega`/`atrasoDoEnvio`/`ondeAtrasado` em
+  `lib/envios/painel.ts`, 28/10/2026): primeira peça do monitoramento dos
+  pacotes na estrada, decidida com o dono — *"pedido parado, o mapa acusa;
+  vemos em tempo real quantos pedidos estão na estrada"*. A tela Envios
+  chamava de "parado" todo pacote postado há mais de 7 dias — um número que
+  não era de ninguém: o PAC de 12 dias úteis para o Norte aparecia "parado"
+  no 8º dia andando normalmente, e o SEDEX de 2 dias passava 6 dias sumido
+  sem a tela dizer nada. Agora: (1) **o prazo vem da cotação aceita** — o
+  Melhor Envio devolve os dias úteis de cada serviço (`days`) e, ao comprar
+  a etiqueta, a tela manda o prazo do serviço escolhido com os MESMOS
+  volumes e seguro (presos à cotação que a pessoa viu); **é informação, não
+  trava** (`normalizarPrazoDias`, 1 a 60, uma régua para a tela e a porta):
+  número torto vira "sem prazo" e a compra da etiqueta NUNCA é recusada por
+  ele (achado da revisão — o serviço de área remota que diz 65 dias
+  derrubaria a compra inteira); etiqueta nova apaga a previsão da anterior.
+  (2) **A previsão nasce na POSTAGEM, uma vez, pelos DOIS caminhos que
+  marcam a saída** (`carimboDaPostagem`): o rastreio da transportadora
+  (`aplicarRastreio`, primeiro POSTADO) e o **"Enviado" marcado à mão** na
+  ficha do pedido — a vendedora costuma marcar ao deixar a caixa no
+  correio, horas antes do "postado" da transportadora, e só o rastreio
+  carimbar deixava o fluxo mais comum na régua antiga (achado da revisão);
+  a base é a saída que já está gravada. `previstoAte` = saída + prazo em
+  **dias úteis** (segunda a sexta, no calendário de São Paulo pela régua
+  `diaSP` de `lib/dia.ts`, o dia da postagem não conta, fim do dia) —
+  carimbada, não recalculada: a régua lê o carimbo, e a cláusula do banco
+  fica simples. **Voltar o pedido para antes do envio limpa a previsão junto
+  com a postagem** (a linha só com a previsão contaria no cartão sem
+  aparecer na aba, achado da revisão — e a cláusula exige a postagem nos
+  dois ramos). (3) **Atrasado = passou da previsão mais
+  UM dia de folga** (`FOLGA_DIAS` — a transportadora que entrega na manhã
+  seguinte ao prazo não vira alarme vermelho), e **a régua é UMA**: a
+  função pura (`atrasoDoEnvio`, que a tela importa e calcula uma vez por
+  lista, com um relógio) e o `where` do Prisma (`ondeAtrasado`, que a
+  contagem do cartão e a lista da aba Atenção usam) são escritas lado a
+  lado e o e2e confere linha a linha que concordam. O
+  chip diz **"Atrasado · N dias além do prazo"**, a linha mostra "previsão
+  até dd/mm" (em vermelho quando venceu), a ficha do pedido mostra a
+  previsão ao lado do status e **a página pública de rastreio diz à cliente
+  "Previsão de entrega: até dd de mês"** enquanto está a caminho — e,
+  vencida, diz que **passou do prazo** e manda falar com a loja (mostrar
+  uma data de ontem como promessa faria a cliente achar a página quebrada,
+  achado da revisão). (4) **O
+  envio SEM prazo não mente**: etiqueta comprada antes da coluna (ou
+  serviço que não informou prazo) segue na régua antiga dos 7 dias
+  (`DIAS_PARA_PARADO`), e aí a tela escreve **"Parado no caminho"**, nunca
+  "atrasado" (`pelaReguaAntiga` — prometer um prazo que ninguém deu seria
+  o erro de antes com outra palavra). Entregue, devolvido e cancelado nunca
+  são atraso, mesmo com a previsão vencida. **Limites ditos**: o prazo é o
+  da transportadora na cotação (feriado não conta como não útil — é uma
+  conta de dias úteis, não o calendário dela), e o aviso no sino quando o
+  pacote atrasa e a camada "na estrada" do mapa são as peças seguintes,
+  combinadas com o dono. Provado contra o Postgres local
+  (`scripts/e2e-envios-prazo.ts`: cinco envios, banco × régua pura, a
+  postagem de verdade carimbando a previsão uma vez só).
+  **RN-103 · NA ESTRADA: O MAPA MOSTRA O QUE ESTÁ A CAMINHO, E O ATRASO
+  AVISA UMA VEZ POR PACOTE** (`montarNaEstrada` em `lib/envios/mapa.ts` +
+  modo "Na estrada" em `mapa-envios.tsx`; `avisoDeAtraso` em
+  `lib/envios/painel.ts` + `avisarAtrasados` em `lib/rastreio.ts` +
+  `Shipping.atrasoAvisadoEm`, 28/10/2026): a segunda peça do monitoramento
+  dos pacotes, pedida pelo dono — *"pedido enviado na estrada, a gente
+  monitora; pedido parado, o mapa acusa; vemos em tempo real quantos estão
+  na estrada"*. (1) **O mapa ganhou o modo "Na estrada"**, e abre nele
+  quando há pacote a caminho: só o que está POSTADO e ainda não chegou
+  (nem pela transportadora, nem pela entrega marcada à mão na ficha —
+  `deliveredAt` entrou na régua da RN-102, `atrasoDoEnvio`/`ondeAtrasado`:
+  o pedido que a cliente confirmou no WhatsApp ficava "a caminho" e
+  "atrasado" até a transportadora dizer, achado da revisão), um **arco
+  animado da loja até cada cidade** (a origem é o remetente cadastrado no
+  Melhor Envio; sem UF dele o mapa diz e desenha só as cidades), a bolinha
+  e o arco em **vermelho onde há pacote atrasado**, **âmbar onde só há
+  "parado"** (sem prazo, há mais de 7 dias — o mapa NUNCA o chama de
+  atrasado, a régua da RN-102) e cobre no prazo — a cor faz UM trabalho, o
+  status (RN-089); o cabeçalho diz "N pacotes a caminho agora · N atrasados
+  · N parados", a lista por estado separa os dois, e o movimento respeita
+  "reduzir movimento". A camada lê os pacotes um a um (precisa da previsão
+  de cada um), **os mais antigos primeiro com teto de 2.000** — é o que
+  está na rua agora, não a história da loja; bateu no teto, a tela DIZ que
+  mostra os mais antigos (quem fica de fora é o recém-postado, nunca o que
+  pode estar atrasado); cidade que não casa vai para o centro do estado e
+  pacote sem UF é contado, a régua do mapa de sempre. (2) **O atraso vira
+  aviso no sino e no celular, UMA vez por pacote**, para quem é dona do
+  pedido — **se ainda estiver ativa** (a desativada tem um sino que ninguém
+  lê; `destinosDoAviso`, que vale para todos os avisos do rastreio, achado
+  da revisão); sem dona, a gerência —, com a nota no histórico do pedido:
+  com previsão, "⏰ Pacote atrasado — prometeu até dd/mm, já passaram N
+  dias, vale cobrar a transportadora e avisar a cliente"; sem prazo, "📦
+  Pacote parado no caminho", nunca "atrasado". Roda **de carona na
+  varredura de rastreio** (`atualizarRastreiosSeDevido`, depois dos status
+  frescos, sob a mesma trava de 20 min — nunca um 3º cron, ADR-002), lê
+  pela MESMA cláusula do cartão e da aba Atenção (`ondeAtrasado`), 50 por
+  rodada, e **carimbo, nota no histórico e sino nascem na MESMA
+  transação** (a régua da casa, RN-051/RN-100 — a primeira versão
+  carimbava antes e aceitava perder o aviso se a função fosse cortada,
+  achado da revisão), com o carimbo `atrasoAvisadoEm` tomado de forma
+  atômica (`updateMany … WHERE null`): duas rodadas que se cruzem não
+  mandam o mesmo aviso; o push no celular sai DEPOIS do commit, de uma vez
+  para todos, e quem recebe é lido UMA vez para o lote (não uma consulta
+  por pacote). **O carimbo é da ETIQUETA, não do status**: voltar o pedido
+  para antes do envio limpa postagem e previsão mas NÃO o carimbo — é a
+  mesma viagem, e o rastreio recarimba a postagem com a data original da
+  transportadora, o que mandaria o mesmo aviso de novo (achado da revisão);
+  só a **etiqueta nova** zera. **O que já estava atrasado no dia do deploy
+  é ponto de partida, não aviso** (a migração carimba o que já estava
+  "parado" há mais de 7 dias — a lição da RN-100: ligar a regra numa loja
+  grande não cria uma enxurrada), e só pedido ainda vivo para a varredura
+  (60 dias, `DESISTE_EM_TRANSITO_MS`) ganha aviso — o pacote que ela
+  aposentou não acorda meses depois. Pedido cancelado, loja suspensa e loja
+  sem o módulo Envios ficam de fora, como na varredura. **Limites ditos**:
+  o aviso sai na rodada de carona (quem abre a Central ou o Envios a
+  dispara; sem tráfego nenhum, espera o próximo), e o mapa é o da abertura
+  da tela — a camada não se atualiza sozinha (a visão ao vivo é a peça
+  seguinte, o Modo TV, decisão do dono). Provado contra o Postgres local
+  (`scripts/e2e-envios-prazo.ts`, parte 4: dois avisos, nenhum repetido, a
+  etiqueta recarimbada que não avisa de novo e a nova que avisa, a dona
+  desativada caindo na gerência, o pedido aposentado e a loja sem o módulo)
+  e em `envios-na-estrada.test.ts`.
+  **RN-104 · MODO TV DOS ENVIOS: A TELA CHEIA QUE FICA LIGADA NA LOJA, SEM
+  CONTA PRÓPRIA** (`lib/envios/tv-regra.ts` pura + rota `/api/envios/tv` +
+  `app/(app)/envios/modo-tv.tsx` + `mapa-3d.tsx`, botão "📺 Modo TV" no
+  mapa de Envios e `?tv=1`, 28/10/2026): a terceira peça do monitoramento
+  dos pacotes, decidida com o dono — *"vemos em tempo real quantos pedidos
+  estão na estrada"* —, a visão ao vivo que a RN-103 deixou dita como peça
+  seguinte. (1) **É a MESMA camada "na estrada" (RN-103) e a MESMA régua de
+  atraso (RN-102)**: a porta leve da TV lê o POSTADO sem entrega (os mais
+  antigos primeiro, teto de 2.000), passa cada pacote por `atrasoDoEnvio` e
+  monta a camada por `montarNaEstrada` — a TV só TRADUZ para desenho e texto
+  (`tv-regra.ts`: do viewBox 2D ao chão 3D com o centro do Brasil na
+  origem, coluna de luz que cresce com a raiz do número, cor de STATUS pelo
+  pior caso da cidade — vermelho atrasado, âmbar "parado", cobre no prazo,
+  RN-089 —, rótulos com o problema primeiro e teto de 6 no computador e 3 no
+  celular, e o placar). Nunca decide atraso por conta própria, e "parado"
+  nunca vira "atrasado" na TV também. (2) **O placar do dia**: a caminho,
+  atrasados, parados, postados hoje, entregues hoje (pela postagem e pela
+  entrega gravadas, dia de São Paulo — `inicioDoDiaSP`) e aguardando
+  postagem, com a frase do que precisa de ação ("2 atrasados — passou do
+  prazo da transportadora") ou "Tudo no prazo". (3) **O mapa é 3D e VIVO**
+  (three.js, carregado por `import("three")` só quando a TV abre — a tela
+  de Envios não paga por ele): as placas dos estados extrudadas do mesmo
+  `mapa-brasil.json`, uma coluna de luz por cidade de destino, a sede (o
+  remetente do Melhor Envio) com o anel, um arco por cidade com uma luz que
+  viaja da loja até ela, câmera que balança devagar (botão Girar/Pausar;
+  "reduzir movimento" para tudo) e os rótulos em HTML presos ao ponto
+  projetado. Aparelho sem WebGL não fica em branco: a tela DIZ e o placar e
+  a lista por estado seguem ao vivo. (4) **Atualiza sozinha a cada minuto,
+  só com a aba visível** (a TV apagada não gasta banco), com "ao vivo ·
+  atualizado há N s"; se um pedido falhar **mantém o último número bom e
+  diz o que foi** (`avisoDaFalha`, a régua da faixa "hoje" do BI, RN-088).
+  A porta pega carona na varredura de rastreio (`after()`), então a TV que
+  fica ligada mantém os status e os avisos de atraso (RN-103) frescos.
+  (5) **Quem vê Envios abre a TV** (a porta exige o módulo e recorta pelo
+  `orderScope`, RN-007/RN-013; a TV não mostra dinheiro), por botão ou por
+  `?tv=1` — o endereço que fica salvo na TV da loja; Esc fecha, "Tela
+  cheia" é o do navegador. **Limites ditos**: a lista por estado só no
+  computador/TV (no celular o mapa ocupa a tela); o giro é a câmera, não o
+  globo; e a cidade que não casa com a base vai para o centro do estado,
+  com o rótulo dizendo "(cidade não identificada)", a régua do mapa de
+  sempre. Guardas: `envios-tv.test.ts` (a regra pura e a porta, com banco de mentira) e `modo-tv.test.tsx` (a tela em jsdom).
   **RN-022 · Dois recortes** (21/08/2026): **"Todos os pedidos pagos"**
   (padrão) conta TODO pedido pago (RN-001) com endereço — a loja também
   despacha por motoboy, transportadora própria e retirada, e esses pedidos
@@ -4160,9 +4707,10 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   ✅) → visual (RN-089 ✅) → exportar PDF (RN-090 ✅); depois, benchmark entre lojas (Super Admin) e resumo semanal no
   WhatsApp do dono. **RFM (pedido do dono, 22/10/2026)**: Etapa 1 ✅
   (RN-093, 23/10/2026: notas, oito grupos, matriz e o Chamar na aba
-  Clientes); faltam a Etapa 2 (grupo no filtro das campanhas, gerência), a 3
-  (tarefa para a vendedora quando a cliente cai de grupo) e a 4 (retrato
-  mensal de quem subiu e caiu). **Modo TV adiado** pelo dono. Decisões do dono: só gerência
+  Clientes); Etapa 2 ✅ (RN-098, 27/10/2026: grupo no filtro das campanhas,
+  gerência); Etapa 3 ✅ (RN-100, 27/10/2026: tarefa para a dona quando a
+  cliente cai para um grupo de alerta); Etapa 4 ✅ (RN-101, 27/10/2026: o
+  retrato do mês — quem caiu, subiu e chegou) — **RFM concluído**. **Modo TV do BI adiado** pelo dono (o dos Envios saiu, RN-104). Decisões do dono: só gerência
   vê; origem do lead segue automática (sem marcação manual); metas de
   qualquer tipo, a loja escolhe; prazo dentro do horário comercial.
 - 🟡 **Calendário comercial — preço de tabela a definir pelo dono**
@@ -4171,6 +4719,18 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   número e o teste `calendario-comercial.test.ts` que o fixa. A lista de
   segmentos e datas de oportunidade (`lib/calendario/datas.ts`) foi montada
   para o dono revisar.
+- 🟡 **Tela branca na abertura (RN-095, 23/10/2026)**: a tela muda virou
+  aviso com botão, e o painel de Saúde passou a CONTAR as aberturas que não
+  terminam (bloco "Telas que não terminaram de carregar"). A causa de rede
+  das duas clientes segue em aberto — olhar esse bloco na semana seguinte à
+  entrega (qual loja, qual navegador, com ou sem internet). Próximo passo
+  possível, não feito: no celular o cabeçalho (`md:hidden`) chega DEPOIS do
+  menu lateral de computador no HTML (`app-shell.tsx`), então a primeira
+  coisa visível só vem a ~25% do arquivo; desenhar o cabeçalho do celular
+  antes do menu traria o primeiro pixel para ~5% (mexe na ordem de foco do
+  teclado no computador — decidir antes). Botões do dono na Vercel:
+  Firewall (modo "challenge" barra o navegador de dentro do WhatsApp) e Skew
+  Protection (RN-066).
 - WhatsApp/Evolution: operacional em produção (conexão, tempo real, mídia).
   **Pendente**: ligar `DATABASE_SAVE_DATA_HISTORIC/NEW_MESSAGE/CHATS/CONTACTS=true`
   no compose do servidor Evolution (Hostinger, via Editor .yaml) e reconectar

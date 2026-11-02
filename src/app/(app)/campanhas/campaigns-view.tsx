@@ -6,6 +6,9 @@ import { useRouter } from "next/navigation";
 import { Megaphone, Plus, Users, X, Send, Check, MessageCircle } from "lucide-react";
 import type { SegmentFilter } from "@/lib/segments";
 import { customerTypeLabel, brl, formatPhone } from "@/lib/format";
+import { normalizePhone } from "@/lib/telefone";
+import { personalizarCampanha } from "@/lib/campanha-mensagem";
+import { GRUPOS_RFM, ehGrupoRfm, grupoRfm, modeloDeCampanhaDoGrupo, type GrupoRfm } from "@/lib/bi/rfm-regra";
 import { Card, Badge, EmptyState } from "@/components/ui";
 
 export type CampaignItem = {
@@ -14,7 +17,10 @@ export type CampaignItem = {
   message: string;
   status: "RASCUNHO" | "ATIVA" | "CONCLUIDA";
   filter: SegmentFilter;
-  reach: number;
+  /** null = o público não é mostrado (ver `bloqueio`) */
+  reach: number | null;
+  /** RN-098: "papel"/"bi" = campanha pelo grupo do RFM fechada para quem vê; "ilegivel" = o filtro salvo não se lê */
+  bloqueio: null | "papel" | "bi" | "ilegivel";
   createdAt: string;
 };
 
@@ -38,6 +44,10 @@ function describeFilter(f: SegmentFilter): string[] {
   if (f.interest) parts.push(`Interesse: ${f.interest}`);
   if (f.tag) parts.push(`Tag: ${f.tag}`);
   if (f.lostDeals) parts.push("Abandonou negociação");
+  if (ehGrupoRfm(f.rfmGrupo)) {
+    const g = grupoRfm(f.rfmGrupo);
+    parts.push(`RFM: ${g.emoji} ${g.rotulo}`);
+  }
   return parts.length ? parts : ["Todos os clientes"];
 }
 
@@ -45,13 +55,20 @@ export function CampaignsView({
   campaigns,
   tags,
   interests,
+  rfmLiberado,
+  abrirComRfm,
+  linkDoCatalogo,
 }: {
   campaigns: CampaignItem[];
   tags: string[];
   interests: string[];
+  rfmLiberado: boolean;
+  /** o atalho do BI (RN-098): abre a janela com este grupo já escolhido */
+  abrirComRfm: GrupoRfm | null;
+  linkDoCatalogo: string;
 }) {
   const router = useRouter();
-  const [showNew, setShowNew] = useState(false);
+  const [showNew, setShowNew] = useState(abrirComRfm != null);
   const [sending, setSending] = useState<CampaignItem | null>(null);
 
   return (
@@ -110,6 +127,17 @@ export function CampaignsView({
                   </p>
                 </div>
                 <div className="shrink-0 flex sm:flex-col items-center gap-2">
+                  {c.reach == null ? (
+                    <div className="text-center bg-gray-50 rounded-xl px-4 py-3 max-w-[11rem]">
+                      <p className="text-[11px] text-gray-500 leading-snug">
+                        {c.bloqueio === "ilegivel"
+                          ? "O filtro desta campanha não se lê — crie a campanha de novo."
+                          : c.bloqueio === "bi"
+                            ? "Usa o grupo do RFM, e o BI de Vendas está desligado nesta loja."
+                            : "Usa o grupo do RFM — só a gerência vê o público e dispara."}
+                      </p>
+                    </div>
+                  ) : (
                   <div className="text-center bg-brand-50 rounded-xl px-4 py-3">
                     <p className="flex items-center gap-1 justify-center text-brand-700">
                       <Users className="size-4" />
@@ -121,7 +149,8 @@ export function CampaignsView({
                       cliente{c.reach === 1 ? "" : "s"} no alvo
                     </p>
                   </div>
-                  {c.status !== "CONCLUIDA" && c.reach > 0 && (
+                  )}
+                  {c.status !== "CONCLUIDA" && c.reach != null && c.reach > 0 && (
                     <button
                       onClick={() => setSending(c)}
                       className="inline-flex items-center gap-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold px-3 py-2 transition"
@@ -151,10 +180,20 @@ export function CampaignsView({
         <NewCampaignModal
           tags={tags}
           interests={interests}
-          onClose={() => setShowNew(false)}
+          rfmLiberado={rfmLiberado}
+          grupoInicial={abrirComRfm}
+          linkDoCatalogo={linkDoCatalogo}
+          onClose={() => {
+            setShowNew(false);
+            // o atalho do BI não reabre a janela num recarregar
+            if (abrirComRfm) router.replace("/campanhas", { scroll: false });
+          }}
           onCreated={() => {
             setShowNew(false);
-            router.refresh();
+            // trocar o endereço já traz a lista nova; recarregar de novo
+            // refaria o público de toda campanha duas vezes
+            if (abrirComRfm) router.replace("/campanhas", { scroll: false });
+            else router.refresh();
           }}
         />
       )}
@@ -165,17 +204,37 @@ export function CampaignsView({
 function NewCampaignModal({
   tags,
   interests,
+  rfmLiberado,
+  grupoInicial,
+  linkDoCatalogo,
   onClose,
   onCreated,
 }: {
   tags: string[];
   interests: string[];
+  rfmLiberado: boolean;
+  grupoInicial: GrupoRfm | null;
+  linkDoCatalogo: string;
   onClose: () => void;
   onCreated: () => void;
 }) {
-  const [filter, setFilter] = useState<SegmentFilter>({});
-  const [name, setName] = useState("");
-  const [message, setMessage] = useState("");
+  const [filter, setFilter] = useState<SegmentFilter>(grupoInicial ? { rfmGrupo: grupoInicial } : {});
+  const nomeDoGrupo = (g: GrupoRfm) => `RFM · ${grupoRfm(g).rotulo}`;
+  const [name, setName] = useState(grupoInicial ? nomeDoGrupo(grupoInicial) : "");
+  const [message, setMessage] = useState(grupoInicial ? modeloDeCampanhaDoGrupo(grupoInicial, linkDoCatalogo) : "");
+  // a mensagem pronta do grupo só entra enquanto ninguém mexeu no texto
+  const [mensagemDoGrupo, setMensagemDoGrupo] = useState(grupoInicial != null);
+  const [erro, setErro] = useState<string | null>(null);
+
+  function escolherGrupo(g: GrupoRfm | undefined) {
+    setFilter((f) => ({ ...f, rfmGrupo: g }));
+    // o nome sugerido acompanha o grupo (o digitado pela pessoa fica)
+    if (!name.trim() || GRUPOS_RFM.some((x) => name === nomeDoGrupo(x.id))) setName(g ? nomeDoGrupo(g) : "");
+    if (mensagemDoGrupo || !message.trim()) {
+      setMessage(g ? modeloDeCampanhaDoGrupo(g, linkDoCatalogo) : "");
+      setMensagemDoGrupo(g != null);
+    }
+  }
   const [preview, setPreview] = useState<{
     count: number;
     sample: { id: string; name: string; phone: string; totalSpent: number }[];
@@ -191,6 +250,7 @@ function NewCampaignModal({
         body: JSON.stringify(filter),
       });
       if (res.ok) setPreview(await res.json());
+      else setPreview({ count: 0, sample: [] });
     }, 300);
     return () => clearTimeout(t);
   }, [filter]);
@@ -205,6 +265,7 @@ function NewCampaignModal({
     });
     setSaving(false);
     if (res.ok) onCreated();
+    else setErro((await res.json().catch(() => null))?.error ?? "Não deu para salvar a campanha.");
   }
 
   const input =
@@ -237,6 +298,28 @@ function NewCampaignModal({
             <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide pt-1">
               Filtros de segmentação
             </p>
+
+            {rfmLiberado && (
+              <div>
+                <label className={label}>Grupo do RFM</label>
+                <select
+                  value={filter.rfmGrupo ?? ""}
+                  onChange={(e) => escolherGrupo((e.target.value || undefined) as GrupoRfm | undefined)}
+                  className={`${input} bg-white`}
+                >
+                  <option value="">Qualquer grupo</option>
+                  {GRUPOS_RFM.map((g) => (
+                    <option key={g.id} value={g.id}>
+                      {g.emoji} {g.rotulo}
+                    </option>
+                  ))}
+                </select>
+                <p className="text-[11px] text-gray-400 mt-1">
+                  O grupo é o de HOJE, como no BI: quem muda de grupo entra ou sai do público sozinha.
+                  {filter.rfmGrupo && <> Ação sugerida: {grupoRfm(filter.rfmGrupo).acao}.</>}
+                </p>
+              </div>
+            )}
 
             <div>
               <label className={label}>Sem compra há</label>
@@ -376,8 +459,11 @@ function NewCampaignModal({
               <label className={label}>Mensagem da campanha *</label>
               <textarea
                 value={message}
-                onChange={(e) => setMessage(e.target.value)}
-                rows={3}
+                onChange={(e) => {
+                  setMessage(e.target.value);
+                  setMensagemDoGrupo(false);
+                }}
+                rows={filter.rfmGrupo ? 6 : 3}
                 className={input}
                 placeholder="Oi {{nome}}, sentimos sua falta! ..."
               />
@@ -417,6 +503,7 @@ function NewCampaignModal({
                 </p>
               )}
             </div>
+            {erro && <p className="text-xs text-red-600 mt-3">{erro}</p>}
             <div className="flex gap-2 mt-4">
               <button
                 onClick={() => submit("RASCUNHO")}
@@ -471,14 +558,12 @@ function SendCampaignModal({
     })();
   }, [campaign.id]);
 
-  const personalize = (name: string) =>
-    message.replace(/\{\{\s*nome\s*\}\}/gi, name.split(" ")[0]);
+  // "Oi {{nome}}!" vira "Oi Maria!" — ou "Oi!" para o crachá provisório
+  const personalize = (name: string) => personalizarCampanha(message, name);
 
-  const waLink = (r: AudienceRow) => {
-    let digits = r.phone.replace(/\D/g, "");
-    if (digits.length >= 10 && digits.length <= 11) digits = "55" + digits;
-    return `https://wa.me/${digits}?text=${encodeURIComponent(personalize(r.name))}`;
-  };
+  // o número com o DDI pela régua da casa: número de fora não ganha 55 (RN-096)
+  const waLink = (r: AudienceRow) =>
+    `https://wa.me/${normalizePhone(r.phone)}?text=${encodeURIComponent(personalize(r.name))}`;
 
   async function markSent(r: AudienceRow) {
     setRows((prev) =>

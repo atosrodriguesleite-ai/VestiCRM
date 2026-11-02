@@ -1,5 +1,8 @@
 import { describe, it, expect } from "vitest";
-import { ordenarParaSeparacao, pesoTamanho, totalPorCategoria } from "../romaneio";
+import { linhaDoFrete, ordenarParaSeparacao, pesoTamanho, totalPorCategoria } from "../romaneio";
+
+// Guarda RN-099 (índice em docs/regras.md; texto no CLAUDE.md): a marca de
+// frete grátis é o que o romaneio destaca — zero sem marca não vira linha.
 
 /**
  * ORDEM DE SEPARAÇÃO DO ROMANEIO (12/08/2026): categoria → produto → cor →
@@ -152,5 +155,36 @@ describe("a nota do catálogo se separa: dados da cliente × recado de verdade (
       observacao: "todas entregues, exceto a regata",
     });
     expect(separarNotaDoCatalogo(null)).toEqual({ dados: [], avisos: [], observacao: "" });
+  });
+});
+
+describe("a linha do frete no resumo: a MARCA de frete grátis destaca, zero sem marca não anuncia nada", () => {
+  const money = (v: number) => `R$ ${v.toFixed(2).replace(".", ",")}`;
+
+  it("pedido marcado como frete grátis sai 'Frete · GRÁTIS' marcado para o PDF destacar", () => {
+    expect(linhaDoFrete({ shippingFee: 0, freteGratis: true }, money)).toEqual({
+      rotulo: "Frete",
+      valor: "GRÁTIS",
+      gratis: true,
+    });
+  });
+
+  it("frete informado sai como as outras linhas, com o valor", () => {
+    expect(linhaDoFrete({ shippingFee: 25, freteGratis: false }, money)).toEqual({
+      rotulo: "Frete",
+      valor: "R$ 25,00",
+      gratis: false,
+    });
+  });
+
+  it("frete zero, nulo ou lixo SEM a marca não vira linha (retirada, a combinar — ninguém decidiu grátis)", () => {
+    for (const fee of [0, null, undefined, -3, Number.NaN]) {
+      expect(linhaDoFrete({ shippingFee: fee, freteGratis: false }, money)).toBeNull();
+      expect(linhaDoFrete({ shippingFee: fee }, money)).toBeNull();
+    }
+  });
+
+  it("centavo cobrado é frete com valor", () => {
+    expect(linhaDoFrete({ shippingFee: 0.01, freteGratis: false }, money)?.gratis).toBe(false);
   });
 });
