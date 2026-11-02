@@ -155,17 +155,16 @@ describe("tela de conexão (GET): o 'open' só vale com a sonda viva", () => {
     estado.settings!.evolutionDownSince = new Date();
     const d = await (await rodar(GET())).json();
     expect(d.status).toBe("DESCONECTADO");
-    expect(d.sessaoCaida).toBe(true);
     expect(estado.updates.some((u) => u.data.evolutionStatus === "CONECTADO")).toBe(false);
   });
 
-  it("sem prova nenhuma (sonda sem resposta), a loja que o sistema marcou desconectada continua desconectada", async () => {
+  it("sem prova nenhuma (sonda sem resposta), a loja que o sistema marcou desconectada continua desconectada — sem afirmar a queda", async () => {
     estado.settings!.evolutionStatus = "DESCONECTADO";
     estado.settings!.evolutionDownSince = new Date();
     evo.sonda.mockResolvedValue({ ok: false, status: 0, data: null });
     const d = await (await rodar(GET())).json();
     expect(d.status).toBe("DESCONECTADO");
-    expect(d.sessaoCaida).toBe(true);
+    expect(d.sessaoCaida).toBe(false);
   });
 
   it("provada viva, a loja marcada volta a conectada sem o 'desde quando' da queda", async () => {
@@ -177,11 +176,23 @@ describe("tela de conexão (GET): o 'open' só vale com a sonda viva", () => {
     expect(estado.updateManys[0]).toMatchObject({ data: { evolutionDownSince: null } });
   });
 
-  it("recém-pareada pelo QR: vale o 'open' sem sondar (a sessão ainda sincroniza; não toca 'WhatsApp caiu' segundos depois de conectar)", async () => {
+  it("vinda do 'aguardando QR': a sonda roda com calma — o soluço da sincronização passa e vira CONECTADO", async () => {
     estado.settings!.evolutionStatus = "AGUARDANDO_QR";
+    evo.sonda
+      .mockResolvedValueOnce({ ok: false, status: 400, data: CONEXAO_FECHADA })
+      .mockResolvedValueOnce({ ok: true, status: 201, data: {} });
     const d = await (await rodar(GET())).json();
     expect(d.status).toBe("CONECTADO");
-    expect(evo.sonda).not.toHaveBeenCalled();
+    expect(alerta).not.toHaveBeenCalled();
+  });
+
+  it("vinda do 'aguardando QR' com a sessão morrendo: três sondas mortas → DESCONECTADO com o botão do QR, sem tocar o alarme (a pessoa está na tela)", async () => {
+    estado.settings!.evolutionStatus = "AGUARDANDO_QR";
+    evo.sonda.mockResolvedValue({ ok: false, status: 400, data: CONEXAO_FECHADA });
+    const d = await (await rodar(GET())).json();
+    expect(d.status).toBe("DESCONECTADO");
+    expect(d.sessaoCaida).toBe(true);
+    expect(evo.sonda).toHaveBeenCalledTimes(3);
     expect(alerta).not.toHaveBeenCalled();
   });
 });
@@ -194,9 +205,25 @@ describe("Conectar: o servidor que acha a sessão 'open' não entrega QR — o b
     evo.connect.mockResolvedValueOnce({ ok: true, status: 200, data: { instance: { state: "open" } } });
   });
 
+  it("a sessão ainda sendo apagada recusa a recriação (403): uma segunda tentativa", async () => {
+    evo.sonda.mockResolvedValue({ ok: false, status: 400, data: CONEXAO_FECHADA });
+    evo.logout.mockResolvedValue({ ok: true, status: 200, data: null });
+    evo.create
+      .mockResolvedValueOnce({ ok: false, status: 409, data: null })
+      .mockResolvedValueOnce({ ok: false, status: 403, data: null })
+      .mockResolvedValueOnce({ ok: true, status: 201, data: null });
+    evo.connect.mockResolvedValueOnce({ ok: true, status: 200, data: { base64: "QR3" } });
+    const res = await rodar(CONECTAR(pedido({})));
+    expect((await res.json()).qr).toBe("QR3");
+    expect(evo.create).toHaveBeenCalledTimes(3);
+  });
+
   it("sessão morta → grava desconectada ANTES de derrubar, recria e devolve o QR Code", async () => {
     evo.sonda.mockResolvedValue({ ok: false, status: 400, data: CONEXAO_FECHADA });
     evo.connect.mockResolvedValueOnce({ ok: true, status: 200, data: { base64: "QR" } });
+    evo.create
+      .mockResolvedValueOnce({ ok: false, status: 409, data: null })
+      .mockResolvedValueOnce({ ok: true, status: 201, data: null });
     evo.logout.mockImplementation(async () => {
       // cortada aqui, a tela mostraria o Conectar — nunca "Conectado"
       expect(estado.updates.at(-1)?.data.evolutionStatus).toBe("DESCONECTADO");
@@ -216,7 +243,11 @@ describe("Conectar: o servidor que acha a sessão 'open' não entrega QR — o b
     expect(res.status).toBe(409);
     expect((await res.json()).jaConectado).toBe(true);
     expect(evo.logout).not.toHaveBeenCalled();
-    expect(estado.updates.at(-1)?.data).toMatchObject({ evolutionStatus: "CONECTADO", activeProvider: "EVOLUTION" });
+    expect(estado.updates.at(-1)?.data).toMatchObject({
+      evolutionStatus: "CONECTADO",
+      activeProvider: "EVOLUTION",
+      evolutionAlertAt: null,
+    });
   });
 
   it("sem prova nenhuma → pergunta antes de derrubar; com a confirmação da pessoa, recria", async () => {

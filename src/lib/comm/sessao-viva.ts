@@ -1,5 +1,5 @@
 import { db } from "../db";
-import { evoSondarSessao, evolutionEnv, jidToPhone } from "./evolution";
+import { evoSondarSessao, evoState, evolutionEnv, jidToPhone } from "./evolution";
 import { lerSonda, reinicioEmCurso, veredictoDasSondas, type ResultadoDaSonda } from "./conexao-fechada";
 
 /**
@@ -129,9 +129,21 @@ export async function confirmarConexaoFechada(companyId: string, agora = new Dat
         reinicioPedidoEm: true,
       },
     });
-    if (!s || s.evolutionStatus !== "CONECTADO") return false;
+    if (!s || s.evolutionStatus !== "CONECTADO" || !s.evolutionInstance) return false;
     if (reinicioEmCurso(s.reinicioPedidoEm, agora)) return false;
-    if ((await veredictoDaSessao(s)) !== "morta") return false;
+    // o número do aparelho vem do PRÓPRIO servidor (`veredictoDoOpen`): o
+    // gravado aqui pode estar vazio em loja antiga, e aí a sonda não decidia
+    // nada e a loja seguia "Conectado" com todo envio falhando (achado da
+    // revisão). Lido "close" de verdade, também é queda.
+    const st = await evoState(s.evolutionInstance, 8_000);
+    const lido = st.ok ? st.data?.instance?.state : undefined;
+    const veredicto =
+      lido === "close"
+        ? "morta"
+        : lido === "open"
+          ? await veredictoDoOpen(s.evolutionInstance, st.data?.instance?.ownerJid, s.evolutionPhone)
+          : "sem-resposta";
+    if (veredicto !== "morta") return false;
     return await marcarSessaoMorta(
       companyId,
       { instance: s.evolutionInstance, origem: "envio", alarme: true },

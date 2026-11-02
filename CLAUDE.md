@@ -3092,15 +3092,21 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   soluço), a resposta citando não repete o envio sem a citação (bateria no
   mesmo muro), e o motor confere DEPOIS da resposta (`after`, no envio e no
   reenvio; `confirmarConexaoFechada`, freio de 2 min por loja, reinício
-  pedido há pouco não é queda) — morta, marca e toca o aviso de queda;
+  pedido há pouco não é queda; o número sondado vem do PRÓPRIO servidor — o
+  gravado aqui pode estar vazio em loja antiga, e a sonda sem número não
+  decidia nada; "close" lido é queda também) — morta, marca e toca o aviso
+  de queda;
   (c) a **tela Comunicação** relê com o veredito e, morta, marca com aviso e
   mostra "o servidor diz conectado, mas a conexão com o celular caiu" com o
-  botão do QR Code; recém-pareada pelo QR vale o "open" sem sondar (a sessão
-  ainda sincroniza, e um soluço ali tocaria "WhatsApp caiu" segundos depois
-  de conectar); durante um reinício pedido, ou sem prova, a loja que o
-  SISTEMA marcou desconectada CONTINUA desconectada (ler "open" e gravar
-  conectada desfazia o veredito do reinício na própria recarga da tela,
-  achado da revisão), e provada viva volta inteira; (d) o
+  botão do QR Code; vinda do "aguardando QR" (recém-pareada que ainda
+  sincroniza, ou o servidor tentando religar uma sessão que está morrendo —
+  o webhook grava "aguardando" em todo "connecting") a sonda roda com calma,
+  três tentativas, e a morta é marcada SEM alarme (a pessoa está na tela);
+  durante um reinício pedido, ou sem prova, a loja que o SISTEMA marcou
+  desconectada CONTINUA desconectada, mas sem o aviso de "caiu", que sem
+  prova seria afirmação (ler "open" e gravar conectada desfazia o veredito
+  do reinício na própria recarga da tela, achado da revisão), e provada viva
+  volta inteira; (d) o
   **Conectar** que não recebe QR Code porque o servidor acha a sessão
   "open" sonda pelo número que o PRÓPRIO servidor informa (`veredictoDoOpen`,
   a mesma regra do reinício, da tela e do vigia — o reinício sondava só pelo
@@ -3109,8 +3115,10 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   Conectar, nunca "Conectado" para uma sessão já apagada) e recria a sessão
   (o Desconectar + Conectar da loja, sem perder histórico, RN-049,
   `wa.conexao.recriada`, com teto curto por chamada, uma segunda tentativa
-  se o servidor ainda estiver apagando a antiga e 300 s na rota, como nas
-  duas de reinício); viva, grava
+  quando a recriação é recusada — o 403 "nome em uso" é a antiga ainda sendo
+  apagada — e 300 s na rota, como nas duas de reinício); viva, também solta
+  o carimbo do aviso de queda (senão uma queda de verdade logo depois cairia
+  no anti-spam); viva, grava
   CONECTADO com o provedor do WhatsApp e a tela volta ao ramo "Conectado";
   **sem prova nenhuma, pergunta antes** ("recriar a conexão vai pedir o QR
   Code de novo") e só derruba com a confirmação da pessoa — nunca no
@@ -3119,14 +3127,16 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   — "open" E sonda viva —, senão ninguém mais olharia por ela (o laço só vê
   as conectadas, e o "open" do webhook não vem se o servidor nunca mudou de
   estado), registrando `wa.conexao.voltou`; roda DEPOIS do alarme da loja
-  muda (que não pode ficar sem tempo), as 5 mais recentes da última semana
-  por rodada, com leitura de 8 s — a loja perdida de vez não come o tempo
-  das outras. O envio em segundo plano confere no FIM dele, depois de
+  muda (que não pode ficar sem tempo), em RODÍZIO — duas por rodada, da
+  última semana, puladas as conferidas na última meia hora, com leitura de
+  8 s e UMA sonda (ali só "viva" muda alguma coisa) —, senão as mesmas
+  mortas eram sondadas toda rodada e a que voltou nunca era alcançada. O envio em segundo plano confere no FIM dele, depois de
   devolver a cliente à fila e acordar o sync (antes, a bolha ficava ⏱️ pela
   duração das sondas). Provado pelas portas de verdade
   com o servidor fingido (`sessao-viva-rotas.test.ts`: morta nas duas
-  sondas, o soluço que passa na segunda, o reinício em curso, recriar,
-  viva e a pergunta antes de derrubar). **Limite dito**: a sonda não roda a
+  sondas, o soluço que passa na segunda, o reinício em curso, a vinda do
+  QR, recriar com a antiga ainda sendo apagada, viva e a pergunta antes de
+  derrubar). **Limite dito**: a sonda não roda a
   cada 5 min nas lojas conectadas (a queda silenciosa de quem nem envia nem
   recebe é coberta pelo alarme da loja muda). (3) **O
   telefone do contato LID tem UM leitor** (`telefoneDaChave`): o WhatsApp vem

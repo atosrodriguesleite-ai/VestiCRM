@@ -349,6 +349,9 @@ async function alertarLojaMuda(companyId: string, avisadoAntes: Date | null, ult
   }
 }
 
+/** A volta das lojas marcadas pelo sistema é conferida em rodízio (RN-105). */
+const conferidaNaVolta = new Map<string, number>();
+
 /**
  * Roda o vigia SE já passou o intervalo (senão retorna na hora, custo de uma
  * consulta). Seguro para chamar de qualquer rota: nunca lança.
@@ -498,12 +501,26 @@ export async function runWatchdogIfDue(): Promise<void> {
       },
       orderBy: { evolutionDownSince: "desc" },
       select: { companyId: true, evolutionInstance: true, evolutionPhone: true },
-      take: 5,
+      take: 30,
     });
-    for (const m of marcadas) {
+    // RODÍZIO: duas por rodada, puladas as conferidas na última meia hora —
+    // senão as mesmas mortas eram sondadas toda rodada e a que voltou, mais
+    // antiga na lista, nunca era alcançada (achado da revisão)
+    const agoraMs = now.getTime();
+    const daVez = marcadas
+      .filter((m) => agoraMs - (conferidaNaVolta.get(m.companyId) ?? 0) > 30 * 60_000)
+      .slice(0, 2);
+    for (const m of daVez) {
+      conferidaNaVolta.set(m.companyId, agoraMs);
       const st = await evoState(m.evolutionInstance!, 8_000);
       if (!st.ok || st.data?.instance?.state !== "open") continue;
-      if ((await veredictoDoOpen(m.evolutionInstance, st.data?.instance?.ownerJid, m.evolutionPhone)) !== "viva")
+      // UMA sonda: aqui só "viva" muda alguma coisa, e repetir a morta comia
+      // o tempo da rodada (a função do vigia tem 60 s)
+      if (
+        (await veredictoDoOpen(m.evolutionInstance, st.data?.instance?.ownerJid, m.evolutionPhone, {
+          tentativas: 1,
+        })) !== "viva"
+      )
         continue;
       const voltou = await db.commSettings.updateMany({
         where: { companyId: m.companyId, evolutionStatus: "DESCONECTADO" },

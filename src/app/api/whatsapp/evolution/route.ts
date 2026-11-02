@@ -52,37 +52,42 @@ export async function GET() {
         phone = jidToPhone(st.data?.instance?.ownerJid ?? "") ?? phone;
         // "open" na leitura não é prova (RN-105): o servidor guarda o estado
         // na memória e o mantém "open" com a conexão com o celular morta.
-        //  - recém-pareada (vinha do QR): a sessão ainda sincroniza, e um
-        //    soluço ali tocaria "WhatsApp caiu" segundos depois de conectar —
-        //    vale o "open" (o webhook também o grava);
+        //  - vinda do "aguardando QR": pode ser a sessão recém-pareada que
+        //    ainda sincroniza OU o servidor tentando religar uma sessão que
+        //    está morrendo (o webhook grava "aguardando" em todo
+        //    "connecting") — a sonda roda com calma (três tentativas) e, se
+        //    morta, marca SEM alarme (a pessoa está na tela), em vez de pular
+        //    a sonda e gravar um "Conectado" falso (achado da revisão);
         //  - durante um reinício pedido, ou sem prova (sem-resposta): a loja
         //    que o SISTEMA tinha marcado desconectada CONTINUA desconectada —
         //    ler "open" e gravar conectada desfazia o veredito do reinício na
-        //    própria recarga da tela (achado da revisão); quem a devolve é a
-        //    sonda viva (aqui ou no vigia) ou o "open" do webhook;
-        //  - morta: marca, avisa e mostra o botão do QR Code.
-        const recemPareada = settings.evolutionStatus === "AGUARDANDO_QR";
+        //    própria recarga da tela (achado da revisão) —, mas SEM o aviso de
+        //    "caiu", que sem prova seria afirmação; quem a devolve é a sonda
+        //    viva (aqui ou no vigia) ou o "open" do webhook;
+        //  - morta: marca, avisa (a plataforma também precisa saber — o envio
+        //    só confere loja CONECTADA, então marcada aqui sem aviso a queda
+        //    ficava calada) e mostra o botão do QR Code.
+        const vindaDoQr = settings.evolutionStatus === "AGUARDANDO_QR";
         const marcadaPeloSistema =
           settings.evolutionStatus === "DESCONECTADO" && settings.evolutionDownSince != null;
-        const sonda = recemPareada
-          ? "viva"
-          : reinicioEmCurso(settings.reinicioPedidoEm)
-            ? "sem-resposta"
-            : await veredictoDoOpen(settings.evolutionInstance, st.data?.instance?.ownerJid, phone);
+        const sonda = reinicioEmCurso(settings.reinicioPedidoEm)
+          ? "sem-resposta"
+          : await veredictoDoOpen(
+              settings.evolutionInstance,
+              st.data?.instance?.ownerJid,
+              phone,
+              vindaDoQr ? { tentativas: 3, esperaMs: 3000 } : {}
+            );
         if (sonda === "morta") {
           status = "DESCONECTADO";
           sessaoCaida = true;
-          // a mesma escrita das outras portas: "desde quando", registro e o
-          // aviso de queda (sem ele, marcada aqui, a queda ficava calada para
-          // sempre — o envio só confere loja CONECTADA)
           await marcarSessaoMorta(user.companyId, {
             instance: settings.evolutionInstance,
             origem: "tela",
-            alarme: true,
+            alarme: !vindaDoQr,
           });
         } else if (sonda === "sem-resposta" && marcadaPeloSistema) {
           status = "DESCONECTADO";
-          sessaoCaida = true;
         } else if (sonda === "viva" && marcadaPeloSistema) {
           // provada viva: volta inteira, sem o "desde quando" da queda
           await db.commSettings.updateMany({

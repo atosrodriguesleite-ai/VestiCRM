@@ -657,6 +657,13 @@ describe("o reinício não diz 'reiniciada' com a sessão morta", () => {
 
 describe("o envio que volta 'conexão fechada' marca a loja desconectada — só com a sonda confirmando", () => {
   beforeEach(() => {
+    // o servidor diz "open" — e informa o número do aparelho
+    evo.state.mockReset();
+    evo.state.mockResolvedValue({
+      ok: true,
+      status: 200,
+      data: { instance: { state: "open", ownerJid: "553398618915@s.whatsapp.net" } },
+    });
     eventos.length = 0;
     settings.reinicioPedidoEm = null;
     settings.evolutionPhone = "553398618915";
@@ -699,6 +706,17 @@ describe("o envio que volta 'conexão fechada' marca a loja desconectada — só
     evo.sonda.mockResolvedValueOnce({ ok: false, status: 0, data: null });
     expect(await confirmarConexaoFechada("loja-muda", new Date())).toBe(false);
     expect(vigia.claims).toHaveLength(0);
+  });
+
+  it("sem número gravado aqui, a sonda usa o número que o PRÓPRIO servidor informa (loja antiga não escapa)", async () => {
+    settings.evolutionPhone = null;
+    evo.sonda.mockResolvedValue({ ok: false, status: 400, data: CONEXAO_FECHADA });
+    vi.useFakeTimers();
+    const p = confirmarConexaoFechada("loja-sem-numero", new Date());
+    await vi.runAllTimersAsync();
+    vi.useRealTimers();
+    expect(await p).toBe(true);
+    expect(evo.sonda).toHaveBeenCalledWith("inst-1", "553398618915");
   });
 
   it("reinício pedido há pouco não é queda; loja que não estava conectada não é tocada", async () => {

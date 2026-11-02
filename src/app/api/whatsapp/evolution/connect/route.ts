@@ -108,6 +108,9 @@ export async function POST(req: Request) {
               evolutionPhone: numero,
               activeProvider: "EVOLUTION",
               evolutionDownSince: null,
+              // o carimbo do aviso de queda sai junto: sem isso, uma queda de
+              // verdade logo depois cairia no anti-spam e ninguém seria avisado
+              evolutionAlertAt: null,
             },
           });
           return NextResponse.json(
@@ -138,13 +141,13 @@ export async function POST(req: Request) {
         await evoLogout(settings.evolutionInstance!, TETO_DA_RECRIACAO_MS).catch(() => {});
         // o servidor pode levar um instante para terminar de apagar a sessão
         // antiga: recusa passageira na recriação ganha uma segunda tentativa
-        // (403/409 = a instância já existe, a mesma régua da criação acima)
+        // (403 "nome em uso" é justamente a antiga ainda sendo apagada)
         let recriada = await evoCreateInstance(
           settings.evolutionInstance!,
           settings.evolutionWebhookToken!,
           TETO_DA_RECRIACAO_MS
         );
-        if (!recriada.ok && ![403, 409].includes(recriada.status)) {
+        if (!recriada.ok) {
           await new Promise((resolve) => setTimeout(resolve, 2000));
           recriada = await evoCreateInstance(
             settings.evolutionInstance!,
