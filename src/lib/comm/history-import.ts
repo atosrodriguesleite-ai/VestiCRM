@@ -4,8 +4,8 @@ import {
   evoFindMessages,
   evoFindChats,
   evoGetMediaBase64,
-  jidToPhone,
 } from "./evolution";
+import { telefoneDaChave } from "./lid";
 import { normalizePhone, findCustomerByPhone } from "../intake";
 import { nomeProvisorio } from "../nome-provisorio";
 import { lerMensagemWA } from "./wa-message";
@@ -20,8 +20,15 @@ import { lerMensagemWA } from "./wa-message";
  */
 
 type WAMsg = {
-  // senderPn: com a identidade nova do WhatsApp (@lid) o telefone real vem aqui
-  key?: { remoteJid?: string; fromMe?: boolean; id?: string; senderPn?: string };
+  // com a identidade nova do WhatsApp (@lid) o telefone real vem em outro
+  // campo da chave, que muda com a versão do servidor (`lid.ts`, RN-105)
+  key?: {
+    remoteJid?: string;
+    fromMe?: boolean;
+    id?: string;
+    senderPn?: string;
+    remoteJidAlt?: string;
+  };
   pushName?: string;
   // a data chega em formatos diferentes conforme a versão do servidor:
   // segundos, milissegundos, texto numérico ou data ISO
@@ -255,13 +262,9 @@ export async function importRecentHistory(
 
   for (const { r, ts } of parsed) {
     if (Date.now() - inicio > ORCAMENTO_TOTAL_MS) break; // devolve o que já gravou
-    // grupos/status ficam de fora; contato @lid usa o número real do senderPn
-    const jid = r.key?.remoteJid ?? "";
-    let digitosDoJid = jidToPhone(jid);
-    if (!digitosDoJid && jid.endsWith("@lid")) {
-      const pn = (r.key?.senderPn ?? "").split("@")[0].replace(/\D/g, "");
-      if (/^\d{8,15}$/.test(pn)) digitosDoJid = pn;
-    }
+    // grupos/status ficam de fora; contato @lid usa o telefone real que vem
+    // em outro campo da chave (qual campo depende da versão, RN-105)
+    const digitosDoJid = telefoneDaChave(r.key);
     if (!digitosDoJid) continue;
     // o número do WhatsApp já tem o DDI (RN-096): o "+" impede o 55 de carona
     const phone = `+${digitosDoJid}`;
@@ -370,18 +373,31 @@ export async function importRecentHistory(
     importadas++;
   }
 
-  // acerta o "última mensagem" de cada conversa importada
-  for (const convId of convByCustomer.values()) {
-    const last = await db.message.findFirst({
-      where: { conversationId: convId },
-      orderBy: { createdAt: "desc" },
-      select: { createdAt: true },
+  // acerta o "última mensagem" de cada conversa importada — numa consulta
+  // agregada e em lotes paralelos (um por vez eram N idas em fila ao banco de
+  // outra região). A importação NÃO carimba `lastInboundAt` de propósito
+  // (RN-105): ele é "chegou PELO WEBHOOK", e o histórico importado (ou a
+  // bolha do catálogo que estiver no meio) zeraria o relógio da loja muda a
+  // cada importação — a loja que só tem histórico importado é achada pela
+  // reserva do vigia (a última mensagem com id real do WhatsApp).
+  const ids = [...convByCustomer.values()];
+  if (ids.length > 0) {
+    const ultimas = await db.message.groupBy({
+      by: ["conversationId"],
+      where: { conversationId: { in: ids } },
+      _max: { createdAt: true },
     });
-    if (last)
-      await db.conversation.update({
-        where: { id: convId },
-        data: { lastMessageAt: last.createdAt },
-      });
+    const linhas = ultimas.filter((u) => u._max.createdAt);
+    for (let i = 0; i < linhas.length; i += 20) {
+      await Promise.all(
+        linhas.slice(i, i + 20).map((u) =>
+          db.conversation.update({
+            where: { id: u.conversationId },
+            data: { lastMessageAt: u._max.createdAt! },
+          })
+        )
+      );
+    }
   }
 
   return {

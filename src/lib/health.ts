@@ -1,7 +1,16 @@
 import { db } from "./db";
 import { evolutionEnv, evoState } from "./comm/evolution";
 import { garantirEventosDoWebhook } from "./comm/garantir-webhook";
-import { sendToCompany } from "./push";
+import { reinicioEmCurso } from "./comm/reiniciar-conexao";
+import { sendToCompany, sendToUser } from "./push";
+import {
+  deveAvisarSilencio,
+  fraseDaLojaMuda,
+  horasDesde,
+  silencioLabel,
+  HORAS_REAVISO_SILENCIO,
+} from "./health-wa";
+import { lerHorarioComercial, type HorarioComercial } from "./bi/horario-comercial";
 
 /**
  * Vigia do sistema (monitoramento sem serviço externo e SEM cron novo —
@@ -111,9 +120,20 @@ export async function logServerError(input: {
 }
 
 /** Sino para todos os admins/gerentes de uma loja. */
-async function bellForAdmins(companyId: string, title: string, body: string) {
+async function bellForAdmins(
+  companyId: string,
+  title: string,
+  body: string,
+  // RN-105: o aviso que manda apertar um botão que só o admin vê não toca o
+  // sino da gerente — seria beco sem saída (achado da revisão)
+  opts: { soAdmin?: boolean } = {}
+) {
   const admins = await db.user.findMany({
-    where: { companyId, active: true, role: { in: ["ADMIN", "MANAGER", "SUPERADMIN"] } },
+    where: {
+      companyId,
+      active: true,
+      role: { in: opts.soAdmin ? ["ADMIN", "SUPERADMIN"] : ["ADMIN", "MANAGER", "SUPERADMIN"] },
+    },
     select: { id: true },
   });
   if (admins.length === 0) return;
@@ -126,6 +146,7 @@ async function bellForAdmins(companyId: string, title: string, body: string) {
       body,
     })),
   });
+  return admins.map((u) => u.id);
 }
 
 /** Avisa a loja (sino + push) que o WhatsApp dela caiu — com anti-spam de 6h. */
@@ -148,31 +169,182 @@ export async function alertWhatsappDown(companyId: string) {
   await bellForAdmins(companyId, title, body);
   await sendToCompany(companyId, { title, body, url: "/comunicacao", tag: "wa-down" });
 
-  // O DONO DA PLATAFORMA também precisa saber. WhatsApp caído é atendimento
-  // parado na loja do cliente: ele vai parar de usar o sistema, e loja que
-  // para de usar é loja que cancela. Avisar na hora é o que dá tempo de
-  // ligar antes — em vez de descobrir na renovação.
+  await avisarPlataforma(companyId, {
+    titulo: (nome) => `⚠️ WhatsApp caiu: ${nome}`,
+    corpo: (nome) =>
+      `A conexão de WhatsApp da ${nome} caiu. A loja já foi avisada para reconectar pelo QR Code.`,
+    url: "/gestao",
+    tag: "wa-down",
+  });
+}
+
+/**
+ * O DONO DA PLATAFORMA também precisa saber (uma função para os dois avisos
+ * do vigia — queda e loja muda): loja com o WhatsApp parado é cliente sem
+ * atendimento, e loja que para de usar é loja que cancela. Avisar na hora é o
+ * que dá tempo de ligar antes. É um extra: nunca pode atrapalhar o aviso à loja.
+ */
+async function avisarPlataforma(
+  companyId: string,
+  aviso: { titulo: (nome: string) => string; corpo: (nome: string) => string; url: string; tag: string }
+) {
   try {
     const platform = await platformCompanyId();
-    if (platform && platform !== companyId) {
-      const loja = await db.company.findUnique({
-        where: { id: companyId },
-        select: { name: true },
-      });
-      const nome = loja?.name ?? "Uma loja";
-      const tituloPlataforma = `⚠️ WhatsApp caiu: ${nome}`;
-      const corpoPlataforma = `A conexão de WhatsApp da ${nome} caiu. A loja já foi avisada para reconectar pelo QR Code.`;
-      await bellForAdmins(platform, tituloPlataforma, corpoPlataforma);
-      await sendToCompany(platform, {
-        title: tituloPlataforma,
-        body: corpoPlataforma,
-        url: "/gestao",
-        // tag por loja: duas lojas caídas geram dois avisos, não um só
-        tag: `wa-down-${companyId}`,
-      });
-    }
+    if (!platform || platform === companyId) return;
+    const loja = await db.company.findUnique({ where: { id: companyId }, select: { name: true } });
+    const nome = loja?.name ?? "Uma loja";
+    const title = aviso.titulo(nome);
+    const body = aviso.corpo(nome);
+    await bellForAdmins(platform, title, body);
+    // tag por loja: duas lojas com problema geram dois avisos, não um só
+    await sendToCompany(platform, { title, body, url: aviso.url, tag: `${aviso.tag}-${companyId}` });
   } catch {
     // avisar a plataforma é um extra: nunca pode atrapalhar o aviso à loja
+  }
+}
+
+/**
+ * A ÚLTIMA MENSAGEM QUE CHEGOU PELO WEBHOOK, por loja — `Conversation.lastInboundAt`,
+ * que SÓ o caminho de receber do motor grava (webhooks e a tela de
+ * simulação). A bolha do pedido do catálogo é criada pelo intake sem passar
+ * por ele, de propósito: ela entra SEM webhook e, contada, mascararia a loja
+ * muda que recebe pedidos do catálogo todo dia (achado da revisão). O painel
+ * de Saúde lê a MESMA coluna, para o aviso e o painel dizerem o mesmo
+ * número. Agrupado por loja pelo índice de `Conversation` — nada de varrer a
+ * tabela de mensagens a cada rodada do vigia.
+ */
+export async function ultimaRecebidaPorLoja(companyIds: string[]): Promise<Map<string, Date | null>> {
+  if (companyIds.length === 0) return new Map();
+  const linhas = await db.conversation.groupBy({
+    by: ["companyId"],
+    where: { companyId: { in: companyIds } },
+    _max: { lastInboundAt: true },
+  });
+  const mapa = new Map(linhas.map((l) => [l.companyId, l._max.lastInboundAt ?? null]));
+  // A loja SEM o carimbo em conversa nenhuma pode não ser nova: o histórico
+  // importado antes desta regra (e a unificação de conversas) deixava a
+  // mensagem recebida pelo WhatsApp sem `lastInboundAt`, e o painel a pinta
+  // CRÍTICO ("já teve tráfego") enquanto o vigia a chamava de nova (achado da
+  // revisão). Aí vale a última mensagem com id do WhatsApp — a MESMA fonte do
+  // "já teve tráfego" do painel. Só para essas lojas, que são poucas.
+  // O id da simulação (`wamid.sim.`) e do provedor de mentira (`mock.`) não é
+  // tráfego de webhook (a armadilha da RN-049).
+  const agora = Date.now();
+  for (const companyId of companyIds) {
+    if (mapa.get(companyId)) continue;
+    const lembrado = reservaLembrada.get(companyId);
+    if (lembrado && agora - lembrado.em < MS_LEMBRAR_RESERVA) {
+      mapa.set(companyId, lembrado.ultima);
+      continue;
+    }
+    const ultima = await db.message.findFirst({
+      where: {
+        direction: "IN",
+        externalId: { not: null },
+        NOT: [{ externalId: { startsWith: "mock." } }, { externalId: { startsWith: "wamid.sim." } }],
+        conversation: { companyId },
+      },
+      orderBy: { createdAt: "desc" },
+      select: { createdAt: true },
+    });
+    reservaLembrada.set(companyId, { em: agora, ultima: ultima?.createdAt ?? null });
+    mapa.set(companyId, ultima?.createdAt ?? null);
+  }
+  return mapa;
+}
+
+// lembrada por 1 h nesta instância, achando ou não: a busca ordenada pela
+// loja não se repete a cada rodada de 5 min (achado da revisão). A mensagem
+// nova pelo webhook carimba `lastInboundAt`, e aí a reserva nem é olhada.
+const MS_LEMBRAR_RESERVA = 60 * 60_000;
+const reservaLembrada = new Map<string, { em: number; ultima: Date | null }>();
+
+/**
+ * A LOJA CONECTADA E MUDA É AVISADA (RN-105): uma vez por episódio, com
+ * reaviso a cada 24 h enquanto durar. A régua é pura (`deveAvisarSilencio`,
+ * silêncio em horas de atendimento); o carimbo `silencioAvisadoEm` é tomado
+ * de forma atômica, então duas rodadas que se cruzem não mandam o aviso em
+ * dobro. Avisa o admin da loja (sino + celular) E a plataforma — loja muda é
+ * cliente sem resposta e dona achando que está tudo bem.
+ */
+export async function avisarLojasMudas(
+  lojas: { companyId: string; horario: HorarioComercial | null }[],
+  now: Date
+): Promise<void> {
+  if (lojas.length === 0) return;
+  const companyIds = lojas.map((l) => l.companyId);
+  const [ultimaDe, carimbos] = await Promise.all([
+    ultimaRecebidaPorLoja(companyIds),
+    db.commSettings.findMany({
+      where: { companyId: { in: companyIds } },
+      select: { companyId: true, silencioAvisadoEm: true },
+    }),
+  ]);
+  const carimboDe = new Map(carimbos.map((c) => [c.companyId, c.silencioAvisadoEm]));
+  for (const { companyId, horario } of lojas) {
+    const ultimaRecebida = ultimaDe.get(companyId) ?? null;
+    const avisadoEm = carimboDe.get(companyId) ?? null;
+    if (!ultimaRecebida) continue;
+    if (!deveAvisarSilencio({ conectado: true, ultimaRecebida, avisadoEm, horario }, now)) continue;
+    await alertarLojaMuda(companyId, avisadoEm, ultimaRecebida, now);
+  }
+}
+
+async function alertarLojaMuda(companyId: string, avisadoAntes: Date | null, ultimaRecebida: Date, now: Date) {
+  // carimbo atômico: só quem o toma avisa (a mesma régua pura, escrita no banco)
+  const reavisoCorte = new Date(now.getTime() - HORAS_REAVISO_SILENCIO * 60 * 60_000);
+  const claimed = await db.commSettings.updateMany({
+    where: {
+      companyId,
+      OR: [
+        { silencioAvisadoEm: null },
+        { silencioAvisadoEm: { lt: ultimaRecebida } },
+        { silencioAvisadoEm: { lt: reavisoCorte } },
+      ],
+    },
+    data: { silencioAvisadoEm: now },
+  });
+  if (claimed.count === 0) return;
+  const title = "🔇 WhatsApp conectado, mas sem receber mensagens";
+  const body = fraseDaLojaMuda(ultimaRecebida, now);
+  let admins: string[] | undefined;
+  try {
+    admins = await bellForAdmins(companyId, title, body, { soAdmin: true });
+  } catch (e) {
+    // O SINO é o aviso que conta: sem ele, o carimbo volta (só se ainda é o
+    // nosso) para a próxima rodada tentar de novo, e o caso vai à Saúde —
+    // carimbo sem aviso calaria a loja muda por 24 h (RN-051/RN-100).
+    await db.commSettings
+      .updateMany({
+        where: { companyId, silencioAvisadoEm: now },
+        data: { silencioAvisadoEm: avisadoAntes },
+      })
+      .catch(() => {});
+    await logServerError({
+      source: "watchdog",
+      message: `Aviso de loja muda não saiu (${companyId})`,
+      detail: e instanceof Error ? (e.stack ?? e.message) : String(e),
+      alarme: false,
+    }).catch(() => {});
+    return;
+  }
+  // celular e plataforma são extras: a falha deles NÃO devolve o carimbo —
+  // devolver faria o sino já entregue tocar de novo a cada 5 min. O celular é
+  // o do ADMIN, como o sino: o da vendedora inscrita nas vendas receberia a
+  // instrução de um botão que ela não tem (achados da revisão).
+  for (const userId of admins ?? []) {
+    await sendToUser(userId, { title, body, url: "/comunicacao", tag: "wa-mudo" }).catch(() => {});
+  }
+  try {
+    await avisarPlataforma(companyId, {
+      titulo: (nome) => `🔇 WhatsApp mudo: ${nome}`,
+      corpo: (nome) =>
+        `A ${nome} está conectada, mas nenhuma mensagem de cliente entra há ${silencioLabel(horasDesde(ultimaRecebida, now))}. A loja foi avisada; o botão "Reiniciar conexão" está no painel de Saúde.`,
+      url: "/saude",
+      tag: "wa-mudo",
+    });
+  } catch {
+    // a plataforma é o segundo par de olhos; a loja já foi avisada
   }
 }
 
@@ -249,13 +421,31 @@ export async function runWatchdogIfDue(): Promise<void> {
         evolutionInstance: true,
         evolutionWebhookToken: true,
         evolutionWebhookEventos: true,
+        reinicioPedidoEm: true,
       },
     });
+    // loja SUSPENSA continua tendo a CONEXÃO vigiada (é o único caminho que a
+    // marca DESCONECTADO — o webhook dela responde 200 mudo), mas fica fora
+    // da conta de "muda": nada entra nela de propósito, e ela viraria aviso
+    // a cada 24 h para sempre. O horário de atendimento vem junto: o silêncio
+    // do alarme conta só as horas abertas (RN-079; achados das revisões).
+    const lojas = new Map(
+      (
+        await db.company.findMany({
+          where: { id: { in: stores.map((s) => s.companyId) } },
+          select: { id: true, suspended: true, horarioComercial: true },
+        })
+      ).map((c) => [c.id, c])
+    );
+    const conectadas: { companyId: string; horario: HorarioComercial | null }[] = [];
     for (const s of stores) {
       const st = await evoState(s.evolutionInstance!);
       if (st.status === 0) continue; // rede oscilou — não conclui nada
       const state = st.data?.instance?.state;
       if (st.ok && state === "open") {
+        const loja = lojas.get(s.companyId);
+        if (loja && !loja.suspended)
+          conectadas.push({ companyId: s.companyId, horario: lerHorarioComercial(loja.horarioComercial) });
         // conectada — limpa marca de queda, se havia
         await db.commSettings.updateMany({
           where: { companyId: s.companyId, evolutionDownSince: { not: null } },
@@ -266,6 +456,17 @@ export async function runWatchdogIfDue(): Promise<void> {
         await garantirEventosDoWebhook(s).catch(() => {});
         continue;
       }
+      // RN-105: o "connecting"/"close" dos segundos seguintes a um reinício
+      // pedido pela loja não é queda — o webhook já cala por isso, e o vigia
+      // que corre no meio tocava o alarme do mesmo jeito (achado da revisão)
+      if (reinicioEmCurso(s.reinicioPedidoEm, now)) continue;
+      // a foto da rodada envelhece (cada loja pode levar 15 s): o reinício
+      // pedido DEPOIS do começo da rodada só aparece relendo (achado da revisão)
+      const agoraMesmo = await db.commSettings.findUnique({
+        where: { companyId: s.companyId },
+        select: { reinicioPedidoEm: true },
+      });
+      if (reinicioEmCurso(agoraMesmo?.reinicioPedidoEm, new Date())) continue;
       // caiu de verdade (close/apagada): marca, atualiza status e avisa
       await db.commSettings.update({
         where: { companyId: s.companyId },
@@ -276,6 +477,9 @@ export async function runWatchdogIfDue(): Promise<void> {
       });
       await alertWhatsappDown(s.companyId);
     }
+    // 3) conectada, mas MUDA (RN-105): a conexão de pé e nada entrando é a
+    // falha mais perigosa — a loja acha que está tudo bem
+    await avisarLojasMudas(conectadas, now);
   } catch (e) {
     await logServerError({
       source: "watchdog",

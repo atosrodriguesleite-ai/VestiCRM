@@ -948,6 +948,7 @@ model Conversation {
 
   @@index([companyId, status])
   @@index([companyId, updatedAt])
+  @@index([companyId, lastInboundAt]) // RN-105: o vigia da loja muda lê o MAX por loja a cada rodada
   @@index([companyId, pinned])
 }
 
@@ -1183,6 +1184,14 @@ model CommSettings {
   // vigia do WhatsApp: desde quando caiu e quando o último alerta foi enviado
   evolutionDownSince    DateTime?
   evolutionAlertAt      DateTime?
+  // RN-105: quando a loja MUDA (conectada, sem mensagem de cliente há 24 h)
+  // foi avisada pela última vez — uma vez por episódio, reaviso a cada 24 h
+  silencioAvisadoEm     DateTime?
+  // RN-105: quando alguém PEDIU o reinício da conexão por aqui. O "fechou"
+  // dos 3 minutos seguintes é do reinício, não queda (lido de graça pelo
+  // webhook e pelo vigia, que já carregam esta linha — um registro na
+  // Central de Comunicação é rastro, não estado, achado da revisão)
+  reinicioPedidoEm      DateTime?
   // A LOJA JÁ TEVE WHATSAPP? (RN-049) Carimbado na PRIMEIRA conexão real
   // (Evolution conectado ou API oficial configurada) e NUNCA apagado — o
   // Desconectar zera instância, telefone e provedor, então só este carimbo

@@ -2962,6 +2962,133 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   descobrisse o `phone_number_id` (que não é segredo) injetava mensagem falsa
   criando cliente, conversa e lead em nome de gente que nunca escreveu. Recusa
   fica registrada (`webhook.recusado`), nunca em silêncio.
+- **RN-105 · A LOJA CONECTADA E MUDA AVISA, A CONEXÃO SE REINICIA DAQUI, E O
+  CONTATO LID NÃO SE PERDE** (`deveAvisarSilencio` em `lib/health-wa.ts` +
+  `avisarLojasMudas` em `lib/health.ts`, `lib/comm/reiniciar-conexao.ts` +
+  rotas `/api/whatsapp/evolution/reiniciar` e `/api/companies/whatsapp-reiniciar`,
+  `lib/comm/lid.ts`, 02/11/2026): relato da Toque Leve — *"as conversas das
+  clientes não estão caindo no sistema, só no WhatsApp normal"*. As lojas
+  apareciam **conectadas**, os envios saíam, e NENHUMA mensagem de cliente
+  entrava: o servidor Evolution tinha parado de avisar o sistema. O painel de
+  Saúde **já dizia** "Conectado, mas NADA chega há 2 dias" para quatro lojas —
+  e só ele: o vigia só alertava DESCONEXÃO, e "conectada e muda" é pior (a
+  loja acha que está tudo bem e a cliente fica sem resposta). Quem avisou foi
+  uma vendedora, pela segunda vez em dez dias. Três decisões: (1) **a loja
+  muda AVISA**: o vigia, na mesma rodada em que confere a conexão, lê a
+  última mensagem que chegou **PELO WEBHOOK** de cada loja conectada
+  (`ultimaRecebidaPorLoja`: `Conversation.lastInboundAt`, que SÓ o caminho
+  de receber do motor grava — a bolha do pedido do catálogo é criada pelo
+  intake SEM webhook e, contada, mascararia a loja muda que recebe pedido
+  todo dia; o painel de Saúde passou a ler a MESMA coluna, para aviso e
+  painel dizerem o mesmo número; agrupado pelo índice de `Conversation`, sem
+  varrer mensagens a cada rodada — achados das duas revisões) e aplica a
+  régua do painel
+  (24 h de relógio, `HORAS_SILENCIO_CRITICO`) — **com horário cadastrado,
+  o alarme conta um dia cheio de ATENDIMENTO DA PRÓPRIA LOJA**
+  (`horasDeUmDiaAberto`: o dia mais longo do horário dela, com teto de 24 h,
+  RN-079): pelo relógio de parede toda loja fechada no fim de semana virava
+  "muda" na segunda-feira, um número fixo errava nas pontas (a loja de 4 h
+  por dia esperaria dois dias e meio; a de 24 h ganharia aviso a cada noite
+  quieta), e o painel pinta em 24 h de relógio porque é leitura, não alarme
+  (a loja de 8h–18h muda na segunda às 9h é avisada na terça de manhã); sem
+  horário cadastrado, conta o relógio; o REAVISO também espera mais um dia
+  aberto da loja (a avisada na sexta não é reavisada no sábado e no
+  domingo); a importação de histórico NÃO carimba `lastInboundAt` (o
+  histórico importado zeraria o relógio da loja muda a cada importação) —
+  a loja sem o carimbo em conversa nenhuma (o webhook quebrado desde o
+  primeiro dia, só histórico importado) vale pela última mensagem com id
+  REAL do WhatsApp, simulação fora, lembrada por 1 h, a mesma reserva no
+  vigia e no painel; o SINO que falha DEPOIS de tomar o carimbo devolve o
+  carimbo e vai à Saúde (carimbo sem aviso calaria a loja por 24 h —
+  RN-051), mas a falha do celular ou do aviso à plataforma não (devolver
+  faria o sino já entregue tocar de novo a cada rodada); o vigia que corre
+  durante um reinício pedido não chama o "connecting" de queda; e o índice
+  `(companyId, lastInboundAt)` (migração `20261102130100`) faz o MAX por
+  loja ser uma sondagem, não uma varredura — achados da revisão — sino e celular da gerência
+  da loja — **sino e celular só do ADMIN** (é quem vê o botão; a gerente e
+  a vendedora inscrita nas vendas receberiam uma instrução sem saída) — e da plataforma
+  ("🔇 WhatsApp mudo: <loja>", caminho para o `/saude`); **uma vez por
+  episódio** (carimbo `CommSettings.silencioAvisadoEm`, tomado de forma
+  atômica — duas rodadas não avisam em dobro), **reaviso a cada 24 h**
+  enquanto durar, e mensagem que entra DEPOIS do aviso abre episódio novo;
+  loja que nunca recebeu nada é loja nova, não muda, e **loja SUSPENSA fica
+  fora do vigia** (o webhook dela nem ingere — ficaria "muda" para sempre,
+  achado da revisão). **Sem ponto de partida
+  na migração**, de propósito: a loja já muda no dia do deploy é exatamente
+  quem precisa do aviso. (2) **"Reiniciar conexão" sem Hostinger**: o
+  servidor tem reinício POR INSTÂNCIA (`POST /instance/restart/{instância}`,
+  confirmado no código-fonte do Evolution; a sessão salva é reaproveitada, em
+  geral sem QR). O botão — na tela Comunicação (admin da loja, a régua do
+  Desconectar) e no cartão de cada loja do `/saude` (Super Admin) — reinicia a
+  instância, **reaplica os avisos do webhook por cima**
+  (`garantirEventosDoWebhook` com `sempre`), espera um instante, lê o estado e
+  **DIZ** o que aconteceu (`fraseDoReinicio`: "open" manda testar com um
+  "teste" de outro celular; "connecting" manda esperar 1 minuto; "close" manda
+  ler o QR; avisos que falharam são ditos — e "avisos reaplicados" só é
+  dito quando o servidor confirmou); recusa de verdade do servidor
+  volta como frase com o motivo e o caminho da Hostinger (404/405 no POST
+  tenta o PUT antes — versões do servidor já expuseram a rota assim); **o
+  "fechou" que o próprio reinício provoca não é queda**: o pedido fica
+  CARIMBADO ANTES na loja (`CommSettings.reinicioPedidoEm`; a linha
+  `wa.conexao.reinicio-pedido` na Central é rastro, não estado — um registro
+  pode ser expurgado), e o webhook e o vigia, lendo o carimbo que já têm na
+  mão, tratam o "close"/"connecting" dos 3 minutos seguintes
+  (`reinicioEmCurso`, pura — o vigia RELÊ o carimbo antes de chamar de
+  queda, porque a foto da rodada envelhece) como do reinício: não gravam nada e NÃO tocam o
+  alarme "WhatsApp caiu" (o "connecting" gravado deixava a loja "aguardando
+  QR" com a sessão aberta e fora do vigia); **quem grava o estado final é o
+  próprio reinício**, que lê o estado até ASSENTAR (até 3 leituras, parando
+  em "open" ou na leitura que falha — uma leitura só mandava ler o QR de
+  uma sessão que voltaria sozinha): "open" grava CONECTADO e ENCOLHE a
+  janela para 15 s (o "fechou" atrasado do próprio reinício segue calado;
+  uma queda de verdade logo depois, não), "close" grava
+  DESCONECTADO (senão a tela recarregava "conectada", sem o botão do QR que
+  a frase manda ler), sem alarme — a pessoa está olhando; a espera vem
+  ANTES de reaplicar os avisos (a instância em reinício recusava de
+  passagem e a frase mentia "não reaplicados"); e o reinício RECUSADO
+  devolve o carimbo (nada reiniciou, e uma queda de verdade logo depois
+  seria calada) (sem isso cada clique
+  assustava a loja inteira com "leia o QR", achado da revisão); mas **tempo
+  esgotado NÃO é recusa** (a régua da RN-048, achado da revisão): reiniciar
+  uma sessão leva mais que o teto de leitura, o reinício provavelmente
+  aconteceu, então os avisos são reaplicados e o estado é lido do mesmo
+  jeito, e a frase diz que demorou. As duas rotas têm 90 s (o pior caso
+  soma quatro chamadas de 15 s e as esperas). Tudo fica na
+  Central de Comunicação (`wa.conexao.reiniciada`, OK/ERRO, com quem pediu);
+  o pedido pela tela tem UM leitor para os dois botões
+  (`lib/reinicio-da-conexao-tela.ts`, o 401 pela régua da RN-064,
+  `avisoDaRecusa`: sessão vencida manda para outra aba, usuária desativada
+  ou loja suspensa manda falar com quem administra) e
+  o resultado fica FORA do ramo de status da tela (o reinício que deixa a
+  sessão em "connecting" troca o ramo, e a frase que manda ler o QR sumiria).
+  **Loja suspensa** segue com a conexão vigiada, mas fora da conta de muda. (3) **O
+  telefone do contato LID tem UM leitor** (`telefoneDaChave`): o WhatsApp vem
+  trocando a identidade de alguns contatos por um código (`@lid`) e o
+  telefone real viaja em outro campo da chave, cujo NOME mudou com a versão do
+  servidor — `senderPn` (2.3.0/2.3.1), `remoteJidAlt` (2.3.6+). O leitor só
+  conhecia o primeiro: numa versão mais nova, a mensagem do contato LID virava
+  "telefone ilegível" (registrada, mas perdida para a vendedora). Agora o
+  webhook e a importação de histórico leem pela mesma função, e um campo que também é `@lid` não conta (é código, não número); o
+  par da conversa (`remoteJidAlt`) vem ANTES de quem mandou (`senderPn` —
+  no eco do celular da loja pode ser a própria loja); o campo alternativo
+  é TOLERANTE como o leitor antigo ("+55 11 99999-8888",
+  parênteses, `@c.us` entram — recusá-los perderia a mensagem que antes
+  entrava), mas o
+  **sufixo de aparelho** do formato do Baileys ("5511…:3@s.whatsapp.net") é
+  descartado, nunca colado no número (limpar "tudo que não é dígito" criava
+  cadastro de ninguém, RN-096) — achados da revisão; grupo
+  segue de fora
+  (descartado na porta de propósito); a régua do JID
+  (`telefoneDoJid`) passou a morar ali e o `jidToPhone` do cliente a delega.
+  **Limites ditos**: o reinício não conserta o que não é da instância (o
+  projeto Docker inteiro fora do ar continua sendo botão da Hostinger — e o
+  vigia de servidor fora do ar já cobre esse caso); o aviso sai na rodada de
+  carona do vigia (5 min, com tráfego); o reinício que termina ainda em
+  "connecting" deixa os 3 minutos de silêncio de pé — uma queda de verdade
+  nesse intervalo só aparece na rodada seguinte do vigia; e o nome do campo do LID foi
+  confirmado em relatos de usuários e nas notas de versão do Evolution, não na
+  definição do Baileys — por isso o leitor aceita os dois nomes conhecidos
+  em vez de apostar num só.
 - **RN-028 · O ARQUIVO DA CLIENTE NÃO SE PERDE**
   (`lib/comm/midia-pendente.ts`, 31/08/2026 — ADR-015): o webhook não recebe o
   arquivo, recebe o AVISO de que ele existe, e precisa buscá-lo. O código

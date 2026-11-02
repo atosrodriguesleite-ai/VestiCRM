@@ -15,9 +15,11 @@ import {
   MessageCircle,
   Power,
   QrCode,
+  RefreshCw,
   ShieldAlert,
 } from "lucide-react";
 import { Card } from "@/components/ui";
+import { CONFIRMACAO_DO_REINICIO, pedirReinicio, type ResultadoNaTela } from "@/lib/reinicio-da-conexao-tela";
 
 type Estado = {
   serverConfigured: boolean;
@@ -37,6 +39,8 @@ export function WhatsappConnect({ canEdit }: { canEdit: boolean }) {
   const [qr, setQr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [erro, setErro] = useState("");
+  // RN-105: o resultado do "Reiniciar conexão", dito na tela
+  const [reinicio, setReinicio] = useState<ResultadoNaTela | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const carregar = useCallback(async () => {
@@ -89,6 +93,17 @@ export function WhatsappConnect({ canEdit }: { canEdit: boolean }) {
     else setErro(d.error ?? "Não foi possível gerar o QR Code.");
   }
 
+  // RN-105: a loja "conectada, mas muda" se reinicia daqui — a sessão salva
+  // é reaproveitada (em geral sem QR) e os avisos são reaplicados
+  async function reiniciar() {
+    if (!window.confirm(`Reiniciar a conexão do WhatsApp? ${CONFIRMACAO_DO_REINICIO}`)) return;
+    setBusy(true);
+    setReinicio(null);
+    setReinicio(await pedirReinicio("/api/whatsapp/evolution/reiniciar"));
+    setBusy(false);
+    carregar();
+  }
+
   async function desconectar() {
     if (
       !window.confirm(
@@ -128,6 +143,21 @@ export function WhatsappConnect({ canEdit }: { canEdit: boolean }) {
           </span>
         )}
       </div>
+      {/* RN-105: o resultado do reinício fica FORA do ramo de status — o reinício
+          que deixa a sessão em "connecting"/"close" troca o ramo no recarregar,
+          e a frase que manda ler o QR sumiria junto (achado da revisão) */}
+      {reinicio && (
+        <p
+          className={`mb-3 rounded-xl border p-3 text-sm ${
+            reinicio.ok
+              ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+              : "border-rose-200 bg-rose-50 text-rose-700"
+          }`}
+          role="status"
+        >
+          {reinicio.mensagem}
+        </p>
+      )}
       <p className="text-sm text-gray-500 mb-4">
         Conecte o número da loja pelo QR Code (como o WhatsApp Web). As mensagens
         dos clientes viram leads no funil automaticamente, com vendedor
@@ -194,6 +224,17 @@ export function WhatsappConnect({ canEdit }: { canEdit: boolean }) {
                 ? "✅ Avisos do WhatsApp em dia: mensagem editada e apagada pela cliente chegam na Central."
                 : `⚠️ O servidor do WhatsApp recusou a lista atual de avisos (${estado.eventos.erro ?? "sem detalhe"}). Mensagem editada pela cliente pode não atualizar na Central até isso ser resolvido.`}
             </p>
+          )}
+          {canEdit && (
+            <button
+              onClick={reiniciar}
+              disabled={busy}
+              title="Use quando as mensagens das clientes pararam de entrar"
+              className="inline-flex items-center gap-1.5 rounded-xl border border-gray-200 text-gray-700 text-sm font-medium px-4 py-2 hover:bg-gray-50 transition disabled:opacity-50"
+            >
+              <RefreshCw className={`size-4 ${busy ? "animate-spin" : ""}`} />
+              Reiniciar conexão
+            </button>
           )}
           {canEdit && (
             <button

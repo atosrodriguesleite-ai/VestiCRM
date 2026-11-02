@@ -41,10 +41,19 @@ produção (zera/duplica dados de lojas reais).
 1. Abrir **`/saude`** (Super Admin) — o vigia de `lib/health.ts` mostra o
    servidor Evolution e a conexão de cada loja.
 2. Servidor fora do ar → VPS Hostinger `srv1853369.hstgr.cloud`, projeto
-   Docker `evolução-api-2zk0`.
+   Docker `evolução-api-2zk0`. **A VPS pode estar PARADA** (23/10/2026:
+   status "Stopped" no painel da Hostinger, botão "Começar"); conferir também
+   a validade da assinatura.
 3. Servidor de pé mas a loja desconectada → a lojista reconecta pelo QR Code
-   em Configurações. **Número banido pela Meta é possível** e é o risco
+   em Comunicação. **Número banido pela Meta é possível** e é o risco
    assumido no ADR-007 — nesse caso o QR não resolve.
+4. **Conectada, mas MUDA** (RN-105, 02/11/2026): envios saem, nada entra, o
+   cartão da loja no `/saude` diz "Conectado, mas NADA chega há N" e o sino
+   avisou "🔇 WhatsApp mudo". O servidor parou de avisar o sistema. Clicar
+   **"Reiniciar conexão"** no cartão da loja (ou o admin da loja, em
+   Comunicação) e testar com um "teste" de outro celular. Não voltou → logs
+   do contêiner da API na Hostinger (procurar "webhook") e Restart do
+   projeto. **Não reenviar** as mensagens da vendedora: elas saíram.
 
 ---
 

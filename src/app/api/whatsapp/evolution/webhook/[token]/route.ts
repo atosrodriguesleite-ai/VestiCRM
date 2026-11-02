@@ -3,6 +3,8 @@ import { db } from "@/lib/db";
 import { registrarPrimeiraConexao } from "@/lib/comm/primeira-conexao";
 import { receiveMessage, updateDeliveryStatus, aplicarRecibosOrfaos, idDaMensagemCitada } from "@/lib/comm/engine";
 import { jidToPhone } from "@/lib/comm/evolution";
+import { telefoneDaChave } from "@/lib/comm/lid";
+import { reinicioEmCurso } from "@/lib/comm/reiniciar-conexao";
 import {
   completarMidia,
   MS_BUSCA_MIDIA,
@@ -188,9 +190,16 @@ async function marcarApagadaPelaCliente(
   return total;
 }
 
-// senderPn: quando o WhatsApp manda o contato com a identidade nova (@lid),
-// o número de telefone REAL vem neste campo — sem ele a mensagem se perderia
-type EvoKey = { remoteJid?: string; fromMe?: boolean; id?: string; senderPn?: string };
+// Contato com a identidade nova (@lid): o telefone REAL vem em outro campo
+// da chave, cujo nome mudou com as versões do servidor (`lib/comm/lid.ts`,
+// RN-105) — sem lê-lo a mensagem se perderia
+type EvoKey = {
+  remoteJid?: string;
+  fromMe?: boolean;
+  id?: string;
+  senderPn?: string;
+  remoteJidAlt?: string;
+};
 // Prévia do ANÚNCIO (Click-to-WhatsApp do Instagram/Facebook): quando o
 // cliente chega clicando num anúncio, a primeira mensagem traz junto o
 // título, o texto e o link do anúncio — informação de ouro pra atribuição.
@@ -329,16 +338,20 @@ export async function POST(
     if (event === "connection.update") {
       const d = body.data as { state?: string; wuid?: string } | undefined;
       const state = d?.state;
-      if (state === "open" || state === "close" || state === "connecting") {
+      // RN-105: o "fechou" que o próprio REINÍCIO pedido pela loja provoca não
+      // é queda — sem isto cada clique em "Reiniciar conexão" marcava a loja
+      // DESCONECTADA e tocava o alarme "WhatsApp caiu, leia o QR" (achado da
+      // revisão). O estado volta por conta própria no "open" seguinte — e
+      // NADA é gravado aqui (nem no "connecting" dele: ele deixava a loja em
+      // "aguardando QR" com a sessão aberta, fora do vigia): quem grava o
+      // estado final é o próprio reinício, que lê até assentar.
+      const fechouPeloReinicio = (state === "close" || state === "connecting") && reinicioEmCurso(settings.reinicioPedidoEm);
+      if (state === "open" || ((state === "connecting" || state === "close") && !fechouPeloReinicio)) {
         await db.commSettings.update({
           where: { companyId },
           data: {
             evolutionStatus:
-              state === "open"
-                ? "CONECTADO"
-                : state === "connecting"
-                  ? "AGUARDANDO_QR"
-                  : "DESCONECTADO",
+              state === "open" ? "CONECTADO" : state === "connecting" ? "AGUARDANDO_QR" : "DESCONECTADO",
             ...(state === "open"
               ? {
                   activeProvider: "EVOLUTION",
@@ -353,7 +366,7 @@ export async function POST(
         if (state === "open") await registrarPrimeiraConexao(companyId);
         // ESTAVA conectado e caiu → avisa a loja NA HORA (sino + push).
         // "close" durante a leitura do QR não conta (não estava conectado).
-        if (state === "close" && settings.evolutionStatus === "CONECTADO") {
+        if (state === "close" && settings.evolutionStatus === "CONECTADO" && !fechouPeloReinicio) {
           await db.commSettings.update({
             where: { companyId },
             data: { evolutionDownSince: new Date() },
@@ -408,12 +421,9 @@ export async function POST(
       for (const m of list) {
         try {
         const jid = m.key?.remoteJid ?? "";
-        // grupos/status ficam de fora; contato @lid usa o número do senderPn
-        let digitosDoJid = jidToPhone(jid);
-        if (!digitosDoJid && jid.endsWith("@lid")) {
-          const pn = (m.key?.senderPn ?? "").split("@")[0].replace(/\D/g, "");
-          if (/^\d{8,15}$/.test(pn)) digitosDoJid = pn;
-        }
+        // grupos/status ficam de fora; contato @lid usa o telefone real que
+        // vem em outro campo da chave (qual campo depende da versão, RN-105)
+        const digitosDoJid = telefoneDaChave(m.key);
         // O NÚMERO DO WHATSAPP JÁ TEM O DDI (RN-096): vai com o "+" na frente
         // para ninguém no caminho "adivinhar" um 55 — `17814086755` é
         // +1 781 408-6755 (EUA), e colar o 55 criava um cadastro que não é

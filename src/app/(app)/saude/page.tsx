@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import { ReiniciarConexao } from "./reiniciar-conexao";
 import { FONTE_TELA_VERSAO_VELHA } from "@/lib/erro-da-tela";
 import { FONTE_RECUSA_CATALOGO } from "@/lib/catalogo/recusa-do-pedido";
 import { FONTE_TELA_ABERTURA } from "@/lib/vigia-da-abertura";
@@ -124,15 +125,28 @@ export default async function HealthPage() {
     // uma consulta só para o tráfego de todas as lojas (notas internas fora)
     db.$queryRaw<LinhaTrafego[]>`
       SELECT cv."companyId",
-        COUNT(*) FILTER (WHERE m.direction = 'IN'  AND m."createdAt" >= ${h24}) AS recebidas24,
+        -- recebidas = as que chegaram PELO WEBHOOK (id do WhatsApp), a mesma
+        -- fonte da "última recebida" — a bolha do pedido do catálogo não conta
+        COUNT(*) FILTER (WHERE m.direction = 'IN' AND m."externalId" IS NOT NULL AND m."createdAt" >= ${h24}) AS recebidas24,
         COUNT(*) FILTER (WHERE m.direction = 'OUT' AND m."createdAt" >= ${h24}) AS enviadas24,
         COUNT(*) FILTER (WHERE m.direction = 'OUT' AND m."deliveredAt" IS NOT NULL AND m."createdAt" >= ${h24}) AS entregues24,
         COUNT(*) FILTER (WHERE m.direction = 'OUT' AND m.status = 'FALHOU' AND m."createdAt" >= ${h24}) AS falhas24,
         COUNT(*) FILTER (WHERE m.direction = 'OUT' AND m.status = 'ENVIANDO' AND m."createdAt" < ${presaCorte}) AS presas,
-        COUNT(*) FILTER (WHERE m.direction = 'IN'  AND m."createdAt" >= ${d7}) AS recebidas7d,
-        MAX(m."createdAt") FILTER (WHERE m.direction = 'IN')  AS ultima_recebida,
+        COUNT(*) FILTER (WHERE m.direction = 'IN' AND m."externalId" IS NOT NULL AND m."createdAt" >= ${d7}) AS recebidas7d,
+        -- RN-105: a última recebida é a que chegou PELO WEBHOOK (só o motor
+        -- grava lastInboundAt); a bolha do pedido do catálogo entra sem webhook
+        -- e, contada, esconderia a loja muda — o vigia lê a MESMA coluna
+        -- reserva (a mesma do vigia): histórico importado antes da regra ficou
+        -- sem o carimbo — vale a última com id REAL do WhatsApp (simulação fora)
+        COALESCE(
+          MAX(cv."lastInboundAt"),
+          MAX(m."createdAt") FILTER (WHERE m.direction = 'IN' AND m."externalId" IS NOT NULL
+            AND m."externalId" NOT LIKE 'mock.%' AND m."externalId" NOT LIKE 'wamid.sim.%')
+        ) AS ultima_recebida,
         MAX(m."createdAt") FILTER (WHERE m.direction = 'OUT') AS ultima_enviada,
-        COUNT(*) FILTER (WHERE m.direction = 'IN') AS total_recebidas
+        -- "já teve tráfego" pela MESMA fonte da última recebida: o que chegou
+        -- pelo webhook (tem id do WhatsApp); a bolha do catálogo não conta
+        COUNT(*) FILTER (WHERE m.direction = 'IN' AND m."externalId" IS NOT NULL) AS total_recebidas
       FROM "Message" m
       JOIN "Conversation" cv ON cv.id = m."conversationId"
       WHERE m.kind <> 'NOTE'
@@ -415,6 +429,9 @@ export default async function HealthPage() {
                           : `Desconectado${l.caiuEm ? ` há ${desde(l.caiuEm)}` : ""}`}
                     </span>
                   </div>
+
+                  {/* RN-105: a loja muda se reinicia daqui, sem Hostinger */}
+                  {l.conectado && <ReiniciarConexao companyId={l.id} nome={l.nome} />}
 
                   {/* números do dia a dia */}
                   <div className="mt-2.5 grid grid-cols-2 gap-2 sm:grid-cols-5">

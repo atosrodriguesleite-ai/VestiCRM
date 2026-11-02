@@ -1,5 +1,6 @@
 import crypto from "crypto";
 import { db } from "../db";
+import { telefoneDoJid } from "./lid";
 
 /**
  * WhatsApp SEM API oficial — conexão estilo "WhatsApp Web que nunca fecha",
@@ -128,7 +129,7 @@ export function appBaseUrl() {
  * Quem for reenviar (automático ou manual) tem que olhar esta bandeira.
  */
 async function evo<T = Record<string, unknown>>(
-  method: "GET" | "POST" | "DELETE",
+  method: "GET" | "POST" | "PUT" | "DELETE",
   path: string,
   body?: unknown,
   timeoutMs = 45_000,
@@ -287,6 +288,21 @@ export async function evoConnect(instance: string) {
 export async function evoVersao(): Promise<string | null> {
   const r = await evo<{ version?: string }>("GET", "/", undefined, EVO_BUSCA_RAPIDA_MS);
   return r.ok && typeof r.data?.version === "string" ? r.data.version : null;
+}
+
+/**
+ * Reinicia a conexão da instância no servidor (RN-105) — a sessão salva é
+ * reaproveitada, então normalmente não pede QR. É o remédio para a loja
+ * "conectada, mas muda": a conexão de pé e o servidor sem avisar o sistema.
+ */
+export async function evoRestart(instance: string) {
+  const r = await evo("POST", `/instance/restart/${instance}`, undefined, EVO_LEITURA_TIMEOUT_MS);
+  // versões do servidor já expuseram a rota como PUT: 404/405 no POST tenta o
+  // outro verbo antes de dizer que o servidor recusou (achado da revisão)
+  if (!r.ok && (r.status === 404 || r.status === 405)) {
+    return evo("PUT", `/instance/restart/${instance}`, undefined, EVO_LEITURA_TIMEOUT_MS);
+  }
+  return r;
 }
 
 /** Estado atual da conexão: open | connecting | close. */
@@ -567,8 +583,7 @@ export async function evoProfilePicture(instance: string, number: string) {
   );
 }
 
-/** Extrai o telefone (dígitos) de um JID "5511999999999@s.whatsapp.net". */
+/** Extrai o telefone (dígitos) de um JID "5511999999999@s.whatsapp.net" (a régua mora em `lid.ts`). */
 export function jidToPhone(jid: string): string | null {
-  const m = jid.match(/^(\d{8,15})@s\.whatsapp\.net$/);
-  return m ? m[1] : null; // grupos (@g.us) e afins ficam de fora
+  return telefoneDoJid(jid);
 }

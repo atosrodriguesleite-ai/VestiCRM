@@ -44,7 +44,8 @@ export function motivoDaUltimaFalha(instance: string | null): string | null {
   return (instance && ultimaFalha.get(instance)?.motivo) || null;
 }
 
-function descreverRecusa(r: { status: number; data: unknown; incerto?: boolean }): string {
+/** A recusa do servidor em português — uma frase para a assinatura e para o reinício (RN-105). */
+export function descreverRecusa(r: { status: number; data: unknown; incerto?: boolean }): string {
   if (r.incerto) return "o servidor demorou demais para responder";
   if (r.status === 0) return "não deu para falar com o servidor";
   const corpo = r.data ? JSON.stringify(r.data).slice(0, 300) : "";
