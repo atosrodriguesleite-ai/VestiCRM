@@ -286,33 +286,211 @@ export function pecasLidas(p: PedidoLido): number {
  * ("Calça Wide Leg Jeans Azul") e só o catálogo sabe onde termina o nome.
  * Vence o nome MAIS LONGO que casa — senão "Calça Wide" ganharia de
  * "Calça Wide Leg Jeans" e a cor sairia errada.
+ *
+ * Devolve os produtos em DEGRAUS, do nome mais longo para o mais curto, e
+ * cada degrau traz TODOS os empatados naquele tamanho de nome. Existe loja
+ * que cadastra UM PRODUTO POR COR com o mesmo nome (a Toque Leve tem seis
+ * "Regata Alça", uma por cor): aí o nome sozinho não decide, e quem decide
+ * é a cor — `casarPeca`, abaixo. Ficar com o primeiro xará foi o defeito
+ * de 03/11/2026: todas as "Regata Alça" do pedido viravam a Café. O degrau
+ * mais curto é RESERVA: só é consultado quando o mais longo não tem a cor
+ * ("Regata Alça Azul" sem "Céu" não esconde a "Regata Alça" cor "Azul Céu").
  */
-export function separarProdutoECor<T extends { id: string; name: string }>(
+export function degrausDeProduto<T extends { id: string; name: string }>(
   descricao: string,
   produtos: T[]
-): { produto: T; cor: string } | null {
+): { produto: T; cor: string }[][] {
   // comparamos PALAVRA A PALAVRA: contar letras não serve, porque tirar o
   // acento muda o tamanho do texto e a cor sairia cortada no lugar errado
   const palavras = descricao.trim().split(/\s+/);
   const alvo = palavras.map(normalizar);
-  let melhor: { produto: T; cor: string; peso: number } | null = null;
+  const porTamanho = new Map<number, { produto: T; cor: string }[]>();
 
   for (const p of produtos) {
     const nome = normalizar(p.name).split(" ").filter(Boolean);
     if (nome.length === 0 || nome.length > alvo.length) continue;
     const casa = nome.every((palavra, i) => palavra === alvo[i]);
     if (!casa) continue;
-    // vence o nome MAIS LONGO: senão "Calça Wide" ganharia de "Calça Wide
-    // Leg Jeans" e a cor viraria "Leg Jeans Azul"
-    if (!melhor || nome.length > melhor.peso) {
-      melhor = {
-        produto: p,
-        cor: palavras.slice(nome.length).join(" ").trim(),
-        peso: nome.length,
-      };
+    const cor = palavras.slice(nome.length).join(" ").trim();
+    const lista = porTamanho.get(nome.length) ?? [];
+    lista.push({ produto: p, cor });
+    porTamanho.set(nome.length, lista);
+  }
+  return [...porTamanho.keys()].sort((x, y) => y - x).map((k) => porTamanho.get(k)!);
+}
+
+/** Os produtos empatados no nome MAIS LONGO que casa (o primeiro degrau). */
+export function candidatosDeProduto<T extends { id: string; name: string }>(
+  descricao: string,
+  produtos: T[]
+): { produto: T; cor: string }[] {
+  return degrausDeProduto(descricao, produtos)[0] ?? [];
+}
+
+export type VariacaoDoCatalogo = { id: string; color: string; size: string; stock: number };
+export type PecaDoCatalogo = { id: string; name: string; variants: VariacaoDoCatalogo[] };
+
+/** Um candidato com as variações já normalizadas (cor e tamanho para comparar). */
+export type CandidatoDaLinha<T extends PecaDoCatalogo> = {
+  produto: T;
+  cor: string;
+  variacoes: { v: T["variants"][number]; cor: string; tam: string }[];
+};
+
+/**
+ * Os candidatos de UMA LINHA da mensagem, em degraus (ver `degrausDeProduto`),
+ * com as variações normalizadas uma vez — a linha tem vários tamanhos e cada
+ * um é casado em separado, sem refazer a conta do nome.
+ *
+ * Formato antigo/achatado: o item vem só com a cor ("Branco") e o nome do
+ * modelo mora no título da seção — tenta primeiro como veio, depois com o
+ * título na frente ("Blusa Clássica Tule Branco").
+ */
+export function candidatosDaLinha<T extends PecaDoCatalogo>(
+  item: { descricao: string; categoria: string | null },
+  produtos: T[]
+): CandidatoDaLinha<T>[][] {
+  let degraus = degrausDeProduto(item.descricao, produtos);
+  if (degraus.length === 0 && item.categoria) {
+    degraus = degrausDeProduto(`${item.categoria} ${item.descricao}`, produtos);
+  }
+  return degraus.map((degrau) =>
+    degrau.map((c) => ({
+      produto: c.produto,
+      cor: c.cor,
+      variacoes: c.produto.variants.map((v) => ({
+        v,
+        cor: normalizar(v.color),
+        tam: normalizar(v.size),
+      })),
+    }))
+  );
+}
+
+/** Por que a linha ficou sem variação — a prévia escreve a frase certa. */
+export type MotivoSemVariacao =
+  | "cor-nao-existe" // o texto diz a cor, e ela não existe em nenhum candidato
+  | "tamanho-nao-existe" // o texto não diz cor, e não há variação daquele tamanho
+  | "mais-de-uma-opcao"; // o texto não diz cor, e há mais de uma variação daquele tamanho
+
+export type PecaCasada<T extends PecaDoCatalogo> = {
+  produto: T;
+  cor: string;
+  variante: T["variants"][number] | null;
+  /** só quando `variante` é nula */
+  motivo: MotivoSemVariacao | null;
+};
+
+/**
+ * ACHA A PEÇA DE UMA LINHA × TAMANHO: produto + variação, pelo catálogo da
+ * loja. É a decisão inteira num lugar só, pura e testável.
+ *
+ * Réguas:
+ *  • o nome mais longo que casa escolhe os produtos candidatos; empatados
+ *    (loja que cadastra um produto por cor com o mesmo nome), A COR decide
+ *    — vale o candidato que TEM a variação daquela cor e tamanho; sem a cor
+ *    em nenhum deles, o degrau de nome mais curto é consultado;
+ *  • a cor do texto é conferida como veio e nas formas repetidas
+ *    (`candidatosDeCor`: "Baunilha Baunilha" → "Baunilha");
+ *  • SEM cor no texto (loja que esconde as cores, formato antigo) e UMA
+ *    variação daquele tamanho entre os candidatos: é ela; mais de uma é
+ *    DÚVIDA, dita como dúvida (nunca a primeira que apareceu);
+ *  • cor no texto que NÃO existe em candidato nenhum NUNCA é trocada por
+ *    outra. A versão anterior caía na única cor do produto ("produto
+ *    certo, tamanho certo, só uma cor possível: é ela") — era isso que
+ *    punha a Café no lugar da Amarelo Manteiga. Agora a linha volta sem
+ *    variação, com o motivo: a vendedora vê e escolhe; peça errada
+ *    reservada em silêncio ninguém vê;
+ *  • entre dois candidatos com a MESMA cor e tamanho (cadastro em dobro),
+ *    vale o que tem estoque para a quantidade; depois, o de maior estoque.
+ */
+export function casarPecaNosCandidatos<T extends PecaDoCatalogo>(
+  degraus: CandidatoDaLinha<T>[][],
+  tamanho: string,
+  quantidade: number
+): PecaCasada<T> | null {
+  if (degraus.length === 0 || degraus[0].length === 0) return null;
+  const tam = normalizar(tamanho);
+
+  type Achado = { produto: T; cor: string; variante: T["variants"][number] };
+  const melhor = (lista: Achado[]): Achado | null => {
+    if (lista.length === 0) return null;
+    return lista.reduce((a, b) => {
+      const aCobre = a.variante.stock >= quantidade;
+      const bCobre = b.variante.stock >= quantidade;
+      if (aCobre !== bCobre) return aCobre ? a : b;
+      return b.variante.stock > a.variante.stock ? b : a;
+    });
+  };
+
+  // o primeiro degrau diz o que o texto chamou de cor; os de reserva só
+  // entram pela cor, e a dúvida sem cor é sempre do primeiro
+  let semCor: Achado[] | null = null;
+  for (const degrau of degraus) {
+    // todos do degrau têm a mesma cor (o nome tem o mesmo número de palavras)
+    const cor = degrau[0].cor;
+    if (cor) {
+      // da forma mais literal para a mais enxuta, parando na primeira que
+      // existir em algum candidato (a ordem é a de `candidatosDeCor`)
+      for (const forma of candidatosDeCor(cor).map(normalizar)) {
+        const achados: Achado[] = [];
+        for (const c of degrau) {
+          for (const x of c.variacoes) {
+            if (x.tam === tam && x.cor === forma) {
+              achados.push({ produto: c.produto, cor, variante: x.v });
+            }
+          }
+        }
+        const escolhido = melhor(achados);
+        if (escolhido) return { ...escolhido, motivo: null };
+      }
+      continue;
+    }
+    // sem cor no texto (só acontece no degrau em que o nome consumiu a
+    // descrição inteira — o mais longo): se só há UMA variação daquele
+    // tamanho, é ela
+    if (semCor === null) {
+      semCor = [];
+      for (const c of degrau) {
+        for (const x of c.variacoes) {
+          if (x.tam === tam) semCor.push({ produto: c.produto, cor, variante: x.v });
+        }
+      }
+      if (semCor.length === 1) return { ...semCor[0], motivo: null };
     }
   }
-  return melhor ? { produto: melhor.produto, cor: melhor.cor } : null;
+
+  const primeiro = degraus[0][0];
+  const motivo: MotivoSemVariacao = primeiro.cor
+    ? "cor-nao-existe"
+    : semCor && semCor.length > 1
+      ? "mais-de-uma-opcao"
+      : "tamanho-nao-existe";
+  return { produto: primeiro.produto, cor: primeiro.cor, variante: null, motivo };
+}
+
+/** `candidatosDaLinha` + `casarPecaNosCandidatos` numa chamada (um tamanho só). */
+export function casarPeca<T extends PecaDoCatalogo>(
+  item: { descricao: string; categoria: string | null },
+  tamanho: string,
+  quantidade: number,
+  produtos: T[]
+): PecaCasada<T> | null {
+  return casarPecaNosCandidatos(candidatosDaLinha(item, produtos), tamanho, quantidade);
+}
+
+/** A frase da prévia para a linha que ficou sem variação. */
+export function fraseSemVariacao(
+  motivo: MotivoSemVariacao,
+  cor: string,
+  tamanho: string,
+  cadastros: number
+): string {
+  if (motivo === "cor-nao-existe") return `Sem essa variação (${cor} ${tamanho})`;
+  if (motivo === "tamanho-nao-existe") return `Sem essa variação (tamanho ${tamanho})`;
+  return cadastros > 1
+    ? `Qual cor? A mensagem não diz e há ${cadastros} cadastros com esse nome`
+    : `Qual cor? A mensagem não diz e a peça tem mais de uma no tamanho ${tamanho}`;
 }
 
 /**

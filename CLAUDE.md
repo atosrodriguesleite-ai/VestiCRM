@@ -1497,7 +1497,26 @@ prisma/schema.prisma   modelo de dados (comentado em PT-BR)
   ao separar produto/cor), **preço SEMPRE do nosso cadastro**, prévia sem
   gravar nada e criação pelo caminho normal (`POST /api/orders`). Serve para
   a venda que só existe na conversa; linha sem cadastro ou sem estoque fica
-  de fora e é anotada no pedido.
+  de fora e é anotada no pedido. **A cor escolhe o produto entre os xarás,
+  e cor que não existe NUNCA vira outra cor** (`casarPeca`, 03/11/2026,
+  relato do dono com o print da Toque Leve): a loja cadastra UM PRODUTO POR
+  COR com o mesmo nome (seis "Regata Alça"), e o leitor ficava com o
+  primeiro xará, não achava "Amarelo Manteiga" nele e, como esse produto só
+  tem uma cor, trocava calado pela Café — o pedido inteiro saía na cor
+  errada, com a peça errada reservada. Agora os empatados no nome mais
+  longo são todos candidatos e vale o que TEM a variação daquela cor e
+  tamanho (cadastro em dobro: o que tem estoque para a quantidade); a cor
+  do texto que não existe em candidato nenhum volta como "sem essa
+  variação (cor X)" em vermelho, para a vendedora escolher — a regra
+  antiga "só uma cor possível, é ela" só vale quando o texto NÃO diz cor
+  (loja que esconde as cores), e aí **mais de uma opção é dúvida DITA**
+  ("Qual cor? há N cadastros com esse nome"), nunca a primeira que
+  apareceu. O nome mais curto que casa é RESERVA, consultado só quando o
+  mais longo não tem a cor ("Regata Alça Azul" sem "Céu" não esconde a
+  "Regata Alça" cor "Azul Céu"). A conta do nome é feita uma vez por linha
+  (`candidatosDaLinha`) e serve a todos os tamanhos dela. Provado contra o
+  Postgres local com a mensagem de verdade e a consulta da rota
+  (`scripts/e2e-colar-pedido-por-cor.ts`).
   **RN-062 · MONTAR PEDIDO É PREENCHER A GRADE (cor × tamanho)**
   (`lib/pedido-grade.ts` + `components/pedido/grade-de-pecas.tsx`,
   20/09/2026): pedido do dono com o print do celular — *"quando eu vou
